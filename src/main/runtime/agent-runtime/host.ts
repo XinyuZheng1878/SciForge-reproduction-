@@ -1,0 +1,194 @@
+import {
+  getActiveAgentRuntime,
+  normalizeAgentRuntimeId,
+  type AppSettingsV1
+} from '../../../shared/app-settings'
+import type {
+  AgentRuntimeAuxiliaryInput,
+  AgentRuntimeCapabilities,
+  AgentRuntimeEvent,
+  AgentRuntimeId,
+  AgentRuntimeThread,
+  AgentRuntimeThreadDetail,
+  AgentRuntimeThreadListInput,
+  AgentRuntimeThreadReadInput,
+  AgentRuntimeThreadStartInput,
+  AgentRuntimeTurnHandle,
+  AgentRuntimeTurnStartInput,
+  AgentRuntimeTurnSteerInput,
+  AgentRuntimeTurnTargetInput,
+  AgentRuntimeUsageQuery,
+  AgentRuntimeUsageResponse
+} from '../../../shared/agent-runtime-contract'
+import type {
+  AgentRuntimeAdapter,
+  AgentRuntimeAdapterContext,
+  AgentRuntimeApprovalResolveInput,
+  AgentRuntimeEventSubscribeInput,
+  AgentRuntimeSessionResumeHandle,
+  AgentRuntimeSessionResumeInput,
+  AgentRuntimeThreadCompactInput,
+  AgentRuntimeThreadDeleteInput,
+  AgentRuntimeThreadForkInput,
+  AgentRuntimeThreadRelationInput,
+  AgentRuntimeThreadRenameInput,
+  AgentRuntimeUserInputResolveInput
+} from './adapter'
+
+export type AgentRuntimeHostSettingsProvider = () => AppSettingsV1 | Promise<AppSettingsV1>
+
+export type AgentRuntimeHostOptions = {
+  settings: AgentRuntimeHostSettingsProvider
+  adapters:
+    | AgentRuntimeAdapter[]
+    | Partial<Record<AgentRuntimeId, AgentRuntimeAdapter>>
+}
+
+export function createAgentRuntimeHost(options: AgentRuntimeHostOptions): AgentRuntimeHost {
+  return new AgentRuntimeHost(options)
+}
+
+export class AgentRuntimeHost {
+  private readonly adapters: Map<AgentRuntimeId, AgentRuntimeAdapter>
+
+  constructor(private readonly options: AgentRuntimeHostOptions) {
+    this.adapters = normalizeAdapters(options.adapters)
+  }
+
+  async connect(runtimeId?: AgentRuntimeId): Promise<void> {
+    const { adapter, context } = await this.resolve(runtimeId)
+    await adapter.connect(context)
+  }
+
+  async capabilities(runtimeId?: AgentRuntimeId): Promise<AgentRuntimeCapabilities> {
+    const { adapter, context } = await this.resolve(runtimeId)
+    return adapter.capabilities(context)
+  }
+
+  async listThreads(input: AgentRuntimeThreadListInput = {}): Promise<AgentRuntimeThread[]> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    return adapter.listThreads(context, input)
+  }
+
+  async startThread(input: AgentRuntimeThreadStartInput): Promise<AgentRuntimeThread> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    return adapter.startThread(context, input)
+  }
+
+  async readThread(input: AgentRuntimeThreadReadInput): Promise<AgentRuntimeThreadDetail> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    return adapter.readThread(context, input)
+  }
+
+  async startTurn(input: AgentRuntimeTurnStartInput): Promise<AgentRuntimeTurnHandle> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    return adapter.startTurn(context, input)
+  }
+
+  async interruptTurn(input: AgentRuntimeTurnTargetInput): Promise<void> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    await adapter.interruptTurn(context, input)
+  }
+
+  async steerTurn(input: AgentRuntimeTurnSteerInput): Promise<void> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    await adapter.steerTurn(context, input)
+  }
+
+  async renameThread(input: AgentRuntimeThreadRenameInput): Promise<void> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    await adapter.renameThread(context, input)
+  }
+
+  async deleteThread(input: AgentRuntimeThreadDeleteInput): Promise<void> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    await adapter.deleteThread(context, input)
+  }
+
+  async *subscribeEvents(input: AgentRuntimeEventSubscribeInput): AsyncIterable<AgentRuntimeEvent> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    yield* adapter.subscribeEvents(context, input)
+  }
+
+  async resolveApproval(input: AgentRuntimeApprovalResolveInput): Promise<void> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    if (!adapter.resolveApproval) throw unsupported(adapter.id, 'approval')
+    await adapter.resolveApproval(context, input)
+  }
+
+  async resolveUserInput(input: AgentRuntimeUserInputResolveInput): Promise<void> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    if (!adapter.resolveUserInput) throw unsupported(adapter.id, 'user input')
+    await adapter.resolveUserInput(context, input)
+  }
+
+  async compactThread(input: AgentRuntimeThreadCompactInput): Promise<void> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    if (!adapter.compactThread) throw unsupported(adapter.id, 'compact')
+    await adapter.compactThread(context, input)
+  }
+
+  async forkThread(input: AgentRuntimeThreadForkInput): Promise<AgentRuntimeThread> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    if (!adapter.forkThread) throw unsupported(adapter.id, 'fork')
+    return adapter.forkThread(context, input)
+  }
+
+  async resumeSession(input: AgentRuntimeSessionResumeInput): Promise<AgentRuntimeSessionResumeHandle> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    if (!adapter.resumeSession) throw unsupported(adapter.id, 'resume session')
+    return adapter.resumeSession(context, input)
+  }
+
+  async updateThreadRelation(input: AgentRuntimeThreadRelationInput): Promise<void> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    if (!adapter.updateThreadRelation) throw unsupported(adapter.id, 'thread relation')
+    await adapter.updateThreadRelation(context, input)
+  }
+
+  async usage(input: AgentRuntimeUsageQuery): Promise<AgentRuntimeUsageResponse> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    if (!adapter.usage) {
+      return {
+        supported: false,
+        reason: `${adapter.id} AgentRuntimeAdapter does not support usage.`,
+        groupBy: input.groupBy,
+        buckets: [],
+        totals: {}
+      }
+    }
+    return adapter.usage(context, input)
+  }
+
+  async auxiliary(input: AgentRuntimeAuxiliaryInput): Promise<unknown> {
+    const { adapter, context } = await this.resolve(input.runtimeId)
+    if (!adapter.auxiliary) throw unsupported(adapter.id, input.operation)
+    return adapter.auxiliary(context, input)
+  }
+
+  private async resolve(runtimeId?: AgentRuntimeId): Promise<{
+    adapter: AgentRuntimeAdapter
+    context: AgentRuntimeAdapterContext
+  }> {
+    const settings = await this.options.settings()
+    const selected = runtimeId
+      ? normalizeAgentRuntimeId(runtimeId)
+      : getActiveAgentRuntime(settings)
+    const adapter = this.adapters.get(selected)
+    if (!adapter) throw new Error(`No AgentRuntimeAdapter registered for runtime: ${selected}`)
+    return { adapter, context: { settings } }
+  }
+}
+
+function normalizeAdapters(
+  adapters: AgentRuntimeHostOptions['adapters']
+): Map<AgentRuntimeId, AgentRuntimeAdapter> {
+  const entries = Array.isArray(adapters)
+    ? adapters.map((adapter) => [adapter.id, adapter] as const)
+    : Object.entries(adapters) as Array<[AgentRuntimeId, AgentRuntimeAdapter]>
+  return new Map(entries)
+}
+
+function unsupported(runtimeId: AgentRuntimeId, control: string): Error {
+  return new Error(`${runtimeId} AgentRuntimeAdapter does not support ${control}.`)
+}

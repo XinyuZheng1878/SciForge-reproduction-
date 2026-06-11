@@ -1,0 +1,180 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AgentRuntimeId } from '@shared/app-settings'
+import type { NormalizedThread } from '../agent/types'
+import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
+import { rememberProviderThreadRuntime } from './chat-store-runtime-helpers'
+
+const registryMock = vi.hoisted(() => ({
+  getProvider: vi.fn()
+}))
+const runtimeClientMock = vi.hoisted(() => ({
+  getSettings: vi.fn()
+}))
+
+vi.mock('../agent/registry', () => ({
+  getProvider: registryMock.getProvider
+}))
+vi.mock('../agent/runtime-client', () => ({
+  rendererRuntimeClient: {
+    getSettings: runtimeClientMock.getSettings
+  }
+}))
+
+import { createNavigationActions } from './chat-store-navigation-actions'
+
+function thread(id: string, runtimeId?: AgentRuntimeId): NormalizedThread {
+  return {
+    id,
+    runtimeId,
+    title: id,
+    updatedAt: '2026-06-11T00:00:00.000Z',
+    model: 'deepseek-v4-pro',
+    mode: 'agent',
+    workspace: '/workspace/deepseek-gui',
+    status: 'idle'
+  }
+}
+
+function buildHarness(options: {
+  activeRuntime: AgentRuntimeId
+  activeThread: NormalizedThread
+  listedThreads: NormalizedThread[]
+}): {
+  refreshThreads: ReturnType<typeof createNavigationActions>['refreshThreads']
+  state: ChatState
+} {
+  let state: ChatState
+  const provider = {
+    listThreads: vi.fn(async () => options.listedThreads)
+  }
+  registryMock.getProvider.mockReturnValue(provider)
+  runtimeClientMock.getSettings.mockResolvedValue({ activeAgentRuntime: options.activeRuntime })
+
+  state = {
+    activeThreadId: options.activeThread.id,
+    blocks: [],
+    busy: false,
+    clawChannels: [],
+    codeWorkspaceRoots: [],
+    error: null,
+    route: 'chat',
+    runtimeConnection: 'ready',
+    threads: [options.activeThread],
+    unreadThreadIds: {},
+    watchTurnCompletion: {}
+  } as unknown as ChatState
+
+  const set: ChatStoreSet = (partial) => {
+    const update = typeof partial === 'function' ? partial(state) : partial
+    Object.assign(state, update)
+  }
+  const get: ChatStoreGet = () => state
+  const actions = createNavigationActions({
+    set,
+    get,
+    sseAbortRef: { current: null }
+  })
+  return { refreshThreads: actions.refreshThreads, state }
+}
+
+describe('chat-store-navigation-actions refreshThreads', () => {
+  let currentSddRegistryJson: string | null = null
+
+  beforeEach(() => {
+    registryMock.getProvider.mockReset()
+    runtimeClientMock.getSettings.mockReset()
+    currentSddRegistryJson = null
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: vi.fn((key: string) =>
+          key === 'deepseekgui.sdd.threadRegistry.v1'
+            ? currentSddRegistryJson
+            : null
+        ),
+        setItem: vi.fn(),
+        removeItem: vi.fn()
+      }
+    })
+  })
+
+  it('drops the active thread when it belongs to the previous runtime', async () => {
+    const codexThread = thread('codex-thread', 'codex')
+    const { refreshThreads, state } = buildHarness({
+      activeRuntime: 'codex',
+      activeThread: thread('kun-thread', 'kun'),
+      listedThreads: [codexThread]
+    })
+
+    await refreshThreads()
+
+    expect(state.threads).toEqual([codexThread])
+    expect(state.activeThreadId).toBeNull()
+  })
+
+  it('preserves an unlisted active thread when it belongs to the active runtime', async () => {
+    const pendingCodexThread = thread('pending-codex-thread', 'codex')
+    const { refreshThreads, state } = buildHarness({
+      activeRuntime: 'codex',
+      activeThread: pendingCodexThread,
+      listedThreads: []
+    })
+
+    await refreshThreads()
+
+    expect(state.threads).toEqual([pendingCodexThread])
+    expect(state.activeThreadId).toBe('pending-codex-thread')
+  })
+
+  it('preserves a legacy Kun pending active thread without a runtime id when Kun is active', async () => {
+    const legacyKunThread = thread('legacy-kun-thread')
+    const { refreshThreads, state } = buildHarness({
+      activeRuntime: 'kun',
+      activeThread: legacyKunThread,
+      listedThreads: []
+    })
+
+    await refreshThreads()
+
+    expect(state.threads).toEqual([legacyKunThread])
+    expect(state.activeThreadId).toBe('legacy-kun-thread')
+  })
+
+  it('does not preserve a hidden SDD active thread from the previous runtime', async () => {
+    currentSddRegistryJson = JSON.stringify({
+      version: 1,
+      drafts: {
+        draft: {
+          draftId: 'draft',
+          threadId: 'sdd-codex-thread',
+          threadIds: ['sdd-codex-thread'],
+          publicThreadIds: [],
+          workspaceRoot: '/workspace/deepseek-gui',
+          updatedAt: '2026-06-11T00:00:00.000Z'
+        }
+      }
+    })
+    const kunThread = thread('kun-thread', 'kun')
+    const { refreshThreads, state } = buildHarness({
+      activeRuntime: 'kun',
+      activeThread: thread('sdd-codex-thread', 'codex'),
+      listedThreads: [kunThread]
+    })
+
+    await refreshThreads()
+
+    expect(state.threads).toEqual([kunThread])
+    expect(state.activeThreadId).toBeNull()
+  })
+})
+
+describe('chat-store-runtime helper defaults', () => {
+  it('remembers legacy threads without a runtime id as Kun threads', () => {
+    const provider = {
+      rememberThreadRuntime: vi.fn<(threadId: string, runtimeId?: AgentRuntimeId) => void>()
+    }
+
+    rememberProviderThreadRuntime(provider, 'legacy-thread', [thread('legacy-thread')])
+
+    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('legacy-thread', 'kun')
+  })
+})

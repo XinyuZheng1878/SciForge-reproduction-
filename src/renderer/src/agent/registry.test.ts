@@ -1,0 +1,250 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  defaultClawSettings,
+  defaultCodexRuntimeSettings,
+  defaultKeyboardShortcuts,
+  defaultKunRuntimeSettings,
+  defaultModelProviderSettings,
+  defaultScheduleSettings,
+  defaultWriteSettings,
+  type AgentRuntimeId,
+  type AppSettingsV1
+} from '@shared/app-settings'
+import { getProvider, resetProviderCacheForTests } from './registry'
+import { rendererRuntimeClient } from './runtime-client'
+import { createDefaultAgentRuntimeCapabilities } from '@shared/agent-runtime-contract'
+
+function settings(activeAgentRuntime: AgentRuntimeId): AppSettingsV1 {
+  return {
+    version: 1,
+    locale: 'en',
+    theme: 'system',
+    uiFontScale: 'small',
+    activeAgentRuntime,
+    provider: defaultModelProviderSettings(),
+    agents: {
+      kun: defaultKunRuntimeSettings(),
+      codex: defaultCodexRuntimeSettings()
+    },
+    workspaceRoot: '/tmp/workspace',
+    log: { enabled: false, retentionDays: 7 },
+    notifications: { turnComplete: true },
+    appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
+    keyboardShortcuts: defaultKeyboardShortcuts(),
+    write: defaultWriteSettings(),
+    claw: defaultClawSettings(),
+    schedule: defaultScheduleSettings(),
+    guiUpdate: { channel: 'stable' },
+    codePromptPrefix: ''
+  }
+}
+
+function installDsGui(activeAgentRuntime: AgentRuntimeId): {
+  runtimeRequest: ReturnType<typeof vi.fn>
+  codexListThreads: ReturnType<typeof vi.fn>
+  agentRuntimeListThreads: ReturnType<typeof vi.fn>
+  agentRuntimeReadThread: ReturnType<typeof vi.fn>
+  agentRuntimeResolveApproval: ReturnType<typeof vi.fn>
+  agentRuntimeResolveUserInput: ReturnType<typeof vi.fn>
+  agentRuntimeForkThread: ReturnType<typeof vi.fn>
+  agentRuntimeResumeSession: ReturnType<typeof vi.fn>
+  agentRuntimeUpdateThreadRelation: ReturnType<typeof vi.fn>
+} {
+  const runtimeRequest = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    body: JSON.stringify({ threads: [] })
+  }))
+  const codexListThreads = vi.fn(async () => ({ ok: true, threads: [] }))
+  const agentRuntimeListThreads = vi.fn(async () => [])
+  const agentRuntimeReadThread = vi.fn(async () => ({
+    id: 'thread-1',
+    runtimeId: activeAgentRuntime,
+    title: 'One',
+    updatedAt: '2026-06-11T00:00:00.000Z',
+    latestSeq: 2,
+    items: [
+      {
+        id: 'approval-item',
+        kind: 'approval',
+        status: 'pending',
+        summary: 'Approve?',
+        meta: { approvalId: 'approval-1' }
+      },
+      {
+        id: 'input-item',
+        kind: 'user_input',
+        status: 'pending',
+        summary: 'Input?',
+        meta: { requestId: 'input-1' }
+      }
+    ]
+  }))
+  const agentRuntimeResolveApproval = vi.fn(async () => undefined)
+  const agentRuntimeResolveUserInput = vi.fn(async () => undefined)
+  const agentRuntimeForkThread = vi.fn(async () => ({
+    id: 'side-thread',
+    runtimeId: activeAgentRuntime,
+    title: 'Side path',
+    updatedAt: '2026-06-11T00:00:00.000Z'
+  }))
+  const agentRuntimeResumeSession = vi.fn(async () => ({
+    threadId: 'resumed-thread',
+    sessionId: 'session-1'
+  }))
+  const agentRuntimeUpdateThreadRelation = vi.fn(async () => undefined)
+  vi.stubGlobal('window', {
+    dsGui: {
+      getSettings: vi.fn(async () => settings(activeAgentRuntime)),
+      setSettings: vi.fn(),
+      agentRuntime: {
+        listThreads: agentRuntimeListThreads,
+        connect: vi.fn(async () => undefined),
+        capabilities: vi.fn(async () => createDefaultAgentRuntimeCapabilities({
+          runtimeId: activeAgentRuntime,
+          transport: activeAgentRuntime === 'kun' ? 'http_sse' : 'jsonrpc_stdio'
+        })),
+        readThread: agentRuntimeReadThread,
+        resolveApproval: agentRuntimeResolveApproval,
+        resolveUserInput: agentRuntimeResolveUserInput,
+        forkThread: agentRuntimeForkThread,
+        resumeSession: agentRuntimeResumeSession,
+        updateThreadRelation: agentRuntimeUpdateThreadRelation
+      },
+      codex: {
+        listThreads: codexListThreads
+      },
+      runtimeRequest,
+      startSse: vi.fn(),
+      stopSse: vi.fn(),
+      onSseEvent: vi.fn(),
+      onSseEnd: vi.fn(),
+      onSseError: vi.fn()
+    }
+  })
+  return {
+    runtimeRequest,
+    codexListThreads,
+    agentRuntimeListThreads,
+    agentRuntimeReadThread,
+    agentRuntimeResolveApproval,
+    agentRuntimeResolveUserInput,
+    agentRuntimeForkThread,
+    agentRuntimeResumeSession,
+    agentRuntimeUpdateThreadRelation
+  }
+}
+
+afterEach(() => {
+  resetProviderCacheForTests()
+  rendererRuntimeClient.invalidateSettings()
+  vi.unstubAllGlobals()
+})
+
+describe('registry provider selector', () => {
+  it('returns a cached neutral provider', () => {
+    installDsGui('kun')
+    const first = getProvider()
+    const second = getProvider()
+    expect(first).toBe(second)
+  })
+
+  it('passes the active Kun runtime id through neutral IPC', async () => {
+    const { runtimeRequest, codexListThreads, agentRuntimeListThreads } = installDsGui('kun')
+
+    await expect(getProvider().listThreads()).resolves.toEqual([])
+
+    expect(agentRuntimeListThreads).toHaveBeenCalledWith({ runtimeId: 'kun' })
+    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(codexListThreads).not.toHaveBeenCalled()
+  })
+
+  it('passes the active Codex runtime id through neutral IPC', async () => {
+    const { runtimeRequest, codexListThreads, agentRuntimeListThreads } = installDsGui('codex')
+    const provider = getProvider()
+
+    await expect(provider.connect()).resolves.toBeUndefined()
+    expect(provider.id).toBe('codex')
+    await expect(provider.listThreads()).resolves.toEqual([])
+
+    expect(agentRuntimeListThreads).toHaveBeenCalledWith({ runtimeId: 'codex' })
+    expect(codexListThreads).not.toHaveBeenCalled()
+    expect(runtimeRequest).not.toHaveBeenCalled()
+  })
+
+  it('keeps approval and user input responses on the neutral provider path', async () => {
+    const {
+      runtimeRequest,
+      codexListThreads,
+      agentRuntimeReadThread,
+      agentRuntimeResolveApproval,
+      agentRuntimeResolveUserInput
+    } = installDsGui('codex')
+    const provider = getProvider()
+    provider.rememberThreadRuntime?.('thread-1', 'codex')
+
+    await provider.getThreadDetail('thread-1')
+    await expect(provider.submitApprovalDecision?.('approval-1', 'deny')).resolves.toBeUndefined()
+    await expect(provider.submitUserInputResponse?.('input-1', [
+      { id: 'choice', label: 'No', value: 'no' }
+    ])).resolves.toBeUndefined()
+
+    expect(agentRuntimeReadThread).toHaveBeenCalledWith({ runtimeId: 'codex', threadId: 'thread-1' })
+    expect(agentRuntimeResolveApproval).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      threadId: 'thread-1',
+      approvalId: 'approval-1',
+      decision: 'denied'
+    })
+    expect(agentRuntimeResolveUserInput).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      threadId: 'thread-1',
+      requestId: 'input-1',
+      answers: [{ id: 'choice', label: 'No', value: 'no' }]
+    })
+    expect(codexListThreads).not.toHaveBeenCalled()
+    expect(runtimeRequest).not.toHaveBeenCalled()
+  })
+
+  it('keeps fork, resume, and relation updates on the neutral provider path', async () => {
+    const {
+      runtimeRequest,
+      codexListThreads,
+      agentRuntimeForkThread,
+      agentRuntimeResumeSession,
+      agentRuntimeUpdateThreadRelation
+    } = installDsGui('kun')
+    const provider = getProvider()
+    provider.rememberThreadRuntime?.('thread-1', 'kun')
+
+    await expect(provider.forkThread?.('thread-1', {
+      relation: 'side',
+      title: 'Side path'
+    })).resolves.toEqual(expect.objectContaining({ id: 'side-thread', runtimeId: 'kun' }))
+    await expect(provider.resumeSession?.('session-1', {
+      model: 'deepseek-v4-pro',
+      mode: 'agent'
+    })).resolves.toEqual({ threadId: 'resumed-thread', sessionId: 'session-1' })
+    await expect(provider.updateThreadRelation?.('thread-1', 'primary')).resolves.toBeUndefined()
+
+    expect(agentRuntimeForkThread).toHaveBeenCalledWith({
+      runtimeId: 'kun',
+      threadId: 'thread-1',
+      relation: 'side',
+      title: 'Side path'
+    })
+    expect(agentRuntimeResumeSession).toHaveBeenCalledWith({
+      runtimeId: 'kun',
+      sessionId: 'session-1',
+      model: 'deepseek-v4-pro',
+      mode: 'agent'
+    })
+    expect(agentRuntimeUpdateThreadRelation).toHaveBeenCalledWith({
+      runtimeId: 'kun',
+      threadId: 'thread-1',
+      relation: 'primary'
+    })
+    expect(codexListThreads).not.toHaveBeenCalled()
+    expect(runtimeRequest).not.toHaveBeenCalled()
+  })
+})
