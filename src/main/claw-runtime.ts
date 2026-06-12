@@ -86,6 +86,11 @@ function isMissingThreadResult(result: { ok: boolean; status: number; body: stri
   return result.status === 404 && message.includes('thread') && message.includes('not found')
 }
 
+function isMissingThreadError(error: unknown): boolean {
+  const message = errorMessage(error).toLowerCase()
+  return message.includes('thread') && message.includes('not found')
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -232,7 +237,9 @@ export class ClawRuntime {
     const workspace = options.workspaceRoot.trim() || settings.workspaceRoot
     const existingThreadId = options.threadId?.trim()
     const runtimeId = normalizeAgentRuntimeId(options.runtimeId)
-    if (runtimeId !== 'kun') return unsupportedRuntimeRequestRunResult()
+    if (runtimeId !== 'kun') {
+      return this.runAgentRuntimePrompt(settings, options, runtimeId, workspace, existingThreadId)
+    }
     const model = normalizeTaskModel(options.model) ?? (settings.agents.kun.model.trim() || DEFAULT_CLAW_MODEL)
     const createThread = async (): Promise<ThreadRecordJson | null> => {
       const create = await this.deps.runtimeRequest(settings, '/v1/threads', {
@@ -342,6 +349,124 @@ export class ClawRuntime {
         throw new Error(runtimeErrorMessage(detailRes, 'Failed to read thread result.'))
       }
       const detail = JSON.parse(detailRes.body) as ThreadDetailJson
+      lastDetail = detail
+      lastText = latestAssistantText(detail, { turnId }) || lastText
+      const targetTurn = Array.isArray(detail.turns)
+        ? detail.turns.find((turn) => turn.id === turnId)
+        : undefined
+      if (!targetTurn) continue
+      if (isRunningStatus(targetTurn.status)) continue
+      if (targetTurn.status === 'failed' || targetTurn.status === 'aborted') {
+        const error = targetTurn.error?.trim()
+        throw new Error(error || `Agent turn ${targetTurn.status}.`)
+      }
+      if (targetTurn.status === 'completed' && lastText) {
+        return {
+          text: lastText,
+          files: latestGeneratedFiles(detail, { turnId, workspaceRoot })
+        }
+      }
+    }
+    if (lastText && lastDetail) {
+      return {
+        text: lastText,
+        files: latestGeneratedFiles(lastDetail, { turnId, workspaceRoot })
+      }
+    }
+    throw new Error('Timed out waiting for agent response.')
+  }
+
+  private async runAgentRuntimePrompt(
+    _settings: AppSettingsV1,
+    options: RunPromptOptions,
+    runtimeId: AgentRuntimeId,
+    workspace: string,
+    existingThreadId?: string
+  ): Promise<ClawRunResult> {
+    const agentRuntime = this.deps.agentRuntime
+    if (!agentRuntime) return unsupportedRuntimeRequestRunResult()
+    const model = normalizeTaskModel(options.model)
+    const createThread = (): Promise<{ id: string }> =>
+      agentRuntime.startThread({
+        runtimeId,
+        workspace,
+        title: options.title.trim() || undefined,
+        mode: options.mode,
+        model
+      })
+
+    let thread = existingThreadId ? { id: existingThreadId } : await createThread()
+    const runtimePrompt = buildClawRuntimePrompt(_settings, options.prompt, { channel: options.channel })
+    const displayText = options.displayText?.trim() || parseClawUserPromptForDisplay(options.prompt).text
+    const startTurn = () => agentRuntime.startTurn({
+      runtimeId,
+      threadId: thread.id,
+      text: runtimePrompt,
+      workspace,
+      mode: options.mode,
+      model,
+      ...(displayText && displayText !== runtimePrompt ? { displayText } : {})
+    })
+
+    let turn: { threadId: string; turnId: string }
+    try {
+      turn = await startTurn()
+    } catch (error) {
+      if (!existingThreadId || !isMissingThreadError(error)) throw error
+      this.deps.logError('claw-runtime', 'Configured IM thread was missing; creating a replacement thread.', {
+        threadId: existingThreadId,
+        channelId: options.channel?.id,
+        source: options.source,
+        runtimeId
+      })
+      thread = await createThread()
+      turn = await startTurn()
+    }
+
+    const threadId = turn.threadId.trim() || thread.id
+    const turnId = turn.turnId.trim()
+    if (!turnId) {
+      return { ok: false, message: 'Failed to start turn: missing turn id.' }
+    }
+    if (options.onTurnStarted) {
+      await options.onTurnStarted({ threadId, turnId })
+    }
+    if (!options.waitForResult) {
+      return { ok: true, threadId, turnId, message: 'Started' }
+    }
+
+    const result = await this.waitForAgentRuntimeAssistantResult(
+      threadId,
+      turnId,
+      options.responseTimeoutMs,
+      workspace,
+      runtimeId
+    )
+    return {
+      ok: true,
+      threadId,
+      turnId,
+      text: result.text,
+      message: result.text || 'Completed',
+      files: result.files
+    }
+  }
+
+  private async waitForAgentRuntimeAssistantResult(
+    threadId: string,
+    turnId: string,
+    timeoutMs: number,
+    workspaceRoot: string,
+    runtimeId: AgentRuntimeId
+  ): Promise<{ text: string; files: ClawGeneratedFileV1[] }> {
+    const agentRuntime = this.deps.agentRuntime
+    if (!agentRuntime) throw new Error(UNSUPPORTED_RUNTIME_REQUEST_MESSAGE)
+    const deadline = Date.now() + timeoutMs
+    let lastText = ''
+    let lastDetail: ThreadDetailJson | null = null
+    while (Date.now() < deadline) {
+      await sleep(1_500)
+      const detail = await agentRuntime.readThread({ runtimeId, threadId }) as ThreadDetailJson
       lastDetail = detail
       lastText = latestAssistantText(detail, { turnId }) || lastText
       const targetTurn = Array.isArray(detail.turns)
@@ -814,6 +939,14 @@ export class ClawRuntime {
     const targetThreadId = threadId.trim()
     if (!targetThreadId) return []
     try {
+      if (runtimeId !== 'kun') {
+        if (!this.deps.agentRuntime) return []
+        const detail = await this.deps.agentRuntime.readThread({ runtimeId, threadId: targetThreadId }) as ThreadDetailJson
+        return latestGeneratedFiles(detail, {
+          workspaceRoot,
+          maxFiles: 3
+        })
+      }
       const detailRes = await this.deps.runtimeRequest(
         settings,
         `/v1/threads/${encodeURIComponent(targetThreadId)}`,

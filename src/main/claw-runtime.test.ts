@@ -856,7 +856,7 @@ describe('ClawRuntime', () => {
     })
   })
 
-  it('fails closed for Codex-bound IM channels instead of using legacy /v1 runtimeRequest', async () => {
+  it('handles Codex-bound IM channels through agentRuntime instead of legacy /v1 runtimeRequest', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
     settings.claw.im.enabled = true
@@ -871,36 +871,39 @@ describe('ClawRuntime', () => {
       conversations: []
     })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads' && init?.method === 'POST') {
-        return { ok: true, status: 201, body: JSON.stringify({ id: 'codex-thread' }) }
-      }
-      if (path === '/v1/threads/codex-thread' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/codex-thread/turns' && init?.method === 'POST') {
-        return { ok: true, status: 202, body: JSON.stringify({ turnId: 'codex-turn' }) }
-      }
-      if (path === '/v1/threads/codex-thread' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'codex-thread',
-            status: 'idle',
-            turns: [{
-              id: 'codex-turn',
-              status: 'completed',
-              items: [{ kind: 'assistant_text', text: 'hello from codex' }]
-            }]
-          })
-        }
-      }
+    const runtimeRequest = vi.fn(async (_settings, path) => {
       throw new Error(`unexpected legacy runtimeRequest path ${path}`)
     })
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'codex-thread',
+        runtimeId: 'codex' as const,
+        title: 'Codex IM',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async () => ({
+        threadId: 'codex-thread',
+        turnId: 'codex-turn'
+      })),
+      readThread: vi.fn(async () => ({
+        id: 'codex-thread',
+        runtimeId: 'codex' as const,
+        title: 'Codex thread',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+        latestSeq: 1,
+        turns: [{
+          id: 'codex-turn',
+          threadId: 'codex-thread',
+          status: 'completed' as const,
+          items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'hello from codex' }]
+        }],
+        items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'hello from codex' }]
+      }))
+    }
     const runtime = createClawRuntime({
       store: store as never,
       runtimeRequest: runtimeRequest as never,
+      agentRuntime,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
     })
@@ -936,20 +939,46 @@ describe('ClawRuntime', () => {
       handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
     }).handleWebhook(req, res)
 
-    expect(status).toBe(500)
+    expect(status).toBe(200)
     expect(JSON.parse(responseBody)).toMatchObject({
-      ok: false,
-      message: expect.stringContaining('unsupported_runtime_request')
+      ok: true,
+      reply: 'hello from codex'
     })
     expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeId: 'codex',
+      workspace: '/tmp/workspace/conversations/wx_user_1',
+      title: '[Claw IM:WeChat] webhook'
+    }))
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      text: expect.stringContaining('你好'),
+      displayText: '你好'
+    }))
+    expect(agentRuntime.readThread).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    })
     expect(current().claw.channels[0]).toMatchObject({
       runtimeId: 'codex',
       threadId: 'kun-thread',
       agentThreadIds: {
-        kun: 'kun-thread'
+        kun: 'kun-thread',
+        codex: 'codex-thread'
       }
     })
-    expect(current().claw.channels[0].conversations).toEqual([])
+    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+      chatId: 'wx_user_1',
+      latestMessageId: 'wx_msg_1',
+      senderId: 'wx_user_1',
+      senderName: 'Alice',
+      localThreadId: '',
+      runtimeId: 'codex',
+      agentThreadIds: {
+        codex: 'codex-thread'
+      }
+    })
   })
 
   it('waits for the current WeChat turn to complete before returning the final reply', async () => {

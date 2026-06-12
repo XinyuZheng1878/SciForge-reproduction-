@@ -11,6 +11,13 @@ import type {
   ClawRunMode,
   ScheduleTaskFromTextResult
 } from '../shared/app-settings'
+import type {
+  AgentRuntimeThread,
+  AgentRuntimeThreadDetail,
+  AgentRuntimeThreadStartInput,
+  AgentRuntimeTurnHandle,
+  AgentRuntimeTurnStartInput
+} from '../shared/agent-runtime-contract'
 import { CLAW_FEISHU_INBOUND_MESSAGE_HEADING } from '../shared/app-settings'
 import type { JsonSettingsStore } from './settings-store'
 
@@ -26,6 +33,11 @@ export type RuntimeRequestFn = (
 export type ClawRuntimeDeps = {
   store: JsonSettingsStore
   runtimeRequest: RuntimeRequestFn
+  agentRuntime?: {
+    startThread: (input: AgentRuntimeThreadStartInput) => Promise<AgentRuntimeThread>
+    readThread: (input: { runtimeId?: AgentRuntimeId; threadId: string }) => Promise<AgentRuntimeThreadDetail>
+    startTurn: (input: AgentRuntimeTurnStartInput) => Promise<AgentRuntimeTurnHandle>
+  }
   logError: (category: string, message: string, detail?: unknown) => void
   notifyChannelActivity?: (payload: { channelId: string; threadId: string; runtimeId?: AgentRuntimeId }) => void
   sendWeixinBridgeMessage?: (options: {
@@ -178,7 +190,7 @@ export function latestAssistantText(
     : threadItems(detail)
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index]
-    if (item.kind !== 'assistant_text' && item.kind !== 'agent_message') continue
+    if (item.kind !== 'assistant_text' && item.kind !== 'agent_message' && item.kind !== 'assistant_message') continue
     const text = (item.text ?? item.detail ?? item.summary ?? '').trim()
     if (text) return text
   }
@@ -195,11 +207,12 @@ function generatedFileFromToolResult(
   item: TurnItemJson,
   workspaceRoot: string
 ): ClawGeneratedFileV1 | null {
-  if (item.kind !== 'tool_result' || item.toolKind !== 'file_change' || item.isError === true) return null
+  if (item.toolKind !== 'file_change' || item.isError === true) return null
+  if (item.kind !== 'tool_result' && item.kind !== 'tool') return null
   const output = outputRecord(item.output)
-  if (!output) return null
-  const path = asString(output.path) || asString(output.absolute_path)
-  const relativePath = asString(output.relative_path)
+  const meta = outputRecord((item as { meta?: unknown }).meta)
+  const path = asString(output?.path) || asString(output?.absolute_path) || asString(meta?.filePath)
+  const relativePath = asString(output?.relative_path) || asString(meta?.relativePath)
   const resolvedPath = path || (workspaceRoot && relativePath ? join(workspaceRoot, relativePath) : '')
   if (!resolvedPath) return null
   return {

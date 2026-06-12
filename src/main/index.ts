@@ -957,11 +957,24 @@ app.whenReady().then(async () => {
       message: error instanceof Error ? error.message : String(error)
     })
   })
+  const agentRuntimeHost = createAgentRuntimeHost({
+    settings: async () => store.load(),
+    adapters: [
+      createKunAgentRuntimeAdapter({
+        request: async (settings, pathAndQuery, init) =>
+          kunRuntimeRequestViaHost(settings, pathAndQuery, init, ensureRuntime),
+        events: kunRuntimeEvents
+      }),
+      createCodexAgentRuntimeAdapter(getCodexRuntime())
+    ]
+  })
+
   scheduleRuntime = createScheduleRuntime({ store, runtimeRequest, logError, powerSaveBlocker })
   scheduleRuntime.sync(initial)
   clawRuntime = createClawRuntime({
     store,
     runtimeRequest,
+    agentRuntime: agentRuntimeHost,
     logError,
     notifyChannelActivity: emitClawChannelActivity,
     sendWeixinBridgeMessage,
@@ -1062,18 +1075,6 @@ app.whenReady().then(async () => {
       }
     }
   }
-
-  const agentRuntimeHost = createAgentRuntimeHost({
-    settings: async () => store.load(),
-    adapters: [
-      createKunAgentRuntimeAdapter({
-        request: async (settings, pathAndQuery, init) =>
-          kunRuntimeRequestViaHost(settings, pathAndQuery, init, ensureRuntime),
-        events: kunRuntimeEvents
-      }),
-      createCodexAgentRuntimeAdapter(getCodexRuntime())
-    ]
-  })
 
   const appBridgeDispatcher = registerAppIpcHandlers({
     store,
