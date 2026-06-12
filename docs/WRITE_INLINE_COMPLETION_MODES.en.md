@@ -25,8 +25,8 @@ flowchart TD
   B --> D{"Can request long completion?"}
   C -->|yes| E["short debounce timer"]
   D -->|yes| F["long debounce timer"]
-  E --> G["request FIM with mode=short"]
-  F --> H["request FIM with mode=long"]
+  E --> G["request Model Router completion with mode=short"]
+  F --> H["request Model Router completion with mode=long"]
   G --> I["short candidate quality filter"]
   H --> J["long candidate quality filter"]
   I --> K["ghost text"]
@@ -82,7 +82,7 @@ Short completion uses the basic strategy `shouldRequestInlineCompletion`:
 | Parameters | Default value | Meaning |
 | --- | ---: | --- |
 | debounce | 650 ms | Request after how long to stop typing |
-| max tokens | 96 | FIM maximum generation length |
+| max tokens | 96 | maximum completion generation length |
 | min accept score | 0.52 | local candidate display threshold |
 | max visible chars | 220 | ghost text maximum number of characters |
 | max visible lines | 6 | ghost text maximum number of lines |
@@ -218,8 +218,8 @@ The settings page provides:
 
 - Enable ghost text completion.
 - Cross-text search enhancements.
-- FIM API address.
-- Complete the model.
+- Model Router base URL.
+- Write inline completion public model alias.
 - Short completion trigger delay.
 - Short completion shows strictness.
 - Maximum length of short completion.
@@ -252,9 +252,9 @@ The core of this design is "not grabbing the pen":
 Failure in any link will not affect editor input:
 
 - Set Off: Not Requested.
-- API Key is missing: the return fails and is not displayed.
-- Retrieval failed: degraded to normal FIM.
-- FIM failed: not displayed.
+- Runtime API key or public model alias is missing: the return fails and is not displayed.
+- Retrieval failed: degraded to normal router completion.
+- Router completion failed: not displayed.
 - Candidates with low scores: not displayed.
 - The user continues to enter: the old request is invalid.
 
@@ -268,7 +268,7 @@ Related tests:
 
 Key coverage:
 
-- Automatic short/long ghost text requests use FIM `/completions`; explicit `mode: "edit"` or action-capable requests use chat completions.
+- Automatic short/long ghost text requests use Model Router `/v1/responses`; explicit `mode: "edit"` or action-capable requests still use Model Router, with an edit/action prompt profile.
 - Short completion default mode.
 - Long completion uses independent prompt and token budget.
 - Set default values ​​for migration.

@@ -4,6 +4,7 @@ out/
 dist/
 .cache/
 .deepseek/
+.codex-runtime/
 *.log
 .DS_Store
 

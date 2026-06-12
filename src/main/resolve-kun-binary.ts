@@ -108,6 +108,7 @@ export function buildKunServeArgs(input: {
   baseUrl?: string
   endpointFormat?: string
   model: string
+  forceDefaultModel?: boolean
   approvalPolicy: string
   sandboxMode: string
   tokenEconomyMode: boolean
@@ -125,6 +126,7 @@ export function buildKunServeArgs(input: {
     ...(input.endpointFormat ? ['--endpoint-format', input.endpointFormat] : []),
     '--model',
     input.model,
+    ...(input.forceDefaultModel ? ['--force-default-model', 'true'] : []),
     '--approval-policy',
     input.approvalPolicy,
     '--sandbox-mode',

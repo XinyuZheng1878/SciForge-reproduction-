@@ -24,12 +24,10 @@ import {
 } from './app-settings-types'
 import {
   normalizeModelProviderSettings,
-  resolveModelProviderApiKey,
   resolveKunRuntimeSettings
 } from './app-settings-provider'
 import {
   defaultCodexRuntimeSettings,
-  getActiveAgentRuntime,
   mergeCodexRuntimeSettings
 } from './app-settings-codex'
 
@@ -417,7 +415,6 @@ export function isKunRuntimeInsecure(runtime: Pick<KunRuntimeSettingsV1, 'insecu
 }
 
 export function getActiveAgentApiKey(settings: AppSettingsV1): string {
-  if (getActiveAgentRuntime(settings) === 'codex') return resolveModelProviderApiKey(settings)
   return resolveKunRuntimeSettings(settings).apiKey?.trim() ?? ''
 }
 

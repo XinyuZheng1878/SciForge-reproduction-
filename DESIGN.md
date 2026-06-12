@@ -291,7 +291,7 @@ brand:
   tagline: "把 Kun 的本地智能体能力带进桌面窗口"
   hero_kw: [Code, Write, Connect phone]
   pillars:
-    - "本地优先 (Local-first): settings, sessions, logs all on disk; model calls use your own DeepSeek API key."
+    - "本地优先 (Local-first): settings, sessions, logs all on disk; runtime model calls go through the local Model Router."
     - "可观察 (Observable): every tool call, file change, reasoning step surfaces in the UI."
     - "可控制 (Controllable): approval policy + sandbox mode + interrupt + revert."
   voice: "Direct, no marketing fluff. Show what the agent did, not how great it is."
@@ -371,12 +371,13 @@ human staying in the loop on every mutating call.
 | Surface | Job to be done |
 | --- | --- |
 | **Code** | Bound to a local repo, drives the agent through tool calls, file changes, commands, and review. |
-| **Write** | A long-form writing space: Markdown files, FIM completion, selection-scoped inline agent. |
+| **Write** | A long-form writing space: Markdown files, Model Router-backed inline completion, selection-scoped inline agent. |
 | **Connect phone** | Background automation: Feishu / Lark channels, webhook / relay, scheduled tasks. Internal route and storage names still use `claw` for compatibility. |
 
 All product surfaces share the same AgentRuntime boundary and settings
 choice. Kun remains the default path; Codex is used only after explicit
-selection. Both share the same visual system.
+selection. Both share the same visual system. Any runtime path that needs an
+LLM provider API uses the local Model Router as its only provider boundary.
 
 ---
 
@@ -1177,7 +1178,7 @@ compaction block inline with a "show replaced" detail.
 
 ### 9.4 Write-mode completion & RAG
 
-- **FIM short completion** — debounced 650 ms, max 96 tokens,
+- **Router-backed short completion** — debounced 650 ms, max 96 tokens,
   min accept score 0.52. Used while typing.
 - **Inspirational long completion** — debounced 2.8 s, max
   256 tokens, min accept score 0.36. Used at sentence/paragraph

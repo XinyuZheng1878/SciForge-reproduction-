@@ -2,6 +2,7 @@ import {
   DEFAULT_DEEPSEEK_BASE_URL,
   DEFAULT_MODEL_ENDPOINT_FORMAT,
   DEFAULT_MODEL_PROVIDER_ID,
+  DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   type AppSettingsV1,
   type KunRuntimeSettingsV1,
   type ModelProviderProfilePatchV1,
@@ -11,6 +12,7 @@ import {
 } from './app-settings-types'
 import { normalizeModelEndpointFormat } from '../../kun/src/contracts/model-endpoint-format.js'
 import { getKunRuntimeSettings } from './app-settings-kun'
+import { resolveRuntimeModelRouterSettings } from './app-settings-model-router'
 import { normalizeDeepseekBaseUrl } from './app-settings-normalizers'
 import { DEFAULT_COMPOSER_MODEL_IDS } from './default-composer-models'
 
@@ -112,19 +114,14 @@ export function listModelProviderModelIds(settings: AppSettingsV1): string[] {
 
 export function resolveKunRuntimeSettings(settings: AppSettingsV1): KunRuntimeSettingsV1 {
   const runtime = getKunRuntimeSettings(settings)
-  const provider = getModelProviderProfile(settings, runtime.providerId)
-  const runtimeApiKey = runtime.apiKey?.trim() ?? ''
-  const runtimeBaseUrl = runtime.baseUrl?.trim() ?? ''
-  const providerBaseUrl = provider.baseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL
+  const router = resolveRuntimeModelRouterSettings(settings)
 
   return {
     ...runtime,
-    apiKey: runtimeApiKey || provider.apiKey.trim(),
-    baseUrl:
-      runtimeBaseUrl && runtimeBaseUrl !== DEFAULT_DEEPSEEK_BASE_URL
-        ? normalizeDeepseekBaseUrl(runtimeBaseUrl)
-        : normalizeDeepseekBaseUrl(providerBaseUrl),
-    endpointFormat: provider.endpointFormat
+    apiKey: router.apiKey,
+    baseUrl: router.baseUrl,
+    model: router.model || DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+    endpointFormat: 'responses'
   }
 }
 

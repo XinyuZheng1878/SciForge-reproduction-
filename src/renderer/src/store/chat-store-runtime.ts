@@ -1,4 +1,5 @@
 import type {
+  AssistantMessageEventPayload,
   ChatBlock,
   CompactionBlock,
   NormalizedThread,
@@ -17,7 +18,7 @@ import { describeRuntimeError, formatRuntimeError, getRuntimeErrorCode } from '.
 import { isClawWorkspacePath, isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
 import type { ClawImChannelV1 } from '@shared/app-settings'
 import type { ChatState } from './chat-store-types'
-import { isClawThread } from './chat-store-helpers'
+import { hydrateBlockModelLabels, isClawThread } from './chat-store-helpers'
 import {
   collectAssistantTextForTurn,
   rememberProviderThreadRuntime,
@@ -322,6 +323,104 @@ export function flushLiveBlocks(state: ChatState, base: Partial<ChatState> = {})
   }
 }
 
+function flushLiveReasoningOnly(state: ChatState): { blocks: ChatBlock[]; changed: boolean } {
+  if (!state.liveReasoning.trim()) return { blocks: state.blocks, changed: false }
+  const now = Date.now()
+  return {
+    blocks: [
+      ...state.blocks,
+      {
+        kind: 'reasoning',
+        id: `r-${now}`,
+        createdAt: new Date(now).toISOString(),
+        text: state.liveReasoning
+      }
+    ],
+    changed: true
+  }
+}
+
+function upsertAssistantMessageBlock(
+  blocks: ChatBlock[],
+  ev: AssistantMessageEventPayload
+): ChatBlock[] {
+  return insertCanonicalAssistantBlock(blocks, {
+    kind: 'assistant',
+    id: ev.itemId,
+    createdAt: ev.createdAt ?? new Date().toISOString(),
+    text: ev.text
+  }, null)
+}
+
+function sameAssistantText(left: string, right: string): boolean {
+  return left.trim() === right.trim()
+}
+
+function turnBoundsForUserBlock(blocks: ChatBlock[], userBlockId: string): { start: number; end: number } | null {
+  const start = blocks.findIndex((block) => block.kind === 'user' && block.id === userBlockId)
+  if (start < 0) return null
+  let end = blocks.length
+  for (let index = start + 1; index < blocks.length; index += 1) {
+    if (blocks[index].kind === 'user') {
+      end = index
+      break
+    }
+  }
+  return { start, end }
+}
+
+function insertCanonicalAssistantBlock(
+  blocks: ChatBlock[],
+  assistant: Extract<ChatBlock, { kind: 'assistant' }>,
+  userBlockId: string | null
+): ChatBlock[] {
+  const existingIndex = blocks.findIndex((block) => block.kind === 'assistant' && block.id === assistant.id)
+  if (existingIndex >= 0) {
+    const existing = blocks[existingIndex]
+    if (existing.kind !== 'assistant') return blocks
+    if (existing.text === assistant.text && existing.createdAt === assistant.createdAt) return blocks
+    const next = [...blocks]
+    next[existingIndex] = { ...existing, createdAt: assistant.createdAt, text: assistant.text }
+    return next
+  }
+
+  const bounds = userBlockId ? turnBoundsForUserBlock(blocks, userBlockId) : null
+  const searchStart = bounds ? bounds.start + 1 : 0
+  const searchEnd = bounds ? bounds.end : blocks.length
+  for (let index = searchEnd - 1; index >= searchStart; index -= 1) {
+    const block = blocks[index]
+    if (
+      block.kind === 'assistant' &&
+      block.id.startsWith('a-') &&
+      sameAssistantText(block.text, assistant.text)
+    ) {
+      const next = [...blocks]
+      next[index] = { ...block, id: assistant.id, createdAt: assistant.createdAt, text: assistant.text }
+      return next
+    }
+  }
+
+  const next = [...blocks]
+  next.splice(bounds?.end ?? blocks.length, 0, assistant)
+  return next
+}
+
+function mergeCanonicalAssistantBlocks(current: ChatBlock[], canonical: ChatBlock[]): ChatBlock[] {
+  let next = current
+  let currentUserBlockId: string | null = null
+
+  for (const block of canonical) {
+    if (block.kind === 'user') {
+      currentUserBlockId = block.id
+      continue
+    }
+    if (block.kind !== 'assistant' || !block.text.trim()) continue
+    next = insertCanonicalAssistantBlock(next, block, currentUserBlockId)
+  }
+
+  return next
+}
+
 function goalStatusText(status: string): string {
   switch (status) {
     case 'active':
@@ -442,6 +541,10 @@ function isTerminalRuntimeStatus(event: RuntimeStatusEventPayload): boolean {
   return event.phase === 'turn_done'
 }
 
+function isThreadLifecycleRuntimeStatus(event: RuntimeStatusEventPayload): boolean {
+  return event.phase === 'thread_start_done'
+}
+
 function runtimeErrorPayloadToError(event: {
   message: string
   code?: string
@@ -511,6 +614,42 @@ export function syncTurnCompletionPoll(
   })
 }
 
+function refreshCompletedThreadSnapshot(
+  threadId: string | null,
+  set: (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void,
+  get: () => ChatState
+): void {
+  const targetThreadId = threadId?.trim()
+  if (!targetThreadId) return
+
+  void (async () => {
+    try {
+      const provider = getProvider()
+      rememberProviderThreadRuntime(provider, targetThreadId, get().threads)
+      const detail = await provider.getThreadDetail(targetThreadId)
+      const canonicalBlocks = hydrateBlockModelLabels(targetThreadId, detail.blocks)
+      set((state) => {
+        if (state.activeThreadId !== targetThreadId) return {}
+        if (state.busy || state.currentTurnId) return {}
+        const mergedBlocks = mergeCanonicalAssistantBlocks(state.blocks, canonicalBlocks)
+        const latestSeq =
+          typeof detail.latestSeq === 'number'
+            ? Math.max(state.lastSeq, detail.latestSeq)
+            : state.lastSeq
+        if (mergedBlocks === state.blocks && latestSeq === state.lastSeq) return {}
+        return {
+          blocks: mergedBlocks,
+          lastSeq: latestSeq,
+          liveAssistant: '',
+          liveReasoning: ''
+        }
+      })
+    } catch {
+      /* Best-effort snapshot refresh; the live stream path already completed. */
+    }
+  })()
+}
+
 export type ThreadEventSinkBinding = {
   threadId?: string
   signal?: AbortSignal
@@ -568,6 +707,20 @@ export function buildThreadEventSink(
             ...s.turnStartedAtByUserId,
             [ev.itemId]: s.turnStartedAtByUserId[ev.itemId] ?? startedAt
           },
+          error: clearRuntimeStreamRecoveringError(s.error)
+        }
+      }),
+    onAssistantMessage: (ev) =>
+      set((s) => {
+        if (!isCurrentStream()) return {}
+        if (!ev.text.trim()) return {}
+        resetBusyRecoveryAttempts()
+        const flushedReasoning = flushLiveReasoningOnly(s)
+        const nextBlocks = upsertAssistantMessageBlock(flushedReasoning.blocks, ev)
+        return {
+          blocks: nextBlocks,
+          ...(flushedReasoning.changed || s.liveReasoning ? { liveReasoning: '' } : {}),
+          ...(s.liveAssistant ? { liveAssistant: '' } : {}),
           error: clearRuntimeStreamRecoveringError(s.error)
         }
       }),
@@ -865,8 +1018,10 @@ export function buildThreadEventSink(
     },
     onRuntimeStatus: (ev) => {
       if (!isCurrentStream()) return
+      if (isThreadLifecycleRuntimeStatus(ev)) return
       const terminalStatus = isTerminalRuntimeStatus(ev)
       if (terminalStatus) clearBusyWatchdog()
+      const completedThreadId = terminalStatus ? get().activeThreadId : null
       set((s) => {
         resetBusyRecoveryAttempts()
         const base: Partial<ChatState> = {}
@@ -902,6 +1057,7 @@ export function buildThreadEventSink(
           error: clearRuntimeStreamRecoveringError(s.error)
         }
       })
+      if (terminalStatus) refreshCompletedThreadSnapshot(completedThreadId, set, get)
     },
     onRuntimeError: (ev) => {
       if (!isCurrentStream()) return
@@ -1028,6 +1184,7 @@ export function buildThreadEventSink(
         }
         return base
       })
+      refreshCompletedThreadSnapshot(completedThreadId, set, get)
       if (pendingMirror && assistantMirrorText && typeof window.dsGui?.mirrorClawChannelMessage === 'function') {
         void window.dsGui.mirrorClawChannelMessage(
           pendingMirror.threadId,

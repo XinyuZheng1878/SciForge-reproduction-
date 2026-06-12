@@ -34,6 +34,8 @@ const api = {
     ipcRenderer.invoke('deepseek:config:write', content),
   openDeepseekConfigDir: () =>
     ipcRenderer.invoke('deepseek:config:open-dir'),
+  openModelRouterConfigFile: () =>
+    ipcRenderer.invoke('modelRouter:config:open'),
   getGitBranches: (workspaceRoot) =>
     ipcRenderer.invoke('git:branches', workspaceRoot),
   switchGitBranch: (workspaceRoot, branch) =>

@@ -27,7 +27,10 @@ export type ClawScheduleKind = ScheduleKind
 export type ClawTaskStatus = ScheduleTaskStatus
 export type ClawModel = ScheduleModel
 
-export const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
+export const DEFAULT_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
+export const DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS = 'deepseek-gui-router'
+export const DEFAULT_MODEL_ROUTER_PROVIDER_ID = 'deepseek-gui-model-router'
+export const DEFAULT_DEEPSEEK_BASE_URL = DEFAULT_MODEL_ROUTER_BASE_URL
 export const DEFAULT_CLAW_MODEL = 'auto'
 export const CLAW_MODEL_IDS = ['auto', 'deepseek-v4-pro', 'deepseek-v4-flash'] as const
 export const DEFAULT_SCHEDULE_MODEL = DEFAULT_CLAW_MODEL
@@ -39,7 +42,7 @@ export const DEFAULT_WRITE_WORKSPACE_ROOT = '~/.deepseekgui/write_workspace'
 export const DEFAULT_KUN_DATA_DIR = '~/.deepseekgui/kun'
 export const DEFAULT_CODEX_DATA_DIR = '~/.deepseekgui/codex'
 export const DEFAULT_KUN_MODEL = 'deepseek-v4-pro'
-export const DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL = 'https://api.deepseek.com/beta'
+export const DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL = DEFAULT_MODEL_ROUTER_BASE_URL
 export const DEFAULT_WRITE_INLINE_COMPLETION_MODEL = 'deepseek-v4-flash'
 export const WRITE_INLINE_COMPLETION_MODEL_IDS = ['deepseek-v4-pro', 'deepseek-v4-flash'] as const
 export const DEFAULT_WRITE_INLINE_COMPLETION_DEBOUNCE_MS = 650
@@ -71,6 +74,49 @@ export type ModelProviderSettingsPatchV1 = Partial<
   Omit<ModelProviderSettingsV1, 'providers'>
 > & {
   providers?: ModelProviderProfilePatchV1[]
+}
+
+export type ModelRouterMemberProviderSettingsV1 = {
+  provider: string
+  baseUrl: string
+  apiKey: string
+  model: string
+}
+
+export type ModelRouterProfileSettingsV1 = {
+  textReasoner: ModelRouterMemberProviderSettingsV1
+  translators: {
+    vision: ModelRouterMemberProviderSettingsV1
+  }
+}
+
+export type ModelRouterSettingsV1 = {
+  enabled: boolean
+  baseUrl: string
+  autoStart: boolean
+  publicModelAlias: string
+  runtimeApiKey: string
+  profiles: {
+    default: ModelRouterProfileSettingsV1
+  }
+}
+
+export type ModelRouterMemberProviderSettingsPatchV1 =
+  Partial<ModelRouterMemberProviderSettingsV1>
+
+export type ModelRouterProfileSettingsPatchV1 = {
+  textReasoner?: ModelRouterMemberProviderSettingsPatchV1
+  translators?: {
+    vision?: ModelRouterMemberProviderSettingsPatchV1
+  }
+}
+
+export type ModelRouterSettingsPatchV1 = Partial<
+  Omit<ModelRouterSettingsV1, 'profiles'>
+> & {
+  profiles?: {
+    default?: ModelRouterProfileSettingsPatchV1
+  }
 }
 
 export type AgentRuntimeId = 'kun' | 'codex'
@@ -485,6 +531,7 @@ export type AppSettingsV1 = {
   theme: 'system' | 'light' | 'dark'
   uiFontScale: UiFontScale
   provider: ModelProviderSettingsV1
+  modelRouter?: ModelRouterSettingsV1
   activeAgentRuntime?: AgentRuntimeId
   agents: KunSettingsEnvelopeV1
   workspaceRoot: string
@@ -503,6 +550,7 @@ export type AppSettingsPatch = Partial<
   Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'claw' | 'schedule' | 'guiUpdate'>
 > & {
   provider?: ModelProviderSettingsPatchV1
+  modelRouter?: ModelRouterSettingsPatchV1
   agents?: KunSettingsEnvelopePatchV1
   log?: Partial<LogConfigV1>
   notifications?: Partial<NotificationConfigV1>

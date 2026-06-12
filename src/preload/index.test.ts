@@ -61,6 +61,16 @@ describe('preload agentRuntime bridge', () => {
     expect(invoke.mock.calls[0]?.[1]).not.toHaveProperty('runtimeId')
   })
 
+  it('exposes a bridge to open the local Model Router config file', async () => {
+    const api = exposedApi as {
+      openModelRouterConfigFile(): Promise<unknown>
+    }
+
+    await api.openModelRouterConfigFile()
+
+    expect(invoke).toHaveBeenCalledWith('modelRouter:config:open')
+  })
+
   it('exposes neutral runtime streaming and control IPC methods', async () => {
     const api = exposedApi as {
       agentRuntime: {

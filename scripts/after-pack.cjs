@@ -11,6 +11,18 @@ const KUN_RUNTIME_REQUIRED_PATHS = [
   'kun/node_modules/@modelcontextprotocol/sdk/package.json'
 ]
 
+const MODEL_ROUTER_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/model-router/package.json',
+  'packages/workers/model-router/src/cli.ts',
+  'packages/workers/model-router/src/router.ts',
+  'packages/workers/model-router/src/manifest.ts',
+  'packages/workers/model-router/tools/model-router-trace-audit.ts',
+  'packages/workers/model-router/vision-router-service/package.json',
+  'packages/workers/model-router/vision-router-service/package-lock.json',
+  'packages/workers/model-router/vision-router-service/src/index.ts',
+  'packages/workers/model-router/vision-router-service/src/server.ts'
+]
+
 function normalizePlatform(platform) {
   return platform === 'win' ? 'win32' : platform
 }
@@ -85,6 +97,13 @@ function validateBundledKunRuntime(context) {
   )
 }
 
+function validateBundledModelRouterRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of MODEL_ROUTER_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
 function maybeAdhocSignMacApp(context) {
   if (normalizePlatform(context.electronPlatformName) !== 'darwin') {
     return
@@ -115,16 +134,19 @@ function maybeAdhocSignMacApp(context) {
 async function afterPack(context) {
   prunePackedKunDependencies(context)
   validateBundledKunRuntime(context)
+  validateBundledModelRouterRuntime(context)
   maybeAdhocSignMacApp(context)
 }
 
 exports.KUN_RUNTIME_REQUIRED_PATHS = KUN_RUNTIME_REQUIRED_PATHS
+exports.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS = MODEL_ROUTER_RUNTIME_REQUIRED_PATHS
 exports._internals = {
   appBundlePath,
   packedResourcesDir,
   unpackedAppRoot,
   npmCommand,
   prunePackedKunDependencies,
-  validateBundledKunRuntime
+  validateBundledKunRuntime,
+  validateBundledModelRouterRuntime
 }
 exports.default = afterPack

@@ -6,6 +6,7 @@ import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -34,6 +35,10 @@ function createSettings(patch: Partial<AppSettingsV1['write']['inlineCompletion'
         ...defaultKunRuntimeSettings(),
         apiKey: 'sk-test'
       }
+    },
+    modelRouter: {
+      ...defaultModelRouterSettings(),
+      runtimeApiKey: 'sk-router'
     },
     workspaceRoot: '/tmp/workspace',
     log: {
@@ -111,9 +116,9 @@ afterEach(() => {
 })
 
 describe('requestWriteInlineCompletion', () => {
-  it('calls DeepSeek FIM completions directly instead of chat completions', async () => {
+  it('routes short inline completions through the local Model Router responses endpoint', async () => {
     const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ choices: [{ text: ' only a test' }] }), {
+      new Response(JSON.stringify({ output_text: ' only a test' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -129,35 +134,36 @@ describe('requestWriteInlineCompletion', () => {
         kind: 'short',
         text: ' only a test'
       },
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-gui-router',
       mode: 'short'
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe('https://api.deepseek.com/beta/completions')
+    expect(url).toBe('http://127.0.0.1:3892/v1/responses')
     expect(url).not.toContain('/chat/completions')
+    expect(url).not.toContain('/completions')
     expect(init.headers).toMatchObject({
-      Authorization: 'Bearer sk-test'
+      Authorization: 'Bearer sk-router'
     })
-    const body = JSON.parse(String(init.body)) as { prompt: string; suffix: string; max_tokens: number }
+    const body = JSON.parse(String(init.body)) as { input: string; suffix?: string; max_tokens: number }
     expect(body).toMatchObject({
-      model: 'deepseek-v4-flash',
-      suffix: ' a test.',
+      model: 'deepseek-gui-router',
       max_tokens: 64
     })
-    expect(body.prompt).toContain('DeepSeek GUI inline completion')
-    expect(body.prompt).toContain('Return only the text to insert at the cursor')
-    expect(body.prompt).not.toContain('<<<SHORT')
-    expect(body.prompt).toContain('<<<PREFIX')
-    expect(body.prompt).toContain('<<<SUFFIX')
-    expect(body.prompt.endsWith('# Draft\n\nThis is')).toBe(true)
+    expect(body.suffix).toBeUndefined()
+    expect(body.input).toContain('DeepSeek GUI inline completion')
+    expect(body.input).toContain('Return only the text to insert at the cursor')
+    expect(body.input).not.toContain('<<<SHORT')
+    expect(body.input).toContain('<<<PREFIX')
+    expect(body.input).toContain('<<<SUFFIX')
+    expect(body.input.endsWith('# Draft\n\nThis is')).toBe(true)
     const debugEntries = listWriteInlineCompletionDebugEntries()
     expect(debugEntries).toHaveLength(1)
     expect(debugEntries[0]).toMatchObject({
       ok: true,
       completion: ' only a test',
       mode: 'short',
-      model: 'deepseek-v4-flash'
+      model: 'deepseek-gui-router'
     })
   })
 
@@ -183,17 +189,17 @@ describe('requestWriteInlineCompletion', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const settings = createSettings()
-    settings.agents.kun.apiKey = ''
+    settings.modelRouter!.runtimeApiKey = ''
 
     const result = await requestWriteInlineCompletion(settings, createRequest())
 
-    expect(result).toEqual({ ok: false, message: 'Missing API key for inline completion.' })
+    expect(result).toEqual({ ok: false, message: 'Missing Model Router runtime API key for inline completion.' })
     expect(fetchMock).not.toHaveBeenCalled()
     const debugEntries = listWriteInlineCompletionDebugEntries()
     expect(debugEntries).toHaveLength(1)
     expect(debugEntries[0]).toMatchObject({
       ok: false,
-      errorMessage: 'Missing API key for inline completion.',
+      errorMessage: 'Missing Model Router runtime API key for inline completion.',
       mode: 'short',
       suffix: ' a test.',
       responseChars: 0
@@ -202,9 +208,9 @@ describe('requestWriteInlineCompletion', () => {
     expect(debugEntries[0].prompt.endsWith('# Draft\n\nThis is')).toBe(true)
   })
 
-  it('preserves an explicit pro completion model', async () => {
+  it('ignores requested provider models and uses the router public alias', async () => {
     const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ choices: [{ text: ' flash text' }] }), {
+      new Response(JSON.stringify({ output_text: ' flash text' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -219,17 +225,17 @@ describe('requestWriteInlineCompletion', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      model: 'deepseek-v4-pro'
+      model: 'deepseek-gui-router'
     })
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(JSON.parse(String(init.body))).toMatchObject({
-      model: 'deepseek-v4-pro'
+      model: 'deepseek-gui-router'
     })
   })
 
-  it('falls back to the General baseUrl and Kun model when write keeps defaults', async () => {
+  it('ignores General/Kun/write direct-provider settings in favor of the router settings', async () => {
     const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ choices: [{ text: ' fallback text' }] }), {
+      new Response(JSON.stringify({ output_text: ' fallback text' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -249,19 +255,18 @@ describe('requestWriteInlineCompletion', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      model: 'deepseek-chat'
+      model: 'deepseek-gui-router'
     })
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toContain('https://general.example')
-    expect(url).toContain('/completions')
+    expect(url).toBe('http://127.0.0.1:3892/v1/responses')
     expect(JSON.parse(String(init.body))).toMatchObject({
-      model: 'deepseek-chat'
+      model: 'deepseek-gui-router'
     })
   })
 
-  it('uses an explicit flash override when write disables model inheritance', async () => {
+  it('uses the configured router public alias when write disables model inheritance', async () => {
     const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ choices: [{ text: ' explicit flash' }] }), {
+      new Response(JSON.stringify({ output_text: ' explicit flash' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -274,6 +279,7 @@ describe('requestWriteInlineCompletion', () => {
     })
     settings.provider.baseUrl = 'https://general.example/v1'
     settings.agents.kun.model = 'deepseek-chat'
+    settings.modelRouter!.publicModelAlias = 'custom-router-alias'
 
     const result = await requestWriteInlineCompletion(settings, {
       ...createRequest(),
@@ -282,18 +288,18 @@ describe('requestWriteInlineCompletion', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      model: 'deepseek-v4-flash'
+      model: 'custom-router-alias'
     })
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toContain('https://general.example')
+    expect(url).toBe('http://127.0.0.1:3892/v1/responses')
     expect(JSON.parse(String(init.body))).toMatchObject({
-      model: 'deepseek-v4-flash'
+      model: 'custom-router-alias'
     })
   })
 
   it('uses the long-completion prompt and token budget for inspiration mode', async () => {
     const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ choices: [{ text: '\n\nA longer continuation.' }] }), {
+      new Response(JSON.stringify({ output_text: '\n\nA longer continuation.' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -319,16 +325,16 @@ describe('requestWriteInlineCompletion', () => {
       mode: 'long'
     })
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    const body = JSON.parse(String(init.body)) as { prompt: string; max_tokens: number }
+    const body = JSON.parse(String(init.body)) as { input: string; max_tokens: number }
     expect(body.max_tokens).toBe(320)
-    expect(body.prompt).toContain('Trigger hint: long')
-    expect(body.prompt).toContain('paused for inspiration')
-    expect(body.prompt.endsWith(request.prefix)).toBe(true)
+    expect(body.input).toContain('Trigger hint: long')
+    expect(body.input).toContain('paused for inspiration')
+    expect(body.input.endsWith(request.prefix)).toBe(true)
   })
 
-  it('records plain long completions from the FIM request', async () => {
+  it('records plain long completions from the router response', async () => {
     const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ choices: [{ text: '\n\nA fuller continuation.' }] }), {
+      new Response(JSON.stringify({ output_text: '\n\nA fuller continuation.' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -350,12 +356,12 @@ describe('requestWriteInlineCompletion', () => {
       mode: 'long'
     })
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    const body = JSON.parse(String(init.body)) as { prompt: string }
-    expect(body.prompt).toContain('Return only the text to insert at the cursor')
-    expect(body.prompt).not.toContain('<<<LONG')
+    const body = JSON.parse(String(init.body)) as { input: string }
+    expect(body.input).toContain('Return only the text to insert at the cursor')
+    expect(body.input).not.toContain('<<<LONG')
   })
 
-  it('adds BM25 retrieval snippets to the FIM prompt when workspace context is available', async () => {
+  it('adds BM25 retrieval snippets to the router prompt when workspace context is available', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'ds-gui-write-rag-'))
     await mkdir(join(workspaceRoot, 'notes'), { recursive: true })
     await writeFile(
@@ -375,7 +381,7 @@ describe('requestWriteInlineCompletion', () => {
     )
 
     const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ choices: [{ text: ' retrieval can improve continuity' }] }), {
+      new Response(JSON.stringify({ output_text: ' retrieval can improve continuity' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -404,21 +410,17 @@ describe('requestWriteInlineCompletion', () => {
 
     expect(result).toMatchObject({ ok: true })
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    const body = JSON.parse(String(init.body)) as { prompt: string }
-    expect(body.prompt).toContain('Reference snippets from the same writing workspace')
-    expect(body.prompt).toContain('notes/retrieval.md')
-    expect(body.prompt).toContain('BM25 keyword retrieval keeps inline completion grounded')
-    expect(body.prompt.endsWith(request.prefix)).toBe(true)
+    const body = JSON.parse(String(init.body)) as { input: string }
+    expect(body.input).toContain('Reference snippets from the same writing workspace')
+    expect(body.input).toContain('notes/retrieval.md')
+    expect(body.input).toContain('BM25 keyword retrieval keeps inline completion grounded')
+    expect(body.input.endsWith(request.prefix)).toBe(true)
   })
 
-  it('uses chat completions when the unified request may return an edit action', async () => {
+  it('uses the router responses protocol when the unified request may return an edit action', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({
-        choices: [{
-          message: {
-            content: '<<<EDIT\nWrite mode keeps text editing local.\n>>>'
-          }
-        }]
+        output_text: '<<<EDIT\nWrite mode keeps text editing local.\n>>>'
       }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
@@ -466,31 +468,31 @@ describe('requestWriteInlineCompletion', () => {
       }
     })
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe('https://api.deepseek.com/v1/chat/completions')
+    expect(url).toBe('http://127.0.0.1:3892/v1/responses')
     const body = JSON.parse(String(init.body)) as {
-      messages: Array<{ role: string; content: string }>
+      input: string
+      instructions?: string
+      messages?: Array<{ role: string; content: string }>
       prompt?: string
       suffix?: string
       max_tokens: number
       thinking?: { type: string }
     }
     expect(body.max_tokens).toBe(320)
-    expect(body.thinking).toEqual({ type: 'disabled' })
+    expect(body.thinking).toBeUndefined()
     expect(body.prompt).toBeUndefined()
     expect(body.suffix).toBeUndefined()
-    expect(body.messages[1].content).toContain('Recent local edits in this file')
-    expect(body.messages[1].content).toContain('Editable local scope if EDIT is the best action')
-    expect(body.messages[1].content).toContain('<<<EDIT_SCOPE')
+    expect(body.messages).toBeUndefined()
+    expect(body.instructions).toContain('DeepSeek GUI inline writing')
+    expect(body.input).toContain('Recent local edits in this file')
+    expect(body.input).toContain('Editable local scope if EDIT is the best action')
+    expect(body.input).toContain('<<<EDIT_SCOPE')
   })
 
-  it('uses chat completions for explicit edit mode even without recent edit signals', async () => {
+  it('uses router responses for explicit edit mode even without recent edit signals', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({
-        choices: [{
-          message: {
-            content: '<<<EDIT\nWrite mode keeps text editing local.\n>>>'
-          }
-        }]
+        output_text: '<<<EDIT\nWrite mode keeps text editing local.\n>>>'
       }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
@@ -521,27 +523,25 @@ describe('requestWriteInlineCompletion', () => {
       completion: 'Write mode keeps text editing local.'
     })
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe('https://api.deepseek.com/v1/chat/completions')
+    expect(url).toBe('http://127.0.0.1:3892/v1/responses')
     const body = JSON.parse(String(init.body)) as {
-      messages: Array<{ role: string; content: string }>
+      input: string
+      messages?: Array<{ role: string; content: string }>
       suffix?: string
       thinking?: { type: string }
     }
     expect(body.suffix).toBeUndefined()
-    expect(body.thinking).toEqual({ type: 'disabled' })
-    expect(body.messages[1].content).toContain('Trigger hint: edit')
-    expect(body.messages[1].content).toContain('<<<PREFIX')
-    expect(body.messages[1].content).toContain('<<<SUFFIX')
+    expect(body.thinking).toBeUndefined()
+    expect(body.messages).toBeUndefined()
+    expect(body.input).toContain('Trigger hint: edit')
+    expect(body.input).toContain('<<<PREFIX')
+    expect(body.input).toContain('<<<SUFFIX')
   })
 
-  it('does not send DeepSeek thinking controls for custom chat completion models', async () => {
+  it('does not send provider-specific thinking controls through Model Router', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({
-        choices: [{
-          message: {
-            content: '<<<EDIT\nWrite mode keeps text editing local.\n>>>'
-          }
-        }]
+        output_text: '<<<EDIT\nWrite mode keeps text editing local.\n>>>'
       }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
@@ -569,7 +569,7 @@ describe('requestWriteInlineCompletion', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      model: 'gpt-4.1-mini',
+      model: 'deepseek-gui-router',
       mode: 'edit'
     })
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]

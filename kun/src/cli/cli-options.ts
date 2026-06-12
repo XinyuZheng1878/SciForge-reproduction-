@@ -7,7 +7,6 @@ import {
 } from '../contracts/policy.js'
 import {
   ContextCompactionConfigSchema,
-  DEFAULT_KUN_MODEL,
   DEFAULT_STORAGE_CONFIG,
   ModelConfigSchema,
   RuntimeTuningConfigSchema,
@@ -19,13 +18,15 @@ import {
   KunCapabilitiesConfig
 } from '../contracts/capabilities.js'
 import {
-  DEFAULT_MODEL_ENDPOINT_FORMAT,
+  type ModelEndpointFormat,
   MODEL_ENDPOINT_FORMATS,
   normalizeModelEndpointFormat
 } from '../contracts/model-endpoint-format.js'
 
 export const DEFAULT_SERVE_PORT = 8899
-export const DEFAULT_SERVE_MODEL = DEFAULT_KUN_MODEL
+export const DEFAULT_SERVE_BASE_URL = 'http://127.0.0.1:3892/v1'
+export const DEFAULT_SERVE_ENDPOINT_FORMAT: ModelEndpointFormat = 'responses'
+export const DEFAULT_SERVE_MODEL = 'deepseek-gui-router'
 
 /**
  * Validated CLI options for `kun serve`.
@@ -42,9 +43,10 @@ export const ServeOptionsSchema = z.object({
   dataDir: z.string().min(1),
   runtimeToken: z.string().default(''),
   apiKey: z.string().default(''),
-  baseUrl: z.string().default('https://api.deepseek.com/beta'),
-  endpointFormat: z.preprocess(normalizeModelEndpointFormat, z.enum(MODEL_ENDPOINT_FORMATS)).default(DEFAULT_MODEL_ENDPOINT_FORMAT),
+  baseUrl: z.string().default(DEFAULT_SERVE_BASE_URL),
+  endpointFormat: z.preprocess(normalizeModelEndpointFormat, z.enum(MODEL_ENDPOINT_FORMATS)).default(DEFAULT_SERVE_ENDPOINT_FORMAT),
   model: z.string().default(DEFAULT_SERVE_MODEL),
+  forceDefaultModel: z.boolean().default(false),
   approvalPolicy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
   sandboxMode: SandboxModeSchema.default(DEFAULT_SANDBOX_MODE),
   tokenEconomyMode: z.boolean().default(false),
@@ -64,9 +66,10 @@ export const DEFAULT_SERVE_OPTIONS: ServeOptions = {
   dataDir: '',
   runtimeToken: '',
   apiKey: '',
-  baseUrl: 'https://api.deepseek.com/beta',
-  endpointFormat: DEFAULT_MODEL_ENDPOINT_FORMAT,
+  baseUrl: DEFAULT_SERVE_BASE_URL,
+  endpointFormat: DEFAULT_SERVE_ENDPOINT_FORMAT,
   model: DEFAULT_SERVE_MODEL,
+  forceDefaultModel: false,
   approvalPolicy: DEFAULT_APPROVAL_POLICY,
   sandboxMode: DEFAULT_SANDBOX_MODE,
   tokenEconomyMode: false,

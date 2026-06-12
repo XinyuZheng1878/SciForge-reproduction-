@@ -172,6 +172,9 @@ export type SkillListResult =
   | { ok: false; message: string }
 export type DeepseekConfigFileResult = { path: string; content: string; exists: boolean }
 export type DeepseekConfigSaveResult = { ok: true; path: string }
+export type ModelRouterConfigOpenResult =
+  | { ok: true; path: string }
+  | { ok: false; path: string; message: string }
 export type TurnCompleteNotificationPayload = {
   threadId?: string
   title: string
@@ -233,6 +236,7 @@ export type DsGuiApi = {
   getDeepseekConfigFile: () => Promise<DeepseekConfigFileResult>
   setDeepseekConfigFile: (content: string) => Promise<DeepseekConfigSaveResult>
   openDeepseekConfigDir: () => Promise<PathOpenResult>
+  openModelRouterConfigFile: () => Promise<ModelRouterConfigOpenResult>
   getGitBranches: (workspaceRoot: string) => Promise<GitBranchesResult>
   switchGitBranch: (workspaceRoot: string, branch: string) => Promise<GitBranchesResult>
   createAndSwitchGitBranch: (workspaceRoot: string, branch: string) => Promise<GitBranchesResult>

@@ -4,6 +4,7 @@ import {
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -27,6 +28,7 @@ function settings(activeAgentRuntime: AgentRuntimeId): AppSettingsV1 {
     uiFontScale: 'small',
     activeAgentRuntime,
     provider: defaultModelProviderSettings(),
+    modelRouter: defaultModelRouterSettings(),
     agents: {
       kun: defaultKunRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()

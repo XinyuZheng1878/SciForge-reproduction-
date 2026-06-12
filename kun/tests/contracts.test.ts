@@ -274,6 +274,20 @@ describe('contracts', () => {
 })
 
 describe('cli', () => {
+  it('defaults serve provider to the local model router and ignores legacy direct-provider env defaults', () => {
+    const parsed = parseServeOptions(['--data-dir', '/tmp/ca'], {
+      DEEPSEEK_API_KEY: 'deepseek-env-key',
+      DEEPSEEK_BASE_URL: 'https://api.deepseek.com/beta',
+      KUN_BASE_URL: 'https://direct-provider.example/v1',
+      KUN_MODEL_ROUTER_API_KEY: 'local-router-key'
+    })
+
+    expect(parsed.baseUrl).toBe('http://127.0.0.1:3892/v1')
+    expect(parsed.endpointFormat).toBe('responses')
+    expect(parsed.model).toBe('deepseek-gui-router')
+    expect(parsed.apiKey).toBe('local-router-key')
+  })
+
   it('parses serve options with the canonical flags', () => {
     const parsed = parseServeOptions([
       '--host',
@@ -620,6 +634,18 @@ describe('cli', () => {
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(result.exitCode).toBe(ServeExitCode.config)
+    }
+  })
+
+  it('fails closed when a serve API key is missing', () => {
+    const result = parseServeOptionsSafe([
+      '--data-dir',
+      '/srv/ca'
+    ])
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.exitCode).toBe(ServeExitCode.config)
+      expect(result.message).toMatch(/api key/i)
     }
   })
 

@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url)
 const builderConfig = require('../../electron-builder.config.cjs')
 const afterPack = require('../../scripts/after-pack.cjs')
 const macNotarize = require('../../scripts/mac-notarize.cjs')
+const rootPackage = require('../../package.json')
 
 const tempRoots: string[] = []
 
@@ -98,6 +99,28 @@ describe('electron-builder Kun packaging', () => {
     ]))
   })
 
+  it('includes the full Model Router worker tree in unpacked packaged app files', () => {
+    const modelRouterFileSet = builderConfig.files.find((entry: unknown) => {
+      return (
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { from?: string }).from === 'packages/workers/model-router'
+      )
+    }) as { from?: string; to?: string; filter?: string[] } | undefined
+
+    expect(modelRouterFileSet).toMatchObject({
+      from: 'packages/workers/model-router',
+      to: 'packages/workers/model-router'
+    })
+    expect(modelRouterFileSet?.filter).toEqual(expect.arrayContaining([
+      '**/*',
+      '**/.*'
+    ]))
+    expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+      '**/packages/workers/model-router/**/*'
+    ]))
+  })
+
   it('validates the unpacked Kun runtime before release artifacts are created', () => {
     const root = tempRoot()
     const context = createMacPackContext(root)
@@ -114,6 +137,34 @@ describe('electron-builder Kun packaging', () => {
 
     expect(() => afterPack._internals.validateBundledKunRuntime(context)).toThrow(
       /kun\/node_modules\/zod\/package\.json/
+    )
+  })
+
+  it('validates the unpacked Model Router worker before release artifacts are created', () => {
+    expect(afterPack.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      'packages/workers/model-router/package.json',
+      'packages/workers/model-router/src/cli.ts',
+      'packages/workers/model-router/vision-router-service/package.json',
+      'packages/workers/model-router/vision-router-service/src/index.ts'
+    ]))
+
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
+
+    for (const relativePath of afterPack.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS) {
+      touch(join(unpackedRoot, relativePath))
+    }
+
+    expect(() => afterPack._internals.validateBundledModelRouterRuntime(context)).not.toThrow()
+
+    rmSync(
+      join(unpackedRoot, 'packages/workers/model-router/vision-router-service/src/index.ts'),
+      { recursive: true, force: true }
+    )
+
+    expect(() => afterPack._internals.validateBundledModelRouterRuntime(context)).toThrow(
+      /packages\/workers\/model-router\/vision-router-service\/src\/index\.ts/
     )
   })
 
@@ -163,5 +214,21 @@ describe('electron-builder Kun packaging', () => {
       mainExecutable,
       nativeAddon
     ])
+  })
+})
+
+describe('root package workspace contracts', () => {
+  it('exposes Model Router and vision member packages through npm workspaces', () => {
+    expect(rootPackage.workspaces).toEqual(expect.arrayContaining([
+      'packages/workers/model-router',
+      'packages/workers/model-router/vision-router-service'
+    ]))
+    expect(rootPackage.scripts).toMatchObject({
+      'model-router:start': 'npm --workspace @sciforge/model-router run start',
+      'model-router:test': 'npm --workspace @sciforge/model-router run test',
+      'vision-router:start': 'npm --workspace sciforge-vision-router-service run start',
+      'vision-router:test': 'npm --workspace sciforge-vision-router-service run test',
+      'vision-router:typecheck': 'npm --workspace sciforge-vision-router-service run typecheck'
+    })
   })
 })

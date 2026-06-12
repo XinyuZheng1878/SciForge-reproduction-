@@ -2,11 +2,12 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { mkdtempSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -35,6 +36,12 @@ function settings(dataDir: string, model = 'settings-model'): AppSettingsV1 {
         }
       ]
     },
+    modelRouter: {
+      ...defaultModelRouterSettings(),
+      baseUrl: 'http://127.0.0.1:49876/v1',
+      publicModelAlias: 'deepseek-gui-router',
+      runtimeApiKey: 'local-runtime-router-key'
+    },
     agents: {
       kun: {
         ...defaultKunRuntimeSettings(),
@@ -57,6 +64,10 @@ function settings(dataDir: string, model = 'settings-model'): AppSettingsV1 {
 }
 
 describe('upstream model picker list', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('includes Kun config model profiles, aliases, and the configured agent model', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
     await mkdir(dataDir, { recursive: true })
@@ -85,14 +96,14 @@ describe('upstream model picker list', () => {
       'auto',
       'deepseek-v4-pro',
       'deepseek-v4-flash',
-      'settings-model',
+      'deepseek-gui-router',
       'legacy-model',
       'custom-model',
       'vendor/custom-model'
     ]))
   })
 
-  it('falls back to configured model ids when upstream cannot be queried', async () => {
+  it('queries the local Model Router /v1/models with the runtime API key', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
     await mkdir(dataDir, { recursive: true })
     await writeFile(
@@ -108,11 +119,34 @@ describe('upstream model picker list', () => {
       }),
       'utf8'
     )
-    const result = await fetchUpstreamModelIds(settings(dataDir, 'local-only-model'), '')
+    const calls: Array<{ url: string; method: string | undefined; headers: HeadersInit | undefined }> = []
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      calls.push({
+        url: String(url),
+        method: init.method,
+        headers: init.headers
+      })
+      return new Response(JSON.stringify({
+        object: 'list',
+        data: [{ id: 'deepseek-gui-router', object: 'model' }]
+      }), { status: 200 })
+    })
+
+    const result = await fetchUpstreamModelIds(settings(dataDir, 'local-only-model'), 'sk-direct-provider')
 
     expect(result).toMatchObject({ ok: true })
+    expect(calls).toEqual([
+      expect.objectContaining({
+        url: 'http://127.0.0.1:49876/v1/models',
+        method: 'GET',
+        headers: expect.objectContaining({
+          Accept: 'application/json',
+          Authorization: 'Bearer local-runtime-router-key'
+        })
+      })
+    ])
     if (result.ok) {
-      expect(result.modelIds).toContain('local-only-model')
+      expect(result.modelIds).toContain('deepseek-gui-router')
       expect(result.modelIds).toContain('custom-provider-model')
       expect(result.modelGroups).toEqual(expect.arrayContaining([
         expect.objectContaining({
@@ -127,5 +161,43 @@ describe('upstream model picker list', () => {
         })
       ]))
     }
+  })
+
+  it('fails closed without a Model Router runtime key', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
+    const appSettings = settings(dataDir, 'local-only-model')
+    appSettings.modelRouter = {
+      ...appSettings.modelRouter!,
+      runtimeApiKey: ''
+    }
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await fetchUpstreamModelIds(appSettings, 'sk-direct-provider')
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: 'Missing Model Router runtime API key; cannot query local /v1/models.'
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('fails closed without a Model Router base URL', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
+    const appSettings = settings(dataDir, 'local-only-model')
+    appSettings.modelRouter = {
+      ...appSettings.modelRouter!,
+      baseUrl: ''
+    }
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await fetchUpstreamModelIds(appSettings, 'sk-direct-provider')
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: 'Missing Model Router base URL; cannot query local /v1/models.'
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

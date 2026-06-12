@@ -10,6 +10,7 @@ import {
   mergeCodexRuntimeSettings,
   mergeKunRuntimeSettings,
   mergeClawSettings,
+  mergeModelRouterSettings,
   mergeModelProviderSettings,
   mergeScheduleSettings,
   mergeWriteSettings,
@@ -19,6 +20,7 @@ import {
   normalizeGuiUpdateChannel,
   normalizeKeyboardShortcuts,
   normalizeModelProviderSettings,
+  normalizeModelRouterSettings,
   normalizeScheduleSettings,
   normalizeWriteSettings,
   type AppSettingsPatch,
@@ -49,11 +51,12 @@ export function hasValidPort(settings: AppSettingsV1): boolean {
 
 export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): AppSettingsV1 {
   const safeCurrent = coerceRendererSettings(current)
-  const { agents: agentsPatch, provider: providerPatch, ...restPatch } = patch
+  const { agents: agentsPatch, provider: providerPatch, modelRouter: modelRouterPatch, ...restPatch } = patch
   return {
     ...applyCodexRuntimePatch(applyKunRuntimePatch(safeCurrent, agentsPatch?.kun), agentsPatch?.codex),
     ...restPatch,
     provider: mergeModelProviderSettings(safeCurrent.provider, providerPatch),
+    modelRouter: mergeModelRouterSettings(safeCurrent.modelRouter, modelRouterPatch),
     log: {
       ...safeCurrent.log,
       ...(patch.log ?? {})
@@ -98,6 +101,7 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     theme,
     uiFontScale,
     provider: normalizeModelProviderSettings(raw.provider),
+    modelRouter: normalizeModelRouterSettings(raw.modelRouter),
     activeAgentRuntime: normalizeAgentRuntimeId(raw.activeAgentRuntime),
     agents: {
       ...kunSettingsEnvelope(mergeKunRuntimeSettings(defaultKunRuntimeSettings(), getKunRuntimeSettings(settings))),

@@ -8,6 +8,7 @@ import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -32,6 +33,10 @@ function createSettings(binaryPath: string): AppSettingsV1 {
     theme: 'system',
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
+    modelRouter: {
+      ...defaultModelRouterSettings(),
+      runtimeApiKey: 'local-runtime-router-key'
+    },
     agents: {
       kun: {
         ...defaultKunRuntimeSettings(8899),
@@ -121,6 +126,57 @@ describe('startKunChild', () => {
     const logText = await readKunLog()
     expect(logText).toContain('bind failed on port 8899')
     expect(logText).toContain('exited with code 23')
+  })
+
+  it('passes only the local Model Router runtime key env to Kun', async () => {
+    const previousDeepSeekApiKey = process.env.DEEPSEEK_API_KEY
+    process.env.DEEPSEEK_API_KEY = 'outer-upstream-secret'
+    const script = writeScript(
+      'env-child.js',
+      [
+        "if (process.env.DEEPSEEK_API_KEY !== undefined) {",
+        "  process.stderr.write('leaked upstream key ' + String(process.env.DEEPSEEK_API_KEY) + '\\n')",
+        '  process.exit(24)',
+        '}',
+        "if (process.env.KUN_MODEL_ROUTER_API_KEY !== 'local-runtime-router-key') {",
+        "  process.stderr.write('unexpected router key ' + String(process.env.KUN_MODEL_ROUTER_API_KEY) + '\\n')",
+        '  process.exit(24)',
+        '}',
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",
+        "setInterval(() => {}, 1_000)"
+      ].join('\n')
+    )
+    try {
+      const module = await import('./kun-process')
+      await expect(module.startKunChild(createSettings(script))).resolves.toBeUndefined()
+      await module.stopKunChildAndWait()
+    } finally {
+      if (previousDeepSeekApiKey === undefined) {
+        delete process.env.DEEPSEEK_API_KEY
+      } else {
+        process.env.DEEPSEEK_API_KEY = previousDeepSeekApiKey
+      }
+    }
+  })
+
+  it('fails closed when the Model Router runtime API key is missing', async () => {
+    const script = writeScript(
+      'unused-child.js',
+      [
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",
+        "setInterval(() => {}, 1_000)"
+      ].join('\n')
+    )
+    const settings = createSettings(script)
+    settings.modelRouter = {
+      ...defaultModelRouterSettings(),
+      ...settings.modelRouter,
+      runtimeApiKey: ''
+    }
+    const module = await import('./kun-process')
+
+    await expect(module.startKunChild(settings)).rejects.toThrow(/Model Router runtime API key is required/)
+    expect(module.isKunChildRunning()).toBe(false)
   })
 })
 
@@ -322,6 +378,10 @@ describe('syncGuiManagedKunConfig', () => {
       },
       serve: {
         legacyServeFlag: true,
+        apiKey: 'sk-legacy-direct-provider',
+        baseUrl: 'https://api.deepseek.com/beta',
+        endpointFormat: 'chat_completions',
+        model: 'deepseek-chat',
         tokenEconomy: {
           customTokenEconomyFlag: 'keep',
           historyHygiene: {
@@ -400,6 +460,10 @@ describe('syncGuiManagedKunConfig', () => {
     expect(KunConfigSchema.safeParse(parsed).success).toBe(true)
     expect(parsed.legacyTopLevelFlag).toBeUndefined()
     expect(parsed.serve.legacyServeFlag).toBeUndefined()
+    expect(parsed.serve.apiKey).toBeUndefined()
+    expect(parsed.serve.baseUrl).toBeUndefined()
+    expect(parsed.serve.endpointFormat).toBeUndefined()
+    expect(parsed.serve.model).toBeUndefined()
     expect(parsed.serve.storage).toMatchObject({
       backend: 'hybrid',
       sqlitePath: '/tmp/kun-index.sqlite3'

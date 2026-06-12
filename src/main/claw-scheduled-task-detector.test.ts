@@ -3,23 +3,23 @@ import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
-  type AppSettingsV1,
-  type ModelEndpointFormat
+  type AppSettingsV1
 } from '../shared/app-settings'
 import { detectClawScheduledTaskRequest } from './claw-scheduled-task-detector'
 
-function settings(endpointFormat: ModelEndpointFormat): AppSettingsV1 {
+function settings(): AppSettingsV1 {
   const provider = defaultModelProviderSettings()
-  provider.apiKey = 'sk-test'
-  provider.baseUrl = 'https://model.example/v1'
+  provider.apiKey = 'sk-remote-provider'
+  provider.baseUrl = 'https://remote-provider.example/v1'
   provider.providers[0] = {
     ...provider.providers[0],
-    apiKey: 'sk-test',
-    baseUrl: 'https://model.example/v1',
-    endpointFormat
+    apiKey: 'sk-remote-provider',
+    baseUrl: 'https://remote-provider.example/v1',
+    endpointFormat: 'chat_completions'
   }
   return {
     version: 1,
@@ -27,6 +27,12 @@ function settings(endpointFormat: ModelEndpointFormat): AppSettingsV1 {
     theme: 'system',
     uiFontScale: 'small',
     provider,
+    modelRouter: {
+      ...defaultModelRouterSettings(),
+      baseUrl: 'http://127.0.0.1:49876/v1',
+      publicModelAlias: 'deepseek-gui-router',
+      runtimeApiKey: 'local-runtime-router-key'
+    },
     agents: {
       kun: defaultKunRuntimeSettings()
     },
@@ -43,39 +49,12 @@ function settings(endpointFormat: ModelEndpointFormat): AppSettingsV1 {
   }
 }
 
-describe('detectClawScheduledTaskRequest endpoint formats', () => {
+describe('detectClawScheduledTaskRequest Model Router calls', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
   })
 
-  it('uses Responses API shape for reminder extraction', async () => {
-    const calls: Array<{ url: string; body: Record<string, unknown> }> = []
-    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
-      calls.push({ url: String(url), body: JSON.parse(String(init.body ?? '{}')) })
-      return new Response(JSON.stringify({
-        output_text: '{"shouldCreateTask":false}'
-      }), { status: 200 })
-    })
-
-    await detectClawScheduledTaskRequest(
-      settings('responses'),
-      'remind me tomorrow to stretch',
-      'deepseek-v4-flash',
-      new Date('2026-06-09T12:00:00+08:00')
-    )
-
-    expect(calls[0]).toMatchObject({
-      url: 'https://model.example/v1/responses',
-      body: {
-        model: 'deepseek-v4-flash',
-        input: 'remind me tomorrow to stretch',
-        max_output_tokens: 300,
-        text: { format: { type: 'json_object' } }
-      }
-    })
-  })
-
-  it('uses Messages API shape and headers for reminder extraction', async () => {
+  it('posts reminder extraction to the local Model Router Responses API', async () => {
     const calls: Array<{ url: string; headers: HeadersInit | undefined; body: Record<string, unknown> }> = []
     vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
       calls.push({
@@ -84,29 +63,87 @@ describe('detectClawScheduledTaskRequest endpoint formats', () => {
         body: JSON.parse(String(init.body ?? '{}'))
       })
       return new Response(JSON.stringify({
-        content: [{ type: 'text', text: '{"shouldCreateTask":false}' }]
+        output_text: '{"shouldCreateTask":false}'
       }), { status: 200 })
     })
 
     await detectClawScheduledTaskRequest(
-      settings('messages'),
+      settings(),
       'remind me tomorrow to stretch',
-      'claude-sonnet-4-5',
+      'deepseek-v4-pro',
       new Date('2026-06-09T12:00:00+08:00')
     )
 
     expect(calls[0]).toMatchObject({
-      url: 'https://model.example/v1/messages',
+      url: 'http://127.0.0.1:49876/v1/responses',
+      headers: {
+        Authorization: 'Bearer local-runtime-router-key'
+      },
       body: {
-        model: 'claude-sonnet-4-5',
-        messages: [{ role: 'user', content: 'remind me tomorrow to stretch' }],
-        max_tokens: 300
+        model: 'deepseek-gui-router',
+        input: 'remind me tomorrow to stretch',
+        max_output_tokens: 300,
+        text: { format: { type: 'json_object' } }
       }
     })
-    expect(calls[0]?.headers).toMatchObject({
-      Authorization: 'Bearer sk-test',
-      'x-api-key': 'sk-test',
-      'anthropic-version': '2023-06-01'
+  })
+
+  it('fails closed without a Model Router runtime key', async () => {
+    const appSettings = settings()
+    appSettings.modelRouter = {
+      ...appSettings.modelRouter!,
+      runtimeApiKey: ''
+    }
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await detectClawScheduledTaskRequest(
+      appSettings,
+      'remind me tomorrow to stretch',
+      'deepseek-v4-pro',
+      new Date('2026-06-09T12:00:00+08:00')
+    )
+
+    expect(result).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('fails closed without a Model Router base URL', async () => {
+    const appSettings = settings()
+    appSettings.modelRouter = {
+      ...appSettings.modelRouter!,
+      baseUrl: ''
+    }
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await detectClawScheduledTaskRequest(
+      appSettings,
+      'remind me tomorrow to stretch',
+      'deepseek-v4-pro',
+      new Date('2026-06-09T12:00:00+08:00')
+    )
+
+    expect(result).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not fall back to a direct remote provider endpoint', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      calls.push(String(url))
+      return new Response(JSON.stringify({
+        output_text: '{"shouldCreateTask":false}'
+      }), { status: 200 })
     })
+
+    await detectClawScheduledTaskRequest(
+      settings(),
+      'remind me tomorrow to stretch',
+      'remote-provider-model',
+      new Date('2026-06-09T12:00:00+08:00')
+    )
+
+    expect(calls).toEqual(['http://127.0.0.1:49876/v1/responses'])
   })
 })

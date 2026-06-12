@@ -31,6 +31,8 @@ export type DeepseekCompatConfig = {
   historyLimit?: number
   /** When true, the client requests a non-streaming response. */
   nonStreaming?: boolean
+  /** When true, always send the configured model alias to the provider. */
+  forceDefaultModel?: boolean
   /** Maximum idle time between streaming chunks before the turn fails. */
   streamIdleTimeoutMs?: number
 }
@@ -293,7 +295,7 @@ export class DeepseekCompatModelClient implements ModelClient {
     options: { includeStreamUsage?: boolean } = {}
   ): Record<string, unknown> {
     const requestModel = request.model?.trim()
-    const model = requestModel || this.config.model
+    const model = this.config.forceDefaultModel ? this.config.model : (requestModel || this.config.model)
     const messages = this.collectMessages(request, model)
     const endpointFormat = this.endpointFormat()
     if (endpointFormat === 'responses') {

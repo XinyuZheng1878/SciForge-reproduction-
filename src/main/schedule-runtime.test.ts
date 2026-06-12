@@ -3,6 +3,7 @@ import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -52,6 +53,10 @@ function settingsWith(
     theme: 'system',
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
+    modelRouter: {
+      ...defaultModelRouterSettings(),
+      runtimeApiKey: 'local-runtime-router-key'
+    },
     agents: {
       kun: {
         ...defaultKunRuntimeSettings(),
@@ -134,16 +139,12 @@ describe('ScheduleRuntime', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
       text: async () => JSON.stringify({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              shouldCreateTask: true,
-              scheduleAt: future,
-              reminderBody: 'ship the review',
-              taskName: 'Ship review'
-            })
-          }
-        }]
+        output_text: JSON.stringify({
+          shouldCreateTask: true,
+          scheduleAt: future,
+          reminderBody: 'ship the review',
+          taskName: 'Ship review'
+        })
       })
     })))
     const { runtime, store } = createRuntime(settingsWith())

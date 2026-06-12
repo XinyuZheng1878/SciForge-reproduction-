@@ -6,10 +6,6 @@ import {
   resolveWriteInlineCompletionModel,
   type AppSettingsV1
 } from '../../shared/app-settings'
-import {
-  upstreamDeepSeekFimCompletionsUrl,
-  upstreamOpenAiChatCompletionsUrl
-} from '../../shared/openai-compat-url'
 import type {
   WriteInlineCompletionAction,
   WriteInlineCompletionMode,
@@ -43,9 +39,19 @@ type ChatCompletionMessage = {
   content: string
 }
 
-function shouldDisableThinkingForInlineCompletion(model: string): boolean {
-  const normalized = model.trim().toLowerCase()
-  return normalized.startsWith('deepseek-v4') || normalized === 'deepseek-reasoner'
+type ModelRouterResponsesResponse = {
+  output_text?: string
+  output?: Array<{
+    type?: string
+    content?: string | Array<{ type?: string; text?: string }>
+    text?: string
+  }>
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>
+    }
+    text?: string
+  }>
 }
 
 const inlineCompletionDebugEntries: WriteInlineCompletionDebugEntry[] = []
@@ -309,7 +315,7 @@ export function buildWriteInlineCompletionPrompt(
     ...buildRecentEditsPromptBlock(request.recentEdits),
     ...(retrieval?.snippets.length ? buildRetrievalPromptBlock(retrieval, mode) : []),
     ...buildMarkedContextBlocks(request),
-    'For the FIM engine, the raw prefix also follows this instruction block.',
+    'The raw prefix also follows this instruction block.',
     '-->',
     ''
   ]
@@ -378,16 +384,51 @@ function debugPromptFromMessages(messages: ChatCompletionMessage[]): string {
 }
 
 function providerTextFromResponse(responseText: string): string {
-  let parsed: ChatCompletionResponse
+  let parsed: ModelRouterResponsesResponse
   try {
-    parsed = JSON.parse(responseText) as ChatCompletionResponse
+    parsed = JSON.parse(responseText) as ModelRouterResponsesResponse
   } catch {
-    throw new Error('Inline completion provider returned non-JSON data.')
+    throw new Error('Model Router returned non-JSON data.')
+  }
+  if (typeof parsed.output_text === 'string') return parsed.output_text
+  if (Array.isArray(parsed.output)) {
+    const outputText = parsed.output
+      .map((item) => {
+        if (typeof item?.text === 'string') return item.text
+        return flattenMessageContent(item?.content)
+      })
+      .join('')
+    if (outputText) return outputText
   }
   const firstChoice = parsed.choices?.[0]
   if (typeof firstChoice?.text === 'string') return firstChoice.text
   const first = firstChoice?.message?.content
   return flattenMessageContent(first)
+}
+
+function modelRouterResponsesUrl(baseUrl: string): string {
+  const normalized = baseUrl.trim().replace(/\/+$/, '')
+  if (!normalized) throw new Error('Missing Model Router base URL for inline completion.')
+  return normalized.endsWith('/v1') ? `${normalized}/responses` : `${normalized}/v1/responses`
+}
+
+function responsesInputFromMessages(messages: ChatCompletionMessage[]): {
+  instructions?: string
+  input: string
+} {
+  const instructions = messages
+    .filter((message) => message.role === 'system')
+    .map((message) => message.content)
+    .join('\n\n')
+    .trim()
+  const input = messages
+    .filter((message) => message.role !== 'system')
+    .map((message) => message.content)
+    .join('\n\n')
+  return {
+    ...(instructions ? { instructions } : {}),
+    input
+  }
 }
 
 export type WriteInlineActionEditTarget = {
@@ -542,18 +583,17 @@ export async function requestWriteInlineCompletion(
 
   const apiKey = resolveWriteInlineCompletionApiKey(settings)
   if (!apiKey) {
-    appendInlineCompletionPreflightFailure(startedAt, settings, request, 'Missing API key for inline completion.')
-    return { ok: false, message: 'Missing API key for inline completion.' }
+    const message = 'Missing Model Router runtime API key for inline completion.'
+    appendInlineCompletionPreflightFailure(startedAt, settings, request, message)
+    return { ok: false, message }
   }
 
   const model = resolveModel(request, settings)
   const mode = resolveMode(request)
   const actionMayEdit = Boolean(request.editCandidate && request.recentEdits?.length)
-  const useChatCompletions = mode === 'edit' || actionMayEdit
+  const useActionProtocol = mode === 'edit' || actionMayEdit
   const baseUrl = resolveWriteInlineCompletionBaseUrl(settings)
-  const url = useChatCompletions
-    ? upstreamOpenAiChatCompletionsUrl(baseUrl)
-    : upstreamDeepSeekFimCompletionsUrl(baseUrl)
+  const url = modelRouterResponsesUrl(baseUrl)
   const maxTokens = mode === 'long' || mode === 'edit' || actionMayEdit
     ? settings.write.inlineCompletion.longMaxTokens || settings.write.inlineCompletion.maxTokens || DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS
     : settings.write.inlineCompletion.maxTokens || DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS
@@ -562,7 +602,7 @@ export async function requestWriteInlineCompletion(
     : await retrieveWriteInlineCompletionContext(request, {
         maxSnippets: mode === 'long' || mode === 'edit' || actionMayEdit ? 5 : 3
       }).catch(() => null)
-  const messages = useChatCompletions
+  const messages = useActionProtocol
     ? buildWriteInlineCompletionChatMessages(request, retrieval)
     : null
   const prompt = messages
@@ -583,19 +623,15 @@ export async function requestWriteInlineCompletion(
   }
 
   try {
-    const body = useChatCompletions
+    const body = messages
       ? {
           model,
-          messages,
-          max_tokens: maxTokens,
-          ...(shouldDisableThinkingForInlineCompletion(model)
-            ? { thinking: { type: 'disabled' } }
-            : {})
+          ...responsesInputFromMessages(messages),
+          max_tokens: maxTokens
         }
       : {
           model,
-          prompt,
-          suffix: request.suffix,
+          input: prompt,
           max_tokens: maxTokens
         }
     const response = await fetch(url, {

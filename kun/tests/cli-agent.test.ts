@@ -134,6 +134,8 @@ describe('Kun agent CLI commands', () => {
     const code = await runAgentCommand('exec', [
       '--data-dir',
       dataDir,
+      '--api-key',
+      'test-key',
       '--workspace',
       dataDir,
       '--list-tools',
@@ -155,6 +157,8 @@ describe('Kun agent CLI commands', () => {
     const code = await runAgentCommand('exec', [
       '--data-dir',
       dataDir,
+      '--api-key',
+      'test-key',
       '--workspace',
       dataDir,
       '--approval-policy',
@@ -196,6 +200,8 @@ describe('Kun agent CLI commands', () => {
     const code = await runAgentCommand('exec', [
       '--data-dir',
       dataDir,
+      '--api-key',
+      'test-key',
       '--workspace',
       dataDir,
       '--list-tools',
@@ -215,6 +221,8 @@ describe('Kun agent CLI commands', () => {
     const code = await runAgentCommand('exec', [
       '--data-dir',
       dataDir,
+      '--api-key',
+      'test-key',
       'echo',
       '--args',
       'nope'
@@ -229,6 +237,8 @@ describe('Kun agent CLI commands', () => {
     const code = await runAgentCommand('run', [
       '--data-dir',
       dataDir,
+      '--api-key',
+      'test-key',
       '--prompt',
       'hello',
       '--json'
@@ -245,6 +255,8 @@ describe('Kun agent CLI commands', () => {
     const code = await runAgentCommand('run', [
       '--data-dir',
       dataDir,
+      '--api-key',
+      'test-key',
       '--prompt',
       'hello'
     ], c.io)
@@ -258,6 +270,8 @@ describe('Kun agent CLI commands', () => {
     const code = await runAgentCommand('run', [
       '--data-dir',
       dataDir,
+      '--api-key',
+      'test-key',
       '--prompt',
       'hello',
       '--json'
@@ -272,6 +286,7 @@ describe('Kun agent CLI commands', () => {
     await writeFile(configPath, JSON.stringify({
       serve: {
         dataDir,
+        apiKey: 'test-key',
         model: 'deepseek-v4-pro',
         approvalPolicy: 'auto'
       }

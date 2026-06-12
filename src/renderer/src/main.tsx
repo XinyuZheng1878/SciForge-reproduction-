@@ -7,7 +7,9 @@ import './styles/markdown-code.css'
 import './styles/write-editor.css'
 import App from './App'
 import './i18n'
+import { installDevDsGuiBridge } from './dev/dev-ds-gui-bridge'
 
+installDevDsGuiBridge()
 document.documentElement.dataset.platform = window.dsGui?.platform ?? 'unknown'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

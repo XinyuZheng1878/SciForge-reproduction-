@@ -178,6 +178,7 @@ export const KunServeConfigSchema = z
       z.enum(MODEL_ENDPOINT_FORMATS)
     ).default(DEFAULT_MODEL_ENDPOINT_FORMAT).optional(),
     model: z.string().min(1).optional(),
+    forceDefaultModel: z.boolean().optional(),
     approvalPolicy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY).optional(),
     sandboxMode: SandboxModeSchema.default(DEFAULT_SANDBOX_MODE).optional(),
     tokenEconomyMode: z.boolean().optional(),

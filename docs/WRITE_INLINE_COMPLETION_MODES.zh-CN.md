@@ -25,8 +25,8 @@ flowchart TD
   B --> D{"是否可长补全"}
   C -->|是| E["短 debounce 计时器"]
   D -->|是| F["长 debounce 计时器"]
-  E --> G["mode=short 请求 FIM"]
-  F --> H["mode=long 请求 FIM"]
+  E --> G["mode=short 请求 Model Router 补全"]
+  F --> H["mode=long 请求 Model Router 补全"]
   G --> I["短候选质量过滤"]
   H --> J["长候选质量过滤"]
   I --> K["ghost text"]
@@ -79,7 +79,7 @@ export type WriteInlineCompletionMode = 'short' | 'long' | 'edit'
 | 参数 | 默认值 | 含义 |
 | --- | ---: | --- |
 | debounce | 650 ms | 停止输入多久后请求 |
-| max tokens | 96 | FIM 最大生成长度 |
+| max tokens | 96 | 补全最大生成长度 |
 | min accept score | 0.52 | 本地候选显示阈值 |
 | max visible chars | 220 | ghost text 最大字符数 |
 | max visible lines | 6 | ghost text 最大行数 |
@@ -214,8 +214,8 @@ Return only insertable text...
 
 - 启用幽灵文本补全。
 - 跨文本检索增强。
-- FIM API 地址。
-- 补全模型。
+- Model Router base URL。
+- Write inline completion public model alias。
 - 短补全触发延迟。
 - 短补全显示严格度。
 - 短补全最大长度。
@@ -248,9 +248,9 @@ Return only insertable text...
 任意环节失败都不会影响编辑器输入：
 
 - 设置关闭：不请求。
-- API Key 缺失：返回失败，不显示。
-- 检索失败：退化为普通 FIM。
-- FIM 失败：不显示。
+- runtime API key 或 public model alias 缺失：返回失败，不显示。
+- 检索失败：退化为普通 router completion。
+- Router 补全失败：不显示。
 - 候选低分：不显示。
 - 用户继续输入：旧请求失效。
 
@@ -264,7 +264,7 @@ Return only insertable text...
 
 重点覆盖：
 
-- 自动 short/long ghost text 请求走 FIM `/completions`；显式 `mode: "edit"` 或可能返回 action 的请求走 chat completions。
+- 自动 short/long ghost text 请求走 Model Router `/v1/responses`；显式 `mode: "edit"` 或可能返回 action 的请求仍走 Model Router，但使用编辑 / action prompt profile。
 - 短补全默认 mode。
 - 长补全使用独立 prompt 和 token budget。
 - 设置默认值迁移。

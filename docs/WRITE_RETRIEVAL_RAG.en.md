@@ -21,13 +21,13 @@ This document describes cross-text retrieval enhancements in Write writing mode.
 ```mermaid
 flowchart LR
   A["CodeMirror cursor context"] --> B["completion payload"]
-  B --> C["main-process FIM completion service"]
+  B --> C["main-process Model Router completion service"]
   C --> D["writing-space retrieval service"]
   D --> E["scan Markdown / text files"]
   E --> F["chunk + tokenize + BM25 index"]
   F --> G["keyword/BM25 recalled snippets"]
   G --> H["inject hidden Markdown comment into prompt"]
-  H --> I["DeepSeek FIM /completions"]
+  H --> I["Model Router /v1/responses"]
 
 ```
 
@@ -132,7 +132,7 @@ The results filter out low-scoring clips, empty clips, duplicate clips, and limi
 
 ## Prompt injection
 
-The search results will not be appended directly to the user text, but will be placed in front of the FIM prompt in the form of a hidden Markdown comment:
+The search results will not be appended directly to the user text, but will be placed in front of the completion prompt in the form of a hidden Markdown comment:
 
 ```markdown
 <!-- DeepSeek GUI inline completion references.
@@ -183,7 +183,7 @@ When writing, completion is often triggered multiple times in a row. A short TTL
 - Binary files are skipped via NUL byte detection.
 - There is a byte limit for single file reading.
 - Failure to read the file will be ignored and completion will not be blocked.
-- When there is no hit result, completion will degrade to normal FIM.
+- When there is no hit result, completion degrades to a normal router completion.
 
 ## Failed to downgrade
 
@@ -196,7 +196,7 @@ The following situations will silently return `null`:
 - There are no segments that exceed the threshold.
 - A local error occurred during file scanning or reading.
 
-The main process completion service will catch the retrieval exception and continue to request FIM using the original prompt.
+The main process completion service will catch the retrieval exception and continue to request Model Router using the original prompt.
 
 ## Adjustable parameters
 
@@ -230,5 +230,5 @@ Key coverage:
 - Chinese and English token generation.
 - Recall across document fragments.
 - Exclude the current file.
-- Retrieve fragment injection FIM prompt.
+- Retrieved fragment injection into the completion prompt.
 - Keep the original prompt when there are no search results.

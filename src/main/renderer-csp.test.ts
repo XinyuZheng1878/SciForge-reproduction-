@@ -10,4 +10,16 @@ describe('renderer content security policy', () => {
 
     expect(imgSrc.split(/\s+/)).toContain('blob:')
   })
+
+  it('allows the dev browser bridge fetch and EventSource endpoints', () => {
+    const html = readFileSync(resolve('src/renderer/index.html'), 'utf8')
+    const csp = html.match(/Content-Security-Policy"[\s\S]*?content="([^"]+)"/)?.[1] ?? ''
+    const connectSrc = csp.match(/connect-src\s+([^;]+)/)?.[1] ?? ''
+
+    expect(connectSrc.split(/\s+/)).toEqual(expect.arrayContaining([
+      "'self'",
+      'http://127.0.0.1:5174',
+      'http://localhost:5174'
+    ]))
+  })
 })

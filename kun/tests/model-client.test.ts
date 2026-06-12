@@ -93,6 +93,38 @@ describe('DeepseekCompatModelClient', () => {
     expect(sentBodies[0]?.model).toBe('deepseek-v4-pro')
   })
 
+  it('can force the configured model alias over per-turn model selections', async () => {
+    const sentBodies: Array<{ model?: string }> = []
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sentBodies.push(JSON.parse(String(init?.body ?? '{}')))
+      return new Response(JSON.stringify({
+        id: 'resp_alias',
+        status: 'completed',
+        output_text: 'done'
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+    const client = new DeepseekCompatModelClient({
+      baseUrl: 'http://127.0.0.1:3892/v1',
+      apiKey: 'local-router-key',
+      model: 'deepseek-gui-router',
+      endpointFormat: 'responses',
+      fetchImpl,
+      nonStreaming: true,
+      forceDefaultModel: true
+    })
+    const request = buildRequest(new AbortController().signal)
+    request.model = 'deepseek-v4-flash'
+
+    for await (const _chunk of client.stream(request)) {
+      // drain
+    }
+
+    expect(sentBodies[0]?.model).toBe('deepseek-gui-router')
+  })
+
   it('builds chat completions URLs for base URLs with and without version segments', async () => {
     const cases = [
       ['https://zenmux.ai/api', 'https://zenmux.ai/api/v1/chat/completions'],

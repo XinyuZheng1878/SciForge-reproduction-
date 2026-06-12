@@ -190,11 +190,11 @@ function usageFromRuntime(usage: AgentRuntimeUsage): ThreadUsageSnapshot {
   return {
     inputTokens,
     outputTokens,
-    reasoningTokens: 0,
+    reasoningTokens: usage.reasoningTokens ?? 0,
     cachedTokens,
     cacheMissTokens,
     cacheHitRate: cacheTotal > 0 ? cachedTokens / cacheTotal : null,
-    totalTokens: usage.totalTokens ?? inputTokens + outputTokens,
+    totalTokens: usage.totalTokens ?? inputTokens + outputTokens + (usage.reasoningTokens ?? 0),
     costUsd: usage.costUsd ?? 0,
     costCny: null,
     cacheSavingsUsd: 0,
@@ -221,7 +221,18 @@ function dispatchItemSnapshot(event: Extract<AgentRuntimeEvent, { kind: 'item_sn
       }
       return
     case 'assistant_message':
-      if (item.text) sink.onDeltas([{ kind: 'agent_message', text: item.text, seq: event.seq }])
+      if (item.text) {
+        if (sink.onAssistantMessage) {
+          sink.onAssistantMessage({
+            itemId: item.id,
+            turnId: event.turnId,
+            createdAt: item.createdAt ?? event.createdAt,
+            text: item.text
+          })
+        } else {
+          sink.onDeltas([{ kind: 'agent_message', text: item.text, seq: event.seq }])
+        }
+      }
       return
     case 'reasoning':
       if (item.text) sink.onDeltas([{ kind: 'agent_reasoning', text: item.text, seq: event.seq }])

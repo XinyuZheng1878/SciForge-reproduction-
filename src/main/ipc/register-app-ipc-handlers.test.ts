@@ -67,6 +67,7 @@ function registerOptions(overrides: Partial<Parameters<typeof import('./register
     startWeixinInstallQrcode: vi.fn() as never,
     pollWeixinInstall: vi.fn() as never,
     resolveKunConfigPath: () => '/tmp/kun.json',
+    openModelRouterConfigFile: vi.fn(async () => ({ ok: true as const, path: '/tmp/model-router/config.json' })),
     showTurnCompleteNotification: vi.fn() as never,
     getAppVersion: () => '0.1.0',
     readGuiUpdateState: vi.fn() as never,
@@ -144,6 +145,26 @@ describe('registerAppIpcHandlers', () => {
     const handler = handlers.get('settings:set')
     await expect(handler?.({}, payload)).resolves.toEqual(settings())
     expect(applySettingsPatch).toHaveBeenCalledWith(payload)
+  })
+
+  it('returns a dispatcher for dev browser bridge calls that uses the same handlers', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const applySettingsPatch = vi.fn(async () => settings())
+    const sender = createSender(901)
+
+    const dispatcher = registerAppIpcHandlers(registerOptions({ applySettingsPatch }))
+
+    const payload = {
+      theme: 'dark' as const,
+      agents: {
+        kun: {
+          port: 9100
+        }
+      }
+    }
+    await expect(dispatcher.invoke('settings:set', payload, sender)).resolves.toEqual(settings())
+    expect(applySettingsPatch).toHaveBeenCalledWith(payload)
+    expect(handlers.get('settings:set')).toBeTypeOf('function')
   })
 
   it('routes neutral agent runtime IPC calls through the injected host', async () => {
@@ -624,6 +645,28 @@ describe('registerAppIpcHandlers', () => {
     } finally {
       rmSync(tempRoot, { recursive: true, force: true })
     }
+  })
+
+  it('opens the local Model Router config file through the injected handler', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const openModelRouterConfigFile = vi.fn(async () => ({
+      ok: true as const,
+      path: '/tmp/deepseek-gui/model-router/config.json'
+    }))
+    const current = settings()
+    const store = { load: vi.fn(async () => current) }
+
+    registerAppIpcHandlers(registerOptions({
+      store: store as never,
+      openModelRouterConfigFile
+    }))
+
+    await expect(handlers.get('modelRouter:config:open')?.({}, undefined)).resolves.toEqual({
+      ok: true,
+      path: '/tmp/deepseek-gui/model-router/config.json'
+    })
+    expect(store.load).toHaveBeenCalled()
+    expect(openModelRouterConfigFile).toHaveBeenCalledWith(current)
   })
 
   it('rejects invalid MCP config JSON before writing or applying it', async () => {

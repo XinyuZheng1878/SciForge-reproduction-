@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChatBlock } from '../agent/types'
+
+const registryMock = vi.hoisted(() => ({
+  getProvider: vi.fn()
+}))
+
+vi.mock('../agent/registry', () => ({
+  getProvider: registryMock.getProvider
+}))
+
 import {
   buildThreadEventSink,
   clearWatchedCompletionNotification,
@@ -15,6 +24,7 @@ import {
 import type { ChatState, ChatStoreSet } from './chat-store-types'
 
 afterEach(() => {
+  registryMock.getProvider.mockReset()
   vi.unstubAllGlobals()
 })
 
@@ -108,6 +118,70 @@ describe('thread event sink binding', () => {
     expect(getState().turnReasoningFirstAtByUserId['user-current']).toEqual(expect.any(Number))
   })
 
+  it('ignores Codex thread lifecycle status without marking a new empty thread busy', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      busy: false,
+      currentTurnId: null,
+      currentTurnUserId: null,
+      blocks: []
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onRuntimeStatus?.({
+      kind: 'tool_catalog_changed',
+      itemId: 'runtime-status-thread-ready',
+      phase: 'thread_start_done',
+      message: 'Codex thread ready'
+    })
+
+    expect(getState().busy).toBe(false)
+    expect(getState().currentTurnId).toBeNull()
+    expect(getState().blocks).toEqual([])
+  })
+
+  it('persists assistant snapshots as visible assistant blocks after completion', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      busy: false,
+      liveAssistant: '',
+      blocks: [
+        { kind: 'user', id: 'user-current', text: 'hello' },
+        {
+          kind: 'system',
+          id: 'runtime-status-turn-done',
+          createdAt: '2026-06-11T00:00:01.000Z',
+          text: 'Codex turn completed'
+        }
+      ]
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onAssistantMessage?.({
+      itemId: 'assistant-1',
+      createdAt: '2026-06-11T00:00:02.000Z',
+      text: 'Hey there! How can I help?'
+    })
+
+    expect(getState().busy).toBe(false)
+    expect(getState().liveAssistant).toBe('')
+    expect(getState().blocks).toEqual([
+      { kind: 'user', id: 'user-current', text: 'hello' },
+      {
+        kind: 'system',
+        id: 'runtime-status-turn-done',
+        createdAt: '2026-06-11T00:00:01.000Z',
+        text: 'Codex turn completed'
+      },
+      {
+        kind: 'assistant',
+        id: 'assistant-1',
+        createdAt: '2026-06-11T00:00:02.000Z',
+        text: 'Hey there! How can I help?'
+      }
+    ])
+  })
+
   it('does not restart busy when terminal runtime status follows turn completion', () => {
     const { getState, set, get } = makeSinkHarness({
       activeThreadId: 'thread-current',
@@ -191,6 +265,73 @@ describe('thread event sink binding', () => {
         id: 'runtime-status-turn-done',
         createdAt: '2026-06-11T00:00:01.000Z',
         text: 'Codex turn completed'
+      }
+    ])
+  })
+
+  it('merges canonical assistant output after completion when live events omitted the answer', async () => {
+    const provider = {
+      rememberThreadRuntime: vi.fn(),
+      getThreadDetail: vi.fn(async () => ({
+        latestSeq: 12,
+        threadStatus: 'completed',
+        blocks: [
+          { kind: 'user' as const, id: 'user-current', text: 'hello' },
+          {
+            kind: 'assistant' as const,
+            id: 'assistant-canonical',
+            createdAt: '2026-06-11T00:00:02.000Z',
+            text: 'Hey there! How can I help?'
+          }
+        ]
+      }))
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    vi.stubGlobal('window', { dsGui: {} })
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      busy: true,
+      blocks: [
+        { kind: 'user', id: 'user-current', text: 'hello' },
+        {
+          kind: 'system',
+          id: 'runtime-status-turn-done',
+          createdAt: '2026-06-11T00:00:01.000Z',
+          text: 'Codex turn completed'
+        }
+      ],
+      lastSeq: 8,
+      threads: [{
+        id: 'thread-current',
+        runtimeId: 'codex',
+        title: 'Current',
+        updatedAt: '2026-06-11T00:00:00.000Z',
+        model: 'gpt-5',
+        mode: 'agent',
+        workspace: '/workspace/deepseek-gui'
+      }]
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onTurnComplete()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('thread-current', 'codex')
+    expect(getState().busy).toBe(false)
+    expect(getState().lastSeq).toBe(12)
+    expect(getState().blocks).toEqual([
+      { kind: 'user', id: 'user-current', text: 'hello' },
+      {
+        kind: 'system',
+        id: 'runtime-status-turn-done',
+        createdAt: '2026-06-11T00:00:01.000Z',
+        text: 'Codex turn completed'
+      },
+      {
+        kind: 'assistant',
+        id: 'assistant-canonical',
+        createdAt: '2026-06-11T00:00:02.000Z',
+        text: 'Hey there! How can I help?'
       }
     ])
   })

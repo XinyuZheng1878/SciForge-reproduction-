@@ -302,11 +302,11 @@ function usageFromRuntime(usage: AgentRuntimeUsage | undefined): ThreadUsageSnap
   return {
     inputTokens,
     outputTokens,
-    reasoningTokens: 0,
+    reasoningTokens: usage.reasoningTokens ?? 0,
     cachedTokens,
     cacheMissTokens,
     cacheHitRate: cacheTotal > 0 ? cachedTokens / cacheTotal : null,
-    totalTokens: usage.totalTokens ?? inputTokens + outputTokens,
+    totalTokens: usage.totalTokens ?? inputTokens + outputTokens + (usage.reasoningTokens ?? 0),
     costUsd: usage.costUsd ?? 0,
     costCny: null,
     cacheSavingsUsd: 0,

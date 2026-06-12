@@ -55,6 +55,15 @@ export function normalizeCodexEvent(payload: unknown): CodexThreadEventPayload |
       turnComplete: true
     }
   }
+  if (method === 'thread/tokenUsage/updated') {
+    const usage = tokenUsageFromParams(params)
+    if (!usage) return null
+    return {
+      threadId,
+      ...(turnId ? { turnId } : {}),
+      usage
+    }
+  }
   if (method === 'error' || method === 'turn/failed') {
     const error = asRecord(params.error)
     return {
@@ -142,4 +151,32 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function tokenUsageFromParams(params: Record<string, unknown>): NonNullable<CodexThreadEventPayload['usage']> | null {
+  const tokenUsage = asRecord(params.tokenUsage)
+  const breakdown = asRecord(tokenUsage?.last) ?? asRecord(tokenUsage?.total)
+  if (!breakdown) return null
+  const inputTokens = integerValue(breakdown.inputTokens)
+  const cachedInputTokens = integerValue(breakdown.cachedInputTokens)
+  const outputTokens = integerValue(breakdown.outputTokens)
+  const reasoningTokens = integerValue(breakdown.reasoningOutputTokens)
+  const totalTokens = integerValue(breakdown.totalTokens) || inputTokens + outputTokens + reasoningTokens
+  return {
+    inputTokens,
+    outputTokens,
+    reasoningTokens,
+    totalTokens,
+    cacheReadTokens: cachedInputTokens,
+    cacheWriteTokens: Math.max(0, inputTokens - cachedInputTokens),
+    modelContextWindow: nullableInteger(tokenUsage?.modelContextWindow)
+  }
+}
+
+function integerValue(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+}
+
+function nullableInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null
 }

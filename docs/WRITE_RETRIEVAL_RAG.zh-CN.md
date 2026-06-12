@@ -21,13 +21,13 @@
 ```mermaid
 flowchart LR
   A["CodeMirror 光标上下文"] --> B["补全 payload"]
-  B --> C["主进程 FIM 补全服务"]
+  B --> C["主进程 Model Router 补全服务"]
   C --> D["写作空间检索服务"]
   D --> E["扫描 Markdown / 文本文件"]
   E --> F["分块 + 分词 + BM25 索引"]
   F --> G["关键词/BM25 召回片段"]
   G --> H["隐藏 Markdown comment 注入 prompt"]
-  H --> I["DeepSeek FIM /completions"]
+  H --> I["Model Router /v1/responses"]
 ```
 
 核心实现：
@@ -129,7 +129,7 @@ norm = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * chunkLength / avgLength))
 
 ## Prompt 注入
 
-检索结果不会直接追加到用户正文里，而是以隐藏 Markdown comment 形式放在 FIM prompt 前：
+检索结果不会直接追加到用户正文里，而是以隐藏 Markdown comment 形式放在补全 prompt 前：
 
 ```markdown
 <!-- DeepSeek GUI inline completion references.
@@ -179,7 +179,7 @@ Matched: ...
 - 二进制文件会通过 NUL 字节检测跳过。
 - 单文件读取有字节上限。
 - 读文件失败会忽略，不阻塞补全。
-- 没有命中结果时，补全会退化为普通 FIM。
+- 没有命中结果时，补全会退化为普通 router completion。
 
 ## 失败降级
 
@@ -192,7 +192,7 @@ Matched: ...
 - 没有超过阈值的片段。
 - 文件扫描或读取过程中出现局部错误。
 
-主进程补全服务会捕获检索异常，继续用原始 prompt 请求 FIM。
+主进程补全服务会捕获检索异常，继续用原始 prompt 请求 Model Router。
 
 ## 可调参数
 
@@ -226,5 +226,5 @@ Matched: ...
 - 中英文 token 生成。
 - 跨文档片段召回。
 - 排除当前文件。
-- 检索片段注入 FIM prompt。
+- 检索片段注入补全 prompt。
 - 无检索结果时保持原始 prompt。

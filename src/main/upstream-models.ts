@@ -2,9 +2,9 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
-  getModelProviderProfile,
   getModelProviderSettings,
   listModelProviderModelIds,
+  resolveRuntimeModelRouterSettings,
   resolveKunRuntimeSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
@@ -17,6 +17,8 @@ export type FetchUpstreamModelsResult =
   | { ok: false; message: string }
 
 const UPSTREAM_MODELS_TIMEOUT_MS = 8_000
+const MODEL_ROUTER_PROVIDER_ID = 'model-router'
+const MODEL_ROUTER_PROVIDER_LABEL = 'Model Router'
 
 export function fallbackModelIds(): string[] {
   return sortComposerModelIds(DEFAULT_COMPOSER_MODEL_IDS)
@@ -24,16 +26,21 @@ export function fallbackModelIds(): string[] {
 
 export async function fetchUpstreamModelIds(
   settings: AppSettingsV1,
-  apiKey: string
+  _apiKey: string
 ): Promise<FetchUpstreamModelsResult> {
+  const rawBaseUrl = typeof settings.modelRouter?.baseUrl === 'string'
+    ? settings.modelRouter.baseUrl.trim()
+    : ''
+  if (!rawBaseUrl) {
+    return { ok: false, message: 'Missing Model Router base URL; cannot query local /v1/models.' }
+  }
+  const runtime = resolveRuntimeModelRouterSettings(settings)
+  const key = runtime.apiKey.trim()
+  if (!key) {
+    return { ok: false, message: 'Missing Model Router runtime API key; cannot query local /v1/models.' }
+  }
   const configuredModelIds = await readConfiguredKunModelIds(settings)
   const configuredGroups = await readConfiguredModelGroups(settings)
-  const key = apiKey.trim()
-  if (!key) {
-    return modelListOrError(configuredModelIds, configuredGroups, 'Missing API key; cannot query upstream /v1/models.')
-  }
-  const runtime = resolveKunRuntimeSettings(settings)
-  const activeProvider = getModelProviderProfile(settings, runtime.providerId)
   const url = upstreamOpenAiModelsUrl(runtime.baseUrl)
   try {
     const res = await fetch(url, {
@@ -49,18 +56,18 @@ export async function fetchUpstreamModelIds(
       return modelListOrError(
         configuredModelIds,
         configuredGroups,
-        `Upstream models request failed (${res.status}): ${text.slice(0, 400)}`
+        `Model Router models request failed (${res.status}): ${text.slice(0, 400)}`
       )
     }
     let parsed: unknown
     try {
       parsed = JSON.parse(text) as unknown
     } catch {
-      return modelListOrError(configuredModelIds, configuredGroups, 'Upstream /v1/models returned non-JSON body.')
+      return modelListOrError(configuredModelIds, configuredGroups, 'Model Router /v1/models returned non-JSON body.')
     }
     const data = (parsed as { data?: unknown }).data
     if (!Array.isArray(data)) {
-      return modelListOrError(configuredModelIds, configuredGroups, 'Upstream /v1/models JSON missing data[] array.')
+      return modelListOrError(configuredModelIds, configuredGroups, 'Model Router /v1/models JSON missing data[] array.')
     }
     const ids = new Set<string>()
     for (const row of data) {
@@ -71,7 +78,7 @@ export async function fetchUpstreamModelIds(
     }
     const sorted = mergeModelIds([...ids, ...configuredModelIds])
     if (sorted.length === 0) {
-      return { ok: false, message: 'Upstream returned an empty model list.' }
+      return { ok: false, message: 'Model Router returned an empty model list.' }
     }
     return {
       ok: true,
@@ -79,8 +86,8 @@ export async function fetchUpstreamModelIds(
       modelGroups: mergeModelGroups([
         ...configuredGroups,
         {
-          providerId: activeProvider.id,
-          label: activeProvider.name,
+          providerId: MODEL_ROUTER_PROVIDER_ID,
+          label: MODEL_ROUTER_PROVIDER_LABEL,
           modelIds: [...ids]
         }
       ])

@@ -94,10 +94,10 @@ The result: Kun is built for real project work with long tasks, long sessions, a
 - **Feature-flagged agent extensions**: Kun can enable MCP, web fetch/search, Skills, standalone CLI use, image attachments, cross-session memory, and delegated subagents by config; Settings shows the runtime-reported capability and diagnostics state.
 - **Connect phone**: run a background agent alongside normal chat, with current support for Feishu / Lark / WeChat, IM webhook / relay flows, and scheduled tasks.
 - **Scheduled tasks**: create one-time, daily, interval, or manual tasks with their own workspace, model, and reasoning effort so Kun can run while the computer is awake.
-- **Write mode**: manage `~/.deepseekgui/write_workspace` and custom writing spaces, browse Markdown files, use live Markdown editing, preview relative images, get DeepSeek FIM short completion / inspiration completion with optional cross-document BM25 + keyword retrieval, export the current document as `HTML / PDF / DOC / DOCX`, and invoke the writing assistant directly from selected text.
+- **Write mode**: manage `~/.deepseekgui/write_workspace` and custom writing spaces, browse Markdown files, use live Markdown editing, preview relative images, get Model Router-backed short completion / inspiration completion with optional cross-document BM25 + keyword retrieval, export the current document as `HTML / PDF / DOC / DOCX`, and invoke the writing assistant directly from selected text.
 - **High token ROI**: Kun keeps prompt prefixes stable, tracks DeepSeek-native cache hit/miss fields, compacts context and tool output, and uses MCP search to discover tools progressively so tokens stay focused on requirements, code, decisions, and results.
-- **Friendly first launch**: choose language, add your DeepSeek API key, and optionally set a compatible Base URL.
-- **Local-first**: preferences, sessions, logs, and runtime config stay on your machine; model calls use your own DeepSeek API key.
+- **Friendly first launch**: choose language, then configure the local Model Router runtime key, public model alias, and member provider profile.
+- **Local-first**: preferences, sessions, logs, and runtime config stay on your machine; runtime model calls enter the local Model Router, which uses the provider credentials you configure there.
 - **English and Chinese UI**: switch languages from Settings at any time.
 - **Cross-platform use**: macOS `.dmg/.zip`, Windows `.exe`, and Linux `.AppImage`; source builds remain available.
 
@@ -174,11 +174,11 @@ The full contract is documented in
 [`docs/agent-runtime-contract.md`](docs/agent-runtime-contract.md).
 
 Settings live under **Settings → Agent runtime**: binary path, port,
-auto-start, API key, base URL, runtime token, data dir, model,
-approval policy, sandbox mode, and the insecure switch. If an older
-provider was saved before, settings are migrated into
-`agents.kun` on load; after saving, Kun settings are preserved and
-`agents.codex` settings may be added.
+auto-start, Model Router base URL, runtime API key, public model alias,
+data dir, model, approval policy, sandbox mode, and the insecure switch.
+If an older provider was saved before, settings are migrated into
+`agents.kun` and a Model Router member profile on load; after saving,
+Kun settings are preserved and `agents.codex` settings may be added.
 
 The full endpoint list, CLI flags, environment variables, data dir
 layout, and SSE event schema are documented in
@@ -189,7 +189,7 @@ layout, and SSE event schema are documented in
 - Developers who want DeepSeek to work on real codebases without living in a terminal.
 - Teams that need to see what the agent did, which files changed, and which operations required approval.
 - Users who maintain multiple projects or long-running conversations and want reusable Skill/MCP setup.
-- Anyone who wants a local desktop workbench connected to the official DeepSeek API or a compatible endpoint.
+- Anyone who wants a local desktop workbench with DeepSeek or OpenAI-compatible providers managed through Model Router.
 
 ---
 
@@ -227,7 +227,7 @@ A dedicated Markdown writing workbench that keeps writing files, save state, and
 - Manage `~/.deepseekgui/write_workspace` plus custom writing spaces from the left file tree.
 - Switch between **Live / Source / Split / Preview**; Live keeps Markdown source on the active line and renders the rest.
 - Export the current Markdown document from the toolbar as `HTML / PDF / DOC / DOCX`, with best-effort preservation for headings, lists, code blocks, tables, and local images.
-- DeepSeek FIM short and inspiration completion, plus selection-based inline agent actions and a right-side writing assistant for summaries, outlines, and polish.
+- Model Router-backed short and inspiration completion, plus selection-based inline agent actions and a right-side writing assistant for summaries, outlines, and polish.
 
 ### Connect Phone
 
@@ -260,7 +260,7 @@ Download the latest build from [GitHub Releases](https://github.com/XingYu-Zhong
 | Windows | `.exe`, NSIS installer, x64 |
 | Linux | `.AppImage`, x64 |
 
-On first launch, enter your [DeepSeek API key](https://platform.deepseek.com/api_keys). If you use a DeepSeek/OpenAI-compatible endpoint, you can set a custom Base URL in Settings.
+On first launch, configure the local Model Router runtime key, public model alias, and member provider profile. Upstream provider credentials are written only into Model Router configuration.
 
 ### Run from Source
 
@@ -276,7 +276,7 @@ npm run dev
 Requirements:
 
 - Node.js 20+
-- A DeepSeek API key
+- Upstream model provider credentials configured through Model Router
 - Internet access during the first dependency install
 
 For slower network access in mainland China, use an npm mirror:
@@ -291,7 +291,7 @@ npm install --registry=https://registry.npmmirror.com
 
 1. Open DeepSeek GUI.
 2. Choose your interface language in the onboarding guide.
-3. Enter your DeepSeek API key; set a custom Base URL if needed.
+3. Configure the local Model Router runtime key, public model alias, and member provider profile.
 4. Choose a default workspace, or use the default directory created by the app.
 5. Start a new session and describe the task you want the agent to handle.
 
@@ -312,7 +312,7 @@ See [Workbench And Entry Points](#workbench-and-entry-points) above for Connect 
 
 Settings manages:
 
-- DeepSeek API key, Base URL, runtime port, and runtime token.
+- Model Router base URL, runtime API key, public model alias, runtime port, and runtime token.
 - Auto-start for the local runtime, plus optional custom `deepseek` path.
 - Tool approval policy and filesystem access mode.
 - Default workspace, language, theme, font size, and completion notifications.
@@ -336,7 +336,7 @@ Write mode extends DeepSeek GUI from a code/chat workbench into a long-form writ
 - Markdown live editing: openhanako inspired the CodeMirror decorations approach where the active line stays editable as Markdown source while inactive lines render headings, tasks, images, dividers, and tables through widgets.
 - Selection inline agent: openhanako inspired the selection-capture and floating-input interaction, so selected text can be sent with file path, line numbers, and bounded original text as structured context.
 - AI session isolation: Write assistant threads follow the active agent runtime, while the GUI keeps a local write thread registry per writing space and runtime so write conversations do not pollute Code / Connect phone sidebars.
-- Text completion: writing completion bypasses the local agent runtime and calls the DeepSeek FIM Completion API directly for low-latency ghost text. Short completion uses a short debounce, small token budget, and strict local filtering; inspiration completion uses a longer pause, larger token budget, and only runs at line ends or paragraph boundaries. Before completion, the app builds a short-TTL lightweight index over Markdown / text files in the writing space, retrieves cross-document snippets with BM25 + keyword matching, and injects them as a hidden Markdown comment so terminology, facts, and style stay consistent.
+- Text completion: writing completion calls the local Model Router through its Responses-compatible interface, using a Write inline completion public model alias for low-latency ghost text. Short completion uses a short debounce, small token budget, and strict local filtering; inspiration completion uses a longer pause, larger token budget, and only runs at line ends or paragraph boundaries. Before completion, the app builds a short-TTL lightweight index over Markdown / text files in the writing space, retrieves cross-document snippets with BM25 + keyword matching, and injects them as a hidden Markdown comment so terminology, facts, and style stay consistent.
 
 ---
 

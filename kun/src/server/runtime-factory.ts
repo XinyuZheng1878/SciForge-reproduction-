@@ -71,6 +71,7 @@ export type KunServeRuntimeOptions = {
   baseUrl: string
   endpointFormat?: ModelEndpointFormat
   model: string
+  forceDefaultModel?: boolean
   approvalPolicy: ApprovalPolicy
   sandboxMode: SandboxMode
   tokenEconomyMode: boolean
@@ -144,7 +145,8 @@ export async function createKunServeRuntime(
     baseUrl: options.baseUrl,
     apiKey: options.apiKey,
     endpointFormat: options.endpointFormat ?? DEFAULT_MODEL_ENDPOINT_FORMAT,
-    model: options.model
+    model: options.model,
+    forceDefaultModel: options.forceDefaultModel
   })
   const modelProfiles = modelContextProfilesFromConfig({
     contextCompaction: options.contextCompaction,

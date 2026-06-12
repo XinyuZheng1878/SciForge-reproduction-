@@ -4,6 +4,7 @@ import {
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -18,6 +19,10 @@ function settings(apiKey: string): AppSettingsV1 {
     theme: 'system',
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
+    modelRouter: {
+      ...defaultModelRouterSettings(),
+      runtimeApiKey: apiKey
+    },
     agents: {
       kun: {
         ...defaultKunRuntimeSettings(),

@@ -351,6 +351,29 @@ const modelProviderPatchSchema = z.object({
   }).strict()).max(50).optional()
 }).strict()
 
+const modelRouterMemberProviderPatchSchema = z.object({
+  provider: z.string().trim().min(1).max(80).optional(),
+  baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+  apiKey: z.string().max(MAX_BODY_BYTES).optional(),
+  model: z.string().trim().max(128).optional()
+}).strict()
+
+const modelRouterPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+  autoStart: z.boolean().optional(),
+  publicModelAlias: z.string().trim().min(1).max(128).optional(),
+  runtimeApiKey: z.string().max(MAX_BODY_BYTES).optional(),
+  profiles: z.object({
+    default: z.object({
+      textReasoner: modelRouterMemberProviderPatchSchema.optional(),
+      translators: z.object({
+        vision: modelRouterMemberProviderPatchSchema.optional()
+      }).strict().optional()
+    }).strict().optional()
+  }).strict().optional()
+}).strict()
+
 const kunRuntimePatchSchema = z.object({
   binaryPath: defaultPathSchema,
   port: z.number().int().min(1).max(65_535).optional(),
@@ -674,6 +697,7 @@ const settingsPatchObjectSchema = z.object({
   theme: themeSchema.optional(),
   uiFontScale: uiFontScaleSchema.optional(),
   provider: modelProviderPatchSchema.optional(),
+  modelRouter: modelRouterPatchSchema.optional(),
   activeAgentRuntime: agentRuntimeIdSchema.optional(),
   agents: z.object({
     kun: kunRuntimePatchSchema.optional(),

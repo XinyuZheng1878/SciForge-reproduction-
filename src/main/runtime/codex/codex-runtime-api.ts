@@ -1,4 +1,4 @@
-import type { AgentRuntimePhase } from '../../../shared/agent-runtime-contract'
+import type { AgentRuntimePhase, AgentRuntimeUsage } from '../../../shared/agent-runtime-contract'
 
 export type CodexJsonObject = Record<string, unknown>
 
@@ -47,6 +47,7 @@ export type CodexThreadDetail = {
   threadStatus?: string
   latestTurnId?: string
   latestUserMessageId?: string
+  usage?: AgentRuntimeUsage
 }
 
 export type CodexThreadEventPayload = {
@@ -84,6 +85,7 @@ export type CodexThreadEventPayload = {
     latencyMs?: number
     createdAt?: string
   }
+  usage?: AgentRuntimeUsage
   turnComplete?: boolean
 }
 

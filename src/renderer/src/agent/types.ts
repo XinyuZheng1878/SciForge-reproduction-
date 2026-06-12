@@ -346,6 +346,13 @@ export type ThreadDeltaEvent = {
   seq?: number
 }
 
+export type AssistantMessageEventPayload = {
+  itemId: string
+  turnId?: string
+  createdAt?: string
+  text: string
+}
+
 /** Cumulative usage/cost for a Kun thread. */
 export type ThreadUsageSnapshot = {
   inputTokens: number
@@ -368,6 +375,7 @@ export type ThreadUsageSnapshot = {
 export type ThreadEventSink = {
   onSeq(seq: number): void
   onDeltas(deltas: ThreadDeltaEvent[]): void
+  onAssistantMessage?(ev: AssistantMessageEventPayload): void
   onUserMessage(ev: UserMessageEventPayload): void
   onTool(ev: ToolEventPayload): void
   onCompaction(ev: CompactionEventPayload): void

@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import {
+  DEFAULT_SERVE_BASE_URL,
+  DEFAULT_SERVE_ENDPOINT_FORMAT,
   DEFAULT_SERVE_PORT,
   DEFAULT_SERVE_OPTIONS,
   ServeOptionsSchema,
@@ -83,15 +85,15 @@ export function parseServeOptions(
         ? raw['api-key']
         : typeof raw.apiKey === 'string'
           ? raw.apiKey
-          : env.DEEPSEEK_API_KEY ?? configServe.apiKey ?? DEFAULT_SERVE_OPTIONS.apiKey,
+          : env.KUN_MODEL_ROUTER_API_KEY ??
+            configServe.apiKey ??
+            DEFAULT_SERVE_OPTIONS.apiKey,
     baseUrl:
       typeof raw['base-url'] === 'string'
         ? raw['base-url']
         : typeof raw.baseUrl === 'string'
           ? raw.baseUrl
-          : env.KUN_BASE_URL ??
-            env.DEEPSEEK_BASE_URL ??
-            configServe.baseUrl ??
+          : configServe.baseUrl ??
             DEFAULT_SERVE_OPTIONS.baseUrl,
     endpointFormat:
       typeof raw['endpoint-format'] === 'string'
@@ -105,6 +107,12 @@ export function parseServeOptions(
       typeof raw.model === 'string'
         ? raw.model
         : env.KUN_MODEL ?? configServe.model ?? DEFAULT_SERVE_OPTIONS.model,
+    forceDefaultModel:
+      booleanFlag(raw, 'force-default-model') ??
+      booleanFlag(raw, 'forceDefaultModel') ??
+      envBoolean(env.KUN_FORCE_DEFAULT_MODEL) ??
+      configServe.forceDefaultModel ??
+      DEFAULT_SERVE_OPTIONS.forceDefaultModel,
     approvalPolicy:
       typeof raw['approval-policy'] === 'string'
         ? (raw['approval-policy'] as ServeOptions['approvalPolicy'])
@@ -158,10 +166,11 @@ Options:
   --port <port>            HTTP port (default ${DEFAULT_SERVE_PORT})
   --data-dir <path>        Root directory for threads, events, and usage
   --runtime-token <token>  Bearer token for /v1/* requests
-  --api-key <key>          DeepSeek-compatible API key
-  --base-url <url>         DeepSeek-compatible base URL
-  --endpoint-format <f>    chat_completions | responses | messages
-  --model <model>          Default model id
+  --api-key <key>          Model router API key (required; or KUN_MODEL_ROUTER_API_KEY)
+  --base-url <url>         Model router base URL (default ${DEFAULT_SERVE_BASE_URL})
+  --endpoint-format <f>    chat_completions | responses | messages (default ${DEFAULT_SERVE_ENDPOINT_FORMAT})
+  --model <model>          Default model id (default ${DEFAULT_SERVE_OPTIONS.model})
+  --force-default-model    Always send --model to the provider, ignoring per-turn overrides
   --approval-policy <p>    on-request | untrusted | never | auto | suggest
   --sandbox-mode <mode>    read-only | workspace-write | danger-full-access | external-sandbox
   --token-economy          Compress safe tool context before model calls
@@ -198,6 +207,13 @@ export function parseServeOptionsSafe(
         ok: false,
         exitCode: ServeExitCode.config,
         message: 'serve requires --data-dir <path>'
+      }
+    }
+    if (!parsed.apiKey.trim()) {
+      return {
+        ok: false,
+        exitCode: ServeExitCode.config,
+        message: 'serve requires a Model Router API key via --api-key <key> or KUN_MODEL_ROUTER_API_KEY'
       }
     }
     return { ok: true, options: parsed }

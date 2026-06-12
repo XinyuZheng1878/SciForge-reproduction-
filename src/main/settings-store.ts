@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { atomicWriteFile } from '../../kun/src/adapters/file/atomic-write.js'
@@ -11,12 +12,15 @@ import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKunRuntimeSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   getCodexRuntimeSettings,
   getKunRuntimeSettings,
+  getModelRouterSettings,
   mergeCodexRuntimeSettings,
   mergeKunRuntimeSettings,
+  mergeModelRouterSettings,
   mergeModelProviderSettings,
   defaultWriteSettings,
   mergeClawSettings,
@@ -152,6 +156,19 @@ function serializeSettingsForDisk(settings: AppSettingsV1): string {
   return JSON.stringify(normalizeStoredSettings(settings), null, 2)
 }
 
+function withGeneratedModelRouterRuntimeKey(settings: AppSettingsV1): AppSettingsV1 {
+  const modelRouter = getModelRouterSettings(settings)
+  const runtimeApiKey = modelRouter.runtimeApiKey.trim()
+  if (runtimeApiKey) return settings
+  return {
+    ...settings,
+    modelRouter: {
+      ...modelRouter,
+      runtimeApiKey: `local-router-${randomUUID()}`
+    }
+  }
+}
+
 export async function ensureWorkspaceRootExists(workspaceRoot: string): Promise<string> {
   const normalized = normalizeWorkspaceRoot(workspaceRoot)
   await mkdir(normalized, { recursive: true })
@@ -191,6 +208,7 @@ const defaultSettings = (): AppSettingsV1 => ({
   theme: 'system',
   uiFontScale: 'small',
   provider: defaultModelProviderSettings(),
+  modelRouter: defaultModelRouterSettings(),
   activeAgentRuntime: 'kun',
   agents: {
     kun: defaultKunRuntimeSettings(),
@@ -222,6 +240,7 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
     ...defaults,
     ...migrated,
     provider: mergeModelProviderSettings(defaults.provider, migrated.provider),
+    modelRouter: mergeModelRouterSettings(defaults.modelRouter, migrated.modelRouter),
     activeAgentRuntime: normalizeAgentRuntimeId(migrated.activeAgentRuntime ?? defaults.activeAgentRuntime),
     agents: {
       ...kunSettingsEnvelope(
@@ -325,8 +344,9 @@ export class JsonSettingsStore {
     try {
       const loaded = await readSettingsFileWithCompatibility(this.path)
       if (!loaded) {
-        this.cache = await loadDefaultSettings()
-        return this.cache
+        const defaults = withGeneratedModelRouterRuntimeKey(await loadDefaultSettings())
+        await this.save(defaults)
+        return defaults
       }
       raw = loaded.raw
       sourcePath = loaded.sourcePath
@@ -341,7 +361,7 @@ export class JsonSettingsStore {
     } catch (error) {
       if (error instanceof SyntaxError) {
         const backupPath = await writeInvalidSettingsBackup(sourcePath, raw)
-        const defaults = await loadDefaultSettings()
+        const defaults = withGeneratedModelRouterRuntimeKey(await loadDefaultSettings())
         await this.save(defaults)
         if (backupPath) {
           console.warn(
@@ -358,12 +378,16 @@ export class JsonSettingsStore {
       throw new Error(`Failed to parse settings file ${sourcePath}: ${message}`, { cause: error })
     }
 
-    const normalized = normalizeStoredSettings(buildMergedSettings(parsed))
+    const normalizedBeforeRuntimeKey = normalizeStoredSettings(buildMergedSettings(parsed))
+    const normalized = withGeneratedModelRouterRuntimeKey(normalizedBeforeRuntimeKey)
     await ensureWorkspaceRootExists(normalized.workspaceRoot)
     await ensureWriteWorkspaceRootsExist(normalized)
     await ensureClawChannelWorkspaceRootsExist(normalized)
     this.cache = normalized
-    if (sourcePath !== this.path) {
+    if (
+      sourcePath !== this.path ||
+      getModelRouterSettings(normalized).runtimeApiKey !== getModelRouterSettings(normalizedBeforeRuntimeKey).runtimeApiKey
+    ) {
       await this.save(normalized)
     }
     return this.cache
@@ -381,11 +405,12 @@ export class JsonSettingsStore {
 
   async patch(partial: AppSettingsPatch): Promise<AppSettingsV1> {
     const cur = await this.load()
-    const { agents: agentsPatch, provider: providerPatch, ...restPatch } = partial
+    const { agents: agentsPatch, provider: providerPatch, modelRouter: modelRouterPatch, ...restPatch } = partial
     const next = normalizeStoredSettings({
       ...applyCodexRuntimePatch(applyKunRuntimePatch(cur, agentsPatch?.kun), agentsPatch?.codex),
       ...restPatch,
       provider: mergeModelProviderSettings(cur.provider, providerPatch),
+      modelRouter: mergeModelRouterSettings(cur.modelRouter, modelRouterPatch),
       log: { ...cur.log, ...(partial.log ?? {}) },
       notifications: { ...cur.notifications, ...(partial.notifications ?? {}) },
       appBehavior: normalizeAppBehaviorSettings({

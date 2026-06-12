@@ -1,0 +1,98 @@
+import { describe, expect, it } from 'vitest'
+import {
+  defaultClawSettings,
+  defaultCodexRuntimeSettings,
+  defaultKeyboardShortcuts,
+  defaultKunRuntimeSettings,
+  defaultModelProviderSettings,
+  defaultModelRouterSettings,
+  defaultScheduleSettings,
+  defaultWriteSettings,
+  type AppSettingsV1
+} from '../shared/app-settings'
+import { checkModelRouterHealth } from './model-router-health'
+
+function settings(): AppSettingsV1 {
+  return {
+    version: 1,
+    locale: 'en',
+    theme: 'system',
+    uiFontScale: 'small',
+    provider: defaultModelProviderSettings(),
+    modelRouter: {
+      ...defaultModelRouterSettings(),
+      runtimeApiKey: 'local-runtime-router-key'
+    },
+    activeAgentRuntime: 'kun',
+    agents: {
+      kun: defaultKunRuntimeSettings(),
+      codex: defaultCodexRuntimeSettings()
+    },
+    workspaceRoot: '/tmp/workspace',
+    log: { enabled: false, retentionDays: 7 },
+    notifications: { turnComplete: true },
+    appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
+    keyboardShortcuts: defaultKeyboardShortcuts(),
+    write: defaultWriteSettings(),
+    claw: defaultClawSettings(),
+    schedule: defaultScheduleSettings(),
+    guiUpdate: { channel: 'stable' },
+    codePromptPrefix: ''
+  }
+}
+
+describe('checkModelRouterHealth', () => {
+  it('reports healthy when healthz succeeds', async () => {
+    const calls: string[] = []
+    const result = await checkModelRouterHealth(settings(), {
+      fetchImpl: async (url) => {
+        calls.push(String(url))
+        return Response.json({ ok: true, upstream: { ok: true } })
+      }
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      status: 'healthy',
+      message: 'Model Router is healthy'
+    })
+    expect(calls).toEqual(['http://127.0.0.1:3892/healthz'])
+  })
+
+  it('fails closed when runtime API key is missing', async () => {
+    const current = settings()
+    current.modelRouter = {
+      ...defaultModelRouterSettings(),
+      ...current.modelRouter,
+      runtimeApiKey: ''
+    }
+
+    const result = await checkModelRouterHealth(current, {
+      fetchImpl: async () => {
+        throw new Error('fetch should not be called')
+      }
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'not_configured'
+    })
+  })
+
+  it('maps healthz provider auth failures without leaking secrets', async () => {
+    const result = await checkModelRouterHealth(settings(), {
+      fetchImpl: async () => Response.json({
+        ok: false,
+        upstream: {
+          ok: false,
+          issue: 'missing_secret',
+          detail: 'Authorization failed for sk-upstream-secret'
+        }
+      }, { status: 503 })
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe('provider_auth_blocked')
+    expect(JSON.stringify(result)).not.toMatch(/sk-upstream-secret|Authorization/i)
+  })
+})

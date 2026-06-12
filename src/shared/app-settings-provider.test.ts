@@ -3,6 +3,7 @@ import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -30,6 +31,10 @@ function settings(): AppSettingsV1 {
         }
       ]
     },
+    modelRouter: {
+      ...defaultModelRouterSettings(),
+      runtimeApiKey: 'local-runtime-router-key'
+    },
     agents: {
       kun: {
         ...defaultKunRuntimeSettings(),
@@ -51,11 +56,12 @@ function settings(): AppSettingsV1 {
 }
 
 describe('model provider settings', () => {
-  it('resolves Kun runtime credentials from the selected provider', () => {
+  it('resolves Kun runtime credentials only from the local Model Router boundary', () => {
     const runtime = resolveKunRuntimeSettings(settings())
 
-    expect(runtime.apiKey).toBe('sk-custom')
-    expect(runtime.baseUrl).toBe('https://custom.example/v1')
-    expect(runtime.endpointFormat).toBe('messages')
+    expect(runtime.apiKey).toBe('local-runtime-router-key')
+    expect(runtime.baseUrl).toBe('http://127.0.0.1:3892/v1')
+    expect(runtime.endpointFormat).toBe('responses')
+    expect(runtime.model).toBe('deepseek-gui-router')
   })
 })

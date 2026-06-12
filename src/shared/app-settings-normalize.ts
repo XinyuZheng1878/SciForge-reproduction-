@@ -24,6 +24,7 @@ import {
   normalizeAgentRuntimeId
 } from './app-settings-codex'
 import { normalizeModelProviderSettings } from './app-settings-provider'
+import { normalizeModelRouterSettings } from './app-settings-model-router'
 import { normalizeDeepseekBaseUrl } from './app-settings-normalizers'
 import { normalizeClawSettings } from './app-settings-claw'
 import { normalizeScheduleSettings } from './app-settings-schedule'
@@ -38,6 +39,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     keyboardShortcuts?: Partial<KeyboardShortcutsConfigV1>
     notifications?: Partial<NotificationConfigV1>
     provider?: Parameters<typeof normalizeModelProviderSettings>[0]
+    modelRouter?: Parameters<typeof normalizeModelRouterSettings>[0]
     write?: WriteSettingsPatchV1
     claw?: ClawSettingsPatchV1
     schedule?: ScheduleSettingsPatchV1
@@ -60,6 +62,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
         ? maybeSettings.uiFontScale
         : 'small',
     provider: normalizeModelProviderSettings(maybeSettings.provider),
+    modelRouter: normalizeModelRouterSettings(maybeSettings.modelRouter),
     activeAgentRuntime: normalizeAgentRuntimeId(maybeSettings.activeAgentRuntime),
     agents: {
       ...kunSettingsEnvelope(mergeKunRuntimeSettings(defaultKunRuntimeSettings(), {

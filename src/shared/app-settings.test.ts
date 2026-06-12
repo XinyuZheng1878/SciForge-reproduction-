@@ -14,6 +14,7 @@ import {
   DEFAULT_SCHEDULE_INTERNAL_PORT,
   buildClawRuntimePrompt,
   defaultClawSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   mergeKunRuntimeSettings,
   mergeScheduleSettings,
@@ -47,6 +48,7 @@ function settings(): AppSettingsV1 {
     theme: 'system',
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
+    modelRouter: defaultModelRouterSettings(),
     activeAgentRuntime: 'kun',
     agents: {
       kun: defaultKunRuntimeSettings(),
@@ -620,17 +622,21 @@ describe('agent runtime settings', () => {
     expect(getActiveAgentApiKey(normalized)).toBe('')
   })
 
-  it('uses the shared provider API key while Codex is the active runtime', () => {
+  it('uses the Model Router runtime API key while Codex is the active runtime', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       activeAgentRuntime: 'codex',
       provider: {
         ...defaultModelProviderSettings(),
         apiKey: 'sk-codex-shared'
+      },
+      modelRouter: {
+        ...defaultModelRouterSettings(),
+        runtimeApiKey: 'sk-router-runtime'
       }
     })
 
-    expect(getActiveAgentApiKey(normalized)).toBe('sk-codex-shared')
+    expect(getActiveAgentApiKey(normalized)).toBe('sk-router-runtime')
   })
 
   it('wraps codex runtime patches into the shared agents envelope', () => {
@@ -814,9 +820,10 @@ describe('legacy Kun defaults migration', () => {
     expect(migrated.agents.kun.providerId).toBe('custom-provider-2')
     expect(resolveKunRuntimeSettings(migrated)).toEqual(
       expect.objectContaining({
-        apiKey: 'sk-custom',
-        baseUrl: 'https://custom.example/v1',
-        endpointFormat: 'responses'
+        apiKey: '',
+        baseUrl: 'http://127.0.0.1:3892/v1',
+        endpointFormat: 'responses',
+        model: 'deepseek-gui-router'
       })
     )
   })
@@ -1008,44 +1015,49 @@ describe('claw runtime prompts', () => {
 })
 
 describe('write inline completion runtime config', () => {
-  it('falls back to the General baseUrl when write has no override', () => {
+  it('uses the Model Router base URL instead of the General provider URL', () => {
     const state = settings()
     state.provider.baseUrl = 'https://general.example/v1'
-    expect(resolveWriteInlineCompletionBaseUrl(state)).toBe('https://general.example/v1')
+    expect(resolveWriteInlineCompletionBaseUrl(state)).toBe('http://127.0.0.1:3892/v1')
   })
 
-  it('preserves an explicit write-only baseUrl override', () => {
+  it('ignores an explicit write-only baseUrl override for runtime-facing calls', () => {
     const state = settings()
     state.provider.baseUrl = 'https://general.example/v1'
     state.write.inlineCompletion.baseUrl = 'https://write-only.example/v1'
-    expect(resolveWriteInlineCompletionBaseUrl(state)).toBe('https://write-only.example/v1')
+    expect(resolveWriteInlineCompletionBaseUrl(state)).toBe('http://127.0.0.1:3892/v1')
   })
 
-  it('falls back to the kun model when write keeps the default inline model', () => {
+  it('uses the Model Router public alias instead of the Kun model', () => {
     const state = settings()
     state.agents.kun.model = 'deepseek-chat'
-    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-chat')
+    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-gui-router')
   })
 
-  it('keeps an explicit flash override when write disables inheritance', () => {
+  it('ignores explicit write model overrides for runtime-facing calls', () => {
     const state = settings()
     state.agents.kun.model = 'deepseek-chat'
     state.write.inlineCompletion.inheritModel = false
     state.write.inlineCompletion.model = 'deepseek-v4-flash'
 
-    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-v4-flash')
+    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-gui-router')
   })
 
-  it('preserves an explicit request model before any fallback', () => {
+  it('ignores explicit request models for runtime-facing calls', () => {
     const state = settings()
     state.agents.kun.model = 'deepseek-chat'
-    expect(resolveWriteInlineCompletionModel(state, 'deepseek-v4-pro')).toBe('deepseek-v4-pro')
+    expect(resolveWriteInlineCompletionModel(state, 'deepseek-v4-pro')).toBe('deepseek-gui-router')
   })
 
   it('tolerates legacy write inline settings without new override fields', () => {
     const state = settings()
     state.provider.apiKey = 'general-key'
     state.provider.baseUrl = 'https://general.example/v1'
+    state.modelRouter = {
+      ...defaultModelRouterSettings(),
+      ...state.modelRouter,
+      runtimeApiKey: 'local-runtime-router-key'
+    }
     state.agents.kun.model = 'deepseek-chat'
     const legacyInlineCompletion = { ...state.write.inlineCompletion } as Partial<AppSettingsV1['write']['inlineCompletion']>
     delete legacyInlineCompletion.apiKey
@@ -1054,12 +1066,12 @@ describe('write inline completion runtime config', () => {
     delete legacyInlineCompletion.model
     state.write.inlineCompletion = legacyInlineCompletion as AppSettingsV1['write']['inlineCompletion']
 
-    expect(resolveWriteInlineCompletionApiKey(state)).toBe('general-key')
-    expect(resolveWriteInlineCompletionBaseUrl(state)).toBe('https://general.example/v1')
-    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-chat')
+    expect(resolveWriteInlineCompletionApiKey(state)).toBe('local-runtime-router-key')
+    expect(resolveWriteInlineCompletionBaseUrl(state)).toBe('http://127.0.0.1:3892/v1')
+    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-gui-router')
   })
 
-  it('treats legacy flash defaults without an inherit flag as inherited', () => {
+  it('keeps legacy flash defaults behind the Model Router public alias', () => {
     const state = settings()
     state.agents.kun.model = 'deepseek-chat'
     const legacyInlineCompletion = {
@@ -1069,6 +1081,6 @@ describe('write inline completion runtime config', () => {
     delete legacyInlineCompletion.inheritModel
     state.write.inlineCompletion = legacyInlineCompletion as AppSettingsV1['write']['inlineCompletion']
 
-    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-chat')
+    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-gui-router')
   })
 })

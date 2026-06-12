@@ -1,6 +1,6 @@
 # Use BM25 + keyword RAG to do Write text editing: an exploration and implementation
 
-Text completion in Write has proven one thing: writing scenarios don’t necessarily require heavy vector libraries. As long as it can retrieve terms, facts, and style fragments from the same writing space with low latency, the FIM model can more reliably catch the current paragraph.
+Text completion in Write has proven one thing: writing scenarios don’t necessarily require heavy vector libraries. As long as it can retrieve terms, facts, and style fragments from the same writing space with low latency, the completion model behind Model Router can more reliably catch the current paragraph.
 
 The question explored this time is more specific: **Can text editing also use BM25 + keyword RAG? ** For example, the user selects a noun and asks AI to replace other nouns with the same name in this paragraph. It is not a traditional ghost text completion, but an in-place replacement of an existing text.
 
@@ -85,7 +85,7 @@ raw prefix...
 
 ```
 
-Explicit edit requests currently use the same `write:inline-completion` IPC, but the main process sends them through chat completions so the model can choose a marked `EDIT` action:
+Explicit edit requests currently use the same `write:inline-completion` IPC, but the main process sends them through Model Router `/v1/responses` so the model can choose a marked `EDIT` action:
 
 ```json
 {
@@ -143,7 +143,7 @@ In this way, the user only needs to select a word and enter "Change Alpha to Wri
 
 Editing in place is riskier than ghost text, so several layers of protection are added to the implementation:
 
-- It will fail directly when there is no API key, the completion capability is turned off, and there is no command.
+- It will fail directly when the runtime API key or public model alias is missing, the completion capability is turned off, or there is no command.
 - Multiple selections are not supported at the moment to avoid errors when merging multiple non-consecutive ranges.
 - When the model returns empty text, only delete class directives are allowed to be applied.
 - After the request returns, it will be checked whether the original editing range is still the same as when the request was made; if the user has already changed this section, the application will be rejected.
@@ -154,7 +154,7 @@ Editing in place is riskier than ghost text, so several layers of protection are
 Major new additions and changes:
 
 - `src/shared/write-inline-edit.ts`: Edit request/result type.
-- `src/main/services/write-inline-completion-service.ts`: handles `mode: "edit"` requests, FIM/chat edit prompts, RAG injection, action parsing, and debug logging.
+- `src/main/services/write-inline-completion-service.ts`: handles `mode: "edit"` requests, router completion/edit prompts, RAG injection, action parsing, and debug logging.
 - `src/renderer/src/write/inline-edit.ts`: Expand the selection section, construct the payload, and apply replacement.
 - `src/renderer/src/write/recent-edits.ts`: Logging, filtering and prompt payload conversion of recent edit contexts.
 - `src/renderer/src/write/term-propagation.ts`: Term case/rename propagation in the same paragraph.

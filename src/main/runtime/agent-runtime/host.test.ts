@@ -574,6 +574,104 @@ describe('createKunAgentRuntimeAdapter', () => {
       }
     }])
   })
+
+  it('maps Kun SSE events to neutral lifecycle and delta events', async () => {
+    const rawEvents = [
+      {
+        kind: 'turn_started',
+        seq: 1,
+        timestamp: '2026-06-12T04:41:37.972Z',
+        threadId: 'thr-kun',
+        turnId: 'turn-1'
+      },
+      {
+        kind: 'item_created',
+        seq: 2,
+        timestamp: '2026-06-12T04:41:37.980Z',
+        threadId: 'thr-kun',
+        turnId: 'turn-1',
+        itemId: 'user-1',
+        item: {
+          id: 'user-1',
+          kind: 'user_message',
+          text: 'hello',
+          status: 'completed',
+          createdAt: '2026-06-12T04:41:37.980Z'
+        }
+      },
+      {
+        kind: 'assistant_text_delta',
+        seq: 3,
+        timestamp: '2026-06-12T04:41:39.999Z',
+        threadId: 'thr-kun',
+        turnId: 'turn-1',
+        itemId: 'assistant-1',
+        item: {
+          id: 'assistant-1',
+          kind: 'assistant_text',
+          text: 'hi',
+          status: 'running'
+        }
+      },
+      {
+        kind: 'turn_completed',
+        seq: 4,
+        timestamp: '2026-06-12T04:41:40.021Z',
+        threadId: 'thr-kun',
+        turnId: 'turn-1'
+      }
+    ]
+    const adapter = createKunAgentRuntimeAdapter({
+      request: async () => json({}),
+      events: async function* () {
+        yield* rawEvents
+      }
+    })
+
+    const events: AgentRuntimeEvent[] = []
+    for await (const event of adapter.subscribeEvents!({ settings: settings('kun') }, {
+      threadId: 'thr-kun',
+      sinceSeq: 0
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'turn_lifecycle',
+        runtimeId: 'kun',
+        threadId: 'thr-kun',
+        turnId: 'turn-1',
+        state: 'started',
+        seq: 1,
+        createdAt: '2026-06-12T04:41:37.972Z'
+      }),
+      expect.objectContaining({
+        kind: 'item_snapshot',
+        threadId: 'thr-kun',
+        turnId: 'turn-1',
+        seq: 2,
+        item: expect.objectContaining({ id: 'user-1', kind: 'user_message', text: 'hello' })
+      }),
+      expect.objectContaining({
+        kind: 'assistant_delta',
+        threadId: 'thr-kun',
+        turnId: 'turn-1',
+        itemId: 'assistant-1',
+        text: 'hi',
+        seq: 3
+      }),
+      expect.objectContaining({
+        kind: 'turn_lifecycle',
+        runtimeId: 'kun',
+        threadId: 'thr-kun',
+        turnId: 'turn-1',
+        state: 'completed',
+        seq: 4,
+        createdAt: '2026-06-12T04:41:40.021Z'
+      })
+    ])
+  })
 })
 
 describe('createCodexAgentRuntimeAdapter', () => {
@@ -737,7 +835,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
       storage: {
         guiOwnedThreads: true,
         backendThreadIdStable: false,
-        usage: false,
+        usage: true,
         attachments: { available: false },
         memory: { available: false }
       }

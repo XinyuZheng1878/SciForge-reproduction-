@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, shell, Tray } from 'electron'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,8 +15,8 @@ import {
   applyCodexRuntimePatch,
   applyKunRuntimePatch,
   kunSettingsEnvelope,
-  getActiveAgentApiKey,
   getKunRuntimeSettings,
+  getActiveAgentRuntime,
   mergeKunRuntimeSettings,
   mergeClawSettings,
   mergeModelProviderSettings,
@@ -25,6 +25,7 @@ import {
   normalizeAppSettings,
   normalizeAppBehaviorSettings,
   normalizeKeyboardShortcuts,
+  resolveRuntimeModelRouterSettings,
   resolveKunRuntimeSettings,
   type AgentRuntimeId,
   type AppBehaviorConfigV1,
@@ -35,6 +36,7 @@ import { parseRuntimeErrorBody, runtimeErrorToError, type RuntimeErrorCode } fro
 import type { GuiUpdateState } from '../shared/gui-update'
 import { isAllowedDevPreviewUrl } from '../shared/dev-preview-url'
 import { fetchUpstreamModelIds } from './upstream-models'
+import { ensureModelRouterConfigFile, ensureModelRouterSidecar, stopModelRouterSidecar } from './model-router-sidecar'
 import {
   kunRuntimeAdapter,
   getRuntimeBaseUrlForSettings,
@@ -57,6 +59,7 @@ import {
   type ClawScheduleMcpLaunchConfig
 } from './claw-schedule-mcp-config'
 import { registerAppIpcHandlers } from './ipc/register-app-ipc-handlers'
+import { startDevBrowserBridgeServer, type DevBrowserBridgeServer } from './dev-browser-bridge'
 import {
   configureManagedWeixinBridgeUrlResolver,
   pollFeishuInstall,
@@ -143,9 +146,7 @@ function runtimeFailure(code: string, message: string, status = 0, details?: unk
 }
 
 function resolveConfiguredApiKey(settings: AppSettingsV1): string {
-  const fromSettings = getActiveAgentApiKey(settings)
-  const fromEnv = process.env.DEEPSEEK_API_KEY?.trim() ?? ''
-  return fromSettings || fromEnv
+  return resolveRuntimeModelRouterSettings(settings).apiKey
 }
 
 function runtimeJsonError(code: string, message: string): Error {
@@ -181,6 +182,9 @@ let managedRuntimesStopPromise: Promise<void> | null = null
 let appBehavior: AppBehaviorConfigV1 = normalizeAppBehaviorSettings()
 let tray: Tray | null = null
 let isQuitting = false
+let devBrowserBridgeServer: DevBrowserBridgeServer | null = null
+let codexRuntimePrewarmTimer: ReturnType<typeof setTimeout> | null = null
+let codexRuntimePrewarmPromise: Promise<void> | null = null
 
 type GuiUpdaterModule = typeof import('./gui-updater')
 
@@ -201,13 +205,52 @@ const codexRuntimeEventSink: CodexRuntimeEventSink = {
 
 function getCodexRuntime(): CodexRuntimeService {
   if (codexRuntime) return codexRuntime
+  const codexStorageRoot = join(app.getPath('userData'), 'codex-runtime')
   codexRuntime = new CodexRuntimeService({
     settings: async () => store.load(),
     sink: codexRuntimeEventSink,
     appVersion: app.getVersion(),
-    storageRoot: join(app.getPath('userData'), 'codex-runtime')
+    storageRoot: codexStorageRoot,
+    managedCodexHome: app.isPackaged
+      ? join(app.getPath('userData'), 'runtime-codex', 'codex-home')
+      : join(process.cwd(), '.codex-runtime', 'codex-home')
   })
   return codexRuntime
+}
+
+function scheduleCodexRuntimePrewarm(settings: AppSettingsV1, reason: 'startup' | 'settings-switch'): void {
+  if (getActiveAgentRuntime(settings) !== 'codex') return
+  if (codexRuntimePrewarmTimer) {
+    clearTimeout(codexRuntimePrewarmTimer)
+    codexRuntimePrewarmTimer = null
+  }
+  codexRuntimePrewarmTimer = setTimeout(() => {
+    codexRuntimePrewarmTimer = null
+    const runtime = getCodexRuntime()
+    if (runtime.isClientWarm() || codexRuntimePrewarmPromise) return
+    const task = runtime.connect()
+      .then((result) => {
+        if (!result.ok) {
+          logWarn('codex-runtime', 'Failed to prewarm Codex app-server.', {
+            reason,
+            message: result.message,
+            code: result.code
+          })
+        }
+      })
+      .catch((error) => {
+        logWarn('codex-runtime', 'Failed to prewarm Codex app-server.', {
+          reason,
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+      .finally(() => {
+        if (codexRuntimePrewarmPromise === task) {
+          codexRuntimePrewarmPromise = null
+        }
+      })
+    codexRuntimePrewarmPromise = task
+  }, reason === 'startup' ? 1500 : 100)
 }
 
 async function stopManagedRuntimesForQuit(): Promise<void> {
@@ -219,8 +262,13 @@ async function stopManagedRuntimesForQuit(): Promise<void> {
 async function stopManagedRuntimes(): Promise<void> {
   if (!managedRuntimesStopPromise) {
     managedRuntimesStopPromise = (async () => {
+      if (codexRuntimePrewarmTimer) {
+        clearTimeout(codexRuntimePrewarmTimer)
+        codexRuntimePrewarmTimer = null
+      }
       scheduleRuntime?.stop()
       clawRuntime?.stop()
+      await stopModelRouterSidecar()
       stopWeixinBridgeRuntime()
       await codexRuntime?.stop()
       await kunRuntimeAdapter.stopAndWait()
@@ -640,7 +688,7 @@ async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
   if (!hasApiKey) {
     throw runtimeJsonError(
       'missing_api_key',
-      'DeepSeek API Key is required before the GUI can start Kun.'
+      'Model Router runtime API key is required before the GUI can start Kun.'
     )
   }
   if (!runtime.autoStart) {
@@ -901,6 +949,14 @@ app.whenReady().then(async () => {
     retentionDays: initial.log.retentionDays
   })
   traceStartup('logger configured')
+  void ensureModelRouterSidecar(initial, {
+    userDataDir: app.getPath('userData'),
+    log: (message) => logWarn('model-router', message)
+  }).catch((error) => {
+    logWarn('model-router', 'Failed to auto-start Model Router.', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+  })
   scheduleRuntime = createScheduleRuntime({ store, runtimeRequest, logError, powerSaveBlocker })
   scheduleRuntime.sync(initial)
   clawRuntime = createClawRuntime({
@@ -961,6 +1017,17 @@ app.whenReady().then(async () => {
       void guiUpdaterModulePromise.then((module) => module.setGuiUpdateChannel(saved.guiUpdate.channel))
     }
     queueRuntimeSettingsApply(prev, saved)
+    scheduleCodexRuntimePrewarm(saved, 'settings-switch')
+    if (partial.modelRouter) {
+      void ensureModelRouterSidecar(saved, {
+        userDataDir: app.getPath('userData'),
+        log: (message) => logWarn('model-router', message)
+      }).catch((error) => {
+        logWarn('model-router', 'Failed to auto-start Model Router after settings change.', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+    }
     scheduleRuntime?.sync(saved)
     clawRuntime?.sync(saved)
     syncWeixinBridgeRuntime(saved)
@@ -975,6 +1042,27 @@ app.whenReady().then(async () => {
     return fetchUpstreamModelIds(settings, key)
   }
 
+  const openModelRouterConfigFile = async (settings: AppSettingsV1) => {
+    let path = join(app.getPath('userData'), 'model-router', 'config.json')
+    try {
+      const ensured = await ensureModelRouterConfigFile(settings, {
+        userDataDir: app.getPath('userData')
+      })
+      path = ensured.path
+      const message = await shell.openPath(path)
+      if (message) {
+        return { ok: false as const, path, message }
+      }
+      return { ok: true as const, path }
+    } catch (error) {
+      return {
+        ok: false as const,
+        path,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  }
+
   const agentRuntimeHost = createAgentRuntimeHost({
     settings: async () => store.load(),
     adapters: [
@@ -987,7 +1075,7 @@ app.whenReady().then(async () => {
     ]
   })
 
-  registerAppIpcHandlers({
+  const appBridgeDispatcher = registerAppIpcHandlers({
     store,
     getMainWindow: () => mainWindow,
     applySettingsPatch,
@@ -1004,6 +1092,7 @@ app.whenReady().then(async () => {
     startWeixinInstallQrcode,
     pollWeixinInstall,
     resolveKunConfigPath: resolveKunMcpJsonPath,
+    openModelRouterConfigFile,
     onKunMcpConfigWritten: async () => {
       const settings = await store.load()
       queueRuntimeMcpConfigApply(settings)
@@ -1016,6 +1105,17 @@ app.whenReady().then(async () => {
     logError
   })
 
+  if (!app.isPackaged && process.env.DEEPSEEK_GUI_DEV_BROWSER_BRIDGE !== '0') {
+    void startDevBrowserBridgeServer({
+      dispatcher: appBridgeDispatcher
+    }).then((server) => {
+      devBrowserBridgeServer = server
+      console.info(`[deepseek-gui dev] browser bridge listening at ${server.url}`)
+    }).catch((error) => {
+      console.warn('[deepseek-gui dev] failed to start browser bridge:', error)
+    })
+  }
+
   void loadGuiUpdaterModule().catch((error) => {
     console.warn('[deepseek-gui updater] failed to initialize on startup:', error)
   })
@@ -1025,6 +1125,7 @@ app.whenReady().then(async () => {
 
   createWindow({ suppressInitialShow: shouldStartHidden(initial) })
   traceStartup('createWindow:returned')
+  scheduleCodexRuntimePrewarm(initial, 'startup')
 
   void pruneOnStartup().catch((err) => {
     console.warn('[deepseek-gui] prune logs:', err)
@@ -1061,6 +1162,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('will-quit', () => {
+  const server = devBrowserBridgeServer
+  devBrowserBridgeServer = null
+  void server?.close().catch((error) => {
+    console.warn('[deepseek-gui dev] failed to stop browser bridge:', error)
+  })
 })
 
 app.on('before-quit', (event) => {

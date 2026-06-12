@@ -36,7 +36,7 @@ DeepSeek GUI 有两层配置。
 
 GUI 启动 Kun 时会按下面的顺序合并配置。
 
-1. GUI 读取 `deepseek-gui-settings.json`，得到 `agents.kun` 和通用 provider 配置。
+1. GUI 读取 `deepseek-gui-settings.json`，得到 `agents.kun` 和本地 Model Router 配置。
 2. GUI 在启动 Kun 前同步 `<dataDir>/config.json`，写入 UI 管理的 token economy、默认压缩摘要参数、默认模型 profiles、runtime tuning、MCP search 和附件能力。
 3. Kun serve 读取 `<dataDir>/config.json` 或 `--config` 指定的文件。
 4. CLI 参数和环境变量会覆盖 `serve` 里的基础启动字段，例如 `--model`、`--port`、`KUN_MODEL`、`KUN_PORT`。
@@ -51,15 +51,15 @@ GUI 启动 Kun 时会按下面的顺序合并配置。
     "port": 8899,
     "dataDir": "~/.deepseekgui/kun",
     "runtimeToken": "",
-    "apiKey": "",
-    "baseUrl": "https://api.deepseek.com/beta",
-    "model": "deepseek-v4-pro",
+    "apiKey": "local-runtime-router-key",
+    "baseUrl": "http://127.0.0.1:3892/v1",
+    "model": "deepseek-gui-router",
     "approvalPolicy": "auto",
     "sandboxMode": "workspace-write"
   },
   "models": {
     "profiles": {
-      "deepseek-v4-pro": {
+      "deepseek-gui-router": {
         "contextWindowTokens": 1000000,
         "contextCompaction": {
           "softThreshold": 980000,
@@ -87,7 +87,7 @@ GUI 启动 Kun 时会按下面的顺序合并配置。
 
 模型相关配置写在顶层 `models.profiles`。
 
-每个 key 是模型 ID。模型 ID 会按小写匹配，也支持 provider 前缀，例如请求模型是 `vendor/deepseek-v4-pro` 时，也可以匹配 `deepseek-v4-pro`。
+每个 key 是模型 ID。GUI 启动 Kun 时，这个 ID 应优先是 Model Router 的 public model alias，例如 `deepseek-gui-router`。模型 ID 会按小写匹配，也支持 provider 前缀，例如请求模型是 `vendor/deepseek-v4-pro` 时，也可以匹配 `deepseek-v4-pro`。
 
 ```json
 {
@@ -127,13 +127,13 @@ GUI 启动 Kun 时会按下面的顺序合并配置。
 
 ## 默认模型 profile
 
-Kun 内置 DeepSeek V4 默认模型画像：
+Kun 可以内置或同步 Model Router public alias 对应的模型画像：
 
 ```json
 {
   "models": {
     "profiles": {
-      "deepseek-v4-pro": {
+      "deepseek-gui-router": {
         "contextWindowTokens": 1000000,
         "contextCompaction": {
           "softThreshold": 980000,
@@ -144,7 +144,7 @@ Kun 内置 DeepSeek V4 默认模型画像：
         "supportsToolCalling": true,
         "messageParts": ["text"]
       },
-      "deepseek-v4-flash": {
+      "deepseek-gui-router-fast": {
         "aliases": ["deepseek-chat", "deepseek-reasoner"],
         "contextWindowTokens": 1000000,
         "contextCompaction": {
@@ -161,7 +161,7 @@ Kun 内置 DeepSeek V4 默认模型画像：
 }
 ```
 
-也就是说，V4 是 1M 上下文，正常情况下接近 `980k` input tokens 才触发上下文压缩；接近 `990k` 时进入更强的压缩策略。
+也就是说，router public alias 可以表达 1M 上下文能力；正常情况下接近 `980k` input tokens 才触发上下文压缩，接近 `990k` 时进入更强的压缩策略。真实上游 provider、provider API key 和 provider model name 属于 Model Router 成员 profile，不写入 Kun runtime 配置。
 
 ## 全局压缩配置写在哪里
 
@@ -201,7 +201,7 @@ Kun 内置 DeepSeek V4 默认模型画像：
       "port": 8899,
       "autoStart": true,
       "dataDir": "~/.deepseekgui/kun",
-      "model": "deepseek-v4-pro",
+      "model": "deepseek-gui-router",
       "approvalPolicy": "auto",
       "sandboxMode": "workspace-write",
       "tokenEconomyMode": false,
@@ -217,9 +217,9 @@ Kun 内置 DeepSeek V4 默认模型画像：
 
 常见做法：
 
-1. 在设置页修改端口、data dir、默认模型、审批策略、sandbox 和 token economy。
+1. 在设置页修改端口、data dir、默认 public model alias、审批策略、sandbox 和 token economy。
 2. 打开 `<dataDir>/config.json`，在 `models.profiles` 里增加或覆盖模型 profile。
-3. 如果要把自定义模型作为 GUI 默认模型，把 `agents.kun.model` 改成该模型 ID。
+3. 如果要把自定义 router alias 作为 GUI 默认模型，把 `agents.kun.model` 改成该 public model alias。
 4. 重启 Kun runtime，让新配置生效。
 
 自定义 1M 模型并在 950k 左右开始压缩：

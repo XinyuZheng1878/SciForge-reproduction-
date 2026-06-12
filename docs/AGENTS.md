@@ -50,9 +50,9 @@ The contract and event/capability shape are documented in
   neutral `window.dsGui.agentRuntime` API.
 - No scattered Codex implementation outside `src/main/runtime/codex/`, beyond
   the thin integration points listed above.
-- No premature migration of SciForge workspace server, Model Router sidecar,
-  Browser, Computer Use, desktop runtime launcher, VSCode app module, or
-  artifact pipeline.
+- Model Router sidecar is the LLM provider API boundary for the current stage;
+  do not mix SciForge workspace server, Browser, Computer Use, desktop runtime
+  launcher, VSCode app module, or artifact pipeline into this runtime contract.
 - No legacy `AgentSwitcher`, `ConnectionStatusBar`, `RuntimeDiagnosticsDialog`,
   or runtime self-check UI for old providers.
 - No drawing/design starter card in the core workbench.

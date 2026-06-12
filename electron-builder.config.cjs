@@ -53,6 +53,7 @@ const updateChannel = normalizeUpdateChannel(process.env.DEEPSEEK_GUI_UPDATE_CHA
 const genericUpdateUrl = `${r2PublicBaseUrl}/${r2ReleasePrefix}/channels/${updateChannel}/latest/`
 const releaseAppVersion = (process.env.DEEPSEEK_GUI_APP_VERSION || '').trim()
 const artifactVersion = releaseAppVersion || '${version}'
+const modelRouterWorkerDir = 'packages/workers/model-router'
 
 function normalizeUpdateChannel(raw) {
   const value = String(raw || '').trim()
@@ -74,6 +75,7 @@ module.exports = {
     '**/kun/dist/**/*',
     '**/kun/package*.json',
     '**/kun/node_modules/**/*',
+    `**/${modelRouterWorkerDir}/**/*`,
     '**/node_modules/better-sqlite3/**/*',
     '**/node_modules/bindings/**/*',
     '**/node_modules/file-uri-to-path/**/*'
@@ -95,7 +97,15 @@ module.exports = {
     '!**/tsconfig*.json',
     '!**/README*',
     '!**/CHANGELOG*',
-    '!**/node_modules/openclaw/**/*'
+    '!**/node_modules/openclaw/**/*',
+    {
+      from: modelRouterWorkerDir,
+      to: modelRouterWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    }
   ],
   artifactName: `DeepSeek-GUI-${artifactVersion}-\${os}-\${arch}.\${ext}`,
   publish: [

@@ -1,6 +1,6 @@
 /**
  * Build `.../models` URL for OpenAI-compatible providers, matching
- * DeepSeek-TUI `client::api_url(base, "models")` so `/beta` bases still hit `/v1/models`.
+ * versioned provider bases so `/beta` bases still hit `/v1/models`.
  */
 function isVersionSegment(segment: string): boolean {
   const s = segment.toLowerCase()
@@ -31,26 +31,4 @@ export function upstreamOpenAiModelsUrl(baseUrl: string): string {
     versioned = `${unversionedBaseUrl(baseUrl.trim())}/v1`
   }
   return `${versioned.replace(/\/+$/, '')}/${path}`
-}
-
-export function upstreamOpenAiChatCompletionsUrl(baseUrl: string): string {
-  const path = 'chat/completions'
-  let versioned = versionedBaseUrl(baseUrl.trim())
-  if (versioned.toLowerCase().endsWith('/beta')) {
-    versioned = `${unversionedBaseUrl(baseUrl.trim())}/v1`
-  }
-  return `${versioned.replace(/\/+$/, '')}/${path}`
-}
-
-export function upstreamDeepSeekFimCompletionsUrl(baseUrl: string): string {
-  const path = 'completions'
-  const trimmed = baseUrl.trim().replace(/\/+$/, '')
-  const base = trimmed || 'https://api.deepseek.com/beta'
-  const segment = base.split('/').pop()?.toLowerCase() ?? ''
-  const betaBase = segment === 'beta'
-    ? base
-    : isVersionSegment(segment)
-      ? `${unversionedBaseUrl(base)}/beta`
-      : `${base}/beta`
-  return `${betaBase.replace(/\/+$/, '')}/${path}`
 }

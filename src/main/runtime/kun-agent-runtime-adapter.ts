@@ -645,45 +645,124 @@ function mapTurnHandle(value: unknown, fallbackThreadId: string): AgentRuntimeTu
 function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEvent | null {
   const record = asRecord(value)
   if (!record) return null
-  if (isNeutralEvent(record)) return { ...record, runtimeId: 'kun' } as AgentRuntimeEvent
   const threadId = stringValue(record.threadId) || fallbackThreadId
   const seq = numberValue(record.seq)
   const kind = stringValue(record.kind)
-  if (kind === 'agent_message_delta' || kind === 'assistant_delta') {
+  const createdAt = optionalString(record.timestamp) ?? optionalString(record.createdAt)
+  const turnId = optionalString(record.turnId)
+  const itemId = stringValue(record.itemId)
+
+  if (kind === 'thread_created' || kind === 'thread_updated') {
+    return {
+      kind: 'thread_lifecycle',
+      threadId,
+      runtimeId: 'kun',
+      seq,
+      createdAt,
+      state: kind === 'thread_created' ? 'created' : 'updated',
+      thread: {
+        id: threadId,
+        runtimeId: 'kun',
+        title: stringValue(record.title) || 'Kun thread',
+        updatedAt: createdAt || new Date().toISOString(),
+        status: optionalString(record.status),
+        backendThreadId: threadId
+      }
+    }
+  }
+
+  if (
+    kind === 'turn_started' ||
+    kind === 'turn_completed' ||
+    kind === 'turn_failed' ||
+    kind === 'turn_aborted' ||
+    kind === 'turn_steered'
+  ) {
+    return {
+      kind: 'turn_lifecycle',
+      threadId,
+      runtimeId: 'kun',
+      seq,
+      createdAt,
+      turnId,
+      state: mapKunTurnLifecycleState(kind),
+      message: optionalString(record.message) ?? optionalString(record.text)
+    }
+  }
+
+  if (kind === 'agent_message_delta' || kind === 'assistant_delta' || kind === 'assistant_text_delta') {
+    const item = asRecord(record.item)
     return {
       kind: 'assistant_delta',
       threadId,
       runtimeId: 'kun',
       seq,
-      turnId: optionalString(record.turnId),
-      itemId: stringValue(record.itemId) || `kun-delta-${seq ?? Date.now()}`,
-      text: stringValue(record.text) || stringValue(record.delta)
+      createdAt,
+      turnId,
+      itemId: itemId || stringValue(item?.id) || `kun-delta-${seq ?? Date.now()}`,
+      text: stringValue(record.text) || stringValue(record.delta) || stringValue(item?.text)
     }
   }
-  if (kind === 'agent_reasoning_delta' || kind === 'reasoning_delta') {
+  if (kind === 'agent_reasoning_delta' || kind === 'reasoning_delta' || kind === 'assistant_reasoning_delta') {
+    const item = asRecord(record.item)
     return {
       kind: 'reasoning_delta',
       threadId,
       runtimeId: 'kun',
       seq,
-      turnId: optionalString(record.turnId),
-      itemId: stringValue(record.itemId) || `kun-reasoning-${seq ?? Date.now()}`,
-      text: stringValue(record.text) || stringValue(record.delta),
+      createdAt,
+      turnId,
+      itemId: itemId || stringValue(item?.id) || `kun-reasoning-${seq ?? Date.now()}`,
+      text: stringValue(record.text) || stringValue(record.delta) || stringValue(item?.text),
       visibility: 'summary'
     }
   }
+
+  if (
+    kind === 'item_created' ||
+    kind === 'item_updated' ||
+    kind === 'item_completed' ||
+    kind === 'tool_call_started' ||
+    kind === 'tool_call_finished'
+  ) {
+    const item = mapKunItem(record.item)
+    if (item) {
+      return {
+        kind: 'item_snapshot',
+        threadId,
+        runtimeId: 'kun',
+        seq,
+        createdAt,
+        turnId,
+        itemId: item.id,
+        item
+      }
+    }
+  }
+
+  if (isNeutralEvent(record)) return { ...record, runtimeId: 'kun' } as AgentRuntimeEvent
+
   return {
     kind: 'item_snapshot',
     threadId,
     runtimeId: 'kun',
     seq,
-    turnId: optionalString(record.turnId),
+    createdAt,
+    turnId,
     item: {
-      id: stringValue(record.itemId) || `kun-event-${seq ?? Date.now()}`,
+      id: itemId || `kun-event-${seq ?? Date.now()}`,
       kind: 'system',
       meta: record
     }
   }
+}
+
+function mapKunTurnLifecycleState(kind: string): Extract<AgentRuntimeEvent, { kind: 'turn_lifecycle' }>['state'] {
+  if (kind === 'turn_completed') return 'completed'
+  if (kind === 'turn_failed') return 'failed'
+  if (kind === 'turn_aborted') return 'aborted'
+  if (kind === 'turn_steered') return 'steered'
+  return 'started'
 }
 
 function isNeutralEvent(record: Record<string, unknown>): boolean {

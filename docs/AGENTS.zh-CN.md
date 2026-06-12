@@ -43,8 +43,9 @@ contract、event 与 capability 形状见
 - 不要新增绕过 `AgentRuntimeProvider` 或中性 `window.dsGui.agentRuntime` API
   的 renderer 业务逻辑。
 - 不要把 Codex 实现散落到 `src/main/runtime/codex/` 之外；允许的例外只有上面列出的薄集成点。
-- 不要提前迁移 SciForge workspace server、Model Router sidecar、Browser、
-  Computer Use、desktop runtime launcher、VSCode app module 或 artifact pipeline。
+- Model Router sidecar 是当前阶段的 LLM provider API 边界；不要把 SciForge
+  workspace server、Browser、Computer Use、desktop runtime launcher、
+  VSCode app module 或 artifact pipeline 混入这条 runtime contract。
 - 不要恢复面向旧 provider 的 `AgentSwitcher`、`ConnectionStatusBar`、
   `RuntimeDiagnosticsDialog` 或运行时自检 UI。
 - 不要恢复绘图/设计的启动卡片。

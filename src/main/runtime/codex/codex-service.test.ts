@@ -3,11 +3,14 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  DEFAULT_MODEL_ROUTER_PROVIDER_ID,
+  DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
+  defaultModelRouterSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
   type AppSettingsV1
@@ -35,6 +38,10 @@ function settings(): AppSettingsV1 {
     agents: {
       kun: defaultKunRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()
+    },
+    modelRouter: {
+      ...defaultModelRouterSettings(),
+      runtimeApiKey: 'local-runtime-router-key'
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: false, retentionDays: 7 },
@@ -416,6 +423,203 @@ describe('CodexRuntimeService compatibility operations', () => {
     expect(vi.mocked(client.connect).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(client.startThread).mock.invocationCallOrder[0]
     )
+  })
+
+  it('forces Codex thread starts through the managed Model Router provider', async () => {
+    const client = controllableClient()
+    const service = new CodexRuntimeService({
+      settings: async () => ({
+        ...settings(),
+        provider: {
+          apiKey: 'sk-user-provider',
+          baseUrl: 'https://api.external-provider.test/v1',
+          providers: [{
+            id: 'external-provider',
+            name: 'External Provider',
+            apiKey: 'sk-profile',
+            baseUrl: 'https://profile.external-provider.test/v1',
+            endpointFormat: 'responses',
+            models: ['external-model']
+          }]
+        },
+        agents: {
+          ...settings().agents,
+          codex: {
+            ...defaultCodexRuntimeSettings(),
+            profile: 'external-profile',
+            model: 'external-runtime-model',
+            modelProvider: 'external-runtime-provider'
+          }
+        }
+      }),
+      sink: { send: vi.fn() },
+      createClient: () => client
+    })
+
+    await expect(service.startThread({
+      title: 'Router-only thread',
+      model: 'external-payload-model',
+      modelProvider: 'external-payload-provider',
+      profile: 'external-payload-profile',
+      baseUrl: 'https://payload.external-provider.test/v1',
+      apiKey: 'sk-payload'
+    } as unknown as Parameters<CodexRuntimeService['startThread']>[0])).resolves.toMatchObject({
+      ok: true
+    })
+
+    const params = vi.mocked(client.startThread).mock.calls[0]?.[0] ?? {}
+    expect(params).toEqual(expect.objectContaining({
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+      modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID
+    }))
+    expect(params).not.toEqual(expect.objectContaining({
+      profile: expect.anything(),
+      baseUrl: expect.anything(),
+      apiKey: expect.anything()
+    }))
+    expect(params).not.toEqual(expect.objectContaining({
+      model: 'external-payload-model',
+      modelProvider: 'external-payload-provider'
+    }))
+    expect(params).not.toEqual(expect.objectContaining({
+      model: 'external-runtime-model',
+      modelProvider: 'external-runtime-provider'
+    }))
+  })
+
+  it('launches Codex app-server with the managed Codex home rather than settings codexHome', async () => {
+    const managedCodexHome = await mkdtemp(join(tmpdir(), 'service-managed-codex-home-'))
+    const persistedCodexHome = await mkdtemp(join(tmpdir(), 'service-global-codex-home-'))
+    const launches: CodexAppServerJsonRpcClientOptions[] = []
+    const createClient = vi.fn((options: CodexAppServerJsonRpcClientOptions) => {
+      launches.push(options)
+      return controllableClient()
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => ({
+        ...settings(),
+        agents: {
+          ...settings().agents,
+          codex: {
+            ...defaultCodexRuntimeSettings(),
+            codexHome: persistedCodexHome
+          }
+        }
+      }),
+      sink: { send: vi.fn() },
+      managedCodexHome,
+      createClient
+    })
+
+    await expect(service.connect()).resolves.toMatchObject({ ok: true })
+
+    const launch = launches[0]
+    expect(launch?.env?.CODEX_HOME).toBe(managedCodexHome)
+    expect(launch?.env?.CODEX_HOME).not.toBe(persistedCodexHome)
+  })
+
+  it('forces Codex turns through the managed Model Router alias', async () => {
+    const client = controllableClient()
+    const service = new CodexRuntimeService({
+      settings: async () => ({
+        ...settings(),
+        agents: {
+          ...settings().agents,
+          codex: {
+            ...defaultCodexRuntimeSettings(),
+            profile: 'external-profile',
+            model: 'external-runtime-model',
+            modelProvider: 'external-runtime-provider'
+          }
+        }
+      }),
+      sink: { send: vi.fn() },
+      createClient: () => client
+    })
+
+    await expect(service.startTurn({
+      threadId: 'thread-1',
+      text: 'hello',
+      model: 'external-payload-model',
+      profile: 'external-payload-profile',
+      baseUrl: 'https://payload.external-provider.test/v1',
+      apiKey: 'sk-payload'
+    } as unknown as Parameters<CodexRuntimeService['startTurn']>[0])).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+
+    const params = vi.mocked(client.startTurn).mock.calls[0]?.[0] ?? {}
+    expect(params).toEqual(expect.objectContaining({
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
+    }))
+    expect(params).not.toEqual(expect.objectContaining({
+      modelProvider: expect.anything(),
+      profile: expect.anything(),
+      baseUrl: expect.anything(),
+      apiKey: expect.anything()
+    }))
+    expect(params).not.toEqual(expect.objectContaining({ model: 'external-payload-model' }))
+    expect(params).not.toEqual(expect.objectContaining({ model: 'external-runtime-model' }))
+  })
+
+  it('forces rematerialized Codex threads through the managed Model Router provider', async () => {
+    const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await threadStore.upsert({
+      guiThreadId: 'gui-thread-1',
+      codexThreadId: 'codex-thread-old',
+      workspace: '/tmp/workspace',
+      title: 'Recovered Codex'
+    })
+    const client = controllableClient()
+    vi.mocked(client.startThread).mockResolvedValue({ thread: { id: 'codex-thread-new', cwd: '/tmp/workspace' } })
+    vi.mocked(client.startTurn)
+      .mockRejectedValueOnce(new Error('thread not found: codex-thread-old'))
+      .mockResolvedValueOnce({ turn: { id: 'turn-1', userMessageItemId: 'user-1' } })
+    const service = new CodexRuntimeService({
+      settings: async () => ({
+        ...settings(),
+        agents: {
+          ...settings().agents,
+          codex: {
+            ...defaultCodexRuntimeSettings(),
+            model: 'external-runtime-model',
+            modelProvider: 'external-runtime-provider'
+          }
+        }
+      }),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.startTurn({
+      threadId: 'gui-thread-1',
+      text: 'hello',
+      model: 'external-payload-model'
+    })).resolves.toMatchObject({
+      ok: true,
+      threadId: 'gui-thread-1',
+      turnId: 'turn-1'
+    })
+
+    expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+      modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID
+    }))
+    expect(client.startThread).not.toHaveBeenCalledWith(expect.objectContaining({
+      model: 'external-runtime-model',
+      modelProvider: 'external-runtime-provider'
+    }))
+    expect(client.startTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      threadId: 'codex-thread-old',
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
+    }))
+    expect(client.startTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      threadId: 'codex-thread-new',
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
+    }))
   })
 
   it('passes explicit app-server reasoning params through thread and turn starts', async () => {
@@ -916,6 +1120,113 @@ describe('CodexRuntimeService compatibility operations', () => {
     expect(firstDelta?.[1].event.runtimeStatus.latencyMs).toEqual(expect.any(Number))
     expect(turnDone?.[1].event.runtimeStatus.latencyMs).toEqual(expect.any(Number))
     queued.close()
+  })
+
+  it('records Codex token usage notifications for cache-aware usage summaries', async () => {
+    const queued = clientWithQueuedEvents()
+    const rootDir = await tempRoot()
+    const sink = { send: vi.fn() }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      storageRoot: rootDir,
+      createClient: () => queued.client
+    })
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          tokenUsage: {
+            total: {
+              inputTokens: 120,
+              cachedInputTokens: 90,
+              outputTokens: 20,
+              reasoningOutputTokens: 5,
+              totalTokens: 145
+            },
+            last: {
+              inputTokens: 120,
+              cachedInputTokens: 90,
+              outputTokens: 20,
+              reasoningOutputTokens: 5,
+              totalTokens: 145
+            },
+            modelContextWindow: 128000
+          }
+        }
+      }
+    })
+
+    await vi.waitFor(async () => {
+      await expect(service.usage({
+        groupBy: 'thread',
+        threadId: 'thread-1',
+        timezone: 'UTC'
+      })).resolves.toMatchObject({
+        supported: true,
+        groupBy: 'thread',
+        buckets: [{
+          threadId: 'thread-1',
+          inputTokens: 120,
+          outputTokens: 20,
+          reasoningTokens: 5,
+          cachedTokens: 90,
+          cacheMissTokens: 30,
+          totalTokens: 145,
+          turns: 1,
+          cacheHitRate: 0.75
+        }]
+      })
+    })
+
+    await expect(service.readThread('thread-1')).resolves.toMatchObject({
+      ok: true,
+      detail: {
+        usage: {
+          inputTokens: 120,
+          outputTokens: 20,
+          reasoningTokens: 5,
+          totalTokens: 145,
+          cacheReadTokens: 90,
+          cacheWriteTokens: 30
+        }
+      }
+    })
+    queued.close()
+  })
+
+  it('omits app-server startup status events when a Codex turn starts after prewarm', async () => {
+    const client = controllableClient()
+    const sink = { send: vi.fn() }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      createClient: () => client
+    })
+
+    await expect(service.connect()).resolves.toMatchObject({ ok: true })
+    vi.mocked(client.connect).mockClear()
+    sink.send.mockClear()
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+
+    expect(client.connect).not.toHaveBeenCalled()
+    const phases = sink.send.mock.calls
+      .map((call) => call[1]?.event?.runtimeStatus?.phase)
+      .filter(Boolean)
+    expect(phases).toEqual(['turn_start_sent'])
   })
 
   it('streams replayed and live Codex events through a neutral async iterable', async () => {

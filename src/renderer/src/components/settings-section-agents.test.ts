@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
   DEFAULT_MODEL_PROVIDER_ID,
+  defaultModelRouterSettings,
   defaultCodexRuntimeSettings,
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
@@ -21,6 +22,29 @@ const labels: Record<string, string> = {
   agentRuntimeDesc: 'Choose which runtime powers Code mode and chat.',
   agentRuntimeKun: 'Kun',
   agentRuntimeCodex: 'Codex app-server',
+  modelRouter: 'Model Router',
+  modelRouterDesc: 'Routes local runtimes through a managed local endpoint.',
+  modelRouterHealth: 'Health',
+  modelRouterHealthDesc: 'Current local router status.',
+  modelRouterHealthHealthy: 'healthy',
+  modelRouterHealthUnavailable: 'unavailable',
+  modelRouterHealthProviderAuthBlocked: 'provider auth blocked',
+  modelRouterHealthStatic: 'Health check is not connected yet.',
+  modelRouterHealthMissing: 'Router settings are incomplete.',
+  modelRouterBaseUrl: 'Local router base URL',
+  modelRouterBaseUrlDesc: 'Base URL used by local runtimes.',
+  modelRouterAutoStart: 'Auto-start Model Router',
+  modelRouterAutoStartDesc: 'Start the local router when runtimes need it.',
+  modelRouterRuntimeApiKey: 'Runtime API key',
+  modelRouterRuntimeApiKeyDesc: 'Auto-generated local credential used between the app and router.',
+  modelRouterRuntimeApiKeyPlaceholder: 'Local router key',
+  modelRouterPublicModelAlias: 'Public model alias',
+  modelRouterPublicModelAliasDesc: 'Alias exposed to local runtimes.',
+  modelRouterConfigFile: 'Model Router config file',
+  modelRouterConfigFileDesc: 'Edit provider members, routing rules, and upstream credentials in the local config file.',
+  modelRouterOpenConfigFile: 'Open Model Router config file',
+  modelRouterOpenConfigFileError: 'Could not open Model Router config file: {{message}}',
+  modelRouterOpenConfigFileUnavailable: 'Model Router config file opener is unavailable.',
   codexRuntime: 'Codex app-server',
   codexRuntimeDesc: 'Codex runtime description',
   codexCommand: 'Command',
@@ -438,6 +462,88 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     expect(html).toContain('Extra arguments')
     expect(html).toContain('--search')
     expect(html).toContain('--quiet')
+  })
+
+  it('renders Model Router settings with a config file button and no member provider form', () => {
+    const ctx = baseCtx() as Record<string, any>
+    const router = defaultModelRouterSettings()
+    ctx.form = {
+      ...ctx.form,
+      modelRouter: {
+        ...router,
+        runtimeApiKey: 'local-runtime-key',
+        profiles: {
+          default: {
+            textReasoner: {
+              provider: 'openai-compatible',
+              baseUrl: 'https://text-member.example/v1',
+              apiKey: 'text-key',
+              model: 'text-model'
+            },
+            translators: {
+              vision: {
+                provider: 'qwen-compatible',
+                baseUrl: 'https://vision-member.example/v1',
+                apiKey: 'vision-key',
+                model: 'vision-model'
+              }
+            }
+          }
+        }
+      }
+    }
+    ctx.modelRouterHealth = {
+      status: 'provider_auth_blocked',
+      message: 'blocked by member credentials'
+    }
+
+    const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx }))
+
+    expect(html).toContain('Model Router')
+    expect(html).toContain('Local router base URL')
+    expect(html).toContain('value="http://127.0.0.1:3892/v1"')
+    expect(html).toContain('Auto-start Model Router')
+    expect(html).toContain('Runtime API key')
+    expect(html).toContain('Auto-generated local credential used between the app and router.')
+    expect(html).toContain('Public model alias')
+    expect(html).toContain('value="deepseek-gui-router"')
+    expect(html).toContain('Model Router config file')
+    expect(html).toContain('Open Model Router config file')
+    expect(html).not.toContain('Text member provider')
+    expect(html).not.toContain('Vision member provider')
+    expect(html).not.toContain('Provider member ID')
+    expect(html).not.toContain('Provider member URL')
+    expect(html).not.toContain('Provider member API key')
+    expect(html).not.toContain('Provider member model')
+    expect(html).not.toContain('value="openai-compatible"')
+    expect(html).not.toContain('value="qwen-compatible"')
+    expect(html).toContain('provider auth blocked')
+    expect(html).toContain('blocked by member credentials')
+    expect(html).not.toMatch(/direct upstream provider/i)
+  })
+
+  it('maps Model Router health statuses into visible labels', () => {
+    const cases = [
+      ['healthy', 'healthy'],
+      ['unavailable', 'unavailable'],
+      ['provider-auth blocked', 'provider auth blocked']
+    ] as const
+
+    for (const [status, label] of cases) {
+      const ctx = baseCtx() as Record<string, any>
+      ctx.form = {
+        ...ctx.form,
+        modelRouter: {
+          ...defaultModelRouterSettings(),
+          runtimeApiKey: 'local-runtime-key'
+        }
+      }
+      ctx.modelRouterHealth = { status }
+
+      const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx }))
+
+      expect(html).toContain(label)
+    }
   })
 
   it('labels the bottom permissions section as Kun-specific when Codex is active', () => {

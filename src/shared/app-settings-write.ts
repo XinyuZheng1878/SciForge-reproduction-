@@ -13,8 +13,7 @@ import {
   type WriteSettingsPatchV1,
   type WriteSettingsV1
 } from './app-settings-types'
-import { getActiveAgentApiKey, getKunRuntimeSettings } from './app-settings-kun'
-import { resolveModelProviderBaseUrl } from './app-settings-provider'
+import { resolveRuntimeModelRouterSettings } from './app-settings-model-router'
 import { compactStrings } from './app-settings-normalizers'
 
 export function defaultWriteSettings(): WriteSettingsV1 {
@@ -107,32 +106,19 @@ function getNormalizedWriteInlineCompletionSettings(settings: AppSettingsV1): Wr
 }
 
 export function resolveWriteInlineCompletionBaseUrl(settings: AppSettingsV1): string {
-  const configured = getNormalizedWriteInlineCompletionSettings(settings).baseUrl.trim()
-  if (configured && configured !== DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL) {
-    return configured
-  }
-  return resolveModelProviderBaseUrl(settings)
+  return resolveRuntimeModelRouterSettings(settings).baseUrl
 }
 
 export function resolveWriteInlineCompletionApiKey(settings: AppSettingsV1): string {
-  const configured = getNormalizedWriteInlineCompletionSettings(settings).apiKey.trim()
-  return configured || getActiveAgentApiKey(settings)
+  return resolveRuntimeModelRouterSettings(settings).apiKey
 }
 
 export function resolveWriteInlineCompletionModel(
   settings: AppSettingsV1,
   requestedModel?: string | null
 ): string {
-  const requested = typeof requestedModel === 'string' ? requestedModel.trim() : ''
-  if (requested) return normalizeWriteInlineCompletionModel(requested)
-  const configuredSettings = getNormalizedWriteInlineCompletionSettings(settings)
-  const configured = configuredSettings.model.trim()
-  if (!configuredSettings.inheritModel) {
-    return normalizeWriteInlineCompletionModel(configured)
-  }
-  const runtimeModel = getKunRuntimeSettings(settings).model?.trim() ?? ''
-  if (runtimeModel) return runtimeModel
-  return normalizeWriteInlineCompletionModel(configured)
+  void requestedModel
+  return resolveRuntimeModelRouterSettings(settings).model
 }
 
 export function normalizeWriteSettings(input: WriteSettingsPatchV1 | undefined): WriteSettingsV1 {

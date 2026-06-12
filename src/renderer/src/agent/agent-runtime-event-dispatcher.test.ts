@@ -14,6 +14,7 @@ function makeSink(): ThreadEventSink {
   return {
     onSeq: vi.fn(),
     onDeltas: vi.fn(),
+    onAssistantMessage: vi.fn(),
     onUserMessage: vi.fn(),
     onTool: vi.fn(),
     onCompaction: vi.fn(),
@@ -137,6 +138,34 @@ describe('agent runtime event dispatcher', () => {
     )
 
     expect(sink.onSeq).toHaveBeenCalledWith(9)
+    expect(sink.onDeltas).not.toHaveBeenCalled()
+  })
+
+  it('dispatches persisted assistant snapshots as stable assistant messages', () => {
+    const sink = makeSink()
+
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'item_snapshot',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          id: 'assistant-1',
+          kind: 'assistant_message',
+          text: 'hello from snapshot',
+          createdAt: '2026-06-11T00:00:03.000Z'
+        },
+        seq: 10
+      },
+      sink
+    )
+
+    expect(sink.onAssistantMessage).toHaveBeenCalledWith({
+      itemId: 'assistant-1',
+      turnId: 'turn-1',
+      createdAt: '2026-06-11T00:00:03.000Z',
+      text: 'hello from snapshot'
+    })
     expect(sink.onDeltas).not.toHaveBeenCalled()
   })
 

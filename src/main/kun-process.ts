@@ -52,6 +52,13 @@ const KUN_STOP_GRACE_MS = 5_000
 const KUN_STOP_FORCE_MS = 1_000
 const STDERR_TAIL_MAX_CHARS = 4_000
 const GUI_SCHEDULE_MCP_TIMEOUT_MS = 5_000
+const UPSTREAM_PROVIDER_SECRET_ENV_NAMES = [
+  'OPENAI_API_KEY',
+  'DEEPSEEK_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'QWEN_API_KEY',
+  'DASHSCOPE_API_KEY'
+] as const
 const DEFAULT_KUN_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
   'deepseek-v4-pro': {
     contextWindowTokens: 1_000_000,
@@ -198,6 +205,9 @@ export async function startKunChild(settings: AppSettingsV1): Promise<void> {
   const runtime = resolveKunRuntimeSettings(settings)
   if (isKunChildRunning()) return
   if (!runtime.autoStart) return
+  if (!runtime.apiKey.trim()) {
+    throw new Error('Model Router runtime API key is required before starting Kun.')
+  }
   if (childLogCapture) {
     await childLogCapture.close()
     childLogCapture = null
@@ -231,6 +241,7 @@ export async function startKunChild(settings: AppSettingsV1): Promise<void> {
     baseUrl: runtime.baseUrl,
     endpointFormat: runtime.endpointFormat,
     model: runtime.model,
+    forceDefaultModel: true,
     approvalPolicy: runtime.approvalPolicy,
     sandboxMode: runtime.sandboxMode,
     tokenEconomyMode: runtime.tokenEconomyMode,
@@ -238,10 +249,10 @@ export async function startKunChild(settings: AppSettingsV1): Promise<void> {
   })
   child = spawn(resolution.command, args, {
     env: {
-      ...process.env,
+      ...kunRuntimeEnv(process.env),
       ELECTRON_RUN_AS_NODE: '1',
       KUN_RUNTIME_TOKEN: runtime.runtimeToken,
-      DEEPSEEK_API_KEY: runtime.apiKey || process.env.DEEPSEEK_API_KEY || ''
+      KUN_MODEL_ROUTER_API_KEY: runtime.apiKey
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false
@@ -303,6 +314,7 @@ export async function syncGuiManagedKunConfig(
   )
 
   const serve = objectValue(existing?.serve)
+  const providerSafeServe = stripKunServeProviderFields(serve)
   const existingTokenEconomy = objectValue(serve.tokenEconomy)
   const existingContextCompaction = objectValue(existing?.contextCompaction)
   const existingModels = objectValue(existing?.models)
@@ -318,7 +330,7 @@ export async function syncGuiManagedKunConfig(
   const skillCapability = await skillCapabilityConfigForRuntime(skills, options?.scheduleMcp?.settings)
   const next = {
     serve: {
-      ...serve,
+      ...providerSafeServe,
       storage,
       tokenEconomy: tokenEconomyConfigForRuntime(runtime.tokenEconomy, existingTokenEconomy)
     },
@@ -376,6 +388,16 @@ export async function syncGuiManagedKunConfig(
   if (existing && nextText === `${JSON.stringify(existing, null, 2)}\n`) return
   await mkdir(dirname(configPath), { recursive: true })
   await writeFile(configPath, nextText, 'utf8')
+}
+
+function stripKunServeProviderFields(serve: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...serve }
+  delete next.apiKey
+  delete next.baseUrl
+  delete next.endpointFormat
+  delete next.model
+  delete next.forceDefaultModel
+  return next
 }
 
 function buildGuiScheduleKunMcpServer(
@@ -740,6 +762,14 @@ function waitForChildExit(process: ChildProcess, timeoutMs: number): Promise<boo
     process.once('exit', onExit)
     process.once('error', onError)
   })
+}
+
+function kunRuntimeEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...baseEnv }
+  for (const name of UPSTREAM_PROVIDER_SECRET_ENV_NAMES) {
+    delete env[name]
+  }
+  return env
 }
 
 export async function reclaimKunPort(

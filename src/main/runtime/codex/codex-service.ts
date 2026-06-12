@@ -1,5 +1,7 @@
 import {
+  DEFAULT_MODEL_ROUTER_PROVIDER_ID,
   getCodexRuntimeSettings,
+  resolveRuntimeModelRouterSettings,
   type AppSettingsV1,
   type ApprovalPolicy,
   type SandboxMode
@@ -25,6 +27,10 @@ import type {
   CodexTurnStartResult,
   CodexTurnSteerPayload
 } from './codex-runtime-api'
+import type {
+  AgentRuntimeUsageQuery,
+  AgentRuntimeUsageResponse
+} from '../../../shared/agent-runtime-contract'
 import {
   CODEX_MAIN_IPC_CHANNELS,
   createCodexAppServerClient,
@@ -47,6 +53,7 @@ import {
 import { normalizeCodexEvent } from './app-server/event-normalizer'
 import { CodexEventStore, type CodexStoredEvent } from './codex-event-store'
 import { CodexThreadStore, type CodexStoredThread } from './codex-thread-store'
+import { CodexUsageStore } from './codex-usage-store'
 import { prepareCodexAppServerLaunch, resolveCodexWorkspace } from './codex-config'
 
 export type CodexRuntimeEventSink = {
@@ -60,6 +67,7 @@ export type CodexRuntimeServiceOptions = {
   sink: CodexRuntimeEventSink
   appVersion?: string
   storageRoot?: string
+  managedCodexHome?: string
   createClient?: (options: CodexAppServerJsonRpcClientOptions) => CodexAppServerJsonRpcClient
 }
 
@@ -88,16 +96,21 @@ type CodexRuntimeEventSubscriber = {
 export class CodexRuntimeService {
   private client: CodexAppServerJsonRpcClient | null = null
   private clientPromise: Promise<CodexAppServerJsonRpcClient> | null = null
+  private clientConnected = false
+  private clientInfo: unknown = null
   private subscription: Promise<void> | null = null
   private readonly threadStore: CodexThreadStore | null
   private readonly eventStore: CodexEventStore | null
+  private readonly usageStore: CodexUsageStore | null
   private readonly activeTurns = new Map<string, string>()
   private readonly turnTimings = new Map<string, CodexTurnTiming>()
+  private readonly turnModelHints = new Map<string, string>()
   private readonly eventSubscribers = new Set<CodexRuntimeEventSubscriber>()
 
   constructor(private readonly options: CodexRuntimeServiceOptions) {
     this.threadStore = options.storageRoot ? new CodexThreadStore({ rootDir: options.storageRoot }) : null
     this.eventStore = options.storageRoot ? new CodexEventStore({ rootDir: options.storageRoot }) : null
+    this.usageStore = options.storageRoot ? new CodexUsageStore({ rootDir: options.storageRoot }) : null
   }
 
   async connect(): Promise<CodexConnectResult> {
@@ -148,31 +161,33 @@ export class CodexRuntimeService {
     try {
       const startedAtMs = Date.now()
       const settings = await this.options.settings()
-      const runtime = getCodexRuntimeSettings(settings)
       const workspace = resolveCodexWorkspace(settings, payload.workspace)
-      await this.emitRuntimeStatus({
-        threadId: `codex-thread-start-${startedAtMs}`,
-        phase: 'process_start',
-        message: 'Starting Codex app-server'
-      }, { persist: false })
-      await this.emitRuntimeStatus({
-        threadId: `codex-thread-start-${startedAtMs}`,
-        phase: 'initialize_start',
-        message: 'Initializing Codex app-server'
-      }, { persist: false })
+      const startupStatusThreadId = `codex-thread-start-${startedAtMs}`
+      const coldStart = !this.isClientWarm()
+      if (coldStart) {
+        await this.emitRuntimeStatus({
+          threadId: startupStatusThreadId,
+          phase: 'process_start',
+          message: 'Starting Codex app-server'
+        }, { persist: false })
+        await this.emitRuntimeStatus({
+          threadId: startupStatusThreadId,
+          phase: 'initialize_start',
+          message: 'Initializing Codex app-server'
+        }, { persist: false })
+      }
       const { client } = await this.ensureConnectedClient(settings)
-      await this.emitRuntimeStatus({
-        threadId: `codex-thread-start-${startedAtMs}`,
-        phase: 'initialize_done',
-        message: 'Codex app-server initialized',
-        latencyMs: elapsedMs(startedAtMs)
-      }, { persist: false })
+      if (coldStart) {
+        await this.emitRuntimeStatus({
+          threadId: startupStatusThreadId,
+          phase: 'initialize_done',
+          message: 'Codex app-server initialized',
+          latencyMs: elapsedMs(startedAtMs)
+        }, { persist: false })
+      }
       const response = await client.startThread({
         ...baseThreadParams(settings, workspace),
-        ...(runtime.model ? { model: runtime.model } : {}),
-        ...(runtime.modelProvider ? { modelProvider: runtime.modelProvider } : {}),
-        ...(payload.model ? { model: payload.model } : {}),
-        ...(payload.modelProvider ? { modelProvider: payload.modelProvider } : {}),
+        ...codexModelRouterThreadParams(settings),
         serviceName: 'DeepSeek GUI',
         ephemeral: false
       })
@@ -204,7 +219,10 @@ export class CodexRuntimeService {
       const response = await client.readThread({ threadId: codexThreadId, includeTurns: true })
       const thread = readThread(response)
       const detail = threadDetail(thread)
-      return { ok: true, detail: detail.blocks.length > 0 ? detail : storedDetail ?? detail }
+      const usage = await this.usageStore?.threadUsage(storedThread?.guiThreadId ?? threadId)
+      const detailWithUsage = usage ? { ...detail, usage } : detail
+      const storedDetailWithUsage = storedDetail && usage ? { ...storedDetail, usage } : storedDetail
+      return { ok: true, detail: detailWithUsage.blocks.length > 0 ? detailWithUsage : storedDetailWithUsage ?? detailWithUsage }
     } catch (error) {
       if (isMissingOrUnmaterializedThreadError(error) && isEmptyStoredThread(storedThread, storedDetail)) {
         return { ok: true, detail: emptyThreadDetail() }
@@ -297,34 +315,40 @@ export class CodexRuntimeService {
       const startedAtMs = Date.now()
       const settings = await this.options.settings()
       const runtime = getCodexRuntimeSettings(settings)
+      const routerModel = codexModelRouterModel(settings)
       const storedThread = await this.findStoredThread(payload.threadId)
       const storedDetailBeforeTurn = await this.readStoredDetail(payload.threadId)
       const workspace = resolveCodexWorkspace(settings, payload.workspace || storedThread?.workspace)
       let codexThreadId = storedThread?.codexThreadId ?? payload.threadId
-      await this.emitRuntimeStatus({
-        threadId: payload.threadId,
-        phase: 'process_start',
-        message: 'Starting Codex app-server'
-      })
-      await this.emitRuntimeStatus({
-        threadId: payload.threadId,
-        phase: 'initialize_start',
-        message: 'Initializing Codex app-server'
-      })
+      const coldStart = !this.isClientWarm()
+      if (coldStart) {
+        await this.emitRuntimeStatus({
+          threadId: payload.threadId,
+          phase: 'process_start',
+          message: 'Starting Codex app-server'
+        })
+        await this.emitRuntimeStatus({
+          threadId: payload.threadId,
+          phase: 'initialize_start',
+          message: 'Initializing Codex app-server'
+        })
+      }
       const { client } = await this.ensureConnectedClient(settings)
-      await this.emitRuntimeStatus({
-        threadId: payload.threadId,
-        phase: 'initialize_done',
-        message: 'Codex app-server initialized',
-        latencyMs: elapsedMs(startedAtMs)
-      })
+      if (coldStart) {
+        await this.emitRuntimeStatus({
+          threadId: payload.threadId,
+          phase: 'initialize_done',
+          message: 'Codex app-server initialized',
+          latencyMs: elapsedMs(startedAtMs)
+        })
+      }
       let response: unknown
       try {
         response = await client.startTurn(turnStartParams({
           threadId: codexThreadId,
           text: payload.text,
           workspace,
-          model: payload.model || runtime.model,
+          model: routerModel,
           reasoningEffort: payload.reasoningEffort,
           runtime
         }))
@@ -338,7 +362,6 @@ export class CodexRuntimeService {
         const replacement = await this.rematerializeThread({
           client,
           settings,
-          runtime,
           guiThreadId: payload.threadId,
           storedThread,
           workspace
@@ -348,7 +371,7 @@ export class CodexRuntimeService {
           threadId: codexThreadId,
           text: payload.text,
           workspace,
-          model: payload.model || runtime.model,
+          model: routerModel,
           reasoningEffort: payload.reasoningEffort,
           runtime
         }))
@@ -356,6 +379,7 @@ export class CodexRuntimeService {
       const turn = asRecord(asRecord(response)?.turn) ?? {}
       const turnId = stringValue(turn.id) || ''
       this.recordActiveTurn(payload.threadId, turnId, startedAtMs)
+      this.recordTurnModelHint(payload.threadId, turnId, routerModel)
       await this.emitRuntimeStatus({
         threadId: payload.threadId,
         ...(turnId ? { turnId } : {}),
@@ -442,6 +466,19 @@ export class CodexRuntimeService {
     return unsupportedFailure('Codex session resume is not supported yet.', 'not_implemented')
   }
 
+  async usage(input: AgentRuntimeUsageQuery): Promise<AgentRuntimeUsageResponse> {
+    if (!this.usageStore) {
+      return {
+        supported: false,
+        reason: 'usage unsupported',
+        groupBy: input.groupBy,
+        buckets: [],
+        totals: {}
+      }
+    }
+    return this.usageStore.summary(input, { threads: await this.storedThreads({ includeArchived: true }) })
+  }
+
   pendingServerRequests(): CodexAppServerPendingRequest[] {
     return this.client?.pendingServerRequests() ?? []
   }
@@ -470,9 +507,12 @@ export class CodexRuntimeService {
     const client = this.client
     this.client = null
     this.clientPromise = null
+    this.clientConnected = false
+    this.clientInfo = null
     this.subscription = null
     this.activeTurns.clear()
     this.turnTimings.clear()
+    this.turnModelHints.clear()
     this.closeAllEventSubscribers()
     if (client) await client.stop()
   }
@@ -481,9 +521,12 @@ export class CodexRuntimeService {
     const client = this.client
     this.client = null
     this.clientPromise = null
+    this.clientConnected = false
+    this.clientInfo = null
     this.subscription = null
     this.activeTurns.clear()
     this.turnTimings.clear()
+    this.turnModelHints.clear()
     this.closeAllEventSubscribers()
     if (!client) return
     try {
@@ -498,7 +541,10 @@ export class CodexRuntimeService {
     if (this.clientPromise) return this.clientPromise
     const promise = (async () => {
       const current = settings ?? await this.options.settings()
-      const launch = await prepareCodexAppServerLaunch({ settings: current })
+      const launch = await prepareCodexAppServerLaunch({
+        settings: current,
+        managedCodexHome: this.options.managedCodexHome
+      })
       const createClient = this.options.createClient ?? createCodexAppServerClient
       const client = createClient({
         command: launch.command,
@@ -539,8 +585,15 @@ export class CodexRuntimeService {
     info: unknown
   }> {
     const client = await this.ensureClient(settings)
+    if (this.clientConnected) return { client, info: this.clientInfo ?? {} }
     const info = await client.connect()
+    this.clientConnected = true
+    this.clientInfo = info
     return { client, info }
+  }
+
+  isClientWarm(): boolean {
+    return this.client !== null && this.clientConnected
   }
 
   private async forwardEvents(client: CodexAppServerJsonRpcClient): Promise<void> {
@@ -550,6 +603,7 @@ export class CodexRuntimeService {
         if (normalized) {
           const stored = await this.persistEvent(normalized.threadId, normalized)
           const runtimeEvent = stored?.event ?? normalized
+          await this.recordUsageEvent(runtimeEvent, stored?.createdAt)
           await this.emitFirstDeltaIfNeeded(runtimeEvent)
           await this.emitTurnDoneIfNeeded(runtimeEvent)
           this.noteRuntimeEvent(runtimeEvent)
@@ -681,15 +735,13 @@ export class CodexRuntimeService {
   private async rematerializeThread(input: {
     client: CodexAppServerJsonRpcClient
     settings: AppSettingsV1
-    runtime: ReturnType<typeof getCodexRuntimeSettings>
     guiThreadId: string
     storedThread: CodexStoredThread | null
     workspace: string
   }): Promise<CodexStoredThread> {
     const response = await input.client.startThread({
       ...baseThreadParams(input.settings, input.workspace),
-      ...(input.runtime.model ? { model: input.runtime.model } : {}),
-      ...(input.runtime.modelProvider ? { modelProvider: input.runtime.modelProvider } : {}),
+      ...codexModelRouterThreadParams(input.settings),
       serviceName: 'DeepSeek GUI',
       ephemeral: false
     })
@@ -713,6 +765,14 @@ export class CodexRuntimeService {
       startedAtMs,
       firstDeltaSeen: false
     })
+  }
+
+  private recordTurnModelHint(threadId: string, turnId: string, model?: string): void {
+    const normalizedThreadId = threadId.trim()
+    const normalizedTurnId = turnId.trim()
+    const normalizedModel = model?.trim()
+    if (!normalizedThreadId || !normalizedTurnId || !normalizedModel) return
+    this.turnModelHints.set(turnTimingKey(normalizedThreadId, normalizedTurnId), normalizedModel)
   }
 
   private validateActiveTurn(threadId: string, turnId: string): CodexTurnMutationResult | null {
@@ -784,6 +844,18 @@ export class CodexRuntimeService {
     const published = stored?.event ?? runtimeEvent
     this.broadcastEvent(published)
     this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: published })
+  }
+
+  private async recordUsageEvent(event: CodexThreadEventPayload, createdAt?: string): Promise<void> {
+    if (!event.usage || !this.usageStore) return
+    const turnId = event.turnId || event.userMessage?.turnId || ''
+    await this.usageStore.record({
+      threadId: event.threadId,
+      turnId,
+      createdAt,
+      model: this.turnModelHints.get(turnTimingKey(event.threadId, turnId)),
+      usage: event.usage
+    })
   }
 
   private async publishPendingServerRequest(request: CodexAppServerPendingRequest): Promise<void> {
@@ -912,6 +984,19 @@ function baseThreadParams(settings: AppSettingsV1, workspace?: string): CodexApp
     sandbox: mapThreadSandboxMode(runtime.sandboxMode),
     config: codexAppServerThreadReasoningConfig()
   }
+}
+
+function codexModelRouterThreadParams(
+  settings: AppSettingsV1
+): Pick<CodexAppServerThreadStartParams, 'model' | 'modelProvider'> {
+  return {
+    model: codexModelRouterModel(settings),
+    modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID
+  }
+}
+
+function codexModelRouterModel(settings: AppSettingsV1): string {
+  return resolveRuntimeModelRouterSettings(settings).model
 }
 
 function turnStartParams(input: {

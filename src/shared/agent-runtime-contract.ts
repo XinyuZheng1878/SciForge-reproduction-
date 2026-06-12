@@ -160,9 +160,11 @@ export type AgentRuntimeTurnSteerInput = {
 export type AgentRuntimeUsage = {
   inputTokens?: number
   outputTokens?: number
+  reasoningTokens?: number
   totalTokens?: number
   cacheReadTokens?: number
   cacheWriteTokens?: number
+  modelContextWindow?: number | null
   costUsd?: number
 }
 

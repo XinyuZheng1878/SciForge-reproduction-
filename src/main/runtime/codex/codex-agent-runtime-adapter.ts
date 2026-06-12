@@ -133,6 +133,7 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
     },
 
     async usage(_context, input) {
+      if (typeof service.usage === 'function') return service.usage(input)
       return {
         supported: false,
         reason: 'usage unsupported',
@@ -212,7 +213,7 @@ function codexCapabilities(): AgentRuntimeCapabilities {
     storage: {
       guiOwnedThreads: true,
       backendThreadIdStable: false,
-      usage: false,
+      usage: true,
       attachments: unavailable,
       memory: unavailable
     }
@@ -243,6 +244,7 @@ function mapCodexDetail(threadId: string, detail: {
   threadStatus?: string
   latestTurnId?: string
   latestUserMessageId?: string
+  usage?: AgentRuntimeThreadDetail['usage']
 }): AgentRuntimeThreadDetail {
   const items = detail.blocks.map(mapCodexBlock).filter(Boolean) as AgentRuntimeItem[]
   const turnId = detail.latestTurnId || 'codex-turn'
@@ -262,6 +264,7 @@ function mapCodexDetail(threadId: string, detail: {
       items
     }],
     items,
+    usage: detail.usage,
     backendThreadId: threadId
   }
 }
@@ -396,6 +399,13 @@ function mapCodexStoredEvent(event: CodexThreadEventPayload): AgentRuntimeEvent[
       message: event.runtimeStatus.message,
       latencyMs: event.runtimeStatus.latencyMs,
       createdAt: event.runtimeStatus.createdAt
+    })
+  }
+  if (event.usage) {
+    mapped.push({
+      ...common,
+      kind: 'usage',
+      usage: event.usage
     })
   }
   if (event.turnComplete) {

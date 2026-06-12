@@ -10,7 +10,7 @@ import {
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import { applyTheme } from '../lib/apply-theme'
 import { useChatStore } from '../store/chat-store'
-import { Eye, EyeOff, ExternalLink, Sparkles, Sun, Moon, Monitor, X } from 'lucide-react'
+import { Eye, EyeOff, Sparkles, Sun, Moon, Monitor, X } from 'lucide-react'
 
 type ThemePref = AppSettingsV1['theme']
 type SetupFormPatch = AppSettingsPatch
@@ -20,8 +20,6 @@ const themeOptions: { value: ThemePref; icon: typeof Sun; labelKey: string }[] =
   { value: 'light', icon: Sun, labelKey: 'themeLight' },
   { value: 'dark', icon: Moon, labelKey: 'themeDark' }
 ]
-const DEEPSEEK_USAGE_URL = 'https://platform.deepseek.com/usage'
-
 export function InitialSetupDialog(): ReactElement {
   const { t } = useTranslation('settings')
   const initialSetupMode = useChatStore((s) => s.initialSetupMode)
@@ -84,11 +82,6 @@ export function InitialSetupDialog(): ReactElement {
     setError(null)
     closeInitialSetup()
     void reloadUiSettings()
-  }
-
-  const handleOpenOfficialApiPage = () => {
-    if (typeof window.dsGui?.openExternal !== 'function') return
-    void window.dsGui.openExternal(DEEPSEEK_USAGE_URL).catch(() => undefined)
   }
 
   const handleSave = async () => {
@@ -239,18 +232,10 @@ export function InitialSetupDialog(): ReactElement {
                 {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-            <div className="grid gap-3 rounded-xl border border-slate-200/80 bg-slate-50/75 px-4 py-3 text-[13px] text-slate-500 dark:border-white/10 dark:bg-white/[0.035] dark:text-slate-400 min-[560px]:grid-cols-[1fr_auto] min-[560px]:items-center">
+            <div className="rounded-xl border border-slate-200/80 bg-slate-50/75 px-4 py-3 text-[13px] text-slate-500 dark:border-white/10 dark:bg-white/[0.035] dark:text-slate-400">
               <p className="min-w-0 leading-6">
                 {t('firstRunBuyApiHint')}
               </p>
-              <button
-                type="button"
-                onClick={handleOpenOfficialApiPage}
-                className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[#1388ff]/24 bg-[#1388ff]/[0.06] px-3 py-1.5 text-[12.5px] font-semibold text-[#1377df] transition hover:bg-[#1388ff]/[0.1] dark:border-[#3aa0ff]/22 dark:bg-[#3aa0ff]/[0.12] dark:text-[#88c8ff] dark:hover:bg-[#3aa0ff]/[0.18]"
-              >
-                <span className="min-w-0 text-center leading-tight">{t('firstRunBuyApiAction')}</span>
-                <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.9} />
-              </button>
             </div>
           </div>
 
@@ -262,7 +247,7 @@ export function InitialSetupDialog(): ReactElement {
               type="text"
               value={provider?.baseUrl ?? ''}
               onChange={(e) => updateProvider({ baseUrl: e.target.value })}
-              placeholder="https://api.deepseek.com"
+              placeholder="http://127.0.0.1:3892/v1"
               className={fieldClass}
             />
           </div>

@@ -1,9 +1,8 @@
-import type { AppSettingsV1, ModelEndpointFormat, ScheduleRunMode, ScheduledTaskV1 } from '../shared/app-settings'
+import type { AppSettingsV1, ScheduleRunMode, ScheduledTaskV1 } from '../shared/app-settings'
 import {
   DEFAULT_SCHEDULE_MODEL,
   DEFAULT_SCHEDULE_REASONING_EFFORT,
-  modelEndpointPath,
-  resolveKunRuntimeSettings
+  resolveRuntimeModelRouterSettings
 } from '../shared/app-settings'
 
 const SCHEDULED_TASK_CANDIDATE_RE =
@@ -140,16 +139,12 @@ function normalizeDetectedRequest(
   }
 }
 
-function buildModelEndpointUrl(baseUrl: string, endpointFormat: ModelEndpointFormat): string {
-  const path = modelEndpointPath(endpointFormat)
+function buildModelRouterResponsesUrl(baseUrl: string): string {
+  const path = 'responses'
   const normalized = baseUrl.replace(/\/+$/, '')
-  if (!normalized) return `/v1/${path}`
   if (normalized.endsWith(`/${path}`)) return normalized
   const base = stripKnownEndpointPath(normalized)
   if (base.endsWith('/v1')) return `${base}/${path}`
-  if (base.endsWith('/beta')) {
-    return `${base.slice(0, -5)}/v1/${path}`
-  }
   return `${base}/v1/${path}`
 }
 
@@ -179,15 +174,9 @@ function buildDetectionPrompt(now: Date): string {
   ].join('\n\n')
 }
 
-function detectionModel(model: string): string {
-  const trimmed = model.trim()
-  return trimmed && trimmed !== DEFAULT_SCHEDULE_MODEL ? trimmed : 'deepseek-v4-flash'
-}
-
 function buildDetectionRequest(input: {
   baseUrl: string
   apiKey: string
-  endpointFormat: ModelEndpointFormat
   model: string
   systemPrompt: string
   sourceText: string
@@ -196,82 +185,34 @@ function buildDetectionRequest(input: {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${input.apiKey}`
   }
-  if (input.endpointFormat === 'messages') {
-    headers['x-api-key'] = input.apiKey
-    headers['anthropic-version'] = '2023-06-01'
-  }
-  if (input.endpointFormat === 'responses') {
-    return {
-      url: buildModelEndpointUrl(input.baseUrl, input.endpointFormat),
-      headers,
-      body: {
-        model: input.model,
-        instructions: input.systemPrompt,
-        input: input.sourceText,
-        max_output_tokens: 300,
-        text: { format: { type: 'json_object' } }
-      }
-    }
-  }
-  if (input.endpointFormat === 'messages') {
-    return {
-      url: buildModelEndpointUrl(input.baseUrl, input.endpointFormat),
-      headers,
-      body: {
-        model: input.model,
-        system: input.systemPrompt,
-        messages: [{ role: 'user', content: input.sourceText }],
-        max_tokens: 300
-      }
-    }
-  }
   return {
-    url: buildModelEndpointUrl(input.baseUrl, input.endpointFormat),
+    url: buildModelRouterResponsesUrl(input.baseUrl),
     headers,
     body: {
       model: input.model,
-      messages: [
-        { role: 'system', content: input.systemPrompt },
-        { role: 'user', content: input.sourceText }
-      ],
-      max_tokens: 300,
-      response_format: { type: 'json_object' }
+      instructions: input.systemPrompt,
+      input: input.sourceText,
+      max_output_tokens: 300,
+      text: { format: { type: 'json_object' } }
     }
   }
 }
 
-function extractDetectionContent(rawJson: string, endpointFormat: ModelEndpointFormat): string {
+function extractDetectionContent(rawJson: string): string {
   const parsed = JSON.parse(rawJson) as Record<string, unknown>
-  if (endpointFormat === 'responses') {
-    if (typeof parsed.output_text === 'string') return parsed.output_text.trim()
-    const output = parsed.output
-    if (!Array.isArray(output)) return ''
-    return output.map((item) => {
-      if (!item || typeof item !== 'object') return ''
-      const content = (item as { content?: unknown }).content
-      if (!Array.isArray(content)) return ''
-      return content.map((block) =>
-        block && typeof block === 'object' && typeof (block as { text?: unknown }).text === 'string'
-          ? (block as { text: string }).text
-          : ''
-      ).join('')
-    }).join('').trim()
-  }
-  if (endpointFormat === 'messages') {
-    const content = parsed.content
+  if (typeof parsed.output_text === 'string') return parsed.output_text.trim()
+  const output = parsed.output
+  if (!Array.isArray(output)) return ''
+  return output.map((item) => {
+    if (!item || typeof item !== 'object') return ''
+    const content = (item as { content?: unknown }).content
     if (!Array.isArray(content)) return ''
     return content.map((block) =>
       block && typeof block === 'object' && typeof (block as { text?: unknown }).text === 'string'
         ? (block as { text: string }).text
         : ''
-    ).join('').trim()
-  }
-  const choices = parsed.choices
-  if (!Array.isArray(choices)) return ''
-  const first = choices[0]
-  return first && typeof first === 'object'
-    ? String((first as { message?: { content?: unknown } }).message?.content ?? '').trim()
-    : ''
+    ).join('')
+  }).join('').trim()
 }
 
 export function looksLikeClawScheduledTaskCandidate(text: string): boolean {
@@ -281,18 +222,16 @@ export function looksLikeClawScheduledTaskCandidate(text: string): boolean {
 export async function detectClawScheduledTaskRequest(
   settings: AppSettingsV1,
   sourceText: string,
-  modelHint: string,
+  _modelHint: string,
   now = new Date()
 ): Promise<ParsedClawScheduledTaskRequest | null> {
   if (!looksLikeClawScheduledTaskCandidate(sourceText)) return null
-  const runtime = resolveKunRuntimeSettings(settings)
-  const apiKey = runtime.apiKey.trim()
-  if (!apiKey) return null
+  const runtime = resolveDetectorModelRouterRuntime(settings)
+  if (!runtime) return null
   const detectionRequest = buildDetectionRequest({
     baseUrl: runtime.baseUrl,
-    apiKey,
-    endpointFormat: runtime.endpointFormat,
-    model: detectionModel(modelHint),
+    apiKey: runtime.apiKey,
+    model: runtime.model,
     systemPrompt: buildDetectionPrompt(now),
     sourceText
   })
@@ -306,11 +245,31 @@ export async function detectClawScheduledTaskRequest(
   if (!response.ok) return null
   let content = ''
   try {
-    content = extractDetectionContent(text, runtime.endpointFormat)
+    content = extractDetectionContent(text)
   } catch {
     return null
   }
   return normalizeDetectedRequest(parseDetectionPayload(content), sourceText, now)
+}
+
+function resolveDetectorModelRouterRuntime(settings: AppSettingsV1): {
+  baseUrl: string
+  apiKey: string
+  model: string
+} | null {
+  const rawBaseUrl = typeof settings.modelRouter?.baseUrl === 'string'
+    ? settings.modelRouter.baseUrl.trim()
+    : ''
+  if (!rawBaseUrl) return null
+  const runtime = resolveRuntimeModelRouterSettings(settings)
+  const baseUrl = runtime.baseUrl.trim()
+  const apiKey = runtime.apiKey.trim()
+  if (!baseUrl || !apiKey) return null
+  return {
+    baseUrl,
+    apiKey,
+    model: runtime.model
+  }
 }
 
 export function buildScheduledTaskFromDetectedRequest(options: {

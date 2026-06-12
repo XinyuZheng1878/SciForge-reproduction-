@@ -1,6 +1,6 @@
 # 用 BM25 + 关键词 RAG 做 Write 文本编辑：一次探索和落地
 
-Write 里的文本补全已经证明了一件事：写作场景不一定需要重型向量库。只要能在低延迟内从同一个写作空间里找回术语、事实和风格片段，FIM 模型就能更稳地接住当前段落。
+Write 里的文本补全已经证明了一件事：写作场景不一定需要重型向量库。只要能在低延迟内从同一个写作空间里找回术语、事实和风格片段，Model Router 后面的补全模型就能更稳地接住当前段落。
 
 这次探索的问题更具体：**文本编辑能不能也走 BM25 + 关键词 RAG？** 例如用户选中一个名词，让 AI 把这个段落里的其他同名词也替换掉。它不是传统 ghost text 补全，而是对一段已有文本做原地替换。
 
@@ -81,7 +81,7 @@ Recent local edits in this file...
 原始 prefix...
 ```
 
-显式编辑请求目前复用 `write:inline-completion` IPC，但主进程会通过 chat completions 发送，让模型返回带标记的 `EDIT` action：
+显式编辑请求目前复用 `write:inline-completion` IPC，但主进程会通过 Model Router `/v1/responses` 发送，让模型返回带标记的 `EDIT` action：
 
 ```json
 {
@@ -137,7 +137,7 @@ Around: Earlier term: [[edit]] should be consistent.
 
 原地编辑比 ghost text 风险更高，所以实现里加了几层保护：
 
-- 没有 API key、补全能力关闭、无指令时直接失败。
+- runtime API key 或 public model alias 缺失、补全能力关闭、无指令时直接失败。
 - 多选区暂不支持，避免把多个非连续范围合并出错。
 - 模型返回空文本时，只有删除类指令才允许应用。
 - 请求返回后会检查原编辑范围是否仍和发起请求时一致；如果用户已经改过这段，就拒绝应用。
@@ -148,7 +148,7 @@ Around: Earlier term: [[edit]] should be consistent.
 主要新增和改动：
 
 - `src/shared/write-inline-edit.ts`：编辑请求/结果类型。
-- `src/main/services/write-inline-completion-service.ts`：处理 `mode: "edit"` 请求、FIM / chat 编辑 prompt、RAG 注入、action 解析和调试日志。
+- `src/main/services/write-inline-completion-service.ts`：处理 `mode: "edit"` 请求、router completion / edit prompt、RAG 注入、action 解析和调试日志。
 - `src/renderer/src/write/inline-edit.ts`：选区扩段落、构造 payload、应用 replacement。
 - `src/renderer/src/write/recent-edits.ts`：最近编辑上下文的记录、筛选和 prompt payload 转换。
 - `src/renderer/src/write/term-propagation.ts`：同段术语大小写/重命名传播。

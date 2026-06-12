@@ -70,6 +70,45 @@ describe('normalizeCodexEvent', () => {
     })
   })
 
+  it('maps token usage updates to neutral usage counters with cache telemetry', () => {
+    expect(normalizeCodexEvent({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        tokenUsage: {
+          total: {
+            inputTokens: 300,
+            cachedInputTokens: 200,
+            outputTokens: 40,
+            reasoningOutputTokens: 10,
+            totalTokens: 350
+          },
+          last: {
+            inputTokens: 120,
+            cachedInputTokens: 90,
+            outputTokens: 20,
+            reasoningOutputTokens: 5,
+            totalTokens: 145
+          },
+          modelContextWindow: 128000
+        }
+      }
+    })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      usage: {
+        inputTokens: 120,
+        outputTokens: 20,
+        reasoningTokens: 5,
+        totalTokens: 145,
+        cacheReadTokens: 90,
+        cacheWriteTokens: 30,
+        modelContextWindow: 128000
+      }
+    })
+  })
+
   it('maps error, failed, and cancelled events to safe runtime errors', () => {
     expect(normalizeCodexEvent({
       method: 'error',

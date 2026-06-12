@@ -18,6 +18,7 @@ import type {
   ClawImInstallPollResult,
   ClawImInstallQrResult,
   DesktopCommand,
+  ModelRouterConfigOpenResult,
   RuntimeRequestResult,
   SystemNotificationResult,
   TurnCompleteNotificationPayload,
@@ -139,7 +140,7 @@ type GuiUpdaterModule = typeof import('../gui-updater')
 
 type WorkspaceFileWatchRecord = {
   watcher: FSWatcher
-  sender: WebContents
+  sender: AppBridgeSender
   path: string
   workspaceRoot: string
   timer: ReturnType<typeof setTimeout> | null
@@ -147,8 +148,29 @@ type WorkspaceFileWatchRecord = {
 
 type AgentRuntimeEventStreamRecord = {
   controller: AbortController
-  sender: WebContents
+  sender: AppBridgeSender
   onSenderDestroyed: () => void
+}
+
+export type AppBridgeSender = {
+  id: number
+  isDestroyed: () => boolean
+  send: (channel: string, ...args: unknown[]) => void
+  once: (event: 'destroyed', listener: () => void) => unknown
+  removeListener: (event: 'destroyed', listener: () => void) => unknown
+}
+
+type AppBridgeInvokeEvent = {
+  sender: AppBridgeSender
+}
+
+type AppBridgeInvokeHandler = (
+  event: AppBridgeInvokeEvent,
+  payload?: unknown
+) => Promise<unknown> | unknown
+
+export type AppBridgeDispatcher = {
+  invoke: (channel: string, payload: unknown, sender: AppBridgeSender) => Promise<unknown>
 }
 
 type RegisterAppIpcHandlersOptions = {
@@ -189,6 +211,7 @@ type RegisterAppIpcHandlersOptions = {
   startWeixinInstallQrcode: (weixinBridgeUrl?: string) => Promise<ClawImInstallQrResult>
   pollWeixinInstall: (deviceCode: string, weixinBridgeUrl?: string) => Promise<ClawImInstallPollResult>
   resolveKunConfigPath: () => string
+  openModelRouterConfigFile: (settings: AppSettingsV1) => Promise<ModelRouterConfigOpenResult>
   onKunMcpConfigWritten?: (path: string, content: string) => Promise<void> | void
   showTurnCompleteNotification: (
     payload: TurnCompleteNotificationPayload
@@ -224,11 +247,11 @@ function validateMcpConfigContent(content: string): void {
 
 function runDesktopCommand(
   command: DesktopCommand,
-  sender: WebContents,
+  sender: AppBridgeSender,
   getMainWindow: () => BrowserWindow | null
 ): void {
   const mainWindow = getMainWindow()
-  const contents = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : sender
+  const contents = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : sender as WebContents
 
   switch (command) {
     case 'undo':
@@ -284,7 +307,7 @@ function runDesktopCommand(
   }
 }
 
-export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): void {
+export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): AppBridgeDispatcher {
   const {
     store,
     getMainWindow,
@@ -299,6 +322,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     startWeixinInstallQrcode,
     pollWeixinInstall,
     resolveKunConfigPath,
+    openModelRouterConfigFile,
     onKunMcpConfigWritten,
     showTurnCompleteNotification,
     getAppVersion,
@@ -309,6 +333,20 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   } = options
   const workspaceFileWatchers = new Map<string, WorkspaceFileWatchRecord>()
   const agentRuntimeEventStreams = new Map<string, AgentRuntimeEventStreamRecord>()
+  const invokeHandlers = new Map<string, AppBridgeInvokeHandler>()
+
+  const handleInvoke = (channel: string, handler: AppBridgeInvokeHandler): void => {
+    invokeHandlers.set(channel, handler)
+    ipcMain.handle(channel, async (event, payload: unknown) =>
+      handler({ sender: event.sender }, payload)
+    )
+  }
+
+  const invoke = async (channel: string, payload: unknown, sender: AppBridgeSender): Promise<unknown> => {
+    const handler = invokeHandlers.get(channel)
+    if (!handler) throw new Error(`Unknown app bridge channel: ${channel}`)
+    return handler({ sender }, payload)
+  }
 
   const disposeWorkspaceFileWatch = (watchId: string): boolean => {
     const record = workspaceFileWatchers.get(watchId)
@@ -332,7 +370,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     agentRuntimeEventStreams.delete(streamId)
   }
 
-  const disposeAgentRuntimeEventStream = (streamId: string, sender?: WebContents): boolean => {
+  const disposeAgentRuntimeEventStream = (streamId: string, sender?: AppBridgeSender): boolean => {
     const record = agentRuntimeEventStreams.get(streamId)
     if (!record) return false
     if (sender && record.sender.id !== sender.id) return false
@@ -341,7 +379,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     return true
   }
 
-  const disposeAgentRuntimeEventStreamsForSender = (sender: WebContents): void => {
+  const disposeAgentRuntimeEventStreamsForSender = (sender: AppBridgeSender): void => {
     for (const [streamId, record] of agentRuntimeEventStreams) {
       if (record.sender.id === sender.id) {
         disposeAgentRuntimeEventStream(streamId, sender)
@@ -349,7 +387,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   }
 
-  const disposeWorkspaceFileWatchesForSender = (sender: WebContents): void => {
+  const disposeWorkspaceFileWatchesForSender = (sender: AppBridgeSender): void => {
     for (const [watchId, record] of workspaceFileWatchers) {
       if (record.sender.id === sender.id) {
         disposeWorkspaceFileWatch(watchId)
@@ -415,14 +453,14 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }, 90)
   }
 
-  ipcMain.handle('settings:get', async () => store.load())
-  ipcMain.handle('settings:set', async (_, partial: unknown) =>
+  handleInvoke('settings:get', async () => store.load())
+  handleInvoke('settings:set', async (_, partial: unknown) =>
     applySettingsPatch(
       parseIpcPayload('settings:set', settingsPatchSchema, partial) as AppSettingsPatch
     )
   )
 
-  ipcMain.handle('runtime:request', async (_, payload: unknown) => {
+  handleInvoke('runtime:request', async (_, payload: unknown) => {
     const request = parseIpcPayload('runtime:request', runtimeRequestPayloadSchema, payload)
     return runtimeRequest(request.path, request.method, request.body)
   })
@@ -434,88 +472,88 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     return agentRuntime
   }
 
-  ipcMain.handle('agentRuntime:connect', async (_, payload: unknown) => {
+  handleInvoke('agentRuntime:connect', async (_, payload: unknown) => {
     const request = parseIpcPayload('agentRuntime:connect', agentRuntimeConnectPayloadSchema, payload ?? {})
     return requireAgentRuntime().connect(request.runtimeId)
   })
-  ipcMain.handle('agentRuntime:capabilities', async (_, payload: unknown) => {
+  handleInvoke('agentRuntime:capabilities', async (_, payload: unknown) => {
     const request = parseIpcPayload('agentRuntime:capabilities', agentRuntimeConnectPayloadSchema, payload ?? {})
     return requireAgentRuntime().capabilities(request.runtimeId)
   })
-  ipcMain.handle('agentRuntime:listThreads', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:listThreads', async (_, payload: unknown) =>
     requireAgentRuntime().listThreads(
       parseIpcPayload('agentRuntime:listThreads', agentRuntimeListThreadsPayloadSchema, payload ?? {})
     )
   )
-  ipcMain.handle('agentRuntime:startThread', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:startThread', async (_, payload: unknown) =>
     requireAgentRuntime().startThread(
       parseIpcPayload('agentRuntime:startThread', agentRuntimeStartThreadPayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:readThread', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:readThread', async (_, payload: unknown) =>
     requireAgentRuntime().readThread(
       parseIpcPayload('agentRuntime:readThread', agentRuntimeReadThreadPayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:startTurn', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:startTurn', async (_, payload: unknown) =>
     requireAgentRuntime().startTurn(
       parseIpcPayload('agentRuntime:startTurn', agentRuntimeStartTurnPayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:interruptTurn', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:interruptTurn', async (_, payload: unknown) =>
     requireAgentRuntime().interruptTurn(
       parseIpcPayload('agentRuntime:interruptTurn', agentRuntimeTurnTargetPayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:steerTurn', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:steerTurn', async (_, payload: unknown) =>
     requireAgentRuntime().steerTurn(
       parseIpcPayload('agentRuntime:steerTurn', agentRuntimeTurnSteerPayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:renameThread', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:renameThread', async (_, payload: unknown) =>
     requireAgentRuntime().renameThread(
       parseIpcPayload('agentRuntime:renameThread', agentRuntimeThreadRenamePayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:deleteThread', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:deleteThread', async (_, payload: unknown) =>
     requireAgentRuntime().deleteThread(
       parseIpcPayload('agentRuntime:deleteThread', agentRuntimeThreadDeletePayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:compactThread', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:compactThread', async (_, payload: unknown) =>
     requireAgentRuntime().compactThread(
       parseIpcPayload('agentRuntime:compactThread', agentRuntimeThreadCompactPayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:forkThread', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:forkThread', async (_, payload: unknown) =>
     requireAgentRuntime().forkThread(
       parseIpcPayload('agentRuntime:forkThread', agentRuntimeThreadForkPayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:resumeSession', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:resumeSession', async (_, payload: unknown) =>
     requireAgentRuntime().resumeSession(
       parseIpcPayload('agentRuntime:resumeSession', agentRuntimeSessionResumePayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:updateThreadRelation', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:updateThreadRelation', async (_, payload: unknown) =>
     requireAgentRuntime().updateThreadRelation(
       parseIpcPayload('agentRuntime:updateThreadRelation', agentRuntimeThreadRelationPayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:usage', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:usage', async (_, payload: unknown) =>
     requireAgentRuntime().usage(
       parseIpcPayload('agentRuntime:usage', agentRuntimeUsagePayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:auxiliary', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:auxiliary', async (_, payload: unknown) =>
     requireAgentRuntime().auxiliary(
       parseIpcPayload('agentRuntime:auxiliary', agentRuntimeAuxiliaryPayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:stopEvents', async (event, payload: unknown) =>
+  handleInvoke('agentRuntime:stopEvents', async (event, payload: unknown) =>
     disposeAgentRuntimeEventStream(streamIdSchema.parse(payload), event.sender)
   )
-  ipcMain.handle('agentRuntime:subscribeEvents', async (event, payload: unknown) => {
+  handleInvoke('agentRuntime:subscribeEvents', async (event, payload: unknown) => {
     const request = parseIpcPayload('agentRuntime:subscribeEvents', agentRuntimeEventSubscribePayloadSchema, payload)
     const requestedId = request.streamId?.trim() ?? ''
     const streamId = requestedId || randomUUID()
@@ -560,20 +598,20 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     await Promise.resolve()
     return { streamId }
   })
-  ipcMain.handle('agentRuntime:resolveApproval', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:resolveApproval', async (_, payload: unknown) =>
     requireAgentRuntime().resolveApproval(
       parseIpcPayload('agentRuntime:resolveApproval', agentRuntimeApprovalResolvePayloadSchema, payload)
     )
   )
-  ipcMain.handle('agentRuntime:resolveUserInput', async (_, payload: unknown) =>
+  handleInvoke('agentRuntime:resolveUserInput', async (_, payload: unknown) =>
     requireAgentRuntime().resolveUserInput(
       parseIpcPayload('agentRuntime:resolveUserInput', agentRuntimeUserInputResolvePayloadSchema, payload)
     )
   )
 
-  ipcMain.handle('upstream:models', async () => fetchUpstreamModels())
+  handleInvoke('upstream:models', async () => fetchUpstreamModels())
 
-  ipcMain.handle('claw:status', async (): Promise<ClawRuntimeStatus> =>
+  handleInvoke('claw:status', async (): Promise<ClawRuntimeStatus> =>
     getClawRuntime()?.status() ?? {
       imServerRunning: false,
       imUrl: '',
@@ -581,14 +619,14 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
-  ipcMain.handle('claw:task:run', async (_, taskId: unknown): Promise<ClawRunResult> => {
+  handleInvoke('claw:task:run', async (_, taskId: unknown): Promise<ClawRunResult> => {
     const normalizedTaskId = parseIpcPayload('claw:task:run', streamIdSchema, taskId)
     const scheduleRuntime = getScheduleRuntime()
     if (!scheduleRuntime) return { ok: false, message: 'Schedule runtime is not initialized.' }
     return scheduleRuntime.runTask(normalizedTaskId)
   })
 
-  ipcMain.handle('schedule:status', async (): Promise<ScheduleRuntimeStatus> =>
+  handleInvoke('schedule:status', async (): Promise<ScheduleRuntimeStatus> =>
     getScheduleRuntime()?.status() ?? {
       internalServerRunning: false,
       internalUrl: '',
@@ -597,14 +635,14 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
-  ipcMain.handle('schedule:task:run', async (_, taskId: unknown): Promise<ScheduleRunResult> => {
+  handleInvoke('schedule:task:run', async (_, taskId: unknown): Promise<ScheduleRunResult> => {
     const normalizedTaskId = parseIpcPayload('schedule:task:run', streamIdSchema, taskId)
     const scheduleRuntime = getScheduleRuntime()
     if (!scheduleRuntime) return { ok: false, message: 'Schedule runtime is not initialized.' }
     return scheduleRuntime.runTask(normalizedTaskId)
   })
 
-  ipcMain.handle(
+  handleInvoke(
     'claw:channel:mirror',
     async (_, payload: unknown) => {
       const request = parseIpcPayload('claw:channel:mirror', clawMirrorPayloadSchema, payload)
@@ -618,7 +656,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
-  ipcMain.handle(
+  handleInvoke(
     'claw:channel:mirror-to-feishu',
     async (_, payload: unknown) => {
       const request = parseIpcPayload('claw:channel:mirror-to-feishu', clawMirrorPayloadSchema, payload)
@@ -632,7 +670,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
-  ipcMain.handle(
+  handleInvoke(
     'claw:task:create-from-text',
     async (_, payload: unknown): Promise<ClawTaskFromTextResult> => {
       const request = parseIpcPayload(
@@ -654,7 +692,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
-  ipcMain.handle(
+  handleInvoke(
     'schedule:task:create-from-text',
     async (_, payload: unknown): Promise<ScheduleTaskFromTextResult> => {
       const request = parseIpcPayload(
@@ -672,7 +710,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
-  ipcMain.handle(
+  handleInvoke(
     'claw:im-install:qrcode',
     async (_, payload: unknown) => {
       const request = parseIpcPayload(
@@ -687,7 +725,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
-  ipcMain.handle(
+  handleInvoke(
     'claw:im-install:poll',
     async (_, payload: unknown) => {
       const request = parseIpcPayload('claw:im-install:poll', clawImInstallPollPayloadSchema, payload)
@@ -698,7 +736,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
-  ipcMain.handle('workspace:pick-directory', async (_, defaultPath: unknown): Promise<WorkspacePickResult> => {
+  handleInvoke('workspace:pick-directory', async (_, defaultPath: unknown): Promise<WorkspacePickResult> => {
     const normalizedDefaultPath = parseIpcPayload(
       'workspace:pick-directory',
       z.object({ defaultPath: defaultPathSchema }).strict(),
@@ -719,7 +757,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
-  ipcMain.handle(
+  handleInvoke(
     'skill:save-file',
     async (_, payload: unknown) => {
       const request = parseIpcPayload('skill:save-file', skillSaveFilePayloadSchema, payload)
@@ -743,13 +781,13 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
-  ipcMain.handle('skill:list', async (_, payload: unknown) => {
+  handleInvoke('skill:list', async (_, payload: unknown) => {
     const request = parseIpcPayload('skill:list', skillListPayloadSchema, payload)
     const settings = await store.load()
     return listGuiSkills(settings, request.workspaceRoot)
   })
 
-  ipcMain.handle('skill:open-root', async (_, rootPath: unknown) => {
+  handleInvoke('skill:open-root', async (_, rootPath: unknown) => {
     const normalizedRootPath = parseIpcPayload('skill:open-root', rootPathSchema, rootPath)
     try {
       const target = expandHomePath(normalizedRootPath)
@@ -766,7 +804,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
-  ipcMain.handle('deepseek:config:read', async () => {
+  handleInvoke('deepseek:config:read', async () => {
     const path = resolveKunConfigPath()
     try {
       const content = await readFile(path, 'utf8')
@@ -779,7 +817,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
-  ipcMain.handle('deepseek:config:write', async (_, content: unknown) => {
+  handleInvoke('deepseek:config:write', async (_, content: unknown) => {
     const validatedContent = parseIpcPayload(
       'deepseek:config:write',
       deepseekConfigContentSchema,
@@ -800,7 +838,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     return { ok: true as const, path }
   })
 
-  ipcMain.handle('deepseek:config:open-dir', async () => {
+  handleInvoke('deepseek:config:open-dir', async () => {
     try {
       const path = resolveKunConfigPath()
       const dirPath = dirname(path)
@@ -814,17 +852,22 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
-  ipcMain.handle('git:branches', async (_, workspaceRoot: unknown) =>
+  handleInvoke('modelRouter:config:open', async () => {
+    const settings = await store.load()
+    return openModelRouterConfigFile(settings)
+  })
+
+  handleInvoke('git:branches', async (_, workspaceRoot: unknown) =>
     getGitBranches(parseIpcPayload('git:branches', workspaceRootSchema, workspaceRoot))
   )
-  ipcMain.handle(
+  handleInvoke(
     'git:switch-branch',
     async (_, payload: unknown) => {
       const request = parseIpcPayload('git:switch-branch', gitBranchPayloadSchema, payload)
       return switchGitBranch(request.workspaceRoot, request.branch)
     }
   )
-  ipcMain.handle(
+  handleInvoke(
     'git:create-and-switch-branch',
     async (_, payload: unknown) => {
       const request = parseIpcPayload(
@@ -836,47 +879,47 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
-  ipcMain.handle('editor:list', async () => listEditorsResult())
-  ipcMain.handle('editor:open-path', async (_, payload: unknown) =>
+  handleInvoke('editor:list', async () => listEditorsResult())
+  handleInvoke('editor:open-path', async (_, payload: unknown) =>
     openEditorPath(parseIpcPayload('editor:open-path', openEditorPathPayloadSchema, payload))
   )
 
-  ipcMain.handle('file:resolve-workspace', async (_, payload: unknown) =>
+  handleInvoke('file:resolve-workspace', async (_, payload: unknown) =>
     resolveWorkspaceFile(
       parseIpcPayload('file:resolve-workspace', workspaceFileTargetPayloadSchema, payload)
     )
   )
-  ipcMain.handle('file:list-workspace-directory', async (_, payload: unknown) =>
+  handleInvoke('file:list-workspace-directory', async (_, payload: unknown) =>
     listWorkspaceDirectory(
       parseIpcPayload('file:list-workspace-directory', workspaceDirectoryTargetPayloadSchema, payload)
     )
   )
-  ipcMain.handle('file:read-workspace', async (_, payload: unknown) =>
+  handleInvoke('file:read-workspace', async (_, payload: unknown) =>
     readWorkspaceFile(
       parseIpcPayload('file:read-workspace', workspaceFileTargetPayloadSchema, payload)
     )
   )
-  ipcMain.handle('file:read-workspace-image', async (_, payload: unknown) =>
+  handleInvoke('file:read-workspace-image', async (_, payload: unknown) =>
     readWorkspaceImage(
       parseIpcPayload('file:read-workspace-image', workspaceFileTargetPayloadSchema, payload)
     )
   )
-  ipcMain.handle('file:write-workspace', async (_, payload: unknown) =>
+  handleInvoke('file:write-workspace', async (_, payload: unknown) =>
     writeWorkspaceFile(
       parseIpcPayload('file:write-workspace', workspaceFileWritePayloadSchema, payload)
     )
   )
-  ipcMain.handle('file:create-workspace', async (_, payload: unknown) =>
+  handleInvoke('file:create-workspace', async (_, payload: unknown) =>
     createWorkspaceFile(
       parseIpcPayload('file:create-workspace', workspaceFileCreatePayloadSchema, payload)
     )
   )
-  ipcMain.handle('file:create-workspace-directory', async (_, payload: unknown) =>
+  handleInvoke('file:create-workspace-directory', async (_, payload: unknown) =>
     createWorkspaceDirectory(
       parseIpcPayload('file:create-workspace-directory', workspaceDirectoryCreatePayloadSchema, payload)
     )
   )
-  ipcMain.handle('file:save-workspace-clipboard-image', async (_, payload: unknown) =>
+  handleInvoke('file:save-workspace-clipboard-image', async (_, payload: unknown) =>
     saveWorkspaceClipboardImage(
       parseIpcPayload(
         'file:save-workspace-clipboard-image',
@@ -885,18 +928,18 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       )
     )
   )
-  ipcMain.handle('clipboard:read-image', async () => readClipboardImage())
-  ipcMain.handle('file:rename-workspace-entry', async (_, payload: unknown) =>
+  handleInvoke('clipboard:read-image', async () => readClipboardImage())
+  handleInvoke('file:rename-workspace-entry', async (_, payload: unknown) =>
     renameWorkspaceEntry(
       parseIpcPayload('file:rename-workspace-entry', workspaceEntryRenamePayloadSchema, payload)
     )
   )
-  ipcMain.handle('file:delete-workspace-entry', async (_, payload: unknown) =>
+  handleInvoke('file:delete-workspace-entry', async (_, payload: unknown) =>
     deleteWorkspaceEntry(
       parseIpcPayload('file:delete-workspace-entry', workspaceEntryDeletePayloadSchema, payload)
     )
   )
-  ipcMain.handle('file:watch-workspace', async (event, payload: unknown) => {
+  handleInvoke('file:watch-workspace', async (event, payload: unknown) => {
     const request = parseIpcPayload('file:watch-workspace', workspaceFileWatchPayloadSchema, payload)
     const initial = await readWorkspaceFile(request)
     let watchedPath: string
@@ -946,50 +989,50 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       }
     }
   })
-  ipcMain.handle('file:unwatch-workspace', async (_, watchId: unknown) =>
+  handleInvoke('file:unwatch-workspace', async (_, watchId: unknown) =>
     disposeWorkspaceFileWatch(parseIpcPayload('file:unwatch-workspace', streamIdSchema, watchId))
   )
-  ipcMain.handle('write:export', async (_, payload: unknown) =>
+  handleInvoke('write:export', async (_, payload: unknown) =>
     exportWriteDocument(
       parseIpcPayload('write:export', writeExportPayloadSchema, payload),
       { parentWindow: getMainWindow() }
     )
   )
-  ipcMain.handle('write:copy-rich-text', async (_, payload: unknown) =>
+  handleInvoke('write:copy-rich-text', async (_, payload: unknown) =>
     copyWriteDocumentAsRichText(
       parseIpcPayload('write:copy-rich-text', writeRichClipboardPayloadSchema, payload)
     )
   )
-  ipcMain.handle('write:inline-completion', async (_, payload: unknown) =>
+  handleInvoke('write:inline-completion', async (_, payload: unknown) =>
     requestWriteInlineCompletion(
       await store.load(),
       parseIpcPayload('write:inline-completion', writeInlineCompletionPayloadSchema, payload)
     )
   )
-  ipcMain.handle('write:inline-completion-debug:list', async () => listWriteInlineCompletionDebugEntries())
-  ipcMain.handle('write:inline-completion-debug:clear', async () => {
+  handleInvoke('write:inline-completion-debug:list', async () => listWriteInlineCompletionDebugEntries())
+  handleInvoke('write:inline-completion-debug:clear', async () => {
     clearWriteInlineCompletionDebugEntries()
     return true
   })
-  ipcMain.handle('desktop:command', async (event, command: unknown) => {
+  handleInvoke('desktop:command', async (event, command: unknown) => {
     runDesktopCommand(
       parseIpcPayload('desktop:command', desktopCommandSchema, command),
       event.sender,
       getMainWindow
     )
   })
-  ipcMain.handle('shell:open-external', async (_, url: unknown) => {
+  handleInvoke('shell:open-external', async (_, url: unknown) => {
     const validatedUrl = parseIpcPayload('shell:open-external', shellOpenExternalUrlSchema, url)
     await shell.openExternal(validatedUrl)
   })
-  ipcMain.handle('notification:turn-complete', async (_, payload: unknown) =>
+  handleInvoke('notification:turn-complete', async (_, payload: unknown) =>
     showTurnCompleteNotification(
       parseIpcPayload('notification:turn-complete', notificationPayloadSchema, payload)
     )
   )
-  ipcMain.handle('app:version', async () => getAppVersion())
-  ipcMain.handle('gui:update-state', async () => readGuiUpdateState())
-  ipcMain.handle('gui:update-check', async (_, channel: unknown): Promise<GuiUpdateInfo> => {
+  handleInvoke('app:version', async () => getAppVersion())
+  handleInvoke('gui:update-state', async () => readGuiUpdateState())
+  handleInvoke('gui:update-check', async (_, channel: unknown): Promise<GuiUpdateInfo> => {
     const module = await loadGuiUpdaterModule()
     return module.checkGuiUpdate(
       parseIpcPayload(
@@ -999,7 +1042,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       ).channel
     )
   })
-  ipcMain.handle('gui:update-download', async (_, channel: unknown): Promise<GuiUpdateDownloadResult> => {
+  handleInvoke('gui:update-download', async (_, channel: unknown): Promise<GuiUpdateDownloadResult> => {
     const module = await loadGuiUpdaterModule()
     return module.downloadGuiUpdate(
       parseIpcPayload(
@@ -1009,17 +1052,17 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       ).channel
     )
   })
-  ipcMain.handle('gui:update-install', async (): Promise<GuiUpdateInstallResult> => {
+  handleInvoke('gui:update-install', async (): Promise<GuiUpdateInstallResult> => {
     const module = await loadGuiUpdaterModule()
     return module.installGuiUpdate()
   })
 
-  ipcMain.handle('log:error', async (_, payload: unknown) => {
+  handleInvoke('log:error', async (_, payload: unknown) => {
     const request = parseIpcPayload('log:error', logErrorPayloadSchema, payload)
     logError(request.category, request.message, request.detail)
   })
-  ipcMain.handle('log:get-path', async () => resolveLogDirectory())
-  ipcMain.handle('log:open-dir', async () => {
+  handleInvoke('log:get-path', async () => resolveLogDirectory())
+  handleInvoke('log:open-dir', async () => {
     const dir = resolveLogDirectory()
     try {
       await mkdir(dir, { recursive: true })
@@ -1031,4 +1074,6 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     if (error) return { ok: false, message: error }
     return { ok: true }
   })
+
+  return { invoke }
 }

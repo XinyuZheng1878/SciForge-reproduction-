@@ -9,9 +9,10 @@ provider cleanup.
 
 Codex runtime app-server JSON-RPC, configuration, event normalization,
 thread/event stores, and process lifecycle must stay modular and centralized in
-`src/main/runtime/codex/`. Do not prematurely migrate SciForge workspace server,
-Model Router sidecar, Browser, Computer Use, desktop runtime launcher, or
-research artifact pipeline.
+`src/main/runtime/codex/`. The current stage makes Model Router the LLM provider
+API boundary for every runtime; SciForge workspace server, Browser, Computer Use,
+desktop runtime launcher, and the research artifact pipeline still do not belong
+to the Kun path.
 
 CodeWhale, Reasonix, painting/design entry points, and runtime diagnostics panels
 for legacy providers still should not return as product surfaces.
@@ -56,6 +57,10 @@ change the Kun HTTP/SSE contract.
 Inside `kun`, the cache-first agent loop is adopted from Reasonix (`immutable` prompt
 prefix, append-only log, bounded LRU/TTL cache, inflight cleanup, steering queue,
 context compaction, usage/cache telemetry).
+When Kun needs a model call, it treats the local Model Router `/v1` endpoint as a
+normal Responses-compatible provider. Upstream provider base URLs, provider API
+keys, vision service URLs, and internal profiles belong to Model Router
+configuration, not Kun runtime configuration.
 
 ## Cache-hit optimization
 
@@ -143,8 +148,9 @@ The legacy UI sections listed below should be removed or kept removed:
   and should not be the runtime selection entrypoint.
 - Settings provider selector: `Settings -> Agents` may show Kun and Codex
   configuration. Kun config still includes:
-  `binaryPath`, `port`, `autoStart`, `apiKey`, `baseUrl`, `runtimeToken`, `dataDir`,
-  `model`, `approvalPolicy`, `sandboxMode`, `insecure`.
+  `binaryPath`, `port`, `autoStart`, Model Router `baseUrl`, runtime `apiKey`,
+  `runtimeToken`, `dataDir`, public model alias, `approvalPolicy`, `sandboxMode`,
+  `insecure`.
 - Painting/Design starter card is removed; only Code, Write, and Connect phone remain.
 
 ## Main / preload responsibilities to remove
@@ -173,8 +179,9 @@ and append auth headers.
   keep them for one compatibility round only. New renderer code must not depend
   on these paths; delete the shims once the neutral contract exposes the same
   capability and focused coverage proves the replacement path.
-- Do not prematurely introduce SciForge workspace server, Model Router, Browser,
-  Computer Use, or similar sidecars.
+- Model Router is the LLM provider boundary for the current stage; SciForge
+  workspace server, Browser, Computer Use, and similar sidecars still do not
+  belong to this Kun runtime contract.
 
 ## Settings / migration
 
@@ -190,11 +197,11 @@ allowed for user-configured Codex.
       "binaryPath": "",
       "port": 8899,
       "autoStart": true,
-      "apiKey": "",
-      "baseUrl": "https://api.deepseek.com/beta",
+      "apiKey": "local-runtime-router-key",
+      "baseUrl": "http://127.0.0.1:3892/v1",
       "runtimeToken": "",
       "dataDir": "~/.deepseekgui/kun",
-      "model": "deepseek-v4-pro",
+      "model": "deepseek-gui-router",
       "approvalPolicy": "auto",
       "sandboxMode": "workspace-write",
       "insecure": false
@@ -203,13 +210,13 @@ allowed for user-configured Codex.
       "command": "codex",
       "args": [],
       "autoStart": true,
-      "codexHome": "~/.deepseekgui/codex",
-      "profile": "deepseek-gui",
-      "model": "deepseek-v4-pro",
-      "modelProvider": "deepseek",
+      "codexHome": "<managed: dev .codex-runtime/codex-home, packaged userData/runtime-codex/codex-home>",
+      "profile": "deepseek-gui-runtime",
+      "model": "deepseek-gui-router",
+      "modelProvider": "deepseek-gui-model-router",
       "approvalPolicy": "on-request",
       "sandboxMode": "workspace-write",
-      "inheritModelProvider": true
+      "inheritModelProvider": false
     }
   }
 }
@@ -220,11 +227,13 @@ code is for one-time migration from old settings:
 
 - `agentProvider: codewhale | reasonix | deepseek-runtime` normalizes to
   `activeAgentRuntime: "kun"`.
-- Old `agents.deepseek` / `agents.codewhale` values for `port`, `autoStart`, `apiKey`,
-  `baseUrl`, `runtimeToken`, `approvalPolicy`, and `sandboxMode` are migrated into
-  `agents.kun`.
-- Old `agents.reasonix` values for `apiKey`, `baseUrl`, `model`, and `autoStart`
-  are also migrated to `agents.kun`.
+- Old `agents.deepseek` / `agents.codewhale` values for `port`, `autoStart`,
+  `runtimeToken`, `approvalPolicy`, and `sandboxMode` are migrated into
+  `agents.kun`; old upstream API keys, base URLs, and models may only seed a
+  Model Router member profile or require user reconfiguration.
+- For old `agents.reasonix` values, `autoStart` may seed `agents.kun`; upstream
+  provider fields may only seed a Model Router member profile or require user
+  reconfiguration.
 - Persisted files after migration preserve `agents.kun`, may preserve
   `agents.codex`, and no longer retain `agents.codewhale` / `agents.reasonix`.
 - Legacy Connect phone fields (internally still named Claw) `agentThreadIds.codewhale` and `agentThreadIds.reasonix` are collapsed
@@ -242,7 +251,8 @@ code is for one-time migration from old settings:
   not know old providers, Kun endpoints, or Codex IPC.
 - Write: writing assistant threads follow `activeAgentRuntime`, and the write
   thread registry isolates Kun/Codex writing threads by workspace + runtime id.
-  Inline completion may keep its low-latency direct-provider path.
+  Inline completion uses a Write public model alias on Model Router for
+  low-latency completion.
 - Connect phone: scheduled tasks, Feishu/Lark/WeChat, and IM webhooks create or reuse Kun threads.
   The codebase still uses the internal `claw` route, settings key, and runtime file names for legacy-name compatibility.
   `threadId` / `localThreadId` remain only for legacy settings compatibility;
@@ -340,7 +350,7 @@ Manual smoke checks:
    damaged by migration.
 3. With Kun active, Code can create a new session, send messages, stream output,
    and use approval/interruption.
-4. Write opens writing space; inline completion and inline selected-text assistant share API key.
+4. Write opens writing space; inline completion and inline selected-text assistant share the same Model Router runtime configuration.
 5. With Kun active, Connect phone can save settings, run manual tasks, and write
    thread IDs back to Kun mapping.
 6. `Settings -> Agents` can select Kun or Codex; unconfigured Codex does not

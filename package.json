@@ -5,6 +5,10 @@
   "description": "Electron workbench for selectable local agent runtimes",
   "main": "./out/main/index.js",
   "type": "module",
+  "workspaces": [
+    "packages/workers/model-router",
+    "packages/workers/model-router/vision-router-service"
+  ],
   "scripts": {
     "dev": "npm run build:kun && electron-vite dev",
     "build": "npm run build:kun && electron-vite build",
@@ -32,6 +36,11 @@
     "verify:apple": "node ./scripts/verify-apple-signing.cjs",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
+    "model-router:start": "npm --workspace @sciforge/model-router run start",
+    "model-router:test": "npm --workspace @sciforge/model-router run test",
+    "vision-router:start": "npm --workspace sciforge-vision-router-service run start",
+    "vision-router:test": "npm --workspace sciforge-vision-router-service run test",
+    "vision-router:typecheck": "npm --workspace sciforge-vision-router-service run typecheck",
     "mac:unquarantine": "bash ./scripts/mac-unquarantine.sh"
   },
   "dependencies": {

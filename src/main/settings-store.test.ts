@@ -98,13 +98,42 @@ describe('JsonSettingsStore', () => {
     expect(loaded.write.inlineCompletion.enabled).toBe(true)
     expect(loaded.write.inlineCompletion.retrievalEnabled).toBe(true)
     expect(loaded.write.inlineCompletion.longCompletionEnabled).toBe(true)
-    expect(loaded.provider.baseUrl).toBe('https://api.deepseek.com')
+    expect(loaded.provider.baseUrl).toBe('http://127.0.0.1:3892/v1')
     expect(loaded.write.inlineCompletion.apiKey).toBe('')
     expect(loaded.write.inlineCompletion.baseUrl).toBe('')
     expect(loaded.write.inlineCompletion.inheritModel).toBe(true)
     expect(loaded.write.inlineCompletion.model).toBe('deepseek-v4-flash')
     expect(loaded.write.inlineCompletion.longMaxTokens).toBe(256)
     expect(await readFile(join(loaded.write.defaultWorkspaceRoot, 'welcome.md'), 'utf8')).toContain('Welcome to Write')
+  })
+
+  it('generates and persists a local Model Router runtime API key on load', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const settingsPath = join(userDataDir, 'deepseek-gui-settings.json')
+
+    await writeFile(
+      settingsPath,
+      JSON.stringify({
+        version: 1,
+        provider: {
+          apiKey: 'sk-provider-member'
+        },
+        modelRouter: {
+          runtimeApiKey: ''
+        }
+      }),
+      'utf8'
+    )
+
+    const store = new JsonSettingsStore(userDataDir)
+    const loaded = await store.load()
+    const persisted = JSON.parse(await readFile(settingsPath, 'utf8')) as {
+      modelRouter?: { runtimeApiKey?: string }
+    }
+
+    expect(loaded.modelRouter?.runtimeApiKey).toMatch(/^local-router-/)
+    expect(loaded.modelRouter?.runtimeApiKey).not.toBe('sk-provider-member')
+    expect(persisted.modelRouter?.runtimeApiKey).toBe(loaded.modelRouter?.runtimeApiKey)
   })
 
   it('preserves the pro write completion model', async () => {
