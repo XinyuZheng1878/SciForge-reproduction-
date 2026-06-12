@@ -17,7 +17,8 @@ import {
   RefreshCw,
   Settings,
   Smile,
-  Wifi
+  Wifi,
+  X
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
@@ -38,17 +39,17 @@ import {
 import { ClawProviderLogo } from './SidebarClaw'
 import { SidebarTitlebarToggleButton } from '../sidebar/SidebarPrimitives'
 
-type AddClawPhoneChannel = (
+export type AddClawPhoneChannel = (
   provider: ClawImProvider,
   agentProfile: ClawImAgentProfileV1,
   platformCredential: ClawImPlatformCredentialV1,
   options: {
     model: ClawModel
-	    enabled: boolean
-	    im: Partial<ClawImSettingsV1>
-	    workspaceRoot?: string
-	    preserveRoute?: boolean
-	  }
+    enabled: boolean
+    im: Partial<ClawImSettingsV1>
+    workspaceRoot?: string
+    preserveRoute?: boolean
+  }
 ) => Promise<void>
 
 type Props = {
@@ -1018,6 +1019,69 @@ export function ConnectPhoneSidebarPanel({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+export function ConnectPhoneDialog({
+  channels,
+  onAddProvider,
+  onDisconnect,
+  onOpenSettings,
+  onClose
+}: {
+  channels: ClawImChannelV1[]
+  onAddProvider: AddClawPhoneChannel
+  onDisconnect: (channelId: string) => Promise<void>
+  onOpenSettings: () => void
+  onClose: () => void
+}): ReactElement {
+  const { t } = useTranslation('common')
+
+  return (
+    <div
+      className="ds-no-drag fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/18 px-4 backdrop-blur-[2px] dark:bg-black/35"
+      onMouseDown={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('connectPhoneTitle')}
+        onMouseDown={(event) => event.stopPropagation()}
+        className="flex max-h-[min(640px,calc(100vh-32px))] w-full max-w-[380px] flex-col overflow-hidden rounded-[16px] border border-ds-border bg-ds-elevated shadow-[0_24px_72px_rgba(15,23,42,0.22)]"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-ds-border-muted/60 px-4 py-3.5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <QrCode className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.9} />
+              <h2 className="truncate text-[15px] font-semibold text-ds-ink">
+                {t('connectPhoneTitle')}
+              </h2>
+            </div>
+            <p className="mt-1 line-clamp-2 text-[12.5px] leading-5 text-ds-faint">
+              {t('connectPhoneAutoBindHint')}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] text-ds-faint transition hover:bg-ds-hover hover:text-ds-ink"
+            aria-label={t('clawAddImClose')}
+            title={t('clawAddImClose')}
+          >
+            <X className="h-4 w-4" strokeWidth={1.9} />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-1">
+          <ConnectPhoneSidebarPanel
+            channels={channels}
+            onAddProvider={onAddProvider}
+            onDisconnect={onDisconnect}
+            onOpenSettings={onOpenSettings}
+          />
+        </div>
+      </div>
     </div>
   )
 }

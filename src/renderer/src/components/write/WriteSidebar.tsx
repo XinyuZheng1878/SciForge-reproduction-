@@ -24,7 +24,7 @@ import {
   writeJoinPath,
   writeRelativeToWorkspace
 } from '../../write/write-workspace-store'
-import { ConnectPhoneSidebarPanel } from '../chat/ConnectPhoneView'
+import { ConnectPhoneDialog } from '../chat/ConnectPhoneView'
 import { WorkspaceModeTabs } from '../chat/WorkspaceModeTabs'
 import {
   SidebarCommandRow,
@@ -270,17 +270,6 @@ export function WriteSidebar({
 
       <div className="ds-no-drag mx-1.5 my-3" />
 
-      {connectPhoneSidebarOpen ? (
-        <ConnectPhoneSidebarPanel
-          channels={clawChannels}
-          onAddProvider={async (provider, agentProfile, platformCredential, options) => {
-            await addClawChannel(provider, agentProfile, platformCredential, options)
-            onToggleConnectPhone()
-          }}
-          onDisconnect={(channelId) => deleteClawChannel(channelId)}
-          onOpenSettings={() => onOpenSettings('claw')}
-        />
-      ) : (
       <div className="ds-no-drag flex min-h-0 flex-1 flex-col">
         <SidebarSectionHeader
           label={t('writeSpaces')}
@@ -421,8 +410,26 @@ export function WriteSidebar({
           })}
         </div>
       </div>
-      )}
     </SidebarFrame>
+    {connectPhoneSidebarOpen ? (
+      <ConnectPhoneDialog
+        channels={clawChannels}
+        onAddProvider={async (provider, agentProfile, platformCredential, options) => {
+          await addClawChannel(provider, agentProfile, platformCredential, {
+            ...options,
+            workspaceRoot: options?.workspaceRoot || workspaceRoot,
+            preserveRoute: true
+          })
+          onToggleConnectPhone()
+        }}
+        onDisconnect={(channelId) => deleteClawChannel(channelId)}
+        onOpenSettings={() => {
+          onToggleConnectPhone()
+          onOpenSettings('claw')
+        }}
+        onClose={onToggleConnectPhone}
+      />
+    ) : null}
     {entryDialog ? (
       <WriteEntryDialog
         dialog={entryDialog}

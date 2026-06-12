@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { ClawImChannelV1 } from '@shared/app-settings'
 import i18n from '../../i18n'
 import {
+  ConnectPhoneDialog,
   ConnectPhoneSidebarPanel,
   ConnectPhoneView,
   connectPhoneInstallRequestOptions,
@@ -170,5 +171,21 @@ describe('ConnectPhoneView', () => {
 
     expect(html).toContain('Phone connection settings')
     expect(html).toContain('Disconnect phone')
+  })
+
+  it('renders phone connection in a dedicated dialog surface', () => {
+    const html = renderToStaticMarkup(
+      createElement(ConnectPhoneDialog, {
+        channels: [],
+        onAddProvider: async () => undefined,
+        onDisconnect: async () => undefined,
+        onOpenSettings: () => undefined,
+        onClose: () => undefined
+      })
+    )
+
+    expect(html).toContain('role="dialog"')
+    expect(html).toContain('Use your phone to connect kun')
+    expect(html).toContain('Generate authorization QR')
   })
 })

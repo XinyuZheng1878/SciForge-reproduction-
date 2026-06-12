@@ -249,7 +249,6 @@ export function Workbench(): ReactElement {
     createWriteThread,
     openSettings,
     openPlugins,
-    openClaw,
     openSchedule,
     chooseWorkspace,
     clawChannels,
@@ -305,7 +304,6 @@ export function Workbench(): ReactElement {
       createWriteThread: s.createWriteThread,
       openSettings: s.openSettings,
       openPlugins: s.openPlugins,
-      openClaw: s.openClaw,
       openSchedule: s.openSchedule,
       chooseWorkspace: s.chooseWorkspace,
       clawChannels: s.clawChannels,
@@ -1425,7 +1423,6 @@ export function Workbench(): ReactElement {
 
   const toggleConnectPhone = (): void => {
     if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
-    openClaw()
     setConnectPhoneSidebarOpen((open) => !open)
   }
 

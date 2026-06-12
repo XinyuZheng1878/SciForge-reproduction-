@@ -19,7 +19,7 @@ import {
 } from './SidebarClaw'
 import type { ClawImDialogMode } from './SidebarClawDialogHelpers'
 import { ClawAddImDialog } from './SidebarClawDialog'
-import { ConnectPhoneSidebarPanel } from './ConnectPhoneView'
+import { ConnectPhoneDialog } from './ConnectPhoneView'
 import { SidebarProjectsSection } from './SidebarProjectsSection'
 import { WorkspaceModeTabs } from './WorkspaceModeTabs'
 import {
@@ -171,21 +171,7 @@ export function Sidebar({
 
       <div className="ds-no-drag mx-1 my-3" />
 
-      {connectPhoneSidebarOpen ? (
-        <ConnectPhoneSidebarPanel
-          channels={clawChannels}
-          onAddProvider={async (provider, agentProfile, platformCredential, options) => {
-            await addClawChannel(provider, agentProfile, platformCredential, {
-              ...options,
-              workspaceRoot: options?.workspaceRoot || workspaceRoot,
-              preserveRoute: true
-            })
-            onToggleConnectPhone()
-          }}
-          onDisconnect={(channelId) => deleteClawChannel(channelId)}
-          onOpenSettings={() => onOpenSettings('claw')}
-        />
-      ) : activeView === 'claw' ? (
+      {activeView === 'claw' ? (
         <ClawSidebarContent
           channels={clawChannels}
           activeChannelId={activeClawChannelId}
@@ -253,6 +239,26 @@ export function Sidebar({
       )}
 
     </SidebarFrame>
+
+    {connectPhoneSidebarOpen ? (
+      <ConnectPhoneDialog
+        channels={clawChannels}
+        onAddProvider={async (provider, agentProfile, platformCredential, options) => {
+          await addClawChannel(provider, agentProfile, platformCredential, {
+            ...options,
+            workspaceRoot: options?.workspaceRoot || workspaceRoot,
+            preserveRoute: true
+          })
+          onToggleConnectPhone()
+        }}
+        onDisconnect={(channelId) => deleteClawChannel(channelId)}
+        onOpenSettings={() => {
+          onToggleConnectPhone()
+          onOpenSettings('claw')
+        }}
+        onClose={onToggleConnectPhone}
+      />
+    ) : null}
 
     {imDialogMode ? (
       <ClawAddImDialog
