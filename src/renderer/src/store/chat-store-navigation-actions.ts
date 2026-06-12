@@ -373,21 +373,24 @@ export function createNavigationActions(
               if (typeof window.dsGui === 'undefined') return
               const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
               const channels = settings.claw.channels
+              const activityChannel = channels.find((channel) => channel.id === channelId && channel.enabled)
               const activeChannelId = channels.some(
                 (channel) => channel.id === state.activeClawChannelId && channel.enabled
               )
                 ? state.activeClawChannelId
                 : channels.find((channel) => channel.enabled)?.id ?? ''
-              set({ clawChannels: channels, activeClawChannelId: activeChannelId })
-              void get().refreshThreads()
-              if (state.route === 'claw' && state.activeClawChannelId === channelId) {
-                if (state.activeThreadId !== threadId) {
-                  getProvider().rememberThreadRuntime?.(threadId, runtimeId)
-                  await get().selectThread(threadId)
-                } else {
+              const nextActiveChannelId = state.route === 'claw' && activityChannel ? channelId : activeChannelId
+              set({ clawChannels: channels, activeClawChannelId: nextActiveChannelId })
+              if (state.route === 'claw' && activityChannel) {
+                getProvider().rememberThreadRuntime?.(threadId, runtimeId)
+                if (state.activeThreadId === threadId) {
                   await get().recoverActiveTurn()
+                } else {
+                  await get().selectClawConversation(channelId, threadId)
                 }
+                return
               }
+              void get().refreshThreads()
             })()
           })
         }
