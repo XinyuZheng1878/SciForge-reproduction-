@@ -93,6 +93,7 @@ export function Sidebar({
   const clawChannels = useChatStore((s) => s.clawChannels)
   const activeClawChannelId = useChatStore((s) => s.activeClawChannelId)
   const selectClawChannel = useChatStore((s) => s.selectClawChannel)
+  const selectClawConversation = useChatStore((s) => s.selectClawConversation)
   const addClawChannel = useChatStore((s) => s.addClawChannel)
   const deleteClawChannel = useChatStore((s) => s.deleteClawChannel)
   const resetClawChannelSession = useChatStore((s) => s.resetClawChannelSession)
@@ -187,6 +188,7 @@ export function Sidebar({
           activeThreadId={activeThreadId}
           runtimeReady={runtimeReady}
           onSelectChannel={(channelId) => void selectClawChannel(channelId)}
+          onSelectConversation={(channelId, threadId) => void selectClawConversation(channelId, threadId)}
           onAddChannel={() => setImDialogMode('add')}
           onResetChannel={(channelId) => void resetClawChannelSession(channelId)}
           onOpenSettings={() => setImDialogMode('edit')}

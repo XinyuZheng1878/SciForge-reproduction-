@@ -967,6 +967,15 @@ export const clawMirrorPayloadSchema = z
   })
   .strict()
 
+export const clawActiveThreadContextPayloadSchema = z
+  .object({
+    threadId: trimmedString(MAX_ID_LENGTH),
+    runtimeId: agentRuntimeIdSchema.optional(),
+    workspaceRoot: defaultPathSchema.optional()
+  })
+  .strict()
+  .nullable()
+
 export const clawTaskFromTextPayloadSchema = z
   .object({
     text: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH),

@@ -190,6 +190,8 @@ function createApi(): DsGuiApi {
       onError: (handler) => onChannel('agentRuntime:error', handler)
     },
     onClawChannelActivity: (handler) => onChannel('claw:channel-activity', handler),
+    updateClawActiveThreadContext: (payload) =>
+      invoke('claw:active-thread-context', payload),
     mirrorClawChannelMessage: (threadId, text, direction) =>
       invoke('claw:channel:mirror', { threadId, text, direction }),
     mirrorClawChannelMessageToFeishu: (threadId, text, direction) =>

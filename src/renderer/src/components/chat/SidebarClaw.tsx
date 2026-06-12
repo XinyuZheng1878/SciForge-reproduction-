@@ -1,12 +1,13 @@
 import type { ReactElement } from 'react'
 import { useMemo } from 'react'
 import {
+  CornerDownRight,
   MessageSquare,
   Plus,
   RefreshCw,
   Settings
 } from 'lucide-react'
-import type { ClawImChannelV1 } from '@shared/app-settings'
+import type { AgentRuntimeId, ClawImChannelV1 } from '@shared/app-settings'
 import {
   SidebarIconButton,
   SidebarSectionHeader,
@@ -19,6 +20,7 @@ type ClawSidebarContentProps = {
   activeThreadId: string | null
   runtimeReady: boolean
   onSelectChannel: (channelId: string) => void
+  onSelectConversation: (channelId: string, threadId: string) => void
   onAddChannel: () => void
   onResetChannel: (channelId: string) => void
   onOpenSettings: () => void
@@ -31,6 +33,7 @@ export function ClawSidebarContent({
   activeThreadId,
   runtimeReady,
   onSelectChannel,
+  onSelectConversation,
   onAddChannel,
   onResetChannel,
   onOpenSettings,
@@ -91,7 +94,7 @@ export function ClawSidebarContent({
               )
               const latestConversation = sortedConversations[0] ?? null
               const running = sortedConversations.some(
-                (conversation) => conversation.localThreadId.trim() === activeThreadId
+                (conversation) => conversationThreadIds(conversation).includes(activeThreadId ?? '')
               )
               const disabled = !channel.enabled
               const providerLabel = clawProviderDisplayLabel(channel.provider)
@@ -111,10 +114,10 @@ export function ClawSidebarContent({
                     trailing={
                       <span
                         className={`mx-1 h-2 w-2 shrink-0 rounded-full ${
-                        disabled
-                          ? 'bg-ds-faint'
-                          : running || channel.threadId.trim()
-                            ? 'bg-emerald-400'
+	                        disabled
+	                          ? 'bg-ds-faint'
+	                          : running || channel.threadId.trim() || channel.agentThreadIds?.kun?.trim() || channel.agentThreadIds?.codex?.trim()
+	                            ? 'bg-emerald-400'
                             : 'bg-amber-400'
                       }`}
                       />
@@ -140,14 +143,76 @@ export function ClawSidebarContent({
                       </span>
                     </span>
                   </SidebarTreeRow>
-                </div>
-              )
+                    {active && sortedConversations.length > 0 ? (
+                      <div className="ml-5 mt-1 space-y-0.5">
+                        {sortedConversations.slice(0, 8).map((conversation) => {
+                          const runtimeId = conversationRuntimeId(channel, conversation)
+                          const threadId = conversationThreadId(conversation, runtimeId)
+                          const conversationActive = conversationThreadIds(conversation).includes(activeThreadId ?? '')
+                          const title = conversation.senderName.trim() || conversation.chatId.trim()
+                          const remoteLabel = conversation.remoteThreadId.trim() || conversation.chatId.trim()
+                          const processLabel = threadId
+                            ? `${runtimeId}:${shortThreadId(threadId)}`
+                            : t('clawConversationUnbound')
+                          return (
+                            <SidebarTreeRow
+                              key={conversation.id}
+                              active={conversationActive}
+                              disabled={!runtimeReady || disabled}
+                              title={`${title} · ${processLabel}`}
+                              onClick={() => {
+                                if (threadId) onSelectConversation(channel.id, threadId)
+                                else onSelectChannel(channel.id)
+                              }}
+                              buttonClassName="min-h-[32px] py-1"
+                            >
+                              <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[12.5px]">{title}</span>
+                                <span className="mt-0.5 block truncate text-[11px] text-ds-faint">
+                                  {remoteLabel} · {processLabel}
+                                </span>
+                              </span>
+                            </SidebarTreeRow>
+                          )
+                        })}
+                      </div>
+                    ) : null}
+	                </div>
+	              )
             })}
           </div>
         )}
       </div>
     </div>
   )
+}
+
+function conversationRuntimeId(
+  channel: ClawImChannelV1,
+  conversation: ClawImChannelV1['conversations'][number]
+): AgentRuntimeId {
+  return conversation.runtimeId ?? channel.runtimeId ?? 'kun'
+}
+
+function conversationThreadId(
+  conversation: ClawImChannelV1['conversations'][number],
+  runtimeId: AgentRuntimeId
+): string {
+  return conversation.agentThreadIds?.[runtimeId]?.trim() ||
+    (runtimeId === 'kun' ? conversation.localThreadId.trim() : '')
+}
+
+function conversationThreadIds(conversation: ClawImChannelV1['conversations'][number]): string[] {
+  return [
+    conversation.localThreadId,
+    conversation.agentThreadIds?.kun,
+    conversation.agentThreadIds?.codex
+  ].map((value) => value?.trim() ?? '').filter(Boolean)
+}
+
+function shortThreadId(threadId: string): string {
+  return threadId.length > 12 ? `${threadId.slice(0, 6)}...${threadId.slice(-4)}` : threadId
 }
 
 export function clawProviderDisplayLabel(provider: ClawImChannelV1['provider']): string {

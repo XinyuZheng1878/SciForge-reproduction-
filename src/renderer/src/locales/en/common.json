@@ -397,6 +397,7 @@
   "clawNoImSub": "Add Feishu/Lark or WeChat and each connection will map directly to one Claw conversation.",
   "clawChannelEmpty": "No remote message yet. The local conversation will be created after this connection receives its first message.",
   "clawChannelOpen": "Open",
+  "clawConversationUnbound": "Unbound",
   "clawClearSession": "Clear current conversation",
   "clawDeleteIm": "Delete IM",
   "clawDeleteImConfirm": "Delete IM \"{{name}}\" and its local conversation configuration? This cannot be undone.",

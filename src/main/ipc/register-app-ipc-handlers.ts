@@ -30,6 +30,7 @@ import {
   agentRuntimeConnectPayloadSchema,
   agentRuntimeAuxiliaryPayloadSchema,
   agentRuntimeApprovalResolvePayloadSchema,
+  clawActiveThreadContextPayloadSchema,
   agentRuntimeEventSubscribePayloadSchema,
   agentRuntimeListThreadsPayloadSchema,
   agentRuntimeReadThreadPayloadSchema,
@@ -205,6 +206,11 @@ type RegisterAppIpcHandlersOptions = {
   }
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
   getClawRuntime: () => ClawRuntime | null
+  setClawActiveThreadContext?: (payload: {
+    threadId: string
+    runtimeId?: AgentRuntimeId
+    workspaceRoot?: string
+  } | null) => void
   getScheduleRuntime: () => ScheduleRuntime | null
   startFeishuInstallQrcode: (isLark: boolean) => Promise<ClawImInstallQrResult>
   pollFeishuInstall: (deviceCode: string) => Promise<ClawImInstallPollResult>
@@ -641,6 +647,18 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     if (!scheduleRuntime) return { ok: false, message: 'Schedule runtime is not initialized.' }
     return scheduleRuntime.runTask(normalizedTaskId)
   })
+
+  handleInvoke(
+    'claw:active-thread-context',
+    async (_, payload: unknown) => {
+      const request = parseIpcPayload(
+        'claw:active-thread-context',
+        clawActiveThreadContextPayloadSchema,
+        payload
+      )
+      options.setClawActiveThreadContext?.(request)
+    }
+  )
 
   handleInvoke(
     'claw:channel:mirror',

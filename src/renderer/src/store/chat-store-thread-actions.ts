@@ -97,6 +97,20 @@ type StoreActionContext = {
 
 let drainingQueuedMessages = false
 
+function publishActiveClawThreadContext(state: ChatState, threadId: string | null): void {
+  if (typeof window.dsGui?.updateClawActiveThreadContext !== 'function') return
+  if (!threadId) {
+    void window.dsGui.updateClawActiveThreadContext(null).catch(() => undefined)
+    return
+  }
+  const thread = state.threads.find((item) => item.id === threadId)
+  void window.dsGui.updateClawActiveThreadContext({
+    threadId,
+    runtimeId: thread?.runtimeId,
+    workspaceRoot: thread?.workspace
+  }).catch(() => undefined)
+}
+
 function subscribeThreadEventsWithRecovery(
   provider: AgentProvider,
   threadId: string,
@@ -233,6 +247,7 @@ export function createThreadActions(
         turnDurationByUserId,
         queuedMessages: s.queuedMessages
       }))
+      publishActiveClawThreadContext(get(), activeThreadId)
 
       const ac = new AbortController()
       sseAbortRef.current = ac
@@ -320,6 +335,7 @@ export function createThreadActions(
         inspectorSelectedId: null,
         queuedMessages: []
       })
+      publishActiveClawThreadContext(get(), id)
       syncTurnCompletionPoll(set, get)
       const ac = new AbortController()
       sseAbortRef.current = ac

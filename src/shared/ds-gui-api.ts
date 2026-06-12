@@ -188,6 +188,11 @@ export type ClawChannelActivityPayload = {
   threadId: string
   runtimeId?: AgentRuntimeId
 }
+export type ClawActiveThreadContextPayload = {
+  threadId: string
+  runtimeId?: AgentRuntimeId
+  workspaceRoot?: string
+}
 export type ClawChannelMirrorResult =
   | { ok: true }
   | { ok: false; message: string }
@@ -310,6 +315,7 @@ export type DsGuiApi = {
     onError: (handler: (payload: AgentRuntimeEventErrorPayload) => void) => () => void
   }
   onClawChannelActivity: (handler: (payload: ClawChannelActivityPayload) => void) => () => void
+  updateClawActiveThreadContext: (payload: ClawActiveThreadContextPayload | null) => Promise<void>
   mirrorClawChannelMessage: (
     threadId: string,
     text: string,

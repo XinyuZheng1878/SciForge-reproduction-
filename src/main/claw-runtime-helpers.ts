@@ -30,6 +30,13 @@ export type RuntimeRequestFn = (
   runtimeId?: AgentRuntimeId
 ) => Promise<RuntimeRequestResult>
 
+export type ClawActiveThreadContext = {
+  threadId: string
+  runtimeId?: AgentRuntimeId
+  workspaceRoot?: string
+  updatedAt?: string
+}
+
 export type ClawRuntimeDeps = {
   store: JsonSettingsStore
   runtimeRequest: RuntimeRequestFn
@@ -38,6 +45,7 @@ export type ClawRuntimeDeps = {
     readThread: (input: { runtimeId?: AgentRuntimeId; threadId: string }) => Promise<AgentRuntimeThreadDetail>
     startTurn: (input: AgentRuntimeTurnStartInput) => Promise<AgentRuntimeTurnHandle>
   }
+  getActiveThreadContext?: () => ClawActiveThreadContext | null
   logError: (category: string, message: string, detail?: unknown) => void
   notifyChannelActivity?: (payload: { channelId: string; threadId: string; runtimeId?: AgentRuntimeId }) => void
   sendWeixinBridgeMessage?: (options: {

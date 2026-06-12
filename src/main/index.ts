@@ -185,6 +185,12 @@ let isQuitting = false
 let devBrowserBridgeServer: DevBrowserBridgeServer | null = null
 let codexRuntimePrewarmTimer: ReturnType<typeof setTimeout> | null = null
 let codexRuntimePrewarmPromise: Promise<void> | null = null
+let clawActiveThreadContext: {
+  threadId: string
+  runtimeId?: AgentRuntimeId
+  workspaceRoot?: string
+  updatedAt: string
+} | null = null
 
 type GuiUpdaterModule = typeof import('./gui-updater')
 
@@ -975,6 +981,7 @@ app.whenReady().then(async () => {
     store,
     runtimeRequest,
     agentRuntime: agentRuntimeHost,
+    getActiveThreadContext: () => clawActiveThreadContext,
     logError,
     notifyChannelActivity: emitClawChannelActivity,
     sendWeixinBridgeMessage,
@@ -1087,6 +1094,14 @@ app.whenReady().then(async () => {
     agentRuntime: agentRuntimeHost,
     fetchUpstreamModels: fetchModels,
     getClawRuntime: () => clawRuntime,
+    setClawActiveThreadContext: (payload) => {
+      clawActiveThreadContext = payload
+        ? {
+            ...payload,
+            updatedAt: new Date().toISOString()
+          }
+        : null
+    },
     getScheduleRuntime: () => scheduleRuntime,
     startFeishuInstallQrcode,
     pollFeishuInstall,

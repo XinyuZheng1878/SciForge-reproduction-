@@ -107,8 +107,12 @@ function unsupportedRuntimeRequestRunResult(): ClawRunResult {
   return { ok: false, message: UNSUPPORTED_RUNTIME_REQUEST_MESSAGE }
 }
 
-function clawRuntimeId(settings: AppSettingsV1, channel?: ClawImChannelV1): AgentRuntimeId {
-  return channel ? normalizeAgentRuntimeId(channel.runtimeId) : normalizeAgentRuntimeId(settings.activeAgentRuntime)
+function clawRuntimeId(
+  settings: AppSettingsV1,
+  channel?: ClawImChannelV1,
+  conversation?: ClawImConversationV1
+): AgentRuntimeId {
+  return normalizeAgentRuntimeId(conversation?.runtimeId ?? channel?.runtimeId ?? settings.activeAgentRuntime)
 }
 
 function withAgentThreadId(
@@ -158,6 +162,7 @@ function imCommandHelpText(settings: AppSettingsV1): string {
       'Claw IM 命令：',
       '- `/help`：查看命令帮助',
       '- `/new`：当前 IM 连接开启新话题',
+      '- `/attach current`：绑定到电脑端当前会话',
       '- `/model`：查看当前模型',
       '- `/model auto|pro|flash`：切换当前 IM 连接模型',
       '也支持 `-new`、`-help`、`-model flash` 这种写法。'
@@ -167,10 +172,25 @@ function imCommandHelpText(settings: AppSettingsV1): string {
     'Claw IM commands:',
     '- `/help`: show command help',
     '- `/new`: start a new topic for this IM connection',
+    '- `/attach current`: bind this IM conversation to the active desktop conversation',
     '- `/model`: show the current model',
     '- `/model auto|pro|flash`: switch this IM connection model',
     '`-new`, `-help`, and `-model flash` are supported too.'
   ].join('\n')
+}
+
+function imFirstConnectHelpText(settings: AppSettingsV1): string {
+  const help = imCommandHelpText(settings)
+  return isChineseLocale(settings)
+    ? `已连接到本地项目。你可以直接发送消息远程指导当前项目。\n\n${help}`
+    : `Connected to the local project. Send a message here to guide the desktop project remotely.\n\n${help}`
+}
+
+function withFirstConnectHelp(settings: AppSettingsV1, firstConnect: boolean, reply: string): string {
+  const trimmed = reply.trim()
+  if (!firstConnect) return trimmed
+  const help = imFirstConnectHelpText(settings)
+  return trimmed ? `${help}\n\n---\n\n${trimmed}` : help
 }
 
 function imModelCommandHint(settings: AppSettingsV1): string {
@@ -555,13 +575,13 @@ export class ClawRuntime {
     const currentSettings = await this.deps.store.load()
     const currentChannel = currentSettings.claw.channels.find((item) => item.id === input.channel?.id)
     if (!currentChannel) return
-    const runtimeId = clawRuntimeId(currentSettings, currentChannel)
     const session = input.remoteSession
     const currentConversation = session
       ? this.findChannelConversation(currentChannel, session)
       : input.conversation
         ? currentChannel.conversations.find((item) => item.id === input.conversation?.id)
         : undefined
+    const runtimeId = clawRuntimeId(currentSettings, currentChannel, currentConversation)
     const now = new Date().toISOString()
     await this.deps.store.patch({
       claw: {
@@ -611,6 +631,97 @@ export class ClawRuntime {
     })
   }
 
+  private async attachIncomingImToActiveThread(
+    settings: AppSettingsV1,
+    input: {
+      channel?: ClawImChannelV1
+      conversation?: ClawImConversationV1
+      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+    }
+  ): Promise<string> {
+    if (!input.channel) {
+      return isChineseLocale(settings)
+        ? '当前 IM 渠道不可用，无法绑定到电脑端会话。'
+        : 'No IM channel is available to attach to the active desktop conversation.'
+    }
+    const active = this.deps.getActiveThreadContext?.()
+    const activeThreadId = active?.threadId.trim() ?? ''
+    if (!activeThreadId) {
+      return isChineseLocale(settings)
+        ? '还没有可绑定的电脑端当前会话。请先在本地打开一个会话，再发送 /attach current。'
+        : 'There is no active desktop conversation to attach. Open a local conversation first, then send /attach current.'
+    }
+    const currentSettings = await this.deps.store.load()
+    const currentChannel = currentSettings.claw.channels.find((item) => item.id === input.channel?.id)
+    if (!currentChannel) {
+      return isChineseLocale(settings)
+        ? '当前 IM 渠道不可用，无法绑定到电脑端会话。'
+        : 'No IM channel is available to attach to the active desktop conversation.'
+    }
+    const runtimeId = normalizeAgentRuntimeId(active?.runtimeId ?? currentSettings.activeAgentRuntime)
+    const session = input.remoteSession
+    const existingConversation = session
+      ? this.findChannelConversation(currentChannel, session)
+      : input.conversation
+        ? currentChannel.conversations.find((item) => item.id === input.conversation?.id)
+        : undefined
+    const now = new Date().toISOString()
+    const workspaceRoot = active?.workspaceRoot?.trim() ||
+      (session ? this.resolveIncomingWorkspaceRoot(currentSettings, currentChannel, existingConversation, session) : '') ||
+      existingConversation?.workspaceRoot.trim() ||
+      this.resolveChannelWorkspaceRoot(currentSettings, currentChannel)
+    const nextConversation: ClawImConversationV1 | null = existingConversation
+      ? {
+          ...withClawThreadMapping(existingConversation, runtimeId, activeThreadId),
+          ...(session
+            ? {
+                latestMessageId: session.messageId,
+                senderId: session.senderId,
+                senderName: session.senderName
+              }
+            : {}),
+          workspaceRoot,
+          updatedAt: now
+        }
+      : session
+        ? withClawThreadMapping({
+            id: randomUUID(),
+            chatId: session.chatId,
+            remoteThreadId: session.threadId,
+            latestMessageId: session.messageId,
+            senderId: session.senderId,
+            senderName: session.senderName,
+            localThreadId: '',
+            workspaceRoot,
+            createdAt: now,
+            updatedAt: now
+          }, runtimeId, activeThreadId)
+        : null
+    await this.deps.store.patch({
+      claw: {
+        channels: currentSettings.claw.channels.map((item) => {
+          if (item.id !== currentChannel.id) return item
+          return {
+            ...withClawThreadMapping(item, runtimeId, activeThreadId),
+            conversations: nextConversation
+              ? existingConversation
+                ? item.conversations.map((conversation) =>
+                    conversation.id === existingConversation.id ? nextConversation : conversation
+                  )
+                : [...item.conversations, nextConversation]
+              : item.conversations,
+            updatedAt: now
+          }
+        })
+      }
+    })
+    this.deps.notifyChannelActivity?.({ channelId: currentChannel.id, threadId: activeThreadId, runtimeId })
+    const shortThreadId = activeThreadId.length > 12 ? `${activeThreadId.slice(0, 8)}...${activeThreadId.slice(-4)}` : activeThreadId
+    return isChineseLocale(settings)
+      ? `已绑定到电脑端当前会话（${runtimeId}:${shortThreadId}）。之后这个 IM 会话里的消息会继续进入同一个本地进程。`
+      : `Attached to the active desktop conversation (${runtimeId}:${shortThreadId}). Future messages in this IM conversation will continue in that local process.`
+  }
+
   private async handleIncomingImCommand(
     settings: AppSettingsV1,
     input: {
@@ -628,6 +739,13 @@ export class ClawRuntime {
     if (command.kind === 'model') {
       await this.setIncomingImModel(input.channel, command.model)
       return imModelChangedText(settings, command.model)
+    }
+    if (command.kind === 'attachCurrent') {
+      return this.attachIncomingImToActiveThread(settings, {
+        channel: input.channel,
+        conversation: input.conversation,
+        remoteSession: input.remoteSession
+      })
     }
     if (command.kind === 'clear') {
       await this.resetIncomingImThread({
@@ -652,7 +770,7 @@ export class ClawRuntime {
     }
   ): Promise<ClawRunResult> {
     const { channel, conversation, prompt, provider, remoteSession, sender } = input
-    const runtimeId = clawRuntimeId(settings, channel)
+    const runtimeId = clawRuntimeId(settings, channel, conversation)
     const initialThreadId = clawThreadIdForRuntime(channel, conversation, runtimeId)
     const result = await this.runPrompt(settings, {
       prompt,
@@ -1117,8 +1235,31 @@ export class ClawRuntime {
       chatId: remoteSession.chatId,
       threadId: remoteSession.threadId
     })
+    const isFirstRemoteConversation = !conversation
     const workspaceRoot = this.resolveIncomingWorkspaceRoot(settings, channel, conversation, remoteSession)
     const replyOptions = { replyTo: message.messageId, replyInThread: Boolean(message.threadId) }
+    const inboundCommand = parseClawCommand(message.content)
+
+    if (isFirstRemoteConversation && !inboundCommand) {
+      await this.sendFeishuMessage(
+        bridge,
+        message.chatId,
+        { markdown: imFirstConnectHelpText(settings) },
+        replyOptions,
+        {
+          purpose: 'first-connect-help',
+          channelId,
+          chatId: message.chatId,
+          inboundMessageId: message.messageId
+        }
+      ).catch((error) => {
+        this.deps.logError('claw-feishu', 'Failed to send first-connect help reply', {
+          message: errorMessage(error),
+          chatId: message.chatId,
+          inboundMessageId: message.messageId
+        })
+      })
+    }
 
     const commandReply = await this.handleIncomingImCommand(settings, {
       text: message.content,
@@ -1202,7 +1343,7 @@ export class ClawRuntime {
     }
 
     if (shouldDirectSendExistingGeneratedFilesForPrompt(message.content)) {
-      const runtimeId = clawRuntimeId(settings, channel)
+      const runtimeId = clawRuntimeId(settings, channel, conversation)
       const existingThreadId = clawThreadIdForRuntime(channel, conversation, runtimeId)
       const existingFiles = await this.resolveFeishuGeneratedFiles(
         await this.recentGeneratedFilesForThread(settings, existingThreadId, workspaceRoot, {
@@ -1656,6 +1797,7 @@ export class ClawRuntime {
               threadId: remoteSession.threadId
             })
           : undefined
+      const firstRemoteConversation = Boolean(channel && remoteSession && !conversation && !parseClawCommand(prompt))
       const commandReply = await this.handleIncomingImCommand(settings, {
         text: prompt,
         channel,
@@ -1663,7 +1805,7 @@ export class ClawRuntime {
         remoteSession: remoteSession ?? undefined
       })
       if (commandReply !== null) {
-        writeJson(res, 200, { ok: true, reply: commandReply })
+        writeJson(res, 200, { ok: true, reply: withFirstConnectHelp(settings, firstRemoteConversation, commandReply) })
         return
       }
       const taskCreation = await this.deps.createScheduledTaskFromText?.(prompt, {
@@ -1672,7 +1814,11 @@ export class ClawRuntime {
         mode: im.mode
       }) ?? { kind: 'noop' as const }
       if (taskCreation.kind === 'created') {
-        writeJson(res, 200, { ok: true, createdTaskId: taskCreation.taskId, reply: taskCreation.confirmationText })
+        writeJson(res, 200, {
+          ok: true,
+          createdTaskId: taskCreation.taskId,
+          reply: withFirstConnectHelp(settings, firstRemoteConversation, taskCreation.confirmationText)
+        })
         return
       }
       if (taskCreation.kind === 'error') {
@@ -1687,7 +1833,13 @@ export class ClawRuntime {
         conversation,
         remoteSession: remoteSession ?? undefined
       })
-      writeJson(res, result.ok ? 200 : 500, result.ok ? { ...result, reply: result.text ?? '' } : result)
+      writeJson(
+        res,
+        result.ok ? 200 : 500,
+        result.ok
+          ? { ...result, reply: withFirstConnectHelp(settings, firstRemoteConversation, result.text ?? '') }
+          : result
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       this.deps.logError('claw-webhook', 'Claw IM webhook request failed', { message })

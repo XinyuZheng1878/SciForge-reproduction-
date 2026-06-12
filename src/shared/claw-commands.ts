@@ -2,6 +2,7 @@ import type { ClawModel } from './app-settings'
 
 export type ClawCommand =
   | { kind: 'clear' }
+  | { kind: 'attachCurrent' }
   | { kind: 'help' }
   | { kind: 'showModel' }
   | { kind: 'model'; model: ClawModel }
@@ -12,6 +13,9 @@ export function parseClawCommand(text: string): ClawCommand | null {
   const lower = raw.toLowerCase()
   if (/^[/-](?:clear|reset|new|清空|重置|新会话|新话题)$/.test(lower)) {
     return { kind: 'clear' }
+  }
+  if (/^[/-](?:attach|bind|use|绑定|接入)(?:\s+(?:current|active|当前|当前会话|当前进程))?$/.test(lower)) {
+    return { kind: 'attachCurrent' }
   }
   if (/^[/-](?:help|帮助|命令|\?)$/.test(lower)) {
     return { kind: 'help' }

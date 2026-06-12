@@ -176,6 +176,8 @@ const api = {
     ipcRenderer.on('claw:channel-activity', wrapped)
     return () => ipcRenderer.removeListener('claw:channel-activity', wrapped)
   },
+  updateClawActiveThreadContext: (payload) =>
+    ipcRenderer.invoke('claw:active-thread-context', payload),
   mirrorClawChannelMessage: (threadId, text, direction) =>
     ipcRenderer.invoke('claw:channel:mirror', { threadId, text, direction }),
   mirrorClawChannelMessageToFeishu: (threadId, text, direction) =>

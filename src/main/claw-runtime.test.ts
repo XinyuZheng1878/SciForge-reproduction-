@@ -762,6 +762,88 @@ describe('ClawRuntime', () => {
     expect(runtimeRequest).not.toHaveBeenCalled()
   })
 
+  it('attaches a remote IM conversation to the active desktop thread', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      provider: 'weixin' as const,
+      id: 'channel_weixin',
+      label: 'WeChat',
+      runtimeId: 'codex',
+      threadId: '',
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    const runtimeRequest = vi.fn()
+    const notifyChannelActivity = vi.fn()
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: runtimeRequest as never,
+      getActiveThreadContext: () => ({
+        threadId: 'desktop-thread-1',
+        runtimeId: 'codex',
+        workspaceRoot: '/tmp/workspace'
+      }),
+      notifyChannelActivity,
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+    const body = JSON.stringify({
+      text: '/attach current',
+      provider: 'weixin',
+      channelId: 'channel_weixin',
+      chatId: 'wx_user_1',
+      messageId: 'wx_msg_attach',
+      senderId: 'wx_user_1',
+      senderName: 'Alice'
+    })
+    const req = {
+      method: 'POST',
+      url: settings.claw.im.path,
+      headers: {},
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from(body)
+      }
+    }
+    let status = 0
+    let responseBody = ''
+    const res = {
+      writeHead: vi.fn((nextStatus: number) => {
+        status = nextStatus
+      }),
+      end: vi.fn((payload: string) => {
+        responseBody = payload
+      })
+    }
+
+    await (runtime as unknown as {
+      handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+    }).handleWebhook(req, res)
+
+    expect(status).toBe(200)
+    expect(JSON.parse(responseBody).reply).toContain('Attached to the active desktop conversation')
+    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(notifyChannelActivity).toHaveBeenCalledWith({
+      channelId: 'channel_weixin',
+      threadId: 'desktop-thread-1',
+      runtimeId: 'codex'
+    })
+    expect(current().claw.channels[0]).toMatchObject({
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'desktop-thread-1' }
+    })
+    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+      chatId: 'wx_user_1',
+      latestMessageId: 'wx_msg_attach',
+      senderId: 'wx_user_1',
+      senderName: 'Alice',
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'desktop-thread-1' },
+      workspaceRoot: '/tmp/workspace'
+    })
+  })
+
   it('records WeChat webhook conversations and returns the GUI-generated reply', async () => {
     const settings = buildSettings()
     settings.claw.im.enabled = true
@@ -844,8 +926,9 @@ describe('ClawRuntime', () => {
     expect(status).toBe(200)
     expect(JSON.parse(responseBody)).toMatchObject({
       ok: true,
-      reply: 'hello from GUI'
+      reply: expect.stringContaining('hello from GUI')
     })
+    expect(JSON.parse(responseBody).reply).toContain('Claw IM commands:')
     expect(current().claw.channels[0].threadId).toBe('thr_weixin')
     expect(current().claw.channels[0].conversations[0]).toMatchObject({
       chatId: 'wx_user_1',
@@ -942,8 +1025,9 @@ describe('ClawRuntime', () => {
     expect(status).toBe(200)
     expect(JSON.parse(responseBody)).toMatchObject({
       ok: true,
-      reply: 'hello from codex'
+      reply: expect.stringContaining('hello from codex')
     })
+    expect(JSON.parse(responseBody).reply).toContain('Claw IM commands:')
     expect(runtimeRequest).not.toHaveBeenCalled()
     expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
       runtimeId: 'codex',
@@ -1094,8 +1178,9 @@ describe('ClawRuntime', () => {
     expect(status).toBe(200)
     expect(JSON.parse(responseBody)).toMatchObject({
       ok: true,
-      reply: 'final result'
+      reply: expect.stringContaining('final result')
     })
+    expect(JSON.parse(responseBody).reply).toContain('Claw IM commands:')
     expect(getCount).toBe(2)
   })
 

@@ -397,6 +397,7 @@
   "clawNoImSub": "添加飞书 / Lark 或微信后，每个连接都会直接对应一个 Claw 对话。",
   "clawChannelEmpty": "还没有远端消息；这个连接收到第一条消息后，才会建立本地对话。",
   "clawChannelOpen": "打开",
+  "clawConversationUnbound": "未绑定",
   "clawClearSession": "清空当前对话",
   "clawDeleteIm": "删除 IM",
   "clawDeleteImConfirm": "确定删除 IM「{{name}}」及其本地会话配置吗？此操作无法撤销。",
