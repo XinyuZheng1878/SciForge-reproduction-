@@ -527,12 +527,9 @@ export class ClawRuntime {
 
   private resolveConversationWorkspaceRoot(
     settings: AppSettingsV1,
-    channel: ClawImChannelV1,
-    session: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'>
+    channel: ClawImChannelV1
   ): string {
-    const base = this.resolveChannelWorkspaceRoot(settings, channel).trim()
-    const key = sanitizePathSegment(session.threadId.trim() || session.chatId.trim(), 'conversation')
-    return base ? `${base.replace(/\/+$/, '')}/conversations/${key}` : ''
+    return this.resolveChannelWorkspaceRoot(settings, channel).trim()
   }
 
   private resolveIncomingWorkspaceRoot(
@@ -544,12 +541,14 @@ export class ClawRuntime {
     const storedConversationRoot = conversation?.workspaceRoot.trim() ?? ''
     if (storedConversationRoot && remoteSession) {
       const legacyEmptyBaseRoot = this.legacyEmptyBaseConversationWorkspaceRoot(remoteSession)
+      const legacyChannelBaseRoot = `${this.resolveChannelWorkspaceRoot(settings, channel).replace(/\/+$/, '')}${legacyEmptyBaseRoot}`
+      if (storedConversationRoot === legacyChannelBaseRoot) return this.resolveChannelWorkspaceRoot(settings, channel)
       if (storedConversationRoot !== legacyEmptyBaseRoot) return storedConversationRoot
     } else if (storedConversationRoot) {
       return storedConversationRoot
     }
     const conversationRoot = channel && remoteSession
-      ? this.resolveConversationWorkspaceRoot(settings, channel, remoteSession)
+      ? this.resolveConversationWorkspaceRoot(settings, channel)
       : ''
     return conversationRoot || this.resolveChannelWorkspaceRoot(settings, channel)
   }
@@ -806,7 +805,7 @@ export class ClawRuntime {
                 senderId: remoteSession.senderId,
                 senderName: remoteSession.senderName,
                 localThreadId: '',
-                workspaceRoot: this.resolveConversationWorkspaceRoot(settings, channel, remoteSession),
+                workspaceRoot: this.resolveConversationWorkspaceRoot(settings, channel),
                 createdAt: now,
                 updatedAt: now
               }, runtimeId, threadId)

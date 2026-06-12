@@ -62,6 +62,7 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
       const result = await service.startTurn({
         threadId: input.threadId,
         text: input.text,
+        displayText: input.displayText,
         workspace: input.workspace,
         model: input.model,
         reasoningEffort: input.reasoningEffort
@@ -271,12 +272,12 @@ function mapCodexDetail(threadId: string, detail: {
 
 function mapCodexBlock(block: CodexChatBlock): AgentRuntimeItem | null {
   if (block.kind === 'user') {
-    return {
-      id: block.id,
-      kind: 'user_message',
-      text: block.text,
-      createdAt: block.createdAt
-    }
+      return {
+        id: block.id,
+        kind: 'user_message',
+        text: block.displayText?.trim() || block.text,
+        createdAt: block.createdAt
+      }
   }
   if (block.kind === 'assistant') {
     return {

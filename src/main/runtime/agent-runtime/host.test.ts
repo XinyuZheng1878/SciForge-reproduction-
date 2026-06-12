@@ -711,7 +711,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
           latestSeq: 3,
           latestTurnId: 'turn-1',
           blocks: [
-            { kind: 'user' as const, id: 'user-1', text: 'hello' },
+            { kind: 'user' as const, id: 'user-1', text: '[Claw managed instructions]\nhello', displayText: 'hello' },
             { kind: 'assistant' as const, id: 'assistant-1', text: 'hi' },
             { kind: 'reasoning' as const, id: 'reasoning-1', text: 'thinking' },
             {
@@ -904,6 +904,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
     await expect(adapter.startTurn(ctx, {
       threadId: 'codex-thread',
       text: 'run',
+      displayText: 'Run it',
       model: 'gpt-5',
       reasoningEffort: 'high'
     })).resolves.toEqual({
@@ -911,6 +912,11 @@ describe('createCodexAgentRuntimeAdapter', () => {
       turnId: 'turn-2',
       userMessageItemId: 'user-2'
     })
+    expect(service.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      threadId: 'codex-thread',
+      text: 'run',
+      displayText: 'Run it'
+    }))
     await expect(adapter.resolveApproval?.(ctx, {
       threadId: 'codex-thread',
       approvalId: 'server-request-1',
@@ -934,6 +940,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
     expect(service.startTurn).toHaveBeenCalledWith({
       threadId: 'codex-thread',
       text: 'run',
+      displayText: 'Run it',
       model: 'gpt-5',
       reasoningEffort: 'high',
       workspace: undefined

@@ -175,7 +175,11 @@ export function Sidebar({
         <ConnectPhoneSidebarPanel
           channels={clawChannels}
           onAddProvider={async (provider, agentProfile, platformCredential, options) => {
-            await addClawChannel(provider, agentProfile, platformCredential, options)
+            await addClawChannel(provider, agentProfile, platformCredential, {
+              ...options,
+              workspaceRoot: options?.workspaceRoot || workspaceRoot,
+              preserveRoute: true
+            })
             onToggleConnectPhone()
           }}
           onDisconnect={(channelId) => deleteClawChannel(channelId)}

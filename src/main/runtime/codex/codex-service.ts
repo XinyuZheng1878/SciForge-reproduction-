@@ -347,6 +347,7 @@ export class CodexRuntimeService {
         response = await client.startTurn(turnStartParams({
           threadId: codexThreadId,
           text: payload.text,
+          displayText: payload.displayText,
           workspace,
           model: routerModel,
           reasoningEffort: payload.reasoningEffort,
@@ -370,6 +371,7 @@ export class CodexRuntimeService {
         response = await client.startTurn(turnStartParams({
           threadId: codexThreadId,
           text: payload.text,
+          displayText: payload.displayText,
           workspace,
           model: routerModel,
           reasoningEffort: payload.reasoningEffort,
@@ -1002,6 +1004,7 @@ function codexModelRouterModel(settings: AppSettingsV1): string {
 function turnStartParams(input: {
   threadId: string
   text: string
+  displayText?: string
   workspace: string
   model?: string
   reasoningEffort?: string
@@ -1009,8 +1012,11 @@ function turnStartParams(input: {
 }): Parameters<CodexAppServerJsonRpcClient['startTurn']>[0] {
   return {
     threadId: input.threadId,
-    input: [textInput(input.text)],
+    input: [textInput(input.text, input.displayText)],
     cwd: input.workspace,
+    ...(input.displayText?.trim() && input.displayText.trim() !== input.text.trim()
+      ? { displayText: input.displayText.trim() }
+      : {}),
     ...(input.model ? { model: input.model } : {}),
     approvalPolicy: mapApprovalPolicy(input.runtime.approvalPolicy),
     sandboxPolicy: mapTurnSandboxMode(input.runtime.sandboxMode, input.workspace),
@@ -1034,8 +1040,16 @@ function mapTurnSandboxMode(mode: SandboxMode, cwd: string): CodexAppServerTurnS
   return { type: 'workspaceWrite', writableRoots: [cwd], networkAccess: true }
 }
 
-function textInput(text: string): CodexAppServerInputItem {
-  return { type: 'text', text, text_elements: [] }
+function textInput(text: string, displayText?: string): CodexAppServerInputItem {
+  const trimmedDisplayText = displayText?.trim()
+  return {
+    type: 'text',
+    text,
+    text_elements: [],
+    ...(trimmedDisplayText && trimmedDisplayText !== text.trim()
+      ? { displayText: trimmedDisplayText, meta: { displayText: trimmedDisplayText } }
+      : {})
+  }
 }
 
 function pendingServerRequestEvent(request: CodexAppServerPendingRequest): CodexThreadEventPayload | null {
@@ -1129,7 +1143,18 @@ function itemBlock(item: Record<string, unknown>, turnId: string, createdAt?: st
   const type = stringValue(item.type)
   const id = stringValue(item.id) || `${turnId}-${type || 'item'}`
   if (type === 'userMessage') {
-    return [{ kind: 'user', id, createdAt, text: userInputText(arrayValue(item.content)) }]
+    const meta = asRecord(item.meta)
+    const displayText =
+      stringValue(item.displayText) ||
+      stringValue(item.display_text) ||
+      stringValue(meta?.displayText)
+    return [{
+      kind: 'user',
+      id,
+      createdAt,
+      text: userInputText(arrayValue(item.content)),
+      ...(displayText ? { displayText } : {})
+    }]
   }
   if (type === 'agentMessage') {
     return [{ kind: 'assistant', id, createdAt, text: stringValue(item.text) }]

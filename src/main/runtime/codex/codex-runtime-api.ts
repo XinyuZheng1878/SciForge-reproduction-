@@ -17,7 +17,7 @@ export type CodexNormalizedThread = {
 }
 
 export type CodexChatBlock =
-  | { kind: 'user'; id: string; createdAt?: string; text: string }
+  | { kind: 'user'; id: string; createdAt?: string; text: string; displayText?: string }
   | { kind: 'assistant'; id: string; createdAt?: string; text: string }
   | { kind: 'reasoning'; id: string; createdAt?: string; text: string }
   | {
@@ -137,6 +137,7 @@ export type CodexThreadMutationResult =
 export type CodexTurnStartPayload = {
   threadId: string
   text: string
+  displayText?: string
   workspace?: string
   model?: string
   reasoningEffort?: string

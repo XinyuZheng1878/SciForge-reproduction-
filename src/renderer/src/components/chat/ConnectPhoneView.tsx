@@ -44,10 +44,11 @@ type AddClawPhoneChannel = (
   platformCredential: ClawImPlatformCredentialV1,
   options: {
     model: ClawModel
-    enabled: boolean
-    im: Partial<ClawImSettingsV1>
-    preserveRoute?: boolean
-  }
+	    enabled: boolean
+	    im: Partial<ClawImSettingsV1>
+	    workspaceRoot?: string
+	    preserveRoute?: boolean
+	  }
 ) => Promise<void>
 
 type Props = {

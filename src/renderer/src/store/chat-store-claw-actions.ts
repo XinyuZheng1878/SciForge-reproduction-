@@ -377,7 +377,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         runtimeId,
         agentThreadIds: channel.agentThreadIds ?? {},
         model: optionsArg?.model ?? channel.model,
-        workspaceRoot: optionsArg?.workspaceRoot?.trim() ?? channel.workspaceRoot,
+        workspaceRoot: optionsArg?.workspaceRoot?.trim() || settings.workspaceRoot || channel.workspaceRoot,
         enabled: optionsArg?.enabled ?? channel.enabled
       }
       const channels = [...settings.claw.channels, nextChannel]

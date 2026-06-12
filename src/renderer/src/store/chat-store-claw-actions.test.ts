@@ -104,6 +104,7 @@ function settingsWithChannels(
 function createClawActionHarness(options: {
   settings: TestSettings
   provider?: Partial<TestClawProvider>
+  newClawChannel?: () => ClawImChannelV1
   state?: Record<string, unknown>
 }) {
   let settings = options.settings
@@ -171,7 +172,7 @@ function createClawActionHarness(options: {
     get: (() => state) as never,
     i18n: { t: (key: string) => key },
     getProvider: () => provider,
-    newClawChannel: vi.fn() as never,
+    newClawChannel: (options.newClawChannel ?? vi.fn()) as never,
     normalizeClawComposerModel: (raw: string) => raw as never,
     activeClawChannel: vi.fn() as never,
     normalizeWorkspaceRoot: (workspaceRoot?: string | null) => workspaceRoot?.trim() ?? '',
@@ -291,6 +292,27 @@ describe('chat-store Claw actions helpers', () => {
       kun: 'kun-conversation-thread',
       codex: 'codex-thread'
     })
+  })
+
+  it('uses the current project workspace when adding a new IM channel without an explicit workspace', async () => {
+    const baseChannel = channel({ workspaceRoot: '', threadId: '', conversations: [] })
+    const { actions, dsGui, getSettings } = createClawActionHarness({
+      settings: settingsWithChannels([], 'codex'),
+      newClawChannel: () => baseChannel
+    })
+
+    await actions.addClawChannel('feishu')
+
+    expect(getSettings().claw.channels[0]).toMatchObject({
+      id: 'channel-1',
+      runtimeId: 'codex',
+      workspaceRoot: '/Users/zxy/project'
+    })
+    expect(dsGui.setSettings).toHaveBeenCalledWith(expect.objectContaining({
+      claw: expect.objectContaining({
+        channels: [expect.objectContaining({ workspaceRoot: '/Users/zxy/project' })]
+      })
+    }))
   })
 
   it('selects a channel using the channel runtime mapping when the active runtime differs', async () => {

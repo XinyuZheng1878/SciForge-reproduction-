@@ -174,7 +174,7 @@ describe('ClawRuntime', () => {
       threadId: ''
     })
 
-    expect(root).toBe('/tmp/claw-default/conversations/oc_chat_a')
+    expect(root).toBe('/tmp/claw-default')
   })
 
   it('repairs legacy Feishu conversation workspaces created from an empty channel root', () => {
@@ -231,7 +231,40 @@ describe('ClawRuntime', () => {
       threadId: ''
     })
 
-    expect(root).toBe('/tmp/claw-default/conversations/oc_chat_a')
+    expect(root).toBe('/tmp/claw-default')
+  })
+
+  it('repairs legacy Feishu conversation sub-workspaces under the channel project root', () => {
+    const settings = buildSettings()
+    settings.claw.im.workspaceRoot = '/tmp/claw-default'
+    const conversation = buildConversation({
+      chatId: 'oc_chat_a',
+      remoteThreadId: '',
+      workspaceRoot: '/tmp/claw-default/conversations/oc_chat_a'
+    })
+    const channel = buildChannel({
+      workspaceRoot: '',
+      conversations: [conversation]
+    })
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      runtimeRequest: vi.fn() as never,
+      logError: () => undefined
+    })
+
+    const root = (runtime as unknown as {
+      resolveIncomingWorkspaceRoot: (
+        settingsArg: AppSettingsV1,
+        channelArg: typeof channel,
+        conversationArg: typeof conversation,
+        remoteSessionArg: { chatId: string; threadId: string }
+      ) => string
+    }).resolveIncomingWorkspaceRoot(settings, channel, conversation, {
+      chatId: 'oc_chat_a',
+      threadId: ''
+    })
+
+    expect(root).toBe('/tmp/claw-default')
   })
 
   it('delegates reminder creation to Schedule without writing claw tasks', async () => {
@@ -1031,7 +1064,7 @@ describe('ClawRuntime', () => {
     expect(runtimeRequest).not.toHaveBeenCalled()
     expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
       runtimeId: 'codex',
-      workspace: '/tmp/workspace/conversations/wx_user_1',
+      workspace: '/tmp/workspace',
       title: '[Claw IM:WeChat] webhook'
     }))
     expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
