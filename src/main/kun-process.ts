@@ -66,22 +66,26 @@ const DEFAULT_KUN_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
       softThreshold: 980_000,
       hardThreshold: 990_000
     },
-    inputModalities: ['text'],
+    // Kun always reaches the model through the local Model Router, which translates images via the
+    // vision model (Qwen3.7-Plus) before the text reasoner. So the endpoint accepts image input even
+    // though DeepSeek itself is text-only — declare it so Kun sends image_url parts instead of
+    // base64-dumping uploads as opaque text fallbacks.
+    inputModalities: ['text', 'image'],
     outputModalities: ['text'],
     supportsToolCalling: true,
-    messageParts: ['text']
+    messageParts: ['text', 'image_url']
   },
   'deepseek-v4-flash': {
-    aliases: ['deepseek-chat', 'deepseek-reasoner'],
+    aliases: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-gui-router'],
     contextWindowTokens: 1_000_000,
     contextCompaction: {
       softThreshold: 980_000,
       hardThreshold: 990_000
     },
-    inputModalities: ['text'],
+    inputModalities: ['text', 'image'],
     outputModalities: ['text'],
     supportsToolCalling: true,
-    messageParts: ['text']
+    messageParts: ['text', 'image_url']
   }
 }
 
