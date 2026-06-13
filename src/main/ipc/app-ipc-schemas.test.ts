@@ -548,6 +548,49 @@ describe('app-ipc-schemas', () => {
     expect(payload.deviceCode).toBe(deviceCode)
   })
 
+  it('accepts Discord Client ID, binding, and guarded takeover payloads', async () => {
+    const schemas = await import('./app-ipc-schemas')
+
+    expect(schemas.discordConfigureClientPayloadSchema.parse({
+      clientId: ' client-1 '
+    })).toEqual({ clientId: 'client-1' })
+
+    expect(schemas.discordConfigureProxyPayloadSchema.parse({
+      proxyUrl: ' http://127.0.0.1:7890 '
+    })).toEqual({ proxyUrl: 'http://127.0.0.1:7890' })
+
+    expect(schemas.discordBindChannelPayloadSchema.parse({
+      channelConfigId: ' config-1 ',
+      guildId: ' guild-1 ',
+      guildName: ' Support ',
+      channelId: ' channel-1 ',
+      channelName: ' support ',
+      enabled: false,
+      workspaceRoot: '/tmp/support',
+      model: 'deepseek-v4-flash',
+      agentProfile: {
+        name: 'Support bot'
+      }
+    })).toMatchObject({
+      channelConfigId: 'config-1',
+      guildId: 'guild-1',
+      channelId: 'channel-1',
+      workspaceRoot: '/tmp/support',
+      model: 'deepseek-v4-flash',
+      agentProfile: { name: 'Support bot' }
+    })
+
+    expect(schemas.discordSetGuardPayloadSchema.parse({
+      enabled: true,
+      channelConfigId: ' config-1 ',
+      forceTakeover: true
+    })).toEqual({
+      enabled: true,
+      channelConfigId: 'config-1',
+      forceTakeover: true
+    })
+  })
+
   it('accepts workspace directory payloads without a child path', () => {
     const payload = workspaceDirectoryTargetPayloadSchema.parse({
       workspaceRoot: '/tmp/workspace'

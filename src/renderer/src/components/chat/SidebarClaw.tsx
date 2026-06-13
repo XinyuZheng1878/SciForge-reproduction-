@@ -13,12 +13,17 @@ import {
   SidebarSectionHeader,
   SidebarTreeRow
 } from '../sidebar/SidebarPrimitives'
+import type { ClawThreadRemoteStatusKind } from '../../store/chat-store-helpers'
 
 type ClawSidebarContentProps = {
   channels: ClawImChannelV1[]
   activeChannelId: string
   activeThreadId: string | null
   runtimeReady: boolean
+  busy: boolean
+  watchTurnCompletion: Record<string, boolean>
+  unreadThreadIds: Record<string, boolean>
+  queuedThreadIds?: ReadonlySet<string>
   onSelectChannel: (channelId: string) => void
   onSelectConversation: (channelId: string, threadId: string) => void
   onAddChannel: () => void
@@ -32,6 +37,10 @@ export function ClawSidebarContent({
   activeChannelId,
   activeThreadId,
   runtimeReady,
+  busy,
+  watchTurnCompletion,
+  unreadThreadIds,
+  queuedThreadIds = new Set<string>(),
   onSelectChannel,
   onSelectConversation,
   onAddChannel,
@@ -93,12 +102,26 @@ export function ClawSidebarContent({
                 (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
               )
               const latestConversation = sortedConversations[0] ?? null
-              const running = sortedConversations.some(
-                (conversation) => conversationThreadIds(conversation).includes(activeThreadId ?? '')
-              )
               const disabled = !channel.enabled
+              const channelThreadIds = channelMappedThreadIds(channel)
+              const running = channelThreadIds.some((threadId) =>
+                watchTurnCompletion[threadId] === true ||
+                (activeThreadId === threadId && busy)
+              )
+              const queued = channelThreadIds.some((threadId) => queuedThreadIds.has(threadId))
+              const unread = channelThreadIds.some((threadId) =>
+                unreadThreadIds[threadId] === true && activeThreadId !== threadId
+              )
+              const statusKind = remoteSidebarStatusKind({
+                enabled: channel.enabled,
+                running,
+                queued
+              })
               const providerLabel = clawProviderDisplayLabel(channel.provider)
-              const secondaryLabel = latestConversation?.senderName.trim()
+              const latestRecentMessage = latestChannelRecentMessage(channel)
+              const secondaryLabel = latestRecentMessage
+                ? recentMessageLabel(latestRecentMessage)
+                : latestConversation?.senderName.trim()
                 || latestConversation?.chatId.trim()
                 || `${providerLabel} · ${channel.model}`
 
@@ -111,17 +134,7 @@ export function ClawSidebarContent({
                     title={disabled ? t('clawImDisabledSidebar') : channel.label}
                     disabled={!runtimeReady || disabled}
                     onClick={() => onSelectChannel(channel.id)}
-                    trailing={
-                      <span
-                        className={`mx-1 h-2 w-2 shrink-0 rounded-full ${
-	                        disabled
-	                          ? 'bg-ds-faint'
-	                          : running || channel.threadId.trim() || channel.agentThreadIds?.kun?.trim() || channel.agentThreadIds?.codex?.trim()
-	                            ? 'bg-emerald-400'
-                            : 'bg-amber-400'
-                      }`}
-                      />
-                    }
+                    trailing={<RemoteSidebarBadges kind={statusKind} active={active} unread={unread} t={t} />}
                     actions={
                       <SidebarIconButton
                         onClick={() => onResetChannel(channel.id)}
@@ -149,6 +162,20 @@ export function ClawSidebarContent({
                           const runtimeId = conversationRuntimeId(channel, conversation)
                           const threadId = conversationThreadId(conversation, runtimeId)
                           const conversationActive = conversationThreadIds(conversation).includes(activeThreadId ?? '')
+                          const mappedThreadIds = conversationThreadIds(conversation)
+                          const conversationRunning = mappedThreadIds.some((id) =>
+                            watchTurnCompletion[id] === true ||
+                            (activeThreadId === id && busy)
+                          )
+                          const conversationQueued = mappedThreadIds.some((id) => queuedThreadIds.has(id))
+                          const conversationUnread = mappedThreadIds.some((id) =>
+                            unreadThreadIds[id] === true && activeThreadId !== id
+                          )
+                          const conversationStatusKind = remoteSidebarStatusKind({
+                            enabled: channel.enabled,
+                            running: conversationRunning,
+                            queued: conversationQueued
+                          })
                           const title = conversation.senderName.trim() || conversation.chatId.trim()
                           const remoteLabel = conversation.remoteThreadId.trim() || conversation.chatId.trim()
                           const processLabel = threadId
@@ -164,6 +191,14 @@ export function ClawSidebarContent({
                                 if (threadId) onSelectConversation(channel.id, threadId)
                                 else onSelectChannel(channel.id)
                               }}
+                              trailing={
+                                <RemoteSidebarBadges
+                                  kind={conversationStatusKind}
+                                  active={conversationActive}
+                                  unread={conversationUnread}
+                                  t={t}
+                                />
+                              }
                               buttonClassName="min-h-[32px] py-1"
                             >
                               <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
@@ -185,6 +220,109 @@ export function ClawSidebarContent({
         )}
       </div>
     </div>
+  )
+}
+
+function channelMappedThreadIds(channel: ClawImChannelV1): string[] {
+  const ids = new Set<string>()
+  addThreadId(ids, channel.threadId)
+  addThreadId(ids, channel.agentThreadIds?.kun)
+  addThreadId(ids, channel.agentThreadIds?.codex)
+  for (const conversation of channel.conversations) {
+    for (const threadId of conversationThreadIds(conversation)) {
+      addThreadId(ids, threadId)
+    }
+  }
+  return [...ids]
+}
+
+function latestChannelRecentMessage(channel: ClawImChannelV1): NonNullable<ClawImChannelV1['recentMessages']>[number] | null {
+  const messages = channel.recentMessages ?? []
+  if (messages.length === 0) return null
+  return [...messages].sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt))[0] ?? null
+}
+
+function recentMessageLabel(message: NonNullable<ClawImChannelV1['recentMessages']>[number]): string {
+  const sender = message.senderName?.trim()
+  const text = message.text?.trim()
+  if (sender && text) return `${sender}: ${text}`
+  return text || sender || message.chatId
+}
+
+function addThreadId(ids: Set<string>, threadId: string | undefined): void {
+  const id = threadId?.trim()
+  if (id) ids.add(id)
+}
+
+function remoteSidebarStatusKind(options: {
+  enabled: boolean
+  running: boolean
+  queued: boolean
+  error?: boolean
+}): ClawThreadRemoteStatusKind {
+  if (options.error) return 'error'
+  if (options.running) return 'running'
+  if (options.queued) return 'queued'
+  return options.enabled ? 'watched' : 'bound'
+}
+
+function remoteStatusLabel(
+  kind: ClawThreadRemoteStatusKind,
+  t: (k: string, opts?: Record<string, unknown>) => string
+): string {
+  switch (kind) {
+    case 'bound':
+      return t('sidebarThreadBotBound')
+    case 'running':
+      return t('sidebarThreadBotRunning')
+    case 'queued':
+      return t('sidebarThreadBotQueued')
+    case 'error':
+      return t('sidebarThreadBotError')
+    case 'watched':
+    default:
+      return t('sidebarThreadBotWatched')
+  }
+}
+
+function RemoteSidebarBadges({
+  kind,
+  active,
+  unread,
+  t
+}: {
+  kind: ClawThreadRemoteStatusKind
+  active: boolean
+  unread: boolean
+  t: (k: string, opts?: Record<string, unknown>) => string
+}): ReactElement {
+  const statusLabel = remoteStatusLabel(kind, t)
+  const tone =
+    kind === 'error'
+      ? 'border-red-400/35 bg-red-500/12 text-red-700 dark:text-red-300'
+      : kind === 'running'
+        ? 'border-emerald-400/35 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
+        : kind === 'queued'
+          ? 'border-amber-400/35 bg-amber-500/14 text-amber-800 dark:text-amber-200'
+          : kind === 'watched'
+            ? 'border-accent/25 bg-accent/10 text-accent'
+            : 'border-ds-border-muted bg-ds-subtle text-ds-faint'
+  return (
+    <span className="ml-1 flex shrink-0 items-center gap-1">
+      <span
+        className={`inline-flex min-h-5 items-center rounded-full border px-1.5 text-[10.5px] font-semibold leading-none ${tone}`}
+        title={statusLabel}
+        aria-label={statusLabel}
+      >
+        {statusLabel}
+      </span>
+      {active ? (
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" title={t('sidebarThreadRemoteActive')} />
+      ) : null}
+      {unread ? (
+        <span className="h-2 w-2 rounded-full bg-accent" title={t('sidebarThreadRemoteUnread')} />
+      ) : null}
+    </span>
   )
 }
 
@@ -216,6 +354,7 @@ function shortThreadId(threadId: string): string {
 }
 
 export function clawProviderDisplayLabel(provider: ClawImChannelV1['provider']): string {
+  if (provider === 'discord') return 'Discord'
   if (provider === 'weixin') return 'WeChat'
   return 'Feishu / Lark'
 }
@@ -227,6 +366,26 @@ export function ClawProviderLogo({
   provider: ClawImChannelV1['provider']
   className?: string
 }): ReactElement {
+  if (provider === 'discord') {
+    return (
+      <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path
+          d="M19.6 5.4A17.1 17.1 0 0 0 15.4 4l-.2.4c1.5.4 2.2 1 2.2 1s-1.9-1-5.4-1-5.4 1-5.4 1 .7-.6 2.2-1L8.6 4a17.1 17.1 0 0 0-4.2 1.4C1.7 9.4 1 13.3 1.4 17.1A17 17 0 0 0 6.6 20l1.1-1.8c-.6-.2-1.2-.5-1.7-.9l.4-.3c3.3 1.5 7 1.5 10.3 0l.4.3c-.5.4-1.1.7-1.7.9l1.1 1.8a17 17 0 0 0 5.2-2.9c.5-4.4-.8-8.3-2.1-11.7Z"
+          fill="#5865F2"
+        />
+        <path
+          d="M9 14.3c-.9 0-1.6-.8-1.6-1.8S8.1 10.7 9 10.7s1.6.8 1.6 1.8-.7 1.8-1.6 1.8Zm6 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Z"
+          fill="white"
+        />
+      </svg>
+    )
+  }
   if (provider === 'weixin') {
     return (
       <svg

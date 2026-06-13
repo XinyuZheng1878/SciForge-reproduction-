@@ -18,7 +18,8 @@ vi.mock('../agent/runtime-client', () => ({
   }
 }))
 
-import { createThreadActions } from './chat-store-thread-actions'
+import { createThreadActions, publishActiveClawThreadContext } from './chat-store-thread-actions'
+import { clearPendingClawFeishuMirrors, takePendingClawFeishuMirror } from './chat-store-runtime'
 
 function thread(id: string): NormalizedThread {
   return {
@@ -82,6 +83,7 @@ describe('chat-store-thread-actions queued messages', () => {
     registryMock.getProvider.mockReturnValue({})
     runtimeClientMock.getSettings.mockReset()
     runtimeClientMock.getSettings.mockResolvedValue({ codePromptPrefix: '' })
+    clearPendingClawFeishuMirrors()
     vi.stubGlobal('window', {
       dsGui: {
         logError: vi.fn(async () => undefined)
@@ -206,6 +208,36 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(state.drainQueuedMessages).not.toHaveBeenCalled()
   })
 
+  it('does not keep an empty thread busy just because the runtime reports a running thread status', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      getThreadDetail: vi.fn(async () => ({
+        blocks: [],
+        latestSeq: 1,
+        threadStatus: 'running'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = true
+    state.currentTurnId = 'stale-turn'
+    state.currentTurnUserId = 'stale-user'
+    state.error = null
+
+    await expect(actions.recoverActiveTurn()).resolves.toBe(false)
+
+    expect(state.busy).toBe(false)
+    expect(state.currentTurnId).toBeNull()
+    expect(state.currentTurnUserId).toBeNull()
+    expect(state.error).toBeNull()
+    expect(provider.subscribeThreadEvents).toHaveBeenCalledWith(
+      'thr_existing',
+      1,
+      expect.any(Object),
+      expect.any(AbortSignal)
+    )
+  })
+
   it('reconciles the optimistic user block with the runtime user message id', async () => {
     const { actions, state } = buildHarness()
     const provider = {
@@ -238,5 +270,140 @@ describe('chat-store-thread-actions queued messages', () => {
     ])
     expect(state.currentTurnUserId).toBe('runtime-user-1')
     expect(Object.keys(state.turnStartedAtByUserId)).toEqual(['runtime-user-1'])
+  })
+
+  it('mirrors desktop Code route messages when the active thread is bound to an IM channel', async () => {
+    const { actions, state } = buildHarness()
+    const mirrorClawChannelMessage = vi.fn(async () => ({ ok: true as const }))
+    vi.stubGlobal('window', {
+      dsGui: {
+        logError: vi.fn(async () => undefined),
+        mirrorClawChannelMessage
+      },
+      localStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn()
+      }
+    })
+    const provider = {
+      sendUserMessage: vi.fn(async () => ({
+        turnId: 'turn-1',
+        userMessageItemId: 'runtime-user-1'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.route = 'chat'
+    state.threads = [{
+      ...thread('thr_existing'),
+      runtimeId: 'codex' as const,
+      title: 'Desktop work'
+    }]
+    state.clawChannels = [{
+      id: 'channel-1',
+      enabled: true,
+      provider: 'weixin',
+      label: 'WeChat',
+      model: 'auto',
+      threadId: '',
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'thr_existing' },
+      workspaceRoot: '',
+      conversations: [],
+      agentProfile: {
+        name: 'kun',
+        description: '',
+        identity: '',
+        personality: '',
+        userContext: '',
+        replyRules: ''
+      },
+      createdAt: '2026-06-09T00:00:00.000Z',
+      updatedAt: '2026-06-09T00:00:00.000Z'
+    }]
+
+    await expect(actions.sendMessage('hello from desktop')).resolves.toBe(true)
+
+    expect(mirrorClawChannelMessage).toHaveBeenCalledWith(
+      'thr_existing',
+      'hello from desktop',
+      'user'
+    )
+    expect(takePendingClawFeishuMirror('turn-1')).toEqual({
+      threadId: 'thr_existing',
+      userBlockId: 'runtime-user-1',
+      userText: 'hello from desktop'
+    })
+  })
+})
+
+describe('publishActiveClawThreadContext', () => {
+  beforeEach(() => {
+    vi.stubGlobal('window', {
+      dsGui: {
+        updateClawActiveThreadContext: vi.fn(async () => undefined)
+      }
+    })
+  })
+
+  it('publishes the active desktop thread context for IM auto-attach', () => {
+    const state = {
+      activeThreadId: 'desktop-thread',
+      workspaceRoot: '/workspace/fallback',
+      threads: [{
+        ...thread('desktop-thread'),
+        runtimeId: 'codex' as const,
+        workspace: '/workspace/desktop'
+      }],
+      clawChannels: []
+    } as unknown as ChatState
+
+    publishActiveClawThreadContext(state, 'desktop-thread')
+
+    expect(window.dsGui.updateClawActiveThreadContext).toHaveBeenCalledWith({
+      threadId: 'desktop-thread',
+      runtimeId: 'codex',
+      workspaceRoot: '/workspace/desktop'
+    })
+  })
+
+  it('clears the active context instead of publishing a Claw-managed thread', () => {
+    const state = {
+      activeThreadId: 'claw-thread',
+      workspaceRoot: '/workspace/fallback',
+      threads: [{
+        ...thread('claw-thread'),
+        title: '[Claw IM:WeChat] Alice',
+        workspace: '/workspace/claw'
+      }],
+      clawChannels: [{
+        id: 'channel-1',
+        enabled: true,
+        provider: 'weixin',
+        label: 'WeChat',
+        threadId: 'claw-thread',
+        agentThreadIds: { kun: 'claw-thread' },
+        conversations: [],
+        model: 'auto',
+        workspaceRoot: '',
+        agentProfile: {
+          name: 'kun',
+          description: '',
+          identity: '',
+          personality: '',
+          userContext: '',
+          replyRules: ''
+        },
+        createdAt: '2026-06-09T00:00:00.000Z',
+        updatedAt: '2026-06-09T00:00:00.000Z'
+      }]
+    } as unknown as ChatState
+
+    publishActiveClawThreadContext(state, 'claw-thread')
+
+    expect(window.dsGui.updateClawActiveThreadContext).toHaveBeenCalledWith(null)
   })
 })

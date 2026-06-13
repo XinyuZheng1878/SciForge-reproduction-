@@ -30,6 +30,8 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
   | 'openPlugins'
   | 'openClaw'
   | 'openSchedule'
+  | 'selectRemoteGuardChannel'
+  | 'clearRemoteGuardChannel'
   | 'openInitialSetup'
   | 'closeInitialSetup'
   | 'selectInspectorItem'
@@ -84,15 +86,19 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
       return task
     },
 
-    setRoute: (route) => set({ route }),
+    setRoute: (route) => set({
+      route,
+      ...(route === 'chat' ? {} : { activeRemoteChannelId: null })
+    }),
 
     openWrite: async () => {
-      set({ route: 'write' })
+      set({ route: 'write', activeRemoteChannelId: null })
     },
 
     openSettings: (section: SettingsRouteSection = 'general') =>
       set((state) => ({
         route: 'settings',
+        activeRemoteChannelId: null,
         settingsSection: section,
         settingsReturnRoute: state.route === 'settings' ? state.settingsReturnRoute : state.route
       })),
@@ -100,17 +106,31 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
     openPlugins: (host?: PluginHostRoute) =>
       set((state) => ({
         route: 'plugins',
-        pluginHostRoute: host ?? (state.route === 'claw' ? 'claw' : 'chat')
+        activeRemoteChannelId: null,
+        pluginHostRoute: host ?? 'chat'
       })),
 
     openClaw: () => {
-      set({ route: 'claw' })
+      set({ route: 'chat', activeRemoteChannelId: null })
       void get().refreshClawChannels()
     },
 
     openSchedule: () => {
-      set({ route: 'schedule' })
+      set({ route: 'schedule', activeRemoteChannelId: null })
     },
+
+    selectRemoteGuardChannel: (channelId) => {
+      const channel = get().clawChannels.find((item) => item.id === channelId)
+      if (!channel) return
+      set({
+        route: 'chat',
+        activeRemoteChannelId: channel.id,
+        activeClawChannelId: channel.id,
+        error: null
+      })
+    },
+
+    clearRemoteGuardChannel: () => set({ activeRemoteChannelId: null }),
 
     openInitialSetup: (mode: InitialSetupMode = 'required') =>
       set({ initialSetupOpen: true, initialSetupMode: mode }),

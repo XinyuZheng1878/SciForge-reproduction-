@@ -22,7 +22,8 @@ export type ScheduleTaskStatus = 'idle' | 'running' | 'success' | 'error'
 export type ScheduleModel = 'auto' | 'deepseek-v4-pro' | 'deepseek-v4-flash'
 export type ScheduleReasoningEffort = 'off' | 'low' | 'medium' | 'high' | 'max'
 export type ClawRunMode = ScheduleRunMode
-export type ClawImProvider = 'feishu' | 'weixin'
+export type ClawImProvider = 'feishu' | 'weixin' | 'discord'
+export type ClawImChannelGuardModeV1 = 'only_mention' | 'all_messages' | 'off'
 export type ClawScheduleKind = ScheduleKind
 export type ClawTaskStatus = ScheduleTaskStatus
 export type ClawModel = ScheduleModel
@@ -390,9 +391,25 @@ export type ClawImWeixinPlatformCredentialV1 = {
   createdAt: string
 }
 
+export type ClawImDiscordPlatformCredentialV1 = {
+  kind: 'discord'
+  applicationId: string
+  botId: string
+  botUsername: string
+  guildId: string
+  guildName: string
+  channelId: string
+  channelName: string
+  installationId?: string
+  guardOwnerInstallationId?: string
+  guardOwnerUpdatedAt?: string
+  createdAt: string
+}
+
 export type ClawImPlatformCredentialV1 =
   | ClawImFeishuPlatformCredentialV1
   | ClawImWeixinPlatformCredentialV1
+  | ClawImDiscordPlatformCredentialV1
 
 export type ClawImRemoteSessionV1 = {
   chatId: string
@@ -401,6 +418,17 @@ export type ClawImRemoteSessionV1 = {
   senderId: string
   senderName: string
   updatedAt: string
+}
+
+export type ClawImRecentMessageV1 = {
+  provider: ClawImProvider
+  channelId: string
+  chatId: string
+  remoteThreadId: string
+  messageId: string
+  senderName?: string
+  text?: string
+  receivedAt: string
 }
 
 export type ClawImConversationV1 = {
@@ -424,6 +452,7 @@ export type ClawImChannelV1 = {
   provider: ClawImProvider
   label: string
   enabled: boolean
+  guardMode?: ClawImChannelGuardModeV1
   model: string
   /** Kun thread id this channel maps to. */
   threadId: string
@@ -434,6 +463,7 @@ export type ClawImChannelV1 = {
   platformCredential?: ClawImPlatformCredentialV1
   remoteSession?: ClawImRemoteSessionV1
   conversations: ClawImConversationV1[]
+  recentMessages?: ClawImRecentMessageV1[]
   createdAt: string
   updatedAt: string
 }
@@ -527,6 +557,7 @@ export type GuiUpdateConfigV1 = {
 
 export type AppSettingsV1 = {
   version: 1
+  installationId?: string
   locale: 'en' | 'zh'
   theme: 'system' | 'light' | 'dark'
   uiFontScale: UiFontScale

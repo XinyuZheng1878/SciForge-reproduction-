@@ -28,6 +28,7 @@ import type {
   CodexTurnSteerPayload
 } from './codex-runtime-api'
 import type {
+  AgentRuntimeUsage,
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse
 } from '../../../shared/agent-runtime-contract'
@@ -86,6 +87,26 @@ type CodexRuntimeStatusInput = {
   createdAt?: string
 }
 
+type CodexRuntimeErrorInput = {
+  threadId: string
+  turnId?: string
+  itemId?: string
+  message: string
+  code?: string
+  details?: unknown
+  severity?: NonNullable<CodexThreadEventPayload['runtimeError']>['severity']
+}
+
+const EMPTY_CODEX_TURN_USAGE: AgentRuntimeUsage = {
+  inputTokens: 0,
+  outputTokens: 0,
+  reasoningTokens: 0,
+  totalTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  modelContextWindow: null
+}
+
 type CodexRuntimeEventSubscriber = {
   threadId: string
   queue: CodexThreadEventPayload[]
@@ -102,6 +123,7 @@ export class CodexRuntimeService {
   private readonly threadStore: CodexThreadStore | null
   private readonly eventStore: CodexEventStore | null
   private readonly usageStore: CodexUsageStore | null
+  private usageBackfillPromise: Promise<void> | null = null
   private readonly activeTurns = new Map<string, string>()
   private readonly turnTimings = new Map<string, CodexTurnTiming>()
   private readonly turnModelHints = new Map<string, string>()
@@ -213,6 +235,7 @@ export class CodexRuntimeService {
   async readThread(threadId: string): Promise<CodexThreadReadResult> {
     const storedDetail = await this.readStoredDetail(threadId)
     const storedThread = await this.findStoredThread(threadId)
+    const guiThreadId = storedThread?.guiThreadId ?? threadId
     const codexThreadId = storedThread?.codexThreadId ?? threadId
     try {
       const { client } = await this.ensureConnectedClient()
@@ -222,10 +245,13 @@ export class CodexRuntimeService {
       const usage = await this.usageStore?.threadUsage(storedThread?.guiThreadId ?? threadId)
       const detailWithUsage = usage ? { ...detail, usage } : detail
       const storedDetailWithUsage = storedDetail && usage ? { ...storedDetail, usage } : storedDetail
-      return { ok: true, detail: detailWithUsage.blocks.length > 0 ? detailWithUsage : storedDetailWithUsage ?? detailWithUsage }
+      return { ok: true, detail: preferThreadDetail(detailWithUsage, storedDetailWithUsage) }
     } catch (error) {
       if (isMissingOrUnmaterializedThreadError(error) && isEmptyStoredThread(storedThread, storedDetail)) {
         return { ok: true, detail: emptyThreadDetail() }
+      }
+      if (storedDetail && this.activeTurns.has(guiThreadId)) {
+        return { ok: true, detail: storedDetail }
       }
       await this.discardClientAfterFailure()
       if (storedDetail) return { ok: true, detail: storedDetail }
@@ -317,7 +343,6 @@ export class CodexRuntimeService {
       const runtime = getCodexRuntimeSettings(settings)
       const routerModel = codexModelRouterModel(settings)
       const storedThread = await this.findStoredThread(payload.threadId)
-      const storedDetailBeforeTurn = await this.readStoredDetail(payload.threadId)
       const workspace = resolveCodexWorkspace(settings, payload.workspace || storedThread?.workspace)
       let codexThreadId = storedThread?.codexThreadId ?? payload.threadId
       const coldStart = !this.isClientWarm()
@@ -354,10 +379,7 @@ export class CodexRuntimeService {
           runtime
         }))
       } catch (error) {
-        if (
-          !isMissingOrUnmaterializedThreadError(error) ||
-          !canRematerializeMissingThread(storedThread, storedDetailBeforeTurn)
-        ) {
+        if (!isMissingOrUnmaterializedThreadError(error)) {
           throw error
         }
         const replacement = await this.rematerializeThread({
@@ -478,6 +500,7 @@ export class CodexRuntimeService {
         totals: {}
       }
     }
+    await this.backfillStoredUsageEvents()
     return this.usageStore.summary(input, { threads: await this.storedThreads({ includeArchived: true }) })
   }
 
@@ -618,16 +641,53 @@ export class CodexRuntimeService {
         this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.error, event.error)
         continue
       }
+      await this.failActiveTurns(
+        `Codex app-server event stream closed: ${event.reason || 'unknown reason'}`,
+        'runtime_disconnected',
+        { reason: event.reason }
+      )
       this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.closed, { reason: event.reason })
       if (this.client === client) {
         await this.discardClientAfterFailure()
       }
       return
     }
+    if (this.activeTurns.size > 0) {
+      await this.failActiveTurns(
+        'Codex app-server event stream ended unexpectedly.',
+        'runtime_disconnected'
+      )
+      this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.closed, { reason: 'event_stream_ended' })
+      if (this.client === client) {
+        await this.discardClientAfterFailure()
+      }
+    }
   }
 
   private async storedThreads(options: { includeArchived?: boolean } = {}): Promise<CodexStoredThread[]> {
     return this.threadStore?.list(options) ?? []
+  }
+
+  private async backfillStoredUsageEvents(): Promise<void> {
+    if (!this.threadStore || !this.eventStore || !this.usageStore) return
+    if (!this.usageBackfillPromise) {
+      this.usageBackfillPromise = this.backfillStoredUsageEventsNow().catch((error) => {
+        this.usageBackfillPromise = null
+        throw error
+      })
+    }
+    await this.usageBackfillPromise
+  }
+
+  private async backfillStoredUsageEventsNow(): Promise<void> {
+    if (!this.eventStore) return
+    const threads = await this.storedThreads({ includeArchived: true })
+    for (const thread of threads) {
+      const events = await this.eventStore.read(thread.guiThreadId, { includeAll: true })
+      for (const stored of events) {
+        await this.recordUsageEvent(stored.event, stored.createdAt)
+      }
+    }
   }
 
   private async persistThread(
@@ -718,10 +778,18 @@ export class CodexRuntimeService {
     const events = await this.eventStore.read(threadId, { includeAll: true })
     if (events.length === 0) return null
     const latest = events.at(-1)
+    const latestTurnId = latestStoredTurnId(events)
+    const terminalStatus = latestTurnId ? storedTerminalTurnStatus(events, latestTurnId) : undefined
+    const staleRunningTurn = latestTurnId &&
+      !this.activeTurns.has(threadId) &&
+      !terminalStatus
     return {
       blocks: storedEventsToBlocks(events),
       latestSeq: latest?.seq ?? 0,
-      latestTurnId: latest?.event.userMessage?.turnId
+      latestTurnId,
+      ...(terminalStatus
+        ? { threadStatus: terminalStatus }
+        : staleRunningTurn ? { threadStatus: 'failed' } : {})
     }
   }
 
@@ -848,15 +916,53 @@ export class CodexRuntimeService {
     this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: published })
   }
 
+  private async emitRuntimeError(event: CodexRuntimeErrorInput): Promise<void> {
+    const runtimeEvent: CodexThreadEventPayload = {
+      threadId: event.threadId,
+      ...(event.turnId ? { turnId: event.turnId } : {}),
+      runtimeError: {
+        itemId: event.itemId ?? runtimeErrorItemId(event.threadId, event.turnId),
+        createdAt: new Date().toISOString(),
+        message: event.message,
+        ...(event.code ? { code: event.code } : {}),
+        ...(event.details !== undefined ? { details: event.details } : {}),
+        severity: event.severity ?? 'error'
+      }
+    }
+    const stored = await this.persistEvent(event.threadId, runtimeEvent)
+    const published = stored?.event ?? runtimeEvent
+    await this.emitTurnDoneIfNeeded(published)
+    this.noteRuntimeEvent(published)
+    this.broadcastEvent(published)
+    this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: published })
+  }
+
+  private async failActiveTurns(message: string, code: string, details?: unknown): Promise<void> {
+    const activeTurns = [...this.activeTurns.entries()]
+    for (const [threadId, turnId] of activeTurns) {
+      await this.emitRuntimeError({
+        threadId,
+        turnId,
+        message,
+        code,
+        details,
+        severity: 'error'
+      })
+    }
+  }
+
   private async recordUsageEvent(event: CodexThreadEventPayload, createdAt?: string): Promise<void> {
-    if (!event.usage || !this.usageStore) return
+    if (!this.usageStore) return
     const turnId = event.turnId || event.userMessage?.turnId || ''
+    if (!turnId) return
+    const usage = event.usage ?? (event.turnComplete ? EMPTY_CODEX_TURN_USAGE : null)
+    if (!usage) return
     await this.usageStore.record({
       threadId: event.threadId,
       turnId,
       createdAt,
       model: this.turnModelHints.get(turnTimingKey(event.threadId, turnId)),
-      usage: event.usage
+      usage
     })
   }
 
@@ -932,11 +1038,13 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
   const blocks: CodexChatBlock[] = []
   for (const item of events) {
     const event = item.event
+    const turnId = event.turnId || event.userMessage?.turnId || ''
     if (event.userMessage) {
       blocks.push({
         kind: 'user',
         id: event.userMessage.itemId || `user-${item.seq}`,
         createdAt: event.userMessage.createdAt ?? item.createdAt,
+        ...(turnId ? { turnId } : {}),
         text: event.userMessage.text
       })
     }
@@ -946,6 +1054,7 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
           kind: delta.kind === 'agent_reasoning' ? 'reasoning' : 'assistant',
           id: `${delta.kind}-${item.seq}-${index}`,
           createdAt: item.createdAt,
+          ...(turnId ? { turnId } : {}),
           text: delta.text
         })
       }
@@ -955,6 +1064,7 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
         kind: 'tool',
         id: event.tool.itemId || `tool-${item.seq}`,
         createdAt: item.createdAt,
+        ...(turnId ? { turnId } : {}),
         summary: event.tool.summary,
         status: event.tool.status,
         toolKind: event.tool.toolKind,
@@ -968,6 +1078,7 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
         kind: 'system',
         id: event.runtimeError.itemId || `error-${item.seq}`,
         createdAt: event.runtimeError.createdAt ?? item.createdAt,
+        ...(turnId ? { turnId } : {}),
         text: event.runtimeError.message,
         code: event.runtimeError.code,
         severity: event.runtimeError.severity
@@ -975,6 +1086,60 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
     }
   }
   return blocks
+}
+
+function preferThreadDetail(
+  liveDetail: CodexThreadDetail,
+  storedDetail: CodexThreadDetail | null
+): CodexThreadDetail {
+  if (!storedDetail) return liveDetail
+  if (liveDetail.blocks.length === 0) return storedDetail
+  if (
+    storedDetail.latestTurnId &&
+    storedDetail.latestTurnId === liveDetail.latestTurnId &&
+    isTerminalThreadStatus(storedDetail.threadStatus) &&
+    !isTerminalThreadStatus(liveDetail.threadStatus)
+  ) {
+    return storedDetail
+  }
+  return liveDetail
+}
+
+function latestStoredTurnId(events: CodexStoredEvent[]): string | undefined {
+  for (const item of [...events].reverse()) {
+    const turnId = item.event.turnId || item.event.userMessage?.turnId
+    if (turnId) return turnId
+  }
+  return undefined
+}
+
+function storedTerminalTurnStatus(
+  events: CodexStoredEvent[],
+  turnId: string
+): 'completed' | 'failed' | 'aborted' | undefined {
+  for (const item of [...events].reverse()) {
+    const eventTurnId = item.event.turnId || item.event.userMessage?.turnId
+    if (eventTurnId !== turnId) continue
+    if (item.event.runtimeError && isTerminalRuntimeError(item.event.runtimeError)) {
+      const code = item.event.runtimeError.code
+      return code === 'cancelled' || code === 'canceled' || code === 'aborted'
+        ? 'aborted'
+        : 'failed'
+    }
+    if (item.event.turnComplete === true) return 'completed'
+  }
+  return undefined
+}
+
+function isTerminalThreadStatus(status: string | undefined): boolean {
+  return status === 'completed' ||
+    status === 'success' ||
+    status === 'failed' ||
+    status === 'error' ||
+    status === 'aborted' ||
+    status === 'cancelled' ||
+    status === 'canceled' ||
+    status === 'interrupted'
 }
 
 function baseThreadParams(settings: AppSettingsV1, workspace?: string): CodexAppServerThreadStartParams {
@@ -1142,6 +1307,7 @@ function turnBlocks(turn: Record<string, unknown>): CodexChatBlock[] {
 function itemBlock(item: Record<string, unknown>, turnId: string, createdAt?: string): CodexChatBlock[] {
   const type = stringValue(item.type)
   const id = stringValue(item.id) || `${turnId}-${type || 'item'}`
+  const turnMeta = turnId ? { turnId } : {}
   if (type === 'userMessage') {
     const meta = asRecord(item.meta)
     const displayText =
@@ -1152,22 +1318,23 @@ function itemBlock(item: Record<string, unknown>, turnId: string, createdAt?: st
       kind: 'user',
       id,
       createdAt,
+      ...turnMeta,
       text: userInputText(arrayValue(item.content)),
       ...(displayText ? { displayText } : {})
     }]
   }
   if (type === 'agentMessage') {
-    return [{ kind: 'assistant', id, createdAt, text: stringValue(item.text) }]
+    return [{ kind: 'assistant', id, createdAt, ...turnMeta, text: stringValue(item.text) }]
   }
   if (type === 'reasoning') {
     const text = [...arrayValue(item.summary), ...arrayValue(item.content)]
       .map((entry) => typeof entry === 'string' ? entry : '')
       .filter(Boolean)
       .join('\n')
-    return text ? [{ kind: 'reasoning', id, createdAt, text }] : []
+    return text ? [{ kind: 'reasoning', id, createdAt, ...turnMeta, text }] : []
   }
   if (type === 'plan') {
-    return [{ kind: 'reasoning', id, createdAt, text: stringValue(item.text) }]
+    return [{ kind: 'reasoning', id, createdAt, ...turnMeta, text: stringValue(item.text) }]
   }
   if (type === 'commandExecution') {
     const status = mapToolStatus(stringValue(item.status))
@@ -1176,6 +1343,7 @@ function itemBlock(item: Record<string, unknown>, turnId: string, createdAt?: st
       kind: 'tool',
       id,
       createdAt,
+      ...turnMeta,
       summary: command || 'Command',
       status,
       toolKind: 'command_execution',
@@ -1192,6 +1360,7 @@ function itemBlock(item: Record<string, unknown>, turnId: string, createdAt?: st
       kind: 'tool',
       id,
       createdAt,
+      ...turnMeta,
       summary: 'File changes',
       status: mapToolStatus(stringValue(item.status)),
       toolKind: 'file_change',
@@ -1256,14 +1425,6 @@ function isEmptyStoredThread(
   return storedThread.latestSeq <= 0
 }
 
-function canRematerializeMissingThread(
-  storedThread: CodexStoredThread | null,
-  detail: CodexThreadDetail | null
-): boolean {
-  if (storedThread) return isEmptyStoredThread(storedThread, detail)
-  return !detail || detail.blocks.length === 0
-}
-
 function eventShouldUpsertThread(event: CodexEventPayload['event']): boolean {
   return Boolean(
     event.userMessage ||
@@ -1294,6 +1455,10 @@ function runtimeStatusItemId(
   phase: NonNullable<CodexThreadEventPayload['runtimeStatus']>['phase']
 ): string {
   return `codex-runtime-status-${turnId || threadId}-${phase}`
+}
+
+function runtimeErrorItemId(threadId: string, turnId: string | undefined): string {
+  return `codex-runtime-error-${turnId || threadId}`
 }
 
 function elapsedMs(startedAtMs: number): number {

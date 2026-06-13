@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
+import { Bot } from 'lucide-react'
 import { parseClawCommand } from '@shared/claw-commands'
 import { DEFAULT_COMPOSER_MODEL_IDS } from '@shared/default-composer-models'
 import { buildGuiPlanId, buildPlanRelativePath } from '@shared/gui-plan'
@@ -12,14 +13,20 @@ import {
   type KeyboardShortcutCommandId
 } from '@shared/keyboard-shortcuts'
 import type { DesktopCommand, SkillListItem } from '@shared/ds-gui-api'
-import type { AgentRuntimeId } from '@shared/app-settings'
+import type { AgentRuntimeId, ClawImChannelV1 } from '@shared/app-settings'
 import type { ClipboardImageReadResult } from '@shared/workspace-file'
 import type { AgentProviderCapabilities, AttachmentReference, ChatBlock } from '../agent/types'
 import type { CoreRuntimeInfoJson, CoreRuntimeSkillJson } from '../agent/kun-contract'
 import { getProvider } from '../agent/registry'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import { useChatStore } from '../store/chat-store'
-import { isClawThread } from '../store/chat-store-helpers'
+import {
+  clawThreadRemoteBindingsFromChannels,
+  deriveClawThreadRemoteStatusKind,
+  isClawThread,
+  type ClawThreadRemoteBinding,
+  type ClawThreadRemoteStatusKind
+} from '../store/chat-store-helpers'
 import { hasPendingRuntimeWork } from '../store/chat-store-runtime-helpers'
 import {
   extractLatestTurnAutoOpenDevPreviewUrls,
@@ -37,6 +44,11 @@ import {
   type ComposerReasoningEffort
 } from './chat/FloatingComposerModelPicker'
 import { SideConversationPanel } from './chat/SideConversationPanel'
+import {
+  RemoteGuardDetailView,
+  remoteGuardChannelTitle,
+  remoteGuardProviderLabel
+} from './chat/RemoteGuardDetailView'
 import { SessionHeader } from './SessionHeader'
 import { WriteWorkspaceView } from './write/WriteWorkspaceView'
 import { WriteAssistantPanel } from './write/WriteAssistantPanel'
@@ -194,6 +206,104 @@ function mergeSkillCommands(
   return [...merged.values()]
 }
 
+function remoteThreadStatusLabel(
+  kind: ClawThreadRemoteStatusKind,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string {
+  switch (kind) {
+    case 'bound':
+      return t('sidebarThreadBotBound')
+    case 'running':
+      return t('sidebarThreadBotRunning')
+    case 'queued':
+      return t('sidebarThreadBotQueued')
+    case 'error':
+      return t('sidebarThreadBotError')
+    case 'watched':
+    default:
+      return t('sidebarThreadBotWatched')
+  }
+}
+
+function ActiveRemoteBindingDetails({
+  binding,
+  statusKind,
+  unread,
+  t
+}: {
+  binding: ClawThreadRemoteBinding
+  statusKind: ClawThreadRemoteStatusKind
+  unread: boolean
+  t: (key: string, opts?: Record<string, unknown>) => string
+}): ReactElement {
+  const statusLabel = remoteThreadStatusLabel(statusKind, t)
+  const remoteTarget = binding.senderName?.trim() ||
+    binding.remoteThreadId?.trim() ||
+    binding.chatId?.trim() ||
+    binding.channelLabel
+  const title = [
+    t('remoteBindingDetails'),
+    `${binding.providerLabel} · ${statusLabel}`,
+    binding.channelLabel ? t('remoteBindingChannel', { channel: binding.channelLabel }) : '',
+    remoteTarget ? t('remoteBindingTarget', { target: remoteTarget }) : '',
+    binding.runtimeId ? t('remoteBindingRuntime', { runtime: binding.runtimeId }) : ''
+  ].filter(Boolean).join('\n')
+  const tone =
+    statusKind === 'error'
+      ? 'border-red-400/35 bg-red-500/10 text-red-700 dark:text-red-300'
+      : statusKind === 'running'
+        ? 'border-emerald-400/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+        : statusKind === 'queued'
+          ? 'border-amber-400/35 bg-amber-500/12 text-amber-800 dark:text-amber-200'
+          : statusKind === 'watched'
+            ? 'border-accent/25 bg-accent/10 text-accent'
+            : 'border-ds-border-muted bg-ds-subtle text-ds-muted'
+
+  return (
+    <div
+      className={`hidden min-h-7 max-w-[min(34vw,360px)] shrink items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-semibold leading-none sm:inline-flex ${tone}`}
+      title={title}
+      aria-label={title}
+    >
+      <Bot className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+      <span className="shrink-0">{binding.providerLabel}</span>
+      <span className="text-ds-faint">·</span>
+      <span className="shrink-0">{statusLabel}</span>
+      {remoteTarget ? (
+        <>
+          <span className="text-ds-faint">·</span>
+          <span className="min-w-0 truncate text-ds-muted">{remoteTarget}</span>
+        </>
+      ) : null}
+      {unread ? (
+        <span className="ml-0.5 h-2 w-2 shrink-0 rounded-full bg-accent" title={t('sidebarThreadRemoteUnread')} />
+      ) : null}
+    </div>
+  )
+}
+
+function RemoteGuardSessionHeader({
+  channel
+}: {
+  channel: ClawImChannelV1
+}): ReactElement {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2.5">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] border border-accent/20 bg-accent/10 text-accent">
+        <Bot className="h-4 w-4" strokeWidth={1.85} />
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-[14.5px] font-semibold leading-5 text-ds-ink">
+          {remoteGuardChannelTitle(channel)}
+        </div>
+        <div className="mt-0.5 truncate text-[11.5px] leading-4 text-ds-faint">
+          {remoteGuardProviderLabel(channel.provider)}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function sddAssistantContextFromBlocks(blocks: ChatBlock[], maxMessages = 10): string {
   const messages: string[] = []
   for (const block of blocks) {
@@ -253,6 +363,7 @@ export function Workbench(): ReactElement {
     chooseWorkspace,
     clawChannels,
     activeClawChannelId,
+    activeRemoteChannelId,
     selectClawChannel,
     resetClawChannelSession,
     setClawChannelModel,
@@ -261,6 +372,8 @@ export function Workbench(): ReactElement {
     sendMessage,
     reviewActiveThread,
     queuedMessages,
+    watchTurnCompletion,
+    unreadThreadIds,
     removeQueuedMessage,
     interrupt,
     probeRuntime,
@@ -308,6 +421,7 @@ export function Workbench(): ReactElement {
       chooseWorkspace: s.chooseWorkspace,
       clawChannels: s.clawChannels,
       activeClawChannelId: s.activeClawChannelId,
+      activeRemoteChannelId: s.activeRemoteChannelId,
       selectClawChannel: s.selectClawChannel,
       resetClawChannelSession: s.resetClawChannelSession,
       setClawChannelModel: s.setClawChannelModel,
@@ -316,6 +430,8 @@ export function Workbench(): ReactElement {
       sendMessage: s.sendMessage,
       reviewActiveThread: s.reviewActiveThread,
       queuedMessages: s.queuedMessages,
+      watchTurnCompletion: s.watchTurnCompletion,
+      unreadThreadIds: s.unreadThreadIds,
       removeQueuedMessage: s.removeQueuedMessage,
       interrupt: s.interrupt,
       probeRuntime: s.probeRuntime,
@@ -409,10 +525,57 @@ export function Workbench(): ReactElement {
     () => clawChannels.find((channel) => channel.id === activeClawChannelId) ?? null,
     [activeClawChannelId, clawChannels]
   )
-  const activeSkillWorkspace = useMemo(
-    () => threads.find((thread) => thread.id === activeThreadId)?.workspace || workspaceRoot || '',
-    [activeThreadId, threads, workspaceRoot]
+  const activeRemoteChannel = useMemo(
+    () => activeRemoteChannelId
+      ? clawChannels.find((channel) => channel.id === activeRemoteChannelId) ?? null
+      : null,
+    [activeRemoteChannelId, clawChannels]
   )
+  useEffect(() => {
+    if (route === 'claw') setRoute('chat')
+  }, [route, setRoute])
+  const activeThread = useMemo(
+    () => threads.find((thread) => thread.id === activeThreadId) ?? null,
+    [activeThreadId, threads]
+  )
+  const remoteThreadBindings = useMemo(
+    () => clawThreadRemoteBindingsFromChannels(clawChannels),
+    [clawChannels]
+  )
+  const queuedThreadIds = useMemo(
+    () => new Set(queuedMessages.map((message) => message.threadId?.trim() ?? '').filter(Boolean)),
+    [queuedMessages]
+  )
+  const activeRemoteBinding = activeThreadId
+    ? remoteThreadBindings.get(activeThreadId) ?? null
+    : null
+  const activeRemoteStatusKind = activeThreadId
+    ? deriveClawThreadRemoteStatusKind({
+        binding: activeRemoteBinding,
+        running: busy || watchTurnCompletion[activeThreadId] === true,
+        queued: queuedThreadIds.has(activeThreadId),
+        status: activeThread?.status,
+        latestTurnStatus: activeThread?.latestTurnStatus
+      })
+    : null
+  const activeRemoteUnread =
+    activeThreadId ? unreadThreadIds[activeThreadId] === true : false
+  const activeSkillWorkspace = useMemo(
+    () => activeThread?.workspace || workspaceRoot || '',
+    [activeThread, workspaceRoot]
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.dsGui?.updateClawActiveThreadContext !== 'function') return
+    if (!activeThreadId || route === 'claw' || (activeThread && isClawThread(activeThread, clawChannels))) {
+      void window.dsGui.updateClawActiveThreadContext(null).catch(() => undefined)
+      return
+    }
+    void window.dsGui.updateClawActiveThreadContext({
+      threadId: activeThreadId,
+      runtimeId: activeThread?.runtimeId,
+      workspaceRoot: activeThread?.workspace || workspaceRoot || undefined
+    }).catch(() => undefined)
+  }, [activeThread, activeThreadId, clawChannels, route, workspaceRoot])
   const composerChangeSummary = useMemo(
     () => collectComposerChangeSummary(timelineBlocks, activeSkillWorkspace),
     [activeSkillWorkspace, timelineBlocks]
@@ -596,6 +759,7 @@ export function Workbench(): ReactElement {
       '',
       `- \`/help\`: ${t('clawHelpCommandHelp')}`,
       `- \`/new\`: ${t('clawHelpCommandNew')}`,
+      `- \`/attach current\`: ${t('clawHelpCommandAttachCurrent')}`,
       `- \`/model auto\`: ${t('clawHelpCommandModelAuto')}`,
       `- \`/model pro\`: ${t('clawHelpCommandModelPro')}`,
       `- \`/model flash\`: ${t('clawHelpCommandModelFlash')}`,
@@ -1413,7 +1577,7 @@ export function Workbench(): ReactElement {
 
   const openPluginsView = (): void => {
     setConnectPhoneSidebarOpen(false)
-    openPlugins(sidebarView === 'claw' ? 'claw' : 'chat')
+    openPlugins('chat')
   }
 
   const openScheduleView = (): void => {
@@ -1427,9 +1591,7 @@ export function Workbench(): ReactElement {
   }
 
   const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' =
-    route === 'claw' || (route === 'plugins' && pluginHostRoute === 'claw')
-      ? 'claw'
-      : route === 'schedule'
+    route === 'schedule'
         ? 'schedule'
       : route === 'write'
         ? 'write'
@@ -1720,7 +1882,19 @@ export function Workbench(): ReactElement {
                       ariaLabel={t('sidebarExpand')}
                     />
                   ) : null}
-                  <SessionHeader compact className="min-w-0 flex-1" />
+                  {activeRemoteChannel ? (
+                    <RemoteGuardSessionHeader channel={activeRemoteChannel} />
+                  ) : (
+                    <SessionHeader compact className="min-w-0 flex-1" />
+                  )}
+                  {!activeRemoteChannel && activeRemoteBinding && activeRemoteStatusKind ? (
+                    <ActiveRemoteBindingDetails
+                      binding={activeRemoteBinding}
+                      statusKind={activeRemoteStatusKind}
+                      unread={activeRemoteUnread}
+                      t={t}
+                    />
+                  ) : null}
                 </div>
                 <div className="chat-topbar-actions flex min-w-0 flex-wrap items-center justify-end gap-2 self-start">
                   {busy ? (
@@ -1745,92 +1919,104 @@ export function Workbench(): ReactElement {
                 </div>
               </div>
             </header>
-            <MessageTimeline
-              blocks={timelineBlocks}
-              liveReasoning={timelineLiveReasoning}
-              live={timelineLiveAssistant}
-              activeThreadId={activeThreadId}
-              runtimeConnection={runtimeConnection}
-              runtimeError={error}
-              onRetryConnection={() => void probeRuntime('user')}
-              onOpenSettings={() => openSettings('agents')}
-              onSelectSuggestion={(text) => setInput(text)}
-              planActionsBusy={busy}
-              onBuildPlan={() => void buildGuiPlan()}
-              onOpenPlan={openGuiPlanPanel}
-              devPreviewCard={
-                showDevPreviewCard ? (
-                  <DevPreviewLaunchCard
-                    url={latestDevPreviewUrl}
-                    opened={rightPanelMode === 'browser'}
-                    onOpen={openDevPreview}
-                  />
-                ) : null
-              }
-            />
-            <div className="ds-no-drag flex shrink-0 justify-center px-2 pb-3 pt-0 sm:px-4 md:px-6 lg:px-8">
-              <FloatingComposer
-                input={input}
-                setInput={setInput}
-                mode={mode}
-                setMode={setMode}
-                busy={busy}
-                runtimeReady={runtimeConnection === 'ready'}
-                hasActiveThread={Boolean(activeThreadId)}
-                composerModel={
-                  route === 'claw'
-                    ? clawChannels.find((channel) => channel.id === activeClawChannelId)?.model ?? 'auto'
-                    : composerModel
-                }
-                composerPickList={composerPickList}
-                composerModelGroups={composerModelGroups}
-                composerReasoningEffort={
-                  route === 'chat' || route === 'claw' ? composerReasoningEffort : undefined
-                }
-                onComposerModelChange={(modelId) => {
-                  if (route === 'claw' && activeClawChannelId) {
-                    void setClawChannelModel(activeClawChannelId, modelId)
-                    return
-                  }
-                  setComposerModel(modelId)
-                }}
-                onComposerReasoningEffortChange={
-                  route === 'chat' || route === 'claw' ? setComposerReasoningEffort : undefined
-                }
-                onSend={handleSend}
-                attachments={composerAttachments}
-                attachmentUploadEnabled={attachmentUploadEnabled}
-                attachmentUploadBusy={attachmentUploadBusy}
-                attachmentUploadError={attachmentUploadError}
-                fileReferenceEnabled={route === 'chat' && !activeSddDraft}
-                fileReferences={composerFileReferences}
-                webAccessAvailable={webAccessAvailable}
-                changedFiles={composerChangeSummary?.files}
-                changedFileStats={composerChangeSummary}
-                skillCommands={runtimeSkills}
-                runtimeCapabilities={runtimeCapabilities}
-                onPickAttachments={(files) => void handlePickAttachments(files)}
-                onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
-                onRemoveAttachment={removeComposerAttachment}
-                onAddFileReference={addComposerFileReference}
-                onRemoveFileReference={removeComposerFileReference}
-                queuedMessages={queuedMessages}
-                onRemoveQueuedMessage={removeQueuedMessage}
-                onInterrupt={(options) => void interrupt(options)}
-                onPlanCommand={() => void handleGuiPlanCommand()}
-                onReviewCommand={(target) => void reviewActiveThread(target)}
-                onOpenChanges={() => setRightPanelMode('changes')}
-                onReviewChanges={() => void reviewActiveThread({ kind: 'uncommittedChanges' })}
-                reviewChangesDisabled={busy || runtimeConnection !== 'ready' || runtimeCapabilities?.review === false}
-                onBtwCommand={(seedText) => {
-                  if (seedText?.trim()) {
-                    void spawnSideConversation(seedText)
-                    return
-                  }
-                  openSideConversationDraft()
-                }}
+            {activeRemoteChannel ? (
+              <RemoteGuardDetailView
+                channel={activeRemoteChannel}
+                onOpenThread={openThread}
+                onOpenSettings={() => setConnectPhoneSidebarOpen(true)}
+                t={t}
               />
-            </div>
+            ) : (
+              <>
+                <MessageTimeline
+                  blocks={timelineBlocks}
+                  liveReasoning={timelineLiveReasoning}
+                  live={timelineLiveAssistant}
+                  activeThreadId={activeThreadId}
+                  runtimeConnection={runtimeConnection}
+                  runtimeError={error}
+                  onRetryConnection={() => void probeRuntime('user')}
+                  onOpenSettings={() => openSettings('agents')}
+                  autoScrollEnabled={route === 'chat' && Boolean(activeThreadId)}
+                  onSelectSuggestion={(text) => setInput(text)}
+                  planActionsBusy={busy}
+                  onBuildPlan={() => void buildGuiPlan()}
+                  onOpenPlan={openGuiPlanPanel}
+                  devPreviewCard={
+                    showDevPreviewCard ? (
+                      <DevPreviewLaunchCard
+                        url={latestDevPreviewUrl}
+                        opened={rightPanelMode === 'browser'}
+                        onOpen={openDevPreview}
+                      />
+                    ) : null
+                  }
+                />
+                <div className="ds-no-drag flex shrink-0 justify-center px-2 pb-3 pt-0 sm:px-4 md:px-6 lg:px-8">
+                  <FloatingComposer
+                    input={input}
+                    setInput={setInput}
+                    mode={mode}
+                    setMode={setMode}
+                    busy={busy}
+                    runtimeReady={runtimeConnection === 'ready'}
+                    hasActiveThread={Boolean(activeThreadId)}
+                    composerModel={
+                      route === 'claw'
+                        ? clawChannels.find((channel) => channel.id === activeClawChannelId)?.model ?? 'auto'
+                        : composerModel
+                    }
+                    composerPickList={composerPickList}
+                    composerModelGroups={composerModelGroups}
+                    composerReasoningEffort={
+                      route === 'chat' || route === 'claw' ? composerReasoningEffort : undefined
+                    }
+                    onComposerModelChange={(modelId) => {
+                      if (route === 'claw' && activeClawChannelId) {
+                        void setClawChannelModel(activeClawChannelId, modelId)
+                        return
+                      }
+                      setComposerModel(modelId)
+                    }}
+                    onComposerReasoningEffortChange={
+                      route === 'chat' || route === 'claw' ? setComposerReasoningEffort : undefined
+                    }
+                    onSend={handleSend}
+                    attachments={composerAttachments}
+                    attachmentUploadEnabled={attachmentUploadEnabled}
+                    attachmentUploadBusy={attachmentUploadBusy}
+                    attachmentUploadError={attachmentUploadError}
+                    fileReferenceEnabled={route === 'chat' && !activeSddDraft}
+                    fileReferences={composerFileReferences}
+                    webAccessAvailable={webAccessAvailable}
+                    changedFiles={composerChangeSummary?.files}
+                    changedFileStats={composerChangeSummary}
+                    skillCommands={runtimeSkills}
+                    runtimeCapabilities={runtimeCapabilities}
+                    onPickAttachments={(files) => void handlePickAttachments(files)}
+                    onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
+                    onRemoveAttachment={removeComposerAttachment}
+                    onAddFileReference={addComposerFileReference}
+                    onRemoveFileReference={removeComposerFileReference}
+                    queuedMessages={queuedMessages}
+                    onRemoveQueuedMessage={removeQueuedMessage}
+                    onInterrupt={(options) => void interrupt(options)}
+                    onPlanCommand={() => void handleGuiPlanCommand()}
+                    onReviewCommand={(target) => void reviewActiveThread(target)}
+                    onOpenChanges={() => setRightPanelMode('changes')}
+                    onReviewChanges={() => void reviewActiveThread({ kind: 'uncommittedChanges' })}
+                    reviewChangesDisabled={busy || runtimeConnection !== 'ready' || runtimeCapabilities?.review === false}
+                    onBtwCommand={(seedText) => {
+                      if (seedText?.trim()) {
+                        void spawnSideConversation(seedText)
+                        return
+                      }
+                      openSideConversationDraft()
+                    }}
+                  />
+                </div>
+              </>
+            )}
           </section>
           )}
           </div>

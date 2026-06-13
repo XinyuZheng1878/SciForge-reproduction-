@@ -118,6 +118,26 @@ function createApi(): DsGuiApi {
       invoke('claw:im-install:qrcode', { provider, isLark: options?.isLark }),
     pollClawImInstall: (provider, deviceCode) =>
       invoke('claw:im-install:poll', { provider, deviceCode }),
+    getDiscordBotStatus: () => invoke('discord:status'),
+    configureDiscordClientId: (clientId) =>
+      invoke('discord:configure-client', { clientId }),
+    configureDiscordBotToken: (token, clientId) =>
+      invoke('discord:configure-token', { token, ...(clientId ? { clientId } : {}) }),
+    configureDiscordProxy: (proxyUrl) =>
+      invoke('discord:configure-proxy', { proxyUrl }),
+    listDiscordGuilds: () => invoke('discord:guilds'),
+    listDiscordChannels: (guildId) =>
+      invoke('discord:channels', { guildId }),
+    bindDiscordChannel: (payload) =>
+      invoke('discord:bind-channel', payload),
+    testDiscordChannel: (channelId, text, channelConfigId) =>
+      invoke('discord:test-send', { channelId, text, ...(channelConfigId ? { channelConfigId } : {}) }),
+    setDiscordGuard: (enabled, channelConfigId, forceTakeover) =>
+      invoke('discord:set-guard', {
+        enabled,
+        ...(channelConfigId ? { channelConfigId } : {}),
+        ...(forceTakeover ? { forceTakeover } : {})
+      }),
     pickWorkspaceDirectory: (defaultPath) => invoke('workspace:pick-directory', defaultPath),
     listSkills: (workspaceRoot) => invoke('skill:list', { workspaceRoot }),
     saveSkillFile: (rootPath, skillName, content) =>

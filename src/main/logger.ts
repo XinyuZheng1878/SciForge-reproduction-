@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readdir, stat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { redactSecrets, redactSecretText } from '../shared/secret-redaction'
 
 export type LogLevel = 'error' | 'warn' | 'info'
 export type ManagedLogFilePrefix = 'deepseek-gui' | 'kun'
@@ -61,7 +62,8 @@ export async function appendManagedLogLine(
 ): Promise<void> {
   if (!cfg.enabled || !cfg.dir) return
 
-  const text = line.endsWith('\n') ? line : `${line}\n`
+  const redactedLine = redactSecretText(line)
+  const text = redactedLine.endsWith('\n') ? redactedLine : `${redactedLine}\n`
 
   try {
     await mkdir(cfg.dir, { recursive: true })
@@ -107,9 +109,9 @@ export async function pruneOnStartup(): Promise<void> {
 
 function safeStringify(value: unknown): string {
   try {
-    if (typeof value === 'string') return value.slice(0, 2000)
-    return JSON.stringify(value, null, 2).slice(0, 2000)
+    if (typeof value === 'string') return redactSecretText(value).slice(0, 2000)
+    return JSON.stringify(redactSecrets(value), null, 2).slice(0, 2000)
   } catch {
-    return String(value).slice(0, 2000)
+    return redactSecretText(String(value)).slice(0, 2000)
   }
 }

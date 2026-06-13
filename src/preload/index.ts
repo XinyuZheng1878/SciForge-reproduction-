@@ -20,6 +20,26 @@ const api = {
     ipcRenderer.invoke('claw:im-install:qrcode', { provider, isLark: options?.isLark }),
   pollClawImInstall: (provider, deviceCode) =>
     ipcRenderer.invoke('claw:im-install:poll', { provider, deviceCode }),
+  getDiscordBotStatus: () => ipcRenderer.invoke('discord:status'),
+  configureDiscordClientId: (clientId) =>
+    ipcRenderer.invoke('discord:configure-client', { clientId }),
+  configureDiscordBotToken: (token, clientId) =>
+    ipcRenderer.invoke('discord:configure-token', { token, ...(clientId ? { clientId } : {}) }),
+  configureDiscordProxy: (proxyUrl) =>
+    ipcRenderer.invoke('discord:configure-proxy', { proxyUrl }),
+  listDiscordGuilds: () => ipcRenderer.invoke('discord:guilds'),
+  listDiscordChannels: (guildId) =>
+    ipcRenderer.invoke('discord:channels', { guildId }),
+  bindDiscordChannel: (payload) =>
+    ipcRenderer.invoke('discord:bind-channel', payload),
+  testDiscordChannel: (channelId, text, channelConfigId) =>
+    ipcRenderer.invoke('discord:test-send', { channelId, text, ...(channelConfigId ? { channelConfigId } : {}) }),
+  setDiscordGuard: (enabled, channelConfigId, forceTakeover) =>
+    ipcRenderer.invoke('discord:set-guard', {
+      enabled,
+      ...(channelConfigId ? { channelConfigId } : {}),
+      ...(forceTakeover ? { forceTakeover } : {})
+    }),
   pickWorkspaceDirectory: (defaultPath) =>
     ipcRenderer.invoke('workspace:pick-directory', defaultPath),
   listSkills: (workspaceRoot) =>

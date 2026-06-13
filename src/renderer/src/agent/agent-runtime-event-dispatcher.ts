@@ -34,6 +34,8 @@ function runtimeDisclosureMetaFromRecord(
   const next: NonNullable<ApprovalRequestPayload['meta']> = {}
   const displayText = meta.displayText
   if (typeof displayText === 'string') next.displayText = displayText
+  if (typeof meta.source === 'string') next.source = meta.source
+  if (typeof meta.sourceLabel === 'string') next.sourceLabel = meta.sourceLabel
   if (Array.isArray(meta.attachmentIds)) {
     const attachmentIds = meta.attachmentIds.filter((item): item is string => typeof item === 'string')
     if (attachmentIds.length > 0) next.attachmentIds = attachmentIds

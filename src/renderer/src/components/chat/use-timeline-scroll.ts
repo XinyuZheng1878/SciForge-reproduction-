@@ -15,6 +15,7 @@ type UseTimelineScrollOptions = {
   autoCollapseThreshold: number
   totalTurns: number
   busy: boolean
+  autoScrollEnabled?: boolean
   /** Triggers stick-to-bottom snap scroll. */
   scrollDeps: { contentKey: string; streaming: boolean; userTurnKey: string }
 }
@@ -61,6 +62,7 @@ export function useTimelineScroll({
   autoCollapseThreshold,
   totalTurns,
   busy,
+  autoScrollEnabled = true,
   scrollDeps
 }: UseTimelineScrollOptions): UseTimelineScrollResult {
   const { contentKey, streaming, userTurnKey } = scrollDeps
@@ -133,6 +135,7 @@ export function useTimelineScroll({
   // Snap to bottom when content changes, but only if the user was
   // already at the bottom.
   useEffect(() => {
+    if (!autoScrollEnabled) return
     if (!stickToBottomRef.current) return
     if (scrollFrameRef.current !== null) {
       window.cancelAnimationFrame(scrollFrameRef.current)
@@ -144,7 +147,7 @@ export function useTimelineScroll({
         block: 'end'
       })
     })
-  }, [contentKey, endRef, streaming])
+  }, [autoScrollEnabled, contentKey, endRef, streaming])
 
   // Hard reset on thread switch.
   useEffect(() => {
@@ -156,8 +159,10 @@ export function useTimelineScroll({
       window.cancelAnimationFrame(scrollFrameRef.current)
       scrollFrameRef.current = null
     }
-    endRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
-  }, [activeThreadId, endRef])
+    if (autoScrollEnabled) {
+      endRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
+    }
+  }, [activeThreadId, autoScrollEnabled, endRef])
 
   // Cleanup any pending rAF on unmount.
   useEffect(

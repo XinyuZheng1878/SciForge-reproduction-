@@ -40,6 +40,8 @@ export type WebCitationSource = {
 
 export type RuntimeDisclosureMetadata = {
   displayText?: string
+  source?: 'desktop' | 'feishu' | 'weixin' | 'discord' | string
+  sourceLabel?: string
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
   activeSkillIds?: string[]

@@ -33,6 +33,7 @@ type Props = {
   runtimeError?: string | null
   onRetryConnection: () => void
   onOpenSettings: () => void
+  autoScrollEnabled?: boolean
   onSelectSuggestion?: (prompt: string) => void
   devPreviewCard?: ReactElement | null
   /** Disables the inline Review Plan card's Build action while a turn runs. */
@@ -76,6 +77,7 @@ export function MessageTimeline({
   runtimeError,
   onRetryConnection,
   onOpenSettings,
+  autoScrollEnabled = true,
   onSelectSuggestion,
   devPreviewCard,
   planActionsBusy,
@@ -125,6 +127,7 @@ export function MessageTimeline({
     autoCollapseThreshold: AUTO_COLLAPSE_THRESHOLD,
     totalTurns: turns.length,
     busy,
+    autoScrollEnabled,
     scrollDeps: {
       contentKey: scrollContentKey,
       streaming: Boolean(live.trim() || liveReasoning.trim()),

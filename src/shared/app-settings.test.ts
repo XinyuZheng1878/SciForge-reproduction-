@@ -292,6 +292,32 @@ describe('claw settings', () => {
     ])
   })
 
+  it('normalizes Claw IM channel guard mode with an only_mention default', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      claw: {
+        ...defaultClawSettings(),
+        channels: [
+          clawChannel('feishu', 'Default Guard'),
+          {
+            ...clawChannel('feishu', 'All Messages'),
+            guardMode: 'all_messages'
+          },
+          {
+            ...clawChannel('feishu', 'Bad Guard'),
+            guardMode: 'bogus' as never
+          }
+        ]
+      }
+    })
+
+    expect(normalized.claw.channels.map((channel) => channel.guardMode)).toEqual([
+      'only_mention',
+      'all_messages',
+      'only_mention'
+    ])
+  })
+
   it('normalizes phone agent default names without touching custom names', () => {
     const normalized = normalizeAppSettings({
       ...settings(),

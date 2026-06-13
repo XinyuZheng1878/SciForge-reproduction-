@@ -5,9 +5,11 @@ import {
   type AppSettingsV1,
   type ClawImAgentProfileV1,
   type ClawImChannelV1,
+  type ClawImDiscordPlatformCredentialV1,
   type ClawModel
 } from '@shared/app-settings'
 import { SettingsCard, SettingRow, Toggle } from './settings-controls'
+import { clawProviderDisplayLabel } from './chat/SidebarClaw'
 
 type ClawSettingsContext = {
   t: (key: string, values?: Record<string, unknown>) => string
@@ -76,6 +78,53 @@ function updateChannelProfile(
 
 function channelEffectiveWorkspace(form: AppSettingsV1, channel: ClawImChannelV1): string {
   return channel.workspaceRoot.trim() || form.claw.im.workspaceRoot.trim() || form.workspaceRoot
+}
+
+function discordChannelName(name: string): string {
+  const trimmed = name.trim().replace(/^#/, '')
+  return trimmed ? `#${trimmed}` : '#channel'
+}
+
+function discordCredential(channel: ClawImChannelV1): ClawImDiscordPlatformCredentialV1 | null {
+  return channel.platformCredential?.kind === 'discord' ? channel.platformCredential : null
+}
+
+export function hasDiscordGuardConflict(form: AppSettingsV1, channel: ClawImChannelV1): boolean {
+  if (!channel.enabled) return false
+  const credential = discordCredential(channel)
+  if (!credential) return false
+  const owner = (
+    credential.guardOwnerInstallationId ||
+    credential.installationId ||
+    ''
+  ).trim()
+  const current = (form.installationId ?? '').trim()
+  return Boolean(owner && current && owner !== current)
+}
+
+export function discordGuardOwnerPatch(
+  form: AppSettingsV1,
+  channel: ClawImChannelV1,
+  enabled: boolean
+): Partial<ClawImChannelV1> {
+  const credential = discordCredential(channel)
+  if (!credential) return { enabled }
+  const now = new Date().toISOString()
+  const installationId = form.installationId ?? ''
+  return {
+    enabled,
+    guardMode: enabled ? 'all_messages' : channel.guardMode,
+    platformCredential: {
+      ...credential,
+      installationId: credential.installationId || installationId,
+      ...(enabled
+        ? {
+            guardOwnerInstallationId: installationId,
+            guardOwnerUpdatedAt: now
+          }
+        : {})
+    }
+  }
 }
 
 export function ClawSettingsSection({ ctx }: { ctx: ClawSettingsContext }): ReactElement {
@@ -155,6 +204,8 @@ export function ClawSettingsSection({ ctx }: { ctx: ClawSettingsContext }): Reac
         ) : (
           form.claw.channels.map((channel) => {
             const name = channel.agentProfile.name.trim() || channel.label
+            const discord = discordCredential(channel)
+            const discordConflict = hasDiscordGuardConflict(form, channel)
             return (
               <div key={channel.id} className="px-3 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -162,22 +213,67 @@ export function ClawSettingsSection({ ctx }: { ctx: ClawSettingsContext }): Reac
                     <div className="truncate text-[14px] font-semibold text-ds-ink">{name}</div>
                     <div className="mt-1 text-[12px] text-ds-faint">
                       {t('clawManageAgentMeta', {
-                        provider: 'Feishu / Lark',
+                        provider: clawProviderDisplayLabel(channel.provider),
                         model: channel.model,
                         workspace: channelEffectiveWorkspace(form, channel)
                       })}
                     </div>
+                    {discord ? (
+                      <div className="mt-1 text-[12px] leading-5 text-ds-faint">
+                        {t('clawDiscordChannelMeta', {
+                          server: discord.guildName || discord.guildId,
+                          channel: discordChannelName(discord.channelName || discord.channelId)
+                        })}
+                      </div>
+                    ) : null}
+                    {discord ? (
+                      <div className="mt-1 text-[12px] leading-5 text-ds-muted">
+                        {t('clawDiscordLocalOnlineGuard')}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <span className="text-[12px] font-medium text-ds-muted">
-                      {channel.enabled ? t('clawManageAgentEnabled') : t('clawManageAgentDisabled')}
+                      {discordConflict
+                        ? t('clawDiscordGuardConflictState')
+                        : channel.enabled
+                          ? t('clawManageAgentEnabled')
+                          : t('clawManageAgentDisabled')}
                     </span>
                     <Toggle
                       checked={channel.enabled}
-                      onChange={(value) => updateChannel(form, update, channel.id, { enabled: value })}
+                      onChange={(value) =>
+                        updateChannel(
+                          form,
+                          update,
+                          channel.id,
+                          channel.provider === 'discord'
+                            ? discordGuardOwnerPatch(form, channel, value)
+                            : { enabled: value }
+                        )}
                     />
                   </div>
                 </div>
+
+                {discordConflict ? (
+                  <div className="mt-3 rounded-xl border border-amber-300/70 bg-amber-50 px-3 py-2 text-[12.5px] leading-5 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                    <div className="font-semibold">{t('clawDiscordGuardConflictTitle')}</div>
+                    <div className="mt-1">
+                      {t('clawDiscordGuardConflictDesc', {
+                        owner: discord?.guardOwnerInstallationId || discord?.installationId || ''
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateChannel(form, update, channel.id, discordGuardOwnerPatch(form, channel, true))
+                      }
+                      className="mt-2 rounded-lg border border-amber-400/60 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-amber-900 shadow-sm transition hover:bg-amber-100 dark:border-amber-300/30 dark:bg-amber-300/10 dark:text-amber-100 dark:hover:bg-amber-300/15"
+                    >
+                      {t('clawDiscordGuardTakeover')}
+                    </button>
+                  </div>
+                ) : null}
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <label className="block min-w-0">

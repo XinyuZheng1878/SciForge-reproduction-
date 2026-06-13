@@ -71,6 +71,41 @@ describe('preload agentRuntime bridge', () => {
     expect(invoke).toHaveBeenCalledWith('modelRouter:config:open')
   })
 
+  it('forwards Discord Client ID and per-channel guard IPC payloads', async () => {
+    const api = exposedApi as {
+      configureDiscordClientId(clientId: string): Promise<unknown>
+      configureDiscordBotToken(token: string, clientId?: string): Promise<unknown>
+      configureDiscordProxy(proxyUrl: string): Promise<unknown>
+      testDiscordChannel(channelId: string, text?: string, channelConfigId?: string): Promise<unknown>
+      setDiscordGuard(enabled: boolean, channelConfigId?: string, forceTakeover?: boolean): Promise<unknown>
+    }
+
+    await api.configureDiscordClientId('client-1')
+    await api.configureDiscordBotToken('token-1', 'client-1')
+    await api.configureDiscordProxy('http://127.0.0.1:7890')
+    await api.testDiscordChannel('discord-channel-1', 'hello', 'config-1')
+    await api.setDiscordGuard(true, 'config-1', true)
+
+    expect(invoke).toHaveBeenCalledWith('discord:configure-client', { clientId: 'client-1' })
+    expect(invoke).toHaveBeenCalledWith('discord:configure-token', {
+      token: 'token-1',
+      clientId: 'client-1'
+    })
+    expect(invoke).toHaveBeenCalledWith('discord:configure-proxy', {
+      proxyUrl: 'http://127.0.0.1:7890'
+    })
+    expect(invoke).toHaveBeenCalledWith('discord:test-send', {
+      channelId: 'discord-channel-1',
+      text: 'hello',
+      channelConfigId: 'config-1'
+    })
+    expect(invoke).toHaveBeenCalledWith('discord:set-guard', {
+      enabled: true,
+      channelConfigId: 'config-1',
+      forceTakeover: true
+    })
+  })
+
   it('exposes neutral runtime streaming and control IPC methods', async () => {
     const api = exposedApi as {
       agentRuntime: {

@@ -14,6 +14,7 @@ export type DevBrowserBridgeDispatcher = {
 export type DevBrowserBridgeServer = {
   server: Server
   url: string
+  send: (channel: string, ...args: unknown[]) => void
   close: () => Promise<void>
 }
 
@@ -232,6 +233,11 @@ export async function startDevBrowserBridgeServer(
   return {
     server,
     url,
+    send: (channel, ...args) => {
+      for (const client of clients.values()) {
+        client.send(channel, ...args)
+      }
+    },
     close: async () => {
       for (const client of clients.values()) {
         client.destroy()

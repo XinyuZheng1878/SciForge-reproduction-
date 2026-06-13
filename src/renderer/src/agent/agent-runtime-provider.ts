@@ -111,6 +111,8 @@ function disclosureMeta(meta: Record<string, unknown> | undefined): RuntimeDiscl
   if (!meta) return undefined
   const next: RuntimeDisclosureMetadata = {}
   if (typeof meta.displayText === 'string') next.displayText = meta.displayText
+  if (typeof meta.source === 'string') next.source = meta.source
+  if (typeof meta.sourceLabel === 'string') next.sourceLabel = meta.sourceLabel
   if (Array.isArray(meta.attachmentIds)) {
     const attachmentIds = meta.attachmentIds.filter((value): value is string => typeof value === 'string')
     if (attachmentIds.length) next.attachmentIds = attachmentIds

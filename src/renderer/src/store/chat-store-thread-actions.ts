@@ -25,6 +25,7 @@ import { buildClawRuntimePrompt, buildCodeRuntimePrompt, getActiveAgentApiKey } 
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import {
   activeClawChannel,
+  clawThreadIdsFromChannels,
   compactCodeWorkspaceRoots,
   forgetCodeWorkspaceRoot,
   hydrateBlockModelLabels,
@@ -97,17 +98,21 @@ type StoreActionContext = {
 
 let drainingQueuedMessages = false
 
-function publishActiveClawThreadContext(state: ChatState, threadId: string | null): void {
+export function publishActiveClawThreadContext(state: ChatState, threadId: string | null): void {
   if (typeof window.dsGui?.updateClawActiveThreadContext !== 'function') return
   if (!threadId) {
     void window.dsGui.updateClawActiveThreadContext(null).catch(() => undefined)
     return
   }
   const thread = state.threads.find((item) => item.id === threadId)
+  if (thread && isClawThread(thread, state.clawChannels)) {
+    void window.dsGui.updateClawActiveThreadContext(null).catch(() => undefined)
+    return
+  }
   void window.dsGui.updateClawActiveThreadContext({
     threadId,
     runtimeId: thread?.runtimeId,
-    workspaceRoot: thread?.workspace
+    workspaceRoot: thread?.workspace || state.workspaceRoot || undefined
   }).catch(() => undefined)
 }
 
@@ -128,6 +133,18 @@ function subscribeThreadEventsWithRecovery(
       if (state.activeThreadId !== threadId || !state.busy) return
       void state.recoverActiveTurn()
     })
+}
+
+function threadSnapshotHasTurnEvidence(
+  blocks: Parameters<typeof threadSnapshotLooksRunning>[0],
+  latestTurnId?: string,
+  latestUserMessageId?: string
+): boolean {
+  return Boolean(
+    latestTurnId?.trim() ||
+    latestUserMessageId?.trim() ||
+    blocks.some(hasPendingRuntimeWork)
+  )
 }
 
 export function createThreadActions(
@@ -183,6 +200,7 @@ export function createThreadActions(
       // Setting it active first lets refreshThreads preserve it in the sidebar.
       set((s) => ({
         activeThreadId: t.id,
+        activeRemoteChannelId: null,
         codeWorkspaceRoots: rememberCodeWorkspaceRoots(s.codeWorkspaceRoots, [workspaceRoot, t.workspace]),
         threads: s.threads.some((thread) => thread.id === t.id) ? s.threads : [t, ...s.threads]
       }))
@@ -226,7 +244,8 @@ export function createThreadActions(
         return false
       }
       const blocks = hydrateBlockModelLabels(activeThreadId, rawBlocks)
-      const busy = threadSnapshotLooksRunning(blocks, threadStatus)
+      const busy = threadSnapshotHasTurnEvidence(blocks, latestTurnId, latestUserMessageId) &&
+        threadSnapshotLooksRunning(blocks, threadStatus)
       const currentTurnUserId = busy
         ? state.currentTurnUserId ?? latestUserMessageId ?? findLatestUserBlockId(blocks)
         : null
@@ -310,7 +329,8 @@ export function createThreadActions(
         todos
       } = await p.getThreadDetail(id)
       const blocks = hydrateBlockModelLabels(id, rawBlocks)
-      const busy = threadSnapshotLooksRunning(blocks, threadStatus)
+      const busy = threadSnapshotHasTurnEvidence(blocks, latestTurnId, latestUserMessageId) &&
+        threadSnapshotLooksRunning(blocks, threadStatus)
       const currentTurnUserId = busy
         ? latestUserMessageId ?? findLatestUserBlockId(blocks)
         : null
@@ -318,6 +338,7 @@ export function createThreadActions(
         watchTurnCompletion: nextWatch,
         unreadThreadIds: nextUnread,
         activeThreadId: id,
+        activeRemoteChannelId: null,
         activeThreadGoal: goal ?? null,
         activeThreadTodos: todos ?? null,
         blocks,
@@ -502,12 +523,13 @@ export function createThreadActions(
           ...(userDisplayText || attachmentIds.length || attachments.length
             ? {
                 meta: {
+                  source: 'desktop',
                   ...(userDisplayText ? { displayText: userDisplayText } : {}),
                   ...(attachmentIds.length ? { attachmentIds } : {}),
                   ...(attachments.length ? { attachments } : {})
                 }
               }
-            : {})
+            : { meta: { source: 'desktop' } })
         }
       ],
       liveReasoning: '',
@@ -669,7 +691,10 @@ export function createThreadActions(
           })()
         }))
       }
-      if (channel && typeof window.dsGui?.mirrorClawChannelMessage === 'function') {
+      const shouldMirrorToIm =
+        Boolean(channel) ||
+        clawThreadIdsFromChannels(get().clawChannels).has(activeThreadId)
+      if (shouldMirrorToIm && typeof window.dsGui?.mirrorClawChannelMessage === 'function') {
         const userMirror = await window.dsGui.mirrorClawChannelMessage(
           activeThreadId,
           trimmedText,

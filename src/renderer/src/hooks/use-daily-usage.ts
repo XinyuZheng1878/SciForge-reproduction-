@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { AgentRuntimeId } from '@shared/agent-runtime-contract'
 
 export const DEFAULT_USAGE_HEATMAP_DAYS = 90
 
@@ -146,13 +147,15 @@ export function defaultDailyUsageRange(now = new Date(), days = DEFAULT_USAGE_HE
   }
 }
 
-export function buildDailyUsageQuery(range: DailyUsageRange): {
+export function buildDailyUsageQuery(range: DailyUsageRange, runtimeId?: AgentRuntimeId): {
+  runtimeId?: AgentRuntimeId
   groupBy: 'day'
   from: string
   to: string
   timezone: string
 } {
   return {
+    ...(runtimeId ? { runtimeId } : {}),
     groupBy: 'day',
     from: range.from,
     to: range.to,
@@ -230,9 +233,12 @@ export function normalizeDailyUsageResponse(raw: RawDailyUsageResponse): DailyUs
   }
 }
 
-export async function loadDailyUsage(range: DailyUsageRange): Promise<DailyUsageSummary | null> {
+export async function loadDailyUsage(
+  range: DailyUsageRange,
+  runtimeId?: AgentRuntimeId
+): Promise<DailyUsageSummary | null> {
   if (typeof window.dsGui?.agentRuntime?.usage !== 'function') return null
-  const parsed = await window.dsGui.agentRuntime.usage(buildDailyUsageQuery(range)) as RawDailyUsageResponse
+  const parsed = await window.dsGui.agentRuntime.usage(buildDailyUsageQuery(range, runtimeId)) as RawDailyUsageResponse
   if (parsed.supported === false) return null
   if ((parsed.groupBy ?? parsed.group_by) !== 'day') {
     throw new Error('daily usage response did not use day grouping')
@@ -243,7 +249,8 @@ export async function loadDailyUsage(range: DailyUsageRange): Promise<DailyUsage
 export function useDailyUsageState(
   enabled: boolean,
   refreshKey: unknown,
-  days = DEFAULT_USAGE_HEATMAP_DAYS
+  days = DEFAULT_USAGE_HEATMAP_DAYS,
+  runtimeId?: AgentRuntimeId
 ): DailyUsageState {
   const shouldLoad = enabled
   const [state, setState] = useState<DailyUsageState>({
@@ -261,7 +268,7 @@ export function useDailyUsageState(
     }
     setState((current) => ({ ...current, loading: true, error: null }))
     const range = defaultDailyUsageRange(new Date(), days)
-    void loadDailyUsage(range)
+    void loadDailyUsage(range, runtimeId)
       .then((usage) => {
         if (!cancelled) setState({ usage, loading: false, loaded: true, error: null })
       })
@@ -274,7 +281,7 @@ export function useDailyUsageState(
     return () => {
       cancelled = true
     }
-  }, [days, refreshKey, shouldLoad])
+  }, [days, refreshKey, runtimeId, shouldLoad])
 
   return state
 }

@@ -3,6 +3,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, ChevronDown, ChevronUp, Loader2, RefreshCw, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
+  getActiveAgentRuntime,
+  getCodexRuntimeSettings,
+  type AgentRuntimeId,
+  type AppSettingsV1
+} from '@shared/app-settings'
+import {
   formatCompactNumber,
   formatCost,
   formatPercent
@@ -27,6 +33,11 @@ type UsageTotalsBucket = DailyUsageBucket & { days: number; activeDays: number }
 type UsageViewMode = 'populated' | 'loading' | 'empty' | 'error'
 type UsageRangeKey = 'all' | '90d' | '30d' | '7d'
 type UsageTabKey = 'overview' | 'models'
+type UsageRuntimeMeta = {
+  runtimeId: AgentRuntimeId
+  runtimeLabel: string
+  modelLabel: string
+}
 
 const USAGE_HEATMAP_PREVIEW_CELLS = 14 * 7
 const USAGE_HEATMAP_GRID_DAYS = 26 * 7
@@ -44,6 +55,17 @@ const MODEL_USAGE_BREAKDOWN_COLORS = {
   output: '#245fd7'
 } as const
 const EMPTY_DAILY_USAGE_BUCKETS: DailyUsageBucket[] = []
+const DEFAULT_USAGE_RUNTIME_META: UsageRuntimeMeta = {
+  runtimeId: 'kun',
+  runtimeLabel: 'Kun',
+  modelLabel: ''
+}
+const PENDING_DAILY_USAGE_STATE: DailyUsageState = {
+  usage: null,
+  loading: true,
+  loaded: false,
+  error: null
+}
 
 export const USAGE_HEATMAP_INTENSITY_CLASSES = [
   'border-ds-border-muted bg-ds-subtle',
@@ -198,14 +220,33 @@ function usageViewMode(state: DailyUsageState): UsageViewMode {
   return 'empty'
 }
 
+function usageRuntimeLabel(runtimeId: AgentRuntimeId): string {
+  return runtimeId === 'codex' ? 'Codex' : 'Kun'
+}
+
+function usageRuntimeMetaFromSettings(settings: AppSettingsV1): UsageRuntimeMeta {
+  const runtimeId = getActiveAgentRuntime(settings)
+  const runtimeLabel = usageRuntimeLabel(runtimeId)
+  const configuredModel = runtimeId === 'codex'
+    ? getCodexRuntimeSettings(settings).model
+    : settings.agents.kun.model
+  return {
+    runtimeId,
+    runtimeLabel,
+    modelLabel: configuredModel.trim() || runtimeLabel
+  }
+}
+
 function HeatmapGrid({
   buckets,
   loading,
+  runtimeLabel,
   selected,
   onSelect
 }: {
   buckets: DailyUsageBucket[]
   loading: boolean
+  runtimeLabel: string
   selected: DailyUsageBucket | null
   onSelect: (bucket: DailyUsageBucket) => void
 }): ReactElement {
@@ -224,7 +265,7 @@ function HeatmapGrid({
         <div
           className="grid w-full gap-1"
           style={{ gridTemplateColumns: `repeat(${weekCount}, minmax(0, 1fr))` }}
-          aria-label={t('usageHeatmapGridLabel')}
+          aria-label={t('usageHeatmapGridLabel', { runtime: runtimeLabel })}
         >
           {loading
             ? skeletonWeeks.map((week) => (
@@ -318,9 +359,11 @@ function PreviewCalendar({ mode }: { mode: Exclude<UsageViewMode, 'populated'> }
 
 function WarmupStatePanel({
   mode,
+  runtimeLabel,
   onRefresh
 }: {
   mode: Exclude<UsageViewMode, 'populated'>
+  runtimeLabel: string
   onRefresh?: () => void
 }): ReactElement {
   const { t, i18n } = useTranslation('common')
@@ -344,13 +387,13 @@ function WarmupStatePanel({
           }`}
         >
           {icon}
-          <span>{t(`usageHeatmapWarmupBadge.${mode}`)}</span>
+          <span>{t(`usageHeatmapWarmupBadge.${mode}`, { runtime: runtimeLabel })}</span>
         </div>
         <h2 className="text-[18px] font-semibold leading-7 tracking-[0] text-ds-ink">
-          {t(`usageHeatmapWarmupTitle.${mode}`)}
+          {t(`usageHeatmapWarmupTitle.${mode}`, { runtime: runtimeLabel })}
         </h2>
         <p className="mt-2 text-[13.5px] leading-6 text-ds-muted">
-          {t(`usageHeatmapWarmupSub.${mode}`)}
+          {t(`usageHeatmapWarmupSub.${mode}`, { runtime: runtimeLabel })}
         </p>
         {mode === 'error' ? (
           <button
@@ -743,16 +786,43 @@ function UsagePanelCard({ children }: { children: ReactElement }): ReactElement 
 export function InitialSessionUsageHeatmap(): ReactElement {
   const [refreshKey, setRefreshKey] = useState(0)
   const [rangeKey, setRangeKey] = useState<UsageRangeKey>('all')
-  const state = useDailyUsageState(true, refreshKey, USAGE_RANGE_DAYS.all)
-  const modelState = useModelUsageState(true, `${refreshKey}:${rangeKey}`, USAGE_RANGE_DAYS[rangeKey])
+  const [runtimeMeta, setRuntimeMeta] = useState<UsageRuntimeMeta | null>(null)
+  const runtimeId = runtimeMeta?.runtimeId
+  const state = useDailyUsageState(Boolean(runtimeId), refreshKey, USAGE_RANGE_DAYS.all, runtimeId)
+  const modelState = useModelUsageState(Boolean(runtimeId), `${refreshKey}:${rangeKey}`, USAGE_RANGE_DAYS[rangeKey], runtimeId)
+
+  useEffect(() => {
+    let cancelled = false
+    if (typeof window === 'undefined' || typeof window.dsGui?.getSettings !== 'function') {
+      setRuntimeMeta(DEFAULT_USAGE_RUNTIME_META)
+      return
+    }
+    void window.dsGui.getSettings()
+      .then((settings) => {
+        if (!cancelled) setRuntimeMeta(usageRuntimeMetaFromSettings(settings))
+      })
+      .catch(() => {
+        if (!cancelled) setRuntimeMeta(DEFAULT_USAGE_RUNTIME_META)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [refreshKey])
+
+  const handleRefresh = (): void => {
+    setRuntimeMeta(null)
+    setRefreshKey((value) => value + 1)
+  }
 
   return (
     <InitialSessionUsageHeatmapView
-      state={state}
+      state={runtimeMeta ? state : PENDING_DAILY_USAGE_STATE}
       modelState={modelState}
       rangeKey={rangeKey}
+      runtimeLabel={runtimeMeta?.runtimeLabel ?? DEFAULT_USAGE_RUNTIME_META.runtimeLabel}
+      modelLabel={runtimeMeta?.modelLabel ?? DEFAULT_USAGE_RUNTIME_META.modelLabel}
       onRangeChange={setRangeKey}
-      onRefresh={() => setRefreshKey((value) => value + 1)}
+      onRefresh={handleRefresh}
     />
   )
 }
@@ -764,6 +834,8 @@ export function InitialSessionUsageHeatmapView({
   initialCollapsed = false,
   initialActiveTab = 'overview',
   initialModelHoverIndex = null,
+  runtimeLabel = DEFAULT_USAGE_RUNTIME_META.runtimeLabel,
+  modelLabel = DEFAULT_USAGE_RUNTIME_META.modelLabel,
   onRangeChange,
   onRefresh
 }: {
@@ -773,6 +845,8 @@ export function InitialSessionUsageHeatmapView({
   initialCollapsed?: boolean
   initialActiveTab?: UsageTabKey
   initialModelHoverIndex?: number | null
+  runtimeLabel?: string
+  modelLabel?: string
   onRangeChange?: (rangeKey: UsageRangeKey) => void
   onRefresh?: () => void
 }): ReactElement {
@@ -780,7 +854,7 @@ export function InitialSessionUsageHeatmapView({
   const [activeBucket, setActiveBucket] = useState<DailyUsageBucket | null>(null)
   const [activeTab, setActiveTab] = useState<UsageTabKey>(initialActiveTab)
   const [collapsed, setCollapsed] = useState(initialCollapsed)
-  const [modelLabel, setModelLabel] = useState('')
+  const effectiveModelLabel = modelLabel.trim() || runtimeLabel
   const usage = state.usage
   const buckets = usage?.buckets ?? EMPTY_DAILY_USAGE_BUCKETS
   const metricBuckets = useMemo(() => usageRangeBuckets(buckets, rangeKey), [buckets, rangeKey])
@@ -805,27 +879,12 @@ export function InitialSessionUsageHeatmapView({
   ]
   const heroTitle =
     mode === 'populated'
-      ? t('usageHeatmapTitle')
-      : t(`usageHeatmapHeroTitle.${mode}`)
+      ? t('usageHeatmapTitle', { runtime: runtimeLabel })
+      : t(`usageHeatmapHeroTitle.${mode}`, { runtime: runtimeLabel })
   const heroSub =
     mode === 'populated'
-      ? t('usageHeatmapSub')
-      : t(`usageHeatmapHeroSub.${mode}`)
-
-  useEffect(() => {
-    let cancelled = false
-    if (typeof window === 'undefined' || typeof window.dsGui?.getSettings !== 'function') return
-    void window.dsGui.getSettings()
-      .then((settings) => {
-        if (!cancelled) setModelLabel(settings.agents.kun.model.trim())
-      })
-      .catch(() => {
-        if (!cancelled) setModelLabel('')
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+      ? t('usageHeatmapSub', { runtime: runtimeLabel })
+      : t(`usageHeatmapHeroSub.${mode}`, { runtime: runtimeLabel })
 
   return (
     <div className="ds-initial-usage-heatmap ds-no-drag mx-auto flex min-h-[min(620px,calc(100dvh-220px))] w-full items-center justify-center px-3 py-6 text-left sm:px-5 sm:py-8">
@@ -894,6 +953,7 @@ export function InitialSessionUsageHeatmapView({
                     <HeatmapGrid
                       buckets={heatmapBuckets}
                       loading={state.loading && heatmapBuckets.length === 0}
+                      runtimeLabel={runtimeLabel}
                       selected={activeBucket}
                       onSelect={setActiveBucket}
                     />
@@ -907,7 +967,7 @@ export function InitialSessionUsageHeatmapView({
                 ) : (
                   <ModelUsagePanel
                     state={modelState}
-                    fallbackModel={modelLabel}
+                    fallbackModel={effectiveModelLabel}
                     locale={i18n.language}
                     initialActiveDayIndex={initialModelHoverIndex}
                   />
@@ -930,7 +990,7 @@ export function InitialSessionUsageHeatmapView({
                     <UsageHeroToggle expanded onToggle={() => setCollapsed(true)} />
                   </div>
                 </div>
-                <WarmupStatePanel mode={mode} onRefresh={onRefresh} />
+                <WarmupStatePanel mode={mode} runtimeLabel={runtimeLabel} onRefresh={onRefresh} />
               </>
             )}
           </UsagePanelCard>

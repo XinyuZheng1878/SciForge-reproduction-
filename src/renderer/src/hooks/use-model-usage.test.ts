@@ -28,13 +28,28 @@ describe('model usage helpers', () => {
   it('builds a semantic model usage query without exposing Kun endpoints', () => {
     expect(
       (modelUsage as unknown as {
-        buildModelUsageQuery(range: unknown): unknown
+        buildModelUsageQuery(range: unknown, runtimeId?: 'kun' | 'codex'): unknown
       }).buildModelUsageQuery({
         from: '2026-05-01',
         to: '2026-05-31',
         timezone: 'Asia/Shanghai'
       })
     ).toEqual({
+      groupBy: 'model',
+      from: '2026-05-01',
+      to: '2026-05-31',
+      timezone: 'Asia/Shanghai'
+    })
+    expect(
+      (modelUsage as unknown as {
+        buildModelUsageQuery(range: unknown, runtimeId?: 'kun' | 'codex'): unknown
+      }).buildModelUsageQuery({
+        from: '2026-05-01',
+        to: '2026-05-31',
+        timezone: 'Asia/Shanghai'
+      }, 'codex')
+    ).toEqual({
+      runtimeId: 'codex',
       groupBy: 'model',
       from: '2026-05-01',
       to: '2026-05-31',
@@ -102,10 +117,11 @@ describe('model usage helpers', () => {
     }))
     setAgentRuntimeUsage(agentRuntimeUsage)
 
-    const loaded = await modelUsage.loadModelUsage({ from: '2026-05-01', to: '2026-05-01', timezone: 'UTC' })
+    const loaded = await modelUsage.loadModelUsage({ from: '2026-05-01', to: '2026-05-01', timezone: 'UTC' }, 'codex')
 
     expect(loaded?.buckets[0]?.model).toBe('Opus 4.8')
     expect(agentRuntimeUsage).toHaveBeenCalledWith({
+      runtimeId: 'codex',
       groupBy: 'model',
       from: '2026-05-01',
       to: '2026-05-01',

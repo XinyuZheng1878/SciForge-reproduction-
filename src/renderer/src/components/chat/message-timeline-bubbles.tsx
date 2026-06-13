@@ -14,6 +14,7 @@ import { DiffView } from '../DiffView'
 import { AssistantMarkdown } from './AssistantMarkdown'
 import { ModelMetaTag, WritePromptMetaDisclosure } from './message-timeline-cards'
 import { readNumber, formatDuration, formatToolTitle } from './message-timeline-tools'
+import { clawThreadRemoteBindingsFromChannels } from '../../store/chat-store-helpers'
 
 const COPY_FEEDBACK_RESET_MS = 1600
 
@@ -31,6 +32,8 @@ function UserMessageBubble({
   const { t } = useTranslation('common')
   const busy = useChatStore((s) => s.busy)
   const route = useChatStore((s) => s.route)
+  const activeThreadId = useChatStore((s) => s.activeThreadId)
+  const clawChannels = useChatStore((s) => s.clawChannels)
   const rewindAndResend = useChatStore((s) => s.rewindAndResend)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(block.text)
@@ -46,6 +49,14 @@ function UserMessageBubble({
     if (!parsed.managed && !parsed.inbound && block.managedBy !== 'claw' && route !== 'claw') return null
     return parsed
   }, [block.managedBy, block.text, route])
+  const remoteBinding = useMemo(() => {
+    if (!activeThreadId) return null
+    return clawThreadRemoteBindingsFromChannels(clawChannels).get(activeThreadId) ?? null
+  }, [activeThreadId, clawChannels])
+  const sourceLabel = useMemo(
+    () => messageSourceLabel(block, parsedClawPrompt, remoteBinding?.providerLabel),
+    [block, parsedClawPrompt, remoteBinding]
+  )
   const metaDisplayText =
     typeof block.meta?.displayText === 'string' && block.meta.displayText.trim()
       ? block.meta.displayText.trim()
@@ -159,11 +170,15 @@ function UserMessageBubble({
               onToggle={() => setWriteMetaOpen((value) => !value)}
             />
           ) : null}
+          <MessageSourceTag label={sourceLabel} align="right" />
           <RuntimeMetaChips meta={block.meta} align="right" hideAttachments />
         </div>
       )}
       <div className="mt-2 flex min-w-0 items-center justify-between gap-3 text-ds-faint opacity-90 transition group-hover:opacity-100">
-        <ModelMetaTag label={block.modelLabel} className="flex-1 justify-start text-left" />
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <ModelMetaTag label={block.modelLabel} className="justify-start text-left" />
+          {showClawInboundCard ? <MessageSourceTag label={sourceLabel} inline /> : null}
+        </div>
         <div className="flex items-center justify-end gap-3">
           <CopyFeedbackButton text={displayText} iconOnly />
           {canEdit ? (
@@ -220,6 +235,64 @@ function ClawInboundMessageCard({
           ))}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function messageSourceLabel(
+  block: Extract<ChatBlock, { kind: 'user' }>,
+  parsedClawPrompt: ClawUserPromptDisplay | null,
+  remoteProviderLabel?: string
+): string {
+  const meta = block.meta as Record<string, unknown> | undefined
+  const metaSourceLabel = metaString(meta, 'sourceLabel')
+  if (metaSourceLabel) return normalizeMessageSourceLabel(metaSourceLabel, remoteProviderLabel)
+  const source = metaString(meta, 'source') || metaString(meta, 'sourceKind')
+  const normalizedSource = source?.toLowerCase() ?? ''
+  if (normalizedSource) {
+    if (normalizedSource.includes('discord')) return 'Discord'
+    if (normalizedSource.includes('weixin') || normalizedSource.includes('wechat')) return 'WeChat'
+    if (normalizedSource.includes('feishu') || normalizedSource.includes('lark')) return 'Feishu / Lark'
+    if (normalizedSource === 'im' || normalizedSource === 'remote' || normalizedSource === 'claw') {
+      return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Feishu / Lark'
+    }
+    if (normalizedSource === 'desktop' || normalizedSource === 'ui' || normalizedSource === 'user') return 'Desktop'
+  }
+  if (parsedClawPrompt?.inbound) {
+    return normalizeMessageSourceLabel(parsedClawPrompt.sourceLabel, remoteProviderLabel)
+  }
+  if (block.managedBy === 'claw') return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Feishu / Lark'
+  return 'Desktop'
+}
+
+function normalizeMessageSourceLabel(label: string | undefined, remoteProviderLabel?: string): string {
+  const normalized = label?.trim()
+  if (!normalized) return remoteProviderLabel || 'Desktop'
+  const lower = normalized.toLowerCase()
+  if (lower.includes('discord')) return 'Discord'
+  if (lower.includes('weixin') || lower.includes('wechat')) return 'WeChat'
+  if (lower.includes('feishu') || lower.includes('lark')) return 'Feishu / Lark'
+  if (lower === 'desktop' || lower === 'ui' || lower === 'user') return 'Desktop'
+  return normalized
+}
+
+function MessageSourceTag({
+  label,
+  align = 'left',
+  inline = false
+}: {
+  label: string
+  align?: 'left' | 'right'
+  inline?: boolean
+}): ReactElement {
+  return (
+    <div className={`${inline ? '' : 'mt-2'} flex min-w-0 ${align === 'right' ? 'justify-end' : 'justify-start'}`}>
+      <span
+        className="inline-flex max-w-full items-center rounded-md border border-ds-border-muted bg-ds-card/75 px-1.5 py-0.5 text-[11px] font-semibold text-ds-faint"
+        title={label}
+      >
+        <span className="truncate">{label}</span>
+      </span>
     </div>
   )
 }

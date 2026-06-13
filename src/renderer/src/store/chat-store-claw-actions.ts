@@ -303,10 +303,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         : channels.find((channel) => channel.enabled)?.id ?? ''
       set({ clawChannels: channels, activeClawChannelId: activeId })
       if (get().route === 'claw' && !activeId) {
-        sseAbortRef.current?.abort()
-        sseAbortRef.current = null
-        clearBusyWatchdog()
-        set({ ...clearedThreadSelection(), route: 'claw', clawChannels: channels, activeClawChannelId: '' })
+        set({ route: 'chat', clawChannels: channels, activeClawChannelId: '' })
         return
       }
       if (get().route === 'claw' && activeId) {
@@ -366,7 +363,8 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       }
       const duplicateProvider = settings.claw.channels.find((channel) => channel.provider === provider)
       if (duplicateProvider) {
-        const providerLabel = provider === 'weixin' ? 'WeChat' : 'Feishu / Lark'
+        const providerLabel =
+          provider === 'discord' ? 'Discord' : provider === 'weixin' ? 'WeChat' : 'Feishu / Lark'
         throw new Error(i18n.t('common:connectPhoneProviderAlreadyConnected', { provider: providerLabel }))
       }
 
@@ -410,10 +408,15 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       const channels = settings.claw.channels
       const channel = channels.find((item) => item.id === channelId)
       if (!channel) {
-        set({ clawChannels: channels, activeClawChannelId: '' })
+        set({ clawChannels: channels, activeClawChannelId: '', activeRemoteChannelId: null })
         return
       }
-      set({ route: 'claw', clawChannels: channels, activeClawChannelId: channel.id, composerModel: channel.model })
+      set({
+        clawChannels: channels,
+        activeClawChannelId: channel.id,
+        activeRemoteChannelId: null,
+        composerModel: channel.model
+      })
       const provider = getProvider()
       const latestConversation =
         [...channel.conversations]
@@ -451,12 +454,9 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
             const saved = await rendererRuntimeClient.setSettings({ claw: { channels: nextChannels } })
             set({ clawChannels: saved.claw.channels })
           }
-          sseAbortRef.current?.abort()
-          sseAbortRef.current = null
-          clearBusyWatchdog()
           set({
-            ...clearedThreadSelection(),
-            route: 'claw',
+            route: 'chat',
+            activeRemoteChannelId: null,
             activeClawChannelId: channel.id,
             composerModel: channel.model,
             error: null
@@ -502,7 +502,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
           : [createdThread ?? recoveredThread ?? placeholder, ...state.threads]
       }))
       await get().selectThread(threadId)
-      set({ route: 'claw', activeClawChannelId: channel.id })
+      set({ route: 'chat', activeClawChannelId: channel.id, activeRemoteChannelId: null })
     },
 
     selectClawConversation: async (channelId, threadId) => {
@@ -532,7 +532,8 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         return
       }
       set({
-        route: 'claw',
+        route: 'chat',
+        activeRemoteChannelId: null,
         clawChannels: channels,
         activeClawChannelId: channel.id,
         composerModel: channel.model
@@ -591,7 +592,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         set({ clawChannels: saved.claw.channels })
       }
       await get().selectThread(targetThreadId)
-      set({ route: 'claw', activeClawChannelId: channel.id })
+      set({ route: 'chat', activeClawChannelId: channel.id, activeRemoteChannelId: null })
     },
 
     deleteClawChannel: async (channelId) => {
@@ -603,7 +604,8 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       const nextChannel = saved.claw.channels.find((item) => item.enabled) ?? null
       set({
         clawChannels: saved.claw.channels,
-        activeClawChannelId: nextChannel?.id ?? ''
+        activeClawChannelId: nextChannel?.id ?? '',
+        activeRemoteChannelId: get().activeRemoteChannelId === channelId ? null : get().activeRemoteChannelId
       })
       if (channel && get().runtimeConnection === 'ready') {
         const provider = getProvider()
@@ -617,10 +619,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       if (nextChannel) {
         await get().selectClawChannel(nextChannel.id)
       } else {
-        sseAbortRef.current?.abort()
-        sseAbortRef.current = null
-        clearBusyWatchdog()
-        set({ ...clearedThreadSelection(), route: 'claw' })
+        set({ route: 'chat' })
       }
     },
 
@@ -663,8 +662,9 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         )
         const saved = await rendererRuntimeClient.setSettings({ claw: { channels } })
         set((state) => ({
-          route: 'claw',
+          route: 'chat',
           activeClawChannelId: channel.id,
+          activeRemoteChannelId: null,
           clawChannels: saved.claw.channels,
           threads: state.threads.some((item) => item.id === thread.id)
             ? state.threads

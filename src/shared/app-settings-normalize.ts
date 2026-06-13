@@ -25,7 +25,7 @@ import {
 } from './app-settings-codex'
 import { normalizeModelProviderSettings } from './app-settings-provider'
 import { normalizeModelRouterSettings } from './app-settings-model-router'
-import { normalizeDeepseekBaseUrl } from './app-settings-normalizers'
+import { normalizeDeepseekBaseUrl, normalizeInstallationId } from './app-settings-normalizers'
 import { normalizeClawSettings } from './app-settings-claw'
 import { normalizeScheduleSettings } from './app-settings-schedule'
 import { normalizeWriteSettings } from './app-settings-write'
@@ -50,6 +50,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
   return {
     ...migrated,
     version: 1,
+    installationId: normalizeInstallationId(maybeSettings.installationId),
     locale: maybeSettings.locale === 'zh' ? 'zh' : 'en',
     theme:
       maybeSettings.theme === 'light' || maybeSettings.theme === 'dark' || maybeSettings.theme === 'system'

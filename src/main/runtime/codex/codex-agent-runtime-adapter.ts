@@ -145,15 +145,24 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
     },
 
     async auxiliary(_context, input) {
-      if (input.operation !== 'archiveThread') {
-        throw new Error(`codex AgentRuntimeAdapter does not support ${input.operation}.`)
+      switch (input.operation) {
+        case 'getRuntimeInfo':
+          return codexRuntimeInfo()
+        case 'getToolDiagnostics':
+          return codexToolDiagnostics()
+        case 'listSkills':
+          return []
+        case 'archiveThread': {
+          const payload = recordValue(input.payload)
+          const threadId = stringValue(payload.threadId)
+          if (!threadId) throw new Error('archiveThread requires payload.threadId.')
+          const result = await service.archiveThread(threadId, payload.archived === true)
+          if (!result.ok) throw codexFailure(result)
+          return undefined
+        }
+        default:
+          throw new Error(`codex AgentRuntimeAdapter does not support ${input.operation}.`)
       }
-      const payload = recordValue(input.payload)
-      const threadId = stringValue(payload.threadId)
-      if (!threadId) throw new Error('archiveThread requires payload.threadId.')
-      const result = await service.archiveThread(threadId, payload.archived === true)
-      if (!result.ok) throw codexFailure(result)
-      return undefined
     }
   }
 }
@@ -221,6 +230,96 @@ function codexCapabilities(): AgentRuntimeCapabilities {
   }
 }
 
+function codexRuntimeInfo(): Record<string, unknown> {
+  const caps = codexCapabilities()
+  return {
+    host: 'codex',
+    port: 0,
+    dataDir: '',
+    model: caps.model.id ?? 'codex',
+    startedAt: new Date().toISOString(),
+    capabilities: {
+      contractVersion: 1,
+      model: {
+        id: caps.model.id ?? 'codex',
+        inputModalities: caps.model.inputModalities,
+        outputModalities: caps.model.outputModalities,
+        supportsToolCalling: caps.model.supportsToolCalling,
+        contextWindowTokens: caps.model.contextWindowTokens,
+        messageParts: ['text']
+      },
+      cli: {
+        serve: coreCapability({ available: true }),
+        run: coreCapability({ available: true }),
+        chat: coreCapability({ available: true }),
+        exec: coreCapability({ available: true })
+      },
+      mcp: {
+        ...coreCapability(caps.tools.mcp),
+        configuredServers: 0,
+        connectedServers: 0,
+        toolCount: caps.tools.mcp.toolCount ?? 0,
+        search: {
+          enabled: false,
+          mode: 'direct',
+          active: false,
+          indexedToolCount: 0,
+          advertisedToolCount: 0
+        }
+      },
+      web: {
+        ...coreCapability(caps.tools.web),
+        fetch: coreCapability(caps.tools.web.fetch),
+        search: coreCapability(caps.tools.web.search)
+      },
+      skills: {
+        ...coreCapability(caps.tools.skills),
+        configuredRoots: 0,
+        discoveredSkills: 0
+      },
+      subagents: {
+        ...coreCapability(caps.tools.subagents),
+        maxParallel: caps.tools.subagents.maxParallel ?? 0,
+        maxChildRuns: caps.tools.subagents.maxChildren ?? 0
+      },
+      attachments: {
+        ...coreCapability(caps.storage.attachments),
+        maxImageBytes: 0,
+        maxImageDimension: 0,
+        allowedMimeTypes: []
+      },
+      memory: {
+        ...coreCapability(caps.storage.memory),
+        scopes: [],
+        maxInjectedRecords: 0
+      }
+    }
+  }
+}
+
+function codexToolDiagnostics(): Record<string, unknown> {
+  return {
+    mcpServers: [],
+    webProviders: [],
+    skills: {
+      enabled: false,
+      roots: [],
+      skills: []
+    }
+  }
+}
+
+function coreCapability(state: { available?: boolean; reason?: string; degraded?: boolean } | undefined): Record<string, unknown> {
+  const available = state?.available === true
+  return {
+    status: available ? 'available' : 'unavailable',
+    enabled: available,
+    available,
+    ...(state?.reason ? { reason: state.reason } : {}),
+    ...(state?.degraded ? { degraded: state.degraded } : {})
+  }
+}
+
 function mapCodexThread(thread: CodexNormalizedThread): AgentRuntimeThread {
   return {
     id: thread.id,
@@ -247,23 +346,32 @@ function mapCodexDetail(threadId: string, detail: {
   latestUserMessageId?: string
   usage?: AgentRuntimeThreadDetail['usage']
 }): AgentRuntimeThreadDetail {
-  const items = detail.blocks.map(mapCodexBlock).filter(Boolean) as AgentRuntimeItem[]
-  const turnId = detail.latestTurnId || 'codex-turn'
-  const status = normalizeTurnStatus(detail.threadStatus) ?? inferTurnStatus(items)
+  const mappedItems = detail.blocks.map(mapCodexBlock).filter(Boolean) as AgentRuntimeItem[]
+  const fallbackTurnId = detail.latestTurnId || (mappedItems.length > 0 ? 'codex-turn' : '')
+  const items = fallbackTurnId
+    ? mappedItems.map((item) => item.turnId ? item : { ...item, turnId: fallbackTurnId })
+    : mappedItems
+  const turnIds = [...new Set(items.map((item) => item.turnId?.trim() ?? '').filter(Boolean))]
+  const turnId = detail.latestTurnId || turnIds.at(-1) || ''
+  const latestStatus = normalizeTurnStatus(detail.threadStatus)
+  const turns = turnIds.map((id): AgentRuntimeTurn => {
+    const turnItems = items.filter((item) => item.turnId === id)
+    return {
+      id,
+      threadId,
+      status: id === turnId ? latestStatus ?? inferTurnStatus(turnItems) : inferTurnStatus(turnItems),
+      items: turnItems
+    }
+  })
   return {
     id: threadId,
     runtimeId: 'codex',
     title: 'Codex thread',
     updatedAt: new Date().toISOString(),
-    status: detail.threadStatus,
-    latestTurnId: turnId,
+    ...(turnId && detail.threadStatus ? { status: detail.threadStatus } : {}),
+    ...(turnId ? { latestTurnId: turnId } : {}),
     latestSeq: detail.latestSeq,
-    turns: [{
-      id: turnId,
-      threadId,
-      status,
-      items
-    }],
+    turns,
     items,
     usage: detail.usage,
     backendThreadId: threadId
@@ -276,6 +384,7 @@ function mapCodexBlock(block: CodexChatBlock): AgentRuntimeItem | null {
         id: block.id,
         kind: 'user_message',
         text: block.displayText?.trim() || block.text,
+        ...(block.turnId ? { turnId: block.turnId } : {}),
         createdAt: block.createdAt
       }
   }
@@ -284,6 +393,7 @@ function mapCodexBlock(block: CodexChatBlock): AgentRuntimeItem | null {
       id: block.id,
       kind: 'assistant_message',
       text: block.text,
+      ...(block.turnId ? { turnId: block.turnId } : {}),
       createdAt: block.createdAt
     }
   }
@@ -292,6 +402,7 @@ function mapCodexBlock(block: CodexChatBlock): AgentRuntimeItem | null {
       id: block.id,
       kind: 'reasoning',
       text: block.text,
+      ...(block.turnId ? { turnId: block.turnId } : {}),
       createdAt: block.createdAt
     }
   }
@@ -307,6 +418,7 @@ function mapCodexBlock(block: CodexChatBlock): AgentRuntimeItem | null {
       toolKind: normalizeToolKind(block.toolKind),
       detail: block.detail,
       meta: block.filePath ? { filePath: block.filePath, ...block.meta } : block.meta,
+      ...(block.turnId ? { turnId: block.turnId } : {}),
       createdAt: block.createdAt
     }
   }
@@ -318,6 +430,7 @@ function mapCodexBlock(block: CodexChatBlock): AgentRuntimeItem | null {
       detail: block.detail,
       status: block.severity === 'error' ? 'error' : undefined,
       meta: block.code ? { code: block.code, severity: block.severity } : { severity: block.severity },
+      ...(block.turnId ? { turnId: block.turnId } : {}),
       createdAt: block.createdAt
     }
   }
@@ -562,6 +675,9 @@ function normalizeTurnStatus(value: unknown): AgentRuntimeTurn['status'] | null 
     value === 'failed' || value === 'aborted' || value === 'steered') {
     return value
   }
+  if (value === 'success') return 'completed'
+  if (value === 'error') return 'failed'
+  if (value === 'cancelled' || value === 'canceled' || value === 'interrupted') return 'aborted'
   return null
 }
 

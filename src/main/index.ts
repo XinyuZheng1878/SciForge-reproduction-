@@ -50,6 +50,7 @@ import { createCodexAgentRuntimeAdapter } from './runtime/codex/codex-agent-runt
 import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
+import { createDiscordBotRuntime, type DiscordBotRuntime } from './discord-bot-runtime'
 import { createScheduleRuntime, type ScheduleRuntime } from './schedule-runtime'
 import { runClawScheduleMcpServerFromArgv } from './claw-schedule-mcp-server'
 import {
@@ -175,6 +176,7 @@ let mainWindow: BrowserWindow | null = null
 let store: JsonSettingsStore
 let logDir = ''
 let clawRuntime: ClawRuntime | null = null
+let discordBotRuntime: DiscordBotRuntime | null = null
 let scheduleRuntime: ScheduleRuntime | null = null
 let codexRuntime: CodexRuntimeService | null = null
 let managedRuntimesStoppedForQuit = false
@@ -197,15 +199,24 @@ type GuiUpdaterModule = typeof import('./gui-updater')
 let guiUpdaterModulePromise: Promise<GuiUpdaterModule> | null = null
 let guiUpdaterInitialized = false
 
-function emitClawChannelActivity(payload: { channelId: string; threadId: string; runtimeId?: AgentRuntimeId }): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  mainWindow.webContents.send('claw:channel-activity', payload)
+function emitClawChannelActivity(payload: {
+  channelId: string
+  threadId: string
+  runtimeId?: AgentRuntimeId
+  previousThreadId?: string
+}): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('claw:channel-activity', payload)
+  }
+  devBrowserBridgeServer?.send('claw:channel-activity', payload)
 }
 
 const codexRuntimeEventSink: CodexRuntimeEventSink = {
   send(channel, payload) {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    mainWindow.webContents.send(channel, payload)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, payload)
+    }
+    devBrowserBridgeServer?.send(channel, payload)
   }
 }
 
@@ -273,6 +284,7 @@ async function stopManagedRuntimes(): Promise<void> {
         codexRuntimePrewarmTimer = null
       }
       scheduleRuntime?.stop()
+      discordBotRuntime?.stop()
       clawRuntime?.stop()
       await stopModelRouterSidecar()
       stopWeixinBridgeRuntime()
@@ -977,6 +989,21 @@ app.whenReady().then(async () => {
 
   scheduleRuntime = createScheduleRuntime({ store, runtimeRequest, logError, powerSaveBlocker })
   scheduleRuntime.sync(initial)
+  discordBotRuntime = createDiscordBotRuntime({
+    store,
+    userDataPath: app.getPath('userData'),
+    handleIncomingMessage: async (input) => {
+      if (!clawRuntime) return { ok: false, message: 'Claw runtime is not initialized.' }
+      return clawRuntime.handleIncomingImMessage(input)
+    },
+    onSettingsChanged: (settings) => {
+      scheduleRuntime?.sync(settings)
+      clawRuntime?.sync(settings)
+      discordBotRuntime?.sync(settings)
+      syncWeixinBridgeRuntime(settings)
+    },
+    logError
+  })
   clawRuntime = createClawRuntime({
     store,
     runtimeRequest,
@@ -985,10 +1012,14 @@ app.whenReady().then(async () => {
     logError,
     notifyChannelActivity: emitClawChannelActivity,
     sendWeixinBridgeMessage,
+    sendDiscordChannelMessage: (options) =>
+      discordBotRuntime?.sendChannelMessage(options) ??
+      Promise.resolve({ ok: false, message: 'Discord bot runtime is not initialized.' }),
     createScheduledTaskFromText: (text, options) =>
       scheduleRuntime?.createScheduledTaskFromText(text, options) ?? Promise.resolve({ kind: 'noop' })
   })
   clawRuntime.sync(initial)
+  discordBotRuntime.sync(initial)
   configureWeixinBridgeRuntimeContextProvider(async () => {
     const settings = await store.load()
     const channel = settings.claw.channels.find((item) => item.enabled && item.provider === 'weixin')
@@ -1050,6 +1081,7 @@ app.whenReady().then(async () => {
     }
     scheduleRuntime?.sync(saved)
     clawRuntime?.sync(saved)
+    discordBotRuntime?.sync(saved)
     syncWeixinBridgeRuntime(saved)
     syncLoginItemSettings(saved)
     syncTray(saved)
@@ -1094,6 +1126,7 @@ app.whenReady().then(async () => {
     agentRuntime: agentRuntimeHost,
     fetchUpstreamModels: fetchModels,
     getClawRuntime: () => clawRuntime,
+    getDiscordBotRuntime: () => discordBotRuntime,
     setClawActiveThreadContext: (payload) => {
       clawActiveThreadContext = payload
         ? {

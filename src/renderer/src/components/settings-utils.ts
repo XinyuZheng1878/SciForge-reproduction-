@@ -97,6 +97,7 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
       : 'medium'
   return {
     version: 1,
+    installationId: typeof raw.installationId === 'string' ? raw.installationId : '',
     locale: raw.locale === 'zh' ? 'zh' : 'en',
     theme,
     uiFontScale,

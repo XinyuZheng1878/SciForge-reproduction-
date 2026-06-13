@@ -38,13 +38,28 @@ describe('daily usage helpers', () => {
   it('builds a semantic daily usage query without exposing Kun endpoints', () => {
     expect(
       (dailyUsage as unknown as {
-        buildDailyUsageQuery(range: dailyUsage.DailyUsageRange): unknown
+        buildDailyUsageQuery(range: dailyUsage.DailyUsageRange, runtimeId?: 'kun' | 'codex'): unknown
       }).buildDailyUsageQuery({
         from: '2026-05-01',
         to: '2026-05-31',
         timezone: 'Asia/Shanghai'
       })
     ).toEqual({
+      groupBy: 'day',
+      from: '2026-05-01',
+      to: '2026-05-31',
+      timezone: 'Asia/Shanghai'
+    })
+    expect(
+      (dailyUsage as unknown as {
+        buildDailyUsageQuery(range: dailyUsage.DailyUsageRange, runtimeId?: 'kun' | 'codex'): unknown
+      }).buildDailyUsageQuery({
+        from: '2026-05-01',
+        to: '2026-05-31',
+        timezone: 'Asia/Shanghai'
+      }, 'codex')
+    ).toEqual({
+      runtimeId: 'codex',
       groupBy: 'day',
       from: '2026-05-01',
       to: '2026-05-31',
@@ -119,10 +134,11 @@ describe('daily usage helpers', () => {
     }))
     setAgentRuntimeUsage(agentRuntimeUsage)
 
-    const loaded = await dailyUsage.loadDailyUsage({ from: '2026-05-01', to: '2026-05-01', timezone: 'UTC' })
+    const loaded = await dailyUsage.loadDailyUsage({ from: '2026-05-01', to: '2026-05-01', timezone: 'UTC' }, 'codex')
 
     expect(loaded?.totals.totalTokens).toBe(10)
     expect(agentRuntimeUsage).toHaveBeenCalledWith({
+      runtimeId: 'codex',
       groupBy: 'day',
       from: '2026-05-01',
       to: '2026-05-01',

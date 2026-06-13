@@ -1,530 +1,177 @@
-# DeepSeek GUI Runtime API via Model Router 迁移任务板
+# DeepSeek GUI IM / 手机值守任务板
 
-最后更新：2026-06-12
+更新时间：2026-06-13
+
+核心原则：
+
+> remote conversation 是绑定源，local thread 是稳定目标，desktop focus 只是可显式接管的观察状态；所有消息按绑定目标串行排队，任何切换都必须显式。
+
+体验底线：
+
+> 手机端稳定、桌面端不打断、切换必须显式、失败必须可解释。
 
 ## 当前目标
 
-保留本项目现有运行时能力，不要求删除 Kun；但要把 **所有运行时使用的 LLM provider
-API** 统一收敛到 Model Router。
-
-换句话说：
-
-- Kun 可以保留。
-- Codex 可以保留。
-- 设置页是否继续让用户选择运行时，可以按现有产品策略保留。
-- 但无论当前运行时是 Kun、Codex，还是未来新增运行时，只要它需要调用 LLM provider，
-  都必须通过 Model Router，不允许直连 DeepSeek / OpenAI / Qwen / 其它兼容 provider。
-
-你已经把 SciForge 的 Model Router 和 `vision-router-service` 拷贝到：
-
-```text
-packages/workers/model-router/
-```
-
-这个目录就是 Model Router 的独立迁移单元。Model Router 及其成员模块都应留在这里，
-方便后续整体组合、迁移、发布或替换。
-
-## 新产品约束
-
-- 运行时不再是本阶段要删除的对象；本阶段目标是统一运行时的模型 API 出口。
-- Model Router 是唯一 LLM provider 调用边界。
-- Kun、Codex、Write inline completion、视觉预处理、Computer Use / Browser 的模型辅助和
-  未来后台入口都不能直连上游模型 provider。
-- `vision-router-service` 不是总 LLM API gateway；它是 Model Router 下的视觉翻译成员模块，
-  负责把图像转成 textual evidence。
-- 非 LLM API 不走 Model Router，例如文件系统、git、系统通知、GUI 更新、Feishu / 微信、
-  Browser 网络读取等工具能力。
-
-## 目标模块布局
-
-Model Router 作为一个可整体迁移的独立模块目录：
-
-```text
-packages/workers/model-router/
-  package.json
-  README.md
-  src/
-    cli.ts
-    cli-options.ts
-    index.ts
-    manifest.ts
-    router.ts
-    trace-audit.ts
-    trace-redaction.ts
-    *.test.ts
-
-  vision-router-service/
-    package.json
-    package-lock.json
-    tsconfig.json
-    .env.example
-    README.md
-    src/
-      index.ts
-      server.ts
-      qwen.ts
-      types.ts
-      server.test.ts
-```
-
-边界原则：
-
-- `packages/workers/model-router` 是迁移单元。
-- `vision-router-service` 是 Model Router 的成员模块，可以先保留独立 package。
-- 本项目主程序只通过 HTTP API 调用 Model Router，不 import router 内部实现。
-- Model Router 内部可以调用自己的成员模块，或把成员模块代码折叠为 internal adapter；
-  这属于 router 内部实现，主程序不关心。
-
-## SciForge 参考事实
-
-SciForge 的当前口径是：
-
-- Codex / Agent Host 是唯一智能体。
-- Agent Host 的模型能力统一来自 Model Router `/v1/responses`。
-- Model Router 是 OpenAI-compatible / Responses-compatible 的模型 facade。
-- Model Router 负责 provider / protocol / modality translation、profile routing、
-  trace redaction 和短期 vision translation cache。
-- Model Router 不负责用户任务规划、工具选择、approval、repair、completion truth 或
-  final answer。
-
-本项目不必照搬 SciForge 的“Codex 唯一智能体”产品判断；本项目当前目标是借用
-Model Router 的 API 边界，把所有 runtime 的 provider 调用统一起来。
-
-## 目标架构
-
-```text
-Renderer
-  Code / Write / Connect phone / Schedule
-        |
-        v
-Preload IPC
-  dsGui.agentRuntime.*
-        |
-        v
-Main process
-  RuntimeHost
-    - Kun adapter
-    - Codex adapter
-    - future runtime adapters
-        |
-        | runtime model/provider config points only to local Model Router
-        v
-packages/workers/model-router
-  /health
-  /healthz
-  /manifest
-  /v1/models
-  /v1/responses
-        |
-        +--> textReasoner provider
-        |
-        +--> translators.vision
-              -> vision-router-service
-              -> Qwen vision provider
-```
-
-关键边界：
-
-- renderer 不知道上游 provider，也不保存 provider API key。
-- main process 不直接 fetch 上游 LLM endpoint，除非是在启动 / health check 本地
-  Model Router。
-- 对 Kun、Codex 和未来 runtime adapter 来说，Model Router 必须表现得像一个普通的
-  Responses-compatible LLM API provider；调用方只替换 `base_url`、`api_key` 和 `model`。
-- Kun runtime 不直连外部 LLM provider；它的 base URL / API key 应指向本地 Model Router。
-- Codex runtime 不直连外部 LLM provider；它的 model provider 应指向本地 Model Router
-  `/v1` public alias。
-- Codex runtime 不使用用户全局 `~/.codex` 配置；它必须使用 DeepSeek-GUI 管理的本地
-  `CODEX_HOME` 和本地生成的 `config.toml`。
-- provider API key 只进入 Model Router 或 Model Router 成员模块。
-- Model Router 输出的是 bounded model output、trace refs 和 diagnostics，不拥有用户级
-  final answer。
-
-## Model Router 外部 API 契约
-
-Model Router 内部可以有 provider routing、profile routing、vision translation、
-trace redaction 和成员模块调用；但这些复杂度不能泄漏到 runtime 调用方。
-
-外部调用方看到的形态应该等价于一个普通的 Responses-compatible LLM API：
-
-- base URL：本地 Model Router `/v1`，例如 `http://127.0.0.1:3892/v1`。
-- auth：标准 `Authorization: Bearer <runtimeApiKey>`。
-- model：public model alias，例如 `deepseek-gui-router`。
-- models：`GET /v1/models` 返回可选 public model aliases。
-- generation：`POST /v1/responses`，请求体使用普通 Responses API 形态，例如 `model`、
-  `input`、`instructions`、`tools`、`tool_choice`、`stream`。
-- response：普通 Responses-compatible response / streaming event / error shape。
-
-运行时不应该需要知道或传入：
-
-- 上游 provider base URL。
-- 上游 provider API key。
-- Model Router internal profile 名称。
-- `vision-router-service` URL。
-- 自定义必填 `x-*` header。
-- 只为 Model Router 内部实现存在的 role / trace / translator 参数。
-
-如果确实需要区分 text、vision、tool-use、inline completion 等路线，优先通过 public
-model alias、普通 `input` 内容和 Model Router 内部配置决定，而不是要求 runtime 使用
-专用协议。`/health`、`/healthz` 和 `/manifest` 是 sidecar 管理接口，不应成为普通
-LLM client 发起模型调用时必须理解的 API。
-
-## 不可变原则
-
-- [x] 不要求删除 Kun。
-- [x] 不要求把产品收敛为 Codex-only。
-- [x] 所有 LLM provider 调用必须经过 Model Router。
-- [x] Model Router 对运行时暴露的接口必须保持普通 Responses-compatible LLM API 形态；
-  运行时不使用 Model Router 私有协议。
-- [x] Model Router 及成员模块必须集中在 `packages/workers/model-router/`。
-- [x] 本项目主程序只通过 HTTP API 使用 Model Router；不 import router 内部文件。
-- [x] provider API key 只能由 Model Router / 成员模块使用；GUI settings 不作为运行时直连
-  provider 的凭据来源。
-- [x] 缺少 Model Router URL、Runtime API key、public model alias、router 内部 provider
-  凭据或返回非法响应时 fail closed，展示可恢复错误，不静默 fallback 到直连 provider。
-- [x] Codex app-server 必须使用 GUI 管理的本地 `CODEX_HOME`；不能读取或继承用户全局
-  `~/.codex`、`CODEX_USER_HOME`、`CODEX_CONFIG_HOME`。
-- [x] Vision Router 只做视觉翻译，不做最终推理，不声明任务完成。
-- [x] 新 contract 必须有测试覆盖；迁移时每个阶段都要跑 focused tests 和 typecheck。
-
-## Codex Runtime Home
-
-Codex 需要和 SciForge 一样使用受控本地配置，而不是读取用户全局 Codex 配置。
-
-默认路径：
-
-```text
-开发期:
-  <repo>/.codex-runtime/
-    codex-home/
-      config.toml
-      sessions/
-      memories/
-      logs / sqlite state files managed by Codex
-    logs/
-
-打包后:
-  <app userData>/runtime-codex/
-    codex-home/
-      config.toml
-      sessions/
-      memories/
-    logs/
-```
-
-启动规则：
-
-- main process 在启动 Codex app-server 前创建 runtime root 和 `codex-home`。
-- main process 生成或修复 `<codex-home>/config.toml`。
-- 启动环境强制设置 `CODEX_HOME=<managed codex-home>`。
-- 启动环境删除 `CODEX_USER_HOME` 和 `CODEX_CONFIG_HOME`，避免继承全局配置。
-- `config.toml` 中的 provider 只能指向本地 Model Router `/v1`。
-- `model_provider` 和 `model` 必须使用 DeepSeek-GUI 的 Model Router public alias。
-- 缺 runtime home、Model Router URL、runtime API key、public model alias 或本地 config
-  不合法时 fail closed。
-- 默认禁用会绕过本地配置边界的 Codex 插件 / remote plugin 同步；后续如需启用，必须
-  通过 DeepSeek-GUI 管理的本地配置显式开启。
-
-建议环境变量命名：
-
-```text
-DEEPSEEK_GUI_RUNTIME_ROOT
-DEEPSEEK_GUI_CODEX_HOME
-DEEPSEEK_GUI_MODEL_ROUTER_BASE_URL
-DEEPSEEK_GUI_RUNTIME_API_KEY
-```
-
-## Settings 目标形态
-
-Settings 可以继续保留运行时选择，但 provider 配置要从“运行时直连上游”改成
-“运行时连接 Model Router”。示意：
-
-```json
-{
-  "activeAgentRuntime": "kun",
-  "agents": {
-    "kun": {
-      "autoStart": true,
-      "baseUrl": "http://127.0.0.1:3892/v1",
-      "apiKey": "local-runtime-router-key",
-      "model": "deepseek-gui-router"
-    },
-    "codex": {
-      "command": "codex",
-      "autoStart": true,
-      "codexHome": "<managed: dev .codex-runtime/codex-home, packaged userData/runtime-codex/codex-home>",
-      "profile": "deepseek-gui-runtime",
-      "model": "deepseek-gui-router",
-      "modelProvider": "deepseek-gui-model-router",
-      "approvalPolicy": "on-request",
-      "sandboxMode": "workspace-write",
-      "extraArgs": []
-    }
-  },
-  "modelRouter": {
-    "enabled": true,
-    "baseUrl": "http://127.0.0.1:3892/v1",
-    "autoStart": true,
-    "publicModelAlias": "deepseek-gui-router",
-    "runtimeApiKey": "",
-    "profiles": {
-      "default": {
-        "textReasoner": {
-          "provider": "openai-compatible",
-          "baseUrl": "http://35.220.164.252:3888/v1",
-          "apiKey": "sk-SCcnTVACVn8G5xpoL3Biv3xQR0TJgaGhVm9F7eTG8gjfB979",
-          "model": "bailian/deepseek-v4-flash"
-        },
-        "translators": {
-          "vision": {
-            "provider": "qwen-compatible",
-            "baseUrl": "http://35.220.164.252:3888/v1",
-            "apiKey": "sk-SCcnTVACVn8G5xpoL3Biv3xQR0TJgaGhVm9F7eTG8gjfB979",
-            "model": "Qwen3.7-Plus"
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-迁移策略：
-
-- 旧 `activeAgentRuntime` 保留。
-- 旧 `agents.kun` 保留，但其 LLM base URL / API key / model 要迁移为指向 Model Router。
-- 旧 `agents.codex` 保留，但其 Codex config 要生成 Model Router provider。
-- 旧 `agents.codex.codexHome` 不再默认信任为可直连使用；如果它指向用户全局 `~/.codex`
-  或其它非 GUI 管理目录，迁移到本地 managed runtime home。
-- 旧 provider API key 不再被 main / renderer 直接用于运行时调用。若用户同意迁移，可拷贝到
-  Model Router 成员 profile；否则首次启动时要求用户重新配置 Model Router provider。
-
-## 任务分解
-
-### P0：重置项目约束和文档入口
-
-目标：删除“Codex-only / 删除 Kun”和“Vision Router 是唯一 LLM gateway”的旧表述。
-
-- [x] 更新 `PROJECT.md`：明确 Kun 不需要删除，目标是所有运行时 API 走 Model Router。
-- [x] 更新 README / DESIGN / docs 中的产品事实：运行时可以多种，LLM provider 边界只有
-  Model Router。
-- [x] 删除或重写所有“只支持 Codex 一个运行时”的说明。
-- [x] 删除或重写所有“Vision Router 是唯一 LLM API gateway”的说明。
-
-验收：
-
-- [x] `rg -n "Codex 是唯一|只支持 Codex|删除 Kun|Vision Router.*唯一|vision-router-service.*唯一" PROJECT.md README* docs`
-  无当前目标命中。
-
-### P1：整理 Model Router 独立目录
-
-目标：确认 `packages/workers/model-router/` 是完整、可整体迁移的模块目录。
-
-- [x] 保留 `packages/workers/model-router/package.json`、`README.md`、`src/` 和 tests。
-- [x] 保留 `packages/workers/model-router/vision-router-service/` 作为成员模块。
-- [x] 清理拷贝产生的无关文件，例如 `.DS_Store`。
-- [x] 更新 root `package.json` workspaces，至少包含：
-
-```json
-{
-  "workspaces": [
-    "packages/workers/model-router",
-    "packages/workers/model-router/vision-router-service"
-  ]
-}
-```
-
-- [x] 增加 root scripts：
-
-```json
-{
-  "scripts": {
-    "model-router:start": "npm --workspace @sciforge/model-router run start",
-    "model-router:test": "npm --workspace @sciforge/model-router run test",
-    "vision-router:start": "npm --workspace sciforge-vision-router-service run start",
-    "vision-router:test": "npm --workspace sciforge-vision-router-service run test",
-    "vision-router:typecheck": "npm --workspace sciforge-vision-router-service run typecheck"
-  }
-}
-```
-
-验收：
-
-- [x] 整个 `packages/workers/model-router/` 可以作为一个目录整体移动。
-- [x] root 项目可以通过 workspace script 启动和测试 router / vision 成员模块。
-- [x] main / renderer 没有 import `packages/workers/model-router/src/*`。
-
-### P2：接入 Model Router Responses-compatible HTTP contract
-
-目标：把本地 Model Router 固化成所有运行时的模型 API 入口。
-
-- [x] 固化 Model Router HTTP contract：`GET /health`、`GET /healthz`、`GET /manifest`、
-  `GET /v1/models`、`POST /v1/responses`。
-- [x] 固化 runtime-facing model API：运行时按普通 Responses-compatible provider 调用
-  `POST /v1/responses`，请求体不包含 Model Router 私有必填字段。
-- [x] 固化认证方式：运行时使用标准 `Authorization: Bearer <runtimeApiKey>`。
-- [x] 定义本项目的 public model alias，例如 `deepseek-gui-router`。
-- [x] 定义本项目的 local runtime API key，只用于 runtime -> Model Router 本地认证。
-- [x] Model Router internal profile / provider / translator 选择由 public model alias、普通 input
-  内容和 router 内部配置决定，不要求运行时传入自定义 `x-*` header、internal profile 或
-  vision service URL。
-- [x] 当 Model Router 未配置或 `/healthz` 不通过时，所有运行时启动或发起 turn 都应
-  fail closed。
-
-验收：
-
-- [x] 运行时配置只看到本地 Model Router `/v1` endpoint、runtime API key 和 public model
-  alias。
-- [x] 运行时配置中不出现真实 provider base URL 或上游 API key。
-- [x] 使用普通 Responses-compatible client fixture，可以在不传 Model Router 私有参数的情况下
-  调用 `POST /v1/responses`。
-- [x] 如果开启 streaming，streaming event shape 与普通 Responses-compatible client 预期一致。
-- [x] 错误返回使用普通 LLM API client 可识别的 status code / error body，不泄露上游 secret。
-- [x] `rg -n "api.deepseek.com|dashscope|openai.com"` 的生产代码命中只允许出现在
-  Model Router member config 示例或文档中。
-
-### P3：Kun 通过 Model Router 调用模型
-
-目标：保留 Kun，但 Kun 不再直连 DeepSeek / OpenAI-compatible 上游。
-
-- [x] 修改 Kun 启动配置同步逻辑：GUI 写入 Kun 的 `baseUrl`、`apiKey`、`model` 指向
-  Model Router。
-- [x] Kun 把 Model Router 当作普通 Responses-compatible provider 使用，不新增 Kun 专用
-  router protocol、custom header 或 internal profile 参数。
-- [x] 删除或禁用 Kun settings 中“助手专用上游 Base URL / API Key”直连语义，改成
-  Model Router member profile 配置入口。
-- [x] Kun health / diagnostics 显示 Model Router readiness，而不是上游 provider readiness。
-- [x] focused tests 覆盖：Kun runtime settings 不能保存为 remote provider endpoint。
-
-验收：
-
-- [x] Kun turn 的 LLM 请求只会命中本地 Model Router。
-- [x] Kun turn request 不包含 Model Router 私有必填字段。
-- [x] 缺 Model Router 时 Kun turn fail closed。
-
-### P4：Codex 通过 Model Router 调用模型
-
-目标：Codex app-server 不直连外部 LLM provider。
-
-- [x] 新增 DeepSeek-GUI managed Codex runtime home 解析：开发期默认 `<repo>/.codex-runtime`，
-  打包后默认 `<app userData>/runtime-codex`。
-- [x] 启动 Codex 前创建 `codex-home`、`sessions`、`memories`、`logs` 等目录。
-- [x] 启动 Codex 前生成 / 修复 `<codex-home>/config.toml`。
-- [x] 启动 Codex 时强制设置 `CODEX_HOME=<managed codex-home>`。
-- [x] 启动 Codex 时删除继承的 `CODEX_USER_HOME` 和 `CODEX_CONFIG_HOME`。
-- [x] 本地 `config.toml` 禁止写入 remote provider endpoint，只允许写入 Model Router。
-- [x] Codex config 生成层只写入普通 provider 配置：本地 Model Router `/v1` base URL、
-  runtime API key 和 public model alias。
-- [x] Codex model provider 使用 public alias，例如 `deepseek-gui-model-router`。
-- [x] Codex 不依赖 Model Router 私有协议；从 Codex 看，Model Router 就是普通
-  Responses-compatible provider。
-- [x] Runtime API key 只用于 Codex -> Model Router 本地认证，不等同于上游 provider key。
-- [x] 当 Model Router 未配置或 `/healthz` 不通过时，Codex turn start fail closed。
-
-验收：
-
-- [x] Codex app-server 进程环境中的 `CODEX_HOME` 指向 managed local runtime home。
-- [x] Codex app-server 进程环境不包含继承的 `CODEX_USER_HOME` / `CODEX_CONFIG_HOME`。
-- [x] Codex 不读取用户全局 `~/.codex/config.toml`。
-- [x] Codex app-server runtime 配置只看到本地 Model Router endpoint。
-- [x] Codex config 中不出现真实 provider base URL 或上游 API key。
-- [x] Codex 发起模型请求时不需要 internal profile、vision service URL 或自定义必填 header。
-
-### P5：Model Router 成员模块策略
-
-目标：把视觉翻译留在 Model Router 独立目录内，避免外部旁路。
-
-- [x] Model Router 的 `translators.vision` role 可以调用内置逻辑，也可以调用
-  `vision-router-service`。
-- [x] 外部主程序不直接调用 `vision-router-service`；如果需要视觉能力，优先通过
-  Model Router `/v1/responses` 的普通 input object、public model alias 和内部 routing rule。
-- [x] 如果短期保留 runtime turn 前的 image preextract，必须把它标记为临时过渡路径，并最终收敛到
-  Model Router。
-- [x] 视觉翻译只产出 observation / textual evidence，不产出 final answer 或 task completion。
-
-验收：
-
-- [x] 视觉相关 provider secret 只在 Model Router 或成员模块中读取。
-- [x] 文档不再把 Vision Router 描述为本项目唯一 LLM API gateway。
-
-### P6：设置、启动和 sidecar 管理
-
-目标：用户能配置和运行 Model Router，桌面端能检查服务健康。
-
-- [x] Settings 增加 Model Router 配置区：base URL、auto-start、runtime API key、
-  public model alias、member text provider、member vision provider。
-- [x] main process 增加 Model Router health / healthz check。
-- [x] dev 模式支持自动启动 Model Router。
-- [x] packaged app 方案明确：打包 `packages/workers/model-router` 整个目录、使用编译后 JS、
-  或要求外部部署。
-- [x] 所有 secret 在日志和 UI 中做 redaction。
-
-验收：
-
-- [x] Settings 能显示 Model Router healthy / unavailable / provider-auth blocked。
-- [x] 保存 provider key 后日志不泄露明文。
-
-### P7：清理 LLM API 调用旁路
-
-目标：找出并删除所有绕过 Model Router 的 LLM provider 路径。
-
-- [x] 审计 main / renderer / shared / write / schedule / claw 中所有 `fetch`、SDK、
-  provider client、base URL、API key 使用。
-- [x] Write inline completion 改走 Model Router，不能再直连 DeepSeek FIM。
-- [x] Connect phone / Schedule 的模型调用按其所用 runtime 执行，但 runtime provider
-  仍必须指向 Model Router。
-- [x] 删除旧 model provider UI 或把它改为 Model Router member profile 配置。
-- [x] 删除不再需要的 OpenAI-compatible URL helper，除非它被 Model Router 使用。
-
-验收：
-
-- [x] 生产代码中所有 LLM provider credential 读取点都在 Model Router 或其启动配置层。
-- [x] `rg -n "apiKey|baseUrl|chat/completions|responses|messages|fim"` 的生产代码命中都能解释为
-  Model Router 路径或非 LLM API。
-
-### P8：测试和发布检查
-
-目标：每个迁移阶段都有证据，不靠手动猜。
-
-- [x] Model Router package：`npm --workspace @sciforge/model-router run test`。
-- [x] Vision member package：`npm --workspace sciforge-vision-router-service run test`。
-- [x] Vision member package：`npm --workspace sciforge-vision-router-service run typecheck`。
-- [x] App typecheck：`npm run typecheck`。
-- [x] Focused Kun tests：Kun config routing、health failure、no direct provider endpoint。
-- [x] Focused Codex tests：Codex config routing、approval/user input、event store。
-- [x] Focused settings tests：Model Router config 保存和 redaction。
-- [x] Focused compatibility tests：用普通 Responses-compatible client 调用 Model Router，
-  不传 custom header / internal profile / vision URL。
-- [x] Focused API audit tests：禁止生产代码直接引用上游 LLM endpoint。
-- [x] Manual smoke：启动 Model Router，分别用 Kun / Codex 发起文本 turn。
-- [x] Manual smoke：上传图片，确认 Model Router vision role 被调用，runtime 收到文本 observation。
-
-Manual smoke 证据：本地 fake provider + 真实 Model Router + Kun/Codex runtime 均已完成端到端验证；
-Kun 图片上传 smoke 已确认 attachment id、vision role 调用和 runtime assistant 文本 observation。
-
-## 第一批执行顺序
-
-1. 提交本 `PROJECT.md` 任务板更新。
-2. 清理 `packages/workers/model-router/` 中的拷贝杂物，例如 `.DS_Store`。
-3. 接 root workspaces 和 scripts。
-4. 跑 Model Router / Vision member 自测，修正路径、依赖和 lockfile 问题。
-5. 接 Model Router settings、health check 和 sidecar 启动。
-6. 先改 Kun 的 provider config，使 Kun 走 Model Router。
-7. 再改 Codex 的 provider config，使 Codex 走 Model Router。
-8. 审计所有 LLM provider direct call，逐个改到 Model Router。
-
-## 已确认决策
-
-- Kun 不需要删除。
-- 不需要把产品收敛为 Codex-only。
-- Model Router 和成员模块集中放在 `packages/workers/model-router/`。
-- Model Router 对外必须表现为普通 Responses-compatible LLM API；调用方只需要
-  `base_url`、`api_key` 和 `model`。
-- `vision-router-service` 是 Model Router 成员模块，不是本项目唯一 LLM API gateway。
-- “所有 API 调用”按“所有 LLM provider API 调用”解释；普通 GUI 更新、文件系统、git、
-  系统通知、Feishu / 微信、Browser 网络读取等非 LLM API 不属于 Model Router。
-
-## 待确认但不阻塞当前任务板
-
-- `vision-router-service` 是否长期保留为独立 nested package，还是并入
-  `packages/workers/model-router/src/adapters/vision`。
-- packaged app 中 Model Router 是内置 sidecar 自动启动，还是允许用户外部部署。
+让飞书 / Lark、微信、Discord 等 IM 消息进入 DeepSeek GUI 时，行为等价于用户在桌面端控制同一个本地会话，但不会被桌面当前焦点、刷新、切屏影响。
+
+一个 DeepSeek GUI 安装可以配置一个 Discord Bot，邀请到一个或多个 server/channel；每个绑定 channel 可以有自己的 workspace、model、agent profile 和 guard 模式。
+
+权限默认与桌面端一致：IM 请求沿用项目级 runtime、sandbox、Model Router 配置。所谓“默认给 agent 所有权限”，表示远端消息不额外降权，但不能绕过项目配置。
+
+## 已落地基线
+
+- [x] 手机/IM 会话默认按 remote conversation 绑定本地 thread，不再绑定电脑当前焦点。
+- [x] 首次手机消息默认新建本地 thread。
+- [x] `/attach current` 是显式接管当前桌面会话的入口。
+- [x] 飞书私聊默认全响应，群聊默认只响应 @bot / @all。
+- [x] 飞书已有按 remote conversation 的串行队列。
+- [x] 飞书已有基础 messageId 去重。
+- [x] 手机消息进入后，项目工作页面保持不跳转到专门 IM 页面。
+- [x] 侧边栏已有机器人值守标志 / 活跃状态提示基础。
+- [x] Codex active turn 期间 `readThread` fallback 不再杀掉本地运行。
+- [x] 已支持 `/new`、`/help`、`/model`、`/model auto|pro|flash` 等基础命令。
+- [x] 每个 IM channel 已能记录 agent profile、workspace、model 等绑定配置。
+- [x] 飞书已有基础文本回复、生成文件发送、直接文件发送路径。
+
+## 不可变规则
+
+- 桌面当前焦点默认永远不能改变手机绑定目标。
+- 切换绑定必须显式发生：桌面动作或 `/attach current`。
+- 远端绑定 key 至少包含：`provider + channelId + chatId + remoteThreadId`。
+- 同一个 remote conversation 必须严格串行处理。
+- 同一个 local thread 全局只能有一个 active turn，手机和桌面消息共享队列。
+- 失败必须回传到 IM 端，不能沉默。
+- 私聊和群聊使用不同响应语义。
+- Bot token、app secret、webhook secret 永远不能进入普通日志。
+
+## P0：绑定与桌面不打断
+
+- [x] 手机来消息时不自动跳转桌面焦点，只更新 sidebar 标记 / unread / active 状态。
+- [x] 首次手机消息默认新建并绑定稳定本地 thread，而不是绑定桌面当前焦点。
+- [x] `/attach current` 作为显式接管入口。
+- [ ] 桌面支持“让手机值守当前会话”的待绑定状态，默认 5 分钟过期。（本轮跳过：需要新增桌面显式接管入口；已先落实 `/attach current` 10 分钟活跃限制）
+- [x] `/attach current` 只允许接管 10 分钟内活跃的桌面当前会话；过期时手机端提示失败原因。
+- [x] 侧边栏机器人标志区分“已绑定/值守”和“正在运行”。
+- [ ] 手机来消息时支持 toast / 系统通知，但不抢桌面焦点。（本轮跳过：避免在未确认通知策略前打扰桌面；已保持不抢焦点）
+
+## P1：跨渠道队列、去重、顺序
+
+- [x] 飞书已有内存级 messageId 去重和按 remote conversation 的队列。
+- [x] 抽象 provider-agnostic 的 remote conversation queue，供飞书、微信、Discord 复用。
+- [x] 最近 messageId 去重持久化 24 小时，重启后仍避免重复回复。
+- [x] 平台提供 timestamp / messageId 顺序时，按平台顺序处理；否则按接收时间处理并保留来源时间。
+- [x] 桌面端和 IM 端消息进入同一个 thread-level turn queue。
+- [x] 当上一条仍在处理时，手机端立即收到“已排队”的轻量提示。
+- [ ] 断线恢复后按顺序处理积压消息。（本轮跳过：需要 provider 离线 backlog API / relay 设计）
+- [ ] 短时间连续积压消息支持合并，例如 2 分钟窗口合成一个 prompt。（本轮跳过：先保守逐条串行，避免错误合并用户意图）
+- [ ] 积压较多时先发送提示，例如“收到 N 条离线消息，将合并处理”。（本轮跳过：依赖离线 backlog / 合并窗口实现）
+
+## P2：回复格式与附件投递
+
+- [x] 基础 Markdown 文本回复。
+- [x] 飞书生成文件 / 已有文件发送路径。
+- [x] 建立 Feishu/Lark、WeChat、Discord 的能力矩阵。
+- [x] 长文本按平台限制自动分段发送。
+- [x] 代码块尽量保持 Markdown。
+- [x] 文件生成后优先发送文件或链接。
+- [x] 图片、文件、链接在平台不支持时降级为摘要 + “请到桌面查看完整结果”。
+- [x] 每个平台配置最大消息长度、附件限制和重试策略。
+
+## P3：审批、交互
+
+- [x] IM 请求沿用项目级 runtime、sandbox、Model Router 配置。
+- [x] 远端请求 prompt 包含来源和发送者上下文。
+- [ ] Agent 需要简单用户回答时，可以回发到手机，手机回答后继续同一 turn。（本轮跳过：需要跨 IM 的 pending user-input 协议）
+- [ ] 审计所有远端运行路径，确保 API 一律走项目级 Model Router。（本轮跳过：已有失败分类与边界测试，本项保留为安全审计任务）
+
+## P4：身份、群聊、噪音控制
+
+- [x] 短期不做跨 provider 身份合并，按 remote conversation 绑定。
+- [x] 飞书群聊默认只响应 @bot / @all，私聊默认全响应。
+- [x] 每个 channel 支持 guard mode：`only_mention`、`all_messages`、`off`。
+- [x] 群聊默认按群 / channel 共享一个本地 thread。
+- [x] 预留 `/new private`，未来支持群里创建个人私有 thread。
+- [ ] 联系人身份合并只做设计文档，暂不实现。（本轮跳过：产品已确认短期不做跨 provider 身份合并）
+
+## P5：上下文生命周期与命令
+
+- [x] `/new` 可以显式开启新话题。
+- [x] `/model` 和 `/model auto|pro|flash` 可查看 / 切换模型。
+- [x] `/mode agent|plan`。
+- [x] `/summary` 查看当前远端会话摘要。
+- [ ] 长期 remote-bound thread 自动 compact。（本轮跳过：需要和 runtime compaction 策略统一）
+- [ ] 桌面显示“已压缩上下文”标记。（本轮跳过：依赖 compact 事件/状态落库）
+- [x] 如果本地 thread 被删除，绑定标为 broken；手机下次发消息时自动新建并告知。
+- [x] `/detach` 解除当前 remote conversation 绑定。
+- [x] `/status` 查看当前绑定、队列、模型、workspace、运行状态。
+
+## P6：Discord Bot Bridge
+
+- [x] Repo 中已有 Discord Bot runtime / bridge 基础结构。
+- [x] 一个 DeepSeek GUI 安装配置一个 Discord Bot token。
+- [x] 支持填写 Client ID / Bot Token。
+- [x] 生成 Bot invite URL 和邀请二维码。
+- [x] 扫码邀请 Bot 到一个或多个 server。
+- [x] 选择 server / channel 并绑定本地 workspace、model、profile。
+- [x] 测试发送 / 接收。
+- [x] 启用 / 暂停值守。
+- [x] 多 server / channel 各自拥有独立 channel 配置。
+
+## P7：桌面 UX 与可追溯
+
+- [x] 侧边栏已有 bot-watched 标志基础。
+- [x] 桌面消息气泡显示来源标签：`飞书 · Alice`、`微信 · 某群`、`Discord · #support`、`Desktop`。
+- [x] sidebar 显示远端 unread / active badge。
+- [x] 只有用户正在看这个 thread 时，时间线才实时滚动到底。
+- [x] 桌面 UI 区分 watched、bound、running、queued、error。
+- [x] 桌面 thread 顶部可查看当前远端绑定详情。
+
+## P8：隐私、日志、删除
+
+- [x] Bot token、app secret、webhook secret 在所有日志和 trace 中脱敏，并补测试。
+- [ ] 设置里支持清除某个 remote binding 的历史。（本轮跳过：需要删除策略和审计视图一起设计）
+- [ ] 删除 channel 时，分开询问是否删除本地 thread / 历史。（本轮跳过：需要 destructive UX 确认流）
+- [ ] 提供 remote binding 审计视图。（本轮跳过：需要单独审计页面/数据模型）
+- [ ] 明确 IM 消息进入本地日志 / 历史的保留策略。（本轮跳过：需要产品/隐私文档决策）
+
+## P9：失败可解释与重试
+
+- [x] 飞书已有基础 unsupported message、schedule error、processing error 提示。
+- [x] Codex active turn 的 `readThread` fallback 已修复，避免运行中被误判失败。
+- [x] 统一失败分类：runtime offline、model missing、timeout、waiting desktop approval、local thread deleted、provider send failed。
+- [x] 可恢复失败有重试策略。
+- [x] 手机端能看到 queued / running / failed 状态。
+- [x] 桌面端能看到远端来源和失败原因。
+- [x] Provider 发送失败时记录并提示，而不是吞掉。
+
+## P10：在线/离线与多设备
+
+- [x] UI 明确标注“本机在线时值守”。
+- [x] 云 relay / 离线队列只做未来设计，不作为当前本机 bridge 的默认承诺。
+- [x] 生成并持久化 installationId。
+- [x] 检测同一个 bot/channel 是否被另一台 DeepSeek GUI 安装值守。
+- [x] 冲突时提示“这个 Bot 正被另一台设备值守”，并提供手动接管。
+
+## 验收清单
+
+- [x] 手机睡一晚后继续发消息，仍进入同一个本地 thread。
+- [x] 桌面切换焦点不会改变手机绑定目标。
+- [x] `/attach current` 在桌面上下文过期时明确失败。
+- [x] 手机连续发送 A、B，A 运行中时 B 入队，回复不会慢一拍。
+- [x] 桌面在同一 thread 发送消息时，也进入同一个串行队列。
+- [x] webhook / WS 重试不会产生重复 user message 或重复 agent reply。
+- [x] 重启后短期重复事件仍能去重。
+- [x] 运行失败时，手机端能收到明确原因。
+- [x] 普通日志里没有 token、secret、敏感配置。
+
+## 已确认产品决策
+
+- 首次手机消息默认新建本地 thread。
+- 群聊默认共享群 / channel 的本地 thread。
+- 同一个本地 thread 同时只能有一个 active turn。
+- 桌面 focus 只是观察状态，不是绑定状态。
+- `/attach current` 和桌面“值守当前会话”是显式切换入口。
+- 短期不合并跨 provider 身份。
+- 每个 IM channel 可以独立配置 workspace、model、agent profile。
+- 手机端请求权限与桌面端一致，继承项目 runtime / sandbox / Model Router。
+- 手机端不自动唤醒或打断桌面当前工作。

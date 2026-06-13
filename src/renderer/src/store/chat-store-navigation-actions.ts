@@ -107,6 +107,58 @@ function threadBelongsToActiveRuntime(thread: NormalizedThread | null, activeRun
   return (thread.runtimeId ?? 'kun') === activeRuntime
 }
 
+export async function syncClawChannelActivityToStore(
+  set: ChatStoreSet,
+  get: ChatStoreGet,
+  payload: { channelId: string; threadId: string; runtimeId?: AgentRuntimeId; previousThreadId?: string }
+): Promise<void> {
+  const threadId = payload.threadId.trim()
+  if (!threadId) return
+  const state = get()
+  const previousThreadId = payload.previousThreadId?.trim() ?? ''
+  const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
+  const channels = settings.claw.channels
+  const activityChannel = channels.find((channel) => channel.id === payload.channelId && channel.enabled)
+  const activeChannelId = channels.some(
+    (channel) => channel.id === state.activeClawChannelId && channel.enabled
+  )
+    ? state.activeClawChannelId
+    : channels.find((channel) => channel.enabled)?.id ?? ''
+  const nextActiveChannelId = state.route === 'claw' && activityChannel ? payload.channelId : activeChannelId
+  set({ clawChannels: channels, activeClawChannelId: nextActiveChannelId })
+
+  const provider = getProvider()
+  provider.rememberThreadRuntime?.(threadId, payload.runtimeId)
+
+  if (state.route === 'claw' && activityChannel) {
+    if (state.activeThreadId === threadId) {
+      await get().recoverActiveTurn()
+    } else {
+      await get().selectClawConversation(payload.channelId, threadId)
+    }
+    return
+  }
+
+  if (state.activeThreadId === threadId) {
+    await get().recoverActiveTurn()
+    await get().refreshThreads()
+    return
+  }
+
+  if (previousThreadId && previousThreadId === state.activeThreadId && previousThreadId !== threadId) {
+    await get().selectThread(threadId)
+    return
+  }
+
+  set((snapshot) => ({
+    watchTurnCompletion: { ...snapshot.watchTurnCompletion, [threadId]: true },
+    unreadThreadIds: { ...snapshot.unreadThreadIds, [threadId]: true }
+  }))
+  watchTurnCompletionNotification(threadId)
+  syncTurnCompletionPoll(set, get)
+  await get().refreshThreads()
+}
+
 export function createNavigationActions(
   { set, get, sseAbortRef }: StoreActionContext
 ): Pick<ChatState, 'openCode' | 'openWrite' | 'ensureWriteThreadForWorkspace' | 'createWriteThread' | 'selectWriteThread' | 'probeRuntime' | 'boot' | 'chooseWorkspace' | 'clearWorkspace' | 'deleteWorkspace' | 'refreshThreads' | 'setThreadSearch' | 'setShowArchivedThreads'> {
@@ -117,7 +169,7 @@ export function createNavigationActions(
       ? state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
       : null
     if (activeThread && isCodeThread(activeThread, state.clawChannels)) {
-      set({ route: 'chat' })
+      set({ route: 'chat', activeRemoteChannelId: null })
       return
     }
 
@@ -127,7 +179,7 @@ export function createNavigationActions(
       latestThread(codeThreads.filter((thread) => threadBelongsToWorkspace(thread, selectedWorkspace))) ??
       latestThread(codeThreads)
 
-    set({ route: 'chat' })
+    set({ route: 'chat', activeRemoteChannelId: null })
     if (target && state.runtimeConnection === 'ready') {
       await get().selectThread(target.id)
       return
@@ -144,6 +196,7 @@ export function createNavigationActions(
     set({
       ...clearedThreadSelection(),
       route: 'chat',
+      activeRemoteChannelId: null,
       watchTurnCompletion: nextWatch
     })
     syncTurnCompletionPoll(set, get)
@@ -170,7 +223,7 @@ export function createNavigationActions(
       selectedWorkspace &&
       writeThreadBelongsToWorkspace(activeThread, selectedWorkspace, registry, activeRuntime)
     ) {
-      set({ route: 'write' })
+      set({ route: 'write', activeRemoteChannelId: null })
       return
     }
 
@@ -181,7 +234,7 @@ export function createNavigationActions(
       activeRuntime
     )
 
-    set({ route: 'write' })
+    set({ route: 'write', activeRemoteChannelId: null })
     if (target && state.runtimeConnection === 'ready') {
       await get().selectThread(target.id)
       return
@@ -198,6 +251,7 @@ export function createNavigationActions(
     set({
       ...clearedThreadSelection(),
       route: 'write',
+      activeRemoteChannelId: null,
       watchTurnCompletion: nextWatch
     })
     syncTurnCompletionPoll(set, get)
@@ -227,13 +281,13 @@ export function createNavigationActions(
       ? state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
       : null
     if (activeThread && writeThreadBelongsToWorkspace(activeThread, targetWorkspace, registry, activeRuntime)) {
-      set({ route: 'write', error: null })
+      set({ route: 'write', activeRemoteChannelId: null, error: null })
       return activeThread.id
     }
 
     const existing = activeWriteThreadForWorkspace(targetWorkspace, state.threads, registry, activeRuntime)
     if (existing) {
-      set({ route: 'write' })
+      set({ route: 'write', activeRemoteChannelId: null })
       await get().selectThread(existing.id)
       return existing.id
     }
@@ -262,6 +316,7 @@ export function createNavigationActions(
       saveWriteThreadRegistry(markWriteThread(targetWorkspace, thread.id, undefined, activeRuntime))
       set((s) => ({
         route: 'write',
+        activeRemoteChannelId: null,
         threads: s.threads.some((item) => item.id === thread.id) ? s.threads : [thread, ...s.threads],
         error: null
       }))
@@ -367,35 +422,21 @@ export function createNavigationActions(
         applyUiFontScale(settings.uiFontScale)
         await get().applyI18nFromSettings(settings.locale)
         if (!clawChannelActivityUnsubscribe && typeof window.dsGui.onClawChannelActivity === 'function') {
-          clawChannelActivityUnsubscribe = window.dsGui.onClawChannelActivity(({ channelId, threadId, runtimeId }) => {
+          clawChannelActivityUnsubscribe = window.dsGui.onClawChannelActivity(({
+            channelId,
+            threadId,
+            runtimeId,
+            previousThreadId
+          }) => {
             void (async () => {
-              const state = get()
               if (typeof window.dsGui === 'undefined') return
-              const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
-              const channels = settings.claw.channels
-              const activityChannel = channels.find((channel) => channel.id === channelId && channel.enabled)
-              const activeChannelId = channels.some(
-                (channel) => channel.id === state.activeClawChannelId && channel.enabled
-              )
-                ? state.activeClawChannelId
-                : channels.find((channel) => channel.enabled)?.id ?? ''
-              const nextActiveChannelId = state.route === 'claw' && activityChannel ? channelId : activeChannelId
-              set({ clawChannels: channels, activeClawChannelId: nextActiveChannelId })
-              if (state.route === 'claw' && activityChannel) {
-                getProvider().rememberThreadRuntime?.(threadId, runtimeId)
-                if (state.activeThreadId === threadId) {
-                  await get().recoverActiveTurn()
-                } else {
-                  await get().selectClawConversation(channelId, threadId)
-                }
-                return
-              }
-              void get().refreshThreads()
+              await syncClawChannelActivityToStore(set, get, { channelId, threadId, runtimeId, previousThreadId })
             })()
           })
         }
         set({
           route: 'chat',
+          activeRemoteChannelId: null,
           initialSetupOpen: needsInitialSetup,
           initialSetupMode: 'required',
           workspaceRoot,
