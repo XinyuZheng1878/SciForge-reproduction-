@@ -72,11 +72,19 @@ describe('Attachment store and multimodal input', () => {
   })
 
   it('rejects unsupported MIME, size, and dimensions', async () => {
+    // Binary data (NUL byte) must be rejected as a data attachment
     await expect(createStore().create({
-      name: 'bad.txt',
-      data: Buffer.from('nope'),
+      name: 'bad.bin',
+      data: Buffer.from([0x00, 0x01, 0x02]),
+      mimeType: 'application/octet-stream'
+    })).rejects.toThrow(/unsupported attachment type/)
+
+    // Data attachment over 1 MiB must be rejected
+    await expect(createStore().create({
+      name: 'huge.txt',
+      data: Buffer.alloc(1_048_577, 0x41),
       mimeType: 'text/plain'
-    })).rejects.toThrow(/unsupported/)
+    })).rejects.toThrow(/exceeds 1 MiB/)
 
     await expect(createStore({ maxImageBytes: 10 }).create({
       name: 'large.png',
@@ -423,6 +431,153 @@ describe('Attachment store and multimodal input', () => {
       }
     }).attachments
   }
+})
+
+describe('Data (non-image) attachment support', () => {
+  let dir = ''
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'kun-data-att-'))
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  function createStore() {
+    return new FileAttachmentStore({
+      rootDir: join(dir, 'attachments'),
+      config: KunCapabilitiesConfig.parse({ attachments: { enabled: true } }).attachments,
+      nowIso: () => '2026-06-03T00:00:00.000Z'
+    })
+  }
+
+  it('accepts a UTF-8 text/plain file and stores it without width/height', async () => {
+    const store = createStore()
+    const data = Buffer.from('>seq1\nACGTACGT\n', 'utf8')
+    const meta = await store.create({
+      name: 'seq.fasta',
+      data,
+      mimeType: 'text/plain',
+      threadId: 'thr_1'
+    })
+    expect(meta.mimeType).toBe('text/plain')
+    expect(meta.byteSize).toBe(data.byteLength)
+    expect(meta.width).toBeUndefined()
+    expect(meta.height).toBeUndefined()
+    // resolveContent round-trips the bytes
+    const content = await store.resolveContent(meta.id, { threadId: 'thr_1' })
+    expect(content.data.toString('utf8')).toBe('>seq1\nACGTACGT\n')
+  })
+
+  it('accepts a data attachment with no declared mimeType (defaults to text/plain)', async () => {
+    const store = createStore()
+    const meta = await store.create({ name: 'molecule.smi', data: Buffer.from('c1ccccc1'), threadId: 'thr_1' })
+    expect(meta.mimeType).toBe('text/plain')
+  })
+
+  it('deduplicates data attachments by hash', async () => {
+    const store = createStore()
+    const data = Buffer.from('CCO', 'utf8')
+    const first = await store.create({ name: 'mol.smi', data, threadId: 'thr_1' })
+    const second = await store.create({ name: 'mol-copy.smi', data, threadId: 'thr_1' })
+    expect(second.id).toBe(first.id)
+  })
+
+  it('resolves a data attachment as evidenceText (raw fallback when service unconfigured)', async () => {
+    const store = createStore()
+    const fastaText = '>prot1\nMVLSPADKTNVK\n'
+    const attachment = await store.create({
+      name: 'protein.fasta',
+      data: Buffer.from(fastaText, 'utf8'),
+      mimeType: 'text/plain',
+      threadId: 'thr_1',
+      workspace: '/ws'
+    })
+    const seenRequests: ModelRequest[] = []
+    const model: ModelClient = {
+      provider: 'fake',
+      model: 'fake',
+      async *stream(request) {
+        seenRequests.push(request)
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }
+    // No SCIFORGE_SCIMODALITY_SERVICE_URL set → raw-text fallback
+    const savedUrl = process.env['SCIFORGE_SCIMODALITY_SERVICE_URL']
+    delete process.env['SCIFORGE_SCIMODALITY_SERVICE_URL']
+    try {
+      const h = makeHarness(model, { attachmentStore: store })
+      await bootstrapThread(h, {
+        workspace: '/ws',
+        request: { prompt: 'analyze', attachmentIds: [attachment.id] }
+      })
+      await h.loop.runTurn(h.threadId, h.turnId)
+    } finally {
+      if (savedUrl !== undefined) process.env['SCIFORGE_SCIMODALITY_SERVICE_URL'] = savedUrl
+    }
+    const req = seenRequests.at(-1)
+    // Must NOT appear as an image attachment
+    expect(req?.attachments).toBeUndefined()
+    expect(req?.attachmentTextFallbacks).toBeUndefined()
+    // Evidence must appear in contextInstructions
+    const evidence = req?.contextInstructions?.find((s) => s.includes('protein.fasta'))
+    expect(evidence).toBeDefined()
+    expect(evidence).toContain('>prot1')
+  })
+
+  it('resolves a data attachment via the scimodality service when configured', async () => {
+    const store = createStore()
+    const attachment = await store.create({
+      name: 'protein.fasta',
+      data: Buffer.from('>prot1\nMVLSPADKTNVK\n', 'utf8'),
+      mimeType: 'text/plain',
+      threadId: 'thr_1',
+      workspace: '/ws'
+    })
+    const seenRequests: ModelRequest[] = []
+    const model: ModelClient = {
+      provider: 'fake',
+      model: 'fake',
+      async *stream(request) {
+        seenRequests.push(request)
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }
+    // Stub global fetch to simulate the scimodality service
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async (_url: string | URL | Request, _init?: RequestInit) => {
+      return new Response(JSON.stringify({
+        ok: true,
+        summary: 'A short alpha-helical protein.',
+        data: { modality: 'protein', model: 'esm2-protein', summary: 'A short alpha-helical protein.' }
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch
+
+    const savedUrl = process.env['SCIFORGE_SCIMODALITY_SERVICE_URL']
+    process.env['SCIFORGE_SCIMODALITY_SERVICE_URL'] = 'http://localhost:3898'
+    try {
+      const h = makeHarness(model, { attachmentStore: store })
+      await bootstrapThread(h, {
+        workspace: '/ws',
+        request: { prompt: 'analyze', attachmentIds: [attachment.id] }
+      })
+      await h.loop.runTurn(h.threadId, h.turnId)
+    } finally {
+      globalThis.fetch = origFetch
+      if (savedUrl !== undefined) {
+        process.env['SCIFORGE_SCIMODALITY_SERVICE_URL'] = savedUrl
+      } else {
+        delete process.env['SCIFORGE_SCIMODALITY_SERVICE_URL']
+      }
+    }
+    const req = seenRequests.at(-1)
+    expect(req?.attachments).toBeUndefined()
+    const evidence = req?.contextInstructions?.find((s) => s.includes('[scientific-modality:protein/esm2-protein]'))
+    expect(evidence).toBeDefined()
+    expect(evidence).toContain('A short alpha-helical protein.')
+    expect(evidence).toContain('protein.fasta')
+  })
 })
 
 function png(width: number, height: number): Buffer {

@@ -610,7 +610,8 @@ export class AgentLoop {
       ...memoryInstructions(memories),
       ...skillResolution.instructions,
       ...(toolSpecs.some((tool) => tool.name === 'bash') ? [shellRuntimeInstruction()] : []),
-      ...(toolCatalogDriftMessage ? [toolCatalogDriftMessage] : [])
+      ...(toolCatalogDriftMessage ? [toolCatalogDriftMessage] : []),
+      ...attachments.evidenceTexts
     ]
     await this.recordPipelineStage(threadId, turnId, 'input_remembered', {
       memoryCount: memories.length,
@@ -1736,8 +1737,8 @@ export class AgentLoop {
     threadId: string
     workspace: string
     modelCapabilities: ModelCapabilityMetadata
-  }): Promise<{ imageAttachments: ModelInputAttachment[]; textFallbacks: ModelTextAttachmentFallback[] }> {
-    if (input.attachmentIds.length === 0) return { imageAttachments: [], textFallbacks: [] }
+  }): Promise<{ imageAttachments: ModelInputAttachment[]; textFallbacks: ModelTextAttachmentFallback[]; evidenceTexts: string[] }> {
+    if (input.attachmentIds.length === 0) return { imageAttachments: [], textFallbacks: [], evidenceTexts: [] }
     if (!this.opts.attachmentStore) {
       throw new Error('attachment store is unavailable')
     }
@@ -1745,11 +1746,19 @@ export class AgentLoop {
     const textFallbackPolicy = this.opts.attachmentStore.textFallbackPolicy()
     const imageAttachments: ModelInputAttachment[] = []
     const textFallbacks: ModelTextAttachmentFallback[] = []
+    const evidenceTexts: string[] = []
     for (const id of input.attachmentIds) {
       const attachment = await this.opts.attachmentStore.resolveContent(id, {
         threadId: input.threadId,
         workspace: input.workspace
       })
+      // Branch first on mime type: data (non-image) attachments go to evidence translation
+      if (!attachment.mimeType.startsWith('image/')) {
+        const evidence = await translateDataAttachment(attachment)
+        evidenceTexts.push(evidence)
+        continue
+      }
+      // Image attachment: existing behaviour
       if (supportsImageInput) {
         imageAttachments.push({
           id: attachment.id,
@@ -1766,7 +1775,7 @@ export class AgentLoop {
         textFallbackPolicy.textFallbackMaxBase64Bytes
       ))
     }
-    return { imageAttachments, textFallbacks }
+    return { imageAttachments, textFallbacks, evidenceTexts }
   }
 
   private async retrieveMemories(input: {
@@ -2012,6 +2021,62 @@ function resolveModelMode(...candidates: Array<string | undefined>): { kind: 'fi
 function normalizeRequestedReasoningEffort(effort: string | undefined): string | undefined {
   const normalized = effort?.trim().toLowerCase()
   return normalized && normalized !== 'auto' ? normalized : undefined
+}
+
+const DATA_ATTACHMENT_TRANSLATE_MAX_BYTES = 256 * 1024
+
+/**
+ * Translate a non-image (data) attachment into a natural-language evidence
+ * string for the model.  If SCIFORGE_SCIMODALITY_SERVICE_URL is configured,
+ * the standalone expert-translator service is called first.  On any failure
+ * (unconfigured, network error, bad response) we fall back to raw text so the
+ * turn is never broken.
+ */
+async function translateDataAttachment(attachment: AttachmentContent): Promise<string> {
+  const rawText = attachment.data.toString('utf8')
+  const serviceUrl = (process.env['SCIFORGE_SCIMODALITY_SERVICE_URL'] ?? '').trim()
+
+  if (serviceUrl) {
+    try {
+      const timeoutMs = Number(process.env['SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS'] ?? 1_800_000)
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
+      let response: Response
+      try {
+        response = await fetch(`${serviceUrl}/modality/translate`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ payload: rawText, objectId: attachment.id }),
+          signal: controller.signal
+        })
+      } finally {
+        clearTimeout(timer)
+      }
+      if (response.ok) {
+        const json = await response.json() as { ok: boolean; summary?: string; data?: { modality?: string; model?: string; summary?: string } }
+        if (json.ok) {
+          const summary = (json.summary ?? json.data?.summary ?? '').trim()
+          if (summary) {
+            const modality = json.data?.modality ?? 'unknown'
+            const model = json.data?.model ?? 'unknown'
+            return [
+              `[scientific-modality:${modality}/${model}] The attached file "${attachment.name}" was analyzed by a domain expert model. Treat the following as the inspected content and answer from it; do not try to open the file.`,
+              '',
+              summary
+            ].join('\n')
+          }
+        }
+      }
+    } catch {
+      // fall through to raw-text fallback
+    }
+  }
+
+  // Fail-open: inject raw file text (truncated to 256 KiB)
+  const truncated = Buffer.byteLength(rawText, 'utf8') > DATA_ATTACHMENT_TRANSLATE_MAX_BYTES
+    ? rawText.slice(0, DATA_ATTACHMENT_TRANSLATE_MAX_BYTES) + '\n...[truncated]'
+    : rawText
+  return `The attached file "${attachment.name}" contains:\n\n${truncated}`
 }
 
 function autoModelRouteKey(threadId: string, turnId: string): string {

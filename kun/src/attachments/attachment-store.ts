@@ -46,48 +46,83 @@ export class FileAttachmentStore implements AttachmentStore {
   }): Promise<AttachmentMetadata> {
     await mkdir(this.options.rootDir, { recursive: true })
     const image = detectImage(input.data)
-    if (!image) throw new Error('unsupported image MIME type')
-    if (input.mimeType && input.mimeType !== image.mimeType) throw new Error('declared MIME type does not match image content')
-    if (!this.options.config.allowedMimeTypes.includes(image.mimeType)) throw new Error(`image MIME type is not allowed: ${image.mimeType}`)
-    if (input.data.byteLength > this.options.config.maxImageBytes) throw new Error(`image exceeds ${this.options.config.maxImageBytes} byte limit`)
-    const maxDimension = Math.max(image.width ?? 0, image.height ?? 0)
-    if (maxDimension > this.options.config.maxImageDimension) {
-      throw new Error(`image exceeds ${this.options.config.maxImageDimension}px dimension limit`)
-    }
-    if (input.textFallback) validateTextFallback(input.textFallback, this.options.config)
-    const hash = createHash('sha256').update(input.data).digest('hex')
-    const id = `att_${hash.slice(0, 24)}`
-    const contentPath = this.contentPath(id)
-    const metadataPath = this.metadataPath(id)
-    const now = this.options.nowIso?.() ?? new Date().toISOString()
-    const existing = await this.get(id)
-    if (existing) {
-      const next = mergeScope({
-        ...existing,
+    if (image) {
+      // --- IMAGE PATH (existing behaviour, unchanged) ---
+      if (input.mimeType && input.mimeType !== image.mimeType) throw new Error('declared MIME type does not match image content')
+      if (!this.options.config.allowedMimeTypes.includes(image.mimeType)) throw new Error(`image MIME type is not allowed: ${image.mimeType}`)
+      if (input.data.byteLength > this.options.config.maxImageBytes) throw new Error(`image exceeds ${this.options.config.maxImageBytes} byte limit`)
+      const maxDimension = Math.max(image.width ?? 0, image.height ?? 0)
+      if (maxDimension > this.options.config.maxImageDimension) {
+        throw new Error(`image exceeds ${this.options.config.maxImageDimension}px dimension limit`)
+      }
+      if (input.textFallback) validateTextFallback(input.textFallback, this.options.config)
+      const hash = createHash('sha256').update(input.data).digest('hex')
+      const id = `att_${hash.slice(0, 24)}`
+      const contentPath = this.contentPath(id)
+      const metadataPath = this.metadataPath(id)
+      const now = this.options.nowIso?.() ?? new Date().toISOString()
+      const existing = await this.get(id)
+      if (existing) {
+        const next = mergeScope({
+          ...existing,
+          ...(input.textFallback ? { textFallback: input.textFallback } : {}),
+          updatedAt: now
+        }, input)
+        await writeFile(contentPath, input.data)
+        await writeFile(metadataPath, JSON.stringify(next, null, 2), 'utf8')
+        return next
+      }
+      const metadata: AttachmentMetadata = AttachmentMetadataSchema.parse(mergeScope({
+        id,
+        name: input.name,
+        mimeType: image.mimeType,
+        byteSize: input.data.byteLength,
+        hash,
+        ...(image.width ? { width: image.width } : {}),
+        ...(image.height ? { height: image.height } : {}),
         ...(input.textFallback ? { textFallback: input.textFallback } : {}),
+        threadIds: [],
+        workspaces: [],
+        createdAt: now,
         updatedAt: now
-      }, input)
+      }, input))
       await writeFile(contentPath, input.data)
-      await writeFile(metadataPath, JSON.stringify(next, null, 2), 'utf8')
-      return next
+      await writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf8')
+      return metadata
+    } else {
+      // --- DATA ATTACHMENT PATH (non-image scientific / text files) ---
+      if (input.data.byteLength > 1_048_576) throw new Error('data attachment exceeds 1 MiB limit')
+      // Reject binary blobs: any NUL byte in the first 8192 bytes means non-UTF-8
+      const probe = input.data.subarray(0, 8192)
+      if (probe.includes(0x00)) throw new Error('unsupported attachment type: binary data is not accepted as a data attachment')
+      const mimeType = input.mimeType ?? 'text/plain'
+      const hash = createHash('sha256').update(input.data).digest('hex')
+      const id = `att_${hash.slice(0, 24)}`
+      const contentPath = this.contentPath(id)
+      const metadataPath = this.metadataPath(id)
+      const now = this.options.nowIso?.() ?? new Date().toISOString()
+      const existing = await this.get(id)
+      if (existing) {
+        const next = mergeScope({ ...existing, updatedAt: now }, input)
+        await writeFile(contentPath, input.data)
+        await writeFile(metadataPath, JSON.stringify(next, null, 2), 'utf8')
+        return next
+      }
+      const metadata: AttachmentMetadata = AttachmentMetadataSchema.parse(mergeScope({
+        id,
+        name: input.name,
+        mimeType,
+        byteSize: input.data.byteLength,
+        hash,
+        threadIds: [],
+        workspaces: [],
+        createdAt: now,
+        updatedAt: now
+      }, input))
+      await writeFile(contentPath, input.data)
+      await writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf8')
+      return metadata
     }
-    const metadata: AttachmentMetadata = AttachmentMetadataSchema.parse(mergeScope({
-      id,
-      name: input.name,
-      mimeType: image.mimeType,
-      byteSize: input.data.byteLength,
-      hash,
-      ...(image.width ? { width: image.width } : {}),
-      ...(image.height ? { height: image.height } : {}),
-      ...(input.textFallback ? { textFallback: input.textFallback } : {}),
-      threadIds: [],
-      workspaces: [],
-      createdAt: now,
-      updatedAt: now
-    }, input))
-    await writeFile(contentPath, input.data)
-    await writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf8')
-    return metadata
   }
 
   async get(id: string): Promise<AttachmentMetadata | null> {

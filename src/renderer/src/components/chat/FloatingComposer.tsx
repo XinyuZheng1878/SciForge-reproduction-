@@ -1880,7 +1880,7 @@ export function FloatingComposer({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/png,image/jpeg,image/webp"
+              accept="image/png,image/jpeg,image/webp,.fasta,.fa,.faa,.fna,.ffn,.frn,.fastq,.fq,.smi,.smiles,.mol,.mol2,.sdf,.mgf,.pdb,.cif,.gb,.gbk,.gff,.gff3,.gtf,.vcf,.bed,.nwk,.seq,.csv,.tsv,.txt"
               multiple
               className="hidden"
               onChange={handleAttachmentInput}

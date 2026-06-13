@@ -223,6 +223,26 @@ function base64ToFile(dataBase64: string, name: string, mimeType: string): File 
   return new File([bytes], name || 'image', { type: mimeType })
 }
 
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index])
+  }
+  return btoa(binary)
+}
+
+// Best-effort MIME for a scientific/data upload. Browsers report an empty type for most
+// scientific formats (.fasta/.smi/.mol/...), so fall back to a text MIME — the runtime keys
+// off the file content/extension, not this label.
+function scientificAttachmentMimeType(file: File): string {
+  if (file.type && !file.type.startsWith('image/')) return file.type
+  const lower = (file.name || '').toLowerCase()
+  if (/\.(?:csv)$/.test(lower)) return 'text/csv'
+  if (/\.(?:tsv)$/.test(lower)) return 'text/tab-separated-values'
+  return 'text/plain'
+}
+
 export function Workbench(): ReactElement {
   const { t } = useTranslation('common')
   const {
@@ -736,23 +756,43 @@ export function Workbench(): ReactElement {
       }
       const uploaded: AttachmentReference[] = []
       for (const file of files) {
-        if (!file.type.startsWith('image/')) continue
-        const prepared = await prepareImageAttachmentUpload(file, attachmentCapabilities)
+        if (file.type.startsWith('image/')) {
+          // Image: translated to text by the vision model (Qwen) in the model router.
+          const prepared = await prepareImageAttachmentUpload(file, attachmentCapabilities)
+          const attachment = await provider.uploadAttachment({
+            name: file.name || 'image',
+            mimeType: prepared.mimeType,
+            dataBase64: prepared.dataBase64,
+            textFallback: prepared.textFallback,
+            ...(activeThreadId ? { threadId: activeThreadId } : {}),
+            ...(workspace ? { workspace } : {})
+          })
+          uploaded.push({
+            id: attachment.id,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            width: attachment.width,
+            height: attachment.height,
+            previewUrl: `data:${prepared.mimeType};base64,${prepared.dataBase64}`
+          })
+          continue
+        }
+        // Scientific / data file (.fasta/.smi/.mol/.csv/.txt/...): uploaded as raw UTF-8 bytes.
+        // The runtime translates it to natural-language evidence via the pluggable scientific-modality
+        // service (real expert models) before the text agent sees it. No image fallback, no compression.
+        const mimeType = scientificAttachmentMimeType(file)
+        const dataBase64 = await fileToBase64(file)
         const attachment = await provider.uploadAttachment({
-          name: file.name || 'image',
-          mimeType: prepared.mimeType,
-          dataBase64: prepared.dataBase64,
-          textFallback: prepared.textFallback,
+          name: file.name || 'data',
+          mimeType,
+          dataBase64,
           ...(activeThreadId ? { threadId: activeThreadId } : {}),
           ...(workspace ? { workspace } : {})
         })
         uploaded.push({
           id: attachment.id,
           name: attachment.name,
-          mimeType: attachment.mimeType,
-          width: attachment.width,
-          height: attachment.height,
-          previewUrl: `data:${prepared.mimeType};base64,${prepared.dataBase64}`
+          mimeType: attachment.mimeType
         })
       }
       if (uploaded.length > 0) {
