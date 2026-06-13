@@ -115,6 +115,18 @@ type TextControl =
   | { type: 'need_more_visual_info'; target: string; question: string; reason?: string };
 
 const MAX_TRANSIENT_PROVIDER_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_TEXT_MODALITY_BYTES = 256 * 1024;
+
+// Uploaded scientific files (sequence / structure / spectra) that a domain expert model can read.
+// These are classified as 'document' for routing but, when the standalone sci-modality service is
+// configured (SCIFORGE_SCIMODALITY_SERVICE_URL), are translated to natural-language evidence by real
+// expert models instead of being inlined as raw text.
+const SCIENTIFIC_MODALITY_EXTENSIONS =
+  /\.(?:fasta|fa|faa|fna|ffn|frn|fastq|fq|smi|smiles|mol|mol2|sdf|mgf|pdb|cif|gb|gbk|gff|gff3|gtf|vcf|bed|nwk|seq)(?:$|[?#])/i;
+
+function isScientificModalityPath(path: string): boolean {
+  return SCIENTIFIC_MODALITY_EXTENSIONS.test(path);
+}
 
 export function createModelRouterServer(options: ModelRouterServerOptions): Server {
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -319,14 +331,31 @@ async function routeResponsesRequest(
   }
 
   if (unsupportedModalities.length > 0) {
-    degraded = true;
-    observations.push(...unsupportedModalities.map((item) => [
-      `modality_input=${item.id}`,
-      `kind=${item.kind}`,
-      'status=unsupported',
-      'reason=Model Router has no registered translator role for this modality kind in the active profile.',
-      'instruction=Answer from text-only context and explicitly state that the referenced modality could not be inspected.',
-    ].join('\n')));
+    for (const item of unsupportedModalities) {
+      // 1) Scientific file (.fasta / .smi / .mol / .mgf …) + standalone sci-modality service configured:
+      //    translate to natural-language evidence via real GPU expert models (pluggable module owns retry).
+      const expert = await translateScientificModalityObservation(item, context.workspaceRoot, context.env, context.fetchImpl);
+      if (expert) {
+        observations.push(expert);
+        continue;
+      }
+      // 2) Otherwise, if the ref is a readable workspace text file (e.g. .txt / .csv / unmatched scientific
+      //    file when the service is down), inline its content so the text reasoner can answer directly.
+      const inlined = await readWorkspaceTextModalityObservation(item, context.workspaceRoot);
+      if (inlined) {
+        observations.push(inlined);
+        continue;
+      }
+      // 3) No translator role and not inlineable: degrade and tell the model it could not be inspected.
+      degraded = true;
+      observations.push([
+        `modality_input=${item.id}`,
+        `kind=${item.kind}`,
+        'status=unsupported',
+        'reason=Model Router has no registered translator role for this modality kind in the active profile.',
+        'instruction=Answer from text-only context and explicitly state that the referenced modality could not be inspected.',
+      ].join('\n'));
+    }
   }
 
   if (visionModalities.length > 0) {
@@ -665,6 +694,94 @@ function normalizeModalityPart(value: Record<string, unknown>, ordinal: number, 
     };
   }
   return undefined;
+}
+
+// Inline a readable workspace text file (e.g. uploaded .txt / .csv / unmatched scientific file) as the
+// observation so the text reasoner can answer directly instead of blindly searching the filesystem.
+async function readWorkspaceTextModalityObservation(item: ModalityRef, workspaceRoot: string): Promise<string | undefined> {
+  const target = workspaceImageTarget(item, workspaceRoot);
+  if (!target) return undefined;
+  try {
+    const stats = await stat(target.absolutePath);
+    if (!stats.isFile() || stats.size <= 0 || stats.size > MAX_TEXT_MODALITY_BYTES) return undefined;
+    const bytes = await readFile(target.absolutePath);
+    if (bytes.subarray(0, 8192).includes(0)) return undefined; // looks binary
+    const text = bytes.toString('utf8');
+    if (!text.trim()) return undefined;
+    return [
+      `modality_input=${item.id}`,
+      `kind=${item.kind}`,
+      'status=ok',
+      `source=workspace-file:${target.relativeRef}`,
+      'instruction=The referenced file was read directly. Treat the following contents as the inspected modality and answer the user question from it; do not search the filesystem for it.',
+      'content:',
+      text,
+    ].join('\n');
+  } catch {
+    return undefined;
+  }
+}
+
+// Translate an uploaded scientific file to natural-language evidence via the standalone, pluggable
+// sci-modality service (real GPU expert models). Gated by SCIFORGE_SCIMODALITY_SERVICE_URL; the service
+// owns modality auto-detection + retry/robustness. Translation-only: it returns evidence, never answers.
+// Returns undefined (fail-open) when the service is unconfigured, the ref is not a scientific file, the
+// file is unreadable/binary, or the call fails — callers then fall back to text inlining.
+async function translateScientificModalityObservation(
+  item: ModalityRef,
+  workspaceRoot: string,
+  env: Record<string, string | undefined>,
+  fetchImpl: typeof fetch,
+): Promise<string | undefined> {
+  const serviceUrl = (env.SCIFORGE_SCIMODALITY_SERVICE_URL ?? '').trim();
+  if (!serviceUrl) return undefined;
+  const target = workspaceImageTarget(item, workspaceRoot);
+  if (!target || !isScientificModalityPath(target.relativeRef)) return undefined;
+  try {
+    const stats = await stat(target.absolutePath);
+    if (!stats.isFile() || stats.size <= 0 || stats.size > MAX_TEXT_MODALITY_BYTES) return undefined;
+    const bytes = await readFile(target.absolutePath);
+    if (bytes.subarray(0, 8192).includes(0)) return undefined; // looks binary
+    const payload = bytes.toString('utf8');
+    if (!payload.trim()) return undefined;
+
+    const timeoutMs = Number(env.SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS ?? '') || 1_800_000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let json: JsonObject | undefined;
+    let ok = false;
+    try {
+      const resp = await fetchImpl(`${serviceUrl.replace(/\/+$/, '')}/modality/translate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ payload, objectId: item.id }),
+        signal: controller.signal,
+      });
+      ok = resp.ok;
+      json = (await resp.json().catch(() => undefined)) as JsonObject | undefined;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!ok || !json || json.ok !== true) return undefined;
+    const data = (isRecord(json.data) ? json.data : {}) as JsonObject;
+    const summary = (typeof json.summary === 'string' && json.summary.trim())
+      ? json.summary
+      : (typeof data.summary === 'string' ? data.summary : '');
+    if (!summary.trim()) return undefined;
+    const model = typeof data.model === 'string' ? data.model : 'sci-modality';
+    const modality = typeof data.modality === 'string' ? data.modality : 'scientific';
+    return [
+      `modality_input=${item.id}`,
+      `kind=${item.kind}`,
+      'status=ok',
+      `source=sci-modality:${modality}/${model}`,
+      'instruction=The referenced scientific file was analyzed by a domain expert model. Treat the following evidence as the inspected modality and answer the user question from it; do not search the filesystem for it.',
+      'evidence:',
+      summary,
+    ].join('\n');
+  } catch {
+    return undefined;
+  }
 }
 
 async function materializeWorkspaceImageRefs(modalities: ModalityRef[], workspaceRoot: string): Promise<ModalityRef[]> {
@@ -1672,6 +1789,7 @@ function modalityKindFromTextualRefExtension(ref: string): ModalityKind | undefi
   if (/\.(?:mp4|mov|webm|m4v|avi)(?:$|[?#])/i.test(path)) return 'video';
   if (/\.(?:csv|tsv|xlsx?|ods)(?:$|[?#])/i.test(path)) return 'table';
   if (/\.(?:pdf|docx?|pptx?|txt|md|markdown)(?:$|[?#])/i.test(path)) return 'document';
+  if (isScientificModalityPath(path)) return 'document';
   return undefined;
 }
 
@@ -1695,7 +1813,7 @@ function isAllowedTextualModalityRef(ref: string, kind: ModalityKind) {
   if (!path) return false;
   if (kind === 'vision.image' && path.startsWith('.sciforge/uploads/')) return true;
   if (/^(?:workspace|bundle|bundles|artifact|artifacts|upload|uploads|images|objects|files|runs)\//i.test(path)) return true;
-  if (/^[A-Za-z0-9._@/-]+\.(?:png|jpe?g|webp|gif|tiff?|bmp|heic|svg|mp3|wav|m4a|flac|ogg|mp4|mov|webm|m4v|avi|csv|tsv|xlsx?|ods|pdf|docx?|pptx?|txt|md|markdown)$/i.test(path)) return true;
+  if (/^[A-Za-z0-9._@/-]+\.(?:png|jpe?g|webp|gif|tiff?|bmp|heic|svg|mp3|wav|m4a|flac|ogg|mp4|mov|webm|m4v|avi|csv|tsv|xlsx?|ods|pdf|docx?|pptx?|txt|md|markdown|fasta|fa|faa|fna|ffn|frn|fastq|fq|smi|smiles|mol|mol2|sdf|mgf|pdb|cif|gb|gbk|gff|gff3|gtf|vcf|bed|nwk|seq)$/i.test(path)) return true;
   return /^(?:artifact|ref|run):/i.test(ref) && modalityKindFromTextualRef(ref) === kind;
 }
 

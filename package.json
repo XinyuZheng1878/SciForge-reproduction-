@@ -7,7 +7,8 @@
   "type": "module",
   "workspaces": [
     "packages/workers/model-router",
-    "packages/workers/model-router/vision-router-service"
+    "packages/workers/model-router/vision-router-service",
+    "packages/workers/model-router/sci-modality-router-service"
   ],
   "scripts": {
     "dev": "npm run build:kun && electron-vite dev",
