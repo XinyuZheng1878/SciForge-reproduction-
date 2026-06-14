@@ -467,18 +467,18 @@ export function imageAttachmentInputsFromTransfer(
 }
 
 export function attachmentInputsFromPickedFiles(files: File[]): ComposerImageAttachmentInput[] {
-  return files
-    .map((file) => {
-      const normalized = normalizedImageFile(file)
-      const attachmentFile = normalized ?? (isPdfFile(file) ? file : null)
-      if (!attachmentFile) return null
-      const path = pathForAttachmentFile(file)
-      return {
-        file: attachmentFile,
-        ...(path ? { path } : {})
-      }
-    })
-    .filter((entry): entry is ComposerImageAttachmentInput => entry !== null)
+  return files.map((file) => {
+    // Keep every explicitly-picked file: images are normalized; PDFs and scientific/data files
+    // (.fasta/.smi/.mol/.csv/...) pass through as-is. The picker's `accept` already restricts the
+    // dialog, and the upload handler routes non-images to the data/scientific path.
+    const normalized = normalizedImageFile(file)
+    const attachmentFile = normalized ?? file
+    const path = pathForAttachmentFile(file)
+    return {
+      file: attachmentFile,
+      ...(path ? { path } : {})
+    }
+  })
 }
 
 export function imageTransferHasImages(source: ComposerImageTransferSource | null | undefined): boolean {
