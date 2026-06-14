@@ -3,7 +3,10 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ChatBlock } from '../agent/types'
 import { useChatStore } from '../store/chat-store'
 import type { ChatState } from '../store/chat-store-types'
-import { buildPlanBuildPrompt } from '../plan/plan-prompts'
+import { buildPlanBuildPrompt, buildRefinePlanPrompt } from '../plan/plan-prompts'
+import { buildSddVerifyPrompt } from '../sdd/sdd-verify-prompt'
+import { sddDraftRelativePathForPlanPath, sddDraftTraceRelativePath } from '@shared/sdd'
+import { buildSddTraceSnapshot, parseSddRequirementBlocks } from '@shared/sdd-trace'
 import {
   CODE_PANEL_PREFERRED
 } from './workbench-layout'
@@ -282,6 +285,98 @@ export function useWorkbenchPlanController({
     }
   }
 
+  const verifyGuiPlan = async (): Promise<void> => {
+    const plan = useGuiPlanStore.getState().activePlan
+    if (!plan) return
+    const draftRelativePath = sddDraftRelativePathForPlanPath(plan.relativePath)
+    if (!draftRelativePath) return
+    if (useChatStore.getState().busy) {
+      setError(t('composerQueuePlaceholder'))
+      return
+    }
+    setMode('agent')
+    await sendMessage(
+      buildSddVerifyPrompt({
+        workspaceRoot: plan.workspaceRoot,
+        draftRelativePath,
+        planRelativePath: plan.relativePath
+      }),
+      'agent',
+      { displayText: `${t('planVerify')}: ${draftRelativePath}` }
+    )
+  }
+
+  const replanChangedRequirements = async (changedIds: string[]): Promise<void> => {
+    const snapshot = useGuiPlanStore.getState()
+    const plan = snapshot.activePlan
+    if (!plan || changedIds.length === 0) return
+    const draftRelativePath = sddDraftRelativePathForPlanPath(plan.relativePath)
+    if (!draftRelativePath) return
+    if (useChatStore.getState().busy) {
+      setError(t('composerQueuePlaceholder'))
+      return
+    }
+
+    const requirement = await window.dsGui.readWorkspaceFile({
+      workspaceRoot: plan.workspaceRoot,
+      path: draftRelativePath
+    })
+    if (!requirement.ok) {
+      setError(requirement.message)
+      return
+    }
+    const lines = requirement.content.split(/\r?\n/)
+    const changedBlocks = parseSddRequirementBlocks(requirement.content)
+      .filter((block) => changedIds.includes(block.id))
+      .map((block) => lines.slice(block.headingLineIndex, block.endLineIndex).join('\n'))
+    const feedback = [
+      `Requirements ${changedIds.join(', ')} changed after this plan was generated.`,
+      'Update only the steps affected by these requirements. Keep all other steps and their covers tags unchanged, and keep every actionable step linked with a covers tag.',
+      '',
+      'Latest requirement blocks:',
+      '```markdown',
+      changedBlocks.join('\n\n'),
+      '```'
+    ].join('\n')
+
+    setMode('plan')
+    const sent = await sendPlanTurn(
+      buildRefinePlanPrompt({
+        feedback,
+        currentPlan: snapshot.content,
+        workspaceRoot: plan.workspaceRoot,
+        planRelativePath: plan.relativePath
+      }),
+      {
+        displayText: t('sddReplanButton'),
+        workspaceRoot: plan.workspaceRoot,
+        guiPlan: {
+          operation: 'refine',
+          workspaceRoot: plan.workspaceRoot,
+          relativePath: plan.relativePath,
+          planId: plan.id,
+          sourceRequest: plan.sourceRequest,
+          title: plan.featureName
+        }
+      }
+    )
+    if (!sent) return
+    const tracePath = sddDraftTraceRelativePath(draftRelativePath)
+    if (tracePath) {
+      await window.dsGui
+        .writeWorkspaceFile({
+          workspaceRoot: plan.workspaceRoot,
+          path: tracePath,
+          content: JSON.stringify(
+            buildSddTraceSnapshot(requirement.content, plan.relativePath),
+            null,
+            2
+          )
+        })
+        .catch(() => undefined)
+    }
+  }
+
   useEffect(() => {
     if (route !== 'chat' && mode === 'plan') {
       setMode('agent')
@@ -311,6 +406,8 @@ export function useWorkbenchPlanController({
     buildGuiPlan,
     handleGuiPlanCommand,
     openGuiPlanPanel,
-    sendPlanTurn
+    replanChangedRequirements,
+    sendPlanTurn,
+    verifyGuiPlan
   }
 }

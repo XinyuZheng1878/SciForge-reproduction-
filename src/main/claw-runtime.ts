@@ -32,10 +32,14 @@ import {
   CLAW_MODEL_IDS,
   DEFAULT_CLAW_MODEL,
   buildClawRuntimePrompt,
+  getCodexRuntimeSettings,
   normalizeAgentRuntimeId,
-  parseClawUserPromptForDisplay
+  parseClawUserPromptForDisplay,
+  resolveKunRuntimeSettings,
+  resolveRuntimeModelRouterSettings
 } from '../shared/app-settings'
 import { parseClawCommand } from '../shared/claw-commands'
+import { redactSecrets, redactSecretText } from '../shared/secret-redaction'
 import {
   asString,
   buildFeishuPrompt,
@@ -144,12 +148,57 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+type RemoteFailureLike = {
+  ok: false
+  message: string
+  failureKind?: string
+  failureTitle?: string
+  details?: unknown
+}
+
+function remoteFailureTitle(failure: RemoteFailureLike): string {
+  return failure.failureTitle?.trim() || ''
+}
+
+function safeWebhookFailureBody(failure: RemoteFailureLike): { ok: false; message: string; failureKind?: string } {
+  const title = remoteFailureTitle(failure)
+  return {
+    ok: false,
+    message: title || 'Internal server error.',
+    ...(failure.failureKind ? { failureKind: failure.failureKind } : {})
+  }
+}
+
+function safeImFailureText(settings: AppSettingsV1, failure: RemoteFailureLike): string {
+  const title = remoteFailureTitle(failure)
+  if (title) return title
+  return isChineseLocale(settings)
+    ? '抱歉，我现在无法处理这条消息。'
+    : 'Sorry, I could not process your message right now.'
+}
+
 function isChineseLocale(settings: AppSettingsV1): boolean {
   return settings.locale.toLowerCase().startsWith('zh')
 }
 
 function currentImModel(settings: AppSettingsV1, channel?: ClawImChannelV1): string {
   return channel?.model?.trim() || settings.claw.im.model.trim() || DEFAULT_CLAW_MODEL
+}
+
+function effectiveImRuntimeModel(
+  settings: AppSettingsV1,
+  requestedModel: string,
+  runtimeId: AgentRuntimeId
+): string {
+  const trimmed = requestedModel.trim()
+  if (trimmed && trimmed.toLowerCase() !== DEFAULT_CLAW_MODEL) return trimmed
+  if (runtimeId === 'codex') {
+    return resolveRuntimeModelRouterSettings(settings).model.trim() ||
+      getCodexRuntimeSettings(settings).model.trim() ||
+      trimmed ||
+      DEFAULT_CLAW_MODEL
+  }
+  return resolveKunRuntimeSettings(settings).model.trim() || trimmed || DEFAULT_CLAW_MODEL
 }
 
 function currentImMode(settings: AppSettingsV1): ClawRunMode {
@@ -426,14 +475,27 @@ export class ClawRuntime {
     return { ok: false, message: 'Claw scheduled tasks have moved to Schedule.' }
   }
 
+  private logRemoteFailure(
+    category: string,
+    message: string,
+    failure: RemoteFailureLike,
+    context: Record<string, unknown> = {}
+  ): void {
+    this.deps.logError(category, message, redactSecrets({
+      ...context,
+      failure
+    }))
+  }
+
   private async runPrompt(settings: AppSettingsV1, options: RunPromptOptions): Promise<ClawRunResult> {
     const workspace = options.workspaceRoot.trim() || settings.workspaceRoot
     const existingThreadId = options.threadId?.trim()
     const runtimeId = normalizeAgentRuntimeId(options.runtimeId)
+    const requestedModel = normalizeTaskModel(options.model) ?? DEFAULT_CLAW_MODEL
+    const model = effectiveImRuntimeModel(settings, requestedModel, runtimeId)
     if (runtimeId !== 'kun') {
-      return this.runAgentRuntimePrompt(settings, options, runtimeId, workspace, existingThreadId)
+      return this.runAgentRuntimePrompt(settings, { ...options, model }, runtimeId, workspace, existingThreadId)
     }
-    const model = normalizeTaskModel(options.model) ?? (settings.agents.kun.model.trim() || DEFAULT_CLAW_MODEL)
     const createThread = async (): Promise<ThreadRecordJson | null> => {
       const create = await this.deps.runtimeRequest(settings, '/v1/threads', {
         method: 'POST',
@@ -1007,9 +1069,15 @@ export class ClawRuntime {
         : `No saved summary is available yet (${context.runtimeId}:${shortThreadId(context.threadId)}).`
     } catch (error) {
       const message = errorMessage(error)
+      this.deps.logError('claw-runtime', 'Failed to read IM summary command context.', redactSecrets({
+        message,
+        runtimeId: context.runtimeId,
+        threadId: context.threadId,
+        channelId: context.channel?.id
+      }))
       return isChineseLocale(settings)
-        ? `读取当前摘要失败：${message}`
-        : `Could not read the current summary: ${message}`
+        ? '读取当前摘要失败，请稍后重试。'
+        : 'Could not read the current summary right now.'
     }
   }
 
@@ -2215,10 +2283,18 @@ export class ClawRuntime {
       return
     }
     if (taskCreation.kind === 'error') {
+      this.deps.logError('claw-feishu', 'Failed to create scheduled task from Feishu / Lark message', redactSecrets({
+        message: taskCreation.message,
+        channelId,
+        chatId: message.chatId,
+        inboundMessageId: message.messageId
+      }))
       await this.sendFeishuMarkdownMessage(
         bridge,
         message.chatId,
-        `Failed to create the scheduled task: ${taskCreation.message}`,
+        isChineseLocale(settings)
+          ? '创建计划任务失败，请稍后重试。'
+          : 'Failed to create the scheduled task right now.',
         { replyTo: message.messageId, replyInThread: shouldReplyInFeishuThread(message) },
         {
           purpose: 'schedule-error',
@@ -2415,9 +2491,17 @@ export class ClawRuntime {
       : []
     const replyText = result.ok
       ? replyTextForGeneratedFiles(result.text?.trim() || result.message?.trim() || 'Completed.', filesToSend)
-      : (result.message.trim() || 'Sorry, something went wrong while handling your message.')
+      : safeImFailureText(settings, result)
     const resultThreadId = result.ok ? result.threadId : undefined
     const resultTurnId = result.ok ? result.turnId : undefined
+    if (!result.ok) {
+      this.logRemoteFailure('claw-feishu', 'Feishu / Lark agent run failed before reply.', result, {
+        channelId,
+        chatId: message.chatId,
+        inboundMessageId: message.messageId,
+        senderId: message.senderId
+      })
+    }
     try {
       await this.sendFeishuMarkdownMessage(
         bridge,
@@ -2969,6 +3053,13 @@ export class ClawRuntime {
         ...mentionFlags,
         ...(remoteSession ? { remoteSession } : {})
       })
+      if (!result.ok) {
+        this.logRemoteFailure('claw-webhook', 'Claw IM webhook returned a structured failure.', result, {
+          provider,
+          channelId: incomingChannelId,
+          sender
+        })
+      }
       writeJson(
         res,
         result.ok ? 200 : 500,
@@ -2978,12 +3069,16 @@ export class ClawRuntime {
               createdTaskId: result.createdTaskId,
               reply: result.reply
             }
-          : result
+          : result.ok
+            ? result
+            : safeWebhookFailureBody(result)
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      this.deps.logError('claw-webhook', 'Claw IM webhook request failed', { message })
-      writeJson(res, 500, { ok: false, message })
+      this.deps.logError('claw-webhook', 'Claw IM webhook request failed', {
+        message: redactSecretText(message)
+      })
+      writeJson(res, 500, { ok: false, message: 'Internal server error.' })
     }
   }
 }

@@ -13,6 +13,7 @@ import { trimWriteRecentEdits } from './recent-edits'
 import type { WriteWorkspaceState } from './write-workspace-store-types'
 import { createWriteSettingsActions } from './write-workspace-settings-actions'
 import { createWriteFileActions } from './write-workspace-file-actions'
+import i18n from '../i18n'
 import { writeBrowserStorageItem } from '../lib/browser-storage'
 import {
   WRITE_ASSISTANT_MODEL_KEY,
@@ -129,6 +130,12 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
       if (!result.ok) {
         if (pathsEqual(get().activeFilePath ?? '', snapshot.activeFilePath)) {
           set({ fileError: result.message, saveStatus: 'error' })
+        }
+        return false
+      }
+      if (result.kind !== 'text') {
+        if (pathsEqual(get().activeFilePath ?? '', snapshot.activeFilePath)) {
+          set({ fileError: i18n.t('common:writeUnsupportedFileType'), saveStatus: 'error' })
         }
         return false
       }
@@ -323,10 +330,10 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
     }))
   },
 
-  quoteCurrentSelection: (workspaceRoot) => {
+  quoteCurrentSelection: (workspaceRoot, selection) => {
     const state = get()
     if (!state.activeFilePath) return
-    const quote = quotedSelectionFromEditor(state.selection, state.activeFilePath, workspaceRoot)
+    const quote = quotedSelectionFromEditor(selection ?? state.selection, state.activeFilePath, workspaceRoot)
     if (!quote) return
     set((current) => ({
       assistantOpen: true,

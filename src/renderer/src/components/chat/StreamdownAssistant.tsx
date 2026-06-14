@@ -9,6 +9,7 @@ import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
 import { previewWorkspaceFile } from '../../lib/workspace-file-preview'
 import { useChatStore } from '../../store/chat-store'
 import { StreamdownCode } from './StreamdownCode'
+import { AssistantMarkdownImage } from './message-timeline-media'
 
 /**
  * Tuned for faster, cleaner single-line streaming:
@@ -36,7 +37,8 @@ const rehypePlugins = [
 
 const components = {
   code: StreamdownCode,
-  a: StreamdownLink
+  a: StreamdownLink,
+  img: AssistantMarkdownImage
 } satisfies StreamdownProps['components']
 
 type StreamdownLinkProps = ComponentPropsWithRef<'a'> & { node?: unknown }

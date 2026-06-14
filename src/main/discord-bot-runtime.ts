@@ -32,6 +32,7 @@ import type {
   ClawIncomingImMessageInput,
   ClawIncomingImMessageResult
 } from './claw-runtime'
+import { redactSecrets } from '../shared/secret-redaction'
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10'
 const DISCORD_GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json'
@@ -44,6 +45,8 @@ const DISCORD_TEXT_CHANNEL_TYPES = new Set([0, 5])
 const MAX_DISCORD_MESSAGE_LENGTH = 2_000
 const MESSAGE_CONTENT_WARNING_INTERVAL_MS = 10 * 60_000
 const INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.deepseekgui/claw/'
+const DISCORD_MESSAGE_FAILURE_REPLY = 'Sorry, I could not process that message.'
+const DISCORD_COMMAND_FAILURE_REPLY = 'Sorry, I could not process that command.'
 const require = createRequire(import.meta.url)
 
 type RuntimeWebSocketEvent = { data?: unknown }
@@ -164,6 +167,7 @@ type DiscordRuntimeDeps = {
   logError: (category: string, message: string, detail?: unknown) => void
   fetch?: DiscordFetch
   proxyFetch?: DiscordProxyFetch
+  createWebSocket?: (url: string, proxyUrl?: string) => RuntimeWebSocket
 }
 
 function normalizeBotToken(raw: string): string {
@@ -1066,7 +1070,8 @@ export class DiscordBotRuntime {
   }
 
   private openGateway(botToken: string, attempt: number, proxyUrl?: string): void {
-    const socket = createRuntimeWebSocket(DISCORD_GATEWAY_URL, proxyUrl)
+    const socket = this.deps.createWebSocket?.(DISCORD_GATEWAY_URL, proxyUrl) ??
+      createRuntimeWebSocket(DISCORD_GATEWAY_URL, proxyUrl)
     this.socket = socket
     this.connected = false
     this.sequence = null
@@ -1238,27 +1243,54 @@ export class DiscordBotRuntime {
     const mentionedBot = (message.mentions ?? []).some((user) => user.id?.trim() === credential.botId) ||
       new RegExp(`<@!?${credential.botId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>`).test(text)
 
-    const result = await this.deps.handleIncomingMessage({
-      provider: 'discord',
-      channelId: channel.id,
-      text,
-      runtimePrompt,
-      sender,
-      chatType: 'group',
-      mentionedBot,
-      mentionAll: message.mention_everyone === true,
-      remoteSession: {
-        chatId: credential.channelId,
+    let result: ClawIncomingImMessageResult
+    try {
+      result = await this.deps.handleIncomingMessage({
+        provider: 'discord',
+        channelId: channel.id,
+        text,
+        runtimePrompt,
+        sender,
+        chatType: 'group',
+        mentionedBot,
+        mentionAll: message.mention_everyone === true,
+        remoteSession: {
+          chatId: credential.channelId,
+          messageId,
+          threadId: '',
+          senderId: authorId,
+          senderName: sender
+        }
+      })
+    } catch (error) {
+      this.deps.logError('claw-discord', 'Failed to process Discord message through Claw runtime.', redactSecrets({
+        message: errorMessage(error),
         messageId,
-        threadId: '',
-        senderId: authorId,
-        senderName: sender
-      }
-    })
+        channelId: credential.channelId,
+        channelConfigId: channel.id,
+        senderId: authorId
+      }))
+      await this.sendChannelMessage({
+        channelId: credential.channelId,
+        text: DISCORD_MESSAGE_FAILURE_REPLY,
+        replyToMessageId: messageId
+      })
+      return
+    }
     if (result.ok && 'ignored' in result && result.ignored) return
+    if (!result.ok) {
+      this.deps.logError('claw-discord', 'Claw runtime returned a failure for Discord message.', redactSecrets({
+        message: result.message,
+        result,
+        messageId,
+        channelId: credential.channelId,
+        channelConfigId: channel.id,
+        senderId: authorId
+      }))
+    }
     const reply = result.ok
       ? compactMessage(result.reply ?? result.message ?? '', 'Completed.')
-      : compactMessage(result.message, 'Sorry, I could not process that message.')
+      : DISCORD_MESSAGE_FAILURE_REPLY
     await this.sendChannelMessage({
       channelId: credential.channelId,
       text: reply,
@@ -1299,26 +1331,53 @@ export class DiscordBotRuntime {
     const user = interaction.member?.user ?? interaction.user
     const authorId = user?.id?.trim() ?? ''
     const sender = user?.global_name?.trim() || user?.username?.trim() || authorId || 'Discord user'
-    const result = await this.deps.handleIncomingMessage({
-      provider: 'discord',
-      channelId: channel.id,
-      text: commandText,
-      runtimePrompt: commandText,
-      sender,
-      chatType: 'group',
-      mentionedBot: true,
-      mentionAll: false,
-      remoteSession: {
-        chatId: credential.channelId,
-        messageId: interactionId,
-        threadId: '',
-        senderId: authorId || interactionId,
-        senderName: sender
-      }
-    })
+    let result: ClawIncomingImMessageResult
+    try {
+      result = await this.deps.handleIncomingMessage({
+        provider: 'discord',
+        channelId: channel.id,
+        text: commandText,
+        runtimePrompt: commandText,
+        sender,
+        chatType: 'group',
+        mentionedBot: true,
+        mentionAll: false,
+        remoteSession: {
+          chatId: credential.channelId,
+          messageId: interactionId,
+          threadId: '',
+          senderId: authorId || interactionId,
+          senderName: sender
+        }
+      })
+    } catch (error) {
+      this.deps.logError('claw-discord', 'Failed to process Discord interaction through Claw runtime.', redactSecrets({
+        message: errorMessage(error),
+        interactionId,
+        channelId: credential.channelId,
+        channelConfigId: channel.id,
+        senderId: authorId
+      }))
+      await this.sendInteractionReply({
+        interactionId,
+        interactionToken,
+        text: DISCORD_COMMAND_FAILURE_REPLY
+      })
+      return
+    }
+    if (!result.ok) {
+      this.deps.logError('claw-discord', 'Claw runtime returned a failure for Discord interaction.', redactSecrets({
+        message: result.message,
+        result,
+        interactionId,
+        channelId: credential.channelId,
+        channelConfigId: channel.id,
+        senderId: authorId
+      }))
+    }
     const reply = result.ok
       ? compactMessage(result.reply ?? result.message ?? '', 'Completed.')
-      : compactMessage(result.message, 'Sorry, I could not process that command.')
+      : DISCORD_COMMAND_FAILURE_REPLY
     await this.sendInteractionReply({
       interactionId,
       interactionToken,

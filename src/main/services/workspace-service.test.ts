@@ -118,6 +118,7 @@ describe('workspace-service boundary checks', () => {
     })
     expect(readResult.ok).toBe(true)
     if (readResult.ok) {
+      expect(readResult.kind).toBe('text')
       expect(readResult.content).toBe('# revised draft')
     }
   })
@@ -197,9 +198,10 @@ describe('workspace-service boundary checks', () => {
     expect(result.height).toBe(8)
   })
 
-  it('saves SDD pasted clipboard images into .kunsdd/img with draft-relative markdown', async () => {
-    const currentFilePath = join(workspaceRoot, '.kunsdd', 'draft', 'draft-1', 'requirement.md')
-    await mkdir(join(workspaceRoot, '.kunsdd', 'draft', 'draft-1'), { recursive: true })
+  it('saves SDD pasted clipboard images into the requirement image directory', async () => {
+    const draftId = '123e4567-e89b-12d3-a456-426614174000'
+    const currentFilePath = join(workspaceRoot, '.deepseekgui', 'sdd', 'requirements', draftId, 'requirement.md')
+    await mkdir(join(workspaceRoot, '.deepseekgui', 'sdd', 'requirements', draftId), { recursive: true })
     await writeFile(currentFilePath, '# requirement', 'utf8')
 
     vi.mocked(clipboard.readImage).mockReturnValue({
@@ -210,14 +212,14 @@ describe('workspace-service boundary checks', () => {
     const result = await saveWorkspaceClipboardImage({
       workspaceRoot,
       currentFilePath,
-      imageDirectory: '.kunsdd/img'
+      imageDirectory: `.deepseekgui/sdd/requirements/${draftId}/img`
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(await realpath(dirname(result.path))).toBe(await realpath(join(workspaceRoot, '.kunsdd', 'img')))
-    expect(result.markdownPath.startsWith('../../img/pasted-image-')).toBe(true)
+    expect(await realpath(dirname(result.path))).toBe(await realpath(join(workspaceRoot, '.deepseekgui', 'sdd', 'requirements', draftId, 'img')))
+    expect(result.markdownPath.startsWith('img/pasted-image-')).toBe(true)
     await expect(readFile(result.path)).resolves.toEqual(Buffer.from('sdd-png-bytes'))
   })
 
@@ -237,6 +239,46 @@ describe('workspace-service boundary checks', () => {
     expect(result.path).toBe(await realpath(imagePath))
     expect(result.mimeType).toBe('image/png')
     expect(result.dataUrl).toBe('data:image/png;base64,iVBORw==')
+  })
+
+  it('reads supported workspace PDFs through the generic workspace file reader', async () => {
+    const pdfPath = join(workspaceRoot, 'papers', 'study.pdf')
+    const pdfBytes = Buffer.from('%PDF-1.4\n%%EOF')
+    await mkdir(join(workspaceRoot, 'papers'), { recursive: true })
+    await writeFile(pdfPath, pdfBytes)
+
+    const result = await readWorkspaceFile({
+      path: 'papers/study.pdf',
+      workspaceRoot
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    if (result.kind !== 'pdf') {
+      throw new Error(`Expected PDF preview, received ${result.kind}`)
+    }
+
+    expect(result.path).toBe(await realpath(pdfPath))
+    expect(result.content).toBe('')
+    expect(result.mimeType).toBe('application/pdf')
+    expect(result.dataBase64).toBe(pdfBytes.toString('base64'))
+    expect(result.size).toBe(pdfBytes.length)
+    expect(result.truncated).toBe(false)
+    expect(result.mtimeMs).toBeGreaterThan(0)
+  })
+
+  it('labels text previews from the generic workspace file reader', async () => {
+    const result = await readWorkspaceFile({
+      path: 'inside.txt',
+      workspaceRoot
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.kind).toBe('text')
+    expect(result.mimeType).toBe('text/plain; charset=utf-8')
+    expect(result.content).toBe('inside')
   })
 
   it('renames files within the selected workspace', async () => {

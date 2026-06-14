@@ -133,4 +133,68 @@ describe('write workspace file actions', () => {
     expect(result).toBe(false)
     expect(get().fileError).toBe('delete failed')
   })
+
+  it('opens PDF files through the unified workspace file reader', async () => {
+    const readWorkspaceFile = vi.fn(async () => ({
+      ok: true as const,
+      kind: 'pdf' as const,
+      path: '/tmp/write/papers/study.pdf',
+      content: '' as const,
+      dataBase64: 'JVBERi0xLjQ=',
+      mimeType: 'application/pdf' as const,
+      size: 2048,
+      truncated: false as const,
+      mtimeMs: 1234
+    }))
+    installDsGui({
+      readWorkspaceFile
+    })
+    const { actions, get } = createHarness()
+
+    await actions.openFile('/tmp/write', '/tmp/write/papers/study.pdf')
+
+    expect(readWorkspaceFile).toHaveBeenCalledWith({
+      workspaceRoot: '/tmp/write',
+      path: '/tmp/write/papers/study.pdf'
+    })
+    expect(get()).toMatchObject({
+      activeFilePath: '/tmp/write/papers/study.pdf',
+      activeFileKind: 'pdf',
+      fileContent: '',
+      imageDataUrl: '',
+      imageMimeType: '',
+      pdfDataBase64: 'JVBERi0xLjQ=',
+      pdfMimeType: 'application/pdf',
+      pdfMtimeMs: 1234,
+      fileSize: 2048,
+      fileTruncated: false,
+      fileLoading: false,
+      fileError: null,
+      saveStatus: 'saved',
+      quotedSelections: []
+    })
+    expect(get().selection).toEqual({ text: '', ranges: [], charCount: 0 })
+  })
+
+  it('rejects PDF paths when the unified reader returns a non-PDF result', async () => {
+    installDsGui({
+      readWorkspaceFile: vi.fn(async () => ({
+        ok: true as const,
+        kind: 'text' as const,
+        path: '/tmp/write/papers/study.pdf',
+        content: 'not actually a pdf',
+        mimeType: 'text/plain',
+        size: 18,
+        truncated: false
+      }))
+    })
+    const { actions, get } = createHarness()
+
+    await actions.openFile('/tmp/write', '/tmp/write/papers/study.pdf')
+
+    expect(get().activeFilePath).toBeNull()
+    expect(get().activeFileKind).toBeNull()
+    expect(get().fileLoading).toBe(false)
+    expect(get().fileError).toBeTruthy()
+  })
 })

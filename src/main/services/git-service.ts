@@ -1,8 +1,21 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { GitBranchesResult } from '../../shared/git-branches'
+import { findNearestGitRoot } from './git-discovery'
 
 const execFileAsync = promisify(execFile)
+
+function noWorkspaceResult(): GitBranchesResult {
+  return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
+}
+
+function notGitRepoResult(): GitBranchesResult {
+  return { ok: false, reason: 'not_git_repo', message: 'The working directory is not a Git repository.' }
+}
+
+async function resolveGitCwd(workspaceRoot: string): Promise<string | null> {
+  return findNearestGitRoot(workspaceRoot)
+}
 
 async function runGit(
   cwd: string,
@@ -12,13 +25,26 @@ async function runGit(
   const { stdout, stderr } = await execFileAsync('git', args, {
     cwd,
     timeout,
-    maxBuffer: 1024 * 1024
+    maxBuffer: 1024 * 1024,
+    env: { ...process.env, LC_ALL: 'C', LANG: 'C' }
   })
   return { stdout: String(stdout), stderr: String(stderr) }
 }
 
+function gitErrorText(error: unknown): string {
+  const details: string[] = []
+  if (error instanceof Error) details.push(error.message)
+
+  const stderr = (error as { stderr?: unknown } | null)?.stderr
+  if (typeof stderr === 'string') details.push(stderr)
+  if (Buffer.isBuffer(stderr)) details.push(stderr.toString('utf8'))
+
+  if (details.length > 0) return details.join('\n')
+  return String(error)
+}
+
 function gitFailure(error: unknown): GitBranchesResult {
-  const message = error instanceof Error ? error.message : String(error)
+  const message = gitErrorText(error)
   if (/not a git repository/i.test(message)) {
     return { ok: false, reason: 'not_git_repo', message: 'The working directory is not a Git repository.' }
   }
@@ -29,10 +55,12 @@ function gitFailure(error: unknown): GitBranchesResult {
 }
 
 export async function getGitBranches(workspaceRoot: string): Promise<GitBranchesResult> {
-  const cwd = workspaceRoot.trim()
-  if (!cwd) {
-    return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
-  }
+  const workspace = workspaceRoot.trim()
+  if (!workspace) return noWorkspaceResult()
+
+  const cwd = await resolveGitCwd(workspace)
+  if (!cwd) return notGitRepoResult()
+
   try {
     const repositoryRoot = (await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim()
     const currentRaw = (await runGit(cwd, ['branch', '--show-current'])).stdout.trim()
@@ -60,10 +88,14 @@ export async function switchGitBranch(
   workspaceRoot: string,
   branchName: string
 ): Promise<GitBranchesResult> {
-  const cwd = workspaceRoot.trim()
+  const workspace = workspaceRoot.trim()
   const branch = branchName.trim()
-  if (!cwd) return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
+  if (!workspace) return noWorkspaceResult()
   if (!branch) return { ok: false, reason: 'error', message: 'Branch name is required.' }
+
+  const cwd = await resolveGitCwd(workspace)
+  if (!cwd) return notGitRepoResult()
+
   try {
     try {
       await runGit(cwd, ['switch', branch], 20_000)
@@ -80,10 +112,14 @@ export async function createAndSwitchGitBranch(
   workspaceRoot: string,
   branchName: string
 ): Promise<GitBranchesResult> {
-  const cwd = workspaceRoot.trim()
+  const workspace = workspaceRoot.trim()
   const branch = branchName.trim()
-  if (!cwd) return { ok: false, reason: 'no_workspace', message: 'No working directory selected.' }
+  if (!workspace) return noWorkspaceResult()
   if (!branch) return { ok: false, reason: 'error', message: 'Branch name is required.' }
+
+  const cwd = await resolveGitCwd(workspace)
+  if (!cwd) return notGitRepoResult()
+
   try {
     await runGit(cwd, ['check-ref-format', '--branch', branch])
     try {

@@ -68,6 +68,7 @@ import {
   runtimeRequestPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
   shellOpenExternalUrlSchema,
+  speechTranscriptionPayloadSchema,
   skillListPayloadSchema,
   skillSaveFilePayloadSchema,
   settingsPatchSchema,
@@ -102,6 +103,10 @@ import type {
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse
 } from '../../shared/agent-runtime-contract'
+import type {
+  SpeechTranscriptionRequest,
+  SpeechTranscriptionResult
+} from '../../shared/speech-to-text'
 import type {
   AgentRuntimeApprovalResolveInput,
   AgentRuntimeEventSubscribeInput,
@@ -142,6 +147,7 @@ import {
   listWriteInlineCompletionDebugEntries,
   requestWriteInlineCompletion
 } from '../services/write-inline-completion-service'
+import { requestSpeechTranscription } from '../services/speech-to-text-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { listGuiSkills } from '../services/skill-service'
 
@@ -236,6 +242,10 @@ type RegisterAppIpcHandlersOptions = {
   loadGuiUpdaterModule: () => Promise<GuiUpdaterModule>
   resolveLogDirectory: () => string
   logError: (category: string, message: string, detail?: unknown) => void
+  transcribeSpeech?: (
+    settings: AppSettingsV1,
+    request: SpeechTranscriptionRequest
+  ) => Promise<SpeechTranscriptionResult>
 }
 
 function parseIpcPayload<T>(channel: string, schema: z.ZodType<T>, payload: unknown): T {
@@ -345,7 +355,8 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     readGuiUpdateState,
     loadGuiUpdaterModule,
     resolveLogDirectory,
-    logError
+    logError,
+    transcribeSpeech = requestSpeechTranscription
   } = options
   const workspaceFileWatchers = new Map<string, WorkspaceFileWatchRecord>()
   const agentRuntimeEventStreams = new Map<string, AgentRuntimeEventStreamRecord>()
@@ -1117,6 +1128,12 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     requestWriteInlineCompletion(
       await store.load(),
       parseIpcPayload('write:inline-completion', writeInlineCompletionPayloadSchema, payload)
+    )
+  )
+  handleInvoke('speech:transcribe', async (_, payload: unknown) =>
+    transcribeSpeech(
+      await store.load(),
+      parseIpcPayload('speech:transcribe', speechTranscriptionPayloadSchema, payload)
     )
   )
   handleInvoke('write:inline-completion-debug:list', async () => listWriteInlineCompletionDebugEntries())

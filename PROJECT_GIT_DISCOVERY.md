@@ -1,6 +1,6 @@
 # DeepSeek GUI Git 发现修复任务板
 
-更新时间：2026-06-13
+更新时间：2026-06-14
 
 ## 核心目标
 
@@ -25,17 +25,23 @@ Kun 上游仓库在本机：
 
 ## 引入范围
 
-- [ ] 新增或替换通用 `findNearestGitRoot(workspaceRoot)` 逻辑。
-- [ ] `getGitBranches`、`switchGitBranch`、`createAndSwitchGitBranch` 使用最近 Git root。
-- [ ] 对 subdirectory workspace root 增加集成测试。
-- [ ] 对非 Git workspace 保持可解释失败。
+- [x] 新增或替换通用 `findNearestGitRoot(workspaceRoot)` 逻辑。
+- [x] `getGitBranches`、`switchGitBranch`、`createAndSwitchGitBranch` 使用最近 Git root。
+- [x] 对 subdirectory workspace root 增加集成测试。
+- [x] 对非 Git workspace 保持可解释失败。
+- [x] 执行 Git 命令时固定诊断语言环境，避免中文/本地化 git stderr 影响“非仓库”错误分类。
+
+## Kun v0.2.10 增量纳入项
+
+- [x] 纳入 `fix(git): detect non-repo dirs regardless of git locale`：参考 Kun `src/main/services/git-service.ts` 中 `LC_ALL=C` / `LANG=C` 设置。
+- [x] 错误分类逻辑必须基于通用 git 语义，不为某一种本地化字符串写特例补丁。
 
 ## 不引入范围
 
-- [ ] 不新增 Git UI。
-- [ ] 不改变分支选择器的视觉设计。
-- [ ] 不引入 Kun branding。
-- [ ] 不改变 workspace 绑定策略。
+- [x] 不新增 Git UI。
+- [x] 不改变分支选择器的视觉设计。
+- [x] 不引入 Kun branding。
+- [x] 不改变 workspace 绑定策略。
 
 ## 并行边界
 
@@ -59,10 +65,12 @@ Kun 上游仓库在本机：
 - Kun `src/main/services/git-discovery.ts`
 - Kun `src/main/services/git-service.test.ts`
 - Kun commits: `fix(git): walk up directory tree to find nearest .git root`
+- Kun commit: `fix(git): detect non-repo dirs regardless of git locale`
 
 ## 验收清单
 
-- [ ] workspace 指向仓库根时，分支功能正常。
-- [ ] workspace 指向仓库子目录时，能找到最近 `.git` 根。
-- [ ] 嵌套 Git 仓库时，选择最近的 Git root。
-- [ ] 非 Git 目录返回可解释错误，不抛未处理异常。
+- [x] workspace 指向仓库根时，分支功能正常。
+- [x] workspace 指向仓库子目录时，能找到最近 `.git` 根。
+- [x] 嵌套 Git 仓库时，选择最近的 Git root。
+- [x] 非 Git 目录返回可解释错误，不抛未处理异常。
+- [x] macOS/Windows/Linux 上 git stderr 本地化不影响非仓库状态识别。

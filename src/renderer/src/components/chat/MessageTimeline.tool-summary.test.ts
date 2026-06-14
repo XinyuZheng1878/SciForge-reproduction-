@@ -164,6 +164,95 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
     expect(html).not.toContain('Attachments 1')
   })
 
+  it('keeps id-only image attachments in the timeline until their content loads', () => {
+    const block: ChatBlock = {
+      kind: 'user',
+      id: 'user_1',
+      text: 'attached image',
+      meta: {
+        attachmentIds: ['att_1']
+      }
+    }
+
+    const html = renderToStaticMarkup(createElement(MessageBubble, { block }))
+
+    expect(html).toContain('att_1')
+    expect(html).toContain('Preview unavailable')
+    expect(html).not.toContain('Attachments 1')
+  })
+
+  it('renders assistant generated image metadata below markdown text', () => {
+    const block: ChatBlock = {
+      kind: 'assistant',
+      id: 'assistant_1',
+      text: 'Here is the image.',
+      meta: {
+        generatedFiles: [{
+          name: 'plot.png',
+          mimeType: 'image/png',
+          dataUrl: 'data:image/png;base64,abc'
+        }]
+      }
+    }
+
+    const html = renderToStaticMarkup(createElement(MessageBubble, { block }))
+
+    expect(html).toContain('Here is the image.')
+    expect(html).toContain('<img')
+    expect(html).toContain('src="data:image/png;base64,abc"')
+    expect(html).toContain('plot.png')
+  })
+
+  it('surfaces successful tool result images in the completed turn body', () => {
+    const blocks: ChatBlock[] = [
+      { kind: 'user', id: 'user_image', text: 'make an image' },
+      toolBlock({
+        id: 'tool_image',
+        summary: 'created image',
+        meta: {
+          generatedFiles: [{
+            fileName: 'generated.png',
+            mimeType: 'image/png',
+            dataUrl: 'data:image/png;base64,tool'
+          }]
+        }
+      })
+    ]
+
+    const html = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        blocks,
+        liveReasoning: '',
+        live: '',
+        activeThreadId: 'thr_1',
+        runtimeConnection: 'ready',
+        onRetryConnection: () => undefined,
+        onOpenSettings: () => undefined
+      })
+    )
+
+    expect(html).toContain('generated.png')
+    expect(html).toContain('src="data:image/png;base64,tool"')
+  })
+
+  it('renders an explanatory fallback when an image path has not loaded', () => {
+    const block: ChatBlock = toolBlock({
+      summary: 'created image',
+      meta: {
+        generatedFiles: [{
+          fileName: 'missing.png',
+          mimeType: 'image/png',
+          path: '/tmp/project/missing.png'
+        }]
+      }
+    })
+
+    const html = renderToStaticMarkup(createElement(MessageBubble, { block }))
+
+    expect(html).toContain('missing.png')
+    expect(html).toContain('Preview unavailable')
+  })
+
   it('renders managed Claw prompts as the user-visible message', () => {
     const block: ChatBlock = {
       kind: 'user',
@@ -286,6 +375,61 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
     expect(html).toContain('ds-shiny-text')
     expect(html).not.toContain('partial tool output while running')
     expect(html).toContain('ds-process-file-reference')
+  })
+
+  it('shows failed tool details by default while keeping the row collapsible', () => {
+    const block: ChatBlock = toolBlock({
+      summary: 'recognize_image: input',
+      status: 'error',
+      detail: 'model request failed with status 401',
+      meta: { toolName: 'recognize_image' }
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(ProcessSectionRow, {
+        section: { id: 'execution-tool_error', kind: 'execution', blocks: [block] },
+        processing: false,
+        singleReasoningSection: false,
+        viewportRef: { current: null }
+      })
+    )
+
+    expect(html).toContain('Recognize')
+    expect(html).toContain('image input')
+    expect(html).toContain('model request failed with status 401')
+    expect(html).toContain('role="button"')
+    expect(html).toContain('aria-expanded="true"')
+  })
+
+  it('shows failed same-batch tool details by default without opening successful tools', () => {
+    const failedBlock: ChatBlock = toolBlock({
+      id: 'tool_failed',
+      summary: 'recognize_image: input',
+      status: 'error',
+      detail: 'failed image detail should be visible',
+      meta: { toolName: 'recognize_image' }
+    })
+    const readBlock: ChatBlock = toolBlock({
+      id: 'tool_read',
+      summary: 'read: file',
+      detail: 'read detail should stay tucked away',
+      meta: { toolName: 'read' },
+      filePath: '/tmp/readme.md'
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(ProcessSectionRow, {
+        section: { id: 'execution-batch', kind: 'execution', blocks: [failedBlock, readBlock] },
+        processing: false,
+        singleReasoningSection: false,
+        viewportRef: { current: null }
+      })
+    )
+
+    expect(html).toContain('ds-work-stack')
+    expect(html).toContain('failed image detail should be visible')
+    expect(html).not.toContain('read detail should stay tucked away')
+    expect(html).toContain('aria-expanded="true"')
   })
 
   it('expands active reasoning so the current process is visible', () => {
@@ -414,6 +558,34 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
     expect(html).toContain('<textarea')
     expect(html).not.toContain('userInputOther')
     expect(html).not.toContain('其他')
+    expect(html).not.toContain('role="button"')
+    expect(html).not.toContain('aria-expanded')
+  })
+
+  it('keeps pending approval details force-expanded without a row toggle', () => {
+    const approvalBlock: ChatBlock = {
+      kind: 'approval',
+      id: 'approval_1',
+      approvalId: 'approval_1',
+      status: 'pending',
+      summary: 'Run command?',
+      toolName: 'bash'
+    }
+
+    const html = renderToStaticMarkup(
+      createElement(ProcessSectionRow, {
+        section: { id: 'execution-approval', kind: 'execution', blocks: [approvalBlock] },
+        processing: true,
+        singleReasoningSection: false,
+        viewportRef: { current: null }
+      })
+    )
+
+    expect(html).toContain('Run command?')
+    expect(html).toContain('Approval required')
+    expect(html).toContain('Allow')
+    expect(html).not.toContain('role="button"')
+    expect(html).not.toContain('aria-expanded')
   })
 
   it('expands the live work timeline by default while keeping tool details collapsed', () => {

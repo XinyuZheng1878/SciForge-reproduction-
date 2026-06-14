@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   isWriteImageFileExtension,
   isWriteImageFilePath,
+  isWritePdfFileExtension,
+  isWritePdfFilePath,
   isWriteTextFileExtension,
   isWriteTextFilePath,
   isWriteWorkspaceFilePath,
@@ -28,6 +30,12 @@ describe('write text file helpers', () => {
     expect(isWriteImageFileExtension('.svg')).toBe(false)
   })
 
+  it('accepts pdf files for read-only preview', () => {
+    expect(isWritePdfFileExtension('.pdf')).toBe(true)
+    expect(isWritePdfFileExtension('.PDF')).toBe(true)
+    expect(isWritePdfFileExtension('.docx')).toBe(false)
+  })
+
   it('checks file paths with extension matching', () => {
     expect(isWriteTextFilePath('/tmp/draft.md')).toBe(true)
     expect(isWriteTextFilePath('/tmp/notes.TXT')).toBe(true)
@@ -35,7 +43,9 @@ describe('write text file helpers', () => {
     expect(isWriteTextFilePath('/tmp/folder/no-ext')).toBe(false)
 
     expect(isWriteImageFilePath('/tmp/img/hero.PNG')).toBe(true)
+    expect(isWritePdfFilePath('/tmp/papers/study.PDF')).toBe(true)
     expect(isWriteWorkspaceFilePath('/tmp/img/hero.PNG')).toBe(true)
+    expect(isWriteWorkspaceFilePath('/tmp/papers/study.PDF')).toBe(true)
     expect(isWriteWorkspaceFilePath('/tmp/folder/no-ext')).toBe(false)
   })
 
@@ -57,6 +67,12 @@ describe('write text file helpers', () => {
       path: '/tmp/hero.png',
       type: 'file',
       ext: '.png'
+    })).toBe(true)
+    expect(isWriteWorkspaceEntry({
+      name: 'study.pdf',
+      path: '/tmp/study.pdf',
+      type: 'file',
+      ext: '.pdf'
     })).toBe(true)
     expect(isWriteWorkspaceEntry({
       name: 'data.json',

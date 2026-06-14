@@ -17,6 +17,7 @@ import {
   scheduleTaskFromTextPayloadSchema,
   settingsPatchSchema,
   shellOpenExternalUrlSchema,
+  speechTranscriptionPayloadSchema,
   skillListPayloadSchema,
   sseStartPayloadSchema,
   workspaceDirectoryCreatePayloadSchema,
@@ -237,6 +238,47 @@ describe('app-ipc-schemas', () => {
       workspaceRoot: ' /tmp/workspace '
     })).toEqual({ workspaceRoot: '/tmp/workspace' })
     expect(skillListPayloadSchema.parse({})).toEqual({})
+  })
+
+  it('accepts speech transcription payloads with resolved provider settings', () => {
+    const payload = speechTranscriptionPayloadSchema.parse({
+      audioBase64: Buffer.from('fake-wav-bytes').toString('base64'),
+      mimeType: ' audio/wav ',
+      durationMs: 1200,
+      speechToText: {
+        enabled: true,
+        protocol: 'openai-transcriptions',
+        baseUrl: ' https://speech.example.test/v1 ',
+        apiKey: 'sk-speech',
+        model: ' whisper-1 ',
+        language: ' zh ',
+        timeoutMs: 30000
+      }
+    })
+
+    expect(payload).toEqual({
+      audioBase64: Buffer.from('fake-wav-bytes').toString('base64'),
+      mimeType: 'audio/wav',
+      durationMs: 1200,
+      speechToText: {
+        enabled: true,
+        protocol: 'openai-transcriptions',
+        baseUrl: 'https://speech.example.test/v1',
+        apiKey: 'sk-speech',
+        model: 'whisper-1',
+        language: 'zh',
+        timeoutMs: 30000
+      }
+    })
+  })
+
+  it('rejects non-audio speech transcription payloads', () => {
+    expect(() =>
+      speechTranscriptionPayloadSchema.parse({
+        audioBase64: Buffer.from('fake-image-bytes').toString('base64'),
+        mimeType: 'image/png'
+      })
+    ).toThrow(/audio MIME type/)
   })
 
   it('accepts Kun thread goal endpoints', () => {

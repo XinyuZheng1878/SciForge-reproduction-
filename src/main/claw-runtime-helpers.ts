@@ -111,6 +111,7 @@ export type TurnItemJson = {
   kind: string
   turnId?: string
   status?: string
+  toolName?: string
   toolKind?: string
   output?: unknown
   isError?: boolean | null
@@ -225,8 +226,8 @@ export const CLAW_IM_PROVIDER_CAPABILITIES: Record<ClawImProvider, ClawImProvide
       preserveCodeBlocks: true
     },
     attachments: {
-      file: { supported: false, maxCount: 0, maxBytes: 0 },
-      image: { supported: false, maxCount: 0, maxBytes: 0 },
+      file: { supported: true, maxCount: 3, maxBytes: 50 * 1024 * 1024 },
+      image: { supported: true, maxCount: 3, maxBytes: 20 * 1024 * 1024 },
       link: { supported: true, maxCount: 20, maxBytes: 0 }
     },
     retry: {
@@ -761,23 +762,52 @@ function outputRecord(output: unknown): Record<string, unknown> | null {
     : null
 }
 
-function generatedFileFromToolResult(
-  item: TurnItemJson,
+function generatedFileFromRecord(
+  record: Record<string, unknown>,
   workspaceRoot: string
 ): ClawGeneratedFileV1 | null {
-  if (item.toolKind !== 'file_change' || item.isError === true) return null
-  if (item.kind !== 'tool_result' && item.kind !== 'tool') return null
-  const output = outputRecord(item.output)
-  const meta = outputRecord((item as { meta?: unknown }).meta)
-  const path = asString(output?.path) || asString(output?.absolute_path) || asString(meta?.filePath)
-  const relativePath = asString(output?.relative_path) || asString(meta?.relativePath)
+  const path = asString(record.path) || asString(record.absolutePath) || asString(record.absolute_path)
+  const relativePath = asString(record.relativePath) || asString(record.relative_path)
   const resolvedPath = path || (workspaceRoot && relativePath ? join(workspaceRoot, relativePath) : '')
   if (!resolvedPath) return null
   return {
     path: resolvedPath,
     ...(relativePath ? { relativePath } : {}),
-    fileName: basename(relativePath || resolvedPath)
+    fileName: asString(record.fileName) || asString(record.name) || basename(relativePath || resolvedPath)
   }
+}
+
+function generatedFilesFromToolResult(
+  item: TurnItemJson,
+  workspaceRoot: string
+): ClawGeneratedFileV1[] {
+  if ((item.kind !== 'tool_result' && item.kind !== 'tool') || item.isError === true) return []
+  const output = outputRecord(item.output)
+  if (!output) return []
+  const meta = outputRecord((item as { meta?: unknown }).meta)
+  if (item.toolKind === 'file_change') {
+    const file = generatedFileFromRecord({
+      ...output,
+      path: asString(output.path) || asString(output.absolute_path) || asString(meta?.filePath),
+      relative_path: asString(output.relative_path) || asString(meta?.relativePath)
+    }, workspaceRoot)
+    return file ? [file] : []
+  }
+  const toolName = item.toolName?.trim()
+  if (
+    (toolName === 'generate_image' ||
+      toolName === 'generate_speech' ||
+      toolName === 'generate_music' ||
+      toolName === 'generate_video') &&
+    Array.isArray(output.files)
+  ) {
+    return output.files
+      .map((entry) => outputRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => entry !== null)
+      .map((entry) => generatedFileFromRecord(entry, workspaceRoot))
+      .filter((file): file is ClawGeneratedFileV1 => file !== null)
+  }
+  return []
 }
 
 function threadItems(detail: ThreadDetailJson): TurnItemJson[] {
@@ -811,10 +841,11 @@ function extractGeneratedFiles(
 ): ClawGeneratedFileV1[] {
   const files: ClawGeneratedFileV1[] = []
   for (let index = items.length - 1; index >= 0; index -= 1) {
-    const file = generatedFileFromToolResult(items[index], workspaceRoot)
-    if (!file) continue
-    if (files.some((existing) => isPathLikeDuplicate(existing, file))) continue
-    files.push(file)
+    for (const file of generatedFilesFromToolResult(items[index], workspaceRoot).reverse()) {
+      if (files.some((existing) => isPathLikeDuplicate(existing, file))) continue
+      files.push(file)
+      if (files.length >= maxFiles) break
+    }
     if (files.length >= maxFiles) break
   }
   return files.reverse()
@@ -829,12 +860,11 @@ export function latestGeneratedFiles(
   const items = threadItems(detail)
   const turnId = options.turnId?.trim()
   if (turnId) {
-    const currentTurnFiles = extractGeneratedFiles(
+    return extractGeneratedFiles(
       items.filter((item) => item.turnId === turnId),
       workspaceRoot,
       maxFiles
     )
-    if (currentTurnFiles.length > 0) return currentTurnFiles
   }
   return extractGeneratedFiles(items, workspaceRoot, maxFiles)
 }
@@ -857,7 +887,10 @@ export function shouldSendGeneratedFilesForPrompt(prompt: string): boolean {
   if (!text) return false
   return /发给我|发送给我|发一下|发来|发过来|传给我|传过来|上传|附件|以附件|发文件|文件发|文档发/i.test(text) ||
     /\b(send|attach|attachment|upload)\b/i.test(text) ||
-    /给我(?:一个|一份)?.{0,24}(文档|文件|\.(?:md|txt|pdf|docx|xlsx|csv|pptx))/i.test(text)
+    /给我(?:一个|一份)?.{0,24}(文档|文件|\.(?:md|txt|pdf|docx|xlsx|csv|pptx))/i.test(text) ||
+    /(生成|画|绘制|做|制作|创建|出).{0,24}(图|图片|图像|照片|海报|插画|表情包|logo)/i.test(text) ||
+    /(生成|做|制作|创建|配|出).{0,24}(语音|音频|朗读|旁白|配音|音乐|歌曲|视频|短片|影片)/i.test(text) ||
+    /\b(generate|create|draw|make)\b.{0,40}\b(image|picture|photo|poster|illustration|meme|logo|speech|voice|audio|music|song|video)\b/i.test(text)
 }
 
 export function shouldDirectSendExistingGeneratedFilesForPrompt(prompt: string): boolean {

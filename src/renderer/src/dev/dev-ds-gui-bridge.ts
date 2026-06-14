@@ -173,6 +173,9 @@ function createApi(): DsGuiApi {
     clearWriteInlineCompletionDebugEntries: () => invoke('write:inline-completion-debug:clear'),
     exportWriteDocument: (payload) => invoke('write:export', payload),
     copyWriteDocumentAsRichText: (payload) => invoke('write:copy-rich-text', payload),
+    speechToText: {
+      transcribe: (payload) => invoke('speech:transcribe', payload)
+    },
     startSse: (threadId, sinceSeq, streamId, runtimeId) =>
       invoke('runtime:sse:start', {
         threadId,
@@ -184,6 +187,7 @@ function createApi(): DsGuiApi {
     onSseEvent: (handler) => onChannel('runtime:sse-event', handler),
     onSseEnd: (handler) => onChannel('runtime:sse-end', handler),
     onSseError: (handler) => onChannel('runtime:sse-error', handler),
+    onRuntimeStatus: (handler) => onChannel('runtime:status', handler),
     agentRuntime: {
       connect: (runtimeId) => invoke('agentRuntime:connect', { runtimeId }),
       capabilities: (runtimeId) => invoke('agentRuntime:capabilities', { runtimeId }),

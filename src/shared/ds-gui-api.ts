@@ -71,6 +71,10 @@ import type {
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse
 } from './agent-runtime-contract'
+import type {
+  SpeechTranscriptionRequest,
+  SpeechTranscriptionResult
+} from './speech-to-text'
 
 export type RuntimeRequestResult = { ok: boolean; status: number; body: string }
 export type WorkspacePickResult = { canceled: boolean; path: string | null }
@@ -299,9 +303,31 @@ export type DiscordTestSendResult =
 export type DiscordGuardResult =
   | { ok: true; status: DiscordBotStatus }
   | { ok: false; message: string; status?: DiscordBotStatus; conflict?: DiscordGuardConflictStatus }
-export type SseEventPayload = { streamId: string; data: unknown }
+export type SseEventPayload = {
+  streamId: string
+  /** Batched runtime events. New legacy-SSE consumers should prefer this field. */
+  events?: unknown[]
+  /** First event in the batch, retained for older compatibility shims. */
+  data?: unknown
+}
 export type SseEndPayload = { streamId: string }
 export type SseErrorPayload = { streamId: string; status?: number; message?: string }
+export type KunRuntimeStatusState =
+  | 'starting'
+  | 'running'
+  | 'restarting'
+  | 'crashed'
+  | 'failed'
+  | 'stopped'
+export type KunRuntimeStatusPayload = {
+  state: KunRuntimeStatusState
+  source: string
+  message?: string
+  stderrTail?: string
+  attempt?: number
+  maxAttempts?: number
+  at: string
+}
 
 export type DsGuiApi = {
   platform: string
@@ -390,6 +416,9 @@ export type DsGuiApi = {
   copyWriteDocumentAsRichText: (
     payload: WriteRichClipboardPayload
   ) => Promise<WriteRichClipboardResult>
+  speechToText: {
+    transcribe: (payload: SpeechTranscriptionRequest) => Promise<SpeechTranscriptionResult>
+  }
   /** Legacy Kun SSE compatibility bridge. New UI/runtime code must use `agentRuntime.subscribeEvents`. */
   startSse: (
     threadId: string,
@@ -401,6 +430,7 @@ export type DsGuiApi = {
   onSseEvent: (handler: (payload: SseEventPayload) => void) => () => void
   onSseEnd: (handler: (payload: SseEndPayload) => void) => () => void
   onSseError: (handler: (payload: SseErrorPayload) => void) => () => void
+  onRuntimeStatus: (handler: (payload: KunRuntimeStatusPayload) => void) => () => void
   agentRuntime: {
     connect: (runtimeId?: AgentRuntimeThreadListInput['runtimeId']) => Promise<void>
     capabilities: (runtimeId?: AgentRuntimeThreadListInput['runtimeId']) => Promise<AgentRuntimeCapabilities>

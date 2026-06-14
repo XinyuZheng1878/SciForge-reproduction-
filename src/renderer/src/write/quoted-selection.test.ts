@@ -20,6 +20,7 @@ describe('write quoted selections', () => {
     const quote = {
       id: 'quote-1',
       text: 'Selected paragraph',
+      sourceKind: 'text' as const,
       sourceTitle: 'notes/draft.md',
       sourceFilePath: '/tmp/workspace/notes/draft.md',
       lineStart: 3,
@@ -31,6 +32,122 @@ describe('write quoted selections', () => {
     expect(formatWriteQuotedSelectionForPrompt(quote)).toContain('第3-5行')
     expect(formatWriteQuotedSelectionForPrompt(quote)).toContain(WRITE_QUOTE_ORIGINAL_START)
     expect(formatWriteQuotedSelectionForPrompt(quote)).toContain(WRITE_QUOTE_ORIGINAL_END)
+  })
+
+  it('formats and parses PDF selected text with page context', () => {
+    const quote = {
+      id: 'quote-pdf-1',
+      text: 'Important PDF passage',
+      sourceKind: 'pdf' as const,
+      sourceTitle: 'papers/study.pdf',
+      sourceFilePath: '/tmp/workspace/papers/study.pdf',
+      pageStart: 2,
+      pageEnd: 4,
+      rects: [{ page: 2, x: 10.5, y: 20, width: 120, height: 14 }],
+      charCount: 21,
+      createdAt: '2026-05-24T00:00:00.000Z'
+    }
+
+    const prompt = composeWritePrompt('总结这段', [quote])
+
+    expect(formatWriteQuotedSelectionForPrompt(quote)).toContain('第2-4页')
+    expect(formatWriteQuotedSelectionForPrompt(quote)).toContain('位置: p.2 x=10.5 y=20 w=120 h=14')
+    const parsed = parseWritePromptForDisplay(prompt)
+    expect(parsed?.quotes[0]).toMatchObject({
+      sourceKind: 'pdf',
+      sourceTitle: 'papers/study.pdf',
+      sourceFilePath: '/tmp/workspace/papers/study.pdf',
+      pageStart: 2,
+      pageEnd: 4,
+      position: 'p.2 x=10.5 y=20 w=120 h=14',
+      charCount: 21,
+      text: 'Important PDF passage'
+    })
+  })
+
+  it('creates PDF quotes from page-aware selections', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.2)
+    const quote = quotedSelectionFromEditor({
+      text: 'PDF passage',
+      ranges: [{
+        from: 0,
+        to: 11,
+        startLine: 2,
+        startColumn: 1,
+        endLine: 3,
+        endColumn: 12,
+        text: 'PDF passage',
+        charCount: 11,
+        page: 2
+      }],
+      sourceKind: 'pdf',
+      pageStart: 2,
+      pageEnd: 3,
+      rects: [{ page: 2, x: 10, y: 20, width: 30, height: 12 }],
+      charCount: 11
+    }, '/tmp/workspace/papers/study.pdf', '/tmp/workspace', Date.parse('2026-05-24T00:00:00.000Z'))
+
+    expect(quote).toMatchObject({
+      sourceKind: 'pdf',
+      sourceTitle: 'papers/study.pdf',
+      pageStart: 2,
+      pageEnd: 3,
+      rects: [{ page: 2, x: 10, y: 20, width: 30, height: 12 }]
+    })
+    vi.restoreAllMocks()
+  })
+
+  it('derives PDF page context from rect metadata when page fields are missing', () => {
+    const quote = {
+      id: 'quote-pdf-rect-only',
+      text: 'Rect only passage',
+      sourceKind: 'pdf' as const,
+      sourceTitle: 'paper.pdf',
+      sourceFilePath: '/tmp/workspace/paper.pdf',
+      rects: [
+        { page: 8, x: 10, y: 20, width: 30, height: 12 },
+        { page: 7, x: 12, y: 40, width: 28, height: 10 }
+      ],
+      charCount: 17,
+      createdAt: '2026-05-24T00:00:00.000Z'
+    }
+
+    const prompt = formatWriteQuotedSelectionForPrompt(quote)
+
+    expect(prompt).toContain('第7-8页')
+    expect(prompt).toContain('等2处')
+  })
+
+  it('ignores invalid PDF rect metadata without dropping the quote', () => {
+    const quote = quotedSelectionFromEditor({
+      text: 'PDF passage',
+      ranges: [{
+        from: 0,
+        to: 11,
+        startLine: 5,
+        startColumn: 1,
+        endLine: 5,
+        endColumn: 12,
+        text: 'PDF passage',
+        charCount: 11,
+        page: 5
+      }],
+      sourceKind: 'pdf',
+      pageStart: 6,
+      pageEnd: 5,
+      rects: [
+        { page: 5, x: 10, y: 20, width: 0, height: 12 },
+        { page: 5, x: Number.NaN, y: 20, width: 30, height: 12 }
+      ],
+      charCount: 11
+    }, '/tmp/workspace/papers/study.pdf', '/tmp/workspace', Date.parse('2026-05-24T00:00:00.000Z'))
+
+    expect(quote).toMatchObject({
+      sourceKind: 'pdf',
+      pageStart: 5,
+      pageEnd: 6
+    })
+    expect(quote?.rects).toBeUndefined()
   })
 
   it('does not create a quote for empty selections', () => {
@@ -73,6 +190,7 @@ describe('write quoted selections', () => {
       [{
         id: 'quote-1',
         text: "Hi, I'm zxy. Glad to meet you.",
+        sourceKind: 'text',
         sourceTitle: 'welcome.md',
         sourceFilePath: '/tmp/workspace/welcome.md',
         lineStart: 10,

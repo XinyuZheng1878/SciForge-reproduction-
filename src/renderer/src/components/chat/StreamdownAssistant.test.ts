@@ -16,4 +16,9 @@ describe('shouldAnimateStreamingText', () => {
     expect(shouldAnimateStreamingText('- one\n- two')).toBe(false)
     expect(shouldAnimateStreamingText('Use `npm test` next.')).toBe(false)
   })
+
+  it('does not animate markdown image syntax while streaming', () => {
+    expect(shouldAnimateStreamingText('![plot](plot.png)')).toBe(false)
+    expect(shouldAnimateStreamingText('![plot](data:image/png;base64,abc)')).toBe(false)
+  })
 })

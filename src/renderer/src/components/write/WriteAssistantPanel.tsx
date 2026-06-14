@@ -16,6 +16,7 @@ import {
   useWriteWorkspaceStore,
   writeRelativeToWorkspace
 } from '../../write/write-workspace-store'
+import type { WriteQuotedSelection } from '../../write/quoted-selection'
 import { MessageTimeline } from '../chat/MessageTimeline'
 import { FloatingComposer } from '../chat/FloatingComposer'
 import type { ComposerReasoningEffort } from '../chat/FloatingComposerModelPicker'
@@ -47,6 +48,19 @@ type Props = {
   onNewConversation: () => void
   onCollapse: () => void
   className?: string
+}
+
+function quotedSelectionTrayLocation(quote: WriteQuotedSelection): string {
+  if (quote.sourceKind === 'pdf') {
+    const rectPages = quote.rects?.map((rect) => rect.page).filter((page) => Number.isFinite(page) && page > 0) ?? []
+    const pageStart = quote.pageStart ?? (rectPages.length > 0 ? Math.min(...rectPages) : undefined)
+    const pageEnd = quote.pageEnd ?? (rectPages.length > 0 ? Math.max(...rectPages) : pageStart)
+    if (pageStart != null && pageEnd != null) {
+      return ` · p.${pageStart === pageEnd ? pageStart : `${pageStart}-${pageEnd}`}`
+    }
+  }
+  if (quote.lineStart != null && quote.lineEnd != null) return ` · ${quote.lineStart}-${quote.lineEnd}`
+  return ''
 }
 
 export function WriteAssistantPanel({
@@ -230,7 +244,7 @@ export function WriteAssistantPanel({
                 <MessageSquareQuote className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.9} />
                 <span className="min-w-0 flex-1 truncate">
                   {quote.sourceTitle}
-                  {quote.lineStart != null && quote.lineEnd != null ? ` · ${quote.lineStart}-${quote.lineEnd}` : ''}
+                  {quotedSelectionTrayLocation(quote)}
                 </span>
                 <button
                   type="button"

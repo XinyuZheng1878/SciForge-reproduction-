@@ -33,17 +33,26 @@ describe('Attachment store and multimodal input', () => {
       name: 'shot.png',
       data,
       mimeType: 'image/png',
+      localFilePath: '/tmp/ws/shot.png',
       threadId: 'thr_1',
       workspace: '/tmp/ws'
     })
     const second = await store.create({
       name: 'shot-again.png',
       data,
+      localFilePath: '/tmp/ws/shot-again.png',
       threadId: 'thr_1'
     })
 
     expect(second.id).toBe(first.id)
-    expect(first).toMatchObject({ mimeType: 'image/png', width: 2, height: 3, byteSize: data.byteLength })
+    expect(first).toMatchObject({
+      mimeType: 'image/png',
+      width: 2,
+      height: 3,
+      byteSize: data.byteLength,
+      localFilePath: '/tmp/ws/shot.png'
+    })
+    expect(second).toMatchObject({ localFilePath: '/tmp/ws/shot-again.png' })
     await expect(store.resolveContent(first.id, { threadId: 'thr_2' })).rejects.toThrow(/not authorized/)
     await expect(store.resolveContent(first.id, { workspace: '/tmp/ws' })).resolves.toMatchObject({ id: first.id })
   })
@@ -113,6 +122,7 @@ describe('Attachment store and multimodal input', () => {
           name: 'shot.png',
           mimeType: 'image/png',
           dataBase64: png(1, 1).toString('base64'),
+          localFilePath: '/tmp/ws/shot.png',
           threadId: 'thr_1',
           textFallback: {
             dataBase64: 'abcd',
@@ -137,6 +147,7 @@ describe('Attachment store and multimodal input', () => {
     expect(metadata.status).toBe(200)
     expect(await readJson(metadata)).toMatchObject({
       attachment: {
+        localFilePath: '/tmp/ws/shot.png',
         textFallback: {
           dataBase64: 'abcd',
           mimeType: 'image/png'

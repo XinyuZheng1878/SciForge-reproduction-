@@ -271,6 +271,9 @@ function ProcessStackRows({
 }): ReactElement {
   const { t } = useTranslation('common')
   const [openBlockId, setOpenBlockId] = useState<string | null>(null)
+  const [closedDefaultOpenBlockIds, setClosedDefaultOpenBlockIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
 
   return (
     <div className="ds-work-stack">
@@ -280,13 +283,35 @@ function ProcessStackRows({
         const isRunningTool = processBlockIsRunningTool(block, processing)
         const canExpand = detail.kind !== 'none'
         const autoOpenRequestInput = processing && isRequestUserInputTool(block)
-        const open = canExpand && (processBlockHasError(block) || autoOpenRequestInput || openBlockId === block.id)
-        const rowActive = processBlockIsActive(block, processing)
+        const autoOpenPending = processBlockIsAutoOpenPending(block, processing)
         const isError = processBlockHasError(block)
-        const canToggle = canExpand && !autoOpenRequestInput
+        const forceOpen = autoOpenPending || autoOpenRequestInput
+        const defaultOpen = isError
+        const userClosed = closedDefaultOpenBlockIds.has(block.id)
+        const userOpened = openBlockId === block.id
+        const open = canExpand && (forceOpen || userOpened || (defaultOpen && !userClosed))
+        const rowActive = processBlockIsActive(block, processing)
+        const canToggle = canExpand && !forceOpen
         const handleToggle = (): void => {
           if (!canToggle) return
-          setOpenBlockId((id) => (id === block.id ? null : block.id))
+          if (open) {
+            setOpenBlockId((id) => (id === block.id ? null : id))
+            if (defaultOpen) {
+              setClosedDefaultOpenBlockIds((ids) => {
+                const next = new Set(ids)
+                next.add(block.id)
+                return next
+              })
+            }
+            return
+          }
+          setClosedDefaultOpenBlockIds((ids) => {
+            if (!ids.has(block.id)) return ids
+            const next = new Set(ids)
+            next.delete(block.id)
+            return next
+          })
+          setOpenBlockId(block.id)
         }
         const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
           if (!canToggle) return
@@ -300,6 +325,7 @@ function ProcessStackRows({
             <div
               role={canToggle ? 'button' : undefined}
               tabIndex={canToggle ? 0 : undefined}
+              aria-expanded={canToggle ? open : undefined}
               onClick={handleToggle}
               onKeyDown={handleKeyDown}
               className={`group flex w-full min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-[13.5px] leading-6 transition ${
@@ -346,7 +372,7 @@ function ProcessEntryRow({
   processing: boolean
 }): ReactElement {
   const { t } = useTranslation('common')
-  const [userOpen, setUserOpen] = useState(false)
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
   const summary = describeProcessBlock(block, t)
   const detail = getProcessDetail(block, summary)
   const canExpand = detail.kind !== 'none'
@@ -355,17 +381,19 @@ function ProcessEntryRow({
   const isAutoOpenPending = processBlockIsAutoOpenPending(block, processing)
   const isStreamingAssistant = processing && block.kind === 'assistant' && block.id === 'live-assistant'
   const isError = processBlockHasError(block)
+  const forceOpen = isAutoOpenPending || isAssistantProcessText || isStreamingAssistant
+  const defaultOpen = isError
   const open =
     canExpand &&
-    (isError || isAssistantProcessText || isAutoOpenPending || isStreamingAssistant || userOpen)
+    (forceOpen || (userOpen ?? defaultOpen))
 
   const { verb, rest } = splitVerb(summary)
   const rowActive = isRunningTool || isAutoOpenPending || isStreamingAssistant
   const wrapSummary = (block.kind === 'system' && !canExpand) || isAssistantProcessText
-  const canToggle = canExpand && !isAutoOpenPending && !isAssistantProcessText
+  const canToggle = canExpand && !forceOpen
   const handleToggle = (): void => {
     if (!canToggle) return
-    setUserOpen((v) => !v)
+    setUserOpen(!open)
   }
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (!canToggle) return
@@ -379,6 +407,7 @@ function ProcessEntryRow({
       <div
         role={canToggle ? 'button' : undefined}
         tabIndex={canToggle ? 0 : undefined}
+        aria-expanded={canToggle ? open : undefined}
         onClick={handleToggle}
         onKeyDown={handleKeyDown}
         className={`group flex w-full items-start gap-2 rounded-md px-2 py-1 text-left text-[13.5px] leading-[1.55] transition ${

@@ -14,6 +14,8 @@ type Props = {
   onValueChange: (value: string) => void
   onSubmitPrompt: (value: string) => void
   onApplyEdit: (value: string) => void
+  onQuoteSelection?: () => void
+  primaryAction?: 'apply' | 'send'
 }
 
 export function WriteInlineAgent({
@@ -26,7 +28,9 @@ export function WriteInlineAgent({
   onClose,
   onValueChange,
   onSubmitPrompt,
-  onApplyEdit
+  onApplyEdit,
+  onQuoteSelection,
+  primaryAction = 'apply'
 }: Props): ReactElement {
   const { t } = useTranslation('common')
 
@@ -77,23 +81,37 @@ export function WriteInlineAgent({
           <button
             type="button"
             className="write-inline-agent-secondary"
-            aria-label={t('writeInlineAgentSend')}
-            title={t('writeInlineAgentSend')}
-            disabled={!value.trim() || inFlight}
-            onClick={() => onSubmitPrompt(value)}
+            aria-label={onQuoteSelection ? t('writeInlineAgentQuoteSelection') : t('writeInlineAgentSend')}
+            title={onQuoteSelection ? t('writeInlineAgentQuoteSelection') : t('writeInlineAgentSend')}
+            disabled={onQuoteSelection ? inFlight : !value.trim() || inFlight}
+            onClick={() => {
+              if (onQuoteSelection) {
+                onQuoteSelection()
+                return
+              }
+              onSubmitPrompt(value)
+            }}
           >
             <MessageSquareQuote className="h-4 w-4" strokeWidth={1.9} />
           </button>
           <button
             type="button"
             className="write-inline-agent-submit"
-            aria-label={inFlight ? t('writeInlineEditApplying') : t('writeInlineEditApply')}
-            title={inFlight ? t('writeInlineEditApplying') : t('writeInlineEditApply')}
+            aria-label={inFlight ? t('writeInlineEditApplying') : primaryAction === 'send' ? t('writeInlineAgentSend') : t('writeInlineEditApply')}
+            title={inFlight ? t('writeInlineEditApplying') : primaryAction === 'send' ? t('writeInlineAgentSend') : t('writeInlineEditApply')}
             disabled={!value.trim() || inFlight}
-            onClick={() => onApplyEdit(value)}
+            onClick={() => {
+              if (primaryAction === 'send') {
+                onSubmitPrompt(value)
+                return
+              }
+              onApplyEdit(value)
+            }}
           >
             {inFlight ? (
               <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+            ) : primaryAction === 'send' ? (
+              <MessageSquareQuote className="h-4 w-4" strokeWidth={2} />
             ) : (
               <Sparkles className="h-4 w-4" strokeWidth={2} />
             )}

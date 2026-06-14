@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { DsGuiApi } from '../shared/ds-gui-api'
 
+const transcribeSpeech = (payload: Parameters<DsGuiApi['speechToText']['transcribe']>[0]) =>
+  ipcRenderer.invoke('speech:transcribe', payload)
+
 const api = {
   platform: process.platform,
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -109,6 +112,9 @@ const api = {
     ipcRenderer.invoke('write:inline-completion-debug:list'),
   clearWriteInlineCompletionDebugEntries: () =>
     ipcRenderer.invoke('write:inline-completion-debug:clear'),
+  speechToText: {
+    transcribe: transcribeSpeech
+  },
   // Legacy Kun SSE compatibility bridge; new runtime UI uses agentRuntime.subscribeEvents.
   startSse: (threadId, sinceSeq, streamId, runtimeId?: 'kun' | 'codex') =>
     ipcRenderer.invoke('runtime:sse:start', {
@@ -187,6 +193,14 @@ const api = {
     ) => handler(payload)
     ipcRenderer.on('runtime:sse-error', wrapped)
     return () => ipcRenderer.removeListener('runtime:sse-error', wrapped)
+  },
+  onRuntimeStatus: (handler) => {
+    const wrapped = (
+      _: Electron.IpcRendererEvent,
+      payload: Parameters<typeof handler>[0]
+    ) => handler(payload)
+    ipcRenderer.on('runtime:status', wrapped)
+    return () => ipcRenderer.removeListener('runtime:status', wrapped)
   },
   onClawChannelActivity: (handler) => {
     const wrapped = (

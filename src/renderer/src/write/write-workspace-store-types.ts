@@ -4,9 +4,9 @@ import type { WriteEditorSelectionState } from '../components/write/WriteMarkdow
 import type { WriteQuotedSelection } from './quoted-selection'
 import type { WriteRecentEdit } from './recent-edits'
 
-export type WritePreviewMode = 'source' | 'live' | 'split' | 'preview'
+export type WritePreviewMode = 'rich' | 'source' | 'live' | 'split' | 'preview'
 export type WriteSaveStatus = 'saved' | 'dirty' | 'saving' | 'error'
-export type WriteActiveFileKind = 'text' | 'image'
+export type WriteActiveFileKind = 'text' | 'image' | 'pdf'
 
 export type WriteWorkspaceState = {
   defaultWorkspaceRoot: string
@@ -26,6 +26,9 @@ export type WriteWorkspaceState = {
   fileContent: string
   imageDataUrl: string
   imageMimeType: string
+  pdfDataBase64: string
+  pdfMimeType: string
+  pdfMtimeMs: number
   fileSize: number
   fileTruncated: boolean
   fileError: string | null
@@ -71,7 +74,7 @@ export type WriteWorkspaceState = {
   setAssistantModel: (model: string) => void
   setSelection: (selection: WriteEditorSelectionState) => void
   recordRecentEdits: (edits: WriteRecentEdit[]) => void
-  quoteCurrentSelection: (workspaceRoot: string) => void
+  quoteCurrentSelection: (workspaceRoot: string, selection?: WriteEditorSelectionState) => void
   removeQuotedSelection: (id: string) => void
   clearQuotedSelections: () => void
   resetWorkspace: () => void

@@ -1,5 +1,5 @@
 import {
-  getKunRuntimeSettings,
+  resolveKunRuntimeSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
 import type {
@@ -99,13 +99,13 @@ export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOpti
     },
 
     async startThread(context, input) {
-      const runtime = getKunRuntimeSettings(context.settings)
+      const runtime = resolveKunRuntimeSettings(context.settings)
       const payload = await requestJson(options, context, '/v1/threads', {
         method: 'POST',
         body: JSON.stringify({
           workspace: input.workspace || context.settings.workspaceRoot || '~',
           title: input.title,
-          model: input.model || runtime.model,
+          model: resolveKunRequestModel(runtime.model, input.model),
           mode: normalizeThreadMode(input.mode),
           approvalPolicy: runtime.approvalPolicy,
           sandboxMode: runtime.sandboxMode
@@ -120,13 +120,18 @@ export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOpti
     },
 
     async startTurn(context, input) {
-      const body: Record<string, unknown> = { prompt: input.text }
-      if (input.model?.trim()) body.model = input.model.trim()
+      const runtime = resolveKunRuntimeSettings(context.settings)
+      const body: Record<string, unknown> = {
+        prompt: input.text,
+        model: resolveKunRequestModel(runtime.model, input.model)
+      }
       if (input.reasoningEffort?.trim()) body.reasoningEffort = input.reasoningEffort.trim()
       if (input.displayText?.trim() && input.displayText.trim() !== input.text.trim()) {
         body.displayText = input.displayText.trim()
       }
       if (isKunThreadMode(input.mode)) body.mode = input.mode
+      body.approvalPolicy = runtime.approvalPolicy
+      body.sandboxMode = runtime.sandboxMode
       if (input.guiPlan) body.guiPlan = input.guiPlan
       if (input.attachmentIds?.length) body.attachmentIds = input.attachmentIds
       const payload = await requestJson(options, context, kunThreadTurnsPath(input.threadId), {
@@ -203,12 +208,12 @@ export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOpti
     },
 
     async resumeSession(context, input) {
-      const runtime = getKunRuntimeSettings(context.settings)
+      const runtime = resolveKunRuntimeSettings(context.settings)
       const payload = await requestJson(options, context, kunSessionResumePath(input.sessionId), {
         method: 'POST',
         body: JSON.stringify({
           workspace: context.settings.workspaceRoot || undefined,
-          model: input.model?.trim() || runtime.model,
+          model: resolveKunRequestModel(runtime.model, input.model),
           mode: isKunThreadMode(input.mode) ? input.mode : undefined
         })
       })
@@ -239,6 +244,13 @@ export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOpti
       return kunAuxiliary(options, context, input)
     }
   }
+}
+
+function resolveKunRequestModel(resolvedRuntimeModel: string, inputModel: string | undefined): string {
+  const requestedModel = inputModel?.trim()
+  return requestedModel && requestedModel.toLowerCase() !== 'auto'
+    ? requestedModel
+    : resolvedRuntimeModel
 }
 
 async function kunAuxiliary(

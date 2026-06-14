@@ -1,4 +1,5 @@
 export * from './codemirror'
+export * from './codemirror-editor'
 export * from './context'
 export * from './feedback'
 export * from './policy'

@@ -25,6 +25,7 @@ import {
   ReadTracker,
   type ReadTrackerOptions
 } from './read-tracker.js'
+import { sandboxBlockForTool, type SandboxBlock } from './sandbox-policy.js'
 
 /**
  * A single registered tool. Tools are pure functions that observe the
@@ -114,6 +115,13 @@ export class LocalToolHost implements ToolHost {
     if (tool.policy === 'never') {
       throw new Error(`tool ${call.toolName} is disabled by policy`)
     }
+    const sandboxBlock = sandboxBlockForTool(tool, context)
+    if (sandboxBlock) {
+      return {
+        item: this.errorToolResult(context, call, tool, sandboxBlock.message, sandboxBlock.code),
+        approved: false
+      }
+    }
     let preHookResults
     try {
       preHookResults = await runToolHooks({
@@ -145,14 +153,15 @@ export class LocalToolHost implements ToolHost {
         approved: false
       }
     }
-    if (this.isBlockedByRuntimePolicy(tool, activeCall, context)) {
+    const runtimeBlock = this.runtimePolicyBlock(tool, activeCall, context)
+    if (runtimeBlock) {
       return {
         item: this.errorToolResult(
           context,
           activeCall,
           tool,
-          `tool ${activeCall.toolName} is disabled by runtime approval policy`,
-          'approval_policy_blocked'
+          runtimeBlock.message,
+          runtimeBlock.code
         ),
         approved: false
       }
@@ -183,21 +192,31 @@ export class LocalToolHost implements ToolHost {
     if (context.abortSignal.aborted) {
       throw new Error('tool call aborted while waiting for approval')
     }
-    const result = await tool.execute(activeCall.arguments, context, async (update) => {
-      if (!onUpdate) return
-      const partialItem = makeToolResultItem({
-        id: `item_${activeCall.callId}`,
-        turnId: context.turnId,
-        threadId: context.threadId,
-        callId: activeCall.callId,
-        toolName: activeCall.toolName,
-        toolKind: activeCall.toolKind ?? tool.toolKind,
-        output: update.output,
-        isError: update.isError,
-        status: 'running'
+    let result: Awaited<ReturnType<LocalTool['execute']>>
+    try {
+      result = await tool.execute(activeCall.arguments, context, async (update) => {
+        if (!onUpdate) return
+        const partialItem = makeToolResultItem({
+          id: `item_${activeCall.callId}`,
+          turnId: context.turnId,
+          threadId: context.threadId,
+          callId: activeCall.callId,
+          toolName: activeCall.toolName,
+          toolKind: activeCall.toolKind ?? tool.toolKind,
+          output: update.output,
+          isError: update.isError,
+          status: 'running'
+        })
+        await onUpdate(partialItem)
       })
-      await onUpdate(partialItem)
-    })
+    } catch (error) {
+      if (context.abortSignal.aborted) throw error
+      const message = error instanceof Error ? error.message : String(error)
+      return {
+        item: this.errorToolResult(context, activeCall, tool, message, 'tool_execution_failed'),
+        approved: true
+      }
+    }
     let postHookResults
     try {
       postHookResults = await runToolHooks({
@@ -242,14 +261,23 @@ export class LocalToolHost implements ToolHost {
     this.readTracker.clear(threadId)
   }
 
-  private isBlockedByRuntimePolicy(
+  private runtimePolicyBlock(
     tool: LocalTool,
     call: ToolCallLike,
     context: ToolHostContext
-  ): boolean {
-    if (this.isInteractiveGuiGateTool(call.toolName)) return false
-    if (context.approvalPolicy !== 'never') return false
-    return tool.policy !== 'never'
+  ): SandboxBlock | { code: 'approval_policy_blocked'; message: string } | null {
+    const sandboxBlock = sandboxBlockForTool(
+      { name: call.toolName, toolKind: call.toolKind ?? tool.toolKind },
+      context
+    )
+    if (sandboxBlock) return sandboxBlock
+    if (this.isInteractiveGuiGateTool(call.toolName)) return null
+    if (context.approvalPolicy !== 'never') return null
+    if (tool.policy === 'never') return null
+    return {
+      code: 'approval_policy_blocked',
+      message: `tool ${call.toolName} is disabled by runtime approval policy`
+    }
   }
 
   private requiresApproval(tool: LocalTool, call: ToolCallLike, context: ToolHostContext): boolean {
@@ -318,12 +346,13 @@ export class LocalToolHost implements ToolHost {
 
 function hookContext(
   context: ToolHostContext
-): Pick<ToolHostContext, 'threadId' | 'turnId' | 'workspace' | 'threadMode' | 'approvalPolicy'> {
+): Pick<ToolHostContext, 'threadId' | 'turnId' | 'workspace' | 'threadMode' | 'approvalPolicy' | 'sandboxMode'> {
   return {
     threadId: context.threadId,
     turnId: context.turnId,
     workspace: context.workspace,
     approvalPolicy: context.approvalPolicy,
+    ...(context.sandboxMode ? { sandboxMode: context.sandboxMode } : {}),
     ...(context.threadMode ? { threadMode: context.threadMode } : {})
   }
 }

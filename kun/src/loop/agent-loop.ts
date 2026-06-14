@@ -8,7 +8,7 @@ import type {
   ToolProviderKind
 } from '../ports/tool-host.js'
 import type { ModelCapabilityMetadata } from '../contracts/capabilities.js'
-import { DEFAULT_APPROVAL_POLICY } from '../contracts/policy.js'
+import { DEFAULT_APPROVAL_POLICY, DEFAULT_SANDBOX_MODE } from '../contracts/policy.js'
 import type { ThreadStore } from '../ports/thread-store.js'
 import type { SessionStore } from '../ports/session-store.js'
 import type { ApprovalGate } from '../ports/approval-gate.js'
@@ -73,6 +73,7 @@ import { shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
 
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const MAX_PARALLEL_TOOL_CALLS = 3
+const MAX_TURN_MODEL_STEPS = 64
 const DEFAULT_COMPACTION_SUMMARY_TIMEOUT_MS = 15_000
 const DEFAULT_COMPACTION_SUMMARY_MAX_TOKENS = 1_200
 const DEFAULT_COMPACTION_SUMMARY_INPUT_MAX_BYTES = 96 * 1024
@@ -116,13 +117,40 @@ type ToolCatalogDrift =
  */
 export const PLAN_MODE_INSTRUCTION = [
   'You are in Plan mode.',
-  'Investigate the task first using read-only tools and commands: prefer `read`, `grep`, `find`, `ls`, and safe read-only shell commands appropriate for the host platform via `bash` to gather the facts you need.',
-  'Do NOT modify project files, apply edits, or run mutating commands in this mode.',
+  'Investigate the task first using read-only tools: prefer `read`, `grep`, `find`, and `ls` to gather the facts you need.',
+  'Do NOT modify project files, apply edits, run shell commands, or run mutating commands in this mode.',
   'When you understand the task well enough, call the `create_plan` tool to save a complete implementation plan as Markdown.',
   'Use `operation: "draft"` for the first plan, and `operation: "refine"` when revising an existing plan; you may call `create_plan` multiple times as the plan evolves.',
   'Write concrete, actionable steps (summary, implementation steps, tests, risks) rather than vague intentions.',
   'After saving, give the user a short summary of the plan and what to review.'
 ].join('\n')
+
+const PLAN_READ_ONLY_TOOL_NAMES = new Set([
+  'read',
+  'ls',
+  'find',
+  'grep',
+  'web_search',
+  'web_fetch'
+])
+
+export function resolvePlanModeToolSpecs(
+  toolSpecs: ModelToolSpec[],
+  options: {
+    planTurnActive: boolean
+    createPlanSatisfied: boolean
+    stepIndex: number
+    readOnlyToolNames?: ReadonlySet<string>
+    planToolName?: string
+  }
+): ModelToolSpec[] {
+  if (!options.planTurnActive || options.createPlanSatisfied) return toolSpecs
+  const readOnly = options.readOnlyToolNames ?? PLAN_READ_ONLY_TOOL_NAMES
+  const planTool = options.planToolName ?? CREATE_PLAN_TOOL_NAME
+  return options.stepIndex === 0
+    ? toolSpecs.filter((tool) => tool.name === planTool || readOnly.has(tool.name))
+    : toolSpecs.filter((tool) => tool.name === planTool)
+}
 
 function goalContinuationInstruction(goal: ThreadGoal | undefined): string | null {
   if (!goal || goal.status !== 'active') return null
@@ -160,6 +188,56 @@ function goalContinuationInstruction(goal: ThreadGoal | undefined): string | nul
     '',
     `Do not call ${UPDATE_GOAL_TOOL_NAME} unless the goal is complete or the strict blocked audit above is satisfied.`
   ].join('\n')
+}
+
+const GOAL_NO_TOOL_REPEAT_SIMILARITY = 0.85
+const GOAL_NO_TOOL_REPEAT_MIN_LENGTH = 12
+const GOAL_NO_TOOL_REPEAT_MAX_RECOVERY_STEPS = 3
+
+function goalNoToolRecoveryInstruction(recoveryStep: number): string {
+  return [
+    'Goal continuation recovery:',
+    `- The active goal continuation has produced near-identical no-tool replies ${recoveryStep} time(s).`,
+    '- Do not repeat the same status update, promise, or summary again.',
+    `- If the objective is actually achieved, call ${UPDATE_GOAL_TOOL_NAME} with status "complete" after verifying the current state.`,
+    `- If the strict blocked audit is satisfied, call ${UPDATE_GOAL_TOOL_NAME} with status "blocked".`,
+    '- Otherwise, continue with new substantive work or call an available tool to make concrete progress.'
+  ].join('\n')
+}
+
+function isRepeatedNoToolAssistantText(previous: string | undefined, current: string): boolean {
+  if (previous === undefined) return false
+  const a = normalizeNoToolAssistantText(previous)
+  const b = normalizeNoToolAssistantText(current)
+  if (a === b) return true
+  if (a.length < GOAL_NO_TOOL_REPEAT_MIN_LENGTH || b.length < GOAL_NO_TOOL_REPEAT_MIN_LENGTH) {
+    return false
+  }
+  return charBigramDiceSimilarity(a, b) >= GOAL_NO_TOOL_REPEAT_SIMILARITY
+}
+
+function normalizeNoToolAssistantText(text: string): string {
+  return text.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '')
+}
+
+function charBigramDiceSimilarity(a: string, b: string): number {
+  const bigramsA = charBigramCounts(a)
+  const bigramsB = charBigramCounts(b)
+  let shared = 0
+  for (const [bigram, countA] of bigramsA) {
+    const countB = bigramsB.get(bigram)
+    if (countB) shared += Math.min(countA, countB)
+  }
+  return (2 * shared) / (a.length - 1 + b.length - 1)
+}
+
+function charBigramCounts(text: string): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (let index = 0; index < text.length - 1; index += 1) {
+    const bigram = text.slice(index, index + 2)
+    counts.set(bigram, (counts.get(bigram) ?? 0) + 1)
+  }
+  return counts
 }
 
 function todoContinuationInstruction(todos: ThreadTodoList | undefined): string | null {
@@ -288,6 +366,8 @@ export class AgentLoop {
   private readonly promptTokenPressure = new Map<string, { model: string; promptTokens: number }>()
   private readonly toolStormBreakers = new Map<string, ToolStormBreaker>()
   private readonly toolCatalogSnapshots = new Map<string, ToolCatalogSnapshot>()
+  private readonly lastNoToolTextByTurn = new Map<string, string>()
+  private readonly goalNoToolRecoveryStepsByTurn = new Map<string, number>()
 
   constructor(opts: AgentLoopOptions) {
     this.opts = opts
@@ -348,6 +428,8 @@ export class AgentLoop {
       await this.finishGoalElapsedTimer(threadId, goalTimer)
       this.autoModelRoutes.delete(autoModelRouteKey(threadId, turnId))
       this.toolStormBreakers.delete(turnId)
+      this.lastNoToolTextByTurn.delete(turnId)
+      this.goalNoToolRecoveryStepsByTurn.delete(turnId)
     }
   }
 
@@ -427,6 +509,30 @@ export class AgentLoop {
   ): Promise<'completed' | 'failed' | 'aborted'> {
     for (let step = 0; ; step += 1) {
       if (signal.aborted) return 'aborted'
+      if (step >= MAX_TURN_MODEL_STEPS) {
+        const message =
+          `Turn stopped after ${MAX_TURN_MODEL_STEPS} model steps without reaching a final response.`
+        await this.opts.events.record({
+          kind: 'error',
+          threadId,
+          turnId,
+          message,
+          code: 'turn_step_limit_exceeded',
+          severity: 'error'
+        })
+        await this.opts.turns.applyItem(
+          threadId,
+          makeErrorItem({
+            id: this.opts.ids.next('item_error'),
+            turnId,
+            threadId,
+            message,
+            code: 'turn_step_limit_exceeded',
+            severity: 'error'
+          })
+        )
+        return 'failed'
+      }
       await this.drainSteering(threadId, turnId, signal)
       const stepResult = await this.modelStep(threadId, turnId, signal, step)
       if (stepResult === 'stop') return 'completed'
@@ -480,7 +586,8 @@ export class AgentLoop {
     const items = repairModelHistoryItems(
       effectiveHistoryAfterLatestCompaction(healed.items)
     )
-    const approvalPolicy = normalizeApprovalPolicy(thread?.approvalPolicy)
+    const approvalPolicy = normalizeApprovalPolicy(turn?.approvalPolicy ?? thread?.approvalPolicy)
+    const sandboxMode = normalizeSandboxMode(turn?.sandboxMode ?? thread?.sandboxMode)
     // Per-turn mode overrides the thread mode so the GUI can toggle
     // Plan/agent (and run Build as agent) without recreating the thread.
     const effectiveMode = turn?.mode ?? thread?.mode
@@ -539,12 +646,21 @@ export class AgentLoop {
       delegationPolicy: { enabled: false },
       ...(allowedToolNames ? { allowedToolNames } : {}),
       approvalPolicy,
+      sandboxMode,
       abortSignal: signal,
       awaitApproval: async () => 'allow',
       awaitUserInput: (input) => this.awaitUserInput(threadId, turnId, input, signal)
     }
     const tools = await this.opts.toolHost.listTools(toolContext)
     const toolSpecs: ModelToolSpec[] = tools
+    const createPlanSatisfied = planTurnActive
+      ? hasSuccessfulCreatePlanResult(healed.items, turnId)
+      : false
+    const effectiveToolSpecs = resolvePlanModeToolSpecs(toolSpecs, {
+      planTurnActive,
+      createPlanSatisfied,
+      stepIndex
+    })
     const toolProviderMetadata = new Map(
       tools.map((tool) => [tool.name, { providerId: tool.providerId, providerKind: tool.providerKind }])
     )
@@ -585,14 +701,11 @@ export class AgentLoop {
       })
     }
     if (toolCatalogDrift.kind === 'breaking') return 'stop'
-    const toolKinds = new Map(toolSpecs.map((tool) => [tool.name, tool.toolKind]))
-    const createPlanSatisfied = planTurnActive
-      ? hasSuccessfulCreatePlanResult(healed.items, turnId)
-      : false
+    const toolKinds = new Map(tools.map((tool) => [tool.name, tool.toolKind]))
     const requiredToolName =
       planTurnActive &&
       !createPlanSatisfied &&
-      toolSpecs.some((tool) => tool.name === CREATE_PLAN_TOOL_NAME)
+      effectiveToolSpecs.some((tool) => tool.name === CREATE_PLAN_TOOL_NAME)
         ? CREATE_PLAN_TOOL_NAME
         : undefined
     // Final step of a plan turn that still owes a plan. Offer ONLY create_plan
@@ -606,10 +719,13 @@ export class AgentLoop {
     })
     const contextInstructions = [
       ...(activeGoalInstruction ? [activeGoalInstruction] : []),
+      ...(activeGoalInstruction && (this.goalNoToolRecoveryStepsByTurn.get(turnId) ?? 0) > 0
+        ? [goalNoToolRecoveryInstruction(this.goalNoToolRecoveryStepsByTurn.get(turnId) ?? 0)]
+        : []),
       ...(activeTodoInstruction ? [activeTodoInstruction] : []),
       ...memoryInstructions(memories),
       ...skillResolution.instructions,
-      ...(toolSpecs.some((tool) => tool.name === 'bash') ? [shellRuntimeInstruction()] : []),
+      ...(effectiveToolSpecs.some((tool) => tool.name === 'bash') ? [shellRuntimeInstruction()] : []),
       ...(toolCatalogDriftMessage ? [toolCatalogDriftMessage] : [])
     ]
     await this.recordPipelineStage(threadId, turnId, 'input_remembered', {
@@ -628,7 +744,7 @@ export class AgentLoop {
       history,
       ...(attachments.imageAttachments.length ? { attachments: attachments.imageAttachments } : {}),
       ...(attachments.textFallbacks.length ? { attachmentTextFallbacks: attachments.textFallbacks } : {}),
-      tools: toolSpecs,
+      tools: effectiveToolSpecs,
       ...(requiredToolName ? { requiredToolName } : {}),
       ...(modelRoute.reasoningEffort ? { reasoningEffort: modelRoute.reasoningEffort } : {}),
       abortSignal: signal
@@ -881,9 +997,11 @@ export class AgentLoop {
             allowedToolNames,
             toolProviderKinds: new Map(tools.map((tool) => [tool.name, tool.providerKind])),
             approvalPolicy,
+            sandboxMode,
             signal
           })
           if (dispatched === 'aborted') return 'aborted'
+          if (dispatched === 'all_suppressed') return 'stop'
           return 'continue'
         }
         const message = `Model did not call the required \`${request.requiredToolName}\` tool for this GUI plan turn.`
@@ -906,9 +1024,48 @@ export class AgentLoop {
         )
         return 'failed'
       }
-      if (stopReason === 'stop' && activeGoalInstruction) return 'continue'
+      if (stopReason === 'stop' && activeGoalInstruction) {
+        const previousText = this.lastNoToolTextByTurn.get(turnId)
+        if (isRepeatedNoToolAssistantText(previousText, textAccumulator.value)) {
+          const recoverySteps = (this.goalNoToolRecoveryStepsByTurn.get(turnId) ?? 0) + 1
+          if (recoverySteps <= GOAL_NO_TOOL_REPEAT_MAX_RECOVERY_STEPS) {
+            this.goalNoToolRecoveryStepsByTurn.set(turnId, recoverySteps)
+            this.lastNoToolTextByTurn.set(turnId, textAccumulator.value)
+            return 'continue'
+          }
+          const message =
+            'Goal continuation stopped: the model kept repeating near-identical replies without calling tools or updating the goal.'
+          await this.opts.turns.applyItem(
+            threadId,
+            makeErrorItem({
+              id: this.opts.ids.next('item_error'),
+              turnId,
+              threadId,
+              message,
+              code: 'goal_repetition_stop',
+              severity: 'warning'
+            })
+          )
+          await this.opts.events.record({
+            kind: 'error',
+            threadId,
+            turnId,
+            message,
+            code: 'goal_repetition_stop',
+            severity: 'warning'
+          })
+          this.lastNoToolTextByTurn.delete(turnId)
+          this.goalNoToolRecoveryStepsByTurn.delete(turnId)
+          return 'stop'
+        }
+        this.goalNoToolRecoveryStepsByTurn.delete(turnId)
+        this.lastNoToolTextByTurn.set(turnId, textAccumulator.value)
+        return 'continue'
+      }
       return 'stop'
     }
+    this.lastNoToolTextByTurn.delete(turnId)
+    this.goalNoToolRecoveryStepsByTurn.delete(turnId)
     const dispatched = await this.dispatchToolCalls({
       calls: completedToolCalls,
       threadId,
@@ -921,9 +1078,11 @@ export class AgentLoop {
       allowedToolNames,
       toolProviderKinds: new Map(tools.map((tool) => [tool.name, tool.providerKind])),
       approvalPolicy,
+      sandboxMode,
       signal
     })
     if (dispatched === 'aborted') return 'aborted'
+    if (dispatched === 'all_suppressed') return 'stop'
     return 'continue'
   }
 
@@ -939,10 +1098,12 @@ export class AgentLoop {
     allowedToolNames?: readonly string[]
     toolProviderKinds: ReadonlyMap<string, ToolProviderKind | undefined>
     approvalPolicy: ToolHostContext['approvalPolicy']
+    sandboxMode: NonNullable<ToolHostContext['sandboxMode']>
     signal: AbortSignal
-  }): Promise<'continue' | 'aborted'> {
+  }): Promise<'continue' | 'aborted' | 'all_suppressed'> {
     const context = this.createToolContext(input)
     let index = 0
+    let executedAny = false
 
     while (index < input.calls.length) {
       if (input.signal.aborted) return 'aborted'
@@ -963,12 +1124,13 @@ export class AgentLoop {
       }
 
       if (!this.isParallelSafeToolCall(call, input.approvalPolicy, input.toolProviderKinds)) {
-        const result = await this.executeToolCall({
+        const result = await this.executeToolCallSafely({
           threadId: input.threadId,
           turnId: input.turnId,
           call,
           context
         })
+        executedAny = true
         await this.persistToolCallResult(input.threadId, input.turnId, call, result)
         index += 1
         continue
@@ -996,7 +1158,7 @@ export class AgentLoop {
 
       const settled = await Promise.allSettled(
         batch.map((entry) =>
-          this.executeToolCall({
+          this.executeToolCallSafely({
             threadId: input.threadId,
             turnId: input.turnId,
             call: entry,
@@ -1004,6 +1166,7 @@ export class AgentLoop {
           })
         )
       )
+      executedAny = true
       for (let batchIndex = 0; batchIndex < batch.length; batchIndex += 1) {
         const result = settled[batchIndex]
         const batchCall = batch[batchIndex]
@@ -1022,7 +1185,7 @@ export class AgentLoop {
       }
     }
 
-    return 'continue'
+    return executedAny ? 'continue' : 'all_suppressed'
   }
 
   private isParallelSafeToolCall(
@@ -1046,6 +1209,7 @@ export class AgentLoop {
     activeSkillIds: readonly string[]
     allowedToolNames?: readonly string[]
     approvalPolicy: ToolHostContext['approvalPolicy']
+    sandboxMode: NonNullable<ToolHostContext['sandboxMode']>
     signal: AbortSignal
   }): ToolHostContext {
     return {
@@ -1060,6 +1224,7 @@ export class AgentLoop {
       delegationPolicy: { enabled: false },
       ...(input.allowedToolNames ? { allowedToolNames: input.allowedToolNames } : {}),
       approvalPolicy: input.approvalPolicy,
+      sandboxMode: input.sandboxMode,
       abortSignal: input.signal,
       awaitApproval: async (approval) => {
         await this.opts.events.record({
@@ -1069,6 +1234,8 @@ export class AgentLoop {
           approvalId: approval.id,
           toolName: approval.toolName,
           status: 'pending',
+          approvalPolicy: input.approvalPolicy,
+          sandboxMode: input.sandboxMode,
           summary: approval.summary
         })
         return this.opts.approvalGate.request(approval)
@@ -1146,6 +1313,46 @@ export class AgentLoop {
       message.includes(' is not advertised') ||
       message.includes(' is disabled by policy')
     )
+  }
+
+  private async executeToolCallSafely(input: {
+    threadId: string
+    turnId: string
+    call: ToolCallLike
+    context: ToolHostContext
+  }): Promise<ToolHostResult> {
+    try {
+      return await this.executeToolCall(input)
+    } catch (error) {
+      if (input.context.abortSignal.aborted) throw error
+      const message = error instanceof Error ? error.message : String(error)
+      await this.opts.events.record({
+        kind: 'error',
+        threadId: input.threadId,
+        turnId: input.turnId,
+        message: `Tool call ${input.call.toolName} failed: ${message}`,
+        code: 'tool_execution_failed',
+        severity: 'warning'
+      })
+      return {
+        item: makeToolResultItem({
+          id: `item_${input.call.callId}`,
+          turnId: input.turnId,
+          threadId: input.threadId,
+          callId: input.call.callId,
+          toolName: input.call.toolName,
+          toolKind: input.call.toolKind ?? 'tool_call',
+          output: {
+            code: 'tool_execution_failed',
+            error: message,
+            guidance:
+              'The tool crashed while executing. Adjust the arguments or take a different approach instead of retrying the identical call.'
+          },
+          isError: true
+        }),
+        approved: false
+      }
+    }
   }
 
   private async persistToolCallResult(
@@ -1868,6 +2075,7 @@ function normalizeApprovalPolicy(
   value: string | undefined
 ): ToolHostContext['approvalPolicy'] {
   switch (value) {
+    case 'on-request':
     case 'never':
     case 'auto':
     case 'suggest':
@@ -1875,6 +2083,20 @@ function normalizeApprovalPolicy(
       return value
     default:
       return DEFAULT_APPROVAL_POLICY
+  }
+}
+
+function normalizeSandboxMode(
+  value: string | undefined
+): NonNullable<ToolHostContext['sandboxMode']> {
+  switch (value) {
+    case 'read-only':
+    case 'workspace-write':
+    case 'danger-full-access':
+    case 'external-sandbox':
+      return value
+    default:
+      return DEFAULT_SANDBOX_MODE
   }
 }
 

@@ -4,6 +4,7 @@ import type {
   ToolProviderPolicy
 } from '../../ports/tool-host.js'
 import type { LocalTool } from './local-tool-host.js'
+import { isToolAdvertisedInSandbox } from './sandbox-policy.js'
 
 export type CapabilityToolRecord = {
   provider: ToolProviderPolicy
@@ -22,6 +23,18 @@ export type CapabilityToolSpec = {
   providerId: string
   providerKind: ToolProviderKind
 }
+
+const PLAN_MODE_ALLOWED_TOOL_NAMES = new Set([
+  'read',
+  'grep',
+  'find',
+  'ls',
+  'web_search',
+  'web_fetch',
+  'create_plan',
+  'user_input',
+  'request_user_input'
+])
 
 export class CapabilityRegistry {
   private readonly providers = new Map<string, CapabilityToolProvider>()
@@ -63,6 +76,7 @@ export class CapabilityRegistry {
     for (const record of this.tools.values()) {
       if (!this.canUseProvider(record.provider, context)) continue
       if (!this.canUseTool(record.tool.name, context)) continue
+      if (!isToolAdvertisedInSandbox(record.tool, context)) continue
       if (record.tool.shouldAdvertise) {
         if (!context || !record.tool.shouldAdvertise(context)) continue
       }
@@ -110,9 +124,16 @@ export class CapabilityRegistry {
   }
 
   private canUseTool(toolName: string, context?: ToolHostContext): boolean {
+    if (isPlanModeContext(context) && !PLAN_MODE_ALLOWED_TOOL_NAMES.has(toolName)) {
+      return false
+    }
     const allowed = context?.allowedToolNames
     return !allowed || allowed.includes(toolName)
   }
+}
+
+function isPlanModeContext(context: ToolHostContext | undefined): boolean {
+  return context?.threadMode === 'plan' || Boolean(context?.guiPlan)
 }
 
 function providerPolicy(provider: ToolProviderPolicy): ToolProviderPolicy {

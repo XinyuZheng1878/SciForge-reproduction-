@@ -9,6 +9,7 @@ import { deriveTurnSections } from './derive-turn-sections'
 import { MessageTimelineEmptyHero, ThreadForkBanner, ThreadForkPoint } from './message-timeline-empty'
 import { MessageBubble } from './message-timeline-bubbles'
 import { ReviewPlanCard, ReviewSummaryCard, TurnChangeSummary, WorkMetaRow } from './message-timeline-cards'
+import { TimelineImageResultsPanel } from './message-timeline-media'
 import { ProcessSectionRow, groupProcessSections } from './message-timeline-process'
 import { AnimatedWorkLogo } from './AnimatedWorkLogo'
 import {
@@ -335,6 +336,16 @@ function MessageTurn({
     () => turn.blocks.filter((block) => block.kind === 'review'),
     [turn.blocks]
   )
+  const toolResultImageBlocks = useMemo(
+    () =>
+      isProcessing
+        ? []
+        : turn.blocks.filter(
+          (block): block is Extract<ChatBlock, { kind: 'tool' }> =>
+            block.kind === 'tool' && block.status === 'success'
+        ),
+    [isProcessing, turn.blocks]
+  )
 
   const processSections = useMemo(
     () => (workExpanded ? groupProcessSections(processBlocks) : []),
@@ -389,6 +400,8 @@ function MessageTurn({
       {showLiveAssistant ? (
         <MessageBubble block={{ kind: 'assistant', id: 'live-assistant', text: liveContent }} />
       ) : null}
+
+      <TimelineImageResultsPanel blocks={toolResultImageBlocks} />
 
       {reviewBlocks.map((review) => (
         <ReviewSummaryCard key={review.id} review={review} />

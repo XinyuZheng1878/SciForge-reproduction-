@@ -1,6 +1,6 @@
 # DeepSeek GUI PDF 工作区阅读任务板
 
-更新时间：2026-06-13
+更新时间：2026-06-14
 
 ## 核心目标
 
@@ -25,19 +25,25 @@ Kun 上游仓库在本机：
 
 ## 引入范围
 
-- [ ] workspace file preview 支持 PDF 文件读取。
-- [ ] renderer 使用 pdf.js 渲染 PDF 页面。
-- [ ] 支持分页、缩放、搜索/基础导航。
-- [ ] 支持 PDF 文本选区，并把选区传给现有 assistant / quote 工作链路。
-- [ ] PDF 选区显示页码和位置，引用时可追溯。
-- [ ] 大文件或解析失败时显示可解释 fallback。
+- [x] workspace file preview 支持 PDF 文件读取。
+- [x] renderer 使用 pdf.js 渲染 PDF 页面。
+- [x] 支持分页、缩放、搜索/基础导航。
+- [x] 支持 PDF 文本选区，并把选区传给现有 assistant / quote 工作链路。
+- [x] PDF 选区显示页码和位置，引用时可追溯。
+- [x] 大文件或解析失败时显示可解释 fallback。
+- [x] 附件 picker / bridge 能暴露真实文件路径，PDF 打开与引用复用统一 workspace/file 链路。
 
 ## 不引入范围
 
-- [ ] 不引入 Tiptap 富文本。
-- [ ] 不改变 Markdown 编辑器默认模式。
-- [ ] 不引入图片生成、原型生成、SDD 全套闭环。
-- [ ] 不新增独立 PDF 对话旁路；必须复用现有 workspace assistant/selection 流。
+- [x] 不引入 Tiptap 富文本。
+- [x] 不改变 Markdown 编辑器默认模式。
+- [x] 不引入图片生成、原型生成、SDD 全套闭环。
+- [x] 不新增独立 PDF 对话旁路；必须复用现有 workspace assistant/selection 流。
+
+## Kun v0.2.10 增量纳入项
+
+- [x] 纳入 `fix(attachments): expose picker file path through kun bridge` 的文件路径暴露部分，作为 PDF 打开/引用的接入基础。
+- [x] 可参考 Kun `feat(write): add selection quote action`，确保 PDF 选区进入现有 quote tray，而不是新增 PDF 专用发送链路。
 
 ## 并行边界
 
@@ -64,11 +70,15 @@ Kun 上游仓库在本机：
 - Kun `src/shared/pdfjs-dist.d.ts`
 - Kun `src/main/services/write-pdf-text-service.ts`
 - Kun `src/main/services/workspace-files.ts`
+- Kun v0.2.10 `src/renderer/src/components/write/WriteInlineAgent.tsx`
+- Kun commit: `feat(write): add selection quote action`
+- Kun commit: `fix(attachments): expose picker file path through kun bridge`
 
 ## 验收清单
 
-- [ ] PDF 文件能在工作区打开并渲染。
-- [ ] PDF 选区文本能进入现有 assistant 引用链路。
-- [ ] 选区跨页时页码范围准确。
-- [ ] PDF 加载失败有明确提示。
-- [ ] Markdown/text 文件预览和编辑不受影响。
+- [x] PDF 文件能在工作区打开并渲染。
+- [x] PDF 选区文本能进入现有 assistant 引用链路。
+- [x] 选区跨页时页码范围准确。
+- [x] PDF 加载失败有明确提示。
+- [x] Markdown/text 文件预览和编辑不受影响。
+- [x] PDF 选区引用走现有 assistant quote 工作链路。

@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { BrowserStorageLike } from '../lib/browser-storage'
 import {
+  isEmptySddAssistantThreadCandidate,
   isSddAssistantThread,
   markSddAssistantThread,
   normalizeSddThreadRegistry,
   releaseSddAssistantThread,
   readSddThreadRegistry,
-  sddAssistantThreadIdForDraft
+  sddAssistantThreadIdForDraft,
+  sddDraftRefForThreadId
 } from './sdd-thread-registry'
 import type { SddDraft } from './sdd-draft-store'
 
@@ -24,9 +26,9 @@ function createMemoryStorage(): BrowserStorageLike {
 
 function draft(partial: Partial<SddDraft> = {}): SddDraft {
   return {
-    id: '/tmp/app:.kunsdd/draft/draft-1/requirement.md',
+    id: '/tmp/app:.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
     workspaceRoot: '/tmp/app',
-    relativePath: '.kunsdd/draft/draft-1/requirement.md',
+    relativePath: '.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...partial
@@ -96,6 +98,10 @@ describe('sdd-thread-registry', () => {
       title: '下一步: .kunsdd/draft/draft-1/requirement.md'
     }, registry)).toBe(true)
     expect(isSddAssistantThread({
+      id: 'thread-current-next',
+      title: '下一步: .deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md'
+    }, registry)).toBe(true)
+    expect(isSddAssistantThread({
       id: 'thread-legacy-workspace',
       workspace: '/tmp/app/.kunsdd/draft/draft-1'
     }, registry)).toBe(true)
@@ -104,6 +110,39 @@ describe('sdd-thread-registry', () => {
       title: '需求 AI',
       workspace: '/tmp/app'
     }, registry)).toBe(false)
+  })
+
+  it('recognizes empty SDD assistant thread candidates by title and no content', () => {
+    expect(isEmptySddAssistantThreadCandidate({
+      id: 'thread-empty',
+      title: 'Requirement AI',
+      preview: '',
+      latestTurnId: ''
+    })).toBe(true)
+    expect(isEmptySddAssistantThreadCandidate({
+      id: 'thread-running',
+      title: 'Requirement AI',
+      status: 'running'
+    })).toBe(false)
+    expect(isEmptySddAssistantThreadCandidate({
+      id: 'thread-normal',
+      title: 'Requirement AI',
+      preview: 'hello'
+    })).toBe(false)
+  })
+
+  it('maps any registered SDD thread id back to its draft reference', () => {
+    const storage = createMemoryStorage()
+    const activeDraft = draft()
+    markSddAssistantThread(activeDraft, 'thread-sdd-1', storage)
+    const registry = readSddThreadRegistry(storage)
+
+    expect(sddDraftRefForThreadId('thread-sdd-1', registry)).toEqual({
+      id: activeDraft.id,
+      workspaceRoot: '/tmp/app',
+      relativePath: activeDraft.relativePath
+    })
+    expect(sddDraftRefForThreadId('thread-missing', registry)).toBeNull()
   })
 
   it('normalizes malformed persisted data', () => {

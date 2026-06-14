@@ -1,6 +1,6 @@
 # DeepSeek GUI Runtime 基础稳定性任务板
 
-更新时间：2026-06-13
+更新时间：2026-06-14
 
 ## 核心目标
 
@@ -25,22 +25,28 @@ Kun 上游仓库在本机：
 
 ## 引入范围
 
-- [ ] runtime 启动 ready 判定增加 `/health` 探测兜底，避免 stdout ready marker 延迟导致误判。
-- [ ] 启动 ready deadline / timeout 文案更明确，保留 stderr tail 便于诊断。
-- [ ] 桌面侧 watchdog：runtime 长时间不健康时自动重启。
-- [ ] crash restart budget：短窗口内多次崩溃后 circuit-break，不无限重启。
-- [ ] runtime 状态事件统一：starting / running / restarting / crashed / failed / stopped。
-- [ ] SSE IPC 批量发送，减少流式输出高频 IPC 压力。
-- [ ] event bus 每个 thread 只保留有限近期事件，避免长会话内存持续增长。
-- [ ] thread/session store I/O 性能优化，只合入不改变数据语义的部分。
+- [x] runtime 启动 ready 判定增加 `/health` 探测兜底，避免 stdout ready marker 延迟导致误判。
+- [x] 默认 runtime 端口被占用时，优先从首选端口向后探测可绑定端口，再回退到随机分配，保持端口变更可解释。
+- [x] 启动 ready deadline / timeout 文案更明确，保留 stderr tail 便于诊断。
+- [x] 桌面侧 watchdog：runtime 长时间不健康时自动重启。
+- [x] crash restart budget：短窗口内多次崩溃后 circuit-break，不无限重启。
+- [x] runtime 状态事件统一：starting / running / restarting / crashed / failed / stopped。
+- [x] SSE IPC 批量发送，减少流式输出高频 IPC 压力。
+- [x] event bus 每个 thread 只保留有限近期事件，避免长会话内存持续增长。
+- [x] thread/session store I/O 性能优化，只合入不改变数据语义的部分。
+
+## Kun v0.2.10 增量纳入项
+
+- [x] 纳入 `fix(runtime): probe fallback Kun ports`：参考 Kun `src/main/kun-process.ts` 中 `resolveAvailableKunPort` 的顺序端口探测逻辑。
+- [x] 如当前 DeepSeek-GUI 已有端口 fallback，实现时只补“首选端口之后顺序探测”和错误提示，不重复引入另一套端口分配路径。
 
 ## 不引入范围
 
-- [ ] 不引入 Kun 品牌化、数据目录迁移、资源替换。
-- [ ] 不引入 Kun settings 页面重构。
-- [ ] 不引入 hooks 扩展机制。
-- [ ] 不改变 DeepSeek-GUI 现有 Model Router / provider 配置。
-- [ ] 不改变用户发起 turn 的主路径。
+- [x] 不引入 Kun 品牌化、数据目录迁移、资源替换。
+- [x] 不引入 Kun settings 页面重构。
+- [x] 不引入 hooks 扩展机制。
+- [x] 不改变 DeepSeek-GUI 现有 Model Router / provider 配置。
+- [x] 不改变用户发起 turn 的主路径。
 
 ## 并行边界
 
@@ -69,12 +75,14 @@ Kun 上游仓库在本机：
 - Kun `src/main/runtime-sse-ipc.ts`
 - Kun `kun/src/adapters/in-memory-event-bus.ts`
 - Kun `kun/src/adapters/hybrid/hybrid-thread-store.ts`
+- Kun commit: `fix(runtime): probe fallback Kun ports`
 
 ## 验收清单
 
-- [ ] runtime 已经监听但 stdout ready marker 延迟时，桌面能通过 `/health` 判定成功。
-- [ ] runtime 连续崩溃不会无限重启，最终进入可解释 failed/crashed 状态。
-- [ ] runtime 恢复健康后 restart budget 能重置。
-- [ ] 长时间流式输出不会造成明显 IPC backlog。
-- [ ] 长会话事件量增长不会导致 event bus 无限占用内存。
-- [ ] 现有聊天、计划、写作、IM 发起 turn 的路径不变。
+- [x] runtime 已经监听但 stdout ready marker 延迟时，桌面能通过 `/health` 判定成功。
+- [x] 默认端口被占用时，优先使用下一个可用端口，并在状态/日志中解释原因。
+- [x] runtime 连续崩溃不会无限重启，最终进入可解释 failed/crashed 状态。
+- [x] runtime 恢复健康后 restart budget 能重置。
+- [x] 长时间流式输出不会造成明显 IPC backlog。
+- [x] 长会话事件量增长不会导致 event bus 无限占用内存。
+- [x] 现有聊天、计划、写作、IM 发起 turn 的路径不变。

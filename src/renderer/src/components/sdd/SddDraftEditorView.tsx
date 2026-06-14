@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactElement } from 'react'
 import { ArrowRight, FileText, Loader2, Save, Sparkles, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
-import { SDD_IMAGE_RELATIVE_DIR } from '@shared/sdd'
+import { SDD_IMAGE_RELATIVE_DIR, sddUnitImageDir } from '@shared/sdd'
 import { useSddDraftStore } from '../../sdd/sdd-draft-store'
 import { saveActiveSddDraftToDisk, syncActiveSddDraftFromDisk } from '../../sdd/sdd-draft-actions'
 import { useWriteWorkspaceStore } from '../../write/write-workspace-store'
@@ -171,6 +171,7 @@ export function SddDraftEditorView({
   const upgrading = operationStatus === 'upgrading'
   const readOnly = upgrading
   const statusLabel = t(statusKey(saveStatus, operationStatus))
+  const imageDirectory = sddUnitImageDir(activeDraft.relativePath) ?? SDD_IMAGE_RELATIVE_DIR
 
   return (
     <section className="sdd-draft-shell ds-no-drag flex min-h-0 min-w-0 flex-1 flex-col px-3 sm:px-4 md:px-6 lg:px-8">
@@ -279,7 +280,7 @@ export function SddDraftEditorView({
             value={content}
             workspaceRoot={activeDraft.workspaceRoot}
             filePath={activeDraft.absolutePath ?? activeDraft.relativePath}
-            imageDirectory={SDD_IMAGE_RELATIVE_DIR}
+            imageDirectory={imageDirectory}
             appearance="live"
             livePreviewEnabled
             readOnly={readOnly}

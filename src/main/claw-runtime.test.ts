@@ -3,6 +3,7 @@ import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
+  DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   defaultClawSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
@@ -18,6 +19,7 @@ import {
   CLAW_IM_PROVIDER_CAPABILITIES,
   classifyClawFailure,
   clawImAttachmentFromGeneratedFile,
+  latestGeneratedFiles,
   prepareClawImReplyText,
   splitClawImReplyText
 } from './claw-runtime-helpers'
@@ -166,8 +168,8 @@ describe('ClawRuntime', () => {
       maxMessageLength: 2_000,
       markdown: { supported: false, preserveCodeBlocks: true },
       attachments: {
-        file: { supported: false },
-        image: { supported: false },
+        file: { supported: true, maxCount: 3 },
+        image: { supported: true, maxCount: 3 },
         link: { supported: true }
       },
       retry: { maxAttempts: 2 }
@@ -204,7 +206,7 @@ describe('ClawRuntime', () => {
   })
 
   it('adds an attachment fallback summary when a provider cannot deliver generated files', () => {
-    const prepared = prepareClawImReplyText('weixin', '文件已经生成。', {
+    const prepared = prepareClawImReplyText('discord', '文件已经生成。', {
       attachments: [
         clawImAttachmentFromGeneratedFile({
           path: '/tmp/workspace/report.md',
@@ -222,9 +224,83 @@ describe('ClawRuntime', () => {
 
     const fullText = prepared.textChunks.join('\n')
     expect(prepared.unsupportedAttachments.map((item) => item.name)).toEqual(['report.md', 'chart.png'])
-    expect(fullText).toContain('WeChat 当前不能直接投递这些附件')
+    expect(fullText).toContain('Discord 当前不能直接投递这些附件')
     expect(fullText).toContain('report.md')
     expect(fullText).toContain('请到桌面查看完整结果')
+  })
+
+  it('does not add an unsupported-attachment fallback for WeChat media delivery', () => {
+    const prepared = prepareClawImReplyText('weixin', '文件已经生成。', {
+      attachments: [
+        clawImAttachmentFromGeneratedFile({
+          path: '/tmp/workspace/chart.png',
+          relativePath: 'chart.png',
+          fileName: 'chart.png'
+        })
+      ],
+      maxMessageLength: 500
+    })
+
+    expect(prepared.unsupportedAttachments).toEqual([])
+    expect(prepared.textChunks.join('\n')).not.toContain('当前不能直接投递')
+  })
+
+  it('extracts generated media files from the current turn only', () => {
+    const files = latestGeneratedFiles({
+      turns: [
+        {
+          id: 'turn_old',
+          status: 'completed',
+          items: [
+            {
+              kind: 'tool_result',
+              turnId: 'turn_old',
+              toolKind: 'file_change',
+              output: { path: '/tmp/workspace/old.md' }
+            }
+          ]
+        },
+        {
+          id: 'turn_current',
+          status: 'completed',
+          items: [
+            {
+              kind: 'tool_result',
+              turnId: 'turn_current',
+              toolName: 'generate_image',
+              output: {
+                files: [
+                  { relativePath: 'images/poster.png', fileName: 'poster.png' },
+                  { absolute_path: '/tmp/workspace/images/hero.png', name: 'hero.png' }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }, { turnId: 'turn_current', workspaceRoot: '/tmp/workspace' })
+
+    expect(files).toEqual([
+      {
+        path: '/tmp/workspace/images/poster.png',
+        relativePath: 'images/poster.png',
+        fileName: 'poster.png'
+      },
+      {
+        path: '/tmp/workspace/images/hero.png',
+        fileName: 'hero.png'
+      }
+    ])
+    expect(latestGeneratedFiles({
+      turns: [
+        {
+          id: 'turn_old',
+          status: 'completed',
+          items: [{ kind: 'tool_result', turnId: 'turn_old', toolKind: 'file_change', output: { path: '/tmp/workspace/old.md' } }]
+        },
+        { id: 'turn_empty', status: 'completed', items: [] }
+      ]
+    }, { turnId: 'turn_empty', workspaceRoot: '/tmp/workspace' })).toEqual([])
   })
 
   it('bases Feishu conversation workspaces on the configured Claw workspace', () => {
@@ -743,6 +819,119 @@ describe('ClawRuntime', () => {
       message: 'model deepseek-v4-pro is missing',
       failureKind: 'model_missing'
     })
+  })
+
+  it('resolves IM auto to the managed Model Router alias before starting a Kun turn', async () => {
+    const settings = buildSettings()
+    settings.agents.kun.model = 'deepseek-v4-flash'
+    const requestBodies: Record<string, unknown>[] = []
+    const runtimeRequest = vi.fn(async (_settings, path, init) => {
+      if (init?.body) requestBodies.push(JSON.parse(init.body) as Record<string, unknown>)
+      if (path === '/v1/threads') {
+        return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_auto_model' }) }
+      }
+      if (path === '/v1/threads/thr_auto_model/turns') {
+        return {
+          ok: true,
+          status: 202,
+          body: JSON.stringify({ threadId: 'thr_auto_model', turnId: 'turn_auto_model' })
+        }
+      }
+      throw new Error(`unexpected path ${path}`)
+    })
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      runtimeRequest,
+      logError: () => undefined
+    })
+
+    const result = await (runtime as unknown as {
+      runPrompt: (
+        settingsArg: AppSettingsV1,
+        options: {
+          prompt: string
+          title: string
+          workspaceRoot: string
+          model: string
+          mode: 'agent' | 'plan'
+          waitForResult: boolean
+          responseTimeoutMs: number
+          source: 'task' | 'im'
+        }
+      ) => Promise<{ ok: boolean; threadId?: string; turnId?: string }>
+    }).runPrompt(settings, {
+      prompt: 'hello',
+      title: '',
+      workspaceRoot: '/tmp/workspace',
+      model: 'auto',
+      mode: 'agent',
+      waitForResult: false,
+      responseTimeoutMs: 2_000,
+      source: 'im'
+    })
+
+    expect(result).toMatchObject({ ok: true, threadId: 'thr_auto_model', turnId: 'turn_auto_model' })
+    expect(requestBodies[0]).toMatchObject({ model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS })
+    expect(requestBodies[1]).toMatchObject({ model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS })
+  })
+
+  it('resolves Codex IM auto to the Model Router runtime alias before agentRuntime calls', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'codex-thread',
+        runtimeId: 'codex' as const,
+        title: 'Codex IM',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async () => ({
+        threadId: 'codex-thread',
+        turnId: 'codex-turn'
+      })),
+      readThread: vi.fn()
+    }
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      runtimeRequest: vi.fn() as never,
+      agentRuntime,
+      logError: () => undefined
+    })
+
+    const result = await (runtime as unknown as {
+      runPrompt: (
+        settingsArg: AppSettingsV1,
+        options: {
+          prompt: string
+          title: string
+          workspaceRoot: string
+          model: string
+          mode: 'agent' | 'plan'
+          waitForResult: boolean
+          responseTimeoutMs: number
+          source: 'task' | 'im'
+          runtimeId: 'codex'
+        }
+      ) => Promise<{ ok: boolean; threadId?: string; turnId?: string }>
+    }).runPrompt(settings, {
+      prompt: 'hello',
+      title: 'demo',
+      workspaceRoot: '/tmp/workspace',
+      model: 'auto',
+      mode: 'agent',
+      waitForResult: false,
+      responseTimeoutMs: 2_000,
+      source: 'im',
+      runtimeId: 'codex'
+    })
+
+    expect(result).toMatchObject({ ok: true, threadId: 'codex-thread', turnId: 'codex-turn' })
+    expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
+    }))
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
+    }))
   })
 
   it('falls back to a plain Feishu chat message when replying to an inbound message fails', async () => {
@@ -1281,6 +1470,139 @@ describe('ClawRuntime', () => {
     })
     expect(createScheduledTaskFromText).not.toHaveBeenCalled()
     expect(runtimeRequest).not.toHaveBeenCalled()
+  })
+
+  it('returns a generic webhook error while logging a redacted diagnostic', async () => {
+    const settings = buildSettings()
+    const logError = vi.fn()
+    const runtime = createClawRuntime({
+      store: {
+        load: vi.fn(async () => {
+          throw new Error('Authorization: Bearer raw-webhook-secret failed')
+        }),
+        patch: vi.fn(async () => settings)
+      } as never,
+      runtimeRequest: vi.fn() as never,
+      logError
+    })
+    const req = {
+      method: 'POST',
+      url: settings.claw.im.path,
+      headers: {},
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from(JSON.stringify({ text: 'hello' }))
+      }
+    }
+    let status = 0
+    let responseBody = ''
+    const res = {
+      writeHead: vi.fn((nextStatus: number) => {
+        status = nextStatus
+      }),
+      end: vi.fn((payload: string) => {
+        responseBody = payload
+      })
+    }
+
+    await (runtime as unknown as {
+      handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+    }).handleWebhook(req, res)
+
+    expect(status).toBe(500)
+    expect(JSON.parse(responseBody)).toEqual({ ok: false, message: 'Internal server error.' })
+    expect(responseBody).not.toContain('raw-webhook-secret')
+    expect(logError).toHaveBeenCalledWith(
+      'claw-webhook',
+      'Claw IM webhook request failed',
+      expect.objectContaining({
+        message: 'Authorization: Bearer <redacted> failed'
+      })
+    )
+  })
+
+  it('sanitizes structured webhook failures returned by IM processing', async () => {
+    const settings = buildSettings()
+    settings.claw.im.enabled = true
+    settings.claw.im.responseTimeoutMs = 2_000
+    settings.claw.channels = [buildChannel({
+      provider: 'weixin' as const,
+      id: 'channel_weixin',
+      label: 'WeChat',
+      threadId: '',
+      conversations: []
+    })]
+    const { store } = mutableSettingsStore(settings)
+    const logError = vi.fn()
+    const runtimeRequest = vi.fn(async (_settings, path, init) => {
+      if (path === '/v1/threads' && init?.method === 'POST') {
+        return { ok: true, status: 201, body: JSON.stringify({ id: 'thr_weixin' }) }
+      }
+      if (path === '/v1/threads/thr_weixin' && init?.method === 'PATCH') {
+        return { ok: true, status: 200, body: '{}' }
+      }
+      if (path === '/v1/threads/thr_weixin/turns' && init?.method === 'POST') {
+        return {
+          ok: false,
+          status: 500,
+          body: JSON.stringify({ code: 'runtime_error', message: 'Authorization: Bearer raw-runtime-secret failed' })
+        }
+      }
+      throw new Error(`unexpected path ${path}`)
+    })
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: runtimeRequest as never,
+      logError,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+    const body = JSON.stringify({
+      text: 'new question',
+      provider: 'weixin',
+      channelId: 'channel_weixin',
+      chatId: 'wx_user_1',
+      messageId: 'wx_msg_secret',
+      senderId: 'wx_user_1',
+      senderName: 'Alice'
+    })
+    const req = {
+      method: 'POST',
+      url: settings.claw.im.path,
+      headers: {},
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from(body)
+      }
+    }
+    let status = 0
+    let responseBody = ''
+    const res = {
+      writeHead: vi.fn((nextStatus: number) => {
+        status = nextStatus
+      }),
+      end: vi.fn((payload: string) => {
+        responseBody = payload
+      })
+    }
+
+    await (runtime as unknown as {
+      handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+    }).handleWebhook(req, res)
+
+    expect(status).toBe(500)
+    expect(JSON.parse(responseBody)).toEqual({
+      ok: false,
+      message: 'Runtime offline',
+      failureKind: 'runtime_offline'
+    })
+    expect(responseBody).not.toContain('raw-runtime-secret')
+    expect(logError).toHaveBeenCalledWith(
+      'claw-webhook',
+      'Claw IM webhook returned a structured failure.',
+      expect.objectContaining({
+        failure: expect.objectContaining({
+          message: 'Authorization: Bearer <redacted> failed'
+        })
+      })
+    )
   })
 
   it('attaches a remote IM conversation to the active desktop thread', async () => {
@@ -2514,7 +2836,7 @@ describe('ClawRuntime', () => {
     expect(status).toBe(500)
     expect(JSON.parse(responseBody)).toMatchObject({
       ok: false,
-      message: 'Agent completed without a reply.',
+      message: 'Empty response',
       failureKind: 'empty_response'
     })
   })
@@ -2726,7 +3048,8 @@ describe('ClawRuntime', () => {
     expect(status).toBe(500)
     expect(JSON.parse(responseBody)).toMatchObject({
       ok: false,
-      message: 'Agent turn failed.'
+      message: 'Runtime offline',
+      failureKind: 'runtime_offline'
     })
   })
 

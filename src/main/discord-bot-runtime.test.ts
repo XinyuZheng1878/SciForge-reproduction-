@@ -95,6 +95,99 @@ function discordChannel(): ClawImChannelV1 {
   }
 }
 
+type TestDiscordSocket = {
+  readyState: number
+  onmessage: ((event: { data?: unknown }) => void) | null
+  onerror: ((event: unknown) => void) | null
+  onclose: (() => void) | null
+  onopen: (() => void) | null
+  send: (data: string) => void
+  close: () => void
+}
+
+async function waitForCondition(condition: () => boolean | Promise<boolean>): Promise<void> {
+  for (let i = 0; i < 200; i += 1) {
+    if (await condition()) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error('Timed out waiting for test condition.')
+}
+
+function writeDiscordBotSecret(userDataPath: string): void {
+  writeFileSync(join(userDataPath, 'discord-bot.json'), JSON.stringify({
+    botToken: 'token-1',
+    clientId: 'client-1',
+    bot: {
+      applicationId: 'client-1',
+      botId: 'bot-1',
+      botUsername: 'DeepSeek',
+      inviteUrl: 'https://discord.com/oauth2/authorize?client_id=client-1'
+    },
+    updatedAt: '2026-06-13T00:00:00.000Z'
+  }))
+}
+
+function localDiscordChannel(): ClawImChannelV1 {
+  const channel = discordChannel()
+  channel.platformCredential = {
+    ...channel.platformCredential as Extract<ClawImChannelV1['platformCredential'], { kind: 'discord' }>,
+    installationId: 'dsgui-local',
+    guardOwnerInstallationId: 'dsgui-local'
+  }
+  return channel
+}
+
+type DiscordGatewayStub = TestDiscordSocket[] & {
+  createWebSocket: (url: string) => TestDiscordSocket
+}
+
+function stubDiscordGateway(): DiscordGatewayStub {
+  const sockets = [] as unknown as DiscordGatewayStub
+  sockets.createWebSocket = (_url: string): TestDiscordSocket => {
+    const socket: TestDiscordSocket = {
+      readyState: 1,
+      onmessage: null,
+      onerror: null,
+      onclose: null,
+      onopen: null,
+      send: vi.fn(),
+      close: vi.fn()
+    }
+    sockets.push(socket)
+    return socket
+  }
+  return sockets
+}
+
+type DiscordStatusProbe = {
+  status: () => Promise<{ connected: boolean }>
+}
+
+async function openDiscordGateway(
+  sockets: TestDiscordSocket[],
+  runtime?: DiscordStatusProbe
+): Promise<TestDiscordSocket> {
+  await waitForCondition(() => Boolean(sockets[0]?.onmessage))
+  expect(sockets[0]).toBeDefined()
+  const socket = sockets[0]
+  expect(socket.onmessage).toEqual(expect.any(Function))
+  socket.onmessage?.({
+    data: JSON.stringify({ op: 10, d: { heartbeat_interval: 60_000 } })
+  })
+  socket.onmessage?.({
+    data: JSON.stringify({
+      op: 0,
+      s: 1,
+      t: 'READY',
+      d: { session_id: 'session-1', user: { id: 'bot-1' }, guilds: [{ id: 'guild-1' }] }
+    })
+  })
+  if (runtime) {
+    await waitForCondition(async () => (await runtime.status()).connected)
+  }
+  return socket
+}
+
 describe('DiscordBotRuntime guard ownership', () => {
   it('defaults newly bound channels to the app workspace', async () => {
     const userDataPath = join(tmpdir(), `deepseek-gui-discord-workspace-${Date.now()}-${Math.random()}`)
@@ -248,29 +341,7 @@ describe('DiscordBotRuntime guard ownership', () => {
       },
       updatedAt: '2026-06-13T00:00:00.000Z'
     }))
-    const sockets: Array<{
-      readyState: number
-      onmessage: ((event: { data?: unknown }) => void) | null
-      onerror: ((event: unknown) => void) | null
-      onclose: (() => void) | null
-      onopen: (() => void) | null
-      send: (data: string) => void
-      close: () => void
-    }> = []
-    class FakeWebSocket {
-      readyState = 1
-      onmessage: ((event: { data?: unknown }) => void) | null = null
-      onerror: ((event: unknown) => void) | null = null
-      onclose: (() => void) | null = null
-      onopen: (() => void) | null = null
-      send = vi.fn()
-      close = vi.fn()
-
-      constructor(_url: string) {
-        sockets.push(this)
-      }
-    }
-    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const sockets = stubDiscordGateway()
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.endsWith('/channels/channel-1')) {
@@ -281,6 +352,7 @@ describe('DiscordBotRuntime guard ownership', () => {
       }
       return new Response(JSON.stringify({ id: 'channel-1', name: 'support', type: 0 }))
     }))
+    let runtime: ReturnType<typeof createDiscordBotRuntime> | null = null
 
     try {
       const channel = discordChannel()
@@ -290,31 +362,27 @@ describe('DiscordBotRuntime guard ownership', () => {
         guardOwnerInstallationId: 'dsgui-local'
       }
       const current = settings(channel)
-      const runtime = createDiscordBotRuntime({
+      runtime = createDiscordBotRuntime({
         store: { load: vi.fn(async () => current), patch: vi.fn() } as never,
         userDataPath,
         handleIncomingMessage: vi.fn(),
-        logError: vi.fn()
+        logError: vi.fn(),
+        createWebSocket: sockets.createWebSocket
       })
 
       runtime.sync(current)
-      for (let i = 0; (!sockets[0] || !sockets[0].onmessage) && i < 20; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      }
-      expect(sockets[0]).toBeDefined()
-      sockets[0].onmessage?.({
-        data: JSON.stringify({ op: 10, d: { heartbeat_interval: 60_000 } })
-      })
-      sockets[0].onmessage?.({
-        data: JSON.stringify({
-          op: 0,
-          s: 1,
-          t: 'READY',
-          d: { session_id: 'session-1', user: { id: 'bot-1' }, guilds: [{ id: 'guild-1' }] }
-        })
+      await openDiscordGateway(sockets, runtime)
+      const activeRuntime = runtime
+      await waitForCondition(async () => {
+        const status = await activeRuntime.status()
+        return Boolean(
+          status.connected &&
+            !status.enabled &&
+            status.channels?.[0]?.accessError?.includes('cannot see this Discord channel')
+        )
       })
 
-      await expect(runtime.status()).resolves.toMatchObject({
+      await expect(activeRuntime.status()).resolves.toMatchObject({
         connected: true,
         enabled: false,
         channels: [
@@ -325,6 +393,7 @@ describe('DiscordBotRuntime guard ownership', () => {
         ]
       })
     } finally {
+      runtime?.stop()
       rmSync(userDataPath, { recursive: true, force: true })
     }
   })
@@ -343,29 +412,7 @@ describe('DiscordBotRuntime guard ownership', () => {
       },
       updatedAt: '2026-06-13T00:00:00.000Z'
     }))
-    const sockets: Array<{
-      readyState: number
-      onmessage: ((event: { data?: unknown }) => void) | null
-      onerror: ((event: unknown) => void) | null
-      onclose: (() => void) | null
-      onopen: (() => void) | null
-      send: (data: string) => void
-      close: () => void
-    }> = []
-    class FakeWebSocket {
-      readyState = 1
-      onmessage: ((event: { data?: unknown }) => void) | null = null
-      onerror: ((event: unknown) => void) | null = null
-      onclose: (() => void) | null = null
-      onopen: (() => void) | null = null
-      send = vi.fn()
-      close = vi.fn()
-
-      constructor(_url: string) {
-        sockets.push(this)
-      }
-    }
-    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const sockets = stubDiscordGateway()
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       new Response(JSON.stringify({ ok: true }))
     )
@@ -388,26 +435,13 @@ describe('DiscordBotRuntime guard ownership', () => {
         store: { load: vi.fn(async () => current), patch: vi.fn() } as never,
         userDataPath,
         handleIncomingMessage,
-        logError: vi.fn()
+        logError: vi.fn(),
+        createWebSocket: sockets.createWebSocket
       })
 
       runtime.sync(current)
-      for (let i = 0; (!sockets[0] || !sockets[0].onmessage) && i < 20; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      }
-      expect(sockets[0]).toBeDefined()
-      sockets[0].onmessage?.({
-        data: JSON.stringify({ op: 10, d: { heartbeat_interval: 60_000 } })
-      })
-      sockets[0].onmessage?.({
-        data: JSON.stringify({
-          op: 0,
-          s: 1,
-          t: 'READY',
-          d: { session_id: 'session-1', user: { id: 'bot-1' }, guilds: [{ id: 'guild-1' }] }
-        })
-      })
-      sockets[0].onmessage?.({
+      const socket = await openDiscordGateway(sockets, runtime)
+      socket.onmessage?.({
         data: JSON.stringify({
           op: 0,
           s: 2,
@@ -427,9 +461,12 @@ describe('DiscordBotRuntime guard ownership', () => {
         })
       })
 
-      for (let i = 0; fetchMock.mock.calls.length === 0 && i < 20; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      }
+      await waitForCondition(() =>
+        handleIncomingMessage.mock.calls.length > 0 &&
+          fetchMock.mock.calls.some(([url]) =>
+            String(url).includes('/interactions/interaction-1/interaction-token/callback')
+          )
+      )
 
       expect(handleIncomingMessage).toHaveBeenCalledWith(expect.objectContaining({
         provider: 'discord',
@@ -443,8 +480,11 @@ describe('DiscordBotRuntime guard ownership', () => {
           senderName: 'Alice'
         })
       }))
-      const [url, init] = fetchMock.mock.calls[0]
-      expect(String(url)).toContain('/interactions/interaction-1/interaction-token/callback')
+      const interactionReplyCall = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes('/interactions/interaction-1/interaction-token/callback')
+      )
+      expect(interactionReplyCall).toBeDefined()
+      const [, init] = interactionReplyCall ?? []
       expect(JSON.parse(String(init?.body))).toMatchObject({
         type: 4,
         data: {
@@ -452,6 +492,178 @@ describe('DiscordBotRuntime guard ownership', () => {
           allowed_mentions: { parse: [] }
         }
       })
+      runtime.stop()
+    } finally {
+      rmSync(userDataPath, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('DiscordBotRuntime remote failure replies', () => {
+  it('sends a generic Discord message failure when runtime diagnostics contain secrets and paths', async () => {
+    const userDataPath = join(tmpdir(), `deepseek-gui-discord-message-failure-${Date.now()}-${Math.random()}`)
+    mkdirSync(userDataPath, { recursive: true })
+    writeDiscordBotSecret(userDataPath)
+    const sockets = stubDiscordGateway()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/typing')) return new Response(null, { status: 204 })
+      return new Response(JSON.stringify({ id: 'reply-1' }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      const current = settings(localDiscordChannel())
+      const sensitiveMessage = 'Provider token=sk-proj-secret failed in /Users/alice/.deepseekgui/claw/runtime.json'
+      const handleIncomingMessage = vi.fn(async () => ({
+        ok: false as const,
+        message: sensitiveMessage,
+        details: {
+          provider: 'openai',
+          token: 'sk-proj-secret',
+          path: '/Users/alice/.deepseekgui/claw/runtime.json'
+        }
+      }))
+      const logError = vi.fn()
+      const runtime = createDiscordBotRuntime({
+        store: { load: vi.fn(async () => current), patch: vi.fn() } as never,
+        userDataPath,
+        handleIncomingMessage,
+        logError,
+        createWebSocket: sockets.createWebSocket
+      })
+
+      runtime.sync(current)
+      const socket = await openDiscordGateway(sockets, runtime)
+      socket.onmessage?.({
+        data: JSON.stringify({
+          op: 0,
+          s: 2,
+          t: 'MESSAGE_CREATE',
+          d: {
+            id: 'message-1',
+            channel_id: 'channel-1',
+            guild_id: 'guild-1',
+            content: 'help me',
+            author: { id: 'user-1', username: 'Alice', global_name: 'Alice' },
+            mentions: []
+          }
+        })
+      })
+
+      await waitForCondition(() =>
+        fetchMock.mock.calls.some(([url]) => String(url).includes('/channels/channel-1/messages'))
+      )
+
+      const replyCall = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes('/channels/channel-1/messages')
+      )
+      expect(replyCall).toBeDefined()
+      const body = JSON.parse(String(replyCall?.[1]?.body))
+      expect(body.content).toBe('Sorry, I could not process that message.')
+      expect(JSON.stringify(body)).not.toContain('sk-proj-secret')
+      expect(JSON.stringify(body)).not.toContain('/Users/alice')
+      expect(logError).toHaveBeenCalledWith(
+        'claw-discord',
+        'Claw runtime returned a failure for Discord message.',
+        expect.objectContaining({
+          message: 'Provider token=<redacted> failed in /Users/alice/.deepseekgui/claw/runtime.json',
+          result: expect.objectContaining({
+            message: 'Provider token=<redacted> failed in /Users/alice/.deepseekgui/claw/runtime.json',
+            details: expect.objectContaining({
+              token: '<redacted>',
+              path: '/Users/alice/.deepseekgui/claw/runtime.json'
+            })
+          })
+        })
+      )
+      runtime.stop()
+    } finally {
+      rmSync(userDataPath, { recursive: true, force: true })
+    }
+  })
+
+  it('sends a generic Discord slash failure when runtime diagnostics contain secrets and paths', async () => {
+    const userDataPath = join(tmpdir(), `deepseek-gui-discord-slash-failure-${Date.now()}-${Math.random()}`)
+    mkdirSync(userDataPath, { recursive: true })
+    writeDiscordBotSecret(userDataPath)
+    const sockets = stubDiscordGateway()
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(JSON.stringify({ ok: true }))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      const current = settings(localDiscordChannel())
+      const sensitiveMessage = 'Provider token=sk-proj-secret failed in /Users/alice/.deepseekgui/claw/runtime.json'
+      const handleIncomingMessage = vi.fn(async () => ({
+        ok: false as const,
+        message: sensitiveMessage,
+        details: {
+          provider: 'openai',
+          token: 'sk-proj-secret',
+          path: '/Users/alice/.deepseekgui/claw/runtime.json'
+        }
+      }))
+      const logError = vi.fn()
+      const runtime = createDiscordBotRuntime({
+        store: { load: vi.fn(async () => current), patch: vi.fn() } as never,
+        userDataPath,
+        handleIncomingMessage,
+        logError,
+        createWebSocket: sockets.createWebSocket
+      })
+
+      runtime.sync(current)
+      const socket = await openDiscordGateway(sockets, runtime)
+      socket.onmessage?.({
+        data: JSON.stringify({
+          op: 0,
+          s: 2,
+          t: 'INTERACTION_CREATE',
+          d: {
+            id: 'interaction-1',
+            token: 'interaction-token',
+            application_id: 'client-1',
+            type: 2,
+            guild_id: 'guild-1',
+            channel_id: 'channel-1',
+            data: { name: 'status', type: 1 },
+            member: {
+              user: { id: 'user-1', username: 'Alice', global_name: 'Alice' }
+            }
+          }
+        })
+      })
+
+      await waitForCondition(() =>
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).includes('/interactions/interaction-1/interaction-token/callback')
+        )
+      )
+
+      const replyCall = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes('/interactions/interaction-1/interaction-token/callback')
+      )
+      expect(replyCall).toBeDefined()
+      const body = JSON.parse(String(replyCall?.[1]?.body))
+      expect(body.data.content).toBe('Sorry, I could not process that command.')
+      expect(JSON.stringify(body)).not.toContain('sk-proj-secret')
+      expect(JSON.stringify(body)).not.toContain('/Users/alice')
+      expect(logError).toHaveBeenCalledWith(
+        'claw-discord',
+        'Claw runtime returned a failure for Discord interaction.',
+        expect.objectContaining({
+          message: 'Provider token=<redacted> failed in /Users/alice/.deepseekgui/claw/runtime.json',
+          result: expect.objectContaining({
+            message: 'Provider token=<redacted> failed in /Users/alice/.deepseekgui/claw/runtime.json',
+            details: expect.objectContaining({
+              token: '<redacted>',
+              path: '/Users/alice/.deepseekgui/claw/runtime.json'
+            })
+          })
+        })
+      )
       runtime.stop()
     } finally {
       rmSync(userDataPath, { recursive: true, force: true })

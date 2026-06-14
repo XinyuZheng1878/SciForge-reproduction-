@@ -31,11 +31,16 @@ import {
   MODEL_ENDPOINT_FORMATS,
   SCHEDULE_MODEL_IDS,
   SCHEDULE_REASONING_EFFORT_IDS,
+  SPEECH_TO_TEXT_PROTOCOLS,
   WRITE_INLINE_COMPLETION_MODEL_IDS
 } from '../../shared/app-settings'
 import { DESKTOP_COMMANDS } from '../../shared/ds-gui-api'
 import { GUI_UPDATE_CHANNELS } from '../../shared/gui-update'
 import { KEYBOARD_SHORTCUT_COMMANDS } from '../../shared/keyboard-shortcuts'
+import {
+  SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS,
+  SPEECH_TRANSCRIPTION_MAX_DURATION_MS
+} from '../../shared/speech-to-text'
 import { WRITE_EXPORT_FORMATS } from '../../shared/write-export'
 
 const MAX_BODY_BYTES = 2_000_000
@@ -51,6 +56,7 @@ const MAX_SKILL_FILE_BYTES = 1_000_000
 const MAX_CONFIG_FILE_BYTES = 2_000_000
 const MAX_DEVICE_CODE_LENGTH = 8_192
 const MAX_EDITOR_COMPLETION_TEXT = 200_000
+const MAX_MIME_TYPE_LENGTH = 128
 
 const SAFE_OPEN_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
@@ -192,6 +198,7 @@ const clawScheduleKindSchema = z.enum(['manual', 'interval', 'daily', 'at'])
 const clawTaskStatusSchema = z.enum(['idle', 'running', 'success', 'error'])
 const clawModelSchema = z.enum(CLAW_MODEL_IDS)
 const scheduleReasoningEffortSchema = z.enum(SCHEDULE_REASONING_EFFORT_IDS)
+const speechToTextProtocolSchema = z.enum(SPEECH_TO_TEXT_PROTOCOLS)
 const writeInlineCompletionModelSchema = z.union([
   z.enum(WRITE_INLINE_COMPLETION_MODEL_IDS),
   trimmedString(128)
@@ -499,6 +506,16 @@ const writeSettingsPatchSchema = z.object({
   inlineCompletion: writeInlineCompletionPatchSchema.optional()
 }).strict()
 
+const speechToTextPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  protocol: speechToTextProtocolSchema.optional(),
+  baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+  apiKey: z.string().max(MAX_BODY_BYTES).optional(),
+  model: z.string().trim().max(128).optional(),
+  language: z.string().trim().max(64).optional(),
+  timeoutMs: z.number().int().min(5_000).max(600_000).optional()
+}).strict()
+
 const clawSkillPatchSchema = z.object({
   defaultNames: z.array(trimmedString(128)).max(128).optional(),
   extraDirs: z.array(trimmedString(MAX_PATH_LENGTH)).max(128).optional(),
@@ -739,6 +756,7 @@ const settingsPatchObjectSchema = z.object({
   appBehavior: appBehaviorPatchSchema.optional(),
   keyboardShortcuts: keyboardShortcutsPatchSchema.optional(),
   write: writeSettingsPatchSchema.optional(),
+  speechToText: speechToTextPatchSchema.optional(),
   claw: clawSettingsPatchSchema.optional(),
   schedule: scheduleSettingsPatchSchema.optional(),
   guiUpdate: z.object({
@@ -962,6 +980,33 @@ export const writeInlineCompletionPayloadSchema = z
     model: optionalTrimmedString(128)
   })
   .strict()
+
+export const speechToTextSettingsPayloadSchema = z
+  .object({
+    enabled: z.boolean(),
+    protocol: speechToTextProtocolSchema,
+    baseUrl: z.string().trim().max(MAX_URL_LENGTH),
+    apiKey: z.string().max(MAX_BODY_BYTES),
+    model: z.string().trim().max(128),
+    language: z.string().trim().max(64).optional(),
+    timeoutMs: z.number().int().min(5_000).max(600_000)
+  })
+  .strict()
+
+export const speechTranscriptionPayloadSchema = z
+  .object({
+    audioBase64: z.string().min(1).max(SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS),
+    mimeType: z.string().trim().min(1).max(MAX_MIME_TYPE_LENGTH),
+    durationMs: z.number().int().positive().max(SPEECH_TRANSCRIPTION_MAX_DURATION_MS).optional(),
+    speechToText: speechToTextSettingsPayloadSchema.optional()
+  })
+  .strict()
+  .refine((payload) => payload.mimeType.toLowerCase().startsWith('audio/'), {
+    message: 'mimeType must be an audio MIME type'
+  })
+  .refine((payload) => /^[A-Za-z0-9+/]+={0,2}$/.test(payload.audioBase64), {
+    message: 'audioBase64 must be base64-encoded audio bytes'
+  })
 
 export const shellOpenExternalUrlSchema = trimmedString(MAX_URL_LENGTH).refine(
   isSafeOpenExternalUrl,

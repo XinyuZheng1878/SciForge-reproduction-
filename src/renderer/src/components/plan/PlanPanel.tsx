@@ -5,7 +5,10 @@ import {
   Hammer,
   Loader2,
   PanelRightClose,
-  Save
+  RefreshCw,
+  Save,
+  ShieldCheck,
+  TriangleAlert
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
@@ -18,6 +21,8 @@ import {
   useGuiPlanStore
 } from '../../plan/plan-store'
 import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
+import { sddDraftRelativePathForPlanPath } from '@shared/sdd'
+import { useSddTrace } from '../../sdd/use-sdd-trace'
 
 type Props = {
   workspaceRoot: string
@@ -27,6 +32,8 @@ type Props = {
   className?: string
   onCollapse: () => void
   onBuildPlan: () => void
+  onVerifyPlan?: () => void
+  onReplanChanged?: (changedIds: string[]) => void
 }
 
 function normalizeWorkspaceRoot(value: string): string {
@@ -50,7 +57,9 @@ export function PlanPanel({
   busy,
   className = '',
   onCollapse,
-  onBuildPlan
+  onBuildPlan,
+  onVerifyPlan,
+  onReplanChanged
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const {
@@ -191,6 +200,17 @@ export function PlanPanel({
   const hasPlan = Boolean(activePlan)
   const canUseAgent = runtimeReady && !busy && hasPlan && !readOnly
   const statusKey = statusLabelKey(saveStatus, operationStatus)
+  const sddDraftRelativePath = activePlan
+    ? sddDraftRelativePathForPlanPath(activePlan.relativePath)
+    : null
+  const trace = useSddTrace({
+    workspaceRoot: activePlan?.workspaceRoot ?? workspaceRoot,
+    draftRelativePath: sddDraftRelativePath
+  })
+  const traceCovered = trace
+    ? trace.perRequirement.filter((entry) => entry.totalSteps > 0).length
+    : 0
+  const traceDriftIds = trace ? [...trace.changedIds, ...trace.addedIds] : []
 
   const openPlanFile = (): void => {
     if (!activePlan) return
@@ -245,6 +265,51 @@ export function PlanPanel({
             <span>{t(statusKey)}</span>
           </div>
         </div>
+        {trace && trace.blocks.length > 0 ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 px-4 pb-3">
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-1 text-[11.5px] font-semibold text-accent">
+              {t('planCoverageLabel', { covered: traceCovered, total: trace.blocks.length })}
+            </span>
+            {trace.uncoveredIds.length > 0 ? (
+              <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-amber-500/12 px-2.5 py-1 text-[11.5px] font-semibold text-amber-700 dark:text-amber-300">
+                <TriangleAlert className="h-3 w-3 shrink-0" strokeWidth={2} />
+                <span className="truncate">
+                  {t('planCoverageUncovered', { ids: trace.uncoveredIds.join(', ') })}
+                </span>
+              </span>
+            ) : null}
+            {onVerifyPlan ? (
+              <button
+                type="button"
+                onClick={onVerifyPlan}
+                disabled={!canUseAgent}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-ds-border-muted bg-ds-card px-2.5 py-1 text-[11.5px] font-semibold text-ds-ink transition hover:border-accent/30 hover:text-accent disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <ShieldCheck className="h-3 w-3" strokeWidth={2} />
+                {busy ? t('planVerifyRunning') : t('planVerify')}
+              </button>
+            ) : null}
+            {traceDriftIds.length > 0 ? (
+              <div className="flex min-w-0 flex-1 basis-full items-center gap-2 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-1.5 text-[11.5px] text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-100">
+                <TriangleAlert className="h-3 w-3 shrink-0" strokeWidth={2} />
+                <span className="min-w-0 flex-1 truncate">
+                  {t('sddChangedBanner', { ids: traceDriftIds.join(', ') })}
+                </span>
+                {onReplanChanged ? (
+                  <button
+                    type="button"
+                    onClick={() => onReplanChanged(traceDriftIds)}
+                    disabled={busy || readOnly}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 font-semibold transition hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <RefreshCw className="h-3 w-3" strokeWidth={2} />
+                    {t('sddReplanButton')}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden bg-ds-main/45 dark:bg-transparent">

@@ -16,6 +16,25 @@ describe('InMemoryEventBus', () => {
     expect(bus.highestSeq('a')).toBe(1)
   })
 
+  it('retains only the recent per-thread event tail without moving seq backwards', () => {
+    const bus = new InMemoryEventBus()
+    bus.publish({ kind: 'heartbeat', seq: 7, timestamp: 't', threadId: 'other' })
+    for (let seq = 1; seq <= 300; seq += 1) {
+      bus.publish({ kind: 'heartbeat', seq, timestamp: 't', threadId: 'tail' })
+    }
+
+    const tail = bus.snapshotSince('tail', 0)
+    expect(tail).toHaveLength(256)
+    expect(tail[0]?.seq).toBe(45)
+    expect(tail.at(-1)?.seq).toBe(300)
+    expect(bus.highestSeq('tail')).toBe(300)
+    expect(bus.allocateSeq('tail')).toBe(301)
+
+    expect(bus.snapshotSince('other', 0).map((event) => event.seq)).toEqual([7])
+    expect(bus.highestSeq('other')).toBe(7)
+    expect(bus.allocateSeq('other')).toBe(8)
+  })
+
   it('delivers events to subscribers and unsubscribes cleanly', () => {
     const bus = new InMemoryEventBus()
     const received: number[] = []

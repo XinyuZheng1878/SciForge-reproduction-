@@ -367,7 +367,10 @@ describe('createKunAgentRuntimeAdapter', () => {
     ])
     expect(JSON.parse(seen[2].init.body ?? '{}')).toEqual({
       prompt: 'run',
+      model: 'deepseek-gui-router',
       mode: 'agent',
+      approvalPolicy: 'auto',
+      sandboxMode: 'danger-full-access',
       displayText: 'Run it',
       attachmentIds: ['att-1']
     })

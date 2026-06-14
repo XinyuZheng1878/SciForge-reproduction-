@@ -40,18 +40,41 @@ import {
   type ClawScheduleMcpLaunchConfig
 } from './claw-schedule-mcp-config'
 import { defaultKunDataDir } from './runtime/kun-adapter'
+import { isKunHealthResponseBody } from './kun-health'
 import { appendManagedLogLine } from './logger'
 import { guiSkillRootsForRuntime, normalizeSkillRootPath } from './services/skill-service'
 
 let child: ChildProcess | null = null
 let childLogCapture: KunChildLogCapture | null = null
 let lastResolvedBinary: string | null = null
+let kunStartPromise: Promise<void> | null = null
+let childStderrTail = ''
+const intentionalStops = new WeakSet<ChildProcess>()
+const readyChildren = new WeakSet<ChildProcess>()
+
+export type KunUnexpectedExitInfo = {
+  code: number | null
+  signal: NodeJS.Signals | null
+  stderrTail: string
+}
+
+let onUnexpectedKunExit: ((info: KunUnexpectedExitInfo) => void) | null = null
+
+export function setKunUnexpectedExitHandler(
+  handler: ((info: KunUnexpectedExitInfo) => void) | null
+): void {
+  onUnexpectedKunExit = handler
+}
+
 const KUN_READY_PREFIX = 'KUN_READY '
-const KUN_STARTUP_TIMEOUT_MS = 15_000
+const KUN_STARTUP_TIMEOUT_MS = 45_000
+const KUN_STARTUP_HEALTH_POLL_MS = 500
+const KUN_STARTUP_HEALTH_REQUEST_TIMEOUT_MS = 1_000
 const KUN_STOP_GRACE_MS = 5_000
 const KUN_STOP_FORCE_MS = 1_000
-const STDERR_TAIL_MAX_CHARS = 4_000
+const STDERR_TAIL_MAX_CHARS = 32_768
 const GUI_SCHEDULE_MCP_TIMEOUT_MS = 5_000
+const MAX_TCP_PORT = 65_535
 const UPSTREAM_PROVIDER_SECRET_ENV_NAMES = [
   'OPENAI_API_KEY',
   'DEEPSEEK_API_KEY',
@@ -201,10 +224,23 @@ export function isKunChildRunning(): boolean {
   return child !== null && child.exitCode === null && child.signalCode === null
 }
 
-export async function startKunChild(settings: AppSettingsV1): Promise<void> {
+export function startKunChild(settings: AppSettingsV1): Promise<void> {
+  if (kunStartPromise) return kunStartPromise
   const runtime = resolveKunRuntimeSettings(settings)
-  if (isKunChildRunning()) return
-  if (!runtime.autoStart) return
+  if (isKunChildRunning()) return Promise.resolve()
+  if (!runtime.autoStart) return Promise.resolve()
+  let promise: Promise<void>
+  promise = startKunChildOnce(settings, runtime).finally(() => {
+    if (kunStartPromise === promise) kunStartPromise = null
+  })
+  kunStartPromise = promise
+  return promise
+}
+
+async function startKunChildOnce(
+  settings: AppSettingsV1,
+  runtime: KunRuntimeSettingsV1
+): Promise<void> {
   if (!runtime.apiKey.trim()) {
     throw new Error('Model Router runtime API key is required before starting Kun.')
   }
@@ -260,9 +296,13 @@ export async function startKunChild(settings: AppSettingsV1): Promise<void> {
   const startedChild = child
   const startedLogCapture = createKunChildLogCapture(startedChild.pid)
   childLogCapture = startedLogCapture
+  childStderrTail = ''
   startedLogCapture.logLifecycle(`spawned on port ${runtime.port} using data dir ${dataDir}`)
   startedChild.stdout?.on('data', startedLogCapture.captureStdout)
-  startedChild.stderr?.on('data', startedLogCapture.captureStderr)
+  startedChild.stderr?.on('data', (chunk: Buffer | string) => {
+    childStderrTail = appendTail(childStderrTail, normalizeCapturedChunk(chunk))
+    startedLogCapture.captureStderr(chunk)
+  })
   child.on('exit', (code, signal) => {
     startedLogCapture.logLifecycle(
       signal
@@ -271,14 +311,22 @@ export async function startKunChild(settings: AppSettingsV1): Promise<void> {
     )
     void startedLogCapture.close()
     if (child === startedChild) child = null
+    if (readyChildren.has(startedChild) && !intentionalStops.has(startedChild)) {
+      onUnexpectedKunExit?.({
+        code: code ?? null,
+        signal: signal ?? null,
+        stderrTail: childStderrTail
+      })
+    }
   })
   child.on('error', (error) => {
     startedLogCapture.logLifecycle(
       `process error: ${error instanceof Error ? error.message : String(error)}`
     )
   })
+  let readySource: KunStartupReadySource
   try {
-    await waitForKunStartup(startedChild)
+    readySource = await waitForKunStartup(startedChild, runtime.port)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     startedLogCapture.logLifecycle(`startup failed before ready: ${message}`)
@@ -287,7 +335,12 @@ export async function startKunChild(settings: AppSettingsV1): Promise<void> {
     }
     throw error
   }
-  startedLogCapture.logLifecycle(`ready marker received on port ${runtime.port}`)
+  readyChildren.add(startedChild)
+  startedLogCapture.logLifecycle(
+    readySource === 'stdout'
+      ? `ready marker received on port ${runtime.port}`
+      : `health probe confirmed ready on port ${runtime.port}`
+  )
 }
 
 export async function syncGuiManagedKunConfig(
@@ -719,6 +772,7 @@ export async function stopKunChildAndWait(): Promise<void> {
     return
   }
   const stoppingChild = child
+  intentionalStops.add(stoppingChild)
   const pid = child.pid
   const capture = childLogCapture
   if (stoppingChild.exitCode === null && stoppingChild.signalCode === null) {
@@ -782,6 +836,31 @@ export async function reclaimKunPort(
     : { ok: false, message: `port ${port} is in use` }
 }
 
+export async function resolveAvailableKunPort(
+  preferredPort: number
+): Promise<{ port: number; changed: boolean; message?: string }> {
+  if (preferredPort > 0) {
+    if (await canBindTcpPort(preferredPort, '127.0.0.1')) {
+      return { port: preferredPort, changed: false }
+    }
+    for (let port = preferredPort + 1; port <= MAX_TCP_PORT; port += 1) {
+      if (await canBindTcpPort(port, '127.0.0.1')) {
+        return {
+          port,
+          changed: true,
+          message: `port ${preferredPort} is in use`
+        }
+      }
+    }
+  }
+  const port = await allocateTcpPort('127.0.0.1')
+  return {
+    port,
+    changed: true,
+    ...(preferredPort > 0 ? { message: `port ${preferredPort} is in use` } : {})
+  }
+}
+
 function canBindTcpPort(port: number, host: string): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false
@@ -800,22 +879,67 @@ function canBindTcpPort(port: number, host: string): Promise<boolean> {
   })
 }
 
-async function waitForKunStartup(startedChild: ChildProcess): Promise<void> {
+function allocateTcpPort(host: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer()
+    const cleanup = (): void => {
+      server.removeAllListeners('error')
+      server.removeAllListeners('listening')
+    }
+    server.unref()
+    server.once('error', (error) => {
+      cleanup()
+      reject(error)
+    })
+    server.listen({ port: 0, host, exclusive: true }, () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      server.close((error) => {
+        cleanup()
+        if (error) reject(error)
+        else if (port > 0) resolve(port)
+        else reject(new Error('failed to allocate an available Kun port'))
+      })
+    })
+  })
+}
+
+type KunStartupReadySource = 'stdout' | 'health'
+
+async function waitForKunStartup(
+  startedChild: ChildProcess,
+  port?: number
+): Promise<KunStartupReadySource> {
   if (startedChild.exitCode !== null) {
     throw new Error(describeKunExit(startedChild.exitCode, null))
   }
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<KunStartupReadySource>((resolve, reject) => {
     let settled = false
     let stdoutBuffer = ''
     let stderrTail = ''
+    let healthProbeInFlight = false
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
       cleanup()
       reject(new Error(describeKunStartupTimeout(stderrTail)))
     }, KUN_STARTUP_TIMEOUT_MS)
+    const healthTimer = port
+      ? setInterval(() => {
+          if (settled || healthProbeInFlight) return
+          healthProbeInFlight = true
+          void probeKunHealth(port)
+            .then((healthy) => {
+              if (healthy) settleReady('health')
+            })
+            .finally(() => {
+              healthProbeInFlight = false
+            })
+        }, KUN_STARTUP_HEALTH_POLL_MS)
+      : null
     const cleanup = (): void => {
       clearTimeout(timer)
+      if (healthTimer) clearInterval(healthTimer)
       startedChild.removeListener('exit', onExit)
       startedChild.removeListener('error', onError)
       startedChild.stdout?.removeListener('data', onStdout)
@@ -836,15 +960,15 @@ async function waitForKunStartup(startedChild: ChildProcess): Promise<void> {
         return false
       }
     }
-    const settleReady = (): void => {
+    const settleReady = (source: KunStartupReadySource): void => {
       if (settled) return
       settled = true
       cleanup()
-      resolve()
+      resolve(source)
     }
     const onStdout = (chunk: Buffer | string): void => {
       stdoutBuffer = appendTail(stdoutBuffer, String(chunk), STDERR_TAIL_MAX_CHARS * 2)
-      if (tryParseReady()) settleReady()
+      if (tryParseReady()) settleReady('stdout')
     }
     const onStderr = (chunk: Buffer | string): void => {
       stderrTail = appendTail(stderrTail, String(chunk))
@@ -881,5 +1005,17 @@ function describeKunExit(
 
 function describeKunStartupTimeout(stderrTail: string): string {
   const suffix = stderrTail.trim() ? `\n${stderrTail.trim()}` : ''
-  return `Kun did not report ready within ${KUN_STARTUP_TIMEOUT_MS}ms${suffix}`
+  return `Kun did not become ready within ${KUN_STARTUP_TIMEOUT_MS}ms (waiting for KUN_READY stdout marker or /health)${suffix}`
+}
+
+async function probeKunHealth(port: number): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(KUN_STARTUP_HEALTH_REQUEST_TIMEOUT_MS)
+    })
+    if (!response.ok) return false
+    return isKunHealthResponseBody(await response.text())
+  } catch {
+    return false
+  }
 }

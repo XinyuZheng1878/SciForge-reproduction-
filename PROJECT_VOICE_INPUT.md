@@ -1,6 +1,6 @@
 # DeepSeek GUI 语音输入任务板
 
-更新时间：2026-06-13
+更新时间：2026-06-14
 
 ## 核心目标
 
@@ -25,21 +25,21 @@ Kun 上游仓库在本机：
 
 ## 引入范围
 
-- [ ] 设置页增加独立 Speech-to-Text 配置：enabled、baseUrl、apiKey、model、language、timeout。
-- [ ] 支持 OpenAI-compatible `/audio/transcriptions`。
-- [ ] 可选支持 MiMo ASR，仅作为通用协议选项，不引入 Xiaomi provider preset。
-- [ ] 聊天 composer 增加麦克风按钮。
-- [ ] 录音后支持“插入到输入框”和“转写后直接发送”。
-- [ ] 转写中、失败、权限拒绝、超时都有可解释 UI。
-- [ ] 限制单次录音时长和 IPC payload 大小。
+- [x] 设置页增加独立 Speech-to-Text 配置：enabled、baseUrl、apiKey、model、language、timeout。
+- [x] 支持 OpenAI-compatible `/audio/transcriptions`。
+- [x] 可选支持 MiMo ASR，仅作为通用协议选项，不引入 Xiaomi provider preset。
+- [x] 聊天 composer 增加麦克风按钮。
+- [x] 录音后支持“插入到输入框”和“转写后直接发送”。
+- [x] 转写中、失败、权限拒绝、超时都有可解释 UI。
+- [x] 限制单次录音时长和 IPC payload 大小。
 
 ## 不引入范围
 
-- [ ] 不引入 provider refactor。
-- [ ] 不引入 TTS / 音乐 / 视频。
-- [ ] 不改变 IM 远端输入链路。
-- [ ] 不新增独立语音会话页面。
-- [ ] 不把语音配置混进 Kun Providers 页面。
+- [x] 不引入 provider refactor。
+- [x] 不引入 TTS / 音乐 / 视频。
+- [x] 不改变 IM 远端输入链路。
+- [x] 不新增独立语音会话页面。
+- [x] 不把语音配置混进 Kun Providers 页面。
 
 ## 并行边界
 
@@ -72,8 +72,8 @@ Kun 上游仓库在本机：
 
 ## 验收清单
 
-- [ ] 未配置语音输入时，现有 composer 体验不变。
-- [ ] 配置后可以录音、转写、插入输入框。
-- [ ] 直接发送不会绕过现有 send/turn queue。
-- [ ] 录音权限拒绝和转写失败有明确提示。
-- [ ] API key 不进入普通日志。
+- [x] 未配置语音输入时，现有 composer 体验不变。
+- [x] 配置后可以录音、转写、插入输入框。
+- [x] 直接发送不会绕过现有 send/turn queue。
+- [x] 录音权限拒绝和转写失败有明确提示。
+- [x] API key 不进入普通日志。

@@ -14,6 +14,7 @@ import { withFileMutationQueue } from './file-mutation-queue.js'
 import type { EditLocalToolOptions, WriteLocalToolOptions } from './builtin-tool-types.js'
 import { defaultEditLocalToolOperations, defaultWriteLocalToolOperations } from './builtin-tool-operations.js'
 import { parseEditInstructions, resolveWorkspacePath, withToolBoundary } from './builtin-tool-utils.js'
+import { assertCanWritePath } from './sandbox-policy.js'
 
 export function createWriteLocalTool(_options: WriteLocalToolOptions = {}): LocalTool {
   const mkdirOp = _options.operations?.mkdir ?? defaultWriteLocalToolOperations.mkdir!
@@ -39,6 +40,7 @@ export function createWriteLocalTool(_options: WriteLocalToolOptions = {}): Loca
         return { output: { error: 'path and content are required' }, isError: true }
       }
       const { absolutePath, relativePath } = resolveWorkspacePath(rawPath, context)
+      assertCanWritePath(absolutePath, context)
       return withFileMutationQueue(absolutePath, async () => {
         await mkdirOp(dirname(absolutePath))
         await writeFileOp(absolutePath, content)
@@ -94,6 +96,7 @@ export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalT
         return { output: { error: 'path and at least one edit are required' }, isError: true }
       }
       const { absolutePath, relativePath } = resolveWorkspacePath(rawPath, context)
+      assertCanWritePath(absolutePath, context)
       return withFileMutationQueue(absolutePath, async () => {
         const rawSource = await readFileOp(absolutePath)
         const { bom, text: source } = stripBom(rawSource)

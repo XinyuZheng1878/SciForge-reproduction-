@@ -60,6 +60,7 @@ import {
   writeWorkspaceForThreadId
 } from '../write/write-thread-registry'
 import {
+  isEmptySddAssistantThreadCandidate,
   isSddAssistantThread,
   readSddThreadRegistry
 } from '../sdd/sdd-thread-registry'
@@ -668,7 +669,10 @@ export function createNavigationActions(
           .map((thread) => thread.workspace)
       )
       const sidebarThreads = (await filterThreadsForSidebar(threads, p))
-        .filter((thread) => !isSddAssistantThread(thread, sddThreadRegistry))
+        .filter((thread) =>
+          !isSddAssistantThread(thread, sddThreadRegistry) &&
+          !isEmptySddAssistantThreadCandidate(thread)
+        )
       const forkRegistry = hydrateThreadForkRegistry(sidebarThreads, readThreadForkRegistry())
       saveThreadForkRegistry(forkRegistry)
       const enrichedThreads = enrichThreadsWithForkInfo(sidebarThreads, forkRegistry)
@@ -686,6 +690,10 @@ export function createNavigationActions(
         isSddAssistantThread(
           activeId ? get().threads.find((thread) => thread.id === activeId) ?? null : null,
           sddThreadRegistry
+        ) ||
+        isEmptySddAssistantThreadCandidate(activeRawThread) ||
+        isEmptySddAssistantThreadCandidate(
+          activeId ? get().threads.find((thread) => thread.id === activeId) ?? null : null
         )
       const activeThreadFilteredFromCodeSidebar =
         get().route === 'chat' &&

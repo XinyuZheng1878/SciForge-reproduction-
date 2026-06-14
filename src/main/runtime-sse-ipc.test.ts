@@ -94,6 +94,7 @@ describe('registerRuntimeSseIpc', () => {
     const codexRuntime = {
       subscribeEvents: vi.fn(async function* (threadId: string, sinceSeq: number) {
         yield { threadId, seq: sinceSeq + 1, runtimeId: 'codex' }
+        yield { threadId, seq: sinceSeq + 2, runtimeId: 'codex' }
       }),
       readStoredEvents: vi.fn()
     } as unknown as CodexRuntimeService
@@ -110,9 +111,14 @@ describe('registerRuntimeSseIpc', () => {
     await waitFor(() => {
       expect(send).toHaveBeenCalledWith('runtime:sse-event', {
         streamId: 'stream-codex',
+        events: [
+          { threadId: 'codex-thread', seq: 5, runtimeId: 'codex' },
+          { threadId: 'codex-thread', seq: 6, runtimeId: 'codex' }
+        ],
         data: { threadId: 'codex-thread', seq: 5, runtimeId: 'codex' }
       })
     })
+    expect(send.mock.calls.filter(([channel]) => channel === 'runtime:sse-event')).toHaveLength(1)
     expect(codexRuntime.subscribeEvents).toHaveBeenCalledWith(
       'codex-thread',
       4,
@@ -124,7 +130,13 @@ describe('registerRuntimeSseIpc', () => {
   it('keeps legacy callers on Kun instead of defaulting to active runtime', async () => {
     const fetchMock = vi.fn(async (_url: URL, init?: RequestInit) => new Response(new ReadableStream({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode('data: {"seq":1,"kind":"heartbeat"}\n\n'))
+        controller.enqueue(new TextEncoder().encode([
+          'data: {"seq":1,"kind":"heartbeat"}',
+          '',
+          'data: {"seq":2,"kind":"agent_message_delta"}',
+          '',
+          ''
+        ].join('\n')))
         init?.signal?.addEventListener('abort', () => controller.close(), { once: true })
       }
     })))
@@ -146,9 +158,14 @@ describe('registerRuntimeSseIpc', () => {
       await waitFor(() => {
         expect(send).toHaveBeenCalledWith('runtime:sse-event', {
           streamId: 'stream-kun',
+          events: [
+            { seq: 1, kind: 'heartbeat' },
+            { seq: 2, kind: 'agent_message_delta' }
+          ],
           data: { seq: 1, kind: 'heartbeat' }
         })
       })
+      expect(send.mock.calls.filter(([channel]) => channel === 'runtime:sse-event')).toHaveLength(1)
       await stop({}, 'stream-kun')
 
       expect(ensureRuntime).toHaveBeenCalledWith(

@@ -1,6 +1,6 @@
 # DeepSeek GUI IM 稳定性补丁审计任务板
 
-更新时间：2026-06-13
+更新时间：2026-06-14
 
 ## 核心目标
 
@@ -27,28 +27,36 @@ Kun 上游仓库在本机：
 
 每个 Kun 修复点必须先做等价性审计：
 
-- [ ] DeepSeek-GUI 已经等价修复：记录结论，跳过代码修改。
-- [ ] DeepSeek-GUI 部分修复：只补缺失路径。
-- [ ] DeepSeek-GUI 未修复：按最小通用补丁引入。
+- [x] DeepSeek-GUI 已经等价修复：记录结论，跳过代码修改。
+- [x] DeepSeek-GUI 部分修复：只补缺失路径。
+- [x] DeepSeek-GUI 未修复：按最小通用补丁引入。
 
 不得为了“同步 Kun”而覆盖 DeepSeek-GUI 现有 IM 设计。
 
 ## 候选引入范围
 
-- [ ] 长 agent turn 期间，WeChat/Feishu/Discord channel 仍能响应状态与排队提示。
-- [ ] auto / IM agent approval handling 修复，远端请求不能卡在不可见审批状态。
-- [ ] busy watchdog exhaustion 后，message queue 能 unstick。
-- [ ] IM runtime routing 与 desktop runtime routing 保持统一，不额外生成旁路。
-- [ ] 生成文件、图片、附件投递失败时返回可解释消息。
-- [ ] 微信/飞书 SDK 媒体类型或声明缺口，只在当前代码确实缺失时补齐。
+- [x] 长 agent turn 期间，WeChat/Feishu/Discord channel 仍能响应状态与排队提示。
+- [x] auto / IM agent approval handling 修复，远端请求不能卡在不可见审批状态。
+- [x] busy watchdog exhaustion 后，message queue 能 unstick。
+- [x] IM runtime routing 与 desktop runtime routing 保持统一，不额外生成旁路。
+- [x] IM 请求 `model=auto` 时解析到当前有效 runtime 模型，而不是把 `auto` 作为模型 ID 传给 runtime。
+- [x] 生成文件、图片、附件投递失败时返回可解释消息。
+- [x] 微信/飞书 SDK 媒体类型或声明缺口，只在当前代码确实缺失时补齐。
+- [x] webhook / IM 入口内部错误对远端返回通用错误文案，敏感内部异常只进入脱敏日志。
+
+## Kun v0.2.10 增量纳入项
+
+- [x] 纳入 Kun `src/main/claw-runtime.ts` 中 `effectiveImRuntimeModel` 思路：先审计 DeepSeek-GUI 是否已等价修复，未修再补。
+- [x] 纳入 webhook 内部错误响应脱敏：远端只看到通用失败原因，日志保留脱敏诊断。
+- [x] 如 DeepSeek-GUI 当前 IM 已有 Model Router 解析逻辑，不新增第二套路由，只把 `auto` 解析并入统一链路。
 
 ## 不引入范围
 
-- [ ] 不引入 Kun UI / iKun / branding。
-- [ ] 不重写 IM channel 配置页。
-- [ ] 不改变 `PROJECT.md` 已确认的绑定原则。
-- [ ] 不引入云 relay / 离线队列。
-- [ ] 不引入新的 provider 设置结构。
+- [x] 不引入 Kun UI / iKun / branding。
+- [x] 不重写 IM channel 配置页。
+- [x] 不改变 `PROJECT.md` 已确认的绑定原则。
+- [x] 不引入云 relay / 离线队列。
+- [x] 不引入新的 provider 设置结构。
 
 ## 并行边界
 
@@ -74,13 +82,15 @@ Kun 上游仓库在本机：
 - Kun commits: `Fix approval handling for auto and IM agents`
 - Kun commits: `fix: keep WeChat channel responsive during long agent turns`
 - Kun commits: `fix: unstick message queue after busy watchdog exhaustion`
+- Kun v0.2.10 `src/main/claw-runtime.ts`
 - Kun `src/main/claw-runtime.ts`
 - Kun `src/main/weixin-bridge-runtime.ts`
 
 ## 验收清单
 
-- [ ] DeepSeek-GUI 已修过的 IM bug 不被重复改坏。
-- [ ] 手机端长回合期间能收到 queued / running / failed 反馈。
-- [ ] IM 请求审批语义与桌面项目级 runtime/sandbox/Model Router 一致。
-- [ ] provider 发送失败时有日志和远端提示。
-- [ ] 桌面焦点和 remote binding 规则仍完全符合 `PROJECT.md`。
+- [x] DeepSeek-GUI 已修过的 IM bug 不被重复改坏。
+- [x] 手机端长回合期间能收到 queued / running / failed 反馈。
+- [x] IM 请求审批语义与桌面项目级 runtime/sandbox/Model Router 一致。
+- [x] IM `auto` 模型请求最终进入 runtime 前已经解析为具体模型。
+- [x] provider 发送失败时有日志和远端提示。
+- [x] 桌面焦点和 remote binding 规则仍完全符合 `PROJECT.md`。

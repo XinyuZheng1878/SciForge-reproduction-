@@ -25,6 +25,7 @@ import {
   defaultWriteSettings,
   mergeClawSettings,
   mergeScheduleSettings,
+  mergeSpeechToTextSettings,
   mergeWriteSettings,
   normalizeAppBehaviorSettings,
   normalizeKeyboardShortcuts,
@@ -423,7 +424,13 @@ export class JsonSettingsStore {
 
   async patch(partial: AppSettingsPatch): Promise<AppSettingsV1> {
     const cur = await this.load()
-    const { agents: agentsPatch, provider: providerPatch, modelRouter: modelRouterPatch, ...restPatch } = partial
+    const {
+      agents: agentsPatch,
+      provider: providerPatch,
+      modelRouter: modelRouterPatch,
+      speechToText: speechToTextPatch,
+      ...restPatch
+    } = partial
     const next = normalizeStoredSettings({
       ...applyCodexRuntimePatch(applyKunRuntimePatch(cur, agentsPatch?.kun), agentsPatch?.codex),
       ...restPatch,
@@ -442,6 +449,7 @@ export class JsonSettingsStore {
         }
       }),
       write: mergeWriteSettings(cur.write, partial.write),
+      speechToText: mergeSpeechToTextSettings(cur.speechToText, speechToTextPatch),
       claw: mergeClawSettings(cur.claw, partial.claw),
       schedule: mergeScheduleSettings(cur.schedule, partial.schedule),
       guiUpdate: { ...cur.guiUpdate, ...(partial.guiUpdate ?? {}) }

@@ -15,6 +15,7 @@ import {
   type CreatePlanToolOutput,
   type GuiPlanOperation
 } from '../../shared/gui-plan.js'
+import { canWritePath } from './sandbox-policy.js'
 
 /**
  * Shared tool name. Kept in sync with the renderer contract so the
@@ -290,6 +291,16 @@ export async function executeCreatePlanTool(
     ? normalize(join(resolvedWorkspace, resolved.relativePath))
     : normalize(join(planDirectory(resolvedWorkspace), basename(resolved.relativePath)))
   assertWithinWorkspace(absolutePath, resolvedWorkspace)
+  const writePermission = canWritePath(absolutePath, context)
+  if (!writePermission.ok) {
+    return {
+      output: {
+        code: writePermission.block.code,
+        error: writePermission.block.message
+      },
+      isError: true
+    }
+  }
   if (context.abortSignal.aborted) {
     return { output: { error: 'plan write aborted' }, isError: true }
   }

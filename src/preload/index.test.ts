@@ -61,6 +61,25 @@ describe('preload agentRuntime bridge', () => {
     expect(invoke.mock.calls[0]?.[1]).not.toHaveProperty('runtimeId')
   })
 
+  it('exposes runtime status notifications', () => {
+    const api = exposedApi as {
+      onRuntimeStatus(handler: (payload: unknown) => void): () => void
+    }
+    const handler = vi.fn()
+
+    const unsubscribe = api.onRuntimeStatus(handler)
+    const wrapped = on.mock.calls.find(([channel]) => channel === 'runtime:status')?.[1]
+    wrapped?.({}, { state: 'running', source: 'test', at: '2026-06-14T00:00:00.000Z' })
+    unsubscribe()
+
+    expect(handler).toHaveBeenCalledWith({
+      state: 'running',
+      source: 'test',
+      at: '2026-06-14T00:00:00.000Z'
+    })
+    expect(removeListener).toHaveBeenCalledWith('runtime:status', wrapped)
+  })
+
   it('exposes a bridge to open the local Model Router config file', async () => {
     const api = exposedApi as {
       openModelRouterConfigFile(): Promise<unknown>
@@ -69,6 +88,45 @@ describe('preload agentRuntime bridge', () => {
     await api.openModelRouterConfigFile()
 
     expect(invoke).toHaveBeenCalledWith('modelRouter:config:open')
+  })
+
+  it('exposes real file paths from picked or dropped files', () => {
+    const api = exposedApi as {
+      getPathForFile(file: File): string
+    }
+    const file = { name: 'paper.pdf' } as File
+
+    expect(api.getPathForFile(file)).toBe('/tmp/file.txt')
+  })
+
+  it('keeps PDF preview on the generic workspace file IPC channel', async () => {
+    const api = exposedApi as {
+      readWorkspaceFile(options: unknown): Promise<unknown>
+    }
+
+    await api.readWorkspaceFile({ path: 'paper.pdf', workspaceRoot: '/tmp/workspace' })
+
+    expect(invoke).toHaveBeenCalledWith('file:read-workspace', {
+      path: 'paper.pdf',
+      workspaceRoot: '/tmp/workspace'
+    })
+  })
+
+  it('exposes speech-to-text transcription IPC', async () => {
+    const api = exposedApi as {
+      speechToText: {
+        transcribe(payload: unknown): Promise<unknown>
+      }
+    }
+    const payload = {
+      audioBase64: 'ZmFrZS13YXY=',
+      mimeType: 'audio/wav',
+      durationMs: 1000
+    }
+
+    await api.speechToText.transcribe(payload)
+
+    expect(invoke).toHaveBeenCalledWith('speech:transcribe', payload)
   })
 
   it('forwards Discord Client ID and per-channel guard IPC payloads', async () => {

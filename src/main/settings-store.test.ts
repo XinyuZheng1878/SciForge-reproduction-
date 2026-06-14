@@ -8,6 +8,7 @@ import {
   defaultCodexRuntimeSettings,
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
+  defaultSpeechToTextSettings,
   getCodexRuntimeSettings
 } from '../shared/app-settings'
 import { DEFAULT_GUI_UPDATE_CHANNEL } from '../shared/gui-update'
@@ -29,6 +30,7 @@ describe('JsonSettingsStore', () => {
       startMinimized: false,
       closeToTray: false
     })
+    expect(loaded.speechToText).toEqual(defaultSpeechToTextSettings())
   })
 
   it('patches the active runtime and Codex settings without changing Kun', async () => {

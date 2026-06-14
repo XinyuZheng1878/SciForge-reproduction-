@@ -1,5 +1,6 @@
 import type { GuiUpdateChannel } from './gui-update'
 import type { KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
+import type { SpeechToTextSettingsPatchV1, SpeechToTextSettingsV1 } from './speech-to-text'
 import type { ApprovalPolicy, SandboxMode } from '../../kun/src/contracts/policy.js'
 import type { ModelEndpointFormat } from '../../kun/src/contracts/model-endpoint-format.js'
 export {
@@ -56,6 +57,7 @@ export const DEFAULT_KUN_PORT = 8899
 export const DEFAULT_WEIXIN_BRIDGE_RPC_URL = 'http://127.0.0.1:18790/api/v1/admin/rpc'
 export const DEFAULT_MODEL_PROVIDER_ID = 'deepseek'
 export type { ModelEndpointFormat }
+export type { SpeechToTextSettingsPatchV1, SpeechToTextSettingsV1 } from './speech-to-text'
 export type ModelProviderProfileV1 = {
   id: string
   name: string
@@ -571,6 +573,7 @@ export type AppSettingsV1 = {
   appBehavior: AppBehaviorConfigV1
   keyboardShortcuts: KeyboardShortcutsConfigV1
   write: WriteSettingsV1
+  speechToText?: SpeechToTextSettingsV1
   claw: ClawSettingsV1
   schedule: ScheduleSettingsV1
   guiUpdate: GuiUpdateConfigV1
@@ -578,7 +581,7 @@ export type AppSettingsV1 = {
 }
 
 export type AppSettingsPatch = Partial<
-  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'claw' | 'schedule' | 'guiUpdate'>
+  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'speechToText' | 'claw' | 'schedule' | 'guiUpdate'>
 > & {
   provider?: ModelProviderSettingsPatchV1
   modelRouter?: ModelRouterSettingsPatchV1
@@ -588,6 +591,7 @@ export type AppSettingsPatch = Partial<
   appBehavior?: Partial<AppBehaviorConfigV1>
   keyboardShortcuts?: Partial<KeyboardShortcutsConfigV1>
   write?: WriteSettingsPatchV1
+  speechToText?: SpeechToTextSettingsPatchV1
   claw?: ClawSettingsPatchV1
   schedule?: ScheduleSettingsPatchV1
   guiUpdate?: Partial<GuiUpdateConfigV1>
