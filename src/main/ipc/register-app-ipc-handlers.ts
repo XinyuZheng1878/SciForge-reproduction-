@@ -617,6 +617,26 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
 
   handleInvoke('upstream:models', async () => fetchUpstreamModels())
 
+  handleInvoke('experts:status', async () => {
+    const url = (process.env.SCIFORGE_SCIMODALITY_SERVICE_URL ?? '').trim()
+    if (!url) {
+      return { ok: false, configured: false, providerReachable: false, experts: [] }
+    }
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 6000)
+    try {
+      const response = await fetch(`${url.replace(/\/+$/, '')}/experts/status`, {
+        signal: controller.signal
+      })
+      const data = await response.json() as unknown
+      return { ...(data as object), configured: true }
+    } catch {
+      return { ok: false, configured: true, providerReachable: false, experts: [] }
+    } finally {
+      clearTimeout(timer)
+    }
+  })
+
   handleInvoke('claw:status', async (): Promise<ClawRuntimeStatus> =>
     getClawRuntime()?.status() ?? {
       imServerRunning: false,

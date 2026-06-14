@@ -10,6 +10,7 @@ const api = {
   runtimeRequest: (path, method, body) =>
     ipcRenderer.invoke('runtime:request', { path, method, body }),
   fetchUpstreamModels: () => ipcRenderer.invoke('upstream:models'),
+  getExpertStatus: () => ipcRenderer.invoke('experts:status'),
   getClawStatus: () => ipcRenderer.invoke('claw:status'),
   runClawTask: (taskId) =>
     ipcRenderer.invoke('claw:task:run', taskId),

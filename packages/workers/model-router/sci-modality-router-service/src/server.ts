@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import {
   ClientAbortError,
   detectModality,
+  EXPERT_MODEL,
   ProviderError,
   translateModality,
   UndetectableModalityError,
@@ -53,10 +54,57 @@ async function handle(
       modalities: MODALITIES,
     });
   }
+  if (req.method === 'GET' && url.pathname === '/experts/status') {
+    return expertsStatusRoute(res, options, fetchImpl, now);
+  }
   if (req.method === 'POST' && url.pathname === '/modality/translate') {
     return translateRoute(req, res, options, fetchImpl, now);
   }
   return sendJson(res, 404, errorResult('NOT_FOUND', `No route for ${req.method} ${url.pathname}`, false));
+}
+
+// Live availability of each expert model. Pings the expert provider's /health (which lists the
+// loaded models) and maps the six modalities -> their expert -> online/offline. Cheap; safe to poll.
+async function expertsStatusRoute(
+  res: ServerResponse,
+  options: SciModalityRouterOptions,
+  fetchImpl: typeof fetch,
+  now: () => Date,
+): Promise<void> {
+  const base = options.experts.baseUrl.replace(/\/v1\/?$/i, '').replace(/\/+$/, '');
+  let reachable = false;
+  let device: string | undefined;
+  const loaded = new Set<string>();
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    let resp: Response;
+    try {
+      resp = await fetchImpl(`${base}/health`, { signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (resp.ok) {
+      reachable = true;
+      const body = (await resp.json().catch(() => ({}))) as { experts?: unknown; device?: unknown };
+      if (Array.isArray(body.experts)) for (const e of body.experts) loaded.add(String(e));
+      if (typeof body.device === 'string') device = body.device;
+    }
+  } catch {
+    reachable = false;
+  }
+  const experts = MODALITIES.map((modality) => {
+    const model = EXPERT_MODEL[modality];
+    return { modality, model, online: reachable && loaded.has(model) };
+  });
+  return sendJson(res, 200, {
+    ok: true,
+    service: SERVICE_ID,
+    providerReachable: reachable,
+    device,
+    experts,
+    checkedAt: now().toISOString(),
+  });
 }
 
 async function translateRoute(

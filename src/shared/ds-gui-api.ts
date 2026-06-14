@@ -199,6 +199,15 @@ export type ClawChannelMirrorResult =
 export type UpstreamModelsResult =
   | { ok: true; modelIds: string[]; modelGroups?: ModelProviderModelGroup[] }
   | { ok: false; message: string }
+export type ExpertInfo = { modality: string; model: string; online: boolean }
+export type ExpertStatusResult = {
+  ok: boolean
+  configured?: boolean
+  providerReachable?: boolean
+  device?: string
+  experts: ExpertInfo[]
+  checkedAt?: string
+}
 export type ModelProviderModelGroup = {
   providerId: string
   label: string
@@ -222,6 +231,7 @@ export type DsGuiApi = {
   /** Legacy Kun-only compatibility bridge. New UI/runtime code must use `agentRuntime`. */
   runtimeRequest: (path: string, method?: string, body?: string) => Promise<RuntimeRequestResult>
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
+  getExpertStatus: () => Promise<ExpertStatusResult>
   getClawStatus: () => Promise<ClawRuntimeStatus>
   runClawTask: (taskId: string) => Promise<ClawRunResult>
   getScheduleStatus: () => Promise<ScheduleRuntimeStatus>

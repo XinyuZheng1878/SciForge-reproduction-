@@ -1252,5 +1252,10 @@
   "toolBuiltinBash": "命令",
   "sidebarFooterHint": "连接本地运行后即可创建会话并与代理对话。",
   "appErrorTitle": "应用出了点问题",
-  "appErrorReload": "重新加载"
+  "appErrorReload": "重新加载",
+  "expertsPanelTitle": "科学专家模型",
+  "expertsPanelOnline": "{{count}} 在线",
+  "expertsPanelOffline": "离线",
+  "expertsPanelNotConfigured": "未配置科学专家服务",
+  "expertsPanelProviderUnreachable": "专家服务不可达"
 }
