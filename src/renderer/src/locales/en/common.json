@@ -1252,10 +1252,5 @@
   "toolBuiltinBash": "Bash",
   "sidebarFooterHint": "Connect the local runtime to create threads and chat with the agent.",
   "appErrorTitle": "Something went wrong",
-  "appErrorReload": "Reload",
-  "expertsPanelTitle": "Scientific experts",
-  "expertsPanelOnline": "{{count}} online",
-  "expertsPanelOffline": "offline",
-  "expertsPanelNotConfigured": "Scientific experts not configured",
-  "expertsPanelProviderUnreachable": "Expert service unreachable"
+  "appErrorReload": "Reload"
 }

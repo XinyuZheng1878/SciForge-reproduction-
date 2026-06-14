@@ -502,6 +502,7 @@ export class AgentLoop {
     const attachments = await this.resolveAttachments({
       attachmentIds: turn?.attachmentIds ?? [],
       threadId,
+      turnId,
       workspace: thread?.workspace ?? '',
       modelCapabilities
     })
@@ -1735,6 +1736,7 @@ export class AgentLoop {
   private async resolveAttachments(input: {
     attachmentIds: readonly string[]
     threadId: string
+    turnId: string
     workspace: string
     modelCapabilities: ModelCapabilityMetadata
   }): Promise<{ imageAttachments: ModelInputAttachment[]; textFallbacks: ModelTextAttachmentFallback[]; evidenceTexts: string[] }> {
@@ -1754,8 +1756,58 @@ export class AgentLoop {
       })
       // Branch first on mime type: data (non-image) attachments go to evidence translation
       if (!attachment.mimeType.startsWith('image/')) {
-        const evidence = await translateDataAttachment(attachment)
-        evidenceTexts.push(evidence)
+        const translation = await translateDataAttachment(attachment)
+        evidenceTexts.push(translation.text)
+        // Emit a tool_call + tool_result pair so the turn timeline shows the expert routing.
+        try {
+          const callId = `scimodality_${attachment.id}`
+          const toolCallItemId = `item_tool_${input.turnId}_${callId}`
+          const toolResultItemId = `item_toolresult_${input.turnId}_${callId}`
+          const toolArgs: Record<string, unknown> = { file: attachment.name }
+          if (translation.modality) toolArgs.modality = translation.modality
+          if (translation.model) toolArgs.model = translation.model
+          await this.opts.turns.applyItem(
+            input.threadId,
+            makeToolCallItem({
+              id: toolCallItemId,
+              turnId: input.turnId,
+              threadId: input.threadId,
+              callId,
+              toolName: 'scientific_modality',
+              toolKind: 'tool_call',
+              arguments: toolArgs,
+              status: 'completed'
+            })
+          )
+          await this.opts.events.record({
+            kind: 'tool_call_ready',
+            threadId: input.threadId,
+            turnId: input.turnId,
+            itemId: toolCallItemId,
+            callId,
+            toolName: 'scientific_modality',
+            readyCount: 1
+          })
+          const routedTo = translation.viaExpert && translation.modality && translation.model
+            ? `${translation.modality} (${translation.model})`
+            : 'text (no expert match)'
+          await this.opts.turns.applyItem(
+            input.threadId,
+            makeToolResultItem({
+              id: toolResultItemId,
+              turnId: input.turnId,
+              threadId: input.threadId,
+              callId,
+              toolName: 'scientific_modality',
+              toolKind: 'tool_call',
+              output: { routedTo, evidence: translation.summary },
+              isError: false,
+              status: 'completed'
+            })
+          )
+        } catch {
+          // Telemetry/emit failure must never break the turn
+        }
         continue
       }
       // Image attachment: existing behaviour
@@ -2025,14 +2077,25 @@ function normalizeRequestedReasoningEffort(effort: string | undefined): string |
 
 const DATA_ATTACHMENT_TRANSLATE_MAX_BYTES = 256 * 1024
 
+type DataAttachmentTranslation = {
+  text: string
+  viaExpert: boolean
+  modality?: string
+  model?: string
+  summary: string
+}
+
 /**
  * Translate a non-image (data) attachment into a natural-language evidence
  * string for the model.  If SCIFORGE_SCIMODALITY_SERVICE_URL is configured,
  * the standalone expert-translator service is called first.  On any failure
  * (unconfigured, network error, bad response) we fall back to raw text so the
  * turn is never broken.
+ *
+ * Returns a structured result so the caller can emit timeline tool items
+ * showing which expert was routed to and the raw expert feedback.
  */
-async function translateDataAttachment(attachment: AttachmentContent): Promise<string> {
+async function translateDataAttachment(attachment: AttachmentContent): Promise<DataAttachmentTranslation> {
   const rawText = attachment.data.toString('utf8')
   const serviceUrl = (process.env['SCIFORGE_SCIMODALITY_SERVICE_URL'] ?? '').trim()
 
@@ -2059,11 +2122,12 @@ async function translateDataAttachment(attachment: AttachmentContent): Promise<s
           if (summary) {
             const modality = json.data?.modality ?? 'unknown'
             const model = json.data?.model ?? 'unknown'
-            return [
+            const text = [
               `[scientific-modality:${modality}/${model}] The attached file "${attachment.name}" was analyzed by a domain expert model. Treat the following as the inspected content and answer from it; do not try to open the file.`,
               '',
               summary
             ].join('\n')
+            return { text, viaExpert: true, modality, model, summary }
           }
         }
       }
@@ -2076,7 +2140,8 @@ async function translateDataAttachment(attachment: AttachmentContent): Promise<s
   const truncated = Buffer.byteLength(rawText, 'utf8') > DATA_ATTACHMENT_TRANSLATE_MAX_BYTES
     ? rawText.slice(0, DATA_ATTACHMENT_TRANSLATE_MAX_BYTES) + '\n...[truncated]'
     : rawText
-  return `The attached file "${attachment.name}" contains:\n\n${truncated}`
+  const text = `The attached file "${attachment.name}" contains:\n\n${truncated}`
+  return { text, viaExpert: false, summary: truncated }
 }
 
 function autoModelRouteKey(threadId: string, turnId: string): string {

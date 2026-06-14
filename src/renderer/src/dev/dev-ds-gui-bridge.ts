@@ -110,7 +110,6 @@ function createApi(): DsGuiApi {
     setSettings: (partial) => invoke('settings:set', partial),
     runtimeRequest: (path, method, body) => invoke('runtime:request', { path, method, body }),
     fetchUpstreamModels: () => invoke('upstream:models'),
-    getExpertStatus: () => invoke('experts:status'),
     getClawStatus: () => invoke('claw:status'),
     runClawTask: (taskId) => invoke('claw:task:run', taskId),
     getScheduleStatus: () => invoke('schedule:status'),
