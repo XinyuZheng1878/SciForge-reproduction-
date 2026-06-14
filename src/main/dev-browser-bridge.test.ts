@@ -152,4 +152,29 @@ describe('dev browser bridge server', () => {
     })
     sse.close()
   })
+
+  it('broadcasts server-level messages to connected browser clients', async () => {
+    const dispatcher: DevBrowserBridgeDispatcher = {
+      invoke: vi.fn(async () => ({ ok: true }))
+    }
+
+    server = await startDevBrowserBridgeServer({ dispatcher, port: 0 })
+    const first = await openSse('/events?clientId=browser-a')
+    const second = await openSse('/events?clientId=browser-b')
+
+    server.send('claw:channel-activity', {
+      channelId: 'channel-1',
+      threadId: 'thread-1',
+      runtimeId: 'codex'
+    })
+
+    await vi.waitFor(() => {
+      expect(first.chunks.join('')).toContain('"channel":"claw:channel-activity"')
+      expect(first.chunks.join('')).toContain('"threadId":"thread-1"')
+      expect(second.chunks.join('')).toContain('"channel":"claw:channel-activity"')
+      expect(second.chunks.join('')).toContain('"threadId":"thread-1"')
+    })
+    first.close()
+    second.close()
+  })
 })

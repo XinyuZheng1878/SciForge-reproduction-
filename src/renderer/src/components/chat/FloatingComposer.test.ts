@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
   FloatingComposer,
+  attachmentInputsFromPickedFiles,
+  composeInsertedTextAtSelection,
   formatGoalElapsedSeconds,
   handleComposerImagePaste,
+  imageAttachmentInputsFromTransfer,
   imageFilesFromTransfer,
   imageTransferHasImages,
   runParsedGoalCommandForComposer,
@@ -28,6 +31,13 @@ import {
   removeComposerFileMentionToken,
   replaceFileMentionInInput
 } from '../../lib/composer-file-references'
+import {
+  resolveSpeechToTextSettingsFromAppSettings
+} from './use-voice-dictation'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('FloatingComposer slash commands', () => {
   it('parses compact command aliases', () => {
@@ -104,6 +114,80 @@ describe('FloatingComposer goal helpers', () => {
     expect(formatGoalElapsedSeconds(60)).toBe('1m')
     expect(formatGoalElapsedSeconds(125)).toBe('2m 5s')
     expect(formatGoalElapsedSeconds(3720)).toBe('1h 2m')
+  })
+})
+
+describe('FloatingComposer voice input helpers', () => {
+  it('normalizes configured speech-to-text settings from the dedicated settings shape', () => {
+    const settings = {
+      speechToText: {
+        enabled: true,
+        protocol: 'mimo-asr',
+        baseUrl: ' https://speech.example/v1 ',
+        apiKey: ' sk-speech ',
+        model: ' whisper-1 ',
+        language: ' zh ',
+        timeoutMs: 45000
+      }
+    } as unknown as Parameters<typeof resolveSpeechToTextSettingsFromAppSettings>[0]
+
+    expect(resolveSpeechToTextSettingsFromAppSettings(settings)).toEqual({
+      enabled: true,
+      protocol: 'mimo-asr',
+      baseUrl: 'https://speech.example/v1',
+      apiKey: 'sk-speech',
+      model: 'whisper-1',
+      language: 'zh',
+      timeoutMs: 45000
+    })
+  })
+
+  it('ignores legacy Kun speech-to-text settings so voice input stays a unified composer setting', () => {
+    const settings = {
+      agents: {
+        kun: {
+          speechToText: {
+            enabled: true,
+            protocol: 'openai-transcriptions',
+            baseUrl: 'https://api.example/v1',
+            apiKey: 'sk-speech',
+            model: 'whisper-1',
+            language: '',
+            timeoutMs: 60000
+          }
+        }
+      }
+    } as unknown as Parameters<typeof resolveSpeechToTextSettingsFromAppSettings>[0]
+
+    expect(resolveSpeechToTextSettingsFromAppSettings(settings)).toBeNull()
+  })
+
+  it('treats incomplete speech-to-text settings as unavailable', () => {
+    const settings = {
+      speechToText: {
+        enabled: true,
+        protocol: 'openai-transcriptions',
+        baseUrl: '',
+        apiKey: 'sk-speech',
+        model: 'whisper-1',
+        language: '',
+        timeoutMs: 60000
+      }
+    } as unknown as Parameters<typeof resolveSpeechToTextSettingsFromAppSettings>[0]
+
+    expect(resolveSpeechToTextSettingsFromAppSettings(settings)).toBeNull()
+  })
+
+  it('inserts dictated text at the composer selection with readable spacing', () => {
+    expect(composeInsertedTextAtSelection({
+      currentValue: 'please now',
+      selectionStart: 6,
+      selectionEnd: 6,
+      text: 'summarize this'
+    })).toEqual({
+      input: 'please summarize this now',
+      cursor: 21
+    })
   })
 })
 
@@ -267,6 +351,38 @@ describe('FloatingComposer image transfer helpers', () => {
     expect(imageFilesFromTransfer(source)).toEqual([screenshot])
   })
 
+  it('exposes picker file paths with image attachment inputs', () => {
+    const screenshot = new File([new Uint8Array([1])], 'shot.png', { type: 'image/png' })
+    const getPathForFile = vi.fn(() => '/tmp/project/shot.png')
+    vi.stubGlobal('window', {
+      dsGui: { getPathForFile }
+    })
+    const source = {
+      files: {
+        length: 1,
+        0: screenshot
+      }
+    }
+
+    expect(imageAttachmentInputsFromTransfer(source)).toEqual([
+      { file: screenshot, path: '/tmp/project/shot.png' }
+    ])
+    expect(getPathForFile).toHaveBeenCalledWith(screenshot)
+  })
+
+  it('keeps picked PDF files as path-backed workspace attachment inputs', () => {
+    const pdf = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'paper.pdf', { type: 'application/pdf' })
+    const getPathForFile = vi.fn(() => '/tmp/project/papers/paper.pdf')
+    vi.stubGlobal('window', {
+      dsGui: { getPathForFile }
+    })
+
+    expect(attachmentInputsFromPickedFiles([pdf])).toEqual([
+      { file: pdf, path: '/tmp/project/papers/paper.pdf' }
+    ])
+    expect(getPathForFile).toHaveBeenCalledWith(pdf)
+  })
+
   it('keeps clipboard item MIME hints when pasted image files omit their own type', () => {
     const screenshot = new File([new Uint8Array([1])], 'shot', { type: '' })
     const source = {
@@ -308,7 +424,7 @@ describe('FloatingComposer image transfer helpers', () => {
 
     expect(handled).toBe(true)
     expect(preventDefault).toHaveBeenCalledTimes(1)
-    expect(onPickAttachments).toHaveBeenCalledWith([screenshot])
+    expect(onPickAttachments).toHaveBeenCalledWith([{ file: screenshot }])
     expect(onPasteClipboardImage).not.toHaveBeenCalled()
   })
 
@@ -602,6 +718,32 @@ describe('FloatingComposer capability controls', () => {
     )
     expect(html).not.toContain('Attach image')
     expect(html).not.toContain('Image input is unavailable')
+  })
+
+  it('keeps the composer unchanged when speech-to-text is not configured', () => {
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposer, {
+        input: 'hello',
+        setInput: () => undefined,
+        mode: 'agent',
+        setMode: () => undefined,
+        busy: false,
+        runtimeReady: true,
+        hasActiveThread: true,
+        composerModel: '',
+        composerPickList: [],
+        onComposerModelChange: () => undefined,
+        queuedMessages: [],
+        onRemoveQueuedMessage: () => undefined,
+        onSend: () => undefined,
+        onInterrupt: () => undefined,
+        attachmentUploadEnabled: false,
+        webAccessAvailable: false
+      })
+    )
+
+    expect(html).not.toContain('Voice input')
+    expect(html).not.toContain('lucide-mic')
   })
 
   it('renders the plus trigger alongside uploaded attachments', () => {

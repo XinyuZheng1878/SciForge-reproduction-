@@ -176,19 +176,23 @@ export class OutputAccumulator {
   }
 
   snapshot(options: { persistIfTruncated?: boolean } = {}): OutputAccumulatorSnapshot {
-    const tailTruncation = truncateTail(this.getSnapshotText(), {
+    const pendingPreview = this.pendingDecodePreview()
+    const snapshotText = this.getSnapshotText(pendingPreview)
+    const totalDecodedBytes = this.totalDecodedBytes + byteLength(pendingPreview)
+    const totalLines = this.totalLinesAfterPreview(pendingPreview)
+    const tailTruncation = truncateTail(snapshotText, {
       maxLines: this.maxLines,
       maxBytes: this.maxBytes
     })
-    const truncated = this.totalLines > this.maxLines || this.totalDecodedBytes > this.maxBytes
+    const truncated = totalLines > this.maxLines || totalDecodedBytes > this.maxBytes
     const truncation: OutputAccumulatorTruncation = {
       ...tailTruncation,
       truncated,
       truncatedBy: truncated
-        ? (tailTruncation.truncatedBy ?? (this.totalDecodedBytes > this.maxBytes ? 'bytes' : 'lines'))
+        ? (tailTruncation.truncatedBy ?? (totalDecodedBytes > this.maxBytes ? 'bytes' : 'lines'))
         : null,
-      totalLines: this.totalLines,
-      totalBytes: this.totalDecodedBytes,
+      totalLines,
+      totalBytes: totalDecodedBytes,
       maxLines: this.maxLines,
       maxBytes: this.maxBytes
     }
@@ -281,10 +285,34 @@ export class OutputAccumulator {
     this.tailBytes = byteLength(this.tailText)
   }
 
-  private getSnapshotText(): string {
-    if (this.tailStartsAtLineBoundary) return this.tailText
-    const firstNewline = this.tailText.indexOf('\n')
-    return firstNewline === -1 ? this.tailText : this.tailText.slice(firstNewline + 1)
+  private getSnapshotText(pendingPreview = ''): string {
+    const text = this.tailText + pendingPreview
+    if (this.tailStartsAtLineBoundary) return text
+    const firstNewline = text.indexOf('\n')
+    return firstNewline === -1 ? text : text.slice(firstNewline + 1)
+  }
+
+  private pendingDecodePreview(): string {
+    if (this.decoder || this.decodeBuffer.length === 0) return ''
+    if (startsWithUtf16LeBom(this.decodeBuffer) || looksLikeUtf16Le(this.decodeBuffer)) {
+      return new TextDecoder('utf-16le').decode(stripKnownBom(this.decodeBuffer, 'utf-16le'))
+    }
+    return new TextDecoder('utf-8').decode(this.decodeBuffer)
+  }
+
+  private totalLinesAfterPreview(pendingPreview: string): number {
+    if (!pendingPreview) return this.totalLines
+    let newlines = 0
+    let lastNewline = -1
+    for (let index = pendingPreview.indexOf('\n'); index !== -1; index = pendingPreview.indexOf('\n', index + 1)) {
+      newlines += 1
+      lastNewline = index
+    }
+    if (newlines === 0) {
+      return this.completedLines + (this.hasOpenLine || pendingPreview.length > 0 ? 1 : 0)
+    }
+    const tail = pendingPreview.slice(lastNewline + 1)
+    return this.completedLines + newlines + (tail.length > 0 ? 1 : 0)
   }
 
   private shouldUseTempFile(): boolean {

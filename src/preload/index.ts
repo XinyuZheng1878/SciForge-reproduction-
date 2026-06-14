@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { DsGuiApi } from '../shared/ds-gui-api'
 
+const transcribeSpeech = (payload: Parameters<DsGuiApi['speechToText']['transcribe']>[0]) =>
+  ipcRenderer.invoke('speech:transcribe', payload)
+
 const api = {
   platform: process.platform,
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -20,6 +23,26 @@ const api = {
     ipcRenderer.invoke('claw:im-install:qrcode', { provider, isLark: options?.isLark }),
   pollClawImInstall: (provider, deviceCode) =>
     ipcRenderer.invoke('claw:im-install:poll', { provider, deviceCode }),
+  getDiscordBotStatus: () => ipcRenderer.invoke('discord:status'),
+  configureDiscordClientId: (clientId) =>
+    ipcRenderer.invoke('discord:configure-client', { clientId }),
+  configureDiscordBotToken: (token, clientId) =>
+    ipcRenderer.invoke('discord:configure-token', { token, ...(clientId ? { clientId } : {}) }),
+  configureDiscordProxy: (proxyUrl) =>
+    ipcRenderer.invoke('discord:configure-proxy', { proxyUrl }),
+  listDiscordGuilds: () => ipcRenderer.invoke('discord:guilds'),
+  listDiscordChannels: (guildId) =>
+    ipcRenderer.invoke('discord:channels', { guildId }),
+  bindDiscordChannel: (payload) =>
+    ipcRenderer.invoke('discord:bind-channel', payload),
+  testDiscordChannel: (channelId, text, channelConfigId) =>
+    ipcRenderer.invoke('discord:test-send', { channelId, text, ...(channelConfigId ? { channelConfigId } : {}) }),
+  setDiscordGuard: (enabled, channelConfigId, forceTakeover) =>
+    ipcRenderer.invoke('discord:set-guard', {
+      enabled,
+      ...(channelConfigId ? { channelConfigId } : {}),
+      ...(forceTakeover ? { forceTakeover } : {})
+    }),
   pickWorkspaceDirectory: (defaultPath) =>
     ipcRenderer.invoke('workspace:pick-directory', defaultPath),
   listSkills: (workspaceRoot) =>
@@ -89,6 +112,9 @@ const api = {
     ipcRenderer.invoke('write:inline-completion-debug:list'),
   clearWriteInlineCompletionDebugEntries: () =>
     ipcRenderer.invoke('write:inline-completion-debug:clear'),
+  speechToText: {
+    transcribe: transcribeSpeech
+  },
   // Legacy Kun SSE compatibility bridge; new runtime UI uses agentRuntime.subscribeEvents.
   startSse: (threadId, sinceSeq, streamId, runtimeId?: 'kun' | 'codex') =>
     ipcRenderer.invoke('runtime:sse:start', {
@@ -167,6 +193,14 @@ const api = {
     ) => handler(payload)
     ipcRenderer.on('runtime:sse-error', wrapped)
     return () => ipcRenderer.removeListener('runtime:sse-error', wrapped)
+  },
+  onRuntimeStatus: (handler) => {
+    const wrapped = (
+      _: Electron.IpcRendererEvent,
+      payload: Parameters<typeof handler>[0]
+    ) => handler(payload)
+    ipcRenderer.on('runtime:status', wrapped)
+    return () => ipcRenderer.removeListener('runtime:status', wrapped)
   },
   onClawChannelActivity: (handler) => {
     const wrapped = (

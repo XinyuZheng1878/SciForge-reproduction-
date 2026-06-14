@@ -227,6 +227,7 @@ export type AgentRuntimeAuxiliaryInput = {
 
 export type AgentRuntimeItem = {
   id: string
+  turnId?: string
   kind:
     | 'user_message'
     | 'assistant_message'

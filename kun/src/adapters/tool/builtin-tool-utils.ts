@@ -251,7 +251,13 @@ export function shellCommandArgs(config: ShellConfig, command: string): string[]
 
 export function shellRuntimeInstruction(config: ShellConfig = shellConfig()): string {
   const shell = shellRuntimeInfo(config)
-  return `Shell runtime: the \`bash\` tool executes commands with \`${shell.name}\` (${shell.shell}). Write shell commands appropriate for the host platform using ${shell.syntax} syntax. Do not assume POSIX/Bash syntax unless the current shell is Bash-compatible. Long-running commands may return a \`session_id\`; use \`bash\` with \`action: "poll"\` to read more output, \`action: "write"\` plus \`input\` to send stdin, or \`action: "stop"\` to terminate the process. For dev servers, start them normally, verify readiness once a URL or 200 response appears, then finish the user-facing answer without waiting for the server to exit.`
+  return [
+    '<shell_environment>',
+    `  <shell>${shell.name}</shell>`,
+    `  <path>${shell.shell}</path>`,
+    `  <syntax>${shell.syntax}</syntax>`,
+    '</shell_environment>'
+  ].join('\n')
 }
 
 // `close` can be held open by background grandchildren that inherit stdio.

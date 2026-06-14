@@ -1,5 +1,5 @@
 import i18n from '../i18n'
-import { isWriteImageFilePath, isWriteWorkspaceFilePath } from '@shared/write-text-file'
+import { isWriteImageFilePath, isWritePdfFilePath, isWriteWorkspaceFilePath } from '@shared/write-text-file'
 import { writePathToFileUrl } from '@shared/write-markdown-resource'
 import type { WriteWorkspaceGet, WriteWorkspaceSet, WriteWorkspaceState } from './write-workspace-store-types'
 import {
@@ -181,6 +181,41 @@ export function createWriteFileActions({
             fileContent: '',
             imageDataUrl: result.dataUrl,
             imageMimeType: result.mimeType,
+            pdfDataBase64: '',
+            pdfMimeType: '',
+            pdfMtimeMs: 0,
+            fileSize: result.size,
+            fileTruncated: false,
+            fileLoading: false,
+            fileError: null,
+            saveStatus: 'saved',
+            selection: emptySelection(),
+            quotedSelections: []
+          })
+          return
+        }
+
+        if (isWritePdfFilePath(path)) {
+          const result = await window.dsGui.readWorkspaceFile({ path, workspaceRoot })
+          if (!result.ok) {
+            set({ fileLoading: false, fileError: result.message })
+            return
+          }
+          if (result.kind !== 'pdf') {
+            set({ fileLoading: false, fileError: i18n.t('common:writeUnsupportedFileType') })
+            return
+          }
+          setLastSavedContent('')
+          rememberActiveFile(workspaceRoot, result.path)
+          set({
+            activeFilePath: result.path,
+            activeFileKind: 'pdf',
+            fileContent: '',
+            imageDataUrl: '',
+            imageMimeType: '',
+            pdfDataBase64: result.dataBase64,
+            pdfMimeType: result.mimeType,
+            pdfMtimeMs: result.mtimeMs,
             fileSize: result.size,
             fileTruncated: false,
             fileLoading: false,
@@ -197,6 +232,10 @@ export function createWriteFileActions({
           set({ fileLoading: false, fileError: result.message })
           return
         }
+        if (result.kind !== 'text') {
+          set({ fileLoading: false, fileError: i18n.t('common:writeUnsupportedFileType') })
+          return
+        }
         setLastSavedContent(result.content)
         rememberActiveFile(workspaceRoot, result.path)
         set({
@@ -205,6 +244,9 @@ export function createWriteFileActions({
           fileContent: result.content,
           imageDataUrl: '',
           imageMimeType: '',
+          pdfDataBase64: '',
+          pdfMimeType: '',
+          pdfMtimeMs: 0,
           fileSize: result.size,
           fileTruncated: result.truncated,
           fileLoading: false,
@@ -223,6 +265,9 @@ export function createWriteFileActions({
             fileContent: '',
             imageDataUrl: writePathToFileUrl(path),
             imageMimeType: imageMimeTypeFromPath(path),
+            pdfDataBase64: '',
+            pdfMimeType: '',
+            pdfMtimeMs: 0,
             fileSize: 0,
             fileTruncated: false,
             fileLoading: false,
@@ -302,7 +347,7 @@ export function createWriteFileActions({
             : state.activeFilePath
         const keepActiveFile = nextActiveFilePath ? isWriteWorkspaceFilePath(nextActiveFilePath) : false
         const nextActiveFileKind = keepActiveFile && nextActiveFilePath
-          ? isWriteImageFilePath(nextActiveFilePath) ? 'image' : 'text'
+          ? isWriteImageFilePath(nextActiveFilePath) ? 'image' : isWritePdfFilePath(nextActiveFilePath) ? 'pdf' : 'text'
           : null
         const expandedDirs = new Set<string>()
         for (const dirPath of state.expandedDirs) {
@@ -320,11 +365,14 @@ export function createWriteFileActions({
           fileContent: nextActiveFileKind === 'text' ? state.fileContent : '',
           imageDataUrl: nextActiveFileKind === 'image' ? state.imageDataUrl : '',
           imageMimeType: nextActiveFileKind === 'image' ? state.imageMimeType : '',
+          pdfDataBase64: nextActiveFileKind === 'pdf' ? state.pdfDataBase64 : '',
+          pdfMimeType: nextActiveFileKind === 'pdf' ? state.pdfMimeType : '',
+          pdfMtimeMs: nextActiveFileKind === 'pdf' ? state.pdfMtimeMs : 0,
           fileSize: keepActiveFile ? state.fileSize : 0,
           fileTruncated: keepActiveFile ? state.fileTruncated : false,
           saveStatus: keepActiveFile ? state.saveStatus : 'saved',
-          selection: nextActiveFileKind === 'text' ? state.selection : emptySelection(),
-          quotedSelections: nextActiveFileKind === 'text' ? state.quotedSelections : [],
+          selection: nextActiveFileKind === 'text' || nextActiveFileKind === 'pdf' ? state.selection : emptySelection(),
+          quotedSelections: nextActiveFileKind === 'text' || nextActiveFileKind === 'pdf' ? state.quotedSelections : [],
           expandedDirs,
           entriesByDir: {},
           fileError: null
@@ -364,6 +412,9 @@ export function createWriteFileActions({
           fileContent: '',
           imageDataUrl: '',
           imageMimeType: '',
+          pdfDataBase64: '',
+          pdfMimeType: '',
+          pdfMtimeMs: 0,
           fileSize: 0,
           fileTruncated: false,
           fileError: null,

@@ -60,6 +60,8 @@ export class HybridSessionStore implements SessionStore {
   }
 
   async highestSeq(threadId: string): Promise<number> {
+    const indexed = await this.index.getEventSeqHighWater(threadId)
+    if (indexed !== null) return indexed
     return this.delegate.highestSeq(threadId)
   }
 

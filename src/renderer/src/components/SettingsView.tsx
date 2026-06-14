@@ -56,10 +56,11 @@ import {
   ClawSettingsSection,
   GeneralSettingsSection,
   KeyboardShortcutsSettingsSection,
+  SpeechToTextSettingsSection,
   WriteSettingsSection
 } from './settings-sections'
 
-type SettingsCategory = 'general' | 'write' | 'agents' | 'shortcuts' | 'claw'
+type SettingsCategory = 'general' | 'write' | 'speechToText' | 'agents' | 'shortcuts' | 'claw'
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 type SettingsPatch = AppSettingsPatch
 type SkillRootOption = {
@@ -223,6 +224,10 @@ export function SettingsView(): ReactElement {
       setCategory('write')
       return
     }
+    if (settingsSection === 'speechToText') {
+      setCategory('speechToText')
+      return
+    }
     if (settingsSection === 'claw') {
       setCategory('claw')
       return
@@ -239,13 +244,14 @@ export function SettingsView(): ReactElement {
     if (
       settingsSection === 'general' ||
       settingsSection === 'write' ||
+      settingsSection === 'speechToText' ||
       settingsSection === 'claw' ||
       settingsSection === 'shortcuts' ||
       category !== 'agents'
     ) {
       return
     }
-    const refs: Record<Exclude<SettingsRouteSection, 'general' | 'write' | 'claw' | 'shortcuts'>, HTMLDivElement | null> = {
+    const refs: Record<Exclude<SettingsRouteSection, 'general' | 'write' | 'speechToText' | 'claw' | 'shortcuts'>, HTMLDivElement | null> = {
       agents: agentsSectionRef.current,
       skill: skillSectionRef.current,
       mcp: mcpSectionRef.current
@@ -853,6 +859,7 @@ export function SettingsView(): ReactElement {
 
           {category === 'general' ? <GeneralSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'write' ? <WriteSettingsSection ctx={settingsSectionContext} /> : null}
+          {category === 'speechToText' ? <SpeechToTextSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'agents' ? <AgentsSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'shortcuts' ? <KeyboardShortcutsSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'claw' ? <ClawSettingsSection ctx={settingsSectionContext} /> : null}

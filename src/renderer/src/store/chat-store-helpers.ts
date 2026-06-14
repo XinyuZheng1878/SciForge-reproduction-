@@ -25,6 +25,25 @@ const CODE_WORKSPACE_ROOTS_STORAGE_KEY = 'deepseekgui.codeWorkspaceRoots.v1'
 export const MAX_CODE_WORKSPACE_ROOTS = 30
 export const MAX_TURN_MODEL_LABELS = 500
 
+export type ClawThreadRemoteStatusKind = 'bound' | 'watched' | 'running' | 'queued' | 'error'
+
+export type ClawThreadRemoteBinding = {
+  threadId: string
+  provider: ClawImProvider
+  providerLabel: string
+  channelId: string
+  channelLabel: string
+  channelEnabled: boolean
+  scope: 'channel' | 'conversation'
+  runtimeId?: AgentRuntimeId
+  conversationId?: string
+  chatId?: string
+  remoteThreadId?: string
+  senderName?: string
+  workspaceRoot?: string
+  updatedAt: string
+}
+
 export const CLAW_COMPOSER_MODEL_IDS = [...CLAW_MODEL_IDS]
 
 export function readStoredComposerModel(allowedIds: readonly string[]): string {
@@ -132,6 +151,7 @@ export function newClawChannel(
     agentThreadIds: {},
     workspaceRoot: '',
     conversations: [],
+    recentMessages: [],
     agentProfile: {
       name: profileName,
       description: agentProfile?.description?.trim() ?? '',
@@ -182,6 +202,148 @@ export function clawThreadIdsFromChannels(
   return ids
 }
 
+export function watchedClawThreadIdsFromChannels(
+  channels: ClawImChannelV1[]
+): Set<string> {
+  const ids = new Set<string>()
+  for (const channel of channels) {
+    if (!channel.enabled) continue
+    addClawThreadId(ids, channel.threadId)
+    addClawAgentThreadIds(ids, channel.agentThreadIds)
+    for (const conversation of channel.conversations) {
+      addClawThreadId(ids, conversation.localThreadId)
+      addClawAgentThreadIds(ids, conversation.agentThreadIds)
+    }
+  }
+  return ids
+}
+
+export function clawImProviderDisplayLabel(provider: ClawImProvider): string {
+  if (provider === 'discord') return 'Discord'
+  if (provider === 'weixin') return 'WeChat'
+  return 'Feishu / Lark'
+}
+
+export function clawThreadRemoteBindingsFromChannels(
+  channels: ClawImChannelV1[]
+): Map<string, ClawThreadRemoteBinding> {
+  const bindings = new Map<string, ClawThreadRemoteBinding>()
+  for (const channel of channels) {
+    const channelBinding: Omit<ClawThreadRemoteBinding, 'threadId'> = {
+      provider: channel.provider,
+      providerLabel: clawImProviderDisplayLabel(channel.provider),
+      channelId: channel.id,
+      channelLabel: channel.label,
+      channelEnabled: channel.enabled,
+      scope: 'channel',
+      runtimeId: channel.runtimeId,
+      chatId: channel.remoteSession?.chatId,
+      remoteThreadId: channel.remoteSession?.threadId,
+      senderName: channel.remoteSession?.senderName,
+      workspaceRoot: channel.workspaceRoot,
+      updatedAt: channel.remoteSession?.updatedAt ?? channel.updatedAt
+    }
+    addClawThreadBindings(
+      bindings,
+      clawThreadMappingIds(channel.threadId, channel.agentThreadIds),
+      channelBinding
+    )
+
+    for (const conversation of channel.conversations) {
+      const conversationBinding: Omit<ClawThreadRemoteBinding, 'threadId'> = {
+        provider: channel.provider,
+        providerLabel: clawImProviderDisplayLabel(channel.provider),
+        channelId: channel.id,
+        channelLabel: channel.label,
+        channelEnabled: channel.enabled,
+        scope: 'conversation',
+        runtimeId: conversation.runtimeId ?? channel.runtimeId,
+        conversationId: conversation.id,
+        chatId: conversation.chatId,
+        remoteThreadId: conversation.remoteThreadId,
+        senderName: conversation.senderName,
+        workspaceRoot: conversation.workspaceRoot || channel.workspaceRoot,
+        updatedAt: conversation.updatedAt || channel.updatedAt
+      }
+      addClawThreadBindings(
+        bindings,
+        clawThreadMappingIds(conversation.localThreadId, conversation.agentThreadIds),
+        conversationBinding
+      )
+    }
+  }
+  return bindings
+}
+
+export function deriveClawThreadRemoteStatusKind(options: {
+  binding?: ClawThreadRemoteBinding | null
+  running?: boolean
+  queued?: boolean
+  status?: string
+  latestTurnStatus?: string
+}): ClawThreadRemoteStatusKind | null {
+  const status = options.status?.trim().toLowerCase() ?? ''
+  const latestTurnStatus = options.latestTurnStatus?.trim().toLowerCase() ?? ''
+  if (clawStatusLooksError(status) || clawStatusLooksError(latestTurnStatus)) return 'error'
+  if (options.running || clawStatusLooksRunning(status) || clawStatusLooksRunning(latestTurnStatus)) return 'running'
+  if (options.queued || clawStatusLooksQueued(status) || clawStatusLooksQueued(latestTurnStatus)) return 'queued'
+  if (!options.binding) return null
+  return options.binding.channelEnabled ? 'watched' : 'bound'
+}
+
+function clawThreadMappingIds(
+  primaryThreadId: string | undefined,
+  agentThreadIds: Partial<Record<AgentRuntimeId, string>> | undefined
+): string[] {
+  const ids = new Set<string>()
+  addClawThreadId(ids, primaryThreadId)
+  addClawAgentThreadIds(ids, agentThreadIds)
+  return [...ids]
+}
+
+function addClawThreadBindings(
+  bindings: Map<string, ClawThreadRemoteBinding>,
+  threadIds: string[],
+  binding: Omit<ClawThreadRemoteBinding, 'threadId'>
+): void {
+  for (const threadId of threadIds) {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) continue
+    const next = { ...binding, threadId: normalizedThreadId }
+    const current = bindings.get(normalizedThreadId)
+    if (!current || shouldReplaceClawThreadBinding(current, next)) {
+      bindings.set(normalizedThreadId, next)
+    }
+  }
+}
+
+function shouldReplaceClawThreadBinding(
+  current: ClawThreadRemoteBinding,
+  next: ClawThreadRemoteBinding
+): boolean {
+  if (current.scope !== next.scope) return next.scope === 'conversation'
+  return Date.parse(next.updatedAt) >= Date.parse(current.updatedAt)
+}
+
+function clawStatusLooksError(status: string): boolean {
+  return status === 'error' ||
+    status === 'failed' ||
+    status === 'failure' ||
+    status === 'aborted' ||
+    status === 'cancelled' ||
+    status === 'canceled'
+}
+
+function clawStatusLooksRunning(status: string): boolean {
+  return status === 'running' ||
+    status === 'in_progress' ||
+    status === 'started'
+}
+
+function clawStatusLooksQueued(status: string): boolean {
+  return status === 'queued' || status === 'pending'
+}
+
 export function clawThreadTitleLooksManaged(title: string | undefined): boolean {
   const trimmed = title?.trim() ?? ''
   return trimmed.startsWith(CLAW_MANAGED_INSTRUCTIONS_HEADING) ||
@@ -192,9 +354,9 @@ export function clawThreadTitleLooksManaged(title: string | undefined): boolean 
 
 export function isClawThread(
   thread: Pick<NormalizedThread, 'id' | 'title'>,
-  channels: ClawImChannelV1[] = []
+  _channels: ClawImChannelV1[] = []
 ): boolean {
-  return clawThreadTitleLooksManaged(thread.title) || clawThreadIdsFromChannels(channels).has(thread.id)
+  return clawThreadTitleLooksManaged(thread.title)
 }
 
 export function optimisticUserModelLabel(
@@ -234,6 +396,7 @@ export function hydrateBlockModelLabels(threadId: string, blocks: ChatBlock[]): 
 }
 
 function defaultClawProviderLabel(provider: ClawImProvider): string {
+  if (provider === 'discord') return 'discord bot'
   if (provider === 'weixin') return 'weixin agent'
   return 'feishu agent'
 }

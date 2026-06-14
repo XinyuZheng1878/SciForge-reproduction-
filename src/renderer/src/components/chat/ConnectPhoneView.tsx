@@ -6,6 +6,8 @@ import {
   Battery,
   CheckCircle2,
   ChevronLeft,
+  Copy,
+  ExternalLink,
   Image as ImageIcon,
   Loader2,
   LogOut,
@@ -21,15 +23,21 @@ import {
   X
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type {
-  ClawImAgentProfileV1,
-  ClawImChannelV1,
-  ClawImPlatformCredentialV1,
-  ClawImProvider,
-  ClawImSettingsV1,
-  ClawModel
+import {
+  type ClawImAgentProfileV1,
+  type ClawImChannelV1,
+  type ClawImPlatformCredentialV1,
+  type ClawImProvider,
+  type ClawImSettingsV1,
+  type ClawModel
 } from '@shared/app-settings'
-import type { ClawImInstallPollResult, ClawImInstallQrResult } from '@shared/ds-gui-api'
+import type {
+  ClawImInstallPollResult,
+  ClawImInstallQrResult,
+  DiscordBotStatus,
+  DiscordChannel,
+  DiscordGuild
+} from '@shared/ds-gui-api'
 import {
   type ClawInstallQrState,
   type ClawInstallTarget,
@@ -38,6 +46,7 @@ import {
 } from './SidebarClawDialogHelpers'
 import { ClawProviderLogo } from './SidebarClaw'
 import { SidebarTitlebarToggleButton } from '../sidebar/SidebarPrimitives'
+import { workspaceLabelFromPath } from '../../lib/workspace-label'
 
 export type AddClawPhoneChannel = (
   provider: ClawImProvider,
@@ -57,6 +66,7 @@ type Props = {
   onAddProvider: AddClawPhoneChannel
   leftSidebarCollapsed: boolean
   onToggleSidebar: () => void
+  workspaceRoot?: string
 }
 
 type FeishuInstallRequest = {
@@ -71,8 +81,15 @@ type WeixinInstallRequest = {
 
 type ConnectPhoneInstallRequest = FeishuInstallRequest | WeixinInstallRequest
 
-const CONNECT_PHONE_TARGETS: readonly ClawInstallTarget[] = ['feishu', 'lark', 'weixin']
+type ConnectPhonePanelTarget = ClawInstallTarget | 'discord'
 
+const CONNECT_PHONE_TARGETS: readonly ClawInstallTarget[] = ['feishu', 'lark', 'weixin']
+const CONNECT_PHONE_SIDEBAR_TARGETS: readonly ConnectPhonePanelTarget[] = [
+  'feishu',
+  'lark',
+  'weixin',
+  'discord'
+]
 const INITIAL_QR_STATE: ClawInstallQrState = {
   status: 'idle',
   url: '',
@@ -81,6 +98,7 @@ const INITIAL_QR_STATE: ClawInstallQrState = {
   timeLeft: 0,
   error: ''
 }
+const INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.deepseekgui/claw/'
 
 export function connectPhoneProviderForTarget(target: ClawInstallTarget): ClawImProvider {
   return target === 'weixin' ? 'weixin' : 'feishu'
@@ -116,6 +134,58 @@ export function connectPhoneInstallRequestOptions(
   }
 }
 
+function isPhoneInstallTarget(target: ConnectPhonePanelTarget): target is ClawInstallTarget {
+  return target !== 'discord'
+}
+
+function connectPhoneTargetLabel(
+  t: (k: string, opts?: Record<string, unknown>) => string,
+  target: ConnectPhonePanelTarget
+): string {
+  return target === 'discord' ? t('connectPhoneTargetDiscord') : clawInstallTargetLabel(t, target)
+}
+
+export function normalizeConnectPhoneWorkspaceRoot(workspaceRoot?: string): string {
+  return workspaceRoot?.trim() ?? ''
+}
+
+function isInternalClawWorkspaceRoot(workspaceRoot: string): boolean {
+  const normalized = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  return normalized.includes(INTERNAL_CLAW_WORKSPACE_FRAGMENT) ||
+    normalized.startsWith('~/.deepseekgui/claw/')
+}
+
+export function resolveConnectPhoneWorkspaceRoot(
+  workspaceRoot?: string,
+  fallbackWorkspaceRoot?: string
+): string {
+  const primary = normalizeConnectPhoneWorkspaceRoot(workspaceRoot)
+  if (primary && !isInternalClawWorkspaceRoot(primary)) return primary
+  return normalizeConnectPhoneWorkspaceRoot(fallbackWorkspaceRoot) || primary
+}
+
+export function connectPhoneWorkspaceLabel(
+  workspaceRoot: string | undefined,
+  fallbackLabel: string
+): string {
+  const normalized = normalizeConnectPhoneWorkspaceRoot(workspaceRoot)
+  if (!normalized || isInternalClawWorkspaceRoot(normalized)) return fallbackLabel
+  return workspaceLabelFromPath(normalized)
+}
+
+export function latestConnectPhoneRecentMessage(channel: ClawImChannelV1 | undefined): NonNullable<ClawImChannelV1['recentMessages']>[number] | null {
+  const messages = channel?.recentMessages ?? []
+  if (messages.length === 0) return null
+  return [...messages].sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt))[0] ?? null
+}
+
+export function connectPhoneRecentMessageLabel(message: NonNullable<ClawImChannelV1['recentMessages']>[number]): string {
+  const sender = message.senderName?.trim()
+  const text = message.text?.trim()
+  if (sender && text) return `${sender}: ${text}`
+  return text || sender || message.chatId
+}
+
 export function createConnectPhoneAgentProfile(): ClawImAgentProfileV1 {
   return {
     name: 'kun',
@@ -127,14 +197,20 @@ export function createConnectPhoneAgentProfile(): ClawImAgentProfileV1 {
   }
 }
 
-export function createConnectPhoneChannelOptions(provider: ClawImProvider = 'feishu'): {
+export function createConnectPhoneChannelOptions(
+  provider: ClawImProvider = 'feishu',
+  workspaceRoot = ''
+): {
   model: ClawModel
   enabled: boolean
   im: Partial<ClawImSettingsV1>
+  workspaceRoot?: string
 } {
+  const normalizedWorkspaceRoot = normalizeConnectPhoneWorkspaceRoot(workspaceRoot)
   return {
     model: 'auto',
     enabled: true,
+    ...(normalizedWorkspaceRoot ? { workspaceRoot: normalizedWorkspaceRoot } : {}),
     im: {
       enabled: true,
       provider
@@ -174,7 +250,8 @@ export function ConnectPhoneView({
   channels,
   onAddProvider,
   leftSidebarCollapsed,
-  onToggleSidebar
+  onToggleSidebar,
+  workspaceRoot = ''
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const [target, setTarget] = useState<ClawInstallTarget>('feishu')
@@ -241,7 +318,7 @@ export function ConnectPhoneView({
         provider,
         createConnectPhoneAgentProfile(),
         createConnectPhoneCredential(poll),
-        createConnectPhoneChannelOptions(provider)
+        createConnectPhoneChannelOptions(provider, workspaceRoot)
       )
     } catch (error) {
       setInstallQr((current) => ({
@@ -607,15 +684,17 @@ export function ConnectPhoneSidebarPanel({
   channels,
   onAddProvider,
   onDisconnect,
-  onOpenSettings
+  onOpenSettings,
+  workspaceRoot = ''
 }: {
   channels: ClawImChannelV1[]
   onAddProvider: AddClawPhoneChannel
   onDisconnect: (channelId: string) => Promise<void>
   onOpenSettings: () => void
+  workspaceRoot?: string
 }): ReactElement {
   const { t } = useTranslation('common')
-  const [target, setTarget] = useState<ClawInstallTarget>('feishu')
+  const [target, setTarget] = useState<ConnectPhonePanelTarget>('feishu')
   const [installQr, setInstallQr] = useState<ClawInstallQrState>(INITIAL_QR_STATE)
   const [saving, setSaving] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
@@ -624,8 +703,11 @@ export function ConnectPhoneSidebarPanel({
   const installCountdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const installRequestInFlightRef = useRef(false)
   const installAttemptRef = useRef(0)
-  const targetProvider = connectPhoneProviderForTarget(target)
-  const connectedChannel = channels.find((channel) => channel.provider === targetProvider) ?? null
+  const phoneTarget = isPhoneInstallTarget(target) ? target : null
+  const targetProvider = phoneTarget ? connectPhoneProviderForTarget(phoneTarget) : null
+  const connectedChannel = targetProvider
+    ? channels.find((channel) => channel.provider === targetProvider) ?? null
+    : null
   const hasExistingChannel = Boolean(connectedChannel)
   const displayUserCode = targetProvider === 'weixin'
     ? ''
@@ -688,7 +770,7 @@ export function ConnectPhoneSidebarPanel({
         createConnectPhoneAgentProfile(),
         createConnectPhoneCredential(poll),
         {
-          ...createConnectPhoneChannelOptions(provider),
+          ...createConnectPhoneChannelOptions(provider, workspaceRoot),
           preserveRoute: true
         }
       )
@@ -704,6 +786,7 @@ export function ConnectPhoneSidebarPanel({
   }
 
   const startOfficialInstallQr = async (): Promise<void> => {
+    if (!phoneTarget || !targetProvider) return
     if (hasExistingChannel) {
       setInstallQr({
         ...INITIAL_QR_STATE,
@@ -740,7 +823,7 @@ export function ConnectPhoneSidebarPanel({
     installRequestInFlightRef.current = true
     setSaving(false)
     setInstallQr({ ...INITIAL_QR_STATE, status: 'loading' })
-    const request = connectPhoneInstallRequestOptions(target)
+    const request = connectPhoneInstallRequestOptions(phoneTarget)
     let result: ClawImInstallQrResult
     try {
       result = await window.dsGui.startClawImInstallQr(request.provider, request.options)
@@ -863,13 +946,12 @@ export function ConnectPhoneSidebarPanel({
     <div className="ds-no-drag flex min-h-0 flex-1 flex-col px-2 pt-2">
       <div className="px-1 pb-3">
         <div className="flex items-center gap-2 text-[12px] font-normal text-[#9aa5b5] dark:text-white/35">
-          <ClawProviderLogo provider={targetProvider} className="h-4 w-4" />
-          <span>{t('claw')}</span>
+          <ConnectPhoneTargetLogo target={target} className="h-4 w-4" />
+          <span>{target === 'discord' ? t('connectPhoneTargetDiscord') : t('claw')}</span>
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl border border-ds-border bg-ds-card p-1">
-          {CONNECT_PHONE_TARGETS.map((item) => {
+        <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl border border-ds-border bg-ds-card p-1">
+          {CONNECT_PHONE_SIDEBAR_TARGETS.map((item) => {
             const active = target === item
-            const provider = connectPhoneProviderForTarget(item)
             return (
               <button
                 key={item}
@@ -882,15 +964,21 @@ export function ConnectPhoneSidebarPanel({
                 }`}
                 aria-pressed={active}
               >
-                <ClawProviderLogo provider={provider} className="h-3.5 w-3.5" />
-                {clawInstallTargetLabel(t, item)}
+                <ConnectPhoneTargetLogo target={item} className="h-3.5 w-3.5" />
+                {connectPhoneTargetLabel(t, item)}
               </button>
             )
           })}
         </div>
       </div>
 
-      {connectedChannel ? (
+      {target === 'discord' ? (
+        <DiscordBotSetupPanel
+          t={t}
+          channels={channels}
+          defaultWorkspaceRoot={workspaceRoot}
+        />
+      ) : connectedChannel ? (
         <div className="mx-1 rounded-[12px] border border-ds-border bg-ds-card px-3 py-3 shadow-sm">
           <div className="flex items-start gap-2.5">
             <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-emerald-500/12 text-emerald-600 dark:text-emerald-300">
@@ -1007,8 +1095,8 @@ export function ConnectPhoneSidebarPanel({
 
           <div className="mt-4 text-center text-[12px] leading-5 text-[#8d95a1]">
             <div className="inline-flex items-center justify-center gap-1.5 font-medium text-[#68707c] dark:text-white/55">
-              <ClawProviderLogo provider={targetProvider} className="h-4 w-4" />
-              {clawInstallTargetLabel(t, target)}
+              <ConnectPhoneTargetLogo target={phoneTarget ?? 'feishu'} className="h-4 w-4" />
+              {connectPhoneTargetLabel(t, phoneTarget ?? 'feishu')}
             </div>
             <div className="mt-1">{t('connectPhoneAutoBindHint')}</div>
             {displayUserCode ? (
@@ -1023,18 +1111,882 @@ export function ConnectPhoneSidebarPanel({
   )
 }
 
+export function DiscordBotSetupPanel({
+  t,
+  channels: configuredChannels,
+  defaultWorkspaceRoot = ''
+}: {
+  t: (k: string, opts?: Record<string, unknown>) => string
+  channels: ClawImChannelV1[]
+  defaultWorkspaceRoot?: string
+}): ReactElement {
+  const currentWorkspaceRoot = normalizeConnectPhoneWorkspaceRoot(defaultWorkspaceRoot)
+  const [status, setStatus] = useState<DiscordBotStatus>({
+    configured: false,
+    connected: false,
+    enabled: false,
+    channels: []
+  })
+  const [clientId, setClientId] = useState('')
+  const [proxyUrl, setProxyUrl] = useState('')
+  const [token, setToken] = useState('')
+  const [guilds, setGuilds] = useState<DiscordGuild[]>([])
+  const [channels, setChannels] = useState<DiscordChannel[]>([])
+  const [selectedGuildId, setSelectedGuildId] = useState('')
+  const [selectedChannelId, setSelectedChannelId] = useState('')
+  const [workspaceRoot, setWorkspaceRoot] = useState(() => currentWorkspaceRoot)
+  const [agentName, setAgentName] = useState('discord bot')
+  const [loadingStatus, setLoadingStatus] = useState(false)
+  const [savingClient, setSavingClient] = useState(false)
+  const [savingProxy, setSavingProxy] = useState(false)
+  const [savingToken, setSavingToken] = useState(false)
+  const [loadingGuilds, setLoadingGuilds] = useState(false)
+  const [loadingChannels, setLoadingChannels] = useState(false)
+  const [binding, setBinding] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [tested, setTested] = useState(false)
+  const [error, setError] = useState('')
+  const inviteUrl = status.inviteUrl || status.bot?.inviteUrl || ''
+  const hasInviteUrl = inviteUrl.length > 0
+  const selectedGuild = guilds.find((guild) => guild.id === selectedGuildId)
+  const selectedChannel = channels.find((channel) => channel.id === selectedChannelId)
+  const discordStatuses = status.channels ?? []
+  const selectedChannelStatus = discordStatuses.find((item) => item.channelId === selectedChannelId)
+  const selectedChannelConfigId = selectedChannelStatus?.channelConfigId
+  const statusConflict = selectedChannelStatus?.conflict ?? status.conflict
+  const statusAccessError = selectedChannelStatus?.accessError ||
+    discordStatuses.find((item) => item.accessError)?.accessError ||
+    ''
+  const configuredDiscordChannels = configuredChannels.filter((channel) => channel.provider === 'discord')
+
+  const refreshStatus = useCallback(async (): Promise<void> => {
+    if (typeof window.dsGui?.getDiscordBotStatus !== 'function') return
+    setLoadingStatus(true)
+    try {
+      const next = await window.dsGui.getDiscordBotStatus()
+      setStatus(next)
+      setClientId((current) => current || next.clientId || next.bot?.applicationId || '')
+      setProxyUrl((current) => current || next.proxyUrl || '')
+      setSelectedGuildId((current) => current || next.guildId || '')
+      setSelectedChannelId((current) => current || next.channelId || '')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setLoadingStatus(false)
+    }
+  }, [])
+
+  const refreshGuilds = useCallback(async (): Promise<void> => {
+    if (typeof window.dsGui?.listDiscordGuilds !== 'function') return
+    setLoadingGuilds(true)
+    setError('')
+    try {
+      const result = await window.dsGui.listDiscordGuilds()
+      if (!result.ok) {
+        setError(result.message)
+        return
+      }
+      setGuilds(result.guilds)
+      setSelectedGuildId((current) => {
+        if (current && result.guilds.some((guild) => guild.id === current)) return current
+        if (status.guildId && result.guilds.some((guild) => guild.id === status.guildId)) {
+          return status.guildId
+        }
+        return ''
+      })
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setLoadingGuilds(false)
+    }
+  }, [status.guildId])
+
+  const refreshChannels = useCallback(async (guildId: string): Promise<void> => {
+    if (!guildId || typeof window.dsGui?.listDiscordChannels !== 'function') return
+    setLoadingChannels(true)
+    setError('')
+    try {
+      const result = await window.dsGui.listDiscordChannels(guildId)
+      if (!result.ok) {
+        setError(result.message)
+        setChannels([])
+        return
+      }
+      setChannels(result.channels)
+      setSelectedChannelId((current) => {
+        if (current && result.channels.some((channel) => channel.id === current)) return current
+        if (status.channelId && result.channels.some((channel) => channel.id === status.channelId)) {
+          return status.channelId
+        }
+        return ''
+      })
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+      setChannels([])
+    } finally {
+      setLoadingChannels(false)
+    }
+  }, [status.channelId])
+
+  useEffect(() => {
+    void refreshStatus()
+  }, [refreshStatus])
+
+  useEffect(() => {
+    if (!(status.tokenConfigured ?? status.configured)) return
+    void refreshGuilds()
+  }, [refreshGuilds, status.configured, status.tokenConfigured])
+
+  useEffect(() => {
+    if (!selectedGuildId) {
+      setChannels([])
+      setSelectedChannelId('')
+      return
+    }
+    void refreshChannels(selectedGuildId)
+  }, [refreshChannels, selectedGuildId])
+
+  useEffect(() => {
+    if (!selectedChannelStatus) return
+    setWorkspaceRoot(resolveConnectPhoneWorkspaceRoot(
+      selectedChannelStatus.workspaceRoot,
+      currentWorkspaceRoot
+    ))
+    setAgentName((current) => current === 'discord bot' ? selectedChannelStatus.agentName || current : current)
+  }, [currentWorkspaceRoot, selectedChannelStatus])
+
+  useEffect(() => {
+    if (selectedChannelStatus) return
+    setWorkspaceRoot((current) => current || currentWorkspaceRoot)
+  }, [currentWorkspaceRoot, selectedChannelStatus])
+
+  const configureClient = async (): Promise<void> => {
+    const trimmed = clientId.trim()
+    if (!trimmed) {
+      setError(t('connectPhoneDiscordClientIdRequired'))
+      return
+    }
+    if (typeof window.dsGui?.configureDiscordClientId !== 'function') {
+      setError(t('connectPhoneDiscordUnavailable'))
+      return
+    }
+    setSavingClient(true)
+    setError('')
+    try {
+      const result = await window.dsGui.configureDiscordClientId(trimmed)
+      if (!result.ok) {
+        setError(result.message)
+        return
+      }
+      setStatus(result.status)
+      setClientId(result.status.clientId || trimmed)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSavingClient(false)
+    }
+  }
+
+  const configureToken = async (): Promise<void> => {
+    const trimmed = token.trim()
+    if (!trimmed) {
+      setError(t('connectPhoneDiscordTokenRequired'))
+      return
+    }
+    if (typeof window.dsGui?.configureDiscordBotToken !== 'function') {
+      setError(t('connectPhoneDiscordUnavailable'))
+      return
+    }
+    setSavingToken(true)
+    setError('')
+    setTested(false)
+    try {
+      const result = await window.dsGui.configureDiscordBotToken(trimmed, clientId.trim() || undefined)
+      if (!result.ok) {
+        setError(result.message)
+        return
+      }
+      setToken('')
+      setStatus(result.status)
+      setClientId(result.status.clientId || result.status.bot?.applicationId || clientId)
+      await refreshGuilds()
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSavingToken(false)
+    }
+  }
+
+  const configureProxy = async (): Promise<void> => {
+    if (typeof window.dsGui?.configureDiscordProxy !== 'function') {
+      setError(t('connectPhoneDiscordUnavailable'))
+      return
+    }
+    setSavingProxy(true)
+    setError('')
+    try {
+      const result = await window.dsGui.configureDiscordProxy(proxyUrl.trim())
+      if (!result.ok) {
+        setError(result.message)
+        return
+      }
+      setStatus(result.status)
+      setProxyUrl(result.status.proxyUrl || '')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSavingProxy(false)
+    }
+  }
+
+  const copyInviteUrl = async (): Promise<void> => {
+    if (!hasInviteUrl) return
+    try {
+      await navigator.clipboard.writeText(inviteUrl)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  const openInviteUrl = (): void => {
+    if (!hasInviteUrl) return
+    if (typeof window.dsGui?.openExternal === 'function') {
+      void window.dsGui.openExternal(inviteUrl).catch(() => undefined)
+      return
+    }
+    window.open(inviteUrl, '_blank', 'noopener,noreferrer')
+  }
+
+  const openDeveloperPortal = (): void => {
+    const url = 'https://discord.com/developers/applications'
+    if (typeof window.dsGui?.openExternal === 'function') {
+      void window.dsGui.openExternal(url).catch(() => undefined)
+      return
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  const testAndEnable = async (): Promise<void> => {
+    if (!selectedGuild || !selectedChannel) {
+      setError(t('connectPhoneDiscordSelectChannelFirst'))
+      return
+    }
+    if (
+      typeof window.dsGui?.bindDiscordChannel !== 'function' ||
+      typeof window.dsGui?.testDiscordChannel !== 'function' ||
+      typeof window.dsGui?.setDiscordGuard !== 'function'
+    ) {
+      setError(t('connectPhoneDiscordUnavailable'))
+      return
+    }
+    setBinding(true)
+    setError('')
+    setTested(false)
+    try {
+      const bindingWorkspaceRoot = resolveConnectPhoneWorkspaceRoot(workspaceRoot, currentWorkspaceRoot)
+      const bind = await window.dsGui.bindDiscordChannel({
+        ...(selectedChannelConfigId ? { channelConfigId: selectedChannelConfigId } : {}),
+        guildId: selectedGuild.id,
+        guildName: selectedGuild.name,
+        channelId: selectedChannel.id,
+        channelName: selectedChannel.name,
+        enabled: false,
+        workspaceRoot: bindingWorkspaceRoot,
+        model: 'auto',
+        agentProfile: {
+          name: agentName.trim() || 'discord bot'
+        }
+      })
+      if (!bind.ok) {
+        setError(bind.message)
+        return
+      }
+      setStatus(bind.status)
+      const test = await window.dsGui.testDiscordChannel(
+        selectedChannel.id,
+        t('connectPhoneDiscordTestMessage')
+      )
+      if (!test.ok) {
+        setError(test.message)
+        return
+      }
+      setTested(true)
+      const guard = await window.dsGui.setDiscordGuard(true, bind.channelConfigId)
+      if (!guard.ok) {
+        setError(guard.message)
+        if (guard.status) setStatus(guard.status)
+        return
+      }
+      setStatus(guard.status)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBinding(false)
+    }
+  }
+
+  const disableGuard = async (): Promise<void> => {
+    if (typeof window.dsGui?.setDiscordGuard !== 'function') return
+    setBinding(true)
+    setError('')
+    try {
+      const result = await window.dsGui.setDiscordGuard(false, selectedChannelConfigId)
+      if (result.ok) setStatus(result.status)
+      else setError(result.message)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBinding(false)
+    }
+  }
+
+  const setGuardForChannel = async (
+    channelConfigId: string,
+    enabled: boolean,
+    forceTakeover = false
+  ): Promise<void> => {
+    if (!channelConfigId || typeof window.dsGui?.setDiscordGuard !== 'function') return
+    setBinding(true)
+    setError('')
+    try {
+      const result = await window.dsGui.setDiscordGuard(enabled, channelConfigId, forceTakeover)
+      if (result.ok) {
+        setStatus(result.status)
+        return
+      }
+      setError(result.message)
+      if (result.status) setStatus(result.status)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBinding(false)
+    }
+  }
+
+  const takeOverGuard = async (channelConfigId?: string): Promise<void> => {
+    if (!channelConfigId || typeof window.dsGui?.setDiscordGuard !== 'function') return
+    await setGuardForChannel(channelConfigId, true, true)
+  }
+
+  const setupSteps = [
+    {
+      label: t('connectPhoneDiscordStepClient'),
+      done: Boolean(status.clientId || clientId.trim())
+    },
+    {
+      label: t('connectPhoneDiscordStepToken'),
+      done: status.tokenConfigured ?? status.configured
+    },
+    {
+      label: t('connectPhoneDiscordStepInviteBot'),
+      done: Boolean(status.guildId || guilds.length > 0)
+    },
+    {
+      label: t('connectPhoneDiscordStepSelectChannel'),
+      done: Boolean(status.channelId || selectedChannelId)
+    },
+    {
+      label: t('connectPhoneDiscordStepTestGuard'),
+      done: Boolean(status.enabled && (status.connected || tested))
+    }
+  ]
+
+  return (
+    <div className="mx-1 flex flex-col rounded-[12px] border border-ds-border bg-ds-card px-3 py-3 shadow-sm">
+      <div className="flex h-[156px] w-full items-center justify-center rounded-[10px] border border-[#ececea] bg-white p-2">
+        {hasInviteUrl ? (
+          <QRCodeSVG value={inviteUrl} size={138} marginSize={1} />
+        ) : (
+          <div className="grid justify-items-center gap-3 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-[14px] bg-[#5865F2]/10 text-[#5865F2]">
+              <DiscordLogo className="h-8 w-8" />
+            </div>
+          <div className="max-w-[210px] text-[12px] leading-5 text-ds-faint">
+            {t('connectPhoneDiscordMissingInvite')}
+          </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 text-center text-[12px] leading-5 text-[#8d95a1]">
+        <div className="inline-flex items-center justify-center gap-1.5 font-medium text-[#68707c] dark:text-white/55">
+          <DiscordLogo className="h-4 w-4" />
+          {t('connectPhoneDiscordJoinTitle')}
+        </div>
+        <div className="mt-1">
+          {hasInviteUrl
+            ? t('connectPhoneDiscordScanHint')
+            : t('connectPhoneDiscordConfigureHint')}
+        </div>
+        {status.bot?.botUsername ? (
+          <div className="mt-1 font-medium text-ds-muted">
+            {t('connectPhoneDiscordBotReady', { name: status.bot.botUsername })}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-3 grid w-full grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => void copyInviteUrl()}
+          disabled={!hasInviteUrl}
+          className="inline-flex min-h-[30px] items-center justify-center gap-1.5 rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 py-1.5 text-[12.5px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {copied ? (
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" strokeWidth={1.8} />
+          ) : (
+            <Copy className="h-3.5 w-3.5" strokeWidth={1.8} />
+          )}
+          {copied ? t('clawAddImCopied') : t('connectPhoneDiscordCopy')}
+        </button>
+        <button
+          type="button"
+          onClick={openInviteUrl}
+          disabled={!hasInviteUrl}
+          className="inline-flex min-h-[30px] items-center justify-center gap-1.5 rounded-[8px] bg-[#5865F2] px-2.5 py-1.5 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-[#4752C4] disabled:cursor-not-allowed disabled:bg-ds-subtle disabled:text-ds-faint disabled:shadow-none"
+        >
+          <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.8} />
+          {t('connectPhoneDiscordOpen')}
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={openDeveloperPortal}
+        className="mt-2 inline-flex min-h-[30px] w-full items-center justify-center gap-1.5 rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 py-1.5 text-[12.5px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+      >
+        <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.8} />
+        {t('connectPhoneDiscordPortal')}
+      </button>
+
+      <label className="mt-3 block">
+        <span className="mb-1.5 block text-[11.5px] font-semibold text-ds-muted">
+          {t('connectPhoneDiscordClientId')}
+        </span>
+        <input
+          className="h-8 w-full rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 text-[12.5px] text-ds-ink outline-none transition placeholder:text-ds-faint focus:border-[#5865F2]/45 focus:ring-1 focus:ring-[#5865F2]/25"
+          value={clientId}
+          onChange={(event) => setClientId(event.target.value)}
+          placeholder={t('connectPhoneDiscordClientIdPlaceholder')}
+        />
+      </label>
+      <button
+        type="button"
+        onClick={() => void configureClient()}
+        disabled={savingClient || !clientId.trim()}
+        className="mt-2 inline-flex min-h-[30px] w-full items-center justify-center gap-1.5 rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 py-1.5 text-[12.5px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {savingClient ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.8} />
+        ) : (
+          <QrCode className="h-3.5 w-3.5" strokeWidth={1.8} />
+        )}
+        {savingClient ? t('connectPhoneDiscordSavingClient') : t('connectPhoneDiscordSaveClient')}
+      </button>
+
+      <label className="mt-3 block">
+        <span className="mb-1.5 block text-[11.5px] font-semibold text-ds-muted">
+          {t('connectPhoneDiscordProxy')}
+        </span>
+        <input
+          className="h-8 w-full rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 text-[12.5px] text-ds-ink outline-none transition placeholder:text-ds-faint focus:border-[#5865F2]/45 focus:ring-1 focus:ring-[#5865F2]/25"
+          value={proxyUrl}
+          onChange={(event) => setProxyUrl(event.target.value)}
+          placeholder={t('connectPhoneDiscordProxyPlaceholder')}
+        />
+      </label>
+      <div className="mt-1.5 text-[11.5px] leading-5 text-ds-faint">
+        {t('connectPhoneDiscordProxyHint')}
+      </div>
+      <button
+        type="button"
+        onClick={() => void configureProxy()}
+        disabled={savingProxy}
+        className="mt-2 inline-flex min-h-[30px] w-full items-center justify-center gap-1.5 rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 py-1.5 text-[12.5px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {savingProxy ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.8} />
+        ) : (
+          <Wifi className="h-3.5 w-3.5" strokeWidth={1.8} />
+        )}
+        {savingProxy ? t('connectPhoneDiscordSavingProxy') : t('connectPhoneDiscordSaveProxy')}
+      </button>
+
+      <label className="mt-3 block">
+        <span className="mb-1.5 block text-[11.5px] font-semibold text-ds-muted">
+          {(status.tokenConfigured ?? status.configured)
+            ? t('connectPhoneDiscordTokenConfigured')
+            : t('connectPhoneDiscordBotToken')}
+        </span>
+        <input
+          type="password"
+          className="h-8 w-full rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 text-[12.5px] text-ds-ink outline-none transition placeholder:text-ds-faint focus:border-[#5865F2]/45 focus:ring-1 focus:ring-[#5865F2]/25"
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+          placeholder={(status.tokenConfigured ?? status.configured)
+            ? t('connectPhoneDiscordTokenReplacePlaceholder')
+            : t('connectPhoneDiscordBotTokenPlaceholder')}
+        />
+      </label>
+      <button
+        type="button"
+        onClick={() => void configureToken()}
+        disabled={savingToken || !token.trim()}
+        className="mt-2 inline-flex min-h-[30px] w-full items-center justify-center gap-1.5 rounded-[8px] bg-[#222323] px-2.5 py-1.5 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-black disabled:cursor-not-allowed disabled:bg-ds-subtle disabled:text-ds-faint disabled:shadow-none dark:bg-white dark:text-black"
+      >
+        {savingToken ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.8} />
+        ) : (
+          <Settings className="h-3.5 w-3.5" strokeWidth={1.8} />
+        )}
+        {savingToken ? t('connectPhoneDiscordSavingToken') : t('connectPhoneDiscordSaveToken')}
+      </button>
+
+      <div className="mt-2 rounded-[10px] border border-[#5865F2]/15 bg-[#5865F2]/5 px-2.5 py-2">
+        <div className="flex items-center gap-1.5 text-[11.5px] font-semibold text-[#5865F2]">
+          <Settings className="h-3.5 w-3.5" strokeWidth={1.8} />
+          {t('connectPhoneDiscordTokenTitle')}
+        </div>
+        <div className="mt-1 text-[11.5px] leading-5 text-ds-muted">
+          {t('connectPhoneDiscordTokenHint')}
+        </div>
+        <div className="mt-1 text-[11.5px] leading-5 text-ds-muted">
+          {t('connectPhoneDiscordLocalOnlineGuard')}
+        </div>
+      </div>
+
+      {(status.tokenConfigured ?? status.configured) ? (
+        <div className="mt-3 grid gap-2">
+          <label className="block">
+            <span className="mb-1.5 flex items-center justify-between text-[11.5px] font-semibold text-ds-muted">
+              {t('connectPhoneDiscordServer')}
+              <button
+                type="button"
+                onClick={() => void refreshGuilds()}
+                disabled={loadingGuilds}
+                className="inline-flex items-center gap-1 text-[11px] text-[#5865F2] disabled:opacity-50"
+              >
+                {loadingGuilds ? (
+                  <Loader2 className="h-3 w-3 animate-spin" strokeWidth={1.8} />
+                ) : (
+                  <RefreshCw className="h-3 w-3" strokeWidth={1.8} />
+                )}
+                {t('connectPhoneDiscordRefresh')}
+              </button>
+            </span>
+            <select
+              className="h-8 w-full rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 text-[12.5px] text-ds-ink outline-none focus:border-[#5865F2]/45 focus:ring-1 focus:ring-[#5865F2]/25"
+              value={selectedGuildId}
+              onChange={(event) => {
+                setSelectedGuildId(event.target.value)
+                setSelectedChannelId('')
+              }}
+              disabled={loadingGuilds || guilds.length === 0}
+            >
+              {guilds.length === 0 ? (
+                <option value="">{t('connectPhoneDiscordNoServers')}</option>
+              ) : (
+                <option value="">{t('connectPhoneDiscordChooseServer')}</option>
+              )}
+              {guilds.map((guild) => (
+                <option key={guild.id} value={guild.id}>{guild.name}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-[11.5px] font-semibold text-ds-muted">
+              {t('connectPhoneDiscordChannel')}
+            </span>
+            <select
+              className="h-8 w-full rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 text-[12.5px] text-ds-ink outline-none focus:border-[#5865F2]/45 focus:ring-1 focus:ring-[#5865F2]/25"
+              value={selectedChannelId}
+              onChange={(event) => setSelectedChannelId(event.target.value)}
+              disabled={loadingChannels || channels.length === 0}
+            >
+              {channels.length === 0 ? (
+                <option value="">
+                  {loadingChannels ? t('connectPhoneDiscordLoadingChannels') : t('connectPhoneDiscordNoChannels')}
+                </option>
+              ) : (
+                <option value="">{t('connectPhoneDiscordChooseChannel')}</option>
+              )}
+              {channels.map((channel) => (
+                <option key={channel.id} value={channel.id}>{discordChannelLabel(channel.name)}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-[11.5px] font-semibold text-ds-muted">
+              {t('connectPhoneDiscordAgentName')}
+            </span>
+            <input
+              className="h-8 w-full rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 text-[12.5px] text-ds-ink outline-none transition placeholder:text-ds-faint focus:border-[#5865F2]/45 focus:ring-1 focus:ring-[#5865F2]/25"
+              value={agentName}
+              onChange={(event) => setAgentName(event.target.value)}
+              placeholder={t('connectPhoneDiscordAgentNamePlaceholder')}
+            />
+          </label>
+
+          <div className="rounded-[8px] bg-ds-main/45 px-2.5 py-2 text-[11.5px] leading-5 text-ds-faint">
+            {t('connectPhoneDiscordLocalOnlineGuard')}
+          </div>
+
+          {statusConflict ? (
+            <div className="rounded-[8px] border border-amber-300/70 bg-amber-50 px-2.5 py-2 text-[11.5px] leading-5 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+              <div className="font-semibold">{t('connectPhoneDiscordConflictTitle')}</div>
+              <div className="mt-1">
+                {t('connectPhoneDiscordConflictDesc', { owner: statusConflict.ownerInstallationId })}
+              </div>
+              <button
+                type="button"
+                onClick={() => void takeOverGuard(statusConflict.channelConfigId)}
+                disabled={binding}
+                className="mt-2 rounded-[7px] border border-amber-400/60 bg-white px-2 py-1 text-[11.5px] font-semibold text-amber-900 shadow-sm transition hover:bg-amber-100 disabled:opacity-50 dark:border-amber-300/30 dark:bg-amber-300/10 dark:text-amber-100 dark:hover:bg-amber-300/15"
+              >
+                {t('connectPhoneDiscordTakeover')}
+              </button>
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <button
+              type="button"
+              onClick={() => void testAndEnable()}
+              disabled={binding || !selectedGuild || !selectedChannel}
+              className="inline-flex min-h-[32px] items-center justify-center gap-1.5 rounded-[8px] bg-[#5865F2] px-2.5 py-1.5 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-[#4752C4] disabled:cursor-not-allowed disabled:bg-ds-subtle disabled:text-ds-faint disabled:shadow-none"
+            >
+              {binding ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.8} />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.8} />
+              )}
+              {binding ? t('connectPhoneDiscordTesting') : t('connectPhoneDiscordTestEnable')}
+            </button>
+            {selectedChannelStatus?.enabled ? (
+              <button
+                type="button"
+                onClick={() => void disableGuard()}
+                disabled={binding}
+                className="inline-flex min-h-[32px] items-center justify-center rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 py-1.5 text-[12.5px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:opacity-50"
+              >
+                {t('connectPhoneDiscordPause')}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-3 grid gap-1.5">
+        {setupSteps.map((step, index) => (
+          <div
+            key={step.label}
+            className="flex min-h-[28px] items-center justify-between gap-2 rounded-[8px] border border-ds-border-muted/70 bg-ds-main/40 px-2 py-1.5"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <span
+                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
+                  step.done
+                    ? 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-300'
+                    : 'bg-ds-hover text-ds-faint'
+                }`}
+              >
+                {step.done ? <CheckCircle2 className="h-3 w-3" strokeWidth={2} /> : index + 1}
+              </span>
+              <span className="truncate text-[11.5px] font-medium text-ds-muted">
+                {step.label}
+              </span>
+            </span>
+            <span
+              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold ${
+                step.done
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+                  : 'bg-[#5865F2]/10 text-[#5865F2]'
+              }`}
+            >
+              {step.done ? t('connectPhoneDiscordStatusReady') : t('connectPhoneDiscordStatusTodo')}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {discordStatuses.length > 0 ? (
+        <div className="mt-3 grid gap-1.5">
+          <div className="text-[11.5px] font-semibold text-ds-muted">
+            {t('connectPhoneDiscordConfiguredChannels')}
+          </div>
+          {discordStatuses.map((item) => {
+            const workspaceLabel = connectPhoneWorkspaceLabel(
+              item.workspaceRoot,
+              t('connectPhoneDiscordWorkspaceDefault')
+            )
+            const configuredChannel = configuredDiscordChannels.find((channel) => channel.id === item.channelConfigId)
+            const recentMessage = latestConnectPhoneRecentMessage(configuredChannel)
+            return (
+            <div
+              key={item.channelConfigId}
+              className="rounded-[8px] border border-ds-border-muted/70 bg-ds-main/40 px-2.5 py-2"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-[12px] font-semibold text-ds-ink">
+                    {item.guildName || item.guildId} · {discordChannelLabel(item.channelName || item.channelId)}
+                  </div>
+                  <div
+                    className="mt-0.5 truncate text-[11px] text-ds-faint"
+                    title={workspaceLabel}
+                  >
+                    {workspaceLabel}
+                  </div>
+                </div>
+                <span
+                  className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold ${
+                    item.conflict || item.accessError
+                      ? 'bg-amber-500/12 text-amber-700 dark:text-amber-200'
+                      : item.enabled
+                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+                        : 'bg-ds-hover text-ds-faint'
+                  }`}
+                >
+                  {item.conflict
+                    ? t('connectPhoneDiscordConflictState')
+                    : item.accessError
+                      ? t('connectPhoneDiscordUnavailableState')
+                    : item.enabled
+                      ? t('connectPhoneDiscordGuardOn')
+                      : t('connectPhoneDiscordGuardPaused')}
+                </span>
+              </div>
+              {item.accessError ? (
+                <div className="mt-1.5 rounded-[7px] bg-amber-500/10 px-2 py-1.5 text-[11px] leading-5 text-amber-700 dark:text-amber-200">
+                  {item.accessError}
+                </div>
+              ) : null}
+              {recentMessage ? (
+                <div
+                  className="mt-1.5 truncate rounded-[7px] bg-ds-subtle/70 px-2 py-1.5 text-[11px] leading-5 text-ds-muted"
+                  title={connectPhoneRecentMessageLabel(recentMessage)}
+                >
+                  {t('connectPhoneRecentMessage', {
+                    message: connectPhoneRecentMessageLabel(recentMessage)
+                  })}
+                </div>
+              ) : null}
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {item.conflict ? (
+                  <button
+                    type="button"
+                    onClick={() => void setGuardForChannel(item.channelConfigId, true, true)}
+                    disabled={binding}
+                    className="inline-flex min-h-[28px] items-center justify-center rounded-[7px] bg-amber-500 px-2 py-1 text-[11.5px] font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
+                  >
+                    {t('connectPhoneDiscordTakeover')}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void setGuardForChannel(item.channelConfigId, !item.enabled)}
+                    disabled={binding}
+                    className="inline-flex min-h-[28px] items-center justify-center rounded-[7px] border border-ds-border bg-ds-main/55 px-2 py-1 text-[11.5px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:opacity-50"
+                  >
+                    {item.enabled ? t('connectPhoneDiscordPause') : t('connectPhoneDiscordResume')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedGuildId(item.guildId)
+                    setSelectedChannelId(item.channelId)
+                  }}
+                  className="inline-flex min-h-[28px] items-center justify-center rounded-[7px] border border-ds-border bg-ds-main/55 px-2 py-1 text-[11.5px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+                >
+                  {t('connectPhoneDiscordEditBinding')}
+                </button>
+              </div>
+            </div>
+            )
+          })}
+        </div>
+      ) : configuredDiscordChannels.length > 0 ? (
+        <div className="mt-3 rounded-[8px] bg-ds-main/45 px-2.5 py-2 text-[11.5px] leading-5 text-ds-faint">
+          {t('connectPhoneDiscordConfiguredFallback', { count: configuredDiscordChannels.length })}
+        </div>
+      ) : null}
+
+      <div className="mt-2 rounded-[8px] bg-ds-main/45 px-2.5 py-2 text-[11.5px] leading-5 text-ds-faint">
+        {loadingStatus ? t('connectPhoneDiscordLoadingStatus') : statusConflict
+          ? t('connectPhoneDiscordGuardConflict')
+          : statusAccessError
+            ? statusAccessError
+          : status.enabled
+          ? status.connected
+            ? t('connectPhoneDiscordGuardConnected')
+            : t('connectPhoneDiscordGuardConnecting')
+          : t('connectPhoneDiscordGuardOff')}
+      </div>
+      {error ? (
+        <div className="mt-2 rounded-[8px] bg-red-500/10 px-2.5 py-2 text-[11.5px] leading-5 text-red-600 dark:text-red-300">
+          {error}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function discordChannelLabel(name: string): string {
+  const trimmed = name.trim().replace(/^#/, '')
+  return trimmed ? `#${trimmed}` : 'Discord'
+}
+
+function ConnectPhoneTargetLogo({
+  target,
+  className = 'h-5 w-5'
+}: {
+  target: ConnectPhonePanelTarget
+  className?: string
+}): ReactElement {
+  if (target === 'discord') return <DiscordLogo className={className} />
+  return <ClawProviderLogo provider={connectPhoneProviderForTarget(target)} className={className} />
+}
+
+function DiscordLogo({ className = 'h-5 w-5' }: { className?: string }): ReactElement {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M19.6 5.4A17.1 17.1 0 0 0 15.4 4l-.2.4c1.5.4 2.2 1 2.2 1s-1.9-1-5.4-1-5.4 1-5.4 1 .7-.6 2.2-1L8.6 4a17.1 17.1 0 0 0-4.2 1.4C1.7 9.4 1 13.3 1.4 17.1A17 17 0 0 0 6.6 20l1.1-1.8c-.6-.2-1.2-.5-1.7-.9l.4-.3c3.3 1.5 7 1.5 10.3 0l.4.3c-.5.4-1.1.7-1.7.9l1.1 1.8a17 17 0 0 0 5.2-2.9c.5-4.4-.8-8.3-2.1-11.7Z"
+        fill="#5865F2"
+      />
+      <path
+        d="M9 14.3c-.9 0-1.6-.8-1.6-1.8S8.1 10.7 9 10.7s1.6.8 1.6 1.8-.7 1.8-1.6 1.8Zm6 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Z"
+        fill="white"
+      />
+    </svg>
+  )
+}
+
 export function ConnectPhoneDialog({
   channels,
   onAddProvider,
   onDisconnect,
   onOpenSettings,
-  onClose
+  onClose,
+  workspaceRoot = ''
 }: {
   channels: ClawImChannelV1[]
   onAddProvider: AddClawPhoneChannel
   onDisconnect: (channelId: string) => Promise<void>
   onOpenSettings: () => void
   onClose: () => void
+  workspaceRoot?: string
 }): ReactElement {
   const { t } = useTranslation('common')
 
@@ -1079,6 +2031,7 @@ export function ConnectPhoneDialog({
             onAddProvider={onAddProvider}
             onDisconnect={onDisconnect}
             onOpenSettings={onOpenSettings}
+            workspaceRoot={workspaceRoot}
           />
         </div>
       </div>

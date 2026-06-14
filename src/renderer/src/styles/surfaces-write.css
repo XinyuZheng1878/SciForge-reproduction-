@@ -31,6 +31,152 @@
   container-name: write-workspace;
 }
 
+.write-pdf-viewer {
+  background: transparent;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.write-pdf-toolbar {
+  backdrop-filter: blur(14px) saturate(112%);
+  -webkit-backdrop-filter: blur(14px) saturate(112%);
+}
+
+.write-pdf-icon-button {
+  display: inline-flex;
+  height: 26px;
+  width: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--ds-muted);
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.write-pdf-icon-button:hover:not(:disabled) {
+  background: var(--ds-hover);
+  color: var(--ds-ink);
+}
+
+.write-pdf-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.write-pdf-page-input {
+  width: 42px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 3px 6px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ds-ink);
+  outline: none;
+}
+
+[data-theme='dark'] .write-pdf-page-input {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.write-pdf-page {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: white;
+  user-select: text;
+  -webkit-user-select: text;
+  box-shadow:
+    0 18px 50px rgba(20, 47, 95, 0.14),
+    0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.write-pdf-canvas,
+.write-pdf-text-layer,
+.write-pdf-overlay-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.write-pdf-canvas {
+  display: block;
+}
+
+.write-pdf-text-layer {
+  z-index: 1;
+  overflow: hidden;
+  opacity: 1;
+  pointer-events: auto;
+  line-height: 1;
+  text-align: initial;
+  caret-color: var(--ds-ink);
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.write-pdf-text-layer :is(span, br) {
+  color: rgba(0, 0, 0, 0.01);
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+  -webkit-user-select: text;
+  z-index: 1;
+}
+
+.write-pdf-text-layer span.markedContent {
+  top: 0;
+  height: 0;
+}
+
+.write-pdf-text-layer span[role='img'] {
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.write-pdf-text-layer ::selection {
+  background: var(--write-selection-bg, var(--ds-selection));
+}
+
+.write-pdf-text-layer br::selection,
+.write-pdf-text-layer .write-pdf-text-ws::selection {
+  background: transparent;
+}
+
+.write-pdf-text-layer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.write-pdf-overlay-layer {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.write-pdf-selection-rect {
+  position: absolute;
+  border-radius: 3px;
+  background: var(--write-selection-bg, var(--ds-selection));
+}
+
+.write-pdf-viewer[data-live-selection] .write-pdf-selection-rect {
+  opacity: 0;
+}
+
 .write-workspace-toolbar-grid {
   grid-template-columns: minmax(0, 1fr);
 }

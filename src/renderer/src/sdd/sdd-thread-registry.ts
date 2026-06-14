@@ -5,7 +5,10 @@ import type { SddDraft } from './sdd-draft-store'
 const SDD_THREAD_REGISTRY_KEY = 'deepseekgui.sdd.threadRegistry.v1'
 const MAX_SDD_THREAD_RECORDS = 100
 const MAX_SDD_THREAD_IDS_PER_DRAFT = 20
-const SDD_DRAFT_PATH_FRAGMENT = '.kunsdd/draft/'
+const SDD_DRAFT_PATH_FRAGMENTS = [
+  '.deepseekgui/sdd/requirements/',
+  '.kunsdd/draft/'
+]
 
 export type SddThreadRecord = {
   draftId: string
@@ -23,7 +26,13 @@ export type SddThreadRegistry = {
 
 type SddThreadLike =
   Pick<NormalizedThread, 'id'> &
-  Partial<Pick<NormalizedThread, 'title' | 'workspace' | 'preview'>>
+  Partial<Pick<NormalizedThread, 'latestTurnId' | 'preview' | 'status' | 'title' | 'workspace'>>
+
+export type SddDraftThreadRef = {
+  id: string
+  workspaceRoot: string
+  relativePath: string
+}
 
 function emptySddThreadRegistry(): SddThreadRegistry {
   return { version: 1, drafts: {} }
@@ -250,8 +259,52 @@ export function isSddAssistantThread(
   return isSddAssistantThreadId(thread.id, registry) || looksLikeLegacySddAssistantThread(thread)
 }
 
+export function isEmptySddAssistantThreadCandidate(thread: SddThreadLike | null | undefined): boolean {
+  if (!thread) return false
+  const preview = typeof thread.preview === 'string' ? thread.preview.trim() : ''
+  const latestTurnId = typeof thread.latestTurnId === 'string' ? thread.latestTurnId.trim() : ''
+  const status = typeof thread.status === 'string' ? thread.status.trim().toLowerCase() : ''
+  const title = typeof thread.title === 'string' ? thread.title.trim().toLowerCase() : ''
+  const looksLikeSddTitle = title === 'requirement ai' || title === '需求 ai'
+  return looksLikeSddTitle && !preview && !latestTurnId && status !== 'running'
+}
+
+export function sddDraftRefForThreadId(
+  threadId: string,
+  registry: SddThreadRegistry = readSddThreadRegistry()
+): SddDraftThreadRef | null {
+  const normalizedThreadId = normalizeThreadId(threadId)
+  if (!normalizedThreadId) return null
+  for (const record of Object.values(registry.drafts)) {
+    if (!record.threadIds.includes(normalizedThreadId)) continue
+    const relativePath = relativePathFromDraftId(record.draftId, record.workspaceRoot)
+    if (!relativePath) return null
+    return {
+      id: record.draftId,
+      workspaceRoot: record.workspaceRoot,
+      relativePath
+    }
+  }
+  return null
+}
+
 function looksLikeLegacySddAssistantThread(thread: SddThreadLike): boolean {
   return [thread.workspace, thread.title, thread.preview].some((value) =>
-    typeof value === 'string' && value.replaceAll('\\', '/').includes(SDD_DRAFT_PATH_FRAGMENT)
+    typeof value === 'string' &&
+    SDD_DRAFT_PATH_FRAGMENTS.some((fragment) => value.replaceAll('\\', '/').includes(fragment))
   )
+}
+
+function relativePathFromDraftId(draftId: string, workspaceRoot: string): string {
+  const normalizedDraftId = draftId.trim().replaceAll('\\', '/')
+  const workspace = normalizeWorkspace(workspaceRoot)
+  const prefix = workspace ? `${workspace}:` : ''
+  if (prefix && normalizedDraftId.startsWith(prefix)) {
+    return normalizedDraftId.slice(prefix.length)
+  }
+  for (const fragment of SDD_DRAFT_PATH_FRAGMENTS) {
+    const index = normalizedDraftId.indexOf(fragment)
+    if (index >= 0) return normalizedDraftId.slice(index)
+  }
+  return ''
 }

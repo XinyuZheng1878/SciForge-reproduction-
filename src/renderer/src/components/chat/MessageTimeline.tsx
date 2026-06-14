@@ -9,6 +9,7 @@ import { deriveTurnSections } from './derive-turn-sections'
 import { MessageTimelineEmptyHero, ThreadForkBanner, ThreadForkPoint } from './message-timeline-empty'
 import { MessageBubble } from './message-timeline-bubbles'
 import { ReviewPlanCard, ReviewSummaryCard, TurnChangeSummary, WorkMetaRow } from './message-timeline-cards'
+import { TimelineImageResultsPanel } from './message-timeline-media'
 import { ProcessSectionRow, groupProcessSections } from './message-timeline-process'
 import { AnimatedWorkLogo } from './AnimatedWorkLogo'
 import {
@@ -33,6 +34,7 @@ type Props = {
   runtimeError?: string | null
   onRetryConnection: () => void
   onOpenSettings: () => void
+  autoScrollEnabled?: boolean
   onSelectSuggestion?: (prompt: string) => void
   devPreviewCard?: ReactElement | null
   /** Disables the inline Review Plan card's Build action while a turn runs. */
@@ -76,6 +78,7 @@ export function MessageTimeline({
   runtimeError,
   onRetryConnection,
   onOpenSettings,
+  autoScrollEnabled = true,
   onSelectSuggestion,
   devPreviewCard,
   planActionsBusy,
@@ -125,6 +128,7 @@ export function MessageTimeline({
     autoCollapseThreshold: AUTO_COLLAPSE_THRESHOLD,
     totalTurns: turns.length,
     busy,
+    autoScrollEnabled,
     scrollDeps: {
       contentKey: scrollContentKey,
       streaming: Boolean(live.trim() || liveReasoning.trim()),
@@ -332,6 +336,16 @@ function MessageTurn({
     () => turn.blocks.filter((block) => block.kind === 'review'),
     [turn.blocks]
   )
+  const toolResultImageBlocks = useMemo(
+    () =>
+      isProcessing
+        ? []
+        : turn.blocks.filter(
+          (block): block is Extract<ChatBlock, { kind: 'tool' }> =>
+            block.kind === 'tool' && block.status === 'success'
+        ),
+    [isProcessing, turn.blocks]
+  )
 
   const processSections = useMemo(
     () => (workExpanded ? groupProcessSections(processBlocks) : []),
@@ -386,6 +400,8 @@ function MessageTurn({
       {showLiveAssistant ? (
         <MessageBubble block={{ kind: 'assistant', id: 'live-assistant', text: liveContent }} />
       ) : null}
+
+      <TimelineImageResultsPanel blocks={toolResultImageBlocks} />
 
       {reviewBlocks.map((review) => (
         <ReviewSummaryCard key={review.id} review={review} />

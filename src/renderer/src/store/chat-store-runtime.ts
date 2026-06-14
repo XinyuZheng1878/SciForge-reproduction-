@@ -30,7 +30,7 @@ import {
 import {
   isWriteThreadId
 } from '../write/write-thread-registry'
-import { isSddAssistantThread } from '../sdd/sdd-thread-registry'
+import { isEmptySddAssistantThreadCandidate, isSddAssistantThread } from '../sdd/sdd-thread-registry'
 import { useWriteWorkspaceStore } from '../write/write-workspace-store'
 import {
   armBusyWatchdog as armBusyWatchdogImpl,
@@ -348,7 +348,8 @@ function upsertAssistantMessageBlock(
     kind: 'assistant',
     id: ev.itemId,
     createdAt: ev.createdAt ?? new Date().toISOString(),
-    text: ev.text
+    text: ev.text,
+    ...(ev.meta ? { meta: ev.meta } : {})
   }, null)
 }
 
@@ -378,9 +379,20 @@ function insertCanonicalAssistantBlock(
   if (existingIndex >= 0) {
     const existing = blocks[existingIndex]
     if (existing.kind !== 'assistant') return blocks
-    if (existing.text === assistant.text && existing.createdAt === assistant.createdAt) return blocks
+    if (
+      existing.text === assistant.text &&
+      existing.createdAt === assistant.createdAt &&
+      existing.meta === assistant.meta
+    ) {
+      return blocks
+    }
     const next = [...blocks]
-    next[existingIndex] = { ...existing, createdAt: assistant.createdAt, text: assistant.text }
+    next[existingIndex] = {
+      ...existing,
+      createdAt: assistant.createdAt,
+      text: assistant.text,
+      ...(assistant.meta ? { meta: assistant.meta } : {})
+    }
     return next
   }
 
@@ -395,7 +407,13 @@ function insertCanonicalAssistantBlock(
       sameAssistantText(block.text, assistant.text)
     ) {
       const next = [...blocks]
-      next[index] = { ...block, id: assistant.id, createdAt: assistant.createdAt, text: assistant.text }
+      next[index] = {
+        ...block,
+        id: assistant.id,
+        createdAt: assistant.createdAt,
+        text: assistant.text,
+        ...(assistant.meta ? { meta: assistant.meta } : {})
+      }
       return next
     }
   }
@@ -468,7 +486,8 @@ export function isCodeThread(
     !isClawWorkspacePath(thread.workspace) &&
     !isClawThread(thread, clawChannels) &&
     !isWriteThreadId(thread.id) &&
-    !isSddAssistantThread(thread)
+    !isSddAssistantThread(thread) &&
+    !isEmptySddAssistantThreadCandidate(thread)
 }
 
 export function latestThread(threads: NormalizedThread[]): NormalizedThread | null {

@@ -256,6 +256,86 @@ describe('CodexRuntimeService storage fallback', () => {
     })
   })
 
+  it('treats stored turns without an active runtime as failed after restart', async () => {
+    const storageRoot = await tempRoot()
+    const eventStore = new CodexEventStore({ rootDir: storageRoot })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-1',
+      userMessage: {
+        itemId: 'user-1',
+        turnId: 'turn-1',
+        text: 'hello'
+      }
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => failingClient()
+    })
+
+    await expect(service.readThread('codex-thread-1')).resolves.toEqual({
+      ok: true,
+      detail: expect.objectContaining({
+        latestSeq: 1,
+        latestTurnId: 'turn-1',
+        threadStatus: 'failed',
+        blocks: [expect.objectContaining({ kind: 'user', id: 'user-1', turnId: 'turn-1', text: 'hello' })]
+      })
+    })
+  })
+
+  it('prefers stored terminal turn state when app-server live read still reports running', async () => {
+    const storageRoot = await tempRoot()
+    const eventStore = new CodexEventStore({ rootDir: storageRoot })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-1',
+      userMessage: {
+        itemId: 'user-1',
+        turnId: 'turn-1',
+        text: 'hello'
+      }
+    })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-1',
+      turnComplete: true
+    })
+    const client = controllableClient()
+    vi.mocked(client.readThread).mockResolvedValue({
+      thread: {
+        id: 'codex-thread-1',
+        turns: [{
+          id: 'turn-1',
+          status: 'running',
+          items: [{
+            id: 'user-1',
+            type: 'userMessage',
+            content: [{ type: 'text', text: 'hello' }]
+          }]
+        }]
+      }
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.readThread('codex-thread-1')).resolves.toEqual({
+      ok: true,
+      detail: expect.objectContaining({
+        latestSeq: 2,
+        latestTurnId: 'turn-1',
+        threadStatus: 'completed',
+        blocks: [expect.objectContaining({ kind: 'user', id: 'user-1', turnId: 'turn-1', text: 'hello' })]
+      })
+    })
+  })
+
   it('returns an empty stored detail for an unmaterialized Codex thread', async () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
@@ -281,6 +361,56 @@ describe('CodexRuntimeService storage fallback', () => {
       detail: { blocks: [], latestSeq: 0 }
     })
     expect(client.readThread).toHaveBeenCalledWith({ threadId: 'codex-thread-1', includeTurns: true })
+  })
+
+  it('keeps the app-server client alive when readThread falls back during an active turn', async () => {
+    const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await threadStore.upsert({
+      guiThreadId: 'gui-thread-1',
+      codexThreadId: 'codex-thread-1',
+      workspace: '/tmp/workspace',
+      title: 'Active Codex'
+    })
+    const client = controllableClient()
+    vi.mocked(client.startTurn).mockResolvedValue({
+      turn: { id: 'turn-1', userMessageItemId: 'user-1' }
+    })
+    vi.mocked(client.readThread).mockRejectedValue(
+      new Error('thread codex-thread-1 is not materialized yet; includeTurns is unavailable while the turn is starting')
+    )
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.startTurn({
+      threadId: 'gui-thread-1',
+      text: 'hello from IM'
+    })).resolves.toMatchObject({
+      ok: true,
+      threadId: 'gui-thread-1',
+      turnId: 'turn-1'
+    })
+    await expect(service.readThread('gui-thread-1')).resolves.toEqual({
+      ok: true,
+      detail: expect.objectContaining({
+        latestSeq: expect.any(Number),
+        latestTurnId: 'turn-1',
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ kind: 'user', id: 'user-1', text: 'hello from IM' })
+        ])
+      })
+    })
+    expect(client.stop).not.toHaveBeenCalled()
+
+    await expect(service.interruptTurn('gui-thread-1', 'turn-1')).resolves.toMatchObject({ ok: true })
+    expect(client.interruptTurn).toHaveBeenCalledWith({
+      threadId: 'codex-thread-1',
+      turnId: 'turn-1'
+    })
   })
 
   it('replays stored normalized events without starting app-server JSON-RPC', async () => {
@@ -403,6 +533,54 @@ describe('CodexRuntimeService compatibility operations', () => {
     await expect(service.connect()).resolves.toEqual({ ok: true, info: {} })
     expect(createClient).toHaveBeenCalledTimes(2)
     expect(secondClient.connect).toHaveBeenCalled()
+  })
+
+  it('marks active turns failed when the app-server event stream closes', async () => {
+    const queued = clientWithQueuedEvents()
+    const sink = { send: vi.fn() }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      createClient: () => queued.client
+    })
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+    sink.send.mockClear()
+
+    queued.push({
+      type: 'closed',
+      channel: CODEX_MAIN_IPC_CHANNELS.closed,
+      reason: 'error'
+    })
+
+    await vi.waitFor(() => {
+      expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {
+        event: expect.objectContaining({
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          runtimeError: expect.objectContaining({
+            code: 'runtime_disconnected',
+            severity: 'error'
+          })
+        })
+      })
+    })
+    expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {
+      event: expect.objectContaining({
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        runtimeStatus: expect.objectContaining({ phase: 'turn_done' })
+      })
+    })
+    expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.closed, { reason: 'error' })
+    await expect(service.interruptTurn('thread-1', 'turn-1')).resolves.toMatchObject({
+      ok: false,
+      code: 'turn_not_running'
+    })
+    queued.close()
   })
 
   it('initializes the app-server session before thread operations', async () => {
@@ -793,7 +971,7 @@ describe('CodexRuntimeService compatibility operations', () => {
     })
   })
 
-  it('does not rematerialize a stored GUI thread when local event history is non-empty', async () => {
+  it('rematerializes a stored GUI thread in place when local event history is non-empty', async () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
     await threadStore.upsert({
@@ -812,7 +990,10 @@ describe('CodexRuntimeService compatibility operations', () => {
       }
     })
     const client = controllableClient()
-    vi.mocked(client.startTurn).mockRejectedValueOnce(new Error('thread not found: codex-thread-old'))
+    vi.mocked(client.startThread).mockResolvedValue({ thread: { id: 'codex-thread-new', cwd: '/tmp/workspace' } })
+    vi.mocked(client.startTurn)
+      .mockRejectedValueOnce(new Error('thread not found: codex-thread-old'))
+      .mockResolvedValueOnce({ turn: { id: 'turn-1', userMessageItemId: 'user-1' } })
     const service = new CodexRuntimeService({
       settings: async () => settings(),
       sink: { send: vi.fn() },
@@ -821,16 +1002,26 @@ describe('CodexRuntimeService compatibility operations', () => {
     })
 
     await expect(service.startTurn({ threadId: 'gui-thread-1', text: 'hello' })).resolves.toMatchObject({
-      ok: false,
-      message: 'thread not found: codex-thread-old',
-      recoverable: true
+      ok: true,
+      threadId: 'gui-thread-1',
+      turnId: 'turn-1',
+      userMessageItemId: 'user-1'
     })
 
-    expect(client.startThread).not.toHaveBeenCalled()
+    expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/tmp/workspace',
+      serviceName: 'DeepSeek GUI',
+      ephemeral: false
+    }))
     await expect(threadStore.get('gui-thread-1')).resolves.toMatchObject({
       guiThreadId: 'gui-thread-1',
-      codexThreadId: 'codex-thread-old'
+      codexThreadId: 'codex-thread-new'
     })
+    const events = await new CodexEventStore({ rootDir: storageRoot }).read('gui-thread-1', { includeAll: true })
+    expect(events.map((item) => item.event.userMessage?.text).filter(Boolean)).toEqual([
+      'previous context',
+      'hello'
+    ])
   })
 
   it.each([
@@ -863,7 +1054,7 @@ describe('CodexRuntimeService compatibility operations', () => {
       }
     }
   ] satisfies Array<{ name: string; event: CodexThreadEventPayload }>)(
-    'does not rematerialize a stored GUI thread when local $name history is non-empty',
+    'rematerializes a stored GUI thread when local $name history is non-empty',
     async ({ event }) => {
       const storageRoot = await tempRoot()
       const threadStore = new CodexThreadStore({ rootDir: storageRoot })
@@ -875,7 +1066,10 @@ describe('CodexRuntimeService compatibility operations', () => {
       })
       await new CodexEventStore({ rootDir: storageRoot }).append('gui-thread-1', event)
       const client = controllableClient()
-      vi.mocked(client.startTurn).mockRejectedValueOnce(new Error('thread not found: codex-thread-old'))
+      vi.mocked(client.startThread).mockResolvedValue({ thread: { id: 'codex-thread-new', cwd: '/tmp/workspace' } })
+      vi.mocked(client.startTurn)
+        .mockRejectedValueOnce(new Error('thread not found: codex-thread-old'))
+        .mockResolvedValueOnce({ turn: { id: 'turn-1', userMessageItemId: 'user-1' } })
       const service = new CodexRuntimeService({
         settings: async () => settings(),
         sink: { send: vi.fn() },
@@ -884,20 +1078,20 @@ describe('CodexRuntimeService compatibility operations', () => {
       })
 
       await expect(service.startTurn({ threadId: 'gui-thread-1', text: 'hello' })).resolves.toMatchObject({
-        ok: false,
-        message: 'thread not found: codex-thread-old',
-        recoverable: true
+        ok: true,
+        threadId: 'gui-thread-1',
+        turnId: 'turn-1'
       })
 
-      expect(client.startThread).not.toHaveBeenCalled()
+      expect(client.startThread).toHaveBeenCalled()
       await expect(threadStore.get('gui-thread-1')).resolves.toMatchObject({
         guiThreadId: 'gui-thread-1',
-        codexThreadId: 'codex-thread-old'
+        codexThreadId: 'codex-thread-new'
       })
     }
   )
 
-  it('does not materialize a missing GUI thread mapping when local event history is non-empty', async () => {
+  it('materializes a missing GUI thread mapping when local event history is non-empty', async () => {
     const storageRoot = await tempRoot()
     await new CodexEventStore({ rootDir: storageRoot }).append('gui-thread-1', {
       threadId: 'gui-thread-1',
@@ -909,7 +1103,10 @@ describe('CodexRuntimeService compatibility operations', () => {
       }
     })
     const client = controllableClient()
-    vi.mocked(client.startTurn).mockRejectedValueOnce(new Error('thread not found: gui-thread-1'))
+    vi.mocked(client.startThread).mockResolvedValue({ thread: { id: 'codex-thread-new', cwd: '/tmp/workspace' } })
+    vi.mocked(client.startTurn)
+      .mockRejectedValueOnce(new Error('thread not found: gui-thread-1'))
+      .mockResolvedValueOnce({ turn: { id: 'turn-1', userMessageItemId: 'user-1' } })
     const service = new CodexRuntimeService({
       settings: async () => settings(),
       sink: { send: vi.fn() },
@@ -918,13 +1115,16 @@ describe('CodexRuntimeService compatibility operations', () => {
     })
 
     await expect(service.startTurn({ threadId: 'gui-thread-1', text: 'hello' })).resolves.toMatchObject({
-      ok: false,
-      message: 'thread not found: gui-thread-1',
-      recoverable: true
+      ok: true,
+      threadId: 'gui-thread-1',
+      turnId: 'turn-1'
     })
 
-    expect(client.startThread).not.toHaveBeenCalled()
-    await expect(new CodexThreadStore({ rootDir: storageRoot }).get('gui-thread-1')).resolves.toBeNull()
+    expect(client.startThread).toHaveBeenCalled()
+    await expect(new CodexThreadStore({ rootDir: storageRoot }).get('gui-thread-1')).resolves.toMatchObject({
+      guiThreadId: 'gui-thread-1',
+      codexThreadId: 'codex-thread-new'
+    })
   })
 
   it('returns the app-server user message item id from Codex turn start', async () => {
@@ -1165,6 +1365,14 @@ describe('CodexRuntimeService compatibility operations', () => {
         }
       }
     })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turnId: 'turn-1' }
+      }
+    })
 
     await vi.waitFor(async () => {
       await expect(service.usage({
@@ -1202,6 +1410,95 @@ describe('CodexRuntimeService compatibility operations', () => {
       }
     })
     queued.close()
+  })
+
+  it('records completed Codex turns as usage activity when token usage is unavailable', async () => {
+    const queued = clientWithQueuedEvents()
+    const rootDir = await tempRoot()
+    const sink = { send: vi.fn() }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      storageRoot: rootDir,
+      createClient: () => queued.client
+    })
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turnId: 'turn-1' }
+      }
+    })
+
+    await vi.waitFor(async () => {
+      await expect(service.usage({
+        groupBy: 'thread',
+        threadId: 'thread-1',
+        timezone: 'UTC'
+      })).resolves.toMatchObject({
+        supported: true,
+        groupBy: 'thread',
+        buckets: [{
+          threadId: 'thread-1',
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          turns: 1
+        }],
+        totals: {
+          totalTokens: 0,
+          turns: 1,
+          activeDays: 1
+        }
+      })
+    })
+    queued.close()
+  })
+
+  it('backfills usage activity from stored Codex turn events', async () => {
+    const rootDir = await tempRoot()
+    await new CodexThreadStore({ rootDir }).upsert({
+      guiThreadId: 'gui-thread-1',
+      codexThreadId: 'codex-thread-1',
+      workspace: '/tmp/workspace',
+      title: 'Stored Codex'
+    })
+    await new CodexEventStore({ rootDir }).append('gui-thread-1', {
+      threadId: 'gui-thread-1',
+      turnId: 'turn-1',
+      turnComplete: true
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot: rootDir,
+      createClient: () => controllableClient()
+    })
+
+    await expect(service.usage({
+      groupBy: 'thread',
+      threadId: 'gui-thread-1',
+      timezone: 'UTC'
+    })).resolves.toMatchObject({
+      supported: true,
+      groupBy: 'thread',
+      buckets: [{
+        threadId: 'gui-thread-1',
+        totalTokens: 0,
+        turns: 1
+      }],
+      totals: {
+        totalTokens: 0,
+        turns: 1,
+        activeDays: 1
+      }
+    })
   })
 
   it('omits app-server startup status events when a Codex turn starts after prewarm', async () => {

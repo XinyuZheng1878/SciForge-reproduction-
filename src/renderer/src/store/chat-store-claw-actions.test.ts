@@ -517,7 +517,7 @@ describe('chat-store Claw actions helpers', () => {
     ).toBe('thr_live')
   })
 
-  it('keeps an empty IM channel on the Claw route instead of selecting a stale missing thread', async () => {
+  it('keeps an empty IM channel on the project route instead of selecting a stale missing thread', async () => {
     rendererRuntimeClient.invalidateSettings()
     let settings = {
       workspaceRoot: '/Users/zxy/project',
@@ -605,9 +605,10 @@ describe('chat-store Claw actions helpers', () => {
     await actions.selectClawChannel('channel-1')
 
     expect(provider.createThread).not.toHaveBeenCalled()
-    expect(state.route).toBe('claw')
+    expect(state.route).toBe('chat')
     expect(state.activeClawChannelId).toBe('channel-1')
-    expect(state.activeThreadId).toBeNull()
+    expect(state.activeThreadId).toBe('thr_previous')
+    expect(state.blocks).toEqual([{ kind: 'user', id: 'u1', text: 'hello' }])
     expect(state.error).toBeNull()
     expect(dsGui.setSettings).toHaveBeenCalledWith({
       claw: {

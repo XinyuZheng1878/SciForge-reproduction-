@@ -25,6 +25,7 @@ import {
   defaultWriteSettings,
   mergeClawSettings,
   mergeScheduleSettings,
+  mergeSpeechToTextSettings,
   mergeWriteSettings,
   normalizeAppBehaviorSettings,
   normalizeKeyboardShortcuts,
@@ -86,12 +87,16 @@ function defaultClawChannelWorkspaceRoot(channel: ClawImChannelV1): string {
     ? credential.domain
     : credential?.kind === 'weixin'
       ? 'weixin'
-      : channel.provider
+      : credential?.kind === 'discord'
+        ? sanitizePathSegment(credential.guildName || credential.guildId, 'discord')
+        : channel.provider
   const credentialId = credential?.kind === 'feishu'
     ? credential.appId
     : credential?.kind === 'weixin'
       ? credential.accountId
-      : ''
+      : credential?.kind === 'discord'
+        ? credential.channelId
+        : ''
   const workspaceId = sanitizePathSegment(credentialId || channel.id, 'channel')
   return join(DEFAULT_CLAW_CHANNELS_ROOT, channel.provider, domain, workspaceId)
 }
@@ -169,6 +174,18 @@ function withGeneratedModelRouterRuntimeKey(settings: AppSettingsV1): AppSetting
   }
 }
 
+function withGeneratedInstallationId(settings: AppSettingsV1): AppSettingsV1 {
+  if (settings.installationId?.trim()) return settings
+  return {
+    ...settings,
+    installationId: `dsgui-${randomUUID()}`
+  }
+}
+
+function withGeneratedLocalIds(settings: AppSettingsV1): AppSettingsV1 {
+  return withGeneratedInstallationId(withGeneratedModelRouterRuntimeKey(settings))
+}
+
 export async function ensureWorkspaceRootExists(workspaceRoot: string): Promise<string> {
   const normalized = normalizeWorkspaceRoot(workspaceRoot)
   await mkdir(normalized, { recursive: true })
@@ -204,6 +221,7 @@ async function ensureClawChannelWorkspaceRootsExist(settings: AppSettingsV1): Pr
 
 const defaultSettings = (): AppSettingsV1 => ({
   version: 1,
+  installationId: '',
   locale: 'en',
   theme: 'system',
   uiFontScale: 'small',
@@ -344,7 +362,7 @@ export class JsonSettingsStore {
     try {
       const loaded = await readSettingsFileWithCompatibility(this.path)
       if (!loaded) {
-        const defaults = withGeneratedModelRouterRuntimeKey(await loadDefaultSettings())
+        const defaults = withGeneratedLocalIds(await loadDefaultSettings())
         await this.save(defaults)
         return defaults
       }
@@ -361,7 +379,7 @@ export class JsonSettingsStore {
     } catch (error) {
       if (error instanceof SyntaxError) {
         const backupPath = await writeInvalidSettingsBackup(sourcePath, raw)
-        const defaults = withGeneratedModelRouterRuntimeKey(await loadDefaultSettings())
+        const defaults = withGeneratedLocalIds(await loadDefaultSettings())
         await this.save(defaults)
         if (backupPath) {
           console.warn(
@@ -378,15 +396,16 @@ export class JsonSettingsStore {
       throw new Error(`Failed to parse settings file ${sourcePath}: ${message}`, { cause: error })
     }
 
-    const normalizedBeforeRuntimeKey = normalizeStoredSettings(buildMergedSettings(parsed))
-    const normalized = withGeneratedModelRouterRuntimeKey(normalizedBeforeRuntimeKey)
+    const normalizedBeforeLocalIds = normalizeStoredSettings(buildMergedSettings(parsed))
+    const normalized = withGeneratedLocalIds(normalizedBeforeLocalIds)
     await ensureWorkspaceRootExists(normalized.workspaceRoot)
     await ensureWriteWorkspaceRootsExist(normalized)
     await ensureClawChannelWorkspaceRootsExist(normalized)
     this.cache = normalized
     if (
       sourcePath !== this.path ||
-      getModelRouterSettings(normalized).runtimeApiKey !== getModelRouterSettings(normalizedBeforeRuntimeKey).runtimeApiKey
+      getModelRouterSettings(normalized).runtimeApiKey !== getModelRouterSettings(normalizedBeforeLocalIds).runtimeApiKey ||
+      normalized.installationId !== normalizedBeforeLocalIds.installationId
     ) {
       await this.save(normalized)
     }
@@ -394,7 +413,7 @@ export class JsonSettingsStore {
   }
 
   async save(data: AppSettingsV1): Promise<void> {
-    const normalized = normalizeStoredSettings(data)
+    const normalized = withGeneratedInstallationId(normalizeStoredSettings(data))
     await ensureWorkspaceRootExists(normalized.workspaceRoot)
     await ensureWriteWorkspaceRootsExist(normalized)
     await ensureClawChannelWorkspaceRootsExist(normalized)
@@ -405,7 +424,13 @@ export class JsonSettingsStore {
 
   async patch(partial: AppSettingsPatch): Promise<AppSettingsV1> {
     const cur = await this.load()
-    const { agents: agentsPatch, provider: providerPatch, modelRouter: modelRouterPatch, ...restPatch } = partial
+    const {
+      agents: agentsPatch,
+      provider: providerPatch,
+      modelRouter: modelRouterPatch,
+      speechToText: speechToTextPatch,
+      ...restPatch
+    } = partial
     const next = normalizeStoredSettings({
       ...applyCodexRuntimePatch(applyKunRuntimePatch(cur, agentsPatch?.kun), agentsPatch?.codex),
       ...restPatch,
@@ -424,6 +449,7 @@ export class JsonSettingsStore {
         }
       }),
       write: mergeWriteSettings(cur.write, partial.write),
+      speechToText: mergeSpeechToTextSettings(cur.speechToText, speechToTextPatch),
       claw: mergeClawSettings(cur.claw, partial.claw),
       schedule: mergeScheduleSettings(cur.schedule, partial.schedule),
       guiUpdate: { ...cur.guiUpdate, ...(partial.guiUpdate ?? {}) }

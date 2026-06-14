@@ -10,7 +10,13 @@ import { FileThreadStore, FileSessionStore } from '../src/adapters/file/index.js
 import { RuntimeEventRecorder } from '../src/services/runtime-event-recorder.js'
 import { ContextCompactor } from '../src/loop/context-compactor.js'
 import { resolveModelContextProfile } from '../src/loop/model-context-profile.js'
-import { makeAssistantTextItem, makeToolCallItem, makeUserItem } from '../src/domain/item.js'
+import {
+  makeApprovalItem,
+  makeAssistantTextItem,
+  makeToolCallItem,
+  makeUserInputItem,
+  makeUserItem
+} from '../src/domain/item.js'
 import { createThreadRecord } from '../src/domain/thread.js'
 import { createImmutablePrefix, setSystemPrompt } from '../src/cache/immutable-prefix.js'
 import type { TurnItem } from '../src/contracts/items.js'
@@ -49,8 +55,10 @@ describe('AgentLoop', () => {
     const request = observedRequest as ModelRequest | null
     if (!request) throw new Error('expected model request')
     expect(request.tools.map((tool) => tool.name)).toContain('bash')
-    expect(request.contextInstructions?.join('\n')).toContain('Shell runtime:')
-    expect(request.contextInstructions?.join('\n')).toContain('shell commands appropriate for the host platform')
+    expect(request.contextInstructions?.join('\n')).toContain('<shell_environment>')
+    expect(request.contextInstructions?.join('\n')).toContain('<shell>bash</shell>')
+    expect(request.contextInstructions?.join('\n')).toContain('<syntax>POSIX shell</syntax>')
+    expect(request.contextInstructions?.join('\n')).not.toContain('shell commands appropriate for the host platform')
   })
 
   it('records elapsed seconds for active goals after a turn finishes', async () => {
@@ -97,10 +105,10 @@ describe('AgentLoop', () => {
     const failed = events.find((event) => event.kind === 'turn_failed')
 
     expect(status).toBe('failed')
-    expect(failed).toMatchObject({
-      kind: 'turn_failed',
-      message: 'model stream exploded'
-    })
+    if (!failed || failed.kind !== 'turn_failed') {
+      throw new Error('expected turn_failed event')
+    }
+    expect(failed.message).toContain('model stream exploded')
   })
 
   it('fails the turn when the model stream yields an error chunk', async () => {
@@ -193,6 +201,56 @@ describe('AgentLoop', () => {
     expect(sessionItems.filter((item) => item.turnId === h.turnId).map((item) => item.kind))
       .toEqual(['user_message'])
     expect(turnItems.map((item) => item.kind)).toEqual(['user_message'])
+  })
+
+  it('finalizes open session items when interrupting without discard', async () => {
+    const h = makeHarness(makeSilentModel())
+    await bootstrapThread(h)
+    const openItems: TurnItem[] = [
+      makeAssistantTextItem({
+        id: 'partial_answer',
+        turnId: h.turnId,
+        threadId: h.threadId,
+        text: 'partial',
+        status: 'running'
+      }),
+      makeToolCallItem({
+        id: 'partial_tool',
+        turnId: h.turnId,
+        threadId: h.threadId,
+        callId: 'call_partial',
+        toolName: 'echo',
+        arguments: { text: 'hi' },
+        status: 'running'
+      }),
+      makeApprovalItem({
+        id: 'approval_partial',
+        turnId: h.turnId,
+        threadId: h.threadId,
+        approvalId: 'approval_partial',
+        toolName: 'bash',
+        summary: 'Run command?'
+      }),
+      makeUserInputItem({
+        id: 'input_partial',
+        turnId: h.turnId,
+        threadId: h.threadId,
+        inputId: 'input_partial',
+        prompt: 'Need input'
+      })
+    ]
+    for (const item of openItems) {
+      await h.turns.applyItem(h.threadId, item)
+    }
+
+    await h.turns.interruptTurn({ threadId: h.threadId, turnId: h.turnId })
+    const sessionItems = await h.sessionStore.loadItems(h.threadId)
+    const byId = new Map(sessionItems.map((item) => [item.id, item]))
+
+    expect(byId.get('partial_answer')).toMatchObject({ status: 'aborted' })
+    expect(byId.get('partial_tool')).toMatchObject({ status: 'aborted' })
+    expect(byId.get('approval_partial')).toMatchObject({ status: 'expired' })
+    expect(byId.get('input_partial')).toMatchObject({ status: 'cancelled' })
   })
 
   it('runs a tool call and surfaces its result item', async () => {

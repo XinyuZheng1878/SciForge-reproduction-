@@ -1,5 +1,6 @@
 import type { GuiUpdateChannel } from './gui-update'
 import type { KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
+import type { SpeechToTextSettingsPatchV1, SpeechToTextSettingsV1 } from './speech-to-text'
 import type { ApprovalPolicy, SandboxMode } from '../../kun/src/contracts/policy.js'
 import type { ModelEndpointFormat } from '../../kun/src/contracts/model-endpoint-format.js'
 export {
@@ -22,7 +23,8 @@ export type ScheduleTaskStatus = 'idle' | 'running' | 'success' | 'error'
 export type ScheduleModel = 'auto' | 'deepseek-v4-pro' | 'deepseek-v4-flash'
 export type ScheduleReasoningEffort = 'off' | 'low' | 'medium' | 'high' | 'max'
 export type ClawRunMode = ScheduleRunMode
-export type ClawImProvider = 'feishu' | 'weixin'
+export type ClawImProvider = 'feishu' | 'weixin' | 'discord'
+export type ClawImChannelGuardModeV1 = 'only_mention' | 'all_messages' | 'off'
 export type ClawScheduleKind = ScheduleKind
 export type ClawTaskStatus = ScheduleTaskStatus
 export type ClawModel = ScheduleModel
@@ -55,6 +57,7 @@ export const DEFAULT_KUN_PORT = 8899
 export const DEFAULT_WEIXIN_BRIDGE_RPC_URL = 'http://127.0.0.1:18790/api/v1/admin/rpc'
 export const DEFAULT_MODEL_PROVIDER_ID = 'deepseek'
 export type { ModelEndpointFormat }
+export type { SpeechToTextSettingsPatchV1, SpeechToTextSettingsV1 } from './speech-to-text'
 export type ModelProviderProfileV1 = {
   id: string
   name: string
@@ -390,9 +393,25 @@ export type ClawImWeixinPlatformCredentialV1 = {
   createdAt: string
 }
 
+export type ClawImDiscordPlatformCredentialV1 = {
+  kind: 'discord'
+  applicationId: string
+  botId: string
+  botUsername: string
+  guildId: string
+  guildName: string
+  channelId: string
+  channelName: string
+  installationId?: string
+  guardOwnerInstallationId?: string
+  guardOwnerUpdatedAt?: string
+  createdAt: string
+}
+
 export type ClawImPlatformCredentialV1 =
   | ClawImFeishuPlatformCredentialV1
   | ClawImWeixinPlatformCredentialV1
+  | ClawImDiscordPlatformCredentialV1
 
 export type ClawImRemoteSessionV1 = {
   chatId: string
@@ -401,6 +420,17 @@ export type ClawImRemoteSessionV1 = {
   senderId: string
   senderName: string
   updatedAt: string
+}
+
+export type ClawImRecentMessageV1 = {
+  provider: ClawImProvider
+  channelId: string
+  chatId: string
+  remoteThreadId: string
+  messageId: string
+  senderName?: string
+  text?: string
+  receivedAt: string
 }
 
 export type ClawImConversationV1 = {
@@ -424,6 +454,7 @@ export type ClawImChannelV1 = {
   provider: ClawImProvider
   label: string
   enabled: boolean
+  guardMode?: ClawImChannelGuardModeV1
   model: string
   /** Kun thread id this channel maps to. */
   threadId: string
@@ -434,6 +465,7 @@ export type ClawImChannelV1 = {
   platformCredential?: ClawImPlatformCredentialV1
   remoteSession?: ClawImRemoteSessionV1
   conversations: ClawImConversationV1[]
+  recentMessages?: ClawImRecentMessageV1[]
   createdAt: string
   updatedAt: string
 }
@@ -527,6 +559,7 @@ export type GuiUpdateConfigV1 = {
 
 export type AppSettingsV1 = {
   version: 1
+  installationId?: string
   locale: 'en' | 'zh'
   theme: 'system' | 'light' | 'dark'
   uiFontScale: UiFontScale
@@ -540,6 +573,7 @@ export type AppSettingsV1 = {
   appBehavior: AppBehaviorConfigV1
   keyboardShortcuts: KeyboardShortcutsConfigV1
   write: WriteSettingsV1
+  speechToText?: SpeechToTextSettingsV1
   claw: ClawSettingsV1
   schedule: ScheduleSettingsV1
   guiUpdate: GuiUpdateConfigV1
@@ -547,7 +581,7 @@ export type AppSettingsV1 = {
 }
 
 export type AppSettingsPatch = Partial<
-  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'claw' | 'schedule' | 'guiUpdate'>
+  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'speechToText' | 'claw' | 'schedule' | 'guiUpdate'>
 > & {
   provider?: ModelProviderSettingsPatchV1
   modelRouter?: ModelRouterSettingsPatchV1
@@ -557,6 +591,7 @@ export type AppSettingsPatch = Partial<
   appBehavior?: Partial<AppBehaviorConfigV1>
   keyboardShortcuts?: Partial<KeyboardShortcutsConfigV1>
   write?: WriteSettingsPatchV1
+  speechToText?: SpeechToTextSettingsPatchV1
   claw?: ClawSettingsPatchV1
   schedule?: ScheduleSettingsPatchV1
   guiUpdate?: Partial<GuiUpdateConfigV1>

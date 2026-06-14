@@ -367,7 +367,10 @@ describe('createKunAgentRuntimeAdapter', () => {
     ])
     expect(JSON.parse(seen[2].init.body ?? '{}')).toEqual({
       prompt: 'run',
+      model: 'deepseek-gui-router',
       mode: 'agent',
+      approvalPolicy: 'auto',
+      sandboxMode: 'danger-full-access',
       displayText: 'Run it',
       attachmentIds: ['att-1']
     })
@@ -901,6 +904,24 @@ describe('createCodexAgentRuntimeAdapter', () => {
         ]
       }]
     })
+    vi.mocked(service.readThread).mockResolvedValueOnce({
+      ok: true as const,
+      detail: {
+        latestSeq: 1,
+        threadStatus: 'running',
+        blocks: []
+      }
+    })
+    const emptyDetail = await adapter.readThread(ctx, { threadId: 'empty-codex-thread' })
+    expect(emptyDetail).toMatchObject({
+      id: 'empty-codex-thread',
+      runtimeId: 'codex',
+      latestSeq: 1,
+      turns: [],
+      items: []
+    })
+    expect(emptyDetail.status).toBeUndefined()
+    expect(emptyDetail.latestTurnId).toBeUndefined()
     await expect(adapter.startTurn(ctx, {
       threadId: 'codex-thread',
       text: 'run',

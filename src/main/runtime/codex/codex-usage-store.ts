@@ -120,7 +120,8 @@ export class CodexUsageStore {
     for (const line of raw.split('\n')) {
       const record = parseRecord(line)
       if (!record) continue
-      byTurn.set(`${record.threadId}\u0000${record.turnId}`, record)
+      const key = `${record.threadId}\u0000${record.turnId}`
+      byTurn.set(key, preferredRecord(byTurn.get(key), record))
     }
     return [...byTurn.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   }
@@ -236,7 +237,6 @@ function totalsBucket(records: CodexUsageRecord[], bounds: UsageBounds, timezone
   const counters = countersForRecords(records)
   const activeDays = new Set(
     records
-      .filter((record) => record.totalTokens > 0)
       .map((record) => dateInTimezone(record.createdAt, timezone))
   ).size
   return {
@@ -346,6 +346,23 @@ function groupedBuckets<T>(
 function cacheHitRate(counters: Pick<CodexUsageRecord, 'cachedTokens' | 'cacheMissTokens'>): number | null {
   const total = counters.cachedTokens + counters.cacheMissTokens
   return total > 0 ? counters.cachedTokens / total : null
+}
+
+function preferredRecord(current: CodexUsageRecord | undefined, next: CodexUsageRecord): CodexUsageRecord {
+  if (!current) return next
+  const currentHasTokens = recordTokenValue(current) > 0
+  const nextHasTokens = recordTokenValue(next) > 0
+  if (currentHasTokens && !nextHasTokens) return current
+  return next
+}
+
+function recordTokenValue(record: CodexUsageRecord): number {
+  return record.inputTokens +
+    record.outputTokens +
+    record.reasoningTokens +
+    record.cachedTokens +
+    record.cacheMissTokens +
+    record.totalTokens
 }
 
 function dateRange(from: string, to: string): string[] {

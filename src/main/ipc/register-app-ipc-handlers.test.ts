@@ -583,6 +583,66 @@ describe('registerAppIpcHandlers', () => {
     expect(applySettingsPatch).toHaveBeenCalledWith(payload)
   })
 
+  it('validates speech transcription IPC and routes it through the injected service', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const current = settings()
+    const store = { load: vi.fn(async () => current) }
+    const transcribeSpeech = vi.fn(async () => ({ ok: true as const, text: 'hello world' }))
+
+    registerAppIpcHandlers(registerOptions({
+      store: store as never,
+      transcribeSpeech
+    }))
+
+    const payload = {
+      audioBase64: Buffer.from('fake-wav-bytes').toString('base64'),
+      mimeType: ' audio/wav ',
+      durationMs: 1000,
+      speechToText: {
+        enabled: true,
+        protocol: 'openai-transcriptions' as const,
+        baseUrl: ' https://speech.example.test/v1 ',
+        apiKey: 'sk-speech',
+        model: ' whisper-1 ',
+        timeoutMs: 30000
+      }
+    }
+
+    await expect(handlers.get('speech:transcribe')?.({}, payload)).resolves.toEqual({
+      ok: true,
+      text: 'hello world'
+    })
+    expect(store.load).toHaveBeenCalled()
+    expect(transcribeSpeech).toHaveBeenCalledWith(current, {
+      audioBase64: payload.audioBase64,
+      mimeType: 'audio/wav',
+      durationMs: 1000,
+      speechToText: {
+        enabled: true,
+        protocol: 'openai-transcriptions',
+        baseUrl: 'https://speech.example.test/v1',
+        apiKey: 'sk-speech',
+        model: 'whisper-1',
+        timeoutMs: 30000
+      }
+    })
+  })
+
+  it('rejects invalid speech transcription IPC before calling the service', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const transcribeSpeech = vi.fn(async () => ({ ok: true as const, text: 'ignored' }))
+
+    registerAppIpcHandlers(registerOptions({ transcribeSpeech }))
+
+    await expect(
+      handlers.get('speech:transcribe')?.({}, {
+        audioBase64: Buffer.from('fake-image-bytes').toString('base64'),
+        mimeType: 'image/png'
+      })
+    ).rejects.toThrow(/Invalid payload for speech:transcribe/)
+    expect(transcribeSpeech).not.toHaveBeenCalled()
+  })
+
   it('passes schedule settings patches through to applySettingsPatch', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const applySettingsPatch = vi.fn(async (partial: AppSettingsPatch) => ({

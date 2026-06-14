@@ -33,7 +33,7 @@ const DEFAULT_WRITE_ASSISTANT_MODEL = 'auto'
 
 export function readStoredPreviewMode(): WritePreviewMode {
   const raw = readBrowserStorageItem(WRITE_PREVIEW_MODE_KEY)
-  return raw === 'source' || raw === 'live' || raw === 'split' || raw === 'preview' ? raw : 'live'
+  return raw === 'rich' || raw === 'source' || raw === 'live' || raw === 'split' || raw === 'preview' ? raw : 'rich'
 }
 
 export function readStoredAssistantOpen(): boolean {
@@ -244,6 +244,9 @@ export function initialState(): Pick<
   | 'fileContent'
   | 'imageDataUrl'
   | 'imageMimeType'
+  | 'pdfDataBase64'
+  | 'pdfMimeType'
+  | 'pdfMtimeMs'
   | 'fileSize'
   | 'fileTruncated'
   | 'fileError'
@@ -265,6 +268,9 @@ export function initialState(): Pick<
     fileContent: '',
     imageDataUrl: '',
     imageMimeType: '',
+    pdfDataBase64: '',
+    pdfMimeType: '',
+    pdfMtimeMs: 0,
     fileSize: 0,
     fileTruncated: false,
     fileError: null,

@@ -21,6 +21,7 @@ import {
   mergeClawSettings,
   mergeModelProviderSettings,
   mergeScheduleSettings,
+  mergeSpeechToTextSettings,
   mergeWriteSettings,
   normalizeAppSettings,
   normalizeAppBehaviorSettings,
@@ -50,6 +51,7 @@ import { createCodexAgentRuntimeAdapter } from './runtime/codex/codex-agent-runt
 import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
+import { createDiscordBotRuntime, type DiscordBotRuntime } from './discord-bot-runtime'
 import { createScheduleRuntime, type ScheduleRuntime } from './schedule-runtime'
 import { runClawScheduleMcpServerFromArgv } from './claw-schedule-mcp-server'
 import {
@@ -80,6 +82,12 @@ import {
 } from './weixin-bridge-runtime'
 import { webhookUrl } from './claw-runtime-helpers'
 import { isKunHealthResponseBody } from './kun-health'
+import {
+  resolveAvailableKunPort,
+  setKunUnexpectedExitHandler,
+  type KunUnexpectedExitInfo
+} from './kun-process'
+import { RestartBudget, type KunRuntimeStatus } from './kun-runtime-supervisor'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const APP_USER_MODEL_ID = 'com.xingyuzhong.deepseekgui'
@@ -175,6 +183,7 @@ let mainWindow: BrowserWindow | null = null
 let store: JsonSettingsStore
 let logDir = ''
 let clawRuntime: ClawRuntime | null = null
+let discordBotRuntime: DiscordBotRuntime | null = null
 let scheduleRuntime: ScheduleRuntime | null = null
 let codexRuntime: CodexRuntimeService | null = null
 let managedRuntimesStoppedForQuit = false
@@ -197,15 +206,24 @@ type GuiUpdaterModule = typeof import('./gui-updater')
 let guiUpdaterModulePromise: Promise<GuiUpdaterModule> | null = null
 let guiUpdaterInitialized = false
 
-function emitClawChannelActivity(payload: { channelId: string; threadId: string; runtimeId?: AgentRuntimeId }): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  mainWindow.webContents.send('claw:channel-activity', payload)
+function emitClawChannelActivity(payload: {
+  channelId: string
+  threadId: string
+  runtimeId?: AgentRuntimeId
+  previousThreadId?: string
+}): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('claw:channel-activity', payload)
+  }
+  devBrowserBridgeServer?.send('claw:channel-activity', payload)
 }
 
 const codexRuntimeEventSink: CodexRuntimeEventSink = {
   send(channel, payload) {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    mainWindow.webContents.send(channel, payload)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, payload)
+    }
+    devBrowserBridgeServer?.send(channel, payload)
   }
 }
 
@@ -268,16 +286,19 @@ async function stopManagedRuntimesForQuit(): Promise<void> {
 async function stopManagedRuntimes(): Promise<void> {
   if (!managedRuntimesStopPromise) {
     managedRuntimesStopPromise = (async () => {
+      stopRuntimeWatchdog()
       if (codexRuntimePrewarmTimer) {
         clearTimeout(codexRuntimePrewarmTimer)
         codexRuntimePrewarmTimer = null
       }
       scheduleRuntime?.stop()
+      discordBotRuntime?.stop()
       clawRuntime?.stop()
       await stopModelRouterSidecar()
       stopWeixinBridgeRuntime()
       await codexRuntime?.stop()
       await kunRuntimeAdapter.stopAndWait()
+      publishRuntimeStatus({ state: 'stopped', source: 'app-shutdown' })
     })().finally(() => {
       managedRuntimesStopPromise = null
     })
@@ -574,8 +595,211 @@ async function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
 
 let runtimeEnsurePromise: Promise<void> | null = null
 let runtimeEnsureFingerprint: string | null = null
+let runtimeRestartPromise: Promise<void> | null = null
 let runtimeSettingsApplyPromise: Promise<void> | null = null
 let lastAppliedSettings: AppSettingsV1 | null = null
+
+const RUNTIME_RESTART_MAX_ATTEMPTS = 3
+const RUNTIME_RESTART_BUDGET_RESET_MS = 60_000
+const RUNTIME_WATCHDOG_INTERVAL_MS = 30_000
+const RUNTIME_WATCHDOG_FAILURE_THRESHOLD = 3
+const runtimeRestartBudget = new RestartBudget({
+  windowMs: 60_000,
+  maxRestarts: RUNTIME_RESTART_MAX_ATTEMPTS
+})
+let lastRuntimeStatus: KunRuntimeStatus | null = null
+let supervisedRestartInFlight = false
+let runtimeWatchdogTimer: NodeJS.Timeout | null = null
+let runtimeWatchdogFailures = 0
+let runtimeWatchdogTickInFlight = false
+let managedKunPortOverride: { configuredPort: number; port: number } | null = null
+let runtimeRestartBudgetResetTimer: NodeJS.Timeout | null = null
+
+function publishRuntimeStatus(status: Omit<KunRuntimeStatus, 'at'>): void {
+  const full: KunRuntimeStatus = { ...status, at: new Date().toISOString() }
+  lastRuntimeStatus = full
+  logWarn('runtime-status', `${full.state} (${full.source})${full.message ? `: ${full.message}` : ''}`)
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('runtime:status', full)
+  }
+  devBrowserBridgeServer?.send('runtime:status', full)
+}
+
+function noteRuntimeHealthy(source: string): void {
+  runtimeWatchdogFailures = 0
+  scheduleRuntimeRestartBudgetReset()
+  startRuntimeWatchdog()
+  if (!lastRuntimeStatus || lastRuntimeStatus.state !== 'running') {
+    publishRuntimeStatus({ state: 'running', source })
+  }
+}
+
+function scheduleRuntimeRestartBudgetReset(): void {
+  if (runtimeRestartBudgetResetTimer) return
+  runtimeRestartBudgetResetTimer = setTimeout(() => {
+    runtimeRestartBudgetResetTimer = null
+    runtimeRestartBudget.reset()
+  }, RUNTIME_RESTART_BUDGET_RESET_MS)
+  runtimeRestartBudgetResetTimer.unref()
+}
+
+function clearRuntimeRestartBudgetReset(): void {
+  if (!runtimeRestartBudgetResetTimer) return
+  clearTimeout(runtimeRestartBudgetResetTimer)
+  runtimeRestartBudgetResetTimer = null
+}
+
+function handleUnexpectedKunExit(info: KunUnexpectedExitInfo): void {
+  void superviseKunCrash(info).catch((error: unknown) => {
+    logError('kun-supervisor', 'Supervised Kun restart crashed.', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+  })
+}
+
+async function superviseKunCrash(info: KunUnexpectedExitInfo): Promise<void> {
+  if (managedRuntimesStoppedForQuit || isQuitting) return
+  clearRuntimeRestartBudgetReset()
+  const exitLabel = info.signal ? `signal ${info.signal}` : `code ${info.code ?? 'unknown'}`
+  publishRuntimeStatus({
+    state: 'crashed',
+    source: 'supervisor',
+    message: `Kun exited unexpectedly (${exitLabel}).`,
+    stderrTail: info.stderrTail
+  })
+  if (supervisedRestartInFlight) return
+  supervisedRestartInFlight = true
+  try {
+    const settings = await store.load()
+    const runtime = getKunRuntimeSettings(settings)
+    if (!resolveConfiguredApiKey(settings) || !runtime.autoStart) {
+      publishRuntimeStatus({
+        state: 'stopped',
+        source: 'supervisor',
+        message: 'Kun exited and automatic restart is unavailable because the API key is missing or auto-start is disabled.'
+      })
+      return
+    }
+
+    let lastError = ''
+    for (;;) {
+      if (managedRuntimesStoppedForQuit || isQuitting) return
+      const verdict = runtimeRestartBudget.note()
+      if (!verdict.allowed) {
+        publishRuntimeStatus({
+          state: 'failed',
+          source: 'supervisor',
+          message: lastError
+            ? `Kun keeps crashing; automatic restarts are paused. Last error: ${lastError}`
+            : 'Kun keeps crashing; automatic restarts are paused. Check the runtime logs, then retry.',
+          stderrTail: info.stderrTail
+        })
+        return
+      }
+      publishRuntimeStatus({
+        state: 'restarting',
+        source: 'supervisor',
+        attempt: verdict.attempt,
+        maxAttempts: RUNTIME_RESTART_MAX_ATTEMPTS,
+        message: `Restarting Kun automatically (attempt ${verdict.attempt}/${RUNTIME_RESTART_MAX_ATTEMPTS}).`
+      })
+      await sleep(verdict.delayMs)
+      try {
+        await ensureRuntime(await store.load())
+        noteRuntimeHealthy('supervisor')
+        return
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error)
+        logWarn('kun-supervisor', `Automatic restart attempt ${verdict.attempt} failed: ${lastError}`)
+      }
+    }
+  } finally {
+    supervisedRestartInFlight = false
+  }
+}
+
+function startRuntimeWatchdog(): void {
+  if (runtimeWatchdogTimer) return
+  const timer = setInterval(() => {
+    void runtimeWatchdogTick().catch((error: unknown) => {
+      logWarn('kun-watchdog', 'Watchdog tick failed.', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    })
+  }, RUNTIME_WATCHDOG_INTERVAL_MS)
+  timer.unref()
+  runtimeWatchdogTimer = timer
+}
+
+function stopRuntimeWatchdog(): void {
+  if (runtimeWatchdogTimer) {
+    clearInterval(runtimeWatchdogTimer)
+    runtimeWatchdogTimer = null
+  }
+  runtimeWatchdogFailures = 0
+  clearRuntimeRestartBudgetReset()
+}
+
+async function runtimeWatchdogTick(): Promise<void> {
+  if (runtimeWatchdogTickInFlight) return
+  if (managedRuntimesStoppedForQuit || isQuitting) return
+  if (
+    supervisedRestartInFlight ||
+    runtimeRestartPromise ||
+    runtimeSettingsApplyPromise ||
+    runtimeEnsurePromise
+  ) {
+    return
+  }
+  if (!kunRuntimeAdapter.isChildRunning()) return
+
+  runtimeWatchdogTickInFlight = true
+  try {
+    const settings = await store.load()
+    const healthy = await waitForKunHealth(settings, 5_000)
+    if (healthy) {
+      runtimeWatchdogFailures = 0
+      return
+    }
+    runtimeWatchdogFailures += 1
+    logWarn(
+      'kun-watchdog',
+      `Kun health probe failed (${runtimeWatchdogFailures}/${RUNTIME_WATCHDOG_FAILURE_THRESHOLD}).`
+    )
+    if (runtimeWatchdogFailures < RUNTIME_WATCHDOG_FAILURE_THRESHOLD) return
+    runtimeWatchdogFailures = 0
+    const verdict = runtimeRestartBudget.note()
+    if (!verdict.allowed) {
+      publishRuntimeStatus({
+        state: 'failed',
+        source: 'watchdog',
+        message: 'Kun remains unhealthy after repeated automatic restarts; automatic restarts are paused.'
+      })
+      return
+    }
+    publishRuntimeStatus({
+      state: 'restarting',
+      source: 'watchdog',
+      attempt: verdict.attempt,
+      maxAttempts: RUNTIME_RESTART_MAX_ATTEMPTS,
+      message: `Kun stopped responding to health checks; restarting it (attempt ${verdict.attempt}/${RUNTIME_RESTART_MAX_ATTEMPTS}).`
+    })
+    try {
+      await restartRuntime(settings)
+      noteRuntimeHealthy('watchdog')
+    } catch (error) {
+      publishRuntimeStatus({
+        state: 'failed',
+        source: 'watchdog',
+        message: `Kun is unresponsive and the automatic restart failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      })
+    }
+  } finally {
+    runtimeWatchdogTickInFlight = false
+  }
+}
 
 function queueRuntimeSettingsApply(prev: AppSettingsV1, next: AppSettingsV1): void {
   // Always update the prev/next anchor so a later task diffs against
@@ -648,17 +872,29 @@ function runtimeFingerprint(settings: AppSettingsV1): string {
 }
 
 async function ensureRuntime(settings: AppSettingsV1): Promise<void> {
+  const restart = runtimeRestartPromise
+  if (restart) {
+    try {
+      await restart
+      return
+    } catch {
+      /* fall through to a normal ensure so callers see the latest state */
+    }
+  }
   const fingerprint = runtimeFingerprint(settings)
   const pending = runtimeEnsurePromise
+  const pendingFingerprint = runtimeEnsureFingerprint
   if (pending) {
     // Wait for the in-flight ensure, then re-evaluate against the
     // fingerprint so callers don't inherit a stale result.
+    let pendingSucceeded = true
     try {
       await pending
     } catch {
+      pendingSucceeded = false
       /* fall through to retry with the current settings */
     }
-    if (runtimeEnsureFingerprint === fingerprint) return
+    if (pendingSucceeded && pendingFingerprint === fingerprint) return
   }
   const task = ensureRuntimeOnce(settings)
   runtimeEnsurePromise = task.finally(() => {
@@ -680,14 +916,79 @@ async function ensureRuntimeOnce(settings: AppSettingsV1): Promise<void> {
   await ensureKunRuntime(settings)
 }
 
+function syncSettingsObject(target: AppSettingsV1, source: AppSettingsV1): void {
+  Object.assign(target, source)
+}
+
+function settingsWithKunPort(settings: AppSettingsV1, port: number): AppSettingsV1 {
+  return {
+    ...settings,
+    agents: {
+      ...settings.agents,
+      kun: {
+        ...settings.agents.kun,
+        port
+      }
+    }
+  }
+}
+
+function applyManagedKunPortOverride(settings: AppSettingsV1): AppSettingsV1 {
+  const override = managedKunPortOverride
+  if (!override) return settings
+  const runtime = getKunRuntimeSettings(settings)
+  if (runtime.port === override.port) return settings
+  if (runtime.port !== override.configuredPort) {
+    managedKunPortOverride = null
+    return settings
+  }
+  const next = settingsWithKunPort(settings, override.port)
+  syncSettingsObject(settings, next)
+  return settings
+}
+
+async function resolveManagedKunLaunchSettings(
+  settings: AppSettingsV1,
+  source: string
+): Promise<AppSettingsV1> {
+  const runtime = getKunRuntimeSettings(settings)
+  const resolved = await resolveAvailableKunPort(runtime.port)
+  if (!resolved.changed) {
+    if (managedKunPortOverride?.configuredPort === runtime.port) {
+      managedKunPortOverride = null
+    }
+    return settings
+  }
+
+  managedKunPortOverride = { configuredPort: runtime.port, port: resolved.port }
+  const next = settingsWithKunPort(settings, resolved.port)
+  syncSettingsObject(settings, next)
+  const message = `Kun runtime port ${runtime.port} is unavailable; using ${resolved.port} instead.`
+  logWarn(source, message, {
+    previousPort: runtime.port,
+    port: resolved.port,
+    reason: resolved.message
+  })
+  publishRuntimeStatus({
+    state: source === 'runtime-start' ? 'starting' : 'restarting',
+    source,
+    message
+  })
+  return settings
+}
+
 async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
+  settings = applyManagedKunPortOverride(settings)
   const runtime = getKunRuntimeSettings(settings)
   const hasApiKey = Boolean(resolveConfiguredApiKey(settings))
 
   const healthy = await waitForKunHealth(settings, 2_000)
   if (healthy) {
     const threadApi = await probeThreadApi(settings)
-    if (threadApi.ok) return
+    if (threadApi.ok) {
+      noteRuntimeHealthy('ensure')
+      return
+    }
     throw runtimeJsonError(threadApi.error, threadApi.message)
   }
 
@@ -704,29 +1005,91 @@ async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
     )
   }
 
-  const adapter = kunRuntimeAdapter
-  const reclaim = await adapter.reclaimPort(runtime.port)
-  if (!reclaim.ok) {
-    throw runtimeJsonError('runtime_port_conflict', reclaim.message)
-  }
+  publishRuntimeStatus({ state: 'starting', source: 'ensure' })
   try {
-    await adapter.ensureRunning(settings)
+    const launchSettings = await resolveManagedKunLaunchSettings(settings, 'runtime-start')
+    const adapter = kunRuntimeAdapter
+    await adapter.ensureRunning(launchSettings)
+    const started = await waitForKunHealth(launchSettings, 20_000)
+    if (!started) {
+      throw runtimeJsonError(
+        'runtime_unhealthy',
+        'Kun did not become healthy after launch.'
+      )
+    }
+
+    const threadApi = await probeThreadApi(launchSettings)
+    if (!threadApi.ok) {
+      throw runtimeJsonError(threadApi.error, threadApi.message)
+    }
+    noteRuntimeHealthy('ensure')
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
     console.error('[deepseek-gui] failed to start kun:', e)
+    publishRuntimeStatus({
+      state: 'failed',
+      source: 'ensure',
+      message: `Kun failed to start: ${message}`
+    })
     throw e
   }
-  const started = await waitForKunHealth(settings, 20_000)
-  if (!started) {
+}
+
+async function restartRuntime(settings: AppSettingsV1): Promise<void> {
+  if (runtimeRestartPromise) return runtimeRestartPromise
+  const task = restartRuntimeOnce(settings)
+    .finally(() => {
+      if (runtimeRestartPromise === task) {
+        runtimeRestartPromise = null
+      }
+    })
+  runtimeRestartPromise = task
+  runtimeEnsurePromise = null
+  runtimeEnsureFingerprint = null
+  return task
+}
+
+async function restartRuntimeOnce(settings: AppSettingsV1): Promise<void> {
+  await waitForQueuedRuntimeSettingsApply()
+  const runtime = getKunRuntimeSettings(settings)
+
+  if (!resolveConfiguredApiKey(settings)) {
     throw runtimeJsonError(
-      'runtime_unhealthy',
-      'Kun did not become healthy after launch.'
+      'missing_api_key',
+      'Model Router runtime API key is required before the GUI can start Kun.'
+    )
+  }
+  if (!runtime.autoStart) {
+    throw runtimeJsonError(
+      'runtime_offline',
+      'Kun is offline. Enable automatic startup in Settings, or start `kun serve` manually.'
     )
   }
 
-  const threadApi = await probeThreadApi(settings)
+  const adapter = kunRuntimeAdapter
+  await adapter.stopAndWait()
+  const launchSettings = await resolveManagedKunLaunchSettings(settings, 'runtime-restart')
+
+  try {
+    await adapter.ensureRunning(launchSettings)
+  } catch (e) {
+    console.error('[deepseek-gui] failed to restart kun:', e)
+    throw e
+  }
+
+  const healthy = await waitForKunHealth(launchSettings, 20_000)
+  if (!healthy) {
+    throw runtimeJsonError(
+      'runtime_unhealthy',
+      'Kun did not become healthy after restart.'
+    )
+  }
+
+  const threadApi = await probeThreadApi(launchSettings)
   if (!threadApi.ok) {
     throw runtimeJsonError(threadApi.error, threadApi.message)
   }
+  noteRuntimeHealthy('restart')
 }
 
 function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
@@ -785,6 +1148,9 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
   })
   mainWindow.webContents.once('did-finish-load', () => {
     traceStartup('window:did-finish-load')
+    if (lastRuntimeStatus && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('runtime:status', lastRuntimeStatus)
+    }
     showWindow()
   })
   setTimeout(() => {
@@ -842,20 +1208,35 @@ async function restartManagedRuntimeForSettingsChange(
   const wasRunning = adapter.isChildRunning()
 
   if (!wasRunning) return
-  if (wasRunning) {
-    await waitForManagedRuntimeReadyBeforeStop(prev, 'settings-apply')
-    await adapter.stopAndWait()
+  await waitForManagedRuntimeReadyBeforeStop(prev, 'settings-apply')
+  await adapter.stopAndWait()
+  if (!resolveConfiguredApiKey(next) || !runtime.autoStart) {
+    publishRuntimeStatus({
+      state: 'stopped',
+      source: 'settings-apply',
+      message: 'Kun was stopped because the new settings have no API key or auto-start is disabled.'
+    })
+    return
   }
-  if (!resolveConfiguredApiKey(next) || !runtime.autoStart) return
 
+  publishRuntimeStatus({ state: 'restarting', source: 'settings-apply' })
   try {
-    await adapter.ensureRunning(next)
-    const healthy = await waitForKunHealth(next, 20_000)
+    const launchSettings = await resolveManagedKunLaunchSettings(next, 'settings-apply')
+    await adapter.ensureRunning(launchSettings)
+    const healthy = await waitForKunHealth(launchSettings, 20_000)
     if (!healthy) {
-      console.warn('[deepseek-gui] Kun restart did not become healthy after settings change')
+      throw new Error('Kun did not become healthy after the settings change')
     }
+    noteRuntimeHealthy('settings-apply')
+    publishRuntimeStatus({ state: 'running', source: 'settings-apply' })
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
     console.warn('[deepseek-gui] Kun restart failed after settings change:', e)
+    publishRuntimeStatus({
+      state: 'failed',
+      source: 'settings-apply',
+      message: `Kun failed to restart after the settings change: ${message}`
+    })
   }
 }
 
@@ -869,14 +1250,24 @@ async function restartManagedRuntimeForMcpConfigChange(settings: AppSettingsV1):
   await adapter.stopAndWait()
   if (!resolveConfiguredApiKey(settings) || !runtime.autoStart) return
 
+  publishRuntimeStatus({ state: 'restarting', source: 'mcp-config' })
   try {
-    await adapter.ensureRunning(settings)
-    const healthy = await waitForKunHealth(settings, 20_000)
+    const launchSettings = await resolveManagedKunLaunchSettings(settings, 'mcp-config')
+    await adapter.ensureRunning(launchSettings)
+    const healthy = await waitForKunHealth(launchSettings, 20_000)
     if (!healthy) {
-      console.warn('[deepseek-gui] Kun restart did not become healthy after MCP config change')
+      throw new Error('Kun did not become healthy after the MCP config change')
     }
+    noteRuntimeHealthy('mcp-config')
+    publishRuntimeStatus({ state: 'running', source: 'mcp-config' })
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
     console.warn('[deepseek-gui] Kun restart failed after MCP config change:', e)
+    publishRuntimeStatus({
+      state: 'failed',
+      source: 'mcp-config',
+      message: `Kun failed to restart after the MCP config change: ${message}`
+    })
   }
 }
 
@@ -941,6 +1332,7 @@ app.whenReady().then(async () => {
   traceStartup('settings load:start')
   const initial = await store.load()
   traceStartup('settings load:done')
+  setKunUnexpectedExitHandler(handleUnexpectedKunExit)
   appBehavior = initial.appBehavior
   syncLoginItemSettings(initial)
   syncTray(initial)
@@ -977,6 +1369,21 @@ app.whenReady().then(async () => {
 
   scheduleRuntime = createScheduleRuntime({ store, runtimeRequest, logError, powerSaveBlocker })
   scheduleRuntime.sync(initial)
+  discordBotRuntime = createDiscordBotRuntime({
+    store,
+    userDataPath: app.getPath('userData'),
+    handleIncomingMessage: async (input) => {
+      if (!clawRuntime) return { ok: false, message: 'Claw runtime is not initialized.' }
+      return clawRuntime.handleIncomingImMessage(input)
+    },
+    onSettingsChanged: (settings) => {
+      scheduleRuntime?.sync(settings)
+      clawRuntime?.sync(settings)
+      discordBotRuntime?.sync(settings)
+      syncWeixinBridgeRuntime(settings)
+    },
+    logError
+  })
   clawRuntime = createClawRuntime({
     store,
     runtimeRequest,
@@ -985,10 +1392,14 @@ app.whenReady().then(async () => {
     logError,
     notifyChannelActivity: emitClawChannelActivity,
     sendWeixinBridgeMessage,
+    sendDiscordChannelMessage: (options) =>
+      discordBotRuntime?.sendChannelMessage(options) ??
+      Promise.resolve({ ok: false, message: 'Discord bot runtime is not initialized.' }),
     createScheduledTaskFromText: (text, options) =>
       scheduleRuntime?.createScheduledTaskFromText(text, options) ?? Promise.resolve({ kind: 'noop' })
   })
   clawRuntime.sync(initial)
+  discordBotRuntime.sync(initial)
   configureWeixinBridgeRuntimeContextProvider(async () => {
     const settings = await store.load()
     const channel = settings.claw.channels.find((item) => item.enabled && item.provider === 'weixin')
@@ -1004,7 +1415,7 @@ app.whenReady().then(async () => {
   traceStartup('ipc registration:start')
   const applySettingsPatch = async (partial: AppSettingsPatch): Promise<AppSettingsV1> => {
     const prev = await store.load()
-    const { agents: agentsPatch, provider: providerPatch, ...restPatch } = partial
+    const { agents: agentsPatch, provider: providerPatch, speechToText: speechToTextPatch, ...restPatch } = partial
     const next = normalizeAppSettings({
       ...applyCodexRuntimePatch(applyKunRuntimePatch(prev, agentsPatch?.kun), agentsPatch?.codex),
       ...restPatch,
@@ -1022,6 +1433,7 @@ app.whenReady().then(async () => {
         }
       }),
       write: mergeWriteSettings(prev.write, partial.write),
+      speechToText: mergeSpeechToTextSettings(prev.speechToText, speechToTextPatch),
       claw: mergeClawSettings(prev.claw, partial.claw),
       schedule: mergeScheduleSettings(prev.schedule, partial.schedule),
       guiUpdate: { ...prev.guiUpdate, ...(partial.guiUpdate ?? {}) }
@@ -1050,6 +1462,7 @@ app.whenReady().then(async () => {
     }
     scheduleRuntime?.sync(saved)
     clawRuntime?.sync(saved)
+    discordBotRuntime?.sync(saved)
     syncWeixinBridgeRuntime(saved)
     syncLoginItemSettings(saved)
     syncTray(saved)
@@ -1094,6 +1507,7 @@ app.whenReady().then(async () => {
     agentRuntime: agentRuntimeHost,
     fetchUpstreamModels: fetchModels,
     getClawRuntime: () => clawRuntime,
+    getDiscordBotRuntime: () => discordBotRuntime,
     setClawActiveThreadContext: (payload) => {
       clawActiveThreadContext = payload
         ? {

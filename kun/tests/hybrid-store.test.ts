@@ -81,6 +81,140 @@ describe('HybridThreadStore', () => {
     })
   })
 
+  it('preserves event seq high-water when rebuilding the SQLite index', async () => {
+    const first = await createHybridStores()
+    const record = await seedThreadWithMessage(first.threadStore, first.sessionStore, 'events survive')
+    await first.sessionStore.appendEvent(record.id, {
+      kind: 'heartbeat',
+      seq: 2,
+      timestamp: '2026-06-04T00:00:03.000Z',
+      threadId: record.id
+    })
+    await first.sessionStore.appendEvent(record.id, {
+      kind: 'heartbeat',
+      seq: 5,
+      timestamp: '2026-06-04T00:00:04.000Z',
+      threadId: record.id
+    })
+    first.threadStore.close()
+
+    await rm(join(dataDir, 'index.sqlite3'), { force: true })
+    await rm(join(dataDir, 'index.sqlite3-wal'), { force: true })
+    await rm(join(dataDir, 'index.sqlite3-shm'), { force: true })
+
+    const rebuilt = await createHybridStores()
+    expect(await rebuilt.sessionStore.highestSeq(record.id)).toBe(5)
+
+    if (sqliteAvailable) {
+      await writeFile(join(dataDir, 'threads', record.id, 'events.jsonl'), 'not-json\n', 'utf8')
+      expect(await rebuilt.sessionStore.highestSeq(record.id)).toBe(5)
+    }
+  })
+
+  it('invalidates cached thread records when item bodies or metadata change', async () => {
+    const { threadStore, sessionStore } = await createHybridStores()
+    const record = await seedThreadWithMessage(threadStore, sessionStore, 'cached first')
+
+    const cached = await threadStore.get(record.id)
+    expect(cached?.turns[0]?.items[0]).toMatchObject({ text: 'cached first' })
+    expect(await threadStore.get(record.id)).toBe(cached)
+
+    const appended = makeUserItem({
+      id: 'item_turn_hybrid_followup',
+      turnId: 'turn_hybrid',
+      threadId: record.id,
+      text: 'cached append visible'
+    })
+    await sessionStore.appendItem(record.id, appended)
+
+    const afterAppend = await threadStore.get(record.id)
+    expect(afterAppend?.turns[0]?.items.map((item) => item.id)).toEqual([
+      'item_turn_hybrid_user',
+      'item_turn_hybrid_followup'
+    ])
+    expect(afterAppend?.turns[0]?.prompt).toBe('cached first')
+
+    const rewritten = makeUserItem({
+      id: 'item_turn_hybrid_user',
+      turnId: 'turn_hybrid',
+      threadId: record.id,
+      text: 'rewritten cache body is visible'
+    })
+    await sessionStore.rewriteItems(record.id, [rewritten])
+
+    const afterRewrite = await threadStore.get(record.id)
+    expect(afterRewrite?.turns[0]?.items).toHaveLength(1)
+    expect(afterRewrite?.turns[0]?.items[0]).toMatchObject({
+      id: 'item_turn_hybrid_user',
+      text: 'rewritten cache body is visible'
+    })
+    expect(afterRewrite?.turns[0]?.prompt).toBe('rewritten cache body is visible')
+
+    await threadStore.upsert({
+      ...afterRewrite!,
+      title: 'Metadata cache update',
+      status: 'archived',
+      updatedAt: '2026-06-04T00:00:03.000Z'
+    })
+
+    const afterMetadata = await threadStore.get(record.id)
+    expect(afterMetadata).toMatchObject({
+      title: 'Metadata cache update',
+      status: 'archived',
+      updatedAt: '2026-06-04T00:00:03.000Z'
+    })
+    expect(afterMetadata?.turns[0]?.items[0]).toMatchObject({
+      text: 'rewritten cache body is visible'
+    })
+  })
+
+  it('compacts oversized metadata JSONL to the latest thread record', async () => {
+    const { threadStore } = await createHybridStores()
+    const thread = createThreadRecord({
+      id: 'thr_compact',
+      title: 'Compacted latest',
+      workspace: '/tmp/project',
+      model: 'deepseek-chat',
+      createdAt: '2026-06-04T00:00:00.000Z'
+    })
+    const staleThread = {
+      ...thread,
+      title: 'stale '.repeat(180_000),
+      updatedAt: '2026-06-04T00:00:01.000Z'
+    }
+    const metadataPath = join(dataDir, 'threads', thread.id, 'metadata.jsonl')
+    await mkdir(join(dataDir, 'threads', thread.id), { recursive: true })
+    await writeFile(
+      metadataPath,
+      `${JSON.stringify({
+        kind: 'thread_metadata',
+        version: 1,
+        timestamp: '2026-06-04T00:00:01.000Z',
+        thread: staleThread
+      })}\n`,
+      'utf8'
+    )
+
+    await threadStore.upsert({
+      ...thread,
+      updatedAt: '2026-06-04T00:00:02.000Z'
+    })
+
+    const metadata = await readFile(metadataPath, 'utf-8')
+    const lines = metadata.trim().split('\n')
+    expect(lines).toHaveLength(1)
+    const compacted = JSON.parse(lines[0]!) as { thread: { title: string } }
+    expect(compacted.thread.title).toBe('Compacted latest')
+    expect(metadata.length).toBeLessThan(50_000)
+
+    const fetched = await threadStore.get(thread.id)
+    expect(fetched).toMatchObject({
+      id: thread.id,
+      title: 'Compacted latest',
+      updatedAt: '2026-06-04T00:00:02.000Z'
+    })
+  })
+
   it('recovers turn attachment ids from user messages when metadata is stripped', async () => {
     const { threadStore, sessionStore } = await createHybridStores()
     const thread = createThreadRecord({

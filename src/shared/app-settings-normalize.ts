@@ -7,6 +7,7 @@ import {
   type GuiUpdateConfigV1,
   type NotificationConfigV1,
   type ScheduleSettingsPatchV1,
+  type SpeechToTextSettingsPatchV1,
   type WriteSettingsPatchV1
 } from './app-settings-types'
 import { normalizeKeyboardShortcuts, type KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
@@ -25,10 +26,11 @@ import {
 } from './app-settings-codex'
 import { normalizeModelProviderSettings } from './app-settings-provider'
 import { normalizeModelRouterSettings } from './app-settings-model-router'
-import { normalizeDeepseekBaseUrl } from './app-settings-normalizers'
+import { normalizeDeepseekBaseUrl, normalizeInstallationId } from './app-settings-normalizers'
 import { normalizeClawSettings } from './app-settings-claw'
 import { normalizeScheduleSettings } from './app-settings-schedule'
 import { normalizeWriteSettings } from './app-settings-write'
+import { normalizeSpeechToTextSettings } from './speech-to-text'
 
 export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
   const migrated = shouldMigrateLegacySettings(settings)
@@ -43,6 +45,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     write?: WriteSettingsPatchV1
     claw?: ClawSettingsPatchV1
     schedule?: ScheduleSettingsPatchV1
+    speechToText?: SpeechToTextSettingsPatchV1
     guiUpdate?: Partial<GuiUpdateConfigV1>
   }
   const runtime = getKunRuntimeSettings(maybeSettings)
@@ -50,6 +53,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
   return {
     ...migrated,
     version: 1,
+    installationId: normalizeInstallationId(maybeSettings.installationId),
     locale: maybeSettings.locale === 'zh' ? 'zh' : 'en',
     theme:
       maybeSettings.theme === 'light' || maybeSettings.theme === 'dark' || maybeSettings.theme === 'system'
@@ -82,6 +86,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     appBehavior: normalizeAppBehaviorSettings(maybeSettings.appBehavior),
     keyboardShortcuts: normalizeKeyboardShortcuts(maybeSettings.keyboardShortcuts),
     write: normalizeWriteSettings(maybeSettings.write),
+    speechToText: normalizeSpeechToTextSettings(maybeSettings.speechToText),
     claw: normalizeClawSettings(maybeSettings.claw),
     schedule: normalizeScheduleSettings(maybeSettings.schedule),
     guiUpdate: {

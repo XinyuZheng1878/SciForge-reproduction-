@@ -13,14 +13,15 @@ import {
 import {
   Archive,
   BarChart3,
+  Check,
   FileEdit,
   FileText,
   GitFork,
-  ImagePlus,
   Paperclip,
   ListTodo,
   Loader2,
   MessageCircleMore,
+  Mic,
   Minimize2,
   PauseCircle,
   Pencil,
@@ -80,6 +81,12 @@ import {
   type QueuedComposerMessage
 } from './FloatingComposerQueuedMessages'
 import { useComposerDraft } from './use-composer-draft'
+import { SPEECH_TRANSCRIPTION_MAX_DURATION_MS } from '@shared/app-settings'
+import {
+  useSpeechToTextSettings,
+  useVoiceDictation,
+  type VoiceDictationIntent
+} from './use-voice-dictation'
 import type { ComposerChangedFile } from '../../lib/composer-change-summary'
 
 export type { ComposerFileReference } from '../../lib/composer-file-references'
@@ -130,7 +137,7 @@ type Props = {
     AgentProviderCapabilities,
     'compact' | 'fork' | 'goals' | 'review' | 'sideConversations' | 'skills'
   >
-  onPickAttachments?: (files: File[]) => void
+  onPickAttachments?: (attachments: ComposerImageAttachmentInput[]) => void
   onPasteClipboardImage?: (options?: { silentNoImage?: boolean }) => void | Promise<void>
   onRemoveAttachment?: (id: string) => void
   onAddFileReference?: (reference: ComposerFileReference) => void
@@ -172,6 +179,11 @@ type WorkspaceFileIndexRecord = {
   loadedAt: number
 }
 
+export type ComposerImageAttachmentInput = {
+  file: File
+  path?: string
+}
+
 export type ComposerImageTransferSource = {
   files?: ArrayLike<File> | null
   items?: ArrayLike<ComposerTransferItem> | null
@@ -206,6 +218,10 @@ function imageMimeTypeFromFileName(name: string | undefined): string | undefined
   if (lower.endsWith('.heic')) return 'image/heic'
   if (lower.endsWith('.heif')) return 'image/heif'
   return undefined
+}
+
+function isPdfFile(file: File): boolean {
+  return file.type.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
 }
 
 function comparablePath(path: string | undefined): string {
@@ -281,6 +297,7 @@ const FILE_MENTION_TEXT_EXTENSIONS = new Set([
   '.md',
   '.mdx',
   '.mjs',
+  '.pdf',
   '.php',
   '.py',
   '.rb',
@@ -410,6 +427,60 @@ export function imageFilesFromTransfer(source: ComposerImageTransferSource | nul
   return files
 }
 
+function pathForAttachmentFile(file: File): string | undefined {
+  if (typeof window === 'undefined' || typeof window.dsGui?.getPathForFile !== 'function') return undefined
+  try {
+    const path = window.dsGui.getPathForFile(file)
+    return path?.trim() || undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function imageAttachmentInputsFromTransfer(
+  source: ComposerImageTransferSource | null | undefined
+): ComposerImageAttachmentInput[] {
+  if (!source) return []
+  const inputs: ComposerImageAttachmentInput[] = []
+  const seen = new Set<File>()
+  const addFile = (file: File | null | undefined, mimeTypeHint?: string): void => {
+    if (!file || seen.has(file)) return
+    seen.add(file)
+    const normalized = normalizedImageFile(file, mimeTypeHint)
+    if (!normalized) return
+    const path = pathForAttachmentFile(file)
+    inputs.push({
+      file: normalized,
+      ...(path ? { path } : {})
+    })
+  }
+
+  for (const item of arrayLikeValues(source.items)) {
+    if (item.kind && item.kind !== 'file') continue
+    if (!isImageMimeType(item.type)) continue
+    addFile(item.getAsFile?.(), item.type)
+  }
+  for (const file of arrayLikeValues(source.files)) {
+    addFile(file)
+  }
+  return inputs
+}
+
+export function attachmentInputsFromPickedFiles(files: File[]): ComposerImageAttachmentInput[] {
+  return files
+    .map((file) => {
+      const normalized = normalizedImageFile(file)
+      const attachmentFile = normalized ?? (isPdfFile(file) ? file : null)
+      if (!attachmentFile) return null
+      const path = pathForAttachmentFile(file)
+      return {
+        file: attachmentFile,
+        ...(path ? { path } : {})
+      }
+    })
+    .filter((entry): entry is ComposerImageAttachmentInput => entry !== null)
+}
+
 export function imageTransferHasImages(source: ComposerImageTransferSource | null | undefined): boolean {
   if (!source) return false
   if (arrayLikeValues(source.files).some((file) => normalizedImageFile(file) !== null)) return true
@@ -428,11 +499,11 @@ export function handleComposerImagePaste({
   canPickAttachment: boolean
   clipboardData: ComposerClipboardImageSource
   preventDefault: () => void
-  onPickAttachments?: (files: File[]) => void
+  onPickAttachments?: (attachments: ComposerImageAttachmentInput[]) => void
   onPasteClipboardImage?: (options?: { silentNoImage?: boolean }) => void | Promise<void>
 }): boolean {
   if (!canPickAttachment || (!onPickAttachments && !onPasteClipboardImage)) return false
-  const files = imageFilesFromTransfer(clipboardData)
+  const files = imageAttachmentInputsFromTransfer(clipboardData)
   const hasPlainText = Boolean(clipboardData.getData?.('text/plain'))
   const hasImageTransfer = imageTransferHasImages(clipboardData)
   if (files.length > 0) {
@@ -446,6 +517,31 @@ export function handleComposerImagePaste({
   if (shouldPreventDefault) preventDefault()
   void onPasteClipboardImage({ silentNoImage: !shouldPreventDefault })
   return shouldPreventDefault
+}
+
+export function composeInsertedTextAtSelection({
+  currentValue,
+  selectionStart,
+  selectionEnd,
+  text
+}: {
+  currentValue: string
+  selectionStart: number
+  selectionEnd: number
+  text: string
+}): { input: string; cursor: number } | null {
+  if (!text) return null
+  const boundedStart = Math.max(0, Math.min(selectionStart, currentValue.length))
+  const boundedEnd = Math.max(boundedStart, Math.min(selectionEnd, currentValue.length))
+  const before = currentValue.slice(0, boundedStart)
+  const after = currentValue.slice(boundedEnd)
+  const leadingPad = before.length > 0 && !/\s$/.test(before) ? ' ' : ''
+  const trailingPad = after.length > 0 && !/^\s/.test(after) ? ' ' : ''
+  const insertion = `${leadingPad}${text}${trailingPad}`
+  return {
+    input: `${before}${insertion}${after}`,
+    cursor: before.length + insertion.length - trailingPad.length
+  }
 }
 
 export function formatGoalElapsedSeconds(seconds: number): string {
@@ -658,11 +754,15 @@ export function FloatingComposer({
   const [composerMenuOpen, setComposerMenuOpen] = useState(false)
   const [goalPanelOpen, setGoalPanelOpen] = useState(false)
   const [goalRuntimeNowMs, setGoalRuntimeNowMs] = useState(() => Date.now())
+  const [voiceNowMs, setVoiceNowMs] = useState(() => Date.now())
+  const [voiceLevel, setVoiceLevel] = useState(0)
   const composerRootRef = useRef<HTMLDivElement | null>(null)
   const composerMenuButtonRef = useRef<HTMLButtonElement | null>(null)
   const composerMenuPanelRef = useRef<HTMLDivElement | null>(null)
   const goalPanelRef = useRef<HTMLDivElement | null>(null)
   const goalRuntimeStartedAtRef = useRef<number | null>(null)
+  const pendingVoiceSendInputRef = useRef<string | null>(null)
+  const speechToText = useSpeechToTextSettings()
   const placeholder = !runtimeReady
     ? t('runtimeActionNeedsConnection')
     : !hasActiveThread && !effectiveWorkspaceRoot
@@ -1292,7 +1392,7 @@ export function FloatingComposer({
   }, [activeThreadId, canEditComposer, compact, route, runtimeReady, draft.textareaRef])
 
   const handleAttachmentInput = (event: ChangeEvent<HTMLInputElement>): void => {
-    const files = Array.from(event.target.files ?? [])
+    const files = attachmentInputsFromPickedFiles(Array.from(event.target.files ?? []))
     event.target.value = ''
     if (files.length === 0 || !onPickAttachments) return
     onPickAttachments(files)
@@ -1316,39 +1416,104 @@ export function FloatingComposer({
     event.dataTransfer.dropEffect = 'copy'
   }
 
-  const insertTextAtComposerCursor = (text: string): void => {
-    if (!text) return
+  const insertTextAtComposerCursor = (text: string): { input: string; cursor: number } | null => {
     const textarea = draft.textareaRef.current
     const currentValue = input
     const selectionStart = textarea?.selectionStart ?? composerCursor ?? currentValue.length
     const selectionEnd = textarea?.selectionEnd ?? selectionStart
-    const before = currentValue.slice(0, selectionStart)
-    const after = currentValue.slice(selectionEnd)
-    const leadingPad = before.length > 0 && !/\s$/.test(before) ? ' ' : ''
-    const trailingPad = after.length > 0 && !/^\s/.test(after) ? ' ' : ''
-    const insertion = `${leadingPad}${text}${trailingPad}`
-    const nextInput = `${before}${insertion}${after}`
-    const nextCursor = before.length + insertion.length - trailingPad.length
-    setInput(nextInput)
+    const next = composeInsertedTextAtSelection({ currentValue, selectionStart, selectionEnd, text })
+    if (!next) return null
+    setInput(next.input)
     window.requestAnimationFrame(() => {
       const el = draft.textareaRef.current
       if (!el) return
       el.focus()
-      el.setSelectionRange(nextCursor, nextCursor)
-      setComposerCursor(nextCursor)
+      el.setSelectionRange(next.cursor, next.cursor)
+      setComposerCursor(next.cursor)
     })
+    return next
   }
 
+  const handleVoiceDictationText = (text: string, intent: VoiceDictationIntent): void => {
+    const next = insertTextAtComposerCursor(text)
+    if (!next || intent !== 'send') return
+    pendingVoiceSendInputRef.current = next.input
+    if (next.input === input) {
+      window.setTimeout(() => {
+        if (pendingVoiceSendInputRef.current !== next.input) return
+        pendingVoiceSendInputRef.current = null
+        handlePrimaryAction()
+      }, 0)
+    }
+  }
+
+  const voiceDictation = useVoiceDictation({
+    speechToText,
+    onText: handleVoiceDictationText
+  })
+  const voiceAvailable = route === 'chat' && speechToText !== null
+  const showVoiceControl = route === 'chat' && (
+    voiceAvailable ||
+    voiceDictation.status !== 'idle' ||
+    Boolean(voiceDictation.error)
+  )
+  const voiceControlDisabled = voiceDictation.status === 'transcribing' || (
+    voiceDictation.status !== 'recording' &&
+    (!voiceAvailable || !canEditComposer || !canCompose)
+  )
+  const voiceElapsedSeconds = voiceDictation.status === 'recording'
+    ? Math.max(0, Math.floor((voiceNowMs - voiceDictation.startedAtMs) / 1000))
+    : 0
+  const voiceMaxSeconds = Math.floor(SPEECH_TRANSCRIPTION_MAX_DURATION_MS / 1000)
+  const voiceStatusMessage = voiceDictation.status === 'recording'
+    ? t('composerVoiceRecording', { seconds: voiceElapsedSeconds, max: voiceMaxSeconds })
+    : voiceDictation.status === 'transcribing'
+      ? voiceDictation.notice?.message ?? t('composerVoiceTranscribing')
+      : voiceDictation.error
+  const voiceButtonLabel = voiceDictation.status === 'recording'
+    ? t('composerVoiceStop')
+    : voiceDictation.status === 'transcribing'
+      ? t('composerVoiceTranscribing')
+      : t('composerVoiceStart')
+  const voiceLevelBars = [0.42, 0.7, 0.5, 0.82, 0.56].map((base, index) =>
+    Math.max(22, Math.min(100, (base + voiceLevel * (0.5 + index * 0.08)) * 100))
+  )
+
+  useEffect(() => {
+    const pendingInput = pendingVoiceSendInputRef.current
+    if (!pendingInput || input !== pendingInput) return
+    pendingVoiceSendInputRef.current = null
+    handlePrimaryAction()
+  }, [handlePrimaryAction, input])
+
+  useEffect(() => {
+    if (voiceDictation.status !== 'recording') {
+      setVoiceLevel(0)
+      setVoiceNowMs(Date.now())
+      return
+    }
+    setVoiceNowMs(Date.now())
+    const interval = window.setInterval(() => {
+      setVoiceNowMs(Date.now())
+      setVoiceLevel(voiceDictation.getLevel())
+    }, 120)
+    return () => window.clearInterval(interval)
+  }, [voiceDictation.getLevel, voiceDictation.status])
+
   const handleComposerDrop = (event: ReactDragEvent<HTMLDivElement>): void => {
-    const imageFiles = canPickAttachment ? imageFilesFromTransfer(event.dataTransfer) : []
+    const imageFiles = canPickAttachment ? imageAttachmentInputsFromTransfer(event.dataTransfer) : []
     const rawFiles = Array.from(event.dataTransfer.files ?? [])
     const isImageLike = (file: File): boolean =>
       isImageMimeType(file.type) || Boolean(imageMimeTypeFromFileName(file.name))
-    const pathFiles = rawFiles.filter((file) => !isImageLike(file))
-    if (imageFiles.length === 0 && pathFiles.length === 0) return
+    const pdfFiles = rawFiles.filter((file) => !isImageLike(file) && isPdfFile(file))
+    const pathFiles = rawFiles.filter((file) => !isImageLike(file) && !isPdfFile(file))
+    if (imageFiles.length === 0 && pdfFiles.length === 0 && pathFiles.length === 0) return
     event.preventDefault()
     if (imageFiles.length > 0 && onPickAttachments) {
       onPickAttachments(imageFiles)
+    }
+    if (pdfFiles.length > 0 && onPickAttachments) {
+      onPickAttachments(attachmentInputsFromPickedFiles(pdfFiles))
     }
     if (pathFiles.length > 0) {
       const paths: string[] = []
@@ -1453,9 +1618,9 @@ export function FloatingComposer({
                   {attachmentUploadBusy ? (
                     <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" strokeWidth={1.9} />
                   ) : (
-                    <Paperclip className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+                    <FileText className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
                   )}
-                  <span className="min-w-0 flex-1 truncate">{t('composerAddImage')}</span>
+                  <span className="min-w-0 flex-1 truncate">{t('composerAddAttachment')}</span>
                 </button>
                 <div className="my-1 h-px bg-ds-border-muted/70" />
               </>
@@ -1881,11 +2046,91 @@ export function FloatingComposer({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/png,image/jpeg,image/webp,.fasta,.fa,.faa,.fna,.ffn,.frn,.fastq,.fq,.smi,.smiles,.mol,.mol2,.sdf,.mgf,.pdb,.cif,.gb,.gbk,.gff,.gff3,.gtf,.vcf,.bed,.nwk,.seq,.csv,.tsv,.txt"
+              accept="image/png,image/jpeg,image/webp,application/pdf,.pdf,.fasta,.fa,.faa,.fna,.ffn,.frn,.fastq,.fq,.smi,.smiles,.mol,.mol2,.sdf,.mgf,.pdb,.cif,.gb,.gbk,.gff,.gff3,.gtf,.vcf,.bed,.nwk,.seq,.csv,.tsv,.txt"
               multiple
               className="hidden"
               onChange={handleAttachmentInput}
             />
+          ) : null}
+          {showVoiceControl && voiceStatusMessage ? (
+            <div
+              role={voiceDictation.error ? 'alert' : 'status'}
+              aria-live={voiceDictation.error ? 'assertive' : 'polite'}
+              className={`ds-no-drag flex min-w-0 flex-wrap items-center gap-2 rounded-xl border px-2.5 py-2 text-[12.5px] font-medium leading-5 ${
+                voiceDictation.error
+                  ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/35 dark:bg-red-500/10 dark:text-red-200'
+                  : 'border-ds-border-muted bg-ds-card/76 text-ds-muted'
+              }`}
+            >
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                  voiceDictation.error
+                    ? 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-200'
+                    : voiceDictation.status === 'recording'
+                      ? 'bg-red-50 text-red-600 ring-1 ring-red-200 dark:bg-red-500/10 dark:text-red-200 dark:ring-red-500/25'
+                      : 'bg-ds-hover text-ds-muted'
+                }`}
+              >
+                {voiceDictation.status === 'transcribing' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                ) : (
+                  <Mic className="h-3.5 w-3.5" strokeWidth={2} />
+                )}
+              </span>
+              {voiceDictation.status === 'recording' ? (
+                <span className="flex h-7 shrink-0 items-center gap-0.5" aria-hidden="true">
+                  {voiceLevelBars.map((height, index) => (
+                    <span
+                      key={index}
+                      className="w-1 rounded-full bg-red-500/70 transition-[height] duration-100 dark:bg-red-300/80"
+                      style={{ height: `${height}%` }}
+                    />
+                  ))}
+                </span>
+              ) : null}
+              <span className="min-w-[12rem] flex-1 break-words">
+                {voiceStatusMessage}
+              </span>
+              {voiceDictation.status === 'recording' ? (
+                <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => voiceDictation.stop('insert')}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-ds-border bg-ds-card px-2.5 text-[12px] font-semibold text-ds-ink transition hover:bg-ds-hover"
+                  >
+                    <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                    <span>{t('composerVoiceInsert')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => voiceDictation.stop('send')}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full bg-zinc-950 px-2.5 text-[12px] font-semibold text-white transition hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
+                  >
+                    <Send className="h-3.5 w-3.5" strokeWidth={2} />
+                    <span>{t('composerVoiceSend')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={voiceDictation.cancel}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-ds-border bg-ds-card text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+                    aria-label={t('composerVoiceCancel')}
+                    title={t('composerVoiceCancel')}
+                  >
+                    <X className="h-3.5 w-3.5" strokeWidth={2} />
+                  </button>
+                </span>
+              ) : voiceDictation.error ? (
+                <button
+                  type="button"
+                  onClick={voiceDictation.clearError}
+                  className="ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-red-700 transition hover:bg-red-100 dark:text-red-200 dark:hover:bg-red-500/15"
+                  aria-label={t('composerVoiceDismiss')}
+                  title={t('composerVoiceDismiss')}
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={2} />
+                </button>
+              ) : null}
+            </div>
           ) : null}
           <div
             className={`ds-composer-toolbar flex min-h-9 items-center gap-2 ${
@@ -1936,6 +2181,32 @@ export function FloatingComposer({
                 stretchModelPicker ? 'flex-1' : 'shrink-0'
               }`}
             >
+              {showVoiceControl ? (
+                <button
+                  type="button"
+                  disabled={voiceControlDisabled}
+                  onClick={() => {
+                    if (voiceDictation.status === 'recording') {
+                      voiceDictation.stop('insert')
+                    } else if (voiceDictation.status === 'idle') {
+                      voiceDictation.start()
+                    }
+                  }}
+                  className={`ds-no-drag flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                    voiceDictation.status === 'recording'
+                      ? 'bg-red-50 text-red-600 ring-1 ring-red-200 hover:bg-red-100 dark:bg-red-500/10 dark:text-red-200 dark:ring-red-500/25 dark:hover:bg-red-500/15'
+                      : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink disabled:hover:bg-transparent disabled:hover:text-ds-muted'
+                  }`}
+                  aria-label={voiceButtonLabel}
+                  title={voiceButtonLabel}
+                >
+                  {voiceDictation.status === 'transcribing' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.1} />
+                  ) : (
+                    <Mic className="h-4 w-4" strokeWidth={2.1} />
+                  )}
+                </button>
+              ) : null}
               {hideModelPicker ? null : (
                 <FloatingComposerModelPicker
                   compact={compact}

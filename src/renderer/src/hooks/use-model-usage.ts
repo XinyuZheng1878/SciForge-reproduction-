@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { AgentRuntimeId } from '@shared/agent-runtime-contract'
 import {
   type DailyUsageBucket,
   type DailyUsageRange,
@@ -148,13 +149,15 @@ function normalizeTotals(raw: RawUsageCounters & { days?: unknown }): ModelUsage
   }
 }
 
-export function buildModelUsageQuery(range: DailyUsageRange): {
+export function buildModelUsageQuery(range: DailyUsageRange, runtimeId?: AgentRuntimeId): {
+  runtimeId?: AgentRuntimeId
   groupBy: 'model'
   from: string
   to: string
   timezone: string
 } {
   return {
+    ...(runtimeId ? { runtimeId } : {}),
     groupBy: 'model',
     from: range.from,
     to: range.to,
@@ -182,9 +185,12 @@ export function normalizeModelUsageResponse(raw: RawModelUsageResponse): ModelUs
   }
 }
 
-export async function loadModelUsage(range: DailyUsageRange): Promise<ModelUsageSummary | null> {
+export async function loadModelUsage(
+  range: DailyUsageRange,
+  runtimeId?: AgentRuntimeId
+): Promise<ModelUsageSummary | null> {
   if (typeof window.dsGui?.agentRuntime?.usage !== 'function') return null
-  const parsed = await window.dsGui.agentRuntime.usage(buildModelUsageQuery(range)) as RawModelUsageResponse
+  const parsed = await window.dsGui.agentRuntime.usage(buildModelUsageQuery(range, runtimeId)) as RawModelUsageResponse
   if (parsed.supported === false) return null
   if ((parsed.groupBy ?? parsed.group_by) !== 'model') {
     throw new Error('model usage response did not use model grouping')
@@ -192,7 +198,12 @@ export async function loadModelUsage(range: DailyUsageRange): Promise<ModelUsage
   return normalizeModelUsageResponse(parsed)
 }
 
-export function useModelUsageState(enabled: boolean, refreshKey: unknown, days: number): ModelUsageState {
+export function useModelUsageState(
+  enabled: boolean,
+  refreshKey: unknown,
+  days: number,
+  runtimeId?: AgentRuntimeId
+): ModelUsageState {
   const [state, setState] = useState<ModelUsageState>({
     usage: null,
     loading: false,
@@ -208,7 +219,7 @@ export function useModelUsageState(enabled: boolean, refreshKey: unknown, days: 
     }
     setState((current) => ({ ...current, loading: true, error: null }))
     const range = defaultDailyUsageRange(new Date(), days)
-    void loadModelUsage(range)
+    void loadModelUsage(range, runtimeId)
       .then((usage) => {
         if (!cancelled) setState({ usage, loading: false, loaded: true, error: null })
       })
@@ -221,7 +232,7 @@ export function useModelUsageState(enabled: boolean, refreshKey: unknown, days: 
     return () => {
       cancelled = true
     }
-  }, [days, enabled, refreshKey])
+  }, [days, enabled, refreshKey, runtimeId])
 
   return state
 }

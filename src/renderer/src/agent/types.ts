@@ -17,9 +17,29 @@ export type AttachmentReference = {
   id: string
   name?: string
   mimeType?: string
+  byteSize?: number
   width?: number
   height?: number
   previewUrl?: string
+  path?: string
+  relativePath?: string
+  absolutePath?: string
+}
+
+export type GeneratedFileReference = {
+  id?: string
+  name?: string
+  fileName?: string
+  mimeType?: string
+  byteSize?: number
+  width?: number
+  height?: number
+  previewUrl?: string
+  dataUrl?: string
+  url?: string
+  path?: string
+  relativePath?: string
+  absolutePath?: string
 }
 
 export type RuntimeChildMetadata = {
@@ -40,8 +60,11 @@ export type WebCitationSource = {
 
 export type RuntimeDisclosureMetadata = {
   displayText?: string
+  source?: 'desktop' | 'feishu' | 'weixin' | 'discord' | string
+  sourceLabel?: string
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
+  generatedFiles?: GeneratedFileReference[]
   activeSkillIds?: string[]
   injectedMemoryIds?: string[]
   skillInjectionBytes?: number
@@ -217,7 +240,7 @@ export type ChatBlock =
       managedBy?: 'claw'
       meta?: RuntimeDisclosureMetadata
     }
-  | { kind: 'assistant'; id: string; createdAt?: string; text: string }
+  | { kind: 'assistant'; id: string; createdAt?: string; text: string; meta?: RuntimeDisclosureMetadata }
   | { kind: 'reasoning'; id: string; createdAt?: string; text: string }
   | ToolBlock
   | CompactionBlock
@@ -351,6 +374,7 @@ export type AssistantMessageEventPayload = {
   turnId?: string
   createdAt?: string
   text: string
+  meta?: RuntimeDisclosureMetadata
 }
 
 /** Cumulative usage/cost for a Kun thread. */
@@ -457,6 +481,7 @@ export interface AgentProvider {
     name: string
     mimeType?: string
     dataBase64: string
+    localFilePath?: string
     textFallback?: CoreAttachmentTextFallbackJson
     threadId?: string
     workspace?: string

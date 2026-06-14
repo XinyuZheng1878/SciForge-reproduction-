@@ -66,6 +66,27 @@ export function normalizeClawImPlatformCredential(input: unknown): ClawImPlatfor
       createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString()
     }
   }
+  if (raw.kind === 'discord') {
+    const applicationId = typeof raw.applicationId === 'string' ? raw.applicationId.trim() : ''
+    const botId = typeof raw.botId === 'string' ? raw.botId.trim() : ''
+    const guildId = typeof raw.guildId === 'string' ? raw.guildId.trim() : ''
+    const channelId = typeof raw.channelId === 'string' ? raw.channelId.trim() : ''
+    if (!applicationId || !botId || !guildId || !channelId) return undefined
+    return {
+      kind: raw.kind,
+      applicationId,
+      botId,
+      botUsername: typeof raw.botUsername === 'string' ? raw.botUsername.trim() : '',
+      guildId,
+      guildName: typeof raw.guildName === 'string' ? raw.guildName.trim() : '',
+      channelId,
+      channelName: typeof raw.channelName === 'string' ? raw.channelName.trim() : '',
+      installationId: typeof raw.installationId === 'string' ? raw.installationId.trim() : '',
+      guardOwnerInstallationId: typeof raw.guardOwnerInstallationId === 'string' ? raw.guardOwnerInstallationId.trim() : '',
+      guardOwnerUpdatedAt: typeof raw.guardOwnerUpdatedAt === 'string' ? raw.guardOwnerUpdatedAt : '',
+      createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString()
+    }
+  }
   if (raw.kind !== 'feishu') return undefined
   const appId = typeof raw.appId === 'string' ? raw.appId.trim() : ''
   const appSecret = typeof raw.appSecret === 'string' ? raw.appSecret.trim() : ''

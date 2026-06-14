@@ -142,6 +142,23 @@ describe('InitialSessionUsageHeatmap', () => {
     expect(html).not.toContain('Explain this project&#x27;s structure')
   })
 
+  it('uses the active runtime label for Codex usage surfaces', () => {
+    const populatedHtml = render(state({ usage: usage(), loaded: true }), {
+      runtimeLabel: 'Codex',
+      modelLabel: 'gpt-5-codex'
+    })
+
+    expect(populatedHtml).toContain('Daily Codex usage calendar')
+    expect(populatedHtml).not.toContain('Daily Kun usage calendar')
+
+    const emptyHtml = render(state({ usage: usage([bucket('2026-05-01', 0, 0)]), loaded: true }), {
+      runtimeLabel: 'Codex'
+    })
+
+    expect(emptyHtml).toContain('Codex usage')
+    expect(emptyHtml).toContain('Once your first Codex turn completes')
+  })
+
   it('renders stacked model usage bars with a hover breakdown tooltip', () => {
     const detailedDay = {
       date: '2026-06-04',

@@ -31,6 +31,13 @@ import {
   agentRuntimeAuxiliaryPayloadSchema,
   agentRuntimeApprovalResolvePayloadSchema,
   clawActiveThreadContextPayloadSchema,
+  discordBindChannelPayloadSchema,
+  discordConfigureClientPayloadSchema,
+  discordConfigureProxyPayloadSchema,
+  discordConfigureTokenPayloadSchema,
+  discordGuildChannelsPayloadSchema,
+  discordSetGuardPayloadSchema,
+  discordTestSendPayloadSchema,
   agentRuntimeEventSubscribePayloadSchema,
   agentRuntimeListThreadsPayloadSchema,
   agentRuntimeReadThreadPayloadSchema,
@@ -61,6 +68,7 @@ import {
   runtimeRequestPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
   shellOpenExternalUrlSchema,
+  speechTranscriptionPayloadSchema,
   skillListPayloadSchema,
   skillSaveFilePayloadSchema,
   settingsPatchSchema,
@@ -96,6 +104,10 @@ import type {
   AgentRuntimeUsageResponse
 } from '../../shared/agent-runtime-contract'
 import type {
+  SpeechTranscriptionRequest,
+  SpeechTranscriptionResult
+} from '../../shared/speech-to-text'
+import type {
   AgentRuntimeApprovalResolveInput,
   AgentRuntimeEventSubscribeInput,
   AgentRuntimeSessionResumeHandle,
@@ -109,6 +121,7 @@ import type {
 } from '../runtime/agent-runtime/adapter'
 import type { JsonSettingsStore } from '../settings-store'
 import type { ClawRuntime } from '../claw-runtime'
+import type { DiscordBotRuntime } from '../discord-bot-runtime'
 import type { ScheduleRuntime } from '../schedule-runtime'
 import { createAndSwitchGitBranch, getGitBranches, switchGitBranch } from '../services/git-service'
 import {
@@ -134,6 +147,7 @@ import {
   listWriteInlineCompletionDebugEntries,
   requestWriteInlineCompletion
 } from '../services/write-inline-completion-service'
+import { requestSpeechTranscription } from '../services/speech-to-text-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { listGuiSkills } from '../services/skill-service'
 
@@ -206,6 +220,7 @@ type RegisterAppIpcHandlersOptions = {
   }
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
   getClawRuntime: () => ClawRuntime | null
+  getDiscordBotRuntime?: () => DiscordBotRuntime | null
   setClawActiveThreadContext?: (payload: {
     threadId: string
     runtimeId?: AgentRuntimeId
@@ -227,6 +242,10 @@ type RegisterAppIpcHandlersOptions = {
   loadGuiUpdaterModule: () => Promise<GuiUpdaterModule>
   resolveLogDirectory: () => string
   logError: (category: string, message: string, detail?: unknown) => void
+  transcribeSpeech?: (
+    settings: AppSettingsV1,
+    request: SpeechTranscriptionRequest
+  ) => Promise<SpeechTranscriptionResult>
 }
 
 function parseIpcPayload<T>(channel: string, schema: z.ZodType<T>, payload: unknown): T {
@@ -322,6 +341,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     agentRuntime,
     fetchUpstreamModels,
     getClawRuntime,
+    getDiscordBotRuntime,
     getScheduleRuntime,
     startFeishuInstallQrcode,
     pollFeishuInstall,
@@ -335,7 +355,8 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     readGuiUpdateState,
     loadGuiUpdaterModule,
     resolveLogDirectory,
-    logError
+    logError,
+    transcribeSpeech = requestSpeechTranscription
   } = options
   const workspaceFileWatchers = new Map<string, WorkspaceFileWatchRecord>()
   const agentRuntimeEventStreams = new Map<string, AgentRuntimeEventStreamRecord>()
@@ -476,6 +497,14 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       throw new Error('AgentRuntimeHost is not initialized.')
     }
     return agentRuntime
+  }
+
+  const requireDiscordBotRuntime = (): DiscordBotRuntime => {
+    const runtime = getDiscordBotRuntime?.()
+    if (!runtime) {
+      throw new Error('Discord bot runtime is not initialized.')
+    }
+    return runtime
   }
 
   handleInvoke('agentRuntime:connect', async (_, payload: unknown) => {
@@ -754,6 +783,80 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
+  handleInvoke('discord:status', async () =>
+    requireDiscordBotRuntime().status()
+  )
+
+  handleInvoke('discord:configure-client', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'discord:configure-client',
+      discordConfigureClientPayloadSchema,
+      payload
+    )
+    return requireDiscordBotRuntime().configureClientId(request.clientId)
+  })
+
+  handleInvoke('discord:configure-token', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'discord:configure-token',
+      discordConfigureTokenPayloadSchema,
+      payload
+    )
+    return requireDiscordBotRuntime().configureToken(request.token, request.clientId)
+  })
+
+  handleInvoke('discord:configure-proxy', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'discord:configure-proxy',
+      discordConfigureProxyPayloadSchema,
+      payload
+    )
+    return requireDiscordBotRuntime().configureProxy(request.proxyUrl)
+  })
+
+  handleInvoke('discord:guilds', async () =>
+    requireDiscordBotRuntime().listGuilds()
+  )
+
+  handleInvoke('discord:channels', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'discord:channels',
+      discordGuildChannelsPayloadSchema,
+      payload
+    )
+    return requireDiscordBotRuntime().listChannels(request.guildId)
+  })
+
+  handleInvoke('discord:bind-channel', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'discord:bind-channel',
+      discordBindChannelPayloadSchema,
+      payload
+    )
+    return requireDiscordBotRuntime().bindChannel(request)
+  })
+
+  handleInvoke('discord:test-send', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'discord:test-send',
+      discordTestSendPayloadSchema,
+      payload
+    )
+    return requireDiscordBotRuntime().testSend(request.channelId, request.text, request.channelConfigId)
+  })
+
+  handleInvoke('discord:set-guard', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'discord:set-guard',
+      discordSetGuardPayloadSchema,
+      payload
+    )
+    return requireDiscordBotRuntime().setGuard(request.enabled, {
+      channelConfigId: request.channelConfigId,
+      forceTakeover: request.forceTakeover
+    })
+  })
+
   handleInvoke('workspace:pick-directory', async (_, defaultPath: unknown): Promise<WorkspacePickResult> => {
     const normalizedDefaultPath = parseIpcPayload(
       'workspace:pick-directory',
@@ -1025,6 +1128,12 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     requestWriteInlineCompletion(
       await store.load(),
       parseIpcPayload('write:inline-completion', writeInlineCompletionPayloadSchema, payload)
+    )
+  )
+  handleInvoke('speech:transcribe', async (_, payload: unknown) =>
+    transcribeSpeech(
+      await store.load(),
+      parseIpcPayload('speech:transcribe', speechTranscriptionPayloadSchema, payload)
     )
   )
   handleInvoke('write:inline-completion-debug:list', async () => listWriteInlineCompletionDebugEntries())

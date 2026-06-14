@@ -1,5 +1,6 @@
 import {
   DEFAULT_DEEPSEEK_BASE_URL,
+  type ClawImChannelGuardModeV1,
   type ClawImProvider,
   type ClawModel,
   type ClawRunMode,
@@ -32,6 +33,11 @@ export function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
 }
 
+export function normalizeInstallationId(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  return /^[A-Za-z0-9._:-]{8,128}$/.test(raw) ? raw : ''
+}
+
 export function normalizePositiveInteger(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(parsed)) return fallback
@@ -43,7 +49,14 @@ export function normalizeRunMode(value: unknown): ClawRunMode {
 }
 
 export function normalizeImProvider(value: unknown): ClawImProvider {
-  return value === 'weixin' ? 'weixin' : 'feishu'
+  if (value === 'weixin') return 'weixin'
+  if (value === 'discord') return 'discord'
+  return 'feishu'
+}
+
+export function normalizeClawImChannelGuardMode(value: unknown): ClawImChannelGuardModeV1 {
+  if (value === 'all_messages' || value === 'off') return value
+  return 'only_mention'
 }
 
 export function normalizeClawModel(value: unknown): ClawModel {

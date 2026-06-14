@@ -31,11 +31,16 @@ import {
   MODEL_ENDPOINT_FORMATS,
   SCHEDULE_MODEL_IDS,
   SCHEDULE_REASONING_EFFORT_IDS,
+  SPEECH_TO_TEXT_PROTOCOLS,
   WRITE_INLINE_COMPLETION_MODEL_IDS
 } from '../../shared/app-settings'
 import { DESKTOP_COMMANDS } from '../../shared/ds-gui-api'
 import { GUI_UPDATE_CHANNELS } from '../../shared/gui-update'
 import { KEYBOARD_SHORTCUT_COMMANDS } from '../../shared/keyboard-shortcuts'
+import {
+  SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS,
+  SPEECH_TRANSCRIPTION_MAX_DURATION_MS
+} from '../../shared/speech-to-text'
 import { WRITE_EXPORT_FORMATS } from '../../shared/write-export'
 
 const MAX_BODY_BYTES = 2_000_000
@@ -51,6 +56,7 @@ const MAX_SKILL_FILE_BYTES = 1_000_000
 const MAX_CONFIG_FILE_BYTES = 2_000_000
 const MAX_DEVICE_CODE_LENGTH = 8_192
 const MAX_EDITOR_COMPLETION_TEXT = 200_000
+const MAX_MIME_TYPE_LENGTH = 128
 
 const SAFE_OPEN_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
@@ -185,11 +191,14 @@ const mcpSearchModeSchema = z.enum(['direct', 'search', 'auto'])
 const kunStorageBackendSchema = z.enum(['hybrid', 'file'])
 const kunCompactionSummaryModeSchema = z.enum(['heuristic', 'model'])
 const clawRunModeSchema = z.enum(['agent', 'plan'])
-const clawImProviderSchema = z.enum(['feishu', 'weixin'])
+const clawImProviderSchema = z.enum(['feishu', 'weixin', 'discord'])
+const clawImChannelGuardModeSchema = z.enum(['only_mention', 'all_messages', 'off'])
+const clawImOfficialInstallProviderSchema = z.enum(['feishu', 'weixin'])
 const clawScheduleKindSchema = z.enum(['manual', 'interval', 'daily', 'at'])
 const clawTaskStatusSchema = z.enum(['idle', 'running', 'success', 'error'])
 const clawModelSchema = z.enum(CLAW_MODEL_IDS)
 const scheduleReasoningEffortSchema = z.enum(SCHEDULE_REASONING_EFFORT_IDS)
+const speechToTextProtocolSchema = z.enum(SPEECH_TO_TEXT_PROTOCOLS)
 const writeInlineCompletionModelSchema = z.union([
   z.enum(WRITE_INLINE_COMPLETION_MODEL_IDS),
   trimmedString(128)
@@ -497,6 +506,16 @@ const writeSettingsPatchSchema = z.object({
   inlineCompletion: writeInlineCompletionPatchSchema.optional()
 }).strict()
 
+const speechToTextPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  protocol: speechToTextProtocolSchema.optional(),
+  baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+  apiKey: z.string().max(MAX_BODY_BYTES).optional(),
+  model: z.string().trim().max(128).optional(),
+  language: z.string().trim().max(64).optional(),
+  timeoutMs: z.number().int().min(5_000).max(600_000).optional()
+}).strict()
+
 const clawSkillPatchSchema = z.object({
   defaultNames: z.array(trimmedString(128)).max(128).optional(),
   extraDirs: z.array(trimmedString(MAX_PATH_LENGTH)).max(128).optional(),
@@ -539,6 +558,20 @@ const clawImPlatformCredentialPatchSchema = z.union([
     accountId: z.string().max(512).optional(),
     sessionKey: z.string().max(MAX_BODY_BYTES).optional(),
     createdAt: z.string().max(128).optional()
+  }).strict(),
+  z.object({
+    kind: z.literal('discord'),
+    applicationId: z.string().max(MAX_ID_LENGTH).optional(),
+    botId: z.string().max(MAX_ID_LENGTH).optional(),
+    botUsername: z.string().max(512).optional(),
+    guildId: z.string().max(MAX_ID_LENGTH).optional(),
+    guildName: z.string().max(512).optional(),
+    channelId: z.string().max(MAX_ID_LENGTH).optional(),
+    channelName: z.string().max(512).optional(),
+    installationId: z.string().max(128).optional(),
+    guardOwnerInstallationId: z.string().max(128).optional(),
+    guardOwnerUpdatedAt: z.string().max(128).optional(),
+    createdAt: z.string().max(128).optional()
   }).strict()
 ])
 
@@ -549,6 +582,17 @@ const clawImRemoteSessionPatchSchema = z.object({
   senderId: z.string().max(MAX_ID_LENGTH).optional(),
   senderName: z.string().max(512).optional(),
   updatedAt: z.string().max(128).optional()
+}).strict()
+
+const clawImRecentMessagePatchSchema = z.object({
+  provider: clawImProviderSchema.optional(),
+  channelId: z.string().max(MAX_ID_LENGTH).optional(),
+  chatId: z.string().max(MAX_ID_LENGTH).optional(),
+  remoteThreadId: z.string().max(MAX_ID_LENGTH).optional(),
+  messageId: z.string().max(MAX_ID_LENGTH).optional(),
+  senderName: z.string().max(512).optional(),
+  text: z.string().max(2_000).optional(),
+  receivedAt: z.string().max(128).optional()
 }).strict()
 
 const clawImConversationPatchSchema = z.object({
@@ -571,6 +615,7 @@ const clawImChannelPatchSchema = z.object({
   provider: clawImProviderSchema.optional(),
   label: z.string().max(512).optional(),
   enabled: z.boolean().optional(),
+  guardMode: clawImChannelGuardModeSchema.optional(),
   model: z.string().trim().min(1).max(128).optional(),
   threadId: z.string().max(MAX_ID_LENGTH).optional(),
   runtimeId: agentRuntimeIdSchema.optional(),
@@ -580,6 +625,7 @@ const clawImChannelPatchSchema = z.object({
   platformCredential: clawImPlatformCredentialPatchSchema.optional(),
   remoteSession: clawImRemoteSessionPatchSchema.optional(),
   conversations: z.array(clawImConversationPatchSchema).max(512).optional(),
+  recentMessages: z.array(clawImRecentMessagePatchSchema).max(2_000).optional(),
   createdAt: z.string().max(128).optional(),
   updatedAt: z.string().max(128).optional()
 }).strict()
@@ -693,6 +739,7 @@ function stripLegacySettingsPatchKeys(payload: unknown): unknown {
 
 const settingsPatchObjectSchema = z.object({
   version: z.literal(1).optional(),
+  installationId: z.string().max(128).optional(),
   locale: localeSchema.optional(),
   theme: themeSchema.optional(),
   uiFontScale: uiFontScaleSchema.optional(),
@@ -709,6 +756,7 @@ const settingsPatchObjectSchema = z.object({
   appBehavior: appBehaviorPatchSchema.optional(),
   keyboardShortcuts: keyboardShortcutsPatchSchema.optional(),
   write: writeSettingsPatchSchema.optional(),
+  speechToText: speechToTextPatchSchema.optional(),
   claw: clawSettingsPatchSchema.optional(),
   schedule: scheduleSettingsPatchSchema.optional(),
   guiUpdate: z.object({
@@ -933,6 +981,33 @@ export const writeInlineCompletionPayloadSchema = z
   })
   .strict()
 
+export const speechToTextSettingsPayloadSchema = z
+  .object({
+    enabled: z.boolean(),
+    protocol: speechToTextProtocolSchema,
+    baseUrl: z.string().trim().max(MAX_URL_LENGTH),
+    apiKey: z.string().max(MAX_BODY_BYTES),
+    model: z.string().trim().max(128),
+    language: z.string().trim().max(64).optional(),
+    timeoutMs: z.number().int().min(5_000).max(600_000)
+  })
+  .strict()
+
+export const speechTranscriptionPayloadSchema = z
+  .object({
+    audioBase64: z.string().min(1).max(SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS),
+    mimeType: z.string().trim().min(1).max(MAX_MIME_TYPE_LENGTH),
+    durationMs: z.number().int().positive().max(SPEECH_TRANSCRIPTION_MAX_DURATION_MS).optional(),
+    speechToText: speechToTextSettingsPayloadSchema.optional()
+  })
+  .strict()
+  .refine((payload) => payload.mimeType.toLowerCase().startsWith('audio/'), {
+    message: 'mimeType must be an audio MIME type'
+  })
+  .refine((payload) => /^[A-Za-z0-9+/]+={0,2}$/.test(payload.audioBase64), {
+    message: 'audioBase64 must be base64-encoded audio bytes'
+  })
+
 export const shellOpenExternalUrlSchema = trimmedString(MAX_URL_LENGTH).refine(
   isSafeOpenExternalUrl,
   { message: 'Only http, https, and mailto URLs are allowed.' }
@@ -985,6 +1060,62 @@ export const clawTaskFromTextPayloadSchema = z
   })
   .strict()
 
+export const discordConfigureTokenPayloadSchema = z
+  .object({
+    token: z.string().trim().min(20).max(4_096),
+    clientId: z.string().trim().max(MAX_ID_LENGTH).optional()
+  })
+  .strict()
+
+export const discordConfigureClientPayloadSchema = z
+  .object({
+    clientId: trimmedString(MAX_ID_LENGTH)
+  })
+  .strict()
+
+export const discordConfigureProxyPayloadSchema = z
+  .object({
+    proxyUrl: z.string().trim().max(2_048)
+  })
+  .strict()
+
+export const discordGuildChannelsPayloadSchema = z
+  .object({
+    guildId: trimmedString(MAX_ID_LENGTH)
+  })
+  .strict()
+
+export const discordBindChannelPayloadSchema = z
+  .object({
+    channelConfigId: z.string().trim().max(MAX_ID_LENGTH).optional(),
+    guildId: trimmedString(MAX_ID_LENGTH),
+    guildName: z.string().trim().max(512).optional(),
+    channelId: trimmedString(MAX_ID_LENGTH),
+    channelName: z.string().trim().max(512).optional(),
+    enabled: z.boolean().optional(),
+    workspaceRoot: defaultPathSchema,
+    model: z.union([z.enum(CLAW_MODEL_IDS), trimmedString(128)]).optional(),
+    runtimeId: agentRuntimeIdSchema.optional(),
+    agentProfile: clawImAgentProfilePatchSchema.optional()
+  })
+  .strict()
+
+export const discordTestSendPayloadSchema = z
+  .object({
+    channelId: trimmedString(MAX_ID_LENGTH),
+    text: z.string().trim().min(1).max(2_000).optional(),
+    channelConfigId: z.string().trim().max(MAX_ID_LENGTH).optional()
+  })
+  .strict()
+
+export const discordSetGuardPayloadSchema = z
+  .object({
+    enabled: z.boolean(),
+    channelConfigId: z.string().trim().max(MAX_ID_LENGTH).optional(),
+    forceTakeover: z.boolean().optional()
+  })
+  .strict()
+
 export const scheduleTaskFromTextPayloadSchema = z
   .object({
     text: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH),
@@ -996,7 +1127,7 @@ export const scheduleTaskFromTextPayloadSchema = z
 
 export const clawImInstallPollPayloadSchema = z
   .object({
-    provider: clawImProviderSchema,
+    provider: clawImOfficialInstallProviderSchema,
     deviceCode: trimmedString(MAX_DEVICE_CODE_LENGTH)
   })
   .strict()

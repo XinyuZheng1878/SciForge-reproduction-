@@ -222,7 +222,10 @@ describe('agent runtime event dispatcher', () => {
       approvalId: 'approval-1',
       summary: 'Allow read?',
       toolName: 'read',
-      status: 'pending'
+      status: 'pending',
+      meta: {
+        source: 'runtime'
+      }
     })
     expect(sink.onApproval).toHaveBeenNthCalledWith(2, {
       approvalId: 'approval-1',

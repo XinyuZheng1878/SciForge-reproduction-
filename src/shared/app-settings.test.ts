@@ -16,8 +16,10 @@ import {
   defaultClawSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
+  defaultSpeechToTextSettings,
   mergeKunRuntimeSettings,
   mergeScheduleSettings,
+  mergeSpeechToTextSettings,
   defaultCodexRuntimeSettings,
   defaultKunRuntimeSettings,
   defaultScheduleSettings,
@@ -33,6 +35,7 @@ import {
   parseClawUserPromptForDisplay,
   normalizeScheduleSettings,
   resolveKunRuntimeSettings,
+  resolveSpeechToTextSettings,
   resolveWriteInlineCompletionApiKey,
   resolveWriteInlineCompletionBaseUrl,
   resolveWriteInlineCompletionModel,
@@ -213,6 +216,73 @@ describe('keyboard shortcut settings', () => {
   })
 })
 
+describe('speech-to-text settings', () => {
+  it('defaults voice input settings to disabled', () => {
+    const raw = {
+      ...settings(),
+      speechToText: undefined
+    } as AppSettingsV1
+
+    expect(normalizeAppSettings(raw).speechToText).toEqual(defaultSpeechToTextSettings())
+  })
+
+  it('normalizes custom transcription settings', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      speechToText: {
+        enabled: true,
+        protocol: 'mimo-asr',
+        baseUrl: '  https://speech.example/v1  ',
+        apiKey: '  sk-speech  ',
+        model: '  whisper-large-v3  ',
+        language: '  ZH-CN  ',
+        timeoutMs: 900_000
+      }
+    })
+
+    expect(normalized.speechToText).toEqual({
+      enabled: true,
+      protocol: 'mimo-asr',
+      baseUrl: 'https://speech.example/v1',
+      apiKey: 'sk-speech',
+      model: 'whisper-large-v3',
+      language: 'zh-cn',
+      timeoutMs: 600_000
+    })
+  })
+
+  it('falls back to OpenAI-compatible transcriptions and clamps tiny timeouts', () => {
+    const merged = mergeSpeechToTextSettings(defaultSpeechToTextSettings(), {
+      enabled: true,
+      protocol: 'bogus' as never,
+      timeoutMs: 100
+    })
+
+    expect(merged.protocol).toBe('openai-transcriptions')
+    expect(merged.timeoutMs).toBe(5_000)
+  })
+
+  it('resolves normalized settings from the app config', () => {
+    const resolved = resolveSpeechToTextSettings({
+      ...settings(),
+      speechToText: {
+        ...defaultSpeechToTextSettings(),
+        enabled: true,
+        baseUrl: ' https://speech.example/v1 ',
+        apiKey: ' sk-speech ',
+        model: ' whisper-1 '
+      }
+    })
+
+    expect(resolved).toMatchObject({
+      enabled: true,
+      baseUrl: 'https://speech.example/v1',
+      apiKey: 'sk-speech',
+      model: 'whisper-1'
+    })
+  })
+})
+
 describe('claw settings', () => {
   it('stores the WeChat bridge URL in Claw IM settings', () => {
     const defaults = defaultClawSettings()
@@ -289,6 +359,32 @@ describe('claw settings', () => {
         runtimeId: 'codex',
         agentThreadIds: { codex: 'codex-conversation-thread' }
       })
+    ])
+  })
+
+  it('normalizes Claw IM channel guard mode with an only_mention default', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      claw: {
+        ...defaultClawSettings(),
+        channels: [
+          clawChannel('feishu', 'Default Guard'),
+          {
+            ...clawChannel('feishu', 'All Messages'),
+            guardMode: 'all_messages'
+          },
+          {
+            ...clawChannel('feishu', 'Bad Guard'),
+            guardMode: 'bogus' as never
+          }
+        ]
+      }
+    })
+
+    expect(normalized.claw.channels.map((channel) => channel.guardMode)).toEqual([
+      'only_mention',
+      'all_messages',
+      'only_mention'
     ])
   })
 

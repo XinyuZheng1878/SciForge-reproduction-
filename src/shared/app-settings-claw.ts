@@ -3,6 +3,7 @@ import {
   DEFAULT_WEIXIN_BRIDGE_RPC_URL,
   type ClawImChannelV1,
   type ClawImConversationV1,
+  type ClawImRecentMessageV1,
   type ClawImSettingsV1,
   type ClawImProvider,
   type ClawSettingsPatchV1,
@@ -22,6 +23,7 @@ import { normalizeScheduledTask } from './app-settings-schedule'
 import {
   compactStrings,
   normalizeBoolean,
+  normalizeClawImChannelGuardMode,
   normalizeClawModel,
   normalizeImProvider,
   normalizePathSegment,
@@ -34,6 +36,7 @@ type LegacyClawImSettingsPatch = Partial<ClawImSettingsV1> & {
 }
 
 function defaultClawChannelLabel(provider: ClawImProvider): string {
+  if (provider === 'discord') return 'discord bot'
   return provider === 'weixin' ? 'weixin agent' : 'feishu agent'
 }
 
@@ -45,6 +48,11 @@ function normalizeLegacyDefaultClawChannelName(provider: ClawImProvider, value: 
       ? 'weixin agent'
       : trimmed
   }
+  if (provider === 'discord') {
+    return lower === 'discord' || lower === 'discord agent' || lower === 'discord bot'
+      ? 'discord bot'
+      : trimmed
+  }
   if (lower === 'feishu agent' || lower === 'feishu / lark') return 'feishu agent'
   if (lower === 'lark agent') return 'lark agent'
   return trimmed
@@ -53,6 +61,37 @@ function normalizeLegacyDefaultClawChannelName(provider: ClawImProvider, value: 
 function normalizeClawChannelLabel(provider: ClawImProvider, value: string): string {
   const normalized = normalizeLegacyDefaultClawChannelName(provider, value)
   return normalized || defaultClawChannelLabel(provider)
+}
+
+function normalizeIsoDate(value: unknown, fallback: string): string {
+  if (typeof value !== 'string' || !value.trim()) return fallback
+  const parsed = new Date(value)
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : fallback
+}
+
+function normalizeClawImRecentMessage(input: unknown, fallbackProvider: ClawImProvider): ClawImRecentMessageV1 | null {
+  const raw = input && typeof input === 'object' && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {}
+  const messageId = typeof raw.messageId === 'string' ? raw.messageId.trim() : ''
+  const channelId = typeof raw.channelId === 'string' ? raw.channelId.trim() : ''
+  const chatId = typeof raw.chatId === 'string' ? raw.chatId.trim() : ''
+  if (!messageId || !channelId || !chatId) return null
+  const now = new Date().toISOString()
+  return {
+    provider: normalizeImProvider(raw.provider ?? fallbackProvider),
+    channelId,
+    chatId,
+    remoteThreadId: typeof raw.remoteThreadId === 'string' ? raw.remoteThreadId.trim() : '',
+    messageId,
+    ...(typeof raw.senderName === 'string' && raw.senderName.trim()
+      ? { senderName: raw.senderName.trim().slice(0, 512) }
+      : {}),
+    ...(typeof raw.text === 'string' && raw.text.trim()
+      ? { text: raw.text.trim().slice(0, 2_000) }
+      : {}),
+    receivedAt: normalizeIsoDate(raw.receivedAt, now)
+  }
 }
 
 export function defaultClawSettings(): ClawSettingsV1 {
@@ -95,7 +134,8 @@ export function normalizeClawSettings(input: ClawSettingsPatchV1 | undefined): C
           raw.provider === undefined ||
           raw.provider === null ||
           raw.provider === 'feishu' ||
-          raw.provider === 'weixin'
+          raw.provider === 'weixin' ||
+          raw.provider === 'discord'
         )
       })
     : []
@@ -135,6 +175,7 @@ export function normalizeClawSettings(input: ClawSettingsPatchV1 | undefined): C
             provider,
             label,
             enabled: normalizeBoolean(raw.enabled, true),
+            guardMode: normalizeClawImChannelGuardMode(raw.guardMode),
             model: normalizeClawModel(raw.model),
             threadId,
             runtimeId: normalizeSettingsRuntimeId(raw.runtimeId),
@@ -150,6 +191,12 @@ export function normalizeClawSettings(input: ClawSettingsPatchV1 | undefined): C
               ? raw.conversations
                   .map((conversation) => normalizeClawImConversation(conversation))
                   .filter((conversation): conversation is ClawImConversationV1 => conversation != null)
+              : [],
+            recentMessages: Array.isArray(raw.recentMessages)
+              ? raw.recentMessages
+                  .map((message) => normalizeClawImRecentMessage(message, provider))
+                  .filter((message): message is ClawImRecentMessageV1 => message != null)
+                  .slice(-2_000)
               : [],
             createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : now,
             updatedAt: typeof raw.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : now

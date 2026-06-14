@@ -5,9 +5,15 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { bracketMatching, indentOnInput } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
 import { drawSelection, EditorView, highlightActiveLine, keymap, type ViewUpdate } from '@codemirror/view'
-import { buildInlineCompletionExtension, buildInlineCompletionPayload } from '../../write/inline-completion'
+import {
+  buildCodeMirrorEditorSelectionState,
+  buildInlineCompletionExtension,
+  buildInlineCompletionPayload,
+  codeMirrorRecentEditsFromUpdate,
+  type WriteEditorSelectionState,
+  type WriteRecentEdit
+} from '../../write/inline-completion'
 import { writeMarkdownLivePreviewExtensions } from '../../write/markdown-live-preview'
-import { createWriteRecentEdit, type WriteRecentEdit } from '../../write/recent-edits'
 import { buildWriteTemplateShortcutExpansion } from '../../write/template-shortcuts'
 import {
   buildWriteCanonicalTermPropagationChanges,
@@ -15,32 +21,12 @@ import {
   type WriteTermReplacementSeed
 } from '../../write/term-propagation'
 
-export type WriteSelectionAnchorRect = {
-  left: number
-  right: number
-  top: number
-  bottom: number
-  width: number
-  height: number
-}
-
-export type WriteSelectionRange = {
-  from: number
-  to: number
-  startLine: number
-  startColumn: number
-  endLine: number
-  endColumn: number
-  text: string
-  charCount: number
-}
-
-export type WriteEditorSelectionState = {
-  text: string
-  ranges: WriteSelectionRange[]
-  charCount: number
-  anchorRect?: WriteSelectionAnchorRect
-}
+export type {
+  WriteEditorSelectionState,
+  WriteSelectionAnchorRect,
+  WriteSelectionPageRect,
+  WriteSelectionRange
+} from '../../write/inline-completion'
 
 type Props = {
   value: string
@@ -68,114 +54,6 @@ type Props = {
 
 const externalValueSyncAnnotation = Annotation.define<boolean>()
 const termPropagationAnnotation = Annotation.define<boolean>()
-const RECENT_EDIT_CONTEXT_CHARS = 160
-
-function clampOffset(state: EditorState, offset = 0): number {
-  const size = state.doc.length
-  const value = Number(offset)
-  if (!Number.isFinite(value)) return 0
-  return Math.max(0, Math.min(size, Math.floor(value)))
-}
-
-function positionForOffset(state: EditorState, offset: number): { line: number; column: number } {
-  const point = clampOffset(state, offset)
-  const line = state.doc.lineAt(point)
-  return {
-    line: line.number,
-    column: point - line.from + 1
-  }
-}
-
-function unionRects(rects: Array<{ left: number; right: number; top: number; bottom: number }>): WriteSelectionAnchorRect | undefined {
-  if (rects.length === 0) return undefined
-  let left = Number.POSITIVE_INFINITY
-  let right = Number.NEGATIVE_INFINITY
-  let top = Number.POSITIVE_INFINITY
-  let bottom = Number.NEGATIVE_INFINITY
-  for (const rect of rects) {
-    left = Math.min(left, rect.left)
-    right = Math.max(right, rect.right)
-    top = Math.min(top, rect.top)
-    bottom = Math.max(bottom, rect.bottom)
-  }
-  if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
-    return undefined
-  }
-  return {
-    left,
-    right,
-    top,
-    bottom,
-    width: right - left,
-    height: bottom - top
-  }
-}
-
-function selectionAnchorRect(view: EditorView, ranges: WriteSelectionRange[]): WriteSelectionAnchorRect | undefined {
-  const rects: Array<{ left: number; right: number; top: number; bottom: number }> = []
-  for (const range of ranges) {
-    const start = view.coordsAtPos(range.from, 1)
-    const end = view.coordsAtPos(range.to, -1) ?? view.coordsAtPos(Math.max(range.from, range.to - 1), 1)
-    if (start) rects.push(start)
-    if (end) rects.push(end)
-  }
-  return unionRects(rects)
-}
-
-function selectionState(view: EditorView): WriteEditorSelectionState {
-  const ranges = view.state.selection.ranges
-    .map((range): WriteSelectionRange | null => {
-      if (range.empty) return null
-      const from = clampOffset(view.state, range.from)
-      const to = clampOffset(view.state, range.to)
-      const start = positionForOffset(view.state, from)
-      const end = positionForOffset(view.state, Math.max(from, to - 1))
-      const text = view.state.sliceDoc(from, to)
-      return {
-        from,
-        to,
-        startLine: start.line,
-        startColumn: start.column,
-        endLine: end.line,
-        endColumn: end.column,
-        text,
-        charCount: Math.max(0, to - from)
-      }
-    })
-    .filter((value): value is WriteSelectionRange => value !== null)
-
-  const text = ranges.map((range) => range.text).join('\n\n')
-  return {
-    text,
-    ranges,
-    charCount: ranges.reduce((total, range) => total + range.charCount, 0),
-    anchorRect: selectionAnchorRect(view, ranges)
-  }
-}
-
-function recentEditsFromUpdate(update: ViewUpdate, filePath: string): WriteRecentEdit[] {
-  const path = filePath.trim()
-  if (!path || !update.docChanged) return []
-  const edits: WriteRecentEdit[] = []
-  const timestamp = Date.now()
-
-  update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
-    const edit = createWriteRecentEdit({
-      source: 'user',
-      timestamp,
-      filePath: path,
-      from: fromA,
-      to: toA,
-      deletedText: update.startState.sliceDoc(fromA, toA),
-      insertedText: inserted.toString(),
-      beforeContext: update.startState.sliceDoc(Math.max(0, fromA - RECENT_EDIT_CONTEXT_CHARS), fromA),
-      afterContext: update.state.sliceDoc(toB, Math.min(update.state.doc.length, toB + RECENT_EDIT_CONTEXT_CHARS))
-    })
-    if (edit) edits.push(edit)
-  })
-
-  return edits
-}
 
 function termReplacementSeedFromUpdate(update: ViewUpdate): WriteTermReplacementSeed | null {
   const changes: WriteTermReplacementSeed[] = []
@@ -516,12 +394,12 @@ export function WriteMarkdownEditor({
             transaction.annotation(termPropagationAnnotation)
           )
           if (update.docChanged && !externalValueSync) {
-            const recentEdits = recentEditsFromUpdate(update, filePathRef.current)
+            const recentEdits = codeMirrorRecentEditsFromUpdate(update, filePathRef.current)
             if (recentEdits.length > 0) onDocumentEditRef.current?.(recentEdits)
             onChangeRef.current(update.state.doc.toString())
           }
           if (update.docChanged || update.selectionSet) {
-            onSelectionChangeRef.current(selectionState(update.view))
+            onSelectionChangeRef.current(buildCodeMirrorEditorSelectionState(update.view))
           }
           if (update.docChanged && !externalValueSync && !termPropagationSync) {
             const seed = termReplacementSeedFromUpdate(update)
@@ -555,7 +433,7 @@ export function WriteMarkdownEditor({
       parent: hostRef.current
     })
     viewRef.current = view
-    onSelectionChangeRef.current(selectionState(view))
+    onSelectionChangeRef.current(buildCodeMirrorEditorSelectionState(view))
 
     return () => {
       view.destroy()

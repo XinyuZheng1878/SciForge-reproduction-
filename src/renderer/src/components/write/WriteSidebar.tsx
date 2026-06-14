@@ -24,7 +24,7 @@ import {
   writeJoinPath,
   writeRelativeToWorkspace
 } from '../../write/write-workspace-store'
-import { ConnectPhoneDialog } from '../chat/ConnectPhoneView'
+import { ConnectPhoneDialog, resolveConnectPhoneWorkspaceRoot } from '../chat/ConnectPhoneView'
 import { WorkspaceModeTabs } from '../chat/WorkspaceModeTabs'
 import {
   SidebarCommandRow,
@@ -414,10 +414,11 @@ export function WriteSidebar({
     {connectPhoneSidebarOpen ? (
       <ConnectPhoneDialog
         channels={clawChannels}
+        workspaceRoot={workspaceRoot}
         onAddProvider={async (provider, agentProfile, platformCredential, options) => {
           await addClawChannel(provider, agentProfile, platformCredential, {
             ...options,
-            workspaceRoot: options?.workspaceRoot || workspaceRoot,
+            workspaceRoot: resolveConnectPhoneWorkspaceRoot(options?.workspaceRoot, workspaceRoot),
             preserveRoute: true
           })
           onToggleConnectPhone()

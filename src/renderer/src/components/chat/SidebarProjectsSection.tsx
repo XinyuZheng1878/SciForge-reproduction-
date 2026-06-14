@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Archive,
+  Bot,
   ChevronDown,
   ChevronRight,
   Folder,
@@ -31,6 +32,11 @@ import {
   SidebarSearchField,
   SidebarTreeRow
 } from '../sidebar/SidebarPrimitives'
+import {
+  deriveClawThreadRemoteStatusKind,
+  type ClawThreadRemoteBinding,
+  type ClawThreadRemoteStatusKind
+} from '../../store/chat-store-helpers'
 
 type SidebarProjectsSectionProps = {
   threads: NormalizedThread[]
@@ -44,6 +50,10 @@ type SidebarProjectsSectionProps = {
   busy: boolean
   watchTurnCompletion: Record<string, boolean>
   unreadThreadIds: Record<string, boolean>
+  botWatchedThreadIds?: ReadonlySet<string>
+  botThreadBindings?: ReadonlyMap<string, ClawThreadRemoteBinding>
+  queuedThreadIds?: ReadonlySet<string>
+  activeRemoteThreadIds?: ReadonlySet<string>
   locale: string
   onPickWorkspace: () => void
   onRemoveWorkspace: (workspacePath: string) => Promise<void>
@@ -151,6 +161,10 @@ export function SidebarProjectsSection({
   busy,
   watchTurnCompletion,
   unreadThreadIds,
+  botWatchedThreadIds = new Set<string>(),
+  botThreadBindings = new Map<string, ClawThreadRemoteBinding>(),
+  queuedThreadIds = new Set<string>(),
+  activeRemoteThreadIds = new Set<string>(),
   locale,
   onPickWorkspace,
   onRemoveWorkspace,
@@ -473,29 +487,45 @@ export function SidebarProjectsSection({
                       ) : null}
                     </div>
                   ) : (
-                    visibleThreads.map((thread) => (
-                      <ThreadRow
-                        key={thread.id}
-                        thread={thread}
-                        active={(activeView === 'chat' || activeView === 'write') && activeThreadId === thread.id}
-                        deleting={deletingThreadIds[thread.id] === true}
-                        locale={locale}
-                        showRunning={
-                          thread.status?.trim().toLowerCase() === 'running' ||
-                          (activeThreadId === thread.id && busy) ||
-                          watchTurnCompletion[thread.id] === true
-                        }
-                        showUnread={
-                          unreadThreadIds[thread.id] === true && activeThreadId !== thread.id
-                        }
-                        onSelect={() => onSelectThread(thread.id)}
-                        onContextMenu={(event) => openThreadContextMenu(event, thread)}
-                        onRename={() => openRenameThreadDialog(thread)}
-                        onArchive={() => void handleArchiveThread(thread)}
-                        onDelete={() => void handleDeleteThread(thread)}
-                        onRestore={() => void handleRestoreThread(thread)}
-                      />
-                    ))
+                    visibleThreads.map((thread) => {
+                      const showRunning =
+                        thread.status?.trim().toLowerCase() === 'running' ||
+                        (activeThreadId === thread.id && busy) ||
+                        watchTurnCompletion[thread.id] === true
+                      const remoteBinding = botThreadBindings.get(thread.id)
+                      const hasRemoteState = Boolean(remoteBinding) || botWatchedThreadIds.has(thread.id)
+                      const remoteStatusKind = hasRemoteState
+                        ? deriveClawThreadRemoteStatusKind({
+                            binding: remoteBinding,
+                            running: showRunning,
+                            queued: queuedThreadIds.has(thread.id),
+                            status: thread.status,
+                            latestTurnStatus: thread.latestTurnStatus
+                          }) ?? 'watched'
+                        : null
+                      const showUnread = unreadThreadIds[thread.id] === true && activeThreadId !== thread.id
+                      return (
+                        <ThreadRow
+                          key={thread.id}
+                          thread={thread}
+                          active={(activeView === 'chat' || activeView === 'write') && activeThreadId === thread.id}
+                          deleting={deletingThreadIds[thread.id] === true}
+                          locale={locale}
+                          showRunning={showRunning}
+                          showUnread={showUnread}
+                          remoteStatusKind={remoteStatusKind}
+                          remoteBinding={remoteBinding}
+                          remoteActive={activeRemoteThreadIds.has(thread.id)}
+                          remoteUnread={showUnread && Boolean(remoteStatusKind)}
+                          onSelect={() => onSelectThread(thread.id)}
+                          onContextMenu={(event) => openThreadContextMenu(event, thread)}
+                          onRename={() => openRenameThreadDialog(thread)}
+                          onArchive={() => void handleArchiveThread(thread)}
+                          onDelete={() => void handleDeleteThread(thread)}
+                          onRestore={() => void handleRestoreThread(thread)}
+                        />
+                      )
+                    })
                   )}
                   {hasOverflow ? (
                     <button
@@ -557,6 +587,10 @@ type ThreadRowProps = {
   locale: string
   showRunning: boolean
   showUnread: boolean
+  remoteStatusKind: ClawThreadRemoteStatusKind | null
+  remoteBinding?: ClawThreadRemoteBinding
+  remoteActive: boolean
+  remoteUnread: boolean
   onSelect: () => void
   onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => void
   onRename: () => void
@@ -572,6 +606,10 @@ function ThreadRow({
   locale,
   showRunning,
   showUnread,
+  remoteStatusKind,
+  remoteBinding,
+  remoteActive,
+  remoteUnread,
   onSelect,
   onContextMenu,
   onRename,
@@ -590,11 +628,23 @@ function ThreadRow({
       : t('sidebarThreadForked')
     : ''
   const updatedLabel = formatRelativeTime(thread.updatedAt, locale)
+  const remoteStatusLabel = remoteStatusKind ? sidebarRemoteStatusLabel(remoteStatusKind, t) : ''
+  const remoteAriaLabel = remoteStatusKind
+    ? remoteBinding?.providerLabel
+      ? t('sidebarThreadRemoteBadgeTitle', {
+          provider: remoteBinding.providerLabel,
+          status: remoteStatusLabel
+        })
+      : remoteStatusLabel
+    : ''
   const ariaLabel = [
     thread.title,
     updatedLabel,
     showRunning ? t('sidebarThreadRunning') : '',
     showUnreadDot ? t('sidebarThreadUnread') : '',
+    remoteAriaLabel,
+    remoteActive ? t('sidebarThreadRemoteActive') : '',
+    remoteUnread ? t('sidebarThreadRemoteUnread') : '',
     forkLabel
   ].filter(Boolean).join(' — ')
 
@@ -660,6 +710,16 @@ function ThreadRow({
             <GitFork className="h-2.5 w-2.5" strokeWidth={1.8} />
             {t('sidebarThreadForkBadge')}
           </span>
+        ) : null}
+        {remoteStatusKind ? (
+          <ThreadRemoteStatusBadge
+            kind={remoteStatusKind}
+            providerLabel={remoteBinding?.providerLabel}
+            detailLabel={remoteBindingDetailLabel(remoteBinding)}
+            active={remoteActive}
+            unread={remoteUnread}
+            t={t}
+          />
         ) : null}
         <span
           className={`ml-auto flex shrink-0 items-center gap-1.5 transition ${
@@ -860,6 +920,91 @@ function workspaceContextLabel(workspacePath: string, folderName: string): strin
   const parent = parts[parts.length - 2] ?? ''
   if (!parent || parent.toLowerCase() === folderName.toLowerCase()) return ''
   return parent
+}
+
+function sidebarRemoteStatusLabel(
+  kind: ClawThreadRemoteStatusKind,
+  t: (k: string, opts?: Record<string, unknown>) => string
+): string {
+  switch (kind) {
+    case 'bound':
+      return t('sidebarThreadBotBound')
+    case 'running':
+      return t('sidebarThreadBotRunning')
+    case 'queued':
+      return t('sidebarThreadBotQueued')
+    case 'error':
+      return t('sidebarThreadBotError')
+    case 'watched':
+    default:
+      return t('sidebarThreadBotWatched')
+  }
+}
+
+function remoteBindingDetailLabel(binding: ClawThreadRemoteBinding | undefined): string {
+  if (!binding) return ''
+  return [
+    binding.channelLabel,
+    binding.senderName,
+    binding.remoteThreadId || binding.chatId
+  ].filter(Boolean).join(' · ')
+}
+
+function ThreadRemoteStatusBadge({
+  kind,
+  providerLabel,
+  detailLabel,
+  active,
+  unread,
+  t
+}: {
+  kind: ClawThreadRemoteStatusKind
+  providerLabel?: string
+  detailLabel: string
+  active: boolean
+  unread: boolean
+  t: (k: string, opts?: Record<string, unknown>) => string
+}): ReactElement {
+  const statusLabel = sidebarRemoteStatusLabel(kind, t)
+  const title = providerLabel
+    ? t('sidebarThreadRemoteBadgeTitle', { provider: providerLabel, status: statusLabel })
+    : statusLabel
+  const detailTitle = detailLabel ? `${title}\n${detailLabel}` : title
+  const tone =
+    kind === 'error'
+      ? 'border-red-400/35 bg-red-500/12 text-red-700 dark:text-red-300'
+      : kind === 'running'
+        ? 'border-emerald-400/35 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
+        : kind === 'queued'
+          ? 'border-amber-400/35 bg-amber-500/14 text-amber-800 dark:text-amber-200'
+          : kind === 'watched'
+            ? 'border-accent/25 bg-accent/10 text-accent'
+            : 'border-ds-border-muted bg-ds-subtle text-ds-faint'
+
+  return (
+    <span className="inline-flex min-w-0 shrink-0 items-center gap-1">
+      <span
+        className={`inline-flex min-h-5 max-w-[118px] items-center gap-1 rounded-full border px-1.5 text-[10.5px] font-semibold leading-none ${tone}`}
+        title={detailTitle}
+        aria-label={title}
+      >
+        <Bot className="h-3 w-3 shrink-0" strokeWidth={1.9} />
+        <span className="truncate">{statusLabel}</span>
+      </span>
+      {active ? (
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+          title={t('sidebarThreadRemoteActive')}
+        />
+      ) : null}
+      {unread ? (
+        <span
+          className="h-2 w-2 shrink-0 rounded-full bg-accent"
+          title={t('sidebarThreadRemoteUnread')}
+        />
+      ) : null}
+    </span>
+  )
 }
 
 function ThreadActivityDot({

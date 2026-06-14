@@ -2,9 +2,12 @@ import type { ReactElement } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
+import { Bot } from 'lucide-react'
 import { parseClawCommand } from '@shared/claw-commands'
 import { DEFAULT_COMPOSER_MODEL_IDS } from '@shared/default-composer-models'
-import { buildGuiPlanId, buildPlanRelativePath } from '@shared/gui-plan'
+import { buildGuiPlanId, buildPlanRelativePath, GUI_PLAN_LEGACY_RELATIVE_DIR } from '@shared/gui-plan'
+import { sddDraftTraceRelativePath } from '@shared/sdd'
+import { buildSddTraceSnapshot } from '@shared/sdd-trace'
 import {
   findKeyboardShortcutCommand,
   keyboardEventToShortcut,
@@ -12,14 +15,20 @@ import {
   type KeyboardShortcutCommandId
 } from '@shared/keyboard-shortcuts'
 import type { DesktopCommand, SkillListItem } from '@shared/ds-gui-api'
-import type { AgentRuntimeId } from '@shared/app-settings'
+import type { AgentRuntimeId, ClawImChannelV1 } from '@shared/app-settings'
 import type { ClipboardImageReadResult } from '@shared/workspace-file'
 import type { AgentProviderCapabilities, AttachmentReference, ChatBlock } from '../agent/types'
 import type { CoreRuntimeInfoJson, CoreRuntimeSkillJson } from '../agent/kun-contract'
 import { getProvider } from '../agent/registry'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import { useChatStore } from '../store/chat-store'
-import { isClawThread } from '../store/chat-store-helpers'
+import {
+  clawThreadRemoteBindingsFromChannels,
+  deriveClawThreadRemoteStatusKind,
+  isClawThread,
+  type ClawThreadRemoteBinding,
+  type ClawThreadRemoteStatusKind
+} from '../store/chat-store-helpers'
 import { hasPendingRuntimeWork } from '../store/chat-store-runtime-helpers'
 import {
   extractLatestTurnAutoOpenDevPreviewUrls,
@@ -30,6 +39,7 @@ import { WorkbenchTopBar, type RightPanelMode } from './chat/WorkbenchTopBar'
 import { MessageTimeline } from './chat/MessageTimeline'
 import {
   FloatingComposer,
+  type ComposerImageAttachmentInput,
   type ComposerFileReference
 } from './chat/FloatingComposer'
 import {
@@ -37,6 +47,11 @@ import {
   type ComposerReasoningEffort
 } from './chat/FloatingComposerModelPicker'
 import { SideConversationPanel } from './chat/SideConversationPanel'
+import {
+  RemoteGuardDetailView,
+  remoteGuardChannelTitle,
+  remoteGuardProviderLabel
+} from './chat/RemoteGuardDetailView'
 import { SessionHeader } from './SessionHeader'
 import { WriteWorkspaceView } from './write/WriteWorkspaceView'
 import { WriteAssistantPanel } from './write/WriteAssistantPanel'
@@ -47,18 +62,20 @@ import { SidebarTitlebarToggleButton } from './sidebar/SidebarPrimitives'
 import { composeWritePrompt } from '../write/quoted-selection'
 import { useWriteWorkspaceStore } from '../write/write-workspace-store'
 import { isWriteThreadId } from '../write/write-thread-registry'
-import { createSddDraft, forgetRememberedSddDraft, useSddDraftStore } from '../sdd/sdd-draft-store'
+import { buildSddDraftId, createSddDraft, forgetRememberedSddDraft, useSddDraftStore } from '../sdd/sdd-draft-store'
 import type { SddDraft, SddDraftSaveStatus } from '../sdd/sdd-draft-store'
 import { saveActiveSddDraftToDisk } from '../sdd/sdd-draft-actions'
-import { restoreRememberedSddDraft } from '../sdd/sdd-draft-restore'
+import { restoreRememberedSddDraft, restoreSddDraft } from '../sdd/sdd-draft-restore'
 import { composeSddAssistantPrompt } from '../sdd/sdd-assistant-prompt'
 import { collectSddDraftImages, withAttachmentIds, type SddDraftImageReference } from '../sdd/sdd-draft-images'
 import { buildSddDraftToPlanPrompt } from '../sdd/sdd-plan-prompt'
 import {
+  isEmptySddAssistantThreadCandidate,
   isSddAssistantThread,
   markSddAssistantThread,
   releaseSddAssistantThread,
-  sddAssistantThreadIdForDraft
+  sddAssistantThreadIdForDraft,
+  sddDraftRefForThreadId
 } from '../sdd/sdd-thread-registry'
 import { parseGuiPlanCommand } from '../plan/plan-command'
 import { DevPreviewLaunchCard } from './DevPreviewLaunchCard'
@@ -73,6 +90,7 @@ import { collectComposerChangeSummary } from '../lib/composer-change-summary'
 import {
   buildComposerFileContextPrompt,
   mergeComposerFileReferences,
+  relativeWorkspacePath,
   type ComposerFileContextEntry
 } from '../lib/composer-file-references'
 
@@ -127,7 +145,45 @@ const DESKTOP_SHORTCUT_COMMANDS: Partial<Record<KeyboardShortcutCommandId, Deskt
 }
 
 function fileNameFromPath(path: string): string {
-  return path.replaceAll('\\', '/').split('/').filter(Boolean).pop() || 'image'
+  return path.replaceAll('\\', '/').split('/').filter(Boolean).pop() || 'file'
+}
+
+function isPickedPdfAttachment(input: ComposerImageAttachmentInput): boolean {
+  return input.file.type.toLowerCase() === 'application/pdf' || input.file.name.toLowerCase().endsWith('.pdf')
+}
+
+function normalizeAttachmentPathForCompare(path: string): string {
+  return path.trim().replaceAll('\\', '/').replace(/\/+$/g, '').toLowerCase()
+}
+
+function attachmentPathInsideWorkspace(path: string, workspaceRoot: string): boolean {
+  const filePath = normalizeAttachmentPathForCompare(path)
+  const root = normalizeAttachmentPathForCompare(workspaceRoot)
+  return Boolean(root && (filePath === root || filePath.startsWith(`${root}/`)))
+}
+
+function pathForPickedAttachment(input: ComposerImageAttachmentInput): string {
+  if (input.path?.trim()) return input.path.trim()
+  if (typeof window === 'undefined' || typeof window.dsGui?.getPathForFile !== 'function') return ''
+  try {
+    return window.dsGui.getPathForFile(input.file)?.trim() || ''
+  } catch {
+    return ''
+  }
+}
+
+function pickedWorkspaceFileReference(
+  input: ComposerImageAttachmentInput,
+  workspaceRoot: string
+): ComposerFileReference | null {
+  const path = pathForPickedAttachment(input)
+  if (!path || !attachmentPathInsideWorkspace(path, workspaceRoot)) return null
+  const relativePath = relativeWorkspacePath(path, workspaceRoot)
+  return {
+    path,
+    relativePath,
+    name: input.file.name || fileNameFromPath(path)
+  }
 }
 
 function clipComposerFileContext(
@@ -147,6 +203,9 @@ function clipComposerFileContext(
 function sddDraftPlanRelativePath(draft: SddDraft): string {
   const parts = draft.relativePath.replaceAll('\\', '/').split('/').filter(Boolean)
   const draftFolder = parts.at(-2)?.trim() || draft.id.split(':').pop()?.trim() || `draft-${Date.now()}`
+  if (parts[0] === '.kunsdd' && parts[1] === 'draft') {
+    return `${GUI_PLAN_LEGACY_RELATIVE_DIR}/sdd-${draftFolder}.md`
+  }
   return buildPlanRelativePath(`sdd-${draftFolder}`)
 }
 
@@ -192,6 +251,104 @@ function mergeSkillCommands(
     } : skill)
   }
   return [...merged.values()]
+}
+
+function remoteThreadStatusLabel(
+  kind: ClawThreadRemoteStatusKind,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string {
+  switch (kind) {
+    case 'bound':
+      return t('sidebarThreadBotBound')
+    case 'running':
+      return t('sidebarThreadBotRunning')
+    case 'queued':
+      return t('sidebarThreadBotQueued')
+    case 'error':
+      return t('sidebarThreadBotError')
+    case 'watched':
+    default:
+      return t('sidebarThreadBotWatched')
+  }
+}
+
+function ActiveRemoteBindingDetails({
+  binding,
+  statusKind,
+  unread,
+  t
+}: {
+  binding: ClawThreadRemoteBinding
+  statusKind: ClawThreadRemoteStatusKind
+  unread: boolean
+  t: (key: string, opts?: Record<string, unknown>) => string
+}): ReactElement {
+  const statusLabel = remoteThreadStatusLabel(statusKind, t)
+  const remoteTarget = binding.senderName?.trim() ||
+    binding.remoteThreadId?.trim() ||
+    binding.chatId?.trim() ||
+    binding.channelLabel
+  const title = [
+    t('remoteBindingDetails'),
+    `${binding.providerLabel} · ${statusLabel}`,
+    binding.channelLabel ? t('remoteBindingChannel', { channel: binding.channelLabel }) : '',
+    remoteTarget ? t('remoteBindingTarget', { target: remoteTarget }) : '',
+    binding.runtimeId ? t('remoteBindingRuntime', { runtime: binding.runtimeId }) : ''
+  ].filter(Boolean).join('\n')
+  const tone =
+    statusKind === 'error'
+      ? 'border-red-400/35 bg-red-500/10 text-red-700 dark:text-red-300'
+      : statusKind === 'running'
+        ? 'border-emerald-400/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+        : statusKind === 'queued'
+          ? 'border-amber-400/35 bg-amber-500/12 text-amber-800 dark:text-amber-200'
+          : statusKind === 'watched'
+            ? 'border-accent/25 bg-accent/10 text-accent'
+            : 'border-ds-border-muted bg-ds-subtle text-ds-muted'
+
+  return (
+    <div
+      className={`hidden min-h-7 max-w-[min(34vw,360px)] shrink items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-semibold leading-none sm:inline-flex ${tone}`}
+      title={title}
+      aria-label={title}
+    >
+      <Bot className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+      <span className="shrink-0">{binding.providerLabel}</span>
+      <span className="text-ds-faint">·</span>
+      <span className="shrink-0">{statusLabel}</span>
+      {remoteTarget ? (
+        <>
+          <span className="text-ds-faint">·</span>
+          <span className="min-w-0 truncate text-ds-muted">{remoteTarget}</span>
+        </>
+      ) : null}
+      {unread ? (
+        <span className="ml-0.5 h-2 w-2 shrink-0 rounded-full bg-accent" title={t('sidebarThreadRemoteUnread')} />
+      ) : null}
+    </div>
+  )
+}
+
+function RemoteGuardSessionHeader({
+  channel
+}: {
+  channel: ClawImChannelV1
+}): ReactElement {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2.5">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] border border-accent/20 bg-accent/10 text-accent">
+        <Bot className="h-4 w-4" strokeWidth={1.85} />
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-[14.5px] font-semibold leading-5 text-ds-ink">
+          {remoteGuardChannelTitle(channel)}
+        </div>
+        <div className="mt-0.5 truncate text-[11.5px] leading-4 text-ds-faint">
+          {remoteGuardProviderLabel(channel.provider)}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function sddAssistantContextFromBlocks(blocks: ChatBlock[], maxMessages = 10): string {
@@ -273,6 +430,7 @@ export function Workbench(): ReactElement {
     chooseWorkspace,
     clawChannels,
     activeClawChannelId,
+    activeRemoteChannelId,
     selectClawChannel,
     resetClawChannelSession,
     setClawChannelModel,
@@ -281,6 +439,8 @@ export function Workbench(): ReactElement {
     sendMessage,
     reviewActiveThread,
     queuedMessages,
+    watchTurnCompletion,
+    unreadThreadIds,
     removeQueuedMessage,
     interrupt,
     probeRuntime,
@@ -328,6 +488,7 @@ export function Workbench(): ReactElement {
       chooseWorkspace: s.chooseWorkspace,
       clawChannels: s.clawChannels,
       activeClawChannelId: s.activeClawChannelId,
+      activeRemoteChannelId: s.activeRemoteChannelId,
       selectClawChannel: s.selectClawChannel,
       resetClawChannelSession: s.resetClawChannelSession,
       setClawChannelModel: s.setClawChannelModel,
@@ -336,6 +497,8 @@ export function Workbench(): ReactElement {
       sendMessage: s.sendMessage,
       reviewActiveThread: s.reviewActiveThread,
       queuedMessages: s.queuedMessages,
+      watchTurnCompletion: s.watchTurnCompletion,
+      unreadThreadIds: s.unreadThreadIds,
       removeQueuedMessage: s.removeQueuedMessage,
       interrupt: s.interrupt,
       probeRuntime: s.probeRuntime,
@@ -395,11 +558,8 @@ export function Workbench(): ReactElement {
     [keyboardShortcuts]
   )
 
-  const draftByThread = useRef<Record<string, string>>({})
   const prevThreadId = useRef<string | null>(null)
   const inputRef = useRef('')
-  const dismissedSddDraftWorkspacesRef = useRef<Set<string>>(new Set())
-  const restoredSddDraftWorkspaceRef = useRef('')
   const sddUpgradeInFlightRef = useRef(false)
   const sddUpgradeTargetRef = useRef<PendingSddPlanTarget | null>(null)
   const timelineBlocks = blocks
@@ -429,10 +589,57 @@ export function Workbench(): ReactElement {
     () => clawChannels.find((channel) => channel.id === activeClawChannelId) ?? null,
     [activeClawChannelId, clawChannels]
   )
-  const activeSkillWorkspace = useMemo(
-    () => threads.find((thread) => thread.id === activeThreadId)?.workspace || workspaceRoot || '',
-    [activeThreadId, threads, workspaceRoot]
+  const activeRemoteChannel = useMemo(
+    () => activeRemoteChannelId
+      ? clawChannels.find((channel) => channel.id === activeRemoteChannelId) ?? null
+      : null,
+    [activeRemoteChannelId, clawChannels]
   )
+  useEffect(() => {
+    if (route === 'claw') setRoute('chat')
+  }, [route, setRoute])
+  const activeThread = useMemo(
+    () => threads.find((thread) => thread.id === activeThreadId) ?? null,
+    [activeThreadId, threads]
+  )
+  const remoteThreadBindings = useMemo(
+    () => clawThreadRemoteBindingsFromChannels(clawChannels),
+    [clawChannels]
+  )
+  const queuedThreadIds = useMemo(
+    () => new Set(queuedMessages.map((message) => message.threadId?.trim() ?? '').filter(Boolean)),
+    [queuedMessages]
+  )
+  const activeRemoteBinding = activeThreadId
+    ? remoteThreadBindings.get(activeThreadId) ?? null
+    : null
+  const activeRemoteStatusKind = activeThreadId
+    ? deriveClawThreadRemoteStatusKind({
+        binding: activeRemoteBinding,
+        running: busy || watchTurnCompletion[activeThreadId] === true,
+        queued: queuedThreadIds.has(activeThreadId),
+        status: activeThread?.status,
+        latestTurnStatus: activeThread?.latestTurnStatus
+      })
+    : null
+  const activeRemoteUnread =
+    activeThreadId ? unreadThreadIds[activeThreadId] === true : false
+  const activeSkillWorkspace = useMemo(
+    () => activeThread?.workspace || workspaceRoot || '',
+    [activeThread, workspaceRoot]
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.dsGui?.updateClawActiveThreadContext !== 'function') return
+    if (!activeThreadId || route === 'claw' || (activeThread && isClawThread(activeThread, clawChannels))) {
+      void window.dsGui.updateClawActiveThreadContext(null).catch(() => undefined)
+      return
+    }
+    void window.dsGui.updateClawActiveThreadContext({
+      threadId: activeThreadId,
+      runtimeId: activeThread?.runtimeId,
+      workspaceRoot: activeThread?.workspace || workspaceRoot || undefined
+    }).catch(() => undefined)
+  }, [activeThread, activeThreadId, clawChannels, route, workspaceRoot])
   const composerChangeSummary = useMemo(
     () => collectComposerChangeSummary(timelineBlocks, activeSkillWorkspace),
     [activeSkillWorkspace, timelineBlocks]
@@ -479,7 +686,9 @@ export function Workbench(): ReactElement {
     buildGuiPlan,
     handleGuiPlanCommand,
     openGuiPlanPanel,
-    sendPlanTurn
+    replanChangedRequirements,
+    sendPlanTurn,
+    verifyGuiPlan
   } = useWorkbenchPlanController({
     blocks,
     busy,
@@ -590,7 +799,8 @@ export function Workbench(): ReactElement {
     () => threads.filter((thread) =>
       !isWriteThreadId(thread.id) &&
       !isClawThread(thread, clawChannels) &&
-      !isSddAssistantThread(thread)
+      !isSddAssistantThread(thread) &&
+      !isEmptySddAssistantThreadCandidate(thread)
     ),
     [clawChannels, threads]
   )
@@ -616,6 +826,7 @@ export function Workbench(): ReactElement {
       '',
       `- \`/help\`: ${t('clawHelpCommandHelp')}`,
       `- \`/new\`: ${t('clawHelpCommandNew')}`,
+      `- \`/attach current\`: ${t('clawHelpCommandAttachCurrent')}`,
       `- \`/model auto\`: ${t('clawHelpCommandModelAuto')}`,
       `- \`/model pro\`: ${t('clawHelpCommandModelPro')}`,
       `- \`/model flash\`: ${t('clawHelpCommandModelFlash')}`,
@@ -738,24 +949,61 @@ export function Workbench(): ReactElement {
     if (route !== 'chat') setComposerFileReferences([])
   }, [route])
 
-  const handlePickAttachments = async (files: File[]): Promise<void> => {
-    if (!files.length || !attachmentUploadEnabled) return
+  const handlePickAttachments = async (inputs: ComposerImageAttachmentInput[]): Promise<void> => {
+    if (!inputs.length) return
+    const workspace = normalizeWorkspaceRoot(
+      threads.find((thread) => thread.id === activeThreadId)?.workspace || workspaceRoot
+    )
+    const imageInputs = inputs.filter((input) => !isPickedPdfAttachment(input))
+    const pdfInputs = inputs.filter(isPickedPdfAttachment)
+    const pdfReferences: ComposerFileReference[] = []
+    const unresolvedPdfNames: string[] = []
+    for (const input of pdfInputs) {
+      const reference = workspace ? pickedWorkspaceFileReference(input, workspace) : null
+      if (reference) {
+        pdfReferences.push(reference)
+      } else {
+        unresolvedPdfNames.push(input.file.name || fileNameFromPath(pathForPickedAttachment(input)))
+      }
+    }
+    if (pdfReferences.length > 0) {
+      setComposerFileReferences((current) => {
+        let next = current
+        for (const reference of pdfReferences) {
+          next = mergeComposerFileReferences(next, reference)
+        }
+        return next
+      })
+    }
+    if (unresolvedPdfNames.length > 0) {
+      setAttachmentUploadError(t('composerWorkspaceFilePathRequired', {
+        name: unresolvedPdfNames[0],
+        count: unresolvedPdfNames.length
+      }))
+    } else if (pdfReferences.length > 0) {
+      setAttachmentUploadError(null)
+    }
+    if (imageInputs.length === 0) return
+    if (!attachmentUploadEnabled) {
+      setAttachmentUploadError(t('composerAttachmentUnavailable'))
+      return
+    }
     const provider = getProvider()
     if (typeof provider.uploadAttachment !== 'function') {
       setAttachmentUploadError(t('composerAttachmentUnavailable'))
       return
     }
     setAttachmentUploadBusy(true)
-    setAttachmentUploadError(null)
+    if (unresolvedPdfNames.length === 0) setAttachmentUploadError(null)
     try {
-      const workspace = threads.find((thread) => thread.id === activeThreadId)?.workspace || workspaceRoot || undefined
       const attachmentCapabilities = runtimeInfo?.capabilities.attachments
       if (!attachmentCapabilities) {
         setAttachmentUploadError(t('composerAttachmentUnavailable'))
         return
       }
       const uploaded: AttachmentReference[] = []
-      for (const file of files) {
+      for (const input of imageInputs) {
+        const file = input.file
         if (file.type.startsWith('image/')) {
           // Image: translated to text by the vision model (Qwen) in the model router.
           const prepared = await prepareImageAttachmentUpload(file, attachmentCapabilities)
@@ -764,6 +1012,7 @@ export function Workbench(): ReactElement {
             mimeType: prepared.mimeType,
             dataBase64: prepared.dataBase64,
             textFallback: prepared.textFallback,
+            ...(input.path ? { localFilePath: input.path } : {}),
             ...(activeThreadId ? { threadId: activeThreadId } : {}),
             ...(workspace ? { workspace } : {})
           })
@@ -773,7 +1022,10 @@ export function Workbench(): ReactElement {
             mimeType: attachment.mimeType,
             width: attachment.width,
             height: attachment.height,
-            previewUrl: `data:${prepared.mimeType};base64,${prepared.dataBase64}`
+            byteSize: attachment.byteSize,
+            previewUrl: `data:${prepared.mimeType};base64,${prepared.dataBase64}`,
+            ...(input.path ? { path: input.path } : {}),
+            ...(attachment.localFilePath ? { absolutePath: attachment.localFilePath } : {})
           })
           continue
         }
@@ -786,13 +1038,15 @@ export function Workbench(): ReactElement {
           name: file.name || 'data',
           mimeType,
           dataBase64,
+          ...(input.path ? { localFilePath: input.path } : {}),
           ...(activeThreadId ? { threadId: activeThreadId } : {}),
           ...(workspace ? { workspace } : {})
         })
         uploaded.push({
           id: attachment.id,
           name: attachment.name,
-          mimeType: attachment.mimeType
+          mimeType: attachment.mimeType,
+          ...(input.path ? { path: input.path } : {})
         })
       }
       if (uploaded.length > 0) {
@@ -827,7 +1081,7 @@ export function Workbench(): ReactElement {
       setAttachmentUploadError(image.message)
       return
     }
-    await handlePickAttachments([clipboardImageToFile(image)])
+    await handlePickAttachments([{ file: clipboardImageToFile(image) }])
   }
 
   const sendWritePrompt = (value: string): void => {
@@ -923,7 +1177,6 @@ export function Workbench(): ReactElement {
       lastSavedContent: options.lastSavedContent,
       saveStatus: options.saveStatus
     })
-    dismissedSddDraftWorkspacesRef.current.delete(normalizeWorkspaceRoot(draft.workspaceRoot))
     setInput('')
     setMode('agent')
     setRoute('chat')
@@ -944,7 +1197,6 @@ export function Workbench(): ReactElement {
   const dismissActiveSddDraft = (options: { closeAssistant?: boolean } = {}): void => {
     const draft = useSddDraftStore.getState().activeDraft
     if (draft) {
-      dismissedSddDraftWorkspacesRef.current.add(normalizeWorkspaceRoot(draft.workspaceRoot))
       void saveActiveSddDraftToDisk()
       useSddDraftStore.getState().clearActiveDraft()
     }
@@ -1014,38 +1266,48 @@ export function Workbench(): ReactElement {
     await openSddRequirementDraft(activeDraft, initialContent)
   }
 
-  useEffect(() => {
-    if (activeSddDraft) return
-    const activeCodeWorkspace = activeThreadId
-      ? normalizeWorkspaceRoot(codeThreads.find((thread) => thread.id === activeThreadId)?.workspace ?? '')
-      : ''
-    const targetWorkspace = activeCodeWorkspace || normalizeWorkspaceRoot(workspaceRoot)
-    if (!targetWorkspace || dismissedSddDraftWorkspacesRef.current.has(targetWorkspace)) return
-    if (restoredSddDraftWorkspaceRef.current === targetWorkspace) return
-
-    let cancelled = false
-    restoredSddDraftWorkspaceRef.current = targetWorkspace
-    void restoreRememberedSddDraft({
-      workspaceRoot: targetWorkspace,
-      readWorkspaceFile: window.dsGui.readWorkspaceFile
-    }).then((restored) => {
-      if (cancelled || restored.kind !== 'restored') return
-      if (useSddDraftStore.getState().activeDraft) return
-      useSddDraftStore.getState().setActiveDraft(restored.draft, restored.content, {
-        lastSavedContent: restored.lastSavedContent,
-        saveStatus: restored.saveStatus
-      })
-      dismissedSddDraftWorkspacesRef.current.delete(targetWorkspace)
-      setInput('')
-      setMode('agent')
-      setRoute('chat')
-      setRightPanelMode(null)
-    })
-
-    return () => {
-      cancelled = true
+  const sddDraftFromRegisteredThread = (threadId: string): SddDraft | null => {
+    const ref = sddDraftRefForThreadId(threadId)
+    if (!ref) return null
+    const timestamp = new Date(0).toISOString()
+    return {
+      id: buildSddDraftId(ref.workspaceRoot, ref.relativePath),
+      workspaceRoot: ref.workspaceRoot,
+      relativePath: ref.relativePath,
+      createdAt: timestamp,
+      updatedAt: timestamp
     }
-  }, [activeSddDraft, activeThreadId, codeThreads, setRightPanelMode, setRoute, workspaceRoot])
+  }
+
+  const openSddRequirementDraftFromSidebarThread = async (
+    threadId: string,
+    thread: typeof activeThread | null
+  ): Promise<boolean> => {
+    const shouldTryRestore =
+      isSddAssistantThread(thread ?? { id: threadId }) ||
+      isEmptySddAssistantThreadCandidate(thread ?? { id: threadId })
+    if (!shouldTryRestore) return false
+    const draft = sddDraftFromRegisteredThread(threadId)
+    if (!draft) return false
+    const current = useSddDraftStore.getState().activeDraft
+    if (current && current.id !== draft.id) {
+      await saveActiveSddDraftToDisk()
+    }
+    const restored = await restoreSddDraft({
+      draft,
+      readWorkspaceFile: window.dsGui.readWorkspaceFile
+    })
+    if (restored.kind !== 'restored') {
+      if (restored.kind === 'unreadable') setError(restored.message)
+      return false
+    }
+    await openSddRequirementDraft(restored.draft, restored.content, {
+      lastSavedContent: restored.lastSavedContent,
+      saveStatus: restored.saveStatus,
+      openAssistant: true
+    })
+    return true
+  }
 
   const sendSddAssistantPrompt = async (value: string): Promise<void> => {
     const v = value.trim()
@@ -1207,6 +1469,21 @@ export function Workbench(): ReactElement {
       sddUpgradeInFlightRef.current = false
       sddUpgradeTargetRef.current = null
       useSddDraftStore.getState().setOperationStatus('idle')
+      return
+    }
+    const tracePath = sddDraftTraceRelativePath(draft.relativePath)
+    if (tracePath) {
+      await window.dsGui
+        .writeWorkspaceFile({
+          workspaceRoot: draft.workspaceRoot,
+          path: tracePath,
+          content: JSON.stringify(
+            buildSddTraceSnapshot(latestDraftContent, planRelativePath),
+            null,
+            2
+          )
+        })
+        .catch(() => undefined)
     }
   }
 
@@ -1227,6 +1504,18 @@ export function Workbench(): ReactElement {
           path: reference.relativePath,
           message: result.message
         }))
+      }
+      if (result.kind === 'pdf') {
+        const content = [
+          `PDF document: ${reference.relativePath}`,
+          'This file is available through the workspace PDF reader. Use selected PDF quotes when provided; otherwise ask for the relevant page or excerpt.'
+        ].join('\n')
+        entries.push({
+          relativePath: reference.relativePath,
+          content
+        })
+        remainingChars -= content.length
+        continue
       }
       const clipped = clipComposerFileContext(result.content, remainingChars, result.truncated)
       remainingChars -= clipped.consumed
@@ -1420,11 +1709,18 @@ export function Workbench(): ReactElement {
   }
 
   const openThread = (id: string, runtimeId?: AgentRuntimeId): void => {
-    if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
-    setConnectPhoneSidebarOpen(false)
-    setRoute('chat')
-    getProvider().rememberThreadRuntime?.(id, runtimeId)
-    void selectThread(id)
+    void (async () => {
+      const thread = threads.find((item) => item.id === id) ?? null
+      if (await openSddRequirementDraftFromSidebarThread(id, thread)) {
+        setConnectPhoneSidebarOpen(false)
+        return
+      }
+      if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
+      setConnectPhoneSidebarOpen(false)
+      setRoute('chat')
+      getProvider().rememberThreadRuntime?.(id, runtimeId)
+      await selectThread(id)
+    })()
   }
 
   const startNewChat = (): void => {
@@ -1453,7 +1749,7 @@ export function Workbench(): ReactElement {
 
   const openPluginsView = (): void => {
     setConnectPhoneSidebarOpen(false)
-    openPlugins(sidebarView === 'claw' ? 'claw' : 'chat')
+    openPlugins('chat')
   }
 
   const openScheduleView = (): void => {
@@ -1467,9 +1763,7 @@ export function Workbench(): ReactElement {
   }
 
   const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' =
-    route === 'claw' || (route === 'plugins' && pluginHostRoute === 'claw')
-      ? 'claw'
-      : route === 'schedule'
+    route === 'schedule'
         ? 'schedule'
       : route === 'write'
         ? 'write'
@@ -1616,6 +1910,8 @@ export function Workbench(): ReactElement {
                 className="h-full max-h-full w-full"
                 onCollapse={closeRightPanel}
                 onBuildPlan={() => void buildGuiPlan()}
+                onVerifyPlan={() => void verifyGuiPlan()}
+                onReplanChanged={(changedIds) => void replanChangedRequirements(changedIds)}
               />
             ) : (
               <WorkspaceFilePreviewPanel
@@ -1760,7 +2056,19 @@ export function Workbench(): ReactElement {
                       ariaLabel={t('sidebarExpand')}
                     />
                   ) : null}
-                  <SessionHeader compact className="min-w-0 flex-1" />
+                  {activeRemoteChannel ? (
+                    <RemoteGuardSessionHeader channel={activeRemoteChannel} />
+                  ) : (
+                    <SessionHeader compact className="min-w-0 flex-1" />
+                  )}
+                  {!activeRemoteChannel && activeRemoteBinding && activeRemoteStatusKind ? (
+                    <ActiveRemoteBindingDetails
+                      binding={activeRemoteBinding}
+                      statusKind={activeRemoteStatusKind}
+                      unread={activeRemoteUnread}
+                      t={t}
+                    />
+                  ) : null}
                 </div>
                 <div className="chat-topbar-actions flex min-w-0 flex-wrap items-center justify-end gap-2 self-start">
                   {busy ? (
@@ -1785,94 +2093,104 @@ export function Workbench(): ReactElement {
                 </div>
               </div>
             </header>
-            <MessageTimeline
-              blocks={timelineBlocks}
-              liveReasoning={timelineLiveReasoning}
-              live={timelineLiveAssistant}
-              activeThreadId={activeThreadId}
-              runtimeConnection={runtimeConnection}
-              runtimeError={error}
-              onRetryConnection={() => void probeRuntime('user')}
-              onOpenSettings={() => openSettings('agents')}
-              onSelectSuggestion={(text) => setInput(text)}
-              planActionsBusy={busy}
-              onBuildPlan={() => void buildGuiPlan()}
-              onOpenPlan={openGuiPlanPanel}
-              devPreviewCard={
-                showDevPreviewCard ? (
-                  <DevPreviewLaunchCard
-                    url={latestDevPreviewUrl}
-                    opened={rightPanelMode === 'browser'}
-                    onOpen={openDevPreview}
-                  />
-                ) : null
-              }
-            />
-            <div className="ds-no-drag flex shrink-0 justify-center px-2 pb-3 pt-0 sm:px-4 md:px-6 lg:px-8">
-              <div className="w-full max-w-3xl">
-                <FloatingComposer
-                input={input}
-                setInput={setInput}
-                mode={mode}
-                setMode={setMode}
-                busy={busy}
-                runtimeReady={runtimeConnection === 'ready'}
-                hasActiveThread={Boolean(activeThreadId)}
-                composerModel={
-                  route === 'claw'
-                    ? clawChannels.find((channel) => channel.id === activeClawChannelId)?.model ?? 'auto'
-                    : composerModel
-                }
-                composerPickList={composerPickList}
-                composerModelGroups={composerModelGroups}
-                composerReasoningEffort={
-                  route === 'chat' || route === 'claw' ? composerReasoningEffort : undefined
-                }
-                onComposerModelChange={(modelId) => {
-                  if (route === 'claw' && activeClawChannelId) {
-                    void setClawChannelModel(activeClawChannelId, modelId)
-                    return
-                  }
-                  setComposerModel(modelId)
-                }}
-                onComposerReasoningEffortChange={
-                  route === 'chat' || route === 'claw' ? setComposerReasoningEffort : undefined
-                }
-                onSend={handleSend}
-                attachments={composerAttachments}
-                attachmentUploadEnabled={attachmentUploadEnabled}
-                attachmentUploadBusy={attachmentUploadBusy}
-                attachmentUploadError={attachmentUploadError}
-                fileReferenceEnabled={route === 'chat' && !activeSddDraft}
-                fileReferences={composerFileReferences}
-                webAccessAvailable={webAccessAvailable}
-                changedFiles={composerChangeSummary?.files}
-                changedFileStats={composerChangeSummary}
-                skillCommands={runtimeSkills}
-                runtimeCapabilities={runtimeCapabilities}
-                onPickAttachments={(files) => void handlePickAttachments(files)}
-                onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
-                onRemoveAttachment={removeComposerAttachment}
-                onAddFileReference={addComposerFileReference}
-                onRemoveFileReference={removeComposerFileReference}
-                queuedMessages={queuedMessages}
-                onRemoveQueuedMessage={removeQueuedMessage}
-                onInterrupt={(options) => void interrupt(options)}
-                onPlanCommand={() => void handleGuiPlanCommand()}
-                onReviewCommand={(target) => void reviewActiveThread(target)}
-                onOpenChanges={() => setRightPanelMode('changes')}
-                onReviewChanges={() => void reviewActiveThread({ kind: 'uncommittedChanges' })}
-                reviewChangesDisabled={busy || runtimeConnection !== 'ready' || runtimeCapabilities?.review === false}
-                onBtwCommand={(seedText) => {
-                  if (seedText?.trim()) {
-                    void spawnSideConversation(seedText)
-                    return
-                  }
-                  openSideConversationDraft()
-                }}
+            {activeRemoteChannel ? (
+              <RemoteGuardDetailView
+                channel={activeRemoteChannel}
+                onOpenThread={openThread}
+                onOpenSettings={() => setConnectPhoneSidebarOpen(true)}
+                t={t}
               />
-              </div>
-            </div>
+            ) : (
+              <>
+                <MessageTimeline
+                  blocks={timelineBlocks}
+                  liveReasoning={timelineLiveReasoning}
+                  live={timelineLiveAssistant}
+                  activeThreadId={activeThreadId}
+                  runtimeConnection={runtimeConnection}
+                  runtimeError={error}
+                  onRetryConnection={() => void probeRuntime('user')}
+                  onOpenSettings={() => openSettings('agents')}
+                  autoScrollEnabled={route === 'chat' && Boolean(activeThreadId)}
+                  onSelectSuggestion={(text) => setInput(text)}
+                  planActionsBusy={busy}
+                  onBuildPlan={() => void buildGuiPlan()}
+                  onOpenPlan={openGuiPlanPanel}
+                  devPreviewCard={
+                    showDevPreviewCard ? (
+                      <DevPreviewLaunchCard
+                        url={latestDevPreviewUrl}
+                        opened={rightPanelMode === 'browser'}
+                        onOpen={openDevPreview}
+                      />
+                    ) : null
+                  }
+                />
+                <div className="ds-no-drag flex shrink-0 justify-center px-2 pb-3 pt-0 sm:px-4 md:px-6 lg:px-8">
+                  <FloatingComposer
+                    input={input}
+                    setInput={setInput}
+                    mode={mode}
+                    setMode={setMode}
+                    busy={busy}
+                    runtimeReady={runtimeConnection === 'ready'}
+                    hasActiveThread={Boolean(activeThreadId)}
+                    composerModel={
+                      route === 'claw'
+                        ? clawChannels.find((channel) => channel.id === activeClawChannelId)?.model ?? 'auto'
+                        : composerModel
+                    }
+                    composerPickList={composerPickList}
+                    composerModelGroups={composerModelGroups}
+                    composerReasoningEffort={
+                      route === 'chat' || route === 'claw' ? composerReasoningEffort : undefined
+                    }
+                    onComposerModelChange={(modelId) => {
+                      if (route === 'claw' && activeClawChannelId) {
+                        void setClawChannelModel(activeClawChannelId, modelId)
+                        return
+                      }
+                      setComposerModel(modelId)
+                    }}
+                    onComposerReasoningEffortChange={
+                      route === 'chat' || route === 'claw' ? setComposerReasoningEffort : undefined
+                    }
+                    onSend={handleSend}
+                    attachments={composerAttachments}
+                    attachmentUploadEnabled={attachmentUploadEnabled}
+                    attachmentUploadBusy={attachmentUploadBusy}
+                    attachmentUploadError={attachmentUploadError}
+                    fileReferenceEnabled={route === 'chat' && !activeSddDraft}
+                    fileReferences={composerFileReferences}
+                    webAccessAvailable={webAccessAvailable}
+                    changedFiles={composerChangeSummary?.files}
+                    changedFileStats={composerChangeSummary}
+                    skillCommands={runtimeSkills}
+                    runtimeCapabilities={runtimeCapabilities}
+                    onPickAttachments={(files) => void handlePickAttachments(files)}
+                    onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
+                    onRemoveAttachment={removeComposerAttachment}
+                    onAddFileReference={addComposerFileReference}
+                    onRemoveFileReference={removeComposerFileReference}
+                    queuedMessages={queuedMessages}
+                    onRemoveQueuedMessage={removeQueuedMessage}
+                    onInterrupt={(options) => void interrupt(options)}
+                    onPlanCommand={() => void handleGuiPlanCommand()}
+                    onReviewCommand={(target) => void reviewActiveThread(target)}
+                    onOpenChanges={() => setRightPanelMode('changes')}
+                    onReviewChanges={() => void reviewActiveThread({ kind: 'uncommittedChanges' })}
+                    reviewChangesDisabled={busy || runtimeConnection !== 'ready' || runtimeCapabilities?.review === false}
+                    onBtwCommand={(seedText) => {
+                      if (seedText?.trim()) {
+                        void spawnSideConversation(seedText)
+                        return
+                      }
+                      openSideConversationDraft()
+                    }}
+                  />
+                </div>
+              </>
+            )}
           </section>
           )}
           </div>

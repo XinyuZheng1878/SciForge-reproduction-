@@ -17,13 +17,22 @@ export type WriteNotice = {
   message: string
 }
 
-export type WriteModeMenuItem = {
-  mode: WritePreviewMode
+type KnownWriteWorkspaceToolbarModeId = 'source' | 'rich' | 'split' | 'preview' | 'live'
+
+export type WriteWorkspaceToolbarModeId = KnownWriteWorkspaceToolbarModeId | (string & {})
+
+export type WriteWorkspaceToolbarModeMenuItem = {
+  mode: WriteWorkspaceToolbarModeId
+  previewMode?: WritePreviewMode
   label: string
   shortLabel: string
+  description?: string
   icon: ReactElement
   active: boolean
+  disabled?: boolean
 }
+
+export type WriteModeMenuItem = WriteWorkspaceToolbarModeMenuItem
 
 export type WriteInlineAgentPosition = {
   left: number
@@ -103,6 +112,18 @@ export function toolbarMenuButtonClass(active = false): string {
       ? 'bg-accent/10 text-accent'
       : 'hover:bg-white/70 hover:text-ds-ink dark:hover:bg-white/8'
   }`
+}
+
+export function writePreviewModeForToolbarMode(mode: WriteWorkspaceToolbarModeId): WritePreviewMode {
+  if (mode === 'rich') return 'rich'
+  if (mode === 'live') return 'live'
+  if (mode === 'split') return 'split'
+  if (mode === 'preview') return 'preview'
+  return 'source'
+}
+
+export function writePreviewModeForModeMenuItem(item: WriteWorkspaceToolbarModeMenuItem): WritePreviewMode {
+  return item.previewMode ?? writePreviewModeForToolbarMode(item.mode)
 }
 
 export function exportFormatLabel(format: WriteExportFormat, t: (key: string) => string): string {

@@ -39,6 +39,10 @@ const MessageItemType = {
 const MessageState = {
   FINISH: 2
 } as const
+const WEIXIN_RUNNING_MESSAGE = '已收到，正在处理。'
+const WEIXIN_QUEUED_MESSAGE = '已收到，前一条消息还在处理中，这条已排队。'
+const WEIXIN_FAILED_MESSAGE = '处理失败，请稍后重试。'
+const MAX_WEBHOOK_FILES_PER_REPLY = 3
 
 type JsonRecord = Record<string, unknown>
 
@@ -97,6 +101,25 @@ type WeixinMonitor = {
   promise: Promise<void>
 }
 
+type WeixinOutboundFile = { path: string; fileName: string }
+
+type SendWeixinMediaFile = (params: {
+  filePath: string
+  to: string
+  text: string
+  opts: { baseUrl: string; token?: string; timeoutMs?: number; contextToken?: string }
+  cdnBaseUrl: string
+}) => Promise<{ messageId: string }>
+
+type WeixinSenderDispatchInput = {
+  to: string
+  senderChains: Map<string, Promise<void>>
+  signal: AbortSignal
+  sendStatus: (text: string) => Promise<void>
+  run: () => Promise<void>
+  onFailure: (message: string) => void
+}
+
 export type WeixinBridgeSendResult =
   | { ok: true; messageId: string }
   | { ok: false; message: string }
@@ -109,9 +132,14 @@ let packageInfoCache: WeixinPackageInfo | null = null
 const activeLogins = new Map<string, WeixinLoginSession>()
 const contextTokenStore = new Map<string, string>()
 const monitors = new Map<string, WeixinMonitor>()
+let sendWeixinMediaFilePromise: Promise<SendWeixinMediaFile> | null = null
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function resolveRpcUrl(port = activeBridgePort): string {
@@ -767,6 +795,106 @@ async function sendMessageWeixin(params: {
   return { messageId }
 }
 
+function webhookGeneratedFiles(result: JsonRecord): WeixinOutboundFile[] {
+  if (!Array.isArray(result.files)) return []
+  const files: WeixinOutboundFile[] = []
+  for (const entry of result.files) {
+    const record = asRecord(entry)
+    const path = recordString(record, 'path')
+    if (!path) continue
+    files.push({
+      path,
+      fileName: recordString(record, 'fileName') || path.split(/[\\/]/).pop() || 'attachment'
+    })
+    if (files.length >= MAX_WEBHOOK_FILES_PER_REPLY) break
+  }
+  return files
+}
+
+function loadSendWeixinMediaFile(): Promise<SendWeixinMediaFile> {
+  sendWeixinMediaFilePromise ??= import('@tencent-weixin/openclaw-weixin/dist/src/messaging/send-media.js')
+    .then((mod) => {
+      const send = (mod as { sendWeixinMediaFile?: SendWeixinMediaFile }).sendWeixinMediaFile
+      if (!send) throw new Error('WeChat media sender is unavailable.')
+      return send
+    })
+    .catch((error) => {
+      sendWeixinMediaFilePromise = null
+      throw error
+    })
+  return sendWeixinMediaFilePromise
+}
+
+async function sendGeneratedFilesWeixin(
+  account: WeixinAccount,
+  to: string,
+  files: readonly WeixinOutboundFile[],
+  contextToken: string | undefined
+): Promise<void> {
+  for (const file of files) {
+    try {
+      const sendWeixinMediaFile = await loadSendWeixinMediaFile()
+      await sendWeixinMediaFile({
+        filePath: file.path,
+        to,
+        text: '',
+        opts: { baseUrl: account.baseUrl, token: account.token, contextToken },
+        cdnBaseUrl: account.cdnBaseUrl
+      })
+    } catch (error) {
+      logWarn('weixin-bridge', 'Failed to send generated file to WeChat.', {
+        accountId: account.accountId,
+        filePath: file.path,
+        message: errorMessage(error)
+      })
+      await sendMessageWeixin({
+        account,
+        to,
+        text: `文件 ${file.fileName} 发送失败，请稍后再试。`,
+        contextToken
+      }).catch(() => undefined)
+    }
+  }
+}
+
+async function sendWeixinStatusSafely(
+  input: Pick<WeixinSenderDispatchInput, 'sendStatus' | 'onFailure'>,
+  text: string
+): Promise<void> {
+  try {
+    await input.sendStatus(text)
+  } catch (error) {
+    input.onFailure(`Failed to send WeChat status message: ${errorMessage(error)}`)
+  }
+}
+
+function enqueueWeixinSenderDispatch(input: WeixinSenderDispatchInput): Promise<void> {
+  const previous = input.senderChains.get(input.to) ?? Promise.resolve()
+  if (input.senderChains.has(input.to)) {
+    void sendWeixinStatusSafely(input, WEIXIN_QUEUED_MESSAGE)
+  }
+  const chained = previous
+    .catch(() => undefined)
+    .then(async () => {
+      if (input.signal.aborted) return
+      await sendWeixinStatusSafely(input, WEIXIN_RUNNING_MESSAGE)
+      if (input.signal.aborted) return
+      await input.run()
+    })
+    .catch(async (error) => {
+      const message = errorMessage(error)
+      input.onFailure(message)
+      if (!input.signal.aborted) {
+        await sendWeixinStatusSafely(input, WEIXIN_FAILED_MESSAGE)
+      }
+    })
+  input.senderChains.set(input.to, chained)
+  void chained.finally(() => {
+    if (input.senderChains.get(input.to) === chained) input.senderChains.delete(input.to)
+  })
+  return chained
+}
+
 function textFromItemList(itemList: unknown): string {
   if (!Array.isArray(itemList)) return ''
   for (const item of itemList) {
@@ -846,6 +974,42 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
   let getUpdatesBuf = await loadSyncBuf(account.accountId)
   let nextTimeoutMs = DEFAULT_LONG_POLL_TIMEOUT_MS
   let consecutiveFailures = 0
+  const senderChains = new Map<string, Promise<void>>()
+  const sendStatus = (to: string, contextToken: string | undefined) => (text: string): Promise<void> =>
+    sendMessageWeixin({
+      account,
+      to,
+      text,
+      contextToken
+    }).then(() => undefined)
+  const dispatchToSender = (message: WeixinMessage, to: string, contextToken: string | undefined): void => {
+    void enqueueWeixinSenderDispatch({
+      to,
+      senderChains,
+      signal,
+      sendStatus: sendStatus(to, contextToken),
+      run: async () => {
+        const result = await postToDeepSeekGuiWebhook(message, account.accountId)
+        const reply = recordString(result, 'reply') || recordString(result, 'text')
+        if (reply) {
+          await sendMessageWeixin({
+            account,
+            to,
+            text: reply,
+            contextToken
+          })
+        }
+        await sendGeneratedFilesWeixin(account, to, webhookGeneratedFiles(result), contextToken)
+      },
+      onFailure: (messageText) => {
+        logWarn('weixin-bridge', 'WeChat message dispatch failed.', {
+          accountId: account.accountId,
+          to,
+          message: messageText
+        })
+      }
+    })
+  }
   while (!signal.aborted) {
     try {
       const resp = await getUpdates(account, getUpdatesBuf, nextTimeoutMs)
@@ -874,21 +1038,13 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
         if (!to) continue
         const contextToken = message.context_token || undefined
         if (contextToken) await setContextToken(account.accountId, to, contextToken)
-        const result = await postToDeepSeekGuiWebhook(message, account.accountId)
-        const reply = recordString(result, 'reply') || recordString(result, 'text')
-        if (!reply) continue
-        await sendMessageWeixin({
-          account,
-          to,
-          text: reply,
-          contextToken
-        })
+        dispatchToSender(message, to, contextToken)
       }
     } catch (error) {
       if (signal.aborted) return
       logWarn('weixin-bridge', 'WeChat monitor iteration failed.', {
         accountId: account.accountId,
-        message: error instanceof Error ? error.message : String(error)
+        message: errorMessage(error)
       })
       consecutiveFailures += 1
       await sleep(consecutiveFailures >= 3 ? BACKOFF_DELAY_MS : RETRY_DELAY_MS)
@@ -1124,5 +1280,7 @@ export function stopWeixinBridgeRuntime(): void {
 
 export const weixinBridgeRuntimeInternals = {
   buildBaseInfo,
+  enqueueWeixinSenderDispatch,
+  webhookGeneratedFiles,
   normalizeAccountId
 }

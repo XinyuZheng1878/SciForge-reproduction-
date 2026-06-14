@@ -23,6 +23,32 @@ import type { JsonSettingsStore } from './settings-store'
 
 export type RuntimeRequestResult = { ok: boolean; status: number; body: string }
 
+export type ClawFailureKind =
+  | 'runtime_offline'
+  | 'model_missing'
+  | 'timeout'
+  | 'empty_response'
+  | 'waiting_desktop_approval'
+  | 'local_thread_deleted'
+  | 'provider_send_failed'
+
+export type ClawFailureResult = {
+  ok: false
+  message: string
+  failureKind: ClawFailureKind
+  failureTitle: string
+  recoverable: boolean
+  details?: unknown
+}
+
+type ClawFailureInput = {
+  message: string
+  code?: string
+  status?: number
+  details?: unknown
+  kind?: ClawFailureKind
+}
+
 export type RuntimeRequestFn = (
   settings: AppSettingsV1,
   pathAndQuery: string,
@@ -44,13 +70,23 @@ export type ClawRuntimeDeps = {
     startThread: (input: AgentRuntimeThreadStartInput) => Promise<AgentRuntimeThread>
     readThread: (input: { runtimeId?: AgentRuntimeId; threadId: string }) => Promise<AgentRuntimeThreadDetail>
     startTurn: (input: AgentRuntimeTurnStartInput) => Promise<AgentRuntimeTurnHandle>
+    interruptTurn?: (input: { runtimeId?: AgentRuntimeId; threadId: string; turnId: string; discard?: boolean }) => Promise<void>
   }
   getActiveThreadContext?: () => ClawActiveThreadContext | null
   logError: (category: string, message: string, detail?: unknown) => void
-  notifyChannelActivity?: (payload: { channelId: string; threadId: string; runtimeId?: AgentRuntimeId }) => void
+  notifyChannelActivity?: (payload: {
+    channelId: string
+    threadId: string
+    runtimeId?: AgentRuntimeId
+    previousThreadId?: string
+  }) => void
   sendWeixinBridgeMessage?: (options: {
     accountId: string
     to: string
+    text: string
+  }) => Promise<{ ok: true; messageId: string } | { ok: false; message: string }>
+  sendDiscordChannelMessage?: (options: {
+    channelId: string
     text: string
   }) => Promise<{ ok: true; messageId: string } | { ok: false; message: string }>
   createScheduledTaskFromText?: (
@@ -74,6 +110,8 @@ export type TurnRecordJson = {
 export type TurnItemJson = {
   kind: string
   turnId?: string
+  status?: string
+  toolName?: string
   toolKind?: string
   output?: unknown
   isError?: boolean | null
@@ -90,6 +128,8 @@ export type ThreadDetailJson = {
   items?: TurnItemJson[]
 }
 
+export type IncomingImChatType = 'p2p' | 'group'
+
 export type RunPromptOptions = {
   prompt: string
   displayText?: string
@@ -103,10 +143,328 @@ export type RunPromptOptions = {
   runtimeId?: AgentRuntimeId
   threadId?: string
   channel?: ClawImChannelV1
-  onTurnStarted?: (payload: { threadId: string; turnId: string }) => Promise<void> | void
+  onTurnStarted?: (payload: {
+    threadId: string
+    turnId: string
+    previousThreadId?: string
+  }) => Promise<void> | void
 }
 
 export const WEBHOOK_BODY_LIMIT_BYTES = 1_000_000
+
+export type ClawImAttachmentKind = 'file' | 'image' | 'link'
+
+export type ClawImAttachmentCapability = {
+  supported: boolean
+  maxCount: number
+  maxBytes: number
+}
+
+export type ClawImRetryStrategy = {
+  maxAttempts: number
+  initialDelayMs: number
+  maxDelayMs: number
+}
+
+export type ClawImProviderCapabilities = {
+  provider: ClawImProvider
+  label: string
+  aliases: readonly string[]
+  maxMessageLength: number
+  markdown: {
+    supported: boolean
+    preserveCodeBlocks: boolean
+  }
+  attachments: Record<ClawImAttachmentKind, ClawImAttachmentCapability>
+  retry: ClawImRetryStrategy
+}
+
+export type ClawImOutboundAttachment = {
+  kind: ClawImAttachmentKind
+  name: string
+  path?: string
+  url?: string
+  sizeBytes?: number
+  summary?: string
+}
+
+export type ClawImPreparedReply = {
+  capability: ClawImProviderCapabilities
+  textChunks: string[]
+  unsupportedAttachments: ClawImOutboundAttachment[]
+  fallbackText: string
+}
+
+export const CLAW_IM_PROVIDER_CAPABILITIES: Record<ClawImProvider, ClawImProviderCapabilities> = {
+  feishu: {
+    provider: 'feishu',
+    label: 'Feishu / Lark',
+    aliases: ['feishu', 'lark'],
+    maxMessageLength: 30_000,
+    markdown: {
+      supported: true,
+      preserveCodeBlocks: true
+    },
+    attachments: {
+      file: { supported: true, maxCount: 10, maxBytes: 50 * 1024 * 1024 },
+      image: { supported: true, maxCount: 10, maxBytes: 20 * 1024 * 1024 },
+      link: { supported: true, maxCount: 20, maxBytes: 0 }
+    },
+    retry: {
+      maxAttempts: 2,
+      initialDelayMs: 500,
+      maxDelayMs: 2_000
+    }
+  },
+  weixin: {
+    provider: 'weixin',
+    label: 'WeChat',
+    aliases: ['weixin', 'wechat'],
+    maxMessageLength: 2_000,
+    markdown: {
+      supported: false,
+      preserveCodeBlocks: true
+    },
+    attachments: {
+      file: { supported: true, maxCount: 3, maxBytes: 50 * 1024 * 1024 },
+      image: { supported: true, maxCount: 3, maxBytes: 20 * 1024 * 1024 },
+      link: { supported: true, maxCount: 20, maxBytes: 0 }
+    },
+    retry: {
+      maxAttempts: 2,
+      initialDelayMs: 500,
+      maxDelayMs: 2_000
+    }
+  },
+  discord: {
+    provider: 'discord',
+    label: 'Discord',
+    aliases: ['discord'],
+    maxMessageLength: 2_000,
+    markdown: {
+      supported: true,
+      preserveCodeBlocks: true
+    },
+    attachments: {
+      file: { supported: false, maxCount: 0, maxBytes: 0 },
+      image: { supported: false, maxCount: 0, maxBytes: 0 },
+      link: { supported: true, maxCount: 20, maxBytes: 0 }
+    },
+    retry: {
+      maxAttempts: 3,
+      initialDelayMs: 750,
+      maxDelayMs: 5_000
+    }
+  }
+}
+
+const IMAGE_ATTACHMENT_EXTENSIONS = new Set([
+  '.apng',
+  '.avif',
+  '.bmp',
+  '.gif',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.svg',
+  '.webp'
+])
+
+export function getClawImProviderCapabilities(provider: ClawImProvider): ClawImProviderCapabilities {
+  return CLAW_IM_PROVIDER_CAPABILITIES[provider]
+}
+
+function markdownFenceCloseFor(openFence: string): string {
+  return openFence.trimStart().startsWith('~~~') ? '~~~' : '```'
+}
+
+function markdownFenceTransition(
+  line: string,
+  inFence: boolean,
+  openFence: string
+): { inFence: boolean; openFence: string } {
+  const match = line.match(/^\s*(`{3,}|~{3,})(.*)$/)
+  if (!match) return { inFence, openFence }
+  const marker = match[1]
+  if (!inFence) {
+    return { inFence: true, openFence: line.trim() || marker }
+  }
+  if (marker[0] !== markdownFenceCloseFor(openFence)[0]) {
+    return { inFence, openFence }
+  }
+  return { inFence: false, openFence }
+}
+
+function scanMarkdownFenceState(
+  text: string,
+  initialInFence: boolean,
+  initialOpenFence: string
+): { inFence: boolean; openFence: string } {
+  let inFence = initialInFence
+  let openFence = initialOpenFence
+  for (const line of text.split('\n')) {
+    const next = markdownFenceTransition(line, inFence, openFence)
+    inFence = next.inFence
+    openFence = next.openFence
+  }
+  return { inFence, openFence }
+}
+
+function splitTextAtReadableBoundaries(text: string, maxLength: number): string[] {
+  const chunks: string[] = []
+  let remaining = text
+  while (remaining.length > maxLength) {
+    const window = remaining.slice(0, maxLength + 1)
+    const candidates = [
+      window.lastIndexOf('\n\n'),
+      window.lastIndexOf('\n'),
+      window.lastIndexOf(' ')
+    ].filter((index) => index > Math.floor(maxLength * 0.45))
+    const breakAt = candidates.length > 0 ? Math.max(...candidates) : maxLength
+    const chunk = remaining.slice(0, breakAt).replace(/[ \t]+$/g, '').replace(/\n+$/g, '')
+    if (chunk) chunks.push(chunk)
+    remaining = remaining.slice(breakAt).replace(/^[ \t]+/g, '').replace(/^\n+/g, '')
+  }
+  if (remaining.trim()) chunks.push(remaining.trim())
+  return chunks.length > 0 ? chunks : ['']
+}
+
+function rebalanceMarkdownCodeFences(chunks: readonly string[]): string[] {
+  const result: string[] = []
+  let inFence = false
+  let openFence = '```'
+  for (const chunk of chunks) {
+    const prefix = inFence ? `${openFence}\n` : ''
+    const scanned = scanMarkdownFenceState(chunk, inFence, openFence)
+    let next = `${prefix}${chunk}`
+    if (scanned.inFence) {
+      next = `${next}\n${markdownFenceCloseFor(scanned.openFence)}`
+    }
+    result.push(next)
+    inFence = scanned.inFence
+    openFence = scanned.openFence
+  }
+  return result
+}
+
+export function splitClawImReplyText(
+  provider: ClawImProvider,
+  text: string,
+  options: { maxMessageLength?: number; fallback?: string } = {}
+): string[] {
+  const capability = getClawImProviderCapabilities(provider)
+  const maxMessageLength = Math.max(20, Math.floor(options.maxMessageLength ?? capability.maxMessageLength))
+  const fallback = options.fallback ?? '(empty reply)'
+  const normalized = text.trim() || fallback
+  if (normalized.length <= maxMessageLength) return [normalized]
+
+  const hasCodeFence = /(^|\n)\s*(`{3,}|~{3,})/.test(normalized)
+  const reserve = hasCodeFence
+    ? Math.max(8, Math.min(256, Math.floor(maxMessageLength * 0.25)))
+    : 0
+  const chunkLimit = Math.max(1, maxMessageLength - reserve)
+  const rawChunks = splitTextAtReadableBoundaries(normalized, chunkLimit)
+  const chunks = hasCodeFence && capability.markdown.preserveCodeBlocks
+    ? rebalanceMarkdownCodeFences(rawChunks)
+    : rawChunks
+  return chunks.flatMap((chunk) =>
+    chunk.length <= maxMessageLength
+      ? [chunk]
+      : splitTextAtReadableBoundaries(chunk, maxMessageLength)
+  )
+}
+
+export function clawImAttachmentKindForFileName(fileName: string): 'file' | 'image' {
+  const lower = fileName.trim().toLowerCase()
+  const dotIndex = lower.lastIndexOf('.')
+  const extension = dotIndex >= 0 ? lower.slice(dotIndex) : ''
+  return IMAGE_ATTACHMENT_EXTENSIONS.has(extension) ? 'image' : 'file'
+}
+
+export function clawImAttachmentFromGeneratedFile(file: ClawGeneratedFileV1): ClawImOutboundAttachment {
+  const name = file.fileName.trim() || basename(file.path)
+  return {
+    kind: clawImAttachmentKindForFileName(name),
+    name,
+    path: file.path,
+    summary: file.relativePath?.trim() || name
+  }
+}
+
+export function supportedClawImAttachments(
+  provider: ClawImProvider,
+  attachments: readonly ClawImOutboundAttachment[]
+): ClawImOutboundAttachment[] {
+  const capability = getClawImProviderCapabilities(provider)
+  const counts: Partial<Record<ClawImAttachmentKind, number>> = {}
+  return attachments.filter((attachment) => {
+    const limit = capability.attachments[attachment.kind]
+    if (!limit.supported) return false
+    if (limit.maxBytes > 0 && (attachment.sizeBytes ?? 0) > limit.maxBytes) return false
+    const nextCount = (counts[attachment.kind] ?? 0) + 1
+    counts[attachment.kind] = nextCount
+    return limit.maxCount <= 0 || nextCount <= limit.maxCount
+  })
+}
+
+export function unsupportedClawImAttachments(
+  provider: ClawImProvider,
+  attachments: readonly ClawImOutboundAttachment[]
+): ClawImOutboundAttachment[] {
+  const supported = new Set(supportedClawImAttachments(provider, attachments))
+  return attachments.filter((attachment) => !supported.has(attachment))
+}
+
+function formatAttachmentSummary(attachment: ClawImOutboundAttachment): string {
+  if (attachment.kind === 'link' && attachment.url) return `${attachment.name}: ${attachment.url}`
+  return attachment.summary?.trim() || attachment.name
+}
+
+export function buildClawImAttachmentFallbackText(
+  provider: ClawImProvider,
+  attachments: readonly ClawImOutboundAttachment[],
+  options: { reason?: string } = {}
+): string {
+  const capability = getClawImProviderCapabilities(provider)
+  const visible = attachments.slice(0, 5)
+  const names = visible.map(formatAttachmentSummary).filter(Boolean)
+  if (names.length === 0) return ''
+  const more = attachments.length > visible.length ? `\n- 另有 ${attachments.length - visible.length} 个附件` : ''
+  const reason = options.reason?.trim()
+  const heading = reason
+    ? `${capability.label} 附件投递失败：${reason}`
+    : `${capability.label} 当前不能直接投递这些附件。`
+  return [
+    heading,
+    ...names.map((name) => `- ${name}`),
+    `${more ? more : ''}\n请到桌面查看完整结果。`
+  ].join('\n').trim()
+}
+
+export function prepareClawImReplyText(
+  provider: ClawImProvider,
+  text: string,
+  options: {
+    attachments?: readonly ClawImOutboundAttachment[]
+    maxMessageLength?: number
+    fallback?: string
+  } = {}
+): ClawImPreparedReply {
+  const capability = getClawImProviderCapabilities(provider)
+  const attachments = options.attachments ?? []
+  const unsupportedAttachments = unsupportedClawImAttachments(provider, attachments)
+  const fallbackText = buildClawImAttachmentFallbackText(provider, unsupportedAttachments)
+  const body = [text.trim(), fallbackText].filter(Boolean).join('\n\n')
+  return {
+    capability,
+    textChunks: splitClawImReplyText(provider, body, {
+      maxMessageLength: options.maxMessageLength,
+      fallback: options.fallback
+    }),
+    unsupportedAttachments,
+    fallbackText
+  }
+}
 
 export function sanitizePathSegment(raw: string, fallback: string): string {
   const sanitized = raw
@@ -158,6 +516,30 @@ export function clawConversationKey(chatId: string, remoteThreadId: string): str
   return `${chatId.trim()}::${remoteThreadId.trim()}`
 }
 
+export function remoteConversationQueueKey(input: {
+  provider: ClawImProvider
+  channelId: string
+  chatId: string
+  remoteThreadId: string
+}): string {
+  return [
+    input.provider.trim(),
+    input.channelId.trim(),
+    input.chatId.trim(),
+    input.remoteThreadId.trim()
+  ].join('::')
+}
+
+export function remoteMessageDedupeKey(input: {
+  provider: ClawImProvider
+  channelId: string
+  chatId: string
+  remoteThreadId: string
+  messageId: string
+}): string {
+  return `${remoteConversationQueueKey(input)}::${input.messageId.trim()}`
+}
+
 export function parseJsonObject(raw: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(raw) as unknown
@@ -184,6 +566,162 @@ export function runtimeErrorMessage(result: RuntimeRequestResult, fallback: stri
   return result.body.trim() || fallback
 }
 
+const CLAW_FAILURE_TITLES: Record<ClawFailureKind, string> = {
+  runtime_offline: 'Runtime offline',
+  model_missing: 'Model missing',
+  timeout: 'Timed out',
+  empty_response: 'Empty response',
+  waiting_desktop_approval: 'Waiting for desktop approval',
+  local_thread_deleted: 'Local thread deleted',
+  provider_send_failed: 'Provider send failed'
+}
+
+const CLAW_FAILURE_RECOVERABLE: Record<ClawFailureKind, boolean> = {
+  runtime_offline: true,
+  model_missing: true,
+  timeout: true,
+  empty_response: true,
+  waiting_desktop_approval: true,
+  local_thread_deleted: true,
+  provider_send_failed: true
+}
+
+function includesAny(text: string, needles: readonly string[]): boolean {
+  return needles.some((needle) => text.includes(needle))
+}
+
+function parsedRuntimeFailure(raw: string): {
+  code?: string
+  message?: string
+  details?: unknown
+} | null {
+  const parsed = parseJsonObject(raw)
+  if (!parsed) return null
+  const error = nestedRecord(parsed.error)
+  const code = asString(parsed.code) || asString(parsed.error) || asString(error.code)
+  const message =
+    asString(parsed.message) ||
+    asString(error.message) ||
+    (typeof parsed.error === 'string' ? parsed.error.trim() : '')
+  return {
+    ...(code ? { code } : {}),
+    ...(message ? { message } : {}),
+    ...('details' in parsed ? { details: parsed.details } : {})
+  }
+}
+
+export function classifyClawFailure(input: {
+  message?: string
+  code?: string
+  status?: number
+  kind?: ClawFailureKind
+}): ClawFailureKind {
+  if (input.kind) return input.kind
+  const code = (input.code ?? '').trim().toLowerCase()
+  const message = (input.message ?? '').trim()
+  const text = `${code} ${message}`.toLowerCase()
+
+  if (code === 'provider_send_failed') return 'provider_send_failed'
+  if (code === 'empty_response' || includesAny(text, ['completed without a reply', 'empty response'])) {
+    return 'empty_response'
+  }
+  if (
+    code === 'waiting_desktop_approval' ||
+    code === 'approval_required' ||
+    (text.includes('approval') && includesAny(text, ['waiting', 'pending', 'requested', 'required', 'desktop']))
+  ) {
+    return 'waiting_desktop_approval'
+  }
+  if (
+    code === 'local_thread_deleted' ||
+    ((input.status === 404 || includesAny(text, ['not found', 'deleted', 'missing'])) && text.includes('thread'))
+  ) {
+    return 'local_thread_deleted'
+  }
+  if (
+    code === 'model_missing' ||
+    code === 'missing_api_key' ||
+    code === 'provider_unavailable' ||
+    (
+      includesAny(text, ['model', 'api key']) &&
+      includesAny(text, ['missing', 'not found', 'not exist', 'unknown', 'unavailable', 'required', 'unsupported'])
+    )
+  ) {
+    return 'model_missing'
+  }
+  if (code === 'timeout' || includesAny(text, ['timed out', 'timeout'])) return 'timeout'
+  if (
+    code === 'runtime_offline' ||
+    code === 'fetch_failed' ||
+    includesAny(text, ['offline', 'fetch failed', 'econnrefused', 'connection refused', 'not connected', 'app-server offline'])
+  ) {
+    return 'runtime_offline'
+  }
+  return 'runtime_offline'
+}
+
+export function clawFailureResult(input: ClawFailureInput): ClawFailureResult {
+  const message = input.message.trim() || 'Claw runtime failed.'
+  const failureKind = classifyClawFailure({
+    message,
+    code: input.code,
+    status: input.status,
+    kind: input.kind
+  })
+  return {
+    ok: false,
+    message,
+    failureKind,
+    failureTitle: CLAW_FAILURE_TITLES[failureKind],
+    recoverable: CLAW_FAILURE_RECOVERABLE[failureKind],
+    ...(input.details !== undefined ? { details: input.details } : {})
+  }
+}
+
+export function clawFailureFromRuntimeResult(
+  result: RuntimeRequestResult,
+  fallback: string
+): ClawFailureResult {
+  const parsed = parseJsonObject(result.body)
+  const error = nestedRecord(parsed?.error)
+  const code = asString(parsed?.code) || asString(parsed?.error) || asString(error.code)
+  return clawFailureResult({
+    message: runtimeErrorMessage(result, fallback),
+    code,
+    status: result.status,
+    details: parsed && 'details' in parsed ? parsed.details : undefined
+  })
+}
+
+export function clawFailureFromError(error: unknown, fallback: string): ClawFailureResult {
+  const raw = error instanceof Error ? error.message : String(error)
+  const parsed = parsedRuntimeFailure(raw)
+  return clawFailureResult({
+    message: parsed?.message || raw.trim() || fallback,
+    code: parsed?.code,
+    details: parsed?.details
+  })
+}
+
+export function clawFailureError(
+  kind: ClawFailureKind,
+  message: string,
+  details?: unknown
+): Error {
+  return new Error(JSON.stringify({
+    code: kind,
+    message,
+    ...(details !== undefined ? { details } : {})
+  }))
+}
+
+export function providerSendFailureMessage(provider: string, message: string): string {
+  const detail = message.trim()
+  return detail
+    ? `${provider} send failed: ${detail}`
+    : `${provider} send failed.`
+}
+
 export function isRunningStatus(status: string | undefined): boolean {
   return status === 'queued' || status === 'in_progress' || status === 'started' || status === 'running'
 }
@@ -205,29 +743,71 @@ export function latestAssistantText(
   return ''
 }
 
+export function latestThreadSummaryText(detail: ThreadDetailJson): string {
+  const items = threadItems(detail)
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    const text = (item.summary ?? item.detail ?? item.text ?? '').trim()
+    if (!text) continue
+    if (item.kind === 'compaction_event' || item.kind === 'summary' || item.kind.includes('summary')) {
+      return text
+    }
+  }
+  return ''
+}
+
 function outputRecord(output: unknown): Record<string, unknown> | null {
   return typeof output === 'object' && output !== null && !Array.isArray(output)
     ? output as Record<string, unknown>
     : null
 }
 
-function generatedFileFromToolResult(
-  item: TurnItemJson,
+function generatedFileFromRecord(
+  record: Record<string, unknown>,
   workspaceRoot: string
 ): ClawGeneratedFileV1 | null {
-  if (item.toolKind !== 'file_change' || item.isError === true) return null
-  if (item.kind !== 'tool_result' && item.kind !== 'tool') return null
-  const output = outputRecord(item.output)
-  const meta = outputRecord((item as { meta?: unknown }).meta)
-  const path = asString(output?.path) || asString(output?.absolute_path) || asString(meta?.filePath)
-  const relativePath = asString(output?.relative_path) || asString(meta?.relativePath)
+  const path = asString(record.path) || asString(record.absolutePath) || asString(record.absolute_path)
+  const relativePath = asString(record.relativePath) || asString(record.relative_path)
   const resolvedPath = path || (workspaceRoot && relativePath ? join(workspaceRoot, relativePath) : '')
   if (!resolvedPath) return null
   return {
     path: resolvedPath,
     ...(relativePath ? { relativePath } : {}),
-    fileName: basename(relativePath || resolvedPath)
+    fileName: asString(record.fileName) || asString(record.name) || basename(relativePath || resolvedPath)
   }
+}
+
+function generatedFilesFromToolResult(
+  item: TurnItemJson,
+  workspaceRoot: string
+): ClawGeneratedFileV1[] {
+  if ((item.kind !== 'tool_result' && item.kind !== 'tool') || item.isError === true) return []
+  const output = outputRecord(item.output)
+  if (!output) return []
+  const meta = outputRecord((item as { meta?: unknown }).meta)
+  if (item.toolKind === 'file_change') {
+    const file = generatedFileFromRecord({
+      ...output,
+      path: asString(output.path) || asString(output.absolute_path) || asString(meta?.filePath),
+      relative_path: asString(output.relative_path) || asString(meta?.relativePath)
+    }, workspaceRoot)
+    return file ? [file] : []
+  }
+  const toolName = item.toolName?.trim()
+  if (
+    (toolName === 'generate_image' ||
+      toolName === 'generate_speech' ||
+      toolName === 'generate_music' ||
+      toolName === 'generate_video') &&
+    Array.isArray(output.files)
+  ) {
+    return output.files
+      .map((entry) => outputRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => entry !== null)
+      .map((entry) => generatedFileFromRecord(entry, workspaceRoot))
+      .filter((file): file is ClawGeneratedFileV1 => file !== null)
+  }
+  return []
 }
 
 function threadItems(detail: ThreadDetailJson): TurnItemJson[] {
@@ -261,10 +841,11 @@ function extractGeneratedFiles(
 ): ClawGeneratedFileV1[] {
   const files: ClawGeneratedFileV1[] = []
   for (let index = items.length - 1; index >= 0; index -= 1) {
-    const file = generatedFileFromToolResult(items[index], workspaceRoot)
-    if (!file) continue
-    if (files.some((existing) => isPathLikeDuplicate(existing, file))) continue
-    files.push(file)
+    for (const file of generatedFilesFromToolResult(items[index], workspaceRoot).reverse()) {
+      if (files.some((existing) => isPathLikeDuplicate(existing, file))) continue
+      files.push(file)
+      if (files.length >= maxFiles) break
+    }
     if (files.length >= maxFiles) break
   }
   return files.reverse()
@@ -279,14 +860,26 @@ export function latestGeneratedFiles(
   const items = threadItems(detail)
   const turnId = options.turnId?.trim()
   if (turnId) {
-    const currentTurnFiles = extractGeneratedFiles(
+    return extractGeneratedFiles(
       items.filter((item) => item.turnId === turnId),
       workspaceRoot,
       maxFiles
     )
-    if (currentTurnFiles.length > 0) return currentTurnFiles
   }
   return extractGeneratedFiles(items, workspaceRoot, maxFiles)
+}
+
+export function hasPendingDesktopApproval(
+  detail: ThreadDetailJson,
+  options: { turnId?: string } = {}
+): boolean {
+  const turnId = options.turnId?.trim()
+  return threadItems(detail).some((item) => {
+    if (turnId && item.turnId && item.turnId !== turnId) return false
+    if (item.kind !== 'approval') return false
+    const status = item.status?.trim().toLowerCase() || 'pending'
+    return !['success', 'completed', 'failed', 'aborted', 'error'].includes(status)
+  })
 }
 
 export function shouldSendGeneratedFilesForPrompt(prompt: string): boolean {
@@ -294,7 +887,10 @@ export function shouldSendGeneratedFilesForPrompt(prompt: string): boolean {
   if (!text) return false
   return /发给我|发送给我|发一下|发来|发过来|传给我|传过来|上传|附件|以附件|发文件|文件发|文档发/i.test(text) ||
     /\b(send|attach|attachment|upload)\b/i.test(text) ||
-    /给我(?:一个|一份)?.{0,24}(文档|文件|\.(?:md|txt|pdf|docx|xlsx|csv|pptx))/i.test(text)
+    /给我(?:一个|一份)?.{0,24}(文档|文件|\.(?:md|txt|pdf|docx|xlsx|csv|pptx))/i.test(text) ||
+    /(生成|画|绘制|做|制作|创建|出).{0,24}(图|图片|图像|照片|海报|插画|表情包|logo)/i.test(text) ||
+    /(生成|做|制作|创建|配|出).{0,24}(语音|音频|朗读|旁白|配音|音乐|歌曲|视频|短片|影片)/i.test(text) ||
+    /\b(generate|create|draw|make)\b.{0,40}\b(image|picture|photo|poster|illustration|meme|logo|speech|voice|audio|music|song|video)\b/i.test(text)
 }
 
 export function shouldDirectSendExistingGeneratedFilesForPrompt(prompt: string): boolean {
@@ -316,6 +912,35 @@ export function replyTextForGeneratedFiles(replyText: string, files: readonly Cl
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export async function runClawImProviderRetry<T>(
+  provider: ClawImProvider,
+  operation: (attempt: number) => Promise<T>,
+  options: {
+    shouldRetryResult?: (result: T) => boolean
+    sleepMs?: (ms: number) => Promise<void>
+  } = {}
+): Promise<T> {
+  const retry = getClawImProviderCapabilities(provider).retry
+  let lastError: unknown
+  for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
+    try {
+      const result = await operation(attempt)
+      if (!options.shouldRetryResult?.(result) || attempt === retry.maxAttempts) {
+        return result
+      }
+    } catch (error) {
+      lastError = error
+      if (attempt === retry.maxAttempts) throw error
+    }
+    const delay = Math.min(
+      retry.maxDelayMs,
+      retry.initialDelayMs * (2 ** Math.max(0, attempt - 1))
+    )
+    await (options.sleepMs ?? sleep)(delay)
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'IM retry failed.'))
 }
 
 export function normalizeTaskModel(model: string): string | undefined {
@@ -377,6 +1002,7 @@ export function extractSenderLabel(payload: Record<string, unknown>): string {
 export function normalizeIncomingProvider(value: unknown, fallback: ClawImProvider): ClawImProvider {
   const raw = asString(value).toLowerCase()
   if (raw === 'weixin' || raw === 'wechat') return 'weixin'
+  if (raw === 'discord') return 'discord'
   return raw === 'feishu' ? 'feishu' : fallback
 }
 
@@ -413,6 +1039,71 @@ export function extractIncomingChannelId(payload: Record<string, unknown>): stri
     if (text) return text
   }
   return ''
+}
+
+export function normalizeIncomingChatType(value: unknown): IncomingImChatType | undefined {
+  const raw = asString(value).toLowerCase()
+  if (raw === 'p2p' || raw === 'dm' || raw === 'direct' || raw === 'private') return 'p2p'
+  if (raw === 'group' || raw === 'channel' || raw === 'guild' || raw === 'server') return 'group'
+  return undefined
+}
+
+export function extractIncomingChatType(payload: Record<string, unknown>): IncomingImChatType | undefined {
+  const message = nestedRecord(payload.message)
+  const event = nestedRecord(payload.event)
+  const data = nestedRecord(payload.data)
+  const eventMessage = nestedRecord(event.message)
+  const candidates = [
+    payload.chatType,
+    payload.chat_type,
+    payload.conversationType,
+    payload.conversation_type,
+    message.chatType,
+    message.chat_type,
+    eventMessage.chat_type,
+    eventMessage.chatType,
+    data.chatType,
+    data.chat_type
+  ]
+  for (const candidate of candidates) {
+    const chatType = normalizeIncomingChatType(candidate)
+    if (chatType) return chatType
+  }
+  return undefined
+}
+
+export function extractIncomingMentionFlags(payload: Record<string, unknown>): {
+  mentionedBot?: boolean
+  mentionAll?: boolean
+} {
+  const message = nestedRecord(payload.message)
+  const event = nestedRecord(payload.event)
+  const data = nestedRecord(payload.data)
+  const eventMessage = nestedRecord(event.message)
+  const boolValue = (value: unknown): boolean | undefined =>
+    typeof value === 'boolean' ? value : undefined
+  const mentionedBot =
+    boolValue(payload.mentionedBot) ??
+    boolValue(payload.mentioned_bot) ??
+    boolValue(message.mentionedBot) ??
+    boolValue(message.mentioned_bot) ??
+    boolValue(eventMessage.mentioned_bot) ??
+    boolValue(eventMessage.mentionedBot) ??
+    boolValue(data.mentionedBot) ??
+    boolValue(data.mentioned_bot)
+  const mentionAll =
+    boolValue(payload.mentionAll) ??
+    boolValue(payload.mention_all) ??
+    boolValue(message.mentionAll) ??
+    boolValue(message.mention_all) ??
+    boolValue(eventMessage.mention_all) ??
+    boolValue(eventMessage.mentionAll) ??
+    boolValue(data.mentionAll) ??
+    boolValue(data.mention_all)
+  return {
+    ...(mentionedBot !== undefined ? { mentionedBot } : {}),
+    ...(mentionAll !== undefined ? { mentionAll } : {})
+  }
 }
 
 export function extractIncomingRemoteSession(

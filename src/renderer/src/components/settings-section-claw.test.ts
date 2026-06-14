@@ -11,7 +11,7 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '@shared/app-settings'
-import { ClawSettingsSection } from './settings-section-claw'
+import { ClawSettingsSection, discordGuardOwnerPatch } from './settings-section-claw'
 
 const labels: Record<string, string> = {
   clawRuntime: 'Phone connection',
@@ -25,6 +25,12 @@ const labels: Record<string, string> = {
   clawManageAgents: 'Connected phone agents',
   clawManageAgentsEmpty: 'No phone agents',
   clawManageAgentMeta: '{{provider}} {{model}} {{workspace}}',
+  clawDiscordChannelMeta: '{{server}} {{channel}}',
+  clawDiscordLocalOnlineGuard: 'Guards this channel only while this computer is online.',
+  clawDiscordGuardConflictState: 'Conflict',
+  clawDiscordGuardConflictTitle: 'This Bot is being guarded by another device',
+  clawDiscordGuardConflictDesc: 'Owner installation: {{owner}}.',
+  clawDiscordGuardTakeover: 'Take over manually',
   clawManageAgentEnabled: 'Enabled',
   clawManageAgentDisabled: 'Disabled',
   clawManageAgentName: 'Agent name',
@@ -55,6 +61,7 @@ function t(key: string, values?: Record<string, unknown>): string {
 function buildSettings(): AppSettingsV1 {
   const settings: AppSettingsV1 = {
     version: 1,
+    installationId: 'dsgui-local',
     locale: 'en',
     theme: 'system',
     uiFontScale: 'medium',
@@ -123,5 +130,111 @@ describe('ClawSettingsSection', () => {
     expect(html).toContain('Reply rules')
     expect(html).toContain('Start with the conclusion.')
     expect(html).toContain('<option value="deepseek-v4-pro"')
+  })
+
+  it('surfaces Discord local-online guard state and takeover placeholder', () => {
+    const form = buildSettings()
+    form.claw.channels = [
+      {
+        id: 'discord-1',
+        provider: 'discord',
+        label: '#support',
+        enabled: true,
+        model: 'deepseek-v4-flash',
+        threadId: '',
+        workspaceRoot: '/tmp/support',
+        agentProfile: {
+          name: 'Support bot',
+          description: '',
+          identity: '',
+          personality: '',
+          userContext: '',
+          replyRules: ''
+        },
+        platformCredential: {
+          kind: 'discord',
+          applicationId: 'client-1',
+          botId: 'bot-1',
+          botUsername: 'DeepSeek',
+          guildId: 'guild-1',
+          guildName: 'Support server',
+          channelId: 'channel-1',
+          channelName: 'support',
+          installationId: 'dsgui-other',
+          guardOwnerInstallationId: 'dsgui-other',
+          guardOwnerUpdatedAt: '2026-06-03T00:00:00.000Z',
+          createdAt: '2026-06-03T00:00:00.000Z'
+        },
+        conversations: [],
+        createdAt: '2026-06-03T00:00:00.000Z',
+        updatedAt: '2026-06-03T00:00:00.000Z'
+      }
+    ]
+
+    const html = renderToStaticMarkup(
+      createElement(ClawSettingsSection, {
+        ctx: {
+          t,
+          form,
+          update: vi.fn(),
+          selectControlClass: 'select-control',
+          pickClawWorkspace: async () => undefined,
+          resetClawWorkspaceToDefault: () => undefined,
+          clawWorkspacePickerError: null
+        }
+      })
+    )
+
+    expect(html).toContain('Support server #support')
+    expect(html).toContain('Guards this channel only while this computer is online.')
+    expect(html).toContain('This Bot is being guarded by another device')
+    expect(html).toContain('Take over manually')
+  })
+
+  it('enables all Discord channel messages when restoring local guard ownership', () => {
+    const form = buildSettings()
+    form.claw.channels = [
+      {
+        id: 'discord-1',
+        provider: 'discord',
+        label: '#support',
+        enabled: false,
+        guardMode: 'only_mention',
+        model: 'deepseek-v4-flash',
+        threadId: '',
+        workspaceRoot: '/tmp/support',
+        agentProfile: {
+          name: 'Support bot',
+          description: '',
+          identity: '',
+          personality: '',
+          userContext: '',
+          replyRules: ''
+        },
+        platformCredential: {
+          kind: 'discord',
+          applicationId: 'client-1',
+          botId: 'bot-1',
+          botUsername: 'DeepSeek',
+          guildId: 'guild-1',
+          guildName: 'Support server',
+          channelId: 'channel-1',
+          channelName: 'support',
+          installationId: 'dsgui-local',
+          createdAt: '2026-06-03T00:00:00.000Z'
+        },
+        conversations: [],
+        createdAt: '2026-06-03T00:00:00.000Z',
+        updatedAt: '2026-06-03T00:00:00.000Z'
+      }
+    ]
+
+    expect(discordGuardOwnerPatch(form, form.claw.channels[0], true)).toMatchObject({
+      enabled: true,
+      guardMode: 'all_messages',
+      platformCredential: {
+        guardOwnerInstallationId: 'dsgui-local'
+      }
+    })
   })
 })

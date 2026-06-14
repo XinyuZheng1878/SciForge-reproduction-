@@ -36,4 +36,26 @@ describe('OutputAccumulator', () => {
 
     expect(output.snapshot().content).toBe('测试')
   })
+
+  it('previews short pending output before finish', () => {
+    const utf8 = createAccumulator()
+    utf8.append(Buffer.from('hi', 'utf8'))
+    expect(utf8.snapshot()).toMatchObject({
+      content: 'hi',
+      truncation: {
+        totalLines: 1,
+        totalBytes: 2
+      }
+    })
+
+    const utf16 = createAccumulator()
+    utf16.append(Buffer.from('测试', 'utf16le'))
+    expect(utf16.snapshot()).toMatchObject({
+      content: '测试',
+      truncation: {
+        totalLines: 1,
+        totalBytes: Buffer.byteLength('测试', 'utf8')
+      }
+    })
+  })
 })

@@ -68,16 +68,37 @@ export type ClipboardImageReadResult =
     }
   | { ok: false; message: string }
 
+export type WorkspaceFilePreviewKind = 'text' | 'pdf'
+
+export type WorkspaceFileReadTextResult = {
+  ok: true
+  kind: 'text'
+  path: string
+  content: string
+  mimeType: string
+  size: number
+  truncated: boolean
+  line?: number
+  column?: number
+}
+
+export type WorkspaceFileReadPdfResult = {
+  ok: true
+  kind: 'pdf'
+  path: string
+  content: ''
+  dataBase64: string
+  mimeType: 'application/pdf'
+  size: number
+  truncated: false
+  mtimeMs: number
+  line?: number
+  column?: number
+}
+
 export type WorkspaceFileReadResult =
-  | {
-      ok: true
-      path: string
-      content: string
-      size: number
-      truncated: boolean
-      line?: number
-      column?: number
-    }
+  | WorkspaceFileReadTextResult
+  | WorkspaceFileReadPdfResult
   | { ok: false; message: string }
 
 export type WorkspaceImageReadResult =
@@ -150,10 +171,14 @@ export type WorkspaceFileWatchResult =
   | {
       ok: true
       watchId: string
+      kind?: WorkspaceFilePreviewKind
       path: string
       content: string
+      dataBase64?: string
+      mimeType?: string
       size: number
       truncated: boolean
+      mtimeMs?: number
       startedAt: string
     }
   | { ok: false; message: string }
@@ -172,10 +197,14 @@ export type WorkspaceFileChangePayload =
       ok: true
       watchId: string
       workspaceRoot: string
+      kind?: WorkspaceFilePreviewKind
       path: string
       content: string
+      dataBase64?: string
+      mimeType?: string
       size: number
       truncated: boolean
+      mtimeMs?: number
       changedAt: string
     }
   | {

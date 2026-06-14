@@ -34,9 +34,30 @@ function runtimeDisclosureMetaFromRecord(
   const next: NonNullable<ApprovalRequestPayload['meta']> = {}
   const displayText = meta.displayText
   if (typeof displayText === 'string') next.displayText = displayText
+  if (typeof meta.source === 'string') next.source = meta.source
+  if (typeof meta.sourceLabel === 'string') next.sourceLabel = meta.sourceLabel
   if (Array.isArray(meta.attachmentIds)) {
     const attachmentIds = meta.attachmentIds.filter((item): item is string => typeof item === 'string')
     if (attachmentIds.length > 0) next.attachmentIds = attachmentIds
+  }
+  if (Array.isArray(meta.attachments)) {
+    next.attachments = meta.attachments.filter(
+      (item): item is NonNullable<typeof next.attachments>[number] =>
+        typeof item === 'object' && item !== null
+    )
+  }
+  const generatedFiles = Array.isArray(meta.generatedFiles)
+    ? meta.generatedFiles
+    : Array.isArray(meta.generatedImages)
+      ? meta.generatedImages
+      : Array.isArray(meta.images)
+        ? meta.images
+        : undefined
+  if (generatedFiles) {
+    next.generatedFiles = generatedFiles.filter(
+      (item): item is NonNullable<typeof next.generatedFiles>[number] =>
+        typeof item === 'object' && item !== null
+    )
   }
   if (Array.isArray(meta.activeSkillIds)) {
     const activeSkillIds = meta.activeSkillIds.filter((item): item is string => typeof item === 'string')
@@ -222,12 +243,14 @@ function dispatchItemSnapshot(event: Extract<AgentRuntimeEvent, { kind: 'item_sn
       return
     case 'assistant_message':
       if (item.text) {
+        const meta = runtimeDisclosureMetaFromRecord(item.meta)
         if (sink.onAssistantMessage) {
           sink.onAssistantMessage({
             itemId: item.id,
             turnId: event.turnId,
             createdAt: item.createdAt ?? event.createdAt,
-            text: item.text
+            text: item.text,
+            ...(meta ? { meta } : {})
           })
         } else {
           sink.onDeltas([{ kind: 'agent_message', text: item.text, seq: event.seq }])

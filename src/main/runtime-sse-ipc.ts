@@ -17,9 +17,19 @@ type SseControllerState = {
 const SSE_RECONNECT_BASE_MS = 750
 const SSE_RECONNECT_MAX_MS = 5_000
 const SSE_START_TIMEOUT_MS = 15_000
-
+const SSE_IPC_BATCH_FLUSH_DELAY_MS = 0
 
 const sseControllers = new Map<string, SseControllerState>()
+
+type RuntimeSseEventIpcPayload = {
+  streamId: string
+  events: RuntimeHostEventPayload[]
+  data: RuntimeHostEventPayload
+}
+
+type RuntimeSseEventSender = {
+  send: (channel: 'runtime:sse-event', payload: RuntimeSseEventIpcPayload) => void
+}
 
 class RuntimeSseHttpStatusError extends Error {
   constructor(readonly status: number) {
@@ -107,6 +117,56 @@ function coerceSsePayload(parsed: { data: unknown; event?: string; id?: string }
 
 function isFatalSseStatus(status: number | undefined): boolean {
   return typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429
+}
+
+function sendRuntimeSseEventBatch(
+  sender: RuntimeSseEventSender,
+  streamId: string,
+  events: RuntimeHostEventPayload[]
+): void {
+  if (events.length === 0) return
+  sender.send('runtime:sse-event', {
+    streamId,
+    events,
+    data: events[0]
+  })
+}
+
+function createRuntimeSseEventBatchSender(
+  sender: RuntimeSseEventSender,
+  streamId: string,
+  shouldSend: () => boolean
+): {
+  push: (event: RuntimeHostEventPayload) => void
+  flush: () => void
+} {
+  let queuedEvents: RuntimeHostEventPayload[] = []
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+  const clearFlushTimer = (): void => {
+    if (flushTimer === null) return
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+
+  const flush = (): void => {
+    clearFlushTimer()
+    if (queuedEvents.length === 0) return
+    const events = queuedEvents
+    queuedEvents = []
+    if (!shouldSend()) return
+    sendRuntimeSseEventBatch(sender, streamId, events)
+  }
+
+  return {
+    push(event) {
+      queuedEvents.push(event)
+      if (flushTimer === null) {
+        flushTimer = setTimeout(flush, SSE_IPC_BATCH_FLUSH_DELAY_MS)
+      }
+    },
+    flush
+  }
 }
 
 async function fetchSseWithStartTimeout(
@@ -243,6 +303,11 @@ export function registerRuntimeSseIpc(options: {
 
     ;(async () => {
       const wc = event.sender
+      const eventBatch = createRuntimeSseEventBatchSender(
+        wc,
+        id,
+        () => !state.stoppedByClient && !ac.signal.aborted
+      )
       try {
         const stream = runtimeEventsViaRuntimeHost(s, request.threadId, request.sinceSeq, ac.signal, {
           ensureKunRuntime: ensureRuntime,
@@ -252,10 +317,12 @@ export function registerRuntimeSseIpc(options: {
         }, request.runtimeId ?? 'kun')
         for await (const payload of stream) {
           if (state.stoppedByClient || ac.signal.aborted) return
-          wc.send('runtime:sse-event', { streamId: id, data: payload })
+          eventBatch.push(payload)
         }
+        eventBatch.flush()
       } catch (e) {
         if (state.stoppedByClient || ac.signal.aborted) return
+        eventBatch.flush()
         if (e instanceof RuntimeSseHttpStatusError) {
           wc.send('runtime:sse-error', { streamId: id, status: e.status })
           logError('sse', `SSE connection failed for thread ${request.threadId}`, {
@@ -269,6 +336,7 @@ export function registerRuntimeSseIpc(options: {
         logError('sse', `SSE stream error for thread ${request.threadId}`, { message: msg, streamId: id })
         return
       } finally {
+        eventBatch.flush()
         if (!state.stoppedByClient && !ac.signal.aborted) {
           wc.send('runtime:sse-end', { streamId: id })
         }

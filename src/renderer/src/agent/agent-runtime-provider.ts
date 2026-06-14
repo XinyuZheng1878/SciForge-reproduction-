@@ -111,9 +111,30 @@ function disclosureMeta(meta: Record<string, unknown> | undefined): RuntimeDiscl
   if (!meta) return undefined
   const next: RuntimeDisclosureMetadata = {}
   if (typeof meta.displayText === 'string') next.displayText = meta.displayText
+  if (typeof meta.source === 'string') next.source = meta.source
+  if (typeof meta.sourceLabel === 'string') next.sourceLabel = meta.sourceLabel
   if (Array.isArray(meta.attachmentIds)) {
     const attachmentIds = meta.attachmentIds.filter((value): value is string => typeof value === 'string')
     if (attachmentIds.length) next.attachmentIds = attachmentIds
+  }
+  if (Array.isArray(meta.attachments)) {
+    next.attachments = meta.attachments.filter(
+      (value): value is NonNullable<RuntimeDisclosureMetadata['attachments']>[number] =>
+        typeof value === 'object' && value !== null
+    )
+  }
+  const generatedFiles = Array.isArray(meta.generatedFiles)
+    ? meta.generatedFiles
+    : Array.isArray(meta.generatedImages)
+      ? meta.generatedImages
+      : Array.isArray(meta.images)
+        ? meta.images
+        : undefined
+  if (generatedFiles) {
+    next.generatedFiles = generatedFiles.filter(
+      (value): value is NonNullable<RuntimeDisclosureMetadata['generatedFiles']>[number] =>
+        typeof value === 'object' && value !== null
+    )
   }
   if (Array.isArray(meta.activeSkillIds)) {
     const activeSkillIds = meta.activeSkillIds.filter((value): value is string => typeof value === 'string')
@@ -223,7 +244,16 @@ function blockFromItem(item: AgentRuntimeItem): ChatBlock | null {
         meta: disclosureMeta(item.meta)
       }
     case 'assistant_message':
-      return { kind: 'assistant', id: item.id, createdAt: item.createdAt, text: item.text ?? '' }
+      {
+        const meta = disclosureMeta(item.meta)
+        return {
+          kind: 'assistant',
+          id: item.id,
+          createdAt: item.createdAt,
+          text: item.text ?? '',
+          ...(meta ? { meta } : {})
+        }
+      }
     case 'reasoning':
       return { kind: 'reasoning', id: item.id, createdAt: item.createdAt, text: item.text ?? '' }
     case 'tool':

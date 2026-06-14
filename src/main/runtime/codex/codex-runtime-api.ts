@@ -16,30 +16,32 @@ export type CodexNormalizedThread = {
   latestTurnStatus?: string
 }
 
+type CodexChatBlockBase = {
+  id: string
+  createdAt?: string
+  turnId?: string
+}
+
 export type CodexChatBlock =
-  | { kind: 'user'; id: string; createdAt?: string; text: string; displayText?: string }
-  | { kind: 'assistant'; id: string; createdAt?: string; text: string }
-  | { kind: 'reasoning'; id: string; createdAt?: string; text: string }
-  | {
+  | (CodexChatBlockBase & { kind: 'user'; text: string; displayText?: string })
+  | (CodexChatBlockBase & { kind: 'assistant'; text: string })
+  | (CodexChatBlockBase & { kind: 'reasoning'; text: string })
+  | (CodexChatBlockBase & {
       kind: 'tool'
-      id: string
-      createdAt?: string
       summary: string
       status: 'running' | 'success' | 'error'
       toolKind?: 'tool_call' | 'command_execution' | 'file_change'
       detail?: string
       filePath?: string
       meta?: Record<string, unknown>
-    }
-  | {
+    })
+  | (CodexChatBlockBase & {
       kind: 'system'
-      id: string
-      createdAt?: string
       text: string
       code?: string
       detail?: string
       severity?: 'info' | 'warning' | 'error'
-    }
+    })
 
 export type CodexThreadDetail = {
   blocks: CodexChatBlock[]

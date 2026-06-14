@@ -1,4 +1,5 @@
 import { clipboard } from 'electron'
+import type { Stats } from 'node:fs'
 import {
   mkdir,
   open as openFile,
@@ -31,7 +32,8 @@ import type {
   WorkspaceFileTarget,
   WorkspaceFileWritePayload,
   WorkspaceFileWriteResult,
-  WorkspaceImageReadResult
+  WorkspaceImageReadResult,
+  WorkspaceFileReadPdfResult
 } from '../../shared/workspace-file'
 import {
   canonicalPath,
@@ -49,6 +51,7 @@ import {
 
 const MAX_FILE_PREVIEW_BYTES = 1_500_000
 const MAX_IMAGE_PREVIEW_BYTES = 12 * 1024 * 1024
+const MAX_PDF_PREVIEW_BYTES = 64 * 1024 * 1024
 const WORKSPACE_IMAGE_DIR = 'img'
 
 const WORKSPACE_IMAGE_MIME_BY_EXT = new Map([
@@ -61,6 +64,39 @@ const WORKSPACE_IMAGE_MIME_BY_EXT = new Map([
   ['.avif', 'image/avif'],
   ['.ico', 'image/x-icon']
 ])
+
+type WorkspaceFileStat = Stats
+
+function workspaceFilePosition(payload: WorkspaceFileTarget): { line?: number; column?: number } {
+  return {
+    ...(payload.line ? { line: payload.line } : {}),
+    ...(payload.column ? { column: payload.column } : {})
+  }
+}
+
+async function readWorkspacePdfFromResolvedPath(
+  targetPath: string,
+  fileInfo: WorkspaceFileStat,
+  payload: WorkspaceFileTarget
+): Promise<WorkspaceFileReadPdfResult | { ok: false; message: string }> {
+  if (fileInfo.size > MAX_PDF_PREVIEW_BYTES) {
+    return { ok: false, message: 'This PDF is too large to preview in Write mode.' }
+  }
+
+  const bytes = await readFile(targetPath)
+  return {
+    ok: true,
+    kind: 'pdf',
+    path: targetPath,
+    content: '',
+    dataBase64: bytes.toString('base64'),
+    mimeType: 'application/pdf',
+    size: fileInfo.size,
+    truncated: false,
+    mtimeMs: fileInfo.mtimeMs,
+    ...workspaceFilePosition(payload)
+  }
+}
 
 export async function listWorkspaceDirectory(
   payload: WorkspaceDirectoryTarget
@@ -95,6 +131,11 @@ export async function readWorkspaceFile(payload: WorkspaceFileTarget): Promise<W
       return { ok: false, message: 'Cannot preview a directory.' }
     }
 
+    const ext = extensionFromName(targetPath).toLowerCase()
+    if (ext === '.pdf') {
+      return readWorkspacePdfFromResolvedPath(targetPath, fileInfo, payload)
+    }
+
     const maxBytes = Math.min(fileInfo.size, MAX_FILE_PREVIEW_BYTES)
     const handle = await openFile(targetPath, 'r')
     try {
@@ -107,12 +148,13 @@ export async function readWorkspaceFile(payload: WorkspaceFileTarget): Promise<W
 
       return {
         ok: true,
+        kind: 'text',
         path: targetPath,
         content: bytes.toString('utf8'),
+        mimeType: 'text/plain; charset=utf-8',
         size: fileInfo.size,
         truncated: fileInfo.size > MAX_FILE_PREVIEW_BYTES,
-        ...(payload.line ? { line: payload.line } : {}),
-        ...(payload.column ? { column: payload.column } : {})
+        ...workspaceFilePosition(payload)
       }
     } finally {
       await handle.close()

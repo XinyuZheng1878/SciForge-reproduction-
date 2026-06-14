@@ -17,9 +17,9 @@ describe('gui-plan path validation', () => {
     expect(isGuiPlanRelativePath(`${GUI_PLAN_RELATIVE_DIR}/login.md`)).toBe(true)
     expect(isGuiPlanRelativePath(`  ${GUI_PLAN_RELATIVE_DIR}/Login.md  `)).toBe(true)
     expect(isGuiPlanRelativePath(`${GUI_PLAN_RELATIVE_DIR}\\login.md`)).toBe(true)
-    expect(isGuiPlanRelativePath('.deepseekgui/plan/login.md')).toBe(true)
+    expect(isGuiPlanRelativePath('.kunsdd/plan/login.md')).toBe(true)
     expect(isGuiPlanCurrentRelativePath(`${GUI_PLAN_RELATIVE_DIR}/login.md`)).toBe(true)
-    expect(isGuiPlanCurrentRelativePath('.deepseekgui/plan/login.md')).toBe(false)
+    expect(isGuiPlanCurrentRelativePath('.kunsdd/plan/login.md')).toBe(false)
   })
 
   it('rejects nested paths', () => {

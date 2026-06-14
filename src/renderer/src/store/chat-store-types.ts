@@ -75,7 +75,7 @@ export type SendMessageOverrides = {
 }
 
 export type InitialSetupMode = 'required' | 'preview'
-export type SettingsRouteSection = 'general' | 'write' | 'agents' | 'skill' | 'mcp' | 'shortcuts' | 'claw'
+export type SettingsRouteSection = 'general' | 'write' | 'speechToText' | 'agents' | 'skill' | 'mcp' | 'shortcuts' | 'claw'
 export type AppRoute = 'chat' | 'write' | 'settings' | 'plugins' | 'claw' | 'schedule'
 export type PluginHostRoute = 'chat' | 'claw'
 
@@ -160,6 +160,7 @@ export type ChatState = {
   sidePanel: SidePanelState
   clawChannels: ClawImChannelV1[]
   activeClawChannelId: string
+  activeRemoteChannelId: string | null
   appendLocalClawTurn: (userText: string, replyText: string) => void
   setError: (message: string | null) => void
   setComposerModel: (modelId: string) => void
@@ -174,6 +175,8 @@ export type ChatState = {
   openPlugins: (host?: PluginHostRoute) => void
   openClaw: () => void
   openSchedule: () => void
+  selectRemoteGuardChannel: (channelId: string) => void
+  clearRemoteGuardChannel: () => void
   refreshClawChannels: () => Promise<void>
   addClawChannel: (
     provider: ClawImProvider,

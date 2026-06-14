@@ -2,19 +2,32 @@ import type { EventBus } from '../ports/event-bus.js'
 import type { RuntimeEvent } from '../contracts/events.js'
 
 /**
+ * SSE durable replay is backed by the session store. The in-memory bus only
+ * needs a recent tail for fast local snapshots, otherwise long streaming
+ * turns retain every token delta forever.
+ */
+const MAX_RETAINED_EVENTS_PER_THREAD = 256
+
+/**
  * In-memory implementation of the event bus used by tests and the
  * default runtime. Subscribers receive only events for their thread.
- * The bus is a single source of truth for the SSE replay path.
+ * Durable replay belongs to the session store.
  */
 export class InMemoryEventBus implements EventBus {
   private readonly events = new Map<string, RuntimeEvent[]>()
   private readonly subscribers = new Map<string, Set<(event: RuntimeEvent) => void>>()
   private nextSeq = new Map<string, number>()
+  private highestSeqByThread = new Map<string, number>()
 
   publish(event: RuntimeEvent): void {
     const list = this.events.get(event.threadId) ?? []
     list.push(event)
+    if (list.length > MAX_RETAINED_EVENTS_PER_THREAD) {
+      list.splice(0, list.length - MAX_RETAINED_EVENTS_PER_THREAD)
+    }
     this.events.set(event.threadId, list)
+    const highest = this.highestSeqByThread.get(event.threadId) ?? 0
+    if (event.seq > highest) this.highestSeqByThread.set(event.threadId, event.seq)
     const subscribers = this.subscribers.get(event.threadId)
     if (!subscribers) return
     for (const handler of subscribers) {
@@ -32,6 +45,9 @@ export class InMemoryEventBus implements EventBus {
     this.subscribers.set(threadId, set)
     return () => {
       set.delete(handler)
+      if (set.size === 0 && this.subscribers.get(threadId) === set) {
+        this.subscribers.delete(threadId)
+      }
     }
   }
 
@@ -41,8 +57,7 @@ export class InMemoryEventBus implements EventBus {
   }
 
   highestSeq(threadId: string): number {
-    const list = this.events.get(threadId) ?? []
-    return list.reduce((max, event) => Math.max(max, event.seq), 0)
+    return this.highestSeqByThread.get(threadId) ?? 0
   }
 
   /** Returns the next per-thread `seq` value, allocating one if needed. */
@@ -56,5 +71,6 @@ export class InMemoryEventBus implements EventBus {
     this.events.clear()
     this.subscribers.clear()
     this.nextSeq.clear()
+    this.highestSeqByThread.clear()
   }
 }

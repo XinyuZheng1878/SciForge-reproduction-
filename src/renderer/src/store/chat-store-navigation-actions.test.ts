@@ -20,7 +20,7 @@ vi.mock('../agent/runtime-client', () => ({
   }
 }))
 
-import { createNavigationActions } from './chat-store-navigation-actions'
+import { createNavigationActions, syncClawChannelActivityToStore } from './chat-store-navigation-actions'
 
 function thread(id: string, runtimeId?: AgentRuntimeId): NormalizedThread {
   return {
@@ -176,5 +176,112 @@ describe('chat-store-runtime helper defaults', () => {
     rememberProviderThreadRuntime(provider, 'legacy-thread', [thread('legacy-thread')])
 
     expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('legacy-thread', 'kun')
+  })
+})
+
+describe('syncClawChannelActivityToStore', () => {
+  beforeEach(() => {
+    registryMock.getProvider.mockReset()
+    runtimeClientMock.getSettings.mockReset()
+  })
+
+  function buildActivityHarness(options?: Partial<ChatState>): {
+    state: ChatState
+    provider: { rememberThreadRuntime: ReturnType<typeof vi.fn> }
+  } {
+    const provider = {
+      rememberThreadRuntime: vi.fn()
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    runtimeClientMock.getSettings.mockResolvedValue({
+      claw: {
+        channels: [{
+          id: 'channel-1',
+          enabled: true,
+          provider: 'weixin',
+          label: 'WeChat',
+          threadId: '',
+          conversations: []
+        }]
+      }
+    })
+    const state = {
+      activeClawChannelId: '',
+      activeThreadId: 'desktop-thread',
+      clawChannels: [],
+      recoverActiveTurn: vi.fn(async () => true),
+      refreshThreads: vi.fn(async () => undefined),
+      route: 'chat',
+      selectClawConversation: vi.fn(async () => undefined),
+      selectThread: vi.fn(async (threadId: string) => {
+        state.activeThreadId = threadId
+      }),
+      unreadThreadIds: {},
+      watchTurnCompletion: {},
+      ...options
+    } as unknown as ChatState
+    return { state, provider }
+  }
+
+  it('recovers the current desktop thread when phone activity targets it outside IM route', async () => {
+    const { state, provider } = buildActivityHarness()
+    const set: ChatStoreSet = (partial) => {
+      const update = typeof partial === 'function' ? partial(state) : partial
+      Object.assign(state, update)
+    }
+
+    await syncClawChannelActivityToStore(set, () => state, {
+      channelId: 'channel-1',
+      threadId: 'desktop-thread',
+      runtimeId: 'codex'
+    })
+
+    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('desktop-thread', 'codex')
+    expect(state.recoverActiveTurn).toHaveBeenCalledTimes(1)
+    expect(state.refreshThreads).toHaveBeenCalledTimes(1)
+    expect(state.selectClawConversation).not.toHaveBeenCalled()
+    expect(state.activeClawChannelId).toBe('channel-1')
+  })
+
+  it('marks a different phone-updated thread unread without switching the desktop selection', async () => {
+    const { state } = buildActivityHarness()
+    const set: ChatStoreSet = (partial) => {
+      const update = typeof partial === 'function' ? partial(state) : partial
+      Object.assign(state, update)
+    }
+
+    await syncClawChannelActivityToStore(set, () => state, {
+      channelId: 'channel-1',
+      threadId: 'remote-thread',
+      runtimeId: 'codex'
+    })
+
+    expect(state.activeThreadId).toBe('desktop-thread')
+    expect(state.recoverActiveTurn).not.toHaveBeenCalled()
+    expect(state.selectClawConversation).not.toHaveBeenCalled()
+    expect(state.refreshThreads).toHaveBeenCalledTimes(1)
+    expect(state.unreadThreadIds['remote-thread']).toBe(true)
+    expect(state.watchTurnCompletion['remote-thread']).toBe(true)
+  })
+
+  it('follows a replacement thread when phone activity replaces the current desktop thread', async () => {
+    const { state } = buildActivityHarness()
+    const set: ChatStoreSet = (partial) => {
+      const update = typeof partial === 'function' ? partial(state) : partial
+      Object.assign(state, update)
+    }
+
+    await syncClawChannelActivityToStore(set, () => state, {
+      channelId: 'channel-1',
+      threadId: 'replacement-thread',
+      previousThreadId: 'desktop-thread',
+      runtimeId: 'codex'
+    })
+
+    expect(state.selectThread).toHaveBeenCalledWith('replacement-thread')
+    expect(state.activeThreadId).toBe('replacement-thread')
+    expect(state.recoverActiveTurn).not.toHaveBeenCalled()
+    expect(state.refreshThreads).not.toHaveBeenCalled()
+    expect(state.unreadThreadIds['replacement-thread']).toBeUndefined()
   })
 })

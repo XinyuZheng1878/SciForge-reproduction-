@@ -109,7 +109,7 @@ describe('Web tool provider', () => {
     }
   })
 
-  it('rejects fetch responses when content-length exceeds max_bytes', async () => {
+  it('truncates instead of failing when content-length exceeds max_bytes', async () => {
     vi.stubGlobal('fetch', async () => new Response('abcdefghijklmnopqrstuvwxyz', {
       headers: {
         'content-length': '26',
@@ -133,16 +133,16 @@ describe('Web tool provider', () => {
       arguments: { url: 'https://docs.example.test/large', max_bytes: 10 }
     }, buildContext())
 
-    expect(result.item).toMatchObject({ kind: 'tool_result', isError: true })
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
     if (result.item.kind === 'tool_result') {
       expect(result.item.output).toMatchObject({
-        error: {
-          code: 'fetch_failed',
-          message: expect.stringContaining('content exceeds')
-        },
+        text: 'abcdefghij',
+        byteCount: 10,
+        truncated: true,
         telemetry: {
           policy: 'allowed',
-          provider: 'fetch'
+          provider: 'fetch',
+          byteCount: 10
         }
       })
     }
@@ -183,6 +183,57 @@ describe('Web tool provider', () => {
           byteCount: 10
         }
       })
+    }
+  })
+
+  it('extracts HTML text without script, style, comment, or attribute noise', async () => {
+    vi.stubGlobal('fetch', async () => new Response([
+      '<!doctype html>',
+      '<title>Docs &amp; Safety &#x2713;</title>',
+      '<body data-leak="attribute-secret">',
+      '<!-- comment-secret -->',
+      '<script>if (a < b) { window.secretScript = "nope" }</script>',
+      '<style>.secretStyle{display:none}</style>',
+      '<h1 title="attribute-title-secret">Hello&nbsp;World</h1>',
+      '<p>Tom &amp; Jerry &quot;quote&quot; &apos;apos&apos;.</p>',
+      '<div>Caf&#233; &#x2603; &copy;</div>',
+      '<p>Escaped &lt;script&gt; remains visible text.</p>',
+      '</body>'
+    ].join(''), {
+      headers: {
+        'content-type': 'text/html; charset=utf-8'
+      }
+    }))
+    const config = KunCapabilitiesConfig.parse({
+      web: {
+        enabled: true,
+        fetchEnabled: true,
+        allowDomains: ['docs.example.test']
+      }
+    })
+    const host = new LocalToolHost({
+      registry: new CapabilityRegistry(buildWebToolProviders(config.web).providers)
+    })
+
+    const result = await host.execute({
+      callId: 'call_1',
+      toolName: 'web_fetch',
+      arguments: { url: 'https://docs.example.test/html' }
+    }, buildContext())
+
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
+    if (result.item.kind === 'tool_result') {
+      const output = result.item.output as { title?: string; text: string }
+      expect(output.title).toBe('Docs & Safety \u2713')
+      expect(output.text).toContain('Hello World')
+      expect(output.text).toContain('Tom & Jerry "quote" \'apos\'.')
+      expect(output.text).toContain('Caf\u00e9 \u2603 \u00a9')
+      expect(output.text).toContain('Escaped <script> remains visible text.')
+      expect(output.text).not.toContain('secretScript')
+      expect(output.text).not.toContain('secretStyle')
+      expect(output.text).not.toContain('comment-secret')
+      expect(output.text).not.toContain('attribute-secret')
+      expect(output.text).not.toContain('attribute-title-secret')
     }
   })
 

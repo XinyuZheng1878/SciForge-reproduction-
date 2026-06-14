@@ -4,14 +4,17 @@ import { CLAW_MANAGED_INSTRUCTIONS_HEADING } from '@shared/app-settings'
 import {
   MAX_TURN_MODEL_LABELS,
   MAX_CODE_WORKSPACE_ROOTS,
+  clawThreadRemoteBindingsFromChannels,
   clawThreadIdsFromChannels,
   clawThreadTitleLooksManaged,
   compactCodeWorkspaceRoots,
+  deriveClawThreadRemoteStatusKind,
   hydrateBlockModelLabels,
   isClawThread,
   newClawChannel,
   normalizeTurnModelMap,
-  rememberTurnModel
+  rememberTurnModel,
+  watchedClawThreadIdsFromChannels
 } from './chat-store-helpers'
 
 const TURN_MODEL_STORAGE_KEY = 'deepseekgui.turnModelLabel'
@@ -133,6 +136,69 @@ describe('chat-store Claw helpers', () => {
     expect(ids.has('kun-conversation')).toBe(true)
   })
 
+  it('collects watched thread ids only from enabled IM channels', () => {
+    const enabled = clawChannel()
+    const disabled = {
+      ...clawChannel(),
+      id: 'channel-disabled',
+      enabled: false,
+      threadId: 'disabled-channel',
+      conversations: [{
+        ...clawChannel().conversations[0],
+        id: 'conversation-disabled',
+        localThreadId: 'disabled-conversation'
+      }]
+    }
+
+    const ids = watchedClawThreadIdsFromChannels([enabled, disabled])
+
+    expect(ids.has('kun-channel')).toBe(true)
+    expect(ids.has('kun-conversation')).toBe(true)
+    expect(ids.has('disabled-channel')).toBe(false)
+    expect(ids.has('disabled-conversation')).toBe(false)
+  })
+
+  it('indexes remote bindings for channel and conversation thread ids', () => {
+    const base = clawChannel()
+    const channel: ClawImChannelV1 = {
+      ...base,
+      provider: 'weixin',
+      label: 'WeChat',
+      agentThreadIds: { codex: 'codex-channel' },
+      conversations: [
+        {
+          ...base.conversations[0],
+          runtimeId: 'codex',
+          agentThreadIds: { codex: 'codex-conversation' },
+          updatedAt: '2026-06-02T00:00:00.000Z'
+        }
+      ]
+    }
+
+    const bindings = clawThreadRemoteBindingsFromChannels([channel])
+
+    expect(bindings.get('kun-channel')).toMatchObject({
+      providerLabel: 'WeChat',
+      scope: 'channel',
+      channelLabel: 'WeChat'
+    })
+    expect(bindings.get('codex-conversation')).toMatchObject({
+      providerLabel: 'WeChat',
+      scope: 'conversation',
+      senderName: 'Alex',
+      runtimeId: 'codex'
+    })
+  })
+
+  it('derives remote status precedence from thread state', () => {
+    const binding = clawThreadRemoteBindingsFromChannels([clawChannel()]).get('kun-channel')
+
+    expect(deriveClawThreadRemoteStatusKind({ binding })).toBe('watched')
+    expect(deriveClawThreadRemoteStatusKind({ binding, queued: true })).toBe('queued')
+    expect(deriveClawThreadRemoteStatusKind({ binding, running: true })).toBe('running')
+    expect(deriveClawThreadRemoteStatusKind({ binding, status: 'failed' })).toBe('error')
+  })
+
   it('uses product default agent names for new Claw channels', () => {
     const feishu = newClawChannel('feishu')
     const weixin = newClawChannel('weixin')
@@ -150,13 +216,13 @@ describe('chat-store Claw helpers', () => {
     expect(isClawThread({ id: 'kun-leaked', title: '[Claw:Feishu Agent]' })).toBe(true)
   })
 
-  it('recognizes Claw sessions by registered thread id', () => {
+  it('does not treat a normal desktop session as Claw-managed just because IM is bound to it', () => {
     expect(
       isClawThread(
         { id: 'kun-conversation', title: 'hi' },
         [clawChannel()]
       )
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('normalizes and caps persisted turn model labels', () => {

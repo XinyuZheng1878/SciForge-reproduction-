@@ -3,17 +3,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useTranslation } from 'react-i18next'
-import { Check, ChevronDown, ChevronRight, Copy, FileEdit, ImageIcon, Loader2, MessageSquareQuote, PencilLine, Terminal, Wrench } from 'lucide-react'
-import type { AttachmentReference, ChatBlock, RuntimeDisclosureMetadata, ToolBlock, UserInputAnswer, UserInputQuestion } from '../../agent/types'
+import { Check, ChevronDown, ChevronRight, Copy, FileEdit, Loader2, MessageSquareQuote, PencilLine, Terminal, Wrench } from 'lucide-react'
+import type { ChatBlock, RuntimeDisclosureMetadata, ToolBlock, UserInputAnswer, UserInputQuestion } from '../../agent/types'
 import { extractUnifiedDiffText } from '../../lib/diff-stats'
 import { useChatStore } from '../../store/chat-store'
-import { getProvider } from '../../agent/registry'
 import { parseWritePromptForDisplay } from '../../write/quoted-selection'
 import { parseClawUserPromptForDisplay, type ClawUserPromptDisplay } from '@shared/app-settings'
 import { DiffView } from '../DiffView'
 import { AssistantMarkdown } from './AssistantMarkdown'
+import { TimelineImagesFromMeta, timelineImagesFromMeta } from './message-timeline-media'
 import { ModelMetaTag, WritePromptMetaDisclosure } from './message-timeline-cards'
 import { readNumber, formatDuration, formatToolTitle } from './message-timeline-tools'
+import { clawThreadRemoteBindingsFromChannels } from '../../store/chat-store-helpers'
 
 const COPY_FEEDBACK_RESET_MS = 1600
 
@@ -31,6 +32,8 @@ function UserMessageBubble({
   const { t } = useTranslation('common')
   const busy = useChatStore((s) => s.busy)
   const route = useChatStore((s) => s.route)
+  const activeThreadId = useChatStore((s) => s.activeThreadId)
+  const clawChannels = useChatStore((s) => s.clawChannels)
   const rewindAndResend = useChatStore((s) => s.rewindAndResend)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(block.text)
@@ -46,6 +49,14 @@ function UserMessageBubble({
     if (!parsed.managed && !parsed.inbound && block.managedBy !== 'claw' && route !== 'claw') return null
     return parsed
   }, [block.managedBy, block.text, route])
+  const remoteBinding = useMemo(() => {
+    if (!activeThreadId) return null
+    return clawThreadRemoteBindingsFromChannels(clawChannels).get(activeThreadId) ?? null
+  }, [activeThreadId, clawChannels])
+  const sourceLabel = useMemo(
+    () => messageSourceLabel(block, parsedClawPrompt, remoteBinding?.providerLabel),
+    [block, parsedClawPrompt, remoteBinding]
+  )
   const metaDisplayText =
     typeof block.meta?.displayText === 'string' && block.meta.displayText.trim()
       ? block.meta.displayText.trim()
@@ -159,11 +170,15 @@ function UserMessageBubble({
               onToggle={() => setWriteMetaOpen((value) => !value)}
             />
           ) : null}
+          <MessageSourceTag label={sourceLabel} align="right" />
           <RuntimeMetaChips meta={block.meta} align="right" hideAttachments />
         </div>
       )}
       <div className="mt-2 flex min-w-0 items-center justify-between gap-3 text-ds-faint opacity-90 transition group-hover:opacity-100">
-        <ModelMetaTag label={block.modelLabel} className="flex-1 justify-start text-left" />
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <ModelMetaTag label={block.modelLabel} className="justify-start text-left" />
+          {showClawInboundCard ? <MessageSourceTag label={sourceLabel} inline /> : null}
+        </div>
         <div className="flex items-center justify-end gap-3">
           <CopyFeedbackButton text={displayText} iconOnly />
           {canEdit ? (
@@ -224,6 +239,64 @@ function ClawInboundMessageCard({
   )
 }
 
+function messageSourceLabel(
+  block: Extract<ChatBlock, { kind: 'user' }>,
+  parsedClawPrompt: ClawUserPromptDisplay | null,
+  remoteProviderLabel?: string
+): string {
+  const meta = block.meta as Record<string, unknown> | undefined
+  const metaSourceLabel = metaString(meta, 'sourceLabel')
+  if (metaSourceLabel) return normalizeMessageSourceLabel(metaSourceLabel, remoteProviderLabel)
+  const source = metaString(meta, 'source') || metaString(meta, 'sourceKind')
+  const normalizedSource = source?.toLowerCase() ?? ''
+  if (normalizedSource) {
+    if (normalizedSource.includes('discord')) return 'Discord'
+    if (normalizedSource.includes('weixin') || normalizedSource.includes('wechat')) return 'WeChat'
+    if (normalizedSource.includes('feishu') || normalizedSource.includes('lark')) return 'Feishu / Lark'
+    if (normalizedSource === 'im' || normalizedSource === 'remote' || normalizedSource === 'claw') {
+      return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Feishu / Lark'
+    }
+    if (normalizedSource === 'desktop' || normalizedSource === 'ui' || normalizedSource === 'user') return 'Desktop'
+  }
+  if (parsedClawPrompt?.inbound) {
+    return normalizeMessageSourceLabel(parsedClawPrompt.sourceLabel, remoteProviderLabel)
+  }
+  if (block.managedBy === 'claw') return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Feishu / Lark'
+  return 'Desktop'
+}
+
+function normalizeMessageSourceLabel(label: string | undefined, remoteProviderLabel?: string): string {
+  const normalized = label?.trim()
+  if (!normalized) return remoteProviderLabel || 'Desktop'
+  const lower = normalized.toLowerCase()
+  if (lower.includes('discord')) return 'Discord'
+  if (lower.includes('weixin') || lower.includes('wechat')) return 'WeChat'
+  if (lower.includes('feishu') || lower.includes('lark')) return 'Feishu / Lark'
+  if (lower === 'desktop' || lower === 'ui' || lower === 'user') return 'Desktop'
+  return normalized
+}
+
+function MessageSourceTag({
+  label,
+  align = 'left',
+  inline = false
+}: {
+  label: string
+  align?: 'left' | 'right'
+  inline?: boolean
+}): ReactElement {
+  return (
+    <div className={`${inline ? '' : 'mt-2'} flex min-w-0 ${align === 'right' ? 'justify-end' : 'justify-start'}`}>
+      <span
+        className="inline-flex max-w-full items-center rounded-md border border-ds-border-muted bg-ds-card/75 px-1.5 py-0.5 text-[11px] font-semibold text-ds-faint"
+        title={label}
+      >
+        <span className="truncate">{label}</span>
+      </span>
+    </div>
+  )
+}
+
 const USER_INPUT_OTHER_LABEL = 'Other'
 const USER_INPUT_FREEFORM_LABEL = 'Answer'
 
@@ -238,133 +311,17 @@ function metaString(meta: Record<string, unknown> | undefined, key: string): str
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
-function metaAttachmentReferences(meta: RuntimeDisclosureMetadata | undefined): AttachmentReference[] {
-  const value = meta?.attachments
-  if (!Array.isArray(value)) return []
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object') return null
-      const raw = entry as Record<string, unknown>
-      const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : ''
-      if (!id) return null
-      const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : undefined
-      const mimeType = typeof raw.mimeType === 'string' && raw.mimeType.trim() ? raw.mimeType.trim() : undefined
-      const previewUrl = typeof raw.previewUrl === 'string' && raw.previewUrl.trim() ? raw.previewUrl.trim() : undefined
-      const width = typeof raw.width === 'number' && Number.isFinite(raw.width) ? raw.width : undefined
-      const height = typeof raw.height === 'number' && Number.isFinite(raw.height) ? raw.height : undefined
-      return {
-        id,
-        ...(name ? { name } : {}),
-        ...(mimeType ? { mimeType } : {}),
-        ...(width ? { width } : {}),
-        ...(height ? { height } : {}),
-        ...(previewUrl ? { previewUrl } : {})
-      }
-    })
-    .filter((entry): entry is AttachmentReference => entry !== null)
-}
-
 function UserAttachmentPreviews({
   meta
 }: {
   meta?: RuntimeDisclosureMetadata
 }): ReactElement | null {
-  const activeThreadId = useChatStore((s) => s.activeThreadId)
-  const workspaceRoot = useChatStore((s) => s.workspaceRoot)
-  const attachments = useMemo(() => {
-    const attachmentIds = metaStringArray(meta, 'attachmentIds')
-    const byId = new Map<string, AttachmentReference>()
-    for (const attachment of metaAttachmentReferences(meta)) {
-      byId.set(attachment.id, attachment)
-    }
-    for (const id of attachmentIds) {
-      if (!byId.has(id)) byId.set(id, { id })
-    }
-    return [...byId.values()]
-  }, [meta])
-  const [resolvedPreviewUrls, setResolvedPreviewUrls] = useState<Record<string, string>>({})
-  const [failedPreviewIds, setFailedPreviewIds] = useState<Record<string, true>>({})
-  const missingPreviewKey = attachments
-    .filter((attachment) => !attachment.previewUrl && !resolvedPreviewUrls[attachment.id] && !failedPreviewIds[attachment.id])
-    .map((attachment) => attachment.id)
-    .join('\n')
-
-  useEffect(() => {
-    if (!missingPreviewKey) return
-    const provider = getProvider()
-    if (typeof provider.getAttachmentContent !== 'function') return
-    const missingIds = missingPreviewKey.split('\n').filter(Boolean)
-    let cancelled = false
-    void Promise.all(
-      missingIds.map(async (id) => {
-        try {
-          const content = await provider.getAttachmentContent?.(id, {
-            ...(activeThreadId ? { threadId: activeThreadId } : {}),
-            ...(workspaceRoot ? { workspace: workspaceRoot } : {})
-          })
-          if (!content) return { id, failed: true as const }
-          return {
-            id,
-            previewUrl: `data:${content.attachment.mimeType};base64,${content.dataBase64}`
-          }
-        } catch {
-          return { id, failed: true as const }
-        }
-      })
-    ).then((results) => {
-      if (cancelled) return
-      setResolvedPreviewUrls((current) => {
-        const next = { ...current }
-        for (const result of results) {
-          if ('previewUrl' in result && typeof result.previewUrl === 'string') {
-            next[result.id] = result.previewUrl
-          }
-        }
-        return next
-      })
-      setFailedPreviewIds((current) => {
-        const next = { ...current }
-        for (const result of results) {
-          if ('failed' in result) next[result.id] = true
-        }
-        return next
-      })
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [activeThreadId, missingPreviewKey, workspaceRoot])
-
-  if (attachments.length === 0) return null
+  const hasImages = useMemo(() => timelineImagesFromMeta(meta).length > 0, [meta])
+  if (!hasImages) return null
 
   return (
     <div className="mb-2 flex min-w-0 justify-end">
-      <div className="flex max-w-[80%] flex-wrap justify-end gap-2">
-        {attachments.map((attachment) => {
-          const previewUrl = attachment.previewUrl ?? resolvedPreviewUrls[attachment.id]
-          const title = attachment.name || attachment.id
-          return (
-            <span
-              key={attachment.id}
-              className="block h-28 w-36 overflow-hidden rounded-[14px] border border-ds-border-muted bg-ds-card shadow-sm"
-              title={title}
-            >
-              {previewUrl ? (
-                <img
-                  src={previewUrl}
-                  alt={title}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-              ) : (
-                <span className="flex h-full w-full items-center justify-center text-ds-faint">
-                  <ImageIcon className="h-7 w-7" strokeWidth={1.6} />
-                </span>
-              )}
-            </span>
-          )
-        })}
-      </div>
+      <TimelineImagesFromMeta meta={meta} variant="user" />
     </div>
   )
 }
@@ -902,6 +859,7 @@ export function MessageBubble({ block, nested = false }: { block: ChatBlock; nes
         <div className="ds-markdown ds-chat-answer min-w-0 max-w-full text-ds-ink">
           <AssistantMarkdown text={block.text} streaming={streaming} />
         </div>
+        <TimelineImagesFromMeta meta={block.meta} variant="assistant" />
         {!streaming ? (
           <div className="mt-1 flex min-h-5 min-w-0 items-center justify-between gap-3 text-[11.5px] text-ds-faint opacity-0 transition duration-150 group-hover/message:opacity-100">
             <span className="min-w-0 truncate">{createdAtLabel ?? ''}</span>
@@ -1111,6 +1069,7 @@ function ToolEntry({ block, nested = false }: { block: ToolBlock; nested?: boole
           )
         ) : null}
       </button>
+      <TimelineImagesFromMeta meta={block.meta} variant="tool" />
       {effectiveOpen && hasDetail ? (
         <div className="ds-panel-strip min-w-0 border-t border-ds-border-muted/60 px-4 py-3">
           {patchText !== undefined ? (

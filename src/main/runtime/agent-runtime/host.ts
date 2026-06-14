@@ -48,8 +48,12 @@ export function createAgentRuntimeHost(options: AgentRuntimeHostOptions): AgentR
   return new AgentRuntimeHost(options)
 }
 
+const THREAD_TURN_QUEUE_POLL_MS = 1_000
+const THREAD_TURN_QUEUE_TIMEOUT_MS = 10 * 60_000
+
 export class AgentRuntimeHost {
   private readonly adapters: Map<AgentRuntimeId, AgentRuntimeAdapter>
+  private readonly turnQueues = new Map<string, Promise<unknown>>()
 
   constructor(private readonly options: AgentRuntimeHostOptions) {
     this.adapters = normalizeAdapters(options.adapters)
@@ -82,7 +86,7 @@ export class AgentRuntimeHost {
 
   async startTurn(input: AgentRuntimeTurnStartInput): Promise<AgentRuntimeTurnHandle> {
     const { adapter, context } = await this.resolve(input.runtimeId)
-    return adapter.startTurn(context, input)
+    return this.enqueueThreadTurnStart(adapter, context, input)
   }
 
   async interruptTurn(input: AgentRuntimeTurnTargetInput): Promise<void> {
@@ -178,6 +182,65 @@ export class AgentRuntimeHost {
     if (!adapter) throw new Error(`No AgentRuntimeAdapter registered for runtime: ${selected}`)
     return { adapter, context: { settings } }
   }
+
+  private enqueueThreadTurnStart(
+    adapter: AgentRuntimeAdapter,
+    context: AgentRuntimeAdapterContext,
+    input: AgentRuntimeTurnStartInput
+  ): Promise<AgentRuntimeTurnHandle> {
+    const key = `${adapter.id}:${input.threadId.trim()}`
+    if (!input.threadId.trim()) return adapter.startTurn(context, input)
+    const previous = this.turnQueues.get(key) ?? Promise.resolve()
+    const task = previous
+      .catch(() => undefined)
+      .then(async () => {
+        await waitForThreadIdle(adapter, context, input)
+        return adapter.startTurn(context, input)
+      })
+    this.turnQueues.set(key, task)
+    void task
+      .finally(() => {
+        if (this.turnQueues.get(key) === task) this.turnQueues.delete(key)
+      })
+      .catch(() => undefined)
+    return task
+  }
+}
+
+async function waitForThreadIdle(
+  adapter: AgentRuntimeAdapter,
+  context: AgentRuntimeAdapterContext,
+  input: AgentRuntimeTurnStartInput
+): Promise<void> {
+  const deadline = Date.now() + THREAD_TURN_QUEUE_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    let active = false
+    try {
+      const detail = await adapter.readThread(context, {
+        runtimeId: input.runtimeId,
+        threadId: input.threadId
+      })
+      active = threadHasActiveTurn(detail)
+    } catch {
+      return
+    }
+    if (!active) return
+    await sleep(THREAD_TURN_QUEUE_POLL_MS)
+  }
+  throw new Error(`Timed out waiting for active turn to finish for thread ${input.threadId}.`)
+}
+
+function threadHasActiveTurn(detail: { turns?: Array<{ status?: string }> }): boolean {
+  const turns = Array.isArray(detail.turns) ? detail.turns : []
+  return turns.some((turn) => isActiveTurnStatus(turn.status))
+}
+
+function isActiveTurnStatus(status: string | undefined): boolean {
+  return status === 'queued' || status === 'in_progress' || status === 'started' || status === 'running'
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function normalizeAdapters(

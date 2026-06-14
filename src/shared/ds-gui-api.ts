@@ -2,6 +2,7 @@ import type {
   AppSettingsPatch,
   AppSettingsV1,
   AgentRuntimeId,
+  ClawImAgentProfileV1,
   ClawRunResult,
   ClawTaskFromTextResult,
   ClawRuntimeStatus,
@@ -70,6 +71,10 @@ import type {
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse
 } from './agent-runtime-contract'
+import type {
+  SpeechTranscriptionRequest,
+  SpeechTranscriptionResult
+} from './speech-to-text'
 
 export type RuntimeRequestResult = { ok: boolean; status: number; body: string }
 export type WorkspacePickResult = { canceled: boolean; path: string | null }
@@ -187,6 +192,7 @@ export type ClawChannelActivityPayload = {
   channelId: string
   threadId: string
   runtimeId?: AgentRuntimeId
+  previousThreadId?: string
 }
 export type ClawActiveThreadContextPayload = {
   threadId: string
@@ -211,9 +217,117 @@ export type ClawImInstallPollResult =
   | { done: true; kind: 'feishu'; appId: string; appSecret: string; domain: string }
   | { done: true; kind: 'weixin'; accountId: string; sessionKey: string }
   | { done: false; error?: string }
-export type SseEventPayload = { streamId: string; data: unknown }
+export type DiscordBotInfo = {
+  applicationId: string
+  botId: string
+  botUsername: string
+  inviteUrl: string
+}
+export type DiscordGuild = {
+  id: string
+  name: string
+}
+export type DiscordChannel = {
+  id: string
+  name: string
+  type: number
+}
+export type DiscordGuardConflictStatus = {
+  channelConfigId: string
+  guildId: string
+  guildName: string
+  channelId: string
+  channelName: string
+  ownerInstallationId: string
+  currentInstallationId: string
+  takeoverAvailable: boolean
+  message: string
+}
+export type DiscordBotChannelStatus = {
+  channelConfigId: string
+  guildId: string
+  guildName: string
+  channelId: string
+  channelName: string
+  label: string
+  enabled: boolean
+  connected: boolean
+  conflict?: DiscordGuardConflictStatus
+  guardOwnerInstallationId?: string
+  guardOwnerUpdatedAt?: string
+  workspaceRoot: string
+  model: string
+  runtimeId?: AgentRuntimeId
+  agentName: string
+  accessError?: string
+}
+export type DiscordBotStatus = {
+  installationId?: string
+  clientId?: string
+  inviteUrl?: string
+  tokenConfigured?: boolean
+  proxyUrl?: string
+  configured: boolean
+  connected: boolean
+  enabled: boolean
+  bot?: DiscordBotInfo
+  channels?: DiscordBotChannelStatus[]
+  conflict?: DiscordGuardConflictStatus
+  guildId?: string
+  guildName?: string
+  channelId?: string
+  channelName?: string
+  message?: string
+}
+export type DiscordConfigureClientResult =
+  | { ok: true; status: DiscordBotStatus }
+  | { ok: false; message: string }
+export type DiscordConfigureTokenResult =
+  | { ok: true; status: DiscordBotStatus }
+  | { ok: false; message: string }
+export type DiscordConfigureProxyResult =
+  | { ok: true; status: DiscordBotStatus }
+  | { ok: false; message: string }
+export type DiscordGuildListResult =
+  | { ok: true; guilds: DiscordGuild[] }
+  | { ok: false; message: string }
+export type DiscordChannelListResult =
+  | { ok: true; channels: DiscordChannel[] }
+  | { ok: false; message: string }
+export type DiscordBindChannelResult =
+  | { ok: true; status: DiscordBotStatus; channelConfigId: string }
+  | { ok: false; message: string }
+export type DiscordTestSendResult =
+  | { ok: true; messageId: string }
+  | { ok: false; message: string }
+export type DiscordGuardResult =
+  | { ok: true; status: DiscordBotStatus }
+  | { ok: false; message: string; status?: DiscordBotStatus; conflict?: DiscordGuardConflictStatus }
+export type SseEventPayload = {
+  streamId: string
+  /** Batched runtime events. New legacy-SSE consumers should prefer this field. */
+  events?: unknown[]
+  /** First event in the batch, retained for older compatibility shims. */
+  data?: unknown
+}
 export type SseEndPayload = { streamId: string }
 export type SseErrorPayload = { streamId: string; status?: number; message?: string }
+export type KunRuntimeStatusState =
+  | 'starting'
+  | 'running'
+  | 'restarting'
+  | 'crashed'
+  | 'failed'
+  | 'stopped'
+export type KunRuntimeStatusPayload = {
+  state: KunRuntimeStatusState
+  source: string
+  message?: string
+  stderrTail?: string
+  attempt?: number
+  maxAttempts?: number
+  at: string
+}
 
 export type DsGuiApi = {
   platform: string
@@ -234,6 +348,30 @@ export type DsGuiApi = {
     provider: 'feishu' | 'weixin',
     deviceCode: string
   ) => Promise<ClawImInstallPollResult>
+  getDiscordBotStatus: () => Promise<DiscordBotStatus>
+  configureDiscordClientId: (clientId: string) => Promise<DiscordConfigureClientResult>
+  configureDiscordBotToken: (token: string, clientId?: string) => Promise<DiscordConfigureTokenResult>
+  configureDiscordProxy: (proxyUrl: string) => Promise<DiscordConfigureProxyResult>
+  listDiscordGuilds: () => Promise<DiscordGuildListResult>
+  listDiscordChannels: (guildId: string) => Promise<DiscordChannelListResult>
+  bindDiscordChannel: (payload: {
+    channelConfigId?: string
+    guildId: string
+    guildName?: string
+    channelId: string
+    channelName?: string
+    enabled?: boolean
+    workspaceRoot?: string
+    model?: string
+    runtimeId?: AgentRuntimeId
+    agentProfile?: Partial<ClawImAgentProfileV1>
+  }) => Promise<DiscordBindChannelResult>
+  testDiscordChannel: (channelId: string, text?: string, channelConfigId?: string) => Promise<DiscordTestSendResult>
+  setDiscordGuard: (
+    enabled: boolean,
+    channelConfigId?: string,
+    forceTakeover?: boolean
+  ) => Promise<DiscordGuardResult>
   pickWorkspaceDirectory: (defaultPath?: string) => Promise<WorkspacePickResult>
   listSkills: (workspaceRoot?: string) => Promise<SkillListResult>
   saveSkillFile: (rootPath: string, skillName: string, content: string) => Promise<SkillSaveResult>
@@ -278,6 +416,9 @@ export type DsGuiApi = {
   copyWriteDocumentAsRichText: (
     payload: WriteRichClipboardPayload
   ) => Promise<WriteRichClipboardResult>
+  speechToText: {
+    transcribe: (payload: SpeechTranscriptionRequest) => Promise<SpeechTranscriptionResult>
+  }
   /** Legacy Kun SSE compatibility bridge. New UI/runtime code must use `agentRuntime.subscribeEvents`. */
   startSse: (
     threadId: string,
@@ -289,6 +430,7 @@ export type DsGuiApi = {
   onSseEvent: (handler: (payload: SseEventPayload) => void) => () => void
   onSseEnd: (handler: (payload: SseEndPayload) => void) => () => void
   onSseError: (handler: (payload: SseErrorPayload) => void) => () => void
+  onRuntimeStatus: (handler: (payload: KunRuntimeStatusPayload) => void) => () => void
   agentRuntime: {
     connect: (runtimeId?: AgentRuntimeThreadListInput['runtimeId']) => Promise<void>
     capabilities: (runtimeId?: AgentRuntimeThreadListInput['runtimeId']) => Promise<AgentRuntimeCapabilities>

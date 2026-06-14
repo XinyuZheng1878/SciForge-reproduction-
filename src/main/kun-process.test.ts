@@ -26,7 +26,7 @@ vi.mock('electron', () => ({
 
 let tempRoot: string | null = null
 
-function createSettings(binaryPath: string): AppSettingsV1 {
+function createSettings(binaryPath: string, port = 8899): AppSettingsV1 {
   return {
     version: 1,
     locale: 'en',
@@ -39,7 +39,7 @@ function createSettings(binaryPath: string): AppSettingsV1 {
     },
     agents: {
       kun: {
-        ...defaultKunRuntimeSettings(8899),
+        ...defaultKunRuntimeSettings(port),
         binaryPath,
         autoStart: true
       }
@@ -74,6 +74,47 @@ async function readKunLog(): Promise<string> {
   throw new Error('Expected a kun log file to be created')
 }
 
+async function listenOnPort(port: number): Promise<ReturnType<typeof createServer>> {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(port, '127.0.0.1', () => resolve())
+  })
+  return server
+}
+
+async function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+}
+
+async function canBindPort(port: number): Promise<boolean> {
+  const server = createServer()
+  return new Promise((resolve) => {
+    let settled = false
+    const settle = (available: boolean): void => {
+      if (settled) return
+      settled = true
+      server.removeAllListeners('error')
+      resolve(available)
+    }
+    server.once('error', () => settle(false))
+    server.listen(port, '127.0.0.1', () => {
+      server.close(() => settle(true))
+    })
+  })
+}
+
+async function findPortWithAvailableNext(): Promise<number> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const server = await listenOnPort(0)
+    const address = server.address() as AddressInfo
+    const port = address.port
+    await closeServer(server)
+    if (port < 65535 && await canBindPort(port + 1)) return port
+  }
+  throw new Error('Expected to find a test port with an available successor')
+}
+
 beforeEach(() => {
   tempRoot = mkdtempSync(join(tmpdir(), 'kun-process-'))
   configureLogger({ dir: tempRoot, enabled: true, retentionDays: 7 })
@@ -81,6 +122,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   const module = await import('./kun-process')
+  module.setKunUnexpectedExitHandler(null)
   await module.stopKunChildAndWait()
   configureLogger({ dir: '', enabled: true, retentionDays: 2 })
   if (tempRoot) {
@@ -107,6 +149,102 @@ describe('startKunChild', () => {
     const logText = await readKunLog()
     expect(logText).toContain('KUN_READY')
     expect(logText).toContain('ready marker received on port 8899')
+  })
+
+  it('resolves from /health when the stdout ready marker is delayed', async () => {
+    const script = writeScript(
+      'health-child.js',
+      [
+        "const http = require('node:http')",
+        "const portIndex = process.argv.indexOf('--port')",
+        "const port = Number(process.argv[portIndex + 1])",
+        "const server = http.createServer((req, res) => {",
+        "  if (req.url === '/health') {",
+        "    res.setHeader('content-type', 'application/json')",
+        "    res.end(JSON.stringify({ status: 'ok', service: 'kun', mode: 'serve' }))",
+        '    return',
+        '  }',
+        '  res.statusCode = 404',
+        "  res.end('{}')",
+        '})',
+        "server.listen(port, '127.0.0.1')",
+        "setTimeout(() => {",
+        "  process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port }) + '\\n')",
+        "}, 10_000)",
+        "setInterval(() => {}, 1_000)"
+      ].join('\n')
+    )
+    const module = await import('./kun-process')
+    await expect(module.startKunChild(createSettings(script))).resolves.toBeUndefined()
+    expect(module.isKunChildRunning()).toBe(true)
+    await module.stopKunChildAndWait()
+    const logText = await readKunLog()
+    expect(logText).toContain('health probe confirmed ready on port 8899')
+  })
+
+  it('coalesces concurrent startup requests into one child process', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const counterPath = join(tempRoot, 'spawn-count.txt')
+    const script = writeScript(
+      'concurrent-child.js',
+      [
+        "const fs = require('node:fs')",
+        `fs.appendFileSync(${JSON.stringify(counterPath)}, 'x')`,
+        "setTimeout(() => {",
+        "  process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",
+        "}, 100)",
+        "setInterval(() => {}, 1_000)"
+      ].join('\n')
+    )
+    const module = await import('./kun-process')
+    await expect(Promise.all([
+      module.startKunChild(createSettings(script)),
+      module.startKunChild(createSettings(script))
+    ])).resolves.toEqual([undefined, undefined])
+
+    expect(readFileSync(counterPath, 'utf8')).toBe('x')
+    await module.stopKunChildAndWait()
+  })
+
+  it('notifies when a ready child exits unexpectedly', async () => {
+    const script = writeScript(
+      'crash-child.js',
+      [
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",
+        "setTimeout(() => {",
+        "  process.stderr.write('runtime exploded\\n')",
+        '  process.exit(34)',
+        '}, 80)'
+      ].join('\n')
+    )
+    const module = await import('./kun-process')
+    const unexpectedExit = new Promise<import('./kun-process').KunUnexpectedExitInfo>((resolve) => {
+      module.setKunUnexpectedExitHandler(resolve)
+    })
+
+    await expect(module.startKunChild(createSettings(script))).resolves.toBeUndefined()
+    const info = await unexpectedExit
+    expect(info).toMatchObject({ code: 34, signal: null })
+    expect(info.stderrTail).toContain('runtime exploded')
+    expect(module.isKunChildRunning()).toBe(false)
+  })
+
+  it('does not notify unexpected exit handlers for intentional stops', async () => {
+    const script = writeScript(
+      'intentional-stop-child.js',
+      [
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",
+        "setInterval(() => {}, 1_000)"
+      ].join('\n')
+    )
+    const module = await import('./kun-process')
+    const handler = vi.fn()
+    module.setKunUnexpectedExitHandler(handler)
+
+    await expect(module.startKunChild(createSettings(script))).resolves.toBeUndefined()
+    await module.stopKunChildAndWait()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    expect(handler).not.toHaveBeenCalled()
   })
 
   it('rejects when the child exits before reporting ready', async () => {
@@ -204,6 +342,32 @@ describe('reclaimKunPort', () => {
     const module = await import('./kun-process')
 
     await expect(module.reclaimKunPort(0)).resolves.toEqual({ ok: true })
+  })
+})
+
+describe('resolveAvailableKunPort', () => {
+  it('uses the next bindable port after the preferred port is occupied', async () => {
+    const preferredPort = await findPortWithAvailableNext()
+    const server = await listenOnPort(preferredPort)
+    try {
+      const module = await import('./kun-process')
+
+      await expect(module.resolveAvailableKunPort(preferredPort)).resolves.toEqual({
+        port: preferredPort + 1,
+        changed: true,
+        message: `port ${preferredPort} is in use`
+      })
+    } finally {
+      await closeServer(server)
+    }
+  })
+
+  it('falls back to an ephemeral port for non-positive preferences', async () => {
+    const module = await import('./kun-process')
+
+    const resolved = await module.resolveAvailableKunPort(0)
+    expect(resolved.changed).toBe(true)
+    expect(resolved.port).toBeGreaterThan(0)
   })
 })
 

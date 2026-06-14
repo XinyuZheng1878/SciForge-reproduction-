@@ -13,6 +13,7 @@ import {
   mergeModelRouterSettings,
   mergeModelProviderSettings,
   mergeScheduleSettings,
+  mergeSpeechToTextSettings,
   mergeWriteSettings,
   normalizeAppBehaviorSettings,
   normalizeAgentRuntimeId,
@@ -22,6 +23,7 @@ import {
   normalizeModelProviderSettings,
   normalizeModelRouterSettings,
   normalizeScheduleSettings,
+  normalizeSpeechToTextSettings,
   normalizeWriteSettings,
   type AppSettingsPatch,
   type AppSettingsV1
@@ -76,6 +78,7 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
       }
     }),
     write: mergeWriteSettings(safeCurrent.write, patch.write),
+    speechToText: mergeSpeechToTextSettings(safeCurrent.speechToText, patch.speechToText),
     claw: mergeClawSettings(safeCurrent.claw, patch.claw),
     schedule: mergeScheduleSettings(safeCurrent.schedule, patch.schedule),
     guiUpdate: {
@@ -97,6 +100,7 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
       : 'medium'
   return {
     version: 1,
+    installationId: typeof raw.installationId === 'string' ? raw.installationId : '',
     locale: raw.locale === 'zh' ? 'zh' : 'en',
     theme,
     uiFontScale,
@@ -118,6 +122,7 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     appBehavior: normalizeAppBehaviorSettings(raw.appBehavior),
     keyboardShortcuts: normalizeKeyboardShortcuts(raw.keyboardShortcuts),
     write: normalizeWriteSettings(raw.write),
+    speechToText: normalizeSpeechToTextSettings(raw.speechToText),
     claw: normalizeClawSettings(raw.claw),
     schedule: normalizeScheduleSettings(raw.schedule),
     guiUpdate: {

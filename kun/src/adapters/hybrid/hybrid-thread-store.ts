@@ -1,6 +1,6 @@
-import { mkdir, open, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import type { Database as BetterSqliteDatabase } from 'better-sqlite3'
+import type { Database as BetterSqliteDatabase, Statement } from 'better-sqlite3'
 import type {
   ThreadGoal,
   ThreadMode,
@@ -78,6 +78,12 @@ export class HybridThreadStore implements ThreadStore {
   private readonly readyPromise: Promise<void>
   private readonly metadataQueues = new Map<string, Promise<void>>()
   private db: BetterSqliteDatabase | null = null
+  private readonly statementCache = new Map<string, Statement>()
+  private readonly threadRecordCache = new Map<
+    string,
+    { metadataSig: string; itemsSig: string; record: ThreadRecord }
+  >()
+  private readonly metadataCompactFloor = new Map<string, number>()
 
   constructor(options: { dataDir: string; sqlitePath?: string; nowIso?: () => string }) {
     this.dataDir = resolve(options.dataDir, 'threads')
@@ -95,6 +101,7 @@ export class HybridThreadStore implements ThreadStore {
       this.db?.close()
     } finally {
       this.db = null
+      this.statementCache.clear()
     }
   }
 
@@ -130,7 +137,7 @@ export class HybridThreadStore implements ThreadStore {
 
     const thread = await this.readThreadFromDisk(threadId)
     if (thread && this.db) {
-      this.upsertIndexBestEffort(await this.indexRecordForThread(thread))
+      this.upsertIndexBestEffort(this.indexRecordForThread(thread))
     }
     return thread
   }
@@ -139,7 +146,7 @@ export class HybridThreadStore implements ThreadStore {
     await this.ready()
     await this.appendMetadata(thread)
     if (this.db) {
-      this.upsertIndexBestEffort(await this.indexRecordForThread(thread))
+      this.upsertIndexBestEffort(this.indexRecordForThread(thread))
     }
     return thread
   }
@@ -154,6 +161,8 @@ export class HybridThreadStore implements ThreadStore {
     }
     await rm(dir, { recursive: true, force: true })
     this.deleteIndexRow(threadId)
+    this.threadRecordCache.delete(threadId)
+    this.metadataCompactFloor.delete(threadId)
     return true
   }
 
@@ -161,18 +170,29 @@ export class HybridThreadStore implements ThreadStore {
     await this.ready()
     if (!this.db) return
     try {
-      this.db
-        .prepare(`
-          UPDATE threads
-          SET event_seq_high_water = CASE
-            WHEN event_seq_high_water > @seq THEN event_seq_high_water
-            ELSE @seq
-          END
-          WHERE id = @id
-        `)
-        .run({ id: threadId, seq })
+      this.cachedStatement(`
+        UPDATE threads
+        SET event_seq_high_water = CASE
+          WHEN event_seq_high_water > @seq THEN event_seq_high_water
+          ELSE @seq
+        END
+        WHERE id = @id
+      `).run({ id: threadId, seq })
     } catch (error) {
       warnSqlite('note event seq', error)
+    }
+  }
+
+  async getEventSeqHighWater(threadId: string): Promise<number | null> {
+    await this.ready()
+    if (!this.db) return null
+    try {
+      const row = this.cachedStatement('SELECT event_seq_high_water FROM threads WHERE id = ?')
+        .get(threadId) as { event_seq_high_water?: number } | undefined
+      return typeof row?.event_seq_high_water === 'number' ? row.event_seq_high_water : null
+    } catch (error) {
+      warnSqlite('read event high water', error)
+      return null
     }
   }
 
@@ -245,6 +265,16 @@ export class HybridThreadStore implements ThreadStore {
     addColumnIfMissing(this.db, 'threads', 'todos_json TEXT')
   }
 
+  private cachedStatement(sql: string): Statement {
+    if (!this.db) throw new Error('sqlite unavailable')
+    let statement = this.statementCache.get(sql)
+    if (!statement) {
+      statement = this.db.prepare(sql)
+      this.statementCache.set(sql, statement)
+    }
+    return statement
+  }
+
   private async backfill(): Promise<void> {
     if (!this.db) return
     const discovered = new Set<string>()
@@ -252,7 +282,10 @@ export class HybridThreadStore implements ThreadStore {
       const thread = await this.readThreadFromDisk(threadId)
       if (!thread) continue
       discovered.add(thread.id)
-      this.upsertIndexBestEffort(await this.indexRecordForThread(thread))
+      this.upsertIndexBestEffort({
+        ...this.indexRecordForThread(thread),
+        eventSeqHighWater: await this.scanEventSeqHighWater(thread.id)
+      })
     }
 
     try {
@@ -317,8 +350,7 @@ export class HybridThreadStore implements ThreadStore {
         messagesPath: this.messagesPath(record.thread.id),
         eventsPath: this.eventsPath(record.thread.id)
       })
-      this.db
-        .prepare(`
+      this.cachedStatement(`
           INSERT INTO threads (
             id, title, workspace, model, mode, status, approval_policy, sandbox_mode,
             cost_budget_usd, cost_budget_warning_sent, relation, parent_thread_id,
@@ -369,8 +401,7 @@ export class HybridThreadStore implements ThreadStore {
             messages_path = excluded.messages_path,
             events_path = excluded.events_path,
             search_text = excluded.search_text
-        `)
-        .run(row)
+        `).run(row)
     } catch (error) {
       warnSqlite('upsert index', error)
     }
@@ -396,6 +427,7 @@ export class HybridThreadStore implements ThreadStore {
         thread: stripThreadItemBodies(thread)
       }
       await appendJsonlLine(this.metadataPath(thread.id), line)
+      await this.maybeCompactMetadata(thread.id)
     })
     const guard = run.then(() => undefined, () => undefined)
     this.metadataQueues.set(thread.id, guard)
@@ -408,27 +440,79 @@ export class HybridThreadStore implements ThreadStore {
     }
   }
 
-  private async indexRecordForThread(thread: ThreadRecord): Promise<ThreadIndexRecord> {
-    const items = await this.loadItems(thread.id)
-    const itemSource = items.length > 0 ? items : thread.turns.flatMap((turn) => turn.items)
-    const eventSeqHighWater = await this.highestSeq(thread.id)
+  private async maybeCompactMetadata(threadId: string): Promise<void> {
+    const path = this.metadataPath(threadId)
+    const tmpPath = `${path}.compact.tmp`
+    try {
+      const stats = await stat(path)
+      const floor = this.metadataCompactFloor.get(threadId) ?? METADATA_COMPACT_MIN_BYTES
+      if (stats.size < floor) return
+      const record = await this.readLatestMetadata(threadId)
+      if (!record) return
+      const line: ThreadMetadataLine = {
+        kind: 'thread_metadata',
+        version: 1,
+        timestamp: this.nowIso(),
+        thread: stripThreadItemBodies(record)
+      }
+      const handle = await open(tmpPath, 'w')
+      try {
+        await handle.writeFile(`${JSON.stringify(line)}\n`, 'utf-8')
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      await rename(tmpPath, path)
+      const compacted = await stat(path)
+      this.metadataCompactFloor.set(
+        threadId,
+        Math.max(METADATA_COMPACT_MIN_BYTES, compacted.size * 4)
+      )
+      this.threadRecordCache.delete(threadId)
+    } catch (error) {
+      await rm(tmpPath, { force: true }).catch(() => undefined)
+      console.warn(
+        `[kun] metadata compaction skipped for ${threadId}: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+  }
+
+  private indexRecordForThread(thread: ThreadRecord): ThreadIndexRecord {
+    const itemSource = thread.turns.flatMap((turn) => turn.items)
     return {
       thread,
       messageCount: itemSource.length,
-      eventSeqHighWater,
+      eventSeqHighWater: 0,
       preview: previewFromItems(itemSource)
     }
   }
 
   private async readThreadFromDisk(threadId: string): Promise<ThreadRecord | null> {
+    const [metadataSig, itemsSig] = await Promise.all([
+      fileSignature(this.metadataPath(threadId)),
+      fileSignature(this.messagesPath(threadId))
+    ])
+    const cached = this.threadRecordCache.get(threadId)
+    if (cached && cached.metadataSig === metadataSig && cached.itemsSig === itemsSig) {
+      this.threadRecordCache.delete(threadId)
+      this.threadRecordCache.set(threadId, cached)
+      return cached.record
+    }
     const metadata = await this.readLatestMetadata(threadId)
     const legacy = metadata ? null : await this.readLegacyThread(threadId)
     const source = metadata ?? legacy
     if (!source) return null
     const items = await this.loadItems(threadId)
-    return hydrateThreadItems(source, items, {
+    const record = hydrateThreadItems(source, items, {
       preserveExistingItemsWhenNoFileItems: Boolean(legacy)
     })
+    this.threadRecordCache.set(threadId, { metadataSig, itemsSig, record })
+    while (this.threadRecordCache.size > THREAD_RECORD_CACHE_LIMIT) {
+      const oldest = this.threadRecordCache.keys().next().value
+      if (!oldest) break
+      this.threadRecordCache.delete(oldest)
+    }
+    return record
   }
 
   private async readLatestMetadata(threadId: string): Promise<ThreadRecord | null> {
@@ -471,9 +555,13 @@ export class HybridThreadStore implements ThreadStore {
     return ordered
   }
 
-  private async highestSeq(threadId: string): Promise<number> {
-    const events = await readJsonl<RuntimeEvent>(this.eventsPath(threadId))
-    return events.reduce((max, event) => Math.max(max, event.seq), 0)
+  private async scanEventSeqHighWater(threadId: string): Promise<number> {
+    try {
+      const events = await readJsonl<RuntimeEvent>(this.eventsPath(threadId))
+      return events.reduce((max, event) => Math.max(max, event.seq), 0)
+    } catch {
+      return 0
+    }
   }
 
   private async listFromFilesystem(): Promise<ThreadSummary[]> {
@@ -850,6 +938,18 @@ function addColumnIfMissing(db: BetterSqliteDatabase, table: string, columnSql: 
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${columnSql}`)
   } catch (error) {
     warnSqlite(`add column ${column}`, error)
+  }
+}
+
+const THREAD_RECORD_CACHE_LIMIT = 8
+const METADATA_COMPACT_MIN_BYTES = 1_000_000
+
+async function fileSignature(path: string): Promise<string> {
+  try {
+    const stats = await stat(path)
+    return `${stats.size}:${stats.mtimeMs}`
+  } catch {
+    return 'missing'
   }
 }
 

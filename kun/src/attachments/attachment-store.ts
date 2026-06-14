@@ -14,6 +14,7 @@ export interface AttachmentStore {
     name: string
     data: Buffer
     mimeType?: string
+    localFilePath?: string
     textFallback?: AttachmentTextFallback
     threadId?: string
     workspace?: string
@@ -40,6 +41,7 @@ export class FileAttachmentStore implements AttachmentStore {
     name: string
     data: Buffer
     mimeType?: string
+    localFilePath?: string
     textFallback?: AttachmentTextFallback
     threadId?: string
     workspace?: string
@@ -47,7 +49,7 @@ export class FileAttachmentStore implements AttachmentStore {
     await mkdir(this.options.rootDir, { recursive: true })
     const image = detectImage(input.data)
     if (image) {
-      // --- IMAGE PATH (existing behaviour, unchanged) ---
+      // --- IMAGE PATH (existing behaviour + origin's localFilePath) ---
       if (input.mimeType && input.mimeType !== image.mimeType) throw new Error('declared MIME type does not match image content')
       if (!this.options.config.allowedMimeTypes.includes(image.mimeType)) throw new Error(`image MIME type is not allowed: ${image.mimeType}`)
       if (input.data.byteLength > this.options.config.maxImageBytes) throw new Error(`image exceeds ${this.options.config.maxImageBytes} byte limit`)
@@ -65,6 +67,7 @@ export class FileAttachmentStore implements AttachmentStore {
       if (existing) {
         const next = mergeScope({
           ...existing,
+          ...(input.localFilePath ? { localFilePath: input.localFilePath } : {}),
           ...(input.textFallback ? { textFallback: input.textFallback } : {}),
           updatedAt: now
         }, input)
@@ -80,6 +83,7 @@ export class FileAttachmentStore implements AttachmentStore {
         hash,
         ...(image.width ? { width: image.width } : {}),
         ...(image.height ? { height: image.height } : {}),
+        ...(input.localFilePath ? { localFilePath: input.localFilePath } : {}),
         ...(input.textFallback ? { textFallback: input.textFallback } : {}),
         threadIds: [],
         workspaces: [],
@@ -103,7 +107,7 @@ export class FileAttachmentStore implements AttachmentStore {
       const now = this.options.nowIso?.() ?? new Date().toISOString()
       const existing = await this.get(id)
       if (existing) {
-        const next = mergeScope({ ...existing, updatedAt: now }, input)
+        const next = mergeScope({ ...existing, ...(input.localFilePath ? { localFilePath: input.localFilePath } : {}), updatedAt: now }, input)
         await writeFile(contentPath, input.data)
         await writeFile(metadataPath, JSON.stringify(next, null, 2), 'utf8')
         return next
@@ -114,6 +118,7 @@ export class FileAttachmentStore implements AttachmentStore {
         mimeType,
         byteSize: input.data.byteLength,
         hash,
+        ...(input.localFilePath ? { localFilePath: input.localFilePath } : {}),
         threadIds: [],
         workspaces: [],
         createdAt: now,

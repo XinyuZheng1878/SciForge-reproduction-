@@ -2,15 +2,21 @@ import type { ReactElement } from 'react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
+  Bot,
   Clock3,
   FileQuestion,
   LayoutGrid,
+  MessageSquare,
   Plus,
   Settings,
   Smartphone
 } from 'lucide-react'
 import type { NormalizedThread } from '../../agent/types'
 import { useChatStore, type SettingsRouteSection } from '../../store/chat-store'
+import {
+  clawThreadRemoteBindingsFromChannels,
+  watchedClawThreadIdsFromChannels
+} from '../../store/chat-store-helpers'
 import type {
   ClawImChannelV1,
 } from '@shared/app-settings'
@@ -19,12 +25,14 @@ import {
 } from './SidebarClaw'
 import type { ClawImDialogMode } from './SidebarClawDialogHelpers'
 import { ClawAddImDialog } from './SidebarClawDialog'
-import { ConnectPhoneDialog } from './ConnectPhoneView'
+import { ConnectPhoneDialog, resolveConnectPhoneWorkspaceRoot } from './ConnectPhoneView'
 import { SidebarProjectsSection } from './SidebarProjectsSection'
 import { WorkspaceModeTabs } from './WorkspaceModeTabs'
 import {
   SidebarCommandRow,
-  SidebarFrame
+  SidebarFrame,
+  SidebarSectionHeader,
+  SidebarTreeRow
 } from '../sidebar/SidebarPrimitives'
 
 type Props = {
@@ -90,10 +98,13 @@ export function Sidebar({
   const busy = useChatStore((s) => s.busy)
   const watchTurnCompletion = useChatStore((s) => s.watchTurnCompletion)
   const unreadThreadIds = useChatStore((s) => s.unreadThreadIds)
+  const queuedMessages = useChatStore((s) => s.queuedMessages)
   const clawChannels = useChatStore((s) => s.clawChannels)
   const activeClawChannelId = useChatStore((s) => s.activeClawChannelId)
+  const activeRemoteChannelId = useChatStore((s) => s.activeRemoteChannelId)
   const selectClawChannel = useChatStore((s) => s.selectClawChannel)
   const selectClawConversation = useChatStore((s) => s.selectClawConversation)
+  const selectRemoteGuardChannel = useChatStore((s) => s.selectRemoteGuardChannel)
   const addClawChannel = useChatStore((s) => s.addClawChannel)
   const deleteClawChannel = useChatStore((s) => s.deleteClawChannel)
   const resetClawChannelSession = useChatStore((s) => s.resetClawChannelSession)
@@ -104,6 +115,25 @@ export function Sidebar({
     () => clawChannels.find((channel) => channel.id === activeClawChannelId) ?? clawChannels[0] ?? null,
     [clawChannels, activeClawChannelId]
   )
+  const botWatchedThreadIds = useMemo(
+    () => watchedClawThreadIdsFromChannels(clawChannels),
+    [clawChannels]
+  )
+  const botThreadBindings = useMemo(
+    () => clawThreadRemoteBindingsFromChannels(clawChannels),
+    [clawChannels]
+  )
+  const queuedThreadIds = useMemo(
+    () => new Set(queuedMessages.map((message) => message.threadId?.trim() ?? '').filter(Boolean)),
+    [queuedMessages]
+  )
+  const activeRemoteThreadIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const [threadId, binding] of botThreadBindings) {
+      if (binding.channelId === activeClawChannelId) ids.add(threadId)
+    }
+    return ids
+  }, [activeClawChannelId, botThreadBindings])
 
   return (
     <>
@@ -177,6 +207,10 @@ export function Sidebar({
           activeChannelId={activeClawChannelId}
           activeThreadId={activeThreadId}
           runtimeReady={runtimeReady}
+          busy={busy}
+          watchTurnCompletion={watchTurnCompletion}
+          unreadThreadIds={unreadThreadIds}
+          queuedThreadIds={queuedThreadIds}
           onSelectChannel={(channelId) => void selectClawChannel(channelId)}
           onSelectConversation={(channelId, threadId) => void selectClawConversation(channelId, threadId)}
           onAddChannel={() => setImDialogMode('add')}
@@ -197,6 +231,10 @@ export function Sidebar({
           busy={busy}
           watchTurnCompletion={watchTurnCompletion}
           unreadThreadIds={unreadThreadIds}
+          botWatchedThreadIds={botWatchedThreadIds}
+          botThreadBindings={botThreadBindings}
+          queuedThreadIds={queuedThreadIds}
+          activeRemoteThreadIds={activeRemoteThreadIds}
           locale={i18n.language}
           onPickWorkspace={() => void chooseWorkspace()}
           onRemoveWorkspace={deleteWorkspace}
@@ -211,6 +249,14 @@ export function Sidebar({
           t={t}
         />
       ) : (
+      <>
+      <SidebarRemoteChannelSection
+        channels={clawChannels}
+        activeChannelId={activeRemoteChannelId ?? ''}
+        runtimeReady={runtimeReady}
+        onSelectChannel={selectRemoteGuardChannel}
+        t={t}
+      />
       <SidebarProjectsSection
         threads={threads}
         activeView={activeView === 'write' ? 'write' : 'chat'}
@@ -223,6 +269,10 @@ export function Sidebar({
         busy={busy}
         watchTurnCompletion={watchTurnCompletion}
         unreadThreadIds={unreadThreadIds}
+        botWatchedThreadIds={botWatchedThreadIds}
+        botThreadBindings={botThreadBindings}
+        queuedThreadIds={queuedThreadIds}
+        activeRemoteThreadIds={activeRemoteThreadIds}
         locale={i18n.language}
         onPickWorkspace={() => void chooseWorkspace()}
         onRemoveWorkspace={deleteWorkspace}
@@ -236,6 +286,7 @@ export function Sidebar({
         onShowArchivedChange={onShowArchivedThreadsChange}
         t={t}
       />
+      </>
       )}
 
     </SidebarFrame>
@@ -243,10 +294,11 @@ export function Sidebar({
     {connectPhoneSidebarOpen ? (
       <ConnectPhoneDialog
         channels={clawChannels}
+        workspaceRoot={workspaceRoot}
         onAddProvider={async (provider, agentProfile, platformCredential, options) => {
           await addClawChannel(provider, agentProfile, platformCredential, {
             ...options,
-            workspaceRoot: options?.workspaceRoot || workspaceRoot,
+            workspaceRoot: resolveConnectPhoneWorkspaceRoot(options?.workspaceRoot, workspaceRoot),
             preserveRoute: true
           })
           onToggleConnectPhone()
@@ -276,4 +328,150 @@ export function Sidebar({
     ) : null}
     </>
   )
+}
+
+type SidebarRemoteChannelSectionProps = {
+  channels: ClawImChannelV1[]
+  activeChannelId: string
+  runtimeReady: boolean
+  onSelectChannel: (channelId: string) => void
+  t: (k: string, opts?: Record<string, unknown>) => string
+}
+
+export function SidebarRemoteChannelSection({
+  channels,
+  activeChannelId,
+  runtimeReady,
+  onSelectChannel,
+  t
+}: SidebarRemoteChannelSectionProps): ReactElement | null {
+  const visibleChannels = [...channels]
+    .filter((channel) =>
+      channel.enabled ||
+      channel.conversations.length > 0 ||
+      (channel.recentMessages?.length ?? 0) > 0
+    )
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+
+  if (visibleChannels.length === 0) return null
+
+  return (
+    <div className="ds-no-drag mb-2 px-1">
+      <SidebarSectionHeader label={t('sidebarRemoteChannels')} />
+      <div className="space-y-[3px] px-0.5">
+        {visibleChannels.map((channel) => {
+          const active = channel.id === activeChannelId
+          const latestMessage = latestSidebarRemoteMessage(channel)
+          const secondary = sidebarRemoteChannelSecondaryLabel(channel, latestMessage, t)
+          const statusLabel = channel.enabled
+            ? t('sidebarRemoteChannelGuarding')
+            : t('sidebarRemoteChannelPaused')
+          const title = sidebarRemoteChannelTitle(channel)
+          return (
+            <SidebarTreeRow
+              key={channel.id}
+              active={active}
+              activeVariant="outline"
+              disabled={!runtimeReady}
+              title={`${title}\n${secondary}`}
+              ariaLabel={`${title} — ${statusLabel} — ${secondary}`}
+              onClick={() => onSelectChannel(channel.id)}
+              trailing={
+                <span
+                  className={`mr-1 inline-flex min-h-5 shrink-0 items-center rounded-full border px-1.5 text-[10.5px] font-semibold leading-none ${
+                    channel.enabled
+                      ? 'border-accent/25 bg-accent/10 text-accent'
+                      : 'border-ds-border-muted bg-ds-subtle text-ds-faint'
+                  }`}
+                  title={statusLabel}
+                >
+                  {statusLabel}
+                </span>
+              }
+              className={channel.enabled ? undefined : 'opacity-60'}
+              buttonClassName="items-center gap-2 px-2.5 py-1.5"
+            >
+              <Bot className={`h-3.5 w-3.5 shrink-0 ${active ? 'text-accent' : 'text-ds-faint'}`} strokeWidth={1.85} />
+              <span className="min-w-0 flex-1">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="min-w-0 truncate text-[13px] text-ds-ink">{title}</span>
+                  <SidebarRemoteProviderPill provider={channel.provider} />
+                </span>
+                <span className="mt-0.5 block truncate text-[11.5px] text-ds-faint">
+                  {secondary}
+                </span>
+              </span>
+            </SidebarTreeRow>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function SidebarRemoteProviderPill({
+  provider
+}: {
+  provider: ClawImChannelV1['provider']
+}): ReactElement {
+  const label = provider === 'discord'
+    ? 'Discord'
+    : provider === 'weixin'
+      ? 'WeChat'
+      : 'Feishu'
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-ds-border-muted bg-ds-subtle/70 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-ds-faint">
+      <MessageSquare className="h-2.5 w-2.5" strokeWidth={1.8} />
+      {label}
+    </span>
+  )
+}
+
+function sidebarRemoteChannelTitle(channel: ClawImChannelV1): string {
+  if (channel.platformCredential?.kind === 'discord') {
+    const name = channel.platformCredential.channelName.trim() || channel.platformCredential.channelId.trim()
+    return name ? `#${name}` : 'Discord'
+  }
+  return channel.label.trim() || channel.agentProfile.name.trim() || clawSidebarProviderLabel(channel.provider)
+}
+
+function sidebarRemoteChannelSecondaryLabel(
+  channel: ClawImChannelV1,
+  latestMessage: NonNullable<ClawImChannelV1['recentMessages']>[number] | null,
+  t: (k: string, opts?: Record<string, unknown>) => string
+): string {
+  if (latestMessage) {
+    const messageLabel = sidebarRemoteMessageLabel(latestMessage)
+    if (messageLabel) {
+      return t('sidebarRemoteChannelLatest', { message: messageLabel })
+    }
+    return t('sidebarRemoteChannelReceived')
+  }
+  const latestConversation = [...channel.conversations]
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0] ?? null
+  const conversationLabel = latestConversation?.senderName.trim() ||
+    latestConversation?.chatId.trim() ||
+    latestConversation?.remoteThreadId.trim() ||
+    ''
+  if (conversationLabel) return t('sidebarRemoteChannelLatest', { message: conversationLabel })
+  return t('sidebarRemoteChannelNoMessages')
+}
+
+function latestSidebarRemoteMessage(channel: ClawImChannelV1): NonNullable<ClawImChannelV1['recentMessages']>[number] | null {
+  const messages = channel.recentMessages ?? []
+  if (messages.length === 0) return null
+  return [...messages].sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt))[0] ?? null
+}
+
+function sidebarRemoteMessageLabel(message: NonNullable<ClawImChannelV1['recentMessages']>[number]): string {
+  const sender = message.senderName?.trim()
+  const text = message.text?.trim()
+  if (sender && text) return `${sender}: ${text}`
+  return text || sender || ''
+}
+
+function clawSidebarProviderLabel(provider: ClawImChannelV1['provider']): string {
+  if (provider === 'discord') return 'Discord'
+  if (provider === 'weixin') return 'WeChat'
+  return 'Feishu / Lark'
 }

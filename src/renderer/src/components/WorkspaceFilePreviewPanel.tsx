@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import {
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -24,6 +25,7 @@ import {
   languageFromFilePath,
   renderFallbackCodeHtml
 } from '../lib/code-highlighting'
+import { WritePdfViewer } from './write/WritePdfViewer'
 
 type Props = {
   target: WorkspaceFileTarget | null
@@ -115,7 +117,7 @@ export function WorkspaceFilePreviewPanel({
   }, [target, workspaceRoot])
 
   useEffect(() => {
-    if (!result?.ok || !result.line) return
+    if (!result?.ok || result.kind !== 'text' || !result.line) return
     const id = window.requestAnimationFrame(() => {
       const row = scrollRef.current?.querySelector(`[data-line="${result.line}"]`)
       row?.scrollIntoView({ block: 'center' })
@@ -135,10 +137,10 @@ export function WorkspaceFilePreviewPanel({
     return target?.path ?? ''
   }, [result, target, workspaceRoot])
   const language = useMemo(() => {
-    if (result?.ok) return languageFromFilePath(result.path)
+    if (result?.ok && result.kind === 'text') return languageFromFilePath(result.path)
     return target?.path ? languageFromFilePath(target.path) : ''
   }, [result, target])
-  const lines = useMemo(() => (result?.ok ? result.content.split('\n') : []), [result])
+  const lines = useMemo(() => (result?.ok && result.kind === 'text' ? result.content.split('\n') : []), [result])
   const breadcrumbSegments = useMemo(() => {
     const path = result?.ok ? result.path : target?.path ?? ''
     if (!path) return []
@@ -147,7 +149,7 @@ export function WorkspaceFilePreviewPanel({
   }, [result, target, workspaceRoot])
   const currentFileName = displayPath ? fileNameFromPath(displayPath) : t('filePreviewTitle')
   const badge = extensionBadge(result?.ok ? result.path : target?.path ?? '', language)
-  const activeLine = result?.ok && result.line && result.line >= 1 && result.line <= lines.length
+  const activeLine = result?.ok && result.kind === 'text' && result.line && result.line >= 1 && result.line <= lines.length
     ? result.line
     : null
   const codeSurfaceStyle = activeLine
@@ -157,7 +159,7 @@ export function WorkspaceFilePreviewPanel({
     : undefined
 
   useEffect(() => {
-    if (!result?.ok) {
+    if (!result?.ok || result.kind !== 'text') {
       setHighlightHtml(renderFallbackCodeHtml(''))
       return
     }
@@ -181,8 +183,8 @@ export function WorkspaceFilePreviewPanel({
     void openWorkspacePathInEditor(
       {
         path,
-        line: result?.ok ? result.line : target?.line,
-        column: result?.ok ? result.column : target?.column
+        line: result?.ok && result.kind === 'text' ? result.line : target?.line,
+        column: result?.ok && result.kind === 'text' ? result.column : target?.column
       },
       target?.workspaceRoot ?? workspaceRoot
     ).then((next) => {
@@ -207,6 +209,8 @@ export function WorkspaceFilePreviewPanel({
       setCopied(false)
     }
   }
+
+  const ignorePdfSelection = useCallback(() => undefined, [])
 
   return (
     <aside
@@ -285,7 +289,7 @@ export function WorkspaceFilePreviewPanel({
         {result?.ok ? (
           <span className="shrink-0 font-mono text-[10px] text-ds-faint">
             {formatBytes(result.size)}
-            {language ? ` · ${language}` : ''}
+            {result.kind === 'pdf' ? ' · PDF' : language ? ` · ${language}` : ''}
           </span>
         ) : null}
       </div>
@@ -305,7 +309,18 @@ export function WorkspaceFilePreviewPanel({
             <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.8} />
             {t('filePreviewLoading')}
           </div>
-        ) : result?.ok ? (
+        ) : result?.ok && result.kind === 'pdf' ? (
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <WritePdfViewer
+              filePath={result.path}
+              dataBase64={result.dataBase64}
+              size={result.size}
+              mtimeMs={result.mtimeMs}
+              workspaceRoot={target.workspaceRoot ?? workspaceRoot}
+              onSelectionChange={ignorePdfSelection}
+            />
+          </div>
+        ) : result?.ok && result.kind === 'text' ? (
           <div className="relative flex min-h-0 flex-1 flex-col">
             {result.truncated ? (
               <div className="shrink-0 border-b border-ds-border-muted/70 px-4 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">

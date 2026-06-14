@@ -10,11 +10,14 @@ import {
   modeButtonClass,
   toolbarIconButtonClass,
   toolbarMenuButtonClass,
+  writePreviewModeForModeMenuItem,
+  type WriteWorkspaceToolbarModeId,
   type WriteModeMenuItem
 } from './write-workspace-view-utils'
 
 type Props = {
   activeFileIsImage: boolean
+  activeFileIsPdf: boolean
   activeFileIsText: boolean
   activeFileLabel: string
   activeFileName: string
@@ -32,8 +35,10 @@ type Props = {
   onExportFile: (format: WriteExportFormat) => void
   onPickWorkspace: () => void
   onSave: () => void
+  onSelectMode?: (mode: WriteWorkspaceToolbarModeId, item: WriteModeMenuItem) => void
   onToggleLeftSidebar: () => void
   previewMode: WritePreviewMode
+  primaryModeItem?: WriteModeMenuItem
   readOnly: boolean
   saveLabel: string
   saveStatus: WriteSaveStatus
@@ -45,6 +50,7 @@ type Props = {
 
 export function WriteWorkspaceToolbar({
   activeFileIsImage,
+  activeFileIsPdf,
   activeFileIsText,
   activeFileLabel,
   activeFileName,
@@ -62,8 +68,10 @@ export function WriteWorkspaceToolbar({
   onExportFile,
   onPickWorkspace,
   onSave,
+  onSelectMode,
   onToggleLeftSidebar,
   previewMode,
+  primaryModeItem,
   readOnly,
   saveLabel,
   saveStatus,
@@ -73,6 +81,33 @@ export function WriteWorkspaceToolbar({
   setPreviewMode
 }: Props): ReactElement {
   const { t } = useTranslation('common')
+  const fallbackSourceModeItem: WriteModeMenuItem = {
+    mode: 'source',
+    previewMode: 'source',
+    label: t('writeModeSource'),
+    shortLabel: t('writeModeSourceShort'),
+    icon: <FileCode2 className="h-4 w-4" strokeWidth={1.85} />,
+    active: previewMode === 'source'
+  }
+  const toolbarPrimaryModeItem: WriteModeMenuItem = primaryModeItem ?? {
+    mode: 'live',
+    previewMode: 'live',
+    label: t('writeModeLive'),
+    shortLabel: t('writeModeLiveShort'),
+    icon: <FileCode2 className="h-4 w-4" strokeWidth={1.85} />,
+    active: liveModeActive
+  }
+  const resolvedModeMenuItems = modeMenuItems.length > 0 ? modeMenuItems : [fallbackSourceModeItem]
+  const selectModeItem = (item: WriteModeMenuItem): void => {
+    if (!activeFileIsText || item.disabled) return
+    if (onSelectMode) {
+      onSelectMode(item.mode, item)
+    } else {
+      setPreviewMode(writePreviewModeForModeMenuItem(item))
+    }
+    setModeMenuOpen(false)
+  }
+
   return (
     <div className="ds-stage-inset -mx-3 shrink-0 sm:-mx-4 md:-mx-6 lg:-mx-8">
       <header className="ds-topbar-surface relative z-10 mt-3 flex min-h-[56px] w-full items-stretch overflow-visible rounded-[18px]">
@@ -108,22 +143,22 @@ export function WriteWorkspaceToolbar({
           >
             <button
               type="button"
-              onClick={() => setPreviewMode('live')}
-              disabled={!activeFileIsText}
-              className={`${modeButtonClass(liveModeActive)} gap-1.5 ${!activeFileIsText ? 'cursor-not-allowed opacity-45' : ''}`}
-              title={t('writeModeLive')}
-              aria-label={t('writeModeLive')}
+              onClick={() => selectModeItem(toolbarPrimaryModeItem)}
+              disabled={!activeFileIsText || toolbarPrimaryModeItem.disabled}
+              className={`${modeButtonClass(toolbarPrimaryModeItem.active)} gap-1.5 ${!activeFileIsText || toolbarPrimaryModeItem.disabled ? 'cursor-not-allowed opacity-45' : ''}`}
+              title={toolbarPrimaryModeItem.label}
+              aria-label={toolbarPrimaryModeItem.label}
             >
-              <FileCode2 className="h-4 w-4" strokeWidth={1.85} />
-              <span className="hidden text-[12.5px] font-semibold sm:inline">{t('writeModeLiveShort')}</span>
+              {toolbarPrimaryModeItem.icon}
+              <span className="hidden text-[12.5px] font-semibold sm:inline">{toolbarPrimaryModeItem.shortLabel}</span>
             </button>
             <button
               type="button"
               onClick={() => setModeMenuOpen((open) => !open)}
               disabled={!activeFileIsText}
-              className={`${modeButtonClass(modeMenuOpen || !liveModeActive)} px-2 ${!activeFileIsText ? 'cursor-not-allowed opacity-45' : ''}`}
-              title={t('writeModePreview')}
-              aria-label={t('writeModePreview')}
+              className={`${modeButtonClass(modeMenuOpen || !toolbarPrimaryModeItem.active)} px-2 ${!activeFileIsText ? 'cursor-not-allowed opacity-45' : ''}`}
+              title={t('writeMoreViewModes')}
+              aria-label={t('writeMoreViewModes')}
               aria-haspopup="menu"
               aria-expanded={modeMenuOpen}
             >
@@ -137,33 +172,41 @@ export function WriteWorkspaceToolbar({
                 role="menu"
                 className="absolute left-0 top-full z-30 mt-2 min-w-[188px] overflow-hidden rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.12)] dark:border-white/10 dark:bg-[#131722]"
               >
-                {modeMenuItems.map((item) => (
-                  <button
-                    key={item.mode}
-                    type="button"
-                    role="menuitem"
-                    disabled={!activeFileIsText}
-                    onClick={() => {
-                      setPreviewMode(item.mode)
-                      setModeMenuOpen(false)
-                    }}
-                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-[13px] transition ${
-                      item.active
-                        ? 'bg-accent/12 text-accent'
-                        : 'text-ds-ink hover:bg-slate-100'
-                    } ${!activeFileIsText ? 'cursor-not-allowed opacity-40' : ''}`}
-                  >
-                    <span className="flex items-center gap-2">
-                      {item.icon}
-                      <span>{item.shortLabel}</span>
-                    </span>
-                    {item.active ? (
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.08em]">
-                        ON
+                {resolvedModeMenuItems.map((item) => {
+                  const itemDisabled = !activeFileIsText || item.disabled === true
+                  return (
+                    <button
+                      key={`${item.mode}:${item.label}`}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={item.active}
+                      disabled={itemDisabled}
+                      onClick={() => selectModeItem(item)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] transition ${
+                        item.active
+                          ? 'bg-accent/12 text-accent'
+                          : 'text-ds-ink hover:bg-slate-100'
+                      } ${itemDisabled ? 'cursor-not-allowed opacity-40' : ''}`}
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        {item.icon}
+                        <span className="min-w-0">
+                          <span className="block truncate">{item.shortLabel}</span>
+                          {item.description ? (
+                            <span className="mt-0.5 block truncate text-[11.5px] text-ds-faint">
+                              {item.description}
+                            </span>
+                          ) : null}
+                        </span>
                       </span>
-                    ) : null}
-                  </button>
-                ))}
+                      {item.active ? (
+                        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.08em]">
+                          {t('writeModeActive')}
+                        </span>
+                      ) : null}
+                    </button>
+                  )
+                })}
               </div>
             ) : null}
           </div>
@@ -208,7 +251,7 @@ export function WriteWorkspaceToolbar({
               {exportMenuOpen ? (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full z-30 mt-2 w-52 overflow-hidden rounded-2xl border border-ds-border bg-ds-card/95 p-1.5 shadow-[0_22px_48px_rgba(15,23,42,0.16)] backdrop-blur-xl"
+                  className="absolute right-0 top-full z-30 mt-2 w-52 max-w-[calc(100vw-2rem)] origin-top-right overflow-hidden rounded-2xl border border-ds-border bg-ds-card/95 p-1.5 text-ds-ink shadow-[0_22px_48px_rgba(15,23,42,0.16)] backdrop-blur-xl"
                 >
                   <button
                     type="button"
@@ -242,8 +285,8 @@ export function WriteWorkspaceToolbar({
               onClick={onSave}
               disabled={!activeFilePath || !activeFileIsText || readOnly}
               className={`${toolbarIconButtonClass()} disabled:cursor-not-allowed disabled:opacity-40`}
-              title={activeFileIsImage ? t('writeImageSaveDisabled') : readOnly ? t('writeReadOnlySaveDisabled') : t('writeSaveFile')}
-              aria-label={activeFileIsImage ? t('writeImageSaveDisabled') : readOnly ? t('writeReadOnlySaveDisabled') : t('writeSaveFile')}
+              title={activeFileIsPdf ? t('writePdfSaveDisabled') : activeFileIsImage ? t('writeImageSaveDisabled') : readOnly ? t('writeReadOnlySaveDisabled') : t('writeSaveFile')}
+              aria-label={activeFileIsPdf ? t('writePdfSaveDisabled') : activeFileIsImage ? t('writeImageSaveDisabled') : readOnly ? t('writeReadOnlySaveDisabled') : t('writeSaveFile')}
             >
               <Save className="h-4 w-4" strokeWidth={1.85} />
             </button>

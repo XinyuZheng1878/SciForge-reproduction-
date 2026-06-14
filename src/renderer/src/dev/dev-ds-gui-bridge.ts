@@ -118,6 +118,26 @@ function createApi(): DsGuiApi {
       invoke('claw:im-install:qrcode', { provider, isLark: options?.isLark }),
     pollClawImInstall: (provider, deviceCode) =>
       invoke('claw:im-install:poll', { provider, deviceCode }),
+    getDiscordBotStatus: () => invoke('discord:status'),
+    configureDiscordClientId: (clientId) =>
+      invoke('discord:configure-client', { clientId }),
+    configureDiscordBotToken: (token, clientId) =>
+      invoke('discord:configure-token', { token, ...(clientId ? { clientId } : {}) }),
+    configureDiscordProxy: (proxyUrl) =>
+      invoke('discord:configure-proxy', { proxyUrl }),
+    listDiscordGuilds: () => invoke('discord:guilds'),
+    listDiscordChannels: (guildId) =>
+      invoke('discord:channels', { guildId }),
+    bindDiscordChannel: (payload) =>
+      invoke('discord:bind-channel', payload),
+    testDiscordChannel: (channelId, text, channelConfigId) =>
+      invoke('discord:test-send', { channelId, text, ...(channelConfigId ? { channelConfigId } : {}) }),
+    setDiscordGuard: (enabled, channelConfigId, forceTakeover) =>
+      invoke('discord:set-guard', {
+        enabled,
+        ...(channelConfigId ? { channelConfigId } : {}),
+        ...(forceTakeover ? { forceTakeover } : {})
+      }),
     pickWorkspaceDirectory: (defaultPath) => invoke('workspace:pick-directory', defaultPath),
     listSkills: (workspaceRoot) => invoke('skill:list', { workspaceRoot }),
     saveSkillFile: (rootPath, skillName, content) =>
@@ -153,6 +173,9 @@ function createApi(): DsGuiApi {
     clearWriteInlineCompletionDebugEntries: () => invoke('write:inline-completion-debug:clear'),
     exportWriteDocument: (payload) => invoke('write:export', payload),
     copyWriteDocumentAsRichText: (payload) => invoke('write:copy-rich-text', payload),
+    speechToText: {
+      transcribe: (payload) => invoke('speech:transcribe', payload)
+    },
     startSse: (threadId, sinceSeq, streamId, runtimeId) =>
       invoke('runtime:sse:start', {
         threadId,
@@ -164,6 +187,7 @@ function createApi(): DsGuiApi {
     onSseEvent: (handler) => onChannel('runtime:sse-event', handler),
     onSseEnd: (handler) => onChannel('runtime:sse-end', handler),
     onSseError: (handler) => onChannel('runtime:sse-error', handler),
+    onRuntimeStatus: (handler) => onChannel('runtime:status', handler),
     agentRuntime: {
       connect: (runtimeId) => invoke('agentRuntime:connect', { runtimeId }),
       capabilities: (runtimeId) => invoke('agentRuntime:capabilities', { runtimeId }),

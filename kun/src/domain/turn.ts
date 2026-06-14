@@ -1,5 +1,6 @@
 import type { GuiPlanContextJson, Turn, TurnReasoningEffort, TurnStatus } from '../contracts/turns.js'
 import type { ThreadMode } from '../contracts/threads.js'
+import type { ApprovalPolicy, SandboxMode } from '../contracts/policy.js'
 import type { TurnItem } from '../contracts/items.js'
 
 export type TurnEntity = Turn
@@ -13,6 +14,8 @@ export function createTurnRecord(input: {
   attachmentIds?: string[]
   guiPlan?: GuiPlanContextJson
   mode?: ThreadMode
+  approvalPolicy?: ApprovalPolicy
+  sandboxMode?: SandboxMode
   createdAt?: string
   status?: TurnStatus
 }): TurnEntity {
@@ -32,6 +35,8 @@ export function createTurnRecord(input: {
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(input.guiPlan ? { guiPlan: input.guiPlan } : {}),
     ...(input.mode ? { mode: input.mode } : {}),
+    ...(input.approvalPolicy ? { approvalPolicy: input.approvalPolicy } : {}),
+    ...(input.sandboxMode ? { sandboxMode: input.sandboxMode } : {}),
     createdAt: input.createdAt ?? new Date().toISOString()
   }
 }

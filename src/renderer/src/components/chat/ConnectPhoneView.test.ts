@@ -5,6 +5,7 @@ import type { ClawImChannelV1 } from '@shared/app-settings'
 import i18n from '../../i18n'
 import {
   ConnectPhoneDialog,
+  DiscordBotSetupPanel,
   ConnectPhoneSidebarPanel,
   ConnectPhoneView,
   connectPhoneInstallRequestOptions,
@@ -12,9 +13,13 @@ import {
   createConnectPhoneAgentProfile,
   createConnectPhoneChannelOptions,
   createConnectPhoneCredential,
+  connectPhoneRecentMessageLabel,
+  connectPhoneWorkspaceLabel,
   formatConnectPhoneUserCode,
   hasClawPhoneChannel,
-  hasEnabledClawPhoneChannel
+  hasEnabledClawPhoneChannel,
+  latestConnectPhoneRecentMessage,
+  resolveConnectPhoneWorkspaceRoot
 } from './ConnectPhoneView'
 
 function channel(enabled: boolean, provider: ClawImChannelV1['provider'] = 'feishu'): ClawImChannelV1 {
@@ -107,6 +112,15 @@ describe('ConnectPhoneView', () => {
         provider: 'weixin'
       }
     })
+    expect(createConnectPhoneChannelOptions('weixin', ' /repo/app ')).toEqual({
+      model: 'auto',
+      enabled: true,
+      workspaceRoot: '/repo/app',
+      im: {
+        enabled: true,
+        provider: 'weixin'
+      }
+    })
     expect(
       createConnectPhoneCredential(
         {
@@ -141,6 +155,57 @@ describe('ConnectPhoneView', () => {
       sessionKey: 'session-key',
       createdAt: '2026-06-03T01:02:03.000Z'
     })
+  })
+
+  it('uses one workspace rule for phone and Discord bindings', () => {
+    expect(resolveConnectPhoneWorkspaceRoot('', '/repo/current')).toBe('/repo/current')
+    expect(resolveConnectPhoneWorkspaceRoot('/repo/custom', '/repo/current')).toBe('/repo/custom')
+    expect(
+      resolveConnectPhoneWorkspaceRoot(
+        '/Users/zxy/.deepseekgui/claw/discord/server/channel',
+        '/repo/current'
+      )
+    ).toBe('/repo/current')
+    expect(
+      connectPhoneWorkspaceLabel(
+        '/Users/zxy/.deepseekgui/claw/discord/server/channel',
+        'default workspace'
+      )
+    ).toBe('default workspace')
+    expect(connectPhoneWorkspaceLabel('/repo/DeepSeek-GUI', 'default workspace')).toBe('DeepSeek-GUI')
+  })
+
+  it('uses the latest remote message as the Discord channel activity label', () => {
+    const recentChannel: ClawImChannelV1 = {
+      ...channel(true, 'discord'),
+      recentMessages: [
+        {
+          provider: 'discord',
+          channelId: 'discord-channel',
+          messageId: 'message-1',
+          chatId: 'channel-1',
+          remoteThreadId: '',
+          senderName: 'Alice',
+          text: 'Q1',
+          receivedAt: '2026-06-13T01:00:00.000Z'
+        },
+        {
+          provider: 'discord',
+          channelId: 'discord-channel',
+          messageId: 'message-2',
+          chatId: 'channel-1',
+          remoteThreadId: '',
+          senderName: 'Alice',
+          text: 'Q2',
+          receivedAt: '2026-06-13T01:01:00.000Z'
+        }
+      ]
+    }
+
+    const latest = latestConnectPhoneRecentMessage(recentChannel)
+
+    expect(latest?.text).toBe('Q2')
+    expect(latest ? connectPhoneRecentMessageLabel(latest) : '').toBe('Alice: Q2')
   })
 
   it('treats only enabled channels for the selected provider as connected phone channels', () => {
@@ -187,5 +252,20 @@ describe('ConnectPhoneView', () => {
     expect(html).toContain('role="dialog"')
     expect(html).toContain('Use your phone to connect kun')
     expect(html).toContain('Generate authorization QR')
+    expect(html).toContain('Discord')
+  })
+
+  it('renders Discord bot setup with Client ID, Bot Token, and local-online guard copy', () => {
+    const html = renderToStaticMarkup(
+      createElement(DiscordBotSetupPanel, {
+        t: i18n.t.bind(i18n),
+        channels: []
+      })
+    )
+
+    expect(html).toContain('Client ID')
+    expect(html).toContain('Bot Token')
+    expect(html).toContain('Test send / enable receive')
+    expect(html).toContain('This channel is guarded only while this computer is online.')
   })
 })
