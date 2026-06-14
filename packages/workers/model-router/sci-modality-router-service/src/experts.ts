@@ -177,12 +177,16 @@ export function detectModality(payload: string): Modality {
     return 'spectrometry';
   }
 
-  // 2) Tabular expression data (single-cell / spatial) before sequence checks,
-  //    because gene-name tables also contain A/C/G/T letters.
-  if (looksLikeExpressionTable(text)) {
-    return /\b(spatial|coord|x_?coord|y_?coord|tissue|niche)\b/i.test(lower) || hasCoordinateColumns(text)
-      ? 'spatial'
-      : 'single_cell';
+  // 2) Spatial transcriptomics: a coordinate+feature grid ("<x> <y> <gene>" rows), an explicit
+  //    x/y coordinate header, or a spatial keyword. Checked before single-cell because spatial
+  //    rows also carry gene names.
+  if (looksLikeSpatialGrid(text) || hasCoordinateColumns(text)) {
+    return 'spatial';
+  }
+
+  // 3) Single-cell expression: gene:value tables, or a bare gene-marker list (one symbol per line).
+  if (looksLikeExpressionTable(text) || looksLikeMarkerList(text)) {
+    return /\b(spatial|tissue|niche)\b/i.test(lower) ? 'spatial' : 'single_cell';
   }
 
   // 3) Sequence payloads: only a FASTA-headed body or a single whitespace-free token
@@ -253,6 +257,32 @@ function looksLikeExpressionTable(text: string): boolean {
   }
   if (geneValueRows >= Math.max(2, Math.floor(rows.length * 0.5))) return true;
   return /\b(gene|cell|expression|counts?|umi|cluster|marker)\b/i.test(text) && /[,\t]/.test(text);
+}
+
+// Spatial transcriptomics grid: rows of "<x> <y> <gene>" (two numeric coordinates + a feature
+// token), tolerating an optional "x y gene" header line. Whitespace/comma/tab separated.
+function looksLikeSpatialGrid(text: string): boolean {
+  const rows = text.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+  if (rows.length < 3) return false;
+  const headerLooksSpatial = /^x[\s,\t]+y\b/i.test(rows[0] ?? '');
+  let gridRows = 0;
+  for (const row of rows) {
+    if (/^-?\d+(\.\d+)?[\s,\t]+-?\d+(\.\d+)?[\s,\t]+[A-Za-z][A-Za-z0-9_.-]*$/.test(row)) gridRows++;
+  }
+  const dataRows = rows.length - (headerLooksSpatial ? 1 : 0);
+  return gridRows >= Math.max(2, Math.floor(dataRows * 0.6));
+}
+
+// Bare gene-marker list: 3+ lines, each a single gene-symbol-like token (HGNC style, contains an
+// uppercase letter; rejects lowercase prose and multi-word lines).
+function looksLikeMarkerList(text: string): boolean {
+  const rows = text.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+  if (rows.length < 3) return false;
+  let geneRows = 0;
+  for (const row of rows) {
+    if (/^[A-Za-z][A-Za-z0-9.-]{1,11}$/.test(row) && /[A-Z]/.test(row)) geneRows++;
+  }
+  return geneRows >= Math.max(3, Math.floor(rows.length * 0.8));
 }
 
 function hasCoordinateColumns(text: string): boolean {

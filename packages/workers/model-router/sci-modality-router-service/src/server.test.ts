@@ -202,5 +202,9 @@ test('detectModality unit cases', () => {
   assert.equal(detectModality('ATGCGTACGTTAGCTAGCTAGCGATCGAT'), 'nucleotide');
   assert.equal(detectModality('CC(=O)OC1=CC=CC=C1C(=O)O'), 'molecule');
   assert.equal(detectModality('m/z\tintensity\n149.02\t1000\n151.04\t540'), 'spectrometry');
+  // single-cell: a bare gene-marker list (one HGNC-style symbol per line)
+  assert.equal(detectModality('CD3D\nCD3E\nCD8A\nGZMB\nNKG7'), 'single_cell');
+  // spatial: a coordinate+feature grid (x y gene rows)
+  assert.equal(detectModality('x y GENE\n0 0 CD3D\n1 0 CD3E\n10 10 EPCAM\n11 10 KRT18\n0 11 MS4A1'), 'spatial');
   assert.throws(() => detectModality('hello world this is plain prose'));
 });
