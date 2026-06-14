@@ -516,7 +516,7 @@
   "composerContinueHint": "当前上下文会被保留，你可以继续补充限制、改法或下一步。",
   "composerOfflineHint": "运行时恢复连接后，才可以继续发送消息。",
   "composerWorkspaceHint": "先选择一个工作目录，然后再开始或继续会话。",
-  "composerAddImage": "添加图片",
+  "composerAddImage": "附加文件",
   "composerImageUnavailable": "当前运行时暂不可用图片输入。",
   "composerAttachmentUnavailable": "当前暂不可上传附件。",
   "composerRemoveAttachment": "移除附件",
