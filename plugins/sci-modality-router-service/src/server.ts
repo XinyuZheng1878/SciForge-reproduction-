@@ -124,24 +124,17 @@ async function translateRoute(
 
   const requestId = body.requestId ?? `mt_${createHash('sha256').update(startedAt).digest('hex').slice(0, 12)}`;
   const provenance = { serviceId: SERVICE_ID, operation: 'modality_translate', requestId, startedAt };
+  const badRequest = (message: string): ServiceResult<never> => ({
+    ok: false,
+    error: { code: 'INVALID_ARGUMENT', message, retryable: false },
+    provenance: { ...provenance, completedAt: now().toISOString() },
+  });
 
   if (typeof body.payload !== 'string' || !body.payload.trim()) {
-    return sendJson(res, 400, {
-      ok: false,
-      error: { code: 'INVALID_ARGUMENT', message: '`payload` (non-empty string) is required.', retryable: false },
-      provenance: { ...provenance, completedAt: now().toISOString() },
-    } satisfies ServiceResult<never>);
+    return sendJson(res, 400, badRequest('`payload` (non-empty string) is required.'));
   }
   if (body.modality && !MODALITIES.includes(body.modality)) {
-    return sendJson(res, 400, {
-      ok: false,
-      error: {
-        code: 'INVALID_ARGUMENT',
-        message: `unknown modality ${String(body.modality)}; expected one of ${MODALITIES.join(', ')}`,
-        retryable: false,
-      },
-      provenance: { ...provenance, completedAt: now().toISOString() },
-    } satisfies ServiceResult<never>);
+    return sendJson(res, 400, badRequest(`unknown modality ${String(body.modality)}; expected one of ${MODALITIES.join(', ')}`));
   }
 
   // Resolve modality: explicit wins, else auto-detect.
@@ -156,11 +149,7 @@ async function translateRoute(
       modalitySource = 'detected';
     } catch (error) {
       const message = error instanceof UndetectableModalityError ? error.message : messageOf(error);
-      return sendJson(res, 400, {
-        ok: false,
-        error: { code: 'INVALID_ARGUMENT', message, retryable: false },
-        provenance: { ...provenance, completedAt: now().toISOString() },
-      } satisfies ServiceResult<never>);
+      return sendJson(res, 400, badRequest(message));
     }
   }
 

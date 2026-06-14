@@ -161,6 +161,11 @@ function buildUserText(modality: Modality, payload: string, instruction: string 
 const AA = 'ACDEFGHIKLMNPQRSTVWY';
 const NT = 'ACGTUN';
 
+/** Split into trimmed, non-empty lines — the shared shape every tabular detector works on. */
+function nonEmptyLines(text: string): string[] {
+  return text.split(/\r?\n/).map((row) => row.trim()).filter(Boolean);
+}
+
 /**
  * Best-effort modality detection from a raw text payload. Deliberately
  * conservative and ordered most-specific-first; throws UndetectableModalityError
@@ -189,7 +194,7 @@ export function detectModality(payload: string): Modality {
     return /\b(spatial|tissue|niche)\b/i.test(lower) ? 'spatial' : 'single_cell';
   }
 
-  // 3) Sequence payloads: only a FASTA-headed body or a single whitespace-free token
+  // 4) Sequence payloads: only a FASTA-headed body or a single whitespace-free token
   //    qualifies — this rejects natural-language prose, whose letters otherwise overlap
   //    heavily with the 20 amino-acid codes. Strip headers, then inspect the alphabet.
   const hadHeader = /^>/m.test(text);
@@ -208,7 +213,7 @@ export function detectModality(payload: string): Modality {
     }
   }
 
-  // 4) SMILES / small molecule: single token with bond/branch/ring grammar.
+  // 5) SMILES / small molecule: single token with bond/branch/ring grammar.
   if (looksLikeSmiles(text)) return 'molecule';
 
   throw new UndetectableModalityError();
@@ -237,7 +242,7 @@ function looksLikeSmiles(text: string): boolean {
 }
 
 function looksLikePeakList(text: string): boolean {
-  const rows = text.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+  const rows = nonEmptyLines(text);
   if (rows.length < 3) return false;
   let pairRows = 0;
   for (const row of rows) {
@@ -248,7 +253,7 @@ function looksLikePeakList(text: string): boolean {
 }
 
 function looksLikeExpressionTable(text: string): boolean {
-  const rows = text.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+  const rows = nonEmptyLines(text);
   if (rows.length < 2) return false;
   // gene:value or gene<tab/comma>value pairs, or a header with many gene-like columns.
   let geneValueRows = 0;
@@ -262,7 +267,7 @@ function looksLikeExpressionTable(text: string): boolean {
 // Spatial transcriptomics grid: rows of "<x> <y> <gene>" (two numeric coordinates + a feature
 // token), tolerating an optional "x y gene" header line. Whitespace/comma/tab separated.
 function looksLikeSpatialGrid(text: string): boolean {
-  const rows = text.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+  const rows = nonEmptyLines(text);
   if (rows.length < 3) return false;
   const headerLooksSpatial = /^x[\s,\t]+y\b/i.test(rows[0] ?? '');
   let gridRows = 0;
@@ -276,7 +281,7 @@ function looksLikeSpatialGrid(text: string): boolean {
 // Bare gene-marker list: 3+ lines, each a single gene-symbol-like token (HGNC style, contains an
 // uppercase letter; rejects lowercase prose and multi-word lines).
 function looksLikeMarkerList(text: string): boolean {
-  const rows = text.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+  const rows = nonEmptyLines(text);
   if (rows.length < 3) return false;
   let geneRows = 0;
   for (const row of rows) {
