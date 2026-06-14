@@ -1759,7 +1759,12 @@ export class AgentLoop {
         const translation = await translateDataAttachment(attachment)
         evidenceTexts.push(translation.text)
         // Emit a tool_call + tool_result pair so the turn timeline shows the expert routing.
-        try {
+        // Only surface it when an expert was actually used, or when expert routing was attempted
+        // but the service was offline/errored (informative). A plainly-non-scientific file
+        // ('undetected') or no service configured stays silent — it's just a normal text file.
+        const shouldEmitToolEntry =
+          translation.viaExpert || translation.reason === 'offline' || translation.reason === 'error'
+        if (shouldEmitToolEntry) try {
           const callId = `scimodality_${attachment.id}`
           const toolCallItemId = `item_tool_${input.turnId}_${callId}`
           const toolResultItemId = `item_toolresult_${input.turnId}_${callId}`
@@ -1790,7 +1795,9 @@ export class AgentLoop {
           })
           const routedTo = translation.viaExpert && translation.modality && translation.model
             ? `${translation.modality} (${translation.model})`
-            : 'text (no expert match)'
+            : translation.reason === 'offline'
+              ? 'raw text — expert service offline'
+              : 'raw text — expert routing failed'
           await this.opts.turns.applyItem(
             input.threadId,
             makeToolResultItem({
@@ -2083,6 +2090,25 @@ type DataAttachmentTranslation = {
   modality?: string
   model?: string
   summary: string
+  // Why an expert was NOT used (undefined when viaExpert): 'offline' = service unreachable
+  // (e.g. GPU box down), 'undetected' = service ran but the content is not a known modality,
+  // 'error' = the call failed. 'undetected' is the normal "plain text file" case.
+  reason?: 'offline' | 'undetected' | 'error'
+}
+
+// Fast liveness probe so a down GPU box degrades in ~3s instead of waiting on the long
+// translate timeout. Returns false on any error/timeout.
+async function sciModalityServiceHealthy(serviceUrl: string): Promise<boolean> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 3000)
+  try {
+    const resp = await fetch(`${serviceUrl.replace(/\/+$/, '')}/health`, { signal: controller.signal })
+    return resp.ok
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /**
@@ -2097,51 +2123,62 @@ type DataAttachmentTranslation = {
  */
 async function translateDataAttachment(attachment: AttachmentContent): Promise<DataAttachmentTranslation> {
   const rawText = attachment.data.toString('utf8')
-  const serviceUrl = (process.env['SCIFORGE_SCIMODALITY_SERVICE_URL'] ?? '').trim()
+  const serviceUrl = (process.env['SCIFORGE_SCIMODALITY_SERVICE_URL'] ?? '').trim().replace(/\/+$/, '')
 
+  let reason: 'offline' | 'undetected' | 'error' | undefined
   if (serviceUrl) {
-    try {
-      const timeoutMs = Number(process.env['SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS'] ?? 1_800_000)
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), timeoutMs)
-      let response: Response
+    // Fast liveness gate: if the GPU box / service is down, skip straight to the raw-text
+    // fallback (~3s) instead of waiting on the long inference timeout.
+    if (!(await sciModalityServiceHealthy(serviceUrl))) {
+      reason = 'offline'
+    } else {
       try {
-        response = await fetch(`${serviceUrl}/modality/translate`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ payload: rawText, objectId: attachment.id }),
-          signal: controller.signal
-        })
-      } finally {
-        clearTimeout(timer)
-      }
-      if (response.ok) {
-        const json = await response.json() as { ok: boolean; summary?: string; data?: { modality?: string; model?: string; summary?: string } }
-        if (json.ok) {
-          const summary = (json.summary ?? json.data?.summary ?? '').trim()
-          if (summary) {
-            const modality = json.data?.modality ?? 'unknown'
-            const model = json.data?.model ?? 'unknown'
-            const text = [
-              `[scientific-modality:${modality}/${model}] The attached file "${attachment.name}" was analyzed by a domain expert model. Treat the following as the inspected content and answer from it; do not try to open the file.`,
-              '',
-              summary
-            ].join('\n')
-            return { text, viaExpert: true, modality, model, summary }
-          }
+        const timeoutMs = Number(process.env['SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS'] ?? 1_800_000)
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), timeoutMs)
+        let response: Response
+        try {
+          response = await fetch(`${serviceUrl}/modality/translate`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ payload: rawText, objectId: attachment.id }),
+            signal: controller.signal
+          })
+        } finally {
+          clearTimeout(timer)
         }
+        if (response.ok) {
+          const json = await response.json() as { ok: boolean; summary?: string; data?: { modality?: string; model?: string; summary?: string } }
+          if (json.ok) {
+            const summary = (json.summary ?? json.data?.summary ?? '').trim()
+            if (summary) {
+              const modality = json.data?.modality ?? 'unknown'
+              const model = json.data?.model ?? 'unknown'
+              const text = [
+                `[scientific-modality:${modality}/${model}] The attached file "${attachment.name}" was analyzed by a domain expert model. Treat the following as the inspected content and answer from it; do not try to open the file.`,
+                '',
+                summary
+              ].join('\n')
+              return { text, viaExpert: true, modality, model, summary }
+            }
+          }
+          // Service answered but could not translate -> not a recognized scientific modality.
+          reason = 'undetected'
+        } else {
+          reason = 'error'
+        }
+      } catch {
+        reason = 'error'
       }
-    } catch {
-      // fall through to raw-text fallback
     }
   }
 
-  // Fail-open: inject raw file text (truncated to 256 KiB)
+  // Fail-open: inject raw file text (truncated to 256 KiB) so the turn is never broken.
   const truncated = Buffer.byteLength(rawText, 'utf8') > DATA_ATTACHMENT_TRANSLATE_MAX_BYTES
     ? rawText.slice(0, DATA_ATTACHMENT_TRANSLATE_MAX_BYTES) + '\n...[truncated]'
     : rawText
   const text = `The attached file "${attachment.name}" contains:\n\n${truncated}`
-  return { text, viaExpert: false, summary: truncated }
+  return { text, viaExpert: false, summary: truncated, ...(reason ? { reason } : {}) }
 }
 
 function autoModelRouteKey(threadId: string, turnId: string): string {
