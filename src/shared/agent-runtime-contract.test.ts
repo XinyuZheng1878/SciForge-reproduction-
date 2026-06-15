@@ -3,6 +3,7 @@ import {
   AGENT_RUNTIME_EVENT_KINDS,
   createDefaultAgentRuntimeCapabilities,
   createUnavailableCapabilityState,
+  type AgentRuntimeCapabilities,
   type AgentRuntimeEvent
 } from './agent-runtime-contract'
 
@@ -111,6 +112,9 @@ describe('agent runtime contract', () => {
         goals: false,
         todos: false,
         resumeSession: false
+      },
+      guard: {
+        toolStorm: 'unsupported'
       }
     })
     expect(capabilities.events.live).toBe(false)
@@ -133,6 +137,33 @@ describe('agent runtime contract', () => {
       available: false,
       reason: 'not implemented yet'
     })
+  })
+
+  it('represents native and observe runtime guards without implying host controls', () => {
+    const base = createDefaultAgentRuntimeCapabilities({
+      runtimeId: 'codex',
+      transport: 'jsonrpc_stdio'
+    })
+    const codex = {
+      ...base,
+      guard: { toolStorm: 'observe' }
+    } satisfies AgentRuntimeCapabilities
+    const kun = {
+      ...base,
+      runtimeId: 'kun',
+      transport: 'http_sse',
+      guard: { toolStorm: 'native' },
+      controls: {
+        ...base.controls,
+        interrupt: false,
+        steer: false
+      }
+    } satisfies AgentRuntimeCapabilities
+
+    expect(codex.guard.toolStorm).toBe('observe')
+    expect(kun.guard.toolStorm).toBe('native')
+    expect(kun.controls.interrupt).toBe(false)
+    expect(kun.controls.steer).toBe(false)
   })
 
   it('keeps the shared contract free of renderer and runtime-specific imports', async () => {

@@ -278,7 +278,7 @@ test('responses tool calls pass through the Model Router API without becoming te
             content: { kind: 'markdown', value: 'Visible answer.' },
           }),
         },
-      }]),
+      }], { reasoning_content: 'Need to present the answer through the GUI tool.' }),
     ]),
   });
 
@@ -312,10 +312,317 @@ test('responses tool calls pass through the Model Router API without becoming te
         intent: 'show-result',
         content: { kind: 'markdown', value: 'Visible answer.' },
       }),
+      reasoning_content: 'Need to present the answer through the GUI tool.',
     }]);
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.body.tool_choice, 'auto');
     assert.equal((calls[0]?.body.tools as Array<{ function?: { name?: string } }> | undefined)?.[0]?.function?.name, 'gui_present');
+  } finally {
+    await server.close();
+  }
+});
+
+test('responses tool outputs are forwarded to chat providers as tool messages', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-tool-output-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-tool-output-final', '工具输出时间是 Mon Jun 15 17:01:38 CST 2026。'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Run date and answer.' }],
+          },
+          {
+            type: 'function_call',
+            call_id: 'call_date_1',
+            name: 'local_shell',
+            arguments: '{"cmd":"date"}',
+            reasoning_content: 'Need to run date before answering.',
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_date_1',
+            output: 'Mon Jun 15 17:01:38 CST 2026\n',
+          },
+        ],
+        tools: [{
+          type: 'function',
+          name: 'local_shell',
+          description: 'Run a local shell command.',
+          parameters: { type: 'object', properties: {} },
+        }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as { output_text?: string };
+    assert.equal(body.output_text, '工具输出时间是 Mon Jun 15 17:01:38 CST 2026。');
+    assert.deepEqual(calls[0]?.body.messages, [
+      {
+        role: 'user',
+        content: 'Run date and answer.',
+      },
+      {
+        role: 'assistant',
+        content: null,
+        reasoning_content: 'Need to run date before answering.',
+        tool_calls: [{
+          id: 'call_date_1',
+          type: 'function',
+          function: {
+            name: 'local_shell',
+            arguments: '{"cmd":"date"}',
+          },
+        }],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'call_date_1',
+        content: 'Mon Jun 15 17:01:38 CST 2026\n',
+      },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('responses developer messages are replayed as chat-compatible system messages', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-developer-replay-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-developer-final', 'Developer instructions were preserved.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'developer',
+            content: [
+              { type: 'input_text', text: 'Always answer briefly.' },
+              { type: 'input_text', text: 'Never call extra tools.' },
+            ],
+          },
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Say hello.' }],
+          },
+          {
+            type: 'function_call',
+            call_id: 'call_date_developer',
+            name: 'local_shell',
+            arguments: '{"cmd":"date"}',
+            reasoning_content: 'Need one date call before answering.',
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_date_developer',
+            output: 'Mon Jun 15 17:01:38 CST 2026\n',
+          },
+        ],
+        tools: [{
+          type: 'function',
+          name: 'local_shell',
+          description: 'Run a local shell command.',
+          parameters: { type: 'object', properties: {} },
+        }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls[0]?.body.messages, [
+      {
+        role: 'system',
+        content: 'Always answer briefly.\nNever call extra tools.',
+      },
+      {
+        role: 'user',
+        content: 'Say hello.',
+      },
+      {
+        role: 'assistant',
+        content: null,
+        reasoning_content: 'Need one date call before answering.',
+        tool_calls: [{
+          id: 'call_date_developer',
+          type: 'function',
+          function: {
+            name: 'local_shell',
+            arguments: '{"cmd":"date"}',
+          },
+        }],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'call_date_developer',
+        content: 'Mon Jun 15 17:01:38 CST 2026\n',
+      },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('responses tool outputs restore cached function calls stripped by app-server clients', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-tool-reasoning-cache-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-tool-call-with-reasoning', '', [{
+        id: 'call_date_cached',
+        type: 'function',
+        function: {
+          name: 'local_shell',
+          arguments: '{"cmd":"date"}',
+        },
+      }], { reasoning_content: 'Need to run date before answering.' }),
+      chatCompletion('text-tool-output-final', '工具输出时间是 Mon Jun 15 17:01:38 CST 2026。'),
+    ]),
+  });
+
+  try {
+    const first = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: 'Run date and answer.',
+        tools: [{
+          type: 'function',
+          name: 'local_shell',
+          description: 'Run a local shell command.',
+          parameters: { type: 'object', properties: {} },
+        }],
+      }),
+    });
+
+    assert.equal(first.status, 200);
+    const firstBody = await first.json() as { output?: Array<Record<string, unknown>> };
+    assert.equal(firstBody.output?.[0]?.reasoning_content, 'Need to run date before answering.');
+
+    const second = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Run date and answer.' }],
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_date_cached',
+            output: 'Mon Jun 15 17:01:38 CST 2026\n',
+          },
+        ],
+        tools: [{
+          type: 'function',
+          name: 'local_shell',
+          description: 'Run a local shell command.',
+          parameters: { type: 'object', properties: {} },
+        }],
+      }),
+    });
+
+    assert.equal(second.status, 200);
+    assert.equal(
+      (calls[1]?.body.messages as Array<Record<string, unknown>> | undefined)?.[1]?.reasoning_content,
+      'Need to run date before answering.'
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test('responses tool outputs retry once when thinking providers require reasoning content replay', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-tool-reasoning-retry-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      Response.json({
+        error: {
+          message: 'The `reasoning_content` in the thinking mode must be passed back to the API.',
+        },
+      }, { status: 400 }),
+      chatCompletion('text-tool-output-final', '工具输出时间是 Mon Jun 15 17:01:38 CST 2026。'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Run date and answer.' }],
+          },
+          {
+            type: 'function_call',
+            call_id: 'call_date_retry',
+            name: 'local_shell',
+            arguments: '{"cmd":"date"}',
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_date_retry',
+            output: 'Mon Jun 15 17:01:38 CST 2026\n',
+          },
+        ],
+        tools: [{
+          type: 'function',
+          name: 'local_shell',
+          description: 'Run a local shell command.',
+          parameters: { type: 'object', properties: {} },
+        }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 2);
+    assert.equal(
+      (calls[0]?.body.messages as Array<Record<string, unknown>> | undefined)?.[1]?.reasoning_content,
+      undefined
+    );
+    assert.equal(
+      (calls[1]?.body.messages as Array<Record<string, unknown>> | undefined)?.[1]?.reasoning_content,
+      'Tool call issued by the assistant.'
+    );
   } finally {
     await server.close();
   }
@@ -1443,7 +1750,12 @@ function parseSseEvents(body: string): Array<Record<string, any>> {
     .map((payload) => JSON.parse(payload) as Record<string, any>);
 }
 
-function chatCompletion(id: string, content: string, toolCalls?: Array<Record<string, unknown>>) {
+function chatCompletion(
+  id: string,
+  content: string,
+  toolCalls?: Array<Record<string, unknown>>,
+  messageExtras: Record<string, unknown> = {},
+) {
   return Response.json({
     id,
     object: 'chat.completion',
@@ -1454,6 +1766,7 @@ function chatCompletion(id: string, content: string, toolCalls?: Array<Record<st
       message: {
         role: 'assistant',
         content,
+        ...messageExtras,
         ...(toolCalls ? { tool_calls: toolCalls } : {}),
       },
       finish_reason: toolCalls ? 'tool_calls' : 'stop',

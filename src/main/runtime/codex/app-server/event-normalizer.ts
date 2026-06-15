@@ -177,7 +177,7 @@ function normalizeSessionEventMessage(
     return {
       threadId,
       ...(turnId ? { turnId } : {}),
-      ...(lastAgentMessage ? { deltas: [{ text: lastAgentMessage, kind: 'agent_message' as const }] } : {}),
+      ...(lastAgentMessage ? { deltas: [{ text: lastAgentMessage, kind: 'agent_message' as const, snapshot: true }] } : {}),
       turnComplete: true
     }
   }
@@ -222,7 +222,7 @@ function normalizeSessionResponseItem(
     return {
       threadId,
       ...(turnId ? { turnId } : {}),
-      deltas: [{ text, kind: 'agent_message' }]
+      deltas: [{ text, kind: 'agent_message', snapshot: true }]
     }
   }
   if (type === 'reasoning') {
@@ -237,7 +237,8 @@ function normalizeSessionResponseItem(
   if (type === 'function_call') {
     const toolName = stringValue(payload.name) || 'tool'
     const args = parseJsonObject(stringValue(payload.arguments))
-    const itemId = stringValue(payload.call_id) || `${toolName}-${Date.now()}`
+    const callId = stringValue(payload.call_id)
+    const itemId = callId || `${toolName}-${Date.now()}`
     const command = stringValue(args?.cmd) || stringValue(args?.command)
     const cwd = stringValue(args?.workdir) || stringValue(args?.cwd)
     return {
@@ -251,6 +252,7 @@ function normalizeSessionResponseItem(
         ...(toolCallDetail(args, payload) ? { detail: toolCallDetail(args, payload) } : {}),
         meta: {
           toolName,
+          ...(callId ? { callId } : {}),
           ...(command ? { command } : {}),
           ...(cwd ? { cwd } : {}),
           ...(args ? { arguments: args } : {})
@@ -260,31 +262,35 @@ function normalizeSessionResponseItem(
   }
   if (type === 'function_call_output') {
     const output = outputText(payload.output)
+    const callId = stringValue(payload.call_id)
     return {
       threadId,
       ...(turnId ? { turnId } : {}),
       tool: {
-        itemId: stringValue(payload.call_id) || 'codex-tool-output',
+        itemId: callId || 'codex-tool-output',
         summary: 'Tool output',
         status: toolOutputStatus(output),
-        detail: output
+        detail: output,
+        ...(callId ? { meta: { callId } } : {})
       }
     }
   }
   if (type === 'local_shell_call') {
     const action = asRecord(payload.action)
     const command = stringValue(action?.command)
+    const callId = stringValue(payload.call_id)
     return {
       threadId,
       ...(turnId ? { turnId } : {}),
       tool: {
-        itemId: stringValue(payload.call_id) || 'codex-local-shell-call',
+        itemId: callId || 'codex-local-shell-call',
         summary: command || 'Local shell',
         status: stringValue(payload.status) === 'completed' ? 'success' : 'running',
         toolKind: 'command_execution',
         ...(command ? { detail: command } : {}),
         meta: {
           toolName: 'local_shell',
+          ...(callId ? { callId } : {}),
           ...(command ? { command } : {})
         }
       }
@@ -309,7 +315,7 @@ function normalizeThreadItem(
     return {
       threadId,
       ...(turnId ? { turnId } : {}),
-      deltas: [{ text, kind: 'agent_message' }]
+      deltas: [{ text, kind: 'agent_message', snapshot: true }]
     }
   }
   if (type === 'reasoning') {

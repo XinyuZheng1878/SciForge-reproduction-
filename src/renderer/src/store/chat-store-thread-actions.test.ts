@@ -272,6 +272,166 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(Object.keys(state.turnStartedAtByUserId)).toEqual(['runtime-user-1'])
   })
 
+  it('sends write route messages through the selected write workspace with write governance', async () => {
+    const { actions, state } = buildHarness()
+    const writeThread = {
+      ...thread('write-thread'),
+      title: 'Write Assistant',
+      workspace: '/workspace/write-current'
+    }
+    const provider = {
+      sendUserMessage: vi.fn(async () => ({
+        turnId: 'turn-write',
+        userMessageItemId: 'runtime-user-write'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.route = 'write'
+    state.activeThreadId = 'old-write-thread'
+    state.threads = [
+      { ...thread('old-write-thread'), workspace: '/workspace/write-old' },
+      writeThread
+    ]
+    state.busy = false
+    state.composerModel = ''
+    state.ensureWriteThreadForWorkspace = vi.fn(async (workspaceRoot?: string) => {
+      state.activeThreadId = writeThread.id
+      state.threads = [writeThread]
+      return writeThread.id
+    }) as unknown as ChatState['ensureWriteThreadForWorkspace']
+
+    await expect(actions.sendMessage('writing runtime prompt', 'agent', {
+      displayText: 'visible prompt',
+      workspaceRoot: '/workspace/write-current'
+    })).resolves.toBe(true)
+
+    expect(state.ensureWriteThreadForWorkspace).toHaveBeenCalledWith('/workspace/write-current')
+    expect(provider.sendUserMessage).toHaveBeenCalledWith(
+      'write-thread',
+      'writing runtime prompt',
+      expect.objectContaining({
+        mode: 'agent',
+        workspace: '/workspace/write-current',
+        governanceProfile: 'write',
+        displayText: 'visible prompt'
+      })
+    )
+  })
+
+  it('keeps explicit write intent even if the visible route changed before send', async () => {
+    const { actions, state } = buildHarness()
+    const writeThread = {
+      ...thread('write-thread'),
+      title: 'Write Assistant',
+      workspace: '/workspace/write-current'
+    }
+    const provider = {
+      sendUserMessage: vi.fn(async () => ({
+        turnId: 'turn-write-race',
+        userMessageItemId: 'runtime-user-write-race'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.route = 'chat'
+    state.activeThreadId = 'chat-thread'
+    state.threads = [thread('chat-thread'), writeThread]
+    state.busy = false
+    state.composerModel = 'code-model'
+    state.ensureWriteThreadForWorkspace = vi.fn(async (workspaceRoot?: string) => {
+      state.route = 'write'
+      state.activeThreadId = writeThread.id
+      return writeThread.id
+    }) as unknown as ChatState['ensureWriteThreadForWorkspace']
+
+    await expect(actions.sendMessage('writing runtime prompt', 'agent', {
+      displayText: 'visible prompt',
+      sourceRoute: 'write',
+      targetThreadId: 'write-thread',
+      workspaceRoot: '/workspace/write-current',
+      governanceProfile: 'write',
+      model: 'write-model'
+    })).resolves.toBe(true)
+
+    expect(state.ensureWriteThreadForWorkspace).toHaveBeenCalledWith('/workspace/write-current')
+    expect(provider.sendUserMessage).toHaveBeenCalledWith(
+      'write-thread',
+      'writing runtime prompt',
+      expect.objectContaining({
+        mode: 'agent',
+        model: 'write-model',
+        workspace: '/workspace/write-current',
+        governanceProfile: 'write',
+        displayText: 'visible prompt'
+      })
+    )
+    expect(provider.sendUserMessage).not.toHaveBeenCalledWith(
+      'chat-thread',
+      expect.any(String),
+      expect.any(Object)
+    )
+  })
+
+  it('keeps the selected write workspace when queued write messages drain later', async () => {
+    const { actions, state } = buildHarness()
+    const writeThread = {
+      ...thread('write-thread'),
+      title: 'Write Assistant',
+      workspace: '/workspace/write-current'
+    }
+    const provider = {
+      sendUserMessage: vi.fn(async () => ({
+        turnId: 'turn-write-queued',
+        userMessageItemId: 'runtime-user-write-queued'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.route = 'write'
+    state.activeThreadId = writeThread.id
+    state.threads = [writeThread]
+    state.busy = true
+    state.composerModel = ''
+    state.ensureWriteThreadForWorkspace = vi.fn(async (workspaceRoot?: string) => {
+      state.activeThreadId = writeThread.id
+      return writeThread.id
+    }) as unknown as ChatState['ensureWriteThreadForWorkspace']
+
+    await expect(actions.sendMessage('queued write prompt', 'agent', {
+      displayText: 'queued visible prompt',
+      workspaceRoot: '/workspace/write-current'
+    })).resolves.toBe(true)
+
+    expect(state.queuedMessages).toEqual([
+      expect.objectContaining({
+        text: 'queued write prompt',
+        displayText: 'queued visible prompt',
+        workspaceRoot: '/workspace/write-current',
+        threadId: writeThread.id
+      })
+    ])
+
+    state.busy = false
+    await actions.drainQueuedMessages()
+
+    expect(state.ensureWriteThreadForWorkspace).toHaveBeenNthCalledWith(1, '/workspace/write-current')
+    expect(state.ensureWriteThreadForWorkspace).toHaveBeenNthCalledWith(2, '/workspace/write-current')
+    expect(provider.sendUserMessage).toHaveBeenCalledWith(
+      'write-thread',
+      'queued write prompt',
+      expect.objectContaining({
+        mode: 'agent',
+        workspace: '/workspace/write-current',
+        governanceProfile: 'write',
+        displayText: 'queued visible prompt'
+      })
+    )
+  })
+
   it('mirrors desktop Code route messages when the active thread is bound to an IM channel', async () => {
     const { actions, state } = buildHarness()
     const mirrorClawChannelMessage = vi.fn(async () => ({ ok: true as const }))

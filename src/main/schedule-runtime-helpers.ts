@@ -6,16 +6,14 @@ import type {
   ScheduleRunMode,
   ScheduledTaskV1
 } from '../shared/app-settings'
+import type {
+  AgentRuntimeThread,
+  AgentRuntimeThreadDetail,
+  AgentRuntimeThreadStartInput,
+  AgentRuntimeTurnHandle,
+  AgentRuntimeTurnStartInput
+} from '../shared/agent-runtime-contract'
 import type { JsonSettingsStore } from './settings-store'
-
-export type RuntimeRequestResult = { ok: boolean; status: number; body: string }
-
-export type RuntimeRequestFn = (
-  settings: AppSettingsV1,
-  pathAndQuery: string,
-  init: { method?: string; body?: string; headers?: Record<string, string> },
-  runtimeId?: AgentRuntimeId
-) => Promise<RuntimeRequestResult>
 
 export type PowerSaveBlockerLike = {
   start: (type: 'prevent-app-suspension' | 'prevent-display-sleep') => number
@@ -25,7 +23,12 @@ export type PowerSaveBlockerLike = {
 
 export type ScheduleRuntimeDeps = {
   store: JsonSettingsStore
-  runtimeRequest: RuntimeRequestFn
+  agentRuntime?: {
+    startThread: (input: AgentRuntimeThreadStartInput) => Promise<AgentRuntimeThread>
+    readThread: (input: { runtimeId?: AgentRuntimeId; threadId: string }) => Promise<AgentRuntimeThreadDetail>
+    startTurn: (input: AgentRuntimeTurnStartInput) => Promise<AgentRuntimeTurnHandle>
+    interruptTurn?: (input: { runtimeId?: AgentRuntimeId; threadId: string; turnId: string; discard?: boolean }) => Promise<void>
+  }
   logError: (category: string, message: string, detail?: unknown) => void
   powerSaveBlocker?: PowerSaveBlockerLike
 }
@@ -45,6 +48,11 @@ export type TurnRecordJson = {
 export type TurnItemJson = {
   kind: string
   turnId?: string
+  status?: string
+  toolName?: string
+  toolKind?: string
+  output?: unknown
+  isError?: boolean | null
   text?: string | null
   summary?: string
   detail?: string | null
@@ -85,21 +93,6 @@ export function parseJsonObject(raw: string): Record<string, unknown> | null {
   }
 }
 
-export function runtimeErrorMessage(result: RuntimeRequestResult, fallback: string): string {
-  const parsed = parseJsonObject(result.body)
-  if (parsed) {
-    const message = parsed.message
-    if (typeof message === 'string' && message.trim()) return message.trim()
-    const error = parsed.error
-    if (typeof error === 'string' && error.trim()) return error.trim()
-    if (typeof error === 'object' && error !== null) {
-      const nested = (error as Record<string, unknown>).message
-      if (typeof nested === 'string' && nested.trim()) return nested.trim()
-    }
-  }
-  return result.body.trim() || fallback
-}
-
 export function isRunningStatus(status: string | undefined): boolean {
   return status === 'queued' || status === 'in_progress' || status === 'started' || status === 'running'
 }
@@ -114,7 +107,7 @@ export function latestAssistantText(
     : threadItems(detail)
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index]
-    if (item.kind !== 'assistant_text' && item.kind !== 'agent_message') continue
+    if (item.kind !== 'assistant_text' && item.kind !== 'agent_message' && item.kind !== 'assistant_message') continue
     const text = (item.text ?? item.detail ?? item.summary ?? '').trim()
     if (text) return text
   }

@@ -10,7 +10,7 @@ import {
   type AppSettingsV1
 } from '../../shared/app-settings'
 import type { CodexRuntimeService } from './codex'
-import { runtimeEventsViaRuntimeHost, runtimeRequestViaRuntimeHost } from './runtime-host'
+import { runtimeEventsViaRuntimeHost } from './runtime-host'
 
 function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'codex'): AppSettingsV1 {
   return {
@@ -37,51 +37,6 @@ function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'cod
   }
 }
 
-describe('runtimeRequestViaRuntimeHost', () => {
-  it('delegates explicit Kun requests to the existing Kun request function', async () => {
-    const ensureKunRuntime = vi.fn(async () => undefined)
-    const kunRequest = vi.fn(async () => ({ ok: true, status: 200, body: '{"ok":true}' }))
-    const response = await runtimeRequestViaRuntimeHost(
-      settings('codex'),
-      '/v1/threads',
-      { method: 'GET' },
-      {
-        ensureKunRuntime,
-        kunRequest
-      },
-      'kun'
-    )
-
-    expect(response.ok).toBe(true)
-    expect(kunRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ activeAgentRuntime: 'codex' }),
-      '/v1/threads',
-      { method: 'GET' },
-      ensureKunRuntime
-    )
-  })
-
-  it('does not project Codex into the legacy Kun-shaped request contract', async () => {
-    const kunRequest = vi.fn()
-    const response = await runtimeRequestViaRuntimeHost(
-      settings('codex'),
-      '/v1/threads',
-      { method: 'GET' },
-      {
-        ensureKunRuntime: vi.fn(async () => undefined),
-        kunRequest
-      }
-    )
-
-    expect(response.ok).toBe(false)
-    expect(response.status).toBe(400)
-    expect(JSON.parse(response.body)).toMatchObject({
-      code: 'unsupported_runtime_request'
-    })
-    expect(kunRequest).not.toHaveBeenCalled()
-  })
-})
-
 describe('runtimeEventsViaRuntimeHost', () => {
   it('delegates explicit Kun event streams to the existing Kun SSE implementation', async () => {
     const ensureKunRuntime = vi.fn(async () => undefined)
@@ -98,7 +53,6 @@ describe('runtimeEventsViaRuntimeHost', () => {
       ac.signal,
       {
         ensureKunRuntime,
-        kunRequest: vi.fn(),
         kunEvents,
         codexRuntime: () => ({}) as CodexRuntimeService
       },
@@ -135,7 +89,6 @@ describe('runtimeEventsViaRuntimeHost', () => {
       new AbortController().signal,
       {
         ensureKunRuntime: vi.fn(async () => undefined),
-        kunRequest: vi.fn(),
         kunEvents: vi.fn(),
         codexRuntime: () => codex
       }

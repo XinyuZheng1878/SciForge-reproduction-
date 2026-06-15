@@ -17,7 +17,9 @@ import {
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultSpeechToTextSettings,
+  defaultRuntimeGuardSettings,
   mergeKunRuntimeSettings,
+  mergeRuntimeGuardSettings,
   mergeScheduleSettings,
   mergeSpeechToTextSettings,
   defaultCodexRuntimeSettings,
@@ -32,6 +34,7 @@ import {
   mergeClawSettings,
   migrateLegacyAppSettings,
   normalizeAppSettings,
+  normalizeRuntimeGuardSettings,
   parseClawUserPromptForDisplay,
   normalizeScheduleSettings,
   resolveKunRuntimeSettings,
@@ -158,15 +161,70 @@ describe('kun defaults', () => {
         summaryInputMaxBytes: 98304
       },
       runtimeTuning: {
-        toolStorm: {
-          enabled: true,
-          windowSize: 8,
-          threshold: 3
-        },
         toolArgumentRepair: {
           maxStringBytes: 524288
         }
       }
+    })
+  })
+
+  it('defaults runtime guard settings to runtime-neutral tool storm limits', () => {
+    expect(defaultRuntimeGuardSettings()).toEqual({
+      toolStorm: {
+        enabled: true,
+        windowSize: 8,
+        softThreshold: 3,
+        hardThreshold: 6
+      },
+      budgets: {
+        defaultMaxToolEvents: 80,
+        writeMaxToolEvents: 96,
+        remoteGuardMaxToolEvents: 32
+      }
+    })
+  })
+
+  it('normalizes legacy tool storm settings into runtime guards', () => {
+    expect(normalizeRuntimeGuardSettings(undefined, {
+      kunToolStorm: {
+        enabled: false,
+        windowSize: 12,
+        threshold: 4
+      }
+    }).toolStorm).toEqual({
+      enabled: false,
+      windowSize: 12,
+      softThreshold: 4,
+      hardThreshold: 6
+    })
+    expect(normalizeRuntimeGuardSettings(undefined, {
+      runtimeToolStorm: {
+        windowSize: 10,
+        softThreshold: 5,
+        hardThreshold: 7
+      }
+    }).toolStorm).toMatchObject({
+      windowSize: 10,
+      softThreshold: 5,
+      hardThreshold: 7
+    })
+  })
+
+  it('migrates old persisted tool storm fields into normalized runtime guards', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      runtimeGuards: undefined,
+      kunToolStorm: {
+        windowSize: 9,
+        threshold: 4
+      }
+    } as unknown as AppSettingsV1)
+
+    expect(normalized.runtimeGuards?.toolStorm).toMatchObject({
+      enabled: true,
+      windowSize: 9,
+      softThreshold: 4,
+      hardThreshold: 6
     })
   })
 })
@@ -643,8 +701,8 @@ describe('mergeKunRuntimeSettings', () => {
         defaultSoftThreshold: 64000
       },
       runtimeTuning: {
-        toolStorm: {
-          threshold: 5
+        toolArgumentRepair: {
+          maxStringBytes: 262144
         }
       }
     })
@@ -654,10 +712,32 @@ describe('mergeKunRuntimeSettings', () => {
     expect(next.contextCompaction.defaultSoftThreshold).toBe(64000)
     expect(next.contextCompaction.defaultHardThreshold).toBe(64000)
     expect(next.contextCompaction.summaryMode).toBe('heuristic')
-    expect(next.runtimeTuning.toolStorm.enabled).toBe(true)
-    expect(next.runtimeTuning.toolStorm.windowSize).toBe(current.runtimeTuning.toolStorm.windowSize)
-    expect(next.runtimeTuning.toolStorm.threshold).toBe(5)
-    expect(next.runtimeTuning.toolArgumentRepair).toEqual(current.runtimeTuning.toolArgumentRepair)
+    expect(next.runtimeTuning.toolArgumentRepair).toEqual({
+      maxStringBytes: 262144
+    })
+  })
+
+  it('deep-merges runtime guard settings through the new config model', () => {
+    const next = mergeRuntimeGuardSettings(defaultRuntimeGuardSettings(), {
+      toolStorm: {
+        softThreshold: 5
+      },
+      budgets: {
+        remoteGuardMaxToolEvents: 16
+      }
+    })
+
+    expect(next.toolStorm).toEqual({
+      enabled: true,
+      windowSize: 8,
+      softThreshold: 5,
+      hardThreshold: 6
+    })
+    expect(next.budgets).toEqual({
+      defaultMaxToolEvents: 80,
+      writeMaxToolEvents: 96,
+      remoteGuardMaxToolEvents: 16
+    })
   })
 })
 

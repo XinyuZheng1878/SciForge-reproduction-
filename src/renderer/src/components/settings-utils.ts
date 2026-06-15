@@ -2,6 +2,7 @@ import {
   DEFAULT_GUI_UPDATE_CHANNEL,
   defaultCodexRuntimeSettings,
   defaultKunRuntimeSettings,
+  defaultRuntimeGuardSettings,
   applyCodexRuntimePatch,
   applyKunRuntimePatch,
   getCodexRuntimeSettings,
@@ -12,6 +13,7 @@ import {
   mergeClawSettings,
   mergeModelRouterSettings,
   mergeModelProviderSettings,
+  mergeRuntimeGuardSettings,
   mergeScheduleSettings,
   mergeSpeechToTextSettings,
   mergeWriteSettings,
@@ -53,12 +55,19 @@ export function hasValidPort(settings: AppSettingsV1): boolean {
 
 export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): AppSettingsV1 {
   const safeCurrent = coerceRendererSettings(current)
-  const { agents: agentsPatch, provider: providerPatch, modelRouter: modelRouterPatch, ...restPatch } = patch
+  const {
+    agents: agentsPatch,
+    provider: providerPatch,
+    modelRouter: modelRouterPatch,
+    runtimeGuards: runtimeGuardsPatch,
+    ...restPatch
+  } = patch
   return {
     ...applyCodexRuntimePatch(applyKunRuntimePatch(safeCurrent, agentsPatch?.kun), agentsPatch?.codex),
     ...restPatch,
     provider: mergeModelProviderSettings(safeCurrent.provider, providerPatch),
     modelRouter: mergeModelRouterSettings(safeCurrent.modelRouter, modelRouterPatch),
+    runtimeGuards: mergeRuntimeGuardSettings(safeCurrent.runtimeGuards, runtimeGuardsPatch),
     log: {
       ...safeCurrent.log,
       ...(patch.log ?? {})
@@ -106,6 +115,7 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     uiFontScale,
     provider: normalizeModelProviderSettings(raw.provider),
     modelRouter: normalizeModelRouterSettings(raw.modelRouter),
+    runtimeGuards: mergeRuntimeGuardSettings(defaultRuntimeGuardSettings(), raw.runtimeGuards),
     activeAgentRuntime: normalizeAgentRuntimeId(raw.activeAgentRuntime),
     agents: {
       ...kunSettingsEnvelope(mergeKunRuntimeSettings(defaultKunRuntimeSettings(), getKunRuntimeSettings(settings))),

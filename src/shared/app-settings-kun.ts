@@ -11,6 +11,8 @@ import {
   type KunHistoryHygieneSettingsV1,
   type KunMcpSearchSettingsV1,
   type KunRuntimeTuningSettingsV1,
+  type RuntimeGuardSettingsPatchV1,
+  type RuntimeGuardSettingsV1,
   type KunRuntimeSettingsPatchV1,
   type KunRuntimeSettingsV1,
   type KunSettingsEnvelopePatchV1,
@@ -169,15 +171,89 @@ export function defaultKunContextCompactionSettings(): KunContextCompactionSetti
 
 export function defaultKunRuntimeTuningSettings(): KunRuntimeTuningSettingsV1 {
   return {
-    toolStorm: {
-      enabled: true,
-      windowSize: 8,
-      threshold: 3
-    },
     toolArgumentRepair: {
       maxStringBytes: 512 * 1024
     }
   }
+}
+
+export function defaultRuntimeGuardSettings(): RuntimeGuardSettingsV1 {
+  return {
+    toolStorm: {
+      enabled: true,
+      windowSize: 8,
+      softThreshold: 3,
+      hardThreshold: 6
+    },
+    budgets: {
+      defaultMaxToolEvents: 80,
+      writeMaxToolEvents: 96,
+      remoteGuardMaxToolEvents: 32
+    }
+  }
+}
+
+export function normalizeRuntimeGuardSettings(
+  input: Partial<RuntimeGuardSettingsV1> | undefined,
+  legacy?: { kunToolStorm?: unknown; runtimeToolStorm?: unknown }
+): RuntimeGuardSettingsV1 {
+  const defaults = defaultRuntimeGuardSettings()
+  const legacyToolStorm = normalizeLegacyToolStorm(legacy?.kunToolStorm)
+    ?? normalizeLegacyToolStorm(legacy?.runtimeToolStorm)
+  const toolStormInput = (input?.toolStorm ?? legacyToolStorm) as
+    | (Partial<RuntimeGuardSettingsV1['toolStorm']> & { threshold?: number })
+    | undefined
+  const softThreshold = Math.max(2, boundedPositiveInt(
+    toolStormInput?.softThreshold,
+    toolStormInput?.threshold ?? defaults.toolStorm.softThreshold,
+    128
+  ))
+  const hardThreshold = Math.max(
+    softThreshold,
+    boundedPositiveInt(toolStormInput?.hardThreshold, defaults.toolStorm.hardThreshold, 256)
+  )
+  return {
+    toolStorm: {
+      enabled: toolStormInput?.enabled !== false,
+      windowSize: boundedPositiveInt(toolStormInput?.windowSize, defaults.toolStorm.windowSize, 256),
+      softThreshold,
+      hardThreshold
+    },
+    budgets: {
+      defaultMaxToolEvents: boundedPositiveInt(
+        input?.budgets?.defaultMaxToolEvents,
+        defaults.budgets.defaultMaxToolEvents,
+        10_000
+      ),
+      writeMaxToolEvents: boundedPositiveInt(
+        input?.budgets?.writeMaxToolEvents,
+        defaults.budgets.writeMaxToolEvents,
+        10_000
+      ),
+      remoteGuardMaxToolEvents: boundedPositiveInt(
+        input?.budgets?.remoteGuardMaxToolEvents,
+        defaults.budgets.remoteGuardMaxToolEvents,
+        10_000
+      )
+    }
+  }
+}
+
+export function mergeRuntimeGuardSettings(
+  current: RuntimeGuardSettingsV1 | undefined,
+  patch: RuntimeGuardSettingsPatchV1 | undefined
+): RuntimeGuardSettingsV1 {
+  const normalizedCurrent = normalizeRuntimeGuardSettings(current)
+  return normalizeRuntimeGuardSettings({
+    toolStorm: {
+      ...normalizedCurrent.toolStorm,
+      ...(patch?.toolStorm ?? {})
+    },
+    budgets: {
+      ...normalizedCurrent.budgets,
+      ...(patch?.budgets ?? {})
+    }
+  })
 }
 
 export function getKunRuntimeSettings(
@@ -244,10 +320,6 @@ export function mergeKunRuntimeSettings(
     ...currentRuntimeTuning,
     ...(patch?.runtimeTuning
       ? {
-          toolStorm: {
-            ...currentRuntimeTuning.toolStorm,
-            ...(patch.runtimeTuning.toolStorm ?? {})
-          },
           toolArgumentRepair: {
             ...currentRuntimeTuning.toolArgumentRepair,
             ...(patch.runtimeTuning.toolArgumentRepair ?? {})
@@ -372,11 +444,6 @@ function normalizeKunRuntimeTuningSettings(
 ): KunRuntimeTuningSettingsV1 {
   const defaults = defaultKunRuntimeTuningSettings()
   return {
-    toolStorm: {
-      enabled: input?.toolStorm?.enabled !== false,
-      windowSize: boundedPositiveInt(input?.toolStorm?.windowSize, defaults.toolStorm.windowSize, 128),
-      threshold: Math.max(2, boundedPositiveInt(input?.toolStorm?.threshold, defaults.toolStorm.threshold, 128))
-    },
     toolArgumentRepair: {
       maxStringBytes: boundedPositiveInt(
         input?.toolArgumentRepair?.maxStringBytes,
@@ -384,6 +451,18 @@ function normalizeKunRuntimeTuningSettings(
         16 * 1024 * 1024
       )
     }
+  }
+}
+
+function normalizeLegacyToolStorm(input: unknown): Partial<RuntimeGuardSettingsV1['toolStorm']> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const record = input as Record<string, unknown>
+  return {
+    ...(typeof record.enabled === 'boolean' ? { enabled: record.enabled } : {}),
+    ...(typeof record.windowSize === 'number' ? { windowSize: record.windowSize } : {}),
+    ...(typeof record.softThreshold === 'number' ? { softThreshold: record.softThreshold } : {}),
+    ...(typeof record.hardThreshold === 'number' ? { hardThreshold: record.hardThreshold } : {}),
+    ...(typeof record.threshold === 'number' ? { threshold: record.threshold } : {})
   }
 }
 

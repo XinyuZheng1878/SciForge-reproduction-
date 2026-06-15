@@ -8,6 +8,8 @@ export type AgentRuntimeThreadMaterialization = 'immediate' | 'after_first_user_
 
 export type AgentRuntimeThreadRelation = 'primary' | 'fork' | 'side'
 
+export type AgentRuntimeGovernanceProfile = 'default' | 'write' | 'remote_guard'
+
 export type AgentRuntimePhase =
   | 'process_start'
   | 'initialize_start'
@@ -29,6 +31,8 @@ export type AgentRuntimeControlSupport =
   | 'fail_closed'
 
 export type AgentRuntimeCompactSupport = 'unsupported' | 'native' | 'noop'
+
+export type AgentRuntimeToolStormGuardSupport = 'native' | 'observe' | 'unsupported'
 
 export type AgentRuntimeModality = 'text' | 'image'
 
@@ -131,6 +135,7 @@ export type AgentRuntimeTurnStartInput = {
   mode?: string
   model?: string
   reasoningEffort?: string
+  governanceProfile?: AgentRuntimeGovernanceProfile
   displayText?: string
   guiPlan?: {
     operation: 'draft' | 'refine'
@@ -469,6 +474,9 @@ export type AgentRuntimeCapabilities = {
     todos: boolean
     resumeSession: boolean
   }
+  guard: {
+    toolStorm: AgentRuntimeToolStormGuardSupport
+  }
   storage: {
     guiOwnedThreads: boolean
     backendThreadIdStable: boolean
@@ -543,6 +551,9 @@ export function createDefaultAgentRuntimeCapabilities(input: {
       goals: false,
       todos: false,
       resumeSession: false
+    },
+    guard: {
+      toolStorm: 'unsupported'
     },
     storage: {
       guiOwnedThreads: false,

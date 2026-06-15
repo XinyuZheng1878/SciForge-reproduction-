@@ -46,23 +46,23 @@ import type {
   AgentRuntimeAdapterContext
 } from './agent-runtime/adapter'
 
-export type KunAgentRuntimeRequestInit = {
+export type KunAgentRuntimeHttpInit = {
   method?: string
   body?: string
   headers?: Record<string, string>
 }
 
-export type KunAgentRuntimeRequestResult = {
+export type KunAgentRuntimeHttpResult = {
   ok: boolean
   status: number
   body: string
 }
 
-export type KunAgentRuntimeRequest = (
+export type KunAgentRuntimeHttpRequest = (
   settings: AppSettingsV1,
   pathAndQuery: string,
-  init: KunAgentRuntimeRequestInit
-) => Promise<KunAgentRuntimeRequestResult>
+  init: KunAgentRuntimeHttpInit
+) => Promise<KunAgentRuntimeHttpResult>
 
 export type KunAgentRuntimeEvents = (
   settings: AppSettingsV1,
@@ -72,7 +72,7 @@ export type KunAgentRuntimeEvents = (
 ) => AsyncIterable<unknown>
 
 export type KunAgentRuntimeAdapterOptions = {
-  request: KunAgentRuntimeRequest
+  request: KunAgentRuntimeHttpRequest
   events?: KunAgentRuntimeEvents
 }
 
@@ -413,10 +413,10 @@ async function requestJson(
   options: KunAgentRuntimeAdapterOptions,
   context: AgentRuntimeAdapterContext,
   pathAndQuery: string,
-  init: KunAgentRuntimeRequestInit
+  init: KunAgentRuntimeHttpInit
 ): Promise<unknown> {
   const response = await options.request(context.settings, pathAndQuery, init)
-  if (!response.ok) throw runtimeRequestError(response)
+  if (!response.ok) throw kunHttpError(response)
   return readJson(response.body)
 }
 
@@ -429,11 +429,11 @@ function readJson(body: string): unknown {
   }
 }
 
-function runtimeRequestError(response: KunAgentRuntimeRequestResult): Error {
+function kunHttpError(response: KunAgentRuntimeHttpResult): Error {
   const body = asRecord(readJson(response.body))
-  const message = stringValue(body?.message) || stringValue(body?.error) || `Kun runtime request failed (${response.status}).`
+  const message = stringValue(body?.message) || stringValue(body?.error) || `Kun runtime HTTP request failed (${response.status}).`
   const error = new Error(message)
-  error.name = stringValue(body?.code) || 'KunRuntimeRequestError'
+  error.name = stringValue(body?.code) || 'KunRuntimeHttpError'
   return error
 }
 
@@ -570,25 +570,29 @@ function mapKunItem(value: unknown): AgentRuntimeItem | null {
   }
   if (kind === 'tool_call') {
     const toolName = stringValue(record.toolName)
+    const itemId = kunToolItemId(record, base.id)
     return {
       ...base,
+      id: itemId,
       kind: 'tool',
       toolKind: normalizeToolKind(record.toolKind),
       summary: stringValue(record.summary) || toolName || 'Tool call',
       detail: stringifyDetail(record.arguments),
-      meta: toolName ? { toolName, callId: stringValue(record.callId) } : undefined
+      meta: kunToolMeta(record, base.id, toolName)
     }
   }
   if (kind === 'tool_result') {
     const toolName = stringValue(record.toolName)
+    const itemId = kunToolItemId(record, base.id)
     return {
       ...base,
+      id: itemId,
       kind: 'tool',
       status: record.isError === true ? 'error' : normalizeItemStatus(record.status) ?? 'success',
       toolKind: normalizeToolKind(record.toolKind),
       summary: stringValue(record.summary) || toolName || 'Tool result',
       detail: stringifyDetail(record.output),
-      meta: toolName ? { toolName, callId: stringValue(record.callId) } : undefined
+      meta: kunToolMeta(record, base.id, toolName)
     }
   }
   if (kind === 'approval') {
@@ -645,12 +649,64 @@ function mapKunItem(value: unknown): AgentRuntimeItem | null {
   }
 }
 
+function kunToolItemId(record: Record<string, unknown>, fallbackId: string): string {
+  const callId = stringValue(record.callId)
+  return callId ? `tool_${callId}` : fallbackId
+}
+
+function kunToolMeta(
+  record: Record<string, unknown>,
+  sourceItemId: string,
+  toolName: string
+): Record<string, unknown> {
+  const callId = stringValue(record.callId)
+  return {
+    sourceItemId,
+    ...(callId ? { callId } : {}),
+    ...(toolName ? { toolName } : {})
+  }
+}
+
 function mapTurnHandle(value: unknown, fallbackThreadId: string): AgentRuntimeTurnHandle {
   const record = firstRecord(value, 'turn')
   return {
     threadId: stringValue(record.threadId) || fallbackThreadId,
     turnId: stringValue(record.turnId) || stringValue(record.id),
     userMessageItemId: optionalString(record.userMessageItemId)
+  }
+}
+
+function mapKunToolReadyEvent(
+  record: Record<string, unknown>,
+  common: {
+    threadId: string
+    seq?: number
+    createdAt?: string
+    turnId?: string
+    sourceItemId?: string
+  }
+): AgentRuntimeEvent | null {
+  const callId = stringValue(record.callId)
+  const toolName = stringValue(record.toolName)
+  if (!callId || !toolName) return null
+  return {
+    kind: 'tool_event',
+    threadId: common.threadId,
+    runtimeId: 'kun',
+    seq: common.seq,
+    createdAt: common.createdAt,
+    turnId: common.turnId,
+    itemId: `tool_${callId}`,
+    status: 'running',
+    summary: toolName,
+    toolKind: 'tool_call',
+    meta: {
+      ...(common.sourceItemId ? { sourceItemId: common.sourceItemId } : {}),
+      callId,
+      toolName,
+      ...(typeof record.readyCount === 'number' ? { readyCount: record.readyCount } : {}),
+      runtimeStatus: 'tool_call_ready'
+    }
   }
 }
 
@@ -728,6 +784,16 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
       text: stringValue(record.text) || stringValue(record.delta) || stringValue(item?.text),
       visibility: 'summary'
     }
+  }
+
+  if (kind === 'tool_call_ready') {
+    return mapKunToolReadyEvent(record, {
+      threadId,
+      seq,
+      createdAt,
+      turnId,
+      sourceItemId: itemId || optionalString(record.itemId)
+    })
   }
 
   if (
@@ -844,6 +910,9 @@ function conservativeKunCapabilities(): AgentRuntimeCapabilities {
       goals: true,
       todos: true,
       resumeSession: true
+    },
+    guard: {
+      toolStorm: 'native'
     },
     storage: {
       ...caps.storage,

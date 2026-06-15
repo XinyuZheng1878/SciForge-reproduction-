@@ -58,7 +58,6 @@ function registerOptions(overrides: Partial<Parameters<typeof import('./register
     store: { load: vi.fn(async () => settings()) } as never,
     getMainWindow: () => null,
     applySettingsPatch,
-    runtimeRequest: vi.fn() as never,
     fetchUpstreamModels: vi.fn() as never,
     getClawRuntime: () => null,
     getScheduleRuntime: () => null,

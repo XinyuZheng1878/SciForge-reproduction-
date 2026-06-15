@@ -96,14 +96,14 @@ function createStore(initial: AppSettingsV1) {
   }
 }
 
-function createRuntime(initial: AppSettingsV1, runtimeRequest = vi.fn()) {
+function createRuntime(initial: AppSettingsV1, forbiddenDirectCall = vi.fn(), agentRuntime?: unknown) {
   const store = createStore(initial)
   const runtime = new ScheduleRuntime({
     store: store as never,
-    runtimeRequest: runtimeRequest as never,
+    ...(agentRuntime ? { agentRuntime: agentRuntime as never } : {}),
     logError: vi.fn()
   })
-  return { runtime, store, runtimeRequest }
+  return { runtime, store, forbiddenDirectCall, agentRuntime }
 }
 
 describe('ScheduleRuntime', () => {
@@ -172,21 +172,20 @@ describe('ScheduleRuntime', () => {
     expect(store.read().claw.tasks).toEqual([])
   })
 
-  it('starts a Kun thread with a Schedule title and records running status', async () => {
+  it('starts a Kun thread through agentRuntime with a Schedule title and records running status', async () => {
     const task = makeTask({ reasoningEffort: 'max' })
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads') {
-        return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_1' }) }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_1/turns') {
-        return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_1' }) }
-      }
-      throw new Error(`unexpected path ${path}`)
-    })
-    const { runtime, store } = createRuntime(settingsWith([task]), runtimeRequest)
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'thr_1',
+        runtimeId: 'kun',
+        title: '[Scheduled task] Task',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async () => ({ threadId: 'thr_1', turnId: 'turn_1' })),
+      readThread: vi.fn()
+    }
+    const { runtime, store } = createRuntime(settingsWith([task]), forbiddenDirectCall, agentRuntime)
     ;(runtime as unknown as { monitorTaskTurn: () => void }).monitorTaskTurn = vi.fn()
 
     await expect(runtime.runTask(task.id)).resolves.toMatchObject({
@@ -195,21 +194,23 @@ describe('ScheduleRuntime', () => {
       turnId: 'turn_1'
     })
 
-    const createRequest = runtimeRequest.mock.calls.find(([, path, init]) =>
-      path === '/v1/threads' && init?.method === 'POST'
-    )?.[2]?.body
-    const turnRequest = runtimeRequest.mock.calls.find(([, path]) =>
-      path === '/v1/threads/thr_1/turns'
-    )?.[2]?.body
-    expect(JSON.parse(String(createRequest))).toMatchObject({
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
+    expect(agentRuntime.startThread).toHaveBeenCalledWith({
+      runtimeId: 'kun',
       title: '[Scheduled task] Task',
       workspace: '/tmp/workspace',
       model: 'auto',
       mode: 'agent'
     })
-    expect(JSON.parse(String(turnRequest))).toMatchObject({
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith({
+      runtimeId: 'kun',
+      threadId: 'thr_1',
+      text: expect.stringContaining('Run the task'),
+      workspace: '/tmp/workspace',
+      mode: 'agent',
       model: 'auto',
-      reasoningEffort: 'max'
+      reasoningEffort: 'max',
+      governanceProfile: 'remote_guard'
     })
     expect(store.read().schedule.tasks[0]).toMatchObject({
       lastStatus: 'running',
@@ -218,72 +219,146 @@ describe('ScheduleRuntime', () => {
     })
   })
 
-  it('fails closed for Codex scheduled tasks instead of using legacy /v1 runtimeRequest', async () => {
+  it('runs Codex scheduled tasks through agentRuntime and saves the Codex thread id', async () => {
     const task = makeTask({
       runtimeId: 'codex',
       lastThreadId: 'kun-thread',
       agentThreadIds: { kun: 'kun-thread' }
     })
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads' && init?.method === 'POST') {
-        return { ok: true, status: 200, body: JSON.stringify({ id: 'codex-thread' }) }
-      }
-      if (path === '/v1/threads/codex-thread/turns' && init?.method === 'POST') {
-        return { ok: true, status: 202, body: JSON.stringify({ turnId: 'codex-turn' }) }
-      }
-      throw new Error(`unexpected legacy runtimeRequest path ${path}`)
-    })
-    const { runtime, store } = createRuntime(settingsWith([task]), runtimeRequest)
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'codex-thread',
+        runtimeId: 'codex',
+        title: '[Scheduled task] Task',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async () => ({ threadId: 'codex-thread', turnId: 'codex-turn' })),
+      readThread: vi.fn()
+    }
+    const { runtime, store } = createRuntime(settingsWith([task]), forbiddenDirectCall, agentRuntime)
     ;(runtime as unknown as { monitorTaskTurn: () => void }).monitorTaskTurn = vi.fn()
+
+    await expect(runtime.runTask(task.id)).resolves.toMatchObject({
+      ok: true,
+      threadId: 'codex-thread',
+      turnId: 'codex-turn'
+    })
+
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
+    expect(agentRuntime.startThread).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      workspace: '/tmp/workspace',
+      title: '[Scheduled task] Task',
+      mode: 'agent',
+      model: 'auto'
+    })
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      text: expect.stringContaining('Run the task'),
+      workspace: '/tmp/workspace',
+      mode: 'agent',
+      model: 'auto',
+      reasoningEffort: 'medium',
+      governanceProfile: 'remote_guard'
+    })
+    expect(store.read().schedule.tasks[0]).toMatchObject({
+      runtimeId: 'codex',
+      lastStatus: 'running',
+      lastThreadId: 'kun-thread',
+      lastMessage: 'Started',
+      agentThreadIds: {
+        kun: 'kun-thread',
+        codex: 'codex-thread'
+      }
+    })
+  })
+
+  it('runs Kun scheduled tasks through agentRuntime when the host is available', async () => {
+    const task = makeTask({ runtimeId: 'kun' })
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'kun-host-thread',
+        runtimeId: 'kun',
+        title: '[Scheduled task] Task',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async () => ({ threadId: 'kun-host-thread', turnId: 'kun-host-turn' })),
+      readThread: vi.fn()
+    }
+    const { runtime, store } = createRuntime(settingsWith([task]), forbiddenDirectCall, agentRuntime)
+    ;(runtime as unknown as { monitorTaskTurn: () => void }).monitorTaskTurn = vi.fn()
+
+    await expect(runtime.runTask(task.id)).resolves.toMatchObject({
+      ok: true,
+      threadId: 'kun-host-thread',
+      turnId: 'kun-host-turn'
+    })
+
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
+    expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeId: 'kun',
+      workspace: '/tmp/workspace',
+      title: '[Scheduled task] Task'
+    }))
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeId: 'kun',
+      threadId: 'kun-host-thread',
+      text: expect.stringContaining('Run the task')
+    }))
+    expect(store.read().schedule.tasks[0]).toMatchObject({
+      runtimeId: 'kun',
+      lastStatus: 'running',
+      lastThreadId: 'kun-host-thread',
+      agentThreadIds: {
+        kun: 'kun-host-thread'
+      }
+    })
+  })
+
+  it('fails closed for scheduled runs when agentRuntime is unavailable', async () => {
+    const task = makeTask({ runtimeId: 'kun' })
+    const forbiddenDirectCall = vi.fn()
+    const { runtime, store } = createRuntime(settingsWith([task]), forbiddenDirectCall)
 
     await expect(runtime.runTask(task.id)).resolves.toMatchObject({
       ok: false,
       message: expect.stringContaining('unsupported_runtime_request')
     })
 
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(store.read().schedule.tasks[0]).toMatchObject({
-      runtimeId: 'codex',
       lastStatus: 'error',
-      lastThreadId: 'kun-thread',
-      agentThreadIds: {
-        kun: 'kun-thread'
-      }
+      lastMessage: expect.stringContaining('unsupported_runtime_request')
     })
   })
 
-  it('reads assistant text from the real Kun thread detail shape', async () => {
+  it('reads assistant text from the agentRuntime thread detail shape', async () => {
     const task = makeTask()
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads') {
-        return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_1' }) }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_1/turns') {
-        return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_1' }) }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'thr_1',
-            status: 'idle',
-            turns: [
-              {
-                id: 'turn_1',
-                status: 'completed',
-                items: [{ kind: 'assistant_text', text: 'scheduled task completed' }]
-              }
-            ]
-          })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
-    })
-    const { runtime } = createRuntime(settingsWith([task]), runtimeRequest)
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'thr_1',
+        runtimeId: 'kun',
+        title: 'demo',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async () => ({ threadId: 'thr_1', turnId: 'turn_1' })),
+      readThread: vi.fn(async () => ({
+        id: 'thr_1',
+        status: 'idle',
+        turns: [
+          {
+            id: 'turn_1',
+            status: 'completed',
+            items: [{ kind: 'assistant_text', text: 'scheduled task completed' }]
+          }
+        ]
+      }))
+    }
+    const { runtime } = createRuntime(settingsWith([task]), forbiddenDirectCall, agentRuntime)
 
     const result = await (runtime as unknown as {
       runPrompt: (
@@ -311,67 +386,63 @@ describe('ScheduleRuntime', () => {
     })
 
     expect(result).toMatchObject({ ok: true, text: 'scheduled task completed' })
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
+    expect(agentRuntime.readThread).toHaveBeenCalledWith({ runtimeId: 'kun', threadId: 'thr_1' })
   })
 
   it('waits for the current scheduled turn to complete before returning final text', async () => {
     const task = makeTask()
     let getCount = 0
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads') {
-        return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_1' }) }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_1/turns') {
-        return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_current' }) }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'GET') {
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'thr_1',
+        runtimeId: 'kun',
+        title: 'demo',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async () => ({ threadId: 'thr_1', turnId: 'turn_current' })),
+      readThread: vi.fn(async () => {
         getCount += 1
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify(getCount === 1
-            ? {
-                id: 'thr_1',
-                status: 'running',
-                turns: [
-                  {
-                    id: 'turn_previous',
-                    status: 'completed',
-                    items: [{ kind: 'assistant_text', text: 'previous scheduled reply' }]
-                  },
-                  {
-                    id: 'turn_current',
-                    status: 'running',
-                    items: [{ kind: 'assistant_text', text: 'intermediate scheduled reply' }]
-                  }
-                ]
-              }
-            : {
-                id: 'thr_1',
-                status: 'idle',
-                turns: [
-                  {
-                    id: 'turn_previous',
-                    status: 'completed',
-                    items: [{ kind: 'assistant_text', text: 'previous scheduled reply' }]
-                  },
-                  {
-                    id: 'turn_current',
-                    status: 'completed',
-                    items: [
-                      { kind: 'assistant_text', text: 'intermediate scheduled reply' },
-                      { kind: 'assistant_text', text: 'final scheduled reply' }
-                    ]
-                  }
-                ]
-              })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
-    })
-    const { runtime } = createRuntime(settingsWith([task]), runtimeRequest)
+        return getCount === 1
+          ? {
+              id: 'thr_1',
+              status: 'running',
+              turns: [
+                {
+                  id: 'turn_previous',
+                  status: 'completed',
+                  items: [{ kind: 'assistant_text', text: 'previous scheduled reply' }]
+                },
+                {
+                  id: 'turn_current',
+                  status: 'running',
+                  items: [{ kind: 'assistant_text', text: 'intermediate scheduled reply' }]
+                }
+              ]
+            }
+          : {
+              id: 'thr_1',
+              status: 'idle',
+              turns: [
+                {
+                  id: 'turn_previous',
+                  status: 'completed',
+                  items: [{ kind: 'assistant_text', text: 'previous scheduled reply' }]
+                },
+                {
+                  id: 'turn_current',
+                  status: 'completed',
+                  items: [
+                    { kind: 'assistant_text', text: 'intermediate scheduled reply' },
+                    { kind: 'assistant_text', text: 'final scheduled reply' }
+                  ]
+                }
+              ]
+            }
+      })
+    }
+    const { runtime } = createRuntime(settingsWith([task]), forbiddenDirectCall, agentRuntime)
 
     const result = await (runtime as unknown as {
       runPrompt: (
@@ -400,45 +471,38 @@ describe('ScheduleRuntime', () => {
 
     expect(result).toMatchObject({ ok: true, text: 'final scheduled reply' })
     expect(getCount).toBe(2)
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('does not return historical scheduled text when the current turn fails', async () => {
     const task = makeTask()
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads') {
-        return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_1' }) }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_1/turns') {
-        return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_current' }) }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'thr_1',
-            status: 'idle',
-            turns: [
-              {
-                id: 'turn_previous',
-                status: 'completed',
-                items: [{ kind: 'assistant_text', text: 'previous scheduled reply' }]
-              },
-              {
-                id: 'turn_current',
-                status: 'failed',
-                items: []
-              }
-            ]
-          })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
-    })
-    const { runtime } = createRuntime(settingsWith([task]), runtimeRequest)
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'thr_1',
+        runtimeId: 'kun',
+        title: 'demo',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async () => ({ threadId: 'thr_1', turnId: 'turn_current' })),
+      readThread: vi.fn(async () => ({
+        id: 'thr_1',
+        status: 'idle',
+        turns: [
+          {
+            id: 'turn_previous',
+            status: 'completed',
+            items: [{ kind: 'assistant_text', text: 'previous scheduled reply' }]
+          },
+          {
+            id: 'turn_current',
+            status: 'failed',
+            items: []
+          }
+        ]
+      }))
+    }
+    const { runtime } = createRuntime(settingsWith([task]), forbiddenDirectCall, agentRuntime)
 
     await expect((runtime as unknown as {
       runPrompt: (
@@ -464,6 +528,7 @@ describe('ScheduleRuntime', () => {
       waitForResult: true,
       responseTimeoutMs: 2_000
     })).rejects.toThrow('Agent turn failed.')
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('disables one-time tasks after monitored completion', async () => {
@@ -499,12 +564,12 @@ describe('ScheduleRuntime', () => {
       schedule: { kind: 'manual', everyMinutes: 60, timeOfDay: '09:00', atTime: '' },
       nextRunAt: '2026-06-02T00:00:00.000Z'
     })
-    const runtimeRequest = vi.fn()
-    const { runtime } = createRuntime(settingsWith([task]), runtimeRequest)
+    const forbiddenDirectCall = vi.fn()
+    const { runtime } = createRuntime(settingsWith([task]), forbiddenDirectCall)
 
     await (runtime as unknown as { tick: () => Promise<void> }).tick()
 
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('marks interrupted running tasks as errors during next-run recovery', async () => {
@@ -538,7 +603,6 @@ describe('ScheduleRuntime', () => {
     }
     const runtime = new ScheduleRuntime({
       store: createStore(settingsWith()) as never,
-      runtimeRequest: vi.fn() as never,
       logError: vi.fn(),
       powerSaveBlocker
     })

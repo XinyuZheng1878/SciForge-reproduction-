@@ -56,12 +56,7 @@ describe('rendererRuntimeClient', () => {
         getSettings,
         setSettings: vi.fn(),
         codex: {},
-        runtimeRequest: vi.fn(),
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
+        forbiddenDirectCall: vi.fn(),
       }
     })
 
@@ -81,12 +76,7 @@ describe('rendererRuntimeClient', () => {
         getSettings,
         setSettings,
         codex: {},
-        runtimeRequest: vi.fn(),
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
+        forbiddenDirectCall: vi.fn(),
       }
     })
 

@@ -856,8 +856,11 @@ export function Workbench(): ReactElement {
 
   const handlePickAttachments = async (inputs: ComposerImageAttachmentInput[]): Promise<void> => {
     if (!inputs.length) return
+    const writeState = route === 'write' ? useWriteWorkspaceStore.getState() : null
     const workspace = normalizeWorkspaceRoot(
-      threads.find((thread) => thread.id === activeThreadId)?.workspace || workspaceRoot
+      (route === 'write' ? writeState?.workspaceRoot : null) ||
+      threads.find((thread) => thread.id === activeThreadId)?.workspace ||
+      workspaceRoot
     )
     const imageInputs = inputs.filter((input) => !isPickedPdfAttachment(input))
     const pdfInputs = inputs.filter(isPickedPdfAttachment)
@@ -969,7 +972,13 @@ export function Workbench(): ReactElement {
 
   const sendWritePrompt = (value: string): void => {
     const v = value.trim()
-    if (!v) return
+    const attachments = composerAttachments
+    const attachmentIds = attachments.map((attachment) => attachment.id)
+    if (!v && attachmentIds.length === 0) return
+    if (attachmentIds.length > 0 && !attachmentUploadEnabled) {
+      setAttachmentUploadError(t('composerAttachmentModelUnsupported'))
+      return
+    }
     const writeState = useWriteWorkspaceStore.getState()
     const writeWorkspaceRoot = writeState.workspaceRoot || workspaceRoot
     setInput('')
@@ -979,7 +988,8 @@ export function Workbench(): ReactElement {
         setInput(v)
         return
       }
-      const prepared = await prepareWriteAssistantPrompt(v, {
+      const messageText = v || t('composerImageOnlyPrompt')
+      const prepared = await prepareWriteAssistantPrompt(messageText, {
         workspaceRoot: writeState.workspaceRoot,
         fallbackWorkspaceRoot: workspaceRoot,
         activeFilePath: writeState.activeFilePath,
@@ -989,15 +999,22 @@ export function Workbench(): ReactElement {
         logError: window.dsGui?.logError
       })
       const runtimePayload = writeAssistantRuntimePayload(prepared)
+      const displayText = v ? runtimePayload.displayText : t('composerImageOnlyDisplay')
       const model = writeState.assistantModel.trim()
       const reasoningEffort = composerReasoningEffortRequestValue(assistantReasoningEffort)
       const sent = await sendMessage(runtimePayload.text, mode === 'plan' ? 'plan' : 'agent', {
-        displayText: runtimePayload.displayText,
+        displayText,
+        sourceRoute: 'write',
+        targetThreadId: threadId,
+        workspaceRoot: writeWorkspaceRoot,
+        governanceProfile: 'write',
         ...(model ? { model } : {}),
-        ...(reasoningEffort ? { reasoningEffort } : {})
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(attachmentIds.length ? { attachmentIds, attachments } : {})
       })
       if (sent) {
         useWriteWorkspaceStore.getState().clearQuotedSelections()
+        if (attachmentIds.length > 0) clearComposerAttachments()
       } else {
         setInput(v)
       }
@@ -1426,7 +1443,7 @@ export function Workbench(): ReactElement {
 
   const handleSendAsync = async (): Promise<void> => {
     const v = input.trim()
-    const attachments = route === 'chat' ? composerAttachments : []
+    const attachments = route === 'chat' || route === 'write' ? composerAttachments : []
     const attachmentIds = attachments.map((attachment) => attachment.id)
     const fileReferences = route === 'chat' ? composerFileReferences : []
     const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
@@ -1732,6 +1749,13 @@ export function Workbench(): ReactElement {
                 setComposerReasoningEffort={setAssistantReasoningEffort}
                 queuedMessages={queuedMessages}
                 removeQueuedMessage={removeQueuedMessage}
+                attachments={composerAttachments}
+                attachmentUploadEnabled={attachmentUploadEnabled}
+                attachmentUploadBusy={attachmentUploadBusy}
+                attachmentUploadError={attachmentUploadError}
+                onPickAttachments={(files) => void handlePickAttachments(files)}
+                onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
+                onRemoveAttachment={removeComposerAttachment}
                 onSend={handleSend}
                 onInterrupt={(options) => void interrupt(options)}
                 runtimeCapabilities={runtimeCapabilities}

@@ -108,7 +108,6 @@ function createApi(): DsGuiApi {
     platform: detectPlatform(),
     getSettings: () => invoke('settings:get'),
     setSettings: (partial) => invoke('settings:set', partial),
-    runtimeRequest: (path, method, body) => invoke('runtime:request', { path, method, body }),
     fetchUpstreamModels: () => invoke('upstream:models'),
     getClawStatus: () => invoke('claw:status'),
     runClawTask: (taskId) => invoke('claw:task:run', taskId),
@@ -177,17 +176,6 @@ function createApi(): DsGuiApi {
     speechToText: {
       transcribe: (payload) => invoke('speech:transcribe', payload)
     },
-    startSse: (threadId, sinceSeq, streamId, runtimeId) =>
-      invoke('runtime:sse:start', {
-        threadId,
-        sinceSeq,
-        streamId,
-        ...(runtimeId ? { runtimeId } : {})
-      }),
-    stopSse: (streamId) => invoke('runtime:sse:stop', streamId),
-    onSseEvent: (handler) => onChannel('runtime:sse-event', handler),
-    onSseEnd: (handler) => onChannel('runtime:sse-end', handler),
-    onSseError: (handler) => onChannel('runtime:sse-error', handler),
     onRuntimeStatus: (handler) => onChannel('runtime:status', handler),
     agentRuntime: {
       connect: (runtimeId) => invoke('agentRuntime:connect', { runtimeId }),

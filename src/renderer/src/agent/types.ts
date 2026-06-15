@@ -455,8 +455,10 @@ export interface AgentProvider {
     text: string,
     options?: {
       mode?: string
+      workspace?: string
       model?: string
       reasoningEffort?: string
+      governanceProfile?: 'default' | 'write' | 'remote_guard'
       displayText?: string
       guiPlan?: {
         operation: 'draft' | 'refine'

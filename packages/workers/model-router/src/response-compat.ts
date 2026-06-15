@@ -62,7 +62,7 @@ export function responsesToChatCompletions(
   const toolAliases = chatToolNameAliasesFromResponsesTools(request.tools);
   return compactJsonObject({
     model: stringValue(request.model) || options.defaultModel || '',
-    messages: responsesInputToMessages(request),
+    messages: responsesInputToMessages(request, toolAliases),
     tools: responsesToolsToChatTools(request.tools, toolAliases),
     tool_choice: request.tool_choice,
     temperature: request.temperature,
@@ -81,8 +81,9 @@ export function chatCompletionToResponse(
   const completion = isRecord(payload) ? payload : {};
   const message = firstChoiceMessage(completion);
   const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  const reasoningContent = messageReasoningContent(message);
   const output = toolCalls.length > 0
-    ? toolCalls.map((toolCall) => chatToolCallToResponseItem(toolCall, toolNameAliases))
+    ? toolCalls.map((toolCall) => chatToolCallToResponseItem(toolCall, toolNameAliases, reasoningContent))
     : responseTextFromMessage(message)
       ? [messageOutputItem(responseTextFromMessage(message))]
       : [];
@@ -97,7 +98,10 @@ export function chatCompletionToResponse(
   };
 }
 
-function responsesInputToMessages(request: ResponsesRequest): JsonValue[] {
+function responsesInputToMessages(
+  request: ResponsesRequest,
+  toolNameAliases: Record<string, string>,
+): JsonValue[] {
   const messages: JsonValue[] = [];
   if (request.instructions?.trim()) {
     messages.push({ role: 'system', content: request.instructions.trim() });
@@ -106,8 +110,9 @@ function responsesInputToMessages(request: ResponsesRequest): JsonValue[] {
   if (typeof input === 'string') {
     messages.push({ role: 'user', content: input });
   } else if (Array.isArray(input)) {
+    const aliasByOriginal = new Map(Object.entries(toolNameAliases).map(([alias, original]) => [original, alias]));
     for (const item of input) {
-      const message = responseInputItemToMessage(item);
+      const message = responseInputItemToMessage(item, aliasByOriginal);
       if (message) messages.push(message);
     }
   }
@@ -115,16 +120,76 @@ function responsesInputToMessages(request: ResponsesRequest): JsonValue[] {
   return messages;
 }
 
-function responseInputItemToMessage(item: unknown): JsonObject | null {
+function responseInputItemToMessage(
+  item: unknown,
+  aliasByOriginal: Map<string, string>,
+): JsonObject | null {
   if (!isRecord(item)) return null;
-  const role = stringValue(item.role) || 'user';
+  if (item.type === 'function_call') {
+    const name = stringValue(item.name);
+    const callId = stringValue(item.call_id) || stringValue(item.id);
+    if (!name || !callId) return null;
+    return compactJsonObject({
+      role: 'assistant',
+      content: null,
+      reasoning_content: stringValue(item.reasoning_content) || undefined,
+      tool_calls: [{
+        id: callId,
+        type: 'function',
+        function: {
+          name: aliasByOriginal.get(name) ?? name,
+          arguments: stringValue(item.arguments) || '{}',
+        },
+      }],
+    });
+  }
+  if (item.type === 'function_call_output') {
+    const callId = stringValue(item.call_id) || stringValue(item.id);
+    if (!callId) return null;
+    return {
+      role: 'tool',
+      tool_call_id: callId,
+      content: functionCallOutputText(item.output),
+    };
+  }
+  const role = chatRoleFromResponseRole(stringValue(item.role));
   const content = Array.isArray(item.content)
-    ? item.content.map(responseContentPartToChatPart).filter((part): part is JsonObject => Boolean(part))
+    ? chatContentFromResponseParts(item.content)
     : stringValue(item.content) || '';
   return {
     role,
     content,
   };
+}
+
+function chatRoleFromResponseRole(role: string): string {
+  if (role === 'assistant' || role === 'tool' || role === 'system' || role === 'user') return role;
+  if (role === 'developer') return 'system';
+  return 'user';
+}
+
+function chatContentFromResponseParts(parts: unknown[]): JsonValue {
+  const chatParts = parts.map(responseContentPartToChatPart).filter((part): part is JsonObject => Boolean(part));
+  if (!chatParts.some((part) => part.type === 'image_url')) {
+    return chatParts
+      .map((part) => stringValue(part.text) || stringValue(part.content))
+      .filter(Boolean)
+      .join('\n');
+  }
+  return chatParts;
+}
+
+function functionCallOutputText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value.map((entry) => {
+      if (typeof entry === 'string') return entry;
+      if (!isRecord(entry)) return '';
+      return stringValue(entry.text) || stringValue(entry.output) || stringValue(entry.content);
+    }).filter(Boolean).join('\n');
+  }
+  const normalized = jsonValue(value);
+  return normalized === undefined ? '' : JSON.stringify(normalized);
 }
 
 function responseContentPartToChatPart(part: unknown): JsonObject | null {
@@ -198,18 +263,20 @@ function chatToolNameAlias(name: string, index: number, used: Set<string>): stri
 function chatToolCallToResponseItem(
   toolCall: unknown,
   toolNameAliases: Record<string, string>,
+  reasoningContent = '',
 ): JsonObject {
   const record = isRecord(toolCall) ? toolCall : {};
   const fn = isRecord(record.function) ? record.function : {};
   const chatName = stringValue(fn.name) || stringValue(record.name) || '';
-  return {
+  return compactJsonObject({
     id: makeId('fc'),
     type: 'function_call',
     status: 'completed',
     call_id: stringValue(record.id) || makeId('call'),
     name: toolNameAliases[chatName] ?? chatName,
     arguments: stringValue(fn.arguments) || stringValue(record.arguments) || '',
-  };
+    reasoning_content: reasoningContent || undefined,
+  });
 }
 
 function firstChoiceMessage(completion: Record<string, unknown>): Record<string, unknown> {
@@ -229,6 +296,15 @@ function responseTextFromMessage(message: Record<string, unknown>): string {
     })
     .filter(Boolean)
     .join('\n');
+}
+
+function messageReasoningContent(message: Record<string, unknown>): string {
+  const direct = stringValue(message.reasoning_content);
+  if (direct) return direct;
+  if (isRecord(message.reasoning)) {
+    return stringValue(message.reasoning.content) || stringValue(message.reasoning.text);
+  }
+  return '';
 }
 
 function compactJsonObject(values: Record<string, unknown>): JsonObject {

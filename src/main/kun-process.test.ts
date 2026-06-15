@@ -10,6 +10,7 @@ import {
   defaultKunRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
+  defaultRuntimeGuardSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
   type AppSettingsV1
@@ -587,11 +588,6 @@ describe('syncGuiManagedKunConfig', () => {
         summaryInputMaxBytes: 131072
       },
       runtimeTuning: {
-        toolStorm: {
-          enabled: false,
-          windowSize: 12,
-          threshold: 4
-        },
         toolArgumentRepair: {
           maxStringBytes: 262144
         }
@@ -616,6 +612,16 @@ describe('syncGuiManagedKunConfig', () => {
           maxToolArgumentStringBytes: 4096,
           maxToolArgumentStringTokens: 1000,
           maxArrayItems: 40
+        }
+      }
+    }, {
+      runtimeGuards: {
+        ...defaultRuntimeGuardSettings(),
+        toolStorm: {
+          enabled: false,
+          windowSize: 12,
+          softThreshold: 4,
+          hardThreshold: 8
         }
       }
     })

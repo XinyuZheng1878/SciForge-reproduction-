@@ -16,6 +16,7 @@ const TEXT_REASONER_KEY_ENV = 'DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY'
 const VISION_TRANSLATOR_KEY_ENV = 'DEEPSEEK_GUI_MODEL_ROUTER_VISION_API_KEY'
 
 let modelRouterChild: ChildProcess | null = null
+let modelRouterLaunchSignature: string | null = null
 
 type ModelRouterProviderConfig = {
   provider: string
@@ -40,6 +41,7 @@ export type ModelRouterSidecarLaunch = {
   command: string
   args: string[]
   env: NodeJS.ProcessEnv
+  cwd: string
   configPath: string
   config?: ModelRouterSidecarConfig
 }
@@ -52,6 +54,7 @@ export function buildModelRouterSidecarLaunch(
   settings: AppSettingsV1,
   options: {
     userDataDir: string
+    appRoot?: string
     env?: NodeJS.ProcessEnv
     npmCommand?: string
   }
@@ -86,6 +89,7 @@ export function buildModelRouterSidecarLaunch(
     ok: true,
     launch: {
       command: npmCommand,
+      cwd: options.appRoot ?? process.cwd(),
       args: [
         '--workspace',
         '@sciforge/model-router',
@@ -132,33 +136,66 @@ export async function ensureModelRouterSidecar(
   settings: AppSettingsV1,
   options: {
     userDataDir: string
+    appRoot?: string
     env?: NodeJS.ProcessEnv
     spawnImpl?: typeof spawn
     log?: (message: string) => void
   }
 ): Promise<void> {
-  if (modelRouterChild && modelRouterChild.exitCode === null && modelRouterChild.signalCode === null) return
-  const health = await checkModelRouterHealth(settings).catch(() => null)
-  if (health?.status === 'healthy') return
-
   const launch = buildModelRouterSidecarLaunch(settings, {
     userDataDir: options.userDataDir,
+    appRoot: options.appRoot,
     env: options.env
   })
   if (!launch.ok) {
     options.log?.(launch.reason)
+    if (isModelRouterChildRunning()) {
+      await stopModelRouterSidecar()
+    }
+    return
+  }
+
+  const signature = modelRouterManagedLaunchSignature(launch.launch)
+  if (isModelRouterChildRunning()) {
+    if (modelRouterLaunchSignature === signature) return
+    options.log?.('Model Router sidecar launch settings changed; restarting sidecar.')
+    await stopModelRouterSidecar()
+  } else {
+    const health = await checkModelRouterHealth(settings).catch(() => null)
+    if (health?.status === 'healthy') return
+  }
+
+  const postStopLaunch = buildModelRouterSidecarLaunch(settings, {
+    userDataDir: options.userDataDir,
+    appRoot: options.appRoot,
+    env: options.env
+  })
+  if (!postStopLaunch.ok) {
+    options.log?.(postStopLaunch.reason)
     return
   }
   await ensureModelRouterConfigFile(settings, { userDataDir: options.userDataDir })
   const spawnImpl = options.spawnImpl ?? spawn
-  modelRouterChild = spawnImpl(launch.launch.command, launch.launch.args, {
-    env: launch.launch.env,
+  options.log?.(`Starting Model Router sidecar from ${postStopLaunch.launch.cwd}.`)
+  modelRouterChild = spawnImpl(postStopLaunch.launch.command, postStopLaunch.launch.args, {
+    cwd: postStopLaunch.launch.cwd,
+    env: postStopLaunch.launch.env,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false
   })
+  modelRouterLaunchSignature = modelRouterManagedLaunchSignature(postStopLaunch.launch)
   const child = modelRouterChild
-  child.once('exit', () => {
-    if (modelRouterChild === child) modelRouterChild = null
+  attachModelRouterChildLogging(child, options.log)
+  child.once('error', (error) => {
+    options.log?.(`Model Router sidecar failed to start: ${error.message}`)
+  })
+  child.once('exit', (code, signal) => {
+    if (modelRouterChild !== child) return
+    modelRouterChild = null
+    modelRouterLaunchSignature = null
+    if (code !== 0 || signal) {
+      options.log?.(`Model Router sidecar exited unexpectedly (code=${code ?? 'null'}, signal=${signal ?? 'null'}).`)
+    }
   })
 }
 
@@ -198,6 +235,7 @@ export async function stopModelRouterSidecar(): Promise<void> {
   const child = modelRouterChild
   if (!child) return
   modelRouterChild = null
+  modelRouterLaunchSignature = null
   if (child.exitCode !== null || child.signalCode !== null) return
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
@@ -209,6 +247,21 @@ export async function stopModelRouterSidecar(): Promise<void> {
       resolve()
     })
     child.kill('SIGTERM')
+  })
+}
+
+function isModelRouterChildRunning(): boolean {
+  return Boolean(modelRouterChild && modelRouterChild.exitCode === null && modelRouterChild.signalCode === null)
+}
+
+function modelRouterManagedLaunchSignature(launch: ModelRouterSidecarLaunch): string {
+  return JSON.stringify({
+    command: launch.command,
+    args: launch.args,
+    cwd: launch.cwd,
+    runtimeApiKey: launch.env[ROUTER_RUNTIME_KEY_ENV] ?? '',
+    textReasonerApiKey: launch.env[TEXT_REASONER_KEY_ENV] ?? '',
+    visionTranslatorApiKey: launch.env[VISION_TRANSLATOR_KEY_ENV] ?? ''
   })
 }
 
@@ -235,4 +288,24 @@ function localPortFromRouterBaseUrl(baseUrl: string): number | null {
   } catch {
     return null
   }
+}
+
+function attachModelRouterChildLogging(
+  child: ChildProcess,
+  log: ((message: string) => void) | undefined
+): void {
+  if (!log) return
+  child.stdout?.on('data', (chunk) => logModelRouterChildChunk('stdout', chunk, log))
+  child.stderr?.on('data', (chunk) => logModelRouterChildChunk('stderr', chunk, log))
+}
+
+function logModelRouterChildChunk(
+  stream: 'stdout' | 'stderr',
+  chunk: unknown,
+  log: (message: string) => void
+): void {
+  const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (!normalized) return
+  log(`Model Router sidecar ${stream}: ${normalized.slice(0, 1_000)}`)
 }

@@ -114,7 +114,7 @@ describe('normalizeCodexEvent', () => {
     }, { threadId: 'thread-1' })).toEqual({
       threadId: 'thread-1',
       turnId: 'turn-1',
-      deltas: [{ kind: 'agent_message', text: 'done' }],
+      deltas: [{ kind: 'agent_message', text: 'done', snapshot: true }],
       turnComplete: true
     })
 
@@ -157,6 +157,7 @@ describe('normalizeCodexEvent', () => {
         detail: '{\n  "cmd": "npm test",\n  "workdir": "/tmp/workspace"\n}',
         meta: {
           toolName: 'exec_command',
+          callId: 'call-1',
           command: 'npm test',
           cwd: '/tmp/workspace',
           arguments: {
@@ -181,7 +182,35 @@ describe('normalizeCodexEvent', () => {
         itemId: 'call-1',
         summary: 'Tool output',
         status: 'success',
-        detail: 'Process exited with code 0\nOutput:\nok'
+        detail: 'Process exited with code 0\nOutput:\nok',
+        meta: {
+          callId: 'call-1'
+        }
+      }
+    })
+
+    expect(normalizeCodexEvent({
+      type: 'response_item',
+      payload: {
+        type: 'local_shell_call',
+        call_id: 'shell-1',
+        status: 'in_progress',
+        action: { command: 'date' }
+      }
+    }, { threadId: 'thread-1', turnId: 'turn-1' })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tool: {
+        itemId: 'shell-1',
+        summary: 'date',
+        status: 'running',
+        toolKind: 'command_execution',
+        detail: 'date',
+        meta: {
+          toolName: 'local_shell',
+          callId: 'shell-1',
+          command: 'date'
+        }
       }
     })
 
@@ -196,7 +225,7 @@ describe('normalizeCodexEvent', () => {
     }, { threadId: 'thread-1', turnId: 'turn-1' })).toEqual({
       threadId: 'thread-1',
       turnId: 'turn-1',
-      deltas: [{ text: 'visible answer', kind: 'agent_message' }]
+      deltas: [{ text: 'visible answer', kind: 'agent_message', snapshot: true }]
     })
 
     expect(normalizeCodexEvent({
@@ -209,7 +238,7 @@ describe('normalizeCodexEvent', () => {
     }, { threadId: 'thread-1', turnId: 'turn-1' })).toEqual({
       threadId: 'thread-1',
       turnId: 'turn-1',
-      deltas: [{ text: 'visible string answer', kind: 'agent_message' }]
+      deltas: [{ text: 'visible string answer', kind: 'agent_message', snapshot: true }]
     })
   })
 
@@ -250,7 +279,7 @@ describe('normalizeCodexEvent', () => {
     })).toEqual({
       threadId: 'thread-1',
       turnId: 'turn-1',
-      deltas: [{ text: 'visible answer', kind: 'agent_message' }]
+      deltas: [{ text: 'visible answer', kind: 'agent_message', snapshot: true }]
     })
   })
 

@@ -19,7 +19,6 @@ import type {
   ClawImInstallQrResult,
   DesktopCommand,
   ModelRouterConfigOpenResult,
-  RuntimeRequestResult,
   SystemNotificationResult,
   TurnCompleteNotificationPayload,
   UpstreamModelsResult,
@@ -65,7 +64,6 @@ import {
   notificationPayloadSchema,
   openEditorPathPayloadSchema,
   rootPathSchema,
-  runtimeRequestPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
   shellOpenExternalUrlSchema,
   speechTranscriptionPayloadSchema,
@@ -194,11 +192,6 @@ type RegisterAppIpcHandlersOptions = {
   store: JsonSettingsStore
   getMainWindow: () => BrowserWindow | null
   applySettingsPatch: (partial: AppSettingsPatch) => Promise<AppSettingsV1>
-  runtimeRequest: (
-    path: string,
-    method?: string,
-    body?: string
-  ) => Promise<RuntimeRequestResult>
   agentRuntime?: {
     connect: (runtimeId?: AgentRuntimeId) => Promise<void>
     capabilities: (runtimeId?: AgentRuntimeId) => Promise<AgentRuntimeCapabilities>
@@ -339,7 +332,6 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     store,
     getMainWindow,
     applySettingsPatch,
-    runtimeRequest,
     agentRuntime,
     fetchUpstreamModels,
     getClawRuntime,
@@ -488,11 +480,6 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       parseIpcPayload('settings:set', settingsPatchSchema, partial) as AppSettingsPatch
     )
   )
-
-  handleInvoke('runtime:request', async (_, payload: unknown) => {
-    const request = parseIpcPayload('runtime:request', runtimeRequestPayloadSchema, payload)
-    return runtimeRequest(request.path, request.method, request.body)
-  })
 
   const requireAgentRuntime = (): NonNullable<RegisterAppIpcHandlersOptions['agentRuntime']> => {
     if (!agentRuntime) {

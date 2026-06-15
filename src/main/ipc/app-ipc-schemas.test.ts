@@ -13,13 +13,11 @@ import {
   agentRuntimeStartTurnPayloadSchema,
   clawImInstallPollPayloadSchema,
   isSafeOpenExternalUrl,
-  runtimeRequestPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
   settingsPatchSchema,
   shellOpenExternalUrlSchema,
   speechTranscriptionPayloadSchema,
   skillListPayloadSchema,
-  sseStartPayloadSchema,
   workspaceDirectoryCreatePayloadSchema,
   workspaceDirectoryTargetPayloadSchema,
   workspaceEntryDeletePayloadSchema,
@@ -38,7 +36,8 @@ describe('app-ipc-schemas', () => {
       text: ' hello ',
       workspace: ' /tmp/workspace ',
       model: ' deepseek-v4-pro ',
-      reasoningEffort: ' medium '
+      reasoningEffort: ' medium ',
+      governanceProfile: 'remote_guard'
     })
 
     expect(payload).toEqual({
@@ -47,7 +46,8 @@ describe('app-ipc-schemas', () => {
       text: 'hello',
       workspace: '/tmp/workspace',
       model: 'deepseek-v4-pro',
-      reasoningEffort: 'medium'
+      reasoningEffort: 'medium',
+      governanceProfile: 'remote_guard'
     })
   })
 
@@ -176,64 +176,6 @@ describe('app-ipc-schemas', () => {
     })
   })
 
-  it('normalizes runtime request paths', () => {
-    const payload = runtimeRequestPayloadSchema.parse({
-      path: 'v1/threads?limit=1',
-      method: 'GET'
-    })
-
-    expect(payload.path).toBe('/v1/threads?limit=1')
-  })
-
-  it('accepts the Kun runtime info endpoint', () => {
-    const payload = runtimeRequestPayloadSchema.parse({
-      path: '/v1/runtime/info',
-      method: 'GET'
-    })
-
-    expect(payload.path).toBe('/v1/runtime/info')
-  })
-
-  it('accepts the Kun runtime tool diagnostics endpoint', () => {
-    const payload = runtimeRequestPayloadSchema.parse({
-      path: '/v1/runtime/tools',
-      method: 'GET'
-    })
-
-    expect(payload.path).toBe('/v1/runtime/tools')
-  })
-
-  it('accepts the Kun skills endpoint', () => {
-    const payload = runtimeRequestPayloadSchema.parse({
-      path: '/v1/skills',
-      method: 'GET'
-    })
-
-    expect(payload.path).toBe('/v1/skills')
-  })
-
-  it('accepts Kun attachment and memory endpoints', () => {
-    expect(runtimeRequestPayloadSchema.parse({
-      path: '/v1/attachments',
-      method: 'POST',
-      body: '{}'
-    }).path).toBe('/v1/attachments')
-    expect(runtimeRequestPayloadSchema.parse({
-      path: '/v1/attachments/att_1/content?thread_id=thr_1',
-      method: 'GET'
-    }).path).toBe('/v1/attachments/att_1/content?thread_id=thr_1')
-    expect(runtimeRequestPayloadSchema.parse({
-      path: '/v1/memory',
-      method: 'POST',
-      body: '{}'
-    }).path).toBe('/v1/memory')
-    expect(runtimeRequestPayloadSchema.parse({
-      path: '/v1/memory/mem_1',
-      method: 'PATCH',
-      body: '{}'
-    }).path).toBe('/v1/memory/mem_1')
-  })
-
   it('accepts skill list payloads with an optional workspace root', () => {
     expect(skillListPayloadSchema.parse({
       workspaceRoot: ' /tmp/workspace '
@@ -280,48 +222,6 @@ describe('app-ipc-schemas', () => {
         mimeType: 'image/png'
       })
     ).toThrow(/audio MIME type/)
-  })
-
-  it('accepts Kun thread goal endpoints', () => {
-    expect(runtimeRequestPayloadSchema.parse({
-      path: '/v1/threads/thr_1/goal',
-      method: 'GET'
-    }).path).toBe('/v1/threads/thr_1/goal')
-    expect(runtimeRequestPayloadSchema.parse({
-      path: '/v1/threads/thr_1/goal',
-      method: 'POST',
-      body: '{}'
-    }).path).toBe('/v1/threads/thr_1/goal')
-    expect(runtimeRequestPayloadSchema.parse({
-      path: '/v1/threads/thr_1/goal',
-      method: 'DELETE'
-    }).path).toBe('/v1/threads/thr_1/goal')
-  })
-
-  it('accepts the Kun thread review endpoint', () => {
-    expect(runtimeRequestPayloadSchema.parse({
-      path: '/v1/threads/thr_1/review',
-      method: 'POST',
-      body: '{"target":{"kind":"uncommittedChanges"}}'
-    }).path).toBe('/v1/threads/thr_1/review')
-  })
-
-  it('rejects runtime request paths outside the modeled Kun API surface', () => {
-    expect(() =>
-      runtimeRequestPayloadSchema.parse({
-        path: '/v1/runtime/secrets',
-        method: 'GET'
-      })
-    ).toThrow(/runtime request path is not allowed/)
-  })
-
-  it('rejects runtime request methods that do not match the modeled endpoint', () => {
-    expect(() =>
-      runtimeRequestPayloadSchema.parse({
-        path: '/v1/usage',
-        method: 'POST'
-      })
-    ).toThrow(/runtime request path is not allowed/)
   })
 
   it('accepts a valid settings patch for kun and write settings', () => {
@@ -524,6 +424,42 @@ describe('app-ipc-schemas', () => {
     ).toThrow(/Unrecognized key/)
   })
 
+  it('rejects legacy Kun tool storm patches in favor of runtime guards', () => {
+    expect(() =>
+      settingsPatchSchema.parse({
+        agents: {
+          kun: {
+            runtimeTuning: {
+              toolStorm: {
+                threshold: 4
+              }
+            }
+          }
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(settingsPatchSchema.parse({
+      runtimeGuards: {
+        toolStorm: {
+          softThreshold: 4,
+          hardThreshold: 8
+        },
+        budgets: {
+          writeMaxToolEvents: 64
+        }
+      }
+    }).runtimeGuards).toMatchObject({
+      toolStorm: {
+        softThreshold: 4,
+        hardThreshold: 8
+      },
+      budgets: {
+        writeMaxToolEvents: 64
+      }
+    })
+  })
+
   it('rejects unknown schedule patch fields', () => {
     expect(() =>
       settingsPatchSchema.parse({
@@ -548,37 +484,6 @@ describe('app-ipc-schemas', () => {
     expect(() => shellOpenExternalUrlSchema.parse('javascript:alert(1)')).toThrow(
       /Only http, https, and mailto URLs are allowed/
     )
-  })
-
-  it('rejects invalid SSE payloads', () => {
-    expect(() =>
-      sseStartPayloadSchema.parse({
-        threadId: 'thread-1',
-        sinceSeq: -1
-      })
-    ).toThrow()
-  })
-
-  it('accepts runtime-targeted SSE payloads while keeping legacy callers valid', () => {
-    expect(sseStartPayloadSchema.parse({
-      runtimeId: 'codex',
-      threadId: ' thread-1 ',
-      sinceSeq: 7,
-      streamId: ' stream-1 '
-    })).toEqual({
-      runtimeId: 'codex',
-      threadId: 'thread-1',
-      sinceSeq: 7,
-      streamId: 'stream-1'
-    })
-
-    expect(sseStartPayloadSchema.parse({
-      threadId: 'thread-1',
-      sinceSeq: 0
-    })).toEqual({
-      threadId: 'thread-1',
-      sinceSeq: 0
-    })
   })
 
   it('accepts long Feishu install device codes', () => {

@@ -10,7 +10,7 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
-import { runtimeRequestViaHost } from './kun-adapter'
+import { kunHttpRequestViaHost } from './kun-adapter'
 
 let server: Server | null = null
 
@@ -65,7 +65,7 @@ afterEach(async () => {
   })
 })
 
-describe('runtimeRequestViaHost', () => {
+describe('kunHttpRequestViaHost', () => {
   it('forwards daily usage requests to the Kun runtime with bearer auth', async () => {
     let seenUrl = ''
     let seenAuthorization = ''
@@ -93,7 +93,7 @@ describe('runtimeRequestViaHost', () => {
       }))
     })
 
-    const response = await runtimeRequestViaHost(
+    const response = await kunHttpRequestViaHost(
       settingsForPort(port),
       '/v1/usage?group_by=day&from=2026-06-01&to=2026-06-02&timezone=Asia%2FShanghai',
       { method: 'GET' },

@@ -1,16 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { formatCost, loadThreadUsage } from './use-thread-usage'
-import type { RuntimeRequestResult } from '@shared/ds-gui-api'
 
 type AgentRuntimeUsage = (input: unknown) => Promise<unknown>
 
 function setAgentRuntimeUsage(agentRuntimeUsage: AgentRuntimeUsage): void {
-  const runtimeRequest = vi.fn<(...args: unknown[]) => Promise<RuntimeRequestResult>>()
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
       dsGui: {
-        runtimeRequest,
         agentRuntime: {
           usage: agentRuntimeUsage
         }
@@ -63,7 +60,6 @@ describe('thread usage formatting', () => {
       groupBy: 'thread',
       threadId: 'thr_cached_only'
     })
-    expect(window.dsGui.runtimeRequest).not.toHaveBeenCalled()
   })
 
   it('uses explicit aggregate thread cache telemetry when available', async () => {

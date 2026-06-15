@@ -76,7 +76,7 @@ describe('dev preview detection', () => {
   it('ignores runtime API URLs even when they are local', () => {
     const blocks: ChatBlock[] = [
       user('how does the runtime work'),
-      assistant('GUI 通过 runtime:request 请求 http://localhost:3000/v1/threads 来拉取线程列表。')
+      assistant('GUI 通过 agentRuntime:startTurn 请求 agentRuntime:listThreads 来拉取线程列表。')
     ]
 
     expect(extractLatestTurnDevPreviewUrls(blocks)).toEqual([])

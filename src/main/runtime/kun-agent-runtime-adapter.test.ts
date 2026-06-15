@@ -151,4 +151,100 @@ describe('createKunAgentRuntimeAdapter', () => {
       })
     }
   )
+
+  it('maps Kun tool call and result items to the same callId-backed item id', async () => {
+    const adapter = createKunAgentRuntimeAdapter({
+      request: vi.fn(async () => jsonResponse({
+        id: 'thread-1',
+        title: 'Thread 1',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+        turns: [{
+          id: 'turn-1',
+          threadId: 'thread-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'tool-call-source',
+              kind: 'tool_call',
+              status: 'running',
+              callId: 'call-1',
+              toolName: 'read_file',
+              arguments: { path: 'draft.md' }
+            },
+            {
+              id: 'tool-result-source',
+              kind: 'tool_result',
+              status: 'success',
+              callId: 'call-1',
+              toolName: 'read_file',
+              output: 'ok'
+            }
+          ]
+        }]
+      }))
+    })
+
+    const detail = await adapter.readThread({ settings: buildSettings() }, { threadId: 'thread-1' })
+    const tools = detail.items?.filter((item) => item.kind === 'tool') ?? []
+
+    expect(tools).toEqual([
+      expect.objectContaining({
+        id: 'tool_call-1',
+        status: 'running',
+        meta: expect.objectContaining({ sourceItemId: 'tool-call-source', callId: 'call-1', toolName: 'read_file' })
+      }),
+      expect.objectContaining({
+        id: 'tool_call-1',
+        status: 'success',
+        meta: expect.objectContaining({ sourceItemId: 'tool-result-source', callId: 'call-1', toolName: 'read_file' })
+      })
+    ])
+  })
+
+  it('maps Kun tool_call_ready events onto the same tool event chain', async () => {
+    const adapter = createKunAgentRuntimeAdapter({
+      request: vi.fn(async () => jsonResponse({})),
+      events: async function* () {
+        yield {
+          kind: 'tool_call_ready',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          seq: 7,
+          timestamp: '2026-06-02T00:00:01.000Z',
+          itemId: 'tool-ready-source',
+          callId: 'call-1',
+          toolName: 'read_file',
+          readyCount: 1
+        }
+      }
+    })
+
+    const events = []
+    for await (const event of adapter.subscribeEvents?.(
+      { settings: buildSettings() },
+      { threadId: 'thread-1', sinceSeq: 0 }
+    ) ?? []) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'tool_event',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        seq: 7,
+        itemId: 'tool_call-1',
+        status: 'running',
+        summary: 'read_file',
+        toolKind: 'tool_call',
+        meta: expect.objectContaining({
+          sourceItemId: 'tool-ready-source',
+          callId: 'call-1',
+          toolName: 'read_file',
+          readyCount: 1,
+          runtimeStatus: 'tool_call_ready'
+        })
+      })
+    ])
+  })
 })

@@ -9,9 +9,6 @@ const api = {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (partial) =>
     ipcRenderer.invoke('settings:set', partial),
-  // Legacy Kun-only compatibility bridge; new runtime UI uses agentRuntime.
-  runtimeRequest: (path, method, body) =>
-    ipcRenderer.invoke('runtime:request', { path, method, body }),
   fetchUpstreamModels: () => ipcRenderer.invoke('upstream:models'),
   getClawStatus: () => ipcRenderer.invoke('claw:status'),
   runClawTask: (taskId) =>
@@ -117,15 +114,6 @@ const api = {
   speechToText: {
     transcribe: transcribeSpeech
   },
-  // Legacy Kun SSE compatibility bridge; new runtime UI uses agentRuntime.subscribeEvents.
-  startSse: (threadId, sinceSeq, streamId, runtimeId?: 'kun' | 'codex') =>
-    ipcRenderer.invoke('runtime:sse:start', {
-      threadId,
-      sinceSeq,
-      streamId,
-      ...(runtimeId ? { runtimeId } : {})
-    }),
-  stopSse: (streamId) => ipcRenderer.invoke('runtime:sse:stop', streamId),
   agentRuntime: {
     connect: (runtimeId) => ipcRenderer.invoke('agentRuntime:connect', { runtimeId }),
     capabilities: (runtimeId) => ipcRenderer.invoke('agentRuntime:capabilities', { runtimeId }),
@@ -171,30 +159,6 @@ const api = {
       ipcRenderer.on('agentRuntime:error', wrapped)
       return () => ipcRenderer.removeListener('agentRuntime:error', wrapped)
     }
-  },
-  onSseEvent: (handler) => {
-    const wrapped = (
-      _: Electron.IpcRendererEvent,
-      payload: Parameters<typeof handler>[0]
-    ) => handler(payload)
-    ipcRenderer.on('runtime:sse-event', wrapped)
-    return () => ipcRenderer.removeListener('runtime:sse-event', wrapped)
-  },
-  onSseEnd: (handler) => {
-    const wrapped = (
-      _: Electron.IpcRendererEvent,
-      payload: Parameters<typeof handler>[0]
-    ) => handler(payload)
-    ipcRenderer.on('runtime:sse-end', wrapped)
-    return () => ipcRenderer.removeListener('runtime:sse-end', wrapped)
-  },
-  onSseError: (handler) => {
-    const wrapped = (
-      _: Electron.IpcRendererEvent,
-      payload: Parameters<typeof handler>[0]
-    ) => handler(payload)
-    ipcRenderer.on('runtime:sse-error', wrapped)
-    return () => ipcRenderer.removeListener('runtime:sse-error', wrapped)
   },
   onRuntimeStatus: (handler) => {
     const wrapped = (

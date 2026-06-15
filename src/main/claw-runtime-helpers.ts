@@ -21,8 +21,6 @@ import type {
 import { buildClawInboundMessagePrompt } from '../shared/app-settings'
 import type { JsonSettingsStore } from './settings-store'
 
-export type RuntimeRequestResult = { ok: boolean; status: number; body: string }
-
 export type ClawFailureKind =
   | 'runtime_offline'
   | 'model_missing'
@@ -49,13 +47,6 @@ type ClawFailureInput = {
   kind?: ClawFailureKind
 }
 
-export type RuntimeRequestFn = (
-  settings: AppSettingsV1,
-  pathAndQuery: string,
-  init: { method?: string; body?: string; headers?: Record<string, string> },
-  runtimeId?: AgentRuntimeId
-) => Promise<RuntimeRequestResult>
-
 export type ClawActiveThreadContext = {
   threadId: string
   runtimeId?: AgentRuntimeId
@@ -65,7 +56,6 @@ export type ClawActiveThreadContext = {
 
 export type ClawRuntimeDeps = {
   store: JsonSettingsStore
-  runtimeRequest: RuntimeRequestFn
   agentRuntime?: {
     listThreads?: (input?: { runtimeId?: AgentRuntimeId; limit?: number; includeArchived?: boolean }) => Promise<AgentRuntimeThread[]>
     startThread: (input: AgentRuntimeThreadStartInput) => Promise<AgentRuntimeThread>
@@ -554,21 +544,6 @@ export function parseJsonObject(raw: string): Record<string, unknown> | null {
   }
 }
 
-export function runtimeErrorMessage(result: RuntimeRequestResult, fallback: string): string {
-  const parsed = parseJsonObject(result.body)
-  if (parsed) {
-    const message = parsed.message
-    if (typeof message === 'string' && message.trim()) return message.trim()
-    const error = parsed.error
-    if (typeof error === 'string' && error.trim()) return error.trim()
-    if (typeof error === 'object' && error !== null) {
-      const nested = (error as Record<string, unknown>).message
-      if (typeof nested === 'string' && nested.trim()) return nested.trim()
-    }
-  }
-  return result.body.trim() || fallback
-}
-
 const CLAW_FAILURE_TITLES: Record<ClawFailureKind, string> = {
   runtime_offline: 'Runtime offline',
   model_missing: 'Model missing',
@@ -679,21 +654,6 @@ export function clawFailureResult(input: ClawFailureInput): ClawFailureResult {
     recoverable: CLAW_FAILURE_RECOVERABLE[failureKind],
     ...(input.details !== undefined ? { details: input.details } : {})
   }
-}
-
-export function clawFailureFromRuntimeResult(
-  result: RuntimeRequestResult,
-  fallback: string
-): ClawFailureResult {
-  const parsed = parseJsonObject(result.body)
-  const error = nestedRecord(parsed?.error)
-  const code = asString(parsed?.code) || asString(parsed?.error) || asString(error.code)
-  return clawFailureResult({
-    message: runtimeErrorMessage(result, fallback),
-    code,
-    status: result.status,
-    details: parsed && 'details' in parsed ? parsed.details : undefined
-  })
 }
 
 export function clawFailureFromError(error: unknown, fallback: string): ClawFailureResult {

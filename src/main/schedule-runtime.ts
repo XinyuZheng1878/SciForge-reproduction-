@@ -35,18 +35,16 @@ import {
   normalizeTaskModel,
   parseJsonObject,
   readRequestBody,
-  runtimeErrorMessage,
   sleep,
   summarizeTaskResult,
   writeJson,
   type RunPromptOptions,
   type ScheduleRuntimeDeps,
-  type ThreadDetailJson,
-  type ThreadRecordJson
+  type ThreadDetailJson
 } from './schedule-runtime-helpers'
 
-const UNSUPPORTED_RUNTIME_REQUEST_MESSAGE =
-  'unsupported_runtime_request: Legacy runtime:request is Kun-only. Use agentRuntime IPC for Codex.'
+const UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE =
+  'unsupported_runtime_request: AgentRuntimeHost is required for Schedule runtime requests.'
 
 export { computeScheduleNextRunAt } from './schedule-runtime-helpers'
 
@@ -57,8 +55,8 @@ export function scheduledThreadTitle(title: string): string {
   return suffix ? `${prefix} ${suffix}` : prefix
 }
 
-function unsupportedRuntimeRequestRunResult(): ScheduleRunResult {
-  return { ok: false, message: UNSUPPORTED_RUNTIME_REQUEST_MESSAGE }
+function unsupportedAgentRuntimeHostRunResult(): ScheduleRunResult {
+  return { ok: false, message: UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE }
 }
 
 function withAgentThreadId(
@@ -432,7 +430,6 @@ export class ScheduleRuntime {
       const settings = await this.deps.store.load()
       const task = settings.schedule.tasks.find((item) => item.id === taskId)
       const text = await this.waitForAssistantText(
-        settings,
         threadId,
         turnId,
         TASK_RESPONSE_TIMEOUT_MS,
@@ -468,61 +465,73 @@ export class ScheduleRuntime {
   private async runPrompt(settings: AppSettingsV1, options: RunPromptOptions): Promise<ScheduleRunResult> {
     const workspace = options.workspaceRoot.trim() || this.resolveDefaultWorkspaceRoot(settings)
     const runtimeId = normalizeAgentRuntimeId(options.runtimeId)
-    if (runtimeId !== 'kun') return unsupportedRuntimeRequestRunResult()
     if (workspace) {
       await mkdir(workspace, { recursive: true })
     }
-    const model = normalizeTaskModel(options.model) ?? (settings.agents.kun.model.trim() || DEFAULT_SCHEDULE_MODEL)
-    const create = await this.deps.runtimeRequest(settings, '/v1/threads', {
-      method: 'POST',
-      body: JSON.stringify({
+    if (!this.deps.agentRuntime) return unsupportedAgentRuntimeHostRunResult()
+    return this.runAgentRuntimePrompt(settings, options, runtimeId, workspace)
+  }
+
+  private async runAgentRuntimePrompt(
+    settings: AppSettingsV1,
+    options: RunPromptOptions,
+    runtimeId: AgentRuntimeId,
+    workspace: string
+  ): Promise<ScheduleRunResult> {
+    const agentRuntime = this.deps.agentRuntime
+    if (!agentRuntime) return unsupportedAgentRuntimeHostRunResult()
+    const model = normalizeTaskModel(options.model) ?? DEFAULT_SCHEDULE_MODEL
+    let thread: { id: string }
+    try {
+      thread = await agentRuntime.startThread({
+        runtimeId,
         workspace,
-        model,
+        title: options.title.trim() || undefined,
         mode: options.mode,
-        ...(options.title.trim() ? { title: options.title.trim() } : {})
+        model
       })
-    }, runtimeId)
-    if (!create.ok) return { ok: false, message: runtimeErrorMessage(create, 'Failed to create thread.') }
-    const thread = JSON.parse(create.body) as ThreadRecordJson
-
-    const turnBody: Record<string, unknown> = {
-      prompt: buildScheduleRuntimePrompt(settings, options.prompt),
-      mode: options.mode
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { ok: false, message: message || 'Failed to create thread.' }
     }
-    if (model) turnBody.model = model
-    if (options.reasoningEffort) {
-      turnBody.reasoningEffort = options.reasoningEffort
-    }
-    const turn = await this.deps.runtimeRequest(
-      settings,
-      `/v1/threads/${encodeURIComponent(thread.id)}/turns`,
-      { method: 'POST', body: JSON.stringify(turnBody) },
-      runtimeId
-    )
-    if (!turn.ok) return { ok: false, message: runtimeErrorMessage(turn, 'Failed to start turn.') }
 
-    const parsedTurn = parseJsonObject(turn.body)
-    const turnId = asString(nestedRecord(parsedTurn?.turn).id) || asString(parsedTurn?.turnId)
+    let turn: { threadId: string; turnId: string }
+    try {
+      turn = await agentRuntime.startTurn({
+        runtimeId,
+        threadId: thread.id,
+        text: buildScheduleRuntimePrompt(settings, options.prompt),
+        workspace,
+        mode: options.mode,
+        model,
+        reasoningEffort: options.reasoningEffort,
+        governanceProfile: 'remote_guard'
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { ok: false, message: message || 'Failed to start turn.' }
+    }
+
+    const threadId = turn.threadId.trim() || thread.id
+    const turnId = turn.turnId.trim()
     if (!turnId) {
       return { ok: false, message: 'Failed to start turn: missing turn id.' }
     }
     if (!options.waitForResult) {
-      return { ok: true, threadId: thread.id, turnId, message: 'Started' }
+      return { ok: true, threadId, turnId, message: 'Started' }
     }
 
     const text = await this.waitForAssistantText(
-      settings,
-      thread.id,
+      threadId,
       turnId,
       options.responseTimeoutMs,
       workspace,
       runtimeId
     )
-    return { ok: true, threadId: thread.id, turnId, text, message: text || 'Completed' }
+    return { ok: true, threadId, turnId, text, message: text || 'Completed' }
   }
 
   private async waitForAssistantText(
-    settings: AppSettingsV1,
     threadId: string,
     turnId: string,
     timeoutMs: number,
@@ -534,16 +543,7 @@ export class ScheduleRuntime {
     let lastText = ''
     while (Date.now() < deadline) {
       await sleep(1_500)
-      const detailRes = await this.deps.runtimeRequest(
-        settings,
-        `/v1/threads/${encodeURIComponent(threadId)}`,
-        { method: 'GET' },
-        runtimeId
-      )
-      if (!detailRes.ok) {
-        throw new Error(runtimeErrorMessage(detailRes, 'Failed to read thread result.'))
-      }
-      const detail = JSON.parse(detailRes.body) as ThreadDetailJson
+      const detail = await this.readThreadDetail(threadId, runtimeId)
       lastText = latestAssistantText(detail, { turnId }) || lastText
       const targetTurn = Array.isArray(detail.turns)
         ? detail.turns.find((turn) => turn.id === turnId)
@@ -558,6 +558,12 @@ export class ScheduleRuntime {
     }
     if (lastText) return lastText
     throw new Error('Timed out waiting for agent response.')
+  }
+
+  private async readThreadDetail(threadId: string, runtimeId: AgentRuntimeId): Promise<ThreadDetailJson> {
+    const agentRuntime = this.deps.agentRuntime
+    if (!agentRuntime) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
+    return agentRuntime.readThread({ runtimeId, threadId }) as Promise<ThreadDetailJson>
   }
 
   private resolveDefaultWorkspaceRoot(settings: AppSettingsV1): string {

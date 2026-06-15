@@ -14,7 +14,7 @@ const DEV_PREVIEW_ASSISTANT_ACTION_RE =
 const DEV_PREVIEW_ASSISTANT_STATUS_RE =
   /\b(?:served|serving|running|started|available|reachable|live\s+at|running\s+at|available\s+at|listening\s+on|app\s+running\s+at|serving\s+at)\b|(?:运行在|启动于|已启动|可访问|可预览|本地服务)/i
 const NON_PREVIEW_CONTEXT_RE =
-  /\b(?:deepseek(?:-tui)?|runtime|runtime:request|health check|bearer token|sse|threads?)\b|\/(?:health|v\d+\/|metrics|readyz?|livez?)(?:\b|\/|\?)/i
+  /\b(?:deepseek(?:-tui)?|runtime|health check|bearer token|sse|threads?)\b|\/(?:health|v\d+\/|metrics|readyz?|livez?)(?:\b|\/|\?)/i
 
 type DevPreviewExtractionMode = 'card' | 'auto_open'
 

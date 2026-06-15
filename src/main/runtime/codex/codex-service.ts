@@ -28,6 +28,7 @@ import type {
   CodexTurnSteerPayload
 } from './codex-runtime-api'
 import type {
+  AgentRuntimeEvent,
   AgentRuntimeUsage,
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse
@@ -269,6 +270,22 @@ export class CodexRuntimeService {
     if (!this.eventStore) return []
     const events = await this.eventStore.read(threadId, { sinceSeq })
     return events.map((event) => event.event)
+  }
+
+  async publishSyntheticEvent(event: AgentRuntimeEvent): Promise<CodexThreadEventPayload> {
+    if (event.kind !== 'runtime_status') {
+      throw new Error(`Unsupported Codex synthetic event kind: ${event.kind}`)
+    }
+    if (!event.phase) throw new Error('Codex synthetic runtime_status requires phase.')
+    return this.emitRuntimeStatus({
+      threadId: event.threadId,
+      turnId: event.turnId,
+      itemId: event.itemId,
+      phase: event.phase,
+      message: event.message,
+      latencyMs: event.latencyMs,
+      createdAt: event.createdAt
+    })
   }
 
   async *subscribeEvents(
@@ -691,10 +708,13 @@ export class CodexRuntimeService {
     if (!turnId) return event
 
     const nextDeltas = deltas.filter((delta) => {
-      if (delta.text.length < 16) return true
-      const key = `${event.threadId}\u0000${turnId}\u0000${delta.kind}\u0000${delta.text}`
-      if (this.seenModelDeltaKeys.has(key)) return false
+      const text = canonicalModelText(delta.text)
+      const shouldTrack = Boolean(text) && (delta.snapshot === true || event.turnComplete === true || text.length >= 16)
+      if (!shouldTrack) return true
+      const key = `${event.threadId}\u0000${turnId}\u0000${delta.kind}\u0000${text}`
+      const duplicated = this.seenModelDeltaKeys.has(key)
       this.seenModelDeltaKeys.add(key)
+      if (duplicated) return false
       return true
     })
     if (nextDeltas.length === deltas.length) return event
@@ -979,7 +999,7 @@ export class CodexRuntimeService {
   private async emitRuntimeStatus(
     event: CodexRuntimeStatusInput,
     options: { persist?: boolean } = {}
-  ): Promise<void> {
+  ): Promise<CodexThreadEventPayload> {
     const runtimeEvent: CodexThreadEventPayload = {
       threadId: event.threadId,
       ...(event.turnId ? { turnId: event.turnId } : {}),
@@ -996,6 +1016,7 @@ export class CodexRuntimeService {
     const published = stored?.event ?? runtimeEvent
     this.broadcastEvent(published)
     this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: published })
+    return published
   }
 
   private async emitRuntimeError(event: CodexRuntimeErrorInput): Promise<void> {
@@ -1196,7 +1217,8 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
           id: `${delta.kind}-${item.seq}-${index}`,
           createdAt: item.createdAt,
           ...(turnId ? { turnId } : {}),
-          text: delta.text
+          text: delta.text,
+          ...(delta.kind === 'agent_message' && delta.snapshot ? { snapshot: true } : {})
         })
       }
     }
@@ -1226,7 +1248,39 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
       })
     }
   }
-  return blocks
+  return dedupeAssistantBlocks(blocks)
+}
+
+function dedupeAssistantBlocks(blocks: CodexChatBlock[]): CodexChatBlock[] {
+  const seen = new Set<string>()
+  let userSegment = 0
+  let changed = false
+  const next: CodexChatBlock[] = []
+  for (const block of blocks) {
+    if (block.kind === 'user') {
+      userSegment += 1
+      next.push(block)
+      continue
+    }
+    if (block.kind !== 'assistant') {
+      next.push(block)
+      continue
+    }
+    const text = canonicalModelText(block.text)
+    if (!text || (!block.snapshot && text.length < 16)) {
+      next.push(block)
+      continue
+    }
+    const scope = block.turnId ? `turn:${block.turnId}` : `segment:${userSegment}`
+    const key = `${scope}\u0000${text}`
+    if (seen.has(key)) {
+      changed = true
+      continue
+    }
+    seen.add(key)
+    next.push(block)
+  }
+  return changed ? next : blocks
 }
 
 function preferThreadDetail(
@@ -1439,7 +1493,7 @@ function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread
 
 function threadDetail(thread: Record<string, unknown>): CodexThreadDetail {
   const turns = arrayValue(thread.turns).map(asRecord).filter(Boolean) as Record<string, unknown>[]
-  const blocks = turns.flatMap((turn) => turnBlocks(turn))
+  const blocks = dedupeAssistantBlocks(turns.flatMap((turn) => turnBlocks(turn)))
   const latestTurn = turns.at(-1)
   const latestUserMessageId = [...blocks].reverse().find((block) => block.kind === 'user')?.id
   return {
@@ -1479,7 +1533,7 @@ function itemBlock(item: Record<string, unknown>, turnId: string, createdAt?: st
     }]
   }
   if (type === 'agentMessage') {
-    return [{ kind: 'assistant', id, createdAt, ...turnMeta, text: stringValue(item.text) }]
+    return [{ kind: 'assistant', id, createdAt, ...turnMeta, text: stringValue(item.text), snapshot: true }]
   }
   if (type === 'reasoning') {
     const text = [...arrayValue(item.summary), ...arrayValue(item.content)]
@@ -1661,6 +1715,10 @@ function arrayValue(value: unknown): unknown[] {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function canonicalModelText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ')
 }
 
 function numberValue(value: unknown): number | undefined {

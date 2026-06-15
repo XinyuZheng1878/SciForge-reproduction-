@@ -16,7 +16,8 @@ import {
   getKunRuntimeSettings,
   kunSettingsEnvelope,
   mergeKunRuntimeSettings,
-  migrateLegacyAppSettings
+  migrateLegacyAppSettings,
+  normalizeRuntimeGuardSettings
 } from './app-settings-kun'
 import {
   defaultCodexRuntimeSettings,
@@ -47,6 +48,9 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     schedule?: ScheduleSettingsPatchV1
     speechToText?: SpeechToTextSettingsPatchV1
     guiUpdate?: Partial<GuiUpdateConfigV1>
+    runtimeGuards?: Parameters<typeof normalizeRuntimeGuardSettings>[0]
+    kunToolStorm?: unknown
+    runtime?: { toolStorm?: unknown }
   }
   const runtime = getKunRuntimeSettings(maybeSettings)
   const codexRuntime = getCodexRuntimeSettings(maybeSettings)
@@ -67,6 +71,10 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
         : 'small',
     provider: normalizeModelProviderSettings(maybeSettings.provider),
     modelRouter: normalizeModelRouterSettings(maybeSettings.modelRouter),
+    runtimeGuards: normalizeRuntimeGuardSettings(maybeSettings.runtimeGuards, {
+      kunToolStorm: maybeSettings.kunToolStorm,
+      runtimeToolStorm: maybeSettings.runtime?.toolStorm
+    }),
     activeAgentRuntime: normalizeAgentRuntimeId(maybeSettings.activeAgentRuntime),
     agents: {
       ...kunSettingsEnvelope(mergeKunRuntimeSettings(defaultKunRuntimeSettings(), {

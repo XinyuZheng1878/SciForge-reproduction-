@@ -224,7 +224,7 @@ describe('thread event sink binding', () => {
     expect(getState().currentTurnId).toBeNull()
     expect(getState().blocks).toEqual([
       { kind: 'user', id: 'user-current', text: 'hello' },
-      expect.objectContaining({ kind: 'tool', id: 'tool-running', status: 'error' }),
+      expect.objectContaining({ kind: 'tool', id: 'tool-running', status: 'success' }),
       expect.objectContaining({ kind: 'user_input', id: 'input-pending', status: 'cancelled' }),
       expect.objectContaining({ kind: 'assistant', text: 'done' }),
       {
@@ -368,7 +368,7 @@ describe('thread event sink binding', () => {
     expect(getState().currentTurnUserId).toBeNull()
     expect(getState().blocks.map((block) => ('status' in block ? block.status : block.kind))).toEqual([
       'user',
-      'error',
+      'success',
       'error'
     ])
   })

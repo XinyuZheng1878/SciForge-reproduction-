@@ -385,9 +385,13 @@ export function createThreadActions(
         }
         const next = queuedMessages[0]
         if (!next || state.busy) return
+        const queuedTargetsExplicitThread = next.sourceRoute === 'write' && Boolean(next.targetThreadId || next.threadId)
         if (
-          (next.threadId && next.threadId !== state.activeThreadId) ||
-          (next.runtimeId && state.threads.find((thread) => thread.id === state.activeThreadId)?.runtimeId !== next.runtimeId)
+          !queuedTargetsExplicitThread &&
+          (
+            (next.threadId && next.threadId !== state.activeThreadId) ||
+            (next.runtimeId && state.threads.find((thread) => thread.id === state.activeThreadId)?.runtimeId !== next.runtimeId)
+          )
         ) {
           set((s) => ({
             queuedMessages: s.queuedMessages.filter((message) => message.id !== next.id)
@@ -415,9 +419,21 @@ export function createThreadActions(
       return false
     }
     const p = getProvider()
-    if (get().route === 'write') {
-      const writeThreadId = await get().ensureWriteThreadForWorkspace()
+    const queued = overrides?.queued
+    const sourceRoute = queued?.sourceRoute ?? overrides?.sourceRoute ?? get().route
+    const requestedGovernanceProfile = queued?.governanceProfile ?? overrides?.governanceProfile
+    const isWriteTurn = sourceRoute === 'write' || requestedGovernanceProfile === 'write'
+    const requestedWriteWorkspaceRoot = isWriteTurn
+      ? normalizeWorkspaceRoot(queued?.workspaceRoot ?? overrides?.workspaceRoot)
+      : ''
+    let targetThreadId = (queued?.targetThreadId ?? overrides?.targetThreadId)?.trim() || ''
+    if (isWriteTurn) {
+      const writeThreadId = await get().ensureWriteThreadForWorkspace(requestedWriteWorkspaceRoot || undefined)
       if (!writeThreadId) return false
+      if (!targetThreadId) targetThreadId = writeThreadId
+      if (targetThreadId !== writeThreadId && get().threads.some((thread) => thread.id === targetThreadId)) {
+        await get().selectThread(targetThreadId)
+      }
     }
     const hasPendingActiveTurn = get().blocks.some(hasPendingRuntimeWork)
     if (get().busy || hasPendingActiveTurn) {
@@ -437,6 +453,11 @@ export function createThreadActions(
       const userModelChip =
         overrides?.modelLabel ?? optimisticUserModelLabel(composerModel, threadSnap?.model)
       const displayText = overrides?.displayText?.trim()
+      const writeWorkspaceRoot = isWriteTurn
+        ? normalizeWorkspaceRoot(queued?.workspaceRoot ?? overrides?.workspaceRoot ?? threadSnap?.workspace)
+        : ''
+      const queuedTargetThreadId = targetThreadId || activeThreadId || undefined
+      const queuedGovernanceProfile = requestedGovernanceProfile ?? (isWriteTurn ? 'write' : undefined)
       const reasoningEffort = overrides?.reasoningEffort?.trim()
       const attachmentIds = overrides?.attachmentIds?.filter((id) => id.trim().length > 0)
       const attachments = overrides?.attachments?.filter((attachment) => attachment.id.trim().length > 0)
@@ -450,6 +471,10 @@ export function createThreadActions(
             text: trimmedText,
             ...(displayText ? { displayText } : {}),
             ...(mode ? { mode } : {}),
+            sourceRoute,
+            ...(queuedTargetThreadId ? { targetThreadId: queuedTargetThreadId } : {}),
+            ...(writeWorkspaceRoot ? { workspaceRoot: writeWorkspaceRoot } : {}),
+            ...(queuedGovernanceProfile ? { governanceProfile: queuedGovernanceProfile } : {}),
             ...(composerModel ? { model: composerModel } : {}),
             ...(userModelChip ? { modelLabel: userModelChip } : {}),
             ...(reasoningEffort ? { reasoningEffort } : {}),
@@ -468,7 +493,6 @@ export function createThreadActions(
       return true
     }
     const now = Date.now()
-    const queued = overrides?.queued
     const userBlockId = queued?.id ?? `u-${now}`
     const attachmentIds =
       queued?.attachmentIds ??
@@ -478,11 +502,11 @@ export function createThreadActions(
       queued?.attachments ??
       overrides?.attachments?.filter((attachment) => attachment.id.trim().length > 0) ??
       []
-    let activeThreadId = get().activeThreadId
+    let activeThreadId = targetThreadId || get().activeThreadId
     const displayText = queued?.displayText ?? overrides?.displayText?.trim() ?? trimmedText
     const userDisplayText = displayText !== trimmedText ? displayText : undefined
     const generatedTitle = deriveThreadTitleFromPrompt(displayText)
-    const shouldAutoRenameForRoute = get().route === 'chat'
+    const shouldAutoRenameForRoute = sourceRoute === 'chat'
     const activeThread = activeThreadId
       ? get().threads.find((thread) => thread.id === activeThreadId) ?? null
       : null
@@ -626,7 +650,7 @@ export function createThreadActions(
     try {
       const seqAtSend = get().lastSeq
       rememberProviderThreadRuntime(p, activeThreadId, get().threads)
-      const channel = get().route === 'claw' ? activeClawChannel(get()) : null
+      const channel = sourceRoute === 'claw' ? activeClawChannel(get()) : null
       const settings = await rendererRuntimeClient.getSettings()
       let runtimeText: string
       if (channel) {
@@ -635,10 +659,22 @@ export function createThreadActions(
         runtimeText = buildCodeRuntimePrompt(settings, trimmedText)
       }
       const runtimeDisplayText = channel ? displayText : (userDisplayText ?? trimmedText)
+      const writeRuntimeWorkspaceRoot = isWriteTurn
+        ? requestedWriteWorkspaceRoot || normalizeWorkspaceRoot(activeThread?.workspace)
+        : ''
+      const governanceProfile = requestedGovernanceProfile ?? (
+        isWriteTurn
+          ? 'write'
+          : channel
+            ? 'remote_guard'
+            : undefined
+      )
       const { turnId, userMessageItemId } = await p.sendUserMessage(activeThreadId, runtimeText, {
         mode,
         ...(composerModel ? { model: composerModel } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(writeRuntimeWorkspaceRoot ? { workspace: writeRuntimeWorkspaceRoot } : {}),
+        ...(governanceProfile ? { governanceProfile } : {}),
         ...(runtimeDisplayText ? { displayText: runtimeDisplayText } : {}),
         ...((queued?.guiPlan ?? overrides?.guiPlan) ? { guiPlan: queued?.guiPlan ?? overrides?.guiPlan } : {}),
         ...(attachmentIds.length ? { attachmentIds } : {})

@@ -31,36 +31,6 @@ describe('preload agentRuntime bridge', () => {
     await import('./index')
   })
 
-  it('forwards runtimeId through the legacy SSE bridge when provided', async () => {
-    const api = exposedApi as {
-      startSse(threadId: string, sinceSeq: number, streamId?: string, runtimeId?: 'kun' | 'codex'): Promise<unknown>
-    }
-
-    await api.startSse('thread-1', 3, 'stream-1', 'codex')
-
-    expect(invoke).toHaveBeenCalledWith('runtime:sse:start', {
-      threadId: 'thread-1',
-      sinceSeq: 3,
-      streamId: 'stream-1',
-      runtimeId: 'codex'
-    })
-  })
-
-  it('keeps the legacy SSE payload shape when runtimeId is omitted', async () => {
-    const api = exposedApi as {
-      startSse(threadId: string, sinceSeq: number, streamId?: string, runtimeId?: 'kun' | 'codex'): Promise<unknown>
-    }
-
-    await api.startSse('thread-1', 3, 'stream-1')
-
-    expect(invoke).toHaveBeenCalledWith('runtime:sse:start', {
-      threadId: 'thread-1',
-      sinceSeq: 3,
-      streamId: 'stream-1'
-    })
-    expect(invoke.mock.calls[0]?.[1]).not.toHaveProperty('runtimeId')
-  })
-
   it('exposes runtime status notifications', () => {
     const api = exposedApi as {
       onRuntimeStatus(handler: (payload: unknown) => void): () => void

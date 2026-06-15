@@ -11,22 +11,17 @@ describe('agentRuntimeClient', () => {
     const listThreads = vi.fn(async () => [
       { id: 'thread-1', runtimeId: 'codex', title: 'One', updatedAt: '2026-06-11T00:00:00.000Z' }
     ])
-    const legacyRuntimeRequest = vi.fn()
+    const forbiddenDirectCall = vi.fn()
     const codexListThreads = vi.fn()
     vi.stubGlobal('window', {
       dsGui: {
         agentRuntime: {
           listThreads
         },
-        runtimeRequest: legacyRuntimeRequest,
+        forbiddenDirectCall: forbiddenDirectCall,
         codex: {
           listThreads: codexListThreads
-        },
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
+        }
       }
     })
 
@@ -35,7 +30,7 @@ describe('agentRuntimeClient', () => {
     ])
 
     expect(listThreads).toHaveBeenCalledWith({ runtimeId: 'codex', limit: 1 })
-    expect(legacyRuntimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(codexListThreads).not.toHaveBeenCalled()
   })
 
@@ -53,7 +48,7 @@ describe('agentRuntimeClient', () => {
     }))
     const resumeSession = vi.fn(async () => ({ threadId: 'resumed-thread', sessionId: 'session-1' }))
     const updateThreadRelation = vi.fn(async () => undefined)
-    const legacyRuntimeRequest = vi.fn()
+    const forbiddenDirectCall = vi.fn()
     const codexStartTurn = vi.fn()
     vi.stubGlobal('window', {
       dsGui: {
@@ -67,16 +62,11 @@ describe('agentRuntimeClient', () => {
           resolveApproval,
           resolveUserInput
         },
-        runtimeRequest: legacyRuntimeRequest,
+        forbiddenDirectCall: forbiddenDirectCall,
         codex: {
           startTurn: codexStartTurn,
           renameThread: vi.fn()
-        },
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
+        }
       }
     })
 
@@ -172,7 +162,7 @@ describe('agentRuntimeClient', () => {
       requestId: 'input-1',
       answers: [{ id: 'choice', label: 'Yes', value: 'yes' }]
     })
-    expect(legacyRuntimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(codexStartTurn).not.toHaveBeenCalled()
   })
 
@@ -183,8 +173,6 @@ describe('agentRuntimeClient', () => {
     const offError = vi.fn()
     const subscribeEvents = vi.fn(async () => ({ streamId: 'stream-1' }))
     const stopEvents = vi.fn(async () => true)
-    const startSse = vi.fn()
-    const stopSse = vi.fn()
     vi.stubGlobal('window', {
       dsGui: {
         agentRuntime: {
@@ -196,12 +184,7 @@ describe('agentRuntimeClient', () => {
           }),
           onEnd: vi.fn(() => offEnd),
           onError: vi.fn(() => offError)
-        },
-        startSse,
-        stopSse,
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(() => offEnd),
-        onSseError: vi.fn(() => offError)
+        }
       }
     })
     const ac = new AbortController()
@@ -228,8 +211,6 @@ describe('agentRuntimeClient', () => {
       { kind: 'assistant_delta', threadId: 'thread-1', itemId: 'assistant-1', text: 'hi', seq: 5 }
     ])
     expect(stopEvents).toHaveBeenCalledWith('stream-1')
-    expect(startSse).not.toHaveBeenCalled()
-    expect(stopSse).not.toHaveBeenCalled()
     expect(offEvent).toHaveBeenCalled()
     expect(offEnd).toHaveBeenCalled()
     expect(offError).toHaveBeenCalled()

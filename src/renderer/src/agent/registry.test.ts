@@ -42,7 +42,7 @@ function settings(activeAgentRuntime: AgentRuntimeId): AppSettingsV1 {
 }
 
 function installDsGui(activeAgentRuntime: AgentRuntimeId): {
-  runtimeRequest: ReturnType<typeof vi.fn>
+  forbiddenDirectCall: ReturnType<typeof vi.fn>
   codexListThreads: ReturnType<typeof vi.fn>
   agentRuntimeListThreads: ReturnType<typeof vi.fn>
   agentRuntimeReadThread: ReturnType<typeof vi.fn>
@@ -52,7 +52,7 @@ function installDsGui(activeAgentRuntime: AgentRuntimeId): {
   agentRuntimeResumeSession: ReturnType<typeof vi.fn>
   agentRuntimeUpdateThreadRelation: ReturnType<typeof vi.fn>
 } {
-  const runtimeRequest = vi.fn(async () => ({
+  const forbiddenDirectCall = vi.fn(async () => ({
     ok: true,
     status: 200,
     body: JSON.stringify({ threads: [] })
@@ -116,16 +116,11 @@ function installDsGui(activeAgentRuntime: AgentRuntimeId): {
       codex: {
         listThreads: codexListThreads
       },
-      runtimeRequest,
-      startSse: vi.fn(),
-      stopSse: vi.fn(),
-      onSseEvent: vi.fn(),
-      onSseEnd: vi.fn(),
-      onSseError: vi.fn()
+      forbiddenDirectCall,
     }
   })
   return {
-    runtimeRequest,
+    forbiddenDirectCall,
     codexListThreads,
     agentRuntimeListThreads,
     agentRuntimeReadThread,
@@ -152,17 +147,17 @@ describe('registry provider selector', () => {
   })
 
   it('passes the active Kun runtime id through neutral IPC', async () => {
-    const { runtimeRequest, codexListThreads, agentRuntimeListThreads } = installDsGui('kun')
+    const { forbiddenDirectCall, codexListThreads, agentRuntimeListThreads } = installDsGui('kun')
 
     await expect(getProvider().listThreads()).resolves.toEqual([])
 
     expect(agentRuntimeListThreads).toHaveBeenCalledWith({ runtimeId: 'kun' })
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(codexListThreads).not.toHaveBeenCalled()
   })
 
   it('passes the active Codex runtime id through neutral IPC', async () => {
-    const { runtimeRequest, codexListThreads, agentRuntimeListThreads } = installDsGui('codex')
+    const { forbiddenDirectCall, codexListThreads, agentRuntimeListThreads } = installDsGui('codex')
     const provider = getProvider()
 
     await expect(provider.connect()).resolves.toBeUndefined()
@@ -171,12 +166,12 @@ describe('registry provider selector', () => {
 
     expect(agentRuntimeListThreads).toHaveBeenCalledWith({ runtimeId: 'codex' })
     expect(codexListThreads).not.toHaveBeenCalled()
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('keeps approval and user input responses on the neutral provider path', async () => {
     const {
-      runtimeRequest,
+      forbiddenDirectCall,
       codexListThreads,
       agentRuntimeReadThread,
       agentRuntimeResolveApproval,
@@ -205,12 +200,12 @@ describe('registry provider selector', () => {
       answers: [{ id: 'choice', label: 'No', value: 'no' }]
     })
     expect(codexListThreads).not.toHaveBeenCalled()
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('keeps fork, resume, and relation updates on the neutral provider path', async () => {
     const {
-      runtimeRequest,
+      forbiddenDirectCall,
       codexListThreads,
       agentRuntimeForkThread,
       agentRuntimeResumeSession,
@@ -247,6 +242,6 @@ describe('registry provider selector', () => {
       relation: 'primary'
     })
     expect(codexListThreads).not.toHaveBeenCalled()
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 })

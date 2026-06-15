@@ -1,35 +1,12 @@
-import type { IpcMain } from 'electron'
-import { randomUUID } from 'node:crypto'
 import { URL } from 'node:url'
 import type { AppSettingsV1 } from '../shared/app-settings'
 import { kunThreadEventsPath } from '../shared/kun-endpoints'
-import { sseStartPayloadSchema, streamIdSchema } from './ipc/app-ipc-schemas'
-import type { JsonSettingsStore } from './settings-store'
 import { getRuntimeBaseUrlForSettings, runtimeAuthHeaders } from './runtime/kun-adapter'
-import type { CodexRuntimeService } from './runtime/codex'
-import { runtimeEventsViaRuntimeHost, type RuntimeHostEventPayload } from './runtime/runtime-host'
-
-type SseControllerState = {
-  controller: AbortController
-  stoppedByClient: boolean
-}
+import type { RuntimeHostEventPayload } from './runtime/runtime-host'
 
 const SSE_RECONNECT_BASE_MS = 750
 const SSE_RECONNECT_MAX_MS = 5_000
 const SSE_START_TIMEOUT_MS = 15_000
-const SSE_IPC_BATCH_FLUSH_DELAY_MS = 0
-
-const sseControllers = new Map<string, SseControllerState>()
-
-type RuntimeSseEventIpcPayload = {
-  streamId: string
-  events: RuntimeHostEventPayload[]
-  data: RuntimeHostEventPayload
-}
-
-type RuntimeSseEventSender = {
-  send: (channel: 'runtime:sse-event', payload: RuntimeSseEventIpcPayload) => void
-}
 
 class RuntimeSseHttpStatusError extends Error {
   constructor(readonly status: number) {
@@ -117,56 +94,6 @@ function coerceSsePayload(parsed: { data: unknown; event?: string; id?: string }
 
 function isFatalSseStatus(status: number | undefined): boolean {
   return typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429
-}
-
-function sendRuntimeSseEventBatch(
-  sender: RuntimeSseEventSender,
-  streamId: string,
-  events: RuntimeHostEventPayload[]
-): void {
-  if (events.length === 0) return
-  sender.send('runtime:sse-event', {
-    streamId,
-    events,
-    data: events[0]
-  })
-}
-
-function createRuntimeSseEventBatchSender(
-  sender: RuntimeSseEventSender,
-  streamId: string,
-  shouldSend: () => boolean
-): {
-  push: (event: RuntimeHostEventPayload) => void
-  flush: () => void
-} {
-  let queuedEvents: RuntimeHostEventPayload[] = []
-  let flushTimer: ReturnType<typeof setTimeout> | null = null
-
-  const clearFlushTimer = (): void => {
-    if (flushTimer === null) return
-    clearTimeout(flushTimer)
-    flushTimer = null
-  }
-
-  const flush = (): void => {
-    clearFlushTimer()
-    if (queuedEvents.length === 0) return
-    const events = queuedEvents
-    queuedEvents = []
-    if (!shouldSend()) return
-    sendRuntimeSseEventBatch(sender, streamId, events)
-  }
-
-  return {
-    push(event) {
-      queuedEvents.push(event)
-      if (flushTimer === null) {
-        flushTimer = setTimeout(flush, SSE_IPC_BATCH_FLUSH_DELAY_MS)
-      }
-    },
-    flush
-  }
 }
 
 async function fetchSseWithStartTimeout(
@@ -276,84 +203,4 @@ export async function* kunRuntimeEvents(
       throw e
     }
   }
-}
-
-export function registerRuntimeSseIpc(options: {
-  ipcMain: IpcMain
-  store: JsonSettingsStore
-  ensureRuntime: (settings: AppSettingsV1) => Promise<void>
-  codexRuntime: () => CodexRuntimeService
-  logError: (category: string, message: string, detail?: unknown) => void
-}): void {
-  const { ipcMain, store, ensureRuntime, codexRuntime, logError } = options
-  ipcMain.handle('runtime:sse:start', async (event, args: unknown) => {
-    const request = sseStartPayloadSchema.parse(args)
-    const s = await store.load()
-    const requestedId = request.streamId?.trim() ?? ''
-    const id = requestedId || randomUUID()
-    const existing = sseControllers.get(id)
-    if (existing) {
-      existing.stoppedByClient = true
-      existing.controller.abort()
-      sseControllers.delete(id)
-    }
-    const ac = new AbortController()
-    const state: SseControllerState = { controller: ac, stoppedByClient: false }
-    sseControllers.set(id, state)
-
-    ;(async () => {
-      const wc = event.sender
-      const eventBatch = createRuntimeSseEventBatchSender(
-        wc,
-        id,
-        () => !state.stoppedByClient && !ac.signal.aborted
-      )
-      try {
-        const stream = runtimeEventsViaRuntimeHost(s, request.threadId, request.sinceSeq, ac.signal, {
-          ensureKunRuntime: ensureRuntime,
-          kunRequest: async () => ({ ok: false, status: 400, body: '{"message":"Kun request is unavailable."}' }),
-          kunEvents: kunRuntimeEvents,
-          codexRuntime
-        }, request.runtimeId ?? 'kun')
-        for await (const payload of stream) {
-          if (state.stoppedByClient || ac.signal.aborted) return
-          eventBatch.push(payload)
-        }
-        eventBatch.flush()
-      } catch (e) {
-        if (state.stoppedByClient || ac.signal.aborted) return
-        eventBatch.flush()
-        if (e instanceof RuntimeSseHttpStatusError) {
-          wc.send('runtime:sse-error', { streamId: id, status: e.status })
-          logError('sse', `SSE connection failed for thread ${request.threadId}`, {
-            status: e.status,
-            streamId: id
-          })
-          return
-        }
-        const msg = e instanceof Error ? e.message : String(e)
-        wc.send('runtime:sse-error', { streamId: id, message: msg })
-        logError('sse', `SSE stream error for thread ${request.threadId}`, { message: msg, streamId: id })
-        return
-      } finally {
-        eventBatch.flush()
-        if (!state.stoppedByClient && !ac.signal.aborted) {
-          wc.send('runtime:sse-end', { streamId: id })
-        }
-        sseControllers.delete(id)
-      }
-    })()
-
-    return { streamId: id }
-  })
-
-  ipcMain.handle('runtime:sse:stop', async (_, streamId: unknown) => {
-    const normalizedStreamId = streamIdSchema.parse(streamId)
-    const state = sseControllers.get(normalizedStreamId)
-    if (state) {
-      state.stoppedByClient = true
-      state.controller.abort()
-    }
-    return true
-  })
 }

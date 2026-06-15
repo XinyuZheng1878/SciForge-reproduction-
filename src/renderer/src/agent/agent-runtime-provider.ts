@@ -32,7 +32,6 @@ import type {
 } from './types'
 
 type LegacyCapabilities = ReturnType<AgentProvider['getCapabilities']>
-type SendUserMessageOptions = NonNullable<Parameters<AgentProvider['sendUserMessage']>[2]>
 type InteractionRequestRef = {
   threadId: string
   runtimeId: AgentRuntimeId
@@ -59,12 +58,6 @@ function legacyCapabilities(capabilities: AgentRuntimeCapabilities): LegacyCapab
     skills: capabilities.tools.skills.available === true,
     sideConversations: capabilities.controls.fork === true
   }
-}
-
-function turnOptionsForRuntime(runtimeId: AgentRuntimeId, options: SendUserMessageOptions): SendUserMessageOptions {
-  if (runtimeId !== 'codex') return options
-  const { model: _model, ...rest } = options
-  return rest
 }
 
 function unresolvedInteraction(feature: string, requestId: string): Error {
@@ -322,6 +315,143 @@ function detailItems(detail: AgentRuntimeThreadDetail): AgentRuntimeItem[] {
   return detail.turns?.flatMap((turn) => turn.items ?? []) ?? []
 }
 
+type TerminalSnapshotOutcome = 'success' | 'error'
+
+function normalizedStatus(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? ''
+}
+
+function statusLooksRunning(value: string): boolean {
+  return value === 'queued' || value === 'pending' || value === 'running' ||
+    value === 'in_progress' || value === 'started'
+}
+
+function statusLooksError(value: string): boolean {
+  return value === 'error' || value === 'failed' || value === 'aborted' || value === 'cancelled' ||
+    value === 'canceled' || value === 'interrupted'
+}
+
+function statusLooksSuccess(value: string): boolean {
+  return value === 'success' || value === 'completed' || value === 'idle' || value === 'ready'
+}
+
+function terminalSnapshotOutcome(
+  threadStatus: string | undefined,
+  turnStatus: string | undefined
+): TerminalSnapshotOutcome | null {
+  const normalizedThreadStatus = normalizedStatus(threadStatus)
+  const normalizedTurnStatus = normalizedStatus(turnStatus)
+  if (statusLooksRunning(normalizedThreadStatus) || statusLooksRunning(normalizedTurnStatus)) return null
+  if (statusLooksError(normalizedThreadStatus) || statusLooksError(normalizedTurnStatus)) return 'error'
+  if (statusLooksSuccess(normalizedTurnStatus) || statusLooksSuccess(normalizedThreadStatus)) return 'success'
+  return null
+}
+
+function toolIdentity(block: ToolBlock): string | null {
+  const callId =
+    stringMeta(block.meta, 'callId') ??
+    stringMeta(block.meta, 'toolCallId') ??
+    stringMeta(block.meta, 'call_id') ??
+    stringMeta(block.meta, 'tool_call_id')
+  return callId ? `call:${callId}` : null
+}
+
+function removeSupersededRunningToolBlocks(blocks: ChatBlock[]): ChatBlock[] {
+  const completedToolIdentities = new Set<string>()
+  let changed = false
+  const reversed: ChatBlock[] = []
+  for (let idx = blocks.length - 1; idx >= 0; idx -= 1) {
+    const block = blocks[idx]
+    if (block.kind !== 'tool') {
+      reversed.push(block)
+      continue
+    }
+    const identity = toolIdentity(block)
+    if (!identity) {
+      reversed.push(block)
+      continue
+    }
+    if (block.status === 'running') {
+      if (completedToolIdentities.has(identity)) {
+        changed = true
+        continue
+      }
+      reversed.push(block)
+      continue
+    }
+    completedToolIdentities.add(identity)
+    reversed.push(block)
+  }
+  return changed ? reversed.reverse() : blocks
+}
+
+function mergeRepeatedToolBlocks(blocks: ChatBlock[]): ChatBlock[] {
+  let changed = false
+  const merged: ChatBlock[] = []
+  const toolIndexes = new Map<string, number>()
+  for (const block of blocks) {
+    if (block.kind !== 'tool') {
+      merged.push(block)
+      continue
+    }
+    const existingIndex = toolIndexes.get(block.id)
+    if (existingIndex === undefined) {
+      toolIndexes.set(block.id, merged.length)
+      merged.push(block)
+      continue
+    }
+    const existing = merged[existingIndex]
+    if (!existing || existing.kind !== 'tool') {
+      merged.push(block)
+      continue
+    }
+    changed = true
+    merged[existingIndex] = {
+      ...existing,
+      ...block,
+      createdAt: existing.createdAt ?? block.createdAt,
+      summary: block.summary || existing.summary,
+      detail: block.detail ?? existing.detail,
+      meta: {
+        ...(existing.meta ?? {}),
+        ...(block.meta ?? {})
+      }
+    }
+  }
+  return changed ? merged : blocks
+}
+
+function settleTerminalSnapshotBlocks(blocks: ChatBlock[], outcome: TerminalSnapshotOutcome | null): ChatBlock[] {
+  if (!outcome) return blocks
+  let changed = false
+  const dedupedBlocks = removeSupersededRunningToolBlocks(blocks)
+  if (dedupedBlocks !== blocks) changed = true
+  const nextBlocks = dedupedBlocks.map((block): ChatBlock => {
+    if (block.kind === 'tool' && block.status === 'running') {
+      changed = true
+      return { ...block, status: outcome }
+    }
+    if (block.kind === 'compaction' && block.status === 'running') {
+      changed = true
+      return { ...block, status: outcome }
+    }
+    if (block.kind === 'review' && block.status === 'running') {
+      changed = true
+      return { ...block, status: outcome }
+    }
+    if (block.kind === 'approval' && block.status === 'pending') {
+      changed = true
+      return { ...block, status: 'error' }
+    }
+    if (block.kind === 'user_input' && block.status === 'pending') {
+      changed = true
+      return { ...block, status: 'cancelled' }
+    }
+    return block
+  })
+  return changed ? nextBlocks : blocks
+}
+
 function usageFromRuntime(usage: AgentRuntimeUsage | undefined): ThreadUsageSnapshot | undefined {
   if (!usage) return undefined
   const inputTokens = usage.inputTokens ?? 0
@@ -402,11 +532,15 @@ export class AgentRuntimeProvider implements AgentProvider {
     this.rememberThreadRuntime(detail.id, detail.runtimeId)
     this.rememberInteractionRequests(detail.id, detail.runtimeId, items)
     const latestTurn = detail.turns?.at(-1)
+    const rawBlocks = mergeRepeatedToolBlocks(items.flatMap((item) => {
+      const block = blockFromItem(item)
+      return block ? [block] : []
+    }))
     return {
-      blocks: items.flatMap((item) => {
-        const block = blockFromItem(item)
-        return block ? [block] : []
-      }),
+      blocks: settleTerminalSnapshotBlocks(
+        rawBlocks,
+        terminalSnapshotOutcome(detail.status, latestTurn?.status)
+      ),
       latestSeq: detail.latestSeq,
       threadStatus: detail.status ?? latestTurn?.status,
       latestTurnId: detail.latestTurnId ?? latestTurn?.id,
@@ -421,7 +555,7 @@ export class AgentRuntimeProvider implements AgentProvider {
     options: Parameters<AgentProvider['sendUserMessage']>[2] = {}
   ): ReturnType<AgentProvider['sendUserMessage']> {
     const runtimeId = await this.runtimeIdForThread(threadId)
-    return agentRuntimeClient.startTurn({ runtimeId, threadId, text, ...turnOptionsForRuntime(runtimeId, options) })
+    return agentRuntimeClient.startTurn({ runtimeId, threadId, text, ...options })
   }
 
   reviewThread(
@@ -443,7 +577,7 @@ export class AgentRuntimeProvider implements AgentProvider {
       runtimeId,
       threadId,
       turnId,
-      discard: options?.discard ?? runtimeId === 'codex'
+      ...(options?.discard === undefined ? {} : { discard: options.discard })
     })
   }
 

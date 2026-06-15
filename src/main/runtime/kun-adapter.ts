@@ -67,8 +67,8 @@ export const kunRuntimeAdapter: ManagedRuntimeAdapter & {
     return reclaimKunPort(port)
   },
 
-  request(settings: AppSettingsV1, pathAndQuery: string, init: RuntimeRequestInit) {
-    return runtimeRequestViaHost(settings, pathAndQuery, init, (current) => this.ensureRunning(current))
+  request(settings: AppSettingsV1, pathAndQuery: string, init: KunHttpRequestInit) {
+    return kunHttpRequestViaHost(settings, pathAndQuery, init, (current) => this.ensureRunning(current))
   }
 }
 
@@ -86,16 +86,16 @@ export function runtimeAuthHeaders(settings: AppSettingsV1): Headers {
   return headers
 }
 
-export type RuntimeRequestInit = {
+export type KunHttpRequestInit = {
   method?: string
   body?: string
   headers?: Record<string, string>
 }
 
-export async function runtimeRequestViaHost(
+export async function kunHttpRequestViaHost(
   settings: AppSettingsV1,
   pathAndQuery: string,
-  init: RuntimeRequestInit,
+  init: KunHttpRequestInit,
   ensureRuntime: (settings: AppSettingsV1) => Promise<void>
 ): Promise<{ ok: boolean; status: number; body: string }> {
   await ensureRuntime(settings)

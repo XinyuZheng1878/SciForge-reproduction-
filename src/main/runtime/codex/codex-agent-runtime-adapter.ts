@@ -111,6 +111,11 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
       }
     },
 
+    async publishSyntheticEvent(_context, event) {
+      const stored = await service.publishSyntheticEvent(event)
+      return mapCodexStoredEvent(stored)[0] ?? event
+    },
+
     async compactThread(_context, input) {
       const result = await service.compactThread(input.threadId, input.reason)
       if (!result.ok) throw codexFailure(result)
@@ -219,6 +224,9 @@ function codexCapabilities(): AgentRuntimeCapabilities {
       goals: false,
       todos: false,
       resumeSession: false
+    },
+    guard: {
+      toolStorm: 'observe'
     },
     storage: {
       guiOwnedThreads: true,

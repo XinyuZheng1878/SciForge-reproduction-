@@ -139,6 +139,39 @@ describe('chat-store-navigation-actions refreshThreads', () => {
     expect(state.activeThreadId).toBe('legacy-kun-thread')
   })
 
+  it('hydrates the write thread registry from the raw runtime thread list', async () => {
+    const writeThread = {
+      ...thread('write-thread', 'codex'),
+      title: 'Write Assistant',
+      workspace: '/workspace/write-current'
+    }
+    const chatThread = thread('chat-thread', 'codex')
+    const { refreshThreads } = buildHarness({
+      activeRuntime: 'codex',
+      activeThread: chatThread,
+      listedThreads: [writeThread, chatThread]
+    })
+    runtimeClientMock.getSettings.mockResolvedValue({
+      activeAgentRuntime: 'codex',
+      write: {
+        activeWorkspaceRoot: '/workspace/write-current',
+        defaultWorkspaceRoot: '/workspace/write-current',
+        workspaces: ['/workspace/write-current']
+      }
+    })
+
+    await refreshThreads()
+
+    const setItem = vi.mocked(window.localStorage.setItem)
+    const writeRegistryCall = setItem.mock.calls.find(([key]) => key === 'deepseekgui.write.threadRegistry.v1')
+    expect(writeRegistryCall).toBeTruthy()
+    const registry = JSON.parse(String(writeRegistryCall?.[1]))
+    expect(registry.workspaces['codex:/workspace/write-current']).toMatchObject({
+      activeThreadId: 'write-thread',
+      threadIds: ['write-thread']
+    })
+  })
+
   it('does not preserve a hidden SDD active thread from the previous runtime', async () => {
     currentSddRegistryJson = JSON.stringify({
       version: 1,

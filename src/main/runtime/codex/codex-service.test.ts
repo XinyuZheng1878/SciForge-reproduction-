@@ -256,6 +256,63 @@ describe('CodexRuntimeService storage fallback', () => {
     })
   })
 
+  it('deduplicates stored assistant snapshots within the same turn', async () => {
+    const storageRoot = await tempRoot()
+    const eventStore = new CodexEventStore({ rootDir: storageRoot })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-1',
+      userMessage: {
+        itemId: 'user-1',
+        turnId: 'turn-1',
+        text: 'hello'
+      }
+    })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-1',
+      deltas: [{ kind: 'agent_message', text: 'hi', snapshot: true }]
+    })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-1',
+      deltas: [{ kind: 'agent_message', text: ' hi ', snapshot: true }]
+    })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-2',
+      userMessage: {
+        itemId: 'user-2',
+        turnId: 'turn-2',
+        text: 'again'
+      }
+    })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-2',
+      deltas: [{ kind: 'agent_message', text: 'hi', snapshot: true }]
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => failingClient()
+    })
+
+    await expect(service.readThread('codex-thread-1')).resolves.toEqual({
+      ok: true,
+      detail: expect.objectContaining({
+        latestSeq: 5,
+        blocks: [
+          expect.objectContaining({ kind: 'user', id: 'user-1', turnId: 'turn-1', text: 'hello' }),
+          expect.objectContaining({ kind: 'assistant', turnId: 'turn-1', text: 'hi' }),
+          expect.objectContaining({ kind: 'user', id: 'user-2', turnId: 'turn-2', text: 'again' }),
+          expect.objectContaining({ kind: 'assistant', turnId: 'turn-2', text: 'hi' })
+        ]
+      })
+    })
+  })
+
   it('treats stored turns without an active runtime as failed after restart', async () => {
     const storageRoot = await tempRoot()
     const eventStore = new CodexEventStore({ rootDir: storageRoot })
@@ -1402,7 +1459,7 @@ describe('CodexRuntimeService compatibility operations', () => {
       ok: true,
       turnId: 'turn-1'
     })
-    const finalText = 'This is the final visible assistant response.'
+    const finalText = 'hi'
     queued.push({
       type: 'event',
       channel: CODEX_MAIN_IPC_CHANNELS.event,
@@ -1531,7 +1588,36 @@ describe('CodexRuntimeService compatibility operations', () => {
         tool: expect.objectContaining({
           itemId: 'call-1',
           status: 'running',
-          toolKind: 'command_execution'
+          toolKind: 'command_execution',
+          meta: expect.objectContaining({
+            toolName: 'exec_command',
+            command: 'pwd',
+            arguments: expect.objectContaining({ cmd: 'pwd' })
+          })
+        })
+      }
+    },
+    {
+      name: 'response_item local shell call',
+      payload: {
+        type: 'response_item',
+        payload: {
+          type: 'local_shell_call',
+          call_id: 'shell-1',
+          status: 'in_progress',
+          action: { command: 'sed -n 1,20p package.json' }
+        }
+      },
+      expectedEvent: {
+        tool: expect.objectContaining({
+          itemId: 'shell-1',
+          status: 'running',
+          toolKind: 'command_execution',
+          meta: expect.objectContaining({
+            toolName: 'local_shell',
+            callId: 'shell-1',
+            command: 'sed -n 1,20p package.json'
+          })
         })
       }
     },
@@ -1546,7 +1632,7 @@ describe('CodexRuntimeService compatibility operations', () => {
         }
       },
       expectedEvent: {
-        deltas: [{ kind: 'agent_message', text: 'visible answer' }]
+        deltas: [{ kind: 'agent_message', text: 'visible answer', snapshot: true }]
       }
     },
     {
@@ -1566,7 +1652,12 @@ describe('CodexRuntimeService compatibility operations', () => {
         tool: expect.objectContaining({
           itemId: 'call-1',
           status: 'running',
-          toolKind: 'command_execution'
+          toolKind: 'command_execution',
+          meta: expect.objectContaining({
+            toolName: 'exec_command',
+            command: 'pwd',
+            arguments: expect.objectContaining({ cmd: 'pwd' })
+          })
         })
       }
     },
@@ -1590,7 +1681,11 @@ describe('CodexRuntimeService compatibility operations', () => {
         tool: expect.objectContaining({
           itemId: 'cmd-1',
           status: 'running',
-          toolKind: 'command_execution'
+          toolKind: 'command_execution',
+          meta: expect.objectContaining({
+            command: 'pwd',
+            cwd: '/tmp/workspace'
+          })
         })
       }
     },

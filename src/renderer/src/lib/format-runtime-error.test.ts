@@ -26,7 +26,7 @@ describe('format runtime error', () => {
 
   it('supports legacy error envelopes and Electron IPC prefixes', () => {
     const error = new Error(
-      `Error invoking remote method 'runtime:request': Error: ${JSON.stringify({
+      `Error invoking remote method 'agentRuntime:startTurn': Error: ${JSON.stringify({
         error: 'fetch_failed',
         message: 'fetch failed'
       })}`

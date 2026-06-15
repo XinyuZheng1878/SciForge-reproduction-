@@ -155,7 +155,7 @@ export type KunRuntimeSettingsV1 = {
   storage: KunStorageSettingsV1
   /** Fallback compaction thresholds and summary behavior. Per-model thresholds live in Kun config models.profiles. */
   contextCompaction: KunContextCompactionSettingsV1
-  /** Low-level loop guards and model argument repair tuning. */
+  /** Low-level model argument repair tuning. Runtime-neutral loop guards live in `runtimeGuards`. */
   runtimeTuning: KunRuntimeTuningSettingsV1
 }
 
@@ -205,19 +205,35 @@ export type KunContextCompactionSettingsV1 = {
   summaryInputMaxBytes: number
 }
 
-export type KunToolStormSettingsV1 = {
-  enabled: boolean
-  windowSize: number
-  threshold: number
-}
-
 export type KunToolArgumentRepairSettingsV1 = {
   maxStringBytes: number
 }
 
 export type KunRuntimeTuningSettingsV1 = {
-  toolStorm: KunToolStormSettingsV1
   toolArgumentRepair: KunToolArgumentRepairSettingsV1
+}
+
+export type RuntimeToolStormGuardSettingsV1 = {
+  enabled: boolean
+  windowSize: number
+  softThreshold: number
+  hardThreshold: number
+}
+
+export type RuntimeBudgetSettingsV1 = {
+  defaultMaxToolEvents: number
+  writeMaxToolEvents: number
+  remoteGuardMaxToolEvents: number
+}
+
+export type RuntimeGuardSettingsV1 = {
+  toolStorm: RuntimeToolStormGuardSettingsV1
+  budgets: RuntimeBudgetSettingsV1
+}
+
+export type RuntimeGuardSettingsPatchV1 = {
+  toolStorm?: Partial<RuntimeToolStormGuardSettingsV1>
+  budgets?: Partial<RuntimeBudgetSettingsV1>
 }
 
 export type CodexRuntimeSettingsV1 = {
@@ -246,7 +262,6 @@ export type KunSettingsEnvelopeV1 = {
 export type AgentRuntimeSettingsMapV1 = KunSettingsEnvelopeV1
 
 export type KunRuntimeTuningSettingsPatchV1 = {
-  toolStorm?: Partial<KunToolStormSettingsV1>
   toolArgumentRepair?: Partial<KunToolArgumentRepairSettingsV1>
 }
 
@@ -580,6 +595,7 @@ export type AppSettingsV1 = {
   uiFontScale: UiFontScale
   provider: ModelProviderSettingsV1
   modelRouter?: ModelRouterSettingsV1
+  runtimeGuards?: RuntimeGuardSettingsV1
   activeAgentRuntime?: AgentRuntimeId
   agents: KunSettingsEnvelopeV1
   workspaceRoot: string
@@ -600,6 +616,7 @@ export type AppSettingsPatch = Partial<
 > & {
   provider?: ModelProviderSettingsPatchV1
   modelRouter?: ModelRouterSettingsPatchV1
+  runtimeGuards?: RuntimeGuardSettingsPatchV1
   agents?: KunSettingsEnvelopePatchV1
   log?: Partial<LogConfigV1>
   notifications?: Partial<NotificationConfigV1>

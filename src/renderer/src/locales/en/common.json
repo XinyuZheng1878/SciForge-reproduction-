@@ -963,7 +963,7 @@
   "runtimeUnhealthy": "The local runtime is currently unavailable. Check the port, token, or runtime status.",
   "runtimeAuthRequired": "The local runtime requires a bearer token for thread APIs. Add the runtime token in Settings, or restart the GUI so it can manage the local runtime again.",
   "runtimePortConflict": "The runtime port is already in use. Free that port, or choose another port in Settings.",
-  "runtimeRequestFailed": "Runtime request failed. Please try again.",
+  "runtimeActionFailed": "Runtime action failed. Please try again.",
   "runtimeSteerUnsupported": "The current runtime does not support adding input while a turn is running.",
   "runtimeUserInputUnsupported": "The current runtime does not expose an HTTP submit endpoint for request_user_input yet.",
   "workspaceRequiredToCreateThread": "Choose a working directory before creating a thread.",

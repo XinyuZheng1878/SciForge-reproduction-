@@ -23,11 +23,13 @@ import {
   DEFAULT_KUN_DATA_DIR,
   WRITE_INLINE_COMPLETION_MODEL_IDS,
   defaultCodexRuntimeSettings,
+  defaultRuntimeGuardSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   getCodexRuntimeSettings,
   getModelRouterSettings,
   isKunRuntimeInsecure,
+  normalizeRuntimeGuardSettings,
   normalizeModelProviderId
 } from '@shared/app-settings'
 import type { GuiUpdateChannel } from '@shared/gui-update'
@@ -423,15 +425,11 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     fallbackHardThreshold: contextCompaction.defaultHardThreshold
   })
   const runtimeTuning = kun.runtimeTuning ?? {
-    toolStorm: {
-      enabled: true,
-      windowSize: 8,
-      threshold: 3
-    },
     toolArgumentRepair: {
       maxStringBytes: 524288
     }
   }
+  const runtimeGuards = normalizeRuntimeGuardSettings(form?.runtimeGuards ?? defaultRuntimeGuardSettings())
   const updateMcpSearch = (patch: Record<string, unknown>): void => {
     updateKun({
       mcpSearch: {
@@ -484,10 +482,13 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     })
   }
   const updateToolStorm = (patch: Record<string, unknown>): void => {
-    updateRuntimeTuning({
-      toolStorm: {
-        ...runtimeTuning.toolStorm,
-        ...patch
+    update({
+      runtimeGuards: {
+        ...runtimeGuards,
+        toolStorm: {
+          ...runtimeGuards.toolStorm,
+          ...patch
+        }
       }
     })
   }
@@ -1464,43 +1465,55 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                     }
                   />
                   <SettingRow
-                    title={t('kunToolStorm')}
-                    description={t('kunToolStormDesc')}
+                    title={t('runtimeGuardToolStorm')}
+                    description={t('runtimeGuardToolStormDesc')}
                     control={
                       <Toggle
-                        checked={runtimeTuning.toolStorm.enabled}
+                        checked={runtimeGuards.toolStorm.enabled}
                         onChange={(enabled) => updateToolStorm({ enabled })}
                       />
                     }
                   />
                   <SettingRow
-                    title={t('kunToolStormLimits')}
-                    description={t('kunToolStormLimitsDesc')}
+                    title={t('runtimeGuardToolStormLimits')}
+                    description={t('runtimeGuardToolStormLimitsDesc')}
                     wideControl
                     control={
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-3 sm:grid-cols-3">
                         <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
-                          {t('kunToolStormWindowSize')}
+                          {t('runtimeGuardToolStormWindowSize')}
                           <input
                             type="number"
                             min={1}
-                            max={128}
+                            max={256}
                             className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
-                            value={runtimeTuning.toolStorm.windowSize}
-                            disabled={!runtimeTuning.toolStorm.enabled}
+                            value={runtimeGuards.toolStorm.windowSize}
+                            disabled={!runtimeGuards.toolStorm.enabled}
                             onChange={(e) => updateToolStorm({ windowSize: Number(e.target.value) })}
                           />
                         </label>
                         <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
-                          {t('kunToolStormThreshold')}
+                          {t('runtimeGuardToolStormSoftThreshold')}
                           <input
                             type="number"
                             min={2}
                             max={128}
                             className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
-                            value={runtimeTuning.toolStorm.threshold}
-                            disabled={!runtimeTuning.toolStorm.enabled}
-                            onChange={(e) => updateToolStorm({ threshold: Number(e.target.value) })}
+                            value={runtimeGuards.toolStorm.softThreshold}
+                            disabled={!runtimeGuards.toolStorm.enabled}
+                            onChange={(e) => updateToolStorm({ softThreshold: Number(e.target.value) })}
+                          />
+                        </label>
+                        <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
+                          {t('runtimeGuardToolStormHardThreshold')}
+                          <input
+                            type="number"
+                            min={2}
+                            max={256}
+                            className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                            value={runtimeGuards.toolStorm.hardThreshold}
+                            disabled={!runtimeGuards.toolStorm.enabled}
+                            onChange={(e) => updateToolStorm({ hardThreshold: Number(e.target.value) })}
                           />
                         </label>
                       </div>

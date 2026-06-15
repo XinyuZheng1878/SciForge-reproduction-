@@ -23,6 +23,16 @@ import {
   prepareClawImReplyText,
   splitClawImReplyText
 } from './claw-runtime-helpers'
+import type { ClawRuntimeDeps, ThreadDetailJson } from './claw-runtime-helpers'
+
+type TestAgentRuntime = NonNullable<ClawRuntimeDeps['agentRuntime']>
+type TestThreadDetail = ThreadDetailJson & {
+  id: string
+  runtimeId: 'kun' | 'codex'
+  title: string
+  updatedAt: string
+  latestSeq: number
+}
 
 function buildSettings(): AppSettingsV1 {
   return {
@@ -138,6 +148,71 @@ function mutableSettingsStore(initialSettings: AppSettingsV1): {
     })
   }
   return { current: () => currentSettings, store }
+}
+
+function completedThreadDetail(
+  threadId: string,
+  turnId: string,
+  text: string,
+  overrides: Partial<ThreadDetailJson> = {}
+): TestThreadDetail {
+  return {
+    id: threadId,
+    runtimeId: 'kun',
+    title: threadId,
+    updatedAt: '2026-06-02T00:00:00.000Z',
+    latestSeq: 1,
+    status: 'idle',
+    turns: [
+      {
+        id: turnId,
+        status: 'completed',
+        items: [{ kind: 'assistant_text', turnId, text }]
+      }
+    ],
+    ...overrides
+  }
+}
+
+function completedAgentRuntime(options: {
+  threadId?: string
+  turnId?: string
+  text?: string
+  detail?: ThreadDetailJson | ((input: { runtimeId?: string; threadId: string }) => ThreadDetailJson)
+  startThread?: (input: Record<string, unknown>) => Promise<{ id: string; runtimeId?: 'kun' | 'codex'; title?: string; updatedAt?: string }>
+  startTurn?: (input: Record<string, unknown>) => Promise<{ threadId: string; turnId: string }>
+  readThread?: (input: { runtimeId?: string; threadId: string }) => Promise<ThreadDetailJson>
+} = {}): TestAgentRuntime & {
+  startThread: ReturnType<typeof vi.fn>
+  startTurn: ReturnType<typeof vi.fn>
+  readThread: ReturnType<typeof vi.fn>
+} {
+  const defaultThreadId = options.threadId ?? 'thr_1'
+  const defaultTurnId = options.turnId ?? 'turn_1'
+  const defaultText = options.text ?? 'agent reply'
+  const startThread = vi.fn(options.startThread ?? (async () => ({
+    id: defaultThreadId,
+    runtimeId: 'kun' as const,
+    title: defaultThreadId,
+    updatedAt: '2026-06-02T00:00:00.000Z'
+  })))
+  const startTurn = vi.fn(options.startTurn ?? (async (input: Record<string, unknown>) => ({
+    threadId: typeof input.threadId === 'string' ? input.threadId : defaultThreadId,
+    turnId: defaultTurnId
+  })))
+  const readThread = vi.fn(options.readThread ?? (async (input: { runtimeId?: string; threadId: string }) => {
+    if (typeof options.detail === 'function') return options.detail(input)
+    return options.detail ?? completedThreadDetail(input.threadId, defaultTurnId, defaultText)
+  }))
+  return {
+    startThread,
+    startTurn,
+    readThread
+  } as unknown as TestAgentRuntime & {
+    startThread: ReturnType<typeof vi.fn>
+    startTurn: ReturnType<typeof vi.fn>
+    readThread: ReturnType<typeof vi.fn>
+  }
 }
 
 describe('ClawRuntime', () => {
@@ -329,7 +404,6 @@ describe('ClawRuntime', () => {
     settings.claw.channels = [channel]
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       logError: () => undefined
     })
 
@@ -386,7 +460,6 @@ describe('ClawRuntime', () => {
     settings.claw.channels = [channel]
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       logError: () => undefined
     })
 
@@ -419,7 +492,6 @@ describe('ClawRuntime', () => {
     })
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       logError: () => undefined
     })
 
@@ -454,7 +526,6 @@ describe('ClawRuntime', () => {
     }))
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: vi.fn() as never,
       logError: () => undefined,
       createScheduledTaskFromText
     })
@@ -500,7 +571,7 @@ describe('ClawRuntime', () => {
   it('reports that scheduled tasks have moved to Schedule', async () => {
     const settings = buildSettings()
     let currentSettings = settings
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
+    const forbiddenDirectCall = vi.fn(async (_settings, path, init) => {
       if (path === '/v1/threads') {
         return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_1' }) }
       }
@@ -525,40 +596,24 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest,
       logError: () => undefined
     })
 
     const result = await runtime.runTask('task_1')
 
     expect(result).toEqual({ ok: false, message: 'Claw scheduled tasks have moved to Schedule.' })
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('accepts assistant_text items when waiting for a Claw turn result', async () => {
     const settings = buildSettings()
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads') {
-        return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_1' }) }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            thread: { id: 'thr_1', status: 'completed' },
-            turns: [{ id: 'turn_1', status: 'completed' }],
-            items: [{ kind: 'assistant_text', detail: 'hello from claw' }]
-          })
-        }
-      }
-      if (path === '/v1/threads/thr_1/turns') {
-        return { ok: true, status: 202, body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_1' }) }
-      }
-      return { ok: true, status: 200, body: '{}' }
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      detail: completedThreadDetail('thr_1', 'turn_1', '', {
+        thread: { id: 'thr_1', status: 'completed' },
+        turns: [{ id: 'turn_1', status: 'completed' }],
+        items: [{ kind: 'assistant_text', detail: 'hello from claw' }]
+      })
     })
     const store = {
       load: vi.fn(async () => settings),
@@ -566,7 +621,7 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest,
+      agentRuntime: agentRuntime as never,
       logError: () => undefined
     })
 
@@ -596,43 +651,28 @@ describe('ClawRuntime', () => {
     })
 
     expect(result).toMatchObject({ ok: true, text: 'hello from claw' })
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('reads assistant text from the Kun thread detail shape used by the real runtime', async () => {
     const settings = buildSettings()
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads') {
-        return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_1' }) }
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      detail: {
+        id: 'thr_1',
+        status: 'idle',
+        turns: [
+          {
+            id: 'turn_1',
+            status: 'completed',
+            items: [{ kind: 'assistant_text', text: 'hello from nested turn items' }]
+          }
+        ]
       }
-      if (path === '/v1/threads/thr_1' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'thr_1',
-            status: 'idle',
-            latestSeq: 3,
-            turns: [
-              {
-                id: 'turn_1',
-                status: 'completed',
-                items: [{ kind: 'assistant_text', text: 'hello from nested turn items' }]
-              }
-            ]
-          })
-        }
-      }
-      if (path === '/v1/threads/thr_1/turns') {
-        return { ok: true, status: 202, body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_1' }) }
-      }
-      return { ok: true, status: 200, body: '{}' }
     })
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest,
+      agentRuntime,
       logError: () => undefined
     })
 
@@ -662,25 +702,22 @@ describe('ClawRuntime', () => {
     })
 
     expect(result).toMatchObject({ ok: true, text: 'hello from nested turn items' })
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('explains a missing configured IM thread instead of silently rebinding it', async () => {
     const settings = buildSettings()
     const logError = vi.fn()
     const onTurnStarted = vi.fn()
-    const runtimeRequest = vi.fn(async (_settings, path) => {
-      if (path === '/v1/threads/thr_missing/turns') {
-        return {
-          ok: false,
-          status: 404,
-          body: JSON.stringify({ code: 'not_found', message: 'thread not found: thr_missing' })
-        }
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      startTurn: async () => {
+        throw new Error(JSON.stringify({ code: 'not_found', message: 'thread not found: thr_missing' }))
       }
-      throw new Error(`unexpected path ${path}`)
     })
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest,
+      agentRuntime,
       logError
     })
 
@@ -725,12 +762,7 @@ describe('ClawRuntime', () => {
     expect(result.message).toContain('/new <title>')
     expect(result.message).toContain('/use thread <number>')
     expect(onTurnStarted).not.toHaveBeenCalled()
-    expect(runtimeRequest).not.toHaveBeenCalledWith(
-      expect.anything(),
-      '/v1/threads',
-      expect.anything(),
-      expect.anything()
-    )
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(logError).toHaveBeenCalledWith(
       'claw-runtime',
       'Configured IM thread was missing; asking remote user to rebind.',
@@ -740,25 +772,19 @@ describe('ClawRuntime', () => {
 
   it('returns classified failures when Kun reports a missing model', async () => {
     const settings = buildSettings()
-    const runtimeRequest = vi.fn(async (_settings, path) => {
-      if (path === '/v1/threads') {
-        return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_model_missing' }) }
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      threadId: 'thr_model_missing',
+      startTurn: async () => {
+        throw new Error(JSON.stringify({
+          code: 'provider_unavailable',
+          message: 'model deepseek-v4-pro is missing'
+        }))
       }
-      if (path === '/v1/threads/thr_model_missing/turns') {
-        return {
-          ok: false,
-          status: 400,
-          body: JSON.stringify({
-            code: 'provider_unavailable',
-            message: 'model deepseek-v4-pro is missing'
-          })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
     })
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest,
+      agentRuntime,
       logError: () => undefined
     })
 
@@ -792,29 +818,20 @@ describe('ClawRuntime', () => {
       message: 'model deepseek-v4-pro is missing',
       failureKind: 'model_missing'
     })
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('resolves IM auto to the managed Model Router alias before starting a Kun turn', async () => {
     const settings = buildSettings()
     settings.agents.kun.model = 'deepseek-v4-flash'
-    const requestBodies: Record<string, unknown>[] = []
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (init?.body) requestBodies.push(JSON.parse(init.body) as Record<string, unknown>)
-      if (path === '/v1/threads') {
-        return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_auto_model' }) }
-      }
-      if (path === '/v1/threads/thr_auto_model/turns') {
-        return {
-          ok: true,
-          status: 202,
-          body: JSON.stringify({ threadId: 'thr_auto_model', turnId: 'turn_auto_model' })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      threadId: 'thr_auto_model',
+      turnId: 'turn_auto_model'
     })
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest,
+      agentRuntime,
       logError: () => undefined
     })
 
@@ -844,8 +861,14 @@ describe('ClawRuntime', () => {
     })
 
     expect(result).toMatchObject({ ok: true, threadId: 'thr_auto_model', turnId: 'turn_auto_model' })
-    expect(requestBodies[0]).toMatchObject({ model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS })
-    expect(requestBodies[1]).toMatchObject({ model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS })
+    expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
+    }))
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+      governanceProfile: 'remote_guard'
+    }))
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('resolves Codex IM auto to the Model Router runtime alias before agentRuntime calls', async () => {
@@ -866,7 +889,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime,
       logError: () => undefined
     })
@@ -915,7 +937,6 @@ describe('ClawRuntime', () => {
       .mockResolvedValueOnce({ messageId: 'om_fallback' })
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       logError
     })
 
@@ -965,7 +986,6 @@ describe('ClawRuntime', () => {
     const settings = buildSettings()
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       logError: () => undefined
     })
     const order: string[] = []
@@ -1036,7 +1056,6 @@ describe('ClawRuntime', () => {
     const settings = buildSettings()
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       logError: () => undefined
     })
     const handleFeishuMessage = vi.fn(async () => undefined)
@@ -1120,7 +1139,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
@@ -1168,12 +1186,11 @@ describe('ClawRuntime', () => {
     const settings = buildSettings()
     settings.claw.im.enabled = true
     settings.claw.channels = [buildChannel({ guardMode: 'only_mention' })]
-    const runtimeRequest = vi.fn()
+    const forbiddenDirectCall = vi.fn()
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
     const addReaction = vi.fn(async () => 'rc_1')
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: runtimeRequest as never,
       logError: () => undefined
     })
     ;(runtime as unknown as { feishuChannels: Map<string, { send: typeof send, addReaction: typeof addReaction }> })
@@ -1206,7 +1223,7 @@ describe('ClawRuntime', () => {
       mentions: []
     })
 
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()
     expect(addReaction).not.toHaveBeenCalled()
   })
@@ -1221,10 +1238,9 @@ describe('ClawRuntime', () => {
       guardMode: 'off',
       conversations: []
     })]
-    const runtimeRequest = vi.fn()
+    const forbiddenDirectCall = vi.fn()
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: runtimeRequest as never,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
     })
@@ -1265,7 +1281,7 @@ describe('ClawRuntime', () => {
       ok: true,
       reply: expect.stringContaining('Claw IM commands')
     })
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('handles all_messages Feishu groups through the shared channel thread', async () => {
@@ -1278,37 +1294,17 @@ describe('ClawRuntime', () => {
       conversations: []
     })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads' && init?.method === 'POST') {
-        return { ok: true, status: 201, body: JSON.stringify({ id: 'thr_group' }) }
-      }
-      if (path === '/v1/threads/thr_group' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_group/turns' && init?.method === 'POST') {
-        return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_group' }) }
-      }
-      if (path === '/v1/threads/thr_group' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'thr_group',
-            turns: [{
-              id: 'turn_group',
-              status: 'completed',
-              items: [{ kind: 'assistant_text', text: 'group reply' }]
-            }]
-          })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      threadId: 'thr_group',
+      turnId: 'turn_group',
+      text: 'group reply'
     })
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
     const addReaction = vi.fn(async () => 'rc_1')
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
+      agentRuntime: agentRuntime as never,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
     })
@@ -1352,6 +1348,10 @@ describe('ClawRuntime', () => {
       { markdown: 'group reply' },
       { replyTo: 'om_group_1', replyInThread: false }
     )
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      governanceProfile: 'remote_guard'
+    }))
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('handles Feishu /clear locally by clearing the mapped IM thread', async () => {
@@ -1360,11 +1360,10 @@ describe('ClawRuntime', () => {
     const conversation = buildConversation()
     settings.claw.channels = [buildChannel({ conversations: [conversation] })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn()
+    const forbiddenDirectCall = vi.fn()
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
       logError: () => undefined
     })
     ;(runtime as unknown as { feishuChannels: Map<string, { send: typeof send }> })
@@ -1398,7 +1397,7 @@ describe('ClawRuntime', () => {
       mentions: []
     })
 
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(send).toHaveBeenCalledWith(
       'oc_chat_a',
       { markdown: 'Started a new topic. The next message will create a fresh local conversation.' },
@@ -1432,7 +1431,6 @@ describe('ClawRuntime', () => {
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime: agentRuntime as never,
       logError: () => undefined
     })
@@ -1534,7 +1532,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime,
       notifyChannelActivity,
       logError: () => undefined,
@@ -1642,22 +1639,18 @@ describe('ClawRuntime', () => {
       conversations: []
     })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path) => {
-      if (path === '/v1/threads') {
-        return {
-          ok: false,
-          status: 400,
-          body: JSON.stringify({
-            code: 'model_missing',
-            message: 'model unavailable for workspace /tmp/workspace'
-          })
-        }
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      startThread: async () => {
+        throw new Error(JSON.stringify({
+          code: 'model_missing',
+          message: 'model unavailable for workspace /tmp/workspace'
+        }))
       }
-      throw new Error(`unexpected path ${path}`)
     })
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
+      agentRuntime,
       logError: () => undefined
     })
 
@@ -1680,9 +1673,10 @@ describe('ClawRuntime', () => {
       ok: true,
       reply: expect.stringContaining('model unavailable for workspace /tmp/workspace')
     })
-    expect(runtimeRequest).toHaveBeenCalledWith(expect.anything(), '/v1/threads', expect.objectContaining({
-      method: 'POST'
-    }), 'kun')
+    expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeId: 'kun'
+    }))
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(current().claw.channels[0]).toMatchObject({
       runtimeId: 'kun',
       threadId: '',
@@ -1696,6 +1690,73 @@ describe('ClawRuntime', () => {
     })
     expect(current().claw.channels[0].agentThreadIds?.kun).toBeUndefined()
     expect(current().claw.channels[0].conversations).toEqual([])
+  })
+
+  it('creates Kun /new IM threads through agentRuntime when the host is available', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'kun'
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'kun',
+      guardMode: 'all_messages',
+      threadId: '',
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    const forbiddenDirectCall = vi.fn(async (_settings, path) => {
+      throw new Error(`unexpected direct runtime path ${path}`)
+    })
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'kun-host-thread',
+        runtimeId: 'kun',
+        title: 'Fix failing model',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(),
+      readThread: vi.fn()
+    }
+    const runtime = createClawRuntime({
+      store: store as never,
+      agentRuntime: agentRuntime as never,
+      logError: () => undefined
+    })
+
+    const result = await runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text: '/new Fix failing model',
+      sender: 'Alice',
+      chatType: 'group',
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId: 'discord-new-host',
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('kun:kun-host...read')
+    })
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
+    expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeId: 'kun',
+      workspace: '/tmp/workspace',
+      title: 'Fix failing model'
+    }))
+    expect(current().claw.channels[0]).toMatchObject({
+      runtimeId: 'kun',
+      threadId: 'kun-host-thread',
+      agentThreadIds: {
+        kun: 'kun-host-thread'
+      }
+    })
   })
 
   it('lists projects and switches to a selected thread in the current project', async () => {
@@ -1765,7 +1826,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime,
       notifyChannelActivity,
       logError: () => undefined,
@@ -1876,7 +1936,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
@@ -1914,11 +1973,10 @@ describe('ClawRuntime', () => {
     settings.claw.im.enabled = true
     settings.claw.channels = [buildChannel()]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn()
+    const forbiddenDirectCall = vi.fn()
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
       logError: () => undefined
     })
     ;(runtime as unknown as { feishuChannels: Map<string, { send: typeof send }> })
@@ -1951,7 +2009,7 @@ describe('ClawRuntime', () => {
       mentions: []
     })
 
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(current().claw.channels[0].model).toBe('deepseek-v4-flash')
     expect(send).toHaveBeenCalledWith(
       'oc_chat_a',
@@ -1977,22 +2035,16 @@ describe('ClawRuntime', () => {
       })]
     })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads/thr_summary' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'thr_summary',
-            items: [{ kind: 'compaction_event', summary: 'Short project summary.' }]
-          })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      readThread: async () => ({
+        id: 'thr_summary',
+        items: [{ kind: 'compaction_event', summary: 'Short project summary.' }]
+      })
     })
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
+      agentRuntime,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
     })
@@ -2041,6 +2093,7 @@ describe('ClawRuntime', () => {
       reply: expect.stringContaining('Detached')
     })
     expect(current().claw.channels[0].conversations[0].localThreadId).toBe('')
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('handles webhook /help as an IM command before starting a Kun turn', async () => {
@@ -2048,11 +2101,10 @@ describe('ClawRuntime', () => {
     settings.claw.im.enabled = true
     settings.claw.channels = [buildChannel({ provider: 'weixin' as const, id: 'channel_weixin' })]
     const { store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn()
+    const forbiddenDirectCall = vi.fn()
     const createScheduledTaskFromText = vi.fn()
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
       logError: () => undefined,
       createScheduledTaskFromText
     })
@@ -2104,17 +2156,16 @@ describe('ClawRuntime', () => {
     expect(reply).toContain('queued in order')
     expect(reply).toContain('Examples:')
     expect(createScheduledTaskFromText).not.toHaveBeenCalled()
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('returns clear webhook degradation messages for empty, attachment-only, and oversized input', async () => {
     const settings = buildSettings()
     settings.claw.im.enabled = true
     settings.claw.channels = [buildChannel({ provider: 'discord' as const, id: 'channel_discord' })]
-    const runtimeRequest = vi.fn()
+    const forbiddenDirectCall = vi.fn()
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: runtimeRequest as never,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
     })
@@ -2171,7 +2222,7 @@ describe('ClawRuntime', () => {
       message: expect.stringContaining('Message is too long')
     })
     expect(oversized.body.message).toContain('2001/2000')
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('returns a generic webhook error while logging a redacted diagnostic', async () => {
@@ -2184,7 +2235,6 @@ describe('ClawRuntime', () => {
         }),
         patch: vi.fn(async () => settings)
       } as never,
-      runtimeRequest: vi.fn() as never,
       logError
     })
     const req = {
@@ -2235,25 +2285,19 @@ describe('ClawRuntime', () => {
     })]
     const { store } = mutableSettingsStore(settings)
     const logError = vi.fn()
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads' && init?.method === 'POST') {
-        return { ok: true, status: 201, body: JSON.stringify({ id: 'thr_weixin' }) }
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      threadId: 'thr_weixin',
+      startTurn: async () => {
+        throw new Error(JSON.stringify({
+          code: 'runtime_error',
+          message: 'Authorization: Bearer raw-runtime-secret failed'
+        }))
       }
-      if (path === '/v1/threads/thr_weixin' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_weixin/turns' && init?.method === 'POST') {
-        return {
-          ok: false,
-          status: 500,
-          body: JSON.stringify({ code: 'runtime_error', message: 'Authorization: Bearer raw-runtime-secret failed' })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
     })
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
+      agentRuntime,
       logError,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
     })
@@ -2305,6 +2349,7 @@ describe('ClawRuntime', () => {
         })
       })
     )
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('attaches a remote IM conversation to the active desktop thread', async () => {
@@ -2320,11 +2365,10 @@ describe('ClawRuntime', () => {
       conversations: []
     })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn()
+    const forbiddenDirectCall = vi.fn()
     const notifyChannelActivity = vi.fn()
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
       getActiveThreadContext: () => ({
         threadId: 'desktop-thread-1',
         runtimeId: 'codex',
@@ -2368,7 +2412,7 @@ describe('ClawRuntime', () => {
 
     expect(status).toBe(200)
     expect(JSON.parse(responseBody).reply).toContain('Attached to the active desktop conversation')
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(notifyChannelActivity).toHaveBeenCalledWith({
       channelId: 'channel_weixin',
       threadId: 'desktop-thread-1',
@@ -2438,7 +2482,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime,
       getActiveThreadContext: () => ({
         threadId: activeThreadId,
@@ -2564,7 +2607,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime,
       getActiveThreadContext: () => ({
         threadId: activeThreadId,
@@ -2634,38 +2676,15 @@ describe('ClawRuntime', () => {
       conversations: []
     })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads' && init?.method === 'POST') {
-        return { ok: true, status: 201, body: JSON.stringify({ id: 'thr_weixin' }) }
-      }
-      if (path === '/v1/threads/thr_weixin' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_weixin/turns' && init?.method === 'POST') {
-        return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_weixin' }) }
-      }
-      if (path === '/v1/threads/thr_weixin' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'thr_weixin',
-            status: 'idle',
-            turns: [
-              {
-                id: 'turn_weixin',
-                status: 'completed',
-                items: [{ kind: 'assistant_text', text: 'hello from GUI' }]
-              }
-            ]
-          })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      threadId: 'thr_weixin',
+      turnId: 'turn_weixin',
+      text: 'hello from GUI'
     })
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
+      agentRuntime,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
     })
@@ -2706,6 +2725,10 @@ describe('ClawRuntime', () => {
       ok: true,
       reply: expect.stringContaining('hello from GUI')
     })
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      governanceProfile: 'remote_guard'
+    }))
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(JSON.parse(responseBody).reply).toContain('Claw IM commands:')
     expect(current().claw.channels[0].threadId).toBe('thr_weixin')
     expect(current().claw.channels[0].conversations[0]).toMatchObject({
@@ -2717,7 +2740,7 @@ describe('ClawRuntime', () => {
     })
   })
 
-  it('handles Codex-bound IM channels through agentRuntime instead of legacy /v1 runtimeRequest', async () => {
+  it('handles Codex-bound IM channels through agentRuntime instead of direct /v1 call', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
     settings.claw.im.enabled = true
@@ -2732,8 +2755,8 @@ describe('ClawRuntime', () => {
       conversations: []
     })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path) => {
-      throw new Error(`unexpected legacy runtimeRequest path ${path}`)
+    const forbiddenDirectCall = vi.fn(async (_settings, path) => {
+      throw new Error(`unexpected direct runtime path ${path}`)
     })
     const agentRuntime = {
       startThread: vi.fn(async () => ({
@@ -2763,7 +2786,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
       agentRuntime,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
@@ -2806,7 +2828,7 @@ describe('ClawRuntime', () => {
       reply: expect.stringContaining('hello from codex')
     })
     expect(JSON.parse(responseBody).reply).toContain('Claw IM commands:')
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
       runtimeId: 'codex',
       workspace: '/tmp/workspace',
@@ -2903,7 +2925,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
@@ -2965,8 +2986,8 @@ describe('ClawRuntime', () => {
       })]
     })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path) => {
-      throw new Error(`unexpected legacy runtimeRequest path ${path}`)
+    const forbiddenDirectCall = vi.fn(async (_settings, path) => {
+      throw new Error(`unexpected direct runtime path ${path}`)
     })
     const agentRuntime = {
       startThread: vi.fn(),
@@ -2993,7 +3014,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
       agentRuntime,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
@@ -3074,7 +3094,7 @@ describe('ClawRuntime', () => {
       threadId: 'bound-codex-thread',
       displayText: 'second after runtime recovers'
     }))
-    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(current().claw.channels[0].conversations[0]).toMatchObject({
       chatId: 'wx_user_1',
       latestMessageId: 'wx_recovered',
@@ -3117,7 +3137,6 @@ describe('ClawRuntime', () => {
       }
       const runtime = createClawRuntime({
         store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-        runtimeRequest: vi.fn() as never,
         agentRuntime,
         logError: () => undefined
       })
@@ -3197,7 +3216,6 @@ describe('ClawRuntime', () => {
       }
       const runtime = createClawRuntime({
         store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-        runtimeRequest: vi.fn() as never,
         agentRuntime,
         logError
       })
@@ -3267,8 +3285,8 @@ describe('ClawRuntime', () => {
       conversations: []
     })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path) => {
-      throw new Error(`unexpected legacy runtimeRequest path ${path}`)
+    const forbiddenDirectCall = vi.fn(async (_settings, path) => {
+      throw new Error(`unexpected direct runtime path ${path}`)
     })
     const notifyChannelActivity = vi.fn()
     const agentRuntime = {
@@ -3299,8 +3317,7 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
-      agentRuntime,
+      agentRuntime: agentRuntime as never,
       getActiveThreadContext: () => ({
         threadId: 'desktop-thread-1',
         runtimeId: 'codex',
@@ -3445,7 +3462,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime,
       notifyChannelActivity: vi.fn(),
       logError: () => undefined,
@@ -3586,7 +3602,6 @@ describe('ClawRuntime', () => {
       }
       const runtime = createClawRuntime({
         store: store as never,
-        runtimeRequest: vi.fn() as never,
         agentRuntime,
         logError: () => undefined,
         createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
@@ -3629,14 +3644,17 @@ describe('ClawRuntime', () => {
       expect(agentRuntime.startThread).not.toHaveBeenCalled()
       expect(agentRuntime.startTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({
         threadId: 'discord-thread-1',
+        governanceProfile: 'remote_guard',
         displayText: 'A'
       }))
       expect(agentRuntime.startTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
         threadId: 'discord-thread-1',
+        governanceProfile: 'remote_guard',
         displayText: 'B'
       }))
       expect(agentRuntime.startTurn).toHaveBeenNthCalledWith(3, expect.objectContaining({
         threadId: 'discord-thread-1',
+        governanceProfile: 'remote_guard',
         displayText: 'C'
       }))
     } finally {
@@ -3720,7 +3738,6 @@ describe('ClawRuntime', () => {
       }
       const runtime = createClawRuntime({
         store: store as never,
-        runtimeRequest: vi.fn() as never,
         agentRuntime,
         logError: () => undefined,
         createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
@@ -3811,8 +3828,8 @@ describe('ClawRuntime', () => {
       }]
     })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path) => {
-      throw new Error(`unexpected legacy runtimeRequest path ${path}`)
+    const forbiddenDirectCall = vi.fn(async (_settings, path) => {
+      throw new Error(`unexpected direct runtime path ${path}`)
     })
     const notifyChannelActivity = vi.fn()
     const agentRuntime = {
@@ -3843,7 +3860,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
       agentRuntime,
       getActiveThreadContext: () => ({
         threadId: 'desktop-thread-1',
@@ -3942,27 +3958,7 @@ describe('ClawRuntime', () => {
       }]
     })]
     const { current, store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads/stale-kun-conversation-thread/turns' && init?.method === 'POST') {
-        return { ok: true, status: 202, body: JSON.stringify({ turnId: 'kun-turn' }) }
-      }
-      if (path === '/v1/threads/stale-kun-conversation-thread' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'stale-kun-conversation-thread',
-            status: 'idle',
-            turns: [{
-              id: 'kun-turn',
-              status: 'completed',
-              items: [{ kind: 'assistant_text', text: 'stored runtime reply' }]
-            }]
-          })
-        }
-      }
-      throw new Error(`unexpected legacy runtimeRequest path ${path}`)
-    })
+    const forbiddenDirectCall = vi.fn()
     const notifyChannelActivity = vi.fn()
     const agentRuntime = {
       startThread: vi.fn(async () => ({
@@ -3971,29 +3967,19 @@ describe('ClawRuntime', () => {
         title: 'Unexpected new thread',
         updatedAt: '2026-06-02T00:00:00.000Z'
       })),
-      startTurn: vi.fn(async () => ({
-        threadId: 'desktop-codex-thread',
-        turnId: 'codex-turn'
+      startTurn: vi.fn(async (input: { runtimeId?: string; threadId: string }) => ({
+        threadId: input.threadId,
+        turnId: input.runtimeId === 'kun' ? 'kun-turn' : 'codex-turn'
       })),
-      readThread: vi.fn(async () => ({
-        id: 'desktop-codex-thread',
-        runtimeId: 'codex' as const,
-        title: 'Desktop Codex thread',
-        updatedAt: '2026-06-02T00:00:00.000Z',
-        latestSeq: 1,
-        turns: [{
-          id: 'codex-turn',
-          threadId: 'desktop-codex-thread',
-          status: 'completed' as const,
-          items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'new process reply' }]
-        }],
-        items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'new process reply' }]
-      }))
+      readThread: vi.fn(async ({ runtimeId, threadId }: { runtimeId?: string; threadId: string }) =>
+        runtimeId === 'kun'
+          ? completedThreadDetail(threadId, 'kun-turn', 'stored runtime reply')
+          : completedThreadDetail(threadId, 'codex-turn', 'new process reply')
+      )
     }
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
-      agentRuntime,
+      agentRuntime: agentRuntime as never,
       getActiveThreadContext: () => ({
         threadId: 'desktop-codex-thread',
         runtimeId: 'codex',
@@ -4041,14 +4027,13 @@ describe('ClawRuntime', () => {
       threadId: 'stale-kun-conversation-thread',
       reply: expect.stringContaining('stored runtime reply')
     })
-    expect(runtimeRequest).toHaveBeenCalledWith(
-      expect.anything(),
-      '/v1/threads/stale-kun-conversation-thread/turns',
-      expect.objectContaining({ method: 'POST' }),
-      'kun'
-    )
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeId: 'kun',
+      threadId: 'stale-kun-conversation-thread',
+      governanceProfile: 'remote_guard'
+    }))
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(agentRuntime.startThread).not.toHaveBeenCalled()
-    expect(agentRuntime.startTurn).not.toHaveBeenCalled()
     expect(notifyChannelActivity).toHaveBeenCalledWith({
       channelId: 'channel_weixin',
       threadId: 'stale-kun-conversation-thread',
@@ -4086,68 +4071,57 @@ describe('ClawRuntime', () => {
     })]
     const { store } = mutableSettingsStore(settings)
     let getCount = 0
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads' && init?.method === 'POST') {
-        return { ok: true, status: 201, body: JSON.stringify({ id: 'thr_weixin' }) }
-      }
-      if (path === '/v1/threads/thr_weixin' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_weixin/turns' && init?.method === 'POST') {
-        return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_weixin' }) }
-      }
-      if (path === '/v1/threads/thr_weixin' && init?.method === 'GET') {
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      threadId: 'thr_weixin',
+      turnId: 'turn_weixin',
+      readThread: async () => {
         getCount += 1
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify(getCount === 1
-            ? {
-                id: 'thr_weixin',
-                status: 'running',
-                turns: [
-                  {
-                    id: 'turn_previous',
-                    status: 'completed',
-                    items: [{ kind: 'assistant_text', text: 'previous reply' }]
-                  },
-                  {
-                    id: 'turn_weixin',
-                    status: 'running',
-                    items: [
-                      { kind: 'assistant_text', text: 'intermediate reply' },
-                      { kind: 'tool_call', detail: 'checking disk usage' }
-                    ]
-                  }
-                ]
-              }
-            : {
-                id: 'thr_weixin',
-                status: 'idle',
-                turns: [
-                  {
-                    id: 'turn_previous',
-                    status: 'completed',
-                    items: [{ kind: 'assistant_text', text: 'previous reply' }]
-                  },
-                  {
-                    id: 'turn_weixin',
-                    status: 'completed',
-                    items: [
-                      { kind: 'assistant_text', text: 'intermediate reply' },
-                      { kind: 'tool_result', detail: 'tool finished' },
-                      { kind: 'assistant_text', text: 'final result' }
-                    ]
-                  }
-                ]
-              })
-        }
+        return getCount === 1
+          ? {
+              id: 'thr_weixin',
+              status: 'running',
+              turns: [
+                {
+                  id: 'turn_previous',
+                  status: 'completed',
+                  items: [{ kind: 'assistant_text', text: 'previous reply' }]
+                },
+                {
+                  id: 'turn_weixin',
+                  status: 'running',
+                  items: [
+                    { kind: 'assistant_text', text: 'intermediate reply' },
+                    { kind: 'tool_call', detail: 'checking disk usage' }
+                  ]
+                }
+              ]
+            }
+          : {
+              id: 'thr_weixin',
+              status: 'idle',
+              turns: [
+                {
+                  id: 'turn_previous',
+                  status: 'completed',
+                  items: [{ kind: 'assistant_text', text: 'previous reply' }]
+                },
+                {
+                  id: 'turn_weixin',
+                  status: 'completed',
+                  items: [
+                    { kind: 'assistant_text', text: 'intermediate reply' },
+                    { kind: 'tool_result', detail: 'tool finished' },
+                    { kind: 'assistant_text', text: 'final result' }
+                  ]
+                }
+              ]
+            }
       }
-      throw new Error(`unexpected path ${path}`)
     })
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
+      agentRuntime,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
     })
@@ -4190,6 +4164,7 @@ describe('ClawRuntime', () => {
     })
     expect(JSON.parse(responseBody).reply).toContain('Claw IM commands:')
     expect(getCount).toBe(2)
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('does not return a previous WeChat session reply for a new turn', async () => {
@@ -4210,37 +4185,29 @@ describe('ClawRuntime', () => {
       })]
     })]
     const { store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads/thr_weixin/turns' && init?.method === 'POST') {
-        return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_current' }) }
-      }
-      if (path === '/v1/threads/thr_weixin' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'thr_weixin',
-            status: 'idle',
-            turns: [
-              {
-                id: 'turn_previous',
-                status: 'completed',
-                items: [{ kind: 'assistant_text', text: 'previous reply' }]
-              },
-              {
-                id: 'turn_current',
-                status: 'completed',
-                items: []
-              }
-            ]
-          })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      turnId: 'turn_current',
+      readThread: async () => ({
+        id: 'thr_weixin',
+        status: 'idle',
+        turns: [
+          {
+            id: 'turn_previous',
+            status: 'completed',
+            items: [{ kind: 'assistant_text', text: 'previous reply' }]
+          },
+          {
+            id: 'turn_current',
+            status: 'completed',
+            items: []
+          }
+        ]
+      })
     })
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
+      agentRuntime,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
     })
@@ -4282,6 +4249,7 @@ describe('ClawRuntime', () => {
       message: 'Empty response',
       failureKind: 'empty_response'
     })
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('interrupts timed out agent runtime turns so phone duty does not stay running', async () => {
@@ -4289,7 +4257,6 @@ describe('ClawRuntime', () => {
     const interruptTurn = vi.fn(async () => undefined)
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime: {
         readThread: vi.fn(async () => ({
           id: 'thread-1',
@@ -4365,7 +4332,6 @@ describe('ClawRuntime', () => {
     }
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       agentRuntime: agentRuntime as never,
       logError: () => undefined
     })
@@ -4422,7 +4388,7 @@ describe('ClawRuntime', () => {
       })]
     })]
     const { store } = mutableSettingsStore(settings)
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
+    const forbiddenDirectCall = vi.fn(async (_settings, path, init) => {
       if (path === '/v1/threads/thr_weixin/turns' && init?.method === 'POST') {
         return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_current' }) }
       }
@@ -4452,7 +4418,6 @@ describe('ClawRuntime', () => {
     })
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: runtimeRequest as never,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
     })
@@ -4520,7 +4485,6 @@ describe('ClawRuntime', () => {
     }))
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       logError: () => undefined,
       sendWeixinBridgeMessage
     })
@@ -4559,7 +4523,6 @@ describe('ClawRuntime', () => {
     }))
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       logError: () => undefined,
       sendWeixinBridgeMessage
     })
@@ -4607,7 +4570,6 @@ describe('ClawRuntime', () => {
     }))
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       logError: () => undefined,
       sendDiscordChannelMessage
     })
@@ -4650,7 +4612,6 @@ describe('ClawRuntime', () => {
     }))
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       logError,
       sendWeixinBridgeMessage
     })
@@ -4718,55 +4679,46 @@ describe('ClawRuntime', () => {
         load: vi.fn(async () => settings),
         patch: vi.fn(async () => settings)
       }
-      const runtimeRequest = vi.fn(async (_settings, path, init) => {
-        if (path === '/v1/threads/thr_1/turns') {
-          return { ok: true, status: 202, body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_2' }) }
-        }
-        if (path === '/v1/threads/thr_1' && init?.method === 'GET') {
-          return {
-            ok: true,
-            status: 200,
-            body: JSON.stringify({
-              id: 'thr_1',
-              status: 'idle',
-              turns: [
+      const forbiddenDirectCall = vi.fn()
+      const agentRuntime = completedAgentRuntime({
+        readThread: async () => ({
+          id: 'thr_1',
+          status: 'idle',
+          turns: [
+            {
+              id: 'turn_1',
+              status: 'completed',
+              items: [
                 {
-                  id: 'turn_1',
-                  status: 'completed',
-                  items: [
-                    {
-                      kind: 'tool_result',
-                      toolKind: 'file_change',
-                      output: {
-                        path: filePath,
-                        relative_path: 'hello.md',
-                        bytes_written: 8
-                      },
-                      isError: false
-                    }
-                  ]
-                },
-                {
-                  id: 'turn_2',
-                  status: 'completed',
-                  items: [
-                    {
-                      kind: 'assistant_text',
-                      text: '我无法直接通过飞书发送文件给你，但文件已经创建在 workspace 中。'
-                    }
-                  ]
+                  kind: 'tool_result',
+                  toolKind: 'file_change',
+                  output: {
+                    path: filePath,
+                    relative_path: 'hello.md',
+                    bytes_written: 8
+                  },
+                  isError: false
                 }
               ]
-            })
-          }
-        }
-        throw new Error(`unexpected path ${path}`)
+            },
+            {
+              id: 'turn_2',
+              status: 'completed',
+              items: [
+                {
+                  kind: 'assistant_text',
+                  text: '我无法直接通过飞书发送文件给你，但文件已经创建在 workspace 中。'
+                }
+              ]
+            }
+          ]
+        })
       })
       const send = vi.fn(async () => ({ messageId: 'om_sent' }))
       const addReaction = vi.fn(async () => 'rc_file_1')
       const runtime = createClawRuntime({
         store: store as never,
-        runtimeRequest,
+        agentRuntime,
         logError: () => undefined
       })
       ;(runtime as unknown as { feishuChannels: Map<string, { send: typeof send, addReaction: typeof addReaction }> })
@@ -4818,6 +4770,8 @@ describe('ClawRuntime', () => {
       const addReactionSpy = (runtime as unknown as { feishuChannels: Map<string, { addReaction: ReturnType<typeof vi.fn> }> })
         .feishuChannels.get('channel_1')?.addReaction
       expect(addReactionSpy).not.toHaveBeenCalled()
+      expect(agentRuntime.startTurn).not.toHaveBeenCalled()
+      expect(forbiddenDirectCall).not.toHaveBeenCalled()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -4833,34 +4787,16 @@ describe('ClawRuntime', () => {
       patch: vi.fn(async () => settings)
     }
     const markdownReply = '**bold** `code`\n- item 1\n- item 2'
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads/thr_1/turns') {
-        return { ok: true, status: 202, body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_md' }) }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'thr_1',
-            status: 'idle',
-            turns: [
-              {
-                id: 'turn_md',
-                status: 'completed',
-                items: [{ kind: 'assistant_text', text: markdownReply }]
-              }
-            ]
-          })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      turnId: 'turn_md',
+      text: markdownReply
     })
     const send = vi.fn(async () => ({ messageId: 'om_md' }))
     const addReaction = vi.fn(async () => 'rc_test_1')
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest,
+      agentRuntime,
       logError: () => undefined
     })
     ;(runtime as unknown as { feishuChannels: Map<string, { send: typeof send, addReaction: typeof addReaction }> })
@@ -4905,6 +4841,10 @@ describe('ClawRuntime', () => {
     const textFormCall = (send.mock.calls as unknown as Array<[string, Record<string, unknown>]>)
       .find(([, input]) => typeof input?.text === 'string')
     expect(textFormCall).toBeUndefined()
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      governanceProfile: 'remote_guard'
+    }))
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('falls back to markdown form when retrying without replyTo', async () => {
@@ -4915,7 +4855,6 @@ describe('ClawRuntime', () => {
       .mockResolvedValueOnce({ messageId: 'om_fallback' })
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
-      runtimeRequest: vi.fn() as never,
       logError
     })
 
@@ -4961,34 +4900,16 @@ describe('ClawRuntime', () => {
     }
     const logError = vi.fn()
     const agentReply = 'all good'
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads/thr_1/turns') {
-        return { ok: true, status: 202, body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_react_fail' }) }
-      }
-      if (path === '/v1/threads/thr_1' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'thr_1',
-            status: 'idle',
-            turns: [
-              {
-                id: 'turn_react_fail',
-                status: 'completed',
-                items: [{ kind: 'assistant_text', text: agentReply }]
-              }
-            ]
-          })
-        }
-      }
-      throw new Error(`unexpected path ${path}`)
+    const forbiddenDirectCall = vi.fn()
+    const agentRuntime = completedAgentRuntime({
+      turnId: 'turn_react_fail',
+      text: agentReply
     })
     const addReaction = vi.fn().mockRejectedValue(new Error('addReaction API error'))
     const send = vi.fn(async () => ({ messageId: 'om_agent_after_react_fail' }))
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest,
+      agentRuntime,
       logError
     })
     ;(runtime as unknown as { feishuChannels: Map<string, { send: typeof send, addReaction: typeof addReaction }> })
@@ -5038,6 +4959,10 @@ describe('ClawRuntime', () => {
       { markdown: agentReply },
       { replyTo: 'om_inbound_react_fail', replyInThread: false }
     )
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      governanceProfile: 'remote_guard'
+    }))
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('does not add a pending reaction for IM commands', async () => {
@@ -5052,7 +4977,6 @@ describe('ClawRuntime', () => {
     const addReaction = vi.fn(async () => 'rc_cmd_1')
     const runtime = createClawRuntime({
       store: store as never,
-      runtimeRequest: vi.fn() as never,
       logError: () => undefined
     })
     ;(runtime as unknown as { feishuChannels: Map<string, { send: typeof send, addReaction: typeof addReaction }> })

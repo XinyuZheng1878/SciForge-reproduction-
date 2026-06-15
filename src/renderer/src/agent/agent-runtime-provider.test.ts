@@ -185,12 +185,7 @@ describe('AgentRuntimeProvider', () => {
           resumeSession,
           updateThreadRelation
         },
-        runtimeRequest: vi.fn(),
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
+        forbiddenDirectCall: vi.fn(),
       }
     })
 
@@ -245,6 +240,7 @@ describe('AgentRuntimeProvider', () => {
       runtimeId: 'codex',
       threadId: 'thread-2',
       text: 'hello',
+      model: 'gpt-5',
       reasoningEffort: 'medium',
       displayText: 'hello'
     })
@@ -291,7 +287,6 @@ describe('AgentRuntimeProvider', () => {
       threadId: 'thread-2',
       relation: 'primary'
     })
-    expect(window.dsGui.runtimeRequest).not.toHaveBeenCalled()
   })
 
   it('preserves structured user input questions from persisted thread detail', async () => {
@@ -331,12 +326,7 @@ describe('AgentRuntimeProvider', () => {
             ]
           }))
         },
-        runtimeRequest: vi.fn(),
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
+        forbiddenDirectCall: vi.fn(),
       }
     })
     const provider = new AgentRuntimeProvider()
@@ -361,6 +351,124 @@ describe('AgentRuntimeProvider', () => {
         }
       ]
     })
+  })
+
+  it('settles stale running tool items from terminal thread snapshots', async () => {
+    vi.stubGlobal('window', {
+      dsGui: {
+        getSettings: vi.fn(async () => settings('codex')),
+        setSettings: vi.fn(),
+        agentRuntime: {
+          readThread: vi.fn(async () => ({
+            id: 'thread-completed-tool',
+            runtimeId: 'codex',
+            title: 'Completed tool thread',
+            updatedAt: '2026-06-11T00:00:00.000Z',
+            status: 'completed',
+            latestSeq: 5,
+            latestTurnId: 'turn-1',
+            turns: [{
+              id: 'turn-1',
+              threadId: 'thread-completed-tool',
+              status: 'completed',
+              items: [
+                {
+                  id: 'user-1',
+                  kind: 'user_message',
+                  text: 'hello',
+                  createdAt: '2026-06-11T00:00:01.000Z'
+                },
+                {
+                  id: 'tool-call-1',
+                  kind: 'tool',
+                  summary: 'Read file',
+                  status: 'running',
+                  toolKind: 'command_execution',
+                  meta: { callId: 'call-1', toolName: 'local_shell' },
+                  createdAt: '2026-06-11T00:00:02.000Z'
+                },
+                {
+                  id: 'tool-result-1',
+                  kind: 'tool',
+                  summary: 'Read file',
+                  status: 'success',
+                  toolKind: 'command_execution',
+                  meta: { callId: 'call-1', toolName: 'local_shell' },
+                  createdAt: '2026-06-11T00:00:03.000Z'
+                },
+                {
+                  id: 'assistant-1',
+                  kind: 'assistant_message',
+                  text: 'done',
+                  createdAt: '2026-06-11T00:00:04.000Z'
+                }
+              ]
+            }]
+          }))
+        },
+        forbiddenDirectCall: vi.fn(),
+      }
+    })
+    const provider = new AgentRuntimeProvider()
+    provider.rememberThreadRuntime('thread-completed-tool', 'codex')
+
+    const detail = await provider.getThreadDetail('thread-completed-tool')
+
+    expect(detail.blocks).toEqual([
+      expect.objectContaining({ kind: 'user', id: 'user-1' }),
+      expect.objectContaining({ kind: 'tool', id: 'tool-result-1', status: 'success' }),
+      expect.objectContaining({ kind: 'assistant', id: 'assistant-1', text: 'done' })
+    ])
+    expect(detail.blocks.some((block) => block.kind === 'tool' && block.status === 'running')).toBe(false)
+  })
+
+  it('settles stale pending blocks from idle snapshots', async () => {
+    vi.stubGlobal('window', {
+      dsGui: {
+        getSettings: vi.fn(async () => settings('codex')),
+        setSettings: vi.fn(),
+        agentRuntime: {
+          readThread: vi.fn(async () => ({
+            id: 'thread-idle',
+            runtimeId: 'codex',
+            title: 'Idle thread',
+            updatedAt: '2026-06-11T00:00:00.000Z',
+            status: 'idle',
+            latestSeq: 3,
+            items: [
+              {
+                id: 'tool-running',
+                kind: 'tool',
+                summary: 'Old command',
+                status: 'running',
+                toolKind: 'command_execution',
+                createdAt: '2026-06-11T00:00:01.000Z'
+              },
+              {
+                id: 'input-pending',
+                kind: 'user_input',
+                summary: 'Choose one',
+                status: 'pending',
+                meta: { requestId: 'input-1' },
+                createdAt: '2026-06-11T00:00:02.000Z'
+              }
+            ]
+          }))
+        },
+        forbiddenDirectCall: vi.fn(),
+      }
+    })
+    const provider = new AgentRuntimeProvider()
+    provider.rememberThreadRuntime('thread-idle', 'codex')
+
+    const detail = await provider.getThreadDetail('thread-idle')
+
+    expect(detail.blocks).toEqual([
+      expect.objectContaining({ kind: 'tool', id: 'tool-running', status: 'success' }),
+      expect.objectContaining({ kind: 'user_input', id: 'input-pending', status: 'cancelled' })
+    ])
+    expect(detail.blocks.some((block) => block.kind === 'tool' && block.status === 'running')).toBe(false)
+    expect(detail.blocks.some((block) => block.kind === 'user_input' && block.status === 'pending')).toBe(false)
   })
 
   it('routes thread-bound mutations through the runtime remembered for the thread', async () => {
@@ -426,12 +534,7 @@ describe('AgentRuntimeProvider', () => {
           updateThreadRelation,
           auxiliary
         },
-        runtimeRequest: vi.fn(),
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
+        forbiddenDirectCall: vi.fn(),
       }
     })
 
@@ -460,8 +563,7 @@ describe('AgentRuntimeProvider', () => {
     expect(interruptTurn).toHaveBeenCalledWith({
       runtimeId: 'codex',
       threadId: 'codex-thread',
-      turnId: 'turn-next',
-      discard: true
+      turnId: 'turn-next'
     })
     expect(steerTurn).toHaveBeenCalledWith({
       runtimeId: 'codex',
@@ -532,11 +634,6 @@ describe('AgentRuntimeProvider', () => {
         agentRuntime: {
           capabilities: vi.fn(async () => capabilities('codex'))
         },
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
       }
     })
 
@@ -558,7 +655,7 @@ describe('AgentRuntimeProvider', () => {
     })
   })
 
-  it('does not forward Kun composer models to Codex turns', async () => {
+  it('forwards neutral turn model hints to Codex adapter calls', async () => {
     const startTurn = vi.fn(async () => ({
       threadId: 'codex-thread',
       turnId: 'turn-codex'
@@ -571,11 +668,6 @@ describe('AgentRuntimeProvider', () => {
           capabilities: vi.fn(async () => capabilities('codex')),
           startTurn
         },
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
       }
     })
 
@@ -591,6 +683,7 @@ describe('AgentRuntimeProvider', () => {
       runtimeId: 'codex',
       threadId: 'codex-thread',
       text: 'hello',
+      model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
       displayText: 'hello'
     })
@@ -608,11 +701,6 @@ describe('AgentRuntimeProvider', () => {
         agentRuntime: {
           startTurn
         },
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
       }
     })
 
@@ -631,11 +719,6 @@ describe('AgentRuntimeProvider', () => {
         agentRuntime: {
           auxiliary
         },
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
       }
     })
 
@@ -661,11 +744,6 @@ describe('AgentRuntimeProvider', () => {
           onEnd: vi.fn(() => vi.fn()),
           onError: vi.fn(() => vi.fn())
         },
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
       }
     })
     const sink = makeSink()
@@ -719,12 +797,7 @@ describe('AgentRuntimeProvider', () => {
           resolveApproval,
           resolveUserInput
         },
-        runtimeRequest: vi.fn(),
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
+        forbiddenDirectCall: vi.fn(),
       }
     })
 
@@ -748,7 +821,6 @@ describe('AgentRuntimeProvider', () => {
       requestId: 'input-1',
       answers: [{ id: 'choice', label: 'Yes', value: 'yes' }]
     })
-    expect(window.dsGui.runtimeRequest).not.toHaveBeenCalled()
   })
 
   it('resolves interaction requests through the runtime that produced them', async () => {
@@ -786,12 +858,7 @@ describe('AgentRuntimeProvider', () => {
           resolveApproval,
           resolveUserInput
         },
-        runtimeRequest: vi.fn(),
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
+        forbiddenDirectCall: vi.fn(),
       }
     })
 
@@ -832,12 +899,7 @@ describe('AgentRuntimeProvider', () => {
           onEnd: vi.fn(() => vi.fn()),
           onError: vi.fn(() => vi.fn())
         },
-        runtimeRequest: vi.fn(),
-        startSse: vi.fn(),
-        stopSse: vi.fn(),
-        onSseEvent: vi.fn(),
-        onSseEnd: vi.fn(),
-        onSseError: vi.fn()
+        forbiddenDirectCall: vi.fn(),
       }
     })
 

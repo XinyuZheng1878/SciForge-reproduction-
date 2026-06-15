@@ -110,17 +110,21 @@ type RoutedResponse = {
   traceRef: string;
 };
 
+type ToolCallCache = Map<string, JsonObject>;
+
 type TextControl =
   | { type: 'final_answer'; content: string }
   | { type: 'need_more_visual_info'; target: string; question: string; reason?: string };
 
 const MAX_TRANSIENT_PROVIDER_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_TOOL_CALL_CACHE_ENTRIES = 512;
 
 export function createModelRouterServer(options: ModelRouterServerOptions): Server {
   const fetchImpl = options.fetchImpl ?? fetch;
   const env = options.env ?? processEnvSnapshot();
   const workspaceRoot = options.workspaceRoot ?? process.cwd();
   const visionTranslationCache = new Map<string, VisionTranslationCacheEntry>();
+  const toolCallCache: ToolCallCache = new Map();
 
   return createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
@@ -173,6 +177,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
               workspaceRoot,
               request,
               visionTranslationCache,
+              toolCallCache,
               responseId,
             }),
           );
@@ -184,6 +189,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
           workspaceRoot,
           request,
           visionTranslationCache,
+          toolCallCache,
         });
         return sendJson(response, 200, responseObject(result));
       }
@@ -279,6 +285,7 @@ async function routeResponsesRequest(
     workspaceRoot: string;
     request: IncomingMessage;
     visionTranslationCache: Map<string, VisionTranslationCacheEntry>;
+    toolCallCache: ToolCallCache;
     responseId?: string;
   },
 ): Promise<RoutedResponse> {
@@ -304,8 +311,17 @@ async function routeResponsesRequest(
   const publicModelAlias = context.config.publicModelAlias ?? 'sciforge-model-router';
   const traceRedactionSecrets = [textSecret, visionSecret]
     .filter((value): value is string => typeof value === 'string' && value.length > 0);
-  const textReasonerRequestOptions = chatRequestOptionsFromResponsesRequest(request, profile.textReasoner.model);
+  const requestForTextReasoner = responseInputHasToolTranscript(request.input)
+    ? {
+      ...request,
+      input: hydrateFunctionCallTranscript(request.input, context.toolCallCache),
+    }
+    : request;
+  const textReasonerRequestOptions = chatRequestOptionsFromResponsesRequest(requestForTextReasoner, profile.textReasoner.model);
   const toolNameAliases = chatToolNameAliasesFromResponsesTools(request.tools);
+  const textReasonerMessages = responseInputHasToolTranscript(requestForTextReasoner.input)
+    ? chatMessagesFromResponsesRequest(requestForTextReasoner, profile.textReasoner.model)
+    : [];
 
   // Lexical detectors must not become routing truth; final routing must use structured semantic signals and refs-first evidence.
   const visionModalities = extracted.modalities.filter((item) => finalModalityRoutingSignal(item).kind === 'vision.image');
@@ -404,6 +420,7 @@ async function routeResponsesRequest(
         secret: textSecret,
         fetchImpl: context.fetchImpl,
         userText: extracted.userText,
+        messages: textReasonerMessages,
         observations,
         visualFailure: degraded,
         calls,
@@ -500,6 +517,7 @@ async function routeResponsesRequest(
     outputText = `${degradedUnavailablePrefix(extracted.modalities)} ${outputText}`;
   }
   if (!outputItems.length) outputItems = outputText ? [messageOutputItem(outputText)] : [];
+  rememberFunctionCalls(context.toolCallCache, outputItems);
 
   await writeRoutingTrace({
     trace,
@@ -1017,6 +1035,7 @@ async function callTextReasoner(options: {
   secret: string;
   fetchImpl: typeof fetch;
   userText: string;
+  messages: JsonObject[];
   observations: string[];
   visualFailure: boolean;
   calls: ProviderCallRecord[];
@@ -1035,9 +1054,10 @@ async function callTextReasoner(options: {
       'If any modality_input or visual_input is unavailable, the final answer must explicitly state that the referenced modality could not be inspected.',
     ].join(' ')
     : undefined;
-  const messages: JsonObject[] = [
-    ...(controlInstruction ? [{ role: 'system', content: controlInstruction }] : []),
-    ...(options.observations.length ? [{
+  const messages: JsonObject[] = options.observations.length
+    ? [
+      ...(controlInstruction ? [{ role: 'system', content: controlInstruction }] : []),
+      {
       role: 'user',
       content: [
         options.userText ? `User request:\n${options.userText}` : 'User request is empty.',
@@ -1045,8 +1065,9 @@ async function callTextReasoner(options: {
         ...options.observations.map((observation, index) => `Observation ${index + 1}:\n${observation}`),
         options.visualFailure ? 'Router degradation: at least one referenced modality could not be inspected.' : '',
       ].filter(Boolean).join('\n\n'),
-    }] : [{ role: 'user', content: options.userText }]),
-  ];
+      },
+    ]
+    : options.messages.length > 0 ? options.messages : [{ role: 'user', content: options.userText }];
   return await callChatProvider({
     provider: options.profile.textReasoner,
     secret: options.secret,
@@ -1093,6 +1114,45 @@ async function callChatProvider(options: {
   }
   const latencyMs = Date.now() - startedAt;
   if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    const repairedBody = bodyWithSyntheticToolReasoning(options.body, errorText);
+    if (repairedBody) {
+      const retryStartedAt = Date.now();
+      try {
+        response = await options.fetchImpl(`${trimTrailingSlash(options.provider.baseUrl)}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${options.secret}`,
+          },
+          body: JSON.stringify(repairedBody),
+        });
+      } catch {
+        const errorSummary = 'provider_exception';
+        recordFailedProviderCall(options, Date.now() - retryStartedAt, errorSummary);
+        throw new Error(errorSummary);
+      }
+      if (response.ok) {
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch {
+          const errorSummary = 'provider_exception';
+          recordFailedProviderCall(options, Date.now() - retryStartedAt, errorSummary);
+          throw new Error(errorSummary);
+        }
+        options.calls.push({
+          role: options.role,
+          phase: options.phase,
+          status: 'ok',
+          roleAlias: roleAliasForCall(options.role),
+          providerBindingSha256: providerBindingHash(options.provider),
+          wireApi: 'chat.completions',
+          latencyMs: Date.now() - retryStartedAt,
+        });
+        return chatCompletionResult(payload, options.responseRequest, options.toolNameAliases);
+      }
+    }
     const errorSummary = `provider_http_${response.status}`;
     recordFailedProviderCall(options, latencyMs, errorSummary);
     throw new Error(errorSummary);
@@ -1115,6 +1175,22 @@ async function callChatProvider(options: {
     latencyMs,
   });
   return chatCompletionResult(payload, options.responseRequest, options.toolNameAliases);
+}
+
+function bodyWithSyntheticToolReasoning(body: Record<string, unknown>, providerErrorText: string): Record<string, unknown> | null {
+  if (!/reasoning_content/i.test(providerErrorText)) return null;
+  if (!Array.isArray(body.messages)) return null;
+  let changed = false;
+  const messages = body.messages.map((message) => {
+    if (!isRecord(message) || message.role !== 'assistant' || !Array.isArray(message.tool_calls)) return message;
+    if (stringField(message.reasoning_content)) return message;
+    changed = true;
+    return {
+      ...message,
+      reasoning_content: 'Tool call issued by the assistant.',
+    };
+  });
+  return changed ? { ...body, messages } : null;
 }
 
 function recordFailedProviderCall(
@@ -1155,6 +1231,80 @@ function chatRequestOptionsFromResponsesRequest(request: Record<string, unknown>
     parallel_tool_calls: chatRequest.parallel_tool_calls,
     metadata: chatRequest.metadata,
   }).filter(([, value]) => value !== undefined));
+}
+
+function chatMessagesFromResponsesRequest(request: Record<string, unknown>, defaultModel: string): JsonObject[] {
+  const chatRequest = responsesToChatCompletions({
+    ...request,
+    model: defaultModel,
+  }, { defaultModel });
+  return Array.isArray(chatRequest.messages)
+    ? chatRequest.messages.filter(isRecord) as JsonObject[]
+    : [];
+}
+
+function responseInputHasToolTranscript(input: unknown): boolean {
+  return Array.isArray(input) && input.some((item) => {
+    if (!isRecord(item)) return false;
+    return item.type === 'function_call' || item.type === 'function_call_output';
+  });
+}
+
+function hydrateFunctionCallTranscript(input: unknown, cache: ToolCallCache): unknown {
+  if (!Array.isArray(input)) return input;
+  let changed = false;
+  const seenFunctionCallIds = new Set<string>();
+  const hydrated: unknown[] = [];
+  for (const item of input) {
+    if (!isRecord(item)) {
+      hydrated.push(item);
+      continue;
+    }
+
+    if (item.type === 'function_call') {
+      const callId = stringField(item.call_id) ?? stringField(item.id);
+      if (callId) seenFunctionCallIds.add(callId);
+      const cached = callId ? cache.get(callId) : undefined;
+      if (cached && !stringField(item.reasoning_content) && stringField(cached.reasoning_content)) {
+        changed = true;
+        hydrated.push({
+          ...item,
+          reasoning_content: cached.reasoning_content,
+        });
+      } else {
+        hydrated.push(item);
+      }
+      continue;
+    }
+
+    if (item.type === 'function_call_output') {
+      const callId = stringField(item.call_id) ?? stringField(item.id);
+      const cached = callId ? cache.get(callId) : undefined;
+      if (callId && cached && !seenFunctionCallIds.has(callId)) {
+        changed = true;
+        hydrated.push({ ...cached });
+        seenFunctionCallIds.add(callId);
+      }
+    }
+
+    hydrated.push(item);
+  }
+  return changed ? hydrated : input;
+}
+
+function rememberFunctionCalls(cache: ToolCallCache, outputItems: JsonObject[]): void {
+  for (const item of outputItems) {
+    if (item.type !== 'function_call') continue;
+    const callId = stringField(item.call_id) ?? stringField(item.id);
+    if (!callId) continue;
+    cache.delete(callId);
+    cache.set(callId, { ...item });
+  }
+  while (cache.size > MAX_TOOL_CALL_CACHE_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (typeof oldest !== 'string') break;
+    cache.delete(oldest);
+  }
 }
 
 function chatCompletionResult(

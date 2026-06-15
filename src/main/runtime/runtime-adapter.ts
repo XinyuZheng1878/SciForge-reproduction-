@@ -1,12 +1,12 @@
 import type { AgentRuntimeId, AppSettingsV1 } from '../../shared/app-settings'
 
-export type ManagedRuntimeRequestInit = {
+export type ManagedRuntimeHttpInit = {
   method?: string
   body?: string
   headers?: Record<string, string>
 }
 
-export type ManagedRuntimeRequestResult = {
+export type ManagedRuntimeHttpResult = {
   ok: boolean
   status: number
   body: string
@@ -20,8 +20,8 @@ export type ManagedRuntimeAdapter = {
   request(
     settings: AppSettingsV1,
     pathAndQuery: string,
-    init: ManagedRuntimeRequestInit
-  ): Promise<ManagedRuntimeRequestResult>
+    init: ManagedRuntimeHttpInit
+  ): Promise<ManagedRuntimeHttpResult>
   startEvents?(
     settings: AppSettingsV1,
     threadId: string,

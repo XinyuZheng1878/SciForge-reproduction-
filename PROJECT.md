@@ -34,75 +34,75 @@ UI / Write / Claw / Schedule
 
 ## P0：Debug 与现状盘点
 
-- [ ] 复盘 Codex app-server 工具循环事件，确认重复工具调用来自 runtime 后端执行链路，而不是 UI 展示重复。
-- [ ] 梳理 UI 对话、写作助手、Claw、Discord、Feishu、Schedule 入口现在分别如何调用 runtime。
-- [ ] 对照稳定版 Kun 的 AgentLoop、ToolStormBreaker、runtime event recorder，识别可沉到公共层的治理能力。
-- [ ] 找出现有 Codex/Kun 分叉逻辑、Kun-only 设置文案和入口层直连旁路，区分必须保留的 runtime 特性与可以统一的重复逻辑。
-- [ ] 记录 Codex 原生能力边界：sandbox、approval、file change、thread、session、JSON-RPC 生命周期，后续公共层不得改写这些协议。
+- [x] 复盘 Codex app-server 工具循环事件，确认重复工具调用来自 runtime 后端执行链路，而不是 UI 展示重复。
+- [x] 梳理 UI 对话、写作助手、Claw、Discord、Feishu、Schedule 入口现在分别如何调用 runtime。
+- [x] 对照稳定版 Kun 的 AgentLoop、ToolStormBreaker、runtime event recorder，识别可沉到公共层的治理能力。
+- [x] 找出现有 Codex/Kun 分叉逻辑、Kun-only 设置文案和入口层直连旁路，区分必须保留的 runtime 特性与可以统一的重复逻辑。
+- [x] 记录 Codex 原生能力边界：sandbox、approval、file change、thread、session、JSON-RPC 生命周期，后续公共层不得改写这些协议。
 
 ## P1：入口层统一
 
-- [ ] 确认 UI 对话、写作助手、Claw、Schedule 都只构造统一 `AgentRuntime*Input`，不直接调用 Kun HTTP、Codex JSON-RPC 或 LLM API。
-- [ ] 把 Claw/Discord/Feishu 值守入口的 runtime 调用统一收束到 `AgentRuntimeHost`，仅保留入口场景参数，例如更严格预算。
-- [ ] 清理入口层对具体 runtime 的策略判断；必须分支时改为读取 capability。
-- [ ] 明确 hidden prompt 与 `displayText` 的入口约定：隐藏上下文只进入 runtime payload，timeline 只展示用户原始文本。
+- [x] 确认 UI 对话、写作助手、Claw、Schedule 都只构造统一 `AgentRuntime*Input`，不直接调用 Kun HTTP、Codex JSON-RPC 或 LLM API。
+- [x] 把 Claw/Discord/Feishu 值守入口的 runtime 调用统一收束到 `AgentRuntimeHost`，仅保留入口场景参数，例如更严格预算。
+- [x] 清理入口层对具体 runtime 的策略判断；必须分支时改为读取 capability。
+- [x] 明确 hidden prompt 与 `displayText` 的入口约定：隐藏上下文只进入 runtime payload，timeline 只展示用户原始文本。
 
 ## P2：公共治理层
 
-- [ ] 在 `AgentRuntimeHost` 附近新增 runtime-neutral governance 层，所有 startTurn、subscribeEvents、steer、interrupt 都经过该层编排。
-- [ ] 把 turn 排队、超时、预算、状态收束整理为公共能力，避免入口或 adapter 重复实现。
-- [ ] 定义 runtime guard supervisor：消费归一化后的 `AgentRuntimeEvent`，处理工具循环、重复状态和异常收尾。
-- [ ] 实现公共 synthetic event 生成规范：补充事件必须先写入对应 runtime 的事件存储，再发布给 UI。
-- [ ] 公共层只做编排和治理，不改写 runtime 原生协议、不假设具体工具存在、不绕过 model router。
+- [x] 在 `AgentRuntimeHost` 附近新增 runtime-neutral governance 层，所有 startTurn、subscribeEvents、steer、interrupt 都经过该层编排。
+- [x] 把 turn 排队、超时、预算、状态收束整理为公共能力，避免入口或 adapter 重复实现。
+- [x] 定义 runtime guard supervisor：消费归一化后的 `AgentRuntimeEvent`，处理工具循环、重复状态和异常收尾。
+- [x] 实现公共 synthetic event 生成规范：补充事件必须先写入对应 runtime 的事件存储，再发布给 UI。
+- [x] 公共层只做编排和治理，不改写 runtime 原生协议、不假设具体工具存在、不绕过 model router。
 
 ## P3：Capability 合同
 
-- [ ] 扩展 `AgentRuntimeCapabilities`，声明 `guard.toolStorm = native | observe | unsupported`。
-- [ ] 扩展或规范已有 controls/events 字段：steer、interrupt、approval、user input、compact、event replay、sequenced event。
-- [ ] 公共治理层根据 capability 决定使用 native guard、observe guard、steer 或 interrupt，避免双重保护。
-- [ ] Kun adapter 声明已有 native pre-exec tool storm 能力。
-- [ ] Codex adapter 声明 observe tool storm 能力，并保留原生 steer、interrupt、approval、user input 能力。
+- [x] 扩展 `AgentRuntimeCapabilities`，声明 `guard.toolStorm = native | observe | unsupported`。
+- [x] 扩展或规范已有 controls/events 字段：steer、interrupt、approval、user input、compact、event replay、sequenced event。
+- [x] 公共治理层根据 capability 决定使用 native guard、observe guard、steer 或 interrupt，避免双重保护。
+- [x] Kun adapter 声明已有 native pre-exec tool storm 能力。
+- [x] Codex adapter 声明 observe tool storm 能力，并保留原生 steer、interrupt、approval、user input 能力。
 
 ## P4：工具循环治理
 
-- [ ] 实现 runtime-neutral 工具事件 fingerprint：exact tool name + canonical args、tool kind、行为族、连续次数、总次数。
-- [ ] 行为族识别必须通用，例如 shell/date、shell/read-file、search/read，不为具体用户话术或单个命令写硬编码补丁。
-- [ ] 软阈值命中时优先 `steerTurn`：要求 runtime 停止同族工具，基于已有结果回答。
-- [ ] 硬阈值命中时再 `interruptTurn`：终止本轮并生成保护说明。
-- [ ] Kun native guard 在执行前生效，公共层只消费其结果事件；Codex observe guard 在事件后生效，先 steer 后 interrupt。
+- [x] 实现 runtime-neutral 工具事件 fingerprint：exact tool name + canonical args、tool kind、行为族、连续次数、总次数。
+- [x] 行为族识别必须通用，例如 shell/date、shell/read-file、search/read，不为具体用户话术或单个命令写硬编码补丁。
+- [x] 软阈值命中时优先 `steerTurn`：要求 runtime 停止同族工具，基于已有结果回答。
+- [x] 硬阈值命中时再 `interruptTurn`：终止本轮并生成保护说明。
+- [x] Kun native guard 在执行前生效，公共层只消费其结果事件；Codex observe guard 在事件后生效，先 steer 后 interrupt。
 
 ## P5：配置与迁移
 
-- [ ] 新增通用配置命名：`runtimeGuards.toolStorm.*` 和 `runtimeGuards.budgets.*`。
-- [ ] 兼容读取旧 `kunToolStorm` 或 `runtime.toolStorm` 字段，但写回新字段。
-- [ ] 设置页文案从 Kun-only 命名迁移为 Runtime Guard。
-- [ ] 为普通 UI、写作、Claw/Discord/Feishu 值守入口提供不同默认预算，但走同一个配置模型。
-- [ ] 删除稳定后不再使用的 Kun-only 设置旁路和重复 runtime tuning 逻辑。
+- [x] 新增通用配置命名：`runtimeGuards.toolStorm.*` 和 `runtimeGuards.budgets.*`。
+- [x] 兼容读取旧 `kunToolStorm` 或 `runtime.toolStorm` 字段，但写回新字段。
+- [x] 设置页文案从 Kun-only 命名迁移为 Runtime Guard。
+- [x] 为普通 UI、写作、Claw/Discord/Feishu 值守入口提供不同默认预算，但走同一个配置模型。
+- [x] 删除稳定后不再使用的 Kun-only 设置旁路和重复 runtime tuning 逻辑。
 
 ## P6：Adapter 与 Runtime 原生层
 
-- [ ] Kun adapter 保留 AgentLoop、pre-exec tool host、ToolStormBreaker、request history hygiene 等原生能力。
-- [ ] Codex adapter 保留 app-server 原生 sandbox、approval、file change、thread、session、JSON-RPC 生命周期。
-- [ ] Adapter 只负责协议转换、事件归一化、能力声明和错误封装，不承载业务治理策略。
-- [ ] 新 runtime 接入时只需实现 `AgentRuntimeAdapter`、声明 capability、接入事件归一化和 replay。
-- [ ] 删除 adapter 外部对 Kun/Codex 私有协议的直接依赖。
+- [x] Kun adapter 保留 AgentLoop、pre-exec tool host、ToolStormBreaker、request history hygiene 等原生能力。
+- [x] Codex adapter 保留 app-server 原生 sandbox、approval、file change、thread、session、JSON-RPC 生命周期。
+- [x] Adapter 只负责协议转换、事件归一化、能力声明和错误封装，不承载业务治理策略。
+- [x] 新 runtime 接入时只需实现 `AgentRuntimeAdapter`、声明 capability、接入事件归一化和 replay。
+- [x] 删除 adapter 外部对 Kun/Codex 私有协议的直接依赖。
 
 ## P7：冗余链路清理
 
-- [ ] 删除入口层或 UI 层重复的 runtime 分支策略，只保留 capability 驱动的唯一逻辑。
-- [ ] 删除与公共治理层重复的 turn queue、timeout、tool storm、状态收束实现。
-- [ ] 删除 Kun-only 文案、设置名和测试断言中的过时命名。
-- [ ] 确保所有 LLM 相关请求仍只通过 model router 或 agent runtime。
+- [x] 删除入口层或 UI 层重复的 runtime 分支策略，只保留 capability 驱动的唯一逻辑。
+- [x] 删除与公共治理层重复的 turn queue、timeout、tool storm、状态收束实现。
+- [x] 删除 Kun-only 文案、设置名和测试断言中的过时命名。
+- [x] 确保所有 LLM 相关请求仍只通过 model router 或 agent runtime。
 
 ## 回归测试
 
-- [ ] 公共层单测覆盖 turn 排队、预算、状态收束、synthetic event 持久化顺序。
-- [ ] 公共层单测覆盖工具事件 fingerprint、软阈值 steer、硬阈值 interrupt。
-- [ ] Kun 回归测试确认已有 ToolStormBreaker 不被公共层重复 suppress。
-- [ ] Codex 回归测试用重复同族命令事件验证不会无限执行工具。
-- [ ] Claw/Discord/Feishu 端到端测试覆盖值守入口的工具循环保护和更严格预算。
-- [ ] 设置迁移测试覆盖旧字段读取、新字段写回、UI 文案不再依赖 Kun-only 命名。
-- [ ] typecheck 和相关单测通过。
+- [x] 公共层单测覆盖 turn 排队、预算、状态收束、synthetic event 持久化顺序。
+- [x] 公共层单测覆盖工具事件 fingerprint、软阈值 steer、硬阈值 interrupt。
+- [x] Kun 回归测试确认已有 ToolStormBreaker 不被公共层重复 suppress。
+- [x] Codex 回归测试用重复同族命令事件验证不会无限执行工具。
+- [x] Claw/Discord/Feishu 端到端测试覆盖值守入口的工具循环保护和更严格预算。
+- [x] 设置迁移测试覆盖旧字段读取、新字段写回、UI 文案不再依赖 Kun-only 命名。
+- [x] typecheck 和相关单测通过。
 
 ## 验收标准
 

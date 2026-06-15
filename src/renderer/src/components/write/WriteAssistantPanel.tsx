@@ -9,7 +9,7 @@ import {
   X
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { AgentProviderCapabilities, RuntimeConnectionStatus, ChatBlock } from '../../agent/types'
+import type { AgentProviderCapabilities, AttachmentReference, RuntimeConnectionStatus, ChatBlock } from '../../agent/types'
 import type { QueuedUserMessage } from '../../store/chat-store-types'
 import type { ModelProviderModelGroup } from '@shared/ds-gui-api'
 import {
@@ -18,7 +18,10 @@ import {
 } from '../../write/write-workspace-store'
 import type { WriteQuotedSelection } from '../../write/quoted-selection'
 import { MessageTimeline } from '../chat/MessageTimeline'
-import { FloatingComposer } from '../chat/FloatingComposer'
+import {
+  FloatingComposer,
+  type ComposerImageAttachmentInput
+} from '../chat/FloatingComposer'
 import type { ComposerReasoningEffort } from '../chat/FloatingComposerModelPicker'
 
 type Props = {
@@ -40,6 +43,13 @@ type Props = {
   setComposerReasoningEffort: (effort: ComposerReasoningEffort) => void
   queuedMessages: QueuedUserMessage[]
   removeQueuedMessage: (id: string) => void
+  attachments?: AttachmentReference[]
+  attachmentUploadEnabled?: boolean
+  attachmentUploadBusy?: boolean
+  attachmentUploadError?: string | null
+  onPickAttachments?: (attachments: ComposerImageAttachmentInput[]) => void
+  onPasteClipboardImage?: (options?: { silentNoImage?: boolean }) => void | Promise<void>
+  onRemoveAttachment?: (id: string) => void
   onSend: () => void
   onInterrupt: (options?: { discard?: boolean }) => void
   runtimeCapabilities?: AgentProviderCapabilities
@@ -82,6 +92,13 @@ export function WriteAssistantPanel({
   setComposerReasoningEffort,
   queuedMessages,
   removeQueuedMessage,
+  attachments = [],
+  attachmentUploadEnabled = false,
+  attachmentUploadBusy = false,
+  attachmentUploadError = null,
+  onPickAttachments,
+  onPasteClipboardImage,
+  onRemoveAttachment,
   onSend,
   onInterrupt,
   runtimeCapabilities,
@@ -278,6 +295,13 @@ export function WriteAssistantPanel({
           modelPickerMode="combobox"
           queuedMessages={queuedMessages}
           onRemoveQueuedMessage={removeQueuedMessage}
+          attachments={attachments}
+          attachmentUploadEnabled={attachmentUploadEnabled}
+          attachmentUploadBusy={attachmentUploadBusy}
+          attachmentUploadError={attachmentUploadError}
+          onPickAttachments={onPickAttachments}
+          onPasteClipboardImage={onPasteClipboardImage}
+          onRemoveAttachment={onRemoveAttachment}
           onSend={onSend}
           onInterrupt={onInterrupt}
           runtimeCapabilities={runtimeCapabilities}

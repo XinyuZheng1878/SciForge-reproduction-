@@ -1,32 +1,5 @@
 import { z } from 'zod'
 import {
-  KUN_APPROVAL_TEMPLATE,
-  KUN_ATTACHMENT_CONTENT_TEMPLATE,
-  KUN_ATTACHMENT_DIAGNOSTICS_TEMPLATE,
-  KUN_ATTACHMENTS_TEMPLATE,
-  KUN_ATTACHMENT_TEMPLATE,
-  KUN_HEALTH_TEMPLATE,
-  KUN_MEMORY_DIAGNOSTICS_TEMPLATE,
-  KUN_MEMORY_RECORD_TEMPLATE,
-  KUN_MEMORY_TEMPLATE,
-  KUN_RUNTIME_INFO_TEMPLATE,
-  KUN_RUNTIME_TOOLS_TEMPLATE,
-  KUN_SESSION_RESUME_TEMPLATE,
-  KUN_SKILLS_TEMPLATE,
-  KUN_THREADS_TEMPLATE,
-  KUN_THREAD_COMPACT_TEMPLATE,
-  KUN_THREAD_FORK_TEMPLATE,
-  KUN_THREAD_GOAL_TEMPLATE,
-  KUN_THREAD_REVIEW_TEMPLATE,
-  KUN_THREAD_TODOS_TEMPLATE,
-  KUN_THREAD_INTERRUPT_TEMPLATE,
-  KUN_THREAD_STEER_TEMPLATE,
-  KUN_THREAD_TURNS_TEMPLATE,
-  KUN_THREAD_TEMPLATE,
-  KUN_USER_INPUT_TEMPLATE,
-  KUN_USAGE_TEMPLATE
-} from '../../shared/kun-endpoints'
-import {
   CLAW_MODEL_IDS,
   MODEL_ENDPOINT_FORMATS,
   SCHEDULE_MODEL_IDS,
@@ -79,85 +52,6 @@ export function isSafeOpenExternalUrl(value: string): boolean {
 
 export const defaultPathSchema = optionalTrimmedString(MAX_PATH_LENGTH)
 
-interface EndpointTemplate {
-  /** Compiled path matcher. */
-  match(path: string): boolean
-  allowedMethods: readonly string[]
-}
-
-function compileEndpoint(
-  template: string,
-  allowedMethods: readonly string[]
-): EndpointTemplate {
-  // Build a regex from the template by escaping the literal parts and
-  // substituting the `{id}` / `{turn}` placeholders with `[^/]+`. The
-  // template fragments are URL-encoded by the path helpers, so they
-  // contain only characters that are safe to escape directly.
-  const pattern = template.replace(/[.+*?^$()|[\]\\]/g, '\\$&').replace(/\{(?:id|turn)\}/g, '[^/]+')
-  const regex = new RegExp(`^${pattern}$`)
-  return {
-    match: (path: string) => regex.test(path),
-    allowedMethods
-  }
-}
-
-const ENDPOINTS: readonly EndpointTemplate[] = [
-  compileEndpoint(KUN_HEALTH_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_RUNTIME_INFO_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_RUNTIME_TOOLS_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_SKILLS_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_ATTACHMENTS_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_ATTACHMENT_DIAGNOSTICS_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_ATTACHMENT_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_ATTACHMENT_CONTENT_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_MEMORY_TEMPLATE, ['GET', 'POST']),
-  compileEndpoint(KUN_MEMORY_DIAGNOSTICS_TEMPLATE, ['GET']),
-  compileEndpoint(KUN_MEMORY_RECORD_TEMPLATE, ['PATCH', 'DELETE']),
-  compileEndpoint(KUN_THREADS_TEMPLATE, ['GET', 'POST']),
-  compileEndpoint(KUN_THREAD_TEMPLATE, ['GET', 'PATCH', 'DELETE']),
-  compileEndpoint(KUN_THREAD_FORK_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_THREAD_GOAL_TEMPLATE, ['GET', 'POST', 'DELETE']),
-  compileEndpoint(KUN_THREAD_TODOS_TEMPLATE, ['GET', 'POST', 'DELETE']),
-  compileEndpoint(KUN_THREAD_COMPACT_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_THREAD_REVIEW_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_THREAD_TURNS_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_THREAD_STEER_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_THREAD_INTERRUPT_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_APPROVAL_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_USER_INPUT_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_SESSION_RESUME_TEMPLATE, ['POST']),
-  compileEndpoint(KUN_USAGE_TEMPLATE, ['GET'])
-]
-
-function isAllowedRuntimeRequest(value: { path: string; method?: string }): boolean {
-  try {
-    const url = new URL(value.path, 'http://localhost')
-    const path = url.pathname
-    const method = value.method ?? 'GET'
-    for (const endpoint of ENDPOINTS) {
-      if (endpoint.match(path)) {
-        return endpoint.allowedMethods.includes(method)
-      }
-    }
-    return false
-  } catch {
-    return false
-  }
-}
-
-export const runtimeRequestPayloadSchema = z
-  .object({
-    path: trimmedString(MAX_URL_LENGTH).transform((value) =>
-      value.startsWith('/') ? value : `/${value}`
-    ),
-    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
-    body: z.string().max(MAX_BODY_BYTES).optional()
-  })
-  .refine((payload) => isAllowedRuntimeRequest(payload), {
-    message: 'runtime request path is not allowed'
-  })
-  .strict()
-
 const localeSchema = z.enum(['en', 'zh'])
 const themeSchema = z.enum(['system', 'light', 'dark'])
 const uiFontScaleSchema = z.enum(['small', 'medium', 'large'])
@@ -208,6 +102,7 @@ const agentThreadIdsSchema = z.object({
   kun: z.string().max(MAX_ID_LENGTH).optional(),
   codex: z.string().max(MAX_ID_LENGTH).optional()
 }).strict()
+const agentRuntimeGovernanceProfileSchema = z.enum(['default', 'write', 'remote_guard'])
 
 export const agentRuntimeConnectPayloadSchema = z.object({
   runtimeId: agentRuntimeIdSchema.optional()
@@ -243,6 +138,7 @@ export const agentRuntimeStartTurnPayloadSchema = z.object({
   mode: z.string().trim().max(64).optional(),
   model: z.string().trim().max(128).optional(),
   reasoningEffort: z.string().trim().max(64).optional(),
+  governanceProfile: agentRuntimeGovernanceProfileSchema.optional(),
   displayText: z.string().trim().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
   guiPlan: z.object({
     operation: z.enum(['draft', 'refine']),
@@ -433,11 +329,6 @@ const kunRuntimePatchSchema = z.object({
     summaryInputMaxBytes: z.number().int().positive().max(8 * 1024 * 1024).optional()
   }).strict().optional(),
   runtimeTuning: z.object({
-    toolStorm: z.object({
-      enabled: z.boolean().optional(),
-      windowSize: z.number().int().positive().max(128).optional(),
-      threshold: z.number().int().min(2).max(128).optional()
-    }).strict().optional(),
     toolArgumentRepair: z.object({
       maxStringBytes: z.number().int().positive().max(16 * 1024 * 1024).optional()
     }).strict().optional()
@@ -454,6 +345,20 @@ const codexRuntimePatchSchema = z.object({
   approvalPolicy: approvalPolicySchema.optional(),
   sandboxMode: sandboxModeSchema.optional(),
   extraArgs: z.array(z.string().trim().min(1).max(512)).max(64).optional()
+}).strict()
+
+const runtimeGuardPatchSchema = z.object({
+  toolStorm: z.object({
+    enabled: z.boolean().optional(),
+    windowSize: z.number().int().positive().max(256).optional(),
+    softThreshold: z.number().int().min(2).max(128).optional(),
+    hardThreshold: z.number().int().min(2).max(256).optional()
+  }).strict().optional(),
+  budgets: z.object({
+    defaultMaxToolEvents: z.number().int().positive().max(10_000).optional(),
+    writeMaxToolEvents: z.number().int().positive().max(10_000).optional(),
+    remoteGuardMaxToolEvents: z.number().int().positive().max(10_000).optional()
+  }).strict().optional()
 }).strict()
 
 const logPatchSchema = z.object({
@@ -745,6 +650,7 @@ const settingsPatchObjectSchema = z.object({
   uiFontScale: uiFontScaleSchema.optional(),
   provider: modelProviderPatchSchema.optional(),
   modelRouter: modelRouterPatchSchema.optional(),
+  runtimeGuards: runtimeGuardPatchSchema.optional(),
   activeAgentRuntime: agentRuntimeIdSchema.optional(),
   agents: z.object({
     kun: kunRuntimePatchSchema.optional(),
@@ -1139,15 +1045,6 @@ export const clawImInstallPollPayloadSchema = z
   .object({
     provider: clawImOfficialInstallProviderSchema,
     deviceCode: trimmedString(MAX_DEVICE_CODE_LENGTH)
-  })
-  .strict()
-
-export const sseStartPayloadSchema = z
-  .object({
-    runtimeId: agentRuntimeIdSchema.optional(),
-    threadId: trimmedString(MAX_ID_LENGTH),
-    sinceSeq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-    streamId: optionalTrimmedString(MAX_ID_LENGTH)
   })
   .strict()
 

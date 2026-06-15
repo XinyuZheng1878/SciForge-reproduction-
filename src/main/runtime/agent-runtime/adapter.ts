@@ -129,6 +129,10 @@ export type AgentRuntimeAdapter = {
     context: AgentRuntimeAdapterContext,
     input: AgentRuntimeEventSubscribeInput
   ): AsyncIterable<AgentRuntimeEvent>
+  publishSyntheticEvent?(
+    context: AgentRuntimeAdapterContext,
+    event: AgentRuntimeEvent
+  ): Promise<AgentRuntimeEvent>
 
   resolveApproval?(
     context: AgentRuntimeAdapterContext,

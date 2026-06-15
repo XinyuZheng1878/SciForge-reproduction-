@@ -33,7 +33,8 @@ describe('MessageTimeline initial heatmap empty hero routing', () => {
   it('shows the Kun heatmap for eligible initial chat states', () => {
     const html = renderHero()
 
-    expect(html).toContain('Kun usage')
+    expect(html).toContain('ds-initial-usage-heatmap')
+    expect(html).toContain('Preparing your usage calendar')
     expect(html).not.toContain('Start a new conversation')
   })
 
@@ -47,7 +48,7 @@ describe('MessageTimeline initial heatmap empty hero routing', () => {
     expect(clawHtml).toContain('Start a conversation with this assistant')
     expect(clawHtml).toContain('ds-claw-empty-whale-logo')
     expect(clawHtml).toContain('ds-work-logo')
-    expect(clawHtml).not.toContain('Kun usage')
+    expect(clawHtml).not.toContain('ds-initial-usage-heatmap')
   })
 
   it('shows the runtime error in the offline hero when one is available', () => {

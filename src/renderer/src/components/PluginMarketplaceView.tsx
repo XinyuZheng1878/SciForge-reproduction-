@@ -1115,7 +1115,7 @@ function marketplaceSourceTone(tone: MarketplaceItem['statusTone']): string {
 
 function runtimeOverlayErrorMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : String(error)
-  return /runtimeRequest|dsGui|Cannot read properties/i.test(message) ? fallback : message
+  return /dsGui|Cannot read properties/i.test(message) ? fallback : message
 }
 
 function PluginSection({

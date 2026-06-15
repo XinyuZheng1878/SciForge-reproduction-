@@ -963,7 +963,7 @@
   "runtimeUnhealthy": "本地运行时当前不可用。请检查端口、令牌或运行状态。",
   "runtimeAuthRequired": "本地运行时要求 Bearer Token 才能访问会话接口。请在设置中填写运行时令牌，或重启 GUI 让它重新管理本地运行时。",
   "runtimePortConflict": "运行时端口已被占用。请释放该端口，或在设置中更换端口。",
-  "runtimeRequestFailed": "运行时请求失败。请稍后重试。",
+  "runtimeActionFailed": "运行时操作失败。请稍后重试。",
   "runtimeSteerUnsupported": "当前运行时不支持运行中追加输入。",
   "runtimeUserInputUnsupported": "当前运行时尚未暴露 request_user_input 的 HTTP 提交接口。",
   "workspaceRequiredToCreateThread": "请先选择一个工作目录，然后再创建会话。",

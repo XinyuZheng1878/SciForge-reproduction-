@@ -239,7 +239,7 @@ describe('chat-store-side-actions', () => {
   beforeEach(() => {
     ;(globalThis as { window?: unknown }).window = {
       dsGui: {
-        runtimeRequest: vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))
+        forbiddenDirectCall: vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))
       }
     }
   })
@@ -355,13 +355,10 @@ describe('chat-store-side-actions', () => {
   it('promoteSideConversation clears the relation through the provider and refreshes the thread list', async () => {
     const { actions, state, provider } = buildHarness()
     const id = (await actions.spawnSideConversation())!
-    const runtimeRequest = globalThis.window.dsGui.runtimeRequest as ReturnType<typeof vi.fn>
-    runtimeRequest.mockClear()
 
     await actions.promoteSideConversation(id)
 
     expect(provider.updateRelationMock).toHaveBeenCalledWith(id, 'primary')
-    expect(runtimeRequest).not.toHaveBeenCalled()
     expect(provider.refreshThreadsMock).toHaveBeenCalled()
     expect(state.sideConversations[id]).toBeUndefined()
   })

@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { EventEmitter } from 'node:events'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { PassThrough } from 'node:stream'
+import { describe, expect, it, vi } from 'vitest'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,6 +17,7 @@ import {
 } from '../shared/app-settings'
 import {
   buildModelRouterSidecarLaunch,
+  ensureModelRouterSidecar,
   ensureModelRouterConfigFile,
   modelRouterConfigPath
 } from './model-router-sidecar'
@@ -70,6 +74,7 @@ describe('buildModelRouterSidecarLaunch', () => {
   it('builds a dev workspace launch without writing provider secrets into config', () => {
     const result = buildModelRouterSidecarLaunch(settings(), {
       userDataDir: '/tmp/deepseek-gui-user-data',
+      appRoot: '/repo/deepseek-gui',
       env: {},
       npmCommand: 'npm'
     })
@@ -77,6 +82,7 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.launch.command).toBe('npm')
+    expect(result.launch.cwd).toBe('/repo/deepseek-gui')
     expect(result.launch.args).toEqual([
       '--workspace',
       '@sciforge/model-router',
@@ -166,4 +172,106 @@ describe('buildModelRouterSidecarLaunch', () => {
       await rm(userDataDir, { recursive: true, force: true })
     }
   })
+
+  it('spawns from the explicit app root and logs sidecar output and unexpected exits', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-router-sidecar-'))
+    const current = settings()
+    current.modelRouter!.baseUrl = 'http://127.0.0.1:45987/v1'
+    const child = fakeChildProcess()
+    const spawnImpl = vi.fn(() => child) as unknown as typeof spawn
+    const log = vi.fn()
+
+    try {
+      await ensureModelRouterSidecar(current, {
+        userDataDir,
+        appRoot: '/repo/deepseek-gui',
+        env: {},
+        spawnImpl,
+        log
+      })
+
+      expect(spawnImpl).toHaveBeenCalledWith(
+        'npm',
+        expect.arrayContaining(['--workspace', '@sciforge/model-router']),
+        expect.objectContaining({
+          cwd: '/repo/deepseek-gui',
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+      )
+
+      child.stderr?.emit('data', Buffer.from('router boot failed\n'))
+      child.emit('exit', 1, null)
+
+      expect(log).toHaveBeenCalledWith('Starting Model Router sidecar from /repo/deepseek-gui.')
+      expect(log).toHaveBeenCalledWith('Model Router sidecar stderr: router boot failed')
+      expect(log).toHaveBeenCalledWith('Model Router sidecar exited unexpectedly (code=1, signal=null).')
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true })
+    }
+  })
+
+  it('reuses matching sidecars and restarts when managed launch settings change', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-router-sidecar-restart-'))
+    const firstChild = fakeChildProcess()
+    const secondChild = fakeChildProcess()
+    const children = [firstChild, secondChild]
+    const spawnImpl = vi.fn(() => children.shift() ?? fakeChildProcess()) as unknown as typeof spawn
+    const log = vi.fn()
+
+    try {
+      const firstSettings = settings()
+      firstSettings.modelRouter!.baseUrl = 'http://127.0.0.1:45988/v1'
+      await ensureModelRouterSidecar(firstSettings, {
+        userDataDir,
+        appRoot: '/repo/deepseek-gui',
+        env: {},
+        spawnImpl,
+        log
+      })
+      await ensureModelRouterSidecar(firstSettings, {
+        userDataDir,
+        appRoot: '/repo/deepseek-gui',
+        env: {},
+        spawnImpl,
+        log
+      })
+
+      const secondSettings = settings()
+      secondSettings.modelRouter!.baseUrl = 'http://127.0.0.1:45988/v1'
+      secondSettings.modelRouter!.runtimeApiKey = 'local-runtime-key-2'
+      await ensureModelRouterSidecar(secondSettings, {
+        userDataDir,
+        appRoot: '/repo/deepseek-gui',
+        env: {},
+        spawnImpl,
+        log
+      })
+
+      expect(spawnImpl).toHaveBeenCalledTimes(2)
+      expect(firstChild.kill).toHaveBeenCalledWith('SIGTERM')
+      expect(log).toHaveBeenCalledWith('Model Router sidecar launch settings changed; restarting sidecar.')
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true })
+    }
+  })
 })
+
+function fakeChildProcess(): ChildProcess {
+  const child = new EventEmitter() as ChildProcess & {
+    stdout: NonNullable<ChildProcess['stdout']>
+    stderr: NonNullable<ChildProcess['stderr']>
+    exitCode: number | null
+    signalCode: NodeJS.Signals | null
+  }
+  child.stdout = new PassThrough()
+  child.stderr = new PassThrough()
+  child.exitCode = null
+  child.signalCode = null
+  child.kill = vi.fn((signal?: NodeJS.Signals | number) => {
+    child.exitCode = 0
+    child.signalCode = typeof signal === 'string' ? signal : null
+    child.emit('exit', child.exitCode, child.signalCode)
+    return true
+  }) as unknown as ChildProcess['kill']
+  return child
+}

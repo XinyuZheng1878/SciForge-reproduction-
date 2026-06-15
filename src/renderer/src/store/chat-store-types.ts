@@ -19,6 +19,7 @@ import type {
   AgentRuntimeId,
   ClawModel
 } from '@shared/app-settings'
+import type { AgentRuntimeGovernanceProfile } from '@shared/agent-runtime-contract'
 import type { ModelProviderModelGroup } from '@shared/ds-gui-api'
 
 export type QueuedUserMessage = {
@@ -28,6 +29,10 @@ export type QueuedUserMessage = {
   text: string
   displayText?: string
   mode?: string
+  sourceRoute?: AppRoute
+  targetThreadId?: string
+  workspaceRoot?: string
+  governanceProfile?: AgentRuntimeGovernanceProfile
   model?: string
   modelLabel?: string
   reasoningEffort?: string
@@ -69,6 +74,10 @@ export type SendMessageOverrides = {
   modelLabel?: string
   reasoningEffort?: string
   displayText?: string
+  sourceRoute?: AppRoute
+  targetThreadId?: string
+  workspaceRoot?: string
+  governanceProfile?: AgentRuntimeGovernanceProfile
   guiPlan?: GuiPlanMessageContext
   attachmentIds?: string[]
   attachments?: AttachmentReference[]

@@ -48,7 +48,6 @@ import {
   buildClawImAttachmentFallbackText,
   clawFailureError,
   clawFailureFromError,
-  clawFailureFromRuntimeResult,
   clawFailureResult,
   clawImAttachmentFromGeneratedFile,
   clawConversationKey,
@@ -77,7 +76,6 @@ import {
   remoteMessageDedupeKey,
   replyTextForGeneratedFiles,
   runClawImProviderRetry,
-  runtimeErrorMessage,
   sanitizePathSegment,
   shouldDirectSendExistingGeneratedFilesForPrompt,
   splitClawImReplyText,
@@ -87,8 +85,7 @@ import {
   type ClawRuntimeDeps,
   type IncomingImChatType,
   type RunPromptOptions,
-  type ThreadDetailJson,
-  type ThreadRecordJson
+  type ThreadDetailJson
 } from './claw-runtime-helpers'
 
 const MAX_RECENT_REMOTE_MESSAGE_IDS = 2_000
@@ -96,8 +93,8 @@ const MAX_RECENT_REMOTE_MESSAGE_TEXT_LENGTH = 500
 const RECENT_REMOTE_MESSAGE_TTL_MS = 24 * 60 * 60_000
 const ATTACH_CURRENT_ACTIVE_TTL_MS = 10 * 60_000
 const AGENT_RUNTIME_INTERRUPT_TIMEOUT_MS = 5_000
-const UNSUPPORTED_RUNTIME_REQUEST_MESSAGE =
-  'unsupported_runtime_request: Legacy runtime:request is Kun-only. Use agentRuntime IPC for Codex.'
+const UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE =
+  'unsupported_runtime_request: AgentRuntimeHost is required for Claw runtime requests.'
 
 type FeishuClawChannel = ClawImChannelV1 & {
   platformCredential: ClawImFeishuPlatformCredentialV1
@@ -154,12 +151,6 @@ function hasFeishuPlatformCredential(channel: ClawImChannelV1): channel is Feish
   return channel.platformCredential?.kind === 'feishu' &&
     !!channel.platformCredential.appId.trim() &&
     !!channel.platformCredential.appSecret.trim()
-}
-
-function isMissingThreadResult(result: { ok: boolean; status: number; body: string }): boolean {
-  if (result.ok) return false
-  const message = runtimeErrorMessage(result, '').toLowerCase()
-  return result.status === 404 && message.includes('thread') && message.includes('not found')
 }
 
 function isMissingThreadError(error: unknown): boolean {
@@ -311,9 +302,9 @@ function shortThreadId(threadId: string): string {
   return threadId.length > 12 ? `${threadId.slice(0, 8)}...${threadId.slice(-4)}` : threadId
 }
 
-function unsupportedRuntimeRequestRunResult(): ClawRunResult {
+function unsupportedAgentRuntimeHostRunResult(): ClawRunResult {
   return clawFailureResult({
-    message: UNSUPPORTED_RUNTIME_REQUEST_MESSAGE,
+    message: UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE,
     kind: 'runtime_offline'
   })
 }
@@ -699,7 +690,6 @@ export class ClawRuntime {
   private feishuChannels = new Map<string, LarkChannel>()
   private feishuChannelKeys = new Map<string, string>()
   private remoteMessageQueues = new Map<string, Promise<unknown>>()
-  private localThreadTurnQueues = new Map<string, Promise<unknown>>()
   private recentRemoteMessageWriteQueue = Promise.resolve()
   private recentRemoteMessageIds = new Map<string, number>()
   private feishuSyncVersion = 0
@@ -798,221 +788,8 @@ export class ClawRuntime {
     const runtimeId = normalizeAgentRuntimeId(options.runtimeId)
     const requestedModel = normalizeTaskModel(options.model) ?? DEFAULT_CLAW_MODEL
     const model = effectiveImRuntimeModel(settings, requestedModel, runtimeId)
-    if (runtimeId !== 'kun') {
-      return this.runAgentRuntimePrompt(settings, { ...options, model }, runtimeId, workspace, existingThreadId)
-    }
-    const createThread = async (): Promise<ThreadRecordJson | null> => {
-      const create = await this.deps.runtimeRequest(settings, '/v1/threads', {
-        method: 'POST',
-        body: JSON.stringify({ workspace, model, mode: options.mode })
-      }, runtimeId)
-      if (!create.ok) return null
-      return JSON.parse(create.body) as ThreadRecordJson
-    }
-    const patchThreadTitle = (thread: ThreadRecordJson): void => {
-      if (!options.title.trim()) return
-      void this.deps.runtimeRequest(settings, `/v1/threads/${encodeURIComponent(thread.id)}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ title: options.title.trim() })
-      }, runtimeId)
-    }
-    let thread: ThreadRecordJson | null
-    try {
-      thread = existingThreadId ? { id: existingThreadId } : await createThread()
-    } catch (error) {
-      return clawFailureFromError(error, 'Failed to create thread.')
-    }
-    if (!thread) {
-      return clawFailureResult({
-        message: 'Failed to create thread.',
-        kind: 'runtime_offline'
-      })
-    }
-    if (!existingThreadId) patchThreadTitle(thread)
-
-    const runtimePrompt = buildClawRuntimePrompt(settings, options.prompt, { channel: options.channel })
-    const displayText = options.displayText?.trim() || parseClawUserPromptForDisplay(options.prompt).text
-    const turnBody: Record<string, unknown> = {
-      prompt: runtimePrompt,
-      mode: options.mode
-    }
-    if (displayText && displayText !== runtimePrompt) turnBody.displayText = displayText
-    if (model) turnBody.model = model
-    let replacementPreviousThreadId: string | undefined
-    let turn: { ok: boolean; status: number; body: string }
-    try {
-      turn = await this.startRuntimeTurn(settings, thread.id, turnBody, runtimeId)
-    } catch (error) {
-      return clawFailureFromError(error, 'Failed to start turn.')
-    }
-    if (!turn.ok && existingThreadId && isMissingThreadResult(turn)) {
-      if (options.source === 'im') {
-        this.deps.logError('claw-runtime', 'Configured IM thread was missing; asking remote user to rebind.', {
-          threadId: existingThreadId,
-          channelId: options.channel?.id,
-          source: options.source
-        })
-        return clawFailureResult({
-          message: imLocalThreadDeletedText(settings),
-          kind: 'local_thread_deleted',
-          details: {
-            threadId: existingThreadId,
-            channelId: options.channel?.id,
-            runtimeId
-          }
-        })
-      }
-      this.deps.logError('claw-runtime', 'Configured IM thread was missing; creating a replacement thread.', {
-        threadId: existingThreadId,
-        channelId: options.channel?.id,
-        source: options.source
-      })
-      replacementPreviousThreadId = existingThreadId
-      try {
-        thread = await createThread()
-      } catch (error) {
-        return clawFailureFromError(error, 'Failed to create thread.')
-      }
-      if (!thread) {
-        return clawFailureResult({
-          message: 'Failed to create thread.',
-          kind: 'runtime_offline'
-        })
-      }
-      patchThreadTitle(thread)
-      try {
-        turn = await this.startRuntimeTurn(settings, thread.id, turnBody, runtimeId)
-      } catch (error) {
-        return clawFailureFromError(error, 'Failed to start turn.')
-      }
-    }
-    if (!turn.ok) return clawFailureFromRuntimeResult(turn, 'Failed to start turn.')
-
-    const parsedTurn = parseJsonObject(turn.body)
-    const turnId = asString(parsedTurn?.turnId) || asString(nestedRecord(parsedTurn?.turn).id)
-    if (!turnId) {
-      return clawFailureResult({
-        message: 'Failed to start turn: missing turn id.',
-        kind: 'runtime_offline'
-      })
-    }
-    if (turnId && options.onTurnStarted) {
-      await options.onTurnStarted({
-        threadId: thread.id,
-        turnId,
-        ...(replacementPreviousThreadId ? { previousThreadId: replacementPreviousThreadId } : {})
-      })
-    }
-    if (!options.waitForResult) {
-      return { ok: true, threadId: thread.id, turnId, message: 'Started' }
-    }
-
-    let result: { text: string; files: ClawGeneratedFileV1[] }
-    try {
-      result = await this.waitForAssistantResult(
-        settings,
-        thread.id,
-        turnId,
-        options.responseTimeoutMs,
-        workspace,
-        runtimeId
-      )
-    } catch (error) {
-      return clawFailureFromError(error, 'Failed to wait for agent response.')
-    }
-    return {
-      ok: true,
-      threadId: thread.id,
-      turnId,
-      text: result.text,
-      message: result.text || 'Completed',
-      files: result.files
-    }
-  }
-
-  private startRuntimeTurn(
-    settings: AppSettingsV1,
-    threadId: string,
-    turnBody: Record<string, unknown>,
-    runtimeId: AgentRuntimeId = 'kun'
-  ): Promise<{ ok: boolean; status: number; body: string }> {
-    return this.deps.runtimeRequest(
-      settings,
-      `/v1/threads/${encodeURIComponent(threadId)}/turns`,
-      { method: 'POST', body: JSON.stringify(turnBody) },
-      runtimeId
-    )
-  }
-
-  private async waitForAssistantResult(
-    settings: AppSettingsV1,
-    threadId: string,
-    turnId: string,
-    timeoutMs: number,
-    workspaceRoot?: string,
-    runtimeId: AgentRuntimeId = 'kun'
-  ): Promise<{ text: string; files: ClawGeneratedFileV1[] }> {
-    const deadline = Date.now() + timeoutMs
-    let lastText = ''
-    let lastDetail: ThreadDetailJson | null = null
-    while (Date.now() < deadline) {
-      await sleep(1_500)
-      const detailRes = await this.deps.runtimeRequest(
-        settings,
-        `/v1/threads/${encodeURIComponent(threadId)}`,
-        { method: 'GET' },
-        runtimeId
-      )
-      if (!detailRes.ok) {
-        const failure = clawFailureFromRuntimeResult(detailRes, 'Failed to read thread result.')
-        throw clawFailureError(failure.failureKind, failure.message, failure.details)
-      }
-      const detail = JSON.parse(detailRes.body) as ThreadDetailJson
-      lastDetail = detail
-      lastText = latestAssistantText(detail, { turnId }) || lastText
-      const targetTurn = Array.isArray(detail.turns)
-        ? detail.turns.find((turn) => turn.id === turnId)
-        : undefined
-      if (!targetTurn) continue
-      if (isRunningStatus(targetTurn.status)) {
-        if (hasPendingDesktopApproval(detail, { turnId })) {
-          throw clawFailureError(
-            'waiting_desktop_approval',
-            'Waiting for desktop approval before Claw can continue.',
-            { threadId, turnId, runtimeId }
-          )
-        }
-        continue
-      }
-      if (isFailedStatus(targetTurn.status)) {
-        const error = targetTurn.error?.trim()
-        throw new Error(error || `Agent turn ${targetTurn.status}.`)
-      }
-      if (isCompletedStatus(targetTurn.status)) {
-        if (lastText) {
-          return {
-            text: lastText,
-            files: latestGeneratedFiles(detail, { turnId, workspaceRoot })
-          }
-        }
-        throw clawFailureError('empty_response', 'Agent completed without a reply.', {
-          threadId,
-          turnId,
-          runtimeId
-        })
-      }
-    }
-    if (lastText && lastDetail) {
-      return {
-        text: lastText,
-        files: latestGeneratedFiles(lastDetail, { turnId, workspaceRoot })
-      }
-    }
-    throw clawFailureError('timeout', 'Timed out waiting for agent response.', {
-      threadId,
-      turnId,
-      runtimeId
-    })
+    if (!this.deps.agentRuntime) return unsupportedAgentRuntimeHostRunResult()
+    return this.runAgentRuntimePrompt(settings, { ...options, model }, runtimeId, workspace, existingThreadId)
   }
 
   private async runAgentRuntimePrompt(
@@ -1023,7 +800,7 @@ export class ClawRuntime {
     existingThreadId?: string
   ): Promise<ClawRunResult> {
     const agentRuntime = this.deps.agentRuntime
-    if (!agentRuntime) return unsupportedRuntimeRequestRunResult()
+    if (!agentRuntime) return unsupportedAgentRuntimeHostRunResult()
     const model = normalizeTaskModel(options.model)
     const createThread = (): Promise<{ id: string }> =>
       agentRuntime.startThread({
@@ -1049,6 +826,7 @@ export class ClawRuntime {
       workspace,
       mode: options.mode,
       model,
+      governanceProfile: 'remote_guard',
       ...(displayText && displayText !== runtimePrompt ? { displayText } : {})
     })
 
@@ -1141,7 +919,7 @@ export class ClawRuntime {
     runtimeId: AgentRuntimeId
   ): Promise<{ text: string; files: ClawGeneratedFileV1[] }> {
     const agentRuntime = this.deps.agentRuntime
-    if (!agentRuntime) throw new Error(UNSUPPORTED_RUNTIME_REQUEST_MESSAGE)
+    if (!agentRuntime) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
     const deadline = Date.now() + timeoutMs
     let lastText = ''
     let lastDetail: ThreadDetailJson | null = null
@@ -1369,24 +1147,12 @@ export class ClawRuntime {
   }
 
   private async readThreadDetailForRuntime(
-    settings: AppSettingsV1,
     runtimeId: AgentRuntimeId,
     threadId: string
   ): Promise<ThreadDetailJson> {
-    if (runtimeId !== 'kun') {
-      if (!this.deps.agentRuntime) throw new Error(UNSUPPORTED_RUNTIME_REQUEST_MESSAGE)
-      return this.deps.agentRuntime.readThread({ runtimeId, threadId }) as Promise<ThreadDetailJson>
-    }
-    const detailRes = await this.deps.runtimeRequest(
-      settings,
-      `/v1/threads/${encodeURIComponent(threadId)}`,
-      { method: 'GET' },
-      runtimeId
-    )
-    if (!detailRes.ok) {
-      throw new Error(runtimeErrorMessage(detailRes, 'Failed to read thread.'))
-    }
-    return JSON.parse(detailRes.body) as ThreadDetailJson
+    const agentRuntime = this.deps.agentRuntime
+    if (!agentRuntime) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
+    return agentRuntime.readThread({ runtimeId, threadId }) as Promise<ThreadDetailJson>
   }
 
   private async incomingSummaryText(
@@ -1403,7 +1169,7 @@ export class ClawRuntime {
     const context = await this.resolveIncomingCommandContext({ settings, ...input })
     if (!context.threadId) return imNoThreadText(settings)
     try {
-      const detail = await this.readThreadDetailForRuntime(context.settings, context.runtimeId, context.threadId)
+      const detail = await this.readThreadDetailForRuntime(context.runtimeId, context.threadId)
       const summary = latestThreadSummaryText(detail)
       if (summary) {
         return isChineseLocale(settings)
@@ -1496,7 +1262,7 @@ export class ClawRuntime {
         : `No local thread is bound to the current remote conversation yet.\n- Queue: ${queue}`
     }
     try {
-      const detail = await this.readThreadDetailForRuntime(context.settings, context.runtimeId, context.threadId)
+      const detail = await this.readThreadDetailForRuntime(context.runtimeId, context.threadId)
       const turns = Array.isArray(detail.turns) ? detail.turns : []
       const running = turns.filter((turn) => isRunningStatus(turn.status)).length
       const failed = turns.filter((turn) => isFailedStatus(turn.status)).length
@@ -1748,37 +1514,11 @@ export class ClawRuntime {
 
   private async listRuntimeThreads(
     runtimeId: AgentRuntimeId,
-    workspaceRoot: string
+    _workspaceRoot: string
   ): Promise<AgentRuntimeThread[]> {
-    if (this.deps.agentRuntime?.listThreads) {
-      return this.deps.agentRuntime.listThreads({ runtimeId, limit: 50, includeArchived: true })
-    }
-    const settings = await this.deps.store.load()
-    const result = await this.deps.runtimeRequest(
-      settings,
-      `/v1/threads?limit=50&workspace=${encodeURIComponent(workspaceRoot)}`,
-      { method: 'GET' },
-      runtimeId
-    )
-    if (!result.ok) throw new Error(runtimeErrorMessage(result, 'Failed to list threads.'))
-    const parsed = parseJsonObject(result.body)
-    const rawThreads = Array.isArray(parsed?.threads) ? parsed.threads : []
-    return rawThreads
-      .map((thread): AgentRuntimeThread | null => {
-        if (typeof thread !== 'object' || thread === null || Array.isArray(thread)) return null
-        const record = thread as Record<string, unknown>
-        const id = asString(record.id)
-        if (!id) return null
-        return {
-          id,
-          runtimeId,
-          title: asString(record.title) || id,
-          updatedAt: asString(record.updatedAt) || asString(record.updated_at) || '',
-          workspace: asString(record.workspace) || asString(record.workspaceRoot),
-          status: asString(record.status)
-        }
-      })
-      .filter((thread): thread is AgentRuntimeThread => thread !== null)
+    const listThreads = this.deps.agentRuntime?.listThreads
+    if (!listThreads) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
+    return listThreads({ runtimeId, limit: 50, includeArchived: true })
   }
 
   private async incomingThreadsText(
@@ -1996,51 +1736,16 @@ export class ClawRuntime {
     const title = input.title.trim() || (isChineseLocale(settings) ? '远端新会话' : 'Remote conversation')
     let threadId = ''
     try {
-      if (runtimeId !== 'kun') {
-        if (!this.deps.agentRuntime) throw new Error(UNSUPPORTED_RUNTIME_REQUEST_MESSAGE)
-        const thread = await this.deps.agentRuntime.startThread({
-          runtimeId,
-          workspace: workspaceRoot,
-          title,
-          mode: currentSettings.claw.im.mode,
-          model: normalizeTaskModel(currentImModel(currentSettings, currentChannel))
-        })
-        threadId = thread.id.trim()
-      } else {
-        const model = effectiveImRuntimeModel(
-          currentSettings,
-          currentImModel(currentSettings, currentChannel),
-          runtimeId
-        )
-        const created = await this.deps.runtimeRequest(currentSettings, '/v1/threads', {
-          method: 'POST',
-          body: JSON.stringify({
-            workspace: workspaceRoot,
-            model,
-            mode: currentSettings.claw.im.mode
-          })
-        }, runtimeId)
-        if (!created.ok) {
-          const failure = clawFailureFromRuntimeResult(created, 'Failed to create thread.')
-          await this.rememberIncomingImFailure({
-            provider: input.provider,
-            channel: currentChannel,
-            conversation: currentConversation,
-            remoteSession: session,
-            runtimeId,
-            failure
-          })
-          return failure.message
-        }
-        const parsed = parseJsonObject(created.body)
-        threadId = asString(parsed?.id) || asString(nestedRecord(parsed?.thread).id)
-        if (threadId && title) {
-          void this.deps.runtimeRequest(currentSettings, `/v1/threads/${encodeURIComponent(threadId)}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ title })
-          }, runtimeId)
-        }
-      }
+      const agentRuntime = this.deps.agentRuntime
+      if (!agentRuntime) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
+      const thread = await agentRuntime.startThread({
+        runtimeId,
+        workspace: workspaceRoot,
+        title,
+        mode: currentSettings.claw.im.mode,
+        model: normalizeTaskModel(currentImModel(currentSettings, currentChannel))
+      })
+      threadId = thread.id.trim()
     } catch (error) {
       const failure = clawFailureFromError(error, 'Failed to create thread.')
       await this.rememberIncomingImFailure({
@@ -2482,9 +2187,7 @@ export class ClawRuntime {
         })
       }
     })
-    const result = initialThreadId
-      ? await this.runInLocalThreadTurnQueue(runtimeId, initialThreadId, run)
-      : await run()
+    const result = await run()
     if (!result.ok) {
       await this.rememberIncomingImFailure({
         provider,
@@ -2928,34 +2631,22 @@ export class ClawRuntime {
     const targetThreadId = threadId.trim()
     if (!targetThreadId) return []
     try {
-      if (runtimeId !== 'kun') {
-        if (!this.deps.agentRuntime) return []
-        const detail = await this.deps.agentRuntime.readThread({ runtimeId, threadId: targetThreadId }) as ThreadDetailJson
-        return latestGeneratedFiles(detail, {
-          workspaceRoot,
-          maxFiles: 3
-        })
-      }
-      const detailRes = await this.deps.runtimeRequest(
-        settings,
-        `/v1/threads/${encodeURIComponent(targetThreadId)}`,
-        { method: 'GET' },
-        runtimeId
-      )
-      if (!detailRes.ok) {
-        this.deps.logError('claw-feishu', 'Failed to read recent generated files from Kun thread', {
+      const agentRuntime = this.deps.agentRuntime
+      if (!agentRuntime) {
+        this.deps.logError('claw-feishu', 'Skipped generated file lookup without AgentRuntimeHost.', {
           ...context,
-          threadId: targetThreadId,
-          message: runtimeErrorMessage(detailRes, 'Failed to read thread result.')
+          runtimeId,
+          threadId: targetThreadId
         })
         return []
       }
-      return latestGeneratedFiles(JSON.parse(detailRes.body) as ThreadDetailJson, {
+      const detail = await agentRuntime.readThread({ runtimeId, threadId: targetThreadId }) as ThreadDetailJson
+      return latestGeneratedFiles(detail, {
         workspaceRoot,
         maxFiles: 3
       })
     } catch (error) {
-      this.deps.logError('claw-feishu', 'Failed to inspect Kun thread for recent generated files', {
+      this.deps.logError('claw-feishu', 'Failed to inspect runtime thread for recent generated files', {
         ...context,
         threadId: targetThreadId,
         message: errorMessage(error)
@@ -3678,29 +3369,6 @@ export class ClawRuntime {
       .finally(() => {
         if (this.remoteMessageQueues.get(queueKey) === queued) {
           this.remoteMessageQueues.delete(queueKey)
-        }
-      })
-      .catch(() => undefined)
-    return queued
-  }
-
-  private runInLocalThreadTurnQueue<T>(
-    runtimeId: AgentRuntimeId,
-    threadId: string,
-    task: () => Promise<T>
-  ): Promise<T> {
-    const normalizedThreadId = threadId.trim()
-    if (!normalizedThreadId) return task()
-    const queueKey = `${runtimeId}:${normalizedThreadId}`
-    const previous = this.localThreadTurnQueues.get(queueKey) ?? Promise.resolve()
-    const queued = previous
-      .catch(() => undefined)
-      .then(task)
-    this.localThreadTurnQueues.set(queueKey, queued)
-    void queued
-      .finally(() => {
-        if (this.localThreadTurnQueues.get(queueKey) === queued) {
-          this.localThreadTurnQueues.delete(queueKey)
         }
       })
       .catch(() => undefined)

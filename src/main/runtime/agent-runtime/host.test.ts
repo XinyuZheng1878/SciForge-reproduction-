@@ -14,7 +14,8 @@ import type {
   AgentRuntimeEvent,
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse,
-  AgentRuntimeThread
+  AgentRuntimeThread,
+  AgentRuntimeTurnHandle
 } from '../../../shared/agent-runtime-contract'
 import type { CodexRuntimeService } from '../codex'
 import type { AgentRuntimeAdapter, AgentRuntimeAdapterContext } from './adapter'
@@ -97,6 +98,9 @@ function capabilities(runtimeId: 'kun' | 'codex'): AgentRuntimeCapabilities {
       todos: false,
       resumeSession: false
     },
+    guard: {
+      toolStorm: runtimeId === 'kun' ? 'native' : 'observe'
+    },
     storage: {
       guiOwnedThreads: false,
       backendThreadIdStable: false,
@@ -135,12 +139,44 @@ function fakeAdapter(id: 'kun' | 'codex', thread: AgentRuntimeThread): AgentRunt
         runtimeId: id,
         seq: input.sinceSeq
       } satisfies AgentRuntimeEvent
-    })
+    }),
+    publishSyntheticEvent: vi.fn(async (_ctx, event) => event)
   }
 }
 
 function json(body: unknown, status = 200): { ok: boolean; status: number; body: string } {
   return { ok: status >= 200 && status < 300, status, body: JSON.stringify(body) }
+}
+
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (error: unknown) => void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+function commandToolEvent(command: string, index: number): AgentRuntimeEvent {
+  return {
+    kind: 'tool_event',
+    runtimeId: 'codex',
+    threadId: 'codex-thread',
+    turnId: 'turn-1',
+    itemId: `tool-${index}`,
+    status: 'running',
+    toolKind: 'command_execution',
+    summary: command,
+    meta: {
+      toolName: 'local_shell',
+      command
+    }
+  }
 }
 
 describe('AgentRuntimeHost', () => {
@@ -217,6 +253,431 @@ describe('AgentRuntimeHost', () => {
 
     expect(events).toEqual([{ kind: 'heartbeat', threadId: 'kun-thread', runtimeId: 'kun', seq: 4 }])
     expect(kun.subscribeEvents).toHaveBeenCalled()
+  })
+
+  it('observes repeated tool activity and escalates Codex guard controls', async () => {
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(codex.subscribeEvents).mockImplementation(async function* (_ctx, input) {
+      for (let index = 1; index <= 3; index += 1) {
+        yield {
+          kind: 'tool_event',
+          runtimeId: 'codex',
+          threadId: input.threadId,
+          turnId: 'turn-1',
+          itemId: `tool-${index}`,
+          status: 'running',
+          toolKind: 'command_execution',
+          summary: 'date',
+          meta: {
+            toolName: 'local_shell',
+            command: 'date'
+          }
+        } satisfies AgentRuntimeEvent
+      }
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        runtimeGuards: {
+          toolStorm: {
+            enabled: true,
+            windowSize: 8,
+            softThreshold: 2,
+            hardThreshold: 3
+          },
+          budgets: {
+            defaultMaxToolEvents: 80,
+            writeMaxToolEvents: 96,
+            remoteGuardMaxToolEvents: 32
+          }
+        }
+      }),
+      adapters: [codex]
+    })
+
+    const events: AgentRuntimeEvent[] = []
+    for await (const event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      sinceSeq: 0
+    })) {
+      events.push(event)
+    }
+    await Promise.resolve()
+
+    expect(events).toHaveLength(3)
+    expect(codex.steerTurn).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        turnId: 'turn-1'
+      })
+    )
+    expect(codex.interruptTurn).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        turnId: 'turn-1',
+        discard: false
+      })
+    )
+    expect(codex.publishSyntheticEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'runtime_status',
+        metadata: expect.objectContaining({ guard: 'toolStorm' })
+      })
+    )
+  })
+
+  it('does not escalate repeated running updates for the same Codex tool call', async () => {
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(codex.subscribeEvents).mockImplementation(async function* (_ctx, input) {
+      for (let index = 1; index <= 3; index += 1) {
+        yield {
+          kind: 'tool_event',
+          runtimeId: 'codex',
+          threadId: input.threadId,
+          turnId: 'turn-1',
+          itemId: 'shell-call-1',
+          status: 'running',
+          toolKind: 'command_execution',
+          summary: 'date',
+          detail: `progress ${index}`,
+          meta: {
+            callId: 'shell-call-1',
+            toolName: 'local_shell',
+            command: 'date'
+          }
+        } satisfies AgentRuntimeEvent
+      }
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        runtimeGuards: {
+          toolStorm: {
+            enabled: true,
+            windowSize: 8,
+            softThreshold: 2,
+            hardThreshold: 3
+          },
+          budgets: {
+            defaultMaxToolEvents: 80,
+            writeMaxToolEvents: 96,
+            remoteGuardMaxToolEvents: 32
+          }
+        }
+      }),
+      adapters: [codex]
+    })
+
+    const events: AgentRuntimeEvent[] = []
+    for await (const event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      sinceSeq: 0
+    })) {
+      events.push(event)
+    }
+    await Promise.resolve()
+
+    expect(events.map((event) => event.itemId)).toEqual(['shell-call-1', 'shell-call-1', 'shell-call-1'])
+    expect(codex.steerTurn).not.toHaveBeenCalled()
+    expect(codex.interruptTurn).not.toHaveBeenCalled()
+    expect(codex.publishSyntheticEvent).not.toHaveBeenCalled()
+  })
+
+  it('escalates repeated same-family Codex commands in persisted synthetic event order', async () => {
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const commands = ['cat package.json', 'sed -n 1,20p package.json', 'head -n 5 package.json']
+    vi.mocked(codex.subscribeEvents).mockImplementation(async function* () {
+      for (const [index, command] of commands.entries()) {
+        yield commandToolEvent(command, index + 1)
+      }
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        runtimeGuards: {
+          toolStorm: {
+            enabled: true,
+            windowSize: 8,
+            softThreshold: 2,
+            hardThreshold: 3
+          },
+          budgets: {
+            defaultMaxToolEvents: 80,
+            writeMaxToolEvents: 96,
+            remoteGuardMaxToolEvents: 32
+          }
+        }
+      }),
+      adapters: [codex]
+    })
+
+    const events: AgentRuntimeEvent[] = []
+    for await (const event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      sinceSeq: 0
+    })) {
+      events.push(event)
+    }
+    await vi.waitFor(() => {
+      expect(codex.publishSyntheticEvent).toHaveBeenCalledTimes(2)
+    })
+
+    expect(events.map((event) => event.itemId)).toEqual(['tool-1', 'tool-2', 'tool-3'])
+    expect(codex.steerTurn).toHaveBeenCalledTimes(1)
+    expect(codex.interruptTurn).toHaveBeenCalledTimes(1)
+    expect(codex.publishSyntheticEvent).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'runtime_status',
+        metadata: expect.objectContaining({
+          synthetic: true,
+          guard: 'toolStorm',
+          level: 'soft',
+          family: 'command_execution:shell/read-file'
+        })
+      })
+    )
+    expect(codex.publishSyntheticEvent).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'runtime_status',
+        metadata: expect.objectContaining({
+          synthetic: true,
+          guard: 'toolStorm',
+          level: 'hard',
+          family: 'command_execution:shell/read-file'
+        })
+      })
+    )
+  })
+
+  it('uses the tool-event budget as a hard stop without an extra soft steer', async () => {
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(codex.subscribeEvents).mockImplementation(async function* () {
+      yield commandToolEvent('date', 1)
+      yield commandToolEvent('pwd', 2)
+      yield commandToolEvent('ls', 3)
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        runtimeGuards: {
+          toolStorm: {
+            enabled: true,
+            windowSize: 8,
+            softThreshold: 10,
+            hardThreshold: 20
+          },
+          budgets: {
+            defaultMaxToolEvents: 2,
+            writeMaxToolEvents: 96,
+            remoteGuardMaxToolEvents: 32
+          }
+        }
+      }),
+      adapters: [codex]
+    })
+
+    for await (const _event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      sinceSeq: 0
+    })) {
+      // exhaust stream
+    }
+    await vi.waitFor(() => {
+      expect(codex.interruptTurn).toHaveBeenCalledTimes(1)
+    })
+
+    expect(codex.steerTurn).not.toHaveBeenCalled()
+    expect(codex.publishSyntheticEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          level: 'hard',
+          family: 'tool-budget'
+        })
+      })
+    )
+  })
+
+  it('does not run observe tool-storm controls for native-guard runtimes', async () => {
+    const kun = fakeAdapter('kun', {
+      id: 'kun-thread',
+      runtimeId: 'kun',
+      title: 'Kun',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(kun.subscribeEvents).mockImplementation(async function* (_ctx, input) {
+      for (let index = 1; index <= 4; index += 1) {
+        yield {
+          kind: 'tool_event',
+          runtimeId: 'kun',
+          threadId: input.threadId,
+          turnId: 'turn-1',
+          itemId: `tool-${index}`,
+          status: 'running',
+          toolKind: 'command_execution',
+          summary: 'date',
+          meta: {
+            toolName: 'local_shell',
+            command: 'date'
+          }
+        } satisfies AgentRuntimeEvent
+      }
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('kun'),
+        runtimeGuards: {
+          toolStorm: {
+            enabled: true,
+            windowSize: 8,
+            softThreshold: 2,
+            hardThreshold: 3
+          },
+          budgets: {
+            defaultMaxToolEvents: 80,
+            writeMaxToolEvents: 96,
+            remoteGuardMaxToolEvents: 32
+          }
+        }
+      }),
+      adapters: [kun]
+    })
+
+    for await (const _event of host.subscribeEvents({
+      runtimeId: 'kun',
+      threadId: 'kun-thread',
+      sinceSeq: 0
+    })) {
+      // exhaust stream
+    }
+    await Promise.resolve()
+
+    expect(kun.steerTurn).not.toHaveBeenCalled()
+    expect(kun.interruptTurn).not.toHaveBeenCalled()
+    expect(kun.publishSyntheticEvent).not.toHaveBeenCalled()
+  })
+
+  it('queues turn starts per thread until the previous start has settled', async () => {
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(codex.readThread).mockResolvedValue({
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z',
+      latestSeq: 0,
+      turns: []
+    })
+    const first = deferred<AgentRuntimeTurnHandle>()
+    vi.mocked(codex.startTurn)
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ threadId: 'codex-thread', turnId: 'turn-2' })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [codex]
+    })
+
+    const firstStart = host.startTurn({ runtimeId: 'codex', threadId: 'codex-thread', text: 'first' })
+    const secondStart = host.startTurn({ runtimeId: 'codex', threadId: 'codex-thread', text: 'second' })
+    await vi.waitFor(() => {
+      expect(codex.startTurn).toHaveBeenCalledTimes(1)
+    })
+
+    first.resolve({ threadId: 'codex-thread', turnId: 'turn-1' })
+    await expect(firstStart).resolves.toEqual({ threadId: 'codex-thread', turnId: 'turn-1' })
+    await expect(secondStart).resolves.toEqual({ threadId: 'codex-thread', turnId: 'turn-2' })
+    expect(codex.startTurn).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({ text: 'first' })
+    )
+    expect(codex.startTurn).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({ text: 'second' })
+    )
+  })
+
+  it('waits for active turn states and starts when the thread converges to terminal', async () => {
+    vi.useFakeTimers()
+    try {
+      const codex = fakeAdapter('codex', {
+        id: 'codex-thread',
+        runtimeId: 'codex',
+        title: 'Codex',
+        updatedAt: '2026-06-10T00:00:00.000Z'
+      })
+      vi.mocked(codex.readThread)
+        .mockResolvedValueOnce({
+          id: 'codex-thread',
+          runtimeId: 'codex',
+          title: 'Codex',
+          updatedAt: '2026-06-10T00:00:00.000Z',
+          latestSeq: 1,
+          turns: [{ id: 'turn-1', threadId: 'codex-thread', status: 'running' }]
+        })
+        .mockResolvedValueOnce({
+          id: 'codex-thread',
+          runtimeId: 'codex',
+          title: 'Codex',
+          updatedAt: '2026-06-10T00:00:00.000Z',
+          latestSeq: 2,
+          turns: [{ id: 'turn-1', threadId: 'codex-thread', status: 'completed' }]
+        })
+      vi.mocked(codex.startTurn).mockResolvedValueOnce({ threadId: 'codex-thread', turnId: 'turn-2' })
+      const host = createAgentRuntimeHost({
+        settings: async () => settings('codex'),
+        adapters: [codex]
+      })
+
+      const start = host.startTurn({ runtimeId: 'codex', threadId: 'codex-thread', text: 'next' })
+      await Promise.resolve()
+      expect(codex.startTurn).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      await expect(start).resolves.toEqual({ threadId: 'codex-thread', turnId: 'turn-2' })
+      expect(codex.readThread).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('routes neutral usage queries through the selected adapter', async () => {

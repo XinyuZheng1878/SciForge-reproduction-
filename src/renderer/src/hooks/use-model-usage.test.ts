@@ -1,16 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as modelUsage from './use-model-usage'
-import type { RuntimeRequestResult } from '@shared/ds-gui-api'
 
 type AgentRuntimeUsage = (input: unknown) => Promise<unknown>
 
 function setAgentRuntimeUsage(agentRuntimeUsage: AgentRuntimeUsage): void {
-  const runtimeRequest = vi.fn<(...args: unknown[]) => Promise<RuntimeRequestResult>>()
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
       dsGui: {
-        runtimeRequest,
         agentRuntime: {
           usage: agentRuntimeUsage
         }
@@ -127,7 +124,6 @@ describe('model usage helpers', () => {
       to: '2026-05-01',
       timezone: 'UTC'
     })
-    expect(window.dsGui.runtimeRequest).not.toHaveBeenCalled()
   })
 
   it('returns null when the active runtime reports model usage as unsupported', async () => {

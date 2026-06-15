@@ -743,10 +743,14 @@ export function createNavigationActions(
         displayThreads = [activeRuntimeSddThread, ...displayThreads]
       }
       const writeWorkspaceRoots = await readWriteWorkspaceRoots()
+      const writeRegistrySourceThreads = activeRuntimePendingThread &&
+        !threads.some((thread) => thread.id === activeRuntimePendingThread.id)
+        ? [activeRuntimePendingThread, ...threads]
+        : threads
       const writeRegistry = hydrateWriteThreadRegistry(
-        displayThreads,
+        writeRegistrySourceThreads,
         writeWorkspaceRoots,
-        pruneWriteThreadRegistry(displayThreads, readWriteThreadRegistry(), activeRuntime),
+        pruneWriteThreadRegistry(writeRegistrySourceThreads, readWriteThreadRegistry(), activeRuntime),
         activeRuntime
       )
       saveWriteThreadRegistry(writeRegistry)

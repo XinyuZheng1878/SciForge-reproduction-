@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatBlock } from '../agent/types'
 import {
   hasPendingRuntimeWork,
+  settlePendingRuntimeWorkAfterCompletion,
   settlePendingRuntimeWorkAfterInterrupt,
   threadSnapshotLooksRunning
 } from './chat-store-runtime-helpers'
@@ -81,6 +82,40 @@ describe('chat-store-runtime-helpers compaction state', () => {
       'error',
       'cancelled',
       'success'
+    ])
+    expect(settled.some(hasPendingRuntimeWork)).toBe(false)
+  })
+
+  it('settles local pending work after a completed turn without marking tools as failed', () => {
+    const blocks: ChatBlock[] = [
+      {
+        kind: 'tool',
+        id: 'tool-running',
+        summary: 'Running tool',
+        status: 'running',
+        toolKind: 'tool_call'
+      },
+      {
+        kind: 'review',
+        id: 'review-running',
+        title: 'Review',
+        status: 'running'
+      },
+      {
+        kind: 'user_input',
+        id: 'input-pending',
+        requestId: 'input-1',
+        questions: [],
+        status: 'pending'
+      }
+    ]
+
+    const settled = settlePendingRuntimeWorkAfterCompletion(blocks)
+
+    expect(settled.map((block) => ('status' in block ? block.status : ''))).toEqual([
+      'success',
+      'success',
+      'cancelled'
     ])
     expect(settled.some(hasPendingRuntimeWork)).toBe(false)
   })

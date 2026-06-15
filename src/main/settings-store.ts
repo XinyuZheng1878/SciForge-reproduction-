@@ -14,6 +14,7 @@ import {
   defaultKunRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
+  defaultRuntimeGuardSettings,
   defaultScheduleSettings,
   getCodexRuntimeSettings,
   getKunRuntimeSettings,
@@ -22,6 +23,7 @@ import {
   mergeKunRuntimeSettings,
   mergeModelRouterSettings,
   mergeModelProviderSettings,
+  mergeRuntimeGuardSettings,
   defaultWriteSettings,
   mergeClawSettings,
   mergeScheduleSettings,
@@ -227,6 +229,7 @@ const defaultSettings = (): AppSettingsV1 => ({
   uiFontScale: 'small',
   provider: defaultModelProviderSettings(),
   modelRouter: defaultModelRouterSettings(),
+  runtimeGuards: defaultRuntimeGuardSettings(),
   activeAgentRuntime: 'kun',
   agents: {
     kun: defaultKunRuntimeSettings(),
@@ -259,6 +262,7 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
     ...migrated,
     provider: mergeModelProviderSettings(defaults.provider, migrated.provider),
     modelRouter: mergeModelRouterSettings(defaults.modelRouter, migrated.modelRouter),
+    runtimeGuards: mergeRuntimeGuardSettings(defaults.runtimeGuards, migrated.runtimeGuards),
     activeAgentRuntime: normalizeAgentRuntimeId(migrated.activeAgentRuntime ?? defaults.activeAgentRuntime),
     agents: {
       ...kunSettingsEnvelope(
@@ -428,6 +432,7 @@ export class JsonSettingsStore {
       agents: agentsPatch,
       provider: providerPatch,
       modelRouter: modelRouterPatch,
+      runtimeGuards: runtimeGuardsPatch,
       speechToText: speechToTextPatch,
       ...restPatch
     } = partial
@@ -436,6 +441,7 @@ export class JsonSettingsStore {
       ...restPatch,
       provider: mergeModelProviderSettings(cur.provider, providerPatch),
       modelRouter: mergeModelRouterSettings(cur.modelRouter, modelRouterPatch),
+      runtimeGuards: mergeRuntimeGuardSettings(cur.runtimeGuards, runtimeGuardsPatch),
       log: { ...cur.log, ...(partial.log ?? {}) },
       notifications: { ...cur.notifications, ...(partial.notifications ?? {}) },
       appBehavior: normalizeAppBehaviorSettings({

@@ -33,7 +33,7 @@ import {
   type AppSettingsPatch,
   type AppSettingsV1
 } from '../shared/app-settings'
-import { parseRuntimeErrorBody, runtimeErrorToError, type RuntimeErrorCode } from '../shared/runtime-error'
+import { runtimeErrorToError, type RuntimeErrorCode } from '../shared/runtime-error'
 import type { GuiUpdateState } from '../shared/gui-update'
 import { isAllowedDevPreviewUrl } from '../shared/dev-preview-url'
 import { fetchUpstreamModelIds } from './upstream-models'
@@ -42,9 +42,8 @@ import {
   kunRuntimeAdapter,
   getRuntimeBaseUrlForSettings,
   runtimeAuthHeaders,
-  runtimeRequestViaHost as kunRuntimeRequestViaHost
+  kunHttpRequestViaHost
 } from './runtime/kun-adapter'
-import { runtimeRequestViaRuntimeHost } from './runtime/runtime-host'
 import { createAgentRuntimeHost } from './runtime/agent-runtime/host'
 import { createKunAgentRuntimeAdapter } from './runtime/kun-agent-runtime-adapter'
 import { createCodexAgentRuntimeAdapter } from './runtime/codex/codex-agent-runtime-adapter'
@@ -69,7 +68,7 @@ import {
   startFeishuInstallQrcode,
   startWeixinInstallQrcode
 } from './claw-platform-install'
-import { kunRuntimeEvents, registerRuntimeSseIpc } from './runtime-sse-ipc'
+import { kunRuntimeEvents } from './runtime-sse-ipc'
 import {
   CodexRuntimeService,
   type CodexRuntimeEventSink
@@ -188,6 +187,8 @@ let scheduleRuntime: ScheduleRuntime | null = null
 let codexRuntime: CodexRuntimeService | null = null
 let managedRuntimesStoppedForQuit = false
 let managedRuntimesStopPromise: Promise<void> | null = null
+type RuntimeIdleListThreads = NonNullable<Parameters<typeof waitForRuntimeTurnsIdle>[0]['listThreads']>
+let runtimeIdleListThreads: RuntimeIdleListThreads | null = null
 let appBehavior: AppBehaviorConfigV1 = normalizeAppBehaviorSettings()
 let tray: Tray | null = null
 let isQuitting = false
@@ -514,45 +515,6 @@ async function showTurnCompleteNotification(
       threadId: payload.threadId
     })
     return { ok: false, message }
-  }
-}
-
-async function probeThreadApi(settings: AppSettingsV1): Promise<
-  | { ok: true }
-  | { ok: false; error: string; message: string }
-> {
-  const base = getRuntimeBaseUrlForSettings(settings)
-  const headers = runtimeAuthHeaders(settings)
-  headers.set('Accept', 'application/json')
-
-  try {
-    const res = await fetch(`${base}/v1/threads?limit=1`, {
-      headers,
-      signal: AbortSignal.timeout(2_000)
-    })
-    if (res.ok) return { ok: true }
-    const info = parseRuntimeErrorBody(
-      await res.text(),
-      'The local runtime returned an unexpected error.'
-    )
-    if (res.status === 401 && /bearer token required/i.test(info.message)) {
-      return {
-        ok: false,
-        error: 'runtime_auth_required',
-        message: 'The local runtime requires a bearer token for thread APIs.'
-      }
-    }
-    return {
-      ok: false,
-      error: info.code === 'unknown' ? 'runtime_request_failed' : info.code,
-      message: info.message
-    }
-  } catch (e) {
-    return {
-      ok: false,
-      error: 'fetch_failed',
-      message: e instanceof Error ? e.message : String(e)
-    }
   }
 }
 
@@ -984,12 +946,8 @@ async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
 
   const healthy = await waitForKunHealth(settings, 2_000)
   if (healthy) {
-    const threadApi = await probeThreadApi(settings)
-    if (threadApi.ok) {
-      noteRuntimeHealthy('ensure')
-      return
-    }
-    throw runtimeJsonError(threadApi.error, threadApi.message)
+    noteRuntimeHealthy('ensure')
+    return
   }
 
   if (!hasApiKey) {
@@ -1018,10 +976,6 @@ async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
       )
     }
 
-    const threadApi = await probeThreadApi(launchSettings)
-    if (!threadApi.ok) {
-      throw runtimeJsonError(threadApi.error, threadApi.message)
-    }
     noteRuntimeHealthy('ensure')
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
@@ -1085,10 +1039,6 @@ async function restartRuntimeOnce(settings: AppSettingsV1): Promise<void> {
     )
   }
 
-  const threadApi = await probeThreadApi(launchSettings)
-  if (!threadApi.ok) {
-    throw runtimeJsonError(threadApi.error, threadApi.message)
-  }
   noteRuntimeHealthy('restart')
 }
 
@@ -1280,33 +1230,13 @@ async function waitForManagedRuntimeReadyBeforeStop(
     logWarn(source, 'Kun did not become healthy before a managed restart; stopping it anyway')
     return
   }
-  const idle = await waitForRuntimeTurnsIdle({ settings })
+  const idle = await waitForRuntimeTurnsIdle({
+    listThreads: runtimeIdleListThreads ?? undefined
+  })
   if (idle === 'timeout') {
     logWarn(source, 'Kun still has running turns after waiting; stopping it anyway')
   } else if (idle === 'unavailable') {
     logWarn(source, 'Could not verify Kun turn idleness before a managed restart; stopping it anyway')
-  }
-}
-
-async function runtimeRequest(
-  settings: AppSettingsV1,
-  pathAndQuery: string,
-  init: { method?: string; body?: string; headers?: Record<string, string> },
-  runtimeId?: AgentRuntimeId
-): Promise<{ ok: boolean; status: number; body: string }> {
-  try {
-    return await runtimeRequestViaRuntimeHost(settings, pathAndQuery, init, {
-      ensureKunRuntime: ensureRuntime,
-      kunRequest: kunRuntimeRequestViaHost
-    }, runtimeId)
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    logError('runtime-request', `HTTP request to ${pathAndQuery} failed`, { message })
-    const parsed = parseRuntimeErrorBody(message, message)
-    if (parsed.code !== 'unknown' || parsed.message !== message) {
-      return runtimeFailure(parsed.code, parsed.message, 0, parsed.details)
-    }
-    return runtimeFailure('fetch_failed', message)
   }
 }
 
@@ -1349,6 +1279,7 @@ app.whenReady().then(async () => {
   traceStartup('logger configured')
   void ensureModelRouterSidecar(initial, {
     userDataDir: app.getPath('userData'),
+    appRoot: app.getAppPath(),
     log: (message) => logWarn('model-router', message)
   }).catch((error) => {
     logWarn('model-router', 'Failed to auto-start Model Router.', {
@@ -1360,14 +1291,20 @@ app.whenReady().then(async () => {
     adapters: [
       createKunAgentRuntimeAdapter({
         request: async (settings, pathAndQuery, init) =>
-          kunRuntimeRequestViaHost(settings, pathAndQuery, init, ensureRuntime),
+          kunHttpRequestViaHost(settings, pathAndQuery, init, ensureRuntime),
         events: kunRuntimeEvents
       }),
       createCodexAgentRuntimeAdapter(getCodexRuntime())
     ]
   })
+  runtimeIdleListThreads = (input) => agentRuntimeHost.listThreads(input)
 
-  scheduleRuntime = createScheduleRuntime({ store, runtimeRequest, logError, powerSaveBlocker })
+  scheduleRuntime = createScheduleRuntime({
+    store,
+    agentRuntime: agentRuntimeHost,
+    logError,
+    powerSaveBlocker
+  })
   scheduleRuntime.sync(initial)
   discordBotRuntime = createDiscordBotRuntime({
     store,
@@ -1386,7 +1323,6 @@ app.whenReady().then(async () => {
   })
   clawRuntime = createClawRuntime({
     store,
-    runtimeRequest,
     agentRuntime: agentRuntimeHost,
     getActiveThreadContext: () => clawActiveThreadContext,
     logError,
@@ -1453,6 +1389,7 @@ app.whenReady().then(async () => {
     if (partial.modelRouter) {
       void ensureModelRouterSidecar(saved, {
         userDataDir: app.getPath('userData'),
+        appRoot: app.getAppPath(),
         log: (message) => logWarn('model-router', message)
       }).catch((error) => {
         logWarn('model-router', 'Failed to auto-start Model Router after settings change.', {
@@ -1500,10 +1437,6 @@ app.whenReady().then(async () => {
     store,
     getMainWindow: () => mainWindow,
     applySettingsPatch,
-    runtimeRequest: async (path, method, body) => {
-      const settings = await store.load()
-      return runtimeRequest(settings, path, { method, body })
-    },
     agentRuntime: agentRuntimeHost,
     fetchUpstreamModels: fetchModels,
     getClawRuntime: () => clawRuntime,
@@ -1550,7 +1483,6 @@ app.whenReady().then(async () => {
     console.warn('[deepseek-gui updater] failed to initialize on startup:', error)
   })
 
-  registerRuntimeSseIpc({ ipcMain, store, ensureRuntime, codexRuntime: getCodexRuntime, logError })
   traceStartup('ipc registration:done')
 
   createWindow({ suppressInitialShow: shouldStartHidden(initial) })

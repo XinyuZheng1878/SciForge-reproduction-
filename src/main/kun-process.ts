@@ -8,7 +8,9 @@ import { dirname, join } from 'node:path'
 import {
   defaultKunTokenEconomySettings,
   isKunRuntimeInsecure,
+  normalizeRuntimeGuardSettings,
   resolveKunRuntimeSettings,
+  type RuntimeGuardSettingsV1,
   type KunRuntimeSettingsV1,
   type AppSettingsV1
 } from '../shared/app-settings'
@@ -257,6 +259,7 @@ async function startKunChildOnce(
   }
   const dataDir = resolveKunDataDir(runtime)
   await syncGuiManagedKunConfig(dataDir, runtime, {
+    runtimeGuards: normalizeRuntimeGuardSettings(settings.runtimeGuards),
     scheduleMcp: {
       settings,
       launch: {
@@ -350,6 +353,7 @@ export async function syncGuiManagedKunConfig(
     'mcpSearch' | 'tokenEconomy' | 'storage' | 'contextCompaction' | 'runtimeTuning'
   >,
   options?: {
+    runtimeGuards?: RuntimeGuardSettingsV1
     scheduleMcp?: {
       settings: AppSettingsV1
       launch: ClawScheduleMcpLaunchConfig
@@ -389,7 +393,7 @@ export async function syncGuiManagedKunConfig(
     },
     models: modelConfigForRuntime(existingModels),
     contextCompaction: contextCompactionConfigForRuntime(runtime.contextCompaction, existingContextCompaction),
-    runtime: runtimeTuningConfigForRuntime(runtime.runtimeTuning, existingRuntimeTuning),
+    runtime: runtimeTuningConfigForRuntime(runtime.runtimeTuning, existingRuntimeTuning, options?.runtimeGuards),
     capabilities: {
       ...capabilities,
       attachments: {
@@ -679,17 +683,19 @@ function contextCompactionConfigForRuntime(
 
 function runtimeTuningConfigForRuntime(
   runtimeTuning: Pick<KunRuntimeSettingsV1, 'runtimeTuning'>['runtimeTuning'],
-  existing: Record<string, unknown>
+  existing: Record<string, unknown>,
+  runtimeGuards?: RuntimeGuardSettingsV1
 ): Record<string, unknown> {
   const existingToolStorm = objectValue(existing.toolStorm)
   const existingToolArgumentRepair = objectValue(existing.toolArgumentRepair)
+  const toolStorm = normalizeRuntimeGuardSettings(runtimeGuards).toolStorm
   return {
     ...existing,
     toolStorm: {
       ...existingToolStorm,
-      enabled: runtimeTuning.toolStorm.enabled,
-      windowSize: runtimeTuning.toolStorm.windowSize,
-      threshold: runtimeTuning.toolStorm.threshold
+      enabled: toolStorm.enabled,
+      windowSize: toolStorm.windowSize,
+      threshold: toolStorm.softThreshold
     },
     toolArgumentRepair: {
       ...existingToolArgumentRepair,

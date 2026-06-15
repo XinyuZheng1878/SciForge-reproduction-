@@ -722,11 +722,12 @@ export function FloatingComposer({
   const runtimeSupportsSkills = runtimeCapabilities?.skills !== false
   const showIntentToolbar = !compact && route === 'chat'
   const showComposerMenuButton = showIntentToolbar
+  const showStandaloneAttachmentButton = !showComposerMenuButton && attachmentUploadEnabled
   const canTogglePlanMode = canCompose && Boolean(onPlanCommand)
   const canOpenGoalPanel = canCompose && route !== 'claw' && runtimeSupportsGoals
   const canRunReview = canCompose && route !== 'claw' && runtimeSupportsReview && Boolean(onReviewCommand)
   const canOpenComposerMenu = showComposerMenuButton && (canTogglePlanMode || canOpenGoalPanel || canRunReview)
-  const showToolbarStartControls = showComposerMenuButton
+  const showToolbarStartControls = showComposerMenuButton || showStandaloneAttachmentButton
   const showChangeSummary =
     !compact &&
     route === 'chat' &&
@@ -2173,6 +2174,21 @@ export function FloatingComposer({
                       </span>
                     ) : null}
                   </>
+                ) : showStandaloneAttachmentButton ? (
+                  <button
+                    type="button"
+                    disabled={!canPickAttachment || !onPickAttachments}
+                    onClick={handleAttachmentMenuClick}
+                    className="ds-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45"
+                    aria-label={t('composerAddAttachment')}
+                    title={t('composerAddAttachment')}
+                  >
+                    {attachmentUploadBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.9} />
+                    ) : (
+                      <ImagePlus className="h-4 w-4" strokeWidth={1.9} />
+                    )}
+                  </button>
                 ) : null}
               </div>
             ) : null}

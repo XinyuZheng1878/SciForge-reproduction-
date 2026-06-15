@@ -24,7 +24,7 @@ type CodexChatBlockBase = {
 
 export type CodexChatBlock =
   | (CodexChatBlockBase & { kind: 'user'; text: string; displayText?: string })
-  | (CodexChatBlockBase & { kind: 'assistant'; text: string })
+  | (CodexChatBlockBase & { kind: 'assistant'; text: string; snapshot?: boolean })
   | (CodexChatBlockBase & { kind: 'reasoning'; text: string })
   | (CodexChatBlockBase & {
       kind: 'tool'
@@ -56,7 +56,7 @@ export type CodexThreadEventPayload = {
   threadId: string
   turnId?: string
   seq?: number
-  deltas?: Array<{ text: string; kind: 'agent_message' | 'agent_reasoning'; seq?: number }>
+  deltas?: Array<{ text: string; kind: 'agent_message' | 'agent_reasoning'; seq?: number; snapshot?: boolean }>
   userMessage?: {
     itemId: string
     turnId?: string

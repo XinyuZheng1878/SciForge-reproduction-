@@ -1,16 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as dailyUsage from './use-daily-usage'
-import type { RuntimeRequestResult } from '@shared/ds-gui-api'
 
 type AgentRuntimeUsage = (input: unknown) => Promise<unknown>
 
 function setAgentRuntimeUsage(agentRuntimeUsage: AgentRuntimeUsage): void {
-  const runtimeRequest = vi.fn<(...args: unknown[]) => Promise<RuntimeRequestResult>>()
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
       dsGui: {
-        runtimeRequest,
         agentRuntime: {
           usage: agentRuntimeUsage
         }
@@ -144,7 +141,6 @@ describe('daily usage helpers', () => {
       to: '2026-05-01',
       timezone: 'UTC'
     })
-    expect(window.dsGui.runtimeRequest).not.toHaveBeenCalled()
   })
 
   it('loads an empty usage response without inventing activity', async () => {

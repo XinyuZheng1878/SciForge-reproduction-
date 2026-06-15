@@ -139,7 +139,7 @@ export function describeRuntimeError(error: unknown): RuntimeErrorView {
   const redactedText = redactSecretText(text)
   const summary = localizedRuntimeSummary(errorCode, redactedText) ||
     redactedText ||
-    i18n.t('common:runtimeRequestFailed')
+    i18n.t('common:runtimeActionFailed')
   const details: string[] = []
   if (errorCode) details.push(`Code: ${errorCode}`)
   if (payload?.severity) details.push(`Severity: ${payload.severity}`)

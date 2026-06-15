@@ -23,6 +23,7 @@ import {
   collectAssistantTextForTurn,
   rememberProviderThreadRuntime,
   reconcileOptimisticUserBlock,
+  settlePendingRuntimeWorkAfterCompletion,
   settlePendingRuntimeWorkAfterInterrupt,
   threadSnapshotLooksRunning,
   upsertUserBlock
@@ -1065,7 +1066,7 @@ export function buildThreadEventSink(
         }
         const flushed = flushLiveBlocks(s)
         const baseBlocks = terminalStatus
-          ? settlePendingRuntimeWorkAfterInterrupt(flushed.blocks ?? s.blocks)
+          ? settlePendingRuntimeWorkAfterCompletion(flushed.blocks ?? s.blocks)
           : flushed.blocks ?? s.blocks
         const text = runtimeStatusText(ev)
         const block: ChatBlock = {
@@ -1199,7 +1200,7 @@ export function buildThreadEventSink(
           currentTurnUserId: null
         })
         if (s.busy) base.busy = false
-        base.blocks = settlePendingRuntimeWorkAfterInterrupt(base.blocks ?? s.blocks)
+        base.blocks = settlePendingRuntimeWorkAfterCompletion(base.blocks ?? s.blocks)
         const id = s.activeThreadId
         if (id) {
           const w = { ...s.watchTurnCompletion }

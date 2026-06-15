@@ -7,6 +7,7 @@ import type {
   AgentRuntimeAuxiliaryInput,
   AgentRuntimeCapabilities,
   AgentRuntimeEvent,
+  AgentRuntimeGovernanceProfile,
   AgentRuntimeId,
   AgentRuntimeThread,
   AgentRuntimeThreadDetail,
@@ -34,6 +35,7 @@ import type {
   AgentRuntimeThreadRenameInput,
   AgentRuntimeUserInputResolveInput
 } from './adapter'
+import { RuntimeGovernanceSupervisor, runtimeGuardSettings } from './governance'
 
 export type AgentRuntimeHostSettingsProvider = () => AppSettingsV1 | Promise<AppSettingsV1>
 
@@ -54,6 +56,8 @@ const THREAD_TURN_QUEUE_TIMEOUT_MS = 10 * 60_000
 export class AgentRuntimeHost {
   private readonly adapters: Map<AgentRuntimeId, AgentRuntimeAdapter>
   private readonly turnQueues = new Map<string, Promise<unknown>>()
+  private readonly turnGovernanceProfiles = new Map<string, AgentRuntimeGovernanceProfile>()
+  private readonly governance = new RuntimeGovernanceSupervisor()
 
   constructor(private readonly options: AgentRuntimeHostOptions) {
     this.adapters = normalizeAdapters(options.adapters)
@@ -111,7 +115,17 @@ export class AgentRuntimeHost {
 
   async *subscribeEvents(input: AgentRuntimeEventSubscribeInput): AsyncIterable<AgentRuntimeEvent> {
     const { adapter, context } = await this.resolve(input.runtimeId)
-    yield* adapter.subscribeEvents(context, input)
+    const capabilities = await adapter.capabilities(context)
+    const guardSettings = runtimeGuardSettings(context)
+    for await (const event of adapter.subscribeEvents(context, input)) {
+      this.governance.observe(event, capabilities, guardSettings, {
+        governanceProfile: this.governanceProfileForEvent(capabilities.runtimeId, event),
+        steerTurn: (payload) => this.steerTurn(payload),
+        interruptTurn: (payload) => this.interruptTurn(payload),
+        publishSyntheticEvent: (payload) => this.publishSyntheticEvent(adapter, context, payload)
+      })
+      yield event
+    }
   }
 
   async resolveApproval(input: AgentRuntimeApprovalResolveInput): Promise<void> {
@@ -189,13 +203,20 @@ export class AgentRuntimeHost {
     input: AgentRuntimeTurnStartInput
   ): Promise<AgentRuntimeTurnHandle> {
     const key = `${adapter.id}:${input.threadId.trim()}`
-    if (!input.threadId.trim()) return adapter.startTurn(context, input)
+    if (!input.threadId.trim()) {
+      return adapter.startTurn(context, input).then((handle) => {
+        this.rememberTurnGovernanceProfile(adapter.id, input, handle)
+        return handle
+      })
+    }
     const previous = this.turnQueues.get(key) ?? Promise.resolve()
     const task = previous
       .catch(() => undefined)
       .then(async () => {
         await waitForThreadIdle(adapter, context, input)
-        return adapter.startTurn(context, input)
+        const handle = await adapter.startTurn(context, input)
+        this.rememberTurnGovernanceProfile(adapter.id, input, handle)
+        return handle
       })
     this.turnQueues.set(key, task)
     void task
@@ -204,6 +225,37 @@ export class AgentRuntimeHost {
       })
       .catch(() => undefined)
     return task
+  }
+
+  private async publishSyntheticEvent(
+    adapter: AgentRuntimeAdapter,
+    context: AgentRuntimeAdapterContext,
+    event: AgentRuntimeEvent
+  ): Promise<AgentRuntimeEvent | null> {
+    if (!adapter.publishSyntheticEvent) return null
+    return adapter.publishSyntheticEvent(context, event)
+  }
+
+  private rememberTurnGovernanceProfile(
+    runtimeId: AgentRuntimeId,
+    input: AgentRuntimeTurnStartInput,
+    handle: AgentRuntimeTurnHandle
+  ): void {
+    const profile = input.governanceProfile
+    const threadId = (handle.threadId || input.threadId).trim()
+    const turnId = handle.turnId.trim()
+    if (!profile || !threadId || !turnId) return
+    this.turnGovernanceProfiles.set(turnGovernanceKey(runtimeId, threadId, turnId), profile)
+  }
+
+  private governanceProfileForEvent(
+    runtimeId: AgentRuntimeId,
+    event: AgentRuntimeEvent
+  ): AgentRuntimeGovernanceProfile | undefined {
+    const threadId = event.threadId.trim()
+    const turnId = event.turnId?.trim()
+    if (!threadId || !turnId) return undefined
+    return this.turnGovernanceProfiles.get(turnGovernanceKey(runtimeId, threadId, turnId))
   }
 }
 
@@ -254,4 +306,8 @@ function normalizeAdapters(
 
 function unsupported(runtimeId: AgentRuntimeId, control: string): Error {
   return new Error(`${runtimeId} AgentRuntimeAdapter does not support ${control}.`)
+}
+
+function turnGovernanceKey(runtimeId: AgentRuntimeId, threadId: string, turnId: string): string {
+  return `${runtimeId}:${threadId}:${turnId}`
 }
