@@ -2,6 +2,8 @@ export type ComposerFileReference = {
   path: string
   relativePath: string
   name: string
+  mimeType?: string
+  modelRouterObject?: boolean
 }
 
 export type ComposerFileMention = {

@@ -16,11 +16,7 @@ const MODEL_ROUTER_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/model-router/src/cli.ts',
   'packages/workers/model-router/src/router.ts',
   'packages/workers/model-router/src/manifest.ts',
-  'packages/workers/model-router/tools/model-router-trace-audit.ts',
-  'packages/workers/model-router/vision-router-service/package.json',
-  'packages/workers/model-router/vision-router-service/package-lock.json',
-  'packages/workers/model-router/vision-router-service/src/index.ts',
-  'packages/workers/model-router/vision-router-service/src/server.ts'
+  'packages/workers/model-router/tools/model-router-trace-audit.ts'
 ]
 
 function normalizePlatform(platform) {

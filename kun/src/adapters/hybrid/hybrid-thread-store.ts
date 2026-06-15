@@ -740,6 +740,7 @@ function turnFromItems(threadId: string, turnId: string, items: TurnItem[], fall
     prompt,
     steering: [],
     attachmentIds: attachmentIdsFromItems(items),
+    attachments: [],
     activeSkillIds: [],
     injectedMemoryIds: [],
     createdAt,

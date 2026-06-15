@@ -879,6 +879,69 @@ test('input_object refs are detected and translated inside the Model Router', as
   }
 });
 
+test('scientific file uploads are translated to evidence via the standalone sci-modality service', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-scimodality-'));
+  const fasta = '>sp|P0CG48|UBC_HUMAN\nMQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG\n';
+  await mkdir(join(workspaceRoot, '.sciforge', 'uploads', 'session-sci'), { recursive: true });
+  await writeFile(join(workspaceRoot, '.sciforge', 'uploads', 'session-sci', 'ubiquitin.fasta'), fasta);
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: { ...testEnv(), SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://sci-modality.example:3898' },
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      // 1) standalone sci-modality service translate (real expert model, here stubbed): evidence only.
+      Response.json({
+        ok: true,
+        summary: 'Protein sequence of 76 residues; ESM-2 pseudo-perplexity 9.4, consistent with ubiquitin.',
+        data: {
+          modality: 'protein',
+          model: 'esm2-protein',
+          summary: 'Protein sequence of 76 residues; ESM-2 pseudo-perplexity 9.4, consistent with ubiquitin.',
+        },
+        provenance: {},
+      }),
+      // 2) the text reasoner produces the final answer from the injected evidence observation.
+      chatCompletion('text-final', JSON.stringify({ type: 'final_answer', content: 'It is a 76-residue ubiquitin protein.' })),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [{
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'What protein is this?' },
+            { type: 'input_object', ref: '.sciforge/uploads/session-sci/ubiquitin.fasta', mimeType: 'text/plain', title: 'ubiquitin.fasta' },
+          ],
+        }],
+        metadata: { profile: 'default' },
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, unknown>;
+    assert.equal(body.output_text, 'It is a 76-residue ubiquitin protein.');
+    assert.equal(calls.length, 2);
+    // The sci-modality service was called with the file content as payload (translate-only contract).
+    assert.match(calls[0]?.url ?? '', /\/modality\/translate$/);
+    assert.match(String(calls[0]?.body.payload ?? ''), /MQIFVKTLTGK/);
+    // The text reasoner received the real expert evidence as an observation (no cheating, no raw fallback).
+    const textBody = JSON.stringify(calls[1]?.body);
+    assert.equal(calls[1]?.url, 'https://text.example/v1/chat/completions');
+    assert.match(textBody, /source=sci-modality:protein\/esm2-protein/);
+    assert.match(textBody, /ESM-2 pseudo-perplexity 9\.4/);
+    assert.doesNotMatch(textBody, /status=unsupported/);
+  } finally {
+    await server.close();
+  }
+});
+
 test('input_object vision observations are cached across repeated Model Router requests for the same object', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-input-object-cache-'));
   const imageBytes = Buffer.from('repeated-input-object-pixels');

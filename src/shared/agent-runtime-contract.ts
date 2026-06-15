@@ -146,6 +146,15 @@ export type AgentRuntimeTurnStartInput = {
     title?: string
   }
   attachmentIds?: string[]
+  fileReferences?: AgentRuntimeFileReference[]
+}
+
+export type AgentRuntimeFileReference = {
+  path: string
+  relativePath: string
+  name: string
+  mimeType?: string
+  modelRouterObject?: boolean
 }
 
 export type AgentRuntimeTurnTargetInput = {

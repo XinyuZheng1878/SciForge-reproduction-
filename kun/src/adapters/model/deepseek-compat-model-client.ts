@@ -53,6 +53,7 @@ type ChatMessage = {
 type ChatMessageContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } }
+  | { type: 'input_object'; ref: string; mimeType?: string; title?: string; path?: string }
 
 type AnthropicContentBlock =
   | { type: 'text'; text: string }
@@ -296,8 +297,8 @@ export class DeepseekCompatModelClient implements ModelClient {
   ): Record<string, unknown> {
     const requestModel = request.model?.trim()
     const model = this.config.forceDefaultModel ? this.config.model : (requestModel || this.config.model)
-    const messages = this.collectMessages(request, model)
     const endpointFormat = this.endpointFormat()
+    const messages = this.collectMessages(request, model, endpointFormat)
     if (endpointFormat === 'responses') {
       return this.buildResponsesRequestBody(request, model, messages, stream)
     }
@@ -421,7 +422,7 @@ export class DeepseekCompatModelClient implements ModelClient {
     return body
   }
 
-  private collectMessages(request: ModelRequest, model: string): ChatMessage[] {
+  private collectMessages(request: ModelRequest, model: string, endpointFormat: ModelEndpointFormat): ChatMessage[] {
     const out: ChatMessage[] = []
     if (request.systemPrompt) {
       out.push({ role: 'system', content: request.systemPrompt })
@@ -446,6 +447,13 @@ export class DeepseekCompatModelClient implements ModelClient {
     }
     if (request.attachmentTextFallbacks?.length) {
       attachTextFallbacksToLatestUserMessage(out, request.attachmentTextFallbacks)
+    }
+    if (request.objectAttachments?.length) {
+      if (endpointFormat === 'responses') {
+        attachObjectsToLatestUserMessage(out, request.objectAttachments)
+      } else {
+        attachObjectReferencesAsTextToLatestUserMessage(out, request.objectAttachments)
+      }
     }
     return normalizeThinkingAssistantMessages(healToolMessagePairs(out), thinkingMode)
   }
@@ -1329,6 +1337,14 @@ function chatContentToResponsesContent(
       parts.push({ type: 'input_text', text: part.text })
     } else if (part.type === 'image_url') {
       parts.push({ type: 'input_image', image_url: part.image_url.url })
+    } else if (part.type === 'input_object') {
+      parts.push({
+        type: 'input_object',
+        ref: part.ref,
+        ...(part.mimeType ? { mimeType: part.mimeType } : {}),
+        ...(part.title ? { title: part.title } : {}),
+        ...(part.path ? { path: part.path } : {})
+      })
     }
   }
   return parts
@@ -1341,6 +1357,10 @@ function chatContentToAnthropicContent(content: ChatMessage['content']): string 
   for (const part of content) {
     if (part.type === 'text') {
       if (part.text) parts.push({ type: 'text', text: part.text })
+      continue
+    }
+    if (part.type === 'input_object') {
+      parts.push({ type: 'text', text: formatObjectAttachmentReference(part) })
       continue
     }
     const image = anthropicImageSource(part.image_url.url)
@@ -1375,6 +1395,7 @@ function chatContentToPlainText(content: ChatMessage['content']): string {
   if (typeof content === 'string') return content
   return content.map((part) => {
     if (part.type === 'text') return part.text
+    if (part.type === 'input_object') return formatObjectAttachmentReference(part)
     return `[image: ${part.image_url.url}]`
   }).join('\n')
 }
@@ -1863,6 +1884,64 @@ function attachTextFallbacksToLatestUserMessage(
     message.content = text
     return
   }
+}
+
+function attachObjectsToLatestUserMessage(
+  messages: ChatMessage[],
+  attachments: NonNullable<ModelRequest['objectAttachments']>
+): void {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.role !== 'user') continue
+    const parts: ChatMessageContentPart[] = Array.isArray(message.content) ? [...message.content] : []
+    if (typeof message.content === 'string' && message.content) {
+      parts.unshift({ type: 'text', text: message.content })
+    }
+    for (const attachment of attachments) {
+      parts.push({
+        type: 'input_object',
+        ref: attachment.ref,
+        ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+        ...(attachment.title || attachment.name ? { title: attachment.title ?? attachment.name } : {}),
+        path: attachment.ref
+      })
+    }
+    message.content = parts
+    return
+  }
+}
+
+function attachObjectReferencesAsTextToLatestUserMessage(
+  messages: ChatMessage[],
+  attachments: NonNullable<ModelRequest['objectAttachments']>
+): void {
+  const text = attachments.map(formatObjectAttachmentReference).join('\n\n')
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.role !== 'user') continue
+    if (typeof message.content === 'string') {
+      message.content = message.content ? `${message.content}\n\n${text}` : text
+      return
+    }
+    if (Array.isArray(message.content)) {
+      message.content.push({ type: 'text', text })
+      return
+    }
+    message.content = text
+    return
+  }
+}
+
+function formatObjectAttachmentReference(
+  attachment: { ref: string; name?: string; title?: string; mimeType?: string }
+): string {
+  return [
+    '[Workspace file reference]',
+    attachment.name || attachment.title ? `Name: ${attachment.name ?? attachment.title}` : '',
+    `Path: ${attachment.ref}`,
+    attachment.mimeType ? `MIME: ${attachment.mimeType}` : '',
+    '[/Workspace file reference]'
+  ].filter(Boolean).join('\n')
 }
 
 function formatAttachmentTextFallback(

@@ -134,6 +134,15 @@ export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOpti
       body.sandboxMode = runtime.sandboxMode
       if (input.guiPlan) body.guiPlan = input.guiPlan
       if (input.attachmentIds?.length) body.attachmentIds = input.attachmentIds
+      const modelObjectReferences = input.fileReferences
+        ?.filter((reference) => reference.modelRouterObject === true && reference.relativePath.trim())
+        .map((reference) => ({
+          path: reference.relativePath.trim() || reference.path,
+          name: reference.name,
+          ...(reference.mimeType ? { mimeType: reference.mimeType } : {}),
+          modelRouterObject: true
+        }))
+      if (modelObjectReferences?.length) body.attachments = modelObjectReferences
       const payload = await requestJson(options, context, kunThreadTurnsPath(input.threadId), {
         method: 'POST',
         body: JSON.stringify(body)

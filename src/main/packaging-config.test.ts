@@ -121,6 +121,31 @@ describe('electron-builder Kun packaging', () => {
     ]))
   })
 
+  it('leaves top-level plugin services out of bundled app content', () => {
+    const bundledDirectoryFileSets = (builderConfig.files as unknown[])
+      .filter((entry: unknown): entry is { from?: string } => {
+        return typeof entry === 'object' && entry !== null
+      })
+      .map((entry) => entry.from)
+
+    expect(bundledDirectoryFileSets).not.toEqual(expect.arrayContaining([
+      'plugins',
+      'plugins/vision-router-service',
+      'plugins/sci-modality-router-service'
+    ]))
+    expect(builderConfig.files).not.toEqual(expect.arrayContaining([
+      'plugins/**/*',
+      'plugins/vision-router-service/**/*',
+      'plugins/sci-modality-router-service/**/*'
+    ]))
+    expect(builderConfig.asarUnpack).not.toEqual(expect.arrayContaining([
+      '**/plugins/**/*',
+      '**/plugins/vision-router-service/**/*',
+      '**/plugins/sci-modality-router-service/**/*',
+      '**/packages/workers/model-router/vision-router-service/**/*'
+    ]))
+  })
+
   it('validates the unpacked Kun runtime before release artifacts are created', () => {
     const root = tempRoot()
     const context = createMacPackContext(root)
@@ -144,8 +169,14 @@ describe('electron-builder Kun packaging', () => {
     expect(afterPack.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
       'packages/workers/model-router/package.json',
       'packages/workers/model-router/src/cli.ts',
+      'packages/workers/model-router/src/manifest.ts',
+      'packages/workers/model-router/tools/model-router-trace-audit.ts'
+    ]))
+    expect(afterPack.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS).not.toEqual(expect.arrayContaining([
       'packages/workers/model-router/vision-router-service/package.json',
-      'packages/workers/model-router/vision-router-service/src/index.ts'
+      'packages/workers/model-router/vision-router-service/src/index.ts',
+      'plugins/vision-router-service/package.json',
+      'plugins/sci-modality-router-service/package.json'
     ]))
 
     const root = tempRoot()
@@ -159,12 +190,12 @@ describe('electron-builder Kun packaging', () => {
     expect(() => afterPack._internals.validateBundledModelRouterRuntime(context)).not.toThrow()
 
     rmSync(
-      join(unpackedRoot, 'packages/workers/model-router/vision-router-service/src/index.ts'),
+      join(unpackedRoot, 'packages/workers/model-router/src/manifest.ts'),
       { recursive: true, force: true }
     )
 
     expect(() => afterPack._internals.validateBundledModelRouterRuntime(context)).toThrow(
-      /packages\/workers\/model-router\/vision-router-service\/src\/index\.ts/
+      /packages\/workers\/model-router\/src\/manifest\.ts/
     )
   })
 
@@ -218,9 +249,13 @@ describe('electron-builder Kun packaging', () => {
 })
 
 describe('root package workspace contracts', () => {
-  it('exposes Model Router and vision member packages through npm workspaces', () => {
+  it('exposes bundled workers and external plugin services through npm workspaces', () => {
     expect(rootPackage.workspaces).toEqual(expect.arrayContaining([
       'packages/workers/model-router',
+      'plugins/vision-router-service',
+      'plugins/sci-modality-router-service'
+    ]))
+    expect(rootPackage.workspaces).not.toEqual(expect.arrayContaining([
       'packages/workers/model-router/vision-router-service'
     ]))
     expect(rootPackage.scripts).toMatchObject({

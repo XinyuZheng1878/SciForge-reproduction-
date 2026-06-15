@@ -17,7 +17,7 @@ import {
   FileEdit,
   FileText,
   GitFork,
-  ImagePlus,
+  Paperclip,
   ListTodo,
   Loader2,
   MessageCircleMore,
@@ -467,18 +467,17 @@ export function imageAttachmentInputsFromTransfer(
 }
 
 export function attachmentInputsFromPickedFiles(files: File[]): ComposerImageAttachmentInput[] {
-  return files
-    .map((file) => {
-      const normalized = normalizedImageFile(file)
-      const attachmentFile = normalized ?? (isPdfFile(file) ? file : null)
-      if (!attachmentFile) return null
-      const path = pathForAttachmentFile(file)
-      return {
-        file: attachmentFile,
-        ...(path ? { path } : {})
-      }
-    })
-    .filter((entry): entry is ComposerImageAttachmentInput => entry !== null)
+  return files.map((file) => {
+    // Keep every explicitly-picked file: images are normalized; PDFs and explicit scientific
+    // formats pass through as-is. The upload handler routes non-images by extension.
+    const normalized = normalizedImageFile(file)
+    const attachmentFile = normalized ?? file
+    const path = pathForAttachmentFile(file)
+    return {
+      file: attachmentFile,
+      ...(path ? { path } : {})
+    }
+  })
 }
 
 export function imageTransferHasImages(source: ComposerImageTransferSource | null | undefined): boolean {
@@ -2020,7 +2019,7 @@ export function FloatingComposer({
                     className="ds-no-drag inline-flex h-7 max-w-full items-center gap-1.5 rounded-lg border border-ds-border-muted bg-ds-card/80 px-2 text-[12px] font-medium text-ds-muted"
                     title={attachment.id}
                   >
-                    <ImagePlus className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
                     <span className="max-w-40 truncate">{attachment.name || attachment.id}</span>
                     {onRemoveAttachment ? (
                       <button
@@ -2047,7 +2046,7 @@ export function FloatingComposer({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/png,image/jpeg,image/webp,application/pdf,.pdf"
+              accept="image/png,image/jpeg,image/webp,application/pdf,.pdf,.fasta,.fa,.faa,.fna,.ffn,.frn,.fastq,.fq,.smi,.smiles,.mol,.mol2,.sdf,.mgf,.pdb,.cif,.gb,.gbk,.gff,.gff3,.gtf,.vcf,.bed,.nwk,.seq"
               multiple
               className="hidden"
               onChange={handleAttachmentInput}
@@ -2186,7 +2185,7 @@ export function FloatingComposer({
                     {attachmentUploadBusy ? (
                       <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.9} />
                     ) : (
-                      <ImagePlus className="h-4 w-4" strokeWidth={1.9} />
+                      <Paperclip className="h-4 w-4" strokeWidth={1.9} />
                     )}
                   </button>
                 ) : null}

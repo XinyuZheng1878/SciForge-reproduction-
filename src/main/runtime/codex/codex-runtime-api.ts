@@ -1,4 +1,8 @@
-import type { AgentRuntimePhase, AgentRuntimeUsage } from '../../../shared/agent-runtime-contract'
+import type {
+  AgentRuntimeFileReference,
+  AgentRuntimePhase,
+  AgentRuntimeUsage
+} from '../../../shared/agent-runtime-contract'
 
 export type CodexJsonObject = Record<string, unknown>
 
@@ -143,6 +147,7 @@ export type CodexTurnStartPayload = {
   workspace?: string
   model?: string
   reasoningEffort?: string
+  fileReferences?: AgentRuntimeFileReference[]
 }
 
 export type CodexTurnStartResult =

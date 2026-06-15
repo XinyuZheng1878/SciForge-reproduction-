@@ -53,6 +53,7 @@ export class TurnService {
       model: input.request.model,
       reasoningEffort: input.request.reasoningEffort,
       attachmentIds: input.request.attachmentIds ?? [],
+      attachments: input.request.attachments ?? [],
       guiPlan: input.request.guiPlan,
       mode: input.request.mode,
       approvalPolicy: input.request.approvalPolicy,

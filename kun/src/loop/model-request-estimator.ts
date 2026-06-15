@@ -15,6 +15,7 @@ export function estimateModelRequestInputTokens(request: ModelRequest): number {
   tokens += estimateItems(request.history)
   tokens += estimateTools(request.tools)
   tokens += estimateTextFallbacks(request.attachmentTextFallbacks)
+  tokens += estimateObjectAttachments(request.objectAttachments)
   tokens += estimateText(request.requiredToolName)
   tokens += estimateText(request.reasoningEffort)
   return Math.max(0, tokens)
@@ -43,6 +44,17 @@ function estimateTextFallbacks(fallbacks?: ModelTextAttachmentFallback[]): numbe
       String(attachment.byteSize),
       attachment.dataBase64
     ].join('\n'))
+  }, 0)
+}
+
+function estimateObjectAttachments(attachments?: ModelRequest['objectAttachments']): number {
+  if (!attachments?.length) return 0
+  return attachments.reduce((sum, attachment) => {
+    return sum + estimateText([
+      attachment.name,
+      attachment.ref,
+      attachment.mimeType
+    ].filter(Boolean).join('\n'))
   }, 0)
 }
 

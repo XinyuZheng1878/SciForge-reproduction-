@@ -44,11 +44,12 @@ import {
 import { touchThread } from '../domain/thread.js'
 import { repairModelHistoryItems } from '../domain/model-history-repair.js'
 import type { TurnItem } from '../contracts/items.js'
+import type { TurnFileAttachmentJson } from '../contracts/turns.js'
 import type { ThreadGoal, ThreadTodoList } from '../contracts/threads.js'
 import { modelCapabilitiesForModel, type ContextCompactionConfig } from './model-context-profile.js'
 import type { SkillRuntime } from '../skills/skill-runtime.js'
 import type { AttachmentContent, AttachmentStore } from '../attachments/attachment-store.js'
-import type { ModelInputAttachment, ModelTextAttachmentFallback } from '../ports/model-client.js'
+import type { ModelInputAttachment, ModelObjectAttachment, ModelTextAttachmentFallback } from '../ports/model-client.js'
 import type { MemoryStore } from '../memory/memory-store.js'
 import {
   applyTokenEconomyToRequest,
@@ -608,7 +609,9 @@ export class AgentLoop {
     const modelCapabilities = this.opts.modelCapabilities?.(model) ?? modelCapabilitiesForModel(model)
     const attachments = await this.resolveAttachments({
       attachmentIds: turn?.attachmentIds ?? [],
+      fileAttachments: turn?.attachments ?? [],
       threadId,
+      turnId,
       workspace: thread?.workspace ?? '',
       modelCapabilities
     })
@@ -744,6 +747,7 @@ export class AgentLoop {
       history,
       ...(attachments.imageAttachments.length ? { attachments: attachments.imageAttachments } : {}),
       ...(attachments.textFallbacks.length ? { attachmentTextFallbacks: attachments.textFallbacks } : {}),
+      ...(attachments.objectAttachments.length ? { objectAttachments: attachments.objectAttachments } : {}),
       tools: effectiveToolSpecs,
       ...(requiredToolName ? { requiredToolName } : {}),
       ...(modelRoute.reasoningEffort ? { reasoningEffort: modelRoute.reasoningEffort } : {}),
@@ -779,6 +783,7 @@ export class AgentLoop {
       ...(request.requiredToolName ? { requiredToolName: request.requiredToolName } : {}),
       ...attachmentRequestPipelineDetails({
         attachmentIds: turn?.attachmentIds ?? [],
+        objectAttachments: attachments.objectAttachments,
         imageAttachments: attachments.imageAttachments,
         textFallbacks: attachments.textFallbacks,
         modelCapabilities
@@ -1940,11 +1945,18 @@ export class AgentLoop {
 
   private async resolveAttachments(input: {
     attachmentIds: readonly string[]
+    fileAttachments: readonly TurnFileAttachmentJson[]
     threadId: string
+    turnId: string
     workspace: string
     modelCapabilities: ModelCapabilityMetadata
-  }): Promise<{ imageAttachments: ModelInputAttachment[]; textFallbacks: ModelTextAttachmentFallback[] }> {
-    if (input.attachmentIds.length === 0) return { imageAttachments: [], textFallbacks: [] }
+  }): Promise<{
+    imageAttachments: ModelInputAttachment[]
+    textFallbacks: ModelTextAttachmentFallback[]
+    objectAttachments: ModelObjectAttachment[]
+  }> {
+    const objectAttachments = buildModelObjectAttachments(input.fileAttachments)
+    if (input.attachmentIds.length === 0) return { imageAttachments: [], textFallbacks: [], objectAttachments }
     if (!this.opts.attachmentStore) {
       throw new Error('attachment store is unavailable')
     }
@@ -1957,6 +1969,7 @@ export class AgentLoop {
         threadId: input.threadId,
         workspace: input.workspace
       })
+      if (!attachment.mimeType.startsWith('image/')) continue
       if (supportsImageInput) {
         imageAttachments.push({
           id: attachment.id,
@@ -1973,7 +1986,7 @@ export class AgentLoop {
         textFallbackPolicy.textFallbackMaxBase64Bytes
       ))
     }
-    return { imageAttachments, textFallbacks }
+    return { imageAttachments, textFallbacks, objectAttachments }
   }
 
   private async retrieveMemories(input: {
@@ -2039,14 +2052,30 @@ function buildTextAttachmentFallback(
   }
 }
 
+function buildModelObjectAttachments(
+  attachments: readonly TurnFileAttachmentJson[]
+): ModelObjectAttachment[] {
+  return attachments
+    .filter((attachment) => attachment.modelRouterObject === true && attachment.path.trim().length > 0)
+    .map((attachment, index) => ({
+      id: `object_${index + 1}`,
+      name: attachment.name,
+      ref: attachment.path.trim().replaceAll('\\', '/'),
+      title: attachment.name,
+      ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {})
+    }))
+}
+
 function attachmentRequestPipelineDetails(input: {
   attachmentIds: readonly string[]
+  objectAttachments: readonly ModelObjectAttachment[]
   imageAttachments: readonly ModelInputAttachment[]
   textFallbacks: readonly ModelTextAttachmentFallback[]
   modelCapabilities: ModelCapabilityMetadata
 }): Record<string, unknown> {
   if (
     input.attachmentIds.length === 0 &&
+    input.objectAttachments.length === 0 &&
     input.imageAttachments.length === 0 &&
     input.textFallbacks.length === 0
   ) {
@@ -2056,6 +2085,8 @@ function attachmentRequestPipelineDetails(input: {
     attachmentIds: [...input.attachmentIds],
     modelInputModalities: [...input.modelCapabilities.inputModalities],
     modelMessageParts: [...input.modelCapabilities.messageParts],
+    objectAttachmentCount: input.objectAttachments.length,
+    objectAttachmentRefs: input.objectAttachments.map((attachment) => attachment.ref),
     imageAttachmentCount: input.imageAttachments.length,
     imageAttachmentBase64Bytes: input.imageAttachments.reduce(
       (total, attachment) => total + Buffer.byteLength(attachment.dataBase64, 'base64'),

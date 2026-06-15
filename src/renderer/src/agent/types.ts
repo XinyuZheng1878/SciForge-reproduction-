@@ -8,6 +8,7 @@ import type {
   CoreRuntimeToolDiagnosticsJson
 } from './kun-contract'
 import type { AgentRuntimeId } from '@shared/app-settings'
+import type { AgentRuntimeFileReference } from '@shared/agent-runtime-contract'
 import type { AgentRuntimePhase } from '@shared/agent-runtime-contract'
 
 export type ToolItemKind = 'tool_call' | 'command_execution' | 'file_change'
@@ -469,6 +470,7 @@ export interface AgentProvider {
         title?: string
       }
       attachmentIds?: string[]
+      fileReferences?: AgentRuntimeFileReference[]
     }
   ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string }>
   reviewThread?(

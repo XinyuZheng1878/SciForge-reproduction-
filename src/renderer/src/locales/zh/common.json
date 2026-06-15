@@ -602,7 +602,7 @@
   "composerContinueHint": "当前上下文会被保留，你可以继续补充限制、改法或下一步。",
   "composerOfflineHint": "运行时恢复连接后，才可以继续发送消息。",
   "composerWorkspaceHint": "先选择一个工作目录，然后再开始或继续会话。",
-  "composerAddImage": "添加图片",
+  "composerAddImage": "附加文件",
   "composerAddAttachment": "添加文件",
   "composerVoiceStart": "语音输入",
   "composerVoiceStop": "停止录音",

@@ -41,6 +41,14 @@ export const GuiPlanContextSchema = z.object({
 })
 export type GuiPlanContextJson = z.infer<typeof GuiPlanContextSchema>
 
+export const TurnFileAttachmentSchema = z.object({
+  path: z.string().min(1),
+  name: z.string().min(1),
+  mimeType: z.string().min(1).optional(),
+  modelRouterObject: z.boolean().optional()
+})
+export type TurnFileAttachmentJson = z.infer<typeof TurnFileAttachmentSchema>
+
 export const TurnStatus = z.enum([
   'queued',
   'running',
@@ -64,6 +72,7 @@ export const TurnSchema = z.object({
   finishedAt: z.string().optional(),
   items: z.array(TurnItem).default([]),
   attachmentIds: z.array(z.string().min(1)).default([]),
+  attachments: z.array(TurnFileAttachmentSchema).default([]),
   activeSkillIds: z.array(z.string().min(1)).default([]),
   injectedMemoryIds: z.array(z.string().min(1)).default([]),
   skillInjectionBytes: z.number().int().nonnegative().optional(),
@@ -98,14 +107,7 @@ export const StartTurnRequest = z.object({
    * mode Kun advertises `create_plan` for the whole conversation.
    */
   mode: TurnModeSchema.optional(),
-  attachments: z
-    .array(
-      z.object({
-        path: z.string().min(1),
-        name: z.string().min(1)
-      })
-    )
-    .optional(),
+  attachments: z.array(TurnFileAttachmentSchema).optional(),
   attachmentIds: z.array(z.string().min(1)).default([]),
   /**
    * Optional GUI plan context. When set, Kun advertises the

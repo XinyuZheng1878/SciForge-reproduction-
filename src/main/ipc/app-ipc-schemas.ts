@@ -103,6 +103,13 @@ const agentThreadIdsSchema = z.object({
   codex: z.string().max(MAX_ID_LENGTH).optional()
 }).strict()
 const agentRuntimeGovernanceProfileSchema = z.enum(['default', 'write', 'remote_guard'])
+const agentRuntimeFileReferenceSchema = z.object({
+  path: trimmedString(MAX_PATH_LENGTH),
+  relativePath: trimmedString(MAX_PATH_LENGTH),
+  name: trimmedString(512),
+  mimeType: optionalTrimmedString(MAX_MIME_TYPE_LENGTH),
+  modelRouterObject: z.boolean().optional()
+}).strict()
 
 export const agentRuntimeConnectPayloadSchema = z.object({
   runtimeId: agentRuntimeIdSchema.optional()
@@ -148,7 +155,8 @@ export const agentRuntimeStartTurnPayloadSchema = z.object({
     sourceRequest: z.string().trim().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
     title: z.string().trim().max(200).optional()
   }).strict().optional(),
-  attachmentIds: z.array(trimmedString(MAX_ID_LENGTH)).max(50).optional()
+  attachmentIds: z.array(trimmedString(MAX_ID_LENGTH)).max(50).optional(),
+  fileReferences: z.array(agentRuntimeFileReferenceSchema).max(50).optional()
 }).strict()
 
 export const agentRuntimeTurnTargetPayloadSchema = z.object({

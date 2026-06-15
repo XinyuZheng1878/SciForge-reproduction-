@@ -65,7 +65,8 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
         displayText: input.displayText,
         workspace: input.workspace,
         model: input.model,
-        reasoningEffort: input.reasoningEffort
+        reasoningEffort: input.reasoningEffort,
+        fileReferences: input.fileReferences
       })
       if (!result.ok) throw codexFailure(result)
       return {

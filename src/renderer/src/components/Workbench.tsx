@@ -125,6 +125,9 @@ type PendingSddPlanTarget = {
 
 const COMPOSER_FILE_CONTEXT_MAX_CHARS_PER_FILE = 60_000
 const COMPOSER_FILE_CONTEXT_MAX_TOTAL_CHARS = 180_000
+const SCIENTIFIC_ATTACHMENT_MAX_BYTES = 256 * 1024
+const SCIENTIFIC_ATTACHMENT_EXTENSIONS =
+  /\.(?:fasta|fa|faa|fna|ffn|frn|fastq|fq|smi|smiles|mol|mol2|sdf|mgf|pdb|cif|gb|gbk|gff|gff3|gtf|vcf|bed|nwk|seq)$/i
 const DESKTOP_SHORTCUT_COMMANDS: Partial<Record<KeyboardShortcutCommandId, DesktopCommand>> = {
   quit: 'quit',
   undo: 'undo',
@@ -149,6 +152,14 @@ function fileNameFromPath(path: string): string {
 
 function isPickedPdfAttachment(input: ComposerImageAttachmentInput): boolean {
   return input.file.type.toLowerCase() === 'application/pdf' || input.file.name.toLowerCase().endsWith('.pdf')
+}
+
+function isPickedImageAttachment(input: ComposerImageAttachmentInput): boolean {
+  return input.file.type.toLowerCase().startsWith('image/')
+}
+
+function isPickedScientificAttachment(input: ComposerImageAttachmentInput): boolean {
+  return SCIENTIFIC_ATTACHMENT_EXTENSIONS.test(input.file.name || pathForPickedAttachment(input))
 }
 
 function normalizeAttachmentPathForCompare(path: string): string {
@@ -182,6 +193,65 @@ function pickedWorkspaceFileReference(
     path,
     relativePath,
     name: input.file.name || fileNameFromPath(path)
+  }
+}
+
+function safeScientificUploadSegment(value: string, fallback: string): string {
+  const normalized = value.trim().replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '')
+  return normalized.slice(0, 80) || fallback
+}
+
+function safeScientificUploadFileName(input: ComposerImageAttachmentInput): string {
+  const name = input.file.name || fileNameFromPath(pathForPickedAttachment(input))
+  const safe = name.replaceAll('\\', '/').split('/').filter(Boolean).pop() ?? 'scientific-data'
+  return safeScientificUploadSegment(safe, 'scientific-data').replace(/^\.+/g, '') || 'scientific-data'
+}
+
+function scientificAttachmentMimeType(input: ComposerImageAttachmentInput): string {
+  const browserType = input.file.type.trim()
+  if (browserType && !browserType.startsWith('image/')) return browserType
+  return 'text/plain'
+}
+
+async function copyScientificAttachmentToWorkspace(
+  input: ComposerImageAttachmentInput,
+  workspaceRoot: string,
+  threadId: string | null
+): Promise<ComposerFileReference> {
+  if (typeof window === 'undefined' || typeof window.dsGui?.writeWorkspaceFile !== 'function') {
+    throw new Error('Workspace file writing is unavailable.')
+  }
+  if (input.file.size > SCIENTIFIC_ATTACHMENT_MAX_BYTES) {
+    throw new Error(`Scientific attachment is larger than ${SCIENTIFIC_ATTACHMENT_MAX_BYTES} bytes.`)
+  }
+  const content = await input.file.text()
+  if (content.includes('\0')) {
+    throw new Error('Scientific attachment looks binary and cannot be copied as text.')
+  }
+  const encodedBytes = new TextEncoder().encode(content).byteLength
+  if (encodedBytes > SCIENTIFIC_ATTACHMENT_MAX_BYTES) {
+    throw new Error(`Scientific attachment is larger than ${SCIENTIFIC_ATTACHMENT_MAX_BYTES} bytes.`)
+  }
+  const owner = safeScientificUploadSegment(threadId ?? 'draft', 'draft')
+  const stamp = new Date().toISOString().replace(/[^0-9A-Za-z]+/g, '').slice(0, 15)
+  const random =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10)
+  const name = safeScientificUploadFileName(input)
+  const relativePath = `.sciforge/uploads/${owner}/${stamp}-${random}-${name}`
+  const result = await window.dsGui.writeWorkspaceFile({
+    workspaceRoot,
+    path: relativePath,
+    content
+  })
+  if (!result.ok) throw new Error(result.message)
+  return {
+    path: result.path,
+    relativePath: result.path,
+    name,
+    mimeType: scientificAttachmentMimeType(input),
+    modelRouterObject: true
   }
 }
 
@@ -862,8 +932,18 @@ export function Workbench(): ReactElement {
       threads.find((thread) => thread.id === activeThreadId)?.workspace ||
       workspaceRoot
     )
-    const imageInputs = inputs.filter((input) => !isPickedPdfAttachment(input))
     const pdfInputs = inputs.filter(isPickedPdfAttachment)
+    const scientificInputs = inputs.filter((input) => !isPickedPdfAttachment(input) && isPickedScientificAttachment(input))
+    const imageInputs = inputs.filter((input) =>
+      !isPickedPdfAttachment(input) &&
+      !isPickedScientificAttachment(input) &&
+      isPickedImageAttachment(input)
+    )
+    const unsupportedInputs = inputs.filter((input) =>
+      !isPickedPdfAttachment(input) &&
+      !isPickedScientificAttachment(input) &&
+      !isPickedImageAttachment(input)
+    )
     const pdfReferences: ComposerFileReference[] = []
     const unresolvedPdfNames: string[] = []
     for (const input of pdfInputs) {
@@ -891,6 +971,36 @@ export function Workbench(): ReactElement {
     } else if (pdfReferences.length > 0) {
       setAttachmentUploadError(null)
     }
+    if (unsupportedInputs.length > 0) {
+      setAttachmentUploadError(t('composerAttachmentUnavailable'))
+    }
+    if (scientificInputs.length > 0) {
+      if (route !== 'chat') {
+        setAttachmentUploadError(t('composerAttachmentUnavailable'))
+        return
+      }
+      if (!workspace) {
+        setAttachmentUploadError(t('workspaceRequiredToCreateThread'))
+        return
+      }
+      try {
+        const scientificReferences: ComposerFileReference[] = []
+        for (const input of scientificInputs) {
+          scientificReferences.push(await copyScientificAttachmentToWorkspace(input, workspace, activeThreadId))
+        }
+        setComposerFileReferences((current) => {
+          let next = current
+          for (const reference of scientificReferences) {
+            next = mergeComposerFileReferences(next, reference)
+          }
+          return next
+        })
+        if (unresolvedPdfNames.length === 0 && unsupportedInputs.length === 0) setAttachmentUploadError(null)
+      } catch (error) {
+        setAttachmentUploadError(error instanceof Error ? error.message : String(error))
+        return
+      }
+    }
     if (imageInputs.length === 0) return
     if (!attachmentUploadEnabled) {
       setAttachmentUploadError(t('composerAttachmentUnavailable'))
@@ -912,28 +1022,31 @@ export function Workbench(): ReactElement {
       const uploaded: AttachmentReference[] = []
       for (const input of imageInputs) {
         const file = input.file
-        if (!file.type.startsWith('image/')) continue
-        const prepared = await prepareImageAttachmentUpload(file, attachmentCapabilities)
-        const attachment = await provider.uploadAttachment({
-          name: file.name || 'image',
-          mimeType: prepared.mimeType,
-          dataBase64: prepared.dataBase64,
-          textFallback: prepared.textFallback,
-          ...(input.path ? { localFilePath: input.path } : {}),
-          ...(activeThreadId ? { threadId: activeThreadId } : {}),
-          ...(workspace ? { workspace } : {})
-        })
-        uploaded.push({
-          id: attachment.id,
-          name: attachment.name,
-          mimeType: attachment.mimeType,
-          width: attachment.width,
-          height: attachment.height,
-          byteSize: attachment.byteSize,
-          previewUrl: `data:${prepared.mimeType};base64,${prepared.dataBase64}`,
-          ...(input.path ? { path: input.path } : {}),
-          ...(attachment.localFilePath ? { absolutePath: attachment.localFilePath } : {})
-        })
+        if (file.type.startsWith('image/')) {
+          // Image: translated to text by the vision model (Qwen) in the model router.
+          const prepared = await prepareImageAttachmentUpload(file, attachmentCapabilities)
+          const attachment = await provider.uploadAttachment({
+            name: file.name || 'image',
+            mimeType: prepared.mimeType,
+            dataBase64: prepared.dataBase64,
+            textFallback: prepared.textFallback,
+            ...(input.path ? { localFilePath: input.path } : {}),
+            ...(activeThreadId ? { threadId: activeThreadId } : {}),
+            ...(workspace ? { workspace } : {})
+          })
+          uploaded.push({
+            id: attachment.id,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            width: attachment.width,
+            height: attachment.height,
+            byteSize: attachment.byteSize,
+            previewUrl: `data:${prepared.mimeType};base64,${prepared.dataBase64}`,
+            ...(input.path ? { path: input.path } : {}),
+            ...(attachment.localFilePath ? { absolutePath: attachment.localFilePath } : {})
+          })
+          continue
+        }
       }
       if (uploaded.length > 0) {
         setComposerAttachments((current) => {
@@ -1404,6 +1517,18 @@ export function Workbench(): ReactElement {
     let remainingChars = COMPOSER_FILE_CONTEXT_MAX_TOTAL_CHARS
     for (const reference of references) {
       if (remainingChars <= 0) break
+      if (reference.modelRouterObject) {
+        const content = [
+          `Scientific workspace file: ${reference.relativePath}`,
+          'This file is attached as a structured model-router object reference. Let the model router inspect or translate it when supported.'
+        ].join('\n')
+        entries.push({
+          relativePath: reference.relativePath,
+          content
+        })
+        remainingChars -= content.length
+        continue
+      }
       const result = await window.dsGui.readWorkspaceFile({
         workspaceRoot: workspace,
         path: reference.relativePath || reference.path
@@ -1446,6 +1571,7 @@ export function Workbench(): ReactElement {
     const attachments = route === 'chat' || route === 'write' ? composerAttachments : []
     const attachmentIds = attachments.map((attachment) => attachment.id)
     const fileReferences = route === 'chat' ? composerFileReferences : []
+    const modelRouterFileReferences = fileReferences.filter((reference) => reference.modelRouterObject === true)
     const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
     if (!v && attachmentIds.length === 0 && fileReferences.length === 0) return
     const emptyPrompt =
@@ -1508,7 +1634,8 @@ export function Workbench(): ReactElement {
       void sendPlanTurn(prepared.text, {
         ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        ...(attachmentIds.length ? { attachmentIds, attachments } : {})
+        ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
+        ...(modelRouterFileReferences.length ? { fileReferences: modelRouterFileReferences } : {})
       })
       return
     }
@@ -1613,7 +1740,8 @@ export function Workbench(): ReactElement {
     void sendMessage(prepared.text, mode === 'plan' ? 'plan' : 'agent', {
       ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
-      ...(attachmentIds.length ? { attachmentIds, attachments } : {})
+      ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
+      ...(modelRouterFileReferences.length ? { fileReferences: modelRouterFileReferences } : {})
     })
   }
 

@@ -19,7 +19,7 @@ import type {
   AgentRuntimeId,
   ClawModel
 } from '@shared/app-settings'
-import type { AgentRuntimeGovernanceProfile } from '@shared/agent-runtime-contract'
+import type { AgentRuntimeFileReference, AgentRuntimeGovernanceProfile } from '@shared/agent-runtime-contract'
 import type { ModelProviderModelGroup } from '@shared/ds-gui-api'
 
 export type QueuedUserMessage = {
@@ -38,6 +38,7 @@ export type QueuedUserMessage = {
   reasoningEffort?: string
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
+  fileReferences?: AgentRuntimeFileReference[]
   /**
    * Optional GUI plan context forwarded to Kun. The renderer
    * attaches it for plan/refine turns so the runtime can advertise
@@ -81,6 +82,7 @@ export type SendMessageOverrides = {
   guiPlan?: GuiPlanMessageContext
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
+  fileReferences?: AgentRuntimeFileReference[]
 }
 
 export type InitialSetupMode = 'required' | 'preview'

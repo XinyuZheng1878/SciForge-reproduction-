@@ -602,7 +602,7 @@
   "composerContinueHint": "The current context stays attached, so you can add constraints, corrections, or the next step.",
   "composerOfflineHint": "Reconnect the runtime before sending another message.",
   "composerWorkspaceHint": "Choose a working directory before starting or continuing a thread.",
-  "composerAddImage": "Attach image",
+  "composerAddImage": "Attach files",
   "composerAddAttachment": "Attach file",
   "composerVoiceStart": "Voice input",
   "composerVoiceStop": "Stop recording",

@@ -125,6 +125,63 @@ describe('DeepseekCompatModelClient', () => {
     expect(sentBodies[0]?.model).toBe('deepseek-gui-router')
   })
 
+  it('serializes model-router object attachments as Responses input_object parts', async () => {
+    const sentBodies: Array<{ input?: Array<Record<string, unknown>> }> = []
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sentBodies.push(JSON.parse(String(init?.body ?? '{}')))
+      return new Response(JSON.stringify({
+        id: 'resp_object',
+        status: 'completed',
+        output_text: 'done'
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+    const client = new DeepseekCompatModelClient({
+      baseUrl: 'http://127.0.0.1:3892/v1',
+      apiKey: 'local-router-key',
+      model: 'deepseek-gui-router',
+      endpointFormat: 'responses',
+      fetchImpl,
+      nonStreaming: true,
+      forceDefaultModel: true
+    })
+    const request = buildRequest(new AbortController().signal)
+    request.tools = []
+    request.history = [
+      makeUserItem({
+        id: 'item_user',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        text: 'analyze this sequence'
+      })
+    ]
+    request.objectAttachments = [{
+      id: 'object_1',
+      name: 'protein.fasta',
+      ref: '.sciforge/uploads/thr_1/protein.fasta',
+      mimeType: 'text/plain',
+      title: 'protein.fasta'
+    }]
+
+    for await (const _chunk of client.stream(request)) {
+      // drain
+    }
+
+    const userInput = sentBodies[0]?.input?.find((item) => item.role === 'user')
+    expect(userInput?.content).toEqual([
+      { type: 'input_text', text: 'analyze this sequence' },
+      {
+        type: 'input_object',
+        ref: '.sciforge/uploads/thr_1/protein.fasta',
+        mimeType: 'text/plain',
+        title: 'protein.fasta',
+        path: '.sciforge/uploads/thr_1/protein.fasta'
+      }
+    ])
+  })
+
   it('builds chat completions URLs for base URLs with and without version segments', async () => {
     const cases = [
       ['https://zenmux.ai/api', 'https://zenmux.ai/api/v1/chat/completions'],

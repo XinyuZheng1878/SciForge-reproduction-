@@ -461,6 +461,7 @@ export function createThreadActions(
       const reasoningEffort = overrides?.reasoningEffort?.trim()
       const attachmentIds = overrides?.attachmentIds?.filter((id) => id.trim().length > 0)
       const attachments = overrides?.attachments?.filter((attachment) => attachment.id.trim().length > 0)
+      const fileReferences = overrides?.fileReferences?.filter((reference) => reference.relativePath.trim().length > 0)
       set((s) => ({
         queuedMessages: [
           ...s.queuedMessages,
@@ -480,7 +481,8 @@ export function createThreadActions(
             ...(reasoningEffort ? { reasoningEffort } : {}),
             ...(overrides?.guiPlan ? { guiPlan: overrides.guiPlan } : {}),
             ...(attachmentIds?.length ? { attachmentIds } : {}),
-            ...(attachments?.length ? { attachments } : {})
+            ...(attachments?.length ? { attachments } : {}),
+            ...(fileReferences?.length ? { fileReferences } : {})
           }
         ],
         error: null
@@ -501,6 +503,10 @@ export function createThreadActions(
     const attachments =
       queued?.attachments ??
       overrides?.attachments?.filter((attachment) => attachment.id.trim().length > 0) ??
+      []
+    const fileReferences =
+      queued?.fileReferences ??
+      overrides?.fileReferences?.filter((reference) => reference.relativePath.trim().length > 0) ??
       []
     let activeThreadId = targetThreadId || get().activeThreadId
     const displayText = queued?.displayText ?? overrides?.displayText?.trim() ?? trimmedText
@@ -677,7 +683,8 @@ export function createThreadActions(
         ...(governanceProfile ? { governanceProfile } : {}),
         ...(runtimeDisplayText ? { displayText: runtimeDisplayText } : {}),
         ...((queued?.guiPlan ?? overrides?.guiPlan) ? { guiPlan: queued?.guiPlan ?? overrides?.guiPlan } : {}),
-        ...(attachmentIds.length ? { attachmentIds } : {})
+        ...(attachmentIds.length ? { attachmentIds } : {}),
+        ...(fileReferences.length ? { fileReferences } : {})
       })
       // Mirror the composer model selection against the runtime's stable
       // user_message item id so the badge survives page refresh / thread

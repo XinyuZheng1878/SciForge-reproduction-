@@ -1,4 +1,10 @@
-import type { GuiPlanContextJson, Turn, TurnReasoningEffort, TurnStatus } from '../contracts/turns.js'
+import type {
+  GuiPlanContextJson,
+  Turn,
+  TurnFileAttachmentJson,
+  TurnReasoningEffort,
+  TurnStatus
+} from '../contracts/turns.js'
 import type { ThreadMode } from '../contracts/threads.js'
 import type { ApprovalPolicy, SandboxMode } from '../contracts/policy.js'
 import type { TurnItem } from '../contracts/items.js'
@@ -12,6 +18,7 @@ export function createTurnRecord(input: {
   model?: string
   reasoningEffort?: TurnReasoningEffort
   attachmentIds?: string[]
+  attachments?: TurnFileAttachmentJson[]
   guiPlan?: GuiPlanContextJson
   mode?: ThreadMode
   approvalPolicy?: ApprovalPolicy
@@ -29,6 +36,7 @@ export function createTurnRecord(input: {
     steering: [],
     items: [],
     attachmentIds: [...(input.attachmentIds ?? [])],
+    attachments: [...(input.attachments ?? [])],
     activeSkillIds: [],
     injectedMemoryIds: [],
     ...(model ? { model } : {}),

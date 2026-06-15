@@ -399,6 +399,7 @@ export class CodexRuntimeService {
           workspace,
           model: routerModel,
           reasoningEffort: payload.reasoningEffort,
+          fileReferences: payload.fileReferences,
           runtime
         }))
       } catch (error) {
@@ -420,6 +421,7 @@ export class CodexRuntimeService {
           workspace,
           model: routerModel,
           reasoningEffort: payload.reasoningEffort,
+          fileReferences: payload.fileReferences,
           runtime
         }))
       }
@@ -1381,11 +1383,12 @@ function turnStartParams(input: {
   workspace: string
   model?: string
   reasoningEffort?: string
+  fileReferences?: CodexTurnStartPayload['fileReferences']
   runtime: ReturnType<typeof getCodexRuntimeSettings>
 }): Parameters<CodexAppServerJsonRpcClient['startTurn']>[0] {
   return {
     threadId: input.threadId,
-    input: [textInput(input.text, input.displayText)],
+    input: [textInput(input.text, input.displayText), ...modelObjectInputs(input.fileReferences)],
     cwd: input.workspace,
     ...(input.displayText?.trim() && input.displayText.trim() !== input.text.trim()
       ? { displayText: input.displayText.trim() }
@@ -1412,6 +1415,18 @@ function mapTurnSandboxMode(mode: SandboxMode, cwd: string): CodexAppServerTurnS
   if (mode === 'read-only') return { type: 'readOnly', networkAccess: false }
   if (mode === 'danger-full-access') return { type: 'dangerFullAccess' }
   return { type: 'workspaceWrite', writableRoots: [cwd], networkAccess: true }
+}
+
+function modelObjectInputs(fileReferences: CodexTurnStartPayload['fileReferences']): CodexAppServerInputItem[] {
+  return (fileReferences ?? [])
+    .filter((reference) => reference.modelRouterObject === true && reference.relativePath.trim().length > 0)
+    .map((reference) => ({
+      type: 'input_object',
+      ref: reference.relativePath.trim(),
+      path: reference.relativePath.trim(),
+      title: reference.name,
+      ...(reference.mimeType ? { mimeType: reference.mimeType } : {})
+    }))
 }
 
 function textInput(text: string, displayText?: string): CodexAppServerInputItem {
