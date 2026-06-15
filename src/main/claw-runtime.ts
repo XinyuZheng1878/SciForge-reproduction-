@@ -249,9 +249,9 @@ function effectiveImRuntimeModel(
 ): string {
   const trimmed = requestedModel.trim()
   if (trimmed && trimmed.toLowerCase() !== DEFAULT_CLAW_MODEL) return trimmed
-  if (runtimeId === 'codex') {
+  if (runtimeId !== 'kun') {
     return resolveRuntimeModelRouterSettings(settings).model.trim() ||
-      getCodexRuntimeSettings(settings).model.trim() ||
+      (runtimeId === 'codex' ? getCodexRuntimeSettings(settings).model.trim() : '') ||
       trimmed ||
       DEFAULT_CLAW_MODEL
   }
@@ -2667,15 +2667,13 @@ export class ClawRuntime {
         [...channel.conversations]
           .filter((item) =>
             item.localThreadId.trim() === targetThreadId ||
-            item.agentThreadIds?.kun?.trim() === targetThreadId ||
-            item.agentThreadIds?.codex?.trim() === targetThreadId
+            Object.values(item.agentThreadIds ?? {}).some((id) => id.trim() === targetThreadId)
           )
           .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
       if (conversation) return { channel, conversation }
       if (
         channel.threadId.trim() === targetThreadId ||
-        channel.agentThreadIds?.kun?.trim() === targetThreadId ||
-        channel.agentThreadIds?.codex?.trim() === targetThreadId
+        Object.values(channel.agentThreadIds ?? {}).some((id) => id.trim() === targetThreadId)
       ) return { channel }
     }
     return null
@@ -2809,8 +2807,7 @@ export class ClawRuntime {
       [...channel.conversations]
         .filter((item) =>
           item.localThreadId.trim() === threadId.trim() ||
-          item.agentThreadIds?.kun?.trim() === threadId.trim() ||
-          item.agentThreadIds?.codex?.trim() === threadId.trim()
+          Object.values(item.agentThreadIds ?? {}).some((id) => id.trim() === threadId.trim())
         )
         .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
     if (!conversation?.chatId.trim()) {

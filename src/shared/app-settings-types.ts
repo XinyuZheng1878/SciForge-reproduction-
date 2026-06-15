@@ -43,6 +43,7 @@ export const DEFAULT_SCHEDULE_INTERNAL_PORT = 8788
 export const DEFAULT_WRITE_WORKSPACE_ROOT = '~/.deepseekgui/write_workspace'
 export const DEFAULT_KUN_DATA_DIR = '~/.deepseekgui/kun'
 export const DEFAULT_CODEX_DATA_DIR = '~/.deepseekgui/codex'
+export const DEFAULT_CLAUDE_CONFIG_DIR = '~/.deepseekgui/claude-code'
 export const DEFAULT_KUN_MODEL = 'deepseek-v4-pro'
 export const DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL = DEFAULT_MODEL_ROUTER_BASE_URL
 export const DEFAULT_WRITE_INLINE_COMPLETION_MODEL = 'deepseek-v4-flash'
@@ -122,7 +123,7 @@ export type ModelRouterSettingsPatchV1 = Partial<
   }
 }
 
-export type AgentRuntimeId = 'kun' | 'codex'
+export type AgentRuntimeId = 'kun' | 'codex' | 'claude'
 
 export type AgentThreadIdsV1 = Partial<Record<AgentRuntimeId, string>>
 
@@ -248,6 +249,15 @@ export type CodexRuntimeSettingsV1 = {
   extraArgs: string[]
 }
 
+export type ClaudeRuntimeSettingsV1 = {
+  command: string
+  configDir: string
+  model: string
+  approvalPolicy: ApprovalPolicy
+  sandboxMode: SandboxMode
+  extraArgs: string[]
+}
+
 /**
  * Compatibility shell kept because old persisted settings only have
  * `agents.kun`. New code should read runtime settings through the
@@ -257,6 +267,7 @@ export type CodexRuntimeSettingsV1 = {
 export type KunSettingsEnvelopeV1 = {
   kun: KunRuntimeSettingsV1
   codex?: CodexRuntimeSettingsV1
+  claude?: ClaudeRuntimeSettingsV1
 }
 
 export type AgentRuntimeSettingsMapV1 = KunSettingsEnvelopeV1
@@ -287,9 +298,11 @@ export type KunRuntimeSettingsPatchV1 = Partial<
 export type KunSettingsEnvelopePatchV1 = {
   kun?: KunRuntimeSettingsPatchV1
   codex?: CodexRuntimeSettingsPatchV1
+  claude?: ClaudeRuntimeSettingsPatchV1
 }
 
 export type CodexRuntimeSettingsPatchV1 = Partial<CodexRuntimeSettingsV1>
+export type ClaudeRuntimeSettingsPatchV1 = Partial<ClaudeRuntimeSettingsV1>
 
 export type LogConfigV1 = {
   enabled: boolean

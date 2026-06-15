@@ -37,6 +37,10 @@ export async function* runtimeEventsViaRuntimeHost(
     return
   }
 
+  if (targetRuntimeId !== 'codex') {
+    throw new Error('Legacy runtime SSE is only available for Kun and Codex. Use agentRuntime IPC for Claude Code.')
+  }
+
   // Legacy SSE compatibility uses the same normalized Codex service stream as
   // AgentRuntimeHost: replay GUI-owned events, then continue with live events.
   const codexRuntime = options.codexRuntime()

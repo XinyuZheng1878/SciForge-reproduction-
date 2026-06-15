@@ -247,4 +247,27 @@ describe('createKunAgentRuntimeAdapter', () => {
       })
     ])
   })
+
+  it('treats an unavailable memory store as an empty memory list', async () => {
+    const seen: string[] = []
+    const adapter = createKunAgentRuntimeAdapter({
+      request: vi.fn(async (_settings, pathAndQuery) => {
+        seen.push(pathAndQuery)
+        return {
+          ok: false,
+          status: 503,
+          body: JSON.stringify({
+            code: 'capability_unavailable',
+            message: 'memory store is unavailable'
+          })
+        }
+      })
+    })
+
+    await expect(adapter.auxiliary?.({ settings: buildSettings() }, {
+      operation: 'listMemories',
+      payload: { options: { workspace: '/tmp/workspace', includeDeleted: false } }
+    })).resolves.toEqual([])
+    expect(seen).toEqual(['/v1/memory?workspace=%2Ftmp%2Fworkspace&include_deleted=false'])
+  })
 })

@@ -105,7 +105,8 @@ function isAllowedBoundaryMarker(hit: DirectCallHit): boolean {
   }
   if (
     hit.file === 'src/main/kun-process.ts' ||
-    hit.file === 'src/main/runtime/codex/codex-config.ts'
+    hit.file === 'src/main/runtime/codex/codex-config.ts' ||
+    hit.file === 'src/main/runtime/claude-code/claude-code-config.ts'
   ) {
     return /^'[A-Z0-9_]+(?:_API_KEY)?',?$/.test(hit.text)
   }

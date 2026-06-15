@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   codexSettingsPatch,
+  claudeSettingsPatch,
   DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL,
   kunSettingsPatch,
   DEFAULT_WRITE_WORKSPACE_ROOT,
@@ -10,8 +11,10 @@ import {
   type AppSettingsPatch,
   type AgentRuntimeId,
   type CodexRuntimeSettingsPatchV1,
+  type ClaudeRuntimeSettingsPatchV1,
   getActiveAgentApiKey,
   getCodexRuntimeSettings,
+  getClaudeRuntimeSettings,
   getKunRuntimeSettings,
   getModelProviderSettings,
   isKunRuntimeInsecure,
@@ -586,6 +589,7 @@ export function SettingsView(): ReactElement {
 
   const kun = getKunRuntimeSettings(form)
   const codex = getCodexRuntimeSettings(form)
+  const claude = getClaudeRuntimeSettings(form)
   const activeAgentRuntime = getActiveAgentRuntime(form)
   const provider = getModelProviderSettings(form)
   const activeApiKey = getActiveAgentApiKey(form)
@@ -620,6 +624,10 @@ export function SettingsView(): ReactElement {
 
   const updateCodex = (patch: CodexRuntimeSettingsPatchV1): void => {
     update({ agents: codexSettingsPatch(patch) })
+  }
+
+  const updateClaude = (patch: ClaudeRuntimeSettingsPatchV1): void => {
+    update({ agents: claudeSettingsPatch(patch) })
   }
 
   const updateActiveAgentRuntime = (runtime: AgentRuntimeId): void => {
@@ -733,11 +741,13 @@ export function SettingsView(): ReactElement {
     provider,
     kun,
     codex,
+    claude,
     activeAgentRuntime,
     activeApiKey,
     update,
     updateKun,
     updateCodex,
+    updateClaude,
     updateActiveAgentRuntime,
     updateSharedCredential,
     sharedApiKey,

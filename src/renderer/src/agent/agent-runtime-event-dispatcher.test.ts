@@ -450,13 +450,22 @@ describe('agent runtime event dispatcher', () => {
     expect(sink.onTurnComplete).toHaveBeenCalled()
   })
 
-  it('settles aborted turn lifecycle events through the error path', () => {
+  it('settles aborted turn lifecycle events through the error path and completes the turn', () => {
     const sink = makeSink()
 
     dispatchAgentRuntimeEvent({ kind: 'turn_lifecycle', threadId: 'thread-1', turnId: 'turn-1', state: 'aborted' }, sink)
 
     expect(sink.onError).toHaveBeenCalledWith(new Error('turn aborted'))
-    expect(sink.onTurnComplete).not.toHaveBeenCalled()
+    expect(sink.onTurnComplete).toHaveBeenCalled()
+  })
+
+  it('settles failed turn lifecycle events through the error path and completes the turn', () => {
+    const sink = makeSink()
+
+    dispatchAgentRuntimeEvent({ kind: 'turn_lifecycle', threadId: 'thread-1', turnId: 'turn-1', state: 'failed' }, sink)
+
+    expect(sink.onError).toHaveBeenCalledWith(new Error('turn failed'))
+    expect(sink.onTurnComplete).toHaveBeenCalled()
   })
 
   it('does not crash over every contract event kind', () => {

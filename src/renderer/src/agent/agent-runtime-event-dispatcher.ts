@@ -420,8 +420,14 @@ export function dispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: Thread
       return
     case 'turn_lifecycle':
       if (event.state === 'completed') sink.onTurnComplete()
-      if (event.state === 'aborted') sink.onError(new Error('turn aborted'))
-      if (event.state === 'failed') sink.onError(new Error('turn failed'))
+      if (event.state === 'aborted') {
+        sink.onError(new Error('turn aborted'))
+        sink.onTurnComplete()
+      }
+      if (event.state === 'failed') {
+        sink.onError(new Error('turn failed'))
+        sink.onTurnComplete()
+      }
       return
     case 'runtime_status':
       sink.onRuntimeStatus?.(runtimeStatusFromEvent(event))

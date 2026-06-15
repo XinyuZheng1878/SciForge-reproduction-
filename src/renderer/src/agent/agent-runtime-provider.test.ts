@@ -68,16 +68,17 @@ function makeSink(): ThreadEventSink {
 }
 
 function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
+  const transport = runtimeId === 'kun' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
   return {
     ...createDefaultAgentRuntimeCapabilities({
       runtimeId,
-      transport: runtimeId === 'kun' ? 'http_sse' : 'jsonrpc_stdio'
+      transport
     }),
     events: {
       live: true,
       replayable: true,
       sequenced: true,
-      delivery: 'sse'
+      delivery: runtimeId === 'kun' ? 'sse' : 'ipc'
     },
     latency: {
       phaseEvents: true,
@@ -91,7 +92,7 @@ function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
       source: runtimeId === 'kun' ? 'model' : 'runtime_summary'
     },
     tools: {
-      ...createDefaultAgentRuntimeCapabilities({ runtimeId, transport: 'http_sse' }).tools,
+      ...createDefaultAgentRuntimeCapabilities({ runtimeId, transport }).tools,
       toolCalling: true,
       commandExecution: { available: true },
       fileChange: { available: true },

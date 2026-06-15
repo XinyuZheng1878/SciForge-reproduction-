@@ -37,11 +37,14 @@ export function remoteGuardProviderLabel(provider: ClawImChannelV1['provider']):
 }
 
 export function remoteGuardTargetThread(channel: ClawImChannelV1): RemoteGuardTarget | null {
-  const preferredRuntime = channel.runtimeId === 'codex' ? 'codex' : 'kun'
+  const preferredRuntime: AgentRuntimeId =
+    channel.runtimeId === 'claude' ? 'claude' : channel.runtimeId === 'codex' ? 'codex' : 'kun'
   const preferred = channel.agentThreadIds?.[preferredRuntime]?.trim()
   if (preferred) return { threadId: preferred, runtimeId: preferredRuntime }
-  const codexThreadId = channel.agentThreadIds?.codex?.trim()
-  if (codexThreadId) return { threadId: codexThreadId, runtimeId: 'codex' }
+  for (const runtimeId of ['claude', 'codex'] as const satisfies readonly AgentRuntimeId[]) {
+    const threadId = channel.agentThreadIds?.[runtimeId]?.trim()
+    if (threadId) return { threadId, runtimeId }
+  }
   const kunThreadId = channel.agentThreadIds?.kun?.trim() || channel.threadId.trim()
   if (kunThreadId) return { threadId: kunThreadId, runtimeId: 'kun' }
   return null

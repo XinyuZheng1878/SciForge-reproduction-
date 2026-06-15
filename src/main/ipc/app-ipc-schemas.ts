@@ -55,7 +55,7 @@ export const defaultPathSchema = optionalTrimmedString(MAX_PATH_LENGTH)
 const localeSchema = z.enum(['en', 'zh'])
 const themeSchema = z.enum(['system', 'light', 'dark'])
 const uiFontScaleSchema = z.enum(['small', 'medium', 'large'])
-const agentRuntimeIdSchema = z.enum(['kun', 'codex'])
+const agentRuntimeIdSchema = z.enum(['kun', 'codex', 'claude'])
 const agentRuntimeThreadRelationSchema = z.string().trim().pipe(z.enum(['primary', 'fork', 'side']))
 const agentRuntimeUsageGroupBySchema = z.string().trim().pipe(z.enum(['day', 'model', 'thread']))
 const agentRuntimeAuxiliaryOperationSchema = z.enum([
@@ -81,6 +81,8 @@ const agentRuntimeAuxiliaryOperationSchema = z.enum([
 const agentRuntimeAuxiliaryPayloadRecordSchema = z.record(z.string(), z.unknown()).optional()
 const approvalPolicySchema = z.enum(['on-request', 'untrusted', 'never', 'auto', 'suggest'])
 const sandboxModeSchema = z.enum(['read-only', 'workspace-write', 'danger-full-access', 'external-sandbox'])
+const claudeApprovalPolicySchema = z.enum(['on-request', 'untrusted', 'never', 'auto'])
+const claudeSandboxModeSchema = z.enum(['read-only', 'workspace-write', 'danger-full-access'])
 const mcpSearchModeSchema = z.enum(['direct', 'search', 'auto'])
 const kunStorageBackendSchema = z.enum(['hybrid', 'file'])
 const kunCompactionSummaryModeSchema = z.enum(['heuristic', 'model'])
@@ -100,7 +102,8 @@ const writeInlineCompletionModelSchema = z.union([
 const modelEndpointFormatSchema = z.enum(MODEL_ENDPOINT_FORMATS)
 const agentThreadIdsSchema = z.object({
   kun: z.string().max(MAX_ID_LENGTH).optional(),
-  codex: z.string().max(MAX_ID_LENGTH).optional()
+  codex: z.string().max(MAX_ID_LENGTH).optional(),
+  claude: z.string().max(MAX_ID_LENGTH).optional()
 }).strict()
 const agentRuntimeGovernanceProfileSchema = z.enum(['default', 'write', 'remote_guard'])
 const agentRuntimeFileReferenceSchema = z.object({
@@ -367,6 +370,15 @@ const runtimeGuardPatchSchema = z.object({
     writeMaxToolEvents: z.number().int().positive().max(10_000).optional(),
     remoteGuardMaxToolEvents: z.number().int().positive().max(10_000).optional()
   }).strict().optional()
+}).strict()
+
+const claudeRuntimePatchSchema = z.object({
+  command: z.string().trim().min(1).max(MAX_PATH_LENGTH).optional(),
+  configDir: defaultPathSchema,
+  model: z.string().trim().max(128).optional(),
+  approvalPolicy: claudeApprovalPolicySchema.optional(),
+  sandboxMode: claudeSandboxModeSchema.optional(),
+  extraArgs: z.array(z.string().trim().min(1).max(512)).max(64).optional()
 }).strict()
 
 const logPatchSchema = z.object({
@@ -662,7 +674,8 @@ const settingsPatchObjectSchema = z.object({
   activeAgentRuntime: agentRuntimeIdSchema.optional(),
   agents: z.object({
     kun: kunRuntimePatchSchema.optional(),
-    codex: codexRuntimePatchSchema.optional()
+    codex: codexRuntimePatchSchema.optional(),
+    claude: claudeRuntimePatchSchema.optional()
   }).strict().optional(),
   workspaceRoot: defaultPathSchema,
   log: logPatchSchema.optional(),

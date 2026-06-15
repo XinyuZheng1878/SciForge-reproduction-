@@ -1,14 +1,18 @@
 import {
   DEFAULT_GUI_UPDATE_CHANNEL,
+  applyClaudeRuntimePatch,
   defaultCodexRuntimeSettings,
+  defaultClaudeRuntimeSettings,
   defaultKunRuntimeSettings,
   defaultRuntimeGuardSettings,
   applyCodexRuntimePatch,
   applyKunRuntimePatch,
   getCodexRuntimeSettings,
+  getClaudeRuntimeSettings,
   getKunRuntimeSettings,
   kunSettingsEnvelope,
   mergeCodexRuntimeSettings,
+  mergeClaudeRuntimeSettings,
   mergeKunRuntimeSettings,
   mergeClawSettings,
   mergeModelRouterSettings,
@@ -63,7 +67,10 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
     ...restPatch
   } = patch
   return {
-    ...applyCodexRuntimePatch(applyKunRuntimePatch(safeCurrent, agentsPatch?.kun), agentsPatch?.codex),
+    ...applyClaudeRuntimePatch(
+      applyCodexRuntimePatch(applyKunRuntimePatch(safeCurrent, agentsPatch?.kun), agentsPatch?.codex),
+      agentsPatch?.claude
+    ),
     ...restPatch,
     provider: mergeModelProviderSettings(safeCurrent.provider, providerPatch),
     modelRouter: mergeModelRouterSettings(safeCurrent.modelRouter, modelRouterPatch),
@@ -119,7 +126,8 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     activeAgentRuntime: normalizeAgentRuntimeId(raw.activeAgentRuntime),
     agents: {
       ...kunSettingsEnvelope(mergeKunRuntimeSettings(defaultKunRuntimeSettings(), getKunRuntimeSettings(settings))),
-      codex: mergeCodexRuntimeSettings(defaultCodexRuntimeSettings(), getCodexRuntimeSettings(settings))
+      codex: mergeCodexRuntimeSettings(defaultCodexRuntimeSettings(), getCodexRuntimeSettings(settings)),
+      claude: mergeClaudeRuntimeSettings(defaultClaudeRuntimeSettings(), getClaudeRuntimeSettings(settings))
     },
     workspaceRoot: typeof raw.workspaceRoot === 'string' ? raw.workspaceRoot : DEFAULT_WORKSPACE_ROOT,
     log: {
