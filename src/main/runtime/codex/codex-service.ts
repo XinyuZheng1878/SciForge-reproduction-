@@ -51,7 +51,7 @@ import {
   codexAppServerThreadReasoningConfig,
   codexAppServerTurnReasoningParams
 } from './app-server/reasoning-config'
-import { normalizeCodexEvent } from './app-server/event-normalizer'
+import { normalizeCodexEvent, type CodexEventNormalizeContext } from './app-server/event-normalizer'
 import { CodexEventStore, type CodexStoredEvent } from './codex-event-store'
 import { CodexThreadStore, type CodexStoredThread } from './codex-thread-store'
 import { CodexUsageStore } from './codex-usage-store'
@@ -74,6 +74,7 @@ export type CodexRuntimeServiceOptions = {
 
 type CodexTurnTiming = {
   startedAtMs: number
+  firstActivitySeen: boolean
   firstDeltaSeen: boolean
 }
 
@@ -107,6 +108,9 @@ const EMPTY_CODEX_TURN_USAGE: AgentRuntimeUsage = {
   modelContextWindow: null
 }
 
+const FIRST_CODEX_ACTIVITY_TIMEOUT_MS = 75_000
+const INTERRUPT_TIMED_OUT_TURN_MS = 5_000
+
 type CodexRuntimeEventSubscriber = {
   threadId: string
   queue: CodexThreadEventPayload[]
@@ -127,6 +131,8 @@ export class CodexRuntimeService {
   private readonly activeTurns = new Map<string, string>()
   private readonly turnTimings = new Map<string, CodexTurnTiming>()
   private readonly turnModelHints = new Map<string, string>()
+  private readonly firstActivityTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly seenModelDeltaKeys = new Set<string>()
   private readonly eventSubscribers = new Set<CodexRuntimeEventSubscriber>()
 
   constructor(private readonly options: CodexRuntimeServiceOptions) {
@@ -538,6 +544,8 @@ export class CodexRuntimeService {
     this.activeTurns.clear()
     this.turnTimings.clear()
     this.turnModelHints.clear()
+    this.clearAllFirstActivityTimers()
+    this.seenModelDeltaKeys.clear()
     this.closeAllEventSubscribers()
     if (client) await client.stop()
   }
@@ -552,6 +560,8 @@ export class CodexRuntimeService {
     this.activeTurns.clear()
     this.turnTimings.clear()
     this.turnModelHints.clear()
+    this.clearAllFirstActivityTimers()
+    this.seenModelDeltaKeys.clear()
     this.closeAllEventSubscribers()
     if (!client) return
     try {
@@ -624,11 +634,13 @@ export class CodexRuntimeService {
   private async forwardEvents(client: CodexAppServerJsonRpcClient): Promise<void> {
     for await (const event of client.subscribe()) {
       if (event.type === 'event') {
-        const normalized = normalizeCodexEvent(event.payload)
-        if (normalized) {
-          const stored = await this.persistEvent(normalized.threadId, normalized)
-          const runtimeEvent = stored?.event ?? normalized
+        const normalized = this.normalizeClientEvent(event.payload)
+        const deduped = normalized ? this.dedupeModelDeltas(normalized) : null
+        if (deduped) {
+          const stored = await this.persistEvent(deduped.threadId, deduped)
+          const runtimeEvent = stored?.event ?? deduped
           await this.recordUsageEvent(runtimeEvent, stored?.createdAt)
+          this.noteFirstActivity(runtimeEvent)
           await this.emitFirstDeltaIfNeeded(runtimeEvent)
           await this.emitTurnDoneIfNeeded(runtimeEvent)
           this.noteRuntimeEvent(runtimeEvent)
@@ -666,6 +678,62 @@ export class CodexRuntimeService {
 
   private async storedThreads(options: { includeArchived?: boolean } = {}): Promise<CodexStoredThread[]> {
     return this.threadStore?.list(options) ?? []
+  }
+
+  private normalizeClientEvent(payload: unknown): CodexThreadEventPayload | null {
+    return normalizeCodexEvent(payload, this.contextForClientEvent(payload))
+  }
+
+  private dedupeModelDeltas(event: CodexThreadEventPayload): CodexThreadEventPayload | null {
+    const deltas = event.deltas ?? []
+    if (deltas.length === 0) return event
+    const turnId = event.turnId || event.userMessage?.turnId || ''
+    if (!turnId) return event
+
+    const nextDeltas = deltas.filter((delta) => {
+      if (delta.text.length < 16) return true
+      const key = `${event.threadId}\u0000${turnId}\u0000${delta.kind}\u0000${delta.text}`
+      if (this.seenModelDeltaKeys.has(key)) return false
+      this.seenModelDeltaKeys.add(key)
+      return true
+    })
+    if (nextDeltas.length === deltas.length) return event
+    if (nextDeltas.length > 0) return { ...event, deltas: nextDeltas }
+    const { deltas: _deltas, ...withoutDeltas } = event
+    return eventHasNonDeltaPayload(withoutDeltas) ? withoutDeltas : null
+  }
+
+  private contextForClientEvent(payload: unknown): CodexEventNormalizeContext {
+    const event = asRecord(payload)
+    if (!event) return {}
+    const params = asRecord(event.params)
+    const sessionPayload = asRecord(event.payload)
+    const threadId = stringValue(params?.threadId) ||
+      stringValue(params?.thread_id) ||
+      stringValue(sessionPayload?.threadId) ||
+      stringValue(sessionPayload?.thread_id)
+    const turnId = stringValue(params?.turnId) ||
+      stringValue(params?.turn_id) ||
+      stringValue(sessionPayload?.turnId) ||
+      stringValue(sessionPayload?.turn_id)
+    if (threadId && turnId) return { threadId, turnId }
+    if (turnId) {
+      const activeThreadId = [...this.activeTurns.entries()]
+        .find(([, activeTurnId]) => activeTurnId === turnId)?.[0]
+      if (activeThreadId) return { threadId: threadId || activeThreadId, turnId }
+    }
+    if (threadId) {
+      const activeTurnId = this.activeTurns.get(threadId)
+      return {
+        threadId,
+        ...(activeTurnId ? { turnId: activeTurnId } : {})
+      }
+    }
+    if (this.activeTurns.size === 1) {
+      const [activeThreadId, activeTurnId] = [...this.activeTurns.entries()][0]
+      return { threadId: activeThreadId, turnId: activeTurnId }
+    }
+    return {}
   }
 
   private async backfillStoredUsageEvents(): Promise<void> {
@@ -833,8 +901,10 @@ export class CodexRuntimeService {
     this.activeTurns.set(normalizedThreadId, normalizedTurnId)
     this.turnTimings.set(turnTimingKey(normalizedThreadId, normalizedTurnId), {
       startedAtMs,
+      firstActivitySeen: false,
       firstDeltaSeen: false
     })
+    this.scheduleFirstActivityTimeout(normalizedThreadId, normalizedTurnId)
   }
 
   private recordTurnModelHint(threadId: string, turnId: string, model?: string): void {
@@ -862,7 +932,18 @@ export class CodexRuntimeService {
     if (event.turnComplete || isTerminalRuntimeError(event.runtimeError)) {
       this.activeTurns.delete(event.threadId)
       this.turnTimings.delete(turnTimingKey(event.threadId, turnId))
+      this.clearFirstActivityTimer(turnTimingKey(event.threadId, turnId))
     }
+  }
+
+  private noteFirstActivity(event: CodexThreadEventPayload): void {
+    const turnId = event.turnId || event.userMessage?.turnId || ''
+    if (!turnId || this.activeTurns.get(event.threadId) !== turnId) return
+    if (!eventHasModelActivity(event)) return
+    const key = turnTimingKey(event.threadId, turnId)
+    const timing = this.turnTimings.get(key)
+    if (timing) timing.firstActivitySeen = true
+    this.clearFirstActivityTimer(key)
   }
 
   private async emitFirstDeltaIfNeeded(event: CodexThreadEventPayload): Promise<void> {
@@ -885,11 +966,12 @@ export class CodexRuntimeService {
     if (!turnId || this.activeTurns.get(event.threadId) !== turnId) return
     if (!event.turnComplete && !isTerminalRuntimeError(event.runtimeError)) return
     const timing = this.turnTimings.get(turnTimingKey(event.threadId, turnId))
+    const errorMessage = event.runtimeError?.message?.trim()
     await this.emitRuntimeStatus({
       threadId: event.threadId,
       turnId,
       phase: 'turn_done',
-      message: event.turnComplete ? 'Codex turn completed' : 'Codex turn ended with an error',
+      message: event.turnComplete ? 'Codex turn completed' : errorMessage || 'Codex turn ended with an error',
       ...(timing ? { latencyMs: elapsedMs(timing.startedAtMs) } : {})
     })
   }
@@ -948,6 +1030,65 @@ export class CodexRuntimeService {
         details,
         severity: 'error'
       })
+    }
+  }
+
+  private scheduleFirstActivityTimeout(threadId: string, turnId: string): void {
+    const key = turnTimingKey(threadId, turnId)
+    this.clearFirstActivityTimer(key)
+    const timer = setTimeout(() => {
+      this.firstActivityTimers.delete(key)
+      void this.failTurnWithoutFirstActivity(threadId, turnId).catch((error) => {
+        this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.error, {
+          message: error instanceof Error ? error.message : String(error),
+          detail: error
+        })
+      })
+    }, FIRST_CODEX_ACTIVITY_TIMEOUT_MS)
+    this.firstActivityTimers.set(key, timer)
+  }
+
+  private clearFirstActivityTimer(key: string): void {
+    const timer = this.firstActivityTimers.get(key)
+    if (!timer) return
+    clearTimeout(timer)
+    this.firstActivityTimers.delete(key)
+  }
+
+  private clearAllFirstActivityTimers(): void {
+    for (const timer of this.firstActivityTimers.values()) clearTimeout(timer)
+    this.firstActivityTimers.clear()
+  }
+
+  private async failTurnWithoutFirstActivity(threadId: string, turnId: string): Promise<void> {
+    if (this.activeTurns.get(threadId) !== turnId) return
+    const timing = this.turnTimings.get(turnTimingKey(threadId, turnId))
+    if (timing?.firstActivitySeen) return
+
+    await this.emitRuntimeError({
+      threadId,
+      turnId,
+      message: `Codex did not produce model activity within ${Math.round(FIRST_CODEX_ACTIVITY_TIMEOUT_MS / 1000)} seconds. The stuck turn was stopped so you can retry.`,
+      code: 'first_activity_timeout',
+      details: { timeoutMs: FIRST_CODEX_ACTIVITY_TIMEOUT_MS },
+      severity: 'error'
+    })
+    await this.interruptTimedOutTurn(threadId, turnId)
+    await this.discardClientAfterFailure()
+  }
+
+  private async interruptTimedOutTurn(threadId: string, turnId: string): Promise<void> {
+    const client = this.client
+    if (!client) return
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), INTERRUPT_TIMED_OUT_TURN_MS)
+    try {
+      const codexThreadId = await this.codexThreadIdFor(threadId)
+      await client.interruptTurn({ threadId: codexThreadId, turnId }, controller.signal)
+    } catch {
+      /* The timeout error already gives the user a recovery path. */
+    } finally {
+      clearTimeout(timer)
     }
   }
 
@@ -1095,6 +1236,16 @@ function preferThreadDetail(
   if (!storedDetail) return liveDetail
   if (liveDetail.blocks.length === 0) return storedDetail
   if (
+    storedDetail.blocks.length > liveDetail.blocks.length &&
+    (!storedDetail.latestTurnId || !liveDetail.latestTurnId || storedDetail.latestTurnId === liveDetail.latestTurnId)
+  ) {
+    return {
+      ...storedDetail,
+      usage: liveDetail.usage ?? storedDetail.usage,
+      latestSeq: Math.max(liveDetail.latestSeq, storedDetail.latestSeq)
+    }
+  }
+  if (
     storedDetail.latestTurnId &&
     storedDetail.latestTurnId === liveDetail.latestTurnId &&
     isTerminalThreadStatus(storedDetail.threadStatus) &&
@@ -1102,7 +1253,10 @@ function preferThreadDetail(
   ) {
     return storedDetail
   }
-  return liveDetail
+  return {
+    ...liveDetail,
+    latestSeq: Math.max(liveDetail.latestSeq, storedDetail.latestSeq)
+  }
 }
 
 function latestStoredTurnId(events: CodexStoredEvent[]): string | undefined {
@@ -1183,6 +1337,7 @@ function turnStartParams(input: {
       ? { displayText: input.displayText.trim() }
       : {}),
     ...(input.model ? { model: input.model } : {}),
+    modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID,
     approvalPolicy: mapApprovalPolicy(input.runtime.approvalPolicy),
     sandboxPolicy: mapTurnSandboxMode(input.runtime.sandboxMode, input.workspace),
     ...codexAppServerTurnReasoningParams({ reasoningEffort: input.reasoningEffort })
@@ -1435,6 +1590,17 @@ function eventShouldUpsertThread(event: CodexEventPayload['event']): boolean {
   )
 }
 
+function eventHasNonDeltaPayload(event: CodexEventPayload['event']): boolean {
+  return Boolean(
+    event.userMessage ||
+    event.tool ||
+    event.turnComplete ||
+    event.runtimeError ||
+    event.runtimeStatus ||
+    event.usage
+  )
+}
+
 function isMissingOrUnmaterializedThreadError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return /thread\s+.*not found|thread not found|not materialized yet|includeTurns is unavailable/i.test(message)
@@ -1443,6 +1609,16 @@ function isMissingOrUnmaterializedThreadError(error: unknown): boolean {
 function isTerminalRuntimeError(error: CodexThreadEventPayload['runtimeError']): boolean {
   if (!error) return false
   return error.severity === 'error' || error.code === 'cancelled' || error.code === 'aborted'
+}
+
+function eventHasModelActivity(event: CodexThreadEventPayload): boolean {
+  return Boolean(
+    event.deltas?.length ||
+    event.tool ||
+    event.runtimeStatus ||
+    event.runtimeError ||
+    event.turnComplete
+  )
 }
 
 function turnTimingKey(threadId: string, turnId: string): string {

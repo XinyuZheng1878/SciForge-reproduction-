@@ -164,12 +164,23 @@ describe('chat-store Claw helpers', () => {
       ...base,
       provider: 'weixin',
       label: 'WeChat',
+      guardMode: 'all_messages',
       agentThreadIds: { codex: 'codex-channel' },
       conversations: [
         {
           ...base.conversations[0],
           runtimeId: 'codex',
           agentThreadIds: { codex: 'codex-conversation' },
+          lastFailure: {
+            provider: 'weixin',
+            message: 'Runtime offline',
+            failureKind: 'runtime_offline',
+            channelId: 'channel_1',
+            chatId: 'chat_1',
+            threadId: 'codex-conversation',
+            runtimeId: 'codex',
+            occurredAt: '2026-06-02T00:01:00.000Z'
+          },
           updatedAt: '2026-06-02T00:00:00.000Z'
         }
       ]
@@ -180,13 +191,43 @@ describe('chat-store Claw helpers', () => {
     expect(bindings.get('kun-channel')).toMatchObject({
       providerLabel: 'WeChat',
       scope: 'channel',
-      channelLabel: 'WeChat'
+      channelLabel: 'WeChat',
+      guardMode: 'all_messages'
     })
     expect(bindings.get('codex-conversation')).toMatchObject({
       providerLabel: 'WeChat',
       scope: 'conversation',
       senderName: 'Alex',
-      runtimeId: 'codex'
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      lastFailure: expect.objectContaining({ message: 'Runtime offline' })
+    })
+  })
+
+  it('uses readable remote channel labels for Discord bindings', () => {
+    const channel: ClawImChannelV1 = {
+      ...clawChannel(),
+      provider: 'discord',
+      label: 'discord bot',
+      platformCredential: {
+        kind: 'discord',
+        applicationId: 'app-1',
+        botId: 'bot-1',
+        botUsername: 'deepseek-bot',
+        guildId: 'guild-1',
+        guildName: 'SciForge',
+        channelId: 'channel-1',
+        channelName: 'debug',
+        createdAt: '2026-06-01T00:00:00.000Z'
+      }
+    }
+
+    const binding = clawThreadRemoteBindingsFromChannels([channel]).get('kun-channel')
+
+    expect(binding).toMatchObject({
+      providerLabel: 'Discord',
+      channelLabel: '#debug',
+      guardMode: 'only_mention'
     })
   })
 
@@ -197,6 +238,16 @@ describe('chat-store Claw helpers', () => {
     expect(deriveClawThreadRemoteStatusKind({ binding, queued: true })).toBe('queued')
     expect(deriveClawThreadRemoteStatusKind({ binding, running: true })).toBe('running')
     expect(deriveClawThreadRemoteStatusKind({ binding, status: 'failed' })).toBe('error')
+    expect(deriveClawThreadRemoteStatusKind({
+      binding: {
+        ...binding!,
+        lastFailure: {
+          provider: 'feishu',
+          message: 'Runtime offline',
+          occurredAt: '2026-06-02T00:01:00.000Z'
+        }
+      }
+    })).toBe('error')
   })
 
   it('uses product default agent names for new Claw channels', () => {

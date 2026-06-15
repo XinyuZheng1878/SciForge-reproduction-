@@ -13,13 +13,24 @@ export type ClawCommand =
   | { kind: 'invalidMode' }
   | { kind: 'summary' }
   | { kind: 'detach' }
-  | { kind: 'status' }
+  | { kind: 'status'; scope?: 'status' | 'where' }
+  | { kind: 'projects' }
+  | { kind: 'useProject'; target: string }
+  | { kind: 'threads' }
+  | { kind: 'useThread'; target: string }
+  | { kind: 'newThread'; title: string }
+  | { kind: 'jobs' }
 
 export function parseClawCommand(text: string): ClawCommand | null {
   const raw = text.trim().replace(/^／/, '/')
   const lower = raw.toLowerCase()
   if (/^[/-](?:new|新会话|新话题)\s+(?:private|个人|私有|私人)$/.test(lower)) {
     return { kind: 'newPrivate' }
+  }
+  const newThreadMatch = raw.match(/^[/-](?:new|新会话|新话题)\s+(.+)$/i)
+  if (newThreadMatch) {
+    const title = newThreadMatch[1].trim()
+    if (title) return { kind: 'newThread', title }
   }
   if (/^[/-](?:clear|reset|new|清空|重置|新会话|新话题)$/.test(lower)) {
     return { kind: 'clear' }
@@ -36,11 +47,30 @@ export function parseClawCommand(text: string): ClawCommand | null {
   if (/^[/-](?:detach|unbind|解除绑定|解绑)$/.test(lower)) {
     return { kind: 'detach' }
   }
+  if (/^[/-]projects$/.test(lower)) {
+    return { kind: 'projects' }
+  }
+  const useProjectMatch = raw.match(/^[/-]use\s+project\s+(.+)$/i)
+  if (useProjectMatch) {
+    const target = useProjectMatch[1].trim()
+    if (target) return { kind: 'useProject', target }
+  }
+  if (/^[/-]threads$/.test(lower)) {
+    return { kind: 'threads' }
+  }
+  const useThreadMatch = raw.match(/^[/-]use\s+thread\s+(.+)$/i)
+  if (useThreadMatch) {
+    const target = useThreadMatch[1].trim()
+    if (target) return { kind: 'useThread', target }
+  }
+  if (/^[/-]jobs$/.test(lower)) {
+    return { kind: 'jobs' }
+  }
   if (/^(?:[/-])?(?:where|pwd|当前位置|当前目录|位置|在哪)$/.test(lower)) {
-    return { kind: 'status' }
+    return { kind: 'status', scope: 'where' }
   }
   if (/^[/-](?:status|状态)$/.test(lower)) {
-    return { kind: 'status' }
+    return { kind: 'status', scope: 'status' }
   }
   const modeMatch = raw.match(/^[/-](?:mode|模式)(?:\s+(.+))?$/i)
   if (modeMatch) {

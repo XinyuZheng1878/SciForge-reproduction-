@@ -18,7 +18,7 @@ import type {
   AgentRuntimeTurnHandle,
   AgentRuntimeTurnStartInput
 } from '../shared/agent-runtime-contract'
-import { CLAW_FEISHU_INBOUND_MESSAGE_HEADING } from '../shared/app-settings'
+import { buildClawInboundMessagePrompt } from '../shared/app-settings'
 import type { JsonSettingsStore } from './settings-store'
 
 export type RuntimeRequestResult = { ok: boolean; status: number; body: string }
@@ -67,6 +67,7 @@ export type ClawRuntimeDeps = {
   store: JsonSettingsStore
   runtimeRequest: RuntimeRequestFn
   agentRuntime?: {
+    listThreads?: (input?: { runtimeId?: AgentRuntimeId; limit?: number; includeArchived?: boolean }) => Promise<AgentRuntimeThread[]>
     startThread: (input: AgentRuntimeThreadStartInput) => Promise<AgentRuntimeThread>
     readThread: (input: { runtimeId?: AgentRuntimeId; threadId: string }) => Promise<AgentRuntimeThreadDetail>
     startTurn: (input: AgentRuntimeTurnStartInput) => Promise<AgentRuntimeTurnHandle>
@@ -482,24 +483,26 @@ export function feishuSenderLabel(message: NormalizedMessage): string {
 export function buildFeishuPrompt(message: NormalizedMessage): string {
   const content = message.content.trim()
   const sender = feishuSenderLabel(message)
-  const lines = [
-    CLAW_FEISHU_INBOUND_MESSAGE_HEADING,
-    `Chat type: ${message.chatType}`,
-    `Sender: ${sender}`
+  const metadata: Array<[string, string | undefined]> = [
+    ['Chat type', message.chatType],
+    ['Sender', sender]
   ]
   if (message.mentions.length > 0) {
     const mentionNames = message.mentions
       .map((mention) => mention.name?.trim() || mention.openId?.trim() || mention.userId?.trim() || '')
       .filter(Boolean)
     if (mentionNames.length > 0) {
-      lines.push(`Mentions: ${mentionNames.join(', ')}`)
+      metadata.push(['Mentions', mentionNames.join(', ')])
     }
   }
   if (message.rawContentType !== 'text') {
-    lines.push(`Message type: ${message.rawContentType}`)
+    metadata.push(['Message type', message.rawContentType])
   }
-  lines.push('', content || '[No text content]')
-  return lines.join('\n')
+  return buildClawInboundMessagePrompt({
+    provider: 'feishu',
+    metadata,
+    text: content
+  })
 }
 
 export function formatFeishuMirrorText(text: string, direction: 'user' | 'assistant'): { markdown: string } {

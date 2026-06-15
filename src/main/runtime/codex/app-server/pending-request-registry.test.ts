@@ -66,6 +66,43 @@ describe('Codex app-server pending request registry', () => {
     expect(registry.pending()).toEqual([])
   })
 
+  it('captures legacy request_user_input aliases as user-input requests', async () => {
+    const observed: CodexAppServerPendingRequest[] = []
+    const registry = createCodexAppServerPendingRequestRegistry({
+      onPendingRequest: (request) => observed.push(request)
+    })
+
+    const input = registry.handle({
+      id: 'input-legacy',
+      method: 'request_user_input',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'input-item-legacy',
+        questions: [{ id: 'q1', question: 'Pick one' }]
+      }
+    })
+
+    expect(observed).toEqual([
+      expect.objectContaining({
+        requestId: 'input-legacy',
+        method: 'request_user_input',
+        kind: 'user_input',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'input-item-legacy',
+        summary: 'User input requested'
+      })
+    ])
+
+    registry.resolveUserInput({
+      requestId: 'input-legacy',
+      answers: [{ id: 'q1', value: 'A' }]
+    })
+
+    await expect(input).resolves.toEqual({ answers: { q1: { answers: ['A'] } } })
+  })
+
   it('fails unknown server-originated requests closed and emits a safe visible error', async () => {
     const onUnknownRequest = vi.fn()
     const registry = createCodexAppServerPendingRequestRegistry({ onUnknownRequest })

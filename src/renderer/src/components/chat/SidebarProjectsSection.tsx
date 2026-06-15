@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Folder,
+  FolderMinus,
   FolderPlus,
   FolderOpen,
   GitFork,
@@ -47,6 +48,7 @@ type SidebarProjectsSectionProps = {
   showArchived: boolean
   workspaceRoot: string
   workspaceRoots: string[]
+  hiddenWorkspaceRoots?: string[]
   busy: boolean
   watchTurnCompletion: Record<string, boolean>
   unreadThreadIds: Record<string, boolean>
@@ -88,11 +90,22 @@ export function buildSidebarWorkspaceGroups(options: {
   showArchived: boolean
   workspaceRoot: string
   workspaceRoots: string[]
+  hiddenWorkspaceRoots?: string[]
 }): SidebarWorkspaceGroup[] {
   const map = new Map<string, { workspacePath: string, threads: NormalizedThread[] }>()
   const selectedWorkspace = normalizeWorkspaceRoot(options.workspaceRoot)
   const selectedWorkspaceKey = workspaceRootIdentityKey(selectedWorkspace)
+  const hiddenWorkspaceKeys = new Set(
+    (options.hiddenWorkspaceRoots ?? [])
+      .map((workspacePath) => workspaceRootIdentityKey(normalizeWorkspaceRoot(workspacePath)))
+      .filter(Boolean)
+  )
   const query = options.searchQuery.trim().toLowerCase()
+
+  const isHiddenWorkspace = (workspacePath: string): boolean => {
+    const key = workspaceRootIdentityKey(normalizeWorkspaceRoot(workspacePath))
+    return key !== selectedWorkspaceKey && hiddenWorkspaceKeys.has(key)
+  }
 
   const upsertWorkspace = (workspacePath: string, threads: NormalizedThread[] = []): void => {
     const normalized = normalizeWorkspaceRoot(workspacePath)
@@ -116,6 +129,7 @@ export function buildSidebarWorkspaceGroups(options: {
     if ((th.archived === true) !== options.showArchived) continue
     const key = normalizeWorkspaceRoot(th.workspace)
     if (!key) continue
+    if (isHiddenWorkspace(key)) continue
     if (query) {
       const haystack = [th.title, th.preview, key, workspaceLabelFromPath(key)]
         .filter(Boolean)
@@ -133,6 +147,7 @@ export function buildSidebarWorkspaceGroups(options: {
     for (const workspacePath of options.workspaceRoots) {
       const key = normalizeWorkspaceRoot(workspacePath)
       if (!key || map.has(workspaceRootIdentityKey(key))) continue
+      if (isHiddenWorkspace(key)) continue
       if (isInternalTemporaryWorkspace(key)) continue
       if (isInternalDeepSeekGuiWorkspace(key)) continue
       if (isClawWorkspacePath(key)) continue
@@ -158,6 +173,7 @@ export function SidebarProjectsSection({
   showArchived,
   workspaceRoot,
   workspaceRoots,
+  hiddenWorkspaceRoots = [],
   busy,
   watchTurnCompletion,
   unreadThreadIds,
@@ -191,9 +207,10 @@ export function SidebarProjectsSection({
       searchQuery,
       showArchived,
       workspaceRoot,
-      workspaceRoots
+      workspaceRoots,
+      hiddenWorkspaceRoots
     })
-  }, [searchQuery, showArchived, threads, workspaceRoot, workspaceRoots])
+  }, [hiddenWorkspaceRoots, searchQuery, showArchived, threads, workspaceRoot, workspaceRoots])
 
   const searchVisible = searchOpen || searchQuery.trim().length > 0
   const allGroupsCollapsed = groups.length > 0 && groups.every(([workspacePath]) => collapsed[workspacePath] === true)
@@ -447,7 +464,7 @@ export function SidebarProjectsSection({
                       className="h-6 w-6"
                       stopPropagation
                     >
-                      <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} />
+                      <FolderMinus className="h-3.5 w-3.5" strokeWidth={1.9} />
                     </SidebarIconButton>
                   </>
                 }

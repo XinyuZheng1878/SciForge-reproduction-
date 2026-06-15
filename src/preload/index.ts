@@ -108,6 +108,8 @@ const api = {
     ipcRenderer.invoke('write:copy-rich-text', payload),
   requestWriteInlineCompletion: (payload) =>
     ipcRenderer.invoke('write:inline-completion', payload),
+  retrieveWriteContext: (payload) =>
+    ipcRenderer.invoke('write:retrieve-context', payload),
   listWriteInlineCompletionDebugEntries: () =>
     ipcRenderer.invoke('write:inline-completion-debug:list'),
   clearWriteInlineCompletionDebugEntries: () =>

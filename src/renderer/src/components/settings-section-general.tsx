@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { useState, type ReactElement } from 'react'
 import type { ApprovalPolicy, AppSettingsV1, SandboxMode } from '@shared/app-settings'
 import {
   DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL,
@@ -98,6 +98,39 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
   const openAtLoginSupported = platform === 'win32' || platform === 'darwin'
   const startMinimizedSupported = platform === 'win32'
   const desktopBehavior = form.appBehavior
+  const [modelRouterConfigNotice, setModelRouterConfigNotice] =
+    useState<{ tone: 'error' | 'info' | 'success'; message: string } | null>(null)
+  const openModelRouterConfigFile = async (): Promise<void> => {
+    const api = window.dsGui as typeof window.dsGui & {
+      openModelRouterConfigFile?: () => Promise<{ ok: boolean; message?: string }>
+    }
+    if (typeof api?.openModelRouterConfigFile !== 'function') {
+      setModelRouterConfigNotice({
+        tone: 'error',
+        message: t('modelRouterOpenConfigFileUnavailable')
+      })
+      return
+    }
+    setModelRouterConfigNotice(null)
+    try {
+      const result = await api.openModelRouterConfigFile()
+      if (!result.ok) {
+        setModelRouterConfigNotice({
+          tone: 'error',
+          message: t('modelRouterOpenConfigFileError', {
+            message: result.message || tCommon('unknownError')
+          })
+        })
+      }
+    } catch (error) {
+      setModelRouterConfigNotice({
+        tone: 'error',
+        message: t('modelRouterOpenConfigFileError', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+    }
+  }
 
   return (
             <>
@@ -130,6 +163,23 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
                       value={sharedBaseUrl}
                       onChange={(e) => updateSharedCredential({ baseUrl: e.target.value })}
                     />
+                  }
+                />
+                <SettingRow
+                  title={t('modelRouterConfigFile')}
+                  description={t('modelRouterConfigFileDesc')}
+                  control={
+                    <div className="grid gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void openModelRouterConfigFile()}
+                        className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover"
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                        {t('modelRouterOpenConfigFile')}
+                      </button>
+                      {modelRouterConfigNotice ? <InlineNoticeView notice={modelRouterConfigNotice} /> : null}
+                    </div>
                   }
                 />
                 <SettingRow

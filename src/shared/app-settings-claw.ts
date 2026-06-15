@@ -12,6 +12,7 @@ import {
 } from './app-settings-types'
 import {
   normalizeClawImAgentProfile,
+  normalizeClawImLastFailure,
   normalizeClawImConversation,
   normalizeClawImPlatformCredential,
   normalizeClawImRemoteSession,
@@ -189,7 +190,7 @@ export function normalizeClawSettings(input: ClawSettingsPatchV1 | undefined): C
             remoteSession: normalizeClawImRemoteSession(raw.remoteSession),
             conversations: Array.isArray(raw.conversations)
               ? raw.conversations
-                  .map((conversation) => normalizeClawImConversation(conversation))
+                  .map((conversation) => normalizeClawImConversation(conversation, provider))
                   .filter((conversation): conversation is ClawImConversationV1 => conversation != null)
               : [],
             recentMessages: Array.isArray(raw.recentMessages)
@@ -198,6 +199,7 @@ export function normalizeClawSettings(input: ClawSettingsPatchV1 | undefined): C
                   .filter((message): message is ClawImRecentMessageV1 => message != null)
                   .slice(-2_000)
               : [],
+            lastFailure: normalizeClawImLastFailure(raw.lastFailure, provider),
             createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : now,
             updatedAt: typeof raw.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : now
           }

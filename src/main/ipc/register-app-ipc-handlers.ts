@@ -85,6 +85,7 @@ import {
   writeExportPayloadSchema,
   writeRichClipboardPayloadSchema,
   writeInlineCompletionPayloadSchema,
+  writeRetrievalPayloadSchema,
   workspaceRootSchema
 } from './app-ipc-schemas'
 import type {
@@ -147,6 +148,7 @@ import {
   listWriteInlineCompletionDebugEntries,
   requestWriteInlineCompletion
 } from '../services/write-inline-completion-service'
+import { retrieveWriteContext } from '../services/write-retrieval-service'
 import { requestSpeechTranscription } from '../services/speech-to-text-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { listGuiSkills } from '../services/skill-service'
@@ -1130,6 +1132,19 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       parseIpcPayload('write:inline-completion', writeInlineCompletionPayloadSchema, payload)
     )
   )
+  handleInvoke('write:retrieve-context', async (_, payload: unknown) => {
+    try {
+      const context = await retrieveWriteContext(
+        parseIpcPayload('write:retrieve-context', writeRetrievalPayloadSchema, payload)
+      )
+      return { ok: true as const, context }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
   handleInvoke('speech:transcribe', async (_, payload: unknown) =>
     transcribeSpeech(
       await store.load(),

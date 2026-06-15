@@ -49,6 +49,10 @@ import type {
   WriteInlineCompletionResult
 } from './write-inline-completion'
 import type {
+  WriteRetrievalRequest,
+  WriteRetrievalResult
+} from './write-retrieval'
+import type {
   WriteExportPayload,
   WriteExportResult,
   WriteRichClipboardPayload,
@@ -410,6 +414,7 @@ export type DsGuiApi = {
   requestWriteInlineCompletion: (
     payload: WriteInlineCompletionRequest
   ) => Promise<WriteInlineCompletionResult>
+  retrieveWriteContext: (payload: WriteRetrievalRequest) => Promise<WriteRetrievalResult>
   listWriteInlineCompletionDebugEntries: () => Promise<WriteInlineCompletionDebugEntry[]>
   clearWriteInlineCompletionDebugEntries: () => Promise<boolean>
   exportWriteDocument: (payload: WriteExportPayload) => Promise<WriteExportResult>

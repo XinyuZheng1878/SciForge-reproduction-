@@ -63,8 +63,18 @@ const APPROVAL_METHODS = new Set([
 
 const USER_INPUT_METHODS = new Set([
   'item/tool/requestUserInput',
+  'item/userInput/request',
+  'item/userInput/requested',
+  'userInput/request',
+  'user_input/request',
+  'request_user_input',
+  'item/requestUserInput',
   'mcpServer/elicitation/request'
 ])
+
+export function isCodexAppServerUserInputRequestMethod(method: string): boolean {
+  return USER_INPUT_METHODS.has(method)
+}
 
 export function createCodexAppServerPendingRequestRegistry(
   options: CodexAppServerPendingRequestRegistryOptions = {}
@@ -142,7 +152,7 @@ function toPendingRequest(request: CodexAppServerJsonRpcRequest): CodexAppServer
       params
     }
   }
-  if (USER_INPUT_METHODS.has(request.method)) {
+  if (isCodexAppServerUserInputRequestMethod(request.method)) {
     return {
       requestId: request.id,
       method: request.method,

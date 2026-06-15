@@ -981,6 +981,16 @@ export const writeInlineCompletionPayloadSchema = z
   })
   .strict()
 
+export const writeRetrievalPayloadSchema = z
+  .object({
+    workspaceRoot: defaultPathSchema,
+    currentFilePath: defaultPathSchema,
+    query: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH),
+    maxSnippets: z.number().int().min(1).max(8).optional(),
+    includeCurrentFile: z.boolean().optional()
+  })
+  .strict()
+
 export const speechToTextSettingsPayloadSchema = z
   .object({
     enabled: z.boolean(),

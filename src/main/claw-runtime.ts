@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { basename, isAbsolute, relative, resolve } from 'node:path'
 import { URL } from 'node:url'
 import {
   createLarkChannel,
@@ -20,6 +20,7 @@ import type {
   ClawImFeishuPlatformCredentialV1,
   ClawImChannelV1,
   ClawImConversationV1,
+  ClawImLastFailureV1,
   ClawImRecentMessageV1,
   ClawModel,
   ClawImProvider,
@@ -38,6 +39,7 @@ import {
   resolveKunRuntimeSettings,
   resolveRuntimeModelRouterSettings
 } from '../shared/app-settings'
+import type { AgentRuntimeThread } from '../shared/agent-runtime-contract'
 import { parseClawCommand } from '../shared/claw-commands'
 import { redactSecrets, redactSecretText } from '../shared/secret-redaction'
 import {
@@ -127,6 +129,27 @@ export type ClawIncomingImMessageResult =
   | { ok: true; ignored: true; message: string; reply?: string }
   | { ok: false; message: string }
 
+function imRemoteQueuedNoticeText(settings: AppSettingsV1): string {
+  return isChineseLocale(settings)
+    ? 'queued/running：前一条消息还在处理中，这条消息已排队并按顺序执行。'
+    : 'queued/running: a previous message in this remote conversation was still running, so this message waited its turn.'
+}
+
+function withRemoteQueuedNotice(
+  settings: AppSettingsV1,
+  result: ClawIncomingImMessageResult
+): ClawIncomingImMessageResult {
+  if (!result.ok || ('ignored' in result && result.ignored)) return result
+  const notice = imRemoteQueuedNoticeText(settings)
+  const reply = 'reply' in result ? result.reply?.trim() ?? '' : ''
+  const message = 'message' in result ? result.message?.trim() ?? '' : ''
+  return {
+    ...result,
+    message: message ? `${notice}\n\n${message}` : notice,
+    reply: reply ? `${notice}\n\n${reply}` : notice
+  }
+}
+
 function hasFeishuPlatformCredential(channel: ClawImChannelV1): channel is FeishuClawChannel {
   return channel.platformCredential?.kind === 'feishu' &&
     !!channel.platformCredential.appId.trim() &&
@@ -160,8 +183,50 @@ function remoteFailureTitle(failure: RemoteFailureLike): string {
   return failure.failureTitle?.trim() || ''
 }
 
+function clippedRemoteFailureText(value: string | undefined, maxLength: number): string {
+  const trimmed = value?.trim() ?? ''
+  return trimmed.length > maxLength ? trimmed.slice(0, maxLength) : trimmed
+}
+
+function remoteFailureRecord(input: {
+  provider: ClawImProvider
+  channelId?: string
+  remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'>
+  threadId?: string
+  runtimeId?: AgentRuntimeId
+  failure: RemoteFailureLike
+}): ClawImLastFailureV1 {
+  const title = clippedRemoteFailureText(remoteFailureTitle(input.failure), 512)
+  const rawMessage = clippedRemoteFailureText(input.failure.message, 4_000)
+  const message = rawMessage || title || 'Remote run failed.'
+  const failureKind = clippedRemoteFailureText(input.failure.failureKind, 128)
+  const channelId = clippedRemoteFailureText(input.channelId, 256)
+  const chatId = clippedRemoteFailureText(input.remoteSession?.chatId, 512)
+  const remoteThreadId = clippedRemoteFailureText(input.remoteSession?.threadId, 512)
+  const threadId = clippedRemoteFailureText(input.threadId, 512)
+  return {
+    provider: input.provider,
+    message,
+    ...(failureKind ? { failureKind } : {}),
+    ...(title ? { failureTitle: title } : {}),
+    ...(channelId ? { channelId } : {}),
+    ...(chatId ? { chatId } : {}),
+    ...(remoteThreadId ? { remoteThreadId } : {}),
+    ...(threadId ? { threadId } : {}),
+    ...(input.runtimeId ? { runtimeId: input.runtimeId } : {}),
+    occurredAt: new Date().toISOString()
+  }
+}
+
 function safeWebhookFailureBody(failure: RemoteFailureLike): { ok: false; message: string; failureKind?: string } {
   const title = remoteFailureTitle(failure)
+  if (failure.failureKind === 'local_thread_deleted') {
+    return {
+      ok: false,
+      message: failure.message,
+      failureKind: failure.failureKind
+    }
+  }
   return {
     ok: false,
     message: title || 'Internal server error.',
@@ -170,6 +235,7 @@ function safeWebhookFailureBody(failure: RemoteFailureLike): { ok: false; messag
 }
 
 function safeImFailureText(settings: AppSettingsV1, failure: RemoteFailureLike): string {
+  if (failure.failureKind === 'local_thread_deleted') return failure.message
   const title = remoteFailureTitle(failure)
   if (title) return title
   return isChineseLocale(settings)
@@ -326,32 +392,44 @@ function imCommandHelpText(settings: AppSettingsV1): string {
   if (isChineseLocale(settings)) {
     return [
       'Claw IM 命令：',
-      '- `/help`：查看命令帮助',
-      '- `/new`：当前 IM 连接开启新话题',
-      '- `/attach current`：切换机器人值守到电脑端当前会话',
-      '- `/model`：查看当前模型',
-      '- `/model auto|pro|flash`：切换当前 IM 连接模型',
-      '- `/mode agent|plan`：切换 IM 运行模式',
-      '- `/summary`：查看当前远端会话摘要',
-      '- `/where` / `/status`：查看当前项目、会话和运行状态',
-      '- `/detach`：解除当前远端会话绑定',
-      '- `/new private`：预留命令，暂不支持',
-      '也支持 `-new`、`-help`、`-model flash` 这种写法。'
+      '- `/help`：显示所有命令、参数、示例和注意事项。',
+      '- `/where`：查看当前远端会话绑定的 provider、channel、项目、thread、model、mode、队列状态。',
+      '- `/projects`：列出最近/可用项目，返回编号、名称、路径摘要和当前选中项。',
+      '- `/use project <编号或名称>`：切换当前远端会话的项目。',
+      '- `/threads`：列出当前项目最近会话，返回编号、标题、更新时间、运行状态和当前选中项。',
+      '- `/use thread <编号或名称>`：切换当前远端会话绑定的本地 thread。',
+      '- `/new <标题>`：在当前项目新建本地 thread，并切换当前远端会话到它。',
+      '- `/attach current`：显式接管当前桌面 thread；不会持续跟随桌面焦点。',
+      '- `/jobs`：查看当前远端会话相关 running、queued、failed、done 状态。',
+      '- `/model` / `/model auto|pro|flash`：查看或切换当前 IM 连接模型。',
+      '- `/mode agent|plan`：切换 IM 运行模式。',
+      '- `/summary`：查看当前远端会话摘要。',
+      '- `/detach`：解除当前远端会话绑定。',
+      '',
+      '普通消息会发给当前绑定的本地会话；命令会查看或改变远端绑定/状态。',
+      '同一个远端会话内消息会排队处理，不会并发打乱。',
+      '示例：`/attach current`，`/new 修复 Discord 绑定`。'
     ].join('\n')
   }
   return [
     'Claw IM commands:',
-    '- `/help`: show command help',
-    '- `/new`: start a new topic for this IM connection',
-    '- `/attach current`: switch bot duty to the active desktop conversation',
-    '- `/model`: show the current model',
-    '- `/model auto|pro|flash`: switch this IM connection model',
-    '- `/mode agent|plan`: switch the IM run mode',
-    '- `/summary`: show the current remote conversation summary',
-    '- `/where` / `/status`: show the current project, binding, and runtime status',
-    '- `/detach`: detach the current remote conversation binding',
-    '- `/new private`: reserved for future private group threads',
-    '`-new`, `-help`, and `-model flash` are supported too.'
+    '- `/help`: show every command, parameter, example, and note.',
+    '- `/where`: show the current remote provider, channel, project, thread, model, mode, and queue state.',
+    '- `/projects`: list recent/available projects with numbers, names, path summaries, and the current selection.',
+    '- `/use project <number or name>`: switch this remote conversation to a project.',
+    '- `/threads`: list recent local threads for the current project with number, title, updated time, status, and current marker.',
+    '- `/use thread <number or name>`: switch this remote conversation to a local thread.',
+    '- `/new <title>`: create a local thread in the current project and bind this remote conversation to it.',
+    '- `/attach current`: explicitly attach to the current desktop thread; it will not keep following desktop focus.',
+    '- `/jobs`: show running, queued, failed, and done work for this remote conversation.',
+    '- `/model` / `/model auto|pro|flash`: show or switch this IM connection model.',
+    '- `/mode agent|plan`: switch the IM run mode.',
+    '- `/summary`: show the current remote conversation summary.',
+    '- `/detach`: detach the current remote conversation binding.',
+    '',
+    'Ordinary messages go to the currently bound local thread; commands inspect or change remote binding/state.',
+    'Messages in the same remote conversation are queued in order and will not run concurrently out of order.',
+    'Examples: `/attach current`, `/new Fix Discord binding`.'
   ].join('\n')
 }
 
@@ -394,6 +472,23 @@ function imNewTopicText(settings: AppSettingsV1): string {
     : 'Started a new topic. The next message will create a fresh local conversation.'
 }
 
+function isBareNewCommand(text: string): boolean {
+  return /^[/-](?:new|新会话|新话题)$/.test(text.trim().replace(/^／/, '/').toLowerCase())
+}
+
+function generatedRemoteThreadTitle(settings: AppSettingsV1, input: {
+  sender?: string
+  channel?: ClawImChannelV1
+  remoteSession?: Pick<ClawImRemoteSessionV1, 'senderName' | 'chatId'>
+}): string {
+  const sender = input.remoteSession?.senderName?.trim() || input.sender?.trim() || input.remoteSession?.chatId?.trim() || ''
+  const channel = input.channel?.label.trim() || input.channel?.provider || 'IM'
+  if (isChineseLocale(settings)) {
+    return sender ? `远端会话 - ${sender}` : `远端会话 - ${channel}`
+  }
+  return sender ? `Remote conversation - ${sender}` : `Remote conversation - ${channel}`
+}
+
 function imNewPrivateUnsupportedText(settings: AppSettingsV1): string {
   return isChineseLocale(settings)
     ? '`/new private` 已预留给群内个人私有 thread，当前版本暂不支持。'
@@ -434,6 +529,167 @@ function imGuardIgnoredMessage(settings: AppSettingsV1): string {
   return isChineseLocale(settings)
     ? '消息已被当前 channel guard mode 忽略。'
     : 'Ignored by the current channel guard mode.'
+}
+
+function imCommandNotReadyText(settings: AppSettingsV1, command: string): string {
+  return isChineseLocale(settings)
+    ? `${command} 已被识别为远端命令，但当前版本还没有接入项目/会话列表后端。请先使用 /where、/new <标题> 或 /attach current。`
+    : `${command} is recognized as a remote command, but project/thread listing is not connected in this build yet. Use /where, /new <title>, or /attach current for now.`
+}
+
+function imLocalThreadDeletedText(settings: AppSettingsV1): string {
+  return isChineseLocale(settings)
+    ? '当前远端会话绑定的本地 thread 已被删除或不可读。请发送 `/new <标题>` 新建，或先发送 `/threads` 再用 `/use thread <编号>` 选择另一个会话。'
+    : 'The local thread bound to this remote conversation was deleted or is unreadable. Send `/new <title>` to create one, or send `/threads` and then `/use thread <number>` to select another thread.'
+}
+
+function imEmptyIncomingMessageText(settings: AppSettingsV1, hasAttachmentHint: boolean): string {
+  if (hasAttachmentHint) {
+    return isChineseLocale(settings)
+      ? '没有找到可发送给 runtime 的文本。当前暂不支持只有附件的远端消息，请补充文字说明后重试。'
+      : 'No message text found. Attachments-only remote messages are not supported yet; send a short text description with the attachment.'
+  }
+  return isChineseLocale(settings)
+    ? '没有找到消息文本。请发送一条文字消息。'
+    : 'No message text found. Send a text message to continue.'
+}
+
+function imIncomingMessageTooLongText(
+  settings: AppSettingsV1,
+  provider: ClawImProvider,
+  actualLength: number,
+  maxLength: number
+): string {
+  const label = getClawImProviderCapabilities(provider).label
+  return isChineseLocale(settings)
+    ? `消息太长，无法安全传入 ${label} runtime（${actualLength}/${maxLength} 字符）。请缩短后重试。`
+    : `Message is too long to send to the ${label} runtime (${actualLength}/${maxLength} characters). Please shorten it and try again.`
+}
+
+function validateIncomingImText(
+  settings: AppSettingsV1,
+  provider: ClawImProvider,
+  rawText: string,
+  options: { hasAttachmentHint?: boolean } = {}
+): { ok: true; text: string } | { ok: false; message: string } {
+  const text = rawText.trim()
+  if (!text) {
+    return {
+      ok: false,
+      message: imEmptyIncomingMessageText(settings, Boolean(options.hasAttachmentHint))
+    }
+  }
+  const maxLength = getClawImProviderCapabilities(provider).maxMessageLength
+  if (text.length > maxLength) {
+    return {
+      ok: false,
+      message: imIncomingMessageTooLongText(settings, provider, text.length, maxLength)
+    }
+  }
+  return { ok: true, text }
+}
+
+function hasAttachmentLikeValue(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === 'string') return Boolean(value.trim())
+  return typeof value === 'object' && value !== null
+}
+
+function payloadHasAttachmentHint(payload: Record<string, unknown>): boolean {
+  const message = nestedRecord(payload.message)
+  const event = nestedRecord(payload.event)
+  const eventMessage = nestedRecord(event.message)
+  const data = nestedRecord(payload.data)
+  return [
+    payload.attachments,
+    payload.attachment,
+    payload.files,
+    payload.file,
+    payload.images,
+    payload.image,
+    message.attachments,
+    message.attachment,
+    message.files,
+    message.file,
+    message.images,
+    message.image,
+    eventMessage.attachments,
+    eventMessage.attachment,
+    eventMessage.files,
+    eventMessage.file,
+    data.attachments,
+    data.attachment,
+    data.files,
+    data.file,
+    data.images,
+    data.image
+  ].some(hasAttachmentLikeValue)
+}
+
+type RemoteProjectCandidate = {
+  workspaceRoot: string
+  name: string
+  pathSummary: string
+  updatedAt: string
+  current: boolean
+}
+
+function normalizeWorkspaceKey(workspaceRoot: string): string {
+  return workspaceRoot.trim().replace(/[\\/]+$/, '').toLowerCase()
+}
+
+function workspacePathSummary(workspaceRoot: string): string {
+  const normalized = workspaceRoot.trim().replace(/[\\/]+$/, '')
+  const parts = normalized.split(/[\\/]+/).filter(Boolean)
+  if (parts.length <= 2) return normalized
+  return `.../${parts.slice(-2).join('/')}`
+}
+
+function workspaceName(workspaceRoot: string): string {
+  const normalized = workspaceRoot.trim().replace(/[\\/]+$/, '')
+  return basename(normalized) || normalized || '(workspace)'
+}
+
+function pushProjectRoot(
+  map: Map<string, RemoteProjectCandidate>,
+  workspaceRoot: string | undefined,
+  updatedAt: string | undefined,
+  currentWorkspaceRoot: string
+): void {
+  const root = workspaceRoot?.trim() ?? ''
+  if (!root) return
+  const key = normalizeWorkspaceKey(root)
+  const existing = map.get(key)
+  const nextUpdatedAt = updatedAt?.trim() || existing?.updatedAt || ''
+  const current = normalizeWorkspaceKey(currentWorkspaceRoot) === key
+  if (existing) {
+    map.set(key, {
+      ...existing,
+      updatedAt: Date.parse(nextUpdatedAt) > Date.parse(existing.updatedAt) ? nextUpdatedAt : existing.updatedAt,
+      current: existing.current || current
+    })
+    return
+  }
+  map.set(key, {
+    workspaceRoot: root,
+    name: workspaceName(root),
+    pathSummary: workspacePathSummary(root),
+    updatedAt: nextUpdatedAt,
+    current
+  })
+}
+
+function selectNumbered<T>(items: readonly T[], raw: string): T | null {
+  if (!/^\d+$/.test(raw.trim())) return null
+  const index = Number(raw.trim()) - 1
+  return index >= 0 && index < items.length ? items[index] : null
+}
+
+function formatUpdatedAt(updatedAt: string): string {
+  if (!updatedAt.trim()) return 'unknown'
+  const parsed = Date.parse(updatedAt)
+  if (!Number.isFinite(parsed)) return updatedAt
+  return new Date(parsed).toISOString()
 }
 
 export class ClawRuntime {
@@ -485,6 +741,55 @@ export class ClawRuntime {
       ...context,
       failure
     }))
+  }
+
+  private async rememberIncomingImFailure(
+    input: {
+      provider: ClawImProvider
+      channel?: ClawImChannelV1
+      conversation?: ClawImConversationV1
+      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      threadId?: string
+      runtimeId?: AgentRuntimeId
+      failure: RemoteFailureLike
+    }
+  ): Promise<void> {
+    if (!input.channel) return
+    const currentSettings = await this.deps.store.load()
+    const currentChannel = currentSettings.claw.channels.find((item) => item.id === input.channel?.id)
+    if (!currentChannel) return
+    const currentConversation = input.conversation
+      ? currentChannel.conversations.find((item) => item.id === input.conversation?.id)
+      : input.remoteSession
+        ? this.findChannelConversation(currentChannel, input.remoteSession)
+        : undefined
+    const failure = remoteFailureRecord({
+      provider: input.provider,
+      channelId: currentChannel.id,
+      remoteSession: input.remoteSession,
+      threadId: input.threadId,
+      runtimeId: input.runtimeId,
+      failure: input.failure
+    })
+    await this.deps.store.patch({
+      claw: {
+        channels: currentSettings.claw.channels.map((item) => {
+          if (item.id !== currentChannel.id) return item
+          return {
+            ...item,
+            lastFailure: failure,
+            conversations: currentConversation
+              ? item.conversations.map((conversation) =>
+                  conversation.id === currentConversation.id
+                    ? { ...conversation, lastFailure: failure, updatedAt: failure.occurredAt }
+                    : conversation
+                )
+              : item.conversations,
+            updatedAt: failure.occurredAt
+          }
+        })
+      }
+    })
   }
 
   private async runPrompt(settings: AppSettingsV1, options: RunPromptOptions): Promise<ClawRunResult> {
@@ -541,6 +846,22 @@ export class ClawRuntime {
       return clawFailureFromError(error, 'Failed to start turn.')
     }
     if (!turn.ok && existingThreadId && isMissingThreadResult(turn)) {
+      if (options.source === 'im') {
+        this.deps.logError('claw-runtime', 'Configured IM thread was missing; asking remote user to rebind.', {
+          threadId: existingThreadId,
+          channelId: options.channel?.id,
+          source: options.source
+        })
+        return clawFailureResult({
+          message: imLocalThreadDeletedText(settings),
+          kind: 'local_thread_deleted',
+          details: {
+            threadId: existingThreadId,
+            channelId: options.channel?.id,
+            runtimeId
+          }
+        })
+      }
       this.deps.logError('claw-runtime', 'Configured IM thread was missing; creating a replacement thread.', {
         threadId: existingThreadId,
         channelId: options.channel?.id,
@@ -738,6 +1059,23 @@ export class ClawRuntime {
     } catch (error) {
       if (!existingThreadId || !isMissingThreadError(error)) {
         return clawFailureFromError(error, 'Failed to start turn.')
+      }
+      if (options.source === 'im') {
+        this.deps.logError('claw-runtime', 'Configured IM thread was missing; asking remote user to rebind.', {
+          threadId: existingThreadId,
+          channelId: options.channel?.id,
+          source: options.source,
+          runtimeId
+        })
+        return clawFailureResult({
+          message: imLocalThreadDeletedText(_settings),
+          kind: 'local_thread_deleted',
+          details: {
+            threadId: existingThreadId,
+            channelId: options.channel?.id,
+            runtimeId
+          }
+        })
       }
       this.deps.logError('claw-runtime', 'Configured IM thread was missing; creating a replacement thread.', {
         threadId: existingThreadId,
@@ -938,7 +1276,15 @@ export class ClawRuntime {
     return conversationRoot || this.resolveChannelWorkspaceRoot(settings, channel)
   }
 
-  private shouldUseChannelThreadForIncoming(provider: ClawImProvider, chatType?: IncomingImChatType): boolean {
+  private shouldUseChannelThreadForIncoming(
+    provider: ClawImProvider,
+    chatType?: IncomingImChatType,
+    channel?: ClawImChannelV1,
+    remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'>
+  ): boolean {
+    if (channel && remoteSession && this.findChannelConversation(channel, remoteSession)) {
+      return false
+    }
     return provider === 'discord' || chatType === 'group'
   }
 
@@ -992,7 +1338,12 @@ export class ClawRuntime {
     const currentChannel = input.channel
       ? currentSettings.claw.channels.find((item) => item.id === input.channel?.id) ?? input.channel
       : undefined
-    const sharedThread = this.shouldUseChannelThreadForIncoming(input.provider, input.chatType)
+    const sharedThread = this.shouldUseChannelThreadForIncoming(
+      input.provider,
+      input.chatType,
+      currentChannel,
+      input.remoteSession
+    )
     const currentConversation =
       currentChannel && input.remoteSession && !sharedThread
         ? this.findChannelConversation(currentChannel, input.remoteSession)
@@ -1043,6 +1394,7 @@ export class ClawRuntime {
     input: {
       provider: ClawImProvider
       chatType?: IncomingImChatType
+      sender?: string
       channel?: ClawImChannelV1
       conversation?: ClawImConversationV1
       remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
@@ -1126,6 +1478,61 @@ export class ClawRuntime {
     ].join('\n')
   }
 
+  private async incomingJobsText(
+    settings: AppSettingsV1,
+    input: {
+      provider: ClawImProvider
+      chatType?: IncomingImChatType
+      channel?: ClawImChannelV1
+      conversation?: ClawImConversationV1
+      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+    }
+  ): Promise<string> {
+    const context = await this.resolveIncomingCommandContext({ settings, ...input })
+    const queue = this.incomingQueueText(context.settings, context.channel, input.remoteSession)
+    if (!context.threadId) {
+      return isChineseLocale(settings)
+        ? `当前远端会话还没有绑定本地 thread。\n- Queue：${queue}`
+        : `No local thread is bound to the current remote conversation yet.\n- Queue: ${queue}`
+    }
+    try {
+      const detail = await this.readThreadDetailForRuntime(context.settings, context.runtimeId, context.threadId)
+      const turns = Array.isArray(detail.turns) ? detail.turns : []
+      const running = turns.filter((turn) => isRunningStatus(turn.status)).length
+      const failed = turns.filter((turn) => isFailedStatus(turn.status)).length
+      const done = turns.filter((turn) => isCompletedStatus(turn.status)).length
+      const latest = turns.at(-1)
+      if (isChineseLocale(settings)) {
+        return [
+          `当前 jobs（${context.runtimeId}:${shortThreadId(context.threadId)}）：`,
+          `- Running/queued：${running}`,
+          `- Failed：${failed}`,
+          `- Done：${done}`,
+          `- Queue：${queue}`,
+          `- Latest：${latest?.id ?? 'none'} ${latest?.status ?? ''}`.trim()
+        ].join('\n')
+      }
+      return [
+        `Current jobs (${context.runtimeId}:${shortThreadId(context.threadId)}):`,
+        `- Running/queued: ${running}`,
+        `- Failed: ${failed}`,
+        `- Done: ${done}`,
+        `- Queue: ${queue}`,
+        `- Latest: ${latest?.id ?? 'none'} ${latest?.status ?? ''}`.trim()
+      ].join('\n')
+    } catch (error) {
+      this.deps.logError('claw-runtime', 'Failed to read IM jobs command context.', redactSecrets({
+        message: errorMessage(error),
+        runtimeId: context.runtimeId,
+        threadId: context.threadId,
+        channelId: context.channel?.id
+      }))
+      return isChineseLocale(settings)
+        ? '读取当前 jobs 失败，请稍后重试。'
+        : 'Could not read current jobs right now.'
+    }
+  }
+
   private findChannelConversation(
     channel: ClawImChannelV1,
     session: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'>
@@ -1207,6 +1614,306 @@ export class ClawRuntime {
     await this.deps.store.patch({ claw: { im: { mode } } })
   }
 
+  private projectCandidates(
+    settings: AppSettingsV1,
+    context: {
+      channel?: ClawImChannelV1
+      conversation?: ClawImConversationV1
+      workspaceRoot: string
+    }
+  ): RemoteProjectCandidate[] {
+    const map = new Map<string, RemoteProjectCandidate>()
+    const currentWorkspaceRoot = context.workspaceRoot || this.resolveChannelWorkspaceRoot(settings, context.channel)
+    pushProjectRoot(map, currentWorkspaceRoot, context.conversation?.updatedAt ?? context.channel?.updatedAt, currentWorkspaceRoot)
+    pushProjectRoot(map, settings.workspaceRoot, '', currentWorkspaceRoot)
+    pushProjectRoot(map, settings.claw.im.workspaceRoot, '', currentWorkspaceRoot)
+    for (const channel of settings.claw.channels) {
+      pushProjectRoot(map, channel.workspaceRoot, channel.updatedAt, currentWorkspaceRoot)
+      for (const conversation of channel.conversations) {
+        pushProjectRoot(map, conversation.workspaceRoot || channel.workspaceRoot, conversation.updatedAt, currentWorkspaceRoot)
+      }
+    }
+    for (const task of settings.claw.tasks) {
+      pushProjectRoot(map, task.workspaceRoot, task.updatedAt, currentWorkspaceRoot)
+    }
+    for (const task of settings.schedule.tasks) {
+      pushProjectRoot(map, task.workspaceRoot, task.updatedAt, currentWorkspaceRoot)
+    }
+    return [...map.values()].sort((a, b) => {
+      if (a.current !== b.current) return a.current ? -1 : 1
+      return Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+    })
+  }
+
+  private async incomingProjectsText(
+    settings: AppSettingsV1,
+    input: {
+      provider: ClawImProvider
+      chatType?: IncomingImChatType
+      channel?: ClawImChannelV1
+      conversation?: ClawImConversationV1
+      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+    }
+  ): Promise<string> {
+    const context = await this.resolveIncomingCommandContext({ settings, ...input })
+    const projects = this.projectCandidates(context.settings, context)
+    if (projects.length === 0) {
+      return isChineseLocale(settings) ? '还没有可用项目。' : 'No projects are available yet.'
+    }
+    const lines = projects.slice(0, 20).map((project, index) => {
+      const marker = project.current ? '*' : ' '
+      return `${marker} ${index + 1}. ${project.name} - ${project.pathSummary} - ${formatUpdatedAt(project.updatedAt)}`
+    })
+    return [
+      isChineseLocale(settings) ? '可用项目：' : 'Available projects:',
+      ...lines
+    ].join('\n')
+  }
+
+  private resolveProjectCandidate(
+    projects: readonly RemoteProjectCandidate[],
+    target: string
+  ): { project?: RemoteProjectCandidate; ambiguous?: RemoteProjectCandidate[]; message?: string } {
+    const numbered = selectNumbered(projects, target)
+    if (numbered) return { project: numbered }
+    const normalized = target.trim().toLowerCase()
+    const matches = projects.filter((project) =>
+      project.workspaceRoot.toLowerCase() === normalized ||
+      project.name.toLowerCase() === normalized ||
+      project.pathSummary.toLowerCase().endsWith(normalized)
+    )
+    if (matches.length === 1) return { project: matches[0] }
+    if (matches.length > 1) return { ambiguous: matches }
+    return { message: `Project not found: ${target.trim()}` }
+  }
+
+  private async useIncomingProject(
+    settings: AppSettingsV1,
+    input: {
+      provider: ClawImProvider
+      chatType?: IncomingImChatType
+      channel?: ClawImChannelV1
+      conversation?: ClawImConversationV1
+      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      target: string
+    }
+  ): Promise<string> {
+    const context = await this.resolveIncomingCommandContext({ settings, ...input })
+    if (!context.channel) {
+      return isChineseLocale(settings) ? '当前 IM 渠道不可用，无法切换项目。' : 'No IM channel is available to switch projects.'
+    }
+    const projects = this.projectCandidates(context.settings, context)
+    const resolved = this.resolveProjectCandidate(projects, input.target)
+    if (resolved.ambiguous) {
+      const candidates = resolved.ambiguous.map((project) => `- ${project.name}: ${project.pathSummary}`).join('\n')
+      return isChineseLocale(settings) ? `项目名称有歧义：\n${candidates}` : `Project name is ambiguous:\n${candidates}`
+    }
+    if (!resolved.project) {
+      return isChineseLocale(settings)
+        ? `${resolved.message ?? '项目不存在'}。请发送 /projects 查看候选。`
+        : `${resolved.message ?? 'Project not found'}. Send /projects to see candidates.`
+    }
+    const now = new Date().toISOString()
+    const project = resolved.project
+    await this.deps.store.patch({
+      claw: {
+        channels: context.settings.claw.channels.map((item) => {
+          if (item.id !== context.channel?.id) return item
+          const nextChannel = context.sharedThread || !context.conversation
+            ? withClawThreadMapping(item, context.runtimeId, '')
+            : item
+          return {
+            ...nextChannel,
+            workspaceRoot: project.workspaceRoot,
+            conversations: context.conversation && !context.sharedThread
+              ? item.conversations.map((conversation) =>
+                  conversation.id === context.conversation?.id
+                    ? {
+                        ...withClawThreadMapping(conversation, context.runtimeId, ''),
+                        workspaceRoot: project.workspaceRoot,
+                        updatedAt: now
+                      }
+                    : conversation
+                )
+              : item.conversations,
+            updatedAt: now
+          }
+        })
+      }
+    })
+    return isChineseLocale(settings)
+      ? `已切换项目到 ${project.name}（${project.pathSummary}）。请发送 /threads 选择会话，或 /new <标题> 新建。`
+      : `Switched project to ${project.name} (${project.pathSummary}). Send /threads to choose a thread, or /new <title> to create one.`
+  }
+
+  private async listRuntimeThreads(
+    runtimeId: AgentRuntimeId,
+    workspaceRoot: string
+  ): Promise<AgentRuntimeThread[]> {
+    if (this.deps.agentRuntime?.listThreads) {
+      return this.deps.agentRuntime.listThreads({ runtimeId, limit: 50, includeArchived: true })
+    }
+    const settings = await this.deps.store.load()
+    const result = await this.deps.runtimeRequest(
+      settings,
+      `/v1/threads?limit=50&workspace=${encodeURIComponent(workspaceRoot)}`,
+      { method: 'GET' },
+      runtimeId
+    )
+    if (!result.ok) throw new Error(runtimeErrorMessage(result, 'Failed to list threads.'))
+    const parsed = parseJsonObject(result.body)
+    const rawThreads = Array.isArray(parsed?.threads) ? parsed.threads : []
+    return rawThreads
+      .map((thread): AgentRuntimeThread | null => {
+        if (typeof thread !== 'object' || thread === null || Array.isArray(thread)) return null
+        const record = thread as Record<string, unknown>
+        const id = asString(record.id)
+        if (!id) return null
+        return {
+          id,
+          runtimeId,
+          title: asString(record.title) || id,
+          updatedAt: asString(record.updatedAt) || asString(record.updated_at) || '',
+          workspace: asString(record.workspace) || asString(record.workspaceRoot),
+          status: asString(record.status)
+        }
+      })
+      .filter((thread): thread is AgentRuntimeThread => thread !== null)
+  }
+
+  private async incomingThreadsText(
+    settings: AppSettingsV1,
+    input: {
+      provider: ClawImProvider
+      chatType?: IncomingImChatType
+      channel?: ClawImChannelV1
+      conversation?: ClawImConversationV1
+      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+    }
+  ): Promise<string> {
+    const context = await this.resolveIncomingCommandContext({ settings, ...input })
+    const threads = (await this.listRuntimeThreads(context.runtimeId, context.workspaceRoot))
+      .filter((thread) => !context.workspaceRoot || !thread.workspace || normalizeWorkspaceKey(thread.workspace) === normalizeWorkspaceKey(context.workspaceRoot))
+      .slice(0, 20)
+    if (threads.length === 0) {
+      return isChineseLocale(settings) ? '当前项目还没有可用 thread。' : 'No threads are available for the current project yet.'
+    }
+    const lines = threads.map((thread, index) => {
+      const marker = thread.id === context.threadId ? '*' : ' '
+      const status = thread.latestTurnStatus || thread.status || 'unknown'
+      return `${marker} ${index + 1}. ${thread.title || thread.id} - ${status} - ${formatUpdatedAt(thread.updatedAt)}`
+    })
+    return [
+      isChineseLocale(settings) ? '当前项目会话：' : 'Current project threads:',
+      ...lines
+    ].join('\n')
+  }
+
+  private resolveThreadCandidate(
+    threads: readonly AgentRuntimeThread[],
+    target: string
+  ): { thread?: AgentRuntimeThread; ambiguous?: AgentRuntimeThread[]; message?: string } {
+    const numbered = selectNumbered(threads, target)
+    if (numbered) return { thread: numbered }
+    const normalized = target.trim().toLowerCase()
+    const exact = threads.filter((thread) => thread.title.trim().toLowerCase() === normalized || thread.id.toLowerCase() === normalized)
+    if (exact.length === 1) return { thread: exact[0] }
+    if (exact.length > 1) return { ambiguous: exact }
+    const fuzzy = threads.filter((thread) => thread.title.trim().toLowerCase().includes(normalized))
+    if (fuzzy.length === 1) return { thread: fuzzy[0] }
+    if (fuzzy.length > 1) return { ambiguous: fuzzy }
+    return { message: `Thread not found: ${target.trim()}` }
+  }
+
+  private async useIncomingThread(
+    settings: AppSettingsV1,
+    input: {
+      provider: ClawImProvider
+      chatType?: IncomingImChatType
+      channel?: ClawImChannelV1
+      conversation?: ClawImConversationV1
+      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      target: string
+    }
+  ): Promise<string> {
+    const context = await this.resolveIncomingCommandContext({ settings, ...input })
+    if (!context.channel) {
+      return isChineseLocale(settings) ? '当前 IM 渠道不可用，无法切换 thread。' : 'No IM channel is available to switch threads.'
+    }
+    const threads = (await this.listRuntimeThreads(context.runtimeId, context.workspaceRoot))
+      .filter((thread) => !context.workspaceRoot || !thread.workspace || normalizeWorkspaceKey(thread.workspace) === normalizeWorkspaceKey(context.workspaceRoot))
+      .slice(0, 50)
+    const resolved = this.resolveThreadCandidate(threads, input.target)
+    if (resolved.ambiguous) {
+      const candidates = resolved.ambiguous.map((thread, index) => `- ${index + 1}. ${thread.title || thread.id} (${thread.id})`).join('\n')
+      return isChineseLocale(settings) ? `会话名称有歧义：\n${candidates}` : `Thread name is ambiguous:\n${candidates}`
+    }
+    if (!resolved.thread) {
+      return isChineseLocale(settings)
+        ? `${resolved.message ?? '会话不存在'}。请发送 /threads 查看候选。`
+        : `${resolved.message ?? 'Thread not found'}. Send /threads to see candidates.`
+    }
+    const thread = resolved.thread
+    const runtimeId = normalizeAgentRuntimeId(thread.runtimeId || context.runtimeId)
+    const workspaceRoot = thread.workspace?.trim() || context.workspaceRoot
+    const now = new Date().toISOString()
+    const session = input.remoteSession
+    const nextConversation: ClawImConversationV1 | null = context.conversation
+      ? {
+          ...withClawThreadMapping(context.conversation, runtimeId, thread.id),
+          ...(session
+            ? {
+                latestMessageId: session.messageId,
+                senderId: session.senderId,
+                senderName: session.senderName
+              }
+            : {}),
+          workspaceRoot,
+          updatedAt: now
+        }
+      : session
+        ? withClawThreadMapping({
+            id: randomUUID(),
+            chatId: session.chatId,
+            remoteThreadId: session.threadId,
+            latestMessageId: session.messageId,
+            senderId: session.senderId,
+            senderName: session.senderName,
+            localThreadId: '',
+            workspaceRoot,
+            createdAt: now,
+            updatedAt: now
+          }, runtimeId, thread.id)
+        : null
+    await this.deps.store.patch({
+      claw: {
+        channels: context.settings.claw.channels.map((item) => {
+          if (item.id !== context.channel?.id) return item
+          const nextChannel = context.sharedThread || !context.conversation
+            ? withClawThreadMapping(item, runtimeId, thread.id)
+            : item
+          return {
+            ...nextChannel,
+            runtimeId,
+            workspaceRoot,
+            conversations: nextConversation
+              ? context.conversation
+                ? item.conversations.map((conversation) =>
+                    conversation.id === context.conversation?.id ? nextConversation : conversation
+                  )
+                : [...item.conversations, nextConversation]
+              : item.conversations,
+            updatedAt: now
+          }
+        })
+      }
+    })
+    this.deps.notifyChannelActivity?.({ channelId: context.channel.id, threadId: thread.id, runtimeId })
+    return isChineseLocale(settings)
+      ? `已切换到 thread（${runtimeId}:${shortThreadId(thread.id)}）：${thread.title || thread.id}`
+      : `Switched to thread (${runtimeId}:${shortThreadId(thread.id)}): ${thread.title || thread.id}`
+  }
+
   private async detachIncomingImBinding(
     settings: AppSettingsV1,
     input: {
@@ -1251,6 +1958,165 @@ export class ClawRuntime {
       }
     })
     return imDetachedText(settings)
+  }
+
+  private async createIncomingImThread(
+    settings: AppSettingsV1,
+    input: {
+      provider: ClawImProvider
+      chatType?: IncomingImChatType
+      channel?: ClawImChannelV1
+      conversation?: ClawImConversationV1
+      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      title: string
+    }
+  ): Promise<string> {
+    const currentSettings = await this.deps.store.load()
+    const currentChannel = input.channel
+      ? currentSettings.claw.channels.find((item) => item.id === input.channel?.id) ?? input.channel
+      : undefined
+    if (!currentChannel) {
+      return isChineseLocale(settings)
+        ? '当前 IM 渠道不可用，无法新建本地 thread。'
+        : 'No IM channel is available to create a local thread.'
+    }
+    const session = input.remoteSession
+    const currentConversation = session
+      ? this.findChannelConversation(currentChannel, session) ?? input.conversation
+      : input.conversation
+        ? currentChannel.conversations.find((item) => item.id === input.conversation?.id)
+        : undefined
+    const runtimeId = clawRuntimeId(currentSettings, currentChannel, currentConversation)
+    const workspaceRoot = this.resolveIncomingWorkspaceRoot(
+      currentSettings,
+      currentChannel,
+      currentConversation,
+      session
+    )
+    const title = input.title.trim() || (isChineseLocale(settings) ? '远端新会话' : 'Remote conversation')
+    let threadId = ''
+    try {
+      if (runtimeId !== 'kun') {
+        if (!this.deps.agentRuntime) throw new Error(UNSUPPORTED_RUNTIME_REQUEST_MESSAGE)
+        const thread = await this.deps.agentRuntime.startThread({
+          runtimeId,
+          workspace: workspaceRoot,
+          title,
+          mode: currentSettings.claw.im.mode,
+          model: normalizeTaskModel(currentImModel(currentSettings, currentChannel))
+        })
+        threadId = thread.id.trim()
+      } else {
+        const model = effectiveImRuntimeModel(
+          currentSettings,
+          currentImModel(currentSettings, currentChannel),
+          runtimeId
+        )
+        const created = await this.deps.runtimeRequest(currentSettings, '/v1/threads', {
+          method: 'POST',
+          body: JSON.stringify({
+            workspace: workspaceRoot,
+            model,
+            mode: currentSettings.claw.im.mode
+          })
+        }, runtimeId)
+        if (!created.ok) {
+          const failure = clawFailureFromRuntimeResult(created, 'Failed to create thread.')
+          await this.rememberIncomingImFailure({
+            provider: input.provider,
+            channel: currentChannel,
+            conversation: currentConversation,
+            remoteSession: session,
+            runtimeId,
+            failure
+          })
+          return failure.message
+        }
+        const parsed = parseJsonObject(created.body)
+        threadId = asString(parsed?.id) || asString(nestedRecord(parsed?.thread).id)
+        if (threadId && title) {
+          void this.deps.runtimeRequest(currentSettings, `/v1/threads/${encodeURIComponent(threadId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ title })
+          }, runtimeId)
+        }
+      }
+    } catch (error) {
+      const failure = clawFailureFromError(error, 'Failed to create thread.')
+      await this.rememberIncomingImFailure({
+        provider: input.provider,
+        channel: currentChannel,
+        conversation: currentConversation,
+        remoteSession: session,
+        runtimeId,
+        failure
+      })
+      return failure.message
+    }
+    if (!threadId) {
+      await this.rememberIncomingImFailure({
+        provider: input.provider,
+        channel: currentChannel,
+        conversation: currentConversation,
+        remoteSession: session,
+        runtimeId,
+        failure: { ok: false, message: 'Failed to create a local thread: runtime did not return a thread id.' }
+      })
+      return isChineseLocale(settings)
+        ? '新建本地 thread 失败：runtime 没有返回 thread id。'
+        : 'Failed to create a local thread: runtime did not return a thread id.'
+    }
+
+    const now = new Date().toISOString()
+    const nextConversation: ClawImConversationV1 | null = currentConversation
+      ? {
+          ...withClawThreadMapping(currentConversation, runtimeId, threadId),
+          ...(session
+            ? {
+                latestMessageId: session.messageId,
+                senderId: session.senderId,
+                senderName: session.senderName
+              }
+            : {}),
+          workspaceRoot,
+          updatedAt: now
+        }
+      : session
+        ? withClawThreadMapping({
+            id: randomUUID(),
+            chatId: session.chatId,
+            remoteThreadId: session.threadId,
+            latestMessageId: session.messageId,
+            senderId: session.senderId,
+            senderName: session.senderName,
+            localThreadId: '',
+            workspaceRoot,
+            createdAt: now,
+            updatedAt: now
+          }, runtimeId, threadId)
+        : null
+    await this.deps.store.patch({
+      claw: {
+        channels: currentSettings.claw.channels.map((item) => {
+          if (item.id !== currentChannel.id) return item
+          return {
+            ...withClawThreadMapping(item, runtimeId, threadId),
+            conversations: nextConversation
+              ? currentConversation
+                ? item.conversations.map((conversation) =>
+                    conversation.id === currentConversation.id ? nextConversation : conversation
+                  )
+                : [...item.conversations, nextConversation]
+              : item.conversations,
+            updatedAt: now
+          }
+        })
+      }
+    })
+    this.deps.notifyChannelActivity?.({ channelId: currentChannel.id, threadId, runtimeId })
+    return isChineseLocale(settings)
+      ? `已新建并绑定本地 thread（${runtimeId}:${shortThreadId(threadId)}）：${title}`
+      : `Created and bound a local thread (${runtimeId}:${shortThreadId(threadId)}): ${title}`
   }
 
   private async attachIncomingImToActiveThread(
@@ -1355,6 +2221,7 @@ export class ClawRuntime {
       text: string
       provider: ClawImProvider
       chatType?: IncomingImChatType
+      sender?: string
       channel?: ClawImChannelV1
       conversation?: ClawImConversationV1
       remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
@@ -1403,6 +2270,63 @@ export class ClawRuntime {
         remoteSession: input.remoteSession
       })
     }
+    if (command.kind === 'jobs') {
+      return this.incomingJobsText(settings, {
+        provider: input.provider,
+        chatType: input.chatType,
+        channel: input.channel,
+        conversation: input.conversation,
+        remoteSession: input.remoteSession
+      })
+    }
+    if (command.kind === 'projects') {
+      return this.incomingProjectsText(settings, {
+        provider: input.provider,
+        chatType: input.chatType,
+        channel: input.channel,
+        conversation: input.conversation,
+        remoteSession: input.remoteSession
+      })
+    }
+    if (command.kind === 'threads') {
+      return this.incomingThreadsText(settings, {
+        provider: input.provider,
+        chatType: input.chatType,
+        channel: input.channel,
+        conversation: input.conversation,
+        remoteSession: input.remoteSession
+      })
+    }
+    if (command.kind === 'useProject') {
+      return this.useIncomingProject(settings, {
+        provider: input.provider,
+        chatType: input.chatType,
+        channel: input.channel,
+        conversation: input.conversation,
+        remoteSession: input.remoteSession,
+        target: command.target
+      })
+    }
+    if (command.kind === 'useThread') {
+      return this.useIncomingThread(settings, {
+        provider: input.provider,
+        chatType: input.chatType,
+        channel: input.channel,
+        conversation: input.conversation,
+        remoteSession: input.remoteSession,
+        target: command.target
+      })
+    }
+    if (command.kind === 'newThread') {
+      return this.createIncomingImThread(settings, {
+        provider: input.provider,
+        chatType: input.chatType,
+        channel: input.channel,
+        conversation: input.conversation,
+        remoteSession: input.remoteSession,
+        title: command.title
+      })
+    }
     if (command.kind === 'attachCurrent') {
       return this.attachIncomingImToActiveThread(settings, {
         channel: input.channel,
@@ -1411,6 +2335,20 @@ export class ClawRuntime {
       })
     }
     if (command.kind === 'clear') {
+      if (isBareNewCommand(input.text)) {
+        return this.createIncomingImThread(settings, {
+          provider: input.provider,
+          chatType: input.chatType,
+          channel: input.channel,
+          conversation: input.conversation,
+          remoteSession: input.remoteSession,
+          title: generatedRemoteThreadTitle(settings, {
+            sender: input.sender,
+            channel: input.channel,
+            remoteSession: input.remoteSession
+          })
+        })
+      }
       await this.resetIncomingImThread({
         channel: input.channel,
         conversation: input.conversation,
@@ -1437,7 +2375,12 @@ export class ClawRuntime {
   ): Promise<ClawRunResult> {
     const { channel, conversation, prompt, provider, remoteSession, sender } = input
     const runtimeId = clawRuntimeId(settings, channel, conversation)
-    const sharedThread = input.sharedThread ?? this.shouldUseChannelThreadForIncoming(provider, input.chatType)
+    const sharedThread = input.sharedThread ?? this.shouldUseChannelThreadForIncoming(
+      provider,
+      input.chatType,
+      channel,
+      remoteSession
+    )
     const initialThreadId = sharedThread
       ? clawThreadIdForRuntime(channel, undefined, runtimeId)
       : incomingThreadIdForRuntime(channel, conversation, runtimeId, Boolean(remoteSession))
@@ -1542,22 +2485,37 @@ export class ClawRuntime {
     const result = initialThreadId
       ? await this.runInLocalThreadTurnQueue(runtimeId, initialThreadId, run)
       : await run()
+    if (!result.ok) {
+      await this.rememberIncomingImFailure({
+        provider,
+        channel,
+        conversation,
+        remoteSession,
+        threadId: initialThreadId || undefined,
+        runtimeId,
+        failure: result
+      })
+    }
     return result
   }
 
   async handleIncomingImMessage(input: ClawIncomingImMessageInput): Promise<ClawIncomingImMessageResult> {
-    const text = input.text.trim()
-    if (!text) return { ok: false, message: 'No message text found.' }
-    const normalizedInput: ClawIncomingImMessageInput = input.remoteSession
-      ? {
-          ...input,
-          remoteSession: normalizeIncomingRemoteSession(input.provider, input.chatType, input.remoteSession)
-        }
-      : input
     const settings = await this.deps.store.load()
     if (!settings.claw.enabled || !settings.claw.im.enabled) {
       return { ok: false, message: 'Claw IM is disabled.' }
     }
+    const incomingText = validateIncomingImText(settings, input.provider, input.text, {
+      hasAttachmentHint: Boolean(input.runtimePrompt?.trim())
+    })
+    if (!incomingText.ok) return { ok: false, message: incomingText.message }
+    const normalizedInput: ClawIncomingImMessageInput = input.remoteSession
+      ? {
+          ...input,
+          text: incomingText.text,
+          remoteSession: normalizeIncomingRemoteSession(input.provider, input.chatType, input.remoteSession)
+        }
+      : { ...input, text: incomingText.text }
+    const text = incomingText.text
     const command = parseClawCommand(text)
     const channel = normalizedInput.channelId
       ? settings.claw.channels.find(
@@ -1582,7 +2540,12 @@ export class ClawRuntime {
     if (!channel || !remoteSession) {
       return this.handleIncomingImMessageNow(normalizedInput)
     }
-    const sharedThread = this.shouldUseChannelThreadForIncoming(normalizedInput.provider, normalizedInput.chatType)
+    const sharedThread = this.shouldUseChannelThreadForIncoming(
+      normalizedInput.provider,
+      normalizedInput.chatType,
+      channel,
+      remoteSession
+    )
     const remoteThreadId = sharedThread ? '' : remoteSession.threadId
     const remembered = await this.rememberRecentRemoteMessage({
       provider: normalizedInput.provider,
@@ -1596,22 +2559,32 @@ export class ClawRuntime {
     if (!remembered) {
       return { ok: true, ignored: true, message: 'Duplicate remote message ignored.', reply: '' }
     }
-    return this.runInRemoteConversationQueue({
+    const queued = this.remoteMessageQueues.has(this.remoteQueueKey({
+      provider: normalizedInput.provider,
+      channelId: channel.id,
+      chatId: remoteSession.chatId,
+      remoteThreadId
+    }))
+    const result = await this.runInRemoteConversationQueue({
       provider: normalizedInput.provider,
       channelId: channel.id,
       chatId: remoteSession.chatId,
       remoteThreadId,
       task: () => this.handleIncomingImMessageNow(normalizedInput)
     })
+    return queued ? withRemoteQueuedNotice(settings, result) : result
   }
 
   private async handleIncomingImMessageNow(input: ClawIncomingImMessageInput): Promise<ClawIncomingImMessageResult> {
-    const text = input.text.trim()
-    if (!text) return { ok: false, message: 'No message text found.' }
     const settings = await this.deps.store.load()
     if (!settings.claw.enabled || !settings.claw.im.enabled) {
       return { ok: false, message: 'Claw IM is disabled.' }
     }
+    const incomingText = validateIncomingImText(settings, input.provider, input.text, {
+      hasAttachmentHint: Boolean(input.runtimePrompt?.trim())
+    })
+    if (!incomingText.ok) return { ok: false, message: incomingText.message }
+    const text = incomingText.text
     const command = parseClawCommand(text)
     const channel = input.channelId
       ? settings.claw.channels.find(
@@ -1623,7 +2596,12 @@ export class ClawRuntime {
           (item) => item.enabled && item.provider === input.provider
         )
     const remoteSession = input.remoteSession
-    const sharedThread = this.shouldUseChannelThreadForIncoming(input.provider, input.chatType)
+    const sharedThread = this.shouldUseChannelThreadForIncoming(
+      input.provider,
+      input.chatType,
+      channel,
+      remoteSession
+    )
     if (!this.shouldHandleIncomingByGuard({
       channel,
       provider: input.provider,
@@ -1649,6 +2627,7 @@ export class ClawRuntime {
       text,
       provider: input.provider,
       chatType: input.chatType,
+      sender: input.sender,
       channel,
       conversation,
       remoteSession: remoteSession ?? undefined
@@ -2205,13 +3184,14 @@ export class ClawRuntime {
     })) return
     await this.rememberFeishuRemoteSession(settings, channel, message)
     const remoteSession = this.buildFeishuRemoteSession(message)
-    const sharedThread = this.shouldUseChannelThreadForIncoming('feishu', message.chatType)
+    const sharedThread = this.shouldUseChannelThreadForIncoming('feishu', message.chatType, channel, remoteSession)
     const conversation = sharedThread
       ? undefined
       : this.findChannelConversation(channel, {
           chatId: remoteSession.chatId,
           threadId: remoteSession.threadId
         })
+    const sender = feishuSenderLabel(message)
     const isFirstRemoteConversation = !sharedThread && !conversation
     const workspaceRoot = this.resolveIncomingWorkspaceRoot(settings, channel, conversation, remoteSession)
     const replyOptions = { replyTo: message.messageId, replyInThread: shouldReplyInFeishuThread(message) }
@@ -2241,6 +3221,7 @@ export class ClawRuntime {
       text: message.content,
       provider: 'feishu',
       chatType: message.chatType,
+      sender,
       channel,
       conversation,
       remoteSession
@@ -2261,7 +3242,6 @@ export class ClawRuntime {
       return
     }
 
-    const sender = feishuSenderLabel(message)
     const taskCreation = await this.deps.createScheduledTaskFromText?.(message.content, {
       workspaceRoot: this.resolveChannelWorkspaceRoot(settings, channel),
       modelHint: channel.model,
@@ -3034,20 +4014,23 @@ export class ClawRuntime {
         writeJson(res, 400, { ok: false, message: 'Expected a JSON object.' })
         return
       }
+      const provider = extractIncomingProvider(payload, im.provider)
       const prompt = extractIncomingPrompt(payload)
-      if (!prompt) {
-        writeJson(res, 400, { ok: false, message: 'No message text found.' })
+      const incomingText = validateIncomingImText(settings, provider, prompt, {
+        hasAttachmentHint: payloadHasAttachmentHint(payload)
+      })
+      if (!incomingText.ok) {
+        writeJson(res, 400, { ok: false, message: incomingText.message })
         return
       }
       const sender = extractSenderLabel(payload)
-      const provider = extractIncomingProvider(payload, im.provider)
       const incomingChannelId = extractIncomingChannelId(payload)
       const remoteSession = extractIncomingRemoteSession(payload)
       const mentionFlags = extractIncomingMentionFlags(payload)
       const result = await this.handleIncomingImMessage({
         provider,
         ...(incomingChannelId ? { channelId: incomingChannelId } : {}),
-        text: prompt,
+        text: incomingText.text,
         sender,
         chatType: extractIncomingChatType(payload),
         ...mentionFlags,

@@ -388,6 +388,25 @@ summary,
   object-fit: contain;
 }
 
+.cm-write-md-math-inline {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  vertical-align: -0.12em;
+  cursor: text;
+}
+
+.cm-write-md-math-block {
+  display: block;
+  max-width: 100%;
+  margin: 0.85rem 0 1rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+  cursor: text;
+}
+
 .cm-write-live-preview .cm-write-md-codeblock-line {
   background: color-mix(in srgb, var(--ds-text) 4.8%, transparent);
   font-family: 'SF Mono', 'JetBrains Mono', 'IBM Plex Mono', monospace;

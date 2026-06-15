@@ -1,12 +1,17 @@
 import type { WriteEditorSelectionState } from '../components/write/WriteMarkdownEditor'
+import type { WriteRetrievalContext, WriteRetrievalSnippet } from '@shared/write-retrieval'
 
 export const WRITE_QUOTE_ORIGINAL_START = '[引用原文]'
 export const WRITE_QUOTE_ORIGINAL_END = '[/引用原文]'
 export const WRITE_CONTEXT_HEADING = '[写作上下文]'
 export const WRITE_QUOTE_HEADING = '[引用片段]'
+export const WRITE_RETRIEVAL_HEADING = '[相关文献上下文]'
+export const WRITE_RETRIEVAL_END = '[/相关文献上下文]'
 
 const WRITE_ASSISTANT_INTERACTION_RULE =
   '交互限制: 当前 GUI 无法提交 request_user_input 的 HTTP 响应；需要更多信息时，直接用普通文本向用户提问，不要调用 request_user_input。'
+const WRITE_ASSISTANT_FILE_ACCESS_RULE =
+  '文件访问限制: 写作助手已经自动附带引用片段和相关文献上下文；请直接基于这些内容与用户请求回答，不要为了读取、确认或补全当前写作文件而调用 shell、cat、sed、rg、grep、python 等命令。若上下文不足，直接说明需要更多选区或扩大检索。'
 
 export type WriteQuotedSelectionSourceKind = 'text' | 'pdf'
 
@@ -212,6 +217,7 @@ export function formatWriteQuotedSelectionForPrompt(selection: WriteQuotedSelect
 type WritePromptContext = {
   workspaceRoot?: string
   activeFilePath?: string | null
+  retrieval?: WriteRetrievalContext | null
 }
 
 export type WritePromptDisplayContext = {
@@ -233,10 +239,55 @@ export type WritePromptDisplayQuote = {
   text: string
 }
 
+export type WritePromptDisplayRetrievalSnippet = {
+  location: string
+  title?: string
+  keywords?: string
+  text: string
+}
+
+export type WritePromptDisplayRetrieval = {
+  source?: string
+  keywords?: string
+  snippets: WritePromptDisplayRetrievalSnippet[]
+}
+
 export type WritePromptDisplay = {
   userInput: string
   context: WritePromptDisplayContext | null
   quotes: WritePromptDisplayQuote[]
+  retrieval: WritePromptDisplayRetrieval | null
+}
+
+function formatWriteRetrievalSnippetLocation(snippet: WriteRetrievalSnippet): string {
+  if (snippet.location.kind === 'pdf') {
+    const page = snippet.location.pageStart === snippet.location.pageEnd
+      ? `第${snippet.location.pageStart}页`
+      : `第${snippet.location.pageStart}-${snippet.location.pageEnd}页`
+    return `${snippet.path} ${page}`
+  }
+  return snippet.location.lineStart === snippet.location.lineEnd
+    ? `${snippet.path}:${snippet.location.lineStart}`
+    : `${snippet.path}:${snippet.location.lineStart}-${snippet.location.lineEnd}`
+}
+
+export function formatWriteRetrievalContextForPrompt(
+  retrieval: WriteRetrievalContext | null | undefined
+): string {
+  if (!retrieval?.snippets.length) return ''
+  const lines = [
+    WRITE_RETRIEVAL_HEADING,
+    `检索来源: ${retrieval.source}; 查询关键词: ${retrieval.keywords.join(', ')}`
+  ]
+  retrieval.snippets.forEach((snippet, index) => {
+    lines.push('')
+    lines.push(`[${index + 1}] ${formatWriteRetrievalSnippetLocation(snippet)}`)
+    if (snippet.title) lines.push(`标题: ${snippet.title}`)
+    lines.push(`匹配: ${snippet.keywords.join(', ')}`)
+    lines.push(snippet.text)
+  })
+  lines.push(WRITE_RETRIEVAL_END)
+  return lines.join('\n')
 }
 
 export function composeWritePrompt(
@@ -247,17 +298,20 @@ export function composeWritePrompt(
   const body = input.trim()
   const contextLines: string[] = []
   contextLines.push(WRITE_ASSISTANT_INTERACTION_RULE)
+  contextLines.push(WRITE_ASSISTANT_FILE_ACCESS_RULE)
   if (context.workspaceRoot?.trim()) {
     contextLines.push(`工作空间: ${context.workspaceRoot.trim()}`)
   }
   if (context.activeFilePath?.trim()) {
-    contextLines.push(`当前文件: ${relativeWritePath(context.workspaceRoot ?? '', context.activeFilePath)}`)
+    const activeFile = relativeWritePath(context.workspaceRoot ?? '', context.activeFilePath)
+    contextLines.push(`当前文件: ${activeFile}`)
   }
   const contextText = contextLines.length > 0
     ? `[写作上下文]\n${contextLines.join('\n')}`
     : ''
   const quoteText = selections.map(formatWriteQuotedSelectionForPrompt).join('\n\n')
-  return [contextText, quoteText, body].filter(Boolean).join('\n\n')
+  const retrievalText = formatWriteRetrievalContextForPrompt(context.retrieval)
+  return [contextText, quoteText, retrievalText, body].filter(Boolean).join('\n\n')
 }
 
 function parseContextBlock(text: string): WritePromptDisplayContext {
@@ -334,6 +388,61 @@ function parseQuoteHeader(header: string): Omit<WritePromptDisplayQuote, 'text'>
   }
 }
 
+function parseRetrievalBlock(text: string): WritePromptDisplayRetrieval {
+  const lines = text.split('\n')
+  let source: string | undefined
+  let keywords: string | undefined
+  const snippets: WritePromptDisplayRetrievalSnippet[] = []
+  let current: { location: string; title?: string; keywords?: string; textLines: string[] } | null = null
+
+  const commit = (): void => {
+    if (!current) return
+    snippets.push({
+      location: current.location,
+      ...(current.title ? { title: current.title } : {}),
+      ...(current.keywords ? { keywords: current.keywords } : {}),
+      text: current.textLines.join('\n').trim()
+    })
+    current = null
+  }
+
+  for (const line of lines) {
+    const snippetStart = line.match(/^\[(\d+)\]\s+(.+)$/)
+    if (snippetStart) {
+      commit()
+      current = { location: (snippetStart[2] ?? '').trim(), textLines: [] }
+      continue
+    }
+    if (!current) {
+      const sourceMatch = line.match(/^检索来源:\s*(.*?)(?:;\s*查询关键词:\s*(.*))?$/)
+      if (sourceMatch) {
+        source = sourceMatch[1]?.trim() || undefined
+        keywords = sourceMatch[2]?.trim() || undefined
+      }
+      continue
+    }
+    const beforeBody = current.textLines.every((item) => !item.trim())
+    const titleMatch = line.match(/^标题:\s*(.*)$/)
+    if (titleMatch && current.title === undefined && beforeBody) {
+      current.title = titleMatch[1]?.trim() || undefined
+      continue
+    }
+    const keywordMatch = line.match(/^匹配:\s*(.*)$/)
+    if (keywordMatch && current.keywords === undefined && beforeBody) {
+      current.keywords = keywordMatch[1]?.trim() || undefined
+      continue
+    }
+    current.textLines.push(line)
+  }
+  commit()
+
+  return {
+    ...(source ? { source } : {}),
+    ...(keywords ? { keywords } : {}),
+    snippets
+  }
+}
+
 function consumeQuoteSection(text: string): { quote: WritePromptDisplayQuote | null; rest: string } {
   if (!text.startsWith(WRITE_QUOTE_HEADING)) return { quote: null, rest: text }
   const firstLineEnd = text.indexOf('\n')
@@ -362,7 +471,11 @@ function consumeQuoteSection(text: string): { quote: WritePromptDisplayQuote | n
 
 export function parseWritePromptForDisplay(text: string): WritePromptDisplay | null {
   const normalized = text.replace(/\r\n?/g, '\n').trim()
-  if (!normalized.includes(WRITE_CONTEXT_HEADING) && !normalized.includes(WRITE_QUOTE_HEADING)) {
+  if (
+    !normalized.includes(WRITE_CONTEXT_HEADING) &&
+    !normalized.includes(WRITE_QUOTE_HEADING) &&
+    !normalized.includes(WRITE_RETRIEVAL_HEADING)
+  ) {
     return null
   }
 
@@ -384,11 +497,21 @@ export function parseWritePromptForDisplay(text: string): WritePromptDisplay | n
     rest = consumed.rest
   }
 
-  if (!context && quotes.length === 0) return null
+  let retrieval: WritePromptDisplayRetrieval | null = null
+  if (rest.startsWith(WRITE_RETRIEVAL_HEADING)) {
+    const endIndex = rest.indexOf(WRITE_RETRIEVAL_END)
+    if (endIndex >= 0) {
+      retrieval = parseRetrievalBlock(rest.slice(WRITE_RETRIEVAL_HEADING.length, endIndex))
+      rest = rest.slice(endIndex + WRITE_RETRIEVAL_END.length).trimStart()
+    }
+  }
+
+  if (!context && quotes.length === 0 && !retrieval) return null
 
   return {
     userInput: rest.trim(),
     context,
-    quotes
+    quotes,
+    retrieval
   }
 }

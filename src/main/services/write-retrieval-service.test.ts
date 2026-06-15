@@ -1,10 +1,37 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WriteInlineCompletionRequest } from '../../shared/write-inline-completion'
+
+vi.mock('./write-pdf-text-service', () => ({
+  readWritePdfText: async (payload: { path: string }) => {
+    const text = [
+      'PDF BM25 关键词检索 with literature context improves retrieval quality.',
+      'The assistant can cite the relevant page when explaining research evidence.'
+    ].join(' ')
+    return {
+      ok: true,
+      path: payload.path,
+      size: 123,
+      mtimeMs: 1,
+      pageCount: 1,
+      pages: [{
+        page: 1,
+        text,
+        charStart: 0,
+        charEnd: text.length
+      }],
+      hasText: true,
+      truncated: false
+    }
+  },
+  clearWritePdfTextCache: () => undefined
+}))
+
 import {
   clearWriteRetrievalCache,
+  retrieveWriteContext,
   retrieveWriteInlineCompletionContext,
   tokenizeWriteRetrievalText
 } from './write-retrieval-service'
@@ -125,5 +152,34 @@ describe('write retrieval service', () => {
 
     expect(result?.snippets.some((snippet) => snippet.path === 'output.jsonl')).toBe(false)
     expect(result?.snippets.some((snippet) => snippet.path === 'notes.md')).toBe(true)
+  })
+
+  it('retrieves PDF chunks for assistant context with page locations', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'ds-gui-write-pdf-rag-'))
+    const pdfPath = join(workspaceRoot, 'papers', 'study.pdf')
+    await mkdir(join(workspaceRoot, 'papers'), { recursive: true })
+    await writeFile(join(workspaceRoot, 'draft.md'), '# Draft\n\nExplain literature context.', 'utf8')
+    await writeFile(pdfPath, Buffer.from('%PDF-1.4\n%%EOF'))
+
+    const result = await retrieveWriteContext({
+      workspaceRoot,
+      currentFilePath: pdfPath,
+      query: 'PDF BM25 关键词检索 literature retrieval quality',
+      maxSnippets: 3,
+      includeCurrentFile: true
+    })
+
+    expect(result?.source).toBe('bm25-keyword')
+    expect(result?.snippets[0]).toMatchObject({
+      path: 'papers/study.pdf',
+      pageStart: 1,
+      pageEnd: 1,
+      location: {
+        kind: 'pdf',
+        pageStart: 1,
+        pageEnd: 1
+      }
+    })
+    expect(result?.snippets[0].text).toContain('PDF BM25 关键词检索')
   })
 })

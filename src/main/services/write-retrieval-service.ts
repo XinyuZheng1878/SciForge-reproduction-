@@ -1,11 +1,19 @@
 import { open as openFile, readdir, stat } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { WriteInlineCompletionRequest } from '../../shared/write-inline-completion'
-import { isWriteTextFileExtension } from '../../shared/write-text-file'
+import type {
+  WriteRetrievalContext,
+  WriteRetrievalRequest,
+  WriteRetrievalSnippet,
+  WriteRetrievalSnippetLocation
+} from '../../shared/write-retrieval'
+import { isWritePdfFileExtension, isWriteTextFileExtension } from '../../shared/write-text-file'
 import { expandHomePath } from './workspace-service'
+import { readWritePdfText, type WritePdfTextPage } from './write-pdf-text-service'
 
 const INDEX_CACHE_TTL_MS = 30_000
 const MAX_INDEX_BUILD_MS = 250
+const MAX_ASSISTANT_INDEX_BUILD_MS = 2_500
 const MAX_SCAN_ENTRIES = 8_000
 const MAX_INDEX_FILES = 160
 const MAX_FILE_BYTES = 600_000
@@ -79,24 +87,12 @@ const STOP_WORDS = new Set([
   'how'
 ])
 
-export type WriteRetrievalSnippet = {
-  path: string
-  title: string
-  text: string
-  score: number
-  keywords: string[]
-  lineStart: number
-  lineEnd: number
-}
-
-export type WriteRetrievalContext = {
-  source: 'bm25-keyword'
-  query: string
-  keywords: string[]
-  snippets: WriteRetrievalSnippet[]
-  indexedFiles: number
-  indexedChunks: number
-}
+export type {
+  WriteRetrievalContext,
+  WriteRetrievalRequest,
+  WriteRetrievalSnippet,
+  WriteRetrievalSnippetLocation
+} from '../../shared/write-retrieval'
 
 type IndexedChunk = {
   path: string
@@ -108,8 +104,7 @@ type IndexedChunk = {
   termFrequency: Map<string, number>
   titleTokens: Set<string>
   pathTokens: Set<string>
-  lineStart: number
-  lineEnd: number
+  location: WriteRetrievalSnippetLocation
 }
 
 type WorkspaceIndex = {
@@ -130,6 +125,11 @@ type QueryModel = {
 
 const indexCache = new Map<string, WorkspaceIndex>()
 const inFlightIndexCache = new Map<string, Promise<WorkspaceIndex>>()
+
+type WorkspaceIndexOptions = {
+  includePdf: boolean
+  buildMs: number
+}
 
 function deadlineExceeded(deadline: number): boolean {
   return Date.now() > deadline
@@ -210,11 +210,16 @@ function resolveComparablePath(raw: string | undefined): string {
   return resolve(expandHomePath(value))
 }
 
-function isIndexedFile(path: string): boolean {
-  return isWriteTextFileExtension(extname(path).toLowerCase())
+function isIndexedFile(path: string, includePdf: boolean): boolean {
+  const ext = extname(path).toLowerCase()
+  return isWriteTextFileExtension(ext) || (includePdf && isWritePdfFileExtension(ext))
 }
 
-async function scanWorkspaceFiles(workspaceRoot: string, deadline: number): Promise<string[]> {
+async function scanWorkspaceFiles(
+  workspaceRoot: string,
+  deadline: number,
+  includePdf: boolean
+): Promise<string[]> {
   const files: string[] = []
   const stack = [workspaceRoot]
   let scanned = 0
@@ -244,7 +249,7 @@ async function scanWorkspaceFiles(workspaceRoot: string, deadline: number): Prom
         if (!SKIP_DIRS.has(entry.name)) stack.push(path)
         continue
       }
-      if (entry.isFile() && isIndexedFile(path)) files.push(path)
+      if (entry.isFile() && isIndexedFile(path, includePdf)) files.push(path)
     }
   }
 
@@ -268,7 +273,7 @@ function buildChunk(
   relativePath: string,
   title: string,
   lines: string[],
-  lineStart: number
+  location: WriteRetrievalSnippetLocation
 ): IndexedChunk | null {
   const raw = lines.join('\n').trim()
   const text = raw.length > MAX_CHUNK_CHARS + 160 ? `${raw.slice(0, MAX_CHUNK_CHARS).trimEnd()}...` : raw
@@ -286,8 +291,7 @@ function buildChunk(
     termFrequency: termFrequency(tokens),
     titleTokens: new Set(tokenizeWriteRetrievalText(title)),
     pathTokens: new Set(tokenizeWriteRetrievalText(relativePath.replace(/[\\/._-]+/g, ' '))),
-    lineStart,
-    lineEnd: lineStart + lines.length - 1
+    location
   }
 }
 
@@ -300,7 +304,11 @@ function chunkMarkdown(path: string, relativePath: string, content: string): Ind
   let charCount = 0
 
   const flush = (): void => {
-    const chunk = buildChunk(path, relativePath, currentTitle, buffer, lineStart)
+    const chunk = buildChunk(path, relativePath, currentTitle, buffer, {
+      kind: 'text',
+      lineStart,
+      lineEnd: lineStart + buffer.length - 1
+    })
     if (chunk) chunks.push(chunk)
     buffer = []
     charCount = 0
@@ -327,6 +335,55 @@ function chunkMarkdown(path: string, relativePath: string, content: string): Ind
   return chunks
 }
 
+function chunkPdfPage(
+  path: string,
+  relativePath: string,
+  page: WritePdfTextPage
+): IndexedChunk[] {
+  const paragraphs = page.text
+    .replace(/\r\n?/g, '\n')
+    .split(/\n{2,}|(?<=[。.!?！？])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+  const chunks: IndexedChunk[] = []
+  let buffer: string[] = []
+  let charCount = 0
+
+  const flush = (): void => {
+    const chunk = buildChunk(path, relativePath, `Page ${page.page}`, buffer, {
+      kind: 'pdf',
+      pageStart: page.page,
+      pageEnd: page.page
+    })
+    if (chunk) chunks.push(chunk)
+    buffer = []
+    charCount = 0
+  }
+
+  for (const paragraph of paragraphs.length > 0 ? paragraphs : [page.text]) {
+    buffer.push(paragraph)
+    charCount += paragraph.length + 1
+    if (charCount >= MAX_CHUNK_CHARS) flush()
+  }
+  if (buffer.length > 0) flush()
+  return chunks
+}
+
+async function chunkPdf(
+  path: string,
+  workspaceRoot: string,
+  relativePath: string
+): Promise<IndexedChunk[]> {
+  const result = await readWritePdfText({ path, workspaceRoot })
+  if (!result.ok || !result.hasText) return []
+  const chunks: IndexedChunk[] = []
+  for (const page of result.pages) {
+    if (chunks.length >= MAX_INDEX_CHUNKS) break
+    chunks.push(...chunkPdfPage(path, relativePath, page))
+  }
+  return chunks
+}
+
 async function readIndexableFile(path: string, deadline: number): Promise<string> {
   if (deadlineExceeded(deadline)) return ''
   const info = await stat(path)
@@ -345,19 +402,27 @@ async function readIndexableFile(path: string, deadline: number): Promise<string
   }
 }
 
-async function buildWorkspaceIndex(workspaceRoot: string): Promise<WorkspaceIndex> {
-  const deadline = Date.now() + MAX_INDEX_BUILD_MS
-  const files = await scanWorkspaceFiles(workspaceRoot, deadline)
+function workspaceIndexCacheKey(workspaceRoot: string, includePdf: boolean): string {
+  return `${workspaceRoot}::${includePdf ? 'pdf' : 'text'}`
+}
+
+async function buildWorkspaceIndex(
+  workspaceRoot: string,
+  options: WorkspaceIndexOptions
+): Promise<WorkspaceIndex> {
+  const deadline = Date.now() + options.buildMs
+  const files = await scanWorkspaceFiles(workspaceRoot, deadline, options.includePdf)
   const chunks: IndexedChunk[] = []
   let indexedFiles = 0
 
   for (const path of files) {
     if (chunks.length >= MAX_INDEX_CHUNKS || deadlineExceeded(deadline)) break
     try {
-      const content = await readIndexableFile(path, deadline)
-      if (!content.trim()) continue
       const relativePath = normalizeRelativePath(relative(workspaceRoot, path) || basename(path))
-      const fileChunks = chunkMarkdown(path, relativePath, content)
+      const ext = extname(path).toLowerCase()
+      const fileChunks = isWritePdfFileExtension(ext)
+        ? await chunkPdf(path, workspaceRoot, relativePath)
+        : chunkMarkdown(path, relativePath, await readIndexableFile(path, deadline))
       if (fileChunks.length > 0) indexedFiles += 1
       chunks.push(...fileChunks.slice(0, Math.max(0, MAX_INDEX_CHUNKS - chunks.length)))
     } catch {
@@ -384,22 +449,26 @@ async function buildWorkspaceIndex(workspaceRoot: string): Promise<WorkspaceInde
   }
 }
 
-async function loadWorkspaceIndex(workspaceRoot: string): Promise<WorkspaceIndex> {
-  const cached = indexCache.get(workspaceRoot)
+async function loadWorkspaceIndex(
+  workspaceRoot: string,
+  options: WorkspaceIndexOptions
+): Promise<WorkspaceIndex> {
+  const cacheKey = workspaceIndexCacheKey(workspaceRoot, options.includePdf)
+  const cached = indexCache.get(cacheKey)
   if (cached && Date.now() - cached.builtAt <= INDEX_CACHE_TTL_MS) return cached
-  const existing = inFlightIndexCache.get(workspaceRoot)
+  const existing = inFlightIndexCache.get(cacheKey)
   if (existing) return existing
 
-  const build = buildWorkspaceIndex(workspaceRoot)
+  const build = buildWorkspaceIndex(workspaceRoot, options)
     .then((index) => {
-      indexCache.set(workspaceRoot, index)
+      indexCache.set(cacheKey, index)
       return index
     })
     .finally(() => {
-      inFlightIndexCache.delete(workspaceRoot)
+      inFlightIndexCache.delete(cacheKey)
     })
 
-  inFlightIndexCache.set(workspaceRoot, build)
+  inFlightIndexCache.set(cacheKey, build)
   return build
 }
 
@@ -454,6 +523,21 @@ function buildQueryModel(request: WriteInlineCompletionRequest): QueryModel {
     terms,
     weights: new Map(ranked),
     phrases: extractPhrases(request)
+  }
+}
+
+function buildQueryModelFromText(text: string): QueryModel {
+  const weights = new Map<string, number>()
+  addWeightedTerms(weights, text, 2)
+  const compact = compactText(text)
+  const ranked = [...weights.entries()]
+    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length || a[0].localeCompare(b[0]))
+    .slice(0, MAX_QUERY_TERMS)
+  return {
+    text: compact.slice(0, 240),
+    terms: ranked.map(([term]) => term),
+    weights: new Map(ranked),
+    phrases: compact.length >= 8 ? [normalizeLower(clipTail(compact, 80))] : []
   }
 }
 
@@ -518,10 +602,11 @@ function rankChunks(
   index: WorkspaceIndex,
   query: QueryModel,
   currentFilePath: string,
-  maxSnippets: number
+  maxSnippets: number,
+  includeCurrentFile: boolean
 ): WriteRetrievalSnippet[] {
   const ranked = index.chunks
-    .filter((chunk) => !currentFilePath || resolveComparablePath(chunk.path) !== currentFilePath)
+    .filter((chunk) => includeCurrentFile || !currentFilePath || resolveComparablePath(chunk.path) !== currentFilePath)
     .map((chunk) => {
       const keyword = keywordScore(chunk, query)
       const score = bm25Score(chunk, index, query) + keyword.score
@@ -552,8 +637,10 @@ function rankChunks(
       text: snippetText,
       score: Number(item.score.toFixed(3)),
       keywords: item.keywords,
-      lineStart: item.chunk.lineStart,
-      lineEnd: item.chunk.lineEnd
+      location: item.chunk.location,
+      ...(item.chunk.location.kind === 'text'
+        ? { lineStart: item.chunk.location.lineStart, lineEnd: item.chunk.location.lineEnd }
+        : { pageStart: item.chunk.location.pageStart, pageEnd: item.chunk.location.pageEnd })
     })
   }
   return snippets
@@ -568,7 +655,10 @@ export async function retrieveWriteInlineCompletionContext(
   const currentFilePath = resolveComparablePath(request.currentFilePath)
   if (currentFilePath && !isWithinWorkspace(workspaceRoot, currentFilePath)) return null
 
-  const index = await loadWorkspaceIndex(workspaceRoot)
+  const index = await loadWorkspaceIndex(workspaceRoot, {
+    includePdf: false,
+    buildMs: MAX_INDEX_BUILD_MS
+  })
   if (index.chunks.length === 0) return null
 
   const query = buildQueryModel(request)
@@ -578,7 +668,44 @@ export async function retrieveWriteInlineCompletionContext(
     index,
     query,
     currentFilePath,
-    Math.max(1, Math.min(6, Math.round(options.maxSnippets ?? DEFAULT_MAX_SNIPPETS)))
+    Math.max(1, Math.min(6, Math.round(options.maxSnippets ?? DEFAULT_MAX_SNIPPETS))),
+    false
+  )
+  if (snippets.length === 0) return null
+
+  return {
+    source: 'bm25-keyword',
+    query: query.text,
+    keywords: query.terms.slice(0, 12),
+    snippets,
+    indexedFiles: index.files,
+    indexedChunks: index.chunks.length
+  }
+}
+
+export async function retrieveWriteContext(
+  request: WriteRetrievalRequest
+): Promise<WriteRetrievalContext | null> {
+  const workspaceRoot = resolveWorkspaceRoot(request.workspaceRoot)
+  if (!workspaceRoot) return null
+  const currentFilePath = resolveComparablePath(request.currentFilePath)
+  if (currentFilePath && !isWithinWorkspace(workspaceRoot, currentFilePath)) return null
+
+  const index = await loadWorkspaceIndex(workspaceRoot, {
+    includePdf: true,
+    buildMs: MAX_ASSISTANT_INDEX_BUILD_MS
+  })
+  if (index.chunks.length === 0) return null
+
+  const query = buildQueryModelFromText(request.query)
+  if (query.terms.length === 0) return null
+
+  const snippets = rankChunks(
+    index,
+    query,
+    currentFilePath,
+    Math.max(1, Math.min(8, Math.round(request.maxSnippets ?? DEFAULT_MAX_SNIPPETS))),
+    request.includeCurrentFile !== false
   )
   if (snippets.length === 0) return null
 

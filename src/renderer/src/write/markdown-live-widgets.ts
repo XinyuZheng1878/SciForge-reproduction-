@@ -1,5 +1,6 @@
 import { EditorSelection, type EditorState } from '@codemirror/state'
 import { EditorView, WidgetType } from '@codemirror/view'
+import katex from 'katex'
 import {
   highlightCodeHtml,
   renderFallbackCodeHtml
@@ -190,6 +191,48 @@ export type ParsedCodeBlock = {
 
 export type CodeBlockRange = BlockRange & {
   block: ParsedCodeBlock
+}
+
+export type ParsedMath = {
+  latex: string
+  displayMode: boolean
+}
+
+export class MathWidget extends WidgetType {
+  constructor(
+    private math: ParsedMath,
+    private from: number
+  ) {
+    super()
+  }
+
+  eq(other: MathWidget): boolean {
+    return other.math.latex === this.math.latex &&
+      other.math.displayMode === this.math.displayMode &&
+      other.from === this.from
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const element = document.createElement(this.math.displayMode ? 'div' : 'span')
+    element.className = this.math.displayMode ? 'cm-write-md-math-block' : 'cm-write-md-math-inline'
+    element.title = 'Click to edit formula markdown'
+    try {
+      katex.render(this.math.latex, element, {
+        displayMode: this.math.displayMode,
+        throwOnError: false
+      })
+    } catch {
+      element.textContent = this.math.displayMode
+        ? `$$${this.math.latex}$$`
+        : `$${this.math.latex}$`
+    }
+    element.addEventListener('mousedown', (event) => {
+      if (!(event instanceof MouseEvent) || !isPrimaryMouseDown(event)) return
+      preventEditorMouseHandling(event)
+      focusSourceAt(view, this.from)
+    })
+    return element
+  }
 }
 
 function escapeRegExp(value: string): string {

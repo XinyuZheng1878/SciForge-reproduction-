@@ -1,4 +1,4 @@
-export const WRITE_EXPORT_FORMATS = ['html', 'pdf', 'doc', 'docx'] as const
+export const WRITE_EXPORT_FORMATS = ['html', 'pdf', 'doc', 'docx', 'tex'] as const
 
 export type WriteExportFormat = (typeof WRITE_EXPORT_FORMATS)[number]
 

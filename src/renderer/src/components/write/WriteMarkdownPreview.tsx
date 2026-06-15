@@ -17,6 +17,8 @@ import {
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import { harden } from 'rehype-harden'
 import type { PluggableList } from 'unified'
 import { useTranslation } from 'react-i18next'
@@ -24,6 +26,7 @@ import {
   resolveWriteMarkdownResource,
   resolveWriteMarkdownResourcePath
 } from '@shared/write-markdown-resource'
+import { normalizeMarkdownMathDelimiters } from '@shared/write-markdown-math'
 import {
   highlightCodeHtml,
   renderFallbackCodeHtml
@@ -53,11 +56,14 @@ export const writeMarkdownHardenOptions = {
 }
 
 const rehypePlugins = [
+  rehypeKatex,
   [
     harden,
     writeMarkdownHardenOptions
   ]
 ] as unknown as PluggableList
+
+const remarkPlugins = [remarkMath, remarkGfm] as unknown as PluggableList
 
 const LANGUAGE_REGEX = /language-([^\s]+)/
 const TRAILING_NEWLINES_REGEX = /\n+$/
@@ -357,11 +363,12 @@ class PreviewErrorBoundary extends Component<PreviewBoundaryProps, PreviewBounda
 
 function WriteMarkdownPreviewContent({ content, isMarkdown, filePath }: Props): ReactElement {
   if (!isMarkdown) return plainTextFallback(content)
+  const markdownContent = normalizeMarkdownMathDelimiters(content)
 
   return (
     <div className="ds-markdown write-markdown-preview min-h-full text-ds-ink">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
         components={{
           a: ({ href, children, ...props }): ReactNode => (
@@ -396,7 +403,7 @@ function WriteMarkdownPreviewContent({ content, isMarkdown, filePath }: Props): 
           )
         }}
       >
-        {content}
+        {markdownContent}
       </ReactMarkdown>
     </div>
   )

@@ -1,177 +1,115 @@
-# DeepSeek GUI IM / 手机值守任务板
+# DeepSeek GUI Runtime 架构治理任务板
 
-更新时间：2026-06-13
-
-核心原则：
-
-> remote conversation 是绑定源，local thread 是稳定目标，desktop focus 只是可显式接管的观察状态；所有消息按绑定目标串行排队，任何切换都必须显式。
-
-体验底线：
-
-> 手机端稳定、桌面端不打断、切换必须显式、失败必须可解释。
-
-## 当前目标
-
-让飞书 / Lark、微信、Discord 等 IM 消息进入 DeepSeek GUI 时，行为等价于用户在桌面端控制同一个本地会话，但不会被桌面当前焦点、刷新、切屏影响。
-
-一个 DeepSeek GUI 安装可以配置一个 Discord Bot，邀请到一个或多个 server/channel；每个绑定 channel 可以有自己的 workspace、model、agent profile 和 guard 模式。
-
-权限默认与桌面端一致：IM 请求沿用项目级 runtime、sandbox、Model Router 配置。所谓“默认给 agent 所有权限”，表示远端消息不额外降权，但不能绕过项目配置。
-
-## 已落地基线
-
-- [x] 手机/IM 会话默认按 remote conversation 绑定本地 thread，不再绑定电脑当前焦点。
-- [x] 首次手机消息默认新建本地 thread。
-- [x] `/attach current` 是显式接管当前桌面会话的入口。
-- [x] 飞书私聊默认全响应，群聊默认只响应 @bot / @all。
-- [x] 飞书已有按 remote conversation 的串行队列。
-- [x] 飞书已有基础 messageId 去重。
-- [x] 手机消息进入后，项目工作页面保持不跳转到专门 IM 页面。
-- [x] 侧边栏已有机器人值守标志 / 活跃状态提示基础。
-- [x] Codex active turn 期间 `readThread` fallback 不再杀掉本地运行。
-- [x] 已支持 `/new`、`/help`、`/model`、`/model auto|pro|flash` 等基础命令。
-- [x] 每个 IM channel 已能记录 agent profile、workspace、model 等绑定配置。
-- [x] 飞书已有基础文本回复、生成文件发送、直接文件发送路径。
+更新时间：2026-06-15
 
 ## 不可变规则
 
-- 桌面当前焦点默认永远不能改变手机绑定目标。
-- 切换绑定必须显式发生：桌面动作或 `/attach current`。
-- 远端绑定 key 至少包含：`provider + channelId + chatId + remoteThreadId`。
-- 同一个 remote conversation 必须严格串行处理。
-- 同一个 local thread 全局只能有一个 active turn，手机和桌面消息共享队列。
-- 失败必须回传到 IM 端，不能沉默。
-- 私聊和群聊使用不同响应语义。
-- Bot token、app secret、webhook secret 永远不能进入普通日志。
+- [x] 旧逻辑代码和最终目标冲突时，删除旧逻辑，直接实现新版本，不做兼容，保持代码干净。
+- [x] 所有修改必须通用，不能为特色例子写硬编码补丁。
+- [x] LLM API 只能走model router
+- [x] 在能提高时间效率的前提下，尽可能使用 sub agent 并行推进；并行任务必须拆清边界，避免不同 worker 修改同一文件造成冲突。
+- [x] 相同功能的工作链路需要统一，不要额外生出旁路。
 
-## P0：绑定与桌面不打断
+## 当前目标
 
-- [x] 手机来消息时不自动跳转桌面焦点，只更新 sidebar 标记 / unread / active 状态。
-- [x] 首次手机消息默认新建并绑定稳定本地 thread，而不是绑定桌面当前焦点。
-- [x] `/attach current` 作为显式接管入口。
-- [ ] 桌面支持“让手机值守当前会话”的待绑定状态，默认 5 分钟过期。（本轮跳过：需要新增桌面显式接管入口；已先落实 `/attach current` 10 分钟活跃限制）
-- [x] `/attach current` 只允许接管 10 分钟内活跃的桌面当前会话；过期时手机端提示失败原因。
-- [x] 侧边栏机器人标志区分“已绑定/值守”和“正在运行”。
-- [ ] 手机来消息时支持 toast / 系统通知，但不抢桌面焦点。（本轮跳过：避免在未确认通知策略前打扰桌面；已保持不抢焦点）
+把已发现的 Codex 工具循环问题收敛成通用 runtime 架构治理任务：明确多个 runtime 的公共层、适配层和 runtime 原生层边界，让 Kun、Codex 以及后续 runtime 能共享通用稳定性治理，同时保留各自原生能力。
 
-## P1：跨渠道队列、去重、顺序
+目标链路：
 
-- [x] 飞书已有内存级 messageId 去重和按 remote conversation 的队列。
-- [x] 抽象 provider-agnostic 的 remote conversation queue，供飞书、微信、Discord 复用。
-- [x] 最近 messageId 去重持久化 24 小时，重启后仍避免重复回复。
-- [x] 平台提供 timestamp / messageId 顺序时，按平台顺序处理；否则按接收时间处理并保留来源时间。
-- [x] 桌面端和 IM 端消息进入同一个 thread-level turn queue。
-- [x] 当上一条仍在处理时，手机端立即收到“已排队”的轻量提示。
-- [ ] 断线恢复后按顺序处理积压消息。（本轮跳过：需要 provider 离线 backlog API / relay 设计）
-- [ ] 短时间连续积压消息支持合并，例如 2 分钟窗口合成一个 prompt。（本轮跳过：先保守逐条串行，避免错误合并用户意图）
-- [ ] 积压较多时先发送提示，例如“收到 N 条离线消息，将合并处理”。（本轮跳过：依赖离线 backlog / 合并窗口实现）
+```text
+UI / Write / Claw / Schedule
+  -> AgentRuntimeHost
+    -> Runtime Governance
+      -> Runtime Adapter
+        -> Native Runtime
+```
 
-## P2：回复格式与附件投递
+## 设计任务
 
-- [x] 基础 Markdown 文本回复。
-- [x] 飞书生成文件 / 已有文件发送路径。
-- [x] 建立 Feishu/Lark、WeChat、Discord 的能力矩阵。
-- [x] 长文本按平台限制自动分段发送。
-- [x] 代码块尽量保持 Markdown。
-- [x] 文件生成后优先发送文件或链接。
-- [x] 图片、文件、链接在平台不支持时降级为摘要 + “请到桌面查看完整结果”。
-- [x] 每个平台配置最大消息长度、附件限制和重试策略。
+- [x] 更新 `docs/runtime-governance-design.zh-CN.md`，明确多 runtime 架构、公共层职责和特用层边界。
+- [x] 定义 runtime capability：声明 native guard、steer、interrupt、approval、user input、event replay 等能力，避免双重治理。
+- [x] 定义工具循环的通用 fingerprint 和预算模型，不绑定具体命令或具体平台。
+- [x] 定义公共 synthetic event 规范：所有补充事件必须先持久化，再发布给 UI。
+- [x] 定义配置迁移策略：把 `kunToolStorm` 类设置提升为 runtime guard 设置，同时兼容读取旧字段。
 
-## P3：审批、交互
+## P0：Debug 与现状盘点
 
-- [x] IM 请求沿用项目级 runtime、sandbox、Model Router 配置。
-- [x] 远端请求 prompt 包含来源和发送者上下文。
-- [ ] Agent 需要简单用户回答时，可以回发到手机，手机回答后继续同一 turn。（本轮跳过：需要跨 IM 的 pending user-input 协议）
-- [ ] 审计所有远端运行路径，确保 API 一律走项目级 Model Router。（本轮跳过：已有失败分类与边界测试，本项保留为安全审计任务）
+- [ ] 复盘 Codex app-server 工具循环事件，确认重复工具调用来自 runtime 后端执行链路，而不是 UI 展示重复。
+- [ ] 梳理 UI 对话、写作助手、Claw、Discord、Feishu、Schedule 入口现在分别如何调用 runtime。
+- [ ] 对照稳定版 Kun 的 AgentLoop、ToolStormBreaker、runtime event recorder，识别可沉到公共层的治理能力。
+- [ ] 找出现有 Codex/Kun 分叉逻辑、Kun-only 设置文案和入口层直连旁路，区分必须保留的 runtime 特性与可以统一的重复逻辑。
+- [ ] 记录 Codex 原生能力边界：sandbox、approval、file change、thread、session、JSON-RPC 生命周期，后续公共层不得改写这些协议。
 
-## P4：身份、群聊、噪音控制
+## P1：入口层统一
 
-- [x] 短期不做跨 provider 身份合并，按 remote conversation 绑定。
-- [x] 飞书群聊默认只响应 @bot / @all，私聊默认全响应。
-- [x] 每个 channel 支持 guard mode：`only_mention`、`all_messages`、`off`。
-- [x] 群聊默认按群 / channel 共享一个本地 thread。
-- [x] 预留 `/new private`，未来支持群里创建个人私有 thread。
-- [ ] 联系人身份合并只做设计文档，暂不实现。（本轮跳过：产品已确认短期不做跨 provider 身份合并）
+- [ ] 确认 UI 对话、写作助手、Claw、Schedule 都只构造统一 `AgentRuntime*Input`，不直接调用 Kun HTTP、Codex JSON-RPC 或 LLM API。
+- [ ] 把 Claw/Discord/Feishu 值守入口的 runtime 调用统一收束到 `AgentRuntimeHost`，仅保留入口场景参数，例如更严格预算。
+- [ ] 清理入口层对具体 runtime 的策略判断；必须分支时改为读取 capability。
+- [ ] 明确 hidden prompt 与 `displayText` 的入口约定：隐藏上下文只进入 runtime payload，timeline 只展示用户原始文本。
 
-## P5：上下文生命周期与命令
+## P2：公共治理层
 
-- [x] `/new` 可以显式开启新话题。
-- [x] `/model` 和 `/model auto|pro|flash` 可查看 / 切换模型。
-- [x] `/mode agent|plan`。
-- [x] `/summary` 查看当前远端会话摘要。
-- [ ] 长期 remote-bound thread 自动 compact。（本轮跳过：需要和 runtime compaction 策略统一）
-- [ ] 桌面显示“已压缩上下文”标记。（本轮跳过：依赖 compact 事件/状态落库）
-- [x] 如果本地 thread 被删除，绑定标为 broken；手机下次发消息时自动新建并告知。
-- [x] `/detach` 解除当前 remote conversation 绑定。
-- [x] `/status` 查看当前绑定、队列、模型、workspace、运行状态。
+- [ ] 在 `AgentRuntimeHost` 附近新增 runtime-neutral governance 层，所有 startTurn、subscribeEvents、steer、interrupt 都经过该层编排。
+- [ ] 把 turn 排队、超时、预算、状态收束整理为公共能力，避免入口或 adapter 重复实现。
+- [ ] 定义 runtime guard supervisor：消费归一化后的 `AgentRuntimeEvent`，处理工具循环、重复状态和异常收尾。
+- [ ] 实现公共 synthetic event 生成规范：补充事件必须先写入对应 runtime 的事件存储，再发布给 UI。
+- [ ] 公共层只做编排和治理，不改写 runtime 原生协议、不假设具体工具存在、不绕过 model router。
 
-## P6：Discord Bot Bridge
+## P3：Capability 合同
 
-- [x] Repo 中已有 Discord Bot runtime / bridge 基础结构。
-- [x] 一个 DeepSeek GUI 安装配置一个 Discord Bot token。
-- [x] 支持填写 Client ID / Bot Token。
-- [x] 生成 Bot invite URL 和邀请二维码。
-- [x] 扫码邀请 Bot 到一个或多个 server。
-- [x] 选择 server / channel 并绑定本地 workspace、model、profile。
-- [x] 测试发送 / 接收。
-- [x] 启用 / 暂停值守。
-- [x] 多 server / channel 各自拥有独立 channel 配置。
+- [ ] 扩展 `AgentRuntimeCapabilities`，声明 `guard.toolStorm = native | observe | unsupported`。
+- [ ] 扩展或规范已有 controls/events 字段：steer、interrupt、approval、user input、compact、event replay、sequenced event。
+- [ ] 公共治理层根据 capability 决定使用 native guard、observe guard、steer 或 interrupt，避免双重保护。
+- [ ] Kun adapter 声明已有 native pre-exec tool storm 能力。
+- [ ] Codex adapter 声明 observe tool storm 能力，并保留原生 steer、interrupt、approval、user input 能力。
 
-## P7：桌面 UX 与可追溯
+## P4：工具循环治理
 
-- [x] 侧边栏已有 bot-watched 标志基础。
-- [x] 桌面消息气泡显示来源标签：`飞书 · Alice`、`微信 · 某群`、`Discord · #support`、`Desktop`。
-- [x] sidebar 显示远端 unread / active badge。
-- [x] 只有用户正在看这个 thread 时，时间线才实时滚动到底。
-- [x] 桌面 UI 区分 watched、bound、running、queued、error。
-- [x] 桌面 thread 顶部可查看当前远端绑定详情。
+- [ ] 实现 runtime-neutral 工具事件 fingerprint：exact tool name + canonical args、tool kind、行为族、连续次数、总次数。
+- [ ] 行为族识别必须通用，例如 shell/date、shell/read-file、search/read，不为具体用户话术或单个命令写硬编码补丁。
+- [ ] 软阈值命中时优先 `steerTurn`：要求 runtime 停止同族工具，基于已有结果回答。
+- [ ] 硬阈值命中时再 `interruptTurn`：终止本轮并生成保护说明。
+- [ ] Kun native guard 在执行前生效，公共层只消费其结果事件；Codex observe guard 在事件后生效，先 steer 后 interrupt。
 
-## P8：隐私、日志、删除
+## P5：配置与迁移
 
-- [x] Bot token、app secret、webhook secret 在所有日志和 trace 中脱敏，并补测试。
-- [ ] 设置里支持清除某个 remote binding 的历史。（本轮跳过：需要删除策略和审计视图一起设计）
-- [ ] 删除 channel 时，分开询问是否删除本地 thread / 历史。（本轮跳过：需要 destructive UX 确认流）
-- [ ] 提供 remote binding 审计视图。（本轮跳过：需要单独审计页面/数据模型）
-- [ ] 明确 IM 消息进入本地日志 / 历史的保留策略。（本轮跳过：需要产品/隐私文档决策）
+- [ ] 新增通用配置命名：`runtimeGuards.toolStorm.*` 和 `runtimeGuards.budgets.*`。
+- [ ] 兼容读取旧 `kunToolStorm` 或 `runtime.toolStorm` 字段，但写回新字段。
+- [ ] 设置页文案从 Kun-only 命名迁移为 Runtime Guard。
+- [ ] 为普通 UI、写作、Claw/Discord/Feishu 值守入口提供不同默认预算，但走同一个配置模型。
+- [ ] 删除稳定后不再使用的 Kun-only 设置旁路和重复 runtime tuning 逻辑。
 
-## P9：失败可解释与重试
+## P6：Adapter 与 Runtime 原生层
 
-- [x] 飞书已有基础 unsupported message、schedule error、processing error 提示。
-- [x] Codex active turn 的 `readThread` fallback 已修复，避免运行中被误判失败。
-- [x] 统一失败分类：runtime offline、model missing、timeout、waiting desktop approval、local thread deleted、provider send failed。
-- [x] 可恢复失败有重试策略。
-- [x] 手机端能看到 queued / running / failed 状态。
-- [x] 桌面端能看到远端来源和失败原因。
-- [x] Provider 发送失败时记录并提示，而不是吞掉。
+- [ ] Kun adapter 保留 AgentLoop、pre-exec tool host、ToolStormBreaker、request history hygiene 等原生能力。
+- [ ] Codex adapter 保留 app-server 原生 sandbox、approval、file change、thread、session、JSON-RPC 生命周期。
+- [ ] Adapter 只负责协议转换、事件归一化、能力声明和错误封装，不承载业务治理策略。
+- [ ] 新 runtime 接入时只需实现 `AgentRuntimeAdapter`、声明 capability、接入事件归一化和 replay。
+- [ ] 删除 adapter 外部对 Kun/Codex 私有协议的直接依赖。
 
-## P10：在线/离线与多设备
+## P7：冗余链路清理
 
-- [x] UI 明确标注“本机在线时值守”。
-- [x] 云 relay / 离线队列只做未来设计，不作为当前本机 bridge 的默认承诺。
-- [x] 生成并持久化 installationId。
-- [x] 检测同一个 bot/channel 是否被另一台 DeepSeek GUI 安装值守。
-- [x] 冲突时提示“这个 Bot 正被另一台设备值守”，并提供手动接管。
+- [ ] 删除入口层或 UI 层重复的 runtime 分支策略，只保留 capability 驱动的唯一逻辑。
+- [ ] 删除与公共治理层重复的 turn queue、timeout、tool storm、状态收束实现。
+- [ ] 删除 Kun-only 文案、设置名和测试断言中的过时命名。
+- [ ] 确保所有 LLM 相关请求仍只通过 model router 或 agent runtime。
 
-## 验收清单
+## 回归测试
 
-- [x] 手机睡一晚后继续发消息，仍进入同一个本地 thread。
-- [x] 桌面切换焦点不会改变手机绑定目标。
-- [x] `/attach current` 在桌面上下文过期时明确失败。
-- [x] 手机连续发送 A、B，A 运行中时 B 入队，回复不会慢一拍。
-- [x] 桌面在同一 thread 发送消息时，也进入同一个串行队列。
-- [x] webhook / WS 重试不会产生重复 user message 或重复 agent reply。
-- [x] 重启后短期重复事件仍能去重。
-- [x] 运行失败时，手机端能收到明确原因。
-- [x] 普通日志里没有 token、secret、敏感配置。
+- [ ] 公共层单测覆盖 turn 排队、预算、状态收束、synthetic event 持久化顺序。
+- [ ] 公共层单测覆盖工具事件 fingerprint、软阈值 steer、硬阈值 interrupt。
+- [ ] Kun 回归测试确认已有 ToolStormBreaker 不被公共层重复 suppress。
+- [ ] Codex 回归测试用重复同族命令事件验证不会无限执行工具。
+- [ ] Claw/Discord/Feishu 端到端测试覆盖值守入口的工具循环保护和更严格预算。
+- [ ] 设置迁移测试覆盖旧字段读取、新字段写回、UI 文案不再依赖 Kun-only 命名。
+- [ ] typecheck 和相关单测通过。
 
-## 已确认产品决策
+## 验收标准
 
-- 首次手机消息默认新建本地 thread。
-- 群聊默认共享群 / channel 的本地 thread。
-- 同一个本地 thread 同时只能有一个 active turn。
-- 桌面 focus 只是观察状态，不是绑定状态。
-- `/attach current` 和桌面“值守当前会话”是显式切换入口。
-- 短期不合并跨 provider 身份。
-- 每个 IM channel 可以独立配置 workspace、model、agent profile。
-- 手机端请求权限与桌面端一致，继承项目 runtime / sandbox / Model Router。
-- 手机端不自动唤醒或打断桌面当前工作。
+- 多 runtime 调用链路统一经过 `AgentRuntimeHost` 附近的公共治理层。
+- UI、写作、Claw、Schedule 等入口不再直接依赖具体 runtime 协议。
+- 公共层只处理协议无关的治理策略，不改写 Codex 或 Kun 原生协议。
+- 工具循环保护是通用能力，不依赖具体命令、模型、平台或用户话术。
+- Kun 后续稳定性治理能通过共享层惠及 Codex；Codex 原生 approval、sandbox、file change、thread 语义不被破坏。
+- 新 runtime 只要实现 adapter 合同并声明 capability，就能接入公共治理层。
+- 冗余旁路被删除后，同一功能只有一条最终逻辑。

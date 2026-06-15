@@ -179,6 +179,135 @@ describe('chat-store-runtime helper defaults', () => {
   })
 })
 
+describe('chat-store-navigation-actions deleteWorkspace', () => {
+  beforeEach(() => {
+    registryMock.getProvider.mockReset()
+    runtimeClientMock.getSettings.mockReset()
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn()
+      }
+    })
+  })
+
+  it('removes the workspace from the project list without deleting its threads', async () => {
+    const provider = {
+      deleteThread: vi.fn(async () => undefined),
+      rememberThreadRuntime: vi.fn<(threadId: string, runtimeId?: AgentRuntimeId) => void>()
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+
+    const staleThread = thread('stale-thread', 'codex')
+    const healthyThread = thread('healthy-thread', 'codex')
+    const otherThread = {
+      ...thread('other-thread', 'kun'),
+      workspace: '/workspace/other'
+    }
+    const state = {
+      activeThreadId: 'other-thread',
+      blocks: [],
+      busy: false,
+      clawChannels: [],
+      codeWorkspaceRoots: ['/workspace/deepseek-gui', '/workspace/other'],
+      hiddenCodeWorkspaceRoots: [],
+      error: 'previous error',
+      refreshThreads: vi.fn(async () => undefined),
+      route: 'chat',
+      runtimeConnection: 'idle',
+      threads: [staleThread, healthyThread, otherThread],
+      unreadThreadIds: { 'stale-thread': true },
+      watchTurnCompletion: { 'healthy-thread': true },
+      workspaceRoot: '/workspace/other'
+    } as unknown as ChatState
+    const set: ChatStoreSet = (partial) => {
+      const update = typeof partial === 'function' ? partial(state) : partial
+      Object.assign(state, update)
+    }
+    const actions = createNavigationActions({
+      set,
+      get: () => state,
+      sseAbortRef: { current: null }
+    })
+
+    await actions.deleteWorkspace('/workspace/deepseek-gui')
+
+    expect(provider.deleteThread).not.toHaveBeenCalled()
+    expect(state.threads.map((item) => item.id)).toEqual([
+      'stale-thread',
+      'healthy-thread',
+      'other-thread'
+    ])
+    expect(state.codeWorkspaceRoots).toEqual(['/workspace/other'])
+    expect(state.hiddenCodeWorkspaceRoots).toEqual(['/workspace/deepseek-gui'])
+    expect(state.unreadThreadIds).toEqual({})
+    expect(state.watchTurnCompletion).toEqual({})
+    expect(state.error).toBeNull()
+    expect(state.refreshThreads).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('chat-store-navigation-actions route recovery', () => {
+  beforeEach(() => {
+    registryMock.getProvider.mockReset()
+    runtimeClientMock.getSettings.mockReset()
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn()
+      }
+    })
+  })
+
+  it('recovers a reused busy write thread when opening the write route', async () => {
+    const writeThread = {
+      ...thread('write-thread', 'codex'),
+      title: 'Write Assistant',
+      workspace: '/workspace/deepseek-gui'
+    }
+    runtimeClientMock.getSettings.mockResolvedValue({
+      activeAgentRuntime: 'codex',
+      workspaceRoot: '/workspace/deepseek-gui',
+      write: {
+        activeWorkspaceRoot: '/workspace/deepseek-gui',
+        defaultWorkspaceRoot: '/workspace/deepseek-gui',
+        workspaces: ['/workspace/deepseek-gui']
+      }
+    })
+    const state = {
+      activeThreadId: writeThread.id,
+      blocks: [],
+      busy: true,
+      clawChannels: [],
+      codeWorkspaceRoots: [],
+      error: null,
+      recoverActiveTurn: vi.fn(async () => false),
+      route: 'chat',
+      runtimeConnection: 'ready',
+      threads: [writeThread],
+      unreadThreadIds: {},
+      watchTurnCompletion: {},
+      workspaceRoot: '/workspace/deepseek-gui'
+    } as unknown as ChatState
+    const set: ChatStoreSet = (partial) => {
+      const update = typeof partial === 'function' ? partial(state) : partial
+      Object.assign(state, update)
+    }
+    const actions = createNavigationActions({
+      set,
+      get: () => state,
+      sseAbortRef: { current: null }
+    })
+
+    await actions.openWrite()
+
+    expect(state.route).toBe('write')
+    expect(state.recoverActiveTurn).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('syncClawChannelActivityToStore', () => {
   beforeEach(() => {
     registryMock.getProvider.mockReset()

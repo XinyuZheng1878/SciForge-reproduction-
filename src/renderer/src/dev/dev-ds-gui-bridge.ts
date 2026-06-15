@@ -169,6 +169,7 @@ function createApi(): DsGuiApi {
     unwatchWorkspaceFile: (watchId) => invoke('file:unwatch-workspace', watchId),
     onWorkspaceFileChanged: (handler) => onChannel('file:workspace-changed', handler),
     requestWriteInlineCompletion: (payload) => invoke('write:inline-completion', payload),
+    retrieveWriteContext: (payload) => invoke('write:retrieve-context', payload),
     listWriteInlineCompletionDebugEntries: () => invoke('write:inline-completion-debug:list'),
     clearWriteInlineCompletionDebugEntries: () => invoke('write:inline-completion-debug:clear'),
     exportWriteDocument: (payload) => invoke('write:export', payload),

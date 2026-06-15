@@ -119,4 +119,31 @@ describe('markdown live preview', () => {
       }
     ])
   })
+
+  it('collects markdown math blocks outside the active line', () => {
+    const state = EditorState.create({
+      doc: [
+        'Intro',
+        '',
+        '$$',
+        'a^2 + b^2 = c^2',
+        '$$',
+        '',
+        'Tail'
+      ].join('\n')
+    })
+
+    const ranges = markdownLivePreviewTestInternals.collectMarkdownMathBlockRangesFromState(
+      state,
+      0,
+      state.doc.length,
+      new Set()
+    )
+
+    expect(ranges).toHaveLength(1)
+    expect(ranges[0].math).toEqual({
+      latex: 'a^2 + b^2 = c^2',
+      displayMode: true
+    })
+  })
 })

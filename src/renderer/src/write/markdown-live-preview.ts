@@ -12,12 +12,14 @@ import {
   HrWidget,
   ImageWidget,
   ListBulletWidget,
+  MathWidget,
   TableWidget,
   TaskCheckboxWidget,
   closingFencePattern,
   openingFence,
   parseFencedCodeBlock,
   type CodeBlockRange,
+  type ParsedMath,
   type ParsedTable
 } from './markdown-live-widgets'
 
@@ -30,6 +32,10 @@ type DecorationRange = {
 type BlockRange = {
   from: number
   to: number
+}
+
+type MathRange = BlockRange & {
+  math: ParsedMath
 }
 
 type MarkdownImageContext = {
@@ -301,7 +307,139 @@ function collectMarkdownCodeBlockRangesFromState(
 
 export const markdownLivePreviewTestInternals = {
   collectMarkdownCodeBlockRangesFromState,
+  collectMarkdownMathBlockRangesFromState,
   collectRevealLinesFromState
+}
+
+function lineTrimBounds(lineText: string): { start: number; end: number; trimmed: string } {
+  const start = lineText.length - lineText.trimStart().length
+  const end = lineText.trimEnd().length
+  return { start, end, trimmed: lineText.slice(start, end) }
+}
+
+function collectMarkdownMathBlockRangesFromState(
+  state: EditorState,
+  from: number,
+  to: number,
+  activeLines: Set<number>,
+  excludedBlocks: BlockRange[] = []
+): MathRange[] {
+  const ranges: MathRange[] = []
+  let line = state.doc.lineAt(from)
+  const endLine = state.doc.lineAt(to).number
+
+  while (line.number <= endLine) {
+    const bounds = lineTrimBounds(line.text)
+    const trimmed = bounds.trimmed
+    const lineFrom = line.from + bounds.start
+    const lineTo = line.from + bounds.end
+
+    if (
+      !trimmed ||
+      activeLines.has(line.number) ||
+      isInsideBlockRanges(line.from, line.to, excludedBlocks)
+    ) {
+      if (line.number >= state.doc.lines) break
+      line = state.doc.line(line.number + 1)
+      continue
+    }
+
+    const sameLineDollar = /^\$\$([\s\S]+)\$\$$/.exec(trimmed)
+    const sameLineBracket = /^\\\[([\s\S]+)\\\]$/.exec(trimmed)
+    if (sameLineDollar || sameLineBracket) {
+      ranges.push({
+        from: lineFrom,
+        to: lineTo,
+        math: { latex: (sameLineDollar?.[1] ?? sameLineBracket?.[1] ?? '').trim(), displayMode: true }
+      })
+      if (line.number >= state.doc.lines) break
+      line = state.doc.line(line.number + 1)
+      continue
+    }
+
+    const opener = trimmed === '$$' ? '$$' : trimmed === '\\[' ? '\\[' : null
+    if (!opener) {
+      if (line.number >= state.doc.lines) break
+      line = state.doc.line(line.number + 1)
+      continue
+    }
+
+    const close = opener === '$$' ? '$$' : '\\]'
+    const startLine = line
+    const body: string[] = []
+    let lastLine = line
+    let nextNumber = line.number + 1
+    let closed = false
+    while (nextNumber <= state.doc.lines) {
+      const nextLine = state.doc.line(nextNumber)
+      const nextTrimmed = nextLine.text.trim()
+      lastLine = nextLine
+      if (nextTrimmed === close) {
+        closed = true
+        break
+      }
+      body.push(nextLine.text)
+      nextNumber += 1
+    }
+
+    if (closed && !rangeTouchesActiveLine(state, startLine.from, lastLine.to, activeLines)) {
+      ranges.push({
+        from: startLine.from + lineTrimBounds(startLine.text).start,
+        to: lastLine.from + lineTrimBounds(lastLine.text).end,
+        math: { latex: body.join('\n').trim(), displayMode: true }
+      })
+      if (lastLine.number >= state.doc.lines) break
+      line = state.doc.line(lastLine.number + 1)
+      continue
+    }
+
+    if (line.number >= state.doc.lines) break
+    line = state.doc.line(line.number + 1)
+  }
+
+  return ranges
+}
+
+const INLINE_MATH_PATTERN = /\\\((.+?)\\\)|(^|[^\\])\$(?!\$)([^$\n]+?)(?<!\\)\$(?!\$)/g
+
+function looksLikeCurrencyOnly(value: string): boolean {
+  return /^[\d\s.,，。]+$/.test(value.trim())
+}
+
+function collectMarkdownInlineMathRangesFromState(
+  state: EditorState,
+  from: number,
+  to: number,
+  activeLines: Set<number>,
+  excludedBlocks: BlockRange[] = []
+): MathRange[] {
+  const ranges: MathRange[] = []
+  const startLineNumber = state.doc.lineAt(from).number
+  const endLineNumber = state.doc.lineAt(to).number
+
+  for (let lineNumber = startLineNumber; lineNumber <= endLineNumber; lineNumber += 1) {
+    const line = state.doc.line(lineNumber)
+    if (activeLines.has(line.number) || isInsideBlockRanges(line.from, line.to, excludedBlocks)) continue
+
+    for (const match of line.text.matchAll(INLINE_MATH_PATTERN)) {
+      const bracketLatex = match[1]
+      const dollarPrefix = match[2] ?? ''
+      const dollarLatex = match[3]
+      const latex = bracketLatex ?? dollarLatex ?? ''
+      if (!latex.trim() || looksLikeCurrencyOnly(latex)) continue
+
+      const prefixLength = bracketLatex === undefined ? dollarPrefix.length : 0
+      const start = line.from + (match.index ?? 0) + prefixLength
+      const end = line.from + (match.index ?? 0) + match[0].length
+      ranges.push({
+        from: start,
+        to: end,
+        math: { latex: latex.trim(), displayMode: false }
+      })
+    }
+  }
+
+  return ranges
 }
 
 function addFencedCodeLineDecorations(
@@ -372,6 +510,7 @@ function buildDecorationSet(ranges: DecorationRange[]): DecorationSet {
   return Decoration.set(
     ranges
       .filter((range) => range.to >= range.from)
+      .sort((a, b) => a.from - b.from || a.to - b.to)
       .map((range) => range.deco.range(range.from, range.to)),
     true
   )
@@ -390,6 +529,19 @@ function buildMarkdownBlockDecorations(state: EditorState): DecorationSet {
       to: codeRange.to,
       deco: Decoration.replace({
         widget: new CodeBlockWidget(codeRange.block, codeRange.from, codeRange.to),
+        block: true
+      })
+    })
+  }
+
+  for (const mathRange of collectMarkdownMathBlockRangesFromState(state, 0, state.doc.length, activeLines, renderedBlocks)) {
+    if (rangeTouchesActiveLine(state, mathRange.from, mathRange.to, activeLines)) continue
+    renderedBlocks.push({ from: mathRange.from, to: mathRange.to })
+    ranges.push({
+      from: mathRange.from,
+      to: mathRange.to,
+      deco: Decoration.replace({
+        widget: new MathWidget(mathRange.math, mathRange.from),
         block: true
       })
     })
@@ -425,6 +577,7 @@ function buildMarkdownDecorations(view: EditorView): DecorationSet {
   const imageContext = view.state.facet(markdownImageContextFacet)
   const ranges: DecorationRange[] = []
   const renderedBlocks: BlockRange[] = []
+  const renderedInlineMath: BlockRange[] = []
 
   for (const { from, to } of view.visibleRanges) {
     for (const codeRange of collectMarkdownCodeBlockRanges(view, from, to, activeLines)) {
@@ -440,11 +593,28 @@ function buildMarkdownDecorations(view: EditorView): DecorationSet {
   }
 
   for (const { from, to } of view.visibleRanges) {
+    for (const mathRange of collectMarkdownInlineMathRangesFromState(view.state, from, to, activeLines, renderedBlocks)) {
+      renderedInlineMath.push({ from: mathRange.from, to: mathRange.to })
+      ranges.push({
+        from: mathRange.from,
+        to: mathRange.to,
+        deco: Decoration.replace({
+          widget: new MathWidget(mathRange.math, mathRange.from)
+        })
+      })
+    }
+  }
+
+  for (const { from, to } of view.visibleRanges) {
     syntaxTree(view.state).iterate({
       from,
       to,
       enter(node) {
-        if (node.name !== 'Document' && isInsideBlockRanges(node.from, node.to, renderedBlocks)) {
+        if (
+          node.name !== 'Document' &&
+          (isInsideBlockRanges(node.from, node.to, renderedBlocks) ||
+            isInsideBlockRanges(node.from, node.to, renderedInlineMath))
+        ) {
           return false
         }
         const line = view.state.doc.lineAt(node.from)

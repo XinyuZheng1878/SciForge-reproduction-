@@ -433,6 +433,19 @@ export type ClawImRecentMessageV1 = {
   receivedAt: string
 }
 
+export type ClawImLastFailureV1 = {
+  provider: ClawImProvider
+  message: string
+  failureKind?: string
+  failureTitle?: string
+  channelId?: string
+  chatId?: string
+  remoteThreadId?: string
+  threadId?: string
+  runtimeId?: AgentRuntimeId
+  occurredAt: string
+}
+
 export type ClawImConversationV1 = {
   id: string
   chatId: string
@@ -445,6 +458,7 @@ export type ClawImConversationV1 = {
   runtimeId?: AgentRuntimeId
   agentThreadIds?: AgentThreadIdsV1
   workspaceRoot: string
+  lastFailure?: ClawImLastFailureV1
   createdAt: string
   updatedAt: string
 }
@@ -466,6 +480,7 @@ export type ClawImChannelV1 = {
   remoteSession?: ClawImRemoteSessionV1
   conversations: ClawImConversationV1[]
   recentMessages?: ClawImRecentMessageV1[]
+  lastFailure?: ClawImLastFailureV1
   createdAt: string
   updatedAt: string
 }

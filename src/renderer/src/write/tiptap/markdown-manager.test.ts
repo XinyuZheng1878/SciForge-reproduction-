@@ -52,6 +52,25 @@ describe('write rich markdown manager', () => {
     }
   })
 
+  it('round-trips inline and block math through rich markdown', () => {
+    const doc = [
+      '# Math',
+      '',
+      'Inline $E = mc^2$ formula.',
+      '',
+      '$$',
+      'a^2 + b^2 = c^2',
+      '$$',
+      ''
+    ].join('\n')
+    const firstPass = serializeWriteMarkdown(parseWriteMarkdown(doc))
+    const secondPass = serializeWriteMarkdown(parseWriteMarkdown(firstPass))
+
+    expect(secondPass).toBe(firstPass)
+    expect(firstPass).toContain('$E = mc^2$')
+    expect(firstPass).toContain('a^2 + b^2 = c^2')
+  })
+
   it('rejects unstable markdown instead of allowing rich write-back', () => {
     const doc = [
       '1. Add protocol fields in `src/contracts/`.',

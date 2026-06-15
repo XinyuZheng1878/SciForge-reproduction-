@@ -9,6 +9,9 @@ import { createElement, type ComponentPropsWithoutRef, type ReactNode } from 're
 import { renderToStaticMarkup } from 'react-dom/server'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import type { PluggableList } from 'unified'
 import type {
   WriteExportFormat,
   WriteExportPayload,
@@ -16,6 +19,8 @@ import type {
   WriteRichClipboardPayload,
   WriteRichClipboardResult
 } from '../../shared/write-export'
+import { normalizeMarkdownMathDelimiters } from '../../shared/write-markdown-math'
+import { markdownToLatexDocument } from '../../shared/write-markdown-latex'
 import { resolveWriteMarkdownResource } from '../../shared/write-markdown-resource'
 import { resolveWorkspaceFile } from './workspace-service'
 
@@ -37,6 +42,10 @@ type HtmlToDocxConverter = (
 
 const require = createRequire(import.meta.url)
 const htmlToDocx = require('html-to-docx') as HtmlToDocxConverter
+const katexCssPath = require.resolve('katex/dist/katex.min.css')
+
+const markdownRemarkPlugins = [remarkMath, remarkGfm]
+const markdownRehypePlugins = [rehypeKatex] as unknown as PluggableList
 
 const EXPORT_CSS = `
   :root {
@@ -216,6 +225,7 @@ const EXPORT_CSS = `
 `
 
 const LOCAL_IMAGE_PATTERN = /(<img\b[^>]*?\bsrc=")([^"]+)(")/gi
+let katexCssCache: string | null = null
 
 function isMarkdownFile(filePath: string): boolean {
   return /\.(md|markdown|mdx)$/i.test(filePath)
@@ -240,6 +250,7 @@ function exportExtension(format: WriteExportFormat): string {
   if (format === 'html') return '.html'
   if (format === 'pdf') return '.pdf'
   if (format === 'doc') return '.doc'
+  if (format === 'tex') return '.tex'
   return '.docx'
 }
 
@@ -247,6 +258,7 @@ function exportDialogFilter(format: WriteExportFormat): Electron.FileFilter {
   if (format === 'html') return { name: 'HTML', extensions: ['html'] }
   if (format === 'pdf') return { name: 'PDF', extensions: ['pdf'] }
   if (format === 'doc') return { name: 'DOC', extensions: ['doc'] }
+  if (format === 'tex') return { name: 'LaTeX', extensions: ['tex'] }
   return { name: 'DOCX', extensions: ['docx'] }
 }
 
@@ -284,6 +296,16 @@ async function localFileUrlToDataUri(value: string): Promise<string | null> {
   }
 }
 
+async function readKatexCss(): Promise<string> {
+  if (katexCssCache !== null) return katexCssCache
+  try {
+    katexCssCache = await readFile(katexCssPath, 'utf8')
+  } catch {
+    katexCssCache = ''
+  }
+  return katexCssCache
+}
+
 export async function inlineLocalImagesInHtml(html: string): Promise<string> {
   const matches = [...html.matchAll(LOCAL_IMAGE_PATTERN)]
   if (matches.length === 0) return html
@@ -311,7 +333,7 @@ function renderPlainTextFragment(content: string): string {
       {
         className: 'plain-text'
       },
-      content
+      normalizeMarkdownMathDelimiters(content)
     )
   )
 }
@@ -321,7 +343,8 @@ function renderMarkdownFragment(content: string, sourcePath: string): string {
     createElement(
       ReactMarkdown,
       {
-        remarkPlugins: [remarkGfm],
+        remarkPlugins: markdownRemarkPlugins,
+        rehypePlugins: markdownRehypePlugins,
         components: {
           a: ({
             href,
@@ -375,6 +398,7 @@ export async function buildWriteExportHtmlDocument(options: {
   wordCompatible?: boolean
 }): Promise<string> {
   const title = options.title?.trim() || basenameWithoutExtension(options.sourcePath)
+  const katexCss = await readKatexCss()
   const body = await buildWriteClipboardHtmlFragment({
     sourcePath: options.sourcePath,
     content: options.content
@@ -393,6 +417,7 @@ export async function buildWriteExportHtmlDocument(options: {
     `  <title>${escapeHtml(title)}</title>`,
     `  <base href="${escapeHtml(baseHref)}" />`,
     `  <style>${EXPORT_CSS}</style>`,
+    katexCss ? `  <style>${katexCss}</style>` : '',
     '</head>',
     '<body>',
     '  <main class="document-shell">',
@@ -400,7 +425,17 @@ export async function buildWriteExportHtmlDocument(options: {
     '  </main>',
     '</body>',
     '</html>'
-  ].join('\n')
+  ].filter((line) => line !== '').join('\n')
+}
+
+export function buildWriteExportLatexDocument(options: {
+  sourcePath: string
+  content: string
+  title?: string
+}): string {
+  const title = options.title?.trim() || basenameWithoutExtension(options.sourcePath)
+  if (/\.tex$/i.test(options.sourcePath)) return options.content
+  return markdownToLatexDocument(options.content, { title })
 }
 
 export async function copyWriteDocumentAsRichText(
@@ -535,6 +570,20 @@ export async function exportWriteDocument(
 
     const targetPath = ensureExportExtension(exportDialogResult.filePath, payload.format)
     const title = basenameWithoutExtension(sourcePath)
+    if (payload.format === 'tex') {
+      await writeFile(targetPath, buildWriteExportLatexDocument({
+        sourcePath,
+        content: payload.content,
+        title
+      }), 'utf8')
+      return {
+        ok: true,
+        path: targetPath,
+        format: payload.format,
+        exportedAt: new Date().toISOString()
+      }
+    }
+
     const html = await buildWriteExportHtmlDocument({
       sourcePath,
       content: payload.content,

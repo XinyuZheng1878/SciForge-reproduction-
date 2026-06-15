@@ -829,7 +829,7 @@ export function createMaintenanceActions(
       await p.interruptTurn(activeThreadId, currentTurnId, interruptOptions)
       void get().refreshThreads()
     } catch (e) {
-      if (getRuntimeErrorCode(e) === 'turn_not_running') {
+      if (getRuntimeErrorCode(e) === 'turn_not_running' || looksLikeActiveTurnError(e)) {
         settleInterruptedTurn(set, get)
         void get().refreshThreads()
         return

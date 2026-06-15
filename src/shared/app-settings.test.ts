@@ -1108,6 +1108,28 @@ describe('claw runtime prompts', () => {
       chatType: 'p2p'
     })
   })
+
+  it('parses Discord inbound prompts with the shared IM display logic', () => {
+    const parsed = parseClawUserPromptForDisplay([
+      '[Claw managed instructions]',
+      '',
+      '---',
+      '[Current user request]',
+      '[Discord inbound message]',
+      'Guild: gzy的服务器',
+      'Channel: #debug',
+      'Sender: gzy',
+      '你想我吗'
+    ].join('\n'))
+
+    expect(parsed).toMatchObject({
+      text: '你想我吗',
+      managed: true,
+      inbound: true,
+      sourceLabel: 'Discord',
+      sender: 'gzy'
+    })
+  })
 })
 
 describe('write inline completion runtime config', () => {

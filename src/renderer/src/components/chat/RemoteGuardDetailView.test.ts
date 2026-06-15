@@ -90,6 +90,8 @@ const labels: Record<string, string> = {
   remoteGuardNoThread: 'No thread',
   remoteGuardRemoteUser: 'Remote user',
   remoteGuardNoRemoteUser: 'No user',
+  remoteGuardLastFailure: 'Last remote failure',
+  remoteGuardFailureKind: 'Failure kind {{kind}}',
   remoteGuardOpenThread: 'Open work thread',
   remoteGuardNewHint: 'Send /new remotely to start a fresh topic.',
   remoteGuardRecentMessages: 'Recent remote messages',
@@ -101,8 +103,9 @@ const labels: Record<string, string> = {
   remoteGuardCommandAttach: 'Attach this entry to the current desktop thread.'
 }
 
-function t(key: string): string {
-  return labels[key] ?? key
+function t(key: string, opts?: Record<string, unknown>): string {
+  const template = labels[key] ?? key
+  return template.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(opts?.[name] ?? ''))
 }
 
 describe('RemoteGuardDetailView', () => {
@@ -139,5 +142,56 @@ describe('RemoteGuardDetailView', () => {
       'message-2',
       'message-1'
     ])
+  })
+
+  it('keeps paused guard entries visible without inventing a mapped thread', () => {
+    const channel = discordChannel({
+      enabled: false,
+      threadId: '',
+      agentThreadIds: {},
+      remoteSession: undefined,
+      recentMessages: []
+    })
+    const html = renderToStaticMarkup(
+      createElement(RemoteGuardDetailView, {
+        channel,
+        onOpenThread: vi.fn(),
+        onOpenSettings: vi.fn(),
+        t
+      })
+    )
+
+    expect(html).toContain('Paused')
+    expect(html).toContain('No thread')
+    expect(html).toContain('No user')
+    expect(html).toContain('No messages yet')
+    expect(remoteGuardTargetThread(channel)).toBeNull()
+  })
+
+  it('shows the latest remote failure reason on the desktop guard page', () => {
+    const channel = discordChannel({
+      lastFailure: {
+        provider: 'discord',
+        message: 'Runtime offline',
+        failureKind: 'runtime_offline',
+        channelId: 'discord-channel',
+        chatId: 'channel-1',
+        threadId: 'codex-thread',
+        runtimeId: 'codex',
+        occurredAt: '2026-06-13T00:03:00.000Z'
+      }
+    })
+    const html = renderToStaticMarkup(
+      createElement(RemoteGuardDetailView, {
+        channel,
+        onOpenThread: vi.fn(),
+        onOpenSettings: vi.fn(),
+        t
+      })
+    )
+
+    expect(html).toContain('Last remote failure')
+    expect(html).toContain('Runtime offline')
+    expect(html).toContain('Failure kind runtime_offline')
   })
 })

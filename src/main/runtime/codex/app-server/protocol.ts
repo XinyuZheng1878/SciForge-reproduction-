@@ -131,6 +131,7 @@ export type CodexAppServerTurnStartParams = {
   input?: CodexAppServerInputItem[]
   cwd?: string
   model?: string
+  modelProvider?: string
   approvalPolicy?: CodexAppServerApprovalPolicy
   sandboxPolicy?: CodexAppServerTurnSandboxPolicy
   [key: string]: unknown

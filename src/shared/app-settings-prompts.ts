@@ -5,7 +5,9 @@ import {
   type ClawImAgentProfileV1,
   type ClawImChannelV1,
   type ClawImConversationV1,
+  type ClawImLastFailureV1,
   type ClawImPlatformCredentialV1,
+  type ClawImProvider,
   type ClawImRemoteSessionV1
 } from './app-settings-types'
 
@@ -13,8 +15,22 @@ export const CLAW_CURRENT_USER_REQUEST_HEADING = '[Current user request]'
 export const CLAW_MANAGED_INSTRUCTIONS_HEADING = '[Claw managed instructions]'
 export const CLAW_IM_AGENT_INSTRUCTIONS_HEADING = '[Claw IM agent instructions]'
 export const CLAW_FEISHU_INBOUND_MESSAGE_HEADING = '[Feishu / Lark inbound message]'
+export const CLAW_DISCORD_INBOUND_MESSAGE_HEADING = '[Discord inbound message]'
+export const CLAW_WEIXIN_INBOUND_MESSAGE_HEADING = '[WeChat inbound message]'
 export const SCHEDULE_CURRENT_USER_REQUEST_HEADING = '[Current scheduled task]'
 export const SCHEDULE_MANAGED_INSTRUCTIONS_HEADING = '[Schedule managed instructions]'
+
+const CLAW_IM_PROVIDER_DISPLAY_LABELS: Record<ClawImProvider, string> = {
+  feishu: 'Feishu / Lark',
+  weixin: 'WeChat',
+  discord: 'Discord'
+}
+
+const CLAW_INBOUND_MESSAGE_HEADINGS: Record<ClawImProvider, string> = {
+  feishu: CLAW_FEISHU_INBOUND_MESSAGE_HEADING,
+  weixin: CLAW_WEIXIN_INBOUND_MESSAGE_HEADING,
+  discord: CLAW_DISCORD_INBOUND_MESSAGE_HEADING
+}
 
 export type ClawUserPromptDisplay = {
   text: string
@@ -25,6 +41,31 @@ export type ClawUserPromptDisplay = {
   chatType?: string
   messageType?: string
   mentions?: string
+}
+
+export function clawImProviderDisplayLabel(provider: ClawImProvider): string {
+  return CLAW_IM_PROVIDER_DISPLAY_LABELS[provider]
+}
+
+export function clawInboundMessageHeading(provider: ClawImProvider): string {
+  return CLAW_INBOUND_MESSAGE_HEADINGS[provider]
+}
+
+export function buildClawInboundMessagePrompt(input: {
+  provider: ClawImProvider
+  metadata: Array<[label: string, value: string | undefined]>
+  text: string
+}): string {
+  const lines = [
+    clawInboundMessageHeading(input.provider),
+    ...input.metadata
+      .map(([label, value]) => [label, value?.trim() ?? ''] as const)
+      .filter(([, value]) => value)
+      .map(([label, value]) => `${label}: ${value}`),
+    '',
+    input.text.trim() || '[No text content]'
+  ]
+  return lines.join('\n')
 }
 
 export function defaultClawImAgentProfile(): ClawImAgentProfileV1 {
@@ -117,6 +158,35 @@ export function normalizeClawImRemoteSession(input: unknown): ClawImRemoteSessio
   }
 }
 
+export function normalizeClawImLastFailure(input: unknown, fallbackProvider: ClawImProvider): ClawImLastFailureV1 | undefined {
+  const raw = typeof input === 'object' && input !== null && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {}
+  const message = typeof raw.message === 'string' ? raw.message.trim().slice(0, 4_000) : ''
+  if (!message) return undefined
+  const now = new Date().toISOString()
+  const failureKind = typeof raw.failureKind === 'string' ? raw.failureKind.trim().slice(0, 128) : ''
+  const failureTitle = typeof raw.failureTitle === 'string' ? raw.failureTitle.trim().slice(0, 512) : ''
+  const channelId = typeof raw.channelId === 'string' ? raw.channelId.trim().slice(0, 256) : ''
+  const chatId = typeof raw.chatId === 'string' ? raw.chatId.trim().slice(0, 512) : ''
+  const remoteThreadId = typeof raw.remoteThreadId === 'string' ? raw.remoteThreadId.trim().slice(0, 512) : ''
+  const threadId = typeof raw.threadId === 'string' ? raw.threadId.trim().slice(0, 512) : ''
+  return {
+    provider: raw.provider === 'feishu' || raw.provider === 'weixin' || raw.provider === 'discord'
+      ? raw.provider
+      : fallbackProvider,
+    message,
+    ...(failureKind ? { failureKind } : {}),
+    ...(failureTitle ? { failureTitle } : {}),
+    ...(channelId ? { channelId } : {}),
+    ...(chatId ? { chatId } : {}),
+    ...(remoteThreadId ? { remoteThreadId } : {}),
+    ...(threadId ? { threadId } : {}),
+    ...(raw.runtimeId === 'codex' || raw.runtimeId === 'kun' ? { runtimeId: raw.runtimeId } : {}),
+    occurredAt: typeof raw.occurredAt === 'string' && raw.occurredAt ? raw.occurredAt : now
+  }
+}
+
 /**
  * Read the Kun thread id from a legacy `agentThreadIds` record.
  * Returns the empty string when no candidate is present.
@@ -152,7 +222,10 @@ export function normalizeSettingsRuntimeId(value: unknown): AgentRuntimeId {
   return value === 'codex' ? 'codex' : 'kun'
 }
 
-export function normalizeClawImConversation(input: unknown): ClawImConversationV1 | undefined {
+export function normalizeClawImConversation(
+  input: unknown,
+  fallbackProvider: ClawImProvider = 'feishu'
+): ClawImConversationV1 | undefined {
   const raw = typeof input === 'object' && input !== null && !Array.isArray(input)
     ? input as Record<string, unknown>
     : {}
@@ -176,6 +249,7 @@ export function normalizeClawImConversation(input: unknown): ClawImConversationV
     runtimeId: normalizeSettingsRuntimeId(raw.runtimeId),
     agentThreadIds,
     workspaceRoot: typeof raw.workspaceRoot === 'string' ? raw.workspaceRoot.trim() : '',
+    lastFailure: normalizeClawImLastFailure(raw.lastFailure, fallbackProvider),
     createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString(),
     updatedAt: typeof raw.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : new Date().toISOString()
   }
@@ -283,18 +357,29 @@ export function unwrapClawUserPromptForDisplay(text: string): string {
 export function parseClawUserPromptForDisplay(text: string): ClawUserPromptDisplay {
   const unwrapped = unwrapClawRuntimePromptForDisplay(text)
   const managed = unwrapped !== text
-  if (!unwrapped.startsWith(CLAW_FEISHU_INBOUND_MESSAGE_HEADING)) {
+  const inboundSource = clawInboundSourceForPrompt(unwrapped)
+  if (!inboundSource) {
     return unwrapped
       ? { text: unwrapped, managed, inbound: false }
       : { text, managed: false, inbound: false }
   }
   const splitIndex = unwrapped.indexOf('\n\n')
   if (splitIndex < 0) {
+    const legacy = parseLegacyClawInboundPromptWithoutSeparator(unwrapped)
+    if (legacy) {
+      return {
+        text: legacy.message,
+        managed,
+        inbound: true,
+        sourceLabel: inboundSource.sourceLabel,
+        ...parseClawInboundMetadata(legacy.header)
+      }
+    }
     return {
       text: unwrapped,
       managed,
       inbound: true,
-      sourceLabel: 'Feishu / Lark'
+      sourceLabel: inboundSource.sourceLabel
     }
   }
   const metadata = parseClawInboundMetadata(unwrapped.slice(0, splitIndex))
@@ -303,9 +388,41 @@ export function parseClawUserPromptForDisplay(text: string): ClawUserPromptDispl
     text: message || unwrapped,
     managed,
     inbound: true,
-    sourceLabel: 'Feishu / Lark',
+    sourceLabel: inboundSource.sourceLabel,
     ...metadata
   }
+}
+
+function parseLegacyClawInboundPromptWithoutSeparator(
+  text: string
+): { header: string; message: string } | null {
+  const lines = text.split('\n')
+  if (lines.length < 3) return null
+  let messageStart = -1
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index].trim()
+    if (!line) continue
+    if (!line.includes(':')) {
+      messageStart = index
+      break
+    }
+  }
+  if (messageStart < 0) return null
+  const message = lines.slice(messageStart).join('\n').trim()
+  if (!message) return null
+  return {
+    header: lines.slice(0, messageStart).join('\n'),
+    message
+  }
+}
+
+function clawInboundSourceForPrompt(text: string): { provider: ClawImProvider; sourceLabel: string } | null {
+  for (const provider of Object.keys(CLAW_INBOUND_MESSAGE_HEADINGS) as ClawImProvider[]) {
+    if (text.startsWith(CLAW_INBOUND_MESSAGE_HEADINGS[provider])) {
+      return { provider, sourceLabel: clawImProviderDisplayLabel(provider) }
+    }
+  }
+  return null
 }
 
 function parseClawInboundMetadata(header: string): Partial<ClawUserPromptDisplay> {

@@ -4,6 +4,7 @@ export const WRITE_TEXT_FILE_EXTENSIONS = new Set([
   '.md',
   '.markdown',
   '.mdx',
+  '.tex',
   '.txt',
   '.text'
 ])

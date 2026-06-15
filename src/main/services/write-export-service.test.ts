@@ -18,6 +18,7 @@ import {
   buildWriteClipboardHtmlFragment,
   buildWriteExportFileName,
   buildWriteExportHtmlDocument,
+  buildWriteExportLatexDocument,
   copyWriteDocumentAsRichText
 } from './write-export-service'
 import { clipboard } from 'electron'
@@ -35,6 +36,7 @@ describe('write-export-service helpers', () => {
     expect(buildWriteExportFileName('/tmp/draft.md', 'pdf')).toBe('draft.pdf')
     expect(buildWriteExportFileName('/tmp/draft.md', 'doc')).toBe('draft.doc')
     expect(buildWriteExportFileName('/tmp/draft.md', 'docx')).toBe('draft.docx')
+    expect(buildWriteExportFileName('/tmp/draft.md', 'tex')).toBe('draft.tex')
   })
 
   it('renders markdown exports with resolved links and inlined local images', async () => {
@@ -50,6 +52,45 @@ describe('write-export-service helpers', () => {
     expect(html).toContain('<h1>Heading</h1>')
     expect(html).toContain('src="data:image/png;base64,')
     expect(html).toContain(`href="${pathToFileURL(join(workspaceRoot, 'notes.md')).href}"`)
+  })
+
+  it('renders markdown math in export html', async () => {
+    const sourcePath = join(workspaceRoot, 'draft.md')
+    const html = await buildWriteExportHtmlDocument({
+      sourcePath,
+      content: 'Inline $E=mc^2$ and \\(F=ma\\).\n\n$$\na^2 + b^2 = c^2\n$$\n\n\\[x+y=z\\]'
+    })
+
+    expect(html).toContain('katex')
+    expect(html).toContain('E')
+    expect(html).toContain('mc')
+    expect(html).toContain('F')
+    expect(html).toContain('ma')
+  })
+
+  it('builds latex documents from markdown content', () => {
+    const sourcePath = join(workspaceRoot, 'draft.md')
+    const latex = buildWriteExportLatexDocument({
+      sourcePath,
+      content: '# Heading\n\nInline \\(E=mc^2\\).\n\n![Cover](./cover.png)',
+      title: 'Draft'
+    })
+
+    expect(latex).toContain('\\documentclass[UTF8]{ctexart}')
+    expect(latex).toContain('\\section{Heading}')
+    expect(latex).toContain('\\(E=mc^2\\)')
+    expect(latex).toContain('\\includegraphics')
+  })
+
+  it('exports tex sources without wrapping them again', () => {
+    const sourcePath = join(workspaceRoot, 'draft.tex')
+    const latex = buildWriteExportLatexDocument({
+      sourcePath,
+      content: '\\section{Existing}',
+      title: 'Draft'
+    })
+
+    expect(latex).toBe('\\section{Existing}')
   })
 
   it('renders clipboard html fragments for markdown content', async () => {

@@ -290,12 +290,56 @@ describe('createCodexAppServerClient', () => {
     await expect(iterator.next()).resolves.toEqual({ value: undefined, done: true })
   })
 
+  it('publishes new top-level app-server session events to subscribers', async () => {
+    const { client, fake } = createHarness()
+    const iterator = client.subscribe()[Symbol.asyncIterator]()
+
+    client.start()
+    const responseItem = {
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'hello' }]
+      }
+    }
+    const eventMessage = {
+      type: 'event_msg',
+      payload: {
+        type: 'task_started',
+        turn_id: 'turn-1'
+      }
+    }
+    fake.emitStdout(responseItem)
+    fake.emitStdout(eventMessage)
+
+    await expect(iterator.next()).resolves.toEqual({
+      value: {
+        channel: 'codex:event',
+        type: 'event',
+        payload: responseItem
+      },
+      done: false
+    })
+    await expect(iterator.next()).resolves.toEqual({
+      value: {
+        channel: 'codex:event',
+        type: 'event',
+        payload: eventMessage
+      },
+      done: false
+    })
+
+    await client.stop()
+  })
+
   it('answers server-originated JSON-RPC requests with conservative defaults', async () => {
     const { client, fake } = createHarness()
 
     client.start()
     fake.emitStdout({ id: 'server-1', method: 'item/permissions/requestApproval', params: {} })
     fake.emitStdout({ id: 'server-2', method: 'mcpServer/elicitation/request', params: {} })
+    fake.emitStdout({ id: 'server-3', method: 'request_user_input', params: {} })
 
     await vi.waitFor(() => {
       expect(fake.writtenMessages()).toContainEqual({
@@ -305,6 +349,10 @@ describe('createCodexAppServerClient', () => {
       expect(fake.writtenMessages()).toContainEqual({
         id: 'server-2',
         result: { action: 'cancel', content: null }
+      })
+      expect(fake.writtenMessages()).toContainEqual({
+        id: 'server-3',
+        result: { answers: {} }
       })
     })
   })

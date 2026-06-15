@@ -327,6 +327,100 @@ describe('DiscordBotRuntime guard ownership', () => {
     }
   })
 
+  it('keeps project and thread bindings when toggling guard mode', async () => {
+    const userDataPath = join(tmpdir(), `deepseek-gui-discord-guard-bindings-${Date.now()}-${Math.random()}`)
+    mkdirSync(userDataPath, { recursive: true })
+    writeDiscordBotSecret(userDataPath)
+
+    try {
+      const channel = localDiscordChannel()
+      channel.threadId = 'legacy-kun-thread'
+      channel.runtimeId = 'codex'
+      channel.agentThreadIds = { codex: 'attached-desktop-thread' }
+      channel.workspaceRoot = '/repo/attached'
+      channel.guardMode = 'all_messages'
+      channel.conversations = [{
+        id: 'discord-bot-1-guild-1-channel-1::channel-1',
+        chatId: 'channel-1',
+        remoteThreadId: '',
+        latestMessageId: 'discord-message-1',
+        senderId: 'user-1',
+        senderName: 'Alice',
+        localThreadId: 'legacy-kun-thread',
+        runtimeId: 'codex',
+        agentThreadIds: { codex: 'attached-desktop-thread' },
+        workspaceRoot: '/repo/attached',
+        createdAt: '2026-06-13T00:00:00.000Z',
+        updatedAt: '2026-06-13T00:00:00.000Z'
+      }]
+      let current = settings(channel)
+      const store = {
+        load: vi.fn(async () => current),
+        patch: vi.fn(async (patch: Partial<AppSettingsV1>) => {
+          current = {
+            ...current,
+            ...patch,
+            claw: {
+              ...current.claw,
+              ...patch.claw,
+              im: {
+                ...current.claw.im,
+                ...(patch.claw?.im ?? {})
+              },
+              channels: (patch.claw?.channels as ClawImChannelV1[] | undefined) ?? current.claw.channels
+            }
+          }
+          return current
+        })
+      }
+      const runtime = createDiscordBotRuntime({
+        store: store as never,
+        userDataPath,
+        handleIncomingMessage: vi.fn(),
+        logError: vi.fn()
+      })
+
+      await expect(
+        runtime.setGuard(false, { channelConfigId: 'discord-bot-1-guild-1-channel-1' })
+      ).resolves.toMatchObject({ ok: true })
+      expect(current.claw.channels[0]).toMatchObject({
+        enabled: false,
+        threadId: 'legacy-kun-thread',
+        runtimeId: 'codex',
+        agentThreadIds: { codex: 'attached-desktop-thread' },
+        workspaceRoot: '/repo/attached',
+        conversations: [expect.objectContaining({
+          chatId: 'channel-1',
+          localThreadId: 'legacy-kun-thread',
+          runtimeId: 'codex',
+          agentThreadIds: { codex: 'attached-desktop-thread' },
+          workspaceRoot: '/repo/attached'
+        })]
+      })
+
+      await expect(
+        runtime.setGuard(true, { channelConfigId: 'discord-bot-1-guild-1-channel-1' })
+      ).resolves.toMatchObject({ ok: true })
+      expect(current.claw.channels[0]).toMatchObject({
+        enabled: true,
+        guardMode: 'all_messages',
+        threadId: 'legacy-kun-thread',
+        runtimeId: 'codex',
+        agentThreadIds: { codex: 'attached-desktop-thread' },
+        workspaceRoot: '/repo/attached',
+        conversations: [expect.objectContaining({
+          chatId: 'channel-1',
+          localThreadId: 'legacy-kun-thread',
+          runtimeId: 'codex',
+          agentThreadIds: { codex: 'attached-desktop-thread' },
+          workspaceRoot: '/repo/attached'
+        })]
+      })
+    } finally {
+      rmSync(userDataPath, { recursive: true, force: true })
+    }
+  })
+
   it('reports an access error when the connected bot cannot see the bound channel', async () => {
     const userDataPath = join(tmpdir(), `deepseek-gui-discord-access-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
@@ -577,6 +671,71 @@ describe('DiscordBotRuntime remote failure replies', () => {
           })
         })
       )
+      runtime.stop()
+    } finally {
+      rmSync(userDataPath, { recursive: true, force: true })
+    }
+  })
+
+  it('sends the local-thread-deleted rebind guidance instead of a generic Discord failure', async () => {
+    const userDataPath = join(tmpdir(), `deepseek-gui-discord-local-thread-deleted-${Date.now()}-${Math.random()}`)
+    mkdirSync(userDataPath, { recursive: true })
+    writeDiscordBotSecret(userDataPath)
+    const sockets = stubDiscordGateway()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/typing')) return new Response(null, { status: 204 })
+      return new Response(JSON.stringify({ id: 'reply-1' }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      const current = settings(localDiscordChannel())
+      const handleIncomingMessage = vi.fn(async () => ({
+        ok: false as const,
+        failureKind: 'local_thread_deleted',
+        failureTitle: 'Local thread deleted',
+        recoverable: true,
+        message: 'The local thread bound to this remote conversation was deleted or is unreadable. Send `/new <title>` to create one, or send `/threads` and then `/use thread <number>` to select another thread.'
+      }))
+      const runtime = createDiscordBotRuntime({
+        store: { load: vi.fn(async () => current), patch: vi.fn() } as never,
+        userDataPath,
+        handleIncomingMessage,
+        logError: vi.fn(),
+        createWebSocket: sockets.createWebSocket
+      })
+
+      runtime.sync(current)
+      const socket = await openDiscordGateway(sockets, runtime)
+      socket.onmessage?.({
+        data: JSON.stringify({
+          op: 0,
+          s: 2,
+          t: 'MESSAGE_CREATE',
+          d: {
+            id: 'message-1',
+            channel_id: 'channel-1',
+            guild_id: 'guild-1',
+            content: 'continue',
+            author: { id: 'user-1', username: 'Alice', global_name: 'Alice' },
+            mentions: []
+          }
+        })
+      })
+
+      await waitForCondition(() =>
+        fetchMock.mock.calls.some(([url]) => String(url).includes('/channels/channel-1/messages'))
+      )
+
+      const replyCall = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes('/channels/channel-1/messages')
+      )
+      expect(replyCall).toBeDefined()
+      const body = JSON.parse(String(replyCall?.[1]?.body))
+      expect(body.content).toContain('deleted or is unreadable')
+      expect(body.content).toContain('/new <title>')
+      expect(body.content).toContain('/use thread <number>')
       runtime.stop()
     } finally {
       rmSync(userDataPath, { recursive: true, force: true })

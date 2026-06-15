@@ -125,6 +125,7 @@ export type ChatState = {
   workspaceLabel: string
   runtimeConnection: RuntimeConnectionStatus
   codeWorkspaceRoots: string[]
+  hiddenCodeWorkspaceRoots: string[]
   threads: NormalizedThread[]
   threadSearch: string
   showArchivedThreads: boolean

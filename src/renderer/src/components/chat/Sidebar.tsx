@@ -93,6 +93,7 @@ export function Sidebar({
   const { t, i18n } = useTranslation('common')
   const workspaceRoot = useChatStore((s) => s.workspaceRoot)
   const codeWorkspaceRoots = useChatStore((s) => s.codeWorkspaceRoots)
+  const hiddenCodeWorkspaceRoots = useChatStore((s) => s.hiddenCodeWorkspaceRoots)
   const chooseWorkspace = useChatStore((s) => s.chooseWorkspace)
   const deleteWorkspace = useChatStore((s) => s.deleteWorkspace)
   const busy = useChatStore((s) => s.busy)
@@ -228,6 +229,7 @@ export function Sidebar({
           showArchived={showArchivedThreads}
           workspaceRoot={workspaceRoot}
           workspaceRoots={codeWorkspaceRoots}
+          hiddenWorkspaceRoots={hiddenCodeWorkspaceRoots}
           busy={busy}
           watchTurnCompletion={watchTurnCompletion}
           unreadThreadIds={unreadThreadIds}
@@ -266,6 +268,7 @@ export function Sidebar({
         showArchived={showArchivedThreads}
         workspaceRoot={workspaceRoot}
         workspaceRoots={codeWorkspaceRoots}
+        hiddenWorkspaceRoots={hiddenCodeWorkspaceRoots}
         busy={busy}
         watchTurnCompletion={watchTurnCompletion}
         unreadThreadIds={unreadThreadIds}

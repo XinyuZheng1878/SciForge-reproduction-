@@ -26,14 +26,18 @@ import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import {
   activeClawChannel,
   compactCodeWorkspaceRoots,
+  filterHiddenCodeWorkspaceRoots,
   forgetCodeWorkspaceRoot,
+  hideCodeWorkspaceRoot,
   hydrateBlockModelLabels,
   isClawThread,
   optimisticUserModelLabel,
   readCodeWorkspaceRoots,
+  readHiddenCodeWorkspaceRoots,
   readStoredComposerModel,
   rememberCodeWorkspaceRoots,
-  rememberTurnModel
+  rememberTurnModel,
+  restoreHiddenCodeWorkspaceRoots
 } from './chat-store-helpers'
 import {
   clearedThreadSelection,
@@ -41,7 +45,6 @@ import {
   findLatestUserBlockId,
   findReusableEmptyThreadId,
   hasPendingRuntimeWork,
-  rememberProviderThreadRuntime,
   reconcileOptimisticUserBlock,
   threadSnapshotLooksRunning,
   threadBelongsToWorkspace
@@ -108,6 +111,10 @@ function threadBelongsToActiveRuntime(thread: NormalizedThread | null, activeRun
   return (thread.runtimeId ?? 'kun') === activeRuntime
 }
 
+function stateHasRecoverableActiveTurn(state: ChatState): boolean {
+  return state.busy || Boolean(state.currentTurnId) || state.blocks.some(hasPendingRuntimeWork)
+}
+
 export async function syncClawChannelActivityToStore(
   set: ChatStoreSet,
   get: ChatStoreGet,
@@ -171,6 +178,9 @@ export function createNavigationActions(
       : null
     if (activeThread && isCodeThread(activeThread, state.clawChannels)) {
       set({ route: 'chat', activeRemoteChannelId: null })
+      if (stateHasRecoverableActiveTurn(state)) {
+        await get().recoverActiveTurn()
+      }
       return
     }
 
@@ -225,6 +235,9 @@ export function createNavigationActions(
       writeThreadBelongsToWorkspace(activeThread, selectedWorkspace, registry, activeRuntime)
     ) {
       set({ route: 'write', activeRemoteChannelId: null })
+      if (stateHasRecoverableActiveTurn(state)) {
+        await get().recoverActiveTurn()
+      }
       return
     }
 
@@ -245,7 +258,7 @@ export function createNavigationActions(
     sseAbortRef.current = null
     clearBusyWatchdog()
     const nextWatch = { ...state.watchTurnCompletion }
-    if (state.activeThreadId && state.busy) {
+    if (state.activeThreadId && stateHasRecoverableActiveTurn(state)) {
       nextWatch[state.activeThreadId] = true
       watchTurnCompletionNotification(state.activeThreadId)
     }
@@ -283,6 +296,9 @@ export function createNavigationActions(
       : null
     if (activeThread && writeThreadBelongsToWorkspace(activeThread, targetWorkspace, registry, activeRuntime)) {
       set({ route: 'write', activeRemoteChannelId: null, error: null })
+      if (stateHasRecoverableActiveTurn(state)) {
+        await get().recoverActiveTurn()
+      }
       return activeThread.id
     }
 
@@ -371,6 +387,9 @@ export function createNavigationActions(
           /* refreshThreads sets state */
         }
       }
+      if (get().activeThreadId && stateHasRecoverableActiveTurn(get())) {
+        await get().recoverActiveTurn()
+      }
     } catch (e) {
       const msg = formatRuntimeError(e)
       const detail = runtimeErrorDetail(e)
@@ -417,6 +436,10 @@ export function createNavigationActions(
         }
         const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
         const workspaceRoot = normalizeWorkspaceRoot(settings.workspaceRoot)
+        const hiddenCodeWorkspaceRoots = restoreHiddenCodeWorkspaceRoots(
+          readHiddenCodeWorkspaceRoots(),
+          [workspaceRoot]
+        )
         const codeWorkspaceRoots = rememberCodeWorkspaceRoots(readCodeWorkspaceRoots(), [workspaceRoot])
         const needsInitialSetup = !getActiveAgentApiKey(settings).trim()
         applyTheme(settings.theme)
@@ -442,6 +465,7 @@ export function createNavigationActions(
           initialSetupMode: 'required',
           workspaceRoot,
           codeWorkspaceRoots,
+          hiddenCodeWorkspaceRoots,
           workspaceLabel: workspaceLabelFromPath(workspaceRoot),
           clawChannels: settings.claw.channels,
           activeClawChannelId: settings.claw.channels.find((channel) => channel.enabled)?.id ?? '',
@@ -489,6 +513,10 @@ export function createNavigationActions(
       }
       const next = await rendererRuntimeClient.setSettings({ workspaceRoot: picked.path })
       const workspaceRoot = normalizeWorkspaceRoot(next.workspaceRoot)
+      const hiddenCodeWorkspaceRoots = restoreHiddenCodeWorkspaceRoots(
+        get().hiddenCodeWorkspaceRoots ?? [],
+        [workspaceRoot]
+      )
       const codeWorkspaceRoots = rememberCodeWorkspaceRoots(get().codeWorkspaceRoots, [workspaceRoot])
 
       // Update the active thread's workspace so the current session
@@ -522,6 +550,7 @@ export function createNavigationActions(
       set({
         workspaceRoot,
         codeWorkspaceRoots,
+        hiddenCodeWorkspaceRoots,
         workspaceLabel: workspaceLabelFromPath(workspaceRoot),
         error: null
       })
@@ -578,72 +607,55 @@ export function createNavigationActions(
   deleteWorkspace: async (workspacePath) => {
     const normalizedPath = normalizeWorkspaceRoot(workspacePath)
     if (!normalizedPath) return
-    if (get().runtimeConnection !== 'ready') {
-      set({ error: i18n.t('common:runtimeActionNeedsConnection') })
-      return
-    }
     const { activeThreadId } = get()
-    const p = getProvider()
     const workspaceThreads = get().threads.filter((thread) =>
       threadBelongsToWorkspace(thread, normalizedPath)
     )
-    const deletingActive = workspaceThreads.some((th) => th.id === activeThreadId)
-    if (deletingActive) {
+    const removingActive = workspaceThreads.some((th) => th.id === activeThreadId)
+    if (removingActive) {
       sseAbortRef.current?.abort()
       sseAbortRef.current = null
       clearBusyWatchdog()
     }
-    try {
-      for (const th of workspaceThreads) {
-        rememberProviderThreadRuntime(p, th.id, get().threads)
-        await p.deleteThread(th.id)
+    const hiddenCodeWorkspaceRoots = hideCodeWorkspaceRoot(
+      get().hiddenCodeWorkspaceRoots ?? [],
+      normalizedPath
+    )
+    const codeWorkspaceRoots = forgetCodeWorkspaceRoot(get().codeWorkspaceRoots, normalizedPath)
+    const removeIds = new Set(workspaceThreads.map((th) => th.id))
+    set((s) => {
+      const w = { ...s.watchTurnCompletion }
+      const u = { ...s.unreadThreadIds }
+      for (const tid of removeIds) {
+        delete w[tid]
+        delete u[tid]
+        clearWatchedCompletionNotification(tid)
       }
-      const removeIds = new Set(workspaceThreads.map((th) => th.id))
-      const codeWorkspaceRoots = forgetCodeWorkspaceRoot(get().codeWorkspaceRoots, normalizedPath)
-      set((s) => {
-        const w = { ...s.watchTurnCompletion }
-        const u = { ...s.unreadThreadIds }
-        for (const tid of removeIds) {
-          delete w[tid]
-          delete u[tid]
-          clearWatchedCompletionNotification(tid)
-        }
-        return {
-          threads: s.threads.filter(
-            (thread) => !threadBelongsToWorkspace(thread, normalizedPath)
-          ),
-          codeWorkspaceRoots,
-          watchTurnCompletion: w,
-          unreadThreadIds: u,
-          ...(deletingActive ? clearedThreadSelection() : {}),
-          error: null
-        }
-      })
-      // If the deleted workspace is the current workspaceRoot, clear it.
-      if (normalizeWorkspaceRoot(get().workspaceRoot) === normalizedPath) {
-        try {
-          if (typeof window.dsGui?.setSettings === 'function') {
-            const next = await rendererRuntimeClient.setSettings({ workspaceRoot: '' })
-            set({
-              workspaceRoot: normalizeWorkspaceRoot(next.workspaceRoot),
-              codeWorkspaceRoots: get().codeWorkspaceRoots,
-              workspaceLabel: workspaceLabelFromPath('')
-            })
-          }
-        } catch {
-          /* silently keep workspaceRoot if settings clear fails */
-        }
+      return {
+        codeWorkspaceRoots,
+        hiddenCodeWorkspaceRoots,
+        watchTurnCompletion: w,
+        unreadThreadIds: u,
+        ...(removingActive ? clearedThreadSelection() : {}),
+        error: null
       }
-      await get().refreshThreads()
-    } catch (e) {
-      set({
-        error: formatRuntimeError(e),
-        ...(shouldOpenSettingsForError(e)
-          ? { route: 'settings' as const, settingsSection: 'agents' as const }
-          : {})
-      })
-      await get().refreshThreads()
+    })
+    // If the removed workspace is the current workspaceRoot, clear it.
+    if (normalizeWorkspaceRoot(get().workspaceRoot) === normalizedPath) {
+      try {
+        if (typeof window.dsGui?.setSettings === 'function') {
+          const next = await rendererRuntimeClient.setSettings({ workspaceRoot: '' })
+          set({
+            workspaceRoot: normalizeWorkspaceRoot(next.workspaceRoot),
+            codeWorkspaceRoots: get().codeWorkspaceRoots,
+            workspaceLabel: workspaceLabelFromPath('')
+          })
+        }
+      } catch {
+        /* silently keep workspaceRoot if settings clear fails */
+      }
     }
+    await get().refreshThreads()
   },
 
   refreshThreads: async () => {
@@ -662,11 +674,15 @@ export function createNavigationActions(
         workspace: normalizeWorkspaceRoot(thread.workspace)
       }))
       const sddThreadRegistry = readSddThreadRegistry()
+      const hiddenCodeWorkspaceRoots = get().hiddenCodeWorkspaceRoots ?? []
       const codeWorkspaceRoots = rememberCodeWorkspaceRoots(
         get().codeWorkspaceRoots,
-        threads
-          .filter((thread) => isCodeThread(thread, get().clawChannels))
-          .map((thread) => thread.workspace)
+        filterHiddenCodeWorkspaceRoots(
+          threads
+            .filter((thread) => isCodeThread(thread, get().clawChannels))
+            .map((thread) => thread.workspace),
+          hiddenCodeWorkspaceRoots
+        )
       )
       const sidebarThreads = (await filterThreadsForSidebar(threads, p))
         .filter((thread) =>
@@ -769,18 +785,24 @@ export function createNavigationActions(
         }
         return {
           threads: displayThreads,
-          codeWorkspaceRoots: compactCodeWorkspaceRoots([
-            ...displayThreads
-              .filter((thread) => isCodeThread(thread, s.clawChannels))
-              .map((thread) => thread.workspace),
-            ...codeWorkspaceRoots
-          ]),
+          codeWorkspaceRoots: filterHiddenCodeWorkspaceRoots(
+            compactCodeWorkspaceRoots([
+              ...displayThreads
+                .filter((thread) => isCodeThread(thread, s.clawChannels))
+                .map((thread) => thread.workspace),
+              ...codeWorkspaceRoots
+            ]),
+            s.hiddenCodeWorkspaceRoots ?? []
+          ),
           watchTurnCompletion: w,
           unreadThreadIds: u,
           ...(shouldClearSelection ? clearedThreadSelection() : {})
         }
       })
       syncTurnCompletionPoll(set, get)
+      if (!shouldClearSelection && get().activeThreadId && stateHasRecoverableActiveTurn(get())) {
+        armBusyWatchdog(set, get)
+      }
       if (activeThreadIsManagedInCodeRoute) {
         await get().openCode()
       }

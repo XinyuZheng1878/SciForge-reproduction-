@@ -457,4 +457,32 @@ describe('chat-store-maintenance-actions goal actions', () => {
     expect(refreshThreads).toHaveBeenCalledTimes(1)
     expect(drainQueuedMessages).not.toHaveBeenCalled()
   })
+
+  it('clears stale busy state when the runtime reports no active turn as plain text', async () => {
+    const { actions, provider, refreshThreads, state } = buildHarness()
+    provider.interruptTurn.mockRejectedValueOnce(
+      new Error('No active Codex turn is running for thread thr_existing.')
+    )
+    Object.assign(state, {
+      blocks: [{ kind: 'user', id: 'user-1', text: 'hello' }],
+      busy: true,
+      currentTurnId: 'turn-stale',
+      currentTurnUserId: 'user-1',
+      liveAssistant: '',
+      liveReasoning: '',
+      queuedMessages: [],
+      turnStartedAtByUserId: { 'user-1': Date.now() - 1000 },
+      turnDurationByUserId: {},
+      turnReasoningFirstAtByUserId: {},
+      turnReasoningLastAtByUserId: {}
+    })
+
+    await actions.interrupt()
+
+    expect(provider.interruptTurn).toHaveBeenCalledWith('thr_existing', 'turn-stale', undefined)
+    expect(state.busy).toBe(false)
+    expect(state.currentTurnId).toBeNull()
+    expect(state.error).toBeNull()
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+  })
 })

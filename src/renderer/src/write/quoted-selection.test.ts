@@ -9,8 +9,10 @@ import {
 import {
   WRITE_QUOTE_ORIGINAL_END,
   WRITE_QUOTE_ORIGINAL_START,
+  WRITE_RETRIEVAL_END,
   composeWritePrompt,
   formatWriteQuotedSelectionForPrompt,
+  formatWriteRetrievalContextForPrompt,
   parseWritePromptForDisplay,
   quotedSelectionFromEditor
 } from './quoted-selection'
@@ -179,9 +181,23 @@ describe('write quoted selections', () => {
     const prompt = composeWritePrompt('Please revise it.', quote ? [quote] : [])
     expect(prompt.startsWith('[写作上下文]')).toBe(true)
     expect(prompt).toContain('不要调用 request_user_input')
+    expect(prompt).toContain('不要为了读取、确认或补全当前写作文件而调用 shell')
     expect(prompt.indexOf('[引用片段] a.md')).toBeGreaterThan(prompt.indexOf('[写作上下文]'))
     expect(prompt.endsWith('Please revise it.')).toBe(true)
     vi.restoreAllMocks()
+  })
+
+  it('composes the active write file as a readable reference without workspace_file wrapping', () => {
+    const prompt = composeWritePrompt('请评价这个提纲', [], {
+      workspaceRoot: '/tmp/workspace',
+      activeFilePath: '/tmp/workspace/notes/science reasoning.md'
+    })
+
+    expect(prompt).toContain('当前文件: notes/science reasoning.md')
+    expect(prompt).not.toContain('当前文件引用:')
+    expect(prompt).not.toContain('当前文件绝对路径:')
+    expect(prompt).not.toContain('workspace_file')
+    expect(prompt.endsWith('请评价这个提纲')).toBe(true)
   })
 
   it('parses write prompt metadata for compact timeline display', () => {
@@ -210,6 +226,10 @@ describe('write quoted selections', () => {
     expect(parsed?.context?.workspaceRoot).toBe('/tmp/workspace')
     expect(parsed?.context?.activeFile).toBe('welcome.md')
     expect(parsed?.context?.lines.some((line) => line.includes('不要调用 request_user_input'))).toBe(true)
+    expect(parsed?.context?.lines.some((line) => line.includes('不要为了读取、确认或补全当前写作文件'))).toBe(true)
+    expect(parsed?.context?.lines.some((line) => line.includes('当前文件引用:'))).toBe(false)
+    expect(parsed?.context?.lines.some((line) => line.includes('当前文件绝对路径:'))).toBe(false)
+    expect(parsed?.userInput).toBe('帮我改成中文')
     expect(parsed?.quotes).toHaveLength(1)
     expect(parsed?.quotes[0]).toMatchObject({
       sourceTitle: 'welcome.md',
@@ -218,6 +238,97 @@ describe('write quoted selections', () => {
       lineEnd: 10,
       charCount: 31,
       text: "Hi, I'm zxy. Glad to meet you."
+    })
+  })
+
+  it('adds retrieval snippets with PDF page locations to assistant prompts', () => {
+    const prompt = composeWritePrompt(
+      '解释这段论文',
+      [],
+      {
+        workspaceRoot: '/tmp/workspace',
+        activeFilePath: '/tmp/workspace/papers/study.pdf',
+        retrieval: {
+          source: 'bm25-keyword',
+          query: 'retrieval quality',
+          keywords: ['retrieval', 'quality'],
+          indexedFiles: 2,
+          indexedChunks: 4,
+          snippets: [{
+            path: 'papers/study.pdf',
+            title: 'Page 3',
+            text: 'The method improves retrieval quality with focused context.',
+            score: 1.25,
+            keywords: ['retrieval', 'quality'],
+            location: {
+              kind: 'pdf',
+              pageStart: 3,
+              pageEnd: 3
+            },
+            pageStart: 3,
+            pageEnd: 3
+          }]
+        }
+      }
+    )
+
+    expect(prompt).toContain('[相关文献上下文]')
+    expect(prompt).toContain('papers/study.pdf 第3页')
+    expect(prompt).toContain('The method improves retrieval quality')
+    expect(prompt).toContain(WRITE_RETRIEVAL_END)
+    expect(formatWriteRetrievalContextForPrompt(null)).toBe('')
+  })
+
+  it('collapses retrieval context out of the displayed user input', () => {
+    const prompt = composeWritePrompt(
+      '帮我看看这篇文章讲什么内容\n\n再总结三条要点',
+      [],
+      {
+        workspaceRoot: '/tmp/workspace',
+        activeFilePath: '/tmp/workspace/papers/study.pdf',
+        retrieval: {
+          source: 'bm25-keyword',
+          query: 'feature development',
+          keywords: ['feature', 'development'],
+          indexedFiles: 2,
+          indexedChunks: 4,
+          snippets: [
+            {
+              path: 'notes/code-graph.md',
+              title: '节点内容的处理',
+              text: '每个节点都保留了原始的代码内容和行号范围。\n\n<p align="center">\n  <img src="./pic/1.png" alt="代码图构建" width="800">\n</p>',
+              score: 2.5,
+              keywords: ['内容'],
+              location: { kind: 'text', lineStart: 12, lineEnd: 30 }
+            },
+            {
+              path: 'papers/study.pdf',
+              title: '',
+              text: 'SWE-Dev provides runnable environments with developer-authored tests.',
+              score: 1.5,
+              keywords: ['feature'],
+              location: { kind: 'pdf', pageStart: 1, pageEnd: 2 }
+            }
+          ]
+        }
+      }
+    )
+
+    const parsed = parseWritePromptForDisplay(prompt)
+
+    expect(parsed?.userInput).toBe('帮我看看这篇文章讲什么内容\n\n再总结三条要点')
+    expect(parsed?.retrieval?.source).toBe('bm25-keyword')
+    expect(parsed?.retrieval?.keywords).toBe('feature, development')
+    expect(parsed?.retrieval?.snippets).toHaveLength(2)
+    expect(parsed?.retrieval?.snippets[0]).toMatchObject({
+      location: 'notes/code-graph.md:12-30',
+      title: '节点内容的处理',
+      keywords: '内容'
+    })
+    expect(parsed?.retrieval?.snippets[0]?.text).toContain('代码图构建')
+    expect(parsed?.retrieval?.snippets[1]).toMatchObject({
+      location: 'papers/study.pdf 第1-2页',
+      text: 'SWE-Dev provides runnable environments with developer-authored tests.'
     })
   })
 })

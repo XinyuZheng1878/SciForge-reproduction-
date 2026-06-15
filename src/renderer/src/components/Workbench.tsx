@@ -25,9 +25,7 @@ import { useChatStore } from '../store/chat-store'
 import {
   clawThreadRemoteBindingsFromChannels,
   deriveClawThreadRemoteStatusKind,
-  isClawThread,
-  type ClawThreadRemoteBinding,
-  type ClawThreadRemoteStatusKind
+  isClawThread
 } from '../store/chat-store-helpers'
 import { hasPendingRuntimeWork } from '../store/chat-store-runtime-helpers'
 import {
@@ -36,6 +34,7 @@ import {
 } from '../lib/dev-preview-detection'
 import { Sidebar } from './chat/Sidebar'
 import { WorkbenchTopBar, type RightPanelMode } from './chat/WorkbenchTopBar'
+import { ActiveRemoteBindingDetails } from './chat/RemoteBindingDetailsPill'
 import { MessageTimeline } from './chat/MessageTimeline'
 import {
   FloatingComposer,
@@ -59,7 +58,7 @@ import { WriteSidebar } from './write/WriteSidebar'
 import { SddAssistantPanel } from './sdd/SddAssistantPanel'
 import { SddDraftEditorView } from './sdd/SddDraftEditorView'
 import { SidebarTitlebarToggleButton } from './sidebar/SidebarPrimitives'
-import { composeWritePrompt } from '../write/quoted-selection'
+import { prepareWriteAssistantPrompt, writeAssistantRuntimePayload } from '../write/write-assistant-message'
 import { useWriteWorkspaceStore } from '../write/write-workspace-store'
 import { isWriteThreadId } from '../write/write-thread-registry'
 import { buildSddDraftId, createSddDraft, forgetRememberedSddDraft, useSddDraftStore } from '../sdd/sdd-draft-store'
@@ -253,82 +252,6 @@ function mergeSkillCommands(
   return [...merged.values()]
 }
 
-function remoteThreadStatusLabel(
-  kind: ClawThreadRemoteStatusKind,
-  t: (key: string, opts?: Record<string, unknown>) => string
-): string {
-  switch (kind) {
-    case 'bound':
-      return t('sidebarThreadBotBound')
-    case 'running':
-      return t('sidebarThreadBotRunning')
-    case 'queued':
-      return t('sidebarThreadBotQueued')
-    case 'error':
-      return t('sidebarThreadBotError')
-    case 'watched':
-    default:
-      return t('sidebarThreadBotWatched')
-  }
-}
-
-function ActiveRemoteBindingDetails({
-  binding,
-  statusKind,
-  unread,
-  t
-}: {
-  binding: ClawThreadRemoteBinding
-  statusKind: ClawThreadRemoteStatusKind
-  unread: boolean
-  t: (key: string, opts?: Record<string, unknown>) => string
-}): ReactElement {
-  const statusLabel = remoteThreadStatusLabel(statusKind, t)
-  const remoteTarget = binding.senderName?.trim() ||
-    binding.remoteThreadId?.trim() ||
-    binding.chatId?.trim() ||
-    binding.channelLabel
-  const title = [
-    t('remoteBindingDetails'),
-    `${binding.providerLabel} · ${statusLabel}`,
-    binding.channelLabel ? t('remoteBindingChannel', { channel: binding.channelLabel }) : '',
-    remoteTarget ? t('remoteBindingTarget', { target: remoteTarget }) : '',
-    binding.runtimeId ? t('remoteBindingRuntime', { runtime: binding.runtimeId }) : ''
-  ].filter(Boolean).join('\n')
-  const tone =
-    statusKind === 'error'
-      ? 'border-red-400/35 bg-red-500/10 text-red-700 dark:text-red-300'
-      : statusKind === 'running'
-        ? 'border-emerald-400/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-        : statusKind === 'queued'
-          ? 'border-amber-400/35 bg-amber-500/12 text-amber-800 dark:text-amber-200'
-          : statusKind === 'watched'
-            ? 'border-accent/25 bg-accent/10 text-accent'
-            : 'border-ds-border-muted bg-ds-subtle text-ds-muted'
-
-  return (
-    <div
-      className={`hidden min-h-7 max-w-[min(34vw,360px)] shrink items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-semibold leading-none sm:inline-flex ${tone}`}
-      title={title}
-      aria-label={title}
-    >
-      <Bot className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
-      <span className="shrink-0">{binding.providerLabel}</span>
-      <span className="text-ds-faint">·</span>
-      <span className="shrink-0">{statusLabel}</span>
-      {remoteTarget ? (
-        <>
-          <span className="text-ds-faint">·</span>
-          <span className="min-w-0 truncate text-ds-muted">{remoteTarget}</span>
-        </>
-      ) : null}
-      {unread ? (
-        <span className="ml-0.5 h-2 w-2 shrink-0 rounded-full bg-accent" title={t('sidebarThreadRemoteUnread')} />
-      ) : null}
-    </div>
-  )
-}
-
 function RemoteGuardSessionHeader({
   channel
 }: {
@@ -503,6 +426,8 @@ export function Workbench(): ReactElement {
   const [mode, setMode] = useState<'plan' | 'agent'>('agent')
   const [composerReasoningEffort, setComposerReasoningEffort] =
     useState<ComposerReasoningEffort>('max')
+  const [assistantReasoningEffort, setAssistantReasoningEffort] =
+    useState<ComposerReasoningEffort>('medium')
   const [runtimeInfo, setRuntimeInfo] = useState<CoreRuntimeInfoJson | null>(null)
   const [runtimeSkills, setRuntimeSkills] = useState<CoreRuntimeSkillJson[]>([])
   const [composerAttachments, setComposerAttachments] = useState<AttachmentReference[]>([])
@@ -1047,10 +972,6 @@ export function Workbench(): ReactElement {
     if (!v) return
     const writeState = useWriteWorkspaceStore.getState()
     const writeWorkspaceRoot = writeState.workspaceRoot || workspaceRoot
-    const prompt = composeWritePrompt(v, writeState.quotedSelections, {
-      workspaceRoot: writeWorkspaceRoot,
-      activeFilePath: writeState.activeFilePath
-    })
     setInput('')
     void (async () => {
       const threadId = await ensureWriteThreadForWorkspace(writeWorkspaceRoot)
@@ -1058,14 +979,27 @@ export function Workbench(): ReactElement {
         setInput(v)
         return
       }
+      const prepared = await prepareWriteAssistantPrompt(v, {
+        workspaceRoot: writeState.workspaceRoot,
+        fallbackWorkspaceRoot: workspaceRoot,
+        activeFilePath: writeState.activeFilePath,
+        quotedSelections: writeState.quotedSelections
+      }, {
+        retrieveWriteContext: window.dsGui?.retrieveWriteContext,
+        logError: window.dsGui?.logError
+      })
+      const runtimePayload = writeAssistantRuntimePayload(prepared)
       const model = writeState.assistantModel.trim()
-      const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
-      const sent = await sendMessage(prompt, mode === 'plan' ? 'plan' : 'agent', {
+      const reasoningEffort = composerReasoningEffortRequestValue(assistantReasoningEffort)
+      const sent = await sendMessage(runtimePayload.text, mode === 'plan' ? 'plan' : 'agent', {
+        displayText: runtimePayload.displayText,
         ...(model ? { model } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {})
       })
       if (sent) {
         useWriteWorkspaceStore.getState().clearQuotedSelections()
+      } else {
+        setInput(v)
       }
     })()
   }
@@ -1283,7 +1217,7 @@ export function Workbench(): ReactElement {
     })
     setInput('')
     const model = writeAssistantModel.trim()
-    const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
+    const reasoningEffort = composerReasoningEffortRequestValue(assistantReasoningEffort)
     const sent = await sendMessage(prompt, mode === 'plan' ? 'plan' : 'agent', {
       displayText: v,
       ...(model ? { model } : {}),
@@ -1793,9 +1727,9 @@ export function Workbench(): ReactElement {
                 composerModel={writeAssistantModel}
                 composerPickList={writeAssistantPickList}
                 composerModelGroups={composerModelGroups}
-                composerReasoningEffort={composerReasoningEffort}
+                composerReasoningEffort={assistantReasoningEffort}
                 setComposerModel={setWriteAssistantModel}
-                setComposerReasoningEffort={setComposerReasoningEffort}
+                setComposerReasoningEffort={setAssistantReasoningEffort}
                 queuedMessages={queuedMessages}
                 removeQueuedMessage={removeQueuedMessage}
                 onSend={handleSend}
@@ -1823,9 +1757,9 @@ export function Workbench(): ReactElement {
                 composerModel={writeAssistantModel}
                 composerPickList={writeAssistantPickList}
                 composerModelGroups={composerModelGroups}
-                composerReasoningEffort={composerReasoningEffort}
+                composerReasoningEffort={assistantReasoningEffort}
                 setComposerModel={setWriteAssistantModel}
-                setComposerReasoningEffort={setComposerReasoningEffort}
+                setComposerReasoningEffort={setAssistantReasoningEffort}
                 queuedMessages={queuedMessages}
                 removeQueuedMessage={removeQueuedMessage}
                 onSend={handleSend}

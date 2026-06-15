@@ -664,46 +664,16 @@ describe('ClawRuntime', () => {
     expect(result).toMatchObject({ ok: true, text: 'hello from nested turn items' })
   })
 
-  it('replaces a missing configured IM thread before starting a new inbound turn', async () => {
+  it('explains a missing configured IM thread instead of silently rebinding it', async () => {
     const settings = buildSettings()
     const logError = vi.fn()
     const onTurnStarted = vi.fn()
-    const runtimeRequest = vi.fn(async (_settings, path, init) => {
+    const runtimeRequest = vi.fn(async (_settings, path) => {
       if (path === '/v1/threads/thr_missing/turns') {
         return {
           ok: false,
           status: 404,
           body: JSON.stringify({ code: 'not_found', message: 'thread not found: thr_missing' })
-        }
-      }
-      if (path === '/v1/threads') {
-        return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_replacement' }) }
-      }
-      if (path === '/v1/threads/thr_replacement' && init?.method === 'PATCH') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_replacement/turns') {
-        return {
-          ok: true,
-          status: 202,
-          body: JSON.stringify({ threadId: 'thr_replacement', turnId: 'turn_replacement' })
-        }
-      }
-      if (path === '/v1/threads/thr_replacement' && init?.method === 'GET') {
-        return {
-          ok: true,
-          status: 200,
-          body: JSON.stringify({
-            id: 'thr_replacement',
-            status: 'idle',
-            turns: [
-              {
-                id: 'turn_replacement',
-                status: 'completed',
-                items: [{ kind: 'assistant_text', text: 'recovered reply' }]
-              }
-            ]
-          })
         }
       }
       throw new Error(`unexpected path ${path}`)
@@ -733,7 +703,7 @@ describe('ClawRuntime', () => {
             previousThreadId?: string
           }) => Promise<void> | void
         }
-      ) => Promise<{ ok: boolean; threadId?: string; turnId?: string; text?: string }>
+      ) => Promise<{ ok: boolean; message?: string; failureKind?: string }>
     }).runPrompt(settings, {
       prompt: 'hello',
       title: 'demo',
@@ -748,19 +718,22 @@ describe('ClawRuntime', () => {
     })
 
     expect(result).toMatchObject({
-      ok: true,
-      threadId: 'thr_replacement',
-      turnId: 'turn_replacement',
-      text: 'recovered reply'
+      ok: false,
+      failureKind: 'local_thread_deleted',
+      message: expect.stringContaining('deleted or is unreadable')
     })
-    expect(onTurnStarted).toHaveBeenCalledWith({
-      threadId: 'thr_replacement',
-      turnId: 'turn_replacement',
-      previousThreadId: 'thr_missing'
-    })
+    expect(result.message).toContain('/new <title>')
+    expect(result.message).toContain('/use thread <number>')
+    expect(onTurnStarted).not.toHaveBeenCalled()
+    expect(runtimeRequest).not.toHaveBeenCalledWith(
+      expect.anything(),
+      '/v1/threads',
+      expect.anything(),
+      expect.anything()
+    )
     expect(logError).toHaveBeenCalledWith(
       'claw-runtime',
-      'Configured IM thread was missing; creating a replacement thread.',
+      'Configured IM thread was missing; asking remote user to rebind.',
       expect.objectContaining({ threadId: 'thr_missing', source: 'im' })
     )
   })
@@ -1104,6 +1077,93 @@ describe('ClawRuntime', () => {
     })
   })
 
+  it('drops duplicate Discord message ids before starting another agent turn', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.claw.im.enabled = true
+    settings.claw.im.responseTimeoutMs = 2_500
+    settings.claw.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      threadId: '',
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'discord-thread-1',
+        runtimeId: 'codex' as const,
+        title: 'Discord thread',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async (input: { threadId: string }) => ({
+        threadId: input.threadId,
+        turnId: 'discord-turn-1'
+      })),
+      readThread: vi.fn(async ({ threadId }: { threadId: string }) => ({
+        id: threadId,
+        runtimeId: 'codex' as const,
+        title: 'Discord thread',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+        latestSeq: 1,
+        turns: [{
+          id: 'discord-turn-1',
+          threadId,
+          status: 'completed' as const,
+          items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'discord reply' }]
+        }],
+        items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'discord reply' }]
+      }))
+    }
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: vi.fn() as never,
+      agentRuntime,
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+    const input = {
+      provider: 'discord' as const,
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text: 'dedupe this',
+      sender: 'Alice',
+      chatType: 'group' as const,
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId: 'discord-duplicate-message',
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    }
+
+    const first = await runtime.handleIncomingImMessage(input)
+    const second = await runtime.handleIncomingImMessage(input)
+
+    expect(first).toMatchObject({
+      ok: true,
+      threadId: 'discord-thread-1',
+      reply: expect.stringContaining('discord reply')
+    })
+    expect(second).toEqual({
+      ok: true,
+      ignored: true,
+      message: 'Duplicate remote message ignored.',
+      reply: ''
+    })
+    expect(agentRuntime.startThread).toHaveBeenCalledTimes(1)
+    expect(agentRuntime.startTurn).toHaveBeenCalledTimes(1)
+    expect(current().claw.channels[0].recentMessages).toHaveLength(1)
+    expect(current().claw.channels[0].recentMessages?.[0]).toMatchObject({
+      provider: 'discord',
+      messageId: 'discord-duplicate-message',
+      text: 'dedupe this'
+    })
+  })
+
   it('ignores unmentioned Feishu group messages when channel guard mode is only_mention', async () => {
     const settings = buildSettings()
     settings.claw.im.enabled = true
@@ -1149,6 +1209,63 @@ describe('ClawRuntime', () => {
     expect(runtimeRequest).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()
     expect(addReaction).not.toHaveBeenCalled()
+  })
+
+  it('ignores ordinary messages in guard mode off while still answering commands', async () => {
+    const settings = buildSettings()
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      guardMode: 'off',
+      conversations: []
+    })]
+    const runtimeRequest = vi.fn()
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      runtimeRequest: runtimeRequest as never,
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+    const baseInput = {
+      provider: 'discord' as const,
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      sender: 'Alice',
+      chatType: 'group' as const,
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId: 'discord-guard-off-1',
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    }
+
+    const ignored = await runtime.handleIncomingImMessage({
+      ...baseInput,
+      text: 'ordinary message'
+    })
+    const command = await runtime.handleIncomingImMessage({
+      ...baseInput,
+      text: '/help',
+      remoteSession: {
+        ...baseInput.remoteSession,
+        messageId: 'discord-guard-off-help'
+      }
+    })
+
+    expect(ignored).toEqual({
+      ok: true,
+      ignored: true,
+      message: 'Ignored by the current channel guard mode.',
+      reply: ''
+    })
+    expect(command).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('Claw IM commands')
+    })
+    expect(runtimeRequest).not.toHaveBeenCalled()
   })
 
   it('handles all_messages Feishu groups through the shared channel thread', async () => {
@@ -1237,7 +1354,7 @@ describe('ClawRuntime', () => {
     )
   })
 
-  it('handles Feishu /new locally by clearing the mapped IM thread', async () => {
+  it('handles Feishu /clear locally by clearing the mapped IM thread', async () => {
     const settings = buildSettings()
     settings.claw.im.enabled = true
     const conversation = buildConversation()
@@ -1276,7 +1393,7 @@ describe('ClawRuntime', () => {
       chatType: 'p2p',
       mentionedBot: false,
       mentionAll: false,
-      content: '/new',
+      content: '/clear',
       rawContentType: 'text',
       mentions: []
     })
@@ -1290,6 +1407,506 @@ describe('ClawRuntime', () => {
     expect(current().claw.channels[0].threadId).toBe('')
     expect(current().claw.channels[0].conversations[0].localThreadId).toBe('')
     expect(current().claw.channels[0].remoteSession?.messageId).toBe('om_inbound')
+  })
+
+  it('creates a readable Feishu thread title for bare /new', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      runtimeId: 'codex',
+      threadId: '',
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'thr_bare_new_feishu',
+        runtimeId: 'codex' as const,
+        title: 'Remote conversation - Alice',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(),
+      readThread: vi.fn()
+    }
+    const send = vi.fn(async () => ({ messageId: 'om_sent' }))
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: vi.fn() as never,
+      agentRuntime: agentRuntime as never,
+      logError: () => undefined
+    })
+    ;(runtime as unknown as { feishuChannels: Map<string, { send: typeof send }> })
+      .feishuChannels
+      .set('channel_1', { send })
+
+    await (runtime as unknown as {
+      handleFeishuMessage: (channelId: string, message: {
+        chatId: string
+        messageId: string
+        threadId?: string
+        senderId: string
+        senderName?: string
+        chatType: 'p2p' | 'group'
+        mentionedBot: boolean
+        mentionAll: boolean
+        content: string
+        rawContentType: string
+        mentions: unknown[]
+      }) => Promise<void>
+    }).handleFeishuMessage('channel_1', {
+      chatId: 'oc_chat_a',
+      messageId: 'om_bare_new',
+      senderId: 'ou_1',
+      senderName: 'Alice',
+      chatType: 'p2p',
+      mentionedBot: false,
+      mentionAll: false,
+      content: '/new',
+      rawContentType: 'text',
+      mentions: []
+    })
+
+    expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeId: 'codex',
+      workspace: '/tmp/workspace',
+      title: 'Remote conversation - Alice'
+    }))
+    expect(send).toHaveBeenCalledWith(
+      'oc_chat_a',
+      { markdown: expect.stringContaining('Remote conversation - Alice') },
+      { replyTo: 'om_bare_new', replyInThread: false }
+    )
+    expect(current().claw.channels[0]).toMatchObject({
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'thr_bare_new_feishu' }
+    })
+    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+      chatId: 'oc_chat_a',
+      latestMessageId: 'om_bare_new',
+      senderName: 'Alice',
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'thr_bare_new_feishu' },
+      workspaceRoot: '/tmp/workspace'
+    })
+  })
+
+  it('creates and binds a new IM thread from /new with a title', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      threadId: '',
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    const notifyChannelActivity = vi.fn()
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'new-discord-thread',
+        runtimeId: 'codex' as const,
+        title: 'Fix Discord binding',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async (input: { threadId: string }) => ({
+        threadId: input.threadId,
+        turnId: 'new-discord-turn'
+      })),
+      readThread: vi.fn(async ({ threadId }: { threadId: string }) => ({
+        id: threadId,
+        runtimeId: 'codex' as const,
+        title: 'Fix Discord binding',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+        latestSeq: 1,
+        turns: [{
+          id: 'new-discord-turn',
+          threadId,
+          status: 'completed' as const,
+          items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'follow-up reply' }]
+        }],
+        items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'follow-up reply' }]
+      }))
+    }
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: vi.fn() as never,
+      agentRuntime,
+      notifyChannelActivity,
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+
+    const result = await runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text: '/new Fix Discord binding',
+      sender: 'Alice',
+      chatType: 'group',
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId: 'discord-new-title',
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('Created and bound a local thread')
+    })
+    expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeId: 'codex',
+      workspace: '/tmp/workspace',
+      title: 'Fix Discord binding'
+    }))
+    expect(agentRuntime.startTurn).not.toHaveBeenCalled()
+    expect(notifyChannelActivity).toHaveBeenCalledWith({
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      threadId: 'new-discord-thread',
+      runtimeId: 'codex'
+    })
+    expect(current().claw.channels[0]).toMatchObject({
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'new-discord-thread' }
+    })
+    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+      chatId: 'channel-1',
+      latestMessageId: 'discord-new-title',
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'new-discord-thread' },
+      workspaceRoot: '/tmp/workspace'
+    })
+
+    const where = await runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text: '/where',
+      sender: 'Alice',
+      chatType: 'group',
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId: 'discord-new-where',
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    })
+    expect(where).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('new-disc')
+    })
+    expect(agentRuntime.startTurn).not.toHaveBeenCalled()
+
+    const followUp = await runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text: 'continue in the new thread',
+      sender: 'Alice',
+      chatType: 'group',
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId: 'discord-new-follow-up',
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    })
+    expect(followUp).toMatchObject({
+      ok: true,
+      threadId: 'new-discord-thread',
+      reply: expect.stringContaining('follow-up reply')
+    })
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      threadId: 'new-discord-thread',
+      displayText: 'continue in the new thread'
+    }))
+  })
+
+  it('returns the runtime reason when /new cannot create a thread', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'kun'
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'kun',
+      guardMode: 'all_messages',
+      threadId: '',
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    const runtimeRequest = vi.fn(async (_settings, path) => {
+      if (path === '/v1/threads') {
+        return {
+          ok: false,
+          status: 400,
+          body: JSON.stringify({
+            code: 'model_missing',
+            message: 'model unavailable for workspace /tmp/workspace'
+          })
+        }
+      }
+      throw new Error(`unexpected path ${path}`)
+    })
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: runtimeRequest as never,
+      logError: () => undefined
+    })
+
+    const result = await runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text: '/new Fix failing model',
+      sender: 'Alice',
+      chatType: 'group',
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId: 'discord-new-failure',
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('model unavailable for workspace /tmp/workspace')
+    })
+    expect(runtimeRequest).toHaveBeenCalledWith(expect.anything(), '/v1/threads', expect.objectContaining({
+      method: 'POST'
+    }), 'kun')
+    expect(current().claw.channels[0]).toMatchObject({
+      runtimeId: 'kun',
+      threadId: '',
+      lastFailure: expect.objectContaining({
+        provider: 'discord',
+        message: 'model unavailable for workspace /tmp/workspace',
+        failureKind: 'model_missing',
+        channelId: 'discord-bot-1-guild-1-channel-1',
+        chatId: 'channel-1'
+      })
+    })
+    expect(current().claw.channels[0].agentThreadIds?.kun).toBeUndefined()
+    expect(current().claw.channels[0].conversations).toEqual([])
+  })
+
+  it('lists projects and switches to a selected thread in the current project', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.workspaceRoot = '/workspace/current'
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      threadId: '',
+      workspaceRoot: '/workspace/current',
+      agentThreadIds: { codex: 'old-thread' },
+      conversations: [],
+      updatedAt: '2026-06-02T00:00:00.000Z'
+    }), buildChannel({
+      provider: 'weixin' as const,
+      id: 'channel_weixin_other',
+      label: 'WeChat',
+      workspaceRoot: '/workspace/target',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    const notifyChannelActivity = vi.fn()
+    const agentRuntime = {
+      listThreads: vi.fn(async () => [
+        {
+          id: 'target-thread',
+          runtimeId: 'codex' as const,
+          title: 'Target Thread',
+          updatedAt: '2026-06-04T00:00:00.000Z',
+          workspace: '/workspace/target',
+          status: 'running'
+        },
+        {
+          id: 'other-thread',
+          runtimeId: 'codex' as const,
+          title: 'Other Thread',
+          updatedAt: '2026-06-04T00:00:00.000Z',
+          workspace: '/workspace/other',
+          status: 'completed'
+        }
+      ]),
+      startThread: vi.fn(),
+      startTurn: vi.fn(async (input: { threadId: string }) => ({
+        threadId: input.threadId,
+        turnId: 'target-turn'
+      })),
+      readThread: vi.fn(async ({ threadId }: { threadId: string }) => ({
+        id: threadId,
+        runtimeId: 'codex' as const,
+        title: 'Target Thread',
+        updatedAt: '2026-06-04T00:00:00.000Z',
+        latestSeq: 1,
+        turns: [{
+          id: 'target-turn',
+          threadId,
+          status: 'completed' as const,
+          items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'target reply' }]
+        }],
+        items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'target reply' }]
+      }))
+    }
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: vi.fn() as never,
+      agentRuntime,
+      notifyChannelActivity,
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+    const input = (text: string, messageId: string) => runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text,
+      sender: 'Alice',
+      chatType: 'group',
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId,
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    })
+
+    const projects = await input('/projects', 'discord-projects')
+    const useProject = await input('/use project target', 'discord-use-project')
+    const threads = await input('/threads', 'discord-threads')
+    const useThread = await input('/use thread 1', 'discord-use-thread')
+    const followUp = await input('continue target work', 'discord-target-follow-up')
+
+    expect(projects).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('Available projects:')
+    })
+    expect((projects as { reply: string }).reply).toContain('/workspace/target'.slice(-6))
+    expect(useProject).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('Switched project to target')
+    })
+    expect(current().claw.channels[0]).toMatchObject({
+      workspaceRoot: '/workspace/target',
+      agentThreadIds: {}
+    })
+    expect(threads).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('Target Thread')
+    })
+    expect((threads as { reply: string }).reply).not.toContain('Other Thread')
+    expect(useThread).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('Switched to thread')
+    })
+    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+      chatId: 'channel-1',
+      latestMessageId: 'discord-target-follow-up',
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'target-thread' },
+      workspaceRoot: '/workspace/target'
+    })
+    expect(notifyChannelActivity).toHaveBeenCalledWith({
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      threadId: 'target-thread',
+      runtimeId: 'codex'
+    })
+    expect(followUp).toMatchObject({
+      ok: true,
+      threadId: 'target-thread',
+      reply: expect.stringContaining('target reply')
+    })
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      threadId: 'target-thread',
+      displayText: 'continue target work'
+    }))
+  }, 12_000)
+
+  it('reports current remote jobs by reading the bound thread', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      threadId: '',
+      conversations: [buildConversation({
+        chatId: 'channel-1',
+        latestMessageId: 'discord-previous',
+        runtimeId: 'codex',
+        localThreadId: '',
+        agentThreadIds: { codex: 'jobs-thread' },
+        workspaceRoot: '/tmp/workspace'
+      })]
+    })]
+    const agentRuntime = {
+      startThread: vi.fn(),
+      startTurn: vi.fn(),
+      readThread: vi.fn(async () => ({
+        id: 'jobs-thread',
+        runtimeId: 'codex' as const,
+        title: 'Jobs thread',
+        updatedAt: '2026-06-04T00:00:00.000Z',
+        latestSeq: 3,
+        turns: [
+          { id: 'turn-running', threadId: 'jobs-thread', status: 'running' as const, items: [] },
+          { id: 'turn-failed', threadId: 'jobs-thread', status: 'failed' as const, items: [] },
+          { id: 'turn-done', threadId: 'jobs-thread', status: 'completed' as const, items: [] }
+        ],
+        items: []
+      }))
+    }
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      runtimeRequest: vi.fn() as never,
+      agentRuntime,
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+
+    const result = await runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text: '/jobs',
+      sender: 'Alice',
+      chatType: 'group',
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId: 'discord-jobs',
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('Current jobs')
+    })
+    const reply = (result as { reply: string }).reply
+    expect(reply).toContain('Running/queued: 1')
+    expect(reply).toContain('Failed: 1')
+    expect(reply).toContain('Done: 1')
+    expect(reply).toContain('Latest: turn-done completed')
+    expect(agentRuntime.startTurn).not.toHaveBeenCalled()
   })
 
   it('handles Feishu model commands locally for the current IM channel', async () => {
@@ -1468,7 +2085,92 @@ describe('ClawRuntime', () => {
       ok: true,
       reply: expect.stringContaining('Claw IM commands:')
     })
+    const reply = JSON.parse(responseBody).reply as string
+    for (const command of [
+      '/help',
+      '/where',
+      '/projects',
+      '/use project <number or name>',
+      '/threads',
+      '/use thread <number or name>',
+      '/new <title>',
+      '/attach current',
+      '/jobs'
+    ]) {
+      expect(reply).toContain(command)
+    }
+    expect(reply).toContain('Ordinary messages go to the currently bound local thread')
+    expect(reply).toContain('will not keep following desktop focus')
+    expect(reply).toContain('queued in order')
+    expect(reply).toContain('Examples:')
     expect(createScheduledTaskFromText).not.toHaveBeenCalled()
+    expect(runtimeRequest).not.toHaveBeenCalled()
+  })
+
+  it('returns clear webhook degradation messages for empty, attachment-only, and oversized input', async () => {
+    const settings = buildSettings()
+    settings.claw.im.enabled = true
+    settings.claw.channels = [buildChannel({ provider: 'discord' as const, id: 'channel_discord' })]
+    const runtimeRequest = vi.fn()
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      runtimeRequest: runtimeRequest as never,
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+    const post = async (payload: Record<string, unknown>): Promise<{ status: number; body: { ok: false; message: string } }> => {
+      const req = {
+        method: 'POST',
+        url: settings.claw.im.path,
+        headers: {},
+        async *[Symbol.asyncIterator]() {
+          yield Buffer.from(JSON.stringify(payload))
+        }
+      }
+      let status = 0
+      let responseBody = ''
+      const res = {
+        writeHead: vi.fn((nextStatus: number) => {
+          status = nextStatus
+        }),
+        end: vi.fn((body: string) => {
+          responseBody = body
+        })
+      }
+      await (runtime as unknown as {
+        handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+      }).handleWebhook(req, res)
+      return { status, body: JSON.parse(responseBody) as { ok: false; message: string } }
+    }
+
+    const empty = await post({ provider: 'discord', text: '   ' })
+    const attachmentOnly = await post({
+      provider: 'discord',
+      attachments: [{ url: 'https://cdn.example/debug.png', filename: 'debug.png' }]
+    })
+    const oversized = await post({
+      provider: 'discord',
+      text: 'x'.repeat(CLAW_IM_PROVIDER_CAPABILITIES.discord.maxMessageLength + 1)
+    })
+
+    expect(empty).toEqual({
+      status: 400,
+      body: {
+        ok: false,
+        message: 'No message text found. Send a text message to continue.'
+      }
+    })
+    expect(attachmentOnly.status).toBe(400)
+    expect(attachmentOnly.body).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('Attachments-only remote messages are not supported yet')
+    })
+    expect(oversized.status).toBe(400)
+    expect(oversized.body).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('Message is too long')
+    })
+    expect(oversized.body.message).toContain('2001/2000')
     expect(runtimeRequest).not.toHaveBeenCalled()
   })
 
@@ -1686,6 +2388,239 @@ describe('ClawRuntime', () => {
       workspaceRoot: '/tmp/workspace'
     })
   })
+
+  it('keeps Discord messages on the conversation attached to the active desktop thread', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.claw.im.enabled = true
+    settings.claw.im.responseTimeoutMs = 2_500
+    settings.claw.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      threadId: '',
+      agentThreadIds: { codex: 'old-channel-thread' },
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    let activeThreadId = 'desktop-thread-1'
+    let turnIndex = 0
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'unexpected-new-thread',
+        runtimeId: 'codex' as const,
+        title: 'Unexpected',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async (input: { threadId: string }) => {
+        turnIndex += 1
+        return {
+          threadId: input.threadId,
+          turnId: `discord-turn-${turnIndex}`
+        }
+      }),
+      readThread: vi.fn(async ({ threadId }: { threadId: string }) => ({
+        id: threadId,
+        runtimeId: 'codex' as const,
+        title: 'Attached Discord thread',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+        latestSeq: turnIndex,
+        turns: [{
+          id: `discord-turn-${turnIndex}`,
+          threadId,
+          status: 'completed' as const,
+          items: [{ id: `assistant-${turnIndex}`, kind: 'assistant_message' as const, text: `reply ${turnIndex}` }]
+        }],
+        items: [{ id: `assistant-${turnIndex}`, kind: 'assistant_message' as const, text: `reply ${turnIndex}` }]
+      }))
+    }
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: vi.fn() as never,
+      agentRuntime,
+      getActiveThreadContext: () => ({
+        threadId: activeThreadId,
+        runtimeId: 'codex',
+        workspaceRoot: '/tmp/workspace'
+      }),
+      notifyChannelActivity: vi.fn(),
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+    const remoteSession = (messageId: string) => ({
+      chatId: 'channel-1',
+      messageId,
+      threadId: '',
+      senderId: 'user-1',
+      senderName: 'Alice'
+    })
+
+    const attach = await runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text: '/attach current',
+      sender: 'Alice',
+      chatType: 'group',
+      remoteSession: remoteSession('discord-attach-1')
+    })
+    activeThreadId = 'desktop-thread-2'
+
+    const messages = await Promise.all(
+      Array.from({ length: 5 }, (_, index) =>
+        runtime.handleIncomingImMessage({
+          provider: 'discord',
+          channelId: 'discord-bot-1-guild-1-channel-1',
+          text: `E2E_ATTACH_00${index + 1}`,
+          sender: 'Alice',
+          chatType: 'group',
+          remoteSession: remoteSession(`discord-message-${index + 1}`)
+        })
+      )
+    )
+
+    expect(attach).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('Attached to the active desktop conversation')
+    })
+    expect(agentRuntime.startThread).not.toHaveBeenCalled()
+    expect(messages).toHaveLength(5)
+    for (const message of messages) {
+      expect(message).toMatchObject({ ok: true, threadId: 'desktop-thread-1' })
+    }
+    expect(messages.filter((message) => 'reply' in message && message.reply?.trim())).toHaveLength(5)
+    expect(agentRuntime.startTurn).toHaveBeenCalledTimes(5)
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeId: 'codex',
+      threadId: 'desktop-thread-1',
+      displayText: 'E2E_ATTACH_001'
+    }))
+    expect(agentRuntime.startTurn).not.toHaveBeenCalledWith(expect.objectContaining({
+      threadId: 'desktop-thread-2'
+    }))
+    expect(current().claw.channels[0]).toMatchObject({
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'desktop-thread-1' }
+    })
+    expect(current().claw.channels[0].conversations).toHaveLength(1)
+    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+      chatId: 'channel-1',
+      latestMessageId: 'discord-message-5',
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'desktop-thread-1' },
+      workspaceRoot: '/tmp/workspace'
+    })
+    expect(current().claw.channels[0].recentMessages?.filter((message) =>
+      message.text?.startsWith('E2E_ATTACH_')
+    )).toHaveLength(5)
+  }, 15_000)
+
+  it.each([
+    { provider: 'discord' as const, channelId: 'channel_discord', chatId: 'discord-channel', chatType: 'group' as const },
+    { provider: 'feishu' as const, channelId: 'channel_feishu', chatId: 'oc_chat_a', chatType: 'p2p' as const },
+    { provider: 'weixin' as const, channelId: 'channel_weixin', chatId: 'wx_user_1', chatType: 'p2p' as const }
+  ])('keeps %s remote conversations on the attach-bound thread after desktop focus changes', async ({ provider, channelId, chatId, chatType }) => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.claw.im.enabled = true
+    settings.claw.im.responseTimeoutMs = 2_500
+    settings.claw.channels = [buildChannel({
+      provider,
+      id: channelId,
+      label: provider,
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      threadId: '',
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    let activeThreadId = 'desktop-thread-a'
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'unexpected-new-thread',
+        runtimeId: 'codex' as const,
+        title: 'Unexpected',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async (input: { threadId: string }) => ({
+        threadId: input.threadId,
+        turnId: `${provider}-turn`
+      })),
+      readThread: vi.fn(async ({ threadId }: { threadId: string }) => ({
+        id: threadId,
+        runtimeId: 'codex' as const,
+        title: 'Attached thread',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+        latestSeq: 1,
+        turns: [{
+          id: `${provider}-turn`,
+          threadId,
+          status: 'completed' as const,
+          items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: `${provider} reply` }]
+        }],
+        items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: `${provider} reply` }]
+      }))
+    }
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: vi.fn() as never,
+      agentRuntime,
+      getActiveThreadContext: () => ({
+        threadId: activeThreadId,
+        runtimeId: 'codex',
+        workspaceRoot: '/tmp/workspace'
+      }),
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+    const remoteSession = (messageId: string) => ({
+      chatId,
+      messageId,
+      threadId: '',
+      senderId: 'remote-user-1',
+      senderName: 'Alice'
+    })
+
+    await runtime.handleIncomingImMessage({
+      provider,
+      channelId,
+      text: '/attach current',
+      sender: 'Alice',
+      chatType,
+      remoteSession: remoteSession(`${provider}-attach`)
+    })
+    activeThreadId = 'desktop-thread-b'
+    const followUp = await runtime.handleIncomingImMessage({
+      provider,
+      channelId,
+      text: `${provider} follow-up`,
+      sender: 'Alice',
+      chatType,
+      remoteSession: remoteSession(`${provider}-follow-up`)
+    })
+
+    expect(followUp).toMatchObject({
+      ok: true,
+      threadId: 'desktop-thread-a',
+      reply: expect.stringContaining(`${provider} reply`)
+    })
+    expect(agentRuntime.startThread).not.toHaveBeenCalled()
+    expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      threadId: 'desktop-thread-a',
+      displayText: `${provider} follow-up`
+    }))
+    expect(agentRuntime.startTurn).not.toHaveBeenCalledWith(expect.objectContaining({
+      threadId: 'desktop-thread-b'
+    }))
+    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+      chatId,
+      latestMessageId: `${provider}-follow-up`,
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'desktop-thread-a' },
+      workspaceRoot: '/tmp/workspace'
+    })
+  }, 15_000)
 
   it('records WeChat webhook conversations and returns the GUI-generated reply', async () => {
     const settings = buildSettings()
@@ -1905,6 +2840,246 @@ describe('ClawRuntime', () => {
       agentThreadIds: {
         codex: 'codex-thread'
       }
+    })
+  })
+
+  it('passes rich inbound IM content to runtime while keeping the display text readable', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.claw.im.enabled = true
+    settings.claw.im.responseTimeoutMs = 2_500
+    settings.claw.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      threadId: '',
+      conversations: []
+    })]
+    const richText = [
+      '第一行 with **Markdown** and @gzy 🚀',
+      '',
+      '```ts',
+      'const mention = "@assistant";',
+      'console.log("中文 emoji 😊");',
+      '```',
+      '> quoted follow-up'
+    ].join('\n')
+    const runtimePrompt = [
+      '[Discord inbound message]',
+      'Guild: gzy的服务器',
+      'Channel: #debug',
+      'Sender: gzy',
+      'Mentions: @assistant, @all',
+      '',
+      richText
+    ].join('\n')
+    const agentRuntime = {
+      startThread: vi.fn(async () => ({
+        id: 'rich-discord-thread',
+        runtimeId: 'codex' as const,
+        title: 'Rich Discord thread',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      })),
+      startTurn: vi.fn(async (input: { threadId: string; text: string; displayText?: string }) => ({
+        threadId: input.threadId,
+        turnId: 'rich-discord-turn'
+      })),
+      readThread: vi.fn(async ({ threadId }: { threadId: string }) => ({
+        id: threadId,
+        runtimeId: 'codex' as const,
+        title: 'Rich Discord thread',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+        latestSeq: 1,
+        turns: [{
+          id: 'rich-discord-turn',
+          threadId,
+          status: 'completed' as const,
+          items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'rich reply' }]
+        }],
+        items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'rich reply' }]
+      }))
+    }
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      runtimeRequest: vi.fn() as never,
+      agentRuntime,
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+
+    const result = await runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text: richText,
+      runtimePrompt,
+      sender: 'gzy',
+      chatType: 'group',
+      remoteSession: {
+        chatId: 'discord-channel-1',
+        messageId: 'discord-rich-message',
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'gzy'
+      }
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      threadId: 'rich-discord-thread',
+      reply: expect.stringContaining('rich reply')
+    })
+    const turnInput = agentRuntime.startTurn.mock.calls[0]?.[0] as unknown as { text: string; displayText?: string }
+    expect(turnInput.displayText).toBe(richText)
+    expect(turnInput.text).toContain('[Discord inbound message]')
+    expect(turnInput.text).toContain('Guild: gzy的服务器')
+    expect(turnInput.text).toContain('Mentions: @assistant, @all')
+    expect(turnInput.text).toContain('第一行 with **Markdown** and @gzy 🚀')
+    expect(turnInput.text).toContain([
+      '```ts',
+      'const mention = "@assistant";',
+      'console.log("中文 emoji 😊");',
+      '```'
+    ].join('\n'))
+  })
+
+  it('reports runtime offline to the remote caller and keeps the binding usable after recovery', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.claw.im.enabled = true
+    settings.claw.im.responseTimeoutMs = 2_500
+    settings.claw.channels = [buildChannel({
+      provider: 'weixin' as const,
+      id: 'channel_weixin',
+      label: 'WeChat',
+      runtimeId: 'codex',
+      threadId: '',
+      conversations: [buildConversation({
+        chatId: 'wx_user_1',
+        latestMessageId: 'wx_previous',
+        localThreadId: '',
+        runtimeId: 'codex',
+        agentThreadIds: { codex: 'bound-codex-thread' },
+        workspaceRoot: '/tmp/workspace'
+      })]
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    const runtimeRequest = vi.fn(async (_settings, path) => {
+      throw new Error(`unexpected legacy runtimeRequest path ${path}`)
+    })
+    const agentRuntime = {
+      startThread: vi.fn(),
+      startTurn: vi.fn()
+        .mockRejectedValueOnce(new Error('app-server offline'))
+        .mockResolvedValueOnce({
+          threadId: 'bound-codex-thread',
+          turnId: 'codex-turn-recovered'
+        }),
+      readThread: vi.fn(async () => ({
+        id: 'bound-codex-thread',
+        runtimeId: 'codex' as const,
+        title: 'Recovered phone thread',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+        latestSeq: 1,
+        turns: [{
+          id: 'codex-turn-recovered',
+          threadId: 'bound-codex-thread',
+          status: 'completed' as const,
+          items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'recovered reply' }]
+        }],
+        items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'recovered reply' }]
+      }))
+    }
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: runtimeRequest as never,
+      agentRuntime,
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+    const post = async (text: string, messageId: string): Promise<{
+      status: number
+      body: Record<string, unknown>
+    }> => {
+      const req = {
+        method: 'POST',
+        url: settings.claw.im.path,
+        headers: {},
+        async *[Symbol.asyncIterator]() {
+          yield Buffer.from(JSON.stringify({
+            text,
+            provider: 'weixin',
+            channelId: 'channel_weixin',
+            chatId: 'wx_user_1',
+            messageId,
+            senderId: 'wx_user_1',
+            senderName: 'Alice'
+          }))
+        }
+      }
+      let status = 0
+      let responseBody = ''
+      const res = {
+        writeHead: vi.fn((nextStatus: number) => {
+          status = nextStatus
+        }),
+        end: vi.fn((body: string) => {
+          responseBody = body
+        })
+      }
+      await (runtime as unknown as {
+        handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+      }).handleWebhook(req, res)
+      return { status, body: JSON.parse(responseBody) as Record<string, unknown> }
+    }
+
+    const offline = await post('first while runtime is offline', 'wx_offline')
+
+    expect(offline).toEqual({
+      status: 500,
+      body: {
+        ok: false,
+        message: 'Runtime offline',
+        failureKind: 'runtime_offline'
+      }
+    })
+    expect(current().claw.channels[0].conversations[0].lastFailure).toMatchObject({
+      provider: 'weixin',
+      message: 'app-server offline',
+      failureKind: 'runtime_offline',
+      channelId: 'channel_weixin',
+      chatId: 'wx_user_1',
+      threadId: 'bound-codex-thread',
+      runtimeId: 'codex'
+    })
+
+    const recovered = await post('second after runtime recovers', 'wx_recovered')
+    expect(recovered).toMatchObject({
+      status: 200,
+      body: {
+        ok: true,
+        threadId: 'bound-codex-thread',
+        reply: expect.stringContaining('recovered reply')
+      }
+    })
+    expect(agentRuntime.startThread).not.toHaveBeenCalled()
+    expect(agentRuntime.startTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      runtimeId: 'codex',
+      threadId: 'bound-codex-thread',
+      displayText: 'first while runtime is offline'
+    }))
+    expect(agentRuntime.startTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      runtimeId: 'codex',
+      threadId: 'bound-codex-thread',
+      displayText: 'second after runtime recovers'
+    }))
+    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+      chatId: 'wx_user_1',
+      latestMessageId: 'wx_recovered',
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'bound-codex-thread' }
     })
   })
 
@@ -2338,6 +3513,274 @@ describe('ClawRuntime', () => {
         text: 'Q2'
       })
     ])
+  })
+
+  it('adds queued/running hints to queued messages in the same remote conversation', async () => {
+    vi.useFakeTimers()
+    try {
+      const settings = buildSettings()
+      settings.activeAgentRuntime = 'codex'
+      settings.claw.im.enabled = true
+      settings.claw.im.responseTimeoutMs = 10_000
+      settings.claw.channels = [buildChannel({
+        provider: 'discord' as const,
+        id: 'discord-bot-1-guild-1-channel-1',
+        label: '#debug',
+        runtimeId: 'codex',
+        guardMode: 'all_messages',
+        threadId: '',
+        agentThreadIds: {},
+        conversations: [buildConversation({
+          id: 'conversation-discord',
+          chatId: 'channel-1',
+          remoteThreadId: '',
+          latestMessageId: 'discord-previous',
+          localThreadId: '',
+          runtimeId: 'codex',
+          agentThreadIds: { codex: 'discord-thread-1' },
+          workspaceRoot: '/tmp/workspace'
+        })]
+      })]
+      const { store } = mutableSettingsStore(settings)
+      const startedTexts: string[] = []
+      let releaseFirstTurn: () => void = () => undefined
+      const agentRuntime = {
+        startThread: vi.fn(async () => ({
+          id: 'unexpected-new-thread',
+          runtimeId: 'codex' as const,
+          title: 'Unexpected',
+          updatedAt: '2026-06-02T00:00:00.000Z'
+        })),
+        startTurn: vi.fn(async (input: { threadId: string; displayText?: string }) => {
+          const displayText = input.displayText ?? ''
+          startedTexts.push(displayText)
+          if (displayText === 'A') {
+            await new Promise<void>((resolve) => {
+              releaseFirstTurn = resolve
+            })
+          }
+          return {
+            threadId: input.threadId,
+            turnId: `turn-${displayText.toLowerCase()}`
+          }
+        }),
+        readThread: vi.fn(async ({ threadId }: { threadId: string }) => ({
+          id: threadId,
+          runtimeId: 'codex' as const,
+          title: 'Discord thread',
+          updatedAt: '2026-06-02T00:00:00.000Z',
+          latestSeq: startedTexts.length,
+          turns: startedTexts.map((text) => ({
+            id: `turn-${text.toLowerCase()}`,
+            threadId,
+            status: 'completed' as const,
+            items: [{ id: `assistant-${text}`, kind: 'assistant_message' as const, text: `reply ${text}` }]
+          })),
+          items: startedTexts.map((text) => ({
+            id: `assistant-${text}`,
+            kind: 'assistant_message' as const,
+            turnId: `turn-${text.toLowerCase()}`,
+            text: `reply ${text}`
+          }))
+        }))
+      }
+      const runtime = createClawRuntime({
+        store: store as never,
+        runtimeRequest: vi.fn() as never,
+        agentRuntime,
+        logError: () => undefined,
+        createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+      })
+      const input = (text: string, messageId: string) => runtime.handleIncomingImMessage({
+        provider: 'discord',
+        channelId: 'discord-bot-1-guild-1-channel-1',
+        text,
+        sender: 'Alice',
+        chatType: 'group',
+        remoteSession: {
+          chatId: 'channel-1',
+          messageId,
+          threadId: '',
+          senderId: 'user-1',
+          senderName: 'Alice'
+        }
+      })
+
+      const firstPromise = input('A', 'discord-message-a')
+      await vi.waitFor(() => {
+        expect(startedTexts).toEqual(['A'])
+      })
+      const secondPromise = input('B', 'discord-message-b')
+      const thirdPromise = input('C', 'discord-message-c')
+      await Promise.resolve()
+      expect(startedTexts).toEqual(['A'])
+
+      releaseFirstTurn()
+      for (let index = 0; index < 5; index += 1) {
+        await vi.advanceTimersByTimeAsync(1_500)
+      }
+      const [first, second, third] = await Promise.all([firstPromise, secondPromise, thirdPromise])
+
+      expect(first).toMatchObject({ ok: true, threadId: 'discord-thread-1', reply: expect.stringContaining('reply A') })
+      expect(second).toMatchObject({ ok: true, threadId: 'discord-thread-1', reply: expect.stringContaining('reply B') })
+      expect(third).toMatchObject({ ok: true, threadId: 'discord-thread-1', reply: expect.stringContaining('reply C') })
+      expect((second as { reply: string }).reply.toLowerCase()).toContain('queued/running')
+      expect((third as { reply: string }).reply.toLowerCase()).toContain('queued/running')
+      expect(agentRuntime.startThread).not.toHaveBeenCalled()
+      expect(agentRuntime.startTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        threadId: 'discord-thread-1',
+        displayText: 'A'
+      }))
+      expect(agentRuntime.startTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        threadId: 'discord-thread-1',
+        displayText: 'B'
+      }))
+      expect(agentRuntime.startTurn).toHaveBeenNthCalledWith(3, expect.objectContaining({
+        threadId: 'discord-thread-1',
+        displayText: 'C'
+      }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('runs different remote conversations in parallel when they are bound to different threads', async () => {
+    vi.useFakeTimers()
+    try {
+      const settings = buildSettings()
+      settings.activeAgentRuntime = 'codex'
+      settings.claw.im.enabled = true
+      settings.claw.im.responseTimeoutMs = 10_000
+      settings.claw.channels = [buildChannel({
+        provider: 'feishu' as const,
+        id: 'channel_feishu',
+        label: 'Feishu',
+        runtimeId: 'codex',
+        threadId: '',
+        agentThreadIds: {},
+        conversations: [
+          buildConversation({
+            id: 'conversation-a',
+            chatId: 'oc_chat_a',
+            remoteThreadId: '',
+            latestMessageId: 'om_previous_a',
+            localThreadId: '',
+            runtimeId: 'codex',
+            agentThreadIds: { codex: 'thread-a' },
+            workspaceRoot: '/tmp/workspace'
+          }),
+          buildConversation({
+            id: 'conversation-b',
+            chatId: 'oc_chat_b',
+            remoteThreadId: '',
+            latestMessageId: 'om_previous_b',
+            localThreadId: '',
+            runtimeId: 'codex',
+            agentThreadIds: { codex: 'thread-b' },
+            workspaceRoot: '/tmp/workspace'
+          })
+        ]
+      })]
+      const { store } = mutableSettingsStore(settings)
+      const startedTurns: string[] = []
+      let releaseThreadA: () => void = () => undefined
+      const agentRuntime = {
+        startThread: vi.fn(async () => ({
+          id: 'unexpected-new-thread',
+          runtimeId: 'codex' as const,
+          title: 'Unexpected',
+          updatedAt: '2026-06-02T00:00:00.000Z'
+        })),
+        startTurn: vi.fn(async (input: { threadId: string; displayText?: string }) => {
+          startedTurns.push(`${input.threadId}:${input.displayText ?? ''}`)
+          if (input.threadId === 'thread-a') {
+            await new Promise<void>((resolve) => {
+              releaseThreadA = resolve
+            })
+          }
+          return {
+            threadId: input.threadId,
+            turnId: `turn-${input.threadId}`
+          }
+        }),
+        readThread: vi.fn(async ({ threadId }: { threadId: string }) => ({
+          id: threadId,
+          runtimeId: 'codex' as const,
+          title: `Thread ${threadId}`,
+          updatedAt: '2026-06-02T00:00:00.000Z',
+          latestSeq: 1,
+          turns: [{
+            id: `turn-${threadId}`,
+            threadId,
+            status: 'completed' as const,
+            items: [{ id: `assistant-${threadId}`, kind: 'assistant_message' as const, text: `reply ${threadId}` }]
+          }],
+          items: [{ id: `assistant-${threadId}`, kind: 'assistant_message' as const, turnId: `turn-${threadId}`, text: `reply ${threadId}` }]
+        }))
+      }
+      const runtime = createClawRuntime({
+        store: store as never,
+        runtimeRequest: vi.fn() as never,
+        agentRuntime,
+        logError: () => undefined,
+        createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+      })
+
+      const firstPromise = runtime.handleIncomingImMessage({
+        provider: 'feishu',
+        channelId: 'channel_feishu',
+        text: 'work A',
+        sender: 'Alice',
+        chatType: 'p2p',
+        remoteSession: {
+          chatId: 'oc_chat_a',
+          messageId: 'om_a',
+          threadId: '',
+          senderId: 'ou_a',
+          senderName: 'Alice'
+        }
+      })
+      await vi.waitFor(() => {
+        expect(startedTurns).toEqual(['thread-a:work A'])
+      })
+      const secondPromise = runtime.handleIncomingImMessage({
+        provider: 'feishu',
+        channelId: 'channel_feishu',
+        text: 'work B',
+        sender: 'Bob',
+        chatType: 'p2p',
+        remoteSession: {
+          chatId: 'oc_chat_b',
+          messageId: 'om_b',
+          threadId: '',
+          senderId: 'ou_b',
+          senderName: 'Bob'
+        }
+      })
+
+      await vi.waitFor(() => {
+        expect(startedTurns).toEqual(['thread-a:work A', 'thread-b:work B'])
+      })
+      releaseThreadA()
+      for (let index = 0; index < 3; index += 1) {
+        await vi.advanceTimersByTimeAsync(1_500)
+      }
+      const [first, second] = await Promise.all([firstPromise, secondPromise])
+
+      expect(first).toMatchObject({ ok: true, threadId: 'thread-a', reply: expect.stringContaining('reply thread-a') })
+      expect(second).toMatchObject({ ok: true, threadId: 'thread-b', reply: expect.stringContaining('reply thread-b') })
+      expect(agentRuntime.startThread).not.toHaveBeenCalled()
+      expect(agentRuntime.startTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        threadId: 'thread-a',
+        displayText: 'work A'
+      }))
+      expect(agentRuntime.startTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        threadId: 'thread-b',
+        displayText: 'work B'
+      }))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('continues an existing phone conversation mapping instead of rebinding to active desktop focus', async () => {

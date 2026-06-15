@@ -5,7 +5,11 @@ import { CheckCircle2, ChevronDown, ChevronRight, FileEdit, Hammer, ListTodo, Me
 import type { ReviewBlock, ToolBlock } from '../../agent/types'
 import { countDiffStats, sumDiffStats } from '../../lib/diff-stats'
 import { useDeferredRender } from '../../hooks/use-deferred-render'
-import type { WritePromptDisplay, WritePromptDisplayQuote } from '../../write/quoted-selection'
+import type {
+  WritePromptDisplay,
+  WritePromptDisplayQuote,
+  WritePromptDisplayRetrieval
+} from '../../write/quoted-selection'
 import { DiffView } from '../DiffView'
 import { formatDuration } from './message-timeline-tools'
 
@@ -386,6 +390,9 @@ function writePromptMetaSummary(
   if (display.quotes.length > 0) {
     parts.push(t('writePromptReferencesCount', { count: display.quotes.length }))
   }
+  if (display.retrieval && display.retrieval.snippets.length > 0) {
+    parts.push(t('writePromptRetrievalCount', { count: display.retrieval.snippets.length }))
+  }
   if (display.context) {
     parts.push(t('writePromptContextShort'))
   }
@@ -445,6 +452,10 @@ export function WritePromptMetaDisclosure({
           {display.quotes.map((quote, index) => (
             <WritePromptQuoteCard key={`${quote.sourceTitle}-${index}`} quote={quote} />
           ))}
+
+          {display.retrieval && display.retrieval.snippets.length > 0 ? (
+            <WritePromptRetrievalCard retrieval={display.retrieval} />
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -457,6 +468,13 @@ function WritePromptQuoteCard({ quote }: { quote: WritePromptDisplayQuote }): Re
     quote.lineStart != null && quote.lineEnd != null
       ? t('writePromptReferenceLines', { start: quote.lineStart, end: quote.lineEnd })
       : null
+  const pageLabel =
+    quote.pageStart != null && quote.pageEnd != null
+      ? quote.pageStart === quote.pageEnd
+        ? t('writePromptReferencePage', { page: quote.pageStart })
+        : t('writePromptReferencePages', { start: quote.pageStart, end: quote.pageEnd })
+      : null
+  const rangeLabel = lineLabel ?? pageLabel
 
   return (
     <figure className="rounded-xl border border-accent/15 bg-accent/[0.055] px-3 py-2.5 text-left shadow-sm">
@@ -465,9 +483,9 @@ function WritePromptQuoteCard({ quote }: { quote: WritePromptDisplayQuote }): Re
         <span className="min-w-0 flex-1 truncate font-medium text-ds-ink">
           {quote.sourceTitle || t('writePromptReference')}
         </span>
-        {lineLabel ? (
+        {rangeLabel ? (
           <span className="shrink-0 rounded-full bg-white/65 px-2 py-0.5 font-mono text-[11px] text-ds-faint dark:bg-white/8">
-            {lineLabel}
+            {rangeLabel}
           </span>
         ) : null}
       </figcaption>
@@ -482,5 +500,59 @@ function WritePromptQuoteCard({ quote }: { quote: WritePromptDisplayQuote }): Re
         </div>
       ) : null}
     </figure>
+  )
+}
+
+function WritePromptRetrievalCard({
+  retrieval
+}: {
+  retrieval: WritePromptDisplayRetrieval
+}): ReactElement {
+  const { t } = useTranslation('common')
+  return (
+    <div className="rounded-xl border border-black/5 bg-white/55 px-3 py-2.5 text-left shadow-sm dark:border-white/10 dark:bg-white/6">
+      <div className="flex min-w-0 items-center gap-2 text-[12px] leading-5">
+        <SearchCode className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.9} />
+        <span className="min-w-0 flex-1 truncate font-medium text-ds-ink">
+          {t('writePromptRetrievalLabel')}
+        </span>
+        {retrieval.keywords ? (
+          <span
+            className="min-w-0 shrink truncate rounded-full bg-white/65 px-2 py-0.5 font-mono text-[11px] text-ds-faint dark:bg-white/8"
+            title={retrieval.keywords}
+          >
+            {retrieval.keywords}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-2 flex flex-col gap-2">
+        {retrieval.snippets.map((snippet, index) => (
+          <div
+            key={`${snippet.location}-${index}`}
+            className="rounded-lg border border-black/5 bg-white/45 px-2.5 py-2 dark:border-white/8 dark:bg-white/4"
+          >
+            <div className="flex min-w-0 items-center gap-2 text-[11.5px] leading-4">
+              <span className="shrink-0 rounded-md bg-accent/10 px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-accent">
+                {index + 1}
+              </span>
+              <span className="min-w-0 flex-1 truncate font-mono text-ds-muted" title={snippet.location}>
+                {snippet.location}
+              </span>
+            </div>
+            {snippet.title ? (
+              <div className="mt-1.5 truncate text-[12px] font-medium text-ds-ink">{snippet.title}</div>
+            ) : null}
+            <div className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[12px] font-normal leading-5 text-ds-muted [overflow-wrap:anywhere]">
+              {snippet.text}
+            </div>
+            {snippet.keywords ? (
+              <div className="mt-1.5 truncate text-[11px] text-ds-faint" title={snippet.keywords}>
+                {t('writePromptRetrievalMatched', { keywords: snippet.keywords })}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }

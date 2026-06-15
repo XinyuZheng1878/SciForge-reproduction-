@@ -1,7 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
-import type { ClawImChannelV1 } from '@shared/app-settings'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { AppSettingsV1, ClawImChannelV1 } from '@shared/app-settings'
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import { createAppActions } from './chat-store-app-actions'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 function channel(id: string): ClawImChannelV1 {
   return {
@@ -24,7 +28,22 @@ function channel(id: string): ClawImChannelV1 {
       userContext: '',
       replyRules: ''
     },
-    conversations: [],
+    conversations: [{
+      id: 'discord-channel::support-room',
+      chatId: 'support-room',
+      remoteThreadId: '',
+      latestMessageId: 'discord-message-1',
+      senderId: 'user-1',
+      senderName: 'Alice',
+      localThreadId: '',
+      runtimeId: 'codex',
+      agentThreadIds: {
+        codex: 'codex-thread'
+      },
+      workspaceRoot: '/workspace/deepseek-gui',
+      createdAt: '2026-06-13T00:00:00.000Z',
+      updatedAt: '2026-06-13T00:00:00.000Z'
+    }],
     recentMessages: [],
     createdAt: '2026-06-13T00:00:00.000Z',
     updatedAt: '2026-06-13T00:00:00.000Z'
@@ -85,6 +104,21 @@ describe('chat-store app actions', () => {
     expect(state.activeThreadId).toBe('desktop-thread')
   })
 
+  it('ignores missing remote guard entries without clearing the current detail', () => {
+    const { actions, state } = buildHarness({
+      activeRemoteChannelId: 'discord-channel',
+      activeClawChannelId: 'discord-channel',
+      activeThreadId: 'desktop-thread'
+    })
+
+    actions.selectRemoteGuardChannel('missing-channel')
+
+    expect(state.route).toBe('chat')
+    expect(state.activeRemoteChannelId).toBe('discord-channel')
+    expect(state.activeClawChannelId).toBe('discord-channel')
+    expect(state.activeThreadId).toBe('desktop-thread')
+  })
+
   it('clears the remote guard detail when leaving chat', () => {
     const { actions, state } = buildHarness({
       activeRemoteChannelId: 'discord-channel'
@@ -94,5 +128,53 @@ describe('chat-store app actions', () => {
 
     expect(state.route).toBe('schedule')
     expect(state.activeRemoteChannelId).toBeNull()
+  })
+
+  it('keeps remote bindings stable across refresh and app section navigation', async () => {
+    const { actions, state } = buildHarness({
+      activeRemoteChannelId: 'discord-channel',
+      activeClawChannelId: 'discord-channel',
+      activeThreadId: 'codex-thread',
+      runtimeConnection: 'ready'
+    })
+    const bindingBefore = JSON.parse(JSON.stringify(state.clawChannels))
+    vi.stubGlobal('window', {
+      dsGui: {
+        getSettings: vi.fn(async () => ({
+          workspaceRoot: '/workspace/deepseek-gui',
+          theme: 'system',
+          uiFontScale: 'small',
+          locale: 'en',
+          claw: { channels: bindingBefore }
+        }) as AppSettingsV1),
+        fetchUpstreamModels: vi.fn(async () => ({ ok: true, modelIds: [], modelGroups: [] }))
+      }
+    })
+    state.refreshClawChannels = vi.fn(async () => {
+      state.clawChannels = JSON.parse(JSON.stringify(bindingBefore))
+    })
+
+    await actions.reloadUiSettings()
+    await actions.openWrite()
+    actions.openSettings('general')
+    actions.openClaw()
+    actions.selectRemoteGuardChannel('discord-channel')
+    actions.setRoute('chat')
+
+    expect(state.clawChannels).toEqual(bindingBefore)
+    expect(state.clawChannels[0]).toMatchObject({
+      threadId: 'kun-thread',
+      runtimeId: 'codex',
+      agentThreadIds: { codex: 'codex-thread' },
+      workspaceRoot: '/workspace/deepseek-gui',
+      conversations: [expect.objectContaining({
+        chatId: 'support-room',
+        runtimeId: 'codex',
+        agentThreadIds: { codex: 'codex-thread' },
+        workspaceRoot: '/workspace/deepseek-gui'
+      })]
+    })
+    expect(state.activeThreadId).toBe('codex-thread')
+    expect(state.refreshClawChannels).toHaveBeenCalledTimes(1)
   })
 })

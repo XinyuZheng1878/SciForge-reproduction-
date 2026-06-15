@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import {
+  AlertTriangle,
   Bot,
   ExternalLink,
   FolderOpen,
@@ -74,6 +75,8 @@ export function RemoteGuardDetailView({
   const currentRemote = channel.remoteSession?.senderName?.trim() ||
     channel.remoteSession?.chatId?.trim() ||
     ''
+  const lastFailure = channel.lastFailure
+  const lastFailureMessage = lastFailure?.message.trim() ?? ''
 
   return (
     <div className="ds-no-drag flex min-h-0 flex-1 overflow-y-auto px-4 py-7 md:px-8">
@@ -132,6 +135,26 @@ export function RemoteGuardDetailView({
               title={currentRemote}
             />
           </div>
+
+          {lastFailureMessage ? (
+            <div
+              className="mt-4 flex gap-2 rounded-[7px] border border-red-400/25 bg-red-500/10 px-3 py-2.5 text-[12.5px] leading-5 text-red-700 dark:text-red-300"
+              title={lastFailureMessage}
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.8} />
+              <div className="min-w-0">
+                <div className="font-semibold">{t('remoteGuardLastFailure')}</div>
+                <div className="mt-0.5 break-words text-red-800/90 dark:text-red-200/90">
+                  {lastFailureMessage}
+                </div>
+                {lastFailure?.failureKind ? (
+                  <div className="mt-1 text-[11px] text-red-700/75 dark:text-red-300/75">
+                    {t('remoteGuardFailureKind', { kind: lastFailure.failureKind })}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-5 flex flex-wrap gap-2">
             <button

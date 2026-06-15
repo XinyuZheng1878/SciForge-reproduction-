@@ -41,6 +41,8 @@ import {
 
 const BUSY_WATCHDOG_MS = 180_000
 const MAX_BUSY_RECOVERY_ATTEMPTS = 3
+const WRITE_BUSY_WATCHDOG_MS = 75_000
+const WRITE_MAX_BUSY_RECOVERY_ATTEMPTS = 1
 const MAX_RUNTIME_EVENT_TIMER_AGE_MS = 30 * 60_000
 const CLOCK_SKEW_TOLERANCE_MS = 5_000
 const RUNTIME_STREAM_RECOVERING_KEY = 'common:runtimeStreamRecovering'
@@ -472,7 +474,10 @@ export function shouldOpenSettingsForError(error: unknown): boolean {
 
 export function looksLikeActiveTurnError(error: unknown): boolean {
   const raw = error instanceof Error ? error.message : String(error ?? '')
-  return raw.toLowerCase().includes('active turn')
+  const lowered = raw.toLowerCase()
+  return lowered.includes('active turn') ||
+    lowered.includes('active codex turn') ||
+    (lowered.includes('no active') && lowered.includes('turn') && lowered.includes('running'))
 }
 
 export function isCodeThread(
@@ -590,12 +595,16 @@ export function armBusyWatchdog(
   set: (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void,
   get: () => ChatState
 ): void {
+  const isWriteRoute = get().route === 'write'
+  const timeoutMs = isWriteRoute ? WRITE_BUSY_WATCHDOG_MS : BUSY_WATCHDOG_MS
+  const maxAttempts = isWriteRoute ? WRITE_MAX_BUSY_RECOVERY_ATTEMPTS : MAX_BUSY_RECOVERY_ATTEMPTS
+  const timeoutMinutes = Math.max(1, Math.round((timeoutMs * (maxAttempts + 1)) / 60_000))
   armBusyWatchdogImpl(set, get, {
-    timeoutMs: BUSY_WATCHDOG_MS,
-    maxAttempts: MAX_BUSY_RECOVERY_ATTEMPTS,
+    timeoutMs,
+    maxAttempts,
     finalizeBusyState: finalizeTurnTiming,
     flushLiveBlocks,
-    busyTimeoutMessage: () => i18n.t('common:busyTimeout', { minutes: Math.round((BUSY_WATCHDOG_MS * MAX_BUSY_RECOVERY_ATTEMPTS) / 60_000) })
+    busyTimeoutMessage: () => i18n.t('common:busyTimeout', { minutes: timeoutMinutes })
   })
 }
 

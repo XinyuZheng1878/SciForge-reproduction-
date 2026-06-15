@@ -336,6 +336,71 @@ describe('CodexRuntimeService storage fallback', () => {
     })
   })
 
+  it('prefers stored visible events when app-server live detail is behind', async () => {
+    const storageRoot = await tempRoot()
+    const eventStore = new CodexEventStore({ rootDir: storageRoot })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-1',
+      userMessage: {
+        itemId: 'user-1',
+        turnId: 'turn-1',
+        text: 'hello'
+      }
+    })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-1',
+      tool: {
+        itemId: 'tool-1',
+        summary: 'Run command',
+        status: 'success',
+        toolKind: 'command_execution',
+        detail: 'done'
+      }
+    })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-1',
+      deltas: [{ kind: 'agent_message', text: 'hi there' }]
+    })
+    const client = controllableClient()
+    vi.mocked(client.readThread).mockResolvedValue({
+      thread: {
+        id: 'codex-thread-1',
+        status: 'running',
+        turns: [{
+          id: 'turn-1',
+          status: 'running',
+          items: [{
+            id: 'user-1',
+            type: 'userMessage',
+            content: [{ type: 'text', text: 'hello' }]
+          }]
+        }]
+      }
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.readThread('codex-thread-1')).resolves.toEqual({
+      ok: true,
+      detail: expect.objectContaining({
+        latestSeq: 3,
+        latestTurnId: 'turn-1',
+        blocks: [
+          expect.objectContaining({ kind: 'user', id: 'user-1', turnId: 'turn-1', text: 'hello' }),
+          expect.objectContaining({ kind: 'tool', id: 'tool-1', turnId: 'turn-1', detail: 'done' }),
+          expect.objectContaining({ kind: 'assistant', turnId: 'turn-1', text: 'hi there' })
+        ]
+      })
+    })
+  })
+
   it('returns an empty stored detail for an unmaterialized Codex thread', async () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
@@ -729,10 +794,10 @@ describe('CodexRuntimeService compatibility operations', () => {
 
     const params = vi.mocked(client.startTurn).mock.calls[0]?.[0] ?? {}
     expect(params).toEqual(expect.objectContaining({
-      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+      modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID
     }))
     expect(params).not.toEqual(expect.objectContaining({
-      modelProvider: expect.anything(),
       profile: expect.anything(),
       baseUrl: expect.anything(),
       apiKey: expect.anything()
@@ -792,11 +857,13 @@ describe('CodexRuntimeService compatibility operations', () => {
     }))
     expect(client.startTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({
       threadId: 'codex-thread-old',
-      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+      modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID
     }))
     expect(client.startTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       threadId: 'codex-thread-new',
-      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+      modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID
     }))
   })
 
@@ -1320,6 +1387,266 @@ describe('CodexRuntimeService compatibility operations', () => {
     expect(firstDelta?.[1].event.runtimeStatus.latencyMs).toEqual(expect.any(Number))
     expect(turnDone?.[1].event.runtimeStatus.latencyMs).toEqual(expect.any(Number))
     queued.close()
+  })
+
+  it('deduplicates final assistant messages from multiple app-server event shapes', async () => {
+    const queued = clientWithQueuedEvents()
+    const sink = { send: vi.fn() }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      createClient: () => queued.client
+    })
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+    const finalText = 'This is the final visible assistant response.'
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'rawResponseItem/completed',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: finalText }]
+          }
+        }
+      }
+    })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: {
+            id: 'agent-message-1',
+            type: 'agentMessage',
+            text: finalText
+          }
+        }
+      }
+    })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        type: 'event_msg',
+        payload: {
+          type: 'task_complete',
+          turn_id: 'turn-1',
+          last_agent_message: finalText
+        }
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(sink.send.mock.calls.some((call) =>
+        call[1]?.event?.turnComplete === true
+      )).toBe(true)
+    })
+    const deltaEvents = sink.send.mock.calls
+      .map((call) => call[1]?.event)
+      .filter((event) => event?.deltas?.some((delta: { text: string }) => delta.text === finalText))
+    expect(deltaEvents).toHaveLength(1)
+
+    queued.close()
+  })
+
+  it('fails and stops a Codex turn that produces no model activity', async () => {
+    vi.useFakeTimers()
+    const queued = clientWithQueuedEvents()
+    try {
+      const sink = { send: vi.fn() }
+      const service = new CodexRuntimeService({
+        settings: async () => settings(),
+        sink,
+        createClient: () => queued.client
+      })
+
+      await expect(service.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toMatchObject({
+        ok: true,
+        turnId: 'turn-1'
+      })
+
+      await vi.advanceTimersByTimeAsync(75_000)
+
+      await vi.waitFor(() => {
+        expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {
+          event: expect.objectContaining({
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            runtimeError: expect.objectContaining({
+              code: 'first_activity_timeout',
+              severity: 'error'
+            })
+          })
+        })
+      })
+      expect(sink.send.mock.calls.some((call) =>
+        call[1]?.event?.runtimeStatus?.phase === 'turn_done'
+      )).toBe(true)
+      expect(queued.client.interruptTurn).toHaveBeenCalledWith(
+        { threadId: 'thread-1', turnId: 'turn-1' },
+        expect.any(AbortSignal)
+      )
+      expect(queued.client.stop).toHaveBeenCalled()
+    } finally {
+      queued.close()
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    {
+      name: 'task_started event_msg',
+      payload: {
+        type: 'event_msg',
+        payload: { type: 'task_started', turn_id: 'turn-1', started_at: 1781413091 }
+      },
+      expectedEvent: {
+        runtimeStatus: expect.objectContaining({ phase: 'tool_running' })
+      }
+    },
+    {
+      name: 'response_item function_call',
+      payload: {
+        type: 'response_item',
+        payload: {
+          type: 'function_call',
+          name: 'exec_command',
+          arguments: '{"cmd":"pwd"}',
+          call_id: 'call-1'
+        }
+      },
+      expectedEvent: {
+        tool: expect.objectContaining({
+          itemId: 'call-1',
+          status: 'running',
+          toolKind: 'command_execution'
+        })
+      }
+    },
+    {
+      name: 'response_item assistant message',
+      payload: {
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'visible answer' }]
+        }
+      },
+      expectedEvent: {
+        deltas: [{ kind: 'agent_message', text: 'visible answer' }]
+      }
+    },
+    {
+      name: 'rawResponseItem completed function call',
+      payload: {
+        method: 'rawResponseItem/completed',
+        params: {
+          item: {
+            type: 'function_call',
+            name: 'exec_command',
+            arguments: '{"cmd":"pwd"}',
+            call_id: 'call-1'
+          }
+        }
+      },
+      expectedEvent: {
+        tool: expect.objectContaining({
+          itemId: 'call-1',
+          status: 'running',
+          toolKind: 'command_execution'
+        })
+      }
+    },
+    {
+      name: 'item started command execution',
+      payload: {
+        method: 'item/started',
+        params: {
+          item: {
+            type: 'commandExecution',
+            id: 'cmd-1',
+            command: 'pwd',
+            cwd: '/tmp/workspace',
+            status: 'inProgress',
+            aggregatedOutput: null,
+            exitCode: null
+          }
+        }
+      },
+      expectedEvent: {
+        tool: expect.objectContaining({
+          itemId: 'cmd-1',
+          status: 'running',
+          toolKind: 'command_execution'
+        })
+      }
+    },
+    {
+      name: 'task_complete event_msg',
+      payload: {
+        type: 'event_msg',
+        payload: { type: 'task_complete', turn_id: 'turn-1', last_agent_message: 'visible answer' }
+      },
+      expectedEvent: {
+        turnComplete: true
+      }
+    }
+  ])('treats new app-server $name as first activity for the active turn', async ({ payload, expectedEvent }) => {
+    vi.useFakeTimers()
+    const queued = clientWithQueuedEvents()
+    try {
+      const sink = { send: vi.fn() }
+      const service = new CodexRuntimeService({
+        settings: async () => settings(),
+        sink,
+        createClient: () => queued.client
+      })
+
+      await expect(service.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toMatchObject({
+        ok: true,
+        turnId: 'turn-1'
+      })
+
+      queued.push({
+        type: 'event',
+        channel: CODEX_MAIN_IPC_CHANNELS.event,
+        payload
+      })
+
+      await vi.waitFor(() => {
+        expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {
+          event: expect.objectContaining({
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            ...expectedEvent
+          })
+        })
+      })
+      sink.send.mockClear()
+
+      await vi.advanceTimersByTimeAsync(75_000)
+
+      expect(sink.send.mock.calls.some((call) =>
+        call[1]?.event?.runtimeError?.code === 'first_activity_timeout'
+      )).toBe(false)
+      expect(queued.client.interruptTurn).not.toHaveBeenCalled()
+    } finally {
+      queued.close()
+      vi.useRealTimers()
+    }
   })
 
   it('records Codex token usage notifications for cache-aware usage summaries', async () => {

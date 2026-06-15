@@ -6,6 +6,7 @@ import {
   type AgentRuntimeId,
   type ClawImAgentProfileV1,
   type ClawImChannelV1,
+  type ClawImLastFailureV1,
   type ClawImPlatformCredentialV1,
   type ClawImProvider
 } from '@shared/app-settings'
@@ -22,6 +23,7 @@ import { readBrowserStorageItem, writeBrowserStorageItem } from '../lib/browser-
 const COMPOSER_MODEL_STORAGE_KEY = 'deepseekgui.composerModel'
 const TURN_MODEL_STORAGE_KEY = 'deepseekgui.turnModelLabel'
 const CODE_WORKSPACE_ROOTS_STORAGE_KEY = 'deepseekgui.codeWorkspaceRoots.v1'
+const HIDDEN_CODE_WORKSPACE_ROOTS_STORAGE_KEY = 'deepseekgui.hiddenCodeWorkspaceRoots.v1'
 export const MAX_CODE_WORKSPACE_ROOTS = 30
 export const MAX_TURN_MODEL_LABELS = 500
 
@@ -34,6 +36,7 @@ export type ClawThreadRemoteBinding = {
   channelId: string
   channelLabel: string
   channelEnabled: boolean
+  guardMode: NonNullable<ClawImChannelV1['guardMode']>
   scope: 'channel' | 'conversation'
   runtimeId?: AgentRuntimeId
   conversationId?: string
@@ -41,6 +44,7 @@ export type ClawThreadRemoteBinding = {
   remoteThreadId?: string
   senderName?: string
   workspaceRoot?: string
+  lastFailure?: ClawImLastFailureV1
   updatedAt: string
 }
 
@@ -87,10 +91,48 @@ export function readCodeWorkspaceRoots(): string[] {
   }
 }
 
+export function readHiddenCodeWorkspaceRoots(): string[] {
+  try {
+    const raw = readBrowserStorageItem(HIDDEN_CODE_WORKSPACE_ROOTS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return compactCodeWorkspaceRoots(parsed.filter((item): item is string => typeof item === 'string'))
+  } catch {
+    return []
+  }
+}
+
 export function saveCodeWorkspaceRoots(workspaceRoots: readonly string[]): void {
   writeBrowserStorageItem(
     CODE_WORKSPACE_ROOTS_STORAGE_KEY,
     JSON.stringify(compactCodeWorkspaceRoots(workspaceRoots))
+  )
+}
+
+function saveHiddenCodeWorkspaceRoots(workspaceRoots: readonly string[]): void {
+  writeBrowserStorageItem(
+    HIDDEN_CODE_WORKSPACE_ROOTS_STORAGE_KEY,
+    JSON.stringify(compactCodeWorkspaceRoots(workspaceRoots))
+  )
+}
+
+export function isHiddenCodeWorkspaceRoot(
+  workspaceRoot: string | undefined | null,
+  hiddenWorkspaceRoots: readonly string[]
+): boolean {
+  const normalized = normalizeWorkspaceRoot(workspaceRoot ?? '')
+  if (!normalized) return false
+  const key = workspaceRootIdentityKey(normalized)
+  return hiddenWorkspaceRoots.some((root) => workspaceRootIdentityKey(normalizeWorkspaceRoot(root)) === key)
+}
+
+export function filterHiddenCodeWorkspaceRoots(
+  workspaceRoots: readonly (string | undefined | null)[],
+  hiddenWorkspaceRoots: readonly string[]
+): string[] {
+  return compactCodeWorkspaceRoots(
+    workspaceRoots.filter((root) => !isHiddenCodeWorkspaceRoot(root, hiddenWorkspaceRoots))
   )
 }
 
@@ -100,6 +142,29 @@ export function rememberCodeWorkspaceRoots(
 ): string[] {
   const next = compactCodeWorkspaceRoots([...workspaceRoots, ...currentRoots])
   saveCodeWorkspaceRoots(next)
+  return next
+}
+
+export function hideCodeWorkspaceRoot(
+  currentHiddenRoots: readonly string[],
+  workspaceRoot: string
+): string[] {
+  const next = compactCodeWorkspaceRoots([workspaceRoot, ...currentHiddenRoots])
+  saveHiddenCodeWorkspaceRoots(next)
+  return next
+}
+
+export function restoreHiddenCodeWorkspaceRoots(
+  currentHiddenRoots: readonly string[],
+  workspaceRoots: readonly (string | undefined | null)[]
+): string[] {
+  const restoreKeys = new Set(
+    compactCodeWorkspaceRoots(workspaceRoots).map((root) => workspaceRootIdentityKey(root))
+  )
+  const next = compactCodeWorkspaceRoots(
+    currentHiddenRoots.filter((root) => !restoreKeys.has(workspaceRootIdentityKey(normalizeWorkspaceRoot(root))))
+  )
+  saveHiddenCodeWorkspaceRoots(next)
   return next
 }
 
@@ -233,14 +298,16 @@ export function clawThreadRemoteBindingsFromChannels(
       provider: channel.provider,
       providerLabel: clawImProviderDisplayLabel(channel.provider),
       channelId: channel.id,
-      channelLabel: channel.label,
+      channelLabel: clawRemoteChannelLabel(channel),
       channelEnabled: channel.enabled,
+      guardMode: channel.guardMode ?? 'only_mention',
       scope: 'channel',
       runtimeId: channel.runtimeId,
       chatId: channel.remoteSession?.chatId,
       remoteThreadId: channel.remoteSession?.threadId,
       senderName: channel.remoteSession?.senderName,
       workspaceRoot: channel.workspaceRoot,
+      lastFailure: channel.lastFailure,
       updatedAt: channel.remoteSession?.updatedAt ?? channel.updatedAt
     }
     addClawThreadBindings(
@@ -254,8 +321,9 @@ export function clawThreadRemoteBindingsFromChannels(
         provider: channel.provider,
         providerLabel: clawImProviderDisplayLabel(channel.provider),
         channelId: channel.id,
-        channelLabel: channel.label,
+        channelLabel: clawRemoteChannelLabel(channel),
         channelEnabled: channel.enabled,
+        guardMode: channel.guardMode ?? 'only_mention',
         scope: 'conversation',
         runtimeId: conversation.runtimeId ?? channel.runtimeId,
         conversationId: conversation.id,
@@ -263,6 +331,7 @@ export function clawThreadRemoteBindingsFromChannels(
         remoteThreadId: conversation.remoteThreadId,
         senderName: conversation.senderName,
         workspaceRoot: conversation.workspaceRoot || channel.workspaceRoot,
+        lastFailure: conversation.lastFailure ?? channel.lastFailure,
         updatedAt: conversation.updatedAt || channel.updatedAt
       }
       addClawThreadBindings(
@@ -273,6 +342,15 @@ export function clawThreadRemoteBindingsFromChannels(
     }
   }
   return bindings
+}
+
+function clawRemoteChannelLabel(channel: ClawImChannelV1): string {
+  if (channel.platformCredential?.kind === 'discord') {
+    const channelName = channel.platformCredential.channelName.trim() ||
+      channel.platformCredential.channelId.trim()
+    if (channelName) return `#${channelName}`
+  }
+  return channel.label.trim() || channel.agentProfile.name.trim() || clawImProviderDisplayLabel(channel.provider)
 }
 
 export function deriveClawThreadRemoteStatusKind(options: {
@@ -287,6 +365,7 @@ export function deriveClawThreadRemoteStatusKind(options: {
   if (clawStatusLooksError(status) || clawStatusLooksError(latestTurnStatus)) return 'error'
   if (options.running || clawStatusLooksRunning(status) || clawStatusLooksRunning(latestTurnStatus)) return 'running'
   if (options.queued || clawStatusLooksQueued(status) || clawStatusLooksQueued(latestTurnStatus)) return 'queued'
+  if (options.binding?.lastFailure) return 'error'
   if (!options.binding) return null
   return options.binding.channelEnabled ? 'watched' : 'bound'
 }

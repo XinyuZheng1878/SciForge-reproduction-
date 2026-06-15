@@ -100,6 +100,22 @@ describe('SidebarProjectsSection groups', () => {
     ).toEqual(['/Users/zxy/project-a'])
   })
 
+  it('hides removed workspaces even when old threads still exist', () => {
+    const groups = buildSidebarWorkspaceGroups({
+      threads: [
+        thread({ id: 'hidden-thread', workspace: '/Users/zxy/project-hidden' }),
+        thread({ id: 'visible-thread', workspace: '/Users/zxy/project-visible' })
+      ],
+      searchQuery: '',
+      showArchived: false,
+      workspaceRoot: '/Users/zxy/project-visible',
+      workspaceRoots: ['/Users/zxy/project-hidden', '/Users/zxy/project-visible'],
+      hiddenWorkspaceRoots: ['/Users/zxy/project-hidden']
+    })
+
+    expect(groups.map(([workspace]) => workspace)).toEqual(['/Users/zxy/project-visible'])
+  })
+
   it('shows the default workspace while filtering write workspaces from code project groups', () => {
     const groups = buildSidebarWorkspaceGroups({
       threads: [
@@ -167,6 +183,7 @@ describe('SidebarProjectsSection groups', () => {
       providerLabel: 'WeChat',
       channelId: 'channel-1',
       channelLabel: 'WeChat Agent',
+      guardMode: 'only_mention',
       scope: 'conversation',
       senderName: 'Alex',
       chatId: 'chat-1',

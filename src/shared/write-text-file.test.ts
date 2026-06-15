@@ -14,6 +14,7 @@ describe('write text file helpers', () => {
   it('accepts markdown and txt-like extensions', () => {
     expect(isWriteTextFileExtension('.md')).toBe(true)
     expect(isWriteTextFileExtension('.MDX')).toBe(true)
+    expect(isWriteTextFileExtension('.tex')).toBe(true)
     expect(isWriteTextFileExtension('.txt')).toBe(true)
     expect(isWriteTextFileExtension('.text')).toBe(true)
   })
@@ -38,6 +39,7 @@ describe('write text file helpers', () => {
 
   it('checks file paths with extension matching', () => {
     expect(isWriteTextFilePath('/tmp/draft.md')).toBe(true)
+    expect(isWriteTextFilePath('/tmp/paper.tex')).toBe(true)
     expect(isWriteTextFilePath('/tmp/notes.TXT')).toBe(true)
     expect(isWriteTextFilePath('/tmp/output.jsonl')).toBe(false)
     expect(isWriteTextFilePath('/tmp/folder/no-ext')).toBe(false)
@@ -61,6 +63,12 @@ describe('write text file helpers', () => {
       path: '/tmp/draft.md',
       type: 'file',
       ext: '.md'
+    })).toBe(true)
+    expect(isWriteWorkspaceEntry({
+      name: 'paper.tex',
+      path: '/tmp/paper.tex',
+      type: 'file',
+      ext: '.tex'
     })).toBe(true)
     expect(isWriteWorkspaceEntry({
       name: 'hero.png',

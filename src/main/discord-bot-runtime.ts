@@ -11,6 +11,7 @@ import type {
   ClawImDiscordPlatformCredentialV1,
   ClawModel
 } from '../shared/app-settings'
+import { buildClawInboundMessagePrompt } from '../shared/app-settings'
 import type {
   DiscordBindChannelResult,
   DiscordBotInfo,
@@ -283,6 +284,17 @@ function createRuntimeWebSocket(url: string, proxyUrl?: string): RuntimeWebSocke
 function compactMessage(text: string, fallback: string): string {
   const trimmed = text.trim()
   return trimmed || fallback
+}
+
+function safeDiscordFailureReply(
+  result: Extract<ClawIncomingImMessageResult, { ok: false }>,
+  fallback: string
+): string {
+  const failureKind = (result as { failureKind?: unknown }).failureKind
+  if (failureKind === 'local_thread_deleted') {
+    return compactMessage(result.message, fallback)
+  }
+  return fallback
 }
 
 function splitDiscordMessage(text: string): string[] {
@@ -1231,15 +1243,16 @@ export class DiscordBotRuntime {
     const attachments = (message.attachments ?? [])
       .map((attachment) => attachment.url?.trim() || attachment.filename?.trim() || '')
       .filter(Boolean)
-    const runtimePrompt = [
-      '[Discord inbound message]',
-      `Guild: ${credential.guildName || credential.guildId}`,
-      `Channel: ${discordChannelLabel(credential.channelName || credential.channelId)}`,
-      `Sender: ${sender}`,
-      attachments.length > 0 ? `Attachments: ${attachments.join(', ')}` : '',
-      '',
+    const runtimePrompt = buildClawInboundMessagePrompt({
+      provider: 'discord',
+      metadata: [
+        ['Guild', credential.guildName || credential.guildId],
+        ['Channel', discordChannelLabel(credential.channelName || credential.channelId)],
+        ['Sender', sender],
+        ['Attachments', attachments.length > 0 ? attachments.join(', ') : undefined]
+      ],
       text
-    ].filter((line) => line !== '').join('\n')
+    })
     const mentionedBot = (message.mentions ?? []).some((user) => user.id?.trim() === credential.botId) ||
       new RegExp(`<@!?${credential.botId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>`).test(text)
 
@@ -1290,7 +1303,7 @@ export class DiscordBotRuntime {
     }
     const reply = result.ok
       ? compactMessage(result.reply ?? result.message ?? '', 'Completed.')
-      : DISCORD_MESSAGE_FAILURE_REPLY
+      : safeDiscordFailureReply(result, DISCORD_MESSAGE_FAILURE_REPLY)
     await this.sendChannelMessage({
       channelId: credential.channelId,
       text: reply,
@@ -1377,7 +1390,7 @@ export class DiscordBotRuntime {
     }
     const reply = result.ok
       ? compactMessage(result.reply ?? result.message ?? '', 'Completed.')
-      : DISCORD_COMMAND_FAILURE_REPLY
+      : safeDiscordFailureReply(result, DISCORD_COMMAND_FAILURE_REPLY)
     await this.sendInteractionReply({
       interactionId,
       interactionToken,

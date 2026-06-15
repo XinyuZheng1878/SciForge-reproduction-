@@ -20,6 +20,21 @@ describe('normalizeCodexEvent', () => {
     })
   })
 
+  it('maps assistant message delta aliases to assistant deltas', () => {
+    expect(normalizeCodexEvent({
+      method: 'item/assistantMessage/textDelta',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        text: 'hello from alias'
+      }
+    })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      deltas: [{ text: 'hello from alias', kind: 'agent_message' }]
+    })
+  })
+
   it('maps reasoning text and summary deltas to reasoning deltas', () => {
     expect(normalizeCodexEvent({
       method: 'item/reasoning/textDelta',
@@ -35,6 +50,16 @@ describe('normalizeCodexEvent', () => {
     })).toEqual({
       threadId: 'thread-1',
       deltas: [{ text: 'summary', kind: 'agent_reasoning' }]
+    })
+  })
+
+  it('maps reasoning delta aliases to reasoning deltas', () => {
+    expect(normalizeCodexEvent({
+      method: 'item/agentReasoning/textDelta',
+      params: { threadId: 'thread-1', text: 'thinking alias' }
+    })).toEqual({
+      threadId: 'thread-1',
+      deltas: [{ text: 'thinking alias', kind: 'agent_reasoning' }]
     })
   })
 
@@ -55,6 +80,267 @@ describe('normalizeCodexEvent', () => {
         status: 'running',
         toolKind: 'command_execution',
         detail: 'stdout line'
+      }
+    })
+  })
+
+  it('maps new app-server task lifecycle messages using supplied turn context', () => {
+    expect(normalizeCodexEvent({
+      type: 'event_msg',
+      payload: {
+        type: 'task_started',
+        turn_id: 'turn-1',
+        started_at: 1781413091,
+        model_context_window: 258400
+      }
+    }, { threadId: 'thread-1' })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      runtimeStatus: {
+        itemId: 'codex-runtime-status-turn-1-task_started',
+        phase: 'tool_running',
+        message: 'Codex task started',
+        createdAt: '2026-06-14T04:58:11.000Z'
+      }
+    })
+
+    expect(normalizeCodexEvent({
+      type: 'event_msg',
+      payload: {
+        type: 'task_complete',
+        turn_id: 'turn-1',
+        last_agent_message: 'done'
+      }
+    }, { threadId: 'thread-1' })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      deltas: [{ kind: 'agent_message', text: 'done' }],
+      turnComplete: true
+    })
+
+    expect(normalizeCodexEvent({
+      type: 'event_msg',
+      payload: {
+        type: 'turn_aborted',
+        turn_id: 'turn-1',
+        reason: 'interrupted'
+      }
+    }, { threadId: 'thread-1' })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      runtimeError: {
+        itemId: 'turn-1',
+        message: 'Codex turn aborted: interrupted',
+        code: 'aborted',
+        severity: 'warning'
+      }
+    })
+  })
+
+  it('maps new app-server response items to assistant and tool events', () => {
+    expect(normalizeCodexEvent({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        name: 'exec_command',
+        arguments: '{"cmd":"npm test","workdir":"/tmp/workspace"}',
+        call_id: 'call-1'
+      }
+    }, { threadId: 'thread-1', turnId: 'turn-1' })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tool: {
+        itemId: 'call-1',
+        summary: 'exec_command',
+        status: 'running',
+        toolKind: 'command_execution',
+        detail: '{\n  "cmd": "npm test",\n  "workdir": "/tmp/workspace"\n}',
+        meta: {
+          toolName: 'exec_command',
+          command: 'npm test',
+          cwd: '/tmp/workspace',
+          arguments: {
+            cmd: 'npm test',
+            workdir: '/tmp/workspace'
+          }
+        }
+      }
+    })
+
+    expect(normalizeCodexEvent({
+      type: 'response_item',
+      payload: {
+        type: 'function_call_output',
+        call_id: 'call-1',
+        output: 'Process exited with code 0\nOutput:\nok'
+      }
+    }, { threadId: 'thread-1', turnId: 'turn-1' })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tool: {
+        itemId: 'call-1',
+        summary: 'Tool output',
+        status: 'success',
+        detail: 'Process exited with code 0\nOutput:\nok'
+      }
+    })
+
+    expect(normalizeCodexEvent({
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'visible answer' }],
+        phase: 'final_answer'
+      }
+    }, { threadId: 'thread-1', turnId: 'turn-1' })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      deltas: [{ text: 'visible answer', kind: 'agent_message' }]
+    })
+
+    expect(normalizeCodexEvent({
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        content: 'visible string answer'
+      }
+    }, { threadId: 'thread-1', turnId: 'turn-1' })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      deltas: [{ text: 'visible string answer', kind: 'agent_message' }]
+    })
+  })
+
+  it('maps app-server raw response item notifications to visible events', () => {
+    expect(normalizeCodexEvent({
+      method: 'rawResponseItem/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          type: 'function_call',
+          name: 'exec_command',
+          arguments: '{"cmd":"pwd"}',
+          call_id: 'call-1'
+        }
+      }
+    })).toMatchObject({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tool: {
+        itemId: 'call-1',
+        status: 'running',
+        toolKind: 'command_execution'
+      }
+    })
+
+    expect(normalizeCodexEvent({
+      method: 'rawResponseItem/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'visible answer' }]
+        }
+      }
+    })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      deltas: [{ text: 'visible answer', kind: 'agent_message' }]
+    })
+  })
+
+  it('maps app-server thread item lifecycle notifications to tool events', () => {
+    expect(normalizeCodexEvent({
+      method: 'item/started',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          type: 'commandExecution',
+          id: 'cmd-1',
+          command: 'npm test',
+          cwd: '/tmp/workspace',
+          status: 'inProgress',
+          aggregatedOutput: null,
+          exitCode: null
+        }
+      }
+    })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tool: {
+        itemId: 'cmd-1',
+        summary: 'npm test',
+        status: 'running',
+        toolKind: 'command_execution',
+        detail: 'npm test',
+        meta: {
+          command: 'npm test',
+          cwd: '/tmp/workspace'
+        }
+      }
+    })
+
+    expect(normalizeCodexEvent({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          type: 'commandExecution',
+          id: 'cmd-1',
+          command: 'npm test',
+          cwd: '/tmp/workspace',
+          status: 'completed',
+          aggregatedOutput: 'ok',
+          exitCode: 0
+        }
+      }
+    })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tool: {
+        itemId: 'cmd-1',
+        summary: 'npm test',
+        status: 'success',
+        toolKind: 'command_execution',
+        detail: 'ok',
+        meta: {
+          command: 'npm test',
+          cwd: '/tmp/workspace',
+          exitCode: 0
+        }
+      }
+    })
+
+    expect(normalizeCodexEvent({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          type: 'commandExecution',
+          id: 'cmd-2',
+          command: 'npm test',
+          status: 'completed',
+          aggregatedOutput: 'failed',
+          exitCode: 1
+        }
+      }
+    })).toMatchObject({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tool: {
+        itemId: 'cmd-2',
+        status: 'error',
+        meta: {
+          exitCode: 1
+        }
       }
     })
   })

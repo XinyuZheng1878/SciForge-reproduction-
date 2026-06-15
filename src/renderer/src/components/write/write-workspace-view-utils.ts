@@ -9,7 +9,7 @@ export const INLINE_AGENT_MAX_WIDTH = 440
 export const INLINE_AGENT_FALLBACK_HEIGHT = 56
 export const WRITE_EXPORT_NOTICE_MS = 3_600
 export const INLINE_EDIT_RECENT_CONTEXT_CHARS = 180
-export const WRITE_EXPORT_FORMATS: WriteExportFormat[] = ['html', 'pdf', 'doc', 'docx']
+export const WRITE_EXPORT_FORMATS: WriteExportFormat[] = ['html', 'pdf', 'doc', 'docx', 'tex']
 export const WRITE_RICH_CLIPBOARD_ACTION = 'clipboard'
 
 export type WriteNotice = {
@@ -130,5 +130,6 @@ export function exportFormatLabel(format: WriteExportFormat, t: (key: string) =>
   if (format === 'html') return t('writeExportHtml')
   if (format === 'pdf') return t('writeExportPdf')
   if (format === 'doc') return t('writeExportDoc')
+  if (format === 'tex') return t('writeExportTex')
   return t('writeExportDocx')
 }

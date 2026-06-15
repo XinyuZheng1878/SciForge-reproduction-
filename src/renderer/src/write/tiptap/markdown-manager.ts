@@ -3,6 +3,7 @@ import { MarkdownManager } from '@tiptap/markdown'
 import { StarterKit } from '@tiptap/starter-kit'
 import { TableKit } from '@tiptap/extension-table'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
+import { Mathematics } from '@tiptap/extension-mathematics'
 import { WriteLocalImage } from './local-image'
 
 export type WriteRichFidelityReason =
@@ -78,6 +79,11 @@ export function buildWriteRichExtensions(options: {
     }),
     TaskList,
     TaskItem.configure({ nested: true }),
+    Mathematics.configure({
+      katexOptions: {
+        throwOnError: false
+      }
+    }),
     WriteLocalImage.configure({
       getFilePath: options.getFilePath ?? (() => '')
     })

@@ -44,11 +44,22 @@ function UserMessageBubble({
     const parsed = parseWritePromptForDisplay(block.text)
     return parsed?.userInput.trim() ? parsed : null
   }, [block.text, route])
+  const metaDisplayText =
+    typeof block.meta?.displayText === 'string' && block.meta.displayText.trim()
+      ? block.meta.displayText.trim()
+      : null
+  const parsedMetaClawPrompt = useMemo(() => {
+    if (!metaDisplayText) return null
+    const parsed = parseClawUserPromptForDisplay(metaDisplayText)
+    return parsed.managed || parsed.inbound ? parsed : null
+  }, [metaDisplayText])
   const parsedClawPrompt = useMemo(() => {
     const parsed = parseClawUserPromptForDisplay(block.text)
-    if (!parsed.managed && !parsed.inbound && block.managedBy !== 'claw' && route !== 'claw') return null
+    if (!parsed.managed && !parsed.inbound && block.managedBy !== 'claw' && route !== 'claw') {
+      return parsedMetaClawPrompt
+    }
     return parsed
-  }, [block.managedBy, block.text, route])
+  }, [block.managedBy, block.text, parsedMetaClawPrompt, route])
   const remoteBinding = useMemo(() => {
     if (!activeThreadId) return null
     return clawThreadRemoteBindingsFromChannels(clawChannels).get(activeThreadId) ?? null
@@ -57,11 +68,7 @@ function UserMessageBubble({
     () => messageSourceLabel(block, parsedClawPrompt, remoteBinding?.providerLabel),
     [block, parsedClawPrompt, remoteBinding]
   )
-  const metaDisplayText =
-    typeof block.meta?.displayText === 'string' && block.meta.displayText.trim()
-      ? block.meta.displayText.trim()
-      : null
-  const displayText = metaDisplayText ?? parsedWritePrompt?.userInput ?? parsedClawPrompt?.text ?? block.text
+  const displayText = parsedMetaClawPrompt?.text ?? metaDisplayText ?? parsedWritePrompt?.userInput ?? parsedClawPrompt?.text ?? block.text
   const canEdit = !metaDisplayText
   const showClawInboundCard = route === 'claw' && parsedClawPrompt?.inbound === true
 

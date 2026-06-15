@@ -26,7 +26,8 @@ import {
   workspaceEntryRenamePayloadSchema,
   writeExportPayloadSchema,
   writeRichClipboardPayloadSchema,
-  writeInlineCompletionPayloadSchema
+  writeInlineCompletionPayloadSchema,
+  writeRetrievalPayloadSchema
 } from './app-ipc-schemas'
 
 describe('app-ipc-schemas', () => {
@@ -744,6 +745,41 @@ describe('app-ipc-schemas', () => {
     expect(payload.recentEdits?.[0].insertedText).toBe('Some')
   })
 
+  it('accepts structured write retrieval payloads', () => {
+    const payload = writeRetrievalPayloadSchema.parse({
+      workspaceRoot: ' /tmp/workspace ',
+      currentFilePath: ' /tmp/workspace/draft.md ',
+      query: ' 面向科学场景的大模型复杂推理 ',
+      maxSnippets: 4,
+      includeCurrentFile: true
+    })
+
+    expect(payload).toEqual({
+      workspaceRoot: '/tmp/workspace',
+      currentFilePath: '/tmp/workspace/draft.md',
+      query: '面向科学场景的大模型复杂推理',
+      maxSnippets: 4,
+      includeCurrentFile: true
+    })
+  })
+
+  it('rejects empty write retrieval queries and excessive snippet counts', () => {
+    expect(() =>
+      writeRetrievalPayloadSchema.parse({
+        workspaceRoot: '/tmp/workspace',
+        query: ' '
+      })
+    ).toThrow()
+
+    expect(() =>
+      writeRetrievalPayloadSchema.parse({
+        workspaceRoot: '/tmp/workspace',
+        query: 'science',
+        maxSnippets: 9
+      })
+    ).toThrow()
+  })
+
   it('accepts write export payloads', () => {
     const payload = writeExportPayloadSchema.parse({
       path: '/tmp/workspace/draft.md',
@@ -755,6 +791,13 @@ describe('app-ipc-schemas', () => {
     expect(payload.path).toBe('/tmp/workspace/draft.md')
     expect(payload.format).toBe('docx')
     expect(payload.content).toBe('# Draft')
+
+    expect(writeExportPayloadSchema.parse({
+      path: '/tmp/workspace/draft.md',
+      workspaceRoot: '/tmp/workspace',
+      format: 'tex',
+      content: '# Draft'
+    }).format).toBe('tex')
   })
 
   it('accepts write rich clipboard payloads', () => {
