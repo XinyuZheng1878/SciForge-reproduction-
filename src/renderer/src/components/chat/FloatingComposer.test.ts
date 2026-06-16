@@ -383,6 +383,19 @@ describe('FloatingComposer image transfer helpers', () => {
     expect(getPathForFile).toHaveBeenCalledWith(pdf)
   })
 
+  it('keeps picked scientific files as path-backed workspace attachment inputs', () => {
+    const fasta = new File(['>seq\\nACGT\\n'], 'sample.fasta', { type: 'text/plain' })
+    const getPathForFile = vi.fn(() => '/tmp/project/data/sample.fasta')
+    vi.stubGlobal('window', {
+      dsGui: { getPathForFile }
+    })
+
+    expect(attachmentInputsFromPickedFiles([fasta])).toEqual([
+      { file: fasta, path: '/tmp/project/data/sample.fasta' }
+    ])
+    expect(getPathForFile).toHaveBeenCalledWith(fasta)
+  })
+
   it('keeps clipboard item MIME hints when pasted image files omit their own type', () => {
     const screenshot = new File([new Uint8Array([1])], 'shot', { type: '' })
     const source = {
@@ -871,6 +884,46 @@ describe('FloatingComposer capability controls', () => {
     )
     expect(html).toContain('title="Plan"')
     expect(html).toContain('>Plan</span>')
+  })
+
+  it('keeps the file picker available while the runtime is loading', () => {
+    useChatStore.setState({
+      activeThreadId: null,
+      activeThreadGoal: null,
+      route: 'chat',
+      workspaceRoot: '/workspace/deepseek-gui',
+      threads: []
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposer, {
+        input: '',
+        setInput: () => undefined,
+        workspaceRootOverride: '/workspace/deepseek-gui',
+        mode: 'agent',
+        setMode: () => undefined,
+        busy: false,
+        runtimeReady: false,
+        hasActiveThread: false,
+        composerModel: '',
+        composerPickList: [],
+        onComposerModelChange: () => undefined,
+        queuedMessages: [],
+        onRemoveQueuedMessage: () => undefined,
+        onSend: () => undefined,
+        onInterrupt: () => undefined,
+        onPickAttachments: () => undefined,
+        attachmentUploadEnabled: false,
+        attachmentUploadBusy: false,
+        webAccessAvailable: false
+      })
+    )
+
+    const attachButton = html.match(/<button[^>]*aria-label="Attach file"[^>]*>/)?.[0] ?? ''
+    expect(attachButton).toContain('aria-label="Attach file"')
+    expect(attachButton).not.toContain('disabled=""')
+    expect(html).toContain('type="file"')
+    expect(html).toContain('.fasta')
   })
 
   it('renders image attachment thumbnails when a local preview is available', () => {

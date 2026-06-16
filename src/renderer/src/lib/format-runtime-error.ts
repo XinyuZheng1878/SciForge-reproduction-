@@ -100,6 +100,10 @@ function localizedRuntimeSummary(code: string | null, text: string): string | nu
     return i18n.t('common:runtimeUserInputUnsupported')
   }
 
+  if (code === 'runtime_tool_storm_interrupted') {
+    return i18n.t('common:runtimeToolStormInterrupted')
+  }
+
   if (code === 'runtime_port_conflict') {
     return i18n.t('common:runtimePortConflict')
   }

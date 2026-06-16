@@ -862,10 +862,33 @@ export function InitialSessionUsageHeatmapView({
   const totals = useMemo(() => usageTotalsFromBuckets(metricBuckets), [metricBuckets])
   const mode = usageViewMode(state)
   const streaks = useMemo(() => usageStreaks(metricBuckets), [metricBuckets])
+  const hasUnmeteredTokenBuckets = useMemo(
+    () => metricBuckets.some((bucket) => bucket.turns > 0 && bucket.totalTokens <= 0),
+    [metricBuckets]
+  )
+  const tokenMetricValue =
+    hasUnmeteredTokenBuckets && totals.totalTokens <= 0
+      ? t('usageHeatmapTokensUnrecorded')
+      : formatCompactNumber(totals.totalTokens)
+  const overviewCaption =
+    hasUnmeteredTokenBuckets && totals.totalTokens <= 0
+      ? t('usageHeatmapOverviewCaptionUnrecorded', { activeDays: totals.activeDays })
+      : hasUnmeteredTokenBuckets
+        ? t('usageHeatmapOverviewCaptionPartial', {
+          tokens: formatCompactNumber(totals.totalTokens),
+          activeDays: totals.activeDays
+        })
+        : t('usageHeatmapOverviewCaption', {
+          tokens: formatCompactNumber(totals.totalTokens),
+          activeDays: totals.activeDays
+        })
   const overviewMetrics = [
     { label: t('usageHeatmapSessions'), value: formatCompactNumber(totals.threadCount) },
     { label: t('usageHeatmapMessages'), value: formatCompactNumber(totals.turns) },
-    { label: t('usageHeatmapTotalTokens'), value: formatCompactNumber(totals.totalTokens) },
+    {
+      label: hasUnmeteredTokenBuckets ? t('usageHeatmapRecordedTokens') : t('usageHeatmapTotalTokens'),
+      value: tokenMetricValue
+    },
     { label: t('usageHeatmapActiveDays'), value: String(totals.activeDays) },
     { label: t('usageHeatmapCurrentStreak'), value: t('usageHeatmapStreakDays', { count: streaks.current }) },
     { label: t('usageHeatmapLongestStreak'), value: t('usageHeatmapStreakDays', { count: streaks.longest }) },
@@ -958,10 +981,7 @@ export function InitialSessionUsageHeatmapView({
                       onSelect={setActiveBucket}
                     />
                     <p className="text-[11.5px] leading-5 text-ds-faint">
-                      {t('usageHeatmapOverviewCaption', {
-                        tokens: formatCompactNumber(totals.totalTokens),
-                        activeDays: totals.activeDays
-                      })}
+                      {overviewCaption}
                     </p>
                   </>
                 ) : (

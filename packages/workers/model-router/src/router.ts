@@ -91,6 +91,22 @@ type ProviderCallRecord = {
   errorSummary?: string;
 };
 
+type ResponseUsage = {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  input_tokens_details: {
+    cached_tokens: number;
+  };
+  output_tokens_details: {
+    reasoning_tokens: number;
+  };
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_input_tokens: number;
+  reasoning_output_tokens: number;
+};
+
 type VisionTranslationCacheEntry = {
   schemaVersion: 'sciforge.model-router.vision-translation-cache-entry.v1';
   profileId: string;
@@ -108,6 +124,7 @@ type RoutedResponse = {
   outputText: string;
   outputItems: JsonObject[];
   traceRef: string;
+  usage: ResponseUsage;
 };
 
 type ToolCallCache = Map<string, JsonObject>;
@@ -323,6 +340,7 @@ async function routeResponsesRequest(
   const publicModelAlias = context.config.publicModelAlias ?? 'sciforge-model-router';
   const traceRedactionSecrets = [textSecret, visionSecret]
     .filter((value): value is string => typeof value === 'string' && value.length > 0);
+  const usage = emptyResponseUsage();
   const requestForTextReasoner = responseInputHasToolTranscript(request.input)
     ? {
       ...request,
@@ -398,7 +416,7 @@ async function routeResponsesRequest(
       let observationStatus: 'ok' | 'failed' = 'ok';
       let observation: string;
       try {
-        observation = await callVisionTranslator({
+        const result = await callVisionTranslator({
           profile,
           secret: visionSecret,
           fetchImpl: context.fetchImpl,
@@ -407,6 +425,8 @@ async function routeResponsesRequest(
           phase: 'vision-initial',
           calls,
         });
+        addUsage(usage, result.usage);
+        observation = result.outputText;
       } catch (error) {
         degraded = true;
         observationStatus = 'failed';
@@ -457,6 +477,7 @@ async function routeResponsesRequest(
         requestOptions: textReasonerRequestOptions,
         toolNameAliases,
       });
+      addUsage(usage, textResult.usage);
       const hasToolCall = textResult.outputItems.some((item) => item.type === 'function_call');
       if (hasToolCall) {
         outputText = textResult.outputText;
@@ -478,7 +499,7 @@ async function routeResponsesRequest(
           let supplementStatus: 'ok' | 'failed' = 'ok';
           let supplementObservation: string;
           try {
-            supplementObservation = await callVisionTranslator({
+            const result = await callVisionTranslator({
               profile,
               secret: visionSecret,
               fetchImpl: context.fetchImpl,
@@ -487,6 +508,8 @@ async function routeResponsesRequest(
               phase: 'vision-supplement',
               calls,
             });
+            addUsage(usage, result.usage);
+            supplementObservation = result.outputText;
           } catch (error) {
             degraded = true;
             supplementStatus = 'failed';
@@ -568,6 +591,7 @@ async function routeResponsesRequest(
     outputText,
     outputItems,
     traceRef: trace.relativeDir,
+    usage,
   };
 }
 
@@ -1144,7 +1168,7 @@ async function callVisionTranslator(options: {
     phase: options.phase,
     calls: options.calls,
   });
-  return result.outputText;
+  return result;
 }
 
 async function callTextReasoner(options: {
@@ -1428,7 +1452,7 @@ function chatCompletionResult(
   payload: unknown,
   request: Pick<ResponsesRequest, 'model'> = {},
   toolNameAliases: Record<string, string> = {},
-): { outputText: string; outputItems: JsonObject[] } {
+): { outputText: string; outputItems: JsonObject[]; usage: ResponseUsage } {
   const response = chatCompletionToResponse(payload, request, toolNameAliases);
   const outputItems = Array.isArray(response.output)
     ? response.output.filter(isRecord) as JsonObject[]
@@ -1436,7 +1460,95 @@ function chatCompletionResult(
   const outputText = typeof response.output_text === 'string'
     ? response.output_text
     : chatCompletionText(payload);
-  return { outputText, outputItems };
+  return {
+    outputText,
+    outputItems,
+    usage: responseUsageFromChatCompletion(payload),
+  };
+}
+
+function emptyResponseUsage(): ResponseUsage {
+  return {
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    input_tokens_details: {
+      cached_tokens: 0,
+    },
+    output_tokens_details: {
+      reasoning_tokens: 0,
+    },
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    cached_input_tokens: 0,
+    reasoning_output_tokens: 0,
+  };
+}
+
+function addUsage(target: ResponseUsage, value: ResponseUsage): void {
+  target.input_tokens += value.input_tokens;
+  target.output_tokens += value.output_tokens;
+  target.total_tokens += value.total_tokens;
+  target.input_tokens_details.cached_tokens += value.input_tokens_details.cached_tokens;
+  target.output_tokens_details.reasoning_tokens += value.output_tokens_details.reasoning_tokens;
+  target.prompt_tokens += value.prompt_tokens;
+  target.completion_tokens += value.completion_tokens;
+  target.cached_input_tokens += value.cached_input_tokens;
+  target.reasoning_output_tokens += value.reasoning_output_tokens;
+}
+
+function responseUsageFromChatCompletion(payload: unknown): ResponseUsage {
+  const completion = isRecord(payload) ? payload : {};
+  const usage = isRecord(completion.usage) ? completion.usage : {};
+  const promptDetails = firstRecord(
+    usage.input_tokens_details,
+    usage.prompt_tokens_details,
+  );
+  const completionDetails = firstRecord(
+    usage.output_tokens_details,
+    usage.completion_tokens_details,
+  );
+  const inputTokens = usageInteger(usage, 'input_tokens', 'prompt_tokens');
+  const outputTokens = usageInteger(usage, 'output_tokens', 'completion_tokens');
+  const cacheMissTokens = usageInteger(usage, 'cache_miss_tokens', 'prompt_cache_miss_tokens', 'cache_write_input_tokens');
+  const explicitCachedTokens = usageInteger(
+    usage,
+    'cached_input_tokens',
+    'prompt_cache_hit_tokens',
+    'cache_read_input_tokens',
+  ) || usageInteger(promptDetails, 'cached_tokens');
+  const cachedTokens = explicitCachedTokens || (cacheMissTokens > 0 ? Math.max(0, inputTokens - cacheMissTokens) : 0);
+  const reasoningTokens = usageInteger(usage, 'reasoning_output_tokens')
+    || usageInteger(completionDetails, 'reasoning_tokens');
+  const reportedTotal = usageInteger(usage, 'total_tokens');
+  const totalTokens = reportedTotal || inputTokens + outputTokens + reasoningTokens;
+  return {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_tokens: totalTokens,
+    input_tokens_details: {
+      cached_tokens: cachedTokens,
+    },
+    output_tokens_details: {
+      reasoning_tokens: reasoningTokens,
+    },
+    prompt_tokens: inputTokens,
+    completion_tokens: outputTokens,
+    cached_input_tokens: cachedTokens,
+    reasoning_output_tokens: reasoningTokens,
+  };
+}
+
+function usageInteger(record: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.floor(value));
+  }
+  return 0;
+}
+
+function firstRecord(...values: unknown[]): Record<string, unknown> {
+  return values.find(isRecord) ?? {};
 }
 
 function chatCompletionText(payload: unknown) {
@@ -1503,6 +1615,7 @@ function responseObject(result: RoutedResponse, messageItemId?: string): JsonObj
     status: 'completed',
     output,
     output_text: result.outputText,
+    usage: result.usage,
     metadata: {
       traceRef: result.traceRef,
     },

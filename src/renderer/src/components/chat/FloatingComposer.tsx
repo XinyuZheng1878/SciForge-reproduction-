@@ -712,7 +712,8 @@ export function FloatingComposer({
     (attachmentUploadEnabled && attachments.length > 0) ||
     (fileReferenceEnabled && fileReferences.length > 0)
   )
-  const canPickAttachment = canCompose && attachmentUploadEnabled && !attachmentUploadBusy
+  const canOpenAttachmentPicker = canEditComposer && Boolean(onPickAttachments) && !attachmentUploadBusy
+  const canPickAttachment = canOpenAttachmentPicker && attachmentUploadEnabled
   const runtimeSupportsCompact = runtimeCapabilities?.compact !== false
   const runtimeSupportsFork = runtimeCapabilities?.fork !== false
   const runtimeSupportsGoals = runtimeCapabilities?.goals !== false
@@ -721,12 +722,12 @@ export function FloatingComposer({
   const runtimeSupportsSkills = runtimeCapabilities?.skills !== false
   const showIntentToolbar = !compact && route === 'chat'
   const showComposerMenuButton = showIntentToolbar
-  const showStandaloneAttachmentButton = !showComposerMenuButton && attachmentUploadEnabled
+  const showAttachmentToolbarButton = Boolean(onPickAttachments)
   const canTogglePlanMode = canCompose && Boolean(onPlanCommand)
   const canOpenGoalPanel = canCompose && route !== 'claw' && runtimeSupportsGoals
   const canRunReview = canCompose && route !== 'claw' && runtimeSupportsReview && Boolean(onReviewCommand)
   const canOpenComposerMenu = showComposerMenuButton && (canTogglePlanMode || canOpenGoalPanel || canRunReview)
-  const showToolbarStartControls = showComposerMenuButton || showStandaloneAttachmentButton
+  const showToolbarStartControls = showAttachmentToolbarButton || showComposerMenuButton
   const showChangeSummary =
     !compact &&
     route === 'chat' &&
@@ -1192,7 +1193,7 @@ export function FloatingComposer({
   }
 
   const handleAttachmentMenuClick = (): void => {
-    if (!canPickAttachment || !onPickAttachments) return
+    if (!canOpenAttachmentPicker || !onPickAttachments) return
     setComposerMenuOpen(false)
     fileInputRef.current?.click()
     draft.focusComposer()
@@ -1607,11 +1608,11 @@ export function FloatingComposer({
             ref={composerMenuPanelRef}
             className="absolute bottom-12 left-1 z-40 w-48 overflow-hidden rounded-[18px] border border-ds-border bg-white py-1.5 text-[13px] text-ds-muted shadow-[0_18px_48px_rgba(15,23,42,0.16)] dark:bg-ds-card"
           >
-            {attachmentUploadEnabled ? (
+            {showAttachmentToolbarButton ? (
               <>
                 <button
                   type="button"
-                  disabled={!canPickAttachment || !onPickAttachments}
+                  disabled={!canOpenAttachmentPicker || !onPickAttachments}
                   onClick={handleAttachmentMenuClick}
                   className="ds-no-drag flex h-8 w-full items-center gap-2 px-3 text-left transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-ds-muted"
                 >
@@ -2042,7 +2043,7 @@ export function FloatingComposer({
               ) : null}
             </div>
           ) : null}
-          {attachmentUploadEnabled ? (
+          {showAttachmentToolbarButton ? (
             <input
               ref={fileInputRef}
               type="file"
@@ -2139,6 +2140,22 @@ export function FloatingComposer({
           >
             {showToolbarStartControls ? (
               <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden">
+                {showAttachmentToolbarButton ? (
+                  <button
+                    type="button"
+                    disabled={!canOpenAttachmentPicker || !onPickAttachments}
+                    onClick={handleAttachmentMenuClick}
+                    className="ds-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45"
+                    aria-label={t('composerAddAttachment')}
+                    title={t('composerAddAttachment')}
+                  >
+                    {attachmentUploadBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.9} />
+                    ) : (
+                      <Paperclip className="h-4 w-4" strokeWidth={1.9} />
+                    )}
+                  </button>
+                ) : null}
                 {showComposerMenuButton ? (
                   <>
                     <button
@@ -2173,21 +2190,6 @@ export function FloatingComposer({
                       </span>
                     ) : null}
                   </>
-                ) : showStandaloneAttachmentButton ? (
-                  <button
-                    type="button"
-                    disabled={!canPickAttachment || !onPickAttachments}
-                    onClick={handleAttachmentMenuClick}
-                    className="ds-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45"
-                    aria-label={t('composerAddAttachment')}
-                    title={t('composerAddAttachment')}
-                  >
-                    {attachmentUploadBusy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.9} />
-                    ) : (
-                      <Paperclip className="h-4 w-4" strokeWidth={1.9} />
-                    )}
-                  </button>
                 ) : null}
               </div>
             ) : null}

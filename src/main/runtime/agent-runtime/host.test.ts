@@ -335,6 +335,14 @@ describe('AgentRuntimeHost', () => {
         metadata: expect.objectContaining({ guard: 'toolStorm' })
       })
     )
+    expect(codex.publishSyntheticEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'error',
+        code: 'runtime_tool_storm_interrupted',
+        severity: 'error'
+      })
+    )
   })
 
   it('does not escalate repeated running updates for the same Codex tool call', async () => {
@@ -442,7 +450,7 @@ describe('AgentRuntimeHost', () => {
       events.push(event)
     }
     await vi.waitFor(() => {
-      expect(codex.publishSyntheticEvent).toHaveBeenCalledTimes(2)
+      expect(codex.publishSyntheticEvent).toHaveBeenCalledTimes(3)
     })
 
     expect(events.map((event) => event.itemId)).toEqual(['tool-1', 'tool-2', 'tool-3'])
@@ -472,6 +480,15 @@ describe('AgentRuntimeHost', () => {
           level: 'hard',
           family: 'command_execution:shell/read-file'
         })
+      })
+    )
+    expect(codex.publishSyntheticEvent).toHaveBeenNthCalledWith(
+      3,
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'error',
+        code: 'runtime_tool_storm_interrupted',
+        detail: expect.stringContaining('command_execution:shell/read-file')
       })
     )
   })

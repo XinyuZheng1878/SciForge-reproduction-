@@ -237,6 +237,16 @@ describe('InitialSessionUsageHeatmap', () => {
     expect(html).not.toContain('You&#x27;ve used 11.2k tokens across 2 active days.')
   })
 
+  it('does not present activity-only history as zero recorded tokens', () => {
+    const html = render(state({ usage: usage([bucket('2026-05-01', 0, 3)]), loaded: true }))
+
+    expect(html).toContain('Recorded tokens')
+    expect(html).toContain('Not recorded')
+    expect(html).toContain('Token usage was not recorded across 1 active days.')
+    expect(html).not.toContain('Total tokens')
+    expect(html).not.toContain('You&#x27;ve used 0 tokens')
+  })
+
   it('renders loading, empty, and error states as calendar-only warmup states', () => {
     const loadingHtml = render(state({ loading: true }))
     expect(loadingHtml).toContain('Preparing your usage calendar')

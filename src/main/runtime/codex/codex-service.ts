@@ -132,9 +132,12 @@ export class CodexRuntimeService {
   private readonly activeTurns = new Map<string, string>()
   private readonly turnTimings = new Map<string, CodexTurnTiming>()
   private readonly turnModelHints = new Map<string, string>()
+  private readonly turnsWithRecordedUsage = new Set<string>()
   private readonly firstActivityTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly seenModelDeltaKeys = new Set<string>()
   private readonly eventSubscribers = new Set<CodexRuntimeEventSubscriber>()
+  private readonly pendingToolItemsByTurn = new Map<string, Set<string>>()
+  private readonly deferredTurnCompleteEvents = new Map<string, CodexThreadEventPayload>()
 
   constructor(private readonly options: CodexRuntimeServiceOptions) {
     this.threadStore = options.storageRoot ? new CodexThreadStore({ rootDir: options.storageRoot }) : null
@@ -273,6 +276,17 @@ export class CodexRuntimeService {
   }
 
   async publishSyntheticEvent(event: AgentRuntimeEvent): Promise<CodexThreadEventPayload> {
+    if (event.kind === 'error') {
+      return this.emitRuntimeError({
+        threadId: event.threadId,
+        turnId: event.turnId,
+        itemId: event.itemId,
+        message: event.message,
+        code: event.code,
+        details: event.detail,
+        severity: event.severity
+      })
+    }
     if (event.kind !== 'runtime_status') {
       throw new Error(`Unsupported Codex synthetic event kind: ${event.kind}`)
     }
@@ -563,8 +577,10 @@ export class CodexRuntimeService {
     this.activeTurns.clear()
     this.turnTimings.clear()
     this.turnModelHints.clear()
+    this.turnsWithRecordedUsage.clear()
     this.clearAllFirstActivityTimers()
     this.seenModelDeltaKeys.clear()
+    this.clearPendingToolBarrier()
     this.closeAllEventSubscribers()
     if (client) await client.stop()
   }
@@ -579,8 +595,10 @@ export class CodexRuntimeService {
     this.activeTurns.clear()
     this.turnTimings.clear()
     this.turnModelHints.clear()
+    this.turnsWithRecordedUsage.clear()
     this.clearAllFirstActivityTimers()
     this.seenModelDeltaKeys.clear()
+    this.clearPendingToolBarrier()
     this.closeAllEventSubscribers()
     if (!client) return
     try {
@@ -656,15 +674,10 @@ export class CodexRuntimeService {
         const normalized = this.normalizeClientEvent(event.payload)
         const deduped = normalized ? this.dedupeModelDeltas(normalized) : null
         if (deduped) {
-          const stored = await this.persistEvent(deduped.threadId, deduped)
-          const runtimeEvent = stored?.event ?? deduped
-          await this.recordUsageEvent(runtimeEvent, stored?.createdAt)
-          this.noteFirstActivity(runtimeEvent)
-          await this.emitFirstDeltaIfNeeded(runtimeEvent)
-          await this.emitTurnDoneIfNeeded(runtimeEvent)
-          this.noteRuntimeEvent(runtimeEvent)
-          this.broadcastEvent(runtimeEvent)
-          this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: runtimeEvent })
+          const guiEvent = await this.eventForGuiThread(deduped)
+          for (const runtimeEvent of this.eventsAfterPendingToolBarrier(guiEvent)) {
+            await this.publishClientEvent(runtimeEvent)
+          }
         }
         continue
       }
@@ -815,6 +828,87 @@ export class CodexRuntimeService {
     return stored
   }
 
+  private async publishClientEvent(event: CodexThreadEventPayload): Promise<void> {
+    const stored = await this.persistEvent(event.threadId, event)
+    const runtimeEvent = stored?.event ?? event
+    await this.recordUsageEvent(runtimeEvent, stored?.createdAt)
+    this.noteFirstActivity(runtimeEvent)
+    await this.emitFirstDeltaIfNeeded(runtimeEvent)
+    await this.emitTurnDoneIfNeeded(runtimeEvent)
+    this.noteRuntimeEvent(runtimeEvent)
+    this.broadcastEvent(runtimeEvent)
+    this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: runtimeEvent })
+  }
+
+  private eventsAfterPendingToolBarrier(event: CodexThreadEventPayload): CodexThreadEventPayload[] {
+    const turnId = event.turnId || event.userMessage?.turnId || ''
+    if (!turnId) return [event]
+    const key = turnTimingKey(event.threadId, turnId)
+
+    if (isTerminalRuntimeError(event.runtimeError)) {
+      this.clearPendingToolBarrierForTurn(key)
+      return [event]
+    }
+
+    this.trackPendingToolEvent(event, key)
+
+    if (event.turnComplete && this.turnHasPendingToolItems(key)) {
+      this.deferredTurnCompleteEvents.set(key, {
+        threadId: event.threadId,
+        turnId,
+        turnComplete: true
+      })
+      const immediateEvent = eventWithoutTurnComplete(event)
+      return immediateEvent ? [immediateEvent] : []
+    }
+
+    const events = [event]
+    const deferred = !event.turnComplete ? this.takeDeferredTurnCompleteIfReady(key) : null
+    if (deferred) events.push(deferred)
+    if (event.turnComplete) this.clearPendingToolBarrierForTurn(key)
+    return events
+  }
+
+  private trackPendingToolEvent(event: CodexThreadEventPayload, key: string): void {
+    const tool = event.tool
+    const itemId = tool?.itemId.trim()
+    if (!tool || !itemId) return
+
+    if (tool.status === 'running') {
+      const pending = this.pendingToolItemsByTurn.get(key) ?? new Set<string>()
+      pending.add(itemId)
+      this.pendingToolItemsByTurn.set(key, pending)
+      return
+    }
+
+    const pending = this.pendingToolItemsByTurn.get(key)
+    if (!pending) return
+    pending.delete(itemId)
+    if (pending.size === 0) this.pendingToolItemsByTurn.delete(key)
+  }
+
+  private turnHasPendingToolItems(key: string): boolean {
+    return (this.pendingToolItemsByTurn.get(key)?.size ?? 0) > 0
+  }
+
+  private takeDeferredTurnCompleteIfReady(key: string): CodexThreadEventPayload | null {
+    if (this.turnHasPendingToolItems(key)) return null
+    const deferred = this.deferredTurnCompleteEvents.get(key)
+    if (!deferred) return null
+    this.deferredTurnCompleteEvents.delete(key)
+    return deferred
+  }
+
+  private clearPendingToolBarrierForTurn(key: string): void {
+    this.pendingToolItemsByTurn.delete(key)
+    this.deferredTurnCompleteEvents.delete(key)
+  }
+
+  private clearPendingToolBarrier(): void {
+    this.pendingToolItemsByTurn.clear()
+    this.deferredTurnCompleteEvents.clear()
+  }
+
   private addEventSubscriber(threadId: string): CodexRuntimeEventSubscriber {
     const subscriber: CodexRuntimeEventSubscriber = {
       threadId,
@@ -955,6 +1049,7 @@ export class CodexRuntimeService {
       this.activeTurns.delete(event.threadId)
       this.turnTimings.delete(turnTimingKey(event.threadId, turnId))
       this.clearFirstActivityTimer(turnTimingKey(event.threadId, turnId))
+      this.clearPendingToolBarrierForTurn(turnTimingKey(event.threadId, turnId))
     }
   }
 
@@ -1021,7 +1116,7 @@ export class CodexRuntimeService {
     return published
   }
 
-  private async emitRuntimeError(event: CodexRuntimeErrorInput): Promise<void> {
+  private async emitRuntimeError(event: CodexRuntimeErrorInput): Promise<CodexThreadEventPayload> {
     const runtimeEvent: CodexThreadEventPayload = {
       threadId: event.threadId,
       ...(event.turnId ? { turnId: event.turnId } : {}),
@@ -1040,6 +1135,7 @@ export class CodexRuntimeService {
     this.noteRuntimeEvent(published)
     this.broadcastEvent(published)
     this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: published })
+    return published
   }
 
   private async failActiveTurns(message: string, code: string, details?: unknown): Promise<void> {
@@ -1119,15 +1215,26 @@ export class CodexRuntimeService {
     if (!this.usageStore) return
     const turnId = event.turnId || event.userMessage?.turnId || ''
     if (!turnId) return
+    const key = turnTimingKey(event.threadId, turnId)
+    if (!event.usage && event.turnComplete && this.turnsWithRecordedUsage.has(key)) {
+      this.turnsWithRecordedUsage.delete(key)
+      return
+    }
     const usage = event.usage ?? (event.turnComplete ? EMPTY_CODEX_TURN_USAGE : null)
     if (!usage) return
-    await this.usageStore.record({
+    const record = await this.usageStore.record({
       threadId: event.threadId,
       turnId,
       createdAt,
       model: this.turnModelHints.get(turnTimingKey(event.threadId, turnId)),
       usage
     })
+    if (record && usageHasTokens(usage)) {
+      this.turnsWithRecordedUsage.add(key)
+    }
+    if (event.turnComplete) {
+      this.turnsWithRecordedUsage.delete(key)
+    }
   }
 
   private async publishPendingServerRequest(request: CodexAppServerPendingRequest): Promise<void> {
@@ -1668,6 +1775,24 @@ function eventHasNonDeltaPayload(event: CodexEventPayload['event']): boolean {
     event.runtimeStatus ||
     event.usage
   )
+}
+
+function eventWithoutTurnComplete(event: CodexThreadEventPayload): CodexThreadEventPayload | null {
+  const { turnComplete: _turnComplete, ...withoutTurnComplete } = event
+  return eventHasNonDeltaPayload(withoutTurnComplete) ? withoutTurnComplete : null
+}
+
+function usageHasTokens(usage: AgentRuntimeUsage): boolean {
+  return safeUsageInteger(usage.inputTokens) +
+    safeUsageInteger(usage.outputTokens) +
+    safeUsageInteger(usage.reasoningTokens) +
+    safeUsageInteger(usage.totalTokens) +
+    safeUsageInteger(usage.cacheReadTokens) +
+    safeUsageInteger(usage.cacheWriteTokens) > 0
+}
+
+function safeUsageInteger(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
 }
 
 function isMissingOrUnmaterializedThreadError(error: unknown): boolean {

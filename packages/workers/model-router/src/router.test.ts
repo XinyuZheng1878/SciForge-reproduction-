@@ -162,7 +162,13 @@ test('pure text responses are routed only to the configured text reasoner', asyn
     env: testEnv(),
     workspaceRoot,
     fetchImpl: captureFetch(calls, [
-      chatCompletion('text-reasoner-answer', 'The text answer.'),
+      chatCompletion('text-reasoner-answer', 'The text answer.', undefined, {}, {
+        prompt_tokens: 120,
+        completion_tokens: 20,
+        total_tokens: 145,
+        prompt_tokens_details: { cached_tokens: 90 },
+        completion_tokens_details: { reasoning_tokens: 5 },
+      }),
     ]),
   });
 
@@ -180,6 +186,17 @@ test('pure text responses are routed only to the configured text reasoner', asyn
     assert.equal(response.status, 200);
     const body = await response.json() as Record<string, unknown>;
     assert.equal(body.output_text, 'The text answer.');
+    assert.deepEqual(body.usage, {
+      input_tokens: 120,
+      output_tokens: 20,
+      total_tokens: 145,
+      input_tokens_details: { cached_tokens: 90 },
+      output_tokens_details: { reasoning_tokens: 5 },
+      prompt_tokens: 120,
+      completion_tokens: 20,
+      cached_input_tokens: 90,
+      reasoning_output_tokens: 5,
+    });
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.url, 'https://text.example/v1/chat/completions');
     assert.equal(calls[0]?.headers.authorization, 'Bearer text-secret');
@@ -685,7 +702,12 @@ test('streaming responses emit function_call items when the text reasoner choose
           name: 'gui_present',
           arguments: '{"intent":"show-result","content":{"kind":"markdown","value":"Stream visible answer."}}',
         },
-      }]),
+      }], {}, {
+        prompt_tokens: 42,
+        completion_tokens: 3,
+        total_tokens: 45,
+        prompt_tokens_details: { cached_tokens: 30 },
+      }),
     ]),
   });
 
@@ -713,6 +735,17 @@ test('streaming responses emit function_call items when the text reasoner choose
     assert.equal(events[1]?.item?.type, 'function_call');
     assert.equal(events[1]?.item?.name, 'gui_present');
     assert.equal(events[1]?.item?.call_id, 'call_gui_present_stream');
+    assert.deepEqual(events.find((event) => event.type === 'response.completed')?.response?.usage, {
+      input_tokens: 42,
+      output_tokens: 3,
+      total_tokens: 45,
+      input_tokens_details: { cached_tokens: 30 },
+      output_tokens_details: { reasoning_tokens: 0 },
+      prompt_tokens: 42,
+      completion_tokens: 3,
+      cached_input_tokens: 30,
+      reasoning_output_tokens: 0,
+    });
     assert.doesNotMatch(body, /response\.output_text\.delta/);
   } finally {
     await server.close();
@@ -1818,6 +1851,7 @@ function chatCompletion(
   content: string,
   toolCalls?: Array<Record<string, unknown>>,
   messageExtras: Record<string, unknown> = {},
+  usage: Record<string, unknown> = {},
 ) {
   return Response.json({
     id,
@@ -1834,6 +1868,7 @@ function chatCompletion(
       },
       finish_reason: toolCalls ? 'tool_calls' : 'stop',
     }],
+    ...(Object.keys(usage).length ? { usage } : {}),
   });
 }
 

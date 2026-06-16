@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
@@ -1396,6 +1396,134 @@ describe('CodexRuntimeService compatibility operations', () => {
     queued.close()
   })
 
+  it('defers Codex turn completion until pending command execution items finish', async () => {
+    const queued = clientWithQueuedEvents()
+    const sink = { send: vi.fn() }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      createClient: () => queued.client
+    })
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'download pdf' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'item/started',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: {
+            id: 'cmd-1',
+            type: 'commandExecution',
+            command: 'curl --max-time 45 https://arxiv.org/pdf/2605.26340v1',
+            status: 'inProgress'
+          }
+        }
+      }
+    })
+    await vi.waitFor(() => {
+      expect(sink.send.mock.calls.some((call) =>
+        call[1]?.event?.tool?.itemId === 'cmd-1' &&
+        call[1]?.event?.tool?.status === 'running'
+      )).toBe(true)
+    })
+
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        type: 'event_msg',
+        payload: {
+          type: 'task_complete',
+          turn_id: 'turn-1'
+        }
+      }
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(sink.send.mock.calls.some((call) =>
+      call[1]?.event?.turnComplete === true
+    )).toBe(false)
+
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: {
+            id: 'cmd-1',
+            type: 'commandExecution',
+            command: 'curl --max-time 45 https://arxiv.org/pdf/2605.26340v1',
+            status: 'failed',
+            exitCode: 28,
+            aggregatedOutput: ''
+          }
+        }
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(sink.send.mock.calls.some((call) =>
+        call[1]?.event?.turnComplete === true
+      )).toBe(true)
+    })
+    const sentEvents = sink.send.mock.calls.map((call) => call[1]?.event)
+    const failedToolIndex = sentEvents.findIndex((event) =>
+      event?.tool?.itemId === 'cmd-1' &&
+      event.tool.status === 'error' &&
+      event.tool.meta?.exitCode === 28
+    )
+    const turnCompleteIndex = sentEvents.findIndex((event) => event?.turnComplete === true)
+    expect(failedToolIndex).toBeGreaterThanOrEqual(0)
+    expect(turnCompleteIndex).toBeGreaterThan(failedToolIndex)
+    queued.close()
+  })
+
+  it('publishes synthetic runtime guard errors as runtime error events', async () => {
+    const sink = { send: vi.fn() }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink
+    })
+
+    await expect(service.publishSyntheticEvent({
+      kind: 'error',
+      runtimeId: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'runtime-guard-tool-storm-turn-1',
+      recoverable: true,
+      severity: 'error',
+      code: 'runtime_tool_storm_interrupted',
+      message: 'Runtime guard stopped this turn after repeated command_execution:shell/fetch tool activity.',
+      detail: 'The runtime interrupted the turn to prevent a repeated tool-call loop.'
+    })).resolves.toMatchObject({
+      runtimeError: {
+        itemId: 'runtime-guard-tool-storm-turn-1',
+        code: 'runtime_tool_storm_interrupted',
+        severity: 'error'
+      }
+    })
+
+    expect(sink.send).toHaveBeenCalledWith(
+      CODEX_MAIN_IPC_CHANNELS.event,
+      {
+        event: expect.objectContaining({
+          runtimeError: expect.objectContaining({
+            message: expect.stringContaining('Runtime guard stopped this turn')
+          })
+        })
+      }
+    )
+  })
+
   it('emits latency phase runtime status events around a Codex turn', async () => {
     const queued = clientWithQueuedEvents()
     const sink = { send: vi.fn() }
@@ -1831,6 +1959,10 @@ describe('CodexRuntimeService compatibility operations', () => {
         }
       }
     })
+    const rawUsageRecords = await readFile(join(rootDir, 'usage', 'codex-usage.jsonl'), 'utf8')
+    const usageRecords = rawUsageRecords.trim().split('\n').map((line) => JSON.parse(line) as { totalTokens: number })
+    expect(usageRecords).toHaveLength(1)
+    expect(usageRecords[0]?.totalTokens).toBe(145)
     queued.close()
   })
 

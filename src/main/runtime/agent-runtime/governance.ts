@@ -187,6 +187,20 @@ async function publishToolStormEvent(
       family
     }
   })
+  if (level === 'hard') {
+    await controls.publishSyntheticEvent({
+      kind: 'error',
+      threadId: source.threadId,
+      runtimeId,
+      turnId: source.turnId,
+      itemId: `runtime-guard-tool-storm-${source.turnId || source.threadId}`,
+      recoverable: true,
+      severity: 'error',
+      code: 'runtime_tool_storm_interrupted',
+      message: `Runtime guard stopped this turn after repeated ${family} tool activity.`,
+      detail: `The runtime interrupted the turn to prevent a repeated tool-call loop. Tool family: ${family}.`
+    })
+  }
 }
 
 function countMatches<T extends keyof ToolFingerprint>(
