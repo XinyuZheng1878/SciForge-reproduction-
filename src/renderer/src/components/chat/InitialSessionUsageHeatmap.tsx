@@ -4,6 +4,7 @@ import { AlertCircle, ChevronDown, ChevronUp, Loader2, RefreshCw, Sparkles } fro
 import { useTranslation } from 'react-i18next'
 import {
   getActiveAgentRuntime,
+  getClaudeRuntimeSettings,
   getCodexRuntimeSettings,
   type AgentRuntimeId,
   type AppSettingsV1
@@ -221,15 +222,18 @@ function usageViewMode(state: DailyUsageState): UsageViewMode {
 }
 
 function usageRuntimeLabel(runtimeId: AgentRuntimeId): string {
+  if (runtimeId === 'claude') return 'Claude Code'
   return runtimeId === 'codex' ? 'Codex' : 'Kun'
 }
 
 function usageRuntimeMetaFromSettings(settings: AppSettingsV1): UsageRuntimeMeta {
   const runtimeId = getActiveAgentRuntime(settings)
   const runtimeLabel = usageRuntimeLabel(runtimeId)
-  const configuredModel = runtimeId === 'codex'
-    ? getCodexRuntimeSettings(settings).model
-    : settings.agents.kun.model
+  const configuredModel = runtimeId === 'claude'
+    ? getClaudeRuntimeSettings(settings).model
+    : runtimeId === 'codex'
+      ? getCodexRuntimeSettings(settings).model
+      : settings.agents.kun.model
   return {
     runtimeId,
     runtimeLabel,

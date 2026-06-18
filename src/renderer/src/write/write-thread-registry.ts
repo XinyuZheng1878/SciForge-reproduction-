@@ -34,10 +34,13 @@ export function writeWorkspaceKey(workspaceRoot: string | undefined | null): str
 function registryWorkspaceKey(workspaceRoot: string | undefined | null, runtimeId: AgentRuntimeId): string {
   const key = writeWorkspaceKey(workspaceRoot)
   if (!key) return ''
-  return runtimeId === 'codex' ? `codex:${key}` : key
+  return runtimeId === 'kun' ? key : `${runtimeId}:${key}`
 }
 
 function parseRegistryWorkspaceKey(key: string): { workspaceKey: string; runtimeId: AgentRuntimeId } {
+  if (key.startsWith('claude:')) {
+    return { workspaceKey: writeWorkspaceKey(key.slice('claude:'.length)), runtimeId: 'claude' }
+  }
   if (key.startsWith('codex:')) {
     return { workspaceKey: writeWorkspaceKey(key.slice('codex:'.length)), runtimeId: 'codex' }
   }
@@ -52,6 +55,7 @@ function runtimeMatches(actual: AgentRuntimeId, expected?: AgentRuntimeId): bool
 }
 
 function normalizeThreadRuntimeId(runtimeId: NormalizedThread['runtimeId']): AgentRuntimeId {
+  if (runtimeId === 'claude') return 'claude'
   return runtimeId === 'codex' ? 'codex' : 'kun'
 }
 

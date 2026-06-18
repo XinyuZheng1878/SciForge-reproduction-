@@ -6,11 +6,15 @@ import { extname, isAbsolute, relative, resolve, sep, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  anthropicMessagesToResponses,
   chatCompletionToResponse,
   chatToolNameAliasesFromResponsesTools,
+  estimateAnthropicMessagesInputTokens,
   makeId,
   messageOutputItem,
+  responseToAnthropicMessage,
   responsesToChatCompletions,
+  type AnthropicMessagesRequest,
   type JsonObject,
   type JsonValue,
   type ResponsesRequest,
@@ -222,6 +226,53 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
         });
         return sendJson(response, 200, responseObject(result));
       }
+      if (request.method === 'POST' && url.pathname === '/v1/messages') {
+        assertRuntimeAuthorized(request, options.config, env);
+        const body = await readJson(request) as AnthropicMessagesRequest;
+        const publicModelAlias = options.config.publicModelAlias ?? 'sciforge-model-router';
+        const bodyForRouting = normalizeAnthropicMessagesRouterModel(body, publicModelAlias);
+        const responseModel = stringField(body.model) || publicModelAlias;
+        const responseRequest = anthropicMessagesToResponses(body, {
+          defaultModel: publicModelAlias,
+        });
+        responseRequest.model = stringField(bodyForRouting.model) || publicModelAlias;
+        if (isRecord(body) && body.stream === true) {
+          const responseId = makeId('msg');
+          return sendDeferredAnthropicMessageStream(
+            response,
+            responseId,
+            responseModel,
+            body,
+            routeResponsesRequest(responseRequest, {
+              config: options.config,
+              env,
+              fetchImpl,
+              workspaceRoot,
+              request,
+              visionTranslationCache,
+              toolCallCache,
+              responseId,
+            }),
+          );
+        }
+        const result = await routeResponsesRequest(responseRequest, {
+          config: options.config,
+          env,
+          fetchImpl,
+          workspaceRoot,
+          request,
+          visionTranslationCache,
+          toolCallCache,
+        });
+        return sendJson(response, 200, responseToAnthropicMessage(responseObject(result), body));
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/messages/count_tokens') {
+        assertRuntimeAuthorized(request, options.config, env);
+        const body = await readJson(request) as AnthropicMessagesRequest;
+        return sendJson(response, 200, {
+          input_tokens: estimateAnthropicMessagesInputTokens(body),
+        });
+      }
       return sendJson(response, 404, { error: { code: 'not_found', message: 'Route not found' } });
     } catch (error) {
       const routerError = normalizeRouterError(error);
@@ -247,7 +298,10 @@ function assertRuntimeAuthorized(
   const authorization = Array.isArray(request.headers.authorization)
     ? request.headers.authorization[0]
     : request.headers.authorization;
-  if (authorization !== `Bearer ${runtimeApiKey}`) {
+  const xApiKey = Array.isArray(request.headers['x-api-key'])
+    ? request.headers['x-api-key'][0]
+    : request.headers['x-api-key'];
+  if (authorization !== `Bearer ${runtimeApiKey}` && xApiKey !== runtimeApiKey) {
     throw routerError(401, 'unauthorized', 'Missing or invalid Model Router runtime API key.');
   }
 }
@@ -611,6 +665,26 @@ function validateRequestedModel(model: unknown, publicModelAlias: string | undef
   if (model !== expectedAlias) {
     throw routerError(400, 'unregistered_model', 'Model Router requests must use the public router model alias.');
   }
+}
+
+function normalizeAnthropicMessagesRouterModel(
+  request: AnthropicMessagesRequest,
+  publicModelAlias: string,
+): AnthropicMessagesRequest {
+  const model = stringField(request.model);
+  if (!model || model === publicModelAlias || isClaudeCodeModelName(model)) {
+    return { ...request, model: publicModelAlias };
+  }
+  return request;
+}
+
+function isClaudeCodeModelName(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return normalized === 'sonnet' ||
+    normalized === 'opus' ||
+    normalized === 'fable' ||
+    normalized === 'haiku' ||
+    normalized.startsWith('claude-');
 }
 
 function validateProfile(profile: ModelRouterProfile) {
@@ -1240,7 +1314,7 @@ async function callChatProvider(options: {
   const startedAt = Date.now();
   let response: Response;
   try {
-    response = await options.fetchImpl(`${trimTrailingSlash(options.provider.baseUrl)}/chat/completions`, {
+    response = await options.fetchImpl(providerChatCompletionsUrl(options.provider.baseUrl), {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -1260,7 +1334,7 @@ async function callChatProvider(options: {
     if (repairedBody) {
       const retryStartedAt = Date.now();
       try {
-        response = await options.fetchImpl(`${trimTrailingSlash(options.provider.baseUrl)}/chat/completions`, {
+        response = await options.fetchImpl(providerChatCompletionsUrl(options.provider.baseUrl), {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -1332,6 +1406,35 @@ function bodyWithSyntheticToolReasoning(body: Record<string, unknown>, providerE
     };
   });
   return changed ? { ...body, messages } : null;
+}
+
+function providerChatCompletionsUrl(baseUrl: string): string {
+  return buildProviderEndpointUrl(baseUrl, 'chat/completions');
+}
+
+function buildProviderEndpointUrl(baseUrl: string, path: string): string {
+  const normalized = baseUrl.trim().replace(/\/+$/, '');
+  if (!normalized) return `/v1/${path}`;
+  if (normalized.toLowerCase().endsWith(`/${path}`)) return normalized;
+  const withoutEndpoint = stripKnownProviderEndpointPath(normalized);
+  const lastSegment = withoutEndpoint.split('/').pop()?.toLowerCase() ?? '';
+  if (lastSegment === 'beta') {
+    return `${withoutEndpoint.slice(0, -'/beta'.length)}/v1/${path}`;
+  }
+  if (/^v\d+$/.test(lastSegment)) {
+    return `${withoutEndpoint}/${path}`;
+  }
+  return `${withoutEndpoint}/v1/${path}`;
+}
+
+function stripKnownProviderEndpointPath(baseUrl: string): string {
+  const lower = baseUrl.toLowerCase();
+  for (const path of ['chat/completions', 'responses', 'messages']) {
+    if (lower.endsWith(`/${path}`)) {
+      return baseUrl.slice(0, -path.length).replace(/\/+$/, '');
+    }
+  }
+  return baseUrl;
 }
 
 function recordFailedProviderCall(
@@ -1663,6 +1766,29 @@ function sendDeferredResponseStream(
   });
 }
 
+function sendDeferredAnthropicMessageStream(
+  response: ServerResponse,
+  messageId: string,
+  model: string,
+  request: Pick<AnthropicMessagesRequest, 'model'>,
+  resultPromise: Promise<RoutedResponse>,
+) {
+  beginAnthropicMessageStream(response, messageId, model);
+  void resultPromise.then((result) => {
+    writeAnthropicMessageStreamResult(response, messageId, responseToAnthropicMessage(responseObject(result), request));
+  }).catch((error) => {
+    const routerError = normalizeRouterError(error);
+    writeSse(response, 'error', {
+      type: 'error',
+      error: {
+        type: routerError.code,
+        message: routerError.message,
+      },
+    });
+    response.end();
+  });
+}
+
 function beginResponseStream(response: ServerResponse, responseId: string, model: string) {
   response.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
@@ -1673,6 +1799,103 @@ function beginResponseStream(response: ServerResponse, responseId: string, model
     type: 'response.created',
     response: { id: responseId, model, status: 'in_progress' },
   });
+}
+
+function beginAnthropicMessageStream(response: ServerResponse, messageId: string, model: string) {
+  response.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+  });
+  writeSse(response, 'message_start', {
+    type: 'message_start',
+    message: {
+      id: messageId,
+      type: 'message',
+      role: 'assistant',
+      model,
+      content: [],
+      stop_reason: null,
+      stop_sequence: null,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+      },
+    },
+  });
+}
+
+function writeAnthropicMessageStreamResult(
+  response: ServerResponse,
+  messageId: string,
+  message: JsonObject,
+) {
+  const content = Array.isArray(message.content) ? message.content : [];
+  const stopReason = typeof message.stop_reason === 'string' ? message.stop_reason : 'end_turn';
+  content.forEach((block, index) => {
+    const contentBlock = isRecord(block) ? block : { type: 'text', text: '' };
+    const blockType = typeof contentBlock.type === 'string' ? contentBlock.type : 'text';
+    writeSse(response, 'content_block_start', {
+      type: 'content_block_start',
+      index,
+      content_block: anthropicStreamStartBlock(contentBlock),
+    });
+    if (blockType === 'text') {
+      writeSse(response, 'content_block_delta', {
+        type: 'content_block_delta',
+        index,
+        delta: {
+          type: 'text_delta',
+          text: typeof contentBlock.text === 'string' ? contentBlock.text : '',
+        },
+      });
+    }
+    if (blockType === 'tool_use') {
+      writeSse(response, 'content_block_delta', {
+        type: 'content_block_delta',
+        index,
+        delta: {
+          type: 'input_json_delta',
+          partial_json: JSON.stringify(isRecord(contentBlock.input) ? contentBlock.input : {}),
+        },
+      });
+    }
+    writeSse(response, 'content_block_stop', {
+      type: 'content_block_stop',
+      index,
+    });
+  });
+  writeSse(response, 'message_delta', {
+    type: 'message_delta',
+    delta: {
+      stop_reason: stopReason,
+      stop_sequence: null,
+    },
+    usage: isRecord(message.usage) ? message.usage : { output_tokens: 0 },
+  });
+  writeSse(response, 'message_stop', {
+    type: 'message_stop',
+    message: {
+      ...message,
+      id: messageId,
+    },
+  });
+  response.end();
+}
+
+function anthropicStreamStartBlock(contentBlock: JsonObject): JsonObject {
+  if (contentBlock.type === 'text') {
+    return { type: 'text', text: '' };
+  }
+  if (contentBlock.type === 'tool_use') {
+    return {
+      type: 'tool_use',
+      id: typeof contentBlock.id === 'string' ? contentBlock.id : makeId('toolu'),
+      name: typeof contentBlock.name === 'string' ? contentBlock.name : '',
+      input: {},
+    };
+  }
+  return contentBlock;
 }
 
 function writeResponseStreamResult(response: ServerResponse, result: RoutedResponse) {
@@ -1926,7 +2149,7 @@ function corsHeaders() {
   return {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
-    'access-control-allow-headers': 'content-type,authorization,x-sciforge-model-router-profile',
+    'access-control-allow-headers': 'content-type,authorization,x-api-key,anthropic-version,x-sciforge-model-router-profile',
   };
 }
 
@@ -2113,10 +2336,6 @@ function sha256Hex(value: string | Buffer) {
 function mimeFromDataUrl(value: string) {
   const match = /^data:([^;,]+)[;,]/i.exec(value);
   return match?.[1];
-}
-
-function trimTrailingSlash(value: string) {
-  return value.replace(/\/+$/, '');
 }
 
 function boundedText(value: string, maxLength = 600) {

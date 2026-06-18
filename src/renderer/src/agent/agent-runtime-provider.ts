@@ -32,6 +32,7 @@ import type {
 } from './types'
 
 type LegacyCapabilities = ReturnType<AgentProvider['getCapabilities']>
+type SendUserMessageOptions = NonNullable<Parameters<AgentProvider['sendUserMessage']>[2]>
 type InteractionRequestRef = {
   threadId: string
   runtimeId: AgentRuntimeId
@@ -40,7 +41,11 @@ type InteractionRequestRef = {
 function defaultCapabilities(runtimeId: AgentRuntimeId = 'kun'): AgentRuntimeCapabilities {
   return createDefaultAgentRuntimeCapabilities({
     runtimeId,
-    transport: runtimeId === 'kun' ? 'http_sse' : 'jsonrpc_stdio'
+    transport: runtimeId === 'kun'
+      ? 'http_sse'
+      : runtimeId === 'claude'
+        ? 'cli_process'
+        : 'jsonrpc_stdio'
   })
 }
 
@@ -58,6 +63,12 @@ function legacyCapabilities(capabilities: AgentRuntimeCapabilities): LegacyCapab
     skills: capabilities.tools.skills.available === true,
     sideConversations: capabilities.controls.fork === true
   }
+}
+
+function turnOptionsForRuntime(runtimeId: AgentRuntimeId, options: SendUserMessageOptions): SendUserMessageOptions {
+  if (runtimeId !== 'claude') return options
+  const { model: _model, ...rest } = options
+  return rest
 }
 
 function unresolvedInteraction(feature: string, requestId: string): Error {
@@ -555,7 +566,7 @@ export class AgentRuntimeProvider implements AgentProvider {
     options: Parameters<AgentProvider['sendUserMessage']>[2] = {}
   ): ReturnType<AgentProvider['sendUserMessage']> {
     const runtimeId = await this.runtimeIdForThread(threadId)
-    return agentRuntimeClient.startTurn({ runtimeId, threadId, text, ...options })
+    return agentRuntimeClient.startTurn({ runtimeId, threadId, text, ...turnOptionsForRuntime(runtimeId, options) })
   }
 
   reviewThread(
@@ -577,7 +588,9 @@ export class AgentRuntimeProvider implements AgentProvider {
       runtimeId,
       threadId,
       turnId,
-      ...(options?.discard === undefined ? {} : { discard: options.discard })
+      ...(options?.discard === undefined
+        ? runtimeId === 'claude' ? { discard: true } : {}
+        : { discard: options.discard })
     })
   }
 

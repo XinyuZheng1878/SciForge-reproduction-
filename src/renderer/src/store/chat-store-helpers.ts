@@ -248,8 +248,9 @@ function addClawThreadId(ids: Set<string>, threadId: string | undefined): void {
 }
 
 function addClawAgentThreadIds(ids: Set<string>, agentThreadIds: Partial<Record<AgentRuntimeId, string>> | undefined): void {
-  addClawThreadId(ids, agentThreadIds?.kun)
-  addClawThreadId(ids, agentThreadIds?.codex)
+  for (const threadId of Object.values(agentThreadIds ?? {})) {
+    addClawThreadId(ids, threadId)
+  }
 }
 
 export function clawThreadIdsFromChannels(

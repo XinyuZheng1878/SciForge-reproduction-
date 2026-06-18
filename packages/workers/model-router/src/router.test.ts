@@ -94,6 +94,291 @@ test('runtime model routes require the configured bearer token', async () => {
   }
 });
 
+test('runtime model routes accept Anthropic x-api-key auth', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-runtime-x-api-key-'));
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch([], []),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/models`, {
+      headers: { 'x-api-key': 'runtime-secret' },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, unknown>;
+    assert.equal((body.data as Array<Record<string, unknown>>)[0]?.id, 'sciforge-router');
+  } finally {
+    await server.close();
+  }
+});
+
+test('openai-compatible provider bases are normalized to v1 chat completions', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-provider-base-'));
+  const calls: CapturedFetch[] = [];
+  const config = testConfig();
+  config.profiles.default.textReasoner.baseUrl = 'https://text.example';
+  const server = await startModelRouterServer({
+    port: 0,
+    config,
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-reasoner-answer', 'The normalized base URL works.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: 'hello',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, 'https://text.example/v1/chat/completions');
+  } finally {
+    await server.close();
+  }
+});
+
+test('anthropic messages route through the configured text reasoner', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-messages-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-reasoner-answer', 'The Claude-compatible answer.'),
+    ]),
+  });
+
+  try {
+    const missing = await fetch(`${server.url}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'sciforge-router', messages: [{ role: 'user', content: 'hello' }] }),
+    });
+    assert.equal(missing.status, 401);
+
+    const response = await fetch(`${server.url}/v1/messages`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        max_tokens: 256,
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, any>;
+    assert.equal(body.type, 'message');
+    assert.equal(body.role, 'assistant');
+    assert.deepEqual(body.content, [{ type: 'text', text: 'The Claude-compatible answer.' }]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, 'https://text.example/v1/chat/completions');
+    assert.deepEqual(calls[0]?.body.messages, [
+      { role: 'user', content: 'hello' },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('anthropic messages can stream text response events', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-messages-stream-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-reasoner-answer', 'The streamed Claude-compatible answer.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/messages`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        max_tokens: 256,
+        stream: true,
+        messages: [{ role: 'user', content: 'hello' }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /text\/event-stream/);
+    const events = parseSseEvents(await response.text());
+    assert.equal(events[0]?.type, 'message_start');
+    assert.deepEqual(events.find((event) => event.type === 'content_block_delta')?.delta, {
+      type: 'text_delta',
+      text: 'The streamed Claude-compatible answer.',
+    });
+    assert.equal(events.at(-1)?.type, 'message_stop');
+    assert.equal(calls.length, 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test('anthropic messages accepts Claude Code model aliases as router public alias', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-messages-claude-model-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-reasoner-answer', 'Routed through the local Model Router.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/messages`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sonnet',
+        max_tokens: 256,
+        messages: [{ role: 'user', content: 'hello' }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, any>;
+    assert.equal(body.model, 'sonnet');
+    assert.deepEqual(body.content, [{ type: 'text', text: 'Routed through the local Model Router.' }]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, 'https://text.example/v1/chat/completions');
+  } finally {
+    await server.close();
+  }
+});
+
+test('anthropic messages map tool use through the router provider path', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-messages-tools-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-reasoner-tools', '', [{
+        id: 'tool-call-1',
+        type: 'function',
+        function: {
+          name: 'Edit',
+          arguments: JSON.stringify({ path: 'README.md', old_string: 'old', new_string: 'new' }),
+        },
+      }]),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/messages`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        max_tokens: 256,
+        tools: [{
+          name: 'Edit',
+          description: 'Edit a file',
+          input_schema: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+              old_string: { type: 'string' },
+              new_string: { type: 'string' },
+            },
+          },
+        }],
+        messages: [
+          {
+            role: 'assistant',
+            content: [{
+              type: 'tool_use',
+              id: 'previous-tool',
+              name: 'Edit',
+              input: { path: 'README.md', old_string: 'before', new_string: 'after' },
+            }],
+          },
+          {
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: 'previous-tool',
+              content: 'Previous edit completed.',
+            }],
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, any>;
+    assert.equal(body.stop_reason, 'tool_use');
+    assert.deepEqual(body.content, [{
+      type: 'tool_use',
+      id: 'tool-call-1',
+      name: 'Edit',
+      input: { path: 'README.md', old_string: 'old', new_string: 'new' },
+    }]);
+    assert.deepEqual(calls[0]?.body.tools, [{
+      type: 'function',
+      function: {
+        name: 'Edit',
+        description: 'Edit a file',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            old_string: { type: 'string' },
+            new_string: { type: 'string' },
+          },
+        },
+      },
+    }]);
+    assert.deepEqual(calls[0]?.body.messages, [
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{
+          id: 'previous-tool',
+          type: 'function',
+          function: {
+            name: 'Edit',
+            arguments: JSON.stringify({ path: 'README.md', old_string: 'before', new_string: 'after' }),
+          },
+        }],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'previous-tool',
+        content: 'Previous edit completed.',
+      },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
 test('healthz reports provider readiness without leaking private bindings', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-healthz-'));
   const server = await startModelRouterServer({

@@ -23,6 +23,19 @@ export type ResponsesRequest = {
   metadata?: unknown;
 };
 
+export type AnthropicMessagesRequest = {
+  model?: string;
+  messages?: unknown;
+  system?: unknown;
+  tools?: unknown;
+  tool_choice?: unknown;
+  temperature?: unknown;
+  top_p?: unknown;
+  max_tokens?: unknown;
+  metadata?: unknown;
+  stream?: unknown;
+};
+
 export function makeId(prefix: string): string {
   const cleanPrefix = prefix.replace(/[^A-Za-z0-9_-]+/g, '_') || 'id';
   return `${cleanPrefix}_${randomBytes(12).toString('hex')}`;
@@ -98,6 +111,54 @@ export function chatCompletionToResponse(
   };
 }
 
+export function anthropicMessagesToResponses(
+  request: AnthropicMessagesRequest,
+  options: { defaultModel?: string } = {},
+): ResponsesRequest {
+  return compactJsonObject({
+    model: stringValue(request.model) || options.defaultModel || '',
+    instructions: anthropicSystemToText(request.system),
+    input: anthropicMessagesToResponsesInput(request.messages),
+    tools: anthropicToolsToResponsesTools(request.tools),
+    tool_choice: request.tool_choice,
+    temperature: request.temperature,
+    top_p: request.top_p,
+    max_tokens: request.max_tokens,
+    metadata: request.metadata,
+  }) as ResponsesRequest;
+}
+
+export function responseToAnthropicMessage(
+  response: JsonObject,
+  request: Pick<AnthropicMessagesRequest, 'model'> = {},
+): JsonObject {
+  const output = Array.isArray(response.output) ? response.output : [];
+  const content = responseOutputToAnthropicContent(output);
+  const text = stringValue(response.output_text);
+  const stopReason = content.some((part) => part.type === 'tool_use') ? 'tool_use' : 'end_turn';
+  return {
+    id: stringValue(response.id) || makeId('msg'),
+    type: 'message',
+    role: 'assistant',
+    model: stringValue(request.model) || stringValue(response.model),
+    content: content.length > 0 ? content : text ? [{ type: 'text', text }] : [],
+    stop_reason: stopReason,
+    stop_sequence: null,
+    usage: {
+      input_tokens: 0,
+      output_tokens: estimateTokenCount(text || JSON.stringify(content)),
+    },
+  };
+}
+
+export function estimateAnthropicMessagesInputTokens(request: AnthropicMessagesRequest): number {
+  return estimateTokenCount(JSON.stringify({
+    system: request.system,
+    messages: request.messages,
+    tools: request.tools,
+  }));
+}
+
 function responsesInputToMessages(
   request: ResponsesRequest,
   toolNameAliases: Record<string, string>,
@@ -118,6 +179,156 @@ function responsesInputToMessages(
   }
   if (messages.length === 0) messages.push({ role: 'user', content: '' });
   return messages;
+}
+
+function anthropicSystemToText(system: unknown): string | undefined {
+  if (typeof system === 'string') return system.trim() || undefined;
+  const text = anthropicContentToText(system);
+  return text.trim() || undefined;
+}
+
+function anthropicMessagesToResponsesInput(messages: unknown): JsonValue[] {
+  if (!Array.isArray(messages)) return [{ role: 'user', content: [{ type: 'input_text', text: '' }] }];
+  const input: JsonValue[] = [];
+  for (const message of messages) {
+    if (!isRecord(message)) continue;
+    const role = stringValue(message.role) || 'user';
+    const textParts: JsonObject[] = [];
+    const flushTextParts = (): void => {
+      if (textParts.length === 0) return;
+      input.push({ role, content: [...textParts] });
+      textParts.length = 0;
+    };
+    const parts = anthropicContentParts(message.content);
+    for (const part of parts) {
+      if (isRecord(part) && part.type === 'tool_use') {
+        const callId = stringValue(part.id) || makeId('toolu');
+        const name = stringValue(part.name) || 'tool';
+        flushTextParts();
+        input.push({
+          id: callId,
+          type: 'function_call',
+          status: 'completed',
+          call_id: callId,
+          name,
+          arguments: JSON.stringify(jsonValue(part.input) ?? {}),
+        });
+        continue;
+      }
+      if (isRecord(part) && part.type === 'tool_result') {
+        const callId = stringValue(part.tool_use_id);
+        const output = anthropicContentToText(part.content) || stringifyJsonValue(part.content) || '';
+        if (callId) {
+          flushTextParts();
+          input.push({
+            type: 'function_call_output',
+            call_id: callId,
+            output,
+          });
+        } else {
+          textParts.push({ type: 'input_text', text: output });
+        }
+        continue;
+      }
+      const normalized = anthropicContentPartToResponsesPart(part);
+      if (normalized) textParts.push(normalized);
+    }
+    flushTextParts();
+  }
+  return input.length > 0 ? input : [{ role: 'user', content: [{ type: 'input_text', text: '' }] }];
+}
+
+function anthropicContentParts(content: unknown): unknown[] {
+  if (typeof content === 'string') return [content];
+  if (Array.isArray(content)) return content;
+  return [''];
+}
+
+function anthropicContentPartToResponsesPart(part: unknown): JsonObject | null {
+  if (typeof part === 'string') return { type: 'input_text', text: part };
+  if (!isRecord(part)) return null;
+  if (part.type === 'text') return { type: 'input_text', text: stringValue(part.text) };
+  if (part.type === 'image') {
+    const source = isRecord(part.source) ? part.source : {};
+    const data = stringValue(source.data);
+    const mediaType = stringValue(source.media_type) || 'image/png';
+    if (data) return { type: 'input_image', image_url: `data:${mediaType};base64,${data}` };
+  }
+  return { type: 'input_text', text: stringifyJsonValue(part) || '' };
+}
+
+function anthropicContentToText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => {
+      if (typeof part === 'string') return part;
+      if (!isRecord(part)) return '';
+      return stringValue(part.text) || stringValue(part.content);
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function anthropicToolsToResponsesTools(tools: unknown): JsonValue[] | undefined {
+  if (!Array.isArray(tools)) return undefined;
+  const responsesTools = tools.map((tool): JsonObject | null => {
+    if (!isRecord(tool)) return null;
+    const name = stringValue(tool.name);
+    if (!name) return null;
+    return compactJsonObject({
+      type: 'function',
+      name,
+      description: stringValue(tool.description) || undefined,
+      parameters: jsonValue(tool.input_schema) ?? {},
+    });
+  }).filter((tool): tool is JsonObject => Boolean(tool));
+  return responsesTools.length > 0 ? responsesTools : undefined;
+}
+
+function responseOutputToAnthropicContent(output: JsonValue[]): JsonObject[] {
+  const content: JsonObject[] = [];
+  for (const item of output) {
+    if (!isRecord(item)) continue;
+    if (item.type === 'message' && Array.isArray(item.content)) {
+      const text = item.content
+        .map((part) => isRecord(part) ? stringValue(part.text) : '')
+        .filter(Boolean)
+        .join('\n');
+      if (text) content.push({ type: 'text', text });
+      continue;
+    }
+    if (item.type === 'function_call') {
+      content.push({
+        type: 'tool_use',
+        id: stringValue(item.call_id) || stringValue(item.id) || makeId('toolu'),
+        name: stringValue(item.name),
+        input: parseJsonObject(stringValue(item.arguments)) ?? {},
+      });
+    }
+  }
+  return content;
+}
+
+function parseJsonObject(raw: string): JsonObject | null {
+  if (!raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isRecord(parsed) ? compactJsonObject(parsed) : null;
+  } catch {
+    return null;
+  }
+}
+
+function stringifyJsonValue(value: unknown): string | undefined {
+  const normalized = jsonValue(value);
+  return normalized === undefined ? undefined : JSON.stringify(normalized);
+}
+
+function estimateTokenCount(text: string): number {
+  const normalized = text.trim();
+  if (!normalized) return 0;
+  return Math.max(1, Math.ceil(normalized.length / 4));
 }
 
 function responseInputItemToMessage(

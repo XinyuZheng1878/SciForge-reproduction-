@@ -6,10 +6,12 @@ import { atomicWriteFile } from '../../kun/src/adapters/file/atomic-write.js'
 import {
   applyKunRuntimePatch,
   applyCodexRuntimePatch,
+  applyClaudeRuntimePatch,
   kunSettingsEnvelope,
   DEFAULT_GUI_UPDATE_CHANNEL,
   DEFAULT_WRITE_WORKSPACE_ROOT,
   defaultClawSettings,
+  defaultClaudeRuntimeSettings,
   defaultCodexRuntimeSettings,
   defaultKunRuntimeSettings,
   defaultModelRouterSettings,
@@ -17,9 +19,11 @@ import {
   defaultRuntimeGuardSettings,
   defaultScheduleSettings,
   getCodexRuntimeSettings,
+  getClaudeRuntimeSettings,
   getKunRuntimeSettings,
   getModelRouterSettings,
   mergeCodexRuntimeSettings,
+  mergeClaudeRuntimeSettings,
   mergeKunRuntimeSettings,
   mergeModelRouterSettings,
   mergeModelProviderSettings,
@@ -233,7 +237,8 @@ const defaultSettings = (): AppSettingsV1 => ({
   activeAgentRuntime: 'kun',
   agents: {
     kun: defaultKunRuntimeSettings(),
-    codex: defaultCodexRuntimeSettings()
+    codex: defaultCodexRuntimeSettings(),
+    claude: defaultClaudeRuntimeSettings()
   },
   workspaceRoot: DEFAULT_WORKSPACE_ROOT,
   log: {
@@ -271,6 +276,10 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
       codex: mergeCodexRuntimeSettings(
         getCodexRuntimeSettings(defaults),
         migrated.agents?.codex
+      ),
+      claude: mergeClaudeRuntimeSettings(
+        getClaudeRuntimeSettings(defaults),
+        migrated.agents?.claude
       )
     },
     log: { ...defaults.log, ...migrated.log },
@@ -437,7 +446,10 @@ export class JsonSettingsStore {
       ...restPatch
     } = partial
     const next = normalizeStoredSettings({
-      ...applyCodexRuntimePatch(applyKunRuntimePatch(cur, agentsPatch?.kun), agentsPatch?.codex),
+      ...applyClaudeRuntimePatch(
+        applyCodexRuntimePatch(applyKunRuntimePatch(cur, agentsPatch?.kun), agentsPatch?.codex),
+        agentsPatch?.claude
+      ),
       ...restPatch,
       provider: mergeModelProviderSettings(cur.provider, providerPatch),
       modelRouter: mergeModelRouterSettings(cur.modelRouter, modelRouterPatch),

@@ -75,6 +75,9 @@ import { shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const MAX_PARALLEL_TOOL_CALLS = 3
 const MAX_TURN_MODEL_STEPS = 64
+const DEFAULT_TOOL_LOOP_MAX_RECOVERY_STEPS = 1
+const DEFAULT_TOOL_LOOP_NON_PROGRESS_THRESHOLD = 3
+const DEFAULT_TOOL_LOOP_MAX_STEPS_AFTER_RECOVERY = 8
 const DEFAULT_COMPACTION_SUMMARY_TIMEOUT_MS = 15_000
 const DEFAULT_COMPACTION_SUMMARY_MAX_TOKENS = 1_200
 const DEFAULT_COMPACTION_SUMMARY_INPUT_MAX_BYTES = 96 * 1024
@@ -109,6 +112,28 @@ type ToolCatalogDrift =
   | { kind: 'none' }
   | { kind: 'additive'; previous: ToolCatalogSnapshot }
   | { kind: 'breaking'; previous: ToolCatalogSnapshot }
+
+type ToolLoopHealth = {
+  suppressedCalls: number
+  consecutiveAllSuppressed: number
+  consecutiveNonProgressToolSteps: number
+  postRecoveryAllSuppressed: number
+  recoveryIssuedAtStep?: number
+}
+
+type ToolDispatchOutcome =
+  | { kind: 'aborted' }
+  | {
+      kind: 'continue'
+      executedCount: number
+      successCount: number
+      errorCount: number
+      suppressedCount: number
+    }
+  | {
+      kind: 'all_suppressed'
+      suppressedCount: number
+    }
 
 /**
  * Plan-mode guidance. Emitted as a second system message after the
@@ -206,6 +231,16 @@ function goalNoToolRecoveryInstruction(recoveryStep: number): string {
   ].join('\n')
 }
 
+function toolLoopRecoveryInstruction(): string {
+  return [
+    'Tool loop recovery:',
+    '- The previous step repeated tool calls that were suppressed or did not make progress.',
+    '- Do not call the same tool again with the same arguments.',
+    '- Try a different query, path, or tool strategy, or answer from the evidence already gathered.',
+    '- If no useful progress is possible, state the concrete blocker instead of producing a generic greeting or unrelated response.'
+  ].join('\n')
+}
+
 function isRepeatedNoToolAssistantText(previous: string | undefined, current: string): boolean {
   if (previous === undefined) return false
   const a = normalizeNoToolAssistantText(previous)
@@ -215,6 +250,22 @@ function isRepeatedNoToolAssistantText(previous: string | undefined, current: st
     return false
   }
   return charBigramDiceSimilarity(a, b) >= GOAL_NO_TOOL_REPEAT_SIMILARITY
+}
+
+function isTrivialToolLoopFinalText(text: string): boolean {
+  const normalized = normalizeNoToolAssistantText(text)
+  if (!normalized) return true
+  if (Array.from(text.trim()).length < 24) return true
+  return [
+    '你好有什么可以帮你',
+    '有什么可以帮你',
+    '我可以帮你什么',
+    '请问有什么可以帮',
+    'howcanihelp',
+    'whatcanido',
+    'howcanassist',
+    'hello'
+  ].some((pattern) => normalized.includes(pattern))
 }
 
 function normalizeNoToolAssistantText(text: string): string {
@@ -324,7 +375,12 @@ export type AgentLoopOptions = {
   memoryStore?: MemoryStore
   tokenEconomy?: TokenEconomyConfig
   contextCompaction?: ContextCompactionConfig
-  toolStorm?: ToolStormBreakerOptions & { enabled?: boolean }
+  toolStorm?: ToolStormBreakerOptions & {
+    enabled?: boolean
+    maxRecoverySteps?: number
+    nonProgressThreshold?: number
+    maxStepsAfterRecovery?: number
+  }
   toolArgumentRepair?: {
     maxStringBytes?: number
   }
@@ -366,6 +422,7 @@ export class AgentLoop {
   private readonly autoModelRoutes = new Map<string, AutoModelRouteSelection>()
   private readonly promptTokenPressure = new Map<string, { model: string; promptTokens: number }>()
   private readonly toolStormBreakers = new Map<string, ToolStormBreaker>()
+  private readonly toolLoopHealthByTurn = new Map<string, ToolLoopHealth>()
   private readonly toolCatalogSnapshots = new Map<string, ToolCatalogSnapshot>()
   private readonly lastNoToolTextByTurn = new Map<string, string>()
   private readonly goalNoToolRecoveryStepsByTurn = new Map<string, number>()
@@ -429,6 +486,7 @@ export class AgentLoop {
       await this.finishGoalElapsedTimer(threadId, goalTimer)
       this.autoModelRoutes.delete(autoModelRouteKey(threadId, turnId))
       this.toolStormBreakers.delete(turnId)
+      this.toolLoopHealthByTurn.delete(turnId)
       this.lastNoToolTextByTurn.delete(turnId)
       this.goalNoToolRecoveryStepsByTurn.delete(turnId)
     }
@@ -725,6 +783,9 @@ export class AgentLoop {
       ...(activeGoalInstruction && (this.goalNoToolRecoveryStepsByTurn.get(turnId) ?? 0) > 0
         ? [goalNoToolRecoveryInstruction(this.goalNoToolRecoveryStepsByTurn.get(turnId) ?? 0)]
         : []),
+      ...(this.toolLoopHealthByTurn.get(turnId)?.recoveryIssuedAtStep !== undefined
+        ? [toolLoopRecoveryInstruction()]
+        : []),
       ...(activeTodoInstruction ? [activeTodoInstruction] : []),
       ...memoryInstructions(memories),
       ...skillResolution.instructions,
@@ -1005,9 +1066,13 @@ export class AgentLoop {
             sandboxMode,
             signal
           })
-          if (dispatched === 'aborted') return 'aborted'
-          if (dispatched === 'all_suppressed') return 'stop'
-          return 'continue'
+          return this.handleToolDispatchOutcome({
+            outcome: dispatched,
+            threadId,
+            turnId,
+            stepIndex,
+            signal
+          })
         }
         const message = `Model did not call the required \`${request.requiredToolName}\` tool for this GUI plan turn.`
         await this.opts.events.record({
@@ -1026,6 +1091,19 @@ export class AgentLoop {
             message,
             code: 'required_tool_missing'
           })
+        )
+        return 'failed'
+      }
+      if (
+        stopReason === 'stop' &&
+        this.toolLoopHealthByTurn.get(turnId)?.recoveryIssuedAtStep !== undefined &&
+        isTrivialToolLoopFinalText(textAccumulator.value)
+      ) {
+        await this.failToolLoopRecovery(
+          threadId,
+          turnId,
+          'tool_loop_trivial_final',
+          'Tool loop recovery failed: the model stopped with a generic or empty final response.'
         )
         return 'failed'
       }
@@ -1086,9 +1164,13 @@ export class AgentLoop {
       sandboxMode,
       signal
     })
-    if (dispatched === 'aborted') return 'aborted'
-    if (dispatched === 'all_suppressed') return 'stop'
-    return 'continue'
+    return this.handleToolDispatchOutcome({
+      outcome: dispatched,
+      threadId,
+      turnId,
+      stepIndex,
+      signal
+    })
   }
 
   private async dispatchToolCalls(input: {
@@ -1105,19 +1187,23 @@ export class AgentLoop {
     approvalPolicy: ToolHostContext['approvalPolicy']
     sandboxMode: NonNullable<ToolHostContext['sandboxMode']>
     signal: AbortSignal
-  }): Promise<'continue' | 'aborted' | 'all_suppressed'> {
+  }): Promise<ToolDispatchOutcome> {
     const context = this.createToolContext(input)
     let index = 0
-    let executedAny = false
+    let executedCount = 0
+    let successCount = 0
+    let errorCount = 0
+    let suppressedCount = 0
 
     while (index < input.calls.length) {
-      if (input.signal.aborted) return 'aborted'
+      if (input.signal.aborted) return { kind: 'aborted' }
 
       const call = input.calls[index]
       if (!call) break
 
       const storm = this.toolStormBreakers.get(input.turnId)?.inspect(call)
       if (storm?.suppress) {
+        suppressedCount += 1
         await this.persistSuppressedToolCall({
           threadId: input.threadId,
           turnId: input.turnId,
@@ -1135,7 +1221,9 @@ export class AgentLoop {
           call,
           context
         })
-        executedAny = true
+        executedCount += 1
+        if (isSuccessfulToolResult(result)) successCount += 1
+        else errorCount += 1
         await this.persistToolCallResult(input.threadId, input.turnId, call, result)
         index += 1
         continue
@@ -1152,6 +1240,7 @@ export class AgentLoop {
 
         const nextStorm = this.toolStormBreakers.get(input.turnId)?.inspect(next)
         if (nextStorm?.suppress) {
+          suppressedCount += 1
           suppressedAfterBatch = { call: next, reason: nextStorm.reason }
           index += 1
           break
@@ -1171,12 +1260,14 @@ export class AgentLoop {
           })
         )
       )
-      executedAny = true
       for (let batchIndex = 0; batchIndex < batch.length; batchIndex += 1) {
         const result = settled[batchIndex]
         const batchCall = batch[batchIndex]
         if (!result || !batchCall) continue
         if (result.status === 'rejected') throw result.reason
+        executedCount += 1
+        if (isSuccessfulToolResult(result.value)) successCount += 1
+        else errorCount += 1
         await this.persistToolCallResult(input.threadId, input.turnId, batchCall, result.value)
       }
 
@@ -1190,7 +1281,158 @@ export class AgentLoop {
       }
     }
 
-    return executedAny ? 'continue' : 'all_suppressed'
+    return executedCount > 0
+      ? { kind: 'continue', executedCount, successCount, errorCount, suppressedCount }
+      : { kind: 'all_suppressed', suppressedCount }
+  }
+
+  private async handleToolDispatchOutcome(input: {
+    outcome: ToolDispatchOutcome
+    threadId: string
+    turnId: string
+    stepIndex: number
+    signal: AbortSignal
+  }): Promise<'continue' | 'failed' | 'aborted'> {
+    if (input.signal.aborted || input.outcome.kind === 'aborted') return 'aborted'
+    if (this.opts.toolStorm?.enabled === false) return 'continue'
+    const health = this.toolLoopHealth(input.turnId)
+    if (input.outcome.kind === 'all_suppressed') {
+      health.suppressedCalls += input.outcome.suppressedCount
+      health.consecutiveAllSuppressed += 1
+      health.consecutiveNonProgressToolSteps += 1
+      if (
+        health.recoveryIssuedAtStep !== undefined &&
+        input.stepIndex > health.recoveryIssuedAtStep
+      ) {
+        health.postRecoveryAllSuppressed += 1
+      }
+    } else {
+      health.suppressedCalls += input.outcome.suppressedCount
+      health.consecutiveAllSuppressed = 0
+      if (input.outcome.successCount > 0) {
+        health.consecutiveNonProgressToolSteps = 0
+      } else if (input.outcome.executedCount > 0 || input.outcome.suppressedCount > 0) {
+        health.consecutiveNonProgressToolSteps += 1
+      }
+    }
+
+    const limits = this.toolLoopLimits()
+    if (health.recoveryIssuedAtStep === undefined) {
+      if (
+        health.consecutiveAllSuppressed > 0 ||
+        health.consecutiveNonProgressToolSteps >= limits.nonProgressThreshold
+      ) {
+        health.recoveryIssuedAtStep = input.stepIndex
+        await this.warnToolLoopRecovery(input.threadId, input.turnId)
+      }
+      return 'continue'
+    }
+
+    if (
+      input.outcome.kind === 'all_suppressed' &&
+      health.postRecoveryAllSuppressed >= limits.maxRecoverySteps
+    ) {
+      await this.failToolLoopRecovery(
+        input.threadId,
+        input.turnId,
+        'tool_loop_recovery_exhausted',
+        'Tool loop recovery failed: the model repeated suppressed tool calls after recovery guidance.'
+      )
+      return 'failed'
+    }
+    if (health.consecutiveNonProgressToolSteps >= limits.nonProgressThreshold) {
+      await this.failToolLoopRecovery(
+        input.threadId,
+        input.turnId,
+        'tool_loop_recovery_exhausted',
+        'Tool loop recovery failed: tool calls continued without successful progress.'
+      )
+      return 'failed'
+    }
+    if (input.stepIndex - health.recoveryIssuedAtStep >= limits.maxStepsAfterRecovery) {
+      await this.failToolLoopRecovery(
+        input.threadId,
+        input.turnId,
+        'tool_loop_recovery_exhausted',
+        'Tool loop recovery failed: the model exceeded the recovery step budget.'
+      )
+      return 'failed'
+    }
+    return 'continue'
+  }
+
+  private toolLoopHealth(turnId: string): ToolLoopHealth {
+    const existing = this.toolLoopHealthByTurn.get(turnId)
+    if (existing) return existing
+    const next: ToolLoopHealth = {
+      suppressedCalls: 0,
+      consecutiveAllSuppressed: 0,
+      consecutiveNonProgressToolSteps: 0,
+      postRecoveryAllSuppressed: 0
+    }
+    this.toolLoopHealthByTurn.set(turnId, next)
+    return next
+  }
+
+  private toolLoopLimits(): {
+    maxRecoverySteps: number
+    nonProgressThreshold: number
+    maxStepsAfterRecovery: number
+  } {
+    return {
+      maxRecoverySteps: positiveIntegerOrDefault(
+        this.opts.toolStorm?.maxRecoverySteps,
+        DEFAULT_TOOL_LOOP_MAX_RECOVERY_STEPS
+      ),
+      nonProgressThreshold: positiveIntegerOrDefault(
+        this.opts.toolStorm?.nonProgressThreshold,
+        DEFAULT_TOOL_LOOP_NON_PROGRESS_THRESHOLD
+      ),
+      maxStepsAfterRecovery: positiveIntegerOrDefault(
+        this.opts.toolStorm?.maxStepsAfterRecovery,
+        DEFAULT_TOOL_LOOP_MAX_STEPS_AFTER_RECOVERY
+      )
+    }
+  }
+
+  private async warnToolLoopRecovery(threadId: string, turnId: string): Promise<void> {
+    const message =
+      'Tool loop recovery: repeated or suppressed tool calls were detected. The next model request will ask for a different approach or a clear blocker.'
+    await this.opts.events.record({
+      kind: 'error',
+      threadId,
+      turnId,
+      message,
+      code: 'tool_loop_recovery',
+      severity: 'warning'
+    })
+  }
+
+  private async failToolLoopRecovery(
+    threadId: string,
+    turnId: string,
+    code: 'tool_loop_recovery_exhausted' | 'tool_loop_trivial_final',
+    message: string
+  ): Promise<void> {
+    await this.opts.turns.applyItem(
+      threadId,
+      makeErrorItem({
+        id: this.opts.ids.next('item_error'),
+        turnId,
+        threadId,
+        message,
+        code,
+        severity: 'error'
+      })
+    )
+    await this.opts.events.record({
+      kind: 'error',
+      threadId,
+      turnId,
+      message,
+      code,
+      severity: 'error'
+    })
   }
 
   private isParallelSafeToolCall(
@@ -2220,6 +2462,16 @@ function stringifyForPrompt(value: unknown): string {
   } catch {
     return String(value)
   }
+}
+
+function isSuccessfulToolResult(result: ToolHostResult): boolean {
+  return result.item.kind === 'tool_result' && result.item.isError !== true && result.approved !== false
+}
+
+function positiveIntegerOrDefault(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : fallback
 }
 
 function clipForPrompt(text: string, maxChars: number): string {

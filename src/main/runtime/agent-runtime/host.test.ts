@@ -12,6 +12,7 @@ import {
 import type {
   AgentRuntimeCapabilities,
   AgentRuntimeEvent,
+  AgentRuntimeId,
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse,
   AgentRuntimeThread,
@@ -48,11 +49,13 @@ function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'cod
   }
 }
 
-function capabilities(runtimeId: 'kun' | 'codex'): AgentRuntimeCapabilities {
+function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
+  const transport =
+    runtimeId === 'kun' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
   return {
     contractVersion: 1,
     runtimeId,
-    transport: runtimeId === 'kun' ? 'http_sse' : 'jsonrpc_stdio',
+    transport,
     events: {
       live: true,
       replayable: true,
@@ -111,10 +114,10 @@ function capabilities(runtimeId: 'kun' | 'codex'): AgentRuntimeCapabilities {
   }
 }
 
-function fakeAdapter(id: 'kun' | 'codex', thread: AgentRuntimeThread): AgentRuntimeAdapter {
+function fakeAdapter(id: AgentRuntimeId, thread: AgentRuntimeThread): AgentRuntimeAdapter {
   return {
     id,
-    transport: id === 'kun' ? 'http_sse' : 'jsonrpc_stdio',
+    transport: id === 'kun' ? 'http_sse' : id === 'claude' ? 'cli_process' : 'jsonrpc_stdio',
     connect: vi.fn(async () => undefined),
     capabilities: vi.fn(async () => capabilities(id)),
     listThreads: vi.fn(async () => [thread]),
@@ -1030,6 +1033,47 @@ describe('createKunAgentRuntimeAdapter', () => {
     expect(seen.map((entry) => [entry.path, entry.init.method])).toEqual([
       ['/v1/usage?group_by=thread', 'GET'],
       ['/v1/threads/thr-kun', 'GET']
+    ])
+  })
+
+  it('keeps Kun usage available when cache stat hydration misses a stale thread', async () => {
+    const seen: Array<{ path: string; init: { method?: string; body?: string } }> = []
+    const adapter = createKunAgentRuntimeAdapter({
+      request: async (_settings, path, init) => {
+        seen.push({ path, init })
+        if (path.startsWith('/v1/usage?')) {
+          return json({
+            group_by: 'thread',
+            buckets: [{
+              thread_id: 'stale-thread',
+              input_tokens: 100,
+              output_tokens: 20,
+              total_tokens: 120
+            }],
+            totals: { total_tokens: 120 }
+          })
+        }
+        if (path === '/v1/threads/stale-thread') {
+          return json({ code: 'not_found', message: 'thread not found: stale-thread' }, 404)
+        }
+        return json({}, 404)
+      }
+    })
+
+    await expect(adapter.usage({ settings: settings('kun') }, {
+      groupBy: 'thread',
+      threadId: 'stale-thread'
+    })).resolves.toMatchObject({
+      supported: true,
+      groupBy: 'thread',
+      buckets: [{
+        threadId: 'stale-thread',
+        totalTokens: 120
+      }]
+    })
+    expect(seen.map((entry) => [entry.path, entry.init.method])).toEqual([
+      ['/v1/usage?group_by=thread', 'GET'],
+      ['/v1/threads/stale-thread', 'GET']
     ])
   })
 

@@ -13,6 +13,7 @@ import { configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
 import {
   applyCodexRuntimePatch,
+  applyClaudeRuntimePatch,
   applyKunRuntimePatch,
   kunSettingsEnvelope,
   getKunRuntimeSettings,
@@ -47,6 +48,10 @@ import {
 import { createAgentRuntimeHost } from './runtime/agent-runtime/host'
 import { createKunAgentRuntimeAdapter } from './runtime/kun-agent-runtime-adapter'
 import { createCodexAgentRuntimeAdapter } from './runtime/codex/codex-agent-runtime-adapter'
+import {
+  ClaudeCodeRuntimeService,
+  createClaudeCodeAgentRuntimeAdapter
+} from './runtime/claude-code'
 import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
@@ -185,6 +190,7 @@ let clawRuntime: ClawRuntime | null = null
 let discordBotRuntime: DiscordBotRuntime | null = null
 let scheduleRuntime: ScheduleRuntime | null = null
 let codexRuntime: CodexRuntimeService | null = null
+let claudeCodeRuntime: ClaudeCodeRuntimeService | null = null
 let managedRuntimesStoppedForQuit = false
 let managedRuntimesStopPromise: Promise<void> | null = null
 type RuntimeIdleListThreads = NonNullable<Parameters<typeof waitForRuntimeTurnsIdle>[0]['listThreads']>
@@ -243,6 +249,18 @@ function getCodexRuntime(): CodexRuntimeService {
   return codexRuntime
 }
 
+function getClaudeCodeRuntime(): ClaudeCodeRuntimeService {
+  if (claudeCodeRuntime) return claudeCodeRuntime
+  claudeCodeRuntime = new ClaudeCodeRuntimeService({
+    settings: async () => store.load(),
+    storageRoot: join(app.getPath('userData'), 'claude-code-runtime'),
+    managedConfigDir: app.isPackaged
+      ? join(app.getPath('userData'), 'runtime-claude-code', 'config')
+      : join(process.cwd(), '.claude-code-runtime', 'config')
+  })
+  return claudeCodeRuntime
+}
+
 function scheduleCodexRuntimePrewarm(settings: AppSettingsV1, reason: 'startup' | 'settings-switch'): void {
   if (getActiveAgentRuntime(settings) !== 'codex') return
   if (codexRuntimePrewarmTimer) {
@@ -297,6 +315,7 @@ async function stopManagedRuntimes(): Promise<void> {
       clawRuntime?.stop()
       await stopModelRouterSidecar()
       stopWeixinBridgeRuntime()
+      await claudeCodeRuntime?.stop()
       await codexRuntime?.stop()
       await kunRuntimeAdapter.stopAndWait()
       publishRuntimeStatus({ state: 'stopped', source: 'app-shutdown' })
@@ -411,6 +430,7 @@ function shouldStartHidden(settings: AppSettingsV1): boolean {
 function syncLoginItemSettings(settings: AppSettingsV1): void {
   if (process.platform !== 'win32' && process.platform !== 'darwin') return
   const behavior = settings.appBehavior
+  if (process.platform === 'darwin' && !app.isPackaged && !behavior.openAtLogin) return
   try {
     app.setLoginItemSettings({
       openAtLogin: behavior.openAtLogin,
@@ -1294,7 +1314,8 @@ app.whenReady().then(async () => {
           kunHttpRequestViaHost(settings, pathAndQuery, init, ensureRuntime),
         events: kunRuntimeEvents
       }),
-      createCodexAgentRuntimeAdapter(getCodexRuntime())
+      createCodexAgentRuntimeAdapter(getCodexRuntime()),
+      createClaudeCodeAgentRuntimeAdapter(getClaudeCodeRuntime())
     ]
   })
   runtimeIdleListThreads = (input) => agentRuntimeHost.listThreads(input)
@@ -1353,7 +1374,10 @@ app.whenReady().then(async () => {
     const prev = await store.load()
     const { agents: agentsPatch, provider: providerPatch, speechToText: speechToTextPatch, ...restPatch } = partial
     const next = normalizeAppSettings({
-      ...applyCodexRuntimePatch(applyKunRuntimePatch(prev, agentsPatch?.kun), agentsPatch?.codex),
+      ...applyClaudeRuntimePatch(
+        applyCodexRuntimePatch(applyKunRuntimePatch(prev, agentsPatch?.kun), agentsPatch?.codex),
+        agentsPatch?.claude
+      ),
       ...restPatch,
       provider: mergeModelProviderSettings(prev.provider, providerPatch),
       log: { ...prev.log, ...(partial.log ?? {}) },

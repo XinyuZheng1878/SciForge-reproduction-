@@ -227,7 +227,7 @@ describe('app-ipc-schemas', () => {
   it('accepts a valid settings patch for kun and write settings', () => {
     const payload = settingsPatchSchema.parse({
       theme: 'dark',
-      activeAgentRuntime: 'codex',
+      activeAgentRuntime: 'claude',
       agents: {
         kun: {
           port: 9000,
@@ -245,6 +245,13 @@ describe('app-ipc-schemas', () => {
           codexHome: '/tmp/codex-home',
           approvalPolicy: 'never',
           sandboxMode: 'workspace-write'
+        },
+        claude: {
+          command: 'claude',
+          configDir: '/tmp/claude-code',
+          approvalPolicy: 'auto',
+          sandboxMode: 'workspace-write',
+          extraArgs: ['--allowedTools', 'Edit']
         }
       },
       write: {
@@ -258,8 +265,9 @@ describe('app-ipc-schemas', () => {
     expect(payload.agents?.kun?.port).toBe(9000)
     expect(payload.agents?.kun?.tokenEconomy?.enabled).toBe(true)
     expect(payload.agents?.kun?.tokenEconomy?.historyHygiene?.maxToolResultTokens).toBe(4000)
-    expect(payload.activeAgentRuntime).toBe('codex')
+    expect(payload.activeAgentRuntime).toBe('claude')
     expect(payload.agents?.codex?.codexHome).toBe('/tmp/codex-home')
+    expect(payload.agents?.claude?.configDir).toBe('/tmp/claude-code')
     expect(payload.write?.inlineCompletion?.model).toBe('deepseek-v4-pro')
   })
 

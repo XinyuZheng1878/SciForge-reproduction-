@@ -18,6 +18,7 @@ import {
   type KunSettingsEnvelopePatchV1,
   type KunSettingsEnvelopeV1,
   type CodexRuntimeSettingsPatchV1,
+  type ClaudeRuntimeSettingsPatchV1,
   type KunStorageSettingsV1,
   type KunTokenEconomySettingsV1,
   type ModelProviderSettingsV1,
@@ -32,6 +33,10 @@ import {
   defaultCodexRuntimeSettings,
   mergeCodexRuntimeSettings
 } from './app-settings-codex'
+import {
+  defaultClaudeRuntimeSettings,
+  mergeClaudeRuntimeSettings
+} from './app-settings-claude'
 
 const LEGACY_COREAGENT_DATA_DIR = '~/.deepseekgui/coreagent'
 const LEGACY_KUN_DEFAULT_MODEL = 'deepseek-chat'
@@ -506,6 +511,10 @@ export function mergeAgentRuntimeSettings(
     codex: mergeCodexRuntimeSettings(
       defaults.codex ?? defaultCodexRuntimeSettings(),
       patch?.codex
+    ),
+    claude: mergeClaudeRuntimeSettings(
+      defaults.claude ?? defaultClaudeRuntimeSettings(),
+      patch?.claude
     )
   }
 }
@@ -513,6 +522,7 @@ export function mergeAgentRuntimeSettings(
 type LegacyAgentsSettingsShape = {
   kun?: Partial<KunRuntimeSettingsV1>
   codex?: CodexRuntimeSettingsPatchV1
+  claude?: ClaudeRuntimeSettingsPatchV1
   codewhale?: Partial<LegacyLocalHttpRuntimeSettingsV1>
   reasonix?: Partial<LegacyReasoningRuntimeSettingsV1>
 }
@@ -628,7 +638,8 @@ export function migrateLegacyAppSettings(parsed: LegacyAppSettingsShape): Partia
     provider,
     agents: {
       kun,
-      codex: mergeCodexRuntimeSettings(defaultCodexRuntimeSettings(), parsed.agents?.codex)
+      codex: mergeCodexRuntimeSettings(defaultCodexRuntimeSettings(), parsed.agents?.codex),
+      claude: mergeClaudeRuntimeSettings(defaultClaudeRuntimeSettings(), parsed.agents?.claude)
     }
   }
 }

@@ -311,15 +311,21 @@ async function kunAuxiliary(
     }
     case 'listMemories': {
       const optionsPayload = asRecord(payload.options) ?? payload
-      const result = await requestJson(
-        options,
-        context,
-        `${KUN_MEMORY_PATH}${queryString({
-          workspace: optionalString(optionsPayload.workspace),
-          include_deleted: booleanOrUndefined(optionsPayload.includeDeleted)
-        })}`,
-        { method: 'GET' }
-      )
+      let result: unknown
+      try {
+        result = await requestJson(
+          options,
+          context,
+          `${KUN_MEMORY_PATH}${queryString({
+            workspace: optionalString(optionsPayload.workspace),
+            include_deleted: booleanOrUndefined(optionsPayload.includeDeleted)
+          })}`,
+          { method: 'GET' }
+        )
+      } catch (error) {
+        if (isKunCapabilityUnavailableError(error, 'memory store is unavailable')) return []
+        throw error
+      }
       return arrayValue(asRecord(result)?.memories)
     }
     case 'updateMemory': {
@@ -444,6 +450,12 @@ function kunHttpError(response: KunAgentRuntimeHttpResult): Error {
   const error = new Error(message)
   error.name = stringValue(body?.code) || 'KunRuntimeHttpError'
   return error
+}
+
+function isKunCapabilityUnavailableError(error: unknown, message: string): boolean {
+  return error instanceof Error &&
+    error.name === 'capability_unavailable' &&
+    error.message.toLowerCase().includes(message.toLowerCase())
 }
 
 function missingPayload(operation: string, key: string): Error {
@@ -1092,7 +1104,13 @@ async function hydrateThreadCacheStats(
   threadId: string,
   response: Extract<AgentRuntimeUsageResponse, { supported: true }>
 ): Promise<void> {
-  const payload = await requestJson(options, context, kunThreadPath(threadId), { method: 'GET' })
+  let payload: unknown
+  try {
+    payload = await requestJson(options, context, kunThreadPath(threadId), { method: 'GET' })
+  } catch (error) {
+    if (isKunNotFoundError(error)) return
+    throw error
+  }
   const stats = threadCacheStats(payload)
   if (!stats) return
   const bucket = response.buckets.find((item) => {
@@ -1104,6 +1122,10 @@ async function hydrateThreadCacheStats(
   bucket.cachedTokens = stats.hitTokens
   bucket.cacheMissTokens = stats.missTokens
   bucket.cacheHitRate = cacheTotal > 0 ? stats.hitTokens / cacheTotal : null
+}
+
+function isKunNotFoundError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'not_found'
 }
 
 function threadCacheStats(value: unknown): { hitTokens: number; missTokens: number } | null {

@@ -15,6 +15,10 @@ import { getProvider, resetProviderCacheForTests } from './registry'
 import { rendererRuntimeClient } from './runtime-client'
 import { createDefaultAgentRuntimeCapabilities } from '@shared/agent-runtime-contract'
 
+function transportForRuntime(runtimeId: AgentRuntimeId): 'http_sse' | 'jsonrpc_stdio' | 'cli_process' {
+  return runtimeId === 'kun' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
+}
+
 function settings(activeAgentRuntime: AgentRuntimeId): AppSettingsV1 {
   return {
     version: 1,
@@ -104,7 +108,7 @@ function installDsGui(activeAgentRuntime: AgentRuntimeId): {
         connect: vi.fn(async () => undefined),
         capabilities: vi.fn(async () => createDefaultAgentRuntimeCapabilities({
           runtimeId: activeAgentRuntime,
-          transport: activeAgentRuntime === 'kun' ? 'http_sse' : 'jsonrpc_stdio'
+          transport: transportForRuntime(activeAgentRuntime)
         })),
         readThread: agentRuntimeReadThread,
         resolveApproval: agentRuntimeResolveApproval,

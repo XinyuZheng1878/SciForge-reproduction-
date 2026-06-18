@@ -38,6 +38,7 @@ export function defaultCodexRuntimeSettings(): CodexRuntimeSettingsV1 {
 }
 
 export function normalizeAgentRuntimeId(value: unknown): AgentRuntimeId {
+  if (value === 'claude') return 'claude'
   return value === 'codex' ? 'codex' : 'kun'
 }
 

@@ -158,6 +158,11 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
           return codexToolDiagnostics()
         case 'listSkills':
           return []
+        case 'listMemories':
+          return []
+        case 'updateMemory':
+        case 'deleteMemory':
+          throw new Error('Codex runtime does not support memory operations.')
         case 'archiveThread': {
           const payload = recordValue(input.payload)
           const threadId = stringValue(payload.threadId)

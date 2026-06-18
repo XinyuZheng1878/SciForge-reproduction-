@@ -25,6 +25,11 @@ import {
   mergeCodexRuntimeSettings,
   normalizeAgentRuntimeId
 } from './app-settings-codex'
+import {
+  defaultClaudeRuntimeSettings,
+  getClaudeRuntimeSettings,
+  mergeClaudeRuntimeSettings
+} from './app-settings-claude'
 import { normalizeModelProviderSettings } from './app-settings-provider'
 import { normalizeModelRouterSettings } from './app-settings-model-router'
 import { normalizeDeepseekBaseUrl, normalizeInstallationId } from './app-settings-normalizers'
@@ -54,6 +59,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
   }
   const runtime = getKunRuntimeSettings(maybeSettings)
   const codexRuntime = getCodexRuntimeSettings(maybeSettings)
+  const claudeRuntime = getClaudeRuntimeSettings(maybeSettings)
   return {
     ...migrated,
     version: 1,
@@ -81,7 +87,8 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
         ...runtime,
         baseUrl: runtime.baseUrl.trim() ? normalizeDeepseekBaseUrl(runtime.baseUrl) : ''
       })),
-      codex: mergeCodexRuntimeSettings(defaultCodexRuntimeSettings(), codexRuntime)
+      codex: mergeCodexRuntimeSettings(defaultCodexRuntimeSettings(), codexRuntime),
+      claude: mergeClaudeRuntimeSettings(defaultClaudeRuntimeSettings(), claudeRuntime)
     },
     workspaceRoot: typeof maybeSettings.workspaceRoot === 'string' ? maybeSettings.workspaceRoot : '',
     log: {

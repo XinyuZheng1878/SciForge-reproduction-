@@ -1,6 +1,6 @@
-export type AgentRuntimeId = 'kun' | 'codex'
+export type AgentRuntimeId = 'kun' | 'codex' | 'claude'
 
-export type AgentRuntimeTransport = 'http_sse' | 'jsonrpc_stdio'
+export type AgentRuntimeTransport = 'http_sse' | 'jsonrpc_stdio' | 'cli_process'
 
 export type AgentRuntimeEventDelivery = 'sse' | 'ipc' | 'async_iterable'
 

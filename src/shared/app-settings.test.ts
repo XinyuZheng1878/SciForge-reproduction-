@@ -6,6 +6,7 @@ import {
   kunSettingsEnvelope,
   kunSettingsPatch,
   DEFAULT_CODEX_DATA_DIR,
+  DEFAULT_CLAUDE_CONFIG_DIR,
   DEFAULT_KUN_DATA_DIR,
   DEFAULT_KUN_MODEL,
   DEFAULT_APPROVAL_POLICY,
@@ -23,6 +24,7 @@ import {
   mergeScheduleSettings,
   mergeSpeechToTextSettings,
   defaultCodexRuntimeSettings,
+  defaultClaudeRuntimeSettings,
   defaultKunRuntimeSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -30,6 +32,7 @@ import {
   getActiveAgentRuntime,
   getActiveAgentApiKey,
   getCodexRuntimeSettings,
+  getClaudeRuntimeSettings,
   isKunRuntimeInsecure,
   mergeClawSettings,
   migrateLegacyAppSettings,
@@ -783,6 +786,29 @@ describe('agent runtime settings', () => {
     } as unknown as AppSettingsV1)
 
     expect(getActiveAgentRuntime(normalized)).toBe('kun')
+  })
+
+  it('preserves Claude Code as an active runtime with default settings', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      activeAgentRuntime: 'claude',
+      agents: {
+        kun: defaultKunRuntimeSettings(),
+        codex: defaultCodexRuntimeSettings(),
+        claude: {
+          ...defaultClaudeRuntimeSettings(),
+          command: 'claude',
+          configDir: DEFAULT_CLAUDE_CONFIG_DIR
+        }
+      }
+    })
+
+    expect(getActiveAgentRuntime(normalized)).toBe('claude')
+    expect(getClaudeRuntimeSettings(normalized)).toEqual(expect.objectContaining({
+      command: 'claude',
+      configDir: DEFAULT_CLAUDE_CONFIG_DIR,
+      sandboxMode: 'workspace-write'
+    }))
   })
 
   it('does not require a Kun API key when Codex is the active runtime', () => {

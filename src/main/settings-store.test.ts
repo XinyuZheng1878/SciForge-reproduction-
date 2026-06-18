@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_APPROVAL_POLICY,
   DEFAULT_CODEX_DATA_DIR,
+  DEFAULT_CLAUDE_CONFIG_DIR,
   defaultCodexRuntimeSettings,
+  getClaudeRuntimeSettings,
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
   defaultSpeechToTextSettings,
@@ -25,12 +27,38 @@ describe('JsonSettingsStore', () => {
     expect(loaded.activeAgentRuntime).toBe('kun')
     expect(loaded.agents.kun.approvalPolicy).toBe(DEFAULT_APPROVAL_POLICY)
     expect(getCodexRuntimeSettings(loaded).codexHome).toBe(DEFAULT_CODEX_DATA_DIR)
+    expect(getClaudeRuntimeSettings(loaded).configDir).toBe(DEFAULT_CLAUDE_CONFIG_DIR)
     expect(loaded.appBehavior).toEqual({
       openAtLogin: false,
       startMinimized: false,
       closeToTray: false
     })
     expect(loaded.speechToText).toEqual(defaultSpeechToTextSettings())
+  })
+
+  it('patches the active runtime and Claude Code settings without changing Kun', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+
+    const store = new JsonSettingsStore(userDataDir)
+    const loaded = await store.load()
+    const next = await store.patch({
+      activeAgentRuntime: 'claude',
+      agents: {
+        claude: {
+          command: 'claude',
+          configDir: '/tmp/ds-gui-claude',
+          approvalPolicy: 'auto'
+        }
+      }
+    })
+
+    expect(next.activeAgentRuntime).toBe('claude')
+    expect(next.agents.kun).toEqual(loaded.agents.kun)
+    expect(getClaudeRuntimeSettings(next)).toEqual(expect.objectContaining({
+      command: 'claude',
+      configDir: '/tmp/ds-gui-claude',
+      approvalPolicy: 'auto'
+    }))
   })
 
   it('patches the active runtime and Codex settings without changing Kun', async () => {
