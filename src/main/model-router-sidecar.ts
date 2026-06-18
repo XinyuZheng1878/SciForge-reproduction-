@@ -107,7 +107,8 @@ export function buildModelRouterSidecarLaunch(
         '--quiet'
       ],
       env,
-      configPath
+      configPath,
+      config: defaultModelRouterSidecarConfig(settings, options.userDataDir)
     }
   }
 }
@@ -174,7 +175,7 @@ export async function ensureModelRouterSidecar(
     options.log?.(postStopLaunch.reason)
     return
   }
-  await ensureModelRouterConfigFile(settings, { userDataDir: options.userDataDir })
+  await writeManagedModelRouterConfigFile(settings, { userDataDir: options.userDataDir })
   const spawnImpl = options.spawnImpl ?? spawn
   options.log?.(`Starting Model Router sidecar from ${postStopLaunch.launch.cwd}.`)
   modelRouterChild = spawnImpl(postStopLaunch.launch.command, postStopLaunch.launch.args, {
@@ -259,10 +260,22 @@ function modelRouterManagedLaunchSignature(launch: ModelRouterSidecarLaunch): st
     command: launch.command,
     args: launch.args,
     cwd: launch.cwd,
+    config: launch.config,
     runtimeApiKey: launch.env[ROUTER_RUNTIME_KEY_ENV] ?? '',
     textReasonerApiKey: launch.env[TEXT_REASONER_KEY_ENV] ?? '',
     visionTranslatorApiKey: launch.env[VISION_TRANSLATOR_KEY_ENV] ?? ''
   })
+}
+
+async function writeManagedModelRouterConfigFile(
+  settings: AppSettingsV1,
+  options: { userDataDir: string }
+): Promise<{ path: string }> {
+  const path = modelRouterConfigPath(options.userDataDir)
+  await mkdir(join(options.userDataDir, 'model-router'), { recursive: true })
+  const config = defaultModelRouterSidecarConfig(settings, options.userDataDir)
+  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8' })
+  return { path }
 }
 
 function providerConfig(

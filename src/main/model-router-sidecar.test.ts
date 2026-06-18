@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -102,7 +102,14 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
     expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY).toBe('text-secret')
     expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_VISION_API_KEY).toBe('vision-secret')
-    expect(result.launch.config).toBeUndefined()
+    expect(result.launch.config?.profiles.default.textReasoner).toEqual({
+      provider: 'openai-compatible',
+      baseUrl: 'http://127.0.0.1:3892/v1',
+      apiKeyEnv: 'DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY',
+      model: 'deepseek-v4-pro'
+    })
+    expect(JSON.stringify(result.launch.config)).not.toContain('text-secret')
+    expect(JSON.stringify(result.launch.config)).not.toContain('vision-secret')
   })
 
   it('builds a launch when the text reasoner member is incomplete in UI settings', () => {
@@ -141,7 +148,7 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.launch.configPath).toBe('/tmp/deepseek-gui-user-data/model-router/config.json')
-    expect(result.launch.config).toBeUndefined()
+    expect(result.launch.config?.profiles.default.textReasoner.apiKeyEnv).toBe('DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY')
     expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY).toBe('')
     expect(result.launch.args).toContain('/tmp/deepseek-gui-user-data/model-router/config.json')
   })
@@ -205,6 +212,91 @@ describe('buildModelRouterSidecarLaunch', () => {
       expect(log).toHaveBeenCalledWith('Starting Model Router sidecar from /repo/deepseek-gui.')
       expect(log).toHaveBeenCalledWith('Model Router sidecar stderr: router boot failed')
       expect(log).toHaveBeenCalledWith('Model Router sidecar exited unexpectedly (code=1, signal=null).')
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true })
+    }
+  })
+
+  it('rewrites the managed config before spawning the sidecar', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-router-sidecar-config-'))
+    const current = settings()
+    current.modelRouter!.baseUrl = 'http://127.0.0.1:45990/v1'
+    current.modelRouter!.profiles.default.textReasoner = {
+      provider: 'openai-compatible',
+      baseUrl: '',
+      apiKey: '',
+      model: ''
+    }
+    current.provider.apiKey = 'provider-secret'
+    current.provider.baseUrl = 'http://127.0.0.1:48767/v1'
+    current.agents.kun.model = 'deepseek-v4-pro'
+    const child = fakeChildProcess()
+    const spawnImpl = vi.fn(() => child) as unknown as typeof spawn
+
+    try {
+      await mkdir(join(userDataDir, 'model-router'), { recursive: true })
+      await writeFile(modelRouterConfigPath(userDataDir), '{"publicModelAlias":"stale-router"}\n', 'utf8')
+
+      await ensureModelRouterSidecar(current, {
+        userDataDir,
+        appRoot: '/repo/deepseek-gui',
+        env: {},
+        spawnImpl
+      })
+
+      const content = await readFile(modelRouterConfigPath(userDataDir), 'utf8')
+      const parsed = JSON.parse(content)
+      expect(parsed.publicModelAlias).toBe('deepseek-gui-router')
+      expect(parsed.profiles.default.textReasoner.baseUrl).toBe('http://127.0.0.1:48767/v1')
+      expect(parsed.profiles.default.textReasoner.model).toBe('deepseek-v4-pro')
+      expect(content).toContain('"apiKeyEnv": "DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY"')
+      expect(content).not.toContain('provider-secret')
+      expect(spawnImpl).toHaveBeenCalledTimes(1)
+      child.emit('exit', 0, null)
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true })
+    }
+  })
+
+  it('restarts a managed sidecar when the derived router config changes', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-router-sidecar-config-restart-'))
+    const firstChild = fakeChildProcess()
+    const secondChild = fakeChildProcess()
+    const children = [firstChild, secondChild]
+    const spawnImpl = vi.fn(() => children.shift() ?? fakeChildProcess()) as unknown as typeof spawn
+    const log = vi.fn()
+
+    try {
+      const firstSettings = settings()
+      firstSettings.modelRouter!.baseUrl = 'http://127.0.0.1:45991/v1'
+      firstSettings.provider.baseUrl = 'http://127.0.0.1:48767/v1'
+      firstSettings.modelRouter!.profiles.default.textReasoner.baseUrl = ''
+
+      await ensureModelRouterSidecar(firstSettings, {
+        userDataDir,
+        appRoot: '/repo/deepseek-gui',
+        env: {},
+        spawnImpl,
+        log
+      })
+
+      const secondSettings = settings()
+      secondSettings.modelRouter!.baseUrl = 'http://127.0.0.1:45991/v1'
+      secondSettings.provider.baseUrl = 'http://127.0.0.1:48768/v1'
+      secondSettings.modelRouter!.profiles.default.textReasoner.baseUrl = ''
+
+      await ensureModelRouterSidecar(secondSettings, {
+        userDataDir,
+        appRoot: '/repo/deepseek-gui',
+        env: {},
+        spawnImpl,
+        log
+      })
+
+      expect(spawnImpl).toHaveBeenCalledTimes(2)
+      expect(firstChild.kill).toHaveBeenCalledWith('SIGTERM')
+      expect(log).toHaveBeenCalledWith('Model Router sidecar launch settings changed; restarting sidecar.')
+      secondChild.emit('exit', 0, null)
     } finally {
       await rm(userDataDir, { recursive: true, force: true })
     }
