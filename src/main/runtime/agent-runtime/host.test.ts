@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
@@ -183,6 +183,11 @@ function commandToolEvent(command: string, index: number): AgentRuntimeEvent {
 }
 
 describe('AgentRuntimeHost', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  })
+
   it('selects the active adapter and allows explicit runtime overrides', async () => {
     const kunThread = {
       id: 'kun-thread',
@@ -256,6 +261,79 @@ describe('AgentRuntimeHost', () => {
 
     expect(events).toEqual([{ kind: 'heartbeat', threadId: 'kun-thread', runtimeId: 'kun', seq: 4 }])
     expect(kun.subscribeEvents).toHaveBeenCalled()
+  })
+
+  it('feeds completed turns from the neutral runtime event path into Evidence DAG', async () => {
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:3897/')
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const claude = fakeAdapter('claude', {
+      id: 'claude-thread',
+      runtimeId: 'claude',
+      title: 'Claude',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(claude.readThread).mockResolvedValue({
+      id: 'claude-thread',
+      runtimeId: 'claude',
+      title: 'Claude',
+      updatedAt: '2026-06-10T00:00:00.000Z',
+      latestSeq: 2,
+      turns: [{
+        id: 'turn-1',
+        threadId: 'claude-thread',
+        status: 'completed',
+        items: [
+          { id: 'u1', turnId: 'turn-1', kind: 'user_message', text: 'question' },
+          { id: 'a1', turnId: 'turn-1', kind: 'assistant_message', text: 'answer' }
+        ]
+      }]
+    })
+    vi.mocked(claude.subscribeEvents).mockImplementation(async function* () {
+      yield {
+        kind: 'turn_lifecycle',
+        runtimeId: 'claude',
+        threadId: 'claude-thread',
+        turnId: 'turn-1',
+        state: 'completed',
+        seq: 2
+      } satisfies AgentRuntimeEvent
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('claude'),
+      adapters: [claude]
+    })
+
+    const events: AgentRuntimeEvent[] = []
+    for await (const event of host.subscribeEvents({
+      runtimeId: 'claude',
+      threadId: 'claude-thread',
+      sinceSeq: 0
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toHaveLength(1)
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+    expect(claude.readThread).toHaveBeenCalledWith(
+      expect.anything(),
+      { runtimeId: 'claude', threadId: 'claude-thread' }
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:3897/threads/claude%3Aclaude-thread/ingest-trace',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          trace: [
+            { id: 'u1', type: 'message', role: 'user', content: 'question' },
+            { id: 'a1', type: 'message', role: 'assistant', content: 'answer' }
+          ],
+          merge: true
+        })
+      })
+    )
   })
 
   it('observes repeated tool activity and escalates Codex guard controls', async () => {

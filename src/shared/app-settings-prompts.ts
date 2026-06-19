@@ -182,7 +182,9 @@ export function normalizeClawImLastFailure(input: unknown, fallbackProvider: Cla
     ...(chatId ? { chatId } : {}),
     ...(remoteThreadId ? { remoteThreadId } : {}),
     ...(threadId ? { threadId } : {}),
-    ...(raw.runtimeId === 'codex' || raw.runtimeId === 'kun' ? { runtimeId: raw.runtimeId } : {}),
+    ...(raw.runtimeId === 'codex' || raw.runtimeId === 'claude' || raw.runtimeId === 'kun'
+      ? { runtimeId: raw.runtimeId }
+      : {}),
     occurredAt: typeof raw.occurredAt === 'string' && raw.occurredAt ? raw.occurredAt : now
   }
 }

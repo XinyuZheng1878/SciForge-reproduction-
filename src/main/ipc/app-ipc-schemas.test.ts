@@ -12,6 +12,7 @@ import {
   agentRuntimeUserInputResolvePayloadSchema,
   agentRuntimeStartTurnPayloadSchema,
   clawImInstallPollPayloadSchema,
+  evidenceDagOpenPayloadSchema,
   isSafeOpenExternalUrl,
   scheduleTaskFromTextPayloadSchema,
   settingsPatchSchema,
@@ -58,6 +59,16 @@ describe('app-ipc-schemas', () => {
         text: ' '
       })
     ).toThrow()
+  })
+
+  it('accepts Evidence DAG open payloads for Claude runtime threads', () => {
+    expect(evidenceDagOpenPayloadSchema.parse({
+      runtimeId: 'claude',
+      threadId: ' thread-1 '
+    })).toEqual({
+      runtimeId: 'claude',
+      threadId: 'thread-1'
+    })
   })
 
   it('accepts neutral agent runtime event subscription and control payloads', () => {

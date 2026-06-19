@@ -58,6 +58,7 @@ import {
   deepseekConfigContentSchema,
   desktopCommandSchema,
   defaultPathSchema,
+  evidenceDagOpenPayloadSchema,
   gitBranchPayloadSchema,
   guiUpdateChannelSchema,
   logErrorPayloadSchema,
@@ -150,6 +151,10 @@ import { retrieveWriteContext } from '../services/write-retrieval-service'
 import { requestSpeechTranscription } from '../services/speech-to-text-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { listGuiSkills } from '../services/skill-service'
+import {
+  evidenceDagServiceUrlFromEnv,
+  evidenceDagUiUrl
+} from '../../shared/evidence-dag'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -1153,6 +1158,14 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   handleInvoke('shell:open-external', async (_, url: unknown) => {
     const validatedUrl = parseIpcPayload('shell:open-external', shellOpenExternalUrlSchema, url)
     await shell.openExternal(validatedUrl)
+  })
+  handleInvoke('evidenceDag:open', async (_, payload: unknown) => {
+    const input = parseIpcPayload('evidenceDag:open', evidenceDagOpenPayloadSchema, payload)
+    await shell.openExternal(evidenceDagUiUrl({
+      runtimeId: input.runtimeId,
+      threadId: input.threadId,
+      serviceUrl: evidenceDagServiceUrlFromEnv(process.env)
+    }))
   })
   handleInvoke('notification:turn-complete', async (_, payload: unknown) =>
     showTurnCompleteNotification(

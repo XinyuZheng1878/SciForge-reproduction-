@@ -2133,6 +2133,15 @@ export function Workbench(): ReactElement {
                       runtimeCapabilities?.sideConversations !== false
                     }
                     onOpenSideChat={openSideChat}
+                    onOpenEvidenceDag={() => {
+                      const id = (activeThreadId ?? '').trim()
+                      if (id && typeof window.dsGui?.openEvidenceDag === 'function') {
+                        void window.dsGui.openEvidenceDag({
+                          threadId: id,
+                          runtimeId: activeThread?.runtimeId
+                        }).catch(() => undefined)
+                      }
+                    }}
                   />
                 </div>
               </div>

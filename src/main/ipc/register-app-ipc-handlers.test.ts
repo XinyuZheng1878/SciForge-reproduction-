@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { shell } from 'electron'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,7 +22,9 @@ vi.mock('electron', () => ({
     quit: vi.fn()
   },
   dialog: {},
-  shell: {},
+  shell: {
+    openExternal: vi.fn(async () => undefined)
+  },
   ipcMain: {
     handle: vi.fn((channel: string, handler: (event: unknown, payload?: unknown) => Promise<unknown>) => {
       handlers.set(channel, handler)
@@ -111,6 +114,8 @@ function waitForAbortStream(signal: AbortSignal): AsyncIterable<unknown> {
 describe('registerAppIpcHandlers', () => {
   beforeEach(() => {
     handlers.clear()
+    vi.mocked(shell.openExternal).mockClear()
+    vi.unstubAllEnvs()
   })
 
   it('rejects invalid settings patches at the handler boundary', async () => {
@@ -870,5 +875,21 @@ describe('registerAppIpcHandlers', () => {
     expect(webContents.setZoomLevel).toHaveBeenCalledWith(1)
     expect(mainWindow.maximize).toHaveBeenCalledTimes(1)
     expect(mainWindow.close).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens Evidence DAG with a runtime-scoped thread id from the main process environment', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:4897/')
+
+    registerAppIpcHandlers(registerOptions())
+
+    await expect(
+      handlers.get('evidenceDag:open')?.({}, {
+        runtimeId: 'claude',
+        threadId: ' thread-1 '
+      })
+    ).resolves.toBeUndefined()
+
+    expect(shell.openExternal).toHaveBeenCalledWith('http://127.0.0.1:4897/?thread=claude%3Athread-1')
   })
 })

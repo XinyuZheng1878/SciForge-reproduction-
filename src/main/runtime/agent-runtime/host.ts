@@ -36,6 +36,11 @@ import type {
   AgentRuntimeUserInputResolveInput
 } from './adapter'
 import { RuntimeGovernanceSupervisor, runtimeGuardSettings } from './governance'
+import {
+  completedTurnItems,
+  feedEvidenceDag,
+  isEvidenceDagFeedEnabled
+} from '../evidence-dag-feed'
 
 export type AgentRuntimeHostSettingsProvider = () => AppSettingsV1 | Promise<AppSettingsV1>
 
@@ -58,6 +63,7 @@ export class AgentRuntimeHost {
   private readonly turnQueues = new Map<string, Promise<unknown>>()
   private readonly turnGovernanceProfiles = new Map<string, AgentRuntimeGovernanceProfile>()
   private readonly governance = new RuntimeGovernanceSupervisor()
+  private readonly evidenceDagFedTurns = new Set<string>()
 
   constructor(private readonly options: AgentRuntimeHostOptions) {
     this.adapters = normalizeAdapters(options.adapters)
@@ -124,6 +130,7 @@ export class AgentRuntimeHost {
         interruptTurn: (payload) => this.interruptTurn(payload),
         publishSyntheticEvent: (payload) => this.publishSyntheticEvent(adapter, context, payload)
       })
+      this.feedEvidenceDagForCompletedTurn(adapter, context, event)
       yield event
     }
   }
@@ -256,6 +263,37 @@ export class AgentRuntimeHost {
     const turnId = event.turnId?.trim()
     if (!threadId || !turnId) return undefined
     return this.turnGovernanceProfiles.get(turnGovernanceKey(runtimeId, threadId, turnId))
+  }
+
+  private feedEvidenceDagForCompletedTurn(
+    adapter: AgentRuntimeAdapter,
+    context: AgentRuntimeAdapterContext,
+    event: AgentRuntimeEvent
+  ): void {
+    if (event.kind !== 'turn_lifecycle' || event.state !== 'completed') return
+    if (!isEvidenceDagFeedEnabled()) return
+    const threadId = event.threadId.trim()
+    const turnId = event.turnId?.trim()
+    if (!threadId || !turnId) return
+    const key = turnGovernanceKey(adapter.id, threadId, turnId)
+    if (this.evidenceDagFedTurns.has(key)) return
+    this.evidenceDagFedTurns.add(key)
+
+    void (async () => {
+      try {
+        const detail = await adapter.readThread(context, {
+          runtimeId: adapter.id,
+          threadId
+        })
+        await feedEvidenceDag({
+          runtimeId: adapter.id,
+          threadId,
+          items: completedTurnItems(detail, turnId)
+        })
+      } catch {
+        // fail-open: Evidence-DAG is an observability side channel.
+      }
+    })()
   }
 }
 
