@@ -19,7 +19,11 @@ import type {
   AgentRuntimeId,
   ClawModel
 } from '@shared/app-settings'
-import type { AgentRuntimeFileReference, AgentRuntimeGovernanceProfile } from '@shared/agent-runtime-contract'
+import type {
+  AgentRuntimeContextState,
+  AgentRuntimeFileReference,
+  AgentRuntimeGovernanceProfile
+} from '@shared/agent-runtime-contract'
 import type { ModelProviderModelGroup } from '@shared/ds-gui-api'
 
 export type QueuedUserMessage = {
@@ -143,6 +147,7 @@ export type ChatState = {
   activeThreadId: string | null
   activeThreadGoal: ThreadGoal | null
   activeThreadTodos: ThreadTodoList | null
+  activeThreadContextState: AgentRuntimeContextState | null
   blocks: ChatBlock[]
   liveReasoning: string
   liveAssistant: string
@@ -220,6 +225,7 @@ export type ChatState = {
   setShowArchivedThreads: (show: boolean) => void
   createThread: (options?: { workspaceRoot?: string; forceNew?: boolean }) => Promise<void>
   selectThread: (id: string) => Promise<void>
+  refreshActiveThreadContextState: (threadId?: string) => Promise<void>
   recoverActiveTurn: () => Promise<boolean>
   sendMessage: (text: string, mode?: string, overrides?: SendMessageOverrides) => Promise<boolean>
   reviewActiveThread: (target: ReviewTarget) => Promise<boolean>
@@ -264,7 +270,7 @@ export type ChatState = {
   promoteSideConversation: (sideId: string) => Promise<void>
   resumeSessionIntoThread: (
     sessionId: string,
-    options?: { model?: string; mode?: string }
+    options?: { model?: string; mode?: string; maxResumeCount?: number }
   ) => Promise<string | null>
   deleteThread: (threadId: string) => Promise<void>
   resolveApproval: (blockId: string, decision: 'allow' | 'deny') => Promise<void>

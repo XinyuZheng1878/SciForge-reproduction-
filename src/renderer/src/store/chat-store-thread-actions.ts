@@ -22,6 +22,7 @@ import {
 import { workspaceLabelFromPath } from '../lib/workspace-label'
 import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { buildClawRuntimePrompt, buildCodeRuntimePrompt, getActiveAgentApiKey } from '@shared/app-settings'
+import type { AgentRuntimeContextState, AgentRuntimeFileReference } from '@shared/agent-runtime-contract'
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import {
   activeClawChannel,
@@ -90,6 +91,56 @@ import {
 
 type SseAbortRef = { current: AbortController | null }
 
+function normalizeRuntimeFileReferencePath(value: string): string | null {
+  const normalized = value.trim().replaceAll('\\', '/').replace(/\/+/g, '/').replace(/^\.\//u, '')
+  if (!normalized || normalized === '.' || normalized === '..') return null
+  if (normalized.includes('\0')) return null
+  if (normalized.startsWith('/') || /^[A-Za-z]:\//u.test(normalized)) return null
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(normalized)) return null
+  const parts = normalized.split('/').filter((part) => part && part !== '.')
+  if (parts.length === 0 || parts.includes('..')) return null
+  return parts.join('/')
+}
+
+function fileNameFromRelativePath(relativePath: string): string {
+  return relativePath.split('/').filter(Boolean).pop() ?? relativePath
+}
+
+function normalizeRuntimeFileReferences(
+  references: AgentRuntimeFileReference[] | undefined
+): AgentRuntimeFileReference[] {
+  if (!references?.length) return []
+  const safeReferences: AgentRuntimeFileReference[] = []
+  for (const reference of references) {
+    const relativePath =
+      normalizeRuntimeFileReferencePath(reference.relativePath) ??
+      normalizeRuntimeFileReferencePath(reference.path)
+    if (!relativePath) continue
+    safeReferences.push({
+      path: relativePath,
+      relativePath,
+      name: reference.name.trim() || fileNameFromRelativePath(relativePath),
+      ...(reference.kind ? { kind: reference.kind } : {}),
+      ...(reference.mimeType ? { mimeType: reference.mimeType } : {}),
+      delivery: reference.delivery ?? (reference.modelRouterObject ? 'model_router_object' : 'inline_context'),
+      ...(reference.modelRouterObject ? { modelRouterObject: true } : {})
+    })
+  }
+  return safeReferences
+}
+
+async function readProviderContextState(
+  provider: AgentProvider,
+  threadId: string
+): Promise<AgentRuntimeContextState | null> {
+  if (typeof provider.getContextState !== 'function') return null
+  try {
+    return await provider.getContextState(threadId)
+  } catch {
+    return null
+  }
+}
+
 type StoreActionContext = {
   set: ChatStoreSet
   get: ChatStoreGet
@@ -149,8 +200,20 @@ function threadSnapshotHasTurnEvidence(
 
 export function createThreadActions(
   { set, get, sseAbortRef }: StoreActionContext
-): Pick<ChatState, 'createThread' | 'recoverActiveTurn' | 'selectThread' | 'drainQueuedMessages' | 'removeQueuedMessage' | 'sendMessage' | 'reviewActiveThread'> {
+): Pick<ChatState, 'createThread' | 'refreshActiveThreadContextState' | 'recoverActiveTurn' | 'selectThread' | 'drainQueuedMessages' | 'removeQueuedMessage' | 'sendMessage' | 'reviewActiveThread'> {
   return {
+  refreshActiveThreadContextState: async (threadId) => {
+    const targetThreadId = threadId?.trim() || get().activeThreadId
+    if (!targetThreadId) {
+      set({ activeThreadContextState: null })
+      return
+    }
+    const p = getProvider()
+    const contextState = await readProviderContextState(p, targetThreadId)
+    if (get().activeThreadId !== targetThreadId) return
+    set({ activeThreadContextState: contextState })
+  },
+
   createThread: async (options = {}) => {
     if (get().runtimeConnection !== 'ready') {
       set({ error: i18n.t('common:runtimeActionNeedsConnection') })
@@ -237,6 +300,7 @@ export function createThreadActions(
         goal,
         todos
       } = await p.getThreadDetail(activeThreadId)
+      const contextState = await readProviderContextState(p, activeThreadId)
       if (get().activeThreadId !== activeThreadId) {
         if (get().error === runtimeStreamRecoveringMessage()) {
           set({ error: null })
@@ -255,6 +319,7 @@ export function createThreadActions(
         activeThreadId,
         activeThreadGoal: goal ?? null,
         activeThreadTodos: todos ?? null,
+        activeThreadContextState: contextState,
         blocks,
         lastSeq: latestSeq,
         liveReasoning: '',
@@ -328,6 +393,7 @@ export function createThreadActions(
         goal,
         todos
       } = await p.getThreadDetail(id)
+      const contextState = await readProviderContextState(p, id)
       const blocks = hydrateBlockModelLabels(id, rawBlocks)
       const busy = threadSnapshotHasTurnEvidence(blocks, latestTurnId, latestUserMessageId) &&
         threadSnapshotLooksRunning(blocks, threadStatus)
@@ -341,6 +407,7 @@ export function createThreadActions(
         activeRemoteChannelId: null,
         activeThreadGoal: goal ?? null,
         activeThreadTodos: todos ?? null,
+        activeThreadContextState: contextState,
         blocks,
         lastSeq: latestSeq,
         liveReasoning: '',
@@ -461,7 +528,7 @@ export function createThreadActions(
       const reasoningEffort = overrides?.reasoningEffort?.trim()
       const attachmentIds = overrides?.attachmentIds?.filter((id) => id.trim().length > 0)
       const attachments = overrides?.attachments?.filter((attachment) => attachment.id.trim().length > 0)
-      const fileReferences = overrides?.fileReferences?.filter((reference) => reference.relativePath.trim().length > 0)
+      const fileReferences = normalizeRuntimeFileReferences(overrides?.fileReferences)
       set((s) => ({
         queuedMessages: [
           ...s.queuedMessages,
@@ -504,10 +571,9 @@ export function createThreadActions(
       queued?.attachments ??
       overrides?.attachments?.filter((attachment) => attachment.id.trim().length > 0) ??
       []
-    const fileReferences =
-      queued?.fileReferences ??
-      overrides?.fileReferences?.filter((reference) => reference.relativePath.trim().length > 0) ??
-      []
+    const fileReferences = normalizeRuntimeFileReferences(
+      queued?.fileReferences ?? overrides?.fileReferences
+    )
     let activeThreadId = targetThreadId || get().activeThreadId
     const displayText = queued?.displayText ?? overrides?.displayText?.trim() ?? trimmedText
     const userDisplayText = displayText !== trimmedText ? displayText : undefined

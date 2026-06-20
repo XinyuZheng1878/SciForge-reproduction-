@@ -90,8 +90,8 @@ export function clawThreadIdForProvider(
 }
 
 function normalizeAgentRuntimeId(value: unknown): AgentRuntimeId {
-  if (value === 'claude') return 'claude'
-  return value === 'codex' ? 'codex' : 'kun'
+  if (value === 'codex' || value === 'claude') return value
+  return 'kun'
 }
 
 function runtimeIdForProvider(provider: ClawAgentProviderLike, settings: { activeAgentRuntime?: AgentRuntimeId }): AgentRuntimeId {

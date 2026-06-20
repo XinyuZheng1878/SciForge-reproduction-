@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   agentRuntimeApprovalResolvePayloadSchema,
+  agentRuntimeAuxiliaryPayloadSchema,
   agentRuntimeSessionResumePayloadSchema,
   agentRuntimeThreadCompactPayloadSchema,
   agentRuntimeThreadDeletePayloadSchema,
@@ -32,23 +33,41 @@ import {
 describe('app-ipc-schemas', () => {
   it('accepts neutral agent runtime turn payloads', () => {
     const payload = agentRuntimeStartTurnPayloadSchema.parse({
-      runtimeId: 'codex',
+      runtimeId: 'claude',
       threadId: ' thread-1 ',
       text: ' hello ',
       workspace: ' /tmp/workspace ',
       model: ' deepseek-v4-pro ',
       reasoningEffort: ' medium ',
-      governanceProfile: 'remote_guard'
+      governanceProfile: 'remote_guard',
+      fileReferences: [{
+        path: ' /tmp/workspace/docs/spec.pdf ',
+        relativePath: ' docs/spec.pdf ',
+        name: ' spec.pdf ',
+        kind: 'pdf',
+        delivery: 'model_router_object',
+        mimeType: ' application/pdf ',
+        modelRouterObject: true
+      }]
     })
 
     expect(payload).toEqual({
-      runtimeId: 'codex',
+      runtimeId: 'claude',
       threadId: 'thread-1',
       text: 'hello',
       workspace: '/tmp/workspace',
       model: 'deepseek-v4-pro',
       reasoningEffort: 'medium',
-      governanceProfile: 'remote_guard'
+      governanceProfile: 'remote_guard',
+      fileReferences: [{
+        path: '/tmp/workspace/docs/spec.pdf',
+        relativePath: 'docs/spec.pdf',
+        name: 'spec.pdf',
+        kind: 'pdf',
+        delivery: 'model_router_object',
+        mimeType: 'application/pdf',
+        modelRouterObject: true
+      }]
     })
   })
 
@@ -154,12 +173,14 @@ describe('app-ipc-schemas', () => {
       runtimeId: 'kun',
       sessionId: ' session-1 ',
       model: ' deepseek-v4-pro ',
-      mode: ' agent '
+      mode: ' agent ',
+      maxResumeCount: 3
     })).toEqual({
       runtimeId: 'kun',
       sessionId: 'session-1',
       model: 'deepseek-v4-pro',
-      mode: 'agent'
+      mode: 'agent',
+      maxResumeCount: 3
     })
 
     expect(agentRuntimeThreadRelationPayloadSchema.parse({
@@ -185,6 +206,52 @@ describe('app-ipc-schemas', () => {
       to: '2026-06-11',
       timezone: 'Asia/Shanghai'
     })
+  })
+
+  it('accepts shared host-service auxiliary operations', () => {
+    expect(agentRuntimeAuxiliaryPayloadSchema.parse({
+      runtimeId: 'codex',
+      operation: 'runCodeNavigation',
+      payload: {
+        workspaceRoot: ' /tmp/workspace ',
+        operation: 'goToDefinition',
+        filePath: 'src/index.ts',
+        line: 3,
+        character: 8
+      }
+    })).toEqual({
+      runtimeId: 'codex',
+      operation: 'runCodeNavigation',
+      payload: {
+        workspaceRoot: ' /tmp/workspace ',
+        operation: 'goToDefinition',
+        filePath: 'src/index.ts',
+        line: 3,
+        character: 8
+      }
+    })
+
+    for (const operation of [
+      'listModelAuditRecords',
+      'clearModelAuditRecords',
+      'getContextState',
+      'createGitCheckpoint',
+      'listGitCheckpoints',
+      'previewGitCheckpoint',
+      'restoreGitCheckpoint',
+      'createMemory',
+      'listMemories',
+      'updateMemory',
+      'deleteMemory',
+      'listWorkspaceReferences',
+      'previewWorkspaceReference'
+    ] as const) {
+      expect(agentRuntimeAuxiliaryPayloadSchema.parse({
+        runtimeId: 'kun',
+        operation,
+        payload: { threadId: 'thread-1' }
+      }).operation).toBe(operation)
+    }
   })
 
   it('accepts skill list payloads with an optional workspace root', () => {

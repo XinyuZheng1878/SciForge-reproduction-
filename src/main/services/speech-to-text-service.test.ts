@@ -15,6 +15,13 @@ const AUDIO_BASE64 = Buffer.from('fake-wav-bytes').toString('base64')
 
 function settingsWithSpeech(overrides: Record<string, unknown> = {}): AppSettingsV1 {
   return {
+    modelRouter: {
+      enabled: true,
+      baseUrl: 'http://127.0.0.1:49876/v1',
+      autoStart: true,
+      publicModelAlias: 'deepseek-gui-router',
+      runtimeApiKey: 'local-runtime-router-key'
+    },
     speechToText: {
       enabled: true,
       protocol: 'openai-transcriptions',
@@ -41,10 +48,11 @@ function fakeFetch(body: unknown, status = 200): { fetchImpl: typeof fetch; requ
 
 describe('speech-to-text service', () => {
   it('reports configuration state from enabled/baseUrl/apiKey/model', () => {
-    expect(isSpeechToTextConfigured({ enabled: true, baseUrl: 'x', apiKey: 'y', model: 'z' })).toBe(true)
-    expect(isSpeechToTextConfigured({ enabled: false, baseUrl: 'x', apiKey: 'y', model: 'z' })).toBe(false)
-    expect(isSpeechToTextConfigured({ enabled: true, baseUrl: '', apiKey: 'y', model: 'z' })).toBe(false)
-    expect(isSpeechToTextConfigured({ enabled: true, baseUrl: 'x', apiKey: '', model: 'z' })).toBe(false)
+    expect(isSpeechToTextConfigured({ enabled: true, protocol: 'openai-transcriptions', baseUrl: 'x', apiKey: 'y', model: 'z' })).toBe(true)
+    expect(isSpeechToTextConfigured({ enabled: false, protocol: 'openai-transcriptions', baseUrl: 'x', apiKey: 'y', model: 'z' })).toBe(false)
+    expect(isSpeechToTextConfigured({ enabled: true, protocol: 'openai-transcriptions', baseUrl: '', apiKey: 'y', model: 'z' })).toBe(false)
+    expect(isSpeechToTextConfigured({ enabled: true, protocol: 'openai-transcriptions', baseUrl: 'x', apiKey: '', model: 'z' })).toBe(false)
+    expect(isSpeechToTextConfigured({ enabled: true, protocol: 'mimo-asr', baseUrl: '', apiKey: '', model: 'mimo-v2.5-asr' })).toBe(true)
   })
 
   it('rejects when the speech provider is not configured', async () => {
@@ -128,17 +136,17 @@ describe('speech-to-text service', () => {
     )
 
     expect(result).toEqual({ ok: true, text: 'ni hao' })
-    expect(requests[0].url).toBe('https://speech.example.test/v1/chat/completions')
+    expect(requests[0].url).toBe('http://127.0.0.1:49876/v1/responses')
     const headers = requests[0].init.headers as Record<string, string>
-    expect(headers.Authorization).toBe('Bearer sk-speech')
-    expect(headers['api-key']).toBe('sk-speech')
+    expect(headers.Authorization).toBe('Bearer local-runtime-router-key')
+    expect(headers['api-key']).toBeUndefined()
     const payload = JSON.parse(String(requests[0].init.body))
     expect(payload).toMatchObject({
-      model: 'mimo-v2.5-asr',
+      model: 'deepseek-gui-router',
       asr_options: { language: 'auto' },
       stream: false
     })
-    expect(payload.messages[0].content[0]).toEqual({
+    expect(payload.input[0].content[0]).toEqual({
       type: 'input_audio',
       input_audio: { data: `data:audio/wav;base64,${AUDIO_BASE64}` }
     })

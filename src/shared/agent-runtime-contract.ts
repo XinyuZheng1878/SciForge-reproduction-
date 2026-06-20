@@ -40,6 +40,8 @@ export type AgentRuntimeToolKind = 'tool_call' | 'command_execution' | 'file_cha
 
 export type AgentRuntimeErrorSeverity = 'info' | 'warning' | 'error'
 
+export type AgentRuntimeResearchSourceKind = 'arxiv' | 'biorxiv' | 'semantic_scholar' | 'web' | 'cns'
+
 export type AgentRuntimeResult<T> =
   | { ok: true; value: T }
   | { ok: false; failure: AgentRuntimeFailure }
@@ -56,6 +58,212 @@ export type CapabilityState = {
   available: boolean
   reason?: string
   degraded?: boolean
+}
+
+export type AgentRuntimeCapabilityId =
+  | 'codeNavigation.lsp'
+  | 'modelAudit.runtimeRequests'
+  | 'context.state'
+  | 'context.goalResume'
+  | 'git.turnCheckpoint'
+  | 'memory.shared'
+  | 'workspace.references'
+
+export type AgentRuntimeCapabilityChannel = 'runtime_contract' | 'host_service' | 'auxiliary'
+
+export type AgentRuntimeCapabilityDescriptor = CapabilityState & {
+  id: AgentRuntimeCapabilityId
+  channel: AgentRuntimeCapabilityChannel
+  readonly?: boolean
+  inputSchema?: string
+  outputSchema?: string
+  errorCodes?: string[]
+}
+
+export type AgentRuntimeCodeNavigationOperation =
+  | 'goToDefinition'
+  | 'findReferences'
+  | 'hover'
+  | 'documentSymbol'
+  | 'workspaceSymbol'
+  | 'goToImplementation'
+
+export type AgentRuntimeCodeNavigationInput = {
+  workspaceRoot: string
+  operation: AgentRuntimeCodeNavigationOperation
+  filePath?: string
+  line?: number
+  character?: number
+  query?: string
+}
+
+export type AgentRuntimeCodeNavigationOutput = {
+  operation: AgentRuntimeCodeNavigationOperation
+  workspaceRoot: string
+  filePath?: string
+  result: unknown
+  degraded?: boolean
+}
+
+export type AgentRuntimeModelAuditToolCall = {
+  callId?: string
+  toolName: string
+  arguments?: unknown
+  status?: 'running' | 'success' | 'error'
+}
+
+export type AgentRuntimeModelAuditRequestBodySummary = {
+  schema: 'agent-runtime.turnStart'
+  keys: string[]
+  textChars: number
+  displayTextChars?: number
+  attachmentCount: number
+  fileReferenceCount: number
+  inlineContextReferenceCount: number
+  modelRouterObjectReferenceCount: number
+  hasGuiPlan: boolean
+  estimatedJsonChars: number
+}
+
+export type AgentRuntimeModelAuditModelRouterBodySummary = {
+  schema: 'model-router.responses.runtime'
+  keys: string[]
+  inputTextChars: number
+  displayTextChars?: number
+  metadataKeys: string[]
+  attachmentCount: number
+  fileReferenceCount: number
+  inlineContextReferenceCount: number
+  modelRouterObjectReferenceCount: number
+  hasGuiPlan: boolean
+  estimatedJsonChars: number
+}
+
+export type AgentRuntimeModelAuditModelRouterSummary = {
+  providerAlias: 'model-router'
+  modelAlias: string
+  requestUrl: string
+  endpointRoute: 'responses'
+  requestBodySummary: AgentRuntimeModelAuditModelRouterBodySummary
+}
+
+export type AgentRuntimeModelAuditRequestSummary = {
+  text?: string
+  displayText?: string
+  workspace?: string
+  mode?: string
+  model?: string
+  reasoningEffort?: string
+  attachmentIds?: string[]
+  fileReferences?: Array<{
+    relativePath: string
+    name: string
+    kind?: AgentRuntimeWorkspaceReferenceKind
+    mimeType?: string
+    delivery?: AgentRuntimeFileReference['delivery']
+    modelRouterObject?: boolean
+  }>
+  bodySummary: AgentRuntimeModelAuditRequestBodySummary
+}
+
+export type AgentRuntimeModelAuditRecord = {
+  id: string
+  runtimeId: AgentRuntimeId
+  threadId: string
+  turnId?: string
+  provider?: string
+  model?: string
+  modelRouterUrl?: string
+  providerAlias?: string
+  modelAlias?: string
+  modelRouter?: AgentRuntimeModelAuditModelRouterSummary
+  startedAt: string
+  finishedAt?: string
+  durationMs?: number
+  request: AgentRuntimeModelAuditRequestSummary
+  streamOutput: {
+    text: string
+    reasoning: string
+    toolCalls: AgentRuntimeModelAuditToolCall[]
+    usage?: AgentRuntimeUsage
+    stopReason?: string
+    error?: string
+  }
+}
+
+export type AgentRuntimeContextState = {
+  runtimeId: AgentRuntimeId
+  threadId: string
+  rawHistoryItems: number
+  effectiveHistoryItems: number
+  summary?: string
+  summarySource?: 'none' | 'heuristic' | 'model' | 'runtime'
+  estimatedTokens?: number
+  triggerReason?: string
+  replacedTokens?: number
+  sourceDigest?: string
+  digestMarker?: string
+  sourceItemIds?: string[]
+  updatedAt: string
+  goalResume?: {
+    objective?: string
+    status?: 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete'
+    resumeCount: number
+    lastFailureReason?: string
+    updatedAt: string
+  }
+}
+
+export type AgentRuntimeGitCheckpointStatus = 'available' | 'restored' | 'blocked' | 'failed'
+
+export type AgentRuntimeGitCheckpoint = {
+  checkpointId: string
+  runtimeId: AgentRuntimeId
+  threadId: string
+  turnId?: string
+  workspaceRoot: string
+  repositoryRoot: string
+  branch: string | null
+  head: string
+  createdAt: string
+  diffStat: string
+  status: AgentRuntimeGitCheckpointStatus
+  restoreStatus?: string
+}
+
+export type AgentRuntimeMemoryScope = 'user' | 'project' | 'workspace'
+
+export type AgentRuntimeMemoryRecord = {
+  id: string
+  text: string
+  scope: AgentRuntimeMemoryScope
+  workspace?: string
+  project?: string
+  tags: string[]
+  confidence?: number
+  disabled?: boolean
+  deleted?: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentRuntimeWorkspaceReferenceKind = 'file' | 'directory' | 'image' | 'pdf' | 'text'
+
+export type AgentRuntimeWorkspaceReference = {
+  workspaceRoot: string
+  relativePath: string
+  name: string
+  kind: AgentRuntimeWorkspaceReferenceKind
+  mimeType?: string
+  size?: number
+}
+
+export type AgentRuntimeWorkspaceReferencePreview = {
+  reference: AgentRuntimeWorkspaceReference
+  contentSummary: string
+  content?: string
+  truncated?: boolean
+  children?: AgentRuntimeWorkspaceReference[]
 }
 
 export type AgentRuntimeThread = {
@@ -150,9 +358,16 @@ export type AgentRuntimeTurnStartInput = {
 }
 
 export type AgentRuntimeFileReference = {
+  /**
+   * Runtime-safe path for this reference. At runtime host boundaries this is
+   * normalized to the workspace-relative path and must not contain an absolute
+   * filesystem location.
+   */
   path: string
   relativePath: string
   name: string
+  kind?: AgentRuntimeWorkspaceReferenceKind
+  delivery?: 'inline_context' | 'model_router_object'
   mimeType?: string
   modelRouterObject?: boolean
 }
@@ -217,12 +432,25 @@ export type AgentRuntimeAuxiliaryOperation =
   | 'reviewThread'
   | 'getRuntimeInfo'
   | 'getToolDiagnostics'
+  | 'runCodeNavigation'
+  | 'listModelAuditRecords'
+  | 'clearModelAuditRecords'
+  | 'getContextState'
+  | 'recordContextCompaction'
+  | 'updateGoalResumeState'
+  | 'listGitCheckpoints'
+  | 'createGitCheckpoint'
+  | 'previewGitCheckpoint'
+  | 'restoreGitCheckpoint'
   | 'listSkills'
   | 'uploadAttachment'
   | 'getAttachmentContent'
+  | 'createMemory'
   | 'listMemories'
   | 'updateMemory'
   | 'deleteMemory'
+  | 'listWorkspaceReferences'
+  | 'previewWorkspaceReference'
   | 'updateThreadWorkspace'
   | 'archiveThread'
   | 'getThreadGoal'
@@ -372,6 +600,10 @@ export type AgentRuntimeEvent =
       auto?: boolean
       messagesBefore?: number
       messagesAfter?: number
+      replacedTokens?: number
+      sourceDigest?: string
+      digestMarker?: string
+      sourceItemIds?: string[]
     })
   | (AgentRuntimeBaseEvent & {
       kind: 'review_event'
@@ -384,6 +616,7 @@ export type AgentRuntimeEvent =
       kind: 'goal_event'
       objective?: string
       status?: 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete'
+      lastFailureReason?: string
       cleared?: boolean
     })
   | (AgentRuntimeBaseEvent & {
@@ -467,9 +700,28 @@ export type AgentRuntimeCapabilities = {
     fileChange: CapabilityState
     mcp: CapabilityState & { search?: CapabilityState; toolCount?: number }
     web: CapabilityState & { fetch?: CapabilityState; search?: CapabilityState }
+    research: CapabilityState & {
+      server?: 'mcp'
+      toolName?: string
+      sources?: AgentRuntimeResearchSourceKind[]
+      maxResults?: number
+    }
+    codeNavigation?: CapabilityState & {
+      operations?: AgentRuntimeCodeNavigationOperation[]
+      languages?: string[]
+      readonly?: boolean
+    }
     skills: CapabilityState
     subagents: CapabilityState & { maxParallel?: number; maxChildren?: number }
     diagnostics: CapabilityState
+  }
+  observability?: {
+    modelAudit: CapabilityState & { capacity?: number; inMemory?: boolean }
+  }
+  context?: {
+    state: CapabilityState
+    compaction: CapabilityState
+    goalResume: CapabilityState
   }
   controls: {
     interrupt: boolean
@@ -492,7 +744,10 @@ export type AgentRuntimeCapabilities = {
     usage: boolean
     attachments: CapabilityState
     memory: CapabilityState
+    checkpoints?: CapabilityState
+    workspaceReferences?: CapabilityState
   }
+  capabilityDescriptors?: AgentRuntimeCapabilityDescriptor[]
 }
 
 export function createUnavailableCapabilityState(reason?: string): CapabilityState {
@@ -545,9 +800,24 @@ export function createDefaultAgentRuntimeCapabilities(input: {
         fetch: unsupported(),
         search: unsupported()
       },
+      research: unsupported(),
+      codeNavigation: {
+        ...unsupported(),
+        operations: [],
+        languages: [],
+        readonly: true
+      },
       skills: unsupported(),
       subagents: { ...unsupported() },
       diagnostics: unsupported()
+    },
+    observability: {
+      modelAudit: { ...unsupported(), capacity: 0, inMemory: true }
+    },
+    context: {
+      state: unsupported(),
+      compaction: unsupported(),
+      goalResume: unsupported()
     },
     controls: {
       interrupt: false,
@@ -569,7 +839,10 @@ export function createDefaultAgentRuntimeCapabilities(input: {
       backendThreadIdStable: false,
       usage: false,
       attachments: unsupported(),
-      memory: unsupported()
-    }
+      memory: unsupported(),
+      checkpoints: unsupported(),
+      workspaceReferences: unsupported()
+    },
+    capabilityDescriptors: []
   }
 }

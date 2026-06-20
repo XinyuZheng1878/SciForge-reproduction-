@@ -582,6 +582,8 @@ describe('cli', () => {
     expect(manifest.mcp.reason).toMatch(/disabled/)
     expect(manifest.mcp.search.enabled).toBe(false)
     expect(manifest.mcp.search.active).toBe(false)
+    expect(manifest.research.available).toBe(false)
+    expect(manifest.research.toolName).toBe('research_search')
     expect(manifest.attachments.textFallbackMaxBase64Bytes).toBe(512 * 1024)
     expect(manifest.attachments.textFallbackMaxImageDimension).toBe(1280)
     expect(manifest.attachments.textFallbackPreferredMimeType).toBe('image/webp')
@@ -595,6 +597,23 @@ describe('cli', () => {
     expect(enabledButMissingProvider.web.enabled).toBe(true)
     expect(enabledButMissingProvider.web.available).toBe(false)
     expect(enabledButMissingProvider.web.reason).toMatch(/no web providers/)
+
+    const researchEnabled = buildRuntimeCapabilityManifest({
+      model: modelCapabilitiesForModel('deepseek-chat'),
+      research: {
+        enabled: true,
+        available: true,
+        sources: ['arxiv', 'semantic_scholar'],
+        maxResults: 7
+      }
+    })
+    expect(researchEnabled.research).toMatchObject({
+      available: true,
+      server: 'mcp',
+      toolName: 'research_search',
+      sources: ['arxiv', 'semantic_scholar'],
+      maxResults: 7
+    })
   })
 
   it('loads config.json from the data dir when present', async () => {

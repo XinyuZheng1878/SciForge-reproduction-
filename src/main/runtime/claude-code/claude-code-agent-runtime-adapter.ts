@@ -237,6 +237,7 @@ function claudeCapabilities(): AgentRuntimeCapabilities {
       fileChange: { available: true },
       mcp: { available: false, reason: 'Claude Code MCP diagnostics are not exposed through this service yet.' },
       web: { available: false, reason: 'Claude Code web capabilities are not exposed through this service yet.' },
+      research: { available: false, reason: 'Claude Code research search is not exposed through this service yet.' },
       skills: { available: false, reason: 'Claude Code skills are not exposed through this service yet.' },
       subagents: { available: false, reason: 'Claude Code subagents are not exposed through this service yet.' },
       diagnostics: { available: false, reason: 'Claude Code tool diagnostics are not exposed through this service yet.' }

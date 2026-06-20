@@ -54,11 +54,13 @@ function persistBoolean(key: string, value: boolean): void {
 
 function readStoredRightPanelMode(): RightPanelMode {
   const raw = readBrowserStorageItem(RIGHT_PANEL_MODE_KEY)
-  return raw === 'todo' || raw === 'changes' || raw === 'browser' ? raw : null
+  return raw === 'todo' || raw === 'changes' || raw === 'browser' || raw === 'checkpoints' || raw === 'file'
+    ? raw
+    : null
 }
 
 function persistRightPanelMode(mode: RightPanelMode): void {
-  if (mode === 'todo' || mode === 'changes' || mode === 'browser') {
+  if (mode === 'todo' || mode === 'changes' || mode === 'browser' || mode === 'checkpoints' || mode === 'file') {
     writeBrowserStorageItem(RIGHT_PANEL_MODE_KEY, mode)
   } else {
     removeBrowserStorageItem(RIGHT_PANEL_MODE_KEY)
@@ -172,7 +174,9 @@ export function useWorkbenchLayout({
   const shellRef = useRef<HTMLDivElement | null>(null)
   const previewThreadId = useRef<string | null>(activeThreadId)
   const autoOpenedPreviewUrlRef = useRef<string | null>(null)
-  const rightPanelVisible = route === 'write' ? writeAssistantOpen : rightPanelMode !== null
+  const rightPanelVisible = route === 'write'
+    ? writeAssistantOpen || rightPanelMode === 'file'
+    : rightPanelMode !== null
 
   useEffect(() => {
     persistWidth(LEFT_PANEL_WIDTH_KEY, leftSidebarWidth)
@@ -226,7 +230,7 @@ export function useWorkbenchLayout({
 
   useEffect(() => {
     if (route !== 'write') return
-    if (rightPanelMode !== null) setRightPanelMode(null)
+    if (rightPanelMode !== null && rightPanelMode !== 'file') setRightPanelMode(null)
   }, [route, rightPanelMode])
 
   useLayoutEffect(() => {

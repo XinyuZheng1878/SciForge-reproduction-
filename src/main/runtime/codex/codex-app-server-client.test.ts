@@ -399,6 +399,49 @@ describe('createCodexAppServerClient', () => {
     })
   })
 
+  it('answers server-originated dynamic tool calls through the configured request handler', async () => {
+    const onToolCallRequest = vi.fn(async () => ({
+      contentItems: [{ type: 'inputText' as const, text: 'dynamic-ok' }],
+      success: true
+    }))
+    const { client, fake } = createHarness({
+      pendingServerRequests: { onToolCallRequest }
+    })
+
+    client.start()
+    fake.emitStdout({
+      id: 'server-tool-1',
+      method: 'item/tool/call',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        callId: 'call-1',
+        namespace: 'mcp_server',
+        tool: 'lookup',
+        arguments: { id: 'ABC-123' }
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(fake.writtenMessages()).toContainEqual({
+        id: 'server-tool-1',
+        result: {
+          contentItems: [{ type: 'inputText', text: 'dynamic-ok' }],
+          success: true
+        }
+      })
+    })
+    expect(onToolCallRequest).toHaveBeenCalledWith({
+      requestId: 'server-tool-1',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      callId: 'call-1',
+      namespace: 'mcp_server',
+      tool: 'lookup',
+      arguments: { id: 'ABC-123' }
+    })
+  })
+
   it('publishes a safe error and fails closed for unsupported server-originated requests', async () => {
     const { client, fake } = createHarness()
     const iterator = client.subscribe()[Symbol.asyncIterator]()

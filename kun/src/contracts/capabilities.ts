@@ -15,6 +15,9 @@ export const RuntimeCapabilityState = z
   .strict()
 export type RuntimeCapabilityState = z.infer<typeof RuntimeCapabilityState>
 
+export const ResearchSourceKind = z.enum(['arxiv', 'biorxiv', 'semantic_scholar', 'web', 'cns'])
+export type ResearchSourceKind = z.infer<typeof ResearchSourceKind>
+
 export const ModelInputModality = z.enum(['text', 'image'])
 export type ModelInputModality = z.infer<typeof ModelInputModality>
 
@@ -231,6 +234,12 @@ export const RuntimeCapabilityManifest = z
       search: RuntimeCapabilityState,
       provider: z.string().optional()
     }).strict(),
+    research: RuntimeCapabilityState.extend({
+      server: z.literal('mcp'),
+      toolName: z.string().min(1),
+      sources: z.array(ResearchSourceKind),
+      maxResults: z.number().int().positive()
+    }).strict(),
     skills: RuntimeCapabilityState.extend({
       configuredRoots: z.number().int().nonnegative(),
       discoveredSkills: z.number().int().nonnegative()
@@ -275,6 +284,14 @@ export function buildRuntimeCapabilityManifest(input: {
     provider?: string
     reason?: string
   }
+  research?: {
+    enabled?: boolean
+    available?: boolean
+    reason?: string
+    toolName?: string
+    sources?: ResearchSourceKind[]
+    maxResults?: number
+  }
   skills?: {
     configuredRoots?: number
     discoveredSkills?: number
@@ -311,6 +328,7 @@ export function buildRuntimeCapabilityManifest(input: {
     input.web?.reason ?? 'web search provider is unavailable'
   )
   const webState = webCapabilityState(config.web.enabled, webFetchState, webSearchState, input.web?.reason)
+  const researchState = researchCapabilityState(input.research)
   const configuredSkillRoots = input.skills?.configuredRoots ?? config.skills.roots.length
   const discoveredSkills = input.skills?.discoveredSkills ?? 0
   const skillsState = skillsCapabilityState(config.skills.enabled, discoveredSkills, input.skills?.reason)
@@ -341,6 +359,13 @@ export function buildRuntimeCapabilityManifest(input: {
       fetch: webFetchState,
       search: webSearchState,
       provider: input.web?.provider ?? config.web.provider
+    },
+    research: {
+      ...researchState,
+      server: 'mcp',
+      toolName: input.research?.toolName ?? 'research_search',
+      sources: input.research?.sources ?? [],
+      maxResults: input.research?.maxResults ?? 10
     },
     skills: {
       ...skillsState,
@@ -427,6 +452,23 @@ function webCapabilityState(
     enabled: true,
     available: false,
     reason: reason ?? 'no web providers available'
+  }
+}
+
+function researchCapabilityState(input: {
+  enabled?: boolean
+  available?: boolean
+  reason?: string
+} | undefined): RuntimeCapabilityState {
+  if (input?.enabled !== true) {
+    return { status: 'disabled', enabled: false, available: false, reason: 'research search MCP server is not configured' }
+  }
+  if (input.available === true) return { status: 'available', enabled: true, available: true }
+  return {
+    status: 'unavailable',
+    enabled: true,
+    available: false,
+    reason: input.reason ?? 'research search MCP server is unavailable'
   }
 }
 

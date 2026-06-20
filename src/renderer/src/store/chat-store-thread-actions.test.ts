@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type {
+  AgentRuntimeFileReference,
+  AgentRuntimeWorkspaceReference
+} from '@shared/agent-runtime-contract'
 import type { NormalizedThread } from '../agent/types'
 import type { ChatState, ChatStoreGet, ChatStoreSet, GuiPlanMessageContext } from './chat-store-types'
 
@@ -20,6 +24,7 @@ vi.mock('../agent/runtime-client', () => ({
 
 import { createThreadActions, publishActiveClawThreadContext } from './chat-store-thread-actions'
 import { clearPendingClawFeishuMirrors, takePendingClawFeishuMirror } from './chat-store-runtime'
+import { composerReferenceFromWorkspaceReference } from '../lib/workspace-reference-composer'
 
 function thread(id: string): NormalizedThread {
   return {
@@ -42,6 +47,7 @@ function buildHarness(): {
     activeThreadId: 'thr_existing',
     blocks: [],
     busy: true,
+    activeThreadContextState: null,
     clawChannels: [],
     codeWorkspaceRoots: [],
     composerModel: '',
@@ -173,6 +179,41 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(sendMessage).not.toHaveBeenCalled()
   })
 
+  it('loads shared context state when selecting a thread', async () => {
+    const { actions, state } = buildHarness()
+    const contextState = {
+      runtimeId: 'codex' as const,
+      threadId: 'thr_existing',
+      rawHistoryItems: 10,
+      effectiveHistoryItems: 4,
+      summarySource: 'heuristic' as const,
+      updatedAt: '2026-06-20T00:00:00.000Z',
+      goalResume: {
+        status: 'blocked' as const,
+        resumeCount: 1,
+        lastFailureReason: 'no progress',
+        updatedAt: '2026-06-20T00:00:01.000Z'
+      }
+    }
+    const provider = {
+      getThreadDetail: vi.fn(async () => ({
+        blocks: [],
+        latestSeq: 2,
+        threadStatus: 'idle'
+      })),
+      getContextState: vi.fn(async () => contextState),
+      subscribeThreadEvents: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.error = null
+
+    await actions.selectThread('thr_existing')
+
+    expect(provider.getContextState).toHaveBeenCalledWith('thr_existing')
+    expect(state.activeThreadContextState).toEqual(contextState)
+  })
+
   it('does not let stale turn recovery restore a thread after the user switches away', async () => {
     const { actions, state } = buildHarness()
     let resolveDetail: (value: {
@@ -272,6 +313,107 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(Object.keys(state.turnStartedAtByUserId)).toEqual(['runtime-user-1'])
   })
 
+  it('sends only workspace-relative file references to the runtime provider', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      sendUserMessage: vi.fn(async () => ({
+        turnId: 'turn-files',
+        userMessageItemId: 'runtime-user-files'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.error = null
+    const previewReferences: AgentRuntimeWorkspaceReference[] = [
+      {
+        workspaceRoot: '/workspace/deepseek-gui',
+        relativePath: 'docs',
+        name: 'docs',
+        kind: 'directory'
+      },
+      {
+        workspaceRoot: '/workspace/deepseek-gui',
+        relativePath: 'docs/guide.md',
+        name: 'guide.md',
+        kind: 'text',
+        mimeType: 'text/plain; charset=utf-8'
+      }
+    ]
+    const composerReferences = previewReferences.map(composerReferenceFromWorkspaceReference)
+    const rendererOnlyRootReference: AgentRuntimeFileReference & { workspaceRoot: string } = {
+      path: '/workspace/deepseek-gui/data/raw.pdf',
+      relativePath: 'data/raw.pdf',
+      name: 'raw.pdf',
+      mimeType: 'application/pdf',
+      modelRouterObject: true,
+      workspaceRoot: '/workspace/deepseek-gui'
+    }
+
+    await expect(actions.sendMessage('use these files', 'agent', {
+      fileReferences: [
+        ...composerReferences,
+        rendererOnlyRootReference,
+        {
+          path: 'reports/clean.pdf',
+          relativePath: '/workspace/deepseek-gui/reports/clean.pdf',
+          name: '',
+          modelRouterObject: true
+        },
+        {
+          path: '../escape.txt',
+          relativePath: '../escape.txt',
+          name: 'escape.txt'
+        },
+        {
+          path: 'deepseek-file://open?path=/tmp/secret.txt',
+          relativePath: '',
+          name: 'secret.txt'
+        }
+      ]
+    })).resolves.toBe(true)
+
+    expect(provider.sendUserMessage).toHaveBeenCalledWith(
+      'thr_existing',
+      'use these files',
+      expect.objectContaining({
+        fileReferences: [
+          {
+            path: 'docs',
+            relativePath: 'docs',
+            name: 'docs',
+            kind: 'directory',
+            delivery: 'inline_context'
+          },
+          {
+            path: 'docs/guide.md',
+            relativePath: 'docs/guide.md',
+            name: 'guide.md',
+            kind: 'text',
+            mimeType: 'text/plain; charset=utf-8',
+            delivery: 'inline_context'
+          },
+          {
+            path: 'data/raw.pdf',
+            relativePath: 'data/raw.pdf',
+            name: 'raw.pdf',
+            mimeType: 'application/pdf',
+            modelRouterObject: true,
+            delivery: 'model_router_object'
+          },
+          {
+            path: 'reports/clean.pdf',
+            relativePath: 'reports/clean.pdf',
+            name: 'clean.pdf',
+            modelRouterObject: true,
+            delivery: 'model_router_object'
+          }
+        ]
+      })
+    )
+  })
+
   it('sends write route messages through the selected write workspace with write governance', async () => {
     const { actions, state } = buildHarness()
     const writeThread = {
@@ -304,7 +446,15 @@ describe('chat-store-thread-actions queued messages', () => {
 
     await expect(actions.sendMessage('writing runtime prompt', 'agent', {
       displayText: 'visible prompt',
-      workspaceRoot: '/workspace/write-current'
+      workspaceRoot: '/workspace/write-current',
+      fileReferences: [
+        {
+          path: '/workspace/write-current/research/notes.md',
+          relativePath: 'research/notes.md',
+          name: 'notes.md',
+          kind: 'text'
+        }
+      ]
     })).resolves.toBe(true)
 
     expect(state.ensureWriteThreadForWorkspace).toHaveBeenCalledWith('/workspace/write-current')
@@ -315,7 +465,16 @@ describe('chat-store-thread-actions queued messages', () => {
         mode: 'agent',
         workspace: '/workspace/write-current',
         governanceProfile: 'write',
-        displayText: 'visible prompt'
+        displayText: 'visible prompt',
+        fileReferences: [
+          {
+            path: 'research/notes.md',
+            relativePath: 'research/notes.md',
+            name: 'notes.md',
+            kind: 'text',
+            delivery: 'inline_context'
+          }
+        ]
       })
     )
   })

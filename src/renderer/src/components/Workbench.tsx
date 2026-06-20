@@ -17,6 +17,7 @@ import {
 import type { DesktopCommand, SkillListItem } from '@shared/ds-gui-api'
 import type { AgentRuntimeId, ClawImChannelV1 } from '@shared/app-settings'
 import type { ClipboardImageReadResult } from '@shared/workspace-file'
+import type { AgentRuntimeWorkspaceReference } from '@shared/agent-runtime-contract'
 import type { AgentProviderCapabilities, AttachmentReference, ChatBlock } from '../agent/types'
 import type { CoreRuntimeInfoJson, CoreRuntimeSkillJson } from '../agent/kun-contract'
 import { getProvider } from '../agent/registry'
@@ -88,16 +89,24 @@ import { useKeyboardShortcutSettings } from '../lib/keyboard-shortcut-settings'
 import { collectComposerChangeSummary } from '../lib/composer-change-summary'
 import {
   buildComposerFileContextPrompt,
+  composerFileReferenceKey,
   mergeComposerFileReferences,
   relativeWorkspacePath,
-  type ComposerFileContextEntry
 } from '../lib/composer-file-references'
+import { readComposerFileContextEntries as readComposerFileContextEntriesFromReferences } from '../lib/composer-file-context'
+import { buildWorkspaceReferenceGroups } from '../lib/workspace-reference-groups'
 
 const ChangeInspector = lazy(() =>
   import('./ChangeInspector').then((module) => ({ default: module.ChangeInspector }))
 )
 const DevBrowserPanel = lazy(() =>
   import('./DevBrowserPanel').then((module) => ({ default: module.DevBrowserPanel }))
+)
+const GitCheckpointPanel = lazy(() =>
+  import('./GitCheckpointPanel').then((module) => ({ default: module.GitCheckpointPanel }))
+)
+const ChatFileTreePanel = lazy(() =>
+  import('./chat/ChatFileTreePanel').then((module) => ({ default: module.ChatFileTreePanel }))
 )
 const PluginMarketplaceView = lazy(() =>
   import('./PluginMarketplaceView').then((module) => ({ default: module.PluginMarketplaceView }))
@@ -125,6 +134,7 @@ type PendingSddPlanTarget = {
 
 const COMPOSER_FILE_CONTEXT_MAX_CHARS_PER_FILE = 60_000
 const COMPOSER_FILE_CONTEXT_MAX_TOTAL_CHARS = 180_000
+const COMPOSER_DIRECTORY_CONTEXT_MAX_FILES = 40
 const SCIENTIFIC_ATTACHMENT_MAX_BYTES = 256 * 1024
 const SCIENTIFIC_ATTACHMENT_EXTENSIONS =
   /\.(?:fasta|fa|faa|fna|ffn|frn|fastq|fq|smi|smiles|mol|mol2|sdf|mgf|pdb|cif|gb|gbk|gff|gff3|gtf|vcf|bed|nwk|seq)$/i
@@ -190,9 +200,10 @@ function pickedWorkspaceFileReference(
   if (!path || !attachmentPathInsideWorkspace(path, workspaceRoot)) return null
   const relativePath = relativeWorkspacePath(path, workspaceRoot)
   return {
-    path,
+    path: relativePath,
     relativePath,
-    name: input.file.name || fileNameFromPath(path)
+    name: input.file.name || fileNameFromPath(path),
+    workspaceRoot
   }
 }
 
@@ -247,25 +258,12 @@ async function copyScientificAttachmentToWorkspace(
   })
   if (!result.ok) throw new Error(result.message)
   return {
-    path: result.path,
-    relativePath: result.path,
+    path: relativePath,
+    relativePath,
     name,
+    workspaceRoot,
     mimeType: scientificAttachmentMimeType(input),
     modelRouterObject: true
-  }
-}
-
-function clipComposerFileContext(
-  content: string,
-  remainingChars: number,
-  sourceTruncated: boolean
-): { content: string; truncated: boolean; consumed: number } {
-  const limit = Math.max(0, Math.min(COMPOSER_FILE_CONTEXT_MAX_CHARS_PER_FILE, remainingChars))
-  const clipped = content.slice(0, limit)
-  return {
-    content: clipped,
-    truncated: sourceTruncated || clipped.length < content.length,
-    consumed: clipped.length
   }
 }
 
@@ -431,7 +429,8 @@ export function Workbench(): ReactElement {
     selectSideConversation,
     setSidePanelOpen,
     sideConversations,
-    sidePanel
+    sidePanel,
+    codeWorkspaceRoots
   } = useChatStore(
     useShallow((s) => ({
       threads: s.threads,
@@ -489,7 +488,8 @@ export function Workbench(): ReactElement {
       selectSideConversation: s.selectSideConversation,
       setSidePanelOpen: s.setSidePanelOpen,
       sideConversations: s.sideConversations,
-      sidePanel: s.sidePanel
+      sidePanel: s.sidePanel,
+      codeWorkspaceRoots: s.codeWorkspaceRoots
     }))
   )
   const [input, setInput] = useState('')
@@ -510,6 +510,7 @@ export function Workbench(): ReactElement {
   const setWriteAssistantOpen = useWriteWorkspaceStore((s) => s.setAssistantOpen)
   const writeAssistantModel = useWriteWorkspaceStore((s) => s.assistantModel)
   const setWriteAssistantModel = useWriteWorkspaceStore((s) => s.setAssistantModel)
+  const activeWriteWorkspaceRoot = useWriteWorkspaceStore((s) => s.workspaceRoot)
   const activeSddDraft = useSddDraftStore((s) => s.activeDraft)
   const sddDraftOperationStatus = useSddDraftStore((s) => s.operationStatus)
   const writeAssistantPickList = useMemo(() => {
@@ -602,6 +603,23 @@ export function Workbench(): ReactElement {
   const activeSkillWorkspace = useMemo(
     () => activeThread?.workspace || workspaceRoot || '',
     [activeThread, workspaceRoot]
+  )
+  const activeWorkspaceReferenceRoot = useMemo(
+    () => normalizeWorkspaceRoot(
+      route === 'write'
+        ? activeWriteWorkspaceRoot || workspaceRoot
+        : activeSkillWorkspace || workspaceRoot
+    ),
+    [activeSkillWorkspace, activeWriteWorkspaceRoot, route, workspaceRoot]
+  )
+  const workspaceReferenceGroups = useMemo(
+    () => buildWorkspaceReferenceGroups({
+      activeThreadWorkspace: activeThread?.workspace,
+      workspaceRoot,
+      codeWorkspaceRoots,
+      writeWorkspaceRoot: activeWriteWorkspaceRoot
+    }),
+    [activeThread?.workspace, activeWriteWorkspaceRoot, codeWorkspaceRoots, workspaceRoot]
   )
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.dsGui?.updateClawActiveThreadContext !== 'function') return
@@ -908,21 +926,41 @@ export function Workbench(): ReactElement {
   }
 
   const addComposerFileReference = (reference: ComposerFileReference): void => {
-    setComposerFileReferences((current) => mergeComposerFileReferences(current, reference))
+    const normalizedReference = reference.workspaceRoot
+      ? reference
+      : {
+          ...reference,
+          workspaceRoot: activeWorkspaceReferenceRoot || workspaceRoot
+        }
+    setComposerFileReferences((current) => mergeComposerFileReferences(current, normalizedReference))
   }
 
-  const removeComposerFileReference = (relativePath: string): void => {
-    const key = relativePath.trim().replaceAll('\\', '/').replace(/\/+/g, '/').toLowerCase()
+  const previewWorkspaceReference = (reference: AgentRuntimeWorkspaceReference): void => {
+    if (reference.kind === 'directory') return
+    setFilePreviewTarget({
+      path: reference.relativePath,
+      workspaceRoot: reference.workspaceRoot || activeWorkspaceReferenceRoot || workspaceRoot
+    })
+    setRightPanelMode('file')
+  }
+
+  const removeComposerFileReference = (relativePath: string, referenceWorkspaceRoot?: string): void => {
+    const key = composerFileReferenceKey({
+      relativePath,
+      workspaceRoot: referenceWorkspaceRoot
+    })
     setComposerFileReferences((current) =>
-      current.filter((reference) =>
-        reference.relativePath.trim().replaceAll('\\', '/').replace(/\/+/g, '/').toLowerCase() !== key
-      )
+      current.filter((reference) => composerFileReferenceKey(reference) !== key)
     )
   }
 
   useEffect(() => {
-    if (route !== 'chat') setComposerFileReferences([])
+    if (route !== 'chat' && route !== 'write') setComposerFileReferences([])
   }, [route])
+
+  useEffect(() => {
+    setComposerFileReferences([])
+  }, [activeSddDraft?.id, activeThreadId, activeWorkspaceReferenceRoot])
 
   const handlePickAttachments = async (inputs: ComposerImageAttachmentInput[]): Promise<void> => {
     if (!inputs.length) return
@@ -1087,13 +1125,26 @@ export function Workbench(): ReactElement {
     const v = value.trim()
     const attachments = composerAttachments
     const attachmentIds = attachments.map((attachment) => attachment.id)
-    if (!v && attachmentIds.length === 0) return
+    const fileReferences = composerFileReferences
+    if (!v && attachmentIds.length === 0 && fileReferences.length === 0) return
     if (attachmentIds.length > 0 && !attachmentUploadEnabled) {
       setAttachmentUploadError(t('composerAttachmentModelUnsupported'))
       return
     }
     const writeState = useWriteWorkspaceStore.getState()
     const writeWorkspaceRoot = writeState.workspaceRoot || workspaceRoot
+    const emptyPrompt =
+      fileReferences.length > 0 && attachmentIds.length > 0
+        ? t('composerFileAndImageOnlyPrompt')
+        : fileReferences.length > 0
+          ? t('composerFileOnlyPrompt')
+          : t('composerImageOnlyPrompt')
+    const emptyDisplayText =
+      fileReferences.length > 0 && attachmentIds.length > 0
+        ? t('composerFileAndImageOnlyDisplay', { count: fileReferences.length })
+        : fileReferences.length > 0
+          ? t('composerFileOnlyDisplay', { count: fileReferences.length })
+          : t('composerImageOnlyDisplay')
     setInput('')
     void (async () => {
       const threadId = await ensureWriteThreadForWorkspace(writeWorkspaceRoot)
@@ -1101,7 +1152,7 @@ export function Workbench(): ReactElement {
         setInput(v)
         return
       }
-      const messageText = v || t('composerImageOnlyPrompt')
+      const messageText = v || emptyPrompt
       const prepared = await prepareWriteAssistantPrompt(messageText, {
         workspaceRoot: writeState.workspaceRoot,
         fallbackWorkspaceRoot: workspaceRoot,
@@ -1112,10 +1163,27 @@ export function Workbench(): ReactElement {
         logError: window.dsGui?.logError
       })
       const runtimePayload = writeAssistantRuntimePayload(prepared)
-      const displayText = v ? runtimePayload.displayText : t('composerImageOnlyDisplay')
+      let runtimeText = runtimePayload.text
+      const displayText = v ? runtimePayload.displayText : emptyDisplayText
+      if (fileReferences.length > 0) {
+        const fileWorkspaceRoot = normalizeWorkspaceRoot(writeWorkspaceRoot)
+        if (!fileWorkspaceRoot) {
+          setError(t('workspaceRequiredToCreateThread'))
+          setInput(v)
+          return
+        }
+        try {
+          const fileContext = await readComposerFileContextEntries(fileReferences, fileWorkspaceRoot)
+          runtimeText = buildComposerFileContextPrompt(runtimeText, fileContext)
+        } catch (error) {
+          setError(error instanceof Error ? error.message : String(error))
+          setInput(v)
+          return
+        }
+      }
       const model = writeState.assistantModel.trim()
       const reasoningEffort = composerReasoningEffortRequestValue(assistantReasoningEffort)
-      const sent = await sendMessage(runtimePayload.text, mode === 'plan' ? 'plan' : 'agent', {
+      const sent = await sendMessage(runtimeText, mode === 'plan' ? 'plan' : 'agent', {
         displayText,
         sourceRoute: 'write',
         targetThreadId: threadId,
@@ -1123,11 +1191,13 @@ export function Workbench(): ReactElement {
         governanceProfile: 'write',
         ...(model ? { model } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        ...(attachmentIds.length ? { attachmentIds, attachments } : {})
+        ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
+        ...(fileReferences.length ? { fileReferences } : {})
       })
       if (sent) {
         useWriteWorkspaceStore.getState().clearQuotedSelections()
         if (attachmentIds.length > 0) clearComposerAttachments()
+        if (fileReferences.length > 0) clearComposerFileReferences()
       } else {
         setInput(v)
       }
@@ -1331,29 +1401,48 @@ export function Workbench(): ReactElement {
     return true
   }
 
-  const sendSddAssistantPrompt = async (value: string): Promise<void> => {
+  const sendSddAssistantPrompt = async (
+    value: string,
+    references: readonly ComposerFileReference[] = []
+  ): Promise<void> => {
     const v = value.trim()
     const draft = useSddDraftStore.getState().activeDraft
-    if (!v || !draft) return
+    const fileReferences = [...references]
+    if ((!v && fileReferences.length === 0) || !draft) return
     const threadId = await ensureSddAssistantThreadForDraft(draft)
     if (!threadId) return
     const snapshot = useSddDraftStore.getState()
     void saveActiveSddDraftToDisk()
-    const prompt = composeSddAssistantPrompt({
-      userPrompt: v,
+    const messageText = v || t('composerFileOnlyPrompt')
+    let prompt = composeSddAssistantPrompt({
+      userPrompt: messageText,
       draftMarkdown: snapshot.content,
       draftRelativePath: draft.relativePath,
       workspaceRoot: draft.workspaceRoot
     })
+    if (fileReferences.length > 0) {
+      try {
+        const fileContext = await readComposerFileContextEntries(fileReferences, draft.workspaceRoot)
+        prompt = buildComposerFileContextPrompt(prompt, fileContext)
+      } catch (error) {
+        setError(error instanceof Error ? error.message : String(error))
+        return
+      }
+    }
     setInput('')
     const model = writeAssistantModel.trim()
     const reasoningEffort = composerReasoningEffortRequestValue(assistantReasoningEffort)
     const sent = await sendMessage(prompt, mode === 'plan' ? 'plan' : 'agent', {
-      displayText: v,
+      displayText: v || t('composerFileOnlyDisplay', { count: fileReferences.length }),
       ...(model ? { model } : {}),
-      ...(reasoningEffort ? { reasoningEffort } : {})
+      ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(fileReferences.length ? { fileReferences } : {})
     })
-    if (!sent) setInput(v)
+    if (sent) {
+      if (fileReferences.length > 0) clearComposerFileReferences()
+    } else {
+      setInput(v)
+    }
   }
 
   const uploadSddImagesAsAttachments = async (
@@ -1510,57 +1599,20 @@ export function Workbench(): ReactElement {
   }
 
   const readComposerFileContextEntries = async (
-    references: ComposerFileReference[],
+    references: readonly ComposerFileReference[],
     workspace: string
-  ): Promise<ComposerFileContextEntry[]> => {
-    const entries: ComposerFileContextEntry[] = []
-    let remainingChars = COMPOSER_FILE_CONTEXT_MAX_TOTAL_CHARS
-    for (const reference of references) {
-      if (remainingChars <= 0) break
-      if (reference.modelRouterObject) {
-        const content = [
-          `Scientific workspace file: ${reference.relativePath}`,
-          'This file is attached as a structured model-router object reference. Let the model router inspect or translate it when supported.'
-        ].join('\n')
-        entries.push({
-          relativePath: reference.relativePath,
-          content
-        })
-        remainingChars -= content.length
-        continue
-      }
-      const result = await window.dsGui.readWorkspaceFile({
-        workspaceRoot: workspace,
-        path: reference.relativePath || reference.path
-      })
-      if (!result.ok) {
-        throw new Error(t('composerFileReadFailed', {
-          path: reference.relativePath,
-          message: result.message
-        }))
-      }
-      if (result.kind === 'pdf') {
-        const content = [
-          `PDF document: ${reference.relativePath}`,
-          'This file is available through the workspace PDF reader. Use selected PDF quotes when provided; otherwise ask for the relevant page or excerpt.'
-        ].join('\n')
-        entries.push({
-          relativePath: reference.relativePath,
-          content
-        })
-        remainingChars -= content.length
-        continue
-      }
-      const clipped = clipComposerFileContext(result.content, remainingChars, result.truncated)
-      remainingChars -= clipped.consumed
-      entries.push({
-        relativePath: reference.relativePath,
-        content: clipped.content,
-        ...(clipped.truncated ? { truncated: true } : {})
-      })
-    }
-    return entries
-  }
+  ) => readComposerFileContextEntriesFromReferences(references, workspace, {
+    listWorkspaceReferences: async (input) => {
+      const provider = getProvider()
+      if (!provider.listWorkspaceReferences) return { ok: false, message: t('workspaceReferenceUnavailable') }
+      return provider.listWorkspaceReferences(input)
+    },
+    readWorkspaceFile: (input) => window.dsGui.readWorkspaceFile(input)
+  }, {
+    maxCharsPerFile: COMPOSER_FILE_CONTEXT_MAX_CHARS_PER_FILE,
+    maxTotalChars: COMPOSER_FILE_CONTEXT_MAX_TOTAL_CHARS,
+    maxDirectoryFiles: COMPOSER_DIRECTORY_CONTEXT_MAX_FILES
+  })
 
   const handleSend = (): void => {
     void handleSendAsync()
@@ -1570,8 +1622,7 @@ export function Workbench(): ReactElement {
     const v = input.trim()
     const attachments = route === 'chat' || route === 'write' ? composerAttachments : []
     const attachmentIds = attachments.map((attachment) => attachment.id)
-    const fileReferences = route === 'chat' ? composerFileReferences : []
-    const modelRouterFileReferences = fileReferences.filter((reference) => reference.modelRouterObject === true)
+    const fileReferences = route === 'chat' || route === 'write' ? composerFileReferences : []
     const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
     if (!v && attachmentIds.length === 0 && fileReferences.length === 0) return
     const emptyPrompt =
@@ -1616,7 +1667,7 @@ export function Workbench(): ReactElement {
     }
 
     if (activeSddDraft && rightPanelMode === 'sdd-ai') {
-      void sendSddAssistantPrompt(v)
+      void sendSddAssistantPrompt(v, fileReferences)
       return
     }
     const planCommand = parseGuiPlanCommand(v)
@@ -1635,7 +1686,7 @@ export function Workbench(): ReactElement {
         ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
-        ...(modelRouterFileReferences.length ? { fileReferences: modelRouterFileReferences } : {})
+        ...(fileReferences.length ? { fileReferences } : {})
       })
       return
     }
@@ -1741,7 +1792,7 @@ export function Workbench(): ReactElement {
       ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
-      ...(modelRouterFileReferences.length ? { fileReferences: modelRouterFileReferences } : {})
+      ...(fileReferences.length ? { fileReferences } : {})
     })
   }
 
@@ -1807,6 +1858,11 @@ export function Workbench(): ReactElement {
         : 'chat'
 
   const closeRightPanel = (): void => {
+    if (rightPanelMode === 'file') {
+      setRightPanelMode(null)
+      setFilePreviewTarget(null)
+      return
+    }
     if (route === 'write') {
       setWriteAssistantOpen(false)
       return
@@ -1857,7 +1913,25 @@ export function Workbench(): ReactElement {
         />
         <div className="h-full min-h-0 shrink-0" style={{ width: rightSidebarWidth }}>
           <Suspense fallback={<div className="h-full w-full bg-ds-sidebar" />}>
-            {route === 'write' && writeAssistantOpen ? (
+            {rightPanelMode === 'file' && filePreviewTarget ? (
+              <WorkspaceFilePreviewPanel
+                target={filePreviewTarget}
+                workspaceRoot={filePreviewTarget.workspaceRoot || activeWorkspaceReferenceRoot || workspaceRoot}
+                className="h-full max-h-full w-full"
+                onClose={() => setFilePreviewTarget(null)}
+              />
+            ) : rightPanelMode === 'file' ? (
+              <ChatFileTreePanel
+                workspaceRoot={activeWorkspaceReferenceRoot || workspaceRoot}
+                workspaceGroups={workspaceReferenceGroups}
+                selectedPath={filePreviewTarget?.path}
+                selectedReferences={composerFileReferences}
+                className="h-full max-h-full w-full"
+                onPreviewFile={previewWorkspaceReference}
+                onAddReference={addComposerFileReference}
+                onCollapse={closeRightPanel}
+              />
+            ) : route === 'write' && writeAssistantOpen ? (
               <WriteAssistantPanel
                 input={input}
                 setInput={setInput}
@@ -1881,9 +1955,13 @@ export function Workbench(): ReactElement {
                 attachmentUploadEnabled={attachmentUploadEnabled}
                 attachmentUploadBusy={attachmentUploadBusy}
                 attachmentUploadError={attachmentUploadError}
+                fileReferenceEnabled={Boolean(normalizeWorkspaceRoot(activeWriteWorkspaceRoot || workspaceRoot))}
+                fileReferences={composerFileReferences}
                 onPickAttachments={(files) => void handlePickAttachments(files)}
                 onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
                 onRemoveAttachment={removeComposerAttachment}
+                onAddFileReference={addComposerFileReference}
+                onRemoveFileReference={removeComposerFileReference}
                 onSend={handleSend}
                 onInterrupt={(options) => void interrupt(options)}
                 runtimeCapabilities={runtimeCapabilities}
@@ -1914,6 +1992,10 @@ export function Workbench(): ReactElement {
                 setComposerReasoningEffort={setAssistantReasoningEffort}
                 queuedMessages={queuedMessages}
                 removeQueuedMessage={removeQueuedMessage}
+                fileReferenceEnabled={Boolean(normalizeWorkspaceRoot(activeSddDraft.workspaceRoot))}
+                fileReferences={composerFileReferences}
+                onAddFileReference={addComposerFileReference}
+                onRemoveFileReference={removeComposerFileReference}
                 onSend={handleSend}
                 onInterrupt={(options) => void interrupt(options)}
                 runtimeCapabilities={runtimeCapabilities}
@@ -1945,6 +2027,15 @@ export function Workbench(): ReactElement {
                 className="h-full max-h-full w-full flex-col"
                 onCollapse={closeRightPanel}
               />
+            ) : rightPanelMode === 'checkpoints' ? (
+              <GitCheckpointPanel
+                threadId={activeThreadId}
+                runtimeId={activeThread?.runtimeId}
+                workspaceRoot={activeThread?.workspace || workspaceRoot}
+                className="h-full max-h-full w-full"
+                onCollapse={closeRightPanel}
+                onRestored={() => useChatStore.getState().refreshThreads()}
+              />
             ) : rightPanelMode === 'plan' ? (
               <PlanPanel
                 workspaceRoot={workspaceRoot}
@@ -1957,14 +2048,7 @@ export function Workbench(): ReactElement {
                 onVerifyPlan={() => void verifyGuiPlan()}
                 onReplanChanged={(changedIds) => void replanChangedRequirements(changedIds)}
               />
-            ) : (
-              <WorkspaceFilePreviewPanel
-                target={filePreviewTarget}
-                workspaceRoot={workspaceRoot}
-                className="h-full max-h-full w-full"
-                onClose={closeRightPanel}
-              />
-            )}
+            ) : null}
           </Suspense>
         </div>
       </>

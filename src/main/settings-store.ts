@@ -209,6 +209,8 @@ async function ensureWriteWorkspaceRootsExist(settings: AppSettingsV1): Promise<
     await writeFile(welcomePath, WELCOME_MARKDOWN, { encoding: 'utf8', flag: 'wx' })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    const existing = await readFile(welcomePath, 'utf8').catch(() => '')
+    if (!existing.trim()) await writeFile(welcomePath, WELCOME_MARKDOWN, 'utf8')
   }
 }
 

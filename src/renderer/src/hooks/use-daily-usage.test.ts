@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import * as dailyUsage from './use-daily-usage'
 import type { AgentRuntimeId } from '@shared/app-settings'
+import * as dailyUsage from './use-daily-usage'
 
 type AgentRuntimeUsage = (input: unknown) => Promise<unknown>
 

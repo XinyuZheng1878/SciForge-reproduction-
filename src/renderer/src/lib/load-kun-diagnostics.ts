@@ -17,13 +17,22 @@ export type LoadedKunDiagnostics = {
 
 export async function loadKunDiagnostics(
   provider: DiagnosticsProvider,
-  options: { workspace?: string } = {}
+  options: {
+    workspace?: string
+    memoryScope?: 'user' | 'workspace' | 'project'
+    memoryQuery?: string
+  } = {}
 ): Promise<LoadedKunDiagnostics> {
   const [runtimeInfo, toolDiagnostics, memoryRecords] = await Promise.allSettled([
     provider.getRuntimeInfo ? provider.getRuntimeInfo() : Promise.resolve(null),
     provider.getToolDiagnostics ? provider.getToolDiagnostics() : Promise.resolve(null),
     provider.listMemories
-      ? provider.listMemories({ workspace: options.workspace, includeDeleted: false })
+      ? provider.listMemories({
+          workspace: options.workspace,
+          scope: options.memoryScope,
+          query: options.memoryQuery,
+          includeDeleted: false
+        })
       : Promise.resolve([])
   ])
 

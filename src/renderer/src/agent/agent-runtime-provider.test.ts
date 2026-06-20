@@ -628,12 +628,13 @@ describe('AgentRuntimeProvider', () => {
   })
 
   it('derives legacy UI capabilities from neutral runtime capabilities', async () => {
+    const runtimeCapabilities = vi.fn(async () => capabilities('codex'))
     vi.stubGlobal('window', {
       dsGui: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
-          capabilities: vi.fn(async () => capabilities('codex'))
+          capabilities: runtimeCapabilities
         },
       }
     })
@@ -647,13 +648,233 @@ describe('AgentRuntimeProvider', () => {
       approvals: false,
       attachFiles: false,
       review: false,
-      compact: false,
+      compact: true,
       fork: false,
       goals: false,
       todos: false,
       skills: false,
+      checkpoints: false,
       sideConversations: false
     })
+
+    runtimeCapabilities.mockResolvedValueOnce({
+      ...capabilities('codex'),
+      controls: {
+        ...capabilities('codex').controls,
+        compact: 'unsupported'
+      }
+    })
+    await provider.refreshCapabilities()
+
+    expect(provider.getCapabilities().compact).toBe(false)
+  })
+
+  it('exposes host service auxiliary helpers without runtime-specific branches', async () => {
+    const auxiliary = vi.fn(async (input: { operation: string; payload?: Record<string, unknown> }) => {
+      if (input.operation === 'listMemories') {
+        return [{
+          id: 'mem-1',
+          text: 'Shared memory',
+          scope: 'user',
+          tags: ['profile'],
+          createdAt: '2026-06-20T00:00:00.000Z',
+          updatedAt: '2026-06-20T00:00:00.000Z'
+        }]
+      }
+      if (input.operation === 'createMemory') {
+        return {
+          id: 'mem-2',
+          text: input.payload?.text,
+          scope: 'workspace',
+          tags: [],
+          createdAt: '2026-06-20T00:00:00.000Z',
+          updatedAt: '2026-06-20T00:00:00.000Z'
+        }
+      }
+      if (input.operation === 'updateMemory') {
+        const patch = input.payload?.patch as { text?: string } | undefined
+        return {
+          id: input.payload?.memoryId,
+          text: patch?.text,
+          scope: 'workspace',
+          tags: ['updated'],
+          disabled: false,
+          deleted: false,
+          createdAt: '2026-06-20T00:00:00.000Z',
+          updatedAt: '2026-06-20T00:00:01.000Z'
+        }
+      }
+      if (input.operation === 'deleteMemory') {
+        return {
+          id: input.payload?.memoryId,
+          text: 'Deleted memory',
+          scope: 'workspace',
+          tags: [],
+          disabled: false,
+          deleted: true,
+          createdAt: '2026-06-20T00:00:00.000Z',
+          updatedAt: '2026-06-20T00:00:01.000Z'
+        }
+      }
+      if (input.operation === 'getContextState') {
+        return { runtimeId: 'codex', threadId: input.payload?.threadId, rawHistoryItems: 0, effectiveHistoryItems: 0, updatedAt: 'now' }
+      }
+      if (input.operation === 'listModelAuditRecords') {
+        return [{
+          id: 'audit-1',
+          runtimeId: 'codex',
+          threadId: input.payload?.threadId,
+          startedAt: '2026-06-20T00:00:00.000Z',
+          request: {
+            bodySummary: {
+              schema: 'agent-runtime.turnStart',
+              keys: ['text'],
+              textChars: 5,
+              attachmentCount: 0,
+              fileReferenceCount: 0,
+              inlineContextReferenceCount: 0,
+              modelRouterObjectReferenceCount: 0,
+              hasGuiPlan: false,
+              estimatedJsonChars: 10
+            }
+          },
+          streamOutput: { text: 'hello', reasoning: '', toolCalls: [] }
+        }]
+      }
+      if (input.operation === 'clearModelAuditRecords') {
+        if (input.payload?.fail === true) throw new Error('clear failed')
+        return true
+      }
+      if (input.operation === 'runCodeNavigation') {
+        return { ok: true, locations: [{ relativePath: 'src/index.ts', line: 3, character: 8 }] }
+      }
+      if (input.operation === 'listWorkspaceReferences') {
+        return { ok: true, references: [{ workspaceRoot: '/tmp/ws', relativePath: 'src/index.ts', name: 'index.ts', kind: 'file' }] }
+      }
+      return true
+    })
+    vi.stubGlobal('window', {
+      dsGui: {
+        getSettings: vi.fn(async () => settings('codex')),
+        setSettings: vi.fn(),
+        agentRuntime: {
+          capabilities: vi.fn(async () => capabilities('codex')),
+          auxiliary
+        },
+      }
+    })
+
+    const provider = new AgentRuntimeProvider()
+    provider.rememberThreadRuntime('codex-thread', 'codex')
+
+    await expect(provider.listMemories({ query: 'profile' })).resolves.toEqual([expect.objectContaining({
+      id: 'mem-1',
+      content: 'Shared memory'
+    })])
+    await expect(provider.createMemory({ content: 'New memory', scope: 'workspace' })).resolves.toMatchObject({
+      content: 'New memory',
+      scope: 'workspace'
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      operation: 'createMemory',
+      payload: {
+        content: 'New memory',
+        scope: 'workspace',
+        text: 'New memory'
+      }
+    })
+    await expect(provider.updateMemory?.('mem-2', { content: 'Updated memory', tags: ['updated'] })).resolves.toMatchObject({
+      id: 'mem-2',
+      content: 'Updated memory',
+      scope: 'workspace',
+      tags: ['updated']
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      operation: 'updateMemory',
+      payload: {
+        memoryId: 'mem-2',
+        patch: {
+          tags: ['updated'],
+          text: 'Updated memory'
+        }
+      }
+    })
+    await expect(provider.deleteMemory?.('mem-2')).resolves.toMatchObject({
+      id: 'mem-2',
+      deletedAt: '2026-06-20T00:00:01.000Z'
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      operation: 'deleteMemory',
+      payload: { memoryId: 'mem-2' }
+    })
+    await expect(provider.getContextState('codex-thread')).resolves.toMatchObject({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    })
+    await expect(provider.listModelAuditRecords({ runtimeId: 'codex', threadId: 'codex-thread', limit: 5 })).resolves.toEqual([
+      expect.objectContaining({
+        id: 'audit-1',
+        runtimeId: 'codex',
+        threadId: 'codex-thread'
+      })
+    ])
+    await expect(provider.clearModelAuditRecords()).resolves.toBe(true)
+    await expect(provider.runCodeNavigation?.({
+      workspaceRoot: '/tmp/ws',
+      operation: 'goToDefinition',
+      filePath: 'src/index.ts',
+      line: 3,
+      character: 8
+    })).resolves.toMatchObject({
+      ok: true,
+      locations: [expect.objectContaining({ relativePath: 'src/index.ts' })]
+    })
+    await expect(provider.listWorkspaceReferences({ workspaceRoot: '/tmp/ws' })).resolves.toMatchObject({
+      ok: true,
+      references: [expect.objectContaining({ relativePath: 'src/index.ts' })]
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      operation: 'getContextState',
+      payload: { threadId: 'codex-thread' }
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      operation: 'listModelAuditRecords',
+      payload: {
+        threadId: 'codex-thread',
+        limit: 5,
+        runtimeId: 'codex'
+      }
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      operation: 'clearModelAuditRecords',
+      payload: {}
+    })
+  })
+
+  it('propagates model audit auxiliary failures through the provider', async () => {
+    vi.stubGlobal('window', {
+      dsGui: {
+        getSettings: vi.fn(async () => settings('codex')),
+        setSettings: vi.fn(),
+        agentRuntime: {
+          capabilities: vi.fn(async () => capabilities('codex')),
+          auxiliary: vi.fn(async (input: { operation: string }) => {
+            if (input.operation === 'clearModelAuditRecords') throw new Error('clear failed')
+            return []
+          })
+        },
+      }
+    })
+
+    const provider = new AgentRuntimeProvider()
+
+    await expect(provider.clearModelAuditRecords()).rejects.toThrow('clear failed')
   })
 
   it('forwards neutral turn model hints to Codex adapter calls', async () => {

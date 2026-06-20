@@ -10,6 +10,7 @@ import {
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
+  type AgentRuntimeId,
   type AppSettingsV1,
   type ClawImChannelV1,
   type ClawImConversationV1
@@ -28,7 +29,7 @@ import type { ClawRuntimeDeps, ThreadDetailJson } from './claw-runtime-helpers'
 type TestAgentRuntime = NonNullable<ClawRuntimeDeps['agentRuntime']>
 type TestThreadDetail = ThreadDetailJson & {
   id: string
-  runtimeId: 'kun' | 'codex'
+  runtimeId: AgentRuntimeId
   title: string
   updatedAt: string
   latestSeq: number
@@ -179,7 +180,12 @@ function completedAgentRuntime(options: {
   turnId?: string
   text?: string
   detail?: ThreadDetailJson | ((input: { runtimeId?: string; threadId: string }) => ThreadDetailJson)
-  startThread?: (input: Record<string, unknown>) => Promise<{ id: string; runtimeId?: 'kun' | 'codex'; title?: string; updatedAt?: string }>
+  startThread?: (input: Record<string, unknown>) => Promise<{
+    id: string
+    runtimeId?: AgentRuntimeId
+    title?: string
+    updatedAt?: string
+  }>
   startTurn?: (input: Record<string, unknown>) => Promise<{ threadId: string; turnId: string }>
   readThread?: (input: { runtimeId?: string; threadId: string }) => Promise<ThreadDetailJson>
 } = {}): TestAgentRuntime & {

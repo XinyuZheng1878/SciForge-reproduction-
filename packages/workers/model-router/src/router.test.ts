@@ -495,6 +495,112 @@ test('pure text responses are routed only to the configured text reasoner', asyn
     assert.doesNotMatch(traceText, /text-secret|vision-secret|Authorization|data:image|base64/i);
     assert.doesNotMatch(traceText, /text-provider|vision-provider|text-model|vision-model/i);
     assert.match(traceText, /"providerBindingSha256":\s*"sha256:[a-f0-9]{64}"/);
+    assert.match(traceText, /"providerAliasSha256":\s*"sha256:[a-f0-9]{64}"/);
+    assert.match(traceText, /"modelAliasSha256":\s*"sha256:[a-f0-9]{64}"/);
+    assert.match(traceText, /"wireRequest":\s*\{/);
+    assert.match(traceText, /"endpointRoute":\s*"chat\.completions"/);
+    assert.match(traceText, /"messageCount":\s*1/);
+    assert.match(traceText, /"toolCount":\s*0/);
+    assert.match(traceText, /"stopReason":\s*"stop"/);
+    assert.match(traceText, /"latencyMs":\s*\d+/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('anthropic messages route through the text reasoner', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-anthropic-message-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig({ publicModelAlias: 'deepseek-gui-router' }),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-reasoner-answer', 'pong', undefined, {}, {
+        prompt_tokens: 12,
+        completion_tokens: 3,
+        total_tokens: 15,
+      }),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/api/cc/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': 'runtime-secret' },
+      body: JSON.stringify({
+        model: 'deepseek-gui-router',
+        system: 'Answer tersely.',
+        messages: [{ role: 'user', content: 'Reply with exactly: pong' }],
+        max_tokens: 64,
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, any>;
+    assert.equal(body.type, 'message');
+    assert.equal(body.model, 'deepseek-gui-router');
+    assert.deepEqual(body.content, [{ type: 'text', text: 'pong' }]);
+    assert.deepEqual(body.usage, {
+      input_tokens: 12,
+      output_tokens: 3,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, 'https://text.example/v1/chat/completions');
+    assert.equal(calls[0]?.headers.authorization, 'Bearer text-secret');
+    assert.deepEqual(calls[0]?.body.messages, [
+      { role: 'user', content: 'Answer tersely.\nReply with exactly: pong' },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('anthropic messages stream emits Claude-compatible SSE events', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-anthropic-stream-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig({ publicModelAlias: 'deepseek-gui-router' }),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-reasoner-answer', 'pong', undefined, {}, {
+        prompt_tokens: 12,
+        completion_tokens: 3,
+        total_tokens: 15,
+      }),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/messages`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'deepseek-gui-router',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with exactly: pong' }] }],
+        max_tokens: 64,
+        stream: true,
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /text\/event-stream/);
+    const events = parseSseEvents(await response.text());
+    assert.deepEqual(events.map((event) => event.type), [
+      'message_start',
+      'content_block_start',
+      'content_block_delta',
+      'content_block_stop',
+      'message_delta',
+      'message_stop',
+    ]);
+    assert.deepEqual(events[2]?.delta, { type: 'text_delta', text: 'pong' });
+    assert.equal(calls.length, 1);
   } finally {
     await server.close();
   }
@@ -966,6 +1072,129 @@ test('responses routing drops non-function Codex tools before chat provider call
         parameters: { type: 'object', properties: {} },
       },
     }]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('responses routing exposes namespaced dynamic tools as provider-safe chat functions', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-dynamic-tools-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-dynamic-tools', 'Plain answer.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: 'Use the configured dynamic tool if needed.',
+        tools: [
+          { type: 'local_shell' },
+          {
+            namespace: 'mcp_gui_research',
+            name: 'research_search',
+            description: 'Search scientific literature.',
+            inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+          },
+          {
+            type: 'namespace',
+            name: 'mcp_lab',
+            tools: [{
+              type: 'function',
+              name: 'inspect.dataset',
+              description: 'Inspect a dataset.',
+              input_schema: { type: 'object', properties: { id: { type: 'string' } } },
+            }],
+          },
+        ],
+        tool_choice: {
+          type: 'function',
+          function: { name: 'mcp_gui_research.research_search' },
+        },
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls[0]?.body.tools, [
+      {
+        type: 'function',
+        function: {
+          name: 'mcp_gui_research_research_search',
+          description: 'Search scientific literature.',
+          parameters: { type: 'object', properties: { query: { type: 'string' } } },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'mcp_lab_inspect_dataset',
+          description: 'Inspect a dataset.',
+          parameters: { type: 'object', properties: { id: { type: 'string' } } },
+        },
+      },
+    ]);
+    assert.deepEqual(calls[0]?.body.tool_choice, {
+      type: 'function',
+      function: { name: 'mcp_gui_research_research_search' },
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test('responses routing maps provider dynamic tool calls back to namespaced Responses items', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-dynamic-tool-call-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-dynamic-tool-call', '', [{
+        id: 'call_research_search_1',
+        type: 'function',
+        function: {
+          name: 'mcp_gui_research_research_search',
+          arguments: JSON.stringify({ query: 'agentic RL', maxResults: 1 }),
+        },
+      }]),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: 'Search with the configured dynamic tool.',
+        tools: [{
+          namespace: 'mcp_gui_research',
+          name: 'research_search',
+          description: 'Search scientific literature.',
+          inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+        }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as { output?: Array<Record<string, unknown>>; output_text?: string };
+    assert.equal(body.output_text, '');
+    assert.equal(body.output?.[0]?.type, 'function_call');
+    assert.equal(body.output?.[0]?.call_id, 'call_research_search_1');
+    assert.equal(body.output?.[0]?.name, 'mcp_gui_research.research_search');
+    assert.equal(body.output?.[0]?.arguments, JSON.stringify({ query: 'agentic RL', maxResults: 1 }));
+    assert.equal((calls[0]?.body.tools as Array<{ function?: { name?: string } }> | undefined)?.[0]?.function?.name, 'mcp_gui_research_research_search');
   } finally {
     await server.close();
   }

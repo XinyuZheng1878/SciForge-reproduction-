@@ -74,12 +74,14 @@ class Handler(BaseHTTPRequestHandler):
 
     # --- helpers ------------------------------------------------------------
     def _cors(self) -> None:
-        origin = self.headers.get("Origin", "")
-        host = self.headers.get("Host", "")
+        # The bundled UI is same-origin. For local development, allow explicit
+        # same-host origins only instead of exposing the localhost API to any page.
+        origin = self.headers.get("Origin")
+        host = self.headers.get("Host")
         if origin and host:
             try:
                 parsed = urlparse(origin)
-                if parsed.netloc == host:
+                if parsed.scheme in ("http", "https") and parsed.netloc == host:
                     self.send_header("Access-Control-Allow-Origin", origin)
                     self.send_header("Vary", "Origin")
             except ValueError:

@@ -135,6 +135,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeThreadId: null,
   activeThreadGoal: null,
   activeThreadTodos: null,
+  activeThreadContextState: null,
   blocks: [],
   liveReasoning: '',
   liveAssistant: '',

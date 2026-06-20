@@ -441,6 +441,32 @@ describe('ThreadService.resumeSession', () => {
 
     expect(result.thread.model).toBe(DEFAULT_KUN_MODEL)
   })
+
+  it('carries the source thread goal onto the resumed thread', async () => {
+    const { service } = buildService()
+    await service.create(
+      { workspace: '/tmp/p', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_goal_resume', title: 'Goal Resume' }
+    )
+    await service.setGoal('thr_goal_resume', {
+      objective: 'finish resumable goal',
+      status: 'active',
+      tokenBudget: 5000
+    })
+
+    const result = await service.resumeSession('thr_goal_resume')
+
+    expect(result.thread.goal).toMatchObject({
+      threadId: result.thread.id,
+      objective: 'finish resumable goal',
+      status: 'active',
+      tokenBudget: 5000,
+      tokensUsed: 0,
+      timeUsedSeconds: 0
+    })
+    expect(result.thread.goal?.createdAt).toBe(result.thread.createdAt)
+    expect(result.thread.goal?.updatedAt).toBe(result.thread.createdAt)
+  })
 })
 
 describe('ThreadService.update relation', () => {

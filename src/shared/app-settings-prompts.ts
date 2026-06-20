@@ -223,8 +223,8 @@ export function normalizeAgentThreadIds(input: unknown, legacyKunThreadId = ''):
 }
 
 export function normalizeSettingsRuntimeId(value: unknown): AgentRuntimeId {
-  if (value === 'claude') return 'claude'
-  return value === 'codex' ? 'codex' : 'kun'
+  if (value === 'codex' || value === 'claude') return value
+  return 'kun'
 }
 
 export function normalizeClawImConversation(

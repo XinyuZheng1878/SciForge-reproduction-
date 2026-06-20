@@ -6,6 +6,7 @@ import {
   attachmentInputsFromPickedFiles,
   composeInsertedTextAtSelection,
   formatGoalElapsedSeconds,
+  formatThreadContextStateLabel,
   handleComposerImagePaste,
   imageAttachmentInputsFromTransfer,
   imageFilesFromTransfer,
@@ -36,6 +37,7 @@ import {
 } from './use-voice-dictation'
 
 afterEach(() => {
+  useChatStore.setState({ activeThreadContextState: null })
   vi.unstubAllGlobals()
 })
 
@@ -114,6 +116,32 @@ describe('FloatingComposer goal helpers', () => {
     expect(formatGoalElapsedSeconds(60)).toBe('1m')
     expect(formatGoalElapsedSeconds(125)).toBe('2m 5s')
     expect(formatGoalElapsedSeconds(3720)).toBe('1h 2m')
+  })
+
+  it('formats shared context state with existing composer copy', () => {
+    const t = (key: string, options?: Record<string, unknown>): string => {
+      if (key === 'compactionCompletedWithCounts') {
+        return `Compacted context (${options?.before} -> ${options?.after} messages)`
+      }
+      if (key === 'goalActiveHeading') return 'Active goal'
+      if (key === 'goalStatusShort.blocked') return 'Blocked'
+      return key
+    }
+
+    expect(formatThreadContextStateLabel({
+      runtimeId: 'codex',
+      threadId: 'thr_1',
+      rawHistoryItems: 12,
+      effectiveHistoryItems: 4,
+      summarySource: 'heuristic',
+      updatedAt: '2026-06-20T00:00:00.000Z',
+      goalResume: {
+        status: 'blocked',
+        resumeCount: 2,
+        lastFailureReason: 'no progress',
+        updatedAt: '2026-06-20T00:00:01.000Z'
+      }
+    }, t)).toBe('Compacted context (12 -> 4 messages) · Active goal: Blocked · ×2 · no progress')
   })
 })
 
@@ -1025,6 +1053,70 @@ describe('FloatingComposer capability controls', () => {
 
     expect(html).not.toContain('Full access')
     expect(html).not.toContain('aria-label="Execution"')
+  })
+
+  it('renders shared context and goal resume state above the input', () => {
+    useChatStore.setState({
+      activeThreadId: 'thr_1',
+      activeThreadGoal: null,
+      activeThreadContextState: {
+        runtimeId: 'codex',
+        threadId: 'thr_1',
+        rawHistoryItems: 10,
+        effectiveHistoryItems: 3,
+        summarySource: 'heuristic',
+        summary: 'Kept recent work.',
+        updatedAt: '2026-06-20T00:00:00.000Z',
+        goalResume: {
+          status: 'blocked',
+          resumeCount: 1,
+          lastFailureReason: 'no progress',
+          updatedAt: '2026-06-20T00:00:01.000Z'
+        }
+      },
+      route: 'chat',
+      workspaceRoot: '/workspace/deepseek-gui'
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposer, {
+        input: 'continue',
+        setInput: () => undefined,
+        mode: 'agent',
+        setMode: () => undefined,
+        busy: false,
+        runtimeReady: true,
+        hasActiveThread: true,
+        composerModel: '',
+        composerPickList: [],
+        onComposerModelChange: () => undefined,
+        queuedMessages: [],
+        onRemoveQueuedMessage: () => undefined,
+        onSend: () => undefined,
+        onInterrupt: () => undefined,
+        attachmentUploadEnabled: false,
+        webAccessAvailable: false,
+        contextState: {
+          runtimeId: 'codex',
+          threadId: 'thr_1',
+          rawHistoryItems: 10,
+          effectiveHistoryItems: 3,
+          summarySource: 'heuristic',
+          summary: 'Kept recent work.',
+          updatedAt: '2026-06-20T00:00:00.000Z',
+          goalResume: {
+            status: 'blocked',
+            resumeCount: 1,
+            lastFailureReason: 'no progress',
+            updatedAt: '2026-06-20T00:00:01.000Z'
+          }
+        }
+      })
+    )
+
+    expect(html).toContain('Compacted context')
+    expect(html).toContain('Active goal: Blocked')
+    expect(html).toContain('Kept recent work.')
   })
 
   it('renders a changed-file review card above the input', () => {

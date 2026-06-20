@@ -453,6 +453,7 @@ export class ThreadService {
       forkedAt: now,
       forkedFromMessageCount: clonedItems.filter((item) => item.kind === 'user_message').length,
       forkedFromTurnCount: clonedTurns.length,
+      ...(sourceThread?.goal ? { goal: cloneGoalForThread(sourceThread.goal, threadId, now) } : {}),
       ...(sourceThread?.todos ? { todos: cloneTodoListForThread(sourceThread.todos, threadId, now) } : {}),
       createdAt: now
     })
@@ -491,6 +492,15 @@ function cloneTurnForThread(turn: Turn, threadId: string, now: string): Turn {
     finishedAt: turn.finishedAt ?? now,
     attachmentIds,
     items
+  }
+}
+
+function cloneGoalForThread(goal: ThreadGoal, threadId: string, now: string): ThreadGoal {
+  return {
+    ...goal,
+    threadId,
+    createdAt: now,
+    updatedAt: now
   }
 }
 

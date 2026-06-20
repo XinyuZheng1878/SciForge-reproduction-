@@ -57,6 +57,22 @@ import { CodexEventStore, type CodexStoredEvent } from './codex-event-store'
 import { CodexThreadStore, type CodexStoredThread } from './codex-thread-store'
 import { CodexUsageStore } from './codex-usage-store'
 import { prepareCodexAppServerLaunch, resolveCodexWorkspace } from './codex-config'
+import {
+  buildResearchSearchMcpArgs,
+  GUI_RESEARCH_MCP_SERVER_NAME,
+  researchSearchMcpEnv,
+  resolveResearchSearchMcpCommand,
+  type ResearchSearchMcpLaunchConfig
+} from '../../research-search-mcp-config'
+import {
+  createCodexDynamicMcpToolBridge,
+  type CodexAppServerDynamicToolCallRequest,
+  type CodexAppServerDynamicToolCallResponse,
+  type CodexAppServerDynamicToolSpec,
+  type CodexDynamicMcpClient,
+  type CodexDynamicMcpServerConfig,
+  type CodexDynamicMcpToolBridge
+} from './codex-dynamic-mcp-tools'
 
 export type CodexRuntimeEventSink = {
   send(channel: typeof CODEX_MAIN_IPC_CHANNELS.event, payload: CodexEventPayload): void
@@ -70,6 +86,9 @@ export type CodexRuntimeServiceOptions = {
   appVersion?: string
   storageRoot?: string
   managedCodexHome?: string
+  researchMcpLaunch?: ResearchSearchMcpLaunchConfig
+  managedMcpServers?: readonly CodexDynamicMcpServerConfig[]
+  mcpClientFactory?: (server: CodexDynamicMcpServerConfig) => Promise<CodexDynamicMcpClient>
   createClient?: (options: CodexAppServerJsonRpcClientOptions) => CodexAppServerJsonRpcClient
 }
 
@@ -111,6 +130,11 @@ const EMPTY_CODEX_TURN_USAGE: AgentRuntimeUsage = {
 
 const FIRST_CODEX_ACTIVITY_TIMEOUT_MS = 75_000
 const INTERRUPT_TIMED_OUT_TURN_MS = 5_000
+const CODEX_SPECIALIZED_MCP_DEVELOPER_INSTRUCTIONS = [
+  'DeepSeek GUI may configure specialized MCP tools for this runtime.',
+  'When an advertised specialized MCP tool directly matches the user request, use that tool before falling back to generic shell, curl, wget, ad hoc scripts, or direct scraping.',
+  'Use command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.'
+].join('\n')
 
 type CodexRuntimeEventSubscriber = {
   threadId: string
@@ -128,6 +152,7 @@ export class CodexRuntimeService {
   private readonly threadStore: CodexThreadStore | null
   private readonly eventStore: CodexEventStore | null
   private readonly usageStore: CodexUsageStore | null
+  private dynamicMcpBridge: CodexDynamicMcpToolBridge | null = null
   private usageBackfillPromise: Promise<void> | null = null
   private readonly activeTurns = new Map<string, string>()
   private readonly turnTimings = new Map<string, CodexTurnTiming>()
@@ -217,8 +242,12 @@ export class CodexRuntimeService {
           latencyMs: elapsedMs(startedAtMs)
         }, { persist: false })
       }
+      const dynamicTools = await this.codexDynamicTools()
       const response = await client.startThread({
-        ...baseThreadParams(settings, workspace),
+        ...baseThreadParams(settings, workspace, {
+          specializedMcpConfigured: dynamicTools.length > 0,
+          dynamicTools
+        }),
         ...codexModelRouterThreadParams(settings),
         serviceName: 'DeepSeek GUI',
         ephemeral: false
@@ -381,6 +410,8 @@ export class CodexRuntimeService {
       const routerModel = codexModelRouterModel(settings)
       const storedThread = await this.findStoredThread(payload.threadId)
       const workspace = resolveCodexWorkspace(settings, payload.workspace || storedThread?.workspace)
+      const modelText = codexSpecializedMcpGuidedTurnText(payload.text, this.hasDynamicMcpServersConfigured())
+      const modelDisplayText = payload.displayText ?? (modelText === payload.text ? undefined : payload.text)
       let codexThreadId = storedThread?.codexThreadId ?? payload.threadId
       const coldStart = !this.isClientWarm()
       if (coldStart) {
@@ -408,8 +439,8 @@ export class CodexRuntimeService {
       try {
         response = await client.startTurn(turnStartParams({
           threadId: codexThreadId,
-          text: payload.text,
-          displayText: payload.displayText,
+          text: modelText,
+          displayText: modelDisplayText,
           workspace,
           model: routerModel,
           reasoningEffort: payload.reasoningEffort,
@@ -430,8 +461,8 @@ export class CodexRuntimeService {
         codexThreadId = replacement.codexThreadId
         response = await client.startTurn(turnStartParams({
           threadId: codexThreadId,
-          text: payload.text,
-          displayText: payload.displayText,
+          text: modelText,
+          displayText: modelDisplayText,
           workspace,
           model: routerModel,
           reasoningEffort: payload.reasoningEffort,
@@ -569,7 +600,9 @@ export class CodexRuntimeService {
 
   async stop(): Promise<void> {
     const client = this.client
+    const dynamicMcpBridge = this.dynamicMcpBridge
     this.client = null
+    this.dynamicMcpBridge = null
     this.clientPromise = null
     this.clientConnected = false
     this.clientInfo = null
@@ -582,12 +615,15 @@ export class CodexRuntimeService {
     this.seenModelDeltaKeys.clear()
     this.clearPendingToolBarrier()
     this.closeAllEventSubscribers()
+    await dynamicMcpBridge?.close()
     if (client) await client.stop()
   }
 
   private async discardClientAfterFailure(): Promise<void> {
     const client = this.client
+    const dynamicMcpBridge = this.dynamicMcpBridge
     this.client = null
+    this.dynamicMcpBridge = null
     this.clientPromise = null
     this.clientConnected = false
     this.clientInfo = null
@@ -600,6 +636,7 @@ export class CodexRuntimeService {
     this.seenModelDeltaKeys.clear()
     this.clearPendingToolBarrier()
     this.closeAllEventSubscribers()
+    await dynamicMcpBridge?.close().catch(() => undefined)
     if (!client) return
     try {
       await client.stop()
@@ -615,7 +652,12 @@ export class CodexRuntimeService {
       const current = settings ?? await this.options.settings()
       const launch = await prepareCodexAppServerLaunch({
         settings: current,
-        managedCodexHome: this.options.managedCodexHome
+        managedCodexHome: this.options.managedCodexHome,
+        researchMcpLaunch: this.options.researchMcpLaunch
+      })
+      this.dynamicMcpBridge = createCodexDynamicMcpToolBridge({
+        servers: codexDynamicMcpServers(this.options),
+        ...(this.options.mcpClientFactory ? { clientFactory: this.options.mcpClientFactory } : {})
       })
       const createClient = this.options.createClient ?? createCodexAppServerClient
       const client = createClient({
@@ -636,7 +678,8 @@ export class CodexRuntimeService {
                 detail: error
               })
             })
-          }
+          },
+          onToolCallRequest: (request) => this.handleDynamicToolCall(request)
         }
       })
       this.client = client
@@ -666,6 +709,31 @@ export class CodexRuntimeService {
 
   isClientWarm(): boolean {
     return this.client !== null && this.clientConnected
+  }
+
+  isResearchMcpConfigured(): boolean {
+    return this.hasDynamicMcpServersConfigured()
+  }
+
+  private hasDynamicMcpServersConfigured(): boolean {
+    return this.dynamicMcpBridge?.hasConfiguredServers() ?? codexDynamicMcpServers(this.options).length > 0
+  }
+
+  private async codexDynamicTools(): Promise<CodexAppServerDynamicToolSpec[]> {
+    return await this.dynamicMcpBridge?.dynamicTools() ?? []
+  }
+
+  private async handleDynamicToolCall(
+    request: CodexAppServerDynamicToolCallRequest
+  ): Promise<CodexAppServerDynamicToolCallResponse> {
+    const bridge = this.dynamicMcpBridge
+    if (!bridge) {
+      return {
+        contentItems: [{ type: 'inputText', text: 'No MCP dynamic tool bridge is configured.' }],
+        success: false
+      }
+    }
+    return bridge.callTool(request)
   }
 
   private async forwardEvents(client: CodexAppServerJsonRpcClient): Promise<void> {
@@ -993,8 +1061,12 @@ export class CodexRuntimeService {
     storedThread: CodexStoredThread | null
     workspace: string
   }): Promise<CodexStoredThread> {
+    const dynamicTools = await this.codexDynamicTools()
     const response = await input.client.startThread({
-      ...baseThreadParams(input.settings, input.workspace),
+      ...baseThreadParams(input.settings, input.workspace, {
+        specializedMcpConfigured: dynamicTools.length > 0,
+        dynamicTools
+      }),
       ...codexModelRouterThreadParams(input.settings),
       serviceName: 'DeepSeek GUI',
       ephemeral: false
@@ -1459,14 +1531,42 @@ function isTerminalThreadStatus(status: string | undefined): boolean {
     status === 'interrupted'
 }
 
-function baseThreadParams(settings: AppSettingsV1, workspace?: string): CodexAppServerThreadStartParams {
+function codexDynamicMcpServers(options: CodexRuntimeServiceOptions): CodexDynamicMcpServerConfig[] {
+  const servers = new Map<string, CodexDynamicMcpServerConfig>()
+  for (const server of options.managedMcpServers ?? []) {
+    servers.set(server.id, server)
+  }
+  if (options.researchMcpLaunch && !servers.has(GUI_RESEARCH_MCP_SERVER_NAME)) {
+    servers.set(GUI_RESEARCH_MCP_SERVER_NAME, {
+      id: GUI_RESEARCH_MCP_SERVER_NAME,
+      command: resolveResearchSearchMcpCommand(options.researchMcpLaunch),
+      args: buildResearchSearchMcpArgs(options.researchMcpLaunch),
+      env: researchSearchMcpEnv(process.env),
+      timeoutMs: 30_000,
+      enabledTools: ['research_search']
+    })
+  }
+  return [...servers.values()]
+}
+
+function baseThreadParams(
+  settings: AppSettingsV1,
+  workspace?: string,
+  dynamicMcp: {
+    specializedMcpConfigured?: boolean
+    dynamicTools?: CodexAppServerDynamicToolSpec[]
+  } = {}
+): CodexAppServerThreadStartParams {
   const runtime = getCodexRuntimeSettings(settings)
   const cwd = resolveCodexWorkspace(settings, workspace)
+  const dynamicTools = dynamicMcp.dynamicTools?.length ? dynamicMcp.dynamicTools : undefined
   return {
     cwd,
     approvalPolicy: mapApprovalPolicy(runtime.approvalPolicy),
     sandbox: mapThreadSandboxMode(runtime.sandboxMode),
-    config: codexAppServerThreadReasoningConfig()
+    config: codexAppServerThreadReasoningConfig(),
+    ...(dynamicMcp.specializedMcpConfigured ? { developerInstructions: CODEX_SPECIALIZED_MCP_DEVELOPER_INSTRUCTIONS } : {}),
+    ...(dynamicTools ? { dynamicTools } : {})
   }
 }
 
@@ -1506,6 +1606,19 @@ function turnStartParams(input: {
     sandboxPolicy: mapTurnSandboxMode(input.runtime.sandboxMode, input.workspace),
     ...codexAppServerTurnReasoningParams({ reasoningEffort: input.reasoningEffort })
   }
+}
+
+function codexSpecializedMcpGuidedTurnText(text: string, specializedMcpConfigured: boolean): string {
+  if (!specializedMcpConfigured) return text
+  return [
+    '<deepseek_gui_runtime_instruction>',
+    'DeepSeek GUI has configured specialized MCP tools for this runtime.',
+    'When an advertised specialized MCP tool directly matches the user request, use that tool before falling back to generic shell, curl, wget, ad hoc scripts, or direct scraping.',
+    'Use command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.',
+    '</deepseek_gui_runtime_instruction>',
+    '',
+    text
+  ].join('\n')
 }
 
 function mapApprovalPolicy(policy: ApprovalPolicy): 'never' | 'on-request' | 'untrusted' {

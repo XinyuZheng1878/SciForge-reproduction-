@@ -90,8 +90,24 @@ type ProviderCallRecord = {
   status: 'ok' | 'failed';
   roleAlias: string;
   providerBindingSha256: string;
+  providerAliasSha256: string;
+  modelAliasSha256: string;
   wireApi: 'chat.completions';
+  wireRequest: {
+    urlSha256: string;
+    endpointRoute: 'chat.completions';
+    bodyShape: {
+      modelAliasSha256: string;
+      messageCount: number;
+      toolCount: number;
+      hasImageParts: boolean;
+      textCharCount: number;
+      maxTokensSet: boolean;
+      temperatureSet: boolean;
+    };
+  };
   latencyMs: number;
+  stopReason?: 'stop' | 'tool_calls' | 'length' | 'error' | 'unknown';
   errorSummary?: string;
 };
 
@@ -226,7 +242,10 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
         });
         return sendJson(response, 200, responseObject(result));
       }
-      if (request.method === 'POST' && url.pathname === '/v1/messages') {
+      if (
+        request.method === 'POST' &&
+        (url.pathname === '/v1/messages' || url.pathname === '/api/cc/v1/messages')
+      ) {
         assertRuntimeAuthorized(request, options.config, env);
         const body = await readJson(request) as AnthropicMessagesRequest;
         const publicModelAlias = options.config.publicModelAlias ?? 'sciforge-model-router';
@@ -266,7 +285,10 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
         });
         return sendJson(response, 200, responseToAnthropicMessage(responseObject(result), body));
       }
-      if (request.method === 'POST' && url.pathname === '/v1/messages/count_tokens') {
+      if (
+        request.method === 'POST' &&
+        (url.pathname === '/v1/messages/count_tokens' || url.pathname === '/api/cc/v1/messages/count_tokens')
+      ) {
         assertRuntimeAuthorized(request, options.config, env);
         const body = await readJson(request) as AnthropicMessagesRequest;
         return sendJson(response, 200, {
@@ -1344,7 +1366,7 @@ async function callChatProvider(options: {
         });
       } catch {
         const errorSummary = 'provider_exception';
-        recordFailedProviderCall(options, Date.now() - retryStartedAt, errorSummary);
+        recordFailedProviderCall({ ...options, body: repairedBody }, Date.now() - retryStartedAt, errorSummary);
         throw new Error(errorSummary);
       }
       if (response.ok) {
@@ -1353,7 +1375,7 @@ async function callChatProvider(options: {
           payload = await response.json();
         } catch {
           const errorSummary = 'provider_exception';
-          recordFailedProviderCall(options, Date.now() - retryStartedAt, errorSummary);
+          recordFailedProviderCall({ ...options, body: repairedBody }, Date.now() - retryStartedAt, errorSummary);
           throw new Error(errorSummary);
         }
         options.calls.push({
@@ -1362,8 +1384,10 @@ async function callChatProvider(options: {
           status: 'ok',
           roleAlias: roleAliasForCall(options.role),
           providerBindingSha256: providerBindingHash(options.provider),
+          ...providerCallTraceFields(options.provider, repairedBody),
           wireApi: 'chat.completions',
           latencyMs: Date.now() - retryStartedAt,
+          stopReason: chatCompletionStopReason(payload),
         });
         return chatCompletionResult(payload, options.responseRequest, options.toolNameAliases);
       }
@@ -1386,8 +1410,10 @@ async function callChatProvider(options: {
     status: 'ok',
     roleAlias: roleAliasForCall(options.role),
     providerBindingSha256: providerBindingHash(options.provider),
+    ...providerCallTraceFields(options.provider, options.body),
     wireApi: 'chat.completions',
     latencyMs,
+    stopReason: chatCompletionStopReason(payload),
   });
   return chatCompletionResult(payload, options.responseRequest, options.toolNameAliases);
 }
@@ -1441,6 +1467,7 @@ function recordFailedProviderCall(
   options: {
     provider: ModelRouterProviderConfig;
     secret?: string;
+    body?: Record<string, unknown>;
     role: ProviderCallRecord['role'];
     phase: string;
     calls: ProviderCallRecord[];
@@ -1454,8 +1481,10 @@ function recordFailedProviderCall(
     status: 'failed',
     roleAlias: roleAliasForCall(options.role),
     providerBindingSha256: providerBindingHash(options.provider),
+    ...providerCallTraceFields(options.provider, options.body ?? {}),
     wireApi: 'chat.completions',
     latencyMs,
+    stopReason: 'error',
     errorSummary: boundedProviderTraceText(errorSummary, options.provider, options.secret ? [options.secret] : []),
   });
 }
@@ -1652,6 +1681,15 @@ function usageInteger(record: Record<string, unknown>, ...keys: string[]): numbe
 
 function firstRecord(...values: unknown[]): Record<string, unknown> {
   return values.find(isRecord) ?? {};
+}
+
+function chatCompletionStopReason(payload: unknown): ProviderCallRecord['stopReason'] {
+  const completion = isRecord(payload) ? payload : {};
+  const choices = Array.isArray(completion.choices) ? completion.choices : [];
+  const firstChoice = isRecord(choices[0]) ? choices[0] : {};
+  const finishReason = stringField(firstChoice.finish_reason) ?? stringField(firstChoice.finishReason);
+  if (finishReason === 'stop' || finishReason === 'tool_calls' || finishReason === 'length') return finishReason;
+  return finishReason ? 'unknown' : 'unknown';
 }
 
 function chatCompletionText(payload: unknown) {
@@ -2088,6 +2126,50 @@ function providerBindingHash(provider: ModelRouterProviderConfig) {
   ].join('\n'));
 }
 
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/u, '');
+}
+
+function providerCallTraceFields(
+  provider: ModelRouterProviderConfig,
+  body: Record<string, unknown>,
+): Pick<ProviderCallRecord, 'providerAliasSha256' | 'modelAliasSha256' | 'wireRequest'> {
+  const modelAliasSha256 = hashForTrace(stringField(body.model) || provider.model || '');
+  return {
+    providerAliasSha256: hashForTrace(provider.provider || ''),
+    modelAliasSha256,
+    wireRequest: {
+      urlSha256: hashForTrace(`${trimTrailingSlash(provider.baseUrl)}/chat/completions`),
+      endpointRoute: 'chat.completions',
+      bodyShape: {
+        modelAliasSha256,
+        messageCount: Array.isArray(body.messages) ? body.messages.length : 0,
+        toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
+        hasImageParts: hasImageParts(body.messages),
+        textCharCount: textCharCount(body.messages),
+        maxTokensSet: body.max_tokens !== undefined || body.max_completion_tokens !== undefined,
+        temperatureSet: body.temperature !== undefined,
+      },
+    },
+  };
+}
+
+function hasImageParts(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasImageParts);
+  if (!isRecord(value)) return false;
+  const type = stringField(value.type)?.toLowerCase() ?? '';
+  if (type.includes('image')) return true;
+  if (value.image_url !== undefined || value.imageUrl !== undefined) return true;
+  return Object.values(value).some(hasImageParts);
+}
+
+function textCharCount(value: unknown): number {
+  if (typeof value === 'string') return value.length;
+  if (Array.isArray(value)) return value.reduce<number>((sum, item) => sum + textCharCount(item), 0);
+  if (!isRecord(value)) return 0;
+  return Object.values(value).reduce<number>((sum, item) => sum + textCharCount(item), 0);
+}
+
 function failedCallRecord(
   provider: ModelRouterProviderConfig,
   role: ProviderCallRecord['role'],
@@ -2101,8 +2183,10 @@ function failedCallRecord(
     status: 'failed',
     roleAlias: roleAliasForCall(role),
     providerBindingSha256: providerBindingHash(provider),
+    ...providerCallTraceFields(provider, {}),
     wireApi: 'chat.completions',
     latencyMs: 0,
+    stopReason: 'error',
     errorSummary: boundedProviderTraceText(errorSummary, provider, sensitiveValues),
   };
 }
@@ -2409,6 +2493,32 @@ function compactObject(value: Record<string, JsonValue | undefined>): JsonObject
 
 function stringField(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function jsonValueField(value: unknown): JsonValue | undefined {
+  if (value === null) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    const items = value.map(jsonValueField).filter((item): item is JsonValue => item !== undefined);
+    return items;
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .map(([key, entry]) => [key, jsonValueField(entry)] as const)
+        .filter((entry): entry is readonly [string, JsonValue] => entry[1] !== undefined),
+    );
+  }
+  return undefined;
+}
+
+function parseJsonObject(value: string): JsonObject {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed as JsonObject : {};
+  } catch {
+    return {};
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

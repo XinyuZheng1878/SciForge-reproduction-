@@ -28,7 +28,7 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
     },
 
     async capabilities() {
-      return codexCapabilities()
+      return codexCapabilities(isServiceResearchMcpConfigured(service))
     },
 
     async listThreads(_context, input) {
@@ -153,9 +153,9 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
     async auxiliary(_context, input) {
       switch (input.operation) {
         case 'getRuntimeInfo':
-          return codexRuntimeInfo()
+          return codexRuntimeInfo(isServiceResearchMcpConfigured(service))
         case 'getToolDiagnostics':
-          return codexToolDiagnostics()
+          return codexToolDiagnostics(isServiceResearchMcpConfigured(service))
         case 'listSkills':
           return []
         case 'listMemories':
@@ -178,8 +178,13 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
   }
 }
 
-function codexCapabilities(): AgentRuntimeCapabilities {
+function isServiceResearchMcpConfigured(service: CodexRuntimeService): boolean {
+  return typeof service.isResearchMcpConfigured === 'function' && service.isResearchMcpConfigured()
+}
+
+function codexCapabilities(researchConfigured = false): AgentRuntimeCapabilities {
   const unavailable = { available: false, reason: 'unsupported' }
+  const mcpDiagnosticsReason = 'Codex MCP diagnostics are not exposed through this service yet.'
   const caps = createDefaultAgentRuntimeCapabilities({
     runtimeId: 'codex',
     transport: 'jsonrpc_stdio'
@@ -213,8 +218,25 @@ function codexCapabilities(): AgentRuntimeCapabilities {
       toolCalling: true,
       commandExecution: { available: true },
       fileChange: { available: true },
-      mcp: { available: false, reason: 'Codex MCP diagnostics are not exposed through this service yet.' },
+      mcp: researchConfigured
+        ? {
+            available: true,
+            degraded: true,
+            reason: mcpDiagnosticsReason,
+            toolCount: 1,
+            search: { available: false, reason: mcpDiagnosticsReason }
+          }
+        : { available: false, reason: mcpDiagnosticsReason },
       web: { available: false, reason: 'Codex web capabilities are not exposed through this service yet.' },
+      research: researchConfigured
+        ? {
+            available: true,
+            server: 'mcp',
+            toolName: 'research_search',
+            sources: ['arxiv', 'biorxiv', 'semantic_scholar', 'web', 'cns'],
+            maxResults: 10
+          }
+        : { available: false, reason: 'Shared research MCP server is not configured for Codex yet.' },
       skills: { available: false, reason: 'Codex skills are not exposed through this service yet.' },
       subagents: { available: false, reason: 'Codex subagents are not exposed through this service yet.' },
       diagnostics: { available: false, reason: 'Codex tool diagnostics are not exposed through this service yet.' }
@@ -244,8 +266,8 @@ function codexCapabilities(): AgentRuntimeCapabilities {
   }
 }
 
-function codexRuntimeInfo(): Record<string, unknown> {
-  const caps = codexCapabilities()
+function codexRuntimeInfo(researchConfigured = false): Record<string, unknown> {
+  const caps = codexCapabilities(researchConfigured)
   return {
     host: 'codex',
     port: 0,
@@ -270,7 +292,7 @@ function codexRuntimeInfo(): Record<string, unknown> {
       },
       mcp: {
         ...coreCapability(caps.tools.mcp),
-        configuredServers: 0,
+        configuredServers: researchConfigured ? 1 : 0,
         connectedServers: 0,
         toolCount: caps.tools.mcp.toolCount ?? 0,
         search: {
@@ -285,6 +307,13 @@ function codexRuntimeInfo(): Record<string, unknown> {
         ...coreCapability(caps.tools.web),
         fetch: coreCapability(caps.tools.web.fetch),
         search: coreCapability(caps.tools.web.search)
+      },
+      research: {
+        ...coreCapability(caps.tools.research),
+        server: caps.tools.research.server ?? 'mcp',
+        toolName: caps.tools.research.toolName ?? 'research_search',
+        sources: caps.tools.research.sources ?? [],
+        maxResults: caps.tools.research.maxResults ?? 0
       },
       skills: {
         ...coreCapability(caps.tools.skills),
@@ -311,9 +340,16 @@ function codexRuntimeInfo(): Record<string, unknown> {
   }
 }
 
-function codexToolDiagnostics(): Record<string, unknown> {
+function codexToolDiagnostics(researchConfigured = false): Record<string, unknown> {
   return {
-    mcpServers: [],
+    mcpServers: researchConfigured
+      ? [{
+          id: 'gui_research',
+          status: 'configured',
+          toolCount: 1,
+          tools: ['research_search']
+        }]
+      : [],
     webProviders: [],
     skills: {
       enabled: false,

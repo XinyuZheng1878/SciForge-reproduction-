@@ -114,7 +114,7 @@ function waitForAbortStream(signal: AbortSignal): AsyncIterable<unknown> {
 describe('registerAppIpcHandlers', () => {
   beforeEach(() => {
     handlers.clear()
-    vi.mocked(shell.openExternal).mockClear()
+    vi.clearAllMocks()
     vi.unstubAllEnvs()
   })
 
@@ -149,6 +149,18 @@ describe('registerAppIpcHandlers', () => {
     const handler = handlers.get('settings:set')
     await expect(handler?.({}, payload)).resolves.toEqual(settings())
     expect(applySettingsPatch).toHaveBeenCalledWith(payload)
+  })
+
+  it('opens Evidence DAG with a runtime-scoped thread id', async () => {
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:4897/')
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+
+    registerAppIpcHandlers(registerOptions())
+
+    const handler = handlers.get('evidenceDag:open')
+    expect(handler).toBeTypeOf('function')
+    await handler?.({}, { runtimeId: 'codex', threadId: 'thread-1' })
+    expect(shell.openExternal).toHaveBeenCalledWith('http://127.0.0.1:4897/?thread=codex%3Athread-1')
   })
 
   it('returns a dispatcher for dev browser bridge calls that uses the same handlers', async () => {
@@ -190,6 +202,7 @@ describe('registerAppIpcHandlers', () => {
           fileChange: { available: true },
           mcp: { available: false },
           web: { available: false },
+          research: { available: false },
           skills: { available: true },
           subagents: { available: true },
           diagnostics: { available: true }
@@ -474,6 +487,100 @@ describe('registerAppIpcHandlers', () => {
       event: expect.objectContaining({ kind: 'assistant_delta', text: 'hello' })
     })
     expect(sender.send).toHaveBeenCalledWith('agentRuntime:end', { streamId: 'stream-1' })
+  })
+
+  it('routes auxiliary host-service IPC operations through the injected agent runtime', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const agentRuntime = {
+      auxiliary: vi.fn(async (input: { operation: string }) => {
+        if (input.operation === 'runCodeNavigation') {
+          return {
+            ok: true as const,
+            locations: [{ path: '/tmp/workspace/src/main.ts', line: 12, column: 4 }]
+          }
+        }
+        if (input.operation === 'listWorkspaceReferences') {
+          return {
+            ok: true as const,
+            references: [{ id: 'ref-1', label: 'src/main.ts', kind: 'file' }]
+          }
+        }
+        return { ok: false as const, reason: 'unhandled operation' }
+      })
+    }
+
+    registerAppIpcHandlers(registerOptions({ agentRuntime: agentRuntime as never }))
+
+    const runCodeNavigationPayload = {
+      runtimeId: 'codex' as const,
+      operation: 'runCodeNavigation' as const,
+      payload: {
+        workspaceRoot: '/tmp/workspace',
+        query: 'find definition',
+        symbol: 'registerAppIpcHandlers'
+      }
+    }
+    const listWorkspaceReferencesPayload = {
+      runtimeId: 'claude' as const,
+      operation: 'listWorkspaceReferences' as const,
+      payload: {
+        threadId: 'thread-1',
+        workspaceRoot: '/tmp/workspace',
+        limit: 20
+      }
+    }
+
+    await expect(
+      handlers.get('agentRuntime:auxiliary')?.({}, runCodeNavigationPayload)
+    ).resolves.toEqual({
+      ok: true,
+      locations: [{ path: '/tmp/workspace/src/main.ts', line: 12, column: 4 }]
+    })
+    await expect(
+      handlers.get('agentRuntime:auxiliary')?.({}, listWorkspaceReferencesPayload)
+    ).resolves.toEqual({
+      ok: true,
+      references: [{ id: 'ref-1', label: 'src/main.ts', kind: 'file' }]
+    })
+
+    expect(agentRuntime.auxiliary).toHaveBeenNthCalledWith(1, runCodeNavigationPayload)
+    expect(agentRuntime.auxiliary).toHaveBeenNthCalledWith(2, listWorkspaceReferencesPayload)
+  })
+
+  it('validates auxiliary host-service payloads and propagates host errors', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const hostError = new Error('workspace reference preview failed')
+    const agentRuntime = {
+      auxiliary: vi.fn(async () => {
+        throw hostError
+      })
+    }
+
+    registerAppIpcHandlers(registerOptions({ agentRuntime: agentRuntime as never }))
+
+    await expect(
+      handlers.get('agentRuntime:auxiliary')?.({}, {
+        runtimeId: 'codex',
+        operation: 'runCodeNavigation',
+        payload: 'not-a-payload-record'
+      })
+    ).rejects.toThrow(/Invalid payload for agentRuntime:auxiliary/)
+    expect(agentRuntime.auxiliary).not.toHaveBeenCalled()
+
+    const previewWorkspaceReferencePayload = {
+      runtimeId: 'codex' as const,
+      operation: 'previewWorkspaceReference' as const,
+      payload: {
+        referenceId: 'ref-1',
+        workspaceRoot: '/tmp/workspace',
+        maxBytes: 4096
+      }
+    }
+
+    await expect(
+      handlers.get('agentRuntime:auxiliary')?.({}, previewWorkspaceReferencePayload)
+    ).rejects.toThrow(hostError)
+    expect(agentRuntime.auxiliary).toHaveBeenCalledWith(previewWorkspaceReferencePayload)
   })
 
   it('keeps agent runtime event streams owned by the subscribing sender', async () => {

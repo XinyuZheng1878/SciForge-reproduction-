@@ -550,6 +550,7 @@ export function createMaintenanceActions(
   resumeSessionIntoThread: async (sessionId, options) => {
     const id = sessionId.trim()
     if (!id) return null
+    const sourceThreadId = get().activeThreadId ?? id
     if (get().runtimeConnection !== 'ready') {
       set({ error: i18n.t('common:runtimeActionNeedsConnection') })
       return null
@@ -565,6 +566,9 @@ export function createMaintenanceActions(
       await get().selectThread(result.threadId)
       return result.threadId
     } catch (e) {
+      if (sourceThreadId) {
+        await get().refreshActiveThreadContextState(sourceThreadId)
+      }
       set({
         error: formatRuntimeError(e),
         ...(shouldOpenSettingsForError(e)

@@ -423,6 +423,43 @@ describe('claw settings', () => {
     ])
   })
 
+  it('preserves Claude Claw IM thread mappings', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      claw: {
+        ...defaultClawSettings(),
+        channels: [{
+          ...clawChannel('feishu', 'Claude Channel'),
+          runtimeId: 'claude',
+          threadId: '',
+          agentThreadIds: { claude: 'claude-channel-thread' },
+          conversations: [{
+            id: 'conversation-1',
+            chatId: 'chat-1',
+            remoteThreadId: '',
+            latestMessageId: 'message-1',
+            senderId: '',
+            senderName: '',
+            localThreadId: '',
+            runtimeId: 'claude',
+            agentThreadIds: { claude: 'claude-conversation-thread' },
+            workspaceRoot: '/tmp/workspace',
+            createdAt: '2026-06-11T00:00:00.000Z',
+            updatedAt: '2026-06-11T00:00:01.000Z'
+          }]
+        }]
+      }
+    })
+
+    const channel = normalized.claw.channels[0]
+    expect(channel.runtimeId).toBe('claude')
+    expect(channel.agentThreadIds).toEqual({ claude: 'claude-channel-thread' })
+    expect(channel.conversations[0]).toMatchObject({
+      runtimeId: 'claude',
+      agentThreadIds: { claude: 'claude-conversation-thread' }
+    })
+  })
+
   it('normalizes Claw IM channel guard mode with an only_mention default', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
@@ -1152,6 +1189,28 @@ describe('schedule settings', () => {
     expect(merged.tasks[0].agentThreadIds).toEqual({
       kun: 'kun-task-thread',
       codex: 'codex-task-thread'
+    })
+  })
+
+  it('round-trips Claude scheduled task mappings', () => {
+    const current = normalizeScheduleSettings({
+      tasks: [{
+        id: 'task-1',
+        title: 'Claude task',
+        prompt: 'Run',
+        lastThreadId: '',
+        runtimeId: 'claude',
+        agentThreadIds: {
+          claude: 'claude-task-thread'
+        }
+      }]
+    } as unknown as AppSettingsV1['schedule'])
+
+    expect(current.tasks[0]).toMatchObject({
+      runtimeId: 'claude',
+      agentThreadIds: {
+        claude: 'claude-task-thread'
+      }
     })
   })
 })

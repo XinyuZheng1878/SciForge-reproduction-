@@ -24,8 +24,12 @@ import {
   type CodexAppServerJsonRpcClient,
   type CodexAppServerJsonRpcClientOptions
 } from './codex-app-server-client'
-import type { CodexAppServerPendingRequest } from './app-server/request-registry'
+import type {
+  CodexAppServerPendingRequest,
+  CodexAppServerPendingRequestRegistryOptions
+} from './app-server/request-registry'
 import type { CodexThreadEventPayload } from './codex-runtime-api'
+import type { CodexDynamicMcpClient } from './codex-dynamic-mcp-tools'
 
 function settings(): AppSettingsV1 {
   return {
@@ -722,6 +726,64 @@ describe('CodexRuntimeService compatibility operations', () => {
     expect(client.startThread).toHaveBeenCalled()
     expect(vi.mocked(client.connect).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(client.startThread).mock.invocationCallOrder[0]
+    )
+  })
+
+  it('advertises managed MCP tools as Codex dynamic tools and routes their calls', async () => {
+    const client = controllableClient()
+    let pendingServerRequests: CodexAppServerPendingRequestRegistryOptions | undefined
+    const callTool = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'search-ok' }],
+      structuredContent: { resultCount: 1 }
+    }))
+    const mcpClient: CodexDynamicMcpClient = {
+      listTools: vi.fn(async () => ({
+        tools: [{
+          name: 'research.search',
+          description: 'Search research papers.',
+          inputSchema: { type: 'object', properties: { query: { type: 'string' } } }
+        }]
+      })),
+      callTool,
+      close: vi.fn(async () => undefined)
+    }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      managedMcpServers: [{ id: 'research', command: '/bin/research-mcp' }],
+      mcpClientFactory: async () => mcpClient,
+      createClient: (options) => {
+        pendingServerRequests = options.pendingServerRequests as CodexAppServerPendingRequestRegistryOptions
+        return client
+      }
+    })
+
+    await expect(service.startThread({ title: 'MCP thread' })).resolves.toMatchObject({
+      ok: true
+    })
+
+    expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      dynamicTools: [{
+        name: 'research_search',
+        description: 'Search research papers.',
+        inputSchema: { type: 'object', properties: { query: { type: 'string' } } }
+      }],
+      developerInstructions: expect.stringContaining('specialized MCP tools')
+    }))
+    await expect(pendingServerRequests?.onToolCallRequest?.({
+      requestId: 'tool-request-1',
+      tool: 'research_search',
+      arguments: { query: 'agentic RL' }
+    })).resolves.toEqual({
+      contentItems: [
+        { type: 'inputText', text: 'search-ok' },
+        { type: 'inputText', text: 'structuredContent:\n{\n  "resultCount": 1\n}' }
+      ],
+      success: true
+    })
+    expect(callTool).toHaveBeenCalledWith(
+      { name: 'research.search', arguments: { query: 'agentic RL' } },
+      { signal: undefined, timeout: 30_000 }
     )
   })
 

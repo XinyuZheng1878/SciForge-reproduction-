@@ -417,10 +417,8 @@ async function kunAuxiliary(
         body: JSON.stringify({ cancelled: true })
       })
       return undefined
-    default: {
-      const neverOperation: never = input.operation
-      throw new Error(`Unsupported Kun auxiliary operation: ${neverOperation}`)
-    }
+    default:
+      throw new Error(`Unsupported Kun auxiliary operation: ${input.operation}.`)
   }
 }
 
@@ -817,6 +815,44 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
     })
   }
 
+  if (kind === 'compaction_started' || kind === 'compaction_completed') {
+    const sourceItemIds = stringArrayValue(record.sourceItemIds)
+    return {
+      kind: 'compaction_event',
+      threadId,
+      runtimeId: 'kun',
+      seq,
+      createdAt,
+      turnId,
+      itemId: itemId || optionalString(record.itemId),
+      status: kind === 'compaction_started' ? 'running' : 'success',
+      summary: stringValue(record.summary),
+      detail: compactionEventDetail(record),
+      auto: record.auto !== false,
+      messagesBefore: sourceItemIds?.length,
+      replacedTokens: numberValue(record.replacedTokens),
+      sourceDigest: optionalString(record.sourceDigest),
+      digestMarker: optionalString(record.digestMarker),
+      sourceItemIds
+    }
+  }
+
+  if (kind === 'goal_updated' || kind === 'goal_cleared') {
+    const goal = asRecord(record.goal)
+    return {
+      kind: 'goal_event',
+      threadId,
+      runtimeId: 'kun',
+      seq,
+      createdAt,
+      turnId,
+      itemId: itemId || optionalString(record.itemId),
+      objective: stringValue(goal?.objective),
+      status: mapKunGoalStatus(stringValue(goal?.status)),
+      cleared: kind === 'goal_cleared' || record.cleared === true
+    }
+  }
+
   if (
     kind === 'item_created' ||
     kind === 'item_updated' ||
@@ -862,6 +898,26 @@ function mapKunTurnLifecycleState(kind: string): Extract<AgentRuntimeEvent, { ki
   if (kind === 'turn_aborted') return 'aborted'
   if (kind === 'turn_steered') return 'steered'
   return 'started'
+}
+
+function compactionEventDetail(record: Record<string, unknown>): string | undefined {
+  const replacedTokens = numberValue(record.replacedTokens)
+  if (replacedTokens !== undefined) return `replacedTokens=${replacedTokens}`
+  return optionalString(record.detail) ?? optionalString(record.reason)
+}
+
+function mapKunGoalStatus(value: string): Extract<AgentRuntimeEvent, { kind: 'goal_event' }>['status'] | undefined {
+  if (
+    value === 'active' ||
+    value === 'paused' ||
+    value === 'blocked' ||
+    value === 'usageLimited' ||
+    value === 'budgetLimited' ||
+    value === 'complete'
+  ) {
+    return value
+  }
+  return undefined
 }
 
 function isNeutralEvent(record: Record<string, unknown>): boolean {
@@ -949,6 +1005,7 @@ function mapKunCapabilities(value: unknown, diagnosticsAvailable: boolean): Agen
   const model = asRecord(manifest.model) ?? {}
   const mcp = asRecord(manifest.mcp) ?? {}
   const web = asRecord(manifest.web) ?? {}
+  const research = asRecord(manifest.research) ?? {}
   const skills = asRecord(manifest.skills) ?? {}
   const subagents = asRecord(manifest.subagents) ?? {}
   const attachments = asRecord(manifest.attachments) ?? {}
@@ -976,6 +1033,7 @@ function mapKunCapabilities(value: unknown, diagnosticsAvailable: boolean): Agen
         fetch: capabilityState(asRecord(web.fetch) ?? {}),
         search: capabilityState(asRecord(web.search) ?? {})
       },
+      research: researchCapabilityState(research),
       skills: capabilityState(skills),
       subagents: {
         ...capabilityState(subagents),
@@ -1010,6 +1068,53 @@ function mcpSearchCapabilityState(value: Record<string, unknown>): { available: 
     available: value.available === true || value.active === true,
     ...(reason ? { reason } : {})
   }
+}
+
+function researchCapabilityState(value: Record<string, unknown>): AgentRuntimeCapabilities['tools']['research'] {
+  const base = capabilityState(value)
+  const sources = researchSources(value)
+  const available = base.available || value.active === true || (hasResearchProviderState(value) && sources.length > 0)
+  const toolName = optionalString(value.toolName) ?? optionalString(value.tool) ?? 'research_search'
+  return {
+    ...base,
+    available,
+    ...(available ? { server: 'mcp' as const, toolName } : {}),
+    ...(sources.length ? { sources } : {}),
+    ...(numberValue(value.maxResults) ? { maxResults: numberValue(value.maxResults) } : {})
+  }
+}
+
+function hasResearchProviderState(value: Record<string, unknown>): boolean {
+  return Boolean(
+    asRecord(value.arxiv) ||
+    asRecord(value.biorxiv) ||
+    asRecord(value.semanticScholar) ||
+    asRecord(value.semantic_scholar) ||
+    asRecord(value.tavily) ||
+    asRecord(value.web) ||
+    asRecord(value.cns)
+  )
+}
+
+function researchSources(value: Record<string, unknown>): NonNullable<AgentRuntimeCapabilities['tools']['research']['sources']> {
+  const explicit = arrayValue(value.sources)
+    .filter((entry): entry is NonNullable<AgentRuntimeCapabilities['tools']['research']['sources']>[number] =>
+      entry === 'arxiv' ||
+      entry === 'biorxiv' ||
+      entry === 'semantic_scholar' ||
+      entry === 'web' ||
+      entry === 'cns'
+    )
+  if (explicit.length) return [...new Set(explicit)]
+  const sources: NonNullable<AgentRuntimeCapabilities['tools']['research']['sources']> = []
+  if (capabilityState(asRecord(value.arxiv) ?? {}).available) sources.push('arxiv')
+  if (capabilityState(asRecord(value.biorxiv) ?? {}).available) sources.push('biorxiv')
+  if (capabilityState(asRecord(value.semanticScholar) ?? {}).available) sources.push('semantic_scholar')
+  if (capabilityState(asRecord(value.semantic_scholar) ?? {}).available) sources.push('semantic_scholar')
+  if (capabilityState(asRecord(value.tavily) ?? {}).available) sources.push('web')
+  if (capabilityState(asRecord(value.web) ?? {}).available) sources.push('web')
+  if (capabilityState(asRecord(value.cns) ?? {}).available) sources.push('cns')
+  return [...new Set(sources)]
 }
 
 function modalities(value: unknown, fallback: AgentRuntimeModality[]): AgentRuntimeModality[] {
@@ -1233,6 +1338,15 @@ function stringValue(value: unknown): string {
 function optionalString(value: unknown): string | undefined {
   const text = stringValue(value)
   return text || undefined
+}
+
+function stringArrayValue(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const values = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return values.length ? values : undefined
 }
 
 function numberValue(value: unknown): number | undefined {

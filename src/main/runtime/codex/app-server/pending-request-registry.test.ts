@@ -103,6 +103,70 @@ describe('Codex app-server pending request registry', () => {
     await expect(input).resolves.toEqual({ answers: { q1: { answers: ['A'] } } })
   })
 
+  it('routes dynamic tool call requests to the configured handler without queuing them', async () => {
+    const onToolCallRequest = vi.fn(async () => ({
+      contentItems: [{ type: 'inputText' as const, text: 'tool-ok' }],
+      success: true
+    }))
+    const registry = createCodexAppServerPendingRequestRegistry({ onToolCallRequest })
+
+    await expect(registry.handle({
+      id: 'tool-request-1',
+      method: 'item/tool/call',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        callId: 'call-1',
+        namespace: 'mcp_server',
+        tool: 'lookup',
+        arguments: { id: 'ABC-123' }
+      }
+    })).resolves.toEqual({
+      contentItems: [{ type: 'inputText', text: 'tool-ok' }],
+      success: true
+    })
+    expect(onToolCallRequest).toHaveBeenCalledWith({
+      requestId: 'tool-request-1',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      callId: 'call-1',
+      namespace: 'mcp_server',
+      tool: 'lookup',
+      arguments: { id: 'ABC-123' }
+    })
+    expect(registry.pending()).toEqual([])
+  })
+
+  it('normalizes dotted dynamic tool names when app-server omits namespace', async () => {
+    const onToolCallRequest = vi.fn(async () => ({
+      contentItems: [{ type: 'inputText' as const, text: 'tool-ok' }],
+      success: true
+    }))
+    const registry = createCodexAppServerPendingRequestRegistry({ onToolCallRequest })
+
+    await expect(registry.handle({
+      id: 'tool-request-dotted',
+      method: 'item/tool/call',
+      params: {
+        threadId: 'thread-1',
+        toolName: 'mcp_server.lookup',
+        arguments: { id: 'ABC-123' }
+      }
+    })).resolves.toEqual({
+      contentItems: [{ type: 'inputText', text: 'tool-ok' }],
+      success: true
+    })
+    expect(onToolCallRequest).toHaveBeenCalledWith({
+      requestId: 'tool-request-dotted',
+      threadId: 'thread-1',
+      callId: undefined,
+      namespace: 'mcp_server',
+      tool: 'lookup',
+      arguments: { id: 'ABC-123' }
+    })
+    expect(registry.pending()).toEqual([])
+  })
+
   it('fails unknown server-originated requests closed and emits a safe visible error', async () => {
     const onUnknownRequest = vi.fn()
     const registry = createCodexAppServerPendingRequestRegistry({ onUnknownRequest })

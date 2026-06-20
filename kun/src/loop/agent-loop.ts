@@ -778,6 +778,7 @@ export class AgentLoop {
     await this.recordPipelineStage(threadId, turnId, 'input_compressed', {
       historyItems: history.length
     })
+    const specializedToolInstruction = specializedToolUseInstruction(effectiveToolSpecs)
     const contextInstructions = [
       ...(activeGoalInstruction ? [activeGoalInstruction] : []),
       ...(activeGoalInstruction && (this.goalNoToolRecoveryStepsByTurn.get(turnId) ?? 0) > 0
@@ -789,6 +790,7 @@ export class AgentLoop {
       ...(activeTodoInstruction ? [activeTodoInstruction] : []),
       ...memoryInstructions(memories),
       ...skillResolution.instructions,
+      ...(specializedToolInstruction ? [specializedToolInstruction] : []),
       ...(effectiveToolSpecs.some((tool) => tool.name === 'bash') ? [shellRuntimeInstruction()] : []),
       ...(toolCatalogDriftMessage ? [toolCatalogDriftMessage] : [])
     ]
@@ -2531,6 +2533,20 @@ function memoryInstructions(memories: Array<{ id: string; content: string; scope
       ...memories.map((memory) => `- [${memory.id}] (${memory.scope}) ${memory.content}`)
     ].join('\n')
   ]
+}
+
+function specializedToolUseInstruction(tools: ModelToolSpec[]): string | undefined {
+  const specializedTools = tools
+    .filter((tool) => tool.name.startsWith('mcp_') || tool.name === 'mcp_search' || tool.name === 'mcp_call')
+    .map((tool) => tool.name)
+    .sort()
+  if (specializedTools.length === 0) return undefined
+  return [
+    'Specialized MCP tools are available in this turn.',
+    `Available MCP tool entry points: ${specializedTools.map((name) => `\`${name}\``).join(', ')}.`,
+    'When a specialized MCP tool directly matches the user request, use that tool before falling back to generic shell, curl, wget, ad hoc scripts, or direct scraping.',
+    'Use generic command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.'
+  ].join('\n')
 }
 
 function prefixVolatilityStageDetails(

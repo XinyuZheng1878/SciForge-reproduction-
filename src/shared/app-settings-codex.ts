@@ -38,8 +38,9 @@ export function defaultCodexRuntimeSettings(): CodexRuntimeSettingsV1 {
 }
 
 export function normalizeAgentRuntimeId(value: unknown): AgentRuntimeId {
-  if (value === 'claude') return 'claude'
-  return value === 'codex' ? 'codex' : 'kun'
+  if (value === 'claude') return value
+  if (value === 'codex') return value
+  return 'kun'
 }
 
 export function getActiveAgentRuntime(settings: AppSettingsV1): AgentRuntimeId {

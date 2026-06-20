@@ -1,9 +1,13 @@
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
@@ -12,7 +16,9 @@ import {
 import type {
   AgentRuntimeCapabilities,
   AgentRuntimeEvent,
+  AgentRuntimeGitCheckpoint,
   AgentRuntimeId,
+  AgentRuntimeModelAuditRecord,
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse,
   AgentRuntimeThread,
@@ -23,6 +29,19 @@ import type { AgentRuntimeAdapter, AgentRuntimeAdapterContext } from './adapter'
 import { createAgentRuntimeHost } from './host'
 import { createCodexAgentRuntimeAdapter } from '../codex/codex-agent-runtime-adapter'
 import { createKunAgentRuntimeAdapter } from '../kun-agent-runtime-adapter'
+import { ModelRequestAuditRecorder } from '../../services/model-request-audit-service'
+import { RuntimeContextStateService } from '../../services/runtime-context-state-service'
+import { SharedMemoryService } from '../../services/shared-memory-service'
+import { WorkspaceReferenceService } from '../../services/workspace-reference-service'
+import { readWorkspaceFile } from '../../services/workspace-files'
+import { composerReferenceFromWorkspaceReference } from '../../../renderer/src/lib/workspace-reference-composer'
+import { buildComposerFileContextPrompt } from '../../../renderer/src/lib/composer-file-references'
+import { readComposerFileContextEntries } from '../../../renderer/src/lib/composer-file-context'
+import {
+  createSettingsMemoryActions,
+  type SettingsMemoryRecord,
+  type SettingsMemoryRecordUpdater
+} from '../../../renderer/src/lib/settings-memory-actions'
 
 function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'codex'): AppSettingsV1 {
   return {
@@ -32,6 +51,7 @@ function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'cod
     uiFontScale: 'small',
     activeAgentRuntime,
     provider: defaultModelProviderSettings(),
+    modelRouter: defaultModelRouterSettings(),
     agents: {
       kun: defaultKunRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()
@@ -49,13 +69,17 @@ function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'cod
   }
 }
 
+function transportForRuntime(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities['transport'] {
+  if (runtimeId === 'kun') return 'http_sse'
+  if (runtimeId === 'claude') return 'cli_process'
+  return 'jsonrpc_stdio'
+}
+
 function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
-  const transport =
-    runtimeId === 'kun' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
   return {
     contractVersion: 1,
     runtimeId,
-    transport,
+    transport: transportForRuntime(runtimeId),
     events: {
       live: true,
       replayable: true,
@@ -85,6 +109,7 @@ function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
       fileChange: { available: false },
       mcp: { available: false },
       web: { available: false },
+      research: { available: false },
       skills: { available: false },
       subagents: { available: false },
       diagnostics: { available: false }
@@ -117,7 +142,7 @@ function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
 function fakeAdapter(id: AgentRuntimeId, thread: AgentRuntimeThread): AgentRuntimeAdapter {
   return {
     id,
-    transport: id === 'kun' ? 'http_sse' : id === 'claude' ? 'cli_process' : 'jsonrpc_stdio',
+    transport: transportForRuntime(id),
     connect: vi.fn(async () => undefined),
     capabilities: vi.fn(async () => capabilities(id)),
     listThreads: vi.fn(async () => [thread]),
@@ -261,6 +286,1854 @@ describe('AgentRuntimeHost', () => {
 
     expect(events).toEqual([{ kind: 'heartbeat', threadId: 'kun-thread', runtimeId: 'kun', seq: 4 }])
     expect(kun.subscribeEvents).toHaveBeenCalled()
+  })
+
+  it('adds host-service capabilities and handles shared auxiliary operations before adapters', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const adapterAuxiliary = vi.fn(async () => ({ adapter: true }))
+    adapter.auxiliary = adapterAuxiliary
+    const contextState = new RuntimeContextStateService()
+    const modelAudit = new ModelRequestAuditRecorder()
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: {
+        contextState,
+        modelAudit
+      }
+    })
+
+    await expect(host.capabilities('codex')).resolves.toMatchObject({
+      observability: {
+        modelAudit: { available: true, inMemory: true }
+      },
+      context: {
+        state: { available: true }
+      }
+    })
+
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'getContextState',
+      payload: { threadId: 'codex-thread' }
+    })).resolves.toMatchObject({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      summarySource: 'none'
+    })
+    expect(adapterAuxiliary).not.toHaveBeenCalled()
+
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'listModelAuditRecords',
+      payload: {}
+    })).resolves.toEqual([])
+  })
+
+  it('records turn audit output from the neutral event stream without changing yielded events', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(adapter.subscribeEvents).mockImplementation(async function* () {
+      yield {
+        kind: 'assistant_delta',
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        turnId: 'codex-turn',
+        itemId: 'assistant-1',
+        text: 'hello'
+      } satisfies AgentRuntimeEvent
+      yield {
+        kind: 'turn_lifecycle',
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        turnId: 'codex-turn',
+        state: 'completed'
+      } satisfies AgentRuntimeEvent
+    })
+    const modelAudit = new ModelRequestAuditRecorder()
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        modelRouter: {
+          ...defaultModelRouterSettings(),
+          baseUrl: 'http://127.0.0.1:4545/v1',
+          publicModelAlias: 'public-router-alias',
+          runtimeApiKey: 'runtime-secret',
+          profiles: {
+            default: {
+              textReasoner: {
+                provider: 'private-provider',
+                baseUrl: 'https://private-provider.example/v1',
+                apiKey: 'private-provider-secret',
+                model: 'private-provider-model'
+              },
+              translators: {
+                vision: {
+                  provider: 'private-vision',
+                  baseUrl: 'https://private-vision.example/v1',
+                  apiKey: 'private-vision-secret',
+                  model: 'private-vision-model'
+                }
+              }
+            }
+          }
+        }
+      }),
+      adapters: [adapter],
+      services: { modelAudit }
+    })
+
+    await host.startTurn({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      text: 'Say hello',
+      workspace: '/tmp/workspace'
+    })
+    const events: AgentRuntimeEvent[] = []
+    for await (const event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    })) {
+      events.push(event)
+    }
+
+    expect(events.map((event) => event.kind)).toEqual(['assistant_delta', 'turn_lifecycle'])
+    expect(modelAudit.snapshot()[0]).toMatchObject({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      turnId: 'codex-turn',
+      provider: 'model-router',
+      model: 'public-router-alias',
+      modelRouterUrl: 'http://127.0.0.1:4545/v1',
+      providerAlias: 'model-router',
+      modelAlias: 'public-router-alias',
+      modelRouter: {
+        providerAlias: 'model-router',
+        modelAlias: 'public-router-alias',
+        requestUrl: 'http://127.0.0.1:4545/v1/responses',
+        endpointRoute: 'responses',
+        requestBodySummary: {
+          schema: 'model-router.responses.runtime',
+          keys: ['input', 'metadata'],
+          inputTextChars: 'Say hello'.length,
+          metadataKeys: ['runtimeId', 'threadId', 'workspace'],
+          attachmentCount: 0,
+          fileReferenceCount: 0,
+          hasGuiPlan: false
+        }
+      },
+      streamOutput: {
+        text: 'hello',
+        stopReason: 'completed'
+      }
+    })
+    const serialized = JSON.stringify(modelAudit.snapshot()[0])
+    expect(serialized).not.toContain('runtime-secret')
+    expect(serialized).not.toContain('private-provider')
+    expect(serialized).not.toContain('private-provider.example')
+    expect(serialized).not.toContain('private-provider-model')
+    expect(serialized).not.toContain('private-provider-secret')
+  })
+
+  it('audits Kun, Codex, and Claude turns through shared auxiliary list and clear operations', async () => {
+    for (const runtimeId of ['kun', 'codex', 'claude'] as const) {
+      const adapter = fakeAdapter(runtimeId, {
+        id: `${runtimeId}-thread`,
+        runtimeId,
+        title: runtimeId,
+        updatedAt: '2026-06-10T00:00:00.000Z'
+      })
+      vi.mocked(adapter.startTurn).mockResolvedValue({
+        threadId: `${runtimeId}-thread`,
+        turnId: `${runtimeId}-turn`
+      })
+      vi.mocked(adapter.subscribeEvents).mockImplementation(async function* () {
+        yield {
+          kind: 'assistant_delta',
+          runtimeId,
+          threadId: `${runtimeId}-thread`,
+          turnId: `${runtimeId}-turn`,
+          itemId: `${runtimeId}-assistant`,
+          text: `visible output from /Users/alice/private-${runtimeId} with token=runtime-secret`
+        } satisfies AgentRuntimeEvent
+        yield {
+          kind: 'tool_event',
+          runtimeId,
+          threadId: `${runtimeId}-thread`,
+          turnId: `${runtimeId}-turn`,
+          itemId: `${runtimeId}-tool`,
+          status: 'success',
+          summary: 'read_file',
+          meta: {
+            callId: `${runtimeId}-call`,
+            toolName: 'read_file',
+            Authorization: 'Bearer super-secret'
+          }
+        } satisfies AgentRuntimeEvent
+        yield {
+          kind: 'usage',
+          runtimeId,
+          threadId: `${runtimeId}-thread`,
+          turnId: `${runtimeId}-turn`,
+          usage: {
+            inputTokens: 11,
+            outputTokens: 7,
+            totalTokens: 18
+          }
+        } satisfies AgentRuntimeEvent
+        yield {
+          kind: 'turn_lifecycle',
+          runtimeId,
+          threadId: `${runtimeId}-thread`,
+          turnId: `${runtimeId}-turn`,
+          state: 'completed'
+        } satisfies AgentRuntimeEvent
+      })
+      const modelAudit = new ModelRequestAuditRecorder()
+      const host = createAgentRuntimeHost({
+        settings: async () => ({
+          ...settings(runtimeId),
+          modelRouter: {
+            ...defaultModelRouterSettings(),
+            baseUrl: 'http://127.0.0.1:4545/v1',
+            publicModelAlias: 'public-router-alias',
+            runtimeApiKey: 'runtime-secret'
+          }
+        }),
+        adapters: [adapter],
+        services: { modelAudit }
+      })
+
+      await host.startTurn({
+        runtimeId,
+        threadId: `${runtimeId}-thread`,
+        text: `Read /Users/alice/private-${runtimeId} using token=runtime-secret`,
+        workspace: '/tmp/workspace'
+      })
+      const visibleEvents: AgentRuntimeEvent[] = []
+      for await (const event of host.subscribeEvents({
+        runtimeId,
+        threadId: `${runtimeId}-thread`
+      })) {
+        visibleEvents.push(event)
+      }
+
+      const visibleAssistant = visibleEvents.find((event) => event.kind === 'assistant_delta')
+      expect(visibleAssistant).toMatchObject({
+        text: `visible output from /Users/alice/private-${runtimeId} with token=runtime-secret`
+      })
+      const records = await host.auxiliary({
+        runtimeId,
+        operation: 'listModelAuditRecords',
+        payload: { runtimeId, threadId: `${runtimeId}-thread` }
+      }) as AgentRuntimeModelAuditRecord[]
+      expect(records).toHaveLength(1)
+      expect(records[0]).toMatchObject({
+        runtimeId,
+        threadId: `${runtimeId}-thread`,
+        turnId: `${runtimeId}-turn`,
+          provider: 'model-router',
+          model: 'public-router-alias',
+          modelRouterUrl: 'http://127.0.0.1:4545/v1',
+          providerAlias: 'model-router',
+          modelAlias: 'public-router-alias',
+          modelRouter: {
+            providerAlias: 'model-router',
+            modelAlias: 'public-router-alias',
+            requestUrl: 'http://127.0.0.1:4545/v1/responses',
+            endpointRoute: 'responses',
+            requestBodySummary: {
+              schema: 'model-router.responses.runtime',
+              inputTextChars: `Read /Users/alice/private-${runtimeId} using token=runtime-secret`.length,
+              attachmentCount: 0,
+              fileReferenceCount: 0,
+              hasGuiPlan: false
+            }
+          },
+          request: {
+            bodySummary: {
+              schema: 'agent-runtime.turnStart',
+            textChars: `Read /Users/alice/private-${runtimeId} using token=runtime-secret`.length,
+            attachmentCount: 0,
+            fileReferenceCount: 0,
+            hasGuiPlan: false
+          }
+        },
+        streamOutput: {
+          text: expect.stringContaining('[path]'),
+          toolCalls: [
+            expect.objectContaining({
+              callId: `${runtimeId}-call`,
+              toolName: 'read_file',
+              status: 'success',
+              arguments: expect.objectContaining({
+                Authorization: '[redacted]'
+              })
+            })
+          ],
+          usage: {
+            inputTokens: 11,
+            outputTokens: 7,
+            totalTokens: 18
+          },
+          stopReason: 'completed'
+        }
+      })
+      expect(records[0]?.durationMs).toEqual(expect.any(Number))
+      expect(JSON.stringify(records[0])).not.toContain('/Users/alice')
+      expect(JSON.stringify(records[0])).not.toContain('runtime-secret')
+
+      await expect(host.auxiliary({
+        runtimeId,
+        operation: 'clearModelAuditRecords',
+        payload: {}
+      })).resolves.toBe(true)
+      await expect(host.auxiliary({
+        runtimeId,
+        operation: 'listModelAuditRecords',
+        payload: { runtimeId }
+      })).resolves.toEqual([])
+    }
+  })
+
+  it('records shared context state for noop compact runtimes', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(adapter.capabilities).mockResolvedValue({
+      ...capabilities('codex'),
+      controls: {
+        ...capabilities('codex').controls,
+        compact: 'noop'
+      },
+      context: {
+        state: { available: true },
+        compaction: { available: true, degraded: true },
+        goalResume: { available: false, reason: 'unsupported' }
+      }
+    })
+    vi.mocked(adapter.readThread).mockResolvedValue({
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z',
+      latestSeq: 3,
+      items: [
+        { id: 'u1', kind: 'user_message', text: 'Please inspect the workspace.' },
+        { id: 'a1', kind: 'assistant_message', text: 'I found the runtime contract.' },
+        { id: 't1', kind: 'tool', summary: 'rg agent-runtime-contract' }
+      ]
+    })
+    const contextState = new RuntimeContextStateService()
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    await host.compactThread({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      reason: 'manual cleanup'
+    })
+
+    expect(contextState.get({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    })).toMatchObject({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      rawHistoryItems: 3,
+      effectiveHistoryItems: 2,
+      summarySource: 'heuristic',
+      triggerReason: 'manual cleanup',
+      summary: expect.stringContaining('Please inspect the workspace.')
+    })
+    expect(contextState.get({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    })).toMatchObject({
+      replacedTokens: expect.any(Number),
+      sourceDigest: expect.any(String),
+      digestMarker: expect.stringContaining('runtime:compaction_digest'),
+      sourceItemIds: ['u1', 'a1']
+    })
+  })
+
+  it('summarizes noop compaction through Model Router when model summaries are enabled', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(adapter.capabilities).mockResolvedValue({
+      ...capabilities('codex'),
+      controls: {
+        ...capabilities('codex').controls,
+        compact: 'noop'
+      }
+    })
+    vi.mocked(adapter.readThread).mockResolvedValue({
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z',
+      latestSeq: 2,
+      items: [
+        { id: 'u1', kind: 'user_message', text: 'Keep every runtime on the shared contract.' },
+        { id: 'a1', kind: 'assistant_message', text: 'The host owns noop compaction.' }
+      ]
+    })
+    const fetchImpl = vi.fn<(url: string, init?: RequestInit) => Promise<{
+      ok: boolean
+      status: number
+      text: () => Promise<string>
+    }>>(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ output_text: 'Model generated compact summary.' })
+    }))
+    vi.stubGlobal('fetch', fetchImpl)
+    const contextState = new RuntimeContextStateService()
+    const base = settings('codex')
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...base,
+        modelRouter: {
+          ...defaultModelRouterSettings(),
+          baseUrl: 'http://127.0.0.1:4545/v1',
+          publicModelAlias: 'router-summary-model',
+          runtimeApiKey: 'runtime-secret'
+        },
+        agents: {
+          ...base.agents,
+          kun: {
+            ...base.agents.kun,
+            contextCompaction: {
+              ...base.agents.kun.contextCompaction,
+              summaryMode: 'model',
+              summaryMaxTokens: 321,
+              summaryTimeoutMs: 1_234
+            }
+          }
+        }
+      }),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    await host.compactThread({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      reason: 'manual cleanup'
+    })
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://127.0.0.1:4545/v1/responses',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer runtime-secret'
+        }),
+        body: expect.any(String)
+      })
+    )
+    const request = fetchImpl.mock.calls[0]?.[1] as RequestInit | undefined
+    const body = JSON.parse(String(request?.body)) as Record<string, unknown>
+    expect(body).toMatchObject({
+      model: 'router-summary-model',
+      max_tokens: 321,
+      metadata: {
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        operation: 'context_compaction_summary'
+      }
+    })
+    expect(String(body.input)).toContain('Keep every runtime on the shared contract.')
+    expect(contextState.get({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    })).toMatchObject({
+      summary: expect.stringContaining('Model generated compact summary.'),
+      summarySource: 'model',
+      triggerReason: 'manual cleanup',
+      rawHistoryItems: 2,
+      effectiveHistoryItems: 2,
+      sourceDigest: expect.any(String),
+      sourceItemIds: ['u1']
+    })
+  })
+
+  it('falls back to heuristic noop compaction without calling Model Router when the runtime API key is missing', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(adapter.capabilities).mockResolvedValue({
+      ...capabilities('codex'),
+      controls: {
+        ...capabilities('codex').controls,
+        compact: 'noop'
+      }
+    })
+    vi.mocked(adapter.readThread).mockResolvedValue({
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z',
+      latestSeq: 2,
+      items: [
+        { id: 'u1', kind: 'user_message', text: 'Do not call Model Router without a runtime key.' },
+        { id: 'a1', kind: 'assistant_message', text: 'Fallback summary should still be recorded.' }
+      ]
+    })
+    const fetchImpl = vi.fn(() => {
+      throw new Error('fetch should not be called without a runtime API key')
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    const contextState = new RuntimeContextStateService()
+    const base = settings('codex')
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...base,
+        modelRouter: {
+          ...defaultModelRouterSettings(),
+          baseUrl: 'http://127.0.0.1:4545/v1',
+          publicModelAlias: 'router-summary-model',
+          runtimeApiKey: ''
+        },
+        agents: {
+          ...base.agents,
+          kun: {
+            ...base.agents.kun,
+            contextCompaction: {
+              ...base.agents.kun.contextCompaction,
+              summaryMode: 'model'
+            }
+          }
+        }
+      }),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    await expect(host.compactThread({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      reason: 'manual cleanup'
+    })).resolves.toBeUndefined()
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(contextState.get({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    })).toMatchObject({
+      summarySource: 'heuristic',
+      triggerReason: 'manual cleanup; model_summary_fallback',
+      summary: expect.stringContaining('Do not call Model Router without a runtime key.'),
+      sourceDigest: expect.any(String),
+      sourceItemIds: ['u1']
+    })
+  })
+
+  it('falls back to heuristic noop compaction when Model Router summaries fail', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(adapter.capabilities).mockResolvedValue({
+      ...capabilities('codex'),
+      controls: {
+        ...capabilities('codex').controls,
+        compact: 'noop'
+      }
+    })
+    vi.mocked(adapter.readThread).mockResolvedValue({
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z',
+      latestSeq: 2,
+      items: [
+        { id: 'u1', kind: 'user_message', text: 'Use a visible fallback summary.' },
+        { id: 'a1', kind: 'assistant_message', text: 'Router failed, but compact still completes.' }
+      ]
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      text: async () => 'router unavailable'
+    })))
+    const contextState = new RuntimeContextStateService()
+    const base = settings('codex')
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...base,
+        modelRouter: {
+          ...defaultModelRouterSettings(),
+          baseUrl: 'http://127.0.0.1:4545/v1',
+          publicModelAlias: 'router-summary-model',
+          runtimeApiKey: 'runtime-secret'
+        },
+        agents: {
+          ...base.agents,
+          kun: {
+            ...base.agents.kun,
+            contextCompaction: {
+              ...base.agents.kun.contextCompaction,
+              summaryMode: 'model'
+            }
+          }
+        }
+      }),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    await expect(host.compactThread({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      reason: 'manual cleanup'
+    })).resolves.toBeUndefined()
+    expect(contextState.get({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    })).toMatchObject({
+      summarySource: 'heuristic',
+      triggerReason: 'manual cleanup; model_summary_fallback',
+      summary: expect.stringContaining('Use a visible fallback summary.'),
+      sourceDigest: expect.any(String),
+      sourceItemIds: ['u1']
+    })
+  })
+
+  it('tracks successful goal resume attempts across resumed sessions', async () => {
+    const adapter = fakeAdapter('kun', {
+      id: 'source-session',
+      runtimeId: 'kun',
+      title: 'Source',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    adapter.resumeSession = vi.fn(async () => ({
+      threadId: 'resumed-thread',
+      sessionId: 'source-session'
+    }))
+    const contextState = new RuntimeContextStateService()
+    contextState.updateGoalResume({
+      runtimeId: 'kun',
+      threadId: 'source-session',
+      objective: 'Finish the migration',
+      status: 'blocked',
+      resumeCount: 2,
+      lastFailureReason: 'interrupted'
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('kun'),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    await expect(host.resumeSession({
+      runtimeId: 'kun',
+      sessionId: 'source-session',
+      maxResumeCount: 3
+    })).resolves.toEqual({
+      threadId: 'resumed-thread',
+      sessionId: 'source-session'
+    })
+
+    expect(adapter.resumeSession).toHaveBeenCalled()
+    expect(contextState.get({
+      runtimeId: 'kun',
+      threadId: 'resumed-thread'
+    }).goalResume).toMatchObject({
+      objective: 'Finish the migration',
+      status: 'active',
+      resumeCount: 3
+    })
+  })
+
+  it('blocks goal resume when the configured resume count limit is reached', async () => {
+    const adapter = fakeAdapter('kun', {
+      id: 'source-session',
+      runtimeId: 'kun',
+      title: 'Source',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    adapter.resumeSession = vi.fn(async () => ({
+      threadId: 'resumed-thread',
+      sessionId: 'source-session'
+    }))
+    const contextState = new RuntimeContextStateService()
+    contextState.updateGoalResume({
+      runtimeId: 'kun',
+      threadId: 'source-session',
+      objective: 'Finish the migration',
+      status: 'blocked',
+      resumeCount: 3
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('kun'),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    await expect(host.resumeSession({
+      runtimeId: 'kun',
+      sessionId: 'source-session',
+      maxResumeCount: 3
+    })).rejects.toThrow('Goal resume count limit reached (3).')
+
+    expect(adapter.resumeSession).not.toHaveBeenCalled()
+    expect(contextState.get({
+      runtimeId: 'kun',
+      threadId: 'source-session'
+    }).goalResume).toMatchObject({
+      objective: 'Finish the migration',
+      status: 'blocked',
+      resumeCount: 3,
+      lastFailureReason: 'Goal resume count limit reached (3).'
+    })
+  })
+
+  it('records a visible goal resume failure reason when session resume fails', async () => {
+    const adapter = fakeAdapter('kun', {
+      id: 'source-session',
+      runtimeId: 'kun',
+      title: 'Source',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    adapter.resumeSession = vi.fn(async () => {
+      throw new Error('runtime offline')
+    })
+    const contextState = new RuntimeContextStateService()
+    contextState.updateGoalResume({
+      runtimeId: 'kun',
+      threadId: 'source-session',
+      objective: 'Finish the migration',
+      status: 'blocked',
+      resumeCount: 1
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('kun'),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    await expect(host.resumeSession({
+      runtimeId: 'kun',
+      sessionId: 'source-session',
+      maxResumeCount: 3
+    })).rejects.toThrow('runtime offline')
+
+    expect(contextState.get({
+      runtimeId: 'kun',
+      threadId: 'source-session'
+    }).goalResume).toMatchObject({
+      objective: 'Finish the migration',
+      status: 'blocked',
+      resumeCount: 1,
+      lastFailureReason: 'runtime offline'
+    })
+  })
+
+  it('records turn failure reasons against active goal resume state from runtime events', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(adapter.subscribeEvents).mockImplementation(async function* () {
+      yield {
+        kind: 'goal_event',
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        objective: 'Finish shared goal resume',
+        status: 'active'
+      } satisfies AgentRuntimeEvent
+      yield {
+        kind: 'turn_lifecycle',
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        turnId: 'turn-1',
+        state: 'failed',
+        message: 'runtime offline'
+      } satisfies AgentRuntimeEvent
+    })
+    const contextState = new RuntimeContextStateService()
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    for await (const _event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    })) {
+      // consume stream
+    }
+
+    expect(contextState.get({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    }).goalResume).toMatchObject({
+      objective: 'Finish shared goal resume',
+      status: 'blocked',
+      resumeCount: 0,
+      lastFailureReason: 'runtime offline'
+    })
+  })
+
+  it('records Kun native compaction and goal events in shared context state', async () => {
+    const adapter = createKunAgentRuntimeAdapter({
+      request: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: JSON.stringify({})
+      })),
+      events: async function* () {
+        yield {
+          kind: 'compaction_completed',
+          threadId: 'kun-thread',
+          turnId: 'turn-1',
+          itemId: 'compact-1',
+          summary: 'Runtime compacted summary',
+          replacedTokens: 800,
+          sourceDigest: 'digest-800',
+          digestMarker: '<compact:digest-800>',
+          sourceItemIds: ['item-a', 'item-b'],
+          auto: false
+        }
+        yield {
+          kind: 'goal_updated',
+          threadId: 'kun-thread',
+          goal: {
+            threadId: 'kun-thread',
+            objective: 'Finish shared context migration',
+            status: 'active',
+            tokensUsed: 20,
+            timeUsedSeconds: 4,
+            createdAt: '2026-06-10T00:00:00.000Z',
+            updatedAt: '2026-06-10T00:00:01.000Z'
+          }
+        }
+      }
+    })
+    const contextState = new RuntimeContextStateService()
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('kun'),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    const events: AgentRuntimeEvent[] = []
+    for await (const event of host.subscribeEvents({
+      runtimeId: 'kun',
+      threadId: 'kun-thread'
+    })) {
+      events.push(event)
+    }
+
+    expect(events.map((event) => event.kind)).toEqual(['compaction_event', 'goal_event'])
+    expect(contextState.get({
+      runtimeId: 'kun',
+      threadId: 'kun-thread'
+    })).toMatchObject({
+      summary: 'Runtime compacted summary',
+      summarySource: 'runtime',
+      triggerReason: 'replacedTokens=800',
+      replacedTokens: 800,
+      sourceDigest: 'digest-800',
+      digestMarker: '<compact:digest-800>',
+      sourceItemIds: ['item-a', 'item-b'],
+      goalResume: {
+        objective: 'Finish shared context migration',
+        status: 'active',
+        resumeCount: 0
+      }
+    })
+  })
+
+  it('does not report noop compaction success without the shared context service', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(adapter.capabilities).mockResolvedValue({
+      ...capabilities('codex'),
+      controls: {
+        ...capabilities('codex').controls,
+        compact: 'noop'
+      }
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter]
+    })
+
+    await expect(host.compactThread({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      reason: 'manual cleanup'
+    })).rejects.toThrow('shared context compaction')
+  })
+
+  it('injects shared compacted context summaries into later runtime turns', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const contextState = new RuntimeContextStateService()
+    contextState.recordCompaction({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      summary: 'Earlier work found the host owns shared compaction.',
+      summarySource: 'heuristic',
+      rawHistoryItems: 12,
+      effectiveHistoryItems: 3,
+      replacedTokens: 2048,
+      sourceDigest: 'digest-2048'
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    await host.startTurn({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      text: 'Continue the migration.',
+      displayText: 'Continue the migration.'
+    })
+
+    expect(adapter.startTurn).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        text: expect.stringContaining('Shared compacted context summary for this thread:'),
+        displayText: 'Continue the migration.'
+      })
+    )
+    const dispatched = vi.mocked(adapter.startTurn).mock.calls[0]?.[1]
+    expect(dispatched?.text).toContain('Earlier work found the host owns shared compaction.')
+    expect(dispatched?.text).toContain('source_digest=digest-2048')
+    expect(dispatched?.text).toContain('Continue the migration.')
+  })
+
+  it('auto-compacts long noop-runtime threads before dispatching the next turn', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(adapter.capabilities).mockResolvedValue({
+      ...capabilities('codex'),
+      controls: {
+        ...capabilities('codex').controls,
+        compact: 'noop'
+      }
+    })
+    vi.mocked(adapter.readThread).mockResolvedValue({
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z',
+      latestSeq: 5,
+      items: [
+        { id: 'u1', kind: 'user_message', text: 'Map the shared runtime contract.' },
+        { id: 'a1', kind: 'assistant_message', text: 'Found the host dispatch path.' },
+        { id: 'u2', kind: 'user_message', text: 'Keep compaction generic.' },
+        { id: 'a2', kind: 'assistant_message', text: 'Moved the algorithm into host shared code.' },
+        { id: 'u3', kind: 'user_message', text: 'Continue.' }
+      ]
+    })
+    const contextState = new RuntimeContextStateService()
+    const base = settings('codex')
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...base,
+        agents: {
+          ...base.agents,
+          kun: {
+            ...base.agents.kun,
+            contextCompaction: {
+              ...base.agents.kun.contextCompaction,
+              defaultSoftThreshold: 10,
+              defaultHardThreshold: 20
+            }
+          }
+        }
+      }),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    await host.startTurn({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      text: 'Run the next step.'
+    })
+
+    const state = contextState.get({ runtimeId: 'codex', threadId: 'codex-thread' })
+    expect(state).toMatchObject({
+      rawHistoryItems: 5,
+      summarySource: 'heuristic',
+      sourceDigest: expect.any(String),
+      sourceItemIds: expect.arrayContaining(['u1'])
+    })
+    const dispatched = vi.mocked(adapter.startTurn).mock.calls[0]?.[1]
+    expect(dispatched?.text).toContain('Shared compacted context summary for this thread:')
+    expect(dispatched?.text).toContain('Run the next step.')
+    expect(dispatched?.displayText).toBe('Run the next step.')
+    expect(adapter.publishSyntheticEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'compaction_event',
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        status: 'success',
+        auto: true,
+        summary: expect.stringContaining('Map the shared runtime contract.'),
+        sourceDigest: state.sourceDigest
+      })
+    )
+  })
+
+  it.each(['kun', 'codex', 'claude'] as const)(
+    'keeps long-history compaction and goal resume state consistent for %s runtime contract',
+    async (runtimeId) => {
+      const threadId = `${runtimeId}-thread`
+      const resumedThreadId = `${runtimeId}-resumed`
+      const adapter = fakeAdapter(runtimeId, {
+        id: threadId,
+        runtimeId,
+        title: runtimeId,
+        updatedAt: '2026-06-10T00:00:00.000Z'
+      })
+      vi.mocked(adapter.capabilities).mockResolvedValue({
+        ...capabilities(runtimeId),
+        controls: {
+          ...capabilities(runtimeId).controls,
+          compact: 'noop',
+          resumeSession: true
+        }
+      })
+      vi.mocked(adapter.readThread).mockResolvedValue({
+        id: threadId,
+        runtimeId,
+        title: runtimeId,
+        updatedAt: '2026-06-10T00:00:00.000Z',
+        latestSeq: 5,
+        items: [
+          { id: `${runtimeId}-u1`, kind: 'user_message', text: 'Map the shared runtime contract.' },
+          { id: `${runtimeId}-a1`, kind: 'assistant_message', text: 'Found the host dispatch path.' },
+          { id: `${runtimeId}-u2`, kind: 'user_message', text: 'Keep compaction generic.' },
+          { id: `${runtimeId}-a2`, kind: 'assistant_message', text: 'Moved the algorithm into host shared code.' },
+          { id: `${runtimeId}-u3`, kind: 'user_message', text: 'Continue.' }
+        ]
+      })
+      adapter.resumeSession = vi.fn(async () => ({
+        threadId: resumedThreadId,
+        sessionId: threadId
+      }))
+      vi.mocked(adapter.subscribeEvents).mockImplementation(async function* () {
+        yield {
+          kind: 'goal_event',
+          runtimeId,
+          threadId,
+          objective: `Finish ${runtimeId} migration`,
+          status: 'active'
+        } satisfies AgentRuntimeEvent
+        yield {
+          kind: 'turn_lifecycle',
+          runtimeId,
+          threadId,
+          turnId: `${runtimeId}-turn`,
+          state: 'aborted',
+          message: 'interrupted by user'
+        } satisfies AgentRuntimeEvent
+      })
+      const contextState = new RuntimeContextStateService()
+      const base = settings(runtimeId)
+      const host = createAgentRuntimeHost({
+        settings: async () => ({
+          ...base,
+          agents: {
+            ...base.agents,
+            kun: {
+              ...base.agents.kun,
+              contextCompaction: {
+                ...base.agents.kun.contextCompaction,
+                defaultSoftThreshold: 10,
+                defaultHardThreshold: 20
+              }
+            }
+          }
+        }),
+        adapters: [adapter],
+        services: { contextState }
+      })
+
+      await host.startTurn({
+        runtimeId,
+        threadId,
+        text: 'Run the next step.'
+      })
+      const events: AgentRuntimeEvent[] = []
+      for await (const event of host.subscribeEvents({ runtimeId, threadId })) {
+        events.push(event)
+      }
+      await expect(host.resumeSession({
+        runtimeId,
+        sessionId: threadId,
+        maxResumeCount: 3
+      })).resolves.toEqual({
+        threadId: resumedThreadId,
+        sessionId: threadId
+      })
+
+      const sourceState = contextState.get({ runtimeId, threadId })
+      expect(sourceState).toMatchObject({
+        summarySource: 'heuristic',
+        sourceDigest: expect.any(String),
+        goalResume: {
+          objective: `Finish ${runtimeId} migration`,
+          status: 'blocked',
+          resumeCount: 0,
+          lastFailureReason: 'interrupted by user'
+        }
+      })
+      expect(contextState.get({ runtimeId, threadId: resumedThreadId }).goalResume).toMatchObject({
+        objective: `Finish ${runtimeId} migration`,
+        status: 'active',
+        resumeCount: 1
+      })
+      expect(events.map((event) => event.kind)).toEqual(['goal_event', 'turn_lifecycle'])
+      expect(adapter.publishSyntheticEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          kind: 'compaction_event',
+          runtimeId,
+          threadId,
+          auto: true,
+          sourceDigest: sourceState.sourceDigest
+        })
+      )
+      const dispatched = vi.mocked(adapter.startTurn).mock.calls[0]?.[1]
+      expect(dispatched?.text).toContain('Shared compacted context summary for this thread:')
+      expect(dispatched?.text).toContain('Run the next step.')
+    }
+  )
+
+  it('normalizes file references to workspace-relative refs before adapter dispatch', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter]
+    })
+
+    await host.startTurn({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      text: 'Use referenced files',
+      workspace: '/tmp/workspace',
+      fileReferences: [
+        {
+          path: '/tmp/workspace/src/main.ts',
+          relativePath: 'src/main.ts',
+          name: 'main.ts',
+          mimeType: 'text/typescript'
+        },
+        {
+          path: '/tmp/outside.ts',
+          relativePath: '../outside.ts',
+          name: 'outside.ts'
+        },
+        {
+          path: '/tmp/workspace/docs/spec.pdf',
+          relativePath: 'docs/spec.pdf',
+          name: 'spec.pdf',
+          kind: 'pdf',
+          modelRouterObject: true
+        }
+      ]
+    })
+
+    expect(adapter.startTurn).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        fileReferences: [
+          {
+            path: 'src/main.ts',
+            relativePath: 'src/main.ts',
+            name: 'main.ts',
+            mimeType: 'text/typescript',
+            delivery: 'inline_context'
+          },
+          {
+            path: 'docs/spec.pdf',
+            relativePath: 'docs/spec.pdf',
+            name: 'spec.pdf',
+            kind: 'pdf',
+            modelRouterObject: true,
+            delivery: 'model_router_object'
+          }
+        ]
+      })
+    )
+  })
+
+  it('keeps composer-previewed workspace file and directory references consistent across runtimes', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-workspace-ref-flow-'))
+    await mkdir(join(workspaceRoot, 'docs'), { recursive: true })
+    await writeFile(join(workspaceRoot, 'docs', 'guide.md'), 'Use Vitest for runtime tests.\n', 'utf8')
+    await writeFile(join(workspaceRoot, 'docs', 'notes.txt'), 'Directory notes for all runtimes.\n', 'utf8')
+    const workspaceReferences = new WorkspaceReferenceService()
+    const directoryPreview = await workspaceReferences.preview({ workspaceRoot, path: 'docs' })
+    const filePreview = await workspaceReferences.preview({ workspaceRoot, path: 'docs/guide.md' })
+    expect(directoryPreview.ok).toBe(true)
+    expect(filePreview.ok).toBe(true)
+    if (!directoryPreview.ok || !filePreview.ok) return
+    expect(directoryPreview.preview.contentSummary).toBe('Directory with 2 visible entries.')
+    expect(filePreview.preview.contentSummary).toContain('Use Vitest for runtime tests.')
+
+    const composerFileReferences = [
+      composerReferenceFromWorkspaceReference(directoryPreview.preview.reference),
+      composerReferenceFromWorkspaceReference(filePreview.preview.reference)
+    ]
+    expect(composerFileReferences.map((reference) => reference.relativePath)).toEqual(['docs', 'docs/guide.md'])
+    expect(composerFileReferences.every(
+      (reference) => reference.workspaceRoot === directoryPreview.preview.reference.workspaceRoot
+    )).toBe(true)
+    const fileReferences = composerFileReferences.map(({
+      workspaceRoot: _workspaceRoot,
+      ...reference
+    }) => reference)
+    const contextEntries = await readComposerFileContextEntries(composerFileReferences, workspaceRoot, {
+      listWorkspaceReferences: (input) => workspaceReferences.list(input),
+      readWorkspaceFile: (input) => readWorkspaceFile(input)
+    }, { maxDirectoryFiles: 4 })
+    const text = buildComposerFileContextPrompt('Summarize the referenced workspace context.', contextEntries)
+    expect(text).toContain('<workspace_file path="docs" workspace_root=')
+    expect(text).toContain('Expanded files: docs/guide.md, docs/notes.txt')
+    expect(text).toContain('Use Vitest for runtime tests.')
+
+    const adapters = (['kun', 'codex', 'claude'] as const).map((runtimeId) => fakeAdapter(runtimeId, {
+      id: `${runtimeId}-thread`,
+      runtimeId,
+      title: runtimeId,
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    }))
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        workspaceRoot
+      }),
+      adapters,
+      services: { workspaceReferences }
+    })
+
+    for (const runtimeId of ['kun', 'codex', 'claude'] as const) {
+      await host.startTurn({
+        runtimeId,
+        threadId: `${runtimeId}-thread`,
+        text,
+        workspace: workspaceRoot,
+        fileReferences
+      })
+    }
+
+    for (const adapter of adapters) {
+      expect(adapter.startTurn).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          text: expect.stringContaining('Directory notes for all runtimes.'),
+          fileReferences: [
+            {
+              path: 'docs',
+              relativePath: 'docs',
+              name: 'docs',
+              kind: 'directory',
+              delivery: 'inline_context'
+            },
+            {
+              path: 'docs/guide.md',
+              relativePath: 'docs/guide.md',
+              name: 'guide.md',
+              kind: 'text',
+              mimeType: 'text/plain; charset=utf-8',
+              delivery: 'inline_context'
+            }
+          ]
+        })
+      )
+    }
+  })
+
+  it('falls back to adapter auxiliary when workspace reference service is unavailable', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const adapterAuxiliary = vi.fn(async () => ({
+      ok: false,
+      message: 'workspace references unavailable in adapter'
+    }))
+    adapter.auxiliary = adapterAuxiliary
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter]
+    })
+
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'previewWorkspaceReference',
+      payload: {
+        workspaceRoot: '/tmp/workspace',
+        path: 'docs/guide.md'
+      }
+    })).resolves.toEqual({
+      ok: false,
+      message: 'workspace references unavailable in adapter'
+    })
+    expect(adapterAuxiliary).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        runtimeId: 'codex',
+        operation: 'previewWorkspaceReference'
+      })
+    )
+  })
+
+  it('surfaces malformed shared memory create payloads through host auxiliary', async () => {
+    const memory = new SharedMemoryService(await mkdtemp(join(tmpdir(), 'deepseek-gui-host-memory-malformed-')))
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const adapterAuxiliary = vi.fn(async () => ({ adapter: true }))
+    adapter.auxiliary = adapterAuxiliary
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: { memory }
+    })
+
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'createMemory',
+      payload: { scope: 'user' }
+    })).rejects.toThrow('payload.text')
+    expect(adapterAuxiliary).not.toHaveBeenCalled()
+  })
+
+  it('injects shared memory consistently before dispatching turns to every runtime', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-memory-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-memory-workspace-'))
+    const otherWorkspace = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-memory-other-'))
+    await mkdir(workspaceRoot, { recursive: true })
+    const memory = new SharedMemoryService(dataDir)
+
+    const adapters = (['kun', 'codex', 'claude'] as const).map((runtimeId) => fakeAdapter(runtimeId, {
+      id: `${runtimeId}-thread`,
+      runtimeId,
+      title: runtimeId,
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    }))
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        workspaceRoot
+      }),
+      adapters,
+      services: { memory }
+    })
+
+    await host.auxiliary({
+      runtimeId: 'kun',
+      operation: 'createMemory',
+      payload: {
+        text: 'User prefers verbose technical answers.',
+        scope: 'user'
+      }
+    })
+    const workspaceMemory = await host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'createMemory',
+      payload: {
+        text: 'Workspace uses Jest for runtime tests.',
+        scope: 'workspace',
+        workspace: workspaceRoot,
+        tags: ['testing']
+      }
+    }) as { id: string }
+    await host.auxiliary({
+      runtimeId: 'claude',
+      operation: 'updateMemory',
+      payload: {
+        memoryId: workspaceMemory.id,
+        patch: {
+          text: 'Workspace uses Vitest for runtime tests.',
+          tags: ['testing', 'runtime']
+        }
+      }
+    })
+    await host.auxiliary({
+      runtimeId: 'kun',
+      operation: 'updateMemory',
+      payload: {
+        memoryId: (await host.auxiliary({
+          runtimeId: 'kun',
+          operation: 'createMemory',
+          payload: {
+            text: 'Disabled memory must not inject.',
+            scope: 'user'
+          }
+        }) as { id: string }).id,
+        patch: { disabled: true }
+      }
+    })
+    const deleted = await host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'createMemory',
+      payload: {
+        text: 'Deleted memory must not inject.',
+        scope: 'user'
+      }
+    }) as { id: string }
+    await host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'deleteMemory',
+      payload: { memoryId: deleted.id }
+    })
+    await host.auxiliary({
+      runtimeId: 'claude',
+      operation: 'createMemory',
+      payload: {
+        text: 'Other workspace memory must not leak.',
+        scope: 'workspace',
+        workspace: otherWorkspace
+      }
+    })
+
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'listMemories',
+      payload: { options: { query: 'Vitest', workspace: workspaceRoot } }
+    })).resolves.toEqual([
+      expect.objectContaining({
+        id: workspaceMemory.id,
+        text: 'Workspace uses Vitest for runtime tests.',
+        tags: ['testing', 'runtime']
+      })
+    ])
+
+    for (const runtimeId of ['kun', 'codex', 'claude'] as const) {
+      await host.startTurn({
+        runtimeId,
+        threadId: `${runtimeId}-thread`,
+        text: 'Please run runtime tests.',
+        workspace: workspaceRoot
+      })
+    }
+
+    for (const adapter of adapters) {
+      expect(adapter.startTurn).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          text: expect.stringContaining('Shared memory relevant to this turn:'),
+          displayText: 'Please run runtime tests.'
+        })
+      )
+      const input = vi.mocked(adapter.startTurn).mock.calls[0]?.[1]
+      expect(input?.text).toContain('User prefers verbose technical answers.')
+      expect(input?.text).toContain('Workspace uses Vitest for runtime tests.')
+      expect(input?.text).not.toContain('Workspace uses Jest for runtime tests.')
+      expect(input?.text).not.toContain('Other workspace memory must not leak.')
+      expect(input?.text).not.toContain('Disabled memory must not inject.')
+      expect(input?.text).not.toContain('Deleted memory must not inject.')
+    }
+  })
+
+  it('drives shared memory injection from settings memory actions', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-settings-memory-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-settings-memory-workspace-'))
+    const memory = new SharedMemoryService(dataDir)
+    const adapters = (['kun', 'codex', 'claude'] as const).map((runtimeId) => fakeAdapter(runtimeId, {
+      id: `${runtimeId}-thread`,
+      runtimeId,
+      title: runtimeId,
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    }))
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        workspaceRoot
+      }),
+      adapters,
+      services: { memory }
+    })
+    let records: SettingsMemoryRecord[] = []
+    let draftContent = '  Settings-created memory reaches every runtime.  '
+    let editingContent = ''
+    let editingId: string | null = null
+    const provider = {
+      createMemory: async (input: { content: string; scope?: 'user' | 'workspace' | 'project'; workspace?: string }) => {
+        const record = await host.auxiliary({
+          runtimeId: 'codex',
+          operation: 'createMemory',
+          payload: {
+            text: input.content,
+            scope: input.scope,
+            workspace: input.workspace
+          }
+        }) as { id: string; text: string; scope: 'user' | 'workspace' | 'project'; workspace?: string; tags: string[]; createdAt: string; updatedAt: string }
+        return {
+          id: record.id,
+          content: record.text,
+          scope: record.scope,
+          workspace: record.workspace,
+          tags: record.tags,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt
+        } satisfies SettingsMemoryRecord
+      },
+      updateMemory: async (memoryId: string, patch: { content?: string; disabled?: boolean }) => {
+        const record = await host.auxiliary({
+          runtimeId: 'codex',
+          operation: 'updateMemory',
+          payload: {
+            memoryId,
+            patch: {
+              ...(patch.content !== undefined ? { text: patch.content } : {}),
+              ...(patch.disabled !== undefined ? { disabled: patch.disabled } : {})
+            }
+          }
+        }) as { id: string; text: string; scope: 'user' | 'workspace' | 'project'; workspace?: string; tags: string[]; disabled?: boolean; createdAt: string; updatedAt: string; disabledAt?: string }
+        return {
+          id: record.id,
+          content: record.text,
+          scope: record.scope,
+          workspace: record.workspace,
+          tags: record.tags,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          ...(record.disabledAt ? { disabledAt: record.disabledAt } : {})
+        } satisfies SettingsMemoryRecord
+      },
+      deleteMemory: async (memoryId: string) => {
+        const record = await host.auxiliary({
+          runtimeId: 'codex',
+          operation: 'deleteMemory',
+          payload: { memoryId }
+        }) as { id: string; text: string; scope: 'user' | 'workspace' | 'project'; createdAt: string; updatedAt: string; deletedAt?: string }
+        return {
+          id: record.id,
+          content: record.text,
+          scope: record.scope,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          ...(record.deletedAt ? { deletedAt: record.deletedAt } : {})
+        } satisfies SettingsMemoryRecord
+      }
+    }
+    const actions = createSettingsMemoryActions({
+      getProvider: () => provider,
+      getState: () => ({
+        memoryDraftContent: draftContent,
+        memoryDraftScope: 'workspace',
+        memoryEditingContent: editingContent,
+        workspaceRoot
+      }),
+      setMemoryRecords: (next: SettingsMemoryRecordUpdater) => {
+        records = typeof next === 'function' ? next(records) : next
+      },
+      setMemoryDraftContent: (value) => {
+        draftContent = value
+      },
+      setMemoryEditingId: (value) => {
+        editingId = value
+      },
+      setMemoryEditingContent: (value) => {
+        editingContent = value
+      },
+      setNotice: vi.fn(),
+      t: (key) => key
+    })
+
+    await actions.createMemoryRecord()
+    expect(records[0]?.content).toBe('Settings-created memory reaches every runtime.')
+    actions.startEditingMemoryRecord(records[0]!)
+    editingContent = 'Settings-updated memory reaches every runtime.'
+    await actions.saveMemoryRecord(records[0]!.id)
+    expect(editingId).toBeNull()
+
+    for (const runtimeId of ['kun', 'codex', 'claude'] as const) {
+      await host.startTurn({
+        runtimeId,
+        threadId: `${runtimeId}-thread`,
+        text: 'Use shared memory.',
+        workspace: workspaceRoot
+      })
+    }
+
+    for (const adapter of adapters) {
+      expect(vi.mocked(adapter.startTurn).mock.calls[0]?.[1].text).toContain(
+        'Settings-updated memory reaches every runtime.'
+      )
+    }
+
+    await actions.disableMemoryRecord(records[0]!.id)
+    vi.clearAllMocks()
+    for (const runtimeId of ['kun', 'codex', 'claude'] as const) {
+      await host.startTurn({
+        runtimeId,
+        threadId: `${runtimeId}-thread`,
+        text: 'Use shared memory.',
+        workspace: workspaceRoot
+      })
+    }
+    for (const adapter of adapters) {
+      expect(vi.mocked(adapter.startTurn).mock.calls[0]?.[1].text).not.toContain(
+        'Settings-updated memory reaches every runtime.'
+      )
+    }
+  })
+
+  it('creates fail-open git checkpoints around runtime turns', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(adapter.startTurn).mockResolvedValue({
+      threadId: 'codex-thread',
+      turnId: 'turn-1'
+    })
+    vi.mocked(adapter.subscribeEvents).mockImplementation(async function* () {
+      yield {
+        kind: 'turn_lifecycle',
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        turnId: 'turn-1',
+        state: 'completed'
+      } satisfies AgentRuntimeEvent
+    })
+    const create = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        checkpointId: 'checkpoint',
+        runtimeId: 'codex' as const,
+        threadId: 'codex-thread',
+        workspaceRoot: '/tmp/workspace',
+        repositoryRoot: '/tmp/workspace',
+        branch: 'main',
+        head: 'abc',
+        createdAt: '2026-06-20T00:00:00.000Z',
+        diffStat: '',
+        status: 'available' as const
+      }
+    }))
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: {
+        gitCheckpoints: { create } as never
+      }
+    })
+
+    await host.startTurn({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      text: 'edit files',
+      workspace: '/tmp/workspace'
+    })
+    for await (const _event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    })) {
+      // consume stream
+    }
+
+    expect(create).toHaveBeenNthCalledWith(1, {
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      workspaceRoot: '/tmp/workspace'
+    })
+    expect(create).toHaveBeenNthCalledWith(2, {
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      turnId: 'turn-1',
+      workspaceRoot: '/tmp/workspace'
+    })
+  })
+
+  it('routes git checkpoint auxiliary operations through host services before adapters', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const adapterAuxiliary = vi.fn(async () => ({ adapter: true }))
+    adapter.auxiliary = adapterAuxiliary
+    const checkpoint = {
+      checkpointId: 'checkpoint-1',
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      turnId: 'turn-1',
+      workspaceRoot: '/tmp/workspace',
+      repositoryRoot: '/tmp/workspace',
+      branch: 'main',
+      head: 'abc123',
+      createdAt: '2026-06-20T00:00:00.000Z',
+      diffStat: ' src/app.ts | 1 +',
+      status: 'available'
+    } satisfies AgentRuntimeGitCheckpoint
+    const restored = {
+      ...checkpoint,
+      status: 'restored',
+      restoreStatus: '2026-06-20T00:01:00.000Z',
+      rescueCheckpointId: 'checkpoint-rescue'
+    } satisfies AgentRuntimeGitCheckpoint & { rescueCheckpointId: string }
+    const list = vi.fn(async () => [checkpoint])
+    const create = vi.fn(async () => ({ ok: true as const, value: checkpoint }))
+    const preview = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        checkpoint,
+        stagedPatch: 'diff --git a/src/app.ts b/src/app.ts',
+        unstagedPatch: '',
+        untrackedFiles: ['notes.md']
+      }
+    }))
+    const restore = vi.fn(async () => ({ ok: true as const, value: restored }))
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: {
+        gitCheckpoints: { list, create, preview, restore } as never
+      }
+    })
+
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'listGitCheckpoints',
+      payload: {
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        workspaceRoot: '/tmp/workspace'
+      }
+    })).resolves.toEqual([checkpoint])
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'createGitCheckpoint',
+      payload: {
+        threadId: 'codex-thread',
+        workspaceRoot: '/tmp/workspace',
+        turnId: 'turn-1'
+      }
+    })).resolves.toEqual({ ok: true, value: checkpoint })
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'previewGitCheckpoint',
+      payload: { checkpointId: 'checkpoint-1' }
+    })).resolves.toEqual({
+      ok: true,
+      value: {
+        checkpoint,
+        stagedPatch: 'diff --git a/src/app.ts b/src/app.ts',
+        unstagedPatch: '',
+        untrackedFiles: ['notes.md']
+      }
+    })
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'restoreGitCheckpoint',
+      payload: { checkpointId: 'checkpoint-1', force: true }
+    })).resolves.toEqual({ ok: true, value: restored })
+
+    expect(list).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      workspaceRoot: '/tmp/workspace'
+    })
+    expect(create).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      workspaceRoot: '/tmp/workspace',
+      turnId: 'turn-1'
+    })
+    expect(preview).toHaveBeenCalledWith('checkpoint-1')
+    expect(restore).toHaveBeenCalledWith({ checkpointId: 'checkpoint-1', force: true })
+    expect(adapterAuxiliary).not.toHaveBeenCalled()
+  })
+
+  it('passes blocked git checkpoint restore results through host auxiliary', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const adapterAuxiliary = vi.fn(async () => ({ adapter: true }))
+    adapter.auxiliary = adapterAuxiliary
+    const blocked = {
+      ok: false as const,
+      reason: 'dirty_worktree',
+      message: 'The working tree has changes. Preview or commit/stash them before restoring.',
+      details: { dirty: ['src/app.ts'] }
+    }
+    const restore = vi.fn(async () => blocked)
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: {
+        gitCheckpoints: { restore } as never
+      }
+    })
+
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'restoreGitCheckpoint',
+      payload: { checkpointId: 'checkpoint-1' }
+    })).resolves.toEqual(blocked)
+
+    expect(restore).toHaveBeenCalledWith({ checkpointId: 'checkpoint-1', force: false })
+    expect(adapterAuxiliary).not.toHaveBeenCalled()
   })
 
   it('feeds completed turns from the neutral runtime event path into Evidence DAG', async () => {
@@ -979,6 +2852,18 @@ describe('createKunAgentRuntimeAdapter', () => {
               search: { status: 'unavailable', enabled: true, available: false, reason: 'search provider missing' },
               provider: 'test-web'
             },
+            research: {
+              status: 'available',
+              enabled: true,
+              available: true,
+              toolName: 'research_search',
+              arxiv: { status: 'available', enabled: true, available: true },
+              biorxiv: { status: 'unavailable', enabled: true, available: false },
+              semanticScholar: { status: 'available', enabled: true, available: true },
+              tavily: { status: 'available', enabled: true, available: true },
+              cns: { status: 'unavailable', enabled: true, available: false },
+              maxResults: 12
+            },
             skills: {
               status: 'available',
               enabled: true,
@@ -1030,6 +2915,13 @@ describe('createKunAgentRuntimeAdapter', () => {
         toolCalling: true,
         mcp: { available: true, toolCount: 7, search: { available: true } },
         web: { available: true, fetch: { available: true }, search: { available: false } },
+        research: {
+          available: true,
+          server: 'mcp',
+          toolName: 'research_search',
+          sources: ['arxiv', 'semantic_scholar', 'web'],
+          maxResults: 12
+        },
         skills: { available: true },
         subagents: { available: true, maxParallel: 2, maxChildren: 5 },
         diagnostics: { available: true }

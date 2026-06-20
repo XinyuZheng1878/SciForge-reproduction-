@@ -13,8 +13,8 @@ import {
   type CodexRuntimeSettingsPatchV1,
   type ClaudeRuntimeSettingsPatchV1,
   getActiveAgentApiKey,
-  getCodexRuntimeSettings,
   getClaudeRuntimeSettings,
+  getCodexRuntimeSettings,
   getKunRuntimeSettings,
   getModelProviderSettings,
   isKunRuntimeInsecure,
@@ -23,6 +23,10 @@ import {
   resolveWriteInlineCompletionModel,
   type AppSettingsV1,
 } from '@shared/app-settings'
+import type {
+  AgentRuntimeGitCheckpoint,
+  AgentRuntimeModelAuditRecord
+} from '@shared/agent-runtime-contract'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import { getProvider } from '../agent/registry'
 import type {
@@ -53,7 +57,9 @@ import {
   splitSettingsList
 } from './settings-utils'
 import { loadKunDiagnostics } from '../lib/load-kun-diagnostics'
+import { createSettingsMemoryActions } from '../lib/settings-memory-actions'
 import { emitRendererSettingsChanged } from '../lib/keyboard-shortcut-settings'
+import type { InlineNotice } from './settings-controls'
 import {
   AgentsSettingsSection,
   ClawSettingsSection,
@@ -66,16 +72,50 @@ import {
 type SettingsCategory = 'general' | 'write' | 'speechToText' | 'agents' | 'shortcuts' | 'claw'
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 type SettingsPatch = AppSettingsPatch
+type MemoryScopeFilter = 'all' | 'user' | 'workspace' | 'project'
 type SkillRootOption = {
   id: SkillRootId
   label: string
   path: string
   available: boolean
 }
-type InlineNotice = {
-  tone: 'success' | 'error' | 'info'
-  message: string
+
+function unknownRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
 }
+
+function clipDiagnosticText(value: string, limit = 12_000): string {
+  return value.length > limit ? `${value.slice(0, limit)}\n...` : value
+}
+
+function formatGitCheckpointPreviewResult(result: unknown, emptyLabel: string): string {
+  const response = unknownRecord(result)
+  if (response.ok === false) {
+    return String(response.message ?? response.reason ?? emptyLabel)
+  }
+  const value = unknownRecord(response.value ?? result)
+  const sections: string[] = []
+  const untrackedFiles = Array.isArray(value.untrackedFiles)
+    ? value.untrackedFiles.filter((item): item is string => typeof item === 'string')
+    : []
+  if (untrackedFiles.length > 0) {
+    sections.push(`Untracked files:\n${untrackedFiles.slice(0, 50).join('\n')}`)
+  }
+  const stagedPatch = typeof value.stagedPatch === 'string' ? value.stagedPatch.trim() : ''
+  if (stagedPatch) sections.push(`Staged patch:\n${stagedPatch}`)
+  const unstagedPatch = typeof value.unstagedPatch === 'string' ? value.unstagedPatch.trim() : ''
+  if (unstagedPatch) sections.push(`Unstaged patch:\n${unstagedPatch}`)
+  return clipDiagnosticText(sections.join('\n\n') || emptyLabel)
+}
+
+function runtimeResultMessage(result: unknown): string | null {
+  const response = unknownRecord(result)
+  if (response.ok !== false) return null
+  return String(response.message ?? response.reason ?? 'Operation failed.')
+}
+
 export function SettingsView(): ReactElement {
   const { t } = useTranslation('settings')
   const { t: tCommon } = useTranslation('common')
@@ -115,6 +155,17 @@ export function SettingsView(): ReactElement {
   const [runtimeInfo, setRuntimeInfo] = useState<CoreRuntimeInfoJson | null>(null)
   const [toolDiagnostics, setToolDiagnostics] = useState<CoreRuntimeToolDiagnosticsJson | null>(null)
   const [memoryRecords, setMemoryRecords] = useState<CoreMemoryRecordJson[]>([])
+  const [memoryScopeFilter, setMemoryScopeFilter] = useState<MemoryScopeFilter>('all')
+  const [memoryQuery, setMemoryQuery] = useState('')
+  const [memoryDraftContent, setMemoryDraftContent] = useState('')
+  const [memoryDraftScope, setMemoryDraftScope] = useState<'user' | 'workspace' | 'project'>('workspace')
+  const [memoryEditingId, setMemoryEditingId] = useState<string | null>(null)
+  const [memoryEditingContent, setMemoryEditingContent] = useState('')
+  const [modelAuditRecords, setModelAuditRecords] = useState<AgentRuntimeModelAuditRecord[]>([])
+  const [gitCheckpoints, setGitCheckpoints] = useState<AgentRuntimeGitCheckpoint[]>([])
+  const [gitCheckpointPreviewId, setGitCheckpointPreviewId] = useState<string | null>(null)
+  const [gitCheckpointPreview, setGitCheckpointPreview] = useState('')
+  const [gitCheckpointForceRestore, setGitCheckpointForceRestore] = useState(false)
   const [runtimeDiagnosticsBusy, setRuntimeDiagnosticsBusy] = useState(false)
   const [runtimeDiagnosticsNotice, setRuntimeDiagnosticsNotice] = useState<InlineNotice | null>(null)
   const [writeDebugModalOpen, setWriteDebugModalOpen] = useState(false)
@@ -400,11 +451,21 @@ export function SettingsView(): ReactElement {
     setRuntimeDiagnosticsNotice(null)
     try {
       const loaded = await loadKunDiagnostics(provider, {
-        workspace: normalizeWorkspaceRoot(formWorkspaceRoot)
+        workspace: normalizeWorkspaceRoot(formWorkspaceRoot),
+        memoryScope: memoryScopeFilter === 'all' ? undefined : memoryScopeFilter,
+        memoryQuery
       })
       if (loaded.runtimeInfo !== undefined) setRuntimeInfo(loaded.runtimeInfo)
       if (loaded.toolDiagnostics !== undefined) setToolDiagnostics(loaded.toolDiagnostics)
       if (loaded.memoryRecords !== undefined) setMemoryRecords(loaded.memoryRecords)
+      if (typeof provider.listModelAuditRecords === 'function') {
+        setModelAuditRecords(await provider.listModelAuditRecords({ limit: 20 }))
+      }
+      if (typeof provider.listGitCheckpoints === 'function') {
+        setGitCheckpoints(await provider.listGitCheckpoints({
+          workspaceRoot: normalizeWorkspaceRoot(formWorkspaceRoot)
+        }))
+      }
       if (loaded.errors.length > 0) {
         setRuntimeDiagnosticsNotice({
           tone: 'error',
@@ -419,40 +480,113 @@ export function SettingsView(): ReactElement {
     } finally {
       setRuntimeDiagnosticsBusy(false)
     }
-  }, [formWorkspaceRoot])
+  }, [formWorkspaceRoot, memoryQuery, memoryScopeFilter])
+
+  const clearModelAuditRecords = async (): Promise<void> => {
+    const provider = getProvider()
+    if (typeof provider.clearModelAuditRecords !== 'function') return
+    try {
+      await provider.clearModelAuditRecords()
+      setModelAuditRecords([])
+      setRuntimeDiagnosticsNotice({
+        tone: 'success',
+        message: t('modelAuditCleared')
+      })
+    } catch (error) {
+      setRuntimeDiagnosticsNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  const previewGitCheckpoint = async (checkpointId: string): Promise<void> => {
+    const provider = getProvider()
+    if (typeof provider.previewGitCheckpoint !== 'function') return
+    try {
+      const result = await provider.previewGitCheckpoint(checkpointId)
+      setGitCheckpointPreviewId(checkpointId)
+      setGitCheckpointPreview(formatGitCheckpointPreviewResult(result, t('gitCheckpointPreviewEmpty')))
+      const failure = runtimeResultMessage(result)
+      if (failure) {
+        setRuntimeDiagnosticsNotice({
+          tone: 'error',
+          message: failure
+        })
+      }
+    } catch (error) {
+      setRuntimeDiagnosticsNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  const restoreGitCheckpoint = async (checkpointId: string): Promise<void> => {
+    const provider = getProvider()
+    if (typeof provider.restoreGitCheckpoint !== 'function') return
+    try {
+      const result = await provider.restoreGitCheckpoint(checkpointId, {
+        force: gitCheckpointForceRestore
+      })
+      const failure = runtimeResultMessage(result)
+      if (failure) {
+        setRuntimeDiagnosticsNotice({
+          tone: 'error',
+          message: failure
+        })
+        return
+      }
+      setRuntimeDiagnosticsNotice({
+        tone: 'success',
+        message: t('gitCheckpointRestored')
+      })
+      if (typeof provider.listGitCheckpoints === 'function') {
+        setGitCheckpoints(await provider.listGitCheckpoints({
+          workspaceRoot: normalizeWorkspaceRoot(formWorkspaceRoot)
+        }))
+      }
+    } catch (error) {
+      setRuntimeDiagnosticsNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
 
   useEffect(() => {
     if (category !== 'agents') return
     void refreshKunDiagnostics()
   }, [category, refreshKunDiagnostics])
 
-  const disableMemoryRecord = async (memoryId: string): Promise<void> => {
-    const provider = getProvider()
-    if (typeof provider.updateMemory !== 'function') return
-    try {
-      const memory = await provider.updateMemory(memoryId, { disabled: true })
-      setMemoryRecords((records) => records.map((record) => record.id === memoryId ? memory : record))
-    } catch (error) {
-      setRuntimeDiagnosticsNotice({
-        tone: 'error',
-        message: error instanceof Error ? error.message : String(error)
-      })
-    }
-  }
-
-  const deleteMemoryRecord = async (memoryId: string): Promise<void> => {
-    const provider = getProvider()
-    if (typeof provider.deleteMemory !== 'function') return
-    try {
-      await provider.deleteMemory(memoryId)
-      setMemoryRecords((records) => records.filter((record) => record.id !== memoryId))
-    } catch (error) {
-      setRuntimeDiagnosticsNotice({
-        tone: 'error',
-        message: error instanceof Error ? error.message : String(error)
-      })
-    }
-  }
+  const {
+    createMemoryRecord,
+    disableMemoryRecord,
+    startEditingMemoryRecord,
+    cancelEditingMemoryRecord,
+    saveMemoryRecord,
+    deleteMemoryRecord
+  } = useMemo(() => createSettingsMemoryActions({
+    getProvider,
+    getState: () => ({
+      memoryDraftContent,
+      memoryDraftScope,
+      memoryEditingContent,
+      workspaceRoot: normalizeWorkspaceRoot(formWorkspaceRoot)
+    }),
+    setMemoryRecords,
+    setMemoryDraftContent,
+    setMemoryEditingId,
+    setMemoryEditingContent,
+    setNotice: setRuntimeDiagnosticsNotice,
+    t
+  }), [
+    formWorkspaceRoot,
+    memoryDraftContent,
+    memoryDraftScope,
+    memoryEditingContent,
+    t
+  ])
 
   const scrollToAgentSection = (target: 'agents' | 'skill' | 'mcp' | 'permissions'): void => {
     const refs = {
@@ -811,9 +945,33 @@ export function SettingsView(): ReactElement {
     runtimeInfo,
     toolDiagnostics,
     memoryRecords,
+    memoryScopeFilter,
+    setMemoryScopeFilter,
+    memoryQuery,
+    setMemoryQuery,
+    memoryDraftContent,
+    setMemoryDraftContent,
+    memoryDraftScope,
+    setMemoryDraftScope,
+    memoryEditingId,
+    memoryEditingContent,
+    setMemoryEditingContent,
+    modelAuditRecords,
+    gitCheckpoints,
+    gitCheckpointPreviewId,
+    gitCheckpointPreview,
+    gitCheckpointForceRestore,
+    setGitCheckpointForceRestore,
     runtimeDiagnosticsBusy,
     runtimeDiagnosticsNotice,
     refreshKunDiagnostics,
+    clearModelAuditRecords,
+    previewGitCheckpoint,
+    restoreGitCheckpoint,
+    createMemoryRecord,
+    startEditingMemoryRecord,
+    cancelEditingMemoryRecord,
+    saveMemoryRecord,
     disableMemoryRecord,
     deleteMemoryRecord,
     pickClawWorkspace,

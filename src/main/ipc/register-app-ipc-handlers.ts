@@ -57,8 +57,8 @@ import {
   clawTaskFromTextPayloadSchema,
   deepseekConfigContentSchema,
   desktopCommandSchema,
-  defaultPathSchema,
   evidenceDagOpenPayloadSchema,
+  defaultPathSchema,
   gitBranchPayloadSchema,
   guiUpdateChannelSchema,
   logErrorPayloadSchema,
@@ -87,6 +87,10 @@ import {
   writeRetrievalPayloadSchema,
   workspaceRootSchema
 } from './app-ipc-schemas'
+import {
+  evidenceDagServiceUrlFromEnv,
+  evidenceDagUiUrl
+} from '../../shared/evidence-dag'
 import type {
   AgentRuntimeAuxiliaryInput,
   AgentRuntimeCapabilities,
@@ -151,10 +155,6 @@ import { retrieveWriteContext } from '../services/write-retrieval-service'
 import { requestSpeechTranscription } from '../services/speech-to-text-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { listGuiSkills } from '../services/skill-service'
-import {
-  evidenceDagServiceUrlFromEnv,
-  evidenceDagUiUrl
-} from '../../shared/evidence-dag'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 

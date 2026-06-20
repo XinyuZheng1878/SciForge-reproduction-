@@ -869,6 +869,7 @@ export function buildThreadEventSink(
     },
     onCompaction: (ev) => {
       if (!isCurrentStream()) return
+      void get().refreshActiveThreadContextState?.(boundThreadId || undefined)
       set((s) => {
         resetBusyRecoveryAttempts()
         const base: Partial<ChatState> = {}
@@ -888,6 +889,10 @@ export function buildThreadEventSink(
             auto: ev.auto ?? cur.auto,
             messagesBefore: ev.messagesBefore ?? cur.messagesBefore,
             messagesAfter: ev.messagesAfter ?? cur.messagesAfter,
+            replacedTokens: ev.replacedTokens ?? cur.replacedTokens,
+            sourceDigest: ev.sourceDigest ?? cur.sourceDigest,
+            digestMarker: ev.digestMarker ?? cur.digestMarker,
+            sourceItemIds: ev.sourceItemIds ?? cur.sourceItemIds,
             createdAt: cur.createdAt ?? ev.createdAt
           }
           const blocks = [...s.blocks]
@@ -909,7 +914,11 @@ export function buildThreadEventSink(
           detail: ev.detail,
           auto: ev.auto,
           messagesBefore: ev.messagesBefore,
-          messagesAfter: ev.messagesAfter
+          messagesAfter: ev.messagesAfter,
+          replacedTokens: ev.replacedTokens,
+          sourceDigest: ev.sourceDigest,
+          digestMarker: ev.digestMarker,
+          sourceItemIds: ev.sourceItemIds
         }
         return {
           ...base,
@@ -1114,6 +1123,7 @@ export function buildThreadEventSink(
     onGoal: (ev) => {
       if (!isCurrentStream()) return
       if (!ev.threadId) return
+      void get().refreshActiveThreadContextState?.(ev.threadId)
       resetBusyRecoveryAttempts()
       set((s) => {
         const currentThread = s.activeThreadId === ev.threadId

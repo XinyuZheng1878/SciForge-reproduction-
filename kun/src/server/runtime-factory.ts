@@ -61,6 +61,9 @@ import { FileMemoryStore } from '../memory/memory-store.js'
 import { DelegationRuntime, FileDelegationStore } from '../delegation/delegation-runtime.js'
 import { createChildAgentExecutor } from '../delegation/child-agent-executor.js'
 
+const GUI_RESEARCH_MCP_SERVER_NAME = 'gui_research'
+const DEFAULT_RESEARCH_SOURCES = ['arxiv', 'biorxiv', 'semantic_scholar'] as const
+
 export type KunServeRuntimeOptions = {
   host: string
   port: number
@@ -242,6 +245,7 @@ export async function createKunServeRuntime(
       provider: webProviders.provider,
       reason: webProviders.diagnostics.find((diagnostic) => diagnostic.reason)?.reason
     },
+    research: researchCapabilityInput(options.capabilities, mcpProviders.diagnostics),
     skills: {
       configuredRoots: options.capabilities?.skills.roots.length,
       discoveredSkills: skillRuntime.count(),
@@ -371,6 +375,32 @@ export async function createKunServeRuntime(
       }
     }
   }
+}
+
+function researchCapabilityInput(
+  capabilities: KunServeRuntimeOptions['capabilities'],
+  diagnostics: Awaited<ReturnType<typeof buildMcpToolProviders>>['diagnostics']
+) {
+  const server = capabilities?.mcp.servers[GUI_RESEARCH_MCP_SERVER_NAME]
+  const diagnostic = diagnostics.find((item) => item.id === GUI_RESEARCH_MCP_SERVER_NAME)
+  const enabled = server?.enabled === true
+  return {
+    enabled,
+    available: enabled && diagnostic?.status === 'connected',
+    reason: diagnostic?.lastError,
+    toolName: 'research_search',
+    sources: [
+      ...DEFAULT_RESEARCH_SOURCES,
+      ...(server?.env.SCIFORGE_RESEARCH_TAVILY_API_KEY || server?.env.TAVILY_API_KEY ? ['web' as const, 'cns' as const] : [])
+    ],
+    maxResults: maxResultsFromResearchEnv(server?.env.SCIFORGE_RESEARCH_MAX_RESULTS)
+  }
+}
+
+function maxResultsFromResearchEnv(value: string | undefined): number {
+  if (!value) return 10
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 50) : 10
 }
 
 function tokenEconomyConfigForOptions(

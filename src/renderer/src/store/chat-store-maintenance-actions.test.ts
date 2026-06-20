@@ -32,12 +32,17 @@ type Harness = {
   provider: {
     compactThread: ReturnType<typeof vi.fn>
     forkThread: ReturnType<typeof vi.fn>
+    getContextState: ReturnType<typeof vi.fn>
     getCapabilities: ReturnType<typeof vi.fn>
+    rememberThreadRuntime: ReturnType<typeof vi.fn>
+    resumeSession: ReturnType<typeof vi.fn>
     setThreadGoal: ReturnType<typeof vi.fn>
     clearThreadGoal: ReturnType<typeof vi.fn>
     interruptTurn: ReturnType<typeof vi.fn>
   }
+  refreshActiveThreadContextState: ReturnType<typeof vi.fn>
   refreshThreads: ReturnType<typeof vi.fn>
+  selectThread: ReturnType<typeof vi.fn>
   sendMessage: ReturnType<typeof vi.fn>
   sseAbortRef: { current: AbortController | null }
   state: ChatState
@@ -100,7 +105,21 @@ function buildHarness(options: {
   const provider = {
     compactThread: vi.fn(async () => undefined),
     forkThread: vi.fn(async () => thread('thr_fork')),
+    getContextState: vi.fn(async (threadId: string) => ({
+      runtimeId: 'codex' as const,
+      threadId,
+      rawHistoryItems: 42,
+      effectiveHistoryItems: 12,
+      summarySource: 'runtime' as const,
+      updatedAt: '2026-06-20T00:00:00.000Z'
+    })),
     getCapabilities: vi.fn(() => capabilities),
+    rememberThreadRuntime: vi.fn(),
+    resumeSession: vi.fn(async (sessionId: string) => ({
+      sessionId,
+      threadId: 'thr_resumed',
+      runtimeId: 'codex' as const
+    })),
     setThreadGoal: vi.fn(async (threadId: string, patch: GoalPatch) =>
       goal(
         threadId,
@@ -120,6 +139,20 @@ function buildHarness(options: {
     state.threads = [created, ...state.threads]
   })
   const refreshThreads = vi.fn(async () => undefined)
+  const selectThread = vi.fn(async (threadId: string) => {
+    state.activeThreadId = threadId
+  })
+  const refreshActiveThreadContextState = vi.fn(async (threadId?: string) => {
+    const targetThreadId = threadId?.trim() || state.activeThreadId
+    if (!targetThreadId) {
+      state.activeThreadContextState = null
+      return
+    }
+    const contextState = await provider.getContextState(targetThreadId)
+    if (state.activeThreadId === targetThreadId) {
+      state.activeThreadContextState = contextState
+    }
+  })
   const drainQueuedMessages = vi.fn(async () => undefined)
   const sendMessage = vi.fn(async (
     _text: string,
@@ -129,12 +162,15 @@ function buildHarness(options: {
 
   state = {
     activeThreadGoal: initialGoal,
+    activeThreadContextState: null,
     activeThreadId,
     createThread,
     error: null,
     drainQueuedMessages,
+    refreshActiveThreadContextState,
     refreshThreads,
     runtimeConnection: 'ready',
+    selectThread,
     sendMessage,
     settingsSection: 'general',
     threads: activeThreadId ? [thread(activeThreadId, initialGoal)] : []
@@ -152,7 +188,19 @@ function buildHarness(options: {
     sseAbortRef
   })
 
-  return { actions, createThread, drainQueuedMessages, get, provider, refreshThreads, sendMessage, sseAbortRef, state }
+  return {
+    actions,
+    createThread,
+    drainQueuedMessages,
+    get,
+    provider,
+    refreshActiveThreadContextState,
+    refreshThreads,
+    selectThread,
+    sendMessage,
+    sseAbortRef,
+    state
+  }
 }
 
 describe('chat-store-maintenance-actions goal actions', () => {
@@ -259,6 +307,65 @@ describe('chat-store-maintenance-actions goal actions', () => {
     expect(provider.forkThread).not.toHaveBeenCalled()
     expect(compactError).toBeTruthy()
     expect(state.error).toBeTruthy()
+  })
+
+  it('compacts the active thread and reselects it after refreshing thread snapshots', async () => {
+    const { actions, provider, refreshThreads, selectThread, state } = buildHarness()
+
+    await actions.compactActiveThread('manual compaction')
+
+    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('thr_existing', 'kun')
+    expect(provider.compactThread).toHaveBeenCalledWith('thr_existing', 'manual compaction')
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+    expect(selectThread).toHaveBeenCalledWith('thr_existing')
+    expect(provider.compactThread.mock.invocationCallOrder[0]).toBeLessThan(
+      refreshThreads.mock.invocationCallOrder[0]
+    )
+    expect(refreshThreads.mock.invocationCallOrder[0]).toBeLessThan(
+      selectThread.mock.invocationCallOrder[0]
+    )
+    expect(state.error).toBeNull()
+  })
+
+  it('refreshes provider context state when goal session resume fails', async () => {
+    const { actions, provider, refreshActiveThreadContextState, refreshThreads, selectThread, state } = buildHarness()
+    const contextState = {
+      runtimeId: 'codex' as const,
+      threadId: 'thr_existing',
+      rawHistoryItems: 28,
+      effectiveHistoryItems: 9,
+      summarySource: 'runtime' as const,
+      updatedAt: '2026-06-20T00:00:00.000Z',
+      goalResume: {
+        objective: 'ship goal mode',
+        status: 'blocked' as const,
+        resumeCount: 3,
+        lastFailureReason: 'resume budget was exhausted',
+        updatedAt: '2026-06-20T00:00:01.000Z'
+      }
+    }
+    provider.resumeSession.mockRejectedValueOnce(new Error('resume budget was exhausted'))
+    provider.getContextState.mockResolvedValueOnce(contextState)
+
+    const result = await actions.resumeSessionIntoThread(' session-123 ', {
+      model: 'gpt-5',
+      mode: 'agent',
+      maxResumeCount: 3
+    })
+
+    expect(result).toBeNull()
+    expect(provider.resumeSession).toHaveBeenCalledWith('session-123', {
+      model: 'gpt-5',
+      mode: 'agent',
+      maxResumeCount: 3
+    })
+    expect(refreshActiveThreadContextState).toHaveBeenCalledWith('thr_existing')
+    expect(provider.getContextState).toHaveBeenCalledWith('thr_existing')
+    expect(state.activeThreadContextState).toEqual(contextState)
+    expect(state.activeThreadContextState?.goalResume?.lastFailureReason).toBe('resume budget was exhausted')
+    expect(state.error).toContain('resume budget was exhausted')
+    expect(refreshThreads).not.toHaveBeenCalled()
+    expect(selectThread).not.toHaveBeenCalled()
   })
 
   it('updates active goal status and keeps the thread snapshot in sync', async () => {

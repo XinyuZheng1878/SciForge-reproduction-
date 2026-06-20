@@ -127,6 +127,7 @@ describe('agent runtime contract', () => {
     expect(capabilities.tools.web.available).toBe(false)
     expect(capabilities.tools.web.fetch?.available).toBe(false)
     expect(capabilities.tools.web.search?.available).toBe(false)
+    expect(capabilities.tools.research.available).toBe(false)
     expect(capabilities.storage.attachments.available).toBe(false)
     expect(capabilities.storage.usage).toBe(false)
     expect(capabilities.storage.memory.available).toBe(false)

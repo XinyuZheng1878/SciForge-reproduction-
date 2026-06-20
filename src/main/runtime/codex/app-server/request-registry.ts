@@ -2,6 +2,10 @@ import type {
   CodexAppServerJsonRpcRequest,
   CodexAppServerRequestId
 } from './protocol'
+import type {
+  CodexAppServerDynamicToolCallRequest,
+  CodexAppServerDynamicToolCallResponse
+} from '../codex-dynamic-mcp-tools'
 
 export type CodexAppServerPendingRequestKind = 'approval' | 'user_input'
 
@@ -47,6 +51,9 @@ export type CodexAppServerResolveUserInputInput = {
 export type CodexAppServerPendingRequestRegistryOptions = {
   onPendingRequest?: (request: CodexAppServerPendingRequest) => void
   onUnknownRequest?: (request: CodexAppServerUnknownRequestNotice) => void
+  onToolCallRequest?: (
+    request: CodexAppServerDynamicToolCallRequest
+  ) => CodexAppServerDynamicToolCallResponse | Promise<CodexAppServerDynamicToolCallResponse>
 }
 
 type PendingEntry = {
@@ -88,6 +95,15 @@ export class CodexAppServerPendingRequestRegistry {
   constructor(private readonly options: CodexAppServerPendingRequestRegistryOptions = {}) {}
 
   handle(request: CodexAppServerJsonRpcRequest): Promise<unknown> {
+    const toolCall = toDynamicToolCallRequest(request)
+    if (toolCall) {
+      if (this.options.onToolCallRequest) {
+        return Promise.resolve(this.options.onToolCallRequest(toolCall))
+      }
+      const notice = unknownRequestNotice(request)
+      this.options.onUnknownRequest?.(notice)
+      return Promise.reject(new Error(`Unsupported Codex app-server request: ${request.method}`))
+    }
     const pending = toPendingRequest(request)
     if (!pending) {
       const notice = unknownRequestNotice(request)
@@ -163,6 +179,38 @@ function toPendingRequest(request: CodexAppServerJsonRpcRequest): CodexAppServer
     }
   }
   return null
+}
+
+function toDynamicToolCallRequest(
+  request: CodexAppServerJsonRpcRequest
+): CodexAppServerDynamicToolCallRequest | null {
+  if (request.method !== 'item/tool/call') return null
+  const params = asRecord(request.params) ?? {}
+  const normalizedName = normalizeDynamicToolName(
+    stringValue(params.namespace),
+    stringValue(params.tool) || stringValue(params.toolName) || stringValue(params.name)
+  )
+  return {
+    requestId: request.id,
+    ...commonRequestFields(params),
+    callId: stringValue(params.callId) || undefined,
+    namespace: normalizedName.namespace,
+    tool: normalizedName.tool,
+    arguments: params.arguments ?? {}
+  }
+}
+
+function normalizeDynamicToolName(namespace: string, tool: string): {
+  namespace?: string
+  tool: string
+} {
+  if (namespace) return { namespace, tool }
+  const separator = tool.indexOf('.')
+  if (separator <= 0 || separator >= tool.length - 1) return { tool }
+  return {
+    namespace: tool.slice(0, separator),
+    tool: tool.slice(separator + 1)
+  }
 }
 
 function commonRequestFields(params: Record<string, unknown>): {

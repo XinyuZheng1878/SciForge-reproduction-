@@ -270,4 +270,92 @@ describe('createKunAgentRuntimeAdapter', () => {
     })).resolves.toEqual([])
     expect(seen).toEqual(['/v1/memory?workspace=%2Ftmp%2Fworkspace&include_deleted=false'])
   })
+
+  it('maps Kun compaction and goal events into shared context events', async () => {
+    const adapter = createKunAgentRuntimeAdapter({
+      request: vi.fn(async () => jsonResponse({})),
+      events: async function* () {
+        yield {
+          kind: 'compaction_completed',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          itemId: 'compact-1',
+          seq: 8,
+          timestamp: '2026-06-02T00:00:02.000Z',
+          summary: 'Kun compacted summary',
+          replacedTokens: 1234,
+          sourceDigest: 'digest-123',
+          digestMarker: '<compact:digest-123>',
+          sourceItemIds: ['item-1', 'item-2'],
+          auto: false
+        }
+        yield {
+          kind: 'goal_updated',
+          threadId: 'thread-1',
+          seq: 9,
+          timestamp: '2026-06-02T00:00:03.000Z',
+          goal: {
+            threadId: 'thread-1',
+            objective: 'Finish the migration',
+            status: 'active',
+            tokensUsed: 10,
+            timeUsedSeconds: 5,
+            createdAt: '2026-06-02T00:00:00.000Z',
+            updatedAt: '2026-06-02T00:00:03.000Z'
+          }
+        }
+        yield {
+          kind: 'goal_cleared',
+          threadId: 'thread-1',
+          seq: 10,
+          timestamp: '2026-06-02T00:00:04.000Z',
+          cleared: true
+        }
+      }
+    })
+
+    const events = []
+    for await (const event of adapter.subscribeEvents?.(
+      { settings: buildSettings() },
+      { threadId: 'thread-1', sinceSeq: 0 }
+    ) ?? []) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'compaction_event',
+        threadId: 'thread-1',
+        runtimeId: 'kun',
+        turnId: 'turn-1',
+        itemId: 'compact-1',
+        seq: 8,
+        status: 'success',
+        summary: 'Kun compacted summary',
+        detail: 'replacedTokens=1234',
+        auto: false,
+        replacedTokens: 1234,
+        sourceDigest: 'digest-123',
+        digestMarker: '<compact:digest-123>',
+        sourceItemIds: ['item-1', 'item-2'],
+        messagesBefore: 2
+      }),
+      expect.objectContaining({
+        kind: 'goal_event',
+        threadId: 'thread-1',
+        runtimeId: 'kun',
+        seq: 9,
+        objective: 'Finish the migration',
+        status: 'active',
+        cleared: false
+      }),
+      expect.objectContaining({
+        kind: 'goal_event',
+        threadId: 'thread-1',
+        runtimeId: 'kun',
+        seq: 10,
+        cleared: true
+      })
+    ])
+  })
 })
