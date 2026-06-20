@@ -7,6 +7,7 @@
   "type": "module",
   "workspaces": [
     "packages/workers/model-router",
+    "packages/workers/search",
     "plugins/vision-router-service",
     "plugins/sci-modality-router-service"
   ],
@@ -39,6 +40,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "model-router:start": "npm --workspace @sciforge/model-router run start",
     "model-router:test": "npm --workspace @sciforge/model-router run test",
+    "search:start": "npm --workspace @sciforge/search run start",
+    "search:test": "npm --workspace @sciforge/search run test",
     "vision-router:start": "npm --workspace sciforge-vision-router-service run start",
     "vision-router:test": "npm --workspace sciforge-vision-router-service run test",
     "vision-router:typecheck": "npm --workspace sciforge-vision-router-service run typecheck",

@@ -460,6 +460,7 @@ export type DsGuiApi = {
   ) => Promise<ScheduleTaskFromTextResult>
   runDesktopCommand: (command: DesktopCommand) => Promise<void>
   openExternal: (url: string) => Promise<void>
+  openEvidenceDag: (input: { threadId: string; runtimeId?: AgentRuntimeId }) => Promise<void>
   showTurnCompleteNotification: (
     payload: TurnCompleteNotificationPayload
   ) => Promise<SystemNotificationResult>

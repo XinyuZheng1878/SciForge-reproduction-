@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { AgentRuntimeId } from '@shared/app-settings'
 import * as modelUsage from './use-model-usage'
 
 type AgentRuntimeUsage = (input: unknown) => Promise<unknown>
@@ -25,7 +26,7 @@ describe('model usage helpers', () => {
   it('builds a semantic model usage query without exposing Kun endpoints', () => {
     expect(
       (modelUsage as unknown as {
-        buildModelUsageQuery(range: unknown, runtimeId?: 'kun' | 'codex'): unknown
+        buildModelUsageQuery(range: unknown, runtimeId?: AgentRuntimeId): unknown
       }).buildModelUsageQuery({
         from: '2026-05-01',
         to: '2026-05-31',
@@ -39,7 +40,7 @@ describe('model usage helpers', () => {
     })
     expect(
       (modelUsage as unknown as {
-        buildModelUsageQuery(range: unknown, runtimeId?: 'kun' | 'codex'): unknown
+        buildModelUsageQuery(range: unknown, runtimeId?: AgentRuntimeId): unknown
       }).buildModelUsageQuery({
         from: '2026-05-01',
         to: '2026-05-31',

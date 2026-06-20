@@ -189,6 +189,12 @@ export type CoreRuntimeCapabilityManifestJson = {
     search: CoreRuntimeCapabilityStateJson
     provider?: string
   }
+  research: CoreRuntimeCapabilityStateJson & {
+    server: 'mcp'
+    toolName: string
+    sources: Array<'arxiv' | 'biorxiv' | 'semantic_scholar' | 'web' | 'cns'>
+    maxResults: number
+  }
   skills: CoreRuntimeCapabilityStateJson & {
     configuredRoots: number
     discoveredSkills: number

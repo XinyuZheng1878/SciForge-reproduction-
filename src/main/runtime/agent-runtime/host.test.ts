@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
@@ -12,6 +12,7 @@ import {
 import type {
   AgentRuntimeCapabilities,
   AgentRuntimeEvent,
+  AgentRuntimeId,
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse,
   AgentRuntimeThread,
@@ -48,11 +49,17 @@ function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'cod
   }
 }
 
-function capabilities(runtimeId: 'kun' | 'codex'): AgentRuntimeCapabilities {
+function transportForRuntime(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities['transport'] {
+  if (runtimeId === 'kun') return 'http_sse'
+  if (runtimeId === 'claude') return 'cli_process'
+  return 'jsonrpc_stdio'
+}
+
+function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
   return {
     contractVersion: 1,
     runtimeId,
-    transport: runtimeId === 'kun' ? 'http_sse' : 'jsonrpc_stdio',
+    transport: transportForRuntime(runtimeId),
     events: {
       live: true,
       replayable: true,
@@ -82,6 +89,7 @@ function capabilities(runtimeId: 'kun' | 'codex'): AgentRuntimeCapabilities {
       fileChange: { available: false },
       mcp: { available: false },
       web: { available: false },
+      research: { available: false },
       skills: { available: false },
       subagents: { available: false },
       diagnostics: { available: false }
@@ -111,10 +119,10 @@ function capabilities(runtimeId: 'kun' | 'codex'): AgentRuntimeCapabilities {
   }
 }
 
-function fakeAdapter(id: 'kun' | 'codex', thread: AgentRuntimeThread): AgentRuntimeAdapter {
+function fakeAdapter(id: AgentRuntimeId, thread: AgentRuntimeThread): AgentRuntimeAdapter {
   return {
     id,
-    transport: id === 'kun' ? 'http_sse' : 'jsonrpc_stdio',
+    transport: transportForRuntime(id),
     connect: vi.fn(async () => undefined),
     capabilities: vi.fn(async () => capabilities(id)),
     listThreads: vi.fn(async () => [thread]),
@@ -180,6 +188,11 @@ function commandToolEvent(command: string, index: number): AgentRuntimeEvent {
 }
 
 describe('AgentRuntimeHost', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  })
+
   it('selects the active adapter and allows explicit runtime overrides', async () => {
     const kunThread = {
       id: 'kun-thread',
@@ -253,6 +266,79 @@ describe('AgentRuntimeHost', () => {
 
     expect(events).toEqual([{ kind: 'heartbeat', threadId: 'kun-thread', runtimeId: 'kun', seq: 4 }])
     expect(kun.subscribeEvents).toHaveBeenCalled()
+  })
+
+  it('feeds completed turns from the neutral runtime event path into Evidence DAG', async () => {
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:3897/')
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(codex.readThread).mockResolvedValue({
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z',
+      latestSeq: 2,
+      turns: [{
+        id: 'turn-1',
+        threadId: 'codex-thread',
+        status: 'completed',
+        items: [
+          { id: 'u1', turnId: 'turn-1', kind: 'user_message', text: 'question' },
+          { id: 'a1', turnId: 'turn-1', kind: 'assistant_message', text: 'answer' }
+        ]
+      }]
+    })
+    vi.mocked(codex.subscribeEvents).mockImplementation(async function* () {
+      yield {
+        kind: 'turn_lifecycle',
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        turnId: 'turn-1',
+        state: 'completed',
+        seq: 2
+      } satisfies AgentRuntimeEvent
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [codex]
+    })
+
+    const events: AgentRuntimeEvent[] = []
+    for await (const event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      sinceSeq: 0
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toHaveLength(1)
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+    expect(codex.readThread).toHaveBeenCalledWith(
+      expect.anything(),
+      { runtimeId: 'codex', threadId: 'codex-thread' }
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:3897/threads/codex%3Acodex-thread/ingest-trace',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          trace: [
+            { id: 'u1', type: 'message', role: 'user', content: 'question' },
+            { id: 'a1', type: 'message', role: 'assistant', content: 'answer' }
+          ],
+          merge: true
+        })
+      })
+    )
   })
 
   it('observes repeated tool activity and escalates Codex guard controls', async () => {
@@ -898,6 +984,18 @@ describe('createKunAgentRuntimeAdapter', () => {
               search: { status: 'unavailable', enabled: true, available: false, reason: 'search provider missing' },
               provider: 'test-web'
             },
+            research: {
+              status: 'available',
+              enabled: true,
+              available: true,
+              toolName: 'research_search',
+              arxiv: { status: 'available', enabled: true, available: true },
+              biorxiv: { status: 'unavailable', enabled: true, available: false },
+              semanticScholar: { status: 'available', enabled: true, available: true },
+              tavily: { status: 'available', enabled: true, available: true },
+              cns: { status: 'unavailable', enabled: true, available: false },
+              maxResults: 12
+            },
             skills: {
               status: 'available',
               enabled: true,
@@ -949,6 +1047,13 @@ describe('createKunAgentRuntimeAdapter', () => {
         toolCalling: true,
         mcp: { available: true, toolCount: 7, search: { available: true } },
         web: { available: true, fetch: { available: true }, search: { available: false } },
+        research: {
+          available: true,
+          server: 'mcp',
+          toolName: 'research_search',
+          sources: ['arxiv', 'semantic_scholar', 'web'],
+          maxResults: 12
+        },
         skills: { available: true },
         subagents: { available: true, maxParallel: 2, maxChildren: 5 },
         diagnostics: { available: true }

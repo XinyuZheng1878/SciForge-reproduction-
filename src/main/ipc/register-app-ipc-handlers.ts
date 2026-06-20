@@ -57,6 +57,7 @@ import {
   clawTaskFromTextPayloadSchema,
   deepseekConfigContentSchema,
   desktopCommandSchema,
+  evidenceDagOpenPayloadSchema,
   defaultPathSchema,
   gitBranchPayloadSchema,
   guiUpdateChannelSchema,
@@ -86,6 +87,10 @@ import {
   writeRetrievalPayloadSchema,
   workspaceRootSchema
 } from './app-ipc-schemas'
+import {
+  evidenceDagServiceUrlFromEnv,
+  evidenceDagUiUrl
+} from '../../shared/evidence-dag'
 import type {
   AgentRuntimeAuxiliaryInput,
   AgentRuntimeCapabilities,
@@ -1153,6 +1158,14 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   handleInvoke('shell:open-external', async (_, url: unknown) => {
     const validatedUrl = parseIpcPayload('shell:open-external', shellOpenExternalUrlSchema, url)
     await shell.openExternal(validatedUrl)
+  })
+  handleInvoke('evidenceDag:open', async (_, payload: unknown) => {
+    const parsed = parseIpcPayload('evidenceDag:open', evidenceDagOpenPayloadSchema, payload)
+    await shell.openExternal(evidenceDagUiUrl({
+      runtimeId: parsed.runtimeId,
+      threadId: parsed.threadId,
+      serviceUrl: evidenceDagServiceUrlFromEnv(process.env)
+    }))
   })
   handleInvoke('notification:turn-complete', async (_, payload: unknown) =>
     showTurnCompleteNotification(

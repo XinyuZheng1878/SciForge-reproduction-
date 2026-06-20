@@ -22,6 +22,7 @@ const labels: Record<string, string> = {
   agentRuntimeDesc: 'Choose which runtime powers Code mode and chat.',
   agentRuntimeKun: 'Kun',
   agentRuntimeCodex: 'Codex app-server',
+  agentRuntimeClaude: 'Claude Code CLI',
   modelRouter: 'Model Router',
   modelRouterDesc: 'Routes local runtimes through a managed local endpoint.',
   modelRouterHealth: 'Health',
@@ -447,7 +448,9 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     expect(html).toContain('Agent runtime')
     expect(html).toContain('<option value="kun">Kun</option>')
     expect(html).toContain('<option value="codex" selected="">Codex app-server</option>')
+    expect(html).toContain('<option value="claude">Claude Code CLI</option>')
     expect(html).toContain('Codex app-server')
+    expect(html).toContain('Claude Code CLI')
     expect(html).toContain('Command')
     expect(html).toContain('value="codex-dev"')
     expect(html).toContain('Codex home')

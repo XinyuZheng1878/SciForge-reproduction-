@@ -31,7 +31,7 @@ import {
 describe('app-ipc-schemas', () => {
   it('accepts neutral agent runtime turn payloads', () => {
     const payload = agentRuntimeStartTurnPayloadSchema.parse({
-      runtimeId: 'codex',
+      runtimeId: 'claude',
       threadId: ' thread-1 ',
       text: ' hello ',
       workspace: ' /tmp/workspace ',
@@ -41,7 +41,7 @@ describe('app-ipc-schemas', () => {
     })
 
     expect(payload).toEqual({
-      runtimeId: 'codex',
+      runtimeId: 'claude',
       threadId: 'thread-1',
       text: 'hello',
       workspace: '/tmp/workspace',
@@ -245,6 +245,13 @@ describe('app-ipc-schemas', () => {
           codexHome: '/tmp/codex-home',
           approvalPolicy: 'never',
           sandboxMode: 'workspace-write'
+        },
+        claude: {
+          command: 'claude',
+          claudeHome: '/tmp/claude-home',
+          model: 'sonnet',
+          permissionMode: 'dontAsk',
+          extraArgs: ['--tools=']
         }
       },
       write: {
@@ -260,6 +267,7 @@ describe('app-ipc-schemas', () => {
     expect(payload.agents?.kun?.tokenEconomy?.historyHygiene?.maxToolResultTokens).toBe(4000)
     expect(payload.activeAgentRuntime).toBe('codex')
     expect(payload.agents?.codex?.codexHome).toBe('/tmp/codex-home')
+    expect(payload.agents?.claude?.permissionMode).toBe('dontAsk')
     expect(payload.write?.inlineCompletion?.model).toBe('deepseek-v4-pro')
   })
 

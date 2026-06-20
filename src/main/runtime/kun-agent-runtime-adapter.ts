@@ -937,6 +937,7 @@ function mapKunCapabilities(value: unknown, diagnosticsAvailable: boolean): Agen
   const model = asRecord(manifest.model) ?? {}
   const mcp = asRecord(manifest.mcp) ?? {}
   const web = asRecord(manifest.web) ?? {}
+  const research = asRecord(manifest.research) ?? {}
   const skills = asRecord(manifest.skills) ?? {}
   const subagents = asRecord(manifest.subagents) ?? {}
   const attachments = asRecord(manifest.attachments) ?? {}
@@ -964,6 +965,7 @@ function mapKunCapabilities(value: unknown, diagnosticsAvailable: boolean): Agen
         fetch: capabilityState(asRecord(web.fetch) ?? {}),
         search: capabilityState(asRecord(web.search) ?? {})
       },
+      research: researchCapabilityState(research),
       skills: capabilityState(skills),
       subagents: {
         ...capabilityState(subagents),
@@ -998,6 +1000,53 @@ function mcpSearchCapabilityState(value: Record<string, unknown>): { available: 
     available: value.available === true || value.active === true,
     ...(reason ? { reason } : {})
   }
+}
+
+function researchCapabilityState(value: Record<string, unknown>): AgentRuntimeCapabilities['tools']['research'] {
+  const base = capabilityState(value)
+  const sources = researchSources(value)
+  const available = base.available || value.active === true || (hasResearchProviderState(value) && sources.length > 0)
+  const toolName = optionalString(value.toolName) ?? optionalString(value.tool) ?? 'research_search'
+  return {
+    ...base,
+    available,
+    ...(available ? { server: 'mcp' as const, toolName } : {}),
+    ...(sources.length ? { sources } : {}),
+    ...(numberValue(value.maxResults) ? { maxResults: numberValue(value.maxResults) } : {})
+  }
+}
+
+function hasResearchProviderState(value: Record<string, unknown>): boolean {
+  return Boolean(
+    asRecord(value.arxiv) ||
+    asRecord(value.biorxiv) ||
+    asRecord(value.semanticScholar) ||
+    asRecord(value.semantic_scholar) ||
+    asRecord(value.tavily) ||
+    asRecord(value.web) ||
+    asRecord(value.cns)
+  )
+}
+
+function researchSources(value: Record<string, unknown>): NonNullable<AgentRuntimeCapabilities['tools']['research']['sources']> {
+  const explicit = arrayValue(value.sources)
+    .filter((entry): entry is NonNullable<AgentRuntimeCapabilities['tools']['research']['sources']>[number] =>
+      entry === 'arxiv' ||
+      entry === 'biorxiv' ||
+      entry === 'semantic_scholar' ||
+      entry === 'web' ||
+      entry === 'cns'
+    )
+  if (explicit.length) return [...new Set(explicit)]
+  const sources: NonNullable<AgentRuntimeCapabilities['tools']['research']['sources']> = []
+  if (capabilityState(asRecord(value.arxiv) ?? {}).available) sources.push('arxiv')
+  if (capabilityState(asRecord(value.biorxiv) ?? {}).available) sources.push('biorxiv')
+  if (capabilityState(asRecord(value.semanticScholar) ?? {}).available) sources.push('semantic_scholar')
+  if (capabilityState(asRecord(value.semantic_scholar) ?? {}).available) sources.push('semantic_scholar')
+  if (capabilityState(asRecord(value.tavily) ?? {}).available) sources.push('web')
+  if (capabilityState(asRecord(value.web) ?? {}).available) sources.push('web')
+  if (capabilityState(asRecord(value.cns) ?? {}).available) sources.push('cns')
+  return [...new Set(sources)]
 }
 
 function modalities(value: unknown, fallback: AgentRuntimeModality[]): AgentRuntimeModality[] {

@@ -8,6 +8,13 @@ import {
   resolveRuntimeModelRouterSettings,
   type AppSettingsV1
 } from '../../../shared/app-settings'
+import {
+  buildResearchSearchMcpArgs,
+  GUI_RESEARCH_MCP_SERVER_NAME,
+  researchSearchMcpEnv,
+  resolveResearchSearchMcpCommand,
+  type ResearchSearchMcpLaunchConfig
+} from '../../research-search-mcp-config'
 
 const RUNTIME_API_KEY_ENV = 'DEEPSEEK_GUI_RUNTIME_API_KEY'
 const CODEX_MANAGED_DIRS = ['sessions', 'memories', 'logs'] as const
@@ -60,6 +67,7 @@ export async function prepareCodexAppServerLaunch(options: {
   workspace?: string
   env?: NodeJS.ProcessEnv
   managedCodexHome?: string
+  researchMcpLaunch?: ResearchSearchMcpLaunchConfig
 }): Promise<CodexAppServerLaunchConfig> {
   const runtime = getCodexRuntimeSettings(options.settings)
   const command = runtime.command.trim()
@@ -69,7 +77,12 @@ export async function prepareCodexAppServerLaunch(options: {
   const modelRouter = codexModelRouterConfig(options.settings)
   const cwd = resolveCodexWorkspace(options.settings, options.workspace)
   if (!cwd) throw new Error('Codex workspace is required.')
-  await prepareManagedCodexHome(codexHome, modelRouter)
+  await prepareManagedCodexHome(
+    codexHome,
+    modelRouter,
+    options.researchMcpLaunch,
+    options.env ?? process.env
+  )
   return {
     command,
     args: ['app-server', '--listen', 'stdio://', ...codexAppServerExtraArgs(runtime.extraArgs)],
@@ -160,13 +173,15 @@ function isUpstreamProviderConfigEnv(key: string): boolean {
 
 async function prepareManagedCodexHome(
   codexHome: string,
-  modelRouter: CodexModelRouterConfig
+  modelRouter: CodexModelRouterConfig,
+  researchMcpLaunch: ResearchSearchMcpLaunchConfig | undefined,
+  env: NodeJS.ProcessEnv
 ): Promise<void> {
   await mkdir(codexHome, { recursive: true })
   await Promise.all(
     CODEX_MANAGED_DIRS.map((dir) => mkdir(join(codexHome, dir), { recursive: true }))
   )
-  await writeFile(join(codexHome, 'config.toml'), codexConfigToml(modelRouter), 'utf8')
+  await writeFile(join(codexHome, 'config.toml'), codexConfigToml(modelRouter, researchMcpLaunch, env), 'utf8')
 }
 
 type CodexModelRouterConfig = {
@@ -197,7 +212,11 @@ function codexModelRouterConfig(settings: AppSettingsV1): CodexModelRouterConfig
   }
 }
 
-function codexConfigToml(modelRouter: CodexModelRouterConfig): string {
+function codexConfigToml(
+  modelRouter: CodexModelRouterConfig,
+  researchMcpLaunch: ResearchSearchMcpLaunchConfig | undefined,
+  env: NodeJS.ProcessEnv
+): string {
   return [
     `model = "${tomlString(DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS)}"`,
     `model_provider = "${tomlString(DEFAULT_MODEL_ROUTER_PROVIDER_ID)}"`,
@@ -207,8 +226,22 @@ function codexConfigToml(modelRouter: CodexModelRouterConfig): string {
     `base_url = "${tomlString(modelRouter.baseUrl)}"`,
     `env_key = "${RUNTIME_API_KEY_ENV}"`,
     'wire_api = "responses"',
+    ...(researchMcpLaunch ? codexResearchMcpServerToml(researchMcpLaunch, env) : []),
     ''
   ].join('\n')
+}
+
+function codexResearchMcpServerToml(
+  launch: ResearchSearchMcpLaunchConfig,
+  env: NodeJS.ProcessEnv
+): string[] {
+  return [
+    '',
+    `[mcp_servers.${GUI_RESEARCH_MCP_SERVER_NAME}]`,
+    `command = "${tomlString(resolveResearchSearchMcpCommand(launch))}"`,
+    `args = ${tomlStringArray(buildResearchSearchMcpArgs(launch))}`,
+    `env = ${tomlInlineStringTable(researchSearchMcpEnv(env))}`
+  ]
 }
 
 function isLocalHttpUrl(raw: string): boolean {
@@ -224,4 +257,19 @@ function isLocalHttpUrl(raw: string): boolean {
 
 function tomlString(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+function tomlStringArray(values: readonly string[]): string {
+  return `[${values.map((value) => `"${tomlString(value)}"`).join(', ')}]`
+}
+
+function tomlInlineStringTable(value: Record<string, string>): string {
+  const entries = Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => `${tomlKey(key)} = "${tomlString(item)}"`)
+  return `{ ${entries.join(', ')} }`
+}
+
+function tomlKey(value: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(value) ? value : `"${tomlString(value)}"`
 }

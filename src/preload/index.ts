@@ -199,6 +199,7 @@ const api = {
   runDesktopCommand: (command) =>
     ipcRenderer.invoke('desktop:command', command),
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+  openEvidenceDag: (input) => ipcRenderer.invoke('evidenceDag:open', input),
   showTurnCompleteNotification: (payload) => ipcRenderer.invoke('notification:turn-complete', payload),
   getAppVersion: () => ipcRenderer.invoke('app:version'),
   getGuiUpdateState: () => ipcRenderer.invoke('gui:update-state'),

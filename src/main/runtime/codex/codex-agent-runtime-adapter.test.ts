@@ -2,6 +2,38 @@ import { describe, expect, it, vi } from 'vitest'
 import { createCodexAgentRuntimeAdapter } from './codex-agent-runtime-adapter'
 
 describe('createCodexAgentRuntimeAdapter', () => {
+  it('reports shared research MCP capability when Codex managed config includes it', async () => {
+    const adapter = createCodexAgentRuntimeAdapter({
+      isResearchMcpConfigured: () => true
+    } as never)
+
+    const caps = await adapter.capabilities({ settings: {} as never })
+    expect(caps.tools.research).toMatchObject({
+      available: true,
+      server: 'mcp',
+      toolName: 'research_search',
+      sources: ['arxiv', 'biorxiv', 'semantic_scholar', 'web', 'cns'],
+      maxResults: 10
+    })
+    expect(caps.tools.mcp).toMatchObject({
+      available: true,
+      degraded: true,
+      toolCount: 1
+    })
+
+    await expect(adapter.auxiliary!({ settings: {} as never }, {
+      runtimeId: 'codex',
+      operation: 'getToolDiagnostics'
+    })).resolves.toMatchObject({
+      mcpServers: [{
+        id: 'gui_research',
+        status: 'configured',
+        toolCount: 1,
+        tools: ['research_search']
+      }]
+    })
+  })
+
   it('keeps Codex thread blocks grouped by their source turn id', async () => {
     const service = {
       readThread: vi.fn(async () => ({

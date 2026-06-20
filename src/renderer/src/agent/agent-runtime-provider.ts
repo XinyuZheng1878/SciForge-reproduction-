@@ -40,7 +40,7 @@ type InteractionRequestRef = {
 function defaultCapabilities(runtimeId: AgentRuntimeId = 'kun'): AgentRuntimeCapabilities {
   return createDefaultAgentRuntimeCapabilities({
     runtimeId,
-    transport: runtimeId === 'kun' ? 'http_sse' : 'jsonrpc_stdio'
+    transport: runtimeId === 'kun' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
   })
 }
 

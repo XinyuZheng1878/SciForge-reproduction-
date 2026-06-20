@@ -182,7 +182,9 @@ export function normalizeClawImLastFailure(input: unknown, fallbackProvider: Cla
     ...(chatId ? { chatId } : {}),
     ...(remoteThreadId ? { remoteThreadId } : {}),
     ...(threadId ? { threadId } : {}),
-    ...(raw.runtimeId === 'codex' || raw.runtimeId === 'kun' ? { runtimeId: raw.runtimeId } : {}),
+    ...(raw.runtimeId === 'codex' || raw.runtimeId === 'claude' || raw.runtimeId === 'kun'
+      ? { runtimeId: raw.runtimeId }
+      : {}),
     occurredAt: typeof raw.occurredAt === 'string' && raw.occurredAt ? raw.occurredAt : now
   }
 }
@@ -212,14 +214,17 @@ export function normalizeAgentThreadIds(input: unknown, legacyKunThreadId = ''):
     (typeof raw.codewhale === 'string' ? raw.codewhale.trim() : '') ||
     (typeof raw.reasonix === 'string' ? raw.reasonix.trim() : '')
   const codexThreadId = typeof raw.codex === 'string' ? raw.codex.trim() : ''
+  const claudeThreadId = typeof raw.claude === 'string' ? raw.claude.trim() : ''
   return {
     ...(kunThreadId ? { kun: kunThreadId } : {}),
-    ...(codexThreadId ? { codex: codexThreadId } : {})
+    ...(codexThreadId ? { codex: codexThreadId } : {}),
+    ...(claudeThreadId ? { claude: claudeThreadId } : {})
   }
 }
 
 export function normalizeSettingsRuntimeId(value: unknown): AgentRuntimeId {
-  return value === 'codex' ? 'codex' : 'kun'
+  if (value === 'codex' || value === 'claude') return value
+  return 'kun'
 }
 
 export function normalizeClawImConversation(
@@ -236,7 +241,7 @@ export function normalizeClawImConversation(
   const legacyAgentThreadId = readLegacyAgentThreadId(raw.agentThreadIds)
   const localThreadId = directLocalThreadId || legacyAgentThreadId
   const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds, localThreadId)
-  const hasMappedThread = Boolean(localThreadId || agentThreadIds.kun || agentThreadIds.codex)
+  const hasMappedThread = Boolean(localThreadId || agentThreadIds.kun || agentThreadIds.codex || agentThreadIds.claude)
   if (!id || !chatId || !latestMessageId || !hasMappedThread) return undefined
   return {
     id,

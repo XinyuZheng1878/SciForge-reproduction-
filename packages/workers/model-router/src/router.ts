@@ -222,6 +222,43 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
         });
         return sendJson(response, 200, responseObject(result));
       }
+      if (
+        request.method === 'POST' &&
+        (url.pathname === '/v1/messages' || url.pathname === '/api/cc/v1/messages')
+      ) {
+        assertRuntimeAuthorized(request, options.config, env);
+        const body = await readJson(request);
+        const responseId = makeId('msg');
+        const responsesRequest = anthropicMessagesToResponsesRequest(body, options.config);
+        if (isRecord(body) && body.stream === true) {
+          return sendDeferredAnthropicMessageStream(
+            response,
+            responseId,
+            options.config.publicModelAlias ?? 'sciforge-model-router',
+            routeResponsesRequest(responsesRequest, {
+              config: options.config,
+              env,
+              fetchImpl,
+              workspaceRoot,
+              request,
+              visionTranslationCache,
+              toolCallCache,
+              responseId,
+            }),
+          );
+        }
+        const result = await routeResponsesRequest(responsesRequest, {
+          config: options.config,
+          env,
+          fetchImpl,
+          workspaceRoot,
+          request,
+          visionTranslationCache,
+          toolCallCache,
+          responseId,
+        });
+        return sendJson(response, 200, anthropicMessageObject(result, responseId));
+      }
       return sendJson(response, 404, { error: { code: 'not_found', message: 'Route not found' } });
     } catch (error) {
       const routerError = normalizeRouterError(error);
@@ -247,7 +284,10 @@ function assertRuntimeAuthorized(
   const authorization = Array.isArray(request.headers.authorization)
     ? request.headers.authorization[0]
     : request.headers.authorization;
-  if (authorization !== `Bearer ${runtimeApiKey}`) {
+  const apiKey = Array.isArray(request.headers['x-api-key'])
+    ? request.headers['x-api-key'][0]
+    : request.headers['x-api-key'];
+  if (authorization !== `Bearer ${runtimeApiKey}` && apiKey !== runtimeApiKey) {
     throw routerError(401, 'unauthorized', 'Missing or invalid Model Router runtime API key.');
   }
 }
@@ -1630,6 +1670,228 @@ function responseOutputItems(result: RoutedResponse, messageItemId?: string): Js
   return result.outputText ? [messageOutputItem(result.outputText, messageItemId)] : [];
 }
 
+function anthropicMessagesToResponsesRequest(body: unknown, config: ModelRouterConfig): ResponsesRequest {
+  const request = isRecord(body) ? body : {};
+  return compactObject({
+    model: stringField(request.model) || config.publicModelAlias || 'sciforge-model-router',
+    instructions: anthropicSystemText(request.system),
+    input: Array.isArray(request.messages)
+      ? request.messages.flatMap(anthropicMessageToResponsesInput)
+      : [{ role: 'user', content: '' }],
+    tools: anthropicToolsToResponsesTools(request.tools),
+    tool_choice: anthropicToolChoiceToResponsesToolChoice(request.tool_choice),
+    temperature: jsonValueField(request.temperature),
+    top_p: jsonValueField(request.top_p),
+    max_tokens: jsonValueField(request.max_tokens),
+    metadata: isRecord(request.metadata) ? request.metadata as JsonObject : undefined,
+  });
+}
+
+function anthropicSystemText(value: unknown): string | undefined {
+  if (typeof value === 'string') return value.trim() || undefined;
+  if (!Array.isArray(value)) return undefined;
+  const text = value.map((part) => {
+    if (typeof part === 'string') return part;
+    if (!isRecord(part)) return '';
+    return part.type === 'text' ? String(part.text ?? '') : '';
+  }).filter(Boolean).join('\n').trim();
+  return text || undefined;
+}
+
+function anthropicMessageToResponsesInput(message: unknown): JsonObject[] {
+  if (!isRecord(message)) return [];
+  const role = message.role === 'assistant' ? 'assistant' : 'user';
+  const content = message.content;
+  if (typeof content === 'string') return [{ role, content }];
+  if (!Array.isArray(content)) return [{ role, content: '' }];
+  const items: JsonObject[] = [];
+  const messageParts: JsonObject[] = [];
+  for (const part of content) {
+    if (!isRecord(part)) continue;
+    if (part.type === 'tool_use') {
+      const name = stringField(part.name);
+      const id = stringField(part.id);
+      if (name && id) {
+        items.push(compactObject({
+          type: 'function_call',
+          id,
+          call_id: id,
+          name,
+          arguments: JSON.stringify(jsonValueField(part.input) ?? {}),
+        }));
+      }
+      continue;
+    }
+    if (part.type === 'tool_result') {
+      const toolUseId = stringField(part.tool_use_id);
+      if (toolUseId) {
+        items.push({
+          type: 'function_call_output',
+          call_id: toolUseId,
+          output: anthropicContentText(part.content),
+        });
+      }
+      continue;
+    }
+    if (part.type === 'text') {
+      messageParts.push({ type: 'input_text', text: String(part.text ?? '') });
+      continue;
+    }
+    if (part.type === 'image') {
+      const imageUrl = anthropicImageUrl(part.source);
+      if (imageUrl) messageParts.push({ type: 'input_image', image_url: imageUrl });
+    }
+  }
+  if (messageParts.length > 0) items.unshift({ role, content: messageParts });
+  if (items.length === 0) items.push({ role, content: '' });
+  return items;
+}
+
+function anthropicContentText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!Array.isArray(value)) return JSON.stringify(jsonValueField(value) ?? '');
+  return value.map((part) => {
+    if (typeof part === 'string') return part;
+    if (!isRecord(part)) return '';
+    if (part.type === 'text') return String(part.text ?? '');
+    return JSON.stringify(jsonValueField(part) ?? '');
+  }).filter(Boolean).join('\n');
+}
+
+function anthropicImageUrl(source: unknown): string | undefined {
+  if (!isRecord(source)) return undefined;
+  if (source.type === 'url') return stringField(source.url);
+  if (source.type === 'base64') {
+    const mediaType = stringField(source.media_type) || 'image/png';
+    const data = typeof source.data === 'string' ? source.data : '';
+    return data ? `data:${mediaType};base64,${data}` : undefined;
+  }
+  return undefined;
+}
+
+function anthropicToolsToResponsesTools(value: unknown): JsonObject[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const tools = value.map((tool) => {
+    if (!isRecord(tool)) return null;
+    const name = stringField(tool.name);
+    if (!name) return null;
+    return compactObject({
+      type: 'function',
+      name,
+      description: typeof tool.description === 'string' ? tool.description : undefined,
+      parameters: jsonValueField(tool.input_schema) ?? {},
+    });
+  }).filter((tool): tool is JsonObject => Boolean(tool));
+  return tools.length > 0 ? tools : undefined;
+}
+
+function anthropicToolChoiceToResponsesToolChoice(value: unknown): JsonValue | undefined {
+  if (typeof value === 'string') return value;
+  if (!isRecord(value)) return undefined;
+  const type = stringField(value.type);
+  if (!type || type === 'auto') return 'auto';
+  if (type === 'any') return 'required';
+  if (type === 'tool') {
+    const name = stringField(value.name);
+    return name ? { type: 'function', name } : undefined;
+  }
+  return type;
+}
+
+function anthropicMessageObject(result: RoutedResponse, messageId = makeId('msg')): JsonObject {
+  const content = anthropicContentBlocks(result);
+  return {
+    id: messageId,
+    type: 'message',
+    role: 'assistant',
+    model: result.model,
+    content,
+    stop_reason: content.some((part) => part.type === 'tool_use') ? 'tool_use' : 'end_turn',
+    stop_sequence: null,
+    usage: {
+      input_tokens: result.usage.input_tokens,
+      output_tokens: result.usage.output_tokens,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: result.usage.cached_input_tokens,
+    },
+  };
+}
+
+function anthropicContentBlocks(result: RoutedResponse): JsonObject[] {
+  const blocks = result.outputItems.flatMap((item) => {
+    if (item.type === 'function_call') {
+      const name = stringField(item.name);
+      const id = stringField(item.call_id) || stringField(item.id);
+      if (!name || !id) return [];
+      return [{
+        type: 'tool_use',
+        id,
+        name,
+        input: parseJsonObject(String(item.arguments ?? '{}')),
+      }];
+    }
+    return [];
+  });
+  if (blocks.length > 0) return blocks;
+  return [{ type: 'text', text: result.outputText }];
+}
+
+function sendDeferredAnthropicMessageStream(
+  response: ServerResponse,
+  messageId: string,
+  model: string,
+  resultPromise: Promise<RoutedResponse>,
+) {
+  response.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+  });
+  void resultPromise.then((result) => {
+    const message = anthropicMessageObject(result, messageId);
+    writeAnthropicSse(response, 'message_start', {
+      type: 'message_start',
+      message: { ...message, content: [] },
+    });
+    anthropicContentBlocks(result).forEach((block, index) => {
+      writeAnthropicSse(response, 'content_block_start', {
+        type: 'content_block_start',
+        index,
+        content_block: block.type === 'text' ? { type: 'text', text: '' } : block,
+      });
+      if (block.type === 'text') {
+        writeAnthropicSse(response, 'content_block_delta', {
+          type: 'content_block_delta',
+          index,
+          delta: { type: 'text_delta', text: String(block.text ?? '') },
+        });
+      }
+      writeAnthropicSse(response, 'content_block_stop', { type: 'content_block_stop', index });
+    });
+    writeAnthropicSse(response, 'message_delta', {
+      type: 'message_delta',
+      delta: { stop_reason: message.stop_reason, stop_sequence: null },
+      usage: { output_tokens: result.usage.output_tokens },
+    });
+    writeAnthropicSse(response, 'message_stop', { type: 'message_stop' });
+    response.write('data: [DONE]\n\n');
+    response.end();
+  }).catch((error) => {
+    const routerError = normalizeRouterError(error);
+    writeAnthropicSse(response, 'error', {
+      type: 'error',
+      error: { type: routerError.code, message: routerError.message },
+    });
+    response.write('data: [DONE]\n\n');
+    response.end();
+  });
+}
+
+function writeAnthropicSse(response: ServerResponse, event: string, data: JsonObject) {
+  response.write(`event: ${event}\n`);
+  response.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
 function sendResponseStream(response: ServerResponse, result: RoutedResponse) {
   beginResponseStream(response, result.responseId, result.model);
   writeResponseStreamResult(response, result);
@@ -1926,7 +2188,7 @@ function corsHeaders() {
   return {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
-    'access-control-allow-headers': 'content-type,authorization,x-sciforge-model-router-profile',
+    'access-control-allow-headers': 'content-type,authorization,x-api-key,x-sciforge-model-router-profile',
   };
 }
 
@@ -2190,6 +2452,32 @@ function compactObject(value: Record<string, JsonValue | undefined>): JsonObject
 
 function stringField(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function jsonValueField(value: unknown): JsonValue | undefined {
+  if (value === null) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    const items = value.map(jsonValueField).filter((item): item is JsonValue => item !== undefined);
+    return items;
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .map(([key, entry]) => [key, jsonValueField(entry)] as const)
+        .filter((entry): entry is readonly [string, JsonValue] => entry[1] !== undefined),
+    );
+  }
+  return undefined;
+}
+
+function parseJsonObject(value: string): JsonObject {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed as JsonObject : {};
+  } catch {
+    return {};
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

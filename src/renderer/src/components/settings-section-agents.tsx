@@ -4,6 +4,7 @@ import type {
   ApprovalPolicy,
   AppSettingsPatch,
   AppSettingsV1,
+  ClaudeRuntimeSettingsPatchV1,
   CodexRuntimeSettingsPatchV1,
   ModelEndpointFormat,
   ModelRouterSettingsPatchV1,
@@ -13,6 +14,7 @@ import type {
   SandboxMode
 } from '@shared/app-settings'
 import {
+  claudeSettingsPatch,
   codexSettingsPatch,
   DEFAULT_MODEL_PROVIDER_ID,
   MODEL_ENDPOINT_FORMATS,
@@ -23,10 +25,12 @@ import {
   DEFAULT_KUN_DATA_DIR,
   WRITE_INLINE_COMPLETION_MODEL_IDS,
   defaultCodexRuntimeSettings,
+  defaultClaudeRuntimeSettings,
   defaultRuntimeGuardSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   getCodexRuntimeSettings,
+  getClaudeRuntimeSettings,
   getModelRouterSettings,
   isKunRuntimeInsecure,
   normalizeRuntimeGuardSettings,
@@ -163,6 +167,12 @@ export function codexRuntimeSettingsPatch(codex: CodexRuntimeSettingsPatchV1): A
   }
 }
 
+export function claudeRuntimeSettingsPatch(claude: ClaudeRuntimeSettingsPatchV1): AppSettingsPatch {
+  return {
+    agents: claudeSettingsPatch(claude)
+  }
+}
+
 type ModelContextProfileSummary = {
   modelLabel: string
   contextWindowLabel: string
@@ -276,11 +286,13 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     provider: providerFromContext,
     kun,
     codex: codexFromContext,
+    claude: claudeFromContext,
     activeAgentRuntime: activeAgentRuntimeFromContext,
     activeApiKey,
     update,
     updateKun,
     updateCodex,
+    updateClaude,
     updateActiveAgentRuntime,
     updateSharedCredential,
     sharedApiKey,
@@ -501,8 +513,11 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     })
   }
   const activeAgentRuntime: AgentRuntimeId =
-    activeAgentRuntimeFromContext === 'codex' ? 'codex' : 'kun'
+    activeAgentRuntimeFromContext === 'codex' || activeAgentRuntimeFromContext === 'claude'
+      ? activeAgentRuntimeFromContext
+      : 'kun'
   const codex = codexFromContext ?? (form ? getCodexRuntimeSettings(form) : defaultCodexRuntimeSettings())
+  const claude = claudeFromContext ?? (form ? getClaudeRuntimeSettings(form) : defaultClaudeRuntimeSettings())
   const modelRouter = form ? getModelRouterSettings(form) : defaultModelRouterSettings()
   const modelRouterHealthView = modelRouterHealthDisplay(modelRouterHealth, modelRouter)
   const [modelRouterConfigNotice, setModelRouterConfigNotice] =
@@ -547,6 +562,13 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
       return
     }
     update(codexRuntimeSettingsPatch(patch))
+  }
+  const updateClaudeRuntime = (patch: ClaudeRuntimeSettingsPatchV1): void => {
+    if (typeof updateClaude === 'function') {
+      updateClaude(patch)
+      return
+    }
+    update(claudeRuntimeSettingsPatch(patch))
   }
   const setActiveAgentRuntime = (runtime: AgentRuntimeId): void => {
     if (typeof updateActiveAgentRuntime === 'function') {
@@ -637,6 +659,7 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                       >
                         <option value="kun">{t('agentRuntimeKun')}</option>
                         <option value="codex">{t('agentRuntimeCodex')}</option>
+                        <option value="claude">{t('agentRuntimeClaude')}</option>
                       </select>
                     }
                   />
@@ -850,6 +873,91 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                             placeholder={t('codexExtraArgsPlaceholder')}
                             onChange={(e) =>
                               updateCodexRuntime({
+                                extraArgs: splitSettingsList(e.target.value)
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    }
+                  />
+                  <SettingRow
+                    title={t('claudeRuntime')}
+                    description={t('claudeRuntimeDesc')}
+                    wideControl
+                    control={
+                      <div className="grid gap-4 rounded-xl border border-ds-border-muted bg-ds-main/35 p-3">
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-ds-border bg-ds-card px-3 py-2">
+                          <span className="min-w-0">
+                            <span className="block text-[13px] font-semibold text-ds-ink">{t('autoStart')}</span>
+                            <span className="mt-0.5 block text-[12px] leading-5 text-ds-muted">{t('autoStartDesc')}</span>
+                          </span>
+                          <Toggle
+                            checked={claude.autoStart}
+                            onChange={(autoStart) => updateClaudeRuntime({ autoStart })}
+                          />
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <label className="grid gap-1.5 text-[12px] font-semibold text-ds-muted">
+                            {t('claudeCommand')}
+                            <span className="font-normal leading-5 text-ds-faint">{t('claudeCommandDesc')}</span>
+                            <input
+                              className={textInputClass}
+                              value={claude.command}
+                              placeholder={t('claudeCommandPlaceholder')}
+                              onChange={(e) => updateClaudeRuntime({ command: e.target.value })}
+                            />
+                          </label>
+                          <label className="grid gap-1.5 text-[12px] font-semibold text-ds-muted">
+                            {t('claudeHome')}
+                            <span className="font-normal leading-5 text-ds-faint">{t('claudeHomeDesc')}</span>
+                            <input
+                              className={textInputClass}
+                              value={claude.claudeHome}
+                              placeholder={t('claudeHomePlaceholder')}
+                              onChange={(e) => updateClaudeRuntime({ claudeHome: e.target.value })}
+                            />
+                          </label>
+                          <label className="grid gap-1.5 text-[12px] font-semibold text-ds-muted">
+                            {t('claudeModel')}
+                            <span className="font-normal leading-5 text-ds-faint">{t('claudeModelDesc')}</span>
+                            <input
+                              className={textInputClass}
+                              value={claude.model}
+                              placeholder={t('claudeModelPlaceholder')}
+                              onChange={(e) => updateClaudeRuntime({ model: e.target.value })}
+                            />
+                          </label>
+                          <label className="grid gap-1.5 text-[12px] font-semibold text-ds-muted">
+                            {t('claudePermissionMode')}
+                            <span className="font-normal leading-5 text-ds-faint">{t('claudePermissionModeDesc')}</span>
+                            <select
+                              className={selectControlClass}
+                              value={claude.permissionMode}
+                              onChange={(e) =>
+                                updateClaudeRuntime({
+                                  permissionMode: e.target.value as ClaudeRuntimeSettingsPatchV1['permissionMode']
+                                })
+                              }
+                            >
+                              <option value="default">{t('claudePermissionDefault')}</option>
+                              <option value="acceptEdits">{t('claudePermissionAcceptEdits')}</option>
+                              <option value="auto">{t('claudePermissionAuto')}</option>
+                              <option value="dontAsk">{t('claudePermissionDontAsk')}</option>
+                              <option value="bypassPermissions">{t('claudePermissionBypass')}</option>
+                              <option value="plan">{t('claudePermissionPlan')}</option>
+                            </select>
+                          </label>
+                        </div>
+                        <label className="grid gap-1.5 text-[12px] font-semibold text-ds-muted">
+                          {t('claudeExtraArgs')}
+                          <span className="font-normal leading-5 text-ds-faint">{t('claudeExtraArgsDesc')}</span>
+                          <textarea
+                            className="min-h-24 w-full min-w-0 resize-y rounded-xl border border-ds-border bg-ds-card px-3 py-2 font-mono text-[12.5px] font-normal text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                            value={listSettingsText(claude.extraArgs)}
+                            placeholder={t('claudeExtraArgsPlaceholder')}
+                            onChange={(e) =>
+                              updateClaudeRuntime({
                                 extraArgs: splitSettingsList(e.target.value)
                               })
                             }

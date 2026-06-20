@@ -269,12 +269,22 @@ describe('startKunChild', () => {
 
   it('passes only the local Model Router runtime key env to Kun', async () => {
     const previousDeepSeekApiKey = process.env.DEEPSEEK_API_KEY
+    const previousDeepSeekBaseUrl = process.env.DEEPSEEK_BASE_URL
+    const previousKunBaseUrl = process.env.KUN_BASE_URL
+    const previousModelProvider = process.env.MODEL_PROVIDER
     process.env.DEEPSEEK_API_KEY = 'outer-upstream-secret'
+    process.env.DEEPSEEK_BASE_URL = 'https://direct-provider.example/v1'
+    process.env.KUN_BASE_URL = 'https://direct-kun-provider.example/v1'
+    process.env.MODEL_PROVIDER = 'direct-provider'
     const script = writeScript(
       'env-child.js',
       [
         "if (process.env.DEEPSEEK_API_KEY !== undefined) {",
         "  process.stderr.write('leaked upstream key ' + String(process.env.DEEPSEEK_API_KEY) + '\\n')",
+        '  process.exit(24)',
+        '}',
+        "if (process.env.DEEPSEEK_BASE_URL !== undefined || process.env.KUN_BASE_URL !== undefined || process.env.MODEL_PROVIDER !== undefined) {",
+        "  process.stderr.write('leaked upstream config\\n')",
         '  process.exit(24)',
         '}',
         "if (process.env.KUN_MODEL_ROUTER_API_KEY !== 'local-runtime-router-key') {",
@@ -295,6 +305,12 @@ describe('startKunChild', () => {
       } else {
         process.env.DEEPSEEK_API_KEY = previousDeepSeekApiKey
       }
+      if (previousDeepSeekBaseUrl === undefined) delete process.env.DEEPSEEK_BASE_URL
+      else process.env.DEEPSEEK_BASE_URL = previousDeepSeekBaseUrl
+      if (previousKunBaseUrl === undefined) delete process.env.KUN_BASE_URL
+      else process.env.KUN_BASE_URL = previousKunBaseUrl
+      if (previousModelProvider === undefined) delete process.env.MODEL_PROVIDER
+      else process.env.MODEL_PROVIDER = previousModelProvider
     }
   })
 
@@ -423,7 +439,7 @@ describe('syncGuiManagedKunConfig', () => {
       }
     })
     expect(parsed.models.profiles['deepseek-v4-flash']).toMatchObject({
-      aliases: ['deepseek-chat', 'deepseek-reasoner'],
+      aliases: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-gui-router'],
       contextWindowTokens: 1_000_000,
       contextCompaction: {
         softThreshold: 980_000,
@@ -474,6 +490,39 @@ describe('syncGuiManagedKunConfig', () => {
         ELECTRON_RUN_AS_NODE: '1'
       },
       trustScope: 'user'
+    })
+  })
+
+  it('adds the shared research MCP server to Kun runtime capabilities', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    const module = await import('./kun-process')
+
+    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+      researchMcp: {
+        launch: {
+          appPath: '/tmp/deepseek-gui-test-app',
+          execPath: '/tmp/electron',
+          isPackaged: false
+        }
+      }
+    })
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.mcp.enabled).toBe(true)
+    expect(parsed.capabilities.mcp.servers.gui_research).toMatchObject({
+      enabled: true,
+      transport: 'stdio',
+      command: '/tmp/electron',
+      args: [
+        '/tmp/deepseek-gui-test-app/out/main/research-search-mcp-node-entry.js',
+        '--gui-research-mcp-server'
+      ],
+      env: {
+        ELECTRON_RUN_AS_NODE: '1'
+      },
+      trustScope: 'user',
+      timeoutMs: 30000
     })
   })
 

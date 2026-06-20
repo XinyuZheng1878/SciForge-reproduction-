@@ -47,6 +47,7 @@ import {
 import { createAgentRuntimeHost } from './runtime/agent-runtime/host'
 import { createKunAgentRuntimeAdapter } from './runtime/kun-agent-runtime-adapter'
 import { createCodexAgentRuntimeAdapter } from './runtime/codex/codex-agent-runtime-adapter'
+import { ClaudeRuntimeService, createClaudeAgentRuntimeAdapter } from './runtime/claude'
 import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
@@ -59,6 +60,11 @@ import {
   syncClawScheduleMcpConfig,
   type ClawScheduleMcpLaunchConfig
 } from './claw-schedule-mcp-config'
+import { runResearchSearchMcpServerFromArgv } from './research-search-mcp-server'
+import {
+  syncResearchSearchMcpConfig,
+  type ResearchSearchMcpLaunchConfig
+} from './research-search-mcp-config'
 import { registerAppIpcHandlers } from './ipc/register-app-ipc-handlers'
 import { startDevBrowserBridgeServer, type DevBrowserBridgeServer } from './dev-browser-bridge'
 import {
@@ -121,6 +127,7 @@ function syncWeixinBridgeRuntime(settings: AppSettingsV1): void {
 
 const runningClawScheduleMcpServer =
   process.argv.includes('--gui-schedule-mcp-server') || process.argv.includes('--claw-schedule-mcp-server')
+const runningResearchSearchMcpServer = process.argv.includes('--gui-research-mcp-server')
 
 function resolveLogDirectory(): string {
   return join(app.getPath('userData'), 'logs')
@@ -133,6 +140,14 @@ function resolvePreloadPath(): string {
 }
 
 function getClawScheduleMcpLaunchConfig(): ClawScheduleMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged
+  }
+}
+
+function getResearchSearchMcpLaunchConfig(): ResearchSearchMcpLaunchConfig {
   return {
     appPath: app.getAppPath(),
     execPath: process.execPath,
@@ -185,6 +200,7 @@ let clawRuntime: ClawRuntime | null = null
 let discordBotRuntime: DiscordBotRuntime | null = null
 let scheduleRuntime: ScheduleRuntime | null = null
 let codexRuntime: CodexRuntimeService | null = null
+let claudeRuntime: ClaudeRuntimeService | null = null
 let managedRuntimesStoppedForQuit = false
 let managedRuntimesStopPromise: Promise<void> | null = null
 type RuntimeIdleListThreads = NonNullable<Parameters<typeof waitForRuntimeTurnsIdle>[0]['listThreads']>
@@ -238,9 +254,19 @@ function getCodexRuntime(): CodexRuntimeService {
     storageRoot: codexStorageRoot,
     managedCodexHome: app.isPackaged
       ? join(app.getPath('userData'), 'runtime-codex', 'codex-home')
-      : join(process.cwd(), '.codex-runtime', 'codex-home')
+      : join(process.cwd(), '.codex-runtime', 'codex-home'),
+    researchMcpLaunch: getResearchSearchMcpLaunchConfig()
   })
   return codexRuntime
+}
+
+function getClaudeRuntime(): ClaudeRuntimeService {
+  if (claudeRuntime) return claudeRuntime
+  claudeRuntime = new ClaudeRuntimeService({
+    settings: async () => store.load(),
+    storageRoot: join(app.getPath('userData'), 'claude-runtime')
+  })
+  return claudeRuntime
 }
 
 function scheduleCodexRuntimePrewarm(settings: AppSettingsV1, reason: 'startup' | 'settings-switch'): void {
@@ -1245,6 +1271,11 @@ if (runningClawScheduleMcpServer) {
     console.error('[claw-schedule-mcp] server failed:', error)
     process.exit(1)
   })
+} else if (runningResearchSearchMcpServer) {
+  void runResearchSearchMcpServerFromArgv(process.argv).catch((error) => {
+    console.error('[research-search-mcp] server failed:', error)
+    process.exit(1)
+  })
 } else {
 app.whenReady().then(async () => {
   traceStartup('app.whenReady:start')
@@ -1268,6 +1299,9 @@ app.whenReady().then(async () => {
   syncTray(initial)
   await syncClawScheduleMcpConfig(initial, getClawScheduleMcpLaunchConfig()).catch((error) => {
     console.error('[claw-schedule-mcp] failed to sync config on startup:', error)
+  })
+  await syncResearchSearchMcpConfig(getResearchSearchMcpLaunchConfig()).catch((error) => {
+    console.error('[research-search-mcp] failed to sync config on startup:', error)
   })
 
   logDir = resolveLogDirectory()
@@ -1294,7 +1328,8 @@ app.whenReady().then(async () => {
           kunHttpRequestViaHost(settings, pathAndQuery, init, ensureRuntime),
         events: kunRuntimeEvents
       }),
-      createCodexAgentRuntimeAdapter(getCodexRuntime())
+      createCodexAgentRuntimeAdapter(getCodexRuntime()),
+      createClaudeAgentRuntimeAdapter(getClaudeRuntime())
     ]
   })
   runtimeIdleListThreads = (input) => agentRuntimeHost.listThreads(input)
@@ -1380,6 +1415,9 @@ app.whenReady().then(async () => {
     const saved = await store.patch(partial)
     await syncClawScheduleMcpConfig(saved, getClawScheduleMcpLaunchConfig()).catch((error) => {
       console.error('[claw-schedule-mcp] failed to sync config after settings change:', error)
+    })
+    await syncResearchSearchMcpConfig(getResearchSearchMcpLaunchConfig()).catch((error) => {
+      console.error('[research-search-mcp] failed to sync config after settings change:', error)
     })
     if (prev.guiUpdate.channel !== saved.guiUpdate.channel && guiUpdaterModulePromise) {
       void guiUpdaterModulePromise.then((module) => module.setGuiUpdateChannel(saved.guiUpdate.channel))

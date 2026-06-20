@@ -1,4 +1,5 @@
 import type { AppSettingsV1 } from '../../shared/app-settings-types'
+import { resolveRuntimeModelRouterSettings } from '../../shared/app-settings-model-router'
 import { redactSecretText } from '../../shared/secret-redaction'
 import {
   SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS,
@@ -21,8 +22,11 @@ const FILE_EXTENSION_BY_MIME: Record<string, string> = {
 }
 
 export function isSpeechToTextConfigured(
-  speechToText: Pick<SpeechToTextSettingsV1, 'enabled' | 'baseUrl' | 'apiKey' | 'model'>
+  speechToText: Pick<SpeechToTextSettingsV1, 'enabled' | 'protocol' | 'baseUrl' | 'apiKey' | 'model'>
 ): boolean {
+  if (speechToText.protocol === 'mimo-asr') {
+    return speechToText.enabled && Boolean(speechToText.model.trim())
+  }
   return (
     speechToText.enabled &&
     Boolean(speechToText.baseUrl.trim()) &&
@@ -48,7 +52,7 @@ export async function requestSpeechTranscription(
   const fetchImpl = options.fetchImpl ?? fetch
   try {
     const text = speechToText.protocol === 'mimo-asr'
-      ? await transcribeViaMimoAsr(speechToText, request, fetchImpl)
+      ? await transcribeViaMimoAsr(settings, speechToText, request, fetchImpl)
       : await transcribeViaOpenAiTranscriptions(speechToText, request, fetchImpl)
     const trimmed = text.trim()
     if (!trimmed) return { ok: false, message: 'transcription result is empty' }
@@ -79,20 +83,21 @@ function validateAudioPayload(request: SpeechTranscriptionRequest): string | nul
  * audio sent as a base64 data URI. It remains just a protocol option here.
  */
 async function transcribeViaMimoAsr(
+  settings: AppSettingsV1,
   speechToText: SpeechToTextSettingsV1,
   request: SpeechTranscriptionRequest,
   fetchImpl: typeof fetch
 ): Promise<string> {
-  const response = await fetchImpl(joinSpeechApiUrl(speechToText.baseUrl, 'chat/completions'), {
+  const router = resolveRuntimeModelRouterSettings(settings)
+  const response = await fetchImpl(joinSpeechApiUrl(router.baseUrl, 'responses'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${speechToText.apiKey}`,
-      'api-key': speechToText.apiKey
+      Authorization: `Bearer ${router.apiKey}`
     },
     body: JSON.stringify({
-      model: speechToText.model,
-      messages: [
+      model: router.model,
+      input: [
         {
           role: 'user',
           content: [
@@ -108,15 +113,21 @@ async function transcribeViaMimoAsr(
       asr_options: {
         language: speechToText.language || 'auto'
       },
-      stream: false
+      stream: false,
+      metadata: {
+        speechProtocol: 'mimo-asr',
+        requestedSpeechModel: speechToText.model || undefined
+      }
     }),
     signal: AbortSignal.timeout(speechToText.timeoutMs)
   })
   const body = await response.text()
   if (!response.ok) throw new SpeechHttpError(response.status, body)
   const parsed = JSON.parse(body) as {
+    output_text?: unknown
     choices?: Array<{ message?: { content?: unknown } }>
   }
+  if (typeof parsed.output_text === 'string') return parsed.output_text
   const content = parsed.choices?.[0]?.message?.content
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {

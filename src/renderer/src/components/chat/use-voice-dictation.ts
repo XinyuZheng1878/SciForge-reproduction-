@@ -35,8 +35,11 @@ export function resolveSpeechToTextSettingsFromAppSettings(
 }
 
 export function isSpeechToTextSettingsConfigured(
-  speechToText: Pick<SpeechToTextSettingsV1, 'enabled' | 'baseUrl' | 'apiKey' | 'model'> | null | undefined
+  speechToText: Pick<SpeechToTextSettingsV1, 'enabled' | 'protocol' | 'baseUrl' | 'apiKey' | 'model'> | null | undefined
 ): speechToText is SpeechToTextSettingsV1 {
+  if (speechToText?.protocol === 'mimo-asr') {
+    return Boolean(speechToText.enabled && speechToText.model.trim())
+  }
   return Boolean(
     speechToText?.enabled &&
     speechToText.baseUrl.trim() &&

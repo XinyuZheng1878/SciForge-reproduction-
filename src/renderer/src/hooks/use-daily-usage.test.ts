@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { AgentRuntimeId } from '@shared/app-settings'
 import * as dailyUsage from './use-daily-usage'
 
 type AgentRuntimeUsage = (input: unknown) => Promise<unknown>
@@ -35,7 +36,7 @@ describe('daily usage helpers', () => {
   it('builds a semantic daily usage query without exposing Kun endpoints', () => {
     expect(
       (dailyUsage as unknown as {
-        buildDailyUsageQuery(range: dailyUsage.DailyUsageRange, runtimeId?: 'kun' | 'codex'): unknown
+        buildDailyUsageQuery(range: dailyUsage.DailyUsageRange, runtimeId?: AgentRuntimeId): unknown
       }).buildDailyUsageQuery({
         from: '2026-05-01',
         to: '2026-05-31',
@@ -49,7 +50,7 @@ describe('daily usage helpers', () => {
     })
     expect(
       (dailyUsage as unknown as {
-        buildDailyUsageQuery(range: dailyUsage.DailyUsageRange, runtimeId?: 'kun' | 'codex'): unknown
+        buildDailyUsageQuery(range: dailyUsage.DailyUsageRange, runtimeId?: AgentRuntimeId): unknown
       }).buildDailyUsageQuery({
         from: '2026-05-01',
         to: '2026-05-31',

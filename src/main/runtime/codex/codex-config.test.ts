@@ -159,6 +159,31 @@ describe('codex config launch helpers', () => {
     ])
   })
 
+  it('writes the shared research MCP server into managed Codex config', async () => {
+    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const launch = await prepareCodexAppServerLaunch({
+      settings: settings(codexHome),
+      env: {
+        SCIFORGE_RESEARCH_MAX_RESULTS: '7',
+        SCIFORGE_RESEARCH_TIMEOUT_MS: '12000'
+      },
+      researchMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/DeepSeek GUI',
+        isPackaged: false
+      }
+    })
+
+    expect(launch.codexHome).toBe(codexHome)
+    const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    expect(config).toContain('[mcp_servers.gui_research]')
+    expect(config).toContain('command = "/tmp/deepseek-gui-test-app/DeepSeek GUI"')
+    expect(config).toContain('args = ["/tmp/deepseek-gui-test-app/out/main/research-search-mcp-node-entry.js", "--gui-research-mcp-server"]')
+    expect(config).toContain('ELECTRON_RUN_AS_NODE = "1"')
+    expect(config).toContain('SCIFORGE_RESEARCH_MAX_RESULTS = "7"')
+    expect(config).toContain('SCIFORGE_RESEARCH_TIMEOUT_MS = "12000"')
+  })
+
   it('uses the managed Codex home instead of a persisted global Codex home', async () => {
     const settingsCodexHome = await mkdtemp(join(tmpdir(), 'global-codex-home-'))
     const managedCodexHome = await mkdtemp(join(tmpdir(), 'project-codex-home-'))

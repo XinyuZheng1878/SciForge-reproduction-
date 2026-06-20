@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { shell } from 'electron'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,7 +22,9 @@ vi.mock('electron', () => ({
     quit: vi.fn()
   },
   dialog: {},
-  shell: {},
+  shell: {
+    openExternal: vi.fn(async () => undefined)
+  },
   ipcMain: {
     handle: vi.fn((channel: string, handler: (event: unknown, payload?: unknown) => Promise<unknown>) => {
       handlers.set(channel, handler)
@@ -111,6 +114,8 @@ function waitForAbortStream(signal: AbortSignal): AsyncIterable<unknown> {
 describe('registerAppIpcHandlers', () => {
   beforeEach(() => {
     handlers.clear()
+    vi.clearAllMocks()
+    vi.unstubAllEnvs()
   })
 
   it('rejects invalid settings patches at the handler boundary', async () => {
@@ -144,6 +149,18 @@ describe('registerAppIpcHandlers', () => {
     const handler = handlers.get('settings:set')
     await expect(handler?.({}, payload)).resolves.toEqual(settings())
     expect(applySettingsPatch).toHaveBeenCalledWith(payload)
+  })
+
+  it('opens Evidence DAG with a runtime-scoped thread id', async () => {
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:4897/')
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+
+    registerAppIpcHandlers(registerOptions())
+
+    const handler = handlers.get('evidenceDag:open')
+    expect(handler).toBeTypeOf('function')
+    await handler?.({}, { runtimeId: 'codex', threadId: 'thread-1' })
+    expect(shell.openExternal).toHaveBeenCalledWith('http://127.0.0.1:4897/?thread=codex%3Athread-1')
   })
 
   it('returns a dispatcher for dev browser bridge calls that uses the same handlers', async () => {
@@ -185,6 +202,7 @@ describe('registerAppIpcHandlers', () => {
           fileChange: { available: true },
           mcp: { available: false },
           web: { available: false },
+          research: { available: false },
           skills: { available: true },
           subagents: { available: true },
           diagnostics: { available: true }

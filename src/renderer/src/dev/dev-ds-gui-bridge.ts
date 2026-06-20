@@ -225,6 +225,7 @@ function createApi(): DsGuiApi {
       }),
     runDesktopCommand: (command) => invoke('desktop:command', command),
     openExternal: (url) => invoke('shell:open-external', url),
+    openEvidenceDag: (input) => invoke('evidenceDag:open', input),
     showTurnCompleteNotification: (payload) => invoke('notification:turn-complete', payload),
     getAppVersion: () => invoke('app:version'),
     getGuiUpdateState: () => invoke('gui:update-state'),

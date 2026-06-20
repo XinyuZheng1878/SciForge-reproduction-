@@ -104,7 +104,11 @@ function installDsGui(activeAgentRuntime: AgentRuntimeId): {
         connect: vi.fn(async () => undefined),
         capabilities: vi.fn(async () => createDefaultAgentRuntimeCapabilities({
           runtimeId: activeAgentRuntime,
-          transport: activeAgentRuntime === 'kun' ? 'http_sse' : 'jsonrpc_stdio'
+          transport: activeAgentRuntime === 'kun'
+            ? 'http_sse'
+            : activeAgentRuntime === 'claude'
+              ? 'cli_process'
+              : 'jsonrpc_stdio'
         })),
         readThread: agentRuntimeReadThread,
         resolveApproval: agentRuntimeResolveApproval,

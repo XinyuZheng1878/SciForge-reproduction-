@@ -1,6 +1,6 @@
-export type AgentRuntimeId = 'kun' | 'codex'
+export type AgentRuntimeId = 'kun' | 'codex' | 'claude'
 
-export type AgentRuntimeTransport = 'http_sse' | 'jsonrpc_stdio'
+export type AgentRuntimeTransport = 'http_sse' | 'jsonrpc_stdio' | 'cli_process'
 
 export type AgentRuntimeEventDelivery = 'sse' | 'ipc' | 'async_iterable'
 
@@ -39,6 +39,8 @@ export type AgentRuntimeModality = 'text' | 'image'
 export type AgentRuntimeToolKind = 'tool_call' | 'command_execution' | 'file_change'
 
 export type AgentRuntimeErrorSeverity = 'info' | 'warning' | 'error'
+
+export type AgentRuntimeResearchSourceKind = 'arxiv' | 'biorxiv' | 'semantic_scholar' | 'web' | 'cns'
 
 export type AgentRuntimeResult<T> =
   | { ok: true; value: T }
@@ -467,6 +469,12 @@ export type AgentRuntimeCapabilities = {
     fileChange: CapabilityState
     mcp: CapabilityState & { search?: CapabilityState; toolCount?: number }
     web: CapabilityState & { fetch?: CapabilityState; search?: CapabilityState }
+    research: CapabilityState & {
+      server?: 'mcp'
+      toolName?: string
+      sources?: AgentRuntimeResearchSourceKind[]
+      maxResults?: number
+    }
     skills: CapabilityState
     subagents: CapabilityState & { maxParallel?: number; maxChildren?: number }
     diagnostics: CapabilityState
@@ -545,6 +553,7 @@ export function createDefaultAgentRuntimeCapabilities(input: {
         fetch: unsupported(),
         search: unsupported()
       },
+      research: unsupported(),
       skills: unsupported(),
       subagents: { ...unsupported() },
       diagnostics: unsupported()

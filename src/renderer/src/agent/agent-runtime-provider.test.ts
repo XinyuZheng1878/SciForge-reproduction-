@@ -71,7 +71,7 @@ function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
   return {
     ...createDefaultAgentRuntimeCapabilities({
       runtimeId,
-      transport: runtimeId === 'kun' ? 'http_sse' : 'jsonrpc_stdio'
+      transport: runtimeId === 'kun' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
     }),
     events: {
       live: true,
@@ -91,7 +91,10 @@ function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
       source: runtimeId === 'kun' ? 'model' : 'runtime_summary'
     },
     tools: {
-      ...createDefaultAgentRuntimeCapabilities({ runtimeId, transport: 'http_sse' }).tools,
+      ...createDefaultAgentRuntimeCapabilities({
+        runtimeId,
+        transport: runtimeId === 'kun' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
+      }).tools,
       toolCalling: true,
       commandExecution: { available: true },
       fileChange: { available: true },

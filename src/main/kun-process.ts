@@ -41,6 +41,13 @@ import {
   resolveKunMcpJsonPath,
   type ClawScheduleMcpLaunchConfig
 } from './claw-schedule-mcp-config'
+import {
+  buildResearchSearchMcpArgs,
+  GUI_RESEARCH_MCP_SERVER_NAME,
+  researchSearchMcpEnv,
+  resolveResearchSearchMcpCommand,
+  type ResearchSearchMcpLaunchConfig
+} from './research-search-mcp-config'
 import { defaultKunDataDir } from './runtime/kun-adapter'
 import { isKunHealthResponseBody } from './kun-health'
 import { appendManagedLogLine } from './logger'
@@ -82,7 +89,38 @@ const UPSTREAM_PROVIDER_SECRET_ENV_NAMES = [
   'DEEPSEEK_API_KEY',
   'ANTHROPIC_API_KEY',
   'QWEN_API_KEY',
-  'DASHSCOPE_API_KEY'
+  'DASHSCOPE_API_KEY',
+  'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
+  'GROQ_API_KEY',
+  'MISTRAL_API_KEY',
+  'COHERE_API_KEY',
+  'OPENROUTER_API_KEY',
+  'AZURE_OPENAI_API_KEY'
+] as const
+const UPSTREAM_PROVIDER_ENV_PREFIXES = [
+  'OPENAI',
+  'DEEPSEEK',
+  'ANTHROPIC',
+  'QWEN',
+  'DASHSCOPE',
+  'GEMINI',
+  'GOOGLE',
+  'GROQ',
+  'MISTRAL',
+  'COHERE',
+  'OPENROUTER',
+  'AZURE_OPENAI'
+] as const
+const UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES = [
+  'MODEL',
+  'BASE_URL',
+  'API_BASE',
+  'API_BASE_URL'
+] as const
+const UPSTREAM_PROVIDER_CONFIG_ENV_NAMES = [
+  'MODEL_PROVIDER',
+  'KUN_BASE_URL'
 ] as const
 const DEFAULT_KUN_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
   'deepseek-v4-pro': {
@@ -271,6 +309,13 @@ async function startKunChildOnce(
         execPath: process.execPath,
         isPackaged: app.isPackaged
       }
+    },
+    researchMcp: {
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
     }
   })
   lastResolvedBinary = resolution.command === process.execPath
@@ -362,6 +407,9 @@ export async function syncGuiManagedKunConfig(
       settings: AppSettingsV1
       launch: ClawScheduleMcpLaunchConfig
     }
+    researchMcp?: {
+      launch: ResearchSearchMcpLaunchConfig
+    }
     mcpConfigPath?: string
   }
 ): Promise<void> {
@@ -382,6 +430,7 @@ export async function syncGuiManagedKunConfig(
   const existingRuntimeTuning = objectValue(existing?.runtime)
   const capabilities = objectValue(existing?.capabilities)
   const mcp = objectValue(capabilities.mcp)
+  const mcpServers = objectValue(mcp.servers)
   const search = objectValue(mcp.search)
   const attachments = objectValue(capabilities.attachments)
   const web = objectValue(capabilities.web)
@@ -412,17 +461,28 @@ export async function syncGuiManagedKunConfig(
       skills: skillCapability,
       mcp: {
         ...mcp,
-        ...(options?.scheduleMcp || mcpSearch.enabled || hasImportedEnabledMcpServer
+        ...(options?.scheduleMcp || options?.researchMcp || mcpSearch.enabled || hasImportedEnabledMcpServer
           ? { enabled: mcp.enabled === false ? false : true }
           : {}),
         servers: {
           ...importedMcpServers,
-          ...objectValue(mcp.servers),
+          ...mcpServers,
           ...(options?.scheduleMcp
           ? {
               [GUI_SCHEDULE_MCP_SERVER_NAME]: buildGuiScheduleKunMcpServer(
                 options.scheduleMcp.settings,
                 options.scheduleMcp.launch
+              )
+            }
+          : {}),
+          ...(options?.researchMcp
+          ? {
+              [GUI_RESEARCH_MCP_SERVER_NAME]: buildGuiResearchKunMcpServer(
+                options.researchMcp.launch,
+                {
+                  ...objectValue(importedMcpServers[GUI_RESEARCH_MCP_SERVER_NAME]),
+                  ...objectValue(mcpServers[GUI_RESEARCH_MCP_SERVER_NAME])
+                }
               )
             }
           : {})
@@ -475,6 +535,22 @@ function buildGuiScheduleKunMcpServer(
     },
     trustScope: 'user',
     timeoutMs: GUI_SCHEDULE_MCP_TIMEOUT_MS
+  }
+}
+
+function buildGuiResearchKunMcpServer(
+  launch: ResearchSearchMcpLaunchConfig,
+  existing: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...existing,
+    enabled: true,
+    transport: 'stdio',
+    command: resolveResearchSearchMcpCommand(launch),
+    args: buildResearchSearchMcpArgs(launch),
+    env: researchSearchMcpEnv(process.env, stringRecordValue(existing.env)),
+    trustScope: 'user',
+    timeoutMs: 30_000
   }
 }
 
@@ -833,7 +909,19 @@ function kunRuntimeEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   for (const name of UPSTREAM_PROVIDER_SECRET_ENV_NAMES) {
     delete env[name]
   }
+  for (const name of UPSTREAM_PROVIDER_CONFIG_ENV_NAMES) {
+    delete env[name]
+  }
+  for (const key of Object.keys(env)) {
+    if (isUpstreamProviderConfigEnv(key)) delete env[key]
+  }
   return env
+}
+
+function isUpstreamProviderConfigEnv(key: string): boolean {
+  return UPSTREAM_PROVIDER_ENV_PREFIXES.some((prefix) =>
+    UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES.some((suffix) => key === `${prefix}_${suffix}`)
+  )
 }
 
 export async function reclaimKunPort(
