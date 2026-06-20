@@ -38,7 +38,21 @@ import {
 } from '@shared/app-settings'
 import type { GuiUpdateChannel } from '@shared/gui-update'
 import type { SkillRootId } from '../lib/skill-root-preference'
-import { Ban, ChevronDown, FolderOpen, Loader2, Plus, RefreshCw, Settings, Trash2 } from 'lucide-react'
+import {
+  Ban,
+  Check,
+  ChevronDown,
+  FileText,
+  FolderOpen,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Settings,
+  Trash2,
+  X
+} from 'lucide-react'
 import { GuiUpdateControl } from './settings-gui-update'
 import {
   InlineNoticeView,
@@ -53,6 +67,13 @@ import { formatCompactNumber, formatCost } from '../hooks/use-thread-usage'
 function statusPill(status: string | undefined): string {
   if (status === 'available') return 'border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
   if (status === 'disabled') return 'border-ds-border-muted bg-ds-card text-ds-faint'
+  return 'border-red-300/50 bg-red-500/10 text-red-700 dark:text-red-200'
+}
+
+function checkpointStatusPill(status: string | undefined): string {
+  if (status === 'available') return 'border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+  if (status === 'restored') return 'border-blue-400/30 bg-blue-500/10 text-blue-700 dark:text-blue-200'
+  if (status === 'blocked') return 'border-amber-300/60 bg-amber-500/10 text-amber-800 dark:text-amber-200'
   return 'border-red-300/50 bg-red-500/10 text-red-700 dark:text-red-200'
 }
 
@@ -355,9 +376,33 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     modelRouterHealth,
     toolDiagnostics,
     memoryRecords,
+    memoryScopeFilter,
+    setMemoryScopeFilter,
+    memoryQuery,
+    setMemoryQuery,
+    memoryDraftContent,
+    setMemoryDraftContent,
+    memoryDraftScope,
+    setMemoryDraftScope,
+    memoryEditingId,
+    memoryEditingContent,
+    setMemoryEditingContent,
+    modelAuditRecords,
+    gitCheckpoints,
+    gitCheckpointPreviewId,
+    gitCheckpointPreview,
+    gitCheckpointForceRestore,
+    setGitCheckpointForceRestore,
     runtimeDiagnosticsBusy,
     runtimeDiagnosticsNotice,
     refreshKunDiagnostics,
+    clearModelAuditRecords,
+    previewGitCheckpoint,
+    restoreGitCheckpoint,
+    createMemoryRecord,
+    startEditingMemoryRecord,
+    cancelEditingMemoryRecord,
+    saveMemoryRecord,
     disableMemoryRecord,
     deleteMemoryRecord,
     pickClawWorkspace,
@@ -1731,11 +1776,188 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                     }
                   />
                   <SettingRow
+                    title={t('modelAuditRecords')}
+                    description={t('modelAuditRecordsDesc')}
+                    wideControl
+                    control={
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-[12.5px] text-ds-muted">
+                            {t('modelAuditCount', { count: modelAuditRecords?.length ?? 0 })}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void clearModelAuditRecords?.()}
+                            disabled={runtimeDiagnosticsBusy || !modelAuditRecords?.length}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[12.5px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                            {t('modelAuditClear')}
+                          </button>
+                        </div>
+                        {!modelAuditRecords?.length ? (
+                          <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-3 text-[13px] text-ds-faint">
+                            {t('modelAuditEmpty')}
+                          </div>
+                        ) : (
+                          modelAuditRecords.slice(0, 5).map((record: any) => (
+                            <div key={record.id} className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
+                              <div className="flex min-w-0 items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="truncate text-[13px] font-semibold text-ds-ink">
+                                    {record.runtimeId}
+                                    {record.model ? ` · ${record.model}` : ''}
+                                  </div>
+                                  <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-ds-faint">
+                                    <span className="font-mono">{record.threadId}</span>
+                                    {record.turnId ? <span className="font-mono">{record.turnId}</span> : null}
+                                    {typeof record.durationMs === 'number' ? <span>{record.durationMs}ms</span> : null}
+                                    {record.streamOutput?.stopReason ? <span>{record.streamOutput.stopReason}</span> : null}
+                                  </div>
+                                  <div className="mt-1 line-clamp-2 text-[12px] text-ds-muted">
+                                    {record.streamOutput?.error || record.streamOutput?.text || t('modelAuditNoOutput')}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    }
+                  />
+                  <SettingRow
+                    title={t('gitCheckpoints')}
+                    description={t('gitCheckpointsDesc')}
+                    wideControl
+                    control={
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-[12.5px] text-ds-muted">
+                            {t('gitCheckpointCount', { count: gitCheckpoints?.length ?? 0 })}
+                          </div>
+                          <label className="inline-flex items-center gap-2 text-[12.5px] text-ds-muted">
+                            <input
+                              type="checkbox"
+                              checked={gitCheckpointForceRestore === true}
+                              onChange={(event) => setGitCheckpointForceRestore?.(event.target.checked)}
+                              className="h-4 w-4 rounded border-ds-border text-accent focus:ring-accent/30"
+                            />
+                            {t('gitCheckpointForceRestore')}
+                          </label>
+                        </div>
+                        {!gitCheckpoints?.length ? (
+                          <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-3 text-[13px] text-ds-faint">
+                            {t('gitCheckpointEmpty')}
+                          </div>
+                        ) : (
+                          gitCheckpoints.slice(0, 8).map((checkpoint: any) => (
+                            <div key={checkpoint.checkpointId} className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
+                              <div className="flex min-w-0 items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                    <span className="truncate text-[13px] font-semibold text-ds-ink">
+                                      {checkpoint.threadId}
+                                    </span>
+                                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${checkpointStatusPill(checkpoint.status)}`}>
+                                      {checkpoint.status ?? 'unknown'}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-ds-faint">
+                                    <span className="font-mono">{checkpoint.runtimeId}</span>
+                                    {checkpoint.turnId ? <span className="font-mono">{checkpoint.turnId}</span> : null}
+                                    {checkpoint.branch ? <span>{checkpoint.branch}</span> : null}
+                                    <span>{checkpoint.createdAt ? new Date(checkpoint.createdAt).toLocaleString() : ''}</span>
+                                  </div>
+                                  {checkpoint.diffStat ? (
+                                    <pre className="mt-2 max-h-16 overflow-auto whitespace-pre-wrap rounded-lg border border-ds-border-muted bg-ds-card px-2.5 py-2 text-[11px] text-ds-muted">
+                                      {checkpoint.diffStat}
+                                    </pre>
+                                  ) : null}
+                                </div>
+                                <div className="flex shrink-0 items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => void previewGitCheckpoint?.(checkpoint.checkpointId)}
+                                    className="rounded-lg p-1.5 text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+                                    aria-label={t('gitCheckpointPreview')}
+                                    title={t('gitCheckpointPreview')}
+                                  >
+                                    <FileText className="h-3.5 w-3.5" strokeWidth={1.8} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void restoreGitCheckpoint?.(checkpoint.checkpointId)}
+                                    className="rounded-lg p-1.5 text-ds-muted transition hover:bg-amber-500/10 hover:text-amber-700"
+                                    aria-label={t('gitCheckpointRestore')}
+                                    title={t('gitCheckpointRestore')}
+                                  >
+                                    <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.8} />
+                                  </button>
+                                </div>
+                              </div>
+                              {gitCheckpointPreviewId === checkpoint.checkpointId && gitCheckpointPreview ? (
+                                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ds-border-muted bg-ds-card px-3 py-2 text-[11px] leading-5 text-ds-muted">
+                                  {gitCheckpointPreview}
+                                </pre>
+                              ) : null}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    }
+                  />
+                  <SettingRow
                     title={t('kunMemoryRecords')}
                     description={t('kunMemoryRecordsDesc')}
                     wideControl
                     control={
                       <div className="flex flex-col gap-2">
+                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_150px]">
+                          <input
+                            type="search"
+                            value={memoryQuery}
+                            onChange={(e) => setMemoryQuery?.(e.target.value)}
+                            placeholder={t('kunMemorySearchPlaceholder')}
+                            className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                          />
+                          <select
+                            value={memoryScopeFilter}
+                            onChange={(e) => setMemoryScopeFilter?.(e.target.value)}
+                            className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                          >
+                            <option value="all">{t('kunMemoryScopeAll')}</option>
+                            <option value="user">{t('kunMemoryScopeUser')}</option>
+                            <option value="workspace">{t('kunMemoryScopeWorkspace')}</option>
+                            <option value="project">{t('kunMemoryScopeProject')}</option>
+                          </select>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_150px_auto]">
+                          <input
+                            type="text"
+                            value={memoryDraftContent}
+                            onChange={(e) => setMemoryDraftContent?.(e.target.value)}
+                            placeholder={t('kunMemoryCreatePlaceholder')}
+                            className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                          />
+                          <select
+                            value={memoryDraftScope}
+                            onChange={(e) => setMemoryDraftScope?.(e.target.value)}
+                            className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                          >
+                            <option value="user">{t('kunMemoryScopeUser')}</option>
+                            <option value="workspace">{t('kunMemoryScopeWorkspace')}</option>
+                            <option value="project">{t('kunMemoryScopeProject')}</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => void createMemoryRecord?.()}
+                            disabled={!memoryDraftContent?.trim()}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[12.5px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Plus className="h-3.5 w-3.5" strokeWidth={1.85} />
+                            {t('kunMemoryCreate')}
+                          </button>
+                        </div>
                         {memoryRecords.length === 0 ? (
                           <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-3 text-[13px] text-ds-faint">
                             {t('kunMemoryEmpty')}
@@ -1745,7 +1967,16 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                             <div key={memory.id} className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
                               <div className="flex min-w-0 items-start justify-between gap-3">
                                 <div className="min-w-0">
-                                  <div className="truncate text-[13px] font-semibold text-ds-ink">{memory.content}</div>
+                                  {memoryEditingId === memory.id ? (
+                                    <input
+                                      type="text"
+                                      value={memoryEditingContent}
+                                      onChange={(e) => setMemoryEditingContent?.(e.target.value)}
+                                      className="w-full rounded-lg border border-ds-border bg-ds-card px-2.5 py-1.5 text-[13px] font-semibold text-ds-ink focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                                    />
+                                  ) : (
+                                    <div className="truncate text-[13px] font-semibold text-ds-ink">{memory.content}</div>
+                                  )}
                                   <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-ds-faint">
                                     <span className="font-mono">{memory.scope}</span>
                                     <span className="font-mono">{memory.id}</span>
@@ -1754,25 +1985,60 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                                   </div>
                                 </div>
                                 <div className="flex shrink-0 items-center gap-1">
-                                  <button
-                                    type="button"
-                                    disabled={Boolean(memory.disabledAt)}
-                                    onClick={() => void disableMemoryRecord(memory.id)}
-                                    className="rounded-lg p-1.5 text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45"
-                                    aria-label={t('kunMemoryDisable')}
-                                    title={t('kunMemoryDisable')}
-                                  >
-                                    <Ban className="h-3.5 w-3.5" strokeWidth={1.8} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void deleteMemoryRecord(memory.id)}
-                                    className="rounded-lg p-1.5 text-ds-muted transition hover:bg-red-500/10 hover:text-red-600"
-                                    aria-label={t('kunMemoryDelete')}
-                                    title={t('kunMemoryDelete')}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
-                                  </button>
+                                  {memoryEditingId === memory.id ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => void saveMemoryRecord?.(memory.id)}
+                                        disabled={!memoryEditingContent?.trim()}
+                                        className="rounded-lg p-1.5 text-ds-muted transition hover:bg-emerald-500/10 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-45"
+                                        aria-label={t('kunMemorySave')}
+                                        title={t('kunMemorySave')}
+                                      >
+                                        <Check className="h-3.5 w-3.5" strokeWidth={1.9} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => cancelEditingMemoryRecord?.()}
+                                        className="rounded-lg p-1.5 text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+                                        aria-label={tCommon('cancel')}
+                                        title={tCommon('cancel')}
+                                      >
+                                        <X className="h-3.5 w-3.5" strokeWidth={1.9} />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => startEditingMemoryRecord?.(memory)}
+                                        className="rounded-lg p-1.5 text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+                                        aria-label={t('kunMemoryEdit')}
+                                        title={t('kunMemoryEdit')}
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={Boolean(memory.disabledAt)}
+                                        onClick={() => void disableMemoryRecord(memory.id)}
+                                        className="rounded-lg p-1.5 text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45"
+                                        aria-label={t('kunMemoryDisable')}
+                                        title={t('kunMemoryDisable')}
+                                      >
+                                        <Ban className="h-3.5 w-3.5" strokeWidth={1.8} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void deleteMemoryRecord(memory.id)}
+                                        className="rounded-lg p-1.5 text-ds-muted transition hover:bg-red-500/10 hover:text-red-600"
+                                        aria-label={t('kunMemoryDelete')}
+                                        title={t('kunMemoryDelete')}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             </div>

@@ -86,8 +86,24 @@ type ProviderCallRecord = {
   status: 'ok' | 'failed';
   roleAlias: string;
   providerBindingSha256: string;
+  providerAliasSha256: string;
+  modelAliasSha256: string;
   wireApi: 'chat.completions';
+  wireRequest: {
+    urlSha256: string;
+    endpointRoute: 'chat.completions';
+    bodyShape: {
+      modelAliasSha256: string;
+      messageCount: number;
+      toolCount: number;
+      hasImageParts: boolean;
+      textCharCount: number;
+      maxTokensSet: boolean;
+      temperatureSet: boolean;
+    };
+  };
   latencyMs: number;
+  stopReason?: 'stop' | 'tool_calls' | 'length' | 'error' | 'unknown';
   errorSummary?: string;
 };
 
@@ -1310,7 +1326,7 @@ async function callChatProvider(options: {
         });
       } catch {
         const errorSummary = 'provider_exception';
-        recordFailedProviderCall(options, Date.now() - retryStartedAt, errorSummary);
+        recordFailedProviderCall({ ...options, body: repairedBody }, Date.now() - retryStartedAt, errorSummary);
         throw new Error(errorSummary);
       }
       if (response.ok) {
@@ -1319,7 +1335,7 @@ async function callChatProvider(options: {
           payload = await response.json();
         } catch {
           const errorSummary = 'provider_exception';
-          recordFailedProviderCall(options, Date.now() - retryStartedAt, errorSummary);
+          recordFailedProviderCall({ ...options, body: repairedBody }, Date.now() - retryStartedAt, errorSummary);
           throw new Error(errorSummary);
         }
         options.calls.push({
@@ -1328,8 +1344,10 @@ async function callChatProvider(options: {
           status: 'ok',
           roleAlias: roleAliasForCall(options.role),
           providerBindingSha256: providerBindingHash(options.provider),
+          ...providerCallTraceFields(options.provider, repairedBody),
           wireApi: 'chat.completions',
           latencyMs: Date.now() - retryStartedAt,
+          stopReason: chatCompletionStopReason(payload),
         });
         return chatCompletionResult(payload, options.responseRequest, options.toolNameAliases);
       }
@@ -1352,8 +1370,10 @@ async function callChatProvider(options: {
     status: 'ok',
     roleAlias: roleAliasForCall(options.role),
     providerBindingSha256: providerBindingHash(options.provider),
+    ...providerCallTraceFields(options.provider, options.body),
     wireApi: 'chat.completions',
     latencyMs,
+    stopReason: chatCompletionStopReason(payload),
   });
   return chatCompletionResult(payload, options.responseRequest, options.toolNameAliases);
 }
@@ -1378,6 +1398,7 @@ function recordFailedProviderCall(
   options: {
     provider: ModelRouterProviderConfig;
     secret?: string;
+    body?: Record<string, unknown>;
     role: ProviderCallRecord['role'];
     phase: string;
     calls: ProviderCallRecord[];
@@ -1391,8 +1412,10 @@ function recordFailedProviderCall(
     status: 'failed',
     roleAlias: roleAliasForCall(options.role),
     providerBindingSha256: providerBindingHash(options.provider),
+    ...providerCallTraceFields(options.provider, options.body ?? {}),
     wireApi: 'chat.completions',
     latencyMs,
+    stopReason: 'error',
     errorSummary: boundedProviderTraceText(errorSummary, options.provider, options.secret ? [options.secret] : []),
   });
 }
@@ -1589,6 +1612,15 @@ function usageInteger(record: Record<string, unknown>, ...keys: string[]): numbe
 
 function firstRecord(...values: unknown[]): Record<string, unknown> {
   return values.find(isRecord) ?? {};
+}
+
+function chatCompletionStopReason(payload: unknown): ProviderCallRecord['stopReason'] {
+  const completion = isRecord(payload) ? payload : {};
+  const choices = Array.isArray(completion.choices) ? completion.choices : [];
+  const firstChoice = isRecord(choices[0]) ? choices[0] : {};
+  const finishReason = stringField(firstChoice.finish_reason) ?? stringField(firstChoice.finishReason);
+  if (finishReason === 'stop' || finishReason === 'tool_calls' || finishReason === 'length') return finishReason;
+  return finishReason ? 'unknown' : 'unknown';
 }
 
 function chatCompletionText(payload: unknown) {
@@ -2127,6 +2159,46 @@ function providerBindingHash(provider: ModelRouterProviderConfig) {
   ].join('\n'));
 }
 
+function providerCallTraceFields(
+  provider: ModelRouterProviderConfig,
+  body: Record<string, unknown>,
+): Pick<ProviderCallRecord, 'providerAliasSha256' | 'modelAliasSha256' | 'wireRequest'> {
+  const modelAliasSha256 = hashForTrace(stringField(body.model) || provider.model || '');
+  return {
+    providerAliasSha256: hashForTrace(provider.provider || ''),
+    modelAliasSha256,
+    wireRequest: {
+      urlSha256: hashForTrace(`${trimTrailingSlash(provider.baseUrl)}/chat/completions`),
+      endpointRoute: 'chat.completions',
+      bodyShape: {
+        modelAliasSha256,
+        messageCount: Array.isArray(body.messages) ? body.messages.length : 0,
+        toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
+        hasImageParts: hasImageParts(body.messages),
+        textCharCount: textCharCount(body.messages),
+        maxTokensSet: body.max_tokens !== undefined || body.max_completion_tokens !== undefined,
+        temperatureSet: body.temperature !== undefined,
+      },
+    },
+  };
+}
+
+function hasImageParts(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasImageParts);
+  if (!isRecord(value)) return false;
+  const type = stringField(value.type)?.toLowerCase() ?? '';
+  if (type.includes('image')) return true;
+  if (value.image_url !== undefined || value.imageUrl !== undefined) return true;
+  return Object.values(value).some(hasImageParts);
+}
+
+function textCharCount(value: unknown): number {
+  if (typeof value === 'string') return value.length;
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + textCharCount(item), 0);
+  if (!isRecord(value)) return 0;
+  return Object.values(value).reduce((sum, item) => sum + textCharCount(item), 0);
+}
+
 function failedCallRecord(
   provider: ModelRouterProviderConfig,
   role: ProviderCallRecord['role'],
@@ -2140,8 +2212,10 @@ function failedCallRecord(
     status: 'failed',
     roleAlias: roleAliasForCall(role),
     providerBindingSha256: providerBindingHash(provider),
+    ...providerCallTraceFields(provider, {}),
     wireApi: 'chat.completions',
     latencyMs: 0,
+    stopReason: 'error',
     errorSummary: boundedProviderTraceText(errorSummary, provider, sensitiveValues),
   };
 }

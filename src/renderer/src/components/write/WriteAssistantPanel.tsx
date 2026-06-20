@@ -20,6 +20,7 @@ import type { WriteQuotedSelection } from '../../write/quoted-selection'
 import { MessageTimeline } from '../chat/MessageTimeline'
 import {
   FloatingComposer,
+  type ComposerFileReference,
   type ComposerImageAttachmentInput
 } from '../chat/FloatingComposer'
 import type { ComposerReasoningEffort } from '../chat/FloatingComposerModelPicker'
@@ -47,9 +48,13 @@ type Props = {
   attachmentUploadEnabled?: boolean
   attachmentUploadBusy?: boolean
   attachmentUploadError?: string | null
+  fileReferenceEnabled?: boolean
+  fileReferences?: ComposerFileReference[]
   onPickAttachments?: (attachments: ComposerImageAttachmentInput[]) => void
   onPasteClipboardImage?: (options?: { silentNoImage?: boolean }) => void | Promise<void>
   onRemoveAttachment?: (id: string) => void
+  onAddFileReference?: (reference: ComposerFileReference) => void
+  onRemoveFileReference?: (relativePath: string, workspaceRoot?: string) => void
   onSend: () => void
   onInterrupt: (options?: { discard?: boolean }) => void
   runtimeCapabilities?: AgentProviderCapabilities
@@ -96,9 +101,13 @@ export function WriteAssistantPanel({
   attachmentUploadEnabled = false,
   attachmentUploadBusy = false,
   attachmentUploadError = null,
+  fileReferenceEnabled = false,
+  fileReferences = [],
   onPickAttachments,
   onPasteClipboardImage,
   onRemoveAttachment,
+  onAddFileReference,
+  onRemoveFileReference,
   onSend,
   onInterrupt,
   runtimeCapabilities,
@@ -279,6 +288,7 @@ export function WriteAssistantPanel({
         <FloatingComposer
           variant="compact"
           workspaceRootOverride={workspaceRoot}
+          preferWorkspaceRootOverride
           input={input}
           setInput={setInput}
           mode={mode}
@@ -299,9 +309,13 @@ export function WriteAssistantPanel({
           attachmentUploadEnabled={attachmentUploadEnabled}
           attachmentUploadBusy={attachmentUploadBusy}
           attachmentUploadError={attachmentUploadError}
+          fileReferenceEnabled={fileReferenceEnabled}
+          fileReferences={fileReferences}
           onPickAttachments={onPickAttachments}
           onPasteClipboardImage={onPasteClipboardImage}
           onRemoveAttachment={onRemoveAttachment}
+          onAddFileReference={onAddFileReference}
+          onRemoveFileReference={onRemoveFileReference}
           onSend={onSend}
           onInterrupt={onInterrupt}
           runtimeCapabilities={runtimeCapabilities}

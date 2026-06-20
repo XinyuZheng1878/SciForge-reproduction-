@@ -210,6 +210,14 @@ test('pure text responses are routed only to the configured text reasoner', asyn
     assert.doesNotMatch(traceText, /text-secret|vision-secret|Authorization|data:image|base64/i);
     assert.doesNotMatch(traceText, /text-provider|vision-provider|text-model|vision-model/i);
     assert.match(traceText, /"providerBindingSha256":\s*"sha256:[a-f0-9]{64}"/);
+    assert.match(traceText, /"providerAliasSha256":\s*"sha256:[a-f0-9]{64}"/);
+    assert.match(traceText, /"modelAliasSha256":\s*"sha256:[a-f0-9]{64}"/);
+    assert.match(traceText, /"wireRequest":\s*\{/);
+    assert.match(traceText, /"endpointRoute":\s*"chat\.completions"/);
+    assert.match(traceText, /"messageCount":\s*1/);
+    assert.match(traceText, /"toolCount":\s*0/);
+    assert.match(traceText, /"stopReason":\s*"stop"/);
+    assert.match(traceText, /"latencyMs":\s*\d+/);
   } finally {
     await server.close();
   }

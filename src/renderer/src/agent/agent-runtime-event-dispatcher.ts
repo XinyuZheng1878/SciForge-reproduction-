@@ -156,6 +156,10 @@ function compactionFromEvent(
     auto: event.auto,
     messagesBefore: event.messagesBefore,
     messagesAfter: event.messagesAfter,
+    replacedTokens: event.replacedTokens,
+    sourceDigest: event.sourceDigest,
+    digestMarker: event.digestMarker,
+    sourceItemIds: event.sourceItemIds,
     createdAt: event.createdAt
   }
 }

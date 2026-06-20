@@ -70,6 +70,58 @@ class RegistryAgentProvider implements AgentProvider {
     return this.neutral.getAttachmentContent(...args)
   }
 
+  runCodeNavigation(
+    ...args: Parameters<NonNullable<AgentProvider['runCodeNavigation']>>
+  ): ReturnType<NonNullable<AgentProvider['runCodeNavigation']>> {
+    return this.neutral.runCodeNavigation(...args)
+  }
+
+  listModelAuditRecords(
+    ...args: Parameters<NonNullable<AgentProvider['listModelAuditRecords']>>
+  ): ReturnType<NonNullable<AgentProvider['listModelAuditRecords']>> {
+    return this.neutral.listModelAuditRecords(...args)
+  }
+
+  clearModelAuditRecords(): ReturnType<NonNullable<AgentProvider['clearModelAuditRecords']>> {
+    return this.neutral.clearModelAuditRecords()
+  }
+
+  getContextState(
+    ...args: Parameters<NonNullable<AgentProvider['getContextState']>>
+  ): ReturnType<NonNullable<AgentProvider['getContextState']>> {
+    return this.neutral.getContextState(...args)
+  }
+
+  listGitCheckpoints(
+    ...args: Parameters<NonNullable<AgentProvider['listGitCheckpoints']>>
+  ): ReturnType<NonNullable<AgentProvider['listGitCheckpoints']>> {
+    return this.neutral.listGitCheckpoints(...args)
+  }
+
+  createGitCheckpoint(
+    ...args: Parameters<NonNullable<AgentProvider['createGitCheckpoint']>>
+  ): ReturnType<NonNullable<AgentProvider['createGitCheckpoint']>> {
+    return this.neutral.createGitCheckpoint(...args)
+  }
+
+  previewGitCheckpoint(
+    ...args: Parameters<NonNullable<AgentProvider['previewGitCheckpoint']>>
+  ): ReturnType<NonNullable<AgentProvider['previewGitCheckpoint']>> {
+    return this.neutral.previewGitCheckpoint(...args)
+  }
+
+  restoreGitCheckpoint(
+    ...args: Parameters<NonNullable<AgentProvider['restoreGitCheckpoint']>>
+  ): ReturnType<NonNullable<AgentProvider['restoreGitCheckpoint']>> {
+    return this.neutral.restoreGitCheckpoint(...args)
+  }
+
+  createMemory(
+    ...args: Parameters<NonNullable<AgentProvider['createMemory']>>
+  ): ReturnType<NonNullable<AgentProvider['createMemory']>> {
+    return this.neutral.createMemory(...args)
+  }
+
   listMemories(
     ...args: Parameters<NonNullable<AgentProvider['listMemories']>>
   ): ReturnType<NonNullable<AgentProvider['listMemories']>> {
@@ -86,6 +138,18 @@ class RegistryAgentProvider implements AgentProvider {
     ...args: Parameters<NonNullable<AgentProvider['deleteMemory']>>
   ): ReturnType<NonNullable<AgentProvider['deleteMemory']>> {
     return this.neutral.deleteMemory(...args)
+  }
+
+  listWorkspaceReferences(
+    ...args: Parameters<NonNullable<AgentProvider['listWorkspaceReferences']>>
+  ): ReturnType<NonNullable<AgentProvider['listWorkspaceReferences']>> {
+    return this.neutral.listWorkspaceReferences(...args)
+  }
+
+  previewWorkspaceReference(
+    ...args: Parameters<NonNullable<AgentProvider['previewWorkspaceReference']>>
+  ): ReturnType<NonNullable<AgentProvider['previewWorkspaceReference']>> {
+    return this.neutral.previewWorkspaceReference(...args)
   }
 
   steerUserMessage(

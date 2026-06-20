@@ -51,6 +51,7 @@ function installDsGui(activeAgentRuntime: AgentRuntimeId): {
   agentRuntimeForkThread: ReturnType<typeof vi.fn>
   agentRuntimeResumeSession: ReturnType<typeof vi.fn>
   agentRuntimeUpdateThreadRelation: ReturnType<typeof vi.fn>
+  agentRuntimeAuxiliary: ReturnType<typeof vi.fn>
 } {
   const forbiddenDirectCall = vi.fn(async () => ({
     ok: true,
@@ -95,6 +96,10 @@ function installDsGui(activeAgentRuntime: AgentRuntimeId): {
     sessionId: 'session-1'
   }))
   const agentRuntimeUpdateThreadRelation = vi.fn(async () => undefined)
+  const agentRuntimeAuxiliary = vi.fn(async (input: { operation?: string }) => {
+    if (input.operation === 'listGitCheckpoints') return []
+    return { ok: true }
+  })
   vi.stubGlobal('window', {
     dsGui: {
       getSettings: vi.fn(async () => settings(activeAgentRuntime)),
@@ -115,7 +120,8 @@ function installDsGui(activeAgentRuntime: AgentRuntimeId): {
         resolveUserInput: agentRuntimeResolveUserInput,
         forkThread: agentRuntimeForkThread,
         resumeSession: agentRuntimeResumeSession,
-        updateThreadRelation: agentRuntimeUpdateThreadRelation
+        updateThreadRelation: agentRuntimeUpdateThreadRelation,
+        auxiliary: agentRuntimeAuxiliary
       },
       codex: {
         listThreads: codexListThreads
@@ -132,7 +138,8 @@ function installDsGui(activeAgentRuntime: AgentRuntimeId): {
     agentRuntimeResolveUserInput,
     agentRuntimeForkThread,
     agentRuntimeResumeSession,
-    agentRuntimeUpdateThreadRelation
+    agentRuntimeUpdateThreadRelation,
+    agentRuntimeAuxiliary
   }
 }
 
@@ -244,6 +251,76 @@ describe('registry provider selector', () => {
       runtimeId: 'kun',
       threadId: 'thread-1',
       relation: 'primary'
+    })
+    expect(codexListThreads).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
+  })
+
+  it('passes checkpoint helpers through neutral auxiliary with top-level runtime routing', async () => {
+    const {
+      forbiddenDirectCall,
+      codexListThreads,
+      agentRuntimeAuxiliary
+    } = installDsGui('codex')
+    const provider = getProvider()
+
+    await expect(provider.listGitCheckpoints?.({
+      runtimeId: 'kun',
+      threadId: 'thread-1',
+      workspaceRoot: '/tmp/workspace'
+    })).resolves.toEqual([])
+    await expect(provider.previewGitCheckpoint?.('checkpoint-1')).resolves.toEqual({ ok: true })
+    await expect(provider.restoreGitCheckpoint?.('checkpoint-1', { force: true })).resolves.toEqual({ ok: true })
+
+    expect(agentRuntimeAuxiliary).toHaveBeenNthCalledWith(1, {
+      runtimeId: 'kun',
+      operation: 'listGitCheckpoints',
+      payload: {
+        runtimeId: 'kun',
+        threadId: 'thread-1',
+        workspaceRoot: '/tmp/workspace'
+      }
+    })
+    expect(agentRuntimeAuxiliary).toHaveBeenNthCalledWith(2, {
+      runtimeId: 'codex',
+      operation: 'previewGitCheckpoint',
+      payload: { checkpointId: 'checkpoint-1' }
+    })
+    expect(agentRuntimeAuxiliary).toHaveBeenNthCalledWith(3, {
+      runtimeId: 'codex',
+      operation: 'restoreGitCheckpoint',
+      payload: { checkpointId: 'checkpoint-1', force: true }
+    })
+    expect(codexListThreads).not.toHaveBeenCalled()
+    expect(forbiddenDirectCall).not.toHaveBeenCalled()
+  })
+
+  it('passes code navigation through neutral auxiliary', async () => {
+    const {
+      forbiddenDirectCall,
+      codexListThreads,
+      agentRuntimeAuxiliary
+    } = installDsGui('kun')
+    const provider = getProvider()
+
+    await expect(provider.runCodeNavigation?.({
+      workspaceRoot: '/tmp/workspace',
+      operation: 'goToDefinition',
+      filePath: 'src/index.ts',
+      line: 4,
+      character: 2
+    })).resolves.toEqual({ ok: true })
+
+    expect(agentRuntimeAuxiliary).toHaveBeenCalledWith({
+      runtimeId: 'kun',
+      operation: 'runCodeNavigation',
+      payload: {
+        workspaceRoot: '/tmp/workspace',
+        operation: 'goToDefinition',
+        filePath: 'src/index.ts',
+        line: 4,
+        character: 2
+      }
     })
     expect(codexListThreads).not.toHaveBeenCalled()
     expect(forbiddenDirectCall).not.toHaveBeenCalled()

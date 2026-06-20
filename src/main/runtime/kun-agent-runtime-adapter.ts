@@ -411,10 +411,8 @@ async function kunAuxiliary(
         body: JSON.stringify({ cancelled: true })
       })
       return undefined
-    default: {
-      const neverOperation: never = input.operation
-      throw new Error(`Unsupported Kun auxiliary operation: ${neverOperation}`)
-    }
+    default:
+      throw new Error(`Unsupported Kun auxiliary operation: ${input.operation}.`)
   }
 }
 
@@ -805,6 +803,44 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
     })
   }
 
+  if (kind === 'compaction_started' || kind === 'compaction_completed') {
+    const sourceItemIds = stringArrayValue(record.sourceItemIds)
+    return {
+      kind: 'compaction_event',
+      threadId,
+      runtimeId: 'kun',
+      seq,
+      createdAt,
+      turnId,
+      itemId: itemId || optionalString(record.itemId),
+      status: kind === 'compaction_started' ? 'running' : 'success',
+      summary: stringValue(record.summary),
+      detail: compactionEventDetail(record),
+      auto: record.auto !== false,
+      messagesBefore: sourceItemIds?.length,
+      replacedTokens: numberValue(record.replacedTokens),
+      sourceDigest: optionalString(record.sourceDigest),
+      digestMarker: optionalString(record.digestMarker),
+      sourceItemIds
+    }
+  }
+
+  if (kind === 'goal_updated' || kind === 'goal_cleared') {
+    const goal = asRecord(record.goal)
+    return {
+      kind: 'goal_event',
+      threadId,
+      runtimeId: 'kun',
+      seq,
+      createdAt,
+      turnId,
+      itemId: itemId || optionalString(record.itemId),
+      objective: stringValue(goal?.objective),
+      status: mapKunGoalStatus(stringValue(goal?.status)),
+      cleared: kind === 'goal_cleared' || record.cleared === true
+    }
+  }
+
   if (
     kind === 'item_created' ||
     kind === 'item_updated' ||
@@ -850,6 +886,26 @@ function mapKunTurnLifecycleState(kind: string): Extract<AgentRuntimeEvent, { ki
   if (kind === 'turn_aborted') return 'aborted'
   if (kind === 'turn_steered') return 'steered'
   return 'started'
+}
+
+function compactionEventDetail(record: Record<string, unknown>): string | undefined {
+  const replacedTokens = numberValue(record.replacedTokens)
+  if (replacedTokens !== undefined) return `replacedTokens=${replacedTokens}`
+  return optionalString(record.detail) ?? optionalString(record.reason)
+}
+
+function mapKunGoalStatus(value: string): Extract<AgentRuntimeEvent, { kind: 'goal_event' }>['status'] | undefined {
+  if (
+    value === 'active' ||
+    value === 'paused' ||
+    value === 'blocked' ||
+    value === 'usageLimited' ||
+    value === 'budgetLimited' ||
+    value === 'complete'
+  ) {
+    return value
+  }
+  return undefined
 }
 
 function isNeutralEvent(record: Record<string, unknown>): boolean {
@@ -1260,6 +1316,15 @@ function stringValue(value: unknown): string {
 function optionalString(value: unknown): string | undefined {
   const text = stringValue(value)
   return text || undefined
+}
+
+function stringArrayValue(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const values = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return values.length ? values : undefined
 }
 
 function numberValue(value: unknown): number | undefined {

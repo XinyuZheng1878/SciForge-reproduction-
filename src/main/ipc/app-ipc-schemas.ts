@@ -62,12 +62,25 @@ const agentRuntimeAuxiliaryOperationSchema = z.enum([
   'reviewThread',
   'getRuntimeInfo',
   'getToolDiagnostics',
+  'runCodeNavigation',
+  'listModelAuditRecords',
+  'clearModelAuditRecords',
+  'getContextState',
+  'recordContextCompaction',
+  'updateGoalResumeState',
+  'listGitCheckpoints',
+  'createGitCheckpoint',
+  'previewGitCheckpoint',
+  'restoreGitCheckpoint',
   'listSkills',
   'uploadAttachment',
   'getAttachmentContent',
+  'createMemory',
   'listMemories',
   'updateMemory',
   'deleteMemory',
+  'listWorkspaceReferences',
+  'previewWorkspaceReference',
   'updateThreadWorkspace',
   'archiveThread',
   'getThreadGoal',
@@ -108,6 +121,8 @@ const agentRuntimeFileReferenceSchema = z.object({
   path: trimmedString(MAX_PATH_LENGTH),
   relativePath: trimmedString(MAX_PATH_LENGTH),
   name: trimmedString(512),
+  kind: z.enum(['file', 'directory', 'image', 'pdf', 'text']).optional(),
+  delivery: z.enum(['inline_context', 'model_router_object']).optional(),
   mimeType: optionalTrimmedString(MAX_MIME_TYPE_LENGTH),
   modelRouterObject: z.boolean().optional()
 }).strict()
@@ -209,7 +224,8 @@ export const agentRuntimeSessionResumePayloadSchema = z.object({
   runtimeId: agentRuntimeIdSchema.optional(),
   sessionId: trimmedString(MAX_ID_LENGTH),
   model: z.string().trim().max(128).optional(),
-  mode: z.string().trim().max(64).optional()
+  mode: z.string().trim().max(64).optional(),
+  maxResumeCount: z.number().int().positive().max(1_000).optional()
 }).strict()
 
 export const agentRuntimeThreadRelationPayloadSchema = z.object({

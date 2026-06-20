@@ -13,11 +13,11 @@ function notGitRepoResult(): GitBranchesResult {
   return { ok: false, reason: 'not_git_repo', message: 'The working directory is not a Git repository.' }
 }
 
-async function resolveGitCwd(workspaceRoot: string): Promise<string | null> {
+export async function resolveGitCwd(workspaceRoot: string): Promise<string | null> {
   return findNearestGitRoot(workspaceRoot)
 }
 
-async function runGit(
+export async function runGit(
   cwd: string,
   args: string[],
   timeout = 10_000

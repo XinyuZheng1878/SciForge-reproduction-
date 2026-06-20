@@ -49,6 +49,12 @@ import { createKunAgentRuntimeAdapter } from './runtime/kun-agent-runtime-adapte
 import { createCodexAgentRuntimeAdapter } from './runtime/codex/codex-agent-runtime-adapter'
 import { ClaudeRuntimeService, createClaudeAgentRuntimeAdapter } from './runtime/claude'
 import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
+import { LspCodeNavigationService } from './services/lsp-code-navigation-service'
+import { ModelRequestAuditRecorder } from './services/model-request-audit-service'
+import { RuntimeContextStateService } from './services/runtime-context-state-service'
+import { GitCheckpointService } from './services/git-checkpoint-service'
+import { SharedMemoryService } from './services/shared-memory-service'
+import { WorkspaceReferenceService } from './services/workspace-reference-service'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
 import { createDiscordBotRuntime, type DiscordBotRuntime } from './discord-bot-runtime'
@@ -201,6 +207,7 @@ let discordBotRuntime: DiscordBotRuntime | null = null
 let scheduleRuntime: ScheduleRuntime | null = null
 let codexRuntime: CodexRuntimeService | null = null
 let claudeRuntime: ClaudeRuntimeService | null = null
+let codeNavigationService: LspCodeNavigationService | null = null
 let managedRuntimesStoppedForQuit = false
 let managedRuntimesStopPromise: Promise<void> | null = null
 type RuntimeIdleListThreads = NonNullable<Parameters<typeof waitForRuntimeTurnsIdle>[0]['listThreads']>
@@ -321,6 +328,7 @@ async function stopManagedRuntimes(): Promise<void> {
       scheduleRuntime?.stop()
       discordBotRuntime?.stop()
       clawRuntime?.stop()
+      codeNavigationService?.shutdown()
       await stopModelRouterSidecar()
       stopWeixinBridgeRuntime()
       await codexRuntime?.stop()
@@ -1320,6 +1328,12 @@ app.whenReady().then(async () => {
       message: error instanceof Error ? error.message : String(error)
     })
   })
+  codeNavigationService = new LspCodeNavigationService()
+  const modelAuditRecorder = new ModelRequestAuditRecorder()
+  const contextStateService = new RuntimeContextStateService()
+  const gitCheckpointService = new GitCheckpointService(app.getPath('userData'))
+  const sharedMemoryService = new SharedMemoryService(app.getPath('userData'))
+  const workspaceReferenceService = new WorkspaceReferenceService()
   const agentRuntimeHost = createAgentRuntimeHost({
     settings: async () => store.load(),
     adapters: [
@@ -1330,7 +1344,15 @@ app.whenReady().then(async () => {
       }),
       createCodexAgentRuntimeAdapter(getCodexRuntime()),
       createClaudeAgentRuntimeAdapter(getClaudeRuntime())
-    ]
+    ],
+    services: {
+      codeNavigation: codeNavigationService,
+      modelAudit: modelAuditRecorder,
+      contextState: contextStateService,
+      gitCheckpoints: gitCheckpointService,
+      memory: sharedMemoryService,
+      workspaceReferences: workspaceReferenceService
+    }
   })
   runtimeIdleListThreads = (input) => agentRuntimeHost.listThreads(input)
 

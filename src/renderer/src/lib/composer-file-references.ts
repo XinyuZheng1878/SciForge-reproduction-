@@ -1,7 +1,11 @@
+import type { AgentRuntimeWorkspaceReferenceKind } from '../../../shared/agent-runtime-contract'
+
 export type ComposerFileReference = {
   path: string
   relativePath: string
   name: string
+  workspaceRoot?: string
+  kind?: AgentRuntimeWorkspaceReferenceKind
   mimeType?: string
   modelRouterObject?: boolean
 }
@@ -15,6 +19,7 @@ export type ComposerFileMention = {
 
 export type ComposerFileContextEntry = {
   relativePath: string
+  workspaceRoot?: string
   content: string
   truncated?: boolean
 }
@@ -47,8 +52,9 @@ export function relativeWorkspacePath(path: string, workspaceRoot: string): stri
   return normalizedPath
 }
 
-export function composerFileReferenceKey(reference: Pick<ComposerFileReference, 'relativePath'>): string {
-  return normalizeForCompare(reference.relativePath)
+export function composerFileReferenceKey(reference: Pick<ComposerFileReference, 'relativePath' | 'workspaceRoot'>): string {
+  const workspace = reference.workspaceRoot ? `${normalizeForCompare(reference.workspaceRoot)}:` : ''
+  return `${workspace}${normalizeForCompare(reference.relativePath)}`
 }
 
 export function formatComposerFileMentionToken(relativePath: string): string {
@@ -167,8 +173,9 @@ export function buildComposerFileContextPrompt(
   if (files.length === 0) return userPrompt
   const fileBlocks = files.map((file) => {
     const truncated = file.truncated ? ' truncated="true"' : ''
+    const workspaceRoot = file.workspaceRoot ? ` workspace_root="${escapeFileContextAttribute(file.workspaceRoot)}"` : ''
     return [
-      `<workspace_file path="${escapeFileContextAttribute(file.relativePath)}"${truncated}>`,
+      `<workspace_file path="${escapeFileContextAttribute(file.relativePath)}"${workspaceRoot}${truncated}>`,
       file.content,
       '</workspace_file>'
     ].join('\n')

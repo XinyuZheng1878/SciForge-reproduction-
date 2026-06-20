@@ -6,7 +6,7 @@ import type { QueuedUserMessage } from '../../store/chat-store-types'
 import type { ModelProviderModelGroup } from '@shared/ds-gui-api'
 import type { SddDraft } from '../../sdd/sdd-draft-store'
 import { MessageTimeline } from '../chat/MessageTimeline'
-import { FloatingComposer } from '../chat/FloatingComposer'
+import { FloatingComposer, type ComposerFileReference } from '../chat/FloatingComposer'
 import type { ComposerReasoningEffort } from '../chat/FloatingComposerModelPicker'
 import { SidebarTitlebarToggleButton } from '../sidebar/SidebarPrimitives'
 
@@ -30,6 +30,10 @@ type Props = {
   setComposerReasoningEffort: (effort: ComposerReasoningEffort) => void
   queuedMessages: QueuedUserMessage[]
   removeQueuedMessage: (id: string) => void
+  fileReferenceEnabled?: boolean
+  fileReferences?: ComposerFileReference[]
+  onAddFileReference?: (reference: ComposerFileReference) => void
+  onRemoveFileReference?: (relativePath: string, workspaceRoot?: string) => void
   onSend: () => void
   onInterrupt: (options?: { discard?: boolean }) => void
   runtimeCapabilities?: AgentProviderCapabilities
@@ -60,6 +64,10 @@ export function SddAssistantPanel({
   setComposerReasoningEffort,
   queuedMessages,
   removeQueuedMessage,
+  fileReferenceEnabled = false,
+  fileReferences = [],
+  onAddFileReference,
+  onRemoveFileReference,
   onSend,
   onInterrupt,
   runtimeCapabilities,
@@ -180,6 +188,7 @@ export function SddAssistantPanel({
         <FloatingComposer
           variant="compact"
           workspaceRootOverride={draft.workspaceRoot}
+          preferWorkspaceRootOverride
           input={input}
           setInput={setInput}
           mode={mode}
@@ -196,6 +205,10 @@ export function SddAssistantPanel({
           modelPickerMode="combobox"
           queuedMessages={queuedMessages}
           onRemoveQueuedMessage={removeQueuedMessage}
+          fileReferenceEnabled={fileReferenceEnabled}
+          fileReferences={fileReferences}
+          onAddFileReference={onAddFileReference}
+          onRemoveFileReference={onRemoveFileReference}
           onSend={onSend}
           onInterrupt={onInterrupt}
           runtimeCapabilities={runtimeCapabilities}

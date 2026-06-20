@@ -4,6 +4,7 @@ import type {
   AgentRuntimeCapabilities,
   AgentRuntimeEvent,
   AgentRuntimeItem,
+  AgentRuntimeMemoryRecord,
   AgentRuntimeThreadRelation,
   AgentRuntimeThread,
   AgentRuntimeThreadDetail,
@@ -30,6 +31,7 @@ import type {
   UserInputAnswer,
   UserInputQuestion
 } from './types'
+import type { CoreMemoryRecordJson } from './kun-contract'
 
 type LegacyCapabilities = ReturnType<AgentProvider['getCapabilities']>
 type InteractionRequestRef = {
@@ -51,11 +53,12 @@ function legacyCapabilities(capabilities: AgentRuntimeCapabilities): LegacyCapab
     approvals: capabilities.controls.approval === 'sync' || capabilities.controls.approval === 'async',
     attachFiles: capabilities.storage.attachments.available,
     review: capabilities.controls.review === true,
-    compact: capabilities.controls.compact === 'native',
+    compact: capabilities.controls.compact === 'native' || capabilities.controls.compact === 'noop',
     fork: capabilities.controls.fork === true,
     goals: capabilities.controls.goals === true,
     todos: capabilities.controls.todos === true,
     skills: capabilities.tools.skills.available === true,
+    checkpoints: capabilities.storage.checkpoints?.available === true,
     sideConversations: capabilities.controls.fork === true
   }
 }
@@ -478,6 +481,40 @@ function usageFromRuntime(usage: AgentRuntimeUsage | undefined): ThreadUsageSnap
   }
 }
 
+function normalizeSharedMemoryRecord(value: unknown): CoreMemoryRecordJson {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+  const updatedAt = stringValue(record.updatedAt) || new Date().toISOString()
+  return {
+    id: stringValue(record.id),
+    content: stringValue(record.content) || stringValue(record.text),
+    scope: normalizeMemoryScope(record.scope),
+    ...(stringValue(record.workspace) ? { workspace: stringValue(record.workspace) } : {}),
+    ...(stringValue(record.project) ? { project: stringValue(record.project) } : {}),
+    tags: Array.isArray(record.tags)
+      ? record.tags.filter((tag): tag is string => typeof tag === 'string')
+      : [],
+    ...(typeof record.confidence === 'number' ? { confidence: record.confidence } : {}),
+    createdAt: stringValue(record.createdAt) || updatedAt,
+    updatedAt,
+    ...(stringValue(record.disabledAt)
+      ? { disabledAt: stringValue(record.disabledAt) }
+      : record.disabled === true
+        ? { disabledAt: updatedAt }
+        : {}),
+    ...(stringValue(record.deletedAt)
+      ? { deletedAt: stringValue(record.deletedAt) }
+      : record.deleted === true
+        ? { deletedAt: updatedAt }
+        : {})
+  }
+}
+
+function normalizeMemoryScope(value: unknown): CoreMemoryRecordJson['scope'] {
+  return value === 'workspace' || value === 'project' || value === 'user' ? value : 'user'
+}
+
 function detailTurnCount(_usage: AgentRuntimeUsage): number {
   return 0
 }
@@ -617,21 +654,105 @@ export class AgentRuntimeProvider implements AgentProvider {
     return this.auxiliary('getAttachmentContent', { attachmentId, options })
   }
 
-  listMemories(
-    options?: Parameters<NonNullable<AgentProvider['listMemories']>>[0]
-  ): ReturnType<NonNullable<AgentProvider['listMemories']>> {
-    return this.auxiliary('listMemories', { options })
+  runCodeNavigation(
+    input: Parameters<NonNullable<AgentProvider['runCodeNavigation']>>[0]
+  ): ReturnType<NonNullable<AgentProvider['runCodeNavigation']>> {
+    return this.auxiliary('runCodeNavigation', input)
   }
 
-  updateMemory(
+  listModelAuditRecords(
+    options?: Parameters<NonNullable<AgentProvider['listModelAuditRecords']>>[0]
+  ): ReturnType<NonNullable<AgentProvider['listModelAuditRecords']>> {
+    const { runtimeId, ...payload } = options ?? {}
+    return this.auxiliary('listModelAuditRecords', {
+      ...payload,
+      ...(runtimeId ? { runtimeId } : {})
+    }, runtimeId)
+  }
+
+  clearModelAuditRecords(): ReturnType<NonNullable<AgentProvider['clearModelAuditRecords']>> {
+    return this.auxiliary('clearModelAuditRecords')
+  }
+
+  getContextState(threadId: string): ReturnType<NonNullable<AgentProvider['getContextState']>> {
+    return this.threadAuxiliary(threadId, 'getContextState')
+  }
+
+  listGitCheckpoints(
+    options?: Parameters<NonNullable<AgentProvider['listGitCheckpoints']>>[0]
+  ): ReturnType<NonNullable<AgentProvider['listGitCheckpoints']>> {
+    const { runtimeId, ...payload } = options ?? {}
+    return this.auxiliary('listGitCheckpoints', {
+      ...payload,
+      ...(runtimeId ? { runtimeId } : {})
+    }, runtimeId)
+  }
+
+  createGitCheckpoint(
+    input: Parameters<NonNullable<AgentProvider['createGitCheckpoint']>>[0]
+  ): ReturnType<NonNullable<AgentProvider['createGitCheckpoint']>> {
+    return this.auxiliary('createGitCheckpoint', input)
+  }
+
+  previewGitCheckpoint(
+    checkpointId: string
+  ): ReturnType<NonNullable<AgentProvider['previewGitCheckpoint']>> {
+    return this.auxiliary('previewGitCheckpoint', { checkpointId })
+  }
+
+  restoreGitCheckpoint(
+    checkpointId: string,
+    options?: Parameters<NonNullable<AgentProvider['restoreGitCheckpoint']>>[1]
+  ): ReturnType<NonNullable<AgentProvider['restoreGitCheckpoint']>> {
+    return this.auxiliary('restoreGitCheckpoint', { checkpointId, force: options?.force === true })
+  }
+
+  async createMemory(
+    input: Parameters<NonNullable<AgentProvider['createMemory']>>[0]
+  ): ReturnType<NonNullable<AgentProvider['createMemory']>> {
+    const record = await this.auxiliary<AgentRuntimeMemoryRecord>('createMemory', {
+      ...input,
+      text: input.content
+    })
+    return normalizeSharedMemoryRecord(record)
+  }
+
+  listMemories(
+    options?: Parameters<NonNullable<AgentProvider['listMemories']>>[0]
+  ): Promise<CoreMemoryRecordJson[]> {
+    return this.auxiliary<unknown[]>('listMemories', { options })
+      .then((records) => records.map(normalizeSharedMemoryRecord))
+  }
+
+  async updateMemory(
     memoryId: string,
     patch: Parameters<NonNullable<AgentProvider['updateMemory']>>[1]
   ): ReturnType<NonNullable<AgentProvider['updateMemory']>> {
-    return this.auxiliary('updateMemory', { memoryId, patch })
+    const { content, ...rest } = patch
+    const record = await this.auxiliary<AgentRuntimeMemoryRecord>('updateMemory', {
+      memoryId,
+      patch: {
+        ...rest,
+        ...(content !== undefined ? { text: content } : {})
+      }
+    })
+    return normalizeSharedMemoryRecord(record)
   }
 
-  deleteMemory(memoryId: string): ReturnType<NonNullable<AgentProvider['deleteMemory']>> {
-    return this.auxiliary('deleteMemory', { memoryId })
+  async deleteMemory(memoryId: string): ReturnType<NonNullable<AgentProvider['deleteMemory']>> {
+    return normalizeSharedMemoryRecord(await this.auxiliary('deleteMemory', { memoryId }))
+  }
+
+  listWorkspaceReferences(
+    input: Parameters<NonNullable<AgentProvider['listWorkspaceReferences']>>[0]
+  ): ReturnType<NonNullable<AgentProvider['listWorkspaceReferences']>> {
+    return this.auxiliary('listWorkspaceReferences', input)
+  }
+
+  previewWorkspaceReference(
+    input: Parameters<NonNullable<AgentProvider['previewWorkspaceReference']>>[0]
+  ): ReturnType<NonNullable<AgentProvider['previewWorkspaceReference']>> {
+    return this.auxiliary('previewWorkspaceReference', input)
   }
 
   async updateThreadWorkspace(threadId: string, workspace: string): Promise<void> {
@@ -687,7 +808,7 @@ export class AgentRuntimeProvider implements AgentProvider {
 
   async resumeSession(
     sessionId: string,
-    options: { model?: string; mode?: string } = {}
+    options: { model?: string; mode?: string; maxResumeCount?: number } = {}
   ): Promise<{ threadId: string; sessionId: string }> {
     const runtimeId = await this.activeRuntimeId()
     return agentRuntimeClient.resumeSession({ runtimeId, sessionId, ...options })

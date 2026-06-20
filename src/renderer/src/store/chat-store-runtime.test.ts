@@ -118,6 +118,25 @@ describe('thread event sink binding', () => {
     expect(getState().turnReasoningFirstAtByUserId['user-current']).toEqual(expect.any(Number))
   })
 
+  it('refreshes shared context state after compaction events', () => {
+    const refreshActiveThreadContextState = vi.fn(async () => undefined)
+    const { set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      refreshActiveThreadContextState
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onCompaction({
+      itemId: 'compact-1',
+      status: 'success',
+      summary: 'Compacted context',
+      messagesBefore: 10,
+      messagesAfter: 4
+    })
+
+    expect(refreshActiveThreadContextState).toHaveBeenCalledWith('thread-current')
+  })
+
   it('ignores Codex thread lifecycle status without marking a new empty thread busy', () => {
     const { getState, set, get } = makeSinkHarness({
       activeThreadId: 'thread-current',

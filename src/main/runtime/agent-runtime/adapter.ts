@@ -75,6 +75,7 @@ export type AgentRuntimeSessionResumeInput = {
   sessionId: string
   model?: string
   mode?: string
+  maxResumeCount?: number
 }
 
 export type AgentRuntimeSessionResumeHandle = {

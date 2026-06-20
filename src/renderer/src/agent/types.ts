@@ -8,8 +8,19 @@ import type {
   CoreRuntimeToolDiagnosticsJson
 } from './kun-contract'
 import type { AgentRuntimeId } from '@shared/app-settings'
-import type { AgentRuntimeFileReference } from '@shared/agent-runtime-contract'
-import type { AgentRuntimePhase } from '@shared/agent-runtime-contract'
+import type {
+  AgentRuntimeCodeNavigationInput,
+  AgentRuntimeCodeNavigationOutput,
+  AgentRuntimeContextState,
+  AgentRuntimeFileReference,
+  AgentRuntimeGitCheckpoint,
+  AgentRuntimeMemoryRecord,
+  AgentRuntimeModelAuditRecord,
+  AgentRuntimePhase,
+  AgentRuntimeResult,
+  AgentRuntimeWorkspaceReference,
+  AgentRuntimeWorkspaceReferencePreview
+} from '@shared/agent-runtime-contract'
 
 export type ToolItemKind = 'tool_call' | 'command_execution' | 'file_change'
 export type RuntimeErrorSeverity = 'info' | 'warning' | 'error'
@@ -194,6 +205,10 @@ export type CompactionBlock = {
   auto?: boolean
   messagesBefore?: number
   messagesAfter?: number
+  replacedTokens?: number
+  sourceDigest?: string
+  digestMarker?: string
+  sourceItemIds?: string[]
 }
 
 export type ReviewTarget =
@@ -328,6 +343,10 @@ export type CompactionEventPayload = {
   auto?: boolean
   messagesBefore?: number
   messagesAfter?: number
+  replacedTokens?: number
+  sourceDigest?: string
+  digestMarker?: string
+  sourceItemIds?: string[]
   createdAt?: string
 }
 
@@ -429,6 +448,7 @@ export type AgentProviderCapabilities = {
   goals?: boolean
   todos?: boolean
   skills?: boolean
+  checkpoints?: boolean
   sideConversations?: boolean
 }
 
@@ -494,12 +514,60 @@ export interface AgentProvider {
     attachmentId: string,
     options?: { threadId?: string; workspace?: string }
   ): Promise<CoreAttachmentContentResponseJson>
-  listMemories?(options?: { workspace?: string; includeDeleted?: boolean }): Promise<CoreMemoryRecordJson[]>
+  runCodeNavigation?(
+    input: AgentRuntimeCodeNavigationInput
+  ): Promise<AgentRuntimeResult<AgentRuntimeCodeNavigationOutput>>
+  listModelAuditRecords?(options?: {
+    runtimeId?: AgentRuntimeId
+    threadId?: string
+    limit?: number
+  }): Promise<AgentRuntimeModelAuditRecord[]>
+  clearModelAuditRecords?(): Promise<boolean>
+  getContextState?(threadId: string): Promise<AgentRuntimeContextState>
+  listGitCheckpoints?(options?: {
+    runtimeId?: AgentRuntimeId
+    threadId?: string
+    workspaceRoot?: string
+  }): Promise<AgentRuntimeGitCheckpoint[]>
+  createGitCheckpoint?(input: {
+    workspaceRoot: string
+    threadId: string
+    turnId?: string
+  }): Promise<unknown>
+  previewGitCheckpoint?(checkpointId: string): Promise<unknown>
+  restoreGitCheckpoint?(checkpointId: string, options?: { force?: boolean }): Promise<unknown>
+  createMemory?(input: {
+    content: string
+    scope?: AgentRuntimeMemoryRecord['scope']
+    workspace?: string
+    project?: string
+    tags?: string[]
+    confidence?: number
+    disabled?: boolean
+  }): Promise<CoreMemoryRecordJson>
+  listMemories?(options?: {
+    scope?: AgentRuntimeMemoryRecord['scope']
+    workspace?: string
+    includeDeleted?: boolean
+    includeDisabled?: boolean
+    query?: string
+    limit?: number
+  }): Promise<CoreMemoryRecordJson[]>
   updateMemory?(
     memoryId: string,
     patch: { content?: string; tags?: string[]; confidence?: number; disabled?: boolean }
   ): Promise<CoreMemoryRecordJson>
   deleteMemory?(memoryId: string): Promise<CoreMemoryRecordJson>
+  listWorkspaceReferences?(input: {
+    workspaceRoot: string
+    path?: string
+    recursive?: boolean
+    limit?: number
+  }): Promise<{ ok: true; references: AgentRuntimeWorkspaceReference[] } | { ok: false; message: string }>
+  previewWorkspaceReference?(input: {
+    workspaceRoot: string
+    path: string
+  }): Promise<{ ok: true; preview: AgentRuntimeWorkspaceReferencePreview } | { ok: false; message: string }>
   steerUserMessage?(threadId: string, turnId: string, text: string): Promise<void>
   interruptTurn(threadId: string, turnId: string, options?: { discard?: boolean }): Promise<void>
   renameThread(threadId: string, title: string): Promise<void>
@@ -531,7 +599,7 @@ export interface AgentProvider {
   ): Promise<NormalizedThread>
   resumeSession?(
     sessionId: string,
-    options?: { model?: string; mode?: string }
+    options?: { model?: string; mode?: string; maxResumeCount?: number }
   ): Promise<{ threadId: string; sessionId: string }>
   subscribeThreadEvents(
     threadId: string,
