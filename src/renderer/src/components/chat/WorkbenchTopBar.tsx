@@ -17,6 +17,7 @@ import {
   Loader2,
   MessageCircleMore,
   Network,
+  Newspaper,
   RefreshCw,
   RotateCcw,
   Terminal
@@ -24,12 +25,13 @@ import {
 import { useTranslation } from 'react-i18next'
 import { readPreferredEditorId, writePreferredEditorId } from '../../lib/editor-preferences'
 
-export type RightPanelMode = 'todo' | 'changes' | 'browser' | 'file' | 'plan' | 'sdd-ai' | 'checkpoints' | null
+export type RightPanelMode = 'todo' | 'changes' | 'browser' | 'file' | 'plan' | 'sdd-ai' | 'checkpoints' | 'paper' | null
 
 type Props = {
   rightPanelMode: RightPanelMode
   onToggleRightPanelMode: (mode: Exclude<RightPanelMode, null>) => void
   planPanelEnabled?: boolean
+  paperRadarEnabled?: boolean
   sideChatCount?: number
   sideChatRunningCount?: number
   sideChatOpen?: boolean
@@ -42,6 +44,7 @@ export function WorkbenchTopBar({
   rightPanelMode,
   onToggleRightPanelMode,
   planPanelEnabled = false,
+  paperRadarEnabled = false,
   sideChatCount = 0,
   sideChatRunningCount = 0,
   sideChatOpen = false,
@@ -59,6 +62,7 @@ export function WorkbenchTopBar({
   const editorMenuRef = useRef<HTMLDivElement>(null)
   const items = [
     { mode: 'todo' as const, label: t('rightPanelTodo'), icon: ListTodo },
+    ...(paperRadarEnabled ? [{ mode: 'paper' as const, label: t('rightPanelPaperRadar'), icon: Newspaper }] : []),
     ...(planPanelEnabled ? [{ mode: 'plan' as const, label: t('rightPanelPlan'), icon: ClipboardList }] : []),
     { mode: 'file' as const, label: t('rightPanelFiles'), icon: FolderOpen },
     { mode: 'changes' as const, label: t('rightPanelChanges'), icon: FileEdit },

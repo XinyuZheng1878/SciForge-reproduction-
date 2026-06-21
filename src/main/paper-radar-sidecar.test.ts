@@ -1,0 +1,45 @@
+import { describe, expect, it } from 'vitest'
+import {
+  buildPaperRadarLaunch,
+  isPaperRadarServiceHealth,
+  paperRadarBaseUrl,
+  paperRadarDbPath,
+  paperRadarProfilesPath
+} from './paper-radar-sidecar'
+
+describe('Paper Radar sidecar launch', () => {
+  it('builds an on-demand dev workspace launch with local storage paths', () => {
+    const launch = buildPaperRadarLaunch({
+      userDataDir: '/tmp/deepseek-gui-user-data',
+      appRoot: '/repo/deepseek-gui',
+      env: {},
+      npmCommand: 'npm'
+    })
+
+    expect(launch.command).toBe('npm')
+    expect(launch.cwd).toBe('/repo/deepseek-gui')
+    expect(launch.args).toEqual([
+      '--workspace',
+      'sciforge-paper-radar-service',
+      'run',
+      'start'
+    ])
+    expect(launch.baseUrl).toBe('http://127.0.0.1:3901')
+    expect(launch.dbPath).toBe(paperRadarDbPath('/tmp/deepseek-gui-user-data'))
+    expect(launch.profilesPath).toBe(paperRadarProfilesPath('/tmp/deepseek-gui-user-data'))
+    expect(launch.env.PAPER_RADAR_HOST).toBe('127.0.0.1')
+    expect(launch.env.PAPER_RADAR_PORT).toBe('3901')
+    expect(launch.env.PAPER_RADAR_AUTO_SYNC).toBe('0')
+  })
+
+  it('normalizes configured base URLs', () => {
+    expect(paperRadarBaseUrl({ PAPER_RADAR_SERVICE_URL: 'http://127.0.0.1:3902///' })).toBe('http://127.0.0.1:3902')
+  })
+
+  it('accepts only the Paper Radar service health identity', () => {
+    expect(isPaperRadarServiceHealth({ ok: true, service: 'sciforge.paper-radar' })).toBe(true)
+    expect(isPaperRadarServiceHealth({ ok: true, service: 'legacy.paper-radar' })).toBe(false)
+    expect(isPaperRadarServiceHealth({ ok: true })).toBe(false)
+    expect(isPaperRadarServiceHealth({ ok: false, service: 'sciforge.paper-radar' })).toBe(false)
+  })
+})

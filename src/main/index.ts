@@ -39,6 +39,7 @@ import type { GuiUpdateState } from '../shared/gui-update'
 import { isAllowedDevPreviewUrl } from '../shared/dev-preview-url'
 import { fetchUpstreamModelIds } from './upstream-models'
 import { ensureModelRouterConfigFile, ensureModelRouterSidecar, stopModelRouterSidecar } from './model-router-sidecar'
+import { ensurePaperRadarSidecar, stopPaperRadarSidecar } from './paper-radar-sidecar'
 import {
   kunRuntimeAdapter,
   getRuntimeBaseUrlForSettings,
@@ -337,6 +338,7 @@ async function stopManagedRuntimes(): Promise<void> {
       clawRuntime?.stop()
       codeNavigationService?.shutdown()
       await stopModelRouterSidecar()
+      await stopPaperRadarSidecar()
       stopWeixinBridgeRuntime()
       await claudeCodeRuntime?.stop()
       await codexRuntime?.stop()
@@ -1528,6 +1530,16 @@ app.whenReady().then(async () => {
     pollWeixinInstall,
     resolveKunConfigPath: resolveKunMcpJsonPath,
     openModelRouterConfigFile,
+    ensurePaperRadarSidecar: async () => {
+      if (app.isPackaged) {
+        throw new Error('Paper Radar is only available in development builds.')
+      }
+      await ensurePaperRadarSidecar({
+        userDataDir: app.getPath('userData'),
+        appRoot: app.getAppPath(),
+        log: (message) => logWarn('paper-radar', message)
+      })
+    },
     onKunMcpConfigWritten: async () => {
       const settings = await store.load()
       queueRuntimeMcpConfigApply(settings)

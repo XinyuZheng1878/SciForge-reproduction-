@@ -99,6 +99,27 @@ describe('preload agentRuntime bridge', () => {
     expect(invoke).toHaveBeenCalledWith('speech:transcribe', payload)
   })
 
+  it('exposes Paper Radar IPC methods through the preload bridge', async () => {
+    const api = exposedApi as {
+      paperRadar: {
+        status(): Promise<unknown>
+        syncProfile(payload: unknown): Promise<unknown>
+        search(payload: unknown): Promise<unknown>
+        digest(payload: unknown): Promise<unknown>
+      }
+    }
+
+    await api.paperRadar.status()
+    await api.paperRadar.syncProfile({ profile: 'lab_default', maxRecords: 20 })
+    await api.paperRadar.search({ query: 'protein design', topK: 5 })
+    await api.paperRadar.digest({ profile: 'lab_default', days: 7, topK: 5 })
+
+    expect(invoke).toHaveBeenCalledWith('paperRadar:status')
+    expect(invoke).toHaveBeenCalledWith('paperRadar:sync-profile', { profile: 'lab_default', maxRecords: 20 })
+    expect(invoke).toHaveBeenCalledWith('paperRadar:search', { query: 'protein design', topK: 5 })
+    expect(invoke).toHaveBeenCalledWith('paperRadar:digest', { profile: 'lab_default', days: 7, topK: 5 })
+  })
+
   it('forwards Discord Client ID and per-channel guard IPC payloads', async () => {
     const api = exposedApi as {
       configureDiscordClientId(clientId: string): Promise<unknown>

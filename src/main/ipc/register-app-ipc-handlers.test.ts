@@ -32,6 +32,18 @@ vi.mock('electron', () => ({
   }
 }))
 
+vi.mock('../paper-radar-sidecar', () => ({
+  digestPaperRadar: vi.fn(async () => ({ ok: true, data: { profile: 'lab_default', generatedAt: '2026-06-21T00:00:00.000Z', count: 0, papers: [] } })),
+  getPaperRadarStatus: vi.fn(async () => ({ ok: true, service: 'sciforge.paper-radar', stats: { papers: 0, arxiv: 0, biorxiv: 0 } })),
+  listPaperRadarProfiles: vi.fn(async () => ({ ok: true, data: { profiles: [] } })),
+  rankPaperRadar: vi.fn(async () => ({ ok: true, data: { profile: 'lab_default', count: 0, papers: [] } })),
+  savePaperRadarProfile: vi.fn(async () => ({ ok: true, data: { profile: { name: 'lab_default', keywords: [], excludeKeywords: [], arxivCategories: [], biorxivSubjects: [] } } })),
+  searchPaperRadar: vi.fn(async () => ({ ok: true, data: { papers: [], count: 0 } })),
+  syncPaperRadarArxiv: vi.fn(async () => ({ ok: true, data: { source: 'arxiv', fetched: 0, upserted: 0, skipped: 0 } })),
+  syncPaperRadarBiorxiv: vi.fn(async () => ({ ok: true, data: { source: 'biorxiv', fetched: 0, upserted: 0, skipped: 0 } })),
+  syncPaperRadarProfile: vi.fn(async () => ({ ok: true, data: { profile: 'lab_default', results: [] } }))
+}))
+
 function settings(): AppSettingsV1 {
   return {
     version: 1,
@@ -149,6 +161,35 @@ describe('registerAppIpcHandlers', () => {
     const handler = handlers.get('settings:set')
     await expect(handler?.({}, payload)).resolves.toEqual(settings())
     expect(applySettingsPatch).toHaveBeenCalledWith(payload)
+  })
+
+  it('validates Paper Radar payloads before starting the sidecar', async () => {
+    const paperRadar = await import('../paper-radar-sidecar')
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const ensurePaperRadarSidecar = vi.fn(async () => undefined)
+
+    registerAppIpcHandlers(registerOptions({ ensurePaperRadarSidecar }))
+
+    const handler = handlers.get('paperRadar:search')
+    expect(handler).toBeTypeOf('function')
+    await expect(handler?.({}, { topK: 1_000 })).rejects.toThrow(/Invalid payload for paperRadar:search/)
+    expect(ensurePaperRadarSidecar).not.toHaveBeenCalled()
+    expect(paperRadar.searchPaperRadar).not.toHaveBeenCalled()
+  })
+
+  it('starts Paper Radar on demand for valid requests', async () => {
+    const paperRadar = await import('../paper-radar-sidecar')
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const ensurePaperRadarSidecar = vi.fn(async () => undefined)
+
+    registerAppIpcHandlers(registerOptions({ ensurePaperRadarSidecar }))
+
+    const handler = handlers.get('paperRadar:search')
+    const result = await handler?.({}, { query: '  protein design  ', topK: 5 })
+
+    expect(ensurePaperRadarSidecar).toHaveBeenCalledTimes(1)
+    expect(paperRadar.searchPaperRadar).toHaveBeenCalledWith({ query: 'protein design', topK: 5 })
+    expect(result).toEqual({ ok: true, data: { papers: [], count: 0 } })
   })
 
   it('opens Evidence DAG with a runtime-scoped thread id', async () => {

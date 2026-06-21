@@ -18,8 +18,14 @@ import {
   savePreferredSkillRootId,
   type SkillRootId
 } from '../lib/skill-root-preference'
-import { readBrowserStorageItem, writeBrowserStorageItem } from '../lib/browser-storage'
 import { normalizeWorkspaceRoot } from '../lib/workspace-path'
+import {
+  loadInstalledPluginKeys,
+  PAPER_RADAR_EXTENSION_ID,
+  pluginStorageKey,
+  saveInstalledPluginKeys,
+  type PluginInstallKind
+} from '../lib/plugin-install-state'
 import { getProvider } from '../agent/registry'
 import type { SkillListItem } from '@shared/ds-gui-api'
 import type {
@@ -34,7 +40,7 @@ import {
   type McpMarketplaceOverlayStatus
 } from './plugin-marketplace-runtime'
 
-type PluginKind = 'mcp' | 'skill'
+type PluginKind = PluginInstallKind
 type PluginFilter = 'all' | 'recommended' | 'installed'
 type NoticeTone = 'success' | 'error' | 'info'
 
@@ -64,27 +70,7 @@ type SkillRootOption = {
   available: boolean
 }
 
-const INSTALLED_STORAGE_KEY = 'deepseekgui.installedPlugins'
 const GUI_SCHEDULE_MCP_SERVER_ID = 'gui_schedule'
-
-function loadInstalledPlugins(): string[] {
-  try {
-    const raw = readBrowserStorageItem(INSTALLED_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-function saveInstalledPlugins(ids: string[]): void {
-  writeBrowserStorageItem(INSTALLED_STORAGE_KEY, JSON.stringify([...new Set(ids)]))
-}
-
-function storageKey(kind: PluginKind, id: string): string {
-  return `${kind}:${id}`
-}
 
 function normalizePluginId(raw: string): string {
   return raw
@@ -410,6 +396,13 @@ const RECOMMENDED_ITEMS: MarketplaceItem[] = [
       )
   },
   {
+    id: PAPER_RADAR_EXTENSION_ID,
+    kind: 'extension',
+    titleKey: 'pluginExtensionPaperRadarTitle',
+    descriptionKey: 'pluginExtensionPaperRadarDesc',
+    group: 'recommended'
+  },
+  {
     id: 'code-review',
     kind: 'skill',
     titleKey: 'pluginSkillReviewTitle',
@@ -453,7 +446,7 @@ export function PluginMarketplaceView(): ReactElement {
   const [activeKind, setActiveKind] = useState<PluginKind>('mcp')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<PluginFilter>('all')
-  const [installed, setInstalled] = useState<string[]>(() => loadInstalledPlugins())
+  const [installed, setInstalled] = useState<string[]>(() => loadInstalledPluginKeys())
   const [busyId, setBusyId] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [customOpen, setCustomOpen] = useState(false)
@@ -608,7 +601,7 @@ export function PluginMarketplaceView(): ReactElement {
   const markInstalled = (key: string): void => {
     setInstalled((prev) => {
       const next = [...new Set([...prev, key])]
-      saveInstalledPlugins(next)
+      saveInstalledPluginKeys(next)
       return next
     })
   }
@@ -638,9 +631,11 @@ export function PluginMarketplaceView(): ReactElement {
     [discoveredMcpItems]
   )
   const marketplaceItems = useMemo(
-    () => activeKind === 'skill'
-      ? [...RECOMMENDED_ITEMS, ...discoveredSkillItems]
-      : [...RECOMMENDED_ITEMS, ...discoveredMcpItems],
+    () => {
+      if (activeKind === 'skill') return [...RECOMMENDED_ITEMS, ...discoveredSkillItems]
+      if (activeKind === 'mcp') return [...RECOMMENDED_ITEMS, ...discoveredMcpItems]
+      return RECOMMENDED_ITEMS
+    },
     [activeKind, discoveredMcpItems, discoveredSkillItems]
   )
 
@@ -650,7 +645,7 @@ export function PluginMarketplaceView(): ReactElement {
     if (catalogItem?.systemManaged) return true
     if (item.kind === 'skill' && discoveredSkillIds.has(item.id)) return true
     if (item.kind === 'mcp' && discoveredMcpIds.has(item.id)) return true
-    const key = storageKey(item.kind, item.id)
+    const key = pluginStorageKey(item.kind, item.id)
     if (installed.includes(key)) return true
     return item.kind === 'mcp' && mcpConfigHasServer(mcpConfigText, item.id)
   }, [discoveredMcpIds, discoveredSkillIds, installed, mcpConfigText])
@@ -694,24 +689,30 @@ export function PluginMarketplaceView(): ReactElement {
     const content = mcpLoaded ? mcpConfigText : await readMcpConfig()
     const merged = mergeMcpJsonConfig(content, config)
     if (merged.alreadyExists) {
-      markInstalled(storageKey('mcp', id))
+      markInstalled(pluginStorageKey('mcp', id))
       setNotice({ tone: 'info', message: t('pluginAlreadyAdded') })
       return
     }
     const result = await window.dsGui.setDeepseekConfigFile(merged.text)
     setMcpConfigText(merged.text)
     setMcpLoaded(true)
-    markInstalled(storageKey('mcp', id))
+    markInstalled(pluginStorageKey('mcp', id))
     setNotice({ tone: 'success', message: t('pluginMcpAdded', { path: result.path }) })
   }
 
   const addItem = async (item: MarketplaceItem): Promise<void> => {
-    setBusyId(storageKey(item.kind, item.id))
+    setBusyId(pluginStorageKey(item.kind, item.id))
     setNotice(null)
     try {
       if (item.kind === 'mcp') {
         if (!item.mcpConfig) return
         await appendMcpConfig(item.id, item.mcpConfig(workspaceRoot))
+        return
+      }
+
+      if (item.kind === 'extension') {
+        markInstalled(pluginStorageKey('extension', item.id))
+        setNotice({ tone: 'success', message: t('pluginExtensionEnabled') })
         return
       }
 
@@ -733,7 +734,7 @@ export function PluginMarketplaceView(): ReactElement {
         setNotice({ tone: 'error', message: result.message })
         return
       }
-      markInstalled(storageKey('skill', item.id))
+      markInstalled(pluginStorageKey('skill', item.id))
       await refreshSkillList()
       setNotice({ tone: 'success', message: t('pluginSkillAdded', { path: result.path }) })
     } catch (e) {
@@ -744,6 +745,7 @@ export function PluginMarketplaceView(): ReactElement {
   }
 
   const addCustom = async (): Promise<void> => {
+    if (activeKind === 'extension') return
     const id = normalizePluginId(customName)
     if (!id) {
       setNotice({ tone: 'error', message: t('pluginCustomNameRequired') })
@@ -775,7 +777,7 @@ export function PluginMarketplaceView(): ReactElement {
           setNotice({ tone: 'error', message: result.message })
           return
         }
-        markInstalled(storageKey('skill', id))
+        markInstalled(pluginStorageKey('skill', id))
         await refreshSkillList()
         setNotice({ tone: 'success', message: t('pluginSkillAdded', { path: result.path }) })
       }
@@ -822,30 +824,39 @@ export function PluginMarketplaceView(): ReactElement {
             <TabButton active={activeKind === 'skill'} tone="skill" onClick={() => setActiveKind('skill')}>
               {t('pluginTabSkill')}
             </TabButton>
+            <TabButton active={activeKind === 'extension'} onClick={() => setActiveKind('extension')}>
+              {t('pluginTabExtension')}
+            </TabButton>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void openManageTarget()}
-              className="inline-flex items-center gap-2 rounded-xl bg-ds-subtle px-3 py-2 text-[13px] font-semibold text-ds-ink transition hover:bg-ds-hover"
-            >
-              <Settings className="h-4 w-4" strokeWidth={1.75} />
-              {t('pluginManage')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setCustomOpen((value) => !value)}
-              className="inline-flex items-center gap-2 rounded-xl bg-ds-userbubble px-3 py-2 text-[13px] font-semibold text-ds-userbubbleFg shadow-sm transition hover:opacity-90"
-            >
-              <Plus className="h-4 w-4" strokeWidth={1.9} />
-              {t('pluginCreate')}
-            </button>
-          </div>
+          {activeKind !== 'extension' ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void openManageTarget()}
+                className="inline-flex items-center gap-2 rounded-xl bg-ds-subtle px-3 py-2 text-[13px] font-semibold text-ds-ink transition hover:bg-ds-hover"
+              >
+                <Settings className="h-4 w-4" strokeWidth={1.75} />
+                {t('pluginManage')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomOpen((value) => !value)}
+                className="inline-flex items-center gap-2 rounded-xl bg-ds-userbubble px-3 py-2 text-[13px] font-semibold text-ds-userbubbleFg shadow-sm transition hover:opacity-90"
+              >
+                <Plus className="h-4 w-4" strokeWidth={1.9} />
+                {t('pluginCreate')}
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-9 flex flex-col items-center text-center">
           <h1 className="text-[32px] font-semibold text-ds-ink md:text-[40px]">
-            {activeKind === 'mcp' ? t('pluginMcpTitle') : t('pluginSkillTitle')}
+            {activeKind === 'mcp'
+              ? t('pluginMcpTitle')
+              : activeKind === 'skill'
+                ? t('pluginSkillTitle')
+                : t('pluginExtensionTitle')}
           </h1>
         </div>
 
@@ -856,7 +867,13 @@ export function PluginMarketplaceView(): ReactElement {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               className="h-11 w-full rounded-2xl border border-ds-border bg-ds-card pl-11 pr-4 text-[15px] text-ds-ink shadow-sm outline-none transition focus:border-accent/40 focus:ring-1 focus:ring-accent/30"
-              placeholder={activeKind === 'mcp' ? t('pluginSearchMcp') : t('pluginSearchSkill')}
+              placeholder={
+                activeKind === 'mcp'
+                  ? t('pluginSearchMcp')
+                  : activeKind === 'skill'
+                    ? t('pluginSearchSkill')
+                    : t('pluginSearchExtension')
+              }
             />
           </label>
           <label className="relative w-full md:w-[168px]">
@@ -1145,7 +1162,7 @@ function PluginSection({
       ) : (
         <div className="grid gap-x-14 md:grid-cols-2">
           {items.map((item) => {
-            const itemKey = storageKey(item.kind, item.id)
+            const itemKey = pluginStorageKey(item.kind, item.id)
             const installed = isInstalled(item)
             const busy = busyId === itemKey
             return (
