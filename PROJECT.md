@@ -1,69 +1,61 @@
-# DeepSeek GUI Multi-Agent Runtime 集成任务板
+# SciForge 品牌迁移任务板
 
-更新时间：2026-06-21
+更新时间：2026-06-22
 
 ## 不可变原则
 
-- [x] 旧逻辑代码和最终目标冲突时，删除旧逻辑，直接实现新版本，不做兼容，保持代码干净。
-- [x] 所有修改必须通用，不能为特色例子写硬编码补丁。
-- [x] LLM API 只能走 model router。
-- [x] 相同功能的工作链路需要统一，不要额外生出旁路。
-- [x] 子智能体只能由主 agent 在回合中通过 runtime 原生能力自动启动，GUI 不提供手动启动入口。
-- [x] 第一版只展示当前 active thread 的 children，不展示环境信息分组。
+- [ ] 产品品牌统一为 SciForge；DeepSeek 仅作为可选 provider/model 名称保留。
+- [ ] DeepSeek provider 相关 API key、model id、兼容客户端、模型展示名和服务商配置不得被误改为 SciForge。
+- [ ] 用户可见产品身份、安装包、图标、窗口标题、文档和发布渠道统一切换到 SciForge。
+- [ ] 本地数据目录、协议名、secret header、router/provider id 等内部命名需要迁移方案，避免用户数据丢失。
+- [ ] 第一阶段只做品牌替换与兼容迁移，不改变现有 runtime、model router、插件和 agent 工作流能力。
+- [ ] 每个替换点都要能被搜索验证，保留 DeepSeek provider 的 allowlist。
 
-## 新任务：Multi-Agent Children 面板与 Runtime Adapter 统一
+## 新任务：SciForge 品牌替换与兼容迁移
 
-目标：让 Codex、Claude Code、Kun 都能通过统一 runtime contract 暴露当前 active thread 的子智能体/子运行，并在侧边栏提供类似 Codex 的 children 展示面板。点击子项后展示状态、prompt、summary、usage；如果 runtime 提供 transcript，则可打开完整 transcript；如果 runtime 暴露真实 child thread，则可像普通 thread 一样进入聊天详情。
+目标：把项目从 DeepSeek GUI 品牌系统迁移为 SciForge，形成面向科学研究、特别是生命科学智能体的独立产品身份；同时继续支持 DeepSeek provider。
 
-### 统一数据模型
+### 品牌范围盘点
 
-- [x] 定义中性的 child run/thread 模型，覆盖 `agent`、`workflow`、`thread`、`remote` 等形态，避免把所有 runtime 强行建模成普通 thread。
-- [x] 在 shared runtime contract 中补充 children 查询或事件字段，范围限定为当前 active thread 的直接 children。
-- [x] 统一 status、prompt、summary、usage、transcriptRef、openAsThreadRef 等字段。
-- [x] 支持 runtime 能力降级：没有 transcript 时只展示摘要详情；没有真实 child thread 时不显示进入聊天详情入口。
+- [ ] 扫描 `DeepSeek GUI`、`DeepSeek-GUI`、`deepseek-gui`、`deepseekgui`、`DEEPSEEK_GUI`、`.deepseekgui` 等产品命名。
+- [ ] 将命中项分为用户可见品牌、发布/打包元数据、内部命名、兼容保留、DeepSeek provider 五类。
+- [ ] 建立 DeepSeek provider allowlist，覆盖 `DEEPSEEK_API_KEY`、DeepSeek model id、DeepSeek provider label 和兼容客户端。
+- [ ] 确认已有 SciForge 命名（model router、search、vision router、paper radar 等）与新品牌命名保持一致。
 
-### Claude Code Adapter：官方 SDK 单一路径
+### Logo 与视觉资产
 
-- [x] 将 Claude Code adapter 改为使用官方 `@anthropic-ai/claude-agent-sdk`。
-- [x] 删除旧的 `claude -p --output-format stream-json --verbose --bare` 进程解析实现，不保留双路径或兼容分支。
-- [x] 复用现有 model router 环境构造逻辑，确保 SDK subprocess 仍然只走本地 model router。
-- [x] SDK options 需要启用或接入 `forwardSubagentText`、`agentProgressSummaries`、`sessionStore` 等能力，以便结构化获取 subagent/workflow 状态和 transcript。
-- [x] 映射 Claude `Agent` tool 输出：`agentId`、`agentType/subagent_type`、`prompt`、`usage`、`totalTokens`、`status`、`outputFile`。
-- [x] 映射 Claude `Workflow` tool 输出：`taskId`、`runId`、`workflowName`、`summary`、`transcriptDir`、`scriptPath`、`status`。
-- [x] 读取或镜像 Claude subagent transcript：`subagents/agent-{agentId}.jsonl`。
-- [x] 不使用 `claude agents --json` 作为当前 thread children 来源；它属于 background agent view，不符合当前 active thread children 范围。
+- [ ] 以 `src/asset/img/logo.png` 作为新 SciForge 主 logo 输入资产。
+- [ ] 设计并生成应用图标、tray 图标、窗口图标、文档/README 展示图所需尺寸。
+- [ ] 评估是否需要补充 SVG/vector 版本，保证小尺寸、深浅背景和 macOS/Windows/Linux 打包效果。
+- [ ] 替换旧 `deepseek.png`、`deepseek.svg`、`deepseek_gui_tray.png` 的使用点。
+- [ ] 验证 Electron 窗口、系统托盘、安装包图标、启动加载态中均显示 SciForge 视觉资产。
 
-### Codex Adapter
+### 应用身份与发布元数据
 
-- [x] 基于当前 Codex app-server 协议补齐 subagent 支持，优先使用 runtime 原生 thread/source/collab-agent 事件。
-- [x] 映射 `collabAgentToolCall`、`receiverThreadIds`、`agentNickname`、`agentRole`、`threadSource: subagent` 等字段到统一 child 模型。
-- [x] 支持真实 child thread 的 `openAsThreadRef`，允许进入普通聊天详情。
-- [x] 如果本机 Codex 版本缺少某些协议字段，按能力降级，不额外发明非原生启动机制。
+- [ ] 更新 `package.json` 中的 `name`、`productName`、homepage、repository 等产品身份字段。
+- [ ] 更新 `electron-builder.config.cjs` 的 `appId`、`productName`、artifactName、图标路径和发布地址。
+- [ ] 确认 macOS bundle id、Windows 安装包、Linux AppImage 名称是否需要兼容旧版本升级。
+- [ ] 规划 `DEEPSEEK_GUI_*` 环境变量到 `SCIFORGE_*` 的迁移或兼容读取策略。
+- [ ] 更新 release、R2、auto-update、签名和打包脚本中的品牌名称。
 
-### Kun Adapter
+### 主进程与系统集成
 
-- [x] 复用 Kun 原生 `delegate_task` / `DelegationRuntime` / child run 记录。
-- [x] 将 Kun runtime event 的 `child` metadata 桥到统一 runtime contract。
-- [x] 映射 child run 的 status、prompt、summary、usage。
-- [x] 调研并补齐 Kun child transcript 持久化；如果 runtime 暂不提供，第一版只展示摘要详情。
+- [ ] 替换窗口标题、通知标题、菜单、tray tooltip、日志前缀中的 DeepSeek GUI 产品品牌。
+- [ ] 更新 app user model id、协议/URL scheme、IPC/service 名称中属于产品身份的命名。
+- [ ] 对 `.deepseekgui` 本地目录规划迁移到 `.sciforge`，并保留旧目录读取/迁移路径。
+- [ ] 对 `x-deepseek-gui-secret`、`deepseek-gui-router` 等内部标识设计兼容期或一次性迁移。
 
-### 侧边栏 Children 面板
+### Renderer 与本地化
 
-- [x] 在侧边栏加入“子智能体”分组，视觉风格参考 Codex 当前面板。
-- [x] 只展示当前 active thread 的直接 children，不展示其他 thread 或全局 background sessions。
-- [x] 子项展示短名称、状态、运行中/完成/失败等视觉标识。
-- [x] 点击子项打开详情：status、prompt、summary、usage。
-- [x] 详情中在可用时提供完整 transcript 查看。
-- [x] 详情中在可用时提供进入普通 thread 聊天详情的动作。
+- [ ] 替换启动文案、标题栏、设置页、关于页、侧边栏、空状态和错误信息中的 DeepSeek GUI 文案。
+- [ ] 更新 `src/renderer/src/locales/en/common.json` 和 `src/renderer/src/locales/zh/common.json` 的品牌翻译。
+- [ ] 检查 README、docs、help text、截图说明和插件页文案中的旧品牌。
+- [ ] 保持 DeepSeek provider 在设置、模型选择、API key 配置中的准确展示。
 
-### 验证
+### Provider 保留与回归验证
 
-- [x] Shared contract 单元测试覆盖 child 模型序列化、能力降级和 active thread 过滤。
-- [x] Claude Code adapter 测试覆盖 SDK model router env、Agent 输出映射、Workflow 输出映射和 transcript 引用。
-- [x] Codex adapter 测试覆盖 app-server subagent thread / collab agent 事件映射。
-- [x] Kun adapter 测试覆盖 `child` metadata 桥接和 child run 映射。
-- [x] Renderer 测试覆盖侧边栏 children 分组、点击详情、transcript/open thread 条件入口。
-- [x] 手动验证 Codex、Claude Code、Kun 三个 runtime 至少各完成一次 child run 展示路径；不支持的能力记录降级原因。
-  - Claude Code：通过本地 `127.0.0.1:3892` model router 发起真实 SDK 回合，`Agent` child run 完成；children 查询返回 `runtime: claude`、`childCount: 1`、`kind: agent`、`status: completed`、`transcriptRef` 可用，`openAsThreadRef` 按能力降级为空。
-  - Kun：通过原生 `delegate_task` / `DelegationRuntime` 触发 completed child run，并经 GUI adapter `listThreadChildren` 映射为 `runtime: kun`、`childCount: 1`、`kind: agent`、`status: completed`、prompt/summary/usage 可展示；child transcript 当前未持久化，`readChildTranscript` 返回 degraded reason。
-  - Codex：通过本地 `codex-cli 0.141.0` app-server 和 model router 发起真实回合；当前版本未暴露 native subagent/collab child，回合返回 `NO_NATIVE_CHILD_CAPABILITY`，children 查询 `childCount: 0`、`sinkChildEvents: 0`。按任务要求记录为本机 Codex 协议能力降级，不新增非原生启动机制。
+- [ ] 验证 DeepSeek provider 仍可在 model router 中配置、启动和调用。
+- [ ] 覆盖 DeepSeek provider 相关单元测试，确保 provider id、API key、model id 不被品牌替换破坏。
+- [ ] 覆盖 SciForge 产品命名单元测试，确保 app identity、build config、runtime settings 使用新品牌。
+- [ ] 使用 `rg` 验证旧产品品牌只出现在 allowlist、迁移兼容代码或历史文档中。
+- [ ] 运行 `npm test`、`npm run typecheck`、必要的打包 dry run 和本地 Electron 启动验证。
