@@ -9,7 +9,7 @@ describe('buildSddVerifyPrompt', () => {
       planRelativePath: '.deepseekgui/plan/sdd-123e4567-e89b-12d3-a456-426614174000.md'
     })
 
-    expect(prompt).toContain('DeepSeek GUI is asking you to verify')
+    expect(prompt).toContain('SciForge is asking you to verify')
     expect(prompt).toContain('Workspace: /tmp/ws')
     expect(prompt).toContain('Requirement file: .deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md')
     expect(prompt).toContain('Implementation plan: .deepseekgui/plan/sdd-123e4567-e89b-12d3-a456-426614174000.md')

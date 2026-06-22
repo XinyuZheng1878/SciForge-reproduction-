@@ -7,12 +7,14 @@ import { configureLogger } from './logger'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
+  DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   defaultKunRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultRuntimeGuardSettings,
   defaultScheduleSettings,
   defaultWriteSettings,
+  LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   type AppSettingsV1
 } from '../shared/app-settings'
 import { KunConfigSchema } from '../../kun/src/config/kun-config.js'
@@ -439,7 +441,12 @@ describe('syncGuiManagedKunConfig', () => {
       }
     })
     expect(parsed.models.profiles['deepseek-v4-flash']).toMatchObject({
-      aliases: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-gui-router'],
+      aliases: [
+        'deepseek-chat',
+        'deepseek-reasoner',
+        DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+        LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
+      ],
       contextWindowTokens: 1_000_000,
       contextCompaction: {
         softThreshold: 980_000,

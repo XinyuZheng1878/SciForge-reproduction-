@@ -1,14 +1,6 @@
 import { app } from 'electron'
-
-/**
- * 项目对外展示的产品名,需要和:
- *   - package.json#productName
- *   - electron-builder.config.cjs#productName
- *   - tray 菜单和 tooltip
- * 保持一致。Windows 任务栏 / 系统托盘 / 通知中心看到的应用名都来自
- * 这条字符串(在打包产物里还会被写进 VERSIONINFO)。
- */
-export const APP_PRODUCT_NAME = 'DeepSeek GUI'
+export { APP_PRODUCT_NAME } from '../shared/app-brand'
+import { APP_PRODUCT_NAME } from '../shared/app-brand'
 
 /**
  * 在 main 进程最早期调用,把 app 的对外名称设好。

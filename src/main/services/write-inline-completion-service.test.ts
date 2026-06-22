@@ -134,7 +134,7 @@ describe('requestWriteInlineCompletion', () => {
         kind: 'short',
         text: ' only a test'
       },
-      model: 'deepseek-gui-router',
+      model: 'sciforge-router',
       mode: 'short'
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -147,11 +147,11 @@ describe('requestWriteInlineCompletion', () => {
     })
     const body = JSON.parse(String(init.body)) as { input: string; suffix?: string; max_tokens: number }
     expect(body).toMatchObject({
-      model: 'deepseek-gui-router',
+      model: 'sciforge-router',
       max_tokens: 64
     })
     expect(body.suffix).toBeUndefined()
-    expect(body.input).toContain('DeepSeek GUI inline completion')
+    expect(body.input).toContain('SciForge inline completion')
     expect(body.input).toContain('Return only the text to insert at the cursor')
     expect(body.input).not.toContain('<<<SHORT')
     expect(body.input).toContain('<<<PREFIX')
@@ -163,7 +163,7 @@ describe('requestWriteInlineCompletion', () => {
       ok: true,
       completion: ' only a test',
       mode: 'short',
-      model: 'deepseek-gui-router'
+      model: 'sciforge-router'
     })
   })
 
@@ -204,7 +204,7 @@ describe('requestWriteInlineCompletion', () => {
       suffix: ' a test.',
       responseChars: 0
     })
-    expect(debugEntries[0].prompt).toContain('DeepSeek GUI inline completion')
+    expect(debugEntries[0].prompt).toContain('SciForge inline completion')
     expect(debugEntries[0].prompt.endsWith('# Draft\n\nThis is')).toBe(true)
   })
 
@@ -225,11 +225,11 @@ describe('requestWriteInlineCompletion', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      model: 'deepseek-gui-router'
+      model: 'sciforge-router'
     })
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(JSON.parse(String(init.body))).toMatchObject({
-      model: 'deepseek-gui-router'
+      model: 'sciforge-router'
     })
   })
 
@@ -255,12 +255,12 @@ describe('requestWriteInlineCompletion', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      model: 'deepseek-gui-router'
+      model: 'sciforge-router'
     })
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('http://127.0.0.1:3892/v1/responses')
     expect(JSON.parse(String(init.body))).toMatchObject({
-      model: 'deepseek-gui-router'
+      model: 'sciforge-router'
     })
   })
 
@@ -438,7 +438,7 @@ describe('requestWriteInlineCompletion', () => {
         startColumn: 1,
         endLine: 3,
         endColumn: 38,
-        original: 'DeepSeek GUI keeps text editing local.'
+        original: 'SciForge keeps text editing local.'
       },
       recentEdits: [{
         source: 'user' as const,
@@ -446,7 +446,7 @@ describe('requestWriteInlineCompletion', () => {
         filePath: '/tmp/workspace/draft.md',
         from: 9,
         to: 21,
-        deletedText: 'DeepSeek GUI',
+        deletedText: 'SciForge',
         insertedText: 'Write mode',
         beforeContext: '',
         afterContext: ' keeps text editing local.'
@@ -463,7 +463,7 @@ describe('requestWriteInlineCompletion', () => {
         replacement: 'Write mode keeps text editing local.',
         from: 9,
         to: 47,
-        original: 'DeepSeek GUI keeps text editing local.',
+        original: 'SciForge keeps text editing local.',
         scopeKind: 'paragraph'
       }
     })
@@ -483,7 +483,7 @@ describe('requestWriteInlineCompletion', () => {
     expect(body.prompt).toBeUndefined()
     expect(body.suffix).toBeUndefined()
     expect(body.messages).toBeUndefined()
-    expect(body.instructions).toContain('DeepSeek GUI inline writing')
+    expect(body.instructions).toContain('SciForge inline writing')
     expect(body.input).toContain('Recent local edits in this file')
     expect(body.input).toContain('Editable local scope if EDIT is the best action')
     expect(body.input).toContain('<<<EDIT_SCOPE')
@@ -511,7 +511,7 @@ describe('requestWriteInlineCompletion', () => {
         startColumn: 1,
         endLine: 3,
         endColumn: 38,
-        original: 'DeepSeek GUI keeps text editing local.'
+        original: 'SciForge keeps text editing local.'
       }
     }
 
@@ -561,7 +561,7 @@ describe('requestWriteInlineCompletion', () => {
         startColumn: 1,
         endLine: 3,
         endColumn: 38,
-        original: 'DeepSeek GUI keeps text editing local.'
+        original: 'SciForge keeps text editing local.'
       }
     }
 
@@ -569,7 +569,7 @@ describe('requestWriteInlineCompletion', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      model: 'deepseek-gui-router',
+      model: 'sciforge-router',
       mode: 'edit'
     })
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
@@ -581,7 +581,7 @@ describe('requestWriteInlineCompletion', () => {
     const request = createRequest()
 
     const prompt = buildWriteInlineCompletionPrompt(request, null)
-    expect(prompt).toContain('DeepSeek GUI inline completion')
+    expect(prompt).toContain('SciForge inline completion')
     expect(prompt).toContain('<<<PREFIX')
     expect(prompt).toContain('<<<SUFFIX')
     expect(prompt).not.toContain('<<<SHORT')
@@ -604,7 +604,7 @@ describe('parseWriteInlineAction', () => {
       editTarget: {
         from: 9,
         to: 21,
-        original: 'DeepSeek GUI',
+        original: 'SciForge',
         scopeKind: 'selection'
       }
     })).toEqual({
@@ -612,7 +612,7 @@ describe('parseWriteInlineAction', () => {
       replacement: 'Write mode',
       from: 9,
       to: 21,
-      original: 'DeepSeek GUI',
+      original: 'SciForge',
       scopeKind: 'selection'
     })
   })

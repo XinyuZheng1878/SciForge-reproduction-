@@ -53,7 +53,7 @@ const labels: Record<string, string> = {
   codexCommandPlaceholder: 'codex',
   codexHome: 'Codex home',
   codexHomeDesc: 'Codex home description',
-  codexHomePlaceholder: '~/.deepseekgui/codex',
+  codexHomePlaceholder: '~/.sciforge/codex',
   codexProfile: 'Profile',
   codexProfileDesc: 'Profile description',
   codexProfilePlaceholder: 'default',
@@ -73,7 +73,7 @@ const labels: Record<string, string> = {
   claudeCommandPlaceholder: 'claude',
   claudeConfigDir: 'Claude config dir',
   claudeConfigDirDesc: 'Claude config dir description',
-  claudeConfigDirPlaceholder: '~/.deepseekgui/claude-code',
+  claudeConfigDirPlaceholder: '~/.sciforge/claude-code',
   claudeModel: 'Model note',
   claudeModelDesc: 'Model note description',
   claudeApprovalPolicyDesc: 'Claude approval description',
@@ -453,17 +453,17 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     expect(patch.agents?.kun).toBeUndefined()
   })
 
-  it('renders runtime selection and Codex settings form', () => {
+  it('renders Codex and Claude settings forms without the runtime selector', () => {
     const ctx = {
       ...baseCtx(),
       activeAgentRuntime: 'codex'
     }
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx }))
 
-    expect(html).toContain('Agent runtime')
-    expect(html).toContain('<option value="kun">Kun</option>')
-    expect(html).toContain('<option value="codex" selected="">Codex app-server</option>')
-    expect(html).toContain('<option value="claude">Claude Code CLI</option>')
+    expect(html).not.toContain('Agent runtime')
+    expect(html).not.toContain('<option value="kun">Kun</option>')
+    expect(html).not.toContain('<option value="codex" selected="">Codex app-server</option>')
+    expect(html).not.toContain('<option value="claude">Claude Code CLI</option>')
     expect(html).toContain('Codex app-server')
     expect(html).toContain('Claude Code CLI')
     expect(html).toContain('Command')
@@ -525,7 +525,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     expect(html).toContain('Runtime API key')
     expect(html).toContain('Auto-generated local credential used between the app and router.')
     expect(html).toContain('Public model alias')
-    expect(html).toContain('value="deepseek-gui-router"')
+    expect(html).toContain('value="sciforge-router"')
     expect(html).toContain('Model Router config file')
     expect(html).toContain('Open Model Router config file')
     expect(html).not.toContain('Text member provider')

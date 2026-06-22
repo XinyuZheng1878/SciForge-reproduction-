@@ -7,6 +7,8 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
   defaultKunTokenEconomySettings,
+  DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+  LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   isKunRuntimeInsecure,
   normalizeRuntimeGuardSettings,
   resolveKunRuntimeSettings,
@@ -139,7 +141,7 @@ const DEFAULT_KUN_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
     messageParts: ['text', 'image_url']
   },
   'deepseek-v4-flash': {
-    aliases: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-gui-router'],
+    aliases: ['deepseek-chat', 'deepseek-reasoner', DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS, LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS],
     contextWindowTokens: 1_000_000,
     contextCompaction: {
       softThreshold: 980_000,

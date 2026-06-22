@@ -39,7 +39,7 @@ function settings(dataDir: string, model = 'settings-model'): AppSettingsV1 {
     modelRouter: {
       ...defaultModelRouterSettings(),
       baseUrl: 'http://127.0.0.1:49876/v1',
-      publicModelAlias: 'deepseek-gui-router',
+      publicModelAlias: 'sciforge-router',
       runtimeApiKey: 'local-runtime-router-key'
     },
     agents: {
@@ -96,7 +96,7 @@ describe('upstream model picker list', () => {
       'auto',
       'deepseek-v4-pro',
       'deepseek-v4-flash',
-      'deepseek-gui-router',
+      'sciforge-router',
       'legacy-model',
       'custom-model',
       'vendor/custom-model'
@@ -128,7 +128,7 @@ describe('upstream model picker list', () => {
       })
       return new Response(JSON.stringify({
         object: 'list',
-        data: [{ id: 'deepseek-gui-router', object: 'model' }]
+        data: [{ id: 'sciforge-router', object: 'model' }]
       }), { status: 200 })
     })
 
@@ -146,7 +146,7 @@ describe('upstream model picker list', () => {
       })
     ])
     if (result.ok) {
-      expect(result.modelIds).toContain('deepseek-gui-router')
+      expect(result.modelIds).toContain('sciforge-router')
       expect(result.modelIds).toContain('custom-provider-model')
       expect(result.modelGroups).toEqual(expect.arrayContaining([
         expect.objectContaining({

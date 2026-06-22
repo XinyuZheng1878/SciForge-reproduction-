@@ -1,6 +1,7 @@
 import {
   DEFAULT_MODEL_ROUTER_BASE_URL,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+  LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   type AppSettingsV1,
   type ModelRouterMemberProviderSettingsPatchV1,
   type ModelRouterMemberProviderSettingsV1,
@@ -36,7 +37,7 @@ export function normalizeModelRouterSettings(
     enabled: input?.enabled !== false,
     baseUrl: normalizeLocalModelRouterBaseUrl(input?.baseUrl, defaults.baseUrl),
     autoStart: input?.autoStart !== false,
-    publicModelAlias: nonEmptyString(input?.publicModelAlias, defaults.publicModelAlias),
+    publicModelAlias: normalizeModelRouterPublicModelAlias(input?.publicModelAlias, defaults.publicModelAlias),
     runtimeApiKey: optionalString(input?.runtimeApiKey),
     profiles: {
       default: {
@@ -130,6 +131,11 @@ function normalizeLocalModelRouterBaseUrl(value: unknown, fallback: string): str
   const raw = typeof value === 'string' ? value.trim().replace(/\/+$/, '') : ''
   const baseUrl = raw || fallback
   return baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`
+}
+
+function normalizeModelRouterPublicModelAlias(value: unknown, fallback: string): string {
+  const alias = nonEmptyString(value, fallback)
+  return alias === LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS ? DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS : alias
 }
 
 function nonEmptyString(value: unknown, fallback: string): string {

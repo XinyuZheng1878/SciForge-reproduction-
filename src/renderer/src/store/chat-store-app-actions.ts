@@ -1,5 +1,9 @@
 import type i18next from 'i18next'
-import type { AppSettingsV1 } from '@shared/app-settings'
+import {
+  getActiveAgentRuntime,
+  type AgentRuntimeId,
+  type AppSettingsV1
+} from '@shared/app-settings'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import type { ChatState, ChatStoreGet, ChatStoreSet, InitialSetupMode, PluginHostRoute, SettingsRouteSection } from './chat-store-types'
 
@@ -23,6 +27,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
   ChatState,
   | 'setError'
   | 'setComposerModel'
+  | 'setActiveAgentRuntime'
   | 'loadComposerModels'
   | 'setRoute'
   | 'openWrite'
@@ -60,6 +65,25 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
     setComposerModel: (modelId) => {
       persistComposerModel(modelId)
       set({ composerModel: modelId })
+    },
+
+    setActiveAgentRuntime: async (runtimeId: AgentRuntimeId) => {
+      try {
+        const saved = await rendererRuntimeClient.setSettings({ activeAgentRuntime: runtimeId })
+        const activeAgentRuntime = getActiveAgentRuntime(saved)
+        set({
+          activeAgentRuntime,
+          runtimeConnection: 'checking',
+          error: null,
+          runtimeErrorDetail: null
+        })
+        await get().probeRuntime('user')
+      } catch (error) {
+        set({
+          error: error instanceof Error ? error.message : String(error),
+          runtimeConnection: 'offline'
+        })
+      }
     },
 
     loadComposerModels: async () => {
@@ -153,6 +177,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
       set({
         workspaceRoot,
         workspaceLabel: workspaceLabelFromPath(workspaceRoot),
+        activeAgentRuntime: getActiveAgentRuntime(settings),
         clawChannels: settings.claw.channels,
         activeClawChannelId: settings.claw.channels.some(
           (channel) => channel.id === get().activeClawChannelId && channel.enabled

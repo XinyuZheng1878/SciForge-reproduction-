@@ -208,7 +208,7 @@ function metadataPath(dataDir: string, checkpointId: string): string {
 }
 
 function checkpointRef(checkpointId: string): string {
-  return `refs/deepseek-gui/checkpoints/${checkpointId.replace(/[^A-Za-z0-9._-]/g, '_')}`
+  return `refs/sciforge/checkpoints/${checkpointId.replace(/[^A-Za-z0-9._-]/g, '_')}`
 }
 
 function safeCheckpointId(raw: string): string {

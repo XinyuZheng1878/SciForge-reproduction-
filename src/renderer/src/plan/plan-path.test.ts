@@ -9,7 +9,7 @@ import {
 describe('plan-path', () => {
   it('keeps readable Chinese feature names', () => {
     expect(planFeatureNameFromRequest('做一个登录页')).toBe('做一个登录页')
-    expect(buildPlanRelativePath('做一个登录页')).toBe('.deepseekgui/plan/做一个登录页.md')
+    expect(buildPlanRelativePath('做一个登录页')).toBe('.sciforge/plan/做一个登录页.md')
   })
 
   it('normalizes English spacing and illegal filename characters', () => {
@@ -18,20 +18,21 @@ describe('plan-path', () => {
 
   it('falls back for empty or unsafe names', () => {
     expect(planFeatureNameFromRequest('../')).toBe('plan')
-    expect(buildPlanRelativePath('../')).toBe('.deepseekgui/plan/plan.md')
+    expect(buildPlanRelativePath('../')).toBe('.sciforge/plan/plan.md')
   })
 
   it('selects the next available duplicate path', () => {
     expect(
       nextAvailablePlanRelativePath('login', [
-        '.deepseekgui/plan/login.md',
-        '.deepseekgui/plan/login-2.md'
+        '.sciforge/plan/login.md',
+        '.sciforge/plan/login-2.md'
       ])
-    ).toBe('.deepseekgui/plan/login-3.md')
+    ).toBe('.sciforge/plan/login-3.md')
   })
 
   it('accepts only direct markdown files inside the GUI plan directory', () => {
     expect(isGuiPlanRelativePath('.kunsdd/plan/login.md')).toBe(true)
+    expect(isGuiPlanRelativePath('.sciforge/plan/login.md')).toBe(true)
     expect(isGuiPlanRelativePath('.deepseekgui/plan/login.md')).toBe(true)
     expect(isGuiPlanRelativePath('.kunsdd/plan/nested/login.md')).toBe(false)
     expect(isGuiPlanRelativePath('../.kunsdd/plan/login.md')).toBe(false)

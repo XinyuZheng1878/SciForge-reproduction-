@@ -99,13 +99,16 @@ describe('buildModelRouterSidecarLaunch', () => {
       '/tmp/workspace',
       '--quiet'
     ])
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_TEXT_API_KEY).toBe('text-secret')
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_VISION_API_KEY).toBe('vision-secret')
     expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
     expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY).toBe('text-secret')
     expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_VISION_API_KEY).toBe('vision-secret')
     expect(result.launch.config?.profiles.default.textReasoner).toEqual({
       provider: 'openai-compatible',
       baseUrl: 'http://127.0.0.1:3892/v1',
-      apiKeyEnv: 'DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY',
+      apiKeyEnv: 'SCIFORGE_MODEL_ROUTER_TEXT_API_KEY',
       model: 'deepseek-v4-pro'
     })
     expect(JSON.stringify(result.launch.config)).not.toContain('text-secret')
@@ -127,6 +130,7 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.launch.configPath).toBe('/tmp/deepseek-gui-user-data/model-router/config.json')
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
     expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
   })
 
@@ -148,7 +152,8 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.launch.configPath).toBe('/tmp/deepseek-gui-user-data/model-router/config.json')
-    expect(result.launch.config?.profiles.default.textReasoner.apiKeyEnv).toBe('DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY')
+    expect(result.launch.config?.profiles.default.textReasoner.apiKeyEnv).toBe('SCIFORGE_MODEL_ROUTER_TEXT_API_KEY')
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_TEXT_API_KEY).toBe('')
     expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY).toBe('')
     expect(result.launch.args).toContain('/tmp/deepseek-gui-user-data/model-router/config.json')
   })
@@ -166,9 +171,9 @@ describe('buildModelRouterSidecarLaunch', () => {
 
       expect(created.created).toBe(true)
       expect(created.path).toBe(modelRouterConfigPath(userDataDir))
-      expect(content).toContain('"publicModelAlias": "deepseek-gui-router"')
+      expect(content).toContain('"publicModelAlias": "sciforge-router"')
       expect(content).toContain('"baseUrl": "https://text.example/v1"')
-      expect(content).toContain('"apiKeyEnv": "DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY"')
+      expect(content).toContain('"apiKeyEnv": "SCIFORGE_MODEL_ROUTER_TEXT_API_KEY"')
       expect(content).toContain('"model": "deepseek-v4-pro"')
       expect(content).not.toContain('text-secret')
 
@@ -246,10 +251,10 @@ describe('buildModelRouterSidecarLaunch', () => {
 
       const content = await readFile(modelRouterConfigPath(userDataDir), 'utf8')
       const parsed = JSON.parse(content)
-      expect(parsed.publicModelAlias).toBe('deepseek-gui-router')
+      expect(parsed.publicModelAlias).toBe('sciforge-router')
       expect(parsed.profiles.default.textReasoner.baseUrl).toBe('http://127.0.0.1:48767/v1')
       expect(parsed.profiles.default.textReasoner.model).toBe('deepseek-v4-pro')
-      expect(content).toContain('"apiKeyEnv": "DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY"')
+      expect(content).toContain('"apiKeyEnv": "SCIFORGE_MODEL_ROUTER_TEXT_API_KEY"')
       expect(content).not.toContain('provider-secret')
       expect(spawnImpl).toHaveBeenCalledTimes(1)
       child.emit('exit', 0, null)

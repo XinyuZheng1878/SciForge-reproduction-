@@ -861,7 +861,7 @@ describe('FloatingComposer capability controls', () => {
 
     expect(html).toContain('deepseek-v4-pro')
     expect(html).toContain('Ultra')
-    expect(html).toContain('Model and reasoning settings')
+    expect(html).toContain('Runtime, model, and reasoning settings')
     expect(html).not.toContain('>Auto<')
     expect(html).not.toContain('<option value=""></option>')
     expect(html).not.toContain('Default (thread)')
@@ -883,9 +883,30 @@ describe('FloatingComposer capability controls', () => {
 
     expect(html).toContain('deepseek-v4-flash')
     expect(html).toContain('High')
-    expect(html).toContain('Model and reasoning settings')
+    expect(html).toContain('Runtime, model, and reasoning settings')
     expect(html).toContain('aria-haspopup="menu"')
     expect(html).not.toContain('<input')
+  })
+
+  it('shows the active runtime as a short lowercase label in the model picker', () => {
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposerModelPicker, {
+        compact: true,
+        mode: 'combobox',
+        composerModel: 'deepseek-v4-flash',
+        composerPickList: ['auto', 'deepseek-v4-flash', 'deepseek-v4-pro'],
+        activeAgentRuntime: 'claude',
+        canChangeModel: true,
+        composerReasoningEffort: 'high',
+        onActiveAgentRuntimeChange: () => undefined,
+        onComposerReasoningEffortChange: () => undefined,
+        onComposerModelChange: () => undefined
+      })
+    )
+
+    expect(html).toContain('claude')
+    expect(html).not.toContain('Claude Code CLI')
+    expect(html).toContain('Runtime, model, and reasoning settings')
   })
 
   it('shows a plan badge in the input toolbar when plan mode is enabled', () => {
@@ -947,9 +968,10 @@ describe('FloatingComposer capability controls', () => {
       })
     )
 
-    const attachButton = html.match(/<button[^>]*aria-label="Attach file"[^>]*>/)?.[0] ?? ''
-    expect(attachButton).toContain('aria-label="Attach file"')
-    expect(attachButton).not.toContain('disabled=""')
+    const menuButton = html.match(/<button[^>]*aria-label="More actions"[^>]*>/)?.[0] ?? ''
+    expect(menuButton).toContain('aria-label="More actions"')
+    expect(menuButton).not.toContain('disabled=""')
+    expect(html).not.toContain('aria-label="Attach file"')
     expect(html).toContain('type="file"')
     expect(html).toContain('.fasta')
   })
@@ -1006,17 +1028,22 @@ describe('FloatingComposer capability controls', () => {
         onInterrupt: () => undefined,
         fileReferenceEnabled: true,
         fileReferences: [{
-          path: '/workspace/deepseek-gui/src/App.tsx',
-          relativePath: 'src/App.tsx',
-          name: 'App.tsx'
+          path: '/workspace/deepseek-gui/papers/spec.pdf',
+          relativePath: 'papers/spec.pdf',
+          name: 'spec.pdf',
+          kind: 'pdf',
+          mimeType: 'application/pdf'
         }],
+        onPreviewFileReference: () => undefined,
         onRemoveFileReference: () => undefined,
         attachmentUploadEnabled: false,
         webAccessAvailable: false
       })
     )
 
-    expect(html).toContain('src/App.tsx')
+    expect(html).toContain('papers/spec.pdf')
+    expect(html).toContain('Open papers/spec.pdf')
+    expect(html).toContain('PDF')
     expect(html).toContain('Remove file reference')
     expect(html).toContain('aria-label="Send"')
     expect(html).not.toContain('aria-label="Send" disabled=""')

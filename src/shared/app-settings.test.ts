@@ -1062,7 +1062,7 @@ describe('legacy Kun defaults migration', () => {
         apiKey: '',
         baseUrl: 'http://127.0.0.1:3892/v1',
         endpointFormat: 'responses',
-        model: 'deepseek-gui-router'
+        model: 'sciforge-router'
       })
     )
   })
@@ -1314,7 +1314,7 @@ describe('write inline completion runtime config', () => {
   it('uses the Model Router public alias instead of the Kun model', () => {
     const state = settings()
     state.agents.kun.model = 'deepseek-chat'
-    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-gui-router')
+    expect(resolveWriteInlineCompletionModel(state)).toBe('sciforge-router')
   })
 
   it('ignores explicit write model overrides for runtime-facing calls', () => {
@@ -1323,13 +1323,13 @@ describe('write inline completion runtime config', () => {
     state.write.inlineCompletion.inheritModel = false
     state.write.inlineCompletion.model = 'deepseek-v4-flash'
 
-    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-gui-router')
+    expect(resolveWriteInlineCompletionModel(state)).toBe('sciforge-router')
   })
 
   it('ignores explicit request models for runtime-facing calls', () => {
     const state = settings()
     state.agents.kun.model = 'deepseek-chat'
-    expect(resolveWriteInlineCompletionModel(state, 'deepseek-v4-pro')).toBe('deepseek-gui-router')
+    expect(resolveWriteInlineCompletionModel(state, 'deepseek-v4-pro')).toBe('sciforge-router')
   })
 
   it('tolerates legacy write inline settings without new override fields', () => {
@@ -1351,7 +1351,7 @@ describe('write inline completion runtime config', () => {
 
     expect(resolveWriteInlineCompletionApiKey(state)).toBe('local-runtime-router-key')
     expect(resolveWriteInlineCompletionBaseUrl(state)).toBe('http://127.0.0.1:3892/v1')
-    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-gui-router')
+    expect(resolveWriteInlineCompletionModel(state)).toBe('sciforge-router')
   })
 
   it('keeps legacy flash defaults behind the Model Router public alias', () => {
@@ -1364,6 +1364,6 @@ describe('write inline completion runtime config', () => {
     delete legacyInlineCompletion.inheritModel
     state.write.inlineCompletion = legacyInlineCompletion as AppSettingsV1['write']['inlineCompletion']
 
-    expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-gui-router')
+    expect(resolveWriteInlineCompletionModel(state)).toBe('sciforge-router')
   })
 })

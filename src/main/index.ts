@@ -6,11 +6,11 @@ import {
   JsonSettingsStore,
   devServerHintUrl
 } from './settings-store'
-import deepseekLogoPng from '../asset/img/deepseek.png?url'
-import deepseekTrayPng from '../asset/img/deepseek_gui_tray.png?url'
+import sciforgeLogoPng from '../asset/img/sciforge.png?url'
+import sciforgeTrayPng from '../asset/img/sciforge_tray.png?url'
 import { createAppIcon, pickTrayIcon } from './app-icon'
 import { configureLinuxWaylandImeSwitches } from './app-command-line'
-import { configureAppIdentity } from './app-identity'
+import { APP_PRODUCT_NAME, configureAppIdentity } from './app-identity'
 import {
   applyCodexRuntimePatch,
   applyClaudeRuntimePatch,
@@ -104,11 +104,12 @@ import {
   type KunUnexpectedExitInfo
 } from './kun-process'
 import { RestartBudget, type KunRuntimeStatus } from './kun-runtime-supervisor'
+import { APP_USER_MODEL_ID } from '../shared/app-brand'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const APP_USER_MODEL_ID = 'com.xingyuzhong.deepseekgui'
 const HIDDEN_START_ARG = '--hidden'
-const startupTraceEnabled = process.env.DEEPSEEK_GUI_STARTUP_TRACE === '1'
+const startupTraceEnabled =
+  process.env.SCIFORGE_STARTUP_TRACE === '1' || process.env.DEEPSEEK_GUI_STARTUP_TRACE === '1'
 const startupTraceStart = Date.now()
 
 function traceStartup(label: string, detail?: unknown): void {
@@ -419,9 +420,9 @@ function installDevPreviewWebviewGuards(): void {
 }
 
 
-const appIcon = createAppIcon(deepseekLogoPng)
-const trayIcon = createAppIcon(deepseekTrayPng)
-traceStartup('app icon loaded', { source: deepseekLogoPng.startsWith('data:') ? 'data-url' : 'path' })
+const appIcon = createAppIcon(sciforgeLogoPng)
+const trayIcon = createAppIcon(sciforgeTrayPng)
+traceStartup('app icon loaded', { source: sciforgeLogoPng.startsWith('data:') ? 'data-url' : 'path' })
 const gotSingleInstanceLock = runningClawScheduleMcpServer || app.requestSingleInstanceLock()
 traceStartup('single instance lock checked', {
   gotSingleInstanceLock,
@@ -431,15 +432,15 @@ traceStartup('single instance lock checked', {
 function trayLabels(locale: AppSettingsV1['locale']): { show: string; quit: string; tooltip: string } {
   if (locale === 'zh') {
     return {
-      show: '显示 DeepSeek GUI',
+      show: `显示 ${APP_PRODUCT_NAME}`,
       quit: '退出',
-      tooltip: 'DeepSeek GUI'
+      tooltip: APP_PRODUCT_NAME
     }
   }
   return {
-    show: 'Show DeepSeek GUI',
+    show: `Show ${APP_PRODUCT_NAME}`,
     quit: 'Quit',
-    tooltip: 'DeepSeek GUI'
+    tooltip: APP_PRODUCT_NAME
   }
 }
 
@@ -466,7 +467,7 @@ function syncLoginItemSettings(settings: AppSettingsV1): void {
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.warn('[deepseek-gui] failed to update login item settings:', error)
+    console.warn('[sciforge] failed to update login item settings:', error)
     logWarn('desktop-behavior', 'Failed to update login item settings.', { message })
   }
 }
@@ -539,7 +540,7 @@ async function showTurnCompleteNotification(
     return { ok: true, shown: false, reason: 'unsupported' }
   }
 
-  const title = normalizeNotificationText(payload.title, 'DeepSeek GUI', 80)
+  const title = normalizeNotificationText(payload.title, APP_PRODUCT_NAME, 80)
   const body = normalizeNotificationText(payload.body, 'Conversation complete.', 180)
 
   try {
@@ -1024,7 +1025,7 @@ async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
     noteRuntimeHealthy('ensure')
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
-    console.error('[deepseek-gui] failed to start kun:', e)
+    console.error('[sciforge] failed to start kun:', e)
     publishRuntimeStatus({
       state: 'failed',
       source: 'ensure',
@@ -1072,7 +1073,7 @@ async function restartRuntimeOnce(settings: AppSettingsV1): Promise<void> {
   try {
     await adapter.ensureRunning(launchSettings)
   } catch (e) {
-    console.error('[deepseek-gui] failed to restart kun:', e)
+    console.error('[sciforge] failed to restart kun:', e)
     throw e
   }
 
@@ -1114,7 +1115,7 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
   }
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
     const message = error instanceof Error ? error.message : String(error)
-    console.error(`[deepseek-gui] failed to load preload ${preloadPath}:`, error)
+    console.error(`[sciforge] failed to load preload ${preloadPath}:`, error)
     logError('preload', 'Failed to load preload script', { preloadPath, message })
   })
   const showWindow = (): void => {
@@ -1226,7 +1227,7 @@ async function restartManagedRuntimeForSettingsChange(
     publishRuntimeStatus({ state: 'running', source: 'settings-apply' })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
-    console.warn('[deepseek-gui] Kun restart failed after settings change:', e)
+    console.warn('[sciforge] Kun restart failed after settings change:', e)
     publishRuntimeStatus({
       state: 'failed',
       source: 'settings-apply',
@@ -1257,7 +1258,7 @@ async function restartManagedRuntimeForMcpConfigChange(settings: AppSettingsV1):
     publishRuntimeStatus({ state: 'running', source: 'mcp-config' })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
-    console.warn('[deepseek-gui] Kun restart failed after MCP config change:', e)
+    console.warn('[sciforge] Kun restart failed after MCP config change:', e)
     publishRuntimeStatus({
       state: 'failed',
       source: 'mcp-config',
@@ -1552,19 +1553,19 @@ app.whenReady().then(async () => {
     logError
   })
 
-  if (!app.isPackaged && process.env.DEEPSEEK_GUI_DEV_BROWSER_BRIDGE !== '0') {
+  if (!app.isPackaged && process.env.SCIFORGE_DEV_BROWSER_BRIDGE !== '0' && process.env.DEEPSEEK_GUI_DEV_BROWSER_BRIDGE !== '0') {
     void startDevBrowserBridgeServer({
       dispatcher: appBridgeDispatcher
     }).then((server) => {
       devBrowserBridgeServer = server
-      console.info(`[deepseek-gui dev] browser bridge listening at ${server.url}`)
+      console.info(`[sciforge dev] browser bridge listening at ${server.url}`)
     }).catch((error) => {
-      console.warn('[deepseek-gui dev] failed to start browser bridge:', error)
+      console.warn('[sciforge dev] failed to start browser bridge:', error)
     })
   }
 
   void loadGuiUpdaterModule().catch((error) => {
-    console.warn('[deepseek-gui updater] failed to initialize on startup:', error)
+    console.warn('[sciforge updater] failed to initialize on startup:', error)
   })
 
   traceStartup('ipc registration:done')
@@ -1574,13 +1575,13 @@ app.whenReady().then(async () => {
   scheduleCodexRuntimePrewarm(initial, 'startup')
 
   void pruneOnStartup().catch((err) => {
-    console.warn('[deepseek-gui] prune logs:', err)
+    console.warn('[sciforge] prune logs:', err)
   })
 
   if (resolveConfiguredApiKey(initial)) {
     setTimeout(() => {
       void kunRuntimeAdapter.resolveExecutable(initial).catch((err) => {
-        console.warn('[deepseek-gui] prewarm Kun binary:', err)
+        console.warn('[sciforge] prewarm Kun binary:', err)
       })
     }, 1500)
   }
@@ -1595,15 +1596,15 @@ app.whenReady().then(async () => {
   })
 }).catch((error) => {
   const message = error instanceof Error ? error.message : String(error)
-  console.error('[deepseek-gui] startup failed:', error)
-  dialog.showErrorBox('DeepSeek GUI failed to start', message)
+  console.error('[sciforge] startup failed:', error)
+  dialog.showErrorBox(`${APP_PRODUCT_NAME} failed to start`, message)
   app.quit()
 })
 }
 
 app.on('window-all-closed', () => {
   void stopManagedRuntimes().catch((error) => {
-    console.warn('[deepseek-gui] failed to stop Kun runtime:', error)
+    console.warn('[sciforge] failed to stop Kun runtime:', error)
   })
   if (process.platform !== 'darwin') {
     app.quit()
@@ -1614,7 +1615,7 @@ app.on('will-quit', () => {
   const server = devBrowserBridgeServer
   devBrowserBridgeServer = null
   void server?.close().catch((error) => {
-    console.warn('[deepseek-gui dev] failed to stop browser bridge:', error)
+    console.warn('[sciforge dev] failed to stop browser bridge:', error)
   })
 })
 
@@ -1624,7 +1625,7 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   void stopManagedRuntimesForQuit()
     .catch((error) => {
-      console.warn('[deepseek-gui] failed to stop Kun runtime:', error)
+      console.warn('[sciforge] failed to stop Kun runtime:', error)
       managedRuntimesStoppedForQuit = true
     })
     .finally(() => {

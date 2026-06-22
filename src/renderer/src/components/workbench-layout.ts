@@ -19,10 +19,10 @@ const RIGHT_PANEL_DEFAULT = 360
 export const CODE_PANEL_PREFERRED = 560
 const LEFT_PANEL_MIN = 280
 const LEFT_PANEL_MAX = 480
-const RIGHT_PANEL_MIN = 280
-const RIGHT_PANEL_MAX = 760
+const RIGHT_PANEL_MIN = 0
+const RIGHT_PANEL_MAX = Number.POSITIVE_INFINITY
 const SIDEBAR_HARD_MIN = 180
-const MAIN_MIN_WIDTH = 560
+const MAIN_MIN_WIDTH = 0
 const PANEL_RESIZE_HANDLE_WIDTH = 5
 
 function clampWidth(value: number, min: number, max: number): number {
@@ -67,7 +67,7 @@ function persistRightPanelMode(mode: RightPanelMode): void {
   }
 }
 
-function fitWorkbenchWidths(
+export function fitWorkbenchWidths(
   containerWidth: number,
   leftWidth: number,
   rightWidth: number,

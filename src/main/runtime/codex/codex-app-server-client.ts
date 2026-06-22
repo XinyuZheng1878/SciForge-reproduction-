@@ -112,8 +112,8 @@ type PendingRequest = {
 const DEFAULT_COMMAND = 'codex'
 const DEFAULT_ARGS = ['app-server', '--listen', 'stdio://']
 const DEFAULT_CLIENT_INFO: CodexAppServerClientInfo = {
-  name: 'deepseek-gui',
-  title: 'DeepSeek GUI',
+  name: 'sciforge',
+  title: 'SciForge',
   version: '0.1.0'
 }
 

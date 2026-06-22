@@ -45,7 +45,8 @@ const DISCORD_INTENTS =
 const DISCORD_TEXT_CHANNEL_TYPES = new Set([0, 5])
 const MAX_DISCORD_MESSAGE_LENGTH = 2_000
 const MESSAGE_CONTENT_WARNING_INTERVAL_MS = 10 * 60_000
-const INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.deepseekgui/claw/'
+const INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.sciforge/claw/'
+const LEGACY_INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.deepseekgui/claw/'
 const DISCORD_MESSAGE_FAILURE_REPLY = 'Sorry, I could not process that message.'
 const DISCORD_COMMAND_FAILURE_REPLY = 'Sorry, I could not process that command.'
 const require = createRequire(import.meta.url)
@@ -338,6 +339,8 @@ function normalizeWorkspaceRoot(raw: string | null | undefined): string {
 function isInternalClawWorkspaceRoot(workspaceRoot: string): boolean {
   const normalized = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   return normalized.includes(INTERNAL_CLAW_WORKSPACE_FRAGMENT) ||
+    normalized.includes(LEGACY_INTERNAL_CLAW_WORKSPACE_FRAGMENT) ||
+    normalized.startsWith('~/.sciforge/claw/') ||
     normalized.startsWith('~/.deepseekgui/claw/')
 }
 
@@ -918,7 +921,7 @@ export class DiscordBotRuntime {
     try {
       const result = await this.sendChannelMessage({
         channelId,
-        text: text?.trim() || 'DeepSeek GUI Discord bot is connected.'
+        text: text?.trim() || 'SciForge Discord bot is connected.'
       })
       return result
     } catch (error) {
@@ -1152,8 +1155,8 @@ export class DiscordBotRuntime {
         intents: DISCORD_INTENTS,
         properties: {
           os: process.platform,
-          browser: 'deepseek-gui',
-          device: 'deepseek-gui'
+          browser: 'sciforge',
+          device: 'sciforge'
         }
       }
     }))
@@ -1195,7 +1198,7 @@ export class DiscordBotRuntime {
     this.connected = false
     if (socket) {
       socket.onclose = null
-      socket.close(1000, 'DeepSeek GUI Discord runtime stopped')
+      socket.close(1000, 'SciForge Discord runtime stopped')
     }
   }
 
@@ -1329,7 +1332,7 @@ export class DiscordBotRuntime {
       await this.sendInteractionReply({
         interactionId,
         interactionToken,
-        text: 'This Discord channel is not bound to an enabled DeepSeek GUI guard.'
+        text: 'This Discord channel is not bound to an enabled SciForge guard.'
       })
       return
     }
@@ -1589,7 +1592,7 @@ export class DiscordBotRuntime {
       ownerInstallationId,
       currentInstallationId,
       takeoverAvailable: true,
-      message: 'This bot/channel is being guarded by another DeepSeek GUI installation.'
+      message: 'This bot/channel is being guarded by another SciForge installation.'
     }
   }
 
@@ -1649,7 +1652,7 @@ export class DiscordBotRuntime {
         }
         if (socket) {
           socket.onclose = null
-          socket.close(1000, 'DeepSeek GUI Discord guild probe finished')
+          socket.close(1000, 'SciForge Discord guild probe finished')
           socket = null
         }
       }
@@ -1682,8 +1685,8 @@ export class DiscordBotRuntime {
                 intents: 1,
                 properties: {
                   os: process.platform,
-                  browser: 'deepseek-gui',
-                  device: 'deepseek-gui'
+                  browser: 'sciforge',
+                  device: 'sciforge'
                 }
               }
             }))

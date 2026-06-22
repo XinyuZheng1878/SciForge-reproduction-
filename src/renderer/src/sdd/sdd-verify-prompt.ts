@@ -1,5 +1,5 @@
 export const SDD_VERIFY_INTRO =
-  'DeepSeek GUI is asking you to verify an implemented SDD requirement draft against its acceptance criteria.'
+  'SciForge is asking you to verify an implemented SDD requirement draft against its acceptance criteria.'
 
 export function buildSddVerifyPrompt(options: {
   workspaceRoot: string

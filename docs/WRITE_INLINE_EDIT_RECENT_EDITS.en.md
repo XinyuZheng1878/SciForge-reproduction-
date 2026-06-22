@@ -12,7 +12,7 @@ The previous version of inline edit already had three types of context:
 
 These contexts can explain "what the current paragraph is", but they cannot explain "how the user just changed it". For example:
 
-1. The user manually changes the first `DeepSeek GUI` to `Write mode`.
+1. The user manually changes the first `SciForge` to `Write mode`.
 2. The user selects another word in the same paragraph and enters "Continue to change like this".
 
 Without recent edits, the model can only guess what "such" means. New ability to inject recent edits into the prompt as an intent signal.
@@ -33,7 +33,7 @@ In addition to leaving recent edits to the model for understanding, this round a
 When a user replaces one phrase with another all at once, for example:
 
 ```text
-deepseek gui -> DeepSeek GUI
+deepseek gui -> SciForge
 deepseek gui -> DXGUI
 
 ```
@@ -87,14 +87,14 @@ This can overwrite "what was changed in the last second" and avoid mistaking edi
 The main process adds a `Recent local edits` block to the provider prompt. For automatic short/long completions this is part of the hidden Markdown comment; for explicit edit requests it is included in the chat action prompt.
 
 ```markdown
-<!-- DeepSeek GUI inline edit.
+<!-- SciForge inline edit.
 ...
 User instruction: keep editing like this
 
 Recent local edits in this file. Treat these as intent signals...
 
 [1] 2s ago; source=user; range=20-32
-Deleted: DeepSeek GUI
+Deleted: SciForge
 Inserted: Write mode
 Around: Earlier term: [[edit]] should be consistent.
 

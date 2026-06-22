@@ -12,7 +12,7 @@
 
 这些上下文能解释“当前段落是什么”，但不能解释“用户刚刚在怎么改”。例如：
 
-1. 用户手动把第一处 `DeepSeek GUI` 改成 `Write mode`。
+1. 用户手动把第一处 `SciForge` 改成 `Write mode`。
 2. 用户又选中同一段里的另一个词，输入“继续这样改”。
 
 没有 recent edits 时，模型只能猜“这样”指什么。新增能力会把最近编辑作为意图信号注入 prompt。
@@ -33,7 +33,7 @@
 当用户一次性把一个短语替换成另一个短语时，例如：
 
 ```text
-deepseek gui -> DeepSeek GUI
+deepseek gui -> SciForge
 deepseek gui -> DXGUI
 ```
 
@@ -85,14 +85,14 @@ Recent edits 是短期、轻量、内存态上下文，不做持久化。
 主进程会把 `Recent local edits` 区块加入 provider prompt。自动 short/long 补全会放进隐藏 Markdown comment；显式 edit 请求会放进 chat action prompt。
 
 ```markdown
-<!-- DeepSeek GUI inline edit.
+<!-- SciForge inline edit.
 ...
 User instruction: 继续这样改
 
 Recent local edits in this file. Treat these as intent signals...
 
 [1] 2s ago; source=user; range=20-32
-Deleted: DeepSeek GUI
+Deleted: SciForge
 Inserted: Write mode
 Around: Earlier term: [[edit]] should be consistent.
 

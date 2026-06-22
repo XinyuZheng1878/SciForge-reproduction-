@@ -90,14 +90,14 @@ describe('chat-store Claw helpers', () => {
         '/Users/zxy/project-a/',
         '/tmp/transient',
         '/Users/zxy/.deepseekgui/claw/agent/conversations/chat',
-        '/Users/zxy/.deepseekgui/default_workspace',
-        '~/.deepseekgui/write_workspace',
+        '/Users/zxy/.sciforge/default_workspace',
+        '~/.sciforge/write_workspace',
         '',
         '/Users/zxy/project-b'
       ])
     ).toEqual([
       '/Users/zxy/project-a',
-      '/Users/zxy/.deepseekgui/default_workspace',
+      '/Users/zxy/.sciforge/default_workspace',
       '/Users/zxy/project-b'
     ])
   })
@@ -105,11 +105,11 @@ describe('chat-store Claw helpers', () => {
   it('deduplicates default workspace aliases', () => {
     expect(
       compactCodeWorkspaceRoots([
-        '~/.deepseekgui/default_workspace',
-        'C:\\Users\\zxy\\.deepseekgui\\default_workspace',
+        '~/.sciforge/default_workspace',
+        'C:\\Users\\zxy\\.sciforge\\default_workspace',
         'C:\\Users\\zxy\\.deepseekgui\\default_workspace\\'
       ])
-    ).toEqual(['~/.deepseekgui/default_workspace'])
+    ).toEqual(['~/.sciforge/default_workspace'])
   })
 
   it('caps code workspace roots while keeping the newest unique roots first', () => {
@@ -262,7 +262,7 @@ describe('chat-store Claw helpers', () => {
 
   it('recognizes Claw managed prompt summaries as Claw sessions', () => {
     expect(
-      clawThreadTitleLooksManaged(`${CLAW_MANAGED_INSTRUCTIONS_HEADING} DeepSeek GUI scheduled-task tools`)
+      clawThreadTitleLooksManaged(`${CLAW_MANAGED_INSTRUCTIONS_HEADING} SciForge scheduled-task tools`)
     ).toBe(true)
     expect(isClawThread({ id: 'kun-leaked', title: '[Claw:Feishu Agent]' })).toBe(true)
   })

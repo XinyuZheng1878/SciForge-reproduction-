@@ -124,25 +124,35 @@ export function resolveWriteInlineCompletionModel(
 export function normalizeWriteSettings(input: WriteSettingsPatchV1 | undefined): WriteSettingsV1 {
   const defaults = defaultWriteSettings()
   const source = input ?? {}
-  const defaultWorkspaceRoot =
+  const defaultWorkspaceRoot = upgradeLegacyWriteWorkspaceRoot(
     typeof source.defaultWorkspaceRoot === 'string' && source.defaultWorkspaceRoot.trim()
       ? source.defaultWorkspaceRoot.trim()
       : defaults.defaultWorkspaceRoot
-  const activeWorkspaceRoot =
+  )
+  const activeWorkspaceRoot = upgradeLegacyWriteWorkspaceRoot(
     typeof source.activeWorkspaceRoot === 'string' && source.activeWorkspaceRoot.trim()
       ? source.activeWorkspaceRoot.trim()
       : defaultWorkspaceRoot
+  )
   const workspaces = compactStrings([
     defaultWorkspaceRoot,
     activeWorkspaceRoot,
     ...(Array.isArray(source.workspaces) ? source.workspaces : [])
-  ])
+  ]).map(upgradeLegacyWriteWorkspaceRoot)
   return {
     defaultWorkspaceRoot,
     activeWorkspaceRoot,
     workspaces: workspaces.length > 0 ? workspaces : [defaultWorkspaceRoot],
     inlineCompletion: normalizeWriteInlineCompletionSettings(source.inlineCompletion)
   }
+}
+
+function upgradeLegacyWriteWorkspaceRoot(value: string): string {
+  const normalized = value.replace(/\\/g, '/').toLowerCase()
+  return normalized === '~/.deepseekgui/write_workspace' ||
+    normalized.endsWith('/.deepseekgui/write_workspace')
+    ? DEFAULT_WRITE_WORKSPACE_ROOT
+    : value
 }
 
 export function mergeWriteSettings(

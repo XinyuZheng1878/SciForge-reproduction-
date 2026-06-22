@@ -39,6 +39,7 @@ import {
 } from './app-settings-claude'
 
 const LEGACY_COREAGENT_DATA_DIR = '~/.deepseekgui/coreagent'
+const LEGACY_KUN_DATA_DIR = '~/.deepseekgui/kun'
 const LEGACY_KUN_DEFAULT_MODEL = 'deepseek-chat'
 const LEGACY_LOCAL_HTTP_DEFAULT_PORT = 7878
 
@@ -335,6 +336,7 @@ export function mergeKunRuntimeSettings(
   return {
     ...current,
     ...(patch ?? {}),
+    dataDir: upgradeLegacyKunDefaultDataDir(patch?.dataDir ?? current.dataDir),
     tokenEconomyMode: nextTokenEconomy.enabled,
     tokenEconomy: nextTokenEconomy,
     mcpSearch: nextMcpSearch,
@@ -546,7 +548,9 @@ function upgradeLegacyKunDefaultDataDir(value: unknown): string {
   if (
     !trimmed ||
     normalized === LEGACY_COREAGENT_DATA_DIR ||
-    normalized.endsWith('/.deepseekgui/coreagent')
+    normalized.endsWith('/.deepseekgui/coreagent') ||
+    normalized === LEGACY_KUN_DATA_DIR ||
+    normalized.endsWith('/.deepseekgui/kun')
   ) {
     return DEFAULT_KUN_DATA_DIR
   }

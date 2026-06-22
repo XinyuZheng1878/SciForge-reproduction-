@@ -10,6 +10,7 @@ import {
 } from './app-settings-types'
 
 const DEFAULT_CODEX_COMMAND = 'codex'
+const LEGACY_CODEX_DATA_DIR = '~/.deepseekgui/codex'
 const DEFAULT_CODEX_APPROVAL_POLICY: ApprovalPolicy = 'on-request'
 const DEFAULT_CODEX_SANDBOX_MODE: SandboxMode = 'workspace-write'
 const CODEX_APPROVAL_POLICIES = new Set<ApprovalPolicy>([
@@ -99,7 +100,7 @@ function normalizeCodexRuntimeSettings(
 ): CodexRuntimeSettingsV1 {
   const defaults = defaultCodexRuntimeSettings()
   const command = nonEmptyString(input?.command, defaults.command)
-  const codexHome = nonEmptyString(input?.codexHome, defaults.codexHome)
+  const codexHome = upgradeLegacyCodexHome(nonEmptyString(input?.codexHome, defaults.codexHome))
   return {
     command,
     autoStart: input?.autoStart !== false,
@@ -123,6 +124,13 @@ function normalizeSandboxMode(value: unknown, fallback: SandboxMode): SandboxMod
 
 function nonEmptyString(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
+}
+
+function upgradeLegacyCodexHome(value: string): string {
+  const normalized = value.replace(/\\/g, '/').toLowerCase()
+  return normalized === LEGACY_CODEX_DATA_DIR || normalized.endsWith('/.deepseekgui/codex')
+    ? DEFAULT_CODEX_DATA_DIR
+    : value
 }
 
 function optionalString(value: unknown): string {

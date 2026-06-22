@@ -19,7 +19,7 @@ function settingsWithSpeech(overrides: Record<string, unknown> = {}): AppSetting
       enabled: true,
       baseUrl: 'http://127.0.0.1:49876/v1',
       autoStart: true,
-      publicModelAlias: 'deepseek-gui-router',
+      publicModelAlias: 'sciforge-router',
       runtimeApiKey: 'local-runtime-router-key'
     },
     speechToText: {
@@ -142,7 +142,7 @@ describe('speech-to-text service', () => {
     expect(headers['api-key']).toBeUndefined()
     const payload = JSON.parse(String(requests[0].init.body))
     expect(payload).toMatchObject({
-      model: 'deepseek-gui-router',
+      model: 'sciforge-router',
       asr_options: { language: 'auto' },
       stream: false
     })

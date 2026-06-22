@@ -54,6 +54,7 @@ type Props = {
   onPasteClipboardImage?: (options?: { silentNoImage?: boolean }) => void | Promise<void>
   onRemoveAttachment?: (id: string) => void
   onAddFileReference?: (reference: ComposerFileReference) => void
+  onPreviewFileReference?: (reference: ComposerFileReference) => void
   onRemoveFileReference?: (relativePath: string, workspaceRoot?: string) => void
   onSend: () => void
   onInterrupt: (options?: { discard?: boolean }) => void
@@ -107,6 +108,7 @@ export function WriteAssistantPanel({
   onPasteClipboardImage,
   onRemoveAttachment,
   onAddFileReference,
+  onPreviewFileReference,
   onRemoveFileReference,
   onSend,
   onInterrupt,
@@ -315,6 +317,7 @@ export function WriteAssistantPanel({
           onPasteClipboardImage={onPasteClipboardImage}
           onRemoveAttachment={onRemoveAttachment}
           onAddFileReference={onAddFileReference}
+          onPreviewFileReference={onPreviewFileReference}
           onRemoveFileReference={onRemoveFileReference}
           onSend={onSend}
           onInterrupt={onInterrupt}

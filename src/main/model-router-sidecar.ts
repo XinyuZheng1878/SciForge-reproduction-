@@ -11,9 +11,12 @@ import {
 } from '../shared/app-settings'
 import { checkModelRouterHealth } from './model-router-health'
 
-const ROUTER_RUNTIME_KEY_ENV = 'DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY'
-const TEXT_REASONER_KEY_ENV = 'DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY'
-const VISION_TRANSLATOR_KEY_ENV = 'DEEPSEEK_GUI_MODEL_ROUTER_VISION_API_KEY'
+const ROUTER_RUNTIME_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY'
+const TEXT_REASONER_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_TEXT_API_KEY'
+const VISION_TRANSLATOR_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_VISION_API_KEY'
+const LEGACY_ROUTER_RUNTIME_KEY_ENV = 'DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY'
+const LEGACY_TEXT_REASONER_KEY_ENV = 'DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY'
+const LEGACY_VISION_TRANSLATOR_KEY_ENV = 'DEEPSEEK_GUI_MODEL_ROUTER_VISION_API_KEY'
 
 let modelRouterChild: ChildProcess | null = null
 let modelRouterLaunchSignature: string | null = null
@@ -78,10 +81,13 @@ export function buildModelRouterSidecarLaunch(
   const env: NodeJS.ProcessEnv = {
     ...baseEnv,
     [ROUTER_RUNTIME_KEY_ENV]: router.runtimeApiKey,
+    [LEGACY_ROUTER_RUNTIME_KEY_ENV]: router.runtimeApiKey,
     [TEXT_REASONER_KEY_ENV]: textReasoner.apiKey.trim() || provider.apiKey.trim()
   }
+  env[LEGACY_TEXT_REASONER_KEY_ENV] = env[TEXT_REASONER_KEY_ENV]
   if (vision.apiKey.trim()) {
     env[VISION_TRANSLATOR_KEY_ENV] = vision.apiKey.trim()
+    env[LEGACY_VISION_TRANSLATOR_KEY_ENV] = vision.apiKey.trim()
   }
 
   const npmCommand = options.npmCommand ?? (process.platform === 'win32' ? 'npm.cmd' : 'npm')

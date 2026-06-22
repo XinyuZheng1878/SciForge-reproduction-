@@ -139,6 +139,7 @@ export type ChatState = {
   workspaceRoot: string
   workspaceLabel: string
   runtimeConnection: RuntimeConnectionStatus
+  activeAgentRuntime: AgentRuntimeId
   codeWorkspaceRoots: string[]
   hiddenCodeWorkspaceRoots: string[]
   threads: NormalizedThread[]
@@ -181,6 +182,7 @@ export type ChatState = {
   appendLocalClawTurn: (userText: string, replyText: string) => void
   setError: (message: string | null) => void
   setComposerModel: (modelId: string) => void
+  setActiveAgentRuntime: (runtimeId: AgentRuntimeId) => Promise<void>
   loadComposerModels: () => Promise<void>
   setRoute: (r: AppRoute) => void
   openWrite: () => Promise<void>

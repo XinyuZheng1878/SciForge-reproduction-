@@ -7,9 +7,7 @@ import {
   DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL,
   kunSettingsPatch,
   DEFAULT_WRITE_WORKSPACE_ROOT,
-  getActiveAgentRuntime,
   type AppSettingsPatch,
-  type AgentRuntimeId,
   type CodexRuntimeSettingsPatchV1,
   type ClaudeRuntimeSettingsPatchV1,
   getActiveAgentApiKey,
@@ -724,7 +722,6 @@ export function SettingsView(): ReactElement {
   const kun = getKunRuntimeSettings(form)
   const codex = getCodexRuntimeSettings(form)
   const claude = getClaudeRuntimeSettings(form)
-  const activeAgentRuntime = getActiveAgentRuntime(form)
   const provider = getModelProviderSettings(form)
   const activeApiKey = getActiveAgentApiKey(form)
 
@@ -762,10 +759,6 @@ export function SettingsView(): ReactElement {
 
   const updateClaude = (patch: ClaudeRuntimeSettingsPatchV1): void => {
     update({ agents: claudeSettingsPatch(patch) })
-  }
-
-  const updateActiveAgentRuntime = (runtime: AgentRuntimeId): void => {
-    update({ activeAgentRuntime: runtime })
   }
 
   const pickWorkspace = async (): Promise<void> => {
@@ -876,13 +869,11 @@ export function SettingsView(): ReactElement {
     kun,
     codex,
     claude,
-    activeAgentRuntime,
     activeApiKey,
     update,
     updateKun,
     updateCodex,
     updateClaude,
-    updateActiveAgentRuntime,
     updateSharedCredential,
     sharedApiKey,
     sharedBaseUrl,

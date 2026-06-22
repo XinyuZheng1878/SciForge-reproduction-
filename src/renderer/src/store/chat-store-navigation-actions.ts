@@ -467,6 +467,7 @@ export function createNavigationActions(
           codeWorkspaceRoots,
           hiddenCodeWorkspaceRoots,
           workspaceLabel: workspaceLabelFromPath(workspaceRoot),
+          activeAgentRuntime: getActiveAgentRuntime(settings),
           clawChannels: settings.claw.channels,
           activeClawChannelId: settings.claw.channels.find((channel) => channel.enabled)?.id ?? '',
           runtimeConnection: needsInitialSetup ? 'idle' : get().runtimeConnection,

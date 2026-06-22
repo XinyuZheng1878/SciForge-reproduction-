@@ -5,7 +5,7 @@
 # invented. Anything not in this block is editorial, not authoritative.
 
 schema_version: 1
-project: DeepSeek-GUI
+project: SciForge
 default_runtime: kun
 optional_runtimes: [codex]
 themes: [light, dark, system]
@@ -287,7 +287,7 @@ i18n:
 
 # ---------- 13. Brand & voice ----------
 brand:
-  product_name: "DeepSeek GUI"
+  product_name: "SciForge"
   tagline: "把 Kun 的本地智能体能力带进桌面窗口"
   hero_kw: [Code, Write, Connect phone]
   pillars:
@@ -324,7 +324,7 @@ dont:
   - "Use a border radius smaller than 4px on a clickable surface."
 ---
 
-# DeepSeek GUI — DESIGN.md
+# SciForge — DESIGN.md
 
 > 单一权威设计文档。所有屏幕、所有组件、所有视觉决策,都从这里出。
 
@@ -354,7 +354,7 @@ the frontmatter wins, and the markdown needs an update.
 
 ## 1. Project at a glance
 
-DeepSeek GUI is a local desktop workbench for agentic project work.
+SciForge is a local desktop workbench for agentic project work.
 Kun is the default runtime, and Codex app-server is an optional runtime
 that must be selected explicitly. The desktop shell is Electron; Kun is
 a TypeScript package that speaks HTTP/SSE; Codex is hosted by the main
@@ -595,7 +595,7 @@ containing many cells. Do not animate the composer.
 
 ### 3.9 Layout grammar
 
-Every screen in DeepSeek GUI follows the same macro-grammar:
+Every screen in SciForge follows the same macro-grammar:
 
 - **Topbar**: a translucent strip with the back button, session
   title, mode switcher, and right-side action cluster. The topbar
@@ -626,7 +626,7 @@ first.
   Write, and Connect phone"), second person for the user. No emoji. No
   marketing language. Error messages are full sentences ending in
   punctuation; never a raw stack trace.
-- The product name is "DeepSeek GUI". The runtime is "Kun".
+- The product name is "SciForge". The runtime is "Kun".
   The main workbenches are "Code" and "Write"; the phone/IM surface is
   "Connect phone" in English and "连接手机" in zh copy. Internal code may
   still say `claw`, but production copy should not expose it as the product name.
@@ -1132,9 +1132,9 @@ only which renderer and local workflow state the store pulls in.
 
 Default OS app-data paths:
 
-- macOS: `~/Library/Application Support/DeepSeek GUI`
-- Windows: `%APPDATA%\DeepSeek GUI`
-- Linux: `~/.config/DeepSeek GUI`
+- macOS: `~/Library/Application Support/SciForge`
+- Windows: `%APPDATA%\SciForge`
+- Linux: `~/.config/SciForge`
 
 Uninstalling the app does not remove app data. Documented in
 the README and respected by the install script.

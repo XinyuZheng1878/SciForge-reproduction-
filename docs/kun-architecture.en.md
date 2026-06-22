@@ -1,7 +1,7 @@
 # Kun runtime architecture
 
 This document describes the boundary and internal constraints of the Kun runtime
-inside DeepSeek GUI. It no longer describes the whole product as Kun-only:
+inside SciForge. It no longer describes the whole product as Kun-only:
 product-level code selects `kun | codex` through `RuntimeHost`, Kun remains the
 default runtime, and Codex must be selected or enabled explicitly by the user.
 This document only constrains the Kun path, Kun cache optimization, and legacy
@@ -200,8 +200,8 @@ allowed for user-configured Codex.
       "apiKey": "local-runtime-router-key",
       "baseUrl": "http://127.0.0.1:3892/v1",
       "runtimeToken": "",
-      "dataDir": "~/.deepseekgui/kun",
-      "model": "deepseek-gui-router",
+      "dataDir": "~/.sciforge/kun",
+      "model": "sciforge-router",
       "approvalPolicy": "auto",
       "sandboxMode": "workspace-write",
       "insecure": false
@@ -211,9 +211,9 @@ allowed for user-configured Codex.
       "args": [],
       "autoStart": true,
       "codexHome": "<managed: dev .codex-runtime/codex-home, packaged userData/runtime-codex/codex-home>",
-      "profile": "deepseek-gui-runtime",
-      "model": "deepseek-gui-router",
-      "modelProvider": "deepseek-gui-model-router",
+      "profile": "sciforge-runtime",
+      "model": "sciforge-router",
+      "modelProvider": "sciforge-model-router",
       "approvalPolicy": "on-request",
       "sandboxMode": "workspace-write",
       "inheritModelProvider": false
@@ -345,7 +345,7 @@ npm run build
 
 Manual smoke checks:
 
-1. Open DeepSeek GUI.
+1. Open SciForge.
 2. Existing users and fresh installs default to Kun, and `agents.kun` is not
    damaged by migration.
 3. With Kun active, Code can create a new session, send messages, stream output,

@@ -30,7 +30,7 @@ function settings(): AppSettingsV1 {
     modelRouter: {
       ...defaultModelRouterSettings(),
       baseUrl: 'http://127.0.0.1:49876/v1',
-      publicModelAlias: 'deepseek-gui-router',
+      publicModelAlias: 'sciforge-router',
       runtimeApiKey: 'local-runtime-router-key'
     },
     agents: {
@@ -80,7 +80,7 @@ describe('detectClawScheduledTaskRequest Model Router calls', () => {
         Authorization: 'Bearer local-runtime-router-key'
       },
       body: {
-        model: 'deepseek-gui-router',
+        model: 'sciforge-router',
         input: 'remind me tomorrow to stretch',
         max_output_tokens: 300,
         text: { format: { type: 'json_object' } }

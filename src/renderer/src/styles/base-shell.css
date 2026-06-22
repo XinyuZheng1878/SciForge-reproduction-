@@ -1437,7 +1437,7 @@ pre {
 }
 
 .ds-work-logo.is-active .ds-work-logo-image {
-  clip-path: polygon(0 0, 68% 0, 68% 34%, 82% 50%, 82% 62%, 100% 62%, 100% 100%, 0 100%);
+  clip-path: none;
 }
 
 .ds-work-logo-tail {

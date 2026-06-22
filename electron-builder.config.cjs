@@ -3,6 +3,7 @@ const { join } = require('node:path')
 
 function loadLocalReleaseEnv() {
   const candidates = [
+    process.env.SCIFORGE_RELEASE_ENV,
     process.env.DEEPSEEK_GUI_RELEASE_ENV,
     join(__dirname, 'scripts', 'release.local.env'),
     join(__dirname, 'release.local.env')
@@ -43,33 +44,39 @@ const hasNotaryToolCredentials = Boolean(
     (process.env.APPLE_API_KEY || process.env.APPLE_API_KEY_BASE64)
 )
 
-const r2PublicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || 'https://deepseek-gui.com/api/r2')
+const r2PublicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || 'https://sciforge.ai/api/r2')
   .trim()
   .replace(/\/+$/, '')
-const r2ReleasePrefix = (process.env.R2_RELEASE_PREFIX || 'deepseek-gui')
+const r2ReleasePrefix = (process.env.R2_RELEASE_PREFIX || 'sciforge')
   .trim()
   .replace(/^\/+|\/+$/g, '')
-const updateChannel = normalizeUpdateChannel(process.env.DEEPSEEK_GUI_UPDATE_CHANNEL || 'stable')
+const updateChannel = normalizeUpdateChannel(
+  process.env.SCIFORGE_UPDATE_CHANNEL || process.env.DEEPSEEK_GUI_UPDATE_CHANNEL || 'stable'
+)
 const genericUpdateUrl = `${r2PublicBaseUrl}/${r2ReleasePrefix}/channels/${updateChannel}/latest/`
-const releaseAppVersion = (process.env.DEEPSEEK_GUI_APP_VERSION || '').trim()
+const releaseAppVersion = (
+  process.env.SCIFORGE_APP_VERSION ||
+  process.env.DEEPSEEK_GUI_APP_VERSION ||
+  ''
+).trim()
 const artifactVersion = releaseAppVersion || '${version}'
 const modelRouterWorkerDir = 'packages/workers/model-router'
 
 function normalizeUpdateChannel(raw) {
   const value = String(raw || '').trim()
   if (value === 'stable' || value === 'frontier') return value
-  throw new Error(`DEEPSEEK_GUI_UPDATE_CHANNEL must be "stable" or "frontier", got: ${raw}`)
+  throw new Error(`SCIFORGE_UPDATE_CHANNEL must be "stable" or "frontier", got: ${raw}`)
 }
 
 if (releaseAppVersion && !/^\d+\.\d+\.\d+$/.test(releaseAppVersion)) {
   throw new Error(
-    `DEEPSEEK_GUI_APP_VERSION must be a valid x.y.z semver for electron-updater, got: ${releaseAppVersion}`
+    `SCIFORGE_APP_VERSION must be a valid x.y.z semver for electron-updater, got: ${releaseAppVersion}`
   )
 }
 
 module.exports = {
-  appId: 'com.xingyuzhong.deepseekgui',
-  productName: 'DeepSeek GUI',
+  appId: 'com.xingyuzhong.sciforge',
+  productName: 'SciForge',
   asar: true,
   asarUnpack: [
     '**/kun/dist/**/*',
@@ -82,7 +89,7 @@ module.exports = {
   ],
   npmRebuild: true,
   directories: {
-    output: process.env.DEEPSEEK_GUI_DIST_DIR || 'dist'
+    output: process.env.SCIFORGE_DIST_DIR || process.env.DEEPSEEK_GUI_DIST_DIR || 'dist'
   },
   files: [
     'out/**/*',
@@ -107,7 +114,7 @@ module.exports = {
       ]
     }
   ],
-  artifactName: `DeepSeek-GUI-${artifactVersion}-\${os}-\${arch}.\${ext}`,
+  artifactName: `SciForge-${artifactVersion}-\${os}-\${arch}.\${ext}`,
   publish: [
     {
       provider: 'generic',
@@ -127,7 +134,7 @@ module.exports = {
     gatekeeperAssess: false,
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.inherit.plist',
-    icon: './src/asset/img/deepseek.png',
+    icon: './src/asset/img/sciforge.png',
     // arm64 (Apple Silicon) + x64 (Intel). On M 系列 Mac 本地打包会各出一组 dmg/zip。
     target: [
       { target: 'dmg', arch: ['arm64', 'x64'] },
@@ -138,7 +145,7 @@ module.exports = {
     sign: hasExplicitMacSigningIdentity
   },
   win: {
-    icon: './src/asset/img/deepseek.png',
+    icon: './src/asset/img/sciforge.png',
     target: [{ target: 'nsis', arch: ['x64'] }]
   },
   nsis: {
@@ -150,13 +157,13 @@ module.exports = {
     // 明确创建快捷方式；always 在覆盖安装时也会重建（即使用户曾删掉桌面图标）
     createDesktopShortcut: 'always',
     createStartMenuShortcut: true,
-    shortcutName: 'DeepSeek GUI',
-    uninstallDisplayName: 'DeepSeek GUI',
+    shortcutName: 'SciForge',
+    uninstallDisplayName: 'SciForge',
     deleteAppDataOnUninstall: false
   },
   linux: {
     category: 'Development',
-    icon: './src/asset/img/deepseek.png',
+    icon: './src/asset/img/sciforge.png',
     target: [{ target: 'AppImage', arch: ['x64'] }]
   },
   extraMetadata: {

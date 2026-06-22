@@ -16,7 +16,8 @@ import {
   type ResearchSearchMcpLaunchConfig
 } from '../../research-search-mcp-config'
 
-const RUNTIME_API_KEY_ENV = 'DEEPSEEK_GUI_RUNTIME_API_KEY'
+const RUNTIME_API_KEY_ENV = 'SCIFORGE_RUNTIME_API_KEY'
+const LEGACY_RUNTIME_API_KEY_ENV = 'DEEPSEEK_GUI_RUNTIME_API_KEY'
 const CODEX_MANAGED_DIRS = ['sessions', 'memories', 'logs'] as const
 const UPSTREAM_PROVIDER_SECRET_ENVS = [
   'OPENAI_API_KEY',
@@ -132,6 +133,7 @@ export function codexRuntimeEnv(
   }
   if (runtimeApiKey !== undefined) {
     env[RUNTIME_API_KEY_ENV] = runtimeApiKey
+    env[LEGACY_RUNTIME_API_KEY_ENV] = runtimeApiKey
   }
   env.NO_PROXY = appendNoProxyLoopbacks(env.NO_PROXY)
   env.no_proxy = appendNoProxyLoopbacks(env.no_proxy)
@@ -222,7 +224,7 @@ function codexConfigToml(
     `model_provider = "${tomlString(DEFAULT_MODEL_ROUTER_PROVIDER_ID)}"`,
     '',
     `[model_providers.${DEFAULT_MODEL_ROUTER_PROVIDER_ID}]`,
-    'name = "DeepSeek-GUI Model Router"',
+    'name = "SciForge Model Router"',
     `base_url = "${tomlString(modelRouter.baseUrl)}"`,
     `env_key = "${RUNTIME_API_KEY_ENV}"`,
     'wire_api = "responses"',

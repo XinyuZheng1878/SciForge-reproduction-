@@ -178,10 +178,33 @@ function responsesInputToMessages(
     messages.push({ role: 'user', content: input });
   } else if (Array.isArray(input)) {
     const aliasByOriginal = new Map(Object.entries(toolNameAliases).map(([alias, original]) => [original, alias]));
+    const pendingToolCalls: JsonObject[] = [];
+    const pendingReasoning: string[] = [];
+    const flushPendingToolCalls = (): void => {
+      if (pendingToolCalls.length === 0) return;
+      messages.push(compactJsonObject({
+        role: 'assistant',
+        content: null,
+        reasoning_content: pendingReasoning.length > 0 ? pendingReasoning.join('\n') : undefined,
+        tool_calls: [...pendingToolCalls],
+      }));
+      pendingToolCalls.length = 0;
+      pendingReasoning.length = 0;
+    };
     for (const item of input) {
+      if (isRecord(item) && item.type === 'function_call') {
+        const toolCall = responseInputFunctionCallToChatToolCall(item, aliasByOriginal);
+        if (toolCall) {
+          pendingToolCalls.push(toolCall.toolCall);
+          if (toolCall.reasoningContent) pendingReasoning.push(toolCall.reasoningContent);
+        }
+        continue;
+      }
+      flushPendingToolCalls();
       const message = responseInputItemToMessage(item, aliasByOriginal);
       if (message) messages.push(message);
     }
+    flushPendingToolCalls();
   }
   if (messages.length === 0) messages.push({ role: 'user', content: '' });
   return messages;
@@ -343,21 +366,13 @@ function responseInputItemToMessage(
 ): JsonObject | null {
   if (!isRecord(item)) return null;
   if (item.type === 'function_call') {
-    const name = stringValue(item.name);
-    const callId = stringValue(item.call_id) || stringValue(item.id);
-    if (!name || !callId) return null;
+    const toolCall = responseInputFunctionCallToChatToolCall(item, aliasByOriginal);
+    if (!toolCall) return null;
     return compactJsonObject({
       role: 'assistant',
       content: null,
-      reasoning_content: stringValue(item.reasoning_content) || undefined,
-      tool_calls: [{
-        id: callId,
-        type: 'function',
-        function: {
-          name: aliasByOriginal.get(name) ?? name,
-          arguments: stringValue(item.arguments) || '{}',
-        },
-      }],
+      reasoning_content: toolCall.reasoningContent || undefined,
+      tool_calls: [toolCall.toolCall],
     });
   }
   if (item.type === 'function_call_output') {
@@ -376,6 +391,26 @@ function responseInputItemToMessage(
   return {
     role,
     content,
+  };
+}
+
+function responseInputFunctionCallToChatToolCall(
+  item: Record<string, unknown>,
+  aliasByOriginal: Map<string, string>,
+): { toolCall: JsonObject; reasoningContent: string } | null {
+  const name = stringValue(item.name);
+  const callId = stringValue(item.call_id) || stringValue(item.id);
+  if (!name || !callId) return null;
+  return {
+    toolCall: {
+      id: callId,
+      type: 'function',
+      function: {
+        name: aliasByOriginal.get(name) ?? name,
+        arguments: stringValue(item.arguments) || '{}',
+      },
+    },
+    reasoningContent: stringValue(item.reasoning_content),
   };
 }
 

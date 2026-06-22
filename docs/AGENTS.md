@@ -1,6 +1,6 @@
 # Agent Runtime Notes
 
-DeepSeek GUI supports two user-selectable local agent runtimes: **Kun** and
+SciForge supports two user-selectable local agent runtimes: **Kun** and
 **Codex**. Kun remains the default runtime for existing and new users. Codex is
 optional and must be selected or enabled explicitly; the app must never
 silently fall back from Kun to Codex.

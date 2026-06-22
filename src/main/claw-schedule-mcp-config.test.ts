@@ -72,8 +72,8 @@ function createSettings(patch: Partial<AppSettingsV1['schedule']['internal']> = 
 }
 
 const launch: ClawScheduleMcpLaunchConfig = {
-  appPath: '/Applications/DeepSeek GUI.app',
-  execPath: '/Applications/DeepSeek GUI.app/Contents/MacOS/DeepSeek GUI',
+  appPath: '/Applications/SciForge.app',
+  execPath: '/Applications/SciForge.app/Contents/MacOS/SciForge',
   isPackaged: false
 }
 
@@ -128,7 +128,7 @@ describe('claw schedule MCP config', () => {
 
   it('uses the macOS Electron helper for real app bundle paths', () => {
     expect(resolveClawScheduleMcpCommand(launch, 'darwin')).toBe(
-      '/Applications/DeepSeek GUI.app/Contents/Frameworks/DeepSeek GUI Helper.app/Contents/MacOS/DeepSeek GUI Helper'
+      '/Applications/SciForge.app/Contents/Frameworks/SciForge Helper.app/Contents/MacOS/SciForge Helper'
     )
     expect(resolveClawScheduleMcpCommand({
       appPath: '/tmp/deepseek-gui-test-app',
@@ -149,11 +149,11 @@ describe('claw schedule MCP config', () => {
         'command = "old"',
         'args = []',
         '',
-        '# DeepSeek GUI plugin:mcp:claw-schedule START',
+        '# SciForge plugin:mcp:claw-schedule START',
         '[mcp_servers.claw_schedule]',
         'command = "electron"',
         'args = []',
-        '# DeepSeek GUI plugin:mcp:claw-schedule END',
+        '# SciForge plugin:mcp:claw-schedule END',
         '',
         '[providers.deepseek]',
         'api_key = ""'
@@ -163,7 +163,7 @@ describe('claw schedule MCP config', () => {
     expect(cleaned).toContain('[mcp_servers.context7]')
     expect(cleaned).toContain('[providers.deepseek]')
     expect(cleaned).not.toContain('[mcp_servers.claw_schedule]')
-    expect(cleaned).not.toContain('DeepSeek GUI plugin:mcp:claw-schedule')
+    expect(cleaned).not.toContain('SciForge plugin:mcp:claw-schedule')
   })
 
   it('does not rewrite config.toml text when there is no legacy claw_schedule block', () => {
@@ -190,11 +190,11 @@ describe('claw schedule MCP config', () => {
       [
         'provider = "deepseek"',
         '',
-        '# DeepSeek GUI plugin:mcp:claw-schedule START',
+        '# SciForge plugin:mcp:claw-schedule START',
         '[mcp_servers.claw_schedule]',
         'command = "electron"',
         'args = []',
-        '# DeepSeek GUI plugin:mcp:claw-schedule END',
+        '# SciForge plugin:mcp:claw-schedule END',
         ''
       ].join('\n'),
       'utf8'

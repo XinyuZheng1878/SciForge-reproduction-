@@ -1,7 +1,9 @@
-export const GUI_PLAN_RELATIVE_DIR = '.deepseekgui/plan'
+export const GUI_PLAN_RELATIVE_DIR = '.sciforge/plan'
+export const GUI_PLAN_LEGACY_DEEPSEEK_RELATIVE_DIR = '.deepseekgui/plan'
 export const GUI_PLAN_LEGACY_RELATIVE_DIR = '.kunsdd/plan'
 export const GUI_PLAN_ACCEPTED_RELATIVE_DIRS = [
   GUI_PLAN_RELATIVE_DIR,
+  GUI_PLAN_LEGACY_DEEPSEEK_RELATIVE_DIR,
   GUI_PLAN_LEGACY_RELATIVE_DIR
 ] as const
 
@@ -171,7 +173,7 @@ export function validateCreatePlanToolInput(input: Partial<CreatePlanToolInput>)
     if (!path) {
       issues.push('plan_relative_path must be non-empty when supplied')
     } else if (!isGuiPlanRelativePath(path)) {
-      issues.push('plan_relative_path must be a direct Markdown file under .deepseekgui/plan')
+      issues.push('plan_relative_path must be a direct Markdown file under .sciforge/plan')
     }
   }
   if (input.plan_id != null && typeof input.plan_id !== 'string') {

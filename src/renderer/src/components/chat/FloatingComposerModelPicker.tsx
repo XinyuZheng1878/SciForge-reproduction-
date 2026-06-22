@@ -7,8 +7,9 @@ import {
   type ReactElement
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Brain, Check, ChevronDown, ChevronRight, Gauge } from 'lucide-react'
+import { Bot, Brain, Check, ChevronDown, ChevronRight, Gauge } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import type { AgentRuntimeId } from '@shared/app-settings'
 import type { ModelProviderModelGroup } from '@shared/ds-gui-api'
 
 export type ComposerReasoningEffort = 'low' | 'medium' | 'high' | 'max'
@@ -19,10 +20,12 @@ type Props = {
   composerModel: string
   composerPickList: string[]
   composerModelGroups?: ModelProviderModelGroup[]
+  activeAgentRuntime?: AgentRuntimeId
   canChangeModel: boolean
   stretch?: boolean
   composerReasoningEffort?: string
   onComposerModelChange: (modelId: string) => void
+  onActiveAgentRuntimeChange?: (runtimeId: AgentRuntimeId) => void
   onComposerReasoningEffortChange?: (effort: ComposerReasoningEffort) => void
 }
 
@@ -31,6 +34,12 @@ const REASONING_OPTIONS: Array<{ id: ComposerReasoningEffort; labelKey: string }
   { id: 'medium', labelKey: 'composerReasoningMedium' },
   { id: 'high', labelKey: 'composerReasoningHigh' },
   { id: 'max', labelKey: 'composerReasoningMax' }
+]
+
+const RUNTIME_OPTIONS: Array<{ id: AgentRuntimeId; labelKey: string; shortLabelKey: string }> = [
+  { id: 'codex', labelKey: 'composerRuntimeCodex', shortLabelKey: 'composerRuntimeCodexShort' },
+  { id: 'kun', labelKey: 'composerRuntimeKun', shortLabelKey: 'composerRuntimeKunShort' },
+  { id: 'claude', labelKey: 'composerRuntimeClaude', shortLabelKey: 'composerRuntimeClaudeShort' }
 ]
 
 type FloatingMenuPlacement = {
@@ -74,10 +83,12 @@ export function FloatingComposerModelPicker({
   composerModel,
   composerPickList,
   composerModelGroups = [],
+  activeAgentRuntime = 'kun',
   canChangeModel,
   stretch = false,
   composerReasoningEffort = 'max',
   onComposerModelChange,
+  onActiveAgentRuntimeChange,
   onComposerReasoningEffortChange
 }: Props): ReactElement {
   const { t } = useTranslation('common')
@@ -127,13 +138,19 @@ export function FloatingComposerModelPicker({
     }
     return groups
   }, [composerModelGroups, modelOptions, t])
+  const runtimeEnabled = Boolean(onActiveAgentRuntimeChange)
+  const currentRuntime = normalizeComposerRuntimeId(activeAgentRuntime)
+  const currentRuntimeLabel = t(runtimeShortLabelKey(currentRuntime))
   const reasoningEnabled = Boolean(onComposerReasoningEffortChange)
   const currentReasoning = normalizeComposerReasoningEffort(composerReasoningEffort)
   const currentReasoningLabel = t(reasoningLabelKey(currentReasoning))
   const modelLabel = fullModelLabel(composerModel, t('autoLabel'))
-  const controlsTitle = reasoningEnabled
-    ? `${modelLabel} / ${currentReasoningLabel}`
-    : modelLabel
+  const controlLabels = [
+    runtimeEnabled ? currentRuntimeLabel : '',
+    modelLabel,
+    reasoningEnabled ? currentReasoningLabel : ''
+  ].filter(Boolean)
+  const controlsTitle = controlLabels.join(' / ')
   const currentModel = composerModel.trim()
   const selectedProviderId = providerMenuGroups.find((group) =>
     group.modelIds.includes(currentModel)
@@ -281,6 +298,28 @@ export function FloatingComposerModelPicker({
           style={menuStyle}
           className={className}
         >
+        {runtimeEnabled ? (
+          <>
+            <MenuSectionTitle icon={<Bot className="h-3.5 w-3.5" strokeWidth={1.9} />}>
+              {t('composerRuntime')}
+            </MenuSectionTitle>
+            <div className="flex flex-col gap-1">
+              {RUNTIME_OPTIONS.map((option) => (
+                <PickerRow
+                  key={option.id}
+                  selected={currentRuntime === option.id}
+                  title={t(option.labelKey)}
+                  onClick={() => {
+                    onActiveAgentRuntimeChange?.(option.id)
+                    setMenuOpen(false)
+                  }}
+                />
+              ))}
+            </div>
+            <MenuSeparator />
+          </>
+        ) : null}
+
         {reasoningEnabled ? (
           <>
             <MenuSectionTitle icon={<Brain className="h-3.5 w-3.5" strokeWidth={1.9} />}>
@@ -395,6 +434,11 @@ export function FloatingComposerModelPicker({
           <span className="min-w-0 truncate text-right">
             {modelLabel}
           </span>
+          {runtimeEnabled ? (
+            <span className="shrink-0 text-[12px] font-semibold text-ds-faint">
+              {currentRuntimeLabel}
+            </span>
+          ) : null}
           {reasoningEnabled ? (
             <span className="shrink-0 text-[12px] font-semibold text-ds-faint">
               {currentReasoningLabel}
@@ -433,6 +477,11 @@ export function FloatingComposerModelPicker({
         title={t('composerModelControls')}
       >
         <span className="min-w-0 whitespace-nowrap">{modelLabel}</span>
+        {runtimeEnabled ? (
+          <span className="shrink-0 text-ds-faint">
+            {currentRuntimeLabel}
+          </span>
+        ) : null}
         {reasoningEnabled ? (
           <span className="shrink-0 text-ds-faint">
             {t(reasoningLabelKey(currentReasoning))}
@@ -584,6 +633,15 @@ function currentBodyZoom(): number {
 
 function reasoningLabelKey(value: ComposerReasoningEffort): string {
   return REASONING_OPTIONS.find((option) => option.id === value)?.labelKey ?? 'composerReasoningMax'
+}
+
+function normalizeComposerRuntimeId(value: AgentRuntimeId | undefined): AgentRuntimeId {
+  if (value === 'codex' || value === 'claude') return value
+  return 'kun'
+}
+
+function runtimeShortLabelKey(value: AgentRuntimeId): string {
+  return RUNTIME_OPTIONS.find((option) => option.id === value)?.shortLabelKey ?? 'composerRuntimeKunShort'
 }
 
 function clamp(value: number, min: number, max: number): number {

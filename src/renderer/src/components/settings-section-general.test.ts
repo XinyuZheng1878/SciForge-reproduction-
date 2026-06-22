@@ -43,7 +43,7 @@ const labels: Record<string, string> = {
   turnCompleteNotificationDesc: 'Show a notification.',
   workspaceRoot: 'Default working directory',
   workspaceRootDesc: 'Default workspace.',
-  workspaceRootPlaceholder: '~/.deepseekgui/default_workspace',
+  workspaceRootPlaceholder: '~/.sciforge/default_workspace',
   restoreWorkspaceDefault: 'Restore default',
   browse: 'Browse',
   desktopBehavior: 'Desktop behavior',

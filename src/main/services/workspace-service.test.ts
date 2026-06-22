@@ -123,6 +123,19 @@ describe('workspace-service boundary checks', () => {
     }
   })
 
+  it('writes binary workspace files from base64 payloads', async () => {
+    const pdfBytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0xff, 0x00])
+    const saveResult = await writeWorkspaceFile({
+      path: 'papers/uploaded.pdf',
+      workspaceRoot,
+      contentBase64: pdfBytes.toString('base64')
+    })
+
+    expect(saveResult.ok).toBe(true)
+    const written = await readFile(join(workspaceRoot, 'papers', 'uploaded.pdf'))
+    expect(written).toEqual(pdfBytes)
+  })
+
   it('marks oversized files as truncated when loading preview content', async () => {
     const largePath = join(workspaceRoot, 'large.md')
     await writeFile(largePath, 'a'.repeat(1_500_001), 'utf8')

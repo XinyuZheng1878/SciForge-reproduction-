@@ -2,7 +2,7 @@
 
 ## 目标
 
-DeepSeek GUI 需要同时支持 Kun、Codex app-server，以及后续可能新增的 runtime。架构目标是让入口、状态治理、事件语义和稳定性保护尽量共用；runtime 差异只留在 adapter 和 runtime 原生层。
+SciForge 需要同时支持 Kun、Codex app-server，以及后续可能新增的 runtime。架构目标是让入口、状态治理、事件语义和稳定性保护尽量共用；runtime 差异只留在 adapter 和 runtime 原生层。
 
 ```text
 UI / Write / Claw / Schedule

@@ -9,6 +9,7 @@ import {
 } from './app-settings-types'
 
 const DEFAULT_CLAUDE_COMMAND = 'claude'
+const LEGACY_CLAUDE_CONFIG_DIR = '~/.deepseekgui/claude-code'
 const DEFAULT_CLAUDE_APPROVAL_POLICY: ApprovalPolicy = 'on-request'
 const DEFAULT_CLAUDE_SANDBOX_MODE: SandboxMode = 'workspace-write'
 const CLAUDE_APPROVAL_POLICIES = new Set<ApprovalPolicy>([
@@ -87,7 +88,7 @@ function normalizeClaudeRuntimeSettings(
   const defaults = defaultClaudeRuntimeSettings()
   return {
     command: nonEmptyString(input?.command, defaults.command),
-    configDir: nonEmptyString(input?.configDir, defaults.configDir),
+    configDir: upgradeLegacyClaudeConfigDir(nonEmptyString(input?.configDir, defaults.configDir)),
     model: optionalString(input?.model),
     approvalPolicy: normalizeApprovalPolicy(input?.approvalPolicy, defaults.approvalPolicy),
     sandboxMode: normalizeSandboxMode(input?.sandboxMode, defaults.sandboxMode),
@@ -105,6 +106,13 @@ function normalizeSandboxMode(value: unknown, fallback: SandboxMode): SandboxMod
 
 function nonEmptyString(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
+}
+
+function upgradeLegacyClaudeConfigDir(value: string): string {
+  const normalized = value.replace(/\\/g, '/').toLowerCase()
+  return normalized === LEGACY_CLAUDE_CONFIG_DIR || normalized.endsWith('/.deepseekgui/claude-code')
+    ? DEFAULT_CLAUDE_CONFIG_DIR
+    : value
 }
 
 function optionalString(value: unknown): string {

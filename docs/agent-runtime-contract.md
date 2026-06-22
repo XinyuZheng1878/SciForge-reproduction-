@@ -1,6 +1,6 @@
 # AgentRuntime 中性接口设计
 
-本文记录 DeepSeek GUI 下一阶段的运行时中性接口设计。目标不是让 Codex 伪装成
+本文记录 SciForge 下一阶段的运行时中性接口设计。目标不是让 Codex 伪装成
 Kun HTTP/SSE server，而是让 **Kun** 和 **Codex** 都接入同一个
 `AgentRuntime` contract。Renderer 只消费中性线程、turn、event 和 capability，
 不再关心底层是 Kun HTTP/SSE 还是 Codex app-server JSON-RPC stdio。
@@ -38,7 +38,7 @@ Kun HTTP/SSE server，而是让 **Kun** 和 **Codex** 都接入同一个
 
 - 不搬 `codexia` 的 Tauri runtime、Axum REST/WS headless server、P2P/tunnel、
   automation 外壳或 Claude Code session UI。
-- 不把 DeepSeek-GUI 变成“多 agent CLI 控制台”。未来需要多个 agent CLI 时，
+- 不把 SciForge 变成“多 agent CLI 控制台”。未来需要多个 agent CLI 时，
   优先通过 A2A、MCP、外部 CLI bridge 或一个独立 runtime adapter 接入，而不是把
   每个 agent 的完整管理代码塞进核心产品。
 

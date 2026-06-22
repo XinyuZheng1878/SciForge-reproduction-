@@ -1,30 +1,30 @@
 <p align="center">
-  <img src="src/asset/img/deepseek.png" width="96" alt="DeepSeek GUI icon">
+  <img src="src/asset/img/logo.png" width="96" alt="SciForge icon">
 </p>
 
-# DeepSeek GUI
+# SciForge
 
 [简体中文](./README.md) | English
 
 > Bring Kun's high-token-ROI local agent runtime into a desktop workbench: **Code** for project work, **Write** for documents, and **Connect phone** for IM automation and scheduled tasks. Every token is steered toward requirements, code, decisions, and results.
 
-[Website](https://deepseek-gui.com) | [Download](https://deepseek-gui.com)
+[Website](https://sciforge.ai) | [Download](https://sciforge.ai)
 
-[![GitHub release](https://img.shields.io/github/v/release/XingYu-Zhong/DeepSeek-GUI?label=github)](https://github.com/XingYu-Zhong/DeepSeek-GUI/releases)
-[![License](https://img.shields.io/github/license/XingYu-Zhong/DeepSeek-GUI)](./LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/XingYu-Zhong/SciForge?label=github)](https://github.com/XingYu-Zhong/SciForge/releases)
+[![License](https://img.shields.io/github/license/XingYu-Zhong/SciForge)](./LICENSE)
 
-DeepSeek GUI is a local desktop workbench for developers and frequent AI users. It uses Kun by default and lets users explicitly choose Codex app-server as a local agent runtime, turning the terminal agent experience into an easier, longer-lived app: choose a workspace, start a task, watch reasoning and tool calls stream in, review file changes, and approve sensitive actions when needed.
+SciForge is a local desktop workbench for developers, frequent AI users, and scientific research workflows. It uses Kun by default and lets users explicitly choose Codex app-server as a local agent runtime, turning the terminal agent experience into an easier, longer-lived app: choose a workspace, start a task, watch reasoning and tool calls stream in, review file changes, and approve sensitive actions when needed.
 
-The goal is not to ship another chat wrapper. The goal is to make DeepSeek feel like a reliable desktop partner for real project work. Kun's core advantage is high token ROI: the same context budget spends less on repeated prefixes, giant tool catalogs, and runaway output, and more on the information that actually moves the task forward.
+The goal is not to ship another chat wrapper. The goal is to make SciForge feel like a reliable desktop partner for real project work and scientific research. Kun's core advantage is high token ROI: the same context budget spends less on repeated prefixes, giant tool catalogs, and runaway output, and more on the information that actually moves the task forward.
 
 ---
 
 <p align="center">
   <a href="src/asset/img/code.mp4">
-    <img src="src/asset/img/code.gif" width="410" alt="DeepSeek GUI Code mode demo">
+    <img src="src/asset/img/code.gif" width="410" alt="SciForge Code mode demo">
   </a>
   <a href="src/asset/img/write.mp4">
-    <img src="src/asset/img/write.gif" width="410" alt="DeepSeek GUI Write mode demo">
+    <img src="src/asset/img/write.gif" width="410" alt="SciForge Write mode demo">
   </a>
 </p>
 
@@ -94,7 +94,7 @@ The result: Kun is built for real project work with long tasks, long sessions, a
 - **Feature-flagged agent extensions**: Kun can enable MCP, web fetch/search, Skills, standalone CLI use, image attachments, cross-session memory, and delegated subagents by config; Settings shows the runtime-reported capability and diagnostics state.
 - **Connect phone**: run a background agent alongside normal chat, with current support for Feishu / Lark / WeChat, IM webhook / relay flows, and scheduled tasks.
 - **Scheduled tasks**: create one-time, daily, interval, or manual tasks with their own workspace, model, and reasoning effort so Kun can run while the computer is awake.
-- **Write mode**: manage `~/.deepseekgui/write_workspace` and custom writing spaces, browse Markdown files, use live Markdown editing, preview relative images, get Model Router-backed short completion / inspiration completion with optional cross-document BM25 + keyword retrieval, export the current document as `HTML / PDF / DOC / DOCX`, and invoke the writing assistant directly from selected text.
+- **Write mode**: manage `~/.sciforge/write_workspace` and custom writing spaces, browse Markdown files, use live Markdown editing, preview relative images, get Model Router-backed short completion / inspiration completion with optional cross-document BM25 + keyword retrieval, export the current document as `HTML / PDF / DOC / DOCX`, and invoke the writing assistant directly from selected text.
 - **High token ROI**: Kun keeps prompt prefixes stable, tracks DeepSeek-native cache hit/miss fields, compacts context and tool output, and uses MCP search to discover tools progressively so tokens stay focused on requirements, code, decisions, and results.
 - **Friendly first launch**: choose language, then configure the local Model Router runtime key, public model alias, and member provider profile.
 - **Local-first**: preferences, sessions, logs, and runtime config stay on your machine; runtime model calls enter the local Model Router, which uses the provider credentials you configure there.
@@ -103,7 +103,7 @@ The result: Kun is built for real project work with long tasks, long sessions, a
 
 ## Runtime: Kun By Default, Codex Optional
 
-The default local agent runtime in DeepSeek-GUI is
+The default local agent runtime in SciForge is
 **Kun** (shipped under `kun/`), a self-contained
 TypeScript package that boots a local HTTP/SSE server as the
 stable boundary between the GUI and the Kun agent loop. Advanced
@@ -186,7 +186,7 @@ layout, and SSE event schema are documented in
 
 ## Who It Is For
 
-- Developers who want DeepSeek to work on real codebases without living in a terminal.
+- Developers who want a desktop agent to work on real codebases without living in a terminal.
 - Teams that need to see what the agent did, which files changed, and which operations required approval.
 - Users who maintain multiple projects or long-running conversations and want reusable Skill/MCP setup.
 - Anyone who wants a local desktop workbench with DeepSeek or OpenAI-compatible providers managed through Model Router.
@@ -195,7 +195,7 @@ layout, and SSE event schema are documented in
 
 ## Workbench And Entry Points
 
-DeepSeek GUI is centered on two main workbenches, **Code** and **Write**,
+SciForge is centered on two main workbenches, **Code** and **Write**,
 with additional entry points for **Connect phone**, **Scheduled tasks**,
 and **Plugins / Skills / MCP**. They share the same AgentRuntime path and
 settings choice; Kun is the default, and Codex is used only after explicit
@@ -207,7 +207,7 @@ task.
 The development workbench for real codebases: bind a local project directory, read and edit files, run commands, and review changes.
 
 <p align="center">
-  <img src="src/asset/img/codemode.png" alt="DeepSeek GUI Code mode" width="860">
+  <img src="src/asset/img/codemode.png" alt="SciForge Code mode" width="860">
 </p>
 
 - Organize multiple agent sessions by workspace, with streamed reasoning, tool calls, and file changes in one view.
@@ -221,10 +221,10 @@ The development workbench for real codebases: bind a local project directory, re
 A dedicated Markdown writing workbench that keeps writing files, save state, and AI assistance separate from Code sessions.
 
 <p align="center">
-  <img src="src/asset/img/writemode.png" alt="DeepSeek GUI Write mode" width="860">
+  <img src="src/asset/img/writemode.png" alt="SciForge Write mode" width="860">
 </p>
 
-- Manage `~/.deepseekgui/write_workspace` plus custom writing spaces from the left file tree.
+- Manage `~/.sciforge/write_workspace` plus custom writing spaces from the left file tree; older installs may still have a compatible `~/.deepseekgui/write_workspace` directory.
 - Switch between **Live / Source / Split / Preview**; Live keeps Markdown source on the active line and renders the rest.
 - Export the current Markdown document from the toolbar as `HTML / PDF / DOC / DOCX`, with best-effort preservation for headings, lists, code blocks, tables, and local images.
 - Model Router-backed short and inspiration completion, plus selection-based inline agent actions and a right-side writing assistant for summaries, outlines, and polish.
@@ -234,7 +234,7 @@ A dedicated Markdown writing workbench that keeps writing files, save state, and
 Background automation and IM integration, so the active AgentRuntime can keep handling phone messages and scheduled jobs outside normal desktop chat.
 
 <p align="center">
-  <img src="src/asset/img/clawmode.png" alt="DeepSeek GUI Connect phone" width="860">
+  <img src="src/asset/img/clawmode.png" alt="SciForge Connect phone" width="860">
 </p>
 
 - Configure dedicated agents for Feishu / Lark / WeChat and other channels, each with its own profile, default model, and workspace.
@@ -252,7 +252,7 @@ Background automation and IM integration, so the active AgentRuntime can keep ha
 
 ### Download a Pre-built Package
 
-Download the latest build from [GitHub Releases](https://github.com/XingYu-Zhong/DeepSeek-GUI/releases):
+Download the latest build from [GitHub Releases](https://github.com/XingYu-Zhong/SciForge/releases):
 
 | Platform | Package |
 | --- | --- |
@@ -267,8 +267,8 @@ On first launch, configure the local Model Router runtime key, public model alia
 For contributors and local development:
 
 ```bash
-git clone https://github.com/XingYu-Zhong/DeepSeek-GUI.git
-cd DeepSeek-GUI
+git clone https://github.com/XingYu-Zhong/SciForge.git
+cd SciForge
 npm install
 npm run dev
 ```
@@ -289,7 +289,7 @@ npm install --registry=https://registry.npmmirror.com
 
 ## First Run
 
-1. Open DeepSeek GUI.
+1. Open SciForge.
 2. Choose your interface language in the onboarding guide.
 3. Configure the local Model Router runtime key, public model alias, and member provider profile.
 4. Choose a default workspace, or use the default directory created by the app.
@@ -331,7 +331,7 @@ Keyboard shortcuts:
 
 ## Write Mode Design Notes
 
-Write mode extends DeepSeek GUI from a code/chat workbench into a long-form writing workspace. Its implementation borrows several ideas from the local `openhanako` reference project:
+Write mode extends SciForge from a code/chat workbench into a long-form writing workspace. Its implementation borrows several ideas from the local `openhanako` reference project:
 
 - Markdown live editing: openhanako inspired the CodeMirror decorations approach where the active line stays editable as Markdown source while inactive lines render headings, tasks, images, dividers, and tables through widgets.
 - Selection inline agent: openhanako inspired the selection-capture and floating-input interaction, so selected text can be sent with file path, line numbers, and bounded original text as structured context.
@@ -344,7 +344,7 @@ Write mode extends DeepSeek GUI from a code/chat workbench into a long-form writ
 
 ### Windows
 
-- Open Settings -> Apps -> Installed apps, find `DeepSeek GUI`, and uninstall it.
+- Open Settings -> Apps -> Installed apps, find `SciForge`, and uninstall it.
 - Or uninstall from Control Panel -> Programs and Features.
 - Or run the uninstaller from the installation directory.
 
@@ -352,12 +352,12 @@ The Windows installer creates Start Menu and desktop shortcuts by default. It do
 
 ### macOS
 
-- Move `DeepSeek GUI.app` from Applications to Trash.
+- Move `SciForge.app` from Applications to Trash.
 - If macOS blocks the app on first open, right-click it in Finder and choose Open.
 - For local unsigned builds, you can remove the quarantine attribute first:
 
 ```bash
-npm run mac:unquarantine -- '/Applications/DeepSeek GUI.app'
+npm run mac:unquarantine -- '/Applications/SciForge.app'
 ```
 
 ### Linux
@@ -371,17 +371,17 @@ By default, uninstalling removes the app but keeps local settings, sessions, and
 
 | Platform | App data path |
 | --- | --- |
-| macOS | `~/Library/Application Support/DeepSeek GUI` |
-| Windows | `%APPDATA%\DeepSeek GUI` |
-| Linux | `~/.config/DeepSeek GUI` |
+| macOS | `~/Library/Application Support/SciForge` |
+| Windows | `%APPDATA%\SciForge` |
+| Linux | `~/.config/SciForge` |
 
-Kun data lives under `~/.deepseekgui/kun` or the configured Kun data dir. Check it before deleting, because it may contain sessions, MCP, or Skill settings you still need.
+Kun data lives under `~/.sciforge/kun` or the configured Kun data dir; older installs may still have a compatible `~/.deepseekgui/kun` directory. Check it before deleting, because it may contain sessions, MCP, or Skill settings you still need.
 
 ---
 
 ## Updates
 
-- For regular users: check GUI updates in Settings or download the latest installer from [GitHub Releases](https://github.com/XingYu-Zhong/DeepSeek-GUI/releases).
+- For regular users: check GUI updates in Settings or download the latest installer from [GitHub Releases](https://github.com/XingYu-Zhong/SciForge/releases).
 
 ## Contributing
 
@@ -440,10 +440,10 @@ We are also grateful to:
 - **[LobsterAI](https://github.com/netease-youdao/LobsterAI)**: its IM management, QR binding, agent binding, and customizable agent-profile flows inspired the Connect phone integration in this project.
 - **OpenHanako**: its Markdown live editing, writing-space, and selection inline-agent patterns heavily informed Write mode.
 - **[DeepSeek](https://github.com/deepseek-ai)**: for the models and API.
-- Everyone who contributes issues, ideas, code, and documentation to DeepSeek GUI.
+- Everyone who contributes issues, ideas, code, and documentation to SciForge.
 
-<a href="https://github.com/XingYu-Zhong/DeepSeek-GUI/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=XingYu-Zhong/DeepSeek-GUI" />
+<a href="https://github.com/XingYu-Zhong/SciForge/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=XingYu-Zhong/SciForge" />
 </a>
 
 > [!NOTE]
@@ -455,4 +455,4 @@ We are also grateful to:
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=XingYu-Zhong/DeepSeek-GUI&type=date&legend=top-left)](https://www.star-history.com/?repos=XingYu-Zhong%2FDeepSeek-GUI&type=date&logscale=&legend=top-left)
+[![Star History Chart](https://api.star-history.com/chart?repos=XingYu-Zhong/SciForge&type=date&legend=top-left)](https://www.star-history.com/?repos=XingYu-Zhong%2FSciForge&type=date&logscale=&legend=top-left)

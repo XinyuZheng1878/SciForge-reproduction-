@@ -1070,7 +1070,7 @@ describe('CodexRuntimeService compatibility operations', () => {
     expect(client.startTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({ threadId: 'codex-thread-old' }))
     expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/tmp/workspace',
-      serviceName: 'DeepSeek GUI',
+      serviceName: 'SciForge',
       ephemeral: false
     }))
     expect(client.startTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ threadId: 'codex-thread-new' }))
@@ -1134,7 +1134,7 @@ describe('CodexRuntimeService compatibility operations', () => {
     expect(client.startTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({ threadId: 'codex-thread-old' }))
     expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/tmp/workspace',
-      serviceName: 'DeepSeek GUI',
+      serviceName: 'SciForge',
       ephemeral: false
     }))
     expect(client.startTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ threadId: 'codex-thread-new' }))
@@ -1168,7 +1168,7 @@ describe('CodexRuntimeService compatibility operations', () => {
     expect(client.startTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({ threadId: 'gui-thread-1' }))
     expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/tmp/workspace',
-      serviceName: 'DeepSeek GUI',
+      serviceName: 'SciForge',
       ephemeral: false
     }))
     expect(client.startTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ threadId: 'codex-thread-new' }))
@@ -1217,7 +1217,7 @@ describe('CodexRuntimeService compatibility operations', () => {
 
     expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/tmp/workspace',
-      serviceName: 'DeepSeek GUI',
+      serviceName: 'SciForge',
       ephemeral: false
     }))
     await expect(threadStore.get('gui-thread-1')).resolves.toMatchObject({

@@ -98,7 +98,8 @@ const INITIAL_QR_STATE: ClawInstallQrState = {
   timeLeft: 0,
   error: ''
 }
-const INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.deepseekgui/claw/'
+const INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.sciforge/claw/'
+const LEGACY_INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.deepseekgui/claw/'
 
 export function connectPhoneProviderForTarget(target: ClawInstallTarget): ClawImProvider {
   return target === 'weixin' ? 'weixin' : 'feishu'
@@ -152,6 +153,8 @@ export function normalizeConnectPhoneWorkspaceRoot(workspaceRoot?: string): stri
 function isInternalClawWorkspaceRoot(workspaceRoot: string): boolean {
   const normalized = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   return normalized.includes(INTERNAL_CLAW_WORKSPACE_FRAGMENT) ||
+    normalized.includes(LEGACY_INTERNAL_CLAW_WORKSPACE_FRAGMENT) ||
+    normalized.startsWith('~/.sciforge/claw/') ||
     normalized.startsWith('~/.deepseekgui/claw/')
 }
 

@@ -32,7 +32,7 @@ describe('AnimatedWorkLogo', () => {
     expect(html).toContain('ds-work-logo-track')
     expect(html).toContain('ds-work-logo-body')
     expect(html).toContain('ds-work-logo-image')
-    expect(html).toContain('ds-work-logo-tail')
+    expect(html).not.toContain('ds-work-logo-tail')
   })
 
   it('defaults to a static logo unless active', () => {

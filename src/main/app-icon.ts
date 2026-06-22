@@ -59,7 +59,7 @@ export function createAppIcon(source: string): Electron.NativeImage {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     console.warn(
-      '[deepseek-gui] failed to load app icon from',
+      '[sciforge] failed to load app icon from',
       absolute,
       '-',
       message

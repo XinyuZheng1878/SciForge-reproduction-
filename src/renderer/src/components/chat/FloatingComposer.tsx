@@ -84,7 +84,10 @@ import {
   type QueuedComposerMessage
 } from './FloatingComposerQueuedMessages'
 import { useComposerDraft } from './use-composer-draft'
-import { SPEECH_TRANSCRIPTION_MAX_DURATION_MS } from '@shared/app-settings'
+import {
+  SPEECH_TRANSCRIPTION_MAX_DURATION_MS,
+  type AgentRuntimeId
+} from '@shared/app-settings'
 import {
   useSpeechToTextSettings,
   useVoiceDictation,
@@ -108,8 +111,10 @@ type Props = {
   composerModel: string
   composerPickList: string[]
   composerModelGroups?: ModelProviderModelGroup[]
+  activeAgentRuntime?: AgentRuntimeId
   composerReasoningEffort?: string
   onComposerModelChange: (modelId: string) => void
+  onActiveAgentRuntimeChange?: (runtimeId: AgentRuntimeId) => void
   onComposerReasoningEffortChange?: (effort: ComposerReasoningEffort) => void
   hideModelPicker?: boolean
   modelPickerMode?: 'select' | 'combobox'
@@ -146,6 +151,7 @@ type Props = {
   onPasteClipboardImage?: (options?: { silentNoImage?: boolean }) => void | Promise<void>
   onRemoveAttachment?: (id: string) => void
   onAddFileReference?: (reference: ComposerFileReference) => void
+  onPreviewFileReference?: (reference: ComposerFileReference) => void
   onRemoveFileReference?: (relativePath: string, workspaceRoot?: string) => void
   onSend: () => void
   onInterrupt: (options?: { discard?: boolean }) => void
@@ -563,8 +569,10 @@ export function FloatingComposer({
   composerModel,
   composerPickList,
   composerModelGroups = EMPTY_MODEL_GROUPS,
+  activeAgentRuntime,
   composerReasoningEffort,
   onComposerModelChange,
+  onActiveAgentRuntimeChange,
   onComposerReasoningEffortChange,
   hideModelPicker = false,
   modelPickerMode = 'select',
@@ -585,6 +593,7 @@ export function FloatingComposer({
   onPasteClipboardImage,
   onRemoveAttachment,
   onAddFileReference,
+  onPreviewFileReference,
   onRemoveFileReference,
   onSend,
   onInterrupt,
@@ -674,7 +683,12 @@ export function FloatingComposer({
   const canTogglePlanMode = canCompose && Boolean(onPlanCommand)
   const canOpenGoalPanel = canCompose && route !== 'claw' && runtimeSupportsGoals
   const canRunReview = canCompose && route !== 'claw' && runtimeSupportsReview && Boolean(onReviewCommand)
-  const canOpenComposerMenu = showComposerMenuButton && (canTogglePlanMode || canOpenGoalPanel || canRunReview)
+  const canOpenComposerMenu = showComposerMenuButton && (
+    canOpenAttachmentPicker ||
+    canTogglePlanMode ||
+    canOpenGoalPanel ||
+    canRunReview
+  )
   const showToolbarStartControls = showAttachmentToolbarButton || showComposerMenuButton
   const showChangeSummary =
     !compact &&
@@ -1967,15 +1981,39 @@ export function FloatingComposer({
               {fileReferences.map((reference) => (
                 <span
                   key={composerFileReferenceKey(reference)}
-                  className="ds-no-drag inline-flex h-7 max-w-full items-center gap-1.5 rounded-lg border border-ds-border-muted bg-ds-card/80 px-2 text-[12px] font-medium text-ds-muted"
+                  className="ds-no-drag inline-flex h-7 max-w-full items-center gap-1 rounded-lg border border-ds-border-muted bg-ds-card/80 px-1.5 text-[12px] font-medium text-ds-muted"
                   title={reference.relativePath}
                 >
-                  {reference.kind === 'directory' ? (
-                    <Folder className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
+                  {onPreviewFileReference ? (
+                    <button
+                      type="button"
+                      onClick={() => onPreviewFileReference(reference)}
+                      className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+                      aria-label={t('composerOpenFileReference', { name: reference.relativePath })}
+                      title={t('composerOpenFileReference', { name: reference.relativePath })}
+                    >
+                      {reference.kind === 'directory' ? (
+                        <Folder className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
+                      ) : (
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
+                      )}
+                      <span className="max-w-52 truncate">{reference.relativePath}</span>
+                    </button>
                   ) : (
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
+                    <>
+                      {reference.kind === 'directory' ? (
+                        <Folder className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
+                      ) : (
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
+                      )}
+                      <span className="max-w-52 truncate">{reference.relativePath}</span>
+                    </>
                   )}
-                  <span className="max-w-52 truncate">{reference.relativePath}</span>
+                  {reference.kind === 'pdf' || reference.mimeType === 'application/pdf' ? (
+                    <span className="rounded bg-ds-hover px-1 py-0.5 font-mono text-[10px] leading-none text-ds-faint">
+                      PDF
+                    </span>
+                  ) : null}
                   {onRemoveFileReference ? (
                     <button
                       type="button"
@@ -2143,22 +2181,6 @@ export function FloatingComposer({
           >
             {showToolbarStartControls ? (
               <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden">
-                {showAttachmentToolbarButton ? (
-                  <button
-                    type="button"
-                    disabled={!canOpenAttachmentPicker || !onPickAttachments}
-                    onClick={handleAttachmentMenuClick}
-                    className="ds-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45"
-                    aria-label={t('composerAddAttachment')}
-                    title={t('composerAddAttachment')}
-                  >
-                    {attachmentUploadBusy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.9} />
-                    ) : (
-                      <Paperclip className="h-4 w-4" strokeWidth={1.9} />
-                    )}
-                  </button>
-                ) : null}
                 {showComposerMenuButton ? (
                   <>
                     <button
@@ -2234,10 +2256,12 @@ export function FloatingComposer({
                   composerModel={composerModel}
                   composerPickList={composerPickList}
                   composerModelGroups={composerModelGroups}
+                  activeAgentRuntime={activeAgentRuntime}
                   composerReasoningEffort={composerReasoningEffort}
                   canChangeModel={canChangeModel}
                   stretch={stretchModelPicker}
                   onComposerModelChange={onComposerModelChange}
+                  onActiveAgentRuntimeChange={onActiveAgentRuntimeChange}
                   onComposerReasoningEffortChange={onComposerReasoningEffortChange}
                 />
               )}

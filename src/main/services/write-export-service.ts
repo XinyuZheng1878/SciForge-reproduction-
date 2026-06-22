@@ -486,7 +486,7 @@ async function bufferFromDocxResult(result: ArrayBuffer | Blob): Promise<Buffer>
 }
 
 async function renderHtmlToPdf(html: string): Promise<Buffer> {
-  const tempDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-export-'))
+  const tempDir = await mkdtemp(join(tmpdir(), 'sciforge-export-'))
   const tempHtmlPath = join(tempDir, 'document.html')
   await writeFile(tempHtmlPath, html, 'utf8')
 
@@ -596,7 +596,7 @@ export async function exportWriteDocument(
     } else if (payload.format === 'docx') {
       const docx = await htmlToDocx(html, null, {
         title,
-        creator: 'DeepSeek GUI',
+        creator: 'SciForge',
         keywords: ['markdown', 'export'],
         description: `Exported from ${basename(sourcePath)}`,
         font: 'Arial',

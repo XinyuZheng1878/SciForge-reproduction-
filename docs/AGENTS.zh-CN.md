@@ -1,6 +1,6 @@
 # 代理运行时说明
 
-DeepSeek GUI 支持两个可由用户选择的本地 Agent 运行时：**Kun** 和
+SciForge 支持两个可由用户选择的本地 Agent 运行时：**Kun** 和
 **Codex**。Kun 仍是默认运行时，适用于既有用户和新安装用户。Codex 是可选
 运行时，必须由用户显式选择或启用；Kun 失败时不能静默 fallback 到 Codex。
 

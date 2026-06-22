@@ -90,7 +90,7 @@ describe('buildInlineCompletionPayload', () => {
       recentEdits: [edit({
         from: 9,
         to: 21,
-        deletedText: 'DeepSeek GUI',
+        deletedText: 'SciForge',
         insertedText: 'Write mode'
       })]
     })
@@ -116,7 +116,7 @@ describe('buildInlineCompletionPayload', () => {
         recentEdits: [edit({
           from: 9,
           to: 21,
-          deletedText: 'DeepSeek GUI',
+          deletedText: 'SciForge',
           insertedText: 'Write mode'
         })]
       }
@@ -155,9 +155,10 @@ describe('buildInlineCompletionPayload', () => {
       {
         now,
         recentEdits: [edit({
-          from: 9,
-          to: 21,
-          deletedText: 'DeepSeek GUI',
+          source: 'inline-edit',
+          from: 17,
+          to: 29,
+          deletedText: 'DeepSeek gui',
           insertedText: 'Write mode'
         })]
       }

@@ -21,7 +21,7 @@ describe('weixin bridge runtime', () => {
 
     expect(baseInfo).toMatchObject({
       channel_version: pkg.version,
-      bot_agent: 'DeepSeekGUI/0.2.0-test'
+      bot_agent: 'SciForge/0.2.0-test'
     })
   })
 

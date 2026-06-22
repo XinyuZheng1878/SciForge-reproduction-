@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import type {
-  AgentRuntimeId,
   ApprovalPolicy,
   AppSettingsPatch,
   AppSettingsV1,
@@ -308,13 +307,11 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     kun,
     codex: codexFromContext,
     claude: claudeFromContext,
-    activeAgentRuntime: activeAgentRuntimeFromContext,
     activeApiKey,
     update,
     updateKun,
     updateCodex,
     updateClaude,
-    updateActiveAgentRuntime,
     updateSharedCredential,
     sharedApiKey,
     sharedBaseUrl,
@@ -557,10 +554,6 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
       }
     })
   }
-  const activeAgentRuntime: AgentRuntimeId =
-    activeAgentRuntimeFromContext === 'codex' || activeAgentRuntimeFromContext === 'claude'
-      ? activeAgentRuntimeFromContext
-      : 'kun'
   const codex = codexFromContext ?? (form ? getCodexRuntimeSettings(form) : defaultCodexRuntimeSettings())
   const claude = claudeFromContext ?? (form ? getClaudeRuntimeSettings(form) : defaultClaudeRuntimeSettings())
   const modelRouter = form ? getModelRouterSettings(form) : defaultModelRouterSettings()
@@ -614,13 +607,6 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
       return
     }
     update(claudeRuntimeSettingsPatch(patch))
-  }
-  const setActiveAgentRuntime = (runtime: AgentRuntimeId): void => {
-    if (typeof updateActiveAgentRuntime === 'function') {
-      updateActiveAgentRuntime(runtime)
-      return
-    }
-    update({ activeAgentRuntime: runtime })
   }
   const textInputClass =
     'w-full min-w-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30'
@@ -693,21 +679,6 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
 
               <div ref={agentsSectionRef}>
                 <SettingsCard title={t('agents')}>
-                  <SettingRow
-                    title={t('agentRuntime')}
-                    description={t('agentRuntimeDesc')}
-                    control={
-                      <select
-                        className={selectControlClass}
-                        value={activeAgentRuntime}
-                        onChange={(e) => setActiveAgentRuntime(e.target.value as AgentRuntimeId)}
-                      >
-                        <option value="kun">{t('agentRuntimeKun')}</option>
-                        <option value="codex">{t('agentRuntimeCodex')}</option>
-                        <option value="claude">{t('agentRuntimeClaude')}</option>
-                      </select>
-                    }
-                  />
                   <SettingRow
                     title={t('modelRouter')}
                     description={t('modelRouterDesc')}

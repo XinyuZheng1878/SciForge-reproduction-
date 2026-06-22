@@ -127,8 +127,8 @@ describe('createCodexAppServerClient', () => {
       method: 'initialize',
       params: {
         clientInfo: {
-          name: 'deepseek-gui',
-          title: 'DeepSeek GUI',
+          name: 'sciforge',
+          title: 'SciForge',
           version: '0.1.0'
         },
         capabilities: {
@@ -169,7 +169,7 @@ describe('createCodexAppServerClient', () => {
       approvalPolicy: 'never',
       sandbox: 'workspace-write',
       ephemeral: true,
-      serviceName: 'DeepSeek GUI'
+      serviceName: 'SciForge'
     })
     fake.emitStdout({ id: 2, result: { thread: { id: 'thread-1' } } })
     await expect(started).resolves.toEqual({ thread: { id: 'thread-1' } })

@@ -808,6 +808,109 @@ test('responses tool outputs are forwarded to chat providers as tool messages', 
   }
 });
 
+test('responses adjacent tool calls are forwarded as one assistant message', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-adjacent-tool-calls-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-tool-output-final', 'Both commands finished.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Run pwd and git status.' }],
+          },
+          {
+            type: 'function_call',
+            call_id: 'call_pwd_1',
+            name: 'local_shell',
+            arguments: '{"cmd":"pwd"}',
+            reasoning_content: 'Need the current directory.',
+          },
+          {
+            type: 'function_call',
+            call_id: 'call_git_status_1',
+            name: 'local_shell',
+            arguments: '{"cmd":"git status --short"}',
+            reasoning_content: 'Need the worktree status.',
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_pwd_1',
+            output: '/tmp/workspace\n',
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_git_status_1',
+            output: ' M package.json\n',
+          },
+        ],
+        tools: [{
+          type: 'function',
+          name: 'local_shell',
+          description: 'Run a local shell command.',
+          parameters: { type: 'object', properties: {} },
+        }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls[0]?.body.messages, [
+      {
+        role: 'user',
+        content: 'Run pwd and git status.',
+      },
+      {
+        role: 'assistant',
+        content: null,
+        reasoning_content: 'Need the current directory.\nNeed the worktree status.',
+        tool_calls: [
+          {
+            id: 'call_pwd_1',
+            type: 'function',
+            function: {
+              name: 'local_shell',
+              arguments: '{"cmd":"pwd"}',
+            },
+          },
+          {
+            id: 'call_git_status_1',
+            type: 'function',
+            function: {
+              name: 'local_shell',
+              arguments: '{"cmd":"git status --short"}',
+            },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'call_pwd_1',
+        content: '/tmp/workspace\n',
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'call_git_status_1',
+        content: ' M package.json\n',
+      },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
 test('responses developer messages are replayed as chat-compatible system messages', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-developer-replay-'));
   const calls: CapturedFetch[] = [];

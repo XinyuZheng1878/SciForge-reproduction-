@@ -106,7 +106,7 @@ function applyCors(request: IncomingMessage, response: ServerResponse): boolean 
     response.setHeader('Vary', 'Origin')
   }
   response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-DeepSeek-Gui-Client')
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-Sciforge-Client,X-DeepSeek-Gui-Client')
   return true
 }
 
@@ -203,7 +203,7 @@ export async function startDevBrowserBridgeServer(
       void (async () => {
         try {
           const body = parseInvokeBody(await readJsonBody(request))
-          const clientId = normalizeClientId(request.headers['x-deepseek-gui-client'])
+          const clientId = normalizeClientId(request.headers['x-sciforge-client'] ?? request.headers['x-deepseek-gui-client'])
           const payload = await options.dispatcher.invoke(body.channel, body.payload, getClient(clientId))
           writeJson(response, 200, { ok: true, payload })
         } catch (error) {

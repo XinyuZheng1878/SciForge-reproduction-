@@ -33,6 +33,7 @@ type Props = {
   fileReferenceEnabled?: boolean
   fileReferences?: ComposerFileReference[]
   onAddFileReference?: (reference: ComposerFileReference) => void
+  onPreviewFileReference?: (reference: ComposerFileReference) => void
   onRemoveFileReference?: (relativePath: string, workspaceRoot?: string) => void
   onSend: () => void
   onInterrupt: (options?: { discard?: boolean }) => void
@@ -67,6 +68,7 @@ export function SddAssistantPanel({
   fileReferenceEnabled = false,
   fileReferences = [],
   onAddFileReference,
+  onPreviewFileReference,
   onRemoveFileReference,
   onSend,
   onInterrupt,
@@ -208,6 +210,7 @@ export function SddAssistantPanel({
           fileReferenceEnabled={fileReferenceEnabled}
           fileReferences={fileReferences}
           onAddFileReference={onAddFileReference}
+          onPreviewFileReference={onPreviewFileReference}
           onRemoveFileReference={onRemoveFileReference}
           onSend={onSend}
           onInterrupt={onInterrupt}

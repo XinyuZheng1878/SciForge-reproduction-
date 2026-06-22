@@ -208,7 +208,11 @@ export async function writeWorkspaceFile(
   try {
     const targetPath = await resolveTargetPathWithinWorkspace(payload.path, payload.workspaceRoot)
     await mkdir(dirname(targetPath), { recursive: true })
-    await writeFile(targetPath, payload.content, 'utf8')
+    if (payload.contentBase64 !== undefined) {
+      await writeFile(targetPath, Buffer.from(payload.contentBase64, 'base64'))
+    } else {
+      await writeFile(targetPath, payload.content ?? '', 'utf8')
+    }
     return {
       ok: true,
       path: targetPath,

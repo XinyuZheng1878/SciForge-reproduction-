@@ -2799,7 +2799,7 @@ describe('createKunAgentRuntimeAdapter', () => {
     ])
     expect(JSON.parse(seen[2].init.body ?? '{}')).toEqual({
       prompt: 'run',
-      model: 'deepseek-gui-router',
+      model: 'sciforge-router',
       mode: 'agent',
       approvalPolicy: 'auto',
       sandboxMode: 'danger-full-access',

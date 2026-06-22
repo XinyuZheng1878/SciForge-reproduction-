@@ -172,7 +172,7 @@ describe('ConnectPhoneView', () => {
         'default workspace'
       )
     ).toBe('default workspace')
-    expect(connectPhoneWorkspaceLabel('/repo/DeepSeek-GUI', 'default workspace')).toBe('DeepSeek-GUI')
+    expect(connectPhoneWorkspaceLabel('/repo/SciForge', 'default workspace')).toBe('SciForge')
   })
 
   it('uses the latest remote message as the Discord channel activity label', () => {

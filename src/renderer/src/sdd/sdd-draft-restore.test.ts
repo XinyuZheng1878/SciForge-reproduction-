@@ -43,7 +43,7 @@ describe('sdd-draft-restore', () => {
     useSddDraftStore.getState().setActiveDraft(draft, '# Previous')
     const readWorkspaceFile = vi.fn().mockResolvedValue({
       ok: true,
-      path: '/tmp/app/.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '/tmp/app/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       content: '# Restored',
       size: 10,
       truncated: false
@@ -56,7 +56,7 @@ describe('sdd-draft-restore', () => {
 
     expect(readWorkspaceFile).toHaveBeenCalledWith({
       workspaceRoot: '/tmp/app',
-      path: '.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md'
+      path: '.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md'
     })
     expect(result).toMatchObject({
       kind: 'restored',
@@ -64,7 +64,7 @@ describe('sdd-draft-restore', () => {
       draft: {
         id: draft.id,
         workspaceRoot: '/tmp/app',
-        absolutePath: '/tmp/app/.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md'
+        absolutePath: '/tmp/app/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md'
       }
     })
   })
@@ -82,7 +82,7 @@ describe('sdd-draft-restore', () => {
     useSddDraftStore.getState().clearActiveDraft()
     const readWorkspaceFile = vi.fn().mockResolvedValue({
       ok: true,
-      path: '/tmp/app/.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '/tmp/app/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       content: '# Disk draft',
       size: 12,
       truncated: false
@@ -111,7 +111,7 @@ describe('sdd-draft-restore', () => {
     useSddDraftStore.getState().clearActiveDraft()
     const readWorkspaceFile = vi.fn().mockResolvedValue({
       ok: true,
-      path: '/tmp/app/.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '/tmp/app/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       content: '# Updated on disk',
       size: 17,
       truncated: false
@@ -173,7 +173,7 @@ describe('sdd-draft-restore', () => {
     })
     const readWorkspaceFile = vi.fn().mockResolvedValue({
       ok: true,
-      path: '/tmp/app/.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '/tmp/app/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       content: '# Explicit',
       size: 10,
       truncated: false
@@ -186,7 +186,7 @@ describe('sdd-draft-restore', () => {
     })
     expect(readWorkspaceFile).toHaveBeenCalledWith({
       workspaceRoot: '/tmp/app',
-      path: '.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md'
+      path: '.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md'
     })
   })
 })

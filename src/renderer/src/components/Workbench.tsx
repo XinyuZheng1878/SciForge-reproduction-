@@ -142,6 +142,7 @@ type PendingSddPlanTarget = {
 const COMPOSER_FILE_CONTEXT_MAX_CHARS_PER_FILE = 60_000
 const COMPOSER_FILE_CONTEXT_MAX_TOTAL_CHARS = 180_000
 const COMPOSER_DIRECTORY_CONTEXT_MAX_FILES = 40
+const PDF_ATTACHMENT_MAX_BYTES = 64 * 1024 * 1024
 const SCIENTIFIC_ATTACHMENT_MAX_BYTES = 256 * 1024
 const SCIENTIFIC_ATTACHMENT_EXTENSIONS =
   /\.(?:fasta|fa|faa|fna|ffn|frn|fastq|fq|smi|smiles|mol|mol2|sdf|mgf|pdb|cif|gb|gbk|gff|gff3|gtf|vcf|bed|nwk|seq)$/i
@@ -206,29 +207,92 @@ function pickedWorkspaceFileReference(
   const path = pathForPickedAttachment(input)
   if (!path || !attachmentPathInsideWorkspace(path, workspaceRoot)) return null
   const relativePath = relativeWorkspacePath(path, workspaceRoot)
+  const isPdf = isPickedPdfAttachment(input)
   return {
     path: relativePath,
     relativePath,
     name: input.file.name || fileNameFromPath(path),
-    workspaceRoot
+    workspaceRoot,
+    ...(isPdf
+      ? {
+          kind: 'pdf' as const,
+          mimeType: 'application/pdf',
+          modelRouterObject: true
+        }
+      : {})
   }
 }
 
-function safeScientificUploadSegment(value: string, fallback: string): string {
+function safeUploadSegment(value: string, fallback: string): string {
   const normalized = value.trim().replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '')
   return normalized.slice(0, 80) || fallback
 }
 
-function safeScientificUploadFileName(input: ComposerImageAttachmentInput): string {
+function safeUploadFileName(input: ComposerImageAttachmentInput, fallback: string): string {
   const name = input.file.name || fileNameFromPath(pathForPickedAttachment(input))
-  const safe = name.replaceAll('\\', '/').split('/').filter(Boolean).pop() ?? 'scientific-data'
-  return safeScientificUploadSegment(safe, 'scientific-data').replace(/^\.+/g, '') || 'scientific-data'
+  const safe = name.replaceAll('\\', '/').split('/').filter(Boolean).pop() ?? fallback
+  return safeUploadSegment(safe, fallback).replace(/^\.+/g, '') || fallback
+}
+
+function safeScientificUploadFileName(input: ComposerImageAttachmentInput): string {
+  return safeUploadFileName(input, 'scientific-data')
 }
 
 function scientificAttachmentMimeType(input: ComposerImageAttachmentInput): string {
   const browserType = input.file.type.trim()
   if (browserType && !browserType.startsWith('image/')) return browserType
   return 'text/plain'
+}
+
+function uploadRelativePath(input: ComposerImageAttachmentInput, threadId: string | null, fallbackName: string): string {
+  const owner = safeUploadSegment(threadId ?? 'draft', 'draft')
+  const stamp = new Date().toISOString().replace(/[^0-9A-Za-z]+/g, '').slice(0, 15)
+  const random =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10)
+  const name = safeUploadFileName(input, fallbackName)
+  return `.sciforge/uploads/${owner}/${stamp}-${random}-${name}`
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  const chunkSize = 0x8000
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return btoa(binary)
+}
+
+async function copyPdfAttachmentToWorkspace(
+  input: ComposerImageAttachmentInput,
+  workspaceRoot: string,
+  threadId: string | null
+): Promise<ComposerFileReference> {
+  if (typeof window === 'undefined' || typeof window.dsGui?.writeWorkspaceFile !== 'function') {
+    throw new Error('Workspace file writing is unavailable.')
+  }
+  if (input.file.size > PDF_ATTACHMENT_MAX_BYTES) {
+    throw new Error(`PDF attachment is larger than ${PDF_ATTACHMENT_MAX_BYTES} bytes.`)
+  }
+  const relativePath = uploadRelativePath(input, threadId, 'document.pdf')
+  const contentBase64 = arrayBufferToBase64(await input.file.arrayBuffer())
+  const result = await window.dsGui.writeWorkspaceFile({
+    workspaceRoot,
+    path: relativePath,
+    contentBase64
+  })
+  if (!result.ok) throw new Error(result.message)
+  return {
+    path: relativePath,
+    relativePath,
+    name: safeUploadFileName(input, 'document.pdf'),
+    workspaceRoot,
+    kind: 'pdf',
+    mimeType: 'application/pdf',
+    modelRouterObject: true
+  }
 }
 
 async function copyScientificAttachmentToWorkspace(
@@ -250,14 +314,8 @@ async function copyScientificAttachmentToWorkspace(
   if (encodedBytes > SCIENTIFIC_ATTACHMENT_MAX_BYTES) {
     throw new Error(`Scientific attachment is larger than ${SCIENTIFIC_ATTACHMENT_MAX_BYTES} bytes.`)
   }
-  const owner = safeScientificUploadSegment(threadId ?? 'draft', 'draft')
-  const stamp = new Date().toISOString().replace(/[^0-9A-Za-z]+/g, '').slice(0, 15)
-  const random =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID().slice(0, 8)
-      : Math.random().toString(36).slice(2, 10)
   const name = safeScientificUploadFileName(input)
-  const relativePath = `.sciforge/uploads/${owner}/${stamp}-${random}-${name}`
+  const relativePath = uploadRelativePath(input, threadId, 'scientific-data')
   const result = await window.dsGui.writeWorkspaceFile({
     workspaceRoot,
     path: relativePath,
@@ -397,6 +455,7 @@ export function Workbench(): ReactElement {
     pluginHostRoute,
     workspaceRoot,
     runtimeConnection,
+    activeAgentRuntime,
     setRoute,
     openCode,
     openWrite,
@@ -426,6 +485,7 @@ export function Workbench(): ReactElement {
     composerPickList,
     composerModelGroups,
     setComposerModel,
+    setActiveAgentRuntime,
     setThreadSearch,
     setShowArchivedThreads,
     renameThread,
@@ -456,6 +516,7 @@ export function Workbench(): ReactElement {
       pluginHostRoute: s.pluginHostRoute,
       workspaceRoot: s.workspaceRoot,
       runtimeConnection: s.runtimeConnection,
+      activeAgentRuntime: s.activeAgentRuntime,
       setRoute: s.setRoute,
       openCode: s.openCode,
       openWrite: s.openWrite,
@@ -485,6 +546,7 @@ export function Workbench(): ReactElement {
       composerPickList: s.composerPickList,
       composerModelGroups: s.composerModelGroups,
       setComposerModel: s.setComposerModel,
+      setActiveAgentRuntime: s.setActiveAgentRuntime,
       setThreadSearch: s.setThreadSearch,
       setShowArchivedThreads: s.setShowArchivedThreads,
       renameThread: s.renameThread,
@@ -958,6 +1020,17 @@ export function Workbench(): ReactElement {
     setRightPanelMode('file')
   }
 
+  const previewComposerFileReference = (reference: ComposerFileReference): void => {
+    if (reference.kind === 'directory') return
+    const path = reference.relativePath || reference.path
+    if (!path) return
+    setFilePreviewTarget({
+      path,
+      workspaceRoot: reference.workspaceRoot || activeWorkspaceReferenceRoot || workspaceRoot
+    })
+    setRightPanelMode('file')
+  }
+
   const removeComposerFileReference = (relativePath: string, referenceWorkspaceRoot?: string): void => {
     const key = composerFileReferenceKey({
       relativePath,
@@ -997,13 +1070,19 @@ export function Workbench(): ReactElement {
       !isPickedImageAttachment(input)
     )
     const pdfReferences: ComposerFileReference[] = []
-    const unresolvedPdfNames: string[] = []
+    const failedPdfNames: string[] = []
     for (const input of pdfInputs) {
       const reference = workspace ? pickedWorkspaceFileReference(input, workspace) : null
       if (reference) {
         pdfReferences.push(reference)
+      } else if (workspace) {
+        try {
+          pdfReferences.push(await copyPdfAttachmentToWorkspace(input, workspace, activeThreadId))
+        } catch {
+          failedPdfNames.push(input.file.name || fileNameFromPath(pathForPickedAttachment(input)))
+        }
       } else {
-        unresolvedPdfNames.push(input.file.name || fileNameFromPath(pathForPickedAttachment(input)))
+        failedPdfNames.push(input.file.name || fileNameFromPath(pathForPickedAttachment(input)))
       }
     }
     if (pdfReferences.length > 0) {
@@ -1014,11 +1093,12 @@ export function Workbench(): ReactElement {
         }
         return next
       })
+      previewComposerFileReference(pdfReferences[0])
     }
-    if (unresolvedPdfNames.length > 0) {
-      setAttachmentUploadError(t('composerWorkspaceFilePathRequired', {
-        name: unresolvedPdfNames[0],
-        count: unresolvedPdfNames.length
+    if (failedPdfNames.length > 0) {
+      setAttachmentUploadError(t('composerPdfImportFailed', {
+        name: failedPdfNames[0],
+        count: failedPdfNames.length
       }))
     } else if (pdfReferences.length > 0) {
       setAttachmentUploadError(null)
@@ -1047,7 +1127,7 @@ export function Workbench(): ReactElement {
           }
           return next
         })
-        if (unresolvedPdfNames.length === 0 && unsupportedInputs.length === 0) setAttachmentUploadError(null)
+        if (failedPdfNames.length === 0 && unsupportedInputs.length === 0) setAttachmentUploadError(null)
       } catch (error) {
         setAttachmentUploadError(error instanceof Error ? error.message : String(error))
         return
@@ -1064,7 +1144,7 @@ export function Workbench(): ReactElement {
       return
     }
     setAttachmentUploadBusy(true)
-    if (unresolvedPdfNames.length === 0) setAttachmentUploadError(null)
+    if (failedPdfNames.length === 0) setAttachmentUploadError(null)
     try {
       const attachmentCapabilities = runtimeInfo?.capabilities.attachments
       if (!attachmentCapabilities) {
@@ -1975,6 +2055,7 @@ export function Workbench(): ReactElement {
                 onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
                 onRemoveAttachment={removeComposerAttachment}
                 onAddFileReference={addComposerFileReference}
+                onPreviewFileReference={previewComposerFileReference}
                 onRemoveFileReference={removeComposerFileReference}
                 onSend={handleSend}
                 onInterrupt={(options) => void interrupt(options)}
@@ -2009,6 +2090,7 @@ export function Workbench(): ReactElement {
                 fileReferenceEnabled={Boolean(normalizeWorkspaceRoot(activeSddDraft.workspaceRoot))}
                 fileReferences={composerFileReferences}
                 onAddFileReference={addComposerFileReference}
+                onPreviewFileReference={previewComposerFileReference}
                 onRemoveFileReference={removeComposerFileReference}
                 onSend={handleSend}
                 onInterrupt={(options) => void interrupt(options)}
@@ -2299,6 +2381,7 @@ export function Workbench(): ReactElement {
                     }
                     composerPickList={composerPickList}
                     composerModelGroups={composerModelGroups}
+                    activeAgentRuntime={activeAgentRuntime}
                     composerReasoningEffort={
                       route === 'chat' || route === 'claw' ? composerReasoningEffort : undefined
                     }
@@ -2308,6 +2391,9 @@ export function Workbench(): ReactElement {
                         return
                       }
                       setComposerModel(modelId)
+                    }}
+                    onActiveAgentRuntimeChange={(runtimeId) => {
+                      void setActiveAgentRuntime(runtimeId)
                     }}
                     onComposerReasoningEffortChange={
                       route === 'chat' || route === 'claw' ? setComposerReasoningEffort : undefined
@@ -2328,6 +2414,7 @@ export function Workbench(): ReactElement {
                     onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
                     onRemoveAttachment={removeComposerAttachment}
                     onAddFileReference={addComposerFileReference}
+                    onPreviewFileReference={previewComposerFileReference}
                     onRemoveFileReference={removeComposerFileReference}
                     queuedMessages={queuedMessages}
                     onRemoveQueuedMessage={removeQueuedMessage}

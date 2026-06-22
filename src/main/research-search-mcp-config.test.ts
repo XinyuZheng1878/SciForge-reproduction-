@@ -12,8 +12,8 @@ import {
 } from './research-search-mcp-config'
 
 const launch: ResearchSearchMcpLaunchConfig = {
-  appPath: '/Applications/DeepSeek GUI.app',
-  execPath: '/Applications/DeepSeek GUI.app/Contents/MacOS/DeepSeek GUI',
+  appPath: '/Applications/SciForge.app',
+  execPath: '/Applications/SciForge.app/Contents/MacOS/SciForge',
   isPackaged: false
 }
 

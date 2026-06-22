@@ -7,6 +7,8 @@ import {
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
   defaultKunRuntimeSettings,
+  DEFAULT_MODEL_ROUTER_PROVIDER_ID,
+  DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -34,7 +36,7 @@ function settings(codexHome: string): AppSettingsV1 {
     modelRouter: {
       ...defaultModelRouterSettings(),
       baseUrl: 'http://127.0.0.1:49876/v1',
-      publicModelAlias: 'deepseek-gui-router',
+      publicModelAlias: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
       runtimeApiKey: 'local-runtime-router-key'
     },
     workspaceRoot: '/tmp/workspace',
@@ -106,6 +108,7 @@ describe('codex config launch helpers', () => {
     expect(launch.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined()
     expect(launch.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined()
     expect(launch.env.MODEL_PROVIDER).toBeUndefined()
+    expect(launch.env.SCIFORGE_RUNTIME_API_KEY).toBe('local-runtime-router-key')
     expect(launch.env.DEEPSEEK_GUI_RUNTIME_API_KEY).toBe('local-runtime-router-key')
     expect(launch.env.NO_PROXY).toContain('127.0.0.1')
     await expect(stat(managedHome)).resolves.toMatchObject({})
@@ -114,11 +117,12 @@ describe('codex config launch helpers', () => {
     await expect(stat(join(managedHome, 'logs'))).resolves.toMatchObject({})
 
     const config = await readFile(join(managedHome, 'config.toml'), 'utf8')
-    expect(config).toContain('model = "deepseek-gui-router"')
-    expect(config).toContain('model_provider = "deepseek-gui-model-router"')
-    expect(config).toContain('[model_providers.deepseek-gui-model-router]')
+    expect(config).toContain(`model = "${DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS}"`)
+    expect(config).toContain(`model_provider = "${DEFAULT_MODEL_ROUTER_PROVIDER_ID}"`)
+    expect(config).toContain(`[model_providers.${DEFAULT_MODEL_ROUTER_PROVIDER_ID}]`)
+    expect(config).toContain('name = "SciForge Model Router"')
     expect(config).toContain('base_url = "http://127.0.0.1:49876/v1"')
-    expect(config).toContain('env_key = "DEEPSEEK_GUI_RUNTIME_API_KEY"')
+    expect(config).toContain('env_key = "SCIFORGE_RUNTIME_API_KEY"')
     expect(config).toContain('wire_api = "responses"')
     expect(config).not.toContain('api.openai.com')
     expect(config).not.toContain('sk-')
@@ -169,7 +173,7 @@ describe('codex config launch helpers', () => {
       },
       researchMcpLaunch: {
         appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/DeepSeek GUI',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -177,7 +181,7 @@ describe('codex config launch helpers', () => {
     expect(launch.codexHome).toBe(codexHome)
     const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
     expect(config).toContain('[mcp_servers.gui_research]')
-    expect(config).toContain('command = "/tmp/deepseek-gui-test-app/DeepSeek GUI"')
+    expect(config).toContain('command = "/tmp/deepseek-gui-test-app/SciForge"')
     expect(config).toContain('args = ["/tmp/deepseek-gui-test-app/out/main/research-search-mcp-node-entry.js", "--gui-research-mcp-server"]')
     expect(config).toContain('ELECTRON_RUN_AS_NODE = "1"')
     expect(config).toContain('SCIFORGE_RESEARCH_MAX_RESULTS = "7"')
@@ -210,15 +214,16 @@ describe('codex config launch helpers', () => {
     expect(launch.codexHome).toBe(managedCodexHome)
     expect(launch.env.CODEX_HOME).toBe(managedCodexHome)
     expect(launch.env.OPENAI_API_KEY).toBeUndefined()
+    expect(launch.env.SCIFORGE_RUNTIME_API_KEY).toBe('local-runtime-router-key')
     expect(launch.env.DEEPSEEK_GUI_RUNTIME_API_KEY).toBe('local-runtime-router-key')
 
     const managedConfig = await readFile(join(managedCodexHome, 'config.toml'), 'utf8')
-    expect(managedConfig).toContain('model_provider = "deepseek-gui-model-router"')
+    expect(managedConfig).toContain(`model_provider = "${DEFAULT_MODEL_ROUTER_PROVIDER_ID}"`)
     expect(managedConfig).toContain('base_url = "http://127.0.0.1:49876/v1"')
 
     const persistedGlobalConfig = await readFile(join(settingsCodexHome, 'config.toml'), 'utf8')
     expect(persistedGlobalConfig).toContain('api.openai.com')
-    expect(persistedGlobalConfig).not.toContain('deepseek-gui-model-router')
+    expect(persistedGlobalConfig).not.toContain(DEFAULT_MODEL_ROUTER_PROVIDER_ID)
   })
 
   it('rejects non-local Model Router URLs', async () => {
@@ -230,7 +235,7 @@ describe('codex config launch helpers', () => {
         modelRouter: {
           ...defaultModelRouterSettings(),
           baseUrl: 'https://router.example.com/v1',
-          publicModelAlias: 'deepseek-gui-router',
+          publicModelAlias: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
           runtimeApiKey: 'local-runtime-router-key'
         }
       },

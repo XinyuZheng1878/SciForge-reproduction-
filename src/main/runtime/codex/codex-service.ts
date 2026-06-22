@@ -131,7 +131,7 @@ const EMPTY_CODEX_TURN_USAGE: AgentRuntimeUsage = {
 const FIRST_CODEX_ACTIVITY_TIMEOUT_MS = 75_000
 const INTERRUPT_TIMED_OUT_TURN_MS = 5_000
 const CODEX_SPECIALIZED_MCP_DEVELOPER_INSTRUCTIONS = [
-  'DeepSeek GUI may configure specialized MCP tools for this runtime.',
+  'SciForge may configure specialized MCP tools for this runtime.',
   'When an advertised specialized MCP tool directly matches the user request, use that tool before falling back to generic shell, curl, wget, ad hoc scripts, or direct scraping.',
   'Use command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.'
 ].join('\n')
@@ -249,7 +249,7 @@ export class CodexRuntimeService {
           dynamicTools
         }),
         ...codexModelRouterThreadParams(settings),
-        serviceName: 'DeepSeek GUI',
+        serviceName: 'SciForge',
         ephemeral: false
       })
       const thread = normalizeThread(readThread(response))
@@ -675,8 +675,8 @@ export class CodexRuntimeService {
         cwd: launch.cwd,
         env: launch.env,
         clientInfo: {
-          name: 'deepseek-gui',
-          title: 'DeepSeek GUI',
+          name: 'sciforge',
+          title: 'SciForge',
           version: this.options.appVersion ?? '0.1.0'
         },
         pendingServerRequests: {
@@ -1077,7 +1077,7 @@ export class CodexRuntimeService {
         dynamicTools
       }),
       ...codexModelRouterThreadParams(input.settings),
-      serviceName: 'DeepSeek GUI',
+      serviceName: 'SciForge',
       ephemeral: false
     })
     const thread = normalizeThread(readThread(response))
@@ -1620,11 +1620,11 @@ function turnStartParams(input: {
 function codexSpecializedMcpGuidedTurnText(text: string, specializedMcpConfigured: boolean): string {
   if (!specializedMcpConfigured) return text
   return [
-    '<deepseek_gui_runtime_instruction>',
-    'DeepSeek GUI has configured specialized MCP tools for this runtime.',
+    '<sciforge_runtime_instruction>',
+    'SciForge has configured specialized MCP tools for this runtime.',
     'When an advertised specialized MCP tool directly matches the user request, use that tool before falling back to generic shell, curl, wget, ad hoc scripts, or direct scraping.',
     'Use command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.',
-    '</deepseek_gui_runtime_instruction>',
+    '</sciforge_runtime_instruction>',
     '',
     text
   ].join('\n')

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import deepseekWhaleLogo from '../../../../asset/img/deepseek.svg'
+import sciforgeLogo from '../../../../asset/img/sciforge.png'
 
 export function AnimatedWorkLogo({
   active = false,
@@ -38,11 +38,10 @@ export function AnimatedWorkLogo({
       <span className="ds-work-logo-splash" />
       <span className="ds-work-logo-spray" />
       <span className="ds-work-logo-bubbles" />
-      <img className="ds-work-logo-echo" src={deepseekWhaleLogo} alt="" draggable={false} decoding="async" />
+      <img className="ds-work-logo-echo" src={sciforgeLogo} alt="" draggable={false} decoding="async" />
       <span className="ds-work-logo-track">
         <span className="ds-work-logo-body">
-          <img className="ds-work-logo-image" src={deepseekWhaleLogo} alt="" draggable={false} decoding="async" />
-          <img className="ds-work-logo-tail" src={deepseekWhaleLogo} alt="" draggable={false} decoding="async" />
+          <img className="ds-work-logo-image" src={sciforgeLogo} alt="" draggable={false} decoding="async" />
         </span>
       </span>
     </span>

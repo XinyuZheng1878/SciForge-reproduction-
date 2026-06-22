@@ -5,6 +5,7 @@ dist/
 .cache/
 .deepseek/
 .codex-runtime/
+.claude-code-runtime/
 *.log
 .DS_Store
 

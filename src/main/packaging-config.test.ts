@@ -61,7 +61,7 @@ function createMacPackContext(root: string): {
     electronPlatformName: 'darwin',
     packager: {
       appInfo: {
-        productFilename: 'DeepSeek GUI'
+        productFilename: 'SciForge'
       }
     }
   }
@@ -223,8 +223,8 @@ describe('electron-builder Kun packaging', () => {
 
   it('checks timestamp candidates across nested macOS signed code', () => {
     const root = tempRoot()
-    const appBundle = join(root, 'DeepSeek GUI.app')
-    const mainExecutable = join(appBundle, 'Contents/MacOS/DeepSeek GUI')
+    const appBundle = join(root, 'SciForge.app')
+    const mainExecutable = join(appBundle, 'Contents/MacOS/SciForge')
     const framework = join(appBundle, 'Contents/Frameworks/Electron Framework.framework')
     const nativeAddon = join(
       appBundle,

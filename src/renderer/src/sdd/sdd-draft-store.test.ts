@@ -55,7 +55,7 @@ describe('sdd-draft-store', () => {
 
     useSddDraftStore.getState().setActiveDraft(draft, '# Requirement')
 
-    expect(draft.id).toBe('/tmp/app:.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md')
+    expect(draft.id).toBe('/tmp/app:.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md')
     expect(readRememberedSddDraft('/tmp/app')?.id).toBe(draft.id)
     expect(readRememberedSddDraft('/tmp/other')).toBeNull()
   })
@@ -196,7 +196,7 @@ describe('sdd-draft-store', () => {
   it('saves the active draft to disk and updates clean state', async () => {
     const writeWorkspaceFile = vi.fn().mockResolvedValue({
       ok: true,
-      path: '/tmp/app/.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '/tmp/app/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       savedAt: '2026-01-01T00:00:00.000Z'
     })
     window.dsGui.writeWorkspaceFile = writeWorkspaceFile
@@ -212,7 +212,7 @@ describe('sdd-draft-store', () => {
 
     expect(writeWorkspaceFile).toHaveBeenCalledWith({
       workspaceRoot: '/tmp/app',
-      path: '.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       content: '# Draft updated'
     })
     expect(useSddDraftStore.getState()).toMatchObject({
@@ -226,13 +226,13 @@ describe('sdd-draft-store', () => {
     const draft = createSddDraft({
       id: '123e4567-e89b-12d3-a456-426614174000',
       workspaceRoot: '/tmp/app',
-      absolutePath: '/tmp/app/.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      absolutePath: '/tmp/app/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       now: 1
     })
     useSddDraftStore.getState().setActiveDraft(draft, '# Draft')
 
     await expect(syncActiveSddDraftFromDisk({
-      path: '/tmp/app/.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '/tmp/app/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       content: '# Draft updated by AI',
       size: 21,
       truncated: false
@@ -249,14 +249,14 @@ describe('sdd-draft-store', () => {
     const draft = createSddDraft({
       id: '123e4567-e89b-12d3-a456-426614174000',
       workspaceRoot: '/tmp/app',
-      absolutePath: '/tmp/app/.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      absolutePath: '/tmp/app/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       now: 1
     })
     useSddDraftStore.getState().setActiveDraft(draft, '# Draft')
     useSddDraftStore.getState().setContent('# Local unsaved draft')
 
     await expect(syncActiveSddDraftFromDisk({
-      path: '/tmp/app/.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      path: '/tmp/app/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       content: '# External draft',
       size: 16,
       truncated: false

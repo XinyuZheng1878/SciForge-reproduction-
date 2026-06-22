@@ -2741,7 +2741,7 @@ export class ClawRuntime {
       channel.remoteSession?.chatId.trim() ||
       (channel.platformCredential?.kind === 'discord' ? channel.platformCredential.channelId.trim() : '')
     if (!to) return { ok: false, message: 'No target Discord channel is available yet.' }
-    const prefix = direction === 'user' ? '**From DeepSeek GUI**\n\n' : ''
+    const prefix = direction === 'user' ? '**From SciForge**\n\n' : ''
     for (const [index, chunk] of splitClawImReplyText('discord', `${prefix}${text}`.trim()).entries()) {
       const result = await runClawImProviderRetry(
         'discord',
@@ -3507,7 +3507,7 @@ export class ClawRuntime {
           appSecret,
           domain: domain === 'lark' ? Domain.Lark : Domain.Feishu,
           loggerLevel: LoggerLevel.warn,
-          source: 'deepseek-gui',
+          source: 'sciforge',
           transport: 'websocket',
           policy: {
             dmMode: 'open',
@@ -3664,9 +3664,12 @@ export class ClawRuntime {
       }
       if (im.secret) {
         const auth = req.headers.authorization ?? ''
-        const headerSecret = Array.isArray(req.headers['x-deepseek-gui-secret'])
-          ? req.headers['x-deepseek-gui-secret'][0]
-          : req.headers['x-deepseek-gui-secret']
+        const headerSecret = Array.isArray(req.headers['x-sciforge-secret'])
+          ? req.headers['x-sciforge-secret'][0]
+          : req.headers['x-sciforge-secret'] ??
+            (Array.isArray(req.headers['x-deepseek-gui-secret'])
+              ? req.headers['x-deepseek-gui-secret'][0]
+              : req.headers['x-deepseek-gui-secret'])
         if (auth !== `Bearer ${im.secret}` && headerSecret !== im.secret) {
           writeJson(res, 401, { ok: false, message: 'Unauthorized.' })
           return

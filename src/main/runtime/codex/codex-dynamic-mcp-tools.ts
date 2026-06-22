@@ -261,7 +261,7 @@ export class CodexDynamicMcpToolBridge {
 }
 
 async function createSdkMcpClient(server: CodexDynamicMcpServerConfig): Promise<CodexDynamicMcpClient> {
-  const client = new Client({ name: `deepseek-gui-codex-${server.id}`, version: '0.1.0' })
+  const client = new Client({ name: `sciforge-codex-${server.id}`, version: '0.1.0' })
   const transport = new StdioClientTransport({
     command: server.command,
     args: server.args ?? [],

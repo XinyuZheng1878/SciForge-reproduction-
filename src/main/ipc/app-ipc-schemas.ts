@@ -27,6 +27,7 @@ const MAX_NOTIFICATION_BODY_LENGTH = 5_000
 const MAX_CHANNEL_TEXT_LENGTH = 100_000
 const MAX_SKILL_FILE_BYTES = 1_000_000
 const MAX_CONFIG_FILE_BYTES = 2_000_000
+const MAX_WORKSPACE_BINARY_BODY_BASE64_CHARS = 90_000_000
 const MAX_DEVICE_CODE_LENGTH = 8_192
 const MAX_EDITOR_COMPLETION_TEXT = 200_000
 const MAX_MIME_TYPE_LENGTH = 128
@@ -820,7 +821,11 @@ export const workspaceFileWritePayloadSchema = z
   .object({
     path: trimmedString(MAX_PATH_LENGTH),
     workspaceRoot: optionalTrimmedString(MAX_PATH_LENGTH),
-    content: z.string().max(MAX_BODY_BYTES)
+    content: z.string().max(MAX_BODY_BYTES).optional(),
+    contentBase64: z.string().max(MAX_WORKSPACE_BINARY_BODY_BASE64_CHARS).optional()
+  })
+  .refine((payload) => payload.content !== undefined || payload.contentBase64 !== undefined, {
+    message: 'Either content or contentBase64 is required.'
   })
   .strict()
 

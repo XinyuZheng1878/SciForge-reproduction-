@@ -182,7 +182,7 @@ function readWeixinPackageInfo(): WeixinPackageInfo {
   const packageJson = resolvePackagePath('@tencent-weixin/openclaw-weixin', 'package.json')
   if (!packageJson) {
     throw new Error(
-      'Built-in WeChat login component is missing. Reinstall DeepSeek GUI or rebuild with @tencent-weixin/openclaw-weixin bundled.'
+      'Built-in WeChat login component is missing. Reinstall SciForge or rebuild with @tencent-weixin/openclaw-weixin bundled.'
     )
   }
   const parsed = JSON.parse(readFileSync(packageJson, 'utf8')) as JsonRecord
@@ -205,7 +205,7 @@ function buildBaseInfo(): JsonRecord {
   const info = readWeixinPackageInfo()
   return {
     channel_version: info.version,
-    bot_agent: `DeepSeekGUI/${app.getVersion() || '0.0.0'}`
+    bot_agent: `SciForge/${app.getVersion() || '0.0.0'}`
   }
 }
 
@@ -494,7 +494,7 @@ async function readBridgeConfig(): Promise<JsonRecord> {
 async function prepareBridgeState(port: number): Promise<void> {
   if (!resolveWeixinPluginRoot()) {
     throw new Error(
-      'Built-in WeChat login component is missing. Reinstall DeepSeek GUI or rebuild with @tencent-weixin/openclaw-weixin bundled.'
+      'Built-in WeChat login component is missing. Reinstall SciForge or rebuild with @tencent-weixin/openclaw-weixin bundled.'
     )
   }
   await ensureStateDirs()
@@ -633,7 +633,7 @@ async function waitForWeixinLogin(params: JsonRecord): Promise<JsonRecord> {
           alreadyConnected: true,
           accountId: normalizeAccountId(sessionKey),
           sessionKey,
-          message: '已连接过此 DeepSeek GUI，无需重复连接。'
+          message: '已连接过此 SciForge，无需重复连接。'
         }
       case 'scaned_but_redirect': {
         const redirectHost = recordString(status, 'redirect_host')
@@ -659,7 +659,7 @@ async function waitForWeixinLogin(params: JsonRecord): Promise<JsonRecord> {
           sessionKey,
           baseUrl,
           userId,
-          message: '已将此 DeepSeek GUI 连接到微信。'
+          message: '已将此 SciForge 连接到微信。'
         }
       }
     }
@@ -760,7 +760,7 @@ async function getUpdates(
 }
 
 function generateMessageId(): string {
-  return `deepseek-gui-weixin-${randomUUID()}`
+  return `sciforge-weixin-${randomUUID()}`
 }
 
 async function sendMessageWeixin(params: {
@@ -933,7 +933,7 @@ function buildWebhookMessage(message: WeixinMessage, accountId: string, text: st
   }
 }
 
-async function postToDeepSeekGuiWebhook(message: WeixinMessage, accountId: string): Promise<JsonRecord> {
+async function postToSciForgeWebhook(message: WeixinMessage, accountId: string): Promise<JsonRecord> {
   const settings = await resolveRuntimeContext()
   const text = textFromItemList(message.item_list)
   if (!text) return { reply: 'Only text messages are supported right now.' }
@@ -944,6 +944,7 @@ async function postToDeepSeekGuiWebhook(message: WeixinMessage, accountId: strin
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (settings.webhookSecret) {
     headers.authorization = `Bearer ${settings.webhookSecret}`
+    headers['x-sciforge-secret'] = settings.webhookSecret
     headers['x-deepseek-gui-secret'] = settings.webhookSecret
   }
   const res = await fetch(settings.webhookUrl, {
@@ -954,7 +955,7 @@ async function postToDeepSeekGuiWebhook(message: WeixinMessage, accountId: strin
   })
   const data = await readJsonResponse(res)
   if (!res.ok || data.ok === false) {
-    throw new Error(recordString(data, 'message') || `DeepSeek GUI webhook HTTP ${res.status}`)
+    throw new Error(recordString(data, 'message') || `SciForge webhook HTTP ${res.status}`)
   }
   return data
 }
@@ -989,7 +990,7 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
       signal,
       sendStatus: sendStatus(to, contextToken),
       run: async () => {
-        const result = await postToDeepSeekGuiWebhook(message, account.accountId)
+        const result = await postToSciForgeWebhook(message, account.accountId)
         const reply = recordString(result, 'reply') || recordString(result, 'text')
         if (reply) {
           await sendMessageWeixin({
