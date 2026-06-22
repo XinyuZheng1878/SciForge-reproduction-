@@ -20,6 +20,7 @@ import {
   mergeRuntimeGuardSettings,
   mergeScheduleSettings,
   mergeSpeechToTextSettings,
+  mergeWorkflowSettings,
   mergeWriteSettings,
   normalizeAppBehaviorSettings,
   normalizeAgentRuntimeId,
@@ -30,6 +31,7 @@ import {
   normalizeModelRouterSettings,
   normalizeScheduleSettings,
   normalizeSpeechToTextSettings,
+  normalizeWorkflowSettings,
   normalizeWriteSettings,
   type AppSettingsPatch,
   type AppSettingsV1
@@ -97,6 +99,7 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
     speechToText: mergeSpeechToTextSettings(safeCurrent.speechToText, patch.speechToText),
     claw: mergeClawSettings(safeCurrent.claw, patch.claw),
     schedule: mergeScheduleSettings(safeCurrent.schedule, patch.schedule),
+    workflow: mergeWorkflowSettings(safeCurrent.workflow, patch.workflow),
     guiUpdate: {
       ...safeCurrent.guiUpdate,
       ...(patch.guiUpdate ?? {})
@@ -143,6 +146,7 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     speechToText: normalizeSpeechToTextSettings(raw.speechToText),
     claw: normalizeClawSettings(raw.claw),
     schedule: normalizeScheduleSettings(raw.schedule),
+    workflow: normalizeWorkflowSettings(raw.workflow),
     guiUpdate: {
       channel: normalizeGuiUpdateChannel(raw.guiUpdate?.channel ?? DEFAULT_GUI_UPDATE_CHANNEL)
     },

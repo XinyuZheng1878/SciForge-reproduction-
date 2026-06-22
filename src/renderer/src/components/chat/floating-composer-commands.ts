@@ -25,7 +25,7 @@ export type CompactCommand = {
 export type GoalCommand =
   | { action: 'menu' }
   | { action: 'set'; objective: string }
-  | { action: 'pause' | 'resume' | 'clear' }
+  | { action: 'pause' | 'resume' | 'clear' | 'complete' }
 
 export const COMPACT_COMMAND_ALIASES = [
   'compact',
@@ -84,6 +84,7 @@ export function parseGoalCommand(input: string): GoalCommand | false {
   if (lowered === 'pause') return { action: 'pause' }
   if (lowered === 'resume') return { action: 'resume' }
   if (lowered === 'clear') return { action: 'clear' }
+  if (lowered === 'complete' || lowered === 'done') return { action: 'complete' }
   return { action: 'set', objective: body }
 }
 

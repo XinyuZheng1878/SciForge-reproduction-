@@ -6,7 +6,8 @@ import {
   ExternalLink,
   FileCode2,
   Loader2,
-  PanelRightClose
+  PanelRightClose,
+  StickyNote
 } from 'lucide-react'
 import {
   useEffect,
@@ -31,6 +32,7 @@ type Props = {
   target: WorkspaceFileTarget | null
   workspaceRoot: string
   className?: string
+  onOpenPdfAnnotations?: (path: string, workspaceRoot: string) => void
   onClose: () => void
 }
 
@@ -70,6 +72,7 @@ export function WorkspaceFilePreviewPanel({
   target,
   workspaceRoot,
   className,
+  onOpenPdfAnnotations,
   onClose
 }: Props): ReactElement {
   const { t } = useTranslation('common')
@@ -211,6 +214,10 @@ export function WorkspaceFilePreviewPanel({
   }
 
   const ignorePdfSelection = useCallback(() => undefined, [])
+  const openPdfAnnotations = useCallback((): void => {
+    if (!result?.ok || result.kind !== 'pdf') return
+    onOpenPdfAnnotations?.(result.path, target?.workspaceRoot ?? workspaceRoot)
+  }, [onOpenPdfAnnotations, result, target?.workspaceRoot, workspaceRoot])
 
   return (
     <aside
@@ -229,6 +236,17 @@ export function WorkspaceFilePreviewPanel({
         </button>
 
         <div className="ds-code-sidebar-actions">
+          {result?.ok && result.kind === 'pdf' && onOpenPdfAnnotations ? (
+            <button
+              type="button"
+              onClick={openPdfAnnotations}
+              className="ds-code-sidebar-icon-button"
+              title={t('filePreviewOpenPdfAnnotations')}
+              aria-label={t('filePreviewOpenPdfAnnotations')}
+            >
+              <StickyNote className="h-4 w-4" strokeWidth={1.85} />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={openInEditor}
@@ -318,6 +336,7 @@ export function WorkspaceFilePreviewPanel({
               mtimeMs={result.mtimeMs}
               workspaceRoot={target.workspaceRoot ?? workspaceRoot}
               onSelectionChange={ignorePdfSelection}
+              onOpenAnnotations={onOpenPdfAnnotations ? openPdfAnnotations : undefined}
             />
           </div>
         ) : result?.ok && result.kind === 'text' ? (

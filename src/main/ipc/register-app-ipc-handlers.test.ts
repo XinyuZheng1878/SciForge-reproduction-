@@ -10,6 +10,7 @@ import {
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   type AppSettingsPatch,
   type AppSettingsV1
@@ -44,6 +45,59 @@ vi.mock('../paper-radar-sidecar', () => ({
   syncPaperRadarProfile: vi.fn(async () => ({ ok: true, data: { profile: 'lab_default', results: [] } }))
 }))
 
+const { pdfAnnotationSidecarFixture } = vi.hoisted(() => ({
+  pdfAnnotationSidecarFixture: {
+    schemaVersion: 1,
+    version: 0,
+    manifest: {
+      app: 'sciforge.pdf-annotations',
+      schemaVersion: 1,
+      privacy: { explicitOnly: true, chatTranscriptEmbedded: false },
+      contribution: { reviewableJson: true, mergeKey: 'threadId', conflictResolution: 'updatedAt' },
+      createdAt: '2026-06-22T00:00:00.000Z',
+      updatedAt: '2026-06-22T00:00:00.000Z'
+    },
+    pdfFingerprint: { sha256: 'sha256', size: 1 },
+    anchors: [],
+    annotations: [],
+    threads: [],
+    authors: [],
+    updatedAt: '2026-06-22T00:00:00.000Z'
+  }
+}))
+
+vi.mock('../services/pdf-annotation-sidecar-service', () => ({
+  loadPdfAnnotationSidecar: vi.fn(async () => ({
+    ok: true,
+    sidecar: pdfAnnotationSidecarFixture,
+    path: '/tmp/workspace/.sciforge/pdf-annotations/sha256.json',
+    source: 'empty',
+    pdfFingerprint: { sha256: 'sha256', size: 1 },
+    warnings: []
+  })),
+  savePdfAnnotationSidecar: vi.fn(async () => ({
+    ok: true,
+    sidecar: { ...pdfAnnotationSidecarFixture, version: 1 },
+    path: '/tmp/workspace/.sciforge/pdf-annotations/sha256.json',
+    savedAt: '2026-06-22T00:01:00.000Z'
+  })),
+  exportPdfAnnotationSidecarPackage: vi.fn(async () => ({
+    ok: true,
+    path: '/tmp/workspace/paper.dsgui-pdf.zip',
+    manifest: pdfAnnotationSidecarFixture.manifest,
+    exportedAt: '2026-06-22T00:02:00.000Z'
+  })),
+  importPdfAnnotationSidecarPackage: vi.fn(async () => ({
+    ok: true,
+    sidecar: pdfAnnotationSidecarFixture,
+    path: '/tmp/workspace/.sciforge/pdf-annotations/sha256.json',
+    importedAt: '2026-06-22T00:03:00.000Z',
+    pdfFingerprint: { sha256: 'sha256', size: 1 },
+    fingerprintMatched: true,
+    warnings: []
+  }))
+}))
+
 function settings(): AppSettingsV1 {
   return {
     version: 1,
@@ -62,6 +116,7 @@ function settings(): AppSettingsV1 {
     write: defaultWriteSettings(),
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }
@@ -190,6 +245,87 @@ describe('registerAppIpcHandlers', () => {
     expect(ensurePaperRadarSidecar).toHaveBeenCalledTimes(1)
     expect(paperRadar.searchPaperRadar).toHaveBeenCalledWith({ query: 'protein design', topK: 5 })
     expect(result).toEqual({ ok: true, data: { papers: [], count: 0 } })
+  })
+
+  it('routes PDF annotation sidecar IPC calls through the service', async () => {
+    const pdfAnnotations = await import('../services/pdf-annotation-sidecar-service')
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const target = {
+      pdfPath: ' /tmp/workspace/paper.pdf ',
+      workspaceRoot: ' /tmp/workspace ',
+      pageCount: 12
+    }
+
+    registerAppIpcHandlers(registerOptions())
+
+    await expect(handlers.get('pdfAnnotations:load')?.({}, target)).resolves.toMatchObject({
+      ok: true,
+      source: 'empty'
+    })
+    await expect(handlers.get('pdfAnnotations:save')?.({}, {
+      ...target,
+      sidecar: pdfAnnotationSidecarFixture
+    })).resolves.toMatchObject({
+      ok: true,
+      savedAt: '2026-06-22T00:01:00.000Z'
+    })
+    await expect(handlers.get('pdfAnnotations:export')?.({}, {
+      ...target,
+      sidecar: pdfAnnotationSidecarFixture,
+      anonymizeAuthors: true
+    })).resolves.toMatchObject({
+      ok: true,
+      path: '/tmp/workspace/paper.dsgui-pdf.zip'
+    })
+    await expect(handlers.get('pdfAnnotations:import')?.({}, {
+      ...target,
+      packageBase64: 'ZmFrZS16aXA=',
+      attemptRelocation: true
+    })).resolves.toMatchObject({
+      ok: true,
+      fingerprintMatched: true
+    })
+
+    expect(pdfAnnotations.loadPdfAnnotationSidecar).toHaveBeenCalledWith({
+      pdfPath: '/tmp/workspace/paper.pdf',
+      workspaceRoot: '/tmp/workspace',
+      pageCount: 12
+    })
+    expect(pdfAnnotations.savePdfAnnotationSidecar).toHaveBeenCalledWith({
+      pdfPath: '/tmp/workspace/paper.pdf',
+      workspaceRoot: '/tmp/workspace',
+      pageCount: 12,
+      sidecar: pdfAnnotationSidecarFixture
+    })
+    expect(pdfAnnotations.exportPdfAnnotationSidecarPackage).toHaveBeenCalledWith({
+      pdfPath: '/tmp/workspace/paper.pdf',
+      workspaceRoot: '/tmp/workspace',
+      pageCount: 12,
+      sidecar: pdfAnnotationSidecarFixture,
+      anonymizeAuthors: true
+    })
+    expect(pdfAnnotations.importPdfAnnotationSidecarPackage).toHaveBeenCalledWith({
+      pdfPath: '/tmp/workspace/paper.pdf',
+      workspaceRoot: '/tmp/workspace',
+      pageCount: 12,
+      packageBase64: 'ZmFrZS16aXA=',
+      attemptRelocation: true
+    })
+  })
+
+  it('rejects invalid PDF annotation import IPC before calling the service', async () => {
+    const pdfAnnotations = await import('../services/pdf-annotation-sidecar-service')
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+
+    registerAppIpcHandlers(registerOptions())
+
+    await expect(
+      handlers.get('pdfAnnotations:import')?.({}, {
+        pdfPath: '/tmp/workspace/paper.pdf',
+        workspaceRoot: '/tmp/workspace'
+      })
+    ).rejects.toThrow(/Invalid payload for pdfAnnotations:import/)
+    expect(pdfAnnotations.importPdfAnnotationSidecarPackage).not.toHaveBeenCalled()
   })
 
   it('opens Evidence DAG with a runtime-scoped thread id', async () => {

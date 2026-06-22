@@ -18,6 +18,7 @@ import {
   defaultModelProviderSettings,
   defaultRuntimeGuardSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   getCodexRuntimeSettings,
   getClaudeRuntimeSettings,
   getKunRuntimeSettings,
@@ -32,6 +33,7 @@ import {
   mergeClawSettings,
   mergeScheduleSettings,
   mergeSpeechToTextSettings,
+  mergeWorkflowSettings,
   mergeWriteSettings,
   normalizeAppBehaviorSettings,
   normalizeKeyboardShortcuts,
@@ -268,7 +270,8 @@ const defaultSettings = (): AppSettingsV1 => ({
   codePromptPrefix: '',
   write: defaultWriteSettings(),
   claw: defaultClawSettings(),
-  schedule: defaultScheduleSettings()
+  schedule: defaultScheduleSettings(),
+  workflow: defaultWorkflowSettings()
 })
 
 function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
@@ -304,6 +307,7 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
     write: mergeWriteSettings(defaults.write, migrated.write),
     claw: mergeClawSettings(defaults.claw, migrated.claw),
     schedule: mergeScheduleSettings(defaults.schedule, migrated.schedule),
+    workflow: mergeWorkflowSettings(defaults.workflow, migrated.workflow),
     guiUpdate: { ...defaults.guiUpdate, ...migrated.guiUpdate },
     codePromptPrefix: typeof migrated.codePromptPrefix === 'string' ? migrated.codePromptPrefix : ''
   }
@@ -490,6 +494,7 @@ export class JsonSettingsStore {
       speechToText: mergeSpeechToTextSettings(cur.speechToText, speechToTextPatch),
       claw: mergeClawSettings(cur.claw, partial.claw),
       schedule: mergeScheduleSettings(cur.schedule, partial.schedule),
+      workflow: mergeWorkflowSettings(cur.workflow, partial.workflow),
       guiUpdate: { ...cur.guiUpdate, ...(partial.guiUpdate ?? {}) }
     })
     await this.save(next)

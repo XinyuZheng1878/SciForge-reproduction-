@@ -11,6 +11,7 @@ import type {
   AgentRuntimeItem,
   AgentRuntimeModality,
   AgentRuntimeThread,
+  AgentRuntimeThreadGoal,
   AgentRuntimeThreadDetail,
   AgentRuntimeToolKind,
   AgentRuntimeTurn,
@@ -618,7 +619,30 @@ function mapKunThread(value: unknown): AgentRuntimeThread {
     forkedFromTitle: optionalString(record.forkedFromTitle) ?? optionalString(record.forked_from_title),
     forkedAt: optionalString(record.forkedAt) ?? optionalString(record.forked_at),
     forkedFromMessageCount: numberValue(record.forkedFromMessageCount) ?? numberValue(record.forked_from_message_count),
-    forkedFromTurnCount: numberValue(record.forkedFromTurnCount) ?? numberValue(record.forked_from_turn_count)
+    forkedFromTurnCount: numberValue(record.forkedFromTurnCount) ?? numberValue(record.forked_from_turn_count),
+    goal: mapKunGoal(record.goal, id)
+  }
+}
+
+function mapKunGoal(value: unknown, threadId: string): AgentRuntimeThreadGoal | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const objective = stringValue(record.objective)
+  const status = mapKunGoalStatus(stringValue(record.status))
+  const createdAt = optionalString(record.createdAt) ?? optionalString(record.created_at) ?? new Date().toISOString()
+  const updatedAt = optionalString(record.updatedAt) ?? optionalString(record.updated_at) ?? createdAt
+  const tokenBudget = numberValue(record.tokenBudget) ?? numberValue(record.token_budget)
+  if (!objective || !status) return null
+  return {
+    runtimeId: 'kun',
+    threadId,
+    objective,
+    status,
+    ...(tokenBudget !== undefined ? { tokenBudget } : {}),
+    tokensUsed: numberValue(record.tokensUsed) ?? numberValue(record.tokens_used) ?? 0,
+    timeUsedSeconds: numberValue(record.timeUsedSeconds) ?? numberValue(record.time_used_seconds) ?? 0,
+    createdAt,
+    updatedAt
   }
 }
 

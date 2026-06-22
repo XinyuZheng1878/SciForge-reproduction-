@@ -22,6 +22,7 @@ import {
   mergeClawSettings,
   mergeModelProviderSettings,
   mergeScheduleSettings,
+  mergeWorkflowSettings,
   mergeSpeechToTextSettings,
   mergeWriteSettings,
   normalizeAppSettings,
@@ -59,11 +60,13 @@ import { ModelRequestAuditRecorder } from './services/model-request-audit-servic
 import { RuntimeContextStateService } from './services/runtime-context-state-service'
 import { GitCheckpointService } from './services/git-checkpoint-service'
 import { SharedMemoryService } from './services/shared-memory-service'
+import { RuntimeGoalService } from './services/runtime-goal-service'
 import { WorkspaceReferenceService } from './services/workspace-reference-service'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
 import { createDiscordBotRuntime, type DiscordBotRuntime } from './discord-bot-runtime'
 import { createScheduleRuntime, type ScheduleRuntime } from './schedule-runtime'
+import { createWorkflowRuntime, type WorkflowRuntime } from './workflow-runtime'
 import { runClawScheduleMcpServerFromArgv } from './claw-schedule-mcp-server'
 import {
   clawScheduleMcpSettingsChanged,
@@ -211,6 +214,7 @@ let logDir = ''
 let clawRuntime: ClawRuntime | null = null
 let discordBotRuntime: DiscordBotRuntime | null = null
 let scheduleRuntime: ScheduleRuntime | null = null
+let workflowRuntime: WorkflowRuntime | null = null
 let codexRuntime: CodexRuntimeService | null = null
 let claudeCodeRuntime: ClaudeCodeRuntimeService | null = null
 let codeNavigationService: LspCodeNavigationService | null = null
@@ -334,6 +338,7 @@ async function stopManagedRuntimes(): Promise<void> {
         clearTimeout(codexRuntimePrewarmTimer)
         codexRuntimePrewarmTimer = null
       }
+      workflowRuntime?.stop()
       scheduleRuntime?.stop()
       discordBotRuntime?.stop()
       clawRuntime?.stop()
@@ -1345,6 +1350,7 @@ app.whenReady().then(async () => {
   const contextStateService = new RuntimeContextStateService()
   const gitCheckpointService = new GitCheckpointService(app.getPath('userData'))
   const sharedMemoryService = new SharedMemoryService(app.getPath('userData'))
+  const runtimeGoalService = new RuntimeGoalService(app.getPath('userData'))
   const workspaceReferenceService = new WorkspaceReferenceService()
   const agentRuntimeHost = createAgentRuntimeHost({
     settings: async () => store.load(),
@@ -1363,7 +1369,8 @@ app.whenReady().then(async () => {
       contextState: contextStateService,
       gitCheckpoints: gitCheckpointService,
       memory: sharedMemoryService,
-      workspaceReferences: workspaceReferenceService
+      workspaceReferences: workspaceReferenceService,
+      goals: runtimeGoalService
     }
   })
   runtimeIdleListThreads = (input) => agentRuntimeHost.listThreads(input)
@@ -1375,6 +1382,13 @@ app.whenReady().then(async () => {
     powerSaveBlocker
   })
   scheduleRuntime.sync(initial)
+  workflowRuntime = createWorkflowRuntime({
+    store,
+    agentRuntime: agentRuntimeHost,
+    logError,
+    powerSaveBlocker
+  })
+  workflowRuntime.sync(initial)
   discordBotRuntime = createDiscordBotRuntime({
     store,
     userDataPath: app.getPath('userData'),
@@ -1384,6 +1398,7 @@ app.whenReady().then(async () => {
     },
     onSettingsChanged: (settings) => {
       scheduleRuntime?.sync(settings)
+      workflowRuntime?.sync(settings)
       clawRuntime?.sync(settings)
       discordBotRuntime?.sync(settings)
       syncWeixinBridgeRuntime(settings)
@@ -1444,6 +1459,7 @@ app.whenReady().then(async () => {
       speechToText: mergeSpeechToTextSettings(prev.speechToText, speechToTextPatch),
       claw: mergeClawSettings(prev.claw, partial.claw),
       schedule: mergeScheduleSettings(prev.schedule, partial.schedule),
+      workflow: mergeWorkflowSettings(prev.workflow, partial.workflow),
       guiUpdate: { ...prev.guiUpdate, ...(partial.guiUpdate ?? {}) }
     })
     if (prev.log.enabled !== next.log.enabled || prev.log.retentionDays !== next.log.retentionDays) {
@@ -1473,6 +1489,7 @@ app.whenReady().then(async () => {
       })
     }
     scheduleRuntime?.sync(saved)
+    workflowRuntime?.sync(saved)
     clawRuntime?.sync(saved)
     discordBotRuntime?.sync(saved)
     syncWeixinBridgeRuntime(saved)
@@ -1525,6 +1542,7 @@ app.whenReady().then(async () => {
         : null
     },
     getScheduleRuntime: () => scheduleRuntime,
+    getWorkflowRuntime: () => workflowRuntime,
     startFeishuInstallQrcode,
     pollFeishuInstall,
     startWeixinInstallQrcode,

@@ -27,6 +27,7 @@ import {
   defaultClaudeRuntimeSettings,
   defaultKunRuntimeSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   defaultKeyboardShortcuts,
   getActiveAgentRuntime,
@@ -71,6 +72,7 @@ function settings(): AppSettingsV1 {
     write: defaultWriteSettings(),
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }

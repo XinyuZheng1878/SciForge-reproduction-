@@ -68,6 +68,7 @@ export type AgentRuntimeCapabilityId =
   | 'git.turnCheckpoint'
   | 'memory.shared'
   | 'workspace.references'
+  | 'thread.goals'
 
 export type AgentRuntimeCapabilityChannel = 'runtime_contract' | 'host_service' | 'auxiliary'
 
@@ -266,6 +267,26 @@ export type AgentRuntimeWorkspaceReferencePreview = {
   children?: AgentRuntimeWorkspaceReference[]
 }
 
+export type AgentRuntimeThreadGoalStatus =
+  | 'active'
+  | 'paused'
+  | 'blocked'
+  | 'usageLimited'
+  | 'budgetLimited'
+  | 'complete'
+
+export type AgentRuntimeThreadGoal = {
+  runtimeId?: AgentRuntimeId
+  threadId: string
+  objective: string
+  status: AgentRuntimeThreadGoalStatus
+  tokenBudget?: number | null
+  tokensUsed: number
+  timeUsedSeconds: number
+  createdAt: string
+  updatedAt: string
+}
+
 export type AgentRuntimeThread = {
   id: string
   runtimeId: AgentRuntimeId
@@ -288,6 +309,7 @@ export type AgentRuntimeThread = {
   forkedAt?: string
   forkedFromMessageCount?: number
   forkedFromTurnCount?: number
+  goal?: AgentRuntimeThreadGoal | null
 }
 
 export type AgentRuntimeThreadDetail = AgentRuntimeThread & {
@@ -802,7 +824,7 @@ export type AgentRuntimeEvent =
   | (AgentRuntimeBaseEvent & {
       kind: 'goal_event'
       objective?: string
-      status?: 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete'
+      status?: AgentRuntimeThreadGoalStatus
       lastFailureReason?: string
       cleared?: boolean
     })

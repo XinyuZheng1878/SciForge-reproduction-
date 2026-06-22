@@ -120,6 +120,46 @@ describe('preload agentRuntime bridge', () => {
     expect(invoke).toHaveBeenCalledWith('paperRadar:digest', { profile: 'lab_default', days: 7, topK: 5 })
   })
 
+  it('exposes PDF annotation sidecar IPC methods through the preload bridge', async () => {
+    const api = exposedApi as {
+      pdfAnnotations: {
+        load(payload: unknown): Promise<unknown>
+        save(payload: unknown): Promise<unknown>
+        export(payload: unknown): Promise<unknown>
+        import(payload: unknown): Promise<unknown>
+      }
+    }
+    const target = { pdfPath: '/tmp/workspace/paper.pdf', workspaceRoot: '/tmp/workspace' }
+    const sidecar = {
+      schemaVersion: 1,
+      version: 0,
+      manifest: {
+        app: 'sciforge.pdf-annotations',
+        schemaVersion: 1,
+        privacy: { explicitOnly: true, chatTranscriptEmbedded: false },
+        contribution: { reviewableJson: true, mergeKey: 'threadId', conflictResolution: 'updatedAt' },
+        createdAt: '2026-06-22T00:00:00.000Z',
+        updatedAt: '2026-06-22T00:00:00.000Z'
+      },
+      pdfFingerprint: { sha256: 'sha256', size: 1 },
+      anchors: [],
+      annotations: [],
+      threads: [],
+      authors: [],
+      updatedAt: '2026-06-22T00:00:00.000Z'
+    }
+
+    await api.pdfAnnotations.load(target)
+    await api.pdfAnnotations.save({ ...target, sidecar })
+    await api.pdfAnnotations.export({ ...target, sidecar, anonymizeAuthors: true })
+    await api.pdfAnnotations.import({ ...target, packageBase64: 'ZmFrZS16aXA=' })
+
+    expect(invoke).toHaveBeenCalledWith('pdfAnnotations:load', target)
+    expect(invoke).toHaveBeenCalledWith('pdfAnnotations:save', { ...target, sidecar })
+    expect(invoke).toHaveBeenCalledWith('pdfAnnotations:export', { ...target, sidecar, anonymizeAuthors: true })
+    expect(invoke).toHaveBeenCalledWith('pdfAnnotations:import', { ...target, packageBase64: 'ZmFrZS16aXA=' })
+  })
+
   it('forwards Discord Client ID and per-channel guard IPC payloads', async () => {
     const api = exposedApi as {
       configureDiscordClientId(clientId: string): Promise<unknown>

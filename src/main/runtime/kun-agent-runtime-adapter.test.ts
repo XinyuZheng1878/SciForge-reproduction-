@@ -6,6 +6,7 @@ import {
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
@@ -39,6 +40,7 @@ function buildSettings(): AppSettingsV1 {
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
     schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
     claw: defaultClawSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''

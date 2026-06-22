@@ -22,6 +22,8 @@ import {
 } from './message-timeline-turns'
 import { extractPlanMetadataFromBlock } from '../../plan/plan-tool'
 import { planDisplayNameFromRelativePath } from '../../plan/plan-path'
+import { parseWritePromptForDisplay } from '../../write/quoted-selection'
+import type { SaveAssistantToPdfAnnotation } from './message-timeline-bubbles'
 
 export { summarizeToolBlock } from './message-timeline-process'
 
@@ -43,6 +45,7 @@ type Props = {
   onBuildPlan?: () => void
   /** Opens/focuses the Plan panel (Open button on the inline card). */
   onOpenPlan?: () => void
+  onSaveAssistantToPdfAnnotation?: SaveAssistantToPdfAnnotation | null
 }
 
 const TURN_PAGE_SIZE = 18
@@ -83,7 +86,8 @@ export function MessageTimeline({
   devPreviewCard,
   planActionsBusy,
   onBuildPlan,
-  onOpenPlan
+  onOpenPlan,
+  onSaveAssistantToPdfAnnotation
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const {
@@ -223,6 +227,7 @@ export function MessageTimeline({
                 planActionsBusy={planActionsBusy}
                 onBuildPlan={onBuildPlan}
                 onOpenPlan={onOpenPlan}
+                onSaveAssistantToPdfAnnotation={onSaveAssistantToPdfAnnotation}
                 viewportRef={containerRef}
               />
             </Fragment>
@@ -256,6 +261,7 @@ export function MessageTimeline({
             liveReasoning={liveReasoning}
             live={live}
             devPreviewCard={devPreviewCard}
+            onSaveAssistantToPdfAnnotation={onSaveAssistantToPdfAnnotation}
             viewportRef={containerRef}
             durationMs={
               currentTurnUserId && typeof turnStartedAtByUserId[currentTurnUserId] === 'number'
@@ -288,6 +294,7 @@ function MessageTurn({
   planActionsBusy,
   onBuildPlan,
   onOpenPlan,
+  onSaveAssistantToPdfAnnotation,
   viewportRef
 }: {
   turn: Turn
@@ -300,6 +307,7 @@ function MessageTurn({
   planActionsBusy?: boolean
   onBuildPlan?: () => void
   onOpenPlan?: () => void
+  onSaveAssistantToPdfAnnotation?: SaveAssistantToPdfAnnotation | null
   viewportRef: RefObject<HTMLDivElement | null>
 }): ReactElement {
   const workspaceRoot = useChatStore((s) => s.workspaceRoot)
@@ -356,6 +364,16 @@ function MessageTurn({
     [processSections]
   )
   const showLiveAssistant = !isProcessing && !!liveContent.trim()
+  const pdfAnnotationThreadIds = useMemo(() => {
+    if (!onSaveAssistantToPdfAnnotation || !turn.user?.text) return []
+    const parsed = parseWritePromptForDisplay(turn.user.text)
+    if (!parsed?.quotes.length) return []
+    return Array.from(new Set(
+      parsed.quotes
+        .map((quote) => quote.pdfAnnotationThreadId?.trim())
+        .filter((value): value is string => Boolean(value))
+    ))
+  }, [onSaveAssistantToPdfAnnotation, turn.user?.text])
 
   // Keep completed reasoning/tool work tucked away, but make the active turn's
   // work visible unless the user explicitly collapses it.
@@ -394,11 +412,20 @@ function MessageTurn({
       ) : null}
 
       {assistantContentBlocks.map((block) => (
-        <MessageBubble key={block.id} block={block} />
+        <MessageBubble
+          key={block.id}
+          block={block}
+          pdfAnnotationThreadIds={pdfAnnotationThreadIds}
+          onSaveAssistantToPdfAnnotation={onSaveAssistantToPdfAnnotation}
+        />
       ))}
 
       {showLiveAssistant ? (
-        <MessageBubble block={{ kind: 'assistant', id: 'live-assistant', text: liveContent }} />
+        <MessageBubble
+          block={{ kind: 'assistant', id: 'live-assistant', text: liveContent }}
+          pdfAnnotationThreadIds={pdfAnnotationThreadIds}
+          onSaveAssistantToPdfAnnotation={onSaveAssistantToPdfAnnotation}
+        />
       ) : null}
 
       <TimelineImageResultsPanel blocks={toolResultImageBlocks} />
@@ -452,5 +479,6 @@ const MemoMessageTurn = memo(MessageTurn, (prev, next) => (
   prev.planActionsBusy === next.planActionsBusy &&
   prev.onBuildPlan === next.onBuildPlan &&
   prev.onOpenPlan === next.onOpenPlan &&
+  prev.onSaveAssistantToPdfAnnotation === next.onSaveAssistantToPdfAnnotation &&
   prev.viewportRef === next.viewportRef
 ))

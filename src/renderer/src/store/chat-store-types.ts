@@ -91,7 +91,7 @@ export type SendMessageOverrides = {
 
 export type InitialSetupMode = 'required' | 'preview'
 export type SettingsRouteSection = 'general' | 'write' | 'speechToText' | 'agents' | 'skill' | 'mcp' | 'shortcuts' | 'claw'
-export type AppRoute = 'chat' | 'write' | 'settings' | 'plugins' | 'claw' | 'schedule'
+export type AppRoute = 'chat' | 'write' | 'settings' | 'plugins' | 'claw' | 'schedule' | 'workflow'
 export type PluginHostRoute = 'chat' | 'claw'
 
 /**
@@ -194,6 +194,7 @@ export type ChatState = {
   openPlugins: (host?: PluginHostRoute) => void
   openClaw: () => void
   openSchedule: () => void
+  openWorkflow: () => void
   selectRemoteGuardChannel: (channelId: string) => void
   clearRemoteGuardChannel: () => void
   refreshClawChannels: () => Promise<void>

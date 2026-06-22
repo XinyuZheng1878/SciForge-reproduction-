@@ -9,7 +9,8 @@ import {
   MessageSquare,
   Plus,
   Settings,
-  Smartphone
+  Smartphone,
+  Workflow
 } from 'lucide-react'
 import type { NormalizedThread } from '../../agent/types'
 import { useChatStore, type SettingsRouteSection } from '../../store/chat-store'
@@ -39,7 +40,7 @@ import {
 type Props = {
   threads: NormalizedThread[]
   activeThreadId: string | null
-  activeView: 'chat' | 'write' | 'claw' | 'schedule'
+  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'workflow'
   connectPhoneSidebarOpen: boolean
   pluginsActive: boolean
   runtimeReady: boolean
@@ -61,6 +62,7 @@ type Props = {
   onCodeOpen: () => void
   onWriteOpen: () => void
   onScheduleOpen: () => void
+  onWorkflowOpen: () => void
   onToggleSidebar: () => void
 }
 
@@ -89,6 +91,7 @@ export function Sidebar({
   onCodeOpen,
   onWriteOpen,
   onScheduleOpen,
+  onWorkflowOpen,
   onToggleSidebar
 }: Props): ReactElement {
   const { t, i18n } = useTranslation('common')
@@ -171,7 +174,7 @@ export function Sidebar({
           onWriteOpen={onWriteOpen}
         />
 
-        {activeView !== 'claw' && activeView !== 'schedule' ? (
+        {activeView !== 'claw' && activeView !== 'schedule' && activeView !== 'workflow' ? (
           <>
             <SidebarCommandRow
               icon={<Plus className="h-4 w-4" strokeWidth={2} />}
@@ -203,6 +206,12 @@ export function Sidebar({
           onClick={onScheduleOpen}
           active={activeView === 'schedule'}
         />
+        <SidebarCommandRow
+          icon={<Workflow className="h-4 w-4" strokeWidth={1.75} />}
+          label={t('workflow')}
+          onClick={onWorkflowOpen}
+          active={activeView === 'workflow'}
+        />
       </div>
 
       <div className="ds-no-drag mx-1 my-3" />
@@ -224,6 +233,11 @@ export function Sidebar({
           onOpenSettings={() => setImDialogMode('edit')}
           t={t}
         />
+      ) : activeView === 'workflow' ? (
+        <div className="ds-no-drag flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+          <Workflow className="h-7 w-7 text-ds-faint" strokeWidth={1.5} />
+          <p className="text-[12.5px] leading-5 text-ds-faint">{t('workflowSidebarHint')}</p>
+        </div>
       ) : activeView === 'schedule' ? (
         <SidebarProjectsSection
           threads={threads}

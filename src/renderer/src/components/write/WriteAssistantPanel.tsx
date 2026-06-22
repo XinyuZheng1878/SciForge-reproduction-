@@ -17,6 +17,7 @@ import {
   writeRelativeToWorkspace
 } from '../../write/write-workspace-store'
 import type { WriteQuotedSelection } from '../../write/quoted-selection'
+import type { PdfAssistantAnswerSaver } from '../../write/pdf-assistant-annotation-save'
 import { MessageTimeline } from '../chat/MessageTimeline'
 import {
   FloatingComposer,
@@ -62,6 +63,7 @@ type Props = {
   onRetryConnection: () => void
   onOpenSettings: () => void
   onNewConversation: () => void
+  onSaveAssistantToPdfAnnotation?: PdfAssistantAnswerSaver | null
   onCollapse: () => void
   className?: string
 }
@@ -116,6 +118,7 @@ export function WriteAssistantPanel({
   onRetryConnection,
   onOpenSettings,
   onNewConversation,
+  onSaveAssistantToPdfAnnotation,
   onCollapse,
   className = ''
 }: Props): ReactElement {
@@ -195,6 +198,7 @@ export function WriteAssistantPanel({
             onRetryConnection={onRetryConnection}
             onOpenSettings={onOpenSettings}
             onSelectSuggestion={(text) => setInput(text)}
+            onSaveAssistantToPdfAnnotation={onSaveAssistantToPdfAnnotation}
           />
         ) : (
           <div className="flex min-h-full flex-col justify-end px-5 py-5">

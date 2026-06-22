@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { Bot } from 'lucide-react'
@@ -61,6 +61,7 @@ import { SddDraftEditorView } from './sdd/SddDraftEditorView'
 import { SidebarTitlebarToggleButton } from './sidebar/SidebarPrimitives'
 import { prepareWriteAssistantPrompt, writeAssistantRuntimePayload } from '../write/write-assistant-message'
 import { useWriteWorkspaceStore } from '../write/write-workspace-store'
+import type { PdfAssistantAnswerSaver } from '../write/pdf-assistant-annotation-save'
 import { isWriteThreadId } from '../write/write-thread-registry'
 import { buildSddDraftId, createSddDraft, forgetRememberedSddDraft, useSddDraftStore } from '../sdd/sdd-draft-store'
 import type { SddDraft, SddDraftSaveStatus } from '../sdd/sdd-draft-store'
@@ -128,6 +129,12 @@ const TodoPanel = lazy(() =>
 )
 const ScheduleTasksView = lazy(() =>
   import('./schedule/ScheduleTasksView').then((module) => ({ default: module.ScheduleTasksView }))
+)
+const WorkflowView = lazy(() =>
+  import('./workflow/WorkflowView').then((module) => ({ default: module.WorkflowView }))
+)
+const WorkflowRunPanel = lazy(() =>
+  import('./workflow/WorkflowRunPanel').then((module) => ({ default: module.WorkflowRunPanel }))
 )
 const PaperRadarPanel = lazy(() =>
   import('./paper/PaperRadarPanel').then((module) => ({ default: module.PaperRadarPanel }))
@@ -427,6 +434,12 @@ function clipboardImageToFile(image: Extract<ClipboardImageReadResult, { ok: tru
   return base64ToFile(image.dataBase64, image.name, image.mimeType)
 }
 
+function dataUrlToImageFile(dataUrl: string, name: string, fallbackMimeType: string): File {
+  const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/)
+  if (!match?.[2]) throw new Error('Invalid image data URL.')
+  return base64ToFile(match[2], name || 'pdf-selection.png', match[1] || fallbackMimeType || 'image/png')
+}
+
 function base64ToFile(dataBase64: string, name: string, mimeType: string): File {
   const binary = atob(dataBase64)
   const bytes = new Uint8Array(binary.length)
@@ -464,6 +477,7 @@ export function Workbench(): ReactElement {
     openSettings,
     openPlugins,
     openSchedule,
+    openWorkflow,
     chooseWorkspace,
     clawChannels,
     activeClawChannelId,
@@ -525,6 +539,7 @@ export function Workbench(): ReactElement {
       openSettings: s.openSettings,
       openPlugins: s.openPlugins,
       openSchedule: s.openSchedule,
+      openWorkflow: s.openWorkflow,
       chooseWorkspace: s.chooseWorkspace,
       clawChannels: s.clawChannels,
       activeClawChannelId: s.activeClawChannelId,
@@ -571,6 +586,7 @@ export function Workbench(): ReactElement {
   const [runtimeSkills, setRuntimeSkills] = useState<CoreRuntimeSkillJson[]>([])
   const [composerAttachments, setComposerAttachments] = useState<AttachmentReference[]>([])
   const [composerFileReferences, setComposerFileReferences] = useState<ComposerFileReference[]>([])
+  const [pdfAssistantAnswerSaver, setPdfAssistantAnswerSaver] = useState<PdfAssistantAnswerSaver | null>(null)
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
   const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null)
   const [connectPhoneSidebarOpen, setConnectPhoneSidebarOpen] = useState(false)
@@ -596,6 +612,9 @@ export function Workbench(): ReactElement {
     if (current) ordered.add(current)
     return [...ordered]
   }, [composerPickList, writeAssistantModel])
+  const handlePdfAssistantAnswerSaverChange = useCallback((saver: PdfAssistantAnswerSaver | null): void => {
+    setPdfAssistantAnswerSaver(() => saver)
+  }, [])
   const stageInsetClass = 'ds-stage-inset'
   const paperRadarEnabled = import.meta.env.DEV && isPluginInstalled('extension', PAPER_RADAR_EXTENSION_ID)
   const keyboardShortcuts = useKeyboardShortcutSettings()
@@ -1193,6 +1212,16 @@ export function Workbench(): ReactElement {
       setAttachmentUploadError(error instanceof Error ? error.message : String(error))
     } finally {
       setAttachmentUploadBusy(false)
+    }
+  }
+
+  const handlePdfVisualSelectionImage = async (image: { dataUrl: string; mimeType: string; fileName: string }): Promise<void> => {
+    try {
+      await handlePickAttachments([{
+        file: dataUrlToImageFile(image.dataUrl, image.fileName, image.mimeType)
+      }])
+    } catch (error) {
+      setAttachmentUploadError(error instanceof Error ? error.message : String(error))
     }
   }
 
@@ -1939,14 +1968,21 @@ export function Workbench(): ReactElement {
     openSchedule()
   }
 
+  const openWorkflowView = (): void => {
+    setConnectPhoneSidebarOpen(false)
+    openWorkflow()
+  }
+
   const toggleConnectPhone = (): void => {
     if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
     setConnectPhoneSidebarOpen((open) => !open)
   }
 
-  const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' =
+  const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' | 'workflow' =
     route === 'schedule'
         ? 'schedule'
+      : route === 'workflow'
+        ? 'workflow'
       : route === 'write'
         ? 'write'
         : 'chat'
@@ -1964,6 +2000,19 @@ export function Workbench(): ReactElement {
     setRightPanelMode(null)
     setFilePreviewTarget(null)
   }
+
+  const openPdfAnnotationsFromPreview = useCallback((path: string, fileWorkspaceRoot: string): void => {
+    const targetWorkspaceRoot = normalizeWorkspaceRoot(fileWorkspaceRoot) || activeWorkspaceReferenceRoot || workspaceRoot
+    void (async () => {
+      const writeState = useWriteWorkspaceStore.getState()
+      await writeState.selectWriteWorkspace(targetWorkspaceRoot)
+      await useWriteWorkspaceStore.getState().openFile(targetWorkspaceRoot, path)
+      setFilePreviewTarget(null)
+      setRightPanelMode(null)
+      setConnectPhoneSidebarOpen(false)
+      await openWrite()
+    })()
+  }, [activeWorkspaceReferenceRoot, openWrite, setFilePreviewTarget, setRightPanelMode, workspaceRoot])
 
   const startNewWriteAssistantConversation = (): void => {
     const writeState = useWriteWorkspaceStore.getState()
@@ -2012,6 +2061,7 @@ export function Workbench(): ReactElement {
                 target={filePreviewTarget}
                 workspaceRoot={filePreviewTarget.workspaceRoot || activeWorkspaceReferenceRoot || workspaceRoot}
                 className="h-full max-h-full w-full"
+                onOpenPdfAnnotations={openPdfAnnotationsFromPreview}
                 onClose={() => setFilePreviewTarget(null)}
               />
             ) : rightPanelMode === 'file' ? (
@@ -2063,6 +2113,7 @@ export function Workbench(): ReactElement {
                 onRetryConnection={() => void probeRuntime('user')}
                 onOpenSettings={() => openSettings('agents')}
                 onNewConversation={startNewWriteAssistantConversation}
+                onSaveAssistantToPdfAnnotation={pdfAssistantAnswerSaver}
                 onCollapse={closeRightPanel}
                 className="h-full max-h-full w-full"
               />
@@ -2200,6 +2251,7 @@ export function Workbench(): ReactElement {
               onCodeOpen={openCodeMode}
               onWriteOpen={openWriteMode}
               onScheduleOpen={openScheduleView}
+              onWorkflowOpen={openWorkflowView}
               onToggleSidebar={toggleLeftSidebar}
             />
             )}
@@ -2239,6 +2291,14 @@ export function Workbench(): ReactElement {
               onOpenThread={openThread}
             />
           </Suspense>
+        ) : route === 'workflow' ? (
+          <Suspense fallback={<div className="h-full bg-ds-main" />}>
+            <WorkflowView
+              leftSidebarCollapsed={leftSidebarCollapsed}
+              onToggleLeftSidebar={toggleLeftSidebar}
+              onOpenThread={openThread}
+            />
+          </Suspense>
         ) : route === 'write' ? (
           <>
             {writeRuntimeBannerMessage ? renderRuntimeBanner(writeRuntimeBannerMessage, runtimeErrorDetail) : null}
@@ -2249,6 +2309,8 @@ export function Workbench(): ReactElement {
                 input={input}
                 setInput={setInput}
                 onSubmitPrompt={sendWritePrompt}
+                onPdfAssistantAnswerSaverChange={handlePdfAssistantAnswerSaverChange}
+                onPdfVisualSelectionImage={(image) => void handlePdfVisualSelectionImage(image)}
               />
               {renderRightPanel()}
             </div>
@@ -2449,6 +2511,11 @@ export function Workbench(): ReactElement {
           </>
         )}
       </main>
+      {route === 'chat' ? (
+        <Suspense fallback={null}>
+          <WorkflowRunPanel enabled />
+        </Suspense>
+      ) : null}
     </div>
   )
 }

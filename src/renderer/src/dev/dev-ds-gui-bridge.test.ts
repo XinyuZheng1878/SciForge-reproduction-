@@ -124,6 +124,30 @@ describe('dev dsGui browser bridge', () => {
     })
   })
 
+  it('forwards PDF annotation sidecar calls through the dev bridge', async () => {
+    installWindow()
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      payload: { ok: true, source: 'empty', warnings: [] }
+    })))
+    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, configurable: true })
+    const { installDevDsGuiBridge } = await import('./dev-ds-gui-bridge')
+
+    installDevDsGuiBridge()
+    await window.dsGui.pdfAnnotations?.load({ pdfPath: '/tmp/paper.pdf', workspaceRoot: '/tmp' })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:5174/invoke',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          channel: 'pdfAnnotations:load',
+          payload: { pdfPath: '/tmp/paper.pdf', workspaceRoot: '/tmp' }
+        })
+      })
+    )
+  })
+
   it('does not replace the real Electron preload bridge', async () => {
     const existing = { platform: 'electron' }
     installWindow(existing)

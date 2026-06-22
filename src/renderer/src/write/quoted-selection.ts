@@ -1,10 +1,12 @@
 import type { WriteEditorSelectionState } from '../components/write/WriteMarkdownEditor'
+import type { PdfAnnotationKind } from '@shared/pdf-annotations'
 import type { WriteRetrievalContext, WriteRetrievalSnippet } from '@shared/write-retrieval'
 
 export const WRITE_QUOTE_ORIGINAL_START = '[引用原文]'
 export const WRITE_QUOTE_ORIGINAL_END = '[/引用原文]'
 export const WRITE_CONTEXT_HEADING = '[写作上下文]'
 export const WRITE_QUOTE_HEADING = '[引用片段]'
+export const WRITE_QUOTE_METADATA_PREFIX = '引用元数据:'
 export const WRITE_RETRIEVAL_HEADING = '[相关文献上下文]'
 export const WRITE_RETRIEVAL_END = '[/相关文献上下文]'
 
@@ -33,6 +35,9 @@ export type WriteQuotedSelectionInput = Omit<WriteEditorSelectionState, 'ranges'
   pageStart?: number
   pageEnd?: number
   rects?: WriteQuotedSelectionRect[]
+  pdfAnchorId?: string
+  pdfAnnotationThreadId?: string
+  pdfAnnotationKind?: PdfAnnotationKind
 }
 
 export type WriteQuotedSelection = {
@@ -46,6 +51,9 @@ export type WriteQuotedSelection = {
   pageStart?: number
   pageEnd?: number
   rects?: WriteQuotedSelectionRect[]
+  pdfAnchorId?: string
+  pdfAnnotationThreadId?: string
+  pdfAnnotationKind?: PdfAnnotationKind
   charCount: number
   createdAt: string
 }
@@ -77,6 +85,50 @@ function normalizedPositiveInteger(value: unknown): number | undefined {
 function normalizedFiniteNumber(value: unknown): number | undefined {
   const number = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(number) ? number : undefined
+}
+
+const PDF_ANNOTATION_KIND_VALUES = [
+  'highlight',
+  'comment',
+  'note',
+  'translation',
+  'question',
+  'answer'
+] as const satisfies readonly PdfAnnotationKind[]
+
+type WriteQuoteMetadata = Pick<WriteQuotedSelection, 'pdfAnchorId' | 'pdfAnnotationThreadId' | 'pdfAnnotationKind'>
+
+function cleanOptionalValue(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const cleaned = value.trim()
+  return cleaned || undefined
+}
+
+function normalizedPdfAnnotationKind(value: unknown): PdfAnnotationKind | undefined {
+  if (typeof value !== 'string') return undefined
+  return PDF_ANNOTATION_KIND_VALUES.includes(value as PdfAnnotationKind) ? value as PdfAnnotationKind : undefined
+}
+
+function normalizeWriteQuoteMetadata(value: WriteQuoteMetadata): WriteQuoteMetadata {
+  const pdfAnchorId = cleanOptionalValue(value.pdfAnchorId)
+  const pdfAnnotationThreadId = cleanOptionalValue(value.pdfAnnotationThreadId)
+  const pdfAnnotationKind = normalizedPdfAnnotationKind(value.pdfAnnotationKind)
+  return {
+    ...(pdfAnchorId ? { pdfAnchorId } : {}),
+    ...(pdfAnnotationThreadId ? { pdfAnnotationThreadId } : {}),
+    ...(pdfAnnotationKind ? { pdfAnnotationKind } : {})
+  }
+}
+
+function hasWriteQuoteMetadata(metadata: WriteQuoteMetadata): boolean {
+  return Boolean(metadata.pdfAnchorId || metadata.pdfAnnotationThreadId || metadata.pdfAnnotationKind)
+}
+
+function formatWriteQuoteMetadataLine(selection: WriteQuotedSelection): string | undefined {
+  if (selection.sourceKind !== 'pdf') return undefined
+  const metadata = normalizeWriteQuoteMetadata(selection)
+  if (!hasWriteQuoteMetadata(metadata)) return undefined
+  return `${WRITE_QUOTE_METADATA_PREFIX} ${JSON.stringify(metadata)}`
 }
 
 function normalizedPageRange(
@@ -156,6 +208,7 @@ export function quotedSelectionFromEditor(
   )
   const rectPageRange = pageRangeFromRects(rects)
   const pageRange = explicitPageRange.pageStart != null ? explicitPageRange : rectPageRange
+  const pdfMetadata = normalizeWriteQuoteMetadata(selection)
   return {
     id: `quote-${now}-${Math.random().toString(36).slice(2)}`,
     text,
@@ -165,7 +218,8 @@ export function quotedSelectionFromEditor(
     ...(sourceKind === 'pdf'
       ? {
           ...pageRange,
-          ...(rects.length ? { rects } : {})
+          ...(rects.length ? { rects } : {}),
+          ...pdfMetadata
         }
       : {
           ...(first ? { lineStart: first.startLine } : {}),
@@ -177,6 +231,7 @@ export function quotedSelectionFromEditor(
 }
 
 export function formatWriteQuotedSelectionForPrompt(selection: WriteQuotedSelection): string {
+  const metadataLine = formatWriteQuoteMetadataLine(selection)
   const rects = normalizeSelectionRects(selection.rects)
   const explicitPageRange = normalizedPageRange(
     normalizedPositiveInteger(selection.pageStart),
@@ -193,6 +248,7 @@ export function formatWriteQuotedSelectionForPrompt(selection: WriteQuotedSelect
     ].join('，')
     return [
       `[引用片段] ${selection.sourceTitle}（${metadata}）路径: ${selection.sourceFilePath}`,
+      ...(metadataLine ? [metadataLine] : []),
       WRITE_QUOTE_ORIGINAL_START,
       selection.text,
       WRITE_QUOTE_ORIGINAL_END
@@ -201,6 +257,7 @@ export function formatWriteQuotedSelectionForPrompt(selection: WriteQuotedSelect
   if (selection.lineStart != null && selection.lineEnd != null) {
     return [
       `[引用片段] ${selection.sourceTitle}（第${selection.lineStart}-${selection.lineEnd}行，共${selection.charCount}字）路径: ${selection.sourceFilePath}`,
+      ...(metadataLine ? [metadataLine] : []),
       WRITE_QUOTE_ORIGINAL_START,
       selection.text,
       WRITE_QUOTE_ORIGINAL_END
@@ -208,6 +265,7 @@ export function formatWriteQuotedSelectionForPrompt(selection: WriteQuotedSelect
   }
   return [
     `[引用片段] ${selection.sourceTitle}（共${selection.charCount}字）路径: ${selection.sourceFilePath}`,
+    ...(metadataLine ? [metadataLine] : []),
     WRITE_QUOTE_ORIGINAL_START,
     selection.text,
     WRITE_QUOTE_ORIGINAL_END
@@ -235,6 +293,9 @@ export type WritePromptDisplayQuote = {
   pageStart?: number
   pageEnd?: number
   position?: string
+  pdfAnchorId?: string
+  pdfAnnotationThreadId?: string
+  pdfAnnotationKind?: PdfAnnotationKind
   charCount?: number
   text: string
 }
@@ -388,6 +449,31 @@ function parseQuoteHeader(header: string): Omit<WritePromptDisplayQuote, 'text'>
   }
 }
 
+function parseWriteQuoteMetadataLine(line: string): WriteQuoteMetadata {
+  if (!line.startsWith(WRITE_QUOTE_METADATA_PREFIX)) return {}
+  const raw = line.slice(WRITE_QUOTE_METADATA_PREFIX.length).trim()
+  if (!raw) return {}
+
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return normalizeWriteQuoteMetadata(parsed as WriteQuoteMetadata)
+  } catch {
+    return {}
+  }
+}
+
+function consumeQuoteMetadataLine(text: string): { metadata: WriteQuoteMetadata; rest: string } {
+  if (!text.startsWith(WRITE_QUOTE_METADATA_PREFIX)) return { metadata: {}, rest: text }
+  const firstLineEnd = text.indexOf('\n')
+  const line = firstLineEnd < 0 ? text : text.slice(0, firstLineEnd)
+  const rest = firstLineEnd < 0 ? '' : text.slice(firstLineEnd + 1).trimStart()
+  return {
+    metadata: parseWriteQuoteMetadataLine(line.trim()),
+    rest
+  }
+}
+
 function parseRetrievalBlock(text: string): WritePromptDisplayRetrieval {
   const lines = text.split('\n')
   let source: string | undefined
@@ -450,6 +536,8 @@ function consumeQuoteSection(text: string): { quote: WritePromptDisplayQuote | n
 
   const header = text.slice(0, firstLineEnd).trim()
   let rest = text.slice(firstLineEnd + 1).trimStart()
+  const quoteMetadata = consumeQuoteMetadataLine(rest)
+  rest = quoteMetadata.rest
   if (!rest.startsWith(WRITE_QUOTE_ORIGINAL_START)) {
     return { quote: null, rest: text }
   }
@@ -460,9 +548,12 @@ function consumeQuoteSection(text: string): { quote: WritePromptDisplayQuote | n
 
   const quotedText = rest.slice(0, originalEnd).trim()
   const afterQuote = rest.slice(originalEnd + WRITE_QUOTE_ORIGINAL_END.length).trimStart()
+  const metadata = quoteMetadata.metadata
   return {
     quote: {
       ...parseQuoteHeader(header),
+      ...(hasWriteQuoteMetadata(metadata) ? { sourceKind: 'pdf' as const } : {}),
+      ...metadata,
       text: quotedText
     },
     rest: afterQuote

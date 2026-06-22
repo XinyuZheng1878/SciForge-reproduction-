@@ -9,6 +9,7 @@ import {
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   resolveKunRuntimeSettings,
   type AppSettingsV1
@@ -54,6 +55,7 @@ function settings(): AppSettingsV1 {
     write: defaultWriteSettings(),
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }

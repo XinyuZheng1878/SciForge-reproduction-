@@ -15,6 +15,8 @@ import {
   clawImInstallPollPayloadSchema,
   evidenceDagOpenPayloadSchema,
   isSafeOpenExternalUrl,
+  pdfAnnotationSidecarImportPayloadSchema,
+  pdfAnnotationSidecarLoadPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
   settingsPatchSchema,
   shellOpenExternalUrlSchema,
@@ -344,6 +346,47 @@ describe('app-ipc-schemas', () => {
         mimeType: 'image/png'
       })
     ).toThrow(/audio MIME type/)
+  })
+
+  it('accepts PDF annotation sidecar target and import payloads', () => {
+    expect(pdfAnnotationSidecarLoadPayloadSchema.parse({
+      pdfPath: ' /tmp/workspace/paper.pdf ',
+      workspaceRoot: ' /tmp/workspace ',
+      pageCount: 12
+    })).toEqual({
+      pdfPath: '/tmp/workspace/paper.pdf',
+      workspaceRoot: '/tmp/workspace',
+      pageCount: 12
+    })
+
+    expect(pdfAnnotationSidecarImportPayloadSchema.parse({
+      pdfPath: ' /tmp/workspace/paper.pdf ',
+      workspaceRoot: ' /tmp/workspace ',
+      packagePath: ' /tmp/workspace/paper.dsgui-pdf.zip ',
+      attemptRelocation: true
+    })).toEqual({
+      pdfPath: '/tmp/workspace/paper.pdf',
+      workspaceRoot: '/tmp/workspace',
+      packagePath: '/tmp/workspace/paper.dsgui-pdf.zip',
+      attemptRelocation: true
+    })
+  })
+
+  it('rejects PDF annotation import payloads without an import source', () => {
+    expect(() =>
+      pdfAnnotationSidecarImportPayloadSchema.parse({
+        pdfPath: '/tmp/workspace/paper.pdf',
+        workspaceRoot: '/tmp/workspace'
+      })
+    ).toThrow(/package path or base64/)
+
+    expect(() =>
+      pdfAnnotationSidecarImportPayloadSchema.parse({
+        pdfPath: '/tmp/workspace/paper.pdf',
+        packageBase64: 'ZmFrZS16aXA=',
+        transcript: 'not allowed'
+      })
+    ).toThrow(/Unrecognized key/)
   })
 
   it('accepts a valid settings patch for kun and write settings', () => {

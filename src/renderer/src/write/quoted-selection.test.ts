@@ -9,6 +9,7 @@ import {
 import {
   WRITE_QUOTE_ORIGINAL_END,
   WRITE_QUOTE_ORIGINAL_START,
+  WRITE_QUOTE_METADATA_PREFIX,
   WRITE_RETRIEVAL_END,
   composeWritePrompt,
   formatWriteQuotedSelectionForPrompt,
@@ -46,6 +47,9 @@ describe('write quoted selections', () => {
       pageStart: 2,
       pageEnd: 4,
       rects: [{ page: 2, x: 10.5, y: 20, width: 120, height: 14 }],
+      pdfAnchorId: 'anchor-pdf-1',
+      pdfAnnotationThreadId: 'thread-pdf-1',
+      pdfAnnotationKind: 'highlight' as const,
       charCount: 21,
       createdAt: '2026-05-24T00:00:00.000Z'
     }
@@ -54,6 +58,9 @@ describe('write quoted selections', () => {
 
     expect(formatWriteQuotedSelectionForPrompt(quote)).toContain('第2-4页')
     expect(formatWriteQuotedSelectionForPrompt(quote)).toContain('位置: p.2 x=10.5 y=20 w=120 h=14')
+    expect(formatWriteQuotedSelectionForPrompt(quote)).toContain(
+      `${WRITE_QUOTE_METADATA_PREFIX} {"pdfAnchorId":"anchor-pdf-1","pdfAnnotationThreadId":"thread-pdf-1","pdfAnnotationKind":"highlight"}`
+    )
     const parsed = parseWritePromptForDisplay(prompt)
     expect(parsed?.quotes[0]).toMatchObject({
       sourceKind: 'pdf',
@@ -62,12 +69,84 @@ describe('write quoted selections', () => {
       pageStart: 2,
       pageEnd: 4,
       position: 'p.2 x=10.5 y=20 w=120 h=14',
+      pdfAnchorId: 'anchor-pdf-1',
+      pdfAnnotationThreadId: 'thread-pdf-1',
+      pdfAnnotationKind: 'highlight',
       charCount: 21,
       text: 'Important PDF passage'
     })
   })
 
-  it('creates PDF quotes from page-aware selections', () => {
+  it('parses legacy PDF selected text without metadata', () => {
+    const prompt = [
+      '[引用片段] papers/study.pdf（第2页，共18字）路径: /tmp/workspace/papers/study.pdf',
+      WRITE_QUOTE_ORIGINAL_START,
+      'Legacy PDF passage',
+      WRITE_QUOTE_ORIGINAL_END,
+      '',
+      '继续写'
+    ].join('\n')
+
+    const parsed = parseWritePromptForDisplay(prompt)
+
+    expect(parsed?.quotes[0]).toMatchObject({
+      sourceKind: 'pdf',
+      sourceTitle: 'papers/study.pdf',
+      sourceFilePath: '/tmp/workspace/papers/study.pdf',
+      pageStart: 2,
+      pageEnd: 2,
+      charCount: 18,
+      text: 'Legacy PDF passage'
+    })
+    expect(parsed?.quotes[0]?.pdfAnchorId).toBeUndefined()
+    expect(parsed?.quotes[0]?.pdfAnnotationThreadId).toBeUndefined()
+    expect(parsed?.quotes[0]?.pdfAnnotationKind).toBeUndefined()
+    expect(parsed?.userInput).toBe('继续写')
+  })
+
+  it('keeps multiple PDF annotation references in one composed question', () => {
+    const prompt = composeWritePrompt('比较这两个选区的观点', [
+      {
+        id: 'quote-pdf-a',
+        text: 'First PDF claim',
+        sourceKind: 'pdf',
+        sourceTitle: 'papers/study.pdf',
+        sourceFilePath: '/tmp/workspace/papers/study.pdf',
+        pageStart: 2,
+        pageEnd: 2,
+        rects: [{ page: 2, x: 0.1, y: 0.2, width: 0.3, height: 0.04 }],
+        pdfAnchorId: 'anchor-a',
+        pdfAnnotationThreadId: 'thread-a',
+        pdfAnnotationKind: 'question',
+        charCount: 15,
+        createdAt: '2026-05-24T00:00:00.000Z'
+      },
+      {
+        id: 'quote-pdf-b',
+        text: 'Second PDF claim',
+        sourceKind: 'pdf',
+        sourceTitle: 'papers/study.pdf',
+        sourceFilePath: '/tmp/workspace/papers/study.pdf',
+        pageStart: 5,
+        pageEnd: 6,
+        rects: [{ page: 5, x: 0.2, y: 0.3, width: 0.25, height: 0.05 }],
+        pdfAnchorId: 'anchor-b',
+        pdfAnnotationThreadId: 'thread-b',
+        pdfAnnotationKind: 'comment',
+        charCount: 16,
+        createdAt: '2026-05-24T00:00:00.000Z'
+      }
+    ])
+
+    const parsed = parseWritePromptForDisplay(prompt)
+
+    expect(parsed?.userInput).toBe('比较这两个选区的观点')
+    expect(parsed?.quotes.map((quote) => quote.pdfAnnotationThreadId)).toEqual(['thread-a', 'thread-b'])
+    expect(parsed?.quotes.map((quote) => quote.pdfAnchorId)).toEqual(['anchor-a', 'anchor-b'])
+    expect(parsed?.quotes.map((quote) => quote.sourceKind)).toEqual(['pdf', 'pdf'])
+  })
+
+  it('creates PDF quotes from page-aware selections and preserves annotation metadata', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.2)
     const quote = quotedSelectionFromEditor({
       text: 'PDF passage',
@@ -86,6 +165,9 @@ describe('write quoted selections', () => {
       pageStart: 2,
       pageEnd: 3,
       rects: [{ page: 2, x: 10, y: 20, width: 30, height: 12 }],
+      pdfAnchorId: ' anchor-selection-1 ',
+      pdfAnnotationThreadId: ' thread-selection-1 ',
+      pdfAnnotationKind: 'comment',
       charCount: 11
     }, '/tmp/workspace/papers/study.pdf', '/tmp/workspace', Date.parse('2026-05-24T00:00:00.000Z'))
 
@@ -94,7 +176,10 @@ describe('write quoted selections', () => {
       sourceTitle: 'papers/study.pdf',
       pageStart: 2,
       pageEnd: 3,
-      rects: [{ page: 2, x: 10, y: 20, width: 30, height: 12 }]
+      rects: [{ page: 2, x: 10, y: 20, width: 30, height: 12 }],
+      pdfAnchorId: 'anchor-selection-1',
+      pdfAnnotationThreadId: 'thread-selection-1',
+      pdfAnnotationKind: 'comment'
     })
     vi.restoreAllMocks()
   })

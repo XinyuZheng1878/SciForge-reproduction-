@@ -8,7 +8,13 @@ import type {
   ClawRuntimeStatus,
   ScheduleRunResult,
   ScheduleRuntimeStatus,
-  ScheduleTaskFromTextResult
+  ScheduleTaskFromTextResult,
+  WorkflowApprovalDecision,
+  WorkflowCodeCheckResult,
+  WorkflowCodeLanguage,
+  WorkflowNodeTestResult,
+  WorkflowRunResult,
+  WorkflowRuntimeStatus
 } from './app-settings'
 import type { EditorListResult, EditorOpenResult, OpenEditorPathOptions } from './editor'
 import type { GitBranchesResult } from './git-branches'
@@ -97,6 +103,16 @@ import type {
   PaperRadarStatus,
   PaperRadarSyncResult
 } from './paper-radar'
+import type {
+  PdfAnnotationSidecarExportPayload,
+  PdfAnnotationSidecarExportResult,
+  PdfAnnotationSidecarImportPayload,
+  PdfAnnotationSidecarImportResult,
+  PdfAnnotationSidecarLoadResult,
+  PdfAnnotationSidecarSavePayload,
+  PdfAnnotationSidecarSaveResult,
+  PdfAnnotationSidecarTarget
+} from './pdf-annotations'
 
 export type WorkspacePickResult = { canceled: boolean; path: string | null }
 export type PathOpenResult = { ok: boolean; message?: string }
@@ -351,6 +367,13 @@ export type DsGuiApi = {
   runClawTask: (taskId: string) => Promise<ClawRunResult>
   getScheduleStatus: () => Promise<ScheduleRuntimeStatus>
   runScheduleTask: (taskId: string) => Promise<ScheduleRunResult>
+  getWorkflowStatus: () => Promise<WorkflowRuntimeStatus>
+  runWorkflow: (workflowId: string, input?: unknown) => Promise<WorkflowRunResult>
+  stopWorkflow: (workflowId: string) => Promise<WorkflowRunResult>
+  runWorkflowNode: (workflowId: string, nodeId: string) => Promise<WorkflowRunResult>
+  testWorkflowNode: (workflowId: string, nodeId: string, mockJson: string) => Promise<WorkflowNodeTestResult>
+  resolveWorkflowApproval: (token: string, decision: WorkflowApprovalDecision) => Promise<{ ok: boolean }>
+  checkWorkflowCode: (language: WorkflowCodeLanguage, code: string) => Promise<WorkflowCodeCheckResult>
   startClawImInstallQr: (
     provider: 'feishu' | 'weixin',
     options?: { isLark?: boolean }
@@ -441,6 +464,12 @@ export type DsGuiApi = {
     search: (payload: PaperRadarSearchInput) => Promise<PaperRadarApiResult<PaperRadarSearchResult>>
     rank: (payload: PaperRadarRankInput) => Promise<PaperRadarApiResult<PaperRadarRankResult>>
     digest: (payload: PaperRadarDigestInput) => Promise<PaperRadarApiResult<PaperRadarDigestResult>>
+  }
+  pdfAnnotations?: {
+    load: (payload: PdfAnnotationSidecarTarget) => Promise<PdfAnnotationSidecarLoadResult>
+    save: (payload: PdfAnnotationSidecarSavePayload) => Promise<PdfAnnotationSidecarSaveResult>
+    export: (payload: PdfAnnotationSidecarExportPayload) => Promise<PdfAnnotationSidecarExportResult>
+    import: (payload: PdfAnnotationSidecarImportPayload) => Promise<PdfAnnotationSidecarImportResult>
   }
   onRuntimeStatus: (handler: (payload: KunRuntimeStatusPayload) => void) => () => void
   agentRuntime: {

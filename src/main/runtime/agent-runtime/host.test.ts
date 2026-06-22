@@ -10,6 +10,7 @@ import {
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   type AppSettingsV1
 } from '../../../shared/app-settings'
@@ -32,6 +33,7 @@ import { createKunAgentRuntimeAdapter } from '../kun-agent-runtime-adapter'
 import { ModelRequestAuditRecorder } from '../../services/model-request-audit-service'
 import { RuntimeContextStateService } from '../../services/runtime-context-state-service'
 import { SharedMemoryService } from '../../services/shared-memory-service'
+import { RuntimeGoalService } from '../../services/runtime-goal-service'
 import { WorkspaceReferenceService } from '../../services/workspace-reference-service'
 import { readWorkspaceFile } from '../../services/workspace-files'
 import { composerReferenceFromWorkspaceReference } from '../../../renderer/src/lib/workspace-reference-composer'
@@ -64,6 +66,7 @@ function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'cod
     write: defaultWriteSettings(),
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }
@@ -207,6 +210,29 @@ function commandToolEvent(command: string, index: number): AgentRuntimeEvent {
   }
 }
 
+function shellWrappedCommandToolEvent(command: string, index: number): AgentRuntimeEvent {
+  const wrapper = `/bin/zsh -lc '${command}'`
+  return {
+    kind: 'tool_event',
+    runtimeId: 'codex',
+    threadId: 'codex-thread',
+    turnId: 'turn-1',
+    itemId: `tool-${index}`,
+    status: 'running',
+    toolKind: 'command_execution',
+    summary: wrapper,
+    detail: wrapper,
+    meta: {
+      toolName: 'local_shell',
+      command: '/bin/zsh',
+      arguments: {
+        cmd: '/bin/zsh',
+        args: ['-lc', command]
+      }
+    }
+  }
+}
+
 describe('AgentRuntimeHost', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -254,6 +280,100 @@ describe('AgentRuntimeHost', () => {
     expect(kun.updateThreadRelation).toHaveBeenCalledWith(
       { settings: expect.objectContaining({ activeAgentRuntime: 'codex' }) },
       { runtimeId: 'kun', threadId: 'kun-thread', relation: 'primary' }
+    )
+  })
+
+  it('exposes shared goals through neutral capabilities and thread snapshots', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'runtime-goals-'))
+    const goals = new RuntimeGoalService(dataDir)
+    const thread = {
+      id: 'codex-thread',
+      runtimeId: 'codex' as const,
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    }
+    const adapter = fakeAdapter('codex', thread)
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: { goals }
+    })
+
+    await expect(host.capabilities('codex')).resolves.toMatchObject({
+      controls: { goals: true }
+    })
+    await host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'setThreadGoal',
+      payload: {
+        threadId: 'codex-thread',
+        patch: { objective: 'ship shared goal mode', status: 'active' }
+      }
+    })
+
+    await expect(host.listThreads({ runtimeId: 'codex' })).resolves.toEqual([
+      expect.objectContaining({
+        id: 'codex-thread',
+        goal: expect.objectContaining({
+          runtimeId: 'codex',
+          objective: 'ship shared goal mode',
+          status: 'active'
+        })
+      })
+    ])
+    await expect(host.readThread({ runtimeId: 'codex', threadId: 'codex-thread' })).resolves.toMatchObject({
+      goal: {
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        objective: 'ship shared goal mode',
+        status: 'active'
+      }
+    })
+    expect(adapter.publishSyntheticEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'goal_event',
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        objective: 'ship shared goal mode',
+        status: 'active'
+      })
+    )
+  })
+
+  it('injects shared active goals into non-native runtime turns without changing display text', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'runtime-goals-'))
+    const goals = new RuntimeGoalService(dataDir)
+    await goals.set({
+      runtimeId: 'claude',
+      threadId: 'claude-thread',
+      patch: { objective: 'finish shared runtime goal', status: 'active' }
+    })
+    const adapter = fakeAdapter('claude', {
+      id: 'claude-thread',
+      runtimeId: 'claude',
+      title: 'Claude',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('claude'),
+      adapters: [adapter],
+      services: { goals }
+    })
+
+    await host.startTurn({
+      runtimeId: 'claude',
+      threadId: 'claude-thread',
+      text: 'continue',
+      displayText: 'continue'
+    })
+
+    expect(adapter.startTurn).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        text: expect.stringContaining('finish shared runtime goal'),
+        displayText: 'continue'
+      })
     )
   })
 
@@ -2362,7 +2482,172 @@ describe('AgentRuntimeHost', () => {
     expect(codex.publishSyntheticEvent).not.toHaveBeenCalled()
   })
 
-  it('escalates repeated same-family Codex commands in persisted synthetic event order', async () => {
+  it('does not escalate different scripts that share the same shell wrapper', async () => {
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const commands = ['ls -la', 'find src -type f | head -40', 'cat README.md']
+    vi.mocked(codex.subscribeEvents).mockImplementation(async function* () {
+      for (const [index, command] of commands.entries()) {
+        yield shellWrappedCommandToolEvent(command, index + 1)
+      }
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        runtimeGuards: {
+          toolStorm: {
+            enabled: true,
+            windowSize: 8,
+            softThreshold: 2,
+            hardThreshold: 3
+          },
+          budgets: {
+            defaultMaxToolEvents: 80,
+            writeMaxToolEvents: 96,
+            remoteGuardMaxToolEvents: 32
+          }
+        }
+      }),
+      adapters: [codex]
+    })
+
+    const events: AgentRuntimeEvent[] = []
+    for await (const event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      sinceSeq: 0
+    })) {
+      events.push(event)
+    }
+    await Promise.resolve()
+
+    expect(events.map((event) => event.itemId)).toEqual(['tool-1', 'tool-2', 'tool-3'])
+    expect(codex.steerTurn).not.toHaveBeenCalled()
+    expect(codex.interruptTurn).not.toHaveBeenCalled()
+    expect(codex.publishSyntheticEvent).not.toHaveBeenCalled()
+  })
+
+  it('escalates repeated identical scripts inside a shell wrapper', async () => {
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(codex.subscribeEvents).mockImplementation(async function* () {
+      for (let index = 1; index <= 3; index += 1) {
+        yield shellWrappedCommandToolEvent('cat package.json', index)
+      }
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        runtimeGuards: {
+          toolStorm: {
+            enabled: true,
+            windowSize: 8,
+            softThreshold: 2,
+            hardThreshold: 3
+          },
+          budgets: {
+            defaultMaxToolEvents: 80,
+            writeMaxToolEvents: 96,
+            remoteGuardMaxToolEvents: 32
+          }
+        }
+      }),
+      adapters: [codex]
+    })
+
+    for await (const _event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      sinceSeq: 0
+    })) {
+      // exhaust stream
+    }
+    await vi.waitFor(() => {
+      expect(codex.publishSyntheticEvent).toHaveBeenCalledTimes(3)
+    })
+
+    expect(codex.steerTurn).toHaveBeenCalledTimes(1)
+    expect(codex.interruptTurn).toHaveBeenCalledTimes(1)
+    expect(codex.publishSyntheticEvent).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'runtime_status',
+        metadata: expect.objectContaining({
+          level: 'soft',
+          family: 'command_execution:shell/read-file'
+        })
+      })
+    )
+    expect(codex.publishSyntheticEvent).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'runtime_status',
+        metadata: expect.objectContaining({
+          level: 'hard',
+          family: 'command_execution:shell/read-file'
+        })
+      })
+    )
+  })
+
+  it('does not escalate different same-family scripts inside a shell wrapper', async () => {
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const commands = ['cat package.json', 'sed -n 1,20p package.json', 'head -n 5 package.json']
+    vi.mocked(codex.subscribeEvents).mockImplementation(async function* () {
+      for (const [index, command] of commands.entries()) {
+        yield shellWrappedCommandToolEvent(command, index + 1)
+      }
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        runtimeGuards: {
+          toolStorm: {
+            enabled: true,
+            windowSize: 8,
+            softThreshold: 2,
+            hardThreshold: 3
+          },
+          budgets: {
+            defaultMaxToolEvents: 80,
+            writeMaxToolEvents: 96,
+            remoteGuardMaxToolEvents: 32
+          }
+        }
+      }),
+      adapters: [codex]
+    })
+
+    for await (const _event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      sinceSeq: 0
+    })) {
+      // exhaust stream
+    }
+    await Promise.resolve()
+
+    expect(codex.steerTurn).not.toHaveBeenCalled()
+    expect(codex.interruptTurn).not.toHaveBeenCalled()
+    expect(codex.publishSyntheticEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not escalate different same-family Codex commands', async () => {
     const codex = fakeAdapter('codex', {
       id: 'codex-thread',
       runtimeId: 'codex',
@@ -2403,48 +2688,12 @@ describe('AgentRuntimeHost', () => {
     })) {
       events.push(event)
     }
-    await vi.waitFor(() => {
-      expect(codex.publishSyntheticEvent).toHaveBeenCalledTimes(3)
-    })
+    await Promise.resolve()
 
     expect(events.map((event) => event.itemId)).toEqual(['tool-1', 'tool-2', 'tool-3'])
-    expect(codex.steerTurn).toHaveBeenCalledTimes(1)
-    expect(codex.interruptTurn).toHaveBeenCalledTimes(1)
-    expect(codex.publishSyntheticEvent).toHaveBeenNthCalledWith(
-      1,
-      expect.anything(),
-      expect.objectContaining({
-        kind: 'runtime_status',
-        metadata: expect.objectContaining({
-          synthetic: true,
-          guard: 'toolStorm',
-          level: 'soft',
-          family: 'command_execution:shell/read-file'
-        })
-      })
-    )
-    expect(codex.publishSyntheticEvent).toHaveBeenNthCalledWith(
-      2,
-      expect.anything(),
-      expect.objectContaining({
-        kind: 'runtime_status',
-        metadata: expect.objectContaining({
-          synthetic: true,
-          guard: 'toolStorm',
-          level: 'hard',
-          family: 'command_execution:shell/read-file'
-        })
-      })
-    )
-    expect(codex.publishSyntheticEvent).toHaveBeenNthCalledWith(
-      3,
-      expect.anything(),
-      expect.objectContaining({
-        kind: 'error',
-        code: 'runtime_tool_storm_interrupted',
-        detail: expect.stringContaining('command_execution:shell/read-file')
-      })
-    )
+    expect(codex.steerTurn).not.toHaveBeenCalled()
+    expect(codex.interruptTurn).not.toHaveBeenCalled()
+    expect(codex.publishSyntheticEvent).not.toHaveBeenCalled()
   })
 
   it('uses the tool-event budget as a hard stop without an extra soft steer', async () => {

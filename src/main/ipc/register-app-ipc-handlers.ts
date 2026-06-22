@@ -12,7 +12,11 @@ import {
   type ClawRuntimeStatus,
   type ScheduleRunResult,
   type ScheduleRuntimeStatus,
-  type ScheduleTaskFromTextResult
+  type ScheduleTaskFromTextResult,
+  type WorkflowCodeCheckResult,
+  type WorkflowNodeTestResult,
+  type WorkflowRunResult,
+  type WorkflowRuntimeStatus
 } from '../../shared/app-settings'
 import type {
   ClawImInstallPollResult,
@@ -71,6 +75,10 @@ import {
   paperRadarProfileSyncPayloadSchema,
   paperRadarRankPayloadSchema,
   paperRadarSearchPayloadSchema,
+  pdfAnnotationSidecarExportPayloadSchema,
+  pdfAnnotationSidecarImportPayloadSchema,
+  pdfAnnotationSidecarLoadPayloadSchema,
+  pdfAnnotationSidecarSavePayloadSchema,
   rootPathSchema,
   scheduleTaskFromTextPayloadSchema,
   shellOpenExternalUrlSchema,
@@ -92,6 +100,10 @@ import {
   writeRichClipboardPayloadSchema,
   writeInlineCompletionPayloadSchema,
   writeRetrievalPayloadSchema,
+  workflowCodeCheckPayloadSchema,
+  workflowResolveApprovalPayloadSchema,
+  workflowRunNodePayloadSchema,
+  workflowTestNodePayloadSchema,
   workspaceRootSchema
 } from './app-ipc-schemas'
 import {
@@ -146,6 +158,7 @@ import type { JsonSettingsStore } from '../settings-store'
 import type { ClawRuntime } from '../claw-runtime'
 import type { DiscordBotRuntime } from '../discord-bot-runtime'
 import type { ScheduleRuntime } from '../schedule-runtime'
+import { checkWorkflowCode, type WorkflowRuntime } from '../workflow-runtime'
 import { createAndSwitchGitBranch, getGitBranches, switchGitBranch } from '../services/git-service'
 import {
   createWorkspaceDirectory,
@@ -174,6 +187,12 @@ import { retrieveWriteContext } from '../services/write-retrieval-service'
 import { requestSpeechTranscription } from '../services/speech-to-text-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { listGuiSkills } from '../services/skill-service'
+import {
+  exportPdfAnnotationSidecarPackage,
+  importPdfAnnotationSidecarPackage,
+  loadPdfAnnotationSidecar,
+  savePdfAnnotationSidecar
+} from '../services/pdf-annotation-sidecar-service'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -246,6 +265,7 @@ type RegisterAppIpcHandlersOptions = {
     workspaceRoot?: string
   } | null) => void
   getScheduleRuntime: () => ScheduleRuntime | null
+  getWorkflowRuntime?: () => WorkflowRuntime | null
   startFeishuInstallQrcode: (isLark: boolean) => Promise<ClawImInstallQrResult>
   pollFeishuInstall: (deviceCode: string) => Promise<ClawImInstallPollResult>
   startWeixinInstallQrcode: (weixinBridgeUrl?: string) => Promise<ClawImInstallQrResult>
@@ -362,6 +382,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     getClawRuntime,
     getDiscordBotRuntime,
     getScheduleRuntime,
+    getWorkflowRuntime = () => null,
     startFeishuInstallQrcode,
     pollFeishuInstall,
     startWeixinInstallQrcode,
@@ -562,6 +583,27 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     return paperRadarRequest(() => digestPaperRadar(input))
   })
 
+  handleInvoke('pdfAnnotations:load', async (_, payload: unknown) =>
+    loadPdfAnnotationSidecar(
+      parseIpcPayload('pdfAnnotations:load', pdfAnnotationSidecarLoadPayloadSchema, payload)
+    )
+  )
+  handleInvoke('pdfAnnotations:save', async (_, payload: unknown) =>
+    savePdfAnnotationSidecar(
+      parseIpcPayload('pdfAnnotations:save', pdfAnnotationSidecarSavePayloadSchema, payload)
+    )
+  )
+  handleInvoke('pdfAnnotations:export', async (_, payload: unknown) =>
+    exportPdfAnnotationSidecarPackage(
+      parseIpcPayload('pdfAnnotations:export', pdfAnnotationSidecarExportPayloadSchema, payload)
+    )
+  )
+  handleInvoke('pdfAnnotations:import', async (_, payload: unknown) =>
+    importPdfAnnotationSidecarPackage(
+      parseIpcPayload('pdfAnnotations:import', pdfAnnotationSidecarImportPayloadSchema, payload)
+    )
+  )
+
   const requireAgentRuntime = (): NonNullable<RegisterAppIpcHandlersOptions['agentRuntime']> => {
     if (!agentRuntime) {
       throw new Error('AgentRuntimeHost is not initialized.')
@@ -745,6 +787,63 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     const scheduleRuntime = getScheduleRuntime()
     if (!scheduleRuntime) return { ok: false, message: 'Schedule runtime is not initialized.' }
     return scheduleRuntime.runTask(normalizedTaskId)
+  })
+
+  handleInvoke('workflow:status', async (): Promise<WorkflowRuntimeStatus> =>
+    getWorkflowRuntime()?.status() ?? {
+      runningWorkflowIds: [],
+      nodeStatus: {},
+      nodeResults: {},
+      powerSaveBlockerActive: false,
+      pendingApprovals: []
+    }
+  )
+
+  handleInvoke('workflow:run', async (_, payload: unknown): Promise<WorkflowRunResult> => {
+    const request = parseIpcPayload(
+      'workflow:run',
+      z.object({
+        workflowId: streamIdSchema,
+        input: z.unknown().optional()
+      }).strict(),
+      payload
+    )
+    const workflowRuntime = getWorkflowRuntime()
+    if (!workflowRuntime) return { ok: false, message: 'Workflow runtime is not initialized.' }
+    return workflowRuntime.runWorkflow(request.workflowId, request.input)
+  })
+
+  handleInvoke('workflow:stop', async (_, workflowId: unknown): Promise<WorkflowRunResult> => {
+    const normalizedWorkflowId = parseIpcPayload('workflow:stop', streamIdSchema, workflowId)
+    const workflowRuntime = getWorkflowRuntime()
+    if (!workflowRuntime) return { ok: false, message: 'Workflow runtime is not initialized.' }
+    return workflowRuntime.stopWorkflow(normalizedWorkflowId)
+  })
+
+  handleInvoke('workflow:node:run', async (_, payload: unknown): Promise<WorkflowRunResult> => {
+    const request = parseIpcPayload('workflow:node:run', workflowRunNodePayloadSchema, payload)
+    const workflowRuntime = getWorkflowRuntime()
+    if (!workflowRuntime) return { ok: false, message: 'Workflow runtime is not initialized.' }
+    return workflowRuntime.runSingleNode(request.workflowId, request.nodeId)
+  })
+
+  handleInvoke('workflow:node:test', async (_, payload: unknown): Promise<WorkflowNodeTestResult> => {
+    const request = parseIpcPayload('workflow:node:test', workflowTestNodePayloadSchema, payload)
+    const workflowRuntime = getWorkflowRuntime()
+    if (!workflowRuntime) return { ok: false, message: 'Workflow runtime is not initialized.' }
+    return workflowRuntime.testNode(request.workflowId, request.nodeId, request.mockJson)
+  })
+
+  handleInvoke('workflow:approval:resolve', async (_, payload: unknown): Promise<{ ok: boolean }> => {
+    const request = parseIpcPayload('workflow:approval:resolve', workflowResolveApprovalPayloadSchema, payload)
+    const workflowRuntime = getWorkflowRuntime()
+    if (!workflowRuntime) return { ok: false }
+    return { ok: workflowRuntime.resolveApproval(request.token, request.decision) }
+  })
+
+  handleInvoke('workflow:code:check', async (_, payload: unknown): Promise<WorkflowCodeCheckResult> => {
+    const request = parseIpcPayload('workflow:code:check', workflowCodeCheckPayloadSchema, payload)
+    return checkWorkflowCode(request.language, request.code)
   })
 
   handleInvoke(

@@ -6,6 +6,7 @@ import {
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   mergeScheduleSettings,
   type AppSettingsPatch,
@@ -75,6 +76,7 @@ function settingsWith(
       tasks,
       ...schedulePatch
     }),
+    workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }

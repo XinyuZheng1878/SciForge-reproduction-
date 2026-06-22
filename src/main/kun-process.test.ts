@@ -13,6 +13,7 @@ import {
   defaultModelProviderSettings,
   defaultRuntimeGuardSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   type AppSettingsV1
@@ -55,6 +56,7 @@ function createSettings(binaryPath: string, port = 8899): AppSettingsV1 {
     write: defaultWriteSettings(),
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }

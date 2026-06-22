@@ -10,6 +10,7 @@ import {
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   type AppSettingsV1,
   type ClawImChannelV1
@@ -51,6 +52,7 @@ function settings(channel: ClawImChannelV1): AppSettingsV1 {
       channels: [channel]
     },
     schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }

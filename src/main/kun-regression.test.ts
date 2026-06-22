@@ -11,6 +11,7 @@ import {
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   getCodexRuntimeSettings,
   migrateLegacyAppSettings,
@@ -124,6 +125,7 @@ describe('Kun single-agent regression', () => {
       write: defaultWriteSettings(),
       claw: defaultClawSettings(),
       schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
       guiUpdate: { channel: 'stable' },
       codePromptPrefix: ''
     }

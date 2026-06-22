@@ -8,6 +8,7 @@ import {
   type NotificationConfigV1,
   type ScheduleSettingsPatchV1,
   type SpeechToTextSettingsPatchV1,
+  type WorkflowSettingsPatchV1,
   type WriteSettingsPatchV1
 } from './app-settings-types'
 import { normalizeKeyboardShortcuts, type KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
@@ -35,6 +36,7 @@ import { normalizeModelRouterSettings } from './app-settings-model-router'
 import { normalizeDeepseekBaseUrl, normalizeInstallationId } from './app-settings-normalizers'
 import { normalizeClawSettings } from './app-settings-claw'
 import { normalizeScheduleSettings } from './app-settings-schedule'
+import { normalizeWorkflowSettings } from './app-settings-workflow'
 import { normalizeWriteSettings } from './app-settings-write'
 import { normalizeSpeechToTextSettings } from './speech-to-text'
 
@@ -51,6 +53,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     write?: WriteSettingsPatchV1
     claw?: ClawSettingsPatchV1
     schedule?: ScheduleSettingsPatchV1
+    workflow?: WorkflowSettingsPatchV1
     speechToText?: SpeechToTextSettingsPatchV1
     guiUpdate?: Partial<GuiUpdateConfigV1>
     runtimeGuards?: Parameters<typeof normalizeRuntimeGuardSettings>[0]
@@ -104,6 +107,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     speechToText: normalizeSpeechToTextSettings(maybeSettings.speechToText),
     claw: normalizeClawSettings(maybeSettings.claw),
     schedule: normalizeScheduleSettings(maybeSettings.schedule),
+    workflow: normalizeWorkflowSettings(maybeSettings.workflow),
     guiUpdate: {
       channel: normalizeGuiUpdateChannel(
         maybeSettings.guiUpdate?.channel ?? DEFAULT_GUI_UPDATE_CHANNEL

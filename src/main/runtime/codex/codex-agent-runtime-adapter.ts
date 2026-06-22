@@ -918,6 +918,17 @@ function mapCodexStoredEvent(event: CodexThreadEventPayload): AgentRuntimeEvent[
       createdAt: event.runtimeStatus.createdAt
     })
   }
+  if (event.goal) {
+    mapped.push({
+      ...common,
+      kind: 'goal_event',
+      itemId: event.goal.itemId,
+      createdAt: event.goal.createdAt,
+      objective: event.goal.objective,
+      status: event.goal.status,
+      cleared: event.goal.cleared
+    })
+  }
   if (event.usage) {
     mapped.push({
       ...common,

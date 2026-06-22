@@ -325,6 +325,25 @@ export class CodexRuntimeService {
         severity: event.severity
       })
     }
+    if (event.kind === 'goal_event') {
+      const runtimeEvent: CodexThreadEventPayload = {
+        threadId: event.threadId,
+        turnId: event.turnId,
+        goal: {
+          itemId: event.itemId,
+          createdAt: event.createdAt,
+          objective: event.objective,
+          status: event.status,
+          cleared: event.cleared
+        }
+      }
+      const stored = await this.persistEvent(event.threadId, runtimeEvent)
+      const published = stored?.event ?? runtimeEvent
+      this.noteRuntimeEvent(published)
+      this.broadcastEvent(published)
+      this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: published })
+      return published
+    }
     if (event.kind !== 'runtime_status') {
       throw new Error(`Unsupported Codex synthetic event kind: ${event.kind}`)
     }

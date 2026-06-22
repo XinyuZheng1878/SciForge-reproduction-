@@ -8,6 +8,7 @@ import {
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultSpeechToTextSettings,
   defaultWriteSettings,
   type AppSettingsV1
@@ -101,6 +102,7 @@ function buildSettings(): AppSettingsV1 {
     speechToText: defaultSpeechToTextSettings(),
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }

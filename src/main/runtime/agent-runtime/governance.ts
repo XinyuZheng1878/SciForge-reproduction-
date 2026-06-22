@@ -22,7 +22,6 @@ type RuntimeGovernanceControls = {
 
 type ToolStormState = {
   events: ToolFingerprint[]
-  totals: Map<string, number>
   totalEvents: number
   steered: Set<string>
   interrupted: Set<string>
@@ -52,7 +51,6 @@ export class RuntimeGovernanceSupervisor {
     const key = `${capabilities.runtimeId}:${threadId}:${turnId}`
     const state = this.toolStormStates.get(key) ?? {
       events: [],
-      totals: new Map<string, number>(),
       totalEvents: 0,
       steered: new Set(),
       interrupted: new Set(),
@@ -68,8 +66,6 @@ export class RuntimeGovernanceSupervisor {
     state.totalEvents += 1
     state.events.push(fingerprint)
     state.events = state.events.slice(-settings.toolStorm.windowSize)
-    state.totals.set(fingerprint.exact, (state.totals.get(fingerprint.exact) ?? 0) + 1)
-    state.totals.set(fingerprint.family, (state.totals.get(fingerprint.family) ?? 0) + 1)
     this.toolStormStates.set(key, state)
 
     if (state.totalEvents > maxToolEventsForProfile(settings, controls.governanceProfile) && !state.interrupted.has('budget')) {
@@ -85,14 +81,10 @@ export class RuntimeGovernanceSupervisor {
     }
 
     const exactCount = countMatches(state.events, 'exact', fingerprint.exact)
-    const familyCount = countMatches(state.events, 'family', fingerprint.family)
-    const totalCount = Math.max(
-      state.totals.get(fingerprint.exact) ?? 0,
-      state.totals.get(fingerprint.family) ?? 0
-    )
-    const count = Math.max(exactCount, familyCount, totalCount)
-    if (count >= settings.toolStorm.hardThreshold && !state.interrupted.has(fingerprint.family)) {
-      state.interrupted.add(fingerprint.family)
+    const exactSteerKey = `exact:${fingerprint.exact}`
+    const exactInterruptKey = `exact:${fingerprint.exact}`
+    if (exactCount >= settings.toolStorm.hardThreshold && !state.interrupted.has(exactInterruptKey)) {
+      state.interrupted.add(exactInterruptKey)
       void controls.interruptTurn({
         runtimeId: capabilities.runtimeId,
         threadId,
@@ -102,13 +94,13 @@ export class RuntimeGovernanceSupervisor {
       void publishToolStormEvent(controls, event, capabilities.runtimeId, 'hard', fingerprint.family)
       return
     }
-    if (count >= settings.toolStorm.softThreshold && !state.steered.has(fingerprint.family)) {
-      state.steered.add(fingerprint.family)
+    if (exactCount >= settings.toolStorm.softThreshold && !state.steered.has(exactSteerKey)) {
+      state.steered.add(exactSteerKey)
       void controls.steerTurn({
         runtimeId: capabilities.runtimeId,
         threadId,
         turnId,
-        text: `Stop calling tools in the same ${fingerprint.family} family. Use the results already available and answer the user directly.`
+        text: `Stop repeating the same ${fingerprint.family} tool call. Use the results already available and answer the user directly.`
       }).catch(() => undefined)
       void publishToolStormEvent(controls, event, capabilities.runtimeId, 'soft', fingerprint.family)
     }
@@ -145,7 +137,7 @@ function behaviorFamily(
   detail?: string
 ): string {
   if (kind === 'file_change') return 'file-change'
-  const command = stringValue(meta.command) || detail?.trim() || ''
+  const command = commandExecutionText(meta, detail)
   if (kind === 'command_execution') return commandFamily(command)
   const normalized = toolName.toLowerCase()
   if (/(search|grep|find|rg|query)/.test(normalized)) return 'search-read'
@@ -154,14 +146,113 @@ function behaviorFamily(
   return normalized || 'tool'
 }
 
+function commandExecutionText(meta: Record<string, unknown>, detail?: string): string {
+  const command = stringValue(meta.command)
+  const args = recordValue(meta.arguments)
+  const argumentCommand = stringValue(args.cmd) || stringValue(args.command)
+  const argumentArgs = firstStringArray(args.args, args.argv)
+  const wrappedCommand = shellScriptFromCommandAndArgs(command || argumentCommand, argumentArgs)
+  if (wrappedCommand) return wrappedCommand
+  const wrappedArgumentCommand = shellScriptFromCommand(argumentCommand)
+  if (wrappedArgumentCommand) return wrappedArgumentCommand
+  const wrappedDetail = shellScriptFromCommand(detail?.trim() || '')
+  if (wrappedDetail) return wrappedDetail
+  return command || argumentCommand || detail?.trim() || ''
+}
+
 function commandFamily(command: string): string {
-  const head = command.trim().split(/\s+/)[0]?.toLowerCase() || 'shell'
+  const effectiveCommand = shellScriptFromCommand(command) || command
+  const head = commandName(shellTokens(effectiveCommand)[0] || 'shell')
   if (head === 'date' || head === 'time') return 'shell/date'
   if (['cat', 'sed', 'head', 'tail', 'nl', 'less'].includes(head)) return 'shell/read-file'
   if (['rg', 'grep', 'find', 'fd'].includes(head)) return 'shell/search'
   if (['ls', 'pwd', 'stat'].includes(head)) return 'shell/list'
   if (['curl', 'wget'].includes(head)) return 'shell/fetch'
   return `shell/${head}`
+}
+
+function shellScriptFromCommandAndArgs(command: string, args: string[]): string {
+  const tokens = shellTokens(command)
+  if (!args.length) return shellScriptFromTokens(tokens)
+  if (!tokens.length) return shellScriptFromTokens(args)
+  return shellScriptFromTokens([...tokens, ...args])
+}
+
+function shellScriptFromCommand(command: string): string {
+  return shellScriptFromTokens(shellTokens(command))
+}
+
+function shellScriptFromTokens(tokens: string[]): string {
+  if (tokens.length < 2) return ''
+  const shellIndex = shellExecutableIndex(tokens)
+  if (shellIndex < 0) return ''
+  for (let index = shellIndex + 1; index < tokens.length - 1; index += 1) {
+    const token = tokens[index]
+    if (token === '--') continue
+    if (!token.startsWith('-')) break
+    if (token === '-c' || /^-[^-]*c/.test(token)) return tokens[index + 1]?.trim() || ''
+  }
+  return ''
+}
+
+function shellExecutableIndex(tokens: string[]): number {
+  if (isShellExecutable(tokens[0])) return 0
+  if (commandName(tokens[0]) !== 'env') return -1
+  return tokens.findIndex((token, index) =>
+    index > 0 &&
+    !token.startsWith('-') &&
+    !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token) &&
+    isShellExecutable(token)
+  )
+}
+
+function isShellExecutable(token: string | undefined): boolean {
+  return ['sh', 'bash', 'zsh', 'dash', 'fish'].includes(commandName(token || ''))
+}
+
+function commandName(token: string): string {
+  return token.trim().split(/[\\/]/).pop()?.toLowerCase() || 'shell'
+}
+
+function shellTokens(command: string): string[] {
+  const tokens: string[] = []
+  let current = ''
+  let quote: '"' | "'" | '' = ''
+  let escaped = false
+  for (const char of command.trim()) {
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
+    }
+    if (char === '\\' && quote !== "'") {
+      escaped = true
+      continue
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = ''
+      } else {
+        current += char
+      }
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      continue
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        tokens.push(current)
+        current = ''
+      }
+      continue
+    }
+    current += char
+  }
+  if (escaped) current += '\\'
+  if (current) tokens.push(current)
+  return tokens
 }
 
 async function publishToolStormEvent(
@@ -258,4 +349,17 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function stringArrayValue(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map(stringValue).filter(Boolean)
+}
+
+function firstStringArray(...values: unknown[]): string[] {
+  for (const value of values) {
+    const strings = stringArrayValue(value)
+    if (strings.length) return strings
+  }
+  return []
 }

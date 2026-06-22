@@ -67,6 +67,8 @@ describe('FloatingComposer slash commands', () => {
     expect(parseGoalCommand('/goal pause')).toEqual({ action: 'pause' })
     expect(parseGoalCommand('/goal resume')).toEqual({ action: 'resume' })
     expect(parseGoalCommand('/goal clear')).toEqual({ action: 'clear' })
+    expect(parseGoalCommand('/goal complete')).toEqual({ action: 'complete' })
+    expect(parseGoalCommand('/goal done')).toEqual({ action: 'complete' })
     expect(parseGoalCommand('/goal ship the feature')).toEqual({
       action: 'set',
       objective: 'ship the feature'

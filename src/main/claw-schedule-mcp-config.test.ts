@@ -20,6 +20,7 @@ import {
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
@@ -54,6 +55,7 @@ function createSettings(patch: Partial<AppSettingsV1['schedule']['internal']> = 
         ...patch
       }
     },
+    workflow: defaultWorkflowSettings(),
     guiUpdate: {
       channel: 'stable'
     },

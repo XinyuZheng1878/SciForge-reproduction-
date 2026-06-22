@@ -5,10 +5,27 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type RefObject
 } from 'react'
-import { ChevronLeft, ChevronRight, FileText, Loader2, Minus, Plus, Quote, Search } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clipboard,
+  FileText,
+  HelpCircle,
+  Highlighter,
+  Languages,
+  Loader2,
+  MessageSquare,
+  Minus,
+  Plus,
+  Quote,
+  Search,
+  StickyNote
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   GlobalWorkerOptions,
@@ -28,6 +45,9 @@ const PDF_SCALE_STEP = 0.1
 const DEFAULT_PDF_SCALE = 1.15
 const MAX_SELECTION_FRAGMENT_RECTS = 6000
 const LINE_MERGE_WINDOW = 6
+const TEXT_LAYER_TOKEN_HIT_PAD_X = 2
+const TEXT_LAYER_TOKEN_HIT_PAD_Y = 5
+const TEXT_LAYER_TOKEN_MAX_PICK_DISTANCE = 18
 
 type PageText = {
   page: number
@@ -41,6 +61,22 @@ type ViewportRect = {
   bottom: number
 }
 
+type TextLayerPoint = {
+  x: number
+  y: number
+}
+
+type TextLayerToken = {
+  text: string
+  node: Text
+  start: number
+  end: number
+  rect: DOMRect
+  page: number
+  order: number
+  wordLike: boolean
+}
+
 export type WritePdfSelectionAnchorRect = {
   left: number
   right: number
@@ -52,10 +88,17 @@ export type WritePdfSelectionAnchorRect = {
 
 export type WritePdfSelectionPageRect = {
   page: number
+  /** Normalized page coordinates in the 0..1 range. */
   x: number
   y: number
   width: number
   height: number
+}
+
+export type WritePdfSelectionVisualImage = {
+  dataUrl: string
+  mimeType: string
+  fileName: string
 }
 
 export type WritePdfSelectionRange = {
@@ -92,7 +135,27 @@ export type WritePdfSelection = {
   pageEnd?: number
   anchorRect?: WritePdfSelectionAnchorRect
   rects?: WritePdfSelectionPageRect[]
+  visualImage?: WritePdfSelectionVisualImage
   metadata: WritePdfSelectionMetadata
+}
+
+export type WritePdfAnnotationAction = 'highlight' | 'comment' | 'translation' | 'question' | 'copy'
+
+export type WritePdfAnnotationOverlayKind =
+  | 'highlight'
+  | 'comment'
+  | 'note'
+  | 'translation'
+  | 'question'
+  | 'answer'
+
+export type WritePdfAnnotationOverlay = {
+  id: string
+  kind: WritePdfAnnotationOverlayKind
+  rects: WritePdfSelectionPageRect[]
+  color?: string
+  status?: 'open' | 'resolved'
+  label?: string
 }
 
 export type WritePdfViewerProps = {
@@ -108,8 +171,14 @@ export type WritePdfViewerProps = {
   viewerRef?: RefObject<HTMLDivElement | null>
   initialPage?: number
   initialScale?: number
+  annotationOverlays?: WritePdfAnnotationOverlay[]
+  activeAnnotationId?: string | null
+  jumpToRect?: WritePdfSelectionPageRect | null
   onSelectionChange?: (selection: WritePdfSelection) => void
   onQuoteSelection?: (selection: WritePdfSelection) => void
+  onAnnotationAction?: (action: WritePdfAnnotationAction, selection: WritePdfSelection) => void
+  onAnnotationSelect?: (annotationId: string) => void
+  onOpenAnnotations?: (selection: WritePdfSelection | null) => void
 }
 
 type PdfSelectionContext = {
@@ -119,6 +188,20 @@ type PdfSelectionContext = {
   size?: number
   mtimeMs?: number
   pageCount?: number
+}
+
+type VisualPdfDrag = {
+  page: number
+  pageRect: DOMRect
+  pageElement: HTMLElement
+  startX: number
+  startY: number
+}
+
+type PdfContextMenuState = {
+  left: number
+  top: number
+  selection: WritePdfSelection | null
 }
 
 const PDF_VIEWER_CSS = `
@@ -259,6 +342,67 @@ const PDF_VIEWER_CSS = `
 .write-pdf-viewer[data-live-selection] .write-pdf-selection-rect {
   opacity: 0;
 }
+
+.write-pdf-annotation-rect {
+  position: absolute;
+  border-radius: 3px;
+  opacity: 0.34;
+  mix-blend-mode: multiply;
+}
+
+[data-theme='dark'] .write-pdf-annotation-rect {
+  mix-blend-mode: screen;
+  opacity: 0.32;
+}
+
+.write-pdf-annotation-rect[data-kind='highlight'] {
+  background: rgba(250, 204, 21, 0.42);
+}
+
+.write-pdf-annotation-rect[data-kind='comment'],
+.write-pdf-annotation-rect[data-kind='note'] {
+  background: rgba(59, 130, 246, 0.28);
+}
+
+.write-pdf-annotation-rect[data-kind='translation'] {
+  background: rgba(16, 185, 129, 0.28);
+}
+
+.write-pdf-annotation-rect[data-kind='question'],
+.write-pdf-annotation-rect[data-kind='answer'] {
+  background: rgba(168, 85, 247, 0.25);
+}
+
+.write-pdf-annotation-rect[data-active='true'] {
+  outline: 2px solid rgba(37, 99, 235, 0.75);
+  outline-offset: 1px;
+  opacity: 0.74;
+}
+
+.write-pdf-annotation-marker {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  display: inline-flex;
+  height: 18px;
+  min-width: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  background: rgba(255, 255, 255, 0.92);
+  color: rgb(30, 41, 59);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+[data-theme='dark'] .write-pdf-annotation-marker {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(15, 23, 42, 0.88);
+  color: rgba(255, 255, 255, 0.9);
+}
 `
 
 function normalizePath(value: string): string {
@@ -289,6 +433,10 @@ function formatBytes(bytes: number | undefined): string {
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
   return Math.min(Math.max(value, min), max)
+}
+
+function clamp01(value: number): number {
+  return clamp(value, 0, 1)
 }
 
 function nextScale(value: number, direction: 1 | -1): number {
@@ -467,6 +615,18 @@ function mergeRectsIntoLineBars(rects: DOMRect[]): ViewportRect[] {
   return bars
 }
 
+function viewportRectFromDomRect(rect: DOMRect): ViewportRect | null {
+  if (!Number.isFinite(rect.left) || !Number.isFinite(rect.top) || rect.width <= 0 || rect.height <= 0) {
+    return null
+  }
+  return {
+    left: rect.left,
+    right: rect.right,
+    top: rect.top,
+    bottom: rect.bottom
+  }
+}
+
 function pageRectsFromViewportRects(root: HTMLElement, rects: ViewportRect[]): WritePdfSelectionPageRect[] {
   const pages = Array.from(root.querySelectorAll<HTMLElement>('[data-write-pdf-page]'))
     .map((element) => ({
@@ -487,13 +647,134 @@ function pageRectsFromViewportRects(root: HTMLElement, rects: ViewportRect[]): W
     if (right <= left || bottom <= top) continue
     out.push({
       page: page.page,
-      x: left - page.rect.left,
-      y: top - page.rect.top,
-      width: right - left,
-      height: bottom - top
+      x: clamp01((left - page.rect.left) / page.rect.width),
+      y: clamp01((top - page.rect.top) / page.rect.height),
+      width: clamp01((right - left) / page.rect.width),
+      height: clamp01((bottom - top) / page.rect.height)
     })
   }
   return out
+}
+
+function rectStyleFromNormalizedRect(
+  rect: WritePdfSelectionPageRect,
+  pageSize: { width: number; height: number } | null
+): CSSProperties {
+  const width = pageSize?.width ?? 0
+  const height = pageSize?.height ?? 0
+  return {
+    left: rect.x * width,
+    top: rect.y * height,
+    width: rect.width * width,
+    height: rect.height * height
+  }
+}
+
+function anchorRectFromViewportRect(rect: ViewportRect): WritePdfSelectionAnchorRect {
+  return {
+    left: rect.left,
+    right: rect.right,
+    top: rect.top,
+    bottom: rect.bottom,
+    width: rect.right - rect.left,
+    height: rect.bottom - rect.top
+  }
+}
+
+function visualSelectionFromViewportRect(
+  rect: ViewportRect,
+  page: number,
+  pageRect: DOMRect,
+  context: PdfSelectionContext
+): WritePdfSelection {
+  const left = clamp(rect.left, pageRect.left, pageRect.right)
+  const right = clamp(rect.right, pageRect.left, pageRect.right)
+  const top = clamp(rect.top, pageRect.top, pageRect.bottom)
+  const bottom = clamp(rect.bottom, pageRect.top, pageRect.bottom)
+  const normalized = {
+    page,
+    x: clamp01((left - pageRect.left) / pageRect.width),
+    y: clamp01((top - pageRect.top) / pageRect.height),
+    width: clamp01((right - left) / pageRect.width),
+    height: clamp01((bottom - top) / pageRect.height)
+  }
+  return {
+    text: '',
+    ranges: [],
+    charCount: 0,
+    sourceKind: 'pdf',
+    pageStart: page,
+    pageEnd: page,
+    anchorRect: anchorRectFromViewportRect({ left, right, top, bottom }),
+    rects: [normalized],
+    metadata: {
+      sourceKind: 'pdf',
+      filePath: context.filePath,
+      sourceTitle: context.sourceTitle,
+      mimeType: context.mimeType,
+      size: context.size,
+      mtimeMs: context.mtimeMs,
+      pageStart: page,
+      pageEnd: page,
+      pageCount: context.pageCount,
+      rects: [normalized]
+    }
+  }
+}
+
+function visualSelectionImageFileName(context: PdfSelectionContext, page: number): string {
+  const baseName = context.sourceTitle.replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '')
+  return `${baseName || 'pdf'}-p${page}-selection.png`
+}
+
+function cropVisualSelectionImage(
+  pageElement: HTMLElement,
+  rect: WritePdfSelectionPageRect,
+  context: PdfSelectionContext
+): WritePdfSelectionVisualImage | undefined {
+  const canvas = pageElement.querySelector<HTMLCanvasElement>('canvas.write-pdf-canvas')
+  if (!canvas || canvas.width <= 0 || canvas.height <= 0) return undefined
+  const sourceX = clamp(Math.floor(rect.x * canvas.width), 0, canvas.width - 1)
+  const sourceY = clamp(Math.floor(rect.y * canvas.height), 0, canvas.height - 1)
+  const sourceWidth = clamp(Math.ceil(rect.width * canvas.width), 1, canvas.width - sourceX)
+  const sourceHeight = clamp(Math.ceil(rect.height * canvas.height), 1, canvas.height - sourceY)
+  const outputCanvas = document.createElement('canvas')
+  outputCanvas.width = sourceWidth
+  outputCanvas.height = sourceHeight
+  const outputContext = outputCanvas.getContext('2d')
+  if (!outputContext) return undefined
+  outputContext.drawImage(
+    canvas,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    0,
+    0,
+    sourceWidth,
+    sourceHeight
+  )
+  return {
+    dataUrl: outputCanvas.toDataURL('image/png'),
+    mimeType: 'image/png',
+    fileName: visualSelectionImageFileName(context, rect.page)
+  }
+}
+
+function annotationMarkerLabel(kind: WritePdfAnnotationOverlayKind): string {
+  switch (kind) {
+    case 'comment':
+    case 'note':
+      return 'C'
+    case 'translation':
+      return 'T'
+    case 'question':
+      return '?'
+    case 'answer':
+      return 'A'
+    case 'highlight':
+      return ''
+  }
 }
 
 function pageFromNode(node: Node | null): number | null {
@@ -540,18 +821,552 @@ function emptyPdfSelection(context: PdfSelectionContext): WritePdfSelection {
   }
 }
 
-function selectionFromPdf(root: HTMLElement, context: PdfSelectionContext): WritePdfSelection {
+function domRectFromBounds(left: number, top: number, right: number, bottom: number): DOMRect | null {
+  if (!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(right) || !Number.isFinite(bottom)) {
+    return null
+  }
+  if (right <= left || bottom <= top) return null
+  return new DOMRect(left, top, right - left, bottom - top)
+}
+
+function unionDomRects(rects: DOMRect[]): DOMRect | null {
+  if (rects.length === 0) return null
+  let left = Number.POSITIVE_INFINITY
+  let right = Number.NEGATIVE_INFINITY
+  let top = Number.POSITIVE_INFINITY
+  let bottom = Number.NEGATIVE_INFINITY
+  for (const rect of rects) {
+    left = Math.min(left, rect.left)
+    right = Math.max(right, rect.right)
+    top = Math.min(top, rect.top)
+    bottom = Math.max(bottom, rect.bottom)
+  }
+  return domRectFromBounds(left, top, right, bottom)
+}
+
+function inflateViewportRect(rect: DOMRect, padX: number, padY: number): ViewportRect {
+  return {
+    left: rect.left - padX,
+    right: rect.right + padX,
+    top: rect.top - padY,
+    bottom: rect.bottom + padY
+  }
+}
+
+function splitTextLayerTokens(text: string): Array<{ text: string; start: number; end: number }> {
+  const tokens: Array<{ text: string; start: number; end: number }> = []
+  const matcher = /\S+/g
+  let match: RegExpExecArray | null
+  while ((match = matcher.exec(text)) != null) {
+    tokens.push({
+      text: match[0],
+      start: match.index,
+      end: match.index + match[0].length
+    })
+  }
+  return tokens
+}
+
+function firstTextNodeForElement(element: HTMLElement): Text | null {
+  for (const child of Array.from(element.childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE && child.textContent) return child as Text
+  }
+  const doc = element.ownerDocument
+  const walker = doc.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+  const node = walker.nextNode()
+  return node instanceof Text ? node : null
+}
+
+function rectFromTextRange(node: Text, start: number, end: number, fallbackRect: DOMRect): DOMRect | null {
+  if (end <= start || start < 0 || end > node.data.length) return null
+  const doc = node.ownerDocument
+  const range = doc.createRange()
+  try {
+    range.setStart(node, start)
+    range.setEnd(node, end)
+    const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0)
+    const rect = unionDomRects(rects) ?? anchorRectFromDomRect(range.getBoundingClientRect())
+    if (rect && rect.width > 0 && rect.height > 0) {
+      return rect instanceof DOMRect
+        ? rect
+        : domRectFromBounds(rect.left, rect.top, rect.right, rect.bottom)
+    }
+  } catch {
+    // Fall back to a proportional slice of the PDF.js span when the browser rejects the text range.
+  } finally {
+    range.detach()
+  }
+
+  const length = Math.max(1, node.data.length)
+  const left = fallbackRect.left + fallbackRect.width * (start / length)
+  const right = fallbackRect.left + fallbackRect.width * (end / length)
+  return domRectFromBounds(left, fallbackRect.top, right, fallbackRect.bottom)
+}
+
+function pageNumberFromElement(element: Element): number | null {
+  const pageElement = element.closest<HTMLElement>('[data-write-pdf-page]')
+  const page = Number(pageElement?.dataset.writePdfPage ?? '')
+  return Number.isFinite(page) && page > 0 ? page : null
+}
+
+function collectTextLayerTokens(root: HTMLElement, scopes: Element | Element[] = root): TextLayerToken[] {
+  const scopeList = Array.isArray(scopes) ? scopes : [scopes]
+  const tokens: TextLayerToken[] = []
+  let order = 0
+
+  for (const scope of scopeList) {
+    const spans = scope.matches?.('.write-pdf-text-layer span')
+      ? [scope as HTMLElement]
+      : Array.from(scope.querySelectorAll<HTMLElement>('.write-pdf-text-layer span'))
+    for (const span of spans) {
+      if (span.matches('[role="img"], .markedContent, .write-pdf-text-ws')) continue
+      const node = firstTextNodeForElement(span)
+      if (!node || !node.data.trim()) continue
+      const page = pageNumberFromElement(span)
+      if (!page) continue
+      const spanRect = span.getBoundingClientRect()
+      if (spanRect.width <= 0 || spanRect.height <= 0) continue
+      for (const part of splitTextLayerTokens(node.data)) {
+        const rect = rectFromTextRange(node, part.start, part.end, spanRect)
+        if (!rect) continue
+        tokens.push({
+          text: part.text,
+          node,
+          start: part.start,
+          end: part.end,
+          rect,
+          page,
+          order,
+          wordLike: /[A-Za-z0-9]/.test(part.text)
+        })
+        order += 1
+      }
+    }
+  }
+
+  return tokens
+}
+
+function joinTextLayerTokens(tokens: TextLayerToken[]): string {
+  let text = ''
+  for (const token of tokens) {
+    if (!text) {
+      text = token.text
+      continue
+    }
+    const previous = text.at(-1) ?? ''
+    const noSpaceBefore = /^[,.;:?!%)]/.test(token.text)
+    const noSpaceAfter = previous === '(' || previous === '['
+    text += noSpaceBefore || noSpaceAfter ? token.text : ` ${token.text}`
+  }
+  return text.trim()
+}
+
+function selectionFromTextLayerTokens(
+  root: HTMLElement,
+  tokens: TextLayerToken[],
+  context: PdfSelectionContext,
+  backward = false
+): WritePdfSelection | null {
+  if (tokens.length === 0) return null
+  const sorted = [...tokens].sort((a, b) => a.order - b.order)
+  const text = joinTextLayerTokens(sorted)
+  if (!text) return null
+  const tokenRects = sorted.map((token) => token.rect)
+  let rects = pageRectsFromViewportRects(root, mergeRectsIntoLineBars(tokenRects))
+  if (rects.length === 0) {
+    rects = pageRectsFromViewportRects(root, tokenRects.map((rect) => inflateViewportRect(rect, 0, 0)))
+  }
+  if (rects.length === 0) return null
+  const pages = rects.map((rect) => rect.page)
+  const pageStart = Math.min(...pages)
+  const pageEnd = Math.max(...pages)
+  const focusToken = sorted[backward ? 0 : sorted.length - 1]
+  const anchorRect = anchorRectFromDomRect(focusToken.rect)
+    ?? unionRects(tokenRects)
+    ?? anchorRectFromDomRect(tokenRects[0])
+
+  return {
+    text,
+    ranges: [{
+      from: 0,
+      to: text.length,
+      startLine: pageStart,
+      startColumn: 1,
+      endLine: pageEnd,
+      endColumn: text.length + 1,
+      text,
+      charCount: text.length,
+      page: pageStart
+    }],
+    charCount: text.length,
+    sourceKind: 'pdf',
+    pageStart,
+    pageEnd,
+    anchorRect,
+    rects,
+    metadata: {
+      sourceKind: 'pdf',
+      filePath: context.filePath,
+      sourceTitle: context.sourceTitle,
+      mimeType: context.mimeType,
+      size: context.size,
+      mtimeMs: context.mtimeMs,
+      pageStart,
+      pageEnd,
+      pageCount: context.pageCount,
+      rects
+    }
+  }
+}
+
+function tokenIntersectsViewportRect(token: TextLayerToken, rect: ViewportRect): boolean {
+  return intersects(rect, token.rect)
+}
+
+function tokenOverlapsRange(token: TextLayerToken, range: Range): boolean {
+  try {
+    if (!range.intersectsNode(token.node)) return false
+    if (range.startContainer === token.node && range.startOffset >= token.end) return false
+    if (range.endContainer === token.node && range.endOffset <= token.start) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
+function textLayerScopesForSelection(root: HTMLElement, selection: Selection, rects: DOMRect[]): Element[] {
+  const pageA = pageFromNode(selection.anchorNode)
+  const pageB = pageFromNode(selection.focusNode)
+  const pages = Array.from(root.querySelectorAll<HTMLElement>('[data-write-pdf-page]'))
+  if (pageA && pageB) {
+    const pageStart = Math.min(pageA, pageB)
+    const pageEnd = Math.max(pageA, pageB)
+    const scoped = pages.filter((pageElement) => {
+      const page = Number(pageElement.dataset.writePdfPage ?? '')
+      return Number.isFinite(page) && page >= pageStart && page <= pageEnd
+    })
+    if (scoped.length > 0) return scoped
+  }
+
+  const bars = mergeRectsIntoLineBars(rects)
+  if (bars.length > 0) {
+    const scoped = pages.filter((pageElement) => {
+      const pageRect = pageElement.getBoundingClientRect()
+      return bars.some((bar) => intersects(bar, pageRect))
+    })
+    if (scoped.length > 0) return scoped
+  }
+
+  return [root]
+}
+
+function selectionFromRangeTextLayerTokens(
+  root: HTMLElement,
+  selection: Selection,
+  range: Range,
+  textRects: DOMRect[],
+  context: PdfSelectionContext
+): WritePdfSelection | null {
+  const scopes = textLayerScopesForSelection(root, selection, textRects)
+  const tokens = collectTextLayerTokens(root, scopes)
+  if (tokens.length === 0) return null
+  const bars = mergeRectsIntoLineBars(textRects)
+  const selected = bars.length > 0
+    ? tokens.filter((token) => bars.some((bar) => tokenIntersectsViewportRect(token, bar)))
+    : tokens.filter((token) => tokenOverlapsRange(token, range))
+  const unique = Array.from(new Map(selected.map((token) => [token.order, token])).values())
+  return selectionFromTextLayerTokens(root, unique, context, isSelectionBackward(selection))
+}
+
+function pointInsideRect(point: TextLayerPoint, rect: ViewportRect): boolean {
+  return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom
+}
+
+function pointDistanceToRect(point: TextLayerPoint, rect: DOMRect): number {
+  const dx = point.x < rect.left ? rect.left - point.x : point.x > rect.right ? point.x - rect.right : 0
+  const dy = point.y < rect.top ? rect.top - point.y : point.y > rect.bottom ? point.y - rect.bottom : 0
+  return Math.hypot(dx, dy)
+}
+
+function nearestTokenToPoint(tokens: TextLayerToken[], point: TextLayerPoint): TextLayerToken | null {
+  let best: TextLayerToken | null = null
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (const token of tokens) {
+    const hitRect = inflateViewportRect(token.rect, TEXT_LAYER_TOKEN_HIT_PAD_X, TEXT_LAYER_TOKEN_HIT_PAD_Y)
+    if (pointInsideRect(point, hitRect)) return token
+    const distance = pointDistanceToRect(point, token.rect)
+    if (distance < bestDistance) {
+      best = token
+      bestDistance = distance
+    }
+  }
+  return bestDistance <= TEXT_LAYER_TOKEN_MAX_PICK_DISTANCE ? best : null
+}
+
+function tokenHorizontalSelectionOverlap(token: TextLayerToken, left: number, right: number): number {
+  return Math.max(0, Math.min(token.rect.right, right) - Math.max(token.rect.left, left))
+}
+
+function tokenHorizontalSelectionThreshold(token: TextLayerToken): number {
+  return Math.min(4, Math.max(1, token.rect.width * 0.35))
+}
+
+function tokenSelectedBetweenX(token: TextLayerToken, left: number, right: number): boolean {
+  const center = token.rect.left + token.rect.width / 2
+  return (
+    (center >= left && center <= right)
+    || tokenHorizontalSelectionOverlap(token, left, right) >= tokenHorizontalSelectionThreshold(token)
+  )
+}
+
+function tokenSelectedAfterX(token: TextLayerToken, x: number): boolean {
+  const center = token.rect.left + token.rect.width / 2
+  return center >= x || token.rect.right - x >= tokenHorizontalSelectionThreshold(token)
+}
+
+function tokenSelectedBeforeX(token: TextLayerToken, x: number): boolean {
+  const center = token.rect.left + token.rect.width / 2
+  return center <= x || x - token.rect.left >= tokenHorizontalSelectionThreshold(token)
+}
+
+type TextLayerTokenLine = {
+  page: number
+  top: number
+  bottom: number
+  tokens: TextLayerToken[]
+}
+
+function groupTokensIntoVisualLines(tokens: TextLayerToken[]): TextLayerTokenLine[] {
+  const lines: TextLayerTokenLine[] = []
+  const sorted = [...tokens].sort((a, b) => a.page - b.page || a.rect.top - b.rect.top || a.rect.left - b.rect.left)
+  for (const token of sorted) {
+    let target: TextLayerTokenLine | null = null
+    for (let index = lines.length - 1; index >= 0 && index >= lines.length - LINE_MERGE_WINDOW; index -= 1) {
+      const line = lines[index]
+      if (line.page !== token.page) continue
+      const overlap = Math.min(line.bottom, token.rect.bottom) - Math.max(line.top, token.rect.top)
+      if (overlap > 0 && overlap >= Math.min(line.bottom - line.top, token.rect.height) * 0.45) {
+        target = line
+        break
+      }
+    }
+    if (target) {
+      target.top = Math.min(target.top, token.rect.top)
+      target.bottom = Math.max(target.bottom, token.rect.bottom)
+      target.tokens.push(token)
+    } else {
+      lines.push({ page: token.page, top: token.rect.top, bottom: token.rect.bottom, tokens: [token] })
+    }
+  }
+  for (const line of lines) {
+    line.tokens.sort((a, b) => a.rect.left - b.rect.left || a.order - b.order)
+  }
+  return lines.sort((a, b) => a.page - b.page || a.top - b.top || a.tokens[0].rect.left - b.tokens[0].rect.left)
+}
+
+function nearestLineToPoint(lines: TextLayerTokenLine[], point: TextLayerPoint, page: number | null): number {
+  let bestIndex = -1
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (page && line.page !== page) continue
+    const verticalDistance = point.y < line.top ? line.top - point.y : point.y > line.bottom ? point.y - line.bottom : 0
+    const lineLeft = Math.min(...line.tokens.map((token) => token.rect.left))
+    const lineRight = Math.max(...line.tokens.map((token) => token.rect.right))
+    const horizontalDistance = point.x < lineLeft ? lineLeft - point.x : point.x > lineRight ? point.x - lineRight : 0
+    const distance = verticalDistance * 2 + horizontalDistance * 0.25
+    if (distance < bestDistance) {
+      bestIndex = index
+      bestDistance = distance
+    }
+  }
+  return bestIndex
+}
+
+function pageAtTextLayerPoint(root: HTMLElement, point: TextLayerPoint): number | null {
+  const pages = Array.from(root.querySelectorAll<HTMLElement>('[data-write-pdf-page]'))
+  for (const pageElement of pages) {
+    const rect = pageElement.getBoundingClientRect()
+    if (point.x < rect.left || point.x > rect.right || point.y < rect.top || point.y > rect.bottom) continue
+    const page = Number(pageElement.dataset.writePdfPage ?? '')
+    if (Number.isFinite(page) && page > 0) return page
+  }
+  return null
+}
+
+function selectionContainsPoint(root: HTMLElement, selection: WritePdfSelection, point: TextLayerPoint): boolean {
+  const rects = selection.rects ?? selection.metadata.rects
+  if (rects.length === 0) return false
+  for (const rect of rects) {
+    const pageElement = root.querySelector<HTMLElement>(`[data-write-pdf-page="${rect.page}"]`)
+    if (!pageElement) continue
+    const pageRect = pageElement.getBoundingClientRect()
+    const viewportRect = {
+      left: pageRect.left + rect.x * pageRect.width,
+      right: pageRect.left + (rect.x + rect.width) * pageRect.width,
+      top: pageRect.top + rect.y * pageRect.height,
+      bottom: pageRect.top + (rect.y + rect.height) * pageRect.height
+    }
+    if (pointInsideRect(point, {
+      left: viewportRect.left - TEXT_LAYER_TOKEN_HIT_PAD_X,
+      right: viewportRect.right + TEXT_LAYER_TOKEN_HIT_PAD_X,
+      top: viewportRect.top - TEXT_LAYER_TOKEN_HIT_PAD_Y,
+      bottom: viewportRect.bottom + TEXT_LAYER_TOKEN_HIT_PAD_Y
+    })) {
+      return true
+    }
+  }
+  return false
+}
+
+function selectionFromTextLayerDrag(
+  root: HTMLElement,
+  start: TextLayerPoint,
+  end: TextLayerPoint,
+  context: PdfSelectionContext
+): WritePdfSelection | null {
+  const startPage = pageAtTextLayerPoint(root, start)
+  const endPage = pageAtTextLayerPoint(root, end)
+  const pages = Array.from(root.querySelectorAll<HTMLElement>('[data-write-pdf-page]'))
+  const scopes = startPage && endPage
+    ? pages.filter((pageElement) => {
+      const page = Number(pageElement.dataset.writePdfPage ?? '')
+      return Number.isFinite(page) && page >= Math.min(startPage, endPage) && page <= Math.max(startPage, endPage)
+    })
+    : pages.filter((pageElement) => {
+      const rect = pageElement.getBoundingClientRect()
+      return intersects({
+        left: Math.min(start.x, end.x),
+        right: Math.max(start.x, end.x),
+        top: Math.min(start.y, end.y),
+        bottom: Math.max(start.y, end.y)
+      }, rect)
+    })
+  const tokens = collectTextLayerTokens(root, scopes.length > 0 ? scopes : root)
+  if (tokens.length === 0) return null
+  const lines = groupTokensIntoVisualLines(tokens)
+  const startLineIndex = nearestLineToPoint(lines, start, startPage)
+  const endLineIndex = nearestLineToPoint(lines, end, endPage)
+  if (startLineIndex < 0 || endLineIndex < 0) return null
+
+  const forward = startLineIndex < endLineIndex || (startLineIndex === endLineIndex && start.x <= end.x)
+  const first = forward ? { lineIndex: startLineIndex, point: start } : { lineIndex: endLineIndex, point: end }
+  const last = forward ? { lineIndex: endLineIndex, point: end } : { lineIndex: startLineIndex, point: start }
+  const selected: TextLayerToken[] = []
+
+  for (let lineIndex = first.lineIndex; lineIndex <= last.lineIndex; lineIndex += 1) {
+    const line = lines[lineIndex]
+    if (!line) continue
+    for (const token of line.tokens) {
+      if (first.lineIndex === last.lineIndex) {
+        const left = Math.min(first.point.x, last.point.x)
+        const right = Math.max(first.point.x, last.point.x)
+        if (tokenSelectedBetweenX(token, left, right)) selected.push(token)
+      } else if (lineIndex === first.lineIndex) {
+        if (tokenSelectedAfterX(token, first.point.x)) selected.push(token)
+      } else if (lineIndex === last.lineIndex) {
+        if (tokenSelectedBeforeX(token, last.point.x)) selected.push(token)
+      } else {
+        selected.push(token)
+      }
+    }
+  }
+
+  if (selected.length === 0 && first.lineIndex === last.lineIndex) {
+    const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }
+    const token = nearestTokenToPoint(lines[first.lineIndex].tokens, midpoint)
+    if (token) selected.push(token)
+  }
+
+  const unique = Array.from(new Map(selected.map((token) => [token.order, token])).values())
+  return selectionFromTextLayerTokens(root, unique, context, !forward)
+}
+
+function selectionFromTextLayerElement(
+  root: HTMLElement,
+  element: Element | null,
+  context: PdfSelectionContext,
+  point?: TextLayerPoint
+): WritePdfSelection | null {
+  const span = element?.closest<HTMLElement>('.write-pdf-text-layer span')
+  if (!span || span.matches('[role="img"]')) return null
+  const tokens = collectTextLayerTokens(root, span)
+  if (tokens.length > 0) {
+    const token = point ? nearestTokenToPoint(tokens, point) : null
+    return selectionFromTextLayerTokens(root, token ? [token] : tokens, context)
+  }
+  const text = (span.textContent ?? '').trim()
+  if (!text) return null
+  const viewportRect = viewportRectFromDomRect(span.getBoundingClientRect())
+  if (!viewportRect) return null
+  const rects = pageRectsFromViewportRects(root, [viewportRect])
+  if (rects.length === 0) return null
+  const pages = rects.map((rect) => rect.page)
+  const pageStart = Math.min(...pages)
+  const pageEnd = Math.max(...pages)
+  return {
+    text,
+    ranges: [{
+      from: 0,
+      to: text.length,
+      startLine: pageStart,
+      startColumn: 1,
+      endLine: pageEnd,
+      endColumn: text.length + 1,
+      text,
+      charCount: text.length,
+      page: pageStart
+    }],
+    charCount: text.length,
+    sourceKind: 'pdf',
+    pageStart,
+    pageEnd,
+    anchorRect: anchorRectFromViewportRect(viewportRect),
+    rects,
+    metadata: {
+      sourceKind: 'pdf',
+      filePath: context.filePath,
+      sourceTitle: context.sourceTitle,
+      mimeType: context.mimeType,
+      size: context.size,
+      mtimeMs: context.mtimeMs,
+      pageStart,
+      pageEnd,
+      pageCount: context.pageCount,
+      rects
+    }
+  }
+}
+
+function selectionFromPdf(
+  root: HTMLElement,
+  context: PdfSelectionContext,
+  drag?: { start: TextLayerPoint; end: TextLayerPoint }
+): WritePdfSelection {
+  if (drag) {
+    const dragSelection = selectionFromTextLayerDrag(root, drag.start, drag.end, context)
+    if (dragSelection) return dragSelection
+  }
+
   const selection = window.getSelection()
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return emptyPdfSelection(context)
   const anchorInside = selection.anchorNode ? root.contains(selection.anchorNode) : false
   const focusInside = selection.focusNode ? root.contains(selection.focusNode) : false
   if (!anchorInside || !focusInside) return emptyPdfSelection(context)
 
-  const text = selection.toString().trim()
-  if (!text) return emptyPdfSelection(context)
   const range = selection.getRangeAt(0)
   const textRects = collectRangeTextRects(range)
-  const rects = pageRectsFromViewportRects(root, mergeRectsIntoLineBars(textRects))
+  const tokenSelection = selectionFromRangeTextLayerTokens(root, selection, range, textRects, context)
+  if (tokenSelection) return tokenSelection
+
+  const text = selection.toString().trim()
+  if (!text) return emptyPdfSelection(context)
+  let rects = pageRectsFromViewportRects(root, mergeRectsIntoLineBars(textRects))
+  if (rects.length === 0) {
+    const boundingRect = viewportRectFromDomRect(range.getBoundingClientRect())
+    rects = boundingRect ? pageRectsFromViewportRects(root, [boundingRect]) : []
+  }
   const { pageStart, pageEnd } = pageRangeFromSelection(selection, rects)
   const backward = isSelectionBackward(selection)
   const focusRect = textRects.length > 0
@@ -600,12 +1415,18 @@ function WritePdfPage({
   pageNumber,
   scale,
   selectionRects,
+  annotationOverlays,
+  activeAnnotationId,
+  onAnnotationSelect,
   onPageText
 }: {
   document: PDFDocumentProxy
   pageNumber: number
   scale: number
   selectionRects: WritePdfSelectionPageRect[]
+  annotationOverlays: WritePdfAnnotationOverlay[]
+  activeAnnotationId?: string | null
+  onAnnotationSelect?: (annotationId: string) => void
   onPageText: (page: PageText) => void
 }): ReactElement {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -688,17 +1509,44 @@ function WritePdfPage({
     >
       <canvas ref={canvasRef} className="write-pdf-canvas" />
       <div ref={textLayerRef} className="write-pdf-text-layer textLayer" />
-      <div className="write-pdf-overlay-layer" aria-hidden="true">
+      <div className="write-pdf-overlay-layer">
+        {annotationOverlays.flatMap((overlay) => overlay.rects.map((rect, index) => {
+          const markerLabel = overlay.label ?? annotationMarkerLabel(overlay.kind)
+          const marker = markerLabel && index === 0
+          return (
+            <span
+              key={`${overlay.id}-${pageNumber}-${index}-${rect.x}-${rect.y}`}
+              className="write-pdf-annotation-rect"
+              data-kind={overlay.kind}
+              data-active={activeAnnotationId === overlay.id ? 'true' : undefined}
+              style={{
+                ...rectStyleFromNormalizedRect(rect, pageSize),
+                ...(overlay.color ? { background: overlay.color } : {})
+              }}
+            >
+              {marker ? (
+                <button
+                  type="button"
+                  className="write-pdf-annotation-marker"
+                  aria-label={overlay.label ?? overlay.kind}
+                  title={overlay.label ?? overlay.kind}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onAnnotationSelect?.(overlay.id)
+                  }}
+                >
+                  {markerLabel}
+                </button>
+              ) : null}
+            </span>
+          )
+        }))}
         {selectionRects.map((rect, index) => (
           <span
             key={`${pageNumber}-${index}-${rect.x}-${rect.y}`}
             className="write-pdf-selection-rect"
-            style={{
-              left: rect.x,
-              top: rect.y,
-              width: rect.width,
-              height: rect.height
-            }}
+            style={rectStyleFromNormalizedRect(rect, pageSize)}
           />
         ))}
       </div>
@@ -719,8 +1567,14 @@ export function WritePdfViewer({
   viewerRef,
   initialPage = 1,
   initialScale = DEFAULT_PDF_SCALE,
+  annotationOverlays = [],
+  activeAnnotationId = null,
+  jumpToRect = null,
   onSelectionChange,
-  onQuoteSelection
+  onQuoteSelection,
+  onAnnotationAction,
+  onAnnotationSelect,
+  onOpenAnnotations
 }: WritePdfViewerProps): ReactElement {
   const { t } = useTranslation('common')
   const localViewerRef = useRef<HTMLDivElement | null>(null)
@@ -728,6 +1582,9 @@ export function WritePdfViewer({
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const selectionSyncTimerRef = useRef<number | null>(null)
   const scrollRafRef = useRef<number | null>(null)
+  const visualDragRef = useRef<VisualPdfDrag | null>(null)
+  const textDragRef = useRef<{ start: TextLayerPoint; last: TextLayerPoint } | null>(null)
+  const skipMouseUpSelectionSyncRef = useRef(false)
   const onSelectionChangeRef = useRef(onSelectionChange)
   const onQuoteSelectionRef = useRef(onQuoteSelection)
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)
@@ -741,6 +1598,7 @@ export function WritePdfViewer({
   const [pageTexts, setPageTexts] = useState<PageText[]>([])
   const [committedSelection, setCommittedSelection] = useState<WritePdfSelection | null>(null)
   const [committedSelectionRects, setCommittedSelectionRects] = useState<WritePdfSelectionPageRect[]>([])
+  const [contextMenu, setContextMenu] = useState<PdfContextMenuState | null>(null)
   const [liveSelection, setLiveSelection] = useState(false)
   const rootRef = viewerRef ?? localViewerRef
   const pageCount = pdfDocument?.numPages ?? 0
@@ -780,6 +1638,7 @@ export function WritePdfViewer({
     setPageTexts([])
     setCommittedSelection(null)
     setCommittedSelectionRects([])
+    setContextMenu(null)
     setLiveSelection(false)
     emitSelection(emptyPdfSelection({
       filePath,
@@ -844,10 +1703,13 @@ export function WritePdfViewer({
 
   useEffect(() => {
     const empty = emptyPdfSelection(selectionContext)
+    visualDragRef.current = null
+    textDragRef.current = null
     setCommittedSelection(null)
     setCommittedSelectionRects([])
-    setLiveSelection(false)
-    emitSelection(empty)
+      setContextMenu(null)
+      setLiveSelection(false)
+      emitSelection(empty)
   }, [emitSelection, scale, selectionContext])
 
   const updatePageText = useCallback((page: PageText): void => {
@@ -909,6 +1771,7 @@ export function WritePdfViewer({
   const firstSearchPage = searchMatches[0] ?? null
   const allPageTextLoaded = pageCount > 0 && pageTexts.length >= pageCount
   const pdfHasText = pageTexts.some((page) => page.text.trim().length > 0)
+  const visualSelectionEnabled = allPageTextLoaded && !pdfHasText
   const committedRectsByPage = useMemo(() => {
     const byPage = new Map<number, WritePdfSelectionPageRect[]>()
     for (const rect of committedSelectionRects) {
@@ -918,6 +1781,24 @@ export function WritePdfViewer({
     }
     return byPage
   }, [committedSelectionRects])
+  const annotationOverlaysByPage = useMemo(() => {
+    const byPage = new Map<number, WritePdfAnnotationOverlay[]>()
+    for (const overlay of annotationOverlays) {
+      const rectsByPage = new Map<number, WritePdfSelectionPageRect[]>()
+      for (const rect of overlay.rects) {
+        const pageRects = rectsByPage.get(rect.page)
+        if (pageRects) pageRects.push(rect)
+        else rectsByPage.set(rect.page, [rect])
+      }
+      rectsByPage.forEach((rects, page) => {
+        const pageOverlays = byPage.get(page)
+        const pageOverlay = { ...overlay, rects }
+        if (pageOverlays) pageOverlays.push(pageOverlay)
+        else byPage.set(page, [pageOverlay])
+      })
+    }
+    return byPage
+  }, [annotationOverlays])
 
   useEffect(() => {
     setSearchIndex(0)
@@ -962,6 +1843,7 @@ export function WritePdfViewer({
       const root = rootRef.current
       const selection = window.getSelection()
       if (!root) return
+      if (textDragRef.current) return
       if (!selection || selection.rangeCount === 0) {
         setLiveSelection(false)
         return
@@ -980,31 +1862,239 @@ export function WritePdfViewer({
     }
   }, [rootRef, syncSelectionSoon])
 
-  const beginPdfSelection = useCallback((): void => {
+  const pageAtPointer = useCallback((clientX: number, clientY: number): { page: number; rect: DOMRect; element: HTMLElement } | null => {
+    const root = rootRef.current
+    if (!root) return null
+    const pages = Array.from(root.querySelectorAll<HTMLElement>('[data-write-pdf-page]'))
+    for (const pageElement of pages) {
+      const rect = pageElement.getBoundingClientRect()
+      if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) continue
+      const page = Number(pageElement.dataset.writePdfPage ?? '')
+      if (Number.isFinite(page) && page > 0) return { page, rect, element: pageElement }
+    }
+    return null
+  }, [rootRef])
+
+  const commitVisualSelection = useCallback((
+    drag: VisualPdfDrag,
+    clientX: number,
+    clientY: number,
+    includeVisualImage = false
+  ): void => {
+    const viewportRect = {
+      left: Math.min(drag.startX, clientX),
+      right: Math.max(drag.startX, clientX),
+      top: Math.min(drag.startY, clientY),
+      bottom: Math.max(drag.startY, clientY)
+    }
+    if (viewportRect.right - viewportRect.left < 4 || viewportRect.bottom - viewportRect.top < 4) {
+      const empty = emptyPdfSelection(selectionContext)
+      setCommittedSelection(null)
+      setCommittedSelectionRects([])
+      setLiveSelection(false)
+      emitSelection(empty)
+      return
+    }
+    const selection = visualSelectionFromViewportRect(viewportRect, drag.page, drag.pageRect, selectionContext)
+    const visualImage = includeVisualImage && selection.rects?.[0]
+      ? cropVisualSelectionImage(drag.pageElement, selection.rects[0], selectionContext)
+      : undefined
+    const selectionWithImage = visualImage ? { ...selection, visualImage } : selection
+    setCommittedSelection(selectionWithImage)
+    setCommittedSelectionRects(selectionWithImage.rects ?? [])
+    setLiveSelection(false)
+    emitSelection(selectionWithImage)
+  }, [emitSelection, selectionContext])
+
+  const beginPdfSelection = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0) return
+    setContextMenu(null)
+    if (visualSelectionEnabled) {
+      const page = pageAtPointer(event.clientX, event.clientY)
+      if (page) {
+        event.preventDefault()
+        textDragRef.current = null
+        event.currentTarget.setPointerCapture(event.pointerId)
+        visualDragRef.current = {
+          page: page.page,
+          pageRect: page.rect,
+          pageElement: page.element,
+          startX: event.clientX,
+          startY: event.clientY
+        }
+        commitVisualSelection(visualDragRef.current, event.clientX, event.clientY)
+        return
+      }
+    }
     const empty = emptyPdfSelection(selectionContext)
+    visualDragRef.current = null
+    const targetElement = event.target instanceof Element ? event.target : null
+    textDragRef.current = targetElement?.closest('.write-pdf-text-layer')
+      ? {
+        start: { x: event.clientX, y: event.clientY },
+        last: { x: event.clientX, y: event.clientY }
+      }
+      : null
     setCommittedSelection(null)
     setCommittedSelectionRects([])
     setLiveSelection(false)
     emitSelection(empty)
-  }, [emitSelection, selectionContext])
+  }, [commitVisualSelection, emitSelection, pageAtPointer, selectionContext, visualSelectionEnabled])
+
+  const updateVisualSelection = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
+    const drag = visualDragRef.current
+    const textDrag = textDragRef.current
+    if (textDrag) textDrag.last = { x: event.clientX, y: event.clientY }
+    if (!drag) return
+    event.preventDefault()
+    commitVisualSelection(drag, event.clientX, event.clientY)
+  }, [commitVisualSelection])
+
+  const endPdfSelection = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
+    const drag = visualDragRef.current
+    if (drag) {
+      event.preventDefault()
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      } catch {
+        // Pointer capture can already be released by the browser.
+      }
+      commitVisualSelection(drag, event.clientX, event.clientY, true)
+      visualDragRef.current = null
+      return
+    }
+    const textDrag = textDragRef.current
+    if (textDrag) {
+      textDrag.last = { x: event.clientX, y: event.clientY }
+      textDragRef.current = null
+      const distance = Math.hypot(textDrag.last.x - textDrag.start.x, textDrag.last.y - textDrag.start.y)
+      if (distance >= 4) {
+        const root = rootRef.current
+        if (root) {
+          const next = selectionFromPdf(root, selectionContext, {
+            start: textDrag.start,
+            end: textDrag.last
+          })
+          if (next.text.trim()) {
+            window.getSelection()?.removeAllRanges()
+            emitSelection(next)
+              setCommittedSelection(next)
+              setCommittedSelectionRects(next.rects ?? [])
+              setLiveSelection(false)
+              skipMouseUpSelectionSyncRef.current = true
+              return
+            }
+        }
+      }
+    }
+    syncSelectionSoon()
+  }, [commitVisualSelection, emitSelection, rootRef, selectionContext, syncSelectionSoon])
+
+  const syncSelectionAfterMouseUp = useCallback((): void => {
+    if (skipMouseUpSelectionSyncRef.current) {
+      skipMouseUpSelectionSyncRef.current = false
+      return
+    }
+    if (!visualSelectionEnabled) syncSelectionSoon()
+  }, [syncSelectionSoon, visualSelectionEnabled])
 
   const quoteButtonStyle = useMemo<CSSProperties | undefined>(() => {
     const rect = committedSelection?.anchorRect
     if (!rect) return undefined
-    const width = 122
+    const width = onAnnotationAction ? (onQuoteSelection ? 236 : 198) : 122
     const left = clamp(rect.left + rect.width / 2 - width / 2, 12, window.innerWidth - width - 12)
     const top = clamp(rect.bottom + 8, 12, window.innerHeight - 44)
     return { left, top, width }
+  }, [committedSelection, onAnnotationAction, onQuoteSelection])
+
+  const submitQuoteSelection = useCallback((selection = committedSelection): void => {
+    if (!selection?.text.trim()) return
+    onQuoteSelectionRef.current?.(selection)
+    setContextMenu(null)
   }, [committedSelection])
 
-  const submitQuoteSelection = useCallback((): void => {
-    if (!committedSelection?.text.trim()) return
-    onQuoteSelectionRef.current?.(committedSelection)
-  }, [committedSelection])
+  const performSelectionAction = useCallback((action: WritePdfAnnotationAction, selection = committedSelection): void => {
+    if (!selection) return
+    const hasText = Boolean(selection.text.trim())
+    const hasRects = Boolean(selection.rects?.length)
+    if (!hasText && !hasRects) return
+    if (action === 'copy') {
+      if (!hasText) return
+      void navigator.clipboard?.writeText(selection.text).catch(() => undefined)
+      setContextMenu(null)
+      return
+    }
+    onAnnotationAction?.(action, selection)
+    setContextMenu(null)
+  }, [committedSelection, onAnnotationAction])
+
+  const openPdfContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>): void => {
+    if (!onAnnotationAction && !onQuoteSelection && !onOpenAnnotations) return
+    const root = rootRef.current
+    if (!root) return
+    event.preventDefault()
+    event.stopPropagation()
+    const point = { x: event.clientX, y: event.clientY }
+    const selected = selectionFromPdf(root, selectionContext)
+    const targetElement = event.target instanceof Element
+      ? event.target
+      : document.elementFromPoint(event.clientX, event.clientY)
+    const pointSelection = selectionFromTextLayerElement(root, targetElement, selectionContext, point)
+    const selectedAtPoint = (selected.text.trim() || selected.rects?.length)
+      && selectionContainsPoint(root, selected, point)
+    const committedAtPoint = committedSelection && selectionContainsPoint(root, committedSelection, point)
+    const nextSelection = selectedAtPoint
+      ? selected
+      : committedAtPoint
+        ? committedSelection
+        : pointSelection
+    if (nextSelection) {
+      setCommittedSelection(nextSelection)
+      setCommittedSelectionRects(nextSelection.rects ?? [])
+      emitSelection(nextSelection)
+    }
+    const width = onAnnotationAction || onQuoteSelection ? 190 : 174
+    const height = onAnnotationAction || onQuoteSelection ? 232 : 48
+    setContextMenu({
+      left: clamp(event.clientX, 8, window.innerWidth - width - 8),
+      top: clamp(event.clientY, 8, window.innerHeight - height - 8),
+      selection: nextSelection ?? null
+    })
+  }, [committedSelection, emitSelection, onAnnotationAction, onOpenAnnotations, onQuoteSelection, rootRef, selectionContext])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = (): void => setContextMenu(null)
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') close()
+    }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('resize', close)
+    }
+  }, [contextMenu])
+
+  useEffect(() => {
+    if (!jumpToRect) return
+    scrollToPage(jumpToRect.page)
+  }, [jumpToRect, scrollToPage])
 
   const matchLabel = searchQuery.trim()
     ? `${searchMatches.length ? Math.min(searchIndex + 1, searchMatches.length) : 0}/${searchMatches.length}`
     : ''
+  const committedSelectionHasText = Boolean(committedSelection?.text.trim())
+  const committedSelectionHasAnchor = Boolean(committedSelectionHasText || committedSelection?.rects?.length)
+  const contextSelection = contextMenu?.selection ?? null
+  const contextSelectionHasText = Boolean(contextSelection?.text.trim())
+  const contextSelectionHasAnchor = Boolean(contextSelectionHasText || contextSelection?.rects?.length)
+  const contextMenuVisible = Boolean(
+    contextMenu &&
+    (onOpenAnnotations || contextSelectionHasAnchor || (onQuoteSelection && contextSelectionHasText))
+  )
 
   return (
     <div
@@ -1130,8 +2220,11 @@ export function WritePdfViewer({
         ref={scrollerRef}
         className="min-h-0 flex-1 overflow-auto bg-ds-main/55 px-4 py-5 dark:bg-black/20"
         onPointerDown={beginPdfSelection}
-        onPointerUp={syncSelectionSoon}
-        onMouseUp={syncSelectionSoon}
+        onPointerMove={updateVisualSelection}
+        onPointerUp={endPdfSelection}
+        onPointerCancel={endPdfSelection}
+        onContextMenu={openPdfContextMenu}
+        onMouseUp={syncSelectionAfterMouseUp}
         onKeyUp={syncSelectionSoon}
         onScroll={schedulePageSync}
       >
@@ -1150,7 +2243,7 @@ export function WritePdfViewer({
               <div className="max-w-[560px] rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-5 text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/36 dark:text-amber-100">
                 {label(
                   'writePdfNoTextLayer',
-                  'This PDF has no extractable text layer. The page image remains readable.'
+                  'This PDF has no extractable text layer. Visual selection mode is available for image-region anchors.'
                 )}
               </div>
             ) : null}
@@ -1167,6 +2260,9 @@ export function WritePdfViewer({
                   pageNumber={pageNumber}
                   scale={scale}
                   selectionRects={committedRectsByPage.get(pageNumber) ?? []}
+                  annotationOverlays={annotationOverlaysByPage.get(pageNumber) ?? []}
+                  activeAnnotationId={activeAnnotationId}
+                  onAnnotationSelect={onAnnotationSelect}
                   onPageText={updatePageText}
                 />
                 <div className="mt-1 text-center text-[11px] text-ds-faint">
@@ -1178,18 +2274,155 @@ export function WritePdfViewer({
         ) : null}
       </div>
 
-      {onQuoteSelection && committedSelection?.text.trim() && quoteButtonStyle ? (
-        <button
-          type="button"
+      {contextMenu && contextMenuVisible ? (
+        <div
           data-selection-ignore="true"
-          className="fixed z-50 inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-ds-border bg-ds-card px-3 text-[12px] font-semibold text-ds-ink shadow-[0_14px_34px_rgba(15,23,42,0.16)] transition hover:bg-ds-hover"
+          className="fixed z-[60] min-w-[174px] rounded-lg border border-ds-border bg-ds-card p-1 text-[12px] font-semibold text-ds-ink shadow-[0_18px_42px_rgba(15,23,42,0.2)]"
+          style={{ left: contextMenu.left, top: contextMenu.top }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          {onOpenAnnotations ? (
+            <button
+              type="button"
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition hover:bg-ds-hover"
+              onClick={() => {
+                onOpenAnnotations(contextSelection)
+                setContextMenu(null)
+              }}
+            >
+              <StickyNote className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+              <span className="truncate">{label('writePdfAnnotations', 'PDF annotations')}</span>
+            </button>
+          ) : null}
+          {onQuoteSelection && contextSelectionHasText ? (
+            <button
+              type="button"
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition hover:bg-ds-hover"
+              onClick={() => submitQuoteSelection(contextSelection)}
+            >
+              <Quote className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+              <span className="truncate">{label('writeSelectionQuote', 'Add quote')}</span>
+            </button>
+          ) : null}
+          {onAnnotationAction && contextSelectionHasAnchor ? (
+            <>
+              <button
+                type="button"
+                className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition hover:bg-ds-hover"
+                onClick={() => performSelectionAction('highlight', contextSelection)}
+              >
+                <Highlighter className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+                <span className="truncate">{label('writePdfAnnotateHighlight', 'Highlight')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition hover:bg-ds-hover"
+                onClick={() => performSelectionAction('comment', contextSelection)}
+              >
+                <MessageSquare className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+                <span className="truncate">{label('writePdfAnnotateComment', 'Comment')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition hover:bg-ds-hover"
+                onClick={() => performSelectionAction('translation', contextSelection)}
+              >
+                <Languages className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+                <span className="truncate">{label('writePdfAnnotateTranslate', 'Translate')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition hover:bg-ds-hover"
+                onClick={() => performSelectionAction('question', contextSelection)}
+              >
+                <HelpCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+                <span className="truncate">{label('writePdfAnnotateAsk', 'Ask')}</span>
+              </button>
+              {contextSelectionHasText ? (
+                <button
+                  type="button"
+                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition hover:bg-ds-hover"
+                  onClick={() => performSelectionAction('copy', contextSelection)}
+                >
+                  <Clipboard className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+                  <span className="truncate">{label('writePdfAnnotateCopyQuote', 'Copy quote')}</span>
+                </button>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      {(onQuoteSelection || onAnnotationAction) && committedSelectionHasAnchor && quoteButtonStyle ? (
+        <div
+          data-selection-ignore="true"
+          className="fixed z-50 inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-ds-border bg-ds-card px-1.5 text-[12px] font-semibold text-ds-ink shadow-[0_14px_34px_rgba(15,23,42,0.16)]"
           style={quoteButtonStyle}
           onMouseDown={(event) => event.preventDefault()}
-          onClick={submitQuoteSelection}
         >
-          <Quote className="h-3.5 w-3.5" strokeWidth={2} />
-          {label('writeSelectionQuote', 'Add quote')}
-        </button>
+          {onQuoteSelection && committedSelectionHasText ? (
+            <button
+              type="button"
+              className="write-pdf-icon-button"
+              title={label('writeSelectionQuote', 'Add quote')}
+              aria-label={label('writeSelectionQuote', 'Add quote')}
+              onClick={() => submitQuoteSelection()}
+            >
+              <Quote className="h-3.5 w-3.5" strokeWidth={2} />
+            </button>
+          ) : null}
+          {onAnnotationAction ? (
+            <>
+              <button
+                type="button"
+                className="write-pdf-icon-button"
+                title={label('writePdfAnnotateHighlight', 'Highlight')}
+                aria-label={label('writePdfAnnotateHighlight', 'Highlight')}
+                onClick={() => performSelectionAction('highlight')}
+              >
+                <Highlighter className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+              <button
+                type="button"
+                className="write-pdf-icon-button"
+                title={label('writePdfAnnotateComment', 'Comment')}
+                aria-label={label('writePdfAnnotateComment', 'Comment')}
+                onClick={() => performSelectionAction('comment')}
+              >
+                <MessageSquare className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+              <button
+                type="button"
+                className="write-pdf-icon-button"
+                title={label('writePdfAnnotateTranslate', 'Translate')}
+                aria-label={label('writePdfAnnotateTranslate', 'Translate')}
+                onClick={() => performSelectionAction('translation')}
+              >
+                <Languages className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+              <button
+                type="button"
+                className="write-pdf-icon-button"
+                title={label('writePdfAnnotateAsk', 'Ask')}
+                aria-label={label('writePdfAnnotateAsk', 'Ask')}
+                onClick={() => performSelectionAction('question')}
+              >
+                <HelpCircle className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+              <button
+                type="button"
+                className="write-pdf-icon-button"
+                title={label('writePdfAnnotateCopyQuote', 'Copy quote')}
+                aria-label={label('writePdfAnnotateCopyQuote', 'Copy quote')}
+                disabled={!committedSelectionHasText}
+                onClick={() => performSelectionAction('copy')}
+              >
+                <Clipboard className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+            </>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )

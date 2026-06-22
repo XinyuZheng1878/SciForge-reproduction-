@@ -3,6 +3,7 @@ import type {
   AgentRuntimeFileReference,
   AgentRuntimePhase,
   AgentRuntimeThreadRelation,
+  AgentRuntimeThreadGoalStatus,
   AgentRuntimeUsage
 } from '../../../shared/agent-runtime-contract'
 
@@ -98,6 +99,13 @@ export type CodexThreadEventPayload = {
     message?: string
     latencyMs?: number
     createdAt?: string
+  }
+  goal?: {
+    itemId?: string
+    createdAt?: string
+    objective?: string
+    status?: AgentRuntimeThreadGoalStatus
+    cleared?: boolean
   }
   child?: AgentRuntimeChild
   usage?: AgentRuntimeUsage

@@ -113,6 +113,15 @@ function createApi(): DsGuiApi {
     runClawTask: (taskId) => invoke('claw:task:run', taskId),
     getScheduleStatus: () => invoke('schedule:status'),
     runScheduleTask: (taskId) => invoke('schedule:task:run', taskId),
+    getWorkflowStatus: () => invoke('workflow:status'),
+    runWorkflow: (workflowId, input) => invoke('workflow:run', { workflowId, input }),
+    stopWorkflow: (workflowId) => invoke('workflow:stop', workflowId),
+    runWorkflowNode: (workflowId, nodeId) => invoke('workflow:node:run', { workflowId, nodeId }),
+    testWorkflowNode: (workflowId, nodeId, mockJson) =>
+      invoke('workflow:node:test', { workflowId, nodeId, mockJson }),
+    resolveWorkflowApproval: (token, decision) =>
+      invoke('workflow:approval:resolve', { token, decision }),
+    checkWorkflowCode: (language, code) => invoke('workflow:code:check', { language, code }),
     startClawImInstallQr: (provider, options) =>
       invoke('claw:im-install:qrcode', { provider, isLark: options?.isLark }),
     pollClawImInstall: (provider, deviceCode) =>
@@ -173,6 +182,12 @@ function createApi(): DsGuiApi {
     clearWriteInlineCompletionDebugEntries: () => invoke('write:inline-completion-debug:clear'),
     exportWriteDocument: (payload) => invoke('write:export', payload),
     copyWriteDocumentAsRichText: (payload) => invoke('write:copy-rich-text', payload),
+    pdfAnnotations: {
+      load: (payload) => invoke('pdfAnnotations:load', payload),
+      save: (payload) => invoke('pdfAnnotations:save', payload),
+      export: (payload) => invoke('pdfAnnotations:export', payload),
+      import: (payload) => invoke('pdfAnnotations:import', payload)
+    },
     speechToText: {
       transcribe: (payload) => invoke('speech:transcribe', payload)
     },
@@ -251,8 +266,14 @@ function createApi(): DsGuiApi {
   }
 }
 
+function isLocalBrowserHost(): boolean {
+  const hostname = window.location?.hostname?.toLowerCase?.() ?? ''
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+}
+
 export function installDevDsGuiBridge(): void {
-  if (installed || !import.meta.env.DEV || typeof window === 'undefined' || window.dsGui) return
+  if (installed || typeof window === 'undefined' || window.dsGui) return
+  if (!import.meta.env.DEV && !isLocalBrowserHost()) return
   installed = true
   bridgeUrl = DEFAULT_BRIDGE_URL
   clientId = resolveClientId()

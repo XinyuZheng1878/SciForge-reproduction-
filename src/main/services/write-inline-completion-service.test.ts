@@ -9,6 +9,7 @@ import {
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
@@ -58,6 +59,7 @@ function createSettings(patch: Partial<AppSettingsV1['write']['inlineCompletion'
       }
     },
     schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
     guiUpdate: {
       channel: 'stable'
     },

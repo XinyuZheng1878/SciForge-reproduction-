@@ -1,10 +1,18 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { mkdir } from 'node:fs/promises'
 import type {
   AppSettingsV1,
   AgentRuntimeId,
   ScheduleReasoningEffort,
   ScheduleRunMode,
+  ScheduleRunResult,
   ScheduledTaskV1
+} from '../shared/app-settings'
+import {
+  DEFAULT_SCHEDULE_MODEL,
+  buildScheduleRuntimePrompt,
+  normalizeAgentRuntimeId,
+  normalizeScheduleReasoningEffort
 } from '../shared/app-settings'
 import type {
   AgentRuntimeThread,
@@ -71,11 +79,18 @@ export type RunPromptOptions = {
   title: string
   workspaceRoot: string
   model: string
+  providerId?: string
   reasoningEffort: ScheduleReasoningEffort
   mode: ScheduleRunMode
   waitForResult: boolean
   responseTimeoutMs: number
   runtimeId?: AgentRuntimeId
+}
+
+export type ScheduleModelConfig = {
+  providerId: string
+  model: string
+  reasoningEffort: ScheduleReasoningEffort
 }
 
 export const SCHEDULER_INTERVAL_MS = 30_000
@@ -135,6 +150,114 @@ export function sleep(ms: number): Promise<void> {
 export function normalizeTaskModel(model: string): string | undefined {
   const trimmed = model.trim()
   return trimmed || undefined
+}
+
+export function resolveScheduleModelConfig(
+  settings: AppSettingsV1,
+  input: { providerId?: string; model?: string; reasoningEffort?: unknown },
+  fallbackProviderId = ''
+): ScheduleModelConfig {
+  const model = normalizeTaskModel(input.model ?? settings.schedule.model) ?? DEFAULT_SCHEDULE_MODEL
+  return {
+    providerId: (input.providerId ?? '').trim() || fallbackProviderId.trim(),
+    model,
+    reasoningEffort: normalizeScheduleReasoningEffort(input.reasoningEffort)
+  }
+}
+
+export async function runPromptViaRuntime(
+  deps: ScheduleRuntimeDeps,
+  settings: AppSettingsV1,
+  options: RunPromptOptions
+): Promise<ScheduleRunResult> {
+  const workspace = options.workspaceRoot.trim() || settings.schedule.defaultWorkspaceRoot.trim() || settings.workspaceRoot
+  const runtimeId = normalizeAgentRuntimeId(options.runtimeId ?? settings.activeAgentRuntime)
+  if (workspace) {
+    await mkdir(workspace, { recursive: true })
+  }
+  const agentRuntime = deps.agentRuntime
+  if (!agentRuntime) {
+    return {
+      ok: false,
+      message: 'unsupported_runtime_request: AgentRuntimeHost is required for Schedule runtime requests.'
+    }
+  }
+  const model = normalizeTaskModel(options.model) ?? DEFAULT_SCHEDULE_MODEL
+
+  let thread: { id: string }
+  try {
+    thread = await agentRuntime.startThread({
+      runtimeId,
+      workspace,
+      title: options.title.trim() || undefined,
+      mode: options.mode,
+      model
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { ok: false, message: message || 'Failed to create thread.' }
+  }
+
+  let turn: { threadId: string; turnId: string }
+  try {
+    turn = await agentRuntime.startTurn({
+      runtimeId,
+      threadId: thread.id,
+      text: buildScheduleRuntimePrompt(settings, options.prompt),
+      workspace,
+      mode: options.mode,
+      model,
+      reasoningEffort: options.reasoningEffort,
+      governanceProfile: 'remote_guard'
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { ok: false, message: message || 'Failed to start turn.' }
+  }
+
+  const threadId = turn.threadId.trim() || thread.id
+  const turnId = turn.turnId.trim()
+  if (!turnId) {
+    return { ok: false, message: 'Failed to start turn: missing turn id.' }
+  }
+  if (!options.waitForResult) {
+    return { ok: true, threadId, turnId, message: 'Started' }
+  }
+
+  const text = await waitForAssistantTextViaRuntime(deps, runtimeId, threadId, turnId, options.responseTimeoutMs)
+  return { ok: true, threadId, turnId, text, message: text || 'Completed' }
+}
+
+async function waitForAssistantTextViaRuntime(
+  deps: ScheduleRuntimeDeps,
+  runtimeId: AgentRuntimeId,
+  threadId: string,
+  turnId: string,
+  timeoutMs: number
+): Promise<string> {
+  const agentRuntime = deps.agentRuntime
+  if (!agentRuntime) {
+    throw new Error('unsupported_runtime_request: AgentRuntimeHost is required for Schedule runtime requests.')
+  }
+  const deadline = Date.now() + timeoutMs
+  let lastText = ''
+  while (Date.now() < deadline) {
+    await sleep(1_500)
+    const detail = await agentRuntime.readThread({ runtimeId, threadId }) as ThreadDetailJson
+    lastText = latestAssistantText(detail, { turnId }) || lastText
+    const targetTurn = Array.isArray(detail.turns)
+      ? detail.turns.find((turn) => turn.id === turnId)
+      : undefined
+    if (!targetTurn) continue
+    if (isRunningStatus(targetTurn.status)) continue
+    if (targetTurn.status === 'failed' || targetTurn.status === 'aborted') {
+      const error = targetTurn.error?.trim()
+      throw new Error(error || `Agent turn ${targetTurn.status}.`)
+    }
+    if (targetTurn.status === 'completed' && lastText) return lastText
+  }
+  if (lastText) return lastText
+  throw new Error('Timed out waiting for agent response.')
 }
 
 export function summarizeTaskResult(text: string): string {

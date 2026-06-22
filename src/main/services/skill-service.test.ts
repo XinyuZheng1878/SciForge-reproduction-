@@ -8,6 +8,7 @@ import {
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
@@ -114,6 +115,7 @@ describe('skill-service', () => {
       write: defaultWriteSettings(),
       claw: defaultClawSettings(),
       schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
       guiUpdate: { channel: 'stable' },
       codePromptPrefix: ''
     }

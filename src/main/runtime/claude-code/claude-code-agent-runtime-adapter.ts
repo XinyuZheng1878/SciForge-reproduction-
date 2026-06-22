@@ -91,6 +91,10 @@ export function createClaudeCodeAgentRuntimeAdapter(
       yield* service.subscribeEvents(input.threadId, input.sinceSeq ?? 0, input.signal)
     },
 
+    async publishSyntheticEvent(_context, event) {
+      return service.publishSyntheticEvent(event)
+    },
+
     async usage(_context, input) {
       return service.usage(input)
     },

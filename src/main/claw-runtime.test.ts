@@ -9,6 +9,7 @@ import {
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
+  defaultWorkflowSettings,
   defaultWriteSettings,
   type AgentRuntimeId,
   type AppSettingsV1,
@@ -52,6 +53,7 @@ function buildSettings(): AppSettingsV1 {
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
     schedule: defaultScheduleSettings(),
+    workflow: defaultWorkflowSettings(),
     claw: {
       ...defaultClawSettings(),
       enabled: true,

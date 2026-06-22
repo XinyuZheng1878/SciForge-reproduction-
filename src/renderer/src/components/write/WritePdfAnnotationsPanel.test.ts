@@ -1,0 +1,137 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createEmptyPdfAnnotationSidecar, type PdfAnchor, type PdfAnnotationSidecar } from '@shared/pdf-annotations'
+import i18n from '../../i18n'
+import { createPdfAnnotationThread, resolvePdfAnnotationThread } from '../../write/pdf-annotations'
+import { WritePdfAnnotationsPanel } from './WritePdfAnnotationsPanel'
+
+const T0 = '2026-01-01T00:00:00.000Z'
+const T1 = '2026-01-01T01:00:00.000Z'
+const T2 = '2026-01-01T02:00:00.000Z'
+
+function anchor(id: string, page: number, quote: string): PdfAnchor {
+  return {
+    id,
+    kind: 'text',
+    pageStart: page,
+    pageEnd: page,
+    rects: [{ page, x: 0.1, y: 0.2, width: 0.3, height: 0.04 }],
+    quote,
+    textHash: `hash-${id}`,
+    contextBefore: '',
+    contextAfter: '',
+    pdfFingerprint: { sha256: 'pdf-sha', size: 2048, pageCount: 12, fileName: 'paper.pdf' },
+    createdAt: T0,
+    updatedAt: T0
+  }
+}
+
+function panelSidecar(): PdfAnnotationSidecar {
+  const base = {
+    ...createEmptyPdfAnnotationSidecar(
+      { sha256: 'pdf-sha', size: 2048, pageCount: 12, fileName: 'paper.pdf' },
+      { sourcePdfName: 'paper.pdf', now: T0 }
+    ),
+    anchors: [
+      anchor('anchor-a', 2, 'Commented claim'),
+      anchor('anchor-b', 5, 'Questioned claim')
+    ]
+  }
+  const commented = createPdfAnnotationThread(base, {
+    id: 'thread-a',
+    kind: 'comment',
+    anchorIds: ['anchor-a'],
+    annotations: [{
+      id: 'ann-a',
+      anchorId: 'anchor-a',
+      body: 'A comment on the claim.'
+    }],
+    createdAt: T1
+  })
+  return resolvePdfAnnotationThread(createPdfAnnotationThread(commented, {
+    id: 'thread-b',
+    kind: 'question',
+    anchorIds: ['anchor-b'],
+    annotations: [{
+      id: 'ann-b',
+      anchorId: 'anchor-b',
+      body: 'Why does this measurement change?'
+    }],
+    createdAt: T2
+  }), 'thread-b', T2)
+}
+
+function emptyCommentSidecar(): PdfAnnotationSidecar {
+  const base = {
+    ...createEmptyPdfAnnotationSidecar(
+      { sha256: 'pdf-sha', size: 2048, pageCount: 12, fileName: 'paper.pdf' },
+      { sourcePdfName: 'paper.pdf', now: T0 }
+    ),
+    anchors: [
+      anchor('anchor-empty-comment', 1, 'Claim that needs a comment')
+    ]
+  }
+  return createPdfAnnotationThread(base, {
+    id: 'thread-empty-comment',
+    kind: 'comment',
+    anchorIds: ['anchor-empty-comment'],
+    annotations: [{
+      id: 'ann-empty-comment',
+      anchorId: 'anchor-empty-comment',
+      body: ''
+    }],
+    createdAt: T1
+  })
+}
+
+describe('WritePdfAnnotationsPanel', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('en')
+  })
+
+  it('renders filtered annotation threads with jump, edit, delete, reopen, import, and export controls', () => {
+    const html = renderToStaticMarkup(createElement(WritePdfAnnotationsPanel, {
+      sidecar: panelSidecar(),
+      selectedThreadId: 'thread-b',
+      initialKind: 'question',
+      onSelectThread: vi.fn(),
+      onReopenThread: vi.fn(),
+      onDeleteThread: vi.fn(),
+      onEditAnnotation: vi.fn(),
+      onExportPackage: vi.fn(),
+      onImportPackage: vi.fn(),
+      onReloadSidecar: vi.fn()
+    }))
+
+    expect(html).toContain('PDF annotations')
+    expect(html).toContain('Export package')
+    expect(html).toContain('Import package')
+    expect(html).toContain('Reload annotations')
+    expect(html).toContain('Text highlights')
+    expect(html).toContain('Hidden')
+    expect(html).toContain('Current')
+    expect(html).toContain('All')
+    expect(html).toContain('Why does this measurement change?')
+    expect(html).not.toContain('A comment on the claim.')
+    expect(html).toContain('aria-label="Select annotation thread"')
+    expect(html).toContain('aria-label="Reopen thread"')
+    expect(html).toContain('aria-label="Edit annotation"')
+    expect(html).toContain('aria-label="Delete thread"')
+  })
+
+  it('opens the inline editor for a newly created empty comment', () => {
+    const html = renderToStaticMarkup(createElement(WritePdfAnnotationsPanel, {
+      sidecar: emptyCommentSidecar(),
+      selectedThreadId: 'thread-empty-comment',
+      onSelectThread: vi.fn(),
+      onDeleteThread: vi.fn(),
+      onEditAnnotation: vi.fn()
+    }))
+
+    expect(html).toContain('Write a comment...')
+    expect(html).toContain('Save')
+    expect(html).toContain('Cancel')
+    expect(html).toContain('aria-label="Edit annotation"')
+  })
+})

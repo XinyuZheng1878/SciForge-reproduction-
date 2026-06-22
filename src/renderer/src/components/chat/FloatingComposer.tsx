@@ -524,7 +524,7 @@ export function runParsedGoalCommandForComposer({
   setGoalPanelOpen: (open: boolean) => void
   focusComposer: () => void
   setActiveThreadGoal: (objective: string) => void | Promise<unknown>
-  setActiveThreadGoalStatus: (status: 'active' | 'paused') => void | Promise<unknown>
+  setActiveThreadGoalStatus: (status: 'active' | 'paused' | 'complete') => void | Promise<unknown>
   clearActiveThreadGoal: () => void | Promise<unknown>
 }): boolean {
   if (command === false) return false
@@ -550,6 +550,10 @@ export function runParsedGoalCommandForComposer({
   }
   if (command.action === 'clear') {
     void clearActiveThreadGoal()
+    return true
+  }
+  if (command.action === 'complete') {
+    void setActiveThreadGoalStatus('complete')
     return true
   }
   return true

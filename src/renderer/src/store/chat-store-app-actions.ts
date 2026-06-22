@@ -35,6 +35,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
   | 'openPlugins'
   | 'openClaw'
   | 'openSchedule'
+  | 'openWorkflow'
   | 'selectRemoteGuardChannel'
   | 'clearRemoteGuardChannel'
   | 'openInitialSetup'
@@ -141,6 +142,10 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
 
     openSchedule: () => {
       set({ route: 'schedule', activeRemoteChannelId: null })
+    },
+
+    openWorkflow: () => {
+      set({ route: 'workflow', activeRemoteChannelId: null })
     },
 
     selectRemoteGuardChannel: (channelId) => {

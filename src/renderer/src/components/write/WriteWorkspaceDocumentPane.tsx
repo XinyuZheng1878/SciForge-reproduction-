@@ -10,7 +10,13 @@ import { WriteMarkdownEditor } from './WriteMarkdownEditor'
 import { WriteMarkdownPreview } from './WriteMarkdownPreview'
 import { WriteWorkspaceStart } from './WriteWorkspaceStart'
 import { WriteImagePreview } from './WriteImagePreview'
-import { WritePdfViewer } from './WritePdfViewer'
+import {
+  WritePdfViewer,
+  type WritePdfAnnotationAction,
+  type WritePdfAnnotationOverlay,
+  type WritePdfSelection,
+  type WritePdfSelectionPageRect
+} from './WritePdfViewer'
 
 type Props = {
   activeFilePath: string | null
@@ -55,6 +61,11 @@ type Props = {
   onSaveShortcut: () => void
   onRichFidelityChange?: (fidelity: WriteRichFidelity) => void
   onQuoteSelection?: (selection: WriteEditorSelectionState) => void
+  pdfAnnotationOverlays?: WritePdfAnnotationOverlay[]
+  activePdfAnnotationId?: string | null
+  pdfJumpToRect?: WritePdfSelectionPageRect | null
+  onPdfAnnotationAction?: (action: WritePdfAnnotationAction, selection: WritePdfSelection) => void
+  onPdfAnnotationSelect?: (annotationId: string) => void
   onImagePasteSaved: () => void
   onImagePasteError: (message: string) => void
 }
@@ -100,6 +111,11 @@ export function WriteWorkspaceDocumentPane({
   onDocumentEdit,
   onSelectionChange,
   onQuoteSelection,
+  pdfAnnotationOverlays,
+  activePdfAnnotationId,
+  pdfJumpToRect,
+  onPdfAnnotationAction,
+  onPdfAnnotationSelect,
   onSaveShortcut,
   onRichFidelityChange,
   onImagePasteSaved,
@@ -149,8 +165,13 @@ export function WriteWorkspaceDocumentPane({
         mtimeMs={pdfMtimeMs}
         workspaceRoot={workspaceRoot}
         viewerRef={editorPaneRef}
+        annotationOverlays={pdfAnnotationOverlays}
+        activeAnnotationId={activePdfAnnotationId}
+        jumpToRect={pdfJumpToRect}
         onSelectionChange={onSelectionChange}
         onQuoteSelection={onQuoteSelection}
+        onAnnotationAction={onPdfAnnotationAction}
+        onAnnotationSelect={onPdfAnnotationSelect}
       />
     )
   }

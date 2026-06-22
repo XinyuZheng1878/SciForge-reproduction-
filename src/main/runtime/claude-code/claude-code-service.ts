@@ -209,6 +209,11 @@ export class ClaudeCodeRuntimeService {
     }
   }
 
+  async publishSyntheticEvent(event: AgentRuntimeEvent): Promise<AgentRuntimeEvent> {
+    const stored = await this.emit(event)
+    return stored.event
+  }
+
   async startTurn(payload: {
     threadId: string
     text: string
