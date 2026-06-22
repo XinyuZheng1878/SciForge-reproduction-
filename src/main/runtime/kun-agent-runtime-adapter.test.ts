@@ -248,6 +248,188 @@ describe('createKunAgentRuntimeAdapter', () => {
     ])
   })
 
+  it('maps Kun child lifecycle metadata into neutral child events', async () => {
+    const adapter = createKunAgentRuntimeAdapter({
+      request: vi.fn(async () => jsonResponse({})),
+      events: async function* () {
+        yield {
+          kind: 'turn_started',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          seq: 11,
+          timestamp: '2026-06-02T00:00:05.000Z',
+          child: {
+            parentThreadId: 'thread-1',
+            parentTurnId: 'turn-1',
+            childId: 'child-1',
+            childLabel: 'research',
+            childStatus: 'running',
+            childSeq: 1
+          }
+        }
+        yield {
+          kind: 'turn_completed',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          seq: 12,
+          timestamp: '2026-06-02T00:00:06.000Z',
+          text: 'Child summary',
+          child: {
+            parentThreadId: 'thread-1',
+            parentTurnId: 'turn-1',
+            childId: 'child-1',
+            childLabel: 'research',
+            childStatus: 'completed',
+            childSeq: 2
+          }
+        }
+      }
+    })
+
+    const events = []
+    for await (const event of adapter.subscribeEvents?.(
+      { settings: buildSettings() },
+      { threadId: 'thread-1', sinceSeq: 0 }
+    ) ?? []) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'child_event',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        seq: 11,
+        itemId: 'child-1',
+        child: expect.objectContaining({
+          id: 'child-1',
+          runtimeId: 'kun',
+          parentThreadId: 'thread-1',
+          parentTurnId: 'turn-1',
+          kind: 'agent',
+          status: 'running',
+          label: 'research',
+          metadata: expect.objectContaining({ source: 'kun.runtime_event', childSeq: 1 })
+        })
+      }),
+      expect.objectContaining({
+        kind: 'child_event',
+        threadId: 'thread-1',
+        seq: 12,
+        message: 'Child summary',
+        child: expect.objectContaining({
+          id: 'child-1',
+          status: 'completed',
+          summary: 'Child summary',
+          completedAt: '2026-06-02T00:00:06.000Z',
+          metadata: expect.objectContaining({ childSeq: 2 })
+        })
+      })
+    ])
+  })
+
+  it('maps Kun child run records through listThreadChildren auxiliary', async () => {
+    const seen: string[] = []
+    const adapter = createKunAgentRuntimeAdapter({
+      request: vi.fn(async (_settings, pathAndQuery) => {
+        seen.push(pathAndQuery)
+        if (pathAndQuery === '/v1/threads/thread-1/children?turn_id=turn-1&limit=10') {
+          return jsonResponse({
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            children: [
+              {
+                id: 'child-1',
+                parentThreadId: 'thread-1',
+                parentTurnId: 'turn-1',
+                label: 'research',
+                prompt: 'Find the latest papers',
+                workspace: '/tmp/workspace',
+                model: 'deepseek-chat',
+                status: 'completed',
+                summary: 'Found three papers.',
+                usage: {
+                  promptTokens: 11,
+                  completionTokens: 7,
+                  totalTokens: 18,
+                  cacheHitTokens: 4,
+                  cacheMissTokens: 7,
+                  costUsd: 0.02
+                },
+                createdAt: '2026-06-02T00:00:00.000Z',
+                updatedAt: '2026-06-02T00:00:10.000Z'
+              }
+            ],
+            metadata: { enabled: true, active: 0 }
+          })
+        }
+        return jsonResponse({})
+      })
+    })
+
+    await expect(adapter.auxiliary?.({ settings: buildSettings() }, {
+      operation: 'listThreadChildren',
+      payload: { threadId: 'thread-1', turnId: 'turn-1', limit: 10 }
+    })).resolves.toMatchObject({
+      runtimeId: 'kun',
+      threadId: 'thread-1',
+      parentTurnId: 'turn-1',
+      children: [
+        {
+          id: 'child-1',
+          runtimeId: 'kun',
+          parentThreadId: 'thread-1',
+          parentTurnId: 'turn-1',
+          kind: 'agent',
+          status: 'completed',
+          label: 'research',
+          name: 'research',
+          prompt: 'Find the latest papers',
+          summary: 'Found three papers.',
+          usage: {
+            inputTokens: 11,
+            outputTokens: 7,
+            totalTokens: 18,
+            cacheReadTokens: 4,
+            cacheWriteTokens: 7,
+            costUsd: 0.02
+          },
+          completedAt: '2026-06-02T00:00:10.000Z',
+          metadata: {
+            source: 'kun.delegate_task',
+            workspace: '/tmp/workspace',
+            model: 'deepseek-chat'
+          }
+        }
+      ],
+      metadata: { enabled: true, active: 0 }
+    })
+    expect(seen).toEqual(['/v1/threads/thread-1/children?turn_id=turn-1&limit=10'])
+  })
+
+  it('returns a degraded child transcript response because Kun does not persist child transcripts', async () => {
+    const request = vi.fn(async () => jsonResponse({}))
+    const adapter = createKunAgentRuntimeAdapter({ request })
+
+    await expect(adapter.auxiliary?.({ settings: buildSettings() }, {
+      operation: 'readChildTranscript',
+      payload: { threadId: 'thread-1', parentTurnId: 'turn-1', childId: 'child-1' }
+    })).resolves.toEqual({
+      transcript: {
+        runtimeId: 'kun',
+        threadId: 'thread-1',
+        parentThreadId: 'thread-1',
+        parentTurnId: 'turn-1',
+        childId: 'child-1',
+        format: 'unknown',
+        entries: [],
+        degraded: true,
+        reason: 'Kun child agent transcripts are not persisted by the runtime yet.'
+      }
+    })
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it('treats an unavailable memory store as an empty memory list', async () => {
     const seen: string[] = []
     const adapter = createKunAgentRuntimeAdapter({

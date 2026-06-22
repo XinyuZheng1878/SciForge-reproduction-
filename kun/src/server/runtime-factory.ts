@@ -328,6 +328,7 @@ export async function createKunServeRuntime(
     toolHost,
     ...(attachmentStore ? { attachmentStore } : {}),
     ...(memoryStore ? { memoryStore } : {}),
+    ...(delegationRuntime ? { delegationRuntime } : {}),
     runTurn(threadId, turnId) {
       return loop.runTurn(threadId, turnId)
     },

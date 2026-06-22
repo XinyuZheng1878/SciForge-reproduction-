@@ -1,10 +1,18 @@
-import {
-  spawn as spawnChild,
-  type ChildProcessWithoutNullStreams,
-  type SpawnOptionsWithoutStdio
-} from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import type {
+  Options as ClaudeAgentSdkOptions,
+  Query as ClaudeAgentSdkQuery,
+  SDKMessage,
+  SDKUserMessage,
+  SessionStoreEntry
+} from '@anthropic-ai/claude-agent-sdk'
+import { query as claudeAgentSdkQuery } from '@anthropic-ai/claude-agent-sdk'
+import type {
+  AgentRuntimeChild,
+  AgentRuntimeChildStatus,
+  AgentRuntimeChildTranscriptEntry,
+  AgentRuntimeListThreadChildrenResponse,
+  AgentRuntimeReadChildTranscriptResponse,
   AgentRuntimeEvent,
   AgentRuntimeThread,
   AgentRuntimeThreadDetail,
@@ -18,9 +26,10 @@ import {
   type AppSettingsV1
 } from '../../../shared/app-settings'
 import {
-  prepareClaudeCodeTurnLaunch,
+  prepareClaudeCodeSdkLaunch,
   resolveClaudeWorkspace
 } from './claude-code-config'
+import { ClaudeCodeSessionStore } from './claude-code-session-store'
 import {
   ClaudeCodeEventStore,
   ClaudeCodeThreadStore,
@@ -29,17 +38,18 @@ import {
   type ClaudeCodeStoredEvent
 } from './claude-code-store'
 
-type SpawnFn = (
-  command: string,
-  args: string[],
-  options: SpawnOptionsWithoutStdio
-) => ChildProcessWithoutNullStreams
+export type ClaudeAgentSdk = {
+  query(params: {
+    prompt: string | AsyncIterable<SDKUserMessage>
+    options?: ClaudeAgentSdkOptions
+  }): ClaudeAgentSdkQuery
+}
 
 export type ClaudeCodeRuntimeServiceOptions = {
   settings: () => Promise<AppSettingsV1>
   storageRoot: string
   managedConfigDir?: string
-  spawn?: SpawnFn
+  claudeAgentSdk?: ClaudeAgentSdk
 }
 
 export type ClaudeCodeRuntimeFailure = {
@@ -80,7 +90,8 @@ export type ClaudeCodeTurnMutationResult =
 type ActiveClaudeTurn = {
   threadId: string
   turnId: string
-  child: ChildProcessWithoutNullStreams
+  abortController: AbortController
+  query: ClaudeAgentSdkQuery
   assistantItemId: string
 }
 
@@ -91,19 +102,28 @@ type ClaudeRuntimeEventSubscriber = {
   closed: boolean
 }
 
-type ClaudeStreamRecord = Record<string, unknown>
+type ClaudeSdkTurnState = {
+  assistantTextSeen: boolean
+  firstDeltaEmitted: boolean
+  terminalState: Extract<AgentRuntimeEvent, { kind: 'turn_lifecycle' }>['state']
+  terminalMessage?: string
+  toolUses: Map<string, { name: string; input: Record<string, unknown> }>
+}
 
 export class ClaudeCodeRuntimeService {
-  private readonly spawnImpl: SpawnFn
+  private readonly sdk: ClaudeAgentSdk
   private readonly threadStore: ClaudeCodeThreadStore
   private readonly eventStore: ClaudeCodeEventStore
+  private readonly sessionStore: ClaudeCodeSessionStore
   private readonly activeTurns = new Map<string, ActiveClaudeTurn>()
   private readonly eventSubscribers = new Set<ClaudeRuntimeEventSubscriber>()
+  private readonly childState = new Map<string, AgentRuntimeChild>()
 
   constructor(private readonly options: ClaudeCodeRuntimeServiceOptions) {
-    this.spawnImpl = options.spawn ?? ((command, args, spawnOptions) => spawnChild(command, args, spawnOptions))
+    this.sdk = options.claudeAgentSdk ?? { query: claudeAgentSdkQuery }
     this.threadStore = new ClaudeCodeThreadStore({ rootDir: options.storageRoot })
     this.eventStore = new ClaudeCodeEventStore({ rootDir: options.storageRoot })
+    this.sessionStore = new ClaudeCodeSessionStore({ rootDir: options.storageRoot })
   }
 
   async connect(): Promise<ClaudeCodeConnectResult> {
@@ -111,10 +131,9 @@ export class ClaudeCodeRuntimeService {
       const settings = await this.options.settings()
       const runtime = settings.agents.claude
       const command = runtime?.command?.trim() || 'claude'
-      const version = await probeClaudeVersion(command, this.spawnImpl)
-      return { ok: true, info: { command, version } }
+      return { ok: true, info: { command, sdk: '@anthropic-ai/claude-agent-sdk' } }
     } catch (error) {
-      return claudeCliProbeFailure(error)
+      return failure(error, 'claude_sdk_unavailable')
     }
   }
 
@@ -203,7 +222,7 @@ export class ClaudeCodeRuntimeService {
       const turnId = `claude-turn-${randomUUID()}`
       const userMessageItemId = `claude-user-${randomUUID()}`
       const assistantItemId = `claude-assistant-${randomUUID()}`
-      const launch = await prepareClaudeCodeTurnLaunch({
+      const launch = await prepareClaudeCodeSdkLaunch({
         settings,
         text: payload.text,
         workspace,
@@ -238,28 +257,35 @@ export class ClaudeCodeRuntimeService {
         turnId,
         kind: 'runtime_status',
         phase: 'process_start',
-        message: 'Starting Claude Code CLI',
+        message: 'Starting Claude Agent SDK',
         metadata: {
-          command: launch.command,
           model: launch.model,
           permissionMode: launch.permissionMode,
-          configDir: launch.configDir
+          configDir: launch.configDir,
+          pathToClaudeCodeExecutable: launch.pathToClaudeCodeExecutable
         }
       })
-      const child = this.spawnImpl(launch.command, launch.args, {
-        cwd: launch.cwd,
-        env: launch.env,
-        windowsHide: true
+      const abortController = new AbortController()
+      const query = this.sdk.query({
+        prompt: launch.prompt,
+        options: {
+          ...launch.sdkOptions,
+          abortController,
+          forwardSubagentText: true,
+          agentProgressSummaries: true,
+          sessionStore: this.sessionStore,
+          sessionStoreFlush: 'eager'
+        }
       })
-      child.stdin?.end()
       this.activeTurns.set(payload.threadId, {
         threadId: payload.threadId,
         turnId,
-        child,
+        abortController,
+        query,
         assistantItemId
       })
       void this.runClaudeTurn({
-        child,
+        query,
         threadId: payload.threadId,
         turnId,
         assistantItemId,
@@ -279,7 +305,8 @@ export class ClaudeCodeRuntimeService {
     try {
       const active = this.activeTurns.get(threadId)
       if (!active || active.turnId !== turnId) return { ok: true }
-      active.child.kill('SIGTERM')
+      active.abortController.abort()
+      active.query.close?.()
       await this.completeTurn(threadId, turnId, 'aborted', 'Claude Code turn interrupted.')
       this.activeTurns.delete(threadId)
       return { ok: true }
@@ -317,7 +344,10 @@ export class ClaudeCodeRuntimeService {
   async deleteThread(threadId: string): Promise<ClaudeCodeTurnMutationResult> {
     try {
       const active = this.activeTurns.get(threadId)
-      if (active) active.child.kill('SIGTERM')
+      if (active) {
+        active.abortController.abort()
+        active.query.close?.()
+      }
       this.activeTurns.delete(threadId)
       await this.threadStore.delete(threadId)
       return { ok: true }
@@ -346,10 +376,101 @@ export class ClaudeCodeRuntimeService {
   async usage(input: AgentRuntimeUsageQuery): Promise<AgentRuntimeUsageResponse> {
     return {
       supported: false,
-      reason: 'Claude Code CLI token usage is only available per turn when emitted by the CLI stream.',
+      reason: 'Claude Code SDK token usage is only available per turn when emitted by the SDK stream.',
       groupBy: input.groupBy,
       buckets: [],
       totals: {}
+    }
+  }
+
+  async listThreadChildren(input: {
+    threadId: string
+    parentTurnId?: string
+    activeOnly?: boolean
+    cursor?: string
+    limit?: number
+  }): Promise<AgentRuntimeListThreadChildrenResponse> {
+    const children = await this.childrenForThread(input.threadId)
+    const filtered = children
+      .filter((child) => input.parentTurnId ? child.parentTurnId === input.parentTurnId : true)
+      .filter((child) => input.activeOnly ? isChildActive(child) : true)
+      .slice(0, Math.max(0, Math.floor(input.limit ?? 100)))
+    return {
+      runtimeId: 'claude',
+      threadId: input.threadId,
+      ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+      children: filtered
+    }
+  }
+
+  async readChildTranscript(input: {
+    parentThreadId: string
+    parentTurnId?: string
+    childId: string
+    transcriptRef?: unknown
+    cursor?: string
+    limit?: number
+  }): Promise<AgentRuntimeReadChildTranscriptResponse> {
+    const children = await this.childrenForThread(input.parentThreadId)
+    const child = children.find((candidate) =>
+      candidate.id === input.childId &&
+      (input.parentTurnId ? candidate.parentTurnId === input.parentTurnId : true)
+    )
+    const ref = optionalRecord(input.transcriptRef) ?? optionalRecord(child?.transcriptRef) ?? {}
+    const metadata = recordValue(ref.metadata)
+    const sessionId = stringField(metadata.sessionId) ||
+      stringField(recordValue(child?.metadata).sessionId)
+    const subpath = stringField(metadata.subpath) ||
+      stringField(recordValue(child?.metadata).transcriptSubpath) ||
+      transcriptSubpathForAgent(input.childId)
+    const transcript = sessionId
+      ? await this.sessionStore.readTranscript({ sessionId, subpath })
+      : null
+    if (!transcript) {
+      return {
+        transcript: {
+          runtimeId: 'claude',
+          parentThreadId: input.parentThreadId,
+          ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+          childId: input.childId,
+          ...(child ? { child } : {}),
+          ...(child?.transcriptRef ? { transcriptRef: child.transcriptRef } : {}),
+          entries: [],
+          degraded: true,
+          reason: sessionId
+            ? `Claude subagent transcript ${subpath}.jsonl has not been mirrored yet.`
+            : 'Claude child transcript is not available without an SDK session id.'
+        }
+      }
+    }
+    const entries = transcript.entries
+      .map((entry, index) => transcriptEntryFromSessionStore(entry, index))
+      .slice(0, Math.max(0, Math.floor(input.limit ?? 500)))
+    return {
+      transcript: {
+        runtimeId: 'claude',
+        parentThreadId: input.parentThreadId,
+        ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+        childId: input.childId,
+        ...(child ? { child } : {}),
+        transcriptRef: child?.transcriptRef ?? transcriptRef({
+          childId: input.childId,
+          sessionId: transcript.key.sessionId,
+          projectKey: transcript.key.projectKey,
+          subpath: transcript.key.subpath,
+          path: transcript.path
+        }),
+        entries,
+        summary: child?.summary,
+        usage: child?.usage,
+        metadata: {
+          source: 'claude-agent-sdk.sessionStore',
+          path: transcript.path,
+          projectKey: transcript.key.projectKey,
+          sessionId: transcript.key.sessionId,
+          subpath: transcript.key.subpath
+        }
+      }
     }
   }
 
@@ -419,7 +540,8 @@ export class ClaudeCodeRuntimeService {
 
   async stop(): Promise<void> {
     for (const active of this.activeTurns.values()) {
-      active.child.kill('SIGTERM')
+      active.abortController.abort()
+      active.query.close?.()
     }
     this.activeTurns.clear()
     for (const subscriber of this.eventSubscribers) {
@@ -430,136 +552,515 @@ export class ClaudeCodeRuntimeService {
   }
 
   private async runClaudeTurn(options: {
-    child: ChildProcessWithoutNullStreams
+    query: ClaudeAgentSdkQuery
     threadId: string
     turnId: string
     assistantItemId: string
     startedAtMs: number
     fallbackThread: string
   }): Promise<void> {
-    let stdoutBuffer = ''
-    let stderr = ''
-    let assistantTextSeen = false
-    let completed = false
-    let lineProcessing: Promise<void> = Promise.resolve()
-    const processLine = async (line: string): Promise<void> => {
-      const trimmed = line.trim()
-      if (!trimmed) return
-      let record: ClaudeStreamRecord
-      try {
-        record = JSON.parse(trimmed) as ClaudeStreamRecord
-      } catch {
-        await this.emit({
-          threadId: options.threadId,
-          turnId: options.turnId,
-          kind: 'runtime_status',
-          phase: 'tool_running',
-          message: trimmed.slice(0, 500)
-        })
-        return
-      }
-      const sessionId = extractSessionId(record)
-      if (sessionId) {
-        await this.threadStore.upsert({
-          guiThreadId: options.threadId,
-          claudeSessionId: sessionId
-        })
-      }
-      const usage = extractUsage(record)
-      if (usage) {
-        await this.emit({
-          threadId: options.threadId,
-          turnId: options.turnId,
-          kind: 'usage',
-          usage
-        })
-      }
-      for (const tool of extractToolEvents(record)) {
-        await this.emit({
-          threadId: options.threadId,
-          turnId: options.turnId,
-          kind: 'tool_event',
-          itemId: tool.itemId,
-          status: tool.status,
-          toolKind: tool.toolKind,
-          summary: tool.summary,
-          detail: tool.detail,
-          meta: tool.meta
-        })
-      }
-      const error = extractError(record)
-      if (error) {
-        await this.emit({
-          threadId: options.threadId,
-          turnId: options.turnId,
-          kind: 'error',
-          itemId: `claude-error-${randomUUID()}`,
-          recoverable: false,
-          severity: 'error',
-          message: error.message,
-          code: error.code,
-          detail: error.detail
-        })
-      }
-      const text = extractAssistantText(record)
-      if (text && !(assistantTextSeen && record.type === 'result')) {
-        assistantTextSeen = true
-        await this.emit({
-          threadId: options.threadId,
-          turnId: options.turnId,
-          kind: 'assistant_delta',
-          itemId: options.assistantItemId,
-          text
-        })
-        if (!completed) {
-          completed = true
-          await this.emit({
-            threadId: options.threadId,
-            turnId: options.turnId,
-            kind: 'runtime_status',
-            phase: 'first_delta',
-            latencyMs: Date.now() - options.startedAtMs
-          })
-        }
-      }
+    const state: ClaudeSdkTurnState = {
+      assistantTextSeen: false,
+      firstDeltaEmitted: false,
+      terminalState: 'completed',
+      toolUses: new Map()
     }
-    const enqueueLine = (line: string): void => {
-      lineProcessing = lineProcessing.then(() => processLine(line))
-      void lineProcessing.catch(() => undefined)
+    try {
+      for await (const message of options.query) {
+        await this.handleSdkMessage(message, options, state)
+      }
+      if (this.activeTurns.get(options.threadId)?.turnId !== options.turnId) return
+      this.activeTurns.delete(options.threadId)
+      await this.completeTurn(options.threadId, options.turnId, state.terminalState, state.terminalMessage)
+    } catch (error) {
+      if (this.activeTurns.get(options.threadId)?.turnId !== options.turnId) return
+      await this.failTurn(options.threadId, options.turnId, error)
+    }
+  }
+
+  private async handleSdkMessage(
+    message: SDKMessage,
+    options: {
+      threadId: string
+      turnId: string
+      assistantItemId: string
+      startedAtMs: number
+    },
+    state: ClaudeSdkTurnState
+  ): Promise<void> {
+    const record = recordValue(message)
+    const sessionId = stringField(record.session_id)
+    if (sessionId) {
+      await this.threadStore.upsert({
+        guiThreadId: options.threadId,
+        claudeSessionId: sessionId
+      })
     }
 
-    options.child.stdout.on('data', (chunk: Buffer) => {
-      stdoutBuffer += chunk.toString('utf8')
-      const lines = stdoutBuffer.split(/\r?\n/)
-      stdoutBuffer = lines.pop() ?? ''
-      for (const line of lines) enqueueLine(line)
-    })
-    options.child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8')
-    })
-    options.child.once('error', (error) => {
-      void this.failTurn(options.threadId, options.turnId, error)
-    })
-    options.child.once('close', (code, signal) => {
-      void (async () => {
-        if (stdoutBuffer.trim()) enqueueLine(stdoutBuffer)
-        try {
-          await lineProcessing
-        } catch (error) {
-          await this.failTurn(options.threadId, options.turnId, error)
-          return
+    if (message.type === 'assistant') {
+      await this.handleAssistantMessage(message, options, state)
+      return
+    }
+    if (message.type === 'user') {
+      await this.handleUserMessage(message, options, state)
+      return
+    }
+    if (message.type === 'result') {
+      await this.handleResultMessage(message, options, state)
+      return
+    }
+    if (message.type === 'system') {
+      await this.handleSystemMessage(message, options, state)
+    }
+  }
+
+  private async handleAssistantMessage(
+    message: Extract<SDKMessage, { type: 'assistant' }>,
+    options: {
+      threadId: string
+      turnId: string
+      assistantItemId: string
+      startedAtMs: number
+    },
+    state: ClaudeSdkTurnState
+  ): Promise<void> {
+    const messageRecord = recordValue(message.message)
+    const usage = extractUsage(messageRecord)
+    if (usage) {
+      await this.emit({
+        threadId: options.threadId,
+        turnId: options.turnId,
+        kind: 'usage',
+        usage
+      })
+    }
+
+    for (const part of contentParts(messageRecord.content)) {
+      if (part.type !== 'tool_use') continue
+      const name = stringField(part.name) || 'tool'
+      const itemId = stringField(part.id) || `claude-tool-${randomUUID()}`
+      state.toolUses.set(itemId, {
+        name,
+        input: recordValue(part.input)
+      })
+      await this.emit({
+        threadId: options.threadId,
+        turnId: options.turnId,
+        kind: 'tool_event',
+        itemId,
+        status: 'running',
+        toolKind: toolKindFromName(name),
+        summary: `Claude Code tool: ${name}`,
+        detail: stringifyUnknown(part.input),
+        meta: { name }
+      })
+    }
+
+    const text = textFromContent(messageRecord.content)
+    if (text) {
+      await this.emitAssistantText(text, options, state)
+    }
+  }
+
+  private async handleUserMessage(
+    message: Extract<SDKMessage, { type: 'user' }>,
+    options: {
+      threadId: string
+      turnId: string
+    },
+    state: ClaudeSdkTurnState
+  ): Promise<void> {
+    const messageRecord = recordValue(message.message)
+    for (const part of contentParts(messageRecord.content)) {
+      if (part.type !== 'tool_result') continue
+      const itemId = stringField(part.tool_use_id) || `claude-tool-${randomUUID()}`
+      const toolUse = state.toolUses.get(itemId)
+      const payload = firstRecord(
+        parseToolResultPayload(part.content),
+        recordValue(message.tool_use_result)
+      )
+      await this.emit({
+        threadId: options.threadId,
+        turnId: options.turnId,
+        kind: 'tool_event',
+        itemId,
+        status: part.is_error === true ? 'error' : 'success',
+        toolKind: toolKindFromName(toolUse?.name ?? 'tool'),
+        summary: toolUse?.name ? `Claude Code tool result: ${toolUse.name}` : 'Claude Code tool result',
+        detail: textFromContent(part.content) || stringifyUnknown(part.content),
+        meta: {
+          ...(toolUse?.name ? { name: toolUse.name } : {}),
+          ...(payload ? { output: payload } : {})
         }
-        if (this.activeTurns.get(options.threadId)?.turnId !== options.turnId) return
-        this.activeTurns.delete(options.threadId)
-        if (code === 0) {
-          await this.completeTurn(options.threadId, options.turnId, 'completed')
-        } else {
-          await this.failTurn(options.threadId, options.turnId, new Error(
-            stderr.trim() || `Claude Code exited with ${signal || `code ${code ?? 'unknown'}`}.`
-          ))
+      })
+      if (toolUse?.name && payload) {
+        await this.emitChildFromToolResult({
+          threadId: options.threadId,
+          turnId: options.turnId,
+          toolUseId: itemId,
+          toolName: toolUse.name,
+          toolInput: toolUse.input,
+          payload,
+          isError: part.is_error === true,
+          sessionId: stringField(recordValue(message).session_id)
+        })
+      }
+    }
+  }
+
+  private async handleResultMessage(
+    message: Extract<SDKMessage, { type: 'result' }>,
+    options: {
+      threadId: string
+      turnId: string
+      assistantItemId: string
+      startedAtMs: number
+    },
+    state: ClaudeSdkTurnState
+  ): Promise<void> {
+    const record = recordValue(message)
+    const usage = extractUsage(record)
+    if (usage) {
+      await this.emit({
+        threadId: options.threadId,
+        turnId: options.turnId,
+        kind: 'usage',
+        usage
+      })
+    }
+    if (record.is_error === true) {
+      const messageText = arrayValue(record.errors).map((entry) => String(entry)).join('; ') ||
+        stringField(record.result) ||
+        'Claude Code SDK returned an error result.'
+      state.terminalState = 'failed'
+      state.terminalMessage = messageText
+      await this.emit({
+        threadId: options.threadId,
+        turnId: options.turnId,
+        kind: 'error',
+        itemId: `claude-error-${randomUUID()}`,
+        recoverable: false,
+        severity: 'error',
+        message: messageText,
+        code: stringField(record.subtype) || undefined,
+        detail: stringifyUnknown(record)
+      })
+      return
+    }
+    const text = stringField(record.result)
+    if (text && !state.assistantTextSeen) {
+      await this.emitAssistantText(text, options, state)
+    }
+  }
+
+  private async handleSystemMessage(
+    message: Extract<SDKMessage, { type: 'system' }>,
+    options: {
+      threadId: string
+      turnId: string
+    },
+    _state: ClaudeSdkTurnState
+  ): Promise<void> {
+    const record = recordValue(message)
+    const subtype = stringField(record.subtype)
+    if (subtype === 'init') {
+      await this.emit({
+        threadId: options.threadId,
+        turnId: options.turnId,
+        kind: 'runtime_status',
+        phase: 'initialize_done',
+        metadata: {
+          sessionId: stringField(record.session_id),
+          claudeCodeVersion: stringField(record.claude_code_version),
+          model: stringField(record.model),
+          permissionMode: stringField(record.permissionMode),
+          cwd: stringField(record.cwd),
+          tools: arrayValue(record.tools).filter((tool): tool is string => typeof tool === 'string')
         }
-      })()
+      })
+      return
+    }
+    if (
+      subtype === 'task_started' ||
+      subtype === 'task_progress' ||
+      subtype === 'task_updated' ||
+      subtype === 'task_notification'
+    ) {
+      const child = await this.childFromTaskMessage(record, options.threadId, options.turnId)
+      if (child) await this.emitChild(child)
+      return
+    }
+    if (subtype === 'mirror_error') {
+      await this.emit({
+        threadId: options.threadId,
+        turnId: options.turnId,
+        kind: 'runtime_status',
+        phase: 'tool_running',
+        message: stringField(record.error) || 'Claude transcript mirror failed.',
+        metadata: {
+          severity: 'warning',
+          key: record.key
+        }
+      })
+    }
+  }
+
+  private async emitAssistantText(
+    text: string,
+    options: {
+      threadId: string
+      turnId: string
+      assistantItemId: string
+      startedAtMs: number
+    },
+    state: ClaudeSdkTurnState
+  ): Promise<void> {
+    state.assistantTextSeen = true
+    await this.emit({
+      threadId: options.threadId,
+      turnId: options.turnId,
+      kind: 'assistant_delta',
+      itemId: options.assistantItemId,
+      text
     })
+    if (!state.firstDeltaEmitted) {
+      state.firstDeltaEmitted = true
+      await this.emit({
+        threadId: options.threadId,
+        turnId: options.turnId,
+        kind: 'runtime_status',
+        phase: 'first_delta',
+        latencyMs: Date.now() - options.startedAtMs
+      })
+    }
+  }
+
+  private async emitChildFromToolResult(input: {
+    threadId: string
+    turnId: string
+    toolUseId: string
+    toolName: string
+    toolInput: Record<string, unknown>
+    payload: Record<string, unknown>
+    isError: boolean
+    sessionId: string
+  }): Promise<void> {
+    if (input.toolName === 'Agent') {
+      await this.emitChild(await this.childFromAgentToolResult(input))
+      return
+    }
+    if (input.toolName === 'Workflow') {
+      await this.emitChild(await this.childFromWorkflowToolResult(input))
+    }
+  }
+
+  private async childFromAgentToolResult(input: {
+    threadId: string
+    turnId: string
+    toolUseId: string
+    toolInput: Record<string, unknown>
+    payload: Record<string, unknown>
+    isError: boolean
+    sessionId: string
+  }): Promise<AgentRuntimeChild> {
+    const agentId = stringField(input.payload.agentId) ||
+      stringField(input.payload.agent_id) ||
+      input.toolUseId
+    const agentType = stringField(input.payload.agentType) ||
+      stringField(input.payload.agent_type) ||
+      stringField(input.payload.subagent_type) ||
+      stringField(input.toolInput.agentType) ||
+      stringField(input.toolInput.agent_type) ||
+      stringField(input.toolInput.subagent_type)
+    const prompt = stringField(input.payload.prompt) || stringField(input.toolInput.prompt)
+    const status = childStatus(input.payload.status, input.isError ? 'failed' : 'completed')
+    const totalTokens = numberField(input.payload.totalTokens) ||
+      numberField(input.payload.total_tokens)
+    const usage = usageFromRecord(input.payload.usage, totalTokens)
+    const outputFile = stringField(input.payload.outputFile) ||
+      stringField(input.payload.output_file)
+    const subpath = transcriptSubpathForAgent(agentId)
+    return {
+      id: agentId,
+      runtimeId: 'claude',
+      parentThreadId: input.threadId,
+      parentTurnId: input.turnId,
+      kind: 'agent',
+      status,
+      ...(agentType ? { name: agentType, label: agentType } : {}),
+      ...(prompt ? { prompt } : {}),
+      ...(usage ? { usage } : {}),
+      ...(outputFile ? { summary: outputFile } : {}),
+      transcriptRef: transcriptRef({
+        childId: agentId,
+        sessionId: input.sessionId,
+        subpath
+      }),
+      updatedAt: new Date().toISOString(),
+      ...(status === 'completed' || status === 'failed' || status === 'aborted'
+        ? { completedAt: new Date().toISOString() }
+        : {}),
+      metadata: {
+        source: 'claude.Agent',
+        toolUseId: input.toolUseId,
+        agentId,
+        ...(agentType ? { agentType } : {}),
+        ...(outputFile ? { outputFile } : {}),
+        ...(input.sessionId ? { sessionId: input.sessionId, transcriptSubpath: subpath } : {})
+      }
+    }
+  }
+
+  private async childFromWorkflowToolResult(input: {
+    threadId: string
+    turnId: string
+    toolUseId: string
+    toolInput: Record<string, unknown>
+    payload: Record<string, unknown>
+    isError: boolean
+    sessionId: string
+  }): Promise<AgentRuntimeChild> {
+    const taskId = stringField(input.payload.taskId) ||
+      stringField(input.payload.task_id) ||
+      stringField(input.toolInput.taskId) ||
+      stringField(input.toolInput.task_id)
+    const runId = stringField(input.payload.runId) ||
+      stringField(input.payload.run_id) ||
+      stringField(input.toolInput.runId) ||
+      stringField(input.toolInput.run_id)
+    const workflowName = stringField(input.payload.workflowName) ||
+      stringField(input.payload.workflow_name) ||
+      stringField(input.toolInput.workflowName) ||
+      stringField(input.toolInput.workflow_name) ||
+      stringField(input.toolInput.name)
+    const summary = stringField(input.payload.summary)
+    const transcriptDir = stringField(input.payload.transcriptDir) ||
+      stringField(input.payload.transcript_dir)
+    const scriptPath = stringField(input.payload.scriptPath) ||
+      stringField(input.payload.script_path)
+    const status = childStatus(input.payload.status, input.isError ? 'failed' : 'completed')
+    return {
+      id: runId || taskId || input.toolUseId,
+      runtimeId: 'claude',
+      parentThreadId: input.threadId,
+      parentTurnId: input.turnId,
+      kind: 'workflow',
+      status,
+      ...(workflowName ? { name: workflowName, label: workflowName } : {}),
+      ...(summary ? { summary } : {}),
+      ...(transcriptDir ? {
+        transcriptRef: transcriptRef({
+          childId: runId || taskId || input.toolUseId,
+          sessionId: input.sessionId,
+          source: 'claude.Workflow',
+          path: transcriptDir,
+          kind: 'directory'
+        })
+      } : {}),
+      updatedAt: new Date().toISOString(),
+      ...(status === 'completed' || status === 'failed' || status === 'aborted'
+        ? { completedAt: new Date().toISOString() }
+        : {}),
+      metadata: {
+        source: 'claude.Workflow',
+        toolUseId: input.toolUseId,
+        ...(taskId ? { taskId } : {}),
+        ...(runId ? { runId } : {}),
+        ...(workflowName ? { workflowName } : {}),
+        ...(transcriptDir ? { transcriptDir } : {}),
+        ...(scriptPath ? { scriptPath } : {}),
+        ...(input.sessionId ? { sessionId: input.sessionId } : {})
+      }
+    }
+  }
+
+  private async childFromTaskMessage(
+    record: Record<string, unknown>,
+    threadId: string,
+    turnId: string
+  ): Promise<AgentRuntimeChild | null> {
+    const subtype = stringField(record.subtype)
+    const taskId = stringField(record.task_id)
+    if (!taskId) return null
+    const sessionId = stringField(record.session_id)
+    const workflowName = stringField(record.workflow_name)
+    const subagentType = stringField(record.subagent_type)
+    const isWorkflow = stringField(record.task_type) === 'local_workflow' || Boolean(workflowName)
+    const status = subtype === 'task_notification'
+      ? childStatus(record.status, 'completed')
+      : subtype === 'task_updated'
+        ? childStatus(recordValue(record.patch).status, 'running')
+        : 'running'
+    const usageRecord = recordValue(record.usage)
+    const subpath = !isWorkflow ? transcriptSubpathForAgent(taskId) : ''
+    return {
+      id: taskId,
+      runtimeId: 'claude',
+      parentThreadId: threadId,
+      parentTurnId: turnId,
+      kind: isWorkflow ? 'workflow' : 'agent',
+      status,
+      ...(workflowName || subagentType ? {
+        name: workflowName || subagentType,
+        label: workflowName || subagentType
+      } : {}),
+      prompt: stringField(record.prompt) || stringField(record.description) || undefined,
+      summary: stringField(record.summary) || undefined,
+      usage: usageFromRecord(usageRecord, numberField(usageRecord.total_tokens)),
+      ...(!isWorkflow && sessionId ? {
+        transcriptRef: transcriptRef({
+          childId: taskId,
+          sessionId,
+          subpath
+        })
+      } : {}),
+      updatedAt: new Date().toISOString(),
+      ...(status === 'completed' || status === 'failed' || status === 'aborted'
+        ? { completedAt: new Date().toISOString() }
+        : {}),
+      metadata: {
+        source: `claude-agent-sdk.${subtype}`,
+        taskId,
+        ...(stringField(record.tool_use_id) ? { toolUseId: stringField(record.tool_use_id) } : {}),
+        ...(stringField(record.task_type) ? { taskType: stringField(record.task_type) } : {}),
+        ...(subagentType ? { agentType: subagentType } : {}),
+        ...(workflowName ? { workflowName } : {}),
+        ...(stringField(record.output_file) ? { outputFile: stringField(record.output_file) } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        ...(!isWorkflow && subpath ? { transcriptSubpath: subpath } : {})
+      }
+    }
+  }
+
+  private async emitChild(child: AgentRuntimeChild): Promise<void> {
+    const key = childStateKey(child.parentThreadId, child.id)
+    const existing = this.childState.get(key) ?? await this.latestStoredChild(child.parentThreadId, child.id)
+    const next = mergeChild(existing, child)
+    this.childState.set(key, next)
+    await this.emit({
+      threadId: next.parentThreadId,
+      turnId: next.parentTurnId,
+      kind: 'child_event',
+      child: next
+    })
+  }
+
+  private async latestStoredChild(threadId: string, childId: string): Promise<AgentRuntimeChild | null> {
+    return (await this.childrenForThread(threadId)).find((child) => child.id === childId) ?? null
+  }
+
+  private async childrenForThread(threadId: string): Promise<AgentRuntimeChild[]> {
+    const storedEvents = await this.eventStore.read(threadId, { includeAll: true })
+    const children = new Map<string, AgentRuntimeChild>()
+    for (const stored of storedEvents) {
+      const event = stored.event
+      if (event.kind !== 'child_event') continue
+      const child = event.child
+      children.set(child.id, mergeChild(children.get(child.id), child))
+    }
+    return [...children.values()]
+      .filter((child) => child.parentThreadId === threadId)
+      .sort((a, b) => Date.parse(b.updatedAt ?? b.createdAt ?? '') - Date.parse(a.updatedAt ?? a.createdAt ?? ''))
   }
 
   private async completeTurn(
@@ -629,137 +1130,167 @@ export class ClaudeCodeRuntimeService {
   }
 }
 
-async function probeClaudeVersion(command: string, spawnImpl: SpawnFn): Promise<string> {
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  const child = spawnImpl(command, ['--version'], {
-    env: process.env,
-    windowsHide: true
-  })
-  let stdout = ''
-  let stderr = ''
-  child.stdout.on('data', (chunk: Buffer) => {
-    stdout += chunk.toString('utf8')
-  })
-  child.stderr.on('data', (chunk: Buffer) => {
-    stderr += chunk.toString('utf8')
-  })
-  return new Promise<string>((resolve, reject) => {
-    child.once('error', reject)
-    child.once('close', (code) => {
-      if (code === 0) {
-        resolve((stdout || stderr).trim())
-      } else {
-        reject(new Error(stderr.trim() || `Claude Code version probe exited with code ${code ?? 'unknown'}.`))
-      }
-    })
-  })
+function extractUsage(record: Record<string, unknown>): AgentRuntimeUsage | null {
+  const message = recordValue(record.message)
+  return usageFromRecord(record.usage, 0) ?? usageFromRecord(message.usage, 0) ?? null
 }
 
-function extractSessionId(record: ClaudeStreamRecord): string {
-  const message = isRecord(record.message) ? record.message : null
-  return stringField(record.session_id) ||
-    stringField(record.sessionId) ||
-    stringField(record.uuid) ||
-    stringField(message?.session_id)
-}
-
-function extractAssistantText(record: ClaudeStreamRecord): string {
-  if (record.type === 'result') return stringField(record.result)
-  const delta = isRecord(record.delta) ? record.delta : null
-  const deltaText = stringField(delta?.text) || stringField(delta?.content)
-  if (deltaText) return deltaText
-  const message = isRecord(record.message) ? record.message : record
-  const contentText = textFromContent(message.content)
-  if (contentText && (record.type === 'assistant' || message.role === 'assistant')) return contentText
-  return ''
-}
-
-function extractToolEvents(record: ClaudeStreamRecord): Array<{
-  itemId: string
-  status: 'running' | 'success' | 'error'
-  toolKind: 'tool_call' | 'command_execution' | 'file_change'
-  summary: string
-  detail?: string
-  meta?: Record<string, unknown>
-}> {
-  const events: Array<{
-    itemId: string
-    status: 'running' | 'success' | 'error'
-    toolKind: 'tool_call' | 'command_execution' | 'file_change'
-    summary: string
-    detail?: string
-    meta?: Record<string, unknown>
-  }> = []
-  const message = isRecord(record.message) ? record.message : record
-  const content = Array.isArray(message.content) ? message.content : []
-  for (const part of content) {
-    if (!isRecord(part)) continue
-    if (part.type === 'tool_use') {
-      const name = stringField(part.name) || 'tool'
-      events.push({
-        itemId: stringField(part.id) || `claude-tool-${randomUUID()}`,
-        status: 'running',
-        toolKind: toolKindFromName(name),
-        summary: `Claude Code tool: ${name}`,
-        detail: stringifyUnknown(part.input),
-        meta: { name }
-      })
-    }
-    if (part.type === 'tool_result') {
-      events.push({
-        itemId: stringField(part.tool_use_id) || `claude-tool-${randomUUID()}`,
-        status: part.is_error === true ? 'error' : 'success',
-        toolKind: 'tool_call',
-        summary: 'Claude Code tool result',
-        detail: textFromContent(part.content) || stringifyUnknown(part.content)
-      })
-    }
-  }
-  if (record.type === 'tool_use' || record.type === 'tool_result') {
-    const name = stringField(record.name) || stringField(record.tool_name) || 'tool'
-    events.push({
-      itemId: stringField(record.id) || stringField(record.tool_use_id) || `claude-tool-${randomUUID()}`,
-      status: record.type === 'tool_result' ? 'success' : 'running',
-      toolKind: toolKindFromName(name),
-      summary: record.type === 'tool_result' ? 'Claude Code tool result' : `Claude Code tool: ${name}`,
-      detail: stringifyUnknown(record.input ?? record.content ?? record.result),
-      meta: { name }
-    })
-  }
-  return events
-}
-
-function extractUsage(record: ClaudeStreamRecord): AgentRuntimeUsage | null {
-  const message = isRecord(record.message) ? record.message : null
-  const source = isRecord(record.usage)
-    ? record.usage
-    : message && isRecord(message.usage)
-      ? message.usage
-      : null
-  if (!source) return null
-  const inputTokens = numberField(source.input_tokens)
-  const outputTokens = numberField(source.output_tokens)
-  const cacheReadTokens = numberField(source.cache_read_input_tokens)
-  const cacheWriteTokens = numberField(source.cache_creation_input_tokens)
-  const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens
-  if (totalTokens <= 0) return null
+function usageFromRecord(value: unknown, fallbackTotalTokens: number): AgentRuntimeUsage | undefined {
+  const source = optionalRecord(value)
+  const inputTokens = source
+    ? numberField(source.inputTokens) || numberField(source.input_tokens)
+    : 0
+  const outputTokens = source
+    ? numberField(source.outputTokens) || numberField(source.output_tokens)
+    : 0
+  const cacheReadTokens = source
+    ? numberField(source.cacheReadTokens) || numberField(source.cache_read_input_tokens)
+    : 0
+  const cacheWriteTokens = source
+    ? numberField(source.cacheWriteTokens) || numberField(source.cache_creation_input_tokens)
+    : 0
+  const totalTokens = source
+    ? numberField(source.totalTokens) || numberField(source.total_tokens)
+    : 0
+  const computedTotal = totalTokens || fallbackTotalTokens ||
+    inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens
+  if (computedTotal <= 0) return undefined
   return {
     inputTokens,
     outputTokens,
     cacheReadTokens,
     cacheWriteTokens,
-    totalTokens
+    totalTokens: computedTotal
   }
 }
 
-function extractError(record: ClaudeStreamRecord): { message: string; code?: string; detail?: string } | null {
-  if (record.type !== 'error' && !record.error) return null
-  const error = isRecord(record.error) ? record.error : record
-  const message = stringField(error.message) || stringField(record.message) || 'Claude Code runtime error.'
+function contentParts(content: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(content)) return []
+  return content.filter(isRecord)
+}
+
+function parseToolResultPayload(content: unknown): Record<string, unknown> {
+  if (isRecord(content)) return content
+  const text = textFromContent(content).trim()
+  if (!text) return {}
+  try {
+    const parsed = JSON.parse(text) as unknown
+    return recordValue(parsed)
+  } catch {
+    return {}
+  }
+}
+
+function firstRecord(...records: Record<string, unknown>[]): Record<string, unknown> | null {
+  return records.find((record) => Object.keys(record).length > 0) ?? null
+}
+
+function childStatus(value: unknown, fallback: AgentRuntimeChildStatus): AgentRuntimeChildStatus {
+  const normalized = stringField(value)
+  if (
+    normalized === 'queued' ||
+    normalized === 'running' ||
+    normalized === 'completed' ||
+    normalized === 'failed' ||
+    normalized === 'aborted' ||
+    normalized === 'unknown'
+  ) {
+    return normalized
+  }
+  if (normalized === 'pending') return 'queued'
+  if (normalized === 'success') return 'completed'
+  if (normalized === 'error') return 'failed'
+  if (normalized === 'killed' || normalized === 'stopped') return 'aborted'
+  return fallback
+}
+
+function isChildActive(child: Pick<AgentRuntimeChild, 'status'>): boolean {
+  return child.status === 'queued' || child.status === 'running'
+}
+
+function transcriptSubpathForAgent(agentId: string): string {
+  const normalized = agentId.trim()
+  return `subagents/agent-${normalized || 'unknown'}`
+}
+
+function transcriptRef(input: {
+  childId: string
+  sessionId?: string
+  projectKey?: string
+  subpath?: string
+  source?: string
+  path?: string
+  kind?: 'file' | 'directory'
+}): NonNullable<AgentRuntimeChild['transcriptRef']> {
+  const kind = input.kind ?? 'file'
+  const subpath = input.subpath?.trim()
+  const path = input.path || (subpath ? `${subpath}.jsonl` : undefined)
   return {
-    message,
-    code: stringField(error.code) || stringField(error.type) || undefined,
-    detail: stringifyUnknown(error)
+    id: subpath || input.childId,
+    kind,
+    label: kind === 'directory' ? 'Claude workflow transcript' : 'Claude subagent transcript',
+    ...(path ? { path } : {}),
+    mimeType: kind === 'file' ? 'application/jsonl' : undefined,
+    runtimeId: 'claude',
+    childId: input.childId,
+    transcriptId: subpath || input.childId,
+    source: input.source ?? 'claude-agent-sdk.sessionStore',
+    metadata: {
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      ...(input.projectKey ? { projectKey: input.projectKey } : {}),
+      ...(subpath ? { subpath } : {}),
+      ...(path ? { path } : {})
+    }
+  } as NonNullable<AgentRuntimeChild['transcriptRef']>
+}
+
+function transcriptEntryFromSessionStore(
+  entry: SessionStoreEntry,
+  index: number
+): AgentRuntimeChildTranscriptEntry {
+  const message = recordValue(entry.message)
+  const text = textFromContent(message.content) ||
+    stringField(entry.content) ||
+    stringField(entry.text) ||
+    stringField(entry.summary)
+  return {
+    id: stringField(entry.uuid) || `entry-${index + 1}`,
+    kind: transcriptEntryKind(entry.type),
+    ...(text ? { text } : {}),
+    ...(stringField(entry.summary) ? { summary: stringField(entry.summary) } : {}),
+    createdAt: stringField(entry.timestamp) || undefined,
+    metadata: entry
+  }
+}
+
+function transcriptEntryKind(type: unknown): AgentRuntimeChildTranscriptEntry['kind'] {
+  const normalized = stringField(type)
+  if (normalized === 'user') return 'user_message'
+  if (normalized === 'assistant') return 'assistant_message'
+  if (normalized.includes('tool')) return 'tool'
+  if (normalized.includes('reasoning') || normalized.includes('thinking')) return 'reasoning'
+  if (normalized === 'system') return 'system'
+  return 'event'
+}
+
+function childStateKey(threadId: string, childId: string): string {
+  return `${threadId}\n${childId}`
+}
+
+function mergeChild(
+  previous: AgentRuntimeChild | null | undefined,
+  next: AgentRuntimeChild
+): AgentRuntimeChild {
+  return {
+    ...previous,
+    ...next,
+    usage: next.usage ?? previous?.usage,
+    transcriptRef: next.transcriptRef ?? previous?.transcriptRef,
+    openAsThreadRef: next.openAsThreadRef ?? previous?.openAsThreadRef,
+    metadata: {
+      ...(previous?.metadata ?? {}),
+      ...(next.metadata ?? {})
+    }
   }
 }
 
@@ -791,7 +1322,10 @@ function textFromContent(content: unknown): string {
     .map((part) => {
       if (typeof part === 'string') return part
       if (!isRecord(part)) return ''
-      return stringField(part.text) || stringField(part.content)
+      return stringField(part.text) ||
+        stringField(part.content) ||
+        stringField(recordValue(part.input).prompt) ||
+        stringField(recordValue(part.input).description)
     })
     .filter(Boolean)
     .join('\n')
@@ -803,18 +1337,6 @@ function failure(error: unknown, defaultCode = 'claude_runtime_error'): ClaudeCo
     ok: false,
     message,
     code: (error as NodeJS.ErrnoException)?.code || defaultCode,
-    recoverable: true
-  }
-}
-
-function claudeCliProbeFailure(error: unknown): ClaudeCodeRuntimeFailure {
-  const code = (error as NodeJS.ErrnoException)?.code || 'claude_cli_unavailable'
-  const detail = error instanceof Error ? error.message : String(error)
-  const installHint = 'Claude Code CLI is not available. Install the `claude` CLI or update the Claude Code command path in Settings.'
-  return {
-    ok: false,
-    message: code === 'ENOENT' ? installHint : `${installHint} ${detail}`,
-    code,
     recoverable: true
   }
 }
@@ -835,6 +1357,18 @@ function stringField(value: unknown): string {
 
 function numberField(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function optionalRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return optionalRecord(value) ?? {}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

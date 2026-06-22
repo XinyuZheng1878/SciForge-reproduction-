@@ -1,12 +1,11 @@
-import { EventEmitter } from 'node:events'
 import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PassThrough } from 'node:stream'
 import type {
-  ChildProcessWithoutNullStreams,
-  SpawnOptionsWithoutStdio
-} from 'node:child_process'
+  Options as ClaudeAgentSdkOptions,
+  Query as ClaudeAgentSdkQuery,
+  SDKMessage
+} from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
@@ -24,13 +23,14 @@ import {
   startModelRouterServer,
   type ModelRouterConfig
 } from '../../../../packages/workers/model-router/src/router'
-import { ClaudeCodeRuntimeService } from './claude-code-service'
+import {
+  ClaudeCodeRuntimeService,
+  type ClaudeAgentSdk
+} from './claude-code-service'
 
-type SpawnCall = {
-  command: string
-  args: string[]
-  options: SpawnOptionsWithoutStdio
-  child: ChildProcessWithoutNullStreams
+type QueryCall = {
+  prompt: string | AsyncIterable<unknown>
+  options?: ClaudeAgentSdkOptions
 }
 
 type CapturedProviderCall = {
@@ -107,40 +107,6 @@ function modelRouterEnv(): Record<string, string> {
   }
 }
 
-function childProcess(): ChildProcessWithoutNullStreams {
-  const child = new EventEmitter() as ChildProcessWithoutNullStreams
-  child.stdout = new PassThrough()
-  child.stderr = new PassThrough()
-  child.kill = vi.fn((signal?: NodeJS.Signals | number) => {
-    setTimeout(() => child.emit('close', null, signal ?? 'SIGTERM'), 0)
-    return true
-  }) as ChildProcessWithoutNullStreams['kill']
-  return child
-}
-
-function fakeSpawn(
-  handler: (call: SpawnCall) => void
-): (command: string, args: string[], options: SpawnOptionsWithoutStdio) => ChildProcessWithoutNullStreams {
-  return vi.fn((command: string, args: string[], options: SpawnOptionsWithoutStdio) => {
-    const child = childProcess()
-    handler({ command, args, options, child })
-    return child
-  })
-}
-
-function writeJsonLine(child: ChildProcessWithoutNullStreams, value: unknown): void {
-  ;(child.stdout as PassThrough).write(`${JSON.stringify(value)}\n`)
-}
-
-function closeOk(child: ChildProcessWithoutNullStreams): void {
-  child.emit('close', 0, null)
-}
-
-function closeFailed(child: ChildProcessWithoutNullStreams, error: unknown): void {
-  ;(child.stderr as PassThrough).write(error instanceof Error ? error.message : String(error))
-  child.emit('close', 1, null)
-}
-
 async function waitUntil(assertion: () => Promise<boolean>, timeoutMs = 2_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -150,8 +116,41 @@ async function waitUntil(assertion: () => Promise<boolean>, timeoutMs = 2_000): 
   throw new Error('Timed out waiting for Claude Code model-router e2e condition.')
 }
 
-async function fakeClaudeCliTurn(call: SpawnCall, captured: CapturedClaudeRequest[]): Promise<void> {
-  const env = call.options.env ?? {}
+function fakeSdk(
+  handler: (call: QueryCall) => SDKMessage[] | Promise<SDKMessage[]>
+): { sdk: ClaudeAgentSdk; calls: QueryCall[] } {
+  const calls: QueryCall[] = []
+  return {
+    calls,
+    sdk: {
+      query: vi.fn((call: QueryCall) => {
+        calls.push(call)
+        return queryFromMessages(async () => handler(call))
+      })
+    }
+  }
+}
+
+function queryFromMessages(
+  messages: () => SDKMessage[] | Promise<SDKMessage[]>
+): ClaudeAgentSdkQuery {
+  return {
+    close: vi.fn(),
+    async *[Symbol.asyncIterator]() {
+      for (const message of await messages()) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        yield message
+      }
+    }
+  } as unknown as ClaudeAgentSdkQuery
+}
+
+function sdkMessage(value: Record<string, unknown>): SDKMessage {
+  return value as SDKMessage
+}
+
+async function fakeClaudeSdkTurn(call: QueryCall, captured: CapturedClaudeRequest[]): Promise<SDKMessage[]> {
+  const env = call.options?.env ?? {}
   const baseUrl = String(env.ANTHROPIC_BASE_URL ?? '')
   const apiKey = String(env.ANTHROPIC_API_KEY ?? '')
   const requestUrl = `${baseUrl}/v1/messages?beta=true`
@@ -201,22 +200,39 @@ async function fakeClaudeCliTurn(call: SpawnCall, captured: CapturedClaudeReques
     .filter((delta) => delta.type === 'text_delta')
     .map((delta) => String(delta.text ?? ''))
     .join('')
-  writeJsonLine(call.child, { type: 'system', session_id: 'claude-e2e-session' })
-  writeJsonLine(call.child, {
-    type: 'assistant',
-    message: {
-      role: 'assistant',
-      content: [{ type: 'text', text }],
-      usage: { input_tokens: 17, output_tokens: 5 }
-    }
-  })
-  writeJsonLine(call.child, {
-    type: 'result',
-    result: text,
-    usage: { input_tokens: 17, output_tokens: 5 },
-    session_id: 'claude-e2e-session'
-  })
-  closeOk(call.child)
+  return [
+    sdkMessage({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'claude-e2e-session',
+      uuid: 'claude-e2e-init',
+      claude_code_version: '2.1.143',
+      cwd: call.options?.cwd,
+      tools: ['Bash'],
+      model: call.options?.model,
+      permissionMode: call.options?.permissionMode
+    }),
+    sdkMessage({
+      type: 'assistant',
+      session_id: 'claude-e2e-session',
+      uuid: 'claude-e2e-assistant',
+      parent_tool_use_id: null,
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text }],
+        usage: { input_tokens: 17, output_tokens: 5 }
+      }
+    }),
+    sdkMessage({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: text,
+      usage: { input_tokens: 17, output_tokens: 5 },
+      session_id: 'claude-e2e-session',
+      uuid: 'claude-e2e-result'
+    })
+  ]
 }
 
 function parseSseEvents(raw: string): Array<Record<string, unknown>> {
@@ -292,14 +308,7 @@ describe('Claude Code runtime + Model Router e2e', () => {
       workspaceRoot,
       fetchImpl: providerFetch(providerCalls)
     })
-    const spawn = fakeSpawn((call) => {
-      if (call.args[0] === '--version') {
-        ;(call.child.stdout as PassThrough).write('2.1.143 (Claude Code)\n')
-        closeOk(call.child)
-        return
-      }
-      void fakeClaudeCliTurn(call, claudeRequests).catch((error) => closeFailed(call.child, error))
-    })
+    const { sdk } = fakeSdk((call) => fakeClaudeSdkTurn(call, claudeRequests))
     const service = new ClaudeCodeRuntimeService({
       settings: async () => settings({
         workspaceRoot,
@@ -307,7 +316,7 @@ describe('Claude Code runtime + Model Router e2e', () => {
       }),
       storageRoot: await mkdtemp(join(tmpdir(), 'sciforge-claude-e2e-store-')),
       managedConfigDir: await mkdtemp(join(tmpdir(), 'sciforge-claude-e2e-config-')),
-      spawn
+      claudeAgentSdk: sdk
     })
 
     try {

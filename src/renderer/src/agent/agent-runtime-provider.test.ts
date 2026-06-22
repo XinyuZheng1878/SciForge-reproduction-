@@ -751,6 +751,35 @@ describe('AgentRuntimeProvider', () => {
       if (input.operation === 'listWorkspaceReferences') {
         return { ok: true, references: [{ workspaceRoot: '/tmp/ws', relativePath: 'src/index.ts', name: 'index.ts', kind: 'file' }] }
       }
+      if (input.operation === 'listThreadChildren') {
+        return {
+          runtimeId: 'codex',
+          threadId: input.payload?.threadId,
+          children: [{
+            runtimeId: 'codex',
+            parentThreadId: input.payload?.threadId,
+            id: 'child-1',
+            kind: 'agent',
+            name: 'research',
+            status: 'running'
+          }]
+        }
+      }
+      if (input.operation === 'readChildTranscript') {
+        return {
+          transcript: {
+            runtimeId: 'codex',
+            parentThreadId: input.payload?.parentThreadId,
+            childId: input.payload?.childId,
+            transcriptRef: input.payload?.transcriptRef,
+            entries: [{
+              id: 'entry-1',
+              kind: 'assistant_message',
+              text: 'child output'
+            }]
+          }
+        }
+      }
       return true
     })
     vi.stubGlobal('window', {
@@ -836,6 +865,22 @@ describe('AgentRuntimeProvider', () => {
       ok: true,
       references: [expect.objectContaining({ relativePath: 'src/index.ts' })]
     })
+    await expect(provider.listThreadChildren?.('codex-thread', { limit: 20 })).resolves.toMatchObject({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      children: [expect.objectContaining({ id: 'child-1', parentThreadId: 'codex-thread' })]
+    })
+    await expect(provider.readChildTranscript?.({
+      runtimeId: 'codex',
+      parentThreadId: 'codex-thread',
+      childId: 'child-1',
+      transcriptRef: { runtimeId: 'codex', childId: 'child-1', transcriptId: 'transcript-1' }
+    })).resolves.toMatchObject({
+      transcript: {
+        childId: 'child-1',
+        entries: [expect.objectContaining({ text: 'child output' })]
+      }
+    })
     expect(auxiliary).toHaveBeenCalledWith({
       runtimeId: 'codex',
       operation: 'getContextState',
@@ -854,6 +899,24 @@ describe('AgentRuntimeProvider', () => {
       runtimeId: 'codex',
       operation: 'clearModelAuditRecords',
       payload: {}
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      operation: 'listThreadChildren',
+      payload: {
+        threadId: 'codex-thread',
+        limit: 20
+      }
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      operation: 'readChildTranscript',
+      payload: {
+        runtimeId: 'codex',
+        parentThreadId: 'codex-thread',
+        childId: 'child-1',
+        transcriptRef: { runtimeId: 'codex', childId: 'child-1', transcriptId: 'transcript-1' }
+      }
     })
   })
 

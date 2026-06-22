@@ -43,6 +43,7 @@ export type LegacyMainGuardCode =
   | 'runtime_request_user_input_unsupported'
   | 'runtime_tool_storm_interrupted'
   | 'missing_api_key'
+  | 'provider_auth_blocked'
 
 export type RuntimeErrorCode = KunErrorCode | LegacyMainGuardCode
 
@@ -81,7 +82,8 @@ const KNOWN_LEGACY_CODES: ReadonlySet<LegacyMainGuardCode> = new Set<LegacyMainG
   'runtime_unhealthy',
   'runtime_request_user_input_unsupported',
   'runtime_tool_storm_interrupted',
-  'missing_api_key'
+  'missing_api_key',
+  'provider_auth_blocked'
 ])
 
 function normalizeCode(value: unknown): RuntimeErrorCode {

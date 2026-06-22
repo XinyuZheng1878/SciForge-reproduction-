@@ -4,7 +4,10 @@ import type {
   AgentRuntimeCapabilities,
   AgentRuntimeEvent,
   AgentRuntimeItem,
+  AgentRuntimeListThreadChildrenResponse,
   AgentRuntimeMemoryRecord,
+  AgentRuntimeReadChildTranscriptInput,
+  AgentRuntimeReadChildTranscriptResponse,
   AgentRuntimeThreadRelation,
   AgentRuntimeThread,
   AgentRuntimeThreadDetail,
@@ -809,6 +812,20 @@ export class AgentRuntimeProvider implements AgentProvider {
 
   clearThreadTodos(threadId: string): ReturnType<NonNullable<AgentProvider['clearThreadTodos']>> {
     return this.threadAuxiliary(threadId, 'clearThreadTodos')
+  }
+
+  async listThreadChildren(
+    threadId: string,
+    options: Parameters<NonNullable<AgentProvider['listThreadChildren']>>[1] = {}
+  ): Promise<AgentRuntimeListThreadChildrenResponse> {
+    return this.threadAuxiliary(threadId, 'listThreadChildren', options)
+  }
+
+  async readChildTranscript(
+    input: AgentRuntimeReadChildTranscriptInput
+  ): Promise<AgentRuntimeReadChildTranscriptResponse> {
+    const runtimeId = input.runtimeId ?? await this.runtimeIdForThread(input.parentThreadId)
+    return this.auxiliary('readChildTranscript', input as unknown as Record<string, unknown>, runtimeId)
   }
 
   async forkThread(

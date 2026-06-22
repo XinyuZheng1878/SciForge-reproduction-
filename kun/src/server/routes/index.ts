@@ -28,6 +28,7 @@ import { decideApproval } from './approvals.js'
 import { resolveUserInput } from './user-inputs.js'
 import { resumeSession } from './sessions.js'
 import { usageJsonResponse } from './usage.js'
+import { listThreadChildren, readChildTranscript } from './children.js'
 import { runtimeInfoJsonResponse, runtimeToolDiagnosticsJsonResponse } from './runtime-info.js'
 import { listSkills } from './skills.js'
 import {
@@ -70,6 +71,8 @@ import type { ServerRuntime } from './server-runtime.js'
  * - `POST /v1/threads/{id}/turns/{turnId}/interrupt` (auth)
  * - `POST /v1/threads/{id}/compact` (auth)
  * - `GET /v1/threads/{id}/events` (auth)
+ * - `GET /v1/threads/{id}/children` (auth)
+ * - `GET /v1/threads/{id}/children/{childId}/transcript` (auth, degraded until transcripts persist)
  * - `POST /v1/approvals/{id}` (auth)
  * - `POST /v1/user-inputs/{id}` and `/v1/user-input/{id}` (auth)
  * - `POST /v1/sessions/{id}/resume-thread` (auth)
@@ -225,6 +228,14 @@ export function buildRouter(runtime: ServerRuntime): Router {
       sessionStore: runtime.sessionStore,
       allocateSeq: runtime.allocateSeq
     })
+  })
+  router.add('GET', '/v1/threads/:id/children', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return listThreadChildren(runtime, ctx.params.id, request)
+  })
+  router.add('GET', '/v1/threads/:id/children/:childId/transcript', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return readChildTranscript(runtime, ctx.params.id, ctx.params.childId)
   })
   router.add('POST', '/v1/approvals/:id', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()

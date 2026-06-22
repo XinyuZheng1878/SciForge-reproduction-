@@ -374,6 +374,119 @@ describe('normalizeCodexEvent', () => {
     })
   })
 
+  it('maps collab agent tool calls to child events with real child thread refs', () => {
+    expect(normalizeCodexEvent({
+      method: 'item/started',
+      params: {
+        threadId: 'parent-thread',
+        turnId: 'turn-1',
+        item: {
+          type: 'collabAgentToolCall',
+          id: 'collab-1',
+          tool: 'spawn_agent',
+          status: 'in_progress',
+          receiverThreadIds: ['child-thread'],
+          agentNickname: 'Reviewer',
+          agentRole: 'code-review',
+          threadSource: 'subagent',
+          prompt: 'Review the diff',
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            totalTokens: 12
+          }
+        }
+      }
+    })).toMatchObject({
+      threadId: 'parent-thread',
+      turnId: 'turn-1',
+      tool: {
+        itemId: 'collab-1',
+        summary: 'spawn_agent',
+        status: 'running',
+        toolKind: 'tool_call',
+        meta: {
+          toolName: 'spawn_agent',
+          receiverThreadIds: ['child-thread'],
+          agentNickname: 'Reviewer',
+          agentRole: 'code-review',
+          threadSource: 'subagent'
+        }
+      },
+      child: {
+        id: 'collab-1',
+        runtimeId: 'codex',
+        parentThreadId: 'parent-thread',
+        parentTurnId: 'turn-1',
+        kind: 'agent',
+        status: 'running',
+        name: 'Reviewer',
+        label: 'code-review',
+        prompt: 'Review the diff',
+        usage: {
+          inputTokens: 10,
+          outputTokens: 2,
+          totalTokens: 12
+        },
+        transcriptRef: {
+          runtimeId: 'codex',
+          childId: 'collab-1',
+          transcriptId: 'child-thread',
+          source: 'codex-app-server'
+        },
+        openAsThreadRef: {
+          runtimeId: 'codex',
+          threadId: 'child-thread',
+          relation: 'side'
+        },
+        metadata: {
+          toolType: 'collabAgentToolCall',
+          threadSource: 'subagent',
+          receiverThreadIds: ['child-thread'],
+          agentNickname: 'Reviewer',
+          agentRole: 'code-review'
+        }
+      }
+    })
+  })
+
+  it('maps native threadSource subagent thread events to thread children', () => {
+    expect(normalizeCodexEvent({
+      method: 'thread/updated',
+      params: {
+        parentThreadId: 'parent-thread',
+        parentTurnId: 'turn-1',
+        thread: {
+          id: 'child-thread',
+          threadSource: 'subagent',
+          name: 'Implementation worker',
+          agentRole: 'implementer',
+          status: 'completed',
+          preview: 'Updated the adapter tests.'
+        }
+      }
+    })).toMatchObject({
+      threadId: 'parent-thread',
+      turnId: 'turn-1',
+      child: {
+        id: 'child-thread',
+        runtimeId: 'codex',
+        parentThreadId: 'parent-thread',
+        parentTurnId: 'turn-1',
+        kind: 'thread',
+        status: 'completed',
+        name: 'Implementation worker',
+        label: 'implementer',
+        summary: 'Updated the adapter tests.',
+        openAsThreadRef: {
+          runtimeId: 'codex',
+          threadId: 'child-thread',
+          relation: 'side'
+        }
+      }
+    })
+  })
+
   it('maps turn completion to a done event', () => {
     expect(normalizeCodexEvent({
       method: 'turn/completed',
@@ -461,6 +574,24 @@ describe('normalizeCodexEvent', () => {
         itemId: 'turn-2',
         message: 'turn failed',
         code: 'bad_turn',
+        severity: 'error'
+      }
+    })
+
+    expect(normalizeCodexEvent({
+      method: 'turn/failed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-provider-auth',
+        error: { message: 'stream disconnected before completion: provider_http_401' }
+      }
+    })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-provider-auth',
+      runtimeError: {
+        itemId: 'turn-provider-auth',
+        message: 'stream disconnected before completion: provider_http_401',
+        code: 'provider_auth_blocked',
         severity: 'error'
       }
     })

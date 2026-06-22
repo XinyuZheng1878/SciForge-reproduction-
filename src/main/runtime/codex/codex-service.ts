@@ -264,7 +264,16 @@ export class CodexRuntimeService {
         message: 'Codex thread ready',
         latencyMs: elapsedMs(startedAtMs)
       })
-      return { ok: true, thread: { ...thread, title: payload.title || thread.title } }
+      return {
+        ok: true,
+        thread: storedThread
+          ? storedThreadToNormalizedThread(storedThread)
+          : {
+              ...thread,
+              workspace: thread.workspace || workspace,
+              title: payload.title || thread.title
+            }
+      }
     } catch (error) {
       await this.discardClientAfterFailure()
       return failure(error)
@@ -1703,6 +1712,30 @@ function safeQuestions(value: unknown): Array<Record<string, unknown>> {
 
 function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread {
   const id = stringValue(thread.id)
+  const source = asRecord(thread.source) ?? asRecord(thread.threadSource)
+  const threadSource = stringValue(thread.threadSource) || stringValue(source?.type) || stringValue(source?.kind)
+  const parentThreadId =
+    stringValue(thread.parentThreadId) ||
+    stringValue(thread.parent_thread_id) ||
+    stringValue(source?.parentThreadId) ||
+    stringValue(source?.parent_thread_id)
+  const parentTurnId =
+    stringValue(thread.parentTurnId) ||
+    stringValue(thread.parent_turn_id) ||
+    stringValue(source?.parentTurnId) ||
+    stringValue(source?.parent_turn_id) ||
+    stringValue(source?.turnId) ||
+    stringValue(source?.turn_id)
+  const agentNickname =
+    stringValue(thread.agentNickname) ||
+    stringValue(thread.agent_nickname) ||
+    stringValue(source?.agentNickname) ||
+    stringValue(source?.agent_nickname)
+  const agentRole =
+    stringValue(thread.agentRole) ||
+    stringValue(thread.agent_role) ||
+    stringValue(source?.agentRole) ||
+    stringValue(source?.agent_role)
   const updatedAtSeconds = numberValue(thread.updatedAt) ?? numberValue(thread.createdAt)
   const updatedAt = updatedAtSeconds
     ? new Date(updatedAtSeconds * 1000).toISOString()
@@ -1722,7 +1755,13 @@ function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread
     archived: stringValue(thread.status) === 'archived',
     preview,
     latestTurnId: stringValue(latestTurn?.id),
-    latestTurnStatus: stringValue(latestTurn?.status)
+    latestTurnStatus: stringValue(latestTurn?.status),
+    ...(threadSource ? { threadSource } : {}),
+    ...(threadSource === 'subagent' ? { relation: 'side' as const } : {}),
+    ...(parentThreadId ? { parentThreadId } : {}),
+    ...(parentTurnId ? { parentTurnId } : {}),
+    ...(agentNickname ? { agentNickname } : {}),
+    ...(agentRole ? { agentRole } : {})
   }
 }
 
@@ -1874,6 +1913,7 @@ function eventShouldUpsertThread(event: CodexEventPayload['event']): boolean {
     event.userMessage ||
     event.deltas?.length ||
     event.tool ||
+    event.child ||
     event.turnComplete ||
     event.runtimeError
   )
@@ -1883,6 +1923,7 @@ function eventHasNonDeltaPayload(event: CodexEventPayload['event']): boolean {
   return Boolean(
     event.userMessage ||
     event.tool ||
+    event.child ||
     event.turnComplete ||
     event.runtimeError ||
     event.runtimeStatus ||
@@ -1922,6 +1963,7 @@ function eventHasModelActivity(event: CodexThreadEventPayload): boolean {
   return Boolean(
     event.deltas?.length ||
     event.tool ||
+    event.child ||
     event.runtimeStatus ||
     event.runtimeError ||
     event.turnComplete

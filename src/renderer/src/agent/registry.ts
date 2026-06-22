@@ -92,6 +92,18 @@ class RegistryAgentProvider implements AgentProvider {
     return this.neutral.getContextState(...args)
   }
 
+  listThreadChildren(
+    ...args: Parameters<NonNullable<AgentProvider['listThreadChildren']>>
+  ): ReturnType<NonNullable<AgentProvider['listThreadChildren']>> {
+    return this.neutral.listThreadChildren(...args)
+  }
+
+  readChildTranscript(
+    ...args: Parameters<NonNullable<AgentProvider['readChildTranscript']>>
+  ): ReturnType<NonNullable<AgentProvider['readChildTranscript']>> {
+    return this.neutral.readChildTranscript(...args)
+  }
+
   listGitCheckpoints(
     ...args: Parameters<NonNullable<AgentProvider['listGitCheckpoints']>>
   ): ReturnType<NonNullable<AgentProvider['listGitCheckpoints']>> {

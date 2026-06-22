@@ -74,7 +74,7 @@ export function modelRouterManagementUrl(baseUrl: string, path: string): string 
 
 function classifyHealthzFailure(status: number, body: string): Exclude<ModelRouterHealthStatus, 'healthy' | 'not_configured'> {
   if (status === 401 || status === 403) return 'provider_auth_blocked'
-  if (/missing_secret|provider-auth|provider_auth|unauthenticated|unauthorized|forbidden/i.test(body)) {
+  if (/missing_secret|provider-auth|provider_auth|provider_http_40[13]|unauthenticated|unauthorized|forbidden/i.test(body)) {
     return 'provider_auth_blocked'
   }
   return 'unavailable'

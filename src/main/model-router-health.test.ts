@@ -95,4 +95,19 @@ describe('checkModelRouterHealth', () => {
     expect(result.status).toBe('provider_auth_blocked')
     expect(JSON.stringify(result)).not.toMatch(/sk-upstream-secret|Authorization/i)
   })
+
+  it('maps provider http auth failures from healthz bodies', async () => {
+    const result = await checkModelRouterHealth(settings(), {
+      fetchImpl: async () => Response.json({
+        ok: false,
+        upstream: {
+          ok: false,
+          errorSummary: 'provider_http_401'
+        }
+      }, { status: 503 })
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe('provider_auth_blocked')
+  })
 })

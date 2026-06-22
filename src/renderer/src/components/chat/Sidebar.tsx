@@ -26,6 +26,7 @@ import {
 import type { ClawImDialogMode } from './SidebarClawDialogHelpers'
 import { ClawAddImDialog } from './SidebarClawDialog'
 import { ConnectPhoneDialog, resolveConnectPhoneWorkspaceRoot } from './ConnectPhoneView'
+import { SidebarChildrenSection } from './SidebarChildrenSection'
 import { SidebarProjectsSection } from './SidebarProjectsSection'
 import { WorkspaceModeTabs } from './WorkspaceModeTabs'
 import {
@@ -135,6 +136,10 @@ export function Sidebar({
     }
     return ids
   }, [activeClawChannelId, botThreadBindings])
+  const activeThread = useMemo(
+    () => activeThreadId ? threads.find((thread) => thread.id === activeThreadId) ?? null : null,
+    [activeThreadId, threads]
+  )
 
   return (
     <>
@@ -257,6 +262,14 @@ export function Sidebar({
         activeChannelId={activeRemoteChannelId ?? ''}
         runtimeReady={runtimeReady}
         onSelectChannel={selectRemoteGuardChannel}
+        t={t}
+      />
+      <SidebarChildrenSection
+        activeThreadId={activeThreadId}
+        activeThread={activeThread}
+        runtimeReady={runtimeReady}
+        busy={busy}
+        onSelectThread={onSelectThread}
         t={t}
       />
       <SidebarProjectsSection

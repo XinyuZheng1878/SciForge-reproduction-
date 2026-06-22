@@ -60,6 +60,8 @@ const agentRuntimeThreadRelationSchema = z.string().trim().pipe(z.enum(['primary
 const agentRuntimeUsageGroupBySchema = z.string().trim().pipe(z.enum(['day', 'model', 'thread']))
 const agentRuntimeAuxiliaryOperationSchema = z.enum([
   'reviewThread',
+  'listThreadChildren',
+  'readChildTranscript',
   'getRuntimeInfo',
   'getToolDiagnostics',
   'runCodeNavigation',

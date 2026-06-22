@@ -168,6 +168,71 @@ describe('HTTP server', () => {
     expect(response.status).toBe(401)
   })
 
+  it('lists native delegation child runs for a parent thread', async () => {
+    const h = buildHarness()
+    h.runtime.delegationRuntime = {
+      diagnostics: async (parentThreadId?: string) => ({
+        enabled: true,
+        active: 1,
+        childRuns: [
+          {
+            id: 'child-1',
+            parentThreadId: parentThreadId ?? 'thread-1',
+            parentTurnId: 'turn-1',
+            label: 'research',
+            prompt: 'Research A',
+            status: 'running',
+            usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+            createdAt: '2026-06-02T00:00:00.000Z',
+            updatedAt: '2026-06-02T00:00:01.000Z'
+          },
+          {
+            id: 'child-2',
+            parentThreadId: parentThreadId ?? 'thread-1',
+            parentTurnId: 'turn-2',
+            prompt: 'Research B',
+            status: 'completed',
+            summary: 'Done',
+            usage: { promptTokens: 3, completionTokens: 4, totalTokens: 7 },
+            createdAt: '2026-06-02T00:00:02.000Z',
+            updatedAt: '2026-06-02T00:00:03.000Z'
+          }
+        ],
+        aggregates: []
+      })
+    } as unknown as typeof h.runtime.delegationRuntime
+
+    const response = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thread-1/children?turn_id=turn-1&active_only=true&limit=1', {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+
+    expect(response.status).toBe(200)
+    const body = await readJson(response) as {
+      threadId?: string
+      turnId?: string
+      children?: Array<{ id: string; status: string; prompt: string }>
+      metadata?: { enabled?: boolean; active?: number }
+    }
+    expect(body).toMatchObject({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      children: [
+        {
+          id: 'child-1',
+          status: 'running',
+          prompt: 'Research A'
+        }
+      ],
+      metadata: {
+        enabled: true,
+        active: 1
+      }
+    })
+  })
+
   it('lists discovered skills through the HTTP layer', async () => {
     const h = buildHarness()
     h.runtime.skills = () => ({

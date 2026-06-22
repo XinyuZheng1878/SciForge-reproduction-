@@ -5,6 +5,8 @@ import {
 import type {
   AgentRuntimeAuxiliaryInput,
   AgentRuntimeCapabilities,
+  AgentRuntimeChild,
+  AgentRuntimeChildStatus,
   AgentRuntimeEvent,
   AgentRuntimeItem,
   AgentRuntimeModality,
@@ -16,7 +18,10 @@ import type {
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse
 } from '../../shared/agent-runtime-contract'
-import { createDefaultAgentRuntimeCapabilities } from '../../shared/agent-runtime-contract'
+import {
+  createDefaultAgentRuntimeCapabilities,
+  filterAgentRuntimeThreadChildren
+} from '../../shared/agent-runtime-contract'
 import {
   KUN_ATTACHMENTS_PATH,
   KUN_HEALTH_PATH,
@@ -30,6 +35,7 @@ import {
   kunMemoryRecordPath,
   kunSessionResumePath,
   kunThreadCompactPath,
+  kunThreadChildrenPath,
   kunThreadForkPath,
   kunThreadGoalPath,
   kunThreadInterruptPath,
@@ -417,6 +423,82 @@ async function kunAuxiliary(
         body: JSON.stringify({ cancelled: true })
       })
       return undefined
+    case 'listThreadChildren': {
+      const threadId = requiredString(payload, 'threadId', input.operation)
+      const turnId = optionalString(payload.turnId) ?? optionalString(payload.parentTurnId)
+      const activeOnly = booleanOrUndefined(payload.activeOnly)
+      let result: unknown
+      try {
+        result = await requestJson(
+          options,
+          context,
+          `${kunThreadChildrenPath(threadId)}${queryString({
+            turn_id: turnId,
+            active_only: activeOnly,
+            cursor: optionalString(payload.cursor),
+            limit: optionalPositiveIntegerString(payload.limit)
+          })}`,
+          { method: 'GET' }
+        )
+      } catch (error) {
+        if (!isKunNotFoundError(error)) throw error
+        return {
+          runtimeId: 'kun',
+          threadId,
+          ...(turnId ? { parentTurnId: turnId } : {}),
+          children: [],
+          degraded: true,
+          reason: 'Kun child run endpoint is unavailable.'
+        }
+      }
+      const record = asRecord(result) ?? {}
+      const rawChildren = arrayValue(record.children).length
+        ? arrayValue(record.children)
+        : arrayValue(record.childRuns)
+      const children = filterAgentRuntimeThreadChildren(
+        rawChildren
+          .map((child) => mapKunChildRun(child, threadId))
+          .filter((child): child is AgentRuntimeChild => child != null),
+        {
+          runtimeId: 'kun',
+          parentThreadId: threadId,
+          ...(turnId ? { parentTurnId: turnId } : {}),
+          ...(activeOnly !== undefined ? { activeOnly } : {})
+        }
+      )
+      const metadata = asRecord(record.metadata)
+      return {
+        runtimeId: 'kun',
+        threadId,
+        ...(turnId ? { parentTurnId: turnId } : {}),
+        children,
+        ...(optionalString(record.nextCursor) ? { nextCursor: optionalString(record.nextCursor) } : {}),
+        ...(record.degraded === true ? { degraded: true } : {}),
+        ...(optionalString(record.reason) ? { reason: optionalString(record.reason) } : {}),
+        ...(metadata ? { metadata } : {})
+      }
+    }
+    case 'readChildTranscript': {
+      const threadId = optionalString(payload.threadId) ??
+        optionalString(payload.parentThreadId) ??
+        requiredString(payload, 'threadId', input.operation)
+      const parentTurnId = optionalString(payload.parentTurnId) ?? optionalString(payload.turnId)
+      const childId = requiredString(payload, 'childId', input.operation)
+      const reason = 'Kun child agent transcripts are not persisted by the runtime yet.'
+      return {
+        transcript: {
+          runtimeId: 'kun',
+          threadId,
+          parentThreadId: threadId,
+          ...(parentTurnId ? { parentTurnId } : {}),
+          childId,
+          format: 'unknown',
+          entries: [],
+          degraded: true,
+          reason
+        }
+      }
+    }
     default:
       throw new Error(`Unsupported Kun auxiliary operation: ${input.operation}.`)
   }
@@ -468,6 +550,12 @@ function requiredString(payload: Record<string, unknown>, key: string, operation
 
 function booleanOrUndefined(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
+}
+
+function optionalPositiveIntegerString(value: unknown): string | undefined {
+  const number = numberValue(value)
+  if (number === undefined || !Number.isInteger(number) || number <= 0) return undefined
+  return String(number)
 }
 
 function queryString(params: Record<string, string | boolean | undefined>): string {
@@ -738,6 +826,21 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
   const createdAt = optionalString(record.timestamp) ?? optionalString(record.createdAt)
   const turnId = optionalString(record.turnId)
   const itemId = stringValue(record.itemId)
+  const child = mapKunChildEvent(record, threadId, turnId, createdAt)
+  if (child) {
+    const message = optionalString(record.message) ?? optionalString(record.text)
+    return {
+      kind: 'child_event',
+      threadId,
+      runtimeId: 'kun',
+      seq,
+      createdAt,
+      turnId,
+      itemId: child.id,
+      child,
+      ...(message ? { message } : {})
+    }
+  }
 
   if (kind === 'thread_created' || kind === 'thread_updated') {
     return {
@@ -938,6 +1041,7 @@ function isNeutralEvent(record: Record<string, unknown>): boolean {
     'review_event',
     'goal_event',
     'todo_event',
+    'child_event',
     'usage',
     'error',
     'heartbeat'
@@ -1125,13 +1229,107 @@ function modalities(value: unknown, fallback: AgentRuntimeModality[]): AgentRunt
 function mapUsage(value: unknown): AgentRuntimeThreadDetail['usage'] {
   const record = asRecord(value)
   if (!record) return undefined
+  const inputTokens = numberValue(record.inputTokens) ?? numberValue(record.promptTokens) ?? numberValue(record.prompt_tokens)
+  const outputTokens = numberValue(record.outputTokens) ?? numberValue(record.completionTokens) ?? numberValue(record.completion_tokens)
   return {
-    inputTokens: numberValue(record.inputTokens) ?? numberValue(record.prompt_tokens),
-    outputTokens: numberValue(record.outputTokens) ?? numberValue(record.completion_tokens),
-    totalTokens: numberValue(record.totalTokens) ?? numberValue(record.total_tokens),
-    cacheReadTokens: numberValue(record.cacheReadTokens) ?? numberValue(record.cache_hit_tokens),
-    cacheWriteTokens: numberValue(record.cacheWriteTokens) ?? numberValue(record.cache_miss_tokens),
+    inputTokens,
+    outputTokens,
+    totalTokens: numberValue(record.totalTokens) ??
+      numberValue(record.total_tokens) ??
+      (inputTokens !== undefined || outputTokens !== undefined ? (inputTokens ?? 0) + (outputTokens ?? 0) : undefined),
+    cacheReadTokens: numberValue(record.cacheReadTokens) ??
+      numberValue(record.cachedTokens) ??
+      numberValue(record.cacheHitTokens) ??
+      numberValue(record.cache_hit_tokens),
+    cacheWriteTokens: numberValue(record.cacheWriteTokens) ??
+      numberValue(record.cacheMissTokens) ??
+      numberValue(record.cache_miss_tokens),
     costUsd: numberValue(record.costUsd) ?? numberValue(record.cost_usd)
+  }
+}
+
+function mapKunChildRun(value: unknown, fallbackParentThreadId: string): AgentRuntimeChild | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const id = stringValue(record.id) || stringValue(record.childId)
+  const parentThreadId = stringValue(record.parentThreadId) || fallbackParentThreadId
+  if (!id || !parentThreadId) return null
+  const label = optionalString(record.label) ?? optionalString(record.childLabel)
+  const status = mapKunChildStatus(stringValue(record.status) || stringValue(record.childStatus))
+  const updatedAt = optionalString(record.updatedAt) ?? optionalString(record.updated_at)
+  const completedAt = status === 'completed' || status === 'failed' || status === 'aborted'
+    ? updatedAt
+    : undefined
+  const workspace = optionalString(record.workspace)
+  const model = optionalString(record.model)
+  const error = optionalString(record.error)
+  return {
+    id,
+    runtimeId: 'kun',
+    parentThreadId,
+    parentTurnId: optionalString(record.parentTurnId) ?? optionalString(record.parent_turn_id),
+    kind: 'agent',
+    status,
+    ...(label ? { label, name: label } : {}),
+    prompt: optionalString(record.prompt),
+    summary: optionalString(record.summary) ?? optionalString(record.text) ?? error,
+    usage: mapUsage(record.usage),
+    createdAt: optionalString(record.createdAt) ?? optionalString(record.created_at),
+    startedAt: optionalString(record.startedAt) ?? optionalString(record.started_at) ?? optionalString(record.createdAt) ?? optionalString(record.created_at),
+    updatedAt,
+    ...(completedAt ? { completedAt } : {}),
+    metadata: {
+      source: 'kun.delegate_task',
+      ...(workspace ? { workspace } : {}),
+      ...(model ? { model } : {}),
+      ...(error ? { error } : {})
+    }
+  }
+}
+
+function mapKunChildStatus(value: string): AgentRuntimeChildStatus {
+  if (
+    value === 'queued' ||
+    value === 'running' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'aborted'
+  ) {
+    return value
+  }
+  return 'unknown'
+}
+
+function mapKunChildEvent(
+  value: Record<string, unknown>,
+  fallbackParentThreadId: string,
+  fallbackParentTurnId: string | undefined,
+  createdAt: string | undefined
+): AgentRuntimeChild | null {
+  const event = value
+  const record = asRecord(event.child)
+  if (!record) return null
+  const id = stringValue(record.childId)
+  const parentThreadId = stringValue(record.parentThreadId) || fallbackParentThreadId
+  if (!id || !parentThreadId) return null
+  const label = optionalString(record.childLabel)
+  const status = mapKunChildStatus(stringValue(record.childStatus))
+  const summary = optionalString(event.text) ?? optionalString(event.message)
+  return {
+    id,
+    runtimeId: 'kun',
+    parentThreadId,
+    parentTurnId: optionalString(record.parentTurnId) ?? fallbackParentTurnId,
+    kind: 'agent',
+    status,
+    ...(label ? { label, name: label } : {}),
+    ...(summary ? { summary } : {}),
+    updatedAt: createdAt,
+    ...(status === 'completed' || status === 'failed' || status === 'aborted' ? { completedAt: createdAt } : {}),
+    metadata: {
+      source: 'kun.runtime_event',
+      ...(numberValue(record.childSeq) !== undefined ? { childSeq: numberValue(record.childSeq) } : {})
+    }
   }
 }
 

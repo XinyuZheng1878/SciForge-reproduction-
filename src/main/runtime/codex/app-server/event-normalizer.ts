@@ -5,6 +5,8 @@ export type CodexEventNormalizeContext = {
   turnId?: string
 }
 
+type CodexNormalizedChild = NonNullable<CodexThreadEventPayload['child']>
+
 export function normalizeCodexEvent(
   payload: unknown,
   context: CodexEventNormalizeContext = {}
@@ -19,6 +21,8 @@ export function normalizeCodexEvent(
   }
   const method = stringValue(event.method)
   const params = asRecord(event.params) ?? {}
+  const subagentThreadEvent = normalizeSubagentThreadEvent(method, params, context)
+  if (subagentThreadEvent) return subagentThreadEvent
   const threadId = stringValue(params.threadId) ||
     stringValue(params.thread_id) ||
     stringValue(asRecord(params.thread)?.id) ||
@@ -96,13 +100,15 @@ export function normalizeCodexEvent(
   if (method === 'error' || method === 'turn/failed') {
     const error = asRecord(params.error)
     const details = error?.details ?? error?.data ?? params.details ?? params.data
+    const message = stringValue(error?.message) || 'Codex runtime error'
+    const code = normalizeRuntimeErrorCode(stringValue(error?.code), message)
     return {
       threadId,
       ...(turnId ? { turnId } : {}),
       runtimeError: {
         itemId: turnId || 'codex-error',
-        message: stringValue(error?.message) || 'Codex runtime error',
-        ...(stringValue(error?.code) ? { code: stringValue(error?.code) } : {}),
+        message,
+        ...(code ? { code } : {}),
         ...(details !== undefined ? { details } : {}),
         severity: 'error'
       }
@@ -365,8 +371,21 @@ function normalizeThreadItem(
       }
     }
   }
+  if (type !== 'mcpToolCall' && type !== 'dynamicToolCall' && type !== 'collabAgentToolCall') {
+    const threadSourceChild = childFromSubagentThreadRecord(item, context, lifecycle)
+    if (threadSourceChild) {
+      return {
+        threadId: threadSourceChild.parentThreadId,
+        ...(threadSourceChild.parentTurnId ? { turnId: threadSourceChild.parentTurnId } : {}),
+        child: threadSourceChild
+      }
+    }
+  }
   if (type === 'mcpToolCall' || type === 'dynamicToolCall' || type === 'collabAgentToolCall') {
     const tool = stringValue(item.tool) || stringValue(item.server) || type
+    const child = type === 'collabAgentToolCall'
+      ? childFromCollabAgentToolCall(item, context, lifecycle, threadId, turnId)
+      : null
     return {
       threadId,
       ...(turnId ? { turnId } : {}),
@@ -379,12 +398,334 @@ function normalizeThreadItem(
         meta: {
           toolName: tool,
           ...(stringValue(item.server) ? { server: stringValue(item.server) } : {}),
-          ...(stringValue(item.namespace) ? { namespace: stringValue(item.namespace) } : {})
+          ...(stringValue(item.namespace) ? { namespace: stringValue(item.namespace) } : {}),
+          ...(type === 'collabAgentToolCall' ? collabAgentToolMetadata(item) : {})
         }
-      }
+      },
+      ...(child ? { child } : {})
     }
   }
   return null
+}
+
+function normalizeSubagentThreadEvent(
+  method: string,
+  params: Record<string, unknown>,
+  context: CodexEventNormalizeContext
+): CodexThreadEventPayload | null {
+  if (!method.includes('thread')) return null
+  const thread = asRecord(params.thread) ?? params
+  const child = childFromSubagentThreadRecord(thread, {
+    threadId: stringValue(params.parentThreadId) ||
+      stringValue(params.parent_thread_id) ||
+      stringValue(params.sourceThreadId) ||
+      stringValue(params.source_thread_id) ||
+      stringValue(context.threadId),
+    turnId: stringValue(params.parentTurnId) ||
+      stringValue(params.parent_turn_id) ||
+      stringValue(params.turnId) ||
+      stringValue(params.turn_id) ||
+      stringValue(context.turnId)
+  }, method.includes('completed') || method.includes('complete') ? 'completed' : 'running')
+  if (!child) return null
+  return {
+    threadId: child.parentThreadId,
+    ...(child.parentTurnId ? { turnId: child.parentTurnId } : {}),
+    child
+  }
+}
+
+function childFromSubagentThreadRecord(
+  record: Record<string, unknown>,
+  context: CodexEventNormalizeContext,
+  lifecycle: 'running' | 'completed'
+): CodexNormalizedChild | null {
+  const source = normalizedThreadSource(record)
+  if (source !== 'subagent') return null
+  const childThreadId = stringValue(record.id) ||
+    stringValue(record.threadId) ||
+    stringValue(record.thread_id) ||
+    stringValue(record.childThreadId) ||
+    stringValue(record.child_thread_id)
+  const parentThreadId = stringValue(record.parentThreadId) ||
+    stringValue(record.parent_thread_id) ||
+    stringValue(record.sourceThreadId) ||
+    stringValue(record.source_thread_id) ||
+    stringValue(context.threadId)
+  if (!childThreadId || !parentThreadId || childThreadId === parentThreadId) return null
+  const parentTurnId = stringValue(record.parentTurnId) ||
+    stringValue(record.parent_turn_id) ||
+    stringValue(record.turnId) ||
+    stringValue(record.turn_id) ||
+    stringValue(context.turnId)
+  const name = stringValue(record.agentNickname) ||
+    stringValue(record.agent_nickname) ||
+    stringValue(record.name) ||
+    stringValue(record.title)
+  const role = stringValue(record.agentRole) || stringValue(record.agent_role)
+  const status = childStatus(record, lifecycle)
+  return withCleanMetadata({
+    id: childThreadId,
+    runtimeId: 'codex',
+    parentThreadId,
+    ...(parentTurnId ? { parentTurnId } : {}),
+    kind: 'thread',
+    status,
+    ...(name ? { name } : {}),
+    ...(role ? { label: role } : {}),
+    ...(childPrompt(record) ? { prompt: childPrompt(record) } : {}),
+    ...(childSummary(record) ? { summary: childSummary(record) } : {}),
+    ...(usageFromRecord(record) ? { usage: usageFromRecord(record) } : {}),
+    transcriptRef: runtimeTranscriptRef(childThreadId, childThreadId),
+    openAsThreadRef: openAsThreadRef(childThreadId),
+    ...(eventIso(record.createdAt) ? { createdAt: eventIso(record.createdAt) } : {}),
+    ...(eventIso(record.startedAt) ? { startedAt: eventIso(record.startedAt) } : {}),
+    ...(eventIso(record.updatedAt) ? { updatedAt: eventIso(record.updatedAt) } : {}),
+    ...(status === 'completed' && eventIso(record.completedAt) ? { completedAt: eventIso(record.completedAt) } : {}),
+    metadata: {
+      threadSource: source,
+      ...(role ? { agentRole: role } : {})
+    }
+  })
+}
+
+function childFromCollabAgentToolCall(
+  item: Record<string, unknown>,
+  context: CodexEventNormalizeContext,
+  lifecycle: 'running' | 'completed',
+  parentThreadId: string,
+  parentTurnId: string
+): CodexNormalizedChild | null {
+  const receiverThreadIds = receiverThreadIdsFromItem(item)
+  const childThreadId = receiverThreadIds[0]
+  const id = stringValue(item.id) ||
+    stringValue(item.callId) ||
+    stringValue(item.call_id) ||
+    childThreadId
+  const resolvedParentThreadId = parentThreadId || stringValue(context.threadId)
+  if (!id || !resolvedParentThreadId) return null
+  const resolvedParentTurnId = parentTurnId || stringValue(context.turnId)
+  const name = stringValue(item.agentNickname) ||
+    stringValue(item.agent_nickname) ||
+    stringValue(item.agentName) ||
+    stringValue(item.agent_name)
+  const role = stringValue(item.agentRole) ||
+    stringValue(item.agent_role) ||
+    stringValue(item.role)
+  const status = childStatus(item, lifecycle)
+  return withCleanMetadata({
+    id,
+    runtimeId: 'codex',
+    parentThreadId: resolvedParentThreadId,
+    ...(resolvedParentTurnId ? { parentTurnId: resolvedParentTurnId } : {}),
+    kind: 'agent',
+    status,
+    ...(name ? { name } : {}),
+    ...(role ? { label: role } : {}),
+    ...(childPrompt(item) ? { prompt: childPrompt(item) } : {}),
+    ...(childSummary(item) ? { summary: childSummary(item) } : {}),
+    ...(usageFromRecord(item) ? { usage: usageFromRecord(item) } : {}),
+    ...(childThreadId ? { transcriptRef: runtimeTranscriptRef(id, childThreadId) } : {}),
+    ...(childThreadId ? { openAsThreadRef: openAsThreadRef(childThreadId) } : {}),
+    ...(eventIso(item.createdAt) ? { createdAt: eventIso(item.createdAt) } : {}),
+    ...(eventIso(item.startedAt) ? { startedAt: eventIso(item.startedAt) } : {}),
+    ...(eventIso(item.updatedAt) ? { updatedAt: eventIso(item.updatedAt) } : {}),
+    ...(status === 'completed' && eventIso(item.completedAt) ? { completedAt: eventIso(item.completedAt) } : {}),
+    metadata: {
+      toolType: 'collabAgentToolCall',
+      threadSource: threadSource(item),
+      receiverThreadIds,
+      ...(name ? { agentNickname: name } : {}),
+      ...(role ? { agentRole: role } : {})
+    }
+  })
+}
+
+function collabAgentToolMetadata(item: Record<string, unknown>): Record<string, unknown> {
+  const receiverThreadIds = receiverThreadIdsFromItem(item)
+  const agentNickname = stringValue(item.agentNickname) || stringValue(item.agent_nickname)
+  const agentRole = stringValue(item.agentRole) || stringValue(item.agent_role)
+  const source = threadSource(item)
+  return {
+    ...(receiverThreadIds.length ? { receiverThreadIds } : {}),
+    ...(agentNickname ? { agentNickname } : {}),
+    ...(agentRole ? { agentRole } : {}),
+    ...(source ? { threadSource: source } : {})
+  }
+}
+
+function threadSource(record: Record<string, unknown>): string {
+  return stringValue(record.threadSource) ||
+    stringValue(record.thread_source) ||
+    stringValue(asRecord(record.thread)?.threadSource) ||
+    stringValue(asRecord(record.thread)?.thread_source)
+}
+
+function normalizedThreadSource(record: Record<string, unknown>): string {
+  return threadSource(record).trim().toLowerCase()
+}
+
+function receiverThreadIdsFromItem(item: Record<string, unknown>): string[] {
+  return uniqueStrings([
+    ...stringsFromValue(item.receiverThreadIds),
+    ...stringsFromValue(item.receiver_thread_ids),
+    stringValue(item.receiverThreadId),
+    stringValue(item.receiver_thread_id),
+    stringValue(asRecord(item.receiverThread)?.id),
+    stringValue(asRecord(item.receiver_thread)?.id)
+  ])
+}
+
+function stringsFromValue(value: unknown): string[] {
+  if (typeof value === 'string') return [value.trim()].filter(Boolean)
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => {
+      if (typeof entry === 'string') return entry.trim()
+      return stringValue(asRecord(entry)?.id)
+    })
+    .filter(Boolean)
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+}
+
+function childPrompt(record: Record<string, unknown>): string {
+  const args = recordArguments(record)
+  return stringValue(record.prompt) ||
+    stringValue(record.input) ||
+    stringValue(record.instructions) ||
+    stringValue(record.task) ||
+    stringValue(args?.prompt) ||
+    stringValue(args?.input) ||
+    stringValue(args?.instructions) ||
+    stringValue(args?.task)
+}
+
+function childSummary(record: Record<string, unknown>): string {
+  const result = asRecord(record.result)
+  return stringValue(record.summary) ||
+    stringValue(record.preview) ||
+    stringValue(record.output) ||
+    stringValue(record.message) ||
+    stringValue(record.text) ||
+    stringValue(result?.summary) ||
+    stringValue(result?.output) ||
+    stringValue(result?.message) ||
+    stringValue(result?.text) ||
+    contentItemsText(record.contentItems) ||
+    contentItemsText(result?.contentItems)
+}
+
+function contentItemsText(value: unknown): string {
+  return arrayValue(value)
+    .map((entry) => {
+      if (typeof entry === 'string') return entry
+      const record = asRecord(entry)
+      return stringValue(record?.text) || stringValue(record?.content) || stringValue(record?.output)
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+function recordArguments(record: Record<string, unknown>): Record<string, unknown> | null {
+  return asRecord(record.arguments) ||
+    asRecord(record.args) ||
+    parseJsonObject(stringValue(record.arguments)) ||
+    parseJsonObject(stringValue(record.args))
+}
+
+function childStatus(
+  record: Record<string, unknown>,
+  lifecycle: 'running' | 'completed'
+): CodexNormalizedChild['status'] {
+  const status = stringValue(record.status).toLowerCase()
+  if (status === 'queued' || status === 'pending') return 'queued'
+  if (status === 'running' || status === 'inprogress' || status === 'in_progress') return 'running'
+  if (status === 'completed' || status === 'success' || status === 'succeeded') return 'completed'
+  if (status === 'failed' || status === 'error' || status === 'declined') return 'failed'
+  if (status === 'aborted' || status === 'cancelled' || status === 'canceled' || status === 'interrupted') return 'aborted'
+  if (typeof record.exitCode === 'number' && record.exitCode !== 0) return 'failed'
+  return lifecycle === 'completed' ? 'completed' : 'running'
+}
+
+function usageFromRecord(record: Record<string, unknown>): CodexNormalizedChild['usage'] | undefined {
+  const usage = asRecord(record.usage) ??
+    asRecord(record.tokenUsage) ??
+    asRecord(record.token_usage) ??
+    asRecord(asRecord(record.result)?.usage) ??
+    asRecord(asRecord(record.result)?.tokenUsage) ??
+    asRecord(asRecord(record.result)?.token_usage)
+  if (!usage) return undefined
+  const inputTokens = integerValue(
+    usage.inputTokens ?? usage.input_tokens ?? usage.promptTokens ?? usage.prompt_tokens
+  )
+  const outputTokens = integerValue(
+    usage.outputTokens ?? usage.output_tokens ?? usage.completionTokens ?? usage.completion_tokens
+  )
+  const reasoningTokens = integerValue(
+    usage.reasoningTokens ?? usage.reasoning_tokens ?? usage.reasoningOutputTokens ?? usage.reasoning_output_tokens
+  )
+  const totalTokens = integerValue(usage.totalTokens ?? usage.total_tokens) ||
+    inputTokens + outputTokens + reasoningTokens
+  const cacheReadTokens = integerValue(usage.cacheReadTokens ?? usage.cache_read_tokens ?? usage.cachedInputTokens)
+  const cacheWriteTokens = integerValue(usage.cacheWriteTokens ?? usage.cache_write_tokens)
+  if (inputTokens + outputTokens + reasoningTokens + totalTokens + cacheReadTokens + cacheWriteTokens <= 0) {
+    return undefined
+  }
+  return {
+    ...(inputTokens ? { inputTokens } : {}),
+    ...(outputTokens ? { outputTokens } : {}),
+    ...(reasoningTokens ? { reasoningTokens } : {}),
+    ...(totalTokens ? { totalTokens } : {}),
+    ...(cacheReadTokens ? { cacheReadTokens } : {}),
+    ...(cacheWriteTokens ? { cacheWriteTokens } : {})
+  }
+}
+
+function runtimeTranscriptRef(
+  childId: string,
+  transcriptId: string
+): NonNullable<CodexNormalizedChild['transcriptRef']> {
+  return {
+    id: `codex-child:${childId}`,
+    kind: 'runtime',
+    runtimeId: 'codex',
+    childId,
+    transcriptId,
+    source: 'codex-app-server'
+  } as NonNullable<CodexNormalizedChild['transcriptRef']>
+}
+
+function openAsThreadRef(threadId: string): NonNullable<CodexNormalizedChild['openAsThreadRef']> {
+  return {
+    runtimeId: 'codex',
+    threadId,
+    relation: 'side'
+  } as NonNullable<CodexNormalizedChild['openAsThreadRef']>
+}
+
+function withCleanMetadata(child: CodexNormalizedChild): CodexNormalizedChild {
+  const metadata = asRecord(child.metadata)
+  if (!metadata) return child
+  const cleaned = Object.fromEntries(
+    Object.entries(metadata).filter(([, value]) => {
+      if (Array.isArray(value)) return value.length > 0
+      return value !== undefined && value !== null && value !== ''
+    })
+  )
+  if (Object.keys(cleaned).length > 0) return { ...child, metadata: cleaned }
+  const { metadata: _metadata, ...withoutMetadata } = child
+  return withoutMetadata
+}
+
+function eventIso(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.trim()) return value
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value > 10_000_000_000 ? value : value * 1000).toISOString()
+  }
+  return undefined
 }
 
 function isApprovalRequest(method: string): boolean {
@@ -427,6 +768,21 @@ function isUserInputRequest(method: string): boolean {
     method === 'user_input/request' ||
     method === 'request_user_input' ||
     method === 'item/requestUserInput'
+}
+
+function normalizeRuntimeErrorCode(code: string, message: string): string {
+  const normalizedCode = code.trim()
+  if (normalizedCode) return normalizedCode
+  const lowered = message.toLowerCase()
+  if (
+    lowered.includes('provider_http_401') ||
+    lowered.includes('provider_http_403') ||
+    lowered.includes('provider auth') ||
+    lowered.includes('provider credentials')
+  ) {
+    return 'provider_auth_blocked'
+  }
+  return ''
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

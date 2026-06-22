@@ -121,6 +121,36 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(state.error).toBeTruthy()
   })
 
+  it('forces a new runtime thread instead of reusing the active empty thread', async () => {
+    const { actions, state } = buildHarness()
+    const createdThread = {
+      ...thread('thr_created'),
+      workspace: '/workspace/deepseek-gui',
+      status: 'idle'
+    }
+    const provider = {
+      createThread: vi.fn(async () => createdThread)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.blocks = []
+    state.error = 'previous error'
+    state.selectThread = vi.fn(async (id: string) => {
+      state.activeThreadId = id
+    }) as unknown as ChatState['selectThread']
+
+    await actions.createThread({ workspaceRoot: '/workspace/deepseek-gui', forceNew: true })
+
+    expect(provider.createThread).toHaveBeenCalledWith({
+      workspace: '/workspace/deepseek-gui',
+      title: expect.any(String),
+      mode: 'agent'
+    })
+    expect(state.selectThread).toHaveBeenCalledWith('thr_created')
+    expect(state.activeThreadId).toBe('thr_created')
+    expect(state.threads[0]?.id).toBe('thr_created')
+  })
+
   it('removes stale queued GUI plan messages before draining normal queued messages', async () => {
     const { actions, state } = buildHarness()
     const sendMessage = vi.fn(async (_text, _mode, overrides) => {

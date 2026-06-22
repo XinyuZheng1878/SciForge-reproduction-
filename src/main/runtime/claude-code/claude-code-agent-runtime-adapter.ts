@@ -118,6 +118,33 @@ export function createClaudeCodeAgentRuntimeAdapter(
         case 'updateMemory':
         case 'deleteMemory':
           throw new Error('Claude Code runtime does not support memory operations.')
+        case 'listThreadChildren': {
+          const payload = recordValue(input.payload)
+          const threadId = stringValue(payload.threadId)
+          if (!threadId) throw new Error('listThreadChildren requires payload.threadId.')
+          return service.listThreadChildren({
+            threadId,
+            parentTurnId: stringValue(payload.turnId) || stringValue(payload.parentTurnId) || undefined,
+            activeOnly: payload.activeOnly === true,
+            cursor: stringValue(payload.cursor) || undefined,
+            limit: numberValue(payload.limit)
+          })
+        }
+        case 'readChildTranscript': {
+          const payload = recordValue(input.payload)
+          const parentThreadId = stringValue(payload.parentThreadId) || stringValue(payload.threadId)
+          const childId = stringValue(payload.childId)
+          if (!parentThreadId) throw new Error('readChildTranscript requires payload.parentThreadId.')
+          if (!childId) throw new Error('readChildTranscript requires payload.childId.')
+          return service.readChildTranscript({
+            parentThreadId,
+            parentTurnId: stringValue(payload.parentTurnId) || stringValue(payload.turnId) || undefined,
+            childId,
+            transcriptRef: payload.transcriptRef,
+            cursor: stringValue(payload.cursor) || undefined,
+            limit: numberValue(payload.limit)
+          })
+        }
         case 'archiveThread': {
           const payload = recordValue(input.payload)
           const threadId = stringValue(payload.threadId)
@@ -239,7 +266,7 @@ function claudeCapabilities(): AgentRuntimeCapabilities {
       web: { available: false, reason: 'Claude Code web capabilities are not exposed through this service yet.' },
       research: { available: false, reason: 'Claude Code research search is not exposed through this service yet.' },
       skills: { available: false, reason: 'Claude Code skills are not exposed through this service yet.' },
-      subagents: { available: false, reason: 'Claude Code subagents are not exposed through this service yet.' },
+      subagents: { available: true },
       diagnostics: { available: false, reason: 'Claude Code tool diagnostics are not exposed through this service yet.' }
     },
     controls: {
@@ -288,4 +315,8 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : undefined
 }

@@ -95,6 +95,16 @@ export function kunThreadEventsPath(threadId: string): string {
   return `${kunThreadPath(threadId)}/events`
 }
 
+export const KUN_THREAD_CHILDREN_TEMPLATE = '/v1/threads/{id}/children'
+export function kunThreadChildrenPath(threadId: string): string {
+  return `${kunThreadPath(threadId)}/children`
+}
+
+export const KUN_THREAD_CHILD_TRANSCRIPT_TEMPLATE = '/v1/threads/{id}/children/{child}/transcript'
+export function kunThreadChildTranscriptPath(threadId: string, childId: string): string {
+  return `${kunThreadChildrenPath(threadId)}/${encodeURIComponent(childId)}/transcript`
+}
+
 export const KUN_APPROVAL_TEMPLATE = '/v1/approvals/{id}'
 export function kunApprovalPath(approvalId: string): string {
   return `/v1/approvals/${encodeURIComponent(approvalId)}`

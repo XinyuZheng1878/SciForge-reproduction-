@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import type { Options as ClaudeAgentSdkOptions } from '@anthropic-ai/claude-agent-sdk'
 import {
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   getClaudeRuntimeSettings,
@@ -48,24 +49,25 @@ const UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES = [
 const UPSTREAM_PROVIDER_CONFIG_ENVS = ['MODEL_PROVIDER'] as const
 export const DEFAULT_CLAUDE_CODE_CLI_MODEL = 'sonnet'
 
-export type ClaudeCodeLaunchConfig = {
-  command: string
-  args: string[]
+export type ClaudeCodeSdkLaunchConfig = {
+  prompt: string
+  sdkOptions: ClaudeAgentSdkOptions
   cwd: string
   env: NodeJS.ProcessEnv
   configDir: string
   model: string
-  permissionMode: string
+  permissionMode: NonNullable<ClaudeAgentSdkOptions['permissionMode']>
+  pathToClaudeCodeExecutable?: string
 }
 
-export async function prepareClaudeCodeTurnLaunch(options: {
+export async function prepareClaudeCodeSdkLaunch(options: {
   settings: AppSettingsV1
   text: string
   workspace?: string
   sessionId?: string
   env?: NodeJS.ProcessEnv
   managedConfigDir?: string
-}): Promise<ClaudeCodeLaunchConfig> {
+}): Promise<ClaudeCodeSdkLaunchConfig> {
   const runtime = getClaudeRuntimeSettings(options.settings)
   const command = runtime.command.trim()
   if (!command) throw new Error('Claude Code command is required.')
@@ -77,33 +79,33 @@ export async function prepareClaudeCodeTurnLaunch(options: {
   await mkdir(configDir, { recursive: true })
   const permissionMode = claudePermissionMode(runtime)
   const cliModel = claudeCodeCliModel(runtime.model, router.model)
-  const args = [
-    '-p',
-    options.text,
-    '--output-format',
-    'stream-json',
-    '--verbose',
-    '--bare',
-    '--model',
-    cliModel,
-    '--permission-mode',
-    permissionMode,
-    ...(options.sessionId ? ['--resume', options.sessionId] : []),
-    ...claudeCodeExtraArgs(runtime.extraArgs)
-  ]
-  return {
-    command,
-    args,
+  const env = claudeCodeRuntimeEnv(options.env ?? process.env, {
+    configDir,
+    baseUrl: claudeCodeAnthropicBaseUrl(router.baseUrl),
+    apiKey: router.apiKey,
+    model: cliModel
+  })
+  const extraArgs = claudeCodeSdkExtraArgs(runtime.extraArgs)
+  const pathToClaudeCodeExecutable = command === 'claude' ? undefined : command
+  const sdkOptions: ClaudeAgentSdkOptions = {
     cwd,
-    env: claudeCodeRuntimeEnv(options.env ?? process.env, {
-      configDir,
-      baseUrl: claudeCodeAnthropicBaseUrl(router.baseUrl),
-      apiKey: router.apiKey,
-      model: cliModel
-    }),
+    env,
+    model: cliModel,
+    permissionMode,
+    ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
+    ...(options.sessionId ? { resume: options.sessionId } : {}),
+    ...(pathToClaudeCodeExecutable ? { pathToClaudeCodeExecutable } : {}),
+    ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {})
+  }
+  return {
+    prompt: options.text,
+    sdkOptions,
+    cwd,
+    env,
     configDir,
     model: cliModel,
-    permissionMode
+    permissionMode,
+    pathToClaudeCodeExecutable
   }
 }
 
@@ -141,7 +143,7 @@ export function claudeCodeRuntimeEnv(
   return env
 }
 
-export function claudeCodeExtraArgs(args: readonly string[]): string[] {
+export function claudeCodeSdkExtraArgs(args: readonly string[]): NonNullable<ClaudeAgentSdkOptions['extraArgs']> {
   const controlledWithValue = new Set([
     '-p',
     '--print',
@@ -151,6 +153,8 @@ export function claudeCodeExtraArgs(args: readonly string[]): string[] {
     '--model',
     '--permission-mode',
     '--resume',
+    '--session-id',
+    '--resume-session-at',
     '--settings',
     '--append-system-prompt',
     '--system-prompt'
@@ -159,9 +163,15 @@ export function claudeCodeExtraArgs(args: readonly string[]): string[] {
     '--verbose',
     '--bare',
     '--continue',
-    '--dangerously-skip-permissions'
+    '--dangerously-skip-permissions',
+    '--allow-dangerously-skip-permissions',
+    '--no-session-persistence',
+    '--fork-session',
+    '--include-partial-messages',
+    '--include-hook-events',
+    '--session-mirror'
   ])
-  const filtered: string[] = []
+  const filtered: NonNullable<ClaudeAgentSdkOptions['extraArgs']> = {}
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
     if (controlledFlags.has(arg)) continue
@@ -171,7 +181,10 @@ export function claudeCodeExtraArgs(args: readonly string[]): string[] {
     }
     if ([...controlledFlags].some((flag) => arg.startsWith(`${flag}=`))) continue
     if ([...controlledWithValue].some((flag) => arg.startsWith(`${flag}=`))) continue
-    filtered.push(arg)
+    const parsed = parseSdkExtraArg(arg, args[index + 1])
+    if (!parsed) continue
+    filtered[parsed.key] = parsed.value
+    if (parsed.consumedNext) index += 1
   }
   return filtered
 }
@@ -219,7 +232,7 @@ function claudeModelRouterConfig(settings: AppSettingsV1): {
 function claudePermissionMode(runtime: {
   sandboxMode: SandboxMode
   approvalPolicy: ApprovalPolicy
-}): string {
+}): NonNullable<ClaudeAgentSdkOptions['permissionMode']> {
   if (runtime.sandboxMode === 'read-only') return 'plan'
   if (
     runtime.sandboxMode === 'danger-full-access' &&
@@ -228,6 +241,27 @@ function claudePermissionMode(runtime: {
     return 'bypassPermissions'
   }
   return 'acceptEdits'
+}
+
+function parseSdkExtraArg(
+  arg: string,
+  next: string | undefined
+): { key: string; value: string | null; consumedNext: boolean } | null {
+  if (!arg.startsWith('--') || arg.length <= 2) return null
+  const raw = arg.slice(2)
+  if (!raw) return null
+  const equalsIndex = raw.indexOf('=')
+  if (equalsIndex >= 0) {
+    const key = raw.slice(0, equalsIndex).trim()
+    if (!key) return null
+    return { key, value: raw.slice(equalsIndex + 1), consumedNext: false }
+  }
+  const key = raw.trim()
+  if (!key) return null
+  if (next && !next.startsWith('-')) {
+    return { key, value: next, consumedNext: true }
+  }
+  return { key, value: null, consumedNext: false }
 }
 
 function isClaudeCodeCliModel(model: string): boolean {

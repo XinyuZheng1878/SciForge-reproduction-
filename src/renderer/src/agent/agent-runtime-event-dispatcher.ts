@@ -518,6 +518,8 @@ export function dispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: Thread
         createdAt: event.createdAt
       })
       return
+    case 'child_event':
+      return
     case 'usage':
       sink.onUsage?.(usageFromRuntime(event.usage))
       return

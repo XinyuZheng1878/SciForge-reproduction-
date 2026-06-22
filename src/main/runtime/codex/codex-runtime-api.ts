@@ -1,6 +1,8 @@
 import type {
+  AgentRuntimeChild,
   AgentRuntimeFileReference,
   AgentRuntimePhase,
+  AgentRuntimeThreadRelation,
   AgentRuntimeUsage
 } from '../../../shared/agent-runtime-contract'
 
@@ -18,6 +20,12 @@ export type CodexNormalizedThread = {
   preview?: string
   latestTurnId?: string
   latestTurnStatus?: string
+  relation?: AgentRuntimeThreadRelation
+  parentThreadId?: string
+  parentTurnId?: string
+  threadSource?: string
+  agentNickname?: string
+  agentRole?: string
 }
 
 type CodexChatBlockBase = {
@@ -91,6 +99,7 @@ export type CodexThreadEventPayload = {
     latencyMs?: number
     createdAt?: string
   }
+  child?: AgentRuntimeChild
   usage?: AgentRuntimeUsage
   turnComplete?: boolean
 }

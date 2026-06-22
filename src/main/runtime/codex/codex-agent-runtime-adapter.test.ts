@@ -84,4 +84,260 @@ describe('createCodexAgentRuntimeAdapter', () => {
       status: 'aborted'
     })
   })
+
+  it('maps stored Codex child events and lists direct children for the requested thread only', async () => {
+    const childStarted = {
+      id: 'collab-1',
+      runtimeId: 'codex' as const,
+      parentThreadId: 'parent-thread',
+      parentTurnId: 'turn-1',
+      kind: 'agent' as const,
+      status: 'running' as const,
+      name: 'Reviewer',
+      prompt: 'Review the diff',
+      openAsThreadRef: {
+        runtimeId: 'codex' as const,
+        threadId: 'child-thread',
+        relation: 'side' as const
+      }
+    }
+    const childCompleted = {
+      ...childStarted,
+      status: 'completed' as const,
+      summary: 'Found one issue.'
+    }
+    const service = {
+      readStoredEvents: vi.fn(async (threadId: string) => threadId === 'parent-thread'
+        ? [
+            { threadId, turnId: 'turn-1', seq: 1, child: childStarted },
+            { threadId, turnId: 'turn-1', seq: 2, child: childCompleted },
+            {
+              threadId,
+              turnId: 'turn-1',
+              seq: 3,
+              child: {
+                ...childCompleted,
+                id: 'other-child',
+                parentThreadId: 'other-thread'
+              }
+            }
+          ]
+        : []),
+      readThread: vi.fn(async () => ({
+        ok: true as const,
+        detail: {
+          latestSeq: 2,
+          blocks: [
+            { kind: 'user' as const, id: 'child-user', text: 'Review the diff' },
+            { kind: 'assistant' as const, id: 'child-assistant', text: 'Found one issue.' }
+          ]
+        }
+      }))
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    const events = []
+    for await (const event of adapter.subscribeEvents({ settings: {} as never }, {
+      runtimeId: 'codex',
+      threadId: 'parent-thread'
+    })) {
+      events.push(event)
+    }
+    expect(events.filter((event) => event.kind === 'child_event').map((event) => event.child.id)).toContain('collab-1')
+
+    const listed = await adapter.auxiliary!({ settings: {} as never }, {
+      runtimeId: 'codex',
+      operation: 'listThreadChildren',
+      payload: { threadId: 'parent-thread' }
+    })
+
+    expect(listed).toMatchObject({
+      runtimeId: 'codex',
+      threadId: 'parent-thread',
+      children: [{
+        id: 'collab-1',
+        parentThreadId: 'parent-thread',
+        parentTurnId: 'turn-1',
+        status: 'completed',
+        prompt: 'Review the diff',
+        summary: 'Found one issue.',
+        openAsThreadRef: {
+          runtimeId: 'codex',
+          threadId: 'child-thread',
+          relation: 'side'
+        }
+      }]
+    })
+    expect((listed as { children: Array<{ id: string }> }).children.map((child) => child.id)).toEqual(['collab-1'])
+
+    const transcript = await adapter.auxiliary!({ settings: {} as never }, {
+      runtimeId: 'codex',
+      operation: 'readChildTranscript',
+      payload: { parentThreadId: 'parent-thread', childId: 'collab-1' }
+    })
+
+    expect(service.readThread).toHaveBeenCalledWith('child-thread')
+    expect(transcript).toMatchObject({
+      transcript: {
+        runtimeId: 'codex',
+        parentThreadId: 'parent-thread',
+        childId: 'collab-1',
+        entries: [
+          { id: 'child-user', kind: 'user_message', text: 'Review the diff' },
+          { id: 'child-assistant', kind: 'assistant_message', text: 'Found one issue.' }
+        ],
+        metadata: {
+          source: 'openAsThreadRef',
+          threadId: 'child-thread'
+        }
+      }
+    })
+  })
+
+  it('lists native Codex subagent threads for the active parent thread', async () => {
+    const service = {
+      readStoredEvents: vi.fn(async () => []),
+      listThreads: vi.fn(async () => ({
+        ok: true as const,
+        threads: [
+          {
+            id: 'native-child',
+            title: 'Reviewer',
+            updatedAt: '2026-06-21T00:00:01.000Z',
+            model: 'gpt-5',
+            mode: 'agent',
+            status: 'running',
+            preview: 'Reviewing the patch',
+            latestTurnStatus: 'running',
+            parentThreadId: 'parent-thread',
+            parentTurnId: 'turn-1',
+            relation: 'side' as const,
+            threadSource: 'subagent',
+            agentNickname: 'Reviewer',
+            agentRole: 'code reviewer'
+          },
+          {
+            id: 'other-native-child',
+            title: 'Other',
+            updatedAt: '2026-06-21T00:00:02.000Z',
+            model: 'gpt-5',
+            mode: 'agent',
+            status: 'running',
+            parentThreadId: 'other-thread',
+            threadSource: 'subagent'
+          }
+        ]
+      })),
+      readThread: vi.fn(async () => ({
+        ok: true as const,
+        detail: {
+          latestSeq: 1,
+          blocks: [
+            { kind: 'assistant' as const, id: 'native-assistant', text: 'Native child transcript.' }
+          ]
+        }
+      }))
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    const listed = await adapter.auxiliary!({ settings: {} as never }, {
+      runtimeId: 'codex',
+      operation: 'listThreadChildren',
+      payload: { threadId: 'parent-thread', parentTurnId: 'turn-1' }
+    })
+
+    expect(service.listThreads).toHaveBeenCalledWith({ includeArchived: true })
+    expect(listed).toMatchObject({
+      runtimeId: 'codex',
+      threadId: 'parent-thread',
+      parentTurnId: 'turn-1',
+      children: [{
+        id: 'native-child',
+        runtimeId: 'codex',
+        parentThreadId: 'parent-thread',
+        parentTurnId: 'turn-1',
+        kind: 'thread',
+        status: 'running',
+        name: 'Reviewer',
+        label: 'code reviewer',
+        summary: 'Reviewing the patch',
+        openAsThreadRef: {
+          runtimeId: 'codex',
+          threadId: 'native-child',
+          relation: 'side',
+          title: 'Reviewer'
+        },
+        transcriptRef: {
+          runtimeId: 'codex',
+          childId: 'native-child',
+          transcriptId: 'native-child',
+          source: 'codex-thread'
+        }
+      }]
+    })
+
+    const transcript = await adapter.auxiliary!({ settings: {} as never }, {
+      runtimeId: 'codex',
+      operation: 'readChildTranscript',
+      payload: { parentThreadId: 'parent-thread', parentTurnId: 'turn-1', childId: 'native-child' }
+    })
+
+    expect(service.readThread).toHaveBeenCalledWith('native-child')
+    expect(transcript).toMatchObject({
+      transcript: {
+        runtimeId: 'codex',
+        parentThreadId: 'parent-thread',
+        parentTurnId: 'turn-1',
+        childId: 'native-child',
+        entries: [
+          { id: 'native-assistant', kind: 'assistant_message', text: 'Native child transcript.' }
+        ],
+        metadata: {
+          source: 'openAsThreadRef',
+          threadId: 'native-child'
+        }
+      }
+    })
+  })
+
+  it('returns a degraded child transcript when Codex exposes no real child thread', async () => {
+    const service = {
+      readStoredEvents: vi.fn(async () => [{
+        threadId: 'parent-thread',
+        turnId: 'turn-1',
+        seq: 1,
+        child: {
+          id: 'summary-only',
+          runtimeId: 'codex' as const,
+          parentThreadId: 'parent-thread',
+          parentTurnId: 'turn-1',
+          kind: 'agent' as const,
+          status: 'completed' as const,
+          prompt: 'Summarize the logs',
+          summary: 'No transcript was exposed.'
+        }
+      }]),
+      readThread: vi.fn()
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    const transcript = await adapter.auxiliary!({ settings: {} as never }, {
+      runtimeId: 'codex',
+      operation: 'readChildTranscript',
+      payload: { parentThreadId: 'parent-thread', childId: 'summary-only' }
+    })
+
+    expect(service.readThread).not.toHaveBeenCalled()
+    expect(transcript).toMatchObject({
+      transcript: {
+        childId: 'summary-only',
+        degraded: true,
+        reason: 'Codex app-server did not expose a real child thread transcript.',
+        entries: [
+          { kind: 'user_message', text: 'Summarize the logs' },
+          { kind: 'assistant_message', text: 'No transcript was exposed.' }
+        ]
+      }
+    })
+  })
 })

@@ -1,14 +1,21 @@
 import type {
   AgentRuntimeCapabilities,
+  AgentRuntimeChild,
+  AgentRuntimeChildTranscriptEntry,
   AgentRuntimeEvent,
   AgentRuntimeInputQuestion,
   AgentRuntimeItem,
+  AgentRuntimeListThreadChildrenResponse,
+  AgentRuntimeReadChildTranscriptResponse,
   AgentRuntimeThread,
   AgentRuntimeThreadDetail,
   AgentRuntimeToolKind,
   AgentRuntimeTurn
 } from '../../../shared/agent-runtime-contract'
-import { createDefaultAgentRuntimeCapabilities } from '../../../shared/agent-runtime-contract'
+import {
+  createDefaultAgentRuntimeCapabilities,
+  filterAgentRuntimeThreadChildren
+} from '../../../shared/agent-runtime-contract'
 import type {
   CodexChatBlock,
   CodexNormalizedThread,
@@ -171,6 +178,32 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
           if (!result.ok) throw codexFailure(result)
           return undefined
         }
+        case 'listThreadChildren': {
+          const payload = recordValue(input.payload)
+          const threadId = stringValue(payload.threadId)
+          if (!threadId) throw new Error('listThreadChildren requires payload.threadId.')
+          return listCodexThreadChildren(service, {
+            threadId,
+            parentTurnId: stringValue(payload.parentTurnId) || stringValue(payload.turnId),
+            activeOnly: payload.activeOnly === true,
+            limit: numberValue(payload.limit)
+          })
+        }
+        case 'readChildTranscript': {
+          const payload = recordValue(input.payload)
+          const parentThreadId = stringValue(payload.parentThreadId) || stringValue(payload.threadId)
+          const parentTurnId = stringValue(payload.parentTurnId) || stringValue(payload.turnId)
+          const childId = stringValue(payload.childId)
+          if (!parentThreadId || !childId) {
+            throw new Error('readChildTranscript requires payload.parentThreadId and payload.childId.')
+          }
+          return readCodexChildTranscript(service, {
+            parentThreadId,
+            parentTurnId,
+            childId,
+            limit: numberValue(payload.limit)
+          })
+        }
         default:
           throw new Error(`codex AgentRuntimeAdapter does not support ${input.operation}.`)
       }
@@ -238,7 +271,11 @@ function codexCapabilities(researchConfigured = false): AgentRuntimeCapabilities
           }
         : { available: false, reason: 'Shared research MCP server is not configured for Codex yet.' },
       skills: { available: false, reason: 'Codex skills are not exposed through this service yet.' },
-      subagents: { available: false, reason: 'Codex subagents are not exposed through this service yet.' },
+      subagents: {
+        available: true,
+        degraded: true,
+        reason: 'Codex child runs are visible when app-server emits native subagent/collab metadata.'
+      },
       diagnostics: { available: false, reason: 'Codex tool diagnostics are not exposed through this service yet.' }
     },
     controls: {
@@ -384,7 +421,9 @@ function mapCodexThread(thread: CodexNormalizedThread): AgentRuntimeThread {
     preview: thread.preview,
     latestTurnId: thread.latestTurnId,
     latestTurnStatus: thread.latestTurnStatus,
-    backendThreadId: thread.id
+    backendThreadId: thread.id,
+    relation: thread.relation,
+    parentThreadId: thread.parentThreadId
   }
 }
 
@@ -487,6 +526,313 @@ function mapCodexBlock(block: CodexChatBlock): AgentRuntimeItem | null {
   return null
 }
 
+async function listCodexThreadChildren(
+  service: CodexRuntimeService,
+  input: { threadId: string; parentTurnId?: string; activeOnly?: boolean; limit?: number }
+): Promise<AgentRuntimeListThreadChildrenResponse> {
+  const children = await codexChildrenFromThreadEvents(service, input.threadId)
+  const filtered = filterAgentRuntimeThreadChildren(children, {
+    runtimeId: 'codex',
+    parentThreadId: input.threadId,
+    ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+    ...(input.activeOnly ? { activeOnly: true } : {})
+  })
+  const limited = typeof input.limit === 'number' && input.limit > 0
+    ? filtered.slice(0, Math.floor(input.limit))
+    : filtered
+  return {
+    runtimeId: 'codex',
+    threadId: input.threadId,
+    ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+    children: limited,
+    metadata: {
+      source: 'codex-app-server-events',
+      totalChildren: filtered.length
+    }
+  }
+}
+
+async function readCodexChildTranscript(
+  service: CodexRuntimeService,
+  input: { parentThreadId: string; parentTurnId?: string; childId: string; limit?: number }
+): Promise<AgentRuntimeReadChildTranscriptResponse> {
+  const children = await listCodexThreadChildren(service, {
+    threadId: input.parentThreadId,
+    ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {})
+  })
+  const child = children.children.find((candidate) => candidate.id === input.childId)
+  if (!child) {
+    return degradedCodexChildTranscript(input, null, 'Codex child was not found on the parent thread.')
+  }
+
+  const childThreadId = stringValue(recordValue(child.openAsThreadRef).threadId)
+  if (!childThreadId) {
+    return degradedCodexChildTranscript(
+      input,
+      child,
+      'Codex app-server did not expose a real child thread transcript.'
+    )
+  }
+
+  const result = await service.readThread(childThreadId)
+  if (!result.ok) {
+    return degradedCodexChildTranscript(input, child, result.message)
+  }
+
+  const entries = limitTranscriptEntries(
+    result.detail.blocks.flatMap((block) => childTranscriptEntriesFromBlock(block)),
+    input.limit
+  )
+  return {
+    transcript: {
+      runtimeId: 'codex',
+      parentThreadId: input.parentThreadId,
+      ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+      childId: input.childId,
+      child,
+      transcriptRef: child.transcriptRef,
+      entries,
+      summary: child.summary,
+      usage: child.usage ?? result.detail.usage,
+      metadata: {
+        source: 'openAsThreadRef',
+        threadId: childThreadId
+      }
+    }
+  }
+}
+
+async function codexChildrenFromThreadEvents(
+  service: CodexRuntimeService,
+  threadId: string
+): Promise<AgentRuntimeChild[]> {
+  const byId = new Map<string, AgentRuntimeChild>()
+  const [events, threadsResult] = await Promise.all([
+    typeof service.readStoredEvents === 'function'
+      ? service.readStoredEvents(threadId, 0)
+      : Promise.resolve([]),
+    typeof service.listThreads === 'function'
+      ? service.listThreads({ includeArchived: true })
+      : Promise.resolve(null)
+  ])
+  if (threadsResult?.ok) {
+    for (const thread of threadsResult.threads) {
+      const child = childFromCodexThread(thread, threadId)
+      if (!child) continue
+      const existing = byId.get(child.id)
+      byId.set(child.id, mergeCodexChild(existing, child))
+    }
+  }
+  for (const event of events) {
+    if (!event.child?.id) continue
+    const child = normalizeCodexChild(event.child, event)
+    const existing = byId.get(child.id)
+    byId.set(child.id, mergeCodexChild(existing, child))
+  }
+  return [...byId.values()].sort(compareCodexChildren)
+}
+
+function childFromCodexThread(
+  thread: CodexNormalizedThread,
+  parentThreadId: string
+): AgentRuntimeChild | null {
+  if (thread.id === parentThreadId) return null
+  if (thread.parentThreadId !== parentThreadId) return null
+  if (thread.threadSource && thread.threadSource.trim().toLowerCase() !== 'subagent') return null
+  const name = thread.agentNickname || thread.title || thread.preview || 'Codex child'
+  const summary = thread.preview && thread.preview !== thread.title ? thread.preview : undefined
+  return {
+    id: thread.id,
+    runtimeId: 'codex',
+    parentThreadId,
+    ...(thread.parentTurnId ? { parentTurnId: thread.parentTurnId } : {}),
+    kind: 'thread',
+    status: codexChildStatus(thread.latestTurnStatus || thread.status),
+    name,
+    ...(thread.agentRole ? { label: thread.agentRole } : {}),
+    ...(summary ? { summary } : {}),
+    openAsThreadRef: {
+      runtimeId: 'codex',
+      threadId: thread.id,
+      relation: 'side',
+      title: thread.title || name
+    },
+    transcriptRef: {
+      kind: 'runtime',
+      runtimeId: 'codex',
+      childId: thread.id,
+      transcriptId: thread.id,
+      source: 'codex-thread',
+      label: thread.title || name
+    },
+    updatedAt: thread.updatedAt,
+    metadata: {
+      source: 'codex.threadSource',
+      threadSource: thread.threadSource || 'subagent',
+      ...(thread.agentNickname ? { agentNickname: thread.agentNickname } : {}),
+      ...(thread.agentRole ? { agentRole: thread.agentRole } : {})
+    }
+  }
+}
+
+function codexChildStatus(value: string | undefined): AgentRuntimeChild['status'] {
+  const normalized = (value ?? '').trim().toLowerCase()
+  if (normalized === 'completed' || normalized === 'complete' || normalized === 'succeeded' || normalized === 'success') {
+    return 'completed'
+  }
+  if (normalized === 'failed' || normalized === 'failure' || normalized === 'error') return 'failed'
+  if (normalized === 'aborted' || normalized === 'cancelled' || normalized === 'canceled' || normalized === 'interrupted') {
+    return 'aborted'
+  }
+  if (normalized === 'queued' || normalized === 'pending') return 'queued'
+  if (normalized === 'running' || normalized === 'in_progress' || normalized === 'started') return 'running'
+  return 'unknown'
+}
+
+function normalizeCodexChild(
+  child: AgentRuntimeChild,
+  event: CodexThreadEventPayload
+): AgentRuntimeChild {
+  return {
+    ...child,
+    runtimeId: 'codex',
+    parentThreadId: child.parentThreadId || event.threadId,
+    ...(child.parentTurnId || event.turnId ? { parentTurnId: child.parentTurnId || event.turnId } : {})
+  }
+}
+
+function mergeCodexChild(
+  previous: AgentRuntimeChild | undefined,
+  next: AgentRuntimeChild
+): AgentRuntimeChild {
+  if (!previous) return next
+  return {
+    ...previous,
+    ...next,
+    createdAt: previous.createdAt ?? next.createdAt,
+    startedAt: previous.startedAt ?? next.startedAt,
+    metadata: {
+      ...(previous.metadata ?? {}),
+      ...(next.metadata ?? {})
+    }
+  }
+}
+
+function compareCodexChildren(a: AgentRuntimeChild, b: AgentRuntimeChild): number {
+  return childTime(a) - childTime(b)
+}
+
+function childTime(child: AgentRuntimeChild): number {
+  const value = child.startedAt || child.createdAt || child.updatedAt || child.completedAt
+  const ms = value ? Date.parse(value) : Number.NaN
+  return Number.isFinite(ms) ? ms : 0
+}
+
+function degradedCodexChildTranscript(
+  input: { parentThreadId: string; parentTurnId?: string; childId: string; limit?: number },
+  child: AgentRuntimeChild | null,
+  reason: string
+): AgentRuntimeReadChildTranscriptResponse {
+  return {
+    transcript: {
+      runtimeId: 'codex',
+      parentThreadId: input.parentThreadId,
+      ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+      childId: input.childId,
+      ...(child ? { child } : {}),
+      ...(child?.transcriptRef ? { transcriptRef: child.transcriptRef } : {}),
+      entries: limitTranscriptEntries(degradedChildTranscriptEntries(input.childId, child), input.limit),
+      summary: child?.summary,
+      usage: child?.usage,
+      degraded: true,
+      reason
+    }
+  }
+}
+
+function degradedChildTranscriptEntries(
+  childId: string,
+  child: AgentRuntimeChild | null
+): AgentRuntimeChildTranscriptEntry[] {
+  if (!child) return []
+  const entries: AgentRuntimeChildTranscriptEntry[] = []
+  if (child.prompt) {
+    entries.push({
+      id: `${childId}-prompt`,
+      kind: 'user_message',
+      text: child.prompt
+    })
+  }
+  if (child.summary) {
+    entries.push({
+      id: `${childId}-summary`,
+      kind: 'assistant_message',
+      text: child.summary
+    })
+  }
+  return entries
+}
+
+function childTranscriptEntriesFromBlock(block: CodexChatBlock): AgentRuntimeChildTranscriptEntry[] {
+  if (block.kind === 'user') {
+    return [{
+      id: block.id,
+      kind: 'user_message',
+      text: block.displayText?.trim() || block.text,
+      createdAt: block.createdAt
+    }]
+  }
+  if (block.kind === 'assistant') {
+    return [{
+      id: block.id,
+      kind: 'assistant_message',
+      text: block.text,
+      createdAt: block.createdAt
+    }]
+  }
+  if (block.kind === 'reasoning') {
+    return [{
+      id: block.id,
+      kind: 'reasoning',
+      text: block.text,
+      createdAt: block.createdAt
+    }]
+  }
+  if (block.kind === 'tool') {
+    return [{
+      id: block.id,
+      kind: 'tool',
+      summary: block.summary,
+      text: block.detail,
+      status: block.status,
+      createdAt: block.createdAt,
+      metadata: block.meta
+    }]
+  }
+  if (block.kind === 'system') {
+    return [{
+      id: block.id,
+      kind: 'system',
+      text: block.text,
+      status: block.severity,
+      createdAt: block.createdAt,
+      metadata: {
+        ...(block.code ? { code: block.code } : {}),
+        ...(block.detail ? { detail: block.detail } : {})
+      }
+    }]
+  }
+  return []
+}
+
+function limitTranscriptEntries(
+  entries: AgentRuntimeChildTranscriptEntry[],
+  limit?: number
+): AgentRuntimeChildTranscriptEntry[] {
+  if (typeof limit !== 'number' || limit <= 0) return entries
+  return entries.slice(0, Math.floor(limit))
+}
+
 function mapCodexStoredEvent(event: CodexThreadEventPayload): AgentRuntimeEvent[] {
   const common = {
     threadId: event.threadId,
@@ -540,6 +886,13 @@ function mapCodexStoredEvent(event: CodexThreadEventPayload): AgentRuntimeEvent[
         meta: event.tool.meta
       })
     }
+  }
+  if (event.child) {
+    mapped.push({
+      ...common,
+      kind: 'child_event',
+      child: event.child
+    })
   }
   if (event.runtimeError) {
     mapped.push({
@@ -755,6 +1108,12 @@ function stringifyDetail(value: unknown): string | undefined {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : undefined
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

@@ -231,7 +231,51 @@ describe('app-ipc-schemas', () => {
       }
     })
 
+    expect(agentRuntimeAuxiliaryPayloadSchema.parse({
+      runtimeId: 'claude',
+      operation: 'listThreadChildren',
+      payload: {
+        threadId: 'thread-1',
+        parentTurnId: 'turn-1',
+        activeOnly: true
+      }
+    })).toEqual({
+      runtimeId: 'claude',
+      operation: 'listThreadChildren',
+      payload: {
+        threadId: 'thread-1',
+        parentTurnId: 'turn-1',
+        activeOnly: true
+      }
+    })
+
+    expect(agentRuntimeAuxiliaryPayloadSchema.parse({
+      runtimeId: 'claude',
+      operation: 'readChildTranscript',
+      payload: {
+        parentThreadId: 'thread-1',
+        childId: 'child-1',
+        transcriptRef: {
+          kind: 'runtime',
+          transcriptId: 'transcript-1'
+        }
+      }
+    })).toEqual({
+      runtimeId: 'claude',
+      operation: 'readChildTranscript',
+      payload: {
+        parentThreadId: 'thread-1',
+        childId: 'child-1',
+        transcriptRef: {
+          kind: 'runtime',
+          transcriptId: 'transcript-1'
+        }
+      }
+    })
+
     for (const operation of [
+      'listThreadChildren',
+      'readChildTranscript',
       'listModelAuditRecords',
       'clearModelAuditRecords',
       'getContextState',

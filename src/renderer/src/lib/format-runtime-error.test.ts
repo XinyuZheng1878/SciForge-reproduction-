@@ -35,4 +35,14 @@ describe('format runtime error', () => {
     expect(getRuntimeErrorCode(error)).toBe('fetch_failed')
     expect(formatRuntimeError(error)).toBe(i18n.t('common:runtimeFetchFailed'))
   })
+
+  it('maps provider auth failures to a shared Model Router settings action', () => {
+    const error = new Error('stream disconnected before completion: provider_http_401')
+
+    const view = describeRuntimeError(error)
+
+    expect(view.summary).toBe(i18n.t('common:runtimeProviderAuthBlocked'))
+    expect(view.code).toBe('provider_auth_blocked')
+    expect(view.settingsAction).toBe('agents')
+  })
 })

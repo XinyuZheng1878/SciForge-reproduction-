@@ -734,7 +734,7 @@ export function Workbench(): ReactElement {
         return
       }
       if (commandId === 'new-chat') {
-        void createThread()
+        void createThread({ forceNew: true })
         return
       }
       if (commandId === 'choose-workspace') {
@@ -1829,14 +1829,14 @@ export function Workbench(): ReactElement {
     if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
     setConnectPhoneSidebarOpen(false)
     setRoute('chat')
-    void createThread()
+    void createThread({ forceNew: true })
   }
 
   const startNewChatInWorkspace = (workspaceRoot: string): void => {
     if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
     setConnectPhoneSidebarOpen(false)
     setRoute('chat')
-    void createThread({ workspaceRoot })
+    void createThread({ workspaceRoot, forceNew: true })
   }
 
   const openCodeMode = (): void => {

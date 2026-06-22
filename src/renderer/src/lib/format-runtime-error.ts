@@ -44,6 +44,16 @@ function runtimeErrorCode(payload: RuntimeErrorPayload | null, raw: string): str
   if (fromError) return fromError.toLowerCase()
   const lowered = stripIpcPrefix(payloadMessage(payload) || raw).toLowerCase()
   if (lowered.includes('fetch failed')) return 'fetch_failed'
+  if (
+    lowered.includes('provider_http_401') ||
+    lowered.includes('provider_http_403') ||
+    lowered.includes('provider auth') ||
+    lowered.includes('provider credentials') ||
+    lowered.includes('upstream provider returned 401') ||
+    lowered.includes('upstream provider returned 403')
+  ) {
+    return 'provider_auth_blocked'
+  }
   if (lowered.includes('runtime unhealthy')) return 'runtime_unhealthy'
   if (lowered.includes('active turn')) return 'turn_in_progress'
   if (lowered.includes('preload bridge missing')) return 'preload_bridge_missing'
@@ -88,6 +98,10 @@ function localizedRuntimeSummary(code: string | null, text: string): string | nu
     return i18n.t('common:runtimeMissingApiKey')
   }
 
+  if (code === 'provider_auth_blocked') {
+    return i18n.t('common:runtimeProviderAuthBlocked')
+  }
+
   if (code === 'runtime_offline') {
     return i18n.t('common:runtimeAutoStartDisabled')
   }
@@ -129,6 +143,7 @@ function localizedRuntimeSummary(code: string | null, text: string): string | nu
 
 function shouldOpenAgentsSettings(code: string | null): boolean {
   return code === 'missing_api_key' ||
+    code === 'provider_auth_blocked' ||
     code === 'runtime_offline' ||
     code === 'runtime_auth_required' ||
     code === 'runtime_port_conflict'

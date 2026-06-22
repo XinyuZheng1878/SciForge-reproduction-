@@ -14,9 +14,12 @@ import type {
   AgentRuntimeContextState,
   AgentRuntimeFileReference,
   AgentRuntimeGitCheckpoint,
+  AgentRuntimeListThreadChildrenResponse,
   AgentRuntimeMemoryRecord,
   AgentRuntimeModelAuditRecord,
   AgentRuntimePhase,
+  AgentRuntimeReadChildTranscriptInput,
+  AgentRuntimeReadChildTranscriptResponse,
   AgentRuntimeResult,
   AgentRuntimeWorkspaceReference,
   AgentRuntimeWorkspaceReferencePreview
@@ -524,6 +527,13 @@ export interface AgentProvider {
   }): Promise<AgentRuntimeModelAuditRecord[]>
   clearModelAuditRecords?(): Promise<boolean>
   getContextState?(threadId: string): Promise<AgentRuntimeContextState>
+  listThreadChildren?(threadId: string, options?: {
+    turnId?: string
+    activeOnly?: boolean
+    cursor?: string
+    limit?: number
+  }): Promise<AgentRuntimeListThreadChildrenResponse>
+  readChildTranscript?(input: AgentRuntimeReadChildTranscriptInput): Promise<AgentRuntimeReadChildTranscriptResponse>
   listGitCheckpoints?(options?: {
     runtimeId?: AgentRuntimeId
     threadId?: string

@@ -3,8 +3,15 @@ import {
   AGENT_RUNTIME_EVENT_KINDS,
   createDefaultAgentRuntimeCapabilities,
   createUnavailableCapabilityState,
+  directAgentRuntimeChildrenForThread,
+  filterAgentRuntimeThreadChildren,
+  isAgentRuntimeChildActive,
+  isAgentRuntimeDirectThreadChild,
   type AgentRuntimeCapabilities,
-  type AgentRuntimeEvent
+  type AgentRuntimeChild,
+  type AgentRuntimeEvent,
+  type AgentRuntimeListThreadChildrenResponse,
+  type AgentRuntimeReadChildTranscriptResponse
 } from './agent-runtime-contract'
 
 function exhaustiveEventLabel(event: AgentRuntimeEvent): string {
@@ -41,6 +48,8 @@ function exhaustiveEventLabel(event: AgentRuntimeEvent): string {
       return event.status ?? 'goal'
     case 'todo_event':
       return String(event.items.length)
+    case 'child_event':
+      return event.child.id
     case 'usage':
       return String(event.usage.inputTokens ?? 0)
     case 'error':
@@ -69,6 +78,18 @@ describe('agent runtime contract', () => {
         item: { id: 'item', kind: 'assistant_message', text: 'snapshot' }
       },
       { kind: 'tool_event', threadId: 'thr', itemId: 'tool', status: 'running', toolKind: 'tool_call' },
+      {
+        kind: 'child_event',
+        threadId: 'thr',
+        child: {
+          id: 'child',
+          runtimeId: 'codex',
+          parentThreadId: 'thr',
+          kind: 'agent',
+          status: 'running',
+          prompt: 'Investigate failing tests'
+        }
+      },
       { kind: 'approval_requested', threadId: 'thr', approvalId: 'approval', summary: 'Allow tool?' },
       { kind: 'approval_resolved', threadId: 'thr', approvalId: 'approval', decision: 'denied' },
       {
@@ -165,6 +186,207 @@ describe('agent runtime contract', () => {
     expect(kun.guard.toolStorm).toBe('native')
     expect(kun.controls.interrupt).toBe(false)
     expect(kun.controls.steer).toBe(false)
+  })
+
+  it('serializes child runs and degraded transcript responses without runtime-specific imports', () => {
+    const child = {
+      id: 'agent-1',
+      runtimeId: 'claude',
+      parentThreadId: 'thread-1',
+      parentTurnId: 'turn-1',
+      kind: 'agent',
+      status: 'completed',
+      name: 'research',
+      label: 'Research',
+      prompt: 'Read the docs',
+      summary: 'Found the relevant section.',
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15
+      },
+      transcriptRef: {
+        id: 'transcript-1',
+        kind: 'runtime',
+        runtimeId: 'claude',
+        childId: 'agent-1',
+        transcriptId: 'transcript-1',
+        source: 'runtime'
+      },
+      openAsThreadRef: {
+        runtimeId: 'claude',
+        threadId: 'thread-child-1',
+        relation: 'side',
+        title: 'Research'
+      },
+      createdAt: '2026-06-11T00:00:00.000Z',
+      startedAt: '2026-06-11T00:00:01.000Z',
+      completedAt: '2026-06-11T00:00:05.000Z',
+      metadata: {
+        adapter: 'neutral'
+      }
+    } satisfies AgentRuntimeChild
+
+    const listResponse = {
+      runtimeId: 'claude',
+      threadId: 'thread-1',
+      parentTurnId: 'turn-1',
+      children: [
+        child,
+        {
+          id: 'remote-1',
+          runtimeId: 'claude',
+          parentThreadId: 'thread-1',
+          kind: 'remote',
+          label: 'Remote child',
+          status: 'unknown',
+          transcriptRef: {
+            kind: 'remote',
+            source: 'remote',
+            transcriptId: 'remote-transcript'
+          }
+        }
+      ],
+      degraded: true,
+      reason: 'Runtime listed a child without replayable transcript metadata'
+    } satisfies AgentRuntimeListThreadChildrenResponse
+
+    const transcriptResponse = {
+      transcript: {
+        runtimeId: 'claude',
+        parentThreadId: 'thread-1',
+        threadId: 'thread-1',
+        parentTurnId: 'turn-1',
+        childId: 'agent-1',
+        child,
+        transcriptRef: child.transcriptRef,
+        format: 'markdown',
+        entries: [
+          {
+            id: 'entry-1',
+            kind: 'user_message',
+            text: 'Read the docs',
+            createdAt: '2026-06-11T00:00:01.000Z'
+          },
+          {
+            id: 'entry-2',
+            kind: 'assistant_message',
+            summary: 'Found the relevant section.',
+            createdAt: '2026-06-11T00:00:05.000Z'
+          }
+        ],
+        degraded: true,
+        reason: 'Tool events were summarized by the runtime'
+      }
+    } satisfies AgentRuntimeReadChildTranscriptResponse
+
+    const roundTrip = JSON.parse(JSON.stringify({ child, listResponse, transcriptResponse }))
+
+    expect(roundTrip.child).toEqual(child)
+    expect(roundTrip.listResponse).toMatchObject({
+      degraded: true,
+      reason: 'Runtime listed a child without replayable transcript metadata',
+      children: [
+        expect.objectContaining({ id: 'agent-1', kind: 'agent', status: 'completed' }),
+        expect.objectContaining({ id: 'remote-1', kind: 'remote', status: 'unknown' })
+      ]
+    })
+    expect(roundTrip.transcriptResponse.transcript).toMatchObject({
+      childId: 'agent-1',
+      format: 'markdown',
+      degraded: true,
+      reason: 'Tool events were summarized by the runtime',
+      entries: [
+        expect.objectContaining({ kind: 'user_message' }),
+        expect.objectContaining({ kind: 'assistant_message' })
+      ]
+    })
+  })
+
+  it('filters direct active-thread children without leaking children from other threads', () => {
+    const children = [
+      {
+        id: 'direct',
+        runtimeId: 'kun',
+        parentThreadId: 'active',
+        parentTurnId: 'turn-a',
+        kind: 'agent',
+        status: 'running'
+      },
+      {
+        id: 'queued',
+        runtimeId: 'kun',
+        parentThreadId: 'active',
+        parentTurnId: 'turn-b',
+        kind: 'agent',
+        status: 'queued'
+      },
+      {
+        id: 'other-thread',
+        runtimeId: 'kun',
+        parentThreadId: 'other',
+        parentTurnId: 'turn-a',
+        kind: 'agent',
+        status: 'completed'
+      },
+      {
+        id: 'other-turn',
+        runtimeId: 'kun',
+        parentThreadId: 'active',
+        parentTurnId: 'turn-b',
+        kind: 'workflow',
+        status: 'completed'
+      },
+      {
+        id: 'unknown',
+        runtimeId: 'kun',
+        parentThreadId: 'active',
+        kind: 'remote',
+        status: 'unknown'
+      },
+      {
+        id: 'descendant',
+        runtimeId: 'kun',
+        parentThreadId: 'direct',
+        kind: 'agent',
+        status: 'running'
+      },
+      {
+        id: 'other-runtime',
+        runtimeId: 'codex',
+        parentThreadId: 'active',
+        kind: 'agent',
+        status: 'running'
+      }
+    ] satisfies AgentRuntimeChild[]
+
+    expect(isAgentRuntimeChildActive(children[0])).toBe(true)
+    expect(isAgentRuntimeChildActive(children[4])).toBe(false)
+    expect(isAgentRuntimeDirectThreadChild(children[5], {
+      runtimeId: 'kun',
+      parentThreadId: 'active'
+    })).toBe(false)
+
+    expect(directAgentRuntimeChildrenForThread(children, 'active').map((child) => child.id)).toEqual([
+      'direct',
+      'queued',
+      'other-turn',
+      'unknown',
+      'other-runtime'
+    ])
+    expect(directAgentRuntimeChildrenForThread(children, 'active', 'turn-a').map((child) => child.id)).toEqual([
+      'direct'
+    ])
+    expect(filterAgentRuntimeThreadChildren(children, {
+      runtimeId: 'kun',
+      parentThreadId: 'active',
+      activeOnly: true
+    }).map((child) => child.id)).toEqual(['direct', 'queued'])
+    expect(filterAgentRuntimeThreadChildren(children, {
+      runtimeId: 'kun',
+      parentThreadId: 'active',
+      turnId: 'turn-b'
+    }).map((child) => child.id)).toEqual(['queued', 'other-turn'])
   })
 
   it('keeps the shared contract free of renderer and runtime-specific imports', async () => {

@@ -77,6 +77,18 @@ function sampleEvent(kind: AgentRuntimeEventKind): AgentRuntimeEvent {
       return { ...base, kind, objective: 'Ship the bridge', status: 'active' }
     case 'todo_event':
       return { ...base, kind, items: [{ id: 'todo-1', content: 'Map events', status: 'pending' }] }
+    case 'child_event':
+      return {
+        ...base,
+        kind,
+        child: {
+          runtimeId: 'codex',
+          parentThreadId: 'thread-1',
+          id: 'child-1',
+          kind: 'agent',
+          status: 'running'
+        }
+      }
     case 'usage':
       return { ...base, kind, usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3, costUsd: 0.01 } }
     case 'error':

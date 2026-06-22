@@ -190,7 +190,7 @@ export function WindowsTitleBar({ platform, actions }: Props): ReactElement | nu
   const rootRef = useRef<HTMLDivElement>(null)
 
   const defaultActions = useMemo<WindowsTitleBarActions>(() => ({
-    createThread: () => void createThread(),
+    createThread: () => void createThread({ forceNew: true }),
     chooseWorkspace: () => void chooseWorkspace(),
     openSettings: () => openSettings('general'),
     runDesktopCommand: defaultRunDesktopCommand,

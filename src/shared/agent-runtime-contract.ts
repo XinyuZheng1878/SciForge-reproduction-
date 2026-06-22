@@ -428,8 +428,190 @@ export type AgentRuntimeUsageResponse =
       totals?: Record<string, unknown>
     }
 
+export type AgentRuntimeChildKind = 'agent' | 'workflow' | 'thread' | 'remote'
+
+export type AgentRuntimeChildStatus = 'queued' | 'running' | 'completed' | 'failed' | 'aborted' | 'unknown'
+
+export type AgentRuntimeChildTranscriptRef = {
+  id?: string
+  kind?: 'runtime' | 'file' | 'directory' | 'url' | 'remote'
+  runtimeId?: AgentRuntimeId
+  childId?: string
+  transcriptId?: string
+  source?: string
+  cursor?: string
+  label?: string
+  path?: string
+  url?: string
+  mimeType?: string
+  metadata?: Record<string, unknown>
+}
+
+export type AgentRuntimeChildOpenAsThreadRef = {
+  runtimeId?: AgentRuntimeId
+  threadId?: string
+  relation?: AgentRuntimeThreadRelation
+  externalId?: string
+  url?: string
+  title?: string
+  metadata?: Record<string, unknown>
+}
+
+export type AgentRuntimeChild = {
+  runtimeId: AgentRuntimeId
+  parentThreadId: string
+  parentTurnId?: string
+  id: string
+  kind: AgentRuntimeChildKind
+  name?: string
+  label?: string
+  status: AgentRuntimeChildStatus
+  prompt?: string
+  summary?: string
+  usage?: AgentRuntimeUsage
+  transcriptRef?: AgentRuntimeChildTranscriptRef
+  openAsThreadRef?: AgentRuntimeChildOpenAsThreadRef
+  createdAt?: string
+  startedAt?: string
+  updatedAt?: string
+  completedAt?: string
+  metadata?: Record<string, unknown>
+}
+
+export type AgentRuntimeListThreadChildrenInput = {
+  runtimeId?: AgentRuntimeId
+  threadId: string
+  turnId?: string
+  parentTurnId?: string
+  activeOnly?: boolean
+  cursor?: string
+  limit?: number
+}
+
+export type AgentRuntimeListThreadChildrenResponse = {
+  runtimeId?: AgentRuntimeId
+  threadId: string
+  turnId?: string
+  parentTurnId?: string
+  children: AgentRuntimeChild[]
+  nextCursor?: string
+  degraded?: boolean
+  reason?: string
+  metadata?: Record<string, unknown>
+}
+
+export type AgentRuntimeThreadChildrenInput = AgentRuntimeListThreadChildrenInput
+
+export type AgentRuntimeThreadChildrenResponse = AgentRuntimeListThreadChildrenResponse
+
+export type AgentRuntimeReadChildTranscriptInput = {
+  runtimeId?: AgentRuntimeId
+  parentThreadId: string
+  threadId?: string
+  turnId?: string
+  parentTurnId?: string
+  childId: string
+  transcriptRef?: AgentRuntimeChildTranscriptRef
+  cursor?: string
+  limit?: number
+}
+
+export type AgentRuntimeChildTranscriptEntryKind =
+  | 'user_message'
+  | 'assistant_message'
+  | 'reasoning'
+  | 'tool'
+  | 'system'
+  | 'event'
+
+export type AgentRuntimeChildTranscriptEntry = {
+  id: string
+  kind: AgentRuntimeChildTranscriptEntryKind
+  text?: string
+  summary?: string
+  status?: string
+  createdAt?: string
+  metadata?: Record<string, unknown>
+}
+
+export type AgentRuntimeChildTranscript = {
+  runtimeId?: AgentRuntimeId
+  parentThreadId: string
+  threadId?: string
+  turnId?: string
+  parentTurnId?: string
+  childId: string
+  child?: AgentRuntimeChild
+  transcriptRef?: AgentRuntimeChildTranscriptRef
+  format?: 'jsonl' | 'markdown' | 'text' | 'unknown'
+  content?: string
+  entries: AgentRuntimeChildTranscriptEntry[]
+  summary?: string
+  usage?: AgentRuntimeUsage
+  nextCursor?: string
+  degraded?: boolean
+  reason?: string
+  metadata?: Record<string, unknown>
+}
+
+export type AgentRuntimeReadChildTranscriptResponse = {
+  transcript: AgentRuntimeChildTranscript
+}
+
+export type AgentRuntimeChildTranscriptInput = AgentRuntimeReadChildTranscriptInput
+
+export type AgentRuntimeThreadChildFilter = {
+  runtimeId?: AgentRuntimeId
+  parentThreadId: string
+  turnId?: string
+  parentTurnId?: string
+  activeOnly?: boolean
+}
+
+export function isAgentRuntimeChildActive(child: Pick<AgentRuntimeChild, 'status'>): boolean {
+  return child.status === 'queued' || child.status === 'running'
+}
+
+export function isAgentRuntimeDirectThreadChild(
+  child: Pick<AgentRuntimeChild, 'runtimeId' | 'parentThreadId' | 'parentTurnId'>,
+  filter: AgentRuntimeThreadChildFilter
+): boolean {
+  const parentTurnId = filter.parentTurnId ?? filter.turnId
+  if (filter.runtimeId && child.runtimeId !== filter.runtimeId) return false
+  if (child.parentThreadId !== filter.parentThreadId) return false
+  if (parentTurnId !== undefined && child.parentTurnId !== parentTurnId) return false
+  return true
+}
+
+export function filterAgentRuntimeThreadChildren(
+  children: readonly AgentRuntimeChild[],
+  filter: AgentRuntimeThreadChildFilter
+): AgentRuntimeChild[] {
+  const parentThreadId = filter.parentThreadId.trim()
+  const normalizedParentTurnId = (filter.parentTurnId ?? filter.turnId)?.trim()
+  const parentTurnId = normalizedParentTurnId ? normalizedParentTurnId : undefined
+  if (!parentThreadId) return []
+  return children.filter((child) =>
+    isAgentRuntimeDirectThreadChild(child, { ...filter, parentThreadId, parentTurnId }) &&
+    (!filter.activeOnly || isAgentRuntimeChildActive(child))
+  )
+}
+
+export function directAgentRuntimeChildrenForThread(
+  children: readonly AgentRuntimeChild[],
+  threadId: string,
+  parentTurnId?: string
+): AgentRuntimeChild[] {
+  return filterAgentRuntimeThreadChildren(children, {
+    parentThreadId: threadId,
+    parentTurnId
+  }).map((child) => ({ ...child }))
+}
+
 export type AgentRuntimeAuxiliaryOperation =
   | 'reviewThread'
+  | 'listThreadChildren'
+  | 'readChildTranscript'
   | 'getRuntimeInfo'
   | 'getToolDiagnostics'
   | 'runCodeNavigation'
@@ -568,6 +750,11 @@ export type AgentRuntimeEvent =
       meta?: Record<string, unknown>
     })
   | (AgentRuntimeBaseEvent & {
+      kind: 'child_event'
+      child: AgentRuntimeChild
+      message?: string
+    })
+  | (AgentRuntimeBaseEvent & {
       kind: 'approval_requested'
       approvalId: string
       summary: string
@@ -649,6 +836,7 @@ export const AGENT_RUNTIME_EVENT_KINDS = [
   'reasoning_delta',
   'item_snapshot',
   'tool_event',
+  'child_event',
   'approval_requested',
   'approval_resolved',
   'user_input_requested',

@@ -6,9 +6,9 @@ export {
   createClaudeCodeAgentRuntimeAdapter
 } from './claude-code-agent-runtime-adapter'
 export {
-  prepareClaudeCodeTurnLaunch,
+  prepareClaudeCodeSdkLaunch,
   resolveClaudeWorkspace,
   claudeCodeRuntimeEnv,
-  claudeCodeExtraArgs,
+  claudeCodeSdkExtraArgs,
   expandHome
 } from './claude-code-config'

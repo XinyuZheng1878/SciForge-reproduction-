@@ -729,6 +729,27 @@ describe('CodexRuntimeService compatibility operations', () => {
     )
   })
 
+  it('returns the persisted GUI thread with resolved workspace after starting a thread', async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), 'codex-runtime-service-'))
+    const client = controllableClient()
+    vi.mocked(client.startThread).mockResolvedValue({ thread: { id: 'codex-thread-new' } })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.startThread({ title: 'Direct UI thread' })).resolves.toMatchObject({
+      ok: true,
+      thread: {
+        id: 'codex-thread-new',
+        title: 'Direct UI thread',
+        workspace: '/tmp/workspace'
+      }
+    })
+  })
+
   it('advertises managed MCP tools as Codex dynamic tools and routes their calls', async () => {
     const client = controllableClient()
     let pendingServerRequests: CodexAppServerPendingRequestRegistryOptions | undefined

@@ -13,9 +13,9 @@ import {
 import {
   claudeCodeAnthropicBaseUrl,
   claudeCodeCliModel,
-  claudeCodeExtraArgs,
+  claudeCodeSdkExtraArgs,
   claudeCodeRuntimeEnv,
-  prepareClaudeCodeTurnLaunch
+  prepareClaudeCodeSdkLaunch
 } from './claude-code-config'
 
 function settings(): AppSettingsV1 {
@@ -80,8 +80,8 @@ describe('claude-code config launch helpers', () => {
     expect(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1')
   })
 
-  it('prepares stream-json print args without allowing controlled overrides', async () => {
-    const launch = await prepareClaudeCodeTurnLaunch({
+  it('prepares SDK launch options without allowing controlled CLI overrides', async () => {
+    const launch = await prepareClaudeCodeSdkLaunch({
       settings: {
         ...settings(),
         agents: {
@@ -98,31 +98,25 @@ describe('claude-code config launch helpers', () => {
       managedConfigDir: '/tmp/claude-managed'
     })
 
-    expect(launch.args).toEqual(expect.arrayContaining([
-      '-p',
-      'hello',
-      '--output-format',
-      'stream-json',
-      '--verbose',
-      '--bare',
-      '--model',
-      'sonnet',
-      '--resume',
-      'session-1',
-      '--allowedTools',
-      'Edit'
-    ]))
-    expect(launch.args).not.toContain('--cwd')
+    expect(launch.prompt).toBe('hello')
+    expect(launch.sdkOptions).toMatchObject({
+      cwd: '/tmp/workspace',
+      model: 'sonnet',
+      resume: 'session-1',
+      extraArgs: { allowedTools: 'Edit' }
+    })
+    expect(launch.sdkOptions.extraArgs).not.toHaveProperty('model')
+    expect(launch.sdkOptions.extraArgs).not.toHaveProperty('cwd')
     expect(launch.cwd).toBe('/tmp/workspace')
     expect(launch.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:49876')
-    expect(claudeCodeExtraArgs([
+    expect(claudeCodeSdkExtraArgs([
       '--model',
       'opus',
       '--bare',
       '--dangerously-skip-permissions',
       '--allowedTools',
       'Edit'
-    ])).toEqual(['--allowedTools', 'Edit'])
+    ])).toEqual({ allowedTools: 'Edit' })
   })
 
   it('uses Claude CLI model aliases instead of the router public alias', () => {
