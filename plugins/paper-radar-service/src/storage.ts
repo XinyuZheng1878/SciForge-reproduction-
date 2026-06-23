@@ -1,8 +1,26 @@
 import { mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 
 import type { PaperRecord, PaperSource, RankedPaper, SearchRequest } from './types.js';
+
+type SQLInputValue = string | number | bigint | boolean | null | Uint8Array;
+
+interface StatementSync {
+  run(...values: SQLInputValue[]): unknown;
+  get(...values: SQLInputValue[]): unknown;
+  all(...values: SQLInputValue[]): unknown[];
+}
+
+interface DatabaseSync {
+  close(): void;
+  exec(sql: string): void;
+  prepare(sql: string): StatementSync;
+}
+
+type DatabaseSyncConstructor = new (path: string) => DatabaseSync;
+
+const require = createRequire(import.meta.url);
 
 export interface SyncStateRecord {
   source: PaperSource;
@@ -16,6 +34,7 @@ export class PaperStore {
 
   constructor(path: string) {
     mkdirSync(dirname(path), { recursive: true });
+    const DatabaseSync = loadDatabaseSync();
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA foreign_keys = ON');
@@ -269,4 +288,15 @@ function normalizeTerms(query?: string): string[] {
 function clampTopK(value?: number): number {
   if (!Number.isFinite(value)) return 20;
   return Math.max(1, Math.min(100, Math.floor(value as number)));
+}
+
+function loadDatabaseSync(): DatabaseSyncConstructor {
+  try {
+    return (require('node:sqlite') as { DatabaseSync: DatabaseSyncConstructor }).DatabaseSync;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Paper Radar storage requires the Node.js built-in node:sqlite module, but this runtime does not provide it: ${reason}`,
+    );
+  }
 }
