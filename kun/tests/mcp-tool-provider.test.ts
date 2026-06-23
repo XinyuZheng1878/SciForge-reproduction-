@@ -118,6 +118,68 @@ describe('MCP tool provider', () => {
     }
   })
 
+  it('injects Kun computer-use context into direct gui_computer_use calls', async () => {
+    const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
+    const config = KunCapabilitiesConfig.parse({
+      mcp: {
+        enabled: true,
+        servers: {
+          gui_computer_use: {
+            transport: 'stdio',
+            command: 'node',
+            trustScope: 'user'
+          }
+        }
+      }
+    })
+    const built = await buildMcpToolProviders(config.mcp, {
+      clientFactory: async () => ({
+        async listTools() {
+          return {
+            tools: [
+              {
+                name: 'computer_use',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    action: { type: 'string' },
+                    targetId: { type: 'string' }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        async callTool(input) {
+          callInputs.push(input)
+          return {
+            content: [],
+            structuredContent: input.arguments
+          }
+        },
+        async close() {
+          // no-op
+        }
+      })
+    })
+    const host = new LocalToolHost({ registry: new CapabilityRegistry(built.providers) })
+
+    await host.execute({
+      callId: 'call_computer_use',
+      toolName: 'mcp_gui_computer_use_computer_use',
+      arguments: { action: 'bind_target', targetId: 'desktop:global' }
+    }, buildContext('/tmp/project'))
+
+    expect(callInputs[0]?.arguments).toMatchObject({
+      action: 'bind_target',
+      targetId: 'desktop:global',
+      agentId: 'kun:thr_1',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      computerUseSessionId: 'kun:thr_1'
+    })
+  })
+
   it('uses BM25 MCP search meta tools when search discovery is enabled', async () => {
     const config = KunCapabilitiesConfig.parse({
       mcp: {
@@ -230,6 +292,83 @@ describe('MCP tool provider', () => {
         }
       })
     }
+  })
+
+  it('injects Kun computer-use context through MCP search calls', async () => {
+    const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
+    const config = KunCapabilitiesConfig.parse({
+      mcp: {
+        enabled: true,
+        search: {
+          enabled: true,
+          mode: 'search'
+        },
+        servers: {
+          gui_computer_use: {
+            transport: 'stdio',
+            command: 'node',
+            trustScope: 'user'
+          }
+        }
+      }
+    })
+    const built = await buildMcpToolProviders(config.mcp, {
+      clientFactory: async () => ({
+        async listTools() {
+          return {
+            tools: [
+              {
+                name: 'computer_use',
+                description: 'Shared computer use control.',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    action: { type: 'string' },
+                    targetId: { type: 'string' }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        async callTool(input) {
+          callInputs.push(input)
+          return {
+            content: [],
+            structuredContent: input.arguments
+          }
+        },
+        async close() {
+          // no-op
+        }
+      })
+    })
+    const host = new LocalToolHost({ registry: new CapabilityRegistry(built.providers) })
+
+    await host.execute({
+      callId: 'call_computer_use',
+      toolName: 'mcp_call',
+      arguments: {
+        toolId: 'gui_computer_use/computer_use',
+        arguments: {
+          action: 'bind_target',
+          targetId: 'desktop:global',
+          agentId: 'explicit-agent',
+          threadId: 'explicit-thread',
+          turnId: 'explicit-turn',
+          computerUseSessionId: 'explicit-session'
+        }
+      }
+    }, buildContext('/tmp/project'))
+
+    expect(callInputs[0]?.arguments).toMatchObject({
+      action: 'bind_target',
+      targetId: 'desktop:global',
+      agentId: 'kun:thr_1',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      computerUseSessionId: 'kun:thr_1'
+    })
   })
 
   it('hides workspace-scoped tools outside trusted roots', async () => {

@@ -16,6 +16,7 @@ import {
   defaultKunRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
+  defaultComputerUseSettings,
   defaultRuntimeGuardSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
@@ -28,6 +29,7 @@ import {
   mergeKunRuntimeSettings,
   mergeModelRouterSettings,
   mergeModelProviderSettings,
+  mergeComputerUseSettings,
   mergeRuntimeGuardSettings,
   defaultWriteSettings,
   mergeClawSettings,
@@ -247,6 +249,7 @@ const defaultSettings = (): AppSettingsV1 => ({
   uiFontScale: 'small',
   provider: defaultModelProviderSettings(),
   modelRouter: defaultModelRouterSettings(),
+  computerUse: defaultComputerUseSettings(),
   runtimeGuards: defaultRuntimeGuardSettings(),
   activeAgentRuntime: 'kun',
   agents: {
@@ -282,6 +285,7 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
     ...migrated,
     provider: mergeModelProviderSettings(defaults.provider, migrated.provider),
     modelRouter: mergeModelRouterSettings(defaults.modelRouter, migrated.modelRouter),
+    computerUse: mergeComputerUseSettings(defaults.computerUse, migrated.computerUse),
     runtimeGuards: mergeRuntimeGuardSettings(defaults.runtimeGuards, migrated.runtimeGuards),
     activeAgentRuntime: normalizeAgentRuntimeId(migrated.activeAgentRuntime ?? defaults.activeAgentRuntime),
     agents: {
@@ -465,6 +469,7 @@ export class JsonSettingsStore {
       agents: agentsPatch,
       provider: providerPatch,
       modelRouter: modelRouterPatch,
+      computerUse: computerUsePatch,
       runtimeGuards: runtimeGuardsPatch,
       speechToText: speechToTextPatch,
       ...restPatch
@@ -477,6 +482,7 @@ export class JsonSettingsStore {
       ...restPatch,
       provider: mergeModelProviderSettings(cur.provider, providerPatch),
       modelRouter: mergeModelRouterSettings(cur.modelRouter, modelRouterPatch),
+      computerUse: mergeComputerUseSettings(cur.computerUse, computerUsePatch),
       runtimeGuards: mergeRuntimeGuardSettings(cur.runtimeGuards, runtimeGuardsPatch),
       log: { ...cur.log, ...(partial.log ?? {}) },
       notifications: { ...cur.notifications, ...(partial.notifications ?? {}) },

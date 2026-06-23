@@ -127,6 +127,56 @@ describe('Codex dynamic MCP tool bridge', () => {
     )
   })
 
+  it('injects Codex computer-use context into dynamic MCP calls', async () => {
+    const callTool = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'bound' }],
+      structuredContent: { ok: true }
+    }))
+    const bridge = createCodexDynamicMcpToolBridge({
+      servers: [{
+        id: 'gui_computer_use',
+        command: '/bin/computer-use-mcp',
+        enabledTools: ['computer_use']
+      }],
+      clientFactory: async () => fakeMcpClient({
+        tools: [{ name: 'computer_use', description: 'Shared host UI control.' }],
+        callTool
+      })
+    })
+
+    await bridge.dynamicTools()
+    await expect(bridge.callTool({
+      requestId: 'request-1',
+      threadId: 'codex-thread-1',
+      turnId: 'codex-turn-1',
+      tool: 'computer_use',
+      arguments: {
+        action: 'bind_target',
+        targetId: 'desktop:global',
+        agentId: 'model-agent',
+        threadId: 'model-thread',
+        turnId: 'model-turn',
+        computerUseSessionId: 'model-session'
+      }
+    })).resolves.toMatchObject({
+      success: true
+    })
+    expect(callTool).toHaveBeenCalledWith(
+      {
+        name: 'computer_use',
+        arguments: {
+          action: 'bind_target',
+          targetId: 'desktop:global',
+          agentId: 'codex:codex-thread-1',
+          threadId: 'codex-thread-1',
+          turnId: 'codex-turn-1',
+          computerUseSessionId: 'codex:codex-thread-1'
+        }
+      },
+      { signal: undefined, timeout: 30_000 }
+    )
+  })
+
   it('converts MCP error results into failed dynamic tool responses', () => {
     expect(dynamicToolResponseFromMcpResult({
       content: [{ type: 'text', text: 'failed upstream' }],

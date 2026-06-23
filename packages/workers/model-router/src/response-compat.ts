@@ -150,10 +150,7 @@ export function responseToAnthropicMessage(
     content: content.length > 0 ? content : text ? [{ type: 'text', text }] : [],
     stop_reason: stopReason,
     stop_sequence: null,
-    usage: {
-      input_tokens: 0,
-      output_tokens: estimateTokenCount(text || JSON.stringify(content)),
-    },
+    usage: anthropicUsageFromResponse(response, text || JSON.stringify(content)),
   };
 }
 
@@ -337,6 +334,18 @@ function responseOutputToAnthropicContent(output: JsonValue[]): JsonObject[] {
     }
   }
   return content;
+}
+
+function anthropicUsageFromResponse(response: JsonObject, fallbackText: string): JsonObject {
+  const usage = isRecord(response.usage) ? response.usage : {};
+  const inputTokens = numberValue(usage.input_tokens) || numberValue(usage.prompt_tokens);
+  const outputTokens = numberValue(usage.output_tokens) || numberValue(usage.completion_tokens);
+  return {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens || estimateTokenCount(fallbackText),
+    cache_creation_input_tokens: numberValue(usage.cache_creation_input_tokens),
+    cache_read_input_tokens: numberValue(usage.cache_read_input_tokens) || numberValue(usage.cached_input_tokens),
+  };
 }
 
 function parseJsonObject(raw: string): JsonObject | null {

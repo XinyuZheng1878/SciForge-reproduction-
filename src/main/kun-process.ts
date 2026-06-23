@@ -10,6 +10,7 @@ import {
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   isKunRuntimeInsecure,
+  isComputerUseEnabledForRuntime,
   normalizeRuntimeGuardSettings,
   resolveKunRuntimeSettings,
   type RuntimeGuardSettingsV1,
@@ -50,6 +51,14 @@ import {
   resolveResearchSearchMcpCommand,
   type ResearchSearchMcpLaunchConfig
 } from './research-search-mcp-config'
+import {
+  buildComputerUseMcpArgs,
+  COMPUTER_USE_MCP_TIMEOUT_MS,
+  computerUseMcpEnvForLaunch,
+  GUI_COMPUTER_USE_MCP_SERVER_NAME,
+  resolveComputerUseMcpCommand,
+  type ComputerUseMcpLaunchConfig
+} from './computer-use-mcp-config'
 import { defaultKunDataDir } from './runtime/kun-adapter'
 import { isKunHealthResponseBody } from './kun-health'
 import { appendManagedLogLine } from './logger'
@@ -318,6 +327,14 @@ async function startKunChildOnce(
         execPath: process.execPath,
         isPackaged: app.isPackaged
       }
+    },
+    computerUseMcp: {
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      },
+      enabled: isComputerUseEnabledForRuntime(settings, 'kun')
     }
   })
   lastResolvedBinary = resolution.command === process.execPath
@@ -412,6 +429,10 @@ export async function syncGuiManagedKunConfig(
     researchMcp?: {
       launch: ResearchSearchMcpLaunchConfig
     }
+    computerUseMcp?: {
+      launch: ComputerUseMcpLaunchConfig
+      enabled?: boolean
+    }
     mcpConfigPath?: string
   }
 ): Promise<void> {
@@ -420,8 +441,16 @@ export async function syncGuiManagedKunConfig(
   const importedMcpServers = await readGuiManagedMcpServers(
     options?.mcpConfigPath ?? resolveKunMcpJsonPath()
   )
-  const hasImportedEnabledMcpServer = Object.values(importedMcpServers).some(
-    (server) => objectValue(server).enabled !== false
+  const hasImportedEnabledMcpServerAfterManagedOverrides = Object.entries(importedMcpServers).some(
+    ([serverId, server]) => {
+      if (
+        serverId === GUI_COMPUTER_USE_MCP_SERVER_NAME &&
+        options?.computerUseMcp?.enabled === false
+      ) {
+        return false
+      }
+      return objectValue(server).enabled !== false
+    }
   )
 
   const serve = objectValue(existing?.serve)
@@ -440,6 +469,9 @@ export async function syncGuiManagedKunConfig(
   const storage = storageConfigForRuntime(runtime.storage)
   const mcpSearch = runtime.mcpSearch
   const skillCapability = await skillCapabilityConfigForRuntime(skills, options?.scheduleMcp?.settings)
+  const hasEnabledComputerUseMcp = Boolean(
+    options?.computerUseMcp && options.computerUseMcp.enabled !== false
+  )
   const next = {
     serve: {
       ...providerSafeServe,
@@ -463,9 +495,15 @@ export async function syncGuiManagedKunConfig(
       skills: skillCapability,
       mcp: {
         ...mcp,
-        ...(options?.scheduleMcp || options?.researchMcp || mcpSearch.enabled || hasImportedEnabledMcpServer
+        ...(
+          options?.scheduleMcp ||
+          options?.researchMcp ||
+          hasEnabledComputerUseMcp ||
+          mcpSearch.enabled ||
+          hasImportedEnabledMcpServerAfterManagedOverrides
           ? { enabled: mcp.enabled === false ? false : true }
-          : {}),
+          : {}
+        ),
         servers: {
           ...importedMcpServers,
           ...mcpServers,
@@ -484,6 +522,18 @@ export async function syncGuiManagedKunConfig(
                 {
                   ...objectValue(importedMcpServers[GUI_RESEARCH_MCP_SERVER_NAME]),
                   ...objectValue(mcpServers[GUI_RESEARCH_MCP_SERVER_NAME])
+                }
+              )
+            }
+          : {}),
+          ...(options?.computerUseMcp
+          ? {
+              [GUI_COMPUTER_USE_MCP_SERVER_NAME]: buildGuiComputerUseKunMcpServer(
+                options.computerUseMcp.launch,
+                options.computerUseMcp.enabled !== false,
+                {
+                  ...objectValue(importedMcpServers[GUI_COMPUTER_USE_MCP_SERVER_NAME]),
+                  ...objectValue(mcpServers[GUI_COMPUTER_USE_MCP_SERVER_NAME])
                 }
               )
             }
@@ -553,6 +603,23 @@ function buildGuiResearchKunMcpServer(
     env: researchSearchMcpEnv(process.env, stringRecordValue(existing.env)),
     trustScope: 'user',
     timeoutMs: 30_000
+  }
+}
+
+function buildGuiComputerUseKunMcpServer(
+  launch: ComputerUseMcpLaunchConfig,
+  enabled: boolean,
+  existing: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...existing,
+    enabled,
+    transport: 'stdio',
+    command: resolveComputerUseMcpCommand(launch),
+    args: buildComputerUseMcpArgs(launch),
+    env: computerUseMcpEnvForLaunch(launch, stringRecordValue(existing.env)),
+    trustScope: 'user',
+    timeoutMs: COMPUTER_USE_MCP_TIMEOUT_MS
   }
 }
 

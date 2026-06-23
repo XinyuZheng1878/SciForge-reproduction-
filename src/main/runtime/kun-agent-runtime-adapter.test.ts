@@ -93,6 +93,39 @@ function jsonResponse(body: unknown) {
 }
 
 describe('createKunAgentRuntimeAdapter', () => {
+  it('reports GUI-managed computer-use MCP capability through the shared runtime contract', async () => {
+    const adapter = createKunAgentRuntimeAdapter({
+      request: vi.fn(async (_settings, pathAndQuery) => {
+        if (pathAndQuery === '/v1/runtime/info') {
+          return jsonResponse({
+            capabilities: {
+              model: { supportsToolCalling: true },
+              mcp: { available: true, toolCount: 1 },
+              computerUse: {
+                available: true,
+                backend: 'global-native'
+              }
+            }
+          })
+        }
+        return jsonResponse({})
+      })
+    })
+
+    await expect(adapter.capabilities({ settings: buildSettings() })).resolves.toMatchObject({
+      runtimeId: 'kun',
+      tools: {
+        mcp: { available: true, toolCount: 1 },
+        computerUse: {
+          available: true,
+          server: 'mcp',
+          toolName: 'computer_use',
+          backend: 'global-native'
+        }
+      }
+    })
+  })
+
   it.each(MODEL_ROUTER_MODEL_CASES)(
     'routes startThread %s model through the resolved Model Router alias',
     async (_name, model) => {

@@ -20,6 +20,7 @@ import {
   getActiveAgentRuntime,
   mergeKunRuntimeSettings,
   mergeClawSettings,
+  mergeComputerUseSettings,
   mergeModelProviderSettings,
   mergeScheduleSettings,
   mergeWorkflowSettings,
@@ -30,6 +31,7 @@ import {
   normalizeKeyboardShortcuts,
   resolveRuntimeModelRouterSettings,
   resolveKunRuntimeSettings,
+  isComputerUseEnabledForRuntime,
   type AgentRuntimeId,
   type AppBehaviorConfigV1,
   type AppSettingsPatch,
@@ -74,6 +76,11 @@ import {
   syncClawScheduleMcpConfig,
   type ClawScheduleMcpLaunchConfig
 } from './claw-schedule-mcp-config'
+import { runComputerUseMcpServerFromArgv } from './computer-use-mcp-server'
+import {
+  syncComputerUseMcpConfig,
+  type ComputerUseMcpLaunchConfig
+} from './computer-use-mcp-config'
 import { runResearchSearchMcpServerFromArgv } from './research-search-mcp-server'
 import {
   syncResearchSearchMcpConfig,
@@ -142,6 +149,7 @@ function syncWeixinBridgeRuntime(settings: AppSettingsV1): void {
 
 const runningClawScheduleMcpServer =
   process.argv.includes('--gui-schedule-mcp-server') || process.argv.includes('--claw-schedule-mcp-server')
+const runningComputerUseMcpServer = process.argv.includes('--gui-computer-use-mcp-server')
 const runningResearchSearchMcpServer = process.argv.includes('--gui-research-mcp-server')
 
 function resolveLogDirectory(): string {
@@ -170,6 +178,19 @@ function getResearchSearchMcpLaunchConfig(): ResearchSearchMcpLaunchConfig {
   }
 }
 
+function getComputerUseMcpLaunchConfig(): ComputerUseMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged,
+    statusPath: resolveComputerUseStatusPath()
+  }
+}
+
+function resolveComputerUseStatusPath(): string {
+  return join(app.getPath('userData'), 'computer-use', 'status.json')
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -192,7 +213,7 @@ function runtimeJsonError(code: string, message: string): Error {
 
 traceStartup('main module evaluated')
 
-if (runningClawScheduleMcpServer && process.platform === 'darwin') {
+if ((runningClawScheduleMcpServer || runningComputerUseMcpServer) && process.platform === 'darwin') {
   app.dock.hide()
 }
 
@@ -204,7 +225,7 @@ if (runningClawScheduleMcpServer && process.platform === 'darwin') {
 configureAppIdentity()
 configureLinuxWaylandImeSwitches()
 
-if (!runningClawScheduleMcpServer && process.platform === 'win32') {
+if (!runningClawScheduleMcpServer && !runningComputerUseMcpServer && process.platform === 'win32') {
   app.setAppUserModelId(APP_USER_MODEL_ID)
 }
 
@@ -272,7 +293,8 @@ function getCodexRuntime(): CodexRuntimeService {
     managedCodexHome: app.isPackaged
       ? join(app.getPath('userData'), 'runtime-codex', 'codex-home')
       : join(process.cwd(), '.codex-runtime', 'codex-home'),
-    researchMcpLaunch: getResearchSearchMcpLaunchConfig()
+    researchMcpLaunch: getResearchSearchMcpLaunchConfig(),
+    computerUseMcpLaunch: getComputerUseMcpLaunchConfig()
   })
   return codexRuntime
 }
@@ -284,7 +306,8 @@ function getClaudeCodeRuntime(): ClaudeCodeRuntimeService {
     storageRoot: join(app.getPath('userData'), 'claude-code-runtime'),
     managedConfigDir: app.isPackaged
       ? join(app.getPath('userData'), 'runtime-claude-code', 'config')
-      : join(process.cwd(), '.claude-code-runtime', 'config')
+      : join(process.cwd(), '.claude-code-runtime', 'config'),
+    computerUseMcpLaunch: getComputerUseMcpLaunchConfig()
   })
   return claudeCodeRuntime
 }
@@ -428,10 +451,12 @@ function installDevPreviewWebviewGuards(): void {
 const appIcon = createAppIcon(sciforgeLogoPng)
 const trayIcon = createAppIcon(sciforgeTrayPng)
 traceStartup('app icon loaded', { source: sciforgeLogoPng.startsWith('data:') ? 'data-url' : 'path' })
-const gotSingleInstanceLock = runningClawScheduleMcpServer || app.requestSingleInstanceLock()
+const gotSingleInstanceLock =
+  runningClawScheduleMcpServer || runningComputerUseMcpServer || app.requestSingleInstanceLock()
 traceStartup('single instance lock checked', {
   gotSingleInstanceLock,
-  skippedForClawScheduleMcpServer: runningClawScheduleMcpServer
+  skippedForClawScheduleMcpServer: runningClawScheduleMcpServer,
+  skippedForComputerUseMcpServer: runningComputerUseMcpServer
 })
 
 function trayLabels(locale: AppSettingsV1['locale']): { show: string; quit: string; tooltip: string } {
@@ -1296,6 +1321,11 @@ if (runningClawScheduleMcpServer) {
     console.error('[claw-schedule-mcp] server failed:', error)
     process.exit(1)
   })
+} else if (runningComputerUseMcpServer) {
+  void runComputerUseMcpServerFromArgv(process.argv).catch((error) => {
+    console.error('[computer-use-mcp] server failed:', error)
+    process.exit(1)
+  })
 } else if (runningResearchSearchMcpServer) {
   void runResearchSearchMcpServerFromArgv(process.argv).catch((error) => {
     console.error('[research-search-mcp] server failed:', error)
@@ -1327,6 +1357,11 @@ app.whenReady().then(async () => {
   })
   await syncResearchSearchMcpConfig(getResearchSearchMcpLaunchConfig()).catch((error) => {
     console.error('[research-search-mcp] failed to sync config on startup:', error)
+  })
+  await syncComputerUseMcpConfig(getComputerUseMcpLaunchConfig(), {
+    enabled: isComputerUseEnabledForRuntime(initial, 'kun')
+  }).catch((error) => {
+    console.error('[computer-use-mcp] failed to sync config on startup:', error)
   })
 
   logDir = resolveLogDirectory()
@@ -1435,7 +1470,13 @@ app.whenReady().then(async () => {
   traceStartup('ipc registration:start')
   const applySettingsPatch = async (partial: AppSettingsPatch): Promise<AppSettingsV1> => {
     const prev = await store.load()
-    const { agents: agentsPatch, provider: providerPatch, speechToText: speechToTextPatch, ...restPatch } = partial
+    const {
+      agents: agentsPatch,
+      provider: providerPatch,
+      computerUse: computerUsePatch,
+      speechToText: speechToTextPatch,
+      ...restPatch
+    } = partial
     const next = normalizeAppSettings({
       ...applyClaudeRuntimePatch(
         applyCodexRuntimePatch(applyKunRuntimePatch(prev, agentsPatch?.kun), agentsPatch?.codex),
@@ -1443,6 +1484,7 @@ app.whenReady().then(async () => {
       ),
       ...restPatch,
       provider: mergeModelProviderSettings(prev.provider, providerPatch),
+      computerUse: mergeComputerUseSettings(prev.computerUse, computerUsePatch),
       log: { ...prev.log, ...(partial.log ?? {}) },
       notifications: { ...prev.notifications, ...(partial.notifications ?? {}) },
       appBehavior: normalizeAppBehaviorSettings({
@@ -1471,6 +1513,11 @@ app.whenReady().then(async () => {
     })
     await syncResearchSearchMcpConfig(getResearchSearchMcpLaunchConfig()).catch((error) => {
       console.error('[research-search-mcp] failed to sync config after settings change:', error)
+    })
+    await syncComputerUseMcpConfig(getComputerUseMcpLaunchConfig(), {
+      enabled: isComputerUseEnabledForRuntime(saved, 'kun')
+    }).catch((error) => {
+      console.error('[computer-use-mcp] failed to sync config after settings change:', error)
     })
     if (prev.guiUpdate.channel !== saved.guiUpdate.channel && guiUpdaterModulePromise) {
       void guiUpdaterModulePromise.then((module) => module.setGuiUpdateChannel(saved.guiUpdate.channel))

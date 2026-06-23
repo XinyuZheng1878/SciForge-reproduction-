@@ -34,6 +34,42 @@ describe('createCodexAgentRuntimeAdapter', () => {
     })
   })
 
+  it('reports shared computer-use MCP diagnostics when Codex managed config includes it', async () => {
+    const adapter = createCodexAgentRuntimeAdapter({
+      isMcpConfigured: () => true,
+      isResearchMcpConfigured: () => false,
+      isComputerUseMcpConfigured: () => true
+    } as never)
+
+    const caps = await adapter.capabilities({ settings: {} as never })
+    expect(caps.tools.mcp).toMatchObject({
+      available: true,
+      degraded: true,
+      toolCount: 1
+    })
+    expect(caps.tools.computerUse).toMatchObject({
+      available: true,
+      server: 'mcp',
+      toolName: 'computer_use',
+      backend: 'global-native'
+    })
+    expect(caps.tools.research).toMatchObject({
+      available: false
+    })
+
+    await expect(adapter.auxiliary!({ settings: {} as never }, {
+      runtimeId: 'codex',
+      operation: 'getToolDiagnostics'
+    })).resolves.toMatchObject({
+      mcpServers: [{
+        id: 'gui_computer_use',
+        status: 'configured',
+        toolCount: 1,
+        tools: ['computer_use']
+      }]
+    })
+  })
+
   it('keeps Codex thread blocks grouped by their source turn id', async () => {
     const service = {
       readThread: vi.fn(async () => ({

@@ -535,6 +535,75 @@ describe('syncGuiManagedKunConfig', () => {
     })
   })
 
+  it('adds the shared computer-use MCP server to Kun runtime capabilities', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    const module = await import('./kun-process')
+
+    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+      computerUseMcp: {
+        launch: {
+          appPath: '/tmp/deepseek-gui-test-app',
+          execPath: '/tmp/electron',
+          isPackaged: false
+        }
+      }
+    })
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.mcp.enabled).toBe(true)
+    expect(parsed.capabilities.mcp.servers.gui_computer_use).toMatchObject({
+      enabled: true,
+      transport: 'stdio',
+      command: '/tmp/electron',
+      args: [
+        '/tmp/deepseek-gui-test-app/out/main/computer-use-mcp-node-entry.js',
+        '--gui-computer-use-mcp-server'
+      ],
+      env: {
+        ELECTRON_RUN_AS_NODE: '1'
+      },
+      trustScope: 'user',
+      timeoutMs: 30000
+    })
+  })
+
+  it('keeps the shared computer-use MCP server disabled when computer use is turned off', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    const module = await import('./kun-process')
+
+    const runtime = defaultKunRuntimeSettings()
+    await module.syncGuiManagedKunConfig(tempRoot, {
+      ...runtime,
+      mcpSearch: {
+        ...runtime.mcpSearch,
+        enabled: false
+      }
+    }, {
+      mcpConfigPath: join(tempRoot, 'empty-mcp.json'),
+      computerUseMcp: {
+        enabled: false,
+        launch: {
+          appPath: '/tmp/deepseek-gui-test-app',
+          execPath: '/tmp/electron',
+          isPackaged: false
+        }
+      }
+    })
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.mcp.enabled).toBeUndefined()
+    expect(parsed.capabilities.mcp.servers.gui_computer_use).toMatchObject({
+      enabled: false,
+      command: '/tmp/electron',
+      args: [
+        '/tmp/deepseek-gui-test-app/out/main/computer-use-mcp-node-entry.js',
+        '--gui-computer-use-mcp-server'
+      ]
+    })
+  })
+
   it('adds GUI project and configured global skill roots to Kun runtime capabilities', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')

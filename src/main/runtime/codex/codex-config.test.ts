@@ -190,6 +190,81 @@ describe('codex config launch helpers', () => {
     expect(config).toContain('SCIFORGE_RESEARCH_TIMEOUT_MS = "12000"')
   })
 
+  it('writes the shared computer-use MCP server into managed Codex config', async () => {
+    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const launch = await prepareCodexAppServerLaunch({
+      settings: settings(codexHome),
+      computerUseMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      }
+    })
+
+    expect(launch.codexHome).toBe(codexHome)
+    const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    expect(config).toContain('[mcp_servers.gui_computer_use]')
+    expect(config).toContain('command = "/tmp/deepseek-gui-test-app/SciForge"')
+    expect(config).toContain('args = ["/tmp/deepseek-gui-test-app/out/main/computer-use-mcp-node-entry.js", "--gui-computer-use-mcp-server"]')
+    expect(config).toContain('ELECTRON_RUN_AS_NODE = "1"')
+  })
+
+  it('does not write the shared computer-use MCP server when computer use is disabled', async () => {
+    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    await prepareCodexAppServerLaunch({
+      settings: {
+        ...settings(codexHome),
+        computerUse: {
+          enabled: false,
+          runtimeEnabled: {
+            kun: true,
+            codex: true,
+            claude: true
+          },
+          backend: 'global-native',
+          experimentalAppScopedBackend: false
+        }
+      },
+      computerUseMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      }
+    })
+
+    const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    expect(config).not.toContain('[mcp_servers.gui_computer_use]')
+    expect(config).not.toContain('computer-use-mcp-node-entry')
+  })
+
+  it('does not write the shared computer-use MCP server when Codex runtime access is disabled', async () => {
+    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    await prepareCodexAppServerLaunch({
+      settings: {
+        ...settings(codexHome),
+        computerUse: {
+          enabled: true,
+          runtimeEnabled: {
+            kun: true,
+            codex: false,
+            claude: true
+          },
+          backend: 'global-native',
+          experimentalAppScopedBackend: false
+        }
+      },
+      computerUseMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      }
+    })
+
+    const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    expect(config).not.toContain('[mcp_servers.gui_computer_use]')
+    expect(config).not.toContain('computer-use-mcp-node-entry')
+  })
+
   it('uses the managed Codex home instead of a persisted global Codex home', async () => {
     const settingsCodexHome = await mkdtemp(join(tmpdir(), 'global-codex-home-'))
     const managedCodexHome = await mkdtemp(join(tmpdir(), 'project-codex-home-'))

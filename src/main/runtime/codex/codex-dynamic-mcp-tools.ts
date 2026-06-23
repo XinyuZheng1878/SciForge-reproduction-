@@ -81,6 +81,8 @@ type ServerState = {
   catalogPromise?: Promise<CatalogTool[]>
 }
 
+const GUI_COMPUTER_USE_MCP_SERVER_ID = 'gui_computer_use'
+const GUI_COMPUTER_USE_TOOL_NAME = 'computer_use'
 const DEFAULT_TIMEOUT_MS = 30_000
 
 export function createCodexDynamicMcpToolBridge(
@@ -138,12 +140,13 @@ export class CodexDynamicMcpToolBridge {
       return failedDynamicToolResponse(`No configured MCP dynamic tool matched ${name}.`)
     }
     try {
+      const callArguments = mcpToolArgumentsForRequest(resolved.state, resolved.tool, request)
       const result = resolved.state.client
         ? await resolved.state.client.callTool(
-          { name: resolved.tool.originalName, arguments: recordArguments(request.arguments) },
+          { name: resolved.tool.originalName, arguments: callArguments },
           { signal: options.signal, timeout: resolved.state.config.timeoutMs }
         )
-        : await this.callWithConnectedClient(resolved.state, resolved.tool, request.arguments, options.signal)
+        : await this.callWithConnectedClient(resolved.state, resolved.tool, callArguments, options.signal)
       return dynamicToolResponseFromMcpResult(result)
     } catch (error) {
       return failedDynamicToolResponse(
@@ -338,6 +341,27 @@ function failedDynamicToolResponse(message: string): CodexAppServerDynamicToolCa
 
 function recordArguments(value: unknown): Record<string, unknown> {
   return asRecord(value) ?? {}
+}
+
+function mcpToolArgumentsForRequest(
+  state: ServerState,
+  tool: CatalogTool,
+  request: CodexAppServerDynamicToolCallRequest
+): Record<string, unknown> {
+  const args = recordArguments(request.arguments)
+  if (state.config.id !== GUI_COMPUTER_USE_MCP_SERVER_ID || tool.originalName !== GUI_COMPUTER_USE_TOOL_NAME) {
+    return args
+  }
+  const threadId = request.threadId ?? `request:${String(request.requestId)}`
+  const turnId = request.turnId
+  const agentId = `codex:${threadId}`
+  return {
+    ...args,
+    agentId,
+    threadId,
+    ...(turnId ? { turnId } : {}),
+    computerUseSessionId: agentId
+  }
 }
 
 function normalizeToolRequestName(request: CodexAppServerDynamicToolCallRequest): {

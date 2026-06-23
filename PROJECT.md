@@ -1,6 +1,6 @@
-# SciForge PDF 交互式批注任务板
+# SciForge Agent Computer Use 任务板
 
-更新时间：2026-06-22
+更新时间：2026-06-23
 
 ## 不可变原则
 
@@ -10,78 +10,82 @@
 - [x] 相同功能的工作链路需要统一，不要额外生出旁路。
 
 
-## 新任务：PDF 交互式批注、评论、翻译与聊天提问
+## 新任务：多 Agent Computer Use
 
-目标：让 PDF 阅读支持可持久、可分享、可贡献的交互式批注层。用户可以划定 PDF 内容，进行高亮、评论、翻译和统一聊天提问；AI 回答可以沉淀为批注；批注随 sidecar 包导入导出，并可被外部修改和贡献。
+目标：让主 agent 和所有 subagent 都能使用统一的 `computer_use` 能力。图像模态、截图理解和模型协议转换一律走 model router；runtime 只负责采集截图、执行桌面动作、维护 agent 级 session/target/lease，并保证不同 agent 的操作不会互相干扰。
 
-### 产品与数据契约
+### 范围边界
 
-- [x] 定义 PDF sidecar v1 schema，包含 `manifest`、`pdfFingerprint`、`anchors`、`annotations`、`threads`、`authors`、`version` 和 `updatedAt`。
-- [x] 明确 sidecar 本地形态：默认保存到 `.sciforge/pdf-annotations/<pdfHash>.json`，并支持与 PDF 同目录的 `paper.pdf.dsgui-annotations.json` 兼容读取。
-- [x] 明确 sidecar 交换形态：导出 `paper.dsgui-pdf.zip`，包含原始 PDF、`annotations.json`、`manifest.json` 和可选附件。
-- [x] 定义 `PdfAnchor`，同时保存页码、归一化页面坐标、quote 文本、text hash、前后文 fallback 和创建时 PDF 指纹。
-- [x] 定义 `PdfAnnotationThread`，统一承载 comment、note、translation、question、answer、highlight，不为每种动作建立旁路模型。
-- [x] 为 sidecar schema 增加迁移机制，后续版本通过 `schemaVersion` 做无损升级。
+- [x] 不做虚拟桌面、VM、VNC、Xvfb 或浏览器隔离方案。
+- [x] Phase 1 先实现真实宿主桌面的全局后端，通过 lease/lock 串行化动作，保证 main agent 和 subagent 都能安全使用。
+- [x] Phase 2A 实现 macOS app/window-scoped experimental backend：通过 System Events 枚举/激活真实 app/window target，再在全局锁保护下委托真实宿主桌面 backend 执行动作。
+- [x] 同一个 app/window 已被 agent 申请时，其他 agent 再申请必须被拒绝，并返回明确拒绝理由；不排队、不抢占。
+- [x] 不允许为 main agent 和 subagent 分别实现旁路工具，所有 agent 复用同一套 computer-use contract、权限、审计和模型输入路径。
 
-### PDF 锚点与渲染层
+### 独立扩展包与 Runtime 接入
 
-- [x] 将当前 PDF 选区 rect 从视口像素坐标升级为页面归一化坐标，保证缩放、窗口变化、重新打开后可稳定复现。
-- [x] 实现 anchor 重新定位：优先使用 text hash 和 quote，失败时使用前后文 fallback，再失败时降级到原始 rect。
-- [x] 在 PDF overlay 层渲染持久高亮、评论标记、翻译标记和当前选区预览。
-- [x] 支持跨页选区，并限制极端大量 rect 的性能风险。
-- [x] 对无 text layer 的 PDF 标记为视觉选区模式，为后续 OCR/视觉模型提问预留 anchor 类型。
-- [x] 增强 PDF text layer 词级命中与视觉行拖选，避免隐藏 DOM 顺序导致词划不到或误选后续大段文本。
+- [x] `computer_use` 作为 `packages/workers/computer-use` 下的独立 worker extension package 实现，不放进某个 runtime 的私有目录。
+- [x] extension package 以 stdio MCP server 作为统一入口，runtime 只注入 server launch config，不复制 backend、lease 或动作执行逻辑。
+- [x] GUI-managed Kun、Codex runtime 和 Claude Code runtime 都注入同一个 `gui_computer_use` MCP server。
+- [x] 打包配置必须包含 worker package、MCP node entry 和 native host-control 依赖，避免生产包启动时找不到 computer-use server。
+- [x] 新增其他 runtime 时只能接入同一个 MCP server，不允许新增 runtime 专属 computer-use 工具链路。
 
-### 批注交互
+### Computer Use Contract
 
-- [x] 划选 PDF 文本后显示操作条：高亮、评论、翻译、提问、复制引用。
-- [x] 支持在 PDF 文本上右键直接打开批注菜单，无需先手动划选。
-- [x] 评论线程支持卡片内直接输入、保存、再次编辑和删除。
-- [x] 批注面板支持左右拖拽调宽，每条批注线程都有明确删除入口。
-- [x] PDF 正文批注高亮支持隐藏、当前、全部三档，默认只显示当前选中批注。
-- [x] 实现右侧批注面板，按页码、类型、状态筛选 annotation thread。
-- [x] 支持新建、编辑、删除、解决/重新打开评论线程。
-- [x] 支持翻译选区并保存为 translation annotation，保留目标语言和源文本。
-- [x] 支持从 AI 回答一键保存为 note、answer 或 translation annotation。
-- [x] 支持点击批注跳转到 PDF 对应页和 anchor 位置。
+- [x] 定义统一 `computer_use` 工具协议，支持 `list_targets`、`bind_target`、`release_target`、`screenshot`、`cursor_position`、`mouse_move`、`click`、`drag`、`scroll`、`type`、`key`、`wait`。
+- [x] 为每个 agent 分配独立 `computerUseSessionId`，并记录 `agentId`、`threadId`、`turnId`、`targetId`、`backend`、`leaseState` 和软件光标状态。
+- [x] `bind_target` 必须返回 target metadata、lease 信息和拒绝原因；拒绝原因需要可展示、可进入 tool result、可用于模型自我纠正。
+- [x] `screenshot` 输出统一为 model-visible image tool result，不把 base64 当普通 JSON 文本塞入上下文。
+- [x] 工具结果中的图片、文本摘要、屏幕尺寸、坐标空间说明必须结构化，便于 model router 转成对应 provider 协议。
 
-### 统一聊天桥接
+### Agent 与 Subagent 权限
 
-- [x] 复用现有 quoted selection 工作链路，将 PDF anchor 作为聊天上下文进入统一 composer。
-- [x] 聊天 prompt 中包含 PDF 文件、页码范围、anchor 位置、quote 文本和附近检索上下文。
-- [x] 让“提问”动作不创建新的旁路聊天，而是把选区引用注入当前统一聊天。
-- [x] 支持多选区、多批注作为同一条用户问题的上下文。
-- [x] 将聊天回答与来源 anchor/thread 建立可追踪关联，便于保存、回看和导出。
+- [x] 主 agent 默认可使用 `computer_use`。
+- [x] subagent 默认也可使用 `computer_use`，但必须拥有自己的 session、target lease 和审计记录。
+- [x] subagent 不继承父 agent 的 target lease；如需操作同一 app/window，必须显式申请并因冲突被拒绝。
+- [x] 所有 agent 的 computer-use 调用都进入统一权限策略、确认策略和 action budget。
+- [x] 支持按 runtime 设置关闭全部 computer use，或只关闭 experimental app/window-scoped backend。
 
-### Sidecar 导入导出与贡献
+### Backend 设计
 
-- [x] 实现读取 sidecar：打开 PDF 时自动加载同目录或 `.sciforge` 中匹配的 annotations。
-- [x] 实现保存 sidecar：批注变更自动写入本地 annotations 文件，并保留稳定排序，方便 Git diff。
-- [x] 实现导出 sidecar 包：生成包含 PDF 和批注数据的 zip。
-- [x] 实现导入 sidecar 包：校验 PDF 指纹，匹配成功直接导入，匹配失败提示用户选择是否尝试 anchor 重新定位。
-- [x] 支持外部修改后的 annotations 重新加载，并对 schema、作者、更新时间和冲突字段做校验。
-- [x] 规划贡献流程：annotation JSON 可 review、可 diff、可合并，冲突先按 thread id 和 updatedAt 解决。
+- [x] 抽象 `ComputerUseBackend` 接口，隐藏真实执行差异，统一暴露 target discovery、lease、screenshot、pointer、keyboard、wait 和 diagnostics。
+- [x] 实现 `global-native` backend：复用上游 Kun 的 host-control 思路，使用真实桌面截图和鼠标键盘控制；同一时间只允许一个 active action。
+- [x] `global-native` backend 对不同 target lease 仍保持全局 action lock，避免真实 OS 鼠标、键盘、前台焦点互相抢夺。
+- [x] 实现 `mac-app-scoped` backend 的实验接口：按 app/window target 维护 session 和软件光标，能发现/激活真实 macOS app/window；底层能力不足时降级为拒绝或全局锁保护。
+- [x] backend diagnostics 必须能说明当前平台、权限、后端可用性、active lease、拒绝原因和最近错误。
 
-### 扫描版 PDF 与视觉提问
+### Model Router 与图像模态
 
-- [x] 检测无 text layer PDF，并在 UI 中提示可使用视觉选区能力。
-- [x] 支持用户框选页面图片区域，生成 image anchor。
-- [x] 将 image anchor 发送到 model router 的视觉模型进行解释、翻译或摘要。
-- [x] 可选接入 OCR，将识别文本回填为 quote，提升后续搜索和重新定位能力。
-- [x] 将 OCR/视觉结果保存为 annotation，并与原始图片区域保持关联。
+- [x] Kun runtime 的 Model Router Responses 路径不再把 tool result 图片拆成 provider 私有 `image_url`/`input_image` 旁路，只产出标准 `function_call_output.output` image tool result。
+- [x] model router 负责把截图、read-tool 图片和其他 model-visible image 转为 OpenAI Responses、Chat Completions、Anthropic Messages 等上游协议。
+- [x] model router 能直接解析标准 `computer_screenshot` / MCP image content tool result，并把图片作为内部 vision modality 路由。
+- [x] 对不支持图像输入的模型，model router 必须降级为文本摘要，并明确说明图片未发送。
+- [x] 历史压缩、token economy 和 request hygiene 必须按视觉 token 预算处理截图，不能按 base64 文本长度估算。
+- [x] 只保留最近有限数量的截图图片载荷，旧截图降级为文本占位，避免长时间 desktop task 撑爆上下文。
 
-### 权限、隐私与安全
+### macOS 权限与 UI
 
-- [x] 明确 sidecar 不默认嵌入用户私密聊天全文，只保存用户显式保存为批注的内容。
-- [x] 导出前提供内容预览，展示将被打包的 PDF、批注、作者和附件。
-- [x] 对导入的 sidecar 做 schema 校验、大小限制和文本清洗，避免恶意内容污染 UI。
-- [x] 对外部贡献内容保留作者和时间戳，但允许用户在导出前匿名化。
+- [x] 接入 macOS Accessibility 和 Screen Recording 权限检测。
+- [x] 区分“未授权”和“系统设置已授权但当前进程需重启生效”。
+- [x] 设置页展示 computer-use 开关、backend 状态、权限状态、active leases 和最近拒绝原因。
+- [x] 开启 computer use 时，提示它会操控真实电脑，并说明 main/subagent 都可能使用该能力。
+- [x] macOS 上处理 native automation 触发 AppKit/Dock 图标的问题，避免运行时多出无用 Dock 图标。
+
+### 安全与确认
+
+- [x] 复用统一确认策略：删除、上传、发消息、提交表单、改系统设置、交易、敏感数据传输等风险动作必须在动作前确认。
+- [x] computer-use action budget 按 agent session 和 turn 双维度限制，防止 runaway。
+- [x] 用户停止 run 时，必须中断当前 action、释放 lease，并记录释放原因。
+- [x] tool result 中不得泄漏不必要的敏感截图 base64；持久日志只保存必要摘要和可配置数量的截图引用。
+- [x] 拒绝第三方内容诱导的权限扩大、系统设置修改或敏感数据传输。
 
 ### 测试与验收
 
-- [x] 覆盖 anchor 坐标归一化、缩放复现、跨页选区和重新定位单元测试。
-- [x] 覆盖 sidecar schema 校验、保存、读取、导入、导出和版本迁移测试。
-- [x] 覆盖 PDF 选区进入统一聊天 prompt 的测试，确保不产生旁路工作链路。
-- [x] 覆盖批注面板的新增、编辑、删除、筛选、跳转交互测试。
-- [x] 使用真实论文 PDF 验证：文本选区、评论、翻译、提问、保存回答、导出包、重新导入完整闭环。
-- [x] 使用扫描版 PDF 验证视觉选区降级路径不会破坏普通文本 PDF 流程。
+- [x] 覆盖 target lease：不同 agent 申请同一 app/window 必须拒绝并返回原因。
+- [x] 覆盖 main agent 和 subagent 都能看到并调用 `computer_use`，且走同一工具协议。
+- [x] 覆盖 `global-native` backend 的全局 action lock，确保并发 action 不交错执行。
+- [x] 覆盖截图 image tool result 进入 model router 的路径，不把 base64 作为普通文本发送。
+- [x] 覆盖不支持图像模型的降级行为。
+- [x] 覆盖 macOS 权限状态、重启提示和设置页展示。
+- [x] 用两个并发 agent 验证：不同 target 不互相污染 session 状态；相同 target 明确拒绝。
+- [x] 用真实 macOS 桌面验证：`SCIFORGE_COMPUTER_USE_REAL_MAC=1 npm run computer-use:smoke:mac` 已覆盖 TextEdit window target 的截图、点击、输入、滚动、停止 run、重新绑定和释放 lease 完整闭环。

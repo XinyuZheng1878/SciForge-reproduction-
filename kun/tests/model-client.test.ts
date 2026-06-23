@@ -182,6 +182,72 @@ describe('DeepseekCompatModelClient', () => {
     ])
   })
 
+  it('serializes image tool results as standard Responses function outputs', async () => {
+    const sentBodies: Array<{ input?: Array<Record<string, unknown>> }> = []
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      sentBodies.push(JSON.parse(String(init?.body ?? '{}')))
+      return new Response(JSON.stringify({
+        id: 'resp_tool_image',
+        status: 'completed',
+        output_text: 'done'
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+    const client = new DeepseekCompatModelClient({
+      baseUrl: 'http://127.0.0.1:3892/v1',
+      apiKey: 'local-router-key',
+      model: 'deepseek-gui-router',
+      endpointFormat: 'responses',
+      fetchImpl,
+      nonStreaming: true,
+      forceDefaultModel: true
+    })
+    const imageData = Buffer.from('screen-pixels').toString('base64')
+    const request = buildRequest(new AbortController().signal)
+    request.history = [
+      makeToolCallItem({
+        id: 'call_screenshot_item',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        callId: 'call_screenshot',
+        toolName: 'computer_use',
+        arguments: { action: 'screenshot' }
+      }),
+      makeToolResultItem({
+        id: 'result_screenshot_item',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        callId: 'call_screenshot',
+        toolName: 'computer_use',
+        output: {
+          kind: 'computer_screenshot',
+          action: 'screenshot',
+          note: 'screen captured',
+          images: [{ mime_type: 'image/png', data_base64: imageData, width: 64, height: 32 }]
+        }
+      })
+    ]
+
+    for await (const _chunk of client.stream(request)) {
+      // drain
+    }
+
+    const input = sentBodies[0]?.input ?? []
+    const toolOutput = input.find((item) => item.type === 'function_call_output')
+    expect(toolOutput?.output).toEqual({
+      kind: 'computer_screenshot',
+      action: 'screenshot',
+      note: 'screen captured',
+      images: [{ mime_type: 'image/png', data_base64: imageData, width: 64, height: 32 }]
+    })
+    const serialized = JSON.stringify(input)
+    expect(serialized).not.toContain('input_image')
+    expect(serialized).not.toContain('image_url')
+    expect(serialized).not.toContain('data:image')
+  })
+
   it('builds chat completions URLs for base URLs with and without version segments', async () => {
     const cases = [
       ['https://zenmux.ai/api', 'https://zenmux.ai/api/v1/chat/completions'],

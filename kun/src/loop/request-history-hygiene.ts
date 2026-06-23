@@ -1,4 +1,5 @@
 import type { TurnItem } from '../contracts/items.js'
+import { isModelVisibleImageOutput } from './tool-result-image.js'
 
 export type RequestHistoryHygieneOptions = {
   maxToolResultLines?: number
@@ -89,6 +90,7 @@ function compactToolResultOutput(
   output: unknown,
   limits: Required<RequestHistoryHygieneOptions>
 ): CompactResult<unknown> {
+  if (isModelVisibleImageOutput(output)) return { value: output, changed: false }
   return compactToolResultValue(output, '', limits)
 }
 

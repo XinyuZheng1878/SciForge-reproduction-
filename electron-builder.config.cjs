@@ -61,6 +61,7 @@ const releaseAppVersion = (
 ).trim()
 const artifactVersion = releaseAppVersion || '${version}'
 const modelRouterWorkerDir = 'packages/workers/model-router'
+const computerUseWorkerDir = 'packages/workers/computer-use'
 
 function normalizeUpdateChannel(raw) {
   const value = String(raw || '').trim()
@@ -83,6 +84,7 @@ module.exports = {
     '**/kun/package*.json',
     '**/kun/node_modules/**/*',
     `**/${modelRouterWorkerDir}/**/*`,
+    `**/${computerUseWorkerDir}/**/*`,
     '**/node_modules/better-sqlite3/**/*',
     '**/node_modules/bindings/**/*',
     '**/node_modules/file-uri-to-path/**/*'
@@ -108,6 +110,14 @@ module.exports = {
     {
       from: modelRouterWorkerDir,
       to: modelRouterWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: computerUseWorkerDir,
+      to: computerUseWorkerDir,
       filter: [
         '**/*',
         '**/.*'

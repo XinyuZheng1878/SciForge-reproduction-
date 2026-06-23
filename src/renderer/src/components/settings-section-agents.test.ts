@@ -245,6 +245,39 @@ const labels: Record<string, string> = {
   mcpSave: 'Save MCP config',
   mcpReload: 'Reload MCP config',
   mcpOpenDir: 'Open MCP directory',
+  computerUseTitle: 'Computer use',
+  computerUseHint: 'Computer use gives agents direct control of this Mac.',
+  computerUseEnable: 'Enable computer use',
+  computerUseEnableDesc: 'Expose the shared computer_use MCP tool.',
+  computerUseRuntimeAccess: 'Runtime access',
+  computerUseRuntimeAccessDesc: 'Choose runtime access.',
+  computerUseBackend: 'Backend status',
+  computerUseBackendDesc: 'Shows the configured backend and latest runtime diagnostic.',
+  computerUseConfiguredBackend: 'Configured',
+  computerUseRuntimeBackend: 'Runtime',
+  computerUsePlatform: 'Platform',
+  computerUseBackendAvailable: 'available',
+  computerUseBackendUnavailable: 'unavailable',
+  computerUseBackendUnknown: 'not reported',
+  computerUseRefresh: 'Refresh status',
+  computerUseDisabledHint: 'Computer use is disabled in settings.',
+  computerUsePermissions: 'macOS permissions',
+  computerUsePermissionsDesc: 'Accessibility and Screen Recording permissions.',
+  computerUseAccessibility: 'Accessibility',
+  computerUseScreenRecording: 'Screen Recording',
+  computerUsePermission_granted: 'granted',
+  computerUsePermission_denied: 'not granted',
+  computerUsePermission_unknown: 'unknown',
+  computerUsePermissionNeedsRestart: 'granted, restart needed',
+  computerUseRestartHint: 'Restart SciForge before using computer use.',
+  computerUseGrantAccessibility: 'Open Accessibility',
+  computerUseGrantScreenRecording: 'Open Screen Recording',
+  computerUseActiveLeases: 'Active leases',
+  computerUseActiveLeasesDesc: 'Currently held computer-use targets.',
+  computerUseNoActiveLeases: 'No active computer-use leases.',
+  computerUseRecentRejections: 'Recent rejections',
+  computerUseRecentRejectionsDesc: 'Most recent denials.',
+  computerUseNoRecentRejections: 'No recent computer-use rejections.',
   permissions: 'Permissions',
   kunPermissions: 'Kun permissions',
   approvalPolicy: 'Approval policy',
@@ -575,6 +608,85 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
 
     expect(html).toContain('Kun access')
     expect(html).toContain('Kun permissions')
+  })
+
+  it('renders computer-use status, macOS restart guidance, active leases, and recent rejections', () => {
+    const ctx = {
+      ...baseCtx(),
+      computerUseStatus: {
+        settings: {
+          enabled: true,
+          runtimeEnabled: {
+            kun: true,
+            codex: true,
+            claude: true
+          },
+          backend: 'global-native',
+          experimentalAppScopedBackend: false
+        },
+        permissions: {
+          platform: 'darwin',
+          supported: true,
+          needsPermission: true,
+          accessibility: 'denied',
+          screenRecording: 'granted',
+          accessibilityNeedsRestart: true
+        },
+        runtime: {
+          updatedAt: '2026-06-23T00:00:00.000Z',
+          servers: [],
+          backend: {
+            backend: 'global-native',
+            available: true,
+            platform: 'darwin',
+            reason: 'native backend ready',
+            activeLeases: [],
+            recentRejections: []
+          },
+          activeLeases: [
+            {
+              leaseId: 'lease-1',
+              computerUseSessionId: 'session-1',
+              agentId: 'agent-main',
+              threadId: 'thread-1',
+              targetId: 'main-desktop',
+              backend: 'global-native',
+              acquiredAt: '2026-06-23T00:00:00.000Z',
+              updatedAt: '2026-06-23T00:00:01.000Z'
+            }
+          ],
+          recentRejections: [
+            {
+              code: 'target_busy',
+              message: 'main-desktop is already leased',
+              targetId: 'main-desktop'
+            }
+          ]
+        }
+      }
+    }
+
+    const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx }))
+
+    expect(html).toContain('Computer use')
+    expect(html).toContain('Enable computer use')
+    expect(html).toContain('Runtime access')
+    expect(html).toContain('Codex app-server')
+    expect(html).toContain('Configured')
+    expect(html).toContain('global-native')
+    expect(html).toContain('available')
+    expect(html).toContain('native backend ready')
+    expect(html).toContain('macOS permissions')
+    expect(html).toContain('Accessibility')
+    expect(html).toContain('granted, restart needed')
+    expect(html).toContain('Restart SciForge before using computer use.')
+    expect(html).toContain('Screen Recording')
+    expect(html).toContain('Active leases')
+    expect(html).toContain('main-desktop')
+    expect(html).toContain('agent-main')
+    expect(html).toContain('Recent rejections')
+    expect(html).toContain('target_busy')
+    expect(html).toContain('main-desktop is already leased')
   })
 
   it('does not expose Kun-only permission choices in the Codex runtime form', () => {

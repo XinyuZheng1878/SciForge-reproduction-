@@ -916,6 +916,11 @@ export type AgentRuntimeCapabilities = {
       sources?: AgentRuntimeResearchSourceKind[]
       maxResults?: number
     }
+    computerUse: CapabilityState & {
+      server?: 'mcp'
+      toolName?: 'computer_use'
+      backend?: 'global-native' | 'mac-app-scoped'
+    }
     codeNavigation?: CapabilityState & {
       operations?: AgentRuntimeCodeNavigationOperation[]
       languages?: string[]
@@ -1011,6 +1016,7 @@ export function createDefaultAgentRuntimeCapabilities(input: {
         search: unsupported()
       },
       research: unsupported(),
+      computerUse: unsupported(),
       codeNavigation: {
         ...unsupported(),
         operations: [],

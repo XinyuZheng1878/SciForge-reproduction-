@@ -113,6 +113,7 @@ function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
       mcp: { available: false },
       web: { available: false },
       research: { available: false },
+      computerUse: { available: false },
       skills: { available: false },
       subagents: { available: false },
       diagnostics: { available: false }

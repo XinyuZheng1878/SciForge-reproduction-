@@ -5,11 +5,20 @@ import type { Options as ClaudeAgentSdkOptions } from '@anthropic-ai/claude-agen
 import {
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   getClaudeRuntimeSettings,
+  isComputerUseEnabledForRuntime,
   resolveRuntimeModelRouterSettings,
   type AppSettingsV1,
   type ApprovalPolicy,
   type SandboxMode
 } from '../../../shared/app-settings'
+import {
+  buildComputerUseMcpArgs,
+  COMPUTER_USE_MCP_TIMEOUT_MS,
+  computerUseMcpEnvForLaunch,
+  GUI_COMPUTER_USE_MCP_SERVER_NAME,
+  resolveComputerUseMcpCommand,
+  type ComputerUseMcpLaunchConfig
+} from '../../computer-use-mcp-config'
 
 const UPSTREAM_PROVIDER_SECRET_ENVS = [
   'OPENAI_API_KEY',
@@ -67,6 +76,7 @@ export async function prepareClaudeCodeSdkLaunch(options: {
   sessionId?: string
   env?: NodeJS.ProcessEnv
   managedConfigDir?: string
+  computerUseMcpLaunch?: ComputerUseMcpLaunchConfig
 }): Promise<ClaudeCodeSdkLaunchConfig> {
   const runtime = getClaudeRuntimeSettings(options.settings)
   const command = runtime.command.trim()
@@ -87,6 +97,9 @@ export async function prepareClaudeCodeSdkLaunch(options: {
   })
   const extraArgs = claudeCodeSdkExtraArgs(runtime.extraArgs)
   const pathToClaudeCodeExecutable = command === 'claude' ? undefined : command
+  const mcpServers = claudeCodeMcpServers(
+    isComputerUseEnabledForRuntime(options.settings, 'claude') ? options.computerUseMcpLaunch : undefined
+  )
   const sdkOptions: ClaudeAgentSdkOptions = {
     cwd,
     env,
@@ -95,6 +108,7 @@ export async function prepareClaudeCodeSdkLaunch(options: {
     ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
     ...(options.sessionId ? { resume: options.sessionId } : {}),
     ...(pathToClaudeCodeExecutable ? { pathToClaudeCodeExecutable } : {}),
+    ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
     ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {})
   }
   return {
@@ -106,6 +120,22 @@ export async function prepareClaudeCodeSdkLaunch(options: {
     model: cliModel,
     permissionMode,
     pathToClaudeCodeExecutable
+  }
+}
+
+function claudeCodeMcpServers(
+  computerUseMcpLaunch: ComputerUseMcpLaunchConfig | undefined
+): NonNullable<ClaudeAgentSdkOptions['mcpServers']> {
+  if (!computerUseMcpLaunch) return {}
+  return {
+    [GUI_COMPUTER_USE_MCP_SERVER_NAME]: {
+      type: 'stdio',
+      command: resolveComputerUseMcpCommand(computerUseMcpLaunch),
+      args: buildComputerUseMcpArgs(computerUseMcpLaunch),
+      env: computerUseMcpEnvForLaunch(computerUseMcpLaunch),
+      timeout: COMPUTER_USE_MCP_TIMEOUT_MS,
+      alwaysLoad: true
+    }
   }
 }
 

@@ -20,6 +20,9 @@ import {
   type McpSearchRuntimeDiagnostic
 } from './mcp-tool-search.js'
 
+const GUI_COMPUTER_USE_MCP_SERVER_ID = 'gui_computer_use'
+const GUI_COMPUTER_USE_TOOL_NAME = 'computer_use'
+
 export type McpToolDescriptor = {
   name: string
   title?: string
@@ -292,7 +295,7 @@ function createMcpLocalTool(
       }
       const result = await callMcpToolWithReconnect(
         state,
-        { name: descriptor.name, arguments: args },
+        { name: descriptor.name, arguments: mcpToolArgumentsForContext(state, descriptor, args, context) },
         context.abortSignal
       )
       return {
@@ -332,7 +335,29 @@ function createMcpSearchCatalogRecord(
     },
     descriptor,
     normalizedName: normalizeMcpToolName(state.serverId, descriptor.name),
-    policy: policyFromAnnotations(descriptor.annotations)
+    policy: policyFromAnnotations(descriptor.annotations),
+    prepareArguments: (args, context) => mcpToolArgumentsForContext(state, descriptor, args, context)
+  }
+}
+
+function mcpToolArgumentsForContext(
+  state: McpConnectionState,
+  descriptor: McpToolDescriptor,
+  args: Record<string, unknown>,
+  context: ToolHostContext
+): Record<string, unknown> {
+  if (state.serverId !== GUI_COMPUTER_USE_MCP_SERVER_ID || descriptor.name !== GUI_COMPUTER_USE_TOOL_NAME) {
+    return args
+  }
+  const threadId = context.threadId
+  const turnId = context.turnId
+  const agentId = `kun:${threadId}`
+  return {
+    ...args,
+    agentId,
+    threadId,
+    turnId,
+    computerUseSessionId: agentId
   }
 }
 

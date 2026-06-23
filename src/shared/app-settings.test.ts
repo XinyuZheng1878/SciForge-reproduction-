@@ -19,8 +19,10 @@ import {
   defaultModelProviderSettings,
   defaultSpeechToTextSettings,
   defaultRuntimeGuardSettings,
+  defaultComputerUseSettings,
   mergeKunRuntimeSettings,
   mergeRuntimeGuardSettings,
+  mergeComputerUseSettings,
   mergeScheduleSettings,
   mergeSpeechToTextSettings,
   defaultCodexRuntimeSettings,
@@ -34,6 +36,8 @@ import {
   getActiveAgentApiKey,
   getCodexRuntimeSettings,
   getClaudeRuntimeSettings,
+  getComputerUseSettings,
+  isComputerUseEnabledForRuntime,
   isKunRuntimeInsecure,
   mergeClawSettings,
   migrateLegacyAppSettings,
@@ -186,6 +190,73 @@ describe('kun defaults', () => {
         writeMaxToolEvents: 96,
         remoteGuardMaxToolEvents: 32
       }
+    })
+  })
+
+  it('defaults computer use to the shared native backend', () => {
+    expect(defaultComputerUseSettings()).toEqual({
+      enabled: true,
+      runtimeEnabled: {
+        kun: true,
+        codex: true,
+        claude: true
+      },
+      backend: 'global-native',
+      experimentalAppScopedBackend: false
+    })
+  })
+
+  it('normalizes computer-use settings and guards the experimental app-scoped backend', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      computerUse: {
+        enabled: false,
+        runtimeEnabled: {
+          kun: true,
+          codex: false,
+          claude: true
+        },
+        backend: 'mac-app-scoped',
+        experimentalAppScopedBackend: false
+      }
+    })
+
+    expect(getComputerUseSettings(normalized)).toEqual({
+      enabled: false,
+      runtimeEnabled: {
+        kun: true,
+        codex: false,
+        claude: true
+      },
+      backend: 'global-native',
+      experimentalAppScopedBackend: false
+    })
+    expect(isComputerUseEnabledForRuntime(normalized, 'codex')).toBe(false)
+    expect(isComputerUseEnabledForRuntime(normalized, 'kun')).toBe(false)
+
+    const experimental = normalizeAppSettings({
+      ...settings(),
+      computerUse: {
+        enabled: true,
+        runtimeEnabled: {
+          kun: true,
+          codex: true,
+          claude: true
+        },
+        backend: 'mac-app-scoped',
+        experimentalAppScopedBackend: true
+      }
+    })
+
+    expect(getComputerUseSettings(experimental)).toMatchObject({
+      enabled: true,
+      runtimeEnabled: {
+        kun: true,
+        codex: true,
+        claude: true
+      },
+      backend: 'mac-app-scoped',
+      experimentalAppScopedBackend: true
     })
   })
 
@@ -673,6 +744,52 @@ describe('isKunRuntimeInsecure', () => {
         runtimeToken: 'tok-1'
       })
     ).toBe(false)
+  })
+})
+
+describe('mergeComputerUseSettings', () => {
+  it('merges partial patches without dropping the backend gate', () => {
+    const current = mergeComputerUseSettings(defaultComputerUseSettings(), {
+      backend: 'mac-app-scoped',
+      experimentalAppScopedBackend: true
+    })
+
+    expect(current).toMatchObject({
+      enabled: true,
+      backend: 'mac-app-scoped',
+      experimentalAppScopedBackend: true
+    })
+
+    const disabled = mergeComputerUseSettings(current, {
+      enabled: false,
+      experimentalAppScopedBackend: false
+    })
+
+    expect(disabled).toEqual({
+      enabled: false,
+      runtimeEnabled: {
+        kun: true,
+        codex: true,
+        claude: true
+      },
+      backend: 'global-native',
+      experimentalAppScopedBackend: false
+    })
+  })
+
+  it('merges runtime-level computer-use toggles without resetting siblings', () => {
+    const current = mergeComputerUseSettings(defaultComputerUseSettings(), {
+      runtimeEnabled: { codex: false }
+    })
+    const next = mergeComputerUseSettings(current, {
+      runtimeEnabled: { claude: false }
+    })
+
+    expect(next.runtimeEnabled).toEqual({
+      kun: true,
+      codex: false,
+      claude: false
+    })
   })
 })
 

@@ -58,6 +58,7 @@ import {
 } from './token-economy.js'
 import { applyRequestHistoryHygiene } from './request-history-hygiene.js'
 import { estimateModelRequestInputTokens } from './model-request-estimator.js'
+import { capToolResultImages } from './tool-result-image.js'
 import { estimateDeepseekInputTokenCost } from '../adapters/model/deepseek-pricing.js'
 import {
   recentAutoRouterContext,
@@ -773,7 +774,8 @@ export class AgentLoop {
     // (this DeepSeek-compatible provider ignores a forced tool_choice, so we
     // remove the investigation tools instead) so the model can only save the
     // plan or answer with plan text that the create_plan fallback materializes.
-    const history = await this.compactIfNeeded(items, model, signal, { threadId, turnId })
+    const compactedHistory = await this.compactIfNeeded(items, model, signal, { threadId, turnId })
+    const history = capToolResultImages(compactedHistory, 4)
     if (signal.aborted) return 'aborted'
     await this.recordPipelineStage(threadId, turnId, 'input_compressed', {
       historyItems: history.length

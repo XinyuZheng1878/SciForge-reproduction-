@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import type {
   ApprovalPolicy,
+  AgentRuntimeId,
   AppSettingsPatch,
   AppSettingsV1,
   ClaudeRuntimeSettingsPatchV1,
@@ -15,6 +16,7 @@ import type {
 import {
   claudeSettingsPatch,
   codexSettingsPatch,
+  defaultComputerUseSettings,
   DEFAULT_MODEL_PROVIDER_ID,
   MODEL_ENDPOINT_FORMATS,
   DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL,
@@ -30,11 +32,17 @@ import {
   defaultModelProviderSettings,
   getCodexRuntimeSettings,
   getClaudeRuntimeSettings,
+  getComputerUseSettings,
   getModelRouterSettings,
   isKunRuntimeInsecure,
   normalizeRuntimeGuardSettings,
   normalizeModelProviderId
 } from '@shared/app-settings'
+import type {
+  ComputerUsePermissionKind,
+  ComputerUsePermissionState,
+  ComputerUseStatusView
+} from '@shared/ds-gui-api'
 import type { GuiUpdateChannel } from '@shared/gui-update'
 import type { SkillRootId } from '../lib/skill-root-preference'
 import {
@@ -67,6 +75,18 @@ function statusPill(status: string | undefined): string {
   if (status === 'available') return 'border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
   if (status === 'disabled') return 'border-ds-border-muted bg-ds-card text-ds-faint'
   return 'border-red-300/50 bg-red-500/10 text-red-700 dark:text-red-200'
+}
+
+function permissionBadgeClass(state: ComputerUsePermissionState): string {
+  if (state === 'granted') return 'border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+  if (state === 'denied') return 'border-rose-400/25 bg-rose-500/10 text-rose-700 dark:text-rose-200'
+  return 'border-ds-border-muted bg-ds-card text-ds-faint'
+}
+
+function computerUseStatusPill(available: boolean | undefined): string {
+  if (available === true) return 'border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+  if (available === false) return 'border-red-300/50 bg-red-500/10 text-red-700 dark:text-red-200'
+  return 'border-ds-border-muted bg-ds-card text-ds-faint'
 }
 
 function checkpointStatusPill(status: string | undefined): string {
@@ -2296,6 +2316,10 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
               </div>
 
               <div ref={permissionsSectionRef} className="mt-6">
+                <ComputerUseSettingsCard ctx={ctx} />
+              </div>
+
+              <div className="mt-6">
                 <SettingsCard title={t('kunPermissions')}>
                   <SettingRow
                     title={t('approvalPolicy')}
@@ -2341,5 +2365,278 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                 </SettingsCard>
               </div>
             </>
+  )
+}
+
+function ComputerUseSettingsCard({ ctx }: { ctx: Record<string, any> }): ReactElement {
+  const {
+    t,
+    form,
+    update,
+    runtimeDiagnosticsBusy
+  } = ctx
+  const initialStatus = ctx.computerUseStatus as ComputerUseStatusView | null | undefined
+  const [status, setStatus] = useState<ComputerUseStatusView | null>(initialStatus ?? null)
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<{ tone: 'error' | 'info' | 'success'; message: string } | null>(null)
+  const computerUse = form ? getComputerUseSettings(form) : defaultComputerUseSettings()
+  const backend = status?.runtime.backend
+  const activeLeases = status?.runtime.activeLeases ?? []
+  const recentRejections = status?.runtime.recentRejections ?? []
+  const permissions = status?.permissions
+  const platform = permissions?.platform ?? (typeof window !== 'undefined' ? window.dsGui?.platform : '')
+  const needsPermission = permissions?.needsPermission ?? platform === 'darwin'
+  const canRequestPermission = typeof window !== 'undefined' && typeof window.dsGui?.requestComputerUsePermission === 'function'
+  const updateRuntimeEnabled = (runtimeId: AgentRuntimeId, enabled: boolean): void => {
+    update({
+      computerUse: {
+        ...computerUse,
+        runtimeEnabled: {
+          ...computerUse.runtimeEnabled,
+          [runtimeId]: enabled
+        }
+      }
+    })
+  }
+
+  const refresh = async (): Promise<void> => {
+    if (typeof window === 'undefined' || typeof window.dsGui?.getComputerUseStatus !== 'function') return
+    setBusy(true)
+    setNotice(null)
+    try {
+      setStatus(await window.dsGui.getComputerUseStatus())
+    } catch (error) {
+      setNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    void refresh()
+  }, [])
+
+  const requestPermission = async (kind: ComputerUsePermissionKind): Promise<void> => {
+    if (!canRequestPermission) return
+    setBusy(true)
+    setNotice(null)
+    try {
+      const nextPermissions = await window.dsGui.requestComputerUsePermission(kind)
+      setStatus((current) => current
+        ? { ...current, permissions: nextPermissions }
+        : {
+            settings: computerUse,
+            permissions: nextPermissions,
+            runtime: {
+              updatedAt: new Date(0).toISOString(),
+              servers: [],
+              activeLeases: [],
+              recentRejections: [],
+              backend: null
+            }
+          })
+    } catch (error) {
+      setNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const permissionBadge = (label: string, state: ComputerUsePermissionState): ReactNode => (
+    <span className={`rounded-lg border px-2 py-0.5 text-[12px] font-medium ${permissionBadgeClass(state)}`}>
+      {label}: {t(`computerUsePermission_${state}`)}
+    </span>
+  )
+
+  return (
+    <SettingsCard title={t('computerUseTitle')}>
+      <div className="px-3 py-4">
+        <InlineNoticeView notice={{ tone: 'info', message: t('computerUseHint') }} />
+      </div>
+      <SettingRow
+        title={t('computerUseEnable')}
+        description={t('computerUseEnableDesc')}
+        control={
+          <Toggle
+            checked={computerUse.enabled}
+            onChange={(enabled) => update({ computerUse: { ...computerUse, enabled } })}
+          />
+        }
+      />
+      <SettingRow
+        title={t('computerUseRuntimeAccess')}
+        description={t('computerUseRuntimeAccessDesc')}
+        wideControl
+        control={
+          <div className="grid gap-2 sm:grid-cols-3">
+            {([
+              ['kun', t('agentRuntimeKun')],
+              ['codex', t('agentRuntimeCodex')],
+              ['claude', t('agentRuntimeClaude')]
+            ] as const).map(([runtimeId, label]) => (
+              <label
+                key={runtimeId}
+                className="flex items-center justify-between gap-3 rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2 text-[12.5px] font-medium text-ds-ink"
+              >
+                <span>{label}</span>
+                <Toggle
+                  checked={computerUse.runtimeEnabled[runtimeId]}
+                  disabled={!computerUse.enabled}
+                  onChange={(enabled) => updateRuntimeEnabled(runtimeId, enabled)}
+                />
+              </label>
+            ))}
+          </div>
+        }
+      />
+      <SettingRow
+        title={t('computerUseBackend')}
+        description={t('computerUseBackendDesc')}
+        wideControl
+        control={
+          <div className="grid gap-3">
+            <div className="grid gap-2 text-[12.5px] text-ds-muted sm:grid-cols-3">
+              <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
+                {t('computerUseConfiguredBackend')}: <span className="font-mono text-ds-ink">{computerUse.backend}</span>
+              </div>
+              <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
+                {t('computerUseRuntimeBackend')}: <span className="font-mono text-ds-ink">{backend?.backend ?? computerUse.backend}</span>
+              </div>
+              <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
+                {t('computerUsePlatform')}: <span className="font-mono text-ds-ink">{backend?.platform ?? platform ?? 'unknown'}</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex rounded-lg border px-2.5 py-1 text-[12px] font-semibold ${computerUseStatusPill(backend?.available)}`}
+              >
+                {backend?.available
+                  ? t('computerUseBackendAvailable')
+                  : backend
+                    ? t('computerUseBackendUnavailable')
+                    : t('computerUseBackendUnknown')}
+              </span>
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                disabled={busy || runtimeDiagnosticsBusy}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[12.5px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} strokeWidth={1.75} />
+                {t('computerUseRefresh')}
+              </button>
+              {notice ? <InlineNoticeView notice={notice} /> : null}
+            </div>
+            {backend?.reason ? (
+              <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2 text-[12.5px] leading-5 text-ds-muted">
+                {backend.reason}
+              </div>
+            ) : null}
+            {!computerUse.enabled ? (
+              <InlineNoticeView notice={{ tone: 'info', message: t('computerUseDisabledHint') }} />
+            ) : null}
+          </div>
+        }
+      />
+      {needsPermission ? (
+        <SettingRow
+          title={t('computerUsePermissions')}
+          description={t('computerUsePermissionsDesc')}
+          wideControl
+          control={
+            <div className="grid gap-3">
+              <div className="flex flex-wrap gap-2">
+                {permissions?.accessibilityNeedsRestart ? (
+                  <span className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-[12px] font-medium text-amber-700 dark:text-amber-200">
+                    {t('computerUseAccessibility')}: {t('computerUsePermissionNeedsRestart')}
+                  </span>
+                ) : (
+                  permissionBadge(t('computerUseAccessibility'), permissions?.accessibility ?? 'unknown')
+                )}
+                {permissionBadge(t('computerUseScreenRecording'), permissions?.screenRecording ?? 'unknown')}
+              </div>
+              {permissions?.accessibilityNeedsRestart ? (
+                <p className="text-[12px] leading-5 text-amber-700 dark:text-amber-200">
+                  {t('computerUseRestartHint')}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[12.5px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover disabled:cursor-not-allowed disabled:opacity-55"
+                  disabled={!canRequestPermission || busy}
+                  onClick={() => void requestPermission('accessibility')}
+                >
+                  {t('computerUseGrantAccessibility')}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[12.5px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover disabled:cursor-not-allowed disabled:opacity-55"
+                  disabled={!canRequestPermission || busy}
+                  onClick={() => void requestPermission('screenRecording')}
+                >
+                  {t('computerUseGrantScreenRecording')}
+                </button>
+              </div>
+            </div>
+          }
+        />
+      ) : null}
+      <SettingRow
+        title={t('computerUseActiveLeases')}
+        description={t('computerUseActiveLeasesDesc')}
+        wideControl
+        control={
+          <div className="grid gap-2">
+            {activeLeases.length === 0 ? (
+              <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-3 text-[13px] text-ds-faint">
+                {t('computerUseNoActiveLeases')}
+              </div>
+            ) : activeLeases.slice(0, 6).map((lease) => (
+              <div key={lease.leaseId} className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
+                <div className="truncate text-[13px] font-semibold text-ds-ink">{lease.targetId}</div>
+                <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-ds-faint">
+                  <span className="font-mono">{lease.agentId}</span>
+                  <span className="font-mono">{lease.threadId}</span>
+                  {lease.turnId ? <span className="font-mono">{lease.turnId}</span> : null}
+                  <span className="font-mono">{lease.computerUseSessionId}</span>
+                  <span>{new Date(lease.updatedAt).toLocaleString()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        }
+      />
+      <SettingRow
+        title={t('computerUseRecentRejections')}
+        description={t('computerUseRecentRejectionsDesc')}
+        wideControl
+        control={
+          <div className="grid gap-2">
+            {recentRejections.length === 0 ? (
+              <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-3 text-[13px] text-ds-faint">
+                {t('computerUseNoRecentRejections')}
+              </div>
+            ) : recentRejections.slice(-6).reverse().map((rejection, index) => (
+              <div key={`${rejection.code}-${rejection.targetId ?? 'target'}-${index}`} className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-lg border border-amber-300/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+                    {rejection.code}
+                  </span>
+                  {rejection.targetId ? <span className="font-mono text-[11px] text-ds-faint">{rejection.targetId}</span> : null}
+                </div>
+                <div className="mt-1 text-[12.5px] leading-5 text-ds-muted">{rejection.message}</div>
+              </div>
+            ))}
+          </div>
+        }
+      />
+    </SettingsCard>
   )
 }

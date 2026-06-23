@@ -667,6 +667,190 @@ test('vision responses translate refs first, then ask the text reasoner for the 
   }
 });
 
+test('vision inputs fall back to text when the active profile has no vision translator', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-no-vision-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfigWithoutVision(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-final', JSON.stringify({ type: 'final_answer', content: 'I only have the text prompt.' })),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [{
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'What is in this image?' },
+            { type: 'input_image', image_url: pngDataUrl, mime_type: 'image/png' },
+          ],
+        }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, unknown>;
+    assert.match(String(body.output_text), /image.*not sent/i);
+    assert.match(String(body.output_text), /could not inspect the image/i);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, 'https://text.example/v1/chat/completions');
+    const textReasonerBody = JSON.stringify(calls[0]?.body);
+    assert.match(textReasonerBody, /status=not_sent/);
+    assert.match(textReasonerBody, /image payload was not sent/i);
+    assert.doesNotMatch(textReasonerBody, /data:image|base64|tiny-png/i);
+
+    const traceText = await readTraceBundle(workspaceRoot);
+    assert.match(traceText, /"status":\s*"not_sent"/);
+    assert.match(traceText, /"degraded":\s*true/);
+    assert.doesNotMatch(traceText, /text-secret|vision-secret|data:image|base64|tiny-png/i);
+    assert.doesNotMatch(traceText, /text-provider|vision-provider|text-model|vision-model/i);
+  } finally {
+    await server.close();
+  }
+});
+
+test('tool result screenshots fall back to safe text and are not sent without vision support', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-no-vision-tool-image-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfigWithoutVision(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-final', JSON.stringify({ type: 'final_answer', content: 'I can use the screenshot metadata only.' })),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Take a screenshot and tell me what you can.' }],
+          },
+          {
+            type: 'function_call',
+            call_id: 'call_screenshot_1',
+            name: 'computer_use',
+            arguments: '{"action":"screenshot"}',
+            reasoning_content: 'Need the current screen.',
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_screenshot_1',
+            output: JSON.stringify({
+              kind: 'computer_screenshot',
+              action: 'screenshot',
+              screen: { width: 800, height: 600 },
+              note: 'Screenshot captured at 800x600.',
+              images: [{ mime_type: 'image/png', data_base64: Buffer.from('tiny-png').toString('base64'), width: 800, height: 600 }],
+            }),
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, unknown>;
+    assert.match(String(body.output_text), /image.*not sent/i);
+    assert.equal(calls.length, 1);
+    const textReasonerBody = JSON.stringify(calls[0]?.body);
+    assert.match(textReasonerBody, /Screenshot captured at 800x600/);
+    assert.match(textReasonerBody, /images_omitted/);
+    assert.match(textReasonerBody, /status=not_sent/);
+    assert.doesNotMatch(textReasonerBody, /data:image|base64|tiny-png/i);
+    const traceText = await readTraceBundle(workspaceRoot);
+    assert.match(traceText, /"kind":\s*"vision\.image"/);
+    assert.doesNotMatch(traceText, /data:image|base64|tiny-png/i);
+  } finally {
+    await server.close();
+  }
+});
+
+test('standard MCP screenshot tool result routes through the vision translator', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-tool-result-vision-'));
+  const imageData = Buffer.from('mcp-screen-pixels').toString('base64');
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('vision-initial', 'Observation: the screenshot shows a settings window.'),
+      chatCompletion('text-final', JSON.stringify({ type: 'final_answer', content: 'The screenshot shows a settings window.' })),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Inspect the screenshot from the tool.' }],
+          },
+          {
+            type: 'function_call',
+            call_id: 'call_screenshot_2',
+            name: 'computer_use',
+            arguments: '{"action":"screenshot"}',
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_screenshot_2',
+            output: {
+              content: [
+                { type: 'text', text: 'Screenshot captured at 1024x768.' },
+                { type: 'image', data: imageData, mimeType: 'image/png' },
+              ],
+              structuredContent: {
+                kind: 'computer_screenshot',
+                action: 'screenshot',
+                note: 'Screenshot captured at 1024x768.',
+                images: [{ mime_type: 'image/png', width: 1024, height: 768 }],
+                images_omitted: 1,
+              },
+            },
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, unknown>;
+    assert.equal(body.output_text, 'The screenshot shows a settings window.');
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]?.url, 'https://vision.example/v1/chat/completions');
+    const visionBody = JSON.stringify(calls[0]?.body);
+    assert.match(visionBody, new RegExp(`data:image/png;base64,${imageData}`));
+    const textReasonerBody = JSON.stringify(calls[1]?.body);
+    assert.match(textReasonerBody, /settings window/);
+    assert.doesNotMatch(textReasonerBody, /mcp-screen-pixels|data:image|base64/i);
+    const traceText = await readTraceBundle(workspaceRoot);
+    assert.match(traceText, /"kind":\s*"vision\.image"/);
+    assert.doesNotMatch(traceText, /mcp-screen-pixels|data:image|base64/i);
+  } finally {
+    await server.close();
+  }
+});
+
 test('responses tool calls pass through the Model Router API without becoming text answers', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-tool-call-'));
   const calls: CapturedFetch[] = [];
@@ -2038,7 +2222,7 @@ test('profile and provider configuration failures fail closed before upstream ca
     config: testConfig(),
     env: {
       DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY: 'runtime-secret',
-      SCIFORGE_TEXT_API_KEY: 'text-secret',
+      SCIFORGE_VISION_API_KEY: 'vision-secret',
     },
     workspaceRoot,
     fetchImpl: captureFetch(calls, []),
@@ -2424,6 +2608,12 @@ function testConfig(options: { traceRoot?: string; publicModelAlias?: string | n
     },
   };
   if (typeof options.publicModelAlias === 'string') config.publicModelAlias = options.publicModelAlias;
+  return config;
+}
+
+function testConfigWithoutVision(options: { traceRoot?: string; publicModelAlias?: string | null } = {}): ModelRouterConfig {
+  const config = testConfig(options);
+  config.profiles.default.translators = {};
   return config;
 }
 

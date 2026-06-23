@@ -78,6 +78,14 @@ type ModalityRef = {
   transientProviderPart?: JsonObject;
 };
 
+type ToolResultImage = {
+  dataBase64: string;
+  mimeType: string;
+  width?: number;
+  height?: number;
+  title?: string;
+};
+
 type SemanticModalitySignal = {
   kind: ModalityKind;
   evidence: Array<'structured-type' | 'structured-media-type' | 'structured-mime' | 'ref-extension' | 'ref-lexical-feature' | 'image-url'>;
@@ -401,7 +409,8 @@ async function routeResponsesRequest(
   validateRequestedModel(request.model, context.config.publicModelAlias);
   validateProfile(profile);
   const textSecret = secretForProvider(profile.textReasoner, context.env, 'textReasoner');
-  const visionSecret = profile.translators.vision ? secretForProvider(profile.translators.vision, context.env, 'translators.vision') : undefined;
+  const visionTranslator = profile.translators.vision;
+  const visionSecret = visionTranslator ? optionalSecretForProvider(visionTranslator, context.env) : undefined;
 
   const responseId = context.responseId ?? makeId('resp');
   const trace = createTraceContext(context.workspaceRoot, profile.traceRoot, responseId);
@@ -413,6 +422,7 @@ async function routeResponsesRequest(
   const calls: ProviderCallRecord[] = [];
   const observations: string[] = [];
   let degraded = false;
+  let imageNotSent = false;
   const publicModelAlias = context.config.publicModelAlias ?? 'sciforge-model-router';
   const traceRedactionSecrets = [textSecret, visionSecret]
     .filter((value): value is string => typeof value === 'string' && value.length > 0);
@@ -469,64 +479,81 @@ async function routeResponsesRequest(
   }
 
   if (visionModalities.length > 0) {
-    if (!profile.translators.vision || !visionSecret) {
-      throw routerError(400, 'missing_vision_translator', 'Active Model Router profile does not have a usable vision translator.');
-    }
-    for (const modality of visionModalities) {
-      const cacheKey = visionObservationCacheKey(profileId, modality);
-      const cached = context.visionTranslationCache.get(cacheKey);
-      if (cached) {
-        const cachedObservation = formatCachedVisionTranslationObservation(modality, cached);
-        observations.push(cachedObservation);
+    if (!visionTranslator || !visionSecret) {
+      degraded = true;
+      imageNotSent = true;
+      const reason = !visionTranslator
+        ? 'Active Model Router profile has no vision translator; the image payload was not sent to the text-only model.'
+        : 'Active Model Router profile has no usable vision translator secret; the image payload was not sent to the text-only model.';
+      for (const modality of visionModalities) {
+        const observation = formatVisionNotSentObservation(modality, reason);
+        observations.push(observation);
         await writeTraceJson(trace, `vision-initial-${modality.id}.json`, {
           schemaVersion: 'sciforge.model-router.vision-observation.v1',
           phase: 'initial',
-          status: cached.status,
-          cacheStatus: 'hit',
-          cacheVersion: cached.version,
+          status: 'not_sent',
+          cacheStatus: 'skipped',
           targetIds: [modality.id],
-          observationSummary: boundedTraceText(cachedObservation, profile, publicModelAlias, traceRedactionSecrets),
+          observationSummary: boundedTraceText(observation, profile, publicModelAlias, traceRedactionSecrets),
         });
-        continue;
       }
-      let observationStatus: 'ok' | 'failed' = 'ok';
-      let observation: string;
-      try {
-        const result = await callVisionTranslator({
-          profile,
-          secret: visionSecret,
-          fetchImpl: context.fetchImpl,
-          instruction: visionTranslatorInstruction(extracted.userText || 'Describe the provided visual input.', modality),
-          modality,
-          phase: 'vision-initial',
-          calls,
+    } else {
+      for (const modality of visionModalities) {
+        const cacheKey = visionObservationCacheKey(profileId, modality);
+        const cached = context.visionTranslationCache.get(cacheKey);
+        if (cached) {
+          const cachedObservation = formatCachedVisionTranslationObservation(modality, cached);
+          observations.push(cachedObservation);
+          await writeTraceJson(trace, `vision-initial-${modality.id}.json`, {
+            schemaVersion: 'sciforge.model-router.vision-observation.v1',
+            phase: 'initial',
+            status: cached.status,
+            cacheStatus: 'hit',
+            cacheVersion: cached.version,
+            targetIds: [modality.id],
+            observationSummary: boundedTraceText(cachedObservation, profile, publicModelAlias, traceRedactionSecrets),
+          });
+          continue;
+        }
+        let observationStatus: 'ok' | 'failed' = 'ok';
+        let observation: string;
+        try {
+          const result = await callVisionTranslator({
+            profile,
+            secret: visionSecret,
+            fetchImpl: context.fetchImpl,
+            instruction: visionTranslatorInstruction(extracted.userText || 'Describe the provided visual input.', modality),
+            modality,
+            phase: 'vision-initial',
+            calls,
+          });
+          addUsage(usage, result.usage);
+          observation = result.outputText;
+        } catch (error) {
+          degraded = true;
+          observationStatus = 'failed';
+          const summary = traceErrorSummary(error);
+          observation = [
+            `modality_input=${modality.id}`,
+            'kind=vision.image',
+            'status=unavailable',
+            `reason=${summary}`,
+            'instruction=Answer from text-only context and explicitly state that the image could not be inspected.',
+          ].join('\n');
+        }
+        observations.push(formatVisionObservation(modality, observation, observationStatus));
+        if (observationStatus === 'ok') {
+          storeVisionTranslationCacheEntry(context.visionTranslationCache, profileId, modality, observation);
+        }
+        await writeTraceJson(trace, `vision-initial-${modality.id}.json`, {
+          schemaVersion: 'sciforge.model-router.vision-observation.v1',
+          phase: 'initial',
+          status: observationStatus,
+          cacheStatus: observationStatus === 'ok' ? 'stored' : 'miss',
+          targetIds: [modality.id],
+          observationSummary: boundedTraceText(observations.at(-1) ?? '', profile, publicModelAlias, traceRedactionSecrets),
         });
-        addUsage(usage, result.usage);
-        observation = result.outputText;
-      } catch (error) {
-        degraded = true;
-        observationStatus = 'failed';
-        const summary = traceErrorSummary(error);
-        observation = [
-          `modality_input=${modality.id}`,
-          'kind=vision.image',
-          'status=unavailable',
-          `reason=${summary}`,
-          'instruction=Answer from text-only context and explicitly state that the image could not be inspected.',
-        ].join('\n');
       }
-      observations.push(formatVisionObservation(modality, observation, observationStatus));
-      if (observationStatus === 'ok') {
-        storeVisionTranslationCacheEntry(context.visionTranslationCache, profileId, modality, observation);
-      }
-      await writeTraceJson(trace, `vision-initial-${modality.id}.json`, {
-        schemaVersion: 'sciforge.model-router.vision-observation.v1',
-        phase: 'initial',
-        status: observationStatus,
-        cacheStatus: observationStatus === 'ok' ? 'stored' : 'miss',
-        targetIds: [modality.id],
-        observationSummary: boundedTraceText(observations.at(-1) ?? '', profile, publicModelAlias, traceRedactionSecrets),
-      });
     }
   }
 
@@ -636,10 +663,15 @@ async function routeResponsesRequest(
 
   if (!outputText) {
     if (!outputItems.length) {
-      outputText = degraded
-        ? `${degradedUnavailablePrefix(extracted.modalities)} Based on the text-only context, I cannot provide details from it.`
+      outputText = imageNotSent
+        ? `${imageNotSentPrefix(extracted.modalities)} Based on the text-only context, I cannot provide details from it.`
+        : degraded
+          ? `${degradedUnavailablePrefix(extracted.modalities)} Based on the text-only context, I cannot provide details from it.`
         : '';
     }
+  }
+  if (imageNotSent && !mentionsImageNotSent(outputText)) {
+    outputText = `${imageNotSentPrefix(extracted.modalities)} ${outputText}`;
   }
   if (degraded && !mentionsModalityUnavailable(outputText)) {
     outputText = `${degradedUnavailablePrefix(extracted.modalities)} ${outputText}`;
@@ -731,6 +763,11 @@ function secretForProvider(config: ModelRouterProviderConfig, env: Record<string
   return secret;
 }
 
+function optionalSecretForProvider(config: ModelRouterProviderConfig, env: Record<string, string | undefined>) {
+  const secret = env[config.apiKeyEnv];
+  return typeof secret === 'string' && secret.length > 0 ? secret : undefined;
+}
+
 function extractRequestInputs(input: unknown, instructions: unknown): { userText: string; modalities: ModalityRef[] } {
   const texts: string[] = [];
   if (typeof instructions === 'string' && instructions.trim()) texts.push(instructions.trim());
@@ -760,6 +797,13 @@ function visitInput(value: unknown, texts: string[], modalities: ModalityRef[]) 
     if (text) texts.push(text);
     return;
   }
+  if (type === 'function_call_output') {
+    const images = modalityRefsFromToolResultOutput(value.output, modalities.length + 1, stringField(value.call_id) ?? stringField(value.id));
+    modalities.push(...images);
+    const output = safeTextualFallback(value.output);
+    if (output) texts.push(output);
+    return;
+  }
   const signal = semanticSignalFromRecord(value);
   if (signal || value.image_url !== undefined) {
     const ref = normalizeModalityPart(value, modalities.length + 1, signal);
@@ -769,6 +813,175 @@ function visitInput(value: unknown, texts: string[], modalities: ModalityRef[]) 
   if (value.content !== undefined) visitInput(value.content, texts, modalities);
   if (value.text !== undefined) visitInput(value.text, texts, modalities);
   if (value.input !== undefined) visitInput(value.input, texts, modalities);
+}
+
+const MODEL_VISIBLE_IMAGE_KINDS = new Set(['image', 'computer_screenshot']);
+const TOOL_RESULT_IMAGE_PLACEHOLDER = '[image data omitted; image was routed as visual modality input]';
+
+function safeTextualFallback(value: unknown): string {
+  let raw = '';
+  if (typeof value === 'string') {
+    const parsed = parseJsonValue(value);
+    raw = parsed === undefined ? value : stringifySafeToolResult(parsed);
+  } else {
+    raw = stringifySafeToolResult(value);
+  }
+  const text = raw
+    .replace(/\bdata:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=_-]+/gi, '[image data omitted; image was not sent]')
+    .replace(/\b[A-Za-z0-9+/]{512,}={0,2}\b/g, '[large base64 data omitted]');
+  return boundedText(text.trim(), 4_000);
+}
+
+function stringifySafeToolResult(value: unknown): string {
+  const stripped = stripToolResultImages(value);
+  const normalized = jsonValueField(stripped);
+  return normalized === undefined ? '' : JSON.stringify(normalized);
+}
+
+function stripToolResultImages(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((entry) => stripToolResultImages(entry));
+  if (!isRecord(value)) return value;
+
+  const clone: Record<string, unknown> = {};
+  const isMcpImageContent = value.type === 'image';
+  let strippedImage = false;
+
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === 'images') {
+      clone.images_omitted = Array.isArray(entry) ? entry.length : 1;
+      strippedImage = true;
+      continue;
+    }
+    if (key === 'data_base64' || key === 'dataBase64' || (isMcpImageContent && key === 'data')) {
+      clone[key] = TOOL_RESULT_IMAGE_PLACEHOLDER;
+      strippedImage = true;
+      continue;
+    }
+    clone[key] = stripToolResultImages(entry);
+  }
+  if (strippedImage && typeof clone.note !== 'string') clone.note = TOOL_RESULT_IMAGE_PLACEHOLDER;
+  return clone;
+}
+
+function modalityRefsFromToolResultOutput(output: unknown, startOrdinal: number, callId?: string): ModalityRef[] {
+  const images = extractToolResultImages(parseToolResultOutput(output));
+  return images.map((image, index) => modalityRefFromToolResultImage(image, startOrdinal + index, callId));
+}
+
+function parseToolResultOutput(output: unknown): unknown {
+  if (typeof output !== 'string') return output;
+  return parseJsonValue(output) ?? output;
+}
+
+function modalityRefFromToolResultImage(image: ToolResultImage, ordinal: number, callId?: string): ModalityRef {
+  const bytes = Buffer.from(image.dataBase64, 'base64');
+  const id = `${modalityIdPrefix('vision.image')}_${ordinal}`;
+  const title = image.title ?? (callId ? `tool result image ${callId}` : 'tool result image');
+  return {
+    id,
+    kind: 'vision.image',
+    source: 'inline',
+    mime: image.mimeType,
+    title,
+    semanticSignal: makeSemanticSignal('vision.image', ['structured-type', 'structured-mime'], true),
+    sha256: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+    byteLength: bytes.byteLength,
+    transientProviderPart: {
+      type: 'image_url',
+      image_url: { url: `data:${image.mimeType};base64,${image.dataBase64}` },
+    },
+  };
+}
+
+function extractToolResultImages(output: unknown): ToolResultImage[] {
+  if (!isRecord(output)) return [];
+  const images: ToolResultImage[] = [];
+  for (const image of directToolResultImages(output)) addUniqueToolResultImage(images, image);
+  for (const image of mcpToolResultImages(output)) addUniqueToolResultImage(images, image);
+  for (const key of ['result', 'structuredContent', 'output'] as const) {
+    const nested = output[key];
+    if (isRecord(nested)) {
+      for (const image of extractToolResultImages(nested)) addUniqueToolResultImage(images, image);
+    } else if (typeof nested === 'string') {
+      const parsed = parseJsonValue(nested);
+      if (parsed !== undefined) {
+        for (const image of extractToolResultImages(parsed)) addUniqueToolResultImage(images, image);
+      }
+    }
+  }
+  return images;
+}
+
+function directToolResultImages(output: Record<string, unknown>): ToolResultImage[] {
+  const kind = stringField(output.kind) ?? '';
+  if (!MODEL_VISIBLE_IMAGE_KINDS.has(kind)) return [];
+  const images: ToolResultImage[] = [];
+  if (Array.isArray(output.images)) {
+    for (const entry of output.images) addUniqueToolResultImage(images, toolResultImageFromRecord(entry, output));
+  }
+  addUniqueToolResultImage(images, toolResultImageFromRecord(output, output));
+  return images;
+}
+
+function mcpToolResultImages(output: Record<string, unknown>): ToolResultImage[] {
+  const structured = isRecord(output.structuredContent) ? output.structuredContent : {};
+  const kind = stringField(structured.kind) ?? stringField(output.kind) ?? '';
+  if (!MODEL_VISIBLE_IMAGE_KINDS.has(kind)) return [];
+  const content = Array.isArray(output.content) ? output.content : [];
+  const metadata = Array.isArray(structured.images) ? structured.images : [];
+  const images: ToolResultImage[] = [];
+  let imageIndex = 0;
+  for (const entry of content) {
+    if (!isRecord(entry) || entry.type !== 'image') continue;
+    addUniqueToolResultImage(images, toolResultImageFromMcpContent(entry, metadata[imageIndex], structured));
+    imageIndex += 1;
+  }
+  return images;
+}
+
+function toolResultImageFromRecord(value: unknown, metadata: unknown): ToolResultImage | null {
+  if (!isRecord(value)) return null;
+  const dataBase64 = stringField(value.data_base64) ?? stringField(value.dataBase64) ?? '';
+  const mimeType = stringField(value.mime_type) ?? stringField(value.mimeType) ?? '';
+  if (!dataBase64 || !mimeType) return null;
+  const meta = isRecord(metadata) ? metadata : {};
+  return compactToolResultImage({
+    dataBase64,
+    mimeType,
+    width: numberField(value.width) ?? numberField(meta.width),
+    height: numberField(value.height) ?? numberField(meta.height),
+    title: stringField(value.title) ?? stringField(value.name) ?? stringField(meta.title) ?? stringField(meta.note),
+  });
+}
+
+function toolResultImageFromMcpContent(value: Record<string, unknown>, metadata: unknown, structured: unknown): ToolResultImage | null {
+  const dataBase64 = stringField(value.data) ?? '';
+  const mimeType = stringField(value.mimeType) ?? stringField(value.mime_type) ?? '';
+  if (!dataBase64 || !mimeType) return null;
+  const meta = isRecord(metadata) ? metadata : {};
+  const parent = isRecord(structured) ? structured : {};
+  return compactToolResultImage({
+    dataBase64,
+    mimeType,
+    width: numberField(meta.width),
+    height: numberField(meta.height),
+    title: stringField(meta.title) ?? stringField(parent.title) ?? stringField(parent.note),
+  });
+}
+
+function compactToolResultImage(image: ToolResultImage): ToolResultImage {
+  return {
+    dataBase64: image.dataBase64,
+    mimeType: image.mimeType,
+    ...(image.width !== undefined ? { width: image.width } : {}),
+    ...(image.height !== undefined ? { height: image.height } : {}),
+    ...(image.title ? { title: image.title } : {}),
+  };
+}
+
+function addUniqueToolResultImage(images: ToolResultImage[], image: ToolResultImage | null): void {
+  if (!image) return;
+  if (!images.some((candidate) => candidate.dataBase64 === image.dataBase64 && candidate.mimeType === image.mimeType)) images.push(image);
 }
 
 function normalizeModalityPart(value: Record<string, unknown>, ordinal: number, signal?: SemanticModalitySignal): ModalityRef | undefined {
@@ -1043,6 +1256,23 @@ function formatVisionObservation(modality: ModalityRef, observation: string, sta
   ].filter(Boolean).join('\n');
 }
 
+function formatVisionNotSentObservation(modality: ModalityRef, reason: string) {
+  return [
+    `Target modality_input: ${modality.id}`,
+    'kind=vision.image',
+    'status=not_sent',
+    'image_payload_sent=false',
+    `reason=${reason}`,
+    modality.title ? `Object title: ${modality.title}` : '',
+    modality.safeRef ? `Object ref: ${modality.safeRef}` : '',
+    modality.mime ? `mime=${modality.mime}` : '',
+    modality.byteLength !== undefined ? `byte_length=${modality.byteLength}` : '',
+    `source=${modality.source}`,
+    'text_fallback_summary=Only safe text metadata and surrounding text were forwarded; pixel data was not inspected.',
+    'instruction=Answer from text-only context and explicitly state that the image was not sent to the active text-only model and could not be inspected.',
+  ].filter(Boolean).join('\n');
+}
+
 function formatCachedVisionTranslationObservation(modality: ModalityRef, cached: VisionTranslationCacheEntry) {
   return [
     formatVisionObservation(modality, cached.observation, cached.status),
@@ -1289,6 +1519,7 @@ async function callTextReasoner(options: {
       'When answering with text instead of a tool call, return strict JSON only: {"type":"final_answer","content":"..."}.',
       'If the request provides tools and the Agent Host protocol requires one, use the provider tool-call protocol instead of describing the tool call in text.',
       'If any modality_input or visual_input is unavailable, the final answer must explicitly state that the referenced modality could not be inspected.',
+      'If any image observation has status=not_sent, the final answer must explicitly state that the image was not sent to the active text-only model and could not be inspected.',
     ].join(' ')
     : undefined;
   const messages: JsonObject[] = options.observations.length
@@ -2481,6 +2712,16 @@ function mentionsModalityUnavailable(value: string) {
   return /could not inspect (?:the )?(?:image|referenced (?:\w+\s+)?modality|modality)|(?:image|referenced (?:\w+\s+)?modality|modality) (?:could not be|was not) inspected|(?:visual|modality) input.*unavailable|无法(?:检查|查看|读取).*(?:图|模态|引用)|不能(?:检查|查看|读取).*(?:图|模态|引用)/i.test(value);
 }
 
+function mentionsImageNotSent(value: string) {
+  return /(?:image|visual|picture|screenshot).{0,80}(?:not sent|was not sent|wasn't sent)|(?:not sent|was not sent|wasn't sent).{0,80}(?:image|visual|picture|screenshot)|(?:图片|图像|截图).{0,40}(?:未发送|没有发送)|(?:未发送|没有发送).{0,40}(?:图片|图像|截图)/i.test(value);
+}
+
+function imageNotSentPrefix(modalities: ModalityRef[]) {
+  return modalities.length > 0 && modalities.every((item) => item.kind === 'vision.image')
+    ? 'I could not inspect the image because it was not sent to the active text-only model.'
+    : 'I could not inspect the referenced modality because the image payload was not sent to the active text-only model.';
+}
+
 function degradedUnavailablePrefix(modalities: ModalityRef[]) {
   return modalities.length > 0 && modalities.every((item) => item.kind === 'vision.image')
     ? 'I could not inspect the image.'
@@ -2493,6 +2734,10 @@ function compactObject(value: Record<string, JsonValue | undefined>): JsonObject
 
 function stringField(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function numberField(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function jsonValueField(value: unknown): JsonValue | undefined {
@@ -2510,6 +2755,14 @@ function jsonValueField(value: unknown): JsonValue | undefined {
     );
   }
   return undefined;
+}
+
+function parseJsonValue(value: string): unknown | undefined {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseJsonObject(value: string): JsonObject {

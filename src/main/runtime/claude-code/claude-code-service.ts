@@ -22,6 +22,7 @@ import type {
   AgentRuntimeUsageResponse
 } from '../../../shared/agent-runtime-contract'
 import {
+  isComputerUseEnabledForRuntime,
   resolveRuntimeModelRouterSettings,
   type AppSettingsV1
 } from '../../../shared/app-settings'
@@ -29,6 +30,7 @@ import {
   prepareClaudeCodeSdkLaunch,
   resolveClaudeWorkspace
 } from './claude-code-config'
+import type { ComputerUseMcpLaunchConfig } from '../../computer-use-mcp-config'
 import { ClaudeCodeSessionStore } from './claude-code-session-store'
 import {
   ClaudeCodeEventStore,
@@ -49,6 +51,7 @@ export type ClaudeCodeRuntimeServiceOptions = {
   settings: () => Promise<AppSettingsV1>
   storageRoot: string
   managedConfigDir?: string
+  computerUseMcpLaunch?: ComputerUseMcpLaunchConfig
   claudeAgentSdk?: ClaudeAgentSdk
 }
 
@@ -124,6 +127,11 @@ export class ClaudeCodeRuntimeService {
     this.threadStore = new ClaudeCodeThreadStore({ rootDir: options.storageRoot })
     this.eventStore = new ClaudeCodeEventStore({ rootDir: options.storageRoot })
     this.sessionStore = new ClaudeCodeSessionStore({ rootDir: options.storageRoot })
+  }
+
+  isComputerUseMcpConfigured(settings?: AppSettingsV1): boolean {
+    if (settings && !isComputerUseEnabledForRuntime(settings, 'claude')) return false
+    return Boolean(this.options.computerUseMcpLaunch)
   }
 
   async connect(): Promise<ClaudeCodeConnectResult> {
@@ -232,7 +240,16 @@ export class ClaudeCodeRuntimeService {
         text: payload.text,
         workspace,
         sessionId: existingThread?.claudeSessionId,
-        managedConfigDir: this.options.managedConfigDir
+        managedConfigDir: this.options.managedConfigDir,
+        computerUseMcpLaunch: isComputerUseEnabledForRuntime(settings, 'claude') && this.options.computerUseMcpLaunch
+          ? {
+              ...this.options.computerUseMcpLaunch,
+              defaultAgentId: `claude:${payload.threadId}`,
+              defaultThreadId: payload.threadId,
+              defaultTurnId: turnId,
+              defaultSessionId: `claude:${payload.threadId}`
+            }
+          : undefined
       })
       const storedThread = await this.threadStore.upsert({
         guiThreadId: payload.threadId,

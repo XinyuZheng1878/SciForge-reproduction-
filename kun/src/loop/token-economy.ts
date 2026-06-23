@@ -1,6 +1,7 @@
 import type { TurnItem } from '../contracts/items.js'
 import type { ModelRequest, ModelToolSpec } from '../ports/model-client.js'
 import type { RequestHistoryHygieneOptions } from './request-history-hygiene.js'
+import { isModelVisibleImageOutput } from './tool-result-image.js'
 
 export type TokenEconomyConfig = {
   enabled?: boolean
@@ -186,6 +187,7 @@ function compactSchemaDescriptions(value: unknown): unknown {
 }
 
 function compactToolOutput(toolName: string, output: unknown): unknown {
+  if (isModelVisibleImageOutput(output)) return output
   if (typeof output === 'string') {
     return compactGenericText(output)
   }

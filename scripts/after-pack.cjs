@@ -19,6 +19,14 @@ const MODEL_ROUTER_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/model-router/tools/model-router-trace-audit.ts'
 ]
 
+const COMPUTER_USE_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/computer-use/package.json',
+  'packages/workers/computer-use/src/cli.ts',
+  'packages/workers/computer-use/src/mcp-server.ts',
+  'packages/workers/computer-use/src/service.ts',
+  'packages/workers/computer-use/src/contract.ts'
+]
+
 function normalizePlatform(platform) {
   return platform === 'win' ? 'win32' : platform
 }
@@ -100,6 +108,13 @@ function validateBundledModelRouterRuntime(context) {
   }
 }
 
+function validateBundledComputerUseRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of COMPUTER_USE_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
 function maybeAdhocSignMacApp(context) {
   if (normalizePlatform(context.electronPlatformName) !== 'darwin') {
     return
@@ -131,11 +146,13 @@ async function afterPack(context) {
   prunePackedKunDependencies(context)
   validateBundledKunRuntime(context)
   validateBundledModelRouterRuntime(context)
+  validateBundledComputerUseRuntime(context)
   maybeAdhocSignMacApp(context)
 }
 
 exports.KUN_RUNTIME_REQUIRED_PATHS = KUN_RUNTIME_REQUIRED_PATHS
 exports.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS = MODEL_ROUTER_RUNTIME_REQUIRED_PATHS
+exports.COMPUTER_USE_RUNTIME_REQUIRED_PATHS = COMPUTER_USE_RUNTIME_REQUIRED_PATHS
 exports._internals = {
   appBundlePath,
   packedResourcesDir,
@@ -143,6 +160,7 @@ exports._internals = {
   npmCommand,
   prunePackedKunDependencies,
   validateBundledKunRuntime,
-  validateBundledModelRouterRuntime
+  validateBundledModelRouterRuntime,
+  validateBundledComputerUseRuntime
 }
 exports.default = afterPack

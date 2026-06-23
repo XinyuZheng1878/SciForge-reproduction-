@@ -3,6 +3,7 @@ import type {
   AppSettingsV1,
   AgentRuntimeId,
   ClawImAgentProfileV1,
+  ComputerUseSettingsV1,
   ClawRunResult,
   ClawTaskFromTextResult,
   ClawRuntimeStatus,
@@ -247,6 +248,54 @@ export type ModelProviderModelGroup = {
   providerId: string
   label: string
   modelIds: string[]
+}
+export type ComputerUsePermissionKind = 'accessibility' | 'screenRecording'
+export type ComputerUsePermissionState = 'granted' | 'denied' | 'unknown'
+export type ComputerUsePermissions = {
+  platform: string
+  supported: boolean
+  needsPermission: boolean
+  accessibility: ComputerUsePermissionState
+  screenRecording: ComputerUsePermissionState
+  accessibilityNeedsRestart: boolean
+}
+export type ComputerUseLeaseView = {
+  leaseId: string
+  computerUseSessionId: string
+  agentId: string
+  threadId: string
+  turnId?: string
+  targetId: string
+  backend: string
+  acquiredAt: string
+  updatedAt: string
+}
+export type ComputerUseRejectionView = {
+  code: string
+  message: string
+  targetId?: string
+  activeLease?: ComputerUseLeaseView
+}
+export type ComputerUseBackendStatusView = {
+  backend: string
+  available: boolean
+  platform: string
+  reason?: string
+  activeLeases: ComputerUseLeaseView[]
+  recentRejections: ComputerUseRejectionView[]
+  recentError?: string
+}
+export type ComputerUseRuntimeStatusView = {
+  updatedAt: string
+  servers: Array<ComputerUseBackendStatusView & { serverId: string; pid: number; updatedAt: string }>
+  activeLeases: ComputerUseLeaseView[]
+  recentRejections: ComputerUseRejectionView[]
+  backend: ComputerUseBackendStatusView | null
+}
+export type ComputerUseStatusView = {
+  settings?: ComputerUseSettingsV1
+  permissions: ComputerUsePermissions
+  runtime: ComputerUseRuntimeStatusView
 }
 export type ClawImInstallQrResult =
   | { ok: true; url: string; deviceCode: string; userCode: string; interval: number; expireIn: number }
@@ -519,6 +568,11 @@ export type DsGuiApi = {
   ) => Promise<ScheduleTaskFromTextResult>
   runDesktopCommand: (command: DesktopCommand) => Promise<void>
   openExternal: (url: string) => Promise<void>
+  getComputerUsePermissions: () => Promise<ComputerUsePermissions>
+  requestComputerUsePermission: (
+    kind: ComputerUsePermissionKind
+  ) => Promise<ComputerUsePermissions>
+  getComputerUseStatus: () => Promise<ComputerUseStatusView>
   openEvidenceDag: (input: { threadId: string; runtimeId?: AgentRuntimeId }) => Promise<void>
   showTurnCompleteNotification: (
     payload: TurnCompleteNotificationPayload

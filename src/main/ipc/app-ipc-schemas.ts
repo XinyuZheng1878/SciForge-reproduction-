@@ -450,6 +450,17 @@ const runtimeGuardPatchSchema = z.object({
   }).strict().optional()
 }).strict()
 
+const computerUsePatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  runtimeEnabled: z.object({
+    kun: z.boolean().optional(),
+    codex: z.boolean().optional(),
+    claude: z.boolean().optional()
+  }).strict().optional(),
+  backend: z.enum(['global-native', 'mac-app-scoped']).optional(),
+  experimentalAppScopedBackend: z.boolean().optional()
+}).strict()
+
 const claudeRuntimePatchSchema = z.object({
   command: z.string().trim().min(1).max(MAX_PATH_LENGTH).optional(),
   configDir: defaultPathSchema,
@@ -1246,6 +1257,7 @@ const settingsPatchObjectSchema = z.object({
   provider: modelProviderPatchSchema.optional(),
   modelRouter: modelRouterPatchSchema.optional(),
   runtimeGuards: runtimeGuardPatchSchema.optional(),
+  computerUse: computerUsePatchSchema.optional(),
   activeAgentRuntime: agentRuntimeIdSchema.optional(),
   agents: z.object({
     kun: kunRuntimePatchSchema.optional(),
@@ -1549,6 +1561,7 @@ export const guiUpdateChannelSchema = z.enum(GUI_UPDATE_CHANNELS).optional()
 
 export const desktopCommandSchema = z.enum(DESKTOP_COMMANDS)
 
+export const computerUsePermissionKindSchema = z.enum(['accessibility', 'screenRecording'])
 
 export const logErrorPayloadSchema = z
   .object({

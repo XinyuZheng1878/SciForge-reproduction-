@@ -5,6 +5,7 @@ import {
   DEFAULT_MODEL_ROUTER_PROVIDER_ID,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   getCodexRuntimeSettings,
+  isComputerUseEnabledForRuntime,
   resolveRuntimeModelRouterSettings,
   type AppSettingsV1
 } from '../../../shared/app-settings'
@@ -15,6 +16,13 @@ import {
   resolveResearchSearchMcpCommand,
   type ResearchSearchMcpLaunchConfig
 } from '../../research-search-mcp-config'
+import {
+  buildComputerUseMcpArgs,
+  computerUseMcpEnvForLaunch,
+  GUI_COMPUTER_USE_MCP_SERVER_NAME,
+  resolveComputerUseMcpCommand,
+  type ComputerUseMcpLaunchConfig
+} from '../../computer-use-mcp-config'
 
 const RUNTIME_API_KEY_ENV = 'SCIFORGE_RUNTIME_API_KEY'
 const LEGACY_RUNTIME_API_KEY_ENV = 'DEEPSEEK_GUI_RUNTIME_API_KEY'
@@ -69,6 +77,7 @@ export async function prepareCodexAppServerLaunch(options: {
   env?: NodeJS.ProcessEnv
   managedCodexHome?: string
   researchMcpLaunch?: ResearchSearchMcpLaunchConfig
+  computerUseMcpLaunch?: ComputerUseMcpLaunchConfig
 }): Promise<CodexAppServerLaunchConfig> {
   const runtime = getCodexRuntimeSettings(options.settings)
   const command = runtime.command.trim()
@@ -76,12 +85,16 @@ export async function prepareCodexAppServerLaunch(options: {
   const codexHome = expandHome(options.managedCodexHome || runtime.codexHome)
   if (!codexHome) throw new Error('Codex CODEX_HOME is required.')
   const modelRouter = codexModelRouterConfig(options.settings)
+  const computerUseMcpLaunch = isComputerUseEnabledForRuntime(options.settings, 'codex')
+    ? options.computerUseMcpLaunch
+    : undefined
   const cwd = resolveCodexWorkspace(options.settings, options.workspace)
   if (!cwd) throw new Error('Codex workspace is required.')
   await prepareManagedCodexHome(
     codexHome,
     modelRouter,
     options.researchMcpLaunch,
+    computerUseMcpLaunch,
     options.env ?? process.env
   )
   return {
@@ -177,13 +190,18 @@ async function prepareManagedCodexHome(
   codexHome: string,
   modelRouter: CodexModelRouterConfig,
   researchMcpLaunch: ResearchSearchMcpLaunchConfig | undefined,
+  computerUseMcpLaunch: ComputerUseMcpLaunchConfig | undefined,
   env: NodeJS.ProcessEnv
 ): Promise<void> {
   await mkdir(codexHome, { recursive: true })
   await Promise.all(
     CODEX_MANAGED_DIRS.map((dir) => mkdir(join(codexHome, dir), { recursive: true }))
   )
-  await writeFile(join(codexHome, 'config.toml'), codexConfigToml(modelRouter, researchMcpLaunch, env), 'utf8')
+  await writeFile(
+    join(codexHome, 'config.toml'),
+    codexConfigToml(modelRouter, researchMcpLaunch, computerUseMcpLaunch, env),
+    'utf8'
+  )
 }
 
 type CodexModelRouterConfig = {
@@ -217,6 +235,7 @@ function codexModelRouterConfig(settings: AppSettingsV1): CodexModelRouterConfig
 function codexConfigToml(
   modelRouter: CodexModelRouterConfig,
   researchMcpLaunch: ResearchSearchMcpLaunchConfig | undefined,
+  computerUseMcpLaunch: ComputerUseMcpLaunchConfig | undefined,
   env: NodeJS.ProcessEnv
 ): string {
   return [
@@ -229,6 +248,7 @@ function codexConfigToml(
     `env_key = "${RUNTIME_API_KEY_ENV}"`,
     'wire_api = "responses"',
     ...(researchMcpLaunch ? codexResearchMcpServerToml(researchMcpLaunch, env) : []),
+    ...(computerUseMcpLaunch ? codexComputerUseMcpServerToml(computerUseMcpLaunch) : []),
     ''
   ].join('\n')
 }
@@ -243,6 +263,18 @@ function codexResearchMcpServerToml(
     `command = "${tomlString(resolveResearchSearchMcpCommand(launch))}"`,
     `args = ${tomlStringArray(buildResearchSearchMcpArgs(launch))}`,
     `env = ${tomlInlineStringTable(researchSearchMcpEnv(env))}`
+  ]
+}
+
+function codexComputerUseMcpServerToml(
+  launch: ComputerUseMcpLaunchConfig
+): string[] {
+  return [
+    '',
+    `[mcp_servers.${GUI_COMPUTER_USE_MCP_SERVER_NAME}]`,
+    `command = "${tomlString(resolveComputerUseMcpCommand(launch))}"`,
+    `args = ${tomlStringArray(buildComputerUseMcpArgs(launch))}`,
+    `env = ${tomlInlineStringTable(computerUseMcpEnvForLaunch(launch))}`
   ]
 }
 

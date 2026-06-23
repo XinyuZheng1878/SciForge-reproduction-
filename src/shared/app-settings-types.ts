@@ -129,6 +129,19 @@ export type AgentRuntimeId = 'kun' | 'codex' | 'claude'
 
 export type AgentThreadIdsV1 = Partial<Record<AgentRuntimeId, string>>
 
+export type ComputerUseBackendPreference = 'global-native' | 'mac-app-scoped'
+
+export type ComputerUseSettingsV1 = {
+  enabled: boolean
+  runtimeEnabled: Record<AgentRuntimeId, boolean>
+  backend: ComputerUseBackendPreference
+  experimentalAppScopedBackend: boolean
+}
+
+export type ComputerUseSettingsPatchV1 = Partial<Omit<ComputerUseSettingsV1, 'runtimeEnabled'>> & {
+  runtimeEnabled?: Partial<Record<AgentRuntimeId, boolean>>
+}
+
 export type KunRuntimeSettingsV1 = {
   binaryPath: string
   port: number
@@ -1298,6 +1311,7 @@ export type AppSettingsV1 = {
   provider: ModelProviderSettingsV1
   modelRouter?: ModelRouterSettingsV1
   runtimeGuards?: RuntimeGuardSettingsV1
+  computerUse?: ComputerUseSettingsV1
   activeAgentRuntime?: AgentRuntimeId
   agents: KunSettingsEnvelopeV1
   workspaceRoot: string
@@ -1315,11 +1329,12 @@ export type AppSettingsV1 = {
 }
 
 export type AppSettingsPatch = Partial<
-  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'speechToText' | 'claw' | 'schedule' | 'workflow' | 'guiUpdate'>
+  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'speechToText' | 'claw' | 'schedule' | 'workflow' | 'guiUpdate' | 'computerUse'>
 > & {
   provider?: ModelProviderSettingsPatchV1
   modelRouter?: ModelRouterSettingsPatchV1
   runtimeGuards?: RuntimeGuardSettingsPatchV1
+  computerUse?: ComputerUseSettingsPatchV1
   agents?: KunSettingsEnvelopePatchV1
   log?: Partial<LogConfigV1>
   notifications?: Partial<NotificationConfigV1>

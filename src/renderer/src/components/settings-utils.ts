@@ -5,6 +5,7 @@ import {
   defaultClaudeRuntimeSettings,
   defaultKunRuntimeSettings,
   defaultRuntimeGuardSettings,
+  defaultComputerUseSettings,
   applyCodexRuntimePatch,
   applyKunRuntimePatch,
   getCodexRuntimeSettings,
@@ -17,6 +18,7 @@ import {
   mergeClawSettings,
   mergeModelRouterSettings,
   mergeModelProviderSettings,
+  mergeComputerUseSettings,
   mergeRuntimeGuardSettings,
   mergeScheduleSettings,
   mergeSpeechToTextSettings,
@@ -29,6 +31,7 @@ import {
   normalizeKeyboardShortcuts,
   normalizeModelProviderSettings,
   normalizeModelRouterSettings,
+  normalizeComputerUseSettings,
   normalizeScheduleSettings,
   normalizeSpeechToTextSettings,
   normalizeWorkflowSettings,
@@ -65,17 +68,30 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
     agents: agentsPatch,
     provider: providerPatch,
     modelRouter: modelRouterPatch,
+    computerUse: computerUsePatch,
     runtimeGuards: runtimeGuardsPatch,
     ...restPatch
   } = patch
+  const restSettingsPatch = restPatch as Partial<Pick<
+    AppSettingsV1,
+    | 'version'
+    | 'installationId'
+    | 'locale'
+    | 'theme'
+    | 'uiFontScale'
+    | 'activeAgentRuntime'
+    | 'workspaceRoot'
+    | 'codePromptPrefix'
+  >>
   return {
     ...applyClaudeRuntimePatch(
       applyCodexRuntimePatch(applyKunRuntimePatch(safeCurrent, agentsPatch?.kun), agentsPatch?.codex),
       agentsPatch?.claude
     ),
-    ...restPatch,
+    ...restSettingsPatch,
     provider: mergeModelProviderSettings(safeCurrent.provider, providerPatch),
     modelRouter: mergeModelRouterSettings(safeCurrent.modelRouter, modelRouterPatch),
+    computerUse: mergeComputerUseSettings(safeCurrent.computerUse, computerUsePatch),
     runtimeGuards: mergeRuntimeGuardSettings(safeCurrent.runtimeGuards, runtimeGuardsPatch),
     log: {
       ...safeCurrent.log,
@@ -125,6 +141,7 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     uiFontScale,
     provider: normalizeModelProviderSettings(raw.provider),
     modelRouter: normalizeModelRouterSettings(raw.modelRouter),
+    computerUse: mergeComputerUseSettings(defaultComputerUseSettings(), normalizeComputerUseSettings(raw.computerUse)),
     runtimeGuards: mergeRuntimeGuardSettings(defaultRuntimeGuardSettings(), raw.runtimeGuards),
     activeAgentRuntime: normalizeAgentRuntimeId(raw.activeAgentRuntime),
     agents: {

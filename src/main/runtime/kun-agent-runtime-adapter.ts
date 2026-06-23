@@ -1162,6 +1162,12 @@ function mapKunCapabilities(value: unknown, diagnosticsAvailable: boolean): Agen
         search: capabilityState(asRecord(web.search) ?? {})
       },
       research: researchCapabilityState(research),
+      computerUse: computerUseCapabilityState(asRecord(manifest.computerUse) ?? {
+        available: true,
+        degraded: true,
+        reason: 'GUI-managed computer-use MCP server is configured by the host.',
+        backend: 'global-native'
+      }),
       skills: capabilityState(skills),
       subagents: {
         ...capabilityState(subagents),
@@ -1186,7 +1192,9 @@ function capabilityState(value: Record<string, unknown>): { available: boolean; 
   return {
     available,
     ...(reason ? { reason } : {}),
-    ...(value.status === 'unavailable' && value.enabled === true ? { degraded: true } : {})
+    ...(value.degraded === true || (value.status === 'unavailable' && value.enabled === true)
+      ? { degraded: true }
+      : {})
   }
 }
 
@@ -1209,6 +1217,17 @@ function researchCapabilityState(value: Record<string, unknown>): AgentRuntimeCa
     ...(available ? { server: 'mcp' as const, toolName } : {}),
     ...(sources.length ? { sources } : {}),
     ...(numberValue(value.maxResults) ? { maxResults: numberValue(value.maxResults) } : {})
+  }
+}
+
+function computerUseCapabilityState(value: Record<string, unknown>): AgentRuntimeCapabilities['tools']['computerUse'] {
+  const base = capabilityState(value)
+  const available = base.available || value.active === true || value.enabled === true
+  return {
+    ...base,
+    available,
+    ...(available ? { server: 'mcp' as const, toolName: 'computer_use' as const } : {}),
+    backend: value.backend === 'mac-app-scoped' ? 'mac-app-scoped' : 'global-native'
   }
 }
 

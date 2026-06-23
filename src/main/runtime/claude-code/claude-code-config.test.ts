@@ -121,6 +121,92 @@ describe('claude-code config launch helpers', () => {
     ])).toEqual({ allowedTools: 'Edit' })
   })
 
+  it('injects the shared computer-use MCP server into SDK options', async () => {
+    const launch = await prepareClaudeCodeSdkLaunch({
+      settings: settings(),
+      text: 'hello',
+      workspace: '/tmp/workspace',
+      managedConfigDir: '/tmp/claude-managed',
+      computerUseMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      }
+    })
+
+    expect(launch.sdkOptions.mcpServers).toMatchObject({
+      gui_computer_use: {
+        type: 'stdio',
+        command: '/tmp/deepseek-gui-test-app/SciForge',
+        args: [
+          '/tmp/deepseek-gui-test-app/out/main/computer-use-mcp-node-entry.js',
+          '--gui-computer-use-mcp-server'
+        ],
+        env: {
+          ELECTRON_RUN_AS_NODE: '1'
+        },
+        timeout: 30000,
+        alwaysLoad: true
+      }
+    })
+  })
+
+  it('does not inject the shared computer-use MCP server when computer use is disabled', async () => {
+    const launch = await prepareClaudeCodeSdkLaunch({
+      settings: {
+        ...settings(),
+        computerUse: {
+          enabled: false,
+          runtimeEnabled: {
+            kun: true,
+            codex: true,
+            claude: true
+          },
+          backend: 'global-native',
+          experimentalAppScopedBackend: false
+        }
+      },
+      text: 'hello',
+      workspace: '/tmp/workspace',
+      managedConfigDir: '/tmp/claude-managed',
+      computerUseMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      }
+    })
+
+    expect(launch.sdkOptions.mcpServers).toBeUndefined()
+  })
+
+  it('does not inject the shared computer-use MCP server when Claude runtime access is disabled', async () => {
+    const launch = await prepareClaudeCodeSdkLaunch({
+      settings: {
+        ...settings(),
+        computerUse: {
+          enabled: true,
+          runtimeEnabled: {
+            kun: true,
+            codex: true,
+            claude: false
+          },
+          backend: 'global-native',
+          experimentalAppScopedBackend: false
+        }
+      },
+      text: 'hello',
+      workspace: '/tmp/workspace',
+      managedConfigDir: '/tmp/claude-managed',
+      computerUseMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      }
+    })
+
+    expect(launch.sdkOptions.mcpServers).toBeUndefined()
+  })
+
   it('uses Claude CLI model aliases instead of the router public alias', () => {
     expect(claudeCodeCliModel('', 'deepseek-gui-router')).toBe('sonnet')
     expect(claudeCodeCliModel('deepseek-gui-router', 'deepseek-gui-router')).toBe('sonnet')

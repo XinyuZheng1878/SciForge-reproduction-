@@ -121,6 +121,28 @@ describe('electron-builder Kun packaging', () => {
     ]))
   })
 
+  it('includes the full Computer Use worker tree in unpacked packaged app files', () => {
+    const computerUseFileSet = builderConfig.files.find((entry: unknown) => {
+      return (
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { from?: string }).from === 'packages/workers/computer-use'
+      )
+    }) as { from?: string; to?: string; filter?: string[] } | undefined
+
+    expect(computerUseFileSet).toMatchObject({
+      from: 'packages/workers/computer-use',
+      to: 'packages/workers/computer-use'
+    })
+    expect(computerUseFileSet?.filter).toEqual(expect.arrayContaining([
+      '**/*',
+      '**/.*'
+    ]))
+    expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+      '**/packages/workers/computer-use/**/*'
+    ]))
+  })
+
   it('leaves top-level plugin services out of bundled app content', () => {
     const bundledDirectoryFileSets = (builderConfig.files as unknown[])
       .filter((entry: unknown): entry is { from?: string } => {
@@ -199,6 +221,35 @@ describe('electron-builder Kun packaging', () => {
     )
   })
 
+  it('validates the unpacked Computer Use worker before release artifacts are created', () => {
+    expect(afterPack.COMPUTER_USE_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      'packages/workers/computer-use/package.json',
+      'packages/workers/computer-use/src/cli.ts',
+      'packages/workers/computer-use/src/mcp-server.ts',
+      'packages/workers/computer-use/src/service.ts',
+      'packages/workers/computer-use/src/contract.ts'
+    ]))
+
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
+
+    for (const relativePath of afterPack.COMPUTER_USE_RUNTIME_REQUIRED_PATHS) {
+      touch(join(unpackedRoot, relativePath))
+    }
+
+    expect(() => afterPack._internals.validateBundledComputerUseRuntime(context)).not.toThrow()
+
+    rmSync(
+      join(unpackedRoot, 'packages/workers/computer-use/src/mcp-server.ts'),
+      { recursive: true, force: true }
+    )
+
+    expect(() => afterPack._internals.validateBundledComputerUseRuntime(context)).toThrow(
+      /packages\/workers\/computer-use\/src\/mcp-server\.ts/
+    )
+  })
+
   it('runs npm through cmd.exe during Windows afterPack hooks', () => {
     expect(afterPack._internals.npmCommand(['prune'], 'win32')).toEqual({
       command: 'cmd.exe',
@@ -251,6 +302,7 @@ describe('electron-builder Kun packaging', () => {
 describe('root package workspace contracts', () => {
   it('exposes bundled workers and external plugin services through npm workspaces', () => {
     expect(rootPackage.workspaces).toEqual(expect.arrayContaining([
+      'packages/workers/computer-use',
       'packages/workers/model-router',
       'plugins/vision-router-service',
       'plugins/sci-modality-router-service'
@@ -259,6 +311,9 @@ describe('root package workspace contracts', () => {
       'packages/workers/model-router/vision-router-service'
     ]))
     expect(rootPackage.scripts).toMatchObject({
+      'computer-use:start': 'npm --workspace @sciforge/computer-use run start',
+      'computer-use:test': 'npm --workspace @sciforge/computer-use run test',
+      'computer-use:typecheck': 'npm --workspace @sciforge/computer-use run typecheck',
       'model-router:start': 'npm --workspace @sciforge/model-router run start',
       'model-router:test': 'npm --workspace @sciforge/model-router run test',
       'vision-router:start': 'npm --workspace sciforge-vision-router-service run start',

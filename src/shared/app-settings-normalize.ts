@@ -3,6 +3,7 @@ import {
   normalizeGuiUpdateChannel,
   type AppBehaviorConfigV1,
   type AppSettingsV1,
+  type ComputerUseSettingsPatchV1,
   type ClawSettingsPatchV1,
   type GuiUpdateConfigV1,
   type NotificationConfigV1,
@@ -39,6 +40,7 @@ import { normalizeScheduleSettings } from './app-settings-schedule'
 import { normalizeWorkflowSettings } from './app-settings-workflow'
 import { normalizeWriteSettings } from './app-settings-write'
 import { normalizeSpeechToTextSettings } from './speech-to-text'
+import { normalizeComputerUseSettings } from './app-settings-computer-use'
 
 export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
   const migrated = shouldMigrateLegacySettings(settings)
@@ -57,6 +59,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     speechToText?: SpeechToTextSettingsPatchV1
     guiUpdate?: Partial<GuiUpdateConfigV1>
     runtimeGuards?: Parameters<typeof normalizeRuntimeGuardSettings>[0]
+    computerUse?: ComputerUseSettingsPatchV1
     kunToolStorm?: unknown
     runtime?: { toolStorm?: unknown }
   }
@@ -84,6 +87,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
       kunToolStorm: maybeSettings.kunToolStorm,
       runtimeToolStorm: maybeSettings.runtime?.toolStorm
     }),
+    computerUse: normalizeComputerUseSettings(maybeSettings.computerUse),
     activeAgentRuntime: normalizeAgentRuntimeId(maybeSettings.activeAgentRuntime),
     agents: {
       ...kunSettingsEnvelope(mergeKunRuntimeSettings(defaultKunRuntimeSettings(), {

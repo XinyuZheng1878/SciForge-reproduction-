@@ -89,6 +89,7 @@ export type McpSearchCatalogRecord = {
   descriptor: McpSearchToolDescriptor
   normalizedName: string
   policy: LocalTool['policy']
+  prepareArguments?: (args: Record<string, unknown>, context: ToolHostContext) => Record<string, unknown>
 }
 
 export type McpSearchRuntimeDiagnostic = {
@@ -280,8 +281,9 @@ function createMcpSearchTools(options: McpSearchProviderOptions): LocalTool[] {
         const record = resolveTrustedRecord(options, context, toolId)
         if (!record) return { output: { error: `unknown MCP tool: ${toolId}` }, isError: true }
         const callArgs = objectArg(args.arguments)
+        const preparedArgs = record.prepareArguments?.(callArgs, context) ?? callArgs
         const result = await record.client.callTool(
-          { name: record.descriptor.name, arguments: callArgs },
+          { name: record.descriptor.name, arguments: preparedArgs },
           { signal: context.abortSignal, timeout: record.server.timeoutMs }
         )
         return {

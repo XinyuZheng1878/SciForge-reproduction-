@@ -3,6 +3,7 @@ import type { TurnItem } from '../../contracts/items.js'
 import { emptyUsageSnapshot, type UsageSnapshot } from '../../contracts/usage.js'
 import { estimateDeepseekCacheSavings, estimateDeepseekCost } from './deepseek-pricing.js'
 import { isToolResultBridgeItem, repairModelHistoryItems } from '../../domain/model-history-repair.js'
+import { extractToolResultImages, toolResultTextWithoutImages } from '../../loop/tool-result-image.js'
 import { repairToolArguments } from './tool-argument-repair.js'
 import { isDeepSeekHost, probeDeepSeekReachable } from './model-error-probe.js'
 import {
@@ -42,6 +43,7 @@ type ChatMessage = {
   content: string | ChatMessageContentPart[] | null
   name?: string
   tool_call_id?: string
+  toolResultOutput?: unknown
   reasoning_content?: string
   tool_calls?: {
     id: string
@@ -308,7 +310,7 @@ export class DeepseekCompatModelClient implements ModelClient {
     const body: Record<string, unknown> = {
       model,
       stream,
-      messages
+      messages: splitToolImageMessagesForOpenAi(messages)
     }
     if (request.maxTokens !== undefined) {
       body.max_tokens = request.maxTokens
@@ -438,9 +440,12 @@ export class DeepseekCompatModelClient implements ModelClient {
       ? limitHistoryPreservingCompaction(request.history, windowSize)
       : request.history
     const thinkingMode = requiresReasoningRoundTrip(request.reasoningEffort, model, this.config.baseUrl)
+    const supportsImages = true
     out.push(...this.itemsToMessages(
       repairModelHistoryItems([...request.prefix, ...history]),
-      thinkingMode
+      thinkingMode,
+      supportsImages,
+      endpointFormat
     ))
     if (request.attachments?.length) {
       attachImagesToLatestUserMessage(out, request.attachments)
@@ -458,7 +463,12 @@ export class DeepseekCompatModelClient implements ModelClient {
     return normalizeThinkingAssistantMessages(healToolMessagePairs(out), thinkingMode)
   }
 
-  private itemsToMessages(items: TurnItem[], thinkingMode: boolean): ChatMessage[] {
+  private itemsToMessages(
+    items: TurnItem[],
+    thinkingMode: boolean,
+    supportsImages: boolean,
+    endpointFormat: ModelEndpointFormat
+  ): ChatMessage[] {
     const out: ChatMessage[] = []
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index]
@@ -478,7 +488,7 @@ export class DeepseekCompatModelClient implements ModelClient {
         continue
       }
       if (item?.kind === 'tool_call') {
-        const block = this.toolCallBlockToMessages(items, index, thinkingMode)
+        const block = this.toolCallBlockToMessages(items, index, thinkingMode, supportsImages, endpointFormat)
         if (block) {
           out.push(...block.messages)
           index = block.nextIndex - 1
@@ -486,7 +496,7 @@ export class DeepseekCompatModelClient implements ModelClient {
         continue
       }
       if (item?.kind === 'tool_result') continue
-      const message = this.itemToMessage(item, thinkingMode)
+      const message = this.itemToMessage(item, thinkingMode, supportsImages, endpointFormat)
       if (message) out.push(message)
     }
     return out
@@ -495,7 +505,9 @@ export class DeepseekCompatModelClient implements ModelClient {
   private toolCallBlockToMessages(
     items: TurnItem[],
     startIndex: number,
-    thinkingMode: boolean
+    thinkingMode: boolean,
+    supportsImages: boolean,
+    endpointFormat: ModelEndpointFormat
   ): { messages: ChatMessage[]; nextIndex: number } | null {
     const calls: Extract<TurnItem, { kind: 'tool_call' }>[] = []
     let index = startIndex
@@ -530,7 +542,7 @@ export class DeepseekCompatModelClient implements ModelClient {
         sawResult = true
         if (expectedCallIds.has(item.callId) && !seenResultIds.has(item.callId)) {
           seenResultIds.add(item.callId)
-          resultMessages.push(this.toolResultToMessage(item))
+          resultMessages.push(this.toolResultToMessage(item, supportsImages, endpointFormat))
         }
         index += 1
         continue
@@ -574,7 +586,40 @@ export class DeepseekCompatModelClient implements ModelClient {
     }
   }
 
-  private toolResultToMessage(item: Extract<TurnItem, { kind: 'tool_result' }>): ChatMessage {
+  private toolResultToMessage(
+    item: Extract<TurnItem, { kind: 'tool_result' }>,
+    supportsImages: boolean,
+    endpointFormat: ModelEndpointFormat
+  ): ChatMessage {
+    const images = extractToolResultImages(item.output)
+    if (endpointFormat === 'responses') {
+      const text = images.length > 0 ? toolResultTextWithoutImages(item.output) : toolResultContent(item.output)
+      return {
+        role: 'tool',
+        content: text,
+        tool_call_id: item.callId,
+        toolResultOutput: item.output
+      }
+    }
+    if (images.length > 0) {
+      const text = toolResultTextWithoutImages(item.output)
+      if (!supportsImages) {
+        return {
+          role: 'tool',
+          content: text || '(image omitted: the active model has no image input)',
+          tool_call_id: item.callId
+        }
+      }
+      const parts: ChatMessageContentPart[] = []
+      if (text) parts.push({ type: 'text', text })
+      for (const image of images) {
+        parts.push({
+          type: 'image_url',
+          image_url: { url: `data:${image.mimeType};base64,${image.dataBase64}` }
+        })
+      }
+      return { role: 'tool', content: parts, tool_call_id: item.callId }
+    }
     return {
       role: 'tool',
       content: toolResultContent(item.output),
@@ -582,7 +627,12 @@ export class DeepseekCompatModelClient implements ModelClient {
     }
   }
 
-  private itemToMessage(item: TurnItem, thinkingMode: boolean): ChatMessage | null {
+  private itemToMessage(
+    item: TurnItem,
+    thinkingMode: boolean,
+    supportsImages: boolean,
+    endpointFormat: ModelEndpointFormat
+  ): ChatMessage | null {
     switch (item.kind) {
       case 'user_message':
         return { role: 'user', content: item.text }
@@ -602,7 +652,7 @@ export class DeepseekCompatModelClient implements ModelClient {
           tool_calls: [this.toolCallToWire(item)]
         }
       case 'tool_result':
-        return this.toolResultToMessage(item)
+        return this.toolResultToMessage(item, supportsImages, endpointFormat)
       case 'compaction':
         return item.replacedTokens > 0
           ? { role: 'system', content: `Conversation summary from earlier turns:\n${item.summary}` }
@@ -1258,7 +1308,7 @@ function messagesToResponsesInput(messages: ChatMessage[]): Array<Record<string,
         input.push({
           type: 'function_call_output',
           call_id: message.tool_call_id,
-          output: chatContentToPlainText(message.content)
+          output: message.toolResultOutput ?? chatContentToPlainText(message.content)
         })
       }
       continue
@@ -1294,14 +1344,19 @@ function messagesToAnthropic(messages: ChatMessage[]): { system: string; message
     }
     if (message.role === 'tool') {
       if (!message.tool_call_id) continue
-      out.push({
-        role: 'user',
-        content: [{
+      const blocks: AnthropicContentBlock[] = [{
           type: 'tool_result',
           tool_use_id: message.tool_call_id,
-          content: chatContentToPlainText(message.content)
+          content: chatContentToTextOnly(message.content)
         }]
-      })
+      if (Array.isArray(message.content)) {
+        for (const part of message.content) {
+          if (part.type !== 'image_url') continue
+          const image = anthropicImageSource(part.image_url.url)
+          if (image) blocks.push({ type: 'image', source: image })
+        }
+      }
+      out.push({ role: 'user', content: blocks })
       continue
     }
     const content = chatContentToAnthropicContent(message.content)
@@ -1398,6 +1453,60 @@ function chatContentToPlainText(content: ChatMessage['content']): string {
     if (part.type === 'input_object') return formatObjectAttachmentReference(part)
     return `[image: ${part.image_url.url}]`
   }).join('\n')
+}
+
+function chatContentToTextOnly(content: ChatMessage['content']): string {
+  if (content === null || content === undefined) return ''
+  if (typeof content === 'string') return content
+  return content
+    .filter((part) => part.type === 'text' || part.type === 'input_object')
+    .map((part) => part.type === 'text' ? part.text : formatObjectAttachmentReference(part))
+    .join('\n')
+}
+
+function splitToolImageMessagesForOpenAi(messages: ChatMessage[]): ChatMessage[] {
+  const hasToolImages = messages.some(
+    (message) =>
+      message.role === 'tool' &&
+      Array.isArray(message.content) &&
+      message.content.some((part) => part.type === 'image_url')
+  )
+  if (!hasToolImages) return messages
+
+  const out: ChatMessage[] = []
+  let pendingImages: ChatMessageContentPart[] = []
+  const flushImages = (): void => {
+    if (pendingImages.length === 0) return
+    out.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: '(Automated) The tool call(s) above returned the following image(s):' },
+        ...pendingImages
+      ]
+    })
+    pendingImages = []
+  }
+
+  for (const message of messages) {
+    if (message.role === 'tool' && Array.isArray(message.content)) {
+      const textParts: string[] = []
+      const imageParts: ChatMessageContentPart[] = []
+      for (const part of message.content) {
+        if (part.type === 'text') textParts.push(part.text)
+        else imageParts.push(part)
+      }
+      out.push({
+        ...message,
+        content: textParts.join('\n') || '(image returned; see the following message)'
+      })
+      pendingImages.push(...imageParts)
+      continue
+    }
+    if (message.role !== 'tool') flushImages()
+    out.push(message)
+  }
+  flushImages()
+  return out
 }
 
 function responsesReasoningForEffort(effort: string | undefined): Record<string, unknown> | null {

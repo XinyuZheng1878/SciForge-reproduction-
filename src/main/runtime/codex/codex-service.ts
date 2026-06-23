@@ -1,6 +1,7 @@
 import {
   DEFAULT_MODEL_ROUTER_PROVIDER_ID,
   getCodexRuntimeSettings,
+  isComputerUseEnabledForRuntime,
   resolveRuntimeModelRouterSettings,
   type AppSettingsV1,
   type ApprovalPolicy,
@@ -65,6 +66,14 @@ import {
   type ResearchSearchMcpLaunchConfig
 } from '../../research-search-mcp-config'
 import {
+  buildComputerUseMcpArgs,
+  COMPUTER_USE_MCP_TIMEOUT_MS,
+  computerUseMcpEnvForLaunch,
+  GUI_COMPUTER_USE_MCP_SERVER_NAME,
+  resolveComputerUseMcpCommand,
+  type ComputerUseMcpLaunchConfig
+} from '../../computer-use-mcp-config'
+import {
   createCodexDynamicMcpToolBridge,
   type CodexAppServerDynamicToolCallRequest,
   type CodexAppServerDynamicToolCallResponse,
@@ -87,6 +96,7 @@ export type CodexRuntimeServiceOptions = {
   storageRoot?: string
   managedCodexHome?: string
   researchMcpLaunch?: ResearchSearchMcpLaunchConfig
+  computerUseMcpLaunch?: ComputerUseMcpLaunchConfig
   managedMcpServers?: readonly CodexDynamicMcpServerConfig[]
   mcpClientFactory?: (server: CodexDynamicMcpServerConfig) => Promise<CodexDynamicMcpClient>
   createClient?: (options: CodexAppServerJsonRpcClientOptions) => CodexAppServerJsonRpcClient
@@ -678,13 +688,17 @@ export class CodexRuntimeService {
     if (this.clientPromise) return this.clientPromise
     const promise = (async () => {
       const current = settings ?? await this.options.settings()
+      const computerUseMcpLaunch = isComputerUseEnabledForRuntime(current, 'codex')
+        ? this.options.computerUseMcpLaunch
+        : undefined
       const launch = await prepareCodexAppServerLaunch({
         settings: current,
         managedCodexHome: this.options.managedCodexHome,
-        researchMcpLaunch: this.options.researchMcpLaunch
+        researchMcpLaunch: this.options.researchMcpLaunch,
+        computerUseMcpLaunch
       })
       this.dynamicMcpBridge = createCodexDynamicMcpToolBridge({
-        servers: codexDynamicMcpServers(this.options),
+        servers: codexDynamicMcpServers(this.options, current),
         ...(this.options.mcpClientFactory ? { clientFactory: this.options.mcpClientFactory } : {})
       })
       const createClient = this.options.createClient ?? createCodexAppServerClient
@@ -740,6 +754,21 @@ export class CodexRuntimeService {
   }
 
   isResearchMcpConfigured(): boolean {
+    return Boolean(
+      this.options.researchMcpLaunch ||
+      (this.options.managedMcpServers ?? []).some((server) => server.id === GUI_RESEARCH_MCP_SERVER_NAME)
+    )
+  }
+
+  isComputerUseMcpConfigured(settings?: AppSettingsV1): boolean {
+    if (settings && !isComputerUseEnabledForRuntime(settings, 'codex')) return false
+    return Boolean(
+      this.options.computerUseMcpLaunch ||
+      (this.options.managedMcpServers ?? []).some((server) => server.id === GUI_COMPUTER_USE_MCP_SERVER_NAME)
+    )
+  }
+
+  isMcpConfigured(): boolean {
     return this.hasDynamicMcpServersConfigured()
   }
 
@@ -1559,7 +1588,10 @@ function isTerminalThreadStatus(status: string | undefined): boolean {
     status === 'interrupted'
 }
 
-function codexDynamicMcpServers(options: CodexRuntimeServiceOptions): CodexDynamicMcpServerConfig[] {
+function codexDynamicMcpServers(
+  options: CodexRuntimeServiceOptions,
+  settings?: AppSettingsV1
+): CodexDynamicMcpServerConfig[] {
   const servers = new Map<string, CodexDynamicMcpServerConfig>()
   for (const server of options.managedMcpServers ?? []) {
     servers.set(server.id, server)
@@ -1572,6 +1604,20 @@ function codexDynamicMcpServers(options: CodexRuntimeServiceOptions): CodexDynam
       env: researchSearchMcpEnv(process.env),
       timeoutMs: 30_000,
       enabledTools: ['research_search']
+    })
+  }
+  if (
+    options.computerUseMcpLaunch &&
+    (!settings || isComputerUseEnabledForRuntime(settings, 'codex')) &&
+    !servers.has(GUI_COMPUTER_USE_MCP_SERVER_NAME)
+  ) {
+    servers.set(GUI_COMPUTER_USE_MCP_SERVER_NAME, {
+      id: GUI_COMPUTER_USE_MCP_SERVER_NAME,
+      command: resolveComputerUseMcpCommand(options.computerUseMcpLaunch),
+      args: buildComputerUseMcpArgs(options.computerUseMcpLaunch),
+      env: computerUseMcpEnvForLaunch(options.computerUseMcpLaunch),
+      timeoutMs: COMPUTER_USE_MCP_TIMEOUT_MS,
+      enabledTools: ['computer_use']
     })
   }
   return [...servers.values()]

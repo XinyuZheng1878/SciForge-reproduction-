@@ -1,4 +1,9 @@
 import type { TurnItem } from '../contracts/items.js'
+import {
+  extractToolResultImages,
+  IMAGE_TOOL_RESULT_TOKEN_ESTIMATE,
+  toolResultTextWithoutImages
+} from './tool-result-image.js'
 
 /**
  * Very small token estimator. The estimator prefers reported usage
@@ -15,6 +20,14 @@ export class ContextEstimator {
   }
 
   estimateItem(item: TurnItem): number {
+    if (item.kind === 'tool_result') {
+      const images = extractToolResultImages(item.output)
+      if (images.length > 0) {
+        const text = toolResultTextWithoutImages(item.output)
+        return Math.max(1, Math.ceil(text.length / this.charsPerToken)) +
+          images.length * IMAGE_TOOL_RESULT_TOKEN_ESTIMATE
+      }
+    }
     const text = this.collectText(item)
     return Math.max(1, Math.ceil(text.length / this.charsPerToken))
   }

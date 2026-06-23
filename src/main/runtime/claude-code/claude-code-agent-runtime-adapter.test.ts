@@ -4,6 +4,54 @@ import type { ClaudeCodeRuntimeService } from './claude-code-service'
 import { createClaudeCodeAgentRuntimeAdapter } from './claude-code-agent-runtime-adapter'
 
 describe('createClaudeCodeAgentRuntimeAdapter', () => {
+  it('reports shared computer-use MCP capability when Claude Code launch config includes it', async () => {
+    const adapter = createClaudeCodeAgentRuntimeAdapter({
+      isComputerUseMcpConfigured: () => true,
+      runtimeInfo: async () => ({
+        command: 'claude',
+        model: 'deepseek-gui-router'
+      })
+    } as unknown as ClaudeCodeRuntimeService)
+    const ctx = { settings: {} } as AgentRuntimeAdapterContext
+
+    await expect(adapter.capabilities(ctx)).resolves.toMatchObject({
+      runtimeId: 'claude',
+      tools: {
+        mcp: { available: true, toolCount: 1 },
+        computerUse: {
+          available: true,
+          server: 'mcp',
+          toolName: 'computer_use',
+          backend: 'global-native'
+        }
+      }
+    })
+    await expect(adapter.auxiliary?.(ctx, {
+      operation: 'getToolDiagnostics'
+    })).resolves.toMatchObject({
+      mcpServers: [{
+        id: 'gui_computer_use',
+        status: 'configured',
+        toolCount: 1,
+        tools: ['computer_use']
+      }]
+    })
+    await expect(adapter.auxiliary?.(ctx, {
+      operation: 'getRuntimeInfo'
+    })).resolves.toMatchObject({
+      capabilities: {
+        mcp: {
+          computerUse: {
+            enabled: true,
+            available: true,
+            server: 'mcp',
+            toolName: 'computer_use'
+          }
+        }
+      }
+    })
+  })
+
   it('reports memory as unavailable without failing listMemories diagnostics', async () => {
     const adapter = createClaudeCodeAgentRuntimeAdapter({
       runtimeInfo: async () => ({

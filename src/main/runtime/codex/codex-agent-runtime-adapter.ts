@@ -23,6 +23,7 @@ import type {
 } from './codex-runtime-api'
 import type { AgentRuntimeAdapter } from '../agent-runtime/adapter'
 import type { CodexRuntimeService } from './codex-service'
+import { isComputerUseEnabledForRuntime, type AppSettingsV1 } from '../../../shared/app-settings'
 
 export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): AgentRuntimeAdapter {
   return {
@@ -34,8 +35,8 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
       if (!result.ok) throw codexFailure(result)
     },
 
-    async capabilities() {
-      return codexCapabilities(isServiceResearchMcpConfigured(service))
+    async capabilities(context) {
+      return codexCapabilities(serviceMcpState(service, context.settings))
     },
 
     async listThreads(_context, input) {
@@ -160,9 +161,9 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
     async auxiliary(_context, input) {
       switch (input.operation) {
         case 'getRuntimeInfo':
-          return codexRuntimeInfo(isServiceResearchMcpConfigured(service))
+          return codexRuntimeInfo(serviceMcpState(service, _context.settings))
         case 'getToolDiagnostics':
-          return codexToolDiagnostics(isServiceResearchMcpConfigured(service))
+          return codexToolDiagnostics(serviceMcpState(service, _context.settings))
         case 'listSkills':
           return []
         case 'listMemories':
@@ -211,13 +212,36 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
   }
 }
 
-function isServiceResearchMcpConfigured(service: CodexRuntimeService): boolean {
-  return typeof service.isResearchMcpConfigured === 'function' && service.isResearchMcpConfigured()
+type CodexMcpState = {
+  mcpConfigured: boolean
+  researchConfigured: boolean
+  computerUseConfigured: boolean
 }
 
-function codexCapabilities(researchConfigured = false): AgentRuntimeCapabilities {
+const emptyCodexMcpState: CodexMcpState = {
+  mcpConfigured: false,
+  researchConfigured: false,
+  computerUseConfigured: false
+}
+
+function serviceMcpState(service: CodexRuntimeService, settings?: AppSettingsV1): CodexMcpState {
+  const researchConfigured =
+    typeof service.isResearchMcpConfigured === 'function' && service.isResearchMcpConfigured()
+  const computerUseConfigured =
+    (!settings || isComputerUseEnabledForRuntime(settings, 'codex')) &&
+    typeof service.isComputerUseMcpConfigured === 'function' &&
+    service.isComputerUseMcpConfigured(settings)
+  const mcpConfigured =
+    typeof service.isMcpConfigured === 'function'
+      ? (researchConfigured || computerUseConfigured) && service.isMcpConfigured()
+      : researchConfigured || computerUseConfigured
+  return { mcpConfigured, researchConfigured, computerUseConfigured }
+}
+
+function codexCapabilities(state: CodexMcpState = emptyCodexMcpState): AgentRuntimeCapabilities {
   const unavailable = { available: false, reason: 'unsupported' }
   const mcpDiagnosticsReason = 'Codex MCP diagnostics are not exposed through this service yet.'
+  const configuredMcpToolCount = Number(state.researchConfigured) + Number(state.computerUseConfigured)
   const caps = createDefaultAgentRuntimeCapabilities({
     runtimeId: 'codex',
     transport: 'jsonrpc_stdio'
@@ -251,17 +275,17 @@ function codexCapabilities(researchConfigured = false): AgentRuntimeCapabilities
       toolCalling: true,
       commandExecution: { available: true },
       fileChange: { available: true },
-      mcp: researchConfigured
+      mcp: state.mcpConfigured
         ? {
             available: true,
             degraded: true,
             reason: mcpDiagnosticsReason,
-            toolCount: 1,
+            toolCount: configuredMcpToolCount || undefined,
             search: { available: false, reason: mcpDiagnosticsReason }
           }
         : { available: false, reason: mcpDiagnosticsReason },
       web: { available: false, reason: 'Codex web capabilities are not exposed through this service yet.' },
-      research: researchConfigured
+      research: state.researchConfigured
         ? {
             available: true,
             server: 'mcp',
@@ -270,6 +294,14 @@ function codexCapabilities(researchConfigured = false): AgentRuntimeCapabilities
             maxResults: 10
           }
         : { available: false, reason: 'Shared research MCP server is not configured for Codex yet.' },
+      computerUse: state.computerUseConfigured
+        ? {
+            available: true,
+            server: 'mcp',
+            toolName: 'computer_use',
+            backend: 'global-native'
+          }
+        : { available: false, reason: 'Shared computer-use MCP server is not configured for Codex yet.' },
       skills: { available: false, reason: 'Codex skills are not exposed through this service yet.' },
       subagents: {
         available: true,
@@ -303,8 +335,9 @@ function codexCapabilities(researchConfigured = false): AgentRuntimeCapabilities
   }
 }
 
-function codexRuntimeInfo(researchConfigured = false): Record<string, unknown> {
-  const caps = codexCapabilities(researchConfigured)
+function codexRuntimeInfo(state: CodexMcpState = emptyCodexMcpState): Record<string, unknown> {
+  const caps = codexCapabilities(state)
+  const configuredMcpToolCount = Number(state.researchConfigured) + Number(state.computerUseConfigured)
   return {
     host: 'codex',
     port: 0,
@@ -329,9 +362,15 @@ function codexRuntimeInfo(researchConfigured = false): Record<string, unknown> {
       },
       mcp: {
         ...coreCapability(caps.tools.mcp),
-        configuredServers: researchConfigured ? 1 : 0,
+        configuredServers: configuredMcpToolCount,
         connectedServers: 0,
         toolCount: caps.tools.mcp.toolCount ?? 0,
+        computerUse: {
+          enabled: state.computerUseConfigured,
+          available: state.computerUseConfigured,
+          server: 'mcp',
+          toolName: 'computer_use'
+        },
         search: {
           enabled: false,
           mode: 'direct',
@@ -377,16 +416,26 @@ function codexRuntimeInfo(researchConfigured = false): Record<string, unknown> {
   }
 }
 
-function codexToolDiagnostics(researchConfigured = false): Record<string, unknown> {
+function codexToolDiagnostics(state: CodexMcpState = emptyCodexMcpState): Record<string, unknown> {
+  const mcpServers: Record<string, unknown>[] = []
+  if (state.researchConfigured) {
+    mcpServers.push({
+      id: 'gui_research',
+      status: 'configured',
+      toolCount: 1,
+      tools: ['research_search']
+    })
+  }
+  if (state.computerUseConfigured) {
+    mcpServers.push({
+      id: 'gui_computer_use',
+      status: 'configured',
+      toolCount: 1,
+      tools: ['computer_use']
+    })
+  }
   return {
-    mcpServers: researchConfigured
-      ? [{
-          id: 'gui_research',
-          status: 'configured',
-          toolCount: 1,
-          tools: ['research_search']
-        }]
-      : [],
+    mcpServers,
     webProviders: [],
     skills: {
       enabled: false,
