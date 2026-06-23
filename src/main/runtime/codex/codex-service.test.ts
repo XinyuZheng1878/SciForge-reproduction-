@@ -1582,6 +1582,60 @@ describe('CodexRuntimeService compatibility operations', () => {
     })
   })
 
+  it('persists display text separately from expanded Codex turn input', async () => {
+    const storageRoot = await tempRoot()
+    const client = controllableClient()
+    vi.mocked(client.startTurn).mockResolvedValueOnce({
+      turn: { id: 'turn-1', userMessageItemId: 'user-1' }
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.startTurn({
+      threadId: 'thread-1',
+      text: 'expanded runtime prompt',
+      displayText: 'short user prompt'
+    })).resolves.toMatchObject({
+      ok: true,
+      threadId: 'thread-1',
+      turnId: 'turn-1'
+    })
+
+    expect(client.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      displayText: 'short user prompt',
+      input: [
+        {
+          type: 'text',
+          text: 'expanded runtime prompt',
+          text_elements: []
+        }
+      ]
+    }))
+    const events = await new CodexEventStore({ rootDir: storageRoot }).read('thread-1', { includeAll: true })
+    expect(events.at(-1)?.event.userMessage).toMatchObject({
+      itemId: 'user-1',
+      text: 'expanded runtime prompt',
+      displayText: 'short user prompt'
+    })
+    await expect(service.readThread('thread-1')).resolves.toEqual({
+      ok: true,
+      detail: expect.objectContaining({
+        blocks: [
+          expect.objectContaining({
+            kind: 'user',
+            id: 'user-1',
+            text: 'expanded runtime prompt',
+            displayText: 'short user prompt'
+          })
+        ]
+      })
+    })
+  })
+
   it('treats compact as an explicit no-op without starting app-server JSON-RPC', async () => {
     const createClient = vi.fn(() => controllableClient())
     const service = new CodexRuntimeService({
@@ -1743,6 +1797,57 @@ describe('CodexRuntimeService compatibility operations', () => {
       recoverable: true
     })
     expect(queued.client.interruptTurn).not.toHaveBeenCalled()
+    queued.close()
+  })
+
+  it('keeps the active Codex turn open for transient recovery runtime errors', async () => {
+    const queued = clientWithQueuedEvents()
+    const sink = { send: vi.fn() }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      createClient: () => queued.client
+    })
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+    sink.send.mockClear()
+    vi.mocked(queued.client.interruptTurn).mockClear()
+
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'error',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          error: {
+            message: 'stream recovering',
+            code: 'stream_recovering'
+          }
+        }
+      }
+    })
+    await vi.waitFor(() => {
+      expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {
+        event: expect.objectContaining({
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          runtimeError: expect.objectContaining({
+            code: 'stream_recovering'
+          })
+        })
+      })
+    })
+
+    expect(sink.send.mock.calls.some((call) =>
+      call[1]?.event?.runtimeStatus?.phase === 'turn_done'
+    )).toBe(false)
+    await expect(service.interruptTurn('thread-1', 'turn-1')).resolves.toEqual({ ok: true })
+    expect(queued.client.interruptTurn).toHaveBeenCalled()
     queued.close()
   })
 
@@ -1921,6 +2026,23 @@ describe('CodexRuntimeService compatibility operations', () => {
     const turnDone = sink.send.mock.calls.find((call) => call[1]?.event?.runtimeStatus?.phase === 'turn_done')
     expect(firstDelta?.[1].event.runtimeStatus.latencyMs).toEqual(expect.any(Number))
     expect(turnDone?.[1].event.runtimeStatus.latencyMs).toEqual(expect.any(Number))
+    const sentEvents = sink.send.mock.calls
+      .map((call) => call[1]?.event)
+      .filter(Boolean)
+    const assistantDeltaIndex = sentEvents.findIndex((event) =>
+      event?.deltas?.some((delta: NonNullable<CodexThreadEventPayload['deltas']>[number]) =>
+        delta.kind === 'agent_message' && delta.text === 'hi'
+      )
+    )
+    const firstDeltaStatusIndex = sentEvents.findIndex((event) =>
+      event?.runtimeStatus?.phase === 'first_delta'
+    )
+    const turnCompleteIndex = sentEvents.findIndex((event) => event?.turnComplete === true)
+    const turnDoneStatusIndex = sentEvents.findIndex((event) =>
+      event?.runtimeStatus?.phase === 'turn_done'
+    )
+    expect(firstDeltaStatusIndex).toBeGreaterThan(assistantDeltaIndex)
+    expect(turnDoneStatusIndex).toBeGreaterThan(turnCompleteIndex)
     queued.close()
   })
 
@@ -1980,6 +2102,66 @@ describe('CodexRuntimeService compatibility operations', () => {
           turn_id: 'turn-1',
           last_agent_message: finalText
         }
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(sink.send.mock.calls.some((call) =>
+        call[1]?.event?.turnComplete === true
+      )).toBe(true)
+    })
+    const deltaEvents = sink.send.mock.calls
+      .map((call) => call[1]?.event)
+      .filter((event) => event?.deltas?.some((delta: { text: string }) => delta.text === finalText))
+    expect(deltaEvents).toHaveLength(1)
+
+    queued.close()
+  })
+
+  it('deduplicates short completed assistant snapshots after streamed text', async () => {
+    const queued = clientWithQueuedEvents()
+    const sink = { send: vi.fn() }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      createClient: () => queued.client
+    })
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+    const finalText = 'OK'
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'item/agentMessage/delta',
+        params: { threadId: 'thread-1', turnId: 'turn-1', delta: finalText }
+      }
+    })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: {
+            id: 'agent-message-1',
+            type: 'agentMessage',
+            text: finalText
+          }
+        }
+      }
+    })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turnId: 'turn-1' }
       }
     })
 
@@ -2525,6 +2707,22 @@ describe('CodexRuntimeService compatibility operations', () => {
             itemId: 'file-1',
             status: 'running',
             toolKind: 'file_change',
+            meta: expect.objectContaining({
+              codexRequestId: 'approval-1',
+              codexRequestKind: 'approval'
+            })
+          })
+        })
+      ])
+    })
+    await vi.waitFor(async () => {
+      await expect(service.readStoredEvents('gui-thread-1', 0)).resolves.toEqual([
+        expect.objectContaining({
+          threadId: 'gui-thread-1',
+          turnId: 'turn-1',
+          tool: expect.objectContaining({
+            itemId: 'file-1',
+            status: 'running',
             meta: expect.objectContaining({
               codexRequestId: 'approval-1',
               codexRequestKind: 'approval'

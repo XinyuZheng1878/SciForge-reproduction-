@@ -123,7 +123,11 @@ export class RuntimeContextStateService {
       })
       return
     }
-    if (event.kind === 'turn_lifecycle' && (event.state === 'failed' || event.state === 'aborted') && current.goalResume) {
+    if (
+      event.kind === 'turn_lifecycle' &&
+      (event.state === 'failed' || event.state === 'aborted' || event.state === 'cancelled') &&
+      current.goalResume
+    ) {
       this.updateGoalResume({
         runtimeId: event.runtimeId,
         threadId: event.threadId,

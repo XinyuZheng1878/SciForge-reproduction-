@@ -489,7 +489,7 @@ function functionCallOutputText(value: unknown): string {
 
 function responseContentPartToChatPart(part: unknown): JsonObject | null {
   if (!isRecord(part)) return null;
-  if (part.type === 'input_text') {
+  if (part.type === 'input_text' || part.type === 'output_text') {
     return {
       type: 'text',
       text: stringValue(part.text) || '',

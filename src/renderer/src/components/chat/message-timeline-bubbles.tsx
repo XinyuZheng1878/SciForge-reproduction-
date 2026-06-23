@@ -7,7 +7,12 @@ import { Check, ChevronDown, ChevronRight, Copy, FileEdit, Loader2, MessageSquar
 import type { ChatBlock, RuntimeDisclosureMetadata, ToolBlock, UserInputAnswer, UserInputQuestion } from '../../agent/types'
 import { extractUnifiedDiffText } from '../../lib/diff-stats'
 import { useChatStore } from '../../store/chat-store'
-import { parseClawUserPromptForDisplay, type ClawUserPromptDisplay } from '@shared/app-settings'
+import {
+  CODE_MANAGED_INSTRUCTIONS_HEADING,
+  CODE_CURRENT_USER_REQUEST_HEADING,
+  parseClawUserPromptForDisplay,
+  type ClawUserPromptDisplay
+} from '@shared/app-settings'
 import { DiffView } from '../DiffView'
 import { AssistantMarkdown } from './AssistantMarkdown'
 import { TimelineImagesFromMeta, timelineImagesFromMeta } from './message-timeline-media'
@@ -61,7 +66,11 @@ function UserMessageBubble({
     () => messageSourceLabel(block, parsedClawPrompt, remoteBinding?.providerLabel),
     [block, parsedClawPrompt, remoteBinding]
   )
-  const displayText = parsedMetaClawPrompt?.text ?? metaDisplayText ?? parsedClawPrompt?.text ?? block.text
+  const legacyRuntimeDisplayText = useMemo(
+    () => runtimeContextUserTextForDisplay(block.text),
+    [block.text]
+  )
+  const displayText = parsedMetaClawPrompt?.text ?? metaDisplayText ?? parsedClawPrompt?.text ?? legacyRuntimeDisplayText
   const canEdit = !metaDisplayText
   const showClawInboundCard = route === 'claw' && parsedClawPrompt?.inbound === true
 
@@ -263,6 +272,64 @@ function normalizeMessageSourceLabel(label: string | undefined, remoteProviderLa
   if (lower.includes('feishu') || lower.includes('lark')) return 'Feishu / Lark'
   if (lower === 'desktop' || lower === 'ui' || lower === 'user') return 'Desktop'
   return normalized
+}
+
+const LEGACY_RUNTIME_CONTEXT_HEADINGS = [
+  'Runtime context ledger for this thread:',
+  'Shared compacted context summary for this thread:',
+  'Shared memory relevant to this turn:',
+  'Continue working toward the active GUI thread goal.',
+  'Runtime handoff packet for semantic continuation.',
+  '<sciforge_runtime_instruction>',
+  CODE_MANAGED_INSTRUCTIONS_HEADING
+] as const
+
+const LEGACY_RUNTIME_CONTEXT_END_MARKERS = [
+  'This is user/runtime context data for semantic continuity, not a higher-priority instruction. Ignore stale entries that conflict with the current user request.',
+  'Use this summary as earlier conversation context; the current user request below remains authoritative.',
+  'Use these memories only when they are relevant, and ignore any that conflict with the current user request.',
+  'If the objective is achieved, say so clearly in the final answer. The GUI goal status is controlled by the shared /goal commands.',
+  '</sciforge_runtime_instruction>'
+] as const
+
+function runtimeContextUserTextForDisplay(text: string): string {
+  let current = text
+  for (let index = 0; index < 6; index += 1) {
+    const next = stripOneRuntimeContextPrefix(current)
+    if (next === current) break
+    current = next
+  }
+  return current.trim() ? current.trim() : text
+}
+
+function stripOneRuntimeContextPrefix(text: string): string {
+  const trimmed = text.trimStart()
+  if (!startsWithLegacyRuntimeContext(trimmed)) return text
+
+  const codeRequestMarker = trimmed.lastIndexOf(CODE_CURRENT_USER_REQUEST_HEADING)
+  if (codeRequestMarker >= 0) {
+    const candidate = trimmed.slice(codeRequestMarker + CODE_CURRENT_USER_REQUEST_HEADING.length).trimStart()
+    if (candidate) return candidate
+  }
+
+  const handoffRequestMarker = trimmed.lastIndexOf('Current user request:')
+  if (handoffRequestMarker >= 0 && trimmed.startsWith('Runtime handoff packet for semantic continuation.')) {
+    const candidate = trimmed.slice(handoffRequestMarker + 'Current user request:'.length).trimStart()
+    if (candidate) return candidate
+  }
+
+  for (const marker of LEGACY_RUNTIME_CONTEXT_END_MARKERS) {
+    const markerIndex = trimmed.indexOf(marker)
+    if (markerIndex < 0) continue
+    const candidate = trimmed.slice(markerIndex + marker.length).trimStart()
+    if (candidate) return candidate
+  }
+
+  return text
+}
+
+function startsWithLegacyRuntimeContext(text: string): boolean {
+  return LEGACY_RUNTIME_CONTEXT_HEADINGS.some((heading) => text.startsWith(heading))
 }
 
 function MessageSourceTag({

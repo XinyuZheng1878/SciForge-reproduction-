@@ -25,8 +25,8 @@ export type RuntimeEventRecorderOptions = {
  * Application-level event boundary.
  *
  * Services and loops produce semantic event drafts; this recorder
- * stamps ordering/time, validates the public contract, fans out to
- * live subscribers, and persists the same event for SSE replay.
+ * stamps ordering/time, validates the public contract, persists the
+ * event for SSE replay, and then fans out to live subscribers.
  */
 export class RuntimeEventRecorder {
   private readonly options: RuntimeEventRecorderOptions
@@ -43,8 +43,8 @@ export class RuntimeEventRecorder {
       seq: draft.seq ?? Math.max(allocatedSeq, persistedSeq + 1),
       timestamp: draft.timestamp ?? this.options.nowIso()
     })
-    this.options.eventBus.publish(event)
     await this.options.sessionStore.appendEvent(event.threadId, event)
+    this.options.eventBus.publish(event)
     return event
   }
 }

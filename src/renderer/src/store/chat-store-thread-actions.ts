@@ -1,10 +1,11 @@
-import type { AgentProvider, NormalizedThread, ReviewTarget, ThreadEventSink } from '../agent/types'
+import type { AgentProvider, AgentProviderCapabilities, NormalizedThread, ReviewTarget, ThreadEventSink } from '../agent/types'
 import { getProvider } from '../agent/registry'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import i18n from '../i18n'
 import { applyTheme, applyUiFontScale } from '../lib/apply-theme'
 import { formatWorkspacePickerError } from '../lib/format-workspace-picker-error'
-import { formatRuntimeError, getRuntimeErrorCode } from '../lib/format-runtime-error'
+import { formatRuntimeError } from '../lib/format-runtime-error'
+import { parseRuntimeErrorBody } from '@shared/runtime-error'
 import {
   deriveThreadTitleFromPrompt,
   getDefaultThreadTitle,
@@ -65,7 +66,6 @@ import {
   forkedTurnCount,
   isCodeThread,
   latestThread,
-  looksLikeActiveTurnError,
   rememberPendingClawFeishuMirror,
   runtimeErrorDetail,
   runtimeStreamRecoveringMessage,
@@ -133,6 +133,26 @@ type StoreActionContext = {
 }
 
 let drainingQueuedMessages = false
+
+function stripIpcErrorPrefix(message: string): string {
+  return message
+    .replace(/^Error invoking remote method ['"][^'"]+['"]:\s*/i, '')
+    .replace(/^Error:\s*/i, '')
+    .trim()
+}
+
+function structuredRuntimeErrorCode(error: unknown): string | null {
+  const raw = stripIpcErrorPrefix(error instanceof Error ? error.message : String(error ?? ''))
+  const parsed = parseRuntimeErrorBody(raw, '')
+  return parsed.code === 'unknown' ? null : parsed.code
+}
+
+function providerSupportsCapability(
+  provider: { getCapabilities?: () => Partial<AgentProviderCapabilities> },
+  capability: keyof AgentProviderCapabilities
+): boolean {
+  return provider.getCapabilities?.()[capability] === true
+}
 
 export function publishActiveClawThreadContext(state: ChatState, threadId: string | null): void {
   if (typeof window.dsGui?.updateClawActiveThreadContext !== 'function') return
@@ -494,6 +514,34 @@ export function createThreadActions(
       const attachmentIds = overrides?.attachmentIds?.filter((id) => id.trim().length > 0)
       const attachments = overrides?.attachments?.filter((attachment) => attachment.id.trim().length > 0)
       const fileReferences = normalizeRuntimeFileReferences(overrides?.fileReferences)
+      const currentTurnId = get().currentTurnId
+      const canSteerActiveTurn =
+        Boolean(activeThreadId && currentTurnId) &&
+        typeof p.steerUserMessage === 'function' &&
+        providerSupportsCapability(p, 'steer') &&
+        !attachmentIds?.length &&
+        !attachments?.length &&
+        fileReferences.length === 0 &&
+        !overrides?.guiPlan
+      if (canSteerActiveTurn && activeThreadId && currentTurnId && p.steerUserMessage) {
+        try {
+          rememberProviderThreadRuntime(p, activeThreadId, get().threads)
+          await p.steerUserMessage(activeThreadId, currentTurnId, trimmedText)
+          set({ error: null })
+          return true
+        } catch (e) {
+          const code = structuredRuntimeErrorCode(e)
+          if (code !== 'turn_not_running' && code !== 'capability_unavailable') {
+            set({
+              error: formatRuntimeError(e),
+              ...(shouldOpenSettingsForError(e)
+                ? { route: 'settings' as const, settingsSection: 'agents' as const }
+                : {})
+            })
+            return false
+          }
+        }
+      }
       set((s) => ({
         queuedMessages: [
           ...s.queuedMessages,
@@ -802,7 +850,7 @@ export function createThreadActions(
         message: e instanceof Error ? e.message : String(e),
         threadId: activeThreadId
       }).catch(() => undefined)
-      if (looksLikeActiveTurnError(e)) {
+      if (structuredRuntimeErrorCode(e) === 'turn_in_progress') {
         set({
           blocks: previousBlocks,
           busy: false,

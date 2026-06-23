@@ -121,6 +121,64 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(state.error).toBeTruthy()
   })
 
+  it('steers running text into the active turn when the runtime declares steer support', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      getCapabilities: vi.fn(() => ({
+        interrupt: true,
+        stream: true,
+        approvals: true,
+        attachFiles: true,
+        steer: true
+      })),
+      rememberThreadRuntime: vi.fn(),
+      steerUserMessage: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = true
+    state.currentTurnId = 'turn-running'
+    state.threads = [{ ...thread('thr_existing'), runtimeId: 'codex' }]
+
+    await expect(actions.sendMessage('use the current output')).resolves.toBe(true)
+
+    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('thr_existing', 'codex')
+    expect(provider.steerUserMessage).toHaveBeenCalledWith(
+      'thr_existing',
+      'turn-running',
+      'use the current output'
+    )
+    expect(state.queuedMessages).toEqual([])
+    expect(state.error).toBeNull()
+  })
+
+  it('queues running text when the runtime capability says steering is unsupported', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      getCapabilities: vi.fn(() => ({
+        interrupt: true,
+        stream: true,
+        approvals: true,
+        attachFiles: true,
+        steer: false
+      })),
+      steerUserMessage: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = true
+    state.currentTurnId = 'turn-running'
+
+    await expect(actions.sendMessage('continue after this')).resolves.toBe(true)
+
+    expect(provider.steerUserMessage).not.toHaveBeenCalled()
+    expect(state.queuedMessages).toEqual([
+      expect.objectContaining({
+        threadId: 'thr_existing',
+        text: 'continue after this',
+        targetThreadId: 'thr_existing'
+      })
+    ])
+  })
+
   it('forces a new runtime thread instead of reusing the active empty thread', async () => {
     const { actions, state } = buildHarness()
     const createdThread = {

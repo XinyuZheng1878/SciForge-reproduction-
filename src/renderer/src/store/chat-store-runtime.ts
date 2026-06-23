@@ -8,17 +8,27 @@ import type {
   RuntimeStatusEventPayload,
   ThreadEventSink,
   ToolBlock,
+  TurnLifecycleEventPayload,
   UserInputQuestion
 } from '../agent/types'
 import { getProvider } from '../agent/registry'
+import {
+  AGENT_RUNTIME_EVENT_REPLAY_FILTER,
+  type AgentRuntimeEventReplayFilter
+} from '../agent/agent-runtime-event-dispatcher'
 import i18n from '../i18n'
-import { describeRuntimeError, formatRuntimeError, getRuntimeErrorCode } from '../lib/format-runtime-error'
+import { describeRuntimeError, formatRuntimeError } from '../lib/format-runtime-error'
 import { isClawWorkspacePath, isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
 import type { ClawImChannelV1 } from '@shared/app-settings'
+import {
+  isAgentRuntimeActiveTurnState,
+  isAgentRuntimeTerminalTurnState
+} from '@shared/agent-runtime-contract'
 import type { ChatState } from './chat-store-types'
 import { hydrateBlockModelLabels, isClawThread } from './chat-store-helpers'
 import {
   collectAssistantTextForTurn,
+  hasPendingRuntimeWork,
   rememberProviderThreadRuntime,
   reconcileOptimisticUserBlock,
   settlePendingRuntimeWorkAfterCompletion,
@@ -150,17 +160,6 @@ function isUserInputInterruptError(message: string | undefined): boolean {
   return lowered.includes('cancel') && lowered.includes('awaiting user input')
 }
 
-function isInterruptSettledError(error: unknown, message: string): boolean {
-  const code = getRuntimeErrorCode(error)
-  if (code === 'aborted') return true
-  if (isUserInputInterruptError(message)) return true
-  const lowered = message.toLowerCase()
-  return lowered.includes('interrupted') ||
-    lowered.includes('aborted') ||
-    lowered.includes('cancelled') ||
-    lowered.includes('canceled')
-}
-
 export function runtimeErrorDetail(error: unknown): string {
   const view = describeRuntimeError(error)
   if (view.detail) return view.detail
@@ -220,7 +219,11 @@ export function clearWatchedCompletionNotification(threadId: string): void {
 }
 
 function notifyTurnComplete(threadId: string | null, state: ChatState, dedupeKey: string): void {
-  if (!threadId || typeof window.dsGui?.showTurnCompleteNotification !== 'function') return
+  if (
+    !threadId ||
+    typeof window === 'undefined' ||
+    typeof window.dsGui?.showTurnCompleteNotification !== 'function'
+  ) return
   if (!rememberCompletionNotificationKey(dedupeKey)) return
 
   const threadTitle =
@@ -453,14 +456,6 @@ export function shouldOpenSettingsForError(error: unknown): boolean {
   return describeRuntimeError(error).settingsAction === 'agents'
 }
 
-export function looksLikeActiveTurnError(error: unknown): boolean {
-  const raw = error instanceof Error ? error.message : String(error ?? '')
-  const lowered = raw.toLowerCase()
-  return lowered.includes('active turn') ||
-    lowered.includes('active codex turn') ||
-    (lowered.includes('no active') && lowered.includes('turn') && lowered.includes('running'))
-}
-
 export function isCodeThread(
   thread: NormalizedThread,
   clawChannels: ClawImChannelV1[] = []
@@ -483,26 +478,51 @@ function runtimeStatusText(event: RuntimeStatusEventPayload): string {
   if (event.kind === 'tool_result_upload_wait') {
     return i18n.t('common:toolUploadWaitStatus', { count: event.toolResultCount ?? 0 })
   }
-	  if (event.kind === 'tool_catalog_changed') {
-	    return event.message?.trim() || i18n.t('common:toolCatalogChangedStatus')
-	  }
-	  if (event.kind === 'tool_storm_suppressed') {
-	    return event.message?.trim() || i18n.t('common:toolStormSuppressedStatus', {
-	      tool: event.toolName ?? 'tool'
-	    })
-	  }
+  if (event.kind === 'tool_catalog_changed') {
+    return event.message?.trim() || i18n.t('common:toolCatalogChangedStatus')
+  }
+  if (event.kind === 'tool_storm_suppressed') {
+    return event.message?.trim() || i18n.t('common:toolStormSuppressedStatus', {
+      tool: event.toolName ?? 'tool'
+    })
+  }
   if (event.kind === 'compaction_summary_fallback') {
     return event.message?.trim() || i18n.t('common:compactionSummaryFallbackStatus')
   }
-	  return event.message?.trim() || ''
-	}
+  if (event.kind === 'runtime_handoff') {
+    return i18n.t('common:runtimeHandoffStatus', {
+      source: runtimeDisplayName(event.sourceRuntimeId),
+      target: runtimeDisplayName(event.targetRuntimeId)
+    })
+  }
+  return event.message?.trim() || ''
+}
 
-function isTerminalRuntimeStatus(event: RuntimeStatusEventPayload): boolean {
-  return event.phase === 'turn_done'
+function runtimeDisplayName(runtimeId: string | undefined): string {
+  if (runtimeId === 'kun') return 'Kun'
+  if (runtimeId === 'codex') return 'Codex'
+  if (runtimeId === 'claude') return 'Claude'
+  return runtimeId?.trim() || 'runtime'
 }
 
 function isThreadLifecycleRuntimeStatus(event: RuntimeStatusEventPayload): boolean {
   return event.phase === 'thread_start_done'
+}
+
+function isBusyWatchdogRuntimeActivity(event: RuntimeStatusEventPayload): boolean {
+  return event.phase === 'tool_running' ||
+    event.phase === 'tool_waiting' ||
+    event.phase === 'reconnecting' ||
+    event.phase === 'stream_recovering'
+}
+
+function terminalStateFromRuntimeStatus(event: RuntimeStatusEventPayload): TurnLifecycleEventPayload['state'] | null {
+  if (event.phase !== 'turn_done') return null
+  const message = event.message?.trim().toLowerCase() ?? ''
+  if (message.includes('cancel')) return 'cancelled'
+  if (message.includes('abort') || message.includes('interrupt')) return 'aborted'
+  if (message.includes('error') || message.includes('fail')) return 'failed'
+  return 'completed'
 }
 
 function runtimeErrorPayloadToError(event: {
@@ -623,13 +643,111 @@ export function buildThreadEventSink(
   binding: ThreadEventSinkBinding = {}
 ): ThreadEventSink {
   const boundThreadId = binding.threadId?.trim() ?? ''
+  let appliedEventSeqFloor = binding.sinceSeq ?? 0
   let appliedDeltaSeqFloor = binding.sinceSeq ?? 0
+  const settledTerminalTurnKeys = new Set<string>()
   const isCurrentStream = (): boolean => {
     if (binding.signal?.aborted) return false
     return !boundThreadId || get().activeThreadId === boundThreadId
   }
 
-  return {
+  const shouldApplyRuntimeEvent: AgentRuntimeEventReplayFilter = (event) => {
+    if (!isCurrentStream()) return false
+    if (event.kind === 'heartbeat') return false
+    if (typeof event.seq !== 'number') return true
+    if (event.seq <= appliedEventSeqFloor) return false
+    appliedEventSeqFloor = event.seq
+    return true
+  }
+
+  const terminalTurnKey = (ev: TurnLifecycleEventPayload, state: ChatState): string => {
+    const turnId = ev.turnId?.trim() || state.currentTurnId?.trim()
+    if (turnId) return `turn:${turnId}`
+    return ''
+  }
+
+  const hasTerminalWorkToSettle = (state: ChatState): boolean =>
+    state.busy ||
+    Boolean(state.currentTurnId) ||
+    Boolean(state.liveAssistant.trim()) ||
+    Boolean(state.liveReasoning.trim()) ||
+    state.blocks.some(hasPendingRuntimeWork)
+
+  const settleTerminalTurn = (ev: TurnLifecycleEventPayload): void => {
+    if (!isCurrentStream()) return
+    if (!isAgentRuntimeTerminalTurnState(ev.state)) return
+    const beforeState = get()
+    const terminalKey = terminalTurnKey(ev, beforeState)
+    if (terminalKey && settledTerminalTurnKeys.has(terminalKey)) return
+    if (!hasTerminalWorkToSettle(beforeState)) return
+    if (terminalKey) settledTerminalTurnKeys.add(terminalKey)
+    resetBusyRecoveryAttempts()
+    clearBusyWatchdog()
+    const completedState = get()
+    const completedThreadId = completedState.activeThreadId
+    const completedTurnId = completedState.currentTurnId
+    const completedKey = completedState.currentTurnId
+      ? `turn:${completedState.currentTurnId}`
+      : `active:${completedThreadId ?? 'unknown'}:${completedState.lastSeq}`
+    const completed = ev.state === 'completed'
+    const pendingMirror = takePendingClawFeishuMirror(completedTurnId)
+    const assistantMirrorText =
+      completed && pendingMirror
+        ? collectAssistantTextForTurn(
+            completedState.blocks,
+            pendingMirror.userBlockId,
+            completedState.liveAssistant
+          )
+        : ''
+    set((s) => {
+      const base = flushLiveBlocks(s, {
+        ...finalizeTurnTiming(s),
+        error: completed || ev.state === 'cancelled' || ev.state === 'aborted'
+          ? null
+          : ev.message?.trim() || 'Turn failed',
+        currentTurnId: null,
+        currentTurnUserId: null
+      })
+      if (s.busy) base.busy = false
+      base.blocks = completed
+        ? settlePendingRuntimeWorkAfterCompletion(base.blocks ?? s.blocks)
+        : settlePendingRuntimeWorkAfterInterrupt(base.blocks ?? s.blocks)
+      const id = s.activeThreadId
+      if (id) {
+        const w = { ...s.watchTurnCompletion }
+        delete w[id]
+        clearWatchedCompletionNotification(id)
+        base.watchTurnCompletion = w
+        const u = { ...s.unreadThreadIds }
+        delete u[id]
+        base.unreadThreadIds = u
+      }
+      return base
+    })
+    if (completed) refreshCompletedThreadSnapshot(completedThreadId, set, get)
+    if (
+      completed &&
+      pendingMirror &&
+      assistantMirrorText &&
+      typeof window !== 'undefined' &&
+      typeof window.dsGui?.mirrorClawChannelMessage === 'function'
+    ) {
+      void window.dsGui.mirrorClawChannelMessage(
+        pendingMirror.threadId,
+        assistantMirrorText,
+        'assistant'
+      ).catch(() => undefined)
+    }
+    if (completed) notifyTurnComplete(completedThreadId, completedState, completedKey)
+    syncTurnCompletionPoll(set, get)
+    void get().refreshThreads()
+    void get().drainQueuedMessages()
+  }
+
+  const sink: ThreadEventSink & {
+    [AGENT_RUNTIME_EVENT_REPLAY_FILTER]: AgentRuntimeEventReplayFilter
+  } = {
+    [AGENT_RUNTIME_EVENT_REPLAY_FILTER]: shouldApplyRuntimeEvent,
     onSeq: (seq) => {
       if (!isCurrentStream()) return
       resetBusyRecoveryAttempts()
@@ -710,13 +828,6 @@ export function buildThreadEventSink(
           error: nextError,
           ...(nextLastSeq !== s.lastSeq ? { lastSeq: nextLastSeq } : {})
         }
-        // When deltas arrive but busy is false (e.g. switching back to a running
-        // thread or SSE stream recovered from a transient error), restore the
-        // busy flag so the interrupt button reappears.
-        if (!s.busy) {
-          base.busy = true
-          armBusyWatchdog(set, get)
-        }
         let liveReasoning = s.liveReasoning
         let liveAssistant = s.liveAssistant
         let nextReasoningFirstAtByUserId = s.turnReasoningFirstAtByUserId
@@ -759,10 +870,8 @@ export function buildThreadEventSink(
       if (!isCurrentStream()) return
       set((s) => {
         resetBusyRecoveryAttempts()
-        // Restore busy state on tool events (same reasoning as onDelta).
         const base: Partial<ChatState> = {}
-        if (!s.busy) {
-          base.busy = true
+        if (s.busy) {
           armBusyWatchdog(set, get)
         }
         const idx = s.blocks.findIndex((b) => b.kind === 'tool' && b.id === ev.itemId)
@@ -1000,26 +1109,15 @@ export function buildThreadEventSink(
     onRuntimeStatus: (ev) => {
       if (!isCurrentStream()) return
       if (isThreadLifecycleRuntimeStatus(ev)) return
-      const terminalStatus = isTerminalRuntimeStatus(ev)
-      if (terminalStatus) clearBusyWatchdog()
-      const completedThreadId = terminalStatus ? get().activeThreadId : null
+      const terminalState = terminalStateFromRuntimeStatus(ev)
       set((s) => {
         resetBusyRecoveryAttempts()
         const base: Partial<ChatState> = {}
-        if (terminalStatus) {
-          Object.assign(base, finalizeTurnTiming(s), {
-            busy: false,
-            currentTurnId: null
-          })
-        }
-        if (!s.busy && !terminalStatus) {
-          base.busy = true
+        if (s.busy && isBusyWatchdogRuntimeActivity(ev)) {
           armBusyWatchdog(set, get)
         }
         const flushed = flushLiveBlocks(s)
-        const baseBlocks = terminalStatus
-          ? settlePendingRuntimeWorkAfterCompletion(flushed.blocks ?? s.blocks)
-          : flushed.blocks ?? s.blocks
+        const baseBlocks = flushed.blocks ?? s.blocks
         const text = runtimeStatusText(ev)
         const block: ChatBlock = {
           kind: 'system',
@@ -1038,7 +1136,14 @@ export function buildThreadEventSink(
           error: clearRuntimeStreamRecoveringError(s.error)
         }
       })
-      if (terminalStatus) refreshCompletedThreadSnapshot(completedThreadId, set, get)
+      if (terminalState) {
+        settleTerminalTurn({
+          turnId: ev.turnId,
+          state: terminalState,
+          message: ev.message,
+          createdAt: ev.createdAt
+        })
+      }
     },
     onRuntimeError: (ev) => {
       if (!isCurrentStream()) return
@@ -1062,6 +1167,21 @@ export function buildThreadEventSink(
           error: clearRuntimeStreamRecoveringError(s.error)
         }
       })
+    },
+    onTurnLifecycle: (ev) => {
+      if (!isCurrentStream()) return
+      if (isAgentRuntimeTerminalTurnState(ev.state)) {
+        settleTerminalTurn(ev)
+        return
+      }
+      if (!isAgentRuntimeActiveTurnState(ev.state)) return
+      resetBusyRecoveryAttempts()
+      set((s) => ({
+        busy: true,
+        currentTurnId: ev.turnId ?? s.currentTurnId,
+        error: clearRuntimeStreamRecoveringError(s.error)
+      }))
+      armBusyWatchdog(set, get)
     },
     onGoal: (ev) => {
       if (!isCurrentStream()) return
@@ -1127,57 +1247,7 @@ export function buildThreadEventSink(
       })
     },
     onTurnComplete: () => {
-      if (!isCurrentStream()) return
-      resetBusyRecoveryAttempts()
-      clearBusyWatchdog()
-      const completedState = get()
-      const completedThreadId = completedState.activeThreadId
-      const completedTurnId = completedState.currentTurnId
-      const completedKey = completedState.currentTurnId
-        ? `turn:${completedState.currentTurnId}`
-        : `active:${completedThreadId ?? 'unknown'}:${completedState.lastSeq}`
-      const pendingMirror = takePendingClawFeishuMirror(completedTurnId)
-      const assistantMirrorText =
-        pendingMirror
-          ? collectAssistantTextForTurn(
-              completedState.blocks,
-              pendingMirror.userBlockId,
-              completedState.liveAssistant
-            )
-          : ''
-      set((s) => {
-        const base = flushLiveBlocks(s, {
-          ...finalizeTurnTiming(s),
-          error: null,
-          currentTurnId: null,
-          currentTurnUserId: null
-        })
-        if (s.busy) base.busy = false
-        base.blocks = settlePendingRuntimeWorkAfterCompletion(base.blocks ?? s.blocks)
-        const id = s.activeThreadId
-        if (id) {
-          const w = { ...s.watchTurnCompletion }
-          delete w[id]
-          clearWatchedCompletionNotification(id)
-          base.watchTurnCompletion = w
-          const u = { ...s.unreadThreadIds }
-          delete u[id]
-          base.unreadThreadIds = u
-        }
-        return base
-      })
-      refreshCompletedThreadSnapshot(completedThreadId, set, get)
-      if (pendingMirror && assistantMirrorText && typeof window.dsGui?.mirrorClawChannelMessage === 'function') {
-        void window.dsGui.mirrorClawChannelMessage(
-          pendingMirror.threadId,
-          assistantMirrorText,
-          'assistant'
-        ).catch(() => undefined)
-      }
-      notifyTurnComplete(completedThreadId, completedState, completedKey)
-      syncTurnCompletionPoll(set, get)
-      void get().refreshThreads()
-      void get().drainQueuedMessages()
+      settleTerminalTurn({ state: 'completed' })
     },
     onError: (err) => {
       if (!isCurrentStream()) return
@@ -1186,20 +1256,19 @@ export function buildThreadEventSink(
       const state = get()
       const message = formatRuntimeError(err)
       const detail = runtimeErrorDetail(err)
-      const interrupted = isInterruptSettledError(err, message)
       takePendingClawFeishuMirror(state.currentTurnId)
       set((s) => {
         const wasBusy = s.busy
         const out = flushLiveBlocks(s, {
           ...finalizeTurnTiming(s),
-          error: interrupted ? null : message,
-          runtimeErrorDetail: interrupted ? null : detail || null
+          error: message,
+          runtimeErrorDetail: detail || null
         })
         // Keep the busy flag if the turn was active — the interrupt button
         // should stay visible so the user can interrupt a stuck turn. The
         // watchdog (re-armed below) will eventually time out if the turn
         // never recovers.
-        if (!wasBusy || interrupted) {
+        if (!wasBusy) {
           out.busy = false
           out.currentTurnId = null
           out.currentTurnUserId = null
@@ -1216,4 +1285,5 @@ export function buildThreadEventSink(
       set((s) => ({ usageRefreshKey: s.usageRefreshKey + 1 }))
     }
   }
+  return sink
 }

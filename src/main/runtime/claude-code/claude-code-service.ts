@@ -506,12 +506,7 @@ export class ClaudeCodeRuntimeService {
     sinceSeq = 0,
     signal?: AbortSignal
   ): AsyncIterable<AgentRuntimeEvent> {
-    const stored = await this.eventStore.read(threadId, { sinceSeq })
     let latestSeq = sinceSeq
-    for (const event of stored) {
-      latestSeq = Math.max(latestSeq, event.seq)
-      yield event.event
-    }
     const subscriber: ClaudeRuntimeEventSubscriber = {
       threadId,
       queue: [],
@@ -525,6 +520,12 @@ export class ClaudeCodeRuntimeService {
     signal?.addEventListener('abort', onAbort, { once: true })
     this.eventSubscribers.add(subscriber)
     try {
+      const stored = await this.eventStore.read(threadId, { sinceSeq })
+      for (const event of stored) {
+        if (signal?.aborted || subscriber.closed) return
+        latestSeq = Math.max(latestSeq, event.seq)
+        yield event.event
+      }
       while (!subscriber.closed && !signal?.aborted) {
         if (subscriber.queue.length === 0) {
           await new Promise<void>((resolve) => {

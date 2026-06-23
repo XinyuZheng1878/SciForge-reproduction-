@@ -4,7 +4,7 @@ import { rendererRuntimeClient } from '../agent/runtime-client'
 import i18n from '../i18n'
 import { applyTheme, applyUiFontScale } from '../lib/apply-theme'
 import { formatWorkspacePickerError } from '../lib/format-workspace-picker-error'
-import { formatRuntimeError, getRuntimeErrorCode } from '../lib/format-runtime-error'
+import { formatRuntimeError } from '../lib/format-runtime-error'
 import {
   deriveThreadTitleFromPrompt,
   getDefaultThreadTitle,
@@ -71,7 +71,6 @@ import {
   forkedTurnCount,
   isCodeThread,
   latestThread,
-  looksLikeActiveTurnError,
   rememberPendingClawFeishuMirror,
   runtimeErrorDetail,
   runtimeStreamRecoveringMessage,

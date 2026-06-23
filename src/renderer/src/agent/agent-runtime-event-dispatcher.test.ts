@@ -5,8 +5,10 @@ import {
   type AgentRuntimeEventKind
 } from '@shared/agent-runtime-contract'
 import {
+  AGENT_RUNTIME_EVENT_REPLAY_FILTER,
   agentRuntimeEventBelongsToThread,
-  dispatchAgentRuntimeEvent
+  dispatchAgentRuntimeEvent,
+  type AgentRuntimeEventReplayFilter
 } from './agent-runtime-event-dispatcher'
 import type { ThreadEventSink } from './types'
 
@@ -71,6 +73,16 @@ function sampleEvent(kind: AgentRuntimeEventKind): AgentRuntimeEvent {
       return { ...base, kind, requestId: 'input-1', status: 'submitted', answers: [{ id: 'q1', value: 'A' }] }
     case 'compaction_event':
       return { ...base, kind, itemId: 'compact-1', status: 'success', summary: 'Compacted' }
+    case 'handoff_event':
+      return {
+        ...base,
+        kind,
+        status: 'started',
+        sourceRuntimeId: 'codex',
+        sourceThreadId: 'source-thread',
+        targetRuntimeId: 'claude',
+        targetThreadId: 'target-thread'
+      }
     case 'review_event':
       return { ...base, kind, itemId: 'review-1', status: 'running', title: 'Review' }
     case 'goal_event':
@@ -151,6 +163,56 @@ describe('agent runtime event dispatcher', () => {
 
     expect(sink.onSeq).toHaveBeenCalledWith(9)
     expect(sink.onDeltas).not.toHaveBeenCalled()
+  })
+
+  it('does not advance the cursor for heartbeat events', () => {
+    const sink = makeSink()
+
+    dispatchAgentRuntimeEvent({ kind: 'heartbeat', threadId: 'thread-1', seq: 10 }, sink)
+
+    expect(sink.onSeq).not.toHaveBeenCalled()
+    expect(sink.onDeltas).not.toHaveBeenCalled()
+  })
+
+  it('lets replay-aware sinks drop stale sequenced events before side effects', () => {
+    const sink = makeSink() as ThreadEventSink & {
+      [AGENT_RUNTIME_EVENT_REPLAY_FILTER]: AgentRuntimeEventReplayFilter
+    }
+    let floor = 10
+    sink[AGENT_RUNTIME_EVENT_REPLAY_FILTER] = (event) => {
+      if (typeof event.seq !== 'number') return true
+      if (event.seq <= floor) return false
+      floor = event.seq
+      return true
+    }
+
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'tool_event',
+        threadId: 'thread-1',
+        itemId: 'tool-old',
+        status: 'running',
+        summary: 'Old',
+        seq: 9
+      },
+      sink
+    )
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'tool_event',
+        threadId: 'thread-1',
+        itemId: 'tool-new',
+        status: 'running',
+        summary: 'New',
+        seq: 11
+      },
+      sink
+    )
+
+    expect(sink.onSeq).toHaveBeenCalledTimes(1)
+    expect(sink.onSeq).toHaveBeenCalledWith(11)
+    expect(sink.onTool).toHaveBeenCalledTimes(1)
+    expect(sink.onTool).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'tool-new' }))
   })
 
   it('dispatches persisted assistant snapshots as stable assistant messages', () => {
@@ -349,6 +411,38 @@ describe('agent runtime event dispatcher', () => {
       createdAt: '2026-06-11T00:00:01.000Z',
       phase: 'process_start',
       message: 'Starting runtime'
+    })
+  })
+
+  it('dispatches handoff events as visible runtime status markers', () => {
+    const sink = makeSink()
+
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'handoff_event',
+        threadId: 'target-thread',
+        turnId: 'target-turn',
+        itemId: 'handoff-1',
+        createdAt: '2026-06-11T00:00:01.000Z',
+        status: 'started',
+        sourceRuntimeId: 'codex',
+        sourceThreadId: 'source-thread',
+        targetRuntimeId: 'claude',
+        targetThreadId: 'target-thread',
+        targetTurnId: 'target-turn'
+      },
+      sink
+    )
+
+    expect(sink.onRuntimeStatus).toHaveBeenCalledWith({
+      kind: 'runtime_handoff',
+      itemId: 'handoff-1',
+      turnId: 'target-turn',
+      createdAt: '2026-06-11T00:00:01.000Z',
+      sourceRuntimeId: 'codex',
+      sourceThreadId: 'source-thread',
+      targetRuntimeId: 'claude',
+      targetThreadId: 'target-thread'
     })
   })
 

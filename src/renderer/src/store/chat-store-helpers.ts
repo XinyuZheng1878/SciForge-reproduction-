@@ -1,6 +1,10 @@
 import type { ChatBlock, NormalizedThread } from '../agent/types'
 import { DEFAULT_COMPOSER_MODEL_IDS } from '@shared/default-composer-models'
 import {
+  isAgentRuntimeActiveTurnState,
+  normalizeAgentRuntimeTurnState
+} from '@shared/agent-runtime-contract'
+import {
   CLAW_MANAGED_INSTRUCTIONS_HEADING,
   CLAW_MODEL_IDS,
   type AgentRuntimeId,
@@ -406,18 +410,16 @@ function shouldReplaceClawThreadBinding(
 }
 
 function clawStatusLooksError(status: string): boolean {
-  return status === 'error' ||
-    status === 'failed' ||
+  const normalized = normalizeAgentRuntimeTurnState(status)
+  return normalized === 'failed' ||
+    normalized === 'aborted' ||
+    normalized === 'cancelled' ||
     status === 'failure' ||
-    status === 'aborted' ||
-    status === 'cancelled' ||
-    status === 'canceled'
+    status === 'error'
 }
 
 function clawStatusLooksRunning(status: string): boolean {
-  return status === 'running' ||
-    status === 'in_progress' ||
-    status === 'started'
+  return isAgentRuntimeActiveTurnState(status) && !clawStatusLooksQueued(status)
 }
 
 function clawStatusLooksQueued(status: string): boolean {

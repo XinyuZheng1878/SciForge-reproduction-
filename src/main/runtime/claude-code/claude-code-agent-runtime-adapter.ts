@@ -3,7 +3,10 @@ import type {
   AgentRuntimeThread,
   AgentRuntimeThreadDetail
 } from '../../../shared/agent-runtime-contract'
-import { createDefaultAgentRuntimeCapabilities } from '../../../shared/agent-runtime-contract'
+import {
+  createAgentRuntimeCapabilityMatrix,
+  createDefaultAgentRuntimeCapabilities
+} from '../../../shared/agent-runtime-contract'
 import type { AgentRuntimeAdapter } from '../agent-runtime/adapter'
 import type {
   ClaudeCodeRuntimeFailure,
@@ -260,6 +263,23 @@ function claudeCapabilities(computerUseConfigured = false): AgentRuntimeCapabili
   })
   return {
     ...caps,
+    matrix: createAgentRuntimeCapabilityMatrix({
+      nativeHistory: true,
+      nativeCompact: false,
+      nativeResume: true,
+      steer: false,
+      fork: false,
+      handoffImport: false,
+      usage: false,
+      eventReplay: true,
+      reasons: {
+        nativeCompact: 'Claude Code compaction is not exposed through this adapter.',
+        steer: 'Claude Code does not support safe mid-turn steering through this adapter.',
+        fork: 'Claude Code fork is not exposed through this adapter.',
+        handoffImport: 'Handoff import is provided by AgentRuntimeHost when a context ledger is configured.',
+        usage: 'Claude Code usage aggregation is not exposed through this adapter.'
+      }
+    }),
     events: {
       live: true,
       replayable: true,

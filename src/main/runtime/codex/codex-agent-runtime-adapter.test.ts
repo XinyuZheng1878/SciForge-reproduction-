@@ -125,6 +125,109 @@ describe('createCodexAgentRuntimeAdapter', () => {
     })
   })
 
+  it('maps stored Codex user display text to runtime events', async () => {
+    const service = {
+      readStoredEvents: vi.fn(async () => [
+        {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          seq: 1,
+          userMessage: {
+            itemId: 'user-1',
+            turnId: 'turn-1',
+            text: 'expanded runtime prompt',
+            displayText: 'short user prompt',
+            createdAt: '2026-06-11T00:00:00.000Z'
+          }
+        }
+      ])
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+    const events = []
+
+    for await (const event of adapter.subscribeEvents({ settings: {} as never }, {
+      runtimeId: 'codex',
+      threadId: 'thread-1'
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'user_message',
+        itemId: 'user-1',
+        text: 'expanded runtime prompt',
+        displayText: 'short user prompt'
+      })
+    ])
+  })
+
+  it('maps terminal Codex runtime errors to turn lifecycle events', async () => {
+    const service = {
+      readStoredEvents: vi.fn(async () => [
+        {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          seq: 1,
+          runtimeError: {
+            itemId: 'err-1',
+            message: 'provider failed',
+            code: 'provider_error',
+            severity: 'error' as const
+          }
+        },
+        {
+          threadId: 'thread-1',
+          turnId: 'turn-2',
+          seq: 2,
+          runtimeError: {
+            itemId: 'cancel-1',
+            message: 'Codex turn cancelled.',
+            code: 'cancelled',
+            severity: 'warning' as const
+          }
+        },
+        {
+          threadId: 'thread-1',
+          turnId: 'turn-3',
+          seq: 3,
+          runtimeError: {
+            itemId: 'abort-1',
+            message: 'Codex turn aborted.',
+            code: 'aborted',
+            severity: 'warning' as const
+          }
+        },
+        {
+          threadId: 'thread-1',
+          turnId: 'turn-4',
+          seq: 4,
+          runtimeError: {
+            itemId: 'recover-1',
+            message: 'stream recovering',
+            code: 'stream_recovering',
+            severity: 'error' as const
+          }
+        }
+      ])
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+    const events = []
+
+    for await (const event of adapter.subscribeEvents({ settings: {} as never }, {
+      runtimeId: 'codex',
+      threadId: 'thread-1'
+    })) {
+      events.push(event)
+    }
+
+    expect(events.filter((event) => event.kind === 'turn_lifecycle')).toEqual([
+      expect.objectContaining({ turnId: 'turn-1', state: 'failed', message: 'provider failed' }),
+      expect.objectContaining({ turnId: 'turn-2', state: 'cancelled', message: 'Codex turn cancelled.' }),
+      expect.objectContaining({ turnId: 'turn-3', state: 'aborted', message: 'Codex turn aborted.' })
+    ])
+  })
+
   it('maps stored Codex child events and lists direct children for the requested thread only', async () => {
     const childStarted = {
       id: 'collab-1',

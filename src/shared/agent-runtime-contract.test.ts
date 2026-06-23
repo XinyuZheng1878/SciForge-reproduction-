@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_RUNTIME_EVENT_KINDS,
+  createAgentRuntimeCapabilityMatrix,
   createDefaultAgentRuntimeCapabilities,
   createUnavailableCapabilityState,
   directAgentRuntimeChildrenForThread,
@@ -41,6 +42,8 @@ function exhaustiveEventLabel(event: AgentRuntimeEvent): string {
     case 'user_input_resolved':
       return event.status
     case 'compaction_event':
+      return event.status
+    case 'handoff_event':
       return event.status
     case 'review_event':
       return event.status
@@ -100,6 +103,15 @@ describe('agent runtime contract', () => {
       },
       { kind: 'user_input_resolved', threadId: 'thr', requestId: 'input', status: 'cancelled' },
       { kind: 'compaction_event', threadId: 'thr', itemId: 'compact', status: 'success', summary: 'Compacted' },
+      {
+        kind: 'handoff_event',
+        threadId: 'thr',
+        status: 'started',
+        sourceRuntimeId: 'codex',
+        sourceThreadId: 'source',
+        targetRuntimeId: 'claude',
+        targetThreadId: 'target'
+      },
       { kind: 'review_event', threadId: 'thr', itemId: 'review', status: 'running', title: 'Review' },
       { kind: 'goal_event', threadId: 'thr', status: 'active', objective: 'Ship it' },
       { kind: 'todo_event', threadId: 'thr', items: [{ id: 'todo', content: 'One', status: 'pending' }] },
@@ -152,6 +164,18 @@ describe('agent runtime contract', () => {
     expect(capabilities.storage.attachments.available).toBe(false)
     expect(capabilities.storage.usage).toBe(false)
     expect(capabilities.storage.memory.available).toBe(false)
+    expect(capabilities.matrix).toMatchObject({
+      nativeHistory: { available: false, reason: 'unsupported' },
+      nativeCompact: { available: false, reason: 'unsupported' },
+      nativeResume: { available: false, reason: 'unsupported' },
+      steer: { available: false, reason: 'unsupported' },
+      fork: { available: false, reason: 'unsupported' },
+      handoffImport: { available: false, reason: 'unsupported' },
+      usage: { available: false, reason: 'unsupported' },
+      eventReplay: { available: false, reason: 'unsupported' }
+    })
+    expect(capabilities.context?.ledger?.available).toBe(false)
+    expect(capabilities.context?.handoff?.available).toBe(false)
   })
 
   it('creates explicit unavailable capability states with reasons', () => {
@@ -159,6 +183,39 @@ describe('agent runtime contract', () => {
       available: false,
       reason: 'not implemented yet'
     })
+  })
+
+  it('creates a runtime capability matrix with stable keys', () => {
+    const matrix = createAgentRuntimeCapabilityMatrix({
+      nativeHistory: true,
+      nativeCompact: false,
+      nativeResume: true,
+      steer: true,
+      fork: false,
+      handoffImport: true,
+      usage: true,
+      eventReplay: false,
+      reasons: {
+        nativeCompact: 'host compact only',
+        fork: 'runtime fork unavailable',
+        eventReplay: 'event log missing'
+      }
+    })
+
+    expect(Object.keys(matrix)).toEqual([
+      'nativeHistory',
+      'nativeCompact',
+      'nativeResume',
+      'steer',
+      'fork',
+      'handoffImport',
+      'usage',
+      'eventReplay'
+    ])
+    expect(matrix.nativeHistory).toEqual({ available: true })
+    expect(matrix.nativeCompact).toEqual({ available: false, reason: 'host compact only' })
+    expect(matrix.fork).toEqual({ available: false, reason: 'runtime fork unavailable' })
+    expect(matrix.eventReplay).toEqual({ available: false, reason: 'event log missing' })
   })
 
   it('represents native and observe runtime guards without implying host controls', () => {

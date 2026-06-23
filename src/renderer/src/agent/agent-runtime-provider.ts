@@ -13,7 +13,12 @@ import type {
   AgentRuntimeThreadDetail,
   AgentRuntimeUsage
 } from '@shared/agent-runtime-contract'
-import { createDefaultAgentRuntimeCapabilities } from '@shared/agent-runtime-contract'
+import {
+  createDefaultAgentRuntimeCapabilities,
+  isAgentRuntimeActiveTurnState,
+  isAgentRuntimeTerminalTurnState,
+  normalizeAgentRuntimeTurnState
+} from '@shared/agent-runtime-contract'
 import { runtimeErrorToError } from '@shared/runtime-error'
 import { agentRuntimeClient } from './agent-runtime-client'
 import {
@@ -63,6 +68,7 @@ function legacyCapabilities(capabilities: AgentRuntimeCapabilities): LegacyCapab
     review: capabilities.controls.review === true,
     compact: capabilities.controls.compact === 'native' || capabilities.controls.compact === 'noop',
     fork: capabilities.controls.fork === true,
+    steer: capabilities.controls.steer === true,
     goals: capabilities.controls.goals === true,
     todos: capabilities.controls.todos === true,
     skills: capabilities.tools.skills.available === true,
@@ -340,17 +346,17 @@ function normalizedStatus(value: string | undefined): string {
 }
 
 function statusLooksRunning(value: string): boolean {
-  return value === 'queued' || value === 'pending' || value === 'running' ||
-    value === 'in_progress' || value === 'started'
+  return isAgentRuntimeActiveTurnState(value)
 }
 
 function statusLooksError(value: string): boolean {
-  return value === 'error' || value === 'failed' || value === 'aborted' || value === 'cancelled' ||
-    value === 'canceled' || value === 'interrupted'
+  const normalized = normalizeAgentRuntimeTurnState(value)
+  return normalized === 'failed' || normalized === 'aborted' || normalized === 'cancelled'
 }
 
 function statusLooksSuccess(value: string): boolean {
-  return value === 'success' || value === 'completed' || value === 'idle' || value === 'ready'
+  const normalized = normalizeAgentRuntimeTurnState(value)
+  return normalized === 'completed' || normalized === 'idle' || value === 'ready'
 }
 
 function terminalSnapshotOutcome(
@@ -361,7 +367,12 @@ function terminalSnapshotOutcome(
   const normalizedTurnStatus = normalizedStatus(turnStatus)
   if (statusLooksRunning(normalizedThreadStatus) || statusLooksRunning(normalizedTurnStatus)) return null
   if (statusLooksError(normalizedThreadStatus) || statusLooksError(normalizedTurnStatus)) return 'error'
-  if (statusLooksSuccess(normalizedTurnStatus) || statusLooksSuccess(normalizedThreadStatus)) return 'success'
+  if (
+    isAgentRuntimeTerminalTurnState(normalizedTurnStatus) ||
+    isAgentRuntimeTerminalTurnState(normalizedThreadStatus) ||
+    statusLooksSuccess(normalizedTurnStatus) ||
+    statusLooksSuccess(normalizedThreadStatus)
+  ) return 'success'
   return null
 }
 

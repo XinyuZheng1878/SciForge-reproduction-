@@ -70,7 +70,6 @@ import {
   forkedTurnCount,
   isCodeThread,
   latestThread,
-  looksLikeActiveTurnError,
   rememberPendingClawFeishuMirror,
   runtimeErrorDetail,
   runtimeStreamRecoveringMessage,
@@ -817,7 +816,7 @@ export function createMaintenanceActions(
       await p.interruptTurn(activeThreadId, currentTurnId, interruptOptions)
       void get().refreshThreads()
     } catch (e) {
-      if (getRuntimeErrorCode(e) === 'turn_not_running' || looksLikeActiveTurnError(e)) {
+      if (getRuntimeErrorCode(e) === 'turn_not_running') {
         settleInterruptedTurn(set, get)
         void get().refreshThreads()
         return

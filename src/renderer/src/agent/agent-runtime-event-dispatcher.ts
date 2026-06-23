@@ -6,6 +6,7 @@ import type {
   AgentRuntimeToolKind,
   AgentRuntimeUsage
 } from '@shared/agent-runtime-contract'
+import { isAgentRuntimeTerminalTurnState } from '@shared/agent-runtime-contract'
 import type {
   ApprovalRequestPayload,
   CompactionEventPayload,
@@ -25,6 +26,21 @@ type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'error'
 type ApprovalDispatchPayload = ApprovalRequestPayload & {
   status?: ApprovalStatus
   errorMessage?: string
+}
+
+export const AGENT_RUNTIME_EVENT_REPLAY_FILTER = '__agentRuntimeEventReplayFilter' as const
+export type AgentRuntimeEventReplayFilter = (event: AgentRuntimeEvent) => boolean
+
+type ReplayAwareThreadEventSink = ThreadEventSink & {
+  [AGENT_RUNTIME_EVENT_REPLAY_FILTER]?: AgentRuntimeEventReplayFilter
+}
+
+function shouldDispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: ThreadEventSink): boolean {
+  return (sink as ReplayAwareThreadEventSink)[AGENT_RUNTIME_EVENT_REPLAY_FILTER]?.(event) ?? true
+}
+
+function eventAdvancesSeq(event: AgentRuntimeEvent): event is AgentRuntimeEvent & { seq: number } {
+  return event.kind !== 'heartbeat' && typeof event.seq === 'number'
 }
 
 function runtimeDisclosureMetaFromRecord(
@@ -101,6 +117,20 @@ function runtimeStatusFromEvent(event: Extract<AgentRuntimeEvent, { kind: 'runti
     createdAt: event.createdAt,
     ...(event.phase ? { phase: event.phase } : {}),
     message: runtimeStatusMessage(event.phase, event.message)
+  }
+}
+
+function handoffStatusFromEvent(event: Extract<AgentRuntimeEvent, { kind: 'handoff_event' }>): RuntimeStatusEventPayload {
+  return {
+    kind: 'runtime_handoff',
+    itemId: event.itemId ?? `runtime_handoff_${stableEventKey(event)}`,
+    turnId: event.turnId,
+    createdAt: event.createdAt,
+    message: event.message,
+    sourceRuntimeId: event.sourceRuntimeId,
+    sourceThreadId: event.sourceThreadId,
+    targetRuntimeId: event.targetRuntimeId,
+    targetThreadId: event.targetThreadId
   }
 }
 
@@ -416,20 +446,26 @@ function approvalStatusFromItem(item: AgentRuntimeItem): ApprovalStatus {
 }
 
 export function dispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: ThreadEventSink): void {
-  if (typeof event.seq === 'number') sink.onSeq(event.seq)
+  if (!shouldDispatchAgentRuntimeEvent(event, sink)) return
+  if (eventAdvancesSeq(event)) sink.onSeq(event.seq)
 
   switch (event.kind) {
     case 'thread_lifecycle':
     case 'heartbeat':
       return
     case 'turn_lifecycle':
-      if (event.state === 'completed') sink.onTurnComplete()
-      if (event.state === 'aborted') {
-        sink.onError(new Error('turn aborted'))
-        sink.onTurnComplete()
+      if (sink.onTurnLifecycle) {
+        sink.onTurnLifecycle({
+          turnId: event.turnId,
+          state: event.state,
+          message: event.message,
+          createdAt: event.createdAt
+        })
+        return
       }
-      if (event.state === 'failed') {
-        sink.onError(new Error('turn failed'))
+      if (event.state === 'completed') sink.onTurnComplete()
+      if (event.state !== 'completed' && isAgentRuntimeTerminalTurnState(event.state)) {
+        sink.onError(new Error(`turn ${event.state}`))
         sink.onTurnComplete()
       }
       return
@@ -498,6 +534,9 @@ export function dispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: Thread
       return
     case 'compaction_event':
       sink.onCompaction(compactionFromEvent(event))
+      return
+    case 'handoff_event':
+      sink.onRuntimeStatus?.(handoffStatusFromEvent(event))
       return
     case 'review_event':
       sink.onReview?.(reviewFromEvent(event))

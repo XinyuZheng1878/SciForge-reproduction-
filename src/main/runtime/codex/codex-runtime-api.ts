@@ -75,6 +75,7 @@ export type CodexThreadEventPayload = {
     turnId?: string
     createdAt?: string
     text: string
+    displayText?: string
   }
   tool?: {
     itemId: string
@@ -164,6 +165,7 @@ export type CodexTurnStartPayload = {
   workspace?: string
   model?: string
   reasoningEffort?: string
+  metadata?: Record<string, unknown>
   fileReferences?: AgentRuntimeFileReference[]
 }
 

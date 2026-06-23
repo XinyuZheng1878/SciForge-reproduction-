@@ -13,6 +13,7 @@ import type {
   AgentRuntimeTurn
 } from '../../../shared/agent-runtime-contract'
 import {
+  createAgentRuntimeCapabilityMatrix,
   createDefaultAgentRuntimeCapabilities,
   filterAgentRuntimeThreadChildren
 } from '../../../shared/agent-runtime-contract'
@@ -80,7 +81,8 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
         workspace: input.workspace,
         model: input.model,
         reasoningEffort: input.reasoningEffort,
-        fileReferences: input.fileReferences
+        fileReferences: input.fileReferences,
+        metadata: input.metadata
       })
       if (!result.ok) throw codexFailure(result)
       return {
@@ -254,6 +256,22 @@ function codexCapabilities(state: CodexMcpState = emptyCodexMcpState): AgentRunt
   })
   return {
     ...caps,
+    matrix: createAgentRuntimeCapabilityMatrix({
+      nativeHistory: true,
+      nativeCompact: false,
+      nativeResume: false,
+      steer: true,
+      fork: false,
+      handoffImport: false,
+      usage: true,
+      eventReplay: true,
+      reasons: {
+        nativeCompact: 'Codex compaction is host-shared rematerialization, not native backend compaction.',
+        nativeResume: 'Codex app-server thread resume is not exposed through this adapter.',
+        fork: 'Codex fork is not exposed through this adapter.',
+        handoffImport: 'Handoff import is provided by AgentRuntimeHost when a context ledger is configured.'
+      }
+    }),
     events: {
       live: true,
       replayable: true,
@@ -888,6 +906,7 @@ function mapCodexStoredEvent(event: CodexThreadEventPayload): AgentRuntimeEvent[
       turnId: event.userMessage.turnId || event.turnId,
       itemId: event.userMessage.itemId,
       text: event.userMessage.text,
+      ...(event.userMessage.displayText ? { displayText: event.userMessage.displayText } : {}),
       createdAt: event.userMessage.createdAt
     })
   }
@@ -935,6 +954,7 @@ function mapCodexStoredEvent(event: CodexThreadEventPayload): AgentRuntimeEvent[
     })
   }
   if (event.runtimeError) {
+    const terminalState = codexRuntimeErrorTerminalState(event.runtimeError)
     mapped.push({
       ...common,
       kind: 'error',
@@ -946,6 +966,14 @@ function mapCodexStoredEvent(event: CodexThreadEventPayload): AgentRuntimeEvent[
       code: event.runtimeError.code,
       detail: stringifyDetail(event.runtimeError.details)
     })
+    if (terminalState) {
+      mapped.push({
+        ...common,
+        kind: 'turn_lifecycle',
+        state: terminalState,
+        message: event.runtimeError.message
+      })
+    }
   }
   if (event.runtimeStatus) {
     mapped.push({
@@ -1133,6 +1161,22 @@ function normalizeTurnStatus(value: unknown): AgentRuntimeTurn['status'] | null 
   if (value === 'error') return 'failed'
   if (value === 'cancelled' || value === 'canceled' || value === 'interrupted') return 'aborted'
   return null
+}
+
+function codexRuntimeErrorTerminalState(
+  error: NonNullable<CodexThreadEventPayload['runtimeError']>
+): 'failed' | 'cancelled' | 'aborted' | null {
+  const code = stringValue(error.code).toLowerCase()
+  if (code === 'reconnecting' || code === 'tool_waiting' || code === 'stream_recovering') return null
+  if (code === 'cancelled' || code === 'canceled') return 'cancelled'
+  if (code === 'aborted' || code === 'interrupted') return 'aborted'
+  if (isTransientCodexRuntimeErrorMessage(error.message)) return null
+  if (error.severity && error.severity !== 'error') return null
+  return 'failed'
+}
+
+function isTransientCodexRuntimeErrorMessage(message: string | undefined): boolean {
+  return /^Reconnecting\.\.\.\s+\d+\s*\/\s*\d+$/iu.test(message?.trim() ?? '')
 }
 
 function inferTurnStatus(items: AgentRuntimeItem[]): AgentRuntimeTurn['status'] {

@@ -490,6 +490,7 @@ export class CodexRuntimeService {
           workspace,
           model: routerModel,
           reasoningEffort: payload.reasoningEffort,
+          metadata: payload.metadata,
           fileReferences: payload.fileReferences,
           runtime
         }))
@@ -512,6 +513,7 @@ export class CodexRuntimeService {
           workspace,
           model: routerModel,
           reasoningEffort: payload.reasoningEffort,
+          metadata: payload.metadata,
           fileReferences: payload.fileReferences,
           runtime
         }))
@@ -535,7 +537,10 @@ export class CodexRuntimeService {
           itemId: userMessageItemId,
           turnId,
           createdAt: new Date().toISOString(),
-          text: payload.text
+          text: payload.text,
+          ...(modelDisplayText?.trim() && modelDisplayText.trim() !== payload.text.trim()
+            ? { displayText: modelDisplayText.trim() }
+            : {})
         }
       })
       if (userEvent) this.broadcastEvent(userEvent.event)
@@ -893,12 +898,13 @@ export class CodexRuntimeService {
 
     const nextDeltas = deltas.filter((delta) => {
       const text = canonicalModelText(delta.text)
-      const shouldTrack = Boolean(text) && (delta.snapshot === true || event.turnComplete === true || text.length >= 16)
+      const shouldTrack = Boolean(text)
       if (!shouldTrack) return true
       const key = `${event.threadId}\u0000${turnId}\u0000${delta.kind}\u0000${text}`
       const duplicated = this.seenModelDeltaKeys.has(key)
       this.seenModelDeltaKeys.add(key)
-      if (duplicated) return false
+      const shouldFilterDuplicate = delta.snapshot === true || event.turnComplete === true || text.length >= 16
+      if (duplicated && shouldFilterDuplicate) return false
       return true
     })
     if (nextDeltas.length === deltas.length) return event
@@ -1002,11 +1008,11 @@ export class CodexRuntimeService {
     const runtimeEvent = stored?.event ?? event
     await this.recordUsageEvent(runtimeEvent, stored?.createdAt)
     this.noteFirstActivity(runtimeEvent)
+    this.broadcastEvent(runtimeEvent)
+    this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: runtimeEvent })
     await this.emitFirstDeltaIfNeeded(runtimeEvent)
     await this.emitTurnDoneIfNeeded(runtimeEvent)
     this.noteRuntimeEvent(runtimeEvent)
-    this.broadcastEvent(runtimeEvent)
-    this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: runtimeEvent })
   }
 
   private eventsAfterPendingToolBarrier(event: CodexThreadEventPayload): CodexThreadEventPayload[] {
@@ -1419,8 +1425,10 @@ export class CodexRuntimeService {
       return
     }
     const runtimeEvent = await this.eventForGuiThread(event)
-    this.broadcastEvent(runtimeEvent)
-    this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: runtimeEvent })
+    const stored = await this.persistEvent(runtimeEvent.threadId, runtimeEvent)
+    const published = stored?.event ?? runtimeEvent
+    this.broadcastEvent(published)
+    this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: published })
   }
 
   private async eventForGuiThread(event: CodexThreadEventPayload): Promise<CodexThreadEventPayload> {
@@ -1489,7 +1497,8 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
         id: event.userMessage.itemId || `user-${item.seq}`,
         createdAt: event.userMessage.createdAt ?? item.createdAt,
         ...(turnId ? { turnId } : {}),
-        text: event.userMessage.text
+        text: event.userMessage.text,
+        ...(event.userMessage.displayText ? { displayText: event.userMessage.displayText } : {})
       })
     }
     if (event.deltas) {
@@ -1709,17 +1718,19 @@ function turnStartParams(input: {
   workspace: string
   model?: string
   reasoningEffort?: string
+  metadata?: Record<string, unknown>
   fileReferences?: CodexTurnStartPayload['fileReferences']
   runtime: ReturnType<typeof getCodexRuntimeSettings>
 }): Parameters<CodexAppServerJsonRpcClient['startTurn']>[0] {
   return {
     threadId: input.threadId,
-    input: [textInput(input.text, input.displayText), ...modelObjectInputs(input.fileReferences)],
+    input: [textInput(input.text), ...modelObjectInputs(input.fileReferences)],
     cwd: input.workspace,
     ...(input.displayText?.trim() && input.displayText.trim() !== input.text.trim()
       ? { displayText: input.displayText.trim() }
       : {}),
     ...(input.model ? { model: input.model } : {}),
+    ...(input.metadata ? { metadata: input.metadata } : {}),
     modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID,
     approvalPolicy: mapApprovalPolicy(input.runtime.approvalPolicy),
     sandboxPolicy: mapTurnSandboxMode(input.runtime.sandboxMode, input.workspace),
@@ -1769,15 +1780,11 @@ function modelObjectInputs(fileReferences: CodexTurnStartPayload['fileReferences
     }))
 }
 
-function textInput(text: string, displayText?: string): CodexAppServerInputItem {
-  const trimmedDisplayText = displayText?.trim()
+function textInput(text: string): CodexAppServerInputItem {
   return {
     type: 'text',
     text,
-    text_elements: [],
-    ...(trimmedDisplayText && trimmedDisplayText !== text.trim()
-      ? { displayText: trimmedDisplayText, meta: { displayText: trimmedDisplayText } }
-      : {})
+    text_elements: []
   }
 }
 
@@ -2072,7 +2079,11 @@ function isTerminalRuntimeError(error: CodexThreadEventPayload['runtimeError']):
 }
 
 function isTransientRuntimeError(error: NonNullable<CodexThreadEventPayload['runtimeError']>): boolean {
-  return isReconnectRuntimeErrorMessage(error.message)
+  const code = stringValue(error.code).toLowerCase()
+  return code === 'reconnecting' ||
+    code === 'tool_waiting' ||
+    code === 'stream_recovering' ||
+    isReconnectRuntimeErrorMessage(error.message)
 }
 
 function isReconnectRuntimeErrorMessage(message: string | undefined): boolean {

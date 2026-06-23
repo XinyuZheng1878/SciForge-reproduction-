@@ -416,6 +416,65 @@ test('anthropic messages map tool use through the router provider path', async (
   }
 });
 
+test('anthropic messages request hygiene folds long tool argument arrays before provider calls', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-messages-hygiene-args-'));
+  const longIds = Array.from({ length: 80 }, (_, index) => `sample-${index}-${'z'.repeat(12)}`);
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-hygiene-args-final', 'Batch lookup already completed.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/messages`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        max_tokens: 256,
+        messages: [
+          {
+            role: 'assistant',
+            content: [{
+              type: 'tool_use',
+              id: 'previous-batch',
+              name: 'batch_lookup',
+              input: { ids: longIds, mode: 'full' },
+            }],
+          },
+          {
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: 'previous-batch',
+              content: 'Lookup complete.',
+            }],
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const messages = calls[0]?.body.messages as Array<Record<string, any>>;
+    const toolCall = messages[0]?.tool_calls?.[0] as Record<string, any>;
+    const args = JSON.parse(String(toolCall.function.arguments)) as Record<string, any>;
+    assert.equal(args.mode, 'full');
+    assert.equal(Array.isArray(args.ids), false);
+    assert.equal(args.ids.__sciforge_request_hygiene__.source, 'tool_call.arguments.ids');
+    assert.equal(args.ids.__sciforge_request_hygiene__.reason, 'long_array');
+    assert.equal(args.ids.__sciforge_request_hygiene__.originalItems, 80);
+    assert.match(args.ids.__sciforge_request_hygiene__.digest, /^sha256:/);
+    assert.ok(!JSON.stringify(calls[0]?.body).includes('sample-79-'));
+  } finally {
+    await server.close();
+  }
+});
+
 test('healthz reports provider readiness without leaking private bindings', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-healthz-'));
   const server = await startModelRouterServer({
@@ -569,6 +628,60 @@ test('pure text responses are routed only to the configured text reasoner', asyn
     assert.match(traceText, /"toolCount":\s*0/);
     assert.match(traceText, /"stopReason":\s*"stop"/);
     assert.match(traceText, /"latencyMs":\s*\d+/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('responses trace records sanitized handoff audit metadata without owning runtime lifecycle', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-handoff-audit-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-handoff-audit-final', 'The handoff continued through the router.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: 'Continue from the runtime handoff packet.',
+        metadata: {
+          schemaVersion: 'sciforge.model-router.request-audit.v1',
+          route: 'model-router.responses',
+          source: 'agent-runtime-host',
+          operation: 'runtime_handoff',
+          runtimeId: 'claude',
+          threadId: 'claude-thread-private-123',
+          sourceRuntimeId: 'codex',
+          sourceThreadId: 'codex-thread-private-456',
+          targetRuntimeId: 'claude',
+          targetThreadId: 'claude-thread-private-123',
+          packetDigest: `sha256:${'a'.repeat(64)}`,
+        },
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, 'https://text.example/v1/chat/completions');
+    const traceText = await readTraceBundle(workspaceRoot);
+    assert.match(traceText, /"schemaVersion":\s*"sciforge\.model-router\.request-audit\.v1"/);
+    assert.match(traceText, /"operation":\s*"runtime_handoff"/);
+    assert.match(traceText, /"runtimeId":\s*"claude"/);
+    assert.match(traceText, /"threadIdSha256":\s*"sha256:[a-f0-9]{64}"/);
+    assert.match(traceText, /"sourceThreadIdSha256":\s*"sha256:[a-f0-9]{64}"/);
+    assert.match(traceText, /"targetThreadIdSha256":\s*"sha256:[a-f0-9]{64}"/);
+    assert.match(traceText, /"packetDigest":\s*"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/);
+    assert.doesNotMatch(traceText, /claude-thread-private-123|codex-thread-private-456/);
+    assert.doesNotMatch(traceText, /activeTurn|runtimeSession|threadLifecycle/i);
   } finally {
     await server.close();
   }
@@ -1198,6 +1311,74 @@ test('responses tool outputs are forwarded to chat providers as tool messages', 
   }
 });
 
+test('responses request hygiene folds pasted image data and giant tool outputs before provider calls', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-request-hygiene-tool-output-'));
+  const imagePayload = Buffer.from('ordinary-text-image-payload'.repeat(80)).toString('base64');
+  const pastedImage = `data:image/png;base64,${imagePayload}`;
+  const giantToolOutput = [
+    'BEGIN_GIANT_TOOL_OUTPUT',
+    '<rows>',
+    ...Array.from({ length: 180 }, (_, index) => `<row id="${index}">${'x'.repeat(90)}</row>`),
+    '</rows>',
+    pastedImage,
+    'END_GIANT_TOOL_OUTPUT',
+  ].join('\n');
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-hygiene-tool-output-final', 'Large tool output was summarized safely.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: `Treat this pasted payload as plain text only: ${pastedImage}` }],
+          },
+          {
+            type: 'function_call',
+            call_id: 'call_giant_output',
+            name: 'local_shell',
+            arguments: '{"cmd":"emit-large-report"}',
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_giant_output',
+            output: giantToolOutput,
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const serializedProviderBody = JSON.stringify(calls[0]?.body);
+    assert.doesNotMatch(serializedProviderBody, /data:image\/png;base64/i);
+    assert.ok(!serializedProviderBody.includes(imagePayload.slice(0, 80)));
+    assert.ok(!serializedProviderBody.includes(giantToolOutput));
+    assert.match(serializedProviderBody, /sciforge request_hygiene/);
+    assert.match(serializedProviderBody, /source=user_message\.content/);
+    assert.match(serializedProviderBody, /source=tool_message\.content/);
+    assert.match(serializedProviderBody, /reason=large_tool_output/);
+    assert.match(serializedProviderBody, /digest=sha256:/);
+
+    const messages = calls[0]?.body.messages as Array<Record<string, unknown>>;
+    const toolContent = String(messages[2]?.content ?? '');
+    assert.ok(toolContent.length < 1_000, `expected folded tool content, got ${toolContent.length} chars`);
+  } finally {
+    await server.close();
+  }
+});
+
 test('responses adjacent tool calls are forwarded as one assistant message', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-adjacent-tool-calls-'));
   const calls: CapturedFetch[] = [];
@@ -1442,6 +1623,51 @@ test('responses tool transcript drops orphan tool outputs before provider calls'
         content: 'Answer from valid context only.',
       },
     ]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('responses assistant output text history is normalized for chat providers', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-output-text-history-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-output-text-history', 'Continued after assistant history.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'First prompt.' }],
+          },
+          {
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'Earlier answer.' }],
+          },
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Continue.' }],
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const providerPayload = JSON.stringify(calls[0]?.body.messages);
+    assert.doesNotMatch(providerPayload, /output_text/);
+    assert.match(providerPayload, /First prompt\.\\nEarlier answer\.\\nContinue\./);
   } finally {
     await server.close();
   }

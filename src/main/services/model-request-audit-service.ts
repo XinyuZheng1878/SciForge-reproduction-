@@ -204,6 +204,7 @@ function summarizeRequest(request: AgentRuntimeTurnStartInput): AgentRuntimeMode
     text: summarizePrompt(request.text),
     displayText: summarizePrompt(request.displayText),
     workspace: request.workspace,
+    metadata: request.metadata,
     mode: request.mode,
     model: request.model,
     reasoningEffort: request.reasoningEffort,
@@ -228,6 +229,7 @@ function summarizeModelRouterRequestBody(request: AgentRuntimeTurnStartInput): A
   const metadataKeys = [
     request.runtimeId ? 'runtimeId' : '',
     request.threadId ? 'threadId' : '',
+    request.metadata ? 'metadata' : '',
     request.workspace ? 'workspace' : '',
     request.mode ? 'mode' : '',
     request.reasoningEffort ? 'reasoningEffort' : '',

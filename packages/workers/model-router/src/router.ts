@@ -24,6 +24,7 @@ import {
   modelRouterManifest,
   type ModelRouterUpstreamDiagnostic,
 } from './manifest';
+import { hygienizeChatProviderBody } from './request-hygiene';
 import { redactTraceText } from './trace-redaction';
 
 export interface ModelRouterProviderConfig {
@@ -121,6 +122,21 @@ type ProviderCallRecord = {
   latencyMs: number;
   stopReason?: 'stop' | 'tool_calls' | 'length' | 'error' | 'unknown';
   errorSummary?: string;
+};
+
+type RequestAuditMetadata = {
+  schemaVersion: 'sciforge.model-router.request-audit.v1';
+  route: 'model-router.responses' | 'model-router.messages';
+  source?: string;
+  operation?: string;
+  runtimeId?: string;
+  threadIdSha256?: string;
+  sourceRuntimeId?: string;
+  sourceThreadIdSha256?: string;
+  targetRuntimeId?: string;
+  targetThreadIdSha256?: string;
+  packetDigest?: string;
+  sourceDigest?: string;
 };
 
 type ResponseUsage = {
@@ -425,6 +441,7 @@ async function routeResponsesRequest(
   const responseId = context.responseId ?? makeId('resp');
   const trace = createTraceContext(context.workspaceRoot, profile.traceRoot, responseId);
   const requestInputs = extractRequestInputs(request.input, request.instructions);
+  const requestAuditMetadata = requestAuditMetadataFromRequest(request.metadata, requestAuditRoute(context.request));
   const extracted = {
     ...requestInputs,
     modalities: await materializeWorkspaceImageRefs(requestInputs.modalities, context.workspaceRoot),
@@ -668,6 +685,7 @@ async function routeResponsesRequest(
       modalities: extracted.modalities,
       calls,
       degraded,
+      requestAuditMetadata,
       status: 'failed',
       errorSummary: traceErrorSummary(error),
     });
@@ -702,6 +720,7 @@ async function routeResponsesRequest(
     modalities: extracted.modalities,
     calls,
     degraded,
+    requestAuditMetadata,
     status: 'completed',
     outputText,
   });
@@ -723,6 +742,48 @@ function requestedProfileId(request: Record<string, unknown>, incoming: Incoming
   if (typeof metadata.profile === 'string' && metadata.profile.trim()) return metadata.profile.trim();
   if (typeof metadata.modelRouterProfile === 'string' && metadata.modelRouterProfile.trim()) return metadata.modelRouterProfile.trim();
   return config.defaultProfile;
+}
+
+function requestAuditRoute(incoming: IncomingMessage): RequestAuditMetadata['route'] {
+  const url = new URL(incoming.url ?? '/', `http://${incoming.headers.host ?? '127.0.0.1'}`);
+  return url.pathname.includes('/messages') ? 'model-router.messages' : 'model-router.responses';
+}
+
+function requestAuditMetadataFromRequest(metadata: unknown, route: RequestAuditMetadata['route']): RequestAuditMetadata | undefined {
+  const record = isRecord(metadata) ? metadata : {};
+  if (record.schemaVersion !== 'sciforge.model-router.request-audit.v1') return undefined;
+  return compactObject({
+    schemaVersion: 'sciforge.model-router.request-audit.v1',
+    route,
+    source: boundedAuditMetadataString(record.source),
+    operation: boundedAuditMetadataString(record.operation),
+    runtimeId: boundedAuditMetadataString(record.runtimeId),
+    threadIdSha256: auditMetadataHash(record.threadId),
+    sourceRuntimeId: boundedAuditMetadataString(record.sourceRuntimeId),
+    sourceThreadIdSha256: auditMetadataHash(record.sourceThreadId),
+    targetRuntimeId: boundedAuditMetadataString(record.targetRuntimeId),
+    targetThreadIdSha256: auditMetadataHash(record.targetThreadId),
+    packetDigest: safeSha256Digest(record.packetDigest),
+    sourceDigest: safeSha256Digest(record.sourceDigest),
+  }) as RequestAuditMetadata;
+}
+
+function boundedAuditMetadataString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 96) return undefined;
+  if (!/^[a-z0-9._:-]+$/i.test(trimmed)) return undefined;
+  return trimmed;
+}
+
+function auditMetadataHash(value: unknown): string | undefined {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? hashForTrace(normalized) : undefined;
+}
+
+function safeSha256Digest(value: unknown): string | undefined {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return /^sha256:[a-f0-9]{64}$/i.test(normalized) ? normalized.toLowerCase() : undefined;
 }
 
 function validateRequestedModel(model: unknown, publicModelAlias: string | undefined) {
@@ -1609,6 +1670,7 @@ async function callChatProvider(options: {
   toolNameAliases?: Record<string, string>;
 }) {
   const startedAt = Date.now();
+  const body = hygienizeChatProviderBody(options.body);
   let response: Response;
   try {
     response = await options.fetchImpl(providerChatCompletionsUrl(options.provider.baseUrl), {
@@ -1617,18 +1679,18 @@ async function callChatProvider(options: {
         'content-type': 'application/json',
         authorization: `Bearer ${options.secret}`,
       },
-      body: JSON.stringify(options.body),
+      body: JSON.stringify(body),
     });
   } catch {
     const errorSummary = 'provider_exception';
-    recordFailedProviderCall(options, Date.now() - startedAt, errorSummary);
+    recordFailedProviderCall({ ...options, body }, Date.now() - startedAt, errorSummary);
     throw new Error(errorSummary);
   }
   const latencyMs = Date.now() - startedAt;
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
     const errorSummary = `provider_http_${response.status}`;
-    recordFailedProviderCall(options, latencyMs, errorSummary);
+    recordFailedProviderCall({ ...options, body }, latencyMs, errorSummary);
     throw routerError(response.status, errorSummary, providerHttpErrorMessage(response.status, options.provider, options.secret, errorText));
   }
   let payload: unknown;
@@ -1636,7 +1698,7 @@ async function callChatProvider(options: {
     payload = await response.json();
   } catch {
     const errorSummary = 'provider_exception';
-    recordFailedProviderCall(options, latencyMs, errorSummary);
+    recordFailedProviderCall({ ...options, body }, latencyMs, errorSummary);
     throw new Error(errorSummary);
   }
   options.calls.push({
@@ -1645,7 +1707,7 @@ async function callChatProvider(options: {
     status: 'ok',
     roleAlias: roleAliasForCall(options.role),
     providerBindingSha256: providerBindingHash(options.provider),
-    ...providerCallTraceFields(options.provider, options.body),
+    ...providerCallTraceFields(options.provider, body),
     wireApi: 'chat.completions',
     latencyMs,
     stopReason: chatCompletionStopReason(payload),
@@ -2419,6 +2481,7 @@ async function writeRoutingTrace(options: {
   modalities: ModalityRef[];
   calls: ProviderCallRecord[];
   degraded: boolean;
+  requestAuditMetadata?: RequestAuditMetadata;
   status: 'completed' | 'failed';
   outputText?: string;
   errorSummary?: string;
@@ -2426,7 +2489,7 @@ async function writeRoutingTrace(options: {
   const translatorsTrace: JsonObject = options.profile.translators.vision
     ? { vision: providerTrace('translators.vision', options.profile.translators.vision, options.publicModelAlias) }
     : {};
-  await writeTraceJson(options.trace, 'trace.json', {
+  await writeTraceJson(options.trace, 'trace.json', compactObject({
     schemaVersion: 'sciforge.model-router.trace.v1',
     traceId: options.trace.traceId,
     responseId: options.responseId,
@@ -2436,9 +2499,10 @@ async function writeRoutingTrace(options: {
     textReasoner: providerTrace('textReasoner', options.profile.textReasoner, options.publicModelAlias),
     translators: translatorsTrace,
     modalityRefs: options.modalities.map(publicModalityRef),
+    requestAuditMetadata: options.requestAuditMetadata,
     calls: options.calls,
     degraded: options.degraded,
-  });
+  }));
   await writeTraceJson(options.trace, 'final-routing-summary.json', compactObject({
     schemaVersion: 'sciforge.model-router.final-routing-summary.v1',
     responseId: options.responseId,
@@ -2447,6 +2511,7 @@ async function writeRoutingTrace(options: {
     outputTextSha256: options.outputText ? sha256Hex(options.outputText) : undefined,
     errorSummary: options.errorSummary,
     degraded: options.degraded,
+    requestAuditMetadata: options.requestAuditMetadata,
     traceRef: options.trace.relativeDir,
   }));
 }

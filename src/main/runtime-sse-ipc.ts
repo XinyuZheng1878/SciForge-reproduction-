@@ -96,6 +96,10 @@ function isFatalSseStatus(status: number | undefined): boolean {
   return typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429
 }
 
+function payloadAdvancesSseCursor(payload: Record<string, unknown>): payload is Record<string, unknown> & { seq: number } {
+  return payload.kind !== 'heartbeat' && typeof payload.seq === 'number'
+}
+
 async function fetchSseWithStartTimeout(
   url: URL,
   headers: Record<string, string>,
@@ -172,7 +176,7 @@ export async function* kunRuntimeEvents(
           const parsed = parseSseData(block)
           if (parsed !== null) {
             const payload = coerceSsePayload(parsed)
-            if (typeof payload.seq === 'number') {
+            if (payloadAdvancesSseCursor(payload)) {
               nextSinceSeq = Math.max(nextSinceSeq, payload.seq)
             }
             yield payload
@@ -185,7 +189,7 @@ export async function* kunRuntimeEvents(
         const parsed = parseSseData(trailing)
         if (parsed !== null) {
           const payload = coerceSsePayload(parsed)
-          if (typeof payload.seq === 'number') {
+          if (payloadAdvancesSseCursor(payload)) {
             nextSinceSeq = Math.max(nextSinceSeq, payload.seq)
           }
           yield payload

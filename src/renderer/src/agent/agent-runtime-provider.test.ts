@@ -652,6 +652,7 @@ describe('AgentRuntimeProvider', () => {
       review: false,
       compact: true,
       fork: false,
+      steer: true,
       goals: false,
       todos: false,
       skills: false,

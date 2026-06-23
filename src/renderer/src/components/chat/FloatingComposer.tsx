@@ -145,7 +145,7 @@ type Props = {
   }>
   runtimeCapabilities?: Pick<
     AgentProviderCapabilities,
-    'compact' | 'fork' | 'goals' | 'review' | 'sideConversations' | 'skills'
+    'compact' | 'fork' | 'goals' | 'review' | 'sideConversations' | 'skills' | 'steer'
   >
   onPickAttachments?: (attachments: ComposerImageAttachmentInput[]) => void
   onPasteClipboardImage?: (options?: { silentNoImage?: boolean }) => void | Promise<void>
@@ -681,6 +681,7 @@ export function FloatingComposer({
   const runtimeSupportsReview = runtimeCapabilities?.review !== false
   const runtimeSupportsSideConversations = runtimeCapabilities?.sideConversations !== false
   const runtimeSupportsSkills = runtimeCapabilities?.skills !== false
+  const runtimeSupportsSteer = runtimeCapabilities?.steer !== false
   const showIntentToolbar = !compact && route === 'chat'
   const showComposerMenuButton = showIntentToolbar
   const showAttachmentToolbarButton = Boolean(onPickAttachments)
@@ -737,7 +738,9 @@ export function FloatingComposer({
       : goalPanelOpen && route !== 'claw'
         ? t('goalComposerPlaceholder')
       : busy
-        ? t('composerQueuePlaceholder')
+        ? runtimeSupportsSteer
+          ? t('composerSteerPlaceholder')
+          : t('composerQueuePlaceholder')
         : route === 'claw'
             ? clawHasInboundConversation
               ? t('clawPlaceholder', { name: clawAgentName })
@@ -950,7 +953,9 @@ export function FloatingComposer({
     : canSetGoalPanelDraft
       ? t('goalSetCurrentInput')
     : busy
-      ? t('queueMessage')
+      ? runtimeSupportsSteer
+        ? t('steerMessage')
+        : t('queueContinuation')
       : t('send')
   const primaryActionDisabled = highlightedSlashCommand
     ? highlightedSlashCommand.disabled === true

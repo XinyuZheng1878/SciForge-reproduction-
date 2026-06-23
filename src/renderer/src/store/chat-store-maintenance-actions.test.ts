@@ -565,7 +565,7 @@ describe('chat-store-maintenance-actions goal actions', () => {
     expect(drainQueuedMessages).not.toHaveBeenCalled()
   })
 
-  it('clears stale busy state when the runtime reports no active turn as plain text', async () => {
+  it('does not treat plain active-turn error text as lifecycle state during interrupt', async () => {
     const { actions, provider, refreshThreads, state } = buildHarness()
     provider.interruptTurn.mockRejectedValueOnce(
       new Error('No active Codex turn is running for thread thr_existing.')
@@ -589,7 +589,7 @@ describe('chat-store-maintenance-actions goal actions', () => {
     expect(provider.interruptTurn).toHaveBeenCalledWith('thr_existing', 'turn-stale', undefined)
     expect(state.busy).toBe(false)
     expect(state.currentTurnId).toBeNull()
-    expect(state.error).toBeNull()
-    expect(refreshThreads).toHaveBeenCalledTimes(1)
+    expect(state.error).toBeTruthy()
+    expect(refreshThreads).not.toHaveBeenCalled()
   })
 })

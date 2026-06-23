@@ -63,6 +63,7 @@ import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
 import { LspCodeNavigationService } from './services/lsp-code-navigation-service'
 import { ModelRequestAuditRecorder } from './services/model-request-audit-service'
 import { RuntimeContextStateService } from './services/runtime-context-state-service'
+import { RuntimeContextLedgerService } from './services/runtime-context-ledger-service'
 import { GitCheckpointService } from './services/git-checkpoint-service'
 import { SharedMemoryService } from './services/shared-memory-service'
 import { RuntimeGoalService } from './services/runtime-goal-service'
@@ -1416,6 +1417,7 @@ app.whenReady().then(async () => {
   codeNavigationService = new LspCodeNavigationService()
   const modelAuditRecorder = new ModelRequestAuditRecorder()
   const contextStateService = new RuntimeContextStateService()
+  const contextLedgerService = new RuntimeContextLedgerService(app.getPath('userData'))
   const gitCheckpointService = new GitCheckpointService(app.getPath('userData'))
   const sharedMemoryService = new SharedMemoryService(app.getPath('userData'))
   const runtimeGoalService = new RuntimeGoalService(app.getPath('userData'))
@@ -1435,6 +1437,7 @@ app.whenReady().then(async () => {
       codeNavigation: codeNavigationService,
       modelAudit: modelAuditRecorder,
       contextState: contextStateService,
+      contextLedger: contextLedgerService,
       gitCheckpoints: gitCheckpointService,
       memory: sharedMemoryService,
       workspaceReferences: workspaceReferenceService,

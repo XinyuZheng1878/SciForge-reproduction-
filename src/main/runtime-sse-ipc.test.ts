@@ -86,4 +86,62 @@ describe('kunRuntimeEvents', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('does not advance the reconnect cursor from heartbeat events', async () => {
+    const fetchMock = vi.fn(async (_url: URL, init?: RequestInit) => {
+      const call = fetchMock.mock.calls.length
+      return new Response(new ReadableStream({
+        start(controller) {
+          const chunks = call === 1
+            ? [
+                'id: 5',
+                'event: assistant_delta',
+                'data: {"threadId":"thread-1","text":"hi"}',
+                '',
+                'id: 99',
+                'event: heartbeat',
+                'data: {"threadId":"thread-1"}',
+                '',
+                ''
+              ]
+            : [
+                'id: 6',
+                'event: turn_lifecycle',
+                'data: {"threadId":"thread-1","state":"completed"}',
+                '',
+                ''
+              ]
+          controller.enqueue(new TextEncoder().encode(chunks.join('\n')))
+          controller.close()
+          init?.signal?.addEventListener('abort', () => undefined, { once: true })
+        }
+      }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const abort = new AbortController()
+
+    try {
+      const events = kunRuntimeEvents(settings(), 'thread-1', 4, abort.signal)[Symbol.asyncIterator]()
+      await events.next()
+      const heartbeat = await events.next()
+      const third = await events.next()
+      abort.abort()
+
+      expect(heartbeat.value).toEqual({
+        threadId: 'thread-1',
+        seq: 99,
+        kind: 'heartbeat'
+      })
+      expect(third.value).toEqual({
+        threadId: 'thread-1',
+        state: 'completed',
+        seq: 6,
+        kind: 'turn_lifecycle'
+      })
+      const [url] = fetchMock.mock.calls[1] ?? []
+      expect(String(url)).toBe('http://127.0.0.1:49876/v1/threads/thread-1/events?since_seq=5')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

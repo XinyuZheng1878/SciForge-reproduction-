@@ -21,6 +21,7 @@ import type {
   AgentRuntimeReadChildTranscriptInput,
   AgentRuntimeReadChildTranscriptResponse,
   AgentRuntimeResult,
+  AgentRuntimeTurnStatus,
   AgentRuntimeWorkspaceReference,
   AgentRuntimeWorkspaceReferencePreview
 } from '@shared/agent-runtime-contract'
@@ -318,11 +319,16 @@ export type RuntimeStatusEventPayload = {
     | 'tool_catalog_changed'
     | 'tool_storm_suppressed'
     | 'compaction_summary_fallback'
+    | 'runtime_handoff'
   itemId: string
   turnId?: string
   createdAt?: string
   phase?: AgentRuntimePhase
   message?: string
+  sourceRuntimeId?: string
+  sourceThreadId?: string
+  targetRuntimeId?: string
+  targetThreadId?: string
   toolResultCount?: number
   changeKind?: 'additive' | 'breaking'
   toolName?: string
@@ -386,6 +392,13 @@ export type UserMessageEventPayload = {
   meta?: RuntimeDisclosureMetadata
 }
 
+export type TurnLifecycleEventPayload = {
+  turnId?: string
+  state: AgentRuntimeTurnStatus
+  message?: string
+  createdAt?: string
+}
+
 export type ThreadDeltaEvent = {
   text: string
   kind: 'agent_message' | 'agent_reasoning'
@@ -432,6 +445,7 @@ export type ThreadEventSink = {
   onUserInputStatus(ev: UserInputStatusPayload): void
   onRuntimeStatus?(ev: RuntimeStatusEventPayload): void
   onRuntimeError?(ev: RuntimeErrorEventPayload): void
+  onTurnLifecycle?(ev: TurnLifecycleEventPayload): void
   onGoal(ev: { threadId: string; goal: ThreadGoal | null; cleared?: boolean; createdAt?: string }): void
   onTodos?(ev: { threadId: string; todos: ThreadTodoList | null; cleared?: boolean; createdAt?: string }): void
   onTurnComplete(): void
@@ -448,6 +462,7 @@ export type AgentProviderCapabilities = {
   review?: boolean
   compact?: boolean
   fork?: boolean
+  steer?: boolean
   goals?: boolean
   todos?: boolean
   skills?: boolean

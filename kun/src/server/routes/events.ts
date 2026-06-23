@@ -8,9 +8,9 @@ const HEARTBEAT_INTERVAL_MS = 15_000
 /**
  * Build an SSE response for `GET /v1/threads/{id}/events`.
  *
- * The handler first replays persisted events with `seq` greater than
- * `since_seq`, then subscribes to the event bus to deliver live
- * updates. The stream closes when the request's `AbortSignal`
+ * The handler subscribes to live updates first, replays persisted
+ * events with `seq` greater than `since_seq`, then flushes queued live
+ * events with `seq` de-duplication. The stream closes when the request's `AbortSignal`
  * fires (the client disconnects) or the server stops publishing.
  */
 export function buildEventStreamResponse(input: {
@@ -28,6 +28,7 @@ export function buildEventStreamResponse(input: {
   let unsubscribe: (() => void) | undefined
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined
   let closed = false
+  let lastSentSeq = sinceSeq
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const close = () => {
@@ -44,20 +45,37 @@ export function buildEventStreamResponse(input: {
           // Already closed; ignore.
         }
       }
+      const sendEvent = (event: RuntimeEvent): void => {
+        if (event.seq <= sinceSeq || event.seq <= lastSentSeq) return
+        controller.enqueue(encoder.encode(encodeSseEvent(event)))
+        if (event.kind !== 'heartbeat') lastSentSeq = event.seq
+      }
       input.request.signal.addEventListener('abort', close)
       try {
-        const backlog = await input.sessionStore.loadEventsSince(input.threadId, sinceSeq)
-        for (const event of backlog) {
-          controller.enqueue(encoder.encode(encodeSseEvent(event)))
-        }
+        const queuedLiveEvents: RuntimeEvent[] = []
+        let replaying = true
         unsubscribe = input.eventBus.subscribe(input.threadId, (event: RuntimeEvent) => {
           if (closed) return
+          if (replaying) {
+            queuedLiveEvents.push(event)
+            return
+          }
           try {
-            controller.enqueue(encoder.encode(encodeSseEvent(event)))
+            sendEvent(event)
           } catch {
             close()
           }
         })
+        const backlog = await input.sessionStore.loadEventsSince(input.threadId, sinceSeq)
+        for (const event of backlog) {
+          if (closed) return
+          sendEvent(event)
+        }
+        replaying = false
+        for (const event of queuedLiveEvents) {
+          if (closed) return
+          sendEvent(event)
+        }
         heartbeatTimer = setInterval(() => {
           if (closed) return
           try {
@@ -65,7 +83,7 @@ export function buildEventStreamResponse(input: {
               encoder.encode(
                 encodeSseEvent({
                   kind: 'heartbeat',
-                  seq: input.allocateSeq(input.threadId),
+                  seq: lastSentSeq,
                   timestamp: new Date().toISOString(),
                   threadId: input.threadId
                 })

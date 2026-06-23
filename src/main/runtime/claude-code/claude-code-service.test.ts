@@ -20,6 +20,7 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '../../../shared/app-settings'
+import type { AgentRuntimeEvent } from '../../../shared/agent-runtime-contract'
 import {
   ClaudeCodeRuntimeService,
   type ClaudeAgentSdk
@@ -209,6 +210,60 @@ describe('ClaudeCodeRuntimeService', () => {
       expect(result.thread.runtimeId).toBe('claude')
       expect(result.thread.title).toBe('Draft')
     }
+  })
+
+  it('subscribes before replaying stored events and de-duplicates queued live echoes', async () => {
+    const { sdk } = fakeSdk(() => [])
+    const service = new ClaudeCodeRuntimeService({
+      settings: async () => settings(),
+      storageRoot: await serviceRoot(),
+      claudeAgentSdk: sdk
+    })
+    await service.publishSyntheticEvent({
+      kind: 'assistant_delta',
+      runtimeId: 'claude',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'assistant-1',
+      text: 'stored'
+    })
+    const eventStore = (service as unknown as { eventStore: { read: (...args: unknown[]) => Promise<Array<{ event: unknown }>> } }).eventStore
+    const originalRead = eventStore.read.bind(eventStore)
+    eventStore.read = vi.fn(async (...args: unknown[]) => {
+      const subscribers = (service as unknown as {
+        eventSubscribers: Set<{ queue: unknown[]; wake?: (() => void) | null }>
+      }).eventSubscribers
+      expect(subscribers.size).toBe(1)
+      const stored = await originalRead(...args)
+      for (const subscriber of subscribers) {
+        subscriber.queue.push(stored[0]?.event)
+        subscriber.wake?.()
+      }
+      return stored
+    })
+    const abort = new AbortController()
+    const seen: AgentRuntimeEvent[] = []
+
+    const consume = (async () => {
+      for await (const event of service.subscribeEvents('thread-1', 0, abort.signal)) {
+        seen.push(event)
+      }
+    })()
+
+    await vi.waitFor(() => {
+      expect(seen).toEqual([
+        expect.objectContaining({
+          kind: 'assistant_delta',
+          seq: 1,
+          text: 'stored'
+        })
+      ])
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    abort.abort()
+    await consume
+
+    expect(seen).toHaveLength(1)
   })
 
   it('starts turns with Model Router SDK env and resumes stored Claude sessions', async () => {

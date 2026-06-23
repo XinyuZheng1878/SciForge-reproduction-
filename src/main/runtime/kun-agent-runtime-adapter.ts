@@ -20,6 +20,7 @@ import type {
   AgentRuntimeUsageResponse
 } from '../../shared/agent-runtime-contract'
 import {
+  createAgentRuntimeCapabilityMatrix,
   createDefaultAgentRuntimeCapabilities,
   filterAgentRuntimeThreadChildren
 } from '../../shared/agent-runtime-contract'
@@ -143,6 +144,7 @@ export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOpti
       body.approvalPolicy = runtime.approvalPolicy
       body.sandboxMode = runtime.sandboxMode
       if (input.guiPlan) body.guiPlan = input.guiPlan
+      if (input.metadata) body.metadata = input.metadata
       if (input.attachmentIds?.length) body.attachmentIds = input.attachmentIds
       const modelObjectReferences = input.fileReferences
         ?.filter((reference) => reference.modelRouterObject === true && reference.relativePath.trim())
@@ -1079,6 +1081,19 @@ function conservativeKunCapabilities(): AgentRuntimeCapabilities {
   const caps = createDefaultAgentRuntimeCapabilities({ runtimeId: 'kun', transport: 'http_sse' })
   return {
     ...caps,
+    matrix: createAgentRuntimeCapabilityMatrix({
+      nativeHistory: true,
+      nativeCompact: true,
+      nativeResume: true,
+      steer: true,
+      fork: true,
+      handoffImport: false,
+      usage: true,
+      eventReplay: true,
+      reasons: {
+        handoffImport: 'Handoff import is provided by AgentRuntimeHost when a context ledger is configured.'
+      }
+    }),
     events: {
       live: true,
       replayable: true,

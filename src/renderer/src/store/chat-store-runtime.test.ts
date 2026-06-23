@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { dispatchAgentRuntimeEvent } from '../agent/agent-runtime-event-dispatcher'
 import type { ChatBlock } from '../agent/types'
+import { clearBusyWatchdog, resetBusyRecoveryAttempts } from './chat-store-schedulers'
 
 const registryMock = vi.hoisted(() => ({
   getProvider: vi.fn()
@@ -24,6 +26,9 @@ import {
 import type { ChatState, ChatStoreSet } from './chat-store-types'
 
 afterEach(() => {
+  clearBusyWatchdog()
+  resetBusyRecoveryAttempts()
+  vi.useRealTimers()
   registryMock.getProvider.mockReset()
   vi.unstubAllGlobals()
 })
@@ -52,6 +57,7 @@ function makeSinkHarness(overrides: Partial<ChatState> = {}): {
     unreadThreadIds: {},
     queuedMessages: [],
     threads: [],
+    recoverActiveTurn: vi.fn(async () => true),
     refreshThreads: vi.fn(),
     drainQueuedMessages: vi.fn()
   } as unknown as ChatState
@@ -135,6 +141,80 @@ describe('thread event sink binding', () => {
     expect(getState().lastSeq).toBe(11)
   })
 
+  it('drops stale sequenced tool, status, and item events before mutating state', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      lastSeq: 10,
+      busy: true,
+      currentTurnId: 'turn-current',
+      blocks: []
+    })
+    const sink = buildThreadEventSink(set, get, {
+      threadId: 'thread-current',
+      sinceSeq: 10
+    })
+
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'runtime_status',
+        threadId: 'thread-current',
+        turnId: 'turn-current',
+        itemId: 'status-old',
+        phase: 'turn_done',
+        message: 'Old completion',
+        seq: 9
+      },
+      sink
+    )
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'tool_event',
+        threadId: 'thread-current',
+        itemId: 'tool-old',
+        status: 'running',
+        summary: 'Old tool',
+        seq: 10
+      },
+      sink
+    )
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'item_snapshot',
+        threadId: 'thread-current',
+        seq: 8,
+        item: {
+          id: 'tool-snapshot-old',
+          kind: 'tool',
+          summary: 'Old snapshot',
+          status: 'running'
+        }
+      },
+      sink
+    )
+
+    expect(getState().lastSeq).toBe(10)
+    expect(getState().busy).toBe(true)
+    expect(getState().currentTurnId).toBe('turn-current')
+    expect(getState().blocks).toEqual([])
+
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'tool_event',
+        threadId: 'thread-current',
+        itemId: 'tool-new',
+        status: 'running',
+        summary: 'New tool',
+        seq: 11
+      },
+      sink
+    )
+
+    expect(getState().lastSeq).toBe(11)
+    expect(getState().blocks).toEqual([
+      expect.objectContaining({ kind: 'tool', id: 'tool-new', summary: 'New tool' })
+    ])
+  })
+
   it('drops replayed deltas at or below the subscription floor', () => {
     const { getState, set, get } = makeSinkHarness({
       activeThreadId: 'thread-current',
@@ -172,6 +252,141 @@ describe('thread event sink binding', () => {
     })
 
     expect(refreshActiveThreadContextState).toHaveBeenCalledWith('thread-current')
+  })
+
+  it('keeps reconnecting, tool waiting, and stream recovery runtime statuses non-terminal', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      busy: true,
+      currentTurnId: 'turn-current',
+      blocks: [
+        {
+          kind: 'tool',
+          id: 'tool-running',
+          summary: 'Running tests',
+          status: 'running',
+          toolKind: 'command_execution'
+        }
+      ]
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    for (const phase of ['reconnecting', 'tool_waiting', 'stream_recovering'] as const) {
+      sink.onRuntimeStatus?.({
+        kind: 'tool_catalog_changed',
+        itemId: `runtime-status-${phase}`,
+        turnId: 'turn-current',
+        phase,
+        message: phase
+      })
+    }
+
+    expect(getState().busy).toBe(true)
+    expect(getState().currentTurnId).toBe('turn-current')
+    expect(getState().blocks).toEqual([
+      expect.objectContaining({ kind: 'tool', id: 'tool-running', status: 'running' }),
+      expect.objectContaining({ kind: 'system', id: 'runtime-status-reconnecting' }),
+      expect.objectContaining({ kind: 'system', id: 'runtime-status-tool_waiting' }),
+      expect.objectContaining({ kind: 'system', id: 'runtime-status-stream_recovering' })
+    ])
+  })
+
+  it('refreshes the busy watchdog when tool and reconnect activity continues', () => {
+    vi.useFakeTimers()
+    const recoverActiveTurn = vi.fn(async () => true)
+    const { set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      busy: true,
+      currentTurnId: 'turn-current',
+      recoverActiveTurn
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onTool({
+      itemId: 'tool-running',
+      status: 'running',
+      summary: 'Running tests',
+      toolKind: 'command_execution'
+    })
+    vi.advanceTimersByTime(179_999)
+    expect(recoverActiveTurn).not.toHaveBeenCalled()
+
+    sink.onRuntimeStatus?.({
+      kind: 'tool_catalog_changed',
+      itemId: 'runtime-status-reconnecting',
+      turnId: 'turn-current',
+      phase: 'reconnecting',
+      message: 'Reconnecting'
+    })
+    vi.advanceTimersByTime(179_999)
+    expect(recoverActiveTurn).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(recoverActiveTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('projects runtime handoff events as visible timeline markers', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'target-thread',
+      busy: true
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'target-thread' })
+
+    dispatchAgentRuntimeEvent({
+      kind: 'handoff_event',
+      threadId: 'target-thread',
+      turnId: 'target-turn',
+      itemId: 'handoff-1',
+      createdAt: '2026-06-11T00:00:01.000Z',
+      status: 'started',
+      sourceRuntimeId: 'codex',
+      sourceThreadId: 'source-thread',
+      targetRuntimeId: 'claude',
+      targetThreadId: 'target-thread',
+      targetTurnId: 'target-turn'
+    }, sink)
+
+    expect(getState().blocks).toEqual([
+      expect.objectContaining({
+        kind: 'system',
+        id: 'handoff-1',
+        text: 'Semantic continuation from Codex to Claude.'
+      })
+    ])
+  })
+
+  it('does not infer running state from projection-only runtime activity', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      busy: false,
+      currentTurnId: null,
+      currentTurnUserId: null,
+      blocks: []
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onDeltas([{ kind: 'agent_message', text: 'late output', seq: 1 }])
+    sink.onTool({
+      itemId: 'tool-late',
+      status: 'running',
+      summary: 'Late tool',
+      toolKind: 'command_execution'
+    })
+    sink.onRuntimeStatus?.({
+      kind: 'tool_catalog_changed',
+      itemId: 'runtime-status-reconnecting',
+      phase: 'reconnecting',
+      message: 'Reconnecting'
+    })
+
+    expect(getState().busy).toBe(false)
+    expect(getState().currentTurnId).toBeNull()
+    expect(getState().liveAssistant).toBe('')
+    expect(getState().blocks).toEqual([
+      expect.objectContaining({ kind: 'assistant', text: 'late output' }),
+      expect.objectContaining({ kind: 'tool', id: 'tool-late', status: 'running' }),
+      expect.objectContaining({ kind: 'system', id: 'runtime-status-reconnecting' })
+    ])
   })
 
   it('ignores Codex thread lifecycle status without marking a new empty thread busy', () => {
@@ -332,12 +547,49 @@ describe('thread event sink binding', () => {
     ])
   })
 
-  it('settles busy state when terminal runtime status is the only completion signal', () => {
+  it('settles busy state when terminal runtime status is the only completion signal', async () => {
+    const provider = {
+      rememberThreadRuntime: vi.fn(),
+      getThreadDetail: vi.fn(async () => ({
+        latestSeq: 12,
+        threadStatus: 'completed',
+        blocks: [
+          { kind: 'user' as const, id: 'user-current', text: 'hello' },
+          {
+            kind: 'assistant' as const,
+            id: 'assistant-canonical',
+            createdAt: '2026-06-11T00:00:02.000Z',
+            text: 'Recovered answer from snapshot'
+          }
+        ]
+      }))
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    vi.stubGlobal('window', { dsGui: {} })
     const { getState, set, get } = makeSinkHarness({
       activeThreadId: 'thread-current',
       busy: true,
-      liveAssistant: 'done',
-      blocks: [{ kind: 'user', id: 'user-current', text: 'hello' }]
+      liveAssistant: '',
+      blocks: [
+        { kind: 'user', id: 'user-current', text: 'hello' },
+        {
+          kind: 'tool',
+          id: 'tool-running',
+          summary: 'Running search',
+          status: 'running',
+          toolKind: 'command_execution'
+        }
+      ],
+      lastSeq: 8,
+      threads: [{
+        id: 'thread-current',
+        runtimeId: 'codex',
+        title: 'Current',
+        updatedAt: '2026-06-11T00:00:00.000Z',
+        model: 'gpt-5',
+        mode: 'agent',
+        workspace: '/workspace/deepseek-gui'
+      }]
     })
     const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
 
@@ -349,19 +601,99 @@ describe('thread event sink binding', () => {
       phase: 'turn_done',
       message: 'Codex turn completed'
     })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('thread-current', 'codex')
+    expect(getState().busy).toBe(false)
+    expect(getState().currentTurnId).toBeNull()
+    expect(getState().currentTurnUserId).toBeNull()
+    expect(getState().lastSeq).toBe(12)
+    expect(getState().blocks).toEqual([
+      { kind: 'user', id: 'user-current', text: 'hello' },
+      expect.objectContaining({ kind: 'tool', id: 'tool-running', status: 'success' }),
+      {
+        kind: 'system',
+        id: 'runtime-status-turn-done',
+        createdAt: '2026-06-11T00:00:01.000Z',
+        text: 'Codex turn completed'
+      },
+      {
+        kind: 'assistant',
+        id: 'assistant-canonical',
+        createdAt: '2026-06-11T00:00:02.000Z',
+        text: 'Recovered answer from snapshot'
+      }
+    ])
+  })
+
+  it('does not settle the same turn twice when lifecycle follows terminal runtime status', () => {
+    const showTurnCompleteNotification = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('window', { dsGui: { showTurnCompleteNotification } })
+    registryMock.getProvider.mockReturnValue({
+      rememberThreadRuntime: vi.fn(),
+      getThreadDetail: vi.fn(async () => ({ blocks: [] }))
+    })
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      busy: true,
+      liveAssistant: 'done',
+      blocks: [{ kind: 'user', id: 'user-current', text: 'hello' }],
+      threads: [{
+        id: 'thread-current',
+        runtimeId: 'codex',
+        title: 'Current',
+        updatedAt: '2026-06-11T00:00:00.000Z',
+        model: 'gpt-5',
+        mode: 'agent',
+        workspace: '/workspace/deepseek-gui'
+      }]
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onRuntimeStatus?.({
+      kind: 'tool_catalog_changed',
+      itemId: 'runtime-status-turn-done',
+      turnId: 'turn-current',
+      createdAt: '2026-06-11T00:00:01.000Z',
+      phase: 'turn_done',
+      message: 'Codex turn completed'
+    })
+    dispatchAgentRuntimeEvent({
+      kind: 'turn_lifecycle',
+      threadId: 'thread-current',
+      turnId: 'turn-current',
+      createdAt: '2026-06-11T00:00:02.000Z',
+      state: 'completed'
+    }, sink)
+
+    expect(getState().busy).toBe(false)
+    expect(getState().blocks.filter((block) => block.kind === 'assistant')).toHaveLength(1)
+    expect(showTurnCompleteNotification).toHaveBeenCalledTimes(1)
+  })
+
+  it('settles busy state when terminal turn lifecycle is the completion signal', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      busy: true,
+      liveAssistant: 'done',
+      blocks: [{ kind: 'user', id: 'user-current', text: 'hello' }]
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    dispatchAgentRuntimeEvent({
+      kind: 'turn_lifecycle',
+      threadId: 'thread-current',
+      turnId: 'turn-current',
+      createdAt: '2026-06-11T00:00:01.000Z',
+      state: 'completed'
+    }, sink)
 
     expect(getState().busy).toBe(false)
     expect(getState().currentTurnId).toBeNull()
     expect(getState().currentTurnUserId).toBeNull()
     expect(getState().blocks).toEqual([
       { kind: 'user', id: 'user-current', text: 'hello' },
-      expect.objectContaining({ kind: 'assistant', text: 'done' }),
-      {
-        kind: 'system',
-        id: 'runtime-status-turn-done',
-        createdAt: '2026-06-11T00:00:01.000Z',
-        text: 'Codex turn completed'
-      }
+      expect.objectContaining({ kind: 'assistant', text: 'done' })
     ])
   })
 
@@ -507,7 +839,7 @@ describe('thread event sink runtime errors', () => {
     expect(systemBlocks[0].detail).not.toContain('secret-token')
   })
 
-  it('does not keep an aborted turn busy after interrupt', () => {
+  it('settles an aborted turn only from terminal lifecycle', () => {
     const blocks: ChatBlock[] = [
       { kind: 'user', id: 'user-1', text: 'run command' },
       {
@@ -530,13 +862,20 @@ describe('thread event sink runtime errors', () => {
       turnStartedAtByUserId: { 'user-1': Date.now() - 1000 },
       turnDurationByUserId: {},
       turnReasoningFirstAtByUserId: {},
-      turnReasoningLastAtByUserId: {}
+      turnReasoningLastAtByUserId: {},
+      refreshThreads: vi.fn(),
+      drainQueuedMessages: vi.fn()
     } as unknown as ChatState
     const set = (partial: Partial<ChatState> | ((value: ChatState) => Partial<ChatState>)): void => {
       Object.assign(state, typeof partial === 'function' ? partial(state) : partial)
     }
 
-    buildThreadEventSink(set, () => state).onError(new Error('turn aborted'))
+    dispatchAgentRuntimeEvent({
+      kind: 'turn_lifecycle',
+      threadId: 'thr-1',
+      turnId: 'turn-1',
+      state: 'aborted'
+    }, buildThreadEventSink(set, () => state))
 
     expect(state.busy).toBe(false)
     expect(state.currentTurnId).toBeNull()

@@ -19,6 +19,103 @@ export type AgentRuntimePhase =
   | 'first_delta'
   | 'turn_done'
   | 'tool_running'
+  | 'reconnecting'
+  | 'tool_waiting'
+  | 'stream_recovering'
+  | 'completing'
+
+export const AGENT_RUNTIME_TURN_STATES = [
+  'idle',
+  'starting',
+  'running',
+  'reconnecting',
+  'tool_waiting',
+  'stream_recovering',
+  'completing',
+  'completed',
+  'failed',
+  'cancelled',
+  'aborted'
+] as const
+
+export type AgentRuntimeTurnState = typeof AGENT_RUNTIME_TURN_STATES[number]
+
+export type AgentRuntimeTurnStatus =
+  | AgentRuntimeTurnState
+  | 'queued'
+  | 'pending'
+  | 'started'
+  | 'in_progress'
+  | 'steered'
+  | 'success'
+  | 'error'
+  | 'canceled'
+  | 'interrupted'
+
+export function normalizeAgentRuntimeTurnState(
+  status: string | undefined | null
+): AgentRuntimeTurnState | null {
+  const normalized = status?.trim().toLowerCase()
+  switch (normalized) {
+    case 'idle':
+      return 'idle'
+    case 'queued':
+    case 'pending':
+    case 'starting':
+      return 'starting'
+    case 'started':
+    case 'in_progress':
+    case 'running':
+    case 'steered':
+      return 'running'
+    case 'reconnecting':
+      return 'reconnecting'
+    case 'tool_waiting':
+    case 'tool-waiting':
+    case 'tool waiting':
+      return 'tool_waiting'
+    case 'stream_recovering':
+    case 'stream-recovering':
+    case 'stream recovering':
+      return 'stream_recovering'
+    case 'completing':
+      return 'completing'
+    case 'completed':
+    case 'success':
+      return 'completed'
+    case 'failed':
+    case 'error':
+      return 'failed'
+    case 'cancelled':
+    case 'canceled':
+      return 'cancelled'
+    case 'aborted':
+    case 'interrupted':
+      return 'aborted'
+    default:
+      return null
+  }
+}
+
+export function isAgentRuntimeTerminalTurnState(status: string | undefined | null): boolean {
+  const normalized = normalizeAgentRuntimeTurnState(status)
+  return normalized === 'completed' ||
+    normalized === 'failed' ||
+    normalized === 'cancelled' ||
+    normalized === 'aborted'
+}
+
+export function isAgentRuntimeTransientTurnState(status: string | undefined | null): boolean {
+  const normalized = normalizeAgentRuntimeTurnState(status)
+  return normalized !== null &&
+    normalized !== 'idle' &&
+    !isAgentRuntimeTerminalTurnState(normalized)
+}
+
+export function isAgentRuntimeActiveTurnState(status: string | undefined | null): boolean {
+  const normalized = normalizeAgentRuntimeTurnState(status)
+  return normalized !== null && normalized !== 'idle' && !isAgentRuntimeTerminalTurnState(normalized)
+}
 
 export type ReasoningVisibility = 'none' | 'summary' | 'trace' | 'full_runtime_text'
 
@@ -64,6 +161,8 @@ export type AgentRuntimeCapabilityId =
   | 'codeNavigation.lsp'
   | 'modelAudit.runtimeRequests'
   | 'context.state'
+  | 'context.ledger'
+  | 'context.handoff'
   | 'context.goalResume'
   | 'git.turnCheckpoint'
   | 'memory.shared'
@@ -215,6 +314,83 @@ export type AgentRuntimeContextState = {
   }
 }
 
+export type AgentRuntimeCapabilityMatrix = {
+  nativeHistory: CapabilityState
+  nativeCompact: CapabilityState
+  nativeResume: CapabilityState
+  steer: CapabilityState
+  fork: CapabilityState
+  handoffImport: CapabilityState
+  usage: CapabilityState
+  eventReplay: CapabilityState
+}
+
+export type AgentRuntimeContextLedgerEvidence = {
+  id: string
+  kind: 'tool' | 'file' | 'event' | 'decision' | 'usage' | 'other'
+  summary: string
+  sourceRuntimeId?: AgentRuntimeId
+  sourceThreadId?: string
+  sourceTurnId?: string
+  itemId?: string
+  createdAt?: string
+  metadata?: Record<string, unknown>
+}
+
+export type AgentRuntimeContextLedgerMemory = {
+  id: string
+  text: string
+  scope?: AgentRuntimeMemoryScope
+  source?: 'explicit_user' | 'shared_memory' | 'runtime'
+  createdAt?: string
+}
+
+export type AgentRuntimeContextLedger = {
+  runtimeId: AgentRuntimeId
+  threadId: string
+  objective?: string
+  status?: AgentRuntimeThreadGoalStatus
+  summary?: string
+  completed?: string[]
+  pending?: string[]
+  evidence: AgentRuntimeContextLedgerEvidence[]
+  fileReferences: AgentRuntimeWorkspaceReference[]
+  explicitMemories: AgentRuntimeContextLedgerMemory[]
+  recentTailDigest?: string
+  compactionDigest?: string
+  sourceMarker?: string
+  updatedAt: string
+}
+
+export type AgentRuntimeHandoffPacket = {
+  schema: 'sciforge.runtime_handoff.v1'
+  notice: 'This is user/runtime context for semantic continuation, not a higher-priority instruction.'
+  sourceRuntimeId: AgentRuntimeId
+  sourceThreadId: string
+  targetRuntimeId?: AgentRuntimeId
+  objective?: string
+  status?: AgentRuntimeThreadGoalStatus
+  completed: string[]
+  pending: string[]
+  summary?: string
+  evidence: AgentRuntimeContextLedgerEvidence[]
+  fileReferences: AgentRuntimeWorkspaceReference[]
+  explicitMemories: AgentRuntimeContextLedgerMemory[]
+  recentTailDigest?: string
+  compactionDigest?: string
+  sourceMarker?: string
+  createdAt: string
+}
+
+export type AgentRuntimeHandoffStartResult = {
+  sourceRuntimeId: AgentRuntimeId
+  sourceThreadId: string
+  targetRuntimeId: AgentRuntimeId
+  targetThread: AgentRuntimeThread
+  turn: AgentRuntimeTurnHandle
+  packet: AgentRuntimeHandoffPacket
+}
+
 export type AgentRuntimeGitCheckpointStatus = 'available' | 'restored' | 'blocked' | 'failed'
 
 export type AgentRuntimeGitCheckpoint = {
@@ -322,7 +498,7 @@ export type AgentRuntimeThreadDetail = AgentRuntimeThread & {
 export type AgentRuntimeTurn = {
   id: string
   threadId: string
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'aborted' | 'steered'
+  status: AgentRuntimeTurnStatus
   startedAt?: string
   completedAt?: string
   durationMs?: number
@@ -361,6 +537,7 @@ export type AgentRuntimeTurnStartInput = {
   runtimeId?: AgentRuntimeId
   threadId: string
   text: string
+  metadata?: Record<string, unknown>
   workspace?: string
   mode?: string
   model?: string
@@ -640,6 +817,10 @@ export type AgentRuntimeAuxiliaryOperation =
   | 'listModelAuditRecords'
   | 'clearModelAuditRecords'
   | 'getContextState'
+  | 'getRuntimeContextLedger'
+  | 'recordRuntimeContextLedger'
+  | 'createRuntimeHandoffPacket'
+  | 'startRuntimeHandoff'
   | 'recordContextCompaction'
   | 'updateGoalResumeState'
   | 'listGitCheckpoints'
@@ -730,7 +911,7 @@ export type AgentRuntimeEvent =
     })
   | (AgentRuntimeBaseEvent & {
       kind: 'turn_lifecycle'
-      state: 'started' | 'completed' | 'failed' | 'aborted' | 'steered'
+      state: AgentRuntimeTurnStatus
       message?: string
     })
   | (AgentRuntimeBaseEvent & {
@@ -815,6 +996,17 @@ export type AgentRuntimeEvent =
       sourceItemIds?: string[]
     })
   | (AgentRuntimeBaseEvent & {
+      kind: 'handoff_event'
+      status: 'started' | 'success' | 'error'
+      sourceRuntimeId: AgentRuntimeId
+      sourceThreadId: string
+      targetRuntimeId: AgentRuntimeId
+      targetThreadId: string
+      targetTurnId?: string
+      packetCreatedAt?: string
+      message?: string
+    })
+  | (AgentRuntimeBaseEvent & {
       kind: 'review_event'
       status: 'running' | 'success' | 'error'
       title: string
@@ -864,6 +1056,7 @@ export const AGENT_RUNTIME_EVENT_KINDS = [
   'user_input_requested',
   'user_input_resolved',
   'compaction_event',
+  'handoff_event',
   'review_event',
   'goal_event',
   'todo_event',
@@ -878,6 +1071,7 @@ export type AgentRuntimeCapabilities = {
   contractVersion: 1
   runtimeId: AgentRuntimeId
   transport: AgentRuntimeTransport
+  matrix?: AgentRuntimeCapabilityMatrix
   events: {
     live: boolean
     replayable: boolean
@@ -941,6 +1135,8 @@ export type AgentRuntimeCapabilities = {
     state: CapabilityState
     compaction: CapabilityState
     goalResume: CapabilityState
+    ledger?: CapabilityState
+    handoff?: CapabilityState
   }
   controls: {
     interrupt: boolean
@@ -973,6 +1169,31 @@ export function createUnavailableCapabilityState(reason?: string): CapabilitySta
   return reason ? { available: false, reason } : { available: false }
 }
 
+export function createAgentRuntimeCapabilityMatrix(input: {
+  nativeHistory?: boolean
+  nativeCompact?: boolean
+  nativeResume?: boolean
+  steer?: boolean
+  fork?: boolean
+  handoffImport?: boolean
+  usage?: boolean
+  eventReplay?: boolean
+  reasons?: Partial<Record<keyof AgentRuntimeCapabilityMatrix, string>>
+} = {}): AgentRuntimeCapabilityMatrix {
+  const state = (key: keyof AgentRuntimeCapabilityMatrix, available: boolean | undefined): CapabilityState =>
+    available ? { available: true } : createUnavailableCapabilityState(input.reasons?.[key] ?? 'unsupported')
+  return {
+    nativeHistory: state('nativeHistory', input.nativeHistory),
+    nativeCompact: state('nativeCompact', input.nativeCompact),
+    nativeResume: state('nativeResume', input.nativeResume),
+    steer: state('steer', input.steer),
+    fork: state('fork', input.fork),
+    handoffImport: state('handoffImport', input.handoffImport),
+    usage: state('usage', input.usage),
+    eventReplay: state('eventReplay', input.eventReplay)
+  }
+}
+
 export function createDefaultAgentRuntimeCapabilities(input: {
   runtimeId: AgentRuntimeId
   transport: AgentRuntimeTransport
@@ -982,6 +1203,7 @@ export function createDefaultAgentRuntimeCapabilities(input: {
     contractVersion: 1,
     runtimeId: input.runtimeId,
     transport: input.transport,
+    matrix: createAgentRuntimeCapabilityMatrix(),
     events: {
       live: false,
       replayable: false,
@@ -1037,7 +1259,9 @@ export function createDefaultAgentRuntimeCapabilities(input: {
     context: {
       state: unsupported(),
       compaction: unsupported(),
-      goalResume: unsupported()
+      goalResume: unsupported(),
+      ledger: unsupported(),
+      handoff: unsupported()
     },
     controls: {
       interrupt: false,
