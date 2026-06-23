@@ -110,17 +110,6 @@ export function deriveTurnSections({
   if (liveProcessText.trim()) {
     processBlocks.push({ kind: 'reasoning', id: 'live-reasoning', text: liveProcessText })
   }
-  if (isProcessing && liveContent.trim()) {
-    const liveText = liveContent.trim()
-    const latestText = latestAssistantContentBlock?.text.trim() ?? ''
-    if (liveText !== latestText) {
-      processBlocks.push({
-        kind: 'assistant',
-        id: 'live-assistant',
-        text: liveContent
-      } satisfies TurnAssistantBlock)
-    }
-  }
 
   const turnFileChanges: ToolBlock[] = isProcessing
     ? []

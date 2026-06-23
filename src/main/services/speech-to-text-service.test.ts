@@ -7,7 +7,6 @@ import {
 import {
   SpeechHttpError,
   isSpeechToTextConfigured,
-  joinSpeechApiUrl,
   requestSpeechTranscription
 } from './speech-to-text-service'
 
@@ -24,9 +23,9 @@ function settingsWithSpeech(overrides: Record<string, unknown> = {}): AppSetting
     },
     speechToText: {
       enabled: true,
-      protocol: 'openai-transcriptions',
-      baseUrl: 'https://speech.example.test/v1',
-      apiKey: 'sk-speech',
+      protocol: 'mimo-asr',
+      baseUrl: '',
+      apiKey: '',
       model: 'whisper-1',
       language: '',
       timeoutMs: 30000,
@@ -47,16 +46,15 @@ function fakeFetch(body: unknown, status = 200): { fetchImpl: typeof fetch; requ
 }
 
 describe('speech-to-text service', () => {
-  it('reports configuration state from enabled/baseUrl/apiKey/model', () => {
-    expect(isSpeechToTextConfigured({ enabled: true, protocol: 'openai-transcriptions', baseUrl: 'x', apiKey: 'y', model: 'z' })).toBe(true)
-    expect(isSpeechToTextConfigured({ enabled: false, protocol: 'openai-transcriptions', baseUrl: 'x', apiKey: 'y', model: 'z' })).toBe(false)
-    expect(isSpeechToTextConfigured({ enabled: true, protocol: 'openai-transcriptions', baseUrl: '', apiKey: 'y', model: 'z' })).toBe(false)
-    expect(isSpeechToTextConfigured({ enabled: true, protocol: 'openai-transcriptions', baseUrl: 'x', apiKey: '', model: 'z' })).toBe(false)
+  it('reports router-backed configuration state from enabled/model', () => {
     expect(isSpeechToTextConfigured({ enabled: true, protocol: 'mimo-asr', baseUrl: '', apiKey: '', model: 'mimo-v2.5-asr' })).toBe(true)
+    expect(isSpeechToTextConfigured({ enabled: false, protocol: 'mimo-asr', baseUrl: '', apiKey: '', model: 'mimo-v2.5-asr' })).toBe(false)
+    expect(isSpeechToTextConfigured({ enabled: true, protocol: 'mimo-asr', baseUrl: '', apiKey: '', model: '' })).toBe(false)
+    expect(isSpeechToTextConfigured({ enabled: true, protocol: 'openai-transcriptions' as never, baseUrl: 'x', apiKey: 'y', model: 'z' })).toBe(false)
   })
 
   it('rejects when the speech provider is not configured', async () => {
-    const result = await requestSpeechTranscription(settingsWithSpeech({ apiKey: '' }), {
+    const result = await requestSpeechTranscription(settingsWithSpeech({ model: '' }), {
       audioBase64: AUDIO_BASE64,
       mimeType: 'audio/wav'
     })
@@ -90,42 +88,7 @@ describe('speech-to-text service', () => {
     )).resolves.toEqual({ ok: false, message: 'recording duration exceeds the speech-to-text limit' })
   })
 
-  it('transcribes via OpenAI-compatible audio/transcriptions multipart upload', async () => {
-    const { fetchImpl, requests } = fakeFetch({ text: ' hello world ' })
-    const result = await requestSpeechTranscription(
-      settingsWithSpeech(),
-      { audioBase64: AUDIO_BASE64, mimeType: 'audio/wav', durationMs: 1200 },
-      { fetchImpl }
-    )
-
-    expect(result).toEqual({ ok: true, text: 'hello world' })
-    expect(requests).toHaveLength(1)
-    expect(requests[0].url).toBe('https://speech.example.test/v1/audio/transcriptions')
-    const headers = requests[0].init.headers as Record<string, string>
-    expect(headers.Authorization).toBe('Bearer sk-speech')
-    const form = requests[0].init.body as FormData
-    expect(form.get('model')).toBe('whisper-1')
-    expect(form.get('response_format')).toBe('json')
-    expect(form.get('language')).toBeNull()
-    const file = form.get('file')
-    expect(file).toBeInstanceOf(Blob)
-    expect((file as File).name).toBe('recording.wav')
-  })
-
-  it('passes non-auto language hints to OpenAI-compatible transcription', async () => {
-    const { fetchImpl, requests } = fakeFetch({ text: 'hi' })
-    await requestSpeechTranscription(
-      settingsWithSpeech({ language: 'zh' }),
-      { audioBase64: AUDIO_BASE64, mimeType: 'audio/mp4' },
-      { fetchImpl }
-    )
-
-    const form = requests[0].init.body as FormData
-    expect(form.get('language')).toBe('zh')
-    expect((form.get('file') as File).name).toBe('recording.m4a')
-  })
-
-  it('transcribes via MiMo ASR chat completions with a base64 data URI', async () => {
+  it('transcribes via Model Router responses with a base64 audio data URI', async () => {
     const { fetchImpl, requests } = fakeFetch({
       choices: [{ message: { content: ' ni hao ' } }]
     })
@@ -152,33 +115,19 @@ describe('speech-to-text service', () => {
     })
   })
 
-  it('uses request-provided resolved speech settings when supplied by IPC caller', async () => {
-    const { fetchImpl, requests } = fakeFetch({ text: 'override transcript' })
+  it('passes language hints through Model Router ASR options', async () => {
+    const { fetchImpl, requests } = fakeFetch({
+      output_text: '你好'
+    })
     const result = await requestSpeechTranscription(
-      settingsWithSpeech({ enabled: false, apiKey: '' }),
-      {
-        audioBase64: AUDIO_BASE64,
-        mimeType: 'audio/webm',
-        speechToText: {
-          enabled: true,
-          protocol: 'openai-transcriptions',
-          baseUrl: 'https://override.example.test/v1',
-          apiKey: 'sk-override',
-          model: 'gpt-4o-transcribe',
-          language: 'en',
-          timeoutMs: 12000
-        }
-      },
+      settingsWithSpeech({ language: 'zh' }),
+      { audioBase64: AUDIO_BASE64, mimeType: 'audio/mp4' },
       { fetchImpl }
     )
 
-    expect(result).toEqual({ ok: true, text: 'override transcript' })
-    expect(requests[0].url).toBe('https://override.example.test/v1/audio/transcriptions')
-    expect((requests[0].init.headers as Record<string, string>).Authorization).toBe('Bearer sk-override')
-    const form = requests[0].init.body as FormData
-    expect(form.get('model')).toBe('gpt-4o-transcribe')
-    expect(form.get('language')).toBe('en')
-    expect((form.get('file') as File).name).toBe('recording.webm')
+    expect(result).toEqual({ ok: true, text: '你好' })
+    const payload = JSON.parse(String(requests[0].init.body))
+    expect(payload.asr_options).toEqual({ language: 'zh' })
   })
 
   it('redacts secret-looking upstream response text from error messages', async () => {
@@ -198,7 +147,7 @@ describe('speech-to-text service', () => {
   })
 
   it('rejects an empty transcription result', async () => {
-    const { fetchImpl } = fakeFetch({ text: '   ' })
+    const { fetchImpl } = fakeFetch({ output_text: '   ' })
     const result = await requestSpeechTranscription(
       settingsWithSpeech(),
       { audioBase64: AUDIO_BASE64, mimeType: 'audio/wav' },
@@ -206,12 +155,6 @@ describe('speech-to-text service', () => {
     )
 
     expect(result).toMatchObject({ ok: false, message: expect.stringContaining('empty') })
-  })
-
-  it('joins speech API URLs without changing the configured base path', () => {
-    expect(joinSpeechApiUrl('https://speech.example.test/v1/', 'audio/transcriptions')).toBe(
-      'https://speech.example.test/v1/audio/transcriptions'
-    )
   })
 
   it('stores redacted HTTP error bodies only', () => {

@@ -27,7 +27,7 @@ export type SharedLeaseAcquireResult =
 export interface ComputerUseSharedLeaseCoordinator {
   acquire(lease: ComputerUseLease, target: ComputerUseTarget): Promise<SharedLeaseAcquireResult>
   refresh(session: ComputerUseSession): Promise<SharedLeaseAcquireResult>
-  release(sessionId: string, targetId?: string): Promise<void>
+  release(sessionId: string): Promise<void>
   activeLeases(): Promise<ComputerUseLease[]>
   recentRejections(): ComputerUseLeaseRejection[]
 }
@@ -48,6 +48,10 @@ export class NoopComputerUseSharedLeaseCoordinator implements ComputerUseSharedL
         ...(session.turnId ? { turnId: session.turnId } : {}),
         targetId: session.targetId ?? 'unbound',
         backend: session.backend,
+        ...(session.inputIsolation ? { inputIsolation: session.inputIsolation } : {}),
+        ...(typeof session.affectsUserInput === 'boolean' ? { affectsUserInput: session.affectsUserInput } : {}),
+        ...(typeof session.requiresHostFocus === 'boolean' ? { requiresHostFocus: session.requiresHostFocus } : {}),
+        ...(typeof session.usesHostClipboard === 'boolean' ? { usesHostClipboard: session.usesHostClipboard } : {}),
         acquiredAt: session.createdAt,
         updatedAt: session.updatedAt
       }
@@ -86,7 +90,13 @@ export class FileComputerUseSharedLeaseCoordinator implements ComputerUseSharedL
 
   async acquire(lease: ComputerUseLease, target: ComputerUseTarget): Promise<SharedLeaseAcquireResult> {
     await mkdir(this.options.leaseDir, { recursive: true })
-    const lockDir = this.lockDir(target.id)
+    const lockDir = this.lockDir(sharedLeaseKey({
+      targetId: target.id,
+      sessionId: lease.computerUseSessionId,
+      agentId: lease.agentId,
+      threadId: lease.threadId,
+      inputIsolation: target.inputIsolation ?? lease.inputIsolation
+    }))
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         await mkdir(lockDir)
@@ -139,7 +149,13 @@ export class FileComputerUseSharedLeaseCoordinator implements ComputerUseSharedL
         }
       }
     }
-    const lockDir = this.lockDir(session.targetId)
+    const lockDir = this.lockDir(sharedLeaseKey({
+      targetId: session.targetId,
+      sessionId: session.computerUseSessionId,
+      agentId: session.agentId,
+      threadId: session.threadId,
+      inputIsolation: session.inputIsolation
+    }))
     const existing = await this.readRecord(lockDir)
     if (!existing || !isLeaseOwnerAlive(existing)) {
       const lease: ComputerUseLease = {
@@ -150,6 +166,10 @@ export class FileComputerUseSharedLeaseCoordinator implements ComputerUseSharedL
         ...(session.turnId ? { turnId: session.turnId } : {}),
         targetId: session.targetId,
         backend: session.backend,
+        ...(session.inputIsolation ? { inputIsolation: session.inputIsolation } : {}),
+        ...(typeof session.affectsUserInput === 'boolean' ? { affectsUserInput: session.affectsUserInput } : {}),
+        ...(typeof session.requiresHostFocus === 'boolean' ? { requiresHostFocus: session.requiresHostFocus } : {}),
+        ...(typeof session.usesHostClipboard === 'boolean' ? { usesHostClipboard: session.usesHostClipboard } : {}),
         acquiredAt: session.createdAt,
         updatedAt: this.nowIso()
       }
@@ -157,7 +177,11 @@ export class FileComputerUseSharedLeaseCoordinator implements ComputerUseSharedL
         id: session.targetId,
         kind: targetKindFromId(session.targetId),
         title: session.targetId,
-        backend: session.backend
+        backend: session.backend,
+        ...(session.inputIsolation ? { inputIsolation: session.inputIsolation } : {}),
+        ...(typeof session.affectsUserInput === 'boolean' ? { affectsUserInput: session.affectsUserInput } : {}),
+        ...(typeof session.requiresHostFocus === 'boolean' ? { requiresHostFocus: session.requiresHostFocus } : {}),
+        ...(typeof session.usesHostClipboard === 'boolean' ? { usesHostClipboard: session.usesHostClipboard } : {})
       })
     }
     if (
@@ -185,11 +209,7 @@ export class FileComputerUseSharedLeaseCoordinator implements ComputerUseSharedL
     return { ok: true, lease }
   }
 
-  async release(sessionId: string, targetId?: string): Promise<void> {
-    if (targetId) {
-      await this.releaseLockIfOwned(this.lockDir(targetId), sessionId)
-      return
-    }
+  async release(sessionId: string): Promise<void> {
     for (const entry of await this.lockEntries()) {
       await this.releaseLockIfOwned(join(this.options.leaseDir, entry), sessionId)
     }
@@ -285,6 +305,18 @@ export function defaultSharedLeaseCoordinatorFromEnv(
 
 function targetIdToLockName(targetId: string): string {
   return Buffer.from(targetId).toString('base64url')
+}
+
+function sharedLeaseKey(input: {
+  targetId: string
+  sessionId: string
+  agentId: string
+  threadId: string
+  inputIsolation: ComputerUseTarget['inputIsolation']
+}): string {
+  return input.inputIsolation === 'agent-isolated'
+    ? `${input.targetId}#${input.agentId}#${input.threadId}#${input.sessionId}`
+    : input.targetId
 }
 
 function isLeaseOwnerAlive(record: FileLeaseRecord): boolean {

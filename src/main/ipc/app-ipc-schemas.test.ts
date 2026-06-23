@@ -307,35 +307,17 @@ describe('app-ipc-schemas', () => {
     expect(skillListPayloadSchema.parse({})).toEqual({})
   })
 
-  it('accepts speech transcription payloads with resolved provider settings', () => {
+  it('accepts speech transcription payloads without provider override settings', () => {
     const payload = speechTranscriptionPayloadSchema.parse({
       audioBase64: Buffer.from('fake-wav-bytes').toString('base64'),
       mimeType: ' audio/wav ',
-      durationMs: 1200,
-      speechToText: {
-        enabled: true,
-        protocol: 'openai-transcriptions',
-        baseUrl: ' https://speech.example.test/v1 ',
-        apiKey: 'sk-speech',
-        model: ' whisper-1 ',
-        language: ' zh ',
-        timeoutMs: 30000
-      }
+      durationMs: 1200
     })
 
     expect(payload).toEqual({
       audioBase64: Buffer.from('fake-wav-bytes').toString('base64'),
       mimeType: 'audio/wav',
-      durationMs: 1200,
-      speechToText: {
-        enabled: true,
-        protocol: 'openai-transcriptions',
-        baseUrl: 'https://speech.example.test/v1',
-        apiKey: 'sk-speech',
-        model: 'whisper-1',
-        language: 'zh',
-        timeoutMs: 30000
-      }
+      durationMs: 1200
     })
   })
 

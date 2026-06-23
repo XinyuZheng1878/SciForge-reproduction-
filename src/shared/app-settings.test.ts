@@ -193,20 +193,18 @@ describe('kun defaults', () => {
     })
   })
 
-  it('defaults computer use to the shared native backend', () => {
+  it('defaults computer use to the isolated browser backend', () => {
     expect(defaultComputerUseSettings()).toEqual({
       enabled: true,
       runtimeEnabled: {
         kun: true,
         codex: true,
         claude: true
-      },
-      backend: 'global-native',
-      experimentalAppScopedBackend: false
+      }
     })
   })
 
-  it('normalizes computer-use settings and guards the experimental app-scoped backend', () => {
+  it('normalizes computer-use settings and drops legacy backend preferences', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       computerUse: {
@@ -216,9 +214,10 @@ describe('kun defaults', () => {
           codex: false,
           claude: true
         },
+        // Legacy host-input settings are ignored by the normalized app state.
         backend: 'mac-app-scoped',
         experimentalAppScopedBackend: false
-      }
+      } as never
     })
 
     expect(getComputerUseSettings(normalized)).toEqual({
@@ -227,14 +226,12 @@ describe('kun defaults', () => {
         kun: true,
         codex: false,
         claude: true
-      },
-      backend: 'global-native',
-      experimentalAppScopedBackend: false
+      }
     })
     expect(isComputerUseEnabledForRuntime(normalized, 'codex')).toBe(false)
     expect(isComputerUseEnabledForRuntime(normalized, 'kun')).toBe(false)
 
-    const experimental = normalizeAppSettings({
+    const legacyExperimental = normalizeAppSettings({
       ...settings(),
       computerUse: {
         enabled: true,
@@ -245,18 +242,16 @@ describe('kun defaults', () => {
         },
         backend: 'mac-app-scoped',
         experimentalAppScopedBackend: true
-      }
+      } as never
     })
 
-    expect(getComputerUseSettings(experimental)).toMatchObject({
+    expect(getComputerUseSettings(legacyExperimental)).toEqual({
       enabled: true,
       runtimeEnabled: {
         kun: true,
         codex: true,
         claude: true
-      },
-      backend: 'mac-app-scoped',
-      experimentalAppScopedBackend: true
+      }
     })
   })
 
@@ -360,7 +355,7 @@ describe('speech-to-text settings', () => {
     expect(normalizeAppSettings(raw).speechToText).toEqual(defaultSpeechToTextSettings())
   })
 
-  it('normalizes custom transcription settings', () => {
+  it('normalizes router-backed transcription settings and drops legacy provider fields', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       speechToText: {
@@ -377,22 +372,22 @@ describe('speech-to-text settings', () => {
     expect(normalized.speechToText).toEqual({
       enabled: true,
       protocol: 'mimo-asr',
-      baseUrl: 'https://speech.example/v1',
-      apiKey: 'sk-speech',
+      baseUrl: '',
+      apiKey: '',
       model: 'whisper-large-v3',
       language: 'zh-cn',
       timeoutMs: 600_000
     })
   })
 
-  it('falls back to OpenAI-compatible transcriptions and clamps tiny timeouts', () => {
+  it('falls back to router-backed transcription and clamps tiny timeouts', () => {
     const merged = mergeSpeechToTextSettings(defaultSpeechToTextSettings(), {
       enabled: true,
       protocol: 'bogus' as never,
       timeoutMs: 100
     })
 
-    expect(merged.protocol).toBe('openai-transcriptions')
+    expect(merged.protocol).toBe('mimo-asr')
     expect(merged.timeoutMs).toBe(5_000)
   })
 
@@ -410,8 +405,9 @@ describe('speech-to-text settings', () => {
 
     expect(resolved).toMatchObject({
       enabled: true,
-      baseUrl: 'https://speech.example/v1',
-      apiKey: 'sk-speech',
+      protocol: 'mimo-asr',
+      baseUrl: '',
+      apiKey: '',
       model: 'whisper-1'
     })
   })
@@ -748,22 +744,25 @@ describe('isKunRuntimeInsecure', () => {
 })
 
 describe('mergeComputerUseSettings', () => {
-  it('merges partial patches without dropping the backend gate', () => {
+  it('merges partial patches while dropping legacy backend settings', () => {
     const current = mergeComputerUseSettings(defaultComputerUseSettings(), {
       backend: 'mac-app-scoped',
       experimentalAppScopedBackend: true
-    })
+    } as never)
 
-    expect(current).toMatchObject({
+    expect(current).toEqual({
       enabled: true,
-      backend: 'mac-app-scoped',
-      experimentalAppScopedBackend: true
+      runtimeEnabled: {
+        kun: true,
+        codex: true,
+        claude: true
+      }
     })
 
     const disabled = mergeComputerUseSettings(current, {
       enabled: false,
       experimentalAppScopedBackend: false
-    })
+    } as never)
 
     expect(disabled).toEqual({
       enabled: false,
@@ -771,9 +770,7 @@ describe('mergeComputerUseSettings', () => {
         kun: true,
         codex: true,
         claude: true
-      },
-      backend: 'global-native',
-      experimentalAppScopedBackend: false
+      }
     })
   })
 
@@ -997,6 +994,36 @@ describe('agent runtime settings', () => {
     expect(getActiveAgentApiKey(normalized)).toBe('sk-router-runtime')
   })
 
+  it('normalizes runtime-facing Model Router base URLs to local HTTP only', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      modelRouter: {
+        ...defaultModelRouterSettings(),
+        baseUrl: 'https://remote-router.example/v1/responses'
+      }
+    })
+
+    expect(normalized.modelRouter).toBeDefined()
+    const modelRouter = normalized.modelRouter!
+    expect(modelRouter.baseUrl).toBe('http://127.0.0.1:3892/v1')
+    expect(resolveKunRuntimeSettings(normalized).baseUrl).toBe('http://127.0.0.1:3892/v1')
+    expect(resolveWriteInlineCompletionBaseUrl(normalized)).toBe('http://127.0.0.1:3892/v1')
+  })
+
+  it('normalizes local Model Router endpoint URLs back to the local v1 root', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      modelRouter: {
+        ...defaultModelRouterSettings(),
+        baseUrl: 'http://localhost:49876/v1/responses'
+      }
+    })
+
+    expect(normalized.modelRouter).toBeDefined()
+    const modelRouter = normalized.modelRouter!
+    expect(modelRouter.baseUrl).toBe('http://localhost:49876/v1')
+  })
+
   it('wraps codex runtime patches into the shared agents envelope', () => {
     expect(codexSettingsPatch({ codexHome: '/tmp/codex-home' })).toEqual({
       codex: { codexHome: '/tmp/codex-home' }
@@ -1180,7 +1207,6 @@ describe('legacy Kun defaults migration', () => {
       expect.objectContaining({
         apiKey: '',
         baseUrl: 'http://127.0.0.1:3892/v1',
-        endpointFormat: 'responses',
         model: 'sciforge-router'
       })
     )

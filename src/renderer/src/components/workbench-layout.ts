@@ -150,15 +150,13 @@ export function useWorkbenchLayout({
   latestAutoOpenDevPreviewUrl,
   latestDevPreviewUrl,
   route,
-  workspaceRoot,
-  writeAssistantOpen
+  workspaceRoot
 }: {
   activeThreadId: string | null
   latestAutoOpenDevPreviewUrl: string | null
   latestDevPreviewUrl: string | null
   route: AppRoute
   workspaceRoot: string
-  writeAssistantOpen: boolean
 }) {
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>(readStoredRightPanelMode)
   const [filePreviewTarget, setFilePreviewTarget] = useState<WorkspaceFileTarget | null>(null)
@@ -174,9 +172,7 @@ export function useWorkbenchLayout({
   const shellRef = useRef<HTMLDivElement | null>(null)
   const previewThreadId = useRef<string | null>(activeThreadId)
   const autoOpenedPreviewUrlRef = useRef<string | null>(null)
-  const rightPanelVisible = route === 'write'
-    ? writeAssistantOpen || rightPanelMode === 'file'
-    : rightPanelMode !== null
+  const rightPanelVisible = rightPanelMode !== null
 
   useEffect(() => {
     persistWidth(LEFT_PANEL_WIDTH_KEY, leftSidebarWidth)
@@ -227,11 +223,6 @@ export function useWorkbenchLayout({
     autoOpenedPreviewUrlRef.current = latestAutoOpenDevPreviewUrl
     setRightPanelMode('browser')
   }, [latestAutoOpenDevPreviewUrl, route])
-
-  useEffect(() => {
-    if (route !== 'write') return
-    if (rightPanelMode !== null && rightPanelMode !== 'file') setRightPanelMode(null)
-  }, [route, rightPanelMode])
 
   useLayoutEffect(() => {
     const sync = (): void => {

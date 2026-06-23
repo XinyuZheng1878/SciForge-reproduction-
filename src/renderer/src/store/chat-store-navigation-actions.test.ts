@@ -139,39 +139,6 @@ describe('chat-store-navigation-actions refreshThreads', () => {
     expect(state.activeThreadId).toBe('legacy-kun-thread')
   })
 
-  it('hydrates the write thread registry from the raw runtime thread list', async () => {
-    const writeThread = {
-      ...thread('write-thread', 'codex'),
-      title: 'Write Assistant',
-      workspace: '/workspace/write-current'
-    }
-    const chatThread = thread('chat-thread', 'codex')
-    const { refreshThreads } = buildHarness({
-      activeRuntime: 'codex',
-      activeThread: chatThread,
-      listedThreads: [writeThread, chatThread]
-    })
-    runtimeClientMock.getSettings.mockResolvedValue({
-      activeAgentRuntime: 'codex',
-      write: {
-        activeWorkspaceRoot: '/workspace/write-current',
-        defaultWorkspaceRoot: '/workspace/write-current',
-        workspaces: ['/workspace/write-current']
-      }
-    })
-
-    await refreshThreads()
-
-    const setItem = vi.mocked(window.localStorage.setItem)
-    const writeRegistryCall = setItem.mock.calls.find(([key]) => key === 'deepseekgui.write.threadRegistry.v1')
-    expect(writeRegistryCall).toBeTruthy()
-    const registry = JSON.parse(String(writeRegistryCall?.[1]))
-    expect(registry.workspaces['codex:/workspace/write-current']).toMatchObject({
-      activeThreadId: 'write-thread',
-      threadIds: ['write-thread']
-    })
-  })
-
   it('does not preserve a hidden SDD active thread from the previous runtime', async () => {
     currentSddRegistryJson = JSON.stringify({
       version: 1,
@@ -278,66 +245,6 @@ describe('chat-store-navigation-actions deleteWorkspace', () => {
     expect(state.watchTurnCompletion).toEqual({})
     expect(state.error).toBeNull()
     expect(state.refreshThreads).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('chat-store-navigation-actions route recovery', () => {
-  beforeEach(() => {
-    registryMock.getProvider.mockReset()
-    runtimeClientMock.getSettings.mockReset()
-    vi.stubGlobal('window', {
-      localStorage: {
-        getItem: vi.fn(() => null),
-        setItem: vi.fn(),
-        removeItem: vi.fn()
-      }
-    })
-  })
-
-  it('recovers a reused busy write thread when opening the write route', async () => {
-    const writeThread = {
-      ...thread('write-thread', 'codex'),
-      title: 'Write Assistant',
-      workspace: '/workspace/deepseek-gui'
-    }
-    runtimeClientMock.getSettings.mockResolvedValue({
-      activeAgentRuntime: 'codex',
-      workspaceRoot: '/workspace/deepseek-gui',
-      write: {
-        activeWorkspaceRoot: '/workspace/deepseek-gui',
-        defaultWorkspaceRoot: '/workspace/deepseek-gui',
-        workspaces: ['/workspace/deepseek-gui']
-      }
-    })
-    const state = {
-      activeThreadId: writeThread.id,
-      blocks: [],
-      busy: true,
-      clawChannels: [],
-      codeWorkspaceRoots: [],
-      error: null,
-      recoverActiveTurn: vi.fn(async () => false),
-      route: 'chat',
-      runtimeConnection: 'ready',
-      threads: [writeThread],
-      unreadThreadIds: {},
-      watchTurnCompletion: {},
-      workspaceRoot: '/workspace/deepseek-gui'
-    } as unknown as ChatState
-    const set: ChatStoreSet = (partial) => {
-      const update = typeof partial === 'function' ? partial(state) : partial
-      Object.assign(state, update)
-    }
-    const actions = createNavigationActions({
-      set,
-      get: () => state,
-      sseAbortRef: { current: null }
-    })
-
-    await actions.openWrite()
-
-    expect(state.route).toBe('write')
-    expect(state.recoverActiveTurn).toHaveBeenCalledTimes(1)
   })
 })
 

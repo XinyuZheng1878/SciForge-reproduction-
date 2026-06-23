@@ -1,12 +1,7 @@
 import { useState, type ReactElement } from 'react'
 import type { ApprovalPolicy, AppSettingsV1, SandboxMode } from '@shared/app-settings'
 import {
-  DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL,
-  DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
-  DEFAULT_WRITE_INLINE_COMPLETION_MODEL,
-  DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS,
   DEFAULT_KUN_DATA_DIR,
-  WRITE_INLINE_COMPLETION_MODEL_IDS,
   isKunRuntimeInsecure
 } from '@shared/app-settings'
 import type { GuiUpdateChannel } from '@shared/gui-update'
@@ -57,15 +52,6 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
     logPath,
     logDirOpenError,
     setLogDirOpenError,
-    pickWriteWorkspace,
-    resetWriteWorkspaceToDefault,
-    writeWorkspacePickerError,
-    writeInlineBaseUrlInherited,
-    effectiveWriteInlineBaseUrl,
-    writeInlineModelInherited,
-    effectiveWriteInlineModel,
-    setWriteDebugModalOpen,
-    loadWriteDebugEntries,
     scrollToAgentSection,
     agentsSectionRef,
     skillSectionRef,

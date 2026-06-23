@@ -52,10 +52,6 @@ import { TurnService } from '../services/turn-service.js'
 import { ReviewService } from '../services/review-service.js'
 import { UsageService } from '../services/usage-service.js'
 import type { UsageEvent } from '../contracts/events.js'
-import {
-  DEFAULT_MODEL_ENDPOINT_FORMAT,
-  type ModelEndpointFormat
-} from '../contracts/model-endpoint-format.js'
 import { SkillRuntime } from '../skills/skill-runtime.js'
 import { FileMemoryStore } from '../memory/memory-store.js'
 import { DelegationRuntime, FileDelegationStore } from '../delegation/delegation-runtime.js'
@@ -63,6 +59,7 @@ import { createChildAgentExecutor } from '../delegation/child-agent-executor.js'
 
 const GUI_RESEARCH_MCP_SERVER_NAME = 'gui_research'
 const DEFAULT_RESEARCH_SOURCES = ['arxiv', 'biorxiv', 'semantic_scholar'] as const
+const DEFAULT_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
 
 export type KunServeRuntimeOptions = {
   host: string
@@ -71,8 +68,7 @@ export type KunServeRuntimeOptions = {
   dataDir: string
   runtimeToken: string
   apiKey: string
-  baseUrl: string
-  endpointFormat?: ModelEndpointFormat
+  modelRouterBaseUrl: string
   model: string
   forceDefaultModel?: boolean
   approvalPolicy: ApprovalPolicy
@@ -100,6 +96,7 @@ export type KunServeHandle = NodeHttpServerHandle & {
 export async function createKunServeRuntime(
   options: KunServeRuntimeOptions
 ): Promise<ServerRuntime> {
+  const modelRouter = resolveModelRouterRuntimeEndpoint(options)
   await mkdir(options.dataDir, { recursive: true })
   const eventBus = new InMemoryEventBus()
   const stores = await createPersistentStores({
@@ -145,9 +142,9 @@ export async function createKunServeRuntime(
   const threadService = new ThreadService({ threadStore, sessionStore, events, ids, nowIso })
   await seedUsageCarryover({ threadStore, sessionStore, usageService })
   const modelClient = new DeepseekCompatModelClient({
-    baseUrl: options.baseUrl,
+    baseUrl: modelRouter.baseUrl,
     apiKey: options.apiKey,
-    endpointFormat: options.endpointFormat ?? DEFAULT_MODEL_ENDPOINT_FORMAT,
+    endpointFormat: 'responses',
     model: options.model,
     forceDefaultModel: options.forceDefaultModel
   })
@@ -345,7 +342,7 @@ export async function createKunServeRuntime(
       configPath: options.configPath,
       dataDir: options.dataDir,
       model: options.model,
-      endpointFormat: options.endpointFormat ?? DEFAULT_MODEL_ENDPOINT_FORMAT,
+      endpointFormat: 'responses',
       approvalPolicy: options.approvalPolicy,
       sandboxMode: options.sandboxMode,
       tokenEconomyMode: options.tokenEconomyMode,
@@ -375,6 +372,45 @@ export async function createKunServeRuntime(
         await stores.shutdown?.()
       }
     }
+  }
+}
+
+export function resolveModelRouterRuntimeEndpoint(options: KunServeRuntimeOptions): {
+  baseUrl: string
+} {
+  const baseUrl = normalizeModelRouterBaseUrl(options.modelRouterBaseUrl || DEFAULT_MODEL_ROUTER_BASE_URL)
+  if (!isLocalModelRouterBaseUrl(baseUrl)) {
+    throw new Error(`Kun serve must use the local Model Router /v1 endpoint, got ${redactUrlForError(baseUrl)}.`)
+  }
+  return { baseUrl }
+}
+
+function normalizeModelRouterBaseUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, '')
+  if (!trimmed) return DEFAULT_MODEL_ROUTER_BASE_URL
+  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`
+}
+
+function isLocalModelRouterBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'http:') return false
+    if (url.pathname.replace(/\/+$/, '') !== '/v1') return false
+    const host = url.hostname.toLowerCase()
+    return host === '127.0.0.1' || host === 'localhost' || host === '::1'
+  } catch {
+    return false
+  }
+}
+
+function redactUrlForError(value: string): string {
+  try {
+    const url = new URL(value)
+    url.username = ''
+    url.password = ''
+    return url.toString()
+  } catch {
+    return '[invalid url]'
   }
 }
 

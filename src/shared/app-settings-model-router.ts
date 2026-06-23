@@ -8,6 +8,11 @@ import {
   type ModelRouterSettingsPatchV1,
   type ModelRouterSettingsV1
 } from './app-settings-types'
+import {
+  isLocalModelRouterBaseUrl,
+  normalizeLocalModelRouterBaseUrl,
+  normalizeModelRouterBaseUrl
+} from './model-router-url'
 
 export function defaultModelRouterSettings(): ModelRouterSettingsV1 {
   return {
@@ -35,7 +40,7 @@ export function normalizeModelRouterSettings(
   const rawDefaultProfile = input?.profiles?.default
   return {
     enabled: input?.enabled !== false,
-    baseUrl: normalizeLocalModelRouterBaseUrl(input?.baseUrl, defaults.baseUrl),
+    baseUrl: normalizeLocalModelRouterBaseUrl(optionalString(input?.baseUrl), defaults.baseUrl),
     autoStart: input?.autoStart !== false,
     publicModelAlias: normalizeModelRouterPublicModelAlias(input?.publicModelAlias, defaults.publicModelAlias),
     runtimeApiKey: optionalString(input?.runtimeApiKey),
@@ -98,6 +103,15 @@ export function resolveRuntimeModelRouterSettings(settings: AppSettingsV1): {
   apiKey: string
   model: string
 } {
+  const rawBaseUrl = typeof (settings as { modelRouter?: { baseUrl?: unknown } }).modelRouter?.baseUrl === 'string'
+    ? (settings as { modelRouter?: { baseUrl?: string } }).modelRouter?.baseUrl?.trim() ?? ''
+    : ''
+  if (rawBaseUrl) {
+    const normalizedRaw = normalizeModelRouterBaseUrl(rawBaseUrl)
+    if (!isLocalModelRouterBaseUrl(normalizedRaw)) {
+      throw new Error('Model Router base URL must be local http://127.0.0.1, http://localhost, or http://[::1].')
+    }
+  }
   const modelRouter = getModelRouterSettings(settings)
   return {
     baseUrl: modelRouter.baseUrl,
@@ -125,12 +139,6 @@ function normalizeModelRouterMemberProvider(
     apiKey: optionalString(input?.apiKey),
     model: optionalString(input?.model)
   }
-}
-
-function normalizeLocalModelRouterBaseUrl(value: unknown, fallback: string): string {
-  const raw = typeof value === 'string' ? value.trim().replace(/\/+$/, '') : ''
-  const baseUrl = raw || fallback
-  return baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`
 }
 
 function normalizeModelRouterPublicModelAlias(value: unknown, fallback: string): string {

@@ -22,7 +22,11 @@ describe('createClaudeCodeAgentRuntimeAdapter', () => {
           available: true,
           server: 'mcp',
           toolName: 'computer_use',
-          backend: 'global-native'
+          backend: 'browser-cdp',
+          inputIsolation: 'agent-isolated',
+          affectsUserInput: false,
+          requiresHostFocus: false,
+          usesHostClipboard: false
         }
       }
     })

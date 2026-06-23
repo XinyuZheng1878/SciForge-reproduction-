@@ -1,33 +1,25 @@
 import type {
   AgentRuntimeId,
   AppSettingsV1,
-  ComputerUseBackendPreference,
   ComputerUseSettingsPatchV1,
   ComputerUseSettingsV1
 } from './app-settings-types'
 
-export const DEFAULT_COMPUTER_USE_BACKEND: ComputerUseBackendPreference = 'global-native'
+export const DEFAULT_COMPUTER_USE_BACKEND = 'browser-cdp'
 
 export function defaultComputerUseSettings(): ComputerUseSettingsV1 {
   return {
     enabled: true,
-    runtimeEnabled: defaultComputerUseRuntimeEnabled(),
-    backend: DEFAULT_COMPUTER_USE_BACKEND,
-    experimentalAppScopedBackend: false
+    runtimeEnabled: defaultComputerUseRuntimeEnabled()
   }
 }
 
 export function normalizeComputerUseSettings(
   input: ComputerUseSettingsPatchV1 | undefined
 ): ComputerUseSettingsV1 {
-  const defaults = defaultComputerUseSettings()
-  const experimentalAppScopedBackend = input?.experimentalAppScopedBackend === true
-  const backend = normalizeComputerUseBackend(input?.backend, experimentalAppScopedBackend)
   return {
     enabled: input?.enabled !== false,
-    runtimeEnabled: normalizeComputerUseRuntimeEnabled(input?.runtimeEnabled),
-    backend,
-    experimentalAppScopedBackend
+    runtimeEnabled: normalizeComputerUseRuntimeEnabled(input?.runtimeEnabled)
   }
 }
 
@@ -75,12 +67,4 @@ function normalizeComputerUseRuntimeEnabled(
     codex: input?.codex !== false && defaults.codex,
     claude: input?.claude !== false && defaults.claude
   }
-}
-
-function normalizeComputerUseBackend(
-  value: unknown,
-  experimentalAppScopedBackend: boolean
-): ComputerUseBackendPreference {
-  if (value === 'mac-app-scoped' && experimentalAppScopedBackend) return value
-  return DEFAULT_COMPUTER_USE_BACKEND
 }

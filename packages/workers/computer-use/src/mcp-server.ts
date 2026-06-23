@@ -9,7 +9,6 @@ import {
 } from './service.js'
 import type {
   ComputerUseActionRequest,
-  ComputerUseBackendKind,
   ComputerUseImage,
   ComputerUseMouseButton,
   ComputerUseReleaseReason,
@@ -42,6 +41,7 @@ const computerUseActionSchema = z.enum([
   'bind_target',
   'release_target',
   'diagnostics',
+  'navigate',
   'screenshot',
   'cursor_position',
   'mouse_move',
@@ -53,7 +53,7 @@ const computerUseActionSchema = z.enum([
   'wait'
 ])
 
-const backendSchema = z.enum(['global-native', 'mac-app-scoped'])
+const backendSchema = z.literal('browser-cdp')
 const mouseButtonSchema = z.enum(['left', 'right', 'middle'])
 const scrollDirectionSchema = z.enum(['up', 'down', 'left', 'right'])
 const riskCategorySchema = z.enum([
@@ -76,8 +76,10 @@ export function createComputerUseMcpServer(
 
   server.registerTool('computer_use', {
     description: [
-      'Shared SciForge computer-use extension for host UI control.',
-      'Use list_targets before binding. Use bind_target to acquire an app/window/desktop lease.',
+      'Shared SciForge computer-use extension for isolated browser GUI control.',
+      'Use list_targets before binding. Use bind_target to acquire the browser-cdp isolated target; it does not move the user mouse or keyboard.',
+      'For GUI/browser tasks, keep using navigate, screenshot, click, type, key, scroll, wait, and related actions in this tool; do not replace the workflow with shell/open/osascript/screencapture/pbpaste or direct scraping unless the user explicitly asks for that fallback.',
+      'Repeated screenshots are normal observation steps; use their latest visible state to decide the next UI action.',
       'If a target is already leased by another agent, the request is rejected with target_in_use instead of queued or preempted.',
       'All runtimes should use this single MCP tool instead of implementing parallel computer-use paths.'
     ].join(' '),
@@ -89,6 +91,7 @@ export function createComputerUseMcpServer(
       turnId: z.string().min(1).optional(),
       backend: backendSchema.optional(),
       targetId: z.string().min(1).optional(),
+      url: z.string().min(1).optional(),
       reason: z.string().min(1).optional(),
       x: z.number().optional(),
       y: z.number().optional(),
@@ -100,6 +103,7 @@ export function createComputerUseMcpServer(
       scrollDirection: scrollDirectionSchema.optional(),
       scrollAmount: z.number().optional(),
       text: z.string().optional(),
+      key: z.string().optional(),
       durationMs: z.number().int().min(0).max(60_000).optional(),
       riskIntent: z.string().min(1).optional(),
       riskCategories: z.array(riskCategorySchema).optional()
@@ -120,7 +124,7 @@ export function createComputerUseMcpServer(
             agentId: trustedContext.agentId,
             threadId: trustedContext.threadId,
             turnId: trustedContext.turnId,
-            backend: (args.backend ?? 'global-native') as ComputerUseBackendKind,
+            backend: args.backend ?? 'browser-cdp',
             targetId: args.targetId
           })
           return textAndStructured(result.ok ? 'computer_use target bound' : result.rejection.message, result, !result.ok)
@@ -137,6 +141,7 @@ export function createComputerUseMcpServer(
           const result = await service.diagnostics()
           return textAndStructured(renderDiagnostics(result), result, !result.available)
         }
+        case 'navigate':
         case 'screenshot':
         case 'cursor_position':
         case 'mouse_move':
@@ -153,6 +158,7 @@ export function createComputerUseMcpServer(
             action: args.action,
             computerUseSessionId,
             targetId: args.targetId,
+            url: args.url,
             x: args.x,
             y: args.y,
             startX: args.startX,
@@ -163,6 +169,7 @@ export function createComputerUseMcpServer(
             scrollDirection: args.scrollDirection as ComputerUseScrollDirection | undefined,
             scrollAmount: args.scrollAmount,
             text: args.text,
+            key: args.key,
             durationMs: args.durationMs,
             agentId: trustedContext.agentId,
             threadId: trustedContext.threadId,

@@ -1,38 +1,20 @@
 import type { AppSettingsV1 } from '../../shared/app-settings-types'
 import { resolveRuntimeModelRouterSettings } from '../../shared/app-settings-model-router'
+import { buildModelRouterResponsesUrl } from '../../shared/model-router-url'
 import { redactSecretText } from '../../shared/secret-redaction'
 import {
   SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS,
   SPEECH_TRANSCRIPTION_MAX_DURATION_MS,
-  normalizeSpeechToTextSettings,
   resolveSpeechToTextSettings,
   type SpeechToTextSettingsV1,
   type SpeechTranscriptionRequest,
   type SpeechTranscriptionResult
 } from '../../shared/speech-to-text'
 
-const FILE_EXTENSION_BY_MIME: Record<string, string> = {
-  'audio/wav': 'wav',
-  'audio/x-wav': 'wav',
-  'audio/mpeg': 'mp3',
-  'audio/mp4': 'm4a',
-  'audio/webm': 'webm',
-  'audio/ogg': 'ogg',
-  'audio/flac': 'flac'
-}
-
 export function isSpeechToTextConfigured(
   speechToText: Pick<SpeechToTextSettingsV1, 'enabled' | 'protocol' | 'baseUrl' | 'apiKey' | 'model'>
 ): boolean {
-  if (speechToText.protocol === 'mimo-asr') {
-    return speechToText.enabled && Boolean(speechToText.model.trim())
-  }
-  return (
-    speechToText.enabled &&
-    Boolean(speechToText.baseUrl.trim()) &&
-    Boolean(speechToText.apiKey.trim()) &&
-    Boolean(speechToText.model.trim())
-  )
+  return speechToText.enabled && speechToText.protocol === 'mimo-asr' && Boolean(speechToText.model.trim())
 }
 
 export async function requestSpeechTranscription(
@@ -40,9 +22,7 @@ export async function requestSpeechTranscription(
   request: SpeechTranscriptionRequest,
   options: { fetchImpl?: typeof fetch } = {}
 ): Promise<SpeechTranscriptionResult> {
-  const speechToText = request.speechToText
-    ? normalizeSpeechToTextSettings(request.speechToText)
-    : resolveSpeechToTextSettings(settings)
+  const speechToText = resolveSpeechToTextSettings(settings)
   if (!isSpeechToTextConfigured(speechToText)) {
     return { ok: false, message: 'speech-to-text provider is not configured' }
   }
@@ -51,9 +31,7 @@ export async function requestSpeechTranscription(
 
   const fetchImpl = options.fetchImpl ?? fetch
   try {
-    const text = speechToText.protocol === 'mimo-asr'
-      ? await transcribeViaMimoAsr(settings, speechToText, request, fetchImpl)
-      : await transcribeViaOpenAiTranscriptions(speechToText, request, fetchImpl)
+    const text = await transcribeViaMimoAsr(settings, speechToText, request, fetchImpl)
     const trimmed = text.trim()
     if (!trimmed) return { ok: false, message: 'transcription result is empty' }
     return { ok: true, text: trimmed }
@@ -78,10 +56,6 @@ function validateAudioPayload(request: SpeechTranscriptionRequest): string | nul
   return null
 }
 
-/**
- * Xiaomi MiMo ASR uses an OpenAI-style chat completions envelope with the
- * audio sent as a base64 data URI. It remains just a protocol option here.
- */
 async function transcribeViaMimoAsr(
   settings: AppSettingsV1,
   speechToText: SpeechToTextSettingsV1,
@@ -89,7 +63,7 @@ async function transcribeViaMimoAsr(
   fetchImpl: typeof fetch
 ): Promise<string> {
   const router = resolveRuntimeModelRouterSettings(settings)
-  const response = await fetchImpl(joinSpeechApiUrl(router.baseUrl, 'responses'), {
+  const response = await fetchImpl(buildModelRouterResponsesUrl(router.baseUrl), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -138,35 +112,6 @@ async function transcribeViaMimoAsr(
   throw new Error('speech response has no transcript content')
 }
 
-/** Standard OpenAI-style multipart upload to {baseUrl}/audio/transcriptions. */
-async function transcribeViaOpenAiTranscriptions(
-  speechToText: SpeechToTextSettingsV1,
-  request: SpeechTranscriptionRequest,
-  fetchImpl: typeof fetch
-): Promise<string> {
-  const audio = Buffer.from(request.audioBase64, 'base64')
-  const form = new FormData()
-  const mimeType = request.mimeType.trim()
-  const extension = FILE_EXTENSION_BY_MIME[mimeType.toLowerCase()] ?? 'wav'
-  form.append('file', new Blob([new Uint8Array(audio)], { type: mimeType }), `recording.${extension}`)
-  form.append('model', speechToText.model)
-  form.append('response_format', 'json')
-  if (speechToText.language && speechToText.language !== 'auto') {
-    form.append('language', speechToText.language)
-  }
-  const response = await fetchImpl(joinSpeechApiUrl(speechToText.baseUrl, 'audio/transcriptions'), {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${speechToText.apiKey}` },
-    body: form,
-    signal: AbortSignal.timeout(speechToText.timeoutMs)
-  })
-  const body = await response.text()
-  if (!response.ok) throw new SpeechHttpError(response.status, body)
-  const parsed = JSON.parse(body) as { text?: unknown }
-  if (typeof parsed.text !== 'string') throw new Error('speech response has no transcript text')
-  return parsed.text
-}
-
 export class SpeechHttpError extends Error {
   readonly body: string
 
@@ -178,10 +123,6 @@ export class SpeechHttpError extends Error {
     super(`HTTP ${status}: ${redactedBody.slice(0, 500)}`)
     this.body = redactedBody
   }
-}
-
-export function joinSpeechApiUrl(baseUrl: string, path: string): string {
-  return `${baseUrl.trim().replace(/\/+$/, '')}/${path}`
 }
 
 function describeTranscriptionError(error: unknown, timeoutMs: number): string {

@@ -7,19 +7,15 @@ import { Check, ChevronDown, ChevronRight, Copy, FileEdit, Loader2, MessageSquar
 import type { ChatBlock, RuntimeDisclosureMetadata, ToolBlock, UserInputAnswer, UserInputQuestion } from '../../agent/types'
 import { extractUnifiedDiffText } from '../../lib/diff-stats'
 import { useChatStore } from '../../store/chat-store'
-import { parseWritePromptForDisplay } from '../../write/quoted-selection'
-import type { PdfAssistantAnswerSaver, PdfAssistantAnswerSaveRequest } from '../../write/pdf-assistant-annotation-save'
 import { parseClawUserPromptForDisplay, type ClawUserPromptDisplay } from '@shared/app-settings'
 import { DiffView } from '../DiffView'
 import { AssistantMarkdown } from './AssistantMarkdown'
 import { TimelineImagesFromMeta, timelineImagesFromMeta } from './message-timeline-media'
-import { ModelMetaTag, WritePromptMetaDisclosure } from './message-timeline-cards'
+import { ModelMetaTag } from './message-timeline-cards'
 import { readNumber, formatDuration, formatToolTitle } from './message-timeline-tools'
 import { clawThreadRemoteBindingsFromChannels } from '../../store/chat-store-helpers'
 
 const COPY_FEEDBACK_RESET_MS = 1600
-
-export type SaveAssistantToPdfAnnotation = PdfAssistantAnswerSaver
 
 /**
  * User message bubble with hover affordance to rewind/edit. Click the rewind
@@ -40,13 +36,7 @@ function UserMessageBubble({
   const rewindAndResend = useChatStore((s) => s.rewindAndResend)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(block.text)
-  const [writeMetaOpen, setWriteMetaOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const parsedWritePrompt = useMemo(() => {
-    if (route !== 'write') return null
-    const parsed = parseWritePromptForDisplay(block.text)
-    return parsed?.userInput.trim() ? parsed : null
-  }, [block.text, route])
   const metaDisplayText =
     typeof block.meta?.displayText === 'string' && block.meta.displayText.trim()
       ? block.meta.displayText.trim()
@@ -71,7 +61,7 @@ function UserMessageBubble({
     () => messageSourceLabel(block, parsedClawPrompt, remoteBinding?.providerLabel),
     [block, parsedClawPrompt, remoteBinding]
   )
-  const displayText = parsedMetaClawPrompt?.text ?? metaDisplayText ?? parsedWritePrompt?.userInput ?? parsedClawPrompt?.text ?? block.text
+  const displayText = parsedMetaClawPrompt?.text ?? metaDisplayText ?? parsedClawPrompt?.text ?? block.text
   const canEdit = !metaDisplayText
   const showClawInboundCard = route === 'claw' && parsedClawPrompt?.inbound === true
 
@@ -86,10 +76,6 @@ function UserMessageBubble({
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 360)}px`
   }, [editing])
-
-  useEffect(() => {
-    setWriteMetaOpen(false)
-  }, [block.id])
 
   const startEdit = (): void => {
     if (busy || !canEdit) return
@@ -173,13 +159,6 @@ function UserMessageBubble({
           <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-left">
             {displayText}
           </div>
-          {parsedWritePrompt ? (
-            <WritePromptMetaDisclosure
-              display={parsedWritePrompt}
-              expanded={writeMetaOpen}
-              onToggle={() => setWriteMetaOpen((value) => !value)}
-            />
-          ) : null}
           <MessageSourceTag label={sourceLabel} align="right" />
           <RuntimeMetaChips meta={block.meta} align="right" hideAttachments />
         </div>
@@ -855,14 +834,10 @@ function formatMessageDateTime(input: string, locale: string): string {
 
 export function MessageBubble({
   block,
-  nested = false,
-  pdfAnnotationThreadIds = [],
-  onSaveAssistantToPdfAnnotation
+  nested = false
 }: {
   block: ChatBlock
   nested?: boolean
-  pdfAnnotationThreadIds?: string[]
-  onSaveAssistantToPdfAnnotation?: SaveAssistantToPdfAnnotation | null
 }): ReactElement {
   const { t, i18n } = useTranslation('common')
   const resolveApproval = useChatStore((s) => s.resolveApproval)
@@ -871,19 +846,9 @@ export function MessageBubble({
   }
   if (block.kind === 'assistant') {
     const streaming = block.id === 'live-assistant'
-    const canSaveToPdfAnnotation =
-      !streaming && pdfAnnotationThreadIds.length > 0 && typeof onSaveAssistantToPdfAnnotation === 'function'
     const createdAtLabel = block.createdAt
       ? formatMessageDateTime(block.createdAt, i18n.language)
       : null
-    const saveToPdfAnnotation = (kind: PdfAssistantAnswerSaveRequest['kind']): void => {
-      onSaveAssistantToPdfAnnotation?.({
-        messageId: block.id,
-        text: block.text,
-        threadIds: pdfAnnotationThreadIds,
-        kind
-      })
-    }
     return (
       <div className="group/message flex min-w-0 max-w-full flex-col">
         <div className="ds-markdown ds-chat-answer min-w-0 max-w-full text-ds-ink">
@@ -894,40 +859,6 @@ export function MessageBubble({
           <div className="mt-1 flex min-h-5 min-w-0 flex-wrap items-center justify-between gap-2 text-[11.5px] text-ds-faint opacity-0 transition duration-150 group-hover/message:opacity-100">
             <span className="min-w-0 truncate">{createdAtLabel ?? ''}</span>
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
-              {canSaveToPdfAnnotation ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => saveToPdfAnnotation('answer')}
-                    className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-medium text-ds-faint transition hover:bg-ds-hover hover:text-ds-ink"
-                    title={t('writePdfAnnotationSaveAnswer')}
-                    aria-label={t('writePdfAnnotationSaveAnswer')}
-                  >
-                    <FileEdit className="h-3.5 w-3.5" strokeWidth={1.8} />
-                    <span>{t('writePdfAnnotationSaveAnswerShort')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => saveToPdfAnnotation('note')}
-                    className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-medium text-ds-faint transition hover:bg-ds-hover hover:text-ds-ink"
-                    title={t('writePdfAnnotationSaveNote')}
-                    aria-label={t('writePdfAnnotationSaveNote')}
-                  >
-                    <MessageSquareQuote className="h-3.5 w-3.5" strokeWidth={1.8} />
-                    <span>{t('writePdfAnnotationSaveNoteShort')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => saveToPdfAnnotation('translation')}
-                    className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-medium text-ds-faint transition hover:bg-ds-hover hover:text-ds-ink"
-                    title={t('writePdfAnnotationSaveTranslation')}
-                    aria-label={t('writePdfAnnotationSaveTranslation')}
-                  >
-                    <FileEdit className="h-3.5 w-3.5" strokeWidth={1.8} />
-                    <span>{t('writePdfAnnotationSaveTranslationShort')}</span>
-                  </button>
-                </>
-              ) : null}
               <CopyFeedbackButton text={block.text} />
             </div>
           </div>

@@ -8,11 +8,9 @@ import type {
   RuntimeStatusEventPayload,
   ThreadEventSink,
   ToolBlock,
-  ToolEventPayload,
   UserInputQuestion
 } from '../agent/types'
 import { getProvider } from '../agent/registry'
-import { rendererRuntimeClient } from '../agent/runtime-client'
 import i18n from '../i18n'
 import { describeRuntimeError, formatRuntimeError, getRuntimeErrorCode } from '../lib/format-runtime-error'
 import { isClawWorkspacePath, isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
@@ -28,11 +26,7 @@ import {
   threadSnapshotLooksRunning,
   upsertUserBlock
 } from './chat-store-runtime-helpers'
-import {
-  isWriteThreadId
-} from '../write/write-thread-registry'
 import { isEmptySddAssistantThreadCandidate, isSddAssistantThread } from '../sdd/sdd-thread-registry'
-import { useWriteWorkspaceStore } from '../write/write-workspace-store'
 import {
   armBusyWatchdog as armBusyWatchdogImpl,
   clearBusyWatchdog,
@@ -42,8 +36,6 @@ import {
 
 const BUSY_WATCHDOG_MS = 180_000
 const MAX_BUSY_RECOVERY_ATTEMPTS = 3
-const WRITE_BUSY_WATCHDOG_MS = 75_000
-const WRITE_MAX_BUSY_RECOVERY_ATTEMPTS = 1
 const MAX_RUNTIME_EVENT_TIMER_AGE_MS = 30 * 60_000
 const CLOCK_SKEW_TOLERANCE_MS = 5_000
 const RUNTIME_STREAM_RECOVERING_KEY = 'common:runtimeStreamRecovering'
@@ -167,36 +159,6 @@ function isInterruptSettledError(error: unknown, message: string): boolean {
     lowered.includes('aborted') ||
     lowered.includes('cancelled') ||
     lowered.includes('canceled')
-}
-
-export async function readActiveWriteWorkspace(fallbackWorkspaceRoot: string): Promise<string> {
-  try {
-    const settings = await rendererRuntimeClient.getSettings()
-    return normalizeWorkspaceRoot(
-      settings.write.activeWorkspaceRoot ||
-      settings.write.defaultWorkspaceRoot ||
-      settings.write.workspaces[0] ||
-      fallbackWorkspaceRoot
-    )
-  } catch {
-    return normalizeWorkspaceRoot(fallbackWorkspaceRoot)
-  }
-}
-
-export async function readWriteWorkspaceRoots(): Promise<string[]> {
-  try {
-    const settings = await rendererRuntimeClient.getSettings()
-    const roots = [
-      settings.write.defaultWorkspaceRoot,
-      settings.write.activeWorkspaceRoot,
-      ...settings.write.workspaces
-    ]
-      .map((workspaceRoot) => normalizeWorkspaceRoot(workspaceRoot))
-      .filter(Boolean)
-    return [...new Set(roots)]
-  } catch {
-    return []
-  }
 }
 
 export function runtimeErrorDetail(error: unknown): string {
@@ -343,6 +305,24 @@ function flushLiveReasoningOnly(state: ChatState): { blocks: ChatBlock[]; change
   }
 }
 
+function dedupeChatBlocksById(blocks: ChatBlock[]): ChatBlock[] {
+  const seen = new Set<string>()
+  const next: ChatBlock[] = []
+  let changed = false
+
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    const block = blocks[index]
+    if (seen.has(block.id)) {
+      changed = true
+      continue
+    }
+    seen.add(block.id)
+    next.push(block)
+  }
+
+  return changed ? next.reverse() : blocks
+}
+
 function upsertAssistantMessageBlock(
   blocks: ChatBlock[],
   ev: AssistantMessageEventPayload
@@ -387,7 +367,7 @@ function insertCanonicalAssistantBlock(
       existing.createdAt === assistant.createdAt &&
       existing.meta === assistant.meta
     ) {
-      return blocks
+      return dedupeChatBlocksById(blocks)
     }
     const next = [...blocks]
     next[existingIndex] = {
@@ -396,7 +376,7 @@ function insertCanonicalAssistantBlock(
       text: assistant.text,
       ...(assistant.meta ? { meta: assistant.meta } : {})
     }
-    return next
+    return dedupeChatBlocksById(next)
   }
 
   const bounds = userBlockId ? turnBoundsForUserBlock(blocks, userBlockId) : null
@@ -417,13 +397,13 @@ function insertCanonicalAssistantBlock(
         text: assistant.text,
         ...(assistant.meta ? { meta: assistant.meta } : {})
       }
-      return next
+      return dedupeChatBlocksById(next)
     }
   }
 
   const next = [...blocks]
   next.splice(bounds?.end ?? blocks.length, 0, assistant)
-  return next
+  return dedupeChatBlocksById(next)
 }
 
 function mergeCanonicalAssistantBlocks(current: ChatBlock[], canonical: ChatBlock[]): ChatBlock[] {
@@ -439,7 +419,7 @@ function mergeCanonicalAssistantBlocks(current: ChatBlock[], canonical: ChatBloc
     next = insertCanonicalAssistantBlock(next, block, currentUserBlockId)
   }
 
-  return next
+  return dedupeChatBlocksById(next)
 }
 
 function goalStatusText(status: string): string {
@@ -491,57 +471,12 @@ export function isCodeThread(
     !isInternalTemporaryWorkspace(thread.workspace) &&
     !isClawWorkspacePath(thread.workspace) &&
     !isClawThread(thread, clawChannels) &&
-    !isWriteThreadId(thread.id) &&
     !isSddAssistantThread(thread) &&
     !isEmptySddAssistantThreadCandidate(thread)
 }
 
 export function latestThread(threads: NormalizedThread[]): NormalizedThread | null {
   return [...threads].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0] ?? null
-}
-
-function normalizeFilePathForMatch(path?: string | null): string {
-  return path?.trim().replace(/\\/g, '/').replace(/\/+$/, '') ?? ''
-}
-
-function isAbsoluteFilePath(path: string): boolean {
-  return path.startsWith('/') || /^[A-Za-z]:\//.test(path)
-}
-
-function resolveWriteToolFilePath(filePath: string | undefined, workspaceRoot: string): string {
-  const raw = normalizeFilePathForMatch(filePath)
-  if (!raw) return ''
-  if (isAbsoluteFilePath(raw)) return raw
-  return `${normalizeFilePathForMatch(workspaceRoot)}/${raw.replace(/^\.?\//, '')}`
-}
-
-function notifyWriteWorkspaceFileRefresh(
-  get: () => ChatState,
-  event?: Pick<ToolEventPayload, 'filePath' | 'status' | 'toolKind'>
-): void {
-  if (get().route !== 'write') return
-  if (event && (event.toolKind !== 'file_change' || event.status !== 'success')) return
-
-  const writeState = useWriteWorkspaceStore.getState()
-  const workspaceRoot = normalizeFilePathForMatch(writeState.workspaceRoot)
-  const activeFilePath = normalizeFilePathForMatch(writeState.activeFilePath)
-  if (!workspaceRoot || !activeFilePath) return
-
-  const candidatePath = resolveWriteToolFilePath(event?.filePath, workspaceRoot)
-  const hasCandidate = candidatePath.length > 0
-  const candidateInWorkspace = hasCandidate
-    ? candidatePath === workspaceRoot || candidatePath.startsWith(`${workspaceRoot}/`)
-    : true
-  if (!candidateInWorkspace) return
-
-  void useWriteWorkspaceStore.getState().refreshWorkspace(workspaceRoot)
-
-  if (hasCandidate && candidatePath !== activeFilePath) return
-  void useWriteWorkspaceStore.getState().syncActiveFileFromDisk(workspaceRoot, {
-    path: activeFilePath,
-    animate: true,
-    force: true
-  })
 }
 
 function runtimeStatusText(event: RuntimeStatusEventPayload): string {
@@ -596,13 +531,10 @@ export function armBusyWatchdog(
   set: (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void,
   get: () => ChatState
 ): void {
-  const isWriteRoute = get().route === 'write'
-  const timeoutMs = isWriteRoute ? WRITE_BUSY_WATCHDOG_MS : BUSY_WATCHDOG_MS
-  const maxAttempts = isWriteRoute ? WRITE_MAX_BUSY_RECOVERY_ATTEMPTS : MAX_BUSY_RECOVERY_ATTEMPTS
-  const timeoutMinutes = Math.max(1, Math.round((timeoutMs * (maxAttempts + 1)) / 60_000))
+  const timeoutMinutes = Math.max(1, Math.round((BUSY_WATCHDOG_MS * (MAX_BUSY_RECOVERY_ATTEMPTS + 1)) / 60_000))
   armBusyWatchdogImpl(set, get, {
-    timeoutMs,
-    maxAttempts,
+    timeoutMs: BUSY_WATCHDOG_MS,
+    maxAttempts: MAX_BUSY_RECOVERY_ATTEMPTS,
     finalizeBusyState: finalizeTurnTiming,
     flushLiveBlocks,
     busyTimeoutMessage: () => i18n.t('common:busyTimeout', { minutes: timeoutMinutes })
@@ -682,6 +614,7 @@ function refreshCompletedThreadSnapshot(
 export type ThreadEventSinkBinding = {
   threadId?: string
   signal?: AbortSignal
+  sinceSeq?: number
 }
 
 export function buildThreadEventSink(
@@ -690,6 +623,7 @@ export function buildThreadEventSink(
   binding: ThreadEventSinkBinding = {}
 ): ThreadEventSink {
   const boundThreadId = binding.threadId?.trim() ?? ''
+  let appliedDeltaSeqFloor = binding.sinceSeq ?? 0
   const isCurrentStream = (): boolean => {
     if (binding.signal?.aborted) return false
     return !boundThreadId || get().activeThreadId === boundThreadId
@@ -700,7 +634,7 @@ export function buildThreadEventSink(
       if (!isCurrentStream()) return
       resetBusyRecoveryAttempts()
       set((s) => ({
-        lastSeq: seq,
+        lastSeq: Math.max(s.lastSeq, seq),
         error: clearRuntimeStreamRecoveringError(s.error)
       }))
     },
@@ -753,10 +687,19 @@ export function buildThreadEventSink(
           error: clearRuntimeStreamRecoveringError(s.error)
         }
       }),
-    onDeltas: (deltas) =>
+    onDeltas: (rawDeltas) => {
+      if (!isCurrentStream()) return
+      const deltas: typeof rawDeltas = []
+      for (const delta of rawDeltas) {
+        if (typeof delta.seq === 'number') {
+          if (delta.seq <= appliedDeltaSeqFloor) continue
+          appliedDeltaSeqFloor = delta.seq
+        }
+        deltas.push(delta)
+      }
+      if (deltas.length === 0) return
       set((s) => {
         if (!isCurrentStream()) return {}
-        if (deltas.length === 0) return {}
         resetBusyRecoveryAttempts()
         const nextError = clearRuntimeStreamRecoveringError(s.error)
         const seqs = deltas
@@ -810,10 +753,10 @@ export function buildThreadEventSink(
             ? { turnReasoningLastAtByUserId: nextReasoningLastAtByUserId }
             : {})
         }
-      }),
+      })
+    },
     onTool: (ev) => {
       if (!isCurrentStream()) return
-      notifyWriteWorkspaceFileRefresh(get, ev)
       set((s) => {
         resetBusyRecoveryAttempts()
         // Restore busy state on tool events (same reasoning as onDelta).
@@ -1232,7 +1175,6 @@ export function buildThreadEventSink(
         ).catch(() => undefined)
       }
       notifyTurnComplete(completedThreadId, completedState, completedKey)
-      notifyWriteWorkspaceFileRefresh(get)
       syncTurnCompletionPoll(set, get)
       void get().refreshThreads()
       void get().drainQueuedMessages()

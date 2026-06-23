@@ -787,6 +787,7 @@ describe('CodexRuntimeService compatibility operations', () => {
 
     expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
       dynamicTools: [{
+        type: 'function',
         name: 'research_search',
         description: 'Search research papers.',
         inputSchema: { type: 'object', properties: { query: { type: 'string' } } }
@@ -927,6 +928,7 @@ describe('CodexRuntimeService compatibility operations', () => {
     expect(config).not.toContain('schedule-secret')
     expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
       dynamicTools: [{
+        type: 'function',
         name: 'gui_schedule_list',
         description: 'List schedule tasks.',
         inputSchema: { type: 'object', properties: {} }
@@ -1591,6 +1593,44 @@ describe('CodexRuntimeService compatibility operations', () => {
     await expect(service.compactThread('thread-1')).resolves.toEqual({ ok: true })
 
     expect(createClient).not.toHaveBeenCalled()
+  })
+
+  it('rematerializes persistent backend threads during compact', async () => {
+    const storageRoot = await tempRoot()
+    await new CodexThreadStore({ rootDir: storageRoot }).upsert({
+      guiThreadId: 'gui-thread-1',
+      codexThreadId: 'codex-thread-old',
+      workspace: '/tmp/workspace',
+      title: 'Long Codex thread'
+    })
+    const client = controllableClient()
+    vi.mocked(client.startThread).mockResolvedValue({
+      thread: { id: 'codex-thread-new', cwd: '/tmp/workspace' }
+    })
+    const createClient = vi.fn(() => client)
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient
+    })
+
+    await expect(service.compactThread('gui-thread-1', 'auto context compaction')).resolves.toEqual({ ok: true })
+
+    expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/tmp/workspace',
+      serviceName: 'SciForge',
+      ephemeral: false,
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+      modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID
+    }))
+    expect(client.startTurn).not.toHaveBeenCalled()
+    await expect(new CodexThreadStore({ rootDir: storageRoot }).get('gui-thread-1')).resolves.toMatchObject({
+      guiThreadId: 'gui-thread-1',
+      codexThreadId: 'codex-thread-new',
+      workspace: '/tmp/workspace',
+      title: 'Long Codex thread'
+    })
   })
 
   it('fails fork and resume closed with structured recoverable errors', async () => {

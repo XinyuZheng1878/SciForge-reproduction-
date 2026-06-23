@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import {
+  COMPUTER_USE_MCP_TOOL_NAME,
+  GUI_COMPUTER_USE_MCP_SERVER_NAME
+} from '../../computer-use-mcp-config'
 
 export type CodexDynamicMcpServerConfig = {
   id: string
@@ -13,6 +17,7 @@ export type CodexDynamicMcpServerConfig = {
 }
 
 export type CodexAppServerDynamicToolFunctionSpec = {
+  type: 'function'
   namespace?: string
   name: string
   description: string
@@ -113,8 +118,6 @@ type ServerState = {
   lifecycleEvents: CodexDynamicMcpLifecycleEvent[]
 }
 
-const GUI_COMPUTER_USE_MCP_SERVER_ID = 'gui_computer_use'
-const GUI_COMPUTER_USE_TOOL_NAME = 'computer_use'
 const DEFAULT_TIMEOUT_MS = 30_000
 
 export function createCodexDynamicMcpToolBridge(
@@ -180,9 +183,10 @@ export class CodexDynamicMcpToolBridge {
     const entries = await this.availableCatalogEntries()
     assignFlatToolNames(entries)
     return entries.map(({ tool }) => ({
+      type: 'function',
       name: tool.flatName ?? tool.dynamicName,
       description: tool.description || tool.title || `MCP tool ${tool.originalName}`,
-      inputSchema: tool.inputSchema ?? { type: 'object', properties: {} }
+      inputSchema: providerSafeToolInputSchema(tool.inputSchema)
     }))
   }
 
@@ -190,37 +194,31 @@ export class CodexDynamicMcpToolBridge {
     request: CodexAppServerDynamicToolCallRequest,
     options: { signal?: AbortSignal } = {}
   ): Promise<CodexAppServerDynamicToolCallResponse> {
-    if (this.closedReason) {
-      return failedDynamicToolResponse(`MCP dynamic tool bridge is closed: ${this.closedReason}.`)
-    }
-    const resolved = await this.resolveTool(request)
-    if (!resolved) {
-      const name = request.namespace ? `${request.namespace}.${request.tool}` : request.tool
-      return failedDynamicToolResponse(`No configured MCP dynamic tool matched ${name}.`)
-    }
-    try {
-      const callArguments = mcpToolArgumentsForRequest(resolved.state, resolved.tool, request)
-      this.noteComputerUseSession(resolved.state, resolved.tool, callArguments)
-      const client = await this.clientFor(resolved.state)
-      const result = await this.withTrackedRequest(
-        resolved.state,
-        {
-          requestId: String(request.requestId),
-          threadId: request.threadId,
-          turnId: request.turnId,
-          toolName: resolved.tool.originalName
-        },
-        options.signal,
-        (signal) => client.callTool(
-          { name: resolved.tool.originalName, arguments: callArguments },
-          { signal, timeout: resolved.state.config.timeoutMs }
+    let resolved: { state: ServerState; tool: CatalogTool } | null = null
+    let retriedClosedConnection = false
+    for (;;) {
+      try {
+        if (this.closedReason) {
+          return failedDynamicToolResponse(`MCP dynamic tool bridge is closed: ${this.closedReason}.`)
+        }
+        resolved = await this.resolveTool(request)
+        if (!resolved) {
+          const name = request.namespace ? `${request.namespace}.${request.tool}` : request.tool
+          return failedDynamicToolResponse(`No configured MCP dynamic tool matched ${name}.`)
+        }
+        return await this.invokeResolvedTool(resolved, request, options)
+      } catch (error) {
+        if (!retriedClosedConnection && isClosedMcpConnectionError(error) && !options.signal?.aborted) {
+          retriedClosedConnection = true
+          await this.resetClosedConnection(resolved?.state)
+          resolved = null
+          continue
+        }
+        const name = resolved?.tool.originalName ?? (request.namespace ? `${request.namespace}.${request.tool}` : request.tool)
+        return failedDynamicToolResponse(
+          `MCP tool ${name} failed: ${error instanceof Error ? error.message : String(error)}`
         )
-      )
-      return dynamicToolResponseFromMcpResult(result)
-    } catch (error) {
-      return failedDynamicToolResponse(
-        `MCP tool ${resolved.tool.originalName} failed: ${error instanceof Error ? error.message : String(error)}`
-      )
+      }
     }
   }
 
@@ -257,12 +255,50 @@ export class CodexDynamicMcpToolBridge {
     }
 
     const matches: Array<{ state: ServerState; tool: CatalogTool }> = []
+    let firstCatalogError: unknown = null
+    let loadedCatalogCount = 0
     for (const state of this.states) {
-      const catalog = await this.catalogFor(state)
+      let catalog: CatalogTool[]
+      try {
+        catalog = await this.catalogFor(state)
+      } catch (error) {
+        firstCatalogError ??= error
+        // Unqualified tool lookup should not let one optional MCP server block
+        // unrelated dynamic tools from later servers.
+        continue
+      }
+      loadedCatalogCount += 1
       const tool = catalog.find((candidate) => dynamicToolCallNames(candidate).has(normalized.tool))
       if (tool) matches.push({ state, tool })
     }
+    if (loadedCatalogCount === 0 && firstCatalogError) throw firstCatalogError
     return matches.length === 1 ? matches[0] : null
+  }
+
+  private async invokeResolvedTool(
+    resolved: { state: ServerState; tool: CatalogTool },
+    request: CodexAppServerDynamicToolCallRequest,
+    options: { signal?: AbortSignal }
+  ): Promise<CodexAppServerDynamicToolCallResponse> {
+    const { state, tool } = resolved
+    const callArguments = mcpToolArgumentsForRequest(state, tool, request)
+    this.noteComputerUseSession(state, tool, callArguments)
+    const client = await this.clientFor(state)
+    const result = await this.withTrackedRequest(
+      state,
+      {
+        requestId: String(request.requestId),
+        threadId: request.threadId,
+        turnId: request.turnId,
+        toolName: tool.originalName
+      },
+      options.signal,
+      (signal) => client.callTool(
+        { name: tool.originalName, arguments: callArguments },
+        { signal, timeout: state.config.timeoutMs }
+      )
+    )
+    return dynamicToolResponseFromMcpResult(result)
   }
 
   private async availableCatalogEntries(): Promise<Array<{ state: ServerState; tool: CatalogTool }>> {
@@ -281,14 +317,26 @@ export class CodexDynamicMcpToolBridge {
 
   private async catalogFor(state: ServerState): Promise<CatalogTool[]> {
     if (state.catalog) return state.catalog
-    if (!state.catalogPromise) {
-      state.catalogPromise = this.loadCatalog(state).catch((error) => {
-        state.catalogPromise = undefined
+    let retriedClosedConnection = false
+    for (;;) {
+      if (!state.catalogPromise) {
+        state.catalogPromise = this.loadCatalog(state).catch((error) => {
+          state.catalogPromise = undefined
+          throw error
+        })
+      }
+      try {
+        state.catalog = await state.catalogPromise
+        return state.catalog
+      } catch (error) {
+        if (!retriedClosedConnection && isClosedMcpConnectionError(error)) {
+          retriedClosedConnection = true
+          await this.resetClosedConnection(state)
+          continue
+        }
         throw error
-      })
+      }
     }
-    state.catalog = await state.catalogPromise
-    return state.catalog
   }
 
   private async loadCatalog(state: ServerState): Promise<CatalogTool[]> {
@@ -331,6 +379,18 @@ export class CodexDynamicMcpToolBridge {
       })
     }
     return state.clientPromise
+  }
+
+  private async resetClosedConnection(state?: ServerState): Promise<void> {
+    const states = state ? [state] : this.states
+    await Promise.all(states.map(async (candidate) => {
+      const client = candidate.client ?? await candidate.clientPromise?.catch(() => undefined)
+      candidate.client = undefined
+      candidate.clientPromise = undefined
+      candidate.catalog = undefined
+      candidate.catalogPromise = undefined
+      await client?.close().catch(() => undefined)
+    }))
   }
 
   private async withTrackedRequest<T>(
@@ -378,7 +438,7 @@ export class CodexDynamicMcpToolBridge {
   }
 
   private noteComputerUseSession(state: ServerState, tool: CatalogTool, args: Record<string, unknown>): void {
-    if (state.config.id !== GUI_COMPUTER_USE_MCP_SERVER_ID || tool.originalName !== GUI_COMPUTER_USE_TOOL_NAME) return
+    if (state.config.id !== GUI_COMPUTER_USE_MCP_SERVER_NAME || tool.originalName !== COMPUTER_USE_MCP_TOOL_NAME) return
     const sessionId = stringValue(args.computerUseSessionId)
     if (!sessionId) return
     if (args.action === 'release_target') {
@@ -393,7 +453,7 @@ export class CodexDynamicMcpToolBridge {
     client: CodexDynamicMcpClient,
     reason: CodexDynamicMcpReleaseReason
   ): Promise<void> {
-    if (state.config.id !== GUI_COMPUTER_USE_MCP_SERVER_ID || state.trackedComputerUseSessionIds.size === 0) return
+    if (state.config.id !== GUI_COMPUTER_USE_MCP_SERVER_NAME || state.trackedComputerUseSessionIds.size === 0) return
     const sessionIds = [...state.trackedComputerUseSessionIds]
     state.trackedComputerUseSessionIds.clear()
     await Promise.all(sessionIds.map(async (sessionId) => {
@@ -401,10 +461,10 @@ export class CodexDynamicMcpToolBridge {
         event: 'computer_use_release_requested',
         reason,
         sessionId,
-        toolName: GUI_COMPUTER_USE_TOOL_NAME
+        toolName: COMPUTER_USE_MCP_TOOL_NAME
       })
       await client.callTool({
-        name: GUI_COMPUTER_USE_TOOL_NAME,
+        name: COMPUTER_USE_MCP_TOOL_NAME,
         arguments: {
           action: 'release_target',
           computerUseSessionId: sessionId,
@@ -440,17 +500,35 @@ async function createSdkMcpClient(server: CodexDynamicMcpServerConfig): Promise<
     env: server.env,
     stderr: 'pipe'
   })
+  let recentStderr = ''
+  transport.stderr?.on('data', (chunk: Buffer | string) => {
+    recentStderr = `${recentStderr}${String(chunk)}`.slice(-4_000)
+  })
+  const withStderr = (error: unknown): Error => {
+    const message = error instanceof Error ? error.message : String(error)
+    const stderr = recentStderr.trim()
+    if (!stderr) return error instanceof Error ? error : new Error(message)
+    return new Error(`${message}; ${server.id} stderr: ${stderr}`, { cause: error })
+  }
   const timeout = server.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  await client.connect(transport, { timeout })
+  try {
+    await client.connect(transport, { timeout })
+  } catch (error) {
+    throw withStderr(error)
+  }
   return {
     listTools: (options) => {
       const params = options?.cursor ? { cursor: options.cursor } : undefined
       return client.listTools(params, {
         signal: options?.signal,
         timeout: options?.timeout
+      }).catch((error: unknown) => {
+        throw withStderr(error)
       })
     },
-    callTool: (input, options) => client.callTool(input, undefined, options),
+    callTool: (input, options) => client.callTool(input, undefined, options).catch((error: unknown) => {
+      throw withStderr(error)
+    }),
     close: () => client.close()
   }
 }
@@ -509,7 +587,14 @@ function failedDynamicToolResponse(message: string): CodexAppServerDynamicToolCa
 }
 
 function recordArguments(value: unknown): Record<string, unknown> {
-  return asRecord(value) ?? {}
+  const record = asRecord(value)
+  if (record) return record
+  if (typeof value !== 'string' || !value.trim()) return {}
+  try {
+    return asRecord(JSON.parse(value) as unknown) ?? {}
+  } catch {
+    return {}
+  }
 }
 
 function mcpToolArgumentsForRequest(
@@ -518,7 +603,7 @@ function mcpToolArgumentsForRequest(
   request: CodexAppServerDynamicToolCallRequest
 ): Record<string, unknown> {
   const args = recordArguments(request.arguments)
-  if (state.config.id !== GUI_COMPUTER_USE_MCP_SERVER_ID || tool.originalName !== GUI_COMPUTER_USE_TOOL_NAME) {
+  if (state.config.id !== GUI_COMPUTER_USE_MCP_SERVER_NAME || tool.originalName !== COMPUTER_USE_MCP_TOOL_NAME) {
     return args
   }
   const threadId = request.threadId ?? `request:${String(request.requestId)}`
@@ -546,6 +631,12 @@ function linkAbortSignal(signal: AbortSignal | undefined, controller: AbortContr
 
 function mcpAbortError(reason: CodexDynamicMcpReleaseReason): Error {
   return new Error(`MCP worker request aborted: ${reason}`)
+}
+
+function isClosedMcpConnectionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /\b(connection|transport|stdio|stream|socket)\b.*\b(closed|ended|terminated)\b/i.test(message)
+    || /\b(closed|ended|terminated)\b.*\b(connection|transport|stdio|stream|socket)\b/i.test(message)
 }
 
 function normalizeToolRequestName(request: CodexAppServerDynamicToolCallRequest): {
@@ -640,4 +731,100 @@ function arrayValue(value: unknown): unknown[] {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function providerSafeToolInputSchema(value: unknown): Record<string, unknown> {
+  const sanitized = sanitizeJsonSchemaRecord(value)
+  return {
+    properties: {},
+    ...sanitized,
+    type: 'object',
+    ...(asRecord(sanitized.properties) ? { properties: sanitized.properties } : {})
+  }
+}
+
+const SAFE_JSON_SCHEMA_KEYS = new Set([
+  'type',
+  'description',
+  'properties',
+  'required',
+  'additionalProperties',
+  'items',
+  'enum',
+  'minimum',
+  'maximum',
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+  'minLength',
+  'maxLength',
+  'minItems',
+  'maxItems',
+  'pattern',
+  'format',
+  'nullable'
+])
+
+function sanitizeJsonSchemaRecord(value: unknown): Record<string, unknown> {
+  const record = asRecord(value)
+  if (!record) return {}
+  const out: Record<string, unknown> = {}
+  for (const [key, raw] of Object.entries(record)) {
+    if (key.startsWith('$') || !SAFE_JSON_SCHEMA_KEYS.has(key)) continue
+    switch (key) {
+      case 'properties': {
+        const properties = asRecord(raw)
+        if (!properties) break
+        out.properties = Object.fromEntries(
+          Object.entries(properties).map(([name, property]) => [name, sanitizeJsonSchemaRecord(property)])
+        )
+        break
+      }
+      case 'items': {
+        if (Array.isArray(raw)) {
+          out.items = raw.map((item) => sanitizeJsonSchemaRecord(item))
+        } else if (asRecord(raw)) {
+          out.items = sanitizeJsonSchemaRecord(raw)
+        }
+        break
+      }
+      case 'required': {
+        const required = arrayValue(raw).filter((item): item is string => typeof item === 'string' && item.length > 0)
+        if (required.length) out.required = [...new Set(required)]
+        break
+      }
+      case 'enum': {
+        if (Array.isArray(raw)) out.enum = raw.filter(isJsonPrimitive)
+        break
+      }
+      case 'additionalProperties': {
+        if (typeof raw === 'boolean') {
+          out.additionalProperties = raw
+        } else if (asRecord(raw)) {
+          out.additionalProperties = sanitizeJsonSchemaRecord(raw)
+        }
+        break
+      }
+      case 'type':
+      case 'description':
+      case 'pattern':
+      case 'format': {
+        if (typeof raw === 'string' && raw.length > 0) out[key] = raw
+        break
+      }
+      case 'nullable': {
+        if (typeof raw === 'boolean') out.nullable = raw
+        break
+      }
+      default: {
+        if (typeof raw === 'number' && Number.isFinite(raw)) out[key] = raw
+        break
+      }
+    }
+  }
+  if (asRecord(out.properties) && !out.type) out.type = 'object'
+  return out
+}
+
+function isJsonPrimitive(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
 }

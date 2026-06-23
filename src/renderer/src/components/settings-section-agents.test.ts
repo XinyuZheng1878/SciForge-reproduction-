@@ -620,9 +620,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
             kun: true,
             codex: true,
             claude: true
-          },
-          backend: 'global-native',
-          experimentalAppScopedBackend: false
+          }
         },
         permissions: {
           platform: 'darwin',
@@ -636,10 +634,14 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
           updatedAt: '2026-06-23T00:00:00.000Z',
           servers: [],
           backend: {
-            backend: 'global-native',
+            backend: 'browser-cdp',
             available: true,
             platform: 'darwin',
-            reason: 'native backend ready',
+            reason: 'isolated browser backend ready',
+            inputIsolation: 'agent-isolated',
+            affectsUserInput: false,
+            requiresHostFocus: false,
+            usesHostClipboard: false,
             activeLeases: [],
             recentRejections: []
           },
@@ -649,8 +651,10 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
               computerUseSessionId: 'session-1',
               agentId: 'agent-main',
               threadId: 'thread-1',
-              targetId: 'main-desktop',
-              backend: 'global-native',
+              targetId: 'browser-cdp:isolated-browser',
+              backend: 'browser-cdp',
+              inputIsolation: 'agent-isolated',
+              affectsUserInput: false,
               acquiredAt: '2026-06-23T00:00:00.000Z',
               updatedAt: '2026-06-23T00:00:01.000Z'
             }
@@ -673,16 +677,16 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     expect(html).toContain('Runtime access')
     expect(html).toContain('Codex app-server')
     expect(html).toContain('Configured')
-    expect(html).toContain('global-native')
+    expect(html).toContain('browser-cdp')
     expect(html).toContain('available')
-    expect(html).toContain('native backend ready')
+    expect(html).toContain('isolated browser backend ready')
     expect(html).toContain('macOS permissions')
     expect(html).toContain('Accessibility')
     expect(html).toContain('granted, restart needed')
     expect(html).toContain('Restart SciForge before using computer use.')
     expect(html).toContain('Screen Recording')
     expect(html).toContain('Active leases')
-    expect(html).toContain('main-desktop')
+    expect(html).toContain('browser-cdp:isolated-browser')
     expect(html).toContain('agent-main')
     expect(html).toContain('Recent rejections')
     expect(html).toContain('target_busy')

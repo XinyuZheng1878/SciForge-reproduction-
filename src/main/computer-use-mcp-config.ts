@@ -1,5 +1,5 @@
-import { GUI_COMPUTER_USE_MCP_LAUNCH_FLAG } from './computer-use-mcp-server'
 import type { AgentRuntimeId } from '../shared/app-settings'
+import type { AgentRuntimeCapabilities } from '../shared/agent-runtime-contract'
 import {
   buildExternalKunMcpJson,
   buildManagedGuiKunMcpServerConfig,
@@ -17,6 +17,9 @@ import {
 } from './managed-gui-mcp-config'
 
 export const GUI_COMPUTER_USE_MCP_SERVER_NAME = 'gui_computer_use'
+export const COMPUTER_USE_MCP_TOOL_NAME = 'computer_use'
+export const COMPUTER_USE_MCP_BACKEND = 'browser-cdp'
+export const GUI_COMPUTER_USE_MCP_LAUNCH_FLAG = '--gui-computer-use-mcp-server'
 const GUI_COMPUTER_USE_MCP_NODE_ENTRY = 'out/main/computer-use-mcp-node-entry.js'
 export const COMPUTER_USE_STATUS_PATH_ENV = 'SCIFORGE_COMPUTER_USE_STATUS_PATH'
 export const COMPUTER_USE_DEFAULT_AGENT_ID_ENV = 'SCIFORGE_COMPUTER_USE_DEFAULT_AGENT_ID'
@@ -41,6 +44,38 @@ export type ComputerUseMcpLaunchConfig = ManagedGuiMcpLaunchConfig & {
 type ComputerUseMcpConfigPaths = {
   mcpJsonPath?: string
   enabled?: boolean
+}
+
+export type ComputerUseRuntimeMcpServerConfig = {
+  id: typeof GUI_COMPUTER_USE_MCP_SERVER_NAME
+  command: string
+  args: string[]
+  env: Record<string, string>
+  timeoutMs: typeof COMPUTER_USE_MCP_TIMEOUT_MS
+  enabledTools: [typeof COMPUTER_USE_MCP_TOOL_NAME]
+}
+
+export type ComputerUseClaudeCodeMcpServerConfig = {
+  type: 'stdio'
+  command: string
+  args: string[]
+  env: Record<string, string>
+  timeout: typeof COMPUTER_USE_MCP_TIMEOUT_MS
+  alwaysLoad: true
+}
+
+export type ComputerUseMcpDiagnosticsServer = {
+  id: typeof GUI_COMPUTER_USE_MCP_SERVER_NAME
+  status: 'configured'
+  toolCount: 1
+  tools: [typeof COMPUTER_USE_MCP_TOOL_NAME]
+}
+
+export type ComputerUseMcpRuntimeInfoState = {
+  enabled: boolean
+  available: boolean
+  server: 'mcp'
+  toolName: typeof COMPUTER_USE_MCP_TOOL_NAME
 }
 
 export const GUI_COMPUTER_USE_MCP_DESCRIPTOR: ManagedGuiMcpDescriptor = {
@@ -94,7 +129,71 @@ export function computerUseMcpEnvForLaunch(
 }
 
 export function computerUseMcpEnabledTools(): string[] {
-  return ['computer_use']
+  return [COMPUTER_USE_MCP_TOOL_NAME]
+}
+
+export function buildComputerUseRuntimeMcpServerConfig(
+  launch: ComputerUseMcpLaunchConfig
+): ComputerUseRuntimeMcpServerConfig {
+  return {
+    id: GUI_COMPUTER_USE_MCP_SERVER_NAME,
+    command: resolveComputerUseMcpCommand(launch),
+    args: buildComputerUseMcpArgs(launch),
+    env: computerUseMcpEnvForLaunch(launch),
+    timeoutMs: COMPUTER_USE_MCP_TIMEOUT_MS,
+    enabledTools: [COMPUTER_USE_MCP_TOOL_NAME]
+  }
+}
+
+export function buildComputerUseClaudeCodeMcpServerConfig(
+  launch: ComputerUseMcpLaunchConfig
+): ComputerUseClaudeCodeMcpServerConfig {
+  const config = buildComputerUseRuntimeMcpServerConfig(launch)
+  return {
+    type: 'stdio',
+    command: config.command,
+    args: config.args,
+    env: config.env,
+    timeout: config.timeoutMs,
+    alwaysLoad: true
+  }
+}
+
+export function configuredComputerUseCapability(): AgentRuntimeCapabilities['tools']['computerUse'] {
+  return {
+    available: true,
+    server: 'mcp',
+    toolName: COMPUTER_USE_MCP_TOOL_NAME,
+    backend: COMPUTER_USE_MCP_BACKEND,
+    inputIsolation: 'agent-isolated',
+    affectsUserInput: false,
+    requiresHostFocus: false,
+    usesHostClipboard: false
+  }
+}
+
+export function unavailableComputerUseCapability(
+  reason: string
+): AgentRuntimeCapabilities['tools']['computerUse'] {
+  return { available: false, reason }
+}
+
+export function computerUseMcpDiagnosticsServer(): ComputerUseMcpDiagnosticsServer {
+  return {
+    id: GUI_COMPUTER_USE_MCP_SERVER_NAME,
+    status: 'configured',
+    toolCount: 1,
+    tools: [COMPUTER_USE_MCP_TOOL_NAME]
+  }
+}
+
+export function computerUseMcpRuntimeInfoState(configured: boolean): ComputerUseMcpRuntimeInfoState {
+  return {
+    enabled: configured,
+    available: configured,
+    server: 'mcp',
+    toolName: COMPUTER_USE_MCP_TOOL_NAME
+  }
 }
 
 export function buildComputerUseMcpServerConfig(

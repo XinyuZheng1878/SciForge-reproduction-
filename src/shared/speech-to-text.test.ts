@@ -11,26 +11,26 @@ import {
 } from './speech-to-text'
 
 describe('speech-to-text settings', () => {
-  it('defaults to disabled OpenAI-compatible transcription settings', () => {
+  it('defaults to disabled router-backed transcription settings', () => {
     expect(defaultSpeechToTextSettings()).toEqual({
       enabled: false,
-      protocol: 'openai-transcriptions',
+      protocol: 'mimo-asr',
       baseUrl: '',
       apiKey: '',
       model: '',
       language: '',
       timeoutMs: DEFAULT_SPEECH_TRANSCRIPTION_TIMEOUT_MS
     })
-    expect(DEFAULT_SPEECH_TO_TEXT_PROTOCOL).toBe('openai-transcriptions')
+    expect(DEFAULT_SPEECH_TO_TEXT_PROTOCOL).toBe('mimo-asr')
   })
 
-  it('normalizes protocol, string fields, language, and timeout bounds', () => {
+  it('normalizes to the router-backed protocol and drops legacy provider credentials', () => {
     expect(normalizeSpeechToTextProtocol('mimo-asr')).toBe('mimo-asr')
-    expect(normalizeSpeechToTextProtocol('custom')).toBe('openai-transcriptions')
+    expect(normalizeSpeechToTextProtocol('custom')).toBe('mimo-asr')
 
     const normalized = normalizeSpeechToTextSettings({
       enabled: true,
-      protocol: 'mimo-asr',
+      protocol: 'openai-transcriptions' as never,
       baseUrl: '  https://speech.example.test/v1/ ',
       apiKey: ' sk-secret ',
       model: ' whisper-1 ',
@@ -41,8 +41,8 @@ describe('speech-to-text settings', () => {
     expect(normalized).toEqual({
       enabled: true,
       protocol: 'mimo-asr',
-      baseUrl: 'https://speech.example.test/v1/',
-      apiKey: 'sk-secret',
+      baseUrl: '',
+      apiKey: '',
       model: 'whisper-1',
       language: 'zh-cn-too-long',
       timeoutMs: MAX_SPEECH_TRANSCRIPTION_TIMEOUT_MS
@@ -60,9 +60,9 @@ describe('speech-to-text settings', () => {
 
     expect(merged).toMatchObject({
       enabled: true,
-      protocol: 'openai-transcriptions',
-      baseUrl: 'https://speech.example.test/v1',
-      apiKey: 'sk-speech',
+      protocol: 'mimo-asr',
+      baseUrl: '',
+      apiKey: '',
       model: 'gpt-4o-transcribe',
       language: 'en'
     })

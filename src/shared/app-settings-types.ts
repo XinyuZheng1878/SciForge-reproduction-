@@ -129,13 +129,11 @@ export type AgentRuntimeId = 'kun' | 'codex' | 'claude'
 
 export type AgentThreadIdsV1 = Partial<Record<AgentRuntimeId, string>>
 
-export type ComputerUseBackendPreference = 'global-native' | 'mac-app-scoped'
+export type ComputerUseBackendPreference = 'browser-cdp'
 
 export type ComputerUseSettingsV1 = {
   enabled: boolean
   runtimeEnabled: Record<AgentRuntimeId, boolean>
-  backend: ComputerUseBackendPreference
-  experimentalAppScopedBackend: boolean
 }
 
 export type ComputerUseSettingsPatchV1 = Partial<Omit<ComputerUseSettingsV1, 'runtimeEnabled'>> & {
@@ -152,8 +150,6 @@ export type KunRuntimeSettingsV1 = {
   baseUrl: string
   /** Selected General model provider profile. Empty or missing means the default provider. */
   providerId: string
-  /** Effective model request format. Resolved from the selected model provider. */
-  endpointFormat: ModelEndpointFormat
   runtimeToken: string
   dataDir: string
   model: string

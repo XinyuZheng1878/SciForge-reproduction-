@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import {
-  DEFAULT_SERVE_BASE_URL,
-  DEFAULT_SERVE_ENDPOINT_FORMAT,
+  DEFAULT_MODEL_ROUTER_BASE_URL,
   DEFAULT_SERVE_PORT,
   DEFAULT_SERVE_OPTIONS,
   ServeOptionsSchema,
@@ -88,21 +87,13 @@ export function parseServeOptions(
           : env.KUN_MODEL_ROUTER_API_KEY ??
             configServe.apiKey ??
             DEFAULT_SERVE_OPTIONS.apiKey,
-    baseUrl:
-      typeof raw['base-url'] === 'string'
-        ? raw['base-url']
-        : typeof raw.baseUrl === 'string'
-          ? raw.baseUrl
-          : configServe.baseUrl ??
-            DEFAULT_SERVE_OPTIONS.baseUrl,
-    endpointFormat:
-      typeof raw['endpoint-format'] === 'string'
-        ? raw['endpoint-format'] as ServeOptions['endpointFormat']
-        : typeof raw.endpointFormat === 'string'
-          ? raw.endpointFormat as ServeOptions['endpointFormat']
-          : env.KUN_ENDPOINT_FORMAT as ServeOptions['endpointFormat'] | undefined ??
-            configServe.endpointFormat ??
-            DEFAULT_SERVE_OPTIONS.endpointFormat,
+    modelRouterBaseUrl:
+      typeof raw['model-router-base-url'] === 'string'
+        ? raw['model-router-base-url']
+        : typeof raw.modelRouterBaseUrl === 'string'
+          ? raw.modelRouterBaseUrl
+          : env.KUN_MODEL_ROUTER_BASE_URL ??
+            DEFAULT_SERVE_OPTIONS.modelRouterBaseUrl,
     model:
       typeof raw.model === 'string'
         ? raw.model
@@ -166,10 +157,10 @@ Options:
   --port <port>            HTTP port (default ${DEFAULT_SERVE_PORT})
   --data-dir <path>        Root directory for threads, events, and usage
   --runtime-token <token>  Bearer token for /v1/* requests
-  --api-key <key>          Model router API key (required; or KUN_MODEL_ROUTER_API_KEY)
-  --base-url <url>         Model router base URL (default ${DEFAULT_SERVE_BASE_URL})
-  --endpoint-format <f>    chat_completions | responses | messages (default ${DEFAULT_SERVE_ENDPOINT_FORMAT})
-  --model <model>          Default model id (default ${DEFAULT_SERVE_OPTIONS.model})
+  --api-key <key>          Model Router runtime API key (required; or KUN_MODEL_ROUTER_API_KEY)
+  --model-router-base-url <url>
+                           Local Model Router base URL (default ${DEFAULT_MODEL_ROUTER_BASE_URL})
+  --model <model>          Model Router public model alias (default ${DEFAULT_SERVE_OPTIONS.model})
   --force-default-model    Always send --model to the provider, ignoring per-turn overrides
   --approval-policy <p>    on-request | untrusted | never | auto | suggest
   --sandbox-mode <mode>    read-only | workspace-write | danger-full-access | external-sandbox

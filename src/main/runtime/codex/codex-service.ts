@@ -150,7 +150,8 @@ const INTERRUPT_TIMED_OUT_TURN_MS = 5_000
 const CODEX_SPECIALIZED_MCP_DEVELOPER_INSTRUCTIONS = [
   'SciForge may configure specialized MCP tools for this runtime.',
   'When an advertised specialized MCP tool directly matches the user request, use that tool before falling back to generic shell, curl, wget, ad hoc scripts, or direct scraping.',
-  'Use command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.'
+  'Use command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.',
+  'For explicit computer_use, mouse, keyboard, browser, or GUI-control requests, continue through the computer_use tool actions instead of shell/open/osascript/screencapture/pbpaste fallbacks unless the user explicitly permits that fallback.'
 ].join('\n')
 
 type CodexRuntimeEventSubscriber = {
@@ -588,8 +589,26 @@ export class CodexRuntimeService {
     }
   }
 
-  async compactThread(_threadId: string, _reason?: string): Promise<CodexThreadMutationResult> {
-    return { ok: true }
+  async compactThread(threadId: string, _reason?: string): Promise<CodexThreadMutationResult> {
+    if (!this.threadStore) return { ok: true }
+    try {
+      const settings = await this.options.settings()
+      const storedThread = await this.findStoredThread(threadId)
+      const guiThreadId = storedThread?.guiThreadId ?? threadId
+      const workspace = resolveCodexWorkspace(settings, storedThread?.workspace)
+      const { client } = await this.ensureConnectedClient(settings)
+      await this.rematerializeThread({
+        client,
+        settings,
+        guiThreadId,
+        storedThread,
+        workspace
+      })
+      return { ok: true }
+    } catch (error) {
+      await this.discardClientAfterFailure()
+      return failure(error)
+    }
   }
 
   async forkThread(
@@ -804,7 +823,18 @@ export class CodexRuntimeService {
         success: false
       }
     }
-    return bridge.callTool(request)
+    try {
+      return await bridge.callTool(request)
+    } catch (error) {
+      const name = request.namespace ? `${request.namespace}.${request.tool}` : request.tool
+      return {
+        contentItems: [{
+          type: 'inputText',
+          text: `MCP dynamic tool ${name} failed: ${error instanceof Error ? error.message : String(error)}`
+        }],
+        success: false
+      }
+    }
   }
 
   private async forwardEvents(client: CodexAppServerJsonRpcClient): Promise<void> {
@@ -1704,6 +1734,7 @@ function codexSpecializedMcpGuidedTurnText(text: string, specializedMcpConfigure
     'SciForge has configured specialized MCP tools for this runtime.',
     'When an advertised specialized MCP tool directly matches the user request, use that tool before falling back to generic shell, curl, wget, ad hoc scripts, or direct scraping.',
     'Use command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.',
+    'For explicit computer_use, mouse, keyboard, browser, or GUI-control requests, continue through the computer_use tool actions instead of shell/open/osascript/screencapture/pbpaste fallbacks unless the user explicitly permits that fallback.',
     '</sciforge_runtime_instruction>',
     '',
     text
@@ -2036,7 +2067,16 @@ function isMissingOrUnmaterializedThreadError(error: unknown): boolean {
 
 function isTerminalRuntimeError(error: CodexThreadEventPayload['runtimeError']): boolean {
   if (!error) return false
+  if (isTransientRuntimeError(error)) return false
   return error.severity === 'error' || error.code === 'cancelled' || error.code === 'aborted'
+}
+
+function isTransientRuntimeError(error: NonNullable<CodexThreadEventPayload['runtimeError']>): boolean {
+  return isReconnectRuntimeErrorMessage(error.message)
+}
+
+function isReconnectRuntimeErrorMessage(message: string | undefined): boolean {
+  return /^Reconnecting\.\.\.\s+\d+\s*\/\s*\d+$/iu.test(message?.trim() ?? '')
 }
 
 function eventHasModelActivity(event: CodexThreadEventPayload): boolean {

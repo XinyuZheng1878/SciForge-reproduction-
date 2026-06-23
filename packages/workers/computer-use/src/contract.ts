@@ -1,4 +1,9 @@
-export type ComputerUseBackendKind = 'global-native' | 'mac-app-scoped'
+export type ComputerUseBackendKind = 'browser-cdp' | 'global-native' | 'mac-app-scoped'
+
+export type ComputerUseInputIsolation =
+  | 'agent-isolated'
+  | 'host-global'
+  | 'host-app-scoped'
 
 export type ComputerUseLeaseState = 'unbound' | 'active' | 'released' | 'rejected'
 
@@ -16,6 +21,7 @@ export type ComputerUseAction =
   | 'bind_target'
   | 'release_target'
   | 'diagnostics'
+  | 'navigate'
   | 'screenshot'
   | 'cursor_position'
   | 'mouse_move'
@@ -33,6 +39,7 @@ export const COMPUTER_USE_WORKER_CAPABILITIES = [
   'bind_target',
   'release_target',
   'diagnostics',
+  'navigate',
   'screenshot',
   'cursor_position',
   'mouse_move',
@@ -94,6 +101,10 @@ export type ComputerUseTarget = {
   pid?: number
   windowId?: string
   backend: ComputerUseBackendKind
+  inputIsolation?: ComputerUseInputIsolation
+  affectsUserInput?: boolean
+  requiresHostFocus?: boolean
+  usesHostClipboard?: boolean
 }
 
 export type ComputerUseSession = {
@@ -103,6 +114,10 @@ export type ComputerUseSession = {
   turnId?: string
   targetId?: string
   backend: ComputerUseBackendKind
+  inputIsolation?: ComputerUseInputIsolation
+  affectsUserInput?: boolean
+  requiresHostFocus?: boolean
+  usesHostClipboard?: boolean
   leaseState: ComputerUseLeaseState
   cursor?: { x: number; y: number }
   releaseReason?: ComputerUseReleaseReason
@@ -119,6 +134,10 @@ export type ComputerUseLease = {
   turnId?: string
   targetId: string
   backend: ComputerUseBackendKind
+  inputIsolation?: ComputerUseInputIsolation
+  affectsUserInput?: boolean
+  requiresHostFocus?: boolean
+  usesHostClipboard?: boolean
   acquiredAt: string
   updatedAt: string
 }
@@ -154,6 +173,7 @@ export type ComputerUseActionRequest = {
   action: Exclude<ComputerUseAction, 'list_targets' | 'bind_target' | 'release_target' | 'diagnostics'>
   computerUseSessionId: string
   targetId?: string
+  url?: string
   x?: number
   y?: number
   startX?: number
@@ -164,6 +184,7 @@ export type ComputerUseActionRequest = {
   scrollDirection?: ComputerUseScrollDirection
   scrollAmount?: number
   text?: string
+  key?: string
   durationMs?: number
   agentId?: string
   threadId?: string
@@ -205,6 +226,10 @@ export type ComputerUseBackendDiagnostic = {
   backend: ComputerUseBackendKind
   available: boolean
   platform: NodeJS.Platform
+  inputIsolation?: ComputerUseInputIsolation
+  affectsUserInput?: boolean
+  requiresHostFocus?: boolean
+  usesHostClipboard?: boolean
   reason?: string
   activeLeases: ComputerUseLease[]
   recentRejections: ComputerUseLeaseRejection[]

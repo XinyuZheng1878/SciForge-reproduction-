@@ -164,8 +164,8 @@ describe('FloatingComposer voice input helpers', () => {
     expect(resolveSpeechToTextSettingsFromAppSettings(settings)).toEqual({
       enabled: true,
       protocol: 'mimo-asr',
-      baseUrl: 'https://speech.example/v1',
-      apiKey: 'sk-speech',
+      baseUrl: '',
+      apiKey: '',
       model: 'whisper-1',
       language: 'zh',
       timeoutMs: 45000
@@ -178,7 +178,7 @@ describe('FloatingComposer voice input helpers', () => {
         kun: {
           speechToText: {
             enabled: true,
-            protocol: 'openai-transcriptions',
+            protocol: 'openai-transcriptions' as never,
             baseUrl: 'https://api.example/v1',
             apiKey: 'sk-speech',
             model: 'whisper-1',
@@ -196,10 +196,10 @@ describe('FloatingComposer voice input helpers', () => {
     const settings = {
       speechToText: {
         enabled: true,
-        protocol: 'openai-transcriptions',
+        protocol: 'mimo-asr',
         baseUrl: '',
-        apiKey: 'sk-speech',
-        model: 'whisper-1',
+        apiKey: '',
+        model: '',
         language: '',
         timeoutMs: 60000
       }

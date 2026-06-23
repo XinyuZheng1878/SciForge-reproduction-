@@ -24,6 +24,9 @@ import {
   filterAgentRuntimeThreadChildren
 } from '../../shared/agent-runtime-contract'
 import {
+  configuredComputerUseCapability
+} from '../computer-use-mcp-config'
+import {
   KUN_ATTACHMENTS_PATH,
   KUN_HEALTH_PATH,
   KUN_MEMORY_PATH,
@@ -1163,10 +1166,9 @@ function mapKunCapabilities(value: unknown, diagnosticsAvailable: boolean): Agen
       },
       research: researchCapabilityState(research),
       computerUse: computerUseCapabilityState(asRecord(manifest.computerUse) ?? {
-        available: true,
+        ...configuredComputerUseCapability(),
         degraded: true,
-        reason: 'GUI-managed computer-use MCP server is configured by the host.',
-        backend: 'global-native'
+        reason: 'GUI-managed computer-use MCP server is configured by the host.'
       }),
       skills: capabilityState(skills),
       subagents: {
@@ -1223,11 +1225,16 @@ function researchCapabilityState(value: Record<string, unknown>): AgentRuntimeCa
 function computerUseCapabilityState(value: Record<string, unknown>): AgentRuntimeCapabilities['tools']['computerUse'] {
   const base = capabilityState(value)
   const available = base.available || value.active === true || value.enabled === true
+  const isolated = configuredComputerUseCapability()
   return {
     ...base,
     available,
-    ...(available ? { server: 'mcp' as const, toolName: 'computer_use' as const } : {}),
-    backend: value.backend === 'mac-app-scoped' ? 'mac-app-scoped' : 'global-native'
+    ...(available ? { server: isolated.server, toolName: isolated.toolName } : {}),
+    backend: isolated.backend,
+    inputIsolation: isolated.inputIsolation,
+    affectsUserInput: isolated.affectsUserInput,
+    requiresHostFocus: isolated.requiresHostFocus,
+    usesHostClipboard: isolated.usesHostClipboard
   }
 }
 

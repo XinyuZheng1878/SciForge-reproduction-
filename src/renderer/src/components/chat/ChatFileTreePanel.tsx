@@ -241,7 +241,7 @@ export function ChatFileTreePanel({
       .flatMap((reference) => {
         const directory = reference.kind === 'directory'
         const expandedDirectory = directory && expanded.has(reference.relativePath)
-        const previewable = !directory && reference.kind !== 'image'
+        const previewable = !directory
         const active = previewable && selectedKey === pathKey(reference.relativePath)
         const referenceKey = composerFileReferenceKey({
           relativePath: reference.relativePath,

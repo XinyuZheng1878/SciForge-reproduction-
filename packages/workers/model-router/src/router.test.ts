@@ -150,6 +150,42 @@ test('openai-compatible provider bases are normalized to v1 chat completions', a
   }
 });
 
+test('openai-compatible provider bases preserve query and hash suffixes when normalized', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-provider-base-query-'));
+  const calls: CapturedFetch[] = [];
+  const config = testConfig();
+  config.profiles.default.textReasoner.baseUrl = 'https://text.example/openai/deployments/deepseek?api-version=2026-01-01#stable';
+  const server = await startModelRouterServer({
+    port: 0,
+    config,
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-reasoner-answer', 'The normalized base URL keeps its suffix.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: 'hello',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(
+      calls[0]?.url,
+      'https://text.example/openai/deployments/deepseek/v1/chat/completions?api-version=2026-01-01#stable'
+    );
+  } finally {
+    await server.close();
+  }
+});
+
 test('anthropic messages route through the configured text reasoner', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-messages-'));
   const calls: CapturedFetch[] = [];
@@ -881,6 +917,146 @@ test('standard MCP screenshot tool result routes through the vision translator',
   }
 });
 
+test('Codex dynamic tool inputImage results route through the vision translator', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-codex-input-image-'));
+  const imageData = Buffer.from('codex-dynamic-screen-pixels').toString('base64');
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('vision-initial', 'Observation: the screenshot shows arXiv search results.'),
+      chatCompletion('text-final', JSON.stringify({ type: 'final_answer', content: 'The screenshot shows arXiv search results.' })),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Inspect the screenshot from the dynamic tool.' }],
+          },
+          {
+            type: 'function_call',
+            call_id: 'call_dynamic_screenshot_1',
+            name: 'computer_use',
+            arguments: '{"action":"screenshot"}',
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_dynamic_screenshot_1',
+            output: {
+              contentItems: [
+                { type: 'inputText', text: 'Screenshot is 1280x831px.' },
+                { type: 'inputImage', imageUrl: `data:image/png;base64,${imageData}` },
+              ],
+              success: true,
+            },
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, unknown>;
+    assert.equal(body.output_text, 'The screenshot shows arXiv search results.');
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]?.url, 'https://vision.example/v1/chat/completions');
+    const visionBody = JSON.stringify(calls[0]?.body);
+    assert.match(visionBody, new RegExp(`data:image/png;base64,${imageData}`));
+    const textReasonerBody = JSON.stringify(calls[1]?.body);
+    assert.match(textReasonerBody, /arXiv search results/);
+    assert.doesNotMatch(textReasonerBody, /codex-dynamic-screen-pixels|data:image|base64/i);
+    const traceText = await readTraceBundle(workspaceRoot);
+    assert.match(traceText, /"kind":\s*"vision\.image"/);
+    assert.doesNotMatch(traceText, /codex-dynamic-screen-pixels|data:image|base64/i);
+  } finally {
+    await server.close();
+  }
+});
+
+test('Anthropic tool_result images route through the vision translator', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-anthropic-tool-image-'));
+  const imageData = Buffer.from('claude-mcp-screen-pixels').toString('base64');
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('vision-initial', 'Observation: the screenshot shows arXiv search results.'),
+      chatCompletion('text-final', JSON.stringify({ type: 'final_answer', content: 'The screenshot shows arXiv search results.' })),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/messages`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        max_tokens: 256,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: 'Inspect the screenshot from computer_use.' }],
+          },
+          {
+            role: 'assistant',
+            content: [{
+              type: 'tool_use',
+              id: 'toolu_screenshot_1',
+              name: 'computer_use',
+              input: { action: 'screenshot' },
+            }],
+          },
+          {
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: 'toolu_screenshot_1',
+              content: [
+                { type: 'text', text: 'Screenshot is 1280x831px.' },
+                {
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: 'image/png',
+                    data: imageData,
+                  },
+                },
+              ],
+            }],
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, unknown>;
+    assert.deepEqual(body.content, [{ type: 'text', text: 'The screenshot shows arXiv search results.' }]);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]?.url, 'https://vision.example/v1/chat/completions');
+    assert.match(JSON.stringify(calls[0]?.body), new RegExp(`data:image/png;base64,${imageData}`));
+    const textReasonerBody = JSON.stringify(calls[1]?.body);
+    assert.match(textReasonerBody, /arXiv search results/);
+    assert.doesNotMatch(textReasonerBody, /claude-mcp-screen-pixels|data:image|base64/i);
+    const traceText = await readTraceBundle(workspaceRoot);
+    assert.match(traceText, /"kind":\s*"vision\.image"/);
+    assert.doesNotMatch(traceText, /claude-mcp-screen-pixels|data:image|base64/i);
+  } finally {
+    await server.close();
+  }
+});
+
 test('responses tool calls pass through the Model Router API without becoming text answers', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-tool-call-'));
   const calls: CapturedFetch[] = [];
@@ -1212,6 +1388,148 @@ test('responses developer messages are replayed as chat-compatible system messag
   }
 });
 
+test('responses tool transcript drops orphan tool outputs before provider calls', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-orphan-tool-output-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-orphan-output-final', 'Ignored orphan tool output and answered the user.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Continue safely.' }],
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_missing',
+            output: 'This output has no matching function_call.',
+          },
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Answer from valid context only.' }],
+          },
+        ],
+        tools: [{
+          type: 'function',
+          name: 'local_shell',
+          description: 'Run a local shell command.',
+          parameters: { type: 'object', properties: {} },
+        }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls[0]?.body.messages, [
+      {
+        role: 'user',
+        content: 'Continue safely.',
+      },
+      {
+        role: 'user',
+        content: 'Answer from valid context only.',
+      },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('responses tool transcript removes bridge items between tool calls and outputs', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-tool-bridge-repair-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-tool-bridge-final', 'Tool transcript remained provider-compatible.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Run pwd.' }],
+          },
+          {
+            type: 'function_call',
+            call_id: 'call_pwd_bridge',
+            name: 'local_shell',
+            arguments: '{"cmd":"pwd"}',
+          },
+          {
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'GUI-only bridge text should not split tool messages.' }],
+          },
+          {
+            type: 'approval',
+            id: 'approval_bridge',
+            status: 'allowed',
+          },
+          {
+            type: 'function_call_output',
+            call_id: 'call_pwd_bridge',
+            output: '/tmp/workspace\n',
+          },
+        ],
+        tools: [{
+          type: 'function',
+          name: 'local_shell',
+          description: 'Run a local shell command.',
+          parameters: { type: 'object', properties: {} },
+        }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls[0]?.body.messages, [
+      {
+        role: 'user',
+        content: 'Run pwd.',
+      },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{
+          id: 'call_pwd_bridge',
+          type: 'function',
+          function: {
+            name: 'local_shell',
+            arguments: '{"cmd":"pwd"}',
+          },
+        }],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'call_pwd_bridge',
+        content: '/tmp/workspace\n',
+      },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
 test('responses tool outputs restore cached function calls stripped by app-server clients', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-tool-reasoning-cache-'));
   const calls: CapturedFetch[] = [];
@@ -1288,8 +1606,8 @@ test('responses tool outputs restore cached function calls stripped by app-serve
   }
 });
 
-test('responses tool outputs retry once when thinking providers require reasoning content replay', async () => {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-tool-reasoning-retry-'));
+test('responses tool outputs expose provider 400 bodies without retry-side request mutation', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-tool-http-400-'));
   const calls: CapturedFetch[] = [];
   const server = await startModelRouterServer({
     port: 0,
@@ -1302,7 +1620,6 @@ test('responses tool outputs retry once when thinking providers require reasonin
           message: 'The `reasoning_content` in the thinking mode must be passed back to the API.',
         },
       }, { status: 400 }),
-      chatCompletion('text-tool-output-final', '工具输出时间是 Mon Jun 15 17:01:38 CST 2026。'),
     ]),
   });
 
@@ -1338,15 +1655,14 @@ test('responses tool outputs retry once when thinking providers require reasonin
       }),
     });
 
-    assert.equal(response.status, 200);
-    assert.equal(calls.length, 2);
+    assert.equal(response.status, 400);
+    const body = await response.json() as Record<string, { code?: string; message?: string }>;
+    assert.equal(body.error?.code, 'provider_http_400');
+    assert.match(body.error?.message ?? '', /reasoning_content/);
+    assert.equal(calls.length, 1);
     assert.equal(
       (calls[0]?.body.messages as Array<Record<string, unknown>> | undefined)?.[1]?.reasoning_content,
       undefined
-    );
-    assert.equal(
-      (calls[1]?.body.messages as Array<Record<string, unknown>> | undefined)?.[1]?.reasoning_content,
-      'Tool call issued by the assistant.'
     );
   } finally {
     await server.close();
@@ -2501,7 +2817,11 @@ test('text reasoner HTTP failures still write sanitized refs-first trace summari
       }),
     });
 
-    assert.equal(response.status, 500);
+    assert.equal(response.status, 503);
+    const responseBody = await response.json() as Record<string, { code?: string; message?: string }>;
+    assert.equal(responseBody.error?.code, 'provider_http_503');
+    assert.match(responseBody.error?.message ?? '', /Provider returned HTTP 503/);
+    assert.doesNotMatch(responseBody.error?.message ?? '', /text-secret|text-model/i);
     assert.equal(calls.length, 4);
     const visionPrompt = calls.slice(0, 3).map((call) => JSON.stringify(call.body)).join('\n');
     assert.match(visionPrompt, /artifact:workspace\/plots\/figure-1\.png/);

@@ -1,13 +1,11 @@
-import { useState, type ReactElement } from 'react'
+import type { ReactElement } from 'react'
 import {
-  SPEECH_TO_TEXT_PROTOCOLS,
   normalizeSpeechToTextSettings,
   type AppSettingsPatch,
   type AppSettingsV1,
-  type SpeechToTextProtocol,
   type SpeechToTextSettingsPatchV1
 } from '@shared/app-settings'
-import { SecretInput, SettingsCard, SettingRow, Toggle } from './settings-controls'
+import { SettingsCard, SettingRow, Toggle } from './settings-controls'
 
 const SPEECH_LANGUAGE_OPTIONS = ['', 'zh', 'en', 'ja', 'ko'] as const
 
@@ -26,10 +24,17 @@ export function speechToTextSettingsPatch(
   current: AppSettingsV1['speechToText'],
   patch: SpeechToTextSettingsPatchV1
 ): AppSettingsPatch {
+  const next = normalizeSpeechToTextSettings({
+    ...normalizeSpeechToTextSettings(current),
+    ...patch
+  })
   return {
     speechToText: {
-      ...normalizeSpeechToTextSettings(current),
-      ...patch
+      enabled: next.enabled,
+      protocol: next.protocol,
+      model: next.model,
+      language: next.language,
+      timeoutMs: next.timeoutMs
     }
   }
 }
@@ -37,7 +42,6 @@ export function speechToTextSettingsPatch(
 export function SpeechToTextSettingsSection({ ctx }: { ctx: SpeechToTextSettingsContext }): ReactElement {
   const { t, form, update, selectControlClass } = ctx
   const speechToText = normalizeSpeechToTextSettings(form.speechToText)
-  const [showSpeechApiKey, setShowSpeechApiKey] = useState(false)
 
   const updateSpeechToText = (patch: SpeechToTextSettingsPatchV1): void => {
     update(speechToTextSettingsPatch(speechToText, patch))
@@ -53,52 +57,6 @@ export function SpeechToTextSettingsSection({ ctx }: { ctx: SpeechToTextSettings
             <Toggle
               checked={speechToText.enabled}
               onChange={(enabled) => updateSpeechToText({ enabled })}
-            />
-          }
-        />
-        <SettingRow
-          title={t('speechToTextProtocol')}
-          description={t('speechToTextProtocolDesc')}
-          control={
-            <select
-              className={selectControlClass}
-              value={speechToText.protocol}
-              onChange={(e) => updateSpeechToText({ protocol: e.target.value as SpeechToTextProtocol })}
-            >
-              {SPEECH_TO_TEXT_PROTOCOLS.map((protocol) => (
-                <option key={protocol} value={protocol}>
-                  {t(protocol === 'mimo-asr' ? 'speechProtocolMimoAsr' : 'speechProtocolOpenAi')}
-                </option>
-              ))}
-            </select>
-          }
-        />
-        <SettingRow
-          title={t('speechToTextBaseUrl')}
-          description={t('speechToTextBaseUrlDesc')}
-          control={
-            <input
-              className={textInputClass('md:max-w-md')}
-              value={speechToText.baseUrl}
-              placeholder={t('speechToTextBaseUrlPlaceholder')}
-              onChange={(e) => updateSpeechToText({ baseUrl: e.target.value })}
-            />
-          }
-        />
-        <SettingRow
-          title={t('speechToTextApiKey')}
-          description={t('speechToTextApiKeyDesc')}
-          control={
-            <SecretInput
-              value={speechToText.apiKey}
-              onChange={(apiKey) => updateSpeechToText({ apiKey })}
-              visible={showSpeechApiKey}
-              onToggleVisibility={() => setShowSpeechApiKey((value) => !value)}
-              placeholder="sk-..."
-              autoComplete="off"
-              showLabel={t('showSecret')}
-              hideLabel={t('hideSecret')}
-              className="md:max-w-md"
             />
           }
         />

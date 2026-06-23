@@ -5,6 +5,7 @@ import {
   type AppSettingsV1
 } from '../../../shared/app-settings'
 import { resolveRuntimeModelRouterSettings } from '../../../shared/app-settings-model-router'
+import { buildModelRouterResponsesUrl } from '../../../shared/model-router-url'
 import type {
   AgentRuntimeAuxiliaryInput,
   AgentRuntimeCapabilities,
@@ -908,6 +909,7 @@ export class AgentRuntimeHost {
       force: true
     })
     if (state) await this.publishCompactionStateEvent(adapter, context, state, false)
+    await this.cleanupNoopRuntimeCompaction(adapter, context, input)
   }
 
   private async autoCompactThreadIfNeeded(
@@ -929,7 +931,22 @@ export class AgentRuntimeHost {
       threadId,
       force: false
     }).catch(() => undefined)
-    if (state) await this.publishCompactionStateEvent(adapter, context, state, true)
+    if (!state) return
+    await this.publishCompactionStateEvent(adapter, context, state, true)
+    await this.cleanupNoopRuntimeCompaction(adapter, context, {
+      runtimeId: adapter.id,
+      threadId,
+      reason: state.triggerReason
+    }).catch(() => undefined)
+  }
+
+  private async cleanupNoopRuntimeCompaction(
+    adapter: AgentRuntimeAdapter,
+    context: AgentRuntimeAdapterContext,
+    input: AgentRuntimeThreadCompactInput
+  ): Promise<void> {
+    if (!adapter.compactThread) return
+    await adapter.compactThread(context, input)
   }
 
   private async recordSharedNoopCompaction(
@@ -1484,25 +1501,6 @@ function renderSharedContextState(state: AgentRuntimeContextState | null): strin
   }
   lines.push('Use this summary as earlier conversation context; the current user request below remains authoritative.')
   return lines.join('\n')
-}
-
-function buildModelRouterResponsesUrl(baseUrl: string): string {
-  const path = 'responses'
-  const normalized = baseUrl.trim().replace(/\/+$/u, '')
-  if (!normalized) return ''
-  if (normalized.endsWith(`/${path}`)) return normalized
-  const base = stripKnownModelRouterEndpointPath(normalized)
-  return base.endsWith('/v1') ? `${base}/${path}` : `${base}/v1/${path}`
-}
-
-function stripKnownModelRouterEndpointPath(baseUrl: string): string {
-  const lower = baseUrl.toLowerCase()
-  for (const path of ['chat/completions', 'responses', 'messages']) {
-    if (lower.endsWith(`/${path}`)) {
-      return baseUrl.slice(0, -path.length).replace(/\/+$/u, '')
-    }
-  }
-  return baseUrl
 }
 
 function normalizeAdapters(

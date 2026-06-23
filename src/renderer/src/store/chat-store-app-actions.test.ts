@@ -155,7 +155,6 @@ describe('chat-store app actions', () => {
     })
 
     await actions.reloadUiSettings()
-    await actions.openWrite()
     actions.openSettings('general')
     actions.openClaw()
     actions.selectRemoteGuardChannel('discord-channel')

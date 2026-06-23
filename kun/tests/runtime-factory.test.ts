@@ -3,7 +3,10 @@ import { InMemorySessionStore } from '../src/adapters/in-memory-session-store.js
 import { InMemoryThreadStore } from '../src/adapters/in-memory-thread-store.js'
 import { createThreadRecord } from '../src/domain/thread.js'
 import { UsageService } from '../src/services/usage-service.js'
-import { seedUsageCarryover } from '../src/server/runtime-factory.js'
+import {
+  resolveModelRouterRuntimeEndpoint,
+  seedUsageCarryover
+} from '../src/server/runtime-factory.js'
 import type { UsageSnapshot } from '../src/contracts/usage.js'
 
 function usage(overrides: Partial<UsageSnapshot>): UsageSnapshot {
@@ -68,3 +71,37 @@ describe('runtime factory usage carryover', () => {
     })
   })
 })
+
+describe('runtime factory model routing', () => {
+  it('normalizes local Model Router URLs and forces responses endpoint format', () => {
+    expect(resolveModelRouterRuntimeEndpoint({
+      ...runtimeOptions(),
+      modelRouterBaseUrl: 'http://localhost:4892'
+    })).toEqual({
+      baseUrl: 'http://localhost:4892/v1'
+    })
+  })
+
+  it('rejects direct provider URLs', () => {
+    expect(() => resolveModelRouterRuntimeEndpoint({
+      ...runtimeOptions(),
+      modelRouterBaseUrl: 'https://api.deepseek.com/v1'
+    })).toThrow(/local Model Router/)
+  })
+})
+
+function runtimeOptions(): Parameters<typeof resolveModelRouterRuntimeEndpoint>[0] {
+  return {
+    host: '127.0.0.1',
+    port: 8899,
+    dataDir: '/tmp/kun',
+    runtimeToken: '',
+    apiKey: 'router-key',
+    modelRouterBaseUrl: 'http://127.0.0.1:3892/v1',
+    model: 'sciforge-router',
+    approvalPolicy: 'auto',
+    sandboxMode: 'danger-full-access',
+    tokenEconomyMode: false,
+    insecure: false
+  }
+}

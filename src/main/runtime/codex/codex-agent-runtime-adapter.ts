@@ -24,6 +24,12 @@ import type {
 import type { AgentRuntimeAdapter } from '../agent-runtime/adapter'
 import type { CodexRuntimeService } from './codex-service'
 import { isComputerUseEnabledForRuntime, type AppSettingsV1 } from '../../../shared/app-settings'
+import {
+  computerUseMcpDiagnosticsServer,
+  computerUseMcpRuntimeInfoState,
+  configuredComputerUseCapability,
+  unavailableComputerUseCapability
+} from '../../computer-use-mcp-config'
 
 export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): AgentRuntimeAdapter {
   return {
@@ -295,13 +301,8 @@ function codexCapabilities(state: CodexMcpState = emptyCodexMcpState): AgentRunt
           }
         : { available: false, reason: 'Shared research MCP server is not configured for Codex yet.' },
       computerUse: state.computerUseConfigured
-        ? {
-            available: true,
-            server: 'mcp',
-            toolName: 'computer_use',
-            backend: 'global-native'
-          }
-        : { available: false, reason: 'Shared computer-use MCP server is not configured for Codex yet.' },
+        ? configuredComputerUseCapability()
+        : unavailableComputerUseCapability('Shared computer-use MCP server is not configured for Codex yet.'),
       skills: { available: false, reason: 'Codex skills are not exposed through this service yet.' },
       subagents: {
         available: true,
@@ -365,12 +366,7 @@ function codexRuntimeInfo(state: CodexMcpState = emptyCodexMcpState): Record<str
         configuredServers: configuredMcpToolCount,
         connectedServers: 0,
         toolCount: caps.tools.mcp.toolCount ?? 0,
-        computerUse: {
-          enabled: state.computerUseConfigured,
-          available: state.computerUseConfigured,
-          server: 'mcp',
-          toolName: 'computer_use'
-        },
+        computerUse: computerUseMcpRuntimeInfoState(state.computerUseConfigured),
         search: {
           enabled: false,
           mode: 'direct',
@@ -427,12 +423,7 @@ function codexToolDiagnostics(state: CodexMcpState = emptyCodexMcpState): Record
     })
   }
   if (state.computerUseConfigured) {
-    mcpServers.push({
-      id: 'gui_computer_use',
-      status: 'configured',
-      toolCount: 1,
-      tools: ['computer_use']
-    })
+    mcpServers.push(computerUseMcpDiagnosticsServer())
   }
   return {
     mcpServers,

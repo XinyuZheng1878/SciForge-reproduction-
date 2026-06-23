@@ -271,7 +271,7 @@ describe('startKunChild', () => {
     expect(logText).toContain('exited with code 23')
   })
 
-  it('passes only the local Model Router runtime key env to Kun', async () => {
+  it('passes only the local Model Router env to Kun', async () => {
     const previousDeepSeekApiKey = process.env.DEEPSEEK_API_KEY
     const previousDeepSeekBaseUrl = process.env.DEEPSEEK_BASE_URL
     const previousKunBaseUrl = process.env.KUN_BASE_URL
@@ -293,6 +293,10 @@ describe('startKunChild', () => {
         '}',
         "if (process.env.KUN_MODEL_ROUTER_API_KEY !== 'local-runtime-router-key') {",
         "  process.stderr.write('unexpected router key ' + String(process.env.KUN_MODEL_ROUTER_API_KEY) + '\\n')",
+        '  process.exit(24)',
+        '}',
+        "if (process.env.KUN_MODEL_ROUTER_BASE_URL !== 'http://127.0.0.1:3892/v1') {",
+        "  process.stderr.write('unexpected router base URL ' + String(process.env.KUN_MODEL_ROUTER_BASE_URL) + '\\n')",
         '  process.exit(24)',
         '}',
         "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { Bot } from 'lucide-react'
@@ -53,16 +53,10 @@ import {
   remoteGuardProviderLabel
 } from './chat/RemoteGuardDetailView'
 import { SessionHeader } from './SessionHeader'
-import { WriteWorkspaceView } from './write/WriteWorkspaceView'
-import { WriteAssistantPanel } from './write/WriteAssistantPanel'
-import { WriteSidebar } from './write/WriteSidebar'
 import { SddAssistantPanel } from './sdd/SddAssistantPanel'
 import { SddDraftEditorView } from './sdd/SddDraftEditorView'
 import { SidebarTitlebarToggleButton } from './sidebar/SidebarPrimitives'
-import { prepareWriteAssistantPrompt, writeAssistantRuntimePayload } from '../write/write-assistant-message'
 import { useWriteWorkspaceStore } from '../write/write-workspace-store'
-import type { PdfAssistantAnswerSaver } from '../write/pdf-assistant-annotation-save'
-import { isWriteThreadId } from '../write/write-thread-registry'
 import { buildSddDraftId, createSddDraft, forgetRememberedSddDraft, useSddDraftStore } from '../sdd/sdd-draft-store'
 import type { SddDraft, SddDraftSaveStatus } from '../sdd/sdd-draft-store'
 import { saveActiveSddDraftToDisk } from '../sdd/sdd-draft-actions'
@@ -434,12 +428,6 @@ function clipboardImageToFile(image: Extract<ClipboardImageReadResult, { ok: tru
   return base64ToFile(image.dataBase64, image.name, image.mimeType)
 }
 
-function dataUrlToImageFile(dataUrl: string, name: string, fallbackMimeType: string): File {
-  const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/)
-  if (!match?.[2]) throw new Error('Invalid image data URL.')
-  return base64ToFile(match[2], name || 'pdf-selection.png', match[1] || fallbackMimeType || 'image/png')
-}
-
 function base64ToFile(dataBase64: string, name: string, mimeType: string): File {
   const binary = atob(dataBase64)
   const bytes = new Uint8Array(binary.length)
@@ -470,10 +458,6 @@ export function Workbench(): ReactElement {
     runtimeConnection,
     activeAgentRuntime,
     setRoute,
-    openCode,
-    openWrite,
-    ensureWriteThreadForWorkspace,
-    createWriteThread,
     openSettings,
     openPlugins,
     openSchedule,
@@ -532,10 +516,6 @@ export function Workbench(): ReactElement {
       runtimeConnection: s.runtimeConnection,
       activeAgentRuntime: s.activeAgentRuntime,
       setRoute: s.setRoute,
-      openCode: s.openCode,
-      openWrite: s.openWrite,
-      ensureWriteThreadForWorkspace: s.ensureWriteThreadForWorkspace,
-      createWriteThread: s.createWriteThread,
       openSettings: s.openSettings,
       openPlugins: s.openPlugins,
       openSchedule: s.openSchedule,
@@ -586,19 +566,15 @@ export function Workbench(): ReactElement {
   const [runtimeSkills, setRuntimeSkills] = useState<CoreRuntimeSkillJson[]>([])
   const [composerAttachments, setComposerAttachments] = useState<AttachmentReference[]>([])
   const [composerFileReferences, setComposerFileReferences] = useState<ComposerFileReference[]>([])
-  const [pdfAssistantAnswerSaver, setPdfAssistantAnswerSaver] = useState<PdfAssistantAnswerSaver | null>(null)
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
   const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null)
   const [connectPhoneSidebarOpen, setConnectPhoneSidebarOpen] = useState(false)
   const [runtimeLogPath, setRuntimeLogPath] = useState('')
-  const writeAssistantOpen = useWriteWorkspaceStore((s) => s.assistantOpen)
-  const setWriteAssistantOpen = useWriteWorkspaceStore((s) => s.setAssistantOpen)
-  const writeAssistantModel = useWriteWorkspaceStore((s) => s.assistantModel)
-  const setWriteAssistantModel = useWriteWorkspaceStore((s) => s.setAssistantModel)
-  const activeWriteWorkspaceRoot = useWriteWorkspaceStore((s) => s.workspaceRoot)
+  const assistantModel = useWriteWorkspaceStore((s) => s.assistantModel)
+  const setAssistantModel = useWriteWorkspaceStore((s) => s.setAssistantModel)
   const activeSddDraft = useSddDraftStore((s) => s.activeDraft)
   const sddDraftOperationStatus = useSddDraftStore((s) => s.operationStatus)
-  const writeAssistantPickList = useMemo(() => {
+  const assistantPickList = useMemo(() => {
     const ordered = new Set<string>()
     for (const id of DEFAULT_COMPOSER_MODEL_IDS) {
       const normalized = id.trim()
@@ -608,13 +584,10 @@ export function Workbench(): ReactElement {
       const normalized = id.trim()
       if (normalized) ordered.add(normalized)
     }
-    const current = writeAssistantModel.trim()
+    const current = assistantModel.trim()
     if (current) ordered.add(current)
     return [...ordered]
-  }, [composerPickList, writeAssistantModel])
-  const handlePdfAssistantAnswerSaverChange = useCallback((saver: PdfAssistantAnswerSaver | null): void => {
-    setPdfAssistantAnswerSaver(() => saver)
-  }, [])
+  }, [assistantModel, composerPickList])
   const stageInsetClass = 'ds-stage-inset'
   const paperRadarEnabled = import.meta.env.DEV && isPluginInstalled('extension', PAPER_RADAR_EXTENSION_ID)
   const keyboardShortcuts = useKeyboardShortcutSettings()
@@ -695,20 +668,17 @@ export function Workbench(): ReactElement {
   )
   const activeWorkspaceReferenceRoot = useMemo(
     () => normalizeWorkspaceRoot(
-      route === 'write'
-        ? activeWriteWorkspaceRoot || workspaceRoot
-        : activeSkillWorkspace || workspaceRoot
+      activeSkillWorkspace || workspaceRoot
     ),
-    [activeSkillWorkspace, activeWriteWorkspaceRoot, route, workspaceRoot]
+    [activeSkillWorkspace, workspaceRoot]
   )
   const workspaceReferenceGroups = useMemo(
     () => buildWorkspaceReferenceGroups({
       activeThreadWorkspace: activeThread?.workspace,
       workspaceRoot,
-      codeWorkspaceRoots,
-      writeWorkspaceRoot: activeWriteWorkspaceRoot
+      codeWorkspaceRoots
     }),
-    [activeThread?.workspace, activeWriteWorkspaceRoot, codeWorkspaceRoots, workspaceRoot]
+    [activeThread?.workspace, codeWorkspaceRoots, workspaceRoot]
   )
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.dsGui?.updateClawActiveThreadContext !== 'function') return
@@ -760,8 +730,7 @@ export function Workbench(): ReactElement {
     latestAutoOpenDevPreviewUrl,
     latestDevPreviewUrl,
     route,
-    workspaceRoot,
-    writeAssistantOpen
+    workspaceRoot
   })
   const {
     activeGuiPlan,
@@ -879,7 +848,6 @@ export function Workbench(): ReactElement {
 
   const codeThreads = useMemo(
     () => threads.filter((thread) =>
-      !isWriteThreadId(thread.id) &&
       !isClawThread(thread, clawChannels) &&
       !isSddAssistantThread(thread) &&
       !isEmptySddAssistantThreadCandidate(thread)
@@ -1061,7 +1029,7 @@ export function Workbench(): ReactElement {
   }
 
   useEffect(() => {
-    if (route !== 'chat' && route !== 'write') setComposerFileReferences([])
+    if (route !== 'chat') setComposerFileReferences([])
   }, [route])
 
   useEffect(() => {
@@ -1070,9 +1038,7 @@ export function Workbench(): ReactElement {
 
   const handlePickAttachments = async (inputs: ComposerImageAttachmentInput[]): Promise<void> => {
     if (!inputs.length) return
-    const writeState = route === 'write' ? useWriteWorkspaceStore.getState() : null
     const workspace = normalizeWorkspaceRoot(
-      (route === 'write' ? writeState?.workspaceRoot : null) ||
       threads.find((thread) => thread.id === activeThreadId)?.workspace ||
       workspaceRoot
     )
@@ -1215,16 +1181,6 @@ export function Workbench(): ReactElement {
     }
   }
 
-  const handlePdfVisualSelectionImage = async (image: { dataUrl: string; mimeType: string; fileName: string }): Promise<void> => {
-    try {
-      await handlePickAttachments([{
-        file: dataUrlToImageFile(image.dataUrl, image.fileName, image.mimeType)
-      }])
-    } catch (error) {
-      setAttachmentUploadError(error instanceof Error ? error.message : String(error))
-    }
-  }
-
   const removeComposerAttachment = (id: string): void => {
     setComposerAttachments((current) => current.filter((attachment) => attachment.id !== id))
   }
@@ -1242,89 +1198,6 @@ export function Workbench(): ReactElement {
       return
     }
     await handlePickAttachments([{ file: clipboardImageToFile(image) }])
-  }
-
-  const sendWritePrompt = (value: string): void => {
-    const v = value.trim()
-    const attachments = composerAttachments
-    const attachmentIds = attachments.map((attachment) => attachment.id)
-    const fileReferences = composerFileReferences
-    if (!v && attachmentIds.length === 0 && fileReferences.length === 0) return
-    if (attachmentIds.length > 0 && !attachmentUploadEnabled) {
-      setAttachmentUploadError(t('composerAttachmentModelUnsupported'))
-      return
-    }
-    const writeState = useWriteWorkspaceStore.getState()
-    const writeWorkspaceRoot = writeState.workspaceRoot || workspaceRoot
-    const emptyPrompt =
-      fileReferences.length > 0 && attachmentIds.length > 0
-        ? t('composerFileAndImageOnlyPrompt')
-        : fileReferences.length > 0
-          ? t('composerFileOnlyPrompt')
-          : t('composerImageOnlyPrompt')
-    const emptyDisplayText =
-      fileReferences.length > 0 && attachmentIds.length > 0
-        ? t('composerFileAndImageOnlyDisplay', { count: fileReferences.length })
-        : fileReferences.length > 0
-          ? t('composerFileOnlyDisplay', { count: fileReferences.length })
-          : t('composerImageOnlyDisplay')
-    setInput('')
-    void (async () => {
-      const threadId = await ensureWriteThreadForWorkspace(writeWorkspaceRoot)
-      if (!threadId) {
-        setInput(v)
-        return
-      }
-      const messageText = v || emptyPrompt
-      const prepared = await prepareWriteAssistantPrompt(messageText, {
-        workspaceRoot: writeState.workspaceRoot,
-        fallbackWorkspaceRoot: workspaceRoot,
-        activeFilePath: writeState.activeFilePath,
-        quotedSelections: writeState.quotedSelections
-      }, {
-        retrieveWriteContext: window.dsGui?.retrieveWriteContext,
-        logError: window.dsGui?.logError
-      })
-      const runtimePayload = writeAssistantRuntimePayload(prepared)
-      let runtimeText = runtimePayload.text
-      const displayText = v ? runtimePayload.displayText : emptyDisplayText
-      if (fileReferences.length > 0) {
-        const fileWorkspaceRoot = normalizeWorkspaceRoot(writeWorkspaceRoot)
-        if (!fileWorkspaceRoot) {
-          setError(t('workspaceRequiredToCreateThread'))
-          setInput(v)
-          return
-        }
-        try {
-          const fileContext = await readComposerFileContextEntries(fileReferences, fileWorkspaceRoot)
-          runtimeText = buildComposerFileContextPrompt(runtimeText, fileContext)
-        } catch (error) {
-          setError(error instanceof Error ? error.message : String(error))
-          setInput(v)
-          return
-        }
-      }
-      const model = writeState.assistantModel.trim()
-      const reasoningEffort = composerReasoningEffortRequestValue(assistantReasoningEffort)
-      const sent = await sendMessage(runtimeText, mode === 'plan' ? 'plan' : 'agent', {
-        displayText,
-        sourceRoute: 'write',
-        targetThreadId: threadId,
-        workspaceRoot: writeWorkspaceRoot,
-        governanceProfile: 'write',
-        ...(model ? { model } : {}),
-        ...(reasoningEffort ? { reasoningEffort } : {}),
-        ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
-        ...(fileReferences.length ? { fileReferences } : {})
-      })
-      if (sent) {
-        useWriteWorkspaceStore.getState().clearQuotedSelections()
-        if (attachmentIds.length > 0) clearComposerAttachments()
-        if (fileReferences.length > 0) clearComposerFileReferences()
-      } else {
-        setInput(v)
-      }
-    })()
   }
 
   const createSddAssistantThreadForDraft = async (draft: SddDraft): Promise<string | null> => {
@@ -1553,7 +1426,7 @@ export function Workbench(): ReactElement {
       }
     }
     setInput('')
-    const model = writeAssistantModel.trim()
+    const model = assistantModel.trim()
     const reasoningEffort = composerReasoningEffortRequestValue(assistantReasoningEffort)
     const sent = await sendMessage(prompt, mode === 'plan' ? 'plan' : 'agent', {
       displayText: v || t('composerFileOnlyDisplay', { count: fileReferences.length }),
@@ -1743,9 +1616,9 @@ export function Workbench(): ReactElement {
 
   const handleSendAsync = async (): Promise<void> => {
     const v = input.trim()
-    const attachments = route === 'chat' || route === 'write' ? composerAttachments : []
+    const attachments = route === 'chat' ? composerAttachments : []
     const attachmentIds = attachments.map((attachment) => attachment.id)
-    const fileReferences = route === 'chat' || route === 'write' ? composerFileReferences : []
+    const fileReferences = route === 'chat' ? composerFileReferences : []
     const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
     if (!v && attachmentIds.length === 0 && fileReferences.length === 0) return
     const emptyPrompt =
@@ -1811,10 +1684,6 @@ export function Workbench(): ReactElement {
         ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
         ...(fileReferences.length ? { fileReferences } : {})
       })
-      return
-    }
-    if (route === 'write') {
-      sendWritePrompt(v)
       return
     }
     if (route === 'claw') {
@@ -1948,16 +1817,6 @@ export function Workbench(): ReactElement {
     void createThread({ workspaceRoot, forceNew: true })
   }
 
-  const openCodeMode = (): void => {
-    setConnectPhoneSidebarOpen(false)
-    void openCode()
-  }
-
-  const openWriteMode = (): void => {
-    setConnectPhoneSidebarOpen(false)
-    void openWrite()
-  }
-
   const openPluginsView = (): void => {
     setConnectPhoneSidebarOpen(false)
     openPlugins('chat')
@@ -1978,13 +1837,11 @@ export function Workbench(): ReactElement {
     setConnectPhoneSidebarOpen((open) => !open)
   }
 
-  const sidebarView: 'chat' | 'write' | 'claw' | 'schedule' | 'workflow' =
+  const sidebarView: 'chat' | 'claw' | 'schedule' | 'workflow' =
     route === 'schedule'
         ? 'schedule'
       : route === 'workflow'
         ? 'workflow'
-      : route === 'write'
-        ? 'write'
         : 'chat'
 
   const closeRightPanel = (): void => {
@@ -1993,33 +1850,8 @@ export function Workbench(): ReactElement {
       setFilePreviewTarget(null)
       return
     }
-    if (route === 'write') {
-      setWriteAssistantOpen(false)
-      return
-    }
     setRightPanelMode(null)
     setFilePreviewTarget(null)
-  }
-
-  const openPdfAnnotationsFromPreview = useCallback((path: string, fileWorkspaceRoot: string): void => {
-    const targetWorkspaceRoot = normalizeWorkspaceRoot(fileWorkspaceRoot) || activeWorkspaceReferenceRoot || workspaceRoot
-    void (async () => {
-      const writeState = useWriteWorkspaceStore.getState()
-      await writeState.selectWriteWorkspace(targetWorkspaceRoot)
-      await useWriteWorkspaceStore.getState().openFile(targetWorkspaceRoot, path)
-      setFilePreviewTarget(null)
-      setRightPanelMode(null)
-      setConnectPhoneSidebarOpen(false)
-      await openWrite()
-    })()
-  }, [activeWorkspaceReferenceRoot, openWrite, setFilePreviewTarget, setRightPanelMode, workspaceRoot])
-
-  const startNewWriteAssistantConversation = (): void => {
-    const writeState = useWriteWorkspaceStore.getState()
-    const writeWorkspaceRoot = writeState.workspaceRoot || workspaceRoot
-    setInput('')
-    writeState.clearQuotedSelections()
-    void createWriteThread(writeWorkspaceRoot)
   }
 
   const renderRuntimeBanner = (message: string, detail?: string | null): ReactElement => (
@@ -2040,10 +1872,6 @@ export function Workbench(): ReactElement {
     />
   )
 
-  const writeRuntimeBannerMessage = runtimeConnection !== 'ready'
-    ? (error?.trim() || t('writeRuntimeUnavailable'))
-    : null
-
   const renderRightPanel = (): ReactElement | null => {
     if (!rightPanelVisible) return null
     return (
@@ -2061,7 +1889,6 @@ export function Workbench(): ReactElement {
                 target={filePreviewTarget}
                 workspaceRoot={filePreviewTarget.workspaceRoot || activeWorkspaceReferenceRoot || workspaceRoot}
                 className="h-full max-h-full w-full"
-                onOpenPdfAnnotations={openPdfAnnotationsFromPreview}
                 onClose={() => setFilePreviewTarget(null)}
               />
             ) : rightPanelMode === 'file' ? (
@@ -2074,48 +1901,6 @@ export function Workbench(): ReactElement {
                 onPreviewFile={previewWorkspaceReference}
                 onAddReference={addComposerFileReference}
                 onCollapse={closeRightPanel}
-              />
-            ) : route === 'write' && writeAssistantOpen ? (
-              <WriteAssistantPanel
-                input={input}
-                setInput={setInput}
-                mode={mode}
-                setMode={setMode}
-                busy={busy}
-                runtimeConnection={runtimeConnection}
-                activeThreadId={activeThreadId}
-                blocks={blocks}
-                liveReasoning={liveReasoning}
-                liveAssistant={liveAssistant}
-                composerModel={writeAssistantModel}
-                composerPickList={writeAssistantPickList}
-                composerModelGroups={composerModelGroups}
-                composerReasoningEffort={assistantReasoningEffort}
-                setComposerModel={setWriteAssistantModel}
-                setComposerReasoningEffort={setAssistantReasoningEffort}
-                queuedMessages={queuedMessages}
-                removeQueuedMessage={removeQueuedMessage}
-                attachments={composerAttachments}
-                attachmentUploadEnabled={attachmentUploadEnabled}
-                attachmentUploadBusy={attachmentUploadBusy}
-                attachmentUploadError={attachmentUploadError}
-                fileReferenceEnabled={Boolean(normalizeWorkspaceRoot(activeWriteWorkspaceRoot || workspaceRoot))}
-                fileReferences={composerFileReferences}
-                onPickAttachments={(files) => void handlePickAttachments(files)}
-                onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
-                onRemoveAttachment={removeComposerAttachment}
-                onAddFileReference={addComposerFileReference}
-                onPreviewFileReference={previewComposerFileReference}
-                onRemoveFileReference={removeComposerFileReference}
-                onSend={handleSend}
-                onInterrupt={(options) => void interrupt(options)}
-                runtimeCapabilities={runtimeCapabilities}
-                onRetryConnection={() => void probeRuntime('user')}
-                onOpenSettings={() => openSettings('agents')}
-                onNewConversation={startNewWriteAssistantConversation}
-                onSaveAssistantToPdfAnnotation={pdfAssistantAnswerSaver}
-                onCollapse={closeRightPanel}
-                className="h-full max-h-full w-full"
               />
             ) : rightPanelMode === 'sdd-ai' && activeSddDraft ? (
               <SddAssistantPanel
@@ -2130,11 +1915,11 @@ export function Workbench(): ReactElement {
                 blocks={blocks}
                 liveReasoning={liveReasoning}
                 liveAssistant={liveAssistant}
-                composerModel={writeAssistantModel}
-                composerPickList={writeAssistantPickList}
+                composerModel={assistantModel}
+                composerPickList={assistantPickList}
                 composerModelGroups={composerModelGroups}
                 composerReasoningEffort={assistantReasoningEffort}
-                setComposerModel={setWriteAssistantModel}
+                setComposerModel={setAssistantModel}
                 setComposerReasoningEffort={setAssistantReasoningEffort}
                 queuedMessages={queuedMessages}
                 removeQueuedMessage={removeQueuedMessage}
@@ -2215,17 +2000,6 @@ export function Workbench(): ReactElement {
       {!leftSidebarCollapsed ? (
         <>
           <div className="min-h-0 shrink-0" style={{ width: leftSidebarWidth }}>
-            {route === 'write' ? (
-              <WriteSidebar
-                activeView={sidebarView}
-                connectPhoneSidebarOpen={connectPhoneSidebarOpen}
-                onCodeOpen={openCodeMode}
-                onWriteOpen={openWriteMode}
-                onOpenSettings={(section) => openSettings(section)}
-                onToggleConnectPhone={toggleConnectPhone}
-                onToggleSidebar={toggleLeftSidebar}
-              />
-            ) : (
             <Sidebar
               threads={codeThreads}
               activeThreadId={activeThreadId}
@@ -2248,13 +2022,10 @@ export function Workbench(): ReactElement {
               onOpenSettings={(section) => openSettings(section)}
               onOpenPlugins={openPluginsView}
               onToggleConnectPhone={toggleConnectPhone}
-              onCodeOpen={openCodeMode}
-              onWriteOpen={openWriteMode}
               onScheduleOpen={openScheduleView}
               onWorkflowOpen={openWorkflowView}
               onToggleSidebar={toggleLeftSidebar}
             />
-            )}
           </div>
           <div
             role="separator"
@@ -2299,22 +2070,6 @@ export function Workbench(): ReactElement {
               onOpenThread={openThread}
             />
           </Suspense>
-        ) : route === 'write' ? (
-          <>
-            {writeRuntimeBannerMessage ? renderRuntimeBanner(writeRuntimeBannerMessage, runtimeErrorDetail) : null}
-            <div className="flex min-h-0 flex-1">
-              <WriteWorkspaceView
-                leftSidebarCollapsed={leftSidebarCollapsed}
-                onToggleLeftSidebar={toggleLeftSidebar}
-                input={input}
-                setInput={setInput}
-                onSubmitPrompt={sendWritePrompt}
-                onPdfAssistantAnswerSaverChange={handlePdfAssistantAnswerSaverChange}
-                onPdfVisualSelectionImage={(image) => void handlePdfVisualSelectionImage(image)}
-              />
-              {renderRightPanel()}
-            </div>
-          </>
         ) : (
           <>
         {error && !(runtimeConnection !== 'ready' && !activeThreadId) ? renderRuntimeBanner(error, runtimeErrorDetail) : null}

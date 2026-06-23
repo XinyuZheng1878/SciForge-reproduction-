@@ -1,4 +1,4 @@
-export type WorkspaceReferenceGroupKind = 'project' | 'worktree' | 'write'
+export type WorkspaceReferenceGroupKind = 'project' | 'worktree'
 
 export type WorkspaceReferenceGroup = {
   id: string
@@ -11,7 +11,6 @@ export type BuildWorkspaceReferenceGroupsInput = {
   activeThreadWorkspace?: string | null
   workspaceRoot?: string | null
   codeWorkspaceRoots?: readonly string[]
-  writeWorkspaceRoot?: string | null
 }
 
 export function buildWorkspaceReferenceGroups(input: BuildWorkspaceReferenceGroupsInput): WorkspaceReferenceGroup[] {
@@ -33,7 +32,6 @@ export function buildWorkspaceReferenceGroups(input: BuildWorkspaceReferenceGrou
 
   add(input.activeThreadWorkspace, 'project')
   add(input.workspaceRoot, 'project')
-  add(input.writeWorkspaceRoot, 'write')
   for (const root of input.codeWorkspaceRoots ?? []) {
     add(root, normalizeWorkspaceRootLike(root) === normalizeWorkspaceRootLike(input.workspaceRoot) ? 'project' : 'worktree')
   }

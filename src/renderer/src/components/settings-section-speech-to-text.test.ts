@@ -19,15 +19,6 @@ const labels: Record<string, string> = {
   sectionSpeechToText: 'Speech-to-Text',
   speechToTextEnabled: 'Enable voice input',
   speechToTextEnabledDesc: 'Show voice input controls once configured.',
-  speechToTextProtocol: 'Protocol',
-  speechToTextProtocolDesc: 'Choose the request format.',
-  speechProtocolOpenAi: 'OpenAI-compatible transcriptions',
-  speechProtocolMimoAsr: 'MiMo ASR',
-  speechToTextBaseUrl: 'Speech endpoint URL',
-  speechToTextBaseUrlDesc: 'Base URL for speech.',
-  speechToTextBaseUrlPlaceholder: 'https://api.example.com/v1',
-  speechToTextApiKey: 'Speech API key',
-  speechToTextApiKeyDesc: 'Speech-only credential.',
   speechToTextModel: 'Transcription model',
   speechToTextModelDesc: 'Model ID.',
   speechToTextModelPlaceholder: 'whisper-1',
@@ -70,8 +61,6 @@ function buildSettings(): AppSettingsV1 {
       ...defaultSpeechToTextSettings(),
       enabled: true,
       protocol: 'mimo-asr',
-      baseUrl: 'https://speech.example/v1',
-      apiKey: 'sk-speech',
       model: 'mimo-v2.5-asr',
       language: 'zh',
       timeoutMs: 120_000
@@ -97,9 +86,9 @@ describe('SpeechToTextSettingsSection', () => {
 
     expect(html).toContain('Speech-to-Text')
     expect(html).toContain('Enable voice input')
-    expect(html).toContain('<option value="openai-transcriptions"')
-    expect(html).toContain('<option value="mimo-asr" selected="">MiMo ASR</option>')
-    expect(html).toContain('value="https://speech.example/v1"')
+    expect(html).not.toContain('OpenAI-compatible')
+    expect(html).not.toContain('Speech endpoint URL')
+    expect(html).not.toContain('Speech API key')
     expect(html).toContain('value="mimo-v2.5-asr"')
     expect(html).toContain('<option value="zh" selected="">Chinese</option>')
     expect(html).toContain('value="120000"')
@@ -110,18 +99,16 @@ describe('SpeechToTextSettingsSection', () => {
   it('builds app-level speech settings patches without touching providers or agents', () => {
     const patch = speechToTextSettingsPatch(defaultSpeechToTextSettings(), {
       enabled: true,
-      baseUrl: 'https://speech.example/v1',
-      apiKey: 'sk-speech',
       model: 'whisper-1'
     })
 
     expect(patch).toEqual({
       speechToText: {
-        ...defaultSpeechToTextSettings(),
         enabled: true,
-        baseUrl: 'https://speech.example/v1',
-        apiKey: 'sk-speech',
-        model: 'whisper-1'
+        protocol: 'mimo-asr',
+        model: 'whisper-1',
+        language: '',
+        timeoutMs: defaultSpeechToTextSettings().timeoutMs
       }
     })
     expect(patch.provider).toBeUndefined()

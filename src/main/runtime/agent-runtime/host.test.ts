@@ -211,6 +211,23 @@ function commandToolEvent(command: string, index: number): AgentRuntimeEvent {
   }
 }
 
+function computerUseToolEvent(argumentsValue: Record<string, unknown>, index: number): AgentRuntimeEvent {
+  return {
+    kind: 'tool_event',
+    runtimeId: 'codex',
+    threadId: 'codex-thread',
+    turnId: 'turn-1',
+    itemId: `computer-use-${index}`,
+    status: 'running',
+    toolKind: 'tool_call',
+    summary: 'computer_use',
+    meta: {
+      toolName: 'computer_use',
+      arguments: argumentsValue
+    }
+  }
+}
+
 function shellWrappedCommandToolEvent(command: string, index: number): AgentRuntimeEvent {
   const wrapper = `/bin/zsh -lc '${command}'`
   return {
@@ -745,6 +762,8 @@ describe('AgentRuntimeHost', () => {
         goalResume: { available: false, reason: 'unsupported' }
       }
     })
+    const cleanupCompaction = vi.fn(async () => undefined)
+    adapter.compactThread = cleanupCompaction
     vi.mocked(adapter.readThread).mockResolvedValue({
       id: 'codex-thread',
       runtimeId: 'codex',
@@ -791,6 +810,14 @@ describe('AgentRuntimeHost', () => {
       digestMarker: expect.stringContaining('runtime:compaction_digest'),
       sourceItemIds: ['u1', 'a1']
     })
+    expect(cleanupCompaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        reason: 'manual cleanup'
+      })
+    )
   })
 
   it('summarizes noop compaction through Model Router when model summaries are enabled', async () => {
@@ -1377,6 +1404,8 @@ describe('AgentRuntimeHost', () => {
         compact: 'noop'
       }
     })
+    const cleanupCompaction = vi.fn(async () => undefined)
+    adapter.compactThread = cleanupCompaction
     vi.mocked(adapter.readThread).mockResolvedValue({
       id: 'codex-thread',
       runtimeId: 'codex',
@@ -1439,6 +1468,14 @@ describe('AgentRuntimeHost', () => {
         auto: true,
         summary: expect.stringContaining('Map the shared runtime contract.'),
         sourceDigest: state.sourceDigest
+      })
+    )
+    expect(cleanupCompaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        runtimeId: 'codex',
+        threadId: 'codex-thread',
+        reason: state.triggerReason
       })
     )
   })
@@ -2692,6 +2729,118 @@ describe('AgentRuntimeHost', () => {
     await Promise.resolve()
 
     expect(events.map((event) => event.itemId)).toEqual(['tool-1', 'tool-2', 'tool-3'])
+    expect(codex.steerTurn).not.toHaveBeenCalled()
+    expect(codex.interruptTurn).not.toHaveBeenCalled()
+    expect(codex.publishSyntheticEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not escalate multi-step computer_use actions with different arguments', async () => {
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const actions: Array<Record<string, unknown>> = [
+      { action: 'list_targets' },
+      { action: 'bind_target', targetId: 'app:Microsoft Edge', computerUseSessionId: 'session-1' },
+      { action: 'click', computerUseSessionId: 'session-1', x: 120, y: 90 },
+      { action: 'type', computerUseSessionId: 'session-1', text: 'arxiv AI scientist' },
+      { action: 'key', computerUseSessionId: 'session-1', key: 'Return' },
+      { action: 'screenshot', computerUseSessionId: 'session-1' }
+    ]
+    vi.mocked(codex.subscribeEvents).mockImplementation(async function* () {
+      for (const [index, action] of actions.entries()) {
+        yield computerUseToolEvent(action, index + 1)
+      }
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        runtimeGuards: {
+          toolStorm: {
+            enabled: true,
+            windowSize: 8,
+            softThreshold: 2,
+            hardThreshold: 3
+          },
+          budgets: {
+            defaultMaxToolEvents: 80,
+            writeMaxToolEvents: 96,
+            remoteGuardMaxToolEvents: 32
+          }
+        }
+      }),
+      adapters: [codex]
+    })
+
+    const events: AgentRuntimeEvent[] = []
+    for await (const event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      sinceSeq: 0
+    })) {
+      events.push(event)
+    }
+    await Promise.resolve()
+
+    expect(events.map((event) => event.itemId)).toEqual([
+      'computer-use-1',
+      'computer-use-2',
+      'computer-use-3',
+      'computer-use-4',
+      'computer-use-5',
+      'computer-use-6'
+    ])
+    expect(codex.steerTurn).not.toHaveBeenCalled()
+    expect(codex.interruptTurn).not.toHaveBeenCalled()
+    expect(codex.publishSyntheticEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not escalate repeated computer_use screenshots within the tool budget', async () => {
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(codex.subscribeEvents).mockImplementation(async function* () {
+      for (let index = 1; index <= 4; index += 1) {
+        yield computerUseToolEvent({
+          action: 'screenshot',
+          computerUseSessionId: 'session-1'
+        }, index)
+      }
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => ({
+        ...settings('codex'),
+        runtimeGuards: {
+          toolStorm: {
+            enabled: true,
+            windowSize: 8,
+            softThreshold: 2,
+            hardThreshold: 3
+          },
+          budgets: {
+            defaultMaxToolEvents: 80,
+            writeMaxToolEvents: 96,
+            remoteGuardMaxToolEvents: 32
+          }
+        }
+      }),
+      adapters: [codex]
+    })
+
+    for await (const _event of host.subscribeEvents({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      sinceSeq: 0
+    })) {
+      // exhaust stream
+    }
+    await Promise.resolve()
+
     expect(codex.steerTurn).not.toHaveBeenCalled()
     expect(codex.interruptTurn).not.toHaveBeenCalled()
     expect(codex.publishSyntheticEvent).not.toHaveBeenCalled()

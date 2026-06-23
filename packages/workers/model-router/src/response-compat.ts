@@ -243,7 +243,7 @@ function anthropicMessagesToResponsesInput(messages: unknown): JsonValue[] {
       }
       if (isRecord(part) && part.type === 'tool_result') {
         const callId = stringValue(part.tool_use_id);
-        const output = anthropicContentToText(part.content) || stringifyJsonValue(part.content) || '';
+        const output = anthropicToolResultOutput(part.content);
         if (callId) {
           flushTextParts();
           input.push({
@@ -262,6 +262,39 @@ function anthropicMessagesToResponsesInput(messages: unknown): JsonValue[] {
     flushTextParts();
   }
   return input.length > 0 ? input : [{ role: 'user', content: [{ type: 'input_text', text: '' }] }];
+}
+
+function anthropicToolResultOutput(content: unknown): JsonValue {
+  const text = anthropicContentToText(content);
+  const images = anthropicToolResultImages(content);
+  if (images.length === 0) return text || stringifyJsonValue(content) || '';
+  return compactJsonObject({
+    kind: 'image',
+    note: text || undefined,
+    content: [
+      ...(text ? [{ type: 'text', text }] : []),
+      ...images,
+    ],
+  });
+}
+
+function anthropicToolResultImages(content: unknown): JsonObject[] {
+  const parts = anthropicContentParts(content);
+  const images: JsonObject[] = [];
+  for (const part of parts) {
+    const image = anthropicImagePartToMcpContent(part);
+    if (image) images.push(image);
+  }
+  return images;
+}
+
+function anthropicImagePartToMcpContent(part: unknown): JsonObject | null {
+  if (!isRecord(part) || part.type !== 'image') return null;
+  const source = isRecord(part.source) ? part.source : {};
+  const data = stringValue(source.data);
+  const mimeType = stringValue(source.media_type) || 'image/png';
+  if (!data) return null;
+  return { type: 'image', data, mimeType };
 }
 
 function anthropicContentParts(content: unknown): unknown[] {

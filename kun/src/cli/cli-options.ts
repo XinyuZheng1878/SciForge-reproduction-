@@ -17,16 +17,10 @@ import {
   DEFAULT_KUN_CAPABILITIES_CONFIG,
   KunCapabilitiesConfig
 } from '../contracts/capabilities.js'
-import {
-  type ModelEndpointFormat,
-  MODEL_ENDPOINT_FORMATS,
-  normalizeModelEndpointFormat
-} from '../contracts/model-endpoint-format.js'
 
 export const DEFAULT_SERVE_PORT = 8899
-export const DEFAULT_SERVE_BASE_URL = 'http://127.0.0.1:3892/v1'
-export const DEFAULT_SERVE_ENDPOINT_FORMAT: ModelEndpointFormat = 'responses'
-export const DEFAULT_SERVE_MODEL = 'deepseek-gui-router'
+export const DEFAULT_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
+export const DEFAULT_SERVE_MODEL = 'sciforge-router'
 
 /**
  * Validated CLI options for `kun serve`.
@@ -43,8 +37,7 @@ export const ServeOptionsSchema = z.object({
   dataDir: z.string().min(1),
   runtimeToken: z.string().default(''),
   apiKey: z.string().default(''),
-  baseUrl: z.string().default(DEFAULT_SERVE_BASE_URL),
-  endpointFormat: z.preprocess(normalizeModelEndpointFormat, z.enum(MODEL_ENDPOINT_FORMATS)).default(DEFAULT_SERVE_ENDPOINT_FORMAT),
+  modelRouterBaseUrl: z.string().default(DEFAULT_MODEL_ROUTER_BASE_URL),
   model: z.string().default(DEFAULT_SERVE_MODEL),
   forceDefaultModel: z.boolean().default(false),
   approvalPolicy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
@@ -66,8 +59,7 @@ export const DEFAULT_SERVE_OPTIONS: ServeOptions = {
   dataDir: '',
   runtimeToken: '',
   apiKey: '',
-  baseUrl: DEFAULT_SERVE_BASE_URL,
-  endpointFormat: DEFAULT_SERVE_ENDPOINT_FORMAT,
+  modelRouterBaseUrl: DEFAULT_MODEL_ROUTER_BASE_URL,
   model: DEFAULT_SERVE_MODEL,
   forceDefaultModel: false,
   approvalPolicy: DEFAULT_APPROVAL_POLICY,

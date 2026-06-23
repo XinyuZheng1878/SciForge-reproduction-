@@ -279,12 +279,12 @@ describe('cli', () => {
       DEEPSEEK_API_KEY: 'deepseek-env-key',
       DEEPSEEK_BASE_URL: 'https://api.deepseek.com/beta',
       KUN_BASE_URL: 'https://direct-provider.example/v1',
+      KUN_MODEL_ROUTER_BASE_URL: 'http://localhost:4892/v1',
       KUN_MODEL_ROUTER_API_KEY: 'local-router-key'
     })
 
-    expect(parsed.baseUrl).toBe('http://127.0.0.1:3892/v1')
-    expect(parsed.endpointFormat).toBe('responses')
-    expect(parsed.model).toBe('deepseek-gui-router')
+    expect(parsed.modelRouterBaseUrl).toBe('http://localhost:4892/v1')
+    expect(parsed.model).toBe('sciforge-router')
     expect(parsed.apiKey).toBe('local-router-key')
   })
 
@@ -298,6 +298,8 @@ describe('cli', () => {
       '/tmp/ca',
       '--runtime-token',
       'abc',
+      '--model-router-base-url',
+      'http://127.0.0.1:4892/v1',
       '--model',
       'deepseek-chat',
       '--approval-policy',
@@ -312,6 +314,7 @@ describe('cli', () => {
     expect(parsed.tokenEconomyMode).toBe(true)
     expect(parsed.tokenEconomy?.enabled).toBe(true)
     expect(parsed.insecure).toBe(true)
+    expect(parsed.modelRouterBaseUrl).toBe('http://127.0.0.1:4892/v1')
   })
 
   it('parses flags in --key=value form', () => {
@@ -621,7 +624,6 @@ describe('cli', () => {
     try {
       await writeFile(join(dataDir, 'config.json'), JSON.stringify({
         serve: {
-          baseUrl: 'https://example.invalid/v1',
           model: 'deepseek-v4-flash'
         },
         contextCompaction: {
@@ -634,10 +636,26 @@ describe('cli', () => {
 
       expect(parsed.configPath).toBe(join(dataDir, 'config.json'))
       expect(parsed.dataDir).toBe(dataDir)
-      expect(parsed.baseUrl).toBe('https://example.invalid/v1')
+      expect(parsed.modelRouterBaseUrl).toBe('http://127.0.0.1:3892/v1')
       expect(parsed.model).toBe('deepseek-v4-flash')
       expect(parsed.approvalPolicy).toBe(DEFAULT_APPROVAL_POLICY)
       expect(parsed.contextCompaction?.defaultHardThreshold).toBe(23_456)
+    } finally {
+      await rm(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects legacy direct-provider serve config fields', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'kun-data-legacy-'))
+    try {
+      await writeFile(join(dataDir, 'config.json'), JSON.stringify({
+        serve: {
+          baseUrl: 'https://example.invalid/v1',
+          endpointFormat: 'chat_completions'
+        }
+      }), 'utf8')
+
+      expect(() => parseServeOptions(['--data-dir', dataDir])).toThrow(/Invalid Kun config/)
     } finally {
       await rm(dataDir, { recursive: true, force: true })
     }

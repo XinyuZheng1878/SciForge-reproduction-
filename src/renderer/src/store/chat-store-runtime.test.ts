@@ -118,6 +118,43 @@ describe('thread event sink binding', () => {
     expect(getState().turnReasoningFirstAtByUserId['user-current']).toEqual(expect.any(Number))
   })
 
+  it('keeps the event cursor monotonic when stale seq ticks arrive', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      lastSeq: 10
+    })
+    const sink = buildThreadEventSink(set, get, {
+      threadId: 'thread-current',
+      sinceSeq: 10
+    })
+
+    sink.onSeq(7)
+    expect(getState().lastSeq).toBe(10)
+
+    sink.onSeq(11)
+    expect(getState().lastSeq).toBe(11)
+  })
+
+  it('drops replayed deltas at or below the subscription floor', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      lastSeq: 5
+    })
+    const sink = buildThreadEventSink(set, get, {
+      threadId: 'thread-current',
+      sinceSeq: 5
+    })
+
+    sink.onDeltas([
+      { kind: 'agent_message', text: 'old 4', seq: 4 },
+      { kind: 'agent_message', text: 'old 5', seq: 5 },
+      { kind: 'agent_message', text: 'new 6', seq: 6 }
+    ])
+
+    expect(getState().liveAssistant).toBe('new 6')
+    expect(getState().lastSeq).toBe(6)
+  })
+
   it('refreshes shared context state after compaction events', () => {
     const refreshActiveThreadContextState = vi.fn(async () => undefined)
     const { set, get } = makeSinkHarness({
@@ -197,6 +234,46 @@ describe('thread event sink binding', () => {
         id: 'assistant-1',
         createdAt: '2026-06-11T00:00:02.000Z',
         text: 'Hey there! How can I help?'
+      }
+    ])
+  })
+
+  it('deduplicates repeated canonical assistant snapshots by item id', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      busy: false,
+      liveAssistant: '',
+      blocks: [
+        { kind: 'user', id: 'user-current', text: 'hello' },
+        {
+          kind: 'assistant',
+          id: 'assistant-1',
+          createdAt: '2026-06-11T00:00:02.000Z',
+          text: 'Earlier duplicate text'
+        },
+        {
+          kind: 'assistant',
+          id: 'assistant-1',
+          createdAt: '2026-06-11T00:00:03.000Z',
+          text: 'Latest snapshot text'
+        }
+      ]
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onAssistantMessage?.({
+      itemId: 'assistant-1',
+      createdAt: '2026-06-11T00:00:03.000Z',
+      text: 'Latest snapshot text'
+    })
+
+    expect(getState().blocks).toEqual([
+      { kind: 'user', id: 'user-current', text: 'hello' },
+      {
+        kind: 'assistant',
+        id: 'assistant-1',
+        createdAt: '2026-06-11T00:00:03.000Z',
+        text: 'Latest snapshot text'
       }
     ])
   })

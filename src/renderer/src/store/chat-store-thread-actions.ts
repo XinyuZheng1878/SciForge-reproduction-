@@ -49,19 +49,6 @@ import {
   threadBelongsToWorkspace
 } from './chat-store-runtime-helpers'
 import {
-  WRITE_ASSISTANT_THREAD_TITLE,
-  activeWriteThreadForWorkspace,
-  forgetWriteThread,
-  hydrateWriteThreadRegistry,
-  isWriteThreadId,
-  markWriteThread,
-  pruneWriteThreadRegistry,
-  readWriteThreadRegistry,
-  saveWriteThreadRegistry,
-  writeThreadBelongsToWorkspace,
-  writeWorkspaceForThreadId
-} from '../write/write-thread-registry'
-import {
   clearBusyWatchdog,
   resetBusyRecoveryAttempts,
   scheduleStartupRuntimeProbe,
@@ -79,8 +66,6 @@ import {
   isCodeThread,
   latestThread,
   looksLikeActiveTurnError,
-  readActiveWriteWorkspace,
-  readWriteWorkspaceRoots,
   rememberPendingClawFeishuMirror,
   runtimeErrorDetail,
   runtimeStreamRecoveringMessage,
@@ -335,7 +320,7 @@ export function createThreadActions(
 
       const ac = new AbortController()
       sseAbortRef.current = ac
-      const sink = buildThreadEventSink(set, get, { threadId: activeThreadId, signal: ac.signal })
+      const sink = buildThreadEventSink(set, get, { threadId: activeThreadId, signal: ac.signal, sinceSeq: latestSeq })
       void p.subscribeThreadEvents(activeThreadId, latestSeq, sink, ac.signal)
       if (busy) {
         armBusyWatchdog(set, get)
@@ -427,7 +412,7 @@ export function createThreadActions(
       syncTurnCompletionPoll(set, get)
       const ac = new AbortController()
       sseAbortRef.current = ac
-      const sink = buildThreadEventSink(set, get, { threadId: id, signal: ac.signal })
+      const sink = buildThreadEventSink(set, get, { threadId: id, signal: ac.signal, sinceSeq: latestSeq })
       subscribeThreadEventsWithRecovery(p, id, latestSeq, sink, ac.signal, get)
       if (busy) armBusyWatchdog(set, get)
     } catch (e) {
@@ -452,13 +437,9 @@ export function createThreadActions(
         }
         const next = queuedMessages[0]
         if (!next || state.busy) return
-        const queuedTargetsExplicitThread = next.sourceRoute === 'write' && Boolean(next.targetThreadId || next.threadId)
         if (
-          !queuedTargetsExplicitThread &&
-          (
-            (next.threadId && next.threadId !== state.activeThreadId) ||
-            (next.runtimeId && state.threads.find((thread) => thread.id === state.activeThreadId)?.runtimeId !== next.runtimeId)
-          )
+          (next.threadId && next.threadId !== state.activeThreadId) ||
+          (next.runtimeId && state.threads.find((thread) => thread.id === state.activeThreadId)?.runtimeId !== next.runtimeId)
         ) {
           set((s) => ({
             queuedMessages: s.queuedMessages.filter((message) => message.id !== next.id)
@@ -489,19 +470,7 @@ export function createThreadActions(
     const queued = overrides?.queued
     const sourceRoute = queued?.sourceRoute ?? overrides?.sourceRoute ?? get().route
     const requestedGovernanceProfile = queued?.governanceProfile ?? overrides?.governanceProfile
-    const isWriteTurn = sourceRoute === 'write' || requestedGovernanceProfile === 'write'
-    const requestedWriteWorkspaceRoot = isWriteTurn
-      ? normalizeWorkspaceRoot(queued?.workspaceRoot ?? overrides?.workspaceRoot)
-      : ''
     let targetThreadId = (queued?.targetThreadId ?? overrides?.targetThreadId)?.trim() || ''
-    if (isWriteTurn) {
-      const writeThreadId = await get().ensureWriteThreadForWorkspace(requestedWriteWorkspaceRoot || undefined)
-      if (!writeThreadId) return false
-      if (!targetThreadId) targetThreadId = writeThreadId
-      if (targetThreadId !== writeThreadId && get().threads.some((thread) => thread.id === targetThreadId)) {
-        await get().selectThread(targetThreadId)
-      }
-    }
     const hasPendingActiveTurn = get().blocks.some(hasPendingRuntimeWork)
     if (get().busy || hasPendingActiveTurn) {
       if (overrides?.guiPlan) {
@@ -520,11 +489,7 @@ export function createThreadActions(
       const userModelChip =
         overrides?.modelLabel ?? optimisticUserModelLabel(composerModel, threadSnap?.model)
       const displayText = overrides?.displayText?.trim()
-      const writeWorkspaceRoot = isWriteTurn
-        ? normalizeWorkspaceRoot(queued?.workspaceRoot ?? overrides?.workspaceRoot ?? threadSnap?.workspace)
-        : ''
       const queuedTargetThreadId = targetThreadId || activeThreadId || undefined
-      const queuedGovernanceProfile = requestedGovernanceProfile ?? (isWriteTurn ? 'write' : undefined)
       const reasoningEffort = overrides?.reasoningEffort?.trim()
       const attachmentIds = overrides?.attachmentIds?.filter((id) => id.trim().length > 0)
       const attachments = overrides?.attachments?.filter((attachment) => attachment.id.trim().length > 0)
@@ -541,8 +506,7 @@ export function createThreadActions(
             ...(mode ? { mode } : {}),
             sourceRoute,
             ...(queuedTargetThreadId ? { targetThreadId: queuedTargetThreadId } : {}),
-            ...(writeWorkspaceRoot ? { workspaceRoot: writeWorkspaceRoot } : {}),
-            ...(queuedGovernanceProfile ? { governanceProfile: queuedGovernanceProfile } : {}),
+            ...(requestedGovernanceProfile ? { governanceProfile: requestedGovernanceProfile } : {}),
             ...(composerModel ? { model: composerModel } : {}),
             ...(userModelChip ? { modelLabel: userModelChip } : {}),
             ...(reasoningEffort ? { reasoningEffort } : {}),
@@ -731,21 +695,15 @@ export function createThreadActions(
         runtimeText = buildCodeRuntimePrompt(settings, trimmedText)
       }
       const runtimeDisplayText = channel ? displayText : (userDisplayText ?? trimmedText)
-      const writeRuntimeWorkspaceRoot = isWriteTurn
-        ? requestedWriteWorkspaceRoot || normalizeWorkspaceRoot(activeThread?.workspace)
-        : ''
       const governanceProfile = requestedGovernanceProfile ?? (
-        isWriteTurn
-          ? 'write'
-          : channel
-            ? 'remote_guard'
-            : undefined
+        channel
+          ? 'remote_guard'
+          : undefined
       )
       const { turnId, userMessageItemId } = await p.sendUserMessage(activeThreadId, runtimeText, {
         mode,
         ...(composerModel ? { model: composerModel } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        ...(writeRuntimeWorkspaceRoot ? { workspace: writeRuntimeWorkspaceRoot } : {}),
         ...(governanceProfile ? { governanceProfile } : {}),
         ...(runtimeDisplayText ? { displayText: runtimeDisplayText } : {}),
         ...((queued?.guiPlan ?? overrides?.guiPlan) ? { guiPlan: queued?.guiPlan ?? overrides?.guiPlan } : {}),
@@ -833,7 +791,7 @@ export function createThreadActions(
       set({ currentTurnId: turnId })
       const ac = new AbortController()
       sseAbortRef.current = ac
-      const sink = buildThreadEventSink(set, get, { threadId: activeThreadId, signal: ac.signal })
+      const sink = buildThreadEventSink(set, get, { threadId: activeThreadId, signal: ac.signal, sinceSeq: seqAtSend })
       subscribeThreadEventsWithRecovery(p, activeThreadId, seqAtSend, sink, ac.signal, get)
       armBusyWatchdog(set, get)
       await get().refreshThreads()
@@ -953,7 +911,7 @@ export function createThreadActions(
       set({ currentTurnId: turnId })
       const ac = new AbortController()
       sseAbortRef.current = ac
-      const sink = buildThreadEventSink(set, get, { threadId: activeThreadId, signal: ac.signal })
+      const sink = buildThreadEventSink(set, get, { threadId: activeThreadId, signal: ac.signal, sinceSeq: seqAtSend })
       subscribeThreadEventsWithRecovery(p, activeThreadId, seqAtSend, sink, ac.signal, get)
       armBusyWatchdog(set, get)
       await get().refreshThreads()

@@ -374,6 +374,79 @@ describe('normalizeCodexEvent', () => {
     })
   })
 
+  it('preserves dynamic MCP tool arguments for runtime guard fingerprints', () => {
+    expect(normalizeCodexEvent({
+      method: 'item/started',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          type: 'dynamicToolCall',
+          id: 'mcp-1',
+          tool: 'computer_use',
+          server: 'gui_computer_use',
+          namespace: 'computer-use',
+          status: 'running',
+          arguments: {
+            action: 'click',
+            computerUseSessionId: 'session-1',
+            x: 120,
+            y: 240
+          }
+        }
+      }
+    })).toMatchObject({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tool: {
+        itemId: 'mcp-1',
+        summary: 'computer_use',
+        status: 'running',
+        toolKind: 'tool_call',
+        meta: {
+          toolName: 'computer_use',
+          server: 'gui_computer_use',
+          namespace: 'computer-use',
+          arguments: {
+            action: 'click',
+            computerUseSessionId: 'session-1',
+            x: 120,
+            y: 240
+          }
+        }
+      }
+    })
+  })
+
+  it('redacts image payloads from dynamic MCP tool timeline details', () => {
+    const normalized = normalizeCodexEvent({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          type: 'dynamicToolCall',
+          id: 'mcp-1',
+          tool: 'computer_use',
+          status: 'completed',
+          contentItems: [
+            { type: 'inputText', text: 'Screenshot is 10x20px.' },
+            { type: 'inputImage', imageUrl: 'data:image/png;base64,AAAABBBB' }
+          ]
+        }
+      }
+    })
+
+    expect(normalized).toMatchObject({
+      tool: {
+        itemId: 'mcp-1',
+        status: 'success',
+        detail: expect.stringContaining('[image data omitted]')
+      }
+    })
+    expect(normalized?.tool?.detail).not.toContain('AAAABBBB')
+  })
+
   it('maps collab agent tool calls to child events with real child thread refs', () => {
     expect(normalizeCodexEvent({
       method: 'item/started',

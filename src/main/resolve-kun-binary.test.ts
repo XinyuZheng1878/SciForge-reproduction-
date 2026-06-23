@@ -99,9 +99,8 @@ describe('buildKunServeArgs', () => {
       host: '127.0.0.1',
       port: 8899,
       dataDir: '/tmp/kun',
-      baseUrl: 'https://api.deepseek.com/beta',
-      endpointFormat: 'responses',
-      model: 'deepseek-chat',
+      modelRouterBaseUrl: 'http://127.0.0.1:3892/v1',
+      model: 'sciforge-router',
       forceDefaultModel: true,
       approvalPolicy: 'on-request',
       sandboxMode: 'workspace-write',
@@ -111,8 +110,9 @@ describe('buildKunServeArgs', () => {
 
     expect(args).not.toContain('--api-key')
     expect(args).not.toContain('--runtime-token')
-    expect(args).toContain('--endpoint-format')
-    expect(args).toContain('responses')
+    expect(args).not.toContain('--endpoint-format')
+    expect(args).toContain('--model-router-base-url')
+    expect(args).toContain('http://127.0.0.1:3892/v1')
     expect(args).toContain('--force-default-model')
     expect(args).toContain('--token-economy-mode')
     expect(args).toContain('false')

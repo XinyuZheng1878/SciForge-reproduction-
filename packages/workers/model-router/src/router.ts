@@ -437,15 +437,18 @@ async function routeResponsesRequest(
   const traceRedactionSecrets = [textSecret, visionSecret]
     .filter((value): value is string => typeof value === 'string' && value.length > 0);
   const usage = emptyResponseUsage();
-  const requestForTextReasoner = responseInputHasToolTranscript(request.input)
+  const hasToolTranscriptInput = responseInputHasToolTranscript(request.input);
+  const requestForTextReasoner = hasToolTranscriptInput
     ? {
       ...request,
-      input: hydrateFunctionCallTranscript(request.input, context.toolCallCache),
+      input: repairResponseToolTranscriptInput(
+        hydrateFunctionCallTranscript(request.input, context.toolCallCache),
+      ),
     }
     : request;
   const textReasonerRequestOptions = chatRequestOptionsFromResponsesRequest(requestForTextReasoner, profile.textReasoner.model);
   const toolNameAliases = chatToolNameAliasesFromResponsesTools(request.tools);
-  const textReasonerMessages = responseInputHasToolTranscript(requestForTextReasoner.input)
+  const textReasonerMessages = hasToolTranscriptInput
     ? chatMessagesFromResponsesRequest(requestForTextReasoner, profile.textReasoner.model)
     : [];
 
@@ -908,6 +911,7 @@ function extractToolResultImages(output: unknown): ToolResultImage[] {
   const images: ToolResultImage[] = [];
   for (const image of directToolResultImages(output)) addUniqueToolResultImage(images, image);
   for (const image of mcpToolResultImages(output)) addUniqueToolResultImage(images, image);
+  for (const image of codexContentItemImages(output)) addUniqueToolResultImage(images, image);
   for (const key of ['result', 'structuredContent', 'output'] as const) {
     const nested = output[key];
     if (isRecord(nested)) {
@@ -918,6 +922,16 @@ function extractToolResultImages(output: unknown): ToolResultImage[] {
         for (const image of extractToolResultImages(parsed)) addUniqueToolResultImage(images, image);
       }
     }
+  }
+  return images;
+}
+
+function codexContentItemImages(output: Record<string, unknown>): ToolResultImage[] {
+  const contentItems = Array.isArray(output.contentItems) ? output.contentItems : [];
+  const images: ToolResultImage[] = [];
+  for (const entry of contentItems) {
+    if (!isRecord(entry)) continue;
+    addUniqueToolResultImage(images, toolResultImageFromCodexContentItem(entry));
   }
   return images;
 }
@@ -976,6 +990,26 @@ function toolResultImageFromMcpContent(value: Record<string, unknown>, metadata:
     width: numberField(meta.width),
     height: numberField(meta.height),
     title: stringField(meta.title) ?? stringField(parent.title) ?? stringField(parent.note),
+  });
+}
+
+function toolResultImageFromCodexContentItem(value: Record<string, unknown>): ToolResultImage | null {
+  const type = stringField(value.type) ?? '';
+  if (type !== 'inputImage') return null;
+  const imageUrl = stringField(value.imageUrl) ?? '';
+  if (!imageUrl.startsWith('data:image/')) return null;
+  const commaIndex = imageUrl.indexOf(',');
+  if (commaIndex < 0) return null;
+  const header = imageUrl.slice(0, commaIndex);
+  const dataBase64 = imageUrl.slice(commaIndex + 1);
+  const mimeType = mimeFromDataUrl(imageUrl) ?? header.slice('data:'.length).split(';', 1)[0];
+  if (!dataBase64 || !mimeType) return null;
+  return compactToolResultImage({
+    dataBase64,
+    mimeType,
+    width: numberField(value.width),
+    height: numberField(value.height),
+    title: stringField(value.title) ?? stringField(value.name),
   });
 }
 
@@ -1593,49 +1627,9 @@ async function callChatProvider(options: {
   const latencyMs = Date.now() - startedAt;
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
-    const repairedBody = bodyWithSyntheticToolReasoning(options.body, errorText);
-    if (repairedBody) {
-      const retryStartedAt = Date.now();
-      try {
-        response = await options.fetchImpl(providerChatCompletionsUrl(options.provider.baseUrl), {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${options.secret}`,
-          },
-          body: JSON.stringify(repairedBody),
-        });
-      } catch {
-        const errorSummary = 'provider_exception';
-        recordFailedProviderCall({ ...options, body: repairedBody }, Date.now() - retryStartedAt, errorSummary);
-        throw new Error(errorSummary);
-      }
-      if (response.ok) {
-        let payload: unknown;
-        try {
-          payload = await response.json();
-        } catch {
-          const errorSummary = 'provider_exception';
-          recordFailedProviderCall({ ...options, body: repairedBody }, Date.now() - retryStartedAt, errorSummary);
-          throw new Error(errorSummary);
-        }
-        options.calls.push({
-          role: options.role,
-          phase: options.phase,
-          status: 'ok',
-          roleAlias: roleAliasForCall(options.role),
-          providerBindingSha256: providerBindingHash(options.provider),
-          ...providerCallTraceFields(options.provider, repairedBody),
-          wireApi: 'chat.completions',
-          latencyMs: Date.now() - retryStartedAt,
-          stopReason: chatCompletionStopReason(payload),
-        });
-        return chatCompletionResult(payload, options.responseRequest, options.toolNameAliases);
-      }
-    }
     const errorSummary = `provider_http_${response.status}`;
     recordFailedProviderCall(options, latencyMs, errorSummary);
-    throw new Error(errorSummary);
+    throw routerError(response.status, errorSummary, providerHttpErrorMessage(response.status, options.provider, options.secret, errorText));
   }
   let payload: unknown;
   try {
@@ -1659,49 +1653,74 @@ async function callChatProvider(options: {
   return chatCompletionResult(payload, options.responseRequest, options.toolNameAliases);
 }
 
-function bodyWithSyntheticToolReasoning(body: Record<string, unknown>, providerErrorText: string): Record<string, unknown> | null {
-  if (!/reasoning_content/i.test(providerErrorText)) return null;
-  if (!Array.isArray(body.messages)) return null;
-  let changed = false;
-  const messages = body.messages.map((message) => {
-    if (!isRecord(message) || message.role !== 'assistant' || !Array.isArray(message.tool_calls)) return message;
-    if (stringField(message.reasoning_content)) return message;
-    changed = true;
-    return {
-      ...message,
-      reasoning_content: 'Tool call issued by the assistant.',
-    };
-  });
-  return changed ? { ...body, messages } : null;
-}
-
 function providerChatCompletionsUrl(baseUrl: string): string {
   return buildProviderEndpointUrl(baseUrl, 'chat/completions');
 }
 
 function buildProviderEndpointUrl(baseUrl: string, path: string): string {
-  const normalized = baseUrl.trim().replace(/\/+$/, '');
+  const normalized = trimUrlPathEnd(baseUrl);
   if (!normalized) return `/v1/${path}`;
   if (normalized.toLowerCase().endsWith(`/${path}`)) return normalized;
   const withoutEndpoint = stripKnownProviderEndpointPath(normalized);
-  const lastSegment = withoutEndpoint.split('/').pop()?.toLowerCase() ?? '';
+  const lastSegment = lastUrlPathSegment(withoutEndpoint).toLowerCase();
   if (lastSegment === 'beta') {
-    return `${withoutEndpoint.slice(0, -'/beta'.length)}/v1/${path}`;
+    return appendUrlPath(removeLastUrlPathSegment(withoutEndpoint), `v1/${path}`);
   }
   if (/^v\d+$/.test(lastSegment)) {
-    return `${withoutEndpoint}/${path}`;
+    return appendUrlPath(withoutEndpoint, path);
   }
-  return `${withoutEndpoint}/v1/${path}`;
+  return appendUrlPath(withoutEndpoint, `v1/${path}`);
 }
 
 function stripKnownProviderEndpointPath(baseUrl: string): string {
-  const lower = baseUrl.toLowerCase();
+  const split = splitUrlSuffix(baseUrl);
+  const lower = split.path.toLowerCase();
   for (const path of ['chat/completions', 'responses', 'messages']) {
     if (lower.endsWith(`/${path}`)) {
-      return baseUrl.slice(0, -path.length).replace(/\/+$/, '');
+      return `${split.path.slice(0, -path.length).replace(/\/+$/, '')}${split.suffix}`;
     }
   }
   return baseUrl;
+}
+
+function splitUrlSuffix(url: string): { path: string; suffix: string } {
+  const suffixStart = url.search(/[?#]/);
+  if (suffixStart < 0) return { path: url, suffix: '' };
+  return { path: url.slice(0, suffixStart), suffix: url.slice(suffixStart) };
+}
+
+function trimUrlPathEnd(url: string): string {
+  const split = splitUrlSuffix(url.trim());
+  return `${split.path.replace(/\/+$/, '')}${split.suffix}`;
+}
+
+function appendUrlPath(baseUrl: string, path: string): string {
+  const split = splitUrlSuffix(baseUrl);
+  return `${split.path.replace(/\/+$/, '')}/${path}${split.suffix}`;
+}
+
+function lastUrlPathSegment(url: string): string {
+  const split = splitUrlSuffix(url.trim());
+  return split.path.replace(/\/+$/, '').split('/').pop() ?? '';
+}
+
+function removeLastUrlPathSegment(url: string): string {
+  const split = splitUrlSuffix(url.trim());
+  const trimmed = split.path.replace(/\/+$/, '');
+  const slashIndex = trimmed.lastIndexOf('/');
+  return `${slashIndex < 0 ? trimmed : trimmed.slice(0, slashIndex)}${split.suffix}`;
+}
+
+function providerHttpErrorMessage(
+  status: number,
+  provider: ModelRouterProviderConfig,
+  secret: string,
+  responseBody: string,
+): string {
+  const prefix = `Provider returned HTTP ${status}`;
+  const body = responseBody.trim();
+  if (!body) return prefix;
+  return `${prefix}: ${boundedProviderTraceText(body, provider, [secret])}`;
 }
 
 function recordFailedProviderCall(
@@ -1804,6 +1823,108 @@ function hydrateFunctionCallTranscript(input: unknown, cache: ToolCallCache): un
     hydrated.push(item);
   }
   return changed ? hydrated : input;
+}
+
+function repairResponseToolTranscriptInput(input: unknown): unknown {
+  if (!Array.isArray(input)) return input;
+  let changed = false;
+  const repaired: unknown[] = [];
+  let pendingCalls: JsonObject[] = [];
+  let pendingOutputs: JsonObject[] = [];
+  let pendingCallIds = new Set<string>();
+  let pendingOutputIds = new Set<string>();
+
+  const resetPending = (markChanged: boolean): void => {
+    if (markChanged && (pendingCalls.length > 0 || pendingOutputs.length > 0)) changed = true;
+    pendingCalls = [];
+    pendingOutputs = [];
+    pendingCallIds = new Set<string>();
+    pendingOutputIds = new Set<string>();
+  };
+
+  const flushPendingIfComplete = (): boolean => {
+    if (pendingCalls.length === 0) return true;
+    if (pendingOutputIds.size !== pendingCallIds.size) return false;
+    repaired.push(...pendingCalls, ...pendingOutputs);
+    resetPending(false);
+    return true;
+  };
+
+  for (const item of input) {
+    if (!isRecord(item)) {
+      resetPending(true);
+      repaired.push(item);
+      continue;
+    }
+
+    if (item.type === 'function_call') {
+      const callId = responseToolTranscriptCallId(item);
+      if (!callId) {
+        changed = true;
+        continue;
+      }
+      if (pendingOutputs.length > 0) {
+        if (!flushPendingIfComplete()) resetPending(true);
+      }
+      if (pendingCallIds.has(callId)) {
+        changed = true;
+        continue;
+      }
+      pendingCalls.push(item as JsonObject);
+      pendingCallIds.add(callId);
+      continue;
+    }
+
+    if (item.type === 'function_call_output') {
+      const callId = responseToolTranscriptCallId(item);
+      if (!callId || !pendingCallIds.has(callId) || pendingOutputIds.has(callId)) {
+        changed = true;
+        continue;
+      }
+      pendingOutputs.push(item as JsonObject);
+      pendingOutputIds.add(callId);
+      if (pendingOutputIds.size === pendingCallIds.size) flushPendingIfComplete();
+      continue;
+    }
+
+    if (pendingCalls.length > 0 && isResponseToolTranscriptBridgeItem(item)) {
+      changed = true;
+      continue;
+    }
+
+    resetPending(true);
+    repaired.push(item);
+  }
+
+  resetPending(true);
+  return changed ? repaired : input;
+}
+
+function responseToolTranscriptCallId(item: Record<string, unknown>): string {
+  return stringField(item.call_id) ?? stringField(item.id) ?? '';
+}
+
+function isResponseToolTranscriptBridgeItem(item: Record<string, unknown>): boolean {
+  const type = stringField(item.type);
+  if (
+    type === 'reasoning' ||
+    type === 'assistant_reasoning' ||
+    type === 'approval' ||
+    type === 'user_input' ||
+    type === 'error'
+  ) {
+    return true;
+  }
+  return responseMessageRole(item) === 'assistant';
+}
+
+function responseMessageRole(item: Record<string, unknown>): string {
+  const role = stringField(item.role);
+  if (role) return role;
+  if (item.type === 'message' && isRecord(item.message)) {
+    return stringField(item.message.role) ?? '';
+  }
+  return '';
 }
 
 function rememberFunctionCalls(cache: ToolCallCache, outputItems: JsonObject[]): void {

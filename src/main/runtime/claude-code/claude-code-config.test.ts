@@ -161,9 +161,7 @@ describe('claude-code config launch helpers', () => {
             kun: true,
             codex: true,
             claude: true
-          },
-          backend: 'global-native',
-          experimentalAppScopedBackend: false
+          }
         }
       },
       text: 'hello',
@@ -189,9 +187,7 @@ describe('claude-code config launch helpers', () => {
             kun: true,
             codex: true,
             claude: false
-          },
-          backend: 'global-native',
-          experimentalAppScopedBackend: false
+          }
         }
       },
       text: 'hello',

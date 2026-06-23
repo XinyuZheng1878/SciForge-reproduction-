@@ -888,15 +888,7 @@ describe('registerAppIpcHandlers', () => {
     const payload = {
       audioBase64: Buffer.from('fake-wav-bytes').toString('base64'),
       mimeType: ' audio/wav ',
-      durationMs: 1000,
-      speechToText: {
-        enabled: true,
-        protocol: 'openai-transcriptions' as const,
-        baseUrl: ' https://speech.example.test/v1 ',
-        apiKey: 'sk-speech',
-        model: ' whisper-1 ',
-        timeoutMs: 30000
-      }
+      durationMs: 1000
     }
 
     await expect(handlers.get('speech:transcribe')?.({}, payload)).resolves.toEqual({
@@ -907,15 +899,7 @@ describe('registerAppIpcHandlers', () => {
     expect(transcribeSpeech).toHaveBeenCalledWith(current, {
       audioBase64: payload.audioBase64,
       mimeType: 'audio/wav',
-      durationMs: 1000,
-      speechToText: {
-        enabled: true,
-        protocol: 'openai-transcriptions',
-        baseUrl: 'https://speech.example.test/v1',
-        apiKey: 'sk-speech',
-        model: 'whisper-1',
-        timeoutMs: 30000
-      }
+      durationMs: 1000
     })
   })
 

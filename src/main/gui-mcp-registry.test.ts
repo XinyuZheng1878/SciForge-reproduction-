@@ -16,6 +16,11 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
+import {
+  COMPUTER_USE_MCP_TOOL_NAME,
+  COMPUTER_USE_STATUS_PATH_ENV,
+  GUI_COMPUTER_USE_MCP_SERVER_NAME
+} from './computer-use-mcp-config'
 
 const launch = {
   appPath: '/Applications/SciForge.app/Contents/Resources/app.asar.unpacked',
@@ -175,6 +180,43 @@ describe('GUI MCP runtime registry', () => {
       },
       timeout: 30000,
       alwaysLoad: true
+    })
+  })
+
+  it('reuses one computer-use MCP launch contract across Kun, Codex, and Claude Code', () => {
+    const sharedLaunch = {
+      ...launch,
+      statusPath: '/tmp/computer-use-status.json'
+    }
+    const kun = buildKunManagedGuiMcpServers({
+      computerUseMcp: { launch: sharedLaunch }
+    })[GUI_COMPUTER_USE_MCP_SERVER_NAME] as Record<string, unknown>
+    const codex = buildCodexManagedGuiMcpServers({
+      computerUseMcp: { launch: sharedLaunch }
+    }).find((server) => server.id === GUI_COMPUTER_USE_MCP_SERVER_NAME)
+    const claude = buildClaudeCodeManagedGuiMcpServers({
+      computerUseMcp: { launch: sharedLaunch }
+    })[GUI_COMPUTER_USE_MCP_SERVER_NAME]
+
+    expect(kun).toMatchObject({
+      command: codex?.command,
+      args: codex?.args,
+      env: {
+        ELECTRON_RUN_AS_NODE: '1',
+        [COMPUTER_USE_STATUS_PATH_ENV]: '/tmp/computer-use-status.json'
+      }
+    })
+    expect(codex).toMatchObject({
+      command: kun.command,
+      args: kun.args,
+      env: kun.env,
+      enabledTools: [COMPUTER_USE_MCP_TOOL_NAME]
+    })
+    expect(claude).toMatchObject({
+      command: codex?.command,
+      args: codex?.args,
+      env: codex?.env,
+      timeout: codex?.timeoutMs
     })
   })
 })

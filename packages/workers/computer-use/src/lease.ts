@@ -103,21 +103,22 @@ export class ComputerUseLeaseRegistry {
       updatedAt: this.nowIso()
     })
     if (session.targetId) {
-      const lease = this.leasesByTarget.get(session.targetId)
-      if (lease?.computerUseSessionId === sessionId) {
+      for (const [leaseKey, lease] of this.leasesByTarget.entries()) {
+        if (lease.computerUseSessionId !== sessionId) continue
         const nextLease: ComputerUseLease = {
           ...lease,
           ...(session.turnId ? { turnId: session.turnId } : {}),
           updatedAt: session.updatedAt
         }
-        this.leasesByTarget.set(session.targetId, nextLease)
+        this.leasesByTarget.set(leaseKey, nextLease)
       }
     }
     return session
   }
 
   bindTarget(session: ComputerUseSession, target: ComputerUseTarget): ComputerUseBindResult {
-    const active = this.leasesByTarget.get(target.id)
+    const leaseKey = leaseMapKey(session.computerUseSessionId, target)
+    const active = this.leasesByTarget.get(leaseKey)
     const now = this.nowIso()
     if (active && active.computerUseSessionId !== session.computerUseSessionId) {
       const rejection: ComputerUseLeaseRejection = {
@@ -145,14 +146,23 @@ export class ComputerUseLeaseRegistry {
       ...(session.turnId ? { turnId: session.turnId } : {}),
       targetId: target.id,
       backend: target.backend,
+      ...(target.inputIsolation ? { inputIsolation: target.inputIsolation } : {}),
+      ...(typeof target.affectsUserInput === 'boolean' ? { affectsUserInput: target.affectsUserInput } : {}),
+      ...(typeof target.requiresHostFocus === 'boolean' ? { requiresHostFocus: target.requiresHostFocus } : {}),
+      ...(typeof target.usesHostClipboard === 'boolean' ? { usesHostClipboard: target.usesHostClipboard } : {}),
       acquiredAt: now,
       updatedAt: now
     }
     const refreshed = { ...lease, updatedAt: now }
-    this.leasesByTarget.set(target.id, refreshed)
+    this.deleteLeasesForSession(session.computerUseSessionId)
+    this.leasesByTarget.set(leaseKey, refreshed)
     const bound = this.updateSession(session.computerUseSessionId, {
       targetId: target.id,
       backend: target.backend,
+      inputIsolation: target.inputIsolation,
+      affectsUserInput: target.affectsUserInput,
+      requiresHostFocus: target.requiresHostFocus,
+      usesHostClipboard: target.usesHostClipboard,
       leaseState: 'active',
       updatedAt: now
     })
@@ -166,15 +176,14 @@ export class ComputerUseLeaseRegistry {
     const session = this.sessions.get(sessionId)
     if (!session) return null
     const now = this.nowIso()
-    if (session.targetId) {
-      const lease = this.leasesByTarget.get(session.targetId)
-      if (lease?.computerUseSessionId === sessionId) {
-        this.leasesByTarget.delete(session.targetId)
-      }
-    }
+    this.deleteLeasesForSession(sessionId)
     return this.updateSession(sessionId, {
       leaseState: 'released',
       targetId: undefined,
+      inputIsolation: undefined,
+      affectsUserInput: undefined,
+      requiresHostFocus: undefined,
+      usesHostClipboard: undefined,
       releaseReason: reason,
       releasedAt: now,
       updatedAt: now
@@ -203,6 +212,11 @@ export class ComputerUseLeaseRegistry {
     if (Object.prototype.hasOwnProperty.call(patch, 'targetId') && patch.targetId === undefined) {
       delete next.targetId
     }
+    for (const key of ['inputIsolation', 'affectsUserInput', 'requiresHostFocus', 'usesHostClipboard'] as const) {
+      if (Object.prototype.hasOwnProperty.call(patch, key) && patch[key] === undefined) {
+        delete next[key]
+      }
+    }
     this.sessions.set(sessionId, next)
     return next
   }
@@ -211,4 +225,16 @@ export class ComputerUseLeaseRegistry {
     this.recentRejections.push(rejection)
     if (this.recentRejections.length > 20) this.recentRejections.shift()
   }
+
+  private deleteLeasesForSession(sessionId: string): void {
+    for (const [leaseKey, lease] of this.leasesByTarget.entries()) {
+      if (lease.computerUseSessionId === sessionId) this.leasesByTarget.delete(leaseKey)
+    }
+  }
+}
+
+function leaseMapKey(sessionId: string, target: ComputerUseTarget): string {
+  return target.inputIsolation === 'agent-isolated'
+    ? `${target.id}#${sessionId}`
+    : target.id
 }

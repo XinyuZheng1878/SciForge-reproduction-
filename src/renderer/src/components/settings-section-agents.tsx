@@ -17,14 +17,10 @@ import {
   claudeSettingsPatch,
   codexSettingsPatch,
   defaultComputerUseSettings,
+  DEFAULT_COMPUTER_USE_BACKEND,
   DEFAULT_MODEL_PROVIDER_ID,
   MODEL_ENDPOINT_FORMATS,
-  DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL,
-  DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
-  DEFAULT_WRITE_INLINE_COMPLETION_MODEL,
-  DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS,
   DEFAULT_KUN_DATA_DIR,
-  WRITE_INLINE_COMPLETION_MODEL_IDS,
   defaultCodexRuntimeSettings,
   defaultClaudeRuntimeSettings,
   defaultRuntimeGuardSettings,
@@ -358,15 +354,6 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     logPath,
     logDirOpenError,
     setLogDirOpenError,
-    pickWriteWorkspace,
-    resetWriteWorkspaceToDefault,
-    writeWorkspacePickerError,
-    writeInlineBaseUrlInherited,
-    effectiveWriteInlineBaseUrl,
-    writeInlineModelInherited,
-    effectiveWriteInlineModel,
-    setWriteDebugModalOpen,
-    loadWriteDebugEntries,
     scrollToAgentSection,
     agentsSectionRef,
     skillSectionRef,
@@ -2503,10 +2490,10 @@ function ComputerUseSettingsCard({ ctx }: { ctx: Record<string, any> }): ReactEl
           <div className="grid gap-3">
             <div className="grid gap-2 text-[12.5px] text-ds-muted sm:grid-cols-3">
               <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
-                {t('computerUseConfiguredBackend')}: <span className="font-mono text-ds-ink">{computerUse.backend}</span>
+                {t('computerUseConfiguredBackend')}: <span className="font-mono text-ds-ink">{DEFAULT_COMPUTER_USE_BACKEND}</span>
               </div>
               <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
-                {t('computerUseRuntimeBackend')}: <span className="font-mono text-ds-ink">{backend?.backend ?? computerUse.backend}</span>
+                {t('computerUseRuntimeBackend')}: <span className="font-mono text-ds-ink">{backend?.backend ?? DEFAULT_COMPUTER_USE_BACKEND}</span>
               </div>
               <div className="rounded-xl border border-ds-border-muted bg-ds-main/40 px-3 py-2">
                 {t('computerUsePlatform')}: <span className="font-mono text-ds-ink">{backend?.platform ?? platform ?? 'unknown'}</span>

@@ -6,6 +6,7 @@ import {
   resolveWriteInlineCompletionModel,
   type AppSettingsV1
 } from '../../shared/app-settings'
+import { buildModelRouterResponsesUrl } from '../../shared/model-router-url'
 import type {
   WriteInlineCompletionAction,
   WriteInlineCompletionMode,
@@ -406,12 +407,6 @@ function providerTextFromResponse(responseText: string): string {
   return flattenMessageContent(first)
 }
 
-function modelRouterResponsesUrl(baseUrl: string): string {
-  const normalized = baseUrl.trim().replace(/\/+$/, '')
-  if (!normalized) throw new Error('Missing Model Router base URL for inline completion.')
-  return normalized.endsWith('/v1') ? `${normalized}/responses` : `${normalized}/v1/responses`
-}
-
 function responsesInputFromMessages(messages: ChatCompletionMessage[]): {
   instructions?: string
   input: string
@@ -593,7 +588,8 @@ export async function requestWriteInlineCompletion(
   const actionMayEdit = Boolean(request.editCandidate && request.recentEdits?.length)
   const useActionProtocol = mode === 'edit' || actionMayEdit
   const baseUrl = resolveWriteInlineCompletionBaseUrl(settings)
-  const url = modelRouterResponsesUrl(baseUrl)
+  const url = buildModelRouterResponsesUrl(baseUrl)
+  if (!url) throw new Error('Missing Model Router base URL for inline completion.')
   const maxTokens = mode === 'long' || mode === 'edit' || actionMayEdit
     ? settings.write.inlineCompletion.longMaxTokens || settings.write.inlineCompletion.maxTokens || DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS
     : settings.write.inlineCompletion.maxTokens || DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS

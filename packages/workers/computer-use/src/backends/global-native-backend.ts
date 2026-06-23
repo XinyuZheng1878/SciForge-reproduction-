@@ -37,7 +37,11 @@ export class GlobalNativeComputerUseBackend implements ComputerUseBackend {
       id: DESKTOP_TARGET_ID,
       kind: 'desktop',
       title: 'Host desktop',
-      backend: this.kind
+      backend: this.kind,
+      inputIsolation: 'host-global',
+      affectsUserInput: true,
+      requiresHostFocus: true,
+      usesHostClipboard: true
     }]
   }
 
@@ -61,7 +65,11 @@ export class GlobalNativeComputerUseBackend implements ComputerUseBackend {
         id: targetId,
         kind: 'desktop',
         title: 'Host desktop',
-        backend: this.kind
+        backend: this.kind,
+        inputIsolation: 'host-global',
+        affectsUserInput: true,
+        requiresHostFocus: true,
+        usesHostClipboard: true
       },
       lease: {
         leaseId: `backend_${session.computerUseSessionId}`,
@@ -71,6 +79,10 @@ export class GlobalNativeComputerUseBackend implements ComputerUseBackend {
         ...(session.turnId ? { turnId: session.turnId } : {}),
         targetId,
         backend: this.kind,
+        inputIsolation: 'host-global',
+        affectsUserInput: true,
+        requiresHostFocus: true,
+        usesHostClipboard: true,
         acquiredAt: session.updatedAt,
         updatedAt: session.updatedAt
       }
@@ -107,6 +119,10 @@ export class GlobalNativeComputerUseBackend implements ComputerUseBackend {
       backend: this.kind,
       available: ready.available,
       platform: process.platform,
+      inputIsolation: 'host-global',
+      affectsUserInput: true,
+      requiresHostFocus: true,
+      usesHostClipboard: true,
       ...(ready.reason ? { reason: ready.reason } : {}),
       activeLeases: [],
       recentRejections: [],
@@ -119,6 +135,9 @@ export class GlobalNativeComputerUseBackend implements ComputerUseBackend {
     input: ComputerUseActionRequest
   ): Promise<ComputerUseActionResult> {
     switch (input.action) {
+      case 'navigate':
+        return actionFailure(session, input, 'invalid_request', 'global-native computer use does not support isolated navigation')
+
       case 'screenshot': {
         const shot = await this.controller.capture()
         return {

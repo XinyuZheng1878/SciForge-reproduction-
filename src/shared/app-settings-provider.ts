@@ -120,8 +120,7 @@ export function resolveKunRuntimeSettings(settings: AppSettingsV1): KunRuntimeSe
     ...runtime,
     apiKey: router.apiKey,
     baseUrl: router.baseUrl,
-    model: router.model || DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
-    endpointFormat: 'responses'
+    model: router.model || DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
   }
 }
 

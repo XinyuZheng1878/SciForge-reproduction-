@@ -375,7 +375,6 @@ const kunRuntimePatchSchema = z.object({
   apiKey: z.string().max(MAX_BODY_BYTES).optional(),
   baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
   providerId: z.string().trim().max(64).optional(),
-  endpointFormat: modelEndpointFormatSchema.optional(),
   runtimeToken: z.string().max(MAX_BODY_BYTES).optional(),
   dataDir: defaultPathSchema,
   model: z.string().trim().min(1).max(128).optional(),
@@ -456,9 +455,7 @@ const computerUsePatchSchema = z.object({
     kun: z.boolean().optional(),
     codex: z.boolean().optional(),
     claude: z.boolean().optional()
-  }).strict().optional(),
-  backend: z.enum(['global-native', 'mac-app-scoped']).optional(),
-  experimentalAppScopedBackend: z.boolean().optional()
+  }).strict().optional()
 }).strict()
 
 const claudeRuntimePatchSchema = z.object({
@@ -523,8 +520,6 @@ const writeSettingsPatchSchema = z.object({
 const speechToTextPatchSchema = z.object({
   enabled: z.boolean().optional(),
   protocol: speechToTextProtocolSchema.optional(),
-  baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
-  apiKey: z.string().max(MAX_BODY_BYTES).optional(),
   model: z.string().trim().max(128).optional(),
   language: z.string().trim().max(64).optional(),
   timeoutMs: z.number().int().min(5_000).max(600_000).optional()
@@ -1514,8 +1509,6 @@ export const speechToTextSettingsPayloadSchema = z
   .object({
     enabled: z.boolean(),
     protocol: speechToTextProtocolSchema,
-    baseUrl: z.string().trim().max(MAX_URL_LENGTH),
-    apiKey: z.string().max(MAX_BODY_BYTES),
     model: z.string().trim().max(128),
     language: z.string().trim().max(64).optional(),
     timeoutMs: z.number().int().min(5_000).max(600_000)
@@ -1526,8 +1519,7 @@ export const speechTranscriptionPayloadSchema = z
   .object({
     audioBase64: z.string().min(1).max(SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS),
     mimeType: z.string().trim().min(1).max(MAX_MIME_TYPE_LENGTH),
-    durationMs: z.number().int().positive().max(SPEECH_TRANSCRIPTION_MAX_DURATION_MS).optional(),
-    speechToText: speechToTextSettingsPayloadSchema.optional()
+    durationMs: z.number().int().positive().max(SPEECH_TRANSCRIPTION_MAX_DURATION_MS).optional()
   })
   .strict()
   .refine((payload) => payload.mimeType.toLowerCase().startsWith('audio/'), {

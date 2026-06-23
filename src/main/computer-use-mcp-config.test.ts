@@ -3,15 +3,21 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  buildComputerUseClaudeCodeMcpServerConfig,
+  buildComputerUseRuntimeMcpServerConfig,
   buildSyncedComputerUseMcpJson,
   COMPUTER_USE_DEFAULT_AGENT_ID_ENV,
   COMPUTER_USE_DEFAULT_SESSION_ID_ENV,
   COMPUTER_USE_DEFAULT_THREAD_ID_ENV,
   COMPUTER_USE_DEFAULT_TURN_ID_ENV,
   COMPUTER_USE_MCP_AGENT_RUNTIME_IDS,
+  COMPUTER_USE_MCP_TOOL_NAME,
   COMPUTER_USE_STATUS_PATH_ENV,
+  computerUseMcpDiagnosticsServer,
   computerUseMcpEnv,
   computerUseMcpEnvForLaunch,
+  computerUseMcpRuntimeInfoState,
+  configuredComputerUseCapability,
   GUI_COMPUTER_USE_MCP_SERVER_NAME,
   syncComputerUseMcpConfig,
   type ComputerUseMcpLaunchConfig
@@ -83,6 +89,61 @@ describe('computer use MCP config', () => {
       [COMPUTER_USE_DEFAULT_THREAD_ID_ENV]: 'thread-1',
       [COMPUTER_USE_DEFAULT_TURN_ID_ENV]: 'turn-1',
       [COMPUTER_USE_DEFAULT_SESSION_ID_ENV]: 'session-1'
+    })
+  })
+
+  it('builds shared runtime server configs for Codex and Claude Code', () => {
+    const runtimeConfig = buildComputerUseRuntimeMcpServerConfig({
+      ...launch,
+      statusPath: '/tmp/status.json'
+    })
+    const claudeConfig = buildComputerUseClaudeCodeMcpServerConfig({
+      ...launch,
+      statusPath: '/tmp/status.json'
+    })
+
+    expect(runtimeConfig).toMatchObject({
+      id: GUI_COMPUTER_USE_MCP_SERVER_NAME,
+      args: expect.arrayContaining(['--gui-computer-use-mcp-server']),
+      env: {
+        ELECTRON_RUN_AS_NODE: '1',
+        [COMPUTER_USE_STATUS_PATH_ENV]: '/tmp/status.json'
+      },
+      timeoutMs: 30_000,
+      enabledTools: [COMPUTER_USE_MCP_TOOL_NAME]
+    })
+    expect(claudeConfig).toMatchObject({
+      type: 'stdio',
+      command: runtimeConfig.command,
+      args: runtimeConfig.args,
+      env: runtimeConfig.env,
+      timeout: runtimeConfig.timeoutMs,
+      alwaysLoad: true
+    })
+  })
+
+  it('exposes shared capability and diagnostics metadata for all runtimes', () => {
+    expect(configuredComputerUseCapability()).toEqual({
+      available: true,
+      server: 'mcp',
+      toolName: COMPUTER_USE_MCP_TOOL_NAME,
+      backend: 'browser-cdp',
+      inputIsolation: 'agent-isolated',
+      affectsUserInput: false,
+      requiresHostFocus: false,
+      usesHostClipboard: false
+    })
+    expect(computerUseMcpDiagnosticsServer()).toEqual({
+      id: GUI_COMPUTER_USE_MCP_SERVER_NAME,
+      status: 'configured',
+      toolCount: 1,
+      tools: [COMPUTER_USE_MCP_TOOL_NAME]
+    })
+    expect(computerUseMcpRuntimeInfoState(true)).toEqual({
+      enabled: true,
+      available: true,
+      server: 'mcp',
+      toolName: COMPUTER_USE_MCP_TOOL_NAME
     })
   })
 

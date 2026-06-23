@@ -388,8 +388,7 @@ async function startKunChildOnce(
     host: '127.0.0.1',
     port: runtime.port,
     dataDir,
-    baseUrl: runtime.baseUrl,
-    endpointFormat: runtime.endpointFormat,
+    modelRouterBaseUrl: runtime.baseUrl,
     model: runtime.model,
     forceDefaultModel: true,
     approvalPolicy: runtime.approvalPolicy,
@@ -403,6 +402,7 @@ async function startKunChildOnce(
       ELECTRON_RUN_AS_NODE: '1',
       KUN_RUNTIME_TOKEN: runtime.runtimeToken,
       KUN_MODEL_ROUTER_API_KEY: runtime.apiKey,
+      KUN_MODEL_ROUTER_BASE_URL: runtime.baseUrl,
       ...runtimeSecretEnv(settings)
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -900,8 +900,9 @@ function sanitizeKunConfigSections(
   existing: Record<string, unknown> | null
 ): Record<string, unknown> | null {
   if (!existing) return null
+  const serve = stripKunServeProviderFields(objectValue(existing.serve))
   return {
-    serve: parseKunConfigSection(KunServeConfigSchema, existing.serve),
+    serve: parseKunConfigSection(KunServeConfigSchema, serve),
     models: parseKunConfigSection(ModelConfigSchema, existing.models),
     contextCompaction: parseKunConfigSection(
       ContextCompactionConfigSchema,

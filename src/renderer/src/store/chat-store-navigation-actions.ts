@@ -50,19 +50,6 @@ import {
   threadBelongsToWorkspace
 } from './chat-store-runtime-helpers'
 import {
-  WRITE_ASSISTANT_THREAD_TITLE,
-  activeWriteThreadForWorkspace,
-  forgetWriteThread,
-  hydrateWriteThreadRegistry,
-  isWriteThreadId,
-  markWriteThread,
-  pruneWriteThreadRegistry,
-  readWriteThreadRegistry,
-  saveWriteThreadRegistry,
-  writeThreadBelongsToWorkspace,
-  writeWorkspaceForThreadId
-} from '../write/write-thread-registry'
-import {
   isEmptySddAssistantThreadCandidate,
   isSddAssistantThread,
   readSddThreadRegistry
@@ -85,8 +72,6 @@ import {
   isCodeThread,
   latestThread,
   looksLikeActiveTurnError,
-  readActiveWriteWorkspace,
-  readWriteWorkspaceRoots,
   rememberPendingClawFeishuMirror,
   runtimeErrorDetail,
   runtimeStreamRecoveringMessage,
@@ -169,7 +154,7 @@ export async function syncClawChannelActivityToStore(
 
 export function createNavigationActions(
   { set, get, sseAbortRef }: StoreActionContext
-): Pick<ChatState, 'openCode' | 'openWrite' | 'ensureWriteThreadForWorkspace' | 'createWriteThread' | 'selectWriteThread' | 'probeRuntime' | 'boot' | 'chooseWorkspace' | 'clearWorkspace' | 'deleteWorkspace' | 'refreshThreads' | 'setThreadSearch' | 'setShowArchivedThreads'> {
+): Pick<ChatState, 'openCode' | 'probeRuntime' | 'boot' | 'chooseWorkspace' | 'clearWorkspace' | 'deleteWorkspace' | 'refreshThreads' | 'setThreadSearch' | 'setShowArchivedThreads'> {
   return {
   openCode: async () => {
     const state = get()
@@ -211,159 +196,6 @@ export function createNavigationActions(
       watchTurnCompletion: nextWatch
     })
     syncTurnCompletionPoll(set, get)
-  },
-
-  openWrite: async () => {
-    const state = get()
-    const activeRuntime = getActiveAgentRuntime(await rendererRuntimeClient.getSettings())
-    const selectedWorkspace = await readActiveWriteWorkspace(state.workspaceRoot)
-    const writeWorkspaceRoots = await readWriteWorkspaceRoots()
-    const registry = hydrateWriteThreadRegistry(
-      state.threads,
-      selectedWorkspace ? [selectedWorkspace, ...writeWorkspaceRoots] : writeWorkspaceRoots,
-      pruneWriteThreadRegistry(state.threads, readWriteThreadRegistry(), activeRuntime),
-      activeRuntime
-    )
-    saveWriteThreadRegistry(registry)
-    const activeThread = state.activeThreadId
-      ? state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
-      : null
-    if (
-      activeThread &&
-      activeThread.archived !== true &&
-      selectedWorkspace &&
-      writeThreadBelongsToWorkspace(activeThread, selectedWorkspace, registry, activeRuntime)
-    ) {
-      set({ route: 'write', activeRemoteChannelId: null })
-      if (stateHasRecoverableActiveTurn(state)) {
-        await get().recoverActiveTurn()
-      }
-      return
-    }
-
-    const target = activeWriteThreadForWorkspace(
-      selectedWorkspace,
-      state.threads.filter((thread) => thread.archived !== true),
-      registry,
-      activeRuntime
-    )
-
-    set({ route: 'write', activeRemoteChannelId: null })
-    if (target && state.runtimeConnection === 'ready') {
-      await get().selectThread(target.id)
-      return
-    }
-
-    sseAbortRef.current?.abort()
-    sseAbortRef.current = null
-    clearBusyWatchdog()
-    const nextWatch = { ...state.watchTurnCompletion }
-    if (state.activeThreadId && stateHasRecoverableActiveTurn(state)) {
-      nextWatch[state.activeThreadId] = true
-      watchTurnCompletionNotification(state.activeThreadId)
-    }
-    set({
-      ...clearedThreadSelection(),
-      route: 'write',
-      activeRemoteChannelId: null,
-      watchTurnCompletion: nextWatch
-    })
-    syncTurnCompletionPoll(set, get)
-  },
-
-  ensureWriteThreadForWorkspace: async (workspaceRoot) => {
-    const state = get()
-    const activeRuntime = getActiveAgentRuntime(await rendererRuntimeClient.getSettings())
-    const targetWorkspace = normalizeWorkspaceRoot(workspaceRoot) || (await readActiveWriteWorkspace(state.workspaceRoot))
-    if (!targetWorkspace) {
-      set({ error: i18n.t('common:workspaceRequiredToCreateThread') })
-      return null
-    }
-    if (state.runtimeConnection !== 'ready') {
-      set({ error: i18n.t('common:runtimeActionNeedsConnection') })
-      return null
-    }
-
-    const registry = hydrateWriteThreadRegistry(
-      state.threads,
-      [targetWorkspace],
-      pruneWriteThreadRegistry(state.threads, readWriteThreadRegistry(), activeRuntime),
-      activeRuntime
-    )
-    saveWriteThreadRegistry(registry)
-    const activeThread = state.activeThreadId
-      ? state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
-      : null
-    if (activeThread && writeThreadBelongsToWorkspace(activeThread, targetWorkspace, registry, activeRuntime)) {
-      set({ route: 'write', activeRemoteChannelId: null, error: null })
-      if (stateHasRecoverableActiveTurn(state)) {
-        await get().recoverActiveTurn()
-      }
-      return activeThread.id
-    }
-
-    const existing = activeWriteThreadForWorkspace(targetWorkspace, state.threads, registry, activeRuntime)
-    if (existing) {
-      set({ route: 'write', activeRemoteChannelId: null })
-      await get().selectThread(existing.id)
-      return existing.id
-    }
-
-    return get().createWriteThread(targetWorkspace)
-  },
-
-  createWriteThread: async (workspaceRoot) => {
-    const targetWorkspace = normalizeWorkspaceRoot(workspaceRoot) || (await readActiveWriteWorkspace(get().workspaceRoot))
-    if (!targetWorkspace) {
-      set({ error: i18n.t('common:workspaceRequiredToCreateThread') })
-      return null
-    }
-    if (get().runtimeConnection !== 'ready') {
-      set({ error: i18n.t('common:runtimeActionNeedsConnection') })
-      return null
-    }
-    try {
-      const activeRuntime = getActiveAgentRuntime(await rendererRuntimeClient.getSettings())
-      const p = getProvider()
-      const thread = await p.createThread({
-        workspace: targetWorkspace,
-        title: WRITE_ASSISTANT_THREAD_TITLE,
-        mode: 'agent'
-      })
-      saveWriteThreadRegistry(markWriteThread(targetWorkspace, thread.id, undefined, activeRuntime))
-      set((s) => ({
-        route: 'write',
-        activeRemoteChannelId: null,
-        threads: s.threads.some((item) => item.id === thread.id) ? s.threads : [thread, ...s.threads],
-        error: null
-      }))
-      await get().refreshThreads()
-      await get().selectThread(thread.id)
-      return thread.id
-    } catch (e) {
-      set({
-        error: formatRuntimeError(e),
-        ...(shouldOpenSettingsForError(e)
-          ? { route: 'settings' as const, settingsSection: 'agents' as const }
-          : {})
-      })
-      return null
-    }
-  },
-
-  selectWriteThread: async (threadId, workspaceRoot) => {
-    const targetId = threadId.trim()
-    if (!targetId) return
-    const thread = get().threads.find((item) => item.id === targetId)
-    const targetWorkspace = normalizeWorkspaceRoot(workspaceRoot) ||
-      normalizeWorkspaceRoot(thread?.workspace) ||
-      (await readActiveWriteWorkspace(get().workspaceRoot))
-    if (targetWorkspace) {
-      const activeRuntime = getActiveAgentRuntime(await rendererRuntimeClient.getSettings())
-      saveWriteThreadRegistry(markWriteThread(targetWorkspace, targetId, undefined, activeRuntime))
-    }
-    set({ route: 'write' })
-    await get().selectThread(targetId)
   },
 
   probeRuntime: async (mode = 'user') => {
@@ -501,7 +333,6 @@ export function createNavigationActions(
 
   chooseWorkspace: async ({ createThreadAfter = false, selectThreadAfter = true } = {}) => {
     try {
-      const wasWriteRoute = get().route === 'write'
       if (typeof window.dsGui === 'undefined' || typeof window.dsGui.pickWorkspaceDirectory !== 'function') {
         throw new Error(i18n.t('common:workspacePickerUnavailable'))
       }
@@ -558,10 +389,6 @@ export function createNavigationActions(
       await get().refreshThreads()
       if (workspaceRoot) {
         if (!selectThreadAfter) return workspaceRoot
-        if (wasWriteRoute) {
-          await get().openWrite()
-          return workspaceRoot
-        }
         // If we successfully moved the active thread, stay on it.
         if (movedActiveThread) return workspaceRoot
         const workspaceThreads = get().threads
@@ -743,22 +570,6 @@ export function createNavigationActions(
       ) {
         displayThreads = [activeRuntimeSddThread, ...displayThreads]
       }
-      const writeWorkspaceRoots = await readWriteWorkspaceRoots()
-      const writeRegistrySourceThreads = activeRuntimePendingThread &&
-        !threads.some((thread) => thread.id === activeRuntimePendingThread.id)
-        ? [activeRuntimePendingThread, ...threads]
-        : threads
-      const writeRegistry = hydrateWriteThreadRegistry(
-        writeRegistrySourceThreads,
-        writeWorkspaceRoots,
-        pruneWriteThreadRegistry(writeRegistrySourceThreads, readWriteThreadRegistry(), activeRuntime),
-        activeRuntime
-      )
-      saveWriteThreadRegistry(writeRegistry)
-      displayThreads = displayThreads.map((thread) => {
-        const writeWorkspace = writeWorkspaceForThreadId(thread.id, writeRegistry, activeRuntime)
-        return writeWorkspace ? { ...thread, workspace: writeWorkspace } : thread
-      })
       const activeThreadId = get().activeThreadId
       const activeThread = activeThreadId
         ? displayThreads.find((thread) => thread.id === activeThreadId) ?? null
@@ -766,8 +577,7 @@ export function createNavigationActions(
       const activeThreadIsManagedInCodeRoute =
         get().route === 'chat' &&
         activeThread != null &&
-        (isWriteThreadId(activeThread.id, writeRegistry, activeRuntime) ||
-          isClawThread(activeThread, get().clawChannels))
+        isClawThread(activeThread, get().clawChannels)
       const shouldClearSelection =
         activeThreadId != null && !displayThreads.some((thread) => thread.id === activeThreadId)
       if (shouldClearSelection) {

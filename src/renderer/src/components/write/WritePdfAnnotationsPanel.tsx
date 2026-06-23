@@ -55,6 +55,7 @@ export type WritePdfAnnotationsPanelProps = {
   onExportPackage?: () => void
   onImportPackage?: () => void
   onReloadSidecar?: () => void
+  onCollapse?: () => void
 }
 
 function kindAccent(kind: PdfAnnotationKind): string {
@@ -103,7 +104,8 @@ export function WritePdfAnnotationsPanel({
   onEditAnnotation,
   onExportPackage,
   onImportPackage,
-  onReloadSidecar
+  onReloadSidecar,
+  onCollapse
 }: WritePdfAnnotationsPanelProps): ReactElement {
   const { t } = useTranslation('common')
   const [kind, setKind] = useState<PdfAnnotationKind | 'all'>(initialKind)
@@ -191,7 +193,19 @@ export function WritePdfAnnotationsPanel({
               {t('writePdfAnnotationsCount', { count: summaries.length, total: totalThreadCount })}
             </p>
           </div>
-          <Filter className="h-4 w-4 shrink-0 text-ds-faint" strokeWidth={1.8} />
+          {onCollapse ? (
+            <button
+              type="button"
+              onClick={onCollapse}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ds-faint transition hover:bg-ds-hover hover:text-ds-ink"
+              aria-label={t('rightPanelCollapse')}
+              title={t('rightPanelCollapse')}
+            >
+              <X className="h-4 w-4" strokeWidth={1.9} />
+            </button>
+          ) : (
+            <Filter className="h-4 w-4 shrink-0 text-ds-faint" strokeWidth={1.8} />
+          )}
         </div>
 
         <div className="mt-3 grid grid-cols-3 gap-2">

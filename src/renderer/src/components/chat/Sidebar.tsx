@@ -29,7 +29,6 @@ import { ClawAddImDialog } from './SidebarClawDialog'
 import { ConnectPhoneDialog, resolveConnectPhoneWorkspaceRoot } from './ConnectPhoneView'
 import { SidebarChildrenSection } from './SidebarChildrenSection'
 import { SidebarProjectsSection } from './SidebarProjectsSection'
-import { WorkspaceModeTabs } from './WorkspaceModeTabs'
 import {
   SidebarCommandRow,
   SidebarFrame,
@@ -40,7 +39,7 @@ import {
 type Props = {
   threads: NormalizedThread[]
   activeThreadId: string | null
-  activeView: 'chat' | 'write' | 'claw' | 'schedule' | 'workflow'
+  activeView: 'chat' | 'claw' | 'schedule' | 'workflow'
   connectPhoneSidebarOpen: boolean
   pluginsActive: boolean
   runtimeReady: boolean
@@ -59,8 +58,6 @@ type Props = {
   onOpenSettings: (section?: SettingsRouteSection) => void
   onOpenPlugins: () => void
   onToggleConnectPhone: () => void
-  onCodeOpen: () => void
-  onWriteOpen: () => void
   onScheduleOpen: () => void
   onWorkflowOpen: () => void
   onToggleSidebar: () => void
@@ -88,8 +85,6 @@ export function Sidebar({
   onOpenSettings,
   onOpenPlugins,
   onToggleConnectPhone,
-  onCodeOpen,
-  onWriteOpen,
   onScheduleOpen,
   onWorkflowOpen,
   onToggleSidebar
@@ -168,12 +163,6 @@ export function Sidebar({
       }
     >
       <div className="ds-no-drag flex flex-col px-1">
-        <WorkspaceModeTabs
-          activeView={activeView}
-          onCodeOpen={onCodeOpen}
-          onWriteOpen={onWriteOpen}
-        />
-
         {activeView !== 'claw' && activeView !== 'schedule' && activeView !== 'workflow' ? (
           <>
             <SidebarCommandRow
@@ -288,7 +277,7 @@ export function Sidebar({
       />
       <SidebarProjectsSection
         threads={threads}
-        activeView={activeView === 'write' ? 'write' : 'chat'}
+        activeView="chat"
         activeThreadId={activeThreadId}
         runtimeReady={runtimeReady}
         searchQuery={threadSearch}

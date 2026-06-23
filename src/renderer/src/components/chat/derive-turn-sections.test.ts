@@ -195,7 +195,7 @@ describe('deriveTurnSections', () => {
     expect(result.turnFileChanges[0]?.detail).toContain('+new detail')
   })
 
-  it('renders live assistant output inside the active process timeline', () => {
+  it('keeps live assistant output out of the active process timeline', () => {
     const result = processingSections({
       liveProcessText: 'private reasoning',
       liveContent: '这里是正在生成的回答。'
@@ -203,8 +203,7 @@ describe('deriveTurnSections', () => {
 
     expect(result.assistantContentBlocks).toEqual([])
     expect(result.processBlocks).toEqual([
-      { kind: 'reasoning', id: 'live-reasoning', text: 'private reasoning' },
-      { kind: 'assistant', id: 'live-assistant', text: '这里是正在生成的回答。' }
+      { kind: 'reasoning', id: 'live-reasoning', text: 'private reasoning' }
     ])
   })
 

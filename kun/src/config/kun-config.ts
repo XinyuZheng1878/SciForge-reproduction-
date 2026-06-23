@@ -14,11 +14,6 @@ import {
   ModelInputModality,
   ModelMessagePartSupport
 } from '../contracts/capabilities.js'
-import {
-  DEFAULT_MODEL_ENDPOINT_FORMAT,
-  MODEL_ENDPOINT_FORMATS,
-  normalizeModelEndpointFormat
-} from '../contracts/model-endpoint-format.js'
 
 export const KUN_CONFIG_FILENAME = 'config.json'
 export const DEFAULT_KUN_MODEL = 'deepseek-v4-pro'
@@ -172,11 +167,6 @@ export const KunServeConfigSchema = z
     dataDir: z.string().min(1).optional(),
     runtimeToken: z.string().optional(),
     apiKey: z.string().optional(),
-    baseUrl: z.string().optional(),
-    endpointFormat: z.preprocess(
-      normalizeModelEndpointFormat,
-      z.enum(MODEL_ENDPOINT_FORMATS)
-    ).default(DEFAULT_MODEL_ENDPOINT_FORMAT).optional(),
     model: z.string().min(1).optional(),
     forceDefaultModel: z.boolean().optional(),
     approvalPolicy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY).optional(),

@@ -1,4 +1,14 @@
-import type { WorkspaceFileReadResult, WorkspaceFileTarget } from '@shared/workspace-file'
+import type {
+  WorkspaceFileReadResult,
+  WorkspaceFileTarget,
+  WorkspaceImageReadResult
+} from '@shared/workspace-file'
+import {
+  createPdfAnchor,
+  type PdfAnnotationKind,
+  type PdfAnnotationSidecar,
+  type PdfAnnotationThread
+} from '@shared/pdf-annotations'
 import {
   Check,
   ChevronRight,
@@ -26,17 +36,62 @@ import {
   languageFromFilePath,
   renderFallbackCodeHtml
 } from '../lib/code-highlighting'
-import { WritePdfViewer } from './write/WritePdfViewer'
+import {
+  createPdfAnnotationThread,
+  deletePdfAnnotationThread,
+  mergePdfAnnotationContribution,
+  reopenPdfAnnotationThread,
+  resolvePdfAnnotationThread,
+  updatePdfAnnotation,
+  type PdfAnnotationThreadSummary
+} from '../write/pdf-annotations'
+import { WriteMarkdownPreview } from './write/WriteMarkdownPreview'
+import {
+  WritePdfAnnotationsPanel,
+  type WritePdfAnnotationDisplayMode
+} from './write/WritePdfAnnotationsPanel'
+import {
+  WritePdfViewer,
+  type WritePdfAnnotationAction,
+  type WritePdfAnnotationOverlay,
+  type WritePdfSelection,
+  type WritePdfSelectionPageRect
+} from './write/WritePdfViewer'
 
 type Props = {
   target: WorkspaceFileTarget | null
   workspaceRoot: string
   className?: string
-  onOpenPdfAnnotations?: (path: string, workspaceRoot: string) => void
   onClose: () => void
 }
 
+type WorkspaceImagePreviewResult = Extract<WorkspaceImageReadResult, { ok: true }> & {
+  kind: 'image'
+}
+
+type WorkspacePreviewResult =
+  | Extract<WorkspaceFileReadResult, { ok: true }>
+  | WorkspaceImagePreviewResult
+  | { ok: false; message: string }
+
+type PreviewNotice = {
+  tone: 'success' | 'error'
+  message: string
+}
+
 const COPY_RESET_MS = 1400
+const PDF_SIDECAR_SAVE_DEBOUNCE_MS = 180
+const IMAGE_PREVIEW_EXTENSIONS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.bmp',
+  '.avif',
+  '.ico'
+])
+const MARKDOWN_PREVIEW_EXTENSIONS = new Set(['.md', '.mdx', '.markdown'])
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -46,6 +101,20 @@ function formatBytes(bytes: number): string {
 
 function fileNameFromPath(path: string): string {
   return path.split(/[/\\]/).filter(Boolean).pop() ?? path
+}
+
+function extensionFromPath(path: string): string {
+  const fileName = fileNameFromPath(path).toLowerCase()
+  const dot = fileName.lastIndexOf('.')
+  return dot >= 0 ? fileName.slice(dot) : ''
+}
+
+function isImagePreviewPath(path: string): boolean {
+  return IMAGE_PREVIEW_EXTENSIONS.has(extensionFromPath(path))
+}
+
+function isMarkdownPreviewPath(path: string): boolean {
+  return MARKDOWN_PREVIEW_EXTENSIONS.has(extensionFromPath(path))
 }
 
 function splitPath(path: string): string[] {
@@ -68,20 +137,66 @@ function extensionBadge(path: string, language: string): string {
   return value.slice(0, 3).toUpperCase()
 }
 
+function makeLocalId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function annotationKindForAction(action: WritePdfAnnotationAction): PdfAnnotationKind | null {
+  if (action === 'copy') return null
+  if (action === 'comment') return 'comment'
+  if (action === 'translation') return 'translation'
+  if (action === 'question') return 'question'
+  return 'highlight'
+}
+
+function overlayKindForThread(thread: PdfAnnotationThread): WritePdfAnnotationOverlay['kind'] {
+  return thread.kind
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const chunkSize = 0x8000
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return window.btoa(binary)
+}
+
+function isPdfAnnotationFingerprintMismatch(message: string): boolean {
+  const normalized = message.toLocaleLowerCase()
+  return normalized.includes('fingerprint') || normalized.includes('different pdf') || normalized.includes('mismatch')
+}
+
+function isImagePreviewTarget(target: WorkspaceFileTarget): boolean {
+  const kind = (target as WorkspaceFileTarget & { kind?: unknown }).kind
+  return kind === 'image' || isImagePreviewPath(target.path)
+}
+
 export function WorkspaceFilePreviewPanel({
   target,
   workspaceRoot,
   className,
-  onOpenPdfAnnotations,
   onClose
 }: Props): ReactElement {
   const { t } = useTranslation('common')
-  const [result, setResult] = useState<WorkspaceFileReadResult | null>(null)
+  const [result, setResult] = useState<WorkspacePreviewResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [highlightHtml, setHighlightHtml] = useState(() => renderFallbackCodeHtml(''))
+  const [pdfSidecar, setPdfSidecar] = useState<PdfAnnotationSidecar | null>(null)
+  const [pdfAnnotationsOpen, setPdfAnnotationsOpen] = useState(false)
+  const [pdfAnnotationPackageAction, setPdfAnnotationPackageAction] = useState<'export' | 'import' | 'reload' | null>(null)
+  const [selectedPdfThreadId, setSelectedPdfThreadId] = useState<string | null>(null)
+  const [hoveredPdfThreadId, setHoveredPdfThreadId] = useState<string | null>(null)
+  const [pdfAnnotationDisplayMode, setPdfAnnotationDisplayMode] = useState<WritePdfAnnotationDisplayMode>('current')
+  const [pdfJumpToRect, setPdfJumpToRect] = useState<WritePdfSelectionPageRect | null>(null)
+  const [pdfNotice, setPdfNotice] = useState<PreviewNotice | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const copyResetRef = useRef<number | null>(null)
+  const pdfSidecarSaveTimerRef = useRef<number | null>(null)
+  const pdfSidecarLoadKeyRef = useRef('')
+  const pdfAnnotationImportInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     if (!target) {
@@ -93,12 +208,19 @@ export function WorkspaceFilePreviewPanel({
     let cancelled = false
     setLoading(true)
     setResult(null)
+    setPdfNotice(null)
 
-    void window.dsGui
-      .readWorkspaceFile({
-        ...target,
-        workspaceRoot: target.workspaceRoot ?? workspaceRoot
-      })
+    const fileTarget = {
+      ...target,
+      workspaceRoot: target.workspaceRoot ?? workspaceRoot
+    }
+    const readTask: Promise<WorkspacePreviewResult> = isImagePreviewTarget(target)
+      ? window.dsGui.readWorkspaceImage(fileTarget).then((next) =>
+          next.ok ? { ...next, kind: 'image' as const } : next
+        )
+      : window.dsGui.readWorkspaceFile(fileTarget)
+
+    void readTask
       .then((next) => {
         if (!cancelled) setResult(next)
       })
@@ -131,6 +253,7 @@ export function WorkspaceFilePreviewPanel({
   useEffect(
     () => () => {
       if (copyResetRef.current !== null) window.clearTimeout(copyResetRef.current)
+      if (pdfSidecarSaveTimerRef.current !== null) window.clearTimeout(pdfSidecarSaveTimerRef.current)
     },
     []
   )
@@ -152,6 +275,11 @@ export function WorkspaceFilePreviewPanel({
   }, [result, target, workspaceRoot])
   const currentFileName = displayPath ? fileNameFromPath(displayPath) : t('filePreviewTitle')
   const badge = extensionBadge(result?.ok ? result.path : target?.path ?? '', language)
+  const pdfResult = result?.ok && result.kind === 'pdf' ? result : null
+  const pdfPath = pdfResult?.path ?? null
+  const pdfWorkspaceRoot = target?.workspaceRoot ?? workspaceRoot
+  const pdfMtimeMs = pdfResult?.mtimeMs ?? null
+  const markdownPreviewActive = result?.ok && result.kind === 'text' && isMarkdownPreviewPath(result.path)
   const activeLine = result?.ok && result.kind === 'text' && result.line && result.line >= 1 && result.line <= lines.length
     ? result.line
     : null
@@ -179,6 +307,373 @@ export function WorkspaceFilePreviewPanel({
       cancelled = true
     }
   }, [result, language])
+
+  const showPdfNotice = useCallback((notice: PreviewNotice): void => {
+    setPdfNotice(notice)
+  }, [])
+
+  const savePdfSidecarSoon = useCallback((sidecar: PdfAnnotationSidecar): void => {
+    if (!pdfPath || typeof window.dsGui?.pdfAnnotations?.save !== 'function') return
+    if (pdfSidecarSaveTimerRef.current) window.clearTimeout(pdfSidecarSaveTimerRef.current)
+    pdfSidecarSaveTimerRef.current = window.setTimeout(() => {
+      pdfSidecarSaveTimerRef.current = null
+      void window.dsGui?.pdfAnnotations?.save({
+        pdfPath,
+        workspaceRoot: pdfWorkspaceRoot,
+        sidecar
+      }).then((saveResult) => {
+        if (!saveResult.ok) {
+          showPdfNotice({ tone: 'error', message: saveResult.message })
+          return
+        }
+        setPdfSidecar(saveResult.sidecar)
+      }).catch((error) => {
+        showPdfNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
+      })
+    }, PDF_SIDECAR_SAVE_DEBOUNCE_MS)
+  }, [pdfPath, pdfWorkspaceRoot, showPdfNotice])
+
+  const updatePdfSidecar = useCallback((updater: (sidecar: PdfAnnotationSidecar) => PdfAnnotationSidecar): PdfAnnotationSidecar | null => {
+    if (!pdfSidecar) return null
+    try {
+      const nextSidecar = updater(pdfSidecar)
+      setPdfSidecar(nextSidecar)
+      savePdfSidecarSoon(nextSidecar)
+      return nextSidecar
+    } catch (error) {
+      showPdfNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
+      return null
+    }
+  }, [pdfSidecar, savePdfSidecarSoon, showPdfNotice])
+
+  const pdfAnnotationOverlays = useMemo<WritePdfAnnotationOverlay[]>(() => {
+    if (!pdfSidecar) return []
+    return pdfSidecar.threads.map((thread) => {
+      const anchorIds = new Set(thread.anchorIds)
+      return {
+        id: thread.id,
+        kind: overlayKindForThread(thread),
+        status: thread.status,
+        rects: pdfSidecar.anchors
+          .filter((anchor) => anchorIds.has(anchor.id))
+          .flatMap((anchor) => anchor.rects),
+        label: thread.kind === 'highlight' ? '' : undefined
+      }
+    }).filter((overlay) => overlay.rects.length > 0)
+  }, [pdfSidecar])
+  const activePdfAnnotationId = hoveredPdfThreadId ?? selectedPdfThreadId
+  const visiblePdfAnnotationOverlays = useMemo<WritePdfAnnotationOverlay[]>(() => {
+    if (pdfAnnotationDisplayMode === 'hidden') return []
+    if (pdfAnnotationDisplayMode === 'all') return pdfAnnotationOverlays
+    if (!activePdfAnnotationId) return []
+    return pdfAnnotationOverlays.filter((overlay) => overlay.id === activePdfAnnotationId)
+  }, [activePdfAnnotationId, pdfAnnotationDisplayMode, pdfAnnotationOverlays])
+
+  useEffect(() => {
+    if (!pdfPath || pdfMtimeMs == null) {
+      pdfSidecarLoadKeyRef.current = ''
+      setPdfSidecar(null)
+      setSelectedPdfThreadId(null)
+      setHoveredPdfThreadId(null)
+      setPdfJumpToRect(null)
+      return
+    }
+    const loadKey = `${pdfWorkspaceRoot}\n${pdfPath}\n${pdfMtimeMs}`
+    if (pdfSidecarLoadKeyRef.current === loadKey) return
+    pdfSidecarLoadKeyRef.current = loadKey
+    setPdfSidecar(null)
+    setSelectedPdfThreadId(null)
+    setHoveredPdfThreadId(null)
+    setPdfJumpToRect(null)
+    if (typeof window.dsGui?.pdfAnnotations?.load !== 'function') {
+      showPdfNotice({ tone: 'error', message: t('writePdfAnnotationReloadUnavailable') })
+      return
+    }
+
+    let cancelled = false
+    void window.dsGui.pdfAnnotations.load({
+      pdfPath,
+      workspaceRoot: pdfWorkspaceRoot
+    }).then((loadResult) => {
+      if (cancelled || pdfSidecarLoadKeyRef.current !== loadKey) return
+      if (!loadResult.ok) {
+        showPdfNotice({ tone: 'error', message: loadResult.message })
+        return
+      }
+      setPdfSidecar(loadResult.sidecar)
+      if (loadResult.warnings.length > 0) {
+        showPdfNotice({ tone: 'error', message: loadResult.warnings[0] })
+      }
+    }).catch((error) => {
+      if (!cancelled) showPdfNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [pdfMtimeMs, pdfPath, pdfWorkspaceRoot, showPdfNotice, t])
+
+  const addPdfAnnotationFromSelection = useCallback((action: WritePdfAnnotationAction, pdfSelection: WritePdfSelection): void => {
+    if (!pdfSidecar) {
+      showPdfNotice({ tone: 'error', message: t('writePdfAnnotationSidecarUnavailable') })
+      return
+    }
+    if (!pdfSelection.rects?.length) {
+      showPdfNotice({ tone: 'error', message: t('writePdfAnnotationAnchorUnavailable') })
+      return
+    }
+    const kind = annotationKindForAction(action)
+    if (!kind) {
+      showPdfNotice({ tone: 'success', message: t('writePdfAnnotationCopied') })
+      return
+    }
+    const now = new Date().toISOString()
+    const sourceText = pdfSelection.text.trim() || t('writePdfAnnotationVisualSelectionQuote')
+    const anchor = createPdfAnchor({
+      id: makeLocalId('pdf-anchor'),
+      kind: pdfSelection.text.trim() ? 'text' : 'image',
+      rects: pdfSelection.rects,
+      quote: sourceText,
+      pdfFingerprint: pdfSidecar.pdfFingerprint,
+      createdAt: now
+    })
+    const body = kind === 'translation'
+      ? t('writePdfAnnotationTranslationPending')
+      : kind === 'question'
+        ? t('writePdfAnnotationQuestionPending')
+        : ''
+    const threadId = makeLocalId('pdf-thread')
+    updatePdfSidecar((current) => createPdfAnnotationThread({
+      ...current,
+      anchors: [...current.anchors, anchor]
+    }, {
+      id: threadId,
+      kind,
+      anchorIds: [anchor.id],
+      annotations: [{
+        id: makeLocalId('pdf-ann'),
+        anchorId: anchor.id,
+        kind,
+        body,
+        sourceText,
+        ...(kind === 'translation' ? { targetLanguage: t('writePdfAnnotationDefaultTargetLanguage') } : {})
+      }],
+      createdAt: now
+    }))
+    setSelectedPdfThreadId(threadId)
+    setPdfAnnotationsOpen(true)
+  }, [pdfSidecar, showPdfNotice, t, updatePdfSidecar])
+
+  const selectPdfAnnotationThread = useCallback((threadId: string, summary: PdfAnnotationThreadSummary): void => {
+    setSelectedPdfThreadId(threadId)
+    setPdfAnnotationsOpen(true)
+    const firstRect = summary.anchors.flatMap((anchor) => anchor.rects)[0]
+    if (firstRect) setPdfJumpToRect({ ...firstRect })
+  }, [])
+
+  const selectPdfAnnotationOverlay = useCallback((threadId: string): void => {
+    setSelectedPdfThreadId(threadId)
+    setPdfAnnotationsOpen(true)
+    const thread = pdfSidecar?.threads.find((item) => item.id === threadId)
+    const anchorId = thread?.anchorIds[0]
+    const rect = anchorId ? pdfSidecar?.anchors.find((anchor) => anchor.id === anchorId)?.rects[0] : undefined
+    if (rect) setPdfJumpToRect({ ...rect })
+  }, [pdfSidecar])
+
+  const resolvePdfAnnotation = useCallback((threadId: string): void => {
+    const now = new Date().toISOString()
+    updatePdfSidecar((current) => resolvePdfAnnotationThread(current, threadId, now))
+  }, [updatePdfSidecar])
+
+  const reopenPdfAnnotation = useCallback((threadId: string): void => {
+    const now = new Date().toISOString()
+    updatePdfSidecar((current) => reopenPdfAnnotationThread(current, threadId, now))
+  }, [updatePdfSidecar])
+
+  const deletePdfAnnotation = useCallback((threadId: string): void => {
+    const now = new Date().toISOString()
+    updatePdfSidecar((current) => deletePdfAnnotationThread(current, threadId, { updatedAt: now }))
+    setSelectedPdfThreadId((current) => current === threadId ? null : current)
+    setHoveredPdfThreadId((current) => current === threadId ? null : current)
+  }, [updatePdfSidecar])
+
+  const editPdfAnnotation = useCallback((annotationId: string, body: string): void => {
+    const now = new Date().toISOString()
+    updatePdfSidecar((sidecar) => updatePdfAnnotation(sidecar, annotationId, {
+      body,
+      updatedAt: now
+    }))
+  }, [updatePdfSidecar])
+
+  const exportPdfAnnotationPackage = useCallback(async (): Promise<void> => {
+    if (!pdfPath || !pdfSidecar) return
+    if (typeof window.dsGui?.pdfAnnotations?.export !== 'function') {
+      showPdfNotice({ tone: 'error', message: t('writePdfAnnotationExportUnavailable') })
+      return
+    }
+
+    setPdfAnnotationPackageAction('export')
+    try {
+      const exportResult = await window.dsGui.pdfAnnotations.export({
+        pdfPath,
+        workspaceRoot: pdfWorkspaceRoot,
+        sidecar: pdfSidecar
+      })
+      if (!exportResult.ok) {
+        showPdfNotice({
+          tone: 'error',
+          message: t('writePdfAnnotationExportFailed', { message: exportResult.message })
+        })
+        return
+      }
+      showPdfNotice({
+        tone: 'success',
+        message: t('writePdfAnnotationExportSuccess', { file: fileNameFromPath(exportResult.path) })
+      })
+    } catch (error) {
+      showPdfNotice({
+        tone: 'error',
+        message: t('writePdfAnnotationExportFailed', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+    } finally {
+      setPdfAnnotationPackageAction(null)
+    }
+  }, [pdfPath, pdfSidecar, pdfWorkspaceRoot, showPdfNotice, t])
+
+  const importPdfAnnotationPackageFile = useCallback(async (file: File): Promise<void> => {
+    if (!pdfPath) return
+    if (typeof window.dsGui?.pdfAnnotations?.import !== 'function') {
+      showPdfNotice({ tone: 'error', message: t('writePdfAnnotationImportUnavailable') })
+      return
+    }
+
+    setPdfAnnotationPackageAction('import')
+    try {
+      const packageBase64 = await fileToBase64(file)
+      const importPackage = (attemptRelocation: boolean) => window.dsGui.pdfAnnotations!.import({
+        pdfPath,
+        workspaceRoot: pdfWorkspaceRoot,
+        packageBase64,
+        attemptRelocation
+      })
+      let importResult = await importPackage(false)
+      if (!importResult.ok && isPdfAnnotationFingerprintMismatch(importResult.message)) {
+        const retry = window.confirm(t('writePdfAnnotationImportFingerprintMismatch', { file: file.name }))
+        if (!retry) {
+          showPdfNotice({ tone: 'error', message: t('writePdfAnnotationImportCanceled') })
+          return
+        }
+        importResult = await importPackage(true)
+      }
+      if (!importResult.ok) {
+        showPdfNotice({
+          tone: 'error',
+          message: t('writePdfAnnotationImportFailed', { message: importResult.message })
+        })
+        return
+      }
+
+      const merged = pdfSidecar
+        ? mergePdfAnnotationContribution(pdfSidecar, importResult.sidecar, { updatedAt: new Date().toISOString() })
+        : {
+            sidecar: importResult.sidecar,
+            addedThreadCount: importResult.sidecar.threads.length,
+            updatedThreadCount: 0,
+            skippedThreadCount: 0,
+            conflicts: []
+          }
+      setPdfSidecar(merged.sidecar)
+      setSelectedPdfThreadId(null)
+      setPdfJumpToRect(null)
+      savePdfSidecarSoon(merged.sidecar)
+      if (importResult.warnings.length > 0) showPdfNotice({ tone: 'error', message: importResult.warnings[0] })
+      showPdfNotice({
+        tone: 'success',
+        message: t('writePdfAnnotationImportSuccess', {
+          added: merged.addedThreadCount,
+          updated: merged.updatedThreadCount,
+          skipped: merged.skippedThreadCount
+        })
+      })
+    } catch (error) {
+      showPdfNotice({
+        tone: 'error',
+        message: t('writePdfAnnotationImportFailed', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+    } finally {
+      setPdfAnnotationPackageAction(null)
+    }
+  }, [pdfPath, pdfSidecar, pdfWorkspaceRoot, savePdfSidecarSoon, showPdfNotice, t])
+
+  const reloadPdfAnnotationSidecar = useCallback(async (): Promise<void> => {
+    if (!pdfPath) return
+    if (typeof window.dsGui?.pdfAnnotations?.load !== 'function') {
+      showPdfNotice({ tone: 'error', message: t('writePdfAnnotationReloadUnavailable') })
+      return
+    }
+
+    setPdfAnnotationPackageAction('reload')
+    try {
+      const loadResult = await window.dsGui.pdfAnnotations.load({
+        pdfPath,
+        workspaceRoot: pdfWorkspaceRoot
+      })
+      if (!loadResult.ok) {
+        showPdfNotice({
+          tone: 'error',
+          message: t('writePdfAnnotationReloadFailed', { message: loadResult.message })
+        })
+        return
+      }
+      const merged = pdfSidecar
+        ? mergePdfAnnotationContribution(pdfSidecar, loadResult.sidecar, { updatedAt: new Date().toISOString() })
+        : {
+            sidecar: loadResult.sidecar,
+            addedThreadCount: loadResult.sidecar.threads.length,
+            updatedThreadCount: 0,
+            skippedThreadCount: 0,
+            conflicts: []
+          }
+      setPdfSidecar(merged.sidecar)
+      setSelectedPdfThreadId(null)
+      setPdfJumpToRect(null)
+      savePdfSidecarSoon(merged.sidecar)
+      if (loadResult.warnings.length > 0) showPdfNotice({ tone: 'error', message: loadResult.warnings[0] })
+      showPdfNotice({
+        tone: 'success',
+        message: t('writePdfAnnotationReloadSuccess', {
+          added: merged.addedThreadCount,
+          updated: merged.updatedThreadCount,
+          skipped: merged.skippedThreadCount
+        })
+      })
+    } catch (error) {
+      showPdfNotice({
+        tone: 'error',
+        message: t('writePdfAnnotationReloadFailed', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+    } finally {
+      setPdfAnnotationPackageAction(null)
+    }
+  }, [pdfPath, pdfSidecar, pdfWorkspaceRoot, savePdfSidecarSoon, showPdfNotice, t])
+
+  const openPdfAnnotationPackagePicker = useCallback((): void => {
+    if (!pdfPath || pdfAnnotationPackageAction) return
+    const input = pdfAnnotationImportInputRef.current
+    if (!input) return
+    input.value = ''
+    input.click()
+  }, [pdfAnnotationPackageAction, pdfPath])
+
+  const openPdfAnnotations = useCallback((): void => {
+    if (!pdfPath) return
+    setPdfAnnotationsOpen(true)
+  }, [pdfPath])
 
   const openInEditor = (): void => {
     const path = result?.ok ? result.path : target?.path
@@ -213,12 +708,6 @@ export function WorkspaceFilePreviewPanel({
     }
   }
 
-  const ignorePdfSelection = useCallback(() => undefined, [])
-  const openPdfAnnotations = useCallback((): void => {
-    if (!result?.ok || result.kind !== 'pdf') return
-    onOpenPdfAnnotations?.(result.path, target?.workspaceRoot ?? workspaceRoot)
-  }, [onOpenPdfAnnotations, result, target?.workspaceRoot, workspaceRoot])
-
   return (
     <aside
       className={`ds-no-drag ds-code-sidebar flex min-h-0 flex-col border-l border-ds-border-muted ${className ?? ''}`}
@@ -236,13 +725,14 @@ export function WorkspaceFilePreviewPanel({
         </button>
 
         <div className="ds-code-sidebar-actions">
-          {result?.ok && result.kind === 'pdf' && onOpenPdfAnnotations ? (
+          {result?.ok && result.kind === 'pdf' ? (
             <button
               type="button"
-              onClick={openPdfAnnotations}
-              className="ds-code-sidebar-icon-button"
+              onClick={() => setPdfAnnotationsOpen((open) => !open)}
+              className={`ds-code-sidebar-icon-button ${pdfAnnotationsOpen ? 'text-accent' : ''}`}
               title={t('filePreviewOpenPdfAnnotations')}
               aria-label={t('filePreviewOpenPdfAnnotations')}
+              aria-pressed={pdfAnnotationsOpen}
             >
               <StickyNote className="h-4 w-4" strokeWidth={1.85} />
             </button>
@@ -307,7 +797,7 @@ export function WorkspaceFilePreviewPanel({
         {result?.ok ? (
           <span className="shrink-0 font-mono text-[10px] text-ds-faint">
             {formatBytes(result.size)}
-            {result.kind === 'pdf' ? ' · PDF' : language ? ` · ${language}` : ''}
+            {result.kind === 'pdf' ? ' · PDF' : result.kind === 'image' ? ' · IMG' : language ? ` · ${language}` : ''}
           </span>
         ) : null}
       </div>
@@ -328,16 +818,77 @@ export function WorkspaceFilePreviewPanel({
             {t('filePreviewLoading')}
           </div>
         ) : result?.ok && result.kind === 'pdf' ? (
-          <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            {pdfNotice ? (
+              <div className={`absolute left-3 right-3 top-3 z-30 rounded-lg border px-3 py-2 text-[12px] leading-5 shadow-sm ${
+                pdfNotice.tone === 'success'
+                  ? 'border-emerald-500/25 bg-emerald-50/95 text-emerald-800 dark:bg-emerald-950/85 dark:text-emerald-100'
+                  : 'border-red-500/25 bg-red-50/95 text-red-800 dark:bg-red-950/85 dark:text-red-100'
+              }`}>
+                {pdfNotice.message}
+              </div>
+            ) : null}
             <WritePdfViewer
               filePath={result.path}
               dataBase64={result.dataBase64}
               size={result.size}
               mtimeMs={result.mtimeMs}
               workspaceRoot={target.workspaceRoot ?? workspaceRoot}
-              onSelectionChange={ignorePdfSelection}
-              onOpenAnnotations={onOpenPdfAnnotations ? openPdfAnnotations : undefined}
+              annotationOverlays={visiblePdfAnnotationOverlays}
+              activeAnnotationId={activePdfAnnotationId}
+              jumpToRect={pdfJumpToRect}
+              onSelectionChange={() => undefined}
+              onAnnotationAction={addPdfAnnotationFromSelection}
+              onAnnotationSelect={selectPdfAnnotationOverlay}
+              onOpenAnnotations={openPdfAnnotations}
             />
+            {pdfAnnotationsOpen ? (
+              <div className="absolute inset-y-0 right-0 z-20 w-[min(380px,92%)] border-l border-ds-border-muted bg-white shadow-2xl dark:bg-ds-canvas">
+                <WritePdfAnnotationsPanel
+                  sidecar={pdfSidecar}
+                  selectedThreadId={selectedPdfThreadId}
+                  annotationDisplayMode={pdfAnnotationDisplayMode}
+                  className="h-full max-h-full w-full border-l-0"
+                  exportingPackage={pdfAnnotationPackageAction === 'export'}
+                  importingPackage={pdfAnnotationPackageAction === 'import'}
+                  reloadingSidecar={pdfAnnotationPackageAction === 'reload'}
+                  onAnnotationDisplayModeChange={setPdfAnnotationDisplayMode}
+                  onSelectThread={selectPdfAnnotationThread}
+                  onHoverThread={(threadId) => setHoveredPdfThreadId(threadId)}
+                  onResolveThread={(threadId) => resolvePdfAnnotation(threadId)}
+                  onReopenThread={(threadId) => reopenPdfAnnotation(threadId)}
+                  onDeleteThread={(threadId) => deletePdfAnnotation(threadId)}
+                  onEditAnnotation={editPdfAnnotation}
+                  onExportPackage={() => void exportPdfAnnotationPackage()}
+                  onImportPackage={openPdfAnnotationPackagePicker}
+                  onReloadSidecar={() => void reloadPdfAnnotationSidecar()}
+                  onCollapse={() => setPdfAnnotationsOpen(false)}
+                />
+              </div>
+            ) : null}
+            <input
+              ref={pdfAnnotationImportInputRef}
+              type="file"
+              accept=".zip,application/zip,application/x-zip-compressed"
+              className="hidden"
+              aria-hidden="true"
+              tabIndex={-1}
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0] ?? null
+                event.currentTarget.value = ''
+                if (file) void importPdfAnnotationPackageFile(file)
+              }}
+            />
+          </div>
+        ) : result?.ok && result.kind === 'image' ? (
+          <div className="flex min-h-0 flex-1 flex-col bg-ds-main/70">
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+              <img
+                src={result.dataUrl}
+                alt={fileNameFromPath(result.path)}
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
           </div>
         ) : result?.ok && result.kind === 'text' ? (
           <div className="relative flex min-h-0 flex-1 flex-col">
@@ -346,37 +897,51 @@ export function WorkspaceFilePreviewPanel({
                 {t('filePreviewTruncated')}
               </div>
             ) : null}
-            <div
-              ref={scrollRef}
-              className="ds-file-preview-scroll min-h-0 flex-1 overflow-auto font-mono text-[12px] leading-[22px] text-ds-ink"
-            >
+            {markdownPreviewActive ? (
               <div
-                className="ds-file-preview-code-surface"
-                style={codeSurfaceStyle}
+                ref={scrollRef}
+                className="min-h-0 flex-1 overflow-auto bg-white px-5 py-5 dark:bg-ds-canvas"
               >
-                {activeLine ? (
-                  <div className="ds-file-preview-active-line" aria-hidden="true" />
-                ) : null}
-                <div className="ds-file-preview-gutter">
-                  {lines.map((_, index) => {
-                    const lineNo = index + 1
-                    return (
-                      <div
-                        key={lineNo}
-                        data-line={lineNo}
-                        className={`ds-file-preview-line-number ${activeLine === lineNo ? 'is-active' : ''}`}
-                      >
-                        {lineNo}
-                      </div>
-                    )
-                  })}
-                </div>
-                <div
-                  className="ds-file-preview-code-html"
-                  dangerouslySetInnerHTML={{ __html: highlightHtml }}
+                <WriteMarkdownPreview
+                  content={result.content}
+                  isMarkdown
+                  filePath={result.path}
+                  previewErrorMessage={t('writePreviewErrorFallback')}
                 />
               </div>
-            </div>
+            ) : (
+              <div
+                ref={scrollRef}
+                className="ds-file-preview-scroll min-h-0 flex-1 overflow-auto font-mono text-[12px] leading-[22px] text-ds-ink"
+              >
+                <div
+                  className="ds-file-preview-code-surface"
+                  style={codeSurfaceStyle}
+                >
+                  {activeLine ? (
+                    <div className="ds-file-preview-active-line" aria-hidden="true" />
+                  ) : null}
+                  <div className="ds-file-preview-gutter">
+                    {lines.map((_, index) => {
+                      const lineNo = index + 1
+                      return (
+                        <div
+                          key={lineNo}
+                          data-line={lineNo}
+                          className={`ds-file-preview-line-number ${activeLine === lineNo ? 'is-active' : ''}`}
+                        >
+                          {lineNo}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div
+                    className="ds-file-preview-code-html"
+                    dangerouslySetInnerHTML={{ __html: highlightHtml }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-1 items-center justify-center px-6 text-center text-[12px] leading-6 text-red-700 dark:text-red-300">

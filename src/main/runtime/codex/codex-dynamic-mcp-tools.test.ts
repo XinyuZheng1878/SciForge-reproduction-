@@ -31,11 +31,133 @@ describe('Codex dynamic MCP tool bridge', () => {
 
     await expect(bridge.dynamicTools()).resolves.toEqual([
       {
+        type: 'function',
         name: 'research_search',
         description: 'Search scientific literature.',
         inputSchema: { type: 'object', properties: { query: { type: 'string' } } }
       }
     ])
+  })
+
+  it('advertises provider-safe MCP input schemas for Codex dynamic tools', async () => {
+    const bridge = createCodexDynamicMcpToolBridge({
+      servers: [{
+        id: 'gui_computer_use',
+        command: '/bin/computer-use-mcp',
+        enabledTools: ['computer_use']
+      }],
+      clientFactory: async () => fakeMcpClient({
+        tools: [{
+          name: 'computer_use',
+          description: 'Shared host UI control.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              action: {
+                type: 'string',
+                enum: ['list_targets', 'bind_target'],
+                title: 'Action'
+              },
+              targetId: {
+                type: 'string',
+                minLength: 1
+              }
+            },
+            required: ['action'],
+            '$schema': 'http://json-schema.org/draft-07/schema#',
+            definitions: { unused: { type: 'string' } }
+          }
+        }]
+      })
+    })
+
+    await expect(bridge.dynamicTools()).resolves.toEqual([
+      {
+        type: 'function',
+        name: 'computer_use',
+        description: 'Shared host UI control.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['list_targets', 'bind_target'] },
+            targetId: { type: 'string', minLength: 1 }
+          },
+          required: ['action']
+        }
+      }
+    ])
+  })
+
+  it('reconnects when an MCP connection closes while loading the tool catalog', async () => {
+    const firstClose = vi.fn(async () => undefined)
+    const firstListTools = vi.fn(async () => {
+      throw new Error('Transport closed')
+    })
+    const secondListTools = vi.fn(async () => ({
+      tools: [{ name: 'lookup', description: 'Callable.' }]
+    }))
+    const firstClient = fakeMcpClient({
+      listTools: firstListTools,
+      close: firstClose
+    })
+    const secondClient = fakeMcpClient({
+      listTools: secondListTools
+    })
+    const clients = [firstClient, secondClient]
+    const bridge = createCodexDynamicMcpToolBridge({
+      servers: [{ id: 'server-1', command: '/bin/mcp' }],
+      clientFactory: vi.fn(async () => clients.shift() ?? secondClient)
+    })
+
+    await expect(bridge.dynamicTools()).resolves.toEqual([
+      {
+        type: 'function',
+        name: 'lookup',
+        description: 'Callable.',
+        inputSchema: { type: 'object', properties: {} }
+      }
+    ])
+    expect(firstListTools).toHaveBeenCalledTimes(1)
+    expect(firstClose).toHaveBeenCalledTimes(1)
+    expect(secondListTools).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips failed optional MCP catalogs when resolving an unqualified tool call', async () => {
+    const workingCallTool = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'called working server' }]
+    }))
+    const bridge = createCodexDynamicMcpToolBridge({
+      servers: [
+        { id: 'optional-broken', command: '/bin/broken' },
+        { id: 'working', command: '/bin/working' }
+      ],
+      clientFactory: async (server) => {
+        if (server.id === 'optional-broken') {
+          return fakeMcpClient({
+            listTools: vi.fn(async () => {
+              throw new Error('MCP error -32000: Connection closed')
+            })
+          })
+        }
+        return fakeMcpClient({
+          tools: [{ name: 'lookup', description: 'Callable.' }],
+          callTool: workingCallTool
+        })
+      }
+    })
+
+    await expect(bridge.callTool({
+      requestId: 'call-request-skip-broken-catalog',
+      tool: 'lookup',
+      arguments: { value: 1 }
+    })).resolves.toEqual({
+      contentItems: [{ type: 'inputText', text: 'called working server' }],
+      success: true
+    })
+    expect(workingCallTool).toHaveBeenCalledWith(
+      { name: 'lookup', arguments: { value: 1 } },
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
+    )
   })
 
   it('disambiguates duplicate MCP tool names without relying on namespace exposure', async () => {
@@ -102,6 +224,74 @@ describe('Codex dynamic MCP tool bridge', () => {
     )
   })
 
+  it('parses JSON string arguments from Codex dynamic tool calls', async () => {
+    const callTool = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'ok' }]
+    }))
+    const bridge = createCodexDynamicMcpToolBridge({
+      servers: [{ id: 'server-1', command: '/bin/mcp' }],
+      clientFactory: async () => fakeMcpClient({
+        tools: [{ name: 'lookup', description: 'Callable.' }],
+        callTool
+      })
+    })
+
+    await bridge.dynamicTools()
+    await expect(bridge.callTool({
+      requestId: 'call-request-json-string',
+      tool: 'lookup',
+      arguments: '{"id":"ABC-123"}'
+    })).resolves.toEqual({
+      contentItems: [{ type: 'inputText', text: 'ok' }],
+      success: true
+    })
+    expect(callTool).toHaveBeenCalledWith(
+      { name: 'lookup', arguments: { id: 'ABC-123' } },
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
+    )
+  })
+
+  it('reconnects and retries once when a cached MCP connection is closed', async () => {
+    const firstClose = vi.fn(async () => undefined)
+    const firstCallTool = vi.fn(async () => {
+      throw new Error('MCP error -32000: Connection closed')
+    })
+    const secondCallTool = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'reconnected' }]
+    }))
+    const firstClient = fakeMcpClient({
+      tools: [{ name: 'lookup', description: 'Callable.' }],
+      callTool: firstCallTool,
+      close: firstClose
+    })
+    const secondClient = fakeMcpClient({
+      tools: [{ name: 'lookup', description: 'Callable.' }],
+      callTool: secondCallTool
+    })
+    const clients = [firstClient, secondClient]
+    const bridge = createCodexDynamicMcpToolBridge({
+      servers: [{ id: 'server-1', command: '/bin/mcp' }],
+      clientFactory: vi.fn(async () => clients.shift() ?? secondClient)
+    })
+
+    await bridge.dynamicTools()
+    await expect(bridge.callTool({
+      requestId: 'call-request-reconnect',
+      tool: 'lookup',
+      arguments: { value: 1 }
+    })).resolves.toEqual({
+      contentItems: [{ type: 'inputText', text: 'reconnected' }],
+      success: true
+    })
+
+    expect(firstCallTool).toHaveBeenCalledTimes(1)
+    expect(firstClose).toHaveBeenCalledTimes(1)
+    expect(secondCallTool).toHaveBeenCalledWith(
+      { name: 'lookup', arguments: { value: 1 } },
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
+    )
+  })
+
   it('routes dotted dynamic tool call names back to their MCP server namespace', async () => {
     const callTool = vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }] }))
     const bridge = createCodexDynamicMcpToolBridge({
@@ -125,6 +315,28 @@ describe('Codex dynamic MCP tool bridge', () => {
       { name: 'lookup', arguments: { value: 1 } },
       expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
     )
+  })
+
+  it('returns a failed dynamic tool response instead of throwing when lookup fails', async () => {
+    const bridge = createCodexDynamicMcpToolBridge({
+      servers: [{ id: 'server-1', command: '/bin/mcp' }],
+      clientFactory: async () => ({
+        listTools: vi.fn(async () => {
+          throw new Error('catalog unavailable')
+        }),
+        callTool: vi.fn(),
+        close: vi.fn(async () => undefined)
+      })
+    })
+
+    await expect(bridge.callTool({
+      requestId: 'call-request-catalog-error',
+      tool: 'lookup',
+      arguments: {}
+    })).resolves.toEqual({
+      contentItems: [{ type: 'inputText', text: 'MCP tool lookup failed: catalog unavailable' }],
+      success: false
+    })
   })
 
   it('injects Codex computer-use context into dynamic MCP calls', async () => {
@@ -285,12 +497,13 @@ describe('Codex dynamic MCP tool bridge', () => {
 })
 
 function fakeMcpClient(options: {
-  tools: Array<{ name: string; description?: string; inputSchema?: unknown }>
+  tools?: Array<{ name: string; description?: string; inputSchema?: unknown }>
+  listTools?: CodexDynamicMcpClient['listTools']
   callTool?: CodexDynamicMcpClient['callTool']
   close?: CodexDynamicMcpClient['close']
 }): CodexDynamicMcpClient {
   return {
-    listTools: vi.fn(async () => ({ tools: options.tools })),
+    listTools: options.listTools ?? vi.fn(async () => ({ tools: options.tools ?? [] })),
     callTool: options.callTool ?? vi.fn(async () => ({ content: [] })),
     close: options.close ?? vi.fn(async () => undefined)
   }

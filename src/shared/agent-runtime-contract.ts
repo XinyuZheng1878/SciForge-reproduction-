@@ -919,7 +919,11 @@ export type AgentRuntimeCapabilities = {
     computerUse: CapabilityState & {
       server?: 'mcp'
       toolName?: 'computer_use'
-      backend?: 'global-native' | 'mac-app-scoped'
+      backend?: 'browser-cdp'
+      inputIsolation?: 'agent-isolated'
+      affectsUserInput?: boolean
+      requiresHostFocus?: boolean
+      usesHostClipboard?: boolean
     }
     codeNavigation?: CapabilityState & {
       operations?: AgentRuntimeCodeNavigationOperation[]

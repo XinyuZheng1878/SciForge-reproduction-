@@ -4,6 +4,7 @@ import {
   DEFAULT_SCHEDULE_REASONING_EFFORT,
   resolveRuntimeModelRouterSettings
 } from '../shared/app-settings'
+import { buildModelRouterResponsesUrl } from '../shared/model-router-url'
 
 const SCHEDULED_TASK_CANDIDATE_RE =
   /(?:提醒|定时|闹钟|通知|叫我|叫醒|稍后|之后|到点|分钟后|小时后|秒后|天后|明天|后天|今晚|later|remind|reminder|alarm|timer|schedule|scheduled|tomorrow|tonight|in\s+\d+\s+(?:seconds?|minutes?|hours?|days?|weeks?))/iu
@@ -137,25 +138,6 @@ function normalizeDetectedRequest(
     taskPrompt: buildTaskPrompt(reminderBody),
     confirmationText: formatConfirmationText(scheduleAt, runAt, reminderBody, now)
   }
-}
-
-function buildModelRouterResponsesUrl(baseUrl: string): string {
-  const path = 'responses'
-  const normalized = baseUrl.replace(/\/+$/, '')
-  if (normalized.endsWith(`/${path}`)) return normalized
-  const base = stripKnownEndpointPath(normalized)
-  if (base.endsWith('/v1')) return `${base}/${path}`
-  return `${base}/v1/${path}`
-}
-
-function stripKnownEndpointPath(baseUrl: string): string {
-  const lower = baseUrl.toLowerCase()
-  for (const path of ['chat/completions', 'responses', 'messages']) {
-    if (lower.endsWith(`/${path}`)) {
-      return baseUrl.slice(0, -path.length).replace(/\/+$/, '')
-    }
-  }
-  return baseUrl
 }
 
 function buildDetectionPrompt(now: Date): string {

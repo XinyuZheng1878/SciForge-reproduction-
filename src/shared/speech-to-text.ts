@@ -1,8 +1,8 @@
 import type { AppSettingsV1 } from './app-settings-types'
 
-export const SPEECH_TO_TEXT_PROTOCOLS = ['openai-transcriptions', 'mimo-asr'] as const
+export const SPEECH_TO_TEXT_PROTOCOLS = ['mimo-asr'] as const
 export type SpeechToTextProtocol = (typeof SPEECH_TO_TEXT_PROTOCOLS)[number]
-export const DEFAULT_SPEECH_TO_TEXT_PROTOCOL: SpeechToTextProtocol = 'openai-transcriptions'
+export const DEFAULT_SPEECH_TO_TEXT_PROTOCOL: SpeechToTextProtocol = 'mimo-asr'
 
 /**
  * Base64 payload cap for one transcription request (~12 MB of audio).
@@ -35,8 +35,6 @@ export type SpeechTranscriptionRequest = {
   mimeType: string
   /** Optional recording duration, for enforcing the renderer-side cap again in main. */
   durationMs?: number
-  /** Optional resolved provider settings supplied by the renderer/settings UI. */
-  speechToText?: SpeechToTextSettingsPatchV1
 }
 
 export type SpeechTranscriptionResult =
@@ -62,7 +60,8 @@ export function defaultSpeechToTextSettings(): SpeechToTextSettingsV1 {
 }
 
 export function normalizeSpeechToTextProtocol(value: unknown): SpeechToTextProtocol {
-  return value === 'mimo-asr' ? 'mimo-asr' : DEFAULT_SPEECH_TO_TEXT_PROTOCOL
+  void value
+  return DEFAULT_SPEECH_TO_TEXT_PROTOCOL
 }
 
 export function normalizeSpeechToTextSettings(
@@ -72,8 +71,8 @@ export function normalizeSpeechToTextSettings(
   return {
     enabled: input?.enabled === true,
     protocol: normalizeSpeechToTextProtocol(input?.protocol),
-    baseUrl: typeof input?.baseUrl === 'string' ? input.baseUrl.trim() : defaults.baseUrl,
-    apiKey: typeof input?.apiKey === 'string' ? input.apiKey.trim() : defaults.apiKey,
+    baseUrl: defaults.baseUrl,
+    apiKey: defaults.apiKey,
     model: typeof input?.model === 'string' ? input.model.trim() : defaults.model,
     language: typeof input?.language === 'string'
       ? input.language.trim().toLowerCase().slice(0, 16)
@@ -97,15 +96,7 @@ export function resolveSpeechToTextSettings(
 export function isSpeechToTextConfigured(
   speechToText: Pick<SpeechToTextSettingsV1, 'enabled' | 'protocol' | 'baseUrl' | 'apiKey' | 'model'> | null | undefined
 ): speechToText is SpeechToTextSettingsV1 {
-  if (speechToText?.protocol === 'mimo-asr') {
-    return Boolean(speechToText.enabled && speechToText.model.trim())
-  }
-  return Boolean(
-    speechToText?.enabled &&
-    speechToText.baseUrl.trim() &&
-    speechToText.apiKey.trim() &&
-    speechToText.model.trim()
-  )
+  return Boolean(speechToText?.enabled && speechToText.model.trim())
 }
 
 export function mergeSpeechToTextSettings(

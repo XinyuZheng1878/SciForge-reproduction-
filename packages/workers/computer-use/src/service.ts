@@ -68,7 +68,7 @@ export class ComputerUseService {
   private readonly activeActionControllers = new Map<string, Set<AbortController>>()
 
   constructor(options: ComputerUseServiceOptions = {}) {
-    this.backend = options.backend ?? createCompositeComputerUseBackend()
+    this.backend = options.backend ?? createCompositeComputerUseBackend({ enableHostInputBackends: false })
     this.registry = options.registry ?? new ComputerUseLeaseRegistry({
       nowIso: options.nowIso,
       nextId: options.nextId
@@ -152,7 +152,7 @@ export class ComputerUseService {
     const remote = await this.backend.bindTarget(local.session, input.targetId)
     if (!remote.ok) {
       const released = this.registry.releaseSession(session.computerUseSessionId, 'backend_unavailable')
-      await this.sharedLeases.release(session.computerUseSessionId, target.id)
+      await this.sharedLeases.release(session.computerUseSessionId)
       const failed: ComputerUseBindResult = {
         ...remote,
         session: released ?? remote.session
@@ -178,7 +178,7 @@ export class ComputerUseService {
       cleanupErrors.push(`backend release failed: ${errorMessage(error)}`)
     }
     try {
-      await this.sharedLeases.release(sessionId, session?.targetId)
+      await this.sharedLeases.release(sessionId)
     } catch (error) {
       cleanupErrors.push(`shared lease release failed: ${errorMessage(error)}`)
     }

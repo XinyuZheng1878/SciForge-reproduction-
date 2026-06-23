@@ -383,6 +383,7 @@ function normalizeThreadItem(
   }
   if (type === 'mcpToolCall' || type === 'dynamicToolCall' || type === 'collabAgentToolCall') {
     const tool = stringValue(item.tool) || stringValue(item.server) || type
+    const args = recordArguments(item)
     const child = type === 'collabAgentToolCall'
       ? childFromCollabAgentToolCall(item, context, lifecycle, threadId, turnId)
       : null
@@ -399,6 +400,7 @@ function normalizeThreadItem(
           toolName: tool,
           ...(stringValue(item.server) ? { server: stringValue(item.server) } : {}),
           ...(stringValue(item.namespace) ? { namespace: stringValue(item.namespace) } : {}),
+          ...(args ? { arguments: args } : {}),
           ...(type === 'collabAgentToolCall' ? collabAgentToolMetadata(item) : {})
         }
       },
@@ -897,11 +899,34 @@ function threadItemJsonDetail(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined
   if (typeof value === 'string') return value
   try {
-    const detail = JSON.stringify(value, null, 2)
+    const detail = JSON.stringify(redactImagePayloads(value), null, 2)
     return detail === undefined ? undefined : detail
   } catch {
     return undefined
   }
+}
+
+function redactImagePayloads(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactImagePayloads)
+  const record = asRecord(value)
+  if (!record) return value
+  const output: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(record)) {
+    if (key === 'imageUrl' && typeof entry === 'string' && entry.startsWith('data:')) {
+      output[key] = '[image data omitted]'
+      continue
+    }
+    if (key === 'data' && record.type === 'image') {
+      output[key] = '[image data omitted]'
+      continue
+    }
+    if (key === 'data_base64') {
+      output[key] = '[image data omitted]'
+      continue
+    }
+    output[key] = redactImagePayloads(entry)
+  }
+  return output
 }
 
 function tokenUsageFromParams(params: Record<string, unknown>): NonNullable<CodexThreadEventPayload['usage']> | null {

@@ -345,9 +345,7 @@ describe('codex config launch helpers', () => {
             kun: true,
             codex: true,
             claude: true
-          },
-          backend: 'global-native',
-          experimentalAppScopedBackend: false
+          }
         }
       },
       computerUseMcpLaunch: {
@@ -373,9 +371,7 @@ describe('codex config launch helpers', () => {
             kun: true,
             codex: false,
             claude: true
-          },
-          backend: 'global-native',
-          experimentalAppScopedBackend: false
+          }
         }
       },
       computerUseMcpLaunch: {
@@ -442,7 +438,7 @@ describe('codex config launch helpers', () => {
         }
       },
       env: {}
-    })).rejects.toThrow('Codex Model Router base URL must be local')
+    })).rejects.toThrow('Model Router base URL must be local')
   })
 
   it('keeps external env clean and appends loopback no_proxy entries', () => {

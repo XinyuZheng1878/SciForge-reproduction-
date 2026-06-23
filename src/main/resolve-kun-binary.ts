@@ -105,8 +105,7 @@ export function buildKunServeArgs(input: {
   host: string
   port: number
   dataDir: string
-  baseUrl?: string
-  endpointFormat?: string
+  modelRouterBaseUrl?: string
   model: string
   forceDefaultModel?: boolean
   approvalPolicy: string
@@ -122,8 +121,7 @@ export function buildKunServeArgs(input: {
     String(input.port),
     '--data-dir',
     input.dataDir,
-    ...(input.baseUrl ? ['--base-url', input.baseUrl] : []),
-    ...(input.endpointFormat ? ['--endpoint-format', input.endpointFormat] : []),
+    ...(input.modelRouterBaseUrl ? ['--model-router-base-url', input.modelRouterBaseUrl] : []),
     '--model',
     input.model,
     ...(input.forceDefaultModel ? ['--force-default-model', 'true'] : []),

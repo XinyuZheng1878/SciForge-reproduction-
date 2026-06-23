@@ -103,7 +103,7 @@ describe('createKunAgentRuntimeAdapter', () => {
               mcp: { available: true, toolCount: 1 },
               computerUse: {
                 available: true,
-                backend: 'global-native'
+                backend: 'browser-cdp'
               }
             }
           })
@@ -120,7 +120,45 @@ describe('createKunAgentRuntimeAdapter', () => {
           available: true,
           server: 'mcp',
           toolName: 'computer_use',
-          backend: 'global-native'
+          backend: 'browser-cdp',
+          inputIsolation: 'agent-isolated',
+          affectsUserInput: false,
+          requiresHostFocus: false,
+          usesHostClipboard: false
+        }
+      }
+    })
+  })
+
+  it('normalizes legacy Kun computer-use backend info to the isolated MCP backend', async () => {
+    const adapter = createKunAgentRuntimeAdapter({
+      request: vi.fn(async (_settings, pathAndQuery) => {
+        if (pathAndQuery === '/v1/runtime/info') {
+          return jsonResponse({
+            capabilities: {
+              model: { supportsToolCalling: true },
+              mcp: { available: true, toolCount: 1 },
+              computerUse: {
+                available: true,
+                backend: 'global-native',
+                affectsUserInput: true
+              }
+            }
+          })
+        }
+        return jsonResponse({})
+      })
+    })
+
+    await expect(adapter.capabilities({ settings: buildSettings() })).resolves.toMatchObject({
+      tools: {
+        computerUse: {
+          available: true,
+          backend: 'browser-cdp',
+          inputIsolation: 'agent-isolated',
+          affectsUserInput: false,
+          requiresHostFocus: false,
+          usesHostClipboard: false
         }
       }
     })

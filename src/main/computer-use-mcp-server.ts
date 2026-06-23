@@ -8,10 +8,11 @@ import type {
   ComputerUseSession
 } from '../../packages/workers/computer-use/src/contract'
 import type { ComputerUseSessionInput } from '../../packages/workers/computer-use/src/lease'
-import { COMPUTER_USE_STATUS_PATH_ENV } from './computer-use-mcp-config'
+import {
+  COMPUTER_USE_STATUS_PATH_ENV,
+  GUI_COMPUTER_USE_MCP_LAUNCH_FLAG
+} from './computer-use-mcp-config'
 import { recordComputerUseDiagnostic } from './services/computer-use-status'
-
-export const GUI_COMPUTER_USE_MCP_LAUNCH_FLAG = '--gui-computer-use-mcp-server'
 
 export async function runComputerUseMcpServerFromArgv(argv: string[]): Promise<boolean> {
   if (!argv.includes(GUI_COMPUTER_USE_MCP_LAUNCH_FLAG)) return false

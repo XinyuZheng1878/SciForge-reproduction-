@@ -30,7 +30,6 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
   | 'setActiveAgentRuntime'
   | 'loadComposerModels'
   | 'setRoute'
-  | 'openWrite'
   | 'openSettings'
   | 'openPlugins'
   | 'openClaw'
@@ -115,10 +114,6 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
       route,
       ...(route === 'chat' ? {} : { activeRemoteChannelId: null })
     }),
-
-    openWrite: async () => {
-      set({ route: 'write', activeRemoteChannelId: null })
-    },
 
     openSettings: (section: SettingsRouteSection = 'general') =>
       set((state) => ({

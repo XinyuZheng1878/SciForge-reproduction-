@@ -9,7 +9,12 @@ import type {
   ClaudeCodeRuntimeFailure,
   ClaudeCodeRuntimeService
 } from './claude-code-service'
-import { GUI_COMPUTER_USE_MCP_SERVER_NAME } from '../../computer-use-mcp-config'
+import {
+  computerUseMcpDiagnosticsServer,
+  computerUseMcpRuntimeInfoState,
+  configuredComputerUseCapability,
+  unavailableComputerUseCapability
+} from '../../computer-use-mcp-config'
 import { isComputerUseEnabledForRuntime } from '../../../shared/app-settings'
 
 export function createClaudeCodeAgentRuntimeAdapter(
@@ -115,12 +120,7 @@ export function createClaudeCodeAgentRuntimeAdapter(
           return {
             providers: [],
             mcpServers: computerUseConfigured
-              ? [{
-                  id: GUI_COMPUTER_USE_MCP_SERVER_NAME,
-                  status: 'configured',
-                  toolCount: 1,
-                  tools: ['computer_use']
-                }]
+              ? [computerUseMcpDiagnosticsServer()]
               : [],
             webProviders: [],
             attachments: { count: 0 },
@@ -212,12 +212,7 @@ function claudeRuntimeInfo(
         configuredServers: computerUseConfigured ? 1 : 0,
         connectedServers: 0,
         toolCount: caps.tools.mcp.toolCount ?? 0,
-        computerUse: {
-          enabled: caps.tools.computerUse.available,
-          available: caps.tools.computerUse.available,
-          server: 'mcp',
-          toolName: 'computer_use'
-        },
+        computerUse: computerUseMcpRuntimeInfoState(caps.tools.computerUse.available),
         search: {
           enabled: false,
           mode: 'direct',
@@ -303,13 +298,8 @@ function claudeCapabilities(computerUseConfigured = false): AgentRuntimeCapabili
       web: { available: false, reason: 'Claude Code web capabilities are not exposed through this service yet.' },
       research: { available: false, reason: 'Claude Code research search is not exposed through this service yet.' },
       computerUse: computerUseConfigured
-        ? {
-            available: true,
-            server: 'mcp',
-            toolName: 'computer_use',
-            backend: 'global-native'
-          }
-        : { available: false, reason: computerUseReason },
+        ? configuredComputerUseCapability()
+        : unavailableComputerUseCapability(computerUseReason),
       skills: { available: false, reason: 'Claude Code skills are not exposed through this service yet.' },
       subagents: { available: true },
       diagnostics: { available: false, reason: 'Claude Code tool diagnostics are not exposed through this service yet.' }

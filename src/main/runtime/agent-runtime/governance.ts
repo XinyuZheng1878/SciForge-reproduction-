@@ -124,10 +124,32 @@ function toolFingerprint(event: Extract<AgentRuntimeEvent, { kind: 'tool_event' 
   const args = meta.arguments ?? argumentLikeMeta(meta)
   const kind = event.toolKind ?? 'tool_call'
   const family = behaviorFamily(toolName, kind, meta, event.detail)
+  const exactArgs = exactArgumentsForFingerprint(args, event, toolName, meta)
   return {
-    exact: `${kind}:${toolName}:${canonicalJson(args)}`,
+    exact: `${kind}:${toolName}:${canonicalJson(exactArgs)}`,
     family: `${kind}:${family}`
   }
+}
+
+function exactArgumentsForFingerprint(
+  args: unknown,
+  event: Extract<AgentRuntimeEvent, { kind: 'tool_event' }>,
+  toolName: string,
+  meta: Record<string, unknown>
+): unknown {
+  if (!isComputerUseTool(toolName, meta)) return args
+  return {
+    args,
+    invocation: runningToolIdentity(event) || event.itemId || stringValue(meta.callId)
+  }
+}
+
+function isComputerUseTool(toolName: string, meta: Record<string, unknown>): boolean {
+  const normalizedName = toolName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  const server = stringValue(meta.server).toLowerCase()
+  return normalizedName === 'computer_use' ||
+    normalizedName.endsWith('_computer_use') ||
+    server === 'gui_computer_use'
 }
 
 function behaviorFamily(

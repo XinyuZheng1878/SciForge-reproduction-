@@ -11,14 +11,11 @@ import {
   type ScheduleMcpLaunchConfig
 } from './schedule-mcp-config'
 import {
-  buildComputerUseMcpArgs,
+  buildComputerUseClaudeCodeMcpServerConfig,
   buildComputerUseKunMcpServerConfig,
-  computerUseMcpEnabledTools,
-  computerUseMcpEnvForLaunch,
-  COMPUTER_USE_MCP_TIMEOUT_MS,
+  buildComputerUseRuntimeMcpServerConfig,
   GUI_COMPUTER_USE_MCP_DESCRIPTOR,
   GUI_COMPUTER_USE_MCP_SERVER_NAME,
-  resolveComputerUseMcpCommand,
   type ComputerUseMcpLaunchConfig
 } from './computer-use-mcp-config'
 import {
@@ -201,14 +198,7 @@ export function buildClaudeCodeManagedGuiMcpServers(
   const launch = input.computerUseMcp?.launch
   if (!launch || input.computerUseMcp?.enabled === false) return {}
   return {
-    [GUI_COMPUTER_USE_MCP_SERVER_NAME]: {
-      type: 'stdio',
-      command: resolveComputerUseMcpCommand(launch),
-      args: buildComputerUseMcpArgs(launch),
-      env: computerUseMcpEnvForLaunch(launch),
-      timeout: COMPUTER_USE_MCP_TIMEOUT_MS,
-      alwaysLoad: true
-    }
+    [GUI_COMPUTER_USE_MCP_SERVER_NAME]: buildComputerUseClaudeCodeMcpServerConfig(launch)
   }
 }
 
@@ -365,14 +355,7 @@ function codexServerConfigs(input: GuiMcpRegistryInput): GuiMcpRuntimeServerConf
     })
   }
   if (input.computerUseMcp?.launch && input.computerUseMcp.enabled !== false) {
-    servers.push({
-      id: GUI_COMPUTER_USE_MCP_SERVER_NAME,
-      command: resolveComputerUseMcpCommand(input.computerUseMcp.launch),
-      args: buildComputerUseMcpArgs(input.computerUseMcp.launch),
-      env: computerUseMcpEnvForLaunch(input.computerUseMcp.launch),
-      timeoutMs: COMPUTER_USE_MCP_TIMEOUT_MS,
-      enabledTools: computerUseMcpEnabledTools()
-    })
+    servers.push(buildComputerUseRuntimeMcpServerConfig(input.computerUseMcp.launch))
   }
   return servers
 }

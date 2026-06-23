@@ -74,7 +74,7 @@ export class MacAppScopedComputerUseBackend implements ComputerUseBackend {
       this.targetsById.clear()
       for (const target of targets) this.targetsById.set(target.id, target)
       this.lastDiscoveryReason = targets.length > 0 ? undefined : NO_TARGETS_REASON
-      return targets
+      return targets.map(withHostAppScopedMetadata)
     } catch (error) {
       const message = errorMessage(error)
       this.recentError = message
@@ -211,6 +211,10 @@ export class MacAppScopedComputerUseBackend implements ComputerUseBackend {
       backend: this.kind,
       available,
       platform: this.platform,
+      inputIsolation: 'host-app-scoped',
+      affectsUserInput: true,
+      requiresHostFocus: true,
+      usesHostClipboard: true,
       ...(reason ? { reason } : {}),
       activeLeases: [
         ...[...this.boundSessions.values()].map((session) => this.leaseFor(session, session.updatedAt)),
@@ -240,6 +244,10 @@ export class MacAppScopedComputerUseBackend implements ComputerUseBackend {
       ...(session.turnId ? { turnId: session.turnId } : {}),
       targetId: session.targetId ?? `${TARGET_PREFIX}unbound`,
       backend: this.kind,
+      inputIsolation: 'host-app-scoped',
+      affectsUserInput: true,
+      requiresHostFocus: true,
+      usesHostClipboard: true,
       acquiredAt: session.createdAt,
       updatedAt
     }
@@ -362,7 +370,11 @@ function normalizeRawTarget(value: unknown): MacScopedTargetDescriptor[] {
     title: appName,
     appName,
     ...(pid !== undefined ? { pid } : {}),
-    backend: KIND
+    backend: KIND,
+    inputIsolation: 'host-app-scoped',
+    affectsUserInput: true,
+    requiresHostFocus: true,
+    usesHostClipboard: true
   }
   const windows = Array.isArray(value.windows) ? value.windows : []
   const windowTargets = windows.flatMap((entry, index): MacScopedTargetDescriptor[] => {
@@ -377,10 +389,24 @@ function normalizeRawTarget(value: unknown): MacScopedTargetDescriptor[] {
       ...(pid !== undefined ? { pid } : {}),
       windowId: `${processKey}:${windowIndex}`,
       windowIndex,
-      backend: KIND
+      backend: KIND,
+      inputIsolation: 'host-app-scoped',
+      affectsUserInput: true,
+      requiresHostFocus: true,
+      usesHostClipboard: true
     }]
   })
   return [appTarget, ...windowTargets]
+}
+
+function withHostAppScopedMetadata<T extends ComputerUseTarget>(target: T): T {
+  return {
+    ...target,
+    inputIsolation: 'host-app-scoped',
+    affectsUserInput: true,
+    requiresHostFocus: true,
+    usesHostClipboard: true
+  }
 }
 
 function dedupeTargets(targets: MacScopedTargetDescriptor[]): MacScopedTargetDescriptor[] {

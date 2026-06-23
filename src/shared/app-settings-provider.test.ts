@@ -93,7 +93,6 @@ describe('model provider settings', () => {
 
     expect(runtime.apiKey).toBe('local-runtime-router-key')
     expect(runtime.baseUrl).toBe('http://127.0.0.1:3892/v1')
-    expect(runtime.endpointFormat).toBe('responses')
     expect(runtime.model).toBe(DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS)
   })
 })

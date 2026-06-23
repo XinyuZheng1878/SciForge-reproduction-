@@ -4,9 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   codexSettingsPatch,
   claudeSettingsPatch,
-  DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL,
   kunSettingsPatch,
-  DEFAULT_WRITE_WORKSPACE_ROOT,
   type AppSettingsPatch,
   type CodexRuntimeSettingsPatchV1,
   type ClaudeRuntimeSettingsPatchV1,
@@ -16,9 +14,6 @@ import {
   getKunRuntimeSettings,
   getModelProviderSettings,
   isKunRuntimeInsecure,
-  resolveWriteInlineCompletionApiKey,
-  resolveWriteInlineCompletionBaseUrl,
-  resolveWriteInlineCompletionModel,
   type AppSettingsV1,
 } from '@shared/app-settings'
 import type {
@@ -32,7 +27,6 @@ import type {
   CoreRuntimeInfoJson,
   CoreRuntimeToolDiagnosticsJson
 } from '../agent/kun-contract'
-import type { WriteInlineCompletionDebugEntry } from '@shared/write-inline-completion'
 import { applyTheme, applyUiFontScale } from '../lib/apply-theme'
 import { formatWorkspacePickerError } from '../lib/format-workspace-picker-error'
 import {
@@ -44,7 +38,6 @@ import {
 import { normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { useChatStore, type SettingsRouteSection } from '../store/chat-store'
 import { SettingsSidebar } from './SettingsSidebar'
-import { WriteDebugLogModal } from './settings-debug-log'
 import { useSettingsGuiUpdate } from './use-settings-gui-update'
 import {
   DEFAULT_WORKSPACE_ROOT,
@@ -63,11 +56,10 @@ import {
   ClawSettingsSection,
   GeneralSettingsSection,
   KeyboardShortcutsSettingsSection,
-  SpeechToTextSettingsSection,
-  WriteSettingsSection
+  SpeechToTextSettingsSection
 } from './settings-sections'
 
-type SettingsCategory = 'general' | 'write' | 'speechToText' | 'agents' | 'shortcuts' | 'claw'
+type SettingsCategory = 'general' | 'speechToText' | 'agents' | 'shortcuts' | 'claw'
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 type SettingsPatch = AppSettingsPatch
 type MemoryScopeFilter = 'all' | 'user' | 'workspace' | 'project'
@@ -121,7 +113,6 @@ export function SettingsView(): ReactElement {
   const settingsReturnRoute = useChatStore((s) => s.settingsReturnRoute)
   const settingsSection = useChatStore((s) => s.settingsSection)
   const openCode = useChatStore((s) => s.openCode)
-  const openWrite = useChatStore((s) => s.openWrite)
   const openClaw = useChatStore((s) => s.openClaw)
   const openSchedule = useChatStore((s) => s.openSchedule)
   const openInitialSetup = useChatStore((s) => s.openInitialSetup)
@@ -133,7 +124,6 @@ export function SettingsView(): ReactElement {
   const [form, setForm] = useState<AppSettingsV1 | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [workspacePickerError, setWorkspacePickerError] = useState<string | null>(null)
-  const [writeWorkspacePickerError, setWriteWorkspacePickerError] = useState<string | null>(null)
   const [clawWorkspacePickerError, setClawWorkspacePickerError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -166,11 +156,6 @@ export function SettingsView(): ReactElement {
   const [gitCheckpointForceRestore, setGitCheckpointForceRestore] = useState(false)
   const [runtimeDiagnosticsBusy, setRuntimeDiagnosticsBusy] = useState(false)
   const [runtimeDiagnosticsNotice, setRuntimeDiagnosticsNotice] = useState<InlineNotice | null>(null)
-  const [writeDebugModalOpen, setWriteDebugModalOpen] = useState(false)
-  const [writeCompletionDebugEntries, setWriteCompletionDebugEntries] = useState<WriteInlineCompletionDebugEntry[]>([])
-  const [writeCompletionDebugSelectedId, setWriteCompletionDebugSelectedId] = useState<string | null>(null)
-  const [writeDebugLoading, setWriteDebugLoading] = useState(false)
-  const [writeDebugError, setWriteDebugError] = useState<string | null>(null)
   const initializedCategory = useRef(false)
   const saveTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null)
   const statusTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null)
@@ -234,31 +219,6 @@ export function SettingsView(): ReactElement {
     void window.dsGui.getLogPath().then((p) => setLogPath(p)).catch(() => undefined)
   }, [category])
 
-  const loadWriteDebugEntries = useCallback(async (): Promise<void> => {
-    setWriteDebugLoading(true)
-    setWriteDebugError(null)
-    try {
-      const completionEntries = typeof window.dsGui?.listWriteInlineCompletionDebugEntries === 'function'
-        ? await window.dsGui.listWriteInlineCompletionDebugEntries()
-        : []
-      setWriteCompletionDebugEntries(completionEntries)
-      setWriteCompletionDebugSelectedId((current) =>
-        current && completionEntries.some((entry) => entry.id === current)
-          ? current
-          : completionEntries[0]?.id ?? null
-      )
-    } catch (error) {
-      setWriteDebugError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setWriteDebugLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (category !== 'write') return
-    void loadWriteDebugEntries()
-  }, [category, loadWriteDebugEntries])
-
   useEffect(() => {
     if (!form || initializedCategory.current) return
     initializedCategory.current = true
@@ -270,10 +230,6 @@ export function SettingsView(): ReactElement {
   useEffect(() => {
     if (settingsSection === 'general') {
       setCategory('general')
-      return
-    }
-    if (settingsSection === 'write') {
-      setCategory('write')
       return
     }
     if (settingsSection === 'speechToText') {
@@ -295,7 +251,6 @@ export function SettingsView(): ReactElement {
     if (!form) return
     if (
       settingsSection === 'general' ||
-      settingsSection === 'write' ||
       settingsSection === 'speechToText' ||
       settingsSection === 'claw' ||
       settingsSection === 'shortcuts' ||
@@ -303,7 +258,7 @@ export function SettingsView(): ReactElement {
     ) {
       return
     }
-    const refs: Record<Exclude<SettingsRouteSection, 'general' | 'write' | 'speechToText' | 'claw' | 'shortcuts'>, HTMLDivElement | null> = {
+    const refs: Record<Exclude<SettingsRouteSection, 'general' | 'speechToText' | 'claw' | 'shortcuts'>, HTMLDivElement | null> = {
       agents: agentsSectionRef.current,
       skill: skillSectionRef.current,
       mcp: mcpSectionRef.current
@@ -667,10 +622,6 @@ export function SettingsView(): ReactElement {
     void (async () => {
       await flushPendingSave()
       await reloadUiSettings()
-      if (settingsReturnRoute === 'write') {
-        await openWrite()
-        return
-      }
       if (settingsReturnRoute === 'claw') {
         openClaw()
         return
@@ -737,14 +688,6 @@ export function SettingsView(): ReactElement {
 
   const sharedApiKey = provider.apiKey
   const sharedBaseUrl = provider.baseUrl
-  const writeInlineApiKeyInherited = !form.write.inlineCompletion.apiKey.trim()
-  const writeInlineBaseUrlInherited =
-    !form.write.inlineCompletion.baseUrl.trim() ||
-    form.write.inlineCompletion.baseUrl.trim() === DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL
-  const writeInlineModelInherited = form.write.inlineCompletion.inheritModel !== false
-  const effectiveWriteInlineBaseUrl = resolveWriteInlineCompletionBaseUrl(form)
-  const effectiveWriteInlineApiKey = resolveWriteInlineCompletionApiKey(form)
-  const effectiveWriteInlineModel = resolveWriteInlineCompletionModel(form)
   const updateSharedCredential = (patch: { apiKey?: string; baseUrl?: string }): void => {
     update({ provider: patch })
   }
@@ -781,45 +724,6 @@ export function SettingsView(): ReactElement {
     update({ workspaceRoot: DEFAULT_WORKSPACE_ROOT })
   }
 
-  const pickWriteWorkspace = async (): Promise<void> => {
-    try {
-      setWriteWorkspacePickerError(null)
-      if (typeof window.dsGui?.pickWorkspaceDirectory !== 'function') {
-        throw new Error('workspace:pick-directory unavailable')
-      }
-      const picked = await window.dsGui.pickWorkspaceDirectory(
-        form.write.defaultWorkspaceRoot || DEFAULT_WRITE_WORKSPACE_ROOT
-      )
-      if (!picked.canceled && picked.path) {
-        const workspaces = [
-          picked.path,
-          form.write.activeWorkspaceRoot,
-          ...form.write.workspaces
-        ].filter((value, index, list) => value.trim() && list.indexOf(value) === index)
-        update({
-          write: {
-            defaultWorkspaceRoot: picked.path,
-            activeWorkspaceRoot: picked.path,
-            workspaces
-          }
-        })
-      }
-    } catch (e) {
-      setWriteWorkspacePickerError(formatWorkspacePickerError(e))
-    }
-  }
-
-  const resetWriteWorkspaceToDefault = (): void => {
-    setWriteWorkspacePickerError(null)
-    update({
-      write: {
-        defaultWorkspaceRoot: DEFAULT_WRITE_WORKSPACE_ROOT,
-        activeWorkspaceRoot: DEFAULT_WRITE_WORKSPACE_ROOT,
-        workspaces: [DEFAULT_WRITE_WORKSPACE_ROOT, ...form.write.workspaces]
-      }
-    })
-  }
-
   const pickClawWorkspace = async (): Promise<void> => {
     try {
       setClawWorkspacePickerError(null)
@@ -840,22 +744,6 @@ export function SettingsView(): ReactElement {
   const resetClawWorkspaceToDefault = (): void => {
     setClawWorkspacePickerError(null)
     update({ claw: { im: { workspaceRoot: '' } } })
-  }
-
-  const clearWriteDebugEntries = async (): Promise<void> => {
-    setWriteDebugLoading(true)
-    setWriteDebugError(null)
-    try {
-      if (typeof window.dsGui?.clearWriteInlineCompletionDebugEntries === 'function') {
-        await window.dsGui.clearWriteInlineCompletionDebugEntries()
-      }
-      setWriteCompletionDebugEntries([])
-      setWriteCompletionDebugSelectedId(null)
-    } catch (error) {
-      setWriteDebugError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setWriteDebugLoading(false)
-    }
   }
 
   const selectControlClass =
@@ -900,17 +788,6 @@ export function SettingsView(): ReactElement {
     logPath,
     logDirOpenError,
     setLogDirOpenError,
-    pickWriteWorkspace,
-    resetWriteWorkspaceToDefault,
-    writeWorkspacePickerError,
-    writeInlineApiKeyInherited,
-    effectiveWriteInlineApiKey,
-    writeInlineBaseUrlInherited,
-    effectiveWriteInlineBaseUrl,
-    writeInlineModelInherited,
-    effectiveWriteInlineModel,
-    setWriteDebugModalOpen,
-    loadWriteDebugEntries,
     scrollToAgentSection,
     agentsSectionRef,
     skillSectionRef,
@@ -1017,26 +894,12 @@ export function SettingsView(): ReactElement {
           </div>
 
           {category === 'general' ? <GeneralSettingsSection ctx={settingsSectionContext} /> : null}
-          {category === 'write' ? <WriteSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'speechToText' ? <SpeechToTextSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'agents' ? <AgentsSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'shortcuts' ? <KeyboardShortcutsSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'claw' ? <ClawSettingsSection ctx={settingsSectionContext} /> : null}
         </div>
       </div>
-      {writeDebugModalOpen ? (
-        <WriteDebugLogModal
-          completionEntries={writeCompletionDebugEntries}
-          completionSelectedId={writeCompletionDebugSelectedId}
-          loading={writeDebugLoading}
-          error={writeDebugError}
-          onSelectCompletion={setWriteCompletionDebugSelectedId}
-          onRefresh={() => void loadWriteDebugEntries()}
-          onClear={() => void clearWriteDebugEntries()}
-          onClose={() => setWriteDebugModalOpen(false)}
-          t={t}
-        />
-      ) : null}
     </div>
   )
 }
