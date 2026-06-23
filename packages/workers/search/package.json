@@ -18,8 +18,10 @@
   "exports": {
     ".": "./src/index.ts",
     "./cli": "./src/cli.ts",
+    "./contract": "./src/contract.ts",
     "./mcp-server": "./src/mcp-server.ts",
-    "./service": "./src/research-service.ts"
+    "./research-service": "./src/research-service.ts",
+    "./service": "./src/service.ts"
   },
   "files": [
     "src",

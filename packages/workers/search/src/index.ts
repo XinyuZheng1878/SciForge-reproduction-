@@ -8,6 +8,22 @@ export {
   researchSearchConfigFromEnv,
   type ResearchSearchServiceOptions
 } from './research-service.js';
+export {
+  ResearchSearchWorkerService,
+  createResearchSearchWorkerService,
+  researchSearchWorkerDiagnosticsFromProviders,
+  type ResearchSearchWorkerServiceOptions
+} from './service.js';
+export {
+  RESEARCH_SEARCH_WORKER_CAPABILITIES,
+  RESEARCH_SEARCH_WORKER_TRANSPORT,
+  RESEARCH_SEARCH_WORKER_VERSION,
+  type ResearchSearchWorkerCapability,
+  type ResearchSearchWorkerDiagnostics,
+  type ResearchSearchWorkerHealth,
+  type ResearchSearchWorkerHealthStatus,
+  type ResearchSearchWorkerTransport
+} from './contract.js';
 export { planResearchQueries, type ResearchQueryPlan } from './query-planner.js';
 export { buildArxivQuery } from './providers/arxiv.js';
 export type {

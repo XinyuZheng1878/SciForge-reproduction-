@@ -1,3 +1,4 @@
+import { createServer, type AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
@@ -106,6 +107,37 @@ function createRuntime(initial: AppSettingsV1, forbiddenDirectCall = vi.fn(), ag
     logError: vi.fn()
   })
   return { runtime, store, forbiddenDirectCall, agentRuntime }
+}
+
+async function findAvailablePort(): Promise<number> {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve())
+  })
+  const address = server.address() as AddressInfo
+  const port = address.port
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+  return port
+}
+
+async function postInternal(
+  port: number,
+  path: string,
+  body: Record<string, unknown>,
+  secret = ''
+): Promise<{ status: number; json: Record<string, unknown> }> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (secret) headers.Authorization = `Bearer ${secret}`
+  const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body)
+  })
+  return {
+    status: response.status,
+    json: await response.json() as Record<string, unknown>
+  }
 }
 
 describe('ScheduleRuntime', () => {
@@ -619,5 +651,86 @@ describe('ScheduleRuntime', () => {
     ;(runtime as unknown as { syncPowerSaveBlocker: (settings: AppSettingsV1) => void })
       .syncPowerSaveBlocker({ ...scheduled, schedule: { ...scheduled.schedule, keepAwake: false } })
     expect(powerSaveBlocker.stop).toHaveBeenCalledWith(1)
+  })
+
+  it('serves status, run, and detect-from-text through the authenticated internal HTTP API', async () => {
+    const port = await findAvailablePort()
+    const secret = 'internal-secret'
+    const task = makeTask()
+    const settings = settingsWith([task], { internal: { port, secret } })
+    const { runtime } = createRuntime(settings)
+    const syncInternalServer = (runtime as unknown as {
+      syncInternalServer: (settings: AppSettingsV1) => void
+    }).syncInternalServer.bind(runtime)
+    syncInternalServer(settings)
+
+    try {
+      await expect(postInternal(port, '/schedule/internal/status', {})).resolves.toMatchObject({
+        status: 401,
+        json: { ok: false, message: 'Unauthorized.' }
+      })
+
+      await expect(postInternal(port, '/schedule/internal/status', {}, secret)).resolves.toMatchObject({
+        status: 200,
+        json: {
+          ok: true,
+          status: {
+            internalServerRunning: true,
+            internalUrl: `http://127.0.0.1:${port}`,
+            runningTaskIds: []
+          }
+        }
+      })
+
+      const runTask = vi.spyOn(runtime, 'runTask').mockResolvedValue({
+        ok: true,
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        message: 'Started'
+      })
+      await expect(postInternal(port, '/schedule/internal/run', { taskId: task.id }, secret))
+        .resolves.toMatchObject({
+          status: 200,
+          json: {
+            ok: true,
+            result: {
+              ok: true,
+              threadId: 'thread-1',
+              turnId: 'turn-1'
+            }
+          }
+        })
+      expect(runTask).toHaveBeenCalledWith(task.id)
+
+      const createFromText = vi.spyOn(runtime, 'createScheduledTaskFromText').mockResolvedValue({
+        kind: 'created',
+        taskId: 'detected-task',
+        title: 'Detected task',
+        scheduleAt: '2099-06-03T09:00:00.000Z',
+        confirmationText: 'Scheduled.'
+      })
+      await expect(postInternal(port, '/schedule/internal/detect-from-text', {
+        text: 'Remind me tomorrow.',
+        workspaceRoot: '/tmp/workspace',
+        modelHint: 'deepseek-v4-flash',
+        mode: 'plan'
+      }, secret)).resolves.toMatchObject({
+        status: 200,
+        json: {
+          ok: true,
+          result: {
+            kind: 'created',
+            taskId: 'detected-task'
+          }
+        }
+      })
+      expect(createFromText).toHaveBeenCalledWith('Remind me tomorrow.', {
+        workspaceRoot: '/tmp/workspace',
+        modelHint: 'deepseek-v4-flash',
+        mode: 'plan'
+      })
+    } finally {
+      runtime.stop()
+    }
   })
 })

@@ -54,12 +54,13 @@ function loadBuilderConfigWithEnv(env: Record<string, string | undefined>): type
 function createMacPackContext(root: string): {
   appOutDir: string
   electronPlatformName: string
-  packager: { appInfo: { productFilename: string } }
+  packager: { appInfo: { productFilename: string }; projectDir: string }
 } {
   return {
     appOutDir: join(root, 'mac-arm64'),
     electronPlatformName: 'darwin',
     packager: {
+      projectDir: root,
       appInfo: {
         productFilename: 'SciForge'
       }
@@ -143,6 +144,168 @@ describe('electron-builder Kun packaging', () => {
     ]))
   })
 
+  it('includes the full Search worker tree in unpacked packaged app files', () => {
+    const searchFileSet = builderConfig.files.find((entry: unknown) => {
+      return (
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { from?: string }).from === 'packages/workers/search'
+      )
+    }) as { from?: string; to?: string; filter?: string[] } | undefined
+
+    expect(searchFileSet).toMatchObject({
+      from: 'packages/workers/search',
+      to: 'packages/workers/search'
+    })
+    expect(searchFileSet?.filter).toEqual(expect.arrayContaining([
+      '**/*',
+      '**/.*'
+    ]))
+    expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+      '**/packages/workers/search/**/*'
+    ]))
+  })
+
+  it('includes the full Schedule worker tree in unpacked packaged app files', () => {
+    const scheduleFileSet = builderConfig.files.find((entry: unknown) => {
+      return (
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { from?: string }).from === 'packages/workers/schedule'
+      )
+    }) as { from?: string; to?: string; filter?: string[] } | undefined
+
+    expect(scheduleFileSet).toMatchObject({
+      from: 'packages/workers/schedule',
+      to: 'packages/workers/schedule'
+    })
+    expect(scheduleFileSet?.filter).toEqual(expect.arrayContaining([
+      '**/*',
+      '**/.*'
+    ]))
+    expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+      '**/packages/workers/schedule/**/*'
+    ]))
+  })
+
+  it('includes the full Workflow worker tree in unpacked packaged app files', () => {
+    const workflowFileSet = builderConfig.files.find((entry: unknown) => {
+      return (
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { from?: string }).from === 'packages/workers/workflow'
+      )
+    }) as { from?: string; to?: string; filter?: string[] } | undefined
+
+    expect(workflowFileSet).toMatchObject({
+      from: 'packages/workers/workflow',
+      to: 'packages/workers/workflow'
+    })
+    expect(workflowFileSet?.filter).toEqual(expect.arrayContaining([
+      '**/*',
+      '**/.*'
+    ]))
+    expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+      '**/packages/workers/workflow/**/*'
+    ]))
+  })
+
+  it('includes the full Workspace Intel worker tree in unpacked packaged app files', () => {
+    const workspaceIntelFileSet = builderConfig.files.find((entry: unknown) => {
+      return (
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { from?: string }).from === 'packages/workers/workspace-intel'
+      )
+    }) as { from?: string; to?: string; filter?: string[] } | undefined
+
+    expect(workspaceIntelFileSet).toMatchObject({
+      from: 'packages/workers/workspace-intel',
+      to: 'packages/workers/workspace-intel'
+    })
+    expect(workspaceIntelFileSet?.filter).toEqual(expect.arrayContaining([
+      '**/*',
+      '**/.*'
+    ]))
+    expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+      '**/packages/workers/workspace-intel/**/*'
+    ]))
+  })
+
+  it('includes the full Write Assist worker tree in unpacked packaged app files', () => {
+    const writeAssistFileSet = builderConfig.files.find((entry: unknown) => {
+      return (
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { from?: string }).from === 'packages/workers/write-assist'
+      )
+    }) as { from?: string; to?: string; filter?: string[] } | undefined
+
+    expect(writeAssistFileSet).toMatchObject({
+      from: 'packages/workers/write-assist',
+      to: 'packages/workers/write-assist'
+    })
+    expect(writeAssistFileSet?.filter).toEqual(expect.arrayContaining([
+      '**/*',
+      '**/.*'
+    ]))
+    expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+      '**/packages/workers/write-assist/**/*'
+    ]))
+  })
+
+  it('includes the full Paper Radar worker and service dependency trees in unpacked packaged app files', () => {
+    const paperRadarFileSet = builderConfig.files.find((entry: unknown) => {
+      return (
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { from?: string }).from === 'packages/workers/paper-radar'
+      )
+    }) as { from?: string; to?: string; filter?: string[] } | undefined
+    const paperRadarServiceFileSet = builderConfig.files.find((entry: unknown) => {
+      return (
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { from?: string }).from === 'plugins/paper-radar-service'
+      )
+    }) as { from?: string; to?: string; filter?: string[] } | undefined
+
+    expect(paperRadarFileSet).toMatchObject({
+      from: 'packages/workers/paper-radar',
+      to: 'packages/workers/paper-radar'
+    })
+    expect(paperRadarServiceFileSet).toMatchObject({
+      from: 'plugins/paper-radar-service',
+      to: 'plugins/paper-radar-service'
+    })
+    expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+      '**/packages/workers/paper-radar/**/*',
+      '**/plugins/paper-radar-service/**/*'
+    ]))
+  })
+
+  it('includes the full Runtime Inspector worker tree in unpacked packaged app files', () => {
+    const runtimeInspectorFileSet = builderConfig.files.find((entry: unknown) => {
+      return (
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { from?: string }).from === 'packages/workers/runtime-inspector'
+      )
+    }) as { from?: string; to?: string; filter?: string[] } | undefined
+
+    expect(runtimeInspectorFileSet).toMatchObject({
+      from: 'packages/workers/runtime-inspector',
+      to: 'packages/workers/runtime-inspector'
+    })
+    expect(runtimeInspectorFileSet?.filter).toEqual(expect.arrayContaining([
+      '**/*',
+      '**/.*'
+    ]))
+    expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+      '**/packages/workers/runtime-inspector/**/*'
+    ]))
+  })
+
   it('leaves top-level plugin services out of bundled app content', () => {
     const bundledDirectoryFileSets = (builderConfig.files as unknown[])
       .filter((entry: unknown): entry is { from?: string } => {
@@ -165,6 +328,9 @@ describe('electron-builder Kun packaging', () => {
       '**/plugins/vision-router-service/**/*',
       '**/plugins/sci-modality-router-service/**/*',
       '**/packages/workers/model-router/vision-router-service/**/*'
+    ]))
+    expect(bundledDirectoryFileSets).toEqual(expect.arrayContaining([
+      'plugins/paper-radar-service'
     ]))
   })
 
@@ -247,6 +413,239 @@ describe('electron-builder Kun packaging', () => {
 
     expect(() => afterPack._internals.validateBundledComputerUseRuntime(context)).toThrow(
       /packages\/workers\/computer-use\/src\/mcp-server\.ts/
+    )
+  })
+
+  it('validates the unpacked Search worker before release artifacts are created', () => {
+    expect(afterPack.SEARCH_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      'packages/workers/search/package.json',
+      'packages/workers/search/src/cli.ts',
+      'packages/workers/search/src/mcp-server.ts',
+      'packages/workers/search/src/research-service.ts',
+      'packages/workers/search/src/types.ts'
+    ]))
+
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
+
+    for (const relativePath of afterPack.SEARCH_RUNTIME_REQUIRED_PATHS) {
+      touch(join(unpackedRoot, relativePath))
+    }
+
+    expect(() => afterPack._internals.validateBundledSearchRuntime(context)).not.toThrow()
+
+    rmSync(
+      join(unpackedRoot, 'packages/workers/search/src/mcp-server.ts'),
+      { recursive: true, force: true }
+    )
+
+    expect(() => afterPack._internals.validateBundledSearchRuntime(context)).toThrow(
+      /packages\/workers\/search\/src\/mcp-server\.ts/
+    )
+  })
+
+  it('validates the unpacked Schedule worker before release artifacts are created', () => {
+    expect(afterPack.SCHEDULE_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      'packages/workers/schedule/package.json',
+      'packages/workers/schedule/src/cli.ts',
+      'packages/workers/schedule/src/mcp-server.ts',
+      'packages/workers/schedule/src/service.ts',
+      'packages/workers/schedule/src/contract.ts'
+    ]))
+
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
+
+    for (const relativePath of afterPack.SCHEDULE_RUNTIME_REQUIRED_PATHS) {
+      touch(join(unpackedRoot, relativePath))
+    }
+
+    expect(() => afterPack._internals.validateBundledScheduleRuntime(context)).not.toThrow()
+
+    rmSync(
+      join(unpackedRoot, 'packages/workers/schedule/src/mcp-server.ts'),
+      { recursive: true, force: true }
+    )
+
+    expect(() => afterPack._internals.validateBundledScheduleRuntime(context)).toThrow(
+      /packages\/workers\/schedule\/src\/mcp-server\.ts/
+    )
+  })
+
+  it('validates the unpacked Workflow worker before release artifacts are created', () => {
+    expect(afterPack.WORKFLOW_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      'packages/workers/workflow/package.json',
+      'packages/workers/workflow/src/cli.ts',
+      'packages/workers/workflow/src/mcp-server.ts',
+      'packages/workers/workflow/src/service.ts',
+      'packages/workers/workflow/src/contract.ts'
+    ]))
+
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
+
+    for (const relativePath of afterPack.WORKFLOW_RUNTIME_REQUIRED_PATHS) {
+      touch(join(unpackedRoot, relativePath))
+    }
+
+    expect(() => afterPack._internals.validateBundledWorkflowRuntime(context)).not.toThrow()
+
+    rmSync(
+      join(unpackedRoot, 'packages/workers/workflow/src/mcp-server.ts'),
+      { recursive: true, force: true }
+    )
+
+    expect(() => afterPack._internals.validateBundledWorkflowRuntime(context)).toThrow(
+      /packages\/workers\/workflow\/src\/mcp-server\.ts/
+    )
+  })
+
+  it('validates the unpacked Workspace Intel worker before release artifacts are created', () => {
+    expect(afterPack.WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      'packages/workers/workspace-intel/package.json',
+      'packages/workers/workspace-intel/src/cli.ts',
+      'packages/workers/workspace-intel/src/mcp-server.ts',
+      'packages/workers/workspace-intel/src/service.ts',
+      'packages/workers/workspace-intel/src/contract.ts'
+    ]))
+
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
+
+    for (const relativePath of afterPack.WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS) {
+      touch(join(unpackedRoot, relativePath))
+    }
+
+    expect(() => afterPack._internals.validateBundledWorkspaceIntelRuntime(context)).not.toThrow()
+
+    rmSync(
+      join(unpackedRoot, 'packages/workers/workspace-intel/src/mcp-server.ts'),
+      { recursive: true, force: true }
+    )
+
+    expect(() => afterPack._internals.validateBundledWorkspaceIntelRuntime(context)).toThrow(
+      /packages\/workers\/workspace-intel\/src\/mcp-server\.ts/
+    )
+  })
+
+  it('validates the unpacked Write Assist worker before release artifacts are created', () => {
+    expect(afterPack.WRITE_ASSIST_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      'packages/workers/write-assist/package.json',
+      'packages/workers/write-assist/src/cli.ts',
+      'packages/workers/write-assist/src/mcp-server.ts',
+      'packages/workers/write-assist/src/service.ts',
+      'packages/workers/write-assist/src/contract.ts'
+    ]))
+
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
+
+    for (const relativePath of afterPack.WRITE_ASSIST_RUNTIME_REQUIRED_PATHS) {
+      touch(join(unpackedRoot, relativePath))
+    }
+
+    expect(() => afterPack._internals.validateBundledWriteAssistRuntime(context)).not.toThrow()
+
+    rmSync(
+      join(unpackedRoot, 'packages/workers/write-assist/src/mcp-server.ts'),
+      { recursive: true, force: true }
+    )
+
+    expect(() => afterPack._internals.validateBundledWriteAssistRuntime(context)).toThrow(
+      /packages\/workers\/write-assist\/src\/mcp-server\.ts/
+    )
+  })
+
+  it('validates the unpacked Paper Radar worker and service dependency before release artifacts are created', () => {
+    expect(afterPack.PAPER_RADAR_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      'packages/workers/paper-radar/package.json',
+      'packages/workers/paper-radar/src/cli.ts',
+      'packages/workers/paper-radar/src/mcp-server.ts',
+      'packages/workers/paper-radar/src/service.ts',
+      'packages/workers/paper-radar/src/contract.ts',
+      'plugins/paper-radar-service/package.json',
+      'plugins/paper-radar-service/src/storage.ts'
+    ]))
+
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
+
+    for (const relativePath of afterPack.PAPER_RADAR_RUNTIME_REQUIRED_PATHS) {
+      touch(join(unpackedRoot, relativePath))
+    }
+
+    expect(() => afterPack._internals.validateBundledPaperRadarRuntime(context)).not.toThrow()
+
+    rmSync(
+      join(unpackedRoot, 'plugins/paper-radar-service/src/storage.ts'),
+      { recursive: true, force: true }
+    )
+
+    expect(() => afterPack._internals.validateBundledPaperRadarRuntime(context)).toThrow(
+      /plugins\/paper-radar-service\/src\/storage\.ts/
+    )
+  })
+
+  it('validates the unpacked Runtime Inspector worker before release artifacts are created', () => {
+    expect(afterPack.RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      'packages/workers/runtime-inspector/package.json',
+      'packages/workers/runtime-inspector/src/cli.ts',
+      'packages/workers/runtime-inspector/src/mcp-server.ts',
+      'packages/workers/runtime-inspector/src/service.ts',
+      'packages/workers/runtime-inspector/src/contract.ts'
+    ]))
+
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
+
+    for (const relativePath of afterPack.RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS) {
+      touch(join(unpackedRoot, relativePath))
+    }
+
+    expect(() => afterPack._internals.validateBundledRuntimeInspectorRuntime(context)).not.toThrow()
+
+    rmSync(
+      join(unpackedRoot, 'packages/workers/runtime-inspector/src/mcp-server.ts'),
+      { recursive: true, force: true }
+    )
+
+    expect(() => afterPack._internals.validateBundledRuntimeInspectorRuntime(context)).toThrow(
+      /packages\/workers\/runtime-inspector\/src\/mcp-server\.ts/
+    )
+  })
+
+  it('validates built MCP node entries before release artifacts are created', () => {
+    expect(afterPack.MCP_NODE_ENTRY_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      'out/main/claw-schedule-mcp-node-entry.js',
+      'out/main/computer-use-mcp-node-entry.js',
+      'out/main/research-search-mcp-node-entry.js',
+      'out/main/workflow-mcp-node-entry.js',
+      'out/main/workspace-intel-mcp-node-entry.js',
+      'out/main/write-assist-mcp-node-entry.js',
+      'out/main/paper-radar-mcp-node-entry.js',
+      'out/main/runtime-inspector-mcp-node-entry.js'
+    ]))
+
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+
+    for (const relativePath of afterPack.MCP_NODE_ENTRY_REQUIRED_PATHS) {
+      touch(join(root, relativePath))
+    }
+
+    expect(() => afterPack._internals.validateBuiltMcpNodeEntries(context)).not.toThrow()
+
+    rmSync(join(root, 'out/main/research-search-mcp-node-entry.js'), { recursive: true, force: true })
+
+    expect(() => afterPack._internals.validateBuiltMcpNodeEntries(context)).toThrow(
+      /out\/main\/research-search-mcp-node-entry\.js/
     )
   })
 

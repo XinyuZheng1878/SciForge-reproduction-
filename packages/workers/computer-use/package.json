@@ -7,7 +7,7 @@
   "sciforge": {
     "lifecycleLayer": "workers",
     "skillFacing": false,
-    "sideEffects": "host-ui",
+    "sideEffects": "host-ui, filesystem, process",
     "publicContract": true,
     "runtimeAdapter": true,
     "mcpServer": true

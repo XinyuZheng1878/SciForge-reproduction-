@@ -27,18 +27,47 @@ type ToolWorkerManifest = {
   }>;
 };
 
+export const MODEL_ROUTER_WORKER_VERSION = '0.1.0';
+export const MODEL_ROUTER_WORKER_TRANSPORT = 'http';
+export const MODEL_ROUTER_WORKER_CAPABILITIES = [
+  'model_router_responses',
+  'model_router_messages',
+  'text_reasoning',
+  'vision_translation',
+  'refs_first_trace',
+] as const;
+
+export type ModelRouterWorkerTransport = typeof MODEL_ROUTER_WORKER_TRANSPORT;
+export type ModelRouterWorkerCapability = typeof MODEL_ROUTER_WORKER_CAPABILITIES[number];
+export type ModelRouterWorkerHealthStatus = 'healthy' | 'degraded' | 'unhealthy';
+
+export type ModelRouterUpstreamDiagnostic = {
+  category: 'ready' | 'repo-bug' | 'provider-auth';
+  ok: boolean;
+  retryable: boolean;
+  httpStatus?: number;
+  releaseAcceptance: 'not-evaluated';
+};
+
+export type ModelRouterWorkerDiagnostics = {
+  version: string;
+  transport: ModelRouterWorkerTransport;
+  health: {
+    status: ModelRouterWorkerHealthStatus;
+    available: boolean;
+    reason?: string;
+  };
+  recentError: string | null;
+  capabilities: ModelRouterWorkerCapability[];
+  upstream: ModelRouterUpstreamDiagnostic;
+};
+
 export const modelRouterManifest: ToolWorkerManifest = {
   protocolVersion: 'sciforge.tools.v1',
   workerId: 'sciforge.model-router',
-  workerVersion: '0.1.0',
+  workerVersion: MODEL_ROUTER_WORKER_VERSION,
   description: 'Provider-compatible SciForge /v1/responses and /v1/messages facade for text reasoning and refs-first visual translation.',
-  capabilities: [
-    'model_router_responses',
-    'model_router_messages',
-    'text_reasoning',
-    'vision_translation',
-    'refs_first_trace',
-  ],
+  capabilities: [...MODEL_ROUTER_WORKER_CAPABILITIES],
   providers: [
     {
       providerId: 'sciforge.model-router.responses',
@@ -85,7 +114,7 @@ export const modelRouterManifest: ToolWorkerManifest = {
         output_text: { type: 'string', required: true },
         traceRef: { type: 'string', required: true },
       },
-      sideEffects: ['network', 'write'],
+      sideEffects: ['network', 'filesystem'],
       timeoutMs: 120000,
       tags: ['model-router', 'responses', 'vision', 'refs-first'],
     },
@@ -101,9 +130,27 @@ export const modelRouterManifest: ToolWorkerManifest = {
       outputSchema: {
         content: { type: 'array', required: true },
       },
-      sideEffects: ['network', 'write'],
+      sideEffects: ['network', 'filesystem'],
       timeoutMs: 120000,
       tags: ['model-router', 'messages', 'claude-code'],
     },
   ],
 };
+
+export function createModelRouterWorkerDiagnostics(
+  upstream: ModelRouterUpstreamDiagnostic,
+  recentError: string | null = upstream.ok ? null : upstream.category
+): ModelRouterWorkerDiagnostics {
+  return {
+    version: MODEL_ROUTER_WORKER_VERSION,
+    transport: MODEL_ROUTER_WORKER_TRANSPORT,
+    health: {
+      status: upstream.ok ? 'healthy' : 'unhealthy',
+      available: upstream.ok,
+      ...(upstream.ok ? {} : { reason: upstream.category })
+    },
+    recentError,
+    capabilities: [...MODEL_ROUTER_WORKER_CAPABILITIES],
+    upstream
+  };
+}

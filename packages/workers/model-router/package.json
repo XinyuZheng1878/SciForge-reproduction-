@@ -7,9 +7,10 @@
   "sciforge": {
     "lifecycleLayer": "workers",
     "skillFacing": false,
-    "sideEffects": "network",
+    "sideEffects": "network, filesystem",
     "publicContract": true,
-    "runtimeAdapter": true
+    "runtimeAdapter": true,
+    "mcpServer": false
   },
   "bin": {
     "sciforge-model-router": "./src/cli.ts"

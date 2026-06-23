@@ -26,7 +26,8 @@ import type {
   WorkflowScheduleV1,
   WorkflowV1
 } from '../shared/app-settings'
-import { MAX_WORKFLOW_RUNS } from '../shared/app-settings-workflow'
+import { MAX_WORKFLOW_RUNS, normalizeWorkflow } from '../shared/app-settings-workflow'
+import { exportWorkflowDsl } from '../shared/workflow-dsl'
 import {
   SCHEDULER_INTERVAL_MS,
   hasEnabledScheduledTask,
@@ -188,6 +189,31 @@ function safeJson(value: unknown): string {
   } catch {
     return ''
   }
+}
+
+function stringField(record: Record<string, unknown>, key: string): string {
+  const value = record[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function uniqueWorkflowId(base: string, usedIds: Set<string>): string {
+  const normalized = base.trim() || 'workflow'
+  if (!usedIds.has(normalized)) return normalized
+  for (let index = 2; index < 10_000; index += 1) {
+    const candidate = `${normalized}-${index}`
+    if (!usedIds.has(candidate)) return candidate
+  }
+  return `${normalized}-${Date.now()}`
+}
+
+function uniqueWorkflowName(base: string, usedNames: Set<string>): string {
+  const normalized = base.trim() || 'Workflow'
+  if (!usedNames.has(normalized.toLowerCase())) return normalized
+  for (let index = 2; index < 10_000; index += 1) {
+    const candidate = `${normalized} (${index})`
+    if (!usedNames.has(candidate.toLowerCase())) return candidate
+  }
+  return `${normalized} (${Date.now()})`
 }
 
 function readPath(payload: WorkflowPayload, path: string): unknown {
@@ -943,7 +969,11 @@ export class WorkflowRuntime {
       if (
         pathname === '/workflow/internal/list' ||
         pathname === '/workflow/internal/run' ||
-        pathname === '/workflow/internal/hook-run'
+        pathname === '/workflow/internal/hook-run' ||
+        pathname === '/workflow/internal/status' ||
+        pathname === '/workflow/internal/stop' ||
+        pathname === '/workflow/internal/import' ||
+        pathname === '/workflow/internal/export'
       ) {
         await this.handleInternalRequest(pathname, req, res, settings)
         return
@@ -1022,8 +1052,90 @@ export class WorkflowRuntime {
       writeJson(res, 200, { ok: true, workflows })
       return
     }
+
+    if (pathname === '/workflow/internal/status') {
+      const body = await readRequestBody(req)
+      const parsed = parseJsonObject(body) ?? {}
+      const runtime = await this.status()
+      const runId = stringField(parsed, 'runId')
+      const workflowId = stringField(parsed, 'workflowId')
+      const located = runId || workflowId ? this.findWorkflowRun(settings, { runId, workflowId }) : null
+      writeJson(res, 200, {
+        ok: true,
+        ...(runId ? { runId } : {}),
+        ...(workflowId || located?.workflow.id ? { workflowId: workflowId || located?.workflow.id } : {}),
+        status: located?.run?.status,
+        runtime,
+        ...(located?.run ? { run: located.run } : {})
+      })
+      return
+    }
+
     const body = await readRequestBody(req)
     const parsed = parseJsonObject(body) ?? {}
+
+    if (pathname === '/workflow/internal/stop') {
+      const runId = stringField(parsed, 'runId')
+      let workflowId = stringField(parsed, 'workflowId')
+      if (!workflowId && runId) {
+        workflowId = this.findWorkflowRun(settings, { runId })?.workflow.id ?? ''
+      }
+      if (!workflowId) {
+        writeJson(res, 400, { ok: false, message: 'Provide a workflow id or run id.' })
+        return
+      }
+      const result = await this.stopWorkflow(workflowId)
+      writeJson(res, result.ok ? 200 : 400, {
+        ...result,
+        ...(runId ? { runId } : {}),
+        workflowId
+      })
+      return
+    }
+
+    if (pathname === '/workflow/internal/export') {
+      const idOrName = String(parsed.workflow ?? parsed.name ?? parsed.workflowId ?? '').trim()
+      if (!idOrName) {
+        writeJson(res, 400, { ok: false, message: 'Provide a workflow name or id.' })
+        return
+      }
+      const workflow = this.findWorkflowByRef(settings, idOrName)
+      if (!workflow) {
+        writeJson(res, 404, { ok: false, message: `Workflow "${idOrName}" not found.` })
+        return
+      }
+      const exported = exportWorkflowDsl(workflow, 'SciForge', new Date().toISOString()).workflow
+      writeJson(res, 200, {
+        ok: true,
+        workflowId: workflow.id,
+        workflow: parsed.includeRuns === true ? { ...exported, runs: workflow.runs } : exported
+      })
+      return
+    }
+
+    if (pathname === '/workflow/internal/import') {
+      const rawWorkflow = parsed.workflow
+      if (!rawWorkflow || typeof rawWorkflow !== 'object' || Array.isArray(rawWorkflow)) {
+        writeJson(res, 400, { ok: false, message: 'Provide a workflow document.' })
+        return
+      }
+      const now = new Date().toISOString()
+      const workflow = this.prepareImportedWorkflow(rawWorkflow as Partial<WorkflowV1>, settings, now)
+      const saved = await this.deps.store.patch({
+        workflow: {
+          workflows: [...settings.workflow.workflows, workflow]
+        }
+      })
+      this.sync(saved)
+      writeJson(res, 200, {
+        ok: true,
+        workflowId: workflow.id,
+        workflow,
+        message: 'Workflow imported.'
+      })
+      return
+    }
+
     const idOrName = String(parsed.workflow ?? parsed.name ?? parsed.workflowId ?? '').trim()
     if (!idOrName) {
       writeJson(res, 400, { ok: false, message: 'Provide a workflow name or id.' })
@@ -1038,6 +1150,57 @@ export class WorkflowRuntime {
     }
     const result = await this.runWorkflowForTool(idOrName, parsed.input, workspaceOverride)
     writeJson(res, result.ok ? 200 : 400, result)
+  }
+
+  private findWorkflowByRef(settings: AppSettingsV1, idOrName: string): WorkflowV1 | null {
+    const normalized = idOrName.trim()
+    if (!normalized) return null
+    const lower = normalized.toLowerCase()
+    return settings.workflow.workflows.find((item) =>
+      item.id === normalized || item.name.toLowerCase() === lower
+    ) ?? null
+  }
+
+  private findWorkflowRun(
+    settings: AppSettingsV1,
+    input: { runId?: string; workflowId?: string }
+  ): { workflow: WorkflowV1; run?: WorkflowRunV1 } | null {
+    const workflowId = input.workflowId?.trim()
+    const runId = input.runId?.trim()
+    const workflows = workflowId
+      ? settings.workflow.workflows.filter((workflow) => workflow.id === workflowId)
+      : settings.workflow.workflows
+    for (const workflow of workflows) {
+      const run = runId ? workflow.runs.find((entry) => entry.id === runId) : undefined
+      if (!runId || run) return { workflow, run }
+    }
+    return null
+  }
+
+  private prepareImportedWorkflow(
+    rawWorkflow: Partial<WorkflowV1>,
+    settings: AppSettingsV1,
+    now: string
+  ): WorkflowV1 {
+    const normalized = normalizeWorkflow(rawWorkflow, settings.workflow.workflows.length, now)
+    const usedIds = new Set(settings.workflow.workflows.map((workflow) => workflow.id))
+    const usedNames = new Set(settings.workflow.workflows.map((workflow) => workflow.name.toLowerCase()))
+    const idBase = normalized.id.trim() || `workflow-${settings.workflow.workflows.length + 1}`
+    const nameBase = normalized.name.trim() || `Workflow ${settings.workflow.workflows.length + 1}`
+    return {
+      ...normalized,
+      id: uniqueWorkflowId(idBase, usedIds),
+      name: uniqueWorkflowName(nameBase, usedNames),
+      enabled: false,
+      callableByAgent: false,
+      createdAt: now,
+      updatedAt: now,
+      lastRunAt: '',
+      nextRunAt: '',
+      lastStatus: 'idle',
+      lastMessage: '',
+      runs: []
+    }
   }
 
   /** Run a workflow on behalf of the Kun agent tool: resolve by id/name, await it, return its output. */

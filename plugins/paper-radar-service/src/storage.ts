@@ -4,6 +4,13 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 
 import type { PaperRecord, PaperSource, RankedPaper, SearchRequest } from './types.js';
 
+export interface SyncStateRecord {
+  source: PaperSource;
+  key: string;
+  value: string;
+  updatedAt: string;
+}
+
 export class PaperStore {
   private db: DatabaseSync;
 
@@ -120,6 +127,17 @@ export class PaperStore {
       .map((row) => toRankedPaper(row as unknown as PaperRow));
   }
 
+  getPaper(id: string): RankedPaper | undefined {
+    const row = this.db
+      .prepare('SELECT p.*, 0 AS rank_score FROM papers p WHERE p.id = ?')
+      .get(id) as PaperRow | undefined;
+    return row ? { ...toRankedPaper(row), reason: 'Loaded by paper id.' } : undefined;
+  }
+
+  listRecentPapers(limit = 50): RankedPaper[] {
+    return this.search({ topK: limit });
+  }
+
   setSyncState(source: PaperSource, key: string, value: string): void {
     this.db
       .prepare(
@@ -134,6 +152,21 @@ export class PaperStore {
       | { value: string }
       | undefined;
     return row?.value;
+  }
+
+  listSyncState(): SyncStateRecord[] {
+    return this.db
+      .prepare('SELECT source, key, value, updated_at FROM sync_state ORDER BY source, key')
+      .all()
+      .map((row) => {
+        const record = row as { source: PaperSource; key: string; value: string; updated_at: string };
+        return {
+          source: record.source,
+          key: record.key,
+          value: record.value,
+          updatedAt: record.updated_at,
+        };
+      });
   }
 
   stats(): { papers: number; arxiv: number; biorxiv: number } {

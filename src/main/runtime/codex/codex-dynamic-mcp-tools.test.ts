@@ -66,7 +66,7 @@ describe('Codex dynamic MCP tool bridge', () => {
     expect(labACallTool).not.toHaveBeenCalled()
     expect(labBCallTool).toHaveBeenCalledWith(
       { name: 'lookup', arguments: { value: 1 } },
-      { signal: undefined, timeout: 30_000 }
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
     )
   })
 
@@ -98,7 +98,7 @@ describe('Codex dynamic MCP tool bridge', () => {
     })
     expect(callTool).toHaveBeenCalledWith(
       { name: 'tool.with.dot', arguments: { value: 1 } },
-      { signal: undefined, timeout: 30_000 }
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
     )
   })
 
@@ -123,7 +123,7 @@ describe('Codex dynamic MCP tool bridge', () => {
     })
     expect(callTool).toHaveBeenCalledWith(
       { name: 'lookup', arguments: { value: 1 } },
-      { signal: undefined, timeout: 30_000 }
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
     )
   })
 
@@ -173,8 +173,104 @@ describe('Codex dynamic MCP tool bridge', () => {
           computerUseSessionId: 'codex:codex-thread-1'
         }
       },
-      { signal: undefined, timeout: 30_000 }
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
     )
+  })
+
+  it('aborts in-flight MCP calls for an interrupted turn and records the reason', async () => {
+    let resolveStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve
+    })
+    const callTool: CodexDynamicMcpClient['callTool'] = vi.fn((_input, options) => new Promise((_, reject) => {
+      resolveStarted()
+      options?.signal?.addEventListener('abort', () => {
+        reject(options.signal?.reason ?? new Error('aborted'))
+      }, { once: true })
+    }))
+    const bridge = createCodexDynamicMcpToolBridge({
+      servers: [{ id: 'server-1', command: '/bin/mcp' }],
+      clientFactory: async () => fakeMcpClient({
+        tools: [{ name: 'slow_tool', description: 'Slow callable.' }],
+        callTool
+      })
+    })
+
+    await bridge.dynamicTools()
+    const pending = bridge.callTool({
+      requestId: 'request-1',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tool: 'slow_tool',
+      arguments: {}
+    })
+    await started
+    expect(bridge.abortRequestsForTurn('thread-1', 'turn-1', 'user_stop')).toBe(1)
+    await expect(pending).resolves.toMatchObject({ success: false })
+    expect(bridge.lifecycleEvents()).toEqual([
+      expect.objectContaining({
+        event: 'request_aborted',
+        reason: 'user_stop',
+        requestId: 'request-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        toolName: 'slow_tool'
+      })
+    ])
+  })
+
+  it('releases tracked Codex computer-use sessions when closing the MCP bridge', async () => {
+    const callTool = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'ok' }],
+      structuredContent: { ok: true }
+    }))
+    const close = vi.fn(async () => undefined)
+    const bridge = createCodexDynamicMcpToolBridge({
+      servers: [{
+        id: 'gui_computer_use',
+        command: '/bin/computer-use-mcp',
+        enabledTools: ['computer_use']
+      }],
+      clientFactory: async () => fakeMcpClient({
+        tools: [{ name: 'computer_use', description: 'Shared host UI control.' }],
+        callTool,
+        close
+      })
+    })
+
+    await bridge.dynamicTools()
+    await bridge.callTool({
+      requestId: 'request-1',
+      threadId: 'codex-thread-1',
+      turnId: 'codex-turn-1',
+      tool: 'computer_use',
+      arguments: { action: 'bind_target', targetId: 'desktop:global' }
+    })
+    await bridge.close('user_stop')
+
+    expect(callTool).toHaveBeenLastCalledWith(
+      {
+        name: 'computer_use',
+        arguments: {
+          action: 'release_target',
+          computerUseSessionId: 'codex:codex-thread-1',
+          reason: 'user_stop'
+        }
+      },
+      { timeout: 5_000 }
+    )
+    expect(close).toHaveBeenCalled()
+    expect(bridge.lifecycleEvents()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'computer_use_release_requested',
+        reason: 'user_stop',
+        sessionId: 'codex:codex-thread-1'
+      }),
+      expect.objectContaining({
+        event: 'server_closed',
+        reason: 'user_stop'
+      })
+    ]))
   })
 
   it('converts MCP error results into failed dynamic tool responses', () => {
@@ -191,10 +287,11 @@ describe('Codex dynamic MCP tool bridge', () => {
 function fakeMcpClient(options: {
   tools: Array<{ name: string; description?: string; inputSchema?: unknown }>
   callTool?: CodexDynamicMcpClient['callTool']
+  close?: CodexDynamicMcpClient['close']
 }): CodexDynamicMcpClient {
   return {
     listTools: vi.fn(async () => ({ tools: options.tools })),
     callTool: options.callTool ?? vi.fn(async () => ({ content: [] })),
-    close: vi.fn(async () => undefined)
+    close: options.close ?? vi.fn(async () => undefined)
   }
 }

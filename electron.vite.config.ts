@@ -11,7 +11,12 @@ export default defineConfig({
           index: resolve('src/main/index.ts'),
           'computer-use-mcp-node-entry': resolve('src/main/computer-use-mcp-node-entry.ts'),
           'claw-schedule-mcp-node-entry': resolve('src/main/claw-schedule-mcp-node-entry.ts'),
-          'research-search-mcp-node-entry': resolve('src/main/research-search-mcp-node-entry.ts')
+          'research-search-mcp-node-entry': resolve('src/main/research-search-mcp-node-entry.ts'),
+          'workflow-mcp-node-entry': resolve('src/main/workflow-mcp-node-entry.ts'),
+          'workspace-intel-mcp-node-entry': resolve('src/main/workspace-intel-mcp-node-entry.ts'),
+          'write-assist-mcp-node-entry': resolve('src/main/write-assist-mcp-node-entry.ts'),
+          'paper-radar-mcp-node-entry': resolve('src/main/paper-radar-mcp-node-entry.ts'),
+          'runtime-inspector-mcp-node-entry': resolve('src/main/runtime-inspector-mcp-node-entry.ts')
         }
       }
     }

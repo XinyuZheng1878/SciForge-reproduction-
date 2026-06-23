@@ -19,7 +19,11 @@ import {
   type JsonValue,
   type ResponsesRequest,
 } from './response-compat';
-import { modelRouterManifest } from './manifest';
+import {
+  createModelRouterWorkerDiagnostics,
+  modelRouterManifest,
+  type ModelRouterUpstreamDiagnostic,
+} from './manifest';
 import { redactTraceText } from './trace-redaction';
 
 export interface ModelRouterProviderConfig {
@@ -192,10 +196,16 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
       }
       if (request.method === 'GET' && url.pathname === '/healthz') {
         const upstream = modelRouterHealthzUpstreamDiagnostic(options.config, env);
+        const diagnostics = createModelRouterWorkerDiagnostics(upstream);
         return sendJson(response, upstream.ok ? 200 : 503, {
           ok: upstream.ok,
           service: 'sciforge.model-router',
           checkedAt: new Date().toISOString(),
+          version: diagnostics.version,
+          transport: diagnostics.transport,
+          health: diagnostics.health,
+          recentError: diagnostics.recentError,
+          capabilities: diagnostics.capabilities,
           upstream,
         });
       }
@@ -339,7 +349,7 @@ function assertRuntimeAuthorized(
 function modelRouterHealthzUpstreamDiagnostic(
   config: ModelRouterConfig,
   env: Record<string, string | undefined>,
-): JsonObject {
+): ModelRouterUpstreamDiagnostic {
   const profile = config.profiles[config.defaultProfile];
   const provider = profile?.textReasoner;
   if (!profile || !provider?.baseUrl || !provider.model) {

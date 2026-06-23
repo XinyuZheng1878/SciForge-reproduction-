@@ -633,6 +633,12 @@ export class ScheduleRuntime {
         return
       }
 
+      if (url.pathname === '/schedule/internal/status') {
+        const status = await this.status()
+        writeJson(res, 200, { ok: true, status })
+        return
+      }
+
       const body = await readRequestBody(req)
       const payload = parseJsonObject(body)
       if (!payload) {
@@ -697,6 +703,35 @@ export class ScheduleRuntime {
         }
         const removed = await this.deleteTaskById(taskId)
         writeJson(res, removed ? 200 : 404, removed ? { ok: true } : { ok: false, message: 'Task not found.' })
+        return
+      }
+
+      if (url.pathname === '/schedule/internal/run') {
+        const taskId = asString(payload.taskId)
+        if (!taskId) {
+          writeJson(res, 400, { ok: false, message: 'Missing taskId.' })
+          return
+        }
+        const result = await this.runTask(taskId)
+        writeJson(res, result.ok ? 200 : 400, { ok: result.ok, result })
+        return
+      }
+
+      if (url.pathname === '/schedule/internal/detect-from-text') {
+        const text = asString(payload.text)
+        if (!text) {
+          writeJson(res, 400, { ok: false, message: 'Missing text.' })
+          return
+        }
+        const result = await this.createScheduledTaskFromText(text, {
+          workspaceRoot: asString(payload.workspaceRoot) || undefined,
+          modelHint: asString(payload.modelHint) || undefined,
+          mode: (asString(payload.mode) as ScheduleRunMode) || undefined
+        })
+        writeJson(res, result.kind === 'error' ? 400 : 200, {
+          ok: result.kind !== 'error',
+          result
+        })
         return
       }
 

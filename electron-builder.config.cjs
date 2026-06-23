@@ -62,6 +62,14 @@ const releaseAppVersion = (
 const artifactVersion = releaseAppVersion || '${version}'
 const modelRouterWorkerDir = 'packages/workers/model-router'
 const computerUseWorkerDir = 'packages/workers/computer-use'
+const scheduleWorkerDir = 'packages/workers/schedule'
+const searchWorkerDir = 'packages/workers/search'
+const workflowWorkerDir = 'packages/workers/workflow'
+const workspaceIntelWorkerDir = 'packages/workers/workspace-intel'
+const writeAssistWorkerDir = 'packages/workers/write-assist'
+const paperRadarWorkerDir = 'packages/workers/paper-radar'
+const runtimeInspectorWorkerDir = 'packages/workers/runtime-inspector'
+const paperRadarServiceDir = 'plugins/paper-radar-service'
 
 function normalizeUpdateChannel(raw) {
   const value = String(raw || '').trim()
@@ -85,6 +93,14 @@ module.exports = {
     '**/kun/node_modules/**/*',
     `**/${modelRouterWorkerDir}/**/*`,
     `**/${computerUseWorkerDir}/**/*`,
+    `**/${scheduleWorkerDir}/**/*`,
+    `**/${searchWorkerDir}/**/*`,
+    `**/${workflowWorkerDir}/**/*`,
+    `**/${workspaceIntelWorkerDir}/**/*`,
+    `**/${writeAssistWorkerDir}/**/*`,
+    `**/${paperRadarWorkerDir}/**/*`,
+    `**/${runtimeInspectorWorkerDir}/**/*`,
+    `**/${paperRadarServiceDir}/**/*`,
     '**/node_modules/better-sqlite3/**/*',
     '**/node_modules/bindings/**/*',
     '**/node_modules/file-uri-to-path/**/*'
@@ -118,6 +134,70 @@ module.exports = {
     {
       from: computerUseWorkerDir,
       to: computerUseWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: scheduleWorkerDir,
+      to: scheduleWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: searchWorkerDir,
+      to: searchWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: workflowWorkerDir,
+      to: workflowWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: workspaceIntelWorkerDir,
+      to: workspaceIntelWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: writeAssistWorkerDir,
+      to: writeAssistWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: paperRadarWorkerDir,
+      to: paperRadarWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: runtimeInspectorWorkerDir,
+      to: runtimeInspectorWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: paperRadarServiceDir,
+      to: paperRadarServiceDir,
       filter: [
         '**/*',
         '**/.*'

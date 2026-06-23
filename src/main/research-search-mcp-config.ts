@@ -17,16 +17,18 @@ const RESEARCH_ENV_NAMES = [
   'SCIFORGE_RESEARCH_ARXIV_ENABLED',
   'SCIFORGE_RESEARCH_BIORXIV_ENABLED',
   'SCIFORGE_RESEARCH_SEMANTIC_SCHOLAR_ENABLED',
-  'SCIFORGE_RESEARCH_SEMANTIC_SCHOLAR_API_KEY',
   'SCIFORGE_RESEARCH_TAVILY_ENABLED',
-  'SCIFORGE_RESEARCH_TAVILY_API_KEY',
-  'TAVILY_API_KEY',
   'SCIFORGE_RESEARCH_CNS_ENABLED',
   'SCIFORGE_RESEARCH_CNS_DOMAINS',
   'SCIFORGE_RESEARCH_MAX_RESULTS',
   'SCIFORGE_RESEARCH_TIMEOUT_MS',
   'SCIFORGE_RESEARCH_DEFAULT_SINCE_YEAR'
 ] as const
+const RESEARCH_SECRET_ENV_NAMES = new Set([
+  'SCIFORGE_RESEARCH_SEMANTIC_SCHOLAR_API_KEY',
+  'SCIFORGE_RESEARCH_TAVILY_API_KEY',
+  'TAVILY_API_KEY'
+])
 
 type JsonRecord = Record<string, unknown>
 
@@ -76,7 +78,7 @@ export function researchSearchMcpEnv(
   }
   return {
     ...env,
-    ...existingEnv,
+    ...nonSecretEnv(existingEnv),
     ...ELECTRON_RUN_AS_NODE_ENV
   }
 }
@@ -167,6 +169,14 @@ function stringRecord(value: unknown): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [key, item] of Object.entries(value)) {
     if (typeof item === 'string') out[key] = item
+  }
+  return nonSecretEnv(out)
+}
+
+function nonSecretEnv(env: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (!RESEARCH_SECRET_ENV_NAMES.has(key)) out[key] = value
   }
   return out
 }

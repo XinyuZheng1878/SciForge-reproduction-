@@ -7,6 +7,10 @@ import { join } from 'node:path'
 import { InMemoryComputerUseAuditRecorder } from './audit.js'
 import { FileComputerUseSharedLeaseCoordinator } from './shared-lease.js'
 import { ComputerUseService } from './service.js'
+import {
+  COMPUTER_USE_WORKER_CAPABILITIES,
+  COMPUTER_USE_WORKER_VERSION
+} from './contract.js'
 import type {
   ComputerUseActionRequest,
   ComputerUseActionResult,
@@ -21,6 +25,24 @@ const targets: ComputerUseTarget[] = [
   { id: 'desktop:global', kind: 'desktop', title: 'Desktop', backend: 'global-native' },
   { id: 'window:notes', kind: 'window', title: 'Notes', appName: 'Notes', backend: 'global-native' }
 ]
+
+test('maps backend diagnostics to the unified worker diagnostics shape', async () => {
+  const { service, backend } = testService()
+  backend.diagnostic = {
+    recentError: 'last host-control probe failed'
+  }
+
+  const diagnostics = await service.diagnostics()
+
+  assert.equal(diagnostics.version, COMPUTER_USE_WORKER_VERSION)
+  assert.equal(diagnostics.transport, 'stdio')
+  assert.equal(diagnostics.health.status, 'degraded')
+  assert.equal(diagnostics.health.available, true)
+  assert.equal(diagnostics.recentError, 'last host-control probe failed')
+  assert.deepEqual(diagnostics.capabilities, [...COMPUTER_USE_WORKER_CAPABILITIES])
+  assert.equal(diagnostics.backend, 'global-native')
+  assert.equal(Array.isArray(diagnostics.audit), true)
+})
 
 test('keeps independent agent sessions and rejects cross-agent session reuse', async () => {
   const { service } = testService()
@@ -345,6 +367,7 @@ class FakeComputerUseBackend implements ComputerUseBackend {
   readonly kind = 'global-native' as const
   readonly executedActions: ComputerUseActionRequest[] = []
   readonly releaseCalls: Array<{ sessionId: string; reason: string | undefined }> = []
+  diagnostic: Partial<ComputerUseBackendDiagnostic> = {}
   private resolveWaitStarted: (() => void) | null = null
   waitStarted = new Promise<void>((resolve) => {
     this.resolveWaitStarted = resolve
@@ -438,7 +461,8 @@ class FakeComputerUseBackend implements ComputerUseBackend {
       available: true,
       platform: process.platform,
       activeLeases: [],
-      recentRejections: []
+      recentRejections: [],
+      ...this.diagnostic
     }
   }
 }

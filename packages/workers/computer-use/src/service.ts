@@ -29,7 +29,13 @@ import type {
   ComputerUseReleaseReason,
   ComputerUseRiskAssessment,
   ComputerUseSession,
-  ComputerUseTarget
+  ComputerUseTarget,
+  ComputerUseWorkerDiagnostics
+} from './contract.js'
+import {
+  COMPUTER_USE_WORKER_CAPABILITIES,
+  COMPUTER_USE_WORKER_TRANSPORT,
+  COMPUTER_USE_WORKER_VERSION
 } from './contract.js'
 
 export type ComputerUseServiceOptions = {
@@ -47,7 +53,7 @@ export type ComputerUseListTargetsResult = {
   diagnostics: ComputerUseBackendDiagnostic
 }
 
-export type ComputerUseServiceDiagnostic = ComputerUseBackendDiagnostic & {
+export type ComputerUseServiceDiagnostic = Omit<ComputerUseBackendDiagnostic, 'recentError'> & ComputerUseWorkerDiagnostics & {
   sessions: ComputerUseSession[]
   budget: ComputerUseBudgetSnapshot
   audit: ComputerUseAuditRecord[]
@@ -357,8 +363,14 @@ export class ComputerUseService {
   async diagnostics(): Promise<ComputerUseServiceDiagnostic> {
     const backend = await this.backend.diagnostics()
     const sharedLeases = await this.sharedLeases.activeLeases()
+    const recentError = backend.recentError
     const diagnostic: ComputerUseServiceDiagnostic = {
       ...backend,
+      version: COMPUTER_USE_WORKER_VERSION,
+      transport: COMPUTER_USE_WORKER_TRANSPORT,
+      health: computerUseWorkerHealth(backend.available, backend.reason, recentError),
+      capabilities: [...COMPUTER_USE_WORKER_CAPABILITIES],
+      ...(recentError ? { recentError } : {}),
       activeLeases: [
         ...backend.activeLeases,
         ...sharedLeases.filter(
@@ -506,6 +518,32 @@ function actionFailure(
       ...(assessedRisk ? { risk: assessedRisk } : {})
     },
     rejection
+  }
+}
+
+function computerUseWorkerHealth(
+  available: boolean,
+  reason: string | undefined,
+  recentError: string | undefined
+): ComputerUseWorkerDiagnostics['health'] {
+  if (!available) {
+    return {
+      status: 'unhealthy',
+      available,
+      ...(reason ? { reason } : {})
+    }
+  }
+  if (recentError) {
+    return {
+      status: 'degraded',
+      available,
+      reason: reason ?? recentError
+    }
+  }
+  return {
+    status: 'healthy',
+    available,
+    ...(reason ? { reason } : {})
   }
 }
 

@@ -42,7 +42,12 @@ import type { GuiUpdateState } from '../shared/gui-update'
 import { isAllowedDevPreviewUrl } from '../shared/dev-preview-url'
 import { fetchUpstreamModelIds } from './upstream-models'
 import { ensureModelRouterConfigFile, ensureModelRouterSidecar, stopModelRouterSidecar } from './model-router-sidecar'
-import { ensurePaperRadarSidecar, stopPaperRadarSidecar } from './paper-radar-sidecar'
+import {
+  ensurePaperRadarSidecar,
+  paperRadarDbPath,
+  paperRadarProfilesPath,
+  stopPaperRadarSidecar
+} from './paper-radar-sidecar'
 import {
   kunRuntimeAdapter,
   getRuntimeBaseUrlForSettings,
@@ -86,6 +91,31 @@ import {
   syncResearchSearchMcpConfig,
   type ResearchSearchMcpLaunchConfig
 } from './research-search-mcp-config'
+import { runWorkflowMcpServerFromArgv } from './workflow-mcp-server'
+import {
+  syncWorkflowMcpConfig,
+  type WorkflowMcpLaunchConfig
+} from './workflow-mcp-config'
+import { runWorkspaceIntelMcpServerFromArgv } from './workspace-intel-mcp-server'
+import {
+  syncWorkspaceIntelMcpConfig,
+  type WorkspaceIntelMcpLaunchConfig
+} from './workspace-intel-mcp-config'
+import { runPaperRadarMcpServerFromArgv } from './paper-radar-mcp-server'
+import {
+  syncPaperRadarMcpConfig,
+  type PaperRadarMcpLaunchConfig
+} from './paper-radar-mcp-config'
+import { runWriteAssistMcpServerFromArgv } from './write-assist-mcp-server'
+import {
+  syncWriteAssistMcpConfig,
+  type WriteAssistMcpLaunchConfig
+} from './write-assist-mcp-config'
+import { runRuntimeInspectorMcpServerFromArgv } from './runtime-inspector-mcp-server'
+import {
+  syncRuntimeInspectorMcpConfig,
+  type RuntimeInspectorMcpLaunchConfig
+} from './runtime-inspector-mcp-config'
 import { registerAppIpcHandlers } from './ipc/register-app-ipc-handlers'
 import { startDevBrowserBridgeServer, type DevBrowserBridgeServer } from './dev-browser-bridge'
 import {
@@ -151,6 +181,20 @@ const runningClawScheduleMcpServer =
   process.argv.includes('--gui-schedule-mcp-server') || process.argv.includes('--claw-schedule-mcp-server')
 const runningComputerUseMcpServer = process.argv.includes('--gui-computer-use-mcp-server')
 const runningResearchSearchMcpServer = process.argv.includes('--gui-research-mcp-server')
+const runningWorkflowMcpServer = process.argv.includes('--gui-workflow-mcp-server')
+const runningWorkspaceIntelMcpServer = process.argv.includes('--gui-workspace-intel-mcp-server')
+const runningPaperRadarMcpServer = process.argv.includes('--gui-paper-radar-mcp-server')
+const runningWriteAssistMcpServer = process.argv.includes('--gui-write-assist-mcp-server')
+const runningRuntimeInspectorMcpServer = process.argv.includes('--gui-runtime-inspector-mcp-server')
+const runningGuiMcpServer =
+  runningClawScheduleMcpServer ||
+  runningComputerUseMcpServer ||
+  runningResearchSearchMcpServer ||
+  runningWorkflowMcpServer ||
+  runningWorkspaceIntelMcpServer ||
+  runningPaperRadarMcpServer ||
+  runningWriteAssistMcpServer ||
+  runningRuntimeInspectorMcpServer
 
 function resolveLogDirectory(): string {
   return join(app.getPath('userData'), 'logs')
@@ -175,6 +219,50 @@ function getResearchSearchMcpLaunchConfig(): ResearchSearchMcpLaunchConfig {
     appPath: app.getAppPath(),
     execPath: process.execPath,
     isPackaged: app.isPackaged
+  }
+}
+
+function getWorkflowMcpLaunchConfig(): WorkflowMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged
+  }
+}
+
+function getWorkspaceIntelMcpLaunchConfig(): WorkspaceIntelMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged
+  }
+}
+
+function getPaperRadarMcpLaunchConfig(): PaperRadarMcpLaunchConfig {
+  const userDataDir = app.getPath('userData')
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged,
+    dbPath: paperRadarDbPath(userDataDir),
+    profilesPath: paperRadarProfilesPath(userDataDir)
+  }
+}
+
+function getWriteAssistMcpLaunchConfig(): WriteAssistMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged
+  }
+}
+
+function getRuntimeInspectorMcpLaunchConfig(): RuntimeInspectorMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged,
+    checkpointDataDir: app.getPath('userData')
   }
 }
 
@@ -213,7 +301,7 @@ function runtimeJsonError(code: string, message: string): Error {
 
 traceStartup('main module evaluated')
 
-if ((runningClawScheduleMcpServer || runningComputerUseMcpServer) && process.platform === 'darwin') {
+if (runningGuiMcpServer && process.platform === 'darwin') {
   app.dock.hide()
 }
 
@@ -225,7 +313,7 @@ if ((runningClawScheduleMcpServer || runningComputerUseMcpServer) && process.pla
 configureAppIdentity()
 configureLinuxWaylandImeSwitches()
 
-if (!runningClawScheduleMcpServer && !runningComputerUseMcpServer && process.platform === 'win32') {
+if (!runningGuiMcpServer && process.platform === 'win32') {
   app.setAppUserModelId(APP_USER_MODEL_ID)
 }
 
@@ -293,7 +381,13 @@ function getCodexRuntime(): CodexRuntimeService {
     managedCodexHome: app.isPackaged
       ? join(app.getPath('userData'), 'runtime-codex', 'codex-home')
       : join(process.cwd(), '.codex-runtime', 'codex-home'),
+    scheduleMcpLaunch: getClawScheduleMcpLaunchConfig(),
     researchMcpLaunch: getResearchSearchMcpLaunchConfig(),
+    workflowMcpLaunch: getWorkflowMcpLaunchConfig(),
+    workspaceIntelMcpLaunch: getWorkspaceIntelMcpLaunchConfig(),
+    paperRadarMcpLaunch: getPaperRadarMcpLaunchConfig(),
+    writeAssistMcpLaunch: getWriteAssistMcpLaunchConfig(),
+    runtimeInspectorMcpLaunch: getRuntimeInspectorMcpLaunchConfig(),
     computerUseMcpLaunch: getComputerUseMcpLaunchConfig()
   })
   return codexRuntime
@@ -451,12 +545,12 @@ function installDevPreviewWebviewGuards(): void {
 const appIcon = createAppIcon(sciforgeLogoPng)
 const trayIcon = createAppIcon(sciforgeTrayPng)
 traceStartup('app icon loaded', { source: sciforgeLogoPng.startsWith('data:') ? 'data-url' : 'path' })
-const gotSingleInstanceLock =
-  runningClawScheduleMcpServer || runningComputerUseMcpServer || app.requestSingleInstanceLock()
+const gotSingleInstanceLock = runningGuiMcpServer || app.requestSingleInstanceLock()
 traceStartup('single instance lock checked', {
   gotSingleInstanceLock,
   skippedForClawScheduleMcpServer: runningClawScheduleMcpServer,
-  skippedForComputerUseMcpServer: runningComputerUseMcpServer
+  skippedForComputerUseMcpServer: runningComputerUseMcpServer,
+  skippedForResearchSearchMcpServer: runningResearchSearchMcpServer
 })
 
 function trayLabels(locale: AppSettingsV1['locale']): { show: string; quit: string; tooltip: string } {
@@ -1331,6 +1425,31 @@ if (runningClawScheduleMcpServer) {
     console.error('[research-search-mcp] server failed:', error)
     process.exit(1)
   })
+} else if (runningWorkflowMcpServer) {
+  void runWorkflowMcpServerFromArgv(process.argv).catch((error) => {
+    console.error('[workflow-mcp] server failed:', error)
+    process.exit(1)
+  })
+} else if (runningWorkspaceIntelMcpServer) {
+  void runWorkspaceIntelMcpServerFromArgv(process.argv).catch((error) => {
+    console.error('[workspace-intel-mcp] server failed:', error)
+    process.exit(1)
+  })
+} else if (runningPaperRadarMcpServer) {
+  void runPaperRadarMcpServerFromArgv(process.argv).catch((error) => {
+    console.error('[paper-radar-mcp] server failed:', error)
+    process.exit(1)
+  })
+} else if (runningWriteAssistMcpServer) {
+  void runWriteAssistMcpServerFromArgv(process.argv).catch((error) => {
+    console.error('[write-assist-mcp] server failed:', error)
+    process.exit(1)
+  })
+} else if (runningRuntimeInspectorMcpServer) {
+  void runRuntimeInspectorMcpServerFromArgv(process.argv).catch((error) => {
+    console.error('[runtime-inspector-mcp] server failed:', error)
+    process.exit(1)
+  })
 } else {
 app.whenReady().then(async () => {
   traceStartup('app.whenReady:start')
@@ -1357,6 +1476,21 @@ app.whenReady().then(async () => {
   })
   await syncResearchSearchMcpConfig(getResearchSearchMcpLaunchConfig()).catch((error) => {
     console.error('[research-search-mcp] failed to sync config on startup:', error)
+  })
+  await syncWorkflowMcpConfig(initial, getWorkflowMcpLaunchConfig()).catch((error) => {
+    console.error('[workflow-mcp] failed to sync config on startup:', error)
+  })
+  await syncWorkspaceIntelMcpConfig(initial, getWorkspaceIntelMcpLaunchConfig()).catch((error) => {
+    console.error('[workspace-intel-mcp] failed to sync config on startup:', error)
+  })
+  await syncPaperRadarMcpConfig(getPaperRadarMcpLaunchConfig()).catch((error) => {
+    console.error('[paper-radar-mcp] failed to sync config on startup:', error)
+  })
+  await syncWriteAssistMcpConfig(initial, getWriteAssistMcpLaunchConfig()).catch((error) => {
+    console.error('[write-assist-mcp] failed to sync config on startup:', error)
+  })
+  await syncRuntimeInspectorMcpConfig(initial, getRuntimeInspectorMcpLaunchConfig()).catch((error) => {
+    console.error('[runtime-inspector-mcp] failed to sync config on startup:', error)
   })
   await syncComputerUseMcpConfig(getComputerUseMcpLaunchConfig(), {
     enabled: isComputerUseEnabledForRuntime(initial, 'kun')
@@ -1513,6 +1647,21 @@ app.whenReady().then(async () => {
     })
     await syncResearchSearchMcpConfig(getResearchSearchMcpLaunchConfig()).catch((error) => {
       console.error('[research-search-mcp] failed to sync config after settings change:', error)
+    })
+    await syncWorkflowMcpConfig(saved, getWorkflowMcpLaunchConfig()).catch((error) => {
+      console.error('[workflow-mcp] failed to sync config after settings change:', error)
+    })
+    await syncWorkspaceIntelMcpConfig(saved, getWorkspaceIntelMcpLaunchConfig()).catch((error) => {
+      console.error('[workspace-intel-mcp] failed to sync config after settings change:', error)
+    })
+    await syncPaperRadarMcpConfig(getPaperRadarMcpLaunchConfig()).catch((error) => {
+      console.error('[paper-radar-mcp] failed to sync config after settings change:', error)
+    })
+    await syncWriteAssistMcpConfig(saved, getWriteAssistMcpLaunchConfig()).catch((error) => {
+      console.error('[write-assist-mcp] failed to sync config after settings change:', error)
+    })
+    await syncRuntimeInspectorMcpConfig(saved, getRuntimeInspectorMcpLaunchConfig()).catch((error) => {
+      console.error('[runtime-inspector-mcp] failed to sync config after settings change:', error)
     })
     await syncComputerUseMcpConfig(getComputerUseMcpLaunchConfig(), {
       enabled: isComputerUseEnabledForRuntime(saved, 'kun')

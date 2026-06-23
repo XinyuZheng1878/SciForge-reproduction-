@@ -54,16 +54,17 @@ describe('research search MCP config', () => {
     expect(synced.timeouts).toEqual({ connect_timeout: 1 })
   })
 
-  it('preserves manually configured research env while forcing Electron node mode', () => {
+  it('preserves non-secret research env while forcing Electron node mode', () => {
     expect(researchSearchMcpEnv({
       SCIFORGE_RESEARCH_MAX_RESULTS: '5',
+      SCIFORGE_RESEARCH_TAVILY_ENABLED: '1',
       TAVILY_API_KEY: 'from-process'
     }, {
       TAVILY_API_KEY: 'from-config',
       CUSTOM_RESEARCH_ENV: 'keep'
     })).toEqual({
       SCIFORGE_RESEARCH_MAX_RESULTS: '5',
-      TAVILY_API_KEY: 'from-config',
+      SCIFORGE_RESEARCH_TAVILY_ENABLED: '1',
       CUSTOM_RESEARCH_ENV: 'keep',
       ELECTRON_RUN_AS_NODE: '1'
     })

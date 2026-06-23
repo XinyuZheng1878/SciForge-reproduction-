@@ -27,6 +27,76 @@ const COMPUTER_USE_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/computer-use/src/contract.ts'
 ]
 
+const SEARCH_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/search/package.json',
+  'packages/workers/search/src/cli.ts',
+  'packages/workers/search/src/mcp-server.ts',
+  'packages/workers/search/src/research-service.ts',
+  'packages/workers/search/src/types.ts'
+]
+
+const SCHEDULE_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/schedule/package.json',
+  'packages/workers/schedule/src/cli.ts',
+  'packages/workers/schedule/src/mcp-server.ts',
+  'packages/workers/schedule/src/service.ts',
+  'packages/workers/schedule/src/contract.ts'
+]
+
+const WORKFLOW_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/workflow/package.json',
+  'packages/workers/workflow/src/cli.ts',
+  'packages/workers/workflow/src/mcp-server.ts',
+  'packages/workers/workflow/src/service.ts',
+  'packages/workers/workflow/src/contract.ts'
+]
+
+const WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/workspace-intel/package.json',
+  'packages/workers/workspace-intel/src/cli.ts',
+  'packages/workers/workspace-intel/src/mcp-server.ts',
+  'packages/workers/workspace-intel/src/service.ts',
+  'packages/workers/workspace-intel/src/contract.ts'
+]
+
+const WRITE_ASSIST_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/write-assist/package.json',
+  'packages/workers/write-assist/src/cli.ts',
+  'packages/workers/write-assist/src/mcp-server.ts',
+  'packages/workers/write-assist/src/service.ts',
+  'packages/workers/write-assist/src/contract.ts'
+]
+
+const PAPER_RADAR_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/paper-radar/package.json',
+  'packages/workers/paper-radar/src/cli.ts',
+  'packages/workers/paper-radar/src/mcp-server.ts',
+  'packages/workers/paper-radar/src/service.ts',
+  'packages/workers/paper-radar/src/contract.ts',
+  'plugins/paper-radar-service/package.json',
+  'plugins/paper-radar-service/src/storage.ts',
+  'plugins/paper-radar-service/src/profiles.ts'
+]
+
+const RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/runtime-inspector/package.json',
+  'packages/workers/runtime-inspector/src/cli.ts',
+  'packages/workers/runtime-inspector/src/mcp-server.ts',
+  'packages/workers/runtime-inspector/src/service.ts',
+  'packages/workers/runtime-inspector/src/contract.ts'
+]
+
+const MCP_NODE_ENTRY_REQUIRED_PATHS = [
+  'out/main/claw-schedule-mcp-node-entry.js',
+  'out/main/computer-use-mcp-node-entry.js',
+  'out/main/research-search-mcp-node-entry.js',
+  'out/main/workflow-mcp-node-entry.js',
+  'out/main/workspace-intel-mcp-node-entry.js',
+  'out/main/write-assist-mcp-node-entry.js',
+  'out/main/paper-radar-mcp-node-entry.js',
+  'out/main/runtime-inspector-mcp-node-entry.js'
+]
+
 function normalizePlatform(platform) {
   return platform === 'win' ? 'win32' : platform
 }
@@ -44,6 +114,10 @@ function packedResourcesDir(context) {
 
 function unpackedAppRoot(context) {
   return join(packedResourcesDir(context), 'app.asar.unpacked')
+}
+
+function projectRoot(context) {
+  return context.packager?.projectDir || process.cwd()
 }
 
 function assertExists(path, label) {
@@ -115,6 +189,62 @@ function validateBundledComputerUseRuntime(context) {
   }
 }
 
+function validateBundledSearchRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of SEARCH_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
+function validateBundledScheduleRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of SCHEDULE_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
+function validateBundledWorkflowRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of WORKFLOW_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
+function validateBundledWorkspaceIntelRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
+function validateBundledWriteAssistRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of WRITE_ASSIST_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
+function validateBundledPaperRadarRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of PAPER_RADAR_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
+function validateBundledRuntimeInspectorRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
+function validateBuiltMcpNodeEntries(context) {
+  const root = projectRoot(context)
+  for (const relativePath of MCP_NODE_ENTRY_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
 function maybeAdhocSignMacApp(context) {
   if (normalizePlatform(context.electronPlatformName) !== 'darwin') {
     return
@@ -147,20 +277,45 @@ async function afterPack(context) {
   validateBundledKunRuntime(context)
   validateBundledModelRouterRuntime(context)
   validateBundledComputerUseRuntime(context)
+  validateBundledSearchRuntime(context)
+  validateBundledScheduleRuntime(context)
+  validateBundledWorkflowRuntime(context)
+  validateBundledWorkspaceIntelRuntime(context)
+  validateBundledWriteAssistRuntime(context)
+  validateBundledPaperRadarRuntime(context)
+  validateBundledRuntimeInspectorRuntime(context)
+  validateBuiltMcpNodeEntries(context)
   maybeAdhocSignMacApp(context)
 }
 
 exports.KUN_RUNTIME_REQUIRED_PATHS = KUN_RUNTIME_REQUIRED_PATHS
 exports.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS = MODEL_ROUTER_RUNTIME_REQUIRED_PATHS
 exports.COMPUTER_USE_RUNTIME_REQUIRED_PATHS = COMPUTER_USE_RUNTIME_REQUIRED_PATHS
+exports.SEARCH_RUNTIME_REQUIRED_PATHS = SEARCH_RUNTIME_REQUIRED_PATHS
+exports.SCHEDULE_RUNTIME_REQUIRED_PATHS = SCHEDULE_RUNTIME_REQUIRED_PATHS
+exports.WORKFLOW_RUNTIME_REQUIRED_PATHS = WORKFLOW_RUNTIME_REQUIRED_PATHS
+exports.WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS = WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS
+exports.WRITE_ASSIST_RUNTIME_REQUIRED_PATHS = WRITE_ASSIST_RUNTIME_REQUIRED_PATHS
+exports.PAPER_RADAR_RUNTIME_REQUIRED_PATHS = PAPER_RADAR_RUNTIME_REQUIRED_PATHS
+exports.RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS = RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS
+exports.MCP_NODE_ENTRY_REQUIRED_PATHS = MCP_NODE_ENTRY_REQUIRED_PATHS
 exports._internals = {
   appBundlePath,
   packedResourcesDir,
   unpackedAppRoot,
+  projectRoot,
   npmCommand,
   prunePackedKunDependencies,
   validateBundledKunRuntime,
   validateBundledModelRouterRuntime,
-  validateBundledComputerUseRuntime
+  validateBundledComputerUseRuntime,
+  validateBundledSearchRuntime,
+  validateBundledScheduleRuntime,
+  validateBundledWorkflowRuntime,
+  validateBundledWorkspaceIntelRuntime,
+  validateBundledWriteAssistRuntime,
+  validateBundledPaperRadarRuntime,
+  validateBundledRuntimeInspectorRuntime,
+  validateBuiltMcpNodeEntries
 }
 exports.default = afterPack

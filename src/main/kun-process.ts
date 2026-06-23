@@ -39,6 +39,7 @@ import {
 } from '../../kun/src/contracts/capabilities.js'
 import {
   buildClawScheduleMcpArgs,
+  GUI_SCHEDULE_INTERNAL_SECRET_ENV,
   GUI_SCHEDULE_MCP_SERVER_NAME,
   resolveClawScheduleMcpCommand,
   resolveKunMcpJsonPath,
@@ -59,6 +60,46 @@ import {
   resolveComputerUseMcpCommand,
   type ComputerUseMcpLaunchConfig
 } from './computer-use-mcp-config'
+import {
+  buildWorkflowMcpArgs,
+  GUI_WORKFLOW_INTERNAL_SECRET_ENV,
+  GUI_WORKFLOW_MCP_SERVER_NAME,
+  resolveWorkflowMcpCommand,
+  type WorkflowMcpLaunchConfig,
+  workflowMcpEnv
+} from './workflow-mcp-config'
+import {
+  buildWorkspaceIntelMcpArgs,
+  GUI_WORKSPACE_INTEL_MCP_SERVER_NAME,
+  resolveWorkspaceIntelMcpCommand,
+  type WorkspaceIntelMcpLaunchConfig,
+  workspaceIntelMcpEnv
+} from './workspace-intel-mcp-config'
+import {
+  buildPaperRadarMcpArgs,
+  GUI_PAPER_RADAR_MCP_SERVER_NAME,
+  paperRadarMcpEnv,
+  resolvePaperRadarMcpCommand,
+  type PaperRadarMcpLaunchConfig
+} from './paper-radar-mcp-config'
+import {
+  buildWriteAssistMcpArgs,
+  GUI_WRITE_ASSIST_MCP_SERVER_NAME,
+  resolveWriteAssistMcpCommand,
+  type WriteAssistMcpLaunchConfig,
+  writeAssistMcpEnv
+} from './write-assist-mcp-config'
+import {
+  buildRuntimeInspectorMcpArgs,
+  GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME,
+  resolveRuntimeInspectorMcpCommand,
+  runtimeInspectorMcpEnv,
+  type RuntimeInspectorMcpLaunchConfig
+} from './runtime-inspector-mcp-config'
+import {
+  paperRadarDbPath,
+  paperRadarProfilesPath
+} from './paper-radar-sidecar'
 import { defaultKunDataDir } from './runtime/kun-adapter'
 import { isKunHealthResponseBody } from './kun-health'
 import { appendManagedLogLine } from './logger'
@@ -328,6 +369,48 @@ async function startKunChildOnce(
         isPackaged: app.isPackaged
       }
     },
+    workflowMcp: {
+      settings,
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+    },
+    workspaceIntelMcp: {
+      settings,
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+    },
+    paperRadarMcp: {
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged,
+        dbPath: paperRadarDbPath(app.getPath('userData')),
+        profilesPath: paperRadarProfilesPath(app.getPath('userData'))
+      }
+    },
+    writeAssistMcp: {
+      settings,
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+    },
+    runtimeInspectorMcp: {
+      settings,
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged,
+        checkpointDataDir: app.getPath('userData')
+      }
+    },
     computerUseMcp: {
       launch: {
         appPath: app.getAppPath(),
@@ -359,7 +442,8 @@ async function startKunChildOnce(
       ...kunRuntimeEnv(process.env),
       ELECTRON_RUN_AS_NODE: '1',
       KUN_RUNTIME_TOKEN: runtime.runtimeToken,
-      KUN_MODEL_ROUTER_API_KEY: runtime.apiKey
+      KUN_MODEL_ROUTER_API_KEY: runtime.apiKey,
+      ...runtimeSecretEnv(settings)
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false
@@ -414,6 +498,17 @@ async function startKunChildOnce(
   )
 }
 
+function runtimeSecretEnv(settings: AppSettingsV1): NodeJS.ProcessEnv {
+  return {
+    ...(settings.schedule.internal.secret.trim()
+      ? { [GUI_SCHEDULE_INTERNAL_SECRET_ENV]: settings.schedule.internal.secret.trim() }
+      : {}),
+    ...(settings.workflow.webhookSecret.trim()
+      ? { [GUI_WORKFLOW_INTERNAL_SECRET_ENV]: settings.workflow.webhookSecret.trim() }
+      : {})
+  }
+}
+
 export async function syncGuiManagedKunConfig(
   dataDir: string,
   runtime: Pick<
@@ -428,6 +523,25 @@ export async function syncGuiManagedKunConfig(
     }
     researchMcp?: {
       launch: ResearchSearchMcpLaunchConfig
+    }
+    workflowMcp?: {
+      settings: AppSettingsV1
+      launch: WorkflowMcpLaunchConfig
+    }
+    workspaceIntelMcp?: {
+      settings: AppSettingsV1
+      launch: WorkspaceIntelMcpLaunchConfig
+    }
+    paperRadarMcp?: {
+      launch: PaperRadarMcpLaunchConfig
+    }
+    writeAssistMcp?: {
+      settings: AppSettingsV1
+      launch: WriteAssistMcpLaunchConfig
+    }
+    runtimeInspectorMcp?: {
+      settings: AppSettingsV1
+      launch: RuntimeInspectorMcpLaunchConfig
     }
     computerUseMcp?: {
       launch: ComputerUseMcpLaunchConfig
@@ -498,6 +612,11 @@ export async function syncGuiManagedKunConfig(
         ...(
           options?.scheduleMcp ||
           options?.researchMcp ||
+          options?.workflowMcp ||
+          options?.workspaceIntelMcp ||
+          options?.paperRadarMcp ||
+          options?.writeAssistMcp ||
+          options?.runtimeInspectorMcp ||
           hasEnabledComputerUseMcp ||
           mcpSearch.enabled ||
           hasImportedEnabledMcpServerAfterManagedOverrides
@@ -522,6 +641,65 @@ export async function syncGuiManagedKunConfig(
                 {
                   ...objectValue(importedMcpServers[GUI_RESEARCH_MCP_SERVER_NAME]),
                   ...objectValue(mcpServers[GUI_RESEARCH_MCP_SERVER_NAME])
+                }
+              )
+            }
+          : {}),
+          ...(options?.workflowMcp
+          ? {
+              [GUI_WORKFLOW_MCP_SERVER_NAME]: buildGuiWorkflowKunMcpServer(
+                options.workflowMcp.settings,
+                options.workflowMcp.launch,
+                {
+                  ...objectValue(importedMcpServers[GUI_WORKFLOW_MCP_SERVER_NAME]),
+                  ...objectValue(mcpServers[GUI_WORKFLOW_MCP_SERVER_NAME])
+                }
+              )
+            }
+          : {}),
+          ...(options?.workspaceIntelMcp
+          ? {
+              [GUI_WORKSPACE_INTEL_MCP_SERVER_NAME]: buildGuiWorkspaceIntelKunMcpServer(
+                options.workspaceIntelMcp.settings,
+                options.workspaceIntelMcp.launch,
+                {
+                  ...objectValue(importedMcpServers[GUI_WORKSPACE_INTEL_MCP_SERVER_NAME]),
+                  ...objectValue(mcpServers[GUI_WORKSPACE_INTEL_MCP_SERVER_NAME])
+                }
+              )
+            }
+          : {}),
+          ...(options?.paperRadarMcp
+          ? {
+              [GUI_PAPER_RADAR_MCP_SERVER_NAME]: buildGuiPaperRadarKunMcpServer(
+                options.paperRadarMcp.launch,
+                {
+                  ...objectValue(importedMcpServers[GUI_PAPER_RADAR_MCP_SERVER_NAME]),
+                  ...objectValue(mcpServers[GUI_PAPER_RADAR_MCP_SERVER_NAME])
+                }
+              )
+            }
+          : {}),
+          ...(options?.writeAssistMcp
+          ? {
+              [GUI_WRITE_ASSIST_MCP_SERVER_NAME]: buildGuiWriteAssistKunMcpServer(
+                options.writeAssistMcp.settings,
+                options.writeAssistMcp.launch,
+                {
+                  ...objectValue(importedMcpServers[GUI_WRITE_ASSIST_MCP_SERVER_NAME]),
+                  ...objectValue(mcpServers[GUI_WRITE_ASSIST_MCP_SERVER_NAME])
+                }
+              )
+            }
+          : {}),
+          ...(options?.runtimeInspectorMcp
+          ? {
+              [GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME]: buildGuiRuntimeInspectorKunMcpServer(
+                options.runtimeInspectorMcp.settings,
+                options.runtimeInspectorMcp.launch,
+                {
+                  ...objectValue(importedMcpServers[GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME]),
+                  ...objectValue(mcpServers[GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME])
                 }
               )
             }
@@ -601,6 +779,90 @@ function buildGuiResearchKunMcpServer(
     command: resolveResearchSearchMcpCommand(launch),
     args: buildResearchSearchMcpArgs(launch),
     env: researchSearchMcpEnv(process.env, stringRecordValue(existing.env)),
+    trustScope: 'user',
+    timeoutMs: 30_000
+  }
+}
+
+function buildGuiWorkflowKunMcpServer(
+  settings: AppSettingsV1,
+  launch: WorkflowMcpLaunchConfig,
+  existing: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...existing,
+    enabled: true,
+    transport: 'stdio',
+    command: resolveWorkflowMcpCommand(launch),
+    args: buildWorkflowMcpArgs(settings, launch),
+    env: workflowMcpEnv(stringRecordValue(existing.env)),
+    trustScope: 'user',
+    timeoutMs: 30_000
+  }
+}
+
+function buildGuiWorkspaceIntelKunMcpServer(
+  settings: AppSettingsV1,
+  launch: WorkspaceIntelMcpLaunchConfig,
+  existing: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...existing,
+    enabled: true,
+    transport: 'stdio',
+    command: resolveWorkspaceIntelMcpCommand(launch),
+    args: buildWorkspaceIntelMcpArgs(settings, launch),
+    env: workspaceIntelMcpEnv(stringRecordValue(existing.env)),
+    trustScope: 'user',
+    timeoutMs: 30_000
+  }
+}
+
+function buildGuiPaperRadarKunMcpServer(
+  launch: PaperRadarMcpLaunchConfig,
+  existing: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...existing,
+    enabled: true,
+    transport: 'stdio',
+    command: resolvePaperRadarMcpCommand(launch),
+    args: buildPaperRadarMcpArgs(launch),
+    env: paperRadarMcpEnv(stringRecordValue(existing.env)),
+    trustScope: 'user',
+    timeoutMs: 30_000
+  }
+}
+
+function buildGuiWriteAssistKunMcpServer(
+  settings: AppSettingsV1,
+  launch: WriteAssistMcpLaunchConfig,
+  existing: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...existing,
+    enabled: true,
+    transport: 'stdio',
+    command: resolveWriteAssistMcpCommand(launch),
+    args: buildWriteAssistMcpArgs(settings, launch),
+    env: writeAssistMcpEnv(stringRecordValue(existing.env)),
+    trustScope: 'user',
+    timeoutMs: 30_000
+  }
+}
+
+function buildGuiRuntimeInspectorKunMcpServer(
+  settings: AppSettingsV1,
+  launch: RuntimeInspectorMcpLaunchConfig,
+  existing: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...existing,
+    enabled: true,
+    transport: 'stdio',
+    command: resolveRuntimeInspectorMcpCommand(launch),
+    args: buildRuntimeInspectorMcpArgs(settings, launch),
+    env: runtimeInspectorMcpEnv(stringRecordValue(existing.env)),
     trustScope: 'user',
     timeoutMs: 30_000
   }

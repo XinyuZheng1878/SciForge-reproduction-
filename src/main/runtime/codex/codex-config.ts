@@ -17,12 +17,55 @@ import {
   type ResearchSearchMcpLaunchConfig
 } from '../../research-search-mcp-config'
 import {
+  buildClawScheduleMcpArgs,
+  GUI_SCHEDULE_INTERNAL_SECRET_ENV,
+  GUI_SCHEDULE_MCP_SERVER_NAME,
+  resolveClawScheduleMcpCommand,
+  type ClawScheduleMcpLaunchConfig
+} from '../../claw-schedule-mcp-config'
+import {
   buildComputerUseMcpArgs,
   computerUseMcpEnvForLaunch,
   GUI_COMPUTER_USE_MCP_SERVER_NAME,
   resolveComputerUseMcpCommand,
   type ComputerUseMcpLaunchConfig
 } from '../../computer-use-mcp-config'
+import {
+  buildWorkflowMcpArgs,
+  GUI_WORKFLOW_INTERNAL_SECRET_ENV,
+  GUI_WORKFLOW_MCP_SERVER_NAME,
+  resolveWorkflowMcpCommand,
+  type WorkflowMcpLaunchConfig,
+  workflowMcpEnv
+} from '../../workflow-mcp-config'
+import {
+  buildWorkspaceIntelMcpArgs,
+  GUI_WORKSPACE_INTEL_MCP_SERVER_NAME,
+  resolveWorkspaceIntelMcpCommand,
+  type WorkspaceIntelMcpLaunchConfig,
+  workspaceIntelMcpEnv
+} from '../../workspace-intel-mcp-config'
+import {
+  buildPaperRadarMcpArgs,
+  GUI_PAPER_RADAR_MCP_SERVER_NAME,
+  paperRadarMcpEnv,
+  resolvePaperRadarMcpCommand,
+  type PaperRadarMcpLaunchConfig
+} from '../../paper-radar-mcp-config'
+import {
+  buildWriteAssistMcpArgs,
+  GUI_WRITE_ASSIST_MCP_SERVER_NAME,
+  resolveWriteAssistMcpCommand,
+  type WriteAssistMcpLaunchConfig,
+  writeAssistMcpEnv
+} from '../../write-assist-mcp-config'
+import {
+  buildRuntimeInspectorMcpArgs,
+  GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME,
+  resolveRuntimeInspectorMcpCommand,
+  runtimeInspectorMcpEnv,
+  type RuntimeInspectorMcpLaunchConfig
+} from '../../runtime-inspector-mcp-config'
 
 const RUNTIME_API_KEY_ENV = 'SCIFORGE_RUNTIME_API_KEY'
 const LEGACY_RUNTIME_API_KEY_ENV = 'DEEPSEEK_GUI_RUNTIME_API_KEY'
@@ -76,7 +119,13 @@ export async function prepareCodexAppServerLaunch(options: {
   workspace?: string
   env?: NodeJS.ProcessEnv
   managedCodexHome?: string
+  scheduleMcpLaunch?: ClawScheduleMcpLaunchConfig
   researchMcpLaunch?: ResearchSearchMcpLaunchConfig
+  workflowMcpLaunch?: WorkflowMcpLaunchConfig
+  workspaceIntelMcpLaunch?: WorkspaceIntelMcpLaunchConfig
+  paperRadarMcpLaunch?: PaperRadarMcpLaunchConfig
+  writeAssistMcpLaunch?: WriteAssistMcpLaunchConfig
+  runtimeInspectorMcpLaunch?: RuntimeInspectorMcpLaunchConfig
   computerUseMcpLaunch?: ComputerUseMcpLaunchConfig
 }): Promise<CodexAppServerLaunchConfig> {
   const runtime = getCodexRuntimeSettings(options.settings)
@@ -93,7 +142,14 @@ export async function prepareCodexAppServerLaunch(options: {
   await prepareManagedCodexHome(
     codexHome,
     modelRouter,
+    options.settings,
+    options.scheduleMcpLaunch,
     options.researchMcpLaunch,
+    options.workflowMcpLaunch,
+    options.workspaceIntelMcpLaunch,
+    options.paperRadarMcpLaunch,
+    options.writeAssistMcpLaunch,
+    options.runtimeInspectorMcpLaunch,
     computerUseMcpLaunch,
     options.env ?? process.env
   )
@@ -101,7 +157,19 @@ export async function prepareCodexAppServerLaunch(options: {
     command,
     args: ['app-server', '--listen', 'stdio://', ...codexAppServerExtraArgs(runtime.extraArgs)],
     cwd,
-    env: codexRuntimeEnv(options.env ?? process.env, codexHome, modelRouter.apiKey),
+    env: codexRuntimeEnv(
+      options.env ?? process.env,
+      codexHome,
+      modelRouter.apiKey,
+      {
+        ...(options.scheduleMcpLaunch && options.settings.schedule.internal.secret.trim()
+          ? { [GUI_SCHEDULE_INTERNAL_SECRET_ENV]: options.settings.schedule.internal.secret.trim() }
+          : {}),
+        ...(options.workflowMcpLaunch && options.settings.workflow.webhookSecret.trim()
+          ? { [GUI_WORKFLOW_INTERNAL_SECRET_ENV]: options.settings.workflow.webhookSecret.trim() }
+          : {})
+      }
+    ),
     codexHome
   }
 }
@@ -128,11 +196,13 @@ export function resolveCodexWorkspace(settings: AppSettingsV1, workspace?: strin
 export function codexRuntimeEnv(
   baseEnv: NodeJS.ProcessEnv,
   codexHome: string,
-  runtimeApiKey?: string
+  runtimeApiKey?: string,
+  localSecrets: Record<string, string> = {}
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...baseEnv,
-    CODEX_HOME: codexHome
+    CODEX_HOME: codexHome,
+    ...localSecrets
   }
   delete env.CODEX_USER_HOME
   delete env.CODEX_CONFIG_HOME
@@ -189,7 +259,14 @@ function isUpstreamProviderConfigEnv(key: string): boolean {
 async function prepareManagedCodexHome(
   codexHome: string,
   modelRouter: CodexModelRouterConfig,
+  settings: AppSettingsV1,
+  scheduleMcpLaunch: ClawScheduleMcpLaunchConfig | undefined,
   researchMcpLaunch: ResearchSearchMcpLaunchConfig | undefined,
+  workflowMcpLaunch: WorkflowMcpLaunchConfig | undefined,
+  workspaceIntelMcpLaunch: WorkspaceIntelMcpLaunchConfig | undefined,
+  paperRadarMcpLaunch: PaperRadarMcpLaunchConfig | undefined,
+  writeAssistMcpLaunch: WriteAssistMcpLaunchConfig | undefined,
+  runtimeInspectorMcpLaunch: RuntimeInspectorMcpLaunchConfig | undefined,
   computerUseMcpLaunch: ComputerUseMcpLaunchConfig | undefined,
   env: NodeJS.ProcessEnv
 ): Promise<void> {
@@ -199,7 +276,19 @@ async function prepareManagedCodexHome(
   )
   await writeFile(
     join(codexHome, 'config.toml'),
-    codexConfigToml(modelRouter, researchMcpLaunch, computerUseMcpLaunch, env),
+    codexConfigToml(
+      modelRouter,
+      settings,
+      scheduleMcpLaunch,
+      researchMcpLaunch,
+      workflowMcpLaunch,
+      workspaceIntelMcpLaunch,
+      paperRadarMcpLaunch,
+      writeAssistMcpLaunch,
+      runtimeInspectorMcpLaunch,
+      computerUseMcpLaunch,
+      env
+    ),
     'utf8'
   )
 }
@@ -234,7 +323,14 @@ function codexModelRouterConfig(settings: AppSettingsV1): CodexModelRouterConfig
 
 function codexConfigToml(
   modelRouter: CodexModelRouterConfig,
+  settings: AppSettingsV1,
+  scheduleMcpLaunch: ClawScheduleMcpLaunchConfig | undefined,
   researchMcpLaunch: ResearchSearchMcpLaunchConfig | undefined,
+  workflowMcpLaunch: WorkflowMcpLaunchConfig | undefined,
+  workspaceIntelMcpLaunch: WorkspaceIntelMcpLaunchConfig | undefined,
+  paperRadarMcpLaunch: PaperRadarMcpLaunchConfig | undefined,
+  writeAssistMcpLaunch: WriteAssistMcpLaunchConfig | undefined,
+  runtimeInspectorMcpLaunch: RuntimeInspectorMcpLaunchConfig | undefined,
   computerUseMcpLaunch: ComputerUseMcpLaunchConfig | undefined,
   env: NodeJS.ProcessEnv
 ): string {
@@ -247,10 +343,29 @@ function codexConfigToml(
     `base_url = "${tomlString(modelRouter.baseUrl)}"`,
     `env_key = "${RUNTIME_API_KEY_ENV}"`,
     'wire_api = "responses"',
+    ...(scheduleMcpLaunch ? codexScheduleMcpServerToml(settings, scheduleMcpLaunch) : []),
     ...(researchMcpLaunch ? codexResearchMcpServerToml(researchMcpLaunch, env) : []),
+    ...(workflowMcpLaunch ? codexWorkflowMcpServerToml(settings, workflowMcpLaunch) : []),
+    ...(workspaceIntelMcpLaunch ? codexWorkspaceIntelMcpServerToml(settings, workspaceIntelMcpLaunch) : []),
+    ...(paperRadarMcpLaunch ? codexPaperRadarMcpServerToml(paperRadarMcpLaunch) : []),
+    ...(writeAssistMcpLaunch ? codexWriteAssistMcpServerToml(settings, writeAssistMcpLaunch) : []),
+    ...(runtimeInspectorMcpLaunch ? codexRuntimeInspectorMcpServerToml(settings, runtimeInspectorMcpLaunch) : []),
     ...(computerUseMcpLaunch ? codexComputerUseMcpServerToml(computerUseMcpLaunch) : []),
     ''
   ].join('\n')
+}
+
+function codexScheduleMcpServerToml(
+  settings: AppSettingsV1,
+  launch: ClawScheduleMcpLaunchConfig
+): string[] {
+  return [
+    '',
+    `[mcp_servers.${GUI_SCHEDULE_MCP_SERVER_NAME}]`,
+    `command = "${tomlString(resolveClawScheduleMcpCommand(launch))}"`,
+    `args = ${tomlStringArray(buildClawScheduleMcpArgs(settings, launch))}`,
+    'env = { ELECTRON_RUN_AS_NODE = "1" }'
+  ]
 }
 
 function codexResearchMcpServerToml(
@@ -263,6 +378,70 @@ function codexResearchMcpServerToml(
     `command = "${tomlString(resolveResearchSearchMcpCommand(launch))}"`,
     `args = ${tomlStringArray(buildResearchSearchMcpArgs(launch))}`,
     `env = ${tomlInlineStringTable(researchSearchMcpEnv(env))}`
+  ]
+}
+
+function codexWorkflowMcpServerToml(
+  settings: AppSettingsV1,
+  launch: WorkflowMcpLaunchConfig
+): string[] {
+  return [
+    '',
+    `[mcp_servers.${GUI_WORKFLOW_MCP_SERVER_NAME}]`,
+    `command = "${tomlString(resolveWorkflowMcpCommand(launch))}"`,
+    `args = ${tomlStringArray(buildWorkflowMcpArgs(settings, launch))}`,
+    `env = ${tomlInlineStringTable(workflowMcpEnv())}`
+  ]
+}
+
+function codexWorkspaceIntelMcpServerToml(
+  settings: AppSettingsV1,
+  launch: WorkspaceIntelMcpLaunchConfig
+): string[] {
+  return [
+    '',
+    `[mcp_servers.${GUI_WORKSPACE_INTEL_MCP_SERVER_NAME}]`,
+    `command = "${tomlString(resolveWorkspaceIntelMcpCommand(launch))}"`,
+    `args = ${tomlStringArray(buildWorkspaceIntelMcpArgs(settings, launch))}`,
+    `env = ${tomlInlineStringTable(workspaceIntelMcpEnv())}`
+  ]
+}
+
+function codexPaperRadarMcpServerToml(
+  launch: PaperRadarMcpLaunchConfig
+): string[] {
+  return [
+    '',
+    `[mcp_servers.${GUI_PAPER_RADAR_MCP_SERVER_NAME}]`,
+    `command = "${tomlString(resolvePaperRadarMcpCommand(launch))}"`,
+    `args = ${tomlStringArray(buildPaperRadarMcpArgs(launch))}`,
+    `env = ${tomlInlineStringTable(paperRadarMcpEnv())}`
+  ]
+}
+
+function codexWriteAssistMcpServerToml(
+  settings: AppSettingsV1,
+  launch: WriteAssistMcpLaunchConfig
+): string[] {
+  return [
+    '',
+    `[mcp_servers.${GUI_WRITE_ASSIST_MCP_SERVER_NAME}]`,
+    `command = "${tomlString(resolveWriteAssistMcpCommand(launch))}"`,
+    `args = ${tomlStringArray(buildWriteAssistMcpArgs(settings, launch))}`,
+    `env = ${tomlInlineStringTable(writeAssistMcpEnv())}`
+  ]
+}
+
+function codexRuntimeInspectorMcpServerToml(
+  settings: AppSettingsV1,
+  launch: RuntimeInspectorMcpLaunchConfig
+): string[] {
+  return [
+    '',
+    `[mcp_servers.${GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME}]`,
+    `command = "${tomlString(resolveRuntimeInspectorMcpCommand(launch))}"`,
+    `args = ${tomlStringArray(buildRuntimeInspectorMcpArgs(settings, launch))}`,
+    `env = ${tomlInlineStringTable(runtimeInspectorMcpEnv())}`
   ]
 }
 

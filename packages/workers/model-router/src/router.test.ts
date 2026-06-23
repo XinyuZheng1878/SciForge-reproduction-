@@ -27,6 +27,7 @@ test('public manifest exposes only the Model Router worker contract', async () =
     const serialized = JSON.stringify(body);
 
     assert.equal(body.workerId, 'sciforge.model-router');
+    assert.equal(body.workerVersion, '0.1.0');
     assert.match(serialized, /refs_first_trace/);
     assert.match(serialized, /refs-first/);
     assert.match(serialized, /\/v1\/responses/);
@@ -396,6 +397,20 @@ test('healthz reports provider readiness without leaking private bindings', asyn
     const serialized = JSON.stringify(body);
 
     assert.equal(body.ok, true);
+    assert.equal(body.version, '0.1.0');
+    assert.equal(body.transport, 'http');
+    assert.deepEqual(body.health, {
+      status: 'healthy',
+      available: true,
+    });
+    assert.equal(body.recentError, null);
+    assert.deepEqual(body.capabilities, [
+      'model_router_responses',
+      'model_router_messages',
+      'text_reasoning',
+      'vision_translation',
+      'refs_first_trace',
+    ]);
     assert.deepEqual(body.upstream, {
       category: 'ready',
       ok: true,
@@ -425,6 +440,21 @@ test('healthz blocks missing provider credentials without leaking binding names'
     const serialized = JSON.stringify(body);
 
     assert.equal(body.ok, false);
+    assert.equal(body.version, '0.1.0');
+    assert.equal(body.transport, 'http');
+    assert.deepEqual(body.health, {
+      status: 'unhealthy',
+      available: false,
+      reason: 'provider-auth',
+    });
+    assert.equal(body.recentError, 'provider-auth');
+    assert.deepEqual(body.capabilities, [
+      'model_router_responses',
+      'model_router_messages',
+      'text_reasoning',
+      'vision_translation',
+      'refs_first_trace',
+    ]);
     assert.deepEqual(body.upstream, {
       category: 'provider-auth',
       ok: false,

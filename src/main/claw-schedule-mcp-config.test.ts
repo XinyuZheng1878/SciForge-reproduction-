@@ -114,9 +114,7 @@ describe('claw schedule MCP config', () => {
           resolveClawScheduleMcpNodeEntryPath(launch),
           '--gui-schedule-mcp-server',
           '--base-url',
-          'http://127.0.0.1:9787',
-          '--secret',
-          'top-secret'
+          'http://127.0.0.1:9787'
         ],
         env: {
           ELECTRON_RUN_AS_NODE: '1'

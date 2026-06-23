@@ -190,6 +190,87 @@ describe('codex config launch helpers', () => {
     expect(config).toContain('SCIFORGE_RESEARCH_TIMEOUT_MS = "12000"')
   })
 
+  it('writes the shared schedule MCP server into managed Codex config', async () => {
+    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const launch = await prepareCodexAppServerLaunch({
+      settings: {
+        ...settings(codexHome),
+        schedule: {
+          ...defaultScheduleSettings(),
+          internal: {
+            port: 9797,
+            secret: 'schedule-secret'
+          }
+        }
+      },
+      scheduleMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      }
+    })
+
+    expect(launch.codexHome).toBe(codexHome)
+    expect(launch.env.GUI_SCHEDULE_INTERNAL_SECRET).toBe('schedule-secret')
+    const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    expect(config).toContain('[mcp_servers.gui_schedule]')
+    expect(config).toContain('command = "/tmp/deepseek-gui-test-app/SciForge"')
+    expect(config).toContain('args = ["/tmp/deepseek-gui-test-app/out/main/claw-schedule-mcp-node-entry.js", "--gui-schedule-mcp-server", "--base-url", "http://127.0.0.1:9797"]')
+    expect(config).toContain('ELECTRON_RUN_AS_NODE = "1"')
+    expect(config).not.toContain('schedule-secret')
+  })
+
+  it('writes the shared workflow MCP server into managed Codex config', async () => {
+    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const launch = await prepareCodexAppServerLaunch({
+      settings: {
+        ...settings(codexHome),
+        workflow: {
+          ...defaultWorkflowSettings(),
+          enabled: true,
+          webhookPort: 9898,
+          webhookSecret: 'workflow-secret'
+        }
+      },
+      workflowMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      }
+    })
+
+    expect(launch.codexHome).toBe(codexHome)
+    expect(launch.env.GUI_WORKFLOW_INTERNAL_SECRET).toBe('workflow-secret')
+    const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    expect(config).toContain('[mcp_servers.gui_workflow]')
+    expect(config).toContain('command = "/tmp/deepseek-gui-test-app/SciForge"')
+    expect(config).toContain('args = ["/tmp/deepseek-gui-test-app/out/main/workflow-mcp-node-entry.js", "--gui-workflow-mcp-server", "--base-url", "http://127.0.0.1:9898"]')
+    expect(config).toContain('ELECTRON_RUN_AS_NODE = "1"')
+    expect(config).not.toContain('workflow-secret')
+  })
+
+  it('writes the shared workspace intel MCP server into managed Codex config', async () => {
+    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const launch = await prepareCodexAppServerLaunch({
+      settings: {
+        ...settings(codexHome),
+        workspaceRoot: '/tmp/codex-workspace'
+      },
+      workspaceIntelMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      }
+    })
+
+    expect(launch.codexHome).toBe(codexHome)
+    const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    expect(config).toContain('[mcp_servers.gui_workspace_intel]')
+    expect(config).toContain('command = "/tmp/deepseek-gui-test-app/SciForge"')
+    expect(config).toContain('args = ["/tmp/deepseek-gui-test-app/out/main/workspace-intel-mcp-node-entry.js", "--gui-workspace-intel-mcp-server", "--include-global-skills", "--workspace-root", "/tmp/codex-workspace"]')
+    expect(config).toContain('ELECTRON_RUN_AS_NODE = "1"')
+  })
+
   it('writes the shared computer-use MCP server into managed Codex config', async () => {
     const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
     const launch = await prepareCodexAppServerLaunch({

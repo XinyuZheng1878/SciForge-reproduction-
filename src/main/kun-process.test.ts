@@ -491,9 +491,7 @@ describe('syncGuiManagedKunConfig', () => {
         '/tmp/deepseek-gui-test-app/out/main/claw-schedule-mcp-node-entry.js',
         '--gui-schedule-mcp-server',
         '--base-url',
-        'http://127.0.0.1:9788',
-        '--secret',
-        'top-secret'
+        'http://127.0.0.1:9788'
       ],
       env: {
         ELECTRON_RUN_AS_NODE: '1'
@@ -526,6 +524,92 @@ describe('syncGuiManagedKunConfig', () => {
       args: [
         '/tmp/deepseek-gui-test-app/out/main/research-search-mcp-node-entry.js',
         '--gui-research-mcp-server'
+      ],
+      env: {
+        ELECTRON_RUN_AS_NODE: '1'
+      },
+      trustScope: 'user',
+      timeoutMs: 30000
+    })
+  })
+
+  it('adds the shared workflow MCP server to Kun runtime capabilities', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    const module = await import('./kun-process')
+    const settings = {
+      ...createSettings('/tmp/fake-kun-child.js'),
+      workflow: {
+        ...defaultWorkflowSettings(),
+        enabled: true,
+        webhookPort: 9898,
+        webhookSecret: 'workflow-secret'
+      }
+    }
+
+    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+      workflowMcp: {
+        settings,
+        launch: {
+          appPath: '/tmp/deepseek-gui-test-app',
+          execPath: '/tmp/electron',
+          isPackaged: false
+        }
+      }
+    })
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.mcp.enabled).toBe(true)
+    expect(parsed.capabilities.mcp.servers.gui_workflow).toMatchObject({
+      enabled: true,
+      transport: 'stdio',
+      command: '/tmp/electron',
+      args: [
+        '/tmp/deepseek-gui-test-app/out/main/workflow-mcp-node-entry.js',
+        '--gui-workflow-mcp-server',
+        '--base-url',
+        'http://127.0.0.1:9898'
+      ],
+      env: {
+        ELECTRON_RUN_AS_NODE: '1'
+      },
+      trustScope: 'user',
+      timeoutMs: 30000
+    })
+  })
+
+  it('adds the shared workspace intel MCP server to Kun runtime capabilities', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    const module = await import('./kun-process')
+    const settings = {
+      ...createSettings('/tmp/fake-kun-child.js'),
+      workspaceRoot: '/tmp/workspace-intel-root'
+    }
+
+    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+      workspaceIntelMcp: {
+        settings,
+        launch: {
+          appPath: '/tmp/deepseek-gui-test-app',
+          execPath: '/tmp/electron',
+          isPackaged: false
+        }
+      }
+    })
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.mcp.enabled).toBe(true)
+    expect(parsed.capabilities.mcp.servers.gui_workspace_intel).toMatchObject({
+      enabled: true,
+      transport: 'stdio',
+      command: '/tmp/electron',
+      args: [
+        '/tmp/deepseek-gui-test-app/out/main/workspace-intel-mcp-node-entry.js',
+        '--gui-workspace-intel-mcp-server',
+        '--include-global-skills',
+        '--workspace-root',
+        '/tmp/workspace-intel-root'
       ],
       env: {
         ELECTRON_RUN_AS_NODE: '1'

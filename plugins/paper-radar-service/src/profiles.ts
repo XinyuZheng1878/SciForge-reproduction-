@@ -12,10 +12,16 @@ export const DEFAULT_PROFILE: TopicProfile = {
   biorxivSubjects: ['bioinformatics', 'genomics', 'systems biology'],
 };
 
+export interface ProfileStoreOptions {
+  persistDefault?: boolean;
+}
+
 export class ProfileStore {
   private profiles = new Map<string, TopicProfile>();
+  private readonly persistDefault: boolean;
 
-  constructor(private readonly path: string) {
+  constructor(private readonly path: string, options: ProfileStoreOptions = {}) {
+    this.persistDefault = options.persistDefault ?? true;
     this.load();
   }
 
@@ -28,7 +34,7 @@ export class ProfileStore {
   }
 
   upsert(profile: TopicProfile): TopicProfile {
-    const normalized = normalizeProfile(profile);
+    const normalized = normalizeTopicProfile(profile);
     this.profiles.set(normalized.name, normalized);
     this.save();
     return normalized;
@@ -48,7 +54,7 @@ export class ProfileStore {
     }
     if (!this.profiles.has(DEFAULT_PROFILE.name)) {
       this.profiles.set(DEFAULT_PROFILE.name, DEFAULT_PROFILE);
-      this.save();
+      if (this.persistDefault) this.save();
     }
   }
 
@@ -62,7 +68,7 @@ function parseProfile(value: unknown): TopicProfile | null {
   if (!value || typeof value !== 'object') return null;
   const record = value as Partial<TopicProfile>;
   if (!record.name || typeof record.name !== 'string') return null;
-  return normalizeProfile({
+  return normalizeTopicProfile({
     name: record.name,
     description: typeof record.description === 'string' ? record.description : undefined,
     keywords: arrayOfStrings(record.keywords),
@@ -72,7 +78,7 @@ function parseProfile(value: unknown): TopicProfile | null {
   });
 }
 
-function normalizeProfile(profile: TopicProfile): TopicProfile {
+export function normalizeTopicProfile(profile: TopicProfile): TopicProfile {
   return {
     name: safeName(profile.name),
     ...(profile.description?.trim() ? { description: profile.description.trim() } : {}),

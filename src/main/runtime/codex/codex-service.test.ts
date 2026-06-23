@@ -806,8 +806,211 @@ describe('CodexRuntimeService compatibility operations', () => {
     })
     expect(callTool).toHaveBeenCalledWith(
       { name: 'research.search', arguments: { query: 'agentic RL' } },
-      { signal: undefined, timeout: 30_000 }
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
     )
+  })
+
+  it('aborts active dynamic MCP worker requests when a Codex turn is interrupted', async () => {
+    const client = controllableClient()
+    let pendingServerRequests: CodexAppServerPendingRequestRegistryOptions | undefined
+    const started = deferred<void>()
+    const callTool: CodexDynamicMcpClient['callTool'] = vi.fn((_input, options) => {
+      started.resolve()
+      return new Promise((_, reject) => {
+        options?.signal?.addEventListener('abort', () => {
+          reject(options.signal?.reason ?? new Error('aborted'))
+        }, { once: true })
+      })
+    })
+    const mcpClient: CodexDynamicMcpClient = {
+      listTools: vi.fn(async () => ({
+        tools: [{
+          name: 'slow_tool',
+          description: 'Slow worker request.',
+          inputSchema: { type: 'object', properties: {} }
+        }]
+      })),
+      callTool,
+      close: vi.fn(async () => undefined)
+    }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      managedMcpServers: [{ id: 'research', command: '/bin/research-mcp' }],
+      mcpClientFactory: async () => mcpClient,
+      createClient: (options) => {
+        pendingServerRequests = options.pendingServerRequests as CodexAppServerPendingRequestRegistryOptions
+        return client
+      }
+    })
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'run slow tool' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+    const pendingTool = pendingServerRequests?.onToolCallRequest?.({
+      requestId: 'tool-request-1',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tool: 'slow_tool',
+      arguments: {}
+    })
+    await started.promise
+
+    await expect(service.interruptTurn('thread-1', 'turn-1')).resolves.toEqual({ ok: true })
+    await expect(pendingTool).resolves.toMatchObject({ success: false })
+    expect(client.interruptTurn).toHaveBeenCalledWith({ threadId: 'thread-1', turnId: 'turn-1' })
+  })
+
+  it('advertises the shared schedule MCP server as Codex dynamic tools', async () => {
+    const client = controllableClient()
+    const codexHome = await tempRoot()
+    const seenServers: Array<{ id: string; command: string; args?: string[] }> = []
+    const mcpClient: CodexDynamicMcpClient = {
+      listTools: vi.fn(async () => ({
+        tools: [{
+          name: 'gui_schedule_list',
+          description: 'List schedule tasks.',
+          inputSchema: { type: 'object', properties: {} }
+        }]
+      })),
+      callTool: vi.fn(async () => ({
+        content: [{ type: 'text', text: 'schedule-ok' }]
+      })),
+      close: vi.fn(async () => undefined)
+    }
+    const service = new CodexRuntimeService({
+      settings: async () => ({
+        ...settings(),
+        schedule: {
+          ...defaultScheduleSettings(),
+          internal: { port: 9797, secret: '' }
+        }
+      }),
+      sink: { send: vi.fn() },
+      managedCodexHome: codexHome,
+      scheduleMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      },
+      mcpClientFactory: async (server) => {
+        seenServers.push(server)
+        return mcpClient
+      },
+      createClient: () => client
+    })
+
+    await expect(service.startThread({ title: 'Schedule MCP thread' })).resolves.toMatchObject({
+      ok: true
+    })
+
+    expect(seenServers).toEqual([
+      expect.objectContaining({
+        id: 'gui_schedule',
+        command: '/tmp/deepseek-gui-test-app/SciForge',
+        args: [
+          '/tmp/deepseek-gui-test-app/out/main/claw-schedule-mcp-node-entry.js',
+          '--gui-schedule-mcp-server',
+          '--base-url',
+          'http://127.0.0.1:9797'
+        ]
+      })
+    ])
+    expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      dynamicTools: [{
+        name: 'gui_schedule_list',
+        description: 'List schedule tasks.',
+        inputSchema: { type: 'object', properties: {} }
+      }],
+      developerInstructions: expect.stringContaining('specialized MCP tools')
+    }))
+  })
+
+  it('advertises shared workflow and workspace intel MCP servers as Codex dynamic tools', async () => {
+    const client = controllableClient()
+    const codexHome = await tempRoot()
+    const seenServers: Array<{ id: string; command: string; args?: string[]; enabledTools?: string[] }> = []
+    const service = new CodexRuntimeService({
+      settings: async () => ({
+        ...settings(),
+        workspaceRoot: '/tmp/codex-workspace',
+        workflow: {
+          ...defaultWorkflowSettings(),
+          enabled: true,
+          webhookPort: 9898,
+          webhookSecret: ''
+        }
+      }),
+      sink: { send: vi.fn() },
+      managedCodexHome: codexHome,
+      workflowMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      },
+      workspaceIntelMcpLaunch: {
+        appPath: '/tmp/deepseek-gui-test-app',
+        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        isPackaged: false
+      },
+      mcpClientFactory: async (server) => {
+        seenServers.push(server)
+        return {
+          listTools: vi.fn(async () => ({
+            tools: server.id === 'gui_workflow'
+              ? [{
+                  name: 'gui_workflow_list',
+                  description: 'List callable workflows.',
+                  inputSchema: { type: 'object', properties: {} }
+                }]
+              : [{
+                  name: 'gui_workspace_preview',
+                  description: 'Preview workspace content.',
+                  inputSchema: { type: 'object', properties: { path: { type: 'string' } } }
+                }]
+          })),
+          callTool: vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }] })),
+          close: vi.fn(async () => undefined)
+        }
+      },
+      createClient: () => client
+    })
+
+    await expect(service.startThread({ title: 'Workflow workspace MCP thread' })).resolves.toMatchObject({
+      ok: true
+    })
+
+    expect(seenServers).toEqual([
+      expect.objectContaining({
+        id: 'gui_workflow',
+        args: [
+          '/tmp/deepseek-gui-test-app/out/main/workflow-mcp-node-entry.js',
+          '--gui-workflow-mcp-server',
+          '--base-url',
+          'http://127.0.0.1:9898'
+        ],
+        enabledTools: expect.arrayContaining(['gui_workflow_list', 'gui_workflow_run'])
+      }),
+      expect.objectContaining({
+        id: 'gui_workspace_intel',
+        args: [
+          '/tmp/deepseek-gui-test-app/out/main/workspace-intel-mcp-node-entry.js',
+          '--gui-workspace-intel-mcp-server',
+          '--include-global-skills',
+          '--workspace-root',
+          '/tmp/codex-workspace'
+        ],
+        enabledTools: expect.arrayContaining(['gui_workspace_list', 'gui_workspace_preview'])
+      })
+    ])
+    expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      dynamicTools: expect.arrayContaining([
+        expect.objectContaining({ name: 'gui_workflow_list' }),
+        expect.objectContaining({ name: 'gui_workspace_preview' })
+      ]),
+      developerInstructions: expect.stringContaining('specialized MCP tools')
+    }))
   })
 
   it('forces Codex thread starts through the managed Model Router provider', async () => {

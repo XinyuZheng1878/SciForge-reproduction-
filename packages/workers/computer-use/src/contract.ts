@@ -26,6 +26,41 @@ export type ComputerUseAction =
   | 'key'
   | 'wait'
 
+export const COMPUTER_USE_WORKER_VERSION = '0.1.0'
+export const COMPUTER_USE_WORKER_TRANSPORT = 'stdio'
+export const COMPUTER_USE_WORKER_CAPABILITIES = [
+  'list_targets',
+  'bind_target',
+  'release_target',
+  'diagnostics',
+  'screenshot',
+  'cursor_position',
+  'mouse_move',
+  'click',
+  'drag',
+  'scroll',
+  'type',
+  'key',
+  'wait'
+] as const satisfies readonly ComputerUseAction[]
+
+export type ComputerUseWorkerTransport = typeof COMPUTER_USE_WORKER_TRANSPORT
+export type ComputerUseWorkerHealthStatus = 'healthy' | 'degraded' | 'unhealthy'
+
+export type ComputerUseWorkerHealth = {
+  status: ComputerUseWorkerHealthStatus
+  available: boolean
+  reason?: string
+}
+
+export type ComputerUseWorkerDiagnostics = {
+  version: string
+  transport: ComputerUseWorkerTransport
+  health: ComputerUseWorkerHealth
+  recentError?: string
+  capabilities: ComputerUseAction[]
+}
+
 export type ComputerUseTargetKind = 'desktop' | 'app' | 'window'
 
 export type ComputerUseMouseButton = 'left' | 'right' | 'middle'

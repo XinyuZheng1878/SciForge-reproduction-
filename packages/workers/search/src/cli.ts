@@ -1,9 +1,9 @@
 import { startResearchSearchMcpServer } from './mcp-server.js';
-import { createResearchSearchService, researchSearchConfigFromEnv } from './research-service.js';
+import { createResearchSearchWorkerService, researchSearchConfigFromEnv } from './service.js';
 
 const quiet = process.argv.includes('--quiet');
 const config = researchSearchConfigFromEnv();
-const service = createResearchSearchService(config);
+const service = createResearchSearchWorkerService(config);
 
 if (!quiet) {
   console.error('[sciforge-research-search] starting MCP stdio server');

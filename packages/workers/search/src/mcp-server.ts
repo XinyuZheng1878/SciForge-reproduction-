@@ -3,12 +3,20 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import {
-  createResearchSearchService,
-  type ResearchSearchService
-} from './research-service.js';
+  createResearchSearchWorkerService,
+  researchSearchWorkerDiagnosticsFromProviders
+} from './service.js';
+import type { ResearchSearchService } from './research-service.js';
+import type { ResearchSearchWorkerDiagnostics } from './contract.js';
 import type { ResearchDomain, ResearchIntent, ResearchSourceKind } from './types.js';
 
-export function createResearchSearchMcpServer(service: ResearchSearchService = createResearchSearchService()): McpServer {
+type ResearchSearchMcpService = Pick<ResearchSearchService, 'config' | 'configuredDiagnostics' | 'search'> & {
+  diagnostics?: () => ResearchSearchWorkerDiagnostics;
+};
+
+export function createResearchSearchMcpServer(
+  service: ResearchSearchMcpService = createResearchSearchWorkerService()
+): McpServer {
   const server = new McpServer(
     { name: 'sciforge-research-search', version: '0.1.0' },
     { capabilities: { logging: {} } }
@@ -58,10 +66,27 @@ export function createResearchSearchMcpServer(service: ResearchSearchService = c
     }
   });
 
+  server.registerTool('research_search_diagnostics', {
+    description: 'Report SciForge research search worker diagnostics, enabled providers, transport, version, recent error, and capabilities.',
+    inputSchema: {}
+  }, async () => {
+    const diagnostics = service.diagnostics?.()
+      ?? researchSearchWorkerDiagnosticsFromProviders(service.configuredDiagnostics());
+    return {
+      content: [{
+        type: 'text',
+        text: renderWorkerDiagnostics(diagnostics)
+      }],
+      structuredContent: diagnostics
+    };
+  });
+
   return server;
 }
 
-export async function startResearchSearchMcpServer(service: ResearchSearchService = createResearchSearchService()): Promise<void> {
+export async function startResearchSearchMcpServer(
+  service: ResearchSearchMcpService = createResearchSearchWorkerService()
+): Promise<void> {
   const server = createResearchSearchMcpServer(service);
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -78,5 +103,17 @@ function renderResearchSummary(result: Awaited<ReturnType<ResearchSearchService[
     `Found ${paperCount} paper result(s) and ${webCount} web result(s).`,
     `Intent: ${result.interpretedIntent.intent}; domain: ${result.interpretedIntent.domain}.`,
     providers ? `Providers: ${providers}.` : ''
+  ].filter(Boolean).join(' ');
+}
+
+function renderWorkerDiagnostics(diagnostics: ResearchSearchWorkerDiagnostics): string {
+  const enabled = diagnostics.providers
+    .filter((provider) => provider.enabled)
+    .map((provider) => `${provider.id}:${provider.available ? 'ok' : 'unavailable'}`)
+    .join(', ');
+  return [
+    `Research search worker ${diagnostics.version} is ${diagnostics.health.status} over ${diagnostics.transport}.`,
+    enabled ? `Providers: ${enabled}.` : 'Providers: none enabled.',
+    diagnostics.recentError ? `Recent error: ${diagnostics.recentError}.` : ''
   ].filter(Boolean).join(' ');
 }

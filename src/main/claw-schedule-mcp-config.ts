@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, posix } from 'node:path'
 import type { AppSettingsV1 } from '../shared/app-settings'
+import { GUI_SCHEDULE_MCP_LAUNCH_FLAG } from './claw-schedule-mcp-server'
 
 const CLAW_SCHEDULE_MCP_MARKER_START = '# SciForge plugin:mcp:claw-schedule START'
 const CLAW_SCHEDULE_MCP_MARKER_END = '# SciForge plugin:mcp:claw-schedule END'
@@ -9,6 +10,7 @@ export const GUI_SCHEDULE_MCP_SERVER_NAME = 'gui_schedule'
 const LEGACY_CLAW_SCHEDULE_MCP_SERVER_NAME = 'claw_schedule'
 const GUI_SCHEDULE_MCP_NODE_ENTRY = 'out/main/claw-schedule-mcp-node-entry.js'
 const ELECTRON_RUN_AS_NODE_ENV = { ELECTRON_RUN_AS_NODE: '1' }
+export const GUI_SCHEDULE_INTERNAL_SECRET_ENV = 'GUI_SCHEDULE_INTERNAL_SECRET'
 
 type JsonRecord = Record<string, unknown>
 
@@ -49,14 +51,10 @@ export function buildClawScheduleMcpArgs(
 ): string[] {
   const args: string[] = [
     resolveClawScheduleMcpNodeEntryPath(launch),
-    '--gui-schedule-mcp-server',
+    GUI_SCHEDULE_MCP_LAUNCH_FLAG,
     '--base-url',
     `http://127.0.0.1:${settings.schedule.internal.port}`
   ]
-  const secret = settings.schedule.internal.secret.trim()
-  if (secret) {
-    args.push('--secret', secret)
-  }
   return args
 }
 
