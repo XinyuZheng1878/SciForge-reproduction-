@@ -111,17 +111,6 @@ import {
   evidenceDagServiceUrlFromEnv,
   evidenceDagUiUrl
 } from '../../shared/evidence-dag'
-import {
-  digestPaperRadar,
-  getPaperRadarStatus,
-  listPaperRadarProfiles,
-  rankPaperRadar,
-  savePaperRadarProfile,
-  searchPaperRadar,
-  syncPaperRadarArxiv,
-  syncPaperRadarBiorxiv,
-  syncPaperRadarProfile
-} from '../paper-radar-sidecar'
 import type {
   AgentRuntimeAuxiliaryInput,
   AgentRuntimeCapabilities,
@@ -159,6 +148,7 @@ import type { JsonSettingsStore } from '../settings-store'
 import type { ClawRuntime } from '../claw-runtime'
 import type { DiscordBotRuntime } from '../discord-bot-runtime'
 import type { ScheduleRuntime } from '../schedule-runtime'
+import type { PaperRadarWorkerService } from '../services/paper-radar-worker-service'
 import { checkWorkflowCode, type WorkflowRuntime } from '../workflow-runtime'
 import { createAndSwitchGitBranch, getGitBranches, switchGitBranch } from '../services/git-service'
 import {
@@ -278,7 +268,7 @@ type RegisterAppIpcHandlersOptions = {
   pollWeixinInstall: (deviceCode: string, weixinBridgeUrl?: string) => Promise<ClawImInstallPollResult>
   resolveKunConfigPath: () => string
   openModelRouterConfigFile: (settings: AppSettingsV1) => Promise<ModelRouterConfigOpenResult>
-  ensurePaperRadarSidecar?: () => Promise<void>
+  getPaperRadarService?: () => PaperRadarWorkerService | null
   onKunMcpConfigWritten?: (path: string, content: string) => Promise<void> | void
   showTurnCompleteNotification: (
     payload: TurnCompleteNotificationPayload
@@ -552,16 +542,16 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
-  const ensurePaperRadarForRequest = async (): Promise<void> => {
-    if (!options.ensurePaperRadarSidecar) {
+  const requirePaperRadarService = (): PaperRadarWorkerService => {
+    const service = options.getPaperRadarService?.()
+    if (!service) {
       throw new Error('Paper Radar is not available in this build.')
     }
-    await options.ensurePaperRadarSidecar()
+    return service
   }
 
   const paperRadarRequest = async <T>(request: () => Promise<PaperRadarApiResult<T>>): Promise<PaperRadarApiResult<T>> => {
     try {
-      await ensurePaperRadarForRequest()
       return await request()
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -570,42 +560,41 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
 
   handleInvoke('paperRadar:status', async () => {
     try {
-      await ensurePaperRadarForRequest()
-      return getPaperRadarStatus()
+      return await requirePaperRadarService().status()
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) }
     }
   })
   handleInvoke('paperRadar:sync-arxiv', async (_, payload: unknown) => {
     const input = parseIpcPayload('paperRadar:sync-arxiv', paperRadarArxivSyncPayloadSchema, payload ?? {})
-    return paperRadarRequest(() => syncPaperRadarArxiv(input))
+    return paperRadarRequest(() => requirePaperRadarService().syncArxiv(input))
   })
   handleInvoke('paperRadar:sync-biorxiv', async (_, payload: unknown) => {
     const input = parseIpcPayload('paperRadar:sync-biorxiv', paperRadarBiorxivSyncPayloadSchema, payload ?? {})
-    return paperRadarRequest(() => syncPaperRadarBiorxiv(input))
+    return paperRadarRequest(() => requirePaperRadarService().syncBiorxiv(input))
   })
   handleInvoke('paperRadar:sync-profile', async (_, payload: unknown) => {
     const input = parseIpcPayload('paperRadar:sync-profile', paperRadarProfileSyncPayloadSchema, payload ?? {})
-    return paperRadarRequest(() => syncPaperRadarProfile(input))
+    return paperRadarRequest(() => requirePaperRadarService().syncProfile(input))
   })
   handleInvoke('paperRadar:profiles:list', async () =>
-    paperRadarRequest(() => listPaperRadarProfiles())
+    paperRadarRequest(() => requirePaperRadarService().listProfiles())
   )
   handleInvoke('paperRadar:profiles:save', async (_, payload: unknown) => {
     const input = parseIpcPayload('paperRadar:profiles:save', paperRadarProfilePayloadSchema, payload ?? {})
-    return paperRadarRequest(() => savePaperRadarProfile(input))
+    return paperRadarRequest(() => requirePaperRadarService().saveProfile(input))
   })
   handleInvoke('paperRadar:search', async (_, payload: unknown) => {
     const input = parseIpcPayload('paperRadar:search', paperRadarSearchPayloadSchema, payload ?? {})
-    return paperRadarRequest(() => searchPaperRadar(input))
+    return paperRadarRequest(() => requirePaperRadarService().search(input))
   })
   handleInvoke('paperRadar:rank', async (_, payload: unknown) => {
     const input = parseIpcPayload('paperRadar:rank', paperRadarRankPayloadSchema, payload ?? {})
-    return paperRadarRequest(() => rankPaperRadar(input))
+    return paperRadarRequest(() => requirePaperRadarService().rank(input))
   })
   handleInvoke('paperRadar:digest', async (_, payload: unknown) => {
     const input = parseIpcPayload('paperRadar:digest', paperRadarDigestPayloadSchema, payload ?? {})
-    return paperRadarRequest(() => digestPaperRadar(input))
+    return paperRadarRequest(() => requirePaperRadarService().digest(input))
   })
 
   handleInvoke('pdfAnnotations:load', async (_, payload: unknown) =>

@@ -61,6 +61,12 @@ type NodeOutcome = {
   threadId?: string
 }
 
+type WorkflowInternalValidateIssue = {
+  code: string
+  message: string
+  path?: string
+}
+
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
@@ -194,6 +200,10 @@ function safeJson(value: unknown): string {
 function stringField(record: Record<string, unknown>, key: string): string {
   const value = record[key]
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function uniqueWorkflowId(base: string, usedIds: Set<string>): string {
@@ -714,6 +724,108 @@ function missingRequiredInput(schema: WorkflowInputFieldV1[] | undefined, input:
   return null
 }
 
+function workflowInputFieldsForAgent(schema: WorkflowInputFieldV1[] | undefined): Array<Record<string, unknown>> {
+  return (schema ?? []).map((field) => ({
+    key: field.key,
+    type: field.type,
+    required: field.required,
+    description: field.description || field.label,
+    label: field.label || undefined,
+    options: field.options.length > 0 ? field.options : undefined,
+    defaultValue: field.defaultValue || undefined
+  }))
+}
+
+function manualTriggerInputSchema(workflow: WorkflowV1): WorkflowInputFieldV1[] | undefined {
+  const manual = workflow.nodes.find((node) => node.type === 'manual-trigger')
+  return manual?.type === 'manual-trigger' ? manual.config.inputSchema : undefined
+}
+
+function validateWorkflowImportDocumentForInternal(value: unknown): WorkflowInternalValidateIssue[] {
+  const issues: WorkflowInternalValidateIssue[] = []
+  if (!isRecord(value)) {
+    return [{ code: 'invalid_workflow_document', message: 'Workflow document must be an object.' }]
+  }
+  if (!stringField(value, 'name')) {
+    issues.push({ code: 'invalid_workflow_document', message: 'Workflow document must include a name.', path: 'name' })
+  }
+  if (!Array.isArray(value.nodes) || value.nodes.length === 0) {
+    issues.push({ code: 'invalid_workflow_document', message: 'Workflow document must include at least one node.', path: 'nodes' })
+  } else {
+    value.nodes.slice(0, 200).forEach((node, index) => {
+      if (!isRecord(node)) {
+        issues.push({ code: 'invalid_workflow_document', message: 'Workflow node must be an object.', path: `nodes.${index}` })
+        return
+      }
+      if (!stringField(node, 'id')) {
+        issues.push({ code: 'invalid_workflow_document', message: 'Workflow node must include an id.', path: `nodes.${index}.id` })
+      }
+      if (!stringField(node, 'type')) {
+        issues.push({ code: 'invalid_workflow_document', message: 'Workflow node must include a type.', path: `nodes.${index}.type` })
+      }
+    })
+  }
+  if (value.connections !== undefined && !Array.isArray(value.connections)) {
+    issues.push({ code: 'invalid_workflow_document', message: 'Workflow connections must be an array.', path: 'connections' })
+  }
+  return issues
+}
+
+function validateWorkflowInputAgainstRuntimeSchema(
+  schema: WorkflowInputFieldV1[] | undefined,
+  input: unknown
+): WorkflowInternalValidateIssue[] {
+  const source = input && typeof input === 'object' && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {}
+  const issues: WorkflowInternalValidateIssue[] = []
+  for (const field of schema ?? []) {
+    const hasValue = Object.prototype.hasOwnProperty.call(source, field.key)
+    const value = source[field.key]
+    const hasDefault = field.defaultValue.trim().length > 0
+    if (field.required && (!hasValue || value === undefined || value === null || value === '') && !hasDefault) {
+      issues.push({
+        code: 'missing_required_input',
+        message: `Missing required input: ${field.key}`,
+        path: field.key
+      })
+      continue
+    }
+    if (hasValue && value !== undefined && value !== null && value !== '') {
+      const typeIssue = validateWorkflowInputFieldValue(field, value)
+      if (typeIssue) issues.push(typeIssue)
+    }
+  }
+  return issues
+}
+
+function validateWorkflowInputFieldValue(
+  field: WorkflowInputFieldV1,
+  value: unknown
+): WorkflowInternalValidateIssue | null {
+  switch (field.type) {
+    case 'number':
+      return typeof value === 'number'
+        ? null
+        : { code: 'invalid_input_type', message: `Input ${field.key} must be a number.`, path: field.key }
+    case 'boolean':
+      return typeof value === 'boolean'
+        ? null
+        : { code: 'invalid_input_type', message: `Input ${field.key} must be a boolean.`, path: field.key }
+    case 'select':
+      return field.options.length > 0 && !field.options.includes(String(value))
+        ? { code: 'invalid_input_option', message: `Input ${field.key} must be one of: ${field.options.join(', ')}.`, path: field.key }
+        : null
+    case 'json':
+      return null
+    case 'text':
+    case 'paragraph':
+      return typeof value === 'string'
+        ? null
+        : { code: 'invalid_input_type', message: `Input ${field.key} must be a string.`, path: field.key }
+  }
+}
+
 /** Parse a JSON object out of an LLM reply, tolerating ```json fences and surrounding prose. */
 function extractJsonObject(raw: string): Record<string, unknown> | null {
   const text = raw
@@ -972,6 +1084,7 @@ export class WorkflowRuntime {
         pathname === '/workflow/internal/hook-run' ||
         pathname === '/workflow/internal/status' ||
         pathname === '/workflow/internal/stop' ||
+        pathname === '/workflow/internal/validate' ||
         pathname === '/workflow/internal/import' ||
         pathname === '/workflow/internal/export'
       ) {
@@ -1039,14 +1152,7 @@ export class WorkflowRuntime {
       const workflows = settings.workflow.workflows
         .filter((workflow) => workflow.enabled && workflow.callableByAgent)
         .map((workflow) => {
-          const manual = workflow.nodes.find((node) => node.type === 'manual-trigger')
-          const schema = manual?.type === 'manual-trigger' ? manual.config.inputSchema : undefined
-          const inputs = (schema ?? []).map((field) => ({
-            key: field.key,
-            type: field.type,
-            required: field.required,
-            description: field.description || field.label
-          }))
+          const inputs = workflowInputFieldsForAgent(manualTriggerInputSchema(workflow))
           return { id: workflow.id, name: workflow.name, description: summarizeWorkflowForAgent(workflow), inputs }
         })
       writeJson(res, 200, { ok: true, workflows })
@@ -1073,6 +1179,39 @@ export class WorkflowRuntime {
 
     const body = await readRequestBody(req)
     const parsed = parseJsonObject(body) ?? {}
+
+    if (pathname === '/workflow/internal/validate') {
+      if (parsed.workflow !== undefined && typeof parsed.workflow !== 'string') {
+        const issues = validateWorkflowImportDocumentForInternal(parsed.workflow)
+        writeJson(res, 200, {
+          ok: true,
+          valid: issues.length === 0,
+          issues
+        })
+        return
+      }
+
+      const idOrName = String(parsed.workflow ?? parsed.name ?? parsed.workflowId ?? '').trim()
+      if (!idOrName) {
+        writeJson(res, 400, { ok: false, message: 'Provide a workflow document, name, or id.' })
+        return
+      }
+      const workflow = this.findAgentCallableWorkflowByRef(settings, idOrName)
+      if (!workflow) {
+        writeJson(res, 404, { ok: false, message: `No agent-callable workflow matches "${idOrName}".` })
+        return
+      }
+      const inputSchema = manualTriggerInputSchema(workflow)
+      const issues = validateWorkflowInputAgainstRuntimeSchema(inputSchema, parsed.input)
+      writeJson(res, 200, {
+        ok: true,
+        valid: issues.length === 0,
+        workflowId: workflow.id,
+        issues,
+        inputSchema: workflowInputFieldsForAgent(inputSchema)
+      })
+      return
+    }
 
     if (pathname === '/workflow/internal/stop') {
       const runId = stringField(parsed, 'runId')
@@ -1161,6 +1300,11 @@ export class WorkflowRuntime {
     ) ?? null
   }
 
+  private findAgentCallableWorkflowByRef(settings: AppSettingsV1, idOrName: string): WorkflowV1 | null {
+    const workflow = this.findWorkflowByRef(settings, idOrName)
+    return workflow && workflow.enabled && workflow.callableByAgent ? workflow : null
+  }
+
   private findWorkflowRun(
     settings: AppSettingsV1,
     input: { runId?: string; workflowId?: string }
@@ -1210,10 +1354,7 @@ export class WorkflowRuntime {
     workspaceOverride?: string
   ): Promise<{ ok: boolean; status: WorkflowRunStatus; message: string; output: string; runId: string }> {
     const settings = await this.deps.store.load()
-    const lower = idOrName.toLowerCase()
-    const workflow = settings.workflow.workflows.find(
-      (item) => item.enabled && item.callableByAgent && (item.id === idOrName || item.name.toLowerCase() === lower)
-    )
+    const workflow = this.findAgentCallableWorkflowByRef(settings, idOrName)
     if (!workflow) {
       return { ok: false, status: 'error', message: `No agent-callable workflow matches "${idOrName}".`, output: '', runId: '' }
     }

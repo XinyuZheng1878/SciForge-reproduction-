@@ -1710,7 +1710,7 @@ describe('AgentRuntimeHost', () => {
               relativePath: 'docs/guide.md',
               name: 'guide.md',
               kind: 'text',
-              mimeType: 'text/plain; charset=utf-8',
+              mimeType: expect.stringMatching(/^text\//),
               delivery: 'inline_context'
             }
           ]

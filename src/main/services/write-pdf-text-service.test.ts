@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, symlink, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -63,5 +63,39 @@ describe('write PDF text service', () => {
       charStart: 0
     })
     expect(result.pages[0].text).toContain('PDF BM25 keyword retrieval context')
+  })
+
+  it('rejects path traversal, symlink escapes, and oversized PDFs before extraction', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'ds-gui-write-pdf-guard-'))
+    const workspaceRoot = join(tempRoot, 'workspace')
+    const outsideRoot = join(tempRoot, 'outside')
+    await mkdir(workspaceRoot, { recursive: true })
+    await mkdir(outsideRoot, { recursive: true })
+    await writeFile(join(outsideRoot, 'secret.pdf'), createSimpleTextPdf('outside secret'))
+    await symlink(join(outsideRoot, 'secret.pdf'), join(workspaceRoot, 'linked-secret.pdf'))
+
+    const traversal = await readWritePdfText({
+      workspaceRoot,
+      path: '../outside/secret.pdf'
+    })
+    expect(traversal.ok).toBe(false)
+
+    const symlinkRead = await readWritePdfText({
+      workspaceRoot,
+      path: 'linked-secret.pdf'
+    })
+    expect(symlinkRead.ok).toBe(false)
+
+    const largePdf = join(workspaceRoot, 'large.pdf')
+    await writeFile(largePdf, '%PDF-1.4\n', 'utf8')
+    await truncate(largePdf, 64 * 1024 * 1024 + 1)
+    const oversized = await readWritePdfText({
+      workspaceRoot,
+      path: 'large.pdf'
+    })
+    expect(oversized.ok).toBe(false)
+    if (!oversized.ok) {
+      expect(oversized.message).toContain('too large')
+    }
   })
 })

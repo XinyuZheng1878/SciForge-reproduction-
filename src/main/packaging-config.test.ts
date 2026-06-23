@@ -390,7 +390,6 @@ describe('electron-builder Kun packaging', () => {
   it('validates the unpacked Computer Use worker before release artifacts are created', () => {
     expect(afterPack.COMPUTER_USE_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
       'packages/workers/computer-use/package.json',
-      'packages/workers/computer-use/src/cli.ts',
       'packages/workers/computer-use/src/mcp-server.ts',
       'packages/workers/computer-use/src/service.ts',
       'packages/workers/computer-use/src/contract.ts'
@@ -419,7 +418,6 @@ describe('electron-builder Kun packaging', () => {
   it('validates the unpacked Search worker before release artifacts are created', () => {
     expect(afterPack.SEARCH_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
       'packages/workers/search/package.json',
-      'packages/workers/search/src/cli.ts',
       'packages/workers/search/src/mcp-server.ts',
       'packages/workers/search/src/research-service.ts',
       'packages/workers/search/src/types.ts'
@@ -448,7 +446,6 @@ describe('electron-builder Kun packaging', () => {
   it('validates the unpacked Schedule worker before release artifacts are created', () => {
     expect(afterPack.SCHEDULE_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
       'packages/workers/schedule/package.json',
-      'packages/workers/schedule/src/cli.ts',
       'packages/workers/schedule/src/mcp-server.ts',
       'packages/workers/schedule/src/service.ts',
       'packages/workers/schedule/src/contract.ts'
@@ -477,7 +474,6 @@ describe('electron-builder Kun packaging', () => {
   it('validates the unpacked Workflow worker before release artifacts are created', () => {
     expect(afterPack.WORKFLOW_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
       'packages/workers/workflow/package.json',
-      'packages/workers/workflow/src/cli.ts',
       'packages/workers/workflow/src/mcp-server.ts',
       'packages/workers/workflow/src/service.ts',
       'packages/workers/workflow/src/contract.ts'
@@ -506,7 +502,6 @@ describe('electron-builder Kun packaging', () => {
   it('validates the unpacked Workspace Intel worker before release artifacts are created', () => {
     expect(afterPack.WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
       'packages/workers/workspace-intel/package.json',
-      'packages/workers/workspace-intel/src/cli.ts',
       'packages/workers/workspace-intel/src/mcp-server.ts',
       'packages/workers/workspace-intel/src/service.ts',
       'packages/workers/workspace-intel/src/contract.ts'
@@ -535,7 +530,6 @@ describe('electron-builder Kun packaging', () => {
   it('validates the unpacked Write Assist worker before release artifacts are created', () => {
     expect(afterPack.WRITE_ASSIST_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
       'packages/workers/write-assist/package.json',
-      'packages/workers/write-assist/src/cli.ts',
       'packages/workers/write-assist/src/mcp-server.ts',
       'packages/workers/write-assist/src/service.ts',
       'packages/workers/write-assist/src/contract.ts'
@@ -564,7 +558,6 @@ describe('electron-builder Kun packaging', () => {
   it('validates the unpacked Paper Radar worker and service dependency before release artifacts are created', () => {
     expect(afterPack.PAPER_RADAR_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
       'packages/workers/paper-radar/package.json',
-      'packages/workers/paper-radar/src/cli.ts',
       'packages/workers/paper-radar/src/mcp-server.ts',
       'packages/workers/paper-radar/src/service.ts',
       'packages/workers/paper-radar/src/contract.ts',
@@ -595,7 +588,6 @@ describe('electron-builder Kun packaging', () => {
   it('validates the unpacked Runtime Inspector worker before release artifacts are created', () => {
     expect(afterPack.RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
       'packages/workers/runtime-inspector/package.json',
-      'packages/workers/runtime-inspector/src/cli.ts',
       'packages/workers/runtime-inspector/src/mcp-server.ts',
       'packages/workers/runtime-inspector/src/service.ts',
       'packages/workers/runtime-inspector/src/contract.ts'
@@ -623,7 +615,7 @@ describe('electron-builder Kun packaging', () => {
 
   it('validates built MCP node entries before release artifacts are created', () => {
     expect(afterPack.MCP_NODE_ENTRY_REQUIRED_PATHS).toEqual(expect.arrayContaining([
-      'out/main/claw-schedule-mcp-node-entry.js',
+      'out/main/schedule-mcp-node-entry.js',
       'out/main/computer-use-mcp-node-entry.js',
       'out/main/research-search-mcp-node-entry.js',
       'out/main/workflow-mcp-node-entry.js',

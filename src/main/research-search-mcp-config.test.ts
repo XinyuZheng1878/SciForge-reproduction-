@@ -4,9 +4,8 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   buildSyncedResearchSearchMcpJson,
+  GUI_RESEARCH_MCP_SERVER_NAME,
   researchSearchMcpEnv,
-  resolveResearchSearchMcpCommand,
-  resolveResearchSearchMcpNodeEntryPath,
   syncResearchSearchMcpConfig,
   type ResearchSearchMcpLaunchConfig
 } from './research-search-mcp-config'
@@ -18,7 +17,7 @@ const launch: ResearchSearchMcpLaunchConfig = {
 }
 
 describe('research search MCP config', () => {
-  it('writes the gui_research server without dropping existing MCP servers', () => {
+  it('removes GUI-managed research servers from external Kun mcp.json without dropping other servers', () => {
     const synced = buildSyncedResearchSearchMcpJson(
       {
         timeouts: { connect_timeout: 1 },
@@ -28,6 +27,9 @@ describe('research search MCP config', () => {
             args: ['-y', '@upstash/context7-mcp'],
             env: {},
             url: null
+          },
+          [GUI_RESEARCH_MCP_SERVER_NAME]: {
+            command: 'old-gui-managed'
           }
         }
       },
@@ -37,20 +39,9 @@ describe('research search MCP config', () => {
     expect(synced.servers).toMatchObject({
       context7: {
         command: 'npx'
-      },
-      gui_research: {
-        command: resolveResearchSearchMcpCommand(launch),
-        args: [
-          resolveResearchSearchMcpNodeEntryPath(launch),
-          '--gui-research-mcp-server'
-        ],
-        env: {
-          ELECTRON_RUN_AS_NODE: '1'
-        },
-        enabled: true,
-        enabled_tools: ['research_search']
       }
     })
+    expect((synced.servers as Record<string, unknown>)[GUI_RESEARCH_MCP_SERVER_NAME]).toBeUndefined()
     expect(synced.timeouts).toEqual({ connect_timeout: 1 })
   })
 
@@ -79,14 +70,17 @@ describe('research search MCP config', () => {
       mcpJsonPath,
       JSON.stringify({
         servers: {
-          existing: {
-            command: '/bin/echo',
-            args: ['ok'],
-            env: {},
-            url: null
-          }
+        existing: {
+          command: '/bin/echo',
+          args: ['ok'],
+          env: {},
+          url: null
+        },
+        [GUI_RESEARCH_MCP_SERVER_NAME]: {
+          command: 'old-gui-managed'
         }
-      }),
+      }
+    }),
       'utf8'
     )
 
@@ -97,18 +91,9 @@ describe('research search MCP config', () => {
       servers: {
         existing: {
           command: '/bin/echo'
-        },
-        gui_research: {
-          command: resolveResearchSearchMcpCommand(launch),
-          args: [
-            resolveResearchSearchMcpNodeEntryPath(launch),
-            '--gui-research-mcp-server'
-          ],
-          env: {
-            ELECTRON_RUN_AS_NODE: '1'
-          }
         }
       }
     })
+    expect((json.servers as Record<string, unknown>)[GUI_RESEARCH_MCP_SERVER_NAME]).toBeUndefined()
   })
 })

@@ -359,7 +359,7 @@ function parseSseDataJsonDocuments(text: string): Array<{ value: unknown; path: 
     const match = /^data:\s*(.*)$/i.exec(line);
     if (!match) return;
     const payload = match[1].trim();
-    if (!payload || payload === '[DONE]' || !/^[{\[]/.test(payload)) return;
+    if (!payload || payload === '[DONE]' || !/^[{[]/.test(payload)) return;
     try {
       documents.push({ value: JSON.parse(payload) as unknown, path: `$.sse[${index}].data` });
     } catch {

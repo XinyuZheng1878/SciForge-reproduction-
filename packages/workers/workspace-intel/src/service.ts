@@ -1,5 +1,5 @@
 import type { Dirent, Stats } from 'node:fs'
-import { access, lstat, open as openFile, readFile, readdir, realpath, stat } from 'node:fs/promises'
+import { access, lstat, open as openFile, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import {
   basename,
@@ -87,6 +87,8 @@ const DEFAULT_IGNORED_DIRS = new Set([
   '.next',
   'coverage'
 ])
+
+const MAX_SKILL_METADATA_BYTES = 64 * 1024
 
 const IMAGE_MIME_BY_EXT = new Map([
   ['.png', 'image/png'],
@@ -842,7 +844,7 @@ async function loadSkill(packageRoot: string, guardRoot: string, scope: Workspac
   const safePackageRoot = await resolvePathWithinRoot(packageRoot, guardRoot, 'read_failed')
   const manifestPath = join(safePackageRoot, 'skill.json')
   if (await pathExists(manifestPath)) {
-    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    const manifest = JSON.parse(await readSkillMetadataText(manifestPath)) as Record<string, unknown>
     const name = stringValue(manifest.name) || titleFromSlug(basename(safePackageRoot))
     const entry = stringValue(manifest.entry) || 'SKILL.md'
     const entryPath = await resolvePathWithinRoot(resolve(safePackageRoot, normalizeUserPath(entry)), safePackageRoot, 'read_failed')
@@ -862,7 +864,7 @@ async function loadSkill(packageRoot: string, guardRoot: string, scope: Workspac
 
   const entryPath = join(safePackageRoot, 'SKILL.md')
   if (!await pathExists(entryPath)) return null
-  const content = await readFile(entryPath, 'utf8')
+  const content = await readSkillMetadataText(entryPath)
   const frontmatter = readFrontmatter(content)
   return internalSkill({
     id: slug(frontmatter.id || basename(safePackageRoot)),
@@ -875,6 +877,15 @@ async function loadSkill(packageRoot: string, guardRoot: string, scope: Workspac
     guardRoot: safePackageRoot,
     workspaceRoot
   })
+}
+
+async function readSkillMetadataText(path: string): Promise<string> {
+  const info = await stat(path)
+  if (info.isDirectory()) {
+    throw serviceError('is_directory', 'Skill metadata entry is a directory.', 'Choose a skill with a readable SKILL.md or skill.json file.')
+  }
+  const read = await readTextChunk(path, info, { maxBytes: MAX_SKILL_METADATA_BYTES })
+  return read.content
 }
 
 function internalSkill(input: {

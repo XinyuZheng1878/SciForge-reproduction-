@@ -11,14 +11,8 @@ import {
   type ApprovalPolicy,
   type SandboxMode
 } from '../../../shared/app-settings'
-import {
-  buildComputerUseMcpArgs,
-  COMPUTER_USE_MCP_TIMEOUT_MS,
-  computerUseMcpEnvForLaunch,
-  GUI_COMPUTER_USE_MCP_SERVER_NAME,
-  resolveComputerUseMcpCommand,
-  type ComputerUseMcpLaunchConfig
-} from '../../computer-use-mcp-config'
+import type { ComputerUseMcpLaunchConfig } from '../../computer-use-mcp-config'
+import { buildClaudeCodeManagedGuiMcpServers } from '../../gui-mcp-registry'
 
 const UPSTREAM_PROVIDER_SECRET_ENVS = [
   'OPENAI_API_KEY',
@@ -126,17 +120,9 @@ export async function prepareClaudeCodeSdkLaunch(options: {
 function claudeCodeMcpServers(
   computerUseMcpLaunch: ComputerUseMcpLaunchConfig | undefined
 ): NonNullable<ClaudeAgentSdkOptions['mcpServers']> {
-  if (!computerUseMcpLaunch) return {}
-  return {
-    [GUI_COMPUTER_USE_MCP_SERVER_NAME]: {
-      type: 'stdio',
-      command: resolveComputerUseMcpCommand(computerUseMcpLaunch),
-      args: buildComputerUseMcpArgs(computerUseMcpLaunch),
-      env: computerUseMcpEnvForLaunch(computerUseMcpLaunch),
-      timeout: COMPUTER_USE_MCP_TIMEOUT_MS,
-      alwaysLoad: true
-    }
-  }
+  return buildClaudeCodeManagedGuiMcpServers(
+    computerUseMcpLaunch ? { computerUseMcp: { launch: computerUseMcpLaunch } } : {}
+  )
 }
 
 export function resolveClaudeWorkspace(settings: AppSettingsV1, workspace?: string): string {

@@ -9,6 +9,18 @@ export const WORKSPACE_INTEL_DEFAULT_PREVIEW_CHARS = 8_000
 export const WORKSPACE_INTEL_DEFAULT_LIST_LIMIT = 200
 export const WORKSPACE_INTEL_MAX_LIST_LIMIT = 2_000
 export const WORKSPACE_INTEL_MAX_TREE_DEPTH = 12
+export const WorkspaceIntelToolNames = [
+  'gui_workspace_list',
+  'gui_workspace_tree',
+  'gui_workspace_read',
+  'gui_workspace_preview',
+  'gui_workspace_reference_list',
+  'gui_workspace_reference_preview',
+  'gui_workspace_skill_list',
+  'gui_workspace_skill_read'
+] as const
+
+export type WorkspaceIntelToolName = typeof WorkspaceIntelToolNames[number]
 
 export type WorkspaceIntelErrorCode =
   | 'workspace_root_required'

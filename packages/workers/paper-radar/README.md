@@ -20,7 +20,9 @@ When launched from the Electron main process, pass the existing sidecar paths fr
 
 ## Packaging
 
-This package is intentionally not wired into root workspace scripts in this change. The follow-up main-thread packaging step should add the worker package to root workspaces, node-entry/runtime injection, and packaged app include checks together. Runtime packaging must include both `packages/workers/paper-radar` and the existing `plugins/paper-radar-service` dependency because the worker reuses that service's storage, source parsing, profile, and ranking modules.
+This package is wired into the root workspace as `@sciforge/paper-radar` with root scripts for `paper-radar-mcp:start`, `paper-radar-mcp:test`, and `paper-radar-mcp:typecheck`.
+
+The Electron MCP entrypoint is `src/main/paper-radar-mcp-node-entry.ts`, built to `out/main/paper-radar-mcp-node-entry.js`. Main-process MCP launch config passes `--db` and `--profiles` so the worker uses the same userData storage as the Paper Radar GUI sidecar. Runtime packaging must include both `packages/workers/paper-radar` and the existing `plugins/paper-radar-service` dependency because the worker reuses that service's storage, source parsing, profile, and ranking modules. The packaged app validation checks those worker/service files and the node entry before release artifacts are created.
 
 ## Tools
 

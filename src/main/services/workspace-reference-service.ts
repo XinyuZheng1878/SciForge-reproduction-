@@ -1,28 +1,28 @@
-import { readdir, stat } from 'node:fs/promises'
-import { basename, join, relative } from 'node:path'
+import {
+  WORKSPACE_INTEL_MAX_LIST_LIMIT,
+  createWorkspaceIntelService,
+  type WorkspaceIntelFailure,
+  type WorkspaceReference,
+  type WorkspaceReferenceKind,
+  type WorkspaceReferencePreviewResult
+} from '../../../packages/workers/workspace-intel/src/index.js'
 import type {
   AgentRuntimeWorkspaceReference,
   AgentRuntimeWorkspaceReferencePreview
 } from '../../shared/agent-runtime-contract'
-import {
-  readWorkspaceFile,
-  readWorkspaceImage
-} from './workspace-files'
-import {
-  canonicalPath,
-  compareWorkspaceEntries,
-  extensionFromName,
-  normalizePathSeparators,
-  resolveOpenTargetPath,
-  resolveWorkspaceDirectory
-} from './workspace-paths'
 
 const MAX_DIRECTORY_CHILDREN = 300
 const MAX_SUMMARY_CHARS = 8_000
+const IGNORED_REFERENCE_NAMES = new Set(['.DS_Store', '.git', 'node_modules'])
 
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.avif', '.ico'])
+type WorkspaceReferencePreviewSuccess = Extract<WorkspaceReferencePreviewResult, { ok: true }>
 
 export class WorkspaceReferenceService {
+  private readonly workspaceIntel = createWorkspaceIntelService({
+    maxListEntries: WORKSPACE_INTEL_MAX_LIST_LIMIT,
+    maxPreviewChars: MAX_SUMMARY_CHARS
+  })
+
   async list(input: {
     workspaceRoot: string
     path?: string
@@ -30,16 +30,14 @@ export class WorkspaceReferenceService {
     limit?: number
   }): Promise<{ ok: true; references: AgentRuntimeWorkspaceReference[] } | { ok: false; message: string }> {
     try {
-      const workspaceRoot = await canonicalPath(input.workspaceRoot)
-      const root = await resolveWorkspaceDirectory({
-        workspaceRoot,
-        ...(input.path?.trim() ? { path: input.path.trim() } : {})
+      return await this.listReferences({
+        workspaceRoot: input.workspaceRoot,
+        path: input.path,
+        recursive: input.recursive === true,
+        limit: listLimit(input.limit)
       })
-      const limit = Math.max(1, Math.min(input.limit ?? MAX_DIRECTORY_CHILDREN, 2_000))
-      const references = await listReferences(workspaceRoot, root, input.recursive === true, limit)
-      return { ok: true, references }
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      return { ok: false, message: errorMessage(error) }
     }
   }
 
@@ -48,124 +46,141 @@ export class WorkspaceReferenceService {
     path: string
   }): Promise<{ ok: true; preview: AgentRuntimeWorkspaceReferencePreview } | { ok: false; message: string }> {
     try {
-      const workspaceRoot = await canonicalPath(input.workspaceRoot)
-      const targetPath = await resolveOpenTargetPath(input.path, workspaceRoot, { allowBasenameFallback: false })
-      const reference = await referenceForPath(workspaceRoot, targetPath)
-      if (reference.kind === 'directory') {
-        const children = await listReferences(workspaceRoot, targetPath, false, MAX_DIRECTORY_CHILDREN)
+      const result = await this.workspaceIntel.referencePreview({
+        workspaceRoot: input.workspaceRoot,
+        path: input.path,
+        maxChars: MAX_SUMMARY_CHARS
+      })
+      if (!result.ok) return failure(result)
+
+      const reference = toAgentRuntimeReference(result.workspaceRoot, result.reference, 'preview')
+      if (result.preview.kind === 'directory') {
+        const list = await this.listReferences({
+          workspaceRoot: result.workspaceRoot,
+          path: result.preview.relativePath,
+          recursive: false,
+          limit: MAX_DIRECTORY_CHILDREN
+        })
+        if (!list.ok) return list
         return {
           ok: true,
           preview: {
             reference,
-            contentSummary: `Directory with ${children.length} visible entries.`,
-            children
+            contentSummary: `Directory with ${list.references.length} visible entries.`,
+            children: list.references
           }
         }
       }
-      if (reference.kind === 'image') {
-        const image = await readWorkspaceImage({ path: targetPath, workspaceRoot })
-        return {
-          ok: true,
-          preview: {
-            reference,
-            contentSummary: image.ok
-              ? `Image ${reference.relativePath} (${image.mimeType}, ${formatBytes(image.size)}).`
-              : image.message
-          }
-        }
-      }
-      const result = await readWorkspaceFile({ path: targetPath, workspaceRoot })
-      if (!result.ok) return { ok: false, message: result.message }
-      if (result.kind === 'pdf') {
-        return {
-          ok: true,
-          preview: {
-            reference: { ...reference, kind: 'pdf', mimeType: result.mimeType, size: result.size },
-            contentSummary: `PDF ${reference.relativePath} (${formatBytes(result.size)}).`
-          }
-        }
-      }
-      const content = result.content.slice(0, MAX_SUMMARY_CHARS)
+
       return {
         ok: true,
-        preview: {
-          reference: { ...reference, kind: 'text', mimeType: result.mimeType, size: result.size },
-          contentSummary: summarizeText(content, result.truncated),
-          content,
-          truncated: result.truncated || result.content.length > MAX_SUMMARY_CHARS
-        }
+        preview: previewFromWorkspaceIntel(result, reference)
       }
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      return { ok: false, message: errorMessage(error) }
     }
+  }
+
+  private async listReferences(input: {
+    workspaceRoot: string
+    path?: string
+    recursive: boolean
+    limit: number
+  }): Promise<{ ok: true; references: AgentRuntimeWorkspaceReference[] } | { ok: false; message: string }> {
+    const references: AgentRuntimeWorkspaceReference[] = []
+    const pageLimit = Math.min(WORKSPACE_INTEL_MAX_LIST_LIMIT, Math.max(input.limit, MAX_DIRECTORY_CHILDREN))
+    let cursor: string | undefined
+
+    while (references.length < input.limit) {
+      const result = await this.workspaceIntel.referenceList({
+        workspaceRoot: input.workspaceRoot,
+        path: input.path,
+        recursive: input.recursive,
+        limit: pageLimit,
+        includeHidden: true,
+        ...(cursor ? { cursor } : {})
+      })
+      if (!result.ok) return failure(result)
+
+      for (const reference of result.references) {
+        if (!isVisibleReference(reference)) continue
+        references.push(toAgentRuntimeReference(result.workspaceRoot, reference, 'list'))
+        if (references.length >= input.limit) break
+      }
+
+      if (!result.nextCursor || result.nextCursor === cursor) break
+      cursor = result.nextCursor
+    }
+
+    return { ok: true, references }
   }
 }
 
-async function listReferences(
+function previewFromWorkspaceIntel(
+  result: WorkspaceReferencePreviewSuccess,
+  reference: AgentRuntimeWorkspaceReference
+): AgentRuntimeWorkspaceReferencePreview {
+  const preview = result.preview
+  if (preview.kind === 'image') {
+    return {
+      reference,
+      contentSummary: `Image ${reference.relativePath} (${preview.mimeType ?? 'image/*'}, ${formatBytes(preview.size ?? 0)}).`
+    }
+  }
+  if (preview.kind === 'pdf') {
+    return {
+      reference,
+      contentSummary: `PDF ${reference.relativePath} (${formatBytes(preview.size ?? 0)}).`
+    }
+  }
+  return {
+    reference,
+    contentSummary: preview.contentSummary,
+    ...(preview.content !== undefined ? { content: preview.content } : {}),
+    ...(preview.kind === 'text' || preview.truncated ? { truncated: preview.truncated } : {})
+  }
+}
+
+function toAgentRuntimeReference(
   workspaceRoot: string,
-  root: string,
-  recursive: boolean,
-  limit: number
-): Promise<AgentRuntimeWorkspaceReference[]> {
-  const output: AgentRuntimeWorkspaceReference[] = []
-  const stack = [root]
-  while (stack.length && output.length < limit) {
-    const current = stack.shift()!
-    const entries = await readdir(current, { withFileTypes: true }).catch(() => [])
-    const sorted = entries
-      .filter((entry) => entry.name !== '.DS_Store' && entry.name !== '.git' && entry.name !== 'node_modules')
-      .map((entry) => ({
-        name: entry.name,
-        type: entry.isDirectory() ? ('directory' as const) : ('file' as const)
-      }))
-      .sort(compareWorkspaceEntries)
-    for (const entry of sorted) {
-      if (output.length >= limit) break
-      const path = join(current, entry.name)
-      const reference = await referenceForPath(workspaceRoot, path)
-      output.push(reference)
-      if (recursive && reference.kind === 'directory') stack.push(path)
-    }
-  }
-  return output
-}
-
-async function referenceForPath(workspaceRoot: string, path: string): Promise<AgentRuntimeWorkspaceReference> {
-  const info = await stat(path)
-  const ext = extensionFromName(path)
-  const relativePath = normalizePathSeparators(relative(workspaceRoot, path))
-  const kind = info.isDirectory()
-    ? 'directory'
-    : ext === '.pdf'
-      ? 'pdf'
-      : IMAGE_EXTENSIONS.has(ext)
-        ? 'image'
-        : 'file'
+  reference: WorkspaceReference,
+  context: 'list' | 'preview'
+): AgentRuntimeWorkspaceReference {
   return {
     workspaceRoot,
-    relativePath,
-    name: basename(path),
-    kind,
-    ...(info.isFile() ? { size: info.size } : {}),
-    ...(kind === 'pdf' ? { mimeType: 'application/pdf' } : {}),
-    ...(kind === 'image' ? { mimeType: imageMime(ext) } : {})
+    relativePath: reference.relativePath,
+    name: reference.name,
+    kind: context === 'list' ? listReferenceKind(reference.kind) : previewReferenceKind(reference.kind),
+    ...(reference.size !== undefined ? { size: reference.size } : {}),
+    ...(reference.mimeType ? { mimeType: reference.mimeType } : {})
   }
 }
 
-function summarizeText(content: string, truncated: boolean): string {
-  const lines = content.split('\n').slice(0, 80)
-  const summary = lines.join('\n').trim()
-  return `${summary}${truncated ? '\n...[truncated]' : ''}`
+function listReferenceKind(kind: WorkspaceReferenceKind): AgentRuntimeWorkspaceReference['kind'] {
+  if (kind === 'directory' || kind === 'image' || kind === 'pdf') return kind
+  return 'file'
 }
 
-function imageMime(ext: string): string {
-  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
-  if (ext === '.gif') return 'image/gif'
-  if (ext === '.webp') return 'image/webp'
-  if (ext === '.bmp') return 'image/bmp'
-  if (ext === '.avif') return 'image/avif'
-  if (ext === '.ico') return 'image/x-icon'
-  return 'image/png'
+function previewReferenceKind(kind: WorkspaceReferenceKind): AgentRuntimeWorkspaceReference['kind'] {
+  if (kind === 'directory' || kind === 'image' || kind === 'pdf' || kind === 'text') return kind
+  return 'file'
+}
+
+function isVisibleReference(reference: WorkspaceReference): boolean {
+  return reference.kind !== 'symlink' && !IGNORED_REFERENCE_NAMES.has(reference.name)
+}
+
+function listLimit(limit: number | undefined): number {
+  if (!Number.isFinite(limit)) return MAX_DIRECTORY_CHILDREN
+  return Math.max(1, Math.min(Math.floor(limit ?? MAX_DIRECTORY_CHILDREN), WORKSPACE_INTEL_MAX_LIST_LIMIT))
+}
+
+function failure(error: WorkspaceIntelFailure): { ok: false; message: string } {
+  return { ok: false, message: error.error.message }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function formatBytes(bytes: number): string {

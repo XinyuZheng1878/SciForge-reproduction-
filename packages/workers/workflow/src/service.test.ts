@@ -49,7 +49,7 @@ test('uses fake internal HTTP fetch for list and run', async () => {
   assert.equal(listed.ok, true)
   assert.equal(listed.ok ? listed.workflows[0]?.schemaResourceUri : '', 'workflow://schema/wf-1')
 
-  const run = await service.run({ workflow_id: 'wf-1', input: { topic: 'biology' } })
+  const run = await service.run({ workflow_id: 'wf-1', input: { topic: 'biology' }, confirmed: true })
   assert.equal(run.ok, true)
   assert.equal(run.ok ? run.runId : '', 'run-1')
 
@@ -84,6 +84,30 @@ test('run dry-run previews without invoking runtime run endpoint', async () => {
   assert.equal(result.ok, true)
   assert.equal(result.ok ? result.wouldRun : false, true)
   assert.deepEqual(client.paths, ['/workflow/internal/list'])
+})
+
+test('write tools require confirmation before invoking runtime write endpoints', async () => {
+  const client = new FakeWorkflowClient({})
+  const service = createWorkflowService({ client })
+
+  const run = await service.run({ workflow_id: 'wf-1', input: { topic: 'biology' } })
+  const imported = await service.importWorkflow({
+    workflow: {
+      id: 'wf-2',
+      name: 'Imported',
+      nodes: [{ id: 'trigger', type: 'manual-trigger', config: {} }]
+    }
+  })
+
+  assert.equal(run.ok, false)
+  assert.equal(run.ok ? '' : run.error.code, 'confirmation_required')
+  assert.equal(imported.ok, false)
+  assert.equal(imported.ok ? '' : imported.error.code, 'confirmation_required')
+  assert.deepEqual(client.paths, [])
+
+  const records = service.auditRecords()
+  assert.deepEqual(records.map((record) => record.action), ['run', 'import'])
+  assert.deepEqual(records.map((record) => record.confirmationRequired), [true, true])
 })
 
 test('stop preview avoids confirmation and live stop requires confirmation', async () => {
@@ -122,6 +146,31 @@ test('confirmed stop calls runtime without forwarding confirmation text', async 
   assert.equal(stopped.ok, true)
   assert.deepEqual(client.paths, ['/workflow/internal/stop'])
   assert.deepEqual(client.requests[0]?.request?.body, { runId: 'run-1' })
+})
+
+test('validate delegates to the runtime internal validate endpoint', async () => {
+  const client = new FakeWorkflowClient({
+    '/workflow/internal/validate': {
+      ok: true,
+      valid: false,
+      workflowId: 'wf-1',
+      issues: [{ code: 'missing_required_input', message: 'Missing required input: topic', path: 'topic' }],
+      inputSchema: [{ key: 'topic', type: 'text', required: true }]
+    }
+  })
+  const service = createWorkflowService({ client })
+
+  const result = await service.validate({ workflow_id: 'wf-1', input: {} })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.ok ? result.valid : true, false)
+  assert.deepEqual(client.paths, ['/workflow/internal/validate'])
+  assert.deepEqual(client.requests[0]?.request?.body, {
+    workflowId: 'wf-1',
+    input: {}
+  })
+  assert.equal(result.ok ? result.workflowId : '', 'wf-1')
+  assert.equal(result.ok ? result.inputSchema?.[0]?.key : '', 'topic')
 })
 
 test('maps runtime HTTP failures to model-readable error results', async () => {

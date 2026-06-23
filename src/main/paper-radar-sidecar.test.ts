@@ -36,6 +36,28 @@ describe('Paper Radar sidecar launch', () => {
     expect(paperRadarBaseUrl({ PAPER_RADAR_SERVICE_URL: 'http://127.0.0.1:3902///' })).toBe('http://127.0.0.1:3902')
   })
 
+  it('uses explicit storage env overrides when provided', () => {
+    const launch = buildPaperRadarLaunch({
+      userDataDir: '/tmp/deepseek-gui-user-data',
+      appRoot: '/repo/deepseek-gui',
+      env: {
+        PAPER_RADAR_SERVICE_URL: 'http://127.0.0.1:3905',
+        PAPER_RADAR_DB: '/tmp/custom-paper-radar.sqlite',
+        PAPER_RADAR_PROFILES: '/tmp/custom-paper-radar-profiles.json',
+        PAPER_RADAR_AUTO_SYNC: '1'
+      } as NodeJS.ProcessEnv,
+      npmCommand: 'npm'
+    })
+
+    expect(launch.baseUrl).toBe('http://127.0.0.1:3905')
+    expect(launch.dbPath).toBe('/tmp/custom-paper-radar.sqlite')
+    expect(launch.profilesPath).toBe('/tmp/custom-paper-radar-profiles.json')
+    expect(launch.env.PAPER_RADAR_DB).toBe('/tmp/custom-paper-radar.sqlite')
+    expect(launch.env.PAPER_RADAR_PROFILES).toBe('/tmp/custom-paper-radar-profiles.json')
+    expect(launch.env.PAPER_RADAR_PORT).toBe('3905')
+    expect(launch.env.PAPER_RADAR_AUTO_SYNC).toBe('1')
+  })
+
   it('accepts only the Paper Radar service health identity', () => {
     expect(isPaperRadarServiceHealth({ ok: true, service: 'sciforge.paper-radar' })).toBe(true)
     expect(isPaperRadarServiceHealth({ ok: true, service: 'legacy.paper-radar' })).toBe(false)

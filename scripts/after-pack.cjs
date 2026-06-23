@@ -19,9 +19,10 @@ const MODEL_ROUTER_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/model-router/tools/model-router-trace-audit.ts'
 ]
 
+// GUI MCP workers launch through out/main/*-mcp-node-entry.js. The copied worker
+// package files below are implementation dependencies, not packaged GUI entrypoints.
 const COMPUTER_USE_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/computer-use/package.json',
-  'packages/workers/computer-use/src/cli.ts',
   'packages/workers/computer-use/src/mcp-server.ts',
   'packages/workers/computer-use/src/service.ts',
   'packages/workers/computer-use/src/contract.ts'
@@ -29,7 +30,6 @@ const COMPUTER_USE_RUNTIME_REQUIRED_PATHS = [
 
 const SEARCH_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/search/package.json',
-  'packages/workers/search/src/cli.ts',
   'packages/workers/search/src/mcp-server.ts',
   'packages/workers/search/src/research-service.ts',
   'packages/workers/search/src/types.ts'
@@ -37,7 +37,6 @@ const SEARCH_RUNTIME_REQUIRED_PATHS = [
 
 const SCHEDULE_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/schedule/package.json',
-  'packages/workers/schedule/src/cli.ts',
   'packages/workers/schedule/src/mcp-server.ts',
   'packages/workers/schedule/src/service.ts',
   'packages/workers/schedule/src/contract.ts'
@@ -45,7 +44,6 @@ const SCHEDULE_RUNTIME_REQUIRED_PATHS = [
 
 const WORKFLOW_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/workflow/package.json',
-  'packages/workers/workflow/src/cli.ts',
   'packages/workers/workflow/src/mcp-server.ts',
   'packages/workers/workflow/src/service.ts',
   'packages/workers/workflow/src/contract.ts'
@@ -53,7 +51,6 @@ const WORKFLOW_RUNTIME_REQUIRED_PATHS = [
 
 const WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/workspace-intel/package.json',
-  'packages/workers/workspace-intel/src/cli.ts',
   'packages/workers/workspace-intel/src/mcp-server.ts',
   'packages/workers/workspace-intel/src/service.ts',
   'packages/workers/workspace-intel/src/contract.ts'
@@ -61,7 +58,6 @@ const WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS = [
 
 const WRITE_ASSIST_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/write-assist/package.json',
-  'packages/workers/write-assist/src/cli.ts',
   'packages/workers/write-assist/src/mcp-server.ts',
   'packages/workers/write-assist/src/service.ts',
   'packages/workers/write-assist/src/contract.ts'
@@ -69,7 +65,6 @@ const WRITE_ASSIST_RUNTIME_REQUIRED_PATHS = [
 
 const PAPER_RADAR_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/paper-radar/package.json',
-  'packages/workers/paper-radar/src/cli.ts',
   'packages/workers/paper-radar/src/mcp-server.ts',
   'packages/workers/paper-radar/src/service.ts',
   'packages/workers/paper-radar/src/contract.ts',
@@ -80,14 +75,13 @@ const PAPER_RADAR_RUNTIME_REQUIRED_PATHS = [
 
 const RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/runtime-inspector/package.json',
-  'packages/workers/runtime-inspector/src/cli.ts',
   'packages/workers/runtime-inspector/src/mcp-server.ts',
   'packages/workers/runtime-inspector/src/service.ts',
   'packages/workers/runtime-inspector/src/contract.ts'
 ]
 
 const MCP_NODE_ENTRY_REQUIRED_PATHS = [
-  'out/main/claw-schedule-mcp-node-entry.js',
+  'out/main/schedule-mcp-node-entry.js',
   'out/main/computer-use-mcp-node-entry.js',
   'out/main/research-search-mcp-node-entry.js',
   'out/main/workflow-mcp-node-entry.js',

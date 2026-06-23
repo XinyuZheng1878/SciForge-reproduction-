@@ -11,6 +11,12 @@ export const WRITE_ASSIST_MAX_SNIPPETS = 8
 export const WRITE_ASSIST_DEFAULT_PDF_TEXT_CHARS = 32_000
 export const WRITE_ASSIST_MAX_PDF_TEXT_CHARS = 200_000
 export const WRITE_ASSIST_MAX_QUERY_CHARS = 20_000
+export const WriteAssistToolNames = [
+  'gui_write_retrieve_context',
+  'gui_pdf_extract_text'
+] as const
+
+export type WriteAssistToolName = typeof WriteAssistToolNames[number]
 
 export type WriteAssistErrorCode =
   | 'workspace_root_required'
@@ -144,7 +150,7 @@ export type PdfExtractTextResult = WriteAssistFailure | {
 export type WriteAssistWorkerDiagnostics = {
   version: typeof WRITE_ASSIST_WORKER_VERSION
   transport: typeof WRITE_ASSIST_WORKER_TRANSPORT
-  capabilities: Array<'gui_write_retrieve_context' | 'gui_pdf_extract_text'>
+  capabilities: WriteAssistToolName[]
 }
 
 export const WorkspaceRootInputSchema = z.object({

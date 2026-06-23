@@ -9,6 +9,9 @@ import {
   WRITE_ASSIST_DEFAULT_MAX_SNIPPETS,
   WRITE_ASSIST_DEFAULT_PDF_TEXT_CHARS,
   WRITE_ASSIST_MAX_PDF_TEXT_CHARS,
+  WRITE_ASSIST_WORKER_TRANSPORT,
+  WRITE_ASSIST_WORKER_VERSION,
+  WriteAssistToolNames,
   PdfExtractTextInputSchema,
   WriteIndexStatsInputSchema,
   WriteRetrieveContextInputSchema,
@@ -690,9 +693,9 @@ export function writeAssistConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
 
 export function writeAssistDiagnostics() {
   return {
-    version: '0.1.0' as const,
-    transport: 'stdio' as const,
-    capabilities: ['gui_write_retrieve_context', 'gui_pdf_extract_text'] as const
+    version: WRITE_ASSIST_WORKER_VERSION,
+    transport: WRITE_ASSIST_WORKER_TRANSPORT,
+    capabilities: [...WriteAssistToolNames]
   }
 }
 

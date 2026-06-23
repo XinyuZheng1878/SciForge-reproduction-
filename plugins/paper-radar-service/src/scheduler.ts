@@ -1,8 +1,8 @@
-import { fetchArxivMetadata, fetchBiorxivMetadata } from './sources.js';
-import { PaperStore } from './storage.js';
+import { createPaperRadarCoreService } from './service.js';
 
 export interface DailySyncOptions {
   dbPath: string;
+  profilesPath?: string;
   fetchImpl?: typeof fetch;
   now?: () => Date;
   arxivCategories: string[];
@@ -41,35 +41,37 @@ export function startDailySync(options: DailySyncOptions, intervalMs: number): D
 }
 
 async function runDailySync(options: DailySyncOptions): Promise<void> {
-  const store = new PaperStore(options.dbPath);
+  const service = createPaperRadarCoreService({
+    dbPath: options.dbPath,
+    profilesPath: options.profilesPath,
+    fetchImpl: options.fetchImpl,
+    now: options.now,
+    profileStoreOptions: { persistDefault: false },
+  });
   const now = options.now ?? (() => new Date());
   try {
     const today = isoDate(now());
     const yesterday = isoDate(addDays(now(), -1));
-    const arxivSince = store.getSyncState('arxiv', 'last_sync_date') ?? yesterday;
-    const biorxivFrom = store.getSyncState('biorxiv', 'last_sync_date') ?? yesterday;
+    const arxivSince = service.getSyncState('arxiv', 'last_sync_date') ?? yesterday;
+    const biorxivFrom = service.getSyncState('biorxiv', 'last_sync_date') ?? yesterday;
 
-    const arxiv = await fetchArxivMetadata(
-      { categories: options.arxivCategories, since: arxivSince, until: today, maxRecords: options.maxRecords },
-      { fetchImpl: options.fetchImpl, now },
-    );
-    for (const paper of arxiv.papers) store.upsertPaper(paper);
-    store.setSyncState('arxiv', 'last_sync', now().toISOString());
-    store.setSyncState('arxiv', 'last_sync_date', today);
-
-    const biorxiv = await fetchBiorxivMetadata(
-      { from: biorxivFrom, to: today, maxRecords: options.maxRecords },
-      { fetchImpl: options.fetchImpl, now },
-    );
-    for (const paper of biorxiv.papers) store.upsertPaper(paper);
-    store.setSyncState('biorxiv', 'last_sync', now().toISOString());
-    store.setSyncState('biorxiv', 'last_sync_date', today);
+    const arxiv = await service.syncArxiv({
+      categories: options.arxivCategories,
+      since: arxivSince,
+      until: today,
+      maxRecords: options.maxRecords,
+    });
+    const biorxiv = await service.syncBiorxiv({
+      from: biorxivFrom,
+      to: today,
+      maxRecords: options.maxRecords,
+    });
 
     console.log(
-      `[paper-radar] synced metadata: arxiv=${arxiv.papers.length}, biorxiv=${biorxiv.papers.length}, date=${today}`,
+      `[paper-radar] synced metadata: arxiv=${arxiv.upserted}, biorxiv=${biorxiv.upserted}, date=${today}`,
     );
   } finally {
-    store.close();
+    service.close();
   }
 }
 

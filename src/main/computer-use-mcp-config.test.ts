@@ -12,8 +12,7 @@ import {
   COMPUTER_USE_STATUS_PATH_ENV,
   computerUseMcpEnv,
   computerUseMcpEnvForLaunch,
-  resolveComputerUseMcpCommand,
-  resolveComputerUseMcpNodeEntryPath,
+  GUI_COMPUTER_USE_MCP_SERVER_NAME,
   syncComputerUseMcpConfig,
   type ComputerUseMcpLaunchConfig
 } from './computer-use-mcp-config'
@@ -29,7 +28,7 @@ describe('computer use MCP config', () => {
     expect(COMPUTER_USE_MCP_AGENT_RUNTIME_IDS).toEqual(['kun', 'codex', 'claude'])
   })
 
-  it('writes the gui_computer_use server without dropping existing MCP servers', () => {
+  it('removes GUI-managed computer-use servers from external Kun mcp.json without dropping other servers', () => {
     const synced = buildSyncedComputerUseMcpJson(
       {
         timeouts: { connect_timeout: 1 },
@@ -39,6 +38,9 @@ describe('computer use MCP config', () => {
             args: ['-y', '@upstash/context7-mcp'],
             env: {},
             url: null
+          },
+          [GUI_COMPUTER_USE_MCP_SERVER_NAME]: {
+            command: 'old-gui-managed'
           }
         }
       },
@@ -48,20 +50,9 @@ describe('computer use MCP config', () => {
     expect(synced.servers).toMatchObject({
       context7: {
         command: 'npx'
-      },
-      gui_computer_use: {
-        command: resolveComputerUseMcpCommand(launch),
-        args: [
-          resolveComputerUseMcpNodeEntryPath(launch),
-          '--gui-computer-use-mcp-server'
-        ],
-        env: {
-          ELECTRON_RUN_AS_NODE: '1'
-        },
-        enabled: true,
-        enabled_tools: ['computer_use']
       }
     })
+    expect((synced.servers as Record<string, unknown>)[GUI_COMPUTER_USE_MCP_SERVER_NAME]).toBeUndefined()
     expect(synced.timeouts).toEqual({ connect_timeout: 1 })
   })
 
@@ -95,16 +86,10 @@ describe('computer use MCP config', () => {
     })
   })
 
-  it('marks the synced server disabled when computer use is off', () => {
+  it('does not write disabled GUI-managed computer-use state to external Kun mcp.json', () => {
     const synced = buildSyncedComputerUseMcpJson({}, launch, false)
 
-    expect(synced.servers).toMatchObject({
-      gui_computer_use: {
-        enabled: false,
-        disabled: true,
-        enabled_tools: ['computer_use']
-      }
-    })
+    expect(synced.servers).toEqual({})
   })
 
   it('syncs mcp.json on disk', async () => {
@@ -116,14 +101,17 @@ describe('computer use MCP config', () => {
       mcpJsonPath,
       JSON.stringify({
         servers: {
-          existing: {
-            command: '/bin/echo',
-            args: ['ok'],
-            env: {},
-            url: null
-          }
+        existing: {
+          command: '/bin/echo',
+          args: ['ok'],
+          env: {},
+          url: null
+        },
+        [GUI_COMPUTER_USE_MCP_SERVER_NAME]: {
+          command: 'old-gui-managed'
         }
-      }),
+      }
+    }),
       'utf8'
     )
 
@@ -134,18 +122,9 @@ describe('computer use MCP config', () => {
       servers: {
         existing: {
           command: '/bin/echo'
-        },
-        gui_computer_use: {
-          command: resolveComputerUseMcpCommand(launch),
-          args: [
-            resolveComputerUseMcpNodeEntryPath(launch),
-            '--gui-computer-use-mcp-server'
-          ],
-          env: {
-            ELECTRON_RUN_AS_NODE: '1'
-          }
         }
       }
     })
+    expect((json.servers as Record<string, unknown>)[GUI_COMPUTER_USE_MCP_SERVER_NAME]).toBeUndefined()
   })
 })

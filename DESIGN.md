@@ -922,7 +922,7 @@ src/
     services/                       # git, workspace, editor, write-* services
     settings-store.ts               # JSON-backed settings store
     claw-runtime.ts                 # Connect phone IM / webhook / scheduled-task engine (internal claw name)
-    claw-schedule-mcp-*             # schedule MCP config + standalone server
+    schedule-mcp-*                  # schedule MCP config + node-entry server
     gui-updater.ts                  # electron-updater integration
     logger.ts                       # structured logger
     resolve-kun-binary.ts     # CLI / dev-script / packaged binary resolver
@@ -1208,10 +1208,9 @@ compaction block inline with a "show replaced" detail.
 - Scheduled tasks are detected from natural-language Connect phone
   prompts (`claw-scheduled-task-detector.ts`) and stored under
   `claw.scheduledTasks` in settings.
-- A standalone `claw-schedule-mcp-server` process can be
-  launched separately (`--claw-schedule-mcp-server`) to host
-  the schedule tools over MCP, hiding the macOS dock icon when
-  running headless.
+- The managed `schedule-mcp-node-entry` hosts schedule tools over MCP
+  through the `gui_schedule` worker entry, hiding the macOS dock icon
+  when running headless.
 
 ### 9.6 Updater
 

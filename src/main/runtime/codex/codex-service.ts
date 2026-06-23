@@ -59,66 +59,20 @@ import { CodexThreadStore, type CodexStoredThread } from './codex-thread-store'
 import { CodexUsageStore } from './codex-usage-store'
 import { prepareCodexAppServerLaunch, resolveCodexWorkspace } from './codex-config'
 import {
-  buildResearchSearchMcpArgs,
   GUI_RESEARCH_MCP_SERVER_NAME,
-  researchSearchMcpEnv,
-  resolveResearchSearchMcpCommand,
   type ResearchSearchMcpLaunchConfig
 } from '../../research-search-mcp-config'
+import type { ScheduleMcpLaunchConfig } from '../../schedule-mcp-config'
 import {
-  buildClawScheduleMcpArgs,
-  GUI_SCHEDULE_MCP_SERVER_NAME,
-  resolveClawScheduleMcpCommand,
-  type ClawScheduleMcpLaunchConfig
-} from '../../claw-schedule-mcp-config'
-import {
-  buildComputerUseMcpArgs,
-  COMPUTER_USE_MCP_TIMEOUT_MS,
-  computerUseMcpEnvForLaunch,
   GUI_COMPUTER_USE_MCP_SERVER_NAME,
-  resolveComputerUseMcpCommand,
   type ComputerUseMcpLaunchConfig
 } from '../../computer-use-mcp-config'
-import {
-  buildWorkflowMcpArgs,
-  GUI_WORKFLOW_MCP_SERVER_NAME,
-  resolveWorkflowMcpCommand,
-  type WorkflowMcpLaunchConfig,
-  workflowMcpEnabledTools,
-  workflowMcpEnv
-} from '../../workflow-mcp-config'
-import {
-  buildWorkspaceIntelMcpArgs,
-  GUI_WORKSPACE_INTEL_MCP_SERVER_NAME,
-  resolveWorkspaceIntelMcpCommand,
-  type WorkspaceIntelMcpLaunchConfig,
-  workspaceIntelMcpEnabledTools,
-  workspaceIntelMcpEnv
-} from '../../workspace-intel-mcp-config'
-import {
-  buildPaperRadarMcpArgs,
-  GUI_PAPER_RADAR_MCP_SERVER_NAME,
-  paperRadarMcpEnabledTools,
-  paperRadarMcpEnv,
-  resolvePaperRadarMcpCommand,
-  type PaperRadarMcpLaunchConfig
-} from '../../paper-radar-mcp-config'
-import {
-  buildWriteAssistMcpArgs,
-  GUI_WRITE_ASSIST_MCP_SERVER_NAME,
-  resolveWriteAssistMcpCommand,
-  type WriteAssistMcpLaunchConfig,
-  writeAssistMcpEnabledTools,
-  writeAssistMcpEnv
-} from '../../write-assist-mcp-config'
-import {
-  buildRuntimeInspectorMcpArgs,
-  GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME,
-  resolveRuntimeInspectorMcpCommand,
-  runtimeInspectorMcpEnabledTools,
-  runtimeInspectorMcpEnv,
-  type RuntimeInspectorMcpLaunchConfig
-} from '../../runtime-inspector-mcp-config'
+import type { WorkflowMcpLaunchConfig } from '../../workflow-mcp-config'
+import type { WorkspaceIntelMcpLaunchConfig } from '../../workspace-intel-mcp-config'
+import type { PaperRadarMcpLaunchConfig } from '../../paper-radar-mcp-config'
+import type { WriteAssistMcpLaunchConfig } from '../../write-assist-mcp-config'
+import type { RuntimeInspectorMcpLaunchConfig } from '../../runtime-inspector-mcp-config'
+import { buildCodexManagedGuiMcpServers } from '../../gui-mcp-registry'
 import {
   createCodexDynamicMcpToolBridge,
   type CodexAppServerDynamicToolCallRequest,
@@ -142,7 +96,7 @@ export type CodexRuntimeServiceOptions = {
   appVersion?: string
   storageRoot?: string
   managedCodexHome?: string
-  scheduleMcpLaunch?: ClawScheduleMcpLaunchConfig
+  scheduleMcpLaunch?: ScheduleMcpLaunchConfig
   researchMcpLaunch?: ResearchSearchMcpLaunchConfig
   workflowMcpLaunch?: WorkflowMcpLaunchConfig
   workspaceIntelMcpLaunch?: WorkspaceIntelMcpLaunchConfig
@@ -1652,103 +1606,36 @@ function codexDynamicMcpServers(
   options: CodexRuntimeServiceOptions,
   settings?: AppSettingsV1
 ): CodexDynamicMcpServerConfig[] {
-  const servers = new Map<string, CodexDynamicMcpServerConfig>()
-  for (const server of options.managedMcpServers ?? []) {
-    servers.set(server.id, server)
-  }
-  if (options.scheduleMcpLaunch && settings && !servers.has(GUI_SCHEDULE_MCP_SERVER_NAME)) {
-    servers.set(GUI_SCHEDULE_MCP_SERVER_NAME, {
-      id: GUI_SCHEDULE_MCP_SERVER_NAME,
-      command: resolveClawScheduleMcpCommand(options.scheduleMcpLaunch),
-      args: buildClawScheduleMcpArgs(settings, options.scheduleMcpLaunch),
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-      timeoutMs: 30_000,
-      enabledTools: [
-        'gui_schedule_list',
-        'gui_schedule_create',
-        'gui_schedule_update',
-        'gui_schedule_delete',
-        'gui_schedule_status',
-        'gui_schedule_run',
-        'gui_schedule_detect_from_text'
-      ]
-    })
-  }
-  if (options.researchMcpLaunch && !servers.has(GUI_RESEARCH_MCP_SERVER_NAME)) {
-    servers.set(GUI_RESEARCH_MCP_SERVER_NAME, {
-      id: GUI_RESEARCH_MCP_SERVER_NAME,
-      command: resolveResearchSearchMcpCommand(options.researchMcpLaunch),
-      args: buildResearchSearchMcpArgs(options.researchMcpLaunch),
-      env: researchSearchMcpEnv(process.env),
-      timeoutMs: 30_000,
-      enabledTools: ['research_search']
-    })
-  }
-  if (options.workflowMcpLaunch && settings && !servers.has(GUI_WORKFLOW_MCP_SERVER_NAME)) {
-    servers.set(GUI_WORKFLOW_MCP_SERVER_NAME, {
-      id: GUI_WORKFLOW_MCP_SERVER_NAME,
-      command: resolveWorkflowMcpCommand(options.workflowMcpLaunch),
-      args: buildWorkflowMcpArgs(settings, options.workflowMcpLaunch),
-      env: workflowMcpEnv(),
-      timeoutMs: 30_000,
-      enabledTools: workflowMcpEnabledTools()
-    })
-  }
-  if (options.workspaceIntelMcpLaunch && settings && !servers.has(GUI_WORKSPACE_INTEL_MCP_SERVER_NAME)) {
-    servers.set(GUI_WORKSPACE_INTEL_MCP_SERVER_NAME, {
-      id: GUI_WORKSPACE_INTEL_MCP_SERVER_NAME,
-      command: resolveWorkspaceIntelMcpCommand(options.workspaceIntelMcpLaunch),
-      args: buildWorkspaceIntelMcpArgs(settings, options.workspaceIntelMcpLaunch),
-      env: workspaceIntelMcpEnv(),
-      timeoutMs: 30_000,
-      enabledTools: workspaceIntelMcpEnabledTools()
-    })
-  }
-  if (options.paperRadarMcpLaunch && !servers.has(GUI_PAPER_RADAR_MCP_SERVER_NAME)) {
-    servers.set(GUI_PAPER_RADAR_MCP_SERVER_NAME, {
-      id: GUI_PAPER_RADAR_MCP_SERVER_NAME,
-      command: resolvePaperRadarMcpCommand(options.paperRadarMcpLaunch),
-      args: buildPaperRadarMcpArgs(options.paperRadarMcpLaunch),
-      env: paperRadarMcpEnv(),
-      timeoutMs: 30_000,
-      enabledTools: paperRadarMcpEnabledTools()
-    })
-  }
-  if (options.writeAssistMcpLaunch && settings && !servers.has(GUI_WRITE_ASSIST_MCP_SERVER_NAME)) {
-    servers.set(GUI_WRITE_ASSIST_MCP_SERVER_NAME, {
-      id: GUI_WRITE_ASSIST_MCP_SERVER_NAME,
-      command: resolveWriteAssistMcpCommand(options.writeAssistMcpLaunch),
-      args: buildWriteAssistMcpArgs(settings, options.writeAssistMcpLaunch),
-      env: writeAssistMcpEnv(),
-      timeoutMs: 30_000,
-      enabledTools: writeAssistMcpEnabledTools()
-    })
-  }
-  if (options.runtimeInspectorMcpLaunch && settings && !servers.has(GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME)) {
-    servers.set(GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME, {
-      id: GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME,
-      command: resolveRuntimeInspectorMcpCommand(options.runtimeInspectorMcpLaunch),
-      args: buildRuntimeInspectorMcpArgs(settings, options.runtimeInspectorMcpLaunch),
-      env: runtimeInspectorMcpEnv(),
-      timeoutMs: 30_000,
-      enabledTools: runtimeInspectorMcpEnabledTools()
-    })
-  }
-  if (
-    options.computerUseMcpLaunch &&
-    (!settings || isComputerUseEnabledForRuntime(settings, 'codex')) &&
-    !servers.has(GUI_COMPUTER_USE_MCP_SERVER_NAME)
-  ) {
-    servers.set(GUI_COMPUTER_USE_MCP_SERVER_NAME, {
-      id: GUI_COMPUTER_USE_MCP_SERVER_NAME,
-      command: resolveComputerUseMcpCommand(options.computerUseMcpLaunch),
-      args: buildComputerUseMcpArgs(options.computerUseMcpLaunch),
-      env: computerUseMcpEnvForLaunch(options.computerUseMcpLaunch),
-      timeoutMs: COMPUTER_USE_MCP_TIMEOUT_MS,
-      enabledTools: ['computer_use']
-    })
-  }
-  return [...servers.values()]
+  return buildCodexManagedGuiMcpServers({
+    settings,
+    scheduleMcp: options.scheduleMcpLaunch && settings
+      ? { settings, launch: options.scheduleMcpLaunch }
+      : undefined,
+    researchMcp: options.researchMcpLaunch
+      ? { launch: options.researchMcpLaunch }
+      : undefined,
+    workflowMcp: options.workflowMcpLaunch && settings
+      ? { settings, launch: options.workflowMcpLaunch }
+      : undefined,
+    workspaceIntelMcp: options.workspaceIntelMcpLaunch && settings
+      ? { settings, launch: options.workspaceIntelMcpLaunch }
+      : undefined,
+    paperRadarMcp: options.paperRadarMcpLaunch
+      ? { launch: options.paperRadarMcpLaunch }
+      : undefined,
+    writeAssistMcp: options.writeAssistMcpLaunch && settings
+      ? { settings, launch: options.writeAssistMcpLaunch }
+      : undefined,
+    runtimeInspectorMcp: options.runtimeInspectorMcpLaunch && settings
+      ? { settings, launch: options.runtimeInspectorMcpLaunch }
+      : undefined,
+    computerUseMcp: options.computerUseMcpLaunch
+      ? {
+          launch: options.computerUseMcpLaunch,
+          enabled: !settings || isComputerUseEnabledForRuntime(settings, 'codex')
+        }
+      : undefined
+  }, options.managedMcpServers)
 }
 
 function baseThreadParams(

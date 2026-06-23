@@ -154,6 +154,44 @@ test('returns structured confirmation_required for destructive stop without conf
   }
 })
 
+test('returns structured confirmation_required for write tools without confirmation', async () => {
+  const service = createWorkflowService({ client: new FakeWorkflowClient({}) })
+  const server = createWorkflowMcpServer(service)
+  const client = new Client({ name: 'workflow-write-confirmation-test-client', version: '0.1.0' })
+  const [clientTransport, serverTransport] = linkedTransports()
+
+  await server.connect(serverTransport)
+  await client.connect(clientTransport)
+  try {
+    const run = await client.callTool({
+      name: 'gui_workflow_run',
+      arguments: { workflow_id: 'wf-1', input: { topic: 'biology' } }
+    })
+    const imported = await client.callTool({
+      name: 'gui_workflow_import',
+      arguments: {
+        workflow: {
+          id: 'wf-2',
+          name: 'Imported',
+          nodes: [{ id: 'trigger', type: 'manual-trigger', config: {} }]
+        }
+      }
+    })
+
+    for (const result of [run, imported]) {
+      assert.equal(result.isError, true)
+      const structured = asRecord(result.structuredContent)
+      const error = asRecord(structured.error)
+      assert.equal(structured.ok, false)
+      assert.equal(error.code, 'confirmation_required')
+      assert.equal(asRecord(structured.confirmationRequired).code, 'confirmation_required')
+    }
+  } finally {
+    await client.close()
+    await server.close()
+  }
+})
+
 class FakeWorkflowClient implements WorkflowInternalHttpClient {
   constructor(private readonly responses: Record<string, unknown>) {}
 

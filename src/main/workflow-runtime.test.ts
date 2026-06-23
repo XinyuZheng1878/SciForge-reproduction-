@@ -151,7 +151,7 @@ describe('WorkflowRuntime internal HTTP facade', () => {
     vi.useRealTimers()
   })
 
-  it('serves list, status, stop, export, and import through the authenticated internal API', async () => {
+  it('serves list, status, validate, stop, export, and import through the authenticated internal API', async () => {
     const port = await findAvailablePort()
     const workflow = makeWorkflow()
     const store = createStore(settingsWith([workflow], port))
@@ -188,6 +188,34 @@ describe('WorkflowRuntime internal HTTP facade', () => {
           status: 'success',
           runtime: { runningWorkflowIds: [] },
           run: { id: 'run-1', status: 'success' }
+        }
+      })
+
+      await expect(requestInternal(port, '/workflow/internal/validate', {
+        workflowId: 'workflow-1',
+        input: {}
+      })).resolves.toMatchObject({
+        status: 200,
+        json: {
+          ok: true,
+          valid: false,
+          workflowId: 'workflow-1',
+          issues: [{ code: 'missing_required_input', path: 'topic' }],
+          inputSchema: [{ key: 'topic', type: 'text', required: true }]
+        }
+      })
+
+      await expect(requestInternal(port, '/workflow/internal/validate', {
+        workflow: {
+          name: 'Invalid import',
+          nodes: []
+        }
+      })).resolves.toMatchObject({
+        status: 200,
+        json: {
+          ok: true,
+          valid: false,
+          issues: [{ code: 'invalid_workflow_document', path: 'nodes' }]
         }
       })
 

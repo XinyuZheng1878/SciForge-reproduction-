@@ -294,6 +294,36 @@ describe('workspace-service boundary checks', () => {
     expect(result.content).toBe('inside')
   })
 
+  it('uses workspace-intel text preview metadata for source files', async () => {
+    await writeFile(join(workspaceRoot, 'app.ts'), 'export const value = 42\n', 'utf8')
+
+    const result = await readWorkspaceFile({
+      path: 'app.ts',
+      workspaceRoot
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.kind).toBe('text')
+    expect(result.mimeType).toBe('text/typescript; charset=utf-8')
+    expect(result.content).toBe('export const value = 42\n')
+  })
+
+  it('rejects binary-looking text previews without relying only on null bytes', async () => {
+    await writeFile(join(workspaceRoot, 'binary-looking.md'), Buffer.from([1, 2, 3, 4, 5, 6, 65, 66, 67, 68]))
+
+    const result = await readWorkspaceFile({
+      path: 'binary-looking.md',
+      workspaceRoot
+    })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.message).toContain('binary')
+    }
+  })
+
   it('renames files within the selected workspace', async () => {
     const result = await renameWorkspaceEntry({
       path: 'inside.txt',

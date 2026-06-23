@@ -1,7 +1,11 @@
 import { existsSync, readdirSync } from 'node:fs'
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
+import {
+  createWorkspaceIntelService,
+  type WorkspaceSkillSummary
+} from '../../../packages/workers/workspace-intel/src/index.js'
 import type { AppSettingsV1 } from '../../shared/app-settings'
 import { expandHomePath } from './workspace-service'
 
@@ -77,17 +81,13 @@ export async function listGuiSkills(
     const skills: GuiSkillSummary[] = []
     const validationErrors: Array<{ root: string; message: string }> = []
     for (const root of roots) {
-      const candidates = await packageCandidates(root.path).catch((error) => {
-        validationErrors.push({ root: root.path, message: errorMessage(error) })
-        return []
-      })
-      for (const candidate of candidates) {
-        const loaded = await loadSkillSummary(candidate, root.scope).catch((error) => {
-          validationErrors.push({ root: candidate, message: errorMessage(error) })
-          return null
-        })
-        if (loaded) skills.push(loaded)
+      const listed = await listGuiSkillsFromWorkspaceIntelRoot(root)
+      if (!listed.ok) {
+        validationErrors.push({ root: root.path, message: listed.message })
+        continue
       }
+      skills.push(...listed.skills)
+      validationErrors.push(...listed.validationErrors)
     }
     return {
       ok: true,
@@ -103,6 +103,38 @@ export function normalizeSkillRootPath(path: string | undefined): string {
   const trimmed = path?.trim() ?? ''
   if (!trimmed) return ''
   return resolve(expandHomePath(trimmed))
+}
+
+async function listGuiSkillsFromWorkspaceIntelRoot(
+  root: GuiSkillRoot
+): Promise<GuiSkillListResult> {
+  const service = createWorkspaceIntelService({
+    workspaceRoot: root.path,
+    skillRoots: [root.path]
+  })
+  const result = await service.listSkills({ workspaceRoot: root.path })
+  if (!result.ok) {
+    return { ok: false, message: result.error.message }
+  }
+  return {
+    ok: true,
+    skills: result.skills.map((skill) => guiSkillFromWorkspaceIntel(root, skill)),
+    validationErrors: result.validationErrors
+  }
+}
+
+function guiSkillFromWorkspaceIntel(root: GuiSkillRoot, skill: WorkspaceSkillSummary): GuiSkillSummary {
+  const packageRoot = skill.packageRelativePath ? join(root.path, skill.packageRelativePath) : root.path
+  const entryPath = skill.entryRelativePath ? join(root.path, skill.entryRelativePath) : join(packageRoot, 'SKILL.md')
+  return {
+    id: skill.id,
+    name: skill.name,
+    ...(skill.description ? { description: skill.description } : {}),
+    root: packageRoot,
+    entryPath,
+    scope: root.scope,
+    legacy: skill.legacy
+  }
 }
 
 async function discoverCodexPluginSkillRoots(): Promise<string[]> {
@@ -133,115 +165,6 @@ function skillRootHasPackages(root: string): boolean {
   } catch {
     return false
   }
-}
-
-async function packageCandidates(root: string): Promise<string[]> {
-  const candidates = new Set<string>()
-  if (existsSync(join(root, 'skill.json')) || existsSync(join(root, 'SKILL.md'))) {
-    candidates.add(root)
-  }
-  const entries = await readdir(root, { withFileTypes: true })
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    const dir = join(root, entry.name)
-    if (existsSync(join(dir, 'skill.json')) || existsSync(join(dir, 'SKILL.md'))) {
-      candidates.add(dir)
-    }
-  }
-  return [...candidates]
-}
-
-async function loadSkillSummary(root: string, scope: GuiSkillScope): Promise<GuiSkillSummary | null> {
-  const manifestPath = join(root, 'skill.json')
-  if (existsSync(manifestPath)) {
-    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
-    const name = stringValue(manifest.name) || titleFromSlug(basename(root))
-    const entry = stringValue(manifest.entry) || 'SKILL.md'
-    return {
-      id: slug(stringValue(manifest.id) || name || basename(root)),
-      name,
-      ...(stringValue(manifest.description) ? { description: stringValue(manifest.description) } : {}),
-      root,
-      entryPath: join(root, entry),
-      scope,
-      legacy: false
-    }
-  }
-  const entryPath = join(root, 'SKILL.md')
-  if (!existsSync(entryPath)) return null
-  const content = await readFile(entryPath, 'utf8')
-  const frontmatter = readFrontmatter(content)
-  const name = displaySkillName(frontmatter.name, basename(root))
-  return {
-    id: slug(frontmatter.id || basename(root)),
-    name,
-    ...(frontmatter.description ? { description: frontmatter.description } : {}),
-    root,
-    entryPath,
-    scope,
-    legacy: true
-  }
-}
-
-function readFrontmatter(content: string): { id?: string; name?: string; description?: string } {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content)
-  if (!match) return { description: firstMarkdownParagraph(content) }
-  const yaml = match[1] ?? ''
-  return {
-    id: frontmatterString(yaml, 'id'),
-    name: frontmatterString(yaml, 'name'),
-    description: frontmatterString(yaml, 'description') || firstMarkdownParagraph(content.slice(match[0].length))
-  }
-}
-
-function frontmatterString(yaml: string, key: string): string | undefined {
-  const match = new RegExp(`^${key}:\\s*(.+?)\\s*$`, 'm').exec(yaml)
-  return match ? stripQuotes(match[1] ?? '').trim() || undefined : undefined
-}
-
-function firstMarkdownParagraph(markdown: string): string | undefined {
-  return markdown
-    .split(/\n{2,}/)
-    .map((block) => block.replace(/^#+\s*/, '').trim())
-    .find(Boolean)
-}
-
-function stripQuotes(value: string): string {
-  const trimmed = value.trim()
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1)
-  }
-  return trimmed
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : ''
-}
-
-function titleFromSlug(value: string): string {
-  return value
-    .trim()
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase())
-}
-
-function displaySkillName(frontmatterName: string | undefined, folderName: string): string {
-  const value = frontmatterName?.trim() ?? ''
-  if (!value) return titleFromSlug(folderName)
-  return /^[a-z0-9][a-z0-9_-]*$/i.test(value) ? titleFromSlug(value) : value
-}
-
-function slug(value: string): string {
-  return value
-    .trim()
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}_-]+/gu, '-')
-    .replace(/^-+|-+$/g, '') || 'skill'
 }
 
 function dedupeSkills(skills: GuiSkillSummary[]): GuiSkillSummary[] {

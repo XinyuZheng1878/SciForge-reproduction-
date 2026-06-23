@@ -865,7 +865,7 @@ describe('CodexRuntimeService compatibility operations', () => {
   it('advertises the shared schedule MCP server as Codex dynamic tools', async () => {
     const client = controllableClient()
     const codexHome = await tempRoot()
-    const seenServers: Array<{ id: string; command: string; args?: string[] }> = []
+    const seenServers: Array<{ id: string; command: string; args?: string[]; env?: Record<string, string> }> = []
     const mcpClient: CodexDynamicMcpClient = {
       listTools: vi.fn(async () => ({
         tools: [{
@@ -884,7 +884,7 @@ describe('CodexRuntimeService compatibility operations', () => {
         ...settings(),
         schedule: {
           ...defaultScheduleSettings(),
-          internal: { port: 9797, secret: '' }
+          internal: { port: 9797, secret: 'schedule-secret' }
         }
       }),
       sink: { send: vi.fn() },
@@ -910,13 +910,21 @@ describe('CodexRuntimeService compatibility operations', () => {
         id: 'gui_schedule',
         command: '/tmp/deepseek-gui-test-app/SciForge',
         args: [
-          '/tmp/deepseek-gui-test-app/out/main/claw-schedule-mcp-node-entry.js',
+          '/tmp/deepseek-gui-test-app/out/main/schedule-mcp-node-entry.js',
           '--gui-schedule-mcp-server',
           '--base-url',
           'http://127.0.0.1:9797'
-        ]
+        ],
+        env: expect.objectContaining({
+          ELECTRON_RUN_AS_NODE: '1',
+          GUI_SCHEDULE_INTERNAL_SECRET: 'schedule-secret'
+        })
       })
     ])
+    const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    expect(config).not.toContain('[mcp_servers.gui_schedule]')
+    expect(config).not.toContain('schedule-mcp-node-entry')
+    expect(config).not.toContain('schedule-secret')
     expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
       dynamicTools: [{
         name: 'gui_schedule_list',
@@ -930,7 +938,13 @@ describe('CodexRuntimeService compatibility operations', () => {
   it('advertises shared workflow and workspace intel MCP servers as Codex dynamic tools', async () => {
     const client = controllableClient()
     const codexHome = await tempRoot()
-    const seenServers: Array<{ id: string; command: string; args?: string[]; enabledTools?: string[] }> = []
+    const seenServers: Array<{
+      id: string
+      command: string
+      args?: string[]
+      enabledTools?: string[]
+      env?: Record<string, string>
+    }> = []
     const service = new CodexRuntimeService({
       settings: async () => ({
         ...settings(),
@@ -939,7 +953,7 @@ describe('CodexRuntimeService compatibility operations', () => {
           ...defaultWorkflowSettings(),
           enabled: true,
           webhookPort: 9898,
-          webhookSecret: ''
+          webhookSecret: 'workflow-secret'
         }
       }),
       sink: { send: vi.fn() },
@@ -990,6 +1004,10 @@ describe('CodexRuntimeService compatibility operations', () => {
           '--base-url',
           'http://127.0.0.1:9898'
         ],
+        env: expect.objectContaining({
+          ELECTRON_RUN_AS_NODE: '1',
+          GUI_WORKFLOW_INTERNAL_SECRET: 'workflow-secret'
+        }),
         enabledTools: expect.arrayContaining(['gui_workflow_list', 'gui_workflow_run'])
       }),
       expect.objectContaining({
@@ -1004,6 +1022,10 @@ describe('CodexRuntimeService compatibility operations', () => {
         enabledTools: expect.arrayContaining(['gui_workspace_list', 'gui_workspace_preview'])
       })
     ])
+    const config = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    expect(config).not.toContain('[mcp_servers.gui_workflow]')
+    expect(config).not.toContain('[mcp_servers.gui_workspace_intel]')
+    expect(config).not.toContain('workflow-secret')
     expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
       dynamicTools: expect.arrayContaining([
         expect.objectContaining({ name: 'gui_workflow_list' }),

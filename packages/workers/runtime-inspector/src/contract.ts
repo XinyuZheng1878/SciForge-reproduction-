@@ -45,6 +45,13 @@ export const RuntimeInspectorToolNames = [
 ] as const
 
 export type RuntimeInspectorToolName = typeof RuntimeInspectorToolNames[number]
+export type RuntimeInspectorWorkerHealthStatus = 'healthy' | 'degraded' | 'unhealthy'
+
+export type RuntimeInspectorWorkerHealth = {
+  status: RuntimeInspectorWorkerHealthStatus
+  available: boolean
+  reason?: string
+}
 
 export type RuntimeInspectorErrorCode =
   | 'invalid_request'
@@ -471,7 +478,9 @@ export type LspQueryResult = RuntimeInspectorResult<{
 export type RuntimeInspectorDiagnosticsResult = RuntimeInspectorResult<{
   version: string
   transport: typeof RUNTIME_INSPECTOR_WORKER_TRANSPORT
-  capabilities: typeof RuntimeInspectorToolNames
+  health: RuntimeInspectorWorkerHealth
+  recentError: string | null
+  capabilities: RuntimeInspectorToolName[]
   resources: string[]
   configured: {
     workspaceRoot?: string

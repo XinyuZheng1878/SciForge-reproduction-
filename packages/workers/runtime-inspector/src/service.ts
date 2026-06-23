@@ -148,6 +148,7 @@ export class RuntimeInspectorService {
   private readonly fetchImpl: RuntimeInspectorFetch
   private readonly env: NodeJS.ProcessEnv
   private readonly lsp: RuntimeInspectorLspService
+  private recentError: string | null = null
 
   constructor(options: RuntimeInspectorServiceOptions = {}) {
     this.env = options.env ?? process.env
@@ -201,7 +202,9 @@ export class RuntimeInspectorService {
       ok: true,
       version: RUNTIME_INSPECTOR_MCP_SERVER_VERSION,
       transport: RUNTIME_INSPECTOR_WORKER_TRANSPORT,
-      capabilities: RuntimeInspectorToolNames,
+      health: runtimeInspectorWorkerHealth(this.recentError),
+      recentError: this.recentError,
+      capabilities: [...RuntimeInspectorToolNames],
       resources: [
         RUNTIME_INSPECTOR_DIAGNOSTICS_RESOURCE_URI,
         GIT_STATUS_RESOURCE_URI,
@@ -227,7 +230,7 @@ export class RuntimeInspectorService {
 
   async gitStatus(input: GitStatusInput = {}): Promise<GitStatusResult> {
     const parsed = GitStatusInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const repository = await this.resolveGitRepository(parsed.data.workspace_root)
@@ -267,7 +270,7 @@ export class RuntimeInspectorService {
 
   async gitBranches(input: GitBranchesInput = {}): Promise<GitBranchesResult> {
     const parsed = GitBranchesInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const repository = await this.resolveGitRepository(parsed.data.workspace_root)
@@ -308,7 +311,7 @@ export class RuntimeInspectorService {
 
   async gitDiffPreview(input: GitDiffPreviewInput = {}): Promise<GitDiffPreviewResult> {
     const parsed = GitDiffPreviewInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const request = parsed.data
@@ -344,7 +347,7 @@ export class RuntimeInspectorService {
 
   async gitCheckpointList(input: GitCheckpointListInput = {}): Promise<GitCheckpointListResult> {
     const parsed = GitCheckpointListInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const checkpointDataDir = this.resolveCheckpointDataDir(parsed.data.checkpoint_data_dir)
@@ -382,7 +385,7 @@ export class RuntimeInspectorService {
 
   async gitCheckpointPreview(input: GitCheckpointPreviewInput): Promise<GitCheckpointPreviewResult> {
     const parsed = GitCheckpointPreviewInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const request = parsed.data
@@ -418,7 +421,7 @@ export class RuntimeInspectorService {
 
   async runtimePorts(input: RuntimePortsInput = {}): Promise<RuntimePortsResult> {
     const parsed = RuntimePortsInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const endpoints = [
@@ -455,7 +458,7 @@ export class RuntimeInspectorService {
 
   async runtimeHealth(input: RuntimeHealthInput = {}): Promise<RuntimeHealthResult> {
     const parsed = RuntimeHealthInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const [modelRouter, kun] = await Promise.all([
@@ -483,7 +486,7 @@ export class RuntimeInspectorService {
 
   async runtimeDependencyReport(input: RuntimeDependencyReportInput = {}): Promise<RuntimeDependencyReportResult> {
     const parsed = RuntimeDependencyReportInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const dependencies: RuntimeDependency[] = [
@@ -530,7 +533,7 @@ export class RuntimeInspectorService {
 
   async runtimeModelRouterStatus(input: RuntimeModelRouterStatusInput = {}): Promise<RuntimeModelRouterStatusResult> {
     const parsed = RuntimeModelRouterStatusInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const endpoint = parseEndpoint(this.modelRouterBaseUrl)
@@ -565,7 +568,7 @@ export class RuntimeInspectorService {
 
   async runtimeKunStatus(input: RuntimeKunStatusInput = {}): Promise<RuntimeKunStatusResult> {
     const parsed = RuntimeKunStatusInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const endpoint = parseEndpoint(this.kunBaseUrl)
@@ -631,7 +634,7 @@ export class RuntimeInspectorService {
 
   async lspStatus(input: LspStatusInput = {}): Promise<LspStatusResult> {
     const parsed = LspStatusInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const workspaceRoot = parsed.data.workspace_root
@@ -643,7 +646,7 @@ export class RuntimeInspectorService {
 
   async lspQuery(input: LspQueryInput, options: { signal?: AbortSignal } = {}): Promise<LspQueryResult> {
     const parsed = LspQueryInputSchema.safeParse(input)
-    if (!parsed.success) return invalidRequest(parsed.error.message)
+    if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
       const workspaceRoot = await this.resolveWorkspaceRoot(parsed.data.workspace_root)
@@ -702,10 +705,20 @@ export class RuntimeInspectorService {
     operation: () => Promise<T>
   ): Promise<T | RuntimeInspectorFailure> {
     try {
-      return await operation()
+      const result = await operation()
+      this.recentError = null
+      return result
     } catch (error) {
-      return failureFromUnknown(error)
+      const failure = failureFromUnknown(error)
+      this.recentError = recentErrorText(failure)
+      return failure
     }
+  }
+
+  private invalidRequest(reason: string): RuntimeInspectorFailure {
+    const failure = invalidRequest(reason)
+    this.recentError = recentErrorText(failure)
+    return failure
   }
 }
 
@@ -1201,6 +1214,22 @@ function runtimeLifecycleBoundary(): Extract<RuntimeKunStatusResult, { ok: true 
   }
 }
 
+function runtimeInspectorWorkerHealth(
+  recentError: string | null
+): Extract<RuntimeInspectorDiagnosticsResult, { ok: true }>['health'] {
+  if (recentError) {
+    return {
+      status: 'degraded',
+      available: true,
+      reason: recentError
+    }
+  }
+  return {
+    status: 'healthy',
+    available: true
+  }
+}
+
 function invalidRequest(reason: string): RuntimeInspectorFailure {
   return {
     ok: false,
@@ -1262,6 +1291,10 @@ function failureFromUnknown(error: unknown): RuntimeInspectorFailure {
       suggestion: 'Check worker logs and retry.'
     }
   }
+}
+
+function recentErrorText(failure: RuntimeInspectorFailure): string {
+  return `${failure.error.code}: ${failure.error.reason}`.slice(0, 1_000)
 }
 
 function isServiceError(error: unknown): error is Error & {

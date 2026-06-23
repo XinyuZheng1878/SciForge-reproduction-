@@ -248,6 +248,91 @@ describe('DeepseekCompatModelClient', () => {
     expect(serialized).not.toContain('data:image')
   })
 
+  it('does not serialize computer-use screenshots as provider-private image parts outside Responses', async () => {
+    const cases: Array<{
+      endpointFormat?: 'chat_completions' | 'messages'
+      response: Record<string, unknown>
+      expectedBodyKey: 'messages'
+    }> = [
+      {
+        endpointFormat: 'chat_completions',
+        response: {
+          id: 'chat_tool_image',
+          model: 'deepseek-chat',
+          choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'done' } }]
+        },
+        expectedBodyKey: 'messages'
+      },
+      {
+        endpointFormat: 'messages',
+        response: {
+          id: 'msg_tool_image',
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'done' }],
+          stop_reason: 'end_turn'
+        },
+        expectedBodyKey: 'messages'
+      }
+    ]
+
+    for (const { endpointFormat, response, expectedBodyKey } of cases) {
+      const sentBodies: Array<Record<string, unknown>> = []
+      const fetchImpl: typeof fetch = async (_url, init) => {
+        sentBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+        return new Response(JSON.stringify(response), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+      const imageData = Buffer.from(`screen-pixels-${endpointFormat}`).toString('base64')
+      const client = new DeepseekCompatModelClient({
+        baseUrl: 'https://provider.example',
+        apiKey: 'k',
+        model: 'deepseek-chat',
+        endpointFormat,
+        fetchImpl,
+        nonStreaming: true
+      })
+      const request = buildRequest(new AbortController().signal)
+      request.history = [
+        makeToolCallItem({
+          id: `call_screenshot_item_${endpointFormat}`,
+          turnId: 'turn_1',
+          threadId: 'thr_1',
+          callId: `call_screenshot_${endpointFormat}`,
+          toolName: 'computer_use',
+          arguments: { action: 'screenshot' }
+        }),
+        makeToolResultItem({
+          id: `result_screenshot_item_${endpointFormat}`,
+          turnId: 'turn_1',
+          threadId: 'thr_1',
+          callId: `call_screenshot_${endpointFormat}`,
+          toolName: 'computer_use',
+          output: {
+            kind: 'computer_screenshot',
+            action: 'screenshot',
+            note: 'screen captured',
+            images: [{ mime_type: 'image/png', data_base64: imageData, width: 64, height: 32 }]
+          }
+        })
+      ]
+
+      for await (const _chunk of client.stream(request)) {
+        // drain
+      }
+
+      const serialized = JSON.stringify(sentBodies[0]?.[expectedBodyKey])
+      expect(serialized).toContain('images_omitted')
+      expect(serialized).not.toContain(imageData)
+      expect(serialized).not.toContain('input_image')
+      expect(serialized).not.toContain('image_url')
+      expect(serialized).not.toContain('data:image')
+      expect(serialized).not.toContain('"type":"image"')
+    }
+  })
+
   it('builds chat completions URLs for base URLs with and without version segments', async () => {
     const cases = [
       ['https://zenmux.ai/api', 'https://zenmux.ai/api/v1/chat/completions'],

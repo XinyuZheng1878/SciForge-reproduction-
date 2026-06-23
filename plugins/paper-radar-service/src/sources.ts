@@ -6,6 +6,8 @@ export interface SyncOptions {
   fetchImpl?: typeof fetch;
   now?: () => Date;
   maxRecords?: number;
+  rateLimitDelayMs?: number;
+  delayImpl?: (ms: number) => Promise<void>;
 }
 
 export interface ArxivSyncRequest {
@@ -72,7 +74,7 @@ export async function fetchArxivMetadata(req: ArxivSyncRequest, options: SyncOpt
       }
       token = typeof list?.resumptionToken === 'object' ? list.resumptionToken['#text'] : list?.resumptionToken;
       if (papers.size >= maxRecords) break;
-      if (token) await delay(3100);
+      if (token) await rateLimitDelay(options, 3100);
     } while (token);
   }
 
@@ -211,6 +213,18 @@ function addDays(date: Date, days: number): Date {
 function clampMax(value: number | undefined, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(1, Math.min(2000, Math.floor(value as number)));
+}
+
+function rateLimitDelay(options: SyncOptions, fallbackMs: number): Promise<void> {
+  const ms = normalizeDelayMs(options.rateLimitDelayMs, fallbackMs);
+  if (ms <= 0) return Promise.resolve();
+  return (options.delayImpl ?? delay)(ms);
+}
+
+function normalizeDelayMs(value: number | undefined, fallbackMs: number): number {
+  if (value === undefined) return fallbackMs;
+  if (!Number.isFinite(value)) return fallbackMs;
+  return Math.max(0, Math.floor(value));
 }
 
 function delay(ms: number): Promise<void> {

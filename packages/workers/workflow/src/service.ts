@@ -2,7 +2,6 @@ import {
   WORKFLOW_CALLABLE_RESOURCE_URI,
   WORKFLOW_TOOL_CONTRACTS,
   WorkflowExportInputSchema,
-  WorkflowImportDocumentSchema,
   WorkflowImportInputSchema,
   WorkflowInputFieldSchema,
   WorkflowListInputSchema,
@@ -43,6 +42,7 @@ import {
 import {
   mcpWriteConfirmationRequired,
   mcpWriteControlFromInput,
+  mcpWriteNeedsConfirmation,
   mcpWriteRedactedInput
 } from './write-action.js'
 
@@ -176,6 +176,19 @@ export class WorkflowService {
       })
     }
 
+    const runControl = mcpWriteControlFromInput(request)
+    if (mcpWriteNeedsConfirmation(runControl)) {
+      return this.auditAndReturn('run', WORKFLOW_TOOL_CONTRACTS.gui_workflow_run.sideEffect, confirmationRequiredFailure({
+        tool: 'gui_workflow_run',
+        action: 'run',
+        destructive: false,
+        confirmationId: runControl.confirmationId ?? `workflow_run:${workflowRef(request) || 'workflow'}`
+      }), {
+        ...auditContext,
+        confirmationRequired: true
+      })
+    }
+
     const result = await this.capture(async () => {
       const raw = await this.client.request('/workflow/internal/run', {
         method: 'POST',
@@ -269,21 +282,13 @@ export class WorkflowService {
       }, auditContext)
     }
     const stopControl = mcpWriteControlFromInput(request)
-    if (!request.confirmation && !stopControl.confirmed) {
-      const confirmationRequired = mcpWriteConfirmationRequired({
-        worker: 'workflow',
+    if (mcpWriteNeedsConfirmation(stopControl)) {
+      return this.auditAndReturn('stop', WORKFLOW_TOOL_CONTRACTS.gui_workflow_stop.sideEffect, confirmationRequiredFailure({
         tool: 'gui_workflow_stop',
         action: 'stop',
         destructive: true,
         confirmationId: stopControl.confirmationId ?? `workflow_stop:${request.run_id ?? request.workflow_id ?? 'target'}`
-      })
-      return this.auditAndReturn('stop', WORKFLOW_TOOL_CONTRACTS.gui_workflow_stop.sideEffect, failure(
-        'confirmation_required',
-        confirmationRequired.message,
-        false,
-        'Ask the user to confirm, then call again with confirmed: true, or use dry_run/preview.',
-        { confirmationRequired }
-      ), {
+      }), {
         ...auditContext,
         confirmationRequired: true
       })
@@ -327,34 +332,34 @@ export class WorkflowService {
           : undefined
     }
 
-    if (request.workflow !== undefined && typeof request.workflow !== 'string') {
-      const document = WorkflowImportDocumentSchema.safeParse(request.workflow)
-      if (!document.success) {
-        return this.auditAndReturn('validate', WORKFLOW_TOOL_CONTRACTS.gui_workflow_validate.sideEffect, {
-          ok: true,
-          valid: false,
-          issues: document.error.issues.map((issue) => ({
-            code: 'invalid_workflow_document',
-            message: issue.message,
-            path: issue.path.join('.')
-          }))
-        }, auditContext)
-      }
-      return this.auditAndReturn('validate', WORKFLOW_TOOL_CONTRACTS.gui_workflow_validate.sideEffect, {
+    const result = await this.capture(async () => {
+      const raw = await this.client.request('/workflow/internal/validate', {
+        method: 'POST',
+        body: compact({
+          workflowId: request.workflow_id,
+          workflow: request.workflow,
+          input: request.input
+        }),
+        signal
+      })
+      const runtimeFailure = failureFromRuntime(raw)
+      if (runtimeFailure) return runtimeFailure
+      const record = asRecord(raw)
+      const issues = asArray(record.issues)
+        .map(normalizeValidateIssue)
+        .filter((issue): issue is WorkflowValidateIssue => issue !== null)
+      const inputSchema = asArray(record.inputSchema)
+        .map(normalizeInputField)
+        .filter((field): field is WorkflowInputField => field !== null)
+      return {
         ok: true,
-        valid: true,
-        issues: []
-      }, auditContext)
-    }
-
-    const schema = await this.schema({ workflow_id: request.workflow_id ?? stringValue(request.workflow) }, signal)
-    if (!schema.ok) return this.auditAndReturn('validate', WORKFLOW_TOOL_CONTRACTS.gui_workflow_validate.sideEffect, schema, auditContext)
-    return this.auditAndReturn(
-      'validate',
-      WORKFLOW_TOOL_CONTRACTS.gui_workflow_validate.sideEffect,
-      validateInputAgainstFields(schema.inputSchema, request.input, schema.workflowId),
-      { target: { workflowId: schema.workflowId } }
-    )
+        valid: record.valid === false ? false : issues.length === 0,
+        workflowId: stringValue(record.workflowId) || request.workflow_id,
+        issues,
+        ...(inputSchema.length > 0 ? { inputSchema } : {})
+      }
+    })
+    return this.auditAndReturn('validate', WORKFLOW_TOOL_CONTRACTS.gui_workflow_validate.sideEffect, result, auditContext)
   }
 
   async importWorkflow(input: WorkflowImportInput, signal?: AbortSignal): Promise<WorkflowImportResult> {
@@ -388,6 +393,18 @@ export class WorkflowService {
         preview: request.preview === true,
         wouldImport: true
       }, auditContext)
+    }
+    const importControl = mcpWriteControlFromInput(request)
+    if (mcpWriteNeedsConfirmation(importControl)) {
+      return this.auditAndReturn('import', WORKFLOW_TOOL_CONTRACTS.gui_workflow_import.sideEffect, confirmationRequiredFailure({
+        tool: 'gui_workflow_import',
+        action: 'import',
+        destructive: false,
+        confirmationId: importControl.confirmationId ?? `workflow_import:${request.workflow.id ?? request.workflow.name}`
+      }), {
+        ...auditContext,
+        confirmationRequired: true
+      })
     }
     const result = await this.capture(async () => {
       const raw = await this.client.request('/workflow/internal/import', {
@@ -627,6 +644,28 @@ export function failure(
   }
 }
 
+function confirmationRequiredFailure(options: {
+  tool: string
+  action: string
+  destructive: boolean
+  confirmationId?: string
+}): WorkflowFacadeFailure {
+  const confirmationRequired = mcpWriteConfirmationRequired({
+    worker: 'workflow',
+    tool: options.tool,
+    action: options.action,
+    destructive: options.destructive,
+    confirmationId: options.confirmationId
+  })
+  return failure(
+    'confirmation_required',
+    confirmationRequired.message,
+    false,
+    'Ask the user to confirm, then call again with confirmed: true, or use dry_run/preview.',
+    { confirmationRequired }
+  )
+}
+
 function failureFromThrown(error: unknown): WorkflowFacadeFailure {
   if (error instanceof WorkflowRuntimeHttpError) {
     const runtime = failureFromRuntime(error.body)
@@ -708,6 +747,18 @@ function normalizeInputField(value: unknown): WorkflowInputField | null {
 
 function isWorkflowInputFieldType(value: string): value is WorkflowInputField['type'] {
   return ['text', 'paragraph', 'number', 'boolean', 'select', 'json'].includes(value)
+}
+
+function normalizeValidateIssue(value: unknown): WorkflowValidateIssue | null {
+  const record = asRecord(value)
+  const message = stringValue(record.message)
+  if (!message) return null
+  const path = stringValue(record.path)
+  return {
+    code: stringValue(record.code, 'validation_issue'),
+    message,
+    ...(path ? { path } : {})
+  }
 }
 
 function jsonSchemaForInputs(fields: WorkflowInputField[]): Record<string, unknown> {
@@ -819,8 +870,17 @@ function safeAuditId(value: string | undefined): string | undefined {
   if (!trimmed) return undefined
   const redacted = mcpWriteRedactedInput(trimmed)
   if (typeof redacted === 'string' && redacted !== trimmed) return '[REDACTED]'
-  const normalized = trimmed.replace(/[\u0000-\u001f\u007f]/g, '')
+  const normalized = stripControlCharacters(trimmed)
   return normalized.length > 128 ? `${normalized.slice(0, 128)}...` : normalized
+}
+
+function stripControlCharacters(value: string): string {
+  return Array.from(value)
+    .filter((char) => {
+      const code = char.charCodeAt(0)
+      return code >= 32 && code !== 127
+    })
+    .join('')
 }
 
 function workflowRef(input: { workflow_id?: string; workflow?: string; name?: string }): string {

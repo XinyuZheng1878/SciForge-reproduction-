@@ -99,6 +99,38 @@ describe('skill-service', () => {
     expect(projectSkills.map((skill) => skill.id)).not.toContain('skill')
   })
 
+  it('maps workspace-intel manifest skills back to GUI root and entry paths', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-manifest')
+    const extraRoot = join(tempRoot, 'external-skills')
+    const skillRoot = join(extraRoot, 'paper-helper')
+    const entryPath = join(skillRoot, 'docs', 'guide.md')
+    await mkdir(join(skillRoot, 'docs'), { recursive: true })
+    await writeFile(join(skillRoot, 'skill.json'), JSON.stringify({
+      id: 'paper-helper',
+      name: 'Paper Helper',
+      description: 'Summarize paper notes.',
+      entry: 'docs/guide.md'
+    }), 'utf8')
+    await writeFile(entryPath, '# Paper Helper\n\nSummarize paper notes.', 'utf8')
+
+    const settings = createSettings(workspaceRoot)
+    settings.claw.skills.extraDirs = [extraRoot]
+
+    const result = await listGuiSkills(settings, workspaceRoot)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.skills).toContainEqual(expect.objectContaining({
+      id: 'paper-helper',
+      name: 'Paper Helper',
+      description: 'Summarize paper notes.',
+      root: skillRoot,
+      entryPath,
+      scope: 'global',
+      legacy: false
+    }))
+  })
+
   function createSettings(workspaceRoot: string): AppSettingsV1 {
     return {
       version: 1,

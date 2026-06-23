@@ -1,91 +1,76 @@
-# SciForge Agent Computer Use 任务板
+# SciForge MCP / Computer Use 清理任务板
 
 更新时间：2026-06-23
 
 ## 不可变原则
 
-- [x] 旧逻辑代码和最终目标冲突时，删除旧逻辑，直接实现新版本，不做兼容，保持代码干净。
-- [x] 所有修改必须通用，不能为特色例子写硬编码补丁。
-- [x] LLM API 只能走 model router。
-- [x] 相同功能的工作链路需要统一，不要额外生出旁路。
+- 旧逻辑代码和最终目标冲突时，删除旧逻辑，直接实现新版本，不做兼容，保持代码干净。
+- 所有修改必须通用，不能为特色例子写硬编码补丁。
+- LLM API 只能走 model router。
+- 相同功能的工作链路需要统一，不要额外生出旁路。
+- 主 agent 和 subagent 必须复用同一套 `computer_use` contract、session、lease、权限、审计和模型输入路径。
+- 截图、read-tool 图片和其他 model-visible image 只能由 model router 做 provider 协议转换；runtime 不得把 base64 图片当普通 JSON 文本塞入上下文。
+- 风险动作必须进入统一确认策略；用户停止 run 时必须中断当前 action、释放 lease，并记录释放原因。
+- `packages/workers/**` 是 GUI MCP 能力的共享边界；Kun、Codex、Claude Code、主进程 IPC 和 renderer 不得各自保留同能力的私有业务实现。
+- 凡是可以模块化为 MCP worker 或共享 MCP package 的能力，优先放到 MCP 部分独立维护；主进程、renderer 和 runtime 只保留必要 adapter、配置注入和产品边界。
+- 主进程可以保留 Electron/native、窗口、权限、设置、生命周期、打包启动、runtime 执行引擎和 internal HTTP 边界；纯 Node 业务逻辑只能保留一份。
+- 清理旧实现前必须先证明入口已迁走、测试覆盖已迁走、打包/runtime 注入仍使用唯一链路。
 
+## 当前结论
 
-## 新任务：多 Agent Computer Use
+- [x] 已完成并行只读调查：`src/main/**` 未发现仍完整保留旧 MCP schema/tool handler/business handler 的大套实现，`src/main/*-mcp-server.ts` 主要是 worker launch adapter。
+- [x] 已确认应保留边界：`src/main/*-mcp-node-entry.ts`、`src/main/*-mcp-config.ts`、thin `src/main/*-mcp-server.ts`、`schedule-runtime`、`workflow-runtime`、`paper-radar-sidecar`、Electron/native 文件与 Git 可变更能力。
+- [x] 已确认真实清理方向：优先清理 LSP、write retrieval/PDF、workspace reference 的双实现；其次清理 MCP tool list、Codex/Kun 暴露路径、legacy flag/name、打包模型和配置模板重复。
+- [x] 已确认后续清理策略：能进入 MCP worker/shared MCP package 的通用能力优先迁入 MCP 部分，方便独立测试、独立打包和跨 runtime 复用。
+- [x] 旧的 Computer Use 已完成实施任务已从本文件删除；MCP worker 已完成历史保留在 `PROJECT_mcp.md`。
 
-目标：让主 agent 和所有 subagent 都能使用统一的 `computer_use` 能力。图像模态、截图理解和模型协议转换一律走 model router；runtime 只负责采集截图、执行桌面动作、维护 agent 级 session/target/lease，并保证不同 agent 的操作不会互相干扰。
+## 模块化迁移判定
 
-### 范围边界
+- [x] 为每个待清理能力先做 MCP 模块化判定：若能力不依赖 Electron 窗口、OS 权限、用户设置写入、native lifecycle 或 runtime 执行引擎，则默认迁到 `packages/workers/**` 或共享 MCP package。
+- [x] 对仍需 GUI IPC 的能力，保持 IPC channel 名称和 renderer 语义稳定，但 handler 只调用 MCP worker/shared MCP service，不再在 `src/main/services/**` 内保留第二份业务逻辑。
+- [x] 对仍需 AgentRuntimeHost auxiliary 的能力，优先改为调用同一 MCP worker/shared MCP service；只有无法表达为 MCP tool 或必须访问 runtime 内存态时才保留 host-only adapter。
+- [x] 新增能力时先建立 worker contract、service、MCP server、package tests，再接入 Kun/Codex/Claude Code/main IPC；禁止先在 runtime 私有目录落一份临时业务实现。
+- [x] 已迁入 MCP 部分的能力必须能独立测试，且 contract/tool schema、side effect、confirmation/audit 元数据与 runtime 注入配置由同一来源派生。
 
-- [x] 不做虚拟桌面、VM、VNC、Xvfb 或浏览器隔离方案。
-- [x] Phase 1 先实现真实宿主桌面的全局后端，通过 lease/lock 串行化动作，保证 main agent 和 subagent 都能安全使用。
-- [x] Phase 2A 实现 macOS app/window-scoped experimental backend：通过 System Events 枚举/激活真实 app/window target，再在全局锁保护下委托真实宿主桌面 backend 执行动作。
-- [x] 同一个 app/window 已被 agent 申请时，其他 agent 再申请必须被拒绝，并返回明确拒绝理由；不排队、不抢占。
-- [x] 不允许为 main agent 和 subagent 分别实现旁路工具，所有 agent 复用同一套 computer-use contract、权限、审计和模型输入路径。
+## 第一阶段：业务实现去重
 
-### 独立扩展包与 Runtime 接入
+- [x] LSP code navigation 去重：将 `AgentRuntimeHost` 的 `runCodeNavigation` 迁到 `packages/workers/runtime-inspector` 的 LSP service/contract；只有 contract 需要被非 MCP 调用时才抽共享 MCP package；随后删除 `src/main/services/lsp-code-navigation-service.ts` 及只覆盖旧实现的测试。
+- [x] Write retrieval/PDF text 去重：让 `write:retrieve-context` IPC、inline completion retrieval 和 MCP `write-assist` 共用 `packages/workers/write-assist` service/contract；只有 Electron/native 文件选择或 UI 状态留在 main adapter；随后删除 `src/main/services/write-retrieval-service.ts`、`src/main/services/write-pdf-text-service.ts` 中重复的纯 Node 业务逻辑。
+- [x] Workspace reference 去重：保留 GUI IPC、renderer UX 和 host-service 语义，底层统一到 `packages/workers/workspace-intel` service/contract；只有需要 Electron/native 写操作或窗口状态的部分留在 main adapter；随后删除或瘦身 `src/main/services/workspace-reference-service.ts` 中重复的 reference list/preview 逻辑。
+- [x] Skill/file preview 边界审计：确认 `src/main/services/skill-service.ts`、workspace file preview、workspace-intel worker 之间是否存在重复发现/预览逻辑；只保留 Electron/native 写操作与 UI 专用能力，纯只读发现逻辑归并到唯一实现。
+- [x] Paper Radar sidecar/worker 边界审计：明确 `plugins/paper-radar-service` 与 `packages/workers/paper-radar` 是否长期采用 sidecar HTTP 加 worker facade，还是统一到 worker 本地 service；删除重复的 sync/search/rank/digest/profile 业务实现，只保留一个权威数据路径。
 
-- [x] `computer_use` 作为 `packages/workers/computer-use` 下的独立 worker extension package 实现，不放进某个 runtime 的私有目录。
-- [x] extension package 以 stdio MCP server 作为统一入口，runtime 只注入 server launch config，不复制 backend、lease 或动作执行逻辑。
-- [x] GUI-managed Kun、Codex runtime 和 Claude Code runtime 都注入同一个 `gui_computer_use` MCP server。
-- [x] 打包配置必须包含 worker package、MCP node entry 和 native host-control 依赖，避免生产包启动时找不到 computer-use server。
-- [x] 新增其他 runtime 时只能接入同一个 MCP server，不允许新增 runtime 专属 computer-use 工具链路。
+## 第二阶段：MCP 暴露与配置去重
 
-### Computer Use Contract
+- [x] Codex MCP 双暴露去重：在 Codex `config.toml` 原生 MCP `[mcp_servers.gui_*]` 和 `CodexDynamicMcpToolBridge` dynamicTools 之间二选一，避免同一 GUI MCP server 通过两条路径暴露给 Codex。
+- [x] Runtime MCP server registry 收敛：Kun、Codex、Claude Code 的 GUI MCP server 列表、enabledTools、命令、env、timeout 和 disabled 状态统一由共享 registry/descriptor 派生，不再各 runtime 手写一份。
+- [x] Worker contract 派生 enabledTools：`schedule`、`workflow`、`paper-radar` 等 main config 中的 enabledTools 从 `packages/workers/*/src/contract.ts` 派生，删除重复手写 tool name list。
+- [x] MCP server 启动分发去重：把 `src/main/index.ts` 中多组 `running*` flag 和长 `else if` MCP server dispatch 改成注册表式 dispatcher；保留必须的 Electron launch 边界。
+- [x] MCP config helper 中立化：将 `resolveScheduleMcpCommand`、node-entry path、args/env、JSON read/write、timeouts、enabled/disabled 等重复模板整理为通用 managed GUI MCP config helper。
+- [x] Kun MCP 注入路径去重：把 `~/.kun/mcp.json` 定位为用户编辑/外部 server 来源，GUI 内置 MCP 直接从共享 registry 合成到 Kun config，避免“写出再读回再覆盖”。
 
-- [x] 定义统一 `computer_use` 工具协议，支持 `list_targets`、`bind_target`、`release_target`、`screenshot`、`cursor_position`、`mouse_move`、`click`、`drag`、`scroll`、`type`、`key`、`wait`。
-- [x] 为每个 agent 分配独立 `computerUseSessionId`，并记录 `agentId`、`threadId`、`turnId`、`targetId`、`backend`、`leaseState` 和软件光标状态。
-- [x] `bind_target` 必须返回 target metadata、lease 信息和拒绝原因；拒绝原因需要可展示、可进入 tool result、可用于模型自我纠正。
-- [x] `screenshot` 输出统一为 model-visible image tool result，不把 base64 当普通 JSON 文本塞入上下文。
-- [x] 工具结果中的图片、文本摘要、屏幕尺寸、坐标空间说明必须结构化，便于 model router 转成对应 provider 协议。
+## 第三阶段：旧入口、命名与打包清理
 
-### Agent 与 Subagent 权限
+- [x] Schedule legacy 命名清理：删除旧 schedule MCP flag/name/path/alias/TOML 清理逻辑，只保留 `gui_schedule` worker entry 与 `schedule-mcp-node-entry`。
+- [x] 直接 main flag 入口审计：确认没有外部脚本直接运行 `out/main/index.js --gui-*` 后，删除或收敛 `src/main/index.ts` 中直接启动 MCP server 的 legacy flag 分支；标准路径使用 `out/main/*-mcp-node-entry.js`。
+- [x] Worker CLI 与 main wrapper 双入口审计：保留 Electron 必需胶水；若运行模型统一为 node-entry，删除 raw worker CLI runtime 校验；若统一为 worker CLI，则移除 Vite node-entry 和对应 wrapper。
+- [x] 打包模型二选一：在 bundled node-entry 与 raw `packages/workers/*` runtime copy/asarUnpack 之间明确权威路径，清理 `electron-builder.config.cjs`、`electron.vite.config.ts`、`scripts/after-pack.cjs` 的重复校验。
+- [x] Retired/legacy compatibility 清单：列出必须长期保留的兼容项和可删除旧实现，优先覆盖 retired `gui_plan_create`、legacy schedule config、旧 settings/provider/env alias。
 
-- [x] 主 agent 默认可使用 `computer_use`。
-- [x] subagent 默认也可使用 `computer_use`，但必须拥有自己的 session、target lease 和审计记录。
-- [x] subagent 不继承父 agent 的 target lease；如需操作同一 app/window，必须显式申请并因冲突被拒绝。
-- [x] 所有 agent 的 computer-use 调用都进入统一权限策略、确认策略和 action budget。
-- [x] 支持按 runtime 设置关闭全部 computer use，或只关闭 experimental app/window-scoped backend。
+## 回归守卫
 
-### Backend 设计
+- [x] Computer Use 图像路径回归守卫：增加测试防止截图绕过 model router，或以 provider 私有 `image_url` / `input_image` 旁路进入非 router 层。
+- [x] AgentRuntimeHost auxiliary audit：逐项检查旧 auxiliary operation 是否已被 MCP worker 替代；可删则删，必须保留则路由到共享 worker/service contract。
+- [x] IPC handler audit：GUI-facing IPC 可以保留，但纯 Node parsing/indexing/retrieval 业务必须调用共享 package service 或 worker adapter，不得复制实现。
+- [x] 测试分层收敛：行为测试放到 worker/shared package；main 测试只覆盖 launch、lifecycle、IPC adapter、runtime 注入和配置写入。
+- [x] 完成每个清理项后用 `rg` 证明同能力只有一个业务实现入口，且 Kun、Codex、Claude Code、GUI/renderer 仍走同一 contract。
+- [x] 清理完成后运行 `npm run typecheck -- --pretty false` 和相关 worker/main 测试；所有已完成清理任务必须在本文件打勾。
 
-- [x] 抽象 `ComputerUseBackend` 接口，隐藏真实执行差异，统一暴露 target discovery、lease、screenshot、pointer、keyboard、wait 和 diagnostics。
-- [x] 实现 `global-native` backend：复用上游 Kun 的 host-control 思路，使用真实桌面截图和鼠标键盘控制；同一时间只允许一个 active action。
-- [x] `global-native` backend 对不同 target lease 仍保持全局 action lock，避免真实 OS 鼠标、键盘、前台焦点互相抢夺。
-- [x] 实现 `mac-app-scoped` backend 的实验接口：按 app/window target 维护 session 和软件光标，能发现/激活真实 macOS app/window；底层能力不足时降级为拒绝或全局锁保护。
-- [x] backend diagnostics 必须能说明当前平台、权限、后端可用性、active lease、拒绝原因和最近错误。
+## 不要作为冗余直接删除
 
-### Model Router 与图像模态
-
-- [x] Kun runtime 的 Model Router Responses 路径不再把 tool result 图片拆成 provider 私有 `image_url`/`input_image` 旁路，只产出标准 `function_call_output.output` image tool result。
-- [x] model router 负责把截图、read-tool 图片和其他 model-visible image 转为 OpenAI Responses、Chat Completions、Anthropic Messages 等上游协议。
-- [x] model router 能直接解析标准 `computer_screenshot` / MCP image content tool result，并把图片作为内部 vision modality 路由。
-- [x] 对不支持图像输入的模型，model router 必须降级为文本摘要，并明确说明图片未发送。
-- [x] 历史压缩、token economy 和 request hygiene 必须按视觉 token 预算处理截图，不能按 base64 文本长度估算。
-- [x] 只保留最近有限数量的截图图片载荷，旧截图降级为文本占位，避免长时间 desktop task 撑爆上下文。
-
-### macOS 权限与 UI
-
-- [x] 接入 macOS Accessibility 和 Screen Recording 权限检测。
-- [x] 区分“未授权”和“系统设置已授权但当前进程需重启生效”。
-- [x] 设置页展示 computer-use 开关、backend 状态、权限状态、active leases 和最近拒绝原因。
-- [x] 开启 computer use 时，提示它会操控真实电脑，并说明 main/subagent 都可能使用该能力。
-- [x] macOS 上处理 native automation 触发 AppKit/Dock 图标的问题，避免运行时多出无用 Dock 图标。
-
-### 安全与确认
-
-- [x] 复用统一确认策略：删除、上传、发消息、提交表单、改系统设置、交易、敏感数据传输等风险动作必须在动作前确认。
-- [x] computer-use action budget 按 agent session 和 turn 双维度限制，防止 runaway。
-- [x] 用户停止 run 时，必须中断当前 action、释放 lease，并记录释放原因。
-- [x] tool result 中不得泄漏不必要的敏感截图 base64；持久日志只保存必要摘要和可配置数量的截图引用。
-- [x] 拒绝第三方内容诱导的权限扩大、系统设置修改或敏感数据传输。
-
-### 测试与验收
-
-- [x] 覆盖 target lease：不同 agent 申请同一 app/window 必须拒绝并返回原因。
-- [x] 覆盖 main agent 和 subagent 都能看到并调用 `computer_use`，且走同一工具协议。
-- [x] 覆盖 `global-native` backend 的全局 action lock，确保并发 action 不交错执行。
-- [x] 覆盖截图 image tool result 进入 model router 的路径，不把 base64 作为普通文本发送。
-- [x] 覆盖不支持图像模型的降级行为。
-- [x] 覆盖 macOS 权限状态、重启提示和设置页展示。
-- [x] 用两个并发 agent 验证：不同 target 不互相污染 session 状态；相同 target 明确拒绝。
-- [x] 用真实 macOS 桌面验证：`SCIFORGE_COMPUTER_USE_REAL_MAC=1 npm run computer-use:smoke:mac` 已覆盖 TextEdit window target 的截图、点击、输入、滚动、停止 run、重新绑定和释放 lease 完整闭环。
+- `src/main/schedule-runtime.ts`：保留定时器、settings、power/system、agent runtime 执行、internal HTTP endpoint。
+- `src/main/workflow-runtime.ts`：保留 workflow 执行引擎、approval、loop、webhook/cron/internal endpoint。
+- `src/main/paper-radar-sidecar.ts` 与 `plugins/paper-radar-service`：在 Paper Radar 边界决策前保留 sidecar lifecycle、SQLite/storage/source/ranking 职责。
+- `src/main/*-mcp-node-entry.ts`：保留 packaged app 的 Electron/Helper MCP worker 启动入口，除非整体改为 worker CLI 启动模型。
+- Thin `src/main/*-mcp-server.ts`：保留 worker launch adapter，除非配置已统一为直接启动 worker CLI/bin。
+- `src/main/services/workspace-files.ts`、`workspace-editors.ts`、`workspace-paths.ts`、`git-service.ts`、`git-checkpoint-service.ts`：保留 Electron/native 文件、编辑器、Git 可变更边界；只清理与 worker read-only 能力重复的纯业务逻辑。

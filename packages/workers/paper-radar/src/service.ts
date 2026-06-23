@@ -2,13 +2,16 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { DEFAULT_PROFILE, normalizeTopicProfile, ProfileStore } from 'sciforge-paper-radar-service/src/profiles.js'
-import { profileSyncCategories, rankPapers } from 'sciforge-paper-radar-service/src/ranker.js'
-import { fetchArxivMetadata, fetchBiorxivMetadata } from 'sciforge-paper-radar-service/src/sources.js'
-import { PaperStore } from 'sciforge-paper-radar-service/src/storage.js'
+import { DEFAULT_PROFILE, normalizeTopicProfile } from 'sciforge-paper-radar-service/src/profiles.js'
+import {
+  createPaperRadarCoreService,
+  type PaperRadarCoreService
+} from 'sciforge-paper-radar-service/src/service.js'
 import type {
-  DigestRequest,
-  PaperRecord,
+  ArxivSyncRequest,
+  BiorxivSyncRequest
+} from 'sciforge-paper-radar-service/src/sources.js'
+import type {
   RankedPaper,
   RankRequest,
   SearchRequest,
@@ -53,6 +56,7 @@ export interface PaperRadarServiceOptions {
   now?: () => Date
   auditSink?: PaperRadarAuditSink
   maxAuditRecords?: number
+  coreService?: PaperRadarCoreService
 }
 
 export interface PaperRadarCallOptions {
@@ -173,6 +177,8 @@ export interface PaperDigestResult extends PaperRankResult {
 
 export interface PaperRadarService {
   readonly paths: PaperRadarResolvedPaths
+  syncArxiv(input: ArxivSyncRequest, options?: PaperRadarCallOptions): Promise<SyncResult>
+  syncBiorxiv(input: BiorxivSyncRequest, options?: PaperRadarCallOptions): Promise<SyncResult>
   listProfiles(input?: Record<string, never>, options?: PaperRadarCallOptions): PaperProfileListResult
   saveProfile(input: PaperProfileSaveInput, options?: PaperRadarCallOptions): PaperProfileSaveResult
   syncProfile(input: PaperProfileSyncInput, options?: PaperRadarCallOptions): Promise<PaperProfileSyncResult>
@@ -237,9 +243,7 @@ export function createPaperRadarFixtureFetch(fixtureDir: string): typeof fetch {
 
 class LocalPaperRadarService implements PaperRadarService {
   readonly paths: PaperRadarResolvedPaths
-  private readonly store: PaperStore
-  private readonly profiles: ProfileStore
-  private readonly fetchImpl: typeof fetch
+  private readonly core: PaperRadarCoreService
   private readonly now: () => Date
   private readonly auditSink?: PaperRadarAuditSink
   private readonly maxAuditRecords: number
@@ -248,17 +252,35 @@ class LocalPaperRadarService implements PaperRadarService {
 
   constructor(options: PaperRadarServiceOptions) {
     this.paths = paperRadarPathsFromEnv(options)
-    this.store = new PaperStore(this.paths.dbPath)
-    this.profiles = new ProfileStore(this.paths.profilesPath, { persistDefault: false })
-    this.fetchImpl = options.fetchImpl ?? fetch
+    this.core = options.coreService ?? createPaperRadarCoreService({
+      dbPath: this.paths.dbPath,
+      profilesPath: this.paths.profilesPath,
+      fetchImpl: options.fetchImpl,
+      now: options.now,
+      profileStoreOptions: { persistDefault: false }
+    })
     this.now = options.now ?? (() => new Date())
     this.auditSink = options.auditSink
     this.maxAuditRecords = Math.max(1, Math.floor(options.maxAuditRecords ?? 500))
   }
 
+  async syncArxiv(input: ArxivSyncRequest, options: PaperRadarCallOptions = {}): Promise<SyncResult> {
+    throwIfAborted(options.signal)
+    const result = await this.core.syncArxiv(input)
+    throwIfAborted(options.signal)
+    return result
+  }
+
+  async syncBiorxiv(input: BiorxivSyncRequest, options: PaperRadarCallOptions = {}): Promise<SyncResult> {
+    throwIfAborted(options.signal)
+    const result = await this.core.syncBiorxiv(input)
+    throwIfAborted(options.signal)
+    return result
+  }
+
   listProfiles(_input: Record<string, never> = {}, options: PaperRadarCallOptions = {}): PaperProfileListResult {
     throwIfAborted(options.signal)
-    const profiles = this.profiles.list()
+    const profiles = this.core.listProfiles()
     return { profiles, count: profiles.length }
   }
 
@@ -295,7 +317,7 @@ class LocalPaperRadarService implements PaperRadarService {
     }
 
     try {
-      const savedProfile = this.profiles.upsert(profile)
+      const savedProfile = this.core.saveProfile(profile)
       const audit = this.recordProfileAudit({
         capability: 'paper_profile_save',
         action: 'write',
@@ -330,28 +352,31 @@ class LocalPaperRadarService implements PaperRadarService {
     if (preview) {
       try {
         const profile = this.resolveProfile(input.profile)
-        const { from, to } = this.resolveSyncWindow(input)
-        const maxRecords = input.max_records ?? 200
-        const planned = syncPlan(profile, from, to, maxRecords)
+        const plan = this.core.planProfileSync({
+          profile: profile.name,
+          from: input.from,
+          to: input.to,
+          maxRecords: input.max_records
+        })
         const audit = this.recordSyncAudit({
           capability: 'paper_profile_sync',
           action: 'preview',
           ok: true,
           input,
-          profile: profile.name,
-          from,
-          to,
-          maxRecords,
-          sourceCount: planned.length
+          profile: plan.profile,
+          from: plan.from,
+          to: plan.to,
+          maxRecords: plan.maxRecords,
+          sourceCount: plan.planned.length
         })
         return {
           dryRun: input.dry_run,
           preview: true,
-          profile: profile.name,
-          from,
-          to,
-          maxRecords,
-          planned,
+          profile: plan.profile,
+          from: plan.from,
+          to: plan.to,
+          maxRecords: plan.maxRecords,
+          planned: plan.planned,
           auditId: audit.auditId
         }
       } catch (error) {
@@ -382,70 +407,42 @@ class LocalPaperRadarService implements PaperRadarService {
     let maxRecords: number | undefined
     try {
       const profile = this.resolveProfile(input.profile)
-      profileName = profile.name
-      const window = this.resolveSyncWindow(input)
-      from = window.from
-      to = window.to
-      maxRecords = input.max_records ?? 200
-
-      const arxiv = await fetchArxivMetadata(
-        { categories: profileSyncCategories(profile), since: from, until: to, maxRecords },
-        { fetchImpl: this.fetchImpl, now: this.now }
-      )
+      const plan = this.core.planProfileSync({
+        profile: profile.name,
+        from: input.from,
+        to: input.to,
+        maxRecords: input.max_records
+      })
+      profileName = plan.profile
+      from = plan.from
+      to = plan.to
+      maxRecords = plan.maxRecords
       throwIfAborted(options.signal)
-      persistPapers(this.store, arxiv.papers)
-
-      const biorxiv = await fetchBiorxivMetadata(
-        { from, to, maxRecords },
-        { fetchImpl: this.fetchImpl, now: this.now }
-      )
+      const result = await this.core.syncProfile({
+        profile: profile.name,
+        from,
+        to,
+        maxRecords
+      })
       throwIfAborted(options.signal)
-      const biorxivPapers = biorxiv.papers.filter((paper) => matchesBiorxivProfile(profile, paper))
-      persistPapers(this.store, biorxivPapers)
-
-      const checkedAt = this.now().toISOString()
-      this.store.setSyncState('arxiv', 'last_sync', checkedAt)
-      this.store.setSyncState('arxiv', 'last_sync_date', to)
-      this.store.setSyncState('biorxiv', 'last_sync', checkedAt)
-      this.store.setSyncState('biorxiv', 'last_sync_date', to)
-
-      const results: SyncResult[] = [
-        { ...arxiv.result, upserted: arxiv.papers.length },
-        {
-          ...biorxiv.result,
-          fetched: biorxiv.papers.length,
-          upserted: biorxivPapers.length,
-          skipped: biorxiv.papers.length - biorxivPapers.length
-        }
-      ]
-      const fetched = sum(results, 'fetched')
-      const upserted = sum(results, 'upserted')
-      const skipped = sum(results, 'skipped')
       const audit = this.recordSyncAudit({
         capability: 'paper_profile_sync',
         action: 'write',
         ok: true,
         input,
-        profile: profile.name,
+        profile: result.profile,
         from,
         to,
         maxRecords,
-        sourceCount: results.length,
-        fetched,
-        upserted,
-        skipped
+        sourceCount: result.results.length,
+        fetched: result.fetched,
+        upserted: result.upserted,
+        skipped: result.skipped
       })
       return {
         dryRun: false,
         preview: false,
-        profile: profile.name,
-        from,
-        to,
-        maxRecords,
-        results,
-        fetched,
-        upserted,
-        skipped,
+        ...result,
         auditId: audit.auditId
       }
     } catch (error) {
@@ -465,30 +462,22 @@ class LocalPaperRadarService implements PaperRadarService {
 
   search(input: PaperSearchInput, options: PaperRadarCallOptions = {}): PaperSearchResult {
     throwIfAborted(options.signal)
-    const papers = this.store.search(searchRequestFromInput(input))
-    return { papers, count: papers.length }
+    return this.core.search(searchRequestFromInput(input))
   }
 
   rank(input: PaperRankInput, options: PaperRadarCallOptions = {}): PaperRankResult {
     throwIfAborted(options.signal)
     const profile = this.resolveProfile(input.profile)
-    const papers = rankPapers(this.store, this.profiles, rankRequestFromInput(input, profile.name))
-    return { profile: profile.name, papers, count: papers.length }
+    return this.core.rank(rankRequestFromInput(input, profile.name))
   }
 
   digest(input: PaperDigestInput, options: PaperRadarCallOptions = {}): PaperDigestResult {
     throwIfAborted(options.signal)
     const profile = this.resolveProfile(input.profile)
-    const papers = rankPapers(this.store, this.profiles, {
+    return this.core.digest({
       ...rankRequestFromInput(input, profile.name),
       topK: input.top_k ?? 10
-    } satisfies DigestRequest)
-    return {
-      profile: profile.name,
-      generatedAt: this.now().toISOString(),
-      papers,
-      count: papers.length
-    }
+    })
   }
 
   diagnostics(options: PaperRadarCallOptions = {}): PaperRadarDiagnostics {
@@ -498,14 +487,14 @@ class LocalPaperRadarService implements PaperRadarService {
       transport: PAPER_RADAR_WORKER_TRANSPORT,
       capabilities: PAPER_RADAR_WORKER_CAPABILITIES,
       storage: this.paths,
-      stats: this.store.stats(),
+      stats: this.core.stats(),
       checkedAt: this.now().toISOString()
     }
   }
 
   syncState(options: PaperRadarCallOptions = {}): { state: PaperSyncStateRecord[]; count: number } {
     throwIfAborted(options.signal)
-    const state = this.store.listSyncState()
+    const state = this.core.listSyncState()
     return { state, count: state.length }
   }
 
@@ -531,7 +520,7 @@ class LocalPaperRadarService implements PaperRadarService {
 
   getPaper(id: string, options: PaperRadarCallOptions = {}): RankedPaper {
     throwIfAborted(options.signal)
-    const paper = this.store.getPaper(id)
+    const paper = this.core.getPaper(id)
     if (!paper) {
       throw new PaperRadarWorkerError({
         code: 'not_found',
@@ -545,11 +534,11 @@ class LocalPaperRadarService implements PaperRadarService {
 
   listPaperResources(limit = 50, options: PaperRadarCallOptions = {}): RankedPaper[] {
     throwIfAborted(options.signal)
-    return this.store.listRecentPapers(limit)
+    return this.core.listRecentPapers(limit)
   }
 
   close(): void {
-    this.store.close()
+    this.core.close()
   }
 
   private recordAudit(input: PaperRadarAuditRecordInput): PaperRadarAuditRecord {
@@ -736,7 +725,7 @@ class LocalPaperRadarService implements PaperRadarService {
   }
 
   private resolveProfile(name?: string): TopicProfile {
-    if (!name) return this.profiles.get(DEFAULT_PROFILE.name)
+    if (!name) return this.core.getProfile(DEFAULT_PROFILE.name)
     const profile = this.findProfile(name)
     if (!profile) {
       throw new PaperRadarWorkerError({
@@ -751,15 +740,7 @@ class LocalPaperRadarService implements PaperRadarService {
 
   private findProfile(name: string): TopicProfile | undefined {
     const normalizedName = normalizeProfileName(name)
-    return this.profiles.list().find((profile) => profile.name === normalizedName)
-  }
-
-  private resolveSyncWindow(input: PaperProfileSyncInput): { from: string; to: string } {
-    const to = input.to ?? isoDate(this.now())
-    if (input.from) return { from: input.from, to }
-    const yesterday = new Date(`${to}T00:00:00.000Z`)
-    yesterday.setUTCDate(yesterday.getUTCDate() - 1)
-    return { from: isoDate(yesterday), to }
+    return this.core.findProfile(normalizedName)
   }
 }
 
@@ -784,35 +765,6 @@ function rankRequestFromInput(input: PaperRankInput, profile: string): RankReque
   }
 }
 
-function syncPlan(profile: TopicProfile, from: string, to: string, maxRecords: number): PaperProfileSyncPlan[] {
-  return [
-    {
-      source: 'arxiv',
-      from,
-      to,
-      maxRecords,
-      categories: profileSyncCategories(profile)
-    },
-    {
-      source: 'biorxiv',
-      from,
-      to,
-      maxRecords,
-      subjects: profile.biorxivSubjects
-    }
-  ]
-}
-
-function matchesBiorxivProfile(profile: TopicProfile, paper: PaperRecord): boolean {
-  if (!profile.biorxivSubjects.length) return true
-  const metadata = [...paper.categories, ...paper.subjects].join(' ').toLowerCase()
-  return profile.biorxivSubjects.some((subject) => metadata.includes(subject.toLowerCase()))
-}
-
-function persistPapers(store: PaperStore, papers: PaperRecord[]): void {
-  for (const paper of papers) store.upsertPaper(paper)
-}
-
 function normalizeProfileName(name: string): string {
   return normalizeTopicProfile({
     name,
@@ -826,14 +778,6 @@ function normalizeProfileName(name: string): string {
 function cleanPath(value: string | undefined): string | undefined {
   const cleaned = value?.trim()
   return cleaned ? cleaned : undefined
-}
-
-function isoDate(date: Date): string {
-  return date.toISOString().slice(0, 10)
-}
-
-function sum(results: SyncResult[], key: 'fetched' | 'upserted' | 'skipped'): number {
-  return results.reduce((total, result) => total + result[key], 0)
 }
 
 function isWritePreview(input: { dry_run?: boolean; preview?: boolean }): boolean {

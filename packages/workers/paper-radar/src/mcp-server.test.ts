@@ -62,6 +62,13 @@ test('Paper Radar MCP server exposes structured tools and JSON resources', async
     assert.equal(contract.annotations.destructiveHint, contract.sideEffect === 'destructive')
   }
 
+  const profileList = await client.callTool({
+    name: 'gui_paper_profile_list',
+    arguments: {}
+  })
+  assert.equal(asRecord(profileList.structuredContent).ok, true)
+  assert.equal(asRecord(profileList.structuredContent).count, 1)
+
   const savePreview = await client.callTool({
     name: 'gui_paper_profile_save',
     arguments: {
@@ -152,7 +159,24 @@ test('Paper Radar MCP server exposes structured tools and JSON resources', async
     name: 'gui_paper_search',
     arguments: { query: 'protein diffusion', sources: ['arxiv'], top_k: 5 }
   })
+  assert.equal(asRecord(search.structuredContent).ok, true)
   assert.equal(asRecord(search.structuredContent).count, 1)
+
+  const rank = await client.callTool({
+    name: 'gui_paper_rank',
+    arguments: { profile: 'protein_focus', from: '2026-06-16', top_k: 5 }
+  })
+  assert.equal(asRecord(rank.structuredContent).ok, true)
+  assert.equal(asRecord(rank.structuredContent).profile, 'protein_focus')
+  assert.ok(Number(asRecord(rank.structuredContent).count) >= 1)
+
+  const digest = await client.callTool({
+    name: 'gui_paper_digest',
+    arguments: { profile: 'protein_focus', from: '2026-06-16', top_k: 10 }
+  })
+  assert.equal(asRecord(digest.structuredContent).ok, true)
+  assert.equal(asRecord(digest.structuredContent).generatedAt, '2026-06-17T00:00:00.000Z')
+  assert.equal(asRecord(digest.structuredContent).count, 2)
 
   const missing = await client.callTool({
     name: 'gui_paper_rank',
@@ -175,6 +199,13 @@ test('Paper Radar MCP server exposes structured tools and JSON resources', async
   const statsResource = await client.readResource({ uri: PAPER_RADAR_STATS_RESOURCE_URI })
   const stats = JSON.parse(asRecord(statsResource.contents[0]).text as string) as Record<string, unknown>
   assert.equal(asRecord(stats.stats).papers, 2)
+
+  const syncStateResource = await client.readResource({ uri: PAPER_RADAR_SYNC_STATE_RESOURCE_URI })
+  const syncState = JSON.parse(asRecord(syncStateResource.contents[0]).text as string) as Record<string, unknown>
+  assert.equal(syncState.count, 4)
+  assert.ok((syncState.state as Array<{ source: string; key: string }>).some((item) =>
+    item.source === 'arxiv' && item.key === 'last_sync_date'
+  ))
 
   const profileResource = await client.readResource({ uri: paperRadarProfileResourceUri('protein_focus') })
   const profile = JSON.parse(asRecord(profileResource.contents[0]).text as string) as Record<string, unknown>

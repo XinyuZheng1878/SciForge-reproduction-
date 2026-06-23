@@ -4,37 +4,46 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WriteInlineCompletionRequest } from '../../shared/write-inline-completion'
 
-vi.mock('./write-pdf-text-service', () => ({
-  readWritePdfText: async (payload: { path: string }) => {
-    const text = [
-      'PDF BM25 关键词检索 with literature context improves retrieval quality.',
-      'The assistant can cite the relevant page when explaining research evidence.'
-    ].join(' ')
-    return {
-      ok: true,
-      path: payload.path,
-      size: 123,
-      mtimeMs: 1,
-      pageCount: 1,
-      pages: [{
-        page: 1,
-        text,
-        charStart: 0,
-        charEnd: text.length
-      }],
-      hasText: true,
-      truncated: false
-    }
-  },
-  clearWritePdfTextCache: () => undefined
-}))
-
 import {
   clearWriteRetrievalCache,
   retrieveWriteContext,
   retrieveWriteInlineCompletionContext,
   tokenizeWriteRetrievalText
 } from './write-retrieval-service'
+
+function escapePdfText(text: string): string {
+  return text.replaceAll('\\', '\\\\').replaceAll('(', '\\(').replaceAll(')', '\\)')
+}
+
+function createSimpleTextPdf(text: string): Buffer {
+  const stream = `BT /F1 18 Tf 72 720 Td (${escapePdfText(text)}) Tj ET`
+  const objects = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+    [
+      '3 0 obj',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]',
+      '/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+      'endobj\n'
+    ].join('\n'),
+    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+    `5 0 obj\n<< /Length ${Buffer.byteLength(stream, 'ascii')} >>\nstream\n${stream}\nendstream\nendobj\n`
+  ]
+  let pdf = '%PDF-1.4\n'
+  const offsets = [0]
+  for (const object of objects) {
+    offsets.push(Buffer.byteLength(pdf, 'ascii'))
+    pdf += object
+  }
+  const xrefOffset = Buffer.byteLength(pdf, 'ascii')
+  pdf += 'xref\n0 6\n'
+  pdf += '0000000000 65535 f \n'
+  for (const offset of offsets.slice(1)) {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`
+  }
+  pdf += `trailer\n<< /Root 1 0 R /Size 6 >>\nstartxref\n${xrefOffset}\n%%EOF\n`
+  return Buffer.from(pdf, 'ascii')
+}
 
 function createRequest(workspaceRoot: string): WriteInlineCompletionRequest {
   return {
@@ -134,6 +143,11 @@ describe('write retrieval service', () => {
       '# Notes\n\nEmbedding cache notes help the inline completion stay consistent.',
       'utf8'
     )
+    await writeFile(
+      join(workspaceRoot, 'huge.md'),
+      `# Huge\n\n${'embedding cache '.repeat(60_000)}`,
+      'utf8'
+    )
     await writeFile(join(workspaceRoot, 'output.jsonl'), `${'x'.repeat(10_000)}\n`, 'utf8')
 
     const result = await retrieveWriteInlineCompletionContext({
@@ -151,6 +165,7 @@ describe('write retrieval service', () => {
     })
 
     expect(result?.snippets.some((snippet) => snippet.path === 'output.jsonl')).toBe(false)
+    expect(result?.snippets.some((snippet) => snippet.path === 'huge.md')).toBe(false)
     expect(result?.snippets.some((snippet) => snippet.path === 'notes.md')).toBe(true)
   })
 
@@ -159,12 +174,15 @@ describe('write retrieval service', () => {
     const pdfPath = join(workspaceRoot, 'papers', 'study.pdf')
     await mkdir(join(workspaceRoot, 'papers'), { recursive: true })
     await writeFile(join(workspaceRoot, 'draft.md'), '# Draft\n\nExplain literature context.', 'utf8')
-    await writeFile(pdfPath, Buffer.from('%PDF-1.4\n%%EOF'))
+    await writeFile(pdfPath, createSimpleTextPdf([
+      'PDF BM25 keyword retrieval with literature context improves retrieval quality.',
+      'The assistant can cite the relevant page when explaining research evidence.'
+    ].join(' ')))
 
     const result = await retrieveWriteContext({
       workspaceRoot,
       currentFilePath: pdfPath,
-      query: 'PDF BM25 关键词检索 literature retrieval quality',
+      query: 'PDF BM25 keyword literature retrieval quality',
       maxSnippets: 3,
       includeCurrentFile: true
     })
@@ -180,6 +198,6 @@ describe('write retrieval service', () => {
         pageEnd: 1
       }
     })
-    expect(result?.snippets[0].text).toContain('PDF BM25 关键词检索')
+    expect(result?.snippets[0].text).toContain('PDF BM25 keyword')
   })
 })

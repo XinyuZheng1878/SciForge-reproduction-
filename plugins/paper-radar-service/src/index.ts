@@ -18,7 +18,7 @@ const maxRecords = Number(process.env.PAPER_RADAR_MAX_RECORDS ?? 200);
 
 const server = createPaperRadarServer({ dbPath, profilesPath });
 const scheduler = autoSync
-  ? startDailySync({ dbPath, arxivCategories, maxRecords }, syncIntervalMs)
+  ? startDailySync({ dbPath, profilesPath, arxivCategories, maxRecords }, syncIntervalMs)
   : undefined;
 
 server.listen(port, host, () => {

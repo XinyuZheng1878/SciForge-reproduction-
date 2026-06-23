@@ -12,6 +12,7 @@ import {
   WorkspaceReferencePreviewInputSchema,
   WorkspaceSkillListInputSchema,
   WorkspaceSkillReadInputSchema,
+  WorkspaceTreeInputSchema,
   type WorkspaceIntelFailure
 } from './contract.js'
 import {
@@ -24,6 +25,12 @@ type McpTextToolResult = {
   structuredContent?: Record<string, unknown>
   isError?: true
 }
+
+const READ_ONLY_TOOL_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true
+} as const
 
 export type StartWorkspaceIntelMcpServerOptions = {
   transport?: Transport
@@ -39,7 +46,8 @@ export function createWorkspaceIntelMcpServer(
 
   server.registerTool('gui_workspace_list', {
     description: 'List read-only workspace directory entries with workspace root guard, pagination, and optional bounded recursion.',
-    inputSchema: WorkspaceListInputSchema
+    inputSchema: WorkspaceListInputSchema,
+    annotations: READ_ONLY_TOOL_ANNOTATIONS
   }, async (args) => {
     const result = await service.listWorkspace(args)
     return toolResult(result, result.ok
@@ -47,9 +55,21 @@ export function createWorkspaceIntelMcpServer(
       : result.error.message)
   })
 
+  server.registerTool('gui_workspace_tree', {
+    description: 'Return a bounded read-only workspace tree with depth and entry limits.',
+    inputSchema: WorkspaceTreeInputSchema,
+    annotations: READ_ONLY_TOOL_ANNOTATIONS
+  }, async (args) => {
+    const result = await service.tree(args)
+    return toolResult(result, result.ok
+      ? `Built workspace tree with ${result.entryCount} entr${result.entryCount === 1 ? 'y' : 'ies'}.`
+      : result.error.message)
+  })
+
   server.registerTool('gui_workspace_read', {
     description: 'Read a bounded UTF-8 text chunk from a file inside the configured workspace. Binary files and workspace escapes are rejected.',
-    inputSchema: WorkspaceReadInputSchema
+    inputSchema: WorkspaceReadInputSchema,
+    annotations: READ_ONLY_TOOL_ANNOTATIONS
   }, async (args) => {
     const result = await service.readFile(args)
     return toolResult(result, result.ok
@@ -59,7 +79,8 @@ export function createWorkspaceIntelMcpServer(
 
   server.registerTool('gui_workspace_preview', {
     description: 'Preview a workspace file or directory without returning unbounded payloads.',
-    inputSchema: WorkspacePreviewInputSchema
+    inputSchema: WorkspacePreviewInputSchema,
+    annotations: READ_ONLY_TOOL_ANNOTATIONS
   }, async (args) => {
     const result = await service.preview(args)
     return toolResult(result, result.ok ? result.contentSummary : result.error.message)
@@ -67,7 +88,8 @@ export function createWorkspaceIntelMcpServer(
 
   server.registerTool('gui_workspace_reference_list', {
     description: 'Build a read-only, bounded list of model-friendly workspace file references.',
-    inputSchema: WorkspaceReferenceListInputSchema
+    inputSchema: WorkspaceReferenceListInputSchema,
+    annotations: READ_ONLY_TOOL_ANNOTATIONS
   }, async (args) => {
     const result = await service.referenceList(args)
     return toolResult(result, result.ok
@@ -77,7 +99,8 @@ export function createWorkspaceIntelMcpServer(
 
   server.registerTool('gui_workspace_reference_preview', {
     description: 'Preview one workspace reference with text content truncated and binary content summarized.',
-    inputSchema: WorkspaceReferencePreviewInputSchema
+    inputSchema: WorkspaceReferencePreviewInputSchema,
+    annotations: READ_ONLY_TOOL_ANNOTATIONS
   }, async (args) => {
     const result = await service.referencePreview(args)
     return toolResult(result, result.ok ? result.preview.contentSummary : result.error.message)
@@ -85,7 +108,8 @@ export function createWorkspaceIntelMcpServer(
 
   server.registerTool('gui_workspace_skill_list', {
     description: 'List read-only project/configured skills discoverable for the workspace.',
-    inputSchema: WorkspaceSkillListInputSchema
+    inputSchema: WorkspaceSkillListInputSchema,
+    annotations: READ_ONLY_TOOL_ANNOTATIONS
   }, async (args) => {
     const result = await service.listSkills(args)
     return toolResult(result, result.ok
@@ -95,7 +119,8 @@ export function createWorkspaceIntelMcpServer(
 
   server.registerTool('gui_workspace_skill_read', {
     description: 'Read a bounded chunk from a discovered skill entry by id.',
-    inputSchema: WorkspaceSkillReadInputSchema
+    inputSchema: WorkspaceSkillReadInputSchema,
+    annotations: READ_ONLY_TOOL_ANNOTATIONS
   }, async (args) => {
     const result = await service.readSkill(args)
     return toolResult(result, result.ok

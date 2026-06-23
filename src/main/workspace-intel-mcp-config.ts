@@ -1,55 +1,49 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join, posix } from 'node:path'
 import type { AppSettingsV1 } from '../shared/app-settings'
-import {
-  resolveClawScheduleMcpCommand,
-  resolveKunMcpJsonPath,
-  type ClawScheduleMcpLaunchConfig
-} from './claw-schedule-mcp-config'
 import { GUI_WORKSPACE_INTEL_MCP_LAUNCH_FLAG } from './workspace-intel-mcp-server'
+import { WorkspaceIntelToolNames } from '../../packages/workers/workspace-intel/src/contract'
+import {
+  buildExternalKunMcpJson,
+  buildManagedGuiKunMcpServerConfig,
+  buildManagedGuiMcpJsonServerConfig,
+  ELECTRON_RUN_AS_NODE_ENV,
+  managedGuiMcpNames,
+  resolveKunMcpJsonPath,
+  resolveManagedGuiMcpCommand,
+  resolveManagedGuiMcpNodeEntryPath,
+  stringRecord,
+  syncExternalKunMcpJson,
+  type JsonRecord,
+  type ManagedGuiMcpDescriptor,
+  type ManagedGuiMcpLaunchConfig
+} from './managed-gui-mcp-config'
 
 export const GUI_WORKSPACE_INTEL_MCP_SERVER_NAME = 'gui_workspace_intel'
 const GUI_WORKSPACE_INTEL_MCP_NODE_ENTRY = 'out/main/workspace-intel-mcp-node-entry.js'
-const WORKSPACE_INTEL_MCP_TIMEOUT_MS = 30_000
-const ELECTRON_RUN_AS_NODE_ENV = { ELECTRON_RUN_AS_NODE: '1' }
-const WORKSPACE_INTEL_ENABLED_TOOLS = [
-  'gui_workspace_list',
-  'gui_workspace_read',
-  'gui_workspace_preview',
-  'gui_workspace_reference_list',
-  'gui_workspace_reference_preview',
-  'gui_workspace_skill_list',
-  'gui_workspace_skill_read'
-] as const
+export const WORKSPACE_INTEL_MCP_TIMEOUT_MS = 30_000
 
-type JsonRecord = Record<string, unknown>
-
-export type WorkspaceIntelMcpLaunchConfig = ClawScheduleMcpLaunchConfig
+export type WorkspaceIntelMcpLaunchConfig = ManagedGuiMcpLaunchConfig
 
 type WorkspaceIntelMcpConfigPaths = {
   mcpJsonPath?: string
 }
 
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === 'object' && error !== null
+export const GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR: ManagedGuiMcpDescriptor = {
+  serverName: GUI_WORKSPACE_INTEL_MCP_SERVER_NAME,
+  nodeEntry: GUI_WORKSPACE_INTEL_MCP_NODE_ENTRY,
+  launchFlag: GUI_WORKSPACE_INTEL_MCP_LAUNCH_FLAG,
+  timeoutMs: WORKSPACE_INTEL_MCP_TIMEOUT_MS,
+  enabledTools: workspaceIntelMcpEnabledTools
 }
 
 export function resolveWorkspaceIntelMcpNodeEntryPath(launch: WorkspaceIntelMcpLaunchConfig): string {
-  if (launch.appPath.includes('/') && !launch.appPath.includes('\\')) {
-    return posix.join(launch.appPath, GUI_WORKSPACE_INTEL_MCP_NODE_ENTRY)
-  }
-  return join(launch.appPath, GUI_WORKSPACE_INTEL_MCP_NODE_ENTRY)
+  return resolveManagedGuiMcpNodeEntryPath(launch, GUI_WORKSPACE_INTEL_MCP_NODE_ENTRY)
 }
 
 export function resolveWorkspaceIntelMcpCommand(
   launch: WorkspaceIntelMcpLaunchConfig,
   platform: NodeJS.Platform = process.platform
 ): string {
-  return resolveClawScheduleMcpCommand(launch, platform)
+  return resolveManagedGuiMcpCommand(launch, platform)
 }
 
 export function buildWorkspaceIntelMcpArgs(
@@ -74,7 +68,7 @@ export function workspaceIntelMcpEnv(existingEnv: Record<string, string> = {}): 
 }
 
 export function workspaceIntelMcpEnabledTools(): string[] {
-  return [...WORKSPACE_INTEL_ENABLED_TOOLS]
+  return [...WorkspaceIntelToolNames]
 }
 
 export function buildWorkspaceIntelMcpServerConfig(
@@ -82,22 +76,29 @@ export function buildWorkspaceIntelMcpServerConfig(
   launch: WorkspaceIntelMcpLaunchConfig,
   existing: unknown = {}
 ): JsonRecord {
-  const record = isRecord(existing) ? existing : {}
-  return {
-    ...record,
-    command: resolveWorkspaceIntelMcpCommand(launch),
+  const env = stringRecord((existing as { env?: unknown } | null)?.env)
+  return buildManagedGuiMcpJsonServerConfig({
+    descriptor: GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR,
+    launch,
     args: buildWorkspaceIntelMcpArgs(settings, launch),
-    env: workspaceIntelMcpEnv(stringRecord(record.env)),
-    url: null,
-    connect_timeout: null,
-    execute_timeout: null,
-    read_timeout: null,
-    disabled: false,
-    enabled: true,
-    required: false,
-    enabled_tools: workspaceIntelMcpEnabledTools(),
-    disabled_tools: []
-  }
+    env: workspaceIntelMcpEnv(env),
+    existing
+  })
+}
+
+export function buildWorkspaceIntelKunMcpServerConfig(
+  settings: AppSettingsV1,
+  launch: WorkspaceIntelMcpLaunchConfig,
+  existing: unknown = {}
+): JsonRecord {
+  const env = stringRecord((existing as { env?: unknown } | null)?.env)
+  return buildManagedGuiKunMcpServerConfig({
+    descriptor: GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR,
+    launch,
+    args: buildWorkspaceIntelMcpArgs(settings, launch),
+    env: workspaceIntelMcpEnv(env),
+    existing
+  })
 }
 
 export function buildSyncedWorkspaceIntelMcpJson(
@@ -105,28 +106,9 @@ export function buildSyncedWorkspaceIntelMcpJson(
   settings: AppSettingsV1,
   launch: WorkspaceIntelMcpLaunchConfig
 ): JsonRecord {
-  const base = isRecord(existing) ? existing : {}
-  const servers = isRecord(base.servers) ? base.servers : {}
-  const timeouts = isRecord(base.timeouts)
-    ? base.timeouts
-    : {
-        connect_timeout: 10,
-        execute_timeout: 60,
-        read_timeout: 120
-      }
-
-  return {
-    ...base,
-    timeouts,
-    servers: {
-      ...servers,
-      [GUI_WORKSPACE_INTEL_MCP_SERVER_NAME]: buildWorkspaceIntelMcpServerConfig(
-        settings,
-        launch,
-        servers[GUI_WORKSPACE_INTEL_MCP_SERVER_NAME]
-      )
-    }
-  }
+  void settings
+  void launch
+  return buildExternalKunMcpJson(existing, managedGuiMcpNames(GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR))
 }
 
 export async function syncWorkspaceIntelMcpConfig(
@@ -135,38 +117,7 @@ export async function syncWorkspaceIntelMcpConfig(
   paths: WorkspaceIntelMcpConfigPaths = {}
 ): Promise<void> {
   const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
-  const current = await readJsonFile(mcpJsonPath)
-  const next = buildSyncedWorkspaceIntelMcpJson(current, settings, launch)
-  const nextText = `${JSON.stringify(next, null, 2)}\n`
-  const currentText = current === null ? '' : `${JSON.stringify(current, null, 2)}\n`
-  if (nextText === currentText) return
-
-  await mkdir(dirname(mcpJsonPath), { recursive: true })
-  await writeFile(mcpJsonPath, nextText, 'utf8')
-}
-
-async function readJsonFile(path: string): Promise<unknown | null> {
-  let raw = ''
-  try {
-    raw = await readFile(path, 'utf8')
-  } catch (error) {
-    if (isErrnoException(error) && error.code === 'ENOENT') return null
-    throw error
-  }
-
-  try {
-    return JSON.parse(raw) as unknown
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Failed to parse Kun MCP config at ${path}: ${message}`, { cause: error })
-  }
-}
-
-function stringRecord(value: unknown): Record<string, string> {
-  if (!isRecord(value)) return {}
-  const out: Record<string, string> = {}
-  for (const [key, item] of Object.entries(value)) {
-    if (typeof item === 'string') out[key] = item
-  }
-  return out
+  void settings
+  void launch
+  await syncExternalKunMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR))
 }

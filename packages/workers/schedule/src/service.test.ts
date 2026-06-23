@@ -49,6 +49,34 @@ test('service reads tasks through a real fake internal HTTP server', async () =>
   }
 })
 
+test('service reads internal secret from the GUI schedule environment fallback', async () => {
+  const previousSecret = process.env.GUI_SCHEDULE_INTERNAL_SECRET
+  process.env.GUI_SCHEDULE_INTERNAL_SECRET = 'env-secret'
+  const requests: Array<{ auth: string }> = []
+  const server = await listenFakeServer(async (req, res) => {
+    requests.push({ auth: req.headers.authorization ?? '' })
+    writeJson(res, 200, { ok: true, tasks: [] })
+  })
+
+  try {
+    const service = new ScheduleService({
+      baseUrl: server.baseUrl,
+      timeoutMs: 5_000
+    })
+    const result = await service.list()
+
+    assert.equal(result.count, 0)
+    assert.deepEqual(requests, [{ auth: 'Bearer env-secret' }])
+  } finally {
+    if (previousSecret === undefined) {
+      delete process.env.GUI_SCHEDULE_INTERNAL_SECRET
+    } else {
+      process.env.GUI_SCHEDULE_INTERNAL_SECRET = previousSecret
+    }
+    await server.close()
+  }
+})
+
 test('service maps tool inputs to internal HTTP payloads with an injected client', async () => {
   const client = new FakeInternalClient({
     [SCHEDULE_INTERNAL_ENDPOINTS.create]: { ok: true, task: sampleTask({ id: 'created' }) },

@@ -2,7 +2,6 @@ import { clipboard } from 'electron'
 import type { Stats } from 'node:fs'
 import {
   mkdir,
-  open as openFile,
   readFile,
   readdir,
   rename,
@@ -35,6 +34,7 @@ import type {
   WorkspaceImageReadResult,
   WorkspaceFileReadPdfResult
 } from '../../shared/workspace-file'
+import { createWorkspaceIntelService } from '../../../packages/workers/workspace-intel/src/index.js'
 import {
   canonicalPath,
   compareWorkspaceEntries,
@@ -98,6 +98,35 @@ async function readWorkspacePdfFromResolvedPath(
   }
 }
 
+async function readWorkspaceTextFromWorkspaceIntel(
+  targetPath: string,
+  payload: WorkspaceFileTarget
+): Promise<WorkspaceFileReadResult> {
+  const workspaceRoot = payload.workspaceRoot?.trim() ? payload.workspaceRoot : dirname(targetPath)
+  const result = await createWorkspaceIntelService({
+    workspaceRoot,
+    maxReadBytes: MAX_FILE_PREVIEW_BYTES
+  }).readFile({
+    workspaceRoot,
+    path: targetPath,
+    maxBytes: MAX_FILE_PREVIEW_BYTES
+  })
+  if (!result.ok) {
+    return { ok: false, message: result.error.message }
+  }
+
+  return {
+    ok: true,
+    kind: 'text',
+    path: targetPath,
+    content: result.content,
+    mimeType: result.mimeType,
+    size: result.size,
+    truncated: result.truncated,
+    ...workspaceFilePosition(payload)
+  }
+}
+
 export async function listWorkspaceDirectory(
   payload: WorkspaceDirectoryTarget
 ): Promise<WorkspaceDirectoryListResult> {
@@ -136,29 +165,7 @@ export async function readWorkspaceFile(payload: WorkspaceFileTarget): Promise<W
       return readWorkspacePdfFromResolvedPath(targetPath, fileInfo, payload)
     }
 
-    const maxBytes = Math.min(fileInfo.size, MAX_FILE_PREVIEW_BYTES)
-    const handle = await openFile(targetPath, 'r')
-    try {
-      const buffer = Buffer.alloc(maxBytes)
-      const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0)
-      const bytes = buffer.subarray(0, bytesRead)
-      if (bytes.includes(0)) {
-        return { ok: false, message: 'This file appears to be binary and cannot be previewed.' }
-      }
-
-      return {
-        ok: true,
-        kind: 'text',
-        path: targetPath,
-        content: bytes.toString('utf8'),
-        mimeType: 'text/plain; charset=utf-8',
-        size: fileInfo.size,
-        truncated: fileInfo.size > MAX_FILE_PREVIEW_BYTES,
-        ...workspaceFilePosition(payload)
-      }
-    } finally {
-      await handle.close()
-    }
+    return readWorkspaceTextFromWorkspaceIntel(targetPath, payload)
   } catch (error) {
     return {
       ok: false,

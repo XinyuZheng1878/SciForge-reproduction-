@@ -166,6 +166,127 @@ test('schedule MCP destructive tools support preview and structured confirmation
   }
 })
 
+test('schedule MCP stdio server maps write tools to internal HTTP endpoints', async () => {
+  const requests: Array<{ path: string; body: Record<string, unknown> }> = []
+  const fakeServer = await listenFakeServer(async (req, res) => {
+    const url = req.url ?? ''
+    const body = asRecord(await readJsonBody(req))
+    requests.push({ path: url, body })
+    if (url === '/schedule/internal/create') {
+      writeJson(res, 200, { ok: true, task: sampleTask({ id: 'created-mcp', title: 'Created from MCP' }) })
+      return
+    }
+    if (url === '/schedule/internal/update') {
+      writeJson(res, 200, { ok: true, task: sampleTask({ id: 'created-mcp', title: 'Updated from MCP', enabled: false }) })
+      return
+    }
+    if (url === '/schedule/internal/detect-from-text') {
+      writeJson(res, 200, {
+        ok: true,
+        result: {
+          kind: 'created',
+          taskId: 'detected-mcp',
+          title: 'Detected MCP task',
+          scheduleAt: '2026-06-24T09:00:00+08:00',
+          confirmationText: 'Scheduled.'
+        }
+      })
+      return
+    }
+    if (url === '/schedule/internal/delete') {
+      writeJson(res, 200, { ok: true })
+      return
+    }
+    writeJson(res, 404, { ok: false, message: `No route ${url}` })
+  })
+
+  try {
+    const client = new Client({ name: 'schedule-worker-write-test', version: '0.1.0' })
+    clients.push(client)
+    await client.connect(new StdioClientTransport({
+      command: process.execPath,
+      args: ['--import', 'tsx', 'src/cli.ts', '--quiet', '--base-url', fakeServer.baseUrl],
+      cwd: packageRoot,
+      stderr: 'pipe'
+    }), { timeout: 20_000 })
+
+    const createResult = await client.callTool({
+      name: 'gui_schedule_create',
+      arguments: {
+        title: 'Created from MCP',
+        prompt: 'Do MCP work.',
+        schedule_kind: 'interval',
+        every_minutes: 15,
+        workspace_root: '/tmp/workspace',
+        model: 'auto',
+        reasoning_effort: 'medium',
+        mode: 'agent',
+        enabled: true
+      }
+    }, undefined, { timeout: 20_000 })
+    assert.equal(createResult.isError, undefined)
+    assert.equal(asRecord(asRecord(createResult.structuredContent).task).id, 'created-mcp')
+
+    const updateResult = await client.callTool({
+      name: 'gui_schedule_update',
+      arguments: {
+        task_id: 'created-mcp',
+        title: 'Updated from MCP',
+        enabled: false
+      }
+    }, undefined, { timeout: 20_000 })
+    assert.equal(updateResult.isError, undefined)
+    assert.equal(asRecord(asRecord(updateResult.structuredContent).task).title, 'Updated from MCP')
+
+    const detectResult = await client.callTool({
+      name: 'gui_schedule_detect_from_text',
+      arguments: {
+        text: 'Tomorrow at 9 remind me to check MCP writes.',
+        workspace_root: '/tmp/workspace',
+        model_hint: 'auto',
+        mode: 'plan'
+      }
+    }, undefined, { timeout: 20_000 })
+    assert.equal(detectResult.isError, undefined)
+    assert.equal(asRecord(asRecord(detectResult.structuredContent).result).taskId, 'detected-mcp')
+
+    const deleteResult = await client.callTool({
+      name: 'gui_schedule_delete',
+      arguments: {
+        task_id: 'created-mcp',
+        confirmation: confirmationValueFor('delete', 'created-mcp')
+      }
+    }, undefined, { timeout: 20_000 })
+    assert.equal(deleteResult.isError, undefined)
+    assert.equal(asRecord(deleteResult.structuredContent).deleted, true)
+
+    assert.deepEqual(requests.map((request) => request.path), [
+      '/schedule/internal/create',
+      '/schedule/internal/update',
+      '/schedule/internal/detect-from-text',
+      '/schedule/internal/delete'
+    ])
+    assert.equal(asRecord(asRecord(requests[0]?.body).input).title, 'Created from MCP')
+    assert.equal(asRecord(asRecord(asRecord(requests[0]?.body).input).schedule).everyMinutes, 15)
+    assert.deepEqual(requests[1]?.body, {
+      taskId: 'created-mcp',
+      patch: {
+        title: 'Updated from MCP',
+        enabled: false
+      }
+    })
+    assert.deepEqual(requests[2]?.body, {
+      text: 'Tomorrow at 9 remind me to check MCP writes.',
+      workspaceRoot: '/tmp/workspace',
+      modelHint: 'auto',
+      mode: 'plan'
+    })
+    assert.deepEqual(requests[3]?.body, { taskId: 'created-mcp' })
+  } finally {
+    await fakeServer.close()
+  }
+})
+
 test('schedule MCP tool errors expose model-readable error fields', async () => {
   const fakeServer = await listenFakeServer(async (_req, res) => {
     writeJson(res, 500, { ok: false, message: 'Schedule runtime unavailable.' })

@@ -27,8 +27,9 @@ test('serves write-assist tools and resources over MCP', async (t) => {
     'Chlorophyll retrieval context for MCP structured content and resource stats.'
   ].join('\n'), 'utf8')
   await writeFile(join(workspaceRoot, 'paper.pdf'), minimalPdf('MCP PDF text about chlorophyll extraction.'))
+  await writeFile(join(tempRoot, 'outside.pdf'), minimalPdf('outside PDF text'))
 
-  const service = createWriteAssistService()
+  const service = createWriteAssistService({ workspaceRoot })
   const server = createWriteAssistMcpServer(service)
   const client = new Client({ name: 'write-assist-test', version: '0.1.0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
@@ -63,6 +64,15 @@ test('serves write-assist tools and resources over MCP', async (t) => {
   assert.equal(structuredPdf.ok, true)
   assert.match(JSON.stringify(structuredPdf), /MCP PDF text/)
 
+  const failure = await client.callTool({
+    name: 'gui_pdf_extract_text',
+    arguments: { workspaceRoot, path: '../outside.pdf' }
+  })
+  assert.equal(failure.isError, true)
+  const structuredFailure = asRecord(failure.structuredContent)
+  assert.equal(structuredFailure.ok, false)
+  assert.equal(asRecord(structuredFailure.error).code, 'path_outside_workspace')
+
   const templates = await client.listResourceTemplates()
   assert.deepEqual(templates.resourceTemplates.map((template) => template.uriTemplate).sort(), [
     PDF_TEXT_RESOURCE_URI_TEMPLATE,
@@ -78,6 +88,16 @@ test('serves write-assist tools and resources over MCP', async (t) => {
   const pdfJson = JSON.parse(String(pdfResource.contents[0]?.text)) as Record<string, unknown>
   assert.equal(pdfJson.ok, true)
   assert.match(JSON.stringify(pdfJson), /chlorophyll extraction/)
+
+  const missingStatsResource = await client.readResource({ uri: 'write-index://workspace/missing/stats' })
+  const missingStats = JSON.parse(String(missingStatsResource.contents[0]?.text)) as Record<string, unknown>
+  assert.equal(missingStats.ok, false)
+  assert.equal(asRecord(missingStats.error).code, 'index_not_found')
+
+  const escapedPdfResource = await client.readResource({ uri: pdfTextResourceUri('../outside.pdf') })
+  const escapedPdf = JSON.parse(String(escapedPdfResource.contents[0]?.text)) as Record<string, unknown>
+  assert.equal(escapedPdf.ok, false)
+  assert.equal(asRecord(escapedPdf.error).code, 'path_outside_workspace')
 })
 
 function asRecord(value: unknown): Record<string, unknown> {

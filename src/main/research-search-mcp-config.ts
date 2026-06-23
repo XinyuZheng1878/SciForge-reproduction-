@@ -1,18 +1,25 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join, posix } from 'node:path'
 import {
   GUI_RESEARCH_MCP_LAUNCH_FLAG
 } from './research-search-mcp-server'
 import {
-  resolveClawScheduleMcpCommand,
+  buildExternalKunMcpJson,
+  buildManagedGuiKunMcpServerConfig,
+  buildManagedGuiMcpJsonServerConfig,
+  ELECTRON_RUN_AS_NODE_ENV,
+  managedGuiMcpNames,
   resolveKunMcpJsonPath,
-  type ClawScheduleMcpLaunchConfig
-} from './claw-schedule-mcp-config'
+  resolveManagedGuiMcpCommand,
+  resolveManagedGuiMcpNodeEntryPath,
+  stringRecord,
+  syncExternalKunMcpJson,
+  type JsonRecord,
+  type ManagedGuiMcpDescriptor,
+  type ManagedGuiMcpLaunchConfig
+} from './managed-gui-mcp-config'
 
 export const GUI_RESEARCH_MCP_SERVER_NAME = 'gui_research'
 const GUI_RESEARCH_MCP_NODE_ENTRY = 'out/main/research-search-mcp-node-entry.js'
-const RESEARCH_SEARCH_MCP_TIMEOUT_MS = 30_000
-const ELECTRON_RUN_AS_NODE_ENV = { ELECTRON_RUN_AS_NODE: '1' }
+export const RESEARCH_SEARCH_MCP_TIMEOUT_MS = 30_000
 const RESEARCH_ENV_NAMES = [
   'SCIFORGE_RESEARCH_ARXIV_ENABLED',
   'SCIFORGE_RESEARCH_BIORXIV_ENABLED',
@@ -30,34 +37,29 @@ const RESEARCH_SECRET_ENV_NAMES = new Set([
   'TAVILY_API_KEY'
 ])
 
-type JsonRecord = Record<string, unknown>
-
-export type ResearchSearchMcpLaunchConfig = ClawScheduleMcpLaunchConfig
+export type ResearchSearchMcpLaunchConfig = ManagedGuiMcpLaunchConfig
 
 type ResearchSearchMcpConfigPaths = {
   mcpJsonPath?: string
 }
 
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === 'object' && error !== null
+export const GUI_RESEARCH_MCP_DESCRIPTOR: ManagedGuiMcpDescriptor = {
+  serverName: GUI_RESEARCH_MCP_SERVER_NAME,
+  nodeEntry: GUI_RESEARCH_MCP_NODE_ENTRY,
+  launchFlag: GUI_RESEARCH_MCP_LAUNCH_FLAG,
+  timeoutMs: RESEARCH_SEARCH_MCP_TIMEOUT_MS,
+  enabledTools: researchSearchMcpEnabledTools
 }
 
 export function resolveResearchSearchMcpNodeEntryPath(launch: ResearchSearchMcpLaunchConfig): string {
-  if (launch.appPath.includes('/') && !launch.appPath.includes('\\')) {
-    return posix.join(launch.appPath, GUI_RESEARCH_MCP_NODE_ENTRY)
-  }
-  return join(launch.appPath, GUI_RESEARCH_MCP_NODE_ENTRY)
+  return resolveManagedGuiMcpNodeEntryPath(launch, GUI_RESEARCH_MCP_NODE_ENTRY)
 }
 
 export function resolveResearchSearchMcpCommand(
   launch: ResearchSearchMcpLaunchConfig,
   platform: NodeJS.Platform = process.platform
 ): string {
-  return resolveClawScheduleMcpCommand(launch, platform)
+  return resolveManagedGuiMcpCommand(launch, platform)
 }
 
 export function buildResearchSearchMcpArgs(launch: ResearchSearchMcpLaunchConfig): string[] {
@@ -83,53 +85,44 @@ export function researchSearchMcpEnv(
   }
 }
 
+export function researchSearchMcpEnabledTools(): string[] {
+  return ['research_search']
+}
+
 export function buildResearchSearchMcpServerConfig(
   launch: ResearchSearchMcpLaunchConfig,
   existing: unknown = {}
 ): JsonRecord {
-  const record = isRecord(existing) ? existing : {}
-  return {
-    ...record,
-    command: resolveResearchSearchMcpCommand(launch),
+  const env = stringRecord((existing as { env?: unknown } | null)?.env)
+  return buildManagedGuiMcpJsonServerConfig({
+    descriptor: GUI_RESEARCH_MCP_DESCRIPTOR,
+    launch,
     args: buildResearchSearchMcpArgs(launch),
-    env: researchSearchMcpEnv(process.env, stringRecord(record.env)),
-    url: null,
-    connect_timeout: null,
-    execute_timeout: null,
-    read_timeout: null,
-    disabled: false,
-    enabled: true,
-    required: false,
-    enabled_tools: ['research_search'],
-    disabled_tools: []
-  }
+    env: researchSearchMcpEnv(process.env, env),
+    existing
+  })
+}
+
+export function buildResearchSearchKunMcpServerConfig(
+  launch: ResearchSearchMcpLaunchConfig,
+  existing: unknown = {}
+): JsonRecord {
+  const env = stringRecord((existing as { env?: unknown } | null)?.env)
+  return buildManagedGuiKunMcpServerConfig({
+    descriptor: GUI_RESEARCH_MCP_DESCRIPTOR,
+    launch,
+    args: buildResearchSearchMcpArgs(launch),
+    env: researchSearchMcpEnv(process.env, env),
+    existing
+  })
 }
 
 export function buildSyncedResearchSearchMcpJson(
   existing: unknown,
   launch: ResearchSearchMcpLaunchConfig
 ): JsonRecord {
-  const base = isRecord(existing) ? existing : {}
-  const servers = isRecord(base.servers) ? base.servers : {}
-  const timeouts = isRecord(base.timeouts)
-    ? base.timeouts
-    : {
-        connect_timeout: 10,
-        execute_timeout: 60,
-        read_timeout: 120
-      }
-
-  return {
-    ...base,
-    timeouts,
-    servers: {
-      ...servers,
-      [GUI_RESEARCH_MCP_SERVER_NAME]: buildResearchSearchMcpServerConfig(
-        launch,
-        servers[GUI_RESEARCH_MCP_SERVER_NAME]
-      )
-    }
-  }
+  void launch
+  return buildExternalKunMcpJson(existing, managedGuiMcpNames(GUI_RESEARCH_MCP_DESCRIPTOR))
 }
 
 export async function syncResearchSearchMcpConfig(
@@ -137,40 +130,8 @@ export async function syncResearchSearchMcpConfig(
   paths: ResearchSearchMcpConfigPaths = {}
 ): Promise<void> {
   const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
-  const current = await readJsonFile(mcpJsonPath)
-  const next = buildSyncedResearchSearchMcpJson(current, launch)
-  const nextText = `${JSON.stringify(next, null, 2)}\n`
-  const currentText = current === null ? '' : `${JSON.stringify(current, null, 2)}\n`
-  if (nextText === currentText) return
-
-  await mkdir(dirname(mcpJsonPath), { recursive: true })
-  await writeFile(mcpJsonPath, nextText, 'utf8')
-}
-
-async function readJsonFile(path: string): Promise<unknown | null> {
-  let raw = ''
-  try {
-    raw = await readFile(path, 'utf8')
-  } catch (error) {
-    if (isErrnoException(error) && error.code === 'ENOENT') return null
-    throw error
-  }
-
-  try {
-    return JSON.parse(raw) as unknown
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Failed to parse Kun MCP config at ${path}: ${message}`, { cause: error })
-  }
-}
-
-function stringRecord(value: unknown): Record<string, string> {
-  if (!isRecord(value)) return {}
-  const out: Record<string, string> = {}
-  for (const [key, item] of Object.entries(value)) {
-    if (typeof item === 'string') out[key] = item
-  }
-  return nonSecretEnv(out)
+  void launch
+  await syncExternalKunMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_RESEARCH_MCP_DESCRIPTOR))
 }
 
 function nonSecretEnv(env: Record<string, string>): Record<string, string> {

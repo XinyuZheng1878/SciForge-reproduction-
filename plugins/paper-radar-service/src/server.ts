@@ -1,11 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { join } from 'node:path';
 
-import { fetchArxivMetadata, fetchBiorxivMetadata, type ArxivSyncRequest, type BiorxivSyncRequest } from './sources.js';
-import { PaperStore } from './storage.js';
-import { ProfileStore } from './profiles.js';
-import { profileSyncCategories, rankPapers } from './ranker.js';
-import type { DigestRequest, PaperRecord, RankRequest, SearchRequest, ServiceError, ServiceResult, SyncResult, TopicProfile } from './types.js';
+import { createPaperRadarCoreService, type PaperRadarCoreService } from './service.js';
+import type { ArxivSyncRequest, BiorxivSyncRequest } from './sources.js';
+import type { DigestRequest, RankRequest, SearchRequest, ServiceError, ServiceResult, TopicProfile } from './types.js';
 
 export const SERVICE_ID = 'sciforge.paper-radar';
 export const SERVICE_VERSION = '0.1.0';
@@ -18,130 +15,83 @@ export interface PaperRadarOptions {
 }
 
 export function createPaperRadarServer(options: PaperRadarOptions): Server {
-  const store = new PaperStore(options.dbPath);
-  const profiles = new ProfileStore(options.profilesPath ?? join(options.dbPath, '..', 'profiles.json'));
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const service = createPaperRadarCoreService({
+    dbPath: options.dbPath,
+    profilesPath: options.profilesPath,
+    fetchImpl: options.fetchImpl,
+    now: options.now,
+  });
   const now = options.now ?? (() => new Date());
 
   const server = createServer((req, res) => {
-    handle(req, res, store, profiles, fetchImpl, now).catch((error) => {
+    handle(req, res, service, now).catch((error) => {
       sendJson(res, 500, errorResult('INTERNAL_ERROR', messageOf(error), false));
     });
   });
-  server.on('close', () => store.close());
+  server.on('close', () => service.close());
   return server;
 }
 
 async function handle(
   req: IncomingMessage,
   res: ServerResponse,
-  store: PaperStore,
-  profiles: ProfileStore,
-  fetchImpl: typeof fetch,
+  service: PaperRadarCoreService,
   now: () => Date,
 ): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
 
   if (req.method === 'GET' && url.pathname === '/health') {
-    return sendJson(res, 200, { ok: true, service: SERVICE_ID, stats: store.stats(), checkedAt: now().toISOString() });
+    return sendJson(res, 200, { ok: true, service: SERVICE_ID, stats: service.stats(), checkedAt: now().toISOString() });
   }
   if (req.method === 'GET' && url.pathname === '/version') {
     return sendJson(res, 200, { service: SERVICE_ID, version: SERVICE_VERSION });
   }
   if (req.method === 'POST' && url.pathname === '/sync/arxiv') {
-    return syncArxivRoute(req, res, store, fetchImpl, now);
+    return syncArxivRoute(req, res, service);
   }
   if (req.method === 'POST' && url.pathname === '/sync/biorxiv') {
-    return syncBiorxivRoute(req, res, store, fetchImpl, now);
+    return syncBiorxivRoute(req, res, service);
   }
   if (req.method === 'POST' && url.pathname === '/sync/profile') {
-    return syncProfileRoute(req, res, store, profiles, fetchImpl, now);
+    return syncProfileRoute(req, res, service);
   }
   if (req.method === 'GET' && url.pathname === '/profiles') {
-    return sendJson(res, 200, ok({ profiles: profiles.list() }));
+    return sendJson(res, 200, ok({ profiles: service.listProfiles() }));
   }
   if (req.method === 'POST' && url.pathname === '/profiles') {
-    return upsertProfileRoute(req, res, profiles);
+    return upsertProfileRoute(req, res, service);
   }
   if (req.method === 'GET' && url.pathname === '/papers/search') {
-    return searchRoute(url, res, store);
+    return searchRoute(url, res, service);
   }
   if (req.method === 'POST' && url.pathname === '/papers/rank') {
-    return rankRoute(req, res, store, profiles);
+    return rankRoute(req, res, service);
   }
   if (req.method === 'POST' && url.pathname === '/digest') {
-    return digestRoute(req, res, store, profiles);
+    return digestRoute(req, res, service);
   }
   return sendJson(res, 404, errorResult('NOT_FOUND', `No route for ${req.method} ${url.pathname}`, false));
 }
 
-async function syncArxivRoute(
-  req: IncomingMessage,
-  res: ServerResponse,
-  store: PaperStore,
-  fetchImpl: typeof fetch,
-  now: () => Date,
-): Promise<void> {
+async function syncArxivRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
   const body = (await readJson(req)) as ArxivSyncRequest;
-  const { papers, result } = await fetchArxivMetadata(body, { fetchImpl, now });
-  persistPapers(store, papers);
-  store.setSyncState('arxiv', 'last_sync', now().toISOString());
-  return sendJson(res, 200, ok({ ...result, upserted: papers.length }));
+  const result = await service.syncArxiv(body);
+  return sendJson(res, 200, ok(result));
 }
 
-async function syncBiorxivRoute(
-  req: IncomingMessage,
-  res: ServerResponse,
-  store: PaperStore,
-  fetchImpl: typeof fetch,
-  now: () => Date,
-): Promise<void> {
+async function syncBiorxivRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
   const body = (await readJson(req)) as BiorxivSyncRequest;
-  const { papers, result } = await fetchBiorxivMetadata(body, { fetchImpl, now });
-  persistPapers(store, papers);
-  store.setSyncState('biorxiv', 'last_sync', now().toISOString());
-  return sendJson(res, 200, ok({ ...result, upserted: papers.length }));
+  const result = await service.syncBiorxiv(body);
+  return sendJson(res, 200, ok(result));
 }
 
-async function syncProfileRoute(
-  req: IncomingMessage,
-  res: ServerResponse,
-  store: PaperStore,
-  profiles: ProfileStore,
-  fetchImpl: typeof fetch,
-  now: () => Date,
-): Promise<void> {
+async function syncProfileRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
   const body = (await readJson(req)) as { profile?: string; from?: string; to?: string; maxRecords?: number };
-  const profile = profiles.get(body.profile);
-  const today = body.to ?? now().toISOString().slice(0, 10);
-  const yesterday = new Date(now());
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-  const from = body.from ?? yesterday.toISOString().slice(0, 10);
-  const maxRecords = body.maxRecords ?? 200;
-  const arxiv = await fetchArxivMetadata(
-    { categories: profileSyncCategories(profile), since: from, until: today, maxRecords },
-    { fetchImpl, now },
-  );
-  persistPapers(store, arxiv.papers);
-  const biorxiv = await fetchBiorxivMetadata({ from, to: today, maxRecords }, { fetchImpl, now });
-  const biorxivPapers = biorxiv.papers.filter((paper) => {
-    if (!profile.biorxivSubjects.length) return true;
-    const metadata = [...paper.categories, ...paper.subjects].join(' ').toLowerCase();
-    return profile.biorxivSubjects.some((subject) => metadata.includes(subject.toLowerCase()));
-  });
-  persistPapers(store, biorxivPapers);
-  store.setSyncState('arxiv', 'last_sync', now().toISOString());
-  store.setSyncState('biorxiv', 'last_sync', now().toISOString());
-  return sendJson(res, 200, ok({
-    profile: profile.name,
-    results: [
-      { ...arxiv.result, upserted: arxiv.papers.length },
-      { ...biorxiv.result, fetched: biorxiv.papers.length, upserted: biorxivPapers.length, skipped: biorxiv.papers.length - biorxivPapers.length },
-    ],
-  }));
+  const result = await service.syncProfile(body);
+  return sendJson(res, 200, ok(result));
 }
 
-function searchRoute(url: URL, res: ServerResponse, store: PaperStore): void {
+function searchRoute(url: URL, res: ServerResponse, service: PaperRadarCoreService): void {
   const req: SearchRequest = {
     query: url.searchParams.get('q') ?? undefined,
     sources: parseSources(url.searchParams.getAll('source')),
@@ -150,39 +100,23 @@ function searchRoute(url: URL, res: ServerResponse, store: PaperStore): void {
     to: url.searchParams.get('to') ?? undefined,
     topK: parseNumber(url.searchParams.get('topK')),
   };
-  const papers = store.search(req);
-  return sendJson(res, 200, ok({ papers, count: papers.length }));
+  return sendJson(res, 200, ok(service.search(req)));
 }
 
-async function upsertProfileRoute(req: IncomingMessage, res: ServerResponse, profiles: ProfileStore): Promise<void> {
+async function upsertProfileRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
   const body = (await readJson(req)) as TopicProfile;
-  const profile = profiles.upsert(body);
+  const profile = service.saveProfile(body);
   return sendJson(res, 200, ok({ profile }));
 }
 
-async function rankRoute(req: IncomingMessage, res: ServerResponse, store: PaperStore, profiles: ProfileStore): Promise<void> {
+async function rankRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
   const body = (await readJson(req)) as RankRequest;
-  const papers = rankPapers(store, profiles, body);
-  return sendJson(res, 200, ok({ profile: body.profile ?? 'lab_default', count: papers.length, papers }));
+  return sendJson(res, 200, ok(service.rank(body)));
 }
 
-async function digestRoute(req: IncomingMessage, res: ServerResponse, store: PaperStore, profiles: ProfileStore): Promise<void> {
+async function digestRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
   const body = (await readJson(req)) as DigestRequest;
-  const papers = rankPapers(store, profiles, { ...body, topK: body.topK ?? 10 });
-  return sendJson(
-    res,
-    200,
-    ok({
-      profile: body.profile ?? 'default',
-      generatedAt: new Date().toISOString(),
-      count: papers.length,
-      papers,
-    }),
-  );
-}
-
-function persistPapers(store: PaperStore, papers: PaperRecord[]): void {
-  for (const paper of papers) store.upsertPaper(paper);
+  return sendJson(res, 200, ok(service.digest(body)));
 }
 
 function parseSources(values: string[]): SearchRequest['sources'] {

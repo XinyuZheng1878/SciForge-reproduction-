@@ -440,7 +440,7 @@ export class DeepseekCompatModelClient implements ModelClient {
       ? limitHistoryPreservingCompaction(request.history, windowSize)
       : request.history
     const thinkingMode = requiresReasoningRoundTrip(request.reasoningEffort, model, this.config.baseUrl)
-    const supportsImages = true
+    const supportsImages = endpointFormat === 'responses'
     out.push(...this.itemsToMessages(
       repairModelHistoryItems([...request.prefix, ...history]),
       thinkingMode,

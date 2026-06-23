@@ -488,7 +488,7 @@ describe('syncGuiManagedKunConfig', () => {
       transport: 'stdio',
       command: '/tmp/electron',
       args: [
-        '/tmp/deepseek-gui-test-app/out/main/claw-schedule-mcp-node-entry.js',
+        '/tmp/deepseek-gui-test-app/out/main/schedule-mcp-node-entry.js',
         '--gui-schedule-mcp-server',
         '--base-url',
         'http://127.0.0.1:9788'
@@ -1003,7 +1003,7 @@ describe('syncGuiManagedKunConfig', () => {
       transport: 'stdio',
       command: '/tmp/electron',
       args: [
-        '/tmp/deepseek-gui-test-app/out/main/claw-schedule-mcp-node-entry.js',
+        '/tmp/deepseek-gui-test-app/out/main/schedule-mcp-node-entry.js',
         '--gui-schedule-mcp-server',
         '--base-url',
         'http://127.0.0.1:8788'

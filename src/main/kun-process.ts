@@ -38,64 +38,25 @@ import {
   WebCapabilityConfig
 } from '../../kun/src/contracts/capabilities.js'
 import {
-  buildClawScheduleMcpArgs,
   GUI_SCHEDULE_INTERNAL_SECRET_ENV,
-  GUI_SCHEDULE_MCP_SERVER_NAME,
-  resolveClawScheduleMcpCommand,
   resolveKunMcpJsonPath,
-  type ClawScheduleMcpLaunchConfig
-} from './claw-schedule-mcp-config'
+  type ScheduleMcpLaunchConfig
+} from './schedule-mcp-config'
+import type { ResearchSearchMcpLaunchConfig } from './research-search-mcp-config'
+import type { ComputerUseMcpLaunchConfig } from './computer-use-mcp-config'
 import {
-  buildResearchSearchMcpArgs,
-  GUI_RESEARCH_MCP_SERVER_NAME,
-  researchSearchMcpEnv,
-  resolveResearchSearchMcpCommand,
-  type ResearchSearchMcpLaunchConfig
-} from './research-search-mcp-config'
-import {
-  buildComputerUseMcpArgs,
-  COMPUTER_USE_MCP_TIMEOUT_MS,
-  computerUseMcpEnvForLaunch,
-  GUI_COMPUTER_USE_MCP_SERVER_NAME,
-  resolveComputerUseMcpCommand,
-  type ComputerUseMcpLaunchConfig
-} from './computer-use-mcp-config'
-import {
-  buildWorkflowMcpArgs,
   GUI_WORKFLOW_INTERNAL_SECRET_ENV,
-  GUI_WORKFLOW_MCP_SERVER_NAME,
-  resolveWorkflowMcpCommand,
-  type WorkflowMcpLaunchConfig,
-  workflowMcpEnv
+  type WorkflowMcpLaunchConfig
 } from './workflow-mcp-config'
+import type { WorkspaceIntelMcpLaunchConfig } from './workspace-intel-mcp-config'
+import type { PaperRadarMcpLaunchConfig } from './paper-radar-mcp-config'
+import type { WriteAssistMcpLaunchConfig } from './write-assist-mcp-config'
+import type { RuntimeInspectorMcpLaunchConfig } from './runtime-inspector-mcp-config'
 import {
-  buildWorkspaceIntelMcpArgs,
-  GUI_WORKSPACE_INTEL_MCP_SERVER_NAME,
-  resolveWorkspaceIntelMcpCommand,
-  type WorkspaceIntelMcpLaunchConfig,
-  workspaceIntelMcpEnv
-} from './workspace-intel-mcp-config'
-import {
-  buildPaperRadarMcpArgs,
-  GUI_PAPER_RADAR_MCP_SERVER_NAME,
-  paperRadarMcpEnv,
-  resolvePaperRadarMcpCommand,
-  type PaperRadarMcpLaunchConfig
-} from './paper-radar-mcp-config'
-import {
-  buildWriteAssistMcpArgs,
-  GUI_WRITE_ASSIST_MCP_SERVER_NAME,
-  resolveWriteAssistMcpCommand,
-  type WriteAssistMcpLaunchConfig,
-  writeAssistMcpEnv
-} from './write-assist-mcp-config'
-import {
-  buildRuntimeInspectorMcpArgs,
-  GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME,
-  resolveRuntimeInspectorMcpCommand,
-  runtimeInspectorMcpEnv,
-  type RuntimeInspectorMcpLaunchConfig
-} from './runtime-inspector-mcp-config'
+  buildKunManagedGuiMcpServers,
+  hasEnabledManagedGuiMcpServer,
+  managedGuiMcpServerNames
+} from './gui-mcp-registry'
 import {
   paperRadarDbPath,
   paperRadarProfilesPath
@@ -134,7 +95,6 @@ const KUN_STARTUP_HEALTH_REQUEST_TIMEOUT_MS = 1_000
 const KUN_STOP_GRACE_MS = 5_000
 const KUN_STOP_FORCE_MS = 1_000
 const STDERR_TAIL_MAX_CHARS = 32_768
-const GUI_SCHEDULE_MCP_TIMEOUT_MS = 5_000
 const MAX_TCP_PORT = 65_535
 const UPSTREAM_PROVIDER_SECRET_ENV_NAMES = [
   'OPENAI_API_KEY',
@@ -519,7 +479,7 @@ export async function syncGuiManagedKunConfig(
     runtimeGuards?: RuntimeGuardSettingsV1
     scheduleMcp?: {
       settings: AppSettingsV1
-      launch: ClawScheduleMcpLaunchConfig
+      launch: ScheduleMcpLaunchConfig
     }
     researchMcp?: {
       launch: ResearchSearchMcpLaunchConfig
@@ -555,16 +515,8 @@ export async function syncGuiManagedKunConfig(
   const importedMcpServers = await readGuiManagedMcpServers(
     options?.mcpConfigPath ?? resolveKunMcpJsonPath()
   )
-  const hasImportedEnabledMcpServerAfterManagedOverrides = Object.entries(importedMcpServers).some(
-    ([serverId, server]) => {
-      if (
-        serverId === GUI_COMPUTER_USE_MCP_SERVER_NAME &&
-        options?.computerUseMcp?.enabled === false
-      ) {
-        return false
-      }
-      return objectValue(server).enabled !== false
-    }
+  const hasImportedEnabledMcpServer = Object.values(importedMcpServers).some(
+    (server) => objectValue(server).enabled !== false
   )
 
   const serve = objectValue(existing?.serve)
@@ -583,9 +535,17 @@ export async function syncGuiManagedKunConfig(
   const storage = storageConfigForRuntime(runtime.storage)
   const mcpSearch = runtime.mcpSearch
   const skillCapability = await skillCapabilityConfigForRuntime(skills, options?.scheduleMcp?.settings)
-  const hasEnabledComputerUseMcp = Boolean(
-    options?.computerUseMcp && options.computerUseMcp.enabled !== false
-  )
+  const managedMcpServers = buildKunManagedGuiMcpServers({
+    scheduleMcp: options?.scheduleMcp,
+    researchMcp: options?.researchMcp,
+    workflowMcp: options?.workflowMcp,
+    workspaceIntelMcp: options?.workspaceIntelMcp,
+    paperRadarMcp: options?.paperRadarMcp,
+    writeAssistMcp: options?.writeAssistMcp,
+    runtimeInspectorMcp: options?.runtimeInspectorMcp,
+    computerUseMcp: options?.computerUseMcp
+  }, mcpServers)
+  const hasEnabledManagedMcpServer = hasEnabledManagedGuiMcpServer(managedMcpServers)
   const next = {
     serve: {
       ...providerSafeServe,
@@ -617,105 +577,16 @@ export async function syncGuiManagedKunConfig(
           options?.paperRadarMcp ||
           options?.writeAssistMcp ||
           options?.runtimeInspectorMcp ||
-          hasEnabledComputerUseMcp ||
+          hasEnabledManagedMcpServer ||
           mcpSearch.enabled ||
-          hasImportedEnabledMcpServerAfterManagedOverrides
+          hasImportedEnabledMcpServer
           ? { enabled: mcp.enabled === false ? false : true }
           : {}
         ),
         servers: {
           ...importedMcpServers,
           ...mcpServers,
-          ...(options?.scheduleMcp
-          ? {
-              [GUI_SCHEDULE_MCP_SERVER_NAME]: buildGuiScheduleKunMcpServer(
-                options.scheduleMcp.settings,
-                options.scheduleMcp.launch
-              )
-            }
-          : {}),
-          ...(options?.researchMcp
-          ? {
-              [GUI_RESEARCH_MCP_SERVER_NAME]: buildGuiResearchKunMcpServer(
-                options.researchMcp.launch,
-                {
-                  ...objectValue(importedMcpServers[GUI_RESEARCH_MCP_SERVER_NAME]),
-                  ...objectValue(mcpServers[GUI_RESEARCH_MCP_SERVER_NAME])
-                }
-              )
-            }
-          : {}),
-          ...(options?.workflowMcp
-          ? {
-              [GUI_WORKFLOW_MCP_SERVER_NAME]: buildGuiWorkflowKunMcpServer(
-                options.workflowMcp.settings,
-                options.workflowMcp.launch,
-                {
-                  ...objectValue(importedMcpServers[GUI_WORKFLOW_MCP_SERVER_NAME]),
-                  ...objectValue(mcpServers[GUI_WORKFLOW_MCP_SERVER_NAME])
-                }
-              )
-            }
-          : {}),
-          ...(options?.workspaceIntelMcp
-          ? {
-              [GUI_WORKSPACE_INTEL_MCP_SERVER_NAME]: buildGuiWorkspaceIntelKunMcpServer(
-                options.workspaceIntelMcp.settings,
-                options.workspaceIntelMcp.launch,
-                {
-                  ...objectValue(importedMcpServers[GUI_WORKSPACE_INTEL_MCP_SERVER_NAME]),
-                  ...objectValue(mcpServers[GUI_WORKSPACE_INTEL_MCP_SERVER_NAME])
-                }
-              )
-            }
-          : {}),
-          ...(options?.paperRadarMcp
-          ? {
-              [GUI_PAPER_RADAR_MCP_SERVER_NAME]: buildGuiPaperRadarKunMcpServer(
-                options.paperRadarMcp.launch,
-                {
-                  ...objectValue(importedMcpServers[GUI_PAPER_RADAR_MCP_SERVER_NAME]),
-                  ...objectValue(mcpServers[GUI_PAPER_RADAR_MCP_SERVER_NAME])
-                }
-              )
-            }
-          : {}),
-          ...(options?.writeAssistMcp
-          ? {
-              [GUI_WRITE_ASSIST_MCP_SERVER_NAME]: buildGuiWriteAssistKunMcpServer(
-                options.writeAssistMcp.settings,
-                options.writeAssistMcp.launch,
-                {
-                  ...objectValue(importedMcpServers[GUI_WRITE_ASSIST_MCP_SERVER_NAME]),
-                  ...objectValue(mcpServers[GUI_WRITE_ASSIST_MCP_SERVER_NAME])
-                }
-              )
-            }
-          : {}),
-          ...(options?.runtimeInspectorMcp
-          ? {
-              [GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME]: buildGuiRuntimeInspectorKunMcpServer(
-                options.runtimeInspectorMcp.settings,
-                options.runtimeInspectorMcp.launch,
-                {
-                  ...objectValue(importedMcpServers[GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME]),
-                  ...objectValue(mcpServers[GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME])
-                }
-              )
-            }
-          : {}),
-          ...(options?.computerUseMcp
-          ? {
-              [GUI_COMPUTER_USE_MCP_SERVER_NAME]: buildGuiComputerUseKunMcpServer(
-                options.computerUseMcp.launch,
-                options.computerUseMcp.enabled !== false,
-                {
-                  ...objectValue(importedMcpServers[GUI_COMPUTER_USE_MCP_SERVER_NAME]),
-                  ...objectValue(mcpServers[GUI_COMPUTER_USE_MCP_SERVER_NAME])
-                }
-              )
-            }
-          : {})
+          ...managedMcpServers
         },
         search: {
           ...search,
@@ -749,140 +620,6 @@ function stripKunServeProviderFields(serve: Record<string, unknown>): Record<str
   delete next.model
   delete next.forceDefaultModel
   return next
-}
-
-function buildGuiScheduleKunMcpServer(
-  settings: AppSettingsV1,
-  launch: ClawScheduleMcpLaunchConfig
-): Record<string, unknown> {
-  return {
-    enabled: true,
-    transport: 'stdio',
-    command: resolveClawScheduleMcpCommand(launch),
-    args: buildClawScheduleMcpArgs(settings, launch),
-    env: {
-      ELECTRON_RUN_AS_NODE: '1'
-    },
-    trustScope: 'user',
-    timeoutMs: GUI_SCHEDULE_MCP_TIMEOUT_MS
-  }
-}
-
-function buildGuiResearchKunMcpServer(
-  launch: ResearchSearchMcpLaunchConfig,
-  existing: Record<string, unknown>
-): Record<string, unknown> {
-  return {
-    ...existing,
-    enabled: true,
-    transport: 'stdio',
-    command: resolveResearchSearchMcpCommand(launch),
-    args: buildResearchSearchMcpArgs(launch),
-    env: researchSearchMcpEnv(process.env, stringRecordValue(existing.env)),
-    trustScope: 'user',
-    timeoutMs: 30_000
-  }
-}
-
-function buildGuiWorkflowKunMcpServer(
-  settings: AppSettingsV1,
-  launch: WorkflowMcpLaunchConfig,
-  existing: Record<string, unknown>
-): Record<string, unknown> {
-  return {
-    ...existing,
-    enabled: true,
-    transport: 'stdio',
-    command: resolveWorkflowMcpCommand(launch),
-    args: buildWorkflowMcpArgs(settings, launch),
-    env: workflowMcpEnv(stringRecordValue(existing.env)),
-    trustScope: 'user',
-    timeoutMs: 30_000
-  }
-}
-
-function buildGuiWorkspaceIntelKunMcpServer(
-  settings: AppSettingsV1,
-  launch: WorkspaceIntelMcpLaunchConfig,
-  existing: Record<string, unknown>
-): Record<string, unknown> {
-  return {
-    ...existing,
-    enabled: true,
-    transport: 'stdio',
-    command: resolveWorkspaceIntelMcpCommand(launch),
-    args: buildWorkspaceIntelMcpArgs(settings, launch),
-    env: workspaceIntelMcpEnv(stringRecordValue(existing.env)),
-    trustScope: 'user',
-    timeoutMs: 30_000
-  }
-}
-
-function buildGuiPaperRadarKunMcpServer(
-  launch: PaperRadarMcpLaunchConfig,
-  existing: Record<string, unknown>
-): Record<string, unknown> {
-  return {
-    ...existing,
-    enabled: true,
-    transport: 'stdio',
-    command: resolvePaperRadarMcpCommand(launch),
-    args: buildPaperRadarMcpArgs(launch),
-    env: paperRadarMcpEnv(stringRecordValue(existing.env)),
-    trustScope: 'user',
-    timeoutMs: 30_000
-  }
-}
-
-function buildGuiWriteAssistKunMcpServer(
-  settings: AppSettingsV1,
-  launch: WriteAssistMcpLaunchConfig,
-  existing: Record<string, unknown>
-): Record<string, unknown> {
-  return {
-    ...existing,
-    enabled: true,
-    transport: 'stdio',
-    command: resolveWriteAssistMcpCommand(launch),
-    args: buildWriteAssistMcpArgs(settings, launch),
-    env: writeAssistMcpEnv(stringRecordValue(existing.env)),
-    trustScope: 'user',
-    timeoutMs: 30_000
-  }
-}
-
-function buildGuiRuntimeInspectorKunMcpServer(
-  settings: AppSettingsV1,
-  launch: RuntimeInspectorMcpLaunchConfig,
-  existing: Record<string, unknown>
-): Record<string, unknown> {
-  return {
-    ...existing,
-    enabled: true,
-    transport: 'stdio',
-    command: resolveRuntimeInspectorMcpCommand(launch),
-    args: buildRuntimeInspectorMcpArgs(settings, launch),
-    env: runtimeInspectorMcpEnv(stringRecordValue(existing.env)),
-    trustScope: 'user',
-    timeoutMs: 30_000
-  }
-}
-
-function buildGuiComputerUseKunMcpServer(
-  launch: ComputerUseMcpLaunchConfig,
-  enabled: boolean,
-  existing: Record<string, unknown>
-): Record<string, unknown> {
-  return {
-    ...existing,
-    enabled,
-    transport: 'stdio',
-    command: resolveComputerUseMcpCommand(launch),
-    args: buildComputerUseMcpArgs(launch),
-    env: computerUseMcpEnvForLaunch(launch, stringRecordValue(existing.env)),
-    trustScope: 'user',
-    timeoutMs: COMPUTER_USE_MCP_TIMEOUT_MS
-  }
 }
 
 async function skillCapabilityConfigForRuntime(
@@ -923,7 +660,9 @@ async function readGuiManagedMcpServers(path: string): Promise<Record<string, un
   if (!parsed) return {}
 
   const rawServers = mcpServersFromGuiConfig(parsed)
+  const managedNames = new Set(managedGuiMcpServerNames())
   const normalizedEntries = Object.entries(rawServers)
+    .filter(([serverId]) => !managedNames.has(serverId))
     .map(([serverId, server]) => {
       const normalized = normalizeGuiManagedMcpServer(server)
       return normalized ? [serverId, normalized] as const : null

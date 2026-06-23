@@ -20,8 +20,19 @@ test('serves structured workspace tool results and resource reads over MCP', asy
     await rm(tempRoot, { recursive: true, force: true })
   })
   const workspaceRoot = join(tempRoot, 'workspace')
-  await mkdir(workspaceRoot, { recursive: true })
+  await mkdir(join(workspaceRoot, '.codex', 'skills', 'demo-skill'), { recursive: true })
   await writeFile(join(workspaceRoot, 'notes.txt'), 'hello from MCP\n', 'utf8')
+  await writeFile(join(workspaceRoot, '.codex', 'skills', 'demo-skill', 'SKILL.md'), [
+    '---',
+    'id: demo-skill',
+    'name: demo-skill',
+    'description: Demo MCP skill.',
+    '---',
+    '',
+    '# Demo Skill',
+    '',
+    'Use this skill through MCP.'
+  ].join('\n'), 'utf8')
   await writeFile(join(tempRoot, 'outside.txt'), 'outside\n', 'utf8')
 
   const service = createWorkspaceIntelService({ workspaceRoot })
@@ -39,7 +50,25 @@ test('serves structured workspace tool results and resource reads over MCP', asy
   ])
 
   const tools = await client.listTools()
-  assert.ok(tools.tools.some((tool) => tool.name === 'gui_workspace_read'))
+  const toolNames = tools.tools.map((tool) => tool.name).sort()
+  assert.deepEqual(toolNames, [
+    'gui_workspace_list',
+    'gui_workspace_preview',
+    'gui_workspace_read',
+    'gui_workspace_reference_list',
+    'gui_workspace_reference_preview',
+    'gui_workspace_skill_list',
+    'gui_workspace_skill_read',
+    'gui_workspace_tree'
+  ])
+
+  const treeTool = await client.callTool({
+    name: 'gui_workspace_tree',
+    arguments: { depth: 1 }
+  })
+  const structuredTreeTool = asRecord(treeTool.structuredContent)
+  assert.equal(structuredTreeTool.ok, true)
+  assert.equal(asRecord(structuredTreeTool.tree).kind, 'directory')
 
   const read = await client.callTool({
     name: 'gui_workspace_read',
@@ -49,6 +78,49 @@ test('serves structured workspace tool results and resource reads over MCP', asy
   assert.equal(structuredRead.ok, true)
   assert.equal(structuredRead.relativePath, 'notes.txt')
   assert.match(String(structuredRead.content), /hello from MCP/)
+
+  const preview = await client.callTool({
+    name: 'gui_workspace_preview',
+    arguments: { path: 'notes.txt', maxChars: 20 }
+  })
+  const structuredPreview = asRecord(preview.structuredContent)
+  assert.equal(structuredPreview.ok, true)
+  assert.equal(structuredPreview.kind, 'text')
+
+  const references = await client.callTool({
+    name: 'gui_workspace_reference_list',
+    arguments: { recursive: true, limit: 10 }
+  })
+  const structuredReferences = asRecord(references.structuredContent)
+  assert.equal(structuredReferences.ok, true)
+  assert.equal(
+    (structuredReferences.references as Array<{ relativePath?: string }>).some((reference) => reference.relativePath === 'notes.txt'),
+    true
+  )
+
+  const referencePreview = await client.callTool({
+    name: 'gui_workspace_reference_preview',
+    arguments: { path: 'notes.txt', maxChars: 20 }
+  })
+  const structuredReferencePreview = asRecord(referencePreview.structuredContent)
+  assert.equal(structuredReferencePreview.ok, true)
+  assert.equal(asRecord(structuredReferencePreview.reference).relativePath, 'notes.txt')
+
+  const skillList = await client.callTool({
+    name: 'gui_workspace_skill_list',
+    arguments: {}
+  })
+  const structuredSkillList = asRecord(skillList.structuredContent)
+  assert.equal(structuredSkillList.ok, true)
+  assert.equal(asRecord((structuredSkillList.skills as unknown[])[0]).id, 'demo-skill')
+
+  const skillRead = await client.callTool({
+    name: 'gui_workspace_skill_read',
+    arguments: { skillId: 'demo-skill' }
+  })
+  const structuredSkillRead = asRecord(skillRead.structuredContent)
+  assert.equal(structuredSkillRead.ok, true)
+  assert.match(String(structuredSkillRead.content), /Use this skill through MCP/)
 
   const failure = await client.callTool({
     name: 'gui_workspace_read',

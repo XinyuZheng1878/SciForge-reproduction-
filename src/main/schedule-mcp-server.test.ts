@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { RETIRED_CLAW_GUI_PLAN_TOOL_NAMES } from './claw-schedule-mcp-server'
+import {
+  RETIRED_GUI_PLAN_TOOL_NAMES,
+  runScheduleMcpServerFromArgv
+} from './schedule-mcp-server'
 
-describe('claw schedule MCP server: GUI plan bridge retirement', () => {
+describe('schedule MCP server', () => {
   it('records gui_plan_create as a retired tool name', () => {
-    expect(RETIRED_CLAW_GUI_PLAN_TOOL_NAMES).toContain('gui_plan_create')
+    expect(RETIRED_GUI_PLAN_TOOL_NAMES).toContain('gui_plan_create')
   })
 
   it('no longer exposes the legacy tool name as a registered export', async () => {
@@ -13,11 +16,15 @@ describe('claw schedule MCP server: GUI plan bridge retirement', () => {
     // registration; this regression check ensures the constant list
     // exists for migration scripts and does not include any active
     // tool names.
-    expect(RETIRED_CLAW_GUI_PLAN_TOOL_NAMES.length).toBeGreaterThan(0)
-    for (const name of RETIRED_CLAW_GUI_PLAN_TOOL_NAMES) {
+    expect(RETIRED_GUI_PLAN_TOOL_NAMES.length).toBeGreaterThan(0)
+    for (const name of RETIRED_GUI_PLAN_TOOL_NAMES) {
       expect(name).toBe('gui_plan_create')
     }
-    const moduleExports = await import('./claw-schedule-mcp-server')
+    const moduleExports = await import('./schedule-mcp-server')
     expect((moduleExports as { registerTool?: unknown }).registerTool).toBeUndefined()
+  })
+
+  it('does not accept non-GUI schedule launch flags', async () => {
+    await expect(runScheduleMcpServerFromArgv(['node', '--not-gui-schedule-mcp-server'])).resolves.toBe(false)
   })
 })

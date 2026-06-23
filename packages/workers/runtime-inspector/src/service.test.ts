@@ -60,6 +60,14 @@ test('inspects Git status, branches, diff preview, and saved checkpoints read-on
   if (rejectedDiff.ok) return
   assert.equal(rejectedDiff.error.code, 'path_outside_repository')
 
+  const failedDiagnostics = service.diagnostics()
+  assert.equal(failedDiagnostics.ok, true)
+  if (!failedDiagnostics.ok) return
+  assert.equal(failedDiagnostics.health.status, 'degraded')
+  assert.equal(failedDiagnostics.health.available, true)
+  assert.match(failedDiagnostics.recentError ?? '', /path_outside_repository/)
+  assert.ok(failedDiagnostics.capabilities.includes('gui_runtime_health'))
+
   const checkpoints = await service.gitCheckpointList({})
   assert.equal(checkpoints.ok, true)
   if (!checkpoints.ok) return
@@ -74,6 +82,12 @@ test('inspects Git status, branches, diff preview, and saved checkpoints read-on
   if (!preview.ok) return
   assert.match(preview.stagedPatch?.text ?? '', /staged/)
   assert.equal(preview.untrackedFiles[0], 'untracked.txt')
+
+  const recoveredDiagnostics = service.diagnostics()
+  assert.equal(recoveredDiagnostics.ok, true)
+  if (!recoveredDiagnostics.ok) return
+  assert.equal(recoveredDiagnostics.health.status, 'healthy')
+  assert.equal(recoveredDiagnostics.recentError, null)
 })
 
 test('reports runtime health, dependencies, redacted Kun info, and LSP availability boundaries', async (t) => {

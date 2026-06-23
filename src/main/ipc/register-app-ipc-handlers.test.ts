@@ -33,18 +33,6 @@ vi.mock('electron', () => ({
   }
 }))
 
-vi.mock('../paper-radar-sidecar', () => ({
-  digestPaperRadar: vi.fn(async () => ({ ok: true, data: { profile: 'lab_default', generatedAt: '2026-06-21T00:00:00.000Z', count: 0, papers: [] } })),
-  getPaperRadarStatus: vi.fn(async () => ({ ok: true, service: 'sciforge.paper-radar', stats: { papers: 0, arxiv: 0, biorxiv: 0 } })),
-  listPaperRadarProfiles: vi.fn(async () => ({ ok: true, data: { profiles: [] } })),
-  rankPaperRadar: vi.fn(async () => ({ ok: true, data: { profile: 'lab_default', count: 0, papers: [] } })),
-  savePaperRadarProfile: vi.fn(async () => ({ ok: true, data: { profile: { name: 'lab_default', keywords: [], excludeKeywords: [], arxivCategories: [], biorxivSubjects: [] } } })),
-  searchPaperRadar: vi.fn(async () => ({ ok: true, data: { papers: [], count: 0 } })),
-  syncPaperRadarArxiv: vi.fn(async () => ({ ok: true, data: { source: 'arxiv', fetched: 0, upserted: 0, skipped: 0 } })),
-  syncPaperRadarBiorxiv: vi.fn(async () => ({ ok: true, data: { source: 'biorxiv', fetched: 0, upserted: 0, skipped: 0 } })),
-  syncPaperRadarProfile: vi.fn(async () => ({ ok: true, data: { profile: 'lab_default', results: [] } }))
-}))
-
 const { pdfAnnotationSidecarFixture } = vi.hoisted(() => ({
   pdfAnnotationSidecarFixture: {
     schemaVersion: 1,
@@ -178,6 +166,21 @@ function waitForAbortStream(signal: AbortSignal): AsyncIterable<unknown> {
   }
 }
 
+function createPaperRadarServiceMock() {
+  return {
+    status: vi.fn(async () => ({ ok: true, service: 'sciforge.paper-radar', stats: { papers: 0, arxiv: 0, biorxiv: 0 } })),
+    syncArxiv: vi.fn(async () => ({ ok: true, data: { source: 'arxiv', fetched: 0, upserted: 0, skipped: 0 } })),
+    syncBiorxiv: vi.fn(async () => ({ ok: true, data: { source: 'biorxiv', fetched: 0, upserted: 0, skipped: 0 } })),
+    syncProfile: vi.fn(async () => ({ ok: true, data: { profile: 'lab_default', results: [] } })),
+    listProfiles: vi.fn(async () => ({ ok: true, data: { profiles: [] } })),
+    saveProfile: vi.fn(async () => ({ ok: true, data: { profile: { name: 'lab_default', keywords: [], excludeKeywords: [], arxivCategories: [], biorxivSubjects: [] } } })),
+    search: vi.fn(async () => ({ ok: true, data: { papers: [], count: 0 } })),
+    rank: vi.fn(async () => ({ ok: true, data: { profile: 'lab_default', count: 0, papers: [] } })),
+    digest: vi.fn(async () => ({ ok: true, data: { profile: 'lab_default', generatedAt: '2026-06-21T00:00:00.000Z', count: 0, papers: [] } })),
+    close: vi.fn()
+  }
+}
+
 describe('registerAppIpcHandlers', () => {
   beforeEach(() => {
     handlers.clear()
@@ -218,32 +221,32 @@ describe('registerAppIpcHandlers', () => {
     expect(applySettingsPatch).toHaveBeenCalledWith(payload)
   })
 
-  it('validates Paper Radar payloads before starting the sidecar', async () => {
-    const paperRadar = await import('../paper-radar-sidecar')
+  it('validates Paper Radar payloads before resolving the worker service', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
-    const ensurePaperRadarSidecar = vi.fn(async () => undefined)
+    const paperRadar = createPaperRadarServiceMock()
+    const getPaperRadarService = vi.fn(() => paperRadar as never)
 
-    registerAppIpcHandlers(registerOptions({ ensurePaperRadarSidecar }))
+    registerAppIpcHandlers(registerOptions({ getPaperRadarService }))
 
     const handler = handlers.get('paperRadar:search')
     expect(handler).toBeTypeOf('function')
     await expect(handler?.({}, { topK: 1_000 })).rejects.toThrow(/Invalid payload for paperRadar:search/)
-    expect(ensurePaperRadarSidecar).not.toHaveBeenCalled()
-    expect(paperRadar.searchPaperRadar).not.toHaveBeenCalled()
+    expect(getPaperRadarService).not.toHaveBeenCalled()
+    expect(paperRadar.search).not.toHaveBeenCalled()
   })
 
-  it('starts Paper Radar on demand for valid requests', async () => {
-    const paperRadar = await import('../paper-radar-sidecar')
+  it('routes valid Paper Radar IPC requests through the worker service', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
-    const ensurePaperRadarSidecar = vi.fn(async () => undefined)
+    const paperRadar = createPaperRadarServiceMock()
+    const getPaperRadarService = vi.fn(() => paperRadar as never)
 
-    registerAppIpcHandlers(registerOptions({ ensurePaperRadarSidecar }))
+    registerAppIpcHandlers(registerOptions({ getPaperRadarService }))
 
     const handler = handlers.get('paperRadar:search')
     const result = await handler?.({}, { query: '  protein design  ', topK: 5 })
 
-    expect(ensurePaperRadarSidecar).toHaveBeenCalledTimes(1)
-    expect(paperRadar.searchPaperRadar).toHaveBeenCalledWith({ query: 'protein design', topK: 5 })
+    expect(getPaperRadarService).toHaveBeenCalledTimes(1)
+    expect(paperRadar.search).toHaveBeenCalledWith({ query: 'protein design', topK: 5 })
     expect(result).toEqual({ ok: true, data: { papers: [], count: 0 } })
   })
 

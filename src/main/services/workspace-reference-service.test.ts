@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -53,6 +53,23 @@ describe('WorkspaceReferenceService', () => {
       path: join('..', outsideRoot.split('/').pop() ?? '', 'secret.txt')
     })
 
+    expect(preview.ok).toBe(false)
+  })
+
+  it('omits symlink escapes from lists and rejects symlink previews outside the workspace', async () => {
+    const workspaceRoot = await tempDir()
+    const outsideRoot = await tempDir()
+    await writeFile(join(outsideRoot, 'secret.txt'), 'secret', 'utf8')
+    await symlink(join(outsideRoot, 'secret.txt'), join(workspaceRoot, 'linked-secret.txt'))
+    const service = new WorkspaceReferenceService()
+
+    const list = await service.list({ workspaceRoot, recursive: true })
+    expect(list.ok).toBe(true)
+    if (list.ok) {
+      expect(list.references.some((reference) => reference.relativePath === 'linked-secret.txt')).toBe(false)
+    }
+
+    const preview = await service.preview({ workspaceRoot, path: 'linked-secret.txt' })
     expect(preview.ok).toBe(false)
   })
 })
