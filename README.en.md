@@ -20,36 +20,10 @@ The goal is not to ship another chat wrapper. The goal is to make SciForge feel 
 ---
 
 <p align="center">
-  <a href="src/asset/img/code.mp4">
-    <img src="src/asset/img/code.gif" width="410" alt="SciForge Code mode demo">
-  </a>
-  <a href="src/asset/img/write.mp4">
-    <img src="src/asset/img/write.gif" width="410" alt="SciForge Write mode demo">
+  <a href="src/asset/img/code.gif">
+    <img src="src/asset/img/code.gif" width="680" alt="SciForge Code mode demo">
   </a>
 </p>
-
-## More Demos
-
-<p align="center">
-  <a href="src/asset/img/feishu.mp4">
-    <img src="src/asset/img/feishu.gif" width="680" alt="Feishu / Lark / WeChat connection demo">
-  </a>
-</p>
-<p align="center"><em>Feishu / Lark / WeChat connection demo.</em></p>
-
-<p align="center">
-  <a href="src/asset/img/sdd.mp4">
-    <img src="src/asset/img/sdd.gif" width="680" alt="Requirement drafting and planning demo">
-  </a>
-</p>
-<p align="center"><em>Requirement drafting and planning demo.</em></p>
-
-<p align="center">
-  <a href="src/asset/img/web.mp4">
-    <img src="src/asset/img/web.gif" width="680" alt="Web tools demo">
-  </a>
-</p>
-<p align="center"><em>Web tools demo.</em></p>
 
 ## Why Kun Delivers High Token ROI
 
