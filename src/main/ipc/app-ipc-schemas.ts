@@ -1375,6 +1375,24 @@ export const workspaceEntryRenamePayloadSchema = z
   })
   .strict()
 
+export const workspaceEntryCopyPayloadSchema = z
+  .object({
+    sourcePath: trimmedString(MAX_PATH_LENGTH),
+    sourceWorkspaceRoot: trimmedString(MAX_PATH_LENGTH),
+    targetDirectory: z.string().trim().max(MAX_PATH_LENGTH),
+    targetWorkspaceRoot: trimmedString(MAX_PATH_LENGTH)
+  })
+  .strict()
+
+export const workspaceEntryMovePayloadSchema = z
+  .object({
+    sourcePath: trimmedString(MAX_PATH_LENGTH),
+    sourceWorkspaceRoot: trimmedString(MAX_PATH_LENGTH),
+    targetDirectory: z.string().trim().max(MAX_PATH_LENGTH),
+    targetWorkspaceRoot: trimmedString(MAX_PATH_LENGTH)
+  })
+  .strict()
+
 export const workspaceEntryDeletePayloadSchema = z
   .object({
     path: trimmedString(MAX_PATH_LENGTH),

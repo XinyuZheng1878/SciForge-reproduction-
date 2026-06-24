@@ -172,6 +172,8 @@ function createApi(): DsGuiApi {
     saveWorkspaceClipboardImage: (payload) => invoke('file:save-workspace-clipboard-image', payload),
     readClipboardImage: () => invoke('clipboard:read-image'),
     renameWorkspaceEntry: (payload) => invoke('file:rename-workspace-entry', payload),
+    copyWorkspaceEntry: (payload) => invoke('file:copy-workspace-entry', payload),
+    moveWorkspaceEntry: (payload) => invoke('file:move-workspace-entry', payload),
     deleteWorkspaceEntry: (payload) => invoke('file:delete-workspace-entry', payload),
     watchWorkspaceFile: (payload) => invoke('file:watch-workspace', payload),
     unwatchWorkspaceFile: (watchId) => invoke('file:unwatch-workspace', watchId),

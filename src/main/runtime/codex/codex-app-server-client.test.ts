@@ -119,7 +119,9 @@ describe('createCodexAppServerClient', () => {
       options: {
         cwd: '/tmp/workspace',
         env: { PATH: '/bin' },
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: process.platform !== 'win32',
+        windowsHide: true
       }
     }])
     expect(fake.writtenMessages()).toEqual([{

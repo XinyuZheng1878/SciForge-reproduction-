@@ -3158,7 +3158,7 @@ describe('AgentRuntimeHost', () => {
     expect(codex.publishSyntheticEvent).not.toHaveBeenCalled()
   })
 
-  it('uses the tool-event budget as a hard stop without an extra soft steer', async () => {
+  it('uses the default tool-event budget as a soft steer instead of interrupting local turns', async () => {
     const codex = fakeAdapter('codex', {
       id: 'codex-thread',
       runtimeId: 'codex',
@@ -3198,15 +3198,15 @@ describe('AgentRuntimeHost', () => {
       // exhaust stream
     }
     await vi.waitFor(() => {
-      expect(codex.interruptTurn).toHaveBeenCalledTimes(1)
+      expect(codex.steerTurn).toHaveBeenCalledTimes(1)
     })
 
-    expect(codex.steerTurn).not.toHaveBeenCalled()
+    expect(codex.interruptTurn).not.toHaveBeenCalled()
     expect(codex.publishSyntheticEvent).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         metadata: expect.objectContaining({
-          level: 'hard',
+          level: 'soft',
           family: 'tool-budget'
         })
       })
@@ -3328,6 +3328,49 @@ describe('AgentRuntimeHost', () => {
         text: 'second'
       }
     )
+  })
+
+  it('starts a new turn when latestTurnId is terminal despite older stale running turns', async () => {
+    const codex = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(codex.capabilities).mockResolvedValue({
+      ...capabilities('codex'),
+      controls: {
+        ...capabilities('codex').controls,
+        steer: true
+      }
+    })
+    vi.mocked(codex.readThread).mockResolvedValue({
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z',
+      latestSeq: 8,
+      latestTurnId: 'turn-latest',
+      latestTurnStatus: 'completed',
+      turns: [
+        { id: 'turn-latest', threadId: 'codex-thread', status: 'completed' },
+        { id: 'turn-stale', threadId: 'codex-thread', status: 'running' }
+      ]
+    })
+    vi.mocked(codex.startTurn).mockResolvedValueOnce({ threadId: 'codex-thread', turnId: 'turn-new' })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [codex]
+    })
+
+    await expect(host.startTurn({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      text: 'new request'
+    })).resolves.toEqual({ threadId: 'codex-thread', turnId: 'turn-new' })
+
+    expect(codex.startTurn).toHaveBeenCalledTimes(1)
+    expect(codex.steerTurn).not.toHaveBeenCalled()
   })
 
   it('queues turn starts per thread until the active turn reaches terminal', async () => {

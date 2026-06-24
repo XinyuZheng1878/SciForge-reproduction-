@@ -41,6 +41,20 @@ export type WorkspaceEntryRenamePayload = {
   newName: string
 }
 
+export type WorkspaceEntryCopyPayload = {
+  sourcePath: string
+  sourceWorkspaceRoot: string
+  targetDirectory: string
+  targetWorkspaceRoot: string
+}
+
+export type WorkspaceEntryMovePayload = {
+  sourcePath: string
+  sourceWorkspaceRoot: string
+  targetDirectory: string
+  targetWorkspaceRoot: string
+}
+
 export type WorkspaceEntryDeletePayload = {
   path: string
   workspaceRoot: string
@@ -157,6 +171,24 @@ export type WorkspaceEntryRenameResult =
       path: string
       previousPath: string
       renamedAt: string
+    }
+  | { ok: false; message: string }
+
+export type WorkspaceEntryCopyResult =
+  | {
+      ok: true
+      path: string
+      sourcePath: string
+      copiedAt: string
+    }
+  | { ok: false; message: string }
+
+export type WorkspaceEntryMoveResult =
+  | {
+      ok: true
+      path: string
+      previousPath: string
+      movedAt: string
     }
   | { ok: false; message: string }
 

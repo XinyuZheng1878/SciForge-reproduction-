@@ -1,6 +1,7 @@
 import { clipboard } from 'electron'
 import type { Stats } from 'node:fs'
 import {
+  cp,
   mkdir,
   readFile,
   readdir,
@@ -11,7 +12,7 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type {
   WorkspaceClipboardImageSavePayload,
   WorkspaceClipboardImageSaveResult,
@@ -22,6 +23,10 @@ import type {
   WorkspaceDirectoryTarget,
   WorkspaceEntryDeletePayload,
   WorkspaceEntryDeleteResult,
+  WorkspaceEntryCopyPayload,
+  WorkspaceEntryCopyResult,
+  WorkspaceEntryMovePayload,
+  WorkspaceEntryMoveResult,
   WorkspaceEntryRenamePayload,
   WorkspaceEntryRenameResult,
   WorkspaceFileCreatePayload,
@@ -66,6 +71,36 @@ const WORKSPACE_IMAGE_MIME_BY_EXT = new Map([
 ])
 
 type WorkspaceFileStat = Stats
+
+function splitCopyName(name: string): { stem: string; ext: string } {
+  const dot = name.lastIndexOf('.')
+  if (dot <= 0) return { stem: name, ext: '' }
+  return { stem: name.slice(0, dot), ext: name.slice(dot) }
+}
+
+async function availableTargetPath(directory: string, name: string): Promise<string> {
+  const direct = join(directory, name)
+  if (!await pathExists(direct)) return direct
+  const { stem, ext } = splitCopyName(name)
+  for (let index = 1; index < 10_000; index += 1) {
+    const suffix = index === 1 ? ' copy' : ` copy ${index}`
+    const candidate = join(directory, `${stem}${suffix}${ext}`)
+    if (!await pathExists(candidate)) return candidate
+  }
+  throw new Error('Could not find an available copy name.')
+}
+
+async function resolvedWorkspaceRoot(workspaceRoot: string): Promise<string> {
+  return canonicalPath(resolve(expandHomePath(workspaceRoot)))
+}
+
+async function ensureNotWorkspaceRoot(targetPath: string, workspaceRoot: string, action: string): Promise<void> {
+  if (!workspaceRoot.trim()) return
+  const workspacePath = await resolvedWorkspaceRoot(workspaceRoot)
+  if (targetPath === workspacePath) {
+    throw new Error(`${action} the workspace root is not supported.`)
+  }
+}
 
 function workspaceFilePosition(payload: WorkspaceFileTarget): { line?: number; column?: number } {
   return {
@@ -391,18 +426,95 @@ export async function renameWorkspaceEntry(
   }
 }
 
+export async function copyWorkspaceEntry(
+  payload: WorkspaceEntryCopyPayload
+): Promise<WorkspaceEntryCopyResult> {
+  try {
+    const sourcePath = await resolveTargetPathWithinWorkspace(payload.sourcePath, payload.sourceWorkspaceRoot)
+    await stat(sourcePath)
+    await ensureNotWorkspaceRoot(sourcePath, payload.sourceWorkspaceRoot, 'Copying')
+    const targetDirectory = await resolveWorkspaceDirectory({
+      workspaceRoot: payload.targetWorkspaceRoot,
+      ...(payload.targetDirectory.trim() ? { path: payload.targetDirectory } : {})
+    })
+    const targetPath = await availableTargetPath(targetDirectory, basename(sourcePath))
+    await cp(sourcePath, targetPath, {
+      recursive: true,
+      force: false,
+      errorOnExist: true
+    })
+    return {
+      ok: true,
+      path: targetPath,
+      sourcePath,
+      copiedAt: new Date().toISOString()
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
+export async function moveWorkspaceEntry(
+  payload: WorkspaceEntryMovePayload
+): Promise<WorkspaceEntryMoveResult> {
+  try {
+    const sourcePath = await resolveTargetPathWithinWorkspace(payload.sourcePath, payload.sourceWorkspaceRoot)
+    await stat(sourcePath)
+    await ensureNotWorkspaceRoot(sourcePath, payload.sourceWorkspaceRoot, 'Moving')
+    const targetDirectory = await resolveWorkspaceDirectory({
+      workspaceRoot: payload.targetWorkspaceRoot,
+      ...(payload.targetDirectory.trim() ? { path: payload.targetDirectory } : {})
+    })
+    const directTargetPath = join(targetDirectory, basename(sourcePath))
+    const sourceCanonical = await canonicalPath(sourcePath)
+    const directTargetCanonical = await canonicalPath(directTargetPath)
+    if (sourceCanonical === directTargetCanonical) {
+      return {
+        ok: true,
+        path: sourcePath,
+        previousPath: sourcePath,
+        movedAt: new Date().toISOString()
+      }
+    }
+    const targetPath = await availableTargetPath(targetDirectory, basename(sourcePath))
+    try {
+      await rename(sourcePath, targetPath)
+    } catch (error) {
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code)
+        : ''
+      if (code !== 'EXDEV') throw error
+      await cp(sourcePath, targetPath, {
+        recursive: true,
+        force: false,
+        errorOnExist: true
+      })
+      await rm(sourcePath, { recursive: true, force: false })
+    }
+    return {
+      ok: true,
+      path: targetPath,
+      previousPath: sourcePath,
+      movedAt: new Date().toISOString()
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
 export async function deleteWorkspaceEntry(
   payload: WorkspaceEntryDeletePayload
 ): Promise<WorkspaceEntryDeleteResult> {
   try {
     const targetPath = await resolveTargetPathWithinWorkspace(payload.path, payload.workspaceRoot)
     const info = await stat(targetPath)
-    if (payload.workspaceRoot?.trim()) {
-      const workspacePath = await canonicalPath(resolve(expandHomePath(payload.workspaceRoot)))
-      if (targetPath === workspacePath) {
-        return { ok: false, message: 'Deleting the workspace root is not supported.' }
-      }
-    }
+    await ensureNotWorkspaceRoot(targetPath, payload.workspaceRoot, 'Deleting')
     if (info.isDirectory()) {
       await rm(targetPath, { recursive: true })
     } else {

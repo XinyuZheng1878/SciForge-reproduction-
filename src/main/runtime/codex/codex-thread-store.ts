@@ -66,6 +66,7 @@ export class CodexThreadStore {
     latestSeq?: number
     latestTurnId?: string
     latestUserMessageId?: string
+    updatedAt?: string
   }): Promise<CodexStoredThread> {
     return this.enqueue(async () => this.upsertNow(input))
   }
@@ -79,6 +80,7 @@ export class CodexThreadStore {
     latestSeq?: number
     latestTurnId?: string
     latestUserMessageId?: string
+    updatedAt?: string
   }): Promise<CodexStoredThread> {
     const codexThreadId = input.codexThreadId.trim()
     if (!codexThreadId) throw new Error('Codex thread id is required.')
@@ -89,6 +91,7 @@ export class CodexThreadStore {
     )
     const existing = existingIndex >= 0 ? snapshot.threads[existingIndex] : null
     const now = this.now().toISOString()
+    const updatedAt = validIso(input.updatedAt) ?? now
     const next: CodexStoredThread = {
       guiThreadId: nonEmpty(input.guiThreadId, existing?.guiThreadId ?? codexThreadId),
       codexThreadId,
@@ -96,7 +99,7 @@ export class CodexThreadStore {
       workspace: nonEmpty(input.workspace, existing?.workspace ?? ''),
       title: nonEmpty(input.title, existing?.title ?? 'Codex thread'),
       createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
+      updatedAt,
       archived: input.archived ?? existing?.archived ?? false,
       latestSeq: typeof input.latestSeq === 'number'
         ? Math.max(0, Math.floor(input.latestSeq))
@@ -250,4 +253,11 @@ function stringValue(value: unknown): string {
 
 function numberValue(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+}
+
+function validIso(value: unknown): string | null {
+  const text = stringValue(value)
+  if (!text) return null
+  const timestamp = Date.parse(text)
+  return Number.isFinite(timestamp) ? text : null
 }

@@ -98,6 +98,10 @@ const api = {
     ipcRenderer.invoke('clipboard:read-image'),
   renameWorkspaceEntry: (payload) =>
     ipcRenderer.invoke('file:rename-workspace-entry', payload),
+  copyWorkspaceEntry: (payload) =>
+    ipcRenderer.invoke('file:copy-workspace-entry', payload),
+  moveWorkspaceEntry: (payload) =>
+    ipcRenderer.invoke('file:move-workspace-entry', payload),
   deleteWorkspaceEntry: (payload) =>
     ipcRenderer.invoke('file:delete-workspace-entry', payload),
   watchWorkspaceFile: (payload) =>

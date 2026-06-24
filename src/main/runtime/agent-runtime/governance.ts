@@ -68,15 +68,30 @@ export class RuntimeGovernanceSupervisor {
     state.events = state.events.slice(-settings.toolStorm.windowSize)
     this.toolStormStates.set(key, state)
 
-    if (state.totalEvents > maxToolEventsForProfile(settings, controls.governanceProfile) && !state.interrupted.has('budget')) {
-      state.interrupted.add('budget')
-      void controls.interruptTurn({
-        runtimeId: capabilities.runtimeId,
-        threadId,
-        turnId,
-        discard: false
-      }).catch(() => undefined)
-      void publishToolStormEvent(controls, event, capabilities.runtimeId, 'hard', 'tool-budget')
+    if (state.totalEvents > maxToolEventsForProfile(settings, controls.governanceProfile)) {
+      if (shouldInterruptForToolBudget(controls.governanceProfile)) {
+        if (!state.interrupted.has('budget')) {
+          state.interrupted.add('budget')
+          void controls.interruptTurn({
+            runtimeId: capabilities.runtimeId,
+            threadId,
+            turnId,
+            discard: false
+          }).catch(() => undefined)
+          void publishToolStormEvent(controls, event, capabilities.runtimeId, 'hard', 'tool-budget')
+        }
+        return
+      }
+      if (!state.steered.has('budget')) {
+        state.steered.add('budget')
+        void controls.steerTurn({
+          runtimeId: capabilities.runtimeId,
+          threadId,
+          turnId,
+          text: 'You have used many tool calls in this turn. Continue only with tools that materially advance the task; otherwise summarize progress, state what remains, and ask the user before doing more.'
+        }).catch(() => undefined)
+        void publishToolStormEvent(controls, event, capabilities.runtimeId, 'soft', 'tool-budget')
+      }
       return
     }
 
@@ -331,6 +346,10 @@ function maxToolEventsForProfile(
   if (profile === 'remote_guard') return settings.budgets.remoteGuardMaxToolEvents
   if (profile === 'write') return settings.budgets.writeMaxToolEvents
   return settings.budgets.defaultMaxToolEvents
+}
+
+function shouldInterruptForToolBudget(profile: AgentRuntimeGovernanceProfile | undefined): boolean {
+  return profile === 'remote_guard'
 }
 
 function runningToolIdentity(event: Extract<AgentRuntimeEvent, { kind: 'tool_event' }>): string {

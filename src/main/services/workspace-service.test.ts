@@ -19,6 +19,7 @@ vi.mock('electron', () => ({
 import { clipboard } from 'electron'
 
 import {
+  copyWorkspaceEntry,
   createWorkspaceDirectory,
   createWorkspaceFile,
   deleteWorkspaceEntry,
@@ -26,6 +27,7 @@ import {
   readClipboardImage,
   readWorkspaceImage,
   readWorkspaceFile,
+  moveWorkspaceEntry,
   renameWorkspaceEntry,
   resolveWorkspaceFile,
   saveWorkspaceClipboardImage,
@@ -361,6 +363,56 @@ describe('workspace-service boundary checks', () => {
     if (!result.ok) {
       expect(result.message).toContain('already exists')
     }
+  })
+
+  it('copies files and avoids name conflicts', async () => {
+    const first = await copyWorkspaceEntry({
+      sourcePath: 'inside.txt',
+      sourceWorkspaceRoot: workspaceRoot,
+      targetDirectory: '',
+      targetWorkspaceRoot: workspaceRoot
+    })
+    const second = await copyWorkspaceEntry({
+      sourcePath: 'inside.txt',
+      sourceWorkspaceRoot: workspaceRoot,
+      targetDirectory: '',
+      targetWorkspaceRoot: workspaceRoot
+    })
+
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    expect(await readFile(join(workspaceRoot, 'inside copy.txt'), 'utf8')).toBe('inside')
+    expect(await readFile(join(workspaceRoot, 'inside copy 2.txt'), 'utf8')).toBe('inside')
+  })
+
+  it('copies directories recursively', async () => {
+    await mkdir(join(workspaceRoot, 'notes', 'nested'), { recursive: true })
+    await writeFile(join(workspaceRoot, 'notes', 'nested', 'draft.md'), '# draft', 'utf8')
+
+    const result = await copyWorkspaceEntry({
+      sourcePath: 'notes',
+      sourceWorkspaceRoot: workspaceRoot,
+      targetDirectory: '',
+      targetWorkspaceRoot: workspaceRoot
+    })
+
+    expect(result.ok).toBe(true)
+    expect(await readFile(join(workspaceRoot, 'notes copy', 'nested', 'draft.md'), 'utf8')).toBe('# draft')
+  })
+
+  it('moves files into a target directory', async () => {
+    await mkdir(join(workspaceRoot, 'notes'), { recursive: true })
+
+    const result = await moveWorkspaceEntry({
+      sourcePath: 'inside.txt',
+      sourceWorkspaceRoot: workspaceRoot,
+      targetDirectory: 'notes',
+      targetWorkspaceRoot: workspaceRoot
+    })
+
+    expect(result.ok).toBe(true)
+    expect(await readFile(join(workspaceRoot, 'notes', 'inside.txt'), 'utf8')).toBe('inside')
+    await expect(readFile(join(workspaceRoot, 'inside.txt'), 'utf8')).rejects.toThrow()
   })
 
   it('deletes files within the selected workspace', async () => {

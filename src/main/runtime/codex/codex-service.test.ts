@@ -222,6 +222,36 @@ describe('CodexRuntimeService storage fallback', () => {
     })
   })
 
+  it('persists app-server thread updatedAt without replacing it with read time', async () => {
+    const storageRoot = await tempRoot()
+    const client = controllableClient()
+    vi.mocked(client.listThreads).mockResolvedValue({
+      threads: [{
+        id: 'codex-live-thread',
+        name: 'Live thread',
+        updatedAt: 1780272000,
+        cwd: '/tmp/workspace'
+      }]
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.listThreads()).resolves.toMatchObject({
+      ok: true,
+      threads: [expect.objectContaining({
+        id: 'codex-live-thread',
+        updatedAt: '2026-06-01T00:00:00.000Z'
+      })]
+    })
+    await expect(new CodexThreadStore({ rootDir: storageRoot }).get('codex-live-thread')).resolves.toMatchObject({
+      updatedAt: '2026-06-01T00:00:00.000Z'
+    })
+  })
+
   it('replays stored normalized events as chat blocks when app-server read is unavailable', async () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
@@ -258,6 +288,54 @@ describe('CodexRuntimeService storage fallback', () => {
           expect.objectContaining({ kind: 'user', id: 'user-1', text: 'hello' }),
           expect.objectContaining({ kind: 'assistant', text: 'hi there' })
         ]
+      })
+    })
+  })
+
+  it('uses explicit latestTurnId when app-server read returns turns out of order', async () => {
+    const client = controllableClient()
+    vi.mocked(client.readThread).mockResolvedValue({
+      thread: {
+        id: 'codex-thread-1',
+        latestTurnId: 'turn-latest',
+        turns: [
+          {
+            id: 'turn-latest',
+            status: 'completed',
+            items: [{
+              id: 'assistant-latest',
+              type: 'agentMessage',
+              text: 'done'
+            }]
+          },
+          {
+            id: 'turn-stale',
+            status: 'running',
+            items: [{
+              id: 'tool-stale',
+              type: 'commandExecution',
+              status: 'running',
+              command: 'old command'
+            }]
+          }
+        ]
+      }
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      createClient: () => client
+    })
+
+    await expect(service.readThread('codex-thread-1')).resolves.toEqual({
+      ok: true,
+      detail: expect.objectContaining({
+        latestTurnId: 'turn-latest',
+        threadStatus: 'completed',
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ kind: 'assistant', id: 'assistant-latest', turnId: 'turn-latest', text: 'done' }),
+          expect.objectContaining({ kind: 'tool', id: 'tool-stale', turnId: 'turn-stale', status: 'running' })
+        ])
       })
     })
   })
@@ -793,6 +871,12 @@ describe('CodexRuntimeService compatibility operations', () => {
         inputSchema: { type: 'object', properties: { query: { type: 'string' } } }
       }],
       developerInstructions: expect.stringContaining('specialized MCP tools')
+    }))
+    expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      developerInstructions: expect.stringContaining('stream to a `.part` file')
+    }))
+    expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      developerInstructions: expect.stringContaining('explicitly asks to use the system proxy')
     }))
     await expect(pendingServerRequests?.onToolCallRequest?.({
       requestId: 'tool-request-1',
@@ -2220,6 +2304,189 @@ describe('CodexRuntimeService compatibility operations', () => {
       queued.close()
       vi.useRealTimers()
     }
+  })
+
+  it('treats pending approval requests as first activity for the active turn', async () => {
+    vi.useFakeTimers()
+    const queued = clientWithQueuedEvents()
+    let onPendingRequest: ((request: CodexAppServerPendingRequest) => void) | undefined
+    try {
+      const sink = { send: vi.fn() }
+      const createClient = vi.fn((options: CodexAppServerJsonRpcClientOptions) => {
+        onPendingRequest = (
+          options.pendingServerRequests as { onPendingRequest?: (request: CodexAppServerPendingRequest) => void }
+        )?.onPendingRequest
+        return queued.client
+      })
+      const service = new CodexRuntimeService({
+        settings: async () => settings(),
+        sink,
+        createClient
+      })
+
+      await expect(service.startTurn({ threadId: 'thread-1', text: 'run tests' })).resolves.toMatchObject({
+        ok: true,
+        turnId: 'turn-1'
+      })
+      expect(onPendingRequest).toEqual(expect.any(Function))
+      onPendingRequest?.({
+        requestId: 'approval-1',
+        method: 'item/commandExecution/requestApproval',
+        kind: 'approval',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'cmd-approval-1',
+        summary: 'Command approval requested',
+        params: { command: 'npm test' }
+      })
+
+      await vi.waitFor(() => {
+        expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {
+          event: expect.objectContaining({
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            tool: expect.objectContaining({
+              itemId: 'cmd-approval-1',
+              status: 'running',
+              meta: expect.objectContaining({
+                codexRequestId: 'approval-1',
+                codexRequestKind: 'approval'
+              })
+            })
+          })
+        })
+      })
+      sink.send.mockClear()
+
+      await vi.advanceTimersByTimeAsync(75_000)
+
+      expect(sink.send.mock.calls.some((call) =>
+        call[1]?.event?.runtimeError?.code === 'first_activity_timeout'
+      )).toBe(false)
+      expect(queued.client.interruptTurn).not.toHaveBeenCalled()
+      expect(queued.client.stop).not.toHaveBeenCalled()
+    } finally {
+      queued.close()
+      vi.useRealTimers()
+    }
+  })
+
+  it('treats pending user input requests as first activity for the active turn', async () => {
+    vi.useFakeTimers()
+    const queued = clientWithQueuedEvents()
+    let onPendingRequest: ((request: CodexAppServerPendingRequest) => void) | undefined
+    try {
+      const sink = { send: vi.fn() }
+      const createClient = vi.fn((options: CodexAppServerJsonRpcClientOptions) => {
+        onPendingRequest = (
+          options.pendingServerRequests as { onPendingRequest?: (request: CodexAppServerPendingRequest) => void }
+        )?.onPendingRequest
+        return queued.client
+      })
+      const service = new CodexRuntimeService({
+        settings: async () => settings(),
+        sink,
+        createClient
+      })
+
+      await expect(service.startTurn({ threadId: 'thread-1', text: 'ask me' })).resolves.toMatchObject({
+        ok: true,
+        turnId: 'turn-1'
+      })
+      onPendingRequest?.({
+        requestId: 'input-1',
+        method: 'item/tool/requestUserInput',
+        kind: 'user_input',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'input-item-1',
+        summary: 'User input requested',
+        params: {
+          questions: [{
+            id: 'q1',
+            header: 'Confirm',
+            question: 'Continue?',
+            options: []
+          }]
+        }
+      })
+
+      await vi.waitFor(() => {
+        expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {
+          event: expect.objectContaining({
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            tool: expect.objectContaining({
+              itemId: 'input-item-1',
+              status: 'running',
+              meta: expect.objectContaining({
+                codexRequestId: 'input-1',
+                codexRequestKind: 'user_input'
+              })
+            })
+          })
+        })
+      })
+      sink.send.mockClear()
+
+      await vi.advanceTimersByTimeAsync(75_000)
+
+      expect(sink.send.mock.calls.some((call) =>
+        call[1]?.event?.runtimeError?.code === 'first_activity_timeout'
+      )).toBe(false)
+      expect(queued.client.interruptTurn).not.toHaveBeenCalled()
+      expect(queued.client.stop).not.toHaveBeenCalled()
+    } finally {
+      queued.close()
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not defer turn completion behind pending approval prompts', async () => {
+    const queued = clientWithQueuedEvents()
+    let onPendingRequest: ((request: CodexAppServerPendingRequest) => void) | undefined
+    const sink = { send: vi.fn() }
+    const createClient = vi.fn((options: CodexAppServerJsonRpcClientOptions) => {
+      onPendingRequest = (
+        options.pendingServerRequests as { onPendingRequest?: (request: CodexAppServerPendingRequest) => void }
+      )?.onPendingRequest
+      return queued.client
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      createClient
+    })
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'run tests' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+    onPendingRequest?.({
+      requestId: 'approval-1',
+      method: 'item/commandExecution/requestApproval',
+      kind: 'approval',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'cmd-approval-1',
+      summary: 'Command approval requested',
+      params: { command: 'npm test' }
+    })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turnId: 'turn-1' }
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(sink.send.mock.calls.some((call) =>
+        call[1]?.event?.turnComplete === true
+      )).toBe(true)
+    })
+    queued.close()
   })
 
   it.each([

@@ -47,6 +47,7 @@ import {
   type ComposerReasoningEffort
 } from './chat/FloatingComposerModelPicker'
 import { SideConversationPanel } from './chat/SideConversationPanel'
+import type { FileTreeInitialDirectory } from './chat/ChatFileTreePanel'
 import {
   RemoteGuardDetailView,
   remoteGuardChannelTitle,
@@ -477,6 +478,7 @@ export function Workbench(): ReactElement {
     watchTurnCompletion,
     unreadThreadIds,
     removeQueuedMessage,
+    steerQueuedMessage,
     interrupt,
     probeRuntime,
     composerModel,
@@ -535,6 +537,7 @@ export function Workbench(): ReactElement {
       watchTurnCompletion: s.watchTurnCompletion,
       unreadThreadIds: s.unreadThreadIds,
       removeQueuedMessage: s.removeQueuedMessage,
+      steerQueuedMessage: s.steerQueuedMessage,
       interrupt: s.interrupt,
       probeRuntime: s.probeRuntime,
       composerModel: s.composerModel,
@@ -732,6 +735,7 @@ export function Workbench(): ReactElement {
     route,
     workspaceRoot
   })
+  const [fileTreeInitialDirectory, setFileTreeInitialDirectory] = useState<FileTreeInitialDirectory | null>(null)
   const {
     activeGuiPlan,
     buildGuiPlan,
@@ -1015,6 +1019,19 @@ export function Workbench(): ReactElement {
       path,
       workspaceRoot: reference.workspaceRoot || activeWorkspaceReferenceRoot || workspaceRoot
     })
+    setRightPanelMode('file')
+  }
+
+  const openFileTreeDirectory = (target: { workspaceRoot: string; path: string }): void => {
+    const nextWorkspaceRoot = normalizeWorkspaceRoot(
+      target.workspaceRoot || activeWorkspaceReferenceRoot || workspaceRoot
+    )
+    setFileTreeInitialDirectory((current) => ({
+      workspaceRoot: nextWorkspaceRoot,
+      path: target.path,
+      nonce: (current?.nonce ?? 0) + 1
+    }))
+    setFilePreviewTarget(null)
     setRightPanelMode('file')
   }
 
@@ -1890,12 +1907,14 @@ export function Workbench(): ReactElement {
                 workspaceRoot={filePreviewTarget.workspaceRoot || activeWorkspaceReferenceRoot || workspaceRoot}
                 className="h-full max-h-full w-full"
                 onClose={() => setFilePreviewTarget(null)}
+                onOpenDirectory={openFileTreeDirectory}
               />
             ) : rightPanelMode === 'file' ? (
               <ChatFileTreePanel
                 workspaceRoot={activeWorkspaceReferenceRoot || workspaceRoot}
                 workspaceGroups={workspaceReferenceGroups}
                 selectedPath={filePreviewTarget?.path}
+                initialDirectory={fileTreeInitialDirectory}
                 selectedReferences={composerFileReferences}
                 className="h-full max-h-full w-full"
                 onPreviewFile={previewWorkspaceReference}
@@ -1923,6 +1942,7 @@ export function Workbench(): ReactElement {
                 setComposerReasoningEffort={setAssistantReasoningEffort}
                 queuedMessages={queuedMessages}
                 removeQueuedMessage={removeQueuedMessage}
+                steerQueuedMessage={steerQueuedMessage}
                 fileReferenceEnabled={Boolean(normalizeWorkspaceRoot(activeSddDraft.workspaceRoot))}
                 fileReferences={composerFileReferences}
                 onAddFileReference={addComposerFileReference}
@@ -2235,6 +2255,7 @@ export function Workbench(): ReactElement {
                     onRemoveFileReference={removeComposerFileReference}
                     queuedMessages={queuedMessages}
                     onRemoveQueuedMessage={removeQueuedMessage}
+                    onSteerQueuedMessage={(id) => void steerQueuedMessage(id)}
                     onInterrupt={(options) => void interrupt(options)}
                     onPlanCommand={() => void handleGuiPlanCommand()}
                     onReviewCommand={(target) => void reviewActiveThread(target)}

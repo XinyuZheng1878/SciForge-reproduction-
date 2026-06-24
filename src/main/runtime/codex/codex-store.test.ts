@@ -70,6 +70,35 @@ describe('CodexThreadStore', () => {
     ])
   })
 
+  it('preserves explicit runtime updatedAt values during upsert', async () => {
+    const rootDir = await tempRoot()
+    const store = new CodexThreadStore({
+      rootDir,
+      now: () => new Date('2026-06-10T10:00:00.000Z')
+    })
+
+    await store.upsert({
+      codexThreadId: 'older-live-thread',
+      title: 'Older',
+      updatedAt: '2026-06-01T00:00:00.000Z'
+    })
+    await store.upsert({
+      codexThreadId: 'newer-live-thread',
+      title: 'Newer',
+      updatedAt: '2026-06-02T00:00:00.000Z'
+    })
+
+    const threads = await store.list()
+
+    expect(threads.map((thread) => thread.codexThreadId)).toEqual([
+      'newer-live-thread',
+      'older-live-thread'
+    ])
+    expect(await store.get('older-live-thread')).toMatchObject({
+      updatedAt: '2026-06-01T00:00:00.000Z'
+    })
+  })
+
   it('recovers a valid threads snapshot when a corrupted tail is present', async () => {
     const rootDir = await tempRoot()
     await writeFile(join(rootDir, 'threads.json'), `${JSON.stringify({

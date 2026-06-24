@@ -1,7 +1,8 @@
 import type { ReactElement } from 'react'
 import type { ReviewTarget } from '../../agent/types'
+export { parseSteerCommand } from '../../lib/steer-command'
 
-export type BuiltinSlashCommandId = 'plan' | 'goal' | 'review' | 'compact' | 'fork' | 'archive' | 'restore' | 'btw'
+export type BuiltinSlashCommandId = 'plan' | 'goal' | 'review' | 'compact' | 'fork' | 'archive' | 'restore' | 'btw' | 'steer'
 export type SkillSlashCommandId = `skill:${string}`
 export type SlashCommandId = BuiltinSlashCommandId | SkillSlashCommandId
 

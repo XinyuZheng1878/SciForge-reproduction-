@@ -22,9 +22,10 @@ import {
 } from '../lib/thread-fork-registry'
 import { workspaceLabelFromPath } from '../lib/workspace-label'
 import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
+import { parseSteerCommand } from '../lib/steer-command'
 import { buildClawRuntimePrompt, buildCodeRuntimePrompt, getActiveAgentApiKey } from '@shared/app-settings'
 import type { AgentRuntimeContextState, AgentRuntimeFileReference } from '@shared/agent-runtime-contract'
-import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
+import type { ChatState, ChatStoreGet, ChatStoreSet, QueuedUserMessage } from './chat-store-types'
 import {
   activeClawChannel,
   clawThreadIdsFromChannels,
@@ -46,6 +47,7 @@ import {
   hasPendingRuntimeWork,
   reconcileOptimisticUserBlock,
   rememberProviderThreadRuntime,
+  settlePendingRuntimeWorkAfterCompletion,
   threadSnapshotLooksRunning,
   threadBelongsToWorkspace
 } from './chat-store-runtime-helpers'
@@ -154,6 +156,15 @@ function providerSupportsCapability(
   return provider.getCapabilities?.()[capability] === true
 }
 
+function canSteerPlainTextMessage(
+  message: Pick<QueuedUserMessage, 'attachmentIds' | 'attachments' | 'fileReferences' | 'guiPlan'>
+): boolean {
+  return !message.attachmentIds?.length &&
+    !message.attachments?.length &&
+    !message.fileReferences?.length &&
+    !message.guiPlan
+}
+
 export function publishActiveClawThreadContext(state: ChatState, threadId: string | null): void {
   if (typeof window.dsGui?.updateClawActiveThreadContext !== 'function') return
   if (!threadId) {
@@ -203,9 +214,16 @@ function threadSnapshotHasTurnEvidence(
   )
 }
 
+function settleStalePendingBlocksWhenIdle<T extends Parameters<typeof threadSnapshotLooksRunning>[0]>(
+  blocks: T,
+  busy: boolean
+): T {
+  return busy ? blocks : settlePendingRuntimeWorkAfterCompletion(blocks) as T
+}
+
 export function createThreadActions(
   { set, get, sseAbortRef }: StoreActionContext
-): Pick<ChatState, 'createThread' | 'refreshActiveThreadContextState' | 'recoverActiveTurn' | 'selectThread' | 'drainQueuedMessages' | 'removeQueuedMessage' | 'sendMessage' | 'reviewActiveThread'> {
+): Pick<ChatState, 'createThread' | 'refreshActiveThreadContextState' | 'recoverActiveTurn' | 'selectThread' | 'drainQueuedMessages' | 'removeQueuedMessage' | 'steerQueuedMessage' | 'sendMessage' | 'reviewActiveThread'> {
   return {
   refreshActiveThreadContextState: async (threadId) => {
     const targetThreadId = threadId?.trim() || get().activeThreadId
@@ -312,9 +330,10 @@ export function createThreadActions(
         }
         return false
       }
-      const blocks = hydrateBlockModelLabels(activeThreadId, rawBlocks)
-      const busy = threadSnapshotHasTurnEvidence(blocks, latestTurnId, latestUserMessageId) &&
-        threadSnapshotLooksRunning(blocks, threadStatus)
+      const hydratedBlocks = hydrateBlockModelLabels(activeThreadId, rawBlocks)
+      const busy = threadSnapshotHasTurnEvidence(hydratedBlocks, latestTurnId, latestUserMessageId) &&
+        threadSnapshotLooksRunning(hydratedBlocks, threadStatus)
+      const blocks = settleStalePendingBlocksWhenIdle(hydratedBlocks, busy)
       const currentTurnUserId = busy
         ? state.currentTurnUserId ?? latestUserMessageId ?? findLatestUserBlockId(blocks)
         : null
@@ -399,9 +418,10 @@ export function createThreadActions(
         todos
       } = await p.getThreadDetail(id)
       const contextState = await readProviderContextState(p, id)
-      const blocks = hydrateBlockModelLabels(id, rawBlocks)
-      const busy = threadSnapshotHasTurnEvidence(blocks, latestTurnId, latestUserMessageId) &&
-        threadSnapshotLooksRunning(blocks, threadStatus)
+      const hydratedBlocks = hydrateBlockModelLabels(id, rawBlocks)
+      const busy = threadSnapshotHasTurnEvidence(hydratedBlocks, latestTurnId, latestUserMessageId) &&
+        threadSnapshotLooksRunning(hydratedBlocks, threadStatus)
+      const blocks = settleStalePendingBlocksWhenIdle(hydratedBlocks, busy)
       const currentTurnUserId = busy
         ? latestUserMessageId ?? findLatestUserBlockId(blocks)
         : null
@@ -479,9 +499,53 @@ export function createThreadActions(
       queuedMessages: s.queuedMessages.filter((message) => message.id !== id)
     })),
 
+  steerQueuedMessage: async (id) => {
+    const state = get()
+    const queued = state.queuedMessages.find((message) => message.id === id)
+    if (!queued) return false
+    const activeThreadId = state.activeThreadId
+    const currentTurnId = state.currentTurnId
+    const p = getProvider()
+    const canSteerActiveTurn =
+      Boolean(activeThreadId && currentTurnId) &&
+      (!queued.threadId || queued.threadId === activeThreadId) &&
+      (!queued.runtimeId || get().threads.find((thread) => thread.id === activeThreadId)?.runtimeId === queued.runtimeId) &&
+      typeof p.steerUserMessage === 'function' &&
+      providerSupportsCapability(p, 'steer') &&
+      canSteerPlainTextMessage(queued)
+    if (!canSteerActiveTurn || !activeThreadId || !currentTurnId || !p.steerUserMessage) {
+      set({ error: i18n.t('common:runtimeSteerUnsupported') })
+      return false
+    }
+    try {
+      rememberProviderThreadRuntime(p, activeThreadId, get().threads)
+      await p.steerUserMessage(activeThreadId, currentTurnId, queued.text)
+      set((s) => ({
+        queuedMessages: s.queuedMessages.filter((message) => message.id !== id),
+        error: null
+      }))
+      return true
+    } catch (e) {
+      set({
+        error: formatRuntimeError(e),
+        ...(shouldOpenSettingsForError(e)
+          ? { route: 'settings' as const, settingsSection: 'agents' as const }
+          : {})
+      })
+      return false
+    }
+  },
+
   sendMessage: async (text, mode, overrides) => {
     const trimmedText = text.trim()
     if (!trimmedText) return false
+    const steerCommandText = parseSteerCommand(trimmedText)
+    const explicitSteerText = steerCommandText !== false ? steerCommandText.trim() : null
+    const messageText = explicitSteerText ?? trimmedText
+    if (!messageText) {
+      set({ error: i18n.t('common:steerCommandRequiresMessage') })
+      return false
+    }
     if (get().runtimeConnection !== 'ready') {
       set({ error: i18n.t('common:runtimeActionNeedsConnection') })
       return false
@@ -516,6 +580,7 @@ export function createThreadActions(
       const fileReferences = normalizeRuntimeFileReferences(overrides?.fileReferences)
       const currentTurnId = get().currentTurnId
       const canSteerActiveTurn =
+        explicitSteerText !== null &&
         Boolean(activeThreadId && currentTurnId) &&
         typeof p.steerUserMessage === 'function' &&
         providerSupportsCapability(p, 'steer') &&
@@ -523,10 +588,14 @@ export function createThreadActions(
         !attachments?.length &&
         fileReferences.length === 0 &&
         !overrides?.guiPlan
+      if (explicitSteerText !== null && !canSteerActiveTurn) {
+        set({ error: i18n.t('common:runtimeSteerUnsupported') })
+        return false
+      }
       if (canSteerActiveTurn && activeThreadId && currentTurnId && p.steerUserMessage) {
         try {
           rememberProviderThreadRuntime(p, activeThreadId, get().threads)
-          await p.steerUserMessage(activeThreadId, currentTurnId, trimmedText)
+          await p.steerUserMessage(activeThreadId, currentTurnId, messageText)
           set({ error: null })
           return true
         } catch (e) {
@@ -549,7 +618,7 @@ export function createThreadActions(
             id: `q-${now}-${s.queuedMessages.length}`,
             ...(activeThreadId ? { threadId: activeThreadId } : {}),
             ...(threadSnap?.runtimeId ? { runtimeId: threadSnap.runtimeId } : {}),
-            text: trimmedText,
+            text: messageText,
             ...(displayText ? { displayText } : {}),
             ...(mode ? { mode } : {}),
             sourceRoute,
@@ -587,8 +656,8 @@ export function createThreadActions(
       queued?.fileReferences ?? overrides?.fileReferences
     )
     let activeThreadId = targetThreadId || get().activeThreadId
-    const displayText = queued?.displayText ?? overrides?.displayText?.trim() ?? trimmedText
-    const userDisplayText = displayText !== trimmedText ? displayText : undefined
+    const displayText = queued?.displayText ?? overrides?.displayText?.trim() ?? messageText
+    const userDisplayText = displayText !== messageText ? displayText : undefined
     const generatedTitle = deriveThreadTitleFromPrompt(displayText)
     const shouldAutoRenameForRoute = sourceRoute === 'chat'
     const activeThread = activeThreadId
@@ -738,11 +807,11 @@ export function createThreadActions(
       const settings = await rendererRuntimeClient.getSettings()
       let runtimeText: string
       if (channel) {
-        runtimeText = buildClawRuntimePrompt(settings, trimmedText, { channel })
+        runtimeText = buildClawRuntimePrompt(settings, messageText, { channel })
       } else {
-        runtimeText = buildCodeRuntimePrompt(settings, trimmedText)
+        runtimeText = buildCodeRuntimePrompt(settings, messageText)
       }
-      const runtimeDisplayText = channel ? displayText : (userDisplayText ?? trimmedText)
+      const runtimeDisplayText = channel ? displayText : (userDisplayText ?? messageText)
       const governanceProfile = requestedGovernanceProfile ?? (
         channel
           ? 'remote_guard'
@@ -812,14 +881,14 @@ export function createThreadActions(
       if (shouldMirrorToIm && typeof window.dsGui?.mirrorClawChannelMessage === 'function') {
         const userMirror = await window.dsGui.mirrorClawChannelMessage(
           activeThreadId,
-          trimmedText,
+          messageText,
           'user'
         )
         if (userMirror.ok) {
           rememberPendingClawFeishuMirror(turnId, {
             threadId: activeThreadId,
             userBlockId: userMessageItemId ?? userBlockId,
-            userText: trimmedText
+            userText: messageText
           })
         }
       }

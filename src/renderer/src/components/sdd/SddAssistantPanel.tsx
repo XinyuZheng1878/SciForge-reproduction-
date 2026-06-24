@@ -30,6 +30,7 @@ type Props = {
   setComposerReasoningEffort: (effort: ComposerReasoningEffort) => void
   queuedMessages: QueuedUserMessage[]
   removeQueuedMessage: (id: string) => void
+  steerQueuedMessage: (id: string) => Promise<boolean>
   fileReferenceEnabled?: boolean
   fileReferences?: ComposerFileReference[]
   onAddFileReference?: (reference: ComposerFileReference) => void
@@ -65,6 +66,7 @@ export function SddAssistantPanel({
   setComposerReasoningEffort,
   queuedMessages,
   removeQueuedMessage,
+  steerQueuedMessage,
   fileReferenceEnabled = false,
   fileReferences = [],
   onAddFileReference,
@@ -207,6 +209,7 @@ export function SddAssistantPanel({
           modelPickerMode="combobox"
           queuedMessages={queuedMessages}
           onRemoveQueuedMessage={removeQueuedMessage}
+          onSteerQueuedMessage={(id) => void steerQueuedMessage(id)}
           fileReferenceEnabled={fileReferenceEnabled}
           fileReferences={fileReferences}
           onAddFileReference={onAddFileReference}

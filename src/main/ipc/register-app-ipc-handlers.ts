@@ -88,10 +88,12 @@ import {
   skillSaveFilePayloadSchema,
   settingsPatchSchema,
   streamIdSchema,
+  workspaceEntryCopyPayloadSchema,
   workspaceDirectoryCreatePayloadSchema,
   workspaceClipboardImageSavePayloadSchema,
   workspaceDirectoryTargetPayloadSchema,
   workspaceEntryDeletePayloadSchema,
+  workspaceEntryMovePayloadSchema,
   workspaceEntryRenamePayloadSchema,
   workspaceFileCreatePayloadSchema,
   workspaceFileTargetPayloadSchema,
@@ -154,6 +156,7 @@ import { createAndSwitchGitBranch, getGitBranches, switchGitBranch } from '../se
 import {
   createWorkspaceDirectory,
   createWorkspaceFile,
+  copyWorkspaceEntry,
   deleteWorkspaceEntry,
   expandHomePath,
   listEditorsResult,
@@ -164,6 +167,7 @@ import {
   readClipboardImage,
   readWorkspaceImage,
   readWorkspaceFile,
+  moveWorkspaceEntry,
   renameWorkspaceEntry,
   resolveWorkspaceFile,
   saveWorkspaceClipboardImage,
@@ -1236,6 +1240,16 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   handleInvoke('file:rename-workspace-entry', async (_, payload: unknown) =>
     renameWorkspaceEntry(
       parseIpcPayload('file:rename-workspace-entry', workspaceEntryRenamePayloadSchema, payload)
+    )
+  )
+  handleInvoke('file:copy-workspace-entry', async (_, payload: unknown) =>
+    copyWorkspaceEntry(
+      parseIpcPayload('file:copy-workspace-entry', workspaceEntryCopyPayloadSchema, payload)
+    )
+  )
+  handleInvoke('file:move-workspace-entry', async (_, payload: unknown) =>
+    moveWorkspaceEntry(
+      parseIpcPayload('file:move-workspace-entry', workspaceEntryMovePayloadSchema, payload)
     )
   )
   handleInvoke('file:delete-workspace-entry', async (_, payload: unknown) =>

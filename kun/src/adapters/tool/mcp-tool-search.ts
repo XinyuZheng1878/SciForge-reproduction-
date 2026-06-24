@@ -5,6 +5,7 @@ import type {
 import type { ToolHostContext } from '../../ports/tool-host.js'
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { LocalToolHost, type LocalTool } from './local-tool-host.js'
+import { mcpInputValidationFailure } from './mcp-schema-repair.js'
 
 const MCP_SEARCH_TOOL_NAME = 'mcp_search'
 const MCP_DESCRIBE_TOOL_NAME = 'mcp_describe'
@@ -282,10 +283,17 @@ function createMcpSearchTools(options: McpSearchProviderOptions): LocalTool[] {
         if (!record) return { output: { error: `unknown MCP tool: ${toolId}` }, isError: true }
         const callArgs = objectArg(args.arguments)
         const preparedArgs = record.prepareArguments?.(callArgs, context) ?? callArgs
-        const result = await record.client.callTool(
-          { name: record.descriptor.name, arguments: preparedArgs },
-          { signal: context.abortSignal, timeout: record.server.timeoutMs }
-        )
+        let result: unknown
+        try {
+          result = await record.client.callTool(
+            { name: record.descriptor.name, arguments: preparedArgs },
+            { signal: context.abortSignal, timeout: record.server.timeoutMs }
+          )
+        } catch (error) {
+          const validation = mcpInputValidationFailure(error)
+          if (validation) return { output: validation, isError: true }
+          throw error
+        }
         return {
           output: {
             serverId: record.serverId,

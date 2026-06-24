@@ -19,6 +19,10 @@ import {
   type McpSearchCatalogState,
   type McpSearchRuntimeDiagnostic
 } from './mcp-tool-search.js'
+import {
+  mcpInputValidationFailure,
+  schemaSafeMcpToolArguments
+} from './mcp-schema-repair.js'
 
 const GUI_COMPUTER_USE_MCP_SERVER_ID = 'gui_computer_use'
 const GUI_COMPUTER_USE_TOOL_NAME = 'computer_use'
@@ -293,11 +297,22 @@ function createMcpLocalTool(
           isError: true
         }
       }
-      const result = await callMcpToolWithReconnect(
-        state,
-        { name: descriptor.name, arguments: mcpToolArgumentsForContext(state, descriptor, args, context) },
-        context.abortSignal
+      const callArguments = schemaSafeMcpToolArguments(
+        mcpToolArgumentsForContext(state, descriptor, args, context),
+        descriptor.inputSchema
       )
+      let result: unknown
+      try {
+        result = await callMcpToolWithReconnect(
+          state,
+          { name: descriptor.name, arguments: callArguments },
+          context.abortSignal
+        )
+      } catch (error) {
+        const validation = mcpInputValidationFailure(error)
+        if (validation) return { output: validation, isError: true }
+        throw error
+      }
       return {
         output: {
           serverId: state.serverId,
@@ -336,7 +351,10 @@ function createMcpSearchCatalogRecord(
     descriptor,
     normalizedName: normalizeMcpToolName(state.serverId, descriptor.name),
     policy: policyFromAnnotations(descriptor.annotations),
-    prepareArguments: (args, context) => mcpToolArgumentsForContext(state, descriptor, args, context)
+    prepareArguments: (args, context) => schemaSafeMcpToolArguments(
+      mcpToolArgumentsForContext(state, descriptor, args, context),
+      descriptor.inputSchema
+    )
   }
 }
 
@@ -381,9 +399,16 @@ async function callMcpToolWithReconnect(
   } catch (error) {
     state.lastError = redactSecretText(errorMessage(error))
     if (signal?.aborted) throw error
+    if (!isTransientMcpConnectionError(error)) throw error
     const client = await reconnectMcpConnection(state)
     return client.callTool(input, { signal, timeout })
   }
+}
+
+function isTransientMcpConnectionError(error: unknown): boolean {
+  const message = errorMessage(error)
+  return /\b(connection|transport|stdio|stream|socket)\b.*\b(closed|ended|terminated|reset|stale|lost)\b/i.test(message)
+    || /\b(closed|ended|terminated|reset|stale|lost)\b.*\b(connection|transport|stdio|stream|socket)\b/i.test(message)
 }
 
 async function reconnectMcpConnection(state: McpConnectionState): Promise<McpClientLike> {

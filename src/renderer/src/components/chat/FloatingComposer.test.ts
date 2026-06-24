@@ -14,7 +14,8 @@ import {
   runParsedGoalCommandForComposer,
   parseCompactCommand,
   parseGoalCommand,
-  parseReviewCommand
+  parseReviewCommand,
+  parseSteerCommand
 } from './FloatingComposer'
 import {
   FloatingComposerModelPicker,
@@ -86,6 +87,13 @@ describe('FloatingComposer slash commands', () => {
       instructions: 'focus on auth regressions'
     })
     expect(parseReviewCommand('/reviewer')).toBe(false)
+  })
+
+  it('parses steer command text and ignores adjacent command names', () => {
+    expect(parseSteerCommand('/steer use the latest instruction')).toBe('use the latest instruction')
+    expect(parseSteerCommand('/steer')).toBe('')
+    expect(parseSteerCommand('/steering use the latest instruction')).toBe(false)
+    expect(parseSteerCommand('please /steer')).toBe(false)
   })
 
   it('uses ordinary composer text as a goal draft only when the goal panel is open', () => {
@@ -563,7 +571,7 @@ describe('FloatingComposer capability controls', () => {
     expect(html).not.toContain('Openspec Apply Change')
   })
 
-  it('labels busy sends as active-turn injection when steering is supported', () => {
+  it('labels normal busy sends as queued continuation even when steering is supported', () => {
     useChatStore.setState({
       activeThreadId: 'thr_1',
       activeThreadGoal: null,
@@ -595,9 +603,119 @@ describe('FloatingComposer capability controls', () => {
       })
     )
 
+    expect(html).toContain('Queue continuation')
+    expect(html).toContain('Keep typing; sends wait and go out after the current reply finishes')
+    expect(html).not.toContain('Inject into current run')
+  })
+
+  it('shows /steer as the busy-turn injection command when steering is supported', () => {
+    useChatStore.setState({
+      activeThreadId: 'thr_1',
+      activeThreadGoal: null,
+      route: 'chat',
+      workspaceRoot: '/workspace/deepseek-gui',
+      threads: []
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposer, {
+        input: '/ste',
+        setInput: () => undefined,
+        workspaceRootOverride: '/workspace/deepseek-gui',
+        mode: 'agent',
+        setMode: () => undefined,
+        busy: true,
+        runtimeReady: true,
+        hasActiveThread: true,
+        composerModel: '',
+        composerPickList: [],
+        onComposerModelChange: () => undefined,
+        queuedMessages: [],
+        onRemoveQueuedMessage: () => undefined,
+        onSend: () => undefined,
+        onInterrupt: () => undefined,
+        attachmentUploadEnabled: false,
+        webAccessAvailable: false,
+        runtimeCapabilities: { steer: true }
+      })
+    )
+
+    expect(html).toContain('/steer')
+    expect(html).toContain('Steer current run')
+  })
+
+  it('labels /steer busy sends as active-turn injection when steering is supported', () => {
+    useChatStore.setState({
+      activeThreadId: 'thr_1',
+      activeThreadGoal: null,
+      route: 'chat',
+      workspaceRoot: '/workspace/deepseek-gui',
+      threads: []
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposer, {
+        input: '/steer add this now',
+        setInput: () => undefined,
+        workspaceRootOverride: '/workspace/deepseek-gui',
+        mode: 'agent',
+        setMode: () => undefined,
+        busy: true,
+        runtimeReady: true,
+        hasActiveThread: true,
+        composerModel: '',
+        composerPickList: [],
+        onComposerModelChange: () => undefined,
+        queuedMessages: [],
+        onRemoveQueuedMessage: () => undefined,
+        onSend: () => undefined,
+        onInterrupt: () => undefined,
+        attachmentUploadEnabled: false,
+        webAccessAvailable: false,
+        runtimeCapabilities: { steer: true }
+      })
+    )
+
     expect(html).toContain('Inject into current run')
-    expect(html).toContain('Keep typing; sends inject into the current run')
-    expect(html).not.toContain('Queue continuation')
+    expect(html).toContain('Keep typing; sends wait and go out after the current reply finishes')
+  })
+
+  it('renders a manual steer action for queued composer messages', () => {
+    useChatStore.setState({
+      activeThreadId: 'thr_1',
+      activeThreadGoal: null,
+      route: 'chat',
+      workspaceRoot: '/workspace/deepseek-gui',
+      threads: []
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposer, {
+        input: '',
+        setInput: () => undefined,
+        workspaceRootOverride: '/workspace/deepseek-gui',
+        mode: 'agent',
+        setMode: () => undefined,
+        busy: true,
+        runtimeReady: true,
+        hasActiveThread: true,
+        composerModel: '',
+        composerPickList: [],
+        onComposerModelChange: () => undefined,
+        queuedMessages: [{ id: 'q-1', text: 'follow up after this' }],
+        onRemoveQueuedMessage: () => undefined,
+        onSteerQueuedMessage: () => undefined,
+        onSend: () => undefined,
+        onInterrupt: () => undefined,
+        attachmentUploadEnabled: false,
+        webAccessAvailable: false,
+        runtimeCapabilities: { steer: true }
+      })
+    )
+
+    expect(html).toContain('follow up after this')
+    expect(html).toContain('Inject this queued message into the current run')
+    expect(html).toContain('Remove queued message')
   })
 
   it('labels busy sends as queued continuation when steering is unsupported', () => {

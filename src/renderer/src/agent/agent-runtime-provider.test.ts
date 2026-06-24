@@ -474,6 +474,73 @@ describe('AgentRuntimeProvider', () => {
     expect(detail.blocks.some((block) => block.kind === 'user_input' && block.status === 'pending')).toBe(false)
   })
 
+  it('uses latestTurnId instead of turn array order when settling terminal snapshots', async () => {
+    vi.stubGlobal('window', {
+      dsGui: {
+        getSettings: vi.fn(async () => settings('codex')),
+        setSettings: vi.fn(),
+        agentRuntime: {
+          readThread: vi.fn(async () => ({
+            id: 'thread-out-of-order',
+            runtimeId: 'codex',
+            title: 'Out of order thread',
+            updatedAt: '2026-06-11T00:00:00.000Z',
+            latestSeq: 8,
+            latestTurnId: 'turn-latest',
+            turns: [
+              {
+                id: 'turn-latest',
+                threadId: 'thread-out-of-order',
+                status: 'completed',
+                items: [
+                  {
+                    id: 'user-latest',
+                    kind: 'user_message',
+                    text: 'download missing papers',
+                    createdAt: '2026-06-11T00:00:03.000Z'
+                  },
+                  {
+                    id: 'assistant-latest',
+                    kind: 'assistant_message',
+                    text: 'done',
+                    createdAt: '2026-06-11T00:00:04.000Z'
+                  }
+                ]
+              },
+              {
+                id: 'turn-stale',
+                threadId: 'thread-out-of-order',
+                status: 'running',
+                items: [
+                  {
+                    id: 'tool-stale',
+                    kind: 'tool',
+                    summary: 'Old command',
+                    status: 'running',
+                    toolKind: 'command_execution',
+                    createdAt: '2026-06-11T00:00:01.000Z'
+                  }
+                ]
+              }
+            ]
+          }))
+        },
+        forbiddenDirectCall: vi.fn(),
+      }
+    })
+    const provider = new AgentRuntimeProvider()
+    provider.rememberThreadRuntime('thread-out-of-order', 'codex')
+
+    const detail = await provider.getThreadDetail('thread-out-of-order')
+
+    expect(detail.threadStatus).toBe('completed')
+    expect(detail.blocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'assistant', id: 'assistant-latest', text: 'done' }),
+      expect.objectContaining({ kind: 'tool', id: 'tool-stale', status: 'success' })
+    ]))
+    expect(detail.blocks.some((block) => block.kind === 'tool' && block.status === 'running')).toBe(false)
+  })
+
   it('routes thread-bound mutations through the runtime remembered for the thread', async () => {
     let activeRuntime: AgentRuntimeId = 'codex'
     const readThread = vi.fn(async () => ({

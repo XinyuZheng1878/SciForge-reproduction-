@@ -1180,8 +1180,9 @@ function isTransientCodexRuntimeErrorMessage(message: string | undefined): boole
 }
 
 function inferTurnStatus(items: AgentRuntimeItem[]): AgentRuntimeTurn['status'] {
-  if (items.some((item) => item.status === 'error' || item.status === 'failed')) return 'failed'
   if (items.some((item) => item.kind === 'assistant_message')) return 'completed'
+  if (items.some((item) => item.status === 'running')) return 'running'
+  if (items.some((item) => item.status === 'error' || item.status === 'failed')) return 'failed'
   return 'running'
 }
 

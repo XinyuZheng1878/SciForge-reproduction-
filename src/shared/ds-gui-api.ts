@@ -38,6 +38,10 @@ import type {
   WorkspaceDirectoryTarget,
   WorkspaceEntryRenamePayload,
   WorkspaceEntryRenameResult,
+  WorkspaceEntryCopyPayload,
+  WorkspaceEntryCopyResult,
+  WorkspaceEntryMovePayload,
+  WorkspaceEntryMoveResult,
   WorkspaceEntryDeletePayload,
   WorkspaceEntryDeleteResult,
   WorkspaceFileChangePayload,
@@ -484,6 +488,12 @@ export type DsGuiApi = {
   renameWorkspaceEntry: (
     payload: WorkspaceEntryRenamePayload
   ) => Promise<WorkspaceEntryRenameResult>
+  copyWorkspaceEntry: (
+    payload: WorkspaceEntryCopyPayload
+  ) => Promise<WorkspaceEntryCopyResult>
+  moveWorkspaceEntry: (
+    payload: WorkspaceEntryMovePayload
+  ) => Promise<WorkspaceEntryMoveResult>
   deleteWorkspaceEntry: (
     payload: WorkspaceEntryDeletePayload
   ) => Promise<WorkspaceEntryDeleteResult>

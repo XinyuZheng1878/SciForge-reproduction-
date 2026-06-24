@@ -121,7 +121,7 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(state.error).toBeTruthy()
   })
 
-  it('steers running text into the active turn when the runtime declares steer support', async () => {
+  it('queues running text by default while the active turn is still running', async () => {
     const { actions, state } = buildHarness()
     const provider = {
       getCapabilities: vi.fn(() => ({
@@ -140,6 +140,38 @@ describe('chat-store-thread-actions queued messages', () => {
     state.threads = [{ ...thread('thr_existing'), runtimeId: 'codex' }]
 
     await expect(actions.sendMessage('use the current output')).resolves.toBe(true)
+
+    expect(provider.rememberThreadRuntime).not.toHaveBeenCalled()
+    expect(provider.steerUserMessage).not.toHaveBeenCalled()
+    expect(state.queuedMessages).toEqual([
+      expect.objectContaining({
+        threadId: 'thr_existing',
+        text: 'use the current output',
+        targetThreadId: 'thr_existing'
+      })
+    ])
+    expect(state.error).toBeNull()
+  })
+
+  it('steers running text when the user explicitly prefixes it with /steer', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      getCapabilities: vi.fn(() => ({
+        interrupt: true,
+        stream: true,
+        approvals: true,
+        attachFiles: true,
+        steer: true
+      })),
+      rememberThreadRuntime: vi.fn(),
+      steerUserMessage: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = true
+    state.currentTurnId = 'turn-running'
+    state.threads = [{ ...thread('thr_existing'), runtimeId: 'codex' }]
+
+    await expect(actions.sendMessage('/steer use the current output')).resolves.toBe(true)
 
     expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('thr_existing', 'codex')
     expect(provider.steerUserMessage).toHaveBeenCalledWith(
@@ -177,6 +209,41 @@ describe('chat-store-thread-actions queued messages', () => {
         targetThreadId: 'thr_existing'
       })
     ])
+  })
+
+  it('steers a queued text message when the user clicks the queued item action', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      getCapabilities: vi.fn(() => ({
+        interrupt: true,
+        stream: true,
+        approvals: true,
+        attachFiles: true,
+        steer: true
+      })),
+      rememberThreadRuntime: vi.fn(),
+      steerUserMessage: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = true
+    state.currentTurnId = 'turn-running'
+    state.threads = [{ ...thread('thr_existing'), runtimeId: 'codex' }]
+    state.queuedMessages = [{
+      id: 'q-1',
+      threadId: 'thr_existing',
+      text: 'steer this queued follow-up'
+    }]
+
+    await expect(actions.steerQueuedMessage('q-1')).resolves.toBe(true)
+
+    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('thr_existing', 'codex')
+    expect(provider.steerUserMessage).toHaveBeenCalledWith(
+      'thr_existing',
+      'turn-running',
+      'steer this queued follow-up'
+    )
+    expect(state.queuedMessages).toEqual([])
+    expect(state.error).toBeNull()
   })
 
   it('forces a new runtime thread instead of reusing the active empty thread', async () => {
@@ -365,6 +432,48 @@ describe('chat-store-thread-actions queued messages', () => {
       expect.any(Object),
       expect.any(AbortSignal)
     )
+  })
+
+  it('settles stale pending blocks when recovery finds an idle runtime thread', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      getThreadDetail: vi.fn(async () => ({
+        blocks: [
+          {
+            kind: 'tool',
+            id: 'tool-stale',
+            createdAt: '2026-06-09T00:00:00.000Z',
+            summary: 'stale tool',
+            status: 'running'
+          }
+        ],
+        latestSeq: 12,
+        threadStatus: 'idle'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = true
+    state.currentTurnId = 'stale-turn'
+    state.queuedMessages = [{
+      id: 'q-follow-up',
+      text: 'new follow up',
+      mode: 'agent',
+      threadId: 'thr_existing',
+      targetThreadId: 'thr_existing'
+    }]
+    state.drainQueuedMessages = vi.fn(async () => undefined) as unknown as ChatState['drainQueuedMessages']
+
+    await expect(actions.recoverActiveTurn()).resolves.toBe(false)
+
+    expect(state.busy).toBe(false)
+    expect(state.blocks).toEqual([
+      expect.objectContaining({
+        id: 'tool-stale',
+        status: 'success'
+      })
+    ])
+    expect(state.drainQueuedMessages).toHaveBeenCalledTimes(1)
   })
 
   it('reconciles the optimistic user block with the runtime user message id', async () => {

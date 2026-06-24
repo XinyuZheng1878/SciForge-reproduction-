@@ -24,7 +24,9 @@ import {
   skillListPayloadSchema,
   workspaceDirectoryCreatePayloadSchema,
   workspaceDirectoryTargetPayloadSchema,
+  workspaceEntryCopyPayloadSchema,
   workspaceEntryDeletePayloadSchema,
+  workspaceEntryMovePayloadSchema,
   workspaceEntryRenamePayloadSchema,
   writeExportPayloadSchema,
   writeRichClipboardPayloadSchema,
@@ -733,6 +735,24 @@ describe('app-ipc-schemas', () => {
     })
 
     expect(payload.path).toBe('/tmp/workspace/draft.md')
+  })
+
+  it('accepts workspace copy and move payloads with a root target directory', () => {
+    const copyPayload = workspaceEntryCopyPayloadSchema.parse({
+      sourceWorkspaceRoot: '/tmp/source',
+      sourcePath: 'draft.md',
+      targetWorkspaceRoot: '/tmp/target',
+      targetDirectory: ''
+    })
+    const movePayload = workspaceEntryMovePayloadSchema.parse({
+      sourceWorkspaceRoot: '/tmp/source',
+      sourcePath: 'draft.md',
+      targetWorkspaceRoot: '/tmp/target',
+      targetDirectory: 'notes'
+    })
+
+    expect(copyPayload.targetDirectory).toBe('')
+    expect(movePayload.targetDirectory).toBe('notes')
   })
 
   it('accepts structured inline completion payloads', () => {

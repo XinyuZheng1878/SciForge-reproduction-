@@ -14,6 +14,7 @@ import {
   Archive,
   BarChart3,
   Check,
+  CornerUpRight,
   FileEdit,
   FileText,
   Folder,
@@ -63,11 +64,12 @@ import {
   parseCompactCommand,
   parseGoalCommand,
   parseReviewCommand,
+  parseSteerCommand,
   REVIEW_COMMAND_ALIASES,
   type SlashCommand,
   type SlashCommandId
 } from './floating-composer-commands'
-export { parseBtwCommand, parseCompactCommand, parseGoalCommand, parseReviewCommand } from './floating-composer-commands'
+export { parseBtwCommand, parseCompactCommand, parseGoalCommand, parseReviewCommand, parseSteerCommand } from './floating-composer-commands'
 import {
   formatCompactNumber,
   formatCost,
@@ -120,6 +122,7 @@ type Props = {
   modelPickerMode?: 'select' | 'combobox'
   queuedMessages: QueuedComposerMessage[]
   onRemoveQueuedMessage: (id: string) => void
+  onSteerQueuedMessage?: (id: string) => void
   attachments?: AttachmentReference[]
   attachmentUploadEnabled?: boolean
   attachmentUploadBusy?: boolean
@@ -582,6 +585,7 @@ export function FloatingComposer({
   modelPickerMode = 'select',
   queuedMessages,
   onRemoveQueuedMessage,
+  onSteerQueuedMessage,
   attachments = EMPTY_ATTACHMENTS,
   attachmentUploadEnabled = false,
   attachmentUploadBusy = false,
@@ -738,9 +742,7 @@ export function FloatingComposer({
       : goalPanelOpen && route !== 'claw'
         ? t('goalComposerPlaceholder')
       : busy
-        ? runtimeSupportsSteer
-          ? t('composerSteerPlaceholder')
-          : t('composerQueuePlaceholder')
+        ? t('composerQueuePlaceholder')
         : route === 'claw'
             ? clawHasInboundConversation
               ? t('clawPlaceholder', { name: clawAgentName })
@@ -761,6 +763,7 @@ export function FloatingComposer({
           : t('composerSlashHint')
   const slashCommands = useMemo<SlashCommand[]>(() => {
     const threadActionDisabled = !runtimeReady || busy || !activeThreadId
+    const steerActionDisabled = !runtimeReady || !busy || !activeThreadId || !runtimeSupportsSteer
     const goalActionDisabled = !canOpenGoalPanel
     const commands: SlashCommand[] = []
     if (onPlanCommand) {
@@ -832,6 +835,18 @@ export function FloatingComposer({
           keywords: ['btw', 'by-the-way', 'aside', 'side', '顺便', '旁支'],
           icon: <MessageCircleMore className="h-4 w-4" strokeWidth={1.9} />,
           disabled: !runtimeReady || !activeThreadId
+        })
+      }
+
+      if (runtimeSupportsSteer) {
+        commands.push({
+          id: 'steer',
+          title: t('slashCommandSteerTitle'),
+          description: t('slashCommandSteerDescription'),
+          keywords: ['steer', 'inject', 'guide', '引导', '注入'],
+          icon: <CornerUpRight className="h-4 w-4" strokeWidth={1.9} />,
+          badge: '/steer',
+          disabled: steerActionDisabled
         })
       }
 
@@ -907,6 +922,7 @@ export function FloatingComposer({
     runtimeSupportsReview,
     runtimeSupportsSideConversations,
     runtimeSupportsSkills,
+    runtimeSupportsSteer,
     skillCommands,
     t
   ])
@@ -942,6 +958,7 @@ export function FloatingComposer({
       ? fileMentionSuggestions[Math.min(selectedFileMentionIndex, fileMentionSuggestions.length - 1)]
       : null
   const parsedGoalCommand = parseGoalCommand(input)
+  const parsedSteerCommand = parseSteerCommand(input)
   const goalPanelDraftObjective = getGoalPanelDraftObjective(input, goalPanelOpen)
   const canSetGoalPanelDraft =
     route !== 'claw'
@@ -953,7 +970,7 @@ export function FloatingComposer({
     : canSetGoalPanelDraft
       ? t('goalSetCurrentInput')
     : busy
-      ? runtimeSupportsSteer
+      ? parsedSteerCommand !== false && runtimeSupportsSteer
         ? t('steerMessage')
         : t('queueContinuation')
       : t('send')
@@ -1145,6 +1162,12 @@ export function FloatingComposer({
       // Empty aside — open a side conversation without a seed question.
       setInput('')
       void onBtwCommand()
+      return
+    }
+    if (commandId === 'steer') {
+      if (!runtimeSupportsSteer) return
+      setInput('/steer ')
+      draft.focusComposer()
       return
     }
   }
@@ -1546,6 +1569,7 @@ export function FloatingComposer({
       <FloatingComposerQueuedMessages
         messages={queuedMessages}
         onRemove={onRemoveQueuedMessage}
+        onSteer={onSteerQueuedMessage}
       />
 
       <div className="relative">

@@ -1224,10 +1224,6 @@ export class AgentRuntimeHost {
         this.clearActiveThreadTurn(key, tracked.handle.turnId)
         return { active: false, threadId, turnId: tracked.handle.turnId, state: runtimeActivity.state }
       }
-      if (!options.preferTracked && runtimeActivity && !runtimeActivity.turnId && !runtimeActivity.state) {
-        this.clearActiveThreadTurn(key, tracked.handle.turnId)
-        return { active: false, threadId, turnId: tracked.handle.turnId }
-      }
       return {
         active: true,
         threadId: tracked.handle.threadId,
@@ -1679,20 +1675,6 @@ function threadTurnActivityFromDetail(
   fallbackThreadId: string
 ): ThreadTurnActivity {
   const threadId = detail.id?.trim() || fallbackThreadId
-  const turns = Array.isArray(detail.turns) ? detail.turns : []
-  for (let index = turns.length - 1; index >= 0; index -= 1) {
-    const turn = turns[index]
-    const state = normalizeAgentRuntimeTurnState(turn.status)
-    if (state && isAgentRuntimeActiveTurnState(state)) {
-      return {
-        active: true,
-        threadId,
-        turnId: turn.id,
-        state
-      }
-    }
-  }
-
   const latestTurn = latestRuntimeTurn(detail)
   const latestStatus = detail.latestTurnStatus ?? latestTurn?.status ?? detail.status
   const latestState = normalizeAgentRuntimeTurnState(latestStatus)
@@ -1711,6 +1693,19 @@ function threadTurnActivityFromDetail(
       threadId,
       turnId: latestTurnId,
       state: latestState
+    }
+  }
+  const turns = Array.isArray(detail.turns) ? detail.turns : []
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index]
+    const state = normalizeAgentRuntimeTurnState(turn.status)
+    if (state && isAgentRuntimeActiveTurnState(state)) {
+      return {
+        active: true,
+        threadId,
+        turnId: turn.id,
+        state
+      }
     }
   }
   return { active: false, threadId }

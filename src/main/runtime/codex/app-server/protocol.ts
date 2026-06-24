@@ -38,10 +38,17 @@ export type CodexAppServerClientInfo = {
 export type SpawnCodexAppServerProcess = (
   command: string,
   args: string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv; stdio: ['pipe', 'pipe', 'pipe'] },
+  options: {
+    cwd: string
+    env: NodeJS.ProcessEnv
+    stdio: ['pipe', 'pipe', 'pipe']
+    detached?: boolean
+    windowsHide?: boolean
+  },
 ) => CodexAppServerProcess
 
 export interface CodexAppServerProcess {
+  pid?: number
   stdin: Writable
   stdout: Readable
   stderr: Readable

@@ -148,10 +148,13 @@ export class CodexAppServerJsonRpcClient {
     this.assertOpen()
     const command = this.options.command ?? DEFAULT_COMMAND
     const args = this.options.args ?? DEFAULT_ARGS
+    const detached = process.platform !== 'win32'
     this.process = this.spawnProcess(command, [...args], {
       cwd: this.options.cwd ?? process.cwd(),
       env: this.options.env ?? process.env,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      detached,
+      windowsHide: true
     })
 
     const stdout = createInterface({ input: this.process.stdout })
@@ -162,6 +165,8 @@ export class CodexAppServerJsonRpcClient {
     this.process.on('error', (error) => this.fail(error))
     this.process.on('close', (code, signal) => {
       if (this.closed) return
+      const closedProcess = this.process
+      if (closedProcess) terminateCodexProcessTree(closedProcess, 'SIGTERM')
       const stderr = this.stderrTail.trim()
       const detail = stderr ? ` ${stderr}` : ''
       this.fail(new Error(
@@ -351,7 +356,7 @@ export class CodexAppServerJsonRpcClient {
     this.publishClosed('stopped')
     this.endSubscribers()
     if (processToStop && !processToStop.killed) {
-      processToStop.kill(signal)
+      terminateCodexProcessTree(processToStop, signal)
       await closePromise
     }
   }
@@ -511,9 +516,30 @@ export class AsyncEventQueue<T> implements AsyncIterable<T> {
 function spawnCodexAppServerProcess(
   command: string,
   args: string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv; stdio: ['pipe', 'pipe', 'pipe'] }
+  options: {
+    cwd: string
+    env: NodeJS.ProcessEnv
+    stdio: ['pipe', 'pipe', 'pipe']
+    detached?: boolean
+    windowsHide?: boolean
+  }
 ): CodexAppServerProcess {
   return spawn(command, args, options) as unknown as CodexAppServerProcess
+}
+
+function terminateCodexProcessTree(
+  child: CodexAppServerProcess,
+  signal: NodeJS.Signals
+): void {
+  if (process.platform !== 'win32' && child.pid) {
+    try {
+      process.kill(-child.pid, signal)
+      return
+    } catch {
+      // Fall back to the direct child if the process group is already gone.
+    }
+  }
+  child.kill(signal)
 }
 
 function pendingServerRequestRegistry(

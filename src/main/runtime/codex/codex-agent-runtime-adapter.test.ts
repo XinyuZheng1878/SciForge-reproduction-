@@ -125,6 +125,46 @@ describe('createCodexAgentRuntimeAdapter', () => {
     })
   })
 
+  it('keeps a Codex turn running while later tools are still active after a tool error', async () => {
+    const service = {
+      readThread: vi.fn(async () => ({
+        ok: true as const,
+        detail: {
+          latestSeq: 4,
+          latestTurnId: 'turn-1',
+          blocks: [
+            { kind: 'user' as const, id: 'user-1', turnId: 'turn-1', text: 'check downloads' },
+            {
+              kind: 'tool' as const,
+              id: 'grep-1',
+              turnId: 'turn-1',
+              summary: 'grep no matches',
+              status: 'error' as const,
+              toolKind: 'command_execution' as const,
+              detail: 'exit code 1'
+            },
+            {
+              kind: 'tool' as const,
+              id: 'verify-1',
+              turnId: 'turn-1',
+              summary: 'verify PDFs',
+              status: 'running' as const,
+              toolKind: 'command_execution' as const
+            }
+          ]
+        }
+      }))
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    const detail = await adapter.readThread({ settings: {} as never }, { runtimeId: 'codex', threadId: 'thread-1' })
+
+    expect(detail.turns?.[0]).toMatchObject({
+      id: 'turn-1',
+      status: 'running'
+    })
+  })
+
   it('maps stored Codex user display text to runtime events', async () => {
     const service = {
       readStoredEvents: vi.fn(async () => [

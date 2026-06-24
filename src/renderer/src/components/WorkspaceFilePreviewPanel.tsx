@@ -63,6 +63,7 @@ type Props = {
   workspaceRoot: string
   className?: string
   onClose: () => void
+  onOpenDirectory?: (target: { workspaceRoot: string; path: string }) => void
 }
 
 type WorkspaceImagePreviewResult = Extract<WorkspaceImageReadResult, { ok: true }> & {
@@ -77,6 +78,11 @@ type WorkspacePreviewResult =
 type PreviewNotice = {
   tone: 'success' | 'error'
   message: string
+}
+
+type BreadcrumbItem = {
+  label: string
+  directoryPath: string | null
 }
 
 const COPY_RESET_MS = 1400
@@ -130,6 +136,10 @@ function relativePathSegments(path: string, workspaceRoot: string): string[] {
   return splitPath(path)
 }
 
+function joinRelativePath(segments: string[]): string {
+  return segments.join('/')
+}
+
 function extensionBadge(path: string, language: string): string {
   const fileName = fileNameFromPath(path)
   const ext = fileName.includes('.') ? fileName.split('.').pop() ?? '' : ''
@@ -177,7 +187,8 @@ export function WorkspaceFilePreviewPanel({
   target,
   workspaceRoot,
   className,
-  onClose
+  onClose,
+  onOpenDirectory
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const [result, setResult] = useState<WorkspacePreviewResult | null>(null)
@@ -267,11 +278,21 @@ export function WorkspaceFilePreviewPanel({
     return target?.path ? languageFromFilePath(target.path) : ''
   }, [result, target])
   const lines = useMemo(() => (result?.ok && result.kind === 'text' ? result.content.split('\n') : []), [result])
-  const breadcrumbSegments = useMemo(() => {
+  const breadcrumbItems = useMemo<BreadcrumbItem[]>(() => {
     const path = result?.ok ? result.path : target?.path ?? ''
     if (!path) return []
     const projectName = workspaceRoot ? fileNameFromPath(workspaceRoot) : 'Project'
-    return ['Project', projectName, ...relativePathSegments(path, workspaceRoot)]
+    const relativeSegments = relativePathSegments(path, workspaceRoot)
+    return [
+      { label: 'Project', directoryPath: '' },
+      { label: projectName, directoryPath: '' },
+      ...relativeSegments.map((segment, index) => ({
+        label: segment,
+        directoryPath: index < relativeSegments.length - 1
+          ? joinRelativePath(relativeSegments.slice(0, index + 1))
+          : null
+      }))
+    ]
   }, [result, target, workspaceRoot])
   const currentFileName = displayPath ? fileNameFromPath(displayPath) : t('filePreviewTitle')
   const badge = extensionBadge(result?.ok ? result.path : target?.path ?? '', language)
@@ -288,6 +309,13 @@ export function WorkspaceFilePreviewPanel({
         '--ds-file-preview-active-line': activeLine - 1
       } as CSSProperties)
     : undefined
+
+  const openDirectoryFromBreadcrumb = useCallback((directoryPath: string): void => {
+    onOpenDirectory?.({
+      workspaceRoot: target?.workspaceRoot ?? workspaceRoot,
+      path: directoryPath
+    })
+  }, [onOpenDirectory, target?.workspaceRoot, workspaceRoot])
 
   useEffect(() => {
     if (!result?.ok || result.kind !== 'text') {
@@ -775,22 +803,36 @@ export function WorkspaceFilePreviewPanel({
 
       <div className="ds-code-sidebar-breadcrumbs">
         <div className="min-w-0 flex flex-1 items-center gap-1 overflow-hidden">
-          {breadcrumbSegments.length ? breadcrumbSegments.map((segment, index) => (
-            <span key={`${segment}-${index}`} className="contents">
-              {index > 0 ? (
-                <ChevronRight className="h-3 w-3 shrink-0 text-ds-faint/70" strokeWidth={1.8} />
-              ) : null}
-              <span
-                className={[
-                  'truncate',
-                  index === breadcrumbSegments.length - 1 ? 'text-ds-ink' : 'text-ds-muted'
-                ].join(' ')}
-                title={segment}
-              >
-                {segment}
+          {breadcrumbItems.length ? breadcrumbItems.map((item, index) => {
+            const clickable = item.directoryPath !== null && Boolean(onOpenDirectory)
+            return (
+              <span key={`${item.label}-${index}`} className="contents">
+                {index > 0 ? (
+                  <ChevronRight className="h-3 w-3 shrink-0 text-ds-faint/70" strokeWidth={1.8} />
+                ) : null}
+                {clickable ? (
+                  <button
+                    type="button"
+                    onClick={() => openDirectoryFromBreadcrumb(item.directoryPath ?? '')}
+                    className="max-w-[160px] shrink-0 truncate rounded px-1 py-0.5 text-left text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+                    title={item.label}
+                  >
+                    {item.label}
+                  </button>
+                ) : (
+                  <span
+                    className={[
+                      'truncate',
+                      index === breadcrumbItems.length - 1 ? 'text-ds-ink' : 'text-ds-muted'
+                    ].join(' ')}
+                    title={item.label}
+                  >
+                    {item.label}
+                  </span>
+                )}
               </span>
-            </span>
-          )) : (
+            )
+          }) : (
             <span className="truncate text-ds-muted">{t('filePreviewEmpty')}</span>
           )}
         </div>

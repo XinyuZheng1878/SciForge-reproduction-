@@ -147,11 +147,17 @@ const EMPTY_CODEX_TURN_USAGE: AgentRuntimeUsage = {
 
 const FIRST_CODEX_ACTIVITY_TIMEOUT_MS = 75_000
 const INTERRUPT_TIMED_OUT_TURN_MS = 5_000
+const CODEX_COMMAND_DOWNLOAD_INSTRUCTION_LINES = [
+  'For bulk file downloads or long network transfers through command execution, make progress observable and bounded: stream to a `.part` file, print per-file progress/status, use connect/overall/low-speed timeouts and retries, validate expected file type/size, then atomically rename into place.',
+  'When the user explicitly asks to use the system proxy for command-based network work, inspect the current system proxy settings first, such as `scutil --proxy` on macOS, and pass the appropriate `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` values only to those network commands.',
+  'Do not use ad hoc download scripts that buffer an entire response before writing the destination file, such as Python urllib `response.read()` followed by one write; this can leave 0-byte files and an apparently running command with no progress.'
+]
 const CODEX_SPECIALIZED_MCP_DEVELOPER_INSTRUCTIONS = [
   'SciForge may configure specialized MCP tools for this runtime.',
   'When an advertised specialized MCP tool directly matches the user request, use that tool before falling back to generic shell, curl, wget, ad hoc scripts, or direct scraping.',
   'Use command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.',
-  'For explicit computer_use, mouse, keyboard, browser, or GUI-control requests, continue through the computer_use tool actions instead of shell/open/osascript/screencapture/pbpaste fallbacks unless the user explicitly permits that fallback.'
+  'For explicit computer_use, mouse, keyboard, browser, or GUI-control requests, continue through the computer_use tool actions instead of shell/open/osascript/screencapture/pbpaste fallbacks unless the user explicitly permits that fallback.',
+  ...CODEX_COMMAND_DOWNLOAD_INSTRUCTION_LINES
 ].join('\n')
 
 type CodexRuntimeEventSubscriber = {
@@ -979,7 +985,8 @@ export class CodexRuntimeService {
       workspace: options.workspace ?? thread.workspace,
       title: options.title ?? thread.title,
       archived: thread.archived,
-      latestTurnId: thread.latestTurnId
+      latestTurnId: thread.latestTurnId,
+      updatedAt: thread.updatedAt
     })
   }
 
@@ -992,12 +999,15 @@ export class CodexRuntimeService {
     const guiThreadId = storedThread?.guiThreadId ?? threadId
     const stored = await this.eventStore.append(guiThreadId, { ...event, threadId: guiThreadId })
     if (storedThread || eventShouldUpsertThread(event)) {
+      const turnId = event.turnId || event.userMessage?.turnId
       await this.threadStore?.upsert({
         guiThreadId,
         codexThreadId: storedThread?.codexThreadId ?? threadId,
         workspace: storedThread?.workspace,
         title: storedThread?.title,
-        latestSeq: stored.seq
+        latestSeq: stored.seq,
+        ...(turnId ? { latestTurnId: turnId } : {}),
+        ...(event.userMessage?.itemId ? { latestUserMessageId: event.userMessage.itemId } : {})
       })
     }
     return stored
@@ -1425,10 +1435,7 @@ export class CodexRuntimeService {
       return
     }
     const runtimeEvent = await this.eventForGuiThread(event)
-    const stored = await this.persistEvent(runtimeEvent.threadId, runtimeEvent)
-    const published = stored?.event ?? runtimeEvent
-    this.broadcastEvent(published)
-    this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: published })
+    await this.publishClientEvent(runtimeEvent)
   }
 
   private async eventForGuiThread(event: CodexThreadEventPayload): Promise<CodexThreadEventPayload> {
@@ -1746,6 +1753,7 @@ function codexSpecializedMcpGuidedTurnText(text: string, specializedMcpConfigure
     'When an advertised specialized MCP tool directly matches the user request, use that tool before falling back to generic shell, curl, wget, ad hoc scripts, or direct scraping.',
     'Use command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.',
     'For explicit computer_use, mouse, keyboard, browser, or GUI-control requests, continue through the computer_use tool actions instead of shell/open/osascript/screencapture/pbpaste fallbacks unless the user explicitly permits that fallback.',
+    ...CODEX_COMMAND_DOWNLOAD_INSTRUCTION_LINES,
     '</sciforge_runtime_instruction>',
     '',
     text
@@ -1861,7 +1869,7 @@ function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread
   const name = stringValue(thread.name)
   const preview = stringValue(thread.preview)
   const turns = arrayValue(thread.turns)
-  const latestTurn = asRecord(turns.at(-1))
+  const latestTurn = latestTurnRecord(thread, turns)
   return {
     id,
     title: name || preview || 'Codex thread',
@@ -1886,7 +1894,7 @@ function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread
 function threadDetail(thread: Record<string, unknown>): CodexThreadDetail {
   const turns = arrayValue(thread.turns).map(asRecord).filter(Boolean) as Record<string, unknown>[]
   const blocks = dedupeAssistantBlocks(turns.flatMap((turn) => turnBlocks(turn)))
-  const latestTurn = turns.at(-1)
+  const latestTurn = latestTurnRecord(thread, turns)
   const latestUserMessageId = [...blocks].reverse().find((block) => block.kind === 'user')?.id
   return {
     blocks,
@@ -1895,6 +1903,24 @@ function threadDetail(thread: Record<string, unknown>): CodexThreadDetail {
     latestTurnId: stringValue(latestTurn?.id),
     latestUserMessageId
   }
+}
+
+function latestTurnRecord(
+  thread: Record<string, unknown>,
+  turns: unknown[]
+): Record<string, unknown> | undefined {
+  const latestTurnId =
+    stringValue(thread.latestTurnId) ||
+    stringValue(thread.latest_turn_id) ||
+    stringValue(asRecord(thread.latestTurn)?.id) ||
+    stringValue(asRecord(thread.latest_turn)?.id)
+  if (latestTurnId) {
+    const matched = turns
+      .map(asRecord)
+      .find((turn): turn is Record<string, unknown> => Boolean(turn && stringValue(turn.id) === latestTurnId))
+    if (matched) return matched
+  }
+  return asRecord(turns.at(-1)) ?? undefined
 }
 
 function turnBlocks(turn: Record<string, unknown>): CodexChatBlock[] {

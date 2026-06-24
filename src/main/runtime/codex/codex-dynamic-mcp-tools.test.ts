@@ -251,6 +251,65 @@ describe('Codex dynamic MCP tool bridge', () => {
     )
   })
 
+  it('repairs numeric MCP arguments to match advertised schema bounds', async () => {
+    const callTool = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'ok' }]
+    }))
+    const bridge = createCodexDynamicMcpToolBridge({
+      servers: [{ id: 'server-1', command: '/bin/mcp' }],
+      clientFactory: async () => fakeMcpClient({
+        tools: [{
+          name: 'research_search',
+          description: 'Search scientific literature.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              query: { type: 'string' },
+              maxResults: {
+                type: 'integer',
+                minimum: 1,
+                maximum: 100
+              },
+              nested: {
+                type: 'object',
+                properties: {
+                  limit: {
+                    type: 'number',
+                    minimum: 0,
+                    maximum: 10
+                  }
+                }
+              }
+            }
+          }
+        }],
+        callTool
+      })
+    })
+
+    await bridge.dynamicTools()
+    await expect(bridge.callTool({
+      requestId: 'call-request-bounded-number',
+      tool: 'research_search',
+      arguments: {
+        query: 'AI scientist',
+        maxResults: 1000,
+        nested: { limit: '12' }
+      }
+    })).resolves.toMatchObject({ success: true })
+    expect(callTool).toHaveBeenCalledWith(
+      {
+        name: 'research_search',
+        arguments: {
+          query: 'AI scientist',
+          maxResults: 100,
+          nested: { limit: 10 }
+        }
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
+    )
+  })
+
   it('reconnects and retries once when a cached MCP connection is closed', async () => {
     const firstClose = vi.fn(async () => undefined)
     const firstCallTool = vi.fn(async () => {

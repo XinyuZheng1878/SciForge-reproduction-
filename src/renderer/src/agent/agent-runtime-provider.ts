@@ -339,6 +339,18 @@ function detailItems(detail: AgentRuntimeThreadDetail): AgentRuntimeItem[] {
   return detail.turns?.flatMap((turn) => turn.items ?? []) ?? []
 }
 
+type DetailTurn = NonNullable<AgentRuntimeThreadDetail['turns']>[number]
+
+function latestTurnFromDetail(detail: AgentRuntimeThreadDetail): DetailTurn | undefined {
+  if (!detail.turns?.length) return undefined
+  const latestTurnId = detail.latestTurnId?.trim()
+  if (latestTurnId) {
+    const exactTurn = detail.turns.find((turn) => turn.id === latestTurnId)
+    if (exactTurn) return exactTurn
+  }
+  return detail.turns.at(-1)
+}
+
 type TerminalSnapshotOutcome = 'success' | 'error'
 
 function normalizedStatus(value: string | undefined): string {
@@ -594,7 +606,7 @@ export class AgentRuntimeProvider implements AgentProvider {
     const items = detailItems(detail)
     this.rememberThreadRuntime(detail.id, detail.runtimeId)
     this.rememberInteractionRequests(detail.id, detail.runtimeId, items)
-    const latestTurn = detail.turns?.at(-1)
+    const latestTurn = latestTurnFromDetail(detail)
     const rawBlocks = mergeRepeatedToolBlocks(items.flatMap((item) => {
       const block = blockFromItem(item)
       return block ? [block] : []

@@ -118,6 +118,62 @@ describe('MCP tool provider', () => {
     }
   })
 
+  it('repairs direct MCP tool arguments to satisfy numeric schema bounds', async () => {
+    const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
+    const config = KunCapabilitiesConfig.parse({
+      mcp: {
+        enabled: true,
+        servers: {
+          research: {
+            transport: 'stdio',
+            command: 'node',
+            trustScope: 'user'
+          }
+        }
+      }
+    })
+    const built = await buildMcpToolProviders(config.mcp, {
+      clientFactory: async () => ({
+        async listTools() {
+          return {
+            tools: [
+              {
+                name: 'research_search',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    query: { type: 'string' },
+                    maxResults: { type: 'integer', minimum: 1, maximum: 100 }
+                  }
+                },
+                annotations: { readOnlyHint: true }
+              }
+            ]
+          }
+        },
+        async callTool(input) {
+          callInputs.push(input)
+          return { ok: true, arguments: input.arguments }
+        },
+        async close() {
+          // no-op
+        }
+      })
+    })
+    const host = new LocalToolHost({ registry: new CapabilityRegistry(built.providers) })
+
+    await host.execute({
+      callId: 'call_research',
+      toolName: 'mcp_research_research_search',
+      arguments: { query: 'AI scientist', maxResults: 1000 }
+    }, buildContext('/tmp/project'))
+
+    expect(callInputs[0]).toEqual({
+      name: 'research_search',
+      arguments: { query: 'AI scientist', maxResults: 100 }
+    })
+  })
+
   it('injects Kun computer-use context into direct gui_computer_use calls', async () => {
     const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
     const config = KunCapabilitiesConfig.parse({
@@ -371,6 +427,66 @@ describe('MCP tool provider', () => {
     })
   })
 
+  it('repairs MCP search call arguments using the selected tool schema', async () => {
+    const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
+    const config = KunCapabilitiesConfig.parse({
+      mcp: {
+        enabled: true,
+        search: { enabled: true, mode: 'search' },
+        servers: {
+          research: {
+            transport: 'stdio',
+            command: 'node',
+            trustScope: 'user'
+          }
+        }
+      }
+    })
+    const built = await buildMcpToolProviders(config.mcp, {
+      clientFactory: async () => ({
+        async listTools() {
+          return {
+            tools: [
+              {
+                name: 'research_search',
+                description: 'Search papers.',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    query: { type: 'string' },
+                    maxResults: { type: 'integer', minimum: 1, maximum: 100 }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        async callTool(input) {
+          callInputs.push(input)
+          return { ok: true }
+        },
+        async close() {
+          // no-op
+        }
+      })
+    })
+    const host = new LocalToolHost({ registry: new CapabilityRegistry(built.providers) })
+
+    await host.execute({
+      callId: 'call_research_via_search',
+      toolName: 'mcp_call',
+      arguments: {
+        toolId: 'research/research_search',
+        arguments: { query: 'AI scientist', maxResults: 1000 }
+      }
+    }, buildContext('/tmp/project'))
+
+    expect(callInputs[0]).toEqual({
+      name: 'research_search',
+      arguments: { query: 'AI scientist', maxResults: 100 }
+    })
+  })
+
   it('hides workspace-scoped tools outside trusted roots', async () => {
     const config = KunCapabilitiesConfig.parse({
       mcp: {
@@ -484,7 +600,7 @@ describe('MCP tool provider', () => {
     expect(callOptions[0]?.signal).toBe(controller.signal)
   })
 
-  it('reconnects and retries once when an MCP tool call fails', async () => {
+  it('reconnects and retries once when an MCP tool call fails from a transient connection error', async () => {
     let factories = 0
     let closes = 0
     const config = KunCapabilitiesConfig.parse({
@@ -517,7 +633,7 @@ describe('MCP tool provider', () => {
             }
           },
           async callTool() {
-            if (instance === 1) throw new Error('stale connection')
+            if (instance === 1) throw new Error('stale connection closed')
             return { ok: true, instance }
           },
           async close() {
@@ -537,6 +653,66 @@ describe('MCP tool provider', () => {
     expect(closes).toBe(1)
     expect(result.item.kind === 'tool_result' ? result.item.output : {}).toMatchObject({
       result: { ok: true, instance: 2 }
+    })
+  })
+
+  it('does not reconnect for deterministic MCP input validation failures', async () => {
+    let factories = 0
+    let closes = 0
+    const config = KunCapabilitiesConfig.parse({
+      mcp: {
+        enabled: true,
+        servers: {
+          research: {
+            transport: 'stdio',
+            command: 'node',
+            trustScope: 'user'
+          }
+        }
+      }
+    })
+    const built = await buildMcpToolProviders(config.mcp, {
+      clientFactory: async () => {
+        factories += 1
+        return {
+          async listTools() {
+            return {
+              tools: [
+                {
+                  name: 'research_search',
+                  inputSchema: {
+                    type: 'object',
+                    properties: {
+                      query: { type: 'string' },
+                      maxResults: { type: 'integer', minimum: 1, maximum: 100 }
+                    }
+                  },
+                  annotations: { readOnlyHint: true }
+                }
+              ]
+            }
+          },
+          async callTool() {
+            throw new Error('MCP input validation failed: maxResults must be <= 100')
+          },
+          async close() {
+            closes += 1
+          }
+        }
+      }
+    })
+    const host = new LocalToolHost({ registry: new CapabilityRegistry(built.providers) })
+    const result = await host.execute({
+      callId: 'call_invalid',
+      toolName: 'mcp_research_research_search',
+      arguments: { query: 'AI scientist', maxResults: 1000 }
+    }, buildContext('/tmp/project'))
+
+    expect(factories).toBe(1)
+    expect(closes).toBe(0)
+    expect(result.item.kind === 'tool_result' ? result.item.output : {}).toMatchObject({
+      code: 'tool_input_validation_failed',
+      error: expect.stringContaining('MCP input validation failed')
     })
   })
 
