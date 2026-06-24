@@ -101,6 +101,255 @@ describe('createCodexAgentRuntimeAdapter', () => {
     expect(detail.turns?.find((turn) => turn.id === 'turn-2')?.items?.map((item) => item.text)).toEqual(['Q2', 'R2'])
   })
 
+  it('keeps numeric Codex approval request ids instead of falling back to item ids', async () => {
+    const service = {
+      readThread: vi.fn(async () => ({
+        ok: true as const,
+        detail: {
+          latestSeq: 1,
+          latestTurnId: 'turn-1',
+          blocks: [
+            {
+              kind: 'tool' as const,
+              id: 'call_approval',
+              turnId: 'turn-1',
+              summary: 'Command approval requested',
+              status: 'running' as const,
+              toolKind: 'command_execution' as const,
+              meta: {
+                codexRequestId: 39,
+                codexRequestKind: 'approval',
+                codexRequestMethod: 'item/commandExecution/requestApproval'
+              }
+            }
+          ]
+        }
+      })),
+      readStoredEvents: vi.fn(async () => [
+        {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          seq: 1,
+          tool: {
+            itemId: 'call_approval',
+            summary: 'Command approval requested',
+            status: 'running' as const,
+            toolKind: 'command_execution' as const,
+            meta: {
+              codexRequestId: 39,
+              codexRequestKind: 'approval',
+              codexRequestMethod: 'item/commandExecution/requestApproval'
+            }
+          }
+        }
+      ])
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    const detail = await adapter.readThread({ settings: {} as never }, { runtimeId: 'codex', threadId: 'thread-1' })
+    const approval = detail.turns?.[0]?.items?.[0]
+    expect(approval).toMatchObject({
+      id: 'call_approval',
+      kind: 'approval',
+      turnId: 'turn-1',
+      meta: expect.objectContaining({
+        approvalId: '39',
+        codexRequestId: 39
+      })
+    })
+
+    const events = []
+    for await (const event of adapter.subscribeEvents({ settings: {} as never }, {
+      runtimeId: 'codex',
+      threadId: 'thread-1'
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'approval_requested',
+        itemId: 'call_approval',
+        approvalId: '39'
+      })
+    ])
+  })
+
+  it('keeps stale approval blocks on their original turn instead of attaching them to the latest turn', async () => {
+    const service = {
+      pendingServerRequests: vi.fn(() => []),
+      readThread: vi.fn(async () => ({
+        ok: true as const,
+        detail: {
+          latestSeq: 3,
+          latestTurnId: 'turn-2',
+          threadStatus: 'running',
+          blocks: [
+            {
+              kind: 'tool' as const,
+              id: 'call_approval',
+              turnId: 'turn-1',
+              summary: 'Command approval requested',
+              status: 'running' as const,
+              toolKind: 'command_execution' as const,
+              meta: {
+                codexRequestId: 4,
+                codexRequestKind: 'approval',
+                codexRequestMethod: 'item/commandExecution/requestApproval'
+              }
+            },
+            { kind: 'user' as const, id: 'user-2', turnId: 'turn-2', text: 'continue' }
+          ]
+        }
+      }))
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    const detail = await adapter.readThread({ settings: {} as never }, { runtimeId: 'codex', threadId: 'thread-1' })
+
+    expect(detail.latestTurnId).toBe('turn-2')
+    expect(detail.turns?.find((turn) => turn.id === 'turn-1')?.items).toEqual([
+      expect.objectContaining({
+        id: 'call_approval',
+        kind: 'approval',
+        turnId: 'turn-1',
+        status: 'error'
+      })
+    ])
+    expect(detail.turns?.find((turn) => turn.id === 'turn-2')?.items).toEqual([
+      expect.objectContaining({
+        id: 'user-2',
+        kind: 'user_message',
+        turnId: 'turn-2'
+      })
+    ])
+  })
+
+  it('marks stale pending approvals from failed Codex threads as errors', async () => {
+    const service = {
+      readThread: vi.fn(async () => ({
+        ok: true as const,
+        detail: {
+          latestSeq: 2,
+          latestTurnId: 'turn-1',
+          threadStatus: 'failed',
+          blocks: [
+            {
+              kind: 'tool' as const,
+              id: 'call_approval',
+              turnId: 'turn-1',
+              summary: 'Command approval requested',
+              status: 'running' as const,
+              toolKind: 'command_execution' as const,
+              meta: {
+                codexRequestId: 4,
+                codexRequestKind: 'approval',
+                codexRequestMethod: 'item/commandExecution/requestApproval'
+              }
+            }
+          ]
+        }
+      }))
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    const detail = await adapter.readThread({ settings: {} as never }, { runtimeId: 'codex', threadId: 'thread-1' })
+
+    expect(detail.status).toBe('failed')
+    expect(detail.turns?.[0]).toMatchObject({ id: 'turn-1', status: 'failed' })
+    expect(detail.items).toEqual([
+      expect.objectContaining({
+        id: 'call_approval',
+        kind: 'approval',
+        status: 'error',
+        meta: expect.objectContaining({
+          approvalId: '4',
+          codexRequestId: 4
+        })
+      })
+    ])
+  })
+
+  it('marks pending approval blocks stale when the app-server registry no longer has the request', async () => {
+    const service = {
+      pendingServerRequests: vi.fn(() => []),
+      readThread: vi.fn(async () => ({
+        ok: true as const,
+        detail: {
+          latestSeq: 2,
+          latestTurnId: 'turn-1',
+          threadStatus: 'running',
+          blocks: [
+            {
+              kind: 'tool' as const,
+              id: 'call_approval',
+              turnId: 'turn-1',
+              summary: 'Command approval requested',
+              status: 'running' as const,
+              toolKind: 'command_execution' as const,
+              meta: {
+                codexRequestId: 4,
+                codexRequestKind: 'approval',
+                codexRequestMethod: 'item/commandExecution/requestApproval'
+              }
+            }
+          ]
+        }
+      }))
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    const detail = await adapter.readThread({ settings: {} as never }, { runtimeId: 'codex', threadId: 'thread-1' })
+
+    expect(detail.items).toEqual([
+      expect.objectContaining({
+        id: 'call_approval',
+        kind: 'approval',
+        status: 'error'
+      })
+    ])
+  })
+
+  it('keeps pending approval blocks live while the app-server registry still has the request', async () => {
+    const service = {
+      pendingServerRequests: vi.fn(() => [{ requestId: 4 }]),
+      readThread: vi.fn(async () => ({
+        ok: true as const,
+        detail: {
+          latestSeq: 2,
+          latestTurnId: 'turn-1',
+          threadStatus: 'running',
+          blocks: [
+            {
+              kind: 'tool' as const,
+              id: 'call_approval',
+              turnId: 'turn-1',
+              summary: 'Command approval requested',
+              status: 'running' as const,
+              toolKind: 'command_execution' as const,
+              meta: {
+                codexRequestId: 4,
+                codexRequestKind: 'approval',
+                codexRequestMethod: 'item/commandExecution/requestApproval'
+              }
+            }
+          ]
+        }
+      }))
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    const detail = await adapter.readThread({ settings: {} as never }, { runtimeId: 'codex', threadId: 'thread-1' })
+
+    expect(detail.items).toEqual([
+      expect.objectContaining({
+        id: 'call_approval',
+        kind: 'approval',
+        status: 'pending'
+      })
+    ])
+  })
+
   it('maps interrupted Codex thread status to an aborted turn instead of inferring running', async () => {
     const service = {
       readThread: vi.fn(async () => ({

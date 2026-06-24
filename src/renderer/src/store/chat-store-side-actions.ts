@@ -209,22 +209,43 @@ function buildSideSink(sideId: string, ctx: SideContext): ThreadEventSink {
     },
     onApproval: (req) => {
       ctx.set((s) =>
-        patchSide(s, sideId, (side) => ({
-          ...side,
-          blocks: [
-            ...side.blocks,
-            {
-              kind: 'approval',
-              id: `appr_${Date.now()}`,
-              createdAt: new Date().toISOString(),
-              approvalId: req.approvalId,
-              summary: req.summary,
-              toolName: req.toolName,
-              status: 'pending',
-              ...(req.meta ? { meta: req.meta } : {})
+        patchSide(s, sideId, (side) => {
+          const status = req.status ?? 'pending'
+          const idx = side.blocks.findIndex((block) =>
+            block.kind === 'approval' && block.approvalId === req.approvalId
+          )
+          if (idx >= 0) {
+            const current = side.blocks[idx]
+            if (current.kind !== 'approval') return side
+            const blocks = [...side.blocks]
+            blocks[idx] = {
+              ...current,
+              summary: req.summary || current.summary,
+              toolName: req.toolName ?? current.toolName,
+              status,
+              errorMessage: req.errorMessage ?? current.errorMessage,
+              meta: req.meta ?? current.meta
             }
-          ]
-        }))
+            return { ...side, blocks }
+          }
+          return {
+            ...side,
+            blocks: [
+              ...side.blocks,
+              {
+                kind: 'approval',
+                id: `appr_${Date.now()}`,
+                createdAt: new Date().toISOString(),
+                approvalId: req.approvalId,
+                summary: req.summary,
+                toolName: req.toolName,
+                status,
+                ...(req.errorMessage ? { errorMessage: req.errorMessage } : {}),
+                ...(req.meta ? { meta: req.meta } : {})
+              }
+            ]
+          }
+        })
       )
     },
     onUserInput: (req) => {

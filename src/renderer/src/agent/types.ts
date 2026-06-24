@@ -300,6 +300,8 @@ export type ApprovalRequestPayload = {
   approvalId: string
   summary: string
   toolName?: string
+  status?: 'pending' | 'allowed' | 'denied' | 'error'
+  errorMessage?: string
   meta?: RuntimeDisclosureMetadata
 }
 

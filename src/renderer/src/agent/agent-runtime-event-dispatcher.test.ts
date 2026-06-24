@@ -366,6 +366,35 @@ describe('agent runtime event dispatcher', () => {
     })
   })
 
+  it('preserves non-pending approval status from item snapshots', () => {
+    const sink = makeSink()
+
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'item_snapshot',
+        threadId: 'thread-1',
+        item: {
+          id: 'approval-item',
+          kind: 'approval',
+          summary: 'Command approval requested',
+          status: 'error',
+          meta: {
+            approvalId: '4',
+            toolName: 'command execution'
+          }
+        }
+      },
+      sink
+    )
+
+    expect(sink.onApproval).toHaveBeenCalledWith({
+      approvalId: '4',
+      summary: 'Command approval requested',
+      toolName: 'command execution',
+      status: 'error'
+    })
+  })
+
   it('dispatches runtime error and runtime status events', () => {
     const sink = makeSink()
 

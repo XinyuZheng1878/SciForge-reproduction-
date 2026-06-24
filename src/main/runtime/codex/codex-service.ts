@@ -1546,7 +1546,47 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
       })
     }
   }
-  return dedupeAssistantBlocks(blocks)
+  return dedupeThreadBlocks(blocks)
+}
+
+function dedupeThreadBlocks(blocks: CodexChatBlock[]): CodexChatBlock[] {
+  return dedupeAssistantBlocks(dedupeToolBlocks(blocks))
+}
+
+function dedupeToolBlocks(blocks: CodexChatBlock[]): CodexChatBlock[] {
+  const indexByKey = new Map<string, number>()
+  let changed = false
+  const next: CodexChatBlock[] = []
+  for (const block of blocks) {
+    if (block.kind !== 'tool') {
+      next.push(block)
+      continue
+    }
+    const key = `${block.turnId ?? ''}\u0000${block.id}`
+    const existingIndex = indexByKey.get(key)
+    if (existingIndex === undefined) {
+      indexByKey.set(key, next.length)
+      next.push(block)
+      continue
+    }
+    const previous = next[existingIndex]
+    if (previous.kind !== 'tool') {
+      next.push(block)
+      continue
+    }
+    changed = true
+    next[existingIndex] = {
+      ...previous,
+      ...block,
+      createdAt: previous.createdAt ?? block.createdAt,
+      summary: block.summary || previous.summary,
+      toolKind: block.toolKind ?? previous.toolKind,
+      detail: block.detail ?? previous.detail,
+      filePath: block.filePath ?? previous.filePath,
+      meta: block.meta ?? previous.meta
+    }
+  }
+  return changed ? next : blocks
 }
 
 function dedupeAssistantBlocks(blocks: CodexChatBlock[]): CodexChatBlock[] {
@@ -1893,7 +1933,7 @@ function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread
 
 function threadDetail(thread: Record<string, unknown>): CodexThreadDetail {
   const turns = arrayValue(thread.turns).map(asRecord).filter(Boolean) as Record<string, unknown>[]
-  const blocks = dedupeAssistantBlocks(turns.flatMap((turn) => turnBlocks(turn)))
+  const blocks = dedupeThreadBlocks(turns.flatMap((turn) => turnBlocks(turn)))
   const latestTurn = latestTurnRecord(thread, turns)
   const latestUserMessageId = [...blocks].reverse().find((block) => block.kind === 'user')?.id
   return {

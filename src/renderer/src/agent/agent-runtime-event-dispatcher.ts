@@ -23,11 +23,6 @@ import type {
 
 type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'error'
 
-type ApprovalDispatchPayload = ApprovalRequestPayload & {
-  status?: ApprovalStatus
-  errorMessage?: string
-}
-
 export const AGENT_RUNTIME_EVENT_REPLAY_FILTER = '__agentRuntimeEventReplayFilter' as const
 export type AgentRuntimeEventReplayFilter = (event: AgentRuntimeEvent) => boolean
 
@@ -366,7 +361,7 @@ function reviewFromItem(item: AgentRuntimeItem): ReviewEventPayload {
   }
 }
 
-function approvalFromItem(item: AgentRuntimeItem): ApprovalDispatchPayload {
+function approvalFromItem(item: AgentRuntimeItem): ApprovalRequestPayload {
   const approvalId = stringMeta(item.meta, 'approvalId') ?? item.id
   const meta = runtimeDisclosureMetaFromRecord(item.meta)
   return {
@@ -497,7 +492,7 @@ export function dispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: Thread
     case 'approval_requested':
       {
         const meta = runtimeDisclosureMetaFromRecord(event.meta)
-        const payload: ApprovalDispatchPayload = {
+        const payload: ApprovalRequestPayload = {
           approvalId: event.approvalId,
           summary: event.summary,
           toolName: event.toolName,
@@ -508,7 +503,7 @@ export function dispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: Thread
       }
       return
     case 'approval_resolved': {
-      const payload: ApprovalDispatchPayload = {
+      const payload: ApprovalRequestPayload = {
         approvalId: event.approvalId,
         summary: event.message?.trim() || `Approval ${event.decision}`,
         status: event.decision,

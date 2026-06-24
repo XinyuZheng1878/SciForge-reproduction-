@@ -340,6 +340,59 @@ describe('CodexRuntimeService storage fallback', () => {
     })
   })
 
+  it('dedupes repeated tool snapshots from app-server thread reads', async () => {
+    const client = controllableClient()
+    vi.mocked(client.readThread).mockResolvedValue({
+      thread: {
+        id: 'codex-thread-1',
+        latestTurnId: 'turn-1',
+        turns: [{
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              status: 'running',
+              command: 'npm test',
+              cwd: '/tmp/workspace'
+            },
+            {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              status: 'completed',
+              command: 'npm test',
+              cwd: '/tmp/workspace',
+              aggregatedOutput: 'ok',
+              exitCode: 0
+            }
+          ]
+        }]
+      }
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      createClient: () => client
+    })
+
+    await expect(service.readThread('codex-thread-1')).resolves.toEqual({
+      ok: true,
+      detail: expect.objectContaining({
+        blocks: [
+          expect.objectContaining({
+            kind: 'tool',
+            id: 'cmd-1',
+            turnId: 'turn-1',
+            status: 'success',
+            detail: 'ok',
+            meta: expect.objectContaining({ exitCode: 0 })
+          })
+        ]
+      })
+    })
+  })
+
   it('deduplicates stored assistant snapshots within the same turn', async () => {
     const storageRoot = await tempRoot()
     const eventStore = new CodexEventStore({ rootDir: storageRoot })

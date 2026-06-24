@@ -70,7 +70,9 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
     async readThread(_context, input) {
       const result = await service.readThread(input.threadId)
       if (!result.ok) throw codexFailure(result)
-      return mapCodexDetail(input.threadId, result.detail)
+      return mapCodexDetail(input.threadId, result.detail, {
+        activePendingRequestIds: activePendingRequestIds(service)
+      })
     },
 
     async startTurn(_context, input) {
@@ -492,15 +494,23 @@ function mapCodexDetail(threadId: string, detail: {
   latestTurnId?: string
   latestUserMessageId?: string
   usage?: AgentRuntimeThreadDetail['usage']
-}): AgentRuntimeThreadDetail {
-  const mappedItems = detail.blocks.map(mapCodexBlock).filter(Boolean) as AgentRuntimeItem[]
+}, options: {
+  activePendingRequestIds?: ReadonlySet<string>
+} = {}): AgentRuntimeThreadDetail {
+  const latestStatus = normalizeTurnStatus(detail.threadStatus)
+  const stalePendingRequests = Boolean(latestStatus && latestStatus !== 'running')
+  const mappedItems = detail.blocks
+    .map((block) => mapCodexBlock(block, {
+      stalePendingRequests,
+      activePendingRequestIds: options.activePendingRequestIds
+    }))
+    .filter(Boolean) as AgentRuntimeItem[]
   const fallbackTurnId = detail.latestTurnId || (mappedItems.length > 0 ? 'codex-turn' : '')
   const items = fallbackTurnId
     ? mappedItems.map((item) => item.turnId ? item : { ...item, turnId: fallbackTurnId })
     : mappedItems
   const turnIds = [...new Set(items.map((item) => item.turnId?.trim() ?? '').filter(Boolean))]
   const turnId = detail.latestTurnId || turnIds.at(-1) || ''
-  const latestStatus = normalizeTurnStatus(detail.threadStatus)
   const turns = turnIds.map((id): AgentRuntimeTurn => {
     const turnItems = items.filter((item) => item.turnId === id)
     return {
@@ -525,7 +535,10 @@ function mapCodexDetail(threadId: string, detail: {
   }
 }
 
-function mapCodexBlock(block: CodexChatBlock): AgentRuntimeItem | null {
+function mapCodexBlock(
+  block: CodexChatBlock,
+  options: { stalePendingRequests?: boolean; activePendingRequestIds?: ReadonlySet<string> } = {}
+): AgentRuntimeItem | null {
   if (block.kind === 'user') {
       return {
         id: block.id,
@@ -554,7 +567,7 @@ function mapCodexBlock(block: CodexChatBlock): AgentRuntimeItem | null {
     }
   }
   if (block.kind === 'tool') {
-    const pendingRequest = mapCodexRequestBlock(block)
+    const pendingRequest = mapCodexRequestBlock(block, options)
     if (pendingRequest) return pendingRequest
 
     return {
@@ -1014,13 +1027,16 @@ function mapCodexStoredEvent(event: CodexThreadEventPayload): AgentRuntimeEvent[
   return mapped
 }
 
-function mapCodexRequestBlock(block: Extract<CodexChatBlock, { kind: 'tool' }>): AgentRuntimeItem | null {
+function mapCodexRequestBlock(
+  block: Extract<CodexChatBlock, { kind: 'tool' }>,
+  options: { stalePendingRequests?: boolean; activePendingRequestIds?: ReadonlySet<string> } = {}
+): AgentRuntimeItem | null {
   const meta = block.meta ?? {}
   const requestKind = codexRequestKind(meta)
   if (!requestKind) return null
 
   const requestId = codexRequestId(meta, block.id)
-  const status = requestItemStatus(block.status)
+  const status = requestItemStatus(block.status, requestId, options)
   if (requestKind === 'approval') {
     const toolName = approvalToolName(meta.codexRequestMethod, block.toolKind)
     return {
@@ -1035,6 +1051,7 @@ function mapCodexRequestBlock(block: Extract<CodexChatBlock, { kind: 'tool' }>):
         approvalId: requestId,
         ...(toolName ? { toolName } : {})
       },
+      ...(block.turnId ? { turnId: block.turnId } : {}),
       createdAt: block.createdAt
     }
   }
@@ -1052,6 +1069,7 @@ function mapCodexRequestBlock(block: Extract<CodexChatBlock, { kind: 'tool' }>):
       requestId,
       questions
     },
+    ...(block.turnId ? { turnId: block.turnId } : {}),
     createdAt: block.createdAt
   }
 }
@@ -1094,13 +1112,36 @@ function codexRequestKind(meta: Record<string, unknown>): CodexPendingRequestKin
 }
 
 function codexRequestId(meta: Record<string, unknown>, fallback: string): string {
-  return stringValue(meta.codexRequestId) || fallback
+  const value = meta.codexRequestId
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return fallback
 }
 
-function requestItemStatus(status: 'running' | 'success' | 'error'): AgentRuntimeItem['status'] {
+function requestItemStatus(
+  status: 'running' | 'success' | 'error',
+  requestId: string,
+  options: { stalePendingRequests?: boolean; activePendingRequestIds?: ReadonlySet<string> } = {}
+): AgentRuntimeItem['status'] {
+  if (status === 'running' && options.activePendingRequestIds && !options.activePendingRequestIds.has(requestId)) {
+    return 'error'
+  }
+  if (status === 'running' && options.stalePendingRequests) return 'error'
   if (status === 'running') return 'pending'
   if (status === 'success') return 'completed'
   return 'error'
+}
+
+function activePendingRequestIds(service: CodexRuntimeService): ReadonlySet<string> | undefined {
+  const maybeService = service as unknown as {
+    pendingServerRequests?: () => Array<{ requestId: unknown }>
+  }
+  if (typeof maybeService.pendingServerRequests !== 'function') return undefined
+  try {
+    return new Set(maybeService.pendingServerRequests().map((request) => String(request.requestId)))
+  } catch {
+    return undefined
+  }
 }
 
 function approvalToolName(method: unknown, toolKind: unknown): string | undefined {

@@ -90,7 +90,7 @@ export function createCodexAppServerPendingRequestRegistry(
 }
 
 export class CodexAppServerPendingRequestRegistry {
-  private readonly pendingRequests = new Map<CodexAppServerRequestId, PendingEntry>()
+  private readonly pendingRequests = new Map<string, PendingEntry>()
 
   constructor(private readonly options: CodexAppServerPendingRequestRegistryOptions = {}) {}
 
@@ -111,7 +111,7 @@ export class CodexAppServerPendingRequestRegistry {
       return Promise.reject(new Error(`Unsupported Codex app-server request: ${request.method}`))
     }
     return new Promise<unknown>((resolve, reject) => {
-      this.pendingRequests.set(request.id, { request: pending, resolve, reject })
+      this.pendingRequests.set(requestKey(request.id), { request: pending, resolve, reject })
       this.options.onPendingRequest?.(pending)
     })
   }
@@ -149,11 +149,16 @@ export class CodexAppServerPendingRequestRegistry {
   }
 
   private take(requestId: CodexAppServerRequestId): PendingEntry {
-    const entry = this.pendingRequests.get(requestId)
+    const key = requestKey(requestId)
+    const entry = this.pendingRequests.get(key)
     if (!entry) throw new Error(`Codex app-server request is not pending: ${String(requestId)}`)
-    this.pendingRequests.delete(requestId)
+    this.pendingRequests.delete(key)
     return entry
   }
+}
+
+function requestKey(requestId: CodexAppServerRequestId): string {
+  return String(requestId)
 }
 
 function toPendingRequest(request: CodexAppServerJsonRpcRequest): CodexAppServerPendingRequest | null {

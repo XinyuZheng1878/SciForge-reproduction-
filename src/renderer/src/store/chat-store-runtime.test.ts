@@ -800,6 +800,39 @@ describe('thread event sink binding', () => {
       'error'
     ])
   })
+
+  it('updates an existing approval when a non-pending approval snapshot is replayed', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      blocks: [
+        {
+          kind: 'approval',
+          id: 'approval-4',
+          approvalId: '4',
+          summary: 'Command approval requested',
+          status: 'pending'
+        }
+      ]
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onApproval({
+      approvalId: '4',
+      summary: 'Command approval requested',
+      toolName: 'command execution',
+      status: 'error',
+      errorMessage: 'No Codex app-server request is pending.'
+    })
+
+    expect(getState().blocks).toEqual([
+      expect.objectContaining({
+        id: 'approval-4',
+        approvalId: '4',
+        status: 'error',
+        errorMessage: 'No Codex app-server request is pending.'
+      })
+    ])
+  })
 })
 
 describe('thread event sink runtime errors', () => {

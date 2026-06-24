@@ -1178,6 +1178,51 @@ describe('AgentRuntimeProvider', () => {
     })
   })
 
+  it('submits the underlying Codex request id when an approval is clicked by item id', async () => {
+    const resolveApproval = vi.fn(async () => undefined)
+    vi.stubGlobal('window', {
+      dsGui: {
+        getSettings: vi.fn(async () => settings('codex')),
+        setSettings: vi.fn(),
+        agentRuntime: {
+          readThread: vi.fn(async () => ({
+            id: 'thread-2',
+            runtimeId: 'codex',
+            title: 'Two',
+            updatedAt: '2026-06-11T00:01:00.000Z',
+            latestSeq: 4,
+            items: [
+              {
+                id: 'call_approval',
+                kind: 'approval',
+                summary: 'Run command?',
+                status: 'pending',
+                meta: {
+                  approvalId: 'call_approval',
+                  codexRequestId: 39,
+                  codexRequestKind: 'approval'
+                }
+              }
+            ]
+          })),
+          resolveApproval
+        }
+      }
+    })
+
+    const provider = new AgentRuntimeProvider()
+    provider.rememberThreadRuntime('thread-2', 'codex')
+    await provider.getThreadDetail('thread-2')
+    await expect(provider.submitApprovalDecision?.('call_approval', 'allow')).resolves.toBeUndefined()
+
+    expect(resolveApproval).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      threadId: 'thread-2',
+      approvalId: '39',
+      decision: 'allowed'
+    })
+  })
+
   it('resolves interaction requests through the runtime that produced them', async () => {
     let activeRuntime: AgentRuntimeId = 'codex'
     const resolveApproval = vi.fn(async () => undefined)

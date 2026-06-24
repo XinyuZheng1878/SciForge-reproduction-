@@ -66,6 +66,33 @@ describe('Codex app-server pending request registry', () => {
     expect(registry.pending()).toEqual([])
   })
 
+  it('resolves numeric app-server request ids from string IPC payloads', async () => {
+    const registry = createCodexAppServerPendingRequestRegistry()
+
+    const approval = registry.handle({
+      id: 39,
+      method: 'item/commandExecution/requestApproval',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'cmd-1',
+        command: 'npm test'
+      }
+    })
+
+    expect(registry.pending()).toEqual([
+      expect.objectContaining({
+        requestId: 39,
+        kind: 'approval'
+      })
+    ])
+
+    registry.resolveApproval({ requestId: '39', decision: 'denied' })
+
+    await expect(approval).resolves.toEqual({ decision: 'decline' })
+    expect(registry.pending()).toEqual([])
+  })
+
   it('captures legacy request_user_input aliases as user-input requests', async () => {
     const observed: CodexAppServerPendingRequest[] = []
     const registry = createCodexAppServerPendingRequestRegistry({

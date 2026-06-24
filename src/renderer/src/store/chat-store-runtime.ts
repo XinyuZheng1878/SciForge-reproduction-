@@ -1034,8 +1034,24 @@ export function buildThreadEventSink(
       set((s) => {
         if (!isCurrentStream()) return {}
         resetBusyRecoveryAttempts()
-        if (s.blocks.some((b) => b.kind === 'approval' && b.approvalId === req.approvalId)) {
-          return {}
+        const status = req.status ?? 'pending'
+        const idx = s.blocks.findIndex((b) => b.kind === 'approval' && b.approvalId === req.approvalId)
+        if (idx >= 0) {
+          const cur = s.blocks[idx]
+          if (cur.kind !== 'approval') return {}
+          const blocks = [...s.blocks]
+          blocks[idx] = {
+            ...cur,
+            summary: req.summary || cur.summary,
+            toolName: req.toolName ?? cur.toolName,
+            status,
+            errorMessage: req.errorMessage ?? cur.errorMessage,
+            meta: req.meta ?? cur.meta
+          }
+          return {
+            blocks,
+            error: clearRuntimeStreamRecoveringError(s.error)
+          }
         }
         const flushed = flushLiveBlocks(s)
         const baseBlocks = flushed.blocks ?? s.blocks
@@ -1050,7 +1066,8 @@ export function buildThreadEventSink(
               approvalId: req.approvalId,
               summary: req.summary,
               toolName: req.toolName,
-              status: 'pending' as const,
+              status,
+              ...(req.errorMessage ? { errorMessage: req.errorMessage } : {}),
               ...(req.meta ? { meta: req.meta } : {})
             }
           ],

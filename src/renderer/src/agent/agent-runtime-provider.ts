@@ -46,6 +46,7 @@ type SendUserMessageOptions = NonNullable<Parameters<AgentProvider['sendUserMess
 type InteractionRequestRef = {
   threadId: string
   runtimeId: AgentRuntimeId
+  requestId?: string
 }
 
 function defaultCapabilities(runtimeId: AgentRuntimeId = 'kun'): AgentRuntimeCapabilities {
@@ -174,6 +175,13 @@ function visibleStatus(status: AgentRuntimeItem['status']): 'running' | 'success
 function stringMeta(meta: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = meta?.[key]
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function requestIdMeta(meta: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = meta?.[key]
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return undefined
 }
 
 function stringValue(value: unknown): string {
@@ -884,7 +892,7 @@ export class AgentRuntimeProvider implements AgentProvider {
     await agentRuntimeClient.resolveApproval({
       runtimeId: request.runtimeId,
       threadId: request.threadId,
-      approvalId,
+      approvalId: request.requestId ?? approvalId,
       decision: decision === 'allow' ? 'allowed' : 'denied'
     })
   }
@@ -892,10 +900,11 @@ export class AgentRuntimeProvider implements AgentProvider {
   async submitUserInputResponse(requestId: string, answers: UserInputAnswer[]): Promise<void> {
     const request = this.userInputThreads.get(requestId)
     if (!request) throw unresolvedInteraction('user input', requestId)
+    const runtimeRequestId = request.requestId ?? requestId
     await agentRuntimeClient.resolveUserInput({
       runtimeId: request.runtimeId,
       threadId: request.threadId,
-      requestId,
+      requestId: runtimeRequestId,
       answers: answers.map((answer) => ({
         id: answer.id,
         label: answer.label,
@@ -907,7 +916,11 @@ export class AgentRuntimeProvider implements AgentProvider {
   async cancelUserInput(requestId: string): Promise<void> {
     const request = this.userInputThreads.get(requestId)
     if (!request) throw unresolvedInteraction('user input', requestId)
-    await this.auxiliary('cancelUserInput', { threadId: request.threadId, requestId }, request.runtimeId)
+    await this.auxiliary(
+      'cancelUserInput',
+      { threadId: request.threadId, requestId: request.requestId ?? requestId },
+      request.runtimeId
+    )
   }
 
   async subscribeThreadEvents(
@@ -968,11 +981,39 @@ export class AgentRuntimeProvider implements AgentProvider {
   private rememberInteractionRequests(threadId: string, runtimeId: AgentRuntimeId, items: AgentRuntimeItem[]): void {
     for (const item of items) {
       if (item.kind === 'approval') {
-        this.approvalThreads.set(stringMeta(item.meta, 'approvalId') ?? item.id, { threadId, runtimeId })
+        const requestId =
+          requestIdMeta(item.meta, 'codexRequestId') ??
+          stringMeta(item.meta, 'approvalId') ??
+          item.id
+        const ref = { threadId, runtimeId, requestId }
+        this.rememberInteractionAliases(this.approvalThreads, ref, [
+          item.id,
+          stringMeta(item.meta, 'approvalId'),
+          requestId
+        ])
       }
       if (item.kind === 'user_input') {
-        this.userInputThreads.set(stringMeta(item.meta, 'requestId') ?? item.id, { threadId, runtimeId })
+        const requestId =
+          requestIdMeta(item.meta, 'codexRequestId') ??
+          stringMeta(item.meta, 'requestId') ??
+          item.id
+        const ref = { threadId, runtimeId, requestId }
+        this.rememberInteractionAliases(this.userInputThreads, ref, [
+          item.id,
+          stringMeta(item.meta, 'requestId'),
+          requestId
+        ])
       }
+    }
+  }
+
+  private rememberInteractionAliases(
+    target: Map<string, InteractionRequestRef>,
+    ref: InteractionRequestRef,
+    aliases: Array<string | undefined>
+  ): void {
+    for (const alias of aliases) {
+      if (alias) target.set(alias, ref)
     }
   }
 
@@ -980,10 +1021,25 @@ export class AgentRuntimeProvider implements AgentProvider {
     const runtimeId = event.runtimeId ?? fallbackRuntimeId
     switch (event.kind) {
       case 'approval_requested':
-        this.approvalThreads.set(event.approvalId, { threadId, runtimeId })
+        this.rememberInteractionAliases(this.approvalThreads, {
+          threadId,
+          runtimeId,
+          requestId: requestIdMeta(event.meta, 'codexRequestId') ?? event.approvalId
+        }, [
+          event.itemId,
+          event.approvalId,
+          requestIdMeta(event.meta, 'codexRequestId')
+        ])
         return
       case 'user_input_requested':
-        this.userInputThreads.set(event.requestId, { threadId, runtimeId })
+        this.rememberInteractionAliases(this.userInputThreads, {
+          threadId,
+          runtimeId,
+          requestId: event.requestId
+        }, [
+          event.itemId,
+          event.requestId
+        ])
         return
       case 'item_snapshot':
         this.rememberInteractionRequests(threadId, runtimeId, [event.item])

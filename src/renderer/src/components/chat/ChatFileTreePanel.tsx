@@ -16,12 +16,14 @@ import {
   Image,
   Loader2,
   PanelRightClose,
+  PencilLine,
   Plus,
   RefreshCw,
   Scissors,
   Trash2
 } from 'lucide-react'
 import {
+  type FormEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -80,10 +82,18 @@ type FileTreeClipboardState = {
   reference: AgentRuntimeWorkspaceReference
 }
 
+type FileTreeRenameDialogState = {
+  reference: AgentRuntimeWorkspaceReference
+  directory: boolean
+  value: string
+  submitting: boolean
+  error: string | null
+}
+
 const ROOT_PATH = ''
 const IGNORED_DIRECTORY_NAMES = new Set(['.git', '.hg', '.svn', 'node_modules'])
 const FILE_TREE_CONTEXT_MENU_WIDTH = 206
-const FILE_TREE_CONTEXT_MENU_HEIGHT = 292
+const FILE_TREE_CONTEXT_MENU_HEIGHT = 326
 
 function normalizePath(value: string): string {
   return value.trim().replaceAll('\\', '/').replace(/\/+/g, '/').replace(/\/+$/g, '')
@@ -111,6 +121,21 @@ function parentDirectoryPath(path: string): string {
   const normalized = normalizePath(path)
   const slash = normalized.lastIndexOf('/')
   return slash > 0 ? normalized.slice(0, slash) : ''
+}
+
+export function renamedRelativePath(path: string, newName: string): string {
+  const parent = parentDirectoryPath(path)
+  const name = normalizePath(newName).split('/').filter(Boolean).at(-1) ?? newName.trim()
+  return parent ? `${parent}/${name}` : name
+}
+
+export function rewriteRenamedPath(value: string, previousPath: string, nextPath: string): string {
+  const normalized = normalizePath(value)
+  const previous = normalizePath(previousPath)
+  const next = normalizePath(nextPath)
+  if (normalized === previous) return next
+  const prefix = `${previous}/`
+  return normalized.startsWith(prefix) ? `${next}/${normalized.slice(prefix.length)}` : normalized
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -151,6 +176,7 @@ export function ChatFileTreePanel({
   const [focusedDirectoryPath, setFocusedDirectoryPath] = useState('')
   const [pendingScrollPath, setPendingScrollPath] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<FileTreeContextMenuState | null>(null)
+  const [renameDialog, setRenameDialog] = useState<FileTreeRenameDialogState | null>(null)
   const [fileClipboard, setFileClipboard] = useState<FileTreeClipboardState | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? groups[0]
@@ -344,6 +370,16 @@ export function ChatFileTreePanel({
     await navigator.clipboard.writeText(reference.relativePath)
   }
 
+  const openRenameDialog = (reference: AgentRuntimeWorkspaceReference, directory: boolean): void => {
+    setRenameDialog({
+      reference,
+      directory,
+      value: reference.name || normalizePath(reference.relativePath).split('/').at(-1) || '',
+      submitting: false,
+      error: null
+    })
+  }
+
   const openReferenceInEditor = (reference: AgentRuntimeWorkspaceReference): void => {
     void openWorkspacePathInEditor(
       { path: reference.relativePath },
@@ -415,6 +451,69 @@ export function ChatFileTreePanel({
       reloadDirectory(parentDirectoryPath(reference.relativePath))
     } catch (error) {
       window.alert(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const renameReference = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault()
+    if (!renameDialog || renameDialog.submitting) return
+    const newName = renameDialog.value.trim()
+    if (!newName || newName === renameDialog.reference.name) {
+      setRenameDialog(null)
+      return
+    }
+    const reference = renameDialog.reference
+    const previousPath = normalizePath(reference.relativePath)
+    const nextPath = renamedRelativePath(previousPath, newName)
+    setRenameDialog((current) => current ? { ...current, submitting: true, error: null } : current)
+    try {
+      const result = await window.dsGui.renameWorkspaceEntry({
+        path: previousPath,
+        workspaceRoot: reference.workspaceRoot || root,
+        newName
+      })
+      if (!result.ok) {
+        setRenameDialog((current) => current ? { ...current, submitting: false, error: result.message } : current)
+        return
+      }
+      const renamedReference: AgentRuntimeWorkspaceReference = {
+        ...reference,
+        name: newName,
+        relativePath: nextPath
+      }
+      setExpanded((current) => {
+        const next = new Set<string>()
+        for (const path of current) {
+          next.add(rewriteRenamedPath(path, previousPath, nextPath))
+        }
+        return next
+      })
+      setFocusedDirectoryPath((current) => rewriteRenamedPath(current, previousPath, nextPath))
+      setPendingScrollPath(nextPath)
+      setFileClipboard((current) => {
+        if (!current) return current
+        if (pathKey(current.reference.workspaceRoot || root) !== pathKey(reference.workspaceRoot || root)) return current
+        const rewritten = rewriteRenamedPath(current.reference.relativePath, previousPath, nextPath)
+        return rewritten === current.reference.relativePath
+          ? current
+          : {
+              ...current,
+              reference: {
+                ...current.reference,
+                relativePath: rewritten,
+                ...(pathKey(current.reference.relativePath) === pathKey(previousPath) ? { name: newName } : {})
+              }
+            }
+      })
+      setRenameDialog(null)
+      setDirectories({})
+      if (!renameDialog.directory && selectedKey === pathKey(previousPath)) {
+        onPreviewFile(renamedReference)
+      }
+    } catch (error) {
+      setRenameDialog((current) => current
+        ? { ...current, submitting: false, error: error instanceof Error ? error.message : String(error) }
+        : current)
     }
   }
 
@@ -621,6 +720,9 @@ export function ChatFileTreePanel({
           onCutEntry={() => {
             if (contextMenu.reference) setFileClipboard({ action: 'cut', reference: contextMenu.reference })
           }}
+          onRename={() => {
+            if (contextMenu.reference) openRenameDialog(contextMenu.reference, contextMenu.directory)
+          }}
           onPaste={() => void pasteClipboardEntry(contextMenu.targetDirectoryPath)}
           onDelete={() => {
             if (contextMenu.reference) void deleteReference(contextMenu.reference, contextMenu.directory)
@@ -629,6 +731,17 @@ export function ChatFileTreePanel({
             if (contextMenu.reference) void copyReferencePath(contextMenu.reference)
           }}
           onRefresh={refresh}
+          t={t}
+        />
+      ) : null}
+      {renameDialog ? (
+        <FileTreeRenameDialog
+          state={renameDialog}
+          onClose={() => setRenameDialog(null)}
+          onValueChange={(value) => setRenameDialog((current) =>
+            current ? { ...current, value, error: null } : current
+          )}
+          onSubmit={renameReference}
           t={t}
         />
       ) : null}
@@ -647,6 +760,7 @@ function FileTreeContextMenu({
   onOpenEditor,
   onCopyEntry,
   onCutEntry,
+  onRename,
   onPaste,
   onDelete,
   onCopyPath,
@@ -663,6 +777,7 @@ function FileTreeContextMenu({
   onOpenEditor: () => void
   onCopyEntry: () => void
   onCutEntry: () => void
+  onRename: () => void
   onPaste: () => void
   onDelete: () => void
   onCopyPath: () => void
@@ -719,6 +834,11 @@ function FileTreeContextMenu({
             label={t('windowsMenuCut')}
             onClick={() => run(onCutEntry)}
           />
+          <FileTreeContextMenuItem
+            icon={<PencilLine className="h-3.5 w-3.5" strokeWidth={1.8} />}
+            label={t('writeRenameEntry')}
+            onClick={() => run(onRename)}
+          />
         </>
       ) : null}
       <FileTreeContextMenuItem
@@ -755,6 +875,90 @@ function FileTreeContextMenu({
           onClick={() => run(onRefresh)}
         />
       )}
+    </div>
+  )
+}
+
+function FileTreeRenameDialog({
+  state,
+  onClose,
+  onValueChange,
+  onSubmit,
+  t
+}: {
+  state: FileTreeRenameDialogState
+  onClose: () => void
+  onValueChange: (value: string) => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  t: (key: string, options?: Record<string, unknown>) => string
+}): ReactElement {
+  const nextName = state.value.trim()
+  const unchanged = nextName === state.reference.name
+  const canSubmit = Boolean(nextName) && !unchanged && !state.submitting
+
+  useEffect(() => {
+    if (state.submitting) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose, state.submitting])
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="file-tree-rename-dialog-title"
+      className="ds-no-drag fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/18 px-4 backdrop-blur-[2px] dark:bg-black/35"
+      onMouseDown={onClose}
+    >
+      <form
+        onSubmit={onSubmit}
+        onMouseDown={(event) => event.stopPropagation()}
+        className="w-full max-w-sm rounded-[24px] border border-ds-border bg-ds-card p-5 shadow-[0_24px_72px_rgba(15,23,42,0.22)]"
+      >
+        <h2
+          id="file-tree-rename-dialog-title"
+          className="text-[18px] font-semibold text-ds-ink"
+        >
+          {t('writeRenameEntry')}
+        </h2>
+        <p className="mt-2 text-[13px] leading-6 text-ds-muted">
+          {t('writeRenameEntryPrompt')}
+        </p>
+        <input
+          autoFocus
+          aria-label={t('writeRenameEntryPrompt')}
+          disabled={state.submitting}
+          value={state.value}
+          onChange={(event) => onValueChange(event.target.value)}
+          onFocus={(event) => event.currentTarget.select()}
+          className="mt-4 w-full rounded-xl border border-ds-border bg-ds-main/65 px-3 py-2 text-[14px] text-ds-ink outline-none transition focus:border-accent/40 focus:ring-1 focus:ring-accent/25 disabled:cursor-wait disabled:opacity-70"
+        />
+        {state.error ? (
+          <p className="mt-3 text-[12px] leading-5 text-red-600 dark:text-red-300">
+            {state.error}
+          </p>
+        ) : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={state.submitting}
+            onClick={onClose}
+            className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-wait disabled:opacity-60"
+          >
+            {t('cancel')}
+          </button>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="rounded-xl bg-accent px-3 py-2 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {state.submitting ? t('loading') : t('writeEntryDialogRename')}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }
