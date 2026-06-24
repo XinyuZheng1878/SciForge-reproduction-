@@ -28,6 +28,9 @@ import {
   type WorkflowNodePresetV1,
   type WorkflowNodeRunStatus,
   type WorkflowNodeV1,
+  type WorkflowResearchDomain,
+  type WorkflowResearchIntent,
+  type WorkflowResearchSource,
   type WorkflowRunV1,
   type WorkflowScheduleV1,
   type WorkflowSwitchRuleV1,
@@ -67,6 +70,17 @@ const CONDITION_OPERATORS: readonly WorkflowConditionOperator[] = [
   'lte'
 ]
 const HTTP_METHODS: readonly WorkflowHttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+const RESEARCH_INTENTS: readonly WorkflowResearchIntent[] = ['overview', 'latest', 'baseline', 'sota', 'dataset', 'code', 'gap']
+const RESEARCH_DOMAINS: readonly WorkflowResearchDomain[] = [
+  'ai4s',
+  'biology',
+  'chemistry',
+  'materials',
+  'physics',
+  'climate',
+  'general'
+]
+const RESEARCH_SOURCES: readonly WorkflowResearchSource[] = ['arxiv', 'biorxiv', 'semantic_scholar', 'web', 'cns']
 
 function record(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -95,6 +109,21 @@ function normalizeConditionOperator(value: unknown): WorkflowConditionOperator {
 
 function normalizeHttpMethod(value: unknown): WorkflowHttpMethod {
   return HTTP_METHODS.includes(value as WorkflowHttpMethod) ? (value as WorkflowHttpMethod) : 'GET'
+}
+
+function normalizeResearchIntent(value: unknown): WorkflowResearchIntent {
+  return RESEARCH_INTENTS.includes(value as WorkflowResearchIntent) ? (value as WorkflowResearchIntent) : 'overview'
+}
+
+function normalizeResearchDomain(value: unknown): WorkflowResearchDomain {
+  return RESEARCH_DOMAINS.includes(value as WorkflowResearchDomain) ? (value as WorkflowResearchDomain) : 'general'
+}
+
+function normalizeResearchSources(value: unknown): WorkflowResearchSource[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.filter((item): item is WorkflowResearchSource =>
+    RESEARCH_SOURCES.includes(item as WorkflowResearchSource)
+  ))]
 }
 
 function normalizeWebhookPath(value: unknown): string {
@@ -312,6 +341,16 @@ export function normalizeWorkflowNode(value: unknown, index: number): WorkflowNo
           workspaceRoot: asTrimmed(config.workspaceRoot)
         }
       }
+    case 'llm':
+      return {
+        ...base,
+        type: 'llm',
+        config: {
+          prompt: asText(config.prompt),
+          model: asTrimmed(config.model),
+          maxTokens: normalizePositiveInteger(config.maxTokens, 0, 0, 128_000)
+        }
+      }
     case 'ai-agent':
       return {
         ...base,
@@ -445,6 +484,28 @@ export function normalizeWorkflowNode(value: unknown, index: number): WorkflowNo
           operator: normalizeConditionOperator(config.operator),
           rightValue: asText(config.rightValue),
           caseSensitive: normalizeBoolean(config.caseSensitive, false)
+        }
+      }
+    case 'research-search':
+      return {
+        ...base,
+        type: 'research-search',
+        config: {
+          query: asText(config.query),
+          intent: normalizeResearchIntent(config.intent),
+          domain: normalizeResearchDomain(config.domain),
+          sinceYear: normalizePositiveInteger(config.sinceYear, 0, 0, 3000),
+          maxResults: normalizePositiveInteger(config.maxResults, 10, 1, 50),
+          sources: normalizeResearchSources(config.sources)
+        }
+      }
+    case 'paper-download':
+      return {
+        ...base,
+        type: 'paper-download',
+        config: {
+          outputDir: asTrimmed(config.outputDir) || 'papers',
+          maxFiles: normalizePositiveInteger(config.maxFiles, 10, 1, 50)
         }
       }
     case 'http-request':

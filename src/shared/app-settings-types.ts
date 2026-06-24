@@ -543,6 +543,7 @@ export type WorkflowNodeKind =
   | 'manual-trigger'
   | 'schedule-trigger'
   | 'webhook-trigger'
+  | 'llm'
   | 'ai-agent'
   | 'generate-image'
   | 'condition'
@@ -553,6 +554,8 @@ export type WorkflowNodeKind =
   | 'sort'
   | 'limit'
   | 'aggregate'
+  | 'research-search'
+  | 'paper-download'
   | 'http-request'
   | 'merge'
   | 'subworkflow'
@@ -570,6 +573,7 @@ export const WORKFLOW_NODE_KINDS: readonly WorkflowNodeKind[] = [
   'manual-trigger',
   'schedule-trigger',
   'webhook-trigger',
+  'llm',
   'ai-agent',
   'generate-image',
   'condition',
@@ -580,6 +584,8 @@ export const WORKFLOW_NODE_KINDS: readonly WorkflowNodeKind[] = [
   'sort',
   'limit',
   'aggregate',
+  'research-search',
+  'paper-download',
   'http-request',
   'merge',
   'subworkflow',
@@ -624,6 +630,16 @@ export type WorkflowConditionOperator =
   | 'lte'
 
 export type WorkflowHttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+export type WorkflowResearchIntent = 'overview' | 'latest' | 'baseline' | 'sota' | 'dataset' | 'code' | 'gap'
+export type WorkflowResearchDomain =
+  | 'ai4s'
+  | 'biology'
+  | 'chemistry'
+  | 'materials'
+  | 'physics'
+  | 'climate'
+  | 'general'
+export type WorkflowResearchSource = 'arxiv' | 'biorxiv' | 'semantic_scholar' | 'web' | 'cns'
 
 export const WORKFLOW_INPUT_FIELD_TYPES = ['text', 'paragraph', 'number', 'boolean', 'select', 'json'] as const
 export type WorkflowInputFieldType = (typeof WORKFLOW_INPUT_FIELD_TYPES)[number]
@@ -716,6 +732,15 @@ export type WorkflowAiAgentConfigV1 = {
   model: string
   reasoningEffort: ScheduleReasoningEffort
   mode: ScheduleRunMode
+}
+
+export type WorkflowLlmConfigV1 = {
+  /** Prompt sent directly to the local Model Router. Supports {{json.x}} / {{text}} interpolation. */
+  prompt: string
+  /** Empty uses the Model Router public model alias. */
+  model: string
+  /** 0 uses the router/model default. */
+  maxTokens: number
 }
 
 export type WorkflowGenerateImageConfigV1 = {
@@ -965,6 +990,23 @@ export type WorkflowHttpRequestConfigV1 = {
   parseJson: boolean
 }
 
+export type WorkflowResearchSearchConfigV1 = {
+  /** Templated with {{json.x}} / {{text}} from the incoming payload. */
+  query: string
+  intent: WorkflowResearchIntent
+  domain: WorkflowResearchDomain
+  /** 0 means use the research-search service default. */
+  sinceYear: number
+  maxResults: number
+  sources: WorkflowResearchSource[]
+}
+
+export type WorkflowPaperDownloadConfigV1 = {
+  /** Relative to the run workspace. Supports {{json.x}} / {{text}} interpolation. */
+  outputDir: string
+  maxFiles: number
+}
+
 export type WorkflowDelayConfigV1 = {
   delayMs: number
 }
@@ -987,6 +1029,7 @@ export type WorkflowNodeConfigByKind = {
   'manual-trigger': WorkflowManualTriggerConfigV1
   'schedule-trigger': WorkflowScheduleTriggerConfigV1
   'webhook-trigger': WorkflowWebhookTriggerConfigV1
+  llm: WorkflowLlmConfigV1
   'ai-agent': WorkflowAiAgentConfigV1
   'generate-image': WorkflowGenerateImageConfigV1
   condition: WorkflowConditionConfigV1
@@ -997,6 +1040,8 @@ export type WorkflowNodeConfigByKind = {
   sort: WorkflowSortConfigV1
   limit: WorkflowLimitConfigV1
   aggregate: WorkflowAggregateConfigV1
+  'research-search': WorkflowResearchSearchConfigV1
+  'paper-download': WorkflowPaperDownloadConfigV1
   'http-request': WorkflowHttpRequestConfigV1
   merge: WorkflowMergeConfigV1
   subworkflow: WorkflowSubWorkflowConfigV1

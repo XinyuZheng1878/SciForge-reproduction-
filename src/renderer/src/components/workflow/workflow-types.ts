@@ -14,6 +14,7 @@ export const WORKFLOW_PALETTE: readonly WorkflowNodeKind[] = [
   'manual-trigger',
   'schedule-trigger',
   'webhook-trigger',
+  'llm',
   'ai-agent',
   'generate-image',
   'condition',
@@ -24,6 +25,8 @@ export const WORKFLOW_PALETTE: readonly WorkflowNodeKind[] = [
   'sort',
   'limit',
   'aggregate',
+  'research-search',
+  'paper-download',
   'http-request',
   'merge',
   'subworkflow',
@@ -47,10 +50,10 @@ export const TRIGGER_KINDS: ReadonlySet<WorkflowNodeKind> = new Set([
 export type WorkflowPaletteGroup = { id: string; kinds: readonly WorkflowNodeKind[] }
 export const WORKFLOW_PALETTE_GROUPS: readonly WorkflowPaletteGroup[] = [
   { id: 'trigger', kinds: ['manual-trigger', 'schedule-trigger', 'webhook-trigger'] },
-  { id: 'ai', kinds: ['ai-agent', 'generate-image', 'parameter-extractor'] },
+  { id: 'ai', kinds: ['llm', 'ai-agent', 'generate-image', 'parameter-extractor'] },
   { id: 'flow', kinds: ['condition', 'switch', 'question-classifier', 'filter', 'merge', 'loop', 'human-approval'] },
   { id: 'data', kinds: ['set-fields', 'template', 'json', 'code', 'sort', 'limit', 'aggregate'] },
-  { id: 'action', kinds: ['http-request', 'subworkflow', 'delay', 'output'] }
+  { id: 'action', kinds: ['research-search', 'paper-download', 'http-request', 'subworkflow', 'delay', 'output'] }
 ]
 
 export type WorkflowFlowNodeData = {
@@ -87,6 +90,12 @@ export function createWorkflowNode(
       }
     case 'webhook-trigger':
       return { ...base, type: 'webhook-trigger', config: { path: '/webhook', method: 'ANY', workspaceRoot: '' } }
+    case 'llm':
+      return {
+        ...base,
+        type: 'llm',
+        config: { prompt: '', model: '', maxTokens: 0 }
+      }
     case 'ai-agent':
       return {
         ...base,
@@ -129,6 +138,21 @@ export function createWorkflowNode(
       return { ...base, type: 'limit', config: { count: 10, from: 'first' } }
     case 'aggregate':
       return { ...base, type: 'aggregate', config: { mode: 'count', field: '', separator: ', ' } }
+    case 'research-search':
+      return {
+        ...base,
+        type: 'research-search',
+        config: {
+          query: '{{text}}',
+          intent: 'overview',
+          domain: 'general',
+          sinceYear: 0,
+          maxResults: 10,
+          sources: []
+        }
+      }
+    case 'paper-download':
+      return { ...base, type: 'paper-download', config: { outputDir: 'papers', maxFiles: 10 } }
     case 'code':
       return {
         ...base,

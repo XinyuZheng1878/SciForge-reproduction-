@@ -1,7 +1,22 @@
 import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Bot, Download, Pencil, Play, Plus, Power, Square, Trash2, Upload, Workflow as WorkflowIcon, X, Zap } from 'lucide-react'
+import {
+  Bot,
+  Check,
+  Download,
+  Pencil,
+  Play,
+  Plus,
+  Power,
+  Square,
+  Trash2,
+  Upload,
+  UserCheck,
+  Workflow as WorkflowIcon,
+  X,
+  Zap
+} from 'lucide-react'
 import {
   mergeWorkflowSettings,
   normalizeWorkflowSettings,
@@ -12,7 +27,9 @@ import {
   type WorkflowNodePresetV1,
   type WorkflowNodeRunResultV1,
   type WorkflowNodeV1,
+  type WorkflowPendingApprovalV1,
   type WorkflowRuntimeStatus,
+  type WorkflowApprovalDecision,
   type WorkflowV1
 } from '@shared/app-settings'
 import { rendererRuntimeClient } from '../../agent/runtime-client'
@@ -108,6 +125,15 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
   const presets = workflowSettings?.presets ?? EMPTY_PRESETS
   const modules = workflowSettings?.modules ?? EMPTY_MODULES
   const runningIds = useMemo(() => new Set(status?.runningWorkflowIds ?? []), [status])
+  const pendingApprovalsByWorkflow = useMemo(() => {
+    const grouped = new Map<string, WorkflowPendingApprovalV1[]>()
+    for (const approval of status?.pendingApprovals ?? []) {
+      const existing = grouped.get(approval.workflowId) ?? []
+      existing.push(approval)
+      grouped.set(approval.workflowId, existing)
+    }
+    return grouped
+  }, [status])
 
   // When a run finishes, reload settings so the editor's persisted last-run results refresh.
   const prevRunningCount = useRef(0)
@@ -290,6 +316,17 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
     [refreshStatus]
   )
 
+  const handleResolveApproval = useCallback(
+    async (token: string, decision: WorkflowApprovalDecision): Promise<void> => {
+      if (typeof window.dsGui?.resolveWorkflowApproval !== 'function') return
+      const result = await window.dsGui.resolveWorkflowApproval(token, decision)
+      if (!result.ok) setError(t('workflowApprovalResolveFailed'))
+      else setError(null)
+      void refreshStatus()
+    },
+    [refreshStatus, t]
+  )
+
   const handleRunNode = useCallback(
     async (workflowId: string, nodeId: string): Promise<void> => {
       if (typeof window.dsGui?.runWorkflowNode !== 'function') return
@@ -453,6 +490,7 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
               {workflows.map((workflow) => {
                 const running = runningIds.has(workflow.id)
                 const lastStatus: WorkflowV1['lastStatus'] = running ? 'running' : workflow.lastStatus
+                const pendingApprovals = pendingApprovalsByWorkflow.get(workflow.id) ?? []
                 return (
                   <div
                     key={workflow.id}
@@ -528,6 +566,49 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
                           ? `${workflow.lastMessage.slice(0, 240)}…`
                           : workflow.lastMessage}
                       </p>
+                    ) : null}
+
+                    {pendingApprovals.length > 0 ? (
+                      <div className="flex flex-col gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-3">
+                        {pendingApprovals.map((approval) => (
+                          <div key={approval.token} className="flex flex-col gap-2">
+                            <div className="flex items-center gap-2">
+                              <UserCheck className="h-4 w-4 shrink-0 text-amber-600" strokeWidth={1.9} />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-[12.5px] font-semibold text-ds-ink">
+                                  {approval.title || t('workflowApprovalPending')}
+                                </div>
+                                <div className="text-[11.5px] text-ds-faint">
+                                  {approval.nodeName || t('workflowNode_human-approval')}
+                                </div>
+                              </div>
+                            </div>
+                            {approval.instruction ? (
+                              <div className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg border border-ds-border bg-ds-card px-3 py-2 text-[12px] leading-5 text-ds-muted">
+                                {approval.instruction}
+                              </div>
+                            ) : null}
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void handleResolveApproval(approval.token, 'approved')}
+                                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-500/90 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-emerald-500"
+                              >
+                                <Check className="h-3.5 w-3.5" strokeWidth={2.2} />
+                                {t('workflowApprovalApprove')}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleResolveApproval(approval.token, 'rejected')}
+                                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-ds-border bg-ds-card px-3 py-1.5 text-[12.5px] font-semibold text-red-600 transition hover:bg-red-500/10"
+                              >
+                                <X className="h-3.5 w-3.5" strokeWidth={2.2} />
+                                {t('workflowApprovalReject')}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     ) : null}
 
                     {/* State switches — kept visually distinct from the actions above. */}

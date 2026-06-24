@@ -19,6 +19,7 @@ import type {
  */
 export function describeNodeOutput(node: WorkflowNodeV1): WorkflowOutputVar[] {
   switch (node.type) {
+    case 'llm':
     case 'ai-agent':
       return [{ key: 'text', type: 'string' }]
     case 'generate-image':
@@ -56,6 +57,21 @@ export function describeNodeOutput(node: WorkflowNodeV1): WorkflowOutputVar[] {
         default:
           return []
       }
+    case 'research-search':
+      return [
+        { key: 'papers', type: 'json' },
+        { key: 'webResults', type: 'json' },
+        { key: 'citations', type: 'json' },
+        { key: 'themes', type: 'json' },
+        { key: 'gaps', type: 'json' },
+        { key: 'suggestedFollowups', type: 'json' }
+      ]
+    case 'paper-download':
+      return [
+        { key: 'papers', type: 'json' },
+        { key: 'downloads', type: 'json' },
+        { key: 'downloadFolder', type: 'string' }
+      ]
     case 'template':
       return node.config.outputMode === 'text' ? [{ key: 'text', type: 'string' }] : []
     case 'json':

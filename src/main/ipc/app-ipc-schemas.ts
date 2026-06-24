@@ -774,6 +774,14 @@ const workflowAiAgentConfigSchema = z
   })
   .strict()
 
+const workflowLlmConfigSchema = z
+  .object({
+    prompt: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
+    model: optionalTrimmedString(128),
+    maxTokens: z.number().int().min(0).max(128_000).optional()
+  })
+  .strict()
+
 const workflowGenerateImageConfigSchema = z
   .object({
     prompt: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
@@ -808,6 +816,26 @@ const workflowHttpRequestConfigSchema = z
     body: z.string().max(MAX_BODY_BYTES).optional(),
     timeoutMs: z.number().int().min(1_000).max(600_000).optional(),
     parseJson: z.boolean().optional()
+  })
+  .strict()
+
+const workflowResearchSourceSchema = z.enum(['arxiv', 'biorxiv', 'semantic_scholar', 'web', 'cns'])
+
+const workflowResearchSearchConfigSchema = z
+  .object({
+    query: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
+    intent: z.enum(['overview', 'latest', 'baseline', 'sota', 'dataset', 'code', 'gap']).optional(),
+    domain: z.enum(['ai4s', 'biology', 'chemistry', 'materials', 'physics', 'climate', 'general']).optional(),
+    sinceYear: z.number().int().min(0).max(3000).optional(),
+    maxResults: z.number().int().min(1).max(50).optional(),
+    sources: z.array(workflowResearchSourceSchema).max(5).optional()
+  })
+  .strict()
+
+const workflowPaperDownloadConfigSchema = z
+  .object({
+    outputDir: z.string().max(1024).optional(),
+    maxFiles: z.number().int().min(1).max(50).optional()
   })
   .strict()
 
@@ -1039,6 +1067,7 @@ const workflowNodePatchSchema = z.discriminatedUnion('type', [
       config: workflowWebhookTriggerConfigSchema.optional()
     })
     .strict(),
+  z.object({ ...workflowNodeBaseShape, type: z.literal('llm'), config: workflowLlmConfigSchema.optional() }).strict(),
   z.object({ ...workflowNodeBaseShape, type: z.literal('ai-agent'), config: workflowAiAgentConfigSchema.optional() }).strict(),
   z.object({ ...workflowNodeBaseShape, type: z.literal('generate-image'), config: workflowGenerateImageConfigSchema.optional() }).strict(),
   z.object({ ...workflowNodeBaseShape, type: z.literal('condition'), config: workflowConditionConfigSchema.optional() }).strict(),
@@ -1049,6 +1078,8 @@ const workflowNodePatchSchema = z.discriminatedUnion('type', [
   z.object({ ...workflowNodeBaseShape, type: z.literal('sort'), config: workflowSortConfigSchema.optional() }).strict(),
   z.object({ ...workflowNodeBaseShape, type: z.literal('limit'), config: workflowLimitConfigSchema.optional() }).strict(),
   z.object({ ...workflowNodeBaseShape, type: z.literal('aggregate'), config: workflowAggregateConfigSchema.optional() }).strict(),
+  z.object({ ...workflowNodeBaseShape, type: z.literal('research-search'), config: workflowResearchSearchConfigSchema.optional() }).strict(),
+  z.object({ ...workflowNodeBaseShape, type: z.literal('paper-download'), config: workflowPaperDownloadConfigSchema.optional() }).strict(),
   z.object({ ...workflowNodeBaseShape, type: z.literal('http-request'), config: workflowHttpRequestConfigSchema.optional() }).strict(),
   z.object({ ...workflowNodeBaseShape, type: z.literal('merge'), config: workflowMergeConfigSchema.optional() }).strict(),
   z.object({ ...workflowNodeBaseShape, type: z.literal('subworkflow'), config: workflowSubWorkflowConfigSchema.optional() }).strict(),

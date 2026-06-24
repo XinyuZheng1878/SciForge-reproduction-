@@ -21,6 +21,9 @@ import {
   type WorkflowNodeRunResultV1,
   type WorkflowNodeV1,
   type WorkflowOutputVar,
+  type WorkflowResearchDomain,
+  type WorkflowResearchIntent,
+  type WorkflowResearchSource,
   type WorkflowTriggerScheduleKind,
   type WorkflowVarType,
   type WorkflowWebhookMethod
@@ -47,6 +50,17 @@ function varTypeLabel(type: WorkflowVarType): string {
 
 const SCHEDULE_KINDS: WorkflowTriggerScheduleKind[] = ['manual', 'interval', 'daily', 'at', 'cron']
 const HTTP_METHODS: WorkflowHttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+const RESEARCH_INTENTS: WorkflowResearchIntent[] = ['overview', 'latest', 'baseline', 'sota', 'dataset', 'code', 'gap']
+const RESEARCH_DOMAINS: WorkflowResearchDomain[] = [
+  'ai4s',
+  'biology',
+  'chemistry',
+  'materials',
+  'physics',
+  'climate',
+  'general'
+]
+const RESEARCH_SOURCES: WorkflowResearchSource[] = ['arxiv', 'biorxiv', 'semantic_scholar', 'web', 'cns']
 const CODE_PLACEHOLDERS: Record<WorkflowCodeLanguage, string> = {
   javascript: 'return { value: $json }',
   python: 'import sys, json\ndata = json.load(sys.stdin)\nprint(data.get("text", ""))',
@@ -1068,6 +1082,46 @@ export function NodeConfigPanel({
           </>
         ) : null}
 
+        {node.type === 'llm' ? (
+          <>
+            <Field label={t('workflowPrompt')}>
+              <textarea
+                className={`${INPUT_CLASS} min-h-[120px] resize-y`}
+                value={node.config.prompt}
+                placeholder={t('workflowPromptPlaceholder', { token: '{{text}}' })}
+                onChange={(event) =>
+                  onChange({ ...node, config: { ...node.config, prompt: event.target.value } })
+                }
+              />
+              <span className="mt-1 text-[11px] leading-4 text-ds-faint">{t('workflowPromptUpstreamHint')}</span>
+            </Field>
+            <Field label={t('workflowLlmModel')}>
+              <input
+                className={INPUT_CLASS}
+                value={node.config.model}
+                placeholder={t('workflowLlmModelPlaceholder')}
+                onChange={(event) =>
+                  onChange({ ...node, config: { ...node.config, model: event.target.value } })
+                }
+              />
+            </Field>
+            <Field label={t('workflowLlmMaxTokens')}>
+              <input
+                className={INPUT_CLASS}
+                type="number"
+                min={0}
+                value={node.config.maxTokens}
+                onChange={(event) =>
+                  onChange({
+                    ...node,
+                    config: { ...node.config, maxTokens: Math.max(0, Number(event.target.value) || 0) }
+                  })
+                }
+              />
+            </Field>
+          </>
+        ) : null}
+
         {node.type === 'ai-agent' ? (
           <>
             <Field label={t('workflowPrompt')}>
@@ -1831,6 +1885,135 @@ export function NodeConfigPanel({
                 />
               </Field>
             ) : null}
+          </>
+        ) : null}
+
+        {node.type === 'research-search' ? (
+          <>
+            <Field label={t('workflowResearchQuery')} hint={t('workflowResearchQueryHint')}>
+              <textarea
+                className={`${INPUT_CLASS} min-h-[92px] resize-y`}
+                value={node.config.query}
+                placeholder="{{text}}"
+                onChange={(event) => onChange({ ...node, config: { ...node.config, query: event.target.value } })}
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label={t('workflowResearchIntent')}>
+                <select
+                  className={INPUT_CLASS}
+                  value={node.config.intent}
+                  onChange={(event) =>
+                    onChange({ ...node, config: { ...node.config, intent: event.target.value as WorkflowResearchIntent } })
+                  }
+                >
+                  {RESEARCH_INTENTS.map((intent) => (
+                    <option key={intent} value={intent}>
+                      {t(`workflowResearchIntent_${intent}`)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={t('workflowResearchDomain')}>
+                <select
+                  className={INPUT_CLASS}
+                  value={node.config.domain}
+                  onChange={(event) =>
+                    onChange({ ...node, config: { ...node.config, domain: event.target.value as WorkflowResearchDomain } })
+                  }
+                >
+                  {RESEARCH_DOMAINS.map((domain) => (
+                    <option key={domain} value={domain}>
+                      {t(`workflowResearchDomain_${domain}`)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label={t('workflowResearchSinceYear')} hint={t('workflowResearchSinceYearHint')}>
+                <input
+                  type="number"
+                  min={0}
+                  max={3000}
+                  className={INPUT_CLASS}
+                  value={node.config.sinceYear}
+                  onChange={(event) =>
+                    onChange({
+                      ...node,
+                      config: { ...node.config, sinceYear: Math.max(0, Math.min(3000, Math.round(Number(event.target.value) || 0))) }
+                    })
+                  }
+                />
+              </Field>
+              <Field label={t('workflowResearchMaxResults')} hint={t('workflowResearchMaxResultsHint')}>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  className={INPUT_CLASS}
+                  value={node.config.maxResults}
+                  onChange={(event) =>
+                    onChange({
+                      ...node,
+                      config: { ...node.config, maxResults: Math.max(1, Math.min(50, Math.round(Number(event.target.value) || 1))) }
+                    })
+                  }
+                />
+              </Field>
+            </div>
+            <div className="flex flex-col gap-2">
+              <span className="text-[12px] font-medium text-ds-muted">{t('workflowResearchSources')}</span>
+              <div className="grid grid-cols-2 gap-2">
+                {RESEARCH_SOURCES.map((source) => {
+                  const checked = node.config.sources.includes(source)
+                  return (
+                    <label key={source} className="flex items-center gap-2 rounded-lg border border-ds-border px-2.5 py-2 text-[12px] text-ds-ink">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => {
+                          const next = event.target.checked
+                            ? [...node.config.sources, source]
+                            : node.config.sources.filter((item) => item !== source)
+                          onChange({ ...node, config: { ...node.config, sources: next } })
+                        }}
+                      />
+                      {t(`workflowResearchSource_${source}`)}
+                    </label>
+                  )
+                })}
+              </div>
+              <p className="text-[11px] leading-4 text-ds-faint">{t('workflowResearchSourcesHint')}</p>
+            </div>
+          </>
+        ) : null}
+
+        {node.type === 'paper-download' ? (
+          <>
+            <Field label={t('workflowPaperDownloadOutputDir')} hint={t('workflowPaperDownloadOutputDirHint')}>
+              <input
+                className={INPUT_CLASS}
+                value={node.config.outputDir}
+                placeholder="papers"
+                onChange={(event) => onChange({ ...node, config: { ...node.config, outputDir: event.target.value } })}
+              />
+            </Field>
+            <Field label={t('workflowPaperDownloadMaxFiles')} hint={t('workflowPaperDownloadMaxFilesHint')}>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                className={INPUT_CLASS}
+                value={node.config.maxFiles}
+                onChange={(event) =>
+                  onChange({
+                    ...node,
+                    config: { ...node.config, maxFiles: Math.max(1, Math.min(50, Math.round(Number(event.target.value) || 1))) }
+                  })
+                }
+              />
+            </Field>
           </>
         ) : null}
 

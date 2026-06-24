@@ -1,8 +1,16 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { once } from 'node:events'
+import { createWriteStream } from 'node:fs'
+import { mkdir, rename, rm } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { URL } from 'node:url'
 import { compileFunction, runInNewContext } from 'node:vm'
+import {
+  createResearchSearchService,
+  researchSearchConfigFromEnv
+} from '../../packages/workers/search/src/research-service'
 import type {
   AppSettingsV1,
   WorkflowCodeCheckResult,
@@ -14,6 +22,9 @@ import type {
   WorkflowHttpRequestConfigV1,
   WorkflowInputFieldV1,
   WorkflowApprovalDecision,
+  WorkflowLlmConfigV1,
+  WorkflowPaperDownloadConfigV1,
+  WorkflowResearchSearchConfigV1,
   WorkflowNodeRunResultV1,
   WorkflowNodeTestResult,
   WorkflowPendingApprovalV1,
@@ -26,8 +37,11 @@ import type {
   WorkflowScheduleV1,
   WorkflowV1
 } from '../shared/app-settings'
+import { resolveRuntimeModelRouterSettings } from '../shared/app-settings-model-router'
 import { MAX_WORKFLOW_RUNS, normalizeWorkflow } from '../shared/app-settings-workflow'
+import { buildModelRouterResponsesUrl } from '../shared/model-router-url'
 import { exportWorkflowDsl } from '../shared/workflow-dsl'
+import { researchSearchEnvForGuiMcp } from './research-search-mcp-server'
 import {
   SCHEDULER_INTERVAL_MS,
   hasEnabledScheduledTask,
@@ -47,6 +61,11 @@ const MAX_RUN_DURATION_MS = 30 * 60_000
 const NO_BRANCH = '__none__'
 const AI_NODE_RESPONSE_TIMEOUT_MS = 30 * 60_000
 const HTTP_MAX_RESPONSE_BYTES = 5_000_000
+const PAPER_DOWNLOAD_MAX_BYTES = 100_000_000
+const PAPER_DOWNLOAD_TIMEOUT_MS = 120_000
+const RESEARCH_TEXT_FIELD_LIMIT = 900
+const RESEARCH_TEXT_RESULT_LIMIT = 5
+const LLM_NODE_RESPONSE_TIMEOUT_MS = 10 * 60_000
 const LIVE_STATUS_LINGER_MS = 8_000
 
 type WorkflowPayload = { json: unknown; text: string }
@@ -365,6 +384,82 @@ function buildAiPrompt(template: string, payload: WorkflowPayload, scope: Interp
   return base ? `${base}\n\n${context}` : context
 }
 
+type ModelRouterResponsesResponse = {
+  output_text?: string
+  output?: Array<{
+    content?: string | Array<{ text?: string; type?: string }>
+    text?: string
+  }>
+  choices?: Array<{
+    message?: { content?: string | Array<{ text?: string; type?: string }> }
+    text?: string
+  }>
+}
+
+function flattenModelRouterContent(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (!Array.isArray(value)) return ''
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item
+      if (isRecord(item) && typeof item.text === 'string') return item.text
+      return ''
+    })
+    .join('')
+}
+
+function modelRouterTextFromResponse(responseText: string): string {
+  let parsed: ModelRouterResponsesResponse
+  try {
+    parsed = JSON.parse(responseText) as ModelRouterResponsesResponse
+  } catch {
+    throw new Error('Model Router returned non-JSON data.')
+  }
+  if (typeof parsed.output_text === 'string') return parsed.output_text
+  if (Array.isArray(parsed.output)) {
+    const outputText = parsed.output
+      .map((item) => (typeof item?.text === 'string' ? item.text : flattenModelRouterContent(item?.content)))
+      .join('')
+    if (outputText) return outputText
+  }
+  const firstChoice = parsed.choices?.[0]
+  if (typeof firstChoice?.text === 'string') return firstChoice.text
+  return flattenModelRouterContent(firstChoice?.message?.content)
+}
+
+async function runLlmNode(
+  config: WorkflowLlmConfigV1,
+  payload: WorkflowPayload,
+  settings: AppSettingsV1,
+  scope: InterpScope
+): Promise<NodeOutcome> {
+  const router = resolveRuntimeModelRouterSettings(settings)
+  if (!router.apiKey) throw new Error('Missing Model Router runtime API key.')
+  const url = buildModelRouterResponsesUrl(router.baseUrl)
+  if (!url) throw new Error('Missing Model Router base URL.')
+  const prompt = buildAiPrompt(config.prompt, payload, scope)
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${router.apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: config.model.trim() || router.model,
+      input: prompt,
+      ...(config.maxTokens > 0 ? { max_tokens: config.maxTokens } : {})
+    }),
+    signal: AbortSignal.timeout(LLM_NODE_RESPONSE_TIMEOUT_MS)
+  })
+  const responseText = await response.text()
+  if (!response.ok) {
+    throw new Error(`Model Router request failed (${response.status}): ${responseText.slice(0, 500)}`)
+  }
+  const text = modelRouterTextFromResponse(responseText)
+  return { payload: { json: { text }, text }, message: summarizeTaskResult(text) }
+}
+
 function evaluateCondition(
   config: WorkflowConditionConfigV1,
   payload: WorkflowPayload,
@@ -474,6 +569,291 @@ async function runHttpNode(
     throw error
   } finally {
     clearTimeout(timer)
+  }
+}
+
+function boundedRuntimeNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === 'number' ? value : Number(String(value ?? '').trim())
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(max, Math.max(min, Math.floor(parsed)))
+}
+
+function scopedNumberInput(
+  scope: InterpScope | undefined,
+  key: string,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  return boundedRuntimeNumber(scope?.input?.[key], fallback, min, max)
+}
+
+function defaultResearchQuery(payload: WorkflowPayload, scope?: InterpScope): string {
+  const inputQuery = scope?.input?.query
+  if (typeof inputQuery === 'string' && inputQuery.trim()) return inputQuery.trim()
+  const text = meaningfulText(payload.text ?? '')
+  if (text) return text
+  return meaningfulText(stringifyValue(payload.json))
+}
+
+function compactText(value: unknown, limit = RESEARCH_TEXT_FIELD_LIMIT): string {
+  const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : stringifyValue(value)
+  return text.length > limit ? `${text.slice(0, limit).trim()}...` : text
+}
+
+function compactResearchText(json: Record<string, unknown>): string {
+  const lines: string[] = []
+  const query = stringFromRecord(json, 'query')
+  if (query) lines.push(`Query: ${query}`)
+  const papers = Array.isArray(json.papers) ? json.papers.filter(isRecord).slice(0, RESEARCH_TEXT_RESULT_LIMIT) : []
+  if (papers.length > 0) {
+    lines.push('Papers:')
+    papers.forEach((paper, index) => {
+      const title = stringFromRecord(paper, 'title') || `Paper ${index + 1}`
+      const year = paper.year ? ` (${paper.year})` : ''
+      const venue = stringFromRecord(paper, 'venue')
+      const url = stringFromRecord(paper, 'url') || stringFromRecord(paper, 'pdfUrl')
+      const summary = compactText(stringFromRecord(paper, 'tldr') || stringFromRecord(paper, 'abstract'), 600)
+      lines.push(`${index + 1}. ${title}${year}${venue ? ` — ${venue}` : ''}`)
+      if (summary) lines.push(`   Summary: ${summary}`)
+      if (url) lines.push(`   URL: ${url}`)
+    })
+  }
+  const webResults = Array.isArray(json.webResults) ? json.webResults.filter(isRecord).slice(0, 3) : []
+  if (webResults.length > 0) {
+    lines.push('Web results:')
+    webResults.forEach((result, index) => {
+      const title = stringFromRecord(result, 'title') || `Result ${index + 1}`
+      const url = stringFromRecord(result, 'url')
+      const snippet = compactText(stringFromRecord(result, 'snippet'), 450)
+      lines.push(`${index + 1}. ${title}${url ? ` — ${url}` : ''}`)
+      if (snippet) lines.push(`   Snippet: ${snippet}`)
+    })
+  }
+  const gaps = Array.isArray(json.gaps) ? json.gaps.map((item) => compactText(item, 240)).filter(Boolean) : []
+  if (gaps.length > 0) lines.push(`Gaps: ${gaps.join(' | ')}`)
+  const followups = Array.isArray(json.suggestedFollowups)
+    ? json.suggestedFollowups.map((item) => compactText(item, 180)).filter(Boolean)
+    : []
+  if (followups.length > 0) lines.push(`Suggested followups: ${followups.join(' | ')}`)
+  return lines.join('\n').trim() || safeJson(json)
+}
+
+function compactDownloadText(json: Record<string, unknown>): string {
+  const base = compactResearchText(json)
+  const downloads = Array.isArray(json.downloads) ? json.downloads.filter(isRecord) : []
+  const downloadLines = downloads.map((download, index) => {
+    const title = stringFromRecord(download, 'title') || `Download ${index + 1}`
+    const status = stringFromRecord(download, 'status') || 'unknown'
+    const localPath = stringFromRecord(download, 'localPath')
+    const reason = stringFromRecord(download, 'reason')
+    return `${index + 1}. ${title} — ${status}${localPath ? ` — ${localPath}` : ''}${reason ? ` — ${reason}` : ''}`
+  })
+  return [base, downloadLines.length ? `Downloads:\n${downloadLines.join('\n')}` : 'Downloads: none'].filter(Boolean).join('\n')
+}
+
+async function runResearchSearchNode(
+  config: WorkflowResearchSearchConfigV1,
+  payload: WorkflowPayload,
+  scope?: InterpScope
+): Promise<NodeOutcome> {
+  const query = meaningfulText(interpolate(config.query, payload, scope)) || defaultResearchQuery(payload, scope)
+  if (!query) throw new Error('Research search query is required.')
+  const maxResults = scopedNumberInput(scope, 'maxResults', config.maxResults, 1, 50)
+  const sinceYear = scopedNumberInput(scope, 'sinceYear', config.sinceYear, 0, 3000)
+  const service = createResearchSearchService(
+    researchSearchConfigFromEnv(researchSearchEnvForGuiMcp(process.env, process.argv))
+  )
+  const result = await service.search({
+    query,
+    intent: config.intent,
+    domain: config.domain,
+    ...(sinceYear ? { sinceYear } : {}),
+    maxResults,
+    sources: config.sources.length > 0 ? config.sources : undefined
+  })
+  const base = isRecord(payload.json) ? { ...payload.json } : { input: payload.json }
+  const json = { ...base, query, ...result }
+  return {
+    payload: { json, text: compactResearchText(json) },
+    message: `found ${result.papers.length} paper(s)`
+  }
+}
+
+function resolveWorkflowOutputDir(runWorkspace: string, rawDir: string): string {
+  const base = resolve(runWorkspace || process.cwd())
+  const dir = rawDir.trim() || 'papers'
+  if (isAbsolute(dir)) throw new Error('Download outputDir must be relative to the workflow workspace.')
+  const target = resolve(base, dir)
+  const rel = relative(base, target)
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error('Download outputDir must stay inside the workflow workspace.')
+  }
+  return target
+}
+
+function sanitizeDownloadName(value: unknown, fallback: string): string {
+  const raw = typeof value === 'string' && value.trim() ? value.trim() : fallback
+  const safe = raw
+    .split('')
+    .map((char) => (char.charCodeAt(0) < 32 || '<>:"/\\|?*'.includes(char) ? ' ' : char))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+  return safe || fallback
+}
+
+function candidatePapers(payload: WorkflowPayload): Record<string, unknown>[] {
+  const source = isRecord(payload.json) && Array.isArray(payload.json.papers) ? payload.json.papers : payload.json
+  if (!Array.isArray(source)) return []
+  return source.filter(isRecord)
+}
+
+function stringFromRecord(record: Record<string, unknown>, key: string): string {
+  const value = record[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function looksLikePdfUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+    const path = url.pathname.toLowerCase()
+    return path.endsWith('.pdf') || path.includes('/pdf/')
+  } catch {
+    return false
+  }
+}
+
+function paperPdfUrl(paper: Record<string, unknown>): string {
+  const pdfUrl = stringFromRecord(paper, 'pdfUrl')
+  if (pdfUrl) return pdfUrl
+  const url = stringFromRecord(paper, 'url')
+  return url && looksLikePdfUrl(url) ? url : ''
+}
+
+function responseLooksPdf(response: Response, url: string): boolean {
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+  return contentType.includes('application/pdf') || contentType.includes('application/octet-stream') || looksLikePdfUrl(url)
+}
+
+async function writeResponseBodyToFile(response: Response, partPath: string, limitBytes: number): Promise<number> {
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('Response has no body.')
+  const out = createWriteStream(partPath, { flags: 'wx' })
+  const finished = Promise.race([
+    once(out, 'finish'),
+    once(out, 'error').then(([error]) => {
+      throw error instanceof Error ? error : new Error(String(error))
+    })
+  ])
+  let bytes = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+      bytes += value.byteLength
+      if (bytes > limitBytes) {
+        await reader.cancel()
+        throw new Error('Downloaded PDF exceeds the 100MB limit.')
+      }
+      if (!out.write(Buffer.from(value))) await once(out, 'drain')
+    }
+    out.end()
+    await finished
+    return bytes
+  } catch (error) {
+    out.destroy()
+    await reader.cancel().catch(() => {})
+    throw error
+  }
+}
+
+async function downloadPdf(url: string, finalPath: string): Promise<number> {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error('Invalid PDF URL.')
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Only http(s) PDF URLs are allowed.')
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), PAPER_DOWNLOAD_TIMEOUT_MS)
+  const partPath = `${finalPath}.${randomUUID()}.part`
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/pdf,*/*;q=0.8' },
+      signal: controller.signal
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    if (!responseLooksPdf(response, url)) {
+      throw new Error(`URL did not return a PDF (${response.headers.get('content-type') || 'unknown content type'}).`)
+    }
+    const bytes = await writeResponseBodyToFile(response, partPath, PAPER_DOWNLOAD_MAX_BYTES)
+    await rename(partPath, finalPath)
+    return bytes
+  } catch (error) {
+    await rm(partPath, { force: true }).catch(() => {})
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Download timed out after ${PAPER_DOWNLOAD_TIMEOUT_MS}ms.`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function runPaperDownloadNode(
+  config: WorkflowPaperDownloadConfigV1,
+  payload: WorkflowPayload,
+  runWorkspace: string,
+  scope?: InterpScope
+): Promise<NodeOutcome> {
+  const outputDir = resolveWorkflowOutputDir(runWorkspace, interpolate(config.outputDir, payload, scope))
+  await mkdir(outputDir, { recursive: true })
+  const papers = candidatePapers(payload)
+  const maxFiles = scopedNumberInput(scope, 'maxFiles', config.maxFiles, 1, 50)
+  const downloads: Array<Record<string, unknown>> = []
+  let attempts = 0
+  let downloaded = 0
+  for (let index = 0; index < papers.length; index += 1) {
+    const paper = papers[index]
+    const title = stringFromRecord(paper, 'title') || `paper-${index + 1}`
+    const pdfUrl = paperPdfUrl(paper)
+    const base = { title, pdfUrl }
+    if (!pdfUrl) {
+      downloads.push({ ...base, status: 'skipped', reason: 'No open PDF URL in the upstream paper record.' })
+      continue
+    }
+    if (attempts >= maxFiles) {
+      downloads.push({ ...base, status: 'skipped', reason: 'Download limit reached.' })
+      continue
+    }
+    attempts += 1
+    const safeTitle = sanitizeDownloadName(title, `paper-${index + 1}`)
+    const filename = `${String(index + 1).padStart(2, '0')}-${safeTitle}-${randomUUID().slice(0, 8)}.pdf`
+    const localPath = join(outputDir, filename)
+    try {
+      const bytes = await downloadPdf(pdfUrl, localPath)
+      downloaded += 1
+      downloads.push({ ...base, status: 'downloaded', localPath, bytes })
+    } catch (error) {
+      downloads.push({
+        ...base,
+        status: 'failed',
+        reason: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+  const base = isRecord(payload.json) ? { ...payload.json } : { input: payload.json }
+  const json = { ...base, downloads, downloadFolder: outputDir }
+  return {
+    payload: { json, text: compactDownloadText(json) },
+    message: `downloaded ${downloaded}/${attempts}`
   }
 }
 
@@ -1084,6 +1464,7 @@ export class WorkflowRuntime {
         pathname === '/workflow/internal/hook-run' ||
         pathname === '/workflow/internal/status' ||
         pathname === '/workflow/internal/stop' ||
+        pathname === '/workflow/internal/approval' ||
         pathname === '/workflow/internal/validate' ||
         pathname === '/workflow/internal/import' ||
         pathname === '/workflow/internal/export'
@@ -1179,6 +1560,20 @@ export class WorkflowRuntime {
 
     const body = await readRequestBody(req)
     const parsed = parseJsonObject(body) ?? {}
+
+    if (pathname === '/workflow/internal/approval') {
+      const token = stringField(parsed, 'token')
+      const rawDecision = stringField(parsed, 'decision')
+      const decision: WorkflowApprovalDecision =
+        rawDecision === 'approved' || rawDecision === 'allow' ? 'approved' : 'rejected'
+      if (!token) {
+        writeJson(res, 400, { ok: false, message: 'Provide an approval token.' })
+        return
+      }
+      const ok = this.resolveApproval(token, decision)
+      writeJson(res, ok ? 200 : 404, { ok, decision, message: ok ? 'Approval resolved.' : 'Approval not found.' })
+      return
+    }
 
     if (pathname === '/workflow/internal/validate') {
       if (parsed.workflow !== undefined && typeof parsed.workflow !== 'string') {
@@ -2073,6 +2468,8 @@ export class WorkflowRuntime {
       case 'webhook-trigger':
         // Triggers emit the run's initial payload (e.g. a webhook request body).
         return { payload, message: 'Triggered' }
+      case 'llm':
+        return runLlmNode(node.config, payload, settings, scope)
       case 'ai-agent': {
         const modelConfig = resolveScheduleModelConfig(
           settings,
@@ -2301,6 +2698,10 @@ export class WorkflowRuntime {
         }
         return { payload: { json: { count: items.length }, text: safeJson({ count: items.length }) }, message: `count ${items.length}` }
       }
+      case 'research-search':
+        return runResearchSearchNode(node.config, payload, scope)
+      case 'paper-download':
+        return runPaperDownloadNode(node.config, payload, runWorkspace, scope)
       case 'http-request':
         return runHttpNode(node.config, payload, scope)
       case 'delay':

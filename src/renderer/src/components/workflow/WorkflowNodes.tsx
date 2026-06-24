@@ -9,6 +9,7 @@ import {
   Brain,
   CalendarClock,
   Code2,
+  Download,
   FileJson,
   Filter,
   GitBranch,
@@ -22,6 +23,7 @@ import {
   Power,
   Repeat,
   Scissors,
+  Search,
   Sigma,
   Split,
   Tags,
@@ -56,6 +58,7 @@ export const NODE_ICONS: Record<WorkflowNodeKind, LucideIcon> = {
   'manual-trigger': Hand,
   'schedule-trigger': CalendarClock,
   'webhook-trigger': Webhook,
+  llm: Brain,
   'ai-agent': Brain,
   'generate-image': ImagePlus,
   condition: GitBranch,
@@ -66,6 +69,8 @@ export const NODE_ICONS: Record<WorkflowNodeKind, LucideIcon> = {
   sort: ArrowDownUp,
   limit: Scissors,
   aggregate: Sigma,
+  'research-search': Search,
+  'paper-download': Download,
   'http-request': Globe,
   merge: GitMerge,
   subworkflow: Workflow,
@@ -107,6 +112,8 @@ function nodeSummary(node: WorkflowNodeV1): string {
     }
     case 'webhook-trigger':
       return `${node.config.method} ${node.config.path}`.trim()
+    case 'llm':
+      return node.config.prompt.trim().slice(0, 60) || node.config.model || 'LLM'
     case 'ai-agent':
       return node.config.prompt.trim().slice(0, 60) || node.config.model || 'AI task'
     case 'generate-image':
@@ -127,6 +134,10 @@ function nodeSummary(node: WorkflowNodeV1): string {
       return `${node.config.from} ${node.config.count}`
     case 'aggregate':
       return node.config.field ? `${node.config.mode}(${node.config.field})` : node.config.mode
+    case 'research-search':
+      return `${node.config.intent} · ${node.config.maxResults}`
+    case 'paper-download':
+      return `${node.config.outputDir || 'papers'} · ${node.config.maxFiles}`
     case 'http-request':
       return `${node.config.method} ${node.config.url}`.trim()
     case 'merge':
