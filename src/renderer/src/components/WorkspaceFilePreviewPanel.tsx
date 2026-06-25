@@ -12,11 +12,15 @@ import {
 import {
   Check,
   ChevronRight,
+  Columns2,
   Copy,
   ExternalLink,
   FileCode2,
+  FilePenLine,
+  Eye,
   Loader2,
   PanelRightClose,
+  Save,
   StickyNote
 } from 'lucide-react'
 import {
@@ -57,6 +61,7 @@ import {
   type WritePdfSelection,
   type WritePdfSelectionPageRect
 } from './write/WritePdfViewer'
+import { WriteMarkdownEditor } from './write/WriteMarkdownEditor'
 
 type Props = {
   target: WorkspaceFileTarget | null
@@ -84,6 +89,9 @@ type BreadcrumbItem = {
   label: string
   directoryPath: string | null
 }
+
+type MarkdownFilePreviewMode = 'source' | 'split' | 'preview'
+type TextFileSaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const COPY_RESET_MS = 1400
 const PDF_SIDECAR_SAVE_DEBOUNCE_MS = 180
@@ -138,6 +146,12 @@ function relativePathSegments(path: string, workspaceRoot: string): string[] {
 
 function joinRelativePath(segments: string[]): string {
   return segments.join('/')
+}
+
+function parentDirectoryPath(path: string): string {
+  const normalized = path.replaceAll('\\', '/').replace(/\/+$/, '')
+  const slash = normalized.lastIndexOf('/')
+  return slash > 0 ? normalized.slice(0, slash) : ''
 }
 
 function extensionBadge(path: string, language: string): string {
@@ -195,6 +209,11 @@ export function WorkspaceFilePreviewPanel({
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [highlightHtml, setHighlightHtml] = useState(() => renderFallbackCodeHtml(''))
+  const [markdownMode, setMarkdownMode] = useState<MarkdownFilePreviewMode>('preview')
+  const [textDraft, setTextDraft] = useState('')
+  const [textSavedContent, setTextSavedContent] = useState('')
+  const [textSaveState, setTextSaveState] = useState<TextFileSaveState>('idle')
+  const [textSaveError, setTextSaveError] = useState<string | null>(null)
   const [pdfSidecar, setPdfSidecar] = useState<PdfAnnotationSidecar | null>(null)
   const [pdfAnnotationsOpen, setPdfAnnotationsOpen] = useState(false)
   const [pdfAnnotationPackageAction, setPdfAnnotationPackageAction] = useState<'export' | 'import' | 'reload' | null>(null)
@@ -300,7 +319,10 @@ export function WorkspaceFilePreviewPanel({
   const pdfPath = pdfResult?.path ?? null
   const pdfWorkspaceRoot = target?.workspaceRoot ?? workspaceRoot
   const pdfMtimeMs = pdfResult?.mtimeMs ?? null
-  const markdownPreviewActive = result?.ok && result.kind === 'text' && isMarkdownPreviewPath(result.path)
+  const textPreviewActive = result?.ok && result.kind === 'text'
+  const markdownPreviewActive = textPreviewActive && isMarkdownPreviewPath(result.path)
+  const textDirty = textPreviewActive && textDraft !== textSavedContent
+  const textEditable = textPreviewActive && !result.truncated
   const activeLine = result?.ok && result.kind === 'text' && result.line && result.line >= 1 && result.line <= lines.length
     ? result.line
     : null
@@ -335,6 +357,44 @@ export function WorkspaceFilePreviewPanel({
       cancelled = true
     }
   }, [result, language])
+
+  useEffect(() => {
+    if (!result?.ok || result.kind !== 'text') {
+      setTextDraft('')
+      setTextSavedContent('')
+      setTextSaveState('idle')
+      setTextSaveError(null)
+      return
+    }
+    setTextDraft(result.content)
+    setTextSavedContent(result.content)
+    setTextSaveState('idle')
+    setTextSaveError(null)
+  }, [result])
+
+  const saveTextDraft = useCallback(async (): Promise<void> => {
+    if (!result?.ok || result.kind !== 'text' || result.truncated) return
+    if (!textDirty || textSaveState === 'saving') return
+    setTextSaveState('saving')
+    setTextSaveError(null)
+    try {
+      const writeResult = await window.dsGui.writeWorkspaceFile({
+        workspaceRoot: target?.workspaceRoot ?? workspaceRoot,
+        path: result.path,
+        content: textDraft
+      })
+      if (!writeResult.ok) {
+        setTextSaveState('error')
+        setTextSaveError(writeResult.message)
+        return
+      }
+      setTextSavedContent(textDraft)
+      setTextSaveState('saved')
+    } catch (error) {
+      setTextSaveState('error')
+      setTextSaveError(error instanceof Error ? error.message : String(error))
+    }
+  }, [result, target?.workspaceRoot, textDirty, textDraft, textSaveState, workspaceRoot])
 
   const showPdfNotice = useCallback((notice: PreviewNotice): void => {
     setPdfNotice(notice)
@@ -939,17 +999,109 @@ export function WorkspaceFilePreviewPanel({
                 {t('filePreviewTruncated')}
               </div>
             ) : null}
-            {markdownPreviewActive ? (
-              <div
-                ref={scrollRef}
-                className="min-h-0 flex-1 overflow-auto bg-white px-5 py-5 dark:bg-ds-canvas"
-              >
-                <WriteMarkdownPreview
-                  content={result.content}
-                  isMarkdown
-                  filePath={result.path}
-                  previewErrorMessage={t('writePreviewErrorFallback')}
-                />
+            {textPreviewActive ? (
+              <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-ds-canvas">
+                <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-ds-border-muted/70 px-3">
+                  <div className="flex items-center gap-1">
+                    {markdownPreviewActive ? (
+                      ([
+                        ['source', FilePenLine, t('writeModeSourceShort')],
+                        ['split', Columns2, t('writeModeSplitShort')],
+                        ['preview', Eye, t('writeModePreviewShort')]
+                      ] as const).map(([mode, Icon, label]) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setMarkdownMode(mode)}
+                          className={`flex h-7 min-w-7 items-center justify-center rounded-md px-2 text-[11px] font-medium transition ${
+                            markdownMode === mode
+                              ? 'bg-ds-hover text-ds-ink'
+                              : 'text-ds-muted hover:bg-ds-hover/70 hover:text-ds-ink'
+                          }`}
+                          title={label}
+                          aria-label={label}
+                          aria-pressed={markdownMode === mode}
+                        >
+                          <Icon className="h-3.5 w-3.5" strokeWidth={1.8} />
+                          <span className="ml-1.5 hidden xl:inline">{label}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <span className="flex h-7 items-center gap-1.5 rounded-md bg-ds-hover px-2 text-[11px] font-medium text-ds-ink">
+                        <FilePenLine className="h-3.5 w-3.5" strokeWidth={1.8} />
+                        <span>{t('writeModeSourceShort')}</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex min-w-0 items-center gap-2">
+                    {textSaveState === 'error' && textSaveError ? (
+                      <span className="max-w-[220px] truncate text-[11px] text-red-600 dark:text-red-300" title={textSaveError}>
+                        {textSaveError}
+                      </span>
+                    ) : textDirty ? (
+                      <span className="text-[11px] text-ds-faint">{t('filePreviewUnsaved')}</span>
+                    ) : textSaveState === 'saved' ? (
+                      <span className="text-[11px] text-emerald-600 dark:text-emerald-300">{t('filePreviewSaved')}</span>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void saveTextDraft()}
+                      disabled={!textEditable || !textDirty || textSaveState === 'saving'}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-default disabled:opacity-45"
+                      title={t('filePreviewSave')}
+                      aria-label={t('filePreviewSave')}
+                    >
+                      {textSaveState === 'saving' ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.8} />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" strokeWidth={1.8} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <div className={`min-h-0 flex-1 ${markdownPreviewActive && markdownMode === 'split' ? 'grid grid-cols-2' : 'flex flex-col'}`}>
+                  {(!markdownPreviewActive || markdownMode !== 'preview') ? (
+                    <div className={`min-h-0 ${markdownPreviewActive && markdownMode === 'split' ? 'border-r border-ds-border-muted/70' : 'flex-1'}`}>
+                      <WriteMarkdownEditor
+                        value={textDraft}
+                        workspaceRoot={target?.workspaceRoot ?? workspaceRoot}
+                        filePath={result.path}
+                        imageDirectory={parentDirectoryPath(result.path)}
+                        appearance="source"
+                        livePreviewEnabled={false}
+                        markdownFeatures={markdownPreviewActive}
+                        readOnly={!textEditable}
+                        completionModel=""
+                        completionEnabled={false}
+                        completionDebounceMs={0}
+                        completionMinAcceptScore={0}
+                        completionLongEnabled={false}
+                        completionLongDebounceMs={0}
+                        completionLongMinAcceptScore={0}
+                        onChange={(value) => {
+                          setTextDraft(value)
+                          setTextSaveState('idle')
+                          setTextSaveError(null)
+                        }}
+                        onSelectionChange={() => undefined}
+                        onSaveShortcut={() => void saveTextDraft()}
+                      />
+                    </div>
+                  ) : null}
+                  {markdownPreviewActive && markdownMode !== 'source' ? (
+                    <div
+                      ref={scrollRef}
+                      className="min-h-0 flex-1 overflow-auto px-5 py-5"
+                    >
+                      <WriteMarkdownPreview
+                        content={textDraft}
+                        isMarkdown
+                        filePath={result.path}
+                        previewErrorMessage={t('writePreviewErrorFallback')}
+                      />
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ) : (
               <div

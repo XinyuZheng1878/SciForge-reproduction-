@@ -102,6 +102,7 @@ module.exports = {
     `**/${runtimeInspectorWorkerDir}/**/*`,
     `**/${paperRadarServiceDir}/**/*`,
     '**/node_modules/better-sqlite3/**/*',
+    '**/node_modules/node-pty/**/*',
     '**/node_modules/bindings/**/*',
     '**/node_modules/file-uri-to-path/**/*'
   ],

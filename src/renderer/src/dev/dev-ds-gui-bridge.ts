@@ -267,6 +267,15 @@ function createApi(): DsGuiApi {
     logError: (category, message, detail) => invoke('log:error', { category, message, detail }),
     getLogPath: () => invoke('log:get-path'),
     openLogDir: () => invoke('log:open-dir'),
+    createTerminal: async (payload) => ({
+      ok: false,
+      message: `Terminal session ${payload.sessionId} is only available in the Electron app.`
+    }),
+    writeToTerminal: async () => false,
+    resizeTerminal: async () => false,
+    disposeTerminal: async () => false,
+    onTerminalData: () => () => undefined,
+    onTerminalExit: () => () => undefined,
     getPathForFile: (file) => (file as File & { path?: string }).path ?? file.name
   }
 }

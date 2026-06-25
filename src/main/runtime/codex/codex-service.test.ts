@@ -842,6 +842,62 @@ describe('CodexRuntimeService compatibility operations', () => {
     queued.close()
   })
 
+  it('archives local Codex thread state when app-server cannot find the rollout', async () => {
+    const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await threadStore.upsert({
+      guiThreadId: 'gui-thread-1',
+      codexThreadId: 'codex-thread-missing',
+      workspace: '/tmp/workspace',
+      title: 'Stale Codex'
+    })
+    const client = controllableClient()
+    vi.mocked(client.request).mockRejectedValueOnce(new Error('no rollout found for thread id codex-thread-missing'))
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.archiveThread('gui-thread-1', true)).resolves.toEqual({ ok: true })
+    await expect(threadStore.get('gui-thread-1')).resolves.toMatchObject({ archived: true })
+    expect(client.request).toHaveBeenCalledWith('thread/archive', { threadId: 'codex-thread-missing' })
+  })
+
+  it('keeps locally archived live Codex threads out of the active list', async () => {
+    const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await threadStore.upsert({
+      guiThreadId: 'codex-thread-1',
+      codexThreadId: 'codex-thread-1',
+      workspace: '/tmp/workspace',
+      title: 'Archived Codex',
+      archived: true
+    })
+    const client = controllableClient()
+    vi.mocked(client.listThreads).mockResolvedValue({
+      threads: [{
+        id: 'codex-thread-1',
+        name: 'Archived Codex',
+        cwd: '/tmp/workspace',
+        status: 'idle'
+      }]
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.listThreads()).resolves.toEqual({ ok: true, threads: [] })
+    await expect(service.listThreads({ includeArchived: true })).resolves.toEqual({
+      ok: true,
+      threads: [expect.objectContaining({ id: 'codex-thread-1', archived: true })]
+    })
+  })
+
   it('initializes the app-server session before thread operations', async () => {
     const client = controllableClient()
     const service = new CodexRuntimeService({

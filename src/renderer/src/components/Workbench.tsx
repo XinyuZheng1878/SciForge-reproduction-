@@ -134,6 +134,9 @@ const WorkflowRunPanel = lazy(() =>
 const PaperRadarPanel = lazy(() =>
   import('./paper/PaperRadarPanel').then((module) => ({ default: module.PaperRadarPanel }))
 )
+const TerminalPanel = lazy(() =>
+  import('./terminal/TerminalPanel').then((module) => ({ default: module.TerminalPanel }))
+)
 
 type PendingSddPlanTarget = {
   planId: string
@@ -715,6 +718,7 @@ export function Workbench(): ReactElement {
   const {
     beginLeftResize,
     beginRightResize,
+    beginTerminalResize,
     filePreviewTarget,
     leftSidebarCollapsed,
     leftSidebarWidth,
@@ -726,8 +730,11 @@ export function Workbench(): ReactElement {
     setRightPanelMode,
     setRightSidebarWidth,
     shellRef,
+    terminalHeight,
+    terminalOpen,
     toggleLeftSidebar,
     toggleRightPanelMode,
+    toggleTerminal,
   } = useWorkbenchLayout({
     activeThreadId,
     latestAutoOpenDevPreviewUrl,
@@ -795,6 +802,10 @@ export function Workbench(): ReactElement {
         void chooseWorkspace()
         return
       }
+      if (commandId === 'toggle-terminal') {
+        toggleTerminal()
+        return
+      }
       if (commandId === 'settings') {
         openSettings()
         return
@@ -813,7 +824,8 @@ export function Workbench(): ReactElement {
     keyboardShortcutBindings,
     mode,
     openSettings,
-    setMode
+    setMode,
+    toggleTerminal
   ])
   const showDevPreviewCard =
     route === 'chat' &&
@@ -2147,6 +2159,8 @@ export function Workbench(): ReactElement {
                     onToggleRightPanelMode={toggleRightPanelMode}
                     planPanelEnabled={Boolean(activeGuiPlan)}
                     paperRadarEnabled={paperRadarEnabled}
+                    terminalOpen={terminalOpen}
+                    onToggleTerminal={toggleTerminal}
                     sideChatCount={currentSideConversations.length}
                     sideChatRunningCount={currentSideRunningCount}
                     sideChatOpen={sidePanel.open}
@@ -2271,6 +2285,24 @@ export function Workbench(): ReactElement {
                     }}
                   />
                 </div>
+                {terminalOpen ? (
+                  <div className="ds-no-drag flex w-full shrink-0 flex-col px-0 pb-0">
+                    <div
+                      role="separator"
+                      aria-orientation="horizontal"
+                      className="relative z-20 h-1 shrink-0 cursor-row-resize bg-transparent transition hover:bg-ds-border-muted"
+                      onPointerDown={beginTerminalResize}
+                    />
+                    <Suspense fallback={<div className="ds-surface-strong h-full w-full" />}>
+                      <TerminalPanel
+                        workspaceRoot={activeSkillWorkspace || workspaceRoot}
+                        height={terminalHeight}
+                        className="w-full"
+                        onCollapse={toggleTerminal}
+                      />
+                    </Suspense>
+                  </div>
+                ) : null}
               </>
             )}
           </section>

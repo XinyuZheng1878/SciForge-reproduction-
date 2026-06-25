@@ -92,6 +92,7 @@ import type { WriteAssistMcpLaunchConfig } from './write-assist-mcp-config'
 import type { RuntimeInspectorMcpLaunchConfig } from './runtime-inspector-mcp-config'
 import { syncExternalManagedGuiMcpConfig } from './gui-mcp-registry'
 import { registerAppIpcHandlers } from './ipc/register-app-ipc-handlers'
+import { registerTerminalPtyIpc } from './terminal/terminal-pty-ipc'
 import { startDevBrowserBridgeServer, type DevBrowserBridgeServer } from './dev-browser-bridge'
 import {
   configureManagedWeixinBridgeUrlResolver,
@@ -1504,6 +1505,11 @@ app.whenReady().then(async () => {
   syncWeixinBridgeRuntime(initial)
 
   traceStartup('ipc registration:start')
+  registerTerminalPtyIpc({
+    ipcMain,
+    getMainWindow: () => mainWindow,
+    logError
+  })
   const applySettingsPatch = async (partial: AppSettingsPatch): Promise<AppSettingsV1> => {
     const prev = await store.load()
     const {

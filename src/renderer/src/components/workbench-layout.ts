@@ -14,6 +14,7 @@ const LEFT_PANEL_WIDTH_KEY = 'deepseekgui.layout.leftSidebarWidth'
 const LEFT_PANEL_COLLAPSED_KEY = 'deepseekgui.layout.leftSidebarCollapsed'
 const RIGHT_PANEL_WIDTH_KEY = 'deepseekgui.layout.rightInspectorWidth'
 const RIGHT_PANEL_MODE_KEY = 'deepseekgui.layout.rightPanelMode'
+const TERMINAL_HEIGHT_KEY = 'deepseekgui.layout.terminalHeight'
 const LEFT_PANEL_DEFAULT = 304
 const RIGHT_PANEL_DEFAULT = 360
 export const CODE_PANEL_PREFERRED = 560
@@ -24,6 +25,9 @@ const RIGHT_PANEL_MAX = Number.POSITIVE_INFINITY
 const SIDEBAR_HARD_MIN = 180
 const MAIN_MIN_WIDTH = 0
 const PANEL_RESIZE_HANDLE_WIDTH = 5
+const TERMINAL_HEIGHT_DEFAULT = 360
+const TERMINAL_HEIGHT_MIN = 220
+const TERMINAL_HEIGHT_MAX = 760
 
 function clampWidth(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -169,6 +173,10 @@ export function useWorkbenchLayout({
   const [rightSidebarWidth, setRightSidebarWidth] = useState(() =>
     readStoredWidth(RIGHT_PANEL_WIDTH_KEY, RIGHT_PANEL_DEFAULT)
   )
+  const [terminalOpen, setTerminalOpen] = useState(false)
+  const [terminalHeight, setTerminalHeight] = useState(() =>
+    readStoredWidth(TERMINAL_HEIGHT_KEY, TERMINAL_HEIGHT_DEFAULT)
+  )
   const shellRef = useRef<HTMLDivElement | null>(null)
   const previewThreadId = useRef<string | null>(activeThreadId)
   const autoOpenedPreviewUrlRef = useRef<string | null>(null)
@@ -189,6 +197,10 @@ export function useWorkbenchLayout({
   useEffect(() => {
     persistRightPanelMode(rightPanelMode)
   }, [rightPanelMode])
+
+  useEffect(() => {
+    persistWidth(TERMINAL_HEIGHT_KEY, terminalHeight)
+  }, [terminalHeight])
 
   useEffect(() => {
     const onPreview = (event: Event): void => {
@@ -335,9 +347,42 @@ export function useWorkbenchLayout({
     window.addEventListener('pointerup', onUp)
   }
 
+  const beginTerminalResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0 || !terminalOpen) return
+    event.preventDefault()
+    const startY = event.clientY
+    const startHeight = terminalHeight
+    const prevCursor = document.body.style.cursor
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMove = (moveEvent: PointerEvent): void => {
+      const containerHeight = shellRef.current?.clientHeight ?? window.innerHeight
+      const maxHeight = Math.max(TERMINAL_HEIGHT_MIN, Math.min(TERMINAL_HEIGHT_MAX, containerHeight - 260))
+      const nextHeight = Math.min(Math.max(startHeight + startY - moveEvent.clientY, TERMINAL_HEIGHT_MIN), maxHeight)
+      setTerminalHeight(nextHeight)
+    }
+
+    const onUp = (): void => {
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevUserSelect
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  const toggleTerminal = (): void => {
+    setTerminalOpen((current) => !current)
+  }
+
   return {
     beginLeftResize,
     beginRightResize,
+    beginTerminalResize,
     filePreviewTarget,
     leftSidebarCollapsed,
     leftSidebarWidth,
@@ -349,7 +394,10 @@ export function useWorkbenchLayout({
     setRightPanelMode,
     setRightSidebarWidth,
     shellRef,
+    terminalHeight,
+    terminalOpen,
     toggleLeftSidebar,
-    toggleRightPanelMode
+    toggleRightPanelMode,
+    toggleTerminal
   }
 }

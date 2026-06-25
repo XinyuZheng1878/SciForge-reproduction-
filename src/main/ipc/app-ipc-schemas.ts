@@ -14,6 +14,15 @@ import {
   SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS,
   SPEECH_TRANSCRIPTION_MAX_DURATION_MS
 } from '../../shared/speech-to-text'
+import {
+  TERMINAL_DEFAULT_COLS,
+  TERMINAL_DEFAULT_ROWS,
+  TERMINAL_MAX_COLS,
+  TERMINAL_MAX_CWD_LENGTH,
+  TERMINAL_MAX_DATA_WRITE_BYTES,
+  TERMINAL_MAX_ROWS,
+  TERMINAL_MAX_SESSION_ID_LENGTH
+} from '../../shared/terminal'
 import { WRITE_EXPORT_FORMATS } from '../../shared/write-export'
 export {
   pdfAnnotationSidecarTargetSchema as pdfAnnotationSidecarLoadPayloadSchema,
@@ -217,6 +226,32 @@ export const agentRuntimeThreadRenamePayloadSchema = z.object({
   threadId: trimmedString(MAX_ID_LENGTH),
   title: z.string().trim().min(1).max(200)
 }).strict()
+
+export const terminalSessionIdSchema = trimmedString(TERMINAL_MAX_SESSION_ID_LENGTH)
+
+export const terminalCreatePayloadSchema = z
+  .object({
+    sessionId: terminalSessionIdSchema,
+    cwd: optionalTrimmedString(TERMINAL_MAX_CWD_LENGTH),
+    cols: z.number().int().min(1).max(TERMINAL_MAX_COLS).optional(),
+    rows: z.number().int().min(1).max(TERMINAL_MAX_ROWS).optional()
+  })
+  .strict()
+
+export const terminalWritePayloadSchema = z
+  .object({
+    sessionId: terminalSessionIdSchema,
+    data: z.string().min(1).max(TERMINAL_MAX_DATA_WRITE_BYTES)
+  })
+  .strict()
+
+export const terminalResizePayloadSchema = z
+  .object({
+    sessionId: terminalSessionIdSchema,
+    cols: z.number().int().min(1).max(TERMINAL_MAX_COLS).default(TERMINAL_DEFAULT_COLS),
+    rows: z.number().int().min(1).max(TERMINAL_MAX_ROWS).default(TERMINAL_DEFAULT_ROWS)
+  })
+  .strict()
 
 export const agentRuntimeThreadDeletePayloadSchema = z.object({
   runtimeId: agentRuntimeIdSchema.optional(),

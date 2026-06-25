@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -86,7 +86,8 @@ describe('electron-builder Kun packaging', () => {
     expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
       '**/kun/dist/**/*',
       '**/kun/package*.json',
-      '**/kun/node_modules/**/*'
+      '**/kun/node_modules/**/*',
+      '**/node_modules/node-pty/**/*'
     ]))
     expect(builderConfig.asarUnpack).not.toEqual(expect.arrayContaining([
       '**/node_modules/node-bin-darwin-*/*',
@@ -650,6 +651,19 @@ describe('electron-builder Kun packaging', () => {
       command: 'npm',
       args: ['prune']
     })
+  })
+
+  it('repairs node-pty spawn-helper execute bits in unpacked packages', () => {
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
+    const helper = join(unpackedRoot, 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper')
+    touch(helper)
+    chmodSync(helper, 0o644)
+
+    afterPack._internals.ensureNodePtyHelpersExecutable(context)
+
+    expect(statSync(helper).mode & 0o111).not.toBe(0)
   })
 
   it('requires Apple secure timestamps when Developer ID signing is enabled', () => {

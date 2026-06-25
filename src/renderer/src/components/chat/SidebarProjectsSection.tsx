@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import type { NormalizedThread } from '../../agent/types'
 import { formatRelativeTime } from '../../lib/format-relative-time'
+import { getDialogThreadTitle } from '../../lib/thread-title'
 import { workspaceLabelFromPath } from '../../lib/workspace-label'
 import {
   isClawWorkspacePath,
@@ -243,7 +244,7 @@ export function SidebarProjectsSection({
   const handleDeleteThread = async (thread: NormalizedThread): Promise<void> => {
     const threadId = thread.id.trim()
     if (!threadId || deletingThreadIds[threadId]) return
-    const confirmMessage = t('sidebarThreadDeleteConfirm', { title: thread.title })
+    const confirmMessage = t('sidebarThreadDeleteConfirm', { title: getDialogThreadTitle(thread) })
     if (!window.confirm(confirmMessage)) return
     setDeletingThreadIds((prev) => ({ ...prev, [threadId]: true }))
     try {
@@ -260,7 +261,7 @@ export function SidebarProjectsSection({
   const handleArchiveThread = async (thread: NormalizedThread): Promise<void> => {
     const threadId = thread.id.trim()
     if (!threadId || deletingThreadIds[threadId]) return
-    const confirmMessage = t('sidebarThreadArchiveConfirm', { title: thread.title })
+    const confirmMessage = t('sidebarThreadArchiveConfirm', { title: getDialogThreadTitle(thread) })
     if (!window.confirm(confirmMessage)) return
     setDeletingThreadIds((prev) => ({ ...prev, [threadId]: true }))
     try {

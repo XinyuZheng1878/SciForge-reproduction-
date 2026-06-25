@@ -40,6 +40,7 @@ import type {
   UserInputQuestion
 } from './types'
 import type { CoreMemoryRecordJson } from './kun-contract'
+import { getDisplayThreadTitle } from '../lib/thread-title'
 
 type LegacyCapabilities = ReturnType<AgentProvider['getCapabilities']>
 type SendUserMessageOptions = NonNullable<Parameters<AgentProvider['sendUserMessage']>[2]>
@@ -101,7 +102,7 @@ function unresolvedThreadRuntime(threadId: string): Error {
 }
 
 function normalizeThread(thread: AgentRuntimeThread): NormalizedThread {
-  return {
+  const normalized = {
     id: thread.id,
     runtimeId: thread.runtimeId,
     title: thread.title,
@@ -122,6 +123,10 @@ function normalizeThread(thread: AgentRuntimeThread): NormalizedThread {
     forkedFromMessageCount: thread.forkedFromMessageCount,
     forkedFromTurnCount: thread.forkedFromTurnCount,
     goal: thread.goal ?? null
+  }
+  return {
+    ...normalized,
+    title: getDisplayThreadTitle(normalized)
   }
 }
 

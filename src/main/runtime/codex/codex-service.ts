@@ -217,10 +217,12 @@ export class CodexRuntimeService {
         ...(options.archivedOnly === true ? { archivedOnly: true } : {})
       })
       const liveThreads = readThreadList(response).map(normalizeThread)
-      const persisted = await Promise.all(liveThreads.map((thread) => this.persistThread(thread)))
+      const persisted = await Promise.all(liveThreads.map((thread) => this.persistThread(thread, {
+        preserveArchived: true
+      })))
       const mappedLiveThreads = liveThreads.map((thread, index) => {
         const storedThread = persisted[index]
-        return storedThread ? { ...thread, id: storedThread.guiThreadId } : thread
+        return storedThread ? { ...thread, id: storedThread.guiThreadId, archived: storedThread.archived } : thread
       })
       return {
         ok: true,
@@ -437,9 +439,21 @@ export class CodexRuntimeService {
     try {
       const stored = await this.findStoredThread(threadId)
       if (archived) {
-        const { client } = await this.ensureConnectedClient()
-        await client.request('thread/archive', { threadId: stored?.codexThreadId ?? threadId })
-        await this.threadStore?.archive(stored?.guiThreadId ?? threadId)
+        try {
+          const { client } = await this.ensureConnectedClient()
+          await client.request('thread/archive', { threadId: stored?.codexThreadId ?? threadId })
+        } catch (error) {
+          if (!isMissingOrUnmaterializedThreadError(error)) throw error
+        }
+        if (stored) {
+          await this.threadStore?.archive(stored.guiThreadId)
+        } else {
+          await this.threadStore?.upsert({
+            guiThreadId: threadId,
+            codexThreadId: threadId,
+            archived: true
+          })
+        }
       } else if (stored) {
         await this.threadStore?.upsert({
           guiThreadId: stored.guiThreadId,
@@ -976,15 +990,18 @@ export class CodexRuntimeService {
 
   private async persistThread(
     thread: CodexNormalizedThread,
-    options: { guiThreadId?: string; workspace?: string; title?: string } = {}
+    options: { guiThreadId?: string; workspace?: string; title?: string; preserveArchived?: boolean } = {}
   ): Promise<CodexStoredThread | null> {
     if (!this.threadStore || !thread.id) return null
+    const existing = options.preserveArchived
+      ? await this.findStoredThread(options.guiThreadId ?? thread.id)
+      : null
     return this.threadStore.upsert({
       ...(options.guiThreadId !== undefined ? { guiThreadId: options.guiThreadId } : {}),
       codexThreadId: thread.id,
       workspace: options.workspace ?? thread.workspace,
       title: options.title ?? thread.title,
-      archived: thread.archived,
+      archived: existing?.archived ?? thread.archived,
       latestTurnId: thread.latestTurnId,
       updatedAt: thread.updatedAt
     })
@@ -1451,7 +1468,14 @@ function mergeThreads(
 ): CodexNormalizedThread[] {
   const byId = new Map<string, CodexNormalizedThread>()
   for (const thread of storedThreads) byId.set(thread.id, thread)
-  for (const thread of liveThreads) byId.set(thread.id, { ...byId.get(thread.id), ...thread })
+  for (const thread of liveThreads) {
+    const stored = byId.get(thread.id)
+    byId.set(thread.id, {
+      ...stored,
+      ...thread,
+      ...(stored ? { archived: stored.archived } : {})
+    })
+  }
   return [...byId.values()].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
 }
 
@@ -2135,7 +2159,7 @@ function safeUsageInteger(value: unknown): number {
 
 function isMissingOrUnmaterializedThreadError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
-  return /thread\s+.*not found|thread not found|not materialized yet|includeTurns is unavailable/i.test(message)
+  return /thread\s+.*not found|thread not found|no rollout found|not materialized yet|includeTurns is unavailable/i.test(message)
 }
 
 function isTerminalRuntimeError(error: CodexThreadEventPayload['runtimeError']): boolean {

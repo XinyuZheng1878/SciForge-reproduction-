@@ -4,6 +4,12 @@ import i18n from '../i18n'
 const LEGACY_PLACEHOLDER_TITLES = new Set(['New Thread', '新会话'])
 const INTERNAL_PLACEHOLDER_TITLE_PATTERN = /^__codex_[a-z0-9_]+__$/i
 const MAX_THREAD_TITLE_LENGTH = 48
+const MAX_DIALOG_THREAD_TITLE_LENGTH = 80
+const INTERNAL_PROMPT_TITLE_PATTERNS = [
+  /<\/?sciforge_runtime_instruction\b/i,
+  /Runtime context ledger for this thread/i,
+  /When an advertised specialized MCP tool directly matches/i
+]
 
 function normalizeTitleLine(line: string): string {
   return line
@@ -21,12 +27,16 @@ function stripTrailingPunctuation(text: string): string {
   return text.replace(/[\s,.;:!?，。；：！？、'"`()[\]{}]+$/g, '').trim()
 }
 
-function shortenTitle(text: string): string {
-  if (text.length <= MAX_THREAD_TITLE_LENGTH) return text
-  const sliced = text.slice(0, MAX_THREAD_TITLE_LENGTH)
+function shortenTitle(text: string, maxLength = MAX_THREAD_TITLE_LENGTH): string {
+  if (text.length <= maxLength) return text
+  const sliced = text.slice(0, maxLength)
   const lastSpace = sliced.lastIndexOf(' ')
   const compact = lastSpace >= 18 ? sliced.slice(0, lastSpace) : sliced
   return `${compact.trim()}...`
+}
+
+function hasInternalPromptTitleContent(text: string): boolean {
+  return INTERNAL_PROMPT_TITLE_PATTERNS.some((pattern) => pattern.test(text))
 }
 
 export function getDefaultThreadTitle(): string {
@@ -48,6 +58,29 @@ export function deriveThreadTitleFromPrompt(prompt: string): string {
   const core = sentenceBreak >= 8 ? firstLine.slice(0, sentenceBreak) : firstLine
   const trimmed = stripTrailingPunctuation(shortenTitle(core))
   return trimmed || fallback
+}
+
+export function getDisplayThreadTitle(
+  thread: Pick<NormalizedThread, 'title' | 'preview'> | null | undefined
+): string {
+  const raw = thread?.title?.trim() ?? ''
+  if (raw && !hasInternalPromptTitleContent(raw)) return raw
+
+  const preview = thread?.preview?.trim() ?? ''
+  if (preview && !hasInternalPromptTitleContent(preview)) {
+    return deriveThreadTitleFromPrompt(preview)
+  }
+
+  return getDefaultThreadTitle()
+}
+
+export function getDialogThreadTitle(
+  thread: Pick<NormalizedThread, 'title' | 'preview'> | null | undefined
+): string {
+  return shortenTitle(
+    getDisplayThreadTitle(thread).replace(/\s+/g, ' ').trim(),
+    MAX_DIALOG_THREAD_TITLE_LENGTH
+  )
 }
 
 export function isInternalPlaceholderThreadTitle(title: string | null | undefined): boolean {

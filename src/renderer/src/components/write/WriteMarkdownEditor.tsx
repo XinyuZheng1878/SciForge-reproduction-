@@ -35,6 +35,7 @@ type Props = {
   imageDirectory?: string | null
   appearance?: 'source' | 'live'
   livePreviewEnabled?: boolean
+  markdownFeatures?: boolean
   readOnly?: boolean
   completionModel: string
   completionEnabled: boolean
@@ -182,6 +183,7 @@ export function WriteMarkdownEditor({
   imageDirectory,
   appearance = 'live',
   livePreviewEnabled = appearance === 'live',
+  markdownFeatures = true,
   readOnly = false,
   completionModel,
   completionEnabled,
@@ -207,6 +209,7 @@ export function WriteMarkdownEditor({
   const filePathRef = useRef(filePath ?? '')
   const imageDirectoryRef = useRef(imageDirectory ?? '')
   const livePreviewEnabledRef = useRef(livePreviewEnabled)
+  const markdownFeaturesRef = useRef(markdownFeatures)
   const readOnlyRef = useRef(readOnly)
   const completionModelRef = useRef(completionModel)
   const completionEnabledRef = useRef(completionEnabled)
@@ -229,6 +232,7 @@ export function WriteMarkdownEditor({
   filePathRef.current = filePath ?? ''
   imageDirectoryRef.current = imageDirectory ?? ''
   livePreviewEnabledRef.current = livePreviewEnabled
+  markdownFeaturesRef.current = markdownFeatures
   readOnlyRef.current = readOnly
   completionModelRef.current = completionModel
   completionEnabledRef.current = completionEnabled
@@ -300,7 +304,7 @@ export function WriteMarkdownEditor({
       extensions: [
         themeCompartment.of(buildEditorTheme(appearanceRef.current)),
         livePreviewCompartment.of(
-          appearanceRef.current === 'live' && livePreviewEnabledRef.current
+          markdownFeaturesRef.current && appearanceRef.current === 'live' && livePreviewEnabledRef.current
             ? writeMarkdownLivePreviewExtensions(filePathRef.current)
             : []
         ),
@@ -319,6 +323,7 @@ export function WriteMarkdownEditor({
             key: 'Tab',
             run: (view) => {
               if (readOnlyRef.current) return false
+              if (!markdownFeaturesRef.current) return false
               return expandWriteTemplateShortcut(view)
             }
           },
@@ -334,6 +339,7 @@ export function WriteMarkdownEditor({
         EditorView.domEventHandlers({
           paste(event, view) {
             if (readOnlyRef.current) return false
+            if (!markdownFeaturesRef.current) return false
             if (!hasClipboardImage(event)) return false
             const nextWorkspaceRoot = workspaceRootRef.current.trim()
             const nextFilePath = filePathRef.current.trim()
@@ -401,7 +407,7 @@ export function WriteMarkdownEditor({
           if (update.docChanged || update.selectionSet) {
             onSelectionChangeRef.current(buildCodeMirrorEditorSelectionState(update.view))
           }
-          if (update.docChanged && !externalValueSync && !termPropagationSync) {
+          if (markdownFeaturesRef.current && update.docChanged && !externalValueSync && !termPropagationSync) {
             const seed = termReplacementSeedFromUpdate(update)
             if (seed) {
               const content = update.state.doc.toString()
@@ -454,12 +460,12 @@ export function WriteMarkdownEditor({
       effects: [
         themeCompartment.reconfigure(buildEditorTheme(appearance)),
         livePreviewCompartment.reconfigure(
-          appearance === 'live' && livePreviewEnabled ? writeMarkdownLivePreviewExtensions(filePath) : []
+          markdownFeatures && appearance === 'live' && livePreviewEnabled ? writeMarkdownLivePreviewExtensions(filePath) : []
         ),
         editableCompartment.reconfigure(buildInteractionExtensions(readOnly, appearance))
       ]
     })
-  }, [appearance, filePath, livePreviewEnabled, readOnly])
+  }, [appearance, filePath, livePreviewEnabled, markdownFeatures, readOnly])
 
   useEffect(() => {
     const view = viewRef.current
