@@ -3,7 +3,7 @@ import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -24,9 +24,9 @@ function settings(): AppSettingsV1 {
       ...defaultModelRouterSettings(),
       runtimeApiKey: 'local-runtime-router-key'
     },
-    activeAgentRuntime: 'kun',
+    activeAgentRuntime: 'sciforge',
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',

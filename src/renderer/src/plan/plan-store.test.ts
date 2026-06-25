@@ -7,7 +7,7 @@ import {
   useGuiPlanStore
 } from './plan-store'
 
-const PLAN_REGISTRY_STORAGE_KEY = 'deepseekgui.plan.registry.v1'
+const PLAN_REGISTRY_STORAGE_KEY = 'sciforge.plan.registry.v1'
 
 function createMemoryStorage(): Storage {
   const items = new Map<string, string>()
@@ -43,7 +43,7 @@ describe('plan-store', () => {
     const plan = createGuiPlanArtifact({
       workspaceRoot: '/tmp/app',
       threadId: 'thread-a',
-      relativePath: '.deepseekgui/plan/auth.md',
+      relativePath: '.sciforge/plan/auth.md',
       sourceRequest: 'auth',
       now: 1
     })
@@ -58,7 +58,7 @@ describe('plan-store', () => {
   it('remembers threadless plans at workspace scope without leaking into threaded context', () => {
     const plan = createGuiPlanArtifact({
       workspaceRoot: '/tmp/app',
-      relativePath: '.deepseekgui/plan/draft.md',
+      relativePath: '.sciforge/plan/draft.md',
       sourceRequest: 'draft',
       now: 1
     })
@@ -83,7 +83,7 @@ describe('plan-store', () => {
         valid: {
           workspaceRoot: '/tmp/valid/',
           threadId: 'thread-a',
-          relativePath: '.deepseekgui/plan/draft.md',
+          relativePath: '.sciforge/plan/draft.md',
           sourceRequest: 'draft',
           createdAt: '2026-01-01T00:00:00.000Z'
         },
@@ -109,7 +109,7 @@ describe('plan-store', () => {
     const plan = createGuiPlanArtifact({
       workspaceRoot: '/tmp/app',
       threadId: 'thread-a',
-      relativePath: '.deepseekgui/plan/auth.md',
+      relativePath: '.sciforge/plan/auth.md',
       sourceRequest: 'auth',
       now: 1
     })
@@ -124,7 +124,7 @@ describe('plan-store', () => {
     const plan = createGuiPlanArtifact({
       workspaceRoot: '/tmp/app',
       threadId: 'thread-a',
-      relativePath: '.deepseekgui/plan/auth.md',
+      relativePath: '.sciforge/plan/auth.md',
       sourceRequest: 'auth',
       now: 1
     })
@@ -142,13 +142,13 @@ describe('plan-store', () => {
     const plan = createGuiPlanArtifact({
       workspaceRoot: '/tmp/app',
       threadId: 'thread-a',
-      relativePath: '.deepseekgui/plan/auth.md',
+      relativePath: '.sciforge/plan/auth.md',
       sourceRequest: 'auth',
       now: 1
     })
     const threadlessPlan = createGuiPlanArtifact({
       workspaceRoot: '/tmp/app',
-      relativePath: '.deepseekgui/plan/draft.md',
+      relativePath: '.sciforge/plan/draft.md',
       sourceRequest: 'draft',
       now: 1
     })

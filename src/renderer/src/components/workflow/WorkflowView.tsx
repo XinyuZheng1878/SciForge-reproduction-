@@ -73,9 +73,9 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
   const [runInputTarget, setRunInputTarget] = useState<WorkflowV1 | null>(null)
 
   const refreshStatus = useCallback(async (): Promise<void> => {
-    if (typeof window.dsGui?.getWorkflowStatus !== 'function') return
+    if (typeof window.sciforge?.getWorkflowStatus !== 'function') return
     try {
-      setStatus(await window.dsGui.getWorkflowStatus())
+      setStatus(await window.sciforge.getWorkflowStatus())
     } catch {
       /* ignore transient status errors */
     }
@@ -85,8 +85,8 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
     try {
       const [nextSettings, nextStatus] = await Promise.all([
         rendererRuntimeClient.getSettings({ forceRefresh: true }),
-        typeof window.dsGui?.getWorkflowStatus === 'function'
-          ? window.dsGui.getWorkflowStatus()
+        typeof window.sciforge?.getWorkflowStatus === 'function'
+          ? window.sciforge.getWorkflowStatus()
           : Promise.resolve(null)
       ])
       setSettings(nextSettings)
@@ -284,8 +284,8 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
 
   const handleRun = useCallback(
     async (id: string, input?: Record<string, unknown>): Promise<void> => {
-      if (typeof window.dsGui?.runWorkflow !== 'function') return
-      const result = await window.dsGui.runWorkflow(id, input)
+      if (typeof window.sciforge?.runWorkflow !== 'function') return
+      const result = await window.sciforge.runWorkflow(id, input)
       if (!result.ok) {
         setError(result.message)
         return
@@ -309,8 +309,8 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
 
   const handleStop = useCallback(
     async (id: string): Promise<void> => {
-      if (typeof window.dsGui?.stopWorkflow !== 'function') return
-      await window.dsGui.stopWorkflow(id)
+      if (typeof window.sciforge?.stopWorkflow !== 'function') return
+      await window.sciforge.stopWorkflow(id)
       void refreshStatus()
     },
     [refreshStatus]
@@ -318,8 +318,8 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
 
   const handleResolveApproval = useCallback(
     async (token: string, decision: WorkflowApprovalDecision): Promise<void> => {
-      if (typeof window.dsGui?.resolveWorkflowApproval !== 'function') return
-      const result = await window.dsGui.resolveWorkflowApproval(token, decision)
+      if (typeof window.sciforge?.resolveWorkflowApproval !== 'function') return
+      const result = await window.sciforge.resolveWorkflowApproval(token, decision)
       if (!result.ok) setError(t('workflowApprovalResolveFailed'))
       else setError(null)
       void refreshStatus()
@@ -329,8 +329,8 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
 
   const handleRunNode = useCallback(
     async (workflowId: string, nodeId: string): Promise<void> => {
-      if (typeof window.dsGui?.runWorkflowNode !== 'function') return
-      const result = await window.dsGui.runWorkflowNode(workflowId, nodeId)
+      if (typeof window.sciforge?.runWorkflowNode !== 'function') return
+      const result = await window.sciforge.runWorkflowNode(workflowId, nodeId)
       if (!result.ok) {
         setError(result.message)
         return

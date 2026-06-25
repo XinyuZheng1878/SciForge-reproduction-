@@ -30,7 +30,7 @@ describe('MessageTimeline initial heatmap empty hero routing', () => {
     await i18n.changeLanguage('en')
   })
 
-  it('shows the Kun heatmap for eligible initial chat states', () => {
+  it('shows the local runtime heatmap for eligible initial chat states', () => {
     const html = renderHero()
 
     expect(html).toContain('ds-initial-usage-heatmap')

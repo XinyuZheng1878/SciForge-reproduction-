@@ -135,7 +135,7 @@ export async function loadWorkspaceFileIndex(workspaceRoot: string): Promise<Wor
       const current = queue.shift()
       if (!current) break
       visitedDirectories += 1
-      const result = await window.dsGui.listWorkspaceDirectory({
+      const result = await window.sciforge.listWorkspaceDirectory({
         workspaceRoot: root,
         path: current.path
       })

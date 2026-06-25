@@ -7,7 +7,7 @@ import { InMemorySessionStore } from '../src/adapters/in-memory-session-store.js
 import { CapabilityRegistry } from '../src/adapters/tool/capability-registry.js'
 import { buildDelegationToolProviders } from '../src/adapters/tool/delegation-tool-provider.js'
 import { LocalToolHost } from '../src/adapters/tool/local-tool-host.js'
-import { KunCapabilitiesConfig } from '../src/contracts/capabilities.js'
+import { LocalRuntimeCapabilitiesConfig } from '../src/contracts/capabilities.js'
 import { DelegationRuntime, FileDelegationStore } from '../src/delegation/delegation-runtime.js'
 import { RuntimeEventRecorder } from '../src/services/runtime-event-recorder.js'
 
@@ -207,7 +207,7 @@ describe('DelegationRuntime', () => {
       allocateSeq: (threadId) => bus.allocateSeq(threadId),
       nowIso: () => '2026-06-03T00:00:00.000Z'
     })
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       subagents: {
         enabled: options.enabled ?? true,
         maxParallel: 1,

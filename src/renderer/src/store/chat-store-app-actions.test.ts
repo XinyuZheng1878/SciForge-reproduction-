@@ -19,7 +19,7 @@ function channel(id: string): ClawImChannelV1 {
     agentThreadIds: {
       codex: 'codex-thread'
     },
-    workspaceRoot: '/workspace/deepseek-gui',
+    workspaceRoot: '/workspace/sciforge',
     agentProfile: {
       name: 'discord bot',
       description: '',
@@ -40,7 +40,7 @@ function channel(id: string): ClawImChannelV1 {
       agentThreadIds: {
         codex: 'codex-thread'
       },
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       createdAt: '2026-06-13T00:00:00.000Z',
       updatedAt: '2026-06-13T00:00:00.000Z'
     }],
@@ -139,9 +139,9 @@ describe('chat-store app actions', () => {
     })
     const bindingBefore = JSON.parse(JSON.stringify(state.clawChannels))
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => ({
-          workspaceRoot: '/workspace/deepseek-gui',
+          workspaceRoot: '/workspace/sciforge',
           theme: 'system',
           uiFontScale: 'small',
           locale: 'en',
@@ -165,12 +165,12 @@ describe('chat-store app actions', () => {
       threadId: 'kun-thread',
       runtimeId: 'codex',
       agentThreadIds: { codex: 'codex-thread' },
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       conversations: [expect.objectContaining({
         chatId: 'support-room',
         runtimeId: 'codex',
         agentThreadIds: { codex: 'codex-thread' },
-        workspaceRoot: '/workspace/deepseek-gui'
+        workspaceRoot: '/workspace/sciforge'
       })]
     })
     expect(state.activeThreadId).toBe('codex-thread')

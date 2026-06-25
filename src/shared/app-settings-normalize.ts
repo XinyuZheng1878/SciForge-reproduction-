@@ -16,13 +16,12 @@ import {
 } from './app-settings-types'
 import { normalizeKeyboardShortcuts, type KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
 import {
-  defaultKunRuntimeSettings,
-  getKunRuntimeSettings,
-  kunSettingsEnvelope,
-  mergeKunRuntimeSettings,
-  migrateLegacyAppSettings,
+  defaultLocalRuntimeSettings,
+  getLocalRuntimeSettings,
+  agentRuntimeSettingsEnvelope,
+  mergeLocalRuntimeSettings,
   normalizeRuntimeGuardSettings
-} from './app-settings-kun'
+} from './app-settings-local-runtime'
 import {
   defaultCodexRuntimeSettings,
   getCodexRuntimeSettings,
@@ -36,7 +35,7 @@ import {
 } from './app-settings-claude'
 import { normalizeModelProviderSettings } from './app-settings-provider'
 import { normalizeModelRouterSettings } from './app-settings-model-router'
-import { normalizeDeepseekBaseUrl, normalizeInstallationId } from './app-settings-normalizers'
+import { normalizeInstallationId } from './app-settings-normalizers'
 import { normalizeClawSettings } from './app-settings-claw'
 import { normalizeScheduleSettings } from './app-settings-schedule'
 import { normalizeWorkflowSettings } from './app-settings-workflow'
@@ -47,10 +46,7 @@ import { normalizeResearchMemorySettings } from './app-settings-research-memory'
 import { normalizeAgentCapabilitySettings } from './app-settings-agent-capabilities'
 
 export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
-  const migrated = shouldMigrateLegacySettings(settings)
-    ? migrateLegacyAppSettings(settings as Parameters<typeof migrateLegacyAppSettings>[0])
-    : settings
-  const maybeSettings = migrated as AppSettingsV1 & {
+  const maybeSettings = settings as AppSettingsV1 & {
     appBehavior?: Partial<AppBehaviorConfigV1>
     keyboardShortcuts?: Partial<KeyboardShortcutsConfigV1>
     notifications?: Partial<NotificationConfigV1>
@@ -66,14 +62,12 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     agentCapabilities?: AgentCapabilitySettingsPatchV1
     computerUse?: ComputerUseSettingsPatchV1
     researchMemory?: ResearchMemorySettingsPatchV1
-    kunToolStorm?: unknown
-    runtime?: { toolStorm?: unknown }
   }
-  const runtime = getKunRuntimeSettings(maybeSettings)
+  const runtime = getLocalRuntimeSettings(maybeSettings)
   const codexRuntime = getCodexRuntimeSettings(maybeSettings)
   const claudeRuntime = getClaudeRuntimeSettings(maybeSettings)
   return {
-    ...migrated,
+    ...settings,
     version: 1,
     installationId: normalizeInstallationId(maybeSettings.installationId),
     locale: maybeSettings.locale === 'zh' ? 'zh' : 'en',
@@ -89,19 +83,13 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
         : 'small',
     provider: normalizeModelProviderSettings(maybeSettings.provider),
     modelRouter: normalizeModelRouterSettings(maybeSettings.modelRouter),
-    runtimeGuards: normalizeRuntimeGuardSettings(maybeSettings.runtimeGuards, {
-      kunToolStorm: maybeSettings.kunToolStorm,
-      runtimeToolStorm: maybeSettings.runtime?.toolStorm
-    }),
+    runtimeGuards: normalizeRuntimeGuardSettings(maybeSettings.runtimeGuards),
     agentCapabilities: normalizeAgentCapabilitySettings(maybeSettings.agentCapabilities),
     computerUse: normalizeComputerUseSettings(maybeSettings.computerUse),
     researchMemory: normalizeResearchMemorySettings(maybeSettings.researchMemory),
     activeAgentRuntime: normalizeAgentRuntimeId(maybeSettings.activeAgentRuntime),
     agents: {
-      ...kunSettingsEnvelope(mergeKunRuntimeSettings(defaultKunRuntimeSettings(), {
-        ...runtime,
-        baseUrl: runtime.baseUrl.trim() ? normalizeDeepseekBaseUrl(runtime.baseUrl) : ''
-      })),
+      ...agentRuntimeSettingsEnvelope(mergeLocalRuntimeSettings(defaultLocalRuntimeSettings(), runtime)),
       codex: mergeCodexRuntimeSettings(defaultCodexRuntimeSettings(), codexRuntime),
       claude: mergeClaudeRuntimeSettings(defaultClaudeRuntimeSettings(), claudeRuntime)
     },
@@ -138,26 +126,4 @@ export function normalizeAppBehaviorSettings(
     startMinimized: openAtLogin && settings?.startMinimized === true,
     closeToTray: settings?.closeToTray === true
   }
-}
-
-function shouldMigrateLegacySettings(settings: AppSettingsV1): boolean {
-  const raw = settings as AppSettingsV1 & {
-    agentProvider?: unknown
-    deepseek?: unknown
-    agents?: {
-      kun?: Partial<ReturnType<typeof defaultKunRuntimeSettings>>
-      codewhale?: unknown
-      reasonix?: unknown
-    }
-  }
-  if (!raw.agents?.kun) return true
-  if ('agentProvider' in raw || 'deepseek' in raw) return true
-  if (raw.agents.codewhale || raw.agents.reasonix) return true
-  const dataDir = typeof raw.agents.kun.dataDir === 'string'
-    ? raw.agents.kun.dataDir.replace(/\\/g, '/').toLowerCase()
-    : ''
-  return dataDir === '~/.deepseekgui/coreagent' ||
-    dataDir.endsWith('/.deepseekgui/coreagent') ||
-    dataDir === '~/.deepseekgui/kun' ||
-    dataDir.endsWith('/.deepseekgui/kun')
 }

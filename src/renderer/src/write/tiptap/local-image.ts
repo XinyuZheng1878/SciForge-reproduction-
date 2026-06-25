@@ -45,8 +45,8 @@ export const WriteLocalImage = Image.extend<WriteLocalImageOptions>({
         else dom.removeAttribute('title')
         dom.dataset.rawSrc = src
         const localPath = resolveWriteMarkdownResourcePath(src, filePath)
-        if (!localPath || typeof window.dsGui?.readWorkspaceImage !== 'function') return
-        void window.dsGui.readWorkspaceImage({ path: localPath })
+        if (!localPath || typeof window.sciforge?.readWorkspaceImage !== 'function') return
+        void window.sciforge.readWorkspaceImage({ path: localPath })
           .then((result) => {
             if (dom.dataset.rawSrc !== src) return
             if (result.ok) {

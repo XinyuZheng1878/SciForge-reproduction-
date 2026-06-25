@@ -2,8 +2,8 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
-  DEFAULT_KUN_MODEL,
-  getKunRuntimeSettings,
+  DEFAULT_LOCAL_RUNTIME_MODEL,
+  getLocalRuntimeSettings,
   getModelProviderProfile,
   getModelRouterSettings,
   type AppSettingsV1,
@@ -14,9 +14,6 @@ import { checkModelRouterHealth } from './model-router-health'
 const ROUTER_RUNTIME_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY'
 const TEXT_REASONER_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_TEXT_API_KEY'
 const VISION_TRANSLATOR_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_VISION_API_KEY'
-const LEGACY_ROUTER_RUNTIME_KEY_ENV = 'DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY'
-const LEGACY_TEXT_REASONER_KEY_ENV = 'DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY'
-const LEGACY_VISION_TRANSLATOR_KEY_ENV = 'DEEPSEEK_GUI_MODEL_ROUTER_VISION_API_KEY'
 
 let modelRouterChild: ChildProcess | null = null
 let modelRouterLaunchSignature: string | null = null
@@ -74,20 +71,17 @@ export function buildModelRouterSidecarLaunch(
 
   const configPath = modelRouterConfigPath(options.userDataDir)
   const baseEnv = options.env ?? process.env
-  const runtime = getKunRuntimeSettings(settings)
+  const runtime = getLocalRuntimeSettings(settings)
   const provider = getModelProviderProfile(settings, runtime.providerId)
   const textReasoner = router.profiles.default.textReasoner
   const vision = router.profiles.default.translators.vision
   const env: NodeJS.ProcessEnv = {
     ...baseEnv,
     [ROUTER_RUNTIME_KEY_ENV]: router.runtimeApiKey,
-    [LEGACY_ROUTER_RUNTIME_KEY_ENV]: router.runtimeApiKey,
     [TEXT_REASONER_KEY_ENV]: textReasoner.apiKey.trim() || provider.apiKey.trim()
   }
-  env[LEGACY_TEXT_REASONER_KEY_ENV] = env[TEXT_REASONER_KEY_ENV]
   if (vision.apiKey.trim()) {
     env[VISION_TRANSLATOR_KEY_ENV] = vision.apiKey.trim()
-    env[LEGACY_VISION_TRANSLATOR_KEY_ENV] = vision.apiKey.trim()
   }
 
   const npmCommand = options.npmCommand ?? (process.platform === 'win32' ? 'npm.cmd' : 'npm')
@@ -211,7 +205,7 @@ function defaultModelRouterSidecarConfig(
   userDataDir: string
 ): ModelRouterSidecarConfig & { runtimeApiKeyEnv: string } {
   const router = getModelRouterSettings(settings)
-  const runtime = getKunRuntimeSettings(settings)
+  const runtime = getLocalRuntimeSettings(settings)
   const provider = getModelProviderProfile(settings, runtime.providerId)
   const textReasoner = router.profiles.default.textReasoner
   const vision = providerConfig(router.profiles.default.translators.vision, VISION_TRANSLATOR_KEY_ENV)
@@ -228,7 +222,7 @@ function defaultModelRouterSidecarConfig(
           provider: textReasoner.provider.trim() || provider.id || 'openai-compatible',
           baseUrl: provider.baseUrl.trim() || textReasoner.baseUrl.trim(),
           apiKeyEnv: TEXT_REASONER_KEY_ENV,
-          model: runtime.model.trim() || textReasoner.model.trim() || DEFAULT_KUN_MODEL
+          model: runtime.model.trim() || textReasoner.model.trim() || DEFAULT_LOCAL_RUNTIME_MODEL
         },
         translators: {
           ...(vision ? { vision } : {})

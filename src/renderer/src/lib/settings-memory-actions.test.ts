@@ -63,7 +63,7 @@ describe('createSettingsMemoryActions', () => {
     expect(records.map((record) => record.id)).toEqual(['mem_2', 'mem_1'])
     expect(records[0]?.content).toBe('Remember CJK 检索 should work.')
     expect(draftContent).toBe('')
-    expect(notice).toEqual({ tone: 'success', message: 'kunMemoryCreated' })
+    expect(notice).toEqual({ tone: 'success', message: 'localRuntimeMemoryCreated' })
   })
 
   it('edits and saves memory records through the shared update path', async () => {
@@ -111,7 +111,7 @@ describe('createSettingsMemoryActions', () => {
     expect(records[0]?.content).toBe('Updated shared memory.')
     expect(editingId).toBeNull()
     expect(state.memoryEditingContent).toBe('')
-    expect(notice).toEqual({ tone: 'success', message: 'kunMemoryUpdated' })
+    expect(notice).toEqual({ tone: 'success', message: 'localRuntimeMemoryUpdated' })
   })
 
   it('disables and deletes memory records through provider operations', async () => {

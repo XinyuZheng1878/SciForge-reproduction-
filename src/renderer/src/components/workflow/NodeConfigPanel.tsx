@@ -73,7 +73,7 @@ function buildWorkflowRunCurl(settings: AppSettingsV1, name: string): string {
     `curl -X POST http://127.0.0.1:${port}/workflow/run \\`,
     `  -H "Content-Type: application/json" \\`
   ]
-  if (secret) lines.push(`  -H "x-kun-secret: ${secret}" \\`)
+  if (secret) lines.push(`  -H "x-sciforge-secret: ${secret}" \\`)
   // Shell-escape single quotes in the JSON so a workflow name with a quote can't break out of the -d '...' arg.
   const payload = JSON.stringify({ workflow: name, input: '' }).replace(/'/g, "'\\''")
   lines.push(`  -d '${payload}'`)
@@ -794,7 +794,7 @@ export function NodeConfigPanel({
     }
     let cancelled = false
     const handle = setTimeout(() => {
-      window.dsGui
+      window.sciforge
         .checkWorkflowCode(codeLanguage, codeValue)
         .then((result) => {
           if (!cancelled) setCodeCheck(result)
@@ -2483,7 +2483,7 @@ function TestNodeDialog({
     setResult(null)
     try {
       await onBeforeTest?.()
-      const response = await window.dsGui.testWorkflowNode(workflowId, node.id, mock)
+      const response = await window.sciforge.testWorkflowNode(workflowId, node.id, mock)
       if (response.ok) setResult(response.result)
       else setError(response.message)
     } catch (caught) {

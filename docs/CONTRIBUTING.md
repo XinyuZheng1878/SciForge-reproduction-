@@ -180,7 +180,7 @@ When reporting issues, please include:
 
 - Operating system and version
 - SciForge version (from Settings or the About dialog)
-- Bundled `kun` version (`kun --version` in the same directory, if available)
+- Bundled `sciforge` version (`kun --version` in the same directory, if available)
 - Steps to reproduce the issue
 - Expected vs actual behavior
 - Relevant error messages, logs, or screenshots

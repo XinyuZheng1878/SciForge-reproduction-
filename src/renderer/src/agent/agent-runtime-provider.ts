@@ -40,7 +40,7 @@ import type {
   UserInputAnswer,
   UserInputQuestion
 } from './types'
-import type { CoreMemoryRecordJson } from './kun-contract'
+import type { LocalRuntimeMemoryRecordJson } from './local-runtime-contract'
 import { getDisplayThreadTitle } from '../lib/thread-title'
 
 type LegacyCapabilities = ReturnType<AgentProvider['getCapabilities']>
@@ -51,10 +51,10 @@ type InteractionRequestRef = {
   requestId?: string
 }
 
-function defaultCapabilities(runtimeId: AgentRuntimeId = 'kun'): AgentRuntimeCapabilities {
+function defaultCapabilities(runtimeId: AgentRuntimeId = 'sciforge'): AgentRuntimeCapabilities {
   return createDefaultAgentRuntimeCapabilities({
     runtimeId,
-    transport: runtimeId === 'kun'
+    transport: runtimeId === 'sciforge'
       ? 'http_sse'
       : runtimeId === 'claude'
         ? 'cli_process'
@@ -533,7 +533,7 @@ function usageFromRuntime(usage: AgentRuntimeUsage | undefined): ThreadUsageSnap
   }
 }
 
-function normalizeSharedMemoryRecord(value: unknown): CoreMemoryRecordJson {
+function normalizeSharedMemoryRecord(value: unknown): LocalRuntimeMemoryRecordJson {
   const record = value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
@@ -563,7 +563,7 @@ function normalizeSharedMemoryRecord(value: unknown): CoreMemoryRecordJson {
   }
 }
 
-function normalizeMemoryScope(value: unknown): CoreMemoryRecordJson['scope'] {
+function normalizeMemoryScope(value: unknown): LocalRuntimeMemoryRecordJson['scope'] {
   return value === 'workspace' || value === 'project' || value === 'user' ? value : 'user'
 }
 
@@ -788,7 +788,7 @@ export class AgentRuntimeProvider implements AgentProvider {
 
   listMemories(
     options?: Parameters<NonNullable<AgentProvider['listMemories']>>[0]
-  ): Promise<CoreMemoryRecordJson[]> {
+  ): Promise<LocalRuntimeMemoryRecordJson[]> {
     return this.auxiliary<unknown[]>('listMemories', { options })
       .then((records) => records.map(normalizeSharedMemoryRecord))
   }

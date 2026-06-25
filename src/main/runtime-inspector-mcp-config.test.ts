@@ -13,7 +13,7 @@ import {
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -32,7 +32,7 @@ const launch: RuntimeInspectorMcpLaunchConfig = {
 
 function createSettings(): AppSettingsV1 {
   const claw = defaultClawSettings()
-  const kun = defaultKunRuntimeSettings(9876)
+  const sciforge = defaultLocalRuntimeSettings(9876)
   const modelRouter = defaultModelRouterSettings()
   return {
     version: 1,
@@ -44,12 +44,9 @@ function createSettings(): AppSettingsV1 {
       ...modelRouter,
       baseUrl: 'http://127.0.0.1:4567/v1'
     },
-    agents: {
-      kun: {
-        ...kun,
-        baseUrl: ''
-      }
-    },
+	    agents: {
+	      sciforge
+	    },
     workspaceRoot: '/tmp/workspace',
     log: {
       enabled: true,
@@ -85,7 +82,7 @@ describe('runtime inspector MCP config', () => {
     expect(runtimeInspectorMcpEnabledTools()).toEqual([...RuntimeInspectorToolNames])
   })
 
-  it('removes GUI-managed runtime inspector servers from external Kun mcp.json', () => {
+  it('removes GUI-managed runtime inspector servers from external local runtime mcp.json', () => {
     const settings = createSettings()
     const synced = buildSyncedRuntimeInspectorMcpJson(
       {
@@ -100,8 +97,8 @@ describe('runtime inspector MCP config', () => {
           [GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME]: {
             command: 'old',
             env: {
-              KUN_RUNTIME_TOKEN: 'do-not-persist',
-              SCIFORGE_RUNTIME_INSPECTOR_KUN_RUNTIME_TOKEN: 'do-not-persist',
+              GUI_RUNTIME_TOKEN: 'do-not-persist',
+              SCIFORGE_RUNTIME_INSPECTOR_RUNTIME_TOKEN: 'do-not-persist',
               PATH: '/usr/bin'
             }
           }
@@ -124,8 +121,8 @@ describe('runtime inspector MCP config', () => {
   it('preserves only allowlisted non-secret env while forcing Electron node mode', () => {
     expect(runtimeInspectorMcpEnv({
       CUSTOM_ENV: 'drop',
-      KUN_RUNTIME_TOKEN: 'drop',
-      SCIFORGE_RUNTIME_INSPECTOR_KUN_RUNTIME_TOKEN: 'drop',
+      GUI_RUNTIME_TOKEN: 'drop',
+      SCIFORGE_RUNTIME_INSPECTOR_RUNTIME_TOKEN: 'drop',
       SCIFORGE_RUNTIME_INSPECTOR_TIMEOUT_MS: '1234',
       PATH: '/usr/local/bin',
       ELECTRON_RUN_AS_NODE: '0'
@@ -137,10 +134,10 @@ describe('runtime inspector MCP config', () => {
   })
 
   it('syncs mcp.json on disk', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ds-gui-runtime-inspector-mcp-'))
-    const kunDir = join(root, '.kun')
-    const mcpJsonPath = join(kunDir, 'mcp.json')
-    await mkdir(kunDir, { recursive: true })
+    const root = await mkdtemp(join(tmpdir(), 'sciforge-runtime-inspector-mcp-'))
+    const runtimeDir = join(root, '.sciforge')
+    const mcpJsonPath = join(runtimeDir, 'mcp.json')
+    await mkdir(runtimeDir, { recursive: true })
     await writeFile(
       mcpJsonPath,
       JSON.stringify({

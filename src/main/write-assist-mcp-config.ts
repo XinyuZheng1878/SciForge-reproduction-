@@ -2,16 +2,16 @@ import type { AppSettingsV1 } from '../shared/app-settings'
 import { GUI_WRITE_ASSIST_MCP_LAUNCH_FLAG } from './write-assist-mcp-server'
 import { WriteAssistToolNames } from '../../packages/workers/write-assist/src/contract'
 import {
-  buildExternalKunMcpJson,
-  buildManagedGuiKunMcpServerConfig,
+  buildExternalLocalRuntimeMcpJson,
+  buildManagedGuiLocalRuntimeMcpServerConfig,
   buildManagedGuiMcpJsonServerConfig,
   ELECTRON_RUN_AS_NODE_ENV,
   managedGuiMcpNames,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   resolveManagedGuiMcpCommand,
   resolveManagedGuiMcpNodeEntryPath,
   stringRecord,
-  syncExternalKunMcpJson,
+  syncExternalLocalRuntimeMcpJson,
   type JsonRecord,
   type ManagedGuiMcpDescriptor,
   type ManagedGuiMcpLaunchConfig
@@ -85,13 +85,13 @@ export function buildWriteAssistMcpServerConfig(
   })
 }
 
-export function buildWriteAssistKunMcpServerConfig(
+export function buildWriteAssistLocalRuntimeMcpServerConfig(
   settings: AppSettingsV1,
   launch: WriteAssistMcpLaunchConfig,
   existing: unknown = {}
 ): JsonRecord {
   const env = stringRecord((existing as { env?: unknown } | null)?.env)
-  return buildManagedGuiKunMcpServerConfig({
+  return buildManagedGuiLocalRuntimeMcpServerConfig({
     descriptor: GUI_WRITE_ASSIST_MCP_DESCRIPTOR,
     launch,
     args: buildWriteAssistMcpArgs(settings, launch),
@@ -107,7 +107,7 @@ export function buildSyncedWriteAssistMcpJson(
 ): JsonRecord {
   void settings
   void launch
-  return buildExternalKunMcpJson(existing, managedGuiMcpNames(GUI_WRITE_ASSIST_MCP_DESCRIPTOR))
+  return buildExternalLocalRuntimeMcpJson(existing, managedGuiMcpNames(GUI_WRITE_ASSIST_MCP_DESCRIPTOR))
 }
 
 export async function syncWriteAssistMcpConfig(
@@ -115,8 +115,8 @@ export async function syncWriteAssistMcpConfig(
   launch: WriteAssistMcpLaunchConfig,
   paths: WriteAssistMcpConfigPaths = {}
 ): Promise<void> {
-  const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
+  const mcpJsonPath = paths.mcpJsonPath ?? resolveLocalRuntimeMcpJsonPath()
   void settings
   void launch
-  await syncExternalKunMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_WRITE_ASSIST_MCP_DESCRIPTOR))
+  await syncExternalLocalRuntimeMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_WRITE_ASSIST_MCP_DESCRIPTOR))
 }

@@ -1,7 +1,7 @@
 const SECRET_KEY_PATTERN = /(api[-_\s]?key|authorization|bearer|bot[-_\s]?token|client[-_\s]?secret|app[-_\s]?secret|webhook[-_\s]?secret|password|secret|token)/i
 const SECRET_TEXT_PATTERNS = [
-  /(["'])(authorization|api[-_\s]?key|bot[-_\s]?token|client[-_\s]?secret|app[-_\s]?secret|webhook[-_\s]?secret|password|token|secret|x-sciforge-secret|x-deepseek-gui-secret)\1\s*:\s*(["'])((?:Bearer|Bot)\s+)?[^"']*\3/gi,
-  /\b(authorization|api[-_\s]?key|bot[-_\s]?token|client[-_\s]?secret|app[-_\s]?secret|webhook[-_\s]?secret|password|token|secret|x-sciforge-secret|x-deepseek-gui-secret)\s*(:|=)\s*((?:Bearer|Bot)\s+)?[^\s,;]+/gi,
+  /(["'])(authorization|api[-_\s]?key|bot[-_\s]?token|client[-_\s]?secret|app[-_\s]?secret|webhook[-_\s]?secret|password|token|secret|x-sciforge-secret)\1\s*:\s*(["'])((?:Bearer|Bot)\s+)?[^"']*\3/gi,
+  /\b(authorization|api[-_\s]?key|bot[-_\s]?token|client[-_\s]?secret|app[-_\s]?secret|webhook[-_\s]?secret|password|token|secret|x-sciforge-secret)\s*(:|=)\s*((?:Bearer|Bot)\s+)?[^\s,;]+/gi,
   /\b(bearer|bot)\s+([^\s,;]+)/gi
 ]
 

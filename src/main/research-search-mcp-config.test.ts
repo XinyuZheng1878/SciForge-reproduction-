@@ -17,7 +17,7 @@ const launch: ResearchSearchMcpLaunchConfig = {
 }
 
 describe('research search MCP config', () => {
-  it('removes GUI-managed research servers from external Kun mcp.json without dropping other servers', () => {
+  it('removes GUI-managed research servers from external local runtime mcp.json without dropping other servers', () => {
     const synced = buildSyncedResearchSearchMcpJson(
       {
         timeouts: { connect_timeout: 1 },
@@ -62,10 +62,10 @@ describe('research search MCP config', () => {
   })
 
   it('syncs mcp.json on disk', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ds-gui-research-mcp-'))
-    const kunDir = join(root, '.kun')
-    const mcpJsonPath = join(kunDir, 'mcp.json')
-    await mkdir(kunDir, { recursive: true })
+    const root = await mkdtemp(join(tmpdir(), 'sciforge-research-mcp-'))
+    const runtimeDir = join(root, '.sciforge')
+    const mcpJsonPath = join(runtimeDir, 'mcp.json')
+    await mkdir(runtimeDir, { recursive: true })
     await writeFile(
       mcpJsonPath,
       JSON.stringify({

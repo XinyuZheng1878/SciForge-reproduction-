@@ -2,11 +2,11 @@
 import process from 'node:process'
 import { parseServeOptionsSafe, SERVE_USAGE, ServeExitCode } from './serve.js'
 import {
-  KUN_CLI_USAGE,
+  LOCAL_RUNTIME_CLI_USAGE,
   runAgentCommand,
-  splitKunCliCommand
+  splitLocalRuntimeCliCommand
 } from './agent-cli.js'
-import { startKunServe } from '../server/runtime-factory.js'
+import { startLocalRuntimeServe } from '../server/runtime-factory.js'
 
 export const KUN_READY_PREFIX = 'KUN_READY '
 
@@ -27,7 +27,7 @@ async function serveMain(argv: readonly string[]): Promise<number> {
     }
     return parsed.exitCode
   }
-  const handle = await startKunServe(parsed.options)
+  const handle = await startLocalRuntimeServe(parsed.options)
   const info = handle.runtime.info()
   const startupInfo = {
     service: 'kun',
@@ -42,7 +42,7 @@ async function serveMain(argv: readonly string[]): Promise<number> {
     insecure: info.insecure,
     startedAt: info.startedAt,
     pid: info.pid,
-    message: `kun runtime listening on http://${handle.host}:${handle.port}`
+    message: `SciForge Runtime listening on http://${handle.host}:${handle.port}`
   }
   process.stdout.write(`${KUN_READY_PREFIX}${JSON.stringify(startupInfo)}\n`)
   process.stdout.write(JSON.stringify(startupInfo, null, 2) + '\n')
@@ -57,14 +57,14 @@ async function serveMain(argv: readonly string[]): Promise<number> {
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
-  const command = splitKunCliCommand(argv)
+  const command = splitLocalRuntimeCliCommand(argv)
   if (command.command === 'help') {
     if (command.error) {
       process.stderr.write(`kun: ${command.error}\n`)
-      process.stderr.write(KUN_CLI_USAGE)
+      process.stderr.write(LOCAL_RUNTIME_CLI_USAGE)
       return ServeExitCode.usage
     }
-    process.stdout.write(KUN_CLI_USAGE)
+    process.stdout.write(LOCAL_RUNTIME_CLI_USAGE)
     return ServeExitCode.ok
   }
   if (command.command === 'serve') {

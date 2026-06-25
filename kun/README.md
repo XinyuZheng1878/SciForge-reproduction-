@@ -1,6 +1,6 @@
-# Kun
+# SciForge Runtime
 
-Kun is the local HTTP/SSE agent runtime for DeepSeek-GUI. It exposes a
+SciForge Runtime is the local HTTP/SSE agent runtime for SciForge. It exposes a
 TypeScript-typed agent loop with a stable, GUI-friendly contract:
 
 - `kun serve` starts a local HTTP server with `/v1/*` routes.
@@ -9,14 +9,14 @@ TypeScript-typed agent loop with a stable, GUI-friendly contract:
 - The loop is cache-first by construction: immutable prompt prefix, bounded
   TTL/LRU caches, inflight tracking, and explicit context compaction.
 
-The name Kun is inspired by the great fish in Zhuangzi's line,
-"In the northern sea there is a fish; its name is Kun." In
-DeepSeek-GUI, it means a deeper local runtime rather than a thin model
+The name SciForge Runtime is inspired by the great fish in Zhuangzi's line,
+"In the northern sea there is a fish; its name is SciForge Runtime." In
+SciForge, it means a deeper local runtime rather than a thin model
 UI: one agent loop that can carry project context, call tools
 reliably, resume sessions, and serve desktop chat, writing, phone
 connections, and scheduled tasks.
 
-Kun's core goal is to improve the ROI of every token. Tokens should be
+SciForge Runtime's core goal is to improve the ROI of every token. Tokens should be
 spent on user requirements, code, decisions, and results, not repeated
 tool schemas, runaway tool output, malformed history, useless retries,
 or stable prefixes that could have been reused from cache.
@@ -57,7 +57,7 @@ Run from the `kun/` directory.
 
 | Flag | Description | Default |
 | --- | --- | --- |
-| `--config` | JSON config file. If omitted, Kun reads `{--data-dir}/config.json` when present | optional |
+| `--config` | JSON config file. If omitted, SciForge Runtime reads `{--data-dir}/config.json` when present | optional |
 | `--host` | Bind address | `127.0.0.1` |
 | `--port` | HTTP port | `8899` |
 | `--data-dir` | Root directory for threads, events, and usage | required |
@@ -73,22 +73,22 @@ Example:
 
 ```bash
 kun serve \
-  --config ~/.deepseekgui/kun/config.json \
+  --config ~/.sciforge/runtime/config.json \
   --host 127.0.0.1 \
   --port 8899 \
-  --data-dir ~/.deepseekgui/kun \
+  --data-dir ~/.sciforge/runtime \
   --runtime-token dev-token \
   --api-key "$DEEPSEEK_API_KEY" \
   --model deepseek-v4-pro
 ```
 
-Kun can also run as a standalone agent without the GUI:
+SciForge Runtime can also run as a standalone agent without the GUI:
 
 ```bash
-kun run --data-dir ~/.deepseekgui/kun --workspace "$PWD" "summarize this repo"
-kun chat --data-dir ~/.deepseekgui/kun --workspace "$PWD"
-kun exec --data-dir ~/.deepseekgui/kun --workspace "$PWD" --list-tools
-kun exec --data-dir ~/.deepseekgui/kun --workspace "$PWD" read --args '{"path":"README.md"}'
+kun run --data-dir ~/.sciforge/runtime --workspace "$PWD" "summarize this repo"
+kun chat --data-dir ~/.sciforge/runtime --workspace "$PWD"
+kun exec --data-dir ~/.sciforge/runtime --workspace "$PWD" --list-tools
+kun exec --data-dir ~/.sciforge/runtime --workspace "$PWD" read --args '{"path":"README.md"}'
 ```
 
 - `kun run` creates a thread, runs one turn, streams assistant text, and exits.
@@ -114,7 +114,7 @@ The runtime reads these from `process.env` when not set via CLI flags.
 
 ## Config file
 
-Kun supports a JSON config file so runtime behavior can be managed
+SciForge Runtime supports a JSON config file so runtime behavior can be managed
 without rebuilding or hard-coding loop thresholds.
 
 Config resolution order is:
@@ -126,11 +126,11 @@ Config resolution order is:
 
 Use `--config <path>` or `KUN_CONFIG=<path>` for an explicit file. If
 no explicit config is provided and `--data-dir` / `KUN_DATA_DIR` is set,
-Kun also reads `{data-dir}/config.json` when it exists. In the GUI's
+SciForge Runtime also reads `{data-dir}/config.json` when it exists. In the GUI's
 default setup this is:
 
 ```text
-~/.deepseekgui/kun/config.json
+~/.sciforge/runtime/config.json
 ```
 
 Shape:
@@ -140,7 +140,7 @@ Shape:
   "serve": {
     "host": "127.0.0.1",
     "port": 8899,
-    "dataDir": "~/.deepseekgui/kun",
+    "dataDir": "~/.sciforge/runtime",
     "runtimeToken": "",
     "apiKey": "",
     "baseUrl": "https://api.deepseek.com/beta",
@@ -239,7 +239,7 @@ Shape:
 }
 ```
 
-Kun defaults to hybrid session storage: `threads/{threadId}/messages.jsonl`
+SciForge Runtime defaults to hybrid session storage: `threads/{threadId}/messages.jsonl`
 and `events.jsonl` remain the canonical transcript/replay logs, while
 `index.sqlite3` stores only rebuildable thread metadata for fast lists
 and search. Set `serve.storage.backend` to `"file"` to use the legacy
@@ -253,7 +253,7 @@ belong in `models.profiles`. Built-in profiles already cover
 context window and starts compaction around 980k input tokens.
 The legacy `contextCompaction.modelProfiles` location is still read for
 backward compatibility, but new configs should use `models.profiles`.
-See `../docs/KUN_CONFIG.md` for the detailed file layout and examples.
+See `../docs/local-runtime-config.md` for the detailed file layout and examples.
 
 Feature flags are intentionally explicit:
 
@@ -278,7 +278,7 @@ Settings page reads both routes.
 
 ```
 {--data-dir}/
-  config.json      # Optional Kun runtime config
+  config.json      # Optional SciForge Runtime runtime config
   attachments/     # Image metadata + content blobs when enabled
   memory/          # Long-term memory records and tombstones when enabled
   child-runs/      # Delegated child run records when subagents are enabled
@@ -372,7 +372,7 @@ activation and diagnostics deterministic. A safe migration path is:
 
 1. Keep the existing `SKILL.md`.
 2. Add a `skill.json` next to it that points at the same instructions.
-3. Restart Kun or refresh diagnostics.
+3. Restart SciForge Runtime or refresh diagnostics.
 4. Once `/v1/runtime/tools` reports the Skill without validation
    errors, decide whether to keep legacy compatibility enabled.
 
@@ -413,15 +413,16 @@ stay local to one thread, leave it as a pinned constraint.
 
 ## GUI integration
 
-After the legacy provider retirement, the DeepSeek-GUI main process
-starts Kun through `kun-process.ts` and routes all
+After the legacy provider retirement, the SciForge main process
+starts SciForge Runtime through `kun-process.ts` and routes all
 `runtimeRequest` calls to the active base URL with a bearer token.
 The renderer uses the same `AgentProvider` interface as the legacy
-CodeWhale provider because Kun speaks the same HTTP/SSE
-contract. Settings live under `agents.kun` in
+CodeWhale provider because SciForge Runtime speaks the same HTTP/SSE
+contract. Settings live under `agents.sciforge` in
 `AppSettingsV1` and include `binaryPath`, `port`, `autoStart`,
-`apiKey`, `baseUrl`, `runtimeToken`, `dataDir`, `model`,
-`approvalPolicy`, `sandboxMode`, and `insecure`.
+`runtimeToken`, `dataDir`, `model`, `approvalPolicy`, `sandboxMode`,
+and `insecure`. Credentials and upstream base URLs live in provider
+and Model Router settings.
 
 The renderer also consumes the extension routes added for the larger
 agent surface: `/v1/runtime/info`, `/v1/runtime/tools`,
@@ -431,8 +432,6 @@ image modality are available. Settings diagnostics display MCP
 servers, Skill roots, web provider state, attachment store state,
 memory records, and the live capability manifest.
 
-Legacy persisted settings (`agentProvider: "codewhale"` or
-`"reasonix"`) are migrated by `migrateLegacyAppSettings`.
-Legacy credentials, base URLs, ports, and model selections seed
-`agents.kun`; the saved settings file no longer keeps live
-CodeWhale or Reasonix agent entries.
+Historical provider-specific settings are not part of the current
+runtime path; the GUI stores one local runtime entry and uses provider
+settings plus the Model Router for credentials and upstream routing.

@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import {
   getActiveAgentRuntime,
-  normalizeAgentRuntimeId,
   type AppSettingsV1
 } from '../../../shared/app-settings'
 import { resolveRuntimeModelRouterSettings } from '../../../shared/app-settings-model-router'
@@ -108,6 +107,7 @@ const THREAD_TURN_QUEUE_TIMEOUT_MS = 10 * 60_000
 const RUNTIME_HANDOFF_TRANSCRIPT_MAX_BYTES = 32_000
 const RUNTIME_HANDOFF_TRANSCRIPT_ITEM_MAX_BYTES = 4_000
 const RUNTIME_HANDOFF_TRANSCRIPT_TOOL_LIMIT = 8
+const AGENT_RUNTIME_IDS = ['sciforge', 'codex', 'claude'] as const satisfies readonly AgentRuntimeId[]
 
 type ActiveThreadTurn = {
   handle: AgentRuntimeTurnHandle
@@ -1112,9 +1112,10 @@ export class AgentRuntimeHost {
     context: AgentRuntimeAdapterContext
   }> {
     const settings = await this.options.settings()
-    const selected = runtimeId
-      ? normalizeAgentRuntimeId(runtimeId)
-      : getActiveAgentRuntime(settings)
+    const selected = runtimeId === undefined
+      ? getActiveAgentRuntime(settings)
+      : optionalRuntimeId(runtimeId)
+    if (!selected) throw new Error(`Unsupported AgentRuntimeAdapter runtime: ${String(runtimeId)}`)
     const adapter = this.adapters.get(selected)
     if (!adapter) throw new Error(`No AgentRuntimeAdapter registered for runtime: ${selected}`)
     return { adapter, context: { settings } }
@@ -1463,8 +1464,8 @@ export class AgentRuntimeHost {
     })
     const items = threadDetailItems(detail)
     const compactor = new AgentRuntimeContextCompactor({
-      softThreshold: context.settings.agents.kun.contextCompaction.defaultSoftThreshold,
-      hardThreshold: context.settings.agents.kun.contextCompaction.defaultHardThreshold
+      softThreshold: context.settings.agents.sciforge.contextCompaction.defaultSoftThreshold,
+      hardThreshold: context.settings.agents.sciforge.contextCompaction.defaultHardThreshold
     })
     const plan = compactor.planCompaction(items)
     if (!plan && !input.force) return null
@@ -1478,7 +1479,7 @@ export class AgentRuntimeHost {
       keepRecent: plan?.keepRecent ?? 1,
       reason: plan?.reason ?? triggerReason,
       summaryOverride: modelSummary.summary,
-      budgetTokens: context.settings.agents.kun.contextCompaction.summaryMaxTokens,
+      budgetTokens: context.settings.agents.sciforge.contextCompaction.summaryMaxTokens,
       pinnedConstraints: pinnedConstraintsFromItems(items)
     })
     const summary = result.summaryItem.summary
@@ -1539,7 +1540,7 @@ export class AgentRuntimeHost {
     threadId: string,
     items: AgentRuntimeItem[]
   ): Promise<{ summary?: string; fallback?: boolean }> {
-    const compaction = context.settings.agents.kun.contextCompaction
+    const compaction = context.settings.agents.sciforge.contextCompaction
     if (compaction.summaryMode !== 'model') return {}
     const router = resolveRuntimeModelRouterSettings(context.settings)
     if (!router.apiKey) return { fallback: true }
@@ -1951,7 +1952,7 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function optionalRuntimeId(value: unknown): AgentRuntimeId | undefined {
-  return value === 'kun' || value === 'codex' || value === 'claude' ? value : undefined
+  return AGENT_RUNTIME_IDS.includes(value as AgentRuntimeId) ? value as AgentRuntimeId : undefined
 }
 
 function requiredRuntimeId(payload: Record<string, unknown>, key: string): AgentRuntimeId {

@@ -33,7 +33,7 @@ function thread(id: string): NormalizedThread {
     updatedAt: '2026-06-09T00:00:00.000Z',
     model: 'deepseek-v4-pro',
     mode: 'agent',
-    workspace: '/workspace/deepseek-gui',
+    workspace: '/workspace/sciforge',
     status: 'running'
   }
 }
@@ -45,7 +45,7 @@ function buildHarness(): {
   let state: ChatState
   state = {
     activeThreadId: 'thr_existing',
-    activeAgentRuntime: 'kun',
+    activeAgentRuntime: 'sciforge',
     blocks: [],
     busy: true,
     activeThreadContextState: null,
@@ -92,7 +92,7 @@ describe('chat-store-thread-actions queued messages', () => {
     runtimeClientMock.getSettings.mockResolvedValue({ codePromptPrefix: '' })
     clearPendingClawFeishuMirrors()
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         logError: vi.fn(async () => undefined)
       },
       localStorage: {
@@ -107,8 +107,8 @@ describe('chat-store-thread-actions queued messages', () => {
     const { actions, state } = buildHarness()
     const guiPlan: GuiPlanMessageContext = {
       operation: 'draft',
-      workspaceRoot: '/workspace/deepseek-gui',
-      relativePath: '.kunsdd/plan/feature.md',
+      workspaceRoot: '/workspace/sciforge',
+      relativePath: '.sciforge/plan/feature.md',
       planId: 'plan-1',
       sourceRequest: 'feature'
     }
@@ -251,7 +251,7 @@ describe('chat-store-thread-actions queued messages', () => {
     const { actions, state } = buildHarness()
     const createdThread = {
       ...thread('thr_created'),
-      workspace: '/workspace/deepseek-gui',
+      workspace: '/workspace/sciforge',
       status: 'idle'
     }
     const provider = {
@@ -265,10 +265,10 @@ describe('chat-store-thread-actions queued messages', () => {
       state.activeThreadId = id
     }) as unknown as ChatState['selectThread']
 
-    await actions.createThread({ workspaceRoot: '/workspace/deepseek-gui', forceNew: true })
+    await actions.createThread({ workspaceRoot: '/workspace/sciforge', forceNew: true })
 
     expect(provider.createThread).toHaveBeenCalledWith({
-      workspace: '/workspace/deepseek-gui',
+      workspace: '/workspace/sciforge',
       title: expect.any(String),
       mode: 'agent'
     })
@@ -292,8 +292,8 @@ describe('chat-store-thread-actions queued messages', () => {
         mode: 'plan',
         guiPlan: {
           operation: 'draft',
-          workspaceRoot: '/workspace/deepseek-gui',
-          relativePath: '.kunsdd/plan/one.md',
+          workspaceRoot: '/workspace/sciforge',
+          relativePath: '.sciforge/plan/one.md',
           planId: 'plan-1'
         }
       },
@@ -326,7 +326,7 @@ describe('chat-store-thread-actions queued messages', () => {
       text: 'send to the old thread',
       mode: 'agent',
       threadId: 'thr_existing',
-      runtimeId: 'kun'
+      runtimeId: 'sciforge'
     }]
 
     await actions.drainQueuedMessages()
@@ -496,7 +496,7 @@ describe('chat-store-thread-actions queued messages', () => {
 
     expect(provider.sendUserMessage).toHaveBeenCalledWith('thr_existing', 'hello from UI', {
       mode: undefined,
-      workspace: '/workspace/deepseek-gui',
+      workspace: '/workspace/sciforge',
       title: 'thr_existing',
       model: 'gpt-5.4',
       displayText: 'hello from UI'
@@ -531,7 +531,7 @@ describe('chat-store-thread-actions queued messages', () => {
     state.lastSeq = 12
     state.threads = [{
       ...thread('thr_existing'),
-      runtimeId: 'kun'
+      runtimeId: 'sciforge'
     }]
 
     await expect(actions.sendMessage('continue with codex')).resolves.toBe(true)
@@ -542,7 +542,7 @@ describe('chat-store-thread-actions queued messages', () => {
       'thr_existing',
       'continue with codex',
       expect.objectContaining({
-        workspace: '/workspace/deepseek-gui',
+        workspace: '/workspace/sciforge',
         title: 'thr_existing'
       })
     )
@@ -570,13 +570,13 @@ describe('chat-store-thread-actions queued messages', () => {
     state.error = null
     const previewReferences: AgentRuntimeWorkspaceReference[] = [
       {
-        workspaceRoot: '/workspace/deepseek-gui',
+        workspaceRoot: '/workspace/sciforge',
         relativePath: 'docs',
         name: 'docs',
         kind: 'directory'
       },
       {
-        workspaceRoot: '/workspace/deepseek-gui',
+        workspaceRoot: '/workspace/sciforge',
         relativePath: 'docs/guide.md',
         name: 'guide.md',
         kind: 'text',
@@ -585,12 +585,12 @@ describe('chat-store-thread-actions queued messages', () => {
     ]
     const composerReferences = previewReferences.map(composerReferenceFromWorkspaceReference)
     const rendererOnlyRootReference: AgentRuntimeFileReference & { workspaceRoot: string } = {
-      path: '/workspace/deepseek-gui/data/raw.pdf',
+      path: '/workspace/sciforge/data/raw.pdf',
       relativePath: 'data/raw.pdf',
       name: 'raw.pdf',
       mimeType: 'application/pdf',
       modelRouterObject: true,
-      workspaceRoot: '/workspace/deepseek-gui'
+      workspaceRoot: '/workspace/sciforge'
     }
 
     await expect(actions.sendMessage('use these files', 'agent', {
@@ -599,7 +599,7 @@ describe('chat-store-thread-actions queued messages', () => {
         rendererOnlyRootReference,
         {
           path: 'reports/clean.pdf',
-          relativePath: '/workspace/deepseek-gui/reports/clean.pdf',
+          relativePath: '/workspace/sciforge/reports/clean.pdf',
           name: '',
           modelRouterObject: true
         },
@@ -660,7 +660,7 @@ describe('chat-store-thread-actions queued messages', () => {
     const { actions, state } = buildHarness()
     const mirrorClawChannelMessage = vi.fn(async () => ({ ok: true as const }))
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         logError: vi.fn(async () => undefined),
         mirrorClawChannelMessage
       },
@@ -698,7 +698,7 @@ describe('chat-store-thread-actions queued messages', () => {
       workspaceRoot: '',
       conversations: [],
       agentProfile: {
-        name: 'kun',
+        name: 'sciforge',
         description: '',
         identity: '',
         personality: '',
@@ -727,7 +727,7 @@ describe('chat-store-thread-actions queued messages', () => {
 describe('publishActiveClawThreadContext', () => {
   beforeEach(() => {
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         updateClawActiveThreadContext: vi.fn(async () => undefined)
       }
     })
@@ -747,7 +747,7 @@ describe('publishActiveClawThreadContext', () => {
 
     publishActiveClawThreadContext(state, 'desktop-thread')
 
-    expect(window.dsGui.updateClawActiveThreadContext).toHaveBeenCalledWith({
+    expect(window.sciforge.updateClawActiveThreadContext).toHaveBeenCalledWith({
       threadId: 'desktop-thread',
       runtimeId: 'codex',
       workspaceRoot: '/workspace/desktop'
@@ -769,12 +769,12 @@ describe('publishActiveClawThreadContext', () => {
         provider: 'weixin',
         label: 'WeChat',
         threadId: 'claw-thread',
-        agentThreadIds: { kun: 'claw-thread' },
+        agentThreadIds: { sciforge: 'claw-thread' },
         conversations: [],
         model: 'auto',
         workspaceRoot: '',
         agentProfile: {
-          name: 'kun',
+          name: 'sciforge',
           description: '',
           identity: '',
           personality: '',
@@ -788,6 +788,6 @@ describe('publishActiveClawThreadContext', () => {
 
     publishActiveClawThreadContext(state, 'claw-thread')
 
-    expect(window.dsGui.updateClawActiveThreadContext).toHaveBeenCalledWith(null)
+    expect(window.sciforge.updateClawActiveThreadContext).toHaveBeenCalledWith(null)
   })
 })

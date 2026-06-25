@@ -2,16 +2,16 @@ import {
   GUI_RESEARCH_MCP_LAUNCH_FLAG
 } from './research-search-mcp-server'
 import {
-  buildExternalKunMcpJson,
-  buildManagedGuiKunMcpServerConfig,
+  buildExternalLocalRuntimeMcpJson,
+  buildManagedGuiLocalRuntimeMcpServerConfig,
   buildManagedGuiMcpJsonServerConfig,
   ELECTRON_RUN_AS_NODE_ENV,
   managedGuiMcpNames,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   resolveManagedGuiMcpCommand,
   resolveManagedGuiMcpNodeEntryPath,
   stringRecord,
-  syncExternalKunMcpJson,
+  syncExternalLocalRuntimeMcpJson,
   type JsonRecord,
   type ManagedGuiMcpDescriptor,
   type ManagedGuiMcpLaunchConfig
@@ -103,12 +103,12 @@ export function buildResearchSearchMcpServerConfig(
   })
 }
 
-export function buildResearchSearchKunMcpServerConfig(
+export function buildResearchSearchLocalRuntimeMcpServerConfig(
   launch: ResearchSearchMcpLaunchConfig,
   existing: unknown = {}
 ): JsonRecord {
   const env = stringRecord((existing as { env?: unknown } | null)?.env)
-  return buildManagedGuiKunMcpServerConfig({
+  return buildManagedGuiLocalRuntimeMcpServerConfig({
     descriptor: GUI_RESEARCH_MCP_DESCRIPTOR,
     launch,
     args: buildResearchSearchMcpArgs(launch),
@@ -122,16 +122,16 @@ export function buildSyncedResearchSearchMcpJson(
   launch: ResearchSearchMcpLaunchConfig
 ): JsonRecord {
   void launch
-  return buildExternalKunMcpJson(existing, managedGuiMcpNames(GUI_RESEARCH_MCP_DESCRIPTOR))
+  return buildExternalLocalRuntimeMcpJson(existing, managedGuiMcpNames(GUI_RESEARCH_MCP_DESCRIPTOR))
 }
 
 export async function syncResearchSearchMcpConfig(
   launch: ResearchSearchMcpLaunchConfig,
   paths: ResearchSearchMcpConfigPaths = {}
 ): Promise<void> {
-  const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
+  const mcpJsonPath = paths.mcpJsonPath ?? resolveLocalRuntimeMcpJsonPath()
   void launch
-  await syncExternalKunMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_RESEARCH_MCP_DESCRIPTOR))
+  await syncExternalLocalRuntimeMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_RESEARCH_MCP_DESCRIPTOR))
 }
 
 function nonSecretEnv(env: Record<string, string>): Record<string, string> {

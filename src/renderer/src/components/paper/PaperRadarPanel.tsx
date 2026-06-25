@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ChevronRight,
   Clipboard,
@@ -23,18 +23,19 @@ type Props = {
 type ResultMode = 'digest' | 'search'
 type Relevance = NonNullable<PaperRadarRecord['relevance']>
 
-const DEFAULT_KEYWORDS = 'protein design, single-cell, foundation model'
-const DEFAULT_ARXIV_CATEGORIES = 'q-bio, cs.LG, stat.ML'
-const DEFAULT_BIORXIV_SUBJECTS = 'bioinformatics, genomics, systems biology'
+const DEFAULT_PROFILE_NAME = 'default'
+const DEFAULT_KEYWORDS = ''
+const DEFAULT_ARXIV_CATEGORIES = ''
+const DEFAULT_BIORXIV_SUBJECTS = ''
 const DEFAULT_DAYS = 7
 const DEFAULT_TOP_K = 12
 
 export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactElement {
   const { t } = useTranslation('common')
   const [status, setStatus] = useState<PaperRadarStatus | null>(null)
-  const [query, setQuery] = useState('single-cell foundation model')
+  const [query, setQuery] = useState('')
   const [profiles, setProfiles] = useState<PaperRadarProfile[]>([])
-  const [profileName, setProfileName] = useState('lab_default')
+  const [profileName, setProfileName] = useState(DEFAULT_PROFILE_NAME)
   const [keywords, setKeywords] = useState(DEFAULT_KEYWORDS)
   const [excludeKeywords, setExcludeKeywords] = useState('')
   const [arxivCategories, setArxivCategories] = useState(DEFAULT_ARXIV_CATEGORIES)
@@ -53,46 +54,49 @@ export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactEle
   const biorxivSubjectList = useMemo(() => parseList(biorxivSubjects), [biorxivSubjects])
 
   const groupedPapers = useMemo(() => groupPapers(papers), [papers])
+  const profileOptions = useMemo(() => dedupeProfileOptions(profiles), [profiles])
   const resultCounts = useMemo(() => ({
     high: groupedPapers.high.length,
     medium: groupedPapers.medium.length,
     low: groupedPapers.low.length
   }), [groupedPapers])
 
-  const refreshStatus = async (): Promise<void> => {
-    if (typeof window.dsGui?.paperRadar?.status !== 'function') return
-    const next = await window.dsGui.paperRadar.status()
-    setStatus(next)
-    if (!next.ok && next.message) setMessage(friendlyPaperRadarError(next.message, t))
-  }
-
-  useEffect(() => {
-    void refreshStatus()
-    void loadProfiles()
+  const applyProfile = useCallback((profile: PaperRadarProfile): void => {
+    setProfileName(publicProfileName(profile.name))
+    setKeywords(profile.keywords.join(', '))
+    setExcludeKeywords(profile.excludeKeywords.join(', '))
+    setArxivCategories(profile.arxivCategories.join(', '))
+    setBiorxivSubjects(profile.biorxivSubjects.join(', '))
   }, [])
 
-  const loadProfiles = async (): Promise<void> => {
-    if (typeof window.dsGui?.paperRadar?.listProfiles !== 'function') return
-    const result = await window.dsGui.paperRadar.listProfiles()
+  const refreshStatus = useCallback(async (): Promise<void> => {
+    if (typeof window.sciforge?.paperRadar?.status !== 'function') return
+    const next = await window.sciforge.paperRadar.status()
+    setStatus(next)
+    if (!next.ok && next.message) setMessage(friendlyPaperRadarError(next.message, t))
+  }, [t])
+
+  const loadProfiles = useCallback(async (selectedProfileName = DEFAULT_PROFILE_NAME): Promise<void> => {
+    if (typeof window.sciforge?.paperRadar?.listProfiles !== 'function') return
+    const result = await window.sciforge.paperRadar.listProfiles()
     if (!result.ok) {
       setMessage(friendlyPaperRadarError(result.message, t))
       return
     }
     setProfiles(result.data.profiles)
-    const initial = result.data.profiles.find((item) => item.name === profileName) ?? result.data.profiles[0]
+    const initial =
+      result.data.profiles.find((item) => publicProfileName(item.name) === selectedProfileName) ??
+      result.data.profiles[0]
     if (initial) applyProfile(initial)
-  }
+  }, [applyProfile, t])
 
-  const applyProfile = (profile: PaperRadarProfile): void => {
-    setProfileName(profile.name)
-    setKeywords(profile.keywords.join(', '))
-    setExcludeKeywords(profile.excludeKeywords.join(', '))
-    setArxivCategories(profile.arxivCategories.join(', '))
-    setBiorxivSubjects(profile.biorxivSubjects.join(', '))
-  }
+  useEffect(() => {
+    void refreshStatus()
+    void loadProfiles()
+  }, [loadProfiles, refreshStatus])
 
   const currentProfile = (): PaperRadarProfile => ({
-    name: profileName || 'lab_default',
+    name: profileName || DEFAULT_PROFILE_NAME,
     keywords: keywordList,
     excludeKeywords: excludeKeywordList,
     arxivCategories: arxivCategoryList,
@@ -100,10 +104,10 @@ export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactEle
   })
 
   const saveCurrentProfile = async (): Promise<PaperRadarProfile> => {
-    if (!window.dsGui?.paperRadar?.saveProfile) return currentProfile()
-    const result = await window.dsGui.paperRadar.saveProfile(currentProfile())
+    if (!window.sciforge?.paperRadar?.saveProfile) return currentProfile()
+    const result = await window.sciforge.paperRadar.saveProfile(currentProfile())
     if (!result.ok) throw new Error(friendlyPaperRadarError(result.message, t))
-    await loadProfiles()
+    await loadProfiles(profileName || DEFAULT_PROFILE_NAME)
     return result.data.profile
   }
 
@@ -114,7 +118,7 @@ export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactEle
     const from = fromDate.toISOString().slice(0, 10)
     const to = today.toISOString().slice(0, 10)
     const profile = await saveCurrentProfile()
-    const sync = await window.dsGui.paperRadar.syncProfile({
+    const sync = await window.sciforge.paperRadar.syncProfile({
       profile: profile.name,
       from,
       to,
@@ -126,7 +130,7 @@ export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactEle
   }
 
   const runSync = async (): Promise<void> => {
-    if (!window.dsGui?.paperRadar) return
+    if (!window.sciforge?.paperRadar) return
     setBusy(true)
     setMessage(null)
     try {
@@ -141,13 +145,13 @@ export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactEle
   }
 
   const runDailyRadar = async (): Promise<void> => {
-    if (!window.dsGui?.paperRadar) return
+    if (!window.sciforge?.paperRadar) return
     setBusy(true)
     setMessage(null)
     try {
       const profile = await saveCurrentProfile()
       const results = await runProfileSync()
-      const digest = await window.dsGui.paperRadar.digest({
+      const digest = await window.sciforge.paperRadar.digest({
         profile: profile.name,
         keywords: keywordList,
         excludeKeywords: excludeKeywordList,
@@ -168,11 +172,11 @@ export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactEle
   }
 
   const runSearch = async (): Promise<void> => {
-    if (!window.dsGui?.paperRadar) return
+    if (!window.sciforge?.paperRadar) return
     setBusy(true)
     setMessage(null)
     try {
-      const result = await window.dsGui.paperRadar.search({ query, topK: DEFAULT_TOP_K })
+      const result = await window.sciforge.paperRadar.search({ query, topK: DEFAULT_TOP_K })
       if (!result.ok) throw new Error(friendlyPaperRadarError(result.message, t))
       setActiveMode('search')
       setPapers(result.data.papers)
@@ -186,11 +190,11 @@ export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactEle
   }
 
   const runDigest = async (): Promise<void> => {
-    if (!window.dsGui?.paperRadar) return
+    if (!window.sciforge?.paperRadar) return
     setBusy(true)
     setMessage(null)
     try {
-      const result = await window.dsGui.paperRadar.digest({
+      const result = await window.sciforge.paperRadar.digest({
         profile: (await saveCurrentProfile()).name,
         keywords: keywordList,
         excludeKeywords: excludeKeywordList,
@@ -227,8 +231,8 @@ export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactEle
   }
 
   const openExternal = (url: string | undefined): void => {
-    if (!url || typeof window.dsGui?.openExternal !== 'function') return
-    void window.dsGui.openExternal(url)
+    if (!url || typeof window.sciforge?.openExternal !== 'function') return
+    void window.sciforge.openExternal(url)
   }
 
   const renderPaperGroups = (): ReactElement => {
@@ -351,16 +355,16 @@ export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactEle
             <select
               value={profileName}
               onChange={(event) => {
-                const next = profiles.find((item) => item.name === event.target.value)
+                const next = profiles.find((item) => publicProfileName(item.name) === event.target.value)
                 if (next) applyProfile(next)
                 else setProfileName(event.target.value)
               }}
               className="min-w-0 flex-1 rounded-md border border-ds-border bg-ds-sidebar px-3 py-2 text-[13px] font-normal text-ds-ink outline-none transition focus:border-accent"
             >
-              {profiles.map((profile) => (
+              {profileOptions.map((profile) => (
                 <option key={profile.name} value={profile.name}>{profile.name}</option>
               ))}
-              {profiles.every((profile) => profile.name !== profileName) ? (
+              {profileOptions.every((profile) => profile.name !== profileName) ? (
                 <option value={profileName}>{profileName}</option>
               ) : null}
             </select>
@@ -492,6 +496,22 @@ export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactEle
       </div>
     </section>
   )
+}
+
+function publicProfileName(name: string): string {
+  return name === 'lab_default' ? DEFAULT_PROFILE_NAME : name
+}
+
+function dedupeProfileOptions(profiles: PaperRadarProfile[]): Array<{ name: string }> {
+  const seen = new Set<string>()
+  const options: Array<{ name: string }> = []
+  for (const profile of profiles) {
+    const name = publicProfileName(profile.name)
+    if (seen.has(name)) continue
+    seen.add(name)
+    options.push({ name })
+  }
+  return options
 }
 
 function Metric({ label, value }: { label: string; value: number }): ReactElement {

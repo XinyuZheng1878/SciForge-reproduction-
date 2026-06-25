@@ -228,7 +228,7 @@ export async function runPromptViaRuntime(
   return { ok: true, threadId, turnId, text, message: text || 'Completed' }
 }
 
-async function waitForAssistantTextViaRuntime(
+export async function waitForAssistantTextViaRuntime(
   deps: ScheduleRuntimeDeps,
   runtimeId: AgentRuntimeId,
   threadId: string,

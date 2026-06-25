@@ -45,7 +45,7 @@ test('serves runtime inspector tools, structured errors, and resources over MCP'
   const service = createRuntimeInspectorService({
     workspaceRoot: repoRealPath,
     checkpointDataDir: dataDir,
-    kunRuntimeToken: 'secret-token',
+    runtimeToken: 'secret-token',
     fetch: fakeRuntimeFetch(),
     lspServerCommand: fakeLsp.command,
     lspServerArgs: fakeLsp.args
@@ -112,7 +112,7 @@ async function createCheckpointFixture(dataDir: string, repo: string): Promise<v
   await mkdir(checkpointDir, { recursive: true })
   await writeFile(join(checkpointDir, 'metadata.json'), `${JSON.stringify({
     checkpointId: 'turn_test',
-    runtimeId: 'kun',
+    runtimeId: 'sciforge',
     threadId: 'thread-1',
     workspaceRoot: repo,
     repositoryRoot: repo,

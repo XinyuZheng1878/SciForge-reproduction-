@@ -5,7 +5,7 @@ import {
   DEFAULT_MODEL_PROVIDER_ID,
   defaultModelRouterSettings,
   defaultCodexRuntimeSettings,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   type ModelProviderProfileV1
 } from '@shared/app-settings'
@@ -16,11 +16,11 @@ const labels: Record<string, string> = {
   agentsQuickSkill: 'Skills',
   agentsQuickMcp: 'MCP',
   agentsQuickPermissions: 'Permissions',
-  agentsQuickKunPermissions: 'Kun access',
+  agentsQuickLocalRuntimePermissions: 'SciForge Runtime access',
   agents: 'Agents',
   agentRuntime: 'Agent runtime',
   agentRuntimeDesc: 'Choose which runtime powers Code mode and chat.',
-  agentRuntimeKun: 'Kun',
+  agentRuntimeSciForge: 'SciForge Runtime',
   agentRuntimeCodex: 'Codex app-server',
   agentRuntimeClaude: 'Claude Code CLI',
   modelRouter: 'Model Router',
@@ -81,94 +81,83 @@ const labels: Record<string, string> = {
   claudeExtraArgs: 'Extra arguments',
   claudeExtraArgsDesc: 'Extra arguments description',
   claudeExtraArgsPlaceholder: '--allowedTools Edit',
-  kunProvider: 'Provider',
-  kunProviderDesc: 'Provider description',
+  localRuntimeProvider: 'Provider',
+  localRuntimeProviderDesc: 'Provider description',
   modelProviderEndpointFormat: 'Endpoint format',
   modelEndpointChatCompletions: '/v1/chat/completions',
   modelEndpointResponses: '/v1/responses',
   modelEndpointMessages: '/v1/messages',
-  kunApiKey: 'Kun API key',
-  kunApiKeyDesc: 'Kun API key description',
-  kunApiKeyPlaceholder: 'Inherit API key',
-  kunApiKeyInherited: 'Inherited API key',
-  kunApiKeyMissing: 'Missing API key',
-  kunApiKeyOverride: 'Override API key',
-  kunBaseUrl: 'Kun base URL',
-  kunBaseUrlDesc: 'Kun base URL description',
-  kunBaseUrlPlaceholder: 'Inherit base URL',
-  kunBaseUrlOfficial: 'Official base URL',
-  kunBaseUrlInherited: 'Inherited base URL',
-  kunBaseUrlOverride: 'Override base URL',
-  kunAssistantAdvanced: 'Assistant advanced settings',
-  kunAssistantAdvancedDesc: 'Assistant advanced settings description',
+  modelProviderApiKeyPlaceholder: 'Provider API key',
+  localRuntimeServiceAdvanced: 'Local Runtime service settings',
+  localRuntimeServiceAdvancedDesc: 'Local Runtime service settings description',
   autoStart: 'Auto start',
   autoStartDesc: 'Auto start description',
   port: 'Port',
   portDesc: 'Port description',
-  kunBinary: 'Kun binary',
-  kunBinaryDesc: 'Kun binary description',
-  kunBinaryPlaceholder: 'Bundled Kun',
-  kunDataDir: 'Data dir',
-  kunDataDirDesc: 'Data dir description',
-  kunModel: 'Model',
-  kunModelDesc: 'Model description',
-  kunTokenEconomy: 'Token-saving mode',
-  kunTokenEconomyDesc: 'Token-saving mode description',
-  kunTokenEconomySavings: 'Saved {{tokens}} / {{cost}}',
-  kunTokenEconomySavingsLoading: 'Loading savings',
-  kunTokenEconomySavingsEmpty: 'Savings empty',
-  kunTokenEconomyAdvanced: 'Token-saving advanced settings',
-  kunTokenEconomyAdvancedDesc: 'Token-saving advanced settings description',
-  kunTokenEconomyOptions: 'Token-saving options',
-  kunTokenEconomyOptionsDesc: 'Token-saving options description',
-  kunCompressToolDescriptions: 'Compress tool descriptions',
-  kunCompressToolResults: 'Compress tool results',
-  kunConciseResponses: 'Concise responses',
-  kunHistoryHygiene: 'History guard',
-  kunHistoryHygieneDesc: 'History guard description',
-  kunHistoryMaxResultLines: 'Max result lines',
-  kunHistoryMaxResultBytes: 'Max result bytes',
-  kunHistoryMaxResultTokens: 'Max result tokens',
-  kunHistoryMaxArgumentBytes: 'Max argument bytes',
-  kunHistoryMaxArgumentTokens: 'Max argument tokens',
-  kunHistoryMaxArrayItems: 'Max array items',
+  localRuntimeBinary: 'Local Runtime binary',
+  localRuntimeBinaryDesc: 'Local Runtime binary description',
+  localRuntimeBinaryPlaceholder: 'Bundled Local Runtime',
+  localRuntimeDataDir: 'Data dir',
+  localRuntimeDataDirDesc: 'Data dir description',
+  localRuntimeModel: 'Model',
+  localRuntimeModelDesc: 'Model description',
+  localRuntimeTokenEconomy: 'Token-saving mode',
+  localRuntimeTokenEconomyDesc: 'Token-saving mode description',
+  localRuntimeTokenEconomySavings: 'Saved {{tokens}} / {{cost}}',
+  localRuntimeTokenEconomySavingsLoading: 'Loading savings',
+  localRuntimeTokenEconomySavingsEmpty: 'Savings empty',
+  localRuntimeTokenEconomyAdvanced: 'Token-saving advanced settings',
+  localRuntimeTokenEconomyAdvancedDesc: 'Token-saving advanced settings description',
+  localRuntimeTokenEconomyOptions: 'Token-saving options',
+  localRuntimeTokenEconomyOptionsDesc: 'Token-saving options description',
+  localRuntimeCompressToolDescriptions: 'Compress tool descriptions',
+  localRuntimeCompressToolResults: 'Compress tool results',
+  localRuntimeConciseResponses: 'Concise responses',
+  localRuntimeHistoryHygiene: 'History guard',
+  localRuntimeHistoryHygieneDesc: 'History guard description',
+  localRuntimeHistoryMaxResultLines: 'Max result lines',
+  localRuntimeHistoryMaxResultBytes: 'Max result bytes',
+  localRuntimeHistoryMaxResultTokens: 'Max result tokens',
+  localRuntimeHistoryMaxArgumentBytes: 'Max argument bytes',
+  localRuntimeHistoryMaxArgumentTokens: 'Max argument tokens',
+  localRuntimeHistoryMaxArrayItems: 'Max array items',
   runtimeToken: 'Runtime token',
   runtimeTokenDesc: 'Runtime token description',
   showSecret: 'Show',
   hideSecret: 'Hide',
-  kunInsecure: 'Insecure',
-  kunInsecureDesc: 'Insecure description',
-  kunInsecureForcedDesc: 'Insecure forced',
-  kunAdvanced: 'Advanced runtime settings',
-  kunAdvancedDetails: 'Storage, model context, and tool guards',
-  kunAdvancedDetailsDesc: 'Per-model context policy comes from models.profiles',
-  kunStorageBackend: 'Storage backend',
-  kunStorageBackendDesc: 'Storage backend description',
-  kunStorageHybrid: 'Hybrid storage',
-  kunStorageFile: 'Pure JSONL file storage',
-  kunStorageSqlitePath: 'SQLite path',
-  kunStorageSqlitePathDesc: 'SQLite path description',
-  kunStorageSqlitePathPlaceholder: 'Automatic SQLite path',
-  kunModelContextProfile: 'Current model context policy',
-  kunModelContextProfileDesc: 'Current model context policy description',
-  kunModelContextModel: 'Matched model',
-  kunModelContextWindow: 'Context window',
-  kunModelContextSoft: 'Model soft threshold',
-  kunModelContextHard: 'Model hard threshold',
-  kunModelContextSourceBuiltIn: 'Built-in model config',
-  kunModelContextSourceFallback: 'Fallback model config',
-  kunCompactionThresholds: 'Fallback compaction thresholds',
-  kunCompactionThresholdsDesc: 'Fallback compaction thresholds description',
-  kunCompactionSoftThreshold: 'Fallback soft threshold',
-  kunCompactionHardThreshold: 'Fallback hard threshold',
-  kunCompactionSummary: 'Compaction summary',
-  kunCompactionSummaryDesc: 'Compaction summary description',
-  kunCompactionSummaryMode: 'Summary mode',
-  kunCompactionSummaryHeuristic: 'Heuristic summary',
-  kunCompactionSummaryModel: 'Model summary',
-  kunCompactionSummaryTimeout: 'Summary timeout',
-  kunCompactionSummaryMaxTokens: 'Summary max tokens',
-  kunCompactionSummaryInputBytes: 'Summary input bytes',
+  localRuntimeInsecure: 'Insecure',
+  localRuntimeInsecureDesc: 'Insecure description',
+  localRuntimeInsecureForcedDesc: 'Insecure forced',
+  localRuntimeAdvanced: 'Advanced runtime settings',
+  localRuntimeAdvancedDetails: 'Storage, model context, and tool guards',
+  localRuntimeAdvancedDetailsDesc: 'Per-model context policy comes from models.profiles',
+  localRuntimeStorageBackend: 'Storage backend',
+  localRuntimeStorageBackendDesc: 'Storage backend description',
+  localRuntimeStorageHybrid: 'Hybrid storage',
+  localRuntimeStorageFile: 'Pure JSONL file storage',
+  localRuntimeStorageSqlitePath: 'SQLite path',
+  localRuntimeStorageSqlitePathDesc: 'SQLite path description',
+  localRuntimeStorageSqlitePathPlaceholder: 'Automatic SQLite path',
+  localRuntimeModelContextProfile: 'Current model context policy',
+  localRuntimeModelContextProfileDesc: 'Current model context policy description',
+  localRuntimeModelContextModel: 'Matched model',
+  localRuntimeModelContextWindow: 'Context window',
+  localRuntimeModelContextSoft: 'Model soft threshold',
+  localRuntimeModelContextHard: 'Model hard threshold',
+  localRuntimeModelContextSourceBuiltIn: 'Built-in model config',
+  localRuntimeModelContextSourceFallback: 'Fallback model config',
+  localRuntimeCompactionThresholds: 'Fallback compaction thresholds',
+  localRuntimeCompactionThresholdsDesc: 'Fallback compaction thresholds description',
+  localRuntimeCompactionSoftThreshold: 'Fallback soft threshold',
+  localRuntimeCompactionHardThreshold: 'Fallback hard threshold',
+  localRuntimeCompactionSummary: 'Compaction summary',
+  localRuntimeCompactionSummaryDesc: 'Compaction summary description',
+  localRuntimeCompactionSummaryMode: 'Summary mode',
+  localRuntimeCompactionSummaryHeuristic: 'Heuristic summary',
+  localRuntimeCompactionSummaryModel: 'Model summary',
+  localRuntimeCompactionSummaryTimeout: 'Summary timeout',
+  localRuntimeCompactionSummaryMaxTokens: 'Summary max tokens',
+  localRuntimeCompactionSummaryInputBytes: 'Summary input bytes',
   runtimeGuardToolStorm: 'Runtime guard',
   runtimeGuardToolStormDesc: 'Runtime guard description',
   runtimeGuardToolStormLimits: 'Tool storm limits',
@@ -176,28 +165,28 @@ const labels: Record<string, string> = {
   runtimeGuardToolStormWindowSize: 'Tool storm window',
   runtimeGuardToolStormSoftThreshold: 'Soft threshold',
   runtimeGuardToolStormHardThreshold: 'Hard threshold',
-  kunToolArgumentRepair: 'Tool argument repair',
-  kunToolArgumentRepairDesc: 'Tool argument repair description',
-  kunDiagnostics: 'Kun diagnostics',
-  kunDiagnosticsAdvanced: 'Detailed diagnostics',
-  kunDiagnosticsAdvancedDesc: 'Detailed diagnostics description',
-  kunRuntimeCapabilities: 'Runtime capabilities',
-  kunRuntimeCapabilitiesDesc: 'Runtime capabilities description',
-  kunRuntimeModel: 'Runtime model',
-  kunRuntimePid: 'Runtime PID',
-  kunDiagnosticsRefresh: 'Refresh diagnostics',
-  kunToolDiagnostics: 'Tool diagnostics',
-  kunToolDiagnosticsDesc: 'Tool diagnostics description',
-  kunDiagnosticsProviders: 'Providers',
-  kunDiagnosticsMcpServers: 'MCP servers',
-  kunDiagnosticsSkills: 'Discovered Skills',
-  kunDiagnosticsAttachments: 'Attachments',
-  kunMemoryRecords: 'Memory records',
-  kunMemoryRecordsDesc: 'Memory records description',
-  kunMemoryEmpty: 'No memories',
-  kunMemoryDisable: 'Disable memory',
-  kunMemoryDelete: 'Delete memory',
-  kunMemoryDisabled: 'Disabled',
+  localRuntimeToolArgumentRepair: 'Tool argument repair',
+  localRuntimeToolArgumentRepairDesc: 'Tool argument repair description',
+  localRuntimeDiagnostics: 'SciForge Runtime diagnostics',
+  localRuntimeDiagnosticsAdvanced: 'Detailed diagnostics',
+  localRuntimeDiagnosticsAdvancedDesc: 'Detailed diagnostics description',
+  localRuntimeCapabilities: 'Runtime capabilities',
+  localRuntimeCapabilitiesDesc: 'Runtime capabilities description',
+  localRuntimeDiagnosticsModel: 'Runtime model',
+  localRuntimeDiagnosticsPid: 'Runtime PID',
+  localRuntimeDiagnosticsRefresh: 'Refresh diagnostics',
+  localRuntimeToolDiagnostics: 'Tool diagnostics',
+  localRuntimeToolDiagnosticsDesc: 'Tool diagnostics description',
+  localRuntimeDiagnosticsProviders: 'Providers',
+  localRuntimeDiagnosticsMcpServers: 'MCP servers',
+  localRuntimeDiagnosticsSkills: 'Discovered Skills',
+  localRuntimeDiagnosticsAttachments: 'Attachments',
+  localRuntimeMemoryRecords: 'Memory records',
+  localRuntimeMemoryRecordsDesc: 'Memory records description',
+  localRuntimeMemoryEmpty: 'No memories',
+  localRuntimeMemoryDisable: 'Disable memory',
+  localRuntimeMemoryDelete: 'Delete memory',
+  localRuntimeMemoryDisabled: 'Disabled',
   skill: 'Skill',
   skillsLocation: 'Skill location',
   skillsLocationDesc: 'Skill location description',
@@ -279,7 +268,7 @@ const labels: Record<string, string> = {
   computerUseRecentRejectionsDesc: 'Most recent denials.',
   computerUseNoRecentRejections: 'No recent computer-use rejections.',
   permissions: 'Permissions',
-  kunPermissions: 'Kun permissions',
+  localRuntimePermissions: 'SciForge Runtime permissions',
   approvalPolicy: 'Approval policy',
   approvalPolicyDesc: 'Approval policy description',
   approvalAuto: 'Auto',
@@ -303,8 +292,8 @@ function baseCtx(): Record<string, unknown> {
   const noop = () => undefined
   const asyncNoop = async () => undefined
   const ref = { current: null }
-  const kun = {
-    ...defaultKunRuntimeSettings(),
+  const localRuntime = {
+    ...defaultLocalRuntimeSettings(),
     autoStart: true,
     runtimeToken: '',
     insecure: true
@@ -322,21 +311,18 @@ function baseCtx(): Record<string, unknown> {
     t,
     tCommon: t,
     form: {
-      activeAgentRuntime: 'kun',
-      agents: { kun, codex },
+      activeAgentRuntime: 'sciforge',
+      agents: { sciforge: localRuntime, codex },
       claw: { skills: { extraDirs: ['/tmp/project/.agents/skills'] } }
     },
-    kun,
+    localRuntime,
     codex,
-    activeAgentRuntime: 'kun',
+    activeAgentRuntime: 'sciforge',
     activeApiKey: '',
     update: noop,
-    updateKun: noop,
+    updateLocalRuntime: noop,
     updateCodex: noop,
     updateActiveAgentRuntime: noop,
-    updateSharedCredential: noop,
-    sharedApiKey: '',
-    sharedBaseUrl: '',
     showApiKey: false,
     setShowApiKey: noop,
     showRuntimeToken: false,
@@ -393,7 +379,7 @@ function baseCtx(): Record<string, unknown> {
     skillNotice: null,
     openSkillRoot: asyncNoop,
     openPlugins: noop,
-    mcpConfigPath: '/tmp/project/.kun/mcp.json',
+    mcpConfigPath: '/tmp/project/.sciforge/mcp.json',
     mcpConfigExists: true,
     mcpConfigText: '{"mcpServers":{}}',
     setMcpConfigText: noop,
@@ -408,7 +394,7 @@ function baseCtx(): Record<string, unknown> {
     memoryRecords: [],
     runtimeDiagnosticsBusy: false,
     runtimeDiagnosticsNotice: null,
-    refreshKunDiagnostics: asyncNoop,
+    refreshLocalRuntimeDiagnostics: asyncNoop,
     disableMemoryRecord: asyncNoop,
     deleteMemoryRecord: asyncNoop,
     pickClawWorkspace: asyncNoop,
@@ -419,7 +405,7 @@ function baseCtx(): Record<string, unknown> {
   }
 }
 
-describe('AgentsSettingsSection Kun diagnostics smoke', () => {
+describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
   it('builds a single patch when adding and selecting a model provider', () => {
     const provider = defaultModelProviderSettings()
     const customProvider = {
@@ -434,11 +420,11 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     const patch = modelProvidersSettingsPatch({
       provider,
       providers: [...provider.providers, customProvider],
-      kun: { providerId: customProvider.id }
+      sciforge: { providerId: customProvider.id }
     })
 
     expect(patch.provider?.providers).toEqual([...provider.providers, customProvider])
-    expect(patch.agents?.kun?.providerId).toBe(customProvider.id)
+    expect(patch.agents?.sciforge?.providerId).toBe(customProvider.id)
   })
 
   it('builds a single patch when removing the active model provider', () => {
@@ -460,14 +446,14 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
         ]
       },
       providers: provider.providers,
-      kun: { providerId: DEFAULT_MODEL_PROVIDER_ID }
+      sciforge: { providerId: DEFAULT_MODEL_PROVIDER_ID }
     })
 
     expect(patch.provider?.providers).toEqual(provider.providers)
-    expect(patch.agents?.kun?.providerId).toBe(DEFAULT_MODEL_PROVIDER_ID)
+    expect(patch.agents?.sciforge?.providerId).toBe(DEFAULT_MODEL_PROVIDER_ID)
   })
 
-  it('wraps Codex runtime changes in agents.codex without touching Kun settings', () => {
+  it('wraps Codex runtime changes in agents.codex without touching SciForge Runtime settings', () => {
     const patch = codexRuntimeSettingsPatch({
       command: 'codex-dev',
       codexHome: '/tmp/codex-home',
@@ -483,7 +469,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
         }
       }
     })
-    expect(patch.agents?.kun).toBeUndefined()
+    expect(patch.agents?.sciforge).toBeUndefined()
   })
 
   it('renders Codex and Claude settings forms without the runtime selector', () => {
@@ -494,7 +480,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx }))
 
     expect(html).not.toContain('Agent runtime')
-    expect(html).not.toContain('<option value="kun">Kun</option>')
+    expect(html).not.toContain('<option value="sciforge" selected="">SciForge Runtime</option>')
     expect(html).not.toContain('<option value="codex" selected="">Codex app-server</option>')
     expect(html).not.toContain('<option value="claude">Claude Code CLI</option>')
     expect(html).toContain('Codex app-server')
@@ -574,6 +560,18 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     expect(html).not.toMatch(/direct upstream provider/i)
   })
 
+  it('does not render Local Runtime credential override fields', () => {
+    const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx: baseCtx() }))
+
+    expect(html).toContain('Provider')
+    expect(html).toContain('API key')
+    expect(html).toContain('Base URL')
+    expect(html).not.toContain('Local Runtime API key')
+    expect(html).not.toContain('Local Runtime base URL')
+    expect(html).not.toContain('Override API key')
+    expect(html).not.toContain('Override base URL')
+  })
+
   it('maps Model Router health statuses into visible labels', () => {
     const cases = [
       ['healthy', 'healthy'],
@@ -598,7 +596,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     }
   })
 
-  it('labels the bottom permissions section as Kun-specific when Codex is active', () => {
+  it('labels the bottom permissions section as runtime-specific when Codex is active', () => {
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, {
       ctx: {
         ...baseCtx(),
@@ -606,8 +604,8 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
       }
     }))
 
-    expect(html).toContain('Kun access')
-    expect(html).toContain('Kun permissions')
+    expect(html).toContain('SciForge Runtime access')
+    expect(html).toContain('SciForge Runtime permissions')
   })
 
   it('renders computer-use status, macOS restart guidance, active leases, and recent rejections', () => {
@@ -617,7 +615,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
         settings: {
           enabled: true,
           runtimeEnabled: {
-            kun: true,
+            sciforge: true,
             codex: true,
             claude: true
           }
@@ -693,7 +691,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     expect(html).toContain('main-desktop is already leased')
   })
 
-  it('does not expose Kun-only permission choices in the Codex runtime form', () => {
+  it('does not expose default-runtime-specific permission choices in the Codex runtime form', () => {
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, {
       ctx: {
         ...baseCtx(),
@@ -722,8 +720,8 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
           ...provider,
           providers: [...provider.providers, customProvider]
         },
-        kun: {
-          ...defaultKunRuntimeSettings(),
+        localRuntime: {
+          ...defaultLocalRuntimeSettings(),
           providerId: customProvider.id
         }
       }
@@ -740,7 +738,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
   it('keeps advanced agent controls behind collapsed disclosures', () => {
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx: baseCtx() }))
 
-    expect(html).toContain('Assistant advanced settings')
+    expect(html).toContain('Local Runtime service settings')
     expect(html).toContain('Token-saving advanced settings')
     expect(html).toContain('MCP advanced settings')
     expect(html).not.toContain('<details open')
@@ -801,7 +799,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
 
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx }))
 
-    expect(html).toContain('Kun diagnostics')
+    expect(html).toContain('SciForge Runtime diagnostics')
     expect(html).toContain('MCP')
     expect(html).toContain('available')
     expect(html).toContain('2/2')
@@ -819,7 +817,7 @@ describe('AgentsSettingsSection Kun diagnostics smoke', () => {
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx: baseCtx() }))
 
     expect(html).toContain('External tool config path')
-    expect(html).toContain('/tmp/project/.kun/mcp.json')
+    expect(html).toContain('/tmp/project/.sciforge/mcp.json')
     expect(html).toContain('Model and API credentials do not live in this MCP file')
     expect(html).not.toContain('DeepSeek auth')
     expect(html).not.toContain('Base URL are stored in this file')

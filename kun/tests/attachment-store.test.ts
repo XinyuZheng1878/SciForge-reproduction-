@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FileAttachmentStore } from '../src/attachments/attachment-store.js'
 import { DeepseekCompatModelClient } from '../src/adapters/model/deepseek-compat-model-client.js'
 import {
-  KunCapabilitiesConfig,
+  LocalRuntimeCapabilitiesConfig,
   type AttachmentsCapabilityConfig,
   type ModelCapabilityMetadata
 } from '../src/contracts/capabilities.js'
@@ -435,7 +435,7 @@ describe('Attachment store and multimodal input', () => {
   }
 
   function attachmentConfig(overrides: Partial<AttachmentsCapabilityConfig> = {}) {
-    return KunCapabilitiesConfig.parse({
+    return LocalRuntimeCapabilitiesConfig.parse({
       attachments: {
         enabled: true,
         ...overrides
@@ -458,7 +458,7 @@ describe('Data (non-image) attachment support', () => {
   function createStore() {
     return new FileAttachmentStore({
       rootDir: join(dir, 'attachments'),
-      config: KunCapabilitiesConfig.parse({ attachments: { enabled: true } }).attachments,
+      config: LocalRuntimeCapabilitiesConfig.parse({ attachments: { enabled: true } }).attachments,
       nowIso: () => '2026-06-03T00:00:00.000Z'
     })
   }
@@ -532,7 +532,7 @@ describe('Data (non-image) attachment support', () => {
     }])
   })
 
-  it('does not call sci-modality from Kun even when the service URL is configured', async () => {
+  it('does not call sci-modality from local runtime even when the service URL is configured', async () => {
     const seenRequests: ModelRequest[] = []
     const model: ModelClient = {
       provider: 'fake',
@@ -546,7 +546,7 @@ describe('Data (non-image) attachment support', () => {
     let fetchCalls = 0
     globalThis.fetch = (async () => {
       fetchCalls += 1
-      throw new Error('Kun must not call sci-modality')
+      throw new Error('Local runtime must not call sci-modality')
     }) as typeof fetch
 
     const savedUrl = process.env['SCIFORGE_SCIMODALITY_SERVICE_URL']

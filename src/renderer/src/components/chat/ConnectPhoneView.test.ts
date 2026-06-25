@@ -60,9 +60,9 @@ describe('ConnectPhoneView', () => {
       })
     )
 
-    expect(html).toContain('Use your phone to connect kun')
+    expect(html).toContain('Use your phone to connect the local runtime')
     expect(html).toContain('Generate authorization QR')
-    expect(html).not.toContain('Kun usage')
+    expect(html).not.toContain('SciForge Runtime usage')
   })
 
   it('maps scan targets to the matching install API provider', () => {
@@ -87,9 +87,9 @@ describe('ConnectPhoneView', () => {
     expect(formatConnectPhoneUserCode('', 'abcd1234-rest-of-token')).toBe('ABCD-1234')
   })
 
-  it('builds the default kun channel payload after a successful scan', () => {
+  it('builds the default local runtime channel payload after a successful scan', () => {
     expect(createConnectPhoneAgentProfile()).toEqual({
-      name: 'kun',
+      name: 'SciForge Runtime',
       description: '',
       identity: '',
       personality: '',
@@ -162,13 +162,13 @@ describe('ConnectPhoneView', () => {
     expect(resolveConnectPhoneWorkspaceRoot('/repo/custom', '/repo/current')).toBe('/repo/custom')
     expect(
       resolveConnectPhoneWorkspaceRoot(
-        '/Users/zxy/.deepseekgui/claw/discord/server/channel',
+        '/Users/zxy/.sciforge/claw/discord/server/channel',
         '/repo/current'
       )
     ).toBe('/repo/current')
     expect(
       connectPhoneWorkspaceLabel(
-        '/Users/zxy/.deepseekgui/claw/discord/server/channel',
+        '/Users/zxy/.sciforge/claw/discord/server/channel',
         'default workspace'
       )
     ).toBe('default workspace')
@@ -250,7 +250,7 @@ describe('ConnectPhoneView', () => {
     )
 
     expect(html).toContain('role="dialog"')
-    expect(html).toContain('Use your phone to connect kun')
+    expect(html).toContain('Use your phone to connect the local runtime')
     expect(html).toContain('Generate authorization QR')
     expect(html).toContain('Discord')
   })

@@ -27,7 +27,7 @@ describe('plan-tool helpers', () => {
         plan: {
           plan_id: 'p1',
           workspace_root: '/tmp/ws',
-          relative_path: '.deepseekgui/plan/x.md',
+          relative_path: '.sciforge/plan/x.md',
           operation: 'draft'
         }
       }
@@ -51,10 +51,10 @@ describe('plan-tool helpers', () => {
       meta: {
         toolName: GUI_PLAN_CREATE_PLAN_TOOL_NAME,
         plan: {
-          plan_id: '/tmp/ws:.deepseekgui/plan/login.md',
+          plan_id: '/tmp/ws:.sciforge/plan/login.md',
           workspace_root: '/tmp/ws',
-          relative_path: '.deepseekgui/plan/login.md',
-          absolute_path: '/tmp/ws/.deepseekgui/plan/login.md',
+          relative_path: '.sciforge/plan/login.md',
+          absolute_path: '/tmp/ws/.sciforge/plan/login.md',
           operation: 'draft',
           saved_at: '2024-01-01T00:00:00.000Z',
           content_hash: 'deadbeef',
@@ -64,10 +64,10 @@ describe('plan-tool helpers', () => {
     })
     const meta = extractPlanMetadataFromBlock(block)
     expect(meta).toEqual({
-      planId: '/tmp/ws:.deepseekgui/plan/login.md',
+      planId: '/tmp/ws:.sciforge/plan/login.md',
       workspaceRoot: '/tmp/ws',
-      relativePath: '.deepseekgui/plan/login.md',
-      absolutePath: '/tmp/ws/.deepseekgui/plan/login.md',
+      relativePath: '.sciforge/plan/login.md',
+      absolutePath: '/tmp/ws/.sciforge/plan/login.md',
       operation: 'draft',
       savedAt: '2024-01-01T00:00:00.000Z',
       contentHash: 'deadbeef',

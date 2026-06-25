@@ -27,11 +27,11 @@ import {
   type PluginInstallKind
 } from '../lib/plugin-install-state'
 import { getProvider } from '../agent/registry'
-import type { SkillListItem } from '@shared/ds-gui-api'
+import type { SkillListItem } from '@shared/sciforge-api'
 import type {
-  CoreRuntimeInfoJson,
-  CoreRuntimeToolDiagnosticsJson
-} from '../agent/kun-contract'
+  LocalRuntimeInfoJson,
+  LocalRuntimeToolDiagnosticsJson
+} from '../agent/local-runtime-contract'
 import { useChatStore } from '../store/chat-store'
 import { NoticeView, TabButton, type MarketplaceNotice } from './PluginMarketplaceParts'
 import {
@@ -270,7 +270,7 @@ export function skillMarketplaceItemsFromDiscoveredSkills(
 
 export function mcpMarketplaceItemsFromConfigAndDiagnostics(
   configText: string,
-  diagnostics: CoreRuntimeToolDiagnosticsJson | null,
+  diagnostics: LocalRuntimeToolDiagnosticsJson | null,
   labels: {
     configured: string
     connected: string
@@ -459,8 +459,8 @@ export function PluginMarketplaceView(): ReactElement {
   const [skillRootId, setSkillRootId] = useState<SkillRootId>(() => loadPreferredSkillRootId())
   const [mcpConfigText, setMcpConfigText] = useState('')
   const [mcpLoaded, setMcpLoaded] = useState(false)
-  const [runtimeInfo, setRuntimeInfo] = useState<CoreRuntimeInfoJson | null>(null)
-  const [toolDiagnostics, setToolDiagnostics] = useState<CoreRuntimeToolDiagnosticsJson | null>(null)
+  const [runtimeInfo, setRuntimeInfo] = useState<LocalRuntimeInfoJson | null>(null)
+  const [toolDiagnostics, setToolDiagnostics] = useState<LocalRuntimeToolDiagnosticsJson | null>(null)
   const [runtimeOverlayLoading, setRuntimeOverlayLoading] = useState(false)
   const [runtimeOverlayError, setRuntimeOverlayError] = useState('')
   const [discoveredSkills, setDiscoveredSkills] = useState<SkillListItem[]>([])
@@ -489,9 +489,9 @@ export function PluginMarketplaceView(): ReactElement {
         available: true
       },
       {
-        id: 'global-deepseek',
+        id: 'global-sciforge',
         label: t('pluginSkillRootGlobalDeepseek'),
-        path: '~/.kun/skills',
+        path: '~/.sciforge/skills',
         available: true
       }
     ]
@@ -514,8 +514,8 @@ export function PluginMarketplaceView(): ReactElement {
   }, [skillRootId, skillRootOptions])
 
   const readMcpConfig = useCallback(async (): Promise<string> => {
-    if (typeof window.dsGui?.getDeepseekConfigFile !== 'function') return mcpConfigText
-    const file = await window.dsGui.getDeepseekConfigFile()
+    if (typeof window.sciforge?.getRuntimeConfigFile !== 'function') return mcpConfigText
+    const file = await window.sciforge.getRuntimeConfigFile()
     setMcpConfigText(file.content)
     setMcpLoaded(true)
     return file.content
@@ -562,7 +562,7 @@ export function PluginMarketplaceView(): ReactElement {
   }, [activeKind, refreshMcpRuntimeOverlay])
 
   const refreshSkillList = useCallback(async (): Promise<void> => {
-    if (typeof window.dsGui?.listSkills !== 'function') {
+    if (typeof window.sciforge?.listSkills !== 'function') {
       setDiscoveredSkills([])
       setSkillListError(t('pluginSkillScanUnavailable'))
       return
@@ -570,7 +570,7 @@ export function PluginMarketplaceView(): ReactElement {
     setSkillListLoading(true)
     setSkillListError('')
     try {
-      const result = await window.dsGui.listSkills(workspaceRoot || undefined)
+      const result = await window.sciforge.listSkills(workspaceRoot || undefined)
       if (!result.ok) {
         setDiscoveredSkills([])
         setSkillListError(result.message)
@@ -693,7 +693,7 @@ export function PluginMarketplaceView(): ReactElement {
       setNotice({ tone: 'info', message: t('pluginAlreadyAdded') })
       return
     }
-    const result = await window.dsGui.setDeepseekConfigFile(merged.text)
+    const result = await window.sciforge.setRuntimeConfigFile(merged.text)
     setMcpConfigText(merged.text)
     setMcpLoaded(true)
     markInstalled(pluginStorageKey('mcp', id))
@@ -729,7 +729,7 @@ export function PluginMarketplaceView(): ReactElement {
         description,
         item.skillInstructions ?? description
       )
-      const result = await window.dsGui.saveSkillFile(selectedSkillRoot.path, item.id, content)
+      const result = await window.sciforge.saveSkillFile(selectedSkillRoot.path, item.id, content)
       if (!result.ok) {
         setNotice({ tone: 'error', message: result.message })
         return
@@ -772,7 +772,7 @@ export function PluginMarketplaceView(): ReactElement {
         }
         const body = customSkillBody.trim() || t('pluginCustomSkillFallbackBody')
         const content = buildSkillContent(id, customName.trim() || id, description, body)
-        const result = await window.dsGui.saveSkillFile(selectedSkillRoot.path, id, content)
+        const result = await window.sciforge.saveSkillFile(selectedSkillRoot.path, id, content)
         if (!result.ok) {
           setNotice({ tone: 'error', message: result.message })
           return
@@ -798,7 +798,7 @@ export function PluginMarketplaceView(): ReactElement {
   const openManageTarget = async (): Promise<void> => {
     try {
       if (activeKind === 'mcp') {
-        const result = await window.dsGui.openDeepseekConfigDir()
+        const result = await window.sciforge.openRuntimeConfigDir()
         if (!result.ok) setNotice({ tone: 'error', message: result.message ?? t('pluginActionFailed') })
         return
       }
@@ -806,7 +806,7 @@ export function PluginMarketplaceView(): ReactElement {
         setNotice({ tone: 'error', message: t('pluginSkillRootMissing') })
         return
       }
-      const result = await window.dsGui.openSkillRoot(selectedSkillRoot.path)
+      const result = await window.sciforge.openSkillRoot(selectedSkillRoot.path)
       if (!result.ok) setNotice({ tone: 'error', message: result.message ?? t('pluginActionFailed') })
     } catch (e) {
       setNotice({ tone: 'error', message: e instanceof Error ? e.message : String(e) })
@@ -1132,7 +1132,7 @@ function marketplaceSourceTone(tone: MarketplaceItem['statusTone']): string {
 
 function runtimeOverlayErrorMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : String(error)
-  return /dsGui|Cannot read properties/i.test(message) ? fallback : message
+  return /sciforge|Cannot read properties/i.test(message) ? fallback : message
 }
 
 function PluginSection({

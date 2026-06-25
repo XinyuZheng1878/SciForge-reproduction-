@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import { request } from 'node:http'
-import { startDevBrowserBridgeServer, type DevBrowserBridgeDispatcher } from './dev-browser-bridge'
+import {
+  DEV_BROWSER_BRIDGE_TOKEN_HEADER,
+  startDevBrowserBridgeServer,
+  type DevBrowserBridgeDispatcher
+} from './dev-browser-bridge'
 
 type TestServer = Awaited<ReturnType<typeof startDevBrowserBridgeServer>>
 
@@ -38,18 +42,33 @@ function readFromResponse(path: string): Promise<{ status: number; body: string;
   })
 }
 
-function postJson(path: string, body: unknown, clientId = 'browser-1'): Promise<{ status: number; body: string; headers: Record<string, string | string[] | undefined> }> {
+type PostJsonOptions = {
+  clientId?: string
+  token?: string | null
+}
+
+function postJson(path: string, body: unknown, options: PostJsonOptions | string = {}): Promise<{ status: number; body: string; headers: Record<string, string | string[] | undefined> }> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body)
     const url = new URL(path, server?.url)
+    const clientId = typeof options === 'string' ? options : options.clientId ?? 'browser-1'
+    const token = typeof options === 'string'
+      ? server?.token
+      : 'token' in options
+        ? options.token
+        : server?.token
+    const headers: Record<string, string | number> = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+      'X-SciForge-Client': clientId,
+      Origin: 'http://localhost:5173'
+    }
+    if (token !== null && token !== undefined) {
+      headers[DEV_BROWSER_BRIDGE_TOKEN_HEADER] = token
+    }
     const req = request(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload),
-        'X-DeepSeek-Gui-Client': clientId,
-        Origin: 'http://localhost:5173'
-      }
+      headers
     }, (res) => {
       let response = ''
       res.setEncoding('utf8')
@@ -98,7 +117,7 @@ describe('dev browser bridge server', () => {
     await closeServer()
   })
 
-  it('serves health and forwards invoke requests to the dispatcher', async () => {
+  it('serves health and forwards authenticated invoke requests to the dispatcher', async () => {
     const invoke = vi.fn(async (_channel, payload) => ({ ok: true, payload }))
     const dispatcher: DevBrowserBridgeDispatcher = { invoke }
 
@@ -124,6 +143,51 @@ describe('dev browser bridge server', () => {
       { theme: 'dark' },
       expect.objectContaining({ id: expect.any(Number), send: expect.any(Function) })
     )
+  })
+
+  it('rejects invoke requests that do not include the bridge token', async () => {
+    const invoke = vi.fn(async () => ({ ok: true }))
+    const dispatcher: DevBrowserBridgeDispatcher = { invoke }
+
+    server = await startDevBrowserBridgeServer({
+      dispatcher,
+      port: 0,
+      token: 'test-bridge-token-123'
+    })
+
+    const response = await postJson('/invoke', {
+      channel: 'settings:get'
+    }, { token: null })
+
+    expect(response.status).toBe(401)
+    expect(JSON.parse(response.body)).toEqual({
+      ok: false,
+      message: 'Dev browser bridge token is missing or invalid.'
+    })
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('rejects invoke requests for channels outside the default allowlist', async () => {
+    const invoke = vi.fn(async () => ({ ok: true }))
+    const dispatcher: DevBrowserBridgeDispatcher = { invoke }
+
+    server = await startDevBrowserBridgeServer({
+      dispatcher,
+      port: 0,
+      token: 'test-bridge-token-123'
+    })
+
+    const response = await postJson('/invoke', {
+      channel: 'desktop:command',
+      payload: 'quit'
+    })
+
+    expect(response.status).toBe(403)
+    expect(JSON.parse(response.body)).toEqual({
+      ok: false,
+      message: 'Dev browser bridge channel is not allowed: desktop:command'
+    })
+    expect(invoke).not.toHaveBeenCalled()
   })
 
   it('streams sender.send payloads to the matching browser client over SSE', async () => {

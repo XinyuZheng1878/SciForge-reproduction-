@@ -4,16 +4,16 @@ import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { atomicWriteFile } from '../../kun/src/adapters/file/atomic-write.js'
 import {
-  applyKunRuntimePatch,
+  applyLocalRuntimePatch,
   applyCodexRuntimePatch,
   applyClaudeRuntimePatch,
-  kunSettingsEnvelope,
+  agentRuntimeSettingsEnvelope,
   DEFAULT_GUI_UPDATE_CHANNEL,
   DEFAULT_WRITE_WORKSPACE_ROOT,
   defaultClawSettings,
   defaultClaudeRuntimeSettings,
   defaultCodexRuntimeSettings,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultAgentCapabilitySettings,
@@ -23,11 +23,11 @@ import {
   defaultWorkflowSettings,
   getCodexRuntimeSettings,
   getClaudeRuntimeSettings,
-  getKunRuntimeSettings,
+  getLocalRuntimeSettings,
   getModelRouterSettings,
   mergeCodexRuntimeSettings,
   mergeClaudeRuntimeSettings,
-  mergeKunRuntimeSettings,
+  mergeLocalRuntimeSettings,
   mergeModelRouterSettings,
   mergeModelProviderSettings,
   mergeComputerUseSettings,
@@ -42,7 +42,6 @@ import {
   mergeWriteSettings,
   normalizeAppBehaviorSettings,
   normalizeKeyboardShortcuts,
-  migrateLegacyAppSettings,
   normalizeAppSettings,
   normalizeAgentRuntimeId,
   type AppSettingsPatch,
@@ -50,12 +49,7 @@ import {
   type ClawImChannelV1,
   type ClawImConversationV1
 } from '../shared/app-settings'
-import {
-  APP_SETTINGS_FILE_NAME,
-  APP_USER_DATA_DIR_NAME,
-  LEGACY_APP_SETTINGS_FILE_NAME,
-  LEGACY_APP_USER_DATA_DIR_NAMES
-} from '../shared/app-brand'
+import { APP_SETTINGS_FILE_NAME } from '../shared/app-brand'
 
 export type { AppSettingsV1 }
 
@@ -63,11 +57,6 @@ const DEFAULT_WORKSPACE_ROOT = join(homedir(), '.sciforge', 'default_workspace')
 const DEFAULT_CLAW_CHANNELS_ROOT = join(homedir(), '.sciforge', 'claw')
 const DEFAULT_WRITE_WORKSPACE_ROOT_ABSOLUTE = expandHomePath(DEFAULT_WRITE_WORKSPACE_ROOT)
 const SETTINGS_FILE_NAME = APP_SETTINGS_FILE_NAME
-const LEGACY_SETTINGS_FILE_NAMES = [LEGACY_APP_SETTINGS_FILE_NAME] as const
-const COMPATIBLE_USER_DATA_DIR_NAMES = [
-  ...LEGACY_APP_USER_DATA_DIR_NAMES,
-  APP_USER_DATA_DIR_NAME
-] as const
 const WELCOME_MARKDOWN = `# Welcome to Write
 
 This is your default writing workspace.
@@ -255,9 +244,9 @@ const defaultSettings = (): AppSettingsV1 => ({
   agentCapabilities: defaultAgentCapabilitySettings(),
   computerUse: defaultComputerUseSettings(),
   runtimeGuards: defaultRuntimeGuardSettings(),
-  activeAgentRuntime: 'kun',
+  activeAgentRuntime: 'sciforge',
   agents: {
-    kun: defaultKunRuntimeSettings(),
+    sciforge: defaultLocalRuntimeSettings(),
     codex: defaultCodexRuntimeSettings(),
     claude: defaultClaudeRuntimeSettings()
   },
@@ -282,7 +271,7 @@ const defaultSettings = (): AppSettingsV1 => ({
 })
 
 function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
-  const migrated = migrateLegacyAppSettings(parsed)
+  const migrated = parsed
   const defaults = defaultSettings()
   return {
     ...defaults,
@@ -294,8 +283,8 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
     runtimeGuards: mergeRuntimeGuardSettings(defaults.runtimeGuards, migrated.runtimeGuards),
     activeAgentRuntime: normalizeAgentRuntimeId(migrated.activeAgentRuntime ?? defaults.activeAgentRuntime),
     agents: {
-      ...kunSettingsEnvelope(
-        mergeKunRuntimeSettings(getKunRuntimeSettings(defaults), migrated.agents?.kun)
+      ...agentRuntimeSettingsEnvelope(
+        mergeLocalRuntimeSettings(getLocalRuntimeSettings(defaults), migrated.agents?.sciforge)
       ),
       codex: mergeCodexRuntimeSettings(
         getCodexRuntimeSettings(defaults),
@@ -348,47 +337,14 @@ async function writeInvalidSettingsBackup(path: string, raw: string): Promise<st
   }
 }
 
-function compatibleSettingsPaths(currentPath: string): string[] {
-  const currentUserDataDir = dirname(currentPath)
-  const currentDirName = basename(currentUserDataDir)
-  const parentDir = dirname(currentUserDataDir)
-  const paths = [
-    ...LEGACY_SETTINGS_FILE_NAMES.map((fileName) => join(currentUserDataDir, fileName))
-  ]
-  for (const dirName of COMPATIBLE_USER_DATA_DIR_NAMES) {
-    if (dirName === currentDirName) continue
-    paths.push(join(parentDir, dirName, SETTINGS_FILE_NAME))
-    for (const fileName of LEGACY_SETTINGS_FILE_NAMES) {
-      paths.push(join(parentDir, dirName, fileName))
-    }
-  }
-  return [...new Set(paths)]
-}
-
-async function readSettingsFileWithCompatibility(
+async function readSettingsFile(
   currentPath: string
-): Promise<{ raw: string, sourcePath: string } | null> {
+): Promise<string | null> {
   try {
-    return {
-      raw: await readFile(currentPath, 'utf8'),
-      sourcePath: currentPath
-    }
+    return await readFile(currentPath, 'utf8')
   } catch (error) {
     if (!isErrnoException(error) || error.code !== 'ENOENT') throw error
   }
-
-  for (const candidatePath of compatibleSettingsPaths(currentPath)) {
-    try {
-      return {
-        raw: await readFile(candidatePath, 'utf8'),
-        sourcePath: candidatePath
-      }
-    } catch (error) {
-      if (isErrnoException(error) && error.code === 'ENOENT') continue
-      throw error
-    }
-  }
-
   return null
 }
 
@@ -406,14 +362,13 @@ export class JsonSettingsStore {
     let raw = ''
     let sourcePath = this.path
     try {
-      const loaded = await readSettingsFileWithCompatibility(this.path)
+      const loaded = await readSettingsFile(this.path)
       if (!loaded) {
         const defaults = withGeneratedLocalIds(await loadDefaultSettings())
         await this.save(defaults)
         return defaults
       }
-      raw = loaded.raw
-      sourcePath = loaded.sourcePath
+      raw = loaded
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       throw new Error(`Failed to read settings file ${sourcePath}: ${message}`, { cause: error })
@@ -449,7 +404,6 @@ export class JsonSettingsStore {
     await ensureClawChannelWorkspaceRootsExist(normalized)
     this.cache = normalized
     if (
-      sourcePath !== this.path ||
       getModelRouterSettings(normalized).runtimeApiKey !== getModelRouterSettings(normalizedBeforeLocalIds).runtimeApiKey ||
       normalized.installationId !== normalizedBeforeLocalIds.installationId ||
       !('agentCapabilities' in parsed)
@@ -484,7 +438,7 @@ export class JsonSettingsStore {
     } = partial
     const next = normalizeStoredSettings({
       ...applyClaudeRuntimePatch(
-        applyCodexRuntimePatch(applyKunRuntimePatch(cur, agentsPatch?.kun), agentsPatch?.codex),
+        applyCodexRuntimePatch(applyLocalRuntimePatch(cur, agentsPatch?.sciforge), agentsPatch?.codex),
         agentsPatch?.claude
       ),
       ...restPatch,

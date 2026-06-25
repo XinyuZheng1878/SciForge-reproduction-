@@ -52,8 +52,8 @@ export function useSpeechToTextSettings(): SpeechToTextSettingsV1 | null {
     const apply = (settings: AppSettingsV1): void => {
       if (!cancelled) setSpeechToText(resolveSpeechToTextSettingsFromAppSettings(settings))
     }
-    if (typeof window !== 'undefined' && typeof window.dsGui?.getSettings === 'function') {
-      void window.dsGui.getSettings().then(apply).catch(() => {
+    if (typeof window !== 'undefined' && typeof window.sciforge?.getSettings === 'function') {
+      void window.sciforge.getSettings().then(apply).catch(() => {
         if (!cancelled) setSpeechToText(null)
       })
     }
@@ -186,7 +186,7 @@ export function useVoiceDictation({
         setNotice(null)
       }
     }
-  }, [speechToText, t])
+  }, [t])
 
   const start = useCallback((): void => {
     if (recorderRef.current) return
@@ -329,7 +329,7 @@ export function useVoiceDictation({
 
 function getSpeechTranscriptionBridge(): SpeechTranscriptionBridge | null {
   if (typeof window === 'undefined') return null
-  return window.dsGui as SpeechTranscriptionBridge
+  return window.sciforge as SpeechTranscriptionBridge
 }
 
 function getSpeechTranscribe(): ((payload: SpeechTranscriptionRequest) => Promise<SpeechTranscriptionResult>) | undefined {

@@ -89,7 +89,7 @@ describe('sdd trace parsing', () => {
   })
 
   it('detects requirement drift while ignoring status-only changes', () => {
-    const snapshot = buildSddTraceSnapshot(DRAFT, '.deepseekgui/plan/sdd-x.md')
+    const snapshot = buildSddTraceSnapshot(DRAFT, '.sciforge/plan/sdd-x.md')
     const statusOnly = setSddRequirementStatus(DRAFT, 'R-1', 'done')
     expect(diffSddRequirementChanges(statusOnly, snapshot).changedIds).toEqual([])
 

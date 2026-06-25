@@ -1,16 +1,16 @@
 import type { AgentRuntimeId } from '../shared/app-settings'
 import type { AgentRuntimeCapabilities } from '../shared/agent-runtime-contract'
 import {
-  buildExternalKunMcpJson,
-  buildManagedGuiKunMcpServerConfig,
+  buildExternalLocalRuntimeMcpJson,
+  buildManagedGuiLocalRuntimeMcpServerConfig,
   buildManagedGuiMcpJsonServerConfig,
   ELECTRON_RUN_AS_NODE_ENV,
   managedGuiMcpNames,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   resolveManagedGuiMcpCommand,
   resolveManagedGuiMcpNodeEntryPath,
   stringRecord,
-  syncExternalKunMcpJson,
+  syncExternalLocalRuntimeMcpJson,
   type JsonRecord,
   type ManagedGuiMcpDescriptor,
   type ManagedGuiMcpLaunchConfig
@@ -27,7 +27,7 @@ export const COMPUTER_USE_DEFAULT_THREAD_ID_ENV = 'SCIFORGE_COMPUTER_USE_DEFAULT
 export const COMPUTER_USE_DEFAULT_TURN_ID_ENV = 'SCIFORGE_COMPUTER_USE_DEFAULT_TURN_ID'
 export const COMPUTER_USE_DEFAULT_SESSION_ID_ENV = 'SCIFORGE_COMPUTER_USE_DEFAULT_SESSION_ID'
 export const COMPUTER_USE_MCP_TIMEOUT_MS = 30_000
-export const COMPUTER_USE_MCP_AGENT_RUNTIME_IDS = ['kun', 'codex', 'claude'] as const satisfies readonly AgentRuntimeId[]
+export const COMPUTER_USE_MCP_AGENT_RUNTIME_IDS = ['sciforge', 'codex', 'claude'] as const satisfies readonly AgentRuntimeId[]
 
 type MissingComputerUseMcpRuntime = Exclude<AgentRuntimeId, typeof COMPUTER_USE_MCP_AGENT_RUNTIME_IDS[number]>
 const _computerUseMcpRuntimeCoverage: MissingComputerUseMcpRuntime extends never ? true : MissingComputerUseMcpRuntime = true
@@ -212,13 +212,13 @@ export function buildComputerUseMcpServerConfig(
   })
 }
 
-export function buildComputerUseKunMcpServerConfig(
+export function buildComputerUseLocalRuntimeMcpServerConfig(
   launch: ComputerUseMcpLaunchConfig,
   enabled = true,
   existing: unknown = {}
 ): JsonRecord {
   const env = stringRecord((existing as { env?: unknown } | null)?.env)
-  return buildManagedGuiKunMcpServerConfig({
+  return buildManagedGuiLocalRuntimeMcpServerConfig({
     descriptor: GUI_COMPUTER_USE_MCP_DESCRIPTOR,
     launch,
     args: buildComputerUseMcpArgs(launch),
@@ -235,15 +235,15 @@ export function buildSyncedComputerUseMcpJson(
 ): JsonRecord {
   void launch
   void enabled
-  return buildExternalKunMcpJson(existing, managedGuiMcpNames(GUI_COMPUTER_USE_MCP_DESCRIPTOR))
+  return buildExternalLocalRuntimeMcpJson(existing, managedGuiMcpNames(GUI_COMPUTER_USE_MCP_DESCRIPTOR))
 }
 
 export async function syncComputerUseMcpConfig(
   launch: ComputerUseMcpLaunchConfig,
   paths: ComputerUseMcpConfigPaths = {}
 ): Promise<void> {
-  const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
+  const mcpJsonPath = paths.mcpJsonPath ?? resolveLocalRuntimeMcpJsonPath()
   void launch
   void paths.enabled
-  await syncExternalKunMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_COMPUTER_USE_MCP_DESCRIPTOR))
+  await syncExternalLocalRuntimeMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_COMPUTER_USE_MCP_DESCRIPTOR))
 }

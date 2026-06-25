@@ -46,7 +46,7 @@ describe('PluginMarketplaceView MCP config helpers', () => {
     expect(JSON.parse(second.text).servers.context7).toMatchObject({ command: 'npx' })
   })
 
-  it('accepts custom JSON as either a single server or a Kun config fragment', () => {
+  it('accepts custom JSON as either a single server or a local runtime config fragment', () => {
     expect(customMcpConfigFragment(
       'docs',
       '{"transport":"stdio","command":"npx","args":["-y","docs-mcp"]}',
@@ -75,7 +75,7 @@ describe('PluginMarketplaceView MCP config helpers', () => {
     })
   })
 
-  it('detects MCP servers from full Kun capability config', () => {
+  it('detects MCP servers from full local runtime capability config', () => {
     const content = JSON.stringify({
       capabilities: {
         mcp: {

@@ -8,9 +8,9 @@ describe('parseClawCommand', () => {
     expect(parseClawCommand('/where')).toEqual({ kind: 'status', scope: 'where' })
     expect(parseClawCommand('/projects')).toEqual({ kind: 'projects' })
     expect(parseClawCommand('/use project 1')).toEqual({ kind: 'useProject', target: '1' })
-    expect(parseClawCommand('/use project DeepSeek-GUI')).toEqual({
+    expect(parseClawCommand('/use project SciForge')).toEqual({
       kind: 'useProject',
-      target: 'DeepSeek-GUI'
+      target: 'SciForge'
     })
     expect(parseClawCommand('/threads')).toEqual({ kind: 'threads' })
     expect(parseClawCommand('/use thread 2')).toEqual({ kind: 'useThread', target: '2' })

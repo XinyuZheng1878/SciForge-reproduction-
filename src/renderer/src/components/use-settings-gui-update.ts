@@ -87,11 +87,11 @@ export function useSettingsGuiUpdate({
   }, [])
 
   const checkGuiUpdate = useCallback(async (): Promise<void> => {
-    if (typeof window.dsGui?.checkGuiUpdate !== 'function') return
+    if (typeof window.sciforge?.checkGuiUpdate !== 'function') return
     setCheckingGuiUpdate(true)
     setGuiUpdateError(null)
     try {
-      const info = await window.dsGui.checkGuiUpdate(channel)
+      const info = await window.sciforge.checkGuiUpdate(channel)
       setGuiUpdateInfo(info)
       if (!info.ok) {
         setGuiUpdateError(info.code === 'not_configured' ? null : guiUpdateFailureMessage(info, t))
@@ -104,12 +104,12 @@ export function useSettingsGuiUpdate({
   }, [channel, t])
 
   const downloadGuiUpdate = async (): Promise<void> => {
-    if (typeof window.dsGui?.downloadGuiUpdate !== 'function') return
+    if (typeof window.sciforge?.downloadGuiUpdate !== 'function') return
     setDownloadingGuiUpdate(true)
     setGuiUpdateProgress(null)
     setGuiUpdateError(null)
     try {
-      const result = await window.dsGui.downloadGuiUpdate(form?.guiUpdate?.channel)
+      const result = await window.sciforge.downloadGuiUpdate(form?.guiUpdate?.channel)
       if (!result.ok) {
         setGuiUpdateError(result.message)
         return
@@ -123,11 +123,11 @@ export function useSettingsGuiUpdate({
   }
 
   const installGuiUpdate = async (): Promise<void> => {
-    if (typeof window.dsGui?.installGuiUpdate !== 'function') return
+    if (typeof window.sciforge?.installGuiUpdate !== 'function') return
     setInstallingGuiUpdate(true)
     setGuiUpdateError(null)
     try {
-      const result = await window.dsGui.installGuiUpdate()
+      const result = await window.sciforge.installGuiUpdate()
       if (!result.ok) {
         setGuiUpdateError(result.message)
         setInstallingGuiUpdate(false)
@@ -139,10 +139,10 @@ export function useSettingsGuiUpdate({
   }
 
   useEffect(() => {
-    if (typeof window.dsGui?.onGuiUpdateState !== 'function') return
-    const unsubscribe = window.dsGui.onGuiUpdateState(applyGuiUpdateState)
-    if (typeof window.dsGui?.getGuiUpdateState === 'function') {
-      void window.dsGui.getGuiUpdateState().then(applyGuiUpdateState).catch(() => undefined)
+    if (typeof window.sciforge?.onGuiUpdateState !== 'function') return
+    const unsubscribe = window.sciforge.onGuiUpdateState(applyGuiUpdateState)
+    if (typeof window.sciforge?.getGuiUpdateState === 'function') {
+      void window.sciforge.getGuiUpdateState().then(applyGuiUpdateState).catch(() => undefined)
     }
     return unsubscribe
   }, [applyGuiUpdateState])

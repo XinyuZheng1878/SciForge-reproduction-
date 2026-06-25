@@ -17,9 +17,15 @@ describe('gui-plan path validation', () => {
     expect(isGuiPlanRelativePath(`${GUI_PLAN_RELATIVE_DIR}/login.md`)).toBe(true)
     expect(isGuiPlanRelativePath(`  ${GUI_PLAN_RELATIVE_DIR}/Login.md  `)).toBe(true)
     expect(isGuiPlanRelativePath(`${GUI_PLAN_RELATIVE_DIR}\\login.md`)).toBe(true)
-    expect(isGuiPlanRelativePath('.kunsdd/plan/login.md')).toBe(true)
     expect(isGuiPlanCurrentRelativePath(`${GUI_PLAN_RELATIVE_DIR}/login.md`)).toBe(true)
-    expect(isGuiPlanCurrentRelativePath('.kunsdd/plan/login.md')).toBe(false)
+    expect(isGuiPlanCurrentRelativePath(`${GUI_PLAN_RELATIVE_DIR}\\login.md`)).toBe(true)
+  })
+
+  it('rejects non-canonical plan directories', () => {
+    expect(isGuiPlanRelativePath('.legacy/plan/login.md')).toBe(false)
+    expect(isGuiPlanRelativePath('.sciforge/plans/login.md')).toBe(false)
+    expect(isGuiPlanCurrentRelativePath('.legacy/plan/login.md')).toBe(false)
+    expect(isGuiPlanCurrentRelativePath('.sciforge/plans/login.md')).toBe(false)
   })
 
   it('rejects nested paths', () => {
@@ -47,14 +53,11 @@ describe('gui-plan path validation', () => {
   })
 
   it('produces a stable plan id from workspace and path', () => {
-    expect(buildGuiPlanId('/tmp/ws', '.kunsdd/plan/login.md')).toBe(
-      '/tmp/ws:.kunsdd/plan/login.md'
+    expect(buildGuiPlanId('/tmp/ws', `${GUI_PLAN_RELATIVE_DIR}/login.md`)).toBe(
+      `/tmp/ws:${GUI_PLAN_RELATIVE_DIR}/login.md`
     )
-    expect(buildGuiPlanId('/tmp/ws', '.kunsdd/plan/Login.md')).toBe(
-      buildGuiPlanId('/tmp/ws', '.kunsdd/plan/login.md')
-    )
-    expect(buildGuiPlanId('/tmp/ws', '.deepseekgui/plan/Login.md')).toBe(
-      buildGuiPlanId('/tmp/ws', '.deepseekgui/plan/login.md')
+    expect(buildGuiPlanId('/tmp/ws', `${GUI_PLAN_RELATIVE_DIR}/Login.md`)).toBe(
+      buildGuiPlanId('/tmp/ws', `${GUI_PLAN_RELATIVE_DIR}/login.md`)
     )
   })
 

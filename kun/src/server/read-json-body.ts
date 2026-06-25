@@ -1,4 +1,4 @@
-import type { KunErrorBody } from '../contracts/errors.js'
+import type { LocalRuntimeErrorBody } from '../contracts/errors.js'
 import { jsonResponse, type JsonResponse } from './response.js'
 
 export type ReadJsonBodyResult =
@@ -12,7 +12,7 @@ export async function readJsonBody(request: Request): Promise<ReadJsonBodyResult
   try {
     return { ok: true, value: JSON.parse(text) }
   } catch (error) {
-    const body: KunErrorBody = {
+    const body: LocalRuntimeErrorBody = {
       code: 'validation_error',
       message: 'invalid JSON body',
       details: error instanceof Error ? error.message : String(error)

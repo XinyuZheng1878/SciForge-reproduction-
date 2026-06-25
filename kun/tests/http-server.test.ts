@@ -634,8 +634,8 @@ describe('HTTP server', () => {
           guiPlan: {
             operation: 'draft',
             workspaceRoot: '/tmp',
-            relativePath: '.deepseekgui/plan/auth.md',
-            planId: '/tmp:.deepseekgui/plan/auth.md',
+            relativePath: '.sciforge/plan/auth.md',
+            planId: '/tmp:.sciforge/plan/auth.md',
             sourceRequest: 'Add auth',
             title: 'Auth'
           }
@@ -654,7 +654,7 @@ describe('HTTP server', () => {
     const detailBody = (await readJson(detail)) as { guiPlan?: { relativePath?: string; operation?: string } }
     expect(detailBody.guiPlan).toMatchObject({
       operation: 'draft',
-      relativePath: '.deepseekgui/plan/auth.md'
+      relativePath: '.sciforge/plan/auth.md'
     })
   })
 
@@ -932,7 +932,7 @@ describe('HTTP server', () => {
     expect(body.parentThreadId).toBe('thr_default_fork')
   })
 
-  it('resumes a persisted session into a new Kun thread', async () => {
+  it('resumes a persisted session into a new local runtime thread', async () => {
     const h = buildHarness()
     await h.threadService.create(
       { workspace: '/tmp/project', model: 'deepseek-chat', mode: 'agent' },

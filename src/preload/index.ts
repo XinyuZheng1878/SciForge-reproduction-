@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DsGuiApi } from '../shared/ds-gui-api'
+import type { SciForgeApi } from '../shared/sciforge-api'
 
-const transcribeSpeech = (payload: Parameters<DsGuiApi['speechToText']['transcribe']>[0]) =>
+const transcribeSpeech = (payload: Parameters<SciForgeApi['speechToText']['transcribe']>[0]) =>
   ipcRenderer.invoke('speech:transcribe', payload)
 
 const api = {
@@ -61,12 +61,12 @@ const api = {
     ipcRenderer.invoke('skill:save-file', { rootPath, skillName, content }),
   openSkillRoot: (rootPath) =>
     ipcRenderer.invoke('skill:open-root', rootPath),
-  getDeepseekConfigFile: () =>
-    ipcRenderer.invoke('deepseek:config:read'),
-  setDeepseekConfigFile: (content) =>
-    ipcRenderer.invoke('deepseek:config:write', content),
-  openDeepseekConfigDir: () =>
-    ipcRenderer.invoke('deepseek:config:open-dir'),
+  getRuntimeConfigFile: () =>
+    ipcRenderer.invoke('runtimeConfig:read'),
+  setRuntimeConfigFile: (content) =>
+    ipcRenderer.invoke('runtimeConfig:write', content),
+  openRuntimeConfigDir: () =>
+    ipcRenderer.invoke('runtimeConfig:open-dir'),
   openModelRouterConfigFile: () =>
     ipcRenderer.invoke('modelRouter:config:open'),
   prepareResearchMemoryWorkspace: () =>
@@ -283,6 +283,6 @@ const api = {
     return () => ipcRenderer.removeListener('terminal:exit', wrapped)
   },
   getPathForFile: (file: File) => webUtils.getPathForFile(file)
-} satisfies DsGuiApi
+} satisfies SciForgeApi
 
-contextBridge.exposeInMainWorld('dsGui', api)
+contextBridge.exposeInMainWorld('sciforge', api)

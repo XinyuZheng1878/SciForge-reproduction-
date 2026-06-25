@@ -1,20 +1,20 @@
 # AgentRuntime 中性接口设计
 
 本文记录 SciForge 下一阶段的运行时中性接口设计。目标不是让 Codex 伪装成
-Kun HTTP/SSE server，而是让 **Kun** 和 **Codex** 都接入同一个
+SciForge Runtime HTTP/SSE server，而是让 **SciForge Runtime** 和 **Codex** 都接入同一个
 `AgentRuntime` contract。Renderer 只消费中性线程、turn、event 和 capability，
-不再关心底层是 Kun HTTP/SSE 还是 Codex app-server JSON-RPC stdio。
+不再关心底层是 SciForge Runtime HTTP/SSE 还是 Codex app-server JSON-RPC stdio。
 
 ## 设计目标
 
-- Kun 与 Codex 共用同一条产品链路：Code、Write、连接手机和定时任务都通过
+- SciForge Runtime 与 Codex 共用同一条产品链路：Code、Write、连接手机和定时任务都通过
   RuntimeHost 选择当前 runtime。
 - 保留 runtime 差异：Codex 的 thread 物化、reasoning 可见性、approval/user
-  input 支持情况不能被伪装成 Kun。
+  input 支持情况不能被伪装成 SciForge Runtime。
 - 提升可诊断性：Codex backend 慢时，UI 能区分慢在启动、initialize、thread
   创建、首 token、模型响应或工具执行。
 - 保持模块化：Codex app-server 细节继续集中在 `src/main/runtime/codex/`；
-  Kun HTTP/SSE 细节继续留在 Kun adapter / mapper 内。
+  SciForge Runtime HTTP/SSE 细节继续留在 SciForge Runtime adapter / mapper 内。
 
 ## Codexia 复用范围
 
@@ -55,16 +55,16 @@ agent 编排是边界外能力，可以通过协议接进来。**
   未识别 request 一律 fail closed，并生成可见 recoverable error。
 - User input UI：复用现有中性 user_input 卡片，不做 Codex 专用 UI。
 - Reasoning 可见性：只显示 app-server 实际给出的 reasoning summary/trace/raw
-  文本，不补写、不伪装 Kun 式完整思考。
+  文本，不补写、不伪装 SciForge Runtime 式完整思考。
 - 兼容策略：renderer 专用 `codex:*` IPC 已删除；旧 `runtimeRequest` /
-  `startSse` / `stopSse` 只作为 Kun/legacy 兼容入口保留，新代码走中性
+  `startSse` / `stopSse` 只作为 SciForge Runtime/legacy 兼容入口保留，新代码走中性
   `agentRuntime:*` IPC。
-- E2E 验收：Codex 和 Kun 都至少做一次真实 assistant 回复 smoke；recoverable
+- E2E 验收：Codex 和 SciForge Runtime 都至少做一次真实 assistant 回复 smoke；recoverable
   error 作为单独错误路径验证，不替代正常路径。
 
-## Kun 当前能力审计
+## SciForge Runtime 当前能力审计
 
-Kun 已有 runtime event 很丰富，新的中性接口不能比它更薄：
+SciForge Runtime 已有 runtime event 很丰富，新的中性接口不能比它更薄：
 
 - 生命周期：`thread_created`、`thread_updated`、`turn_started`、
   `turn_completed`、`turn_failed`、`turn_aborted`、`turn_steered`。
@@ -78,7 +78,7 @@ Kun 已有 runtime event 很丰富，新的中性接口不能比它更薄：
   `goal_cleared`、`todos_updated`、`todos_cleared`。
 - 诊断：`pipeline_stage`、`usage`、`error`、`heartbeat`。
 
-Kun capability manifest 已覆盖 model、CLI、MCP、web、skills、subagents、
+SciForge Runtime capability manifest 已覆盖 model、CLI、MCP、web、skills、subagents、
 attachments、memory、runtime info 和 tool diagnostics。中性 capability 应吸收
 这些字段，同时补上 Codex 所需的 transport、thread materialization、reasoning
 visibility 和 latency metric 描述。
@@ -87,7 +87,7 @@ visibility 和 latency metric 描述。
 
 ```ts
 type AgentRuntimeAdapter = {
-  id: 'kun' | 'codex'
+  id: 'sciforge' | 'codex'
   transport: 'http_sse' | 'jsonrpc_stdio'
 
   connect(context): Promise<void>
@@ -144,7 +144,7 @@ type AgentRuntimeAdapter = {
 - `heartbeat`
 
 事件必须带 `threadId`、可选 `turnId`、可选 `itemId`、可选 `seq` 和
-`createdAt`。Kun 的 SSE event 与 Codex app-server raw event 都先在 main side
+`createdAt`。SciForge Runtime 的 SSE event 与 Codex app-server raw event 都先在 main side
 归一化成该事件，再进入 renderer。
 
 ## Capability 关键字段
@@ -152,7 +152,7 @@ type AgentRuntimeAdapter = {
 ```ts
 type AgentRuntimeCapabilities = {
   contractVersion: 1
-  runtimeId: 'kun' | 'codex'
+  runtimeId: 'sciforge' | 'codex'
   transport: 'http_sse' | 'jsonrpc_stdio'
   events: {
     live: boolean
@@ -225,7 +225,7 @@ type AgentRuntimeCapabilities = {
 `{ available: boolean; reason?: string; degraded?: boolean }`。默认 capability
 只能把未实现功能声明为 unavailable，不能通过省略字段让 renderer 猜测为可用。
 
-Kun 初始值大致为：
+SciForge Runtime 初始值大致为：
 
 - `transport = 'http_sse'`
 - `threadMaterialization = 'immediate'`
@@ -284,12 +284,12 @@ CodexAgentRuntimeAdapter
   -> CodexRuntimeService
   -> shared AgentRuntime contract
 
-Renderer / RuntimeHost / Kun adapter
+Renderer / RuntimeHost / SciForge Runtime adapter
   不直接 import codex/app-server/*
 ```
 
 这个边界保证 app-server 协议变化时，只需要更新 `codex/app-server/` 和少量
-service glue，不会扩散到 Kun、renderer 或后台任务代码。
+service glue，不会扩散到 SciForge Runtime、renderer 或后台任务代码。
 
 ## Codex 慢和 reasoning 不完整的处理
 
@@ -323,8 +323,8 @@ src/main/runtime/agent-runtime/
   host.ts
   event-bus.ts
 
-src/main/runtime/kun-agent-runtime-adapter.ts
-  Kun HTTP/SSE -> AgentRuntimeAdapter。
+src/main/runtime/local-runtime-agent-runtime-adapter.ts
+  SciForge Runtime HTTP/SSE -> AgentRuntimeAdapter。
 
 src/main/runtime/codex/codex-agent-runtime-adapter.ts
   Codex service -> AgentRuntimeAdapter。
@@ -342,23 +342,23 @@ src/renderer/src/agent/agent-runtime-event-dispatcher.ts
 ## 迁移步骤
 
 1. 新增 `src/shared/agent-runtime-contract.ts`，先只定义类型和测试 fixture。
-2. 为 Kun 增加 main-side `kun-agent-runtime-adapter`，复用现有 HTTP/SSE，
-   并把 Kun DTO 映射为中性 AgentRuntime，不移动 Kun internals。
+2. 为 SciForge Runtime 增加 main-side `local-runtime-agent-runtime-adapter`，复用现有 HTTP/SSE，
+   并把 SciForge Runtime DTO 映射为中性 AgentRuntime，不移动 SciForge Runtime internals。
 3. 从 `codexia` 复制并改写 Codex app-server capsule：JSON-RPC、
    sendResponse、server request normalizer、reasoning config、README。
 4. 为 Codex 增加 `codex-agent-runtime-adapter`，复用 `CodexRuntimeService`、
    app-server capsule 和 GUI-owned store。
-5. RuntimeHost 保留 Kun-only legacy request/SSE 兼容路径；Codex 通过
+5. RuntimeHost 保留默认运行时 legacy request/SSE 兼容路径；Codex 通过
    `AgentRuntimeHost` 暴露。
 6. Renderer 使用 `AgentRuntimeProvider` 作为唯一业务 provider；旧
-   Kun/Codex renderer provider 分叉已删除。
+   SciForge Runtime/Codex renderer provider 分叉已删除。
 7. Codex 专用 renderer IPC 已删除，main-side Codex 模块化边界保留。
 
 ## 验收标准
 
-- Kun 和 Codex 都能通过同一个 renderer provider 创建 thread、发送消息、流式显示
+- SciForge Runtime 和 Codex 都能通过同一个 renderer provider 创建 thread、发送消息、流式显示
   assistant 回复、停止 turn。
-- Kun reasoning 仍能完整显示；Codex reasoning 按 capability 诚实显示 summary /
+- SciForge Runtime reasoning 仍能完整显示；Codex reasoning 按 capability 诚实显示 summary /
   trace / none。
 - Codex 慢时 UI 能显示阶段状态，并能记录 first token / turn duration 指标。
 - Codex 空 thread / 未物化 thread 不再导致 GUI thread id 与 app-server thread id

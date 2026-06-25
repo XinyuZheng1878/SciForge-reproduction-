@@ -1,12 +1,12 @@
 import type {
-  CoreAttachmentContentResponseJson,
-  CoreAttachmentMetadataJson,
-  CoreAttachmentTextFallbackJson,
-  CoreMemoryRecordJson,
-  CoreRuntimeInfoJson,
-  CoreRuntimeSkillJson,
-  CoreRuntimeToolDiagnosticsJson
-} from './kun-contract'
+  LocalRuntimeAttachmentContentResponseJson,
+  LocalRuntimeAttachmentMetadataJson,
+  LocalRuntimeAttachmentTextFallbackJson,
+  LocalRuntimeMemoryRecordJson,
+  LocalRuntimeInfoJson,
+  LocalRuntimeSkillJson,
+  LocalRuntimeToolDiagnosticsJson
+} from './local-runtime-contract'
 import type { AgentRuntimeId } from '@shared/app-settings'
 import type {
   AgentRuntimeCodeNavigationInput,
@@ -415,7 +415,7 @@ export type AssistantMessageEventPayload = {
   meta?: RuntimeDisclosureMetadata
 }
 
-/** Cumulative usage/cost for a Kun thread. */
+/** Cumulative usage/cost for a local runtime thread. */
 export type ThreadUsageSnapshot = {
   inputTokens: number
   outputTokens: number
@@ -519,22 +519,22 @@ export interface AgentProvider {
     target: ReviewTarget,
     options?: { model?: string }
   ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string; reviewItemId?: string }>
-  getRuntimeInfo?(): Promise<CoreRuntimeInfoJson>
-  getToolDiagnostics?(): Promise<CoreRuntimeToolDiagnosticsJson>
-  listSkills?(): Promise<CoreRuntimeSkillJson[]>
+  getRuntimeInfo?(): Promise<LocalRuntimeInfoJson>
+  getToolDiagnostics?(): Promise<LocalRuntimeToolDiagnosticsJson>
+  listSkills?(): Promise<LocalRuntimeSkillJson[]>
   uploadAttachment?(input: {
     name: string
     mimeType?: string
     dataBase64: string
     localFilePath?: string
-    textFallback?: CoreAttachmentTextFallbackJson
+    textFallback?: LocalRuntimeAttachmentTextFallbackJson
     threadId?: string
     workspace?: string
-  }): Promise<CoreAttachmentMetadataJson>
+  }): Promise<LocalRuntimeAttachmentMetadataJson>
   getAttachmentContent?(
     attachmentId: string,
     options?: { threadId?: string; workspace?: string }
-  ): Promise<CoreAttachmentContentResponseJson>
+  ): Promise<LocalRuntimeAttachmentContentResponseJson>
   runCodeNavigation?(
     input: AgentRuntimeCodeNavigationInput
   ): Promise<AgentRuntimeResult<AgentRuntimeCodeNavigationOutput>>
@@ -572,7 +572,7 @@ export interface AgentProvider {
     tags?: string[]
     confidence?: number
     disabled?: boolean
-  }): Promise<CoreMemoryRecordJson>
+  }): Promise<LocalRuntimeMemoryRecordJson>
   listMemories?(options?: {
     scope?: AgentRuntimeMemoryRecord['scope']
     workspace?: string
@@ -580,12 +580,12 @@ export interface AgentProvider {
     includeDisabled?: boolean
     query?: string
     limit?: number
-  }): Promise<CoreMemoryRecordJson[]>
+  }): Promise<LocalRuntimeMemoryRecordJson[]>
   updateMemory?(
     memoryId: string,
     patch: { content?: string; tags?: string[]; confidence?: number; disabled?: boolean }
-  ): Promise<CoreMemoryRecordJson>
-  deleteMemory?(memoryId: string): Promise<CoreMemoryRecordJson>
+  ): Promise<LocalRuntimeMemoryRecordJson>
+  deleteMemory?(memoryId: string): Promise<LocalRuntimeMemoryRecordJson>
   listWorkspaceReferences?(input: {
     workspaceRoot: string
     path?: string

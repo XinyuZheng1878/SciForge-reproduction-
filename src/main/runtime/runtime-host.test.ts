@@ -3,7 +3,7 @@ import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
@@ -22,7 +22,7 @@ function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'cod
     activeAgentRuntime,
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
@@ -40,9 +40,9 @@ function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'cod
 }
 
 describe('runtimeEventsViaRuntimeHost', () => {
-  it('delegates explicit Kun event streams to the existing Kun SSE implementation', async () => {
-    const ensureKunRuntime = vi.fn(async () => undefined)
-    const kunEvents = vi.fn(async function* () {
+  it('delegates explicit local runtime event streams to the existing SSE implementation', async () => {
+    const ensureLocalRuntime = vi.fn(async () => undefined)
+    const localRuntimeEvents = vi.fn(async function* () {
       yield { seq: 3, kind: 'agent_message_delta' }
     })
     const ac = new AbortController()
@@ -50,26 +50,26 @@ describe('runtimeEventsViaRuntimeHost', () => {
 
     for await (const event of runtimeEventsViaRuntimeHost(
       settings('codex'),
-      'kun-thread',
+      'sciforge-thread',
       2,
       ac.signal,
       {
-        ensureKunRuntime,
-        kunEvents,
+        ensureLocalRuntime,
+        localRuntimeEvents,
         codexRuntime: () => ({}) as CodexRuntimeService
       },
-      'kun'
+      'sciforge'
     )) {
       events.push(event)
     }
 
     expect(events).toEqual([{ seq: 3, kind: 'agent_message_delta' }])
-    expect(ensureKunRuntime).toHaveBeenCalledWith(
+    expect(ensureLocalRuntime).toHaveBeenCalledWith(
       expect.objectContaining({ activeAgentRuntime: 'codex' })
     )
-    expect(kunEvents).toHaveBeenCalledWith(
+    expect(localRuntimeEvents).toHaveBeenCalledWith(
       expect.objectContaining({ activeAgentRuntime: 'codex' }),
-      'kun-thread',
+      'sciforge-thread',
       2,
       ac.signal
     )
@@ -90,8 +90,8 @@ describe('runtimeEventsViaRuntimeHost', () => {
       6,
       new AbortController().signal,
       {
-        ensureKunRuntime: vi.fn(async () => undefined),
-        kunEvents: vi.fn(),
+        ensureLocalRuntime: vi.fn(async () => undefined),
+        localRuntimeEvents: vi.fn(),
         codexRuntime: () => codex
       }
     )) {

@@ -86,9 +86,9 @@ export function createWriteFileActions({
       const requestedRoot = normalizePath(path || workspaceRoot)
       const targetKey = path ? requestedRoot : '__root__'
       set((state) => ({ loadingDirs: { ...state.loadingDirs, [targetKey]: true } }))
-      let result: Awaited<ReturnType<typeof window.dsGui.listWorkspaceDirectory>>
+      let result: Awaited<ReturnType<typeof window.sciforge.listWorkspaceDirectory>>
       try {
-        result = await window.dsGui.listWorkspaceDirectory({ workspaceRoot, path })
+        result = await window.sciforge.listWorkspaceDirectory({ workspaceRoot, path })
       } catch (error) {
         set((state) => ({
           loadingDirs: withoutLoadingDirs(state.loadingDirs, [targetKey, requestedRoot]),
@@ -168,7 +168,7 @@ export function createWriteFileActions({
       set({ fileLoading: true, fileError: null })
       try {
         if (isWriteImageFilePath(path)) {
-          const result = await window.dsGui.readWorkspaceImage({ path, workspaceRoot })
+          const result = await window.sciforge.readWorkspaceImage({ path, workspaceRoot })
           if (!result.ok) {
             set({ fileLoading: false, fileError: result.message })
             return
@@ -196,7 +196,7 @@ export function createWriteFileActions({
         }
 
         if (isWritePdfFilePath(path)) {
-          const result = await window.dsGui.readWorkspaceFile({ path, workspaceRoot })
+          const result = await window.sciforge.readWorkspaceFile({ path, workspaceRoot })
           if (!result.ok) {
             set({ fileLoading: false, fileError: result.message })
             return
@@ -227,7 +227,7 @@ export function createWriteFileActions({
           return
         }
 
-        const result = await window.dsGui.readWorkspaceFile({ path, workspaceRoot })
+        const result = await window.sciforge.readWorkspaceFile({ path, workspaceRoot })
         if (!result.ok) {
           set({ fileLoading: false, fileError: result.message })
           return
@@ -288,9 +288,9 @@ export function createWriteFileActions({
     },
 
     createFile: async (workspaceRoot, path, content = '') => {
-      let result: Awaited<ReturnType<typeof window.dsGui.createWorkspaceFile>>
+      let result: Awaited<ReturnType<typeof window.sciforge.createWorkspaceFile>>
       try {
-        result = await window.dsGui.createWorkspaceFile({ workspaceRoot, path, content })
+        result = await window.sciforge.createWorkspaceFile({ workspaceRoot, path, content })
       } catch (error) {
         set({ fileError: formatActionError(error) })
         return null
@@ -305,9 +305,9 @@ export function createWriteFileActions({
     },
 
     createDirectory: async (workspaceRoot, path) => {
-      let result: Awaited<ReturnType<typeof window.dsGui.createWorkspaceDirectory>>
+      let result: Awaited<ReturnType<typeof window.sciforge.createWorkspaceDirectory>>
       try {
-        result = await window.dsGui.createWorkspaceDirectory({ workspaceRoot, path })
+        result = await window.sciforge.createWorkspaceDirectory({ workspaceRoot, path })
       } catch (error) {
         set({ fileError: formatActionError(error) })
         return null
@@ -327,9 +327,9 @@ export function createWriteFileActions({
 
     renameEntry: async (workspaceRoot, path, newName) => {
       cancelExternalSyncAnimation()
-      let result: Awaited<ReturnType<typeof window.dsGui.renameWorkspaceEntry>>
+      let result: Awaited<ReturnType<typeof window.sciforge.renameWorkspaceEntry>>
       try {
-        result = await window.dsGui.renameWorkspaceEntry({ workspaceRoot, path, newName })
+        result = await window.sciforge.renameWorkspaceEntry({ workspaceRoot, path, newName })
       } catch (error) {
         set({ fileError: formatActionError(error) })
         return null
@@ -389,9 +389,9 @@ export function createWriteFileActions({
 
     deleteEntry: async (workspaceRoot, path) => {
       cancelExternalSyncAnimation()
-      let result: Awaited<ReturnType<typeof window.dsGui.deleteWorkspaceEntry>>
+      let result: Awaited<ReturnType<typeof window.sciforge.deleteWorkspaceEntry>>
       try {
-        result = await window.dsGui.deleteWorkspaceEntry({ workspaceRoot, path })
+        result = await window.sciforge.deleteWorkspaceEntry({ workspaceRoot, path })
       } catch (error) {
         set({ fileError: formatActionError(error) })
         return false

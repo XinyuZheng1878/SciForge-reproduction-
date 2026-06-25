@@ -5,11 +5,11 @@ import {
   getModelProviderSettings,
   listModelProviderModelIds,
   resolveRuntimeModelRouterSettings,
-  resolveKunRuntimeSettings,
+  resolveLocalRuntimeSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
 import { DEFAULT_COMPOSER_MODEL_IDS } from '../shared/default-composer-models'
-import type { ModelProviderModelGroup } from '../shared/ds-gui-api'
+import type { ModelProviderModelGroup } from '../shared/sciforge-api'
 import { upstreamOpenAiModelsUrl } from '../shared/openai-compat-url'
 
 export type FetchUpstreamModelsResult =
@@ -39,7 +39,7 @@ export async function fetchUpstreamModelIds(
   if (!key) {
     return { ok: false, message: 'Missing Model Router runtime API key; cannot query local /v1/models.' }
   }
-  const configuredModelIds = await readConfiguredKunModelIds(settings)
+  const configuredModelIds = await readConfiguredLocalRuntimeModelIds(settings)
   const configuredGroups = await readConfiguredModelGroups(settings)
   const url = upstreamOpenAiModelsUrl(runtime.baseUrl)
   try {
@@ -98,8 +98,8 @@ export async function fetchUpstreamModelIds(
   }
 }
 
-export async function readConfiguredKunModelIds(settings: AppSettingsV1): Promise<string[]> {
-  const runtime = resolveKunRuntimeSettings(settings)
+export async function readConfiguredLocalRuntimeModelIds(settings: AppSettingsV1): Promise<string[]> {
+  const runtime = resolveLocalRuntimeSettings(settings)
   const configPath = join(expandHome(runtime.dataDir), 'config.json')
   const ids = [runtime.model, ...listModelProviderModelIds(settings)]
   let parsed: unknown
@@ -184,7 +184,7 @@ async function readConfiguredProfileAliasGroups(
   settings: AppSettingsV1,
   providerGroups: readonly ModelProviderModelGroup[]
 ): Promise<ModelProviderModelGroup[]> {
-  const runtime = resolveKunRuntimeSettings(settings)
+  const runtime = resolveLocalRuntimeSettings(settings)
   const configPath = join(expandHome(runtime.dataDir), 'config.json')
   let parsed: unknown
   try {

@@ -109,7 +109,7 @@ describe('DeepseekCompatModelClient', () => {
     const client = new DeepseekCompatModelClient({
       baseUrl: 'http://127.0.0.1:3892/v1',
       apiKey: 'local-router-key',
-      model: 'deepseek-gui-router',
+      model: 'sciforge-router',
       endpointFormat: 'responses',
       fetchImpl,
       nonStreaming: true,
@@ -122,7 +122,7 @@ describe('DeepseekCompatModelClient', () => {
       // drain
     }
 
-    expect(sentBodies[0]?.model).toBe('deepseek-gui-router')
+    expect(sentBodies[0]?.model).toBe('sciforge-router')
   })
 
   it('serializes model-router object attachments as Responses input_object parts', async () => {
@@ -141,7 +141,7 @@ describe('DeepseekCompatModelClient', () => {
     const client = new DeepseekCompatModelClient({
       baseUrl: 'http://127.0.0.1:3892/v1',
       apiKey: 'local-router-key',
-      model: 'deepseek-gui-router',
+      model: 'sciforge-router',
       endpointFormat: 'responses',
       fetchImpl,
       nonStreaming: true,
@@ -198,7 +198,7 @@ describe('DeepseekCompatModelClient', () => {
     const client = new DeepseekCompatModelClient({
       baseUrl: 'http://127.0.0.1:3892/v1',
       apiKey: 'local-router-key',
-      model: 'deepseek-gui-router',
+      model: 'sciforge-router',
       endpointFormat: 'responses',
       fetchImpl,
       nonStreaming: true,

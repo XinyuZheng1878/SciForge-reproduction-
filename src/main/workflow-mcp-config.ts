@@ -2,16 +2,16 @@ import type { AppSettingsV1 } from '../shared/app-settings'
 import { GUI_WORKFLOW_MCP_LAUNCH_FLAG } from './workflow-mcp-server'
 import { WORKFLOW_TOOL_CONTRACTS } from '../../packages/workers/workflow/src/contract'
 import {
-  buildExternalKunMcpJson,
-  buildManagedGuiKunMcpServerConfig,
+  buildExternalLocalRuntimeMcpJson,
+  buildManagedGuiLocalRuntimeMcpServerConfig,
   buildManagedGuiMcpJsonServerConfig,
   ELECTRON_RUN_AS_NODE_ENV,
   managedGuiMcpNames,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   resolveManagedGuiMcpCommand,
   resolveManagedGuiMcpNodeEntryPath,
   stringRecord,
-  syncExternalKunMcpJson,
+  syncExternalLocalRuntimeMcpJson,
   type JsonRecord,
   type ManagedGuiMcpDescriptor,
   type ManagedGuiMcpLaunchConfig
@@ -86,13 +86,13 @@ export function buildWorkflowMcpServerConfig(
   })
 }
 
-export function buildWorkflowKunMcpServerConfig(
+export function buildWorkflowLocalRuntimeMcpServerConfig(
   settings: AppSettingsV1,
   launch: WorkflowMcpLaunchConfig,
   existing: unknown = {}
 ): JsonRecord {
   const env = stringRecord((existing as { env?: unknown } | null)?.env)
-  return buildManagedGuiKunMcpServerConfig({
+  return buildManagedGuiLocalRuntimeMcpServerConfig({
     descriptor: GUI_WORKFLOW_MCP_DESCRIPTOR,
     launch,
     args: buildWorkflowMcpArgs(settings, launch),
@@ -108,7 +108,7 @@ export function buildSyncedWorkflowMcpJson(
 ): JsonRecord {
   void settings
   void launch
-  return buildExternalKunMcpJson(existing, managedGuiMcpNames(GUI_WORKFLOW_MCP_DESCRIPTOR))
+  return buildExternalLocalRuntimeMcpJson(existing, managedGuiMcpNames(GUI_WORKFLOW_MCP_DESCRIPTOR))
 }
 
 export async function syncWorkflowMcpConfig(
@@ -116,8 +116,8 @@ export async function syncWorkflowMcpConfig(
   launch: WorkflowMcpLaunchConfig,
   paths: WorkflowMcpConfigPaths = {}
 ): Promise<void> {
-  const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
+  const mcpJsonPath = paths.mcpJsonPath ?? resolveLocalRuntimeMcpJsonPath()
   void settings
   void launch
-  await syncExternalKunMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_WORKFLOW_MCP_DESCRIPTOR))
+  await syncExternalLocalRuntimeMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_WORKFLOW_MCP_DESCRIPTOR))
 }

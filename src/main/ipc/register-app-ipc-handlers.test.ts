@@ -7,7 +7,7 @@ import {
   mergeScheduleSettings,
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
@@ -94,7 +94,7 @@ function settings(): AppSettingsV1 {
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings()
+      sciforge: defaultLocalRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: false, retentionDays: 7 },
@@ -123,7 +123,7 @@ function registerOptions(overrides: Partial<Parameters<typeof import('./register
     pollFeishuInstall: vi.fn() as never,
     startWeixinInstallQrcode: vi.fn() as never,
     pollWeixinInstall: vi.fn() as never,
-    resolveKunConfigPath: () => '/tmp/kun.json',
+    resolveRuntimeConfigPath: () => '/tmp/sciforge-runtime.json',
     openModelRouterConfigFile: vi.fn(async () => ({ ok: true as const, path: '/tmp/model-router/config.json' })),
     showTurnCompleteNotification: vi.fn() as never,
     getAppVersion: () => '0.1.0',
@@ -197,7 +197,7 @@ describe('registerAppIpcHandlers', () => {
     const handler = handlers.get('settings:set')
     expect(handler).toBeTypeOf('function')
     await expect(
-      handler?.({}, { agents: { kun: { mysteryFlag: true } } })
+      handler?.({}, { agents: { sciforge: { mysteryFlag: true } } })
     ).rejects.toThrow(/Invalid payload for settings:set/)
     expect(applySettingsPatch).not.toHaveBeenCalled()
   })
@@ -211,7 +211,7 @@ describe('registerAppIpcHandlers', () => {
     const payload = {
       theme: 'dark' as const,
       agents: {
-        kun: {
+        sciforge: {
           port: 9000
         }
       }
@@ -353,7 +353,7 @@ describe('registerAppIpcHandlers', () => {
     const payload = {
       theme: 'dark' as const,
       agents: {
-        kun: {
+        sciforge: {
           port: 9100
         }
       }
@@ -458,7 +458,7 @@ describe('registerAppIpcHandlers', () => {
       compactThread: vi.fn(async () => undefined),
       forkThread: vi.fn(async () => ({
         id: 'forked-thread',
-        runtimeId: 'kun' as const,
+        runtimeId: 'sciforge' as const,
         title: 'Forked',
         updatedAt: '2026-06-11T00:00:00.000Z'
       })),
@@ -551,27 +551,27 @@ describe('registerAppIpcHandlers', () => {
     ).resolves.toBeUndefined()
     await expect(
       handlers.get('agentRuntime:compactThread')?.({}, {
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         threadId: 'thread-1',
         reason: ' Manual cleanup '
       })
     ).resolves.toBeUndefined()
     await expect(
       handlers.get('agentRuntime:forkThread')?.({}, {
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         threadId: 'thread-1',
         relation: ' side ',
         title: ' Side path '
       })
     ).resolves.toEqual({
       id: 'forked-thread',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       title: 'Forked',
       updatedAt: '2026-06-11T00:00:00.000Z'
     })
     await expect(
       handlers.get('agentRuntime:resumeSession')?.({}, {
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         sessionId: ' session-1 ',
         model: ' deepseek-v4-pro ',
         mode: ' agent '
@@ -579,14 +579,14 @@ describe('registerAppIpcHandlers', () => {
     ).resolves.toEqual({ threadId: 'resumed-thread', sessionId: 'session-1' })
     await expect(
       handlers.get('agentRuntime:updateThreadRelation')?.({}, {
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         threadId: 'thread-1',
         relation: ' primary '
       })
     ).resolves.toBeUndefined()
     await expect(
       handlers.get('agentRuntime:usage')?.({}, {
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         groupBy: 'thread',
         threadId: ' thread-1 '
       })
@@ -598,7 +598,7 @@ describe('registerAppIpcHandlers', () => {
     })
     await expect(
       handlers.get('agentRuntime:auxiliary')?.({}, {
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         operation: 'getRuntimeInfo',
         payload: {}
       })
@@ -653,34 +653,34 @@ describe('registerAppIpcHandlers', () => {
       threadId: 'thread-1'
     })
     expect(agentRuntime.compactThread).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       reason: 'Manual cleanup'
     })
     expect(agentRuntime.forkThread).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       relation: 'side',
       title: 'Side path'
     })
     expect(agentRuntime.resumeSession).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       sessionId: 'session-1',
       model: 'deepseek-v4-pro',
       mode: 'agent'
     })
     expect(agentRuntime.updateThreadRelation).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       relation: 'primary'
     })
     expect(agentRuntime.usage).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       groupBy: 'thread',
       threadId: 'thread-1'
     })
     expect(agentRuntime.auxiliary).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       operation: 'getRuntimeInfo',
       payload: {}
     })
@@ -982,9 +982,9 @@ describe('registerAppIpcHandlers', () => {
 
   it('writes MCP config JSON and notifies the runtime apply hook', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
-    const tempRoot = mkdtempSync(join(tmpdir(), 'deepseek-gui-ipc-'))
+    const tempRoot = mkdtempSync(join(tmpdir(), 'sciforge-ipc-'))
     const configPath = join(tempRoot, 'mcp.json')
-    const onKunMcpConfigWritten = vi.fn(async () => undefined)
+    const onRuntimeMcpConfigWritten = vi.fn(async () => undefined)
     const content = `${JSON.stringify({
       servers: {
         filesystem: {
@@ -996,16 +996,16 @@ describe('registerAppIpcHandlers', () => {
 
     try {
       registerAppIpcHandlers(registerOptions({
-        resolveKunConfigPath: () => configPath,
-        onKunMcpConfigWritten
+        resolveRuntimeConfigPath: () => configPath,
+        onRuntimeMcpConfigWritten
       }))
 
-      await expect(handlers.get('deepseek:config:write')?.({}, content)).resolves.toEqual({
+      await expect(handlers.get('runtimeConfig:write')?.({}, content)).resolves.toEqual({
         ok: true,
         path: configPath
       })
       expect(readFileSync(configPath, 'utf8')).toBe(content)
-      expect(onKunMcpConfigWritten).toHaveBeenCalledWith(configPath, content)
+      expect(onRuntimeMcpConfigWritten).toHaveBeenCalledWith(configPath, content)
     } finally {
       rmSync(tempRoot, { recursive: true, force: true })
     }
@@ -1015,7 +1015,7 @@ describe('registerAppIpcHandlers', () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const openModelRouterConfigFile = vi.fn(async () => ({
       ok: true as const,
-      path: '/tmp/deepseek-gui/model-router/config.json'
+      path: '/tmp/sciforge/model-router/config.json'
     }))
     const current = settings()
     const store = { load: vi.fn(async () => current) }
@@ -1027,7 +1027,7 @@ describe('registerAppIpcHandlers', () => {
 
     await expect(handlers.get('modelRouter:config:open')?.({}, undefined)).resolves.toEqual({
       ok: true,
-      path: '/tmp/deepseek-gui/model-router/config.json'
+      path: '/tmp/sciforge/model-router/config.json'
     })
     expect(store.load).toHaveBeenCalled()
     expect(openModelRouterConfigFile).toHaveBeenCalledWith(current)
@@ -1035,24 +1035,24 @@ describe('registerAppIpcHandlers', () => {
 
   it('rejects invalid MCP config JSON before writing or applying it', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
-    const tempRoot = mkdtempSync(join(tmpdir(), 'deepseek-gui-ipc-'))
+    const tempRoot = mkdtempSync(join(tmpdir(), 'sciforge-ipc-'))
     const configPath = join(tempRoot, 'mcp.json')
-    const onKunMcpConfigWritten = vi.fn(async () => undefined)
+    const onRuntimeMcpConfigWritten = vi.fn(async () => undefined)
 
     try {
       registerAppIpcHandlers(registerOptions({
-        resolveKunConfigPath: () => configPath,
-        onKunMcpConfigWritten
+        resolveRuntimeConfigPath: () => configPath,
+        onRuntimeMcpConfigWritten
       }))
 
-      await expect(handlers.get('deepseek:config:write')?.({}, '{')).rejects.toThrow(
+      await expect(handlers.get('runtimeConfig:write')?.({}, '{')).rejects.toThrow(
         /MCP config must be JSON/
       )
-      await expect(handlers.get('deepseek:config:write')?.({}, '[]')).rejects.toThrow(
+      await expect(handlers.get('runtimeConfig:write')?.({}, '[]')).rejects.toThrow(
         /MCP config must be a JSON object/
       )
       expect(existsSync(configPath)).toBe(false)
-      expect(onKunMcpConfigWritten).not.toHaveBeenCalled()
+      expect(onRuntimeMcpConfigWritten).not.toHaveBeenCalled()
     } finally {
       rmSync(tempRoot, { recursive: true, force: true })
     }

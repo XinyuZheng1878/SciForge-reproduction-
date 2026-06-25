@@ -18,8 +18,8 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error('[AppErrorBoundary] uncaught render error:', error, info.componentStack)
-    if (typeof window !== 'undefined' && typeof window.dsGui?.logError === 'function') {
-      void window.dsGui.logError('renderer', 'Uncaught render error', {
+    if (typeof window !== 'undefined' && typeof window.sciforge?.logError === 'function') {
+      void window.sciforge.logError('renderer', 'Uncaught render error', {
         name: error.name,
         message: error.message,
         stack: error.stack,

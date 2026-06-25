@@ -15,7 +15,7 @@ describe('plan-prompts', () => {
     const prompt = buildDraftPlanPrompt({
       request: 'Add auth',
       workspaceRoot: '/tmp/app',
-      planRelativePath: '.deepseekgui/plan/add-auth.md'
+      planRelativePath: '.sciforge/plan/add-auth.md'
     })
     expect(prompt).toContain('The GUI will save your answer')
     expect(prompt).toContain('create_plan')
@@ -28,26 +28,26 @@ describe('plan-prompts', () => {
     const draft = buildDraftPlanPrompt({
       request: 'Add auth',
       workspaceRoot: '/tmp/app',
-      planRelativePath: '.deepseekgui/plan/add-auth.md'
+      planRelativePath: '.sciforge/plan/add-auth.md'
     })
     const refine = buildRefinePlanPrompt({
       feedback: 'Make it smaller',
       currentPlan: '# Old',
       workspaceRoot: '/tmp/app',
-      planRelativePath: '.deepseekgui/plan/add-auth.md'
+      planRelativePath: '.sciforge/plan/add-auth.md'
     })
     expect(formatGuiPlanPromptForDisplay(draft)).toMatch(/^Create plan: Add auth/)
     expect(formatGuiPlanPromptForDisplay(refine)).toMatch(/^Revise plan: Make it smaller/)
-    expect(formatGuiPlanPromptForDisplay(buildPlanBuildPrompt('.deepseekgui/plan/add-auth.md'))).toBe(
-      'Build plan: .deepseekgui/plan/add-auth.md'
+    expect(formatGuiPlanPromptForDisplay(buildPlanBuildPrompt('.sciforge/plan/add-auth.md'))).toBe(
+      'Build plan: .sciforge/plan/add-auth.md'
     )
     expect(isGuiPlanInternalPrompt(draft)).toBe(true)
     expect(getGuiPlanPromptKind(draft)).toBe('draft')
     expect(getGuiPlanPromptKind('Create plan: Add auth')).toBe('draft')
     expect(getGuiPlanPromptKind('Revise plan: Make it smaller')).toBe('refine')
-    expect(getGuiPlanPromptKind('Build plan: .deepseekgui/plan/add-auth.md')).toBe('build')
+    expect(getGuiPlanPromptKind('Build plan: .sciforge/plan/add-auth.md')).toBe('build')
     expect(isGuiPlanDraftOrRefinePrompt('Revise plan: Make it smaller')).toBe(true)
-    expect(isGuiPlanDraftOrRefinePrompt('Build plan: .deepseekgui/plan/add-auth.md')).toBe(false)
+    expect(isGuiPlanDraftOrRefinePrompt('Build plan: .sciforge/plan/add-auth.md')).toBe(false)
   })
 
   it('builds refine prompts with the existing plan and feedback', () => {
@@ -55,7 +55,7 @@ describe('plan-prompts', () => {
       feedback: 'Make it smaller',
       currentPlan: '# Old',
       workspaceRoot: '/tmp/app',
-      planRelativePath: '.deepseekgui/plan/add-auth.md'
+      planRelativePath: '.sciforge/plan/add-auth.md'
     })
     expect(prompt).toContain('overwrite')
     expect(prompt).toContain('create_plan')
@@ -64,8 +64,8 @@ describe('plan-prompts', () => {
   })
 
   it('builds execution prompts that point at the plan file', () => {
-    expect(buildPlanBuildPrompt('.deepseekgui/plan/add-auth.md')).toContain(
-      'Please read and execute the GUI plan file at `.deepseekgui/plan/add-auth.md`'
+    expect(buildPlanBuildPrompt('.sciforge/plan/add-auth.md')).toContain(
+      'Please read and execute the GUI plan file at `.sciforge/plan/add-auth.md`'
     )
   })
 

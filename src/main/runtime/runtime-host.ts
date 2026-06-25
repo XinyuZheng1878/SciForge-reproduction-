@@ -1,6 +1,5 @@
 import {
   getActiveAgentRuntime,
-  normalizeAgentRuntimeId,
   type AgentRuntimeId,
   type AppSettingsV1
 } from '../../shared/app-settings'
@@ -9,12 +8,12 @@ import type { CodexRuntimeService } from './codex'
 export type RuntimeHostEventPayload = Record<string, unknown>
 
 export type RuntimeHostOptions = {
-  ensureKunRuntime: (settings: AppSettingsV1) => Promise<void>
+  ensureLocalRuntime: (settings: AppSettingsV1) => Promise<void>
 }
 
 export type RuntimeHostEventsOptions = RuntimeHostOptions & {
   codexRuntime: () => CodexRuntimeService
-  kunEvents: (
+  localRuntimeEvents: (
     settings: AppSettingsV1,
     threadId: string,
     sinceSeq: number,
@@ -28,17 +27,20 @@ export async function* runtimeEventsViaRuntimeHost(
   sinceSeq: number,
   signal: AbortSignal,
   options: RuntimeHostEventsOptions,
-  runtimeId: AgentRuntimeId = getActiveAgentRuntime(settings)
+  runtimeId?: AgentRuntimeId
 ): AsyncIterable<RuntimeHostEventPayload> {
-  const targetRuntimeId = normalizeAgentRuntimeId(runtimeId)
-  if (targetRuntimeId === 'kun') {
-    await options.ensureKunRuntime(settings)
-    yield* options.kunEvents(settings, threadId, sinceSeq, signal)
+  const targetRuntimeId = runtimeId ?? getActiveAgentRuntime(settings)
+  if (!isRuntimeHostRuntimeId(targetRuntimeId)) {
+    throw new Error(`Legacy runtime SSE is not available for runtime: ${String(targetRuntimeId)}.`)
+  }
+  if (targetRuntimeId === 'sciforge') {
+    await options.ensureLocalRuntime(settings)
+    yield* options.localRuntimeEvents(settings, threadId, sinceSeq, signal)
     return
   }
 
   if (targetRuntimeId !== 'codex') {
-    throw new Error('Legacy runtime SSE is only available for Kun and Codex. Use agentRuntime IPC for Claude Code.')
+    throw new Error('Legacy runtime SSE is only available for SciForge and Codex. Use agentRuntime IPC for Claude Code.')
   }
 
   // Legacy SSE compatibility uses the same normalized Codex service stream as
@@ -51,4 +53,8 @@ export async function* runtimeEventsViaRuntimeHost(
     if (signal.aborted) return
     yield event as RuntimeHostEventPayload
   }
+}
+
+function isRuntimeHostRuntimeId(value: unknown): value is AgentRuntimeId {
+  return value === 'sciforge' || value === 'codex' || value === 'claude'
 }

@@ -8,7 +8,7 @@ function setAgentRuntimeUsage(agentRuntimeUsage: AgentRuntimeUsage): void {
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
-      dsGui: {
+      sciforge: {
         agentRuntime: {
           usage: agentRuntimeUsage
         }
@@ -33,7 +33,7 @@ describe('daily usage helpers', () => {
     expect(range.timezone).toBeTruthy()
   })
 
-  it('builds a semantic daily usage query without exposing Kun endpoints', () => {
+  it('builds a semantic daily usage query without exposing local runtime endpoints', () => {
     expect(
       (dailyUsage as unknown as {
         buildDailyUsageQuery(range: dailyUsage.DailyUsageRange, runtimeId?: AgentRuntimeId): unknown

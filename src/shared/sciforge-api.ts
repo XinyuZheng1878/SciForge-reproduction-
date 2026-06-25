@@ -227,8 +227,8 @@ export type SkillListItem = {
 export type SkillListResult =
   | { ok: true; skills: SkillListItem[]; validationErrors: Array<{ root: string; message: string }> }
   | { ok: false; message: string }
-export type DeepseekConfigFileResult = { path: string; content: string; exists: boolean }
-export type DeepseekConfigSaveResult = { ok: true; path: string }
+export type RuntimeConfigFileResult = { path: string; content: string; exists: boolean }
+export type RuntimeConfigSaveResult = { ok: true; path: string }
 export type ModelRouterConfigOpenResult =
   | { ok: true; path: string }
   | { ok: false; path: string; message: string }
@@ -415,15 +415,15 @@ export type DiscordTestSendResult =
 export type DiscordGuardResult =
   | { ok: true; status: DiscordBotStatus }
   | { ok: false; message: string; status?: DiscordBotStatus; conflict?: DiscordGuardConflictStatus }
-export type KunRuntimeStatusState =
+export type LocalRuntimeStatusState =
   | 'starting'
   | 'running'
   | 'restarting'
   | 'crashed'
   | 'failed'
   | 'stopped'
-export type KunRuntimeStatusPayload = {
-  state: KunRuntimeStatusState
+export type LocalRuntimeStatusPayload = {
+  state: LocalRuntimeStatusState
   source: string
   message?: string
   stderrTail?: string
@@ -432,7 +432,7 @@ export type KunRuntimeStatusPayload = {
   at: string
 }
 
-export type DsGuiApi = {
+export type SciForgeApi = {
   platform: string
   getSettings: () => Promise<AppSettingsV1>
   setSettings: (partial: AppSettingsPatch) => Promise<AppSettingsV1>
@@ -484,9 +484,9 @@ export type DsGuiApi = {
   listSkills: (workspaceRoot?: string) => Promise<SkillListResult>
   saveSkillFile: (rootPath: string, skillName: string, content: string) => Promise<SkillSaveResult>
   openSkillRoot: (rootPath: string) => Promise<PathOpenResult>
-  getDeepseekConfigFile: () => Promise<DeepseekConfigFileResult>
-  setDeepseekConfigFile: (content: string) => Promise<DeepseekConfigSaveResult>
-  openDeepseekConfigDir: () => Promise<PathOpenResult>
+  getRuntimeConfigFile: () => Promise<RuntimeConfigFileResult>
+  setRuntimeConfigFile: (content: string) => Promise<RuntimeConfigSaveResult>
+  openRuntimeConfigDir: () => Promise<PathOpenResult>
   openModelRouterConfigFile: () => Promise<ModelRouterConfigOpenResult>
   prepareResearchMemoryWorkspace: () => Promise<ResearchMemoryWorkspaceResult>
   getGitBranches: (workspaceRoot: string) => Promise<GitBranchesResult>
@@ -553,7 +553,7 @@ export type DsGuiApi = {
     export: (payload: PdfAnnotationSidecarExportPayload) => Promise<PdfAnnotationSidecarExportResult>
     import: (payload: PdfAnnotationSidecarImportPayload) => Promise<PdfAnnotationSidecarImportResult>
   }
-  onRuntimeStatus: (handler: (payload: KunRuntimeStatusPayload) => void) => () => void
+  onRuntimeStatus: (handler: (payload: LocalRuntimeStatusPayload) => void) => () => void
   agentRuntime: {
     connect: (runtimeId?: AgentRuntimeThreadListInput['runtimeId']) => Promise<void>
     capabilities: (runtimeId?: AgentRuntimeThreadListInput['runtimeId']) => Promise<AgentRuntimeCapabilities>

@@ -2,7 +2,7 @@ import { readBrowserStorageItem, writeBrowserStorageItem } from './browser-stora
 
 export type PluginInstallKind = 'mcp' | 'skill' | 'extension'
 
-export const INSTALLED_PLUGINS_STORAGE_KEY = 'deepseekgui.installedPlugins'
+export const INSTALLED_PLUGINS_STORAGE_KEY = 'sciforge.installedPlugins'
 export const PAPER_RADAR_EXTENSION_ID = 'paper-radar'
 
 export function pluginStorageKey(kind: PluginInstallKind, id: string): string {

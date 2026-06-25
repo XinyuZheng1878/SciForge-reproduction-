@@ -27,7 +27,7 @@ import type {
   TurnCompleteNotificationPayload,
   UpstreamModelsResult,
   WorkspacePickResult
-} from '../../shared/ds-gui-api'
+} from '../../shared/sciforge-api'
 import type { GuiUpdateDownloadResult, GuiUpdateInfo, GuiUpdateInstallResult, GuiUpdateState } from '../../shared/gui-update'
 import {
   agentRuntimeConnectPayloadSchema,
@@ -60,7 +60,7 @@ import {
   clawImInstallPollPayloadSchema,
   clawTaskFromTextPayloadSchema,
   computerUsePermissionKindSchema,
-  deepseekConfigContentSchema,
+  runtimeConfigContentSchema,
   desktopCommandSchema,
   evidenceDagOpenPayloadSchema,
   defaultPathSchema,
@@ -272,10 +272,10 @@ type RegisterAppIpcHandlersOptions = {
   pollFeishuInstall: (deviceCode: string) => Promise<ClawImInstallPollResult>
   startWeixinInstallQrcode: (weixinBridgeUrl?: string) => Promise<ClawImInstallQrResult>
   pollWeixinInstall: (deviceCode: string, weixinBridgeUrl?: string) => Promise<ClawImInstallPollResult>
-  resolveKunConfigPath: () => string
+  resolveRuntimeConfigPath: () => string
   openModelRouterConfigFile: (settings: AppSettingsV1) => Promise<ModelRouterConfigOpenResult>
   getPaperRadarService?: () => PaperRadarWorkerService | null
-  onKunMcpConfigWritten?: (path: string, content: string) => Promise<void> | void
+  onRuntimeMcpConfigWritten?: (path: string, content: string) => Promise<void> | void
   showTurnCompleteNotification: (
     payload: TurnCompleteNotificationPayload
   ) => Promise<SystemNotificationResult>
@@ -389,9 +389,9 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     pollFeishuInstall,
     startWeixinInstallQrcode,
     pollWeixinInstall,
-    resolveKunConfigPath,
+    resolveRuntimeConfigPath,
     openModelRouterConfigFile,
-    onKunMcpConfigWritten,
+    onRuntimeMcpConfigWritten,
     showTurnCompleteNotification,
     getAppVersion,
     readGuiUpdateState,
@@ -1119,8 +1119,8 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
-  handleInvoke('deepseek:config:read', async () => {
-    const path = resolveKunConfigPath()
+  handleInvoke('runtimeConfig:read', async () => {
+    const path = resolveRuntimeConfigPath()
     try {
       const content = await readFile(path, 'utf8')
       return { path, content, exists: true as const }
@@ -1132,18 +1132,18 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
-  handleInvoke('deepseek:config:write', async (_, content: unknown) => {
+  handleInvoke('runtimeConfig:write', async (_, content: unknown) => {
     const validatedContent = parseIpcPayload(
-      'deepseek:config:write',
-      deepseekConfigContentSchema,
+      'runtimeConfig:write',
+      runtimeConfigContentSchema,
       content
     )
-    const path = resolveKunConfigPath()
+    const path = resolveRuntimeConfigPath()
     validateMcpConfigContent(validatedContent)
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, validatedContent, 'utf8')
     try {
-      await onKunMcpConfigWritten?.(path, validatedContent)
+      await onRuntimeMcpConfigWritten?.(path, validatedContent)
     } catch (error: unknown) {
       logError('mcp-config', 'Failed to apply MCP config change after write', {
         path,
@@ -1153,9 +1153,9 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     return { ok: true as const, path }
   })
 
-  handleInvoke('deepseek:config:open-dir', async () => {
+  handleInvoke('runtimeConfig:open-dir', async () => {
     try {
-      const path = resolveKunConfigPath()
+      const path = resolveRuntimeConfigPath()
       const dirPath = dirname(path)
       await mkdir(dirPath, { recursive: true })
       return openPathWithShell(dirPath)

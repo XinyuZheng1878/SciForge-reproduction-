@@ -227,9 +227,9 @@ describe('agent runtime contract', () => {
       ...base,
       guard: { toolStorm: 'observe' }
     } satisfies AgentRuntimeCapabilities
-    const kun = {
+    const localRuntime = {
       ...base,
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       transport: 'http_sse',
       guard: { toolStorm: 'native' },
       controls: {
@@ -240,9 +240,9 @@ describe('agent runtime contract', () => {
     } satisfies AgentRuntimeCapabilities
 
     expect(codex.guard.toolStorm).toBe('observe')
-    expect(kun.guard.toolStorm).toBe('native')
-    expect(kun.controls.interrupt).toBe(false)
-    expect(kun.controls.steer).toBe(false)
+    expect(localRuntime.guard.toolStorm).toBe('native')
+    expect(localRuntime.controls.interrupt).toBe(false)
+    expect(localRuntime.controls.steer).toBe(false)
   })
 
   it('serializes child runs and degraded transcript responses without runtime-specific imports', () => {
@@ -364,7 +364,7 @@ describe('agent runtime contract', () => {
     const children = [
       {
         id: 'direct',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         parentThreadId: 'active',
         parentTurnId: 'turn-a',
         kind: 'agent',
@@ -372,7 +372,7 @@ describe('agent runtime contract', () => {
       },
       {
         id: 'queued',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         parentThreadId: 'active',
         parentTurnId: 'turn-b',
         kind: 'agent',
@@ -380,7 +380,7 @@ describe('agent runtime contract', () => {
       },
       {
         id: 'other-thread',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         parentThreadId: 'other',
         parentTurnId: 'turn-a',
         kind: 'agent',
@@ -388,7 +388,7 @@ describe('agent runtime contract', () => {
       },
       {
         id: 'other-turn',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         parentThreadId: 'active',
         parentTurnId: 'turn-b',
         kind: 'workflow',
@@ -396,14 +396,14 @@ describe('agent runtime contract', () => {
       },
       {
         id: 'unknown',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         parentThreadId: 'active',
         kind: 'remote',
         status: 'unknown'
       },
       {
         id: 'descendant',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         parentThreadId: 'direct',
         kind: 'agent',
         status: 'running'
@@ -420,7 +420,7 @@ describe('agent runtime contract', () => {
     expect(isAgentRuntimeChildActive(children[0])).toBe(true)
     expect(isAgentRuntimeChildActive(children[4])).toBe(false)
     expect(isAgentRuntimeDirectThreadChild(children[5], {
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       parentThreadId: 'active'
     })).toBe(false)
 
@@ -435,12 +435,12 @@ describe('agent runtime contract', () => {
       'direct'
     ])
     expect(filterAgentRuntimeThreadChildren(children, {
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       parentThreadId: 'active',
       activeOnly: true
     }).map((child) => child.id)).toEqual(['direct', 'queued'])
     expect(filterAgentRuntimeThreadChildren(children, {
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       parentThreadId: 'active',
       turnId: 'turn-b'
     }).map((child) => child.id)).toEqual(['queued', 'other-turn'])
@@ -456,7 +456,7 @@ describe('agent runtime contract', () => {
     const contractPath = resolve(dirname(fileURLToPath(import.meta.url)), 'agent-runtime-contract.ts')
     const source = readFileSync(contractPath, 'utf8')
 
-    expect(source).not.toMatch(/from\s+['"][^'"]*(?:@renderer|renderer|electron|src\/main|runtime\/kun|kun-adapter|kun-agent|runtime\/codex|codex\/app-server|codex-agent)[^'"]*['"]/)
-    expect(source).not.toMatch(/require\([^)]*(?:@renderer|renderer|electron|src\/main|runtime\/kun|kun-adapter|kun-agent|runtime\/codex|codex\/app-server|codex-agent)/)
+	    expect(source).not.toMatch(/from\s+['"][^'"]*(?:@renderer|renderer|electron|src\/main|runtime\/(?:kun|local-runtime)|(?:kun|local-runtime)-adapter|(?:kun|local-runtime)-agent|runtime\/codex|codex\/app-server|codex-agent)[^'"]*['"]/)
+	    expect(source).not.toMatch(/require\([^)]*(?:@renderer|renderer|electron|src\/main|runtime\/(?:kun|local-runtime)|(?:kun|local-runtime)-adapter|(?:kun|local-runtime)-agent|runtime\/codex|codex\/app-server|codex-agent)/)
   })
 })

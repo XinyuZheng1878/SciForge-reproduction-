@@ -517,7 +517,7 @@ describe('thread event sink binding', () => {
       ]
     })
     const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
-    vi.stubGlobal('window', { dsGui: {} })
+    vi.stubGlobal('window', { sciforge: {} })
 
     sink.onTurnComplete()
     expect(getState().busy).toBe(false)
@@ -565,7 +565,7 @@ describe('thread event sink binding', () => {
       }))
     }
     registryMock.getProvider.mockReturnValue(provider)
-    vi.stubGlobal('window', { dsGui: {} })
+    vi.stubGlobal('window', { sciforge: {} })
     const { getState, set, get } = makeSinkHarness({
       activeThreadId: 'thread-current',
       busy: true,
@@ -588,7 +588,7 @@ describe('thread event sink binding', () => {
         updatedAt: '2026-06-11T00:00:00.000Z',
         model: 'gpt-5',
         mode: 'agent',
-        workspace: '/workspace/deepseek-gui'
+        workspace: '/workspace/sciforge'
       }]
     })
     const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
@@ -628,7 +628,7 @@ describe('thread event sink binding', () => {
 
   it('does not settle the same turn twice when lifecycle follows terminal runtime status', () => {
     const showTurnCompleteNotification = vi.fn(async () => ({ ok: true }))
-    vi.stubGlobal('window', { dsGui: { showTurnCompleteNotification } })
+    vi.stubGlobal('window', { sciforge: { showTurnCompleteNotification } })
     registryMock.getProvider.mockReturnValue({
       rememberThreadRuntime: vi.fn(),
       getThreadDetail: vi.fn(async () => ({ blocks: [] }))
@@ -645,7 +645,7 @@ describe('thread event sink binding', () => {
         updatedAt: '2026-06-11T00:00:00.000Z',
         model: 'gpt-5',
         mode: 'agent',
-        workspace: '/workspace/deepseek-gui'
+        workspace: '/workspace/sciforge'
       }]
     })
     const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
@@ -715,7 +715,7 @@ describe('thread event sink binding', () => {
       }))
     }
     registryMock.getProvider.mockReturnValue(provider)
-    vi.stubGlobal('window', { dsGui: {} })
+    vi.stubGlobal('window', { sciforge: {} })
     const { getState, set, get } = makeSinkHarness({
       activeThreadId: 'thread-current',
       busy: true,
@@ -736,7 +736,7 @@ describe('thread event sink binding', () => {
         updatedAt: '2026-06-11T00:00:00.000Z',
         model: 'gpt-5',
         mode: 'agent',
-        workspace: '/workspace/deepseek-gui'
+        workspace: '/workspace/sciforge'
       }]
     })
     const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
@@ -787,7 +787,7 @@ describe('thread event sink binding', () => {
       ]
     })
     const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
-    vi.stubGlobal('window', { dsGui: {} })
+    vi.stubGlobal('window', { sciforge: {} })
 
     sink.onTurnComplete()
 

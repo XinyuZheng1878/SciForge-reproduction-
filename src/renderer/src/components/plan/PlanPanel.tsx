@@ -125,7 +125,7 @@ export function PlanPanel({
     }
     let cancelled = false
     setOperationStatus('idle')
-    void window.dsGui
+    void window.sciforge
       .readWorkspaceFile({
         workspaceRoot: normalizedWorkspace,
         path: remembered.relativePath
@@ -164,7 +164,7 @@ export function PlanPanel({
       if (snapshot.activePlan?.id !== activePlan.id || snapshot.saveStatus !== 'dirty') return
       const contentToSave = snapshot.content
       setSaveStatus('saving')
-      void window.dsGui
+      void window.sciforge
         .writeWorkspaceFile({
           workspaceRoot: activePlan.workspaceRoot,
           path: activePlan.relativePath,

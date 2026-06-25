@@ -104,7 +104,7 @@ function isAllowedBoundaryMarker(hit: DirectCallHit): boolean {
     return hit.marker === 'chat completions endpoint' || hit.marker === 'messages endpoint'
   }
   if (
-    hit.file === 'src/main/kun-process.ts' ||
+    hit.file === 'src/main/local-runtime-process.ts' ||
     hit.file === 'src/main/runtime/codex/codex-config.ts' ||
     hit.file === 'src/main/runtime/claude-code/claude-code-config.ts'
   ) {

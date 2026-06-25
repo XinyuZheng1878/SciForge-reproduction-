@@ -104,7 +104,7 @@ async function bashExecute(
   const output = new OutputAccumulator({
     maxLines: DEFAULT_MAX_LINES,
     maxBytes: DEFAULT_MAX_BYTES,
-    tempFilePrefix: 'kun-bash'
+    tempFilePrefix: 'sciforge-runtime-bash'
   })
   let updateDirty = false
   let updateTimer: NodeJS.Timeout | undefined
@@ -232,7 +232,7 @@ function createOutputAccumulator(): OutputAccumulator {
   return new OutputAccumulator({
     maxLines: DEFAULT_MAX_LINES,
     maxBytes: DEFAULT_MAX_BYTES,
-    tempFilePrefix: 'kun-bash'
+    tempFilePrefix: 'sciforge-runtime-bash'
   })
 }
 

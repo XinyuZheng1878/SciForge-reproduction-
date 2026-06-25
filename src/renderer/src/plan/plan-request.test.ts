@@ -23,7 +23,7 @@ describe('plan-request', () => {
       {
         kind: 'user',
         id: 'u3',
-        text: 'Please read and execute the GUI plan file at `.deepseekgui/plan/auth.md`'
+        text: 'Please read and execute the GUI plan file at `.sciforge/plan/auth.md`'
       },
       {
         kind: 'user',
@@ -36,7 +36,7 @@ describe('plan-request', () => {
 
   it('recognizes internal plan prompts', () => {
     expect(isInternalGuiPlanPrompt('SciForge is asking you to revise an existing GUI-owned implementation plan.')).toBe(true)
-    expect(isInternalGuiPlanPrompt('Please read and execute the GUI plan file at `.deepseekgui/plan/a.md`')).toBe(true)
+    expect(isInternalGuiPlanPrompt('Please read and execute the GUI plan file at `.sciforge/plan/a.md`')).toBe(true)
     expect(isInternalGuiPlanPrompt('Create plan: auth')).toBe(true)
     expect(isInternalGuiPlanPrompt('please make a plan for auth')).toBe(false)
   })

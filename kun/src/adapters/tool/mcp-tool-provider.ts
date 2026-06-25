@@ -233,7 +233,7 @@ export function isMcpServerTrusted(server: McpServerConfig, workspace: string): 
 }
 
 async function createSdkMcpClient(serverId: string, server: McpServerConfig): Promise<McpClientLike> {
-  const client = new Client({ name: `kun-${serverId}`, version: '0.1.0' })
+  const client = new Client({ name: `sciforge-runtime-${serverId}`, version: '0.1.0' })
   const transport = createTransport(server)
   await client.connect(transport, { timeout: server.timeoutMs })
   return {
@@ -369,7 +369,7 @@ function mcpToolArgumentsForContext(
   }
   const threadId = context.threadId
   const turnId = context.turnId
-  const agentId = `kun:${threadId}`
+  const agentId = `sciforge-runtime:${threadId}`
   return {
     ...args,
     agentId,

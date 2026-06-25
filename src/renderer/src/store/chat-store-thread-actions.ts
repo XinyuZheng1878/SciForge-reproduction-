@@ -197,17 +197,17 @@ function upsertRuntimeTargetThread(
 }
 
 export function publishActiveClawThreadContext(state: ChatState, threadId: string | null): void {
-  if (typeof window.dsGui?.updateClawActiveThreadContext !== 'function') return
+  if (typeof window.sciforge?.updateClawActiveThreadContext !== 'function') return
   if (!threadId) {
-    void window.dsGui.updateClawActiveThreadContext(null).catch(() => undefined)
+    void window.sciforge.updateClawActiveThreadContext(null).catch(() => undefined)
     return
   }
   const thread = state.threads.find((item) => item.id === threadId)
   if (thread && isClawThread(thread, state.clawChannels)) {
-    void window.dsGui.updateClawActiveThreadContext(null).catch(() => undefined)
+    void window.sciforge.updateClawActiveThreadContext(null).catch(() => undefined)
     return
   }
-  void window.dsGui.updateClawActiveThreadContext({
+  void window.sciforge.updateClawActiveThreadContext({
     threadId,
     runtimeId: thread?.runtimeId,
     workspaceRoot: thread?.workspace || state.workspaceRoot || undefined
@@ -313,7 +313,7 @@ export function createThreadActions(
         mode: 'agent'
       })
       // Register + activate optimistically before refreshing. A freshly created
-      // Kun thread may not be listed until the first message is written.
+      // SciForge Runtime thread may not be listed until the first message is written.
       // Setting it active first lets refreshThreads preserve it in the sidebar.
       set((s) => ({
         activeThreadId: t.id,
@@ -805,7 +805,7 @@ export function createThreadActions(
         }))
         void get().refreshThreads()
       } catch (e) {
-        void window.dsGui.logError('create-thread', 'Failed to create thread', {
+        void window.sciforge.logError('create-thread', 'Failed to create thread', {
           message: e instanceof Error ? e.message : String(e)
         }).catch(() => undefined)
         set({
@@ -836,7 +836,7 @@ export function createThreadActions(
       const previousThreadId = activeThreadId
       const seqAtSend = get().lastSeq
       const sendingThread = get().threads.find((thread) => thread.id === previousThreadId)
-      const sendingRuntimeId = sendingThread?.runtimeId ?? 'kun'
+      const sendingRuntimeId = sendingThread?.runtimeId ?? 'sciforge'
       const targetRuntimeId = get().activeAgentRuntime
       const runtimeSwitchExpected = sendingRuntimeId !== targetRuntimeId
       rememberProviderThreadRuntime(p, previousThreadId, get().threads)
@@ -933,8 +933,8 @@ export function createThreadActions(
       const shouldMirrorToIm =
         Boolean(channel) ||
         clawThreadIdsFromChannels(get().clawChannels).has(activeThreadId)
-      if (shouldMirrorToIm && typeof window.dsGui?.mirrorClawChannelMessage === 'function') {
-        const userMirror = await window.dsGui.mirrorClawChannelMessage(
+      if (shouldMirrorToIm && typeof window.sciforge?.mirrorClawChannelMessage === 'function') {
+        const userMirror = await window.sciforge.mirrorClawChannelMessage(
           activeThreadId,
           messageText,
           'user'
@@ -970,7 +970,7 @@ export function createThreadActions(
       return true
     } catch (e) {
       clearBusyWatchdog()
-      void window.dsGui.logError('send-message', 'Failed to send message', {
+      void window.sciforge.logError('send-message', 'Failed to send message', {
         message: e instanceof Error ? e.message : String(e),
         threadId: activeThreadId
       }).catch(() => undefined)

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useWriteWorkspaceStore } from './write-workspace-store'
 
-function installDsGui(overrides: Partial<Window['dsGui']>): void {
+function installSciForge(overrides: Partial<Window['sciforge']>): void {
   vi.stubGlobal('window', {
-    dsGui: overrides
+    sciforge: overrides
   })
 }
 
@@ -25,7 +25,7 @@ afterEach(() => {
 
 describe('write workspace store', () => {
   it('reports read errors when syncing the active text file from disk', async () => {
-    installDsGui({
+    installSciForge({
       readWorkspaceFile: vi.fn(async () => {
         throw new Error('read failed')
       })
@@ -42,7 +42,7 @@ describe('write workspace store', () => {
   })
 
   it('does not apply late read errors after the active text file changes', async () => {
-    installDsGui({
+    installSciForge({
       readWorkspaceFile: vi.fn(async () => {
         useWriteWorkspaceStore.setState({ activeFilePath: '/tmp/write/next.md' })
         throw new Error('late read failed')

@@ -348,7 +348,7 @@ function assertRuntimeAuthorized(
   config: ModelRouterConfig,
   env: Record<string, string | undefined>,
 ): void {
-  const runtimeApiKeyEnv = config.runtimeApiKeyEnv ?? 'DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY';
+  const runtimeApiKeyEnv = config.runtimeApiKeyEnv ?? 'SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY';
   const runtimeApiKey = stringField(env[runtimeApiKeyEnv]);
   if (!runtimeApiKey) throw routerError(503, 'missing_runtime_api_key', 'Model Router runtime API key is not configured.');
   const authorization = Array.isArray(request.headers.authorization)

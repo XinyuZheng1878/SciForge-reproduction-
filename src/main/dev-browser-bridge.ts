@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { AppBridgeSender } from './ipc/register-app-ipc-handlers'
@@ -6,6 +7,80 @@ import type { AppBridgeSender } from './ipc/register-app-ipc-handlers'
 const DEFAULT_DEV_BROWSER_BRIDGE_PORT = 5174
 const MAX_INVOKE_BODY_BYTES = 2_000_000
 const CLIENT_DESTROY_DELAY_MS = 1_000
+export const DEV_BROWSER_BRIDGE_TOKEN_HEADER = 'X-SciForge-Bridge-Token'
+const DEV_BROWSER_BRIDGE_ALLOWED_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'X-SciForge-Client',
+  DEV_BROWSER_BRIDGE_TOKEN_HEADER
+].join(',')
+
+export const DEFAULT_DEV_BROWSER_BRIDGE_ALLOWED_CHANNELS = [
+  'settings:get',
+  'settings:set',
+  'upstream:models',
+  'claw:status',
+  'claw:task:run',
+  'claw:active-thread-context',
+  'claw:channel:mirror',
+  'claw:channel:mirror-to-feishu',
+  'claw:task:create-from-text',
+  'schedule:status',
+  'schedule:task:run',
+  'schedule:task:create-from-text',
+  'workflow:status',
+  'workflow:code:check',
+  'discord:status',
+  'discord:guilds',
+  'discord:channels',
+  'skill:list',
+  'runtimeConfig:read',
+  'git:branches',
+  'editor:list',
+  'file:resolve-workspace',
+  'file:list-workspace-directory',
+  'file:read-workspace',
+  'file:preview-workspace-html',
+  'file:read-workspace-image',
+  'file:watch-workspace',
+  'file:unwatch-workspace',
+  'write:inline-completion',
+  'write:retrieve-context',
+  'pdfAnnotations:load',
+  'computer-use:permissions',
+  'computer-use:status',
+  'paperRadar:status',
+  'paperRadar:profiles:list',
+  'paperRadar:search',
+  'paperRadar:rank',
+  'paperRadar:digest',
+  'agentRuntime:connect',
+  'agentRuntime:capabilities',
+  'agentRuntime:listThreads',
+  'agentRuntime:startThread',
+  'agentRuntime:readThread',
+  'agentRuntime:startTurn',
+  'agentRuntime:interruptTurn',
+  'agentRuntime:steerTurn',
+  'agentRuntime:subscribeEvents',
+  'agentRuntime:stopEvents',
+  'agentRuntime:renameThread',
+  'agentRuntime:deleteThread',
+  'agentRuntime:compactThread',
+  'agentRuntime:forkThread',
+  'agentRuntime:resumeSession',
+  'agentRuntime:updateThreadRelation',
+  'agentRuntime:usage',
+  'agentRuntime:auxiliary',
+  'agentRuntime:resolveApproval',
+  'agentRuntime:resolveUserInput',
+  'notification:turn-complete',
+  'app:version',
+  'gui:update-state',
+  'gui:update-check',
+  'log:error',
+  'log:get-path'
+] as const
 
 export type DevBrowserBridgeDispatcher = {
   invoke: (channel: string, payload: unknown, sender: AppBridgeSender) => Promise<unknown>
@@ -14,6 +89,7 @@ export type DevBrowserBridgeDispatcher = {
 export type DevBrowserBridgeServer = {
   server: Server
   url: string
+  token: string
   send: (channel: string, ...args: unknown[]) => void
   close: () => Promise<void>
 }
@@ -22,6 +98,8 @@ type StartDevBrowserBridgeServerOptions = {
   dispatcher: DevBrowserBridgeDispatcher
   host?: string
   port?: number
+  token?: string
+  allowedChannels?: readonly string[]
 }
 
 class DevBrowserBridgeClient extends EventEmitter implements AppBridgeSender {
@@ -106,7 +184,7 @@ function applyCors(request: IncomingMessage, response: ServerResponse): boolean 
     response.setHeader('Vary', 'Origin')
   }
   response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-Sciforge-Client,X-DeepSeek-Gui-Client')
+  response.setHeader('Access-Control-Allow-Headers', DEV_BROWSER_BRIDGE_ALLOWED_HEADERS)
   return true
 }
 
@@ -121,6 +199,49 @@ function normalizeClientId(value: string | string[] | undefined): string {
   const trimmed = raw?.trim() ?? ''
   if (/^[A-Za-z0-9._:-]{1,128}$/.test(trimmed)) return trimmed
   return 'default'
+}
+
+function normalizeHeaderValue(value: string | string[] | undefined): string {
+  const raw = Array.isArray(value) ? value[0] : value
+  return raw?.trim() ?? ''
+}
+
+function normalizeToken(value: string | undefined): string | undefined {
+  const token = value?.trim()
+  return token || undefined
+}
+
+function createBridgeToken(configuredToken: string | undefined): string {
+  return normalizeToken(configuredToken) ?? randomBytes(32).toString('hex')
+}
+
+function timingSafeStringEqual(actual: string, expected: string): boolean {
+  const actualBuffer = Buffer.from(actual, 'utf8')
+  const expectedBuffer = Buffer.from(expected, 'utf8')
+  if (actualBuffer.byteLength !== expectedBuffer.byteLength) return false
+  return timingSafeEqual(actualBuffer, expectedBuffer)
+}
+
+function parseAuthorizationBearer(value: string): string {
+  const match = /^Bearer\s+(.+)$/i.exec(value)
+  return match?.[1]?.trim() ?? ''
+}
+
+function getInvokeToken(request: IncomingMessage): string {
+  const primary = normalizeHeaderValue(request.headers[DEV_BROWSER_BRIDGE_TOKEN_HEADER.toLowerCase()])
+  if (primary) return primary
+  return parseAuthorizationBearer(normalizeHeaderValue(request.headers.authorization))
+}
+
+function hasValidInvokeToken(request: IncomingMessage, expectedToken: string): boolean {
+  const providedToken = getInvokeToken(request)
+  return Boolean(providedToken) && timingSafeStringEqual(providedToken, expectedToken)
+}
+
+function createAllowedChannelSet(channels: readonly string[] | undefined): ReadonlySet<string> {
+  return new Set((channels ?? DEFAULT_DEV_BROWSER_BRIDGE_ALLOWED_CHANNELS)
+    .map((channel) => channel.trim())
+    .filter(Boolean))
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -158,6 +279,8 @@ export async function startDevBrowserBridgeServer(
 ): Promise<DevBrowserBridgeServer> {
   const host = options.host ?? '127.0.0.1'
   const port = options.port ?? DEFAULT_DEV_BROWSER_BRIDGE_PORT
+  const token = createBridgeToken(options.token)
+  const allowedChannels = createAllowedChannelSet(options.allowedChannels)
   const clients = new Map<string, DevBrowserBridgeClient>()
   let nextClientNumericId = 1
 
@@ -200,10 +323,24 @@ export async function startDevBrowserBridgeServer(
     }
 
     if (request.method === 'POST' && requestUrl.pathname === '/invoke') {
+      if (!hasValidInvokeToken(request, token)) {
+        writeJson(response, 401, {
+          ok: false,
+          message: 'Dev browser bridge token is missing or invalid.'
+        })
+        return
+      }
       void (async () => {
         try {
           const body = parseInvokeBody(await readJsonBody(request))
-          const clientId = normalizeClientId(request.headers['x-sciforge-client'] ?? request.headers['x-deepseek-gui-client'])
+          if (!allowedChannels.has(body.channel)) {
+            writeJson(response, 403, {
+              ok: false,
+              message: `Dev browser bridge channel is not allowed: ${body.channel}`
+            })
+            return
+          }
+          const clientId = normalizeClientId(request.headers['x-sciforge-client'])
           const payload = await options.dispatcher.invoke(body.channel, body.payload, getClient(clientId))
           writeJson(response, 200, { ok: true, payload })
         } catch (error) {
@@ -233,6 +370,7 @@ export async function startDevBrowserBridgeServer(
   return {
     server,
     url,
+    token,
     send: (channel, ...args) => {
       for (const client of clients.values()) {
         client.send(channel, ...args)

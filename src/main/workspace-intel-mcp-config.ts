@@ -2,16 +2,16 @@ import type { AppSettingsV1 } from '../shared/app-settings'
 import { GUI_WORKSPACE_INTEL_MCP_LAUNCH_FLAG } from './workspace-intel-mcp-server'
 import { WorkspaceIntelToolNames } from '../../packages/workers/workspace-intel/src/contract'
 import {
-  buildExternalKunMcpJson,
-  buildManagedGuiKunMcpServerConfig,
+  buildExternalLocalRuntimeMcpJson,
+  buildManagedGuiLocalRuntimeMcpServerConfig,
   buildManagedGuiMcpJsonServerConfig,
   ELECTRON_RUN_AS_NODE_ENV,
   managedGuiMcpNames,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   resolveManagedGuiMcpCommand,
   resolveManagedGuiMcpNodeEntryPath,
   stringRecord,
-  syncExternalKunMcpJson,
+  syncExternalLocalRuntimeMcpJson,
   type JsonRecord,
   type ManagedGuiMcpDescriptor,
   type ManagedGuiMcpLaunchConfig
@@ -86,13 +86,13 @@ export function buildWorkspaceIntelMcpServerConfig(
   })
 }
 
-export function buildWorkspaceIntelKunMcpServerConfig(
+export function buildWorkspaceIntelLocalRuntimeMcpServerConfig(
   settings: AppSettingsV1,
   launch: WorkspaceIntelMcpLaunchConfig,
   existing: unknown = {}
 ): JsonRecord {
   const env = stringRecord((existing as { env?: unknown } | null)?.env)
-  return buildManagedGuiKunMcpServerConfig({
+  return buildManagedGuiLocalRuntimeMcpServerConfig({
     descriptor: GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR,
     launch,
     args: buildWorkspaceIntelMcpArgs(settings, launch),
@@ -108,7 +108,7 @@ export function buildSyncedWorkspaceIntelMcpJson(
 ): JsonRecord {
   void settings
   void launch
-  return buildExternalKunMcpJson(existing, managedGuiMcpNames(GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR))
+  return buildExternalLocalRuntimeMcpJson(existing, managedGuiMcpNames(GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR))
 }
 
 export async function syncWorkspaceIntelMcpConfig(
@@ -116,8 +116,8 @@ export async function syncWorkspaceIntelMcpConfig(
   launch: WorkspaceIntelMcpLaunchConfig,
   paths: WorkspaceIntelMcpConfigPaths = {}
 ): Promise<void> {
-  const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
+  const mcpJsonPath = paths.mcpJsonPath ?? resolveLocalRuntimeMcpJsonPath()
   void settings
   void launch
-  await syncExternalKunMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR))
+  await syncExternalLocalRuntimeMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR))
 }

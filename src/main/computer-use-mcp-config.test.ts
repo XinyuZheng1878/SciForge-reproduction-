@@ -31,10 +31,10 @@ const launch: ComputerUseMcpLaunchConfig = {
 
 describe('computer use MCP config', () => {
   it('tracks every agent runtime as a computer-use MCP integration target', () => {
-    expect(COMPUTER_USE_MCP_AGENT_RUNTIME_IDS).toEqual(['kun', 'codex', 'claude'])
+    expect(COMPUTER_USE_MCP_AGENT_RUNTIME_IDS).toEqual(['sciforge', 'codex', 'claude'])
   })
 
-  it('removes GUI-managed computer-use servers from external Kun mcp.json without dropping other servers', () => {
+  it('removes GUI-managed computer-use servers from external local runtime mcp.json without dropping other servers', () => {
     const synced = buildSyncedComputerUseMcpJson(
       {
         timeouts: { connect_timeout: 1 },
@@ -147,17 +147,17 @@ describe('computer use MCP config', () => {
     })
   })
 
-  it('does not write disabled GUI-managed computer-use state to external Kun mcp.json', () => {
+  it('does not write disabled GUI-managed computer-use state to external local runtime mcp.json', () => {
     const synced = buildSyncedComputerUseMcpJson({}, launch, false)
 
     expect(synced.servers).toEqual({})
   })
 
   it('syncs mcp.json on disk', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ds-gui-computer-use-mcp-'))
-    const kunDir = join(root, '.kun')
-    const mcpJsonPath = join(kunDir, 'mcp.json')
-    await mkdir(kunDir, { recursive: true })
+    const root = await mkdtemp(join(tmpdir(), 'sciforge-computer-use-mcp-'))
+    const runtimeDir = join(root, '.sciforge')
+    const mcpJsonPath = join(runtimeDir, 'mcp.json')
+    await mkdir(runtimeDir, { recursive: true })
     await writeFile(
       mcpJsonPath,
       JSON.stringify({

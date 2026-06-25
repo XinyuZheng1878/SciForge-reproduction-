@@ -9,7 +9,7 @@ import {
   getResearchMemorySettings,
   resolveResearchMemoryLocalPath
 } from '../../shared/app-settings'
-import type { ResearchMemoryWorkspaceResult } from '../../shared/ds-gui-api'
+import type { ResearchMemoryWorkspaceResult } from '../../shared/sciforge-api'
 
 const execFileAsync = promisify(execFile)
 const GIT_TIMEOUT_MS = 60_000

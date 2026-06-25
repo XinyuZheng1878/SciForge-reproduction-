@@ -1,4 +1,4 @@
-import type { CoreAttachmentTextFallbackJson } from '../agent/kun-contract'
+import type { LocalRuntimeAttachmentTextFallbackJson } from '../agent/local-runtime-contract'
 
 export const DEFAULT_ATTACHMENT_TEXT_FALLBACK_MAX_BASE64_BYTES = 512 * 1024
 export const DEFAULT_ATTACHMENT_TEXT_FALLBACK_MAX_IMAGE_DIMENSION = 1280
@@ -38,7 +38,7 @@ export type ImageAttachmentEncoder = (
 export type PreparedImageAttachmentUpload = {
   dataBase64: string
   mimeType: string
-  textFallback: CoreAttachmentTextFallbackJson
+  textFallback: LocalRuntimeAttachmentTextFallbackJson
 }
 
 export async function prepareImageAttachmentUpload(

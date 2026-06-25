@@ -26,7 +26,7 @@ export type ToolProviderPolicy = {
 
 /**
  * Optional GUI plan context advertised by the renderer when starting
- * draft or refine plan turns. When present, Kun exposes the
+ * draft or refine plan turns. When present, SciForge Runtime exposes the
  * `create_plan` tool to the model and gates the corresponding tool
  * adapter to this exact path/workspace. The struct is stable across
  * reconnects so replays reproduce the same gating.
@@ -53,7 +53,7 @@ export type ToolHostContext = {
   turnId: string
   workspace: string
   /**
-   * Thread mode advertised by the GUI. Kun restricts plan tools
+   * Thread mode advertised by the GUI. SciForge Runtime restricts plan tools
    * to `plan` threads plus `planDraft`/`planRefine` turn kinds. The
    * field is optional for backward compatibility with older call sites.
    */

@@ -244,5 +244,5 @@ function usageCoalescingBucket(event: RuntimeEvent): string {
 
 function warnUsageCompaction(threadId: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error)
-  console.warn(`[kun] usage event compaction failed for ${threadId}; keeping append-only log: ${message}`)
+  console.warn(`[sciforge-runtime] usage event compaction failed for ${threadId}; keeping append-only log: ${message}`)
 }

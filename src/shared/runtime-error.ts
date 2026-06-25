@@ -1,19 +1,19 @@
 /**
- * Shared parser for Kun runtime error bodies.
+ * Shared parser for local runtime error bodies.
  *
- * Kun's contract (`kun/src/contracts/errors.ts`) returns
+ * The bundled runtime contract (`kun/src/contracts/errors.ts`) returns
  * `{ code, message, details? }`. Older code paths may also surface
  * `{ error: string | { message }, message? }` where `error` is a
  * legacy machine-readable code (e.g. `runtime_auth_required`).
  *
  * This module normalises both shapes so the renderer and main
  * process agree on a single `RuntimeError` view. The `code` field
- * always carries either a Kun contract code or one of the
+ * always carries either a local runtime contract code or one of the
  * `LEGACY_MAIN_GUARD_CODES` (main-process guard codes that aren't
- * part of the Kun schema). `details` carries the original
+ * part of the runtime schema). `details` carries the original
  * payload untouched so callers that need more context can read it.
  */
-export type KunErrorCode =
+export type LocalRuntimeErrorCode =
   | 'validation_error'
   | 'unauthorized'
   | 'forbidden'
@@ -45,7 +45,7 @@ export type LegacyMainGuardCode =
   | 'missing_api_key'
   | 'provider_auth_blocked'
 
-export type RuntimeErrorCode = KunErrorCode | LegacyMainGuardCode
+export type RuntimeErrorCode = LocalRuntimeErrorCode | LegacyMainGuardCode
 
 export type RuntimeError = {
   code: RuntimeErrorCode
@@ -53,7 +53,7 @@ export type RuntimeError = {
   details?: unknown
 }
 
-const KNOWN_KUN_CODES: ReadonlySet<KunErrorCode> = new Set<KunErrorCode>([
+const KNOWN_LOCAL_RUNTIME_CODES: ReadonlySet<LocalRuntimeErrorCode> = new Set<LocalRuntimeErrorCode>([
   'validation_error',
   'unauthorized',
   'forbidden',
@@ -88,7 +88,7 @@ const KNOWN_LEGACY_CODES: ReadonlySet<LegacyMainGuardCode> = new Set<LegacyMainG
 
 function normalizeCode(value: unknown): RuntimeErrorCode {
   if (typeof value !== 'string') return 'unknown'
-  if ((KNOWN_KUN_CODES as Set<string>).has(value)) return value as KunErrorCode
+  if ((KNOWN_LOCAL_RUNTIME_CODES as Set<string>).has(value)) return value as LocalRuntimeErrorCode
   if ((KNOWN_LEGACY_CODES as Set<string>).has(value)) return value as LegacyMainGuardCode
   return 'unknown'
 }
@@ -110,7 +110,7 @@ function readNestedMessage(value: unknown): string {
 }
 
 /**
- * Parse a Kun runtime error body. Falls back to the supplied
+ * Parse a local runtime error body. Falls back to the supplied
  * fallback message when the body is empty, not JSON, or carries no
  * recognisable fields. The returned object always has `code` and
  * `message`; `details` is only present when the body carried one.
@@ -155,8 +155,8 @@ export function runtimeErrorToError(error: RuntimeError): Error {
   )
 }
 
-export function isKnownKunErrorCode(value: unknown): value is KunErrorCode {
-  return typeof value === 'string' && (KNOWN_KUN_CODES as Set<string>).has(value)
+export function isKnownLocalRuntimeErrorCode(value: unknown): value is LocalRuntimeErrorCode {
+  return typeof value === 'string' && (KNOWN_LOCAL_RUNTIME_CODES as Set<string>).has(value)
 }
 
 export function isLegacyMainGuardCode(value: unknown): value is LegacyMainGuardCode {

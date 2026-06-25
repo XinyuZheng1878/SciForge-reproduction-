@@ -3,7 +3,7 @@ import { FileQuestion, Lightbulb, PanelRightClose, Plus, Search, Sparkles } from
 import { useTranslation } from 'react-i18next'
 import type { AgentProviderCapabilities, ChatBlock, RuntimeConnectionStatus } from '../../agent/types'
 import type { QueuedUserMessage } from '../../store/chat-store-types'
-import type { ModelProviderModelGroup } from '@shared/ds-gui-api'
+import type { ModelProviderModelGroup } from '@shared/sciforge-api'
 import type { SddDraft } from '../../sdd/sdd-draft-store'
 import { MessageTimeline } from '../chat/MessageTimeline'
 import { FloatingComposer, type ComposerFileReference } from '../chat/FloatingComposer'

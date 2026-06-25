@@ -386,7 +386,7 @@ export function ChatFileTreePanel({
       reference.workspaceRoot || root
     ).then((result) => {
       if (!result.ok) {
-        void window.dsGui?.logError?.('editor-open', 'Failed to open workspace file tree item', {
+        void window.sciforge?.logError?.('editor-open', 'Failed to open workspace file tree item', {
           message: result.message,
           target: reference
         })?.catch(() => undefined)
@@ -416,8 +416,8 @@ export function ChatFileTreePanel({
     }
     try {
       const result = fileClipboard.action === 'cut'
-        ? await window.dsGui.moveWorkspaceEntry(payload)
-        : await window.dsGui.copyWorkspaceEntry(payload)
+        ? await window.sciforge.moveWorkspaceEntry(payload)
+        : await window.sciforge.copyWorkspaceEntry(payload)
       if (!result.ok) {
         window.alert(result.message)
         return
@@ -433,7 +433,7 @@ export function ChatFileTreePanel({
     const confirmKey = directory ? 'writeDeleteFolderConfirm' : 'writeDeleteFileConfirm'
     if (!window.confirm(t(confirmKey, { name: reference.name || reference.relativePath }))) return
     try {
-      const result = await window.dsGui.deleteWorkspaceEntry({
+      const result = await window.sciforge.deleteWorkspaceEntry({
         path: reference.relativePath,
         workspaceRoot: reference.workspaceRoot || root
       })
@@ -467,7 +467,7 @@ export function ChatFileTreePanel({
     const nextPath = renamedRelativePath(previousPath, newName)
     setRenameDialog((current) => current ? { ...current, submitting: true, error: null } : current)
     try {
-      const result = await window.dsGui.renameWorkspaceEntry({
+      const result = await window.sciforge.renameWorkspaceEntry({
         path: previousPath,
         workspaceRoot: reference.workspaceRoot || root,
         newName

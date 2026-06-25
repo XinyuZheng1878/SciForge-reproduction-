@@ -6,7 +6,7 @@ import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   DEFAULT_MODEL_ROUTER_PROVIDER_ID,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   defaultModelProviderSettings,
@@ -27,11 +27,11 @@ function settings(codexHome: string): AppSettingsV1 {
     activeAgentRuntime: 'codex',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       codex: {
         ...defaultCodexRuntimeSettings(),
         codexHome,
-        extraArgs: ['--profile', 'deepseek-gui']
+        extraArgs: ['--profile', 'sciforge']
       }
     },
     modelRouter: {
@@ -56,7 +56,7 @@ function settings(codexHome: string): AppSettingsV1 {
 
 describe('codex config launch helpers', () => {
   it('prepares app-server stdio launch config and creates CODEX_HOME', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
     const managedHome = join(codexHome, 'nested')
     await mkdir(managedHome, { recursive: true })
     await writeFile(
@@ -85,7 +85,7 @@ describe('codex config launch helpers', () => {
         ANTHROPIC_DEFAULT_OPUS_MODEL: 'bailian/deepseek-v4-flash',
         ANTHROPIC_DEFAULT_SONNET_MODEL: 'bailian/deepseek-v4-flash',
         MODEL_PROVIDER: 'anthropic',
-        DEEPSEEK_GUI_RUNTIME_API_KEY: 'stale-runtime-key',
+        SCIFORGE_RUNTIME_API_KEY: 'stale-runtime-key',
         PATH: '/bin',
         CODEX_USER_HOME: '/old',
         CODEX_CONFIG_HOME: '/old-config',
@@ -111,7 +111,7 @@ describe('codex config launch helpers', () => {
     expect(launch.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined()
     expect(launch.env.MODEL_PROVIDER).toBeUndefined()
     expect(launch.env.SCIFORGE_RUNTIME_API_KEY).toBe('local-runtime-router-key')
-    expect(launch.env.DEEPSEEK_GUI_RUNTIME_API_KEY).toBe('local-runtime-router-key')
+    expect(launch.env.SCIFORGE_RUNTIME_API_KEY).toBe('local-runtime-router-key')
     expect(launch.env.NO_PROXY).toContain('127.0.0.1')
     await expect(stat(managedHome)).resolves.toMatchObject({})
     await expect(stat(join(managedHome, 'sessions'))).resolves.toMatchObject({})
@@ -136,7 +136,7 @@ describe('codex config launch helpers', () => {
   })
 
   it('drops Codex runtime-only profile args before launching app-server', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
     const launch = await prepareCodexAppServerLaunch({
       settings: {
         ...settings(codexHome),
@@ -148,7 +148,7 @@ describe('codex config launch helpers', () => {
             extraArgs: [
               '--profile-v2',
               '--profile',
-              'deepseek-gui',
+              'sciforge',
               '-p',
               'legacy-profile',
               '--config',
@@ -170,7 +170,7 @@ describe('codex config launch helpers', () => {
   })
 
   it('does not write the shared research MCP server into managed Codex config', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
     const launch = await prepareCodexAppServerLaunch({
       settings: settings(codexHome),
       env: {
@@ -178,8 +178,8 @@ describe('codex config launch helpers', () => {
         SCIFORGE_RESEARCH_TIMEOUT_MS: '12000'
       },
       researchMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -193,7 +193,7 @@ describe('codex config launch helpers', () => {
   })
 
   it('does not write the shared schedule MCP server into managed Codex config', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
     const launch = await prepareCodexAppServerLaunch({
       settings: {
         ...settings(codexHome),
@@ -206,8 +206,8 @@ describe('codex config launch helpers', () => {
         }
       },
       scheduleMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -221,7 +221,7 @@ describe('codex config launch helpers', () => {
   })
 
   it('does not write the shared workflow MCP server into managed Codex config', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
     const launch = await prepareCodexAppServerLaunch({
       settings: {
         ...settings(codexHome),
@@ -233,8 +233,8 @@ describe('codex config launch helpers', () => {
         }
       },
       workflowMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -248,15 +248,15 @@ describe('codex config launch helpers', () => {
   })
 
   it('does not write the shared workspace intel MCP server into managed Codex config', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
     const launch = await prepareCodexAppServerLaunch({
       settings: {
         ...settings(codexHome),
         workspaceRoot: '/tmp/codex-workspace'
       },
       workspaceIntelMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -268,12 +268,12 @@ describe('codex config launch helpers', () => {
   })
 
   it('does not write the shared computer-use MCP server into managed Codex config', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
     const launch = await prepareCodexAppServerLaunch({
       settings: settings(codexHome),
       computerUseMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -285,50 +285,50 @@ describe('codex config launch helpers', () => {
   })
 
   it('does not write GUI MCP server tables when the dynamic bridge handles exposure', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
     await prepareCodexAppServerLaunch({
       settings: settings(codexHome),
       scheduleMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       },
       researchMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       },
       workflowMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       },
       workspaceIntelMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       },
       paperRadarMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false,
-        dbPath: '/tmp/deepseek-gui-test-app/paper-radar.sqlite',
-        profilesPath: '/tmp/deepseek-gui-test-app/paper-radar-profiles.json'
+        dbPath: '/tmp/sciforge-test-app/paper-radar.sqlite',
+        profilesPath: '/tmp/sciforge-test-app/paper-radar-profiles.json'
       },
       writeAssistMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       },
       runtimeInspectorMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false,
-        checkpointDataDir: '/tmp/deepseek-gui-test-app/checkpoints'
+        checkpointDataDir: '/tmp/sciforge-test-app/checkpoints'
       },
       computerUseMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -339,22 +339,22 @@ describe('codex config launch helpers', () => {
   })
 
   it('does not write the shared computer-use MCP server when computer use is disabled', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
     await prepareCodexAppServerLaunch({
       settings: {
         ...settings(codexHome),
         computerUse: {
           enabled: false,
           runtimeEnabled: {
-            kun: true,
+            sciforge: true,
             codex: true,
             claude: true
           }
         }
       },
       computerUseMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -365,22 +365,22 @@ describe('codex config launch helpers', () => {
   })
 
   it('does not write the shared computer-use MCP server when Codex runtime access is disabled', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
     await prepareCodexAppServerLaunch({
       settings: {
         ...settings(codexHome),
         computerUse: {
           enabled: true,
           runtimeEnabled: {
-            kun: true,
+            sciforge: true,
             codex: false,
             claude: true
           }
         }
       },
       computerUseMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -409,7 +409,7 @@ describe('codex config launch helpers', () => {
       managedCodexHome,
       env: {
         OPENAI_API_KEY: 'sk-global',
-        DEEPSEEK_GUI_RUNTIME_API_KEY: 'stale-runtime-key'
+        SCIFORGE_RUNTIME_API_KEY: 'stale-runtime-key'
       }
     })
 
@@ -417,7 +417,7 @@ describe('codex config launch helpers', () => {
     expect(launch.env.CODEX_HOME).toBe(managedCodexHome)
     expect(launch.env.OPENAI_API_KEY).toBeUndefined()
     expect(launch.env.SCIFORGE_RUNTIME_API_KEY).toBe('local-runtime-router-key')
-    expect(launch.env.DEEPSEEK_GUI_RUNTIME_API_KEY).toBe('local-runtime-router-key')
+    expect(launch.env.SCIFORGE_RUNTIME_API_KEY).toBe('local-runtime-router-key')
 
     const managedConfig = await readFile(join(managedCodexHome, 'config.toml'), 'utf8')
     expect(managedConfig).toContain(`model_provider = "${DEFAULT_MODEL_ROUTER_PROVIDER_ID}"`)
@@ -429,7 +429,7 @@ describe('codex config launch helpers', () => {
   })
 
   it('rejects non-local Model Router URLs', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'deepseek-gui-codex-home-'))
+    const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
 
     await expect(prepareCodexAppServerLaunch({
       settings: {

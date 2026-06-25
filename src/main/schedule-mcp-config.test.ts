@@ -3,10 +3,10 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  buildScheduleKunMcpServerConfig,
+  buildScheduleLocalRuntimeMcpServerConfig,
   buildScheduleMcpServerConfig,
   buildSyncedScheduleMcpJson,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   resolveScheduleMcpCommand,
   resolveScheduleMcpNodeEntryPath,
   scheduleMcpEnabledTools,
@@ -17,7 +17,7 @@ import {
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
@@ -36,7 +36,7 @@ function createSettings(patch: Partial<AppSettingsV1['schedule']['internal']> = 
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings()
+      sciforge: defaultLocalRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: {
@@ -81,14 +81,14 @@ const launch: ScheduleMcpLaunchConfig = {
 }
 
 describe('schedule MCP config', () => {
-  it('uses Kun MCP JSON by default', () => {
-    expect(resolveKunMcpJsonPath()).toBe(join(homedir(), '.kun', 'mcp.json'))
+  it('uses SciForge MCP JSON by default', () => {
+    expect(resolveLocalRuntimeMcpJsonPath()).toBe(join(homedir(), '.sciforge', 'mcp.json'))
   })
 
   it('builds the managed gui_schedule server config without leaking secrets', () => {
     const settings = createSettings({ port: 9787, secret: 'top-secret' })
     const server = buildScheduleMcpServerConfig(settings, launch)
-    const kunServer = buildScheduleKunMcpServerConfig(settings, launch)
+    const localRuntimeServer = buildScheduleLocalRuntimeMcpServerConfig(settings, launch)
 
     expect(server).toMatchObject({
       command: resolveScheduleMcpCommand(launch),
@@ -105,7 +105,7 @@ describe('schedule MCP config', () => {
       enabled: true,
       enabled_tools: Object.keys(SCHEDULE_TOOL_SIDE_EFFECTS)
     })
-    expect(kunServer).toMatchObject({
+    expect(localRuntimeServer).toMatchObject({
       transport: 'stdio',
       trustScope: 'user',
       timeoutMs: 5000,
@@ -122,12 +122,12 @@ describe('schedule MCP config', () => {
       enabled: true
     })
     expect(JSON.stringify(server)).not.toContain('top-secret')
-    expect(JSON.stringify(kunServer)).not.toContain('top-secret')
+    expect(JSON.stringify(localRuntimeServer)).not.toContain('top-secret')
     expect(JSON.stringify(server)).not.toContain('--secret')
     expect(scheduleMcpEnabledTools()).toEqual(Object.keys(SCHEDULE_TOOL_SIDE_EFFECTS))
   })
 
-  it('strips only the managed gui_schedule server from external Kun MCP JSON', () => {
+  it('strips only the managed gui_schedule server from external local runtime MCP JSON', () => {
     const synced = buildSyncedScheduleMcpJson(
       {
         timeouts: { connect_timeout: 1 },
@@ -164,17 +164,17 @@ describe('schedule MCP config', () => {
       '/Applications/SciForge.app/Contents/Frameworks/SciForge Helper.app/Contents/MacOS/SciForge Helper'
     )
     expect(resolveScheduleMcpCommand({
-      appPath: '/tmp/deepseek-gui-test-app',
+      appPath: '/tmp/sciforge-test-app',
       execPath: '/tmp/electron',
       isPackaged: false
     }, 'darwin')).toBe('/tmp/electron')
   })
 
   it('syncs external mcp.json without writing built-in schedule server config', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ds-gui-mcp-'))
-    const kunDir = join(root, '.kun')
-    const mcpJsonPath = join(kunDir, 'mcp.json')
-    await mkdir(kunDir, { recursive: true })
+    const root = await mkdtemp(join(tmpdir(), 'sciforge-mcp-'))
+    const runtimeDir = join(root, '.sciforge')
+    const mcpJsonPath = join(runtimeDir, 'mcp.json')
+    await mkdir(runtimeDir, { recursive: true })
     await writeFile(
       mcpJsonPath,
       JSON.stringify({

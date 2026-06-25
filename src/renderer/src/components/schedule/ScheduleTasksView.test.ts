@@ -99,29 +99,32 @@ describe('ScheduleTasksView helpers', () => {
 
   it('normalizes the task thread link shown in the list UI', () => {
     expect(scheduledTaskLastThreadId(task('never-ran'))).toBe('')
-    expect(scheduledTaskLastThreadId(task('ran', { lastThreadId: '  thr_123  ' }))).toBe('thr_123')
+    expect(scheduledTaskLastThreadId(task('ran', { lastThreadId: '  thr_123  ' }))).toBe('')
+    expect(scheduledTaskLastThreadId(task('sciforge-ran', {
+      runtimeId: 'sciforge',
+      agentThreadIds: { sciforge: '  thr_123  ' }
+    }))).toBe('thr_123')
     expect(scheduledTaskLastThreadId(task('codex-ran', {
       lastThreadId: 'kun-thread',
       runtimeId: 'codex',
       agentThreadIds: {
-        kun: 'kun-thread',
+        sciforge: 'sciforge-thread',
         codex: ' codex-thread '
       }
     }))).toBe('codex-thread')
     expect(scheduledTaskLastThreadId(task('codex-missing', {
       lastThreadId: 'kun-thread',
       runtimeId: 'codex',
-      agentThreadIds: { kun: 'kun-thread' }
+      agentThreadIds: { sciforge: 'sciforge-thread' }
     }))).toBe('')
     expect(scheduledTaskLastThreadRuntimeId(task('codex-ran', {
       runtimeId: 'codex',
       agentThreadIds: { codex: 'codex-thread' }
     }))).toBe('codex')
-    expect(scheduledTaskLastThreadRuntimeId(task('kun-ran', {
-      lastThreadId: 'kun-thread',
-      runtimeId: 'codex',
-      agentThreadIds: { kun: 'kun-thread' }
-    }))).toBe('kun')
+    expect(scheduledTaskLastThreadRuntimeId(task('sciforge-ran', {
+      runtimeId: 'sciforge',
+      agentThreadIds: { sciforge: 'sciforge-thread' }
+    }))).toBe('sciforge')
   })
 
   it('detects when a task result needs expansion', () => {

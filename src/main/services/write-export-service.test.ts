@@ -27,7 +27,7 @@ describe('write-export-service helpers', () => {
   let workspaceRoot = ''
 
   beforeEach(async () => {
-    workspaceRoot = await mkdtemp(join(tmpdir(), 'ds-gui-write-export-'))
+    workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-write-export-'))
     vi.mocked(clipboard.write).mockReset()
   })
 

@@ -5,14 +5,14 @@ describe('buildSddVerifyPrompt', () => {
   it('asks the agent to verify acceptance items and update the requirement file only', () => {
     const prompt = buildSddVerifyPrompt({
       workspaceRoot: '/tmp/ws',
-      draftRelativePath: '.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
-      planRelativePath: '.deepseekgui/plan/sdd-123e4567-e89b-12d3-a456-426614174000.md'
+      draftRelativePath: '.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      planRelativePath: '.sciforge/plan/sdd-123e4567-e89b-12d3-a456-426614174000.md'
     })
 
     expect(prompt).toContain('SciForge is asking you to verify')
     expect(prompt).toContain('Workspace: /tmp/ws')
-    expect(prompt).toContain('Requirement file: .deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md')
-    expect(prompt).toContain('Implementation plan: .deepseekgui/plan/sdd-123e4567-e89b-12d3-a456-426614174000.md')
+    expect(prompt).toContain('Requirement file: .sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md')
+    expect(prompt).toContain('Implementation plan: .sciforge/plan/sdd-123e4567-e89b-12d3-a456-426614174000.md')
     expect(prompt).toContain('`### R-1: title {status}`')
     expect(prompt).toContain('change `- [ ]` to `- [x]`')
     expect(prompt).toContain('set `{verified}` only when all of its criteria passed')

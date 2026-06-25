@@ -15,8 +15,8 @@ import {
   UsageSnapshotSchema,
   AttachmentUploadRequest,
   MemoryRecord,
-  KunErrorBody,
-  KunCapabilitiesConfig,
+  LocalRuntimeErrorBody,
+  LocalRuntimeCapabilitiesConfig,
   RuntimeCapabilityManifest,
   buildRuntimeCapabilityManifest,
   emptyUsageSnapshot,
@@ -79,7 +79,7 @@ describe('contracts', () => {
         source: {
           kind: 'plan',
           planId: 'plan_1',
-          relativePath: '.kunsdd/plan/plan.md',
+          relativePath: '.sciforge/plan/plan.md',
           ordinal: 0,
           contentHash: 'abc'
         },
@@ -143,13 +143,13 @@ describe('contracts', () => {
       guiPlan: {
         operation: 'draft',
         workspaceRoot: '/tmp/ws',
-        relativePath: '.deepseekgui/plan/auth.md',
-        planId: '/tmp/ws:.deepseekgui/plan/auth.md',
+        relativePath: '.sciforge/plan/auth.md',
+        planId: '/tmp/ws:.sciforge/plan/auth.md',
         sourceRequest: 'Add auth',
         title: 'Auth'
       }
     })
-    expect(parsed.guiPlan?.relativePath).toBe('.deepseekgui/plan/auth.md')
+    expect(parsed.guiPlan?.relativePath).toBe('.sciforge/plan/auth.md')
     expect(parsed.displayText).toBe('Generate implementation plan')
   })
 
@@ -159,11 +159,26 @@ describe('contracts', () => {
       guiPlan: {
         operation: 'draft',
         workspaceRoot: '/tmp/ws',
-        relativePath: '.deepseekgui/plan/nested/auth.md',
+        relativePath: '.sciforge/plan/nested/auth.md',
         planId: 'plan_bad'
       }
     })
     expect(result.success).toBe(false)
+  })
+
+  it('rejects non-canonical GUI plan context paths on start turn payloads', () => {
+    for (const relativePath of ['.sciforge/plan/nested/auth.md', '.legacy/plan/auth.md']) {
+      const result = StartTurnRequest.safeParse({
+        prompt: 'Plan auth',
+        guiPlan: {
+          operation: 'draft',
+          workspaceRoot: '/tmp/ws',
+          relativePath,
+          planId: 'plan_bad'
+        }
+      })
+      expect(result.success).toBe(false)
+    }
   })
 
   it('produces a deterministic empty usage snapshot', () => {
@@ -266,7 +281,7 @@ describe('contracts', () => {
     })
     expect(child.child?.childId).toBe('child_1')
 
-    expect(KunErrorBody.parse({
+    expect(LocalRuntimeErrorBody.parse({
       code: 'model_modality_unsupported',
       message: 'model does not support image input'
     }).code).toBe('model_modality_unsupported')
@@ -333,7 +348,7 @@ describe('cli', () => {
   it('loads serve and context compaction settings from an explicit config file', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'kun-config-'))
     try {
-      const configPath = join(dir, 'kun.config.json')
+      const configPath = join(dir, 'local-runtime.config.json')
       await writeFile(configPath, JSON.stringify({
         serve: {
           host: '0.0.0.0',
@@ -462,7 +477,7 @@ describe('cli', () => {
   it('fails loudly for unsupported context compaction scorer overrides', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'kun-config-'))
     try {
-      const configPath = join(dir, 'kun.config.json')
+      const configPath = join(dir, 'local-runtime.config.json')
       await writeFile(configPath, JSON.stringify({
         serve: {
           dataDir: join(dir, 'data')
@@ -481,13 +496,13 @@ describe('cli', () => {
   })
 
   it('normalizes capability config to disabled defaults', () => {
-    const config = KunCapabilitiesConfig.parse({})
+    const config = LocalRuntimeCapabilitiesConfig.parse({})
     expect(config.mcp.enabled).toBe(false)
     expect(config.mcp.search.enabled).toBe(false)
     expect(config.mcp.search.mode).toBe('auto')
     expect(config.web.enabled).toBe(false)
     expect(config.skills.enabled).toBe(false)
-    expect(config.subagents.maxParallel).toBe(0)
+    expect(config.subagents.maxParallel).toBe(2)
     expect(config.attachments.allowedMimeTypes).toContain('image/png')
     expect(config.attachments.textFallbackMaxBase64Bytes).toBe(512 * 1024)
     expect(config.attachments.textFallbackMaxImageDimension).toBe(1280)
@@ -496,7 +511,7 @@ describe('cli', () => {
   })
 
   it('ignores legacy subagent step-limit config fields', () => {
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       subagents: {
         enabled: true,
         maxParallel: 2,
@@ -593,7 +608,7 @@ describe('cli', () => {
 
     const enabledButMissingProvider = buildRuntimeCapabilityManifest({
       model: modelCapabilitiesForModel('deepseek-chat'),
-      config: KunCapabilitiesConfig.parse({
+      config: LocalRuntimeCapabilitiesConfig.parse({
         web: { enabled: true, fetchEnabled: true, searchEnabled: true, provider: 'test' }
       })
     })
@@ -655,7 +670,7 @@ describe('cli', () => {
         }
       }), 'utf8')
 
-      expect(() => parseServeOptions(['--data-dir', dataDir])).toThrow(/Invalid Kun config/)
+      expect(() => parseServeOptions(['--data-dir', dataDir])).toThrow(/Invalid SciForge Runtime config/)
     } finally {
       await rm(dataDir, { recursive: true, force: true })
     }

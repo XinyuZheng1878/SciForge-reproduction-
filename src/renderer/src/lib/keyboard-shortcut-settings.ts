@@ -6,7 +6,7 @@ import {
   type KeyboardShortcutsConfigV1
 } from '@shared/app-settings'
 
-export const SETTINGS_CHANGED_EVENT = 'deepseek-gui:settings-changed'
+export const SETTINGS_CHANGED_EVENT = 'sciforge:settings-changed'
 
 export function emitRendererSettingsChanged(settings: AppSettingsV1): void {
   window.dispatchEvent(new CustomEvent<AppSettingsV1>(SETTINGS_CHANGED_EVENT, { detail: settings }))
@@ -21,8 +21,8 @@ export function useKeyboardShortcutSettings(): KeyboardShortcutsConfigV1 {
       if (!cancelled) setShortcuts(normalizeKeyboardShortcuts(settings.keyboardShortcuts))
     }
 
-    if (typeof window.dsGui?.getSettings === 'function') {
-      void window.dsGui.getSettings().then(apply).catch(() => undefined)
+    if (typeof window.sciforge?.getSettings === 'function') {
+      void window.sciforge.getSettings().then(apply).catch(() => undefined)
     }
 
     const onSettingsChanged = (event: Event): void => {

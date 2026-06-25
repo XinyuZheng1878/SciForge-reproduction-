@@ -275,10 +275,10 @@ function usePreviewState(images: TimelineImageReference[]): PreviewState {
           }
         }
 
-        if (typeof window.dsGui?.readWorkspaceImage !== 'function') {
+        if (typeof window.sciforge?.readWorkspaceImage !== 'function') {
           return { key: request.key, failed: 'Image reader is unavailable.' }
         }
-        const result = await window.dsGui.readWorkspaceImage({
+        const result = await window.sciforge.readWorkspaceImage({
           path: request.path,
           ...(workspaceRootForPath(request.path, workspaceRoot) ? {
             workspaceRoot: workspaceRootForPath(request.path, workspaceRoot)
@@ -398,8 +398,8 @@ function TimelineImageTile({
         setOpenState(result.ok ? 'done' : 'error')
         return
       }
-      if (sourceUrl && typeof window.dsGui?.openExternal === 'function') {
-        await window.dsGui.openExternal(sourceUrl)
+      if (sourceUrl && typeof window.sciforge?.openExternal === 'function') {
+        await window.sciforge.openExternal(sourceUrl)
         setOpenState('done')
         return
       }

@@ -12,7 +12,7 @@ beforeEach(async () => {
   vi.doUnmock('node:child_process')
   vi.doUnmock('./git-discovery')
 
-  sandbox = await mkdtemp(join(tmpdir(), 'ds-gui-git-service-'))
+  sandbox = await mkdtemp(join(tmpdir(), 'sciforge-git-service-'))
   repoRoot = await realpath(sandbox)
   await initRepo(repoRoot)
 })
@@ -86,7 +86,7 @@ describe('getGitBranches', () => {
 
   it('returns a clear not_git_repo failure for non-Git workspaces', async () => {
     const { getGitBranches } = await loadGitService()
-    const outside = await mkdtemp(join(tmpdir(), 'ds-gui-git-outside-'))
+    const outside = await mkdtemp(join(tmpdir(), 'sciforge-git-outside-'))
 
     try {
       const result = await getGitBranches(outside)

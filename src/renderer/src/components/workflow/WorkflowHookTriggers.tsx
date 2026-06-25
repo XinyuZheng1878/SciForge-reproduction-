@@ -24,7 +24,7 @@ function newTriggerId(): string {
 }
 
 /**
- * Editor for binding Create Loop workflows to kun agent hook phases — reactive
+ * Editor for binding Create Loop workflows to local runtime hook phases — reactive
  * automation in code mode (e.g. PostToolUse on write/edit → run a review workflow).
  */
 export function WorkflowHookTriggers({

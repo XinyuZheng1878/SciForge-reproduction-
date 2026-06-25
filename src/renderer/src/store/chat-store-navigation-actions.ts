@@ -196,9 +196,9 @@ export function createNavigationActions(
     const prev = get().runtimeConnection
     if (mode === 'user') set({ runtimeConnection: 'checking' })
     try {
-      if (typeof window.dsGui === 'undefined') {
+      if (typeof window.sciforge === 'undefined') {
         throw new Error(
-          'Preload bridge missing (window.dsGui). Restart the app or check BrowserWindow preload path.'
+          'Preload bridge missing (window.sciforge). Restart the app or check BrowserWindow preload path.'
         )
       }
       const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
@@ -248,13 +248,13 @@ export function createNavigationActions(
     if (bootPromise) return bootPromise
     bootPromise = (async () => {
       try {
-        if (typeof window.dsGui === 'undefined') {
+        if (typeof window.sciforge === 'undefined') {
           set({
             error: formatRuntimeError(
-              'Preload bridge missing (window.dsGui). Restart the app or check BrowserWindow preload path.'
+              'Preload bridge missing (window.sciforge). Restart the app or check BrowserWindow preload path.'
             ),
             runtimeConnection: 'offline',
-            runtimeErrorDetail: 'Preload bridge missing (window.dsGui). Restart the app or check BrowserWindow preload path.',
+            runtimeErrorDetail: 'Preload bridge missing (window.sciforge). Restart the app or check BrowserWindow preload path.',
             initialSetupOpen: false,
             initialSetupMode: 'required'
           })
@@ -271,15 +271,15 @@ export function createNavigationActions(
         applyTheme(settings.theme)
         applyUiFontScale(settings.uiFontScale)
         await get().applyI18nFromSettings(settings.locale)
-        if (!clawChannelActivityUnsubscribe && typeof window.dsGui.onClawChannelActivity === 'function') {
-          clawChannelActivityUnsubscribe = window.dsGui.onClawChannelActivity(({
+        if (!clawChannelActivityUnsubscribe && typeof window.sciforge.onClawChannelActivity === 'function') {
+          clawChannelActivityUnsubscribe = window.sciforge.onClawChannelActivity(({
             channelId,
             threadId,
             runtimeId,
             previousThreadId
           }) => {
             void (async () => {
-              if (typeof window.dsGui === 'undefined') return
+              if (typeof window.sciforge === 'undefined') return
               await syncClawChannelActivityToStore(set, get, { channelId, threadId, runtimeId, previousThreadId })
             })()
           })
@@ -327,10 +327,10 @@ export function createNavigationActions(
 
   chooseWorkspace: async ({ createThreadAfter = false, selectThreadAfter = true } = {}) => {
     try {
-      if (typeof window.dsGui === 'undefined' || typeof window.dsGui.pickWorkspaceDirectory !== 'function') {
+      if (typeof window.sciforge === 'undefined' || typeof window.sciforge.pickWorkspaceDirectory !== 'function') {
         throw new Error(i18n.t('common:workspacePickerUnavailable'))
       }
-      const picked = await window.dsGui.pickWorkspaceDirectory(get().workspaceRoot || undefined)
+      const picked = await window.sciforge.pickWorkspaceDirectory(get().workspaceRoot || undefined)
       if (picked.canceled || !picked.path) {
         if (createThreadAfter) {
           set({ error: i18n.t('common:workspaceRequiredToCreateThread') })
@@ -410,7 +410,7 @@ export function createNavigationActions(
 
   clearWorkspace: async () => {
     try {
-      if (typeof window.dsGui === 'undefined' || typeof window.dsGui.setSettings !== 'function') {
+      if (typeof window.sciforge === 'undefined' || typeof window.sciforge.setSettings !== 'function') {
         return
       }
       const next = await rendererRuntimeClient.setSettings({ workspaceRoot: '' })
@@ -465,7 +465,7 @@ export function createNavigationActions(
     // If the removed workspace is the current workspaceRoot, clear it.
     if (normalizeWorkspaceRoot(get().workspaceRoot) === normalizedPath) {
       try {
-        if (typeof window.dsGui?.setSettings === 'function') {
+        if (typeof window.sciforge?.setSettings === 'function') {
           const next = await rendererRuntimeClient.setSettings({ workspaceRoot: '' })
           set({
             workspaceRoot: normalizeWorkspaceRoot(next.workspaceRoot),

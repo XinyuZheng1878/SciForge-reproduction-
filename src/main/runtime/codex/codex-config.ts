@@ -25,7 +25,6 @@ import type { WriteAssistMcpLaunchConfig } from '../../write-assist-mcp-config'
 import type { RuntimeInspectorMcpLaunchConfig } from '../../runtime-inspector-mcp-config'
 
 const RUNTIME_API_KEY_ENV = 'SCIFORGE_RUNTIME_API_KEY'
-const LEGACY_RUNTIME_API_KEY_ENV = 'DEEPSEEK_GUI_RUNTIME_API_KEY'
 const CODEX_MANAGED_DIRS = ['sessions', 'memories', 'logs'] as const
 const UPSTREAM_PROVIDER_SECRET_ENVS = [
   'OPENAI_API_KEY',
@@ -158,7 +157,6 @@ export function codexRuntimeEnv(
   }
   if (runtimeApiKey !== undefined) {
     env[RUNTIME_API_KEY_ENV] = runtimeApiKey
-    env[LEGACY_RUNTIME_API_KEY_ENV] = runtimeApiKey
   }
   env.NO_PROXY = appendNoProxyLoopbacks(env.NO_PROXY)
   env.no_proxy = appendNoProxyLoopbacks(env.no_proxy)

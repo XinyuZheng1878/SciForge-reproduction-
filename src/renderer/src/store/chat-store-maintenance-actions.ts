@@ -684,7 +684,7 @@ export function createMaintenanceActions(
       }))
     } catch (e) {
       const msg = formatRuntimeError(e)
-      void window.dsGui.logError('approval', 'Failed to submit approval decision', {
+      void window.sciforge.logError('approval', 'Failed to submit approval decision', {
         message: msg,
         blockId
       }).catch(() => undefined)
@@ -775,7 +775,7 @@ export function createMaintenanceActions(
       }))
     } catch (e) {
       const msg = formatRuntimeError(e)
-      void window.dsGui.logError('user-input', 'Failed to resolve user input', {
+      void window.sciforge.logError('user-input', 'Failed to resolve user input', {
         message: msg,
         blockId
       }).catch(() => undefined)
@@ -822,8 +822,8 @@ export function createMaintenanceActions(
         return
       }
       const msg = formatRuntimeError(e)
-      if (typeof window !== 'undefined' && typeof window.dsGui?.logError === 'function') {
-        void window.dsGui.logError('interrupt', 'Failed to interrupt turn', { message: msg }).catch(() => undefined)
+      if (typeof window !== 'undefined' && typeof window.sciforge?.logError === 'function') {
+        void window.sciforge.logError('interrupt', 'Failed to interrupt turn', { message: msg }).catch(() => undefined)
       }
       set({
         error: msg,

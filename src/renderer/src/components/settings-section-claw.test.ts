@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
@@ -68,7 +68,7 @@ function buildSettings(): AppSettingsV1 {
     uiFontScale: 'medium',
     provider: defaultModelProviderSettings(),
     modelRouter: defaultModelRouterSettings(),
-    agents: { kun: defaultKunRuntimeSettings() },
+    agents: { sciforge: defaultLocalRuntimeSettings() },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: true, retentionDays: 7 },
     notifications: { turnComplete: true },

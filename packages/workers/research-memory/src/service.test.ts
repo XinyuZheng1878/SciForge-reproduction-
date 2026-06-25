@@ -156,6 +156,18 @@ test('writes experiment cards, decision records, and status.html with dry-run su
   assert.equal(statusDryRun.wrote, false)
   await assert.rejects(stat(join(workspaceRoot, 'status.html')))
 
+  const explicitStatusPath = await service.renderStatusHtml({ output_path: 'status.html', preview: true })
+  assert.equal(explicitStatusPath.ok, true)
+  assert.equal(explicitStatusPath.outputPath, 'status.html')
+
+  const customStatusPath = await service.renderStatusHtml({
+    // @ts-expect-error status.html is intentionally fixed to the repository root.
+    output_path: 'reports/status.html'
+  })
+  assert.equal(customStatusPath.ok, false)
+  assert.equal(customStatusPath.error.code, 'invalid_request')
+  await assert.rejects(stat(join(workspaceRoot, 'reports', 'status.html')))
+
   const statusWrite = await service.renderStatusHtml({})
   assert.equal(statusWrite.ok, true)
   assert.equal(statusWrite.wrote, true)

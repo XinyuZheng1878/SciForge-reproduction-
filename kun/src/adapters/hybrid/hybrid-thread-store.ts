@@ -472,7 +472,7 @@ export class HybridThreadStore implements ThreadStore {
     } catch (error) {
       await rm(tmpPath, { force: true }).catch(() => undefined)
       console.warn(
-        `[kun] metadata compaction skipped for ${threadId}: ${error instanceof Error ? error.message : String(error)}`
+        `[sciforge-runtime] metadata compaction skipped for ${threadId}: ${error instanceof Error ? error.message : String(error)}`
       )
     }
   }
@@ -976,5 +976,5 @@ async function pathExists(path: string): Promise<boolean> {
 
 function warnSqlite(action: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error)
-  console.warn(`[kun] hybrid sqlite ${action} failed; using JSONL fallback: ${message}`)
+  console.warn(`[sciforge-runtime] hybrid sqlite ${action} failed; using JSONL fallback: ${message}`)
 }

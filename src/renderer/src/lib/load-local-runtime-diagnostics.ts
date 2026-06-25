@@ -1,28 +1,28 @@
 import type {
-  CoreMemoryRecordJson,
-  CoreRuntimeInfoJson,
-  CoreRuntimeToolDiagnosticsJson
-} from '../agent/kun-contract'
+  LocalRuntimeMemoryRecordJson,
+  LocalRuntimeInfoJson,
+  LocalRuntimeToolDiagnosticsJson
+} from '../agent/local-runtime-contract'
 import type { AgentProvider } from '../agent/types'
 import { describeRuntimeError } from './format-runtime-error'
 
 type DiagnosticsProvider = Pick<AgentProvider, 'getRuntimeInfo' | 'getToolDiagnostics' | 'listMemories'>
 
-export type LoadedKunDiagnostics = {
-  runtimeInfo?: CoreRuntimeInfoJson | null
-  toolDiagnostics?: CoreRuntimeToolDiagnosticsJson | null
-  memoryRecords?: CoreMemoryRecordJson[]
+export type LoadedLocalRuntimeDiagnostics = {
+  runtimeInfo?: LocalRuntimeInfoJson | null
+  toolDiagnostics?: LocalRuntimeToolDiagnosticsJson | null
+  memoryRecords?: LocalRuntimeMemoryRecordJson[]
   errors: string[]
 }
 
-export async function loadKunDiagnostics(
+export async function loadLocalRuntimeDiagnostics(
   provider: DiagnosticsProvider,
   options: {
     workspace?: string
     memoryScope?: 'user' | 'workspace' | 'project'
     memoryQuery?: string
   } = {}
-): Promise<LoadedKunDiagnostics> {
+): Promise<LoadedLocalRuntimeDiagnostics> {
   const [runtimeInfo, toolDiagnostics, memoryRecords] = await Promise.allSettled([
     provider.getRuntimeInfo ? provider.getRuntimeInfo() : Promise.resolve(null),
     provider.getToolDiagnostics ? provider.getToolDiagnostics() : Promise.resolve(null),
@@ -36,7 +36,7 @@ export async function loadKunDiagnostics(
       : Promise.resolve([])
   ])
 
-  const loaded: LoadedKunDiagnostics = { errors: [] }
+  const loaded: LoadedLocalRuntimeDiagnostics = { errors: [] }
 
   if (runtimeInfo.status === 'fulfilled') {
     loaded.runtimeInfo = runtimeInfo.value ?? null

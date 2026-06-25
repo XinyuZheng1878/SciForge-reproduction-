@@ -6,26 +6,26 @@ import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
-  defaultKunTokenEconomySettings,
+  defaultLocalRuntimeTokenEconomySettings,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
-  LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
-  isKunRuntimeInsecure,
+  isLocalRuntimeInsecure,
   isComputerUseEnabledForRuntime,
   normalizeAgentCapabilitySettings,
   normalizeRuntimeGuardSettings,
   type AgentCapabilitySettingsV1,
-  resolveKunRuntimeSettings,
+  resolveLocalRuntimeSettings,
+  type ResolvedLocalRuntimeSettingsV1,
   type RuntimeGuardSettingsV1,
-  type KunRuntimeSettingsV1,
+  type LocalRuntimeSettingsV1,
   type AppSettingsV1
 } from '../shared/app-settings'
 import {
-  buildKunServeArgs,
-  resolveKunExecutable
-} from './resolve-kun-binary'
+  buildLocalRuntimeServeArgs,
+  resolveLocalRuntimeExecutable
+} from './resolve-local-runtime-binary'
 import {
-  KunConfigSchema,
-  KunServeConfigSchema,
+  LocalRuntimeConfigSchema,
+  LocalRuntimeServeConfigSchema,
   ModelConfigSchema,
   ContextCompactionConfigSchema,
   RuntimeTuningConfigSchema
@@ -41,7 +41,7 @@ import {
 } from '../../kun/src/contracts/capabilities.js'
 import {
   GUI_SCHEDULE_INTERNAL_SECRET_ENV,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   type ScheduleMcpLaunchConfig
 } from './schedule-mcp-config'
 import type { ResearchSearchMcpLaunchConfig } from './research-search-mcp-config'
@@ -56,7 +56,7 @@ import type { PaperRadarMcpLaunchConfig } from './paper-radar-mcp-config'
 import type { WriteAssistMcpLaunchConfig } from './write-assist-mcp-config'
 import type { RuntimeInspectorMcpLaunchConfig } from './runtime-inspector-mcp-config'
 import {
-  buildKunManagedGuiMcpServers,
+  buildLocalRuntimeManagedGuiMcpServers,
   hasEnabledManagedGuiMcpServer,
   managedGuiMcpServerNames
 } from './gui-mcp-registry'
@@ -64,39 +64,39 @@ import {
   paperRadarDbPath,
   paperRadarProfilesPath
 } from './paper-radar-sidecar'
-import { defaultKunDataDir } from './runtime/kun-adapter'
-import { isKunHealthResponseBody } from './kun-health'
+import { defaultLocalRuntimeDataDir } from './runtime/local-runtime-adapter'
+import { isLocalRuntimeHealthResponseBody } from './local-runtime-health'
 import { appendManagedLogLine } from './logger'
 import { guiSkillRootsForRuntime, normalizeSkillRootPath } from './services/skill-service'
 
 let child: ChildProcess | null = null
-let childLogCapture: KunChildLogCapture | null = null
+let childLogCapture: LocalRuntimeChildLogCapture | null = null
 let lastResolvedBinary: string | null = null
-let kunStartPromise: Promise<void> | null = null
+let localRuntimeStartPromise: Promise<void> | null = null
 let childStderrTail = ''
 const intentionalStops = new WeakSet<ChildProcess>()
 const readyChildren = new WeakSet<ChildProcess>()
 
-export type KunUnexpectedExitInfo = {
+export type LocalRuntimeUnexpectedExitInfo = {
   code: number | null
   signal: NodeJS.Signals | null
   stderrTail: string
 }
 
-let onUnexpectedKunExit: ((info: KunUnexpectedExitInfo) => void) | null = null
+let onUnexpectedLocalRuntimeExit: ((info: LocalRuntimeUnexpectedExitInfo) => void) | null = null
 
-export function setKunUnexpectedExitHandler(
-  handler: ((info: KunUnexpectedExitInfo) => void) | null
+export function setLocalRuntimeUnexpectedExitHandler(
+  handler: ((info: LocalRuntimeUnexpectedExitInfo) => void) | null
 ): void {
-  onUnexpectedKunExit = handler
+  onUnexpectedLocalRuntimeExit = handler
 }
 
-const KUN_READY_PREFIX = 'KUN_READY '
-const KUN_STARTUP_TIMEOUT_MS = 45_000
-const KUN_STARTUP_HEALTH_POLL_MS = 500
-const KUN_STARTUP_HEALTH_REQUEST_TIMEOUT_MS = 1_000
-const KUN_STOP_GRACE_MS = 5_000
-const KUN_STOP_FORCE_MS = 1_000
+const LOCAL_RUNTIME_READY_PREFIX = 'KUN_READY '
+const LOCAL_RUNTIME_STARTUP_TIMEOUT_MS = 45_000
+const LOCAL_RUNTIME_STARTUP_HEALTH_POLL_MS = 500
+const LOCAL_RUNTIME_STARTUP_HEALTH_REQUEST_TIMEOUT_MS = 1_000
+const LOCAL_RUNTIME_STOP_GRACE_MS = 5_000
+const LOCAL_RUNTIME_STOP_FORCE_MS = 1_000
 const STDERR_TAIL_MAX_CHARS = 32_768
 const MAX_TCP_PORT = 65_535
 const UPSTREAM_PROVIDER_SECRET_ENV_NAMES = [
@@ -137,16 +137,16 @@ const UPSTREAM_PROVIDER_CONFIG_ENV_NAMES = [
   'MODEL_PROVIDER',
   'KUN_BASE_URL'
 ] as const
-const DEFAULT_KUN_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
+const DEFAULT_LOCAL_RUNTIME_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
   'deepseek-v4-pro': {
     contextWindowTokens: 1_000_000,
     contextCompaction: {
       softThreshold: 980_000,
       hardThreshold: 990_000
     },
-    // Kun always reaches the model through the local Model Router, which translates images via the
+    // The local runtime always reaches the model through the local Model Router, which translates images via the
     // vision model (Qwen3.7-Plus) before the text reasoner. So the endpoint accepts image input even
-    // though DeepSeek itself is text-only — declare it so Kun sends image_url parts instead of
+    // though DeepSeek itself is text-only — declare it so the runtime sends image_url parts instead of
     // base64-dumping uploads as opaque text fallbacks.
     inputModalities: ['text', 'image'],
     outputModalities: ['text'],
@@ -154,7 +154,7 @@ const DEFAULT_KUN_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
     messageParts: ['text', 'image_url']
   },
   'deepseek-v4-flash': {
-    aliases: ['deepseek-chat', 'deepseek-reasoner', DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS, LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS],
+    aliases: ['deepseek-chat', 'deepseek-reasoner', DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS],
     contextWindowTokens: 1_000_000,
     contextCompaction: {
       softThreshold: 980_000,
@@ -167,8 +167,8 @@ const DEFAULT_KUN_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
   }
 }
 
-type KunLogStream = 'stdout' | 'stderr' | 'lifecycle'
-type KunChildLogCapture = {
+type LocalRuntimeLogStream = 'stdout' | 'stderr' | 'lifecycle'
+type LocalRuntimeChildLogCapture = {
   captureStdout: (chunk: Buffer | string) => void
   captureStderr: (chunk: Buffer | string) => void
   logLifecycle: (message: string) => void
@@ -184,13 +184,13 @@ function appendTail(current: string, nextChunk: string, maxChars = STDERR_TAIL_M
   return combined.length > maxChars ? combined.slice(-maxChars) : combined
 }
 
-function formatKunLogLine(
-  stream: KunLogStream,
+function formatLocalRuntimeLogLine(
+  stream: LocalRuntimeLogStream,
   pid: number | undefined,
   message: string
 ): string {
   const stamp = new Date().toISOString()
-  const pidLabel = typeof pid === 'number' ? `kun pid=${pid}` : 'kun'
+  const pidLabel = typeof pid === 'number' ? `local-runtime pid=${pid}` : 'local-runtime'
   return `[${stamp}] [${stream.toUpperCase()}] [${pidLabel}] ${message}\n`
 }
 
@@ -198,15 +198,15 @@ function normalizeCapturedChunk(chunk: Buffer | string): string {
   return String(chunk).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 }
 
-function createKunChildLogCapture(pid: number | undefined): KunChildLogCapture {
+function createLocalRuntimeChildLogCapture(pid: number | undefined): LocalRuntimeChildLogCapture {
   let stdoutRemainder = ''
   let stderrRemainder = ''
   let closed = false
   let pending = Promise.resolve()
 
-  const writeLine = (stream: KunLogStream, message: string): void => {
+  const writeLine = (stream: LocalRuntimeLogStream, message: string): void => {
     pending = pending
-      .then(() => appendManagedLogLine('kun', formatKunLogLine(stream, pid, message)))
+      .then(() => appendManagedLogLine('sciforge-runtime', formatLocalRuntimeLogLine(stream, pid, message)))
       .catch(() => undefined)
   }
 
@@ -265,10 +265,10 @@ function appRoot(): string {
     : app.getAppPath()
 }
 
-export function resolveKunDataDir(runtime: { dataDir: string }): string {
+export function resolveLocalRuntimeDataDir(runtime: { dataDir: string }): string {
   const trimmed = runtime.dataDir?.trim()
   if (trimmed) return expandHomePath(trimmed)
-  return defaultKunDataDir()
+  return defaultLocalRuntimeDataDir()
 }
 
 function expandHomePath(path: string): string {
@@ -279,43 +279,43 @@ function expandHomePath(path: string): string {
   return path
 }
 
-export function isKunChildRunning(): boolean {
+export function isLocalRuntimeChildRunning(): boolean {
   return child !== null && child.exitCode === null && child.signalCode === null
 }
 
-export function startKunChild(settings: AppSettingsV1): Promise<void> {
-  if (kunStartPromise) return kunStartPromise
-  const runtime = resolveKunRuntimeSettings(settings)
-  if (isKunChildRunning()) return Promise.resolve()
+export function startLocalRuntimeChild(settings: AppSettingsV1): Promise<void> {
+  if (localRuntimeStartPromise) return localRuntimeStartPromise
+  const runtime = resolveLocalRuntimeSettings(settings)
+  if (isLocalRuntimeChildRunning()) return Promise.resolve()
   if (!runtime.autoStart) return Promise.resolve()
   let promise: Promise<void>
-  promise = startKunChildOnce(settings, runtime).finally(() => {
-    if (kunStartPromise === promise) kunStartPromise = null
+  promise = startLocalRuntimeChildOnce(settings, runtime).finally(() => {
+    if (localRuntimeStartPromise === promise) localRuntimeStartPromise = null
   })
-  kunStartPromise = promise
+  localRuntimeStartPromise = promise
   return promise
 }
 
-async function startKunChildOnce(
+async function startLocalRuntimeChildOnce(
   settings: AppSettingsV1,
-  runtime: KunRuntimeSettingsV1
+  runtime: ResolvedLocalRuntimeSettingsV1
 ): Promise<void> {
   if (!runtime.apiKey.trim()) {
-    throw new Error('Model Router runtime API key is required before starting Kun.')
+    throw new Error('Model Router runtime API key is required before starting SciForge Runtime.')
   }
   if (childLogCapture) {
     await childLogCapture.close()
     childLogCapture = null
   }
   const root = appRoot()
-  const resolution = resolveKunExecutable(root, runtime.binaryPath)
+  const resolution = resolveLocalRuntimeExecutable(root, runtime.binaryPath)
   if (resolution.command === process.execPath && !existsSync(resolution.args[0])) {
     throw new Error(
-      `Kun runtime build is missing at ${resolution.args[0]}. Run \`npm run build:kun\` before starting the GUI.`
+      `SciForge Runtime build is missing at ${resolution.args[0]}. Run \`npm run build:local-runtime\` before starting the GUI.`
     )
   }
-  const dataDir = resolveKunDataDir(runtime)
-  await syncGuiManagedKunConfig(dataDir, runtime, {
+  const dataDir = resolveLocalRuntimeDataDir(runtime)
+  await syncGuiManagedLocalRuntimeConfig(dataDir, runtime, {
     agentCapabilities: settings.agentCapabilities,
     runtimeGuards: normalizeRuntimeGuardSettings(settings.runtimeGuards),
     scheduleMcp: {
@@ -374,28 +374,19 @@ async function startKunChildOnce(
         isPackaged: app.isPackaged
       }
     },
-    runtimeInspectorMcp: {
-      settings,
-      launch: {
-        appPath: app.getAppPath(),
-        execPath: process.execPath,
-        isPackaged: app.isPackaged,
-        checkpointDataDir: app.getPath('userData')
-      }
-    },
     computerUseMcp: {
       launch: {
         appPath: app.getAppPath(),
         execPath: process.execPath,
         isPackaged: app.isPackaged
       },
-      enabled: isComputerUseEnabledForRuntime(settings, 'kun')
+      enabled: isComputerUseEnabledForRuntime(settings, 'sciforge')
     }
   })
   lastResolvedBinary = resolution.command === process.execPath
     ? resolution.args.join(' ')
     : resolution.command
-  const args = buildKunServeArgs({
+  const args = buildLocalRuntimeServeArgs({
     resolution,
     host: '127.0.0.1',
     port: runtime.port,
@@ -406,11 +397,11 @@ async function startKunChildOnce(
     approvalPolicy: runtime.approvalPolicy,
     sandboxMode: runtime.sandboxMode,
     tokenEconomyMode: runtime.tokenEconomyMode,
-    insecure: isKunRuntimeInsecure(runtime)
+    insecure: isLocalRuntimeInsecure(runtime)
   })
   child = spawn(resolution.command, args, {
     env: {
-      ...kunRuntimeEnv(process.env),
+      ...localRuntimeChildEnv(process.env),
       ELECTRON_RUN_AS_NODE: '1',
       KUN_RUNTIME_TOKEN: runtime.runtimeToken,
       KUN_MODEL_ROUTER_API_KEY: runtime.apiKey,
@@ -421,7 +412,7 @@ async function startKunChildOnce(
     detached: false
   })
   const startedChild = child
-  const startedLogCapture = createKunChildLogCapture(startedChild.pid)
+  const startedLogCapture = createLocalRuntimeChildLogCapture(startedChild.pid)
   childLogCapture = startedLogCapture
   childStderrTail = ''
   startedLogCapture.logLifecycle(`spawned on port ${runtime.port} using data dir ${dataDir}`)
@@ -439,7 +430,7 @@ async function startKunChildOnce(
     void startedLogCapture.close()
     if (child === startedChild) child = null
     if (readyChildren.has(startedChild) && !intentionalStops.has(startedChild)) {
-      onUnexpectedKunExit?.({
+      onUnexpectedLocalRuntimeExit?.({
         code: code ?? null,
         signal: signal ?? null,
         stderrTail: childStderrTail
@@ -451,14 +442,14 @@ async function startKunChildOnce(
       `process error: ${error instanceof Error ? error.message : String(error)}`
     )
   })
-  let readySource: KunStartupReadySource
+  let readySource: LocalRuntimeStartupReadySource
   try {
-    readySource = await waitForKunStartup(startedChild, runtime.port)
+    readySource = await waitForLocalRuntimeStartup(startedChild, runtime.port)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     startedLogCapture.logLifecycle(`startup failed before ready: ${message}`)
     if (child === startedChild) {
-      await stopKunChildAndWait()
+      await stopLocalRuntimeChildAndWait()
     }
     throw error
   }
@@ -481,10 +472,10 @@ function runtimeSecretEnv(settings: AppSettingsV1): NodeJS.ProcessEnv {
   }
 }
 
-export async function syncGuiManagedKunConfig(
+export async function syncGuiManagedLocalRuntimeConfig(
   dataDir: string,
   runtime: Pick<
-    KunRuntimeSettingsV1,
+    LocalRuntimeSettingsV1,
     'mcpSearch' | 'tokenEconomy' | 'storage' | 'contextCompaction' | 'runtimeTuning'
   >,
   options?: {
@@ -528,16 +519,16 @@ export async function syncGuiManagedKunConfig(
   }
 ): Promise<void> {
   const configPath = join(dataDir, 'config.json')
-  const existing = sanitizeKunConfigSections(await readJsonObjectIfExists(configPath))
+  const existing = sanitizeLocalRuntimeConfigSections(await readJsonObjectIfExists(configPath))
   const importedMcpServers = await readGuiManagedMcpServers(
-    options?.mcpConfigPath ?? resolveKunMcpJsonPath()
+    options?.mcpConfigPath ?? resolveLocalRuntimeMcpJsonPath()
   )
   const hasImportedEnabledMcpServer = Object.values(importedMcpServers).some(
     (server) => objectValue(server).enabled !== false
   )
 
   const serve = objectValue(existing?.serve)
-  const providerSafeServe = stripKunServeProviderFields(serve)
+  const providerSafeServe = stripLocalRuntimeServeProviderFields(serve)
   const existingTokenEconomy = objectValue(serve.tokenEconomy)
   const existingContextCompaction = objectValue(existing?.contextCompaction)
   const existingModels = objectValue(existing?.models)
@@ -554,7 +545,7 @@ export async function syncGuiManagedKunConfig(
   const storage = storageConfigForRuntime(runtime.storage)
   const mcpSearch = runtime.mcpSearch
   const skillCapability = await skillCapabilityConfigForRuntime(skills, options?.scheduleMcp?.settings)
-  const managedMcpServers = buildKunManagedGuiMcpServers({
+  const managedMcpServers = buildLocalRuntimeManagedGuiMcpServers({
     scheduleMcp: options?.scheduleMcp,
     researchMcp: options?.researchMcp,
     researchMemoryMcp: options?.researchMemoryMcp,
@@ -627,10 +618,10 @@ export async function syncGuiManagedKunConfig(
       }
     }
   }
-  const parsedNext = KunConfigSchema.safeParse(next)
+  const parsedNext = LocalRuntimeConfigSchema.safeParse(next)
   if (!parsedNext.success) {
     throw new Error(
-      `Refusing to write invalid GUI-managed Kun config at ${configPath}: ${JSON.stringify(parsedNext.error.issues, null, 2)}`
+      `Refusing to write invalid GUI-managed runtime config at ${configPath}: ${JSON.stringify(parsedNext.error.issues, null, 2)}`
     )
   }
   const nextText = `${JSON.stringify(next, null, 2)}\n`
@@ -639,7 +630,7 @@ export async function syncGuiManagedKunConfig(
   await writeFile(configPath, nextText, 'utf8')
 }
 
-function stripKunServeProviderFields(serve: Record<string, unknown>): Record<string, unknown> {
+function stripLocalRuntimeServeProviderFields(serve: Record<string, unknown>): Record<string, unknown> {
   const next = { ...serve }
   delete next.apiKey
   delete next.baseUrl
@@ -782,9 +773,9 @@ function positiveIntegerValue(value: unknown): number | undefined {
 
 function modelConfigForRuntime(existing: Record<string, unknown>): Record<string, unknown> {
   const existingProfiles = objectValue(existing.profiles)
-  const profiles: Record<string, unknown> = { ...DEFAULT_KUN_MODEL_PROFILES }
+  const profiles: Record<string, unknown> = { ...DEFAULT_LOCAL_RUNTIME_MODEL_PROFILES }
   for (const [modelId, profile] of Object.entries(existingProfiles)) {
-    const defaultProfile = objectValue(DEFAULT_KUN_MODEL_PROFILES[modelId])
+    const defaultProfile = objectValue(DEFAULT_LOCAL_RUNTIME_MODEL_PROFILES[modelId])
     const existingProfile = objectValue(profile)
     profiles[modelId] = {
       ...defaultProfile,
@@ -802,10 +793,10 @@ function modelConfigForRuntime(existing: Record<string, unknown>): Record<string
 }
 
 function tokenEconomyConfigForRuntime(
-  tokenEconomy: Pick<KunRuntimeSettingsV1, 'tokenEconomy'>['tokenEconomy'] | undefined,
+  tokenEconomy: Pick<LocalRuntimeSettingsV1, 'tokenEconomy'>['tokenEconomy'] | undefined,
   existing: Record<string, unknown>
 ): Record<string, unknown> {
-  const defaults = defaultKunTokenEconomySettings()
+  const defaults = defaultLocalRuntimeTokenEconomySettings()
   const normalized = {
     ...defaults,
     ...(tokenEconomy ?? {}),
@@ -834,7 +825,7 @@ function tokenEconomyConfigForRuntime(
 }
 
 function storageConfigForRuntime(
-  storage: Pick<KunRuntimeSettingsV1, 'storage'>['storage']
+  storage: Pick<LocalRuntimeSettingsV1, 'storage'>['storage']
 ): Record<string, unknown> {
   const sqlitePath = storage.sqlitePath.trim()
   return {
@@ -844,7 +835,7 @@ function storageConfigForRuntime(
 }
 
 function contextCompactionConfigForRuntime(
-  contextCompaction: Pick<KunRuntimeSettingsV1, 'contextCompaction'>['contextCompaction'],
+  contextCompaction: Pick<LocalRuntimeSettingsV1, 'contextCompaction'>['contextCompaction'],
   existing: Record<string, unknown>
 ): Record<string, unknown> {
   return {
@@ -859,7 +850,7 @@ function contextCompactionConfigForRuntime(
 }
 
 function runtimeTuningConfigForRuntime(
-  runtimeTuning: Pick<KunRuntimeSettingsV1, 'runtimeTuning'>['runtimeTuning'],
+  runtimeTuning: Pick<LocalRuntimeSettingsV1, 'runtimeTuning'>['runtimeTuning'],
   existing: Record<string, unknown>,
   runtimeGuards?: RuntimeGuardSettingsV1
 ): Record<string, unknown> {
@@ -905,7 +896,7 @@ type SafeParseSchema = {
     | { success: false }
 }
 
-function parseKunConfigSection(
+function parseLocalRuntimeConfigSection(
   schema: SafeParseSchema,
   value: unknown
 ): Record<string, unknown> {
@@ -913,36 +904,36 @@ function parseKunConfigSection(
   return parsed.success ? objectValue(parsed.data) : {}
 }
 
-function sanitizeKunCapabilitiesConfig(value: unknown): Record<string, unknown> {
+function sanitizeLocalRuntimeCapabilitiesConfig(value: unknown): Record<string, unknown> {
   const raw = objectValue(value)
   const next: Record<string, unknown> = {}
-  if ('mcp' in raw) next.mcp = parseKunConfigSection(McpCapabilityConfig, raw.mcp)
-  if ('web' in raw) next.web = parseKunConfigSection(WebCapabilityConfig, raw.web)
-  if ('skills' in raw) next.skills = parseKunConfigSection(SkillsCapabilityConfig, raw.skills)
+  if ('mcp' in raw) next.mcp = parseLocalRuntimeConfigSection(McpCapabilityConfig, raw.mcp)
+  if ('web' in raw) next.web = parseLocalRuntimeConfigSection(WebCapabilityConfig, raw.web)
+  if ('skills' in raw) next.skills = parseLocalRuntimeConfigSection(SkillsCapabilityConfig, raw.skills)
   if ('subagents' in raw) {
-    next.subagents = parseKunConfigSection(SubagentsCapabilityConfig, raw.subagents)
+    next.subagents = parseLocalRuntimeConfigSection(SubagentsCapabilityConfig, raw.subagents)
   }
   if ('attachments' in raw) {
-    next.attachments = parseKunConfigSection(AttachmentsCapabilityConfig, raw.attachments)
+    next.attachments = parseLocalRuntimeConfigSection(AttachmentsCapabilityConfig, raw.attachments)
   }
-  if ('memory' in raw) next.memory = parseKunConfigSection(MemoryCapabilityConfig, raw.memory)
+  if ('memory' in raw) next.memory = parseLocalRuntimeConfigSection(MemoryCapabilityConfig, raw.memory)
   return next
 }
 
-function sanitizeKunConfigSections(
+function sanitizeLocalRuntimeConfigSections(
   existing: Record<string, unknown> | null
 ): Record<string, unknown> | null {
   if (!existing) return null
-  const serve = stripKunServeProviderFields(objectValue(existing.serve))
+  const serve = stripLocalRuntimeServeProviderFields(objectValue(existing.serve))
   return {
-    serve: parseKunConfigSection(KunServeConfigSchema, serve),
-    models: parseKunConfigSection(ModelConfigSchema, existing.models),
-    contextCompaction: parseKunConfigSection(
+    serve: parseLocalRuntimeConfigSection(LocalRuntimeServeConfigSchema, serve),
+    models: parseLocalRuntimeConfigSection(ModelConfigSchema, existing.models),
+    contextCompaction: parseLocalRuntimeConfigSection(
       ContextCompactionConfigSchema,
       existing.contextCompaction
     ),
-    runtime: parseKunConfigSection(RuntimeTuningConfigSchema, existing.runtime),
-    capabilities: sanitizeKunCapabilitiesConfig(existing.capabilities)
+    runtime: parseLocalRuntimeConfigSection(RuntimeTuningConfigSchema, existing.runtime),
+    capabilities: sanitizeLocalRuntimeCapabilitiesConfig(existing.capabilities)
   }
 }
 
@@ -952,7 +943,7 @@ function objectValue(value: unknown): Record<string, unknown> {
     : {}
 }
 
-export async function stopKunChildAndWait(): Promise<void> {
+export async function stopLocalRuntimeChildAndWait(): Promise<void> {
   if (!child) {
     if (childLogCapture) {
       const capture = childLogCapture
@@ -972,14 +963,14 @@ export async function stopKunChildAndWait(): Promise<void> {
       /* already gone */
     }
   }
-  const exited = await waitForChildExit(stoppingChild, KUN_STOP_GRACE_MS)
+  const exited = await waitForChildExit(stoppingChild, LOCAL_RUNTIME_STOP_GRACE_MS)
   if (!exited) {
     try {
       if (pid) process.kill(pid, 'SIGKILL')
     } catch {
       /* already gone */
     }
-    await waitForChildExit(stoppingChild, KUN_STOP_FORCE_MS)
+    await waitForChildExit(stoppingChild, LOCAL_RUNTIME_STOP_FORCE_MS)
   }
   if (child === stoppingChild) child = null
   if (capture) {
@@ -1008,7 +999,7 @@ function waitForChildExit(process: ChildProcess, timeoutMs: number): Promise<boo
   })
 }
 
-function kunRuntimeEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+function localRuntimeChildEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env = { ...baseEnv }
   for (const name of UPSTREAM_PROVIDER_SECRET_ENV_NAMES) {
     delete env[name]
@@ -1028,7 +1019,7 @@ function isUpstreamProviderConfigEnv(key: string): boolean {
   )
 }
 
-export async function reclaimKunPort(
+export async function reclaimLocalRuntimePort(
   port: number
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   if (port <= 0) return { ok: true }
@@ -1038,7 +1029,7 @@ export async function reclaimKunPort(
     : { ok: false, message: `port ${port} is in use` }
 }
 
-export async function resolveAvailableKunPort(
+export async function resolveAvailableLocalRuntimePort(
   preferredPort: number
 ): Promise<{ port: number; changed: boolean; message?: string }> {
   if (preferredPort > 0) {
@@ -1100,22 +1091,22 @@ function allocateTcpPort(host: string): Promise<number> {
         cleanup()
         if (error) reject(error)
         else if (port > 0) resolve(port)
-        else reject(new Error('failed to allocate an available Kun port'))
+        else reject(new Error('failed to allocate an available SciForge Runtime port'))
       })
     })
   })
 }
 
-type KunStartupReadySource = 'stdout' | 'health'
+type LocalRuntimeStartupReadySource = 'stdout' | 'health'
 
-async function waitForKunStartup(
+async function waitForLocalRuntimeStartup(
   startedChild: ChildProcess,
   port?: number
-): Promise<KunStartupReadySource> {
+): Promise<LocalRuntimeStartupReadySource> {
   if (startedChild.exitCode !== null) {
-    throw new Error(describeKunExit(startedChild.exitCode, null))
+    throw new Error(describeLocalRuntimeExit(startedChild.exitCode, null))
   }
-  return new Promise<KunStartupReadySource>((resolve, reject) => {
+  return new Promise<LocalRuntimeStartupReadySource>((resolve, reject) => {
     let settled = false
     let stdoutBuffer = ''
     let stderrTail = ''
@@ -1124,20 +1115,20 @@ async function waitForKunStartup(
       if (settled) return
       settled = true
       cleanup()
-      reject(new Error(describeKunStartupTimeout(stderrTail)))
-    }, KUN_STARTUP_TIMEOUT_MS)
+      reject(new Error(describeLocalRuntimeStartupTimeout(stderrTail)))
+    }, LOCAL_RUNTIME_STARTUP_TIMEOUT_MS)
     const healthTimer = port
       ? setInterval(() => {
           if (settled || healthProbeInFlight) return
           healthProbeInFlight = true
-          void probeKunHealth(port)
+          void probeLocalRuntimeHealth(port)
             .then((healthy) => {
               if (healthy) settleReady('health')
             })
             .finally(() => {
               healthProbeInFlight = false
             })
-        }, KUN_STARTUP_HEALTH_POLL_MS)
+        }, LOCAL_RUNTIME_STARTUP_HEALTH_POLL_MS)
       : null
     const cleanup = (): void => {
       clearTimeout(timer)
@@ -1148,9 +1139,9 @@ async function waitForKunStartup(
       startedChild.stderr?.removeListener('data', onStderr)
     }
     const tryParseReady = (): boolean => {
-      const markerIndex = stdoutBuffer.indexOf(KUN_READY_PREFIX)
+      const markerIndex = stdoutBuffer.indexOf(LOCAL_RUNTIME_READY_PREFIX)
       if (markerIndex < 0) return false
-      const afterPrefix = stdoutBuffer.slice(markerIndex + KUN_READY_PREFIX.length)
+      const afterPrefix = stdoutBuffer.slice(markerIndex + LOCAL_RUNTIME_READY_PREFIX.length)
       const newlineIndex = afterPrefix.indexOf('\n')
       if (newlineIndex < 0) return false
       const jsonLine = afterPrefix.slice(0, newlineIndex).trim()
@@ -1162,7 +1153,7 @@ async function waitForKunStartup(
         return false
       }
     }
-    const settleReady = (source: KunStartupReadySource): void => {
+    const settleReady = (source: LocalRuntimeStartupReadySource): void => {
       if (settled) return
       settled = true
       cleanup()
@@ -1179,7 +1170,7 @@ async function waitForKunStartup(
       if (settled) return
       settled = true
       cleanup()
-      reject(new Error(describeKunExit(code, signal, stderrTail)))
+      reject(new Error(describeLocalRuntimeExit(code, signal, stderrTail)))
     }
     const onError = (error: Error): void => {
       if (settled) return
@@ -1194,29 +1185,29 @@ async function waitForKunStartup(
   })
 }
 
-function describeKunExit(
+function describeLocalRuntimeExit(
   code: number | null,
   signal: NodeJS.Signals | null,
   stderrTail = ''
 ): string {
   const suffix = stderrTail.trim() ? `\n${stderrTail.trim()}` : ''
-  if (signal) return `Kun exited during startup with signal ${signal}${suffix}`
-  if (typeof code === 'number') return `Kun exited during startup with code ${code}${suffix}`
-  return `Kun exited during startup${suffix}`
+  if (signal) return `SciForge Runtime exited during startup with signal ${signal}${suffix}`
+  if (typeof code === 'number') return `SciForge Runtime exited during startup with code ${code}${suffix}`
+  return `SciForge Runtime exited during startup${suffix}`
 }
 
-function describeKunStartupTimeout(stderrTail: string): string {
+function describeLocalRuntimeStartupTimeout(stderrTail: string): string {
   const suffix = stderrTail.trim() ? `\n${stderrTail.trim()}` : ''
-  return `Kun did not become ready within ${KUN_STARTUP_TIMEOUT_MS}ms (waiting for KUN_READY stdout marker or /health)${suffix}`
+  return `SciForge Runtime did not become ready within ${LOCAL_RUNTIME_STARTUP_TIMEOUT_MS}ms (waiting for the runtime ready marker or /health)${suffix}`
 }
 
-async function probeKunHealth(port: number): Promise<boolean> {
+async function probeLocalRuntimeHealth(port: number): Promise<boolean> {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/health`, {
-      signal: AbortSignal.timeout(KUN_STARTUP_HEALTH_REQUEST_TIMEOUT_MS)
+      signal: AbortSignal.timeout(LOCAL_RUNTIME_STARTUP_HEALTH_REQUEST_TIMEOUT_MS)
     })
     if (!response.ok) return false
-    return isKunHealthResponseBody(await response.text())
+    return isLocalRuntimeHealthResponseBody(await response.text())
   } catch {
     return false
   }

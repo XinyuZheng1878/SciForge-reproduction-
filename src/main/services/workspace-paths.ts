@@ -139,9 +139,14 @@ function isWithinWorkspace(workspaceRoot: string, targetPath: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
-async function enforceWorkspaceBoundary(targetPath: string, workspaceRoot?: string): Promise<string> {
+function requireWorkspaceRoot(workspaceRoot?: string): string {
   const rawWorkspace = workspaceRoot?.trim()
-  if (!rawWorkspace) return targetPath
+  if (!rawWorkspace) throw new Error('Workspace root is required.')
+  return rawWorkspace
+}
+
+async function enforceWorkspaceBoundary(targetPath: string, workspaceRoot: string): Promise<string> {
+  const rawWorkspace = requireWorkspaceRoot(workspaceRoot)
 
   const workspacePath = await canonicalPath(resolve(expandHomePath(rawWorkspace)))
   const canonicalTarget = await canonicalPath(targetPath)
@@ -156,10 +161,7 @@ export async function resolveTargetPathWithinWorkspace(rawPath: string, workspac
   if (!value) throw new Error('File path is required.')
 
   const expanded = expandHomePath(value)
-  const rawWorkspace = workspaceRoot?.trim()
-  if (!rawWorkspace) {
-    return isAbsolute(expanded) ? resolve(expanded) : resolve(expanded)
-  }
+  const rawWorkspace = requireWorkspaceRoot(workspaceRoot)
 
   const workspacePath = await canonicalPath(resolve(expandHomePath(rawWorkspace)))
   if (!isAbsolute(expanded)) {
@@ -192,22 +194,21 @@ export async function resolveOpenTargetPath(
   if (!value) throw new Error('File path is required.')
 
   const expanded = expandHomePath(value)
-  const workspace = workspaceRoot?.trim() ? expandHomePath(workspaceRoot) : ''
+  const rawWorkspace = requireWorkspaceRoot(workspaceRoot)
+  const workspace = expandHomePath(rawWorkspace)
   const allowBasenameFallback = options?.allowBasenameFallback ?? true
   const direct = isAbsolute(expanded)
     ? resolve(expanded)
-    : workspace
-      ? resolve(workspace, expanded)
-      : resolve(expanded)
+    : resolve(workspace, expanded)
 
   if (await pathExists(direct)) {
-    return enforceWorkspaceBoundary(direct, workspaceRoot)
+    return enforceWorkspaceBoundary(direct, rawWorkspace)
   }
 
   if (allowBasenameFallback && workspace && !hasPathSeparator(expanded)) {
     const match = await findUniqueFileByBasename(resolve(workspace), expanded)
     if (match) {
-      return enforceWorkspaceBoundary(match, workspaceRoot)
+      return enforceWorkspaceBoundary(match, rawWorkspace)
     }
   }
 
@@ -217,10 +218,7 @@ export async function resolveOpenTargetPath(
 export async function resolveWorkspaceDirectory(
   payload: WorkspaceDirectoryTarget
 ): Promise<string> {
-  const workspaceRoot = payload.workspaceRoot.trim()
-  if (!workspaceRoot) {
-    throw new Error('Workspace root is required.')
-  }
+  const workspaceRoot = requireWorkspaceRoot(payload.workspaceRoot)
 
   const targetPath = payload.path?.trim()
     ? await resolveOpenTargetPath(payload.path, workspaceRoot, { allowBasenameFallback: false })

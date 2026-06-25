@@ -26,9 +26,9 @@ import {
 } from '../lib/browser-storage'
 import type { WritePreviewMode, WriteWorkspaceState } from './write-workspace-store-types'
 
-export const WRITE_PREVIEW_MODE_KEY = 'deepseekgui.write.preview-mode'
-export const WRITE_ASSISTANT_OPEN_KEY = 'deepseekgui.write.assistant-open'
-export const WRITE_ASSISTANT_MODEL_KEY = 'deepseekgui.write.assistant-model'
+export const WRITE_PREVIEW_MODE_KEY = 'sciforge.write.preview-mode'
+export const WRITE_ASSISTANT_OPEN_KEY = 'sciforge.write.assistant-open'
+export const WRITE_ASSISTANT_MODEL_KEY = 'sciforge.write.assistant-model'
 const DEFAULT_WRITE_ASSISTANT_MODEL = 'auto'
 
 export function readStoredPreviewMode(): WritePreviewMode {
@@ -182,7 +182,7 @@ export function writeRelativeToWorkspace(workspaceRoot: string, filePath: string
 }
 
 export function activeFileStorageKey(workspaceRoot: string): string {
-  return `deepseekgui.write.active-file:${normalizePath(workspaceRoot)}`
+  return `sciforge.write.active-file:${normalizePath(workspaceRoot)}`
 }
 
 export function rememberActiveFile(workspaceRoot: string, nextPath: string | null): void {

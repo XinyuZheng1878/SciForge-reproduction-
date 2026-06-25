@@ -7,10 +7,10 @@ import {
   type ServeOptions
 } from './cli-options.js'
 import {
-  kunConfigPathForDataDir,
-  readKunConfigFile,
-  readOptionalKunConfigFile,
-  type LoadedKunConfig
+  localRuntimeConfigPathForDataDir,
+  readLocalRuntimeConfigFile,
+  readOptionalLocalRuntimeConfigFile,
+  type LoadedLocalRuntimeConfig
 } from '../config/kun-config.js'
 
 /**
@@ -142,7 +142,7 @@ export function parseServeOptions(
 
 /**
  * Validate a pre-constructed options object. Used by tests and by the
- * main process when Kun is started programmatically.
+ * main process when SciForge Runtime is started programmatically.
  */
 export function validateServeOptions(input: unknown): ServeOptions {
   return ServeOptionsSchema.parse(input)
@@ -225,16 +225,16 @@ export function parseServeOptionsSafe(
 function loadServeConfig(
   raw: Record<string, string | boolean>,
   env: Record<string, string | undefined>
-): LoadedKunConfig | null {
+): LoadedLocalRuntimeConfig | null {
   const explicitConfigPath =
     stringFlag(raw, 'config') ??
     stringFlag(raw, 'config-file') ??
     env.KUN_CONFIG
   if (explicitConfigPath) {
-    return readKunConfigFile(explicitConfigPath)
+    return readLocalRuntimeConfigFile(explicitConfigPath)
   }
   const dataDir = dataDirFromRawOrEnv(raw, env)
-  return readOptionalKunConfigFile(kunConfigPathForDataDir(dataDir))
+  return readOptionalLocalRuntimeConfigFile(localRuntimeConfigPathForDataDir(dataDir))
 }
 
 function dataDirFromRawOrEnv(

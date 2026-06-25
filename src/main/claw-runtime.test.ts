@@ -6,7 +6,7 @@ import {
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
@@ -44,7 +44,7 @@ function buildSettings(): AppSettingsV1 {
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings()
+      sciforge: defaultLocalRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: true, retentionDays: 7 },
@@ -161,7 +161,7 @@ function completedThreadDetail(
 ): TestThreadDetail {
   return {
     id: threadId,
-    runtimeId: 'kun',
+    runtimeId: 'sciforge',
     title: threadId,
     updatedAt: '2026-06-02T00:00:00.000Z',
     latestSeq: 1,
@@ -200,7 +200,7 @@ function completedAgentRuntime(options: {
   const defaultText = options.text ?? 'agent reply'
   const startThread = vi.fn(options.startThread ?? (async () => ({
     id: defaultThreadId,
-    runtimeId: 'kun' as const,
+    runtimeId: 'sciforge' as const,
     title: defaultThreadId,
     updatedAt: '2026-06-02T00:00:00.000Z'
   })))
@@ -225,7 +225,7 @@ function completedAgentRuntime(options: {
 
 describe('ClawRuntime', () => {
   it('classifies the standard Claw IM failure buckets', () => {
-    expect(classifyClawFailure({ code: 'runtime_offline', message: 'Kun is offline.' })).toBe('runtime_offline')
+    expect(classifyClawFailure({ code: 'runtime_offline', message: 'Local runtime is offline.' })).toBe('runtime_offline')
     expect(classifyClawFailure({ code: 'provider_unavailable', message: 'model deepseek-v4-pro missing' })).toBe('model_missing')
     expect(classifyClawFailure({ message: 'Timed out waiting for agent response.' })).toBe('timeout')
     expect(classifyClawFailure({ code: 'empty_response', message: 'Agent completed without a reply.' })).toBe('empty_response')
@@ -662,7 +662,7 @@ describe('ClawRuntime', () => {
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
-  it('reads assistant text from the Kun thread detail shape used by the real runtime', async () => {
+  it('reads assistant text from the local runtime thread detail shape used by the real runtime', async () => {
     const settings = buildSettings()
     const forbiddenDirectCall = vi.fn()
     const agentRuntime = completedAgentRuntime({
@@ -778,7 +778,7 @@ describe('ClawRuntime', () => {
     )
   })
 
-  it('returns classified failures when Kun reports a missing model', async () => {
+  it('returns classified failures when local runtime reports a missing model', async () => {
     const settings = buildSettings()
     const forbiddenDirectCall = vi.fn()
     const agentRuntime = completedAgentRuntime({
@@ -829,9 +829,9 @@ describe('ClawRuntime', () => {
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
-  it('resolves IM auto to the managed Model Router alias before starting a Kun turn', async () => {
+  it('resolves IM auto to the managed Model Router alias before starting a local runtime turn', async () => {
     const settings = buildSettings()
-    settings.agents.kun.model = 'deepseek-v4-flash'
+    settings.agents.sciforge.model = 'deepseek-v4-flash'
     const forbiddenDirectCall = vi.fn()
     const agentRuntime = completedAgentRuntime({
       threadId: 'thr_auto_model',
@@ -1635,13 +1635,13 @@ describe('ClawRuntime', () => {
 
   it('returns the runtime reason when /new cannot create a thread', async () => {
     const settings = buildSettings()
-    settings.activeAgentRuntime = 'kun'
+    settings.activeAgentRuntime = 'sciforge'
     settings.claw.im.enabled = true
     settings.claw.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'discord-bot-1-guild-1-channel-1',
       label: '#debug',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       guardMode: 'all_messages',
       threadId: '',
       conversations: []
@@ -1682,11 +1682,11 @@ describe('ClawRuntime', () => {
       reply: expect.stringContaining('model unavailable for workspace /tmp/workspace')
     })
     expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
-      runtimeId: 'kun'
+      runtimeId: 'sciforge'
     }))
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(current().claw.channels[0]).toMatchObject({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: '',
       lastFailure: expect.objectContaining({
         provider: 'discord',
@@ -1696,19 +1696,19 @@ describe('ClawRuntime', () => {
         chatId: 'channel-1'
       })
     })
-    expect(current().claw.channels[0].agentThreadIds?.kun).toBeUndefined()
+    expect(current().claw.channels[0].agentThreadIds?.sciforge).toBeUndefined()
     expect(current().claw.channels[0].conversations).toEqual([])
   })
 
-  it('creates Kun /new IM threads through agentRuntime when the host is available', async () => {
+  it('creates local runtime /new IM threads through agentRuntime when the host is available', async () => {
     const settings = buildSettings()
-    settings.activeAgentRuntime = 'kun'
+    settings.activeAgentRuntime = 'sciforge'
     settings.claw.im.enabled = true
     settings.claw.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'discord-bot-1-guild-1-channel-1',
       label: '#debug',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       guardMode: 'all_messages',
       threadId: '',
       conversations: []
@@ -1720,7 +1720,7 @@ describe('ClawRuntime', () => {
     const agentRuntime = {
       startThread: vi.fn(async () => ({
         id: 'kun-host-thread',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         title: 'Fix failing model',
         updatedAt: '2026-06-02T00:00:00.000Z'
       })),
@@ -1750,19 +1750,19 @@ describe('ClawRuntime', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      reply: expect.stringContaining('kun:kun-host...read')
+      reply: expect.stringContaining('sciforge:kun-host...read')
     })
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       workspace: '/tmp/workspace',
       title: 'Fix failing model'
     }))
     expect(current().claw.channels[0]).toMatchObject({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'kun-host-thread',
       agentThreadIds: {
-        kun: 'kun-host-thread'
+        sciforge: 'kun-host-thread'
       }
     })
   })
@@ -2104,7 +2104,7 @@ describe('ClawRuntime', () => {
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
-  it('handles webhook /help as an IM command before starting a Kun turn', async () => {
+  it('handles webhook /help as an IM command before starting a local runtime turn', async () => {
     const settings = buildSettings()
     settings.claw.im.enabled = true
     settings.claw.channels = [buildChannel({ provider: 'weixin' as const, id: 'channel_weixin' })]
@@ -2165,6 +2165,71 @@ describe('ClawRuntime', () => {
     expect(reply).toContain('Examples:')
     expect(createScheduledTaskFromText).not.toHaveBeenCalled()
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
+  })
+
+  it('authenticates IM webhooks with Bearer or x-sciforge-secret only', async () => {
+    const settings = buildSettings()
+    const secret = 'webhook-secret'
+    settings.claw.im.enabled = true
+    settings.claw.im.secret = secret
+    settings.claw.channels = [buildChannel({ provider: 'weixin' as const, id: 'channel_weixin' })]
+    const { store } = mutableSettingsStore(settings)
+    const createScheduledTaskFromText = vi.fn()
+    const runtime = createClawRuntime({
+      store: store as never,
+      logError: () => undefined,
+      createScheduledTaskFromText
+    })
+    let messageIndex = 0
+    const post = async (headers: Record<string, string>): Promise<{
+      status: number
+      body: Record<string, unknown>
+    }> => {
+      messageIndex += 1
+      const body = JSON.stringify({
+        text: '/help',
+        provider: 'weixin',
+        channelId: 'channel_weixin',
+        chatId: 'wx_user_1',
+        messageId: `wx_auth_${messageIndex}`
+      })
+      const req = {
+        method: 'POST',
+        url: settings.claw.im.path,
+        headers,
+        async *[Symbol.asyncIterator]() {
+          yield Buffer.from(body)
+        }
+      }
+      let status = 0
+      let responseBody = ''
+      const res = {
+        writeHead: vi.fn((nextStatus: number) => {
+          status = nextStatus
+        }),
+        end: vi.fn((payload: string) => {
+          responseBody = payload
+        })
+      }
+      await (runtime as unknown as {
+        handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+      }).handleWebhook(req, res)
+      return { status, body: JSON.parse(responseBody) as Record<string, unknown> }
+    }
+
+    await expect(post({})).resolves.toMatchObject({
+      status: 401,
+      body: { ok: false, message: 'Unauthorized.' }
+    })
+    await expect(post({ 'x-sciforge-secret': secret })).resolves.toMatchObject({
+      status: 200,
+      body: { ok: true, reply: expect.stringContaining('Claw IM commands:') }
+    })
+    await expect(post({ authorization: `Bearer ${secret}` })).resolves.toMatchObject({
+      status: 200,
+      body: { ok: true, reply: expect.stringContaining('Claw IM commands:') }
+    })
+    expect(createScheduledTaskFromText).not.toHaveBeenCalled()
   })
 
   it('returns clear webhook degradation messages for empty, attachment-only, and oversized input', async () => {
@@ -2758,8 +2823,8 @@ describe('ClawRuntime', () => {
       id: 'channel_weixin',
       label: 'WeChat',
       runtimeId: 'codex',
-      threadId: 'kun-thread',
-      agentThreadIds: { kun: 'kun-thread' },
+      threadId: 'local-thread',
+      agentThreadIds: { sciforge: 'local-thread' },
       conversations: []
     })]
     const { current, store } = mutableSettingsStore(settings)
@@ -2854,9 +2919,9 @@ describe('ClawRuntime', () => {
     })
     expect(current().claw.channels[0]).toMatchObject({
       runtimeId: 'codex',
-      threadId: 'kun-thread',
+      threadId: 'local-thread',
       agentThreadIds: {
-        kun: 'kun-thread',
+        sciforge: 'local-thread',
         codex: 'codex-thread'
       }
     })
@@ -3947,9 +4012,9 @@ describe('ClawRuntime', () => {
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'stale-kun-channel-thread',
-      agentThreadIds: { kun: 'stale-kun-channel-thread' },
+      agentThreadIds: { sciforge: 'stale-kun-channel-thread' },
       conversations: [{
         id: 'conversation-1',
         chatId: 'wx_user_1',
@@ -3958,8 +4023,8 @@ describe('ClawRuntime', () => {
         senderId: 'wx_user_1',
         senderName: 'Alice',
         localThreadId: 'stale-kun-conversation-thread',
-        runtimeId: 'kun',
-        agentThreadIds: { kun: 'stale-kun-conversation-thread' },
+        runtimeId: 'sciforge',
+        agentThreadIds: { sciforge: 'stale-kun-conversation-thread' },
         workspaceRoot: '/tmp/old-phone-workspace',
         createdAt: '2026-06-02T00:00:00.000Z',
         updatedAt: '2026-06-02T00:00:00.000Z'
@@ -3977,11 +4042,11 @@ describe('ClawRuntime', () => {
       })),
       startTurn: vi.fn(async (input: { runtimeId?: string; threadId: string }) => ({
         threadId: input.threadId,
-        turnId: input.runtimeId === 'kun' ? 'kun-turn' : 'codex-turn'
+        turnId: input.runtimeId === 'sciforge' ? 'local-turn' : 'codex-turn'
       })),
       readThread: vi.fn(async ({ runtimeId, threadId }: { runtimeId?: string; threadId: string }) =>
-        runtimeId === 'kun'
-          ? completedThreadDetail(threadId, 'kun-turn', 'stored runtime reply')
+        runtimeId === 'sciforge'
+          ? completedThreadDetail(threadId, 'local-turn', 'stored runtime reply')
           : completedThreadDetail(threadId, 'codex-turn', 'new process reply')
       )
     }
@@ -4036,7 +4101,7 @@ describe('ClawRuntime', () => {
       reply: expect.stringContaining('stored runtime reply')
     })
     expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'stale-kun-conversation-thread',
       governanceProfile: 'remote_guard'
     }))
@@ -4045,22 +4110,22 @@ describe('ClawRuntime', () => {
     expect(notifyChannelActivity).toHaveBeenCalledWith({
       channelId: 'channel_weixin',
       threadId: 'stale-kun-conversation-thread',
-      runtimeId: 'kun'
+      runtimeId: 'sciforge'
     })
     expect(current().claw.channels[0]).toMatchObject({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'stale-kun-conversation-thread',
       agentThreadIds: {
-        kun: 'stale-kun-conversation-thread'
+        sciforge: 'stale-kun-conversation-thread'
       }
     })
     expect(current().claw.channels[0].conversations[0]).toMatchObject({
       id: 'conversation-1',
       latestMessageId: 'wx_msg_3',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       localThreadId: 'stale-kun-conversation-thread',
       agentThreadIds: {
-        kun: 'stale-kun-conversation-thread'
+        sciforge: 'stale-kun-conversation-thread'
       },
       workspaceRoot: '/tmp/old-phone-workspace'
     })
@@ -4642,7 +4707,7 @@ describe('ClawRuntime', () => {
   })
 
   it('sends the latest generated workspace file to Feishu when the user asks for it', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-feishu-file-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-feishu-file-'))
     const filePath = join(workspaceRoot, 'hello.md')
     await writeFile(filePath, '# Hello\n')
     const realFilePath = await realpath(filePath)

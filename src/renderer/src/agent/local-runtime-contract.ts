@@ -1,8 +1,8 @@
 import { GUI_PLAN_CREATE_PLAN_TOOL_NAME } from '@shared/gui-plan'
 
-export type CoreThreadStatus = 'idle' | 'running' | 'archived' | 'deleted'
-export type CoreTurnStatus = 'queued' | 'running' | 'completed' | 'failed' | 'aborted'
-export type CoreItemStatus =
+export type LocalRuntimeThreadStatus = 'idle' | 'running' | 'archived' | 'deleted'
+export type LocalRuntimeTurnStatus = 'queued' | 'running' | 'completed' | 'failed' | 'aborted'
+export type LocalRuntimeItemStatus =
   | 'pending'
   | 'running'
   | 'completed'
@@ -13,13 +13,13 @@ export type CoreItemStatus =
   | 'expired'
   | string
 
-export type CoreThreadSummaryJson = {
+export type LocalRuntimeThreadSummaryJson = {
   id: string
   title: string
   workspace?: string
   model: string
   mode: string
-  status: CoreThreadStatus
+  status: LocalRuntimeThreadStatus
   relation?: 'primary' | 'fork' | 'side'
   parentThreadId?: string
   forkedFromThreadId?: string
@@ -27,18 +27,18 @@ export type CoreThreadSummaryJson = {
   forkedAt?: string
   forkedFromMessageCount?: number
   forkedFromTurnCount?: number
-  goal?: CoreThreadGoalJson | null
-  todos?: CoreThreadTodoListJson | null
+  goal?: LocalRuntimeThreadGoalJson | null
+  todos?: LocalRuntimeThreadTodoListJson | null
   createdAt: string
   updatedAt: string
 }
 
-export type CoreThreadJson = CoreThreadSummaryJson & {
-  turns?: CoreTurnJson[]
+export type LocalRuntimeThreadJson = LocalRuntimeThreadSummaryJson & {
+  turns?: LocalRuntimeTurnJson[]
   latestSeq?: number
 }
 
-export type CoreAttachmentMetadataJson = {
+export type LocalRuntimeAttachmentMetadataJson = {
   id: string
   name: string
   mimeType: string
@@ -47,14 +47,14 @@ export type CoreAttachmentMetadataJson = {
   width?: number
   height?: number
   localFilePath?: string
-  textFallback?: CoreAttachmentTextFallbackJson
+  textFallback?: LocalRuntimeAttachmentTextFallbackJson
   threadIds?: string[]
   workspaces?: string[]
   createdAt: string
   updatedAt: string
 }
 
-export type CoreAttachmentTextFallbackJson = {
+export type LocalRuntimeAttachmentTextFallbackJson = {
   dataBase64: string
   mimeType: string
   byteSize: number
@@ -63,14 +63,14 @@ export type CoreAttachmentTextFallbackJson = {
   wasCompressed?: boolean
 }
 
-export type CoreAttachmentDiagnosticsJson = {
+export type LocalRuntimeAttachmentDiagnosticsJson = {
   enabled: boolean
   rootDir: string
   count: number
   totalBytes: number
 }
 
-export type CoreMemoryRecordJson = {
+export type LocalRuntimeMemoryRecordJson = {
   id: string
   content: string
   scope: 'user' | 'workspace' | 'project'
@@ -86,7 +86,7 @@ export type CoreMemoryRecordJson = {
   deletedAt?: string
 }
 
-export type CoreThreadGoalStatusJson =
+export type LocalRuntimeThreadGoalStatusJson =
   | 'active'
   | 'paused'
   | 'blocked'
@@ -94,10 +94,10 @@ export type CoreThreadGoalStatusJson =
   | 'budgetLimited'
   | 'complete'
 
-export type CoreThreadGoalJson = {
+export type LocalRuntimeThreadGoalJson = {
   threadId: string
   objective: string
-  status: CoreThreadGoalStatusJson
+  status: LocalRuntimeThreadGoalStatusJson
   tokenBudget?: number | null
   tokensUsed: number
   timeUsedSeconds: number
@@ -105,17 +105,17 @@ export type CoreThreadGoalJson = {
   updatedAt: string
 }
 
-export type CoreThreadGoalResponseJson = {
-  goal: CoreThreadGoalJson | null
+export type LocalRuntimeThreadGoalResponseJson = {
+  goal: LocalRuntimeThreadGoalJson | null
 }
 
-export type CoreClearThreadGoalResponseJson = {
+export type LocalRuntimeClearThreadGoalResponseJson = {
   cleared: boolean
 }
 
-export type CoreThreadTodoStatusJson = 'pending' | 'in_progress' | 'completed'
+export type LocalRuntimeThreadTodoStatusJson = 'pending' | 'in_progress' | 'completed'
 
-export type CoreThreadTodoSourceJson = {
+export type LocalRuntimeThreadTodoSourceJson = {
   kind: 'plan'
   planId: string
   relativePath: string
@@ -123,30 +123,30 @@ export type CoreThreadTodoSourceJson = {
   contentHash: string
 }
 
-export type CoreThreadTodoItemJson = {
+export type LocalRuntimeThreadTodoItemJson = {
   id: string
   content: string
-  status: CoreThreadTodoStatusJson
-  source?: CoreThreadTodoSourceJson
+  status: LocalRuntimeThreadTodoStatusJson
+  source?: LocalRuntimeThreadTodoSourceJson
   createdAt: string
   updatedAt: string
 }
 
-export type CoreThreadTodoListJson = {
+export type LocalRuntimeThreadTodoListJson = {
   threadId: string
-  items: CoreThreadTodoItemJson[]
+  items: LocalRuntimeThreadTodoItemJson[]
   updatedAt: string
 }
 
-export type CoreThreadTodosResponseJson = {
-  todos: CoreThreadTodoListJson | null
+export type LocalRuntimeThreadTodosResponseJson = {
+  todos: LocalRuntimeThreadTodoListJson | null
 }
 
-export type CoreClearThreadTodosResponseJson = {
+export type LocalRuntimeClearThreadTodosResponseJson = {
   cleared: boolean
 }
 
-export type CoreMemoryDiagnosticsJson = {
+export type LocalRuntimeMemoryDiagnosticsJson = {
   enabled: boolean
   rootDir: string
   activeCount: number
@@ -154,14 +154,14 @@ export type CoreMemoryDiagnosticsJson = {
   lastInjectedIds?: string[]
 }
 
-export type CoreRuntimeCapabilityStateJson = {
+export type LocalRuntimeCapabilityStateJson = {
   status: 'available' | 'disabled' | 'unavailable'
   enabled: boolean
   available: boolean
   reason?: string
 }
 
-export type CoreRuntimeCapabilityManifestJson = {
+export type LocalRuntimeCapabilityManifestJson = {
   contractVersion: number
   model: {
     id: string
@@ -171,8 +171,8 @@ export type CoreRuntimeCapabilityManifestJson = {
     contextWindowTokens?: number
     messageParts: Array<'text' | 'image_url' | 'input_image'>
   }
-  cli: Record<'serve' | 'run' | 'chat' | 'exec', CoreRuntimeCapabilityStateJson>
-  mcp: CoreRuntimeCapabilityStateJson & {
+  cli: Record<'serve' | 'run' | 'chat' | 'exec', LocalRuntimeCapabilityStateJson>
+  mcp: LocalRuntimeCapabilityStateJson & {
     configuredServers: number
     connectedServers: number
     toolCount: number
@@ -184,26 +184,26 @@ export type CoreRuntimeCapabilityManifestJson = {
       advertisedToolCount: number
     }
   }
-  web: CoreRuntimeCapabilityStateJson & {
-    fetch: CoreRuntimeCapabilityStateJson
-    search: CoreRuntimeCapabilityStateJson
+  web: LocalRuntimeCapabilityStateJson & {
+    fetch: LocalRuntimeCapabilityStateJson
+    search: LocalRuntimeCapabilityStateJson
     provider?: string
   }
-  research: CoreRuntimeCapabilityStateJson & {
+  research: LocalRuntimeCapabilityStateJson & {
     server: 'mcp'
     toolName: string
     sources: Array<'arxiv' | 'biorxiv' | 'semantic_scholar' | 'web' | 'cns'>
     maxResults: number
   }
-  skills: CoreRuntimeCapabilityStateJson & {
+  skills: LocalRuntimeCapabilityStateJson & {
     configuredRoots: number
     discoveredSkills: number
   }
-  subagents: CoreRuntimeCapabilityStateJson & {
+  subagents: LocalRuntimeCapabilityStateJson & {
     maxParallel: number
     maxChildRuns: number
   }
-  attachments: CoreRuntimeCapabilityStateJson & {
+  attachments: LocalRuntimeCapabilityStateJson & {
     maxImageBytes: number
     maxImageDimension: number
     allowedMimeTypes: string[]
@@ -211,13 +211,13 @@ export type CoreRuntimeCapabilityManifestJson = {
     textFallbackMaxImageDimension?: number
     textFallbackPreferredMimeType?: string
   }
-  memory: CoreRuntimeCapabilityStateJson & {
+  memory: LocalRuntimeCapabilityStateJson & {
     scopes: Array<'user' | 'workspace' | 'project'>
     maxInjectedRecords: number
   }
 }
 
-export type CoreRuntimeInfoJson = {
+export type LocalRuntimeInfoJson = {
   host: string
   port: number
   dataDir: string
@@ -229,10 +229,10 @@ export type CoreRuntimeInfoJson = {
   insecure?: boolean
   startedAt: string
   pid?: number
-  capabilities: CoreRuntimeCapabilityManifestJson
+  capabilities: LocalRuntimeCapabilityManifestJson
 }
 
-export type CoreRuntimeToolDiagnosticsJson = {
+export type LocalRuntimeToolDiagnosticsJson = {
   providers?: Array<Record<string, unknown>>
   mcpServers?: Array<Record<string, unknown>>
   mcpSearch?: {
@@ -257,8 +257,8 @@ export type CoreRuntimeToolDiagnosticsJson = {
     validationErrors?: Array<Record<string, unknown> | string>
     lastActivations?: Array<Record<string, unknown>>
   }
-  attachments?: CoreAttachmentDiagnosticsJson
-  memory?: CoreMemoryDiagnosticsJson
+  attachments?: LocalRuntimeAttachmentDiagnosticsJson
+  memory?: LocalRuntimeMemoryDiagnosticsJson
   subagents?: {
     enabled?: boolean
     active?: number
@@ -266,7 +266,7 @@ export type CoreRuntimeToolDiagnosticsJson = {
   }
 }
 
-export type CoreRuntimeSkillJson = {
+export type LocalRuntimeSkillJson = {
   id: string
   name: string
   description?: string
@@ -282,14 +282,14 @@ export type CoreRuntimeSkillJson = {
   allowedTools?: string[]
 }
 
-export type CoreRuntimeSkillsResponseJson = {
+export type LocalRuntimeSkillsResponseJson = {
   enabled?: boolean
   roots?: string[]
-  skills?: CoreRuntimeSkillJson[]
+  skills?: LocalRuntimeSkillJson[]
   validationErrors?: Array<Record<string, unknown> | string>
 }
 
-export type CoreChildRuntimeMetadataJson = {
+export type LocalRuntimeChildRuntimeMetadataJson = {
   parentThreadId: string
   parentTurnId: string
   childId: string
@@ -298,23 +298,23 @@ export type CoreChildRuntimeMetadataJson = {
   childSeq: number
 }
 
-export type CoreWebSourceJson = {
+export type LocalRuntimeWebSourceJson = {
   sourceId?: string
   url?: string
   title?: string
   retrievedAt?: string
 }
 
-export type CoreTurnJson = {
+export type LocalRuntimeTurnJson = {
   id: string
   threadId: string
-  status: CoreTurnStatus
+  status: LocalRuntimeTurnStatus
   prompt: string
   model?: string
   createdAt: string
   startedAt?: string
   finishedAt?: string
-  items?: CoreTurnItemJson[]
+  items?: LocalRuntimeTurnItemJson[]
   attachmentIds?: string[]
   activeSkillIds?: string[]
   injectedMemoryIds?: string[]
@@ -322,12 +322,12 @@ export type CoreTurnJson = {
   error?: string
 }
 
-export type CoreTurnItemJson = {
+export type LocalRuntimeTurnItemJson = {
   id: string
   turnId: string
   threadId: string
   role: 'user' | 'assistant' | 'system' | 'tool'
-  status: CoreItemStatus
+  status: LocalRuntimeItemStatus
   createdAt: string
   finishedAt?: string
   kind: string
@@ -362,18 +362,18 @@ export type CoreTurnItemJson = {
   activeSkillIds?: string[]
   injectedMemoryIds?: string[]
   skillInjectionBytes?: number
-  target?: CoreReviewTargetJson
+  target?: LocalRuntimeReviewTargetJson
   title?: string
   reviewText?: string
 }
 
-export type CoreReviewTargetJson =
+export type LocalRuntimeReviewTargetJson =
   | { kind: 'uncommittedChanges' }
   | { kind: 'baseBranch'; branch: string }
   | { kind: 'commit'; sha: string }
   | { kind: 'custom'; instructions: string }
 
-export type CoreReviewFindingJson = {
+export type LocalRuntimeReviewFindingJson = {
   title: string
   body: string
   confidenceScore: number
@@ -384,8 +384,8 @@ export type CoreReviewFindingJson = {
   }
 }
 
-export type CoreReviewOutputJson = {
-  findings: CoreReviewFindingJson[]
+export type LocalRuntimeReviewOutputJson = {
+  findings: LocalRuntimeReviewFindingJson[]
   overallCorrectness: 'patch is correct' | 'patch is incorrect'
   overallExplanation: string
   overallConfidenceScore: number
@@ -393,11 +393,11 @@ export type CoreReviewOutputJson = {
 
 /**
  * Structured plan metadata the renderer expects on a successful
- * `create_plan` tool result. Mirrors the Kun output contract
+ * `create_plan` tool result. Mirrors the local runtime output contract
  * so the Workbench can reload the saved plan file and update the
  * Plan panel without parsing assistant prose.
  */
-export type CorePlanToolResultJson = {
+export type LocalRuntimePlanToolResultJson = {
   summary?: string
   plan_id: string
   workspace_root: string
@@ -411,30 +411,30 @@ export type CorePlanToolResultJson = {
   byte_size?: number
 }
 
-export type CoreStartTurnResponseJson = {
+export type LocalRuntimeStartTurnResponseJson = {
   threadId: string
   turnId: string
   userMessageItemId?: string
 }
 
-export type CoreStartReviewResponseJson = CoreStartTurnResponseJson & {
+export type LocalRuntimeStartReviewResponseJson = LocalRuntimeStartTurnResponseJson & {
   reviewItemId?: string
 }
 
-export type CoreAttachmentUploadResponseJson = {
-  attachment: CoreAttachmentMetadataJson
+export type LocalRuntimeAttachmentUploadResponseJson = {
+  attachment: LocalRuntimeAttachmentMetadataJson
 }
 
-export type CoreAttachmentContentResponseJson = {
-  attachment: CoreAttachmentMetadataJson
+export type LocalRuntimeAttachmentContentResponseJson = {
+  attachment: LocalRuntimeAttachmentMetadataJson
   dataBase64: string
 }
 
-export type CoreMemoryListResponseJson = {
-  memories: CoreMemoryRecordJson[]
+export type LocalRuntimeMemoryListResponseJson = {
+  memories: LocalRuntimeMemoryRecordJson[]
 }
 
-export type CoreResumeSessionResponseJson = {
+export type LocalRuntimeResumeSessionResponseJson = {
   thread_id?: string
   threadId?: string
   session_id?: string
@@ -445,10 +445,10 @@ export type CoreResumeSessionResponseJson = {
 
 /**
  * Optional plan context attached to a start-turn request. Carries the
- * reserved plan id, workspace root, and relative path the Kun
+ * reserved plan id, workspace root, and relative path the runtime
  * should expose to the model via the `create_plan` tool.
  */
-export type CoreStartTurnPlanContextJson = {
+export type LocalRuntimeStartTurnPlanContextJson = {
   operation: 'draft' | 'refine'
   workspaceRoot: string
   relativePath: string
@@ -458,12 +458,12 @@ export type CoreStartTurnPlanContextJson = {
 }
 
 /**
- * Native Kun plan tool name. Re-exported alongside the shared
+ * Native local-runtime plan tool name. Re-exported alongside the shared
  * constant for renderer consumers.
  */
-export const CORE_PLAN_TOOL_NAME = GUI_PLAN_CREATE_PLAN_TOOL_NAME
+export const LOCAL_RUNTIME_PLAN_TOOL_NAME = GUI_PLAN_CREATE_PLAN_TOOL_NAME
 
-export type CoreUsageSnapshotJson = {
+export type LocalRuntimeUsageSnapshotJson = {
   promptTokens?: number
   completionTokens?: number
   totalTokens?: number
@@ -481,14 +481,14 @@ export type CoreUsageSnapshotJson = {
   tokenEconomySavingsCny?: number
 }
 
-export type CoreRuntimeEventJson = {
+export type LocalRuntimeEventJson = {
   kind?: string
   seq?: number
   timestamp?: string
   threadId?: string
   turnId?: string
   itemId?: string
-  item?: CoreTurnItemJson
+  item?: LocalRuntimeTurnItemJson
   approvalId?: string
   toolName?: string
   callId?: string
@@ -527,14 +527,14 @@ export type CoreRuntimeEventJson = {
   sourceDigest?: string
   digestMarker?: string
   sourceItemIds?: string[]
-  usage?: CoreUsageSnapshotJson
-  goal?: CoreThreadGoalJson | null
-  todos?: CoreThreadTodoListJson | null
+  usage?: LocalRuntimeUsageSnapshotJson
+  goal?: LocalRuntimeThreadGoalJson | null
+  todos?: LocalRuntimeThreadTodoListJson | null
   cleared?: boolean
   message?: string
   code?: string
   severity?: 'info' | 'warning' | 'error'
-  child?: CoreChildRuntimeMetadataJson
+  child?: LocalRuntimeChildRuntimeMetadataJson
 }
 
 export type RuntimeErrorJson = {

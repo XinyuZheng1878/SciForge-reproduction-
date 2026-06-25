@@ -3,6 +3,7 @@ import { z } from 'zod'
 export const RESEARCH_MEMORY_ARTIFACTS_RESOURCE_URI = 'research-memory://artifacts'
 export const RESEARCH_MEMORY_STATUS_RESOURCE_URI = 'research-memory://status'
 export const RESEARCH_MEMORY_ARTIFACT_RESOURCE_URI_TEMPLATE = 'research-memory://artifact/{artifactId}'
+export const RESEARCH_MEMORY_STATUS_HTML_PATH = 'status.html'
 
 export function researchMemoryArtifactResourceUri(artifactId: string): string {
   return `research-memory://artifact/${encodeURIComponent(artifactId)}`
@@ -228,8 +229,10 @@ export const WriteDecisionRecordInputSchema = WorkspaceRootInputSchema.extend({
   preview: z.boolean().optional()
 }).strict()
 
+const StatusHtmlOutputPathSchema = z.string().trim().pipe(z.literal(RESEARCH_MEMORY_STATUS_HTML_PATH))
+
 export const RenderStatusHtmlInputSchema = WorkspaceRootInputSchema.extend({
-  output_path: z.string().trim().min(1).max(1024).optional(),
+  output_path: StatusHtmlOutputPathSchema.optional(),
   dry_run: z.boolean().optional(),
   preview: z.boolean().optional()
 }).strict()

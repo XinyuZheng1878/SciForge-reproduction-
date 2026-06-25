@@ -132,6 +132,7 @@ export function TerminalPanel({ className = '', workspaceRoot, onCollapse, heigh
   const renameInputRef = useRef<HTMLInputElement | null>(null)
   const tabButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const workspaceTabStatesRef = useRef<Record<string, TerminalTabState>>({})
+  const ownerTokensRef = useRef<Record<string, string>>({})
   const workspaceKeyRef = useRef(terminalWorkspaceSessionKey(workspaceRoot))
   const tabsRef = useRef(tabs)
   const activeTabIdRef = useRef(activeTabId)
@@ -220,16 +221,16 @@ export function TerminalPanel({ className = '', workspaceRoot, onCollapse, heigh
       }
     })
 
-    const offData = window.dsGui.onTerminalData((payload) => {
+    const offData = window.sciforge.onTerminalData((payload) => {
       if (payload.sessionId !== sessionId) return
       term.write(payload.data)
     })
-    const offExit = window.dsGui.onTerminalExit((payload) => {
+    const offExit = window.sciforge.onTerminalExit((payload) => {
       if (payload.sessionId !== sessionId) return
       setExited(true)
     })
     const inputDisposable = term.onData((data) => {
-      void window.dsGui.writeToTerminal({ sessionId, data })
+      void window.sciforge.writeToTerminal({ sessionId, data })
     })
 
     let resizeTimer: ReturnType<typeof setTimeout> | null = null
@@ -247,12 +248,13 @@ export function TerminalPanel({ className = '', workspaceRoot, onCollapse, heigh
     const resizeObserver = new ResizeObserver(triggerFit)
     resizeObserver.observe(container)
     const resizeDisposable = term.onResize((dim) => {
-      void window.dsGui.resizeTerminal({ sessionId, cols: dim.cols, rows: dim.rows })
+      void window.sciforge.resizeTerminal({ sessionId, cols: dim.cols, rows: dim.rows })
     })
 
     try {
-      const result = await window.dsGui.createTerminal({
+      const result = await window.sciforge.createTerminal({
         sessionId,
+        ownerToken: ownerTokensRef.current[sessionId],
         cwd: workspaceRoot || undefined,
         cols,
         rows
@@ -262,9 +264,10 @@ export function TerminalPanel({ className = '', workspaceRoot, onCollapse, heigh
         setError(result.message)
         return
       }
+      ownerTokensRef.current[sessionId] = result.ownerToken
       const dims = fit.proposeDimensions()
       if (dims) {
-        void window.dsGui.resizeTerminal({ sessionId, cols: dims.cols, rows: dims.rows })
+        void window.sciforge.resizeTerminal({ sessionId, cols: dims.cols, rows: dims.rows })
       }
       setExited(false)
     } catch (e) {
@@ -339,7 +342,7 @@ export function TerminalPanel({ className = '', workspaceRoot, onCollapse, heigh
   const handleCloseTab = useCallback((tabId: string) => {
     const closingIndex = tabs.findIndex((tab) => tab.id === tabId)
     if (closingIndex === -1) return
-    void window.dsGui.disposeTerminal(sessionIdForTab(tabId))
+    void window.sciforge.disposeTerminal(sessionIdForTab(tabId))
     setTabs((current) => {
       if (current.length <= 1) return current
       return current.filter((tab) => tab.id !== tabId)
@@ -407,7 +410,7 @@ export function TerminalPanel({ className = '', workspaceRoot, onCollapse, heigh
     const keptTab = tabs.find((tab) => tab.id === tabId)
     if (!keptTab) return
     for (const tab of tabs) {
-      if (tab.id !== tabId) void window.dsGui.disposeTerminal(sessionIdForTab(tab.id))
+      if (tab.id !== tabId) void window.sciforge.disposeTerminal(sessionIdForTab(tab.id))
     }
     setTabs([keptTab])
     setActiveTabId(tabId)
@@ -417,7 +420,7 @@ export function TerminalPanel({ className = '', workspaceRoot, onCollapse, heigh
 
   const handleCloseAllTabs = useCallback(() => {
     for (const tab of tabs) {
-      void window.dsGui.disposeTerminal(sessionIdForTab(tab.id))
+      void window.sciforge.disposeTerminal(sessionIdForTab(tab.id))
     }
     setContextMenu(null)
     cancelRenameTab()
@@ -430,7 +433,7 @@ export function TerminalPanel({ className = '', workspaceRoot, onCollapse, heigh
   const handleRestart = useCallback(async () => {
     if (!activeTab) return
     try {
-      await window.dsGui.disposeTerminal(sessionIdForTab(activeTab.id))
+      await window.sciforge.disposeTerminal(sessionIdForTab(activeTab.id))
     } catch {
       // Ignore stale session disposal failures and try to spawn a fresh PTY.
     }

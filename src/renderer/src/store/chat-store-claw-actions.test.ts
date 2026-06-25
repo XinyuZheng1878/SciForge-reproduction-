@@ -20,7 +20,7 @@ function channel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1 {
     enabled: true,
     model: 'auto',
     threadId: 'thr-codewhale-channel',
-    workspaceRoot: '/Users/zxy/.deepseekgui/claw/agent01',
+    workspaceRoot: '/Users/zxy/.sciforge/claw/agent01',
     agentProfile: {
       name: '',
       description: '',
@@ -38,7 +38,7 @@ function channel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1 {
         senderId: 'sender-1',
         senderName: 'Alex',
         localThreadId: 'thr-codewhale-conversation',
-        workspaceRoot: '/Users/zxy/.deepseekgui/claw/agent01/conversations/chat-1',
+        workspaceRoot: '/Users/zxy/.sciforge/claw/agent01/conversations/chat-1',
         createdAt: now,
         updatedAt: now
       }
@@ -56,7 +56,7 @@ function thread(id: string, title: string, updatedAt = '2026-06-01T00:00:00.000Z
     updatedAt,
     model: 'reasonix',
     mode: 'agent',
-    workspace: '/Users/zxy/.deepseekgui/default_workspace'
+    workspace: '/Users/zxy/.sciforge/default_workspace'
   }
 }
 
@@ -84,7 +84,7 @@ type TestClawProvider = {
 
 function settingsWithChannels(
   channels: ClawImChannelV1[],
-  activeAgentRuntime: AgentRuntimeId = 'kun'
+  activeAgentRuntime: AgentRuntimeId = 'sciforge'
 ): TestSettings {
   return {
     workspaceRoot: '/Users/zxy/project',
@@ -108,7 +108,7 @@ function createClawActionHarness(options: {
   state?: Record<string, unknown>
 }) {
   let settings = options.settings
-  const dsGui = {
+  const sciforge = {
     getSettings: vi.fn(async () => settings),
     setSettings: vi.fn(async (patch: { claw?: { channels?: ClawImChannelV1[] } }) => {
       settings = {
@@ -122,10 +122,10 @@ function createClawActionHarness(options: {
       return settings
     })
   }
-  vi.stubGlobal('window', { dsGui })
+  vi.stubGlobal('window', { sciforge })
 
   const provider: TestClawProvider = {
-    id: 'kun' as AgentRuntimeId,
+    id: 'sciforge' as AgentRuntimeId,
     rememberThreadRuntime: vi.fn<(threadId: string, runtimeId?: AgentRuntimeId) => void>(),
     createThread: vi.fn<(input: { workspace: string; title: string; mode: 'agent' | 'plan' }) => Promise<NormalizedThread>>(
       async () => thread('created-thread', '[Claw:Feishu Agent01]')
@@ -195,7 +195,7 @@ function createClawActionHarness(options: {
 
   return {
     actions,
-    dsGui,
+    sciforge,
     provider,
     selectThread,
     refreshThreads,
@@ -211,24 +211,28 @@ describe('chat-store Claw actions helpers', () => {
     vi.unstubAllGlobals()
   })
 
-  it('uses the channel threadId when the latest conversation has none', () => {
+  it('does not fall back to the legacy channel threadId when the latest conversation has none', () => {
     const item = channel({ threadId: 'kun-channel-thread' })
     const conversation = { ...item.conversations[0], localThreadId: '' }
-    expect(clawThreadIdForProvider(item, conversation)).toBe('kun-channel-thread')
+    expect(clawThreadIdForProvider(item, conversation)).toBe('')
+    expect(clawThreadIdForProvider({
+      ...item,
+      agentThreadIds: { sciforge: 'sciforge-channel-thread' }
+    }, conversation)).toBe('sciforge-channel-thread')
   })
 
-  it('uses Codex thread mappings without falling back to legacy Kun fields', () => {
+  it('uses Codex thread mappings without falling back to legacy local runtime fields', () => {
     const item = channel({
       threadId: 'kun-channel-thread',
       agentThreadIds: {
-        kun: 'kun-channel-thread',
+        sciforge: 'kun-channel-thread',
         codex: 'codex-channel-thread'
       },
       conversations: [{
         ...channel().conversations[0],
         localThreadId: 'kun-conversation-thread',
         agentThreadIds: {
-          kun: 'kun-conversation-thread',
+          sciforge: 'kun-conversation-thread',
           codex: 'codex-conversation-thread'
         }
       }]
@@ -243,7 +247,7 @@ describe('chat-store Claw actions helpers', () => {
     }, 'codex')).toBe('')
   })
 
-  it('recovers an unmapped Claw managed Kun session before creating a new empty one', () => {
+  it('recovers an unmapped Claw managed local runtime session before creating a new empty one', () => {
     const item = channel()
     const recovered = findRecoverableClawThread(
       [
@@ -263,20 +267,20 @@ describe('chat-store Claw actions helpers', () => {
 
     expect(next.threadId).toBe('kun-thread')
     expect(next.conversations[0]?.localThreadId).toBe('kun-thread')
-    expect(next.agentThreadIds).toEqual({ kun: 'kun-thread' })
-    expect(next.conversations[0]?.agentThreadIds).toEqual({ kun: 'kun-thread' })
+    expect(next.agentThreadIds).toEqual({ sciforge: 'kun-thread' })
+    expect(next.conversations[0]?.agentThreadIds).toEqual({ sciforge: 'kun-thread' })
   })
 
-  it('writes Codex thread mappings without overwriting Kun legacy thread ids', () => {
+  it('writes Codex thread mappings without overwriting local runtime legacy thread ids', () => {
     const now = '2026-06-01T00:03:00.000Z'
     const next = channelWithClawThreadMapping(
       channel({
         threadId: 'kun-channel-thread',
-        agentThreadIds: { kun: 'kun-channel-thread' },
+        agentThreadIds: { sciforge: 'kun-channel-thread' },
         conversations: [{
           ...channel().conversations[0],
           localThreadId: 'kun-conversation-thread',
-          agentThreadIds: { kun: 'kun-conversation-thread' }
+          agentThreadIds: { sciforge: 'kun-conversation-thread' }
         }]
       }),
       'codex-thread',
@@ -286,17 +290,17 @@ describe('chat-store Claw actions helpers', () => {
     )
 
     expect(next.threadId).toBe('kun-channel-thread')
-    expect(next.agentThreadIds).toEqual({ kun: 'kun-channel-thread', codex: 'codex-thread' })
+    expect(next.agentThreadIds).toEqual({ sciforge: 'kun-channel-thread', codex: 'codex-thread' })
     expect(next.conversations[0]?.localThreadId).toBe('kun-conversation-thread')
     expect(next.conversations[0]?.agentThreadIds).toEqual({
-      kun: 'kun-conversation-thread',
+      sciforge: 'kun-conversation-thread',
       codex: 'codex-thread'
     })
   })
 
   it('uses the current project workspace when adding a new IM channel without an explicit workspace', async () => {
     const baseChannel = channel({ workspaceRoot: '', threadId: '', conversations: [] })
-    const { actions, dsGui, getSettings } = createClawActionHarness({
+    const { actions, sciforge, getSettings } = createClawActionHarness({
       settings: settingsWithChannels([], 'codex'),
       newClawChannel: () => baseChannel
     })
@@ -308,7 +312,7 @@ describe('chat-store Claw actions helpers', () => {
       runtimeId: 'codex',
       workspaceRoot: '/Users/zxy/project'
     })
-    expect(dsGui.setSettings).toHaveBeenCalledWith(expect.objectContaining({
+    expect(sciforge.setSettings).toHaveBeenCalledWith(expect.objectContaining({
       claw: expect.objectContaining({
         channels: [expect.objectContaining({ workspaceRoot: '/Users/zxy/project' })]
       })
@@ -320,21 +324,21 @@ describe('chat-store Claw actions helpers', () => {
       runtimeId: 'codex',
       threadId: 'kun-channel-thread',
       agentThreadIds: {
-        kun: 'kun-channel-thread',
+        sciforge: 'kun-channel-thread',
         codex: 'codex-channel-thread'
       },
       conversations: [{
         ...channel().conversations[0],
         localThreadId: 'kun-conversation-thread',
         agentThreadIds: {
-          kun: 'kun-conversation-thread',
+          sciforge: 'kun-conversation-thread',
           codex: 'codex-conversation-thread'
         }
       }]
     })
     const { actions, provider, getState } = createClawActionHarness({
-      settings: settingsWithChannels([item], 'kun'),
-      provider: { id: 'kun' }
+      settings: settingsWithChannels([item], 'sciforge'),
+      provider: { id: 'sciforge' }
     })
 
     await actions.selectClawChannel('channel-1')
@@ -345,23 +349,23 @@ describe('chat-store Claw actions helpers', () => {
     expect((getState().threads as NormalizedThread[])[0]?.runtimeId).toBe('codex')
   })
 
-  it('does not recover a Kun managed thread for a Codex channel selection', async () => {
+  it('does not recover a local runtime managed thread for a Codex channel selection', async () => {
     const item = channel({
       runtimeId: 'codex',
       threadId: 'kun-channel-thread',
-      agentThreadIds: { kun: 'kun-channel-thread' },
+      agentThreadIds: { sciforge: 'kun-channel-thread' },
       conversations: [{
         ...channel().conversations[0],
         runtimeId: 'codex',
         localThreadId: 'kun-conversation-thread',
-        agentThreadIds: { kun: 'kun-conversation-thread' }
+        agentThreadIds: { sciforge: 'kun-conversation-thread' }
       }]
     })
     const createdThread = {
       ...thread('created-codex-thread', '[Claw:Feishu Agent01]'),
       runtimeId: 'codex' as const
     }
-    const { actions, provider, dsGui, getState } = createClawActionHarness({
+    const { actions, provider, sciforge, getState } = createClawActionHarness({
       settings: settingsWithChannels([item], 'codex'),
       provider: {
         id: 'codex',
@@ -370,46 +374,46 @@ describe('chat-store Claw actions helpers', () => {
       state: {
         threads: [{
           ...thread('recoverable-kun-thread', '[Claw:Feishu Agent01]', '2026-06-01T00:02:00.000Z'),
-          runtimeId: 'kun' as const
+          runtimeId: 'sciforge' as const
         }]
       }
     })
 
     await actions.selectClawChannel('channel-1')
 
-    const savedChannels = dsGui.setSettings.mock.calls.at(-1)?.[0].claw?.channels ?? []
+    const savedChannels = sciforge.setSettings.mock.calls.at(-1)?.[0].claw?.channels ?? []
     expect(provider.createThread).toHaveBeenCalledTimes(1)
     expect(getState().activeThreadId).toBe('created-codex-thread')
     expect(savedChannels[0]?.agentThreadIds).toEqual({
-      kun: 'kun-channel-thread',
+      sciforge: 'kun-channel-thread',
       codex: 'created-codex-thread'
     })
     expect(savedChannels[0]?.conversations[0]?.agentThreadIds).toEqual({
-      kun: 'kun-conversation-thread',
+      sciforge: 'kun-conversation-thread',
       codex: 'created-codex-thread'
     })
   })
 
   it('selects a conversation using the conversation runtime mapping when the active runtime differs', async () => {
     const item = channel({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'kun-channel-thread',
       agentThreadIds: {
-        kun: 'kun-channel-thread'
+        sciforge: 'kun-channel-thread'
       },
       conversations: [{
         ...channel().conversations[0],
         runtimeId: 'codex',
         localThreadId: 'kun-conversation-thread',
         agentThreadIds: {
-          kun: 'kun-conversation-thread',
+          sciforge: 'kun-conversation-thread',
           codex: 'codex-conversation-thread'
         }
       }]
     })
     const { actions, provider, selectClawChannel, getState } = createClawActionHarness({
-      settings: settingsWithChannels([item], 'kun'),
-      provider: { id: 'kun' }
+      settings: settingsWithChannels([item], 'sciforge'),
+      provider: { id: 'sciforge' }
     })
 
     await actions.selectClawConversation('channel-1', 'codex-conversation-thread')
@@ -426,14 +430,14 @@ describe('chat-store Claw actions helpers', () => {
       runtimeId: 'codex',
       threadId: 'kun-channel-thread',
       agentThreadIds: {
-        kun: 'kun-channel-thread',
+        sciforge: 'kun-channel-thread',
         codex: 'codex-channel-thread'
       },
       conversations: []
     })
     const { actions, provider } = createClawActionHarness({
-      settings: settingsWithChannels([item], 'kun'),
-      provider: { id: 'kun' }
+      settings: settingsWithChannels([item], 'sciforge'),
+      provider: { id: 'sciforge' }
     })
 
     await actions.deleteClawChannel('channel-1')
@@ -447,7 +451,7 @@ describe('chat-store Claw actions helpers', () => {
       runtimeId: 'codex',
       threadId: 'kun-channel-thread',
       agentThreadIds: {
-        kun: 'kun-channel-thread',
+        sciforge: 'kun-channel-thread',
         codex: 'old-codex-channel-thread'
       },
       conversations: [{
@@ -455,7 +459,7 @@ describe('chat-store Claw actions helpers', () => {
         runtimeId: 'codex',
         localThreadId: 'kun-conversation-thread',
         agentThreadIds: {
-          kun: 'kun-conversation-thread',
+          sciforge: 'kun-conversation-thread',
           codex: 'old-codex-conversation-thread'
         }
       }]
@@ -464,24 +468,24 @@ describe('chat-store Claw actions helpers', () => {
       ...thread('new-codex-thread', '[Claw:Feishu Agent01]'),
       runtimeId: 'codex' as const
     }
-    const { actions, provider, dsGui } = createClawActionHarness({
-      settings: settingsWithChannels([item], 'kun'),
+    const { actions, provider, sciforge } = createClawActionHarness({
+      settings: settingsWithChannels([item], 'sciforge'),
       provider: {
-        id: 'kun',
+        id: 'sciforge',
         createThread: vi.fn(async () => createdThread)
       }
     })
 
     await actions.resetClawChannelSession('channel-1')
 
-    const savedChannels = dsGui.setSettings.mock.calls.at(-1)?.[0].claw?.channels ?? []
+    const savedChannels = sciforge.setSettings.mock.calls.at(-1)?.[0].claw?.channels ?? []
     expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('old-codex-channel-thread', 'codex')
     expect(provider.deleteThread).toHaveBeenCalledWith('old-codex-channel-thread')
     expect(savedChannels[0]).toEqual(expect.objectContaining({
       threadId: 'kun-channel-thread',
       runtimeId: 'codex',
       agentThreadIds: {
-        kun: 'kun-channel-thread',
+        sciforge: 'kun-channel-thread',
         codex: 'new-codex-thread'
       }
     }))
@@ -489,7 +493,7 @@ describe('chat-store Claw actions helpers', () => {
       localThreadId: 'kun-conversation-thread',
       runtimeId: 'codex',
       agentThreadIds: {
-        kun: 'kun-conversation-thread',
+        sciforge: 'kun-conversation-thread',
         codex: 'new-codex-thread'
       }
     }))
@@ -531,7 +535,7 @@ describe('chat-store Claw actions helpers', () => {
         channels: [channel({ threadId: 'thr_missing', conversations: [] })]
       }
     }
-    const dsGui = {
+    const sciforge = {
       getSettings: vi.fn(async () => settings),
       setSettings: vi.fn(async (patch: { claw?: { channels?: ClawImChannelV1[] } }) => {
         settings = {
@@ -545,7 +549,7 @@ describe('chat-store Claw actions helpers', () => {
         return settings
       })
     }
-    vi.stubGlobal('window', { dsGui })
+    vi.stubGlobal('window', { sciforge })
 
     const provider = {
       createThread: vi.fn(),
@@ -610,10 +614,6 @@ describe('chat-store Claw actions helpers', () => {
     expect(state.activeThreadId).toBe('thr_previous')
     expect(state.blocks).toEqual([{ kind: 'user', id: 'u1', text: 'hello' }])
     expect(state.error).toBeNull()
-    expect(dsGui.setSettings).toHaveBeenCalledWith({
-      claw: {
-        channels: [expect.objectContaining({ id: 'channel-1', threadId: '' })]
-      }
-    })
+    expect(sciforge.setSettings).not.toHaveBeenCalled()
   })
 })

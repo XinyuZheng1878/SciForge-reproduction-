@@ -1,21 +1,21 @@
 import {
-  getKunRuntimeSettings,
+  getLocalRuntimeSettings,
   resolveRuntimeModelRouterSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
 import { RuntimeInspectorToolNames } from '../../packages/workers/runtime-inspector/src/contract'
 import { GUI_RUNTIME_INSPECTOR_MCP_LAUNCH_FLAG } from './runtime-inspector-mcp-server'
 import {
-  buildExternalKunMcpJson,
-  buildManagedGuiKunMcpServerConfig,
+  buildExternalLocalRuntimeMcpJson,
+  buildManagedGuiLocalRuntimeMcpServerConfig,
   buildManagedGuiMcpJsonServerConfig,
   ELECTRON_RUN_AS_NODE_ENV,
   managedGuiMcpNames,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   resolveManagedGuiMcpCommand,
   resolveManagedGuiMcpNodeEntryPath,
   stringRecord,
-  syncExternalKunMcpJson,
+  syncExternalLocalRuntimeMcpJson,
   type JsonRecord,
   type ManagedGuiMcpDescriptor,
   type ManagedGuiMcpLaunchConfig
@@ -33,8 +33,8 @@ const RUNTIME_INSPECTOR_ALLOWED_ENV_NAMES = new Set([
   'GUI_RUNTIME_INSPECTOR_CHECKPOINT_DATA_DIR',
   'SCIFORGE_RUNTIME_INSPECTOR_MODEL_ROUTER_BASE_URL',
   'GUI_MODEL_ROUTER_BASE_URL',
-  'SCIFORGE_RUNTIME_INSPECTOR_KUN_BASE_URL',
-  'GUI_KUN_BASE_URL',
+  'SCIFORGE_RUNTIME_INSPECTOR_RUNTIME_BASE_URL',
+  'GUI_RUNTIME_BASE_URL',
   'SCIFORGE_RUNTIME_INSPECTOR_TIMEOUT_MS'
 ])
 
@@ -69,7 +69,7 @@ export function buildRuntimeInspectorMcpArgs(
   settings: AppSettingsV1,
   launch: RuntimeInspectorMcpLaunchConfig
 ): string[] {
-  const runtime = getKunRuntimeSettings(settings)
+  const runtime = getLocalRuntimeSettings(settings)
   const modelRouter = resolveRuntimeModelRouterSettings(settings)
   const args = [
     resolveRuntimeInspectorMcpNodeEntryPath(launch),
@@ -78,8 +78,8 @@ export function buildRuntimeInspectorMcpArgs(
     launch.checkpointDataDir,
     '--model-router-base-url',
     modelRouter.baseUrl,
-    '--kun-base-url',
-    runtimeBaseUrl(runtime.baseUrl, runtime.port)
+	    '--runtime-base-url',
+	    localRuntimeBaseUrl(runtime.port)
   ]
   const workspaceRoot = settings.workspaceRoot.trim()
   if (workspaceRoot) args.push('--workspace-root', workspaceRoot)
@@ -112,13 +112,13 @@ export function buildRuntimeInspectorMcpServerConfig(
   })
 }
 
-export function buildRuntimeInspectorKunMcpServerConfig(
+export function buildRuntimeInspectorLocalRuntimeMcpServerConfig(
   settings: AppSettingsV1,
   launch: RuntimeInspectorMcpLaunchConfig,
   existing: unknown = {}
 ): JsonRecord {
   const env = stringRecord((existing as { env?: unknown } | null)?.env)
-  return buildManagedGuiKunMcpServerConfig({
+  return buildManagedGuiLocalRuntimeMcpServerConfig({
     descriptor: GUI_RUNTIME_INSPECTOR_MCP_DESCRIPTOR,
     launch,
     args: buildRuntimeInspectorMcpArgs(settings, launch),
@@ -134,7 +134,7 @@ export function buildSyncedRuntimeInspectorMcpJson(
 ): JsonRecord {
   void settings
   void launch
-  return buildExternalKunMcpJson(existing, managedGuiMcpNames(GUI_RUNTIME_INSPECTOR_MCP_DESCRIPTOR))
+  return buildExternalLocalRuntimeMcpJson(existing, managedGuiMcpNames(GUI_RUNTIME_INSPECTOR_MCP_DESCRIPTOR))
 }
 
 export async function syncRuntimeInspectorMcpConfig(
@@ -142,15 +142,13 @@ export async function syncRuntimeInspectorMcpConfig(
   launch: RuntimeInspectorMcpLaunchConfig,
   paths: RuntimeInspectorMcpConfigPaths = {}
 ): Promise<void> {
-  const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
+  const mcpJsonPath = paths.mcpJsonPath ?? resolveLocalRuntimeMcpJsonPath()
   void settings
   void launch
-  await syncExternalKunMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_RUNTIME_INSPECTOR_MCP_DESCRIPTOR))
+  await syncExternalLocalRuntimeMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_RUNTIME_INSPECTOR_MCP_DESCRIPTOR))
 }
 
-function runtimeBaseUrl(baseUrl: string, port: number): string {
-  const trimmed = baseUrl.trim()
-  if (trimmed) return trimmed.replace(/\/+$/, '')
+function localRuntimeBaseUrl(port: number): string {
   return `http://127.0.0.1:${port}`
 }
 

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CapabilityRegistry } from '../src/adapters/tool/capability-registry.js'
 import { LocalToolHost } from '../src/adapters/tool/local-tool-host.js'
 import { buildMemoryToolProviders } from '../src/adapters/tool/memory-tool-provider.js'
-import { KunCapabilitiesConfig, type MemoryCapabilityConfig } from '../src/contracts/capabilities.js'
+import { LocalRuntimeCapabilitiesConfig, type MemoryCapabilityConfig } from '../src/contracts/capabilities.js'
 import { FileMemoryStore } from '../src/memory/memory-store.js'
 import type { ModelClient, ModelRequest } from '../src/ports/model-client.js'
 import { dispatchRequest } from '../src/server/http-server.js'
@@ -193,7 +193,7 @@ describe('Memory store and recall', () => {
   }
 
   function memoryConfig(overrides: Partial<MemoryCapabilityConfig> = {}) {
-    return KunCapabilitiesConfig.parse({
+    return LocalRuntimeCapabilitiesConfig.parse({
       memory: {
         enabled: true,
         ...overrides

@@ -96,12 +96,12 @@ describe('app-ipc-schemas', () => {
 
   it('accepts neutral agent runtime event subscription and control payloads', () => {
     expect(agentRuntimeEventSubscribePayloadSchema.parse({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: ' thread-1 ',
       sinceSeq: 7,
       streamId: ' stream-1 '
     })).toEqual({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       sinceSeq: 7,
       streamId: 'stream-1'
@@ -152,35 +152,35 @@ describe('app-ipc-schemas', () => {
     })
 
     expect(agentRuntimeThreadCompactPayloadSchema.parse({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: ' thread-1 ',
       reason: ' Manual cleanup '
     })).toEqual({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       reason: 'Manual cleanup'
     })
 
     expect(agentRuntimeThreadForkPayloadSchema.parse({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: ' thread-1 ',
       relation: ' side ',
       title: ' Side path '
     })).toEqual({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       relation: 'side',
       title: 'Side path'
     })
 
     expect(agentRuntimeSessionResumePayloadSchema.parse({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       sessionId: ' session-1 ',
       model: ' deepseek-v4-pro ',
       mode: ' agent ',
       maxResumeCount: 3
     })).toEqual({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       sessionId: 'session-1',
       model: 'deepseek-v4-pro',
       mode: 'agent',
@@ -188,23 +188,23 @@ describe('app-ipc-schemas', () => {
     })
 
     expect(agentRuntimeThreadRelationPayloadSchema.parse({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: ' thread-1 ',
       relation: ' primary '
     })).toEqual({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       relation: 'primary'
     })
 
     expect(agentRuntimeUsagePayloadSchema.parse({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       groupBy: 'day',
       from: ' 2026-06-01 ',
       to: ' 2026-06-11 ',
       timezone: ' Asia/Shanghai '
     })).toEqual({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       groupBy: 'day',
       from: '2026-06-01',
       to: '2026-06-11',
@@ -299,7 +299,7 @@ describe('app-ipc-schemas', () => {
       'previewWorkspaceReference'
     ] as const) {
       expect(agentRuntimeAuxiliaryPayloadSchema.parse({
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         operation,
         payload: { threadId: 'thread-1' }
       }).operation).toBe(operation)
@@ -377,7 +377,7 @@ describe('app-ipc-schemas', () => {
     ).toThrow(/Unrecognized key/)
   })
 
-  it('accepts a valid settings patch for kun and write settings', () => {
+  it('accepts a valid settings patch for local runtime and write settings', () => {
     const payload = settingsPatchSchema.parse({
       theme: 'dark',
       activeAgentRuntime: 'claude',
@@ -389,7 +389,7 @@ describe('app-ipc-schemas', () => {
         }
       },
       agents: {
-        kun: {
+        sciforge: {
           port: 9000,
           model: 'deepseek-chat',
           tokenEconomy: {
@@ -422,15 +422,28 @@ describe('app-ipc-schemas', () => {
       }
     })
 
-    expect(payload.agents?.kun?.port).toBe(9000)
-    expect(payload.agents?.kun?.tokenEconomy?.enabled).toBe(true)
-    expect(payload.agents?.kun?.tokenEconomy?.historyHygiene?.maxToolResultTokens).toBe(4000)
+    expect(payload.agents?.sciforge?.port).toBe(9000)
+    expect(payload.agents?.sciforge?.tokenEconomy?.enabled).toBe(true)
+    expect(payload.agents?.sciforge?.tokenEconomy?.historyHygiene?.maxToolResultTokens).toBe(4000)
     expect(payload.activeAgentRuntime).toBe('claude')
     expect(payload.agentCapabilities?.subagents?.maxParallel).toBe(3)
     expect(payload.agentCapabilities?.subagents?.maxChildRuns).toBe(6)
     expect(payload.agents?.codex?.codexHome).toBe('/tmp/codex-home')
     expect(payload.agents?.claude?.configDir).toBe('/tmp/claude-code')
     expect(payload.write?.inlineCompletion?.model).toBe('deepseek-v4-pro')
+  })
+
+  it('rejects Local Runtime credential override patches', () => {
+    expect(() =>
+      settingsPatchSchema.parse({
+        agents: {
+          sciforge: {
+            apiKey: 'sk-local',
+            baseUrl: 'https://local-runtime.example/v1'
+          }
+        }
+      })
+    ).toThrow(/Unrecognized key/)
   })
 
   it('accepts schedule settings patches and task payloads', () => {
@@ -530,7 +543,7 @@ describe('app-ipc-schemas', () => {
       reasonix: { model: 'legacy-reasoner' },
       quickChat: { enabled: true },
       agents: {
-        kun: {
+        sciforge: {
           port: 9001
         },
         reasonix: {
@@ -543,7 +556,7 @@ describe('app-ipc-schemas', () => {
     })
 
     expect(payload.locale).toBe('zh')
-    expect(payload.agents?.kun?.port).toBe(9001)
+    expect(payload.agents?.sciforge?.port).toBe(9001)
     expect('reasonix' in payload).toBe(false)
     expect('quickChat' in payload).toBe(false)
     expect('reasonix' in (payload.agents ?? {})).toBe(false)
@@ -586,7 +599,7 @@ describe('app-ipc-schemas', () => {
     expect(() =>
       settingsPatchSchema.parse({
         agents: {
-          kun: {
+          sciforge: {
             mysteryFlag: true
           }
         }
@@ -594,11 +607,11 @@ describe('app-ipc-schemas', () => {
     ).toThrow(/Unrecognized key/)
   })
 
-  it('rejects legacy Kun tool storm patches in favor of runtime guards', () => {
+  it('rejects legacy local runtime tool storm patches in favor of runtime guards', () => {
     expect(() =>
       settingsPatchSchema.parse({
         agents: {
-          kun: {
+          sciforge: {
             runtimeTuning: {
               toolStorm: {
                 threshold: 4

@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   buildClaudeCodeManagedGuiMcpServers,
   buildCodexManagedGuiMcpServers,
-  buildKunManagedGuiMcpServers,
+  buildLocalRuntimeManagedGuiMcpServers,
   managedGuiMcpServerNames
 } from './gui-mcp-registry'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -44,7 +44,7 @@ function createSettings(): AppSettingsV1 {
       baseUrl: 'http://127.0.0.1:4567/v1'
     },
     agents: {
-      kun: defaultKunRuntimeSettings(9876)
+      sciforge: defaultLocalRuntimeSettings(9876)
     },
     workspaceRoot: '/tmp/project',
     log: {
@@ -79,7 +79,7 @@ function createSettings(): AppSettingsV1 {
 }
 
 describe('GUI MCP runtime registry', () => {
-  it('exposes every managed server name that must be stripped from external Kun mcp.json', () => {
+  it('exposes every managed server name that must be stripped from external local runtime mcp.json', () => {
     expect(managedGuiMcpServerNames()).toEqual(expect.arrayContaining([
       'gui_schedule',
       'gui_research',
@@ -93,9 +93,9 @@ describe('GUI MCP runtime registry', () => {
     ]))
   })
 
-  it('builds Kun managed server configs from shared descriptors and preserves existing env safely', () => {
+  it('builds local runtime managed server configs from shared descriptors and preserves existing env safely', () => {
     const settings = createSettings()
-    const servers = buildKunManagedGuiMcpServers({
+    const servers = buildLocalRuntimeManagedGuiMcpServers({
       scheduleMcp: { settings, launch },
       researchMemoryMcp: { settings, launch },
       workflowMcp: { settings, launch },
@@ -200,12 +200,12 @@ describe('GUI MCP runtime registry', () => {
     })
   })
 
-  it('reuses one computer-use MCP launch contract across Kun, Codex, and Claude Code', () => {
+  it('reuses one computer-use MCP launch contract across local runtime, Codex, and Claude Code', () => {
     const sharedLaunch = {
       ...launch,
       statusPath: '/tmp/computer-use-status.json'
     }
-    const kun = buildKunManagedGuiMcpServers({
+    const localRuntime = buildLocalRuntimeManagedGuiMcpServers({
       computerUseMcp: { launch: sharedLaunch }
     })[GUI_COMPUTER_USE_MCP_SERVER_NAME] as Record<string, unknown>
     const codex = buildCodexManagedGuiMcpServers({
@@ -215,7 +215,7 @@ describe('GUI MCP runtime registry', () => {
       computerUseMcp: { launch: sharedLaunch }
     })[GUI_COMPUTER_USE_MCP_SERVER_NAME]
 
-    expect(kun).toMatchObject({
+    expect(localRuntime).toMatchObject({
       command: codex?.command,
       args: codex?.args,
       env: {
@@ -224,9 +224,9 @@ describe('GUI MCP runtime registry', () => {
       }
     })
     expect(codex).toMatchObject({
-      command: kun.command,
-      args: kun.args,
-      env: kun.env,
+      command: localRuntime.command,
+      args: localRuntime.args,
+      env: localRuntime.env,
       enabledTools: [COMPUTER_USE_MCP_TOOL_NAME]
     })
     expect(claude).toMatchObject({

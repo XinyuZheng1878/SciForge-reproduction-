@@ -88,8 +88,8 @@ export function buildThreadUsageQuery(threadId: string): { groupBy: 'thread'; th
 }
 
 export async function loadThreadUsage(threadId: string): Promise<ThreadUsageSummary | null> {
-  if (typeof window.dsGui?.agentRuntime?.usage !== 'function') return null
-  const parsed = await window.dsGui.agentRuntime.usage(buildThreadUsageQuery(threadId)) as {
+  if (typeof window.sciforge?.agentRuntime?.usage !== 'function') return null
+  const parsed = await window.sciforge.agentRuntime.usage(buildThreadUsageQuery(threadId)) as {
     supported?: unknown
     groupBy?: unknown
     group_by?: unknown

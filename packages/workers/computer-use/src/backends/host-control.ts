@@ -1,5 +1,5 @@
 /**
- * Host computer-use executor adapted from upstream Kun. It captures the
+ * Host computer-use executor adapted from the local runtime. It captures the
  * screen and injects mouse / keyboard input on the host OS via
  * `@computer-use/nut-js`, with `jimp` used to downscale screenshots.
  *

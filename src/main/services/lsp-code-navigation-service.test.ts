@@ -87,7 +87,7 @@ process.stdin.on('data', (chunk) => {
 `
 
 async function workspaceWithFakeTsLs(): Promise<{ workspaceRoot: string; sourcePath: string }> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-lsp-'))
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-lsp-'))
   const sourceDir = join(workspaceRoot, 'src')
   const binDir = join(workspaceRoot, 'node_modules', '.bin')
   await mkdir(sourceDir, { recursive: true })
@@ -104,10 +104,10 @@ async function workspaceWithFakeTsLs(): Promise<{ workspaceRoot: string; sourceP
   return { workspaceRoot, sourcePath: await realpath(join(sourceDir, 'main.ts')) }
 }
 
-function adapter(runtimeId: 'kun' | 'codex' | 'claude'): AgentRuntimeAdapter {
+function adapter(runtimeId: 'sciforge' | 'codex' | 'claude'): AgentRuntimeAdapter {
   return {
     id: runtimeId,
-    transport: runtimeId === 'kun' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
+    transport: runtimeId === 'sciforge' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
   } as AgentRuntimeAdapter
 }
 
@@ -171,7 +171,7 @@ describe('LspCodeNavigationService', () => {
 
   it('returns a recoverable error when no TypeScript language server is available', async () => {
     vi.stubEnv('PATH', '/definitely-empty')
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-lsp-missing-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-lsp-missing-'))
     await writeFile(join(workspaceRoot, 'main.ts'), 'export const answer = 42\n', 'utf8')
     const service = new LspCodeNavigationService()
     try {
@@ -201,11 +201,11 @@ describe('LspCodeNavigationService', () => {
         activeAgentRuntime: 'codex',
         workspaceRoot
       }) as AppSettingsV1,
-      adapters: [adapter('kun'), adapter('codex'), adapter('claude')],
+      adapters: [adapter('sciforge'), adapter('codex'), adapter('claude')],
       services: { codeNavigation: service }
     })
     try {
-      for (const runtimeId of ['kun', 'codex', 'claude'] as const) {
+      for (const runtimeId of ['sciforge', 'codex', 'claude'] as const) {
         for (const operation of ['goToDefinition', 'findReferences'] as const) {
           await expect(host.auxiliary({
             runtimeId,

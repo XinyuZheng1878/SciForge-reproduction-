@@ -4,17 +4,17 @@ export type SkillRootId =
   | 'workspace-agents'
   | 'workspace-skills'
   | 'global-agents'
-  | 'global-deepseek'
+  | 'global-sciforge'
 
 const DEFAULT_SKILL_ROOT_ID: SkillRootId = 'workspace-agents'
-const SKILL_ROOT_PREFERENCE_KEY = 'deepseekgui.skillRootPreference'
+const SKILL_ROOT_PREFERENCE_KEY = 'sciforge.skillRootPreference'
 
 function isSkillRootId(value: string): value is SkillRootId {
   return (
     value === 'workspace-agents' ||
     value === 'workspace-skills' ||
     value === 'global-agents' ||
-    value === 'global-deepseek'
+    value === 'global-sciforge'
   )
 }
 

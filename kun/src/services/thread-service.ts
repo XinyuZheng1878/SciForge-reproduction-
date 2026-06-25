@@ -26,7 +26,7 @@ import type { AgentSession } from '../domain/session.js'
 import { repairModelHistoryItems } from '../domain/model-history-repair.js'
 import type { RuntimeEventRecorder } from './runtime-event-recorder.js'
 import { withFileMutationQueue } from '../adapters/tool/file-mutation-queue.js'
-import { DEFAULT_KUN_MODEL } from '../config/kun-config.js'
+import { DEFAULT_LOCAL_RUNTIME_MODEL } from '../config/kun-config.js'
 import { isGuiPlanRelativePath } from '../shared/gui-plan.js'
 import {
   extractPlanTodos,
@@ -443,7 +443,7 @@ export class ThreadService {
       id: threadId,
       title: `${sourceTitle} resumed`,
       workspace: options.workspace ?? sourceThread?.workspace ?? '~',
-      model: options.model ?? sourceThread?.model ?? DEFAULT_KUN_MODEL,
+      model: options.model ?? sourceThread?.model ?? DEFAULT_LOCAL_RUNTIME_MODEL,
       mode: options.mode ?? sourceThread?.mode ?? 'agent',
       status: 'idle',
       approvalPolicy: sourceThread?.approvalPolicy,

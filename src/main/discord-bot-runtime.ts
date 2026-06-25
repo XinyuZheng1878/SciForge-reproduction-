@@ -27,7 +27,7 @@ import type {
   DiscordGuild,
   DiscordGuildListResult,
   DiscordTestSendResult
-} from '../shared/ds-gui-api'
+} from '../shared/sciforge-api'
 import type { JsonSettingsStore } from './settings-store'
 import type {
   ClawIncomingImMessageInput,
@@ -46,7 +46,6 @@ const DISCORD_TEXT_CHANNEL_TYPES = new Set([0, 5])
 const MAX_DISCORD_MESSAGE_LENGTH = 2_000
 const MESSAGE_CONTENT_WARNING_INTERVAL_MS = 10 * 60_000
 const INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.sciforge/claw/'
-const LEGACY_INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.deepseekgui/claw/'
 const DISCORD_MESSAGE_FAILURE_REPLY = 'Sorry, I could not process that message.'
 const DISCORD_COMMAND_FAILURE_REPLY = 'Sorry, I could not process that command.'
 const require = createRequire(import.meta.url)
@@ -339,9 +338,7 @@ function normalizeWorkspaceRoot(raw: string | null | undefined): string {
 function isInternalClawWorkspaceRoot(workspaceRoot: string): boolean {
   const normalized = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   return normalized.includes(INTERNAL_CLAW_WORKSPACE_FRAGMENT) ||
-    normalized.includes(LEGACY_INTERNAL_CLAW_WORKSPACE_FRAGMENT) ||
-    normalized.startsWith('~/.sciforge/claw/') ||
-    normalized.startsWith('~/.deepseekgui/claw/')
+    normalized.startsWith('~/.sciforge/claw/')
 }
 
 function resolveDiscordChannelWorkspaceRoot(

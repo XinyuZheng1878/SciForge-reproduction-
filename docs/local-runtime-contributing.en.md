@@ -1,15 +1,15 @@
-# Kun Contribution Guide: Architecture, design patterns and code organization ideas
+# SciForge Runtime Contribution Guide: Architecture, design patterns and code organization ideas
 
 > Applicable to: Any engineer who wants to contribute code to the `kun/` package.
 > Reading path: For your first contribution, you can read the entire text in order; come back later to find specific chapters.
-> Supporting documents:[`kun-architecture.md`](./kun-architecture.md)
+> Supporting documents:[`local-runtime-architecture.md`](./local-runtime-architecture.md)
 > It talks about "why it is designed this way", and this article talks about "how to write code according to this design".
 
 ---
 
 ## 1. One sentence summary
 
-**Kun is a strict implementation of Ports & Adapters + Functional Core / Imperative
+**SciForge Runtime is a strict implementation of Ports & Adapters + Functional Core / Imperative
 TypeScript package for Shell**. Every modification should:
 
 1. First use zod to write the schema in `contracts/` and export the type;
@@ -27,7 +27,7 @@ Let’s expand this path with real code.
 
 ## 2. Overall architecture: Hexagonal (Hexagonal / Ports & Adapters)
 
-Kun's directory itself is a hexagonal physical layout:
+SciForge Runtime's directory itself is a hexagonal physical layout:
 
 ```text
                        ┌─────────────────────────────┐
@@ -113,7 +113,7 @@ Every time you change a layer, run `npm test`. This is "increment by layer".
 
 ## 3. Core design patterns
 
-Kun uses multiple classic patterns simultaneously, which reinforce each other rather than conflict.
+SciForge Runtime uses multiple classic patterns simultaneously, which reinforce each other rather than conflict.
 
 ### 3.1 Ports & Adapters (Hexagonal)
 
@@ -448,9 +448,9 @@ If a change is not covered in a certain layer, first ask "which layer should be 
 
 ### 4.5 Documentation precedes code, but is synchronized with code
 
-- `docs/kun-architecture.md` describes "why it is designed this way";
+- `docs/local-runtime-architecture.md` describes "why it is designed this way";
 - `kun/README.md` description CLI/env/data dir;
-- `docs/kun-contributing.md` (this article) describes "how to contribute";
+- `docs/local-runtime-contributing.md` (this article) describes "how to contribute";
 - `docs/AGENTS.md` describes which files should be changed when extending.
 
 **Contribution Rules**:
@@ -576,7 +576,7 @@ Before submitting a PR, confirm each item:
 - [ ] New ports/contracts/loop functions have at least 1 test
 - [ ] run `cd kun && npm run typecheck && npm test`
 - [ ] run `cd .. && npm run typecheck && npm test`
-- [ ] Do not modify any files other than those described in `docs/kun-architecture.md`
+- [ ] Do not modify any files other than those described in `docs/local-runtime-architecture.md`
       to "bypass" typecheck
 
 ### 6.2 Recommended
@@ -585,7 +585,7 @@ Before submitting a PR, confirm each item:
       Write it in the PR description
 - [ ] When the public contract is changed, update the `kun/README.md` endpoint table
 - [ ] When references/acknowledgments change, update root directories `README.md` and `README.en.md`
-- [ ] When adding a new SSE event, add a line to `docs/kun-architecture.md`- [ ] in the borrow map of `docs/kun-architecture.md` (as in the future
+- [ ] When adding a new SSE event, add a line to `docs/local-runtime-architecture.md`- [ ] in the borrow map of `docs/local-runtime-architecture.md` (as in the future
       Add OpenAI-style reference) to explain the design source
 
 ### 6.3 Don’t do it
@@ -622,7 +622,7 @@ Before submitting a PR, confirm each item:
 
 Back to the "one sentence summary" at the beginning:
 
-> **Kun is a strict implementation of Ports & Adapters + Functional Core /
+> **SciForge Runtime is a strict implementation of Ports & Adapters + Functional Core /
 > TypeScript package for Imperative Shell**.
 
 Every new PR follows this diagram: define contract → describe port → write functional

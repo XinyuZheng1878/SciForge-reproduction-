@@ -1,7 +1,6 @@
 import {
   DEFAULT_MODEL_ROUTER_BASE_URL,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
-  LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   type AppSettingsV1,
   type ModelRouterMemberProviderSettingsPatchV1,
   type ModelRouterMemberProviderSettingsV1,
@@ -142,8 +141,7 @@ function normalizeModelRouterMemberProvider(
 }
 
 function normalizeModelRouterPublicModelAlias(value: unknown, fallback: string): string {
-  const alias = nonEmptyString(value, fallback)
-  return alias === LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS ? DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS : alias
+  return nonEmptyString(value, fallback)
 }
 
 function nonEmptyString(value: unknown, fallback: string): string {

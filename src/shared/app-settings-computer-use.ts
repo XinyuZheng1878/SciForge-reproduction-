@@ -52,7 +52,7 @@ export function isComputerUseEnabledForRuntime(
 
 function defaultComputerUseRuntimeEnabled(): Record<AgentRuntimeId, boolean> {
   return {
-    kun: true,
+    sciforge: true,
     codex: true,
     claude: true
   }
@@ -63,7 +63,7 @@ function normalizeComputerUseRuntimeEnabled(
 ): Record<AgentRuntimeId, boolean> {
   const defaults = defaultComputerUseRuntimeEnabled()
   return {
-    kun: input?.kun !== false && defaults.kun,
+    sciforge: input?.sciforge !== false && defaults.sciforge,
     codex: input?.codex !== false && defaults.codex,
     claude: input?.claude !== false && defaults.claude
   }

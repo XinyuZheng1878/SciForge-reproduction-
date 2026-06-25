@@ -9,8 +9,6 @@ export function workspaceRootIdentityKey(path?: string): string {
   if (
     normalized === '~/.sciforge/default_workspace'
     || normalized.endsWith('/.sciforge/default_workspace')
-    || normalized === '~/.deepseekgui/default_workspace'
-    || normalized.endsWith('/.deepseekgui/default_workspace')
   ) {
     return '~/.sciforge/default_workspace'
   }
@@ -37,18 +35,16 @@ export function isClawWorkspacePath(path?: string): boolean {
   const trimmed = path?.trim() ?? ''
   if (!trimmed) return false
   const normalized = normalizePathForMatch(trimmed)
-  return normalized.includes('/.sciforge/claw/') || normalized.includes('/.deepseekgui/claw/')
+  return normalized.includes('/.sciforge/claw/')
 }
 
-export function isInternalDeepSeekGuiWorkspace(path?: string): boolean {
+export function isInternalSciForgeWorkspace(path?: string): boolean {
   const trimmed = path?.trim() ?? ''
   if (!trimmed) return false
   const normalized = normalizePathForMatch(trimmed)
   return (
     normalized === '~/.sciforge/write_workspace'
     || normalized.endsWith('/.sciforge/write_workspace')
-    || normalized === '~/.deepseekgui/write_workspace'
-    || normalized.endsWith('/.deepseekgui/write_workspace')
   )
 }
 

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
@@ -35,7 +35,7 @@ function settings(): AppSettingsV1 {
       runtimeApiKey: 'local-runtime-router-key'
     },
     agents: {
-      kun: defaultKunRuntimeSettings()
+      sciforge: defaultLocalRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: false, retentionDays: 7 },

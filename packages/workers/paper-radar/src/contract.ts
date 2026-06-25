@@ -202,7 +202,7 @@ export const paperProfileSaveToolInputSchema = z.object({
 }).strict()
 
 export const paperProfileSyncToolInputSchema = z.object({
-  profile: optionalTrimmedString(80).describe('Profile name. Defaults to lab_default.'),
+  profile: optionalTrimmedString(80).describe('Profile name. Defaults to the configured default profile.'),
   from: dateString.optional(),
   to: dateString.optional(),
   max_records: maxRecordsSchema,

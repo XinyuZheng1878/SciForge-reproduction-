@@ -2,12 +2,11 @@ import type { NormalizedThread } from '../agent/types'
 import { browserStorage, type BrowserStorageLike } from '../lib/browser-storage'
 import type { SddDraft } from './sdd-draft-store'
 
-const SDD_THREAD_REGISTRY_KEY = 'deepseekgui.sdd.threadRegistry.v1'
+const SDD_THREAD_REGISTRY_KEY = 'sciforge.sdd.threadRegistry.v1'
 const MAX_SDD_THREAD_RECORDS = 100
 const MAX_SDD_THREAD_IDS_PER_DRAFT = 20
 const SDD_DRAFT_PATH_FRAGMENTS = [
-  '.deepseekgui/sdd/requirements/',
-  '.kunsdd/draft/'
+  '.sciforge/sdd/requirements/'
 ]
 
 export type SddThreadRecord = {

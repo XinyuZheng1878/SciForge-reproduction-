@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { redactSecrets, redactSecretText } from '../shared/secret-redaction'
 
 export type LogLevel = 'error' | 'warn' | 'info'
-export type ManagedLogFilePrefix = 'sciforge' | 'deepseek-gui' | 'kun'
+export type ManagedLogFilePrefix = 'sciforge' | 'sciforge-runtime' | 'kun'
 
 type LoggerConfig = {
   /** Directory where log files are stored. */
@@ -15,7 +15,7 @@ type LoggerConfig = {
 }
 
 let cfg: LoggerConfig = { dir: '', enabled: true, retentionDays: 2 }
-const MANAGED_LOG_FILE_PREFIXES = ['sciforge', 'deepseek-gui', 'kun'] as const
+const MANAGED_LOG_FILE_PREFIXES = ['sciforge', 'sciforge-runtime', 'kun'] as const
 
 export function configureLogger(config: Partial<LoggerConfig>): void {
   cfg = { ...cfg, ...config }

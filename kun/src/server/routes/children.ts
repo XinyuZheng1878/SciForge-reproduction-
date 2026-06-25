@@ -13,7 +13,7 @@ export async function listThreadChildren(
       ...(query.turnId ? { turnId: query.turnId } : {}),
       children: [],
       degraded: true,
-      reason: 'Kun subagents are disabled or unavailable.'
+      reason: 'Local runtime subagents are disabled or unavailable.'
     })
   }
   const diagnostics = await runtime.delegationRuntime.diagnostics(threadId)
@@ -43,15 +43,15 @@ export async function readChildTranscript(
   childId: string
 ): Promise<JsonResponse> {
   if (!runtime.delegationRuntime) {
-    return degradedChildTranscript(threadId, childId, 'Kun subagents are disabled or unavailable.')
+    return degradedChildTranscript(threadId, childId, 'Local runtime subagents are disabled or unavailable.')
   }
   const child = await runtime.delegationRuntime.child(threadId, childId)
   if (!child) {
-    return degradedChildTranscript(threadId, childId, 'Kun child agent run was not found.')
+    return degradedChildTranscript(threadId, childId, 'Local runtime child agent run was not found.')
   }
   return jsonResponse({
     transcript: {
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId,
       parentThreadId: threadId,
       childId,
@@ -60,10 +60,10 @@ export async function readChildTranscript(
       transcriptRef: {
         id: child.id,
         kind: 'runtime',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         childId: child.id,
         transcriptId: child.id,
-        source: 'kun-child-run',
+        source: 'local-runtime-child-run',
         label: child.label || child.id
       },
       format: 'jsonl',
@@ -72,7 +72,7 @@ export async function readChildTranscript(
       usage: child.usage,
       ...(child.error ? { reason: child.error } : {}),
       metadata: {
-        source: 'kun.child-runs',
+        source: 'local-runtime.child-runs',
         status: child.status
       }
     }
@@ -86,7 +86,7 @@ function degradedChildTranscript(
 ): JsonResponse {
   return jsonResponse({
     transcript: {
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId,
       parentThreadId: threadId,
       childId,

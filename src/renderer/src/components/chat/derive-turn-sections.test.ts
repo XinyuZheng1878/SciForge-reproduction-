@@ -150,17 +150,17 @@ describe('deriveTurnSections', () => {
 
   it('merges repeated file changes for the same displayed path', () => {
     const firstPatch = [
-      'diff --git a/.kunsdd/draft/plan/requirement.md b/.kunsdd/draft/plan/requirement.md',
-      '--- a/.kunsdd/draft/plan/requirement.md',
-      '+++ b/.kunsdd/draft/plan/requirement.md',
+      'diff --git a/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md b/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      '--- a/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      '+++ b/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       '@@ -1,1 +1,1 @@',
       '-old title',
       '+new title'
     ].join('\n')
     const secondPatch = [
-      'diff --git a/.kunsdd/draft/plan/requirement.md b/.kunsdd/draft/plan/requirement.md',
-      '--- a/.kunsdd/draft/plan/requirement.md',
-      '+++ b/.kunsdd/draft/plan/requirement.md',
+      'diff --git a/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md b/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      '--- a/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+      '+++ b/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
       '@@ -4,1 +4,2 @@',
       ' context',
       '+new detail'
@@ -172,7 +172,7 @@ describe('deriveTurnSections', () => {
         summary: 'Edit requirement',
         status: 'success',
         toolKind: 'file_change',
-        filePath: '/tmp/.kunsdd/draft/plan/requirement.md',
+        filePath: '/tmp/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
         detail: firstPatch
       },
       {
@@ -181,7 +181,7 @@ describe('deriveTurnSections', () => {
         summary: 'Edit requirement again',
         status: 'success',
         toolKind: 'file_change',
-        filePath: '/tmp/.kunsdd/draft/plan/requirement.md',
+        filePath: '/tmp/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
         detail: secondPatch
       }
     ])
@@ -189,7 +189,7 @@ describe('deriveTurnSections', () => {
     expect(result.turnFileChanges).toHaveLength(1)
     expect(result.turnFileChanges[0]).toMatchObject({
       id: 'tool_first_edit',
-      filePath: '.kunsdd/draft/plan/requirement.md'
+      filePath: '.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md'
     })
     expect(result.turnFileChanges[0]?.detail).toContain('+new title')
     expect(result.turnFileChanges[0]?.detail).toContain('+new detail')

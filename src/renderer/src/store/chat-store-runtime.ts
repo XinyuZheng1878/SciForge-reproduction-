@@ -222,7 +222,7 @@ function notifyTurnComplete(threadId: string | null, state: ChatState, dedupeKey
   if (
     !threadId ||
     typeof window === 'undefined' ||
-    typeof window.dsGui?.showTurnCompleteNotification !== 'function'
+    typeof window.sciforge?.showTurnCompleteNotification !== 'function'
   ) return
   if (!rememberCompletionNotificationKey(dedupeKey)) return
 
@@ -230,22 +230,22 @@ function notifyTurnComplete(threadId: string | null, state: ChatState, dedupeKey
     state.threads.find((thread) => thread.id === threadId)?.title?.trim() ||
     i18n.t('common:untitledThread')
 
-  void window.dsGui
+  void window.sciforge
     .showTurnCompleteNotification({
       threadId,
       title: i18n.t('common:turnCompleteNotificationTitle'),
       body: i18n.t('common:turnCompleteNotificationBody', { title: threadTitle })
     })
     .then((result) => {
-      if (result.ok || typeof window.dsGui?.logError !== 'function') return
-      void window.dsGui.logError('notification', 'Turn completion notification failed', {
+      if (result.ok || typeof window.sciforge?.logError !== 'function') return
+      void window.sciforge.logError('notification', 'Turn completion notification failed', {
         message: result.message,
         threadId
       }).catch(() => undefined)
     })
     .catch((error: unknown) => {
-      if (typeof window.dsGui?.logError !== 'function') return
-      void window.dsGui.logError('notification', 'Turn completion notification failed', {
+      if (typeof window.sciforge?.logError !== 'function') return
+      void window.sciforge.logError('notification', 'Turn completion notification failed', {
         message: error instanceof Error ? error.message : String(error),
         threadId
       }).catch(() => undefined)
@@ -499,7 +499,7 @@ function runtimeStatusText(event: RuntimeStatusEventPayload): string {
 }
 
 function runtimeDisplayName(runtimeId: string | undefined): string {
-  if (runtimeId === 'kun') return 'Kun'
+  if (runtimeId === 'sciforge') return 'SciForge Runtime'
   if (runtimeId === 'codex') return 'Codex'
   if (runtimeId === 'claude') return 'Claude'
   return runtimeId?.trim() || 'runtime'
@@ -730,9 +730,9 @@ export function buildThreadEventSink(
       pendingMirror &&
       assistantMirrorText &&
       typeof window !== 'undefined' &&
-      typeof window.dsGui?.mirrorClawChannelMessage === 'function'
+      typeof window.sciforge?.mirrorClawChannelMessage === 'function'
     ) {
-      void window.dsGui.mirrorClawChannelMessage(
+      void window.sciforge.mirrorClawChannelMessage(
         pendingMirror.threadId,
         assistantMirrorText,
         'assistant'

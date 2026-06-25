@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
@@ -31,12 +31,9 @@ function createSettings(patch: Partial<AppSettingsV1['write']['inlineCompletion'
     theme: 'system',
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
-    agents: {
-      kun: {
-        ...defaultKunRuntimeSettings(),
-        apiKey: 'sk-test'
-      }
-    },
+	    agents: {
+	      sciforge: defaultLocalRuntimeSettings()
+	    },
     modelRouter: {
       ...defaultModelRouterSettings(),
       runtimeApiKey: 'sk-router'
@@ -235,7 +232,7 @@ describe('requestWriteInlineCompletion', () => {
     })
   })
 
-  it('ignores General/Kun/write direct-provider settings in favor of the router settings', async () => {
+  it('ignores General/local runtime/write direct-provider settings in favor of the router settings', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ output_text: ' fallback text' }), {
         status: 200,
@@ -246,7 +243,7 @@ describe('requestWriteInlineCompletion', () => {
 
     const settings = createSettings()
     settings.provider.baseUrl = 'https://general.example/v1'
-    settings.agents.kun.model = 'deepseek-chat'
+    settings.agents.sciforge.model = 'deepseek-chat'
     settings.write.inlineCompletion.baseUrl = 'https://api.deepseek.com/beta'
     settings.write.inlineCompletion.model = 'deepseek-v4-flash'
 
@@ -280,7 +277,7 @@ describe('requestWriteInlineCompletion', () => {
       model: 'deepseek-v4-flash'
     })
     settings.provider.baseUrl = 'https://general.example/v1'
-    settings.agents.kun.model = 'deepseek-chat'
+    settings.agents.sciforge.model = 'deepseek-chat'
     settings.modelRouter!.publicModelAlias = 'custom-router-alias'
 
     const result = await requestWriteInlineCompletion(settings, {
@@ -364,7 +361,7 @@ describe('requestWriteInlineCompletion', () => {
   })
 
   it('adds BM25 retrieval snippets to the router prompt when workspace context is available', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'ds-gui-write-rag-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-write-rag-'))
     await mkdir(join(workspaceRoot, 'notes'), { recursive: true })
     await writeFile(
       join(workspaceRoot, 'notes', 'retrieval.md'),

@@ -7,6 +7,7 @@
  * gracefully instead of crashing app startup.
  */
 import { existsSync } from 'node:fs'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { BrowserWindow, IpcMain, WebContents } from 'electron'
@@ -27,11 +28,13 @@ import {
 type TerminalSession = {
   pty: IPty
   sender: WebContents
+  ownerToken: string
   ringBuffer: string
   exited: boolean
 }
 
 let nodePty: typeof import('node-pty') | null | undefined
+const TERMINAL_OWNER_TOKEN_BYTES = 32
 
 async function loadNodePty(): Promise<typeof import('node-pty') | null> {
   if (nodePty !== undefined) return nodePty
@@ -95,6 +98,17 @@ function sendToSender(sender: WebContents, channel: string, payload: unknown): v
   sender.send(channel, payload)
 }
 
+function createOwnerToken(): string {
+  return randomBytes(TERMINAL_OWNER_TOKEN_BYTES).toString('base64url')
+}
+
+function tokenMatches(expected: string, actual: string | undefined): boolean {
+  if (!actual) return false
+  const expectedBuffer = Buffer.from(expected)
+  const actualBuffer = Buffer.from(actual)
+  return expectedBuffer.length === actualBuffer.length && timingSafeEqual(expectedBuffer, actualBuffer)
+}
+
 export type RegisterTerminalPtyIpcOptions = {
   ipcMain: IpcMain
   getMainWindow: () => BrowserWindow | null
@@ -137,10 +151,24 @@ export function registerTerminalPtyIpc(options: RegisterTerminalPtyIpcOptions): 
     sender.once('destroyed', () => disposeForSender(sender))
   }
 
+  const canAttachSession = (
+    session: TerminalSession,
+    sender: WebContents,
+    ownerToken: string | undefined
+  ): boolean => {
+    return session.sender === sender || tokenMatches(session.ownerToken, ownerToken)
+  }
+
   ipcMain.handle('terminal:create', async (event, args: unknown) => {
     const request = terminalCreatePayloadSchema.parse(args)
     const existing = sessions.get(request.sessionId)
     if (existing && !existing.exited) {
+      if (!canAttachSession(existing, event.sender, request.ownerToken)) {
+        return {
+          ok: false as const,
+          message: 'Terminal session is already owned by another renderer.'
+        }
+      }
       if (existing.ringBuffer) {
         sendToSender(event.sender, 'terminal:data', {
           sessionId: request.sessionId,
@@ -149,9 +177,20 @@ export function registerTerminalPtyIpc(options: RegisterTerminalPtyIpcOptions): 
       }
       existing.sender = event.sender
       attachSenderCleanup(event.sender)
-      return { ok: true as const, sessionId: request.sessionId, replayed: true }
+      return {
+        ok: true as const,
+        sessionId: request.sessionId,
+        ownerToken: existing.ownerToken,
+        replayed: true
+      }
     }
     if (existing && existing.exited) {
+      if (!canAttachSession(existing, event.sender, request.ownerToken)) {
+        return {
+          ok: false as const,
+          message: 'Terminal session is already owned by another renderer.'
+        }
+      }
       disposeSession(request.sessionId, true)
     }
 
@@ -188,6 +227,7 @@ export function registerTerminalPtyIpc(options: RegisterTerminalPtyIpcOptions): 
       const session: TerminalSession = {
         pty,
         sender: event.sender,
+        ownerToken: createOwnerToken(),
         ringBuffer: '',
         exited: false
       }
@@ -205,7 +245,7 @@ export function registerTerminalPtyIpc(options: RegisterTerminalPtyIpcOptions): 
         sendToSender(session.sender, 'terminal:exit', { sessionId: request.sessionId, exitCode })
       })
 
-      return { ok: true as const, sessionId: request.sessionId }
+      return { ok: true as const, sessionId: request.sessionId, ownerToken: session.ownerToken }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       logError('terminal', 'Failed to spawn PTY', { sessionId: request.sessionId, message })
@@ -213,10 +253,10 @@ export function registerTerminalPtyIpc(options: RegisterTerminalPtyIpcOptions): 
     }
   })
 
-  ipcMain.handle('terminal:write', async (_event, args: unknown) => {
+  ipcMain.handle('terminal:write', async (event, args: unknown) => {
     const request = terminalWritePayloadSchema.parse(args)
     const session = sessions.get(request.sessionId)
-    if (!session || session.exited) return false
+    if (!session || session.exited || session.sender !== event.sender) return false
     try {
       session.pty.write(request.data)
       return true
@@ -229,10 +269,10 @@ export function registerTerminalPtyIpc(options: RegisterTerminalPtyIpcOptions): 
     }
   })
 
-  ipcMain.handle('terminal:resize', async (_event, args: unknown) => {
+  ipcMain.handle('terminal:resize', async (event, args: unknown) => {
     const request = terminalResizePayloadSchema.parse(args)
     const session = sessions.get(request.sessionId)
-    if (!session || session.exited) return false
+    if (!session || session.exited || session.sender !== event.sender) return false
     try {
       session.pty.resize(request.cols, request.rows)
       return true
@@ -245,8 +285,10 @@ export function registerTerminalPtyIpc(options: RegisterTerminalPtyIpcOptions): 
     }
   })
 
-  ipcMain.handle('terminal:dispose', async (_event, sessionId: unknown) => {
+  ipcMain.handle('terminal:dispose', async (event, sessionId: unknown) => {
     const normalized = terminalSessionIdSchema.parse(sessionId)
+    const session = sessions.get(normalized)
+    if (!session || session.sender !== event.sender) return false
     return disposeSession(normalized, true)
   })
 

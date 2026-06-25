@@ -24,7 +24,7 @@ describe('AppErrorBoundary', () => {
 
   it('writes render errors to the app log API when available', () => {
     const logError = vi.fn().mockResolvedValue(undefined)
-    vi.stubGlobal('window', { dsGui: { logError } })
+    vi.stubGlobal('window', { sciforge: { logError } })
     const boundary = new AppErrorBoundary({ children: null })
     const error = new Error('boom')
 

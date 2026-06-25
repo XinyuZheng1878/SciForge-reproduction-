@@ -31,10 +31,10 @@ class MockEventSource {
 
 const storage = new Map<string, string>()
 
-function installWindow(existingDsGui?: unknown): void {
+function installWindow(existingSciForge?: unknown, search = ''): void {
   const windowValue = {
-    dsGui: existingDsGui,
-    location: { search: '' },
+    sciforge: existingSciForge,
+    location: { search },
     sessionStorage: {
       getItem: vi.fn((key: string) => storage.get(key) ?? null),
       setItem: vi.fn((key: string, value: string) => storage.set(key, value))
@@ -50,7 +50,7 @@ function installWindow(existingDsGui?: unknown): void {
   })
 }
 
-describe('dev dsGui browser bridge', () => {
+describe('dev sciforge browser bridge', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.restoreAllMocks()
@@ -66,18 +66,18 @@ describe('dev dsGui browser bridge', () => {
     })
   })
 
-  it('installs window.dsGui in a plain dev browser and forwards calls to the bridge server', async () => {
+  it('installs window.sciforge in a plain dev browser and forwards calls to the bridge server', async () => {
     installWindow()
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
       payload: [{ id: 'thread-1', runtimeId: 'codex', title: 'Thread', updatedAt: '2026-06-12T00:00:00.000Z' }]
     })))
     Object.defineProperty(globalThis, 'fetch', { value: fetchMock, configurable: true })
-    const { installDevDsGuiBridge } = await import('./dev-ds-gui-bridge')
+    const { installDevSciForgeBridge } = await import('./dev-sciforge-bridge')
 
-    installDevDsGuiBridge()
+    installDevSciForgeBridge()
 
-    const result = await window.dsGui.agentRuntime.listThreads({ runtimeId: 'codex' })
+    const result = await window.sciforge.agentRuntime.listThreads({ runtimeId: 'codex' })
     expect(result).toEqual([
       { id: 'thread-1', runtimeId: 'codex', title: 'Thread', updatedAt: '2026-06-12T00:00:00.000Z' }
     ])
@@ -85,7 +85,7 @@ describe('dev dsGui browser bridge', () => {
       'http://127.0.0.1:5174/invoke',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({ 'X-DeepSeek-Gui-Client': 'client-1' }),
+        headers: expect.objectContaining({ 'X-SciForge-Client': 'client-1' }),
         body: JSON.stringify({
           channel: 'agentRuntime:listThreads',
           payload: { runtimeId: 'codex' }
@@ -95,17 +95,39 @@ describe('dev dsGui browser bridge', () => {
     expect(MockEventSource.instances[0]?.url).toBe('http://127.0.0.1:5174/events?clientId=client-1')
   })
 
+  it('sends a configured bridge token with invoke requests', async () => {
+    installWindow(undefined, '?devBrowserBridgeToken=query-token-123')
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      payload: {}
+    })))
+    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, configurable: true })
+    const { installDevSciForgeBridge } = await import('./dev-sciforge-bridge')
+
+    installDevSciForgeBridge()
+    await window.sciforge.getSettings()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:5174/invoke',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'X-SciForge-Bridge-Token': 'query-token-123'
+        })
+      })
+    )
+  })
+
   it('dispatches bridge SSE messages through preload-shaped event subscriptions', async () => {
     installWindow()
     Object.defineProperty(globalThis, 'fetch', {
       value: vi.fn(async () => new Response(JSON.stringify({ ok: true, payload: null }))),
       configurable: true
     })
-    const { installDevDsGuiBridge } = await import('./dev-ds-gui-bridge')
+    const { installDevSciForgeBridge } = await import('./dev-sciforge-bridge')
 
-    installDevDsGuiBridge()
+    installDevSciForgeBridge()
     const handler = vi.fn()
-    const unsubscribe = window.dsGui.agentRuntime.onEvent(handler)
+    const unsubscribe = window.sciforge.agentRuntime.onEvent(handler)
 
     MockEventSource.instances[0].emit('bridge-message', {
       channel: 'agentRuntime:event',
@@ -131,10 +153,10 @@ describe('dev dsGui browser bridge', () => {
       payload: { ok: true, source: 'empty', warnings: [] }
     })))
     Object.defineProperty(globalThis, 'fetch', { value: fetchMock, configurable: true })
-    const { installDevDsGuiBridge } = await import('./dev-ds-gui-bridge')
+    const { installDevSciForgeBridge } = await import('./dev-sciforge-bridge')
 
-    installDevDsGuiBridge()
-    await window.dsGui.pdfAnnotations?.load({ pdfPath: '/tmp/paper.pdf', workspaceRoot: '/tmp' })
+    installDevSciForgeBridge()
+    await window.sciforge.pdfAnnotations?.load({ pdfPath: '/tmp/paper.pdf', workspaceRoot: '/tmp' })
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:5174/invoke',
@@ -155,10 +177,10 @@ describe('dev dsGui browser bridge', () => {
       payload: { ok: true, path: '/tmp/work/status.html', workspaceRoot: '/tmp/work', url: 'http://127.0.0.1:59000/status.html' }
     })))
     Object.defineProperty(globalThis, 'fetch', { value: fetchMock, configurable: true })
-    const { installDevDsGuiBridge } = await import('./dev-ds-gui-bridge')
+    const { installDevSciForgeBridge } = await import('./dev-sciforge-bridge')
 
-    installDevDsGuiBridge()
-    const result = await window.dsGui.previewWorkspaceHtml({ path: '/tmp/work/status.html', workspaceRoot: '/tmp/work' })
+    installDevSciForgeBridge()
+    const result = await window.sciforge.previewWorkspaceHtml({ path: '/tmp/work/status.html', workspaceRoot: '/tmp/work' })
 
     expect(result).toMatchObject({ ok: true, url: 'http://127.0.0.1:59000/status.html' })
     expect(fetchMock).toHaveBeenCalledWith(
@@ -176,11 +198,11 @@ describe('dev dsGui browser bridge', () => {
   it('does not replace the real Electron preload bridge', async () => {
     const existing = { platform: 'electron' }
     installWindow(existing)
-    const { installDevDsGuiBridge } = await import('./dev-ds-gui-bridge')
+    const { installDevSciForgeBridge } = await import('./dev-sciforge-bridge')
 
-    installDevDsGuiBridge()
+    installDevSciForgeBridge()
 
-    expect(window.dsGui).toBe(existing)
+    expect(window.sciforge).toBe(existing)
     expect(MockEventSource.instances).toHaveLength(0)
   })
 })

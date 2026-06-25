@@ -18,7 +18,7 @@ const PLAN = [
   ''
 ].join('\n')
 
-const PLAN_PATH = '.deepseekgui/plan/sdd-x.md'
+const PLAN_PATH = '.sciforge/plan/sdd-x.md'
 
 function todosWith(status: 'pending' | 'in_progress' | 'completed', rawText: string): ThreadTodoList {
   return {
@@ -81,7 +81,7 @@ describe('computeSddTrace', () => {
 
   it('ignores todos from other plan files', () => {
     const todos = todosWith('completed', 'Add export button (covers: R-1)')
-    todos.items[0].source = { ...todos.items[0].source!, relativePath: '.deepseekgui/plan/other.md' }
+    todos.items[0].source = { ...todos.items[0].source!, relativePath: '.sciforge/plan/other.md' }
     const result = computeSddTrace({
       requirementMarkdown: REQUIREMENT,
       planMarkdown: PLAN,

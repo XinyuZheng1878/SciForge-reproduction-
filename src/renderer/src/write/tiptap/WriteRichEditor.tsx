@@ -285,8 +285,8 @@ export function WriteRichEditor({
         isEnabled: () => completionEnabledRef.current && !readOnlyRef.current,
         getFilePath: () => filePathRef.current,
         requestCompletion: async (context, mode) => {
-          if (typeof window.dsGui?.requestWriteInlineCompletion !== 'function') return null
-          const result = await window.dsGui.requestWriteInlineCompletion(
+          if (typeof window.sciforge?.requestWriteInlineCompletion !== 'function') return null
+          const result = await window.sciforge.requestWriteInlineCompletion(
             buildInlineCompletionPayload(context, {
               model: completionModelRef.current,
               workspaceRoot: workspaceRootRef.current,

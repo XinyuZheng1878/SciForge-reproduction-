@@ -35,7 +35,7 @@ describe('workspace file index', () => {
       }
       return { ok: false, message: 'missing' }
     })
-    vi.stubGlobal('window', { dsGui: { listWorkspaceDirectory } })
+    vi.stubGlobal('window', { sciforge: { listWorkspaceDirectory } })
 
     await expect(loadWorkspaceFileIndex('/tmp/workspace')).resolves.toMatchObject({
       files: [

@@ -30,7 +30,7 @@ function thread(id: string, runtimeId?: AgentRuntimeId): NormalizedThread {
     updatedAt: '2026-06-11T00:00:00.000Z',
     model: 'deepseek-v4-pro',
     mode: 'agent',
-    workspace: '/workspace/deepseek-gui',
+    workspace: '/workspace/sciforge',
     status: 'idle'
   }
 }
@@ -91,7 +91,7 @@ describe('chat-store-navigation-actions refreshThreads', () => {
     vi.stubGlobal('window', {
       localStorage: {
         getItem: vi.fn((key: string) =>
-          key === 'deepseekgui.sdd.threadRegistry.v1'
+          key === 'sciforge.sdd.threadRegistry.v1'
             ? currentSddRegistryJson
             : null
         ),
@@ -103,17 +103,17 @@ describe('chat-store-navigation-actions refreshThreads', () => {
 
   it('preserves the active thread when refreshing after a runtime switch', async () => {
     const codexThread = thread('codex-thread', 'codex')
-    const kunThread = thread('kun-thread', 'kun')
+    const sciforgeThread = thread('sciforge-thread', 'sciforge')
     const { refreshThreads, state } = buildHarness({
       activeRuntime: 'codex',
-      activeThread: kunThread,
+      activeThread: sciforgeThread,
       listedThreads: [codexThread]
     })
 
     await refreshThreads()
 
-    expect(state.threads).toEqual([kunThread, codexThread])
-    expect(state.activeThreadId).toBe('kun-thread')
+    expect(state.threads).toEqual([sciforgeThread, codexThread])
+    expect(state.activeThreadId).toBe('sciforge-thread')
   })
 
   it('preserves an unlisted active thread when it belongs to the active runtime', async () => {
@@ -130,18 +130,18 @@ describe('chat-store-navigation-actions refreshThreads', () => {
     expect(state.activeThreadId).toBe('pending-codex-thread')
   })
 
-  it('preserves a legacy Kun pending active thread without a runtime id when Kun is active', async () => {
-    const legacyKunThread = thread('legacy-kun-thread')
+  it('preserves a legacy local runtime pending active thread without a runtime id when SciForge is active', async () => {
+    const legacyLocalRuntimeThread = thread('legacy-local-runtime-thread')
     const { refreshThreads, state } = buildHarness({
-      activeRuntime: 'kun',
-      activeThread: legacyKunThread,
+      activeRuntime: 'sciforge',
+      activeThread: legacyLocalRuntimeThread,
       listedThreads: []
     })
 
     await refreshThreads()
 
-    expect(state.threads).toEqual([legacyKunThread])
-    expect(state.activeThreadId).toBe('legacy-kun-thread')
+    expect(state.threads).toEqual([legacyLocalRuntimeThread])
+    expect(state.activeThreadId).toBe('legacy-local-runtime-thread')
   })
 
   it('preserves a hidden SDD active thread when refreshing after a runtime switch', async () => {
@@ -153,22 +153,22 @@ describe('chat-store-navigation-actions refreshThreads', () => {
           threadId: 'sdd-codex-thread',
           threadIds: ['sdd-codex-thread'],
           publicThreadIds: [],
-          workspaceRoot: '/workspace/deepseek-gui',
+          workspaceRoot: '/workspace/sciforge',
           updatedAt: '2026-06-11T00:00:00.000Z'
         }
       }
     })
-    const kunThread = thread('kun-thread', 'kun')
+    const sciforgeThread = thread('sciforge-thread', 'sciforge')
     const sddThread = thread('sdd-codex-thread', 'codex')
     const { refreshThreads, state } = buildHarness({
-      activeRuntime: 'kun',
+      activeRuntime: 'sciforge',
       activeThread: sddThread,
-      listedThreads: [kunThread]
+      listedThreads: [sciforgeThread]
     })
 
     await refreshThreads()
 
-    expect(state.threads).toEqual([sddThread, kunThread])
+    expect(state.threads).toEqual([sddThread, sciforgeThread])
     expect(state.activeThreadId).toBe('sdd-codex-thread')
   })
 
@@ -214,14 +214,14 @@ describe('chat-store-navigation-actions refreshThreads', () => {
 })
 
 describe('chat-store-runtime helper defaults', () => {
-  it('remembers legacy threads without a runtime id as Kun threads', () => {
+  it('remembers legacy threads without a runtime id as SciForge threads', () => {
     const provider = {
       rememberThreadRuntime: vi.fn<(threadId: string, runtimeId?: AgentRuntimeId) => void>()
     }
 
     rememberProviderThreadRuntime(provider, 'legacy-thread', [thread('legacy-thread')])
 
-    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('legacy-thread', 'kun')
+    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('legacy-thread', 'sciforge')
   })
 })
 
@@ -248,7 +248,7 @@ describe('chat-store-navigation-actions deleteWorkspace', () => {
     const staleThread = thread('stale-thread', 'codex')
     const healthyThread = thread('healthy-thread', 'codex')
     const otherThread = {
-      ...thread('other-thread', 'kun'),
+      ...thread('other-thread', 'sciforge'),
       workspace: '/workspace/other'
     }
     const state = {
@@ -256,7 +256,7 @@ describe('chat-store-navigation-actions deleteWorkspace', () => {
       blocks: [],
       busy: false,
       clawChannels: [],
-      codeWorkspaceRoots: ['/workspace/deepseek-gui', '/workspace/other'],
+      codeWorkspaceRoots: ['/workspace/sciforge', '/workspace/other'],
       hiddenCodeWorkspaceRoots: [],
       error: 'previous error',
       refreshThreads: vi.fn(async () => undefined),
@@ -277,7 +277,7 @@ describe('chat-store-navigation-actions deleteWorkspace', () => {
       sseAbortRef: { current: null }
     })
 
-    await actions.deleteWorkspace('/workspace/deepseek-gui')
+    await actions.deleteWorkspace('/workspace/sciforge')
 
     expect(provider.deleteThread).not.toHaveBeenCalled()
     expect(state.threads.map((item) => item.id)).toEqual([
@@ -286,7 +286,7 @@ describe('chat-store-navigation-actions deleteWorkspace', () => {
       'other-thread'
     ])
     expect(state.codeWorkspaceRoots).toEqual(['/workspace/other'])
-    expect(state.hiddenCodeWorkspaceRoots).toEqual(['/workspace/deepseek-gui'])
+    expect(state.hiddenCodeWorkspaceRoots).toEqual(['/workspace/sciforge'])
     expect(state.unreadThreadIds).toEqual({})
     expect(state.watchTurnCompletion).toEqual({})
     expect(state.error).toBeNull()

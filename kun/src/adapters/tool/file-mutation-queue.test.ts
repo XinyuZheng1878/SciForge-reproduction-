@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { withFileMutationQueue } from './file-mutation-queue.js'
 
-const lockRoot = join(tmpdir(), 'kun-file-mutation-locks')
+const lockRoot = join(tmpdir(), 'sciforge-runtime-file-mutation-locks')
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))

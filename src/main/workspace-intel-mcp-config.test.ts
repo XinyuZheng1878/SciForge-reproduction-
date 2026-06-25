@@ -13,7 +13,7 @@ import { WorkspaceIntelToolNames } from '../../packages/workers/workspace-intel/
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -38,7 +38,7 @@ function createSettings(workspaceRoot = '/tmp/workspace'): AppSettingsV1 {
     provider: defaultModelProviderSettings(),
     modelRouter: defaultModelRouterSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings()
+      sciforge: defaultLocalRuntimeSettings()
     },
     workspaceRoot,
     log: {
@@ -87,7 +87,7 @@ describe('workspace intel MCP config', () => {
     })
   })
 
-  it('removes GUI-managed workspace intel servers from external Kun mcp.json', () => {
+  it('removes GUI-managed workspace intel servers from external local runtime mcp.json', () => {
     const synced = buildSyncedWorkspaceIntelMcpJson({
       timeouts: { connect_timeout: 3, execute_timeout: 30, read_timeout: 90 },
       servers: {

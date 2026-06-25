@@ -20,7 +20,7 @@ import {
   RUNTIME_DEPENDENCIES_RESOURCE_URI,
   RUNTIME_HEALTH_RESOURCE_URI,
   RUNTIME_INSPECTOR_DEFAULT_DIFF_BYTES,
-  RUNTIME_INSPECTOR_DEFAULT_KUN_BASE_URL,
+  RUNTIME_INSPECTOR_DEFAULT_RUNTIME_BASE_URL,
   RUNTIME_INSPECTOR_DEFAULT_LIMIT,
   RUNTIME_INSPECTOR_DEFAULT_MODEL_ROUTER_BASE_URL,
   RUNTIME_INSPECTOR_DEFAULT_PATCH_BYTES,
@@ -32,7 +32,7 @@ import {
   RUNTIME_INSPECTOR_MAX_TIMEOUT_MS,
   RUNTIME_INSPECTOR_MCP_SERVER_VERSION,
   RUNTIME_INSPECTOR_WORKER_TRANSPORT,
-  RUNTIME_KUN_RESOURCE_URI,
+  RUNTIME_LOCAL_RESOURCE_URI,
   RUNTIME_MODEL_ROUTER_RESOURCE_URI,
   RUNTIME_PORTS_RESOURCE_URI,
   RuntimeInspectorToolNames,
@@ -45,7 +45,7 @@ import {
   LspStatusInputSchema,
   RuntimeDependencyReportInputSchema,
   RuntimeHealthInputSchema,
-  RuntimeKunStatusInputSchema,
+  RuntimeLocalStatusInputSchema,
   RuntimeModelRouterStatusInputSchema,
   RuntimePortsInputSchema,
   gitCheckpointResourceUri,
@@ -78,8 +78,8 @@ import {
   type RuntimeInspectorDiagnosticsResult,
   type RuntimeInspectorErrorCode,
   type RuntimeInspectorFailure,
-  type RuntimeKunStatusInput,
-  type RuntimeKunStatusResult,
+  type RuntimeLocalStatusInput,
+  type RuntimeLocalStatusResult,
   type RuntimeModelRouterStatusInput,
   type RuntimeModelRouterStatusResult,
   type RuntimePortsInput,
@@ -95,8 +95,8 @@ export type RuntimeInspectorServiceOptions = {
   workspaceRoot?: string
   checkpointDataDir?: string
   modelRouterBaseUrl?: string
-  kunBaseUrl?: string
-  kunRuntimeToken?: string
+  runtimeBaseUrl?: string
+  runtimeToken?: string
   timeoutMs?: number
   fetch?: RuntimeInspectorFetch
   env?: NodeJS.ProcessEnv
@@ -142,8 +142,8 @@ export class RuntimeInspectorService {
   readonly workspaceRoot?: string
   readonly checkpointDataDir?: string
   readonly modelRouterBaseUrl: string
-  readonly kunBaseUrl: string
-  readonly kunRuntimeToken: string
+  readonly runtimeBaseUrl: string
+  readonly runtimeToken: string
   readonly timeoutMs: number
   private readonly fetchImpl: RuntimeInspectorFetch
   private readonly env: NodeJS.ProcessEnv
@@ -167,15 +167,15 @@ export class RuntimeInspectorService {
       this.env.SCIFORGE_RUNTIME_INSPECTOR_MODEL_ROUTER_BASE_URL ??
       this.env.GUI_MODEL_ROUTER_BASE_URL
     ) || RUNTIME_INSPECTOR_DEFAULT_MODEL_ROUTER_BASE_URL
-    this.kunBaseUrl = cleanOptionalString(
-      options.kunBaseUrl ??
-      this.env.SCIFORGE_RUNTIME_INSPECTOR_KUN_BASE_URL ??
-      this.env.GUI_KUN_BASE_URL
-    ) || RUNTIME_INSPECTOR_DEFAULT_KUN_BASE_URL
-    this.kunRuntimeToken = cleanOptionalString(
-      options.kunRuntimeToken ??
-      this.env.SCIFORGE_RUNTIME_INSPECTOR_KUN_RUNTIME_TOKEN ??
-      this.env.KUN_RUNTIME_TOKEN
+    this.runtimeBaseUrl = cleanOptionalString(
+      options.runtimeBaseUrl ??
+      this.env.SCIFORGE_RUNTIME_INSPECTOR_RUNTIME_BASE_URL ??
+      this.env.GUI_RUNTIME_BASE_URL
+    ) || RUNTIME_INSPECTOR_DEFAULT_RUNTIME_BASE_URL
+    this.runtimeToken = cleanOptionalString(
+      options.runtimeToken ??
+      this.env.SCIFORGE_RUNTIME_INSPECTOR_RUNTIME_TOKEN ??
+      this.env.GUI_RUNTIME_TOKEN
     ) ?? ''
     this.timeoutMs = clampInteger(
       options.timeoutMs ?? numberFromEnv(this.env.SCIFORGE_RUNTIME_INSPECTOR_TIMEOUT_MS, RUNTIME_INSPECTOR_DEFAULT_TIMEOUT_MS),
@@ -215,15 +215,15 @@ export class RuntimeInspectorService {
         RUNTIME_HEALTH_RESOURCE_URI,
         RUNTIME_DEPENDENCIES_RESOURCE_URI,
         RUNTIME_MODEL_ROUTER_RESOURCE_URI,
-        RUNTIME_KUN_RESOURCE_URI,
+        RUNTIME_LOCAL_RESOURCE_URI,
         LSP_STATUS_RESOURCE_URI
       ],
       configured: {
         ...(this.workspaceRoot ? { workspaceRoot: this.workspaceRoot } : {}),
         ...(this.checkpointDataDir ? { checkpointDataDir: this.checkpointDataDir } : {}),
         modelRouterBaseUrl: this.modelRouterBaseUrl,
-        kunBaseUrl: this.kunBaseUrl,
-        kunRuntimeTokenConfigured: this.kunRuntimeToken.trim().length > 0
+        runtimeBaseUrl: this.runtimeBaseUrl,
+        runtimeTokenConfigured: this.runtimeToken.trim().length > 0
       }
     }
   }
@@ -426,7 +426,7 @@ export class RuntimeInspectorService {
     return this.capture(async () => {
       const endpoints = [
         endpointSummary('model-router', 'Model Router', this.modelRouterBaseUrl),
-        endpointSummary('kun', 'Kun Runtime', this.kunBaseUrl)
+        endpointSummary('local-runtime', 'Local Runtime', this.runtimeBaseUrl)
       ] as const
       const ports = await Promise.all(endpoints.map(async (endpoint) => {
         const item = {
@@ -461,13 +461,13 @@ export class RuntimeInspectorService {
     if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
-      const [modelRouter, kun] = await Promise.all([
+      const [modelRouter, localRuntime] = await Promise.all([
         this.runtimeModelRouterStatus({}),
-        this.runtimeKunStatus({ include_tools: parsed.data.include_tools })
+        this.runtimeLocalStatus({ include_tools: parsed.data.include_tools })
       ])
       const statuses = [
         modelRouter.ok ? modelRouter.health.status : 'unavailable',
-        kun.ok ? kun.health.status : 'unavailable'
+        localRuntime.ok ? localRuntime.health.status : 'unavailable'
       ]
       const status = statuses.every((item) => item === 'healthy')
         ? 'healthy'
@@ -478,7 +478,7 @@ export class RuntimeInspectorService {
         ok: true,
         status,
         modelRouter,
-        kun,
+        localRuntime,
         resourceUri: RUNTIME_HEALTH_RESOURCE_URI
       }
     })
@@ -505,9 +505,9 @@ export class RuntimeInspectorService {
         }
       ]
       if (parsed.data.include_runtime_http === true) {
-        const [modelRouter, kun] = await Promise.all([
+        const [modelRouter, localRuntime] = await Promise.all([
           this.runtimeModelRouterStatus({}),
-          this.runtimeKunStatus({})
+          this.runtimeLocalStatus({})
         ])
         dependencies.push({
           id: 'model-router-http',
@@ -516,10 +516,10 @@ export class RuntimeInspectorService {
           reason: modelRouter.ok ? modelRouter.health.message : modelRouter.error.reason
         })
         dependencies.push({
-          id: 'kun-http',
-          available: kun.ok && kun.health.reachable,
-          status: kun.ok ? kun.health.status : 'error',
-          reason: kun.ok ? kun.health.message : kun.error.reason
+          id: 'local-runtime-http',
+          available: localRuntime.ok && localRuntime.health.reachable,
+          status: localRuntime.ok ? localRuntime.health.status : 'error',
+          reason: localRuntime.ok ? localRuntime.health.message : localRuntime.error.reason
         })
       }
       return {
@@ -566,32 +566,32 @@ export class RuntimeInspectorService {
     })
   }
 
-  async runtimeKunStatus(input: RuntimeKunStatusInput = {}): Promise<RuntimeKunStatusResult> {
-    const parsed = RuntimeKunStatusInputSchema.safeParse(input)
+  async runtimeLocalStatus(input: RuntimeLocalStatusInput = {}): Promise<RuntimeLocalStatusResult> {
+    const parsed = RuntimeLocalStatusInputSchema.safeParse(input)
     if (!parsed.success) return this.invalidRequest(parsed.error.message)
 
     return this.capture(async () => {
-      const endpoint = parseEndpoint(this.kunBaseUrl)
+      const endpoint = parseEndpoint(this.runtimeBaseUrl)
       if (!endpoint.url) {
         return {
           ok: true,
-          baseUrl: this.kunBaseUrl,
+          baseUrl: this.runtimeBaseUrl,
           port: null,
           health: {
             status: 'not_configured',
             reachable: false,
-            message: 'Kun base URL is not a valid URL.'
+            message: 'Local runtime base URL is not a valid URL.'
           },
           lifecycleBoundary: runtimeLifecycleBoundary(),
-          resourceUri: RUNTIME_KUN_RESOURCE_URI
+          resourceUri: RUNTIME_LOCAL_RESOURCE_URI
         }
       }
 
       const healthUrl = new URL('/health', endpoint.url).toString()
       const healthResponse = await fetchEndpoint(this.fetchImpl, healthUrl, { timeoutMs: this.timeoutMs })
-      const health = kunHealthFromResponse(healthResponse)
-      const headers = this.kunRuntimeToken.trim()
-        ? { Authorization: `Bearer ${this.kunRuntimeToken.trim()}` }
+      const health = localRuntimeHealthFromResponse(healthResponse)
+      const headers = this.runtimeToken.trim()
+        ? { Authorization: `Bearer ${this.runtimeToken.trim()}` }
         : undefined
       const runtimeInfo = headers
         ? await fetchJsonEndpoint(this.fetchImpl, new URL('/v1/runtime/info', endpoint.url).toString(), {
@@ -609,7 +609,7 @@ export class RuntimeInspectorService {
         ? {
             status: 'auth_required',
             reachable: true,
-            message: 'Kun health is reachable; runtime info requires a bearer token.'
+            message: 'Local runtime health is reachable; runtime info requires a bearer token.'
           }
         : health
       return {
@@ -621,13 +621,13 @@ export class RuntimeInspectorService {
               status: 'auth_required',
               reachable: true,
               statusCode: runtimeInfo.status,
-              message: 'Kun runtime info rejected the configured bearer token.'
+              message: 'Local runtime info rejected the configured bearer token.'
             }
           : authHealth,
         ...(runtimeInfo?.ok && isRecord(runtimeInfo.body) ? { runtimeInfo: redactSecrets(runtimeInfo.body) } : {}),
         ...(toolDiagnostics?.ok && isRecord(toolDiagnostics.body) ? { toolDiagnostics: redactSecrets(toolDiagnostics.body) } : {}),
         lifecycleBoundary: runtimeLifecycleBoundary(),
-        resourceUri: RUNTIME_KUN_RESOURCE_URI
+        resourceUri: RUNTIME_LOCAL_RESOURCE_URI
       }
     })
   }
@@ -731,8 +731,8 @@ export function runtimeInspectorConfigFromEnv(env: NodeJS.ProcessEnv = process.e
     workspaceRoot: cleanOptionalPath(env.SCIFORGE_RUNTIME_INSPECTOR_WORKSPACE_ROOT ?? env.GUI_RUNTIME_INSPECTOR_WORKSPACE_ROOT),
     checkpointDataDir: cleanOptionalPath(env.SCIFORGE_RUNTIME_INSPECTOR_CHECKPOINT_DATA_DIR ?? env.GUI_RUNTIME_INSPECTOR_CHECKPOINT_DATA_DIR),
     modelRouterBaseUrl: cleanOptionalString(env.SCIFORGE_RUNTIME_INSPECTOR_MODEL_ROUTER_BASE_URL ?? env.GUI_MODEL_ROUTER_BASE_URL),
-    kunBaseUrl: cleanOptionalString(env.SCIFORGE_RUNTIME_INSPECTOR_KUN_BASE_URL ?? env.GUI_KUN_BASE_URL),
-    kunRuntimeToken: cleanOptionalString(env.SCIFORGE_RUNTIME_INSPECTOR_KUN_RUNTIME_TOKEN ?? env.KUN_RUNTIME_TOKEN),
+    runtimeBaseUrl: cleanOptionalString(env.SCIFORGE_RUNTIME_INSPECTOR_RUNTIME_BASE_URL ?? env.GUI_RUNTIME_BASE_URL),
+    runtimeToken: cleanOptionalString(env.SCIFORGE_RUNTIME_INSPECTOR_RUNTIME_TOKEN ?? env.GUI_RUNTIME_TOKEN),
     timeoutMs: numberFromEnv(env.SCIFORGE_RUNTIME_INSPECTOR_TIMEOUT_MS, RUNTIME_INSPECTOR_DEFAULT_TIMEOUT_MS),
     env
   }
@@ -996,8 +996,8 @@ async function readTextFileChunk(path: string, offset: number, maxBytes: number)
   }
 }
 
-function endpointSummary(id: 'model-router' | 'kun', label: string, baseUrl: string): {
-  id: 'model-router' | 'kun'
+function endpointSummary(id: 'model-router' | 'local-runtime', label: string, baseUrl: string): {
+  id: 'model-router' | 'local-runtime'
   label: string
   endpoint: RuntimeEndpoint
 } {
@@ -1114,22 +1114,22 @@ function modelRouterHealthFromResponse(response: { ok: boolean; status: number; 
   }
 }
 
-function kunHealthFromResponse(response: { ok: boolean; status: number; text: string }): RuntimeEndpointStatus {
-  if (response.ok && isKunHealthBody(response.text)) {
-    return { status: 'healthy', reachable: true, statusCode: response.status, message: 'Kun health endpoint is healthy.' }
+function localRuntimeHealthFromResponse(response: { ok: boolean; status: number; text: string }): RuntimeEndpointStatus {
+  if (response.ok && isLocalRuntimeHealthBody(response.text)) {
+    return { status: 'healthy', reachable: true, statusCode: response.status, message: 'Local runtime health endpoint is healthy.' }
   }
   if (response.ok) {
-    return { status: 'degraded', reachable: true, statusCode: response.status, message: 'Kun health endpoint responded with an unexpected body.' }
+    return { status: 'degraded', reachable: true, statusCode: response.status, message: 'Local runtime health endpoint responded with an unexpected body.' }
   }
   return {
     status: 'unavailable',
     reachable: false,
     statusCode: response.status || undefined,
-    message: response.text === 'request_timeout' ? 'Kun health request timed out.' : 'Kun health endpoint is unavailable.'
+    message: response.text === 'request_timeout' ? 'Local runtime health request timed out.' : 'Local runtime health endpoint is unavailable.'
   }
 }
 
-function isKunHealthBody(text: string): boolean {
+function isLocalRuntimeHealthBody(text: string): boolean {
   try {
     const record = asRecord(JSON.parse(text) as unknown)
     return record.status === 'ok' && record.service === 'kun' && record.mode === 'serve'
@@ -1207,7 +1207,7 @@ async function resolveExistingPath(path: string): Promise<string> {
   }
 }
 
-function runtimeLifecycleBoundary(): Extract<RuntimeKunStatusResult, { ok: true }>['lifecycleBoundary'] {
+function runtimeLifecycleBoundary(): Extract<RuntimeLocalStatusResult, { ok: true }>['lifecycleBoundary'] {
   return {
     processControl: 'not_exposed',
     managedProcessState: 'not_available_from_worker'
@@ -1404,7 +1404,7 @@ function arrayOfStrings(value: unknown): string[] {
 }
 
 function isAgentRuntimeId(value: string): value is CheckpointMetadata['runtimeId'] {
-  return value === 'kun' || value === 'codex' || value === 'claude'
+  return value === 'sciforge' || value === 'codex' || value === 'claude'
 }
 
 function isCheckpointStatus(value: string): value is CheckpointMetadata['status'] {

@@ -1,5 +1,5 @@
 import {
-  resolveKunRuntimeSettings,
+  resolveLocalRuntimeSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
 import type {
@@ -30,120 +30,122 @@ import {
   configuredComputerUseCapability
 } from '../computer-use-mcp-config'
 import {
-  KUN_ATTACHMENTS_PATH,
-  KUN_HEALTH_PATH,
-  KUN_MEMORY_PATH,
-  KUN_RUNTIME_INFO_PATH,
-  KUN_RUNTIME_TOOLS_PATH,
-  KUN_SKILLS_PATH,
-  isKunThreadMode,
-  kunAttachmentContentPath,
-  kunApprovalPath,
-  kunMemoryRecordPath,
-  kunSessionResumePath,
-  kunThreadChildTranscriptPath,
-  kunThreadCompactPath,
-  kunThreadChildrenPath,
-  kunThreadForkPath,
-  kunThreadGoalPath,
-  kunThreadInterruptPath,
-  kunThreadPath,
-  kunThreadReviewPath,
-  kunThreadSteerPath,
-  kunThreadTodosPath,
-  kunThreadTurnsPath,
-  kunUserInputPath,
+  LOCAL_RUNTIME_ATTACHMENTS_PATH,
+  LOCAL_RUNTIME_HEALTH_PATH,
+  LOCAL_RUNTIME_MEMORY_PATH,
+  LOCAL_RUNTIME_INFO_PATH,
+  LOCAL_RUNTIME_TOOLS_PATH,
+  LOCAL_RUNTIME_SKILLS_PATH,
+  isLocalRuntimeThreadMode,
+  localRuntimeAttachmentContentPath,
+  localRuntimeApprovalPath,
+  localRuntimeMemoryRecordPath,
+  localRuntimeSessionResumePath,
+  localRuntimeThreadChildTranscriptPath,
+  localRuntimeThreadCompactPath,
+  localRuntimeThreadChildrenPath,
+  localRuntimeThreadForkPath,
+  localRuntimeThreadGoalPath,
+  localRuntimeThreadInterruptPath,
+  localRuntimeThreadPath,
+  localRuntimeThreadReviewPath,
+  localRuntimeThreadSteerPath,
+  localRuntimeThreadTodosPath,
+  localRuntimeThreadTurnsPath,
+  localRuntimeUserInputPath,
   normalizeThreadMode
-} from '../../shared/kun-endpoints'
+} from '../../shared/local-runtime-endpoints'
 import type {
   AgentRuntimeAdapter,
   AgentRuntimeAdapterContext
 } from './agent-runtime/adapter'
 
-export type KunAgentRuntimeHttpInit = {
+export type LocalRuntimeAgentRuntimeHttpInit = {
   method?: string
   body?: string
   headers?: Record<string, string>
 }
 
-export type KunAgentRuntimeHttpResult = {
+export type LocalRuntimeAgentRuntimeHttpResult = {
   ok: boolean
   status: number
   body: string
 }
 
-export type KunAgentRuntimeHttpRequest = (
+export type LocalRuntimeAgentRuntimeHttpRequest = (
   settings: AppSettingsV1,
   pathAndQuery: string,
-  init: KunAgentRuntimeHttpInit
-) => Promise<KunAgentRuntimeHttpResult>
+  init: LocalRuntimeAgentRuntimeHttpInit
+) => Promise<LocalRuntimeAgentRuntimeHttpResult>
 
-export type KunAgentRuntimeEvents = (
+export type LocalRuntimeAgentRuntimeEvents = (
   settings: AppSettingsV1,
   threadId: string,
   sinceSeq: number,
   signal: AbortSignal
 ) => AsyncIterable<unknown>
 
-export type KunAgentRuntimeAdapterOptions = {
-  request: KunAgentRuntimeHttpRequest
-  events?: KunAgentRuntimeEvents
+export type LocalRuntimeAgentRuntimeAdapterOptions = {
+  request: LocalRuntimeAgentRuntimeHttpRequest
+  events?: LocalRuntimeAgentRuntimeEvents
 }
 
-export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOptions): AgentRuntimeAdapter {
+const SCIFORGE_RUNTIME_ID = 'sciforge' as const
+
+export function createLocalRuntimeAgentRuntimeAdapter(options: LocalRuntimeAgentRuntimeAdapterOptions): AgentRuntimeAdapter {
   return {
-    id: 'kun',
+    id: SCIFORGE_RUNTIME_ID,
     transport: 'http_sse',
 
     async connect(context) {
-      await requestJson(options, context, KUN_HEALTH_PATH, { method: 'GET' })
+      await requestJson(options, context, LOCAL_RUNTIME_HEALTH_PATH, { method: 'GET' })
     },
 
     async capabilities(context) {
-      const response = await options.request(context.settings, KUN_RUNTIME_INFO_PATH, { method: 'GET' })
-      if (!response.ok) return conservativeKunCapabilities()
-      return mapKunCapabilities(readJson(response.body), true)
+      const response = await options.request(context.settings, LOCAL_RUNTIME_INFO_PATH, { method: 'GET' })
+      if (!response.ok) return conservativeLocalRuntimeCapabilities()
+      return mapLocalRuntimeCapabilities(readJson(response.body), true)
     },
 
     async listThreads(context, input) {
       const payload = await requestJson(options, context, `/v1/threads${threadListQuery(input)}`, { method: 'GET' })
       return arrayValue(asRecord(payload)?.threads)
-        .map((thread) => mapKunThread(thread))
+        .map((thread) => mapLocalRuntimeThread(thread))
         .filter((thread) => thread.id)
     },
 
     async startThread(context, input) {
-      const runtime = resolveKunRuntimeSettings(context.settings)
+      const runtime = resolveLocalRuntimeSettings(context.settings)
       const payload = await requestJson(options, context, '/v1/threads', {
         method: 'POST',
         body: JSON.stringify({
           workspace: input.workspace || context.settings.workspaceRoot || '~',
           title: input.title,
-          model: resolveKunRequestModel(runtime.model, input.model),
+          model: resolveLocalRuntimeRequestModel(runtime.model, input.model),
           mode: normalizeThreadMode(input.mode),
           approvalPolicy: runtime.approvalPolicy,
           sandboxMode: runtime.sandboxMode
         })
       })
-      return mapKunThread(firstRecord(payload, 'thread'))
+      return mapLocalRuntimeThread(firstRecord(payload, 'thread'))
     },
 
     async readThread(context, input) {
-      const payload = await requestJson(options, context, kunThreadPath(input.threadId), { method: 'GET' })
-      return mapKunThreadDetail(payload)
+      const payload = await requestJson(options, context, localRuntimeThreadPath(input.threadId), { method: 'GET' })
+      return mapLocalRuntimeThreadDetail(payload)
     },
 
     async startTurn(context, input) {
-      const runtime = resolveKunRuntimeSettings(context.settings)
+      const runtime = resolveLocalRuntimeSettings(context.settings)
       const body: Record<string, unknown> = {
         prompt: input.text,
-        model: resolveKunRequestModel(runtime.model, input.model)
+        model: resolveLocalRuntimeRequestModel(runtime.model, input.model)
       }
       if (input.reasoningEffort?.trim()) body.reasoningEffort = input.reasoningEffort.trim()
       if (input.displayText?.trim() && input.displayText.trim() !== input.text.trim()) {
         body.displayText = input.displayText.trim()
       }
-      if (isKunThreadMode(input.mode)) body.mode = input.mode
+      if (isLocalRuntimeThreadMode(input.mode)) body.mode = input.mode
       body.approvalPolicy = runtime.approvalPolicy
       body.sandboxMode = runtime.sandboxMode
       if (input.guiPlan) body.guiPlan = input.guiPlan
@@ -158,7 +160,7 @@ export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOpti
           modelRouterObject: true
         }))
       if (modelObjectReferences?.length) body.attachments = modelObjectReferences
-      const payload = await requestJson(options, context, kunThreadTurnsPath(input.threadId), {
+      const payload = await requestJson(options, context, localRuntimeThreadTurnsPath(input.threadId), {
         method: 'POST',
         body: JSON.stringify(body)
       })
@@ -166,55 +168,55 @@ export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOpti
     },
 
     async interruptTurn(context, input) {
-      await requestJson(options, context, kunThreadInterruptPath(input.threadId, input.turnId), {
+      await requestJson(options, context, localRuntimeThreadInterruptPath(input.threadId, input.turnId), {
         method: 'POST',
         body: JSON.stringify({ discard: input.discard === true })
       })
     },
 
     async steerTurn(context, input) {
-      await requestJson(options, context, kunThreadSteerPath(input.threadId, input.turnId), {
+      await requestJson(options, context, localRuntimeThreadSteerPath(input.threadId, input.turnId), {
         method: 'POST',
         body: JSON.stringify({ text: input.text })
       })
     },
 
     async renameThread(context, input) {
-      await requestJson(options, context, kunThreadPath(input.threadId), {
+      await requestJson(options, context, localRuntimeThreadPath(input.threadId), {
         method: 'PATCH',
         body: JSON.stringify({ title: input.title })
       })
     },
 
     async deleteThread(context, input) {
-      await requestJson(options, context, kunThreadPath(input.threadId), { method: 'DELETE' })
+      await requestJson(options, context, localRuntimeThreadPath(input.threadId), { method: 'DELETE' })
     },
 
     async *subscribeEvents(context, input) {
       if (!options.events) return
       const signal = input.signal ?? new AbortController().signal
       for await (const event of options.events(context.settings, input.threadId, input.sinceSeq ?? 0, signal)) {
-        const mapped = mapKunEvent(event, input.threadId)
+        const mapped = mapLocalRuntimeEvent(event, input.threadId)
         if (mapped) yield mapped
       }
     },
 
     async resolveApproval(context, input) {
-      await requestJson(options, context, kunApprovalPath(input.approvalId), {
+      await requestJson(options, context, localRuntimeApprovalPath(input.approvalId), {
         method: 'POST',
         body: JSON.stringify({ decision: input.decision === 'allowed' ? 'allow' : 'deny' })
       })
     },
 
     async resolveUserInput(context, input) {
-      await requestJson(options, context, kunUserInputPath(input.requestId), {
+      await requestJson(options, context, localRuntimeUserInputPath(input.requestId), {
         method: 'POST',
         body: JSON.stringify({ answers: input.answers })
       })
     },
 
     async compactThread(context, input) {
-      await requestJson(options, context, kunThreadCompactPath(input.threadId), {
+      await requestJson(options, context, localRuntimeThreadCompactPath(input.threadId), {
         method: 'POST',
         body: JSON.stringify({ reason: input.reason?.trim() || undefined })
       })
@@ -224,21 +226,21 @@ export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOpti
       const body: Record<string, unknown> = {}
       if (input.relation) body.relation = input.relation
       if (input.title) body.title = input.title
-      const payload = await requestJson(options, context, kunThreadForkPath(input.threadId), {
+      const payload = await requestJson(options, context, localRuntimeThreadForkPath(input.threadId), {
         method: 'POST',
         ...(Object.keys(body).length > 0 ? { body: JSON.stringify(body) } : {})
       })
-      return mapKunThread(payload)
+      return mapLocalRuntimeThread(payload)
     },
 
     async resumeSession(context, input) {
-      const runtime = resolveKunRuntimeSettings(context.settings)
-      const payload = await requestJson(options, context, kunSessionResumePath(input.sessionId), {
+      const runtime = resolveLocalRuntimeSettings(context.settings)
+      const payload = await requestJson(options, context, localRuntimeSessionResumePath(input.sessionId), {
         method: 'POST',
         body: JSON.stringify({
           workspace: context.settings.workspaceRoot || undefined,
-          model: resolveKunRequestModel(runtime.model, input.model),
-          mode: isKunThreadMode(input.mode) ? input.mode : undefined
+          model: resolveLocalRuntimeRequestModel(runtime.model, input.model),
+          mode: isLocalRuntimeThreadMode(input.mode) ? input.mode : undefined
         })
       })
       const record = asRecord(payload) ?? {}
@@ -249,14 +251,14 @@ export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOpti
     },
 
     async updateThreadRelation(context, input) {
-      await requestJson(options, context, kunThreadPath(input.threadId), {
+      await requestJson(options, context, localRuntimeThreadPath(input.threadId), {
         method: 'PATCH',
         body: JSON.stringify({ relation: input.relation })
       })
     },
 
     async usage(context, input) {
-      const payload = await requestJson(options, context, kunUsagePath(input), { method: 'GET' })
+      const payload = await requestJson(options, context, localRuntimeUsagePath(input), { method: 'GET' })
       const response = mapUsageResponse(payload, input)
       if (input.groupBy === 'thread' && input.threadId) {
         await hydrateThreadCacheStats(options, context, input.threadId, response)
@@ -265,20 +267,20 @@ export function createKunAgentRuntimeAdapter(options: KunAgentRuntimeAdapterOpti
     },
 
     async auxiliary(context, input) {
-      return kunAuxiliary(options, context, input)
+      return localRuntimeAuxiliary(options, context, input)
     }
   }
 }
 
-function resolveKunRequestModel(resolvedRuntimeModel: string, inputModel: string | undefined): string {
+function resolveLocalRuntimeRequestModel(resolvedRuntimeModel: string, inputModel: string | undefined): string {
   const requestedModel = inputModel?.trim()
   return requestedModel && requestedModel.toLowerCase() !== 'auto'
     ? requestedModel
     : resolvedRuntimeModel
 }
 
-async function kunAuxiliary(
-  options: KunAgentRuntimeAdapterOptions,
+async function localRuntimeAuxiliary(
+  options: LocalRuntimeAgentRuntimeAdapterOptions,
   context: AgentRuntimeAdapterContext,
   input: AgentRuntimeAuxiliaryInput
 ): Promise<unknown> {
@@ -291,21 +293,21 @@ async function kunAuxiliary(
       const body: Record<string, unknown> = { target }
       const model = optionalString(payload.model)
       if (model) body.model = model
-      return requestJson(options, context, kunThreadReviewPath(threadId), {
+      return requestJson(options, context, localRuntimeThreadReviewPath(threadId), {
         method: 'POST',
         body: JSON.stringify(body)
       })
     }
     case 'getRuntimeInfo':
-      return requestJson(options, context, KUN_RUNTIME_INFO_PATH, { method: 'GET' })
+      return requestJson(options, context, LOCAL_RUNTIME_INFO_PATH, { method: 'GET' })
     case 'getToolDiagnostics':
-      return requestJson(options, context, KUN_RUNTIME_TOOLS_PATH, { method: 'GET' })
+      return requestJson(options, context, LOCAL_RUNTIME_TOOLS_PATH, { method: 'GET' })
     case 'listSkills': {
-      const result = await requestJson(options, context, KUN_SKILLS_PATH, { method: 'GET' })
+      const result = await requestJson(options, context, LOCAL_RUNTIME_SKILLS_PATH, { method: 'GET' })
       return arrayValue(asRecord(result)?.skills)
     }
     case 'uploadAttachment': {
-      const result = await requestJson(options, context, KUN_ATTACHMENTS_PATH, {
+      const result = await requestJson(options, context, LOCAL_RUNTIME_ATTACHMENTS_PATH, {
         method: 'POST',
         body: JSON.stringify(payload)
       })
@@ -317,7 +319,7 @@ async function kunAuxiliary(
       return requestJson(
         options,
         context,
-        `${kunAttachmentContentPath(attachmentId)}${queryString({
+        `${localRuntimeAttachmentContentPath(attachmentId)}${queryString({
           thread_id: optionalString(optionsPayload.threadId),
           workspace: optionalString(optionsPayload.workspace)
         })}`,
@@ -331,14 +333,14 @@ async function kunAuxiliary(
         result = await requestJson(
           options,
           context,
-          `${KUN_MEMORY_PATH}${queryString({
+          `${LOCAL_RUNTIME_MEMORY_PATH}${queryString({
             workspace: optionalString(optionsPayload.workspace),
             include_deleted: booleanOrUndefined(optionsPayload.includeDeleted)
           })}`,
           { method: 'GET' }
         )
       } catch (error) {
-        if (isKunCapabilityUnavailableError(error, 'memory store is unavailable')) return []
+        if (isLocalRuntimeCapabilityUnavailableError(error, 'memory store is unavailable')) return []
         throw error
       }
       return arrayValue(asRecord(result)?.memories)
@@ -346,7 +348,7 @@ async function kunAuxiliary(
     case 'updateMemory': {
       const memoryId = requiredString(payload, 'memoryId', input.operation)
       const patch = asRecord(payload.patch) ?? {}
-      const result = await requestJson(options, context, kunMemoryRecordPath(memoryId), {
+      const result = await requestJson(options, context, localRuntimeMemoryRecordPath(memoryId), {
         method: 'PATCH',
         body: JSON.stringify(patch)
       })
@@ -354,12 +356,12 @@ async function kunAuxiliary(
     }
     case 'deleteMemory': {
       const memoryId = requiredString(payload, 'memoryId', input.operation)
-      const result = await requestJson(options, context, kunMemoryRecordPath(memoryId), { method: 'DELETE' })
+      const result = await requestJson(options, context, localRuntimeMemoryRecordPath(memoryId), { method: 'DELETE' })
       return firstRecord(result, 'memory')
     }
     case 'updateThreadWorkspace': {
       const threadId = requiredString(payload, 'threadId', input.operation)
-      await requestJson(options, context, kunThreadPath(threadId), {
+      await requestJson(options, context, localRuntimeThreadPath(threadId), {
         method: 'PATCH',
         body: JSON.stringify({ workspace: requiredString(payload, 'workspace', input.operation) })
       })
@@ -367,7 +369,7 @@ async function kunAuxiliary(
     }
     case 'archiveThread': {
       const threadId = requiredString(payload, 'threadId', input.operation)
-      await requestJson(options, context, kunThreadPath(threadId), {
+      await requestJson(options, context, localRuntimeThreadPath(threadId), {
         method: 'PATCH',
         body: JSON.stringify({ status: payload.archived === true ? 'archived' : 'idle' })
       })
@@ -377,7 +379,7 @@ async function kunAuxiliary(
       const result = await requestJson(
         options,
         context,
-        kunThreadGoalPath(requiredString(payload, 'threadId', input.operation)),
+        localRuntimeThreadGoalPath(requiredString(payload, 'threadId', input.operation)),
         { method: 'GET' }
       )
       return asRecord(result)?.goal ?? null
@@ -385,7 +387,7 @@ async function kunAuxiliary(
     case 'setThreadGoal': {
       const threadId = requiredString(payload, 'threadId', input.operation)
       const patch = asRecord(payload.patch) ?? {}
-      const result = await requestJson(options, context, kunThreadGoalPath(threadId), {
+      const result = await requestJson(options, context, localRuntimeThreadGoalPath(threadId), {
         method: 'POST',
         body: JSON.stringify(patch)
       })
@@ -395,7 +397,7 @@ async function kunAuxiliary(
       const result = await requestJson(
         options,
         context,
-        kunThreadGoalPath(requiredString(payload, 'threadId', input.operation)),
+        localRuntimeThreadGoalPath(requiredString(payload, 'threadId', input.operation)),
         { method: 'DELETE' }
       )
       return asRecord(result)?.cleared === true
@@ -404,14 +406,14 @@ async function kunAuxiliary(
       const result = await requestJson(
         options,
         context,
-        kunThreadTodosPath(requiredString(payload, 'threadId', input.operation)),
+        localRuntimeThreadTodosPath(requiredString(payload, 'threadId', input.operation)),
         { method: 'GET' }
       )
       return asRecord(result)?.todos ?? null
     }
     case 'setThreadTodos': {
       const threadId = requiredString(payload, 'threadId', input.operation)
-      const result = await requestJson(options, context, kunThreadTodosPath(threadId), {
+      const result = await requestJson(options, context, localRuntimeThreadTodosPath(threadId), {
         method: 'POST',
         body: JSON.stringify({ todos: arrayValue(payload.todos) })
       })
@@ -421,13 +423,13 @@ async function kunAuxiliary(
       const result = await requestJson(
         options,
         context,
-        kunThreadTodosPath(requiredString(payload, 'threadId', input.operation)),
+        localRuntimeThreadTodosPath(requiredString(payload, 'threadId', input.operation)),
         { method: 'DELETE' }
       )
       return asRecord(result)?.cleared === true
     }
     case 'cancelUserInput':
-      await requestJson(options, context, kunUserInputPath(requiredString(payload, 'requestId', input.operation)), {
+      await requestJson(options, context, localRuntimeUserInputPath(requiredString(payload, 'requestId', input.operation)), {
         method: 'POST',
         body: JSON.stringify({ cancelled: true })
       })
@@ -441,7 +443,7 @@ async function kunAuxiliary(
         result = await requestJson(
           options,
           context,
-          `${kunThreadChildrenPath(threadId)}${queryString({
+          `${localRuntimeThreadChildrenPath(threadId)}${queryString({
             turn_id: turnId,
             active_only: activeOnly,
             cursor: optionalString(payload.cursor),
@@ -450,14 +452,14 @@ async function kunAuxiliary(
           { method: 'GET' }
         )
       } catch (error) {
-        if (!isKunNotFoundError(error)) throw error
+        if (!isLocalRuntimeNotFoundError(error)) throw error
         return {
-          runtimeId: 'kun',
+          runtimeId: SCIFORGE_RUNTIME_ID,
           threadId,
           ...(turnId ? { parentTurnId: turnId } : {}),
           children: [],
           degraded: true,
-          reason: 'Kun child run endpoint is unavailable.'
+          reason: 'Child run endpoint is unavailable.'
         }
       }
       const record = asRecord(result) ?? {}
@@ -466,10 +468,10 @@ async function kunAuxiliary(
         : arrayValue(record.childRuns)
       const children = filterAgentRuntimeThreadChildren(
         rawChildren
-          .map((child) => mapKunChildRun(child, threadId))
+          .map((child) => mapLocalRuntimeChildRun(child, threadId))
           .filter((child): child is AgentRuntimeChild => child != null),
         {
-          runtimeId: 'kun',
+          runtimeId: SCIFORGE_RUNTIME_ID,
           parentThreadId: threadId,
           ...(turnId ? { parentTurnId: turnId } : {}),
           ...(activeOnly !== undefined ? { activeOnly } : {})
@@ -477,7 +479,7 @@ async function kunAuxiliary(
       )
       const metadata = asRecord(record.metadata)
       return {
-        runtimeId: 'kun',
+        runtimeId: SCIFORGE_RUNTIME_ID,
         threadId,
         ...(turnId ? { parentTurnId: turnId } : {}),
         children,
@@ -498,27 +500,27 @@ async function kunAuxiliary(
         result = await requestJson(
           options,
           context,
-          `${kunThreadChildTranscriptPath(threadId, childId)}${queryString({
+          `${localRuntimeThreadChildTranscriptPath(threadId, childId)}${queryString({
             cursor: optionalString(payload.cursor),
             limit: optionalPositiveIntegerString(payload.limit)
           })}`,
           { method: 'GET' }
         )
       } catch (error) {
-        if (!isKunNotFoundError(error)) throw error
-        return degradedKunChildTranscript({
+        if (!isLocalRuntimeNotFoundError(error)) throw error
+        return degradedLocalRuntimeChildTranscript({
           threadId,
           parentTurnId,
           childId,
-          reason: 'Kun child transcript endpoint is unavailable.'
+          reason: 'Child transcript endpoint is unavailable.'
         })
       }
       const transcriptRecord = asRecord(asRecord(result)?.transcript) ?? {}
-      const child = mapKunChildRun(transcriptRecord.child, threadId)
-      const transcriptFormat = mapKunTranscriptFormat(transcriptRecord.format)
+      const child = mapLocalRuntimeChildRun(transcriptRecord.child, threadId)
+      const transcriptFormat = mapLocalRuntimeTranscriptFormat(transcriptRecord.format)
       return {
         transcript: {
-          runtimeId: 'kun',
+          runtimeId: SCIFORGE_RUNTIME_ID,
           threadId: optionalString(transcriptRecord.threadId) ?? threadId,
           parentThreadId: threadId,
           ...(optionalString(transcriptRecord.parentTurnId) ?? parentTurnId
@@ -526,15 +528,15 @@ async function kunAuxiliary(
             : {}),
           childId,
           ...(child ? { child } : {}),
-          transcriptRef: mapKunTranscriptRef(
+          transcriptRef: mapLocalRuntimeTranscriptRef(
             asRecord(transcriptRecord.transcriptRef) ?? undefined,
             childId,
             child?.label ?? child?.name
           ),
           ...(transcriptFormat ? { format: transcriptFormat } : {}),
           entries: arrayValue(transcriptRecord.entries)
-            .map(mapKunTranscriptEntry)
-            .filter((entry): entry is NonNullable<ReturnType<typeof mapKunTranscriptEntry>> => entry != null),
+            .map(mapLocalRuntimeTranscriptEntry)
+            .filter((entry): entry is NonNullable<ReturnType<typeof mapLocalRuntimeTranscriptEntry>> => entry != null),
           summary: optionalString(transcriptRecord.summary) ?? child?.summary,
           usage: mapUsage(transcriptRecord.usage) ?? child?.usage,
           ...(transcriptRecord.degraded === true ? { degraded: true } : {}),
@@ -544,18 +546,18 @@ async function kunAuxiliary(
       }
     }
     default:
-      throw new Error(`Unsupported Kun auxiliary operation: ${input.operation}.`)
+      throw new Error(`Unsupported runtime auxiliary operation: ${input.operation}.`)
   }
 }
 
 async function requestJson(
-  options: KunAgentRuntimeAdapterOptions,
+  options: LocalRuntimeAgentRuntimeAdapterOptions,
   context: AgentRuntimeAdapterContext,
   pathAndQuery: string,
-  init: KunAgentRuntimeHttpInit
+  init: LocalRuntimeAgentRuntimeHttpInit
 ): Promise<unknown> {
   const response = await options.request(context.settings, pathAndQuery, init)
-  if (!response.ok) throw kunHttpError(response)
+  if (!response.ok) throw localRuntimeHttpError(response)
   return readJson(response.body)
 }
 
@@ -568,22 +570,22 @@ function readJson(body: string): unknown {
   }
 }
 
-function kunHttpError(response: KunAgentRuntimeHttpResult): Error {
+function localRuntimeHttpError(response: LocalRuntimeAgentRuntimeHttpResult): Error {
   const body = asRecord(readJson(response.body))
-  const message = stringValue(body?.message) || stringValue(body?.error) || `Kun runtime HTTP request failed (${response.status}).`
+  const message = stringValue(body?.message) || stringValue(body?.error) || `Local runtime HTTP request failed (${response.status}).`
   const error = new Error(message)
-  error.name = stringValue(body?.code) || 'KunRuntimeHttpError'
+  error.name = stringValue(body?.code) || 'LocalRuntimeHttpError'
   return error
 }
 
-function isKunCapabilityUnavailableError(error: unknown, message: string): boolean {
+function isLocalRuntimeCapabilityUnavailableError(error: unknown, message: string): boolean {
   return error instanceof Error &&
     error.name === 'capability_unavailable' &&
     error.message.toLowerCase().includes(message.toLowerCase())
 }
 
 function missingPayload(operation: string, key: string): Error {
-  return new Error(`Kun auxiliary operation ${operation} requires payload.${key}.`)
+  return new Error(`Runtime auxiliary operation ${operation} requires payload.${key}.`)
 }
 
 function requiredString(payload: Record<string, unknown>, key: string, operation: string): string {
@@ -626,7 +628,7 @@ function threadListQuery(input: {
   return value ? `?${value}` : ''
 }
 
-function kunUsagePath(input: AgentRuntimeUsageQuery): string {
+function localRuntimeUsagePath(input: AgentRuntimeUsageQuery): string {
   const query = new URLSearchParams()
   query.set('group_by', input.groupBy)
   if (input.from?.trim()) query.set('from', input.from.trim())
@@ -635,7 +637,7 @@ function kunUsagePath(input: AgentRuntimeUsageQuery): string {
   return `/v1/usage?${query.toString()}`
 }
 
-function mapKunThread(value: unknown): AgentRuntimeThread {
+function mapLocalRuntimeThread(value: unknown): AgentRuntimeThread {
   const record = firstRecord(value, 'thread')
   const id = stringValue(record.id) || stringValue(record.threadId)
   const status = stringValue(record.status)
@@ -643,8 +645,8 @@ function mapKunThread(value: unknown): AgentRuntimeThread {
   const latestTurn = asRecord(turns.at(-1)) ?? {}
   return {
     id,
-    runtimeId: 'kun',
-    title: stringValue(record.title) || stringValue(record.name) || stringValue(record.preview) || 'Kun thread',
+    runtimeId: SCIFORGE_RUNTIME_ID,
+    title: stringValue(record.title) || stringValue(record.name) || stringValue(record.preview) || 'Runtime thread',
     updatedAt: stringValue(record.updatedAt) || stringValue(record.updated_at) || new Date().toISOString(),
     createdAt: optionalString(record.createdAt) ?? optionalString(record.created_at),
     model: optionalString(record.model),
@@ -663,21 +665,21 @@ function mapKunThread(value: unknown): AgentRuntimeThread {
     forkedAt: optionalString(record.forkedAt) ?? optionalString(record.forked_at),
     forkedFromMessageCount: numberValue(record.forkedFromMessageCount) ?? numberValue(record.forked_from_message_count),
     forkedFromTurnCount: numberValue(record.forkedFromTurnCount) ?? numberValue(record.forked_from_turn_count),
-    goal: mapKunGoal(record.goal, id)
+    goal: mapLocalRuntimeGoal(record.goal, id)
   }
 }
 
-function mapKunGoal(value: unknown, threadId: string): AgentRuntimeThreadGoal | null {
+function mapLocalRuntimeGoal(value: unknown, threadId: string): AgentRuntimeThreadGoal | null {
   const record = asRecord(value)
   if (!record) return null
   const objective = stringValue(record.objective)
-  const status = mapKunGoalStatus(stringValue(record.status))
+  const status = mapLocalRuntimeGoalStatus(stringValue(record.status))
   const createdAt = optionalString(record.createdAt) ?? optionalString(record.created_at) ?? new Date().toISOString()
   const updatedAt = optionalString(record.updatedAt) ?? optionalString(record.updated_at) ?? createdAt
   const tokenBudget = numberValue(record.tokenBudget) ?? numberValue(record.token_budget)
   if (!objective || !status) return null
   return {
-    runtimeId: 'kun',
+    runtimeId: SCIFORGE_RUNTIME_ID,
     threadId,
     objective,
     status,
@@ -689,11 +691,11 @@ function mapKunGoal(value: unknown, threadId: string): AgentRuntimeThreadGoal | 
   }
 }
 
-function mapKunThreadDetail(value: unknown): AgentRuntimeThreadDetail {
+function mapLocalRuntimeThreadDetail(value: unknown): AgentRuntimeThreadDetail {
   const record = firstRecord(value, 'thread')
-  const thread = mapKunThread(record)
+  const thread = mapLocalRuntimeThread(record)
   const turns = arrayValue(record.turns)
-    .map((turn) => mapKunTurn(turn, thread.id))
+    .map((turn) => mapLocalRuntimeTurn(turn, thread.id))
     .filter((turn) => turn.id)
   const items = turns.flatMap((turn) => turn.items ?? [])
   return {
@@ -705,13 +707,13 @@ function mapKunThreadDetail(value: unknown): AgentRuntimeThreadDetail {
   }
 }
 
-function mapKunTurn(value: unknown, threadId: string): AgentRuntimeTurn {
+function mapLocalRuntimeTurn(value: unknown, threadId: string): AgentRuntimeTurn {
   const record = asRecord(value) ?? {}
   const id = stringValue(record.id) || stringValue(record.turnId)
   const startedAt = optionalString(record.startedAt) ?? optionalString(record.createdAt)
   const completedAt = optionalString(record.completedAt) ?? optionalString(record.finishedAt)
   const items = arrayValue(record.items)
-    .map((item) => mapKunItem(item))
+    .map((item) => mapLocalRuntimeItem(item))
     .filter(Boolean) as AgentRuntimeItem[]
   return {
     id,
@@ -724,7 +726,7 @@ function mapKunTurn(value: unknown, threadId: string): AgentRuntimeTurn {
   }
 }
 
-function mapKunItem(value: unknown): AgentRuntimeItem | null {
+function mapLocalRuntimeItem(value: unknown): AgentRuntimeItem | null {
   const record = asRecord(value)
   if (!record) return null
   const kind = stringValue(record.kind)
@@ -744,7 +746,7 @@ function mapKunItem(value: unknown): AgentRuntimeItem | null {
   }
   if (kind === 'tool_call') {
     const toolName = stringValue(record.toolName)
-    const itemId = kunToolItemId(record, base.id)
+    const itemId = localRuntimeToolItemId(record, base.id)
     return {
       ...base,
       id: itemId,
@@ -752,12 +754,12 @@ function mapKunItem(value: unknown): AgentRuntimeItem | null {
       toolKind: normalizeToolKind(record.toolKind),
       summary: stringValue(record.summary) || toolName || 'Tool call',
       detail: stringifyDetail(record.arguments),
-      meta: kunToolMeta(record, base.id, toolName)
+      meta: localRuntimeToolMeta(record, base.id, toolName)
     }
   }
   if (kind === 'tool_result') {
     const toolName = stringValue(record.toolName)
-    const itemId = kunToolItemId(record, base.id)
+    const itemId = localRuntimeToolItemId(record, base.id)
     return {
       ...base,
       id: itemId,
@@ -766,7 +768,7 @@ function mapKunItem(value: unknown): AgentRuntimeItem | null {
       toolKind: normalizeToolKind(record.toolKind),
       summary: stringValue(record.summary) || toolName || 'Tool result',
       detail: stringifyDetail(record.output),
-      meta: kunToolMeta(record, base.id, toolName)
+      meta: localRuntimeToolMeta(record, base.id, toolName)
     }
   }
   if (kind === 'approval') {
@@ -823,12 +825,12 @@ function mapKunItem(value: unknown): AgentRuntimeItem | null {
   }
 }
 
-function kunToolItemId(record: Record<string, unknown>, fallbackId: string): string {
+function localRuntimeToolItemId(record: Record<string, unknown>, fallbackId: string): string {
   const callId = stringValue(record.callId)
   return callId ? `tool_${callId}` : fallbackId
 }
 
-function kunToolMeta(
+function localRuntimeToolMeta(
   record: Record<string, unknown>,
   sourceItemId: string,
   toolName: string
@@ -850,7 +852,7 @@ function mapTurnHandle(value: unknown, fallbackThreadId: string): AgentRuntimeTu
   }
 }
 
-function mapKunToolReadyEvent(
+function mapLocalRuntimeToolReadyEvent(
   record: Record<string, unknown>,
   common: {
     threadId: string
@@ -866,7 +868,7 @@ function mapKunToolReadyEvent(
   return {
     kind: 'tool_event',
     threadId: common.threadId,
-    runtimeId: 'kun',
+    runtimeId: SCIFORGE_RUNTIME_ID,
     seq: common.seq,
     createdAt: common.createdAt,
     turnId: common.turnId,
@@ -884,7 +886,7 @@ function mapKunToolReadyEvent(
   }
 }
 
-function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEvent | null {
+function mapLocalRuntimeEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEvent | null {
   const record = asRecord(value)
   if (!record) return null
   const threadId = stringValue(record.threadId) || fallbackThreadId
@@ -893,13 +895,13 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
   const createdAt = optionalString(record.timestamp) ?? optionalString(record.createdAt)
   const turnId = optionalString(record.turnId)
   const itemId = stringValue(record.itemId)
-  const child = mapKunChildEvent(record, threadId, turnId, createdAt)
+  const child = mapLocalRuntimeChildEvent(record, threadId, turnId, createdAt)
   if (child) {
     const message = optionalString(record.message) ?? optionalString(record.text)
     return {
       kind: 'child_event',
       threadId,
-      runtimeId: 'kun',
+      runtimeId: SCIFORGE_RUNTIME_ID,
       seq,
       createdAt,
       turnId,
@@ -913,14 +915,14 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
     return {
       kind: 'thread_lifecycle',
       threadId,
-      runtimeId: 'kun',
+      runtimeId: SCIFORGE_RUNTIME_ID,
       seq,
       createdAt,
       state: kind === 'thread_created' ? 'created' : 'updated',
       thread: {
         id: threadId,
-        runtimeId: 'kun',
-        title: stringValue(record.title) || 'Kun thread',
+        runtimeId: SCIFORGE_RUNTIME_ID,
+        title: stringValue(record.title) || 'Runtime thread',
         updatedAt: createdAt || new Date().toISOString(),
         status: optionalString(record.status),
         backendThreadId: threadId
@@ -938,11 +940,11 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
     return {
       kind: 'turn_lifecycle',
       threadId,
-      runtimeId: 'kun',
+      runtimeId: SCIFORGE_RUNTIME_ID,
       seq,
       createdAt,
       turnId,
-      state: mapKunTurnLifecycleState(kind),
+      state: mapLocalRuntimeTurnLifecycleState(kind),
       message: optionalString(record.message) ?? optionalString(record.text)
     }
   }
@@ -952,11 +954,11 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
     return {
       kind: 'assistant_delta',
       threadId,
-      runtimeId: 'kun',
+      runtimeId: SCIFORGE_RUNTIME_ID,
       seq,
       createdAt,
       turnId,
-      itemId: itemId || stringValue(item?.id) || `kun-delta-${seq ?? Date.now()}`,
+      itemId: itemId || stringValue(item?.id) || `sciforge-delta-${seq ?? Date.now()}`,
       text: stringValue(record.text) || stringValue(record.delta) || stringValue(item?.text)
     }
   }
@@ -965,11 +967,11 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
     return {
       kind: 'reasoning_delta',
       threadId,
-      runtimeId: 'kun',
+      runtimeId: SCIFORGE_RUNTIME_ID,
       seq,
       createdAt,
       turnId,
-      itemId: itemId || stringValue(item?.id) || `kun-reasoning-${seq ?? Date.now()}`,
+      itemId: itemId || stringValue(item?.id) || `sciforge-reasoning-${seq ?? Date.now()}`,
       text: stringValue(record.text) ||
         stringValue(record.delta) ||
         stringValue(record.summary) ||
@@ -981,7 +983,7 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
   }
 
   if (kind === 'tool_call_ready') {
-    return mapKunToolReadyEvent(record, {
+    return mapLocalRuntimeToolReadyEvent(record, {
       threadId,
       seq,
       createdAt,
@@ -995,7 +997,7 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
     return {
       kind: 'compaction_event',
       threadId,
-      runtimeId: 'kun',
+      runtimeId: SCIFORGE_RUNTIME_ID,
       seq,
       createdAt,
       turnId,
@@ -1017,13 +1019,13 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
     return {
       kind: 'goal_event',
       threadId,
-      runtimeId: 'kun',
+      runtimeId: SCIFORGE_RUNTIME_ID,
       seq,
       createdAt,
       turnId,
       itemId: itemId || optionalString(record.itemId),
       objective: stringValue(goal?.objective),
-      status: mapKunGoalStatus(stringValue(goal?.status)),
+      status: mapLocalRuntimeGoalStatus(stringValue(goal?.status)),
       cleared: kind === 'goal_cleared' || record.cleared === true
     }
   }
@@ -1035,12 +1037,12 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
     kind === 'tool_call_started' ||
     kind === 'tool_call_finished'
   ) {
-    const item = mapKunItem(record.item)
+    const item = mapLocalRuntimeItem(record.item)
     if (item) {
       return {
         kind: 'item_snapshot',
         threadId,
-        runtimeId: 'kun',
+        runtimeId: SCIFORGE_RUNTIME_ID,
         seq,
         createdAt,
         turnId,
@@ -1050,24 +1052,24 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
     }
   }
 
-  if (isNeutralEvent(record)) return { ...record, runtimeId: 'kun' } as AgentRuntimeEvent
+  if (isNeutralEvent(record)) return { ...record, runtimeId: SCIFORGE_RUNTIME_ID } as AgentRuntimeEvent
 
   return {
     kind: 'item_snapshot',
     threadId,
-    runtimeId: 'kun',
+    runtimeId: SCIFORGE_RUNTIME_ID,
     seq,
     createdAt,
     turnId,
     item: {
-      id: itemId || `kun-event-${seq ?? Date.now()}`,
+      id: itemId || `sciforge-event-${seq ?? Date.now()}`,
       kind: 'system',
       meta: record
     }
   }
 }
 
-function mapKunTurnLifecycleState(kind: string): Extract<AgentRuntimeEvent, { kind: 'turn_lifecycle' }>['state'] {
+function mapLocalRuntimeTurnLifecycleState(kind: string): Extract<AgentRuntimeEvent, { kind: 'turn_lifecycle' }>['state'] {
   if (kind === 'turn_completed') return 'completed'
   if (kind === 'turn_failed') return 'failed'
   if (kind === 'turn_aborted') return 'aborted'
@@ -1081,7 +1083,7 @@ function compactionEventDetail(record: Record<string, unknown>): string | undefi
   return optionalString(record.detail) ?? optionalString(record.reason)
 }
 
-function mapKunGoalStatus(value: string): Extract<AgentRuntimeEvent, { kind: 'goal_event' }>['status'] | undefined {
+function mapLocalRuntimeGoalStatus(value: string): Extract<AgentRuntimeEvent, { kind: 'goal_event' }>['status'] | undefined {
   if (
     value === 'active' ||
     value === 'paused' ||
@@ -1120,8 +1122,8 @@ function isNeutralEvent(record: Record<string, unknown>): boolean {
   ].includes(stringValue(record.kind))
 }
 
-function conservativeKunCapabilities(): AgentRuntimeCapabilities {
-  const caps = createDefaultAgentRuntimeCapabilities({ runtimeId: 'kun', transport: 'http_sse' })
+function conservativeLocalRuntimeCapabilities(): AgentRuntimeCapabilities {
+  const caps = createDefaultAgentRuntimeCapabilities({ runtimeId: SCIFORGE_RUNTIME_ID, transport: 'http_sse' })
   return {
     ...caps,
     matrix: createAgentRuntimeCapabilityMatrix({
@@ -1188,8 +1190,8 @@ function conservativeKunCapabilities(): AgentRuntimeCapabilities {
   }
 }
 
-function mapKunCapabilities(value: unknown, diagnosticsAvailable: boolean): AgentRuntimeCapabilities {
-  const caps = conservativeKunCapabilities()
+function mapLocalRuntimeCapabilities(value: unknown, diagnosticsAvailable: boolean): AgentRuntimeCapabilities {
+  const caps = conservativeLocalRuntimeCapabilities()
   const manifest = asRecord(asRecord(value)?.capabilities) ?? asRecord(value) ?? {}
   const model = asRecord(manifest.model) ?? {}
   const mcp = asRecord(manifest.mcp) ?? {}
@@ -1356,7 +1358,7 @@ function mapUsage(value: unknown): AgentRuntimeThreadDetail['usage'] {
   }
 }
 
-function mapKunTranscriptRef(
+function mapLocalRuntimeTranscriptRef(
   record: Record<string, unknown> | undefined,
   childId: string,
   label?: string
@@ -1367,11 +1369,11 @@ function mapKunTranscriptRef(
   const metadata = asRecord(record?.metadata) ?? undefined
   return {
     id: optionalString(record?.id) ?? childId,
-    kind: mapKunTranscriptRefKind(record?.kind) ?? 'runtime',
-    runtimeId: 'kun',
+    kind: mapLocalRuntimeTranscriptRefKind(record?.kind) ?? 'runtime',
+    runtimeId: SCIFORGE_RUNTIME_ID,
     childId,
     transcriptId: optionalString(record?.transcriptId) ?? childId,
-    source: optionalString(record?.source) ?? 'kun-child-run',
+    source: optionalString(record?.source) ?? 'local-runtime-child-run',
     label: optionalString(record?.label) ?? label ?? childId,
     ...(path ? { path } : {}),
     ...(url ? { url } : {}),
@@ -1380,23 +1382,23 @@ function mapKunTranscriptRef(
   }
 }
 
-function mapKunTranscriptRefKind(value: unknown): NonNullable<AgentRuntimeChild['transcriptRef']>['kind'] | undefined {
+function mapLocalRuntimeTranscriptRefKind(value: unknown): NonNullable<AgentRuntimeChild['transcriptRef']>['kind'] | undefined {
   if (value === 'runtime' || value === 'file' || value === 'directory' || value === 'url' || value === 'remote') {
     return value
   }
   return undefined
 }
 
-function mapKunTranscriptFormat(value: unknown): 'jsonl' | 'markdown' | 'text' | 'unknown' | undefined {
+function mapLocalRuntimeTranscriptFormat(value: unknown): 'jsonl' | 'markdown' | 'text' | 'unknown' | undefined {
   if (value === 'jsonl' || value === 'markdown' || value === 'text' || value === 'unknown') return value
   return undefined
 }
 
-function mapKunTranscriptEntry(value: unknown): AgentRuntimeChildTranscriptEntry | null {
+function mapLocalRuntimeTranscriptEntry(value: unknown): AgentRuntimeChildTranscriptEntry | null {
   const record = asRecord(value)
   if (!record) return null
   const id = optionalString(record.id)
-  const kind = mapKunTranscriptEntryKind(record.kind)
+  const kind = mapLocalRuntimeTranscriptEntryKind(record.kind)
   if (!id || !kind) return null
   const text = optionalString(record.text)
   const summary = optionalString(record.summary)
@@ -1414,7 +1416,7 @@ function mapKunTranscriptEntry(value: unknown): AgentRuntimeChildTranscriptEntry
   }
 }
 
-function mapKunTranscriptEntryKind(value: unknown): AgentRuntimeChildTranscriptEntry['kind'] | null {
+function mapLocalRuntimeTranscriptEntryKind(value: unknown): AgentRuntimeChildTranscriptEntry['kind'] | null {
   if (
     value === 'user_message' ||
     value === 'assistant_message' ||
@@ -1428,14 +1430,14 @@ function mapKunTranscriptEntryKind(value: unknown): AgentRuntimeChildTranscriptE
   return null
 }
 
-function degradedKunChildTranscript(input: {
+function degradedLocalRuntimeChildTranscript(input: {
   threadId: string
   parentTurnId?: string
   childId: string
   reason: string
 }): {
   transcript: {
-    runtimeId: 'kun'
+    runtimeId: typeof SCIFORGE_RUNTIME_ID
     threadId: string
     parentThreadId: string
     parentTurnId?: string
@@ -1448,7 +1450,7 @@ function degradedKunChildTranscript(input: {
 } {
   return {
     transcript: {
-      runtimeId: 'kun',
+      runtimeId: SCIFORGE_RUNTIME_ID,
       threadId: input.threadId,
       parentThreadId: input.threadId,
       ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
@@ -1461,14 +1463,14 @@ function degradedKunChildTranscript(input: {
   }
 }
 
-function mapKunChildRun(value: unknown, fallbackParentThreadId: string): AgentRuntimeChild | null {
+function mapLocalRuntimeChildRun(value: unknown, fallbackParentThreadId: string): AgentRuntimeChild | null {
   const record = asRecord(value)
   if (!record) return null
   const id = stringValue(record.id) || stringValue(record.childId)
   const parentThreadId = stringValue(record.parentThreadId) || fallbackParentThreadId
   if (!id || !parentThreadId) return null
   const label = optionalString(record.label) ?? optionalString(record.childLabel)
-  const status = mapKunChildStatus(stringValue(record.status) || stringValue(record.childStatus))
+  const status = mapLocalRuntimeChildStatus(stringValue(record.status) || stringValue(record.childStatus))
   const updatedAt = optionalString(record.updatedAt) ?? optionalString(record.updated_at)
   const completedAt = status === 'completed' || status === 'failed' || status === 'aborted'
     ? updatedAt
@@ -1478,7 +1480,7 @@ function mapKunChildRun(value: unknown, fallbackParentThreadId: string): AgentRu
   const error = optionalString(record.error)
   return {
     id,
-    runtimeId: 'kun',
+    runtimeId: SCIFORGE_RUNTIME_ID,
     parentThreadId,
     parentTurnId: optionalString(record.parentTurnId) ?? optionalString(record.parent_turn_id),
     kind: 'agent',
@@ -1487,13 +1489,13 @@ function mapKunChildRun(value: unknown, fallbackParentThreadId: string): AgentRu
     prompt: optionalString(record.prompt),
     summary: optionalString(record.summary) ?? optionalString(record.text) ?? error,
     usage: mapUsage(record.usage),
-    transcriptRef: mapKunTranscriptRef(asRecord(record.transcriptRef) ?? undefined, id, label),
+    transcriptRef: mapLocalRuntimeTranscriptRef(asRecord(record.transcriptRef) ?? undefined, id, label),
     createdAt: optionalString(record.createdAt) ?? optionalString(record.created_at),
     startedAt: optionalString(record.startedAt) ?? optionalString(record.started_at) ?? optionalString(record.createdAt) ?? optionalString(record.created_at),
     updatedAt,
     ...(completedAt ? { completedAt } : {}),
     metadata: {
-      source: 'kun.delegate_task',
+      source: 'local-runtime.delegate_task',
       ...(workspace ? { workspace } : {}),
       ...(model ? { model } : {}),
       ...(error ? { error } : {})
@@ -1501,7 +1503,7 @@ function mapKunChildRun(value: unknown, fallbackParentThreadId: string): AgentRu
   }
 }
 
-function mapKunChildStatus(value: string): AgentRuntimeChildStatus {
+function mapLocalRuntimeChildStatus(value: string): AgentRuntimeChildStatus {
   if (
     value === 'queued' ||
     value === 'running' ||
@@ -1514,7 +1516,7 @@ function mapKunChildStatus(value: string): AgentRuntimeChildStatus {
   return 'unknown'
 }
 
-function mapKunChildEvent(
+function mapLocalRuntimeChildEvent(
   value: Record<string, unknown>,
   fallbackParentThreadId: string,
   fallbackParentTurnId: string | undefined,
@@ -1527,11 +1529,11 @@ function mapKunChildEvent(
   const parentThreadId = stringValue(record.parentThreadId) || fallbackParentThreadId
   if (!id || !parentThreadId) return null
   const label = optionalString(record.childLabel)
-  const status = mapKunChildStatus(stringValue(record.childStatus))
+  const status = mapLocalRuntimeChildStatus(stringValue(record.childStatus))
   const summary = optionalString(event.text) ?? optionalString(event.message)
   return {
     id,
-    runtimeId: 'kun',
+    runtimeId: SCIFORGE_RUNTIME_ID,
     parentThreadId,
     parentTurnId: optionalString(record.parentTurnId) ?? fallbackParentTurnId,
     kind: 'agent',
@@ -1541,7 +1543,7 @@ function mapKunChildEvent(
     updatedAt: createdAt,
     ...(status === 'completed' || status === 'failed' || status === 'aborted' ? { completedAt: createdAt } : {}),
     metadata: {
-      source: 'kun.runtime_event',
+      source: 'local-runtime.runtime_event',
       ...(numberValue(record.childSeq) !== undefined ? { childSeq: numberValue(record.childSeq) } : {})
     }
   }
@@ -1616,16 +1618,16 @@ function normalizeUsageTotals(record: Record<string, unknown>): Record<string, u
 }
 
 async function hydrateThreadCacheStats(
-  options: KunAgentRuntimeAdapterOptions,
+  options: LocalRuntimeAgentRuntimeAdapterOptions,
   context: AgentRuntimeAdapterContext,
   threadId: string,
   response: Extract<AgentRuntimeUsageResponse, { supported: true }>
 ): Promise<void> {
   let payload: unknown
   try {
-    payload = await requestJson(options, context, kunThreadPath(threadId), { method: 'GET' })
+    payload = await requestJson(options, context, localRuntimeThreadPath(threadId), { method: 'GET' })
   } catch (error) {
-    if (isKunNotFoundError(error)) return
+    if (isLocalRuntimeNotFoundError(error)) return
     throw error
   }
   const stats = threadCacheStats(payload)
@@ -1641,7 +1643,7 @@ async function hydrateThreadCacheStats(
   bucket.cacheHitRate = cacheTotal > 0 ? stats.hitTokens / cacheTotal : null
 }
 
-function isKunNotFoundError(error: unknown): boolean {
+function isLocalRuntimeNotFoundError(error: unknown): boolean {
   return error instanceof Error && error.name === 'not_found'
 }
 

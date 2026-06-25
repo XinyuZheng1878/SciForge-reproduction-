@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -33,7 +33,7 @@ function settings(): AppSettingsV1 {
     modelRouter: {
       ...defaultModelRouterSettings(),
       baseUrl: 'http://127.0.0.1:4567/v1',
-      publicModelAlias: 'deepseek-gui-router',
+      publicModelAlias: 'sciforge-router',
       runtimeApiKey: 'local-runtime-key',
       profiles: {
         default: {
@@ -54,9 +54,9 @@ function settings(): AppSettingsV1 {
         }
       }
     },
-    activeAgentRuntime: 'kun',
+    activeAgentRuntime: 'sciforge',
     agents: {
-      kun: defaultKunRuntimeSettings()
+      sciforge: defaultLocalRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: false, retentionDays: 7 },
@@ -75,8 +75,8 @@ function settings(): AppSettingsV1 {
 describe('buildModelRouterSidecarLaunch', () => {
   it('builds a dev workspace launch without writing provider secrets into config', () => {
     const result = buildModelRouterSidecarLaunch(settings(), {
-      userDataDir: '/tmp/deepseek-gui-user-data',
-      appRoot: '/repo/deepseek-gui',
+      userDataDir: '/tmp/sciforge-user-data',
+      appRoot: '/repo/sciforge',
       env: {},
       npmCommand: 'npm'
     })
@@ -84,7 +84,7 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.launch.command).toBe('npm')
-    expect(result.launch.cwd).toBe('/repo/deepseek-gui')
+    expect(result.launch.cwd).toBe('/repo/sciforge')
     expect(result.launch.args).toEqual([
       '--workspace',
       '@sciforge/model-router',
@@ -96,7 +96,7 @@ describe('buildModelRouterSidecarLaunch', () => {
       '--port',
       '4567',
       '--config',
-      '/tmp/deepseek-gui-user-data/model-router/config.json',
+      '/tmp/sciforge-user-data/model-router/config.json',
       '--workspace-root',
       '/tmp/workspace',
       '--quiet'
@@ -104,9 +104,9 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_TEXT_API_KEY).toBe('text-secret')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_VISION_API_KEY).toBe('vision-secret')
-    expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
-    expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY).toBe('text-secret')
-    expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_VISION_API_KEY).toBe('vision-secret')
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_TEXT_API_KEY).toBe('text-secret')
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_VISION_API_KEY).toBe('vision-secret')
     expect(result.launch.config?.profiles.default.textReasoner).toEqual({
       provider: 'openai-compatible',
       baseUrl: 'http://127.0.0.1:3892/v1',
@@ -124,16 +124,16 @@ describe('buildModelRouterSidecarLaunch', () => {
     current.modelRouter!.profiles.default.textReasoner.model = ''
 
     const result = buildModelRouterSidecarLaunch(current, {
-      userDataDir: '/tmp/deepseek-gui-user-data',
+      userDataDir: '/tmp/sciforge-user-data',
       env: {},
       npmCommand: 'npm'
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.launch.configPath).toBe('/tmp/deepseek-gui-user-data/model-router/config.json')
+    expect(result.launch.configPath).toBe('/tmp/sciforge-user-data/model-router/config.json')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
-    expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
   })
 
   it('builds a launch against the local config file without requiring member settings in the UI', () => {
@@ -146,27 +146,27 @@ describe('buildModelRouterSidecarLaunch', () => {
     }
 
     const result = buildModelRouterSidecarLaunch(current, {
-      userDataDir: '/tmp/deepseek-gui-user-data',
+      userDataDir: '/tmp/sciforge-user-data',
       env: {},
       npmCommand: 'npm'
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.launch.configPath).toBe('/tmp/deepseek-gui-user-data/model-router/config.json')
+    expect(result.launch.configPath).toBe('/tmp/sciforge-user-data/model-router/config.json')
     expect(result.launch.config?.profiles.default.textReasoner.apiKeyEnv).toBe('SCIFORGE_MODEL_ROUTER_TEXT_API_KEY')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_TEXT_API_KEY).toBe('')
-    expect(result.launch.env.DEEPSEEK_GUI_MODEL_ROUTER_TEXT_API_KEY).toBe('')
-    expect(result.launch.args).toContain('/tmp/deepseek-gui-user-data/model-router/config.json')
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_TEXT_API_KEY).toBe('')
+    expect(result.launch.args).toContain('/tmp/sciforge-user-data/model-router/config.json')
   })
 
   it('creates a local Model Router config template without overwriting an existing file', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-router-config-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-router-config-'))
     try {
       const current = settings()
       current.provider.apiKey = 'text-secret'
       current.provider.baseUrl = 'https://text.example/v1'
-      current.agents.kun.model = 'deepseek-v4-pro'
+      current.agents.sciforge.model = 'deepseek-v4-pro'
 
       const created = await ensureModelRouterConfigFile(current, { userDataDir })
       const content = await readFile(created.path, 'utf8')
@@ -188,7 +188,7 @@ describe('buildModelRouterSidecarLaunch', () => {
   })
 
   it('spawns from the explicit app root and logs sidecar output and unexpected exits', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-router-sidecar-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-router-sidecar-'))
     const current = settings()
     current.modelRouter!.baseUrl = 'http://127.0.0.1:45987/v1'
     const child = fakeChildProcess()
@@ -198,7 +198,7 @@ describe('buildModelRouterSidecarLaunch', () => {
     try {
       await ensureModelRouterSidecar(current, {
         userDataDir,
-        appRoot: '/repo/deepseek-gui',
+        appRoot: '/repo/sciforge',
         env: {},
         spawnImpl,
         log
@@ -208,7 +208,7 @@ describe('buildModelRouterSidecarLaunch', () => {
         'npm',
         expect.arrayContaining(['--workspace', '@sciforge/model-router']),
         expect.objectContaining({
-          cwd: '/repo/deepseek-gui',
+          cwd: '/repo/sciforge',
           stdio: ['ignore', 'pipe', 'pipe']
         })
       )
@@ -216,7 +216,7 @@ describe('buildModelRouterSidecarLaunch', () => {
       child.stderr?.emit('data', Buffer.from('router boot failed\n'))
       child.emit('exit', 1, null)
 
-      expect(log).toHaveBeenCalledWith('Starting Model Router sidecar from /repo/deepseek-gui.')
+      expect(log).toHaveBeenCalledWith('Starting Model Router sidecar from /repo/sciforge.')
       expect(log).toHaveBeenCalledWith('Model Router sidecar stderr: router boot failed')
       expect(log).toHaveBeenCalledWith('Model Router sidecar exited unexpectedly (code=1, signal=null).')
     } finally {
@@ -225,7 +225,7 @@ describe('buildModelRouterSidecarLaunch', () => {
   })
 
   it('rewrites the managed config before spawning the sidecar', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-router-sidecar-config-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-router-sidecar-config-'))
     const current = settings()
     current.modelRouter!.baseUrl = 'http://127.0.0.1:45990/v1'
     current.modelRouter!.profiles.default.textReasoner = {
@@ -236,7 +236,7 @@ describe('buildModelRouterSidecarLaunch', () => {
     }
     current.provider.apiKey = 'provider-secret'
     current.provider.baseUrl = 'http://127.0.0.1:48767/v1'
-    current.agents.kun.model = 'deepseek-v4-pro'
+    current.agents.sciforge.model = 'deepseek-v4-pro'
     const child = fakeChildProcess()
     const spawnImpl = vi.fn(() => child) as unknown as typeof spawn
 
@@ -246,7 +246,7 @@ describe('buildModelRouterSidecarLaunch', () => {
 
       await ensureModelRouterSidecar(current, {
         userDataDir,
-        appRoot: '/repo/deepseek-gui',
+        appRoot: '/repo/sciforge',
         env: {},
         spawnImpl
       })
@@ -266,7 +266,7 @@ describe('buildModelRouterSidecarLaunch', () => {
   })
 
   it('restarts a managed sidecar when the derived router config changes', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-router-sidecar-config-restart-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-router-sidecar-config-restart-'))
     const firstChild = fakeChildProcess()
     const secondChild = fakeChildProcess()
     const children = [firstChild, secondChild]
@@ -281,7 +281,7 @@ describe('buildModelRouterSidecarLaunch', () => {
 
       await ensureModelRouterSidecar(firstSettings, {
         userDataDir,
-        appRoot: '/repo/deepseek-gui',
+        appRoot: '/repo/sciforge',
         env: {},
         spawnImpl,
         log
@@ -294,7 +294,7 @@ describe('buildModelRouterSidecarLaunch', () => {
 
       await ensureModelRouterSidecar(secondSettings, {
         userDataDir,
-        appRoot: '/repo/deepseek-gui',
+        appRoot: '/repo/sciforge',
         env: {},
         spawnImpl,
         log
@@ -310,7 +310,7 @@ describe('buildModelRouterSidecarLaunch', () => {
   })
 
   it('reuses matching sidecars and restarts when managed launch settings change', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-router-sidecar-restart-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-router-sidecar-restart-'))
     const firstChild = fakeChildProcess()
     const secondChild = fakeChildProcess()
     const children = [firstChild, secondChild]
@@ -322,14 +322,14 @@ describe('buildModelRouterSidecarLaunch', () => {
       firstSettings.modelRouter!.baseUrl = 'http://127.0.0.1:45988/v1'
       await ensureModelRouterSidecar(firstSettings, {
         userDataDir,
-        appRoot: '/repo/deepseek-gui',
+        appRoot: '/repo/sciforge',
         env: {},
         spawnImpl,
         log
       })
       await ensureModelRouterSidecar(firstSettings, {
         userDataDir,
-        appRoot: '/repo/deepseek-gui',
+        appRoot: '/repo/sciforge',
         env: {},
         spawnImpl,
         log
@@ -340,7 +340,7 @@ describe('buildModelRouterSidecarLaunch', () => {
       secondSettings.modelRouter!.runtimeApiKey = 'local-runtime-key-2'
       await ensureModelRouterSidecar(secondSettings, {
         userDataDir,
-        appRoot: '/repo/deepseek-gui',
+        appRoot: '/repo/sciforge',
         env: {},
         spawnImpl,
         log

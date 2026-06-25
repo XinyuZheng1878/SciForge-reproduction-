@@ -31,9 +31,7 @@ export type ClawModel = ScheduleModel
 
 export const DEFAULT_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
 export const DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS = 'sciforge-router'
-export const LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS = 'deepseek-gui-router'
 export const DEFAULT_MODEL_ROUTER_PROVIDER_ID = 'sciforge-model-router'
-export const LEGACY_MODEL_ROUTER_PROVIDER_ID = 'deepseek-gui-model-router'
 export const DEFAULT_DEEPSEEK_BASE_URL = DEFAULT_MODEL_ROUTER_BASE_URL
 export const DEFAULT_CLAW_MODEL = 'auto'
 export const CLAW_MODEL_IDS = ['auto', 'deepseek-v4-pro', 'deepseek-v4-flash'] as const
@@ -43,10 +41,10 @@ export const DEFAULT_SCHEDULE_REASONING_EFFORT = 'medium'
 export const SCHEDULE_REASONING_EFFORT_IDS = ['off', 'low', 'medium', 'high', 'max'] as const
 export const DEFAULT_SCHEDULE_INTERNAL_PORT = 8788
 export const DEFAULT_WRITE_WORKSPACE_ROOT = '~/.sciforge/write_workspace'
-export const DEFAULT_KUN_DATA_DIR = '~/.sciforge/kun'
+export const DEFAULT_LOCAL_RUNTIME_DATA_DIR = '~/.sciforge/runtime'
 export const DEFAULT_CODEX_DATA_DIR = '~/.sciforge/codex'
 export const DEFAULT_CLAUDE_CONFIG_DIR = '~/.sciforge/claude-code'
-export const DEFAULT_KUN_MODEL = 'deepseek-v4-pro'
+export const DEFAULT_LOCAL_RUNTIME_MODEL = 'deepseek-v4-pro'
 export const DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL = DEFAULT_MODEL_ROUTER_BASE_URL
 export const DEFAULT_WRITE_INLINE_COMPLETION_MODEL = 'deepseek-v4-flash'
 export const WRITE_INLINE_COMPLETION_MODEL_IDS = ['deepseek-v4-pro', 'deepseek-v4-flash'] as const
@@ -56,7 +54,7 @@ export const DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS = 96
 export const DEFAULT_WRITE_INLINE_LONG_COMPLETION_DEBOUNCE_MS = 2_800
 export const DEFAULT_WRITE_INLINE_LONG_COMPLETION_MIN_ACCEPT_SCORE = 0.36
 export const DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS = 256
-export const DEFAULT_KUN_PORT = 8899
+export const DEFAULT_LOCAL_RUNTIME_PORT = 8899
 export const DEFAULT_WEIXIN_BRIDGE_RPC_URL = 'http://127.0.0.1:18790/api/v1/admin/rpc'
 export const DEFAULT_MODEL_PROVIDER_ID = 'deepseek'
 export type { ModelEndpointFormat }
@@ -125,7 +123,7 @@ export type ModelRouterSettingsPatchV1 = Partial<
   }
 }
 
-export type AgentRuntimeId = 'kun' | 'codex' | 'claude'
+export type AgentRuntimeId = 'sciforge' | 'codex' | 'claude'
 
 export type AgentThreadIdsV1 = Partial<Record<AgentRuntimeId, string>>
 
@@ -157,14 +155,10 @@ export type ResearchMemorySettingsV1 = {
 
 export type ResearchMemorySettingsPatchV1 = Partial<ResearchMemorySettingsV1>
 
-export type KunRuntimeSettingsV1 = {
+export type LocalRuntimeSettingsV1 = {
   binaryPath: string
   port: number
   autoStart: boolean
-  /** Optional override. Leave empty to inherit the General model provider API key. */
-  apiKey: string
-  /** Optional override. Leave empty to inherit the General model provider Base URL. */
-  baseUrl: string
   /** Selected General model provider profile. Empty or missing means the default provider. */
   providerId: string
   runtimeToken: string
@@ -174,41 +168,48 @@ export type KunRuntimeSettingsV1 = {
   sandboxMode: SandboxMode
   /** Compress safe tool context before each model call. */
   tokenEconomyMode: boolean
-  /** Detailed token-saving behavior used when building Kun model requests. */
-  tokenEconomy: KunTokenEconomySettingsV1
+  /** Detailed token-saving behavior used when building local runtime model requests. */
+  tokenEconomy: LocalRuntimeTokenEconomySettingsV1
   /** When true, the runtime skips bearer-token auth. Local dev only. */
   insecure: boolean
-  /** GUI-managed MCP progressive discovery/search settings written into Kun config.json. */
-  mcpSearch: KunMcpSearchSettingsV1
-  /** Persistent store backend used by Kun. */
-  storage: KunStorageSettingsV1
-  /** Fallback compaction thresholds and summary behavior. Per-model thresholds live in Kun config models.profiles. */
-  contextCompaction: KunContextCompactionSettingsV1
+  /** GUI-managed MCP progressive discovery/search settings written into local runtime config. */
+  mcpSearch: LocalRuntimeMcpSearchSettingsV1
+  /** Persistent store backend used by the local runtime. */
+  storage: LocalRuntimeStorageSettingsV1
+  /** Fallback compaction thresholds and summary behavior. Per-model thresholds live in local runtime config models.profiles. */
+  contextCompaction: LocalRuntimeContextCompactionSettingsV1
   /** Low-level model argument repair tuning. Runtime-neutral loop guards live in `runtimeGuards`. */
-  runtimeTuning: KunRuntimeTuningSettingsV1
+  runtimeTuning: LocalRuntimeTuningSettingsV1
 }
 
-export type KunMcpSearchMode = 'direct' | 'search' | 'auto'
+export type ResolvedLocalRuntimeSettingsV1 = LocalRuntimeSettingsV1 & {
+  /** Runtime-facing credential resolved from the local Model Router boundary. */
+  apiKey: string
+  /** Runtime-facing base URL resolved from the local Model Router boundary. */
+  baseUrl: string
+}
 
-export type KunMcpSearchSettingsV1 = {
+export type LocalRuntimeMcpSearchMode = 'direct' | 'search' | 'auto'
+
+export type LocalRuntimeMcpSearchSettingsV1 = {
   enabled: boolean
-  mode: KunMcpSearchMode
+  mode: LocalRuntimeMcpSearchMode
   autoThresholdToolCount: number
   topKDefault: number
   topKMax: number
   minScore: number
 }
 
-export type KunStorageBackend = 'hybrid' | 'file'
+export type LocalRuntimeStorageBackend = 'hybrid' | 'file'
 
-export type KunStorageSettingsV1 = {
-  backend: KunStorageBackend
+export type LocalRuntimeStorageSettingsV1 = {
+  backend: LocalRuntimeStorageBackend
   sqlitePath: string
 }
 
-export type KunCompactionSummaryMode = 'heuristic' | 'model'
+export type LocalRuntimeCompactionSummaryMode = 'heuristic' | 'model'
 
-export type KunHistoryHygieneSettingsV1 = {
+export type LocalRuntimeHistoryHygieneSettingsV1 = {
   maxToolResultLines: number
   maxToolResultBytes: number
   maxToolResultTokens: number
@@ -217,29 +218,29 @@ export type KunHistoryHygieneSettingsV1 = {
   maxArrayItems: number
 }
 
-export type KunTokenEconomySettingsV1 = {
+export type LocalRuntimeTokenEconomySettingsV1 = {
   enabled: boolean
   compressToolDescriptions: boolean
   compressToolResults: boolean
   conciseResponses: boolean
-  historyHygiene: KunHistoryHygieneSettingsV1
+  historyHygiene: LocalRuntimeHistoryHygieneSettingsV1
 }
 
-export type KunContextCompactionSettingsV1 = {
+export type LocalRuntimeContextCompactionSettingsV1 = {
   defaultSoftThreshold: number
   defaultHardThreshold: number
-  summaryMode: KunCompactionSummaryMode
+  summaryMode: LocalRuntimeCompactionSummaryMode
   summaryTimeoutMs: number
   summaryMaxTokens: number
   summaryInputMaxBytes: number
 }
 
-export type KunToolArgumentRepairSettingsV1 = {
+export type LocalRuntimeToolArgumentRepairSettingsV1 = {
   maxStringBytes: number
 }
 
-export type KunRuntimeTuningSettingsV1 = {
-  toolArgumentRepair: KunToolArgumentRepairSettingsV1
+export type LocalRuntimeTuningSettingsV1 = {
+  toolArgumentRepair: LocalRuntimeToolArgumentRepairSettingsV1
 }
 
 export type RuntimeToolStormGuardSettingsV1 = {
@@ -300,45 +301,39 @@ export type ClaudeRuntimeSettingsV1 = {
   extraArgs: string[]
 }
 
-/**
- * Compatibility shell kept because old persisted settings only have
- * `agents.kun`. New code should read runtime settings through the
- * dedicated helper for each runtime so missing migrated fields get
- * defaulted consistently.
- */
-export type KunSettingsEnvelopeV1 = {
-  kun: KunRuntimeSettingsV1
+export type AgentRuntimeSettingsEnvelopeV1 = {
+  sciforge: LocalRuntimeSettingsV1
   codex?: CodexRuntimeSettingsV1
   claude?: ClaudeRuntimeSettingsV1
 }
 
-export type AgentRuntimeSettingsMapV1 = KunSettingsEnvelopeV1
+export type AgentRuntimeSettingsMapV1 = AgentRuntimeSettingsEnvelopeV1
 
-export type KunRuntimeTuningSettingsPatchV1 = {
-  toolArgumentRepair?: Partial<KunToolArgumentRepairSettingsV1>
+export type LocalRuntimeTuningSettingsPatchV1 = {
+  toolArgumentRepair?: Partial<LocalRuntimeToolArgumentRepairSettingsV1>
 }
 
-export type KunTokenEconomySettingsPatchV1 = Partial<
-  Omit<KunTokenEconomySettingsV1, 'historyHygiene'>
+export type LocalRuntimeTokenEconomySettingsPatchV1 = Partial<
+  Omit<LocalRuntimeTokenEconomySettingsV1, 'historyHygiene'>
 > & {
-  historyHygiene?: Partial<KunHistoryHygieneSettingsV1>
+  historyHygiene?: Partial<LocalRuntimeHistoryHygieneSettingsV1>
 }
 
-export type KunRuntimeSettingsPatchV1 = Partial<
+export type LocalRuntimeSettingsPatchV1 = Partial<
   Omit<
-    KunRuntimeSettingsV1,
+    LocalRuntimeSettingsV1,
     'mcpSearch' | 'storage' | 'contextCompaction' | 'runtimeTuning' | 'tokenEconomy'
   >
 > & {
-  mcpSearch?: Partial<KunMcpSearchSettingsV1>
-  tokenEconomy?: KunTokenEconomySettingsPatchV1
-  storage?: Partial<KunStorageSettingsV1>
-  contextCompaction?: Partial<KunContextCompactionSettingsV1>
-  runtimeTuning?: KunRuntimeTuningSettingsPatchV1
+  mcpSearch?: Partial<LocalRuntimeMcpSearchSettingsV1>
+  tokenEconomy?: LocalRuntimeTokenEconomySettingsPatchV1
+  storage?: Partial<LocalRuntimeStorageSettingsV1>
+  contextCompaction?: Partial<LocalRuntimeContextCompactionSettingsV1>
+  runtimeTuning?: LocalRuntimeTuningSettingsPatchV1
 }
 
-export type KunSettingsEnvelopePatchV1 = {
-  kun?: KunRuntimeSettingsPatchV1
+export type AgentRuntimeSettingsEnvelopePatchV1 = {
+  sciforge?: LocalRuntimeSettingsPatchV1
   codex?: CodexRuntimeSettingsPatchV1
   claude?: ClaudeRuntimeSettingsPatchV1
 }
@@ -523,7 +518,7 @@ export type ClawImConversationV1 = {
   latestMessageId: string
   senderId: string
   senderName: string
-  /** Kun thread id this conversation maps to. */
+  /** Local runtime thread id this conversation maps to. */
   localThreadId: string
   runtimeId?: AgentRuntimeId
   agentThreadIds?: AgentThreadIdsV1
@@ -540,7 +535,7 @@ export type ClawImChannelV1 = {
   enabled: boolean
   guardMode?: ClawImChannelGuardModeV1
   model: string
-  /** Kun thread id this channel maps to. */
+  /** Local runtime thread id this channel maps to. */
   threadId: string
   runtimeId?: AgentRuntimeId
   agentThreadIds?: AgentThreadIdsV1
@@ -567,7 +562,7 @@ export type ClawSettingsV1 = {
 //
 // A workflow is the multi-step generalization of a scheduled task: instead of a
 // single prompt it is a graph of nodes connected by edges. The "ai-agent" node
-// reuses the exact same Kun-runtime execution path as a scheduled task.
+// reuses the exact same local-runtime execution path as a scheduled task.
 // ---------------------------------------------------------------------------
 
 export type WorkflowNodeKind =
@@ -1135,7 +1130,7 @@ export type WorkflowNodeRunResultV1 = {
   inputJson?: string
   /** Retry attempts spent before this result (0/absent = first try). */
   retries?: number
-  /** For ai-agent nodes: the Kun thread it created. */
+  /** For ai-agent nodes: the local runtime thread it created. */
   threadId: string
   error: string
 }
@@ -1179,7 +1174,7 @@ export type WorkflowV1 = {
   id: string
   name: string
   enabled: boolean
-  /** When true, the Kun agent may invoke this workflow as a tool (list_workflows / run_workflow). */
+  /** When true, the local runtime may invoke this workflow as a tool (list_workflows / run_workflow). */
   callableByAgent: boolean
   /** Workflow-scoped variables, exposed to node expressions as {{$env.key}}. */
   env: WorkflowEnvVarV1[]
@@ -1213,7 +1208,7 @@ export type WorkflowNodePresetV1 = {
   config: WorkflowNodeV1['config']
 }
 
-/** The kun agent hook phases a workflow can be bound to. Mirrors kun's HOOK_PHASES. */
+/** The local runtime hook phases a workflow can be bound to. Mirrors the bundled runtime HOOK_PHASES. */
 export const WORKFLOW_HOOK_PHASES = [
   'PreToolUse',
   'PostToolUse',
@@ -1228,7 +1223,7 @@ export type WorkflowHookPhase = (typeof WORKFLOW_HOOK_PHASES)[number]
 export const WORKFLOW_HOOK_MODES = ['observe', 'block', 'rewrite'] as const
 export type WorkflowHookMode = (typeof WORKFLOW_HOOK_MODES)[number]
 
-/** Binds a Create Loop workflow to a kun agent hook phase (reactive automation). */
+/** Binds a Create Loop workflow to a local runtime hook phase (reactive automation). */
 export type WorkflowHookTriggerV1 = {
   id: string
   enabled: boolean
@@ -1242,28 +1237,28 @@ export type WorkflowHookTriggerV1 = {
    * rewrite = fold the workflow output into the tool result / injected context.
    */
   mode: WorkflowHookMode
-  /** Hook timeout in ms; 0 uses the kun default. */
+  /** Hook timeout in ms; 0 uses the runtime default. */
   timeoutMs: number
 }
 
 export type WorkflowSettingsV1 = {
   enabled: boolean
   defaultWorkspaceRoot: string
-  /** Default model provider for new AI nodes. Empty inherits the Kun runtime provider. */
+  /** Default model provider for new AI nodes. Empty inherits the local runtime provider. */
   providerId?: string
   model: string
   mode: ScheduleRunMode
   keepAwake: boolean
   /** Local-only (127.0.0.1) port the webhook-trigger listener binds to. */
   webhookPort: number
-  /** Optional shared secret required on inbound webhook requests (x-kun-secret / Bearer). */
+  /** Optional shared secret required on inbound webhook requests (x-sciforge-secret / Bearer). */
   webhookSecret: string
   workflows: WorkflowV1[]
   /** Reusable palette items the user saved from configured nodes. */
   presets: WorkflowNodePresetV1[]
   /** User-defined script-backed modules. */
   modules: WorkflowCustomModuleV1[]
-  /** Workflows bound to kun agent hook phases (reactive automation in code mode). */
+  /** Workflows bound to local runtime hook phases (reactive automation in code mode). */
   hookTriggers: WorkflowHookTriggerV1[]
 }
 
@@ -1301,7 +1296,7 @@ export type WriteInlineCompletionSettingsV1 = {
   longCompletionEnabled: boolean
   apiKey: string
   baseUrl: string
-  /** When true, Write inherits Kun's runtime model instead of using `model` as an override. */
+  /** When true, Write inherits the local runtime model instead of using `model` as an override. */
   inheritModel: boolean
   model: string
   debounceMs: number
@@ -1387,7 +1382,7 @@ export type AppSettingsV1 = {
   computerUse?: ComputerUseSettingsV1
   researchMemory?: ResearchMemorySettingsV1
   activeAgentRuntime?: AgentRuntimeId
-  agents: KunSettingsEnvelopeV1
+  agents: AgentRuntimeSettingsEnvelopeV1
   workspaceRoot: string
   log: LogConfigV1
   notifications: NotificationConfigV1
@@ -1411,7 +1406,7 @@ export type AppSettingsPatch = Partial<
   agentCapabilities?: AgentCapabilitySettingsPatchV1
   computerUse?: ComputerUseSettingsPatchV1
   researchMemory?: ResearchMemorySettingsPatchV1
-  agents?: KunSettingsEnvelopePatchV1
+  agents?: AgentRuntimeSettingsEnvelopePatchV1
   log?: Partial<LogConfigV1>
   notifications?: Partial<NotificationConfigV1>
   appBehavior?: Partial<AppBehaviorConfigV1>

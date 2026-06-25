@@ -5,13 +5,13 @@ import {
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
-  resolveKunRuntimeSettings,
+  resolveLocalRuntimeSettings,
   type AppSettingsV1
 } from './app-settings'
 import { DeepseekCompatModelClient } from '../../kun/src/adapters/model/deepseek-compat-model-client'
@@ -41,8 +41,8 @@ function settings(): AppSettingsV1 {
       runtimeApiKey: 'local-runtime-router-key'
     },
     agents: {
-      kun: {
-        ...defaultKunRuntimeSettings(),
+      sciforge: {
+        ...defaultLocalRuntimeSettings(),
         providerId: 'custom',
         model: 'custom-model'
       }
@@ -88,8 +88,8 @@ describe('model provider settings', () => {
     expect(compatClient.model).toBe('deepseek-v4-pro')
   })
 
-  it('resolves Kun runtime credentials only from the local Model Router boundary', () => {
-    const runtime = resolveKunRuntimeSettings(settings())
+  it('resolves local runtime credentials only from the local Model Router boundary', () => {
+    const runtime = resolveLocalRuntimeSettings(settings())
 
     expect(runtime.apiKey).toBe('local-runtime-router-key')
     expect(runtime.baseUrl).toBe('http://127.0.0.1:3892/v1')

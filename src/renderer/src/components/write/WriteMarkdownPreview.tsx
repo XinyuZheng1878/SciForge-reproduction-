@@ -50,7 +50,7 @@ type CodeProps = DetailedHTMLProps<HTMLAttributes<HTMLElement>, HTMLElement> & {
 }
 
 export const writeMarkdownHardenOptions = {
-  defaultOrigin: 'https://deepseek-gui.local',
+  defaultOrigin: 'https://sciforge.local',
   allowedLinkPrefixes: ['*'],
   allowedImagePrefixes: ['*']
 }
@@ -284,9 +284,9 @@ function ResolvedMarkdownImage({
     const fallback = resolveWriteMarkdownResource(src, filePath)
     setResolvedSrc(fallback)
 
-    if (!localPath || typeof window.dsGui?.readWorkspaceImage !== 'function') return
+    if (!localPath || typeof window.sciforge?.readWorkspaceImage !== 'function') return
 
-    void window.dsGui.readWorkspaceImage({ path: localPath })
+    void window.sciforge.readWorkspaceImage({ path: localPath })
       .then((result) => {
         if (cancelled) return
         if (result.ok) {
@@ -378,7 +378,7 @@ function WriteMarkdownPreviewContent({ content, isMarkdown, filePath }: Props): 
               onClick={(event) => {
                 if (!href) return
                 event.preventDefault()
-                void window.dsGui?.openExternal?.(href)?.catch(() => undefined)
+                void window.sciforge?.openExternal?.(href)?.catch(() => undefined)
               }}
             >
               {children}

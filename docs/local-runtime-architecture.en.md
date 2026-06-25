@@ -1,10 +1,10 @@
-# Kun runtime architecture
+# SciForge Runtime architecture
 
-This document describes the boundary and internal constraints of the Kun runtime
-inside SciForge. It no longer describes the whole product as Kun-only:
-product-level code selects `kun | codex` through `RuntimeHost`, Kun remains the
+This document describes the boundary and internal constraints of the SciForge Runtime
+inside SciForge. It no longer describes the whole product as tied to one default runtime:
+product-level code selects `sciforge | codex` through `RuntimeHost`, SciForge Runtime remains the
 default runtime, and Codex must be selected or enabled explicitly by the user.
-This document only constrains the Kun path, Kun cache optimization, and legacy
+This document only constrains the default runtime path, SciForge Runtime cache optimization, and legacy
 provider cleanup.
 
 Codex runtime app-server JSON-RPC, configuration, event normalization,
@@ -12,7 +12,7 @@ thread/event stores, and process lifecycle must stay modular and centralized in
 `src/main/runtime/codex/`. The current stage makes Model Router the LLM provider
 API boundary for every runtime; SciForge workspace server, Browser, Computer Use,
 desktop runtime launcher, and the research artifact pipeline still do not belong
-to the Kun path.
+to the default runtime path.
 
 CodeWhale, Reasonix, painting/design entry points, and runtime diagnostics panels
 for legacy providers still should not return as product surfaces.
@@ -24,17 +24,17 @@ Renderer (React + Zustand)
   Code / Write / Connect phone UI
         |
         | AgentRuntimeProvider
-        | window.dsGui.agentRuntime.*
+        | window.sciforge.agentRuntime.*
         v
 Preload IPC bridge
         |
         v
 Main process
-  AgentRuntimeHost (activeAgentRuntime = kun) -> KunAgentRuntimeAdapter
+  AgentRuntimeHost (default local runtime) -> SciForge Runtime adapter
   process/config/port/token management only
         |
         v
-kun serve (TypeScript package)
+SciForge Runtime service (TypeScript package)
   /health
   /v1/threads
   /v1/threads/{id}/turns
@@ -48,23 +48,23 @@ kun serve (TypeScript package)
 ```
 
 This boundary follows the HTTP architecture used by TUI/CodeWhale: GUI never
-embeds the Kun agent loop, and the Kun path treats the local HTTP server as the
+embeds the SciForge Runtime agent loop, and the default runtime path treats the local HTTP server as the
 stable API boundary. Codex may use stdio app-server in a separate runtime
 adapter. Renderer consumes the neutral
 [`AgentRuntime` contract](./agent-runtime-contract.md) and does not need to know
-whether the backend is Kun HTTP/SSE or Codex JSON-RPC stdio; that does not
-change the Kun HTTP/SSE contract.
-Inside `kun`, the cache-first agent loop is adopted from Reasonix (`immutable` prompt
+whether the backend is SciForge Runtime HTTP/SSE or Codex JSON-RPC stdio; that does not
+change the SciForge Runtime HTTP/SSE contract.
+Inside `sciforge`, the cache-first agent loop is adopted from Reasonix (`immutable` prompt
 prefix, append-only log, bounded LRU/TTL cache, inflight cleanup, steering queue,
 context compaction, usage/cache telemetry).
-When Kun needs a model call, it treats the local Model Router `/v1` endpoint as a
+When SciForge Runtime needs a model call, it treats the local Model Router `/v1` endpoint as a
 normal Responses-compatible provider. Upstream provider base URLs, provider API
 keys, vision service URLs, and internal profiles belong to Model Router
-configuration, not Kun runtime configuration.
+configuration, not SciForge Runtime configuration.
 
 ## Cache-hit optimization
 
-Kun cache-hit metrics should be computed and optimized using DeepSeek native fields first:
+SciForge Runtime cache-hit metrics should be computed and optimized using DeepSeek native fields first:
 
 - Model client prefers native fields:
   `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens`.
@@ -74,7 +74,7 @@ Kun cache-hit metrics should be computed and optimized using DeepSeek native fie
   DeepSeek native misses are not always equal to `prompt_tokens - hit`; Reasonix also uses
   the `hit + miss` denominator.
 - `kun/src/prompt/kun-system-prompt.ts` is the stable prefix.
-  It may only contain long-lived Kun run contract content and must not include
+  It may only contain long-lived SciForge Runtime run contract content and must not include
   workspace names, timestamps, file snippets, selected text, user dynamic state,
 or one-off tool outputs.
 - `ImmutablePrefix` must run `verifyImmutablePrefix()` before each model step.
@@ -117,7 +117,7 @@ Reasonix findings still useful as future references:
 
 - Tool-collection mutation policy: adding tools should be append-only; edit/reorder/remove
   requires either restart or a new session boundary to avoid sudden cache misses.
-  Current Kun canonicalizes schema, but this mutation policy still needs explicit product-level
+  Current SciForge Runtime canonicalizes schema, but this mutation policy still needs explicit product-level
   enforcement.
 - LLM fold summarizer: `ContextCompactor` is currently local summary logic with no extra
   model call. If model-based summarization is introduced later, it should reuse
@@ -132,22 +132,22 @@ or sub-agent scratch, keep “displayable” and “replayable to model” separ
 ## Renderer product boundary
 
 Renderer should no longer be hard-wired to legacy CodeWhale/Reasonix providers,
-and Codex logic should not be placed inside the Kun provider. Runtime-neutral UI
-may expose `kun | codex` selection through Settings / provider registry. When the
-active runtime is Kun, work still enters through the Kun HTTP/SSE boundary.
+and Codex logic should not be placed inside the SciForge Runtime provider. Runtime-neutral UI
+may expose `sciforge | codex` selection through Settings / provider registry. When the
+active runtime is SciForge Runtime, work still enters through the SciForge Runtime HTTP/SSE boundary.
 The legacy UI sections listed below should be removed or kept removed:
 
 - Legacy agent switcher: the CodeWhale/Reasonix `AgentSwitcher` is no longer
   shown. If a user-visible runtime selector is added, it may only select
-  `kun | codex` and must go through Settings / `RuntimeHost` / provider registry.
+  `sciforge | codex` and must go through Settings / `RuntimeHost` / provider registry.
 - Top connection status + legacy runtime diagnostics entry: old provider
   detection is no longer the user entrypoint.
 - Runtime insights / right panel: retain only `Changes`, `Preview`, `Plan`, and GUI workspace
   views (`File`, etc.); remove runtime/usage control surfaces.
 - Slash menu commands `/usage`, `/runtime`: these open runtime control surfaces
   and should not be the runtime selection entrypoint.
-- Settings provider selector: `Settings -> Agents` may show Kun and Codex
-  configuration. Kun config still includes:
+- Settings provider selector: `Settings -> Agents` may show SciForge Runtime and Codex
+  configuration. SciForge Runtime config still includes:
   `binaryPath`, `port`, `autoStart`, Model Router `baseUrl`, runtime `apiKey`,
   `runtimeToken`, `dataDir`, public model alias, `approvalPolicy`, `sandboxMode`,
   `insecure`.
@@ -165,12 +165,12 @@ Main process and preload no longer expose old provider IPC:
 
 Main-process runtime responsibilities are:
 
-- `RuntimeHost`: read `activeAgentRuntime`, default to `kun`, and delegate to
+- `RuntimeHost`: read `activeAgentRuntime`, default to `sciforge`, and delegate to
   `codex` only after explicit user selection.
 - `AgentRuntimeHost`: expose the neutral connect/capabilities/thread/turn/event/control
   methods defined in `docs/agent-runtime-contract.md`; renderer calls it through
-  `window.dsGui.agentRuntime`.
-- `kunRuntimeAdapter`: start/stop `kun serve`, sync config, calculate base URL,
+  `window.sciforge.agentRuntime`.
+- Runtime adapter: start/stop the local runtime service, sync config, calculate base URL,
 and append auth headers.
 - `src/main/runtime/codex/`: centralize Codex app-server client, configuration,
   event normalization, thread/event stores, and lifecycle; outside files only
@@ -181,26 +181,26 @@ and append auth headers.
   capability and focused coverage proves the replacement path.
 - Model Router is the LLM provider boundary for the current stage; SciForge
   workspace server, Browser, Computer Use, and similar sidecars still do not
-  belong to this Kun runtime contract.
+  belong to this SciForge Runtime contract.
 
 ## Settings / migration
 
 Saved settings should represent an explicit runtime choice: default
-`activeAgentRuntime` is `kun`, `agents.kun` is preserved, and `agents.codex` is
+`activeAgentRuntime` is `sciforge`, `agents.sciforge` is preserved, and `agents.codex` is
 allowed for user-configured Codex.
 
 ```json
 {
-  "activeAgentRuntime": "kun",
+  "activeAgentRuntime": "sciforge",
   "agents": {
-    "kun": {
+    "sciforge": {
       "binaryPath": "",
       "port": 8899,
       "autoStart": true,
       "apiKey": "local-runtime-router-key",
       "baseUrl": "http://127.0.0.1:3892/v1",
       "runtimeToken": "",
-      "dataDir": "~/.sciforge/kun",
+      "dataDir": "~/.sciforge/runtime",
       "model": "sciforge-router",
       "approvalPolicy": "auto",
       "sandboxMode": "workspace-write",
@@ -226,44 +226,44 @@ The only reason `agentProvider`, `codewhale`, and `reasonix` strings remain in
 code is for one-time migration from old settings:
 
 - `agentProvider: codewhale | reasonix | deepseek-runtime` normalizes to
-  `activeAgentRuntime: "kun"`.
+  `activeAgentRuntime: "sciforge"`.
 - Old `agents.deepseek` / `agents.codewhale` values for `port`, `autoStart`,
   `runtimeToken`, `approvalPolicy`, and `sandboxMode` are migrated into
-  `agents.kun`; old upstream API keys, base URLs, and models may only seed a
+  `agents.sciforge`; old upstream API keys, base URLs, and models may only seed a
   Model Router member profile or require user reconfiguration.
-- For old `agents.reasonix` values, `autoStart` may seed `agents.kun`; upstream
+- For old `agents.reasonix` values, `autoStart` may seed `agents.sciforge`; upstream
   provider fields may only seed a Model Router member profile or require user
   reconfiguration.
-- Persisted files after migration preserve `agents.kun`, may preserve
+- Persisted files after migration preserve `agents.sciforge`, may preserve
   `agents.codex`, and no longer retain `agents.codewhale` / `agents.reasonix`.
 - Legacy Connect phone fields (internally still named Claw) `agentThreadIds.codewhale` and `agentThreadIds.reasonix` are collapsed
-  to `agentThreadIds.kun`.
+  to `agentThreadIds.sciforge`.
 - New Codex thread IDs must be written to Codex-owned thread/event stores or
-  Codex mappings such as `agentThreadIds.codex`; they must not pollute Kun
+  Codex mappings such as `agentThreadIds.codex`; they must not pollute SciForge Runtime
   mappings.
 
-## Code / Write / Connect phone flows when Kun is active
+## Code / Write / Connect phone flows when SciForge Runtime is active
 
 - Code: the provider registry returns `AgentRuntimeProvider`, which lists/creates
   threads, sends turns, steers, interrupts, compacts, resolves approvals, and
   subscribes to events through the neutral contract. When the active runtime is
-  Kun, the main-side Kun adapter maps those calls to Kun HTTP/SSE. Chat UI does
-  not know old providers, Kun endpoints, or Codex IPC.
+  SciForge Runtime, the main-side SciForge Runtime adapter maps those calls to SciForge Runtime HTTP/SSE. Chat UI does
+  not know old providers, SciForge Runtime endpoints, or Codex IPC.
 - Write: writing assistant threads follow `activeAgentRuntime`, and the write
-  thread registry isolates Kun/Codex writing threads by workspace + runtime id.
+  thread registry isolates SciForge Runtime and Codex writing threads by workspace + runtime id.
   Inline completion uses a Write public model alias on Model Router for
   low-latency completion.
-- Connect phone: scheduled tasks, Feishu/Lark/WeChat, and IM webhooks create or reuse Kun threads.
+- Connect phone: scheduled tasks, Feishu/Lark/WeChat, and IM webhooks create or reuse SciForge Runtime threads.
   The codebase still uses the internal `claw` route, settings key, and runtime file names for legacy-name compatibility.
   `threadId` / `localThreadId` remain only for legacy settings compatibility;
-  canonical Kun mapping is written to `agentThreadIds.kun`.
+  canonical local runtime mapping is written to `agentThreadIds.sciforge`.
   New tasks need to record the runtime id used; Codex thread IDs must not be
-  written into Kun mappings.
+  written into local runtime mappings.
 
 ## Functional parity from CodeWhale in GUI HTTP path
 
 Replacing CodeWhale is not only preserving chat.
-Kun GUI HTTP must expose the same capabilities previously exposed through CodeWhale:
+SciForge Runtime GUI HTTP must expose the same capabilities previously exposed through CodeWhale:
 
 - `GET /v1/threads` supports `limit`, `search`, `include_archived`, `archived_only`.
   Archived/deleted threads are hidden by default; session search and archive views
@@ -273,7 +273,7 @@ Kun GUI HTTP must expose the same capabilities previously exposed through CodeWh
   During copy, pending `approval` / `user-input` states are rewritten to history-only
   states to prevent hanging gates in new sessions.
 - `POST /v1/sessions/{id}/resume-thread` follows the previous CodeWhale resume path.
-  Kun should first attempt same-name thread restore, then session snapshot/JSONL reconstruction,
+  SciForge Runtime should first attempt same-name thread restore, then session snapshot/JSONL reconstruction,
 and return `404` when not found.
 - Both `POST /v1/user-inputs/{id}` and legacy `POST /v1/user-input/{id}` are accepted,
   with `{ answers }` or `{ cancelled: true }`.
@@ -281,7 +281,7 @@ and return `404` when not found.
 - `POST /v1/approvals/{id}` continues tool approval. Both approval and user-input flows
   use gate/route/service layering; no agent logic is implemented in renderer.
 - `GET /v1/usage?group_by=thread|day` returns accumulated token/turn/cache-hit counters.
-  Workbench home and composer footer consume Kun usage only and do not open runtime
+  Workbench home and composer footer consume SciForge Runtime usage only and do not open runtime
   insight panels.
 
 ## Paths that must remain removed
@@ -315,7 +315,7 @@ Legacy UI entrypoints should not reappear:
 
 ## Design constraints
 
-Kun packages are organized by ports & adapters:
+SciForge Runtime packages are organized by ports & adapters:
 
 - `contracts/`: HTTP/SSE DTOs and zod schemas.
 - `ports/`: ModelClient, ToolHost, ThreadStore, SessionStore,
@@ -327,8 +327,8 @@ Kun packages are organized by ports & adapters:
 - `server/`: Router, auth, SSE, routes.
 
 Renderer should never implement agent business logic; it only runs the
-AgentRuntime client, event dispatch, and UI state mapping. For Kun-specific
-capability, add a Kun tool or HTTP endpoint first, then map it through the Kun
+AgentRuntime client, event dispatch, and UI state mapping. For runtime-specific
+capability, add a runtime tool or HTTP endpoint first, then map it through the SciForge Runtime
 `AgentRuntimeAdapter`. Codex capability enters through `AgentRuntimeHost` and
 `src/main/runtime/codex/`; do not add renderer-side agent logic that bypasses
 the runtime boundary.
@@ -346,20 +346,20 @@ npm run build
 Manual smoke checks:
 
 1. Open SciForge.
-2. Existing users and fresh installs default to Kun, and `agents.kun` is not
+2. Existing users and fresh installs default to SciForge Runtime, and `agents.sciforge` is not
    damaged by migration.
-3. With Kun active, Code can create a new session, send messages, stream output,
+3. With SciForge Runtime active, Code can create a new session, send messages, stream output,
    and use approval/interruption.
 4. Write opens writing space; inline completion and inline selected-text assistant share the same Model Router runtime configuration.
-5. With Kun active, Connect phone can save settings, run manual tasks, and write
-   thread IDs back to Kun mapping.
-6. `Settings -> Agents` can select Kun or Codex; unconfigured Codex does not
-   affect Kun, and there are no CodeWhale/Reasonix config blocks or legacy
+5. With SciForge Runtime active, Connect phone can save settings, run manual tasks, and write
+   thread IDs back to local runtime mapping.
+6. `Settings -> Agents` can select SciForge Runtime or Codex; unconfigured Codex does not
+   affect SciForge Runtime, and there are no CodeWhale/Reasonix config blocks or legacy
    runtime diagnostics panels.
 7. When Codex is explicitly configured and selected, new Code sessions go through
-   the Codex runtime boundary without changing Kun threads, events, settings, or
+   the Codex runtime boundary without changing SciForge Runtime threads, events, settings, or
    mappings.
 8. If `GET /v1/usage?group_by=thread` returns history, home and footer no longer show
    blank “No usage yet”, but show token, turn, cache-hit indicators.
 9. Thread search, archive, fork/resume, and request_user_input answer/cancel flows all operate
-   through Kun HTTP paths.
+   through SciForge Runtime HTTP paths.

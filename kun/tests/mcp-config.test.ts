@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  KunCapabilitiesConfig,
+  LocalRuntimeCapabilitiesConfig,
   McpServerConfig
 } from '../src/contracts/capabilities.js'
 import { REDACTED_SECRET, redactSecrets } from '../src/config/secret-redaction.js'
@@ -22,7 +22,7 @@ describe('MCP config', () => {
   })
 
   it('accepts trusted streamable HTTP MCP servers', () => {
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         servers: {

@@ -7,7 +7,7 @@ import {
   SPEECH_TO_TEXT_PROTOCOLS,
   WRITE_INLINE_COMPLETION_MODEL_IDS
 } from '../../shared/app-settings'
-import { DESKTOP_COMMANDS } from '../../shared/ds-gui-api'
+import { DESKTOP_COMMANDS } from '../../shared/sciforge-api'
 import { GUI_UPDATE_CHANNELS } from '../../shared/gui-update'
 import { KEYBOARD_SHORTCUT_COMMANDS } from '../../shared/keyboard-shortcuts'
 import {
@@ -71,7 +71,7 @@ export const defaultPathSchema = optionalTrimmedString(MAX_PATH_LENGTH)
 const localeSchema = z.enum(['en', 'zh'])
 const themeSchema = z.enum(['system', 'light', 'dark'])
 const uiFontScaleSchema = z.enum(['small', 'medium', 'large'])
-const agentRuntimeIdSchema = z.enum(['kun', 'codex', 'claude'])
+const agentRuntimeIdSchema = z.enum(['sciforge', 'codex', 'claude'])
 const agentRuntimeThreadRelationSchema = z.string().trim().pipe(z.enum(['primary', 'fork', 'side']))
 const agentRuntimeUsageGroupBySchema = z.string().trim().pipe(z.enum(['day', 'model', 'thread']))
 const agentRuntimeAuxiliaryOperationSchema = z.enum([
@@ -119,8 +119,8 @@ const sandboxModeSchema = z.enum(['read-only', 'workspace-write', 'danger-full-a
 const claudeApprovalPolicySchema = z.enum(['on-request', 'untrusted', 'never', 'auto'])
 const claudeSandboxModeSchema = z.enum(['read-only', 'workspace-write', 'danger-full-access'])
 const mcpSearchModeSchema = z.enum(['direct', 'search', 'auto'])
-const kunStorageBackendSchema = z.enum(['hybrid', 'file'])
-const kunCompactionSummaryModeSchema = z.enum(['heuristic', 'model'])
+const localRuntimeStorageBackendSchema = z.enum(['hybrid', 'file'])
+const localRuntimeCompactionSummaryModeSchema = z.enum(['heuristic', 'model'])
 const clawRunModeSchema = z.enum(['agent', 'plan'])
 const clawImProviderSchema = z.enum(['feishu', 'weixin', 'discord'])
 const clawImChannelGuardModeSchema = z.enum(['only_mention', 'all_messages', 'off'])
@@ -137,7 +137,7 @@ const writeInlineCompletionModelSchema = z.union([
 ])
 const modelEndpointFormatSchema = z.enum(MODEL_ENDPOINT_FORMATS)
 const agentThreadIdsSchema = z.object({
-  kun: z.string().max(MAX_ID_LENGTH).optional(),
+  sciforge: z.string().max(MAX_ID_LENGTH).optional(),
   codex: z.string().max(MAX_ID_LENGTH).optional(),
   claude: z.string().max(MAX_ID_LENGTH).optional()
 }).strict()
@@ -233,6 +233,7 @@ export const terminalSessionIdSchema = trimmedString(TERMINAL_MAX_SESSION_ID_LEN
 export const terminalCreatePayloadSchema = z
   .object({
     sessionId: terminalSessionIdSchema,
+    ownerToken: optionalTrimmedString(TERMINAL_MAX_SESSION_ID_LENGTH),
     cwd: optionalTrimmedString(TERMINAL_MAX_CWD_LENGTH),
     cols: z.number().int().min(1).max(TERMINAL_MAX_COLS).optional(),
     rows: z.number().int().min(1).max(TERMINAL_MAX_ROWS).optional()
@@ -408,12 +409,10 @@ const modelRouterPatchSchema = z.object({
   }).strict().optional()
 }).strict()
 
-const kunRuntimePatchSchema = z.object({
+const localRuntimePatchSchema = z.object({
   binaryPath: defaultPathSchema,
   port: z.number().int().min(1).max(65_535).optional(),
   autoStart: z.boolean().optional(),
-  apiKey: z.string().max(MAX_BODY_BYTES).optional(),
-  baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
   providerId: z.string().trim().max(64).optional(),
   runtimeToken: z.string().max(MAX_BODY_BYTES).optional(),
   dataDir: defaultPathSchema,
@@ -445,13 +444,13 @@ const kunRuntimePatchSchema = z.object({
     minScore: z.number().nonnegative().optional()
   }).strict().optional(),
   storage: z.object({
-    backend: kunStorageBackendSchema.optional(),
+    backend: localRuntimeStorageBackendSchema.optional(),
     sqlitePath: defaultPathSchema
   }).strict().optional(),
   contextCompaction: z.object({
     defaultSoftThreshold: z.number().int().positive().optional(),
     defaultHardThreshold: z.number().int().positive().optional(),
-    summaryMode: kunCompactionSummaryModeSchema.optional(),
+    summaryMode: localRuntimeCompactionSummaryModeSchema.optional(),
     summaryTimeoutMs: z.number().int().positive().max(120_000).optional(),
     summaryMaxTokens: z.number().int().positive().max(16_000).optional(),
     summaryInputMaxBytes: z.number().int().positive().max(8 * 1024 * 1024).optional()
@@ -500,7 +499,7 @@ const agentCapabilityPatchSchema = z.object({
 const computerUsePatchSchema = z.object({
   enabled: z.boolean().optional(),
   runtimeEnabled: z.object({
-    kun: z.boolean().optional(),
+    sciforge: z.boolean().optional(),
     codex: z.boolean().optional(),
     claude: z.boolean().optional()
   }).strict().optional()
@@ -1345,7 +1344,7 @@ const settingsPatchObjectSchema = z.object({
   researchMemory: researchMemoryPatchSchema.optional(),
   activeAgentRuntime: agentRuntimeIdSchema.optional(),
   agents: z.object({
-    kun: kunRuntimePatchSchema.optional(),
+    sciforge: localRuntimePatchSchema.optional(),
     codex: codexRuntimePatchSchema.optional(),
     claude: claudeRuntimePatchSchema.optional()
   }).strict().optional(),
@@ -1382,7 +1381,7 @@ export const skillListPayloadSchema = z
   .strict()
 
 export const rootPathSchema = trimmedString(MAX_PATH_LENGTH)
-export const deepseekConfigContentSchema = z.string().max(MAX_CONFIG_FILE_BYTES)
+export const runtimeConfigContentSchema = z.string().max(MAX_CONFIG_FILE_BYTES)
 
 export const workspaceRootSchema = trimmedString(MAX_PATH_LENGTH)
 export const gitBranchPayloadSchema = z

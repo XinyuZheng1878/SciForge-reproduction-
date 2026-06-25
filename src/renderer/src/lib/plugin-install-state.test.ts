@@ -55,7 +55,7 @@ describe('plugin install state', () => {
   it('treats invalid storage JSON as no installed plugins', () => {
     const storage = new MemoryStorage()
     installStorage(storage)
-    storage.setItem('deepseekgui.installedPlugins', '{bad json')
+    storage.setItem('sciforge.installedPlugins', '{bad json')
 
     expect(loadInstalledPluginKeys()).toEqual([])
   })

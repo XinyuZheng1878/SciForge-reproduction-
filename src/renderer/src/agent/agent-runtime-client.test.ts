@@ -14,7 +14,7 @@ describe('agentRuntimeClient', () => {
     const forbiddenDirectCall = vi.fn()
     const codexListThreads = vi.fn()
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         agentRuntime: {
           listThreads
         },
@@ -42,7 +42,7 @@ describe('agentRuntimeClient', () => {
     const compactThread = vi.fn(async () => undefined)
     const forkThread = vi.fn(async () => ({
       id: 'forked-thread',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       title: 'Forked',
       updatedAt: '2026-06-11T00:00:00.000Z'
     }))
@@ -51,7 +51,7 @@ describe('agentRuntimeClient', () => {
     const forbiddenDirectCall = vi.fn()
     const codexStartTurn = vi.fn()
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         agentRuntime: {
           renameThread,
           deleteThread,
@@ -80,29 +80,29 @@ describe('agentRuntimeClient', () => {
       threadId: 'thread-1'
     })).resolves.toBeUndefined()
     await expect(agentRuntimeClient.compactThread({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       reason: 'manual'
     })).resolves.toBeUndefined()
     await expect(agentRuntimeClient.forkThread({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       relation: 'side',
       title: 'Side path'
     })).resolves.toEqual({
       id: 'forked-thread',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       title: 'Forked',
       updatedAt: '2026-06-11T00:00:00.000Z'
     })
     await expect(agentRuntimeClient.resumeSession({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       sessionId: 'session-1',
       model: 'deepseek-v4-pro',
       mode: 'agent'
     })).resolves.toEqual({ threadId: 'resumed-thread', sessionId: 'session-1' })
     await expect(agentRuntimeClient.updateThreadRelation({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       relation: 'primary'
     })).resolves.toBeUndefined()
@@ -129,24 +129,24 @@ describe('agentRuntimeClient', () => {
       threadId: 'thread-1'
     })
     expect(compactThread).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       reason: 'manual'
     })
     expect(forkThread).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       relation: 'side',
       title: 'Side path'
     })
     expect(resumeSession).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       sessionId: 'session-1',
       model: 'deepseek-v4-pro',
       mode: 'agent'
     })
     expect(updateThreadRelation).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       relation: 'primary'
     })
@@ -174,7 +174,7 @@ describe('agentRuntimeClient', () => {
     const subscribeEvents = vi.fn(async () => ({ streamId: 'stream-1' }))
     const stopEvents = vi.fn(async () => true)
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         agentRuntime: {
           subscribeEvents,
           stopEvents,

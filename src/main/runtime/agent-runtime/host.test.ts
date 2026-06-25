@@ -6,7 +6,7 @@ import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
@@ -29,7 +29,7 @@ import type { CodexRuntimeService } from '../codex'
 import type { AgentRuntimeAdapter, AgentRuntimeAdapterContext } from './adapter'
 import { createAgentRuntimeHost } from './host'
 import { createCodexAgentRuntimeAdapter } from '../codex/codex-agent-runtime-adapter'
-import { createKunAgentRuntimeAdapter } from '../kun-agent-runtime-adapter'
+import { createLocalRuntimeAgentRuntimeAdapter } from '../local-runtime-agent-runtime-adapter'
 import { ModelRequestAuditRecorder } from '../../services/model-request-audit-service'
 import { RuntimeContextStateService } from '../../services/runtime-context-state-service'
 import { RuntimeContextLedgerService } from '../../services/runtime-context-ledger-service'
@@ -56,7 +56,7 @@ function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'cod
     provider: defaultModelProviderSettings(),
     modelRouter: defaultModelRouterSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
@@ -74,7 +74,7 @@ function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'cod
 }
 
 function transportForRuntime(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities['transport'] {
-  if (runtimeId === 'kun') return 'http_sse'
+  if (runtimeId === 'sciforge') return 'http_sse'
   if (runtimeId === 'claude') return 'cli_process'
   return 'jsonrpc_stdio'
 }
@@ -88,9 +88,9 @@ function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
       live: true,
       replayable: true,
       sequenced: true,
-      delivery: runtimeId === 'kun' ? 'sse' : 'ipc'
+      delivery: runtimeId === 'sciforge' ? 'sse' : 'ipc'
     },
-    threadMaterialization: runtimeId === 'kun' ? 'immediate' : 'after_first_user_message',
+    threadMaterialization: runtimeId === 'sciforge' ? 'immediate' : 'after_first_user_message',
     latency: {
       phaseEvents: false,
       firstTokenMetric: false,
@@ -132,7 +132,7 @@ function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
       resumeSession: false
     },
     guard: {
-      toolStorm: runtimeId === 'kun' ? 'native' : 'observe'
+      toolStorm: runtimeId === 'sciforge' ? 'native' : 'observe'
     },
     storage: {
       guiOwnedThreads: false,
@@ -259,10 +259,10 @@ describe('AgentRuntimeHost', () => {
   })
 
   it('selects the active adapter and allows explicit runtime overrides', async () => {
-    const kunThread = {
-      id: 'kun-thread',
-      runtimeId: 'kun' as const,
-      title: 'Kun',
+    const localThread = {
+      id: 'local-thread',
+      runtimeId: 'sciforge' as const,
+      title: 'Local',
       updatedAt: '2026-06-10T00:00:00.000Z'
     }
     const codexThread = {
@@ -271,20 +271,20 @@ describe('AgentRuntimeHost', () => {
       title: 'Codex',
       updatedAt: '2026-06-10T00:00:00.000Z'
     }
-    const kun = fakeAdapter('kun', kunThread)
+    const local = fakeAdapter('sciforge', localThread)
     const codex = fakeAdapter('codex', codexThread)
     const host = createAgentRuntimeHost({
       settings: async () => settings('codex'),
-      adapters: [kun, codex]
+      adapters: [local, codex]
     })
 
-    await expect(host.listThreads()).resolves.toEqual(expect.arrayContaining([kunThread, codexThread]))
-    await expect(host.listThreads({ runtimeId: 'kun', limit: 2 })).resolves.toEqual([kunThread])
-    await expect(host.capabilities('kun')).resolves.toMatchObject({ runtimeId: 'kun' })
-    await host.renameThread({ runtimeId: 'kun', threadId: 'kun-thread', title: 'Renamed' })
-    await host.updateThreadRelation({ runtimeId: 'kun', threadId: 'kun-thread', relation: 'primary' })
+    await expect(host.listThreads()).resolves.toEqual(expect.arrayContaining([localThread, codexThread]))
+    await expect(host.listThreads({ runtimeId: 'sciforge', limit: 2 })).resolves.toEqual([localThread])
+    await expect(host.capabilities('sciforge')).resolves.toMatchObject({ runtimeId: 'sciforge' })
+    await host.renameThread({ runtimeId: 'sciforge', threadId: 'local-thread', title: 'Renamed' })
+    await host.updateThreadRelation({ runtimeId: 'sciforge', threadId: 'local-thread', relation: 'primary' })
 
-    expect(kun.listThreads).toHaveBeenCalledWith(
+    expect(local.listThreads).toHaveBeenCalledWith(
       { settings: expect.objectContaining({ activeAgentRuntime: 'codex' }) },
       {}
     )
@@ -292,18 +292,36 @@ describe('AgentRuntimeHost', () => {
       { settings: expect.objectContaining({ activeAgentRuntime: 'codex' }) },
       {}
     )
-    expect(kun.listThreads).toHaveBeenCalledWith(
+    expect(local.listThreads).toHaveBeenCalledWith(
       { settings: expect.objectContaining({ activeAgentRuntime: 'codex' }) },
-      { runtimeId: 'kun', limit: 2 }
+      { runtimeId: 'sciforge', limit: 2 }
     )
-    expect(kun.renameThread).toHaveBeenCalledWith(
+    expect(local.renameThread).toHaveBeenCalledWith(
       { settings: expect.objectContaining({ activeAgentRuntime: 'codex' }) },
-      { runtimeId: 'kun', threadId: 'kun-thread', title: 'Renamed' }
+      { runtimeId: 'sciforge', threadId: 'local-thread', title: 'Renamed' }
     )
-    expect(kun.updateThreadRelation).toHaveBeenCalledWith(
+    expect(local.updateThreadRelation).toHaveBeenCalledWith(
       { settings: expect.objectContaining({ activeAgentRuntime: 'codex' }) },
-      { runtimeId: 'kun', threadId: 'kun-thread', relation: 'primary' }
+      { runtimeId: 'sciforge', threadId: 'local-thread', relation: 'primary' }
     )
+  })
+
+  it('rejects the legacy local runtime id instead of falling back to SciForge', async () => {
+    const adapter = fakeAdapter('sciforge', {
+      id: 'sciforge-thread',
+      runtimeId: 'sciforge',
+      title: 'SciForge',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('sciforge'),
+      adapters: [adapter]
+    })
+
+    await expect(host.capabilities('kun' as unknown as AgentRuntimeId)).rejects.toThrow(
+      'Unsupported AgentRuntimeAdapter runtime: kun'
+    )
+    expect(adapter.capabilities).not.toHaveBeenCalled()
   })
 
   it('exposes shared goals through neutral capabilities and thread snapshots', async () => {
@@ -401,10 +419,10 @@ describe('AgentRuntimeHost', () => {
   })
 
   it('streams events through the selected adapter', async () => {
-    const kun = fakeAdapter('kun', {
-      id: 'kun-thread',
-      runtimeId: 'kun',
-      title: 'Kun',
+    const local = fakeAdapter('sciforge', {
+      id: 'local-thread',
+      runtimeId: 'sciforge',
+      title: 'Local',
       updatedAt: '2026-06-10T00:00:00.000Z'
     })
     const codex = fakeAdapter('codex', {
@@ -415,20 +433,20 @@ describe('AgentRuntimeHost', () => {
     })
     const host = createAgentRuntimeHost({
       settings: async () => settings('codex'),
-      adapters: [kun, codex]
+      adapters: [local, codex]
     })
     const events: AgentRuntimeEvent[] = []
 
     for await (const event of host.subscribeEvents({
-      runtimeId: 'kun',
-      threadId: 'kun-thread',
+      runtimeId: 'sciforge',
+      threadId: 'local-thread',
       sinceSeq: 4
     })) {
       events.push(event)
     }
 
-    expect(events).toEqual([{ kind: 'heartbeat', threadId: 'kun-thread', runtimeId: 'kun', seq: 4 }])
-    expect(kun.subscribeEvents).toHaveBeenCalled()
+    expect(events).toEqual([{ kind: 'heartbeat', threadId: 'local-thread', runtimeId: 'sciforge', seq: 4 }])
+    expect(local.subscribeEvents).toHaveBeenCalled()
   })
 
   it('adds host-service capabilities and handles shared auxiliary operations before adapters', async () => {
@@ -858,8 +876,8 @@ describe('AgentRuntimeHost', () => {
     expect(serialized).not.toContain('private-provider-secret')
   })
 
-  it('audits Kun, Codex, and Claude turns through shared auxiliary list and clear operations', async () => {
-    for (const runtimeId of ['kun', 'codex', 'claude'] as const) {
+  it('audits SciForge, Codex, and Claude turns through shared auxiliary list and clear operations', async () => {
+    for (const runtimeId of ['sciforge', 'codex', 'claude'] as const) {
       const adapter = fakeAdapter(runtimeId, {
         id: `${runtimeId}-thread`,
         runtimeId,
@@ -1144,10 +1162,10 @@ describe('AgentRuntimeHost', () => {
         },
         agents: {
           ...base.agents,
-          kun: {
-            ...base.agents.kun,
+          sciforge: {
+            ...base.agents.sciforge,
             contextCompaction: {
-              ...base.agents.kun.contextCompaction,
+              ...base.agents.sciforge.contextCompaction,
               summaryMode: 'model',
               summaryMaxTokens: 321,
               summaryTimeoutMs: 1_234
@@ -1247,10 +1265,10 @@ describe('AgentRuntimeHost', () => {
         },
         agents: {
           ...base.agents,
-          kun: {
-            ...base.agents.kun,
+          sciforge: {
+            ...base.agents.sciforge,
             contextCompaction: {
-              ...base.agents.kun.contextCompaction,
+              ...base.agents.sciforge.contextCompaction,
               summaryMode: 'model'
             }
           }
@@ -1321,10 +1339,10 @@ describe('AgentRuntimeHost', () => {
         },
         agents: {
           ...base.agents,
-          kun: {
-            ...base.agents.kun,
+          sciforge: {
+            ...base.agents.sciforge,
             contextCompaction: {
-              ...base.agents.kun.contextCompaction,
+              ...base.agents.sciforge.contextCompaction,
               summaryMode: 'model'
             }
           }
@@ -1352,9 +1370,9 @@ describe('AgentRuntimeHost', () => {
   })
 
   it('tracks successful goal resume attempts across resumed sessions', async () => {
-    const adapter = fakeAdapter('kun', {
+    const adapter = fakeAdapter('sciforge', {
       id: 'source-session',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       title: 'Source',
       updatedAt: '2026-06-10T00:00:00.000Z'
     })
@@ -1364,7 +1382,7 @@ describe('AgentRuntimeHost', () => {
     }))
     const contextState = new RuntimeContextStateService()
     contextState.updateGoalResume({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'source-session',
       objective: 'Finish the migration',
       status: 'blocked',
@@ -1372,13 +1390,13 @@ describe('AgentRuntimeHost', () => {
       lastFailureReason: 'interrupted'
     })
     const host = createAgentRuntimeHost({
-      settings: async () => settings('kun'),
+      settings: async () => settings('sciforge'),
       adapters: [adapter],
       services: { contextState }
     })
 
     await expect(host.resumeSession({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       sessionId: 'source-session',
       maxResumeCount: 3
     })).resolves.toEqual({
@@ -1388,7 +1406,7 @@ describe('AgentRuntimeHost', () => {
 
     expect(adapter.resumeSession).toHaveBeenCalled()
     expect(contextState.get({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'resumed-thread'
     }).goalResume).toMatchObject({
       objective: 'Finish the migration',
@@ -1398,9 +1416,9 @@ describe('AgentRuntimeHost', () => {
   })
 
   it('blocks goal resume when the configured resume count limit is reached', async () => {
-    const adapter = fakeAdapter('kun', {
+    const adapter = fakeAdapter('sciforge', {
       id: 'source-session',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       title: 'Source',
       updatedAt: '2026-06-10T00:00:00.000Z'
     })
@@ -1410,27 +1428,27 @@ describe('AgentRuntimeHost', () => {
     }))
     const contextState = new RuntimeContextStateService()
     contextState.updateGoalResume({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'source-session',
       objective: 'Finish the migration',
       status: 'blocked',
       resumeCount: 3
     })
     const host = createAgentRuntimeHost({
-      settings: async () => settings('kun'),
+      settings: async () => settings('sciforge'),
       adapters: [adapter],
       services: { contextState }
     })
 
     await expect(host.resumeSession({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       sessionId: 'source-session',
       maxResumeCount: 3
     })).rejects.toThrow('Goal resume count limit reached (3).')
 
     expect(adapter.resumeSession).not.toHaveBeenCalled()
     expect(contextState.get({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'source-session'
     }).goalResume).toMatchObject({
       objective: 'Finish the migration',
@@ -1441,9 +1459,9 @@ describe('AgentRuntimeHost', () => {
   })
 
   it('records a visible goal resume failure reason when session resume fails', async () => {
-    const adapter = fakeAdapter('kun', {
+    const adapter = fakeAdapter('sciforge', {
       id: 'source-session',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       title: 'Source',
       updatedAt: '2026-06-10T00:00:00.000Z'
     })
@@ -1452,26 +1470,26 @@ describe('AgentRuntimeHost', () => {
     })
     const contextState = new RuntimeContextStateService()
     contextState.updateGoalResume({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'source-session',
       objective: 'Finish the migration',
       status: 'blocked',
       resumeCount: 1
     })
     const host = createAgentRuntimeHost({
-      settings: async () => settings('kun'),
+      settings: async () => settings('sciforge'),
       adapters: [adapter],
       services: { contextState }
     })
 
     await expect(host.resumeSession({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       sessionId: 'source-session',
       maxResumeCount: 3
     })).rejects.toThrow('runtime offline')
 
     expect(contextState.get({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'source-session'
     }).goalResume).toMatchObject({
       objective: 'Finish the migration',
@@ -1530,8 +1548,8 @@ describe('AgentRuntimeHost', () => {
     })
   })
 
-  it('records Kun native compaction and goal events in shared context state', async () => {
-    const adapter = createKunAgentRuntimeAdapter({
+  it('records local runtime native compaction and goal events in shared context state', async () => {
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async () => ({
         ok: true,
         status: 200,
@@ -1540,7 +1558,7 @@ describe('AgentRuntimeHost', () => {
       events: async function* () {
         yield {
           kind: 'compaction_completed',
-          threadId: 'kun-thread',
+          threadId: 'local-thread',
           turnId: 'turn-1',
           itemId: 'compact-1',
           summary: 'Runtime compacted summary',
@@ -1552,9 +1570,9 @@ describe('AgentRuntimeHost', () => {
         }
         yield {
           kind: 'goal_updated',
-          threadId: 'kun-thread',
+          threadId: 'local-thread',
           goal: {
-            threadId: 'kun-thread',
+            threadId: 'local-thread',
             objective: 'Finish shared context migration',
             status: 'active',
             tokensUsed: 20,
@@ -1567,23 +1585,23 @@ describe('AgentRuntimeHost', () => {
     })
     const contextState = new RuntimeContextStateService()
     const host = createAgentRuntimeHost({
-      settings: async () => settings('kun'),
+      settings: async () => settings('sciforge'),
       adapters: [adapter],
       services: { contextState }
     })
 
     const events: AgentRuntimeEvent[] = []
     for await (const event of host.subscribeEvents({
-      runtimeId: 'kun',
-      threadId: 'kun-thread'
+      runtimeId: 'sciforge',
+      threadId: 'local-thread'
     })) {
       events.push(event)
     }
 
     expect(events.map((event) => event.kind)).toEqual(['compaction_event', 'goal_event'])
     expect(contextState.get({
-      runtimeId: 'kun',
-      threadId: 'kun-thread'
+      runtimeId: 'sciforge',
+      threadId: 'local-thread'
     })).toMatchObject({
       summary: 'Runtime compacted summary',
       summarySource: 'runtime',
@@ -1769,10 +1787,10 @@ describe('AgentRuntimeHost', () => {
         ...base,
         agents: {
           ...base.agents,
-          kun: {
-            ...base.agents.kun,
+          sciforge: {
+            ...base.agents.sciforge,
             contextCompaction: {
-              ...base.agents.kun.contextCompaction,
+              ...base.agents.sciforge.contextCompaction,
               defaultSoftThreshold: 10,
               defaultHardThreshold: 20
             }
@@ -1822,7 +1840,7 @@ describe('AgentRuntimeHost', () => {
     )
   })
 
-  it.each(['kun', 'codex', 'claude'] as const)(
+  it.each(['sciforge', 'codex', 'claude'] as const)(
     'keeps long-history compaction and goal resume state consistent for %s runtime contract',
     async (runtimeId) => {
       const threadId = `${runtimeId}-thread`
@@ -1883,10 +1901,10 @@ describe('AgentRuntimeHost', () => {
           ...base,
           agents: {
             ...base.agents,
-            kun: {
-              ...base.agents.kun,
+           sciforge: {
+              ...base.agents.sciforge,
               contextCompaction: {
-                ...base.agents.kun.contextCompaction,
+                ...base.agents.sciforge.contextCompaction,
                 defaultSoftThreshold: 10,
                 defaultHardThreshold: 20
               }
@@ -2012,7 +2030,7 @@ describe('AgentRuntimeHost', () => {
   })
 
   it('keeps composer-previewed workspace file and directory references consistent across runtimes', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-workspace-ref-flow-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-host-workspace-ref-flow-'))
     await mkdir(join(workspaceRoot, 'docs'), { recursive: true })
     await writeFile(join(workspaceRoot, 'docs', 'guide.md'), 'Use Vitest for runtime tests.\n', 'utf8')
     await writeFile(join(workspaceRoot, 'docs', 'notes.txt'), 'Directory notes for all runtimes.\n', 'utf8')
@@ -2046,7 +2064,7 @@ describe('AgentRuntimeHost', () => {
     expect(text).toContain('Expanded files: docs/guide.md, docs/notes.txt')
     expect(text).toContain('Use Vitest for runtime tests.')
 
-    const adapters = (['kun', 'codex', 'claude'] as const).map((runtimeId) => fakeAdapter(runtimeId, {
+    const adapters = (['sciforge', 'codex', 'claude'] as const).map((runtimeId) => fakeAdapter(runtimeId, {
       id: `${runtimeId}-thread`,
       runtimeId,
       title: runtimeId,
@@ -2061,7 +2079,7 @@ describe('AgentRuntimeHost', () => {
       services: { workspaceReferences }
     })
 
-    for (const runtimeId of ['kun', 'codex', 'claude'] as const) {
+    for (const runtimeId of ['sciforge', 'codex', 'claude'] as const) {
       await host.startTurn({
         runtimeId,
         threadId: `${runtimeId}-thread`,
@@ -2136,7 +2154,7 @@ describe('AgentRuntimeHost', () => {
   })
 
   it('surfaces malformed shared memory create payloads through host auxiliary', async () => {
-    const memory = new SharedMemoryService(await mkdtemp(join(tmpdir(), 'deepseek-gui-host-memory-malformed-')))
+    const memory = new SharedMemoryService(await mkdtemp(join(tmpdir(), 'sciforge-host-memory-malformed-')))
     const adapter = fakeAdapter('codex', {
       id: 'codex-thread',
       runtimeId: 'codex',
@@ -2160,13 +2178,13 @@ describe('AgentRuntimeHost', () => {
   })
 
   it('injects shared memory consistently before dispatching turns to every runtime', async () => {
-    const dataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-memory-'))
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-memory-workspace-'))
-    const otherWorkspace = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-memory-other-'))
+    const dataDir = await mkdtemp(join(tmpdir(), 'sciforge-host-memory-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-host-memory-workspace-'))
+    const otherWorkspace = await mkdtemp(join(tmpdir(), 'sciforge-host-memory-other-'))
     await mkdir(workspaceRoot, { recursive: true })
     const memory = new SharedMemoryService(dataDir)
 
-    const adapters = (['kun', 'codex', 'claude'] as const).map((runtimeId) => fakeAdapter(runtimeId, {
+    const adapters = (['sciforge', 'codex', 'claude'] as const).map((runtimeId) => fakeAdapter(runtimeId, {
       id: `${runtimeId}-thread`,
       runtimeId,
       title: runtimeId,
@@ -2182,7 +2200,7 @@ describe('AgentRuntimeHost', () => {
     })
 
     await host.auxiliary({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       operation: 'createMemory',
       payload: {
         text: 'User prefers verbose technical answers.',
@@ -2211,11 +2229,11 @@ describe('AgentRuntimeHost', () => {
       }
     })
     await host.auxiliary({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       operation: 'updateMemory',
       payload: {
         memoryId: (await host.auxiliary({
-          runtimeId: 'kun',
+          runtimeId: 'sciforge',
           operation: 'createMemory',
           payload: {
             text: 'Disabled memory must not inject.',
@@ -2260,7 +2278,7 @@ describe('AgentRuntimeHost', () => {
       })
     ])
 
-    for (const runtimeId of ['kun', 'codex', 'claude'] as const) {
+    for (const runtimeId of ['sciforge', 'codex', 'claude'] as const) {
       await host.startTurn({
         runtimeId,
         threadId: `${runtimeId}-thread`,
@@ -2288,10 +2306,10 @@ describe('AgentRuntimeHost', () => {
   })
 
   it('drives shared memory injection from settings memory actions', async () => {
-    const dataDir = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-settings-memory-'))
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-host-settings-memory-workspace-'))
+    const dataDir = await mkdtemp(join(tmpdir(), 'sciforge-host-settings-memory-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-host-settings-memory-workspace-'))
     const memory = new SharedMemoryService(dataDir)
-    const adapters = (['kun', 'codex', 'claude'] as const).map((runtimeId) => fakeAdapter(runtimeId, {
+    const adapters = (['sciforge', 'codex', 'claude'] as const).map((runtimeId) => fakeAdapter(runtimeId, {
       id: `${runtimeId}-thread`,
       runtimeId,
       title: runtimeId,
@@ -2400,7 +2418,7 @@ describe('AgentRuntimeHost', () => {
     await actions.saveMemoryRecord(records[0]!.id)
     expect(editingId).toBeNull()
 
-    for (const runtimeId of ['kun', 'codex', 'claude'] as const) {
+    for (const runtimeId of ['sciforge', 'codex', 'claude'] as const) {
       await host.startTurn({
         runtimeId,
         threadId: `${runtimeId}-thread`,
@@ -2417,7 +2435,7 @@ describe('AgentRuntimeHost', () => {
 
     await actions.disableMemoryRecord(records[0]!.id)
     vi.clearAllMocks()
-    for (const runtimeId of ['kun', 'codex', 'claude'] as const) {
+    for (const runtimeId of ['sciforge', 'codex', 'claude'] as const) {
       await host.startTurn({
         runtimeId,
         threadId: `${runtimeId}-thread`,
@@ -3244,17 +3262,17 @@ describe('AgentRuntimeHost', () => {
   })
 
   it('does not run observe tool-storm controls for native-guard runtimes', async () => {
-    const kun = fakeAdapter('kun', {
-      id: 'kun-thread',
-      runtimeId: 'kun',
-      title: 'Kun',
+    const local = fakeAdapter('sciforge', {
+      id: 'local-thread',
+      runtimeId: 'sciforge',
+      title: 'Local',
       updatedAt: '2026-06-10T00:00:00.000Z'
     })
-    vi.mocked(kun.subscribeEvents).mockImplementation(async function* (_ctx, input) {
+    vi.mocked(local.subscribeEvents).mockImplementation(async function* (_ctx, input) {
       for (let index = 1; index <= 4; index += 1) {
         yield {
           kind: 'tool_event',
-          runtimeId: 'kun',
+          runtimeId: 'sciforge',
           threadId: input.threadId,
           turnId: 'turn-1',
           itemId: `tool-${index}`,
@@ -3270,7 +3288,7 @@ describe('AgentRuntimeHost', () => {
     })
     const host = createAgentRuntimeHost({
       settings: async () => ({
-        ...settings('kun'),
+        ...settings('sciforge'),
         runtimeGuards: {
           toolStorm: {
             enabled: true,
@@ -3285,21 +3303,21 @@ describe('AgentRuntimeHost', () => {
           }
         }
       }),
-      adapters: [kun]
+      adapters: [local]
     })
 
     for await (const _event of host.subscribeEvents({
-      runtimeId: 'kun',
-      threadId: 'kun-thread',
+      runtimeId: 'sciforge',
+      threadId: 'local-thread',
       sinceSeq: 0
     })) {
       // exhaust stream
     }
     await Promise.resolve()
 
-    expect(kun.steerTurn).not.toHaveBeenCalled()
-    expect(kun.interruptTurn).not.toHaveBeenCalled()
-    expect(kun.publishSyntheticEvent).not.toHaveBeenCalled()
+    expect(local.steerTurn).not.toHaveBeenCalled()
+    expect(local.interruptTurn).not.toHaveBeenCalled()
+    expect(local.publishSyntheticEvent).not.toHaveBeenCalled()
   })
 
   it('routes same-thread startTurn into steer when the runtime supports active turn steering', async () => {
@@ -3587,7 +3605,7 @@ describe('AgentRuntimeHost', () => {
 
   describe.each([
     { runtimeId: 'codex' as const, supportsSteer: true },
-    { runtimeId: 'kun' as const, supportsSteer: true },
+    { runtimeId: 'sciforge' as const, supportsSteer: true },
     { runtimeId: 'claude' as const, supportsSteer: false }
   ])('$runtimeId lifecycle continuation contract', ({ runtimeId, supportsSteer }) => {
     it.each(['running', 'reconnecting', 'tool_waiting'] as const)(
@@ -3749,10 +3767,10 @@ describe('AgentRuntimeHost', () => {
   })
 
   it('routes neutral usage queries through the selected adapter', async () => {
-    const kun = fakeAdapter('kun', {
-      id: 'kun-thread',
-      runtimeId: 'kun',
-      title: 'Kun',
+    const local = fakeAdapter('sciforge', {
+      id: 'local-thread',
+      runtimeId: 'sciforge',
+      title: 'Local',
       updatedAt: '2026-06-10T00:00:00.000Z'
     })
     const codex = fakeAdapter('codex', {
@@ -3763,12 +3781,12 @@ describe('AgentRuntimeHost', () => {
     })
     const host = createAgentRuntimeHost({
       settings: async () => settings('codex'),
-      adapters: [kun, codex]
+      adapters: [local, codex]
     })
     const query: AgentRuntimeUsageQuery = {
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       groupBy: 'thread',
-      threadId: 'thr-kun'
+      threadId: 'thr-sciforge'
     }
 
     await expect(host.usage(query)).resolves.toEqual({
@@ -3777,24 +3795,24 @@ describe('AgentRuntimeHost', () => {
       buckets: [],
       totals: { totalTokens: 0 }
     })
-    expect(kun.usage).toHaveBeenCalledWith(
+    expect(local.usage).toHaveBeenCalledWith(
       { settings: expect.objectContaining({ activeAgentRuntime: 'codex' }) },
       query
     )
   })
 })
 
-describe('createKunAgentRuntimeAdapter', () => {
-  it('uses Kun /v1 thread endpoints and maps thread snapshots to the neutral contract', async () => {
+describe('createLocalRuntimeAgentRuntimeAdapter', () => {
+  it('uses local runtime /v1 thread endpoints and maps thread snapshots to the neutral contract', async () => {
     const seen: Array<{ path: string; init: { method?: string; body?: string } }> = []
-    const adapter = createKunAgentRuntimeAdapter({
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: async (_settings, path, init) => {
         seen.push({ path, init })
         if (path.startsWith('/v1/threads?')) {
           return json({
             threads: [{
-              id: 'thr-kun',
-              title: 'Kun thread',
+              id: 'thr-sciforge',
+              title: 'SciForge thread',
               workspace: '/tmp/workspace',
               model: 'deepseek-v4-pro',
               mode: 'agent',
@@ -3804,10 +3822,10 @@ describe('createKunAgentRuntimeAdapter', () => {
             }]
           })
         }
-        if (path === '/v1/threads/thr-kun' && init.method === 'GET') {
+        if (path === '/v1/threads/thr-sciforge' && init.method === 'GET') {
           return json({
-            id: 'thr-kun',
-            title: 'Kun thread',
+            id: 'thr-sciforge',
+            title: 'SciForge thread',
             workspace: '/tmp/workspace',
             model: 'deepseek-v4-pro',
             mode: 'agent',
@@ -3817,7 +3835,7 @@ describe('createKunAgentRuntimeAdapter', () => {
             latestSeq: 2,
             turns: [{
               id: 'turn-1',
-              threadId: 'thr-kun',
+              threadId: 'thr-sciforge',
               status: 'completed',
               createdAt: '2026-06-10T00:00:00.000Z',
               finishedAt: '2026-06-10T00:00:01.000Z',
@@ -3849,23 +3867,23 @@ describe('createKunAgentRuntimeAdapter', () => {
             }]
           })
         }
-        if (path === '/v1/threads/thr-kun/turns' && init.method === 'POST') {
-          return json({ threadId: 'thr-kun', turnId: 'turn-2', userMessageItemId: 'user-2' }, 202)
+        if (path === '/v1/threads/thr-sciforge/turns' && init.method === 'POST') {
+          return json({ threadId: 'thr-sciforge', turnId: 'turn-2', userMessageItemId: 'user-2' }, 202)
         }
         return json({ code: 'not_found', message: path }, 404)
       }
     })
-    const ctx = { settings: settings('kun') }
+    const ctx = { settings: settings('sciforge') }
 
-    await expect(adapter.listThreads(ctx, { limit: 3, search: 'Kun' })).resolves.toEqual([expect.objectContaining({
-      id: 'thr-kun',
-      runtimeId: 'kun',
-      title: 'Kun thread',
-      backendThreadId: 'thr-kun'
+    await expect(adapter.listThreads(ctx, { limit: 3, search: 'Local' })).resolves.toEqual([expect.objectContaining({
+      id: 'thr-sciforge',
+      runtimeId: 'sciforge',
+      title: 'SciForge thread',
+      backendThreadId: 'thr-sciforge'
     })])
-    await expect(adapter.readThread(ctx, { threadId: 'thr-kun' })).resolves.toMatchObject({
-      id: 'thr-kun',
-      runtimeId: 'kun',
+    await expect(adapter.readThread(ctx, { threadId: 'thr-sciforge' })).resolves.toMatchObject({
+      id: 'thr-sciforge',
+      runtimeId: 'sciforge',
       latestSeq: 2,
       turns: [{
         id: 'turn-1',
@@ -3878,21 +3896,21 @@ describe('createKunAgentRuntimeAdapter', () => {
       }]
     })
     await expect(adapter.startTurn(ctx, {
-      threadId: 'thr-kun',
+      threadId: 'thr-sciforge',
       text: 'run',
       mode: 'agent',
       displayText: 'Run it',
       attachmentIds: ['att-1']
     })).resolves.toEqual({
-      threadId: 'thr-kun',
+      threadId: 'thr-sciforge',
       turnId: 'turn-2',
       userMessageItemId: 'user-2'
     })
 
     expect(seen.map((entry) => [entry.path, entry.init.method])).toEqual([
-      ['/v1/threads?limit=3&search=Kun', 'GET'],
-      ['/v1/threads/thr-kun', 'GET'],
-      ['/v1/threads/thr-kun/turns', 'POST']
+      ['/v1/threads?limit=3&search=Local', 'GET'],
+      ['/v1/threads/thr-sciforge', 'GET'],
+      ['/v1/threads/thr-sciforge/turns', 'POST']
     ])
     expect(JSON.parse(seen[2].init.body ?? '{}')).toEqual({
       prompt: 'run',
@@ -3905,8 +3923,8 @@ describe('createKunAgentRuntimeAdapter', () => {
     })
   })
 
-  it('maps Kun runtime info capabilities without dropping tool diagnostics', async () => {
-    const adapter = createKunAgentRuntimeAdapter({
+  it('maps local runtime info capabilities without dropping tool diagnostics', async () => {
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: async (_settings, path) => {
         if (path !== '/v1/runtime/info') return json({}, 404)
         return json({
@@ -3999,8 +4017,8 @@ describe('createKunAgentRuntimeAdapter', () => {
       }
     })
 
-    await expect(adapter.capabilities({ settings: settings('kun') })).resolves.toMatchObject({
-      runtimeId: 'kun',
+    await expect(adapter.capabilities({ settings: settings('sciforge') })).resolves.toMatchObject({
+      runtimeId: 'sciforge',
       transport: 'http_sse',
       model: {
         id: 'deepseek-v4-pro',
@@ -4030,16 +4048,16 @@ describe('createKunAgentRuntimeAdapter', () => {
     })
   })
 
-  it('keeps Kun usage endpoints behind the neutral adapter contract', async () => {
+  it('keeps local runtime usage endpoints behind the neutral adapter contract', async () => {
     const seen: Array<{ path: string; init: { method?: string; body?: string } }> = []
-    const adapter = createKunAgentRuntimeAdapter({
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: async (_settings, path, init) => {
         seen.push({ path, init })
         if (path.startsWith('/v1/usage?')) {
           return json({
             group_by: 'thread',
             buckets: [{
-              thread_id: 'thr-kun',
+              thread_id: 'thr-sciforge',
               input_tokens: 100,
               output_tokens: 20,
               total_tokens: 120,
@@ -4058,7 +4076,7 @@ describe('createKunAgentRuntimeAdapter', () => {
             }
           })
         }
-        if (path === '/v1/threads/thr-kun') {
+        if (path === '/v1/threads/thr-sciforge') {
           return json({
             turns: [{
               usage: {
@@ -4072,14 +4090,14 @@ describe('createKunAgentRuntimeAdapter', () => {
       }
     })
 
-    await expect(adapter.usage({ settings: settings('kun') }, {
+    await expect(adapter.usage({ settings: settings('sciforge') }, {
       groupBy: 'thread',
-      threadId: 'thr-kun'
+      threadId: 'thr-sciforge'
     })).resolves.toMatchObject({
       supported: true,
       groupBy: 'thread',
       buckets: [{
-        threadId: 'thr-kun',
+        threadId: 'thr-sciforge',
         inputTokens: 100,
         outputTokens: 20,
         totalTokens: 120,
@@ -4099,13 +4117,13 @@ describe('createKunAgentRuntimeAdapter', () => {
     })
     expect(seen.map((entry) => [entry.path, entry.init.method])).toEqual([
       ['/v1/usage?group_by=thread', 'GET'],
-      ['/v1/threads/thr-kun', 'GET']
+      ['/v1/threads/thr-sciforge', 'GET']
     ])
   })
 
-  it('keeps Kun usage available when cache stat hydration misses a stale thread', async () => {
+  it('keeps local runtime usage available when cache stat hydration misses a stale thread', async () => {
     const seen: Array<{ path: string; init: { method?: string; body?: string } }> = []
-    const adapter = createKunAgentRuntimeAdapter({
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: async (_settings, path, init) => {
         seen.push({ path, init })
         if (path.startsWith('/v1/usage?')) {
@@ -4127,7 +4145,7 @@ describe('createKunAgentRuntimeAdapter', () => {
       }
     })
 
-    await expect(adapter.usage({ settings: settings('kun') }, {
+    await expect(adapter.usage({ settings: settings('sciforge') }, {
       groupBy: 'thread',
       threadId: 'stale-thread'
     })).resolves.toMatchObject({
@@ -4144,16 +4162,16 @@ describe('createKunAgentRuntimeAdapter', () => {
     ])
   })
 
-  it('updates Kun thread relation through the neutral adapter', async () => {
+  it('updates local runtime thread relation through the neutral adapter', async () => {
     const seen: Array<{ path: string; init: { method?: string; body?: string } }> = []
-    const adapter = createKunAgentRuntimeAdapter({
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: async (_settings, path, init) => {
         seen.push({ path, init })
         return json({})
       }
     })
 
-    await expect(adapter.updateThreadRelation?.({ settings: settings('kun') }, {
+    await expect(adapter.updateThreadRelation?.({ settings: settings('sciforge') }, {
       threadId: 'thr-side',
       relation: 'primary'
     })).resolves.toBeUndefined()
@@ -4167,20 +4185,20 @@ describe('createKunAgentRuntimeAdapter', () => {
     }])
   })
 
-  it('maps Kun SSE events to neutral lifecycle and delta events', async () => {
+  it('maps local runtime SSE events to neutral lifecycle and delta events', async () => {
     const rawEvents = [
       {
         kind: 'turn_started',
         seq: 1,
         timestamp: '2026-06-12T04:41:37.972Z',
-        threadId: 'thr-kun',
+        threadId: 'thr-sciforge',
         turnId: 'turn-1'
       },
       {
         kind: 'item_created',
         seq: 2,
         timestamp: '2026-06-12T04:41:37.980Z',
-        threadId: 'thr-kun',
+        threadId: 'thr-sciforge',
         turnId: 'turn-1',
         itemId: 'user-1',
         item: {
@@ -4195,7 +4213,7 @@ describe('createKunAgentRuntimeAdapter', () => {
         kind: 'assistant_text_delta',
         seq: 3,
         timestamp: '2026-06-12T04:41:39.999Z',
-        threadId: 'thr-kun',
+        threadId: 'thr-sciforge',
         turnId: 'turn-1',
         itemId: 'assistant-1',
         item: {
@@ -4209,11 +4227,11 @@ describe('createKunAgentRuntimeAdapter', () => {
         kind: 'turn_completed',
         seq: 4,
         timestamp: '2026-06-12T04:41:40.021Z',
-        threadId: 'thr-kun',
+        threadId: 'thr-sciforge',
         turnId: 'turn-1'
       }
     ]
-    const adapter = createKunAgentRuntimeAdapter({
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: async () => json({}),
       events: async function* () {
         yield* rawEvents
@@ -4221,8 +4239,8 @@ describe('createKunAgentRuntimeAdapter', () => {
     })
 
     const events: AgentRuntimeEvent[] = []
-    for await (const event of adapter.subscribeEvents!({ settings: settings('kun') }, {
-      threadId: 'thr-kun',
+    for await (const event of adapter.subscribeEvents!({ settings: settings('sciforge') }, {
+      threadId: 'thr-sciforge',
       sinceSeq: 0
     })) {
       events.push(event)
@@ -4231,8 +4249,8 @@ describe('createKunAgentRuntimeAdapter', () => {
     expect(events).toEqual([
       expect.objectContaining({
         kind: 'turn_lifecycle',
-        runtimeId: 'kun',
-        threadId: 'thr-kun',
+        runtimeId: 'sciforge',
+        threadId: 'thr-sciforge',
         turnId: 'turn-1',
         state: 'started',
         seq: 1,
@@ -4240,14 +4258,14 @@ describe('createKunAgentRuntimeAdapter', () => {
       }),
       expect.objectContaining({
         kind: 'item_snapshot',
-        threadId: 'thr-kun',
+        threadId: 'thr-sciforge',
         turnId: 'turn-1',
         seq: 2,
         item: expect.objectContaining({ id: 'user-1', kind: 'user_message', text: 'hello' })
       }),
       expect.objectContaining({
         kind: 'assistant_delta',
-        threadId: 'thr-kun',
+        threadId: 'thr-sciforge',
         turnId: 'turn-1',
         itemId: 'assistant-1',
         text: 'hi',
@@ -4255,8 +4273,8 @@ describe('createKunAgentRuntimeAdapter', () => {
       }),
       expect.objectContaining({
         kind: 'turn_lifecycle',
-        runtimeId: 'kun',
-        threadId: 'thr-kun',
+        runtimeId: 'sciforge',
+        threadId: 'thr-sciforge',
         turnId: 'turn-1',
         state: 'completed',
         seq: 4,

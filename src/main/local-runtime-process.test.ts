@@ -9,23 +9,22 @@ import {
   defaultAgentCapabilitySettings,
   defaultKeyboardShortcuts,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultRuntimeGuardSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
-  LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   type AppSettingsV1
 } from '../shared/app-settings'
-import { KunConfigSchema } from '../../kun/src/config/kun-config.js'
+import { LocalRuntimeConfigSchema } from '../../kun/src/config/kun-config.js'
 
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
-    getAppPath: () => '/tmp/deepseek-gui-test-app',
-    getPath: () => '/tmp/deepseek-gui-test-user-data'
+    getAppPath: () => '/tmp/sciforge-test-app',
+    getPath: () => '/tmp/sciforge-test-user-data'
   }
 }))
 
@@ -43,8 +42,8 @@ function createSettings(binaryPath: string, port = 8899): AppSettingsV1 {
       runtimeApiKey: 'local-runtime-router-key'
     },
     agents: {
-      kun: {
-        ...defaultKunRuntimeSettings(port),
+      sciforge: {
+        ...defaultLocalRuntimeSettings(port),
         binaryPath,
         autoStart: true
       }
@@ -70,14 +69,14 @@ function writeScript(name: string, content: string): string {
   return path
 }
 
-async function readKunLog(): Promise<string> {
+async function readLocalRuntimeLog(): Promise<string> {
   if (!tempRoot) throw new Error('temp root not initialized')
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    const logFile = readdirSync(tempRoot).find((entry) => entry.startsWith('kun-') && entry.endsWith('.log'))
+    const logFile = readdirSync(tempRoot).find((entry) => entry.startsWith('sciforge-runtime-') && entry.endsWith('.log'))
     if (logFile) return readFileSync(join(tempRoot, logFile), 'utf8')
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
-  throw new Error('Expected a kun log file to be created')
+  throw new Error('Expected a local runtime log file to be created')
 }
 
 async function listenOnPort(port: number): Promise<ReturnType<typeof createServer>> {
@@ -122,14 +121,14 @@ async function findPortWithAvailableNext(): Promise<number> {
 }
 
 beforeEach(() => {
-  tempRoot = mkdtempSync(join(tmpdir(), 'kun-process-'))
+  tempRoot = mkdtempSync(join(tmpdir(), 'local-runtime-process-'))
   configureLogger({ dir: tempRoot, enabled: true, retentionDays: 7 })
 })
 
 afterEach(async () => {
-  const module = await import('./kun-process')
-  module.setKunUnexpectedExitHandler(null)
-  await module.stopKunChildAndWait()
+  const module = await import('./local-runtime-process')
+  module.setLocalRuntimeUnexpectedExitHandler(null)
+  await module.stopLocalRuntimeChildAndWait()
   configureLogger({ dir: '', enabled: true, retentionDays: 2 })
   if (tempRoot) {
     rmSync(tempRoot, { recursive: true, force: true })
@@ -137,8 +136,8 @@ afterEach(async () => {
   }
 })
 
-describe('startKunChild', () => {
-  it('waits for the explicit Kun ready marker before resolving', async () => {
+describe('startLocalRuntimeChild', () => {
+  it('waits for the explicit local runtime ready marker before resolving', async () => {
     const script = writeScript(
       'ready-child.js',
       [
@@ -148,11 +147,11 @@ describe('startKunChild', () => {
         "setInterval(() => {}, 1_000)"
       ].join('\n')
     )
-    const module = await import('./kun-process')
-    await expect(module.startKunChild(createSettings(script))).resolves.toBeUndefined()
-    expect(module.isKunChildRunning()).toBe(true)
-    await module.stopKunChildAndWait()
-    const logText = await readKunLog()
+    const module = await import('./local-runtime-process')
+    await expect(module.startLocalRuntimeChild(createSettings(script))).resolves.toBeUndefined()
+    expect(module.isLocalRuntimeChildRunning()).toBe(true)
+    await module.stopLocalRuntimeChildAndWait()
+    const logText = await readLocalRuntimeLog()
     expect(logText).toContain('KUN_READY')
     expect(logText).toContain('ready marker received on port 8899')
   })
@@ -180,11 +179,11 @@ describe('startKunChild', () => {
         "setInterval(() => {}, 1_000)"
       ].join('\n')
     )
-    const module = await import('./kun-process')
-    await expect(module.startKunChild(createSettings(script))).resolves.toBeUndefined()
-    expect(module.isKunChildRunning()).toBe(true)
-    await module.stopKunChildAndWait()
-    const logText = await readKunLog()
+    const module = await import('./local-runtime-process')
+    await expect(module.startLocalRuntimeChild(createSettings(script))).resolves.toBeUndefined()
+    expect(module.isLocalRuntimeChildRunning()).toBe(true)
+    await module.stopLocalRuntimeChildAndWait()
+    const logText = await readLocalRuntimeLog()
     expect(logText).toContain('health probe confirmed ready on port 8899')
   })
 
@@ -202,14 +201,14 @@ describe('startKunChild', () => {
         "setInterval(() => {}, 1_000)"
       ].join('\n')
     )
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
     await expect(Promise.all([
-      module.startKunChild(createSettings(script)),
-      module.startKunChild(createSettings(script))
+      module.startLocalRuntimeChild(createSettings(script)),
+      module.startLocalRuntimeChild(createSettings(script))
     ])).resolves.toEqual([undefined, undefined])
 
     expect(readFileSync(counterPath, 'utf8')).toBe('x')
-    await module.stopKunChildAndWait()
+    await module.stopLocalRuntimeChildAndWait()
   })
 
   it('notifies when a ready child exits unexpectedly', async () => {
@@ -223,16 +222,16 @@ describe('startKunChild', () => {
         '}, 80)'
       ].join('\n')
     )
-    const module = await import('./kun-process')
-    const unexpectedExit = new Promise<import('./kun-process').KunUnexpectedExitInfo>((resolve) => {
-      module.setKunUnexpectedExitHandler(resolve)
+    const module = await import('./local-runtime-process')
+    const unexpectedExit = new Promise<import('./local-runtime-process').LocalRuntimeUnexpectedExitInfo>((resolve) => {
+      module.setLocalRuntimeUnexpectedExitHandler(resolve)
     })
 
-    await expect(module.startKunChild(createSettings(script))).resolves.toBeUndefined()
+    await expect(module.startLocalRuntimeChild(createSettings(script))).resolves.toBeUndefined()
     const info = await unexpectedExit
     expect(info).toMatchObject({ code: 34, signal: null })
     expect(info.stderrTail).toContain('runtime exploded')
-    expect(module.isKunChildRunning()).toBe(false)
+    expect(module.isLocalRuntimeChildRunning()).toBe(false)
   })
 
   it('does not notify unexpected exit handlers for intentional stops', async () => {
@@ -243,12 +242,12 @@ describe('startKunChild', () => {
         "setInterval(() => {}, 1_000)"
       ].join('\n')
     )
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
     const handler = vi.fn()
-    module.setKunUnexpectedExitHandler(handler)
+    module.setLocalRuntimeUnexpectedExitHandler(handler)
 
-    await expect(module.startKunChild(createSettings(script))).resolves.toBeUndefined()
-    await module.stopKunChildAndWait()
+    await expect(module.startLocalRuntimeChild(createSettings(script))).resolves.toBeUndefined()
+    await module.stopLocalRuntimeChildAndWait()
     await new Promise((resolve) => setTimeout(resolve, 25))
     expect(handler).not.toHaveBeenCalled()
   })
@@ -261,25 +260,25 @@ describe('startKunChild', () => {
         'setTimeout(() => process.exit(23), 20)'
       ].join('\n')
     )
-    const module = await import('./kun-process')
-    await expect(module.startKunChild(createSettings(script))).rejects.toThrow(
-      /Kun exited during startup with code 23[\s\S]*bind failed on port 8899/
+    const module = await import('./local-runtime-process')
+    await expect(module.startLocalRuntimeChild(createSettings(script))).rejects.toThrow(
+      /SciForge Runtime exited during startup with code 23[\s\S]*bind failed on port 8899/
     )
-    expect(module.isKunChildRunning()).toBe(false)
-    await module.stopKunChildAndWait()
-    const logText = await readKunLog()
+    expect(module.isLocalRuntimeChildRunning()).toBe(false)
+    await module.stopLocalRuntimeChildAndWait()
+    const logText = await readLocalRuntimeLog()
     expect(logText).toContain('bind failed on port 8899')
     expect(logText).toContain('exited with code 23')
   })
 
-  it('passes only the local Model Router env to Kun', async () => {
+  it('passes only the local Model Router env to the local runtime', async () => {
     const previousDeepSeekApiKey = process.env.DEEPSEEK_API_KEY
     const previousDeepSeekBaseUrl = process.env.DEEPSEEK_BASE_URL
-    const previousKunBaseUrl = process.env.KUN_BASE_URL
+    const previousLocalRuntimeBaseUrl = process.env.KUN_BASE_URL
     const previousModelProvider = process.env.MODEL_PROVIDER
     process.env.DEEPSEEK_API_KEY = 'outer-upstream-secret'
     process.env.DEEPSEEK_BASE_URL = 'https://direct-provider.example/v1'
-    process.env.KUN_BASE_URL = 'https://direct-kun-provider.example/v1'
+    process.env.KUN_BASE_URL = 'https://direct-local-runtime-provider.example/v1'
     process.env.MODEL_PROVIDER = 'direct-provider'
     const script = writeScript(
       'env-child.js',
@@ -305,9 +304,9 @@ describe('startKunChild', () => {
       ].join('\n')
     )
     try {
-      const module = await import('./kun-process')
-      await expect(module.startKunChild(createSettings(script))).resolves.toBeUndefined()
-      await module.stopKunChildAndWait()
+      const module = await import('./local-runtime-process')
+      await expect(module.startLocalRuntimeChild(createSettings(script))).resolves.toBeUndefined()
+      await module.stopLocalRuntimeChildAndWait()
     } finally {
       if (previousDeepSeekApiKey === undefined) {
         delete process.env.DEEPSEEK_API_KEY
@@ -316,8 +315,8 @@ describe('startKunChild', () => {
       }
       if (previousDeepSeekBaseUrl === undefined) delete process.env.DEEPSEEK_BASE_URL
       else process.env.DEEPSEEK_BASE_URL = previousDeepSeekBaseUrl
-      if (previousKunBaseUrl === undefined) delete process.env.KUN_BASE_URL
-      else process.env.KUN_BASE_URL = previousKunBaseUrl
+      if (previousLocalRuntimeBaseUrl === undefined) delete process.env.KUN_BASE_URL
+      else process.env.KUN_BASE_URL = previousLocalRuntimeBaseUrl
       if (previousModelProvider === undefined) delete process.env.MODEL_PROVIDER
       else process.env.MODEL_PROVIDER = previousModelProvider
     }
@@ -337,14 +336,14 @@ describe('startKunChild', () => {
       ...settings.modelRouter,
       runtimeApiKey: ''
     }
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    await expect(module.startKunChild(settings)).rejects.toThrow(/Model Router runtime API key is required/)
-    expect(module.isKunChildRunning()).toBe(false)
+    await expect(module.startLocalRuntimeChild(settings)).rejects.toThrow(/Model Router runtime API key is required/)
+    expect(module.isLocalRuntimeChildRunning()).toBe(false)
   })
 })
 
-describe('reclaimKunPort', () => {
+describe('reclaimLocalRuntimePort', () => {
   it('reports a port as unavailable when another listener owns it', async () => {
     const server = createServer()
     await new Promise<void>((resolve, reject) => {
@@ -353,9 +352,9 @@ describe('reclaimKunPort', () => {
     })
     try {
       const address = server.address() as AddressInfo
-      const module = await import('./kun-process')
+      const module = await import('./local-runtime-process')
 
-      await expect(module.reclaimKunPort(address.port)).resolves.toEqual({
+      await expect(module.reclaimLocalRuntimePort(address.port)).resolves.toEqual({
         ok: false,
         message: `port ${address.port} is in use`
       })
@@ -364,21 +363,21 @@ describe('reclaimKunPort', () => {
     }
   })
 
-  it('allows non-positive ports so Kun can request an ephemeral port', async () => {
-    const module = await import('./kun-process')
+  it('allows non-positive ports so the local runtime can request an ephemeral port', async () => {
+    const module = await import('./local-runtime-process')
 
-    await expect(module.reclaimKunPort(0)).resolves.toEqual({ ok: true })
+    await expect(module.reclaimLocalRuntimePort(0)).resolves.toEqual({ ok: true })
   })
 })
 
-describe('resolveAvailableKunPort', () => {
+describe('resolveAvailableLocalRuntimePort', () => {
   it('uses the next bindable port after the preferred port is occupied', async () => {
     const preferredPort = await findPortWithAvailableNext()
     const server = await listenOnPort(preferredPort)
     try {
-      const module = await import('./kun-process')
+      const module = await import('./local-runtime-process')
 
-      await expect(module.resolveAvailableKunPort(preferredPort)).resolves.toEqual({
+      await expect(module.resolveAvailableLocalRuntimePort(preferredPort)).resolves.toEqual({
         port: preferredPort + 1,
         changed: true,
         message: `port ${preferredPort} is in use`
@@ -389,35 +388,35 @@ describe('resolveAvailableKunPort', () => {
   })
 
   it('falls back to an ephemeral port for non-positive preferences', async () => {
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    const resolved = await module.resolveAvailableKunPort(0)
+    const resolved = await module.resolveAvailableLocalRuntimePort(0)
     expect(resolved.changed).toBe(true)
     expect(resolved.port).toBeGreaterThan(0)
   })
 })
 
-describe('resolveKunDataDir', () => {
+describe('resolveLocalRuntimeDataDir', () => {
   it('expands Windows-style home-relative data directories', async () => {
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    expect(module.resolveKunDataDir({ dataDir: '~\\deepseek\\kun' })).toBe(join(homedir(), 'deepseek', 'kun'))
+    expect(module.resolveLocalRuntimeDataDir({ dataDir: '~\\deepseek\\local-runtime' })).toBe(join(homedir(), 'deepseek', 'local-runtime'))
   })
 
   it('does not expand non-home tilde prefixes', async () => {
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    expect(module.resolveKunDataDir({ dataDir: '~other\\kun' })).toBe('~other\\kun')
+    expect(module.resolveLocalRuntimeDataDir({ dataDir: '~other\\local-runtime' })).toBe('~other\\local-runtime')
   })
 })
 
-describe('syncGuiManagedKunConfig', () => {
+describe('syncGuiManagedLocalRuntimeConfig', () => {
   it('creates GUI-managed config with attachments enabled for image paste/upload', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings())
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings())
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
     expect(parsed.serve.storage).toMatchObject({ backend: 'hybrid' })
@@ -451,8 +450,7 @@ describe('syncGuiManagedKunConfig', () => {
       aliases: [
         'deepseek-chat',
         'deepseek-reasoner',
-        DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
-        LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
+        DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
       ],
       contextWindowTokens: 1_000_000,
       contextCompaction: {
@@ -472,12 +470,12 @@ describe('syncGuiManagedKunConfig', () => {
     expect(parsed.capabilities.mcp.search).toMatchObject({ enabled: false, mode: 'auto' })
   })
 
-  it('derives Kun subagent capability config from shared agent settings', async () => {
+  it('derives local runtime subagent capability config from shared agent settings', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
       agentCapabilities: {
         ...defaultAgentCapabilitySettings(),
         subagents: {
@@ -496,19 +494,19 @@ describe('syncGuiManagedKunConfig', () => {
     })
   })
 
-  it('adds the built-in schedule MCP server to Kun runtime capabilities', async () => {
+  it('adds the built-in schedule MCP server to the local runtime capabilities', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
-    const module = await import('./kun-process')
-    const settings = createSettings('/tmp/fake-kun-child.js')
+    const module = await import('./local-runtime-process')
+    const settings = createSettings('/tmp/fake-local-runtime-child.js')
     settings.schedule.internal.port = 9788
     settings.schedule.internal.secret = 'top-secret'
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
       scheduleMcp: {
         settings,
         launch: {
-          appPath: '/tmp/deepseek-gui-test-app',
+          appPath: '/tmp/sciforge-test-app',
           execPath: '/tmp/electron',
           isPackaged: false
         }
@@ -522,7 +520,7 @@ describe('syncGuiManagedKunConfig', () => {
       transport: 'stdio',
       command: '/tmp/electron',
       args: [
-        '/tmp/deepseek-gui-test-app/out/main/schedule-mcp-node-entry.js',
+        '/tmp/sciforge-test-app/out/main/schedule-mcp-node-entry.js',
         '--gui-schedule-mcp-server',
         '--base-url',
         'http://127.0.0.1:9788'
@@ -534,15 +532,15 @@ describe('syncGuiManagedKunConfig', () => {
     })
   })
 
-  it('adds the shared research MCP server to Kun runtime capabilities', async () => {
+  it('adds the shared research MCP server to the local runtime capabilities', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
       researchMcp: {
         launch: {
-          appPath: '/tmp/deepseek-gui-test-app',
+          appPath: '/tmp/sciforge-test-app',
           execPath: '/tmp/electron',
           isPackaged: false
         }
@@ -556,7 +554,7 @@ describe('syncGuiManagedKunConfig', () => {
       transport: 'stdio',
       command: '/tmp/electron',
       args: [
-        '/tmp/deepseek-gui-test-app/out/main/research-search-mcp-node-entry.js',
+        '/tmp/sciforge-test-app/out/main/research-search-mcp-node-entry.js',
         '--gui-research-mcp-server'
       ],
       env: {
@@ -567,12 +565,12 @@ describe('syncGuiManagedKunConfig', () => {
     })
   })
 
-  it('adds the shared workflow MCP server to Kun runtime capabilities', async () => {
+  it('adds the shared workflow MCP server to the local runtime capabilities', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
     const settings = {
-      ...createSettings('/tmp/fake-kun-child.js'),
+      ...createSettings('/tmp/fake-local-runtime-child.js'),
       workflow: {
         ...defaultWorkflowSettings(),
         enabled: true,
@@ -581,11 +579,11 @@ describe('syncGuiManagedKunConfig', () => {
       }
     }
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
       workflowMcp: {
         settings,
         launch: {
-          appPath: '/tmp/deepseek-gui-test-app',
+          appPath: '/tmp/sciforge-test-app',
           execPath: '/tmp/electron',
           isPackaged: false
         }
@@ -599,7 +597,7 @@ describe('syncGuiManagedKunConfig', () => {
       transport: 'stdio',
       command: '/tmp/electron',
       args: [
-        '/tmp/deepseek-gui-test-app/out/main/workflow-mcp-node-entry.js',
+        '/tmp/sciforge-test-app/out/main/workflow-mcp-node-entry.js',
         '--gui-workflow-mcp-server',
         '--base-url',
         'http://127.0.0.1:9898'
@@ -612,20 +610,20 @@ describe('syncGuiManagedKunConfig', () => {
     })
   })
 
-  it('adds the shared workspace intel MCP server to Kun runtime capabilities', async () => {
+  it('adds the shared workspace intel MCP server to the local runtime capabilities', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
     const settings = {
-      ...createSettings('/tmp/fake-kun-child.js'),
+      ...createSettings('/tmp/fake-local-runtime-child.js'),
       workspaceRoot: '/tmp/workspace-intel-root'
     }
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
       workspaceIntelMcp: {
         settings,
         launch: {
-          appPath: '/tmp/deepseek-gui-test-app',
+          appPath: '/tmp/sciforge-test-app',
           execPath: '/tmp/electron',
           isPackaged: false
         }
@@ -639,7 +637,7 @@ describe('syncGuiManagedKunConfig', () => {
       transport: 'stdio',
       command: '/tmp/electron',
       args: [
-        '/tmp/deepseek-gui-test-app/out/main/workspace-intel-mcp-node-entry.js',
+        '/tmp/sciforge-test-app/out/main/workspace-intel-mcp-node-entry.js',
         '--gui-workspace-intel-mcp-server',
         '--include-global-skills',
         '--workspace-root',
@@ -653,15 +651,15 @@ describe('syncGuiManagedKunConfig', () => {
     })
   })
 
-  it('adds the shared computer-use MCP server to Kun runtime capabilities', async () => {
+  it('adds the shared computer-use MCP server to the local runtime capabilities', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
       computerUseMcp: {
         launch: {
-          appPath: '/tmp/deepseek-gui-test-app',
+          appPath: '/tmp/sciforge-test-app',
           execPath: '/tmp/electron',
           isPackaged: false
         }
@@ -675,7 +673,7 @@ describe('syncGuiManagedKunConfig', () => {
       transport: 'stdio',
       command: '/tmp/electron',
       args: [
-        '/tmp/deepseek-gui-test-app/out/main/computer-use-mcp-node-entry.js',
+        '/tmp/sciforge-test-app/out/main/computer-use-mcp-node-entry.js',
         '--gui-computer-use-mcp-server'
       ],
       env: {
@@ -689,10 +687,10 @@ describe('syncGuiManagedKunConfig', () => {
   it('keeps the shared computer-use MCP server disabled when computer use is turned off', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    const runtime = defaultKunRuntimeSettings()
-    await module.syncGuiManagedKunConfig(tempRoot, {
+    const runtime = defaultLocalRuntimeSettings()
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, {
       ...runtime,
       mcpSearch: {
         ...runtime.mcpSearch,
@@ -703,7 +701,7 @@ describe('syncGuiManagedKunConfig', () => {
       computerUseMcp: {
         enabled: false,
         launch: {
-          appPath: '/tmp/deepseek-gui-test-app',
+          appPath: '/tmp/sciforge-test-app',
           execPath: '/tmp/electron',
           isPackaged: false
         }
@@ -716,28 +714,28 @@ describe('syncGuiManagedKunConfig', () => {
       enabled: false,
       command: '/tmp/electron',
       args: [
-        '/tmp/deepseek-gui-test-app/out/main/computer-use-mcp-node-entry.js',
+        '/tmp/sciforge-test-app/out/main/computer-use-mcp-node-entry.js',
         '--gui-computer-use-mcp-server'
       ]
     })
   })
 
-  it('adds GUI project and configured global skill roots to Kun runtime capabilities', async () => {
+  it('adds GUI project and configured global skill roots to the local runtime capabilities', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
-    const module = await import('./kun-process')
-    const settings = createSettings('/tmp/fake-kun-child.js')
+    const module = await import('./local-runtime-process')
+    const settings = createSettings('/tmp/fake-local-runtime-child.js')
     const workspaceRoot = join(tempRoot, 'workspace')
     const extraRoot = join(tempRoot, 'extra-skills')
     settings.workspaceRoot = workspaceRoot
     settings.claw.skills.extraDirs = [extraRoot]
     mkdirSync(join(workspaceRoot, '.codex', 'skills'), { recursive: true })
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
       scheduleMcp: {
         settings,
         launch: {
-          appPath: '/tmp/deepseek-gui-test-app',
+          appPath: '/tmp/sciforge-test-app',
           execPath: '/tmp/electron',
           isPackaged: false
         }
@@ -816,13 +814,13 @@ describe('syncGuiManagedKunConfig', () => {
         }
       }
     }), 'utf8')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    await module.syncGuiManagedKunConfig(tempRoot, {
-      ...defaultKunRuntimeSettings(),
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, {
+      ...defaultLocalRuntimeSettings(),
       storage: {
         backend: 'hybrid',
-        sqlitePath: '/tmp/kun-index.sqlite3'
+        sqlitePath: '/tmp/local-runtime-index.sqlite3'
       },
       contextCompaction: {
         defaultSoftThreshold: 32000,
@@ -872,7 +870,7 @@ describe('syncGuiManagedKunConfig', () => {
     })
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
-    expect(KunConfigSchema.safeParse(parsed).success).toBe(true)
+    expect(LocalRuntimeConfigSchema.safeParse(parsed).success).toBe(true)
     expect(parsed.legacyTopLevelFlag).toBeUndefined()
     expect(parsed.serve.legacyServeFlag).toBeUndefined()
     expect(parsed.serve.apiKey).toBeUndefined()
@@ -881,7 +879,7 @@ describe('syncGuiManagedKunConfig', () => {
     expect(parsed.serve.model).toBeUndefined()
     expect(parsed.serve.storage).toMatchObject({
       backend: 'hybrid',
-      sqlitePath: '/tmp/kun-index.sqlite3'
+      sqlitePath: '/tmp/local-runtime-index.sqlite3'
     })
     expect(parsed.serve.tokenEconomy).toMatchObject({
       enabled: true,
@@ -972,9 +970,9 @@ describe('syncGuiManagedKunConfig', () => {
         }
       }
     }), 'utf8')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
       mcpConfigPath
     })
 
@@ -1001,16 +999,16 @@ describe('syncGuiManagedKunConfig', () => {
     })
   })
 
-  it('replaces unparsable historical Kun config with a valid GUI-managed config', async () => {
+  it('replaces unparsable historical local runtime config with a valid GUI-managed config', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
     writeFileSync(configPath, '{ legacy config', 'utf8')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings())
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings())
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as unknown
-    expect(KunConfigSchema.safeParse(parsed).success).toBe(true)
+    expect(LocalRuntimeConfigSchema.safeParse(parsed).success).toBe(true)
   })
 
   it('does not enable MCP when the capability is explicitly disabled', async () => {
@@ -1023,13 +1021,13 @@ describe('syncGuiManagedKunConfig', () => {
         }
       }
     }), 'utf8')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
       scheduleMcp: {
-        settings: createSettings('/tmp/fake-kun-child.js'),
+        settings: createSettings('/tmp/fake-local-runtime-child.js'),
         launch: {
-          appPath: '/tmp/deepseek-gui-test-app',
+          appPath: '/tmp/sciforge-test-app',
           execPath: '/tmp/electron',
           isPackaged: false
         }
@@ -1042,7 +1040,7 @@ describe('syncGuiManagedKunConfig', () => {
       transport: 'stdio',
       command: '/tmp/electron',
       args: [
-        '/tmp/deepseek-gui-test-app/out/main/schedule-mcp-node-entry.js',
+        '/tmp/sciforge-test-app/out/main/schedule-mcp-node-entry.js',
         '--gui-schedule-mcp-server',
         '--base-url',
         'http://127.0.0.1:8788'
@@ -1064,9 +1062,9 @@ describe('syncGuiManagedKunConfig', () => {
         }
       }
     }), 'utf8')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings())
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings())
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
     expect(parsed.capabilities.attachments).toMatchObject({
@@ -1088,9 +1086,9 @@ describe('syncGuiManagedKunConfig', () => {
         }
       }
     }), 'utf8')
-    const module = await import('./kun-process')
+    const module = await import('./local-runtime-process')
 
-    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings())
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings())
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
     expect(parsed.capabilities.web).toMatchObject({

@@ -126,7 +126,7 @@ function testConfig(options: { maxSupplementRounds?: number } = {}): ModelRouter
 
 function testEnv() {
   return {
-    DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY: 'runtime-secret',
+    SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY: 'runtime-secret',
     SCIFORGE_TEXT_API_KEY: 'text-secret',
     SCIFORGE_VISION_API_KEY: 'vision-secret',
   };

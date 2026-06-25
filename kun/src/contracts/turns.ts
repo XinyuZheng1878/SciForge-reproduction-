@@ -33,7 +33,7 @@ export const GuiPlanContextSchema = z.object({
     .string()
     .min(1)
     .refine(isGuiPlanRelativePath, {
-      message: 'relativePath must be a direct Markdown file under .kunsdd/plan'
+      message: 'relativePath must be a direct Markdown file under .sciforge/plan'
     }),
   planId: z.string().min(1),
   sourceRequest: z.string().optional(),
@@ -104,13 +104,13 @@ export const StartTurnRequest = z.object({
   /**
    * Optional per-turn mode. Overrides the thread mode for this turn so
    * the GUI can toggle Plan/agent without recreating the thread. In Plan
-   * mode Kun advertises `create_plan` for the whole conversation.
+   * mode SciForge Runtime advertises `create_plan` for the whole conversation.
    */
   mode: TurnModeSchema.optional(),
   attachments: z.array(TurnFileAttachmentSchema).optional(),
   attachmentIds: z.array(z.string().min(1)).default([]),
   /**
-   * Optional GUI plan context. When set, Kun advertises the
+   * Optional GUI plan context. When set, SciForge Runtime advertises the
    * `create_plan` tool for the turn and writes only to the reserved
    * path advertised in the context.
    */

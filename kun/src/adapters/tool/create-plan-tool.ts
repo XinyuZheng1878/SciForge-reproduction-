@@ -8,7 +8,6 @@ import {
   GUI_PLAN_RELATIVE_DIR,
   buildGuiPlanId,
   guiPlanWorkspaceMatches,
-  isGuiPlanCurrentRelativePath,
   isGuiPlanRelativePath,
   nextAvailablePlanRelativePath,
   type CreatePlanToolInput,
@@ -28,7 +27,7 @@ const TOOL_DESCRIPTION = [
   'Available throughout a Plan-mode conversation: investigate first, then',
   'call this once you understand the task to save the full Markdown plan.',
   'Writes the supplied Markdown to a reserved plan artifact under',
-  '.kunsdd/plan and returns structured metadata. Call again to revise.'
+  '.sciforge/plan and returns structured metadata. Call again to revise.'
 ].join(' ')
 
 /**
@@ -61,7 +60,7 @@ export const CREATE_PLAN_INPUT_SCHEMA: Record<string, unknown> = {
     },
     plan_relative_path: {
       type: 'string',
-      description: 'Optional reserved relative path; must live directly under .kunsdd/plan.'
+      description: 'Optional reserved relative path; must live directly under .sciforge/plan.'
     }
   },
   required: ['markdown', 'operation'],
@@ -137,7 +136,7 @@ export type CreatePlanAdapterOptions = {
    */
   resolveWorkspaceRoot?: (workspace: string) => Promise<string> | string
   /**
-   * Lists existing plan relative paths (e.g. `.kunsdd/plan/foo.md`)
+   * Lists existing plan relative paths (e.g. `.sciforge/plan/foo.md`)
    * so a free-form plan-mode call can allocate a non-colliding filename.
    * Defaults to reading the workspace plan directory. Tests can override
    * this to allocate deterministically without touching the filesystem.
@@ -209,7 +208,7 @@ async function listExistingPlanRelativePaths(
  * 2. With a GUI plan context, writes only to the reserved path and
  *    enforces operation/workspace/id parity (refine-in-place).
  * 3. Without one (free-form plan mode), allocates a fresh
- *    `.kunsdd/plan/<feature>.md` under the active workspace.
+ *    `.sciforge/plan/<feature>.md` under the active workspace.
  * 4. Writes atomically, observes the abort signal, and returns a
  *    structured output with content hash and byte count.
  */
@@ -355,10 +354,7 @@ function resolveReservedTarget(
   }
   const relativePath = toRelativePath(contextPlan.relativePath)
   if (!relativePath || !isGuiPlanRelativePath(relativePath)) {
-    return { error: 'plan_relative_path must be a direct Markdown file under .kunsdd/plan' }
-  }
-  if (input.operation === 'draft' && !isGuiPlanCurrentRelativePath(relativePath)) {
-    return { error: 'legacy .deepseekgui/plan paths can only be refined' }
+    return { error: 'plan_relative_path must be a direct Markdown file under .sciforge/plan' }
   }
   if (input.plan_relative_path && toRelativePath(input.plan_relative_path) !== contextPlan.relativePath) {
     return { error: 'plan_relative_path does not match the reserved GUI plan path' }
@@ -383,7 +379,7 @@ function resolveReservedTarget(
 /**
  * Free-form resolution for Plan-mode turns without a reserved context.
  * Honours an explicit `plan_relative_path` when valid; otherwise
- * allocates a fresh, non-colliding `.kunsdd/plan/<feature>.md`.
+ * allocates a fresh, non-colliding `.sciforge/plan/<feature>.md`.
  */
 async function resolveFreeFormTarget(
   input: Partial<CreatePlanToolInput>,
@@ -397,8 +393,8 @@ async function resolveFreeFormTarget(
   let relativePath: string
   if (input.plan_relative_path) {
     const candidate = toRelativePath(input.plan_relative_path)
-    if (!candidate || !isGuiPlanCurrentRelativePath(candidate)) {
-      return { error: 'plan_relative_path must be a direct Markdown file under .kunsdd/plan' }
+    if (!candidate || !isGuiPlanRelativePath(candidate)) {
+      return { error: 'plan_relative_path must be a direct Markdown file under .sciforge/plan' }
     }
     relativePath = candidate
   } else {

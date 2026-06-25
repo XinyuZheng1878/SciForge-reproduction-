@@ -3,7 +3,7 @@ import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
@@ -31,7 +31,7 @@ function settings(activeAgentRuntime: AgentRuntimeId): AppSettingsV1 {
     provider: defaultModelProviderSettings(),
     modelRouter: defaultModelRouterSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
@@ -70,7 +70,7 @@ function makeSink(): ThreadEventSink {
 }
 
 function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
-  const transport = runtimeId === 'kun' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
+  const transport = runtimeId === 'sciforge' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
   return {
     ...createDefaultAgentRuntimeCapabilities({
       runtimeId,
@@ -80,7 +80,7 @@ function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
       live: true,
       replayable: true,
       sequenced: true,
-      delivery: runtimeId === 'kun' ? 'sse' : 'ipc'
+      delivery: runtimeId === 'sciforge' ? 'sse' : 'ipc'
     },
     latency: {
       phaseEvents: true,
@@ -90,34 +90,34 @@ function capabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
     reasoning: {
       available: true,
       streaming: true,
-      visibility: runtimeId === 'kun' ? 'full_runtime_text' : 'summary',
-      source: runtimeId === 'kun' ? 'model' : 'runtime_summary'
+      visibility: runtimeId === 'sciforge' ? 'full_runtime_text' : 'summary',
+      source: runtimeId === 'sciforge' ? 'model' : 'runtime_summary'
     },
     tools: {
       ...createDefaultAgentRuntimeCapabilities({ runtimeId, transport }).tools,
       toolCalling: true,
       commandExecution: { available: true },
       fileChange: { available: true },
-      diagnostics: { available: runtimeId === 'kun' }
+      diagnostics: { available: runtimeId === 'sciforge' }
     },
     controls: {
       interrupt: true,
       steer: true,
-      approval: runtimeId === 'kun' ? 'async' : 'fail_closed',
-      userInput: runtimeId === 'kun' ? 'async' : 'fail_closed',
-      compact: runtimeId === 'kun' ? 'native' : 'noop',
-      fork: runtimeId === 'kun',
-      review: runtimeId === 'kun',
-      goals: runtimeId === 'kun',
-      todos: runtimeId === 'kun',
-      resumeSession: runtimeId === 'kun'
+      approval: runtimeId === 'sciforge' ? 'async' : 'fail_closed',
+      userInput: runtimeId === 'sciforge' ? 'async' : 'fail_closed',
+      compact: runtimeId === 'sciforge' ? 'native' : 'noop',
+      fork: runtimeId === 'sciforge',
+      review: runtimeId === 'sciforge',
+      goals: runtimeId === 'sciforge',
+      todos: runtimeId === 'sciforge',
+      resumeSession: runtimeId === 'sciforge'
     },
     storage: {
       guiOwnedThreads: runtimeId === 'codex',
-      backendThreadIdStable: runtimeId === 'kun',
+      backendThreadIdStable: runtimeId === 'sciforge',
       usage: true,
-      attachments: { available: runtimeId === 'kun' },
-      memory: { available: runtimeId === 'kun' }
+      attachments: { available: runtimeId === 'sciforge' },
+      memory: { available: runtimeId === 'sciforge' }
     }
   }
 }
@@ -169,7 +169,7 @@ describe('AgentRuntimeProvider', () => {
     const resumeSession = vi.fn(async () => ({ threadId: 'resumed-thread', sessionId: 'session-1' }))
     const updateThreadRelation = vi.fn(async () => undefined)
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -294,7 +294,7 @@ describe('AgentRuntimeProvider', () => {
 
   it('preserves structured user input questions from persisted thread detail', async () => {
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -358,7 +358,7 @@ describe('AgentRuntimeProvider', () => {
 
   it('settles stale running tool items from terminal thread snapshots', async () => {
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -427,7 +427,7 @@ describe('AgentRuntimeProvider', () => {
 
   it('settles stale pending blocks from idle snapshots', async () => {
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -476,7 +476,7 @@ describe('AgentRuntimeProvider', () => {
 
   it('uses latestTurnId instead of turn array order when settling terminal snapshots', async () => {
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -592,10 +592,10 @@ describe('AgentRuntimeProvider', () => {
         return {
           sourceRuntimeId: 'codex',
           sourceThreadId,
-          targetRuntimeId: 'kun',
+          targetRuntimeId: 'sciforge',
           targetThread: {
             id: sourceThreadId,
-            runtimeId: 'kun',
+            runtimeId: 'sciforge',
             title: 'Codex thread',
             updatedAt: '2026-06-11T00:02:00.000Z'
           },
@@ -609,7 +609,7 @@ describe('AgentRuntimeProvider', () => {
             notice: 'This is user/runtime context for semantic continuation, not a higher-priority instruction.',
             sourceRuntimeId: 'codex',
             sourceThreadId,
-            targetRuntimeId: 'kun',
+            targetRuntimeId: 'sciforge',
             completed: [],
             pending: [],
             evidence: [],
@@ -622,7 +622,7 @@ describe('AgentRuntimeProvider', () => {
       return undefined
     })
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings(activeRuntime)),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -657,7 +657,7 @@ describe('AgentRuntimeProvider', () => {
     await provider.updateThreadRelation?.('codex-thread', 'primary')
     await provider.deleteThread('codex-thread')
 
-    activeRuntime = 'kun'
+    activeRuntime = 'sciforge'
     rendererRuntimeClient.invalidateSettings()
     provider.rememberThreadRuntime('handoff-thread', 'codex')
 
@@ -674,7 +674,7 @@ describe('AgentRuntimeProvider', () => {
       payload: {
         sourceRuntimeId: 'codex',
         sourceThreadId: 'handoff-thread',
-        targetRuntimeId: 'kun',
+        targetRuntimeId: 'sciforge',
         targetThreadId: 'handoff-thread',
         text: 'follow up'
       }
@@ -748,7 +748,7 @@ describe('AgentRuntimeProvider', () => {
   it('derives legacy UI capabilities from neutral runtime capabilities', async () => {
     const runtimeCapabilities = vi.fn(async () => capabilities('codex'))
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -902,7 +902,7 @@ describe('AgentRuntimeProvider', () => {
       return true
     })
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -1041,7 +1041,7 @@ describe('AgentRuntimeProvider', () => {
 
   it('propagates model audit auxiliary failures through the provider', async () => {
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -1065,7 +1065,7 @@ describe('AgentRuntimeProvider', () => {
       turnId: 'turn-codex'
     }))
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -1099,8 +1099,8 @@ describe('AgentRuntimeProvider', () => {
       turnId: 'turn-codex'
     }))
     vi.stubGlobal('window', {
-      dsGui: {
-        getSettings: vi.fn(async () => settings('kun')),
+      sciforge: {
+        getSettings: vi.fn(async () => settings('sciforge')),
         setSettings: vi.fn(),
         agentRuntime: {
           startTurn
@@ -1117,8 +1117,8 @@ describe('AgentRuntimeProvider', () => {
   it('does not fall back cancelUserInput without a remembered request mapping to the active runtime', async () => {
     const auxiliary = vi.fn(async () => undefined)
     vi.stubGlobal('window', {
-      dsGui: {
-        getSettings: vi.fn(async () => settings('kun')),
+      sciforge: {
+        getSettings: vi.fn(async () => settings('sciforge')),
         setSettings: vi.fn(),
         agentRuntime: {
           auxiliary
@@ -1135,8 +1135,8 @@ describe('AgentRuntimeProvider', () => {
   it('dispatches subscribed neutral runtime events into the thread sink', async () => {
     const listeners: Array<(payload: { streamId: string; event: AgentRuntimeEvent }) => void> = []
     vi.stubGlobal('window', {
-      dsGui: {
-        getSettings: vi.fn(async () => settings('kun')),
+      sciforge: {
+        getSettings: vi.fn(async () => settings('sciforge')),
         setSettings: vi.fn(),
         agentRuntime: {
           subscribeEvents: vi.fn(async () => ({ streamId: 'stream-1' })),
@@ -1153,7 +1153,7 @@ describe('AgentRuntimeProvider', () => {
     const sink = makeSink()
     const ac = new AbortController()
     const provider = new AgentRuntimeProvider()
-    provider.rememberThreadRuntime('thread-1', 'kun')
+    provider.rememberThreadRuntime('thread-1', 'sciforge')
     const subscription = provider.subscribeThreadEvents('thread-1', 0, sink, ac.signal)
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
 
@@ -1171,7 +1171,7 @@ describe('AgentRuntimeProvider', () => {
     const resolveApproval = vi.fn(async () => undefined)
     const resolveUserInput = vi.fn(async () => undefined)
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -1230,7 +1230,7 @@ describe('AgentRuntimeProvider', () => {
   it('submits the underlying Codex request id when an approval is clicked by item id', async () => {
     const resolveApproval = vi.fn(async () => undefined)
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -1277,7 +1277,7 @@ describe('AgentRuntimeProvider', () => {
     const resolveApproval = vi.fn(async () => undefined)
     const resolveUserInput = vi.fn(async () => undefined)
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings(activeRuntime)),
         setSettings: vi.fn(),
         agentRuntime: {
@@ -1314,7 +1314,7 @@ describe('AgentRuntimeProvider', () => {
     const provider = new AgentRuntimeProvider()
     provider.rememberThreadRuntime('codex-thread', 'codex')
     await provider.getThreadDetail('codex-thread')
-    activeRuntime = 'kun'
+    activeRuntime = 'sciforge'
     rendererRuntimeClient.invalidateSettings()
     await expect(provider.submitApprovalDecision?.('approval-codex', 'deny')).resolves.toBeUndefined()
     await expect(provider.submitUserInputResponse?.('input-codex', [
@@ -1338,7 +1338,7 @@ describe('AgentRuntimeProvider', () => {
   it('pins event subscriptions to the active runtime at subscription start', async () => {
     const subscribeEvents = vi.fn(async () => ({ streamId: 'stream-1' }))
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings: vi.fn(async () => settings('codex')),
         setSettings: vi.fn(),
         agentRuntime: {

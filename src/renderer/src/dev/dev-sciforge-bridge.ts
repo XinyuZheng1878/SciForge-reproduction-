@@ -1,7 +1,9 @@
-import type { DsGuiApi } from '@shared/ds-gui-api'
+import type { SciForgeApi } from '@shared/sciforge-api'
 
 const DEFAULT_BRIDGE_URL = 'http://127.0.0.1:5174'
-const CLIENT_ID_STORAGE_KEY = 'deepseek-gui.dev-browser-bridge.client-id'
+const CLIENT_ID_STORAGE_KEY = 'sciforge.dev-browser-bridge.client-id'
+const TOKEN_STORAGE_KEY = 'sciforge.dev-browser-bridge.token'
+const TOKEN_HEADER = 'X-SciForge-Bridge-Token'
 
 type BridgeEnvelope<T> =
   | { ok: true; payload: T }
@@ -18,6 +20,7 @@ let installed = false
 let eventSource: EventSource | null = null
 let clientId = ''
 let bridgeUrl = DEFAULT_BRIDGE_URL
+let bridgeToken = ''
 const channelHandlers = new Map<string, Set<ChannelHandler>>()
 
 function detectPlatform(): string {
@@ -52,6 +55,20 @@ function resolveClientId(): string {
   return created
 }
 
+function resolveBridgeToken(): string {
+  const params = new URLSearchParams(window.location?.search ?? '')
+  const fromQuery = params.get('devBrowserBridgeToken')?.trim() ||
+    params.get('sciforgeBridgeToken')?.trim() ||
+    ''
+  if (fromQuery) {
+    storageSet(globalThis.sessionStorage, TOKEN_STORAGE_KEY, fromQuery)
+    return fromQuery
+  }
+  const fromEnv = (import.meta.env.VITE_SCIFORGE_DEV_BROWSER_BRIDGE_TOKEN ?? '').trim()
+  if (fromEnv) return fromEnv
+  return storageGet(globalThis.sessionStorage, TOKEN_STORAGE_KEY)?.trim() ?? ''
+}
+
 function ensureEventSource(): void {
   if (eventSource || typeof EventSource === 'undefined') return
   eventSource = new EventSource(`${bridgeUrl}/events?clientId=${encodeURIComponent(clientId)}`)
@@ -82,12 +99,14 @@ function onChannel<T>(channel: string, handler: (payload: T) => void): () => voi
 }
 
 async function invoke<T>(channel: string, payload?: unknown): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-SciForge-Client': clientId
+  }
+  if (bridgeToken) headers[TOKEN_HEADER] = bridgeToken
   const response = await fetch(`${bridgeUrl}/invoke`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-DeepSeek-Gui-Client': clientId
-    },
+    headers,
     body: JSON.stringify({ channel, payload })
   })
   const envelope = await response.json().catch(() => ({
@@ -103,7 +122,7 @@ async function invoke<T>(channel: string, payload?: unknown): Promise<T> {
   return envelope.payload
 }
 
-function createApi(): DsGuiApi {
+function createApi(): SciForgeApi {
   return {
     platform: detectPlatform(),
     getSettings: () => invoke('settings:get'),
@@ -151,9 +170,9 @@ function createApi(): DsGuiApi {
     saveSkillFile: (rootPath, skillName, content) =>
       invoke('skill:save-file', { rootPath, skillName, content }),
     openSkillRoot: (rootPath) => invoke('skill:open-root', rootPath),
-    getDeepseekConfigFile: () => invoke('deepseek:config:read'),
-    setDeepseekConfigFile: (content) => invoke('deepseek:config:write', content),
-    openDeepseekConfigDir: () => invoke('deepseek:config:open-dir'),
+    getRuntimeConfigFile: () => invoke('runtimeConfig:read'),
+    setRuntimeConfigFile: (content) => invoke('runtimeConfig:write', content),
+    openRuntimeConfigDir: () => invoke('runtimeConfig:open-dir'),
     openModelRouterConfigFile: () => invoke('modelRouter:config:open'),
     prepareResearchMemoryWorkspace: () => invoke('researchMemory:prepare-workspace'),
     getGitBranches: (workspaceRoot) => invoke('git:branches', workspaceRoot),
@@ -287,12 +306,13 @@ function isLocalBrowserHost(): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
 }
 
-export function installDevDsGuiBridge(): void {
-  if (installed || typeof window === 'undefined' || window.dsGui) return
+export function installDevSciForgeBridge(): void {
+  if (installed || typeof window === 'undefined' || window.sciforge) return
   if (!import.meta.env.DEV && !isLocalBrowserHost()) return
   installed = true
   bridgeUrl = DEFAULT_BRIDGE_URL
   clientId = resolveClientId()
-  window.dsGui = createApi()
+  bridgeToken = resolveBridgeToken()
+  window.sciforge = createApi()
   ensureEventSource()
 }

@@ -182,7 +182,7 @@ export function normalizeClawImLastFailure(input: unknown, fallbackProvider: Cla
     ...(chatId ? { chatId } : {}),
     ...(remoteThreadId ? { remoteThreadId } : {}),
     ...(threadId ? { threadId } : {}),
-    ...(raw.runtimeId === 'codex' || raw.runtimeId === 'claude' || raw.runtimeId === 'kun'
+    ...(raw.runtimeId === 'codex' || raw.runtimeId === 'claude' || raw.runtimeId === 'sciforge'
       ? { runtimeId: raw.runtimeId }
       : {}),
     occurredAt: typeof raw.occurredAt === 'string' && raw.occurredAt ? raw.occurredAt : now
@@ -190,41 +190,34 @@ export function normalizeClawImLastFailure(input: unknown, fallbackProvider: Cla
 }
 
 /**
- * Read the Kun thread id from a legacy `agentThreadIds` record.
+ * Read the local runtime thread id from an `agentThreadIds` record.
  * Returns the empty string when no candidate is present.
  */
 export function readLegacyAgentThreadId(input: unknown): string {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return ''
   const raw = input as Record<string, unknown>
-  const candidates = [
-    typeof raw.kun === 'string' ? raw.kun.trim() : '',
-    typeof raw.codewhale === 'string' ? raw.codewhale.trim() : '',
-    typeof raw.reasonix === 'string' ? raw.reasonix.trim() : ''
-  ]
-  return candidates.find((value) => value) ?? ''
+  return typeof raw.sciforge === 'string' ? raw.sciforge.trim() : ''
 }
 
-export function normalizeAgentThreadIds(input: unknown, legacyKunThreadId = ''): AgentThreadIdsV1 {
+export function normalizeAgentThreadIds(input: unknown, legacyLocalRuntimeThreadId = ''): AgentThreadIdsV1 {
   const raw = input && typeof input === 'object' && !Array.isArray(input)
     ? input as Record<string, unknown>
     : {}
-  const kunThreadId =
-    legacyKunThreadId.trim() ||
-    (typeof raw.kun === 'string' ? raw.kun.trim() : '') ||
-    (typeof raw.codewhale === 'string' ? raw.codewhale.trim() : '') ||
-    (typeof raw.reasonix === 'string' ? raw.reasonix.trim() : '')
+	  const sciforgeThreadId =
+	    legacyLocalRuntimeThreadId.trim() ||
+	    (typeof raw.sciforge === 'string' ? raw.sciforge.trim() : '')
   const codexThreadId = typeof raw.codex === 'string' ? raw.codex.trim() : ''
   const claudeThreadId = typeof raw.claude === 'string' ? raw.claude.trim() : ''
   return {
-    ...(kunThreadId ? { kun: kunThreadId } : {}),
+    ...(sciforgeThreadId ? { sciforge: sciforgeThreadId } : {}),
     ...(codexThreadId ? { codex: codexThreadId } : {}),
     ...(claudeThreadId ? { claude: claudeThreadId } : {})
   }
 }
 
 export function normalizeSettingsRuntimeId(value: unknown): AgentRuntimeId {
-  if (value === 'codex' || value === 'claude') return value
-  return 'kun'
+  if (value === 'sciforge' || value === 'codex' || value === 'claude') return value
+  return 'sciforge'
 }
 
 export function normalizeClawImConversation(

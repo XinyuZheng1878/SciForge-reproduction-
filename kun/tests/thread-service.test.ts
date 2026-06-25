@@ -12,7 +12,7 @@ import { createThreadRecord, touchThread } from '../src/domain/thread.js'
 import { createTurnRecord, startTurn } from '../src/domain/turn.js'
 import { makeAssistantTextItem, makeToolCallItem, makeToolResultItem, makeUserItem } from '../src/domain/item.js'
 import type { TurnItem } from '../src/contracts/items.js'
-import { DEFAULT_KUN_MODEL } from '../src/config/kun-config.js'
+import { DEFAULT_LOCAL_RUNTIME_MODEL } from '../src/config/kun-config.js'
 
 function buildService(): {
   service: ThreadService
@@ -352,9 +352,9 @@ describe('ThreadService todos', () => {
   it('syncs plan checklists, patches linked checkboxes, and preserves removed tasks', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'kun-todos-'))
     try {
-      const relativePath = '.kunsdd/plan/demo.md'
+      const relativePath = '.sciforge/plan/demo.md'
       const absolutePath = join(workspace, relativePath)
-      await mkdir(join(workspace, '.kunsdd', 'plan'), { recursive: true })
+      await mkdir(join(workspace, '.sciforge', 'plan'), { recursive: true })
       const originalMarkdown = '# Plan\n\n- [ ] Build UI\n- [x] Add tests\n'
       await writeFile(absolutePath, originalMarkdown, 'utf-8')
 
@@ -425,7 +425,7 @@ describe('ThreadService.list with relation filter', () => {
 })
 
 describe('ThreadService.resumeSession', () => {
-  it('uses the Kun default model when resuming item-only legacy sessions', async () => {
+  it('uses the local runtime default model when resuming item-only legacy sessions', async () => {
     const { service, sessionStore } = buildService()
     await sessionStore.appendItem(
       'legacy_session',
@@ -439,7 +439,7 @@ describe('ThreadService.resumeSession', () => {
 
     const result = await service.resumeSession('legacy_session')
 
-    expect(result.thread.model).toBe(DEFAULT_KUN_MODEL)
+    expect(result.thread.model).toBe(DEFAULT_LOCAL_RUNTIME_MODEL)
   })
 
   it('carries the source thread goal onto the resumed thread', async () => {

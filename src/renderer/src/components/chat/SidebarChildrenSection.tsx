@@ -553,8 +553,8 @@ export function SidebarChildrenSection({
       return
     }
     const url = recordString(ref, 'url')
-    if (url && typeof window.dsGui?.openExternal === 'function') {
-      void window.dsGui.openExternal(url).catch(() => undefined)
+    if (url && typeof window.sciforge?.openExternal === 'function') {
+      void window.sciforge.openExternal(url).catch(() => undefined)
     }
   }
 

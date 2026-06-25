@@ -24,7 +24,7 @@ import type {
   AgentRuntimeFileReference,
   AgentRuntimeGovernanceProfile
 } from '@shared/agent-runtime-contract'
-import type { ModelProviderModelGroup } from '@shared/ds-gui-api'
+import type { ModelProviderModelGroup } from '@shared/sciforge-api'
 
 export type QueuedUserMessage = {
   id: string
@@ -44,7 +44,7 @@ export type QueuedUserMessage = {
   attachments?: AttachmentReference[]
   fileReferences?: AgentRuntimeFileReference[]
   /**
-   * Optional GUI plan context forwarded to Kun. The renderer
+   * Optional GUI plan context forwarded to the runtime. The renderer
    * attaches it for plan/refine turns so the runtime can advertise
    * the native `create_plan` tool and gate the write to the reserved
    * plan artifact.
@@ -61,7 +61,7 @@ export type QueuedUserMessage = {
 
 /**
  * GUI plan context attached to a send-message call. Mirrors the
- * Kun `GuiPlanContextSchema` and is forwarded to the runtime
+ * local runtime `GuiPlanContextSchema` and is forwarded to the runtime
  * request body so plan/refine turns are scoped to a reserved path.
  */
 export type GuiPlanMessageContext = {

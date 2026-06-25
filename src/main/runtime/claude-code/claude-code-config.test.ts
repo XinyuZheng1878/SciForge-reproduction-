@@ -3,7 +3,7 @@ import {
   defaultClawSettings,
   defaultClaudeRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -28,18 +28,18 @@ function settings(): AppSettingsV1 {
     activeAgentRuntime: 'claude',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       claude: {
         ...defaultClaudeRuntimeSettings(),
         command: 'claude',
-        configDir: '~/.deepseekgui/claude-code',
+        configDir: '~/.sciforge/claude-code',
         extraArgs: ['--allowedTools', 'Edit']
       }
     },
     modelRouter: {
       ...defaultModelRouterSettings(),
       baseUrl: 'http://127.0.0.1:49876/v1',
-      publicModelAlias: 'deepseek-gui-router',
+      publicModelAlias: 'sciforge-router',
       runtimeApiKey: 'local-runtime-router-key'
     },
     workspaceRoot: '/tmp/workspace',
@@ -128,8 +128,8 @@ describe('claude-code config launch helpers', () => {
       workspace: '/tmp/workspace',
       managedConfigDir: '/tmp/claude-managed',
       computerUseMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -137,9 +137,9 @@ describe('claude-code config launch helpers', () => {
     expect(launch.sdkOptions.mcpServers).toMatchObject({
       gui_computer_use: {
         type: 'stdio',
-        command: '/tmp/deepseek-gui-test-app/SciForge',
+        command: '/tmp/sciforge-test-app/SciForge',
         args: [
-          '/tmp/deepseek-gui-test-app/out/main/computer-use-mcp-node-entry.js',
+          '/tmp/sciforge-test-app/out/main/computer-use-mcp-node-entry.js',
           '--gui-computer-use-mcp-server'
         ],
         env: {
@@ -158,7 +158,7 @@ describe('claude-code config launch helpers', () => {
         computerUse: {
           enabled: false,
           runtimeEnabled: {
-            kun: true,
+            sciforge: true,
             codex: true,
             claude: true
           }
@@ -168,8 +168,8 @@ describe('claude-code config launch helpers', () => {
       workspace: '/tmp/workspace',
       managedConfigDir: '/tmp/claude-managed',
       computerUseMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -184,7 +184,7 @@ describe('claude-code config launch helpers', () => {
         computerUse: {
           enabled: true,
           runtimeEnabled: {
-            kun: true,
+            sciforge: true,
             codex: true,
             claude: false
           }
@@ -194,8 +194,8 @@ describe('claude-code config launch helpers', () => {
       workspace: '/tmp/workspace',
       managedConfigDir: '/tmp/claude-managed',
       computerUseMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })
@@ -204,10 +204,10 @@ describe('claude-code config launch helpers', () => {
   })
 
   it('uses Claude CLI model aliases instead of the router public alias', () => {
-    expect(claudeCodeCliModel('', 'deepseek-gui-router')).toBe('sonnet')
-    expect(claudeCodeCliModel('deepseek-gui-router', 'deepseek-gui-router')).toBe('sonnet')
-    expect(claudeCodeCliModel('opus', 'deepseek-gui-router')).toBe('opus')
-    expect(claudeCodeCliModel('claude-sonnet-4-5', 'deepseek-gui-router')).toBe('claude-sonnet-4-5')
+    expect(claudeCodeCliModel('', 'sciforge-router')).toBe('sonnet')
+    expect(claudeCodeCliModel('sciforge-router', 'sciforge-router')).toBe('sonnet')
+    expect(claudeCodeCliModel('opus', 'sciforge-router')).toBe('opus')
+    expect(claudeCodeCliModel('claude-sonnet-4-5', 'sciforge-router')).toBe('claude-sonnet-4-5')
   })
 
   it('strips the /v1 suffix for Claude CLI base URL handling', () => {

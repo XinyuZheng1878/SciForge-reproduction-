@@ -44,6 +44,18 @@ describe('WorkspaceHtmlPreviewService', () => {
     })
   })
 
+  it('rejects absolute HTML previews without a workspace root', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'html-preview-'))
+    const htmlPath = join(workspaceRoot, 'status.html')
+    await writeFile(htmlPath, '<h1>Ready</h1>', 'utf8')
+    service = new WorkspaceHtmlPreviewService()
+
+    await expect(service.preview({ path: htmlPath })).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringContaining('Workspace root is required')
+    })
+  })
+
   it('blocks served paths outside the workspace', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'html-preview-'))
     await writeFile(join(workspaceRoot, 'status.html'), '<h1>Ready</h1>', 'utf8')

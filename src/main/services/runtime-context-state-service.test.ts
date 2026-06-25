@@ -11,14 +11,14 @@ describe('RuntimeContextStateService', () => {
 
     service.observeEvent({
       kind: 'user_message',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       itemId: 'user-1',
       text: 'hello'
     })
     service.observeEvent({
       kind: 'assistant_delta',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       turnId: 'turn-1',
       itemId: 'assistant-1',
@@ -26,7 +26,7 @@ describe('RuntimeContextStateService', () => {
     })
     service.observeEvent({
       kind: 'compaction_event',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       itemId: 'compact-1',
       status: 'success',
@@ -42,13 +42,13 @@ describe('RuntimeContextStateService', () => {
     })
     service.observeEvent({
       kind: 'goal_event',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       objective: 'finish',
       status: 'active'
     })
 
-    const state = service.get({ runtimeId: 'kun', threadId: 'thread-1' })
+    const state = service.get({ runtimeId: 'sciforge', threadId: 'thread-1' })
     expect(state.rawHistoryItems).toBe(12)
     expect(state.effectiveHistoryItems).toBe(4)
     expect(state.summary).toBe('Short summary')
@@ -73,13 +73,13 @@ describe('RuntimeContextStateService', () => {
 
     service.observeEvent({
       kind: 'goal_event',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       objective: 'finish',
       status: 'active'
     })
 
-    const withGoal = service.get({ runtimeId: 'kun', threadId: 'thread-1' })
+    const withGoal = service.get({ runtimeId: 'sciforge', threadId: 'thread-1' })
     expect(withGoal.goalResume).toMatchObject({
       objective: 'finish',
       status: 'active'
@@ -89,12 +89,12 @@ describe('RuntimeContextStateService', () => {
 
     service.observeEvent({
       kind: 'goal_event',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       cleared: true
     })
 
-    const cleared = service.get({ runtimeId: 'kun', threadId: 'thread-1' })
+    const cleared = service.get({ runtimeId: 'sciforge', threadId: 'thread-1' })
     expect(cleared.goalResume).toBeUndefined()
     expect(cleared.updatedAt).toBe('2026-06-20T01:01:00.000Z')
   })

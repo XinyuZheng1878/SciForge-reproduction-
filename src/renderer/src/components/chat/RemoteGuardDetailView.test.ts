@@ -19,7 +19,7 @@ function discordChannel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannel
     threadId: 'kun-thread',
     runtimeId: 'codex',
     agentThreadIds: {
-      kun: 'kun-thread',
+      sciforge: 'kun-thread',
       codex: 'codex-thread'
     },
     workspaceRoot: '/Users/zxy/SciForge',

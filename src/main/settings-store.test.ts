@@ -10,7 +10,7 @@ import {
   defaultCodexRuntimeSettings,
   getAgentCapabilitySettings,
   getClaudeRuntimeSettings,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultSpeechToTextSettings,
   getCodexRuntimeSettings
@@ -20,15 +20,15 @@ import { JsonSettingsStore } from './settings-store'
 
 describe('JsonSettingsStore', () => {
   it('defaults GUI updates to the stable channel for new settings', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     const store = new JsonSettingsStore(userDataDir)
     const loaded = await store.load()
 
     expect(loaded.guiUpdate.channel).toBe(DEFAULT_GUI_UPDATE_CHANNEL)
-    expect(loaded.activeAgentRuntime).toBe('kun')
+    expect(loaded.activeAgentRuntime).toBe('sciforge')
     expect(getAgentCapabilitySettings(loaded)).toEqual(defaultAgentCapabilitySettings())
-    expect(loaded.agents.kun.approvalPolicy).toBe(DEFAULT_APPROVAL_POLICY)
+    expect(loaded.agents.sciforge.approvalPolicy).toBe(DEFAULT_APPROVAL_POLICY)
     expect(getCodexRuntimeSettings(loaded).codexHome).toBe(DEFAULT_CODEX_DATA_DIR)
     expect(getClaudeRuntimeSettings(loaded).configDir).toBe(DEFAULT_CLAUDE_CONFIG_DIR)
     expect(loaded.appBehavior).toEqual({
@@ -40,7 +40,7 @@ describe('JsonSettingsStore', () => {
   })
 
   it('patches shared agent capability settings', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     const store = new JsonSettingsStore(userDataDir)
     const next = await store.patch({
@@ -69,8 +69,8 @@ describe('JsonSettingsStore', () => {
     })
   })
 
-  it('patches the active runtime and Claude Code settings without changing Kun', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+  it('patches the active runtime and Claude Code settings without changing SciForge settings', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     const store = new JsonSettingsStore(userDataDir)
     const loaded = await store.load()
@@ -79,23 +79,23 @@ describe('JsonSettingsStore', () => {
       agents: {
         claude: {
           command: 'claude',
-          configDir: '/tmp/ds-gui-claude',
+          configDir: '/tmp/sciforge-claude',
           approvalPolicy: 'auto'
         }
       }
     })
 
     expect(next.activeAgentRuntime).toBe('claude')
-    expect(next.agents.kun).toEqual(loaded.agents.kun)
+    expect(next.agents.sciforge).toEqual(loaded.agents.sciforge)
     expect(getClaudeRuntimeSettings(next)).toEqual(expect.objectContaining({
       command: 'claude',
-      configDir: '/tmp/ds-gui-claude',
+      configDir: '/tmp/sciforge-claude',
       approvalPolicy: 'auto'
     }))
   })
 
-  it('patches the active runtime and Codex settings without changing Kun', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+  it('patches the active runtime and Codex settings without changing SciForge settings', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     const store = new JsonSettingsStore(userDataDir)
     const loaded = await store.load()
@@ -103,31 +103,31 @@ describe('JsonSettingsStore', () => {
       activeAgentRuntime: 'codex',
       agents: {
         codex: {
-          codexHome: '/tmp/ds-gui-codex',
+          codexHome: '/tmp/sciforge-codex',
           approvalPolicy: 'never'
         }
       }
     })
 
     expect(next.activeAgentRuntime).toBe('codex')
-    expect(next.agents.kun).toEqual(loaded.agents.kun)
+    expect(next.agents.sciforge).toEqual(loaded.agents.sciforge)
     expect(getCodexRuntimeSettings(next)).toEqual(expect.objectContaining({
       ...defaultCodexRuntimeSettings(),
-      codexHome: '/tmp/ds-gui-codex',
+      codexHome: '/tmp/sciforge-codex',
       approvalPolicy: 'never'
     }))
   })
 
   it('preserves persisted Codex runtime settings on load', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     await writeFile(
-      join(userDataDir, 'deepseek-gui-settings.json'),
+      join(userDataDir, 'sciforge-settings.json'),
       JSON.stringify({
         version: 1,
         activeAgentRuntime: 'codex',
         agents: {
-          kun: defaultKunRuntimeSettings(),
+          sciforge: defaultLocalRuntimeSettings(),
           codex: {
             ...defaultCodexRuntimeSettings(),
             codexHome: '/tmp/persisted-codex',
@@ -151,14 +151,14 @@ describe('JsonSettingsStore', () => {
   })
 
   it('backfills shared agent capability settings into existing settings files', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     await writeFile(
       join(userDataDir, 'sciforge-settings.json'),
       JSON.stringify({
         version: 1,
         agents: {
-          kun: defaultKunRuntimeSettings()
+          sciforge: defaultLocalRuntimeSettings()
         }
       }),
       'utf8'
@@ -172,7 +172,7 @@ describe('JsonSettingsStore', () => {
   })
 
   it('creates a default write workspace with welcome.md', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     const store = new JsonSettingsStore(userDataDir)
     const loaded = await store.load()
@@ -192,8 +192,8 @@ describe('JsonSettingsStore', () => {
   })
 
   it('generates and persists a local Model Router runtime API key on load', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
-    const legacySettingsPath = join(userDataDir, 'deepseek-gui-settings.json')
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
+    const legacySettingsPath = join(userDataDir, 'sciforge-settings.json')
     const settingsPath = join(userDataDir, 'sciforge-settings.json')
 
     await writeFile(
@@ -222,10 +222,10 @@ describe('JsonSettingsStore', () => {
   })
 
   it('preserves the pro write completion model', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     await writeFile(
-      join(userDataDir, 'deepseek-gui-settings.json'),
+      join(userDataDir, 'sciforge-settings.json'),
       JSON.stringify({
         version: 1,
         write: {
@@ -245,10 +245,10 @@ describe('JsonSettingsStore', () => {
   })
 
   it('treats legacy flash defaults as inherited until the user explicitly overrides them', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     await writeFile(
-      join(userDataDir, 'deepseek-gui-settings.json'),
+      join(userDataDir, 'sciforge-settings.json'),
       JSON.stringify({
         version: 1,
         write: {
@@ -267,18 +267,20 @@ describe('JsonSettingsStore', () => {
     expect(loaded.write.inlineCompletion.model).toBe('deepseek-v4-flash')
   })
 
-  it('migrates legacy deepseek.autoStart=false into Kun', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+  it('loads current local runtime autoStart settings', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
     const workspaceRoot = join(userDataDir, 'workspace')
     await mkdir(workspaceRoot, { recursive: true })
 
     await writeFile(
-      join(userDataDir, 'deepseek-gui-settings.json'),
+      join(userDataDir, 'sciforge-settings.json'),
       JSON.stringify({
         version: 1,
         workspaceRoot,
-        deepseek: {
-          autoStart: false
+        agents: {
+          sciforge: {
+            autoStart: false
+          }
         }
       }),
       'utf8'
@@ -287,18 +289,18 @@ describe('JsonSettingsStore', () => {
     const store = new JsonSettingsStore(userDataDir)
     const loaded = await store.load()
 
-    expect(loaded.agents.kun.autoStart).toBe(false)
+    expect(loaded.agents.sciforge.autoStart).toBe(false)
   })
 
-  it('migrates existing Kun credentials into General provider settings', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+  it('drops stale local runtime credential fields without mutating provider settings', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     await writeFile(
-      join(userDataDir, 'deepseek-gui-settings.json'),
+      join(userDataDir, 'sciforge-settings.json'),
       JSON.stringify({
         version: 1,
         agents: {
-          kun: {
+          sciforge: {
             apiKey: 'sk-existing',
             baseUrl: 'https://runtime.example/v1'
           }
@@ -310,15 +312,16 @@ describe('JsonSettingsStore', () => {
     const store = new JsonSettingsStore(userDataDir)
     const loaded = await store.load()
 
-    expect(loaded.provider.apiKey).toBe('sk-existing')
-    expect(loaded.provider.baseUrl).toBe('https://runtime.example/v1')
-    expect(loaded.agents.kun.apiKey).toBe('')
-    expect(loaded.agents.kun.baseUrl).toBe('')
+    expect(loaded.provider.apiKey).toBe('')
+    expect(loaded.provider.baseUrl).toBe('http://127.0.0.1:3892/v1')
+    expect(loaded.agents.sciforge.providerId).toBe('')
+    expect('apiKey' in loaded.agents.sciforge).toBe(false)
+    expect('baseUrl' in loaded.agents.sciforge).toBe(false)
   })
 
   it('keeps custom model providers when migrated settings are reloaded', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
-    const settingsPath = join(userDataDir, 'deepseek-gui-settings.json')
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
+    const settingsPath = join(userDataDir, 'sciforge-settings.json')
     const provider = defaultModelProviderSettings()
 
     await writeFile(
@@ -342,8 +345,8 @@ describe('JsonSettingsStore', () => {
           ]
         },
         agents: {
-          kun: {
-            ...defaultKunRuntimeSettings(),
+          sciforge: {
+            ...defaultLocalRuntimeSettings(),
             providerId: 'custom-provider-2',
             model: 'custom-model'
           }
@@ -366,7 +369,7 @@ describe('JsonSettingsStore', () => {
         })
       ])
     )
-    expect(firstLoaded.agents.kun.providerId).toBe('custom-provider-2')
+    expect(firstLoaded.agents.sciforge.providerId).toBe('custom-provider-2')
     await firstStore.save(firstLoaded)
 
     const secondStore = new JsonSettingsStore(userDataDir)
@@ -383,18 +386,18 @@ describe('JsonSettingsStore', () => {
         })
       ])
     )
-    expect(secondLoaded.agents.kun.providerId).toBe('custom-provider-2')
+    expect(secondLoaded.agents.sciforge.providerId).toBe('custom-provider-2')
   })
 
   it('loads settings from the legacy lowercase userData directory and writes them into the current path', async () => {
-    const supportRoot = await mkdtemp(join(tmpdir(), 'ds-gui-settings-compat-'))
-    const legacyUserDataDir = join(supportRoot, 'deepseek-gui')
+    const supportRoot = await mkdtemp(join(tmpdir(), 'sciforge-settings-compat-'))
+    const legacyUserDataDir = join(supportRoot, 'sciforge')
     const currentUserDataDir = join(supportRoot, 'SciForge')
     const currentSettingsPath = join(currentUserDataDir, 'sciforge-settings.json')
 
     await mkdir(legacyUserDataDir, { recursive: true })
     await writeFile(
-      join(legacyUserDataDir, 'deepseek-gui-settings.json'),
+      join(legacyUserDataDir, 'sciforge-settings.json'),
       JSON.stringify({
         version: 1,
         provider: {
@@ -412,11 +415,11 @@ describe('JsonSettingsStore', () => {
   })
 
   it('creates the configured code workspace on load', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
     const workspaceRoot = join(userDataDir, 'missing-workspace')
 
     await writeFile(
-      join(userDataDir, 'deepseek-gui-settings.json'),
+      join(userDataDir, 'sciforge-settings.json'),
       JSON.stringify({
         version: 1,
         workspaceRoot
@@ -431,11 +434,11 @@ describe('JsonSettingsStore', () => {
     expect((await stat(workspaceRoot)).isDirectory()).toBe(true)
   })
 
-  it('migrates legacy deepseek-runtime agentProvider to Kun', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+  it('ignores removed agentProvider and deepseek settings', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     await writeFile(
-      join(userDataDir, 'deepseek-gui-settings.json'),
+      join(userDataDir, 'sciforge-settings.json'),
       JSON.stringify({
         version: 1,
         agentProvider: 'deepseek-runtime',
@@ -447,19 +450,19 @@ describe('JsonSettingsStore', () => {
     const store = new JsonSettingsStore(userDataDir)
     const loaded = await store.load()
 
-    expect(loaded.agents.kun.port).toBe(8787)
+    expect(loaded.agents.sciforge.port).toBe(8899)
   })
 
   it('backs up invalid JSON and replaces it with defaults', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
-    const legacySettingsPath = join(userDataDir, 'deepseek-gui-settings.json')
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
+    const legacySettingsPath = join(userDataDir, 'sciforge-settings.json')
     const settingsPath = join(userDataDir, 'sciforge-settings.json')
     await writeFile(legacySettingsPath, '{ invalid json', 'utf8')
 
     const store = new JsonSettingsStore(userDataDir)
     const loaded = await store.load()
     const files = await readdir(userDataDir)
-    const backupName = files.find((file) => file.startsWith('deepseek-gui-settings.invalid-'))
+    const backupName = files.find((file) => file.startsWith('sciforge-settings.invalid-'))
 
     expect(loaded.workspaceRoot.length).toBeGreaterThan(0)
     expect(backupName).toBeTruthy()
@@ -469,8 +472,8 @@ describe('JsonSettingsStore', () => {
   })
 
   it('throws for non-recoverable read errors', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
-    const settingsPath = join(userDataDir, 'deepseek-gui-settings.json')
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
+    const settingsPath = join(userDataDir, 'sciforge-settings.json')
     await mkdir(settingsPath, { recursive: true })
 
     const store = new JsonSettingsStore(userDataDir)
@@ -478,26 +481,26 @@ describe('JsonSettingsStore', () => {
     await expect(store.load()).rejects.toThrow(/Failed to read settings file/)
   })
 
-  it('merges Kun settings patches', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+  it('merges local runtime settings patches', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
     const store = new JsonSettingsStore(userDataDir)
     await store.load()
 
     const saved = await store.patch({
       agents: {
-        kun: {
+        sciforge: {
           model: 'deepseek-reasoner',
           approvalPolicy: 'on-request'
         }
       }
     })
 
-    expect(saved.agents.kun.model).toBe('deepseek-reasoner')
-    expect(saved.agents.kun.approvalPolicy).toBe('on-request')
+    expect(saved.agents.sciforge.model).toBe('deepseek-reasoner')
+    expect(saved.agents.sciforge.approvalPolicy).toBe('on-request')
   })
 
   it('merges desktop behavior patches without keeping invalid startup state', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
     const store = new JsonSettingsStore(userDataDir)
     await store.load()
 
@@ -527,13 +530,13 @@ describe('JsonSettingsStore', () => {
   })
 
   it('omits agentProvider when writing normalized settings to disk', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
     const settingsPath = join(userDataDir, 'sciforge-settings.json')
     const store = new JsonSettingsStore(userDataDir)
     await store.load()
     await store.patch({
       agents: {
-        kun: {
+        sciforge: {
           model: 'deepseek-chat'
         }
       }
@@ -544,16 +547,16 @@ describe('JsonSettingsStore', () => {
     expect('agentProvider' in persisted).toBe(false)
     expect(persisted.agents).toEqual(
       expect.objectContaining({
-        kun: expect.objectContaining({ model: 'deepseek-chat' })
+        sciforge: expect.objectContaining({ model: 'deepseek-chat' })
       })
     )
   })
 
-  it('folds legacy Claw thread ids into the single Kun mapping', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+  it('folds legacy Claw thread ids into the single SciForge mapping', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     await writeFile(
-      join(userDataDir, 'deepseek-gui-settings.json'),
+      join(userDataDir, 'sciforge-settings.json'),
       JSON.stringify({
         version: 1,
         claw: {
@@ -590,10 +593,10 @@ describe('JsonSettingsStore', () => {
   })
 
   it('seeds Reasonix-only Claw conversations into the canonical thread id', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     await writeFile(
-      join(userDataDir, 'deepseek-gui-settings.json'),
+      join(userDataDir, 'sciforge-settings.json'),
       JSON.stringify({
         version: 1,
         claw: {
@@ -622,14 +625,14 @@ describe('JsonSettingsStore', () => {
     const store = new JsonSettingsStore(userDataDir)
     const loaded = await store.load()
     const channel = loaded.claw.channels[0]
-    const conversation = channel?.conversations[0]
 
-    expect(channel?.threadId).toBe('reasonix-channel')
-    expect(conversation?.localThreadId).toBe('reasonix-conversation')
+    expect(channel?.threadId).toBe('')
+    expect(channel?.agentThreadIds).toEqual({})
+    expect(channel?.conversations).toEqual([])
   })
 
   it('saves settings atomically (no .tmp file left on success)', async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-atomic-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-atomic-'))
 
     try {
       const store = new JsonSettingsStore(userDataDir)

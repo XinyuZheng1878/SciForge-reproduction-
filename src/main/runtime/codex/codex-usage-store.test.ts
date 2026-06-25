@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { CodexUsageStore } from './codex-usage-store'
 
 async function tempRoot(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'deepseek-gui-codex-usage-'))
+  return mkdtemp(join(tmpdir(), 'sciforge-codex-usage-'))
 }
 
 describe('CodexUsageStore', () => {

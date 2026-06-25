@@ -4,7 +4,7 @@ import { LocalToolHost } from '../src/adapters/tool/local-tool-host.js'
 import { buildWebToolProviders } from '../src/adapters/tool/web-tool-provider.js'
 import {
   buildRuntimeCapabilityManifest,
-  KunCapabilitiesConfig
+  LocalRuntimeCapabilitiesConfig
 } from '../src/contracts/capabilities.js'
 import { modelCapabilitiesForModel } from '../src/loop/model-context-profile.js'
 import { DeterministicWebProvider } from '../src/ports/web-provider.js'
@@ -36,11 +36,11 @@ function deterministicProvider() {
       }
     },
     searchResults: {
-      'kun web': [
+      'local runtime web': [
         {
           url: 'https://docs.example.test/page',
-          title: 'Kun Web Docs',
-          snippet: 'How Kun web access works.'
+          title: 'SciForge Runtime Web Docs',
+          snippet: 'How SciForge Runtime web access works.'
         }
       ]
     }
@@ -53,7 +53,7 @@ describe('Web tool provider', () => {
   })
 
   it('does not advertise web tools when web access is disabled', async () => {
-    const config = KunCapabilitiesConfig.parse({})
+    const config = LocalRuntimeCapabilitiesConfig.parse({})
     const built = buildWebToolProviders(config.web, { provider: deterministicProvider() })
 
     expect(built.providers).toEqual([])
@@ -62,7 +62,7 @@ describe('Web tool provider', () => {
   })
 
   it('fetches allowed URLs with source metadata and telemetry', async () => {
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       web: {
         enabled: true,
         fetchEnabled: true,
@@ -116,7 +116,7 @@ describe('Web tool provider', () => {
         'content-type': 'text/plain'
       }
     }))
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       web: {
         enabled: true,
         fetchEnabled: true,
@@ -154,7 +154,7 @@ describe('Web tool provider', () => {
         'content-type': 'text/plain'
       }
     }))
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       web: {
         enabled: true,
         fetchEnabled: true,
@@ -204,7 +204,7 @@ describe('Web tool provider', () => {
         'content-type': 'text/html; charset=utf-8'
       }
     }))
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       web: {
         enabled: true,
         fetchEnabled: true,
@@ -239,7 +239,7 @@ describe('Web tool provider', () => {
 
   it('rejects disallowed fetch URLs before contacting the provider', async () => {
     let contacted = false
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       web: {
         enabled: true,
         fetchEnabled: true,
@@ -280,7 +280,7 @@ describe('Web tool provider', () => {
   })
 
   it('returns unavailable-provider errors for search without a search provider', async () => {
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       web: {
         enabled: true,
         searchEnabled: true,
@@ -294,7 +294,7 @@ describe('Web tool provider', () => {
     const result = await host.execute({
       callId: 'call_1',
       toolName: 'web_search',
-      arguments: { query: 'kun web' }
+      arguments: { query: 'local runtime web' }
     }, buildContext())
 
     expect(result.item).toMatchObject({ kind: 'tool_result', isError: true })
@@ -309,7 +309,7 @@ describe('Web tool provider', () => {
   })
 
   it('searches through a configured provider with citations and telemetry', async () => {
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       web: {
         enabled: true,
         searchEnabled: true,
@@ -325,7 +325,7 @@ describe('Web tool provider', () => {
     const result = await host.execute({
       callId: 'call_1',
       toolName: 'web_search',
-      arguments: { query: 'kun web', limit: 3 }
+      arguments: { query: 'local runtime web', limit: 3 }
     }, buildContext())
 
     expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
@@ -349,7 +349,7 @@ describe('Web tool provider', () => {
   })
 
   it('reports web availability in the runtime capability manifest', () => {
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       web: {
         enabled: true,
         fetchEnabled: true,

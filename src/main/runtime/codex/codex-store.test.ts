@@ -6,11 +6,11 @@ import { CodexEventStore } from './codex-event-store'
 import { CodexThreadStore } from './codex-thread-store'
 
 async function tempRoot(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'deepseek-gui-codex-store-'))
+  return mkdtemp(join(tmpdir(), 'sciforge-codex-store-'))
 }
 
 describe('CodexThreadStore', () => {
-  it('persists Codex thread mappings without using Kun ids or paths', async () => {
+  it('persists Codex thread mappings without using local runtime ids or paths', async () => {
     const rootDir = await tempRoot()
     const store = new CodexThreadStore({
       rootDir,

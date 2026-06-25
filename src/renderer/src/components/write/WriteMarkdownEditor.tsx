@@ -272,8 +272,8 @@ export function WriteMarkdownEditor({
       language: 'markdown',
       getModel: () => completionModelRef.current,
       requestCompletion: async (context, mode) => {
-        if (typeof window.dsGui?.requestWriteInlineCompletion !== 'function') return null
-        const result = await window.dsGui.requestWriteInlineCompletion(
+        if (typeof window.sciforge?.requestWriteInlineCompletion !== 'function') return null
+        const result = await window.sciforge.requestWriteInlineCompletion(
           buildInlineCompletionPayload(context, {
             model: completionModelRef.current,
             workspaceRoot: workspaceRootRef.current,
@@ -348,10 +348,10 @@ export function WriteMarkdownEditor({
               event.preventDefault()
               return true
             }
-            if (typeof window.dsGui?.saveWorkspaceClipboardImage !== 'function') return false
+            if (typeof window.sciforge?.saveWorkspaceClipboardImage !== 'function') return false
 
             event.preventDefault()
-            void window.dsGui
+            void window.sciforge
               .saveWorkspaceClipboardImage({
                 workspaceRoot: nextWorkspaceRoot,
                 currentFilePath: nextFilePath,

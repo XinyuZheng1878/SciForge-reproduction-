@@ -90,14 +90,14 @@ test('inspects Git status, branches, diff preview, and saved checkpoints read-on
   assert.equal(recoveredDiagnostics.recentError, null)
 })
 
-test('reports runtime health, dependencies, redacted Kun info, and LSP availability boundaries', async (t) => {
+test('reports runtime health, dependencies, redacted local runtime info, and LSP availability boundaries', async (t) => {
   const fakeLsp = await createFakeLspServer(t)
   const service = createRuntimeInspectorService({
     workspaceRoot: process.cwd(),
     checkpointDataDir: process.cwd(),
     modelRouterBaseUrl: 'http://127.0.0.1:3892/v1',
-    kunBaseUrl: 'http://127.0.0.1:8899',
-    kunRuntimeToken: 'secret-token',
+    runtimeBaseUrl: 'http://127.0.0.1:8899',
+    runtimeToken: 'secret-token',
     fetch: fakeRuntimeFetch(),
     lspServerCommand: fakeLsp.command,
     lspServerArgs: fakeLsp.args
@@ -112,18 +112,19 @@ test('reports runtime health, dependencies, redacted Kun info, and LSP availabil
   assert.equal(modelRouter.health.status, 'healthy')
   assert.equal(modelRouter.managementUrl, 'http://127.0.0.1:3892/healthz')
 
-  const kun = await service.runtimeKunStatus({ include_tools: true })
-  assert.equal(kun.ok, true)
-  if (!kun.ok) return
-  assert.equal(kun.health.status, 'healthy')
-  assert.equal(kun.lifecycleBoundary.processControl, 'not_exposed')
-  assert.equal(kun.runtimeInfo?.runtimeToken, '[redacted]')
-  assert.equal(kun.toolDiagnostics?.apiKey, '[redacted]')
+  const localRuntime = await service.runtimeLocalStatus({ include_tools: true })
+  assert.equal(localRuntime.ok, true)
+  if (!localRuntime.ok) return
+  assert.equal(localRuntime.health.status, 'healthy')
+  assert.equal(localRuntime.lifecycleBoundary.processControl, 'not_exposed')
+  assert.equal(localRuntime.runtimeInfo?.runtimeToken, '[redacted]')
+  assert.equal(localRuntime.toolDiagnostics?.apiKey, '[redacted]')
 
   const health = await service.runtimeHealth({ include_tools: true })
   assert.equal(health.ok, true)
   if (!health.ok) return
   assert.equal(health.status, 'healthy')
+  assert.equal(health.localRuntime.ok, true)
 
   const dependencies = await service.runtimeDependencyReport({ include_runtime_http: true })
   assert.equal(dependencies.ok, true)
@@ -131,6 +132,7 @@ test('reports runtime health, dependencies, redacted Kun info, and LSP availabil
   assert.ok(dependencies.dependencies.some((item) => item.id === 'git'))
   assert.ok(dependencies.dependencies.some((item) => item.id === 'typescript-language-server'))
   assert.ok(dependencies.dependencies.some((item) => item.id === 'model-router-http' && item.available))
+  assert.ok(dependencies.dependencies.some((item) => item.id === 'local-runtime-http' && item.available))
 
   const lspStatus = await service.lspStatus({ workspace_root: process.cwd(), include_dependency_probe: true })
   assert.equal(lspStatus.ok, true)
@@ -298,7 +300,7 @@ async function createCheckpointFixture(
   await mkdir(checkpointDir, { recursive: true })
   await writeFile(join(checkpointDir, 'metadata.json'), `${JSON.stringify({
     checkpointId: 'turn_test',
-    runtimeId: 'kun',
+    runtimeId: 'sciforge',
     threadId: 'thread-1',
     turnId: 'turn-1',
     workspaceRoot: input.workspaceRoot,

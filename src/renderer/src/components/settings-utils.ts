@@ -3,20 +3,20 @@ import {
   applyClaudeRuntimePatch,
   defaultCodexRuntimeSettings,
   defaultClaudeRuntimeSettings,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultRuntimeGuardSettings,
   defaultAgentCapabilitySettings,
   defaultComputerUseSettings,
   defaultResearchMemorySettings,
   applyCodexRuntimePatch,
-  applyKunRuntimePatch,
+  applyLocalRuntimePatch,
   getCodexRuntimeSettings,
   getClaudeRuntimeSettings,
-  getKunRuntimeSettings,
-  kunSettingsEnvelope,
+  getLocalRuntimeSettings,
+  agentRuntimeSettingsEnvelope,
   mergeCodexRuntimeSettings,
   mergeClaudeRuntimeSettings,
-  mergeKunRuntimeSettings,
+  mergeLocalRuntimeSettings,
   mergeClawSettings,
   mergeModelRouterSettings,
   mergeModelProviderSettings,
@@ -64,7 +64,7 @@ export function listSettingsText(values: string[]): string {
 }
 
 export function hasValidPort(settings: AppSettingsV1): boolean {
-  const port = getKunRuntimeSettings(settings).port
+  const port = getLocalRuntimeSettings(settings).port
   return Number.isFinite(port) && port >= 1 && port <= 65535
 }
 
@@ -93,7 +93,7 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
   >>
   return {
     ...applyClaudeRuntimePatch(
-      applyCodexRuntimePatch(applyKunRuntimePatch(safeCurrent, agentsPatch?.kun), agentsPatch?.codex),
+      applyCodexRuntimePatch(applyLocalRuntimePatch(safeCurrent, agentsPatch?.sciforge), agentsPatch?.codex),
       agentsPatch?.claude
     ),
     ...restSettingsPatch,
@@ -163,7 +163,7 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     runtimeGuards: mergeRuntimeGuardSettings(defaultRuntimeGuardSettings(), raw.runtimeGuards),
     activeAgentRuntime: normalizeAgentRuntimeId(raw.activeAgentRuntime),
     agents: {
-      ...kunSettingsEnvelope(mergeKunRuntimeSettings(defaultKunRuntimeSettings(), getKunRuntimeSettings(settings))),
+      ...agentRuntimeSettingsEnvelope(mergeLocalRuntimeSettings(defaultLocalRuntimeSettings(), getLocalRuntimeSettings(settings))),
       codex: mergeCodexRuntimeSettings(defaultCodexRuntimeSettings(), getCodexRuntimeSettings(settings)),
       claude: mergeClaudeRuntimeSettings(defaultClaudeRuntimeSettings(), getClaudeRuntimeSettings(settings))
     },

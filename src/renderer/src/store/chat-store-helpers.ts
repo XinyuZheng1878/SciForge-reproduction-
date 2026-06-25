@@ -17,17 +17,17 @@ import {
 import type { ChatState } from './chat-store-types'
 import {
   isClawWorkspacePath,
-  isInternalDeepSeekGuiWorkspace,
+  isInternalSciForgeWorkspace,
   isInternalTemporaryWorkspace,
   normalizeWorkspaceRoot,
   workspaceRootIdentityKey
 } from '../lib/workspace-path'
 import { readBrowserStorageItem, writeBrowserStorageItem } from '../lib/browser-storage'
 
-const COMPOSER_MODEL_STORAGE_KEY = 'deepseekgui.composerModel'
-const TURN_MODEL_STORAGE_KEY = 'deepseekgui.turnModelLabel'
-const CODE_WORKSPACE_ROOTS_STORAGE_KEY = 'deepseekgui.codeWorkspaceRoots.v1'
-const HIDDEN_CODE_WORKSPACE_ROOTS_STORAGE_KEY = 'deepseekgui.hiddenCodeWorkspaceRoots.v1'
+const COMPOSER_MODEL_STORAGE_KEY = 'sciforge.composerModel'
+const TURN_MODEL_STORAGE_KEY = 'sciforge.turnModelLabel'
+const CODE_WORKSPACE_ROOTS_STORAGE_KEY = 'sciforge.codeWorkspaceRoots.v1'
+const HIDDEN_CODE_WORKSPACE_ROOTS_STORAGE_KEY = 'sciforge.hiddenCodeWorkspaceRoots.v1'
 export const MAX_CODE_WORKSPACE_ROOTS = 30
 export const MAX_TURN_MODEL_LABELS = 500
 
@@ -73,7 +73,7 @@ export function compactCodeWorkspaceRoots(workspaceRoots: readonly (string | und
     const normalized = normalizeWorkspaceRoot(workspaceRoot ?? '').replace(/[\\/]+$/, '')
     if (!normalized) continue
     if (isInternalTemporaryWorkspace(normalized)) continue
-    if (isInternalDeepSeekGuiWorkspace(normalized)) continue
+    if (isInternalSciForgeWorkspace(normalized)) continue
     if (isClawWorkspacePath(normalized)) continue
     const key = workspaceRootIdentityKey(normalized)
     if (seen.has(key)) continue
@@ -216,7 +216,7 @@ export function newClawChannel(
     enabled: true,
     model: 'auto',
     threadId: '',
-    runtimeId: 'kun',
+    runtimeId: 'sciforge',
     agentThreadIds: {},
     workspaceRoot: '',
     conversations: [],
@@ -262,10 +262,8 @@ export function clawThreadIdsFromChannels(
 ): Set<string> {
   const ids = new Set<string>()
   for (const channel of channels) {
-    addClawThreadId(ids, channel.threadId)
     addClawAgentThreadIds(ids, channel.agentThreadIds)
     for (const conversation of channel.conversations) {
-      addClawThreadId(ids, conversation.localThreadId)
       addClawAgentThreadIds(ids, conversation.agentThreadIds)
     }
   }
@@ -278,10 +276,8 @@ export function watchedClawThreadIdsFromChannels(
   const ids = new Set<string>()
   for (const channel of channels) {
     if (!channel.enabled) continue
-    addClawThreadId(ids, channel.threadId)
     addClawAgentThreadIds(ids, channel.agentThreadIds)
     for (const conversation of channel.conversations) {
-      addClawThreadId(ids, conversation.localThreadId)
       addClawAgentThreadIds(ids, conversation.agentThreadIds)
     }
   }
@@ -317,7 +313,7 @@ export function clawThreadRemoteBindingsFromChannels(
     }
     addClawThreadBindings(
       bindings,
-      clawThreadMappingIds(channel.threadId, channel.agentThreadIds),
+      clawThreadMappingIds(channel.agentThreadIds),
       channelBinding
     )
 
@@ -341,7 +337,7 @@ export function clawThreadRemoteBindingsFromChannels(
       }
       addClawThreadBindings(
         bindings,
-        clawThreadMappingIds(conversation.localThreadId, conversation.agentThreadIds),
+        clawThreadMappingIds(conversation.agentThreadIds),
         conversationBinding
       )
     }
@@ -376,11 +372,9 @@ export function deriveClawThreadRemoteStatusKind(options: {
 }
 
 function clawThreadMappingIds(
-  primaryThreadId: string | undefined,
   agentThreadIds: Partial<Record<AgentRuntimeId, string>> | undefined
 ): string[] {
   const ids = new Set<string>()
-  addClawThreadId(ids, primaryThreadId)
   addClawAgentThreadIds(ids, agentThreadIds)
   return [...ids]
 }

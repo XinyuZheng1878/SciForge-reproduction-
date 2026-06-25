@@ -1,7 +1,7 @@
 # Codex app-server capsule
 
 This directory contains Codex app-server protocol details that should not leak into
-renderer code, Kun adapters, or the neutral AgentRuntimeHost.
+renderer code, local runtime adapters, or the neutral AgentRuntimeHost.
 
 - `protocol.ts` defines JSON-RPC wire shapes and app-server request params.
 - `json-rpc-client.ts` is the stable capsule entry for the stdio JSON-RPC client.

@@ -4,14 +4,14 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
-import { kunHttpRequestViaHost } from './kun-adapter'
+import { localRuntimeHttpRequestViaHost } from './local-runtime-adapter'
 
 let server: Server | null = null
 
@@ -23,8 +23,8 @@ function settingsForPort(port: number): AppSettingsV1 {
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: {
-        ...defaultKunRuntimeSettings(port),
+      sciforge: {
+        ...defaultLocalRuntimeSettings(port),
         runtimeToken: 'usage-token'
       }
     },
@@ -67,8 +67,8 @@ afterEach(async () => {
   })
 })
 
-describe('kunHttpRequestViaHost', () => {
-  it('forwards daily usage requests to the Kun runtime with bearer auth', async () => {
+describe('localRuntimeHttpRequestViaHost', () => {
+  it('forwards daily usage requests to the local runtime with bearer auth', async () => {
     let seenUrl = ''
     let seenAuthorization = ''
     let ensured = false
@@ -95,7 +95,7 @@ describe('kunHttpRequestViaHost', () => {
       }))
     })
 
-    const response = await kunHttpRequestViaHost(
+    const response = await localRuntimeHttpRequestViaHost(
       settingsForPort(port),
       '/v1/usage?group_by=day&from=2026-06-01&to=2026-06-02&timezone=Asia%2FShanghai',
       { method: 'GET' },

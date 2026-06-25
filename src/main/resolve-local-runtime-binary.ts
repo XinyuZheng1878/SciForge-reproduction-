@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
- * Resolve the Kun executable. Kun ships as a TypeScript
+ * Resolve the local runtime executable. The runtime ships as a TypeScript
  * package inside the SciForge workspace (`kun/`) and is
  * executed through the bundled Node.js runtime that Electron carries.
  *
@@ -10,14 +10,14 @@ import { join } from 'node:path'
  * 1. User-supplied binary path (treated as a JS module when it ends
  *    in `.js` or is a directory containing `dist/cli/serve-entry.js`).
  * 2. Bundled `kun/dist/cli/serve-entry.js` (built by the root
- *    `build:kun` script before dev, build, install, and packaging).
+ *    `build:local-runtime` script before dev, build, install, and packaging).
  *
  * The resolver never throws on missing artifacts during the user
  * typing flow: it returns the bundled dist path even when the file
  * does not exist yet, and the calling layer is responsible for
  * surfacing a clear "runtime not built" diagnostic.
  */
-export type KunBinaryResolution =
+export type LocalRuntimeBinaryResolution =
   | { kind: 'node-script'; command: string; args: string[]; dataDir: string }
   | { kind: 'custom'; command: string; args: string[]; dataDir: string }
 
@@ -46,10 +46,10 @@ function isNodeScript(path: string): boolean {
   return /\.(?:cjs|mjs|js)$/i.test(path)
 }
 
-export function resolveKunExecutable(
+export function resolveLocalRuntimeExecutable(
   appRoot: string,
   userBinaryPath: string
-): KunBinaryResolution {
+): LocalRuntimeBinaryResolution {
   const trimmed = userBinaryPath?.trim() ?? ''
   if (trimmed) {
     if (isDirectory(trimmed)) {
@@ -96,12 +96,12 @@ export function resolveKunExecutable(
 }
 
 /**
- * Build the full `kun serve` argv from resolved binary info
- * and Kun runtime settings. The function is pure: no I/O, no
+ * Build the local runtime serve argv from resolved binary info
+ * and runtime settings. The function is pure: no I/O, no
  * side effects, easy to test.
  */
-export function buildKunServeArgs(input: {
-  resolution: KunBinaryResolution
+export function buildLocalRuntimeServeArgs(input: {
+  resolution: LocalRuntimeBinaryResolution
   host: string
   port: number
   dataDir: string

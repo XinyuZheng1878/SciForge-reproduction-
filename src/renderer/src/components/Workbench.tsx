@@ -5,7 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { Bot } from 'lucide-react'
 import { parseClawCommand } from '@shared/claw-commands'
 import { DEFAULT_COMPOSER_MODEL_IDS } from '@shared/default-composer-models'
-import { buildGuiPlanId, buildPlanRelativePath, GUI_PLAN_LEGACY_RELATIVE_DIR } from '@shared/gui-plan'
+import { buildGuiPlanId, buildPlanRelativePath } from '@shared/gui-plan'
 import { sddDraftTraceRelativePath } from '@shared/sdd'
 import { buildSddTraceSnapshot } from '@shared/sdd-trace'
 import {
@@ -14,12 +14,12 @@ import {
   resolveKeyboardShortcutBindings,
   type KeyboardShortcutCommandId
 } from '@shared/keyboard-shortcuts'
-import type { DesktopCommand, SkillListItem } from '@shared/ds-gui-api'
+import type { DesktopCommand, SkillListItem } from '@shared/sciforge-api'
 import type { AgentRuntimeId, ClawImChannelV1 } from '@shared/app-settings'
 import type { ClipboardImageReadResult } from '@shared/workspace-file'
 import type { AgentRuntimeWorkspaceReference } from '@shared/agent-runtime-contract'
 import type { AgentProviderCapabilities, AttachmentReference, ChatBlock } from '../agent/types'
-import type { CoreRuntimeInfoJson, CoreRuntimeSkillJson } from '../agent/kun-contract'
+import type { LocalRuntimeInfoJson, LocalRuntimeSkillJson } from '../agent/local-runtime-contract'
 import { getProvider } from '../agent/registry'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import { useChatStore } from '../store/chat-store'
@@ -197,9 +197,9 @@ function attachmentPathInsideWorkspace(path: string, workspaceRoot: string): boo
 
 function pathForPickedAttachment(input: ComposerImageAttachmentInput): string {
   if (input.path?.trim()) return input.path.trim()
-  if (typeof window === 'undefined' || typeof window.dsGui?.getPathForFile !== 'function') return ''
+  if (typeof window === 'undefined' || typeof window.sciforge?.getPathForFile !== 'function') return ''
   try {
-    return window.dsGui.getPathForFile(input.file)?.trim() || ''
+    return window.sciforge.getPathForFile(input.file)?.trim() || ''
   } catch {
     return ''
   }
@@ -275,7 +275,7 @@ async function copyPdfAttachmentToWorkspace(
   workspaceRoot: string,
   threadId: string | null
 ): Promise<ComposerFileReference> {
-  if (typeof window === 'undefined' || typeof window.dsGui?.writeWorkspaceFile !== 'function') {
+  if (typeof window === 'undefined' || typeof window.sciforge?.writeWorkspaceFile !== 'function') {
     throw new Error('Workspace file writing is unavailable.')
   }
   if (input.file.size > PDF_ATTACHMENT_MAX_BYTES) {
@@ -283,7 +283,7 @@ async function copyPdfAttachmentToWorkspace(
   }
   const relativePath = uploadRelativePath(input, threadId, 'document.pdf')
   const contentBase64 = arrayBufferToBase64(await input.file.arrayBuffer())
-  const result = await window.dsGui.writeWorkspaceFile({
+  const result = await window.sciforge.writeWorkspaceFile({
     workspaceRoot,
     path: relativePath,
     contentBase64
@@ -305,7 +305,7 @@ async function copyScientificAttachmentToWorkspace(
   workspaceRoot: string,
   threadId: string | null
 ): Promise<ComposerFileReference> {
-  if (typeof window === 'undefined' || typeof window.dsGui?.writeWorkspaceFile !== 'function') {
+  if (typeof window === 'undefined' || typeof window.sciforge?.writeWorkspaceFile !== 'function') {
     throw new Error('Workspace file writing is unavailable.')
   }
   if (input.file.size > SCIENTIFIC_ATTACHMENT_MAX_BYTES) {
@@ -321,7 +321,7 @@ async function copyScientificAttachmentToWorkspace(
   }
   const name = safeScientificUploadFileName(input)
   const relativePath = uploadRelativePath(input, threadId, 'scientific-data')
-  const result = await window.dsGui.writeWorkspaceFile({
+  const result = await window.sciforge.writeWorkspaceFile({
     workspaceRoot,
     path: relativePath,
     content
@@ -340,9 +340,6 @@ async function copyScientificAttachmentToWorkspace(
 function sddDraftPlanRelativePath(draft: SddDraft): string {
   const parts = draft.relativePath.replaceAll('\\', '/').split('/').filter(Boolean)
   const draftFolder = parts.at(-2)?.trim() || draft.id.split(':').pop()?.trim() || `draft-${Date.now()}`
-  if (parts[0] === '.kunsdd' && parts[1] === 'draft') {
-    return `${GUI_PLAN_LEGACY_RELATIVE_DIR}/sdd-${draftFolder}.md`
-  }
   return buildPlanRelativePath(`sdd-${draftFolder}`)
 }
 
@@ -364,10 +361,10 @@ function sddPlanMatchesPendingTarget(
 }
 
 function mergeSkillCommands(
-  runtimeSkills: CoreRuntimeSkillJson[],
+  runtimeSkills: LocalRuntimeSkillJson[],
   localSkills: SkillListItem[]
-): CoreRuntimeSkillJson[] {
-  const merged = new Map<string, CoreRuntimeSkillJson>()
+): LocalRuntimeSkillJson[] {
+  const merged = new Map<string, LocalRuntimeSkillJson>()
   for (const skill of localSkills) {
     merged.set(skill.id, {
       id: skill.id,
@@ -568,8 +565,8 @@ export function Workbench(): ReactElement {
     useState<ComposerReasoningEffort>('max')
   const [assistantReasoningEffort, setAssistantReasoningEffort] =
     useState<ComposerReasoningEffort>('medium')
-  const [runtimeInfo, setRuntimeInfo] = useState<CoreRuntimeInfoJson | null>(null)
-  const [runtimeSkills, setRuntimeSkills] = useState<CoreRuntimeSkillJson[]>([])
+  const [runtimeInfo, setRuntimeInfo] = useState<LocalRuntimeInfoJson | null>(null)
+  const [runtimeSkills, setRuntimeSkills] = useState<LocalRuntimeSkillJson[]>([])
   const [composerAttachments, setComposerAttachments] = useState<AttachmentReference[]>([])
   const [composerFileReferences, setComposerFileReferences] = useState<ComposerFileReference[]>([])
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
@@ -701,12 +698,12 @@ export function Workbench(): ReactElement {
     [fileTreeWorkspaceOverride, t, workspaceReferenceGroups]
   )
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.dsGui?.updateClawActiveThreadContext !== 'function') return
+    if (typeof window === 'undefined' || typeof window.sciforge?.updateClawActiveThreadContext !== 'function') return
     if (!activeThreadId || route === 'claw' || (activeThread && isClawThread(activeThread, clawChannels))) {
-      void window.dsGui.updateClawActiveThreadContext(null).catch(() => undefined)
+      void window.sciforge.updateClawActiveThreadContext(null).catch(() => undefined)
       return
     }
-    void window.dsGui.updateClawActiveThreadContext({
+    void window.sciforge.updateClawActiveThreadContext({
       threadId: activeThreadId,
       runtimeId: activeThread?.runtimeId,
       workspaceRoot: activeThread?.workspace || workspaceRoot || undefined
@@ -786,8 +783,8 @@ export function Workbench(): ReactElement {
 
   useEffect(() => {
     const runDesktopShortcut = (command: DesktopCommand): void => {
-      if (typeof window.dsGui?.runDesktopCommand !== 'function') return
-      void window.dsGui.runDesktopCommand(command)
+      if (typeof window.sciforge?.runDesktopCommand !== 'function') return
+      void window.sciforge.runDesktopCommand(command)
     }
 
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -846,9 +843,9 @@ export function Workbench(): ReactElement {
     latestDevPreviewUrl !== null
 
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.dsGui?.getLogPath !== 'function') return
+    if (typeof window === 'undefined' || typeof window.sciforge?.getLogPath !== 'function') return
     let cancelled = false
-    void window.dsGui
+    void window.sciforge
       .getLogPath()
       .then((path) => {
         if (!cancelled) setRuntimeLogPath(path)
@@ -886,14 +883,14 @@ export function Workbench(): ReactElement {
   )
 
   const mirrorClawCommand = async (userText: string, replyText: string): Promise<void> => {
-    if (!activeThreadId || typeof window.dsGui?.mirrorClawChannelMessage !== 'function') return
-    const userResult = await window.dsGui.mirrorClawChannelMessage(
+    if (!activeThreadId || typeof window.sciforge?.mirrorClawChannelMessage !== 'function') return
+    const userResult = await window.sciforge.mirrorClawChannelMessage(
       activeThreadId,
       userText,
       'user'
     )
     if (!userResult.ok) return
-    await window.dsGui.mirrorClawChannelMessage(
+    await window.sciforge.mirrorClawChannelMessage(
       activeThreadId,
       replyText,
       'assistant'
@@ -969,8 +966,8 @@ export function Workbench(): ReactElement {
     const runtimeReady = runtimeConnection === 'ready'
     if (!runtimeReady) setRuntimeInfo(null)
     const provider = getProvider()
-    const localSkillsTask = typeof window !== 'undefined' && typeof window.dsGui?.listSkills === 'function'
-      ? window.dsGui.listSkills(activeSkillWorkspace || undefined)
+    const localSkillsTask = typeof window !== 'undefined' && typeof window.sciforge?.listSkills === 'function'
+      ? window.sciforge.listSkills(activeSkillWorkspace || undefined)
       : Promise.resolve({ ok: true as const, skills: [], validationErrors: [] })
     void Promise.allSettled([
       runtimeReady && provider.getRuntimeInfo ? provider.getRuntimeInfo() : Promise.resolve(null),
@@ -1071,11 +1068,11 @@ export function Workbench(): ReactElement {
   }
 
   const openResearchMemoryWorkspace = async (): Promise<void> => {
-    if (typeof window.dsGui?.prepareResearchMemoryWorkspace !== 'function') {
+    if (typeof window.sciforge?.prepareResearchMemoryWorkspace !== 'function') {
       setError('Research Memory workspace actions are unavailable in this build.')
       return
     }
-    const result = await window.dsGui.prepareResearchMemoryWorkspace()
+    const result = await window.sciforge.prepareResearchMemoryWorkspace()
     if (!result.ok) {
       setError(result.message)
       return
@@ -1261,11 +1258,11 @@ export function Workbench(): ReactElement {
 
   const handlePasteClipboardImage = async (options: { silentNoImage?: boolean } = {}): Promise<void> => {
     if (!attachmentUploadEnabled) return
-    if (typeof window.dsGui?.readClipboardImage !== 'function') {
+    if (typeof window.sciforge?.readClipboardImage !== 'function') {
       setAttachmentUploadError(t('composerAttachmentUnavailable'))
       return
     }
-    const image = await window.dsGui.readClipboardImage()
+    const image = await window.sciforge.readClipboardImage()
     if (!image.ok) {
       if (options.silentNoImage) return
       setAttachmentUploadError(image.message)
@@ -1393,7 +1390,7 @@ export function Workbench(): ReactElement {
     }
     const restored = await restoreRememberedSddDraft({
       workspaceRoot: targetWorkspace,
-      readWorkspaceFile: window.dsGui.readWorkspaceFile
+      readWorkspaceFile: window.sciforge.readWorkspaceFile
     })
     if (restored.kind === 'restored') {
       await openSddRequirementDraft(restored.draft, restored.content, {
@@ -1415,7 +1412,7 @@ export function Workbench(): ReactElement {
       `## ${t('sddTemplateAcceptance')}`,
       ''
     ].join('\n')
-    const result = await window.dsGui.createWorkspaceFile({
+    const result = await window.sciforge.createWorkspaceFile({
       workspaceRoot: targetWorkspace,
       path: draft.relativePath,
       content: initialContent
@@ -1457,7 +1454,7 @@ export function Workbench(): ReactElement {
     }
     const restored = await restoreSddDraft({
       draft,
-      readWorkspaceFile: window.dsGui.readWorkspaceFile
+      readWorkspaceFile: window.sciforge.readWorkspaceFile
     })
     if (restored.kind !== 'restored') {
       if (restored.kind === 'unreadable') setError(restored.message)
@@ -1654,7 +1651,7 @@ export function Workbench(): ReactElement {
     }
     const tracePath = sddDraftTraceRelativePath(draft.relativePath)
     if (tracePath) {
-      await window.dsGui
+      await window.sciforge
         .writeWorkspaceFile({
           workspaceRoot: draft.workspaceRoot,
           path: tracePath,
@@ -1677,7 +1674,7 @@ export function Workbench(): ReactElement {
       if (!provider.listWorkspaceReferences) return { ok: false, message: t('workspaceReferenceUnavailable') }
       return provider.listWorkspaceReferences(input)
     },
-    readWorkspaceFile: (input) => window.dsGui.readWorkspaceFile(input)
+    readWorkspaceFile: (input) => window.sciforge.readWorkspaceFile(input)
   }, {
     maxCharsPerFile: COMPOSER_FILE_CONTEXT_MAX_CHARS_PER_FILE,
     maxTotalChars: COMPOSER_FILE_CONTEXT_MAX_TOTAL_CHARS,
@@ -1820,8 +1817,8 @@ export function Workbench(): ReactElement {
       }
       setInput('')
       void (async () => {
-        const taskResult = typeof window.dsGui?.createClawTaskFromText === 'function'
-          ? await window.dsGui.createClawTaskFromText(v, {
+        const taskResult = typeof window.sciforge?.createClawTaskFromText === 'function'
+          ? await window.sciforge.createClawTaskFromText(v, {
               channelId: activeClawChannelId,
               modelHint: activeClawChannel?.model,
               mode
@@ -1937,8 +1934,8 @@ export function Workbench(): ReactElement {
       stageInsetClass={stageInsetClass}
       t={t}
       onOpenLogDir={
-        typeof window !== 'undefined' && typeof window.dsGui?.openLogDir === 'function'
-          ? () => window.dsGui.openLogDir()
+        typeof window !== 'undefined' && typeof window.sciforge?.openLogDir === 'function'
+          ? () => window.sciforge.openLogDir()
           : undefined
       }
       onOpenSettings={() => openSettings('agents')}
@@ -2223,8 +2220,8 @@ export function Workbench(): ReactElement {
                     }}
                     onOpenEvidenceDag={() => {
                       const id = (activeThreadId ?? '').trim()
-                      if (id && typeof window.dsGui?.openEvidenceDag === 'function') {
-                        void window.dsGui.openEvidenceDag({
+                      if (id && typeof window.sciforge?.openEvidenceDag === 'function') {
+                        void window.sciforge.openEvidenceDag({
                           threadId: id,
                           runtimeId: activeThread?.runtimeId
                         }).catch(() => undefined)

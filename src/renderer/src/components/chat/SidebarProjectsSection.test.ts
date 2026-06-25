@@ -144,19 +144,19 @@ describe('SidebarProjectsSection groups', () => {
     const groups = buildSidebarWorkspaceGroups({
       threads: [
         thread({ id: 'default-short', workspace: '~/.sciforge/default_workspace' }),
-        thread({ id: 'default-absolute', workspace: 'C:\\Users\\zxy\\.deepseekgui\\default_workspace' })
+        thread({ id: 'default-absolute', workspace: 'C:\\Users\\zxy\\.sciforge\\default_workspace' })
       ],
       searchQuery: '',
       showArchived: false,
       workspaceRoot: 'C:\\Users\\zxy\\.sciforge\\default_workspace',
       workspaceRoots: [
         '~/.sciforge/default_workspace',
-        'C:\\Users\\zxy\\.deepseekgui\\default_workspace'
+        'C:\\Users\\zxy\\.sciforge\\default_workspace'
       ]
     })
 
     expect(groups).toHaveLength(1)
-    expect(groups[0]?.[0]).toBe('~/.sciforge/default_workspace')
+    expect(groups[0]?.[0]).toBe('C:\\Users\\zxy\\.sciforge\\default_workspace')
     expect(groups[0]?.[1].map((item) => item.id)).toEqual(['default-short', 'default-absolute'])
   })
 

@@ -6,8 +6,7 @@ import {
 } from './sdd-draft-images'
 
 const DRAFT_ID = '123e4567-e89b-12d3-a456-426614174000'
-const DRAFT_PATH = `.deepseekgui/sdd/requirements/${DRAFT_ID}/requirement.md`
-const LEGACY_DRAFT_PATH = '.kunsdd/draft/draft-1/requirement.md'
+const DRAFT_PATH = `.sciforge/sdd/requirements/${DRAFT_ID}/requirement.md`
 
 describe('sdd draft image parsing', () => {
   it('parses local Markdown image references with alt text', () => {
@@ -24,9 +23,8 @@ describe('sdd draft image parsing', () => {
   })
 
   it('resolves draft-relative image paths into workspace-relative SDD paths', () => {
-    expect(resolveSddMarkdownImagePath(DRAFT_PATH, 'img/login.png')).toBe(`.deepseekgui/sdd/requirements/${DRAFT_ID}/img/login.png`)
-    expect(resolveSddMarkdownImagePath(DRAFT_PATH, `.deepseekgui/sdd/requirements/${DRAFT_ID}/img/direct.png`)).toBe(`.deepseekgui/sdd/requirements/${DRAFT_ID}/img/direct.png`)
-    expect(resolveSddMarkdownImagePath(LEGACY_DRAFT_PATH, '../../img/login.png')).toBe('.kunsdd/img/login.png')
+    expect(resolveSddMarkdownImagePath(DRAFT_PATH, 'img/login.png')).toBe(`.sciforge/sdd/requirements/${DRAFT_ID}/img/login.png`)
+    expect(resolveSddMarkdownImagePath(DRAFT_PATH, `.sciforge/sdd/requirements/${DRAFT_ID}/img/direct.png`)).toBe(`.sciforge/sdd/requirements/${DRAFT_ID}/img/direct.png`)
     expect(resolveSddMarkdownImagePath(DRAFT_PATH, '../../../../../outside.png')).toBeNull()
     expect(resolveSddMarkdownImagePath(DRAFT_PATH, '/tmp/outside.png')).toBeNull()
   })
@@ -58,15 +56,15 @@ describe('collectSddDraftImages', () => {
 
     expect(result.errors).toEqual([])
     expect(readOrder).toEqual([
-      `.deepseekgui/sdd/requirements/${DRAFT_ID}/img/a.png`,
-      `.deepseekgui/sdd/requirements/${DRAFT_ID}/img/b.png`
+      `.sciforge/sdd/requirements/${DRAFT_ID}/img/a.png`,
+      `.sciforge/sdd/requirements/${DRAFT_ID}/img/b.png`
     ])
     expect(result.images).toMatchObject([
       {
         index: 1,
         alt: 'First',
         markdownPath: 'img/a.png',
-        relativePath: `.deepseekgui/sdd/requirements/${DRAFT_ID}/img/a.png`,
+        relativePath: `.sciforge/sdd/requirements/${DRAFT_ID}/img/a.png`,
         mimeType: 'image/png',
         width: 640,
         height: 480
@@ -75,7 +73,7 @@ describe('collectSddDraftImages', () => {
         index: 2,
         alt: 'Second',
         markdownPath: 'img/b.png',
-        relativePath: `.deepseekgui/sdd/requirements/${DRAFT_ID}/img/b.png`
+        relativePath: `.sciforge/sdd/requirements/${DRAFT_ID}/img/b.png`
       }
     ])
   })

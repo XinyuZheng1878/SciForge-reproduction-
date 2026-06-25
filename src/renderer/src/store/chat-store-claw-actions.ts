@@ -56,7 +56,7 @@ function clawThreadPlaceholder(
   channel: ClawImChannelV1,
   threadId: string,
   workspaceRoot: string,
-  runtimeId: AgentRuntimeId = 'kun'
+  runtimeId: AgentRuntimeId = 'sciforge'
 ): NormalizedThread {
   return {
     id: threadId,
@@ -72,26 +72,19 @@ function clawThreadPlaceholder(
 export function clawThreadIdForProvider(
   channel: ClawImChannelV1,
   conversation?: ClawImChannelV1['conversations'][number] | null,
-  runtimeId: AgentRuntimeId = 'kun'
+  runtimeId: AgentRuntimeId = 'sciforge'
 ): string {
   const mapped =
     conversation?.agentThreadIds?.[runtimeId]?.trim() ||
     channel.agentThreadIds?.[runtimeId]?.trim() ||
     ''
   if (mapped) return mapped
-  if (runtimeId !== 'kun') return ''
-  if (conversation) {
-    const legacyConversationThreadId = conversation.localThreadId.trim()
-    if (legacyConversationThreadId) return legacyConversationThreadId
-  }
-  const legacyChannelThreadId = channel.threadId.trim()
-  if (legacyChannelThreadId) return legacyChannelThreadId
   return ''
 }
 
 function normalizeAgentRuntimeId(value: unknown): AgentRuntimeId {
-  if (value === 'codex' || value === 'claude') return value
-  return 'kun'
+  if (value === 'codex' || value === 'claude' || value === 'sciforge') return value
+  return 'sciforge'
 }
 
 function runtimeIdForProvider(provider: ClawAgentProviderLike, settings: { activeAgentRuntime?: AgentRuntimeId }): AgentRuntimeId {
@@ -149,7 +142,7 @@ export function findRecoverableClawThread(
   threads: NormalizedThread[],
   channels: ClawImChannelV1[],
   channel: ClawImChannelV1,
-  runtimeId: AgentRuntimeId = 'kun'
+  runtimeId: AgentRuntimeId = 'sciforge'
 ): NormalizedThread | null {
   const normalizedRuntimeId = normalizeAgentRuntimeId(runtimeId)
   const knownThreadIds = clawThreadIdsFromChannels(channels)
@@ -213,13 +206,13 @@ export function channelWithClawThreadMapping(
   threadId: string,
   now: string,
   conversationId?: string,
-  runtimeId: AgentRuntimeId = 'kun'
+  runtimeId: AgentRuntimeId = 'sciforge'
 ): ClawImChannelV1 {
   const normalizedRuntimeId = normalizeAgentRuntimeId(runtimeId)
   const channelThreadId = threadId.trim()
   const next: ClawImChannelV1 = {
     ...channel,
-    ...(normalizedRuntimeId === 'kun' ? { threadId: channelThreadId } : {}),
+    ...(normalizedRuntimeId === 'sciforge' ? { threadId: channelThreadId } : {}),
     runtimeId: normalizedRuntimeId,
     agentThreadIds: withAgentThreadId(channel.agentThreadIds, normalizedRuntimeId, channelThreadId),
     updatedAt: now
@@ -231,7 +224,7 @@ export function channelWithClawThreadMapping(
       conversation.id === conversationId
         ? {
             ...conversation,
-            ...(normalizedRuntimeId === 'kun' ? { localThreadId: channelThreadId } : {}),
+            ...(normalizedRuntimeId === 'sciforge' ? { localThreadId: channelThreadId } : {}),
             runtimeId: normalizedRuntimeId,
             agentThreadIds: withAgentThreadId(conversation.agentThreadIds, normalizedRuntimeId, channelThreadId),
             updatedAt: now
@@ -295,7 +288,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       }),
 
     refreshClawChannels: async () => {
-      if (typeof window.dsGui === 'undefined') return
+      if (typeof window.sciforge === 'undefined') return
       const settings = await rendererRuntimeClient.getSettings()
       const channels = settings.claw.channels
       const current = get().activeClawChannelId
@@ -313,7 +306,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
     },
 
     addClawChannel: async (provider, agentProfile, platformCredential, optionsArg) => {
-      if (typeof window.dsGui === 'undefined') return
+      if (typeof window.sciforge === 'undefined') return
       const preserveRoute = optionsArg?.preserveRoute === true
       const settings = await rendererRuntimeClient.getSettings()
       const targetChannelId = optionsArg?.channelId?.trim() ?? ''
@@ -404,7 +397,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         set({ activeClawChannelId: channelId, error: i18n.t('common:runtimeActionNeedsConnection') })
         return
       }
-      if (typeof window.dsGui === 'undefined') return
+      if (typeof window.sciforge === 'undefined') return
       const settings = await rendererRuntimeClient.getSettings()
       const channels = settings.claw.channels
       const channel = channels.find((item) => item.id === channelId)
@@ -511,7 +504,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         set({ activeClawChannelId: channelId, error: i18n.t('common:runtimeActionNeedsConnection') })
         return
       }
-      if (typeof window.dsGui === 'undefined') return
+      if (typeof window.sciforge === 'undefined') return
       const settings = await rendererRuntimeClient.getSettings()
       const channels = settings.claw.channels
       const channel = channels.find((item) => item.id === channelId)
@@ -523,10 +516,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       const requestedThreadId = threadId.trim()
       const conversation = channel.conversations.find((item) => {
         const itemRuntimeId = runtimeIdForClawConversation(channel, item, provider, settings)
-        return (
-          clawThreadIdForProvider(channel, item, itemRuntimeId) === requestedThreadId ||
-          item.localThreadId.trim() === requestedThreadId
-        )
+        return clawThreadIdForProvider(channel, item, itemRuntimeId) === requestedThreadId
       })
       if (!conversation) {
         await get().selectClawChannel(channelId)
@@ -597,7 +587,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
     },
 
     deleteClawChannel: async (channelId) => {
-      if (typeof window.dsGui === 'undefined') return
+      if (typeof window.sciforge === 'undefined') return
       const settings = await rendererRuntimeClient.getSettings()
       const channel = settings.claw.channels.find((item) => item.id === channelId)
       const channels = settings.claw.channels.filter((item) => item.id !== channelId)
@@ -629,7 +619,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         set({ error: i18n.t('common:runtimeActionNeedsConnection') })
         return
       }
-      if (typeof window.dsGui === 'undefined') return
+      if (typeof window.sciforge === 'undefined') return
       const settings = await rendererRuntimeClient.getSettings()
       const channel = settings.claw.channels.find((item) => item.id === channelId)
       if (!channel) return
@@ -689,7 +679,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
     },
 
     setClawChannelModel: async (channelId, model) => {
-      if (typeof window.dsGui === 'undefined') return
+      if (typeof window.sciforge === 'undefined') return
       const normalized = normalizeClawComposerModel(model)
       const settings = await rendererRuntimeClient.getSettings()
       const now = new Date().toISOString()

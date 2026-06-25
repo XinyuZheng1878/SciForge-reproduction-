@@ -13,12 +13,12 @@ afterEach(async () => {
 
 describe('logger', () => {
   it('redacts IM and authorization secrets before writing managed logs', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'deepseek-gui-logs-'))
+    const dir = await mkdtemp(join(tmpdir(), 'sciforge-logs-'))
     tempDirs.push(dir)
     configureLogger({ dir, enabled: true, retentionDays: 7 })
 
     await appendManagedLogLine(
-      'deepseek-gui',
+      'sciforge',
       'botToken=discord-bot-token appSecret: feishu-app-secret webhookSecret=local-webhook-secret Authorization: Bot discord-bot-token'
     )
 

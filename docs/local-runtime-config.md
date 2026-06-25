@@ -1,6 +1,6 @@
-# Kun Agent 与模型配置说明
+# SciForge Runtime Agent 与模型配置说明
 
-本文说明 SciForge / Kun 的本地配置文件在哪里、哪些字段由 UI 管理、哪些字段适合手工扩展，以及模型上下文压缩阈值应该如何配置。
+本文说明 SciForge / SciForge Runtime 的本地配置文件在哪里、哪些字段由 UI 管理、哪些字段适合手工扩展，以及模型上下文压缩阈值应该如何配置。
 
 ## 配置文件分层
 
@@ -14,32 +14,32 @@ SciForge 有两层配置。
    - Windows: `%APPDATA%/SciForge/sciforge-settings.json`
    - Linux: `~/.config/SciForge/sciforge-settings.json`
 
-   Agent 运行时设置在 `agents.kun` 下，例如端口、data dir、默认模型、审批策略、sandbox、token economy 等。多数用户通过设置页修改这些字段。
+   Agent 运行时设置在 `agents.sciforge` 下，例如端口、data dir、默认模型、审批策略、sandbox、token economy 等。多数用户通过设置页修改这些字段。
 
-2. Kun runtime config
+2. SciForge Runtime config
 
-   这是 Kun 本地运行时读取的高级配置文件。默认路径是：
+   这是 SciForge Runtime 本地运行时读取的高级配置文件。默认路径是：
 
    ```text
-   ~/.sciforge/kun/config.json
+   ~/.sciforge/runtime/config.json
    ```
 
-   如果 `agents.kun.dataDir` 改成了别的目录，实际路径就是：
+   如果 `agents.sciforge.dataDir` 改成了别的目录，实际路径就是：
 
    ```text
    <dataDir>/config.json
    ```
 
-   `kun serve --config <path>` 可以显式指定配置文件；如果没有指定，Kun 会尝试读取 `{dataDir}/config.json`。
+   standalone runtime 可以通过 `--config <path>` 显式指定配置文件；如果没有指定，SciForge Runtime 会尝试读取 `{dataDir}/config.json`。
 
 ## 启动时的读取顺序
 
-GUI 启动 Kun 时会按下面的顺序合并配置。
+GUI 启动 SciForge Runtime 时会按下面的顺序合并配置。
 
-1. GUI 读取 `sciforge-settings.json`，得到 `agents.kun` 和本地 Model Router 配置。
-2. GUI 在启动 Kun 前同步 `<dataDir>/config.json`，写入 UI 管理的 token economy、默认压缩摘要参数、默认模型 profiles、runtime tuning、MCP search 和附件能力。
-3. Kun serve 读取 `<dataDir>/config.json` 或 `--config` 指定的文件。
-4. CLI 参数和环境变量会覆盖 `serve` 里的基础启动字段，例如 `--model`、`--port`、`KUN_MODEL`、`KUN_PORT`。
+1. GUI 读取 `sciforge-settings.json`，得到 `agents.sciforge` 和本地 Model Router 配置。
+2. GUI 在启动 SciForge Runtime 前同步 `<dataDir>/config.json`，写入 UI 管理的 token economy、默认压缩摘要参数、默认模型 profiles、runtime tuning、MCP search 和附件能力。
+3. SciForge Runtime serve 读取 `<dataDir>/config.json` 或 `--config` 指定的文件。
+4. CLI 参数和环境变量会覆盖 `serve` 里的基础启动字段，例如 `--model`、`--port`、`SCIFORGE_MODEL`、`SCIFORGE_PORT`。
 5. AgentLoop、review loop 和子 Agent 都从同一份模型配置加载模型能力与上下文压缩阈值。
 
 ## 推荐的 config.json 结构
@@ -49,7 +49,7 @@ GUI 启动 Kun 时会按下面的顺序合并配置。
   "serve": {
     "host": "127.0.0.1",
     "port": 8899,
-    "dataDir": "~/.sciforge/kun",
+    "dataDir": "~/.sciforge/runtime",
     "runtimeToken": "",
     "apiKey": "local-runtime-router-key",
     "baseUrl": "http://127.0.0.1:3892/v1",
@@ -87,7 +87,7 @@ GUI 启动 Kun 时会按下面的顺序合并配置。
 
 模型相关配置写在顶层 `models.profiles`。
 
-每个 key 是模型 ID。GUI 启动 Kun 时，这个 ID 应优先是 Model Router 的 public model alias，例如 `sciforge-router`。模型 ID 会按小写匹配，也支持 provider 前缀，例如请求模型是 `vendor/deepseek-v4-pro` 时，也可以匹配 `deepseek-v4-pro`。
+每个 key 是模型 ID。GUI 启动 SciForge Runtime 时，这个 ID 应优先是 Model Router 的 public model alias，例如 `sciforge-router`。模型 ID 会按小写匹配，也支持 provider 前缀，例如请求模型是 `vendor/deepseek-v4-pro` 时，也可以匹配 `deepseek-v4-pro`。
 
 ```json
 {
@@ -127,7 +127,7 @@ GUI 启动 Kun 时会按下面的顺序合并配置。
 
 ## 默认模型 profile
 
-Kun 可以内置或同步 Model Router public alias 对应的模型画像：
+SciForge Runtime 可以内置或同步 Model Router public alias 对应的模型画像：
 
 ```json
 {
@@ -161,7 +161,7 @@ Kun 可以内置或同步 Model Router public alias 对应的模型画像：
 }
 ```
 
-也就是说，router public alias 可以表达 1M 上下文能力；正常情况下接近 `980k` input tokens 才触发上下文压缩，接近 `990k` 时进入更强的压缩策略。真实上游 provider、provider API key 和 provider model name 属于 Model Router 成员 profile，不写入 Kun runtime 配置。
+也就是说，router public alias 可以表达 1M 上下文能力；正常情况下接近 `980k` input tokens 才触发上下文压缩，接近 `990k` 时进入更强的压缩策略。真实上游 provider、provider API key 和 provider model name 属于 Model Router 成员 profile，不写入 SciForge Runtime 配置。
 
 ## 全局压缩配置写在哪里
 
@@ -191,16 +191,16 @@ Kun 可以内置或同步 Model Router public alias 对应的模型画像：
 
 ## Agent 配置写在哪里
 
-普通 Agent 运行时配置由 GUI settings 的 `agents.kun` 管理。主要字段：
+普通 Agent 运行时配置由 GUI settings 的 `agents.sciforge` 管理。主要字段：
 
 ```json
 {
   "agents": {
-    "kun": {
+    "sciforge": {
       "binaryPath": "",
       "port": 8899,
       "autoStart": true,
-      "dataDir": "~/.sciforge/kun",
+      "dataDir": "~/.sciforge/runtime",
       "model": "sciforge-router",
       "approvalPolicy": "auto",
       "sandboxMode": "workspace-write",
@@ -211,7 +211,7 @@ Kun 可以内置或同步 Model Router public alias 对应的模型画像：
 }
 ```
 
-设置页会保存这些字段。GUI 模式下默认模型以 `agents.kun.model` 为准；`config.json` 里的 `serve.model` 更适合 standalone `kun serve` 使用，因为 GUI 启动时会把设置页里的模型作为启动参数传给 Kun。
+设置页会保存这些字段。GUI 模式下默认模型以设置页中的 SciForge Runtime 模型为准；`config.json` 里的 `serve.model` 更适合 standalone runtime 使用，因为 GUI 启动时会把设置页里的模型作为启动参数传给 SciForge Runtime。
 
 ## 用户如何自定义
 
@@ -219,8 +219,8 @@ Kun 可以内置或同步 Model Router public alias 对应的模型画像：
 
 1. 在设置页修改端口、data dir、默认 public model alias、审批策略、sandbox 和 token economy。
 2. 打开 `<dataDir>/config.json`，在 `models.profiles` 里增加或覆盖模型 profile。
-3. 如果要把自定义 router alias 作为 GUI 默认模型，把 `agents.kun.model` 改成该 public model alias。
-4. 重启 Kun runtime，让新配置生效。
+3. 如果要把自定义 router alias 作为 GUI 默认模型，把 `agents.sciforge.model` 改成该 public model alias。
+4. 重启 SciForge Runtime，让新配置生效。
 
 自定义 1M 模型并在 950k 左右开始压缩：
 
@@ -293,9 +293,9 @@ Kun 可以内置或同步 Model Router public alias 对应的模型画像：
 
 ## 相关源码
 
-- 默认 GUI Agent 设置：`src/shared/app-settings-kun.ts`
+- 默认 GUI Agent 设置：`src/shared/app-settings-local-runtime.ts`
 - GUI 同步 `<dataDir>/config.json`：`src/main/kun-process.ts`
-- Kun config schema：`kun/src/config/kun-config.ts`
+- SciForge Runtime config schema：`kun/src/config/kun-config.ts`
 - 模型 profile 解析：`kun/src/loop/model-context-profile.ts`
 - 上下文压缩器：`kun/src/loop/context-compactor.ts`
 - serve 解析入口：`kun/src/cli/serve.ts`

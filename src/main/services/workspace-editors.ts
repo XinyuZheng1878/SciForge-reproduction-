@@ -335,7 +335,7 @@ function nativeImageToDataUrl(image: Electron.NativeImage): string | undefined {
 
 async function macIcnsPathToDataUrl(iconPath: string): Promise<string | undefined> {
   if (process.platform !== 'darwin') return undefined
-  const tmpPng = join(tmpdir(), `ds-gui-icon-${randomUUID()}.png`)
+  const tmpPng = join(tmpdir(), `sciforge-icon-${randomUUID()}.png`)
   try {
     await execFileAsync(
       '/usr/bin/sips',

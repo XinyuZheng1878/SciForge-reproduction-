@@ -10,7 +10,7 @@ import { createPortal } from 'react-dom'
 import { Bot, Brain, Check, ChevronDown, ChevronRight, Gauge } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { AgentRuntimeId } from '@shared/app-settings'
-import type { ModelProviderModelGroup } from '@shared/ds-gui-api'
+import type { ModelProviderModelGroup } from '@shared/sciforge-api'
 
 export type ComposerReasoningEffort = 'low' | 'medium' | 'high' | 'max'
 
@@ -38,7 +38,7 @@ const REASONING_OPTIONS: Array<{ id: ComposerReasoningEffort; labelKey: string }
 
 const RUNTIME_OPTIONS: Array<{ id: AgentRuntimeId; labelKey: string; shortLabelKey: string }> = [
   { id: 'codex', labelKey: 'composerRuntimeCodex', shortLabelKey: 'composerRuntimeCodexShort' },
-  { id: 'kun', labelKey: 'composerRuntimeKun', shortLabelKey: 'composerRuntimeKunShort' },
+  { id: 'sciforge', labelKey: 'composerRuntimeLocal', shortLabelKey: 'composerRuntimeLocalShort' },
   { id: 'claude', labelKey: 'composerRuntimeClaude', shortLabelKey: 'composerRuntimeClaudeShort' }
 ]
 
@@ -83,7 +83,7 @@ export function FloatingComposerModelPicker({
   composerModel,
   composerPickList,
   composerModelGroups = [],
-  activeAgentRuntime = 'kun',
+  activeAgentRuntime = 'sciforge',
   canChangeModel,
   stretch = false,
   composerReasoningEffort = 'max',
@@ -637,11 +637,11 @@ function reasoningLabelKey(value: ComposerReasoningEffort): string {
 
 function normalizeComposerRuntimeId(value: AgentRuntimeId | undefined): AgentRuntimeId {
   if (value === 'codex' || value === 'claude') return value
-  return 'kun'
+  return 'sciforge'
 }
 
 function runtimeShortLabelKey(value: AgentRuntimeId): string {
-  return RUNTIME_OPTIONS.find((option) => option.id === value)?.shortLabelKey ?? 'composerRuntimeKunShort'
+  return RUNTIME_OPTIONS.find((option) => option.id === value)?.shortLabelKey ?? 'composerRuntimeLocalShort'
 }
 
 function clamp(value: number, min: number, max: number): number {

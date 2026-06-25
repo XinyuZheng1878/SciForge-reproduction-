@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   runAgentCommand,
-  splitKunCliCommand,
+  splitLocalRuntimeCliCommand,
   type CliIo
 } from '../src/cli/agent-cli.js'
 import { ServeExitCode } from '../src/cli/serve.js'
@@ -109,7 +109,7 @@ function fakeRuntime(input: {
   }
 }
 
-describe('Kun agent CLI commands', () => {
+describe('Local runtime agent CLI commands', () => {
   let dataDir = ''
 
   beforeEach(async () => {
@@ -121,12 +121,12 @@ describe('Kun agent CLI commands', () => {
   })
 
   it('splits explicit commands and keeps legacy serve flags compatible', () => {
-    expect(splitKunCliCommand(['run', 'hello'])).toEqual({ command: 'run', args: ['hello'] })
-    expect(splitKunCliCommand(['--port', '9999'])).toEqual({
+    expect(splitLocalRuntimeCliCommand(['run', 'hello'])).toEqual({ command: 'run', args: ['hello'] })
+    expect(splitLocalRuntimeCliCommand(['--port', '9999'])).toEqual({
       command: 'serve',
       args: ['--port', '9999']
     })
-    expect(splitKunCliCommand(['nope']).error).toMatch(/unknown command/)
+    expect(splitLocalRuntimeCliCommand(['nope']).error).toMatch(/unknown command/)
   })
 
   it('lists tools from kun exec with JSON output', async () => {
@@ -282,7 +282,7 @@ describe('Kun agent CLI commands', () => {
   })
 
   it('shares config loading between serve and agent commands', async () => {
-    const configPath = join(dataDir, 'kun.config.json')
+    const configPath = join(dataDir, 'local-runtime.config.json')
     await writeFile(configPath, JSON.stringify({
       serve: {
         dataDir,

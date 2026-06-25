@@ -11,10 +11,10 @@ import './styles/write-rich-editor.css'
 import './styles/workflow-canvas.css'
 import App from './App'
 import './i18n'
-import { installDevDsGuiBridge } from './dev/dev-ds-gui-bridge'
+import { installDevSciForgeBridge } from './dev/dev-sciforge-bridge'
 
-installDevDsGuiBridge()
-document.documentElement.dataset.platform = window.dsGui?.platform ?? 'unknown'
+installDevSciForgeBridge()
+document.documentElement.dataset.platform = window.sciforge?.platform ?? 'unknown'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

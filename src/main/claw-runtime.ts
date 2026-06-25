@@ -36,9 +36,10 @@ import {
   getCodexRuntimeSettings,
   normalizeAgentRuntimeId,
   parseClawUserPromptForDisplay,
-  resolveKunRuntimeSettings,
+  resolveLocalRuntimeSettings,
   resolveRuntimeModelRouterSettings
 } from '../shared/app-settings'
+import { APP_WEBHOOK_SECRET_HEADER } from '../shared/app-brand'
 import type { AgentRuntimeThread } from '../shared/agent-runtime-contract'
 import { parseClawCommand } from '../shared/claw-commands'
 import { redactSecrets, redactSecretText } from '../shared/secret-redaction'
@@ -249,13 +250,13 @@ function effectiveImRuntimeModel(
 ): string {
   const trimmed = requestedModel.trim()
   if (trimmed && trimmed.toLowerCase() !== DEFAULT_CLAW_MODEL) return trimmed
-  if (runtimeId !== 'kun') {
+  if (runtimeId !== 'sciforge') {
     return resolveRuntimeModelRouterSettings(settings).model.trim() ||
       (runtimeId === 'codex' ? getCodexRuntimeSettings(settings).model.trim() : '') ||
       trimmed ||
       DEFAULT_CLAW_MODEL
   }
-  return resolveKunRuntimeSettings(settings).model.trim() || trimmed || DEFAULT_CLAW_MODEL
+  return resolveLocalRuntimeSettings(settings).model.trim() || trimmed || DEFAULT_CLAW_MODEL
 }
 
 function currentImMode(settings: AppSettingsV1): ClawRunMode {
@@ -339,7 +340,7 @@ function clawThreadIdForRuntime(
     channel?.agentThreadIds?.[runtimeId]?.trim() ||
     ''
   if (mapped) return mapped
-  if (runtimeId !== 'kun') return ''
+  if (runtimeId !== 'sciforge') return ''
   return conversation?.localThreadId.trim() || channel?.threadId.trim() || ''
 }
 
@@ -349,7 +350,7 @@ function clawConversationThreadIdForRuntime(
 ): string {
   const mapped = conversation?.agentThreadIds?.[runtimeId]?.trim() || ''
   if (mapped) return mapped
-  if (runtimeId !== 'kun') return ''
+  if (runtimeId !== 'sciforge') return ''
   return conversation?.localThreadId.trim() || ''
 }
 
@@ -373,8 +374,8 @@ function withClawThreadMapping<T extends ClawImChannelV1 | ClawImConversationV1>
   return {
     ...item,
     runtimeId,
-    ...(runtimeId === 'kun' && 'threadId' in item ? { threadId: trimmed } : {}),
-    ...(runtimeId === 'kun' && 'localThreadId' in item ? { localThreadId: trimmed } : {}),
+    ...(runtimeId === 'sciforge' && 'threadId' in item ? { threadId: trimmed } : {}),
+    ...(runtimeId === 'sciforge' && 'localThreadId' in item ? { localThreadId: trimmed } : {}),
     agentThreadIds: withAgentThreadId(item.agentThreadIds, runtimeId, trimmed)
   }
 }
@@ -2626,7 +2627,7 @@ export class ClawRuntime {
     threadId: string,
     workspaceRoot: string,
     context: Record<string, unknown>,
-    runtimeId: AgentRuntimeId = 'kun'
+    runtimeId: AgentRuntimeId = 'sciforge'
   ): Promise<ClawGeneratedFileV1[]> {
     const targetThreadId = threadId.trim()
     if (!targetThreadId) return []
@@ -3644,13 +3645,13 @@ export class ClawRuntime {
       if (url.pathname === '/claw/internal/gui-plan/create' && req.method === 'POST') {
         // The legacy `gui_plan_create` MCP bridge is no longer the
         // active plan path. GUI plan creation now flows through the
-        // native Kun `create_plan` tool. Reject legacy calls
+        // native local-runtime `create_plan` tool. Reject legacy calls
         // loudly so older clients see a clear migration error.
         writeJson(res, 410, {
           ok: false,
           code: 'gui_plan_create_retired',
           message:
-            'The /claw/internal/gui-plan/create endpoint is no longer active. Use the Kun create_plan tool.'
+            'The /claw/internal/gui-plan/create endpoint is no longer active. Use the create_plan tool.'
         })
         return
       }
@@ -3664,12 +3665,8 @@ export class ClawRuntime {
       }
       if (im.secret) {
         const auth = req.headers.authorization ?? ''
-        const headerSecret = Array.isArray(req.headers['x-sciforge-secret'])
-          ? req.headers['x-sciforge-secret'][0]
-          : req.headers['x-sciforge-secret'] ??
-            (Array.isArray(req.headers['x-deepseek-gui-secret'])
-              ? req.headers['x-deepseek-gui-secret'][0]
-              : req.headers['x-deepseek-gui-secret'])
+        const secretHeader = req.headers[APP_WEBHOOK_SECRET_HEADER]
+        const headerSecret = Array.isArray(secretHeader) ? secretHeader[0] : secretHeader
         if (auth !== `Bearer ${im.secret}` && headerSecret !== im.secret) {
           writeJson(res, 401, { ok: false, message: 'Unauthorized.' })
           return

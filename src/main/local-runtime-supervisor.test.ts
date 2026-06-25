@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RestartBudget } from './kun-runtime-supervisor'
+import { RestartBudget } from './local-runtime-supervisor'
 
 function budgetAt(clock: { value: number }): RestartBudget {
   return new RestartBudget({

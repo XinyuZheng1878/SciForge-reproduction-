@@ -18,6 +18,7 @@ export const TERMINAL_MAX_ROWS = 200
 
 export type TerminalCreatePayload = {
   sessionId: string
+  ownerToken?: string
   cwd?: string
   cols?: number
   rows?: number
@@ -45,5 +46,5 @@ export type TerminalExitPayload = {
 }
 
 export type TerminalCreateResult =
-  | { ok: true; sessionId: string; replayed?: boolean }
+  | { ok: true; sessionId: string; ownerToken: string; replayed?: boolean }
   | { ok: false; message: string }

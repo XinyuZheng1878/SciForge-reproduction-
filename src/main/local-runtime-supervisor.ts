@@ -1,6 +1,6 @@
-import type { KunRuntimeStatusPayload } from '../shared/ds-gui-api'
+import type { LocalRuntimeStatusPayload } from '../shared/sciforge-api'
 
-export type KunRuntimeStatus = KunRuntimeStatusPayload
+export type LocalRuntimeStatus = LocalRuntimeStatusPayload
 
 export type RestartVerdict =
   | { allowed: true; attempt: number; delayMs: number }

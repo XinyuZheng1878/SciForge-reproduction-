@@ -737,7 +737,7 @@ test('anthropic messages route through the text reasoner', async () => {
   const calls: CapturedFetch[] = [];
   const server = await startModelRouterServer({
     port: 0,
-    config: testConfig({ publicModelAlias: 'deepseek-gui-router' }),
+    config: testConfig({ publicModelAlias: 'sciforge-router' }),
     env: testEnv(),
     workspaceRoot,
     fetchImpl: captureFetch(calls, [
@@ -754,7 +754,7 @@ test('anthropic messages route through the text reasoner', async () => {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': 'runtime-secret' },
       body: JSON.stringify({
-        model: 'deepseek-gui-router',
+        model: 'sciforge-router',
         system: 'Answer tersely.',
         messages: [{ role: 'user', content: 'Reply with exactly: pong' }],
         max_tokens: 64,
@@ -764,7 +764,7 @@ test('anthropic messages route through the text reasoner', async () => {
     assert.equal(response.status, 200);
     const body = await response.json() as Record<string, any>;
     assert.equal(body.type, 'message');
-    assert.equal(body.model, 'deepseek-gui-router');
+    assert.equal(body.model, 'sciforge-router');
     assert.deepEqual(body.content, [{ type: 'text', text: 'pong' }]);
     assert.deepEqual(body.usage, {
       input_tokens: 12,
@@ -788,7 +788,7 @@ test('anthropic messages stream emits Claude-compatible SSE events', async () =>
   const calls: CapturedFetch[] = [];
   const server = await startModelRouterServer({
     port: 0,
-    config: testConfig({ publicModelAlias: 'deepseek-gui-router' }),
+    config: testConfig({ publicModelAlias: 'sciforge-router' }),
     env: testEnv(),
     workspaceRoot,
     fetchImpl: captureFetch(calls, [
@@ -805,7 +805,7 @@ test('anthropic messages stream emits Claude-compatible SSE events', async () =>
       method: 'POST',
       headers: runtimeHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({
-        model: 'deepseek-gui-router',
+        model: 'sciforge-router',
         messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with exactly: pong' }] }],
         max_tokens: 64,
         stream: true,
@@ -2904,7 +2904,7 @@ test('profile and provider configuration failures fail closed before upstream ca
     port: 0,
     config: testConfig(),
     env: {
-      DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY: 'runtime-secret',
+      SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY: 'runtime-secret',
       SCIFORGE_VISION_API_KEY: 'vision-secret',
     },
     workspaceRoot,
@@ -3306,7 +3306,7 @@ function testConfigWithoutVision(options: { traceRoot?: string; publicModelAlias
 
 function testEnv() {
   return {
-    DEEPSEEK_GUI_MODEL_ROUTER_RUNTIME_API_KEY: 'runtime-secret',
+    SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY: 'runtime-secret',
     SCIFORGE_TEXT_API_KEY: 'text-secret',
     SCIFORGE_VISION_API_KEY: 'vision-secret',
   };

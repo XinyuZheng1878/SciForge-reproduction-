@@ -20,11 +20,11 @@ export function GitBranchPicker({ workspaceRoot }: Props): ReactElement | null {
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   const load = useCallback(async (): Promise<void> => {
-    if (!root || typeof window.dsGui?.getGitBranches !== 'function') return
+    if (!root || typeof window.sciforge?.getGitBranches !== 'function') return
     setLoading(true)
     setError(null)
     try {
-      const next = await window.dsGui.getGitBranches(root)
+      const next = await window.sciforge.getGitBranches(root)
       setResult(next)
       if (!next.ok) setError(next.message)
     } catch (e) {
@@ -83,7 +83,7 @@ export function GitBranchPicker({ workspaceRoot }: Props): ReactElement | null {
     setActingBranch(branch)
     setError(null)
     try {
-      const next = await window.dsGui.switchGitBranch(root, branch)
+      const next = await window.sciforge.switchGitBranch(root, branch)
       setResult(next)
       if (!next.ok) {
         setError(next.message)
@@ -104,7 +104,7 @@ export function GitBranchPicker({ workspaceRoot }: Props): ReactElement | null {
     setActingBranch(branch)
     setError(null)
     try {
-      const next = await window.dsGui.createAndSwitchGitBranch(root, branch)
+      const next = await window.sciforge.createAndSwitchGitBranch(root, branch)
       setResult(next)
       if (!next.ok) {
         setError(next.message)

@@ -8,7 +8,7 @@ import {
   type McpClientLike
 } from '../src/adapters/tool/mcp-tool-provider.js'
 import { REDACTED_SECRET } from '../src/config/secret-redaction.js'
-import { KunCapabilitiesConfig, type McpServerConfig } from '../src/contracts/capabilities.js'
+import { LocalRuntimeCapabilitiesConfig, type McpServerConfig } from '../src/contracts/capabilities.js'
 import type { ToolHostContext } from '../src/ports/tool-host.js'
 
 function buildContext(workspace: string): ToolHostContext {
@@ -78,7 +78,7 @@ describe('MCP tool provider', () => {
   })
 
   it('builds registry providers from connected MCP clients and executes tools', async () => {
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         servers: {
@@ -120,7 +120,7 @@ describe('MCP tool provider', () => {
 
   it('repairs direct MCP tool arguments to satisfy numeric schema bounds', async () => {
     const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         servers: {
@@ -174,9 +174,9 @@ describe('MCP tool provider', () => {
     })
   })
 
-  it('injects Kun computer-use context into direct gui_computer_use calls', async () => {
+  it('injects local runtime computer-use context into direct gui_computer_use calls', async () => {
     const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         servers: {
@@ -229,15 +229,15 @@ describe('MCP tool provider', () => {
     expect(callInputs[0]?.arguments).toMatchObject({
       action: 'bind_target',
       targetId: 'desktop:global',
-      agentId: 'kun:thr_1',
+      agentId: 'sciforge-runtime:thr_1',
       threadId: 'thr_1',
       turnId: 'turn_1',
-      computerUseSessionId: 'kun:thr_1'
+      computerUseSessionId: 'sciforge-runtime:thr_1'
     })
   })
 
   it('uses BM25 MCP search meta tools when search discovery is enabled', async () => {
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         search: {
@@ -350,9 +350,9 @@ describe('MCP tool provider', () => {
     }
   })
 
-  it('injects Kun computer-use context through MCP search calls', async () => {
+  it('injects local runtime computer-use context through MCP search calls', async () => {
     const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         search: {
@@ -420,16 +420,16 @@ describe('MCP tool provider', () => {
     expect(callInputs[0]?.arguments).toMatchObject({
       action: 'bind_target',
       targetId: 'desktop:global',
-      agentId: 'kun:thr_1',
+      agentId: 'sciforge-runtime:thr_1',
       threadId: 'thr_1',
       turnId: 'turn_1',
-      computerUseSessionId: 'kun:thr_1'
+      computerUseSessionId: 'sciforge-runtime:thr_1'
     })
   })
 
   it('repairs MCP search call arguments using the selected tool schema', async () => {
     const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         search: { enabled: true, mode: 'search' },
@@ -488,7 +488,7 @@ describe('MCP tool provider', () => {
   })
 
   it('hides workspace-scoped tools outside trusted roots', async () => {
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         servers: {
@@ -517,7 +517,7 @@ describe('MCP tool provider', () => {
   })
 
   it('records diagnostics for failed MCP server connections', async () => {
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         servers: {
@@ -547,7 +547,7 @@ describe('MCP tool provider', () => {
   it('passes MCP timeouts and abort signals to discovery and execution', async () => {
     const listOptions: Array<{ signal?: AbortSignal; timeout?: number } | undefined> = []
     const callOptions: Array<{ signal?: AbortSignal; timeout?: number } | undefined> = []
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         servers: {
@@ -603,7 +603,7 @@ describe('MCP tool provider', () => {
   it('reconnects and retries once when an MCP tool call fails from a transient connection error', async () => {
     let factories = 0
     let closes = 0
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         servers: {
@@ -659,7 +659,7 @@ describe('MCP tool provider', () => {
   it('does not reconnect for deterministic MCP input validation failures', async () => {
     let factories = 0
     let closes = 0
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         servers: {
@@ -718,7 +718,7 @@ describe('MCP tool provider', () => {
 
   it('reports catalog drift after refreshing MCP search records', async () => {
     let expanded = false
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         search: { enabled: true, mode: 'search' },
@@ -765,7 +765,7 @@ describe('MCP tool provider', () => {
   })
 
   it('redacts secrets from MCP diagnostics', async () => {
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         servers: {
@@ -793,7 +793,7 @@ describe('MCP tool provider', () => {
 
   it('closes connected MCP clients during shutdown', async () => {
     let closed = 0
-    const config = KunCapabilitiesConfig.parse({
+    const config = LocalRuntimeCapabilitiesConfig.parse({
       mcp: {
         enabled: true,
         servers: {

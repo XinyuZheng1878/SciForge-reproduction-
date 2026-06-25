@@ -77,9 +77,7 @@ function parseEnvFile(content) {
 
 function loadLocalEnv() {
   const configured = (
-    process.env.SCIFORGE_RELEASE_ENV ||
-    process.env.DEEPSEEK_GUI_RELEASE_ENV ||
-    ''
+    process.env.SCIFORGE_RELEASE_ENV || ''
   ).trim()
   const candidates = [
     configured,
@@ -154,10 +152,9 @@ function readChannel(flags) {
   if (flags.has('stable')) return 'stable'
   if (flags.has('frontier')) return 'frontier'
   return normalizeChannel(
-    flags.get('channel') ||
+      flags.get('channel') ||
       process.env.RELEASE_CHANNEL ||
       process.env.SCIFORGE_UPDATE_CHANNEL ||
-      process.env.DEEPSEEK_GUI_UPDATE_CHANNEL ||
       DEFAULT_RELEASE_CHANNEL
   )
 }

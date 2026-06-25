@@ -41,7 +41,7 @@ export async function syncActiveSddDraftFromDisk(snapshot: SddDraftDiskSnapshot)
 
   let content = snapshot.content
   if (typeof content !== 'string') {
-    const result = await window.dsGui.readWorkspaceFile({
+    const result = await window.sciforge.readWorkspaceFile({
       workspaceRoot: draft.workspaceRoot,
       path: draft.relativePath
     })
@@ -68,7 +68,7 @@ export async function saveActiveSddDraftToDisk(): Promise<boolean> {
 
   useSddDraftStore.getState().setSaveStatus('saving')
   try {
-    const result = await window.dsGui.writeWorkspaceFile({
+    const result = await window.sciforge.writeWorkspaceFile({
       workspaceRoot: draft.workspaceRoot,
       path: draft.relativePath,
       content: snapshot.content

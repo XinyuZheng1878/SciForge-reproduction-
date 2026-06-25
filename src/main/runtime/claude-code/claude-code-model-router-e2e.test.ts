@@ -12,7 +12,7 @@ import {
   defaultClaudeRuntimeSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -54,7 +54,7 @@ function settings(input: { workspaceRoot: string; modelRouterBaseUrl: string }):
     activeAgentRuntime: 'claude',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       codex: defaultCodexRuntimeSettings(),
       claude: {
         ...defaultClaudeRuntimeSettings(),
@@ -65,7 +65,7 @@ function settings(input: { workspaceRoot: string; modelRouterBaseUrl: string }):
     modelRouter: {
       ...defaultModelRouterSettings(),
       baseUrl: input.modelRouterBaseUrl,
-      publicModelAlias: 'deepseek-gui-router',
+      publicModelAlias: 'sciforge-router',
       runtimeApiKey: 'local-runtime-router-key'
     },
     workspaceRoot: input.workspaceRoot,
@@ -85,7 +85,7 @@ function settings(input: { workspaceRoot: string; modelRouterBaseUrl: string }):
 function modelRouterConfig(): ModelRouterConfig {
   return {
     defaultProfile: 'default',
-    publicModelAlias: 'deepseek-gui-router',
+    publicModelAlias: 'sciforge-router',
     runtimeApiKeyEnv: 'MODEL_ROUTER_RUNTIME_KEY',
     profiles: {
       default: {

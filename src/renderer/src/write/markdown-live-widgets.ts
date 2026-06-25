@@ -168,8 +168,8 @@ export class ImageWidget extends WidgetType {
     image.alt = this.alt
     image.loading = 'lazy'
     wrapper.appendChild(image)
-    if (this.localPath && typeof window.dsGui?.readWorkspaceImage === 'function') {
-      void window.dsGui.readWorkspaceImage({ path: this.localPath })
+    if (this.localPath && typeof window.sciforge?.readWorkspaceImage === 'function') {
+      void window.sciforge.readWorkspaceImage({ path: this.localPath })
         .then((result) => {
           if (result.ok) image.src = result.dataUrl
         })

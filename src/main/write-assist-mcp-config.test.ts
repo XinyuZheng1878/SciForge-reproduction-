@@ -11,7 +11,7 @@ import { WriteAssistToolNames } from '../../packages/workers/write-assist/src/co
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -35,7 +35,7 @@ function createSettings(workspaceRoot = '/tmp/workspace'): AppSettingsV1 {
     provider: defaultModelProviderSettings(),
     modelRouter: defaultModelRouterSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings()
+      sciforge: defaultLocalRuntimeSettings()
     },
     workspaceRoot,
     log: {

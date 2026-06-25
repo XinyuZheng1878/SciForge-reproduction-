@@ -3,7 +3,7 @@ import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
@@ -17,7 +17,7 @@ import { rendererRuntimeClient } from './runtime-client'
 import { createDefaultAgentRuntimeCapabilities } from '@shared/agent-runtime-contract'
 
 function transportForRuntime(runtimeId: AgentRuntimeId): 'http_sse' | 'jsonrpc_stdio' | 'cli_process' {
-  return runtimeId === 'kun' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
+  return runtimeId === 'sciforge' ? 'http_sse' : runtimeId === 'claude' ? 'cli_process' : 'jsonrpc_stdio'
 }
 
 function settings(activeAgentRuntime: AgentRuntimeId): AppSettingsV1 {
@@ -30,7 +30,7 @@ function settings(activeAgentRuntime: AgentRuntimeId): AppSettingsV1 {
     provider: defaultModelProviderSettings(),
     modelRouter: defaultModelRouterSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
@@ -47,7 +47,7 @@ function settings(activeAgentRuntime: AgentRuntimeId): AppSettingsV1 {
   }
 }
 
-function installDsGui(activeAgentRuntime: AgentRuntimeId): {
+function installSciForge(activeAgentRuntime: AgentRuntimeId): {
   forbiddenDirectCall: ReturnType<typeof vi.fn>
   codexListThreads: ReturnType<typeof vi.fn>
   agentRuntimeListThreads: ReturnType<typeof vi.fn>
@@ -107,7 +107,7 @@ function installDsGui(activeAgentRuntime: AgentRuntimeId): {
     return { ok: true }
   })
   vi.stubGlobal('window', {
-    dsGui: {
+    sciforge: {
       getSettings: vi.fn(async () => settings(activeAgentRuntime)),
       setSettings: vi.fn(),
       agentRuntime: {
@@ -153,14 +153,14 @@ afterEach(() => {
 
 describe('registry provider selector', () => {
   it('returns a cached neutral provider', () => {
-    installDsGui('kun')
+    installSciForge('sciforge')
     const first = getProvider()
     const second = getProvider()
     expect(first).toBe(second)
   })
 
-  it('lists shared threads through neutral IPC while Kun is active', async () => {
-    const { forbiddenDirectCall, codexListThreads, agentRuntimeListThreads } = installDsGui('kun')
+  it('lists shared threads through neutral IPC while local runtime is active', async () => {
+    const { forbiddenDirectCall, codexListThreads, agentRuntimeListThreads } = installSciForge('sciforge')
 
     await expect(getProvider().listThreads()).resolves.toEqual([])
 
@@ -170,7 +170,7 @@ describe('registry provider selector', () => {
   })
 
   it('lists shared threads through neutral IPC while Codex is active', async () => {
-    const { forbiddenDirectCall, codexListThreads, agentRuntimeListThreads } = installDsGui('codex')
+    const { forbiddenDirectCall, codexListThreads, agentRuntimeListThreads } = installSciForge('codex')
     const provider = getProvider()
 
     await expect(provider.connect()).resolves.toBeUndefined()
@@ -189,7 +189,7 @@ describe('registry provider selector', () => {
       agentRuntimeReadThread,
       agentRuntimeResolveApproval,
       agentRuntimeResolveUserInput
-    } = installDsGui('codex')
+    } = installSciForge('codex')
     const provider = getProvider()
     provider.rememberThreadRuntime?.('thread-1', 'codex')
 
@@ -223,14 +223,14 @@ describe('registry provider selector', () => {
       agentRuntimeForkThread,
       agentRuntimeResumeSession,
       agentRuntimeUpdateThreadRelation
-    } = installDsGui('kun')
+    } = installSciForge('sciforge')
     const provider = getProvider()
-    provider.rememberThreadRuntime?.('thread-1', 'kun')
+    provider.rememberThreadRuntime?.('thread-1', 'sciforge')
 
     await expect(provider.forkThread?.('thread-1', {
       relation: 'side',
       title: 'Side path'
-    })).resolves.toEqual(expect.objectContaining({ id: 'side-thread', runtimeId: 'kun' }))
+    })).resolves.toEqual(expect.objectContaining({ id: 'side-thread', runtimeId: 'sciforge' }))
     await expect(provider.resumeSession?.('session-1', {
       model: 'deepseek-v4-pro',
       mode: 'agent'
@@ -238,19 +238,19 @@ describe('registry provider selector', () => {
     await expect(provider.updateThreadRelation?.('thread-1', 'primary')).resolves.toBeUndefined()
 
     expect(agentRuntimeForkThread).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       relation: 'side',
       title: 'Side path'
     })
     expect(agentRuntimeResumeSession).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       sessionId: 'session-1',
       model: 'deepseek-v4-pro',
       mode: 'agent'
     })
     expect(agentRuntimeUpdateThreadRelation).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       relation: 'primary'
     })
@@ -263,11 +263,11 @@ describe('registry provider selector', () => {
       forbiddenDirectCall,
       codexListThreads,
       agentRuntimeAuxiliary
-    } = installDsGui('codex')
+    } = installSciForge('codex')
     const provider = getProvider()
 
     await expect(provider.listGitCheckpoints?.({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       workspaceRoot: '/tmp/workspace'
     })).resolves.toEqual([])
@@ -275,10 +275,10 @@ describe('registry provider selector', () => {
     await expect(provider.restoreGitCheckpoint?.('checkpoint-1', { force: true })).resolves.toEqual({ ok: true })
 
     expect(agentRuntimeAuxiliary).toHaveBeenNthCalledWith(1, {
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       operation: 'listGitCheckpoints',
       payload: {
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         threadId: 'thread-1',
         workspaceRoot: '/tmp/workspace'
       }
@@ -302,7 +302,7 @@ describe('registry provider selector', () => {
       forbiddenDirectCall,
       codexListThreads,
       agentRuntimeAuxiliary
-    } = installDsGui('kun')
+    } = installSciForge('sciforge')
     const provider = getProvider()
 
     await expect(provider.runCodeNavigation?.({
@@ -314,7 +314,7 @@ describe('registry provider selector', () => {
     })).resolves.toEqual({ ok: true })
 
     expect(agentRuntimeAuxiliary).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       operation: 'runCodeNavigation',
       payload: {
         workspaceRoot: '/tmp/workspace',

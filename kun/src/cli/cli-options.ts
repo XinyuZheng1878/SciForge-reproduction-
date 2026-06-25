@@ -14,8 +14,8 @@ import {
   TokenEconomyConfigSchema
 } from '../config/kun-config.js'
 import {
-  DEFAULT_KUN_CAPABILITIES_CONFIG,
-  KunCapabilitiesConfig
+  DEFAULT_LOCAL_RUNTIME_CAPABILITIES_CONFIG,
+  LocalRuntimeCapabilitiesConfig
 } from '../contracts/capabilities.js'
 
 export const DEFAULT_SERVE_PORT = 8899
@@ -23,7 +23,7 @@ export const DEFAULT_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
 export const DEFAULT_SERVE_MODEL = 'sciforge-router'
 
 /**
- * Validated CLI options for `kun serve`.
+ * Validated CLI options for SciForge Runtime serve mode.
  *
  * `host` and `port` decide the bind address. `dataDir` is the on-disk root
  * for thread JSONL logs and indexes. `runtimeToken` is the bearer token
@@ -49,7 +49,7 @@ export const ServeOptionsSchema = z.object({
   models: ModelConfigSchema.optional(),
   contextCompaction: ContextCompactionConfigSchema.optional(),
   runtime: RuntimeTuningConfigSchema.optional(),
-  capabilities: KunCapabilitiesConfig.default(DEFAULT_KUN_CAPABILITIES_CONFIG)
+  capabilities: LocalRuntimeCapabilitiesConfig.default(DEFAULT_LOCAL_RUNTIME_CAPABILITIES_CONFIG)
 })
 export type ServeOptions = z.infer<typeof ServeOptionsSchema>
 
@@ -67,5 +67,5 @@ export const DEFAULT_SERVE_OPTIONS: ServeOptions = {
   tokenEconomyMode: false,
   insecure: false,
   storage: DEFAULT_STORAGE_CONFIG,
-  capabilities: DEFAULT_KUN_CAPABILITIES_CONFIG
+  capabilities: DEFAULT_LOCAL_RUNTIME_CAPABILITIES_CONFIG
 }

@@ -23,7 +23,6 @@ release_export_update_channel() {
   RELEASE_CHANNEL="$(release_normalize_channel "${RELEASE_CHANNEL:-frontier}")"
   export RELEASE_CHANNEL
   export SCIFORGE_UPDATE_CHANNEL="${RELEASE_CHANNEL}"
-  export DEEPSEEK_GUI_UPDATE_CHANNEL="${RELEASE_CHANNEL}"
   cyan "  Channel: ${RELEASE_CHANNEL}"
 }
 
@@ -43,7 +42,7 @@ release_root() {
 }
 
 release_load_local_env() {
-  local env_file="${SCIFORGE_RELEASE_ENV:-${DEEPSEEK_GUI_RELEASE_ENV:-}}"
+  local env_file="${SCIFORGE_RELEASE_ENV:-}"
 
   if [[ -z "${env_file}" ]]; then
     if [[ -f "${ROOT}/scripts/release.local.env" ]]; then
@@ -121,7 +120,6 @@ release_compute_version() {
 release_export_app_version() {
   release_validate_semver "${RELEASE_VERSION}" || die "Invalid release version for electron-updater: ${RELEASE_VERSION}"
   export SCIFORGE_APP_VERSION="${RELEASE_VERSION}"
-  export DEEPSEEK_GUI_APP_VERSION="${RELEASE_VERSION}"
   cyan "  App:     ${SCIFORGE_APP_VERSION}"
 }
 
@@ -159,7 +157,7 @@ release_acquire_lock() {
 
 release_clean_dist_artifacts() {
   rm -rf "${ROOT}/dist/mac" "${ROOT}/dist/mac-arm64" "${ROOT}/dist/.mac-build" "${ROOT}/dist/win-unpacked" "${ROOT}/dist/linux-unpacked"
-  rm -f "${ROOT}"/dist/SciForge-* "${ROOT}"/dist/DeepSeek-GUI-* "${ROOT}"/dist/DeepSeek\ GUI-* "${ROOT}"/dist/latest*.yml "${ROOT}"/dist/*.blockmap
+  rm -f "${ROOT}"/dist/SciForge-* "${ROOT}"/dist/latest*.yml "${ROOT}"/dist/*.blockmap
 }
 
 release_apply_signing_env() {

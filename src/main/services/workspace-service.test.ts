@@ -16,7 +16,7 @@ vi.mock('electron', () => ({
   }
 }))
 
-import { clipboard } from 'electron'
+import { clipboard, shell } from 'electron'
 
 import {
   copyWorkspaceEntry,
@@ -24,6 +24,7 @@ import {
   createWorkspaceFile,
   deleteWorkspaceEntry,
   listWorkspaceDirectory,
+  openEditorPath,
   readClipboardImage,
   readWorkspaceImage,
   readWorkspaceFile,
@@ -41,7 +42,9 @@ describe('workspace-service boundary checks', () => {
 
   beforeEach(async () => {
     vi.mocked(clipboard.readImage).mockReset()
-    rootDir = await mkdtemp(join(tmpdir(), 'ds-gui-workspace-'))
+    vi.mocked(shell.openPath).mockReset()
+    vi.mocked(shell.openPath).mockResolvedValue('')
+    rootDir = await mkdtemp(join(tmpdir(), 'sciforge-workspace-'))
     workspaceRoot = join(rootDir, 'workspace')
     outsideFile = join(rootDir, 'outside.txt')
     await mkdir(workspaceRoot, { recursive: true })
@@ -83,6 +86,31 @@ describe('workspace-service boundary checks', () => {
     if (!result.ok) {
       expect(result.message).toContain('within the selected workspace')
     }
+  })
+
+  it('rejects absolute workspace file operations without a workspace root', async () => {
+    const imagePath = join(rootDir, 'outside.png')
+    await writeFile(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+
+    const results = await Promise.all([
+      resolveWorkspaceFile({ path: outsideFile }),
+      readWorkspaceFile({ path: outsideFile }),
+      readWorkspaceImage({ path: imagePath }),
+      writeWorkspaceFile({ path: outsideFile, content: 'overwrite' }),
+      createWorkspaceFile({ path: join(rootDir, 'created.txt'), workspaceRoot: '', content: 'created' }),
+      createWorkspaceDirectory({ path: join(rootDir, 'created-dir'), workspaceRoot: '' }),
+      deleteWorkspaceEntry({ path: outsideFile, workspaceRoot: '' }),
+      openEditorPath({ path: outsideFile, editorId: 'system' })
+    ])
+
+    for (const result of results) {
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.message).toContain('Workspace root is required')
+      }
+    }
+    expect(shell.openPath).not.toHaveBeenCalled()
+    await expect(readFile(outsideFile, 'utf8')).resolves.toBe('outside')
   })
 
   it('lists directories and files inside the selected workspace', async () => {
@@ -215,8 +243,8 @@ describe('workspace-service boundary checks', () => {
 
   it('saves SDD pasted clipboard images into the requirement image directory', async () => {
     const draftId = '123e4567-e89b-12d3-a456-426614174000'
-    const currentFilePath = join(workspaceRoot, '.deepseekgui', 'sdd', 'requirements', draftId, 'requirement.md')
-    await mkdir(join(workspaceRoot, '.deepseekgui', 'sdd', 'requirements', draftId), { recursive: true })
+    const currentFilePath = join(workspaceRoot, '.sciforge', 'sdd', 'requirements', draftId, 'requirement.md')
+    await mkdir(join(workspaceRoot, '.sciforge', 'sdd', 'requirements', draftId), { recursive: true })
     await writeFile(currentFilePath, '# requirement', 'utf8')
 
     vi.mocked(clipboard.readImage).mockReturnValue({
@@ -227,13 +255,13 @@ describe('workspace-service boundary checks', () => {
     const result = await saveWorkspaceClipboardImage({
       workspaceRoot,
       currentFilePath,
-      imageDirectory: `.deepseekgui/sdd/requirements/${draftId}/img`
+      imageDirectory: `.sciforge/sdd/requirements/${draftId}/img`
     })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    expect(await realpath(dirname(result.path))).toBe(await realpath(join(workspaceRoot, '.deepseekgui', 'sdd', 'requirements', draftId, 'img')))
+    expect(await realpath(dirname(result.path))).toBe(await realpath(join(workspaceRoot, '.sciforge', 'sdd', 'requirements', draftId, 'img')))
     expect(result.markdownPath.startsWith('img/pasted-image-')).toBe(true)
     await expect(readFile(result.path)).resolves.toEqual(Buffer.from('sdd-png-bytes'))
   })

@@ -1,7 +1,7 @@
 import { URL } from 'node:url'
 import type { AppSettingsV1 } from '../shared/app-settings'
-import { kunThreadEventsPath } from '../shared/kun-endpoints'
-import { getRuntimeBaseUrlForSettings, runtimeAuthHeaders } from './runtime/kun-adapter'
+import { localRuntimeThreadEventsPath } from '../shared/local-runtime-endpoints'
+import { getRuntimeBaseUrlForSettings, runtimeAuthHeaders } from './runtime/local-runtime-adapter'
 import type { RuntimeHostEventPayload } from './runtime/runtime-host'
 
 const SSE_RECONNECT_BASE_MS = 750
@@ -129,7 +129,7 @@ async function fetchSseWithStartTimeout(
   }
 }
 
-export async function* kunRuntimeEvents(
+export async function* localRuntimeEvents(
   settings: AppSettingsV1,
   threadId: string,
   sinceSeq: number,
@@ -143,7 +143,7 @@ export async function* kunRuntimeEvents(
   let nextSinceSeq = sinceSeq
   let reconnectDelayMs = SSE_RECONNECT_BASE_MS
   while (!signal.aborted) {
-    const url = new URL(`${base}${kunThreadEventsPath(threadId)}`)
+    const url = new URL(`${base}${localRuntimeThreadEventsPath(threadId)}`)
     url.searchParams.set('since_seq', String(nextSinceSeq))
     const requestHeaders = { ...headers }
     if (nextSinceSeq > 0) {

@@ -497,7 +497,7 @@ describe('AgentLoop', () => {
 	    expect(items.find((item) => item.kind === 'error' && item.code === 'tool_catalog_changed'))
 	      .toMatchObject({
 	        kind: 'error',
-	        message: expect.stringContaining('Kun stopped this turn')
+	        message: expect.stringContaining('SciForge Runtime stopped this turn')
 	      })
 	  })
 
@@ -1554,8 +1554,8 @@ describe('AgentLoop', () => {
           guiPlan: {
             operation: 'draft',
             workspaceRoot: workspace,
-            relativePath: '.kunsdd/plan/auth.md',
-            planId: `${workspace}:.kunsdd/plan/auth.md`,
+            relativePath: '.sciforge/plan/auth.md',
+            planId: `${workspace}:.sciforge/plan/auth.md`,
             sourceRequest: 'Add auth',
             title: 'Auth'
           }
@@ -1565,16 +1565,16 @@ describe('AgentLoop', () => {
       expect(status).toBe('completed')
       expect(observedToolLists[0]).toContain(CREATE_PLAN_TOOL_NAME)
       expect(observedRequiredToolNames).toEqual([CREATE_PLAN_TOOL_NAME, undefined])
-      await expect(readFile(join(workspace, '.kunsdd/plan/auth.md'), 'utf8')).resolves.toBe('# Generated plan')
+      await expect(readFile(join(workspace, '.sciforge/plan/auth.md'), 'utf8')).resolves.toBe('# Generated plan')
       const turn = await h.turns.getTurn(h.threadId, h.turnId)
-      expect(turn?.guiPlan?.relativePath).toBe('.kunsdd/plan/auth.md')
+      expect(turn?.guiPlan?.relativePath).toBe('.sciforge/plan/auth.md')
       const items = await h.sessionStore.loadItems(h.threadId)
       const result = items.find((item) => item.kind === 'tool_result' && item.callId === 'call_plan')
       expect(result).toBeDefined()
       if (result?.kind === 'tool_result') {
         expect(result.toolName).toBe(CREATE_PLAN_TOOL_NAME)
         expect(result.output).toMatchObject({
-          relative_path: '.kunsdd/plan/auth.md',
+          relative_path: '.sciforge/plan/auth.md',
           workspace_root: workspace,
           operation: 'draft'
         })
@@ -1605,8 +1605,8 @@ describe('AgentLoop', () => {
           guiPlan: {
             operation: 'draft',
             workspaceRoot: workspace,
-            relativePath: '.kunsdd/plan/auth.md',
-            planId: `${workspace}:.kunsdd/plan/auth.md`,
+            relativePath: '.sciforge/plan/auth.md',
+            planId: `${workspace}:.sciforge/plan/auth.md`,
             sourceRequest: 'Add auth'
           }
         }
@@ -1616,7 +1616,7 @@ describe('AgentLoop', () => {
       const items = await h.sessionStore.loadItems(h.threadId)
 
       expect(status).toBe('completed')
-      await expect(readFile(join(workspace, '.kunsdd/plan/auth.md'), 'utf8')).resolves.toBe(
+      await expect(readFile(join(workspace, '.sciforge/plan/auth.md'), 'utf8')).resolves.toBe(
         '## Plan\nImplement auth.'
       )
       expect(items.some((item) =>
@@ -1662,8 +1662,8 @@ describe('AgentLoop', () => {
       expect(
         planResult?.kind === 'tool_result' &&
         (planResult.output as { relative_path?: string }).relative_path
-      ).toBe('.kunsdd/plan/plan-sidebar-footer-polish.md')
-      await expect(readFile(join(workspace, '.kunsdd/plan/plan-sidebar-footer-polish.md'), 'utf8')).resolves.toBe(
+      ).toBe('.sciforge/plan/plan-sidebar-footer-polish.md')
+      await expect(readFile(join(workspace, '.sciforge/plan/plan-sidebar-footer-polish.md'), 'utf8')).resolves.toBe(
         '## Plan\nPolish the sidebar footer.'
       )
     } finally {
@@ -1691,8 +1691,8 @@ describe('AgentLoop', () => {
           guiPlan: {
             operation: 'draft',
             workspaceRoot: workspace,
-            relativePath: '.kunsdd/plan/auth.md',
-            planId: `${workspace}:.kunsdd/plan/auth.md`,
+            relativePath: '.sciforge/plan/auth.md',
+            planId: `${workspace}:.sciforge/plan/auth.md`,
             sourceRequest: 'Add auth'
           }
         }
@@ -1749,8 +1749,8 @@ describe('AgentLoop', () => {
           guiPlan: {
             operation: 'draft',
             workspaceRoot: workspace,
-            relativePath: '.kunsdd/plan/auth.md',
-            planId: `${workspace}:.kunsdd/plan/auth.md`,
+            relativePath: '.sciforge/plan/auth.md',
+            planId: `${workspace}:.sciforge/plan/auth.md`,
             sourceRequest: 'Add auth'
           }
         }
@@ -1760,7 +1760,7 @@ describe('AgentLoop', () => {
 
       expect(status).toBe('completed')
       expect(observedRequiredToolNames).toEqual([CREATE_PLAN_TOOL_NAME, CREATE_PLAN_TOOL_NAME, undefined])
-      await expect(readFile(join(workspace, '.kunsdd/plan/auth.md'), 'utf8')).resolves.toBe(
+      await expect(readFile(join(workspace, '.sciforge/plan/auth.md'), 'utf8')).resolves.toBe(
         '## Plan\nImplement auth after checking context.'
       )
     } finally {

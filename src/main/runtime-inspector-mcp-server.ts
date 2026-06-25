@@ -46,18 +46,18 @@ function runtimeInspectorServiceOptionsFromArgv(
       }
       continue
     }
-    if (arg === '--kun-base-url') {
+    if (arg === '--runtime-base-url') {
       const value = argv[index + 1]
       if (value) {
-        serviceOptions.kunBaseUrl = value
+        serviceOptions.runtimeBaseUrl = value
         index += 1
       }
       continue
     }
-    if (arg === '--kun-runtime-token') {
+    if (arg === '--runtime-token') {
       const value = argv[index + 1]
       if (value) {
-        serviceOptions.kunRuntimeToken = value
+        serviceOptions.runtimeToken = value
         index += 1
       }
       continue

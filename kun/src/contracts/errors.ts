@@ -1,14 +1,14 @@
 import { z } from 'zod'
 
 /**
- * Structured API error codes returned by every Kun HTTP/SSE endpoint.
+ * Structured API error codes returned by every SciForge Runtime HTTP/SSE endpoint.
  *
- * The error contract mirrors what DeepSeek-GUI diagnostics can render:
+ * The error contract mirrors what SciForge diagnostics can render:
  * the renderer needs a stable `code` to drive UI state and a human-readable
  * `message` to surface in toasts. `details` carries optional, JSON-encodable
  * per-endpoint information (for example a Zod issue list).
  */
-export const KunErrorCode = z.enum([
+export const LocalRuntimeErrorCode = z.enum([
   'validation_error',
   'unauthorized',
   'forbidden',
@@ -27,14 +27,14 @@ export const KunErrorCode = z.enum([
   'not_implemented',
   'aborted'
 ])
-export type KunErrorCode = z.infer<typeof KunErrorCode>
+export type LocalRuntimeErrorCode = z.infer<typeof LocalRuntimeErrorCode>
 
 export const RuntimeErrorSeverity = z.enum(['info', 'warning', 'error'])
 export type RuntimeErrorSeverity = z.infer<typeof RuntimeErrorSeverity>
 
-export const KunErrorBody = z.object({
-  code: KunErrorCode,
+export const LocalRuntimeErrorBody = z.object({
+  code: LocalRuntimeErrorCode,
   message: z.string(),
   details: z.unknown().optional()
 })
-export type KunErrorBody = z.infer<typeof KunErrorBody>
+export type LocalRuntimeErrorBody = z.infer<typeof LocalRuntimeErrorBody>

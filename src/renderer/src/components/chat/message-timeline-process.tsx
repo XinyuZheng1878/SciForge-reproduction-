@@ -592,7 +592,7 @@ function ProcessFileReference({
     event.stopPropagation()
     void openWorkspacePathInEditor({ path }, workspaceRoot).then((result) => {
       if (!result.ok) {
-        void window.dsGui?.logError?.('editor-open', 'Failed to open process file reference', {
+        void window.sciforge?.logError?.('editor-open', 'Failed to open process file reference', {
           message: result.message,
           target: { path, workspaceRoot }
         })?.catch(() => undefined)

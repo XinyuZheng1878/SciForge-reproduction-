@@ -3,7 +3,6 @@ import {
   SDD_DRAFT_FILE_NAME,
   SDD_IMAGE_RELATIVE_DIR,
   buildSddDraftRelativePath,
-  buildLegacySddDraftRelativePath,
   isSddDraftRelativePath,
   isSddImageRelativePath,
   normalizeSddRelativePath,
@@ -18,13 +17,11 @@ describe('sdd shared paths', () => {
     expect(buildSddDraftRelativePath(id)).toBe(`.sciforge/sdd/requirements/${id}/${SDD_DRAFT_FILE_NAME}`)
   })
 
-  it('validates current and legacy uuid-backed requirement drafts', () => {
+  it('validates current uuid-backed requirement drafts', () => {
     expect(isSddDraftRelativePath('.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md')).toBe(true)
-    expect(isSddDraftRelativePath('.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md')).toBe(true)
-    expect(isSddDraftRelativePath('.kunsdd/draft/123e4567-e89b-12d3-a456-426614174000/requirement.md')).toBe(true)
-    expect(isSddDraftRelativePath('.kunsdd/draft/not-a-uuid/requirement.md')).toBe(false)
-    expect(isSddDraftRelativePath('.kunsdd/draft/123e4567-e89b-12d3-a456-426614174000/other.md')).toBe(false)
-    expect(isSddDraftRelativePath('.kunsdd/draft/123e4567-e89b-12d3-a456-426614174000/nested/requirement.md')).toBe(false)
+    expect(isSddDraftRelativePath('.sciforge/sdd/requirements/not-a-uuid/requirement.md')).toBe(false)
+    expect(isSddDraftRelativePath('.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/other.md')).toBe(false)
+    expect(isSddDraftRelativePath('.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/nested/requirement.md')).toBe(false)
   })
 
   it('normalizes separators before image validation', () => {
@@ -33,33 +30,25 @@ describe('sdd shared paths', () => {
     expect(isSddImageRelativePath(`.sciforge/sdd/requirements/${id}/img/wireframe.png`)).toBe(true)
     expect(isSddImageRelativePath(`.sciforge/sdd/requirements/${id}/img/nested/wireframe.png`)).toBe(true)
     expect(isSddImageRelativePath(`.sciforge/sdd/requirements/${id}/img/../escape.png`)).toBe(false)
-    expect(isSddImageRelativePath(`.deepseekgui/sdd/requirements/${id}/img/wireframe.png`)).toBe(true)
     expect(isSddImageRelativePath(`${SDD_IMAGE_RELATIVE_DIR}/wireframe.png`)).toBe(false)
-    expect(isSddImageRelativePath('.kunsdd/img/legacy.png')).toBe(true)
     expect(isSddImageRelativePath('img/wireframe.png')).toBe(false)
   })
 
-  it('derives unit paths without migrating legacy drafts', () => {
+  it('derives unit paths for current drafts', () => {
     const id = '123e4567-e89b-12d3-a456-426614174000'
     const current = buildSddDraftRelativePath(id)
-    const legacy = buildLegacySddDraftRelativePath(id)
 
     expect(sddUnitImageDir(current)).toBe(`.sciforge/sdd/requirements/${id}/img`)
     expect(sddDraftTraceRelativePath(current)).toBe(`.sciforge/sdd/requirements/${id}/trace.json`)
-    expect(sddUnitImageDir(legacy)).toBe('.kunsdd/img')
-    expect(sddDraftTraceRelativePath(legacy)).toBeNull()
   })
 
-  it('maps SDD plan paths back to current or legacy drafts', () => {
+  it('maps current SDD plan paths back to drafts', () => {
     const id = '123e4567-e89b-12d3-a456-426614174000'
     expect(sddDraftRelativePathForPlanPath(`.sciforge/plan/sdd-${id}.md`)).toBe(
       `.sciforge/sdd/requirements/${id}/requirement.md`
     )
-    expect(sddDraftRelativePathForPlanPath(`.deepseekgui/plan/sdd-${id}.md`)).toBe(
-      `.deepseekgui/sdd/requirements/${id}/requirement.md`
-    )
-    expect(sddDraftRelativePathForPlanPath(`.kunsdd/plan/sdd-${id}.md`)).toBe(
-      `.kunsdd/draft/${id}/requirement.md`
+    expect(sddDraftRelativePathForPlanPath(`.sciforge/plan/sdd-${id}-2.md`)).toBe(
+      `.sciforge/sdd/requirements/${id}/requirement.md`
     )
     expect(sddDraftRelativePathForPlanPath('.sciforge/plan/other.md')).toBeNull()
   })

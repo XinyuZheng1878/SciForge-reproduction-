@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
@@ -60,10 +60,7 @@ function settingsWith(
       runtimeApiKey: 'local-runtime-router-key'
     },
     agents: {
-      kun: {
-        ...defaultKunRuntimeSettings(),
-        apiKey: 'test-key'
-      }
+      sciforge: defaultLocalRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: true, retentionDays: 7 },
@@ -125,9 +122,10 @@ async function postInternal(
   port: number,
   path: string,
   body: Record<string, unknown>,
-  secret = ''
+  secret = '',
+  extraHeaders: Record<string, string> = {}
 ): Promise<{ status: number; json: Record<string, unknown> }> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders }
   if (secret) headers.Authorization = `Bearer ${secret}`
   const response = await fetch(`http://127.0.0.1:${port}${path}`, {
     method: 'POST',
@@ -206,13 +204,13 @@ describe('ScheduleRuntime', () => {
     expect(store.read().claw.tasks).toEqual([])
   })
 
-  it('starts a Kun thread through agentRuntime with a Schedule title and records running status', async () => {
+  it('starts a SciForge thread through agentRuntime with a Schedule title and records running status', async () => {
     const task = makeTask({ reasoningEffort: 'max' })
     const forbiddenDirectCall = vi.fn()
     const agentRuntime = {
       startThread: vi.fn(async () => ({
         id: 'thr_1',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         title: '[Scheduled task] Task',
         updatedAt: '2026-06-02T00:00:00.000Z'
       })),
@@ -230,14 +228,14 @@ describe('ScheduleRuntime', () => {
 
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(agentRuntime.startThread).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       title: '[Scheduled task] Task',
       workspace: '/tmp/workspace',
       model: 'auto',
       mode: 'agent'
     })
     expect(agentRuntime.startTurn).toHaveBeenCalledWith({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thr_1',
       text: expect.stringContaining('Run the task'),
       workspace: '/tmp/workspace',
@@ -256,8 +254,8 @@ describe('ScheduleRuntime', () => {
   it('runs Codex scheduled tasks through agentRuntime and saves the Codex thread id', async () => {
     const task = makeTask({
       runtimeId: 'codex',
-      lastThreadId: 'kun-thread',
-      agentThreadIds: { kun: 'kun-thread' }
+      lastThreadId: 'sciforge-thread',
+      agentThreadIds: { sciforge: 'sciforge-thread' }
     })
     const forbiddenDirectCall = vi.fn()
     const agentRuntime = {
@@ -300,26 +298,26 @@ describe('ScheduleRuntime', () => {
     expect(store.read().schedule.tasks[0]).toMatchObject({
       runtimeId: 'codex',
       lastStatus: 'running',
-      lastThreadId: 'kun-thread',
+      lastThreadId: 'sciforge-thread',
       lastMessage: 'Started',
       agentThreadIds: {
-        kun: 'kun-thread',
+        sciforge: 'sciforge-thread',
         codex: 'codex-thread'
       }
     })
   })
 
-  it('runs Kun scheduled tasks through agentRuntime when the host is available', async () => {
-    const task = makeTask({ runtimeId: 'kun' })
+  it('runs SciForge scheduled tasks through agentRuntime when the host is available', async () => {
+    const task = makeTask({ runtimeId: 'sciforge' })
     const forbiddenDirectCall = vi.fn()
     const agentRuntime = {
       startThread: vi.fn(async () => ({
-        id: 'kun-host-thread',
-        runtimeId: 'kun',
+        id: 'sciforge-host-thread',
+        runtimeId: 'sciforge',
         title: '[Scheduled task] Task',
         updatedAt: '2026-06-02T00:00:00.000Z'
       })),
-      startTurn: vi.fn(async () => ({ threadId: 'kun-host-thread', turnId: 'kun-host-turn' })),
+      startTurn: vi.fn(async () => ({ threadId: 'sciforge-host-thread', turnId: 'sciforge-host-turn' })),
       readThread: vi.fn()
     }
     const { runtime, store } = createRuntime(settingsWith([task]), forbiddenDirectCall, agentRuntime)
@@ -327,33 +325,33 @@ describe('ScheduleRuntime', () => {
 
     await expect(runtime.runTask(task.id)).resolves.toMatchObject({
       ok: true,
-      threadId: 'kun-host-thread',
-      turnId: 'kun-host-turn'
+      threadId: 'sciforge-host-thread',
+      turnId: 'sciforge-host-turn'
     })
 
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       workspace: '/tmp/workspace',
       title: '[Scheduled task] Task'
     }))
     expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
-      runtimeId: 'kun',
-      threadId: 'kun-host-thread',
+      runtimeId: 'sciforge',
+      threadId: 'sciforge-host-thread',
       text: expect.stringContaining('Run the task')
     }))
     expect(store.read().schedule.tasks[0]).toMatchObject({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       lastStatus: 'running',
-      lastThreadId: 'kun-host-thread',
+      lastThreadId: 'sciforge-host-thread',
       agentThreadIds: {
-        kun: 'kun-host-thread'
+        sciforge: 'sciforge-host-thread'
       }
     })
   })
 
   it('fails closed for scheduled runs when agentRuntime is unavailable', async () => {
-    const task = makeTask({ runtimeId: 'kun' })
+    const task = makeTask({ runtimeId: 'sciforge' })
     const forbiddenDirectCall = vi.fn()
     const { runtime, store } = createRuntime(settingsWith([task]), forbiddenDirectCall)
 
@@ -375,7 +373,7 @@ describe('ScheduleRuntime', () => {
     const agentRuntime = {
       startThread: vi.fn(async () => ({
         id: 'thr_1',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         title: 'demo',
         updatedAt: '2026-06-02T00:00:00.000Z'
       })),
@@ -421,7 +419,7 @@ describe('ScheduleRuntime', () => {
 
     expect(result).toMatchObject({ ok: true, text: 'scheduled task completed' })
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
-    expect(agentRuntime.readThread).toHaveBeenCalledWith({ runtimeId: 'kun', threadId: 'thr_1' })
+    expect(agentRuntime.readThread).toHaveBeenCalledWith({ runtimeId: 'sciforge', threadId: 'thr_1' })
   })
 
   it('waits for the current scheduled turn to complete before returning final text', async () => {
@@ -431,7 +429,7 @@ describe('ScheduleRuntime', () => {
     const agentRuntime = {
       startThread: vi.fn(async () => ({
         id: 'thr_1',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         title: 'demo',
         updatedAt: '2026-06-02T00:00:00.000Z'
       })),
@@ -514,7 +512,7 @@ describe('ScheduleRuntime', () => {
     const agentRuntime = {
       startThread: vi.fn(async () => ({
         id: 'thr_1',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         title: 'demo',
         updatedAt: '2026-06-02T00:00:00.000Z'
       })),
@@ -575,10 +573,22 @@ describe('ScheduleRuntime', () => {
         atTime: '2099-06-03T09:00:00.000Z'
       }
     })
-    const { runtime, store } = createRuntime(settingsWith([task]))
-    ;(runtime as unknown as {
-      waitForAssistantText: () => Promise<string>
-    }).waitForAssistantText = vi.fn(async () => 'done')
+    const agentRuntime = {
+      startThread: vi.fn(),
+      startTurn: vi.fn(),
+      readThread: vi.fn(async () => ({
+        id: 'thr_1',
+        status: 'idle',
+        turns: [
+          {
+            id: 'turn_1',
+            status: 'completed',
+            items: [{ kind: 'assistant_text', text: 'done' }]
+          }
+        ]
+      }))
+    }
+    const { runtime, store } = createRuntime(settingsWith([task]), vi.fn(), agentRuntime)
 
     await (runtime as unknown as {
       monitorTaskTurn: (taskId: string, threadId: string, turnId: string) => Promise<void>
@@ -591,6 +601,7 @@ describe('ScheduleRuntime', () => {
       lastMessage: 'done',
       lastThreadId: 'thr_1'
     })
+    expect(agentRuntime.readThread).toHaveBeenCalledWith({ runtimeId: 'sciforge', threadId: 'thr_1' })
   })
 
   it('does not auto-run manual tasks during tick', async () => {
@@ -668,6 +679,20 @@ describe('ScheduleRuntime', () => {
       await expect(postInternal(port, '/schedule/internal/status', {})).resolves.toMatchObject({
         status: 401,
         json: { ok: false, message: 'Unauthorized.' }
+      })
+
+      await expect(postInternal(port, '/schedule/internal/status', {}, '', {
+        'x-sciforge-secret': secret
+      })).resolves.toMatchObject({
+        status: 200,
+        json: {
+          ok: true,
+          status: {
+            internalServerRunning: true,
+            internalUrl: `http://127.0.0.1:${port}`,
+            runningTaskIds: []
+          }
+        }
       })
 
       await expect(postInternal(port, '/schedule/internal/status', {}, secret)).resolves.toMatchObject({

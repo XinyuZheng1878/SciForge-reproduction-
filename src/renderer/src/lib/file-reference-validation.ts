@@ -77,11 +77,11 @@ export async function validateFileReference(
   if (cached !== undefined) return cached instanceof Promise ? cached : cached
 
   const task = (async (): Promise<SettledValidation> => {
-    if (typeof window === 'undefined' || typeof window.dsGui?.resolveWorkspaceFile !== 'function') {
+    if (typeof window === 'undefined' || typeof window.sciforge?.resolveWorkspaceFile !== 'function') {
       return { status: 'invalid' }
     }
 
-    const result = await window.dsGui.resolveWorkspaceFile({
+    const result = await window.sciforge.resolveWorkspaceFile({
       path: normalizedTarget.path,
       line: normalizedTarget.line,
       column: normalizedTarget.column,

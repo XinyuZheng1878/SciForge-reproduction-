@@ -10,7 +10,7 @@ class RendererRuntimeClient {
     }
     if (this.cachedSettings) return this.cachedSettings
     if (this.settingsPromise) return this.settingsPromise
-    const task = window.dsGui.getSettings().then((settings) => {
+    const task = window.sciforge.getSettings().then((settings) => {
       this.cachedSettings = settings
       return settings
     })
@@ -21,7 +21,7 @@ class RendererRuntimeClient {
   }
 
   async setSettings(partial: AppSettingsPatch): Promise<AppSettingsV1> {
-    const settings = await window.dsGui.setSettings(partial)
+    const settings = await window.sciforge.setSettings(partial)
     this.cachedSettings = settings
     this.settingsPromise = null
     return settings

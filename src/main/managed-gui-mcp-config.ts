@@ -28,12 +28,12 @@ export type ManagedGuiMcpJsonServerInput = {
   enabled?: boolean
 }
 
-export type ManagedGuiKunMcpServerInput = ManagedGuiMcpJsonServerInput
+export type ManagedGuiLocalRuntimeMcpServerInput = ManagedGuiMcpJsonServerInput
 
 export const ELECTRON_RUN_AS_NODE_ENV = { ELECTRON_RUN_AS_NODE: '1' } as const
 
-export function resolveKunMcpJsonPath(): string {
-  return join(homedir(), '.kun', 'mcp.json')
+export function resolveLocalRuntimeMcpJsonPath(): string {
+  return join(homedir(), '.sciforge', 'mcp.json')
 }
 
 export function resolveManagedGuiMcpNodeEntryPath(
@@ -88,8 +88,8 @@ export function buildManagedGuiMcpJsonServerConfig(
   }
 }
 
-export function buildManagedGuiKunMcpServerConfig(
-  input: ManagedGuiKunMcpServerInput
+export function buildManagedGuiLocalRuntimeMcpServerConfig(
+  input: ManagedGuiLocalRuntimeMcpServerInput
 ): JsonRecord {
   const existing = isJsonRecord(input.existing) ? input.existing : {}
   return {
@@ -104,7 +104,7 @@ export function buildManagedGuiKunMcpServerConfig(
   }
 }
 
-export function buildExternalKunMcpJson(
+export function buildExternalLocalRuntimeMcpJson(
   existing: unknown,
   managedServerNames: readonly string[]
 ): JsonRecord {
@@ -116,14 +116,14 @@ export function buildExternalKunMcpJson(
   }
 }
 
-export async function syncExternalKunMcpJson(
+export async function syncExternalLocalRuntimeMcpJson(
   path: string,
   managedServerNames: readonly string[]
 ): Promise<void> {
   const current = await readJsonFile(path)
   if (current === null) return
 
-  const next = buildExternalKunMcpJson(current, managedServerNames)
+  const next = buildExternalLocalRuntimeMcpJson(current, managedServerNames)
   const nextText = `${JSON.stringify(next, null, 2)}\n`
   const currentText = `${JSON.stringify(current, null, 2)}\n`
   if (nextText === currentText) return
@@ -145,7 +145,7 @@ export async function readJsonFile(path: string): Promise<unknown | null> {
     return JSON.parse(raw) as unknown
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Failed to parse Kun MCP config at ${path}: ${message}`, { cause: error })
+    throw new Error(`Failed to parse local runtime MCP config at ${path}: ${message}`, { cause: error })
   }
 }
 

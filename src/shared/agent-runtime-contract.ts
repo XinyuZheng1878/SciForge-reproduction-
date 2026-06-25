@@ -1,4 +1,4 @@
-export type AgentRuntimeId = 'kun' | 'codex' | 'claude'
+export type AgentRuntimeId = 'sciforge' | 'codex' | 'claude'
 
 export type AgentRuntimeTransport = 'http_sse' | 'jsonrpc_stdio' | 'cli_process'
 

@@ -13,7 +13,7 @@ const rootPackage = require('../../package.json')
 const tempRoots: string[] = []
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'ds-gui-packaging-'))
+  const root = mkdtempSync(join(tmpdir(), 'sciforge-packaging-'))
   tempRoots.push(root)
   return root
 }
@@ -75,8 +75,8 @@ afterEach(() => {
   }
 })
 
-describe('electron-builder Kun packaging', () => {
-  it('includes Kun runtime dependencies in the packaged app', () => {
+describe('electron-builder local runtime packaging', () => {
+  it('includes local runtime dependencies in the packaged app', () => {
     expect(builderConfig.files).toEqual(expect.arrayContaining([
       'kun/dist/**/*',
       'kun/package.json',
@@ -335,21 +335,21 @@ describe('electron-builder Kun packaging', () => {
     ]))
   })
 
-  it('validates the unpacked Kun runtime before release artifacts are created', () => {
+  it('validates the unpacked local runtime before release artifacts are created', () => {
     const root = tempRoot()
     const context = createMacPackContext(root)
     const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
 
-    for (const relativePath of afterPack.KUN_RUNTIME_REQUIRED_PATHS) {
+    for (const relativePath of afterPack.LOCAL_RUNTIME_REQUIRED_PATHS) {
       touch(join(unpackedRoot, relativePath))
     }
     touch(join(unpackedRoot, 'node_modules/better-sqlite3/package.json'))
 
-    expect(() => afterPack._internals.validateBundledKunRuntime(context)).not.toThrow()
+    expect(() => afterPack._internals.validateBundledLocalRuntime(context)).not.toThrow()
 
     rmSync(join(unpackedRoot, 'kun/node_modules/zod'), { recursive: true, force: true })
 
-    expect(() => afterPack._internals.validateBundledKunRuntime(context)).toThrow(
+    expect(() => afterPack._internals.validateBundledLocalRuntime(context)).toThrow(
       /kun\/node_modules\/zod\/package\.json/
     )
   })

@@ -112,9 +112,9 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
     let size = options.size
     let truncated = options.truncated
     if (typeof content !== 'string') {
-      let result: Awaited<ReturnType<typeof window.dsGui.readWorkspaceFile>>
+      let result: Awaited<ReturnType<typeof window.sciforge.readWorkspaceFile>>
       try {
-        result = await window.dsGui.readWorkspaceFile({
+        result = await window.sciforge.readWorkspaceFile({
           path: snapshot.activeFilePath,
           workspaceRoot
         })
@@ -229,7 +229,7 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
     if (path && !pathsEqual(path, snapshot.activeFilePath)) return false
 
     try {
-      const result = await window.dsGui.readWorkspaceImage({
+      const result = await window.sciforge.readWorkspaceImage({
         path: snapshot.activeFilePath,
         workspaceRoot
       })
@@ -280,7 +280,7 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
     }
     set({ saveStatus: 'saving' })
     try {
-      const result = await window.dsGui.writeWorkspaceFile({
+      const result = await window.sciforge.writeWorkspaceFile({
         path: state.activeFilePath,
         workspaceRoot,
         content: state.fileContent

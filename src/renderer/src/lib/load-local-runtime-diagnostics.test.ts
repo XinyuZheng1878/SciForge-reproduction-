@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { loadKunDiagnostics } from './load-kun-diagnostics'
+import { loadLocalRuntimeDiagnostics } from './load-local-runtime-diagnostics'
 
-describe('loadKunDiagnostics', () => {
+describe('loadLocalRuntimeDiagnostics', () => {
   it('loads runtime info, tool diagnostics, and memory records together', async () => {
     const runtimeInfo = { pid: 42, capabilities: { model: { id: 'deepseek-v4-pro' } } } as any
     const toolDiagnostics = { providers: [{ id: 'builtin' }] } as any
@@ -12,7 +12,7 @@ describe('loadKunDiagnostics', () => {
       listMemories: async () => memoryRecords
     }
 
-    const loaded = await loadKunDiagnostics(provider, { workspace: '/tmp/project' })
+    const loaded = await loadLocalRuntimeDiagnostics(provider, { workspace: '/tmp/project' })
 
     expect(loaded.runtimeInfo).toBe(runtimeInfo)
     expect(loaded.toolDiagnostics).toBe(toolDiagnostics)
@@ -31,7 +31,7 @@ describe('loadKunDiagnostics', () => {
       }
     }
 
-    const loaded = await loadKunDiagnostics(provider, { workspace: '/tmp/project' })
+    const loaded = await loadLocalRuntimeDiagnostics(provider, { workspace: '/tmp/project' })
 
     expect(loaded.runtimeInfo).toBe(runtimeInfo)
     expect(loaded.toolDiagnostics).toBe(toolDiagnostics)

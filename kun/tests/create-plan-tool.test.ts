@@ -24,7 +24,7 @@ function buildContext(overrides: Partial<ToolHostContext> = {}): ToolHostContext
   }
 }
 
-function buildGuiPlan(relativePath = '.kunsdd/plan/login.md', operation: 'draft' | 'refine' = 'draft') {
+function buildGuiPlan(relativePath = '.sciforge/plan/login.md', operation: 'draft' | 'refine' = 'draft') {
   return {
     operation,
     workspaceRoot: '/tmp/ws',
@@ -84,11 +84,11 @@ describe('create_plan tool: path validation', () => {
       {
         markdown: '# nested',
         operation: 'draft',
-        plan_relative_path: '.kunsdd/plan/nested/a.md'
+        plan_relative_path: '.sciforge/plan/nested/a.md'
       },
       buildContext({
         threadMode: 'plan',
-        guiPlan: buildGuiPlan('.kunsdd/plan/nested/a.md')
+        guiPlan: buildGuiPlan('.sciforge/plan/nested/a.md')
       })
     )
     expect(result.isError).toBe(true)
@@ -115,11 +115,11 @@ describe('create_plan tool: path validation', () => {
       {
         markdown: '# not md',
         operation: 'draft',
-        plan_relative_path: '.kunsdd/plan/login.txt'
+        plan_relative_path: '.sciforge/plan/login.txt'
       },
       buildContext({
         threadMode: 'plan',
-        guiPlan: buildGuiPlan('.kunsdd/plan/login.txt')
+        guiPlan: buildGuiPlan('.sciforge/plan/login.txt')
       })
     )
     expect(result.isError).toBe(true)
@@ -130,14 +130,14 @@ describe('create_plan tool: path validation', () => {
       {
         markdown: '# mismatch',
         operation: 'refine',
-        plan_relative_path: '.kunsdd/plan/other.md'
+        plan_relative_path: '.sciforge/plan/other.md'
       },
       buildContext({
         threadMode: 'plan',
         guiPlan: {
           operation: 'refine',
           workspaceRoot: '/tmp/ws',
-          relativePath: '.kunsdd/plan/login.md',
+          relativePath: '.sciforge/plan/login.md',
           planId: 'plan_login'
         }
       })
@@ -154,7 +154,7 @@ describe('create_plan tool: path validation', () => {
       },
       buildContext({
         threadMode: 'plan',
-        guiPlan: buildGuiPlan('.kunsdd/plan/login.md', 'refine')
+        guiPlan: buildGuiPlan('.sciforge/plan/login.md', 'refine')
       })
     )
     expect(result.isError).toBe(true)
@@ -174,7 +174,7 @@ describe('create_plan tool: execution safety', () => {
     )
     expect(result.isError).toBeFalsy()
     expect((result.output as { relative_path: string }).relative_path).toBe(
-      '.kunsdd/plan/disk-cleanup.md'
+      '.sciforge/plan/disk-cleanup.md'
     )
   })
 
@@ -186,17 +186,19 @@ describe('create_plan tool: execution safety', () => {
     expect(result.isError).toBe(true)
   })
 
-  it('rejects a free-form legacy plan path as a new target', async () => {
-    const result = await executeCreatePlanTool(
-      {
-        markdown: '# legacy',
-        operation: 'draft',
-        plan_relative_path: '.deepseekgui/plan/legacy.md'
-      },
-      buildContext({ threadMode: 'plan', workspace: '/tmp/ws' })
-    )
-    expect(result.isError).toBe(true)
-    expect(JSON.stringify(result.output)).toMatch(/\.kunsdd\/plan/)
+  it('rejects free-form non-current plan paths as new targets', async () => {
+    for (const plan_relative_path of ['.legacy/plan/manual.md']) {
+      const result = await executeCreatePlanTool(
+        {
+          markdown: '# manual',
+          operation: 'draft',
+          plan_relative_path
+        },
+        buildContext({ threadMode: 'plan', workspace: '/tmp/ws' })
+      )
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result.output)).toMatch(/\.sciforge\/plan/)
+    }
   })
 
   it('rejects when the model tries to execute create_plan on a normal turn through the tool host', async () => {
@@ -218,7 +220,7 @@ describe('create_plan tool: execution safety', () => {
         guiPlan: {
           operation: 'draft',
           workspaceRoot: '/tmp/ws',
-          relativePath: '.kunsdd/plan/login.md',
+          relativePath: '.sciforge/plan/login.md',
           planId: 'plan_login'
         }
       })
@@ -234,10 +236,8 @@ describe('create_plan tool: success and atomic write', () => {
   beforeEach(async () => {
     workspace = await mkdtemp(join(tmpdir(), 'kun-plan-'))
     previousMarkdown = '# previous plan\n'
-    await mkdir(join(workspace, '.deepseekgui/plan'), { recursive: true })
-    await writeFile(join(workspace, '.deepseekgui/plan/login.md'), previousMarkdown, 'utf8')
-    await mkdir(join(workspace, '.kunsdd/plan'), { recursive: true })
-    await writeFile(join(workspace, '.kunsdd/plan/login.md'), previousMarkdown, 'utf8')
+    await mkdir(join(workspace, '.sciforge/plan'), { recursive: true })
+    await writeFile(join(workspace, '.sciforge/plan/login.md'), previousMarkdown, 'utf8')
   })
 
   afterEach(async () => {
@@ -258,8 +258,8 @@ describe('create_plan tool: success and atomic write', () => {
         guiPlan: {
           operation: 'draft',
           workspaceRoot: workspace,
-          relativePath: '.kunsdd/plan/login.md',
-          planId: `${workspace}:.kunsdd/plan/login.md`,
+          relativePath: '.sciforge/plan/login.md',
+          planId: `${workspace}:.sciforge/plan/login.md`,
           sourceRequest: 'Add login',
           title: 'Login flow'
         }
@@ -276,32 +276,39 @@ describe('create_plan tool: success and atomic write', () => {
       byte_size: number
       saved_at: string
     }
-    expect(output.relative_path).toBe('.kunsdd/plan/login.md')
+    expect(output.relative_path).toBe('.sciforge/plan/login.md')
     expect(output.operation).toBe('draft')
-    expect(output.summary).toContain('.kunsdd/plan/login.md')
+    expect(output.summary).toContain('.sciforge/plan/login.md')
     expect(output.content_hash).toMatch(/^[a-f0-9]{16}$/)
     expect(output.byte_size).toBe(Buffer.byteLength('# Login plan\n\n- step 1', 'utf8'))
-    expect(output.absolute_path).toBe(join(workspace, '.kunsdd/plan/login.md'))
+    expect(output.absolute_path).toBe(join(workspace, '.sciforge/plan/login.md'))
     const persisted = await readFile(output.absolute_path, 'utf8')
     expect(persisted).toBe('# Login plan\n\n- step 1')
   })
 
-  it('rejects a legacy reserved path when drafting a new plan', async () => {
-    const result = await executeCreatePlanTool(
-      { markdown: '# legacy draft', operation: 'draft' },
-      buildContext({
-        threadMode: 'plan',
-        workspace,
-        guiPlan: {
-          operation: 'draft',
-          workspaceRoot: workspace,
-          relativePath: '.deepseekgui/plan/login.md',
-          planId: `${workspace}:.deepseekgui/plan/login.md`
-        }
-      })
-    )
-    expect(result.isError).toBe(true)
-    expect(JSON.stringify(result.output)).toMatch(/legacy/)
+  it('rejects reserved paths outside the active GUI plan context', async () => {
+    const cases: Array<{ operation: 'draft' | 'refine'; relativePath: string }> = [
+      { operation: 'draft', relativePath: '.legacy/plan/login.md' },
+      { operation: 'refine', relativePath: '.legacy/plan/login.md' }
+    ]
+
+    for (const { operation, relativePath } of cases) {
+      const result = await executeCreatePlanTool(
+        { markdown: '# rejected draft', operation },
+        buildContext({
+          threadMode: 'plan',
+          workspace,
+          guiPlan: {
+            operation,
+            workspaceRoot: workspace,
+            relativePath,
+            planId: `${workspace}:${relativePath}`
+          }
+        })
+      )
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result.output)).toMatch(/\.sciforge\/plan/)
+    }
   })
 
   it('overwrites an existing plan when the same reserved path is reused', async () => {
@@ -313,13 +320,13 @@ describe('create_plan tool: success and atomic write', () => {
         guiPlan: {
           operation: 'refine',
           workspaceRoot: workspace,
-          relativePath: '.deepseekgui/plan/login.md',
-          planId: `${workspace}:.deepseekgui/plan/login.md`
+          relativePath: '.sciforge/plan/login.md',
+          planId: `${workspace}:.sciforge/plan/login.md`
         }
       })
     )
     expect(result.isError).toBeFalsy()
-    const persisted = await readFile(join(workspace, '.deepseekgui/plan/login.md'), 'utf8')
+    const persisted = await readFile(join(workspace, '.sciforge/plan/login.md'), 'utf8')
     expect(persisted).toBe('# refined')
   })
 
@@ -330,8 +337,8 @@ describe('create_plan tool: success and atomic write', () => {
     )
     expect(result.isError).toBeFalsy()
     const output = result.output as { relative_path: string; absolute_path: string }
-    // `.kunsdd/plan/login.md` already exists in this workspace.
-    expect(output.relative_path).toBe('.kunsdd/plan/login-2.md')
+    // `.sciforge/plan/login.md` already exists in this workspace.
+    expect(output.relative_path).toBe('.sciforge/plan/login-2.md')
     const persisted = await readFile(output.absolute_path, 'utf8')
     expect(persisted).toBe('# fresh')
   })
@@ -348,13 +355,13 @@ describe('create_plan tool: success and atomic write', () => {
         guiPlan: {
           operation: 'draft',
           workspaceRoot: workspace,
-          relativePath: '.kunsdd/plan/login.md',
-          planId: `${workspace}:.kunsdd/plan/login.md`
+          relativePath: '.sciforge/plan/login.md',
+          planId: `${workspace}:.sciforge/plan/login.md`
         }
       })
     )
     expect(result.isError).toBe(true)
-    const persisted = await readFile(join(workspace, '.kunsdd/plan/login.md'), 'utf8')
+    const persisted = await readFile(join(workspace, '.sciforge/plan/login.md'), 'utf8')
     expect(persisted).toBe(previousMarkdown)
   })
 })

@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -39,7 +40,7 @@ import {
   X
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { ModelProviderModelGroup } from '@shared/ds-gui-api'
+import type { ModelProviderModelGroup } from '@shared/sciforge-api'
 import type { AgentRuntimeContextState } from '@shared/agent-runtime-contract'
 import type { AgentProviderCapabilities, AttachmentReference, ReviewTarget } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
@@ -269,8 +270,8 @@ async function droppedWorkspaceReference(
   const relativePath = relativeWorkspacePath(path, workspaceRoot)
   if (!relativePath) return null
   let kind = kindForDroppedPath(path, file)
-  if (typeof window !== 'undefined' && typeof window.dsGui?.listWorkspaceDirectory === 'function') {
-    const directory = await window.dsGui
+  if (typeof window !== 'undefined' && typeof window.sciforge?.listWorkspaceDirectory === 'function') {
+    const directory = await window.sciforge
       .listWorkspaceDirectory({ workspaceRoot, path: relativePath })
       .catch(() => ({ ok: false as const, message: '' }))
     if (directory.ok) kind = 'directory'
@@ -322,9 +323,9 @@ export function imageFilesFromTransfer(source: ComposerImageTransferSource | nul
 }
 
 function pathForAttachmentFile(file: File): string | undefined {
-  if (typeof window === 'undefined' || typeof window.dsGui?.getPathForFile !== 'function') return undefined
+  if (typeof window === 'undefined' || typeof window.sciforge?.getPathForFile !== 'function') return undefined
   try {
-    const path = window.dsGui.getPathForFile(file)
+    const path = window.sciforge.getPathForFile(file)
     return path?.trim() || undefined
   } catch {
     return undefined
@@ -1264,7 +1265,8 @@ export function FloatingComposer({
     draft.focusComposer()
   }
 
-  const handlePrimaryAction = (): void => {
+  const primaryActionRef = useRef<() => void>(() => undefined)
+  primaryActionRef.current = (): void => {
     if (highlightedSlashCommand) {
       if (highlightedSlashCommand.disabled) return
       applySlashCommand(highlightedSlashCommand.id)
@@ -1308,6 +1310,9 @@ export function FloatingComposer({
     }
     onSend()
   }
+  const handlePrimaryAction = useCallback((): void => {
+    primaryActionRef.current()
+  }, [])
 
   const handleComposerKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
     const sendByEnter =
@@ -1462,28 +1467,30 @@ export function FloatingComposer({
     speechToText,
     onText: handleVoiceDictationText
   })
+  const voiceDictationStatus = voiceDictation.status
+  const getVoiceDictationLevel = voiceDictation.getLevel
   const voiceAvailable = route === 'chat' && speechToText !== null
   const showVoiceControl = route === 'chat' && (
     voiceAvailable ||
-    voiceDictation.status !== 'idle' ||
+    voiceDictationStatus !== 'idle' ||
     Boolean(voiceDictation.error)
   )
-  const voiceControlDisabled = voiceDictation.status === 'transcribing' || (
-    voiceDictation.status !== 'recording' &&
+  const voiceControlDisabled = voiceDictationStatus === 'transcribing' || (
+    voiceDictationStatus !== 'recording' &&
     (!voiceAvailable || !canEditComposer || !canCompose)
   )
-  const voiceElapsedSeconds = voiceDictation.status === 'recording'
+  const voiceElapsedSeconds = voiceDictationStatus === 'recording'
     ? Math.max(0, Math.floor((voiceNowMs - voiceDictation.startedAtMs) / 1000))
     : 0
   const voiceMaxSeconds = Math.floor(SPEECH_TRANSCRIPTION_MAX_DURATION_MS / 1000)
-  const voiceStatusMessage = voiceDictation.status === 'recording'
+  const voiceStatusMessage = voiceDictationStatus === 'recording'
     ? t('composerVoiceRecording', { seconds: voiceElapsedSeconds, max: voiceMaxSeconds })
-    : voiceDictation.status === 'transcribing'
+    : voiceDictationStatus === 'transcribing'
       ? voiceDictation.notice?.message ?? t('composerVoiceTranscribing')
       : voiceDictation.error
-  const voiceButtonLabel = voiceDictation.status === 'recording'
+  const voiceButtonLabel = voiceDictationStatus === 'recording'
     ? t('composerVoiceStop')
-    : voiceDictation.status === 'transcribing'
+    : voiceDictationStatus === 'transcribing'
       ? t('composerVoiceTranscribing')
       : t('composerVoiceStart')
   const voiceLevelBars = [0.42, 0.7, 0.5, 0.82, 0.56].map((base, index) =>
@@ -1498,7 +1505,7 @@ export function FloatingComposer({
   }, [handlePrimaryAction, input])
 
   useEffect(() => {
-    if (voiceDictation.status !== 'recording') {
+    if (voiceDictationStatus !== 'recording') {
       setVoiceLevel(0)
       setVoiceNowMs(Date.now())
       return
@@ -1506,10 +1513,10 @@ export function FloatingComposer({
     setVoiceNowMs(Date.now())
     const interval = window.setInterval(() => {
       setVoiceNowMs(Date.now())
-      setVoiceLevel(voiceDictation.getLevel())
+      setVoiceLevel(getVoiceDictationLevel())
     }, 120)
     return () => window.clearInterval(interval)
-  }, [voiceDictation.getLevel, voiceDictation.status])
+  }, [getVoiceDictationLevel, voiceDictationStatus])
 
   const handleComposerDrop = (event: ReactDragEvent<HTMLDivElement>): void => {
     const imageFiles = canPickAttachment ? imageAttachmentInputsFromTransfer(event.dataTransfer) : []
@@ -1532,7 +1539,7 @@ export function FloatingComposer({
       const droppedPaths: Array<{ path: string; file: File }> = []
       for (const file of pathFiles) {
         try {
-          const path = window.dsGui.getPathForFile(file)
+          const path = window.sciforge.getPathForFile(file)
           if (path) droppedPaths.push({ path, file })
         } catch {
           // ignore files we cannot resolve a filesystem path for

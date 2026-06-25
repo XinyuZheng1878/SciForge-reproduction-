@@ -12,7 +12,7 @@ function thread(input: {
 }) {
   return {
     id: input.id ?? 'thr_1',
-    runtimeId: 'kun' as const,
+    runtimeId: 'sciforge' as const,
     title: input.id ?? 'Thread',
     updatedAt: '2026-06-15T00:00:00.000Z',
     ...(input.status ? { status: input.status } : {}),

@@ -1,38 +1,25 @@
 /**
- * Kun-side mirror of the shared GUI plan contract from
- * DeepSeek-GUI's `src/shared/gui-plan.ts`.
+ * Runtime-side mirror of the shared GUI plan contract from
+ * SciForge's `src/shared/gui-plan.ts`.
  *
- * The renderer and the Kun package live in the same repo but
- * TypeScript's `rootDir` constraint prevents Kun from
+ * The renderer and the runtime package live in the same repo but
+ * TypeScript's `rootDir` constraint prevents the runtime package from
  * referencing the renderer-side file at build time. The values and
  * types are therefore re-declared here; the renderer remains the
  * canonical owner of the source of truth. Keep the two files in
  * sync when changing the public surface.
  */
 
-export const GUI_PLAN_RELATIVE_DIR = '.kunsdd/plan'
-export const GUI_PLAN_LEGACY_RELATIVE_DIR = '.deepseekgui/plan'
-export const GUI_PLAN_ACCEPTED_RELATIVE_DIRS = [
-  GUI_PLAN_RELATIVE_DIR,
-  GUI_PLAN_LEGACY_RELATIVE_DIR
-] as const
+export const GUI_PLAN_RELATIVE_DIR = '.sciforge/plan'
 
 export const GUI_PLAN_CREATE_PLAN_TOOL_NAME = 'create_plan'
 
-export function isGuiPlanRelativePath(value: string): boolean {
-  const normalized = value.replaceAll('\\', '/').replace(/\/+/g, '/').replace(/^\.\//, '').toLowerCase()
-  if (!normalized.endsWith('.md')) return false
-  const matchedDir = GUI_PLAN_ACCEPTED_RELATIVE_DIRS.find((dir) =>
-    normalized.startsWith(`${dir}/`)
-  )
-  if (!matchedDir) return false
-  const rest = normalized.slice(matchedDir.length + 1)
-  if (!rest || rest.includes('/')) return false
-  return !rest.split('/').some((part) => part === '..')
+function normalizeRelativePathForCompare(value: string): string {
+  return value.replaceAll('\\', '/').replace(/\/+/g, '/').replace(/^\.\//, '').toLowerCase()
 }
 
-export function isGuiPlanCurrentRelativePath(value: string): boolean {
-  const normalized = value.replaceAll('\\', '/').replace(/\/+/g, '/').replace(/^\.\//, '').toLowerCase()
+export function isGuiPlanRelativePath(value: string): boolean {
+  const normalized = normalizeRelativePathForCompare(value.trim())
   if (!normalized.endsWith('.md')) return false
   if (!normalized.startsWith(`${GUI_PLAN_RELATIVE_DIR}/`)) return false
   const rest = normalized.slice(GUI_PLAN_RELATIVE_DIR.length + 1)
@@ -40,8 +27,12 @@ export function isGuiPlanCurrentRelativePath(value: string): boolean {
   return !rest.split('/').some((part) => part === '..')
 }
 
+export function isGuiPlanCurrentRelativePath(value: string): boolean {
+  return isGuiPlanRelativePath(value)
+}
+
 export function buildGuiPlanId(workspaceRoot: string, relativePath: string): string {
-  return `${workspaceRoot.replaceAll('\\', '/').replace(/\/+$/, '')}:${relativePath.replaceAll('\\', '/').replace(/\/+/g, '/').replace(/^\.\//, '').toLowerCase()}`
+  return `${workspaceRoot.replaceAll('\\', '/').replace(/\/+$/, '')}:${normalizeRelativePathForCompare(relativePath)}`
 }
 
 export function guiPlanWorkspaceMatches(actual: string, expected: string): boolean {
@@ -89,7 +80,7 @@ export function validateCreatePlanToolInput(input: Partial<CreatePlanToolInput>)
     if (!path) {
       issues.push('plan_relative_path must be non-empty when supplied')
     } else if (!isGuiPlanRelativePath(path)) {
-      issues.push('plan_relative_path must be a direct Markdown file under .kunsdd/plan')
+      issues.push('plan_relative_path must be a direct Markdown file under .sciforge/plan')
     }
   }
   if (input.plan_id != null && typeof input.plan_id !== 'string') {
@@ -108,10 +99,10 @@ export function nextAvailablePlanRelativePath(
   existingRelativePaths: Iterable<string>,
   maxAttempts = 50
 ): string {
-  const existing = new Set([...existingRelativePaths])
+  const existing = new Set([...existingRelativePaths].map(normalizeRelativePathForCompare))
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const candidate = buildPlanRelativePath(featureName, attempt)
-    if (!existing.has(candidate)) return candidate
+    if (!existing.has(normalizeRelativePathForCompare(candidate))) return candidate
   }
   return buildPlanRelativePath(`${featureName}-${Date.now()}`)
 }

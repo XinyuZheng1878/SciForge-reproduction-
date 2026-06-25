@@ -22,8 +22,8 @@ import { LocalWorkspaceInspector } from '../adapters/workspace/local-workspace-i
 import { createImmutablePrefix } from '../cache/immutable-prefix.js'
 import {
   buildRuntimeCapabilityManifest,
-  DEFAULT_KUN_CAPABILITIES_CONFIG,
-  type KunCapabilitiesConfig
+  DEFAULT_LOCAL_RUNTIME_CAPABILITIES_CONFIG,
+  type LocalRuntimeCapabilitiesConfig
 } from '../contracts/capabilities.js'
 import type { ApprovalPolicy, SandboxMode } from '../contracts/policy.js'
 import { AgentLoop } from '../loop/agent-loop.js'
@@ -46,7 +46,7 @@ import { SteeringQueue } from '../loop/steering-queue.js'
 import { RandomIdGenerator } from '../ports/id-generator.js'
 import type { SessionStore } from '../ports/session-store.js'
 import type { ThreadStore } from '../ports/thread-store.js'
-import { KUN_SYSTEM_PROMPT } from '../prompt/kun-system-prompt.js'
+import { SCIFORGE_RUNTIME_SYSTEM_PROMPT } from '../prompt/kun-system-prompt.js'
 import { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
 import { ThreadService } from '../services/thread-service.js'
 import { TurnService } from '../services/turn-service.js'
@@ -62,7 +62,7 @@ const GUI_RESEARCH_MCP_SERVER_NAME = 'gui_research'
 const DEFAULT_RESEARCH_SOURCES = ['arxiv', 'biorxiv', 'semantic_scholar'] as const
 const DEFAULT_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
 
-export type KunServeRuntimeOptions = {
+export type LocalRuntimeServeOptions = {
   host: string
   port: number
   configPath?: string
@@ -81,11 +81,11 @@ export type KunServeRuntimeOptions = {
   contextCompaction?: ContextCompactionConfig
   runtime?: RuntimeTuningConfig
   storage?: StorageConfig
-  capabilities?: KunCapabilitiesConfig
+  capabilities?: LocalRuntimeCapabilitiesConfig
   startedAt?: string
 }
 
-export type KunServeHandle = NodeHttpServerHandle & {
+export type LocalRuntimeServeHandle = NodeHttpServerHandle & {
   runtime: ServerRuntime
 }
 
@@ -94,8 +94,8 @@ export type KunServeHandle = NodeHttpServerHandle & {
  * place that wires concrete adapters to ports; domain, services, loop,
  * and HTTP handlers stay constructor-injected and testable.
  */
-export async function createKunServeRuntime(
-  options: KunServeRuntimeOptions
+export async function createLocalRuntimeServeRuntime(
+  options: LocalRuntimeServeOptions
 ): Promise<ServerRuntime> {
   const modelRouter = resolveModelRouterRuntimeEndpoint(options)
   await mkdir(options.dataDir, { recursive: true })
@@ -123,11 +123,11 @@ export async function createKunServeRuntime(
   const allocateSeq = (threadId: string) => eventBus.allocateSeq(threadId)
   const events = new RuntimeEventRecorder({ eventBus, sessionStore, allocateSeq, nowIso })
   const prefix = createImmutablePrefix({
-    systemPrompt: KUN_SYSTEM_PROMPT,
+    systemPrompt: SCIFORGE_RUNTIME_SYSTEM_PROMPT,
     pinnedConstraints: [
       'system: preserve user intent across compaction',
       'system: keep the HTTP/SSE contract stable for the GUI',
-      'system: keep the stable Kun prefix byte-stable for prompt-cache reuse'
+      'system: keep the stable SciForge Runtime prefix byte-stable for prompt-cache reuse'
     ]
   })
   const turnService = new TurnService({
@@ -165,7 +165,7 @@ export async function createKunServeRuntime(
     ...(tokenEconomy ? { tokenEconomy } : {}),
     ...(options.runtime ? { runtime: options.runtime } : {})
   })
-  const capabilityConfig = options.capabilities ?? DEFAULT_KUN_CAPABILITIES_CONFIG
+  const capabilityConfig = options.capabilities ?? DEFAULT_LOCAL_RUNTIME_CAPABILITIES_CONFIG
   const mcpProviders = await buildMcpToolProviders(capabilityConfig.mcp)
   const webProviders = buildWebToolProviders(capabilityConfig.web)
   const skillRuntime = await SkillRuntime.create(capabilityConfig.skills)
@@ -377,12 +377,12 @@ export async function createKunServeRuntime(
   }
 }
 
-export function resolveModelRouterRuntimeEndpoint(options: KunServeRuntimeOptions): {
+export function resolveModelRouterRuntimeEndpoint(options: LocalRuntimeServeOptions): {
   baseUrl: string
 } {
   const baseUrl = normalizeModelRouterBaseUrl(options.modelRouterBaseUrl || DEFAULT_MODEL_ROUTER_BASE_URL)
   if (!isLocalModelRouterBaseUrl(baseUrl)) {
-    throw new Error(`Kun serve must use the local Model Router /v1 endpoint, got ${redactUrlForError(baseUrl)}.`)
+    throw new Error(`SciForge Runtime must use the local Model Router /v1 endpoint, got ${redactUrlForError(baseUrl)}.`)
   }
   return { baseUrl }
 }
@@ -417,7 +417,7 @@ function redactUrlForError(value: string): string {
 }
 
 function researchCapabilityInput(
-  capabilities: KunServeRuntimeOptions['capabilities'],
+  capabilities: LocalRuntimeServeOptions['capabilities'],
   diagnostics: Awaited<ReturnType<typeof buildMcpToolProviders>>['diagnostics']
 ) {
   const server = capabilities?.mcp.servers[GUI_RESEARCH_MCP_SERVER_NAME]
@@ -443,7 +443,7 @@ function maxResultsFromResearchEnv(value: string | undefined): number {
 }
 
 function tokenEconomyConfigForOptions(
-  options: Pick<KunServeRuntimeOptions, 'tokenEconomyMode' | 'tokenEconomy'>
+  options: Pick<LocalRuntimeServeOptions, 'tokenEconomyMode' | 'tokenEconomy'>
 ): TokenEconomyConfig {
   return {
     ...(options.tokenEconomy ?? {}),
@@ -499,10 +499,10 @@ export async function seedUsageCarryover(input: {
   }))
 }
 
-export async function startKunServe(
-  options: KunServeRuntimeOptions
-): Promise<KunServeHandle> {
-  const runtime = await createKunServeRuntime(options)
+export async function startLocalRuntimeServe(
+  options: LocalRuntimeServeOptions
+): Promise<LocalRuntimeServeHandle> {
+  const runtime = await createLocalRuntimeServeRuntime(options)
   const router = buildRouter(runtime)
   const server = await startNodeHttpServer({
     router,

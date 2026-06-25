@@ -21,7 +21,7 @@ export function rememberProviderThreadRuntime(
 ): void {
   const normalizedThreadId = threadId?.trim()
   if (!normalizedThreadId) return
-  const runtimeId = threads.find((thread) => thread.id === normalizedThreadId)?.runtimeId ?? 'kun'
+  const runtimeId = threads.find((thread) => thread.id === normalizedThreadId)?.runtimeId ?? 'sciforge'
   provider.rememberThreadRuntime?.(normalizedThreadId, runtimeId)
 }
 

@@ -1,11 +1,4 @@
 export const GUI_PLAN_RELATIVE_DIR = '.sciforge/plan'
-export const GUI_PLAN_LEGACY_DEEPSEEK_RELATIVE_DIR = '.deepseekgui/plan'
-export const GUI_PLAN_LEGACY_RELATIVE_DIR = '.kunsdd/plan'
-export const GUI_PLAN_ACCEPTED_RELATIVE_DIRS = [
-  GUI_PLAN_RELATIVE_DIR,
-  GUI_PLAN_LEGACY_DEEPSEEK_RELATIVE_DIR,
-  GUI_PLAN_LEGACY_RELATIVE_DIR
-] as const
 
 const MAX_FEATURE_NAME_LENGTH = 96
 const ILLEGAL_FILENAME_CHARS = /[<>:"|?*\\/]+/g
@@ -46,22 +39,14 @@ function normalizeRelativePathForCompare(value: string): string {
 export function isGuiPlanRelativePath(value: string): boolean {
   const normalized = normalizeRelativePathForCompare(value.trim())
   if (!normalized.endsWith('.md')) return false
-  const matchedDir = GUI_PLAN_ACCEPTED_RELATIVE_DIRS.find((dir) =>
-    normalized.startsWith(`${dir}/`)
-  )
-  if (!matchedDir) return false
-  const rest = normalized.slice(matchedDir.length + 1)
+  if (!normalized.startsWith(`${GUI_PLAN_RELATIVE_DIR}/`)) return false
+  const rest = normalized.slice(GUI_PLAN_RELATIVE_DIR.length + 1)
   if (!rest || rest.includes('/')) return false
   return !rest.split('/').some((part) => part === '..')
 }
 
 export function isGuiPlanCurrentRelativePath(value: string): boolean {
-  const normalized = normalizeRelativePathForCompare(value.trim())
-  if (!normalized.endsWith('.md')) return false
-  if (!normalized.startsWith(`${GUI_PLAN_RELATIVE_DIR}/`)) return false
-  const rest = normalized.slice(GUI_PLAN_RELATIVE_DIR.length + 1)
-  if (!rest || rest.includes('/')) return false
-  return !rest.split('/').some((part) => part === '..')
+  return isGuiPlanRelativePath(value)
 }
 
 export function nextAvailablePlanRelativePath(
@@ -84,8 +69,8 @@ export function planDisplayNameFromRelativePath(relativePath: string): string {
 }
 
 /**
- * Stable name of the native Kun plan tool. Kept distinct from the
- * historical `gui_plan_create` MCP bridge so the renderer and Kun
+ * Stable name of the native local-runtime plan tool. Kept distinct from the
+ * historical `gui_plan_create` MCP bridge so the renderer and runtime
  * can recognize the new contract without colliding with legacy code.
  */
 export const GUI_PLAN_CREATE_PLAN_TOOL_NAME = 'create_plan'
@@ -100,14 +85,14 @@ export const GUI_PLAN_CLOSE_TAG = '</gui_plan>'
 
 /**
  * Plan tool operation kinds. The renderer passes one of these on every
- * plan/refine turn so Kun can scope tool availability to the
+ * plan/refine turn so the runtime can scope tool availability to the
  * active plan context.
  */
 export type GuiPlanOperation = 'draft' | 'refine'
 
 /**
  * Shared input contract for the native `create_plan` tool. The schema is
- * the public surface the model sees; validation is enforced by Kun
+ * the public surface the model sees; validation is enforced by the runtime
  * in addition to these TypeScript types so the GUI can preview calls.
  */
 export type CreatePlanToolInput = {
@@ -148,7 +133,7 @@ export type CreatePlanToolOutput = {
 }
 
 /**
- * Build the deterministic plan id used by both renderer and Kun.
+ * Build the deterministic plan id used by both renderer and runtime.
  * The id is derived from the workspace root and relative path so it
  * remains stable across reconnects, replays, and rename-free edits.
  */
@@ -184,7 +169,7 @@ export function validateCreatePlanToolInput(input: Partial<CreatePlanToolInput>)
 
 /**
  * Compare two workspace roots using the same normalization as the
- * plan path checks. Used by Kun to verify the active workspace
+ * plan path checks. Used by the runtime to verify the active workspace
  * matches the one encoded in a plan context.
  */
 export function guiPlanWorkspaceMatches(actual: string, expected: string): boolean {

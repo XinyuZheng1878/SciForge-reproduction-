@@ -3,14 +3,14 @@ import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
-import { kunRuntimeEvents } from './runtime-sse-ipc'
+import { localRuntimeEvents } from './runtime-sse-ipc'
 
 function settings(): AppSettingsV1 {
   return {
@@ -18,11 +18,11 @@ function settings(): AppSettingsV1 {
     locale: 'en',
     theme: 'system',
     uiFontScale: 'small',
-    activeAgentRuntime: 'kun',
+    activeAgentRuntime: 'sciforge',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: {
-        ...defaultKunRuntimeSettings(),
+      sciforge: {
+        ...defaultLocalRuntimeSettings(),
         port: 49876,
         runtimeToken: 'local-runtime-token'
       },
@@ -42,8 +42,8 @@ function settings(): AppSettingsV1 {
   }
 }
 
-describe('kunRuntimeEvents', () => {
-  it('parses Kun SSE events for the AgentRuntimeHost event path', async () => {
+describe('localRuntimeEvents', () => {
+  it('parses local runtime SSE events for the AgentRuntimeHost event path', async () => {
     const fetchMock = vi.fn(async (_url: URL, init?: RequestInit) => new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode([
@@ -63,7 +63,7 @@ describe('kunRuntimeEvents', () => {
     const abort = new AbortController()
 
     try {
-      const events = kunRuntimeEvents(settings(), 'thread-1', 4, abort.signal)[Symbol.asyncIterator]()
+      const events = localRuntimeEvents(settings(), 'thread-1', 4, abort.signal)[Symbol.asyncIterator]()
       const first = await events.next()
       const second = await events.next()
       abort.abort()
@@ -121,7 +121,7 @@ describe('kunRuntimeEvents', () => {
     const abort = new AbortController()
 
     try {
-      const events = kunRuntimeEvents(settings(), 'thread-1', 4, abort.signal)[Symbol.asyncIterator]()
+      const events = localRuntimeEvents(settings(), 'thread-1', 4, abort.signal)[Symbol.asyncIterator]()
       await events.next()
       const heartbeat = await events.next()
       const third = await events.next()

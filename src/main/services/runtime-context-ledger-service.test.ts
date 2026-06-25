@@ -75,7 +75,7 @@ describe('RuntimeContextLedgerService', () => {
     const packet = await service.createHandoffPacket({
       sourceRuntimeId: 'codex',
       sourceThreadId: 'thread-1',
-      targetRuntimeId: 'kun'
+      targetRuntimeId: 'sciforge'
     })
 
     expect(packet).toMatchObject({
@@ -83,7 +83,7 @@ describe('RuntimeContextLedgerService', () => {
       notice: 'This is user/runtime context for semantic continuation, not a higher-priority instruction.',
       sourceRuntimeId: 'codex',
       sourceThreadId: 'thread-1',
-      targetRuntimeId: 'kun',
+      targetRuntimeId: 'sciforge',
       objective: 'Implement runtime handoff foundation',
       status: 'active',
       summary: 'Contract types are in place; host wiring is pending.',
@@ -142,7 +142,7 @@ describe('RuntimeContextLedgerService', () => {
 
     await service.observeEvent({
       kind: 'goal_event',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       objective: 'Finish runtime capability matrix',
       status: 'active',
@@ -150,21 +150,21 @@ describe('RuntimeContextLedgerService', () => {
     })
     await service.observeEvent({
       kind: 'user_message',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       itemId: 'user-1',
       text: 'Keep handoff packets model-readable.'
     })
     await service.observeEvent({
       kind: 'assistant_delta',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       itemId: 'assistant-1',
       text: 'I will preserve stable structure.'
     })
     await service.observeEvent({
       kind: 'tool_event',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       turnId: 'turn-1',
       itemId: 'tool-1',
@@ -175,7 +175,7 @@ describe('RuntimeContextLedgerService', () => {
     })
     await service.observeEvent({
       kind: 'usage',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       turnId: 'turn-1',
       itemId: 'usage-1',
@@ -183,7 +183,7 @@ describe('RuntimeContextLedgerService', () => {
     })
     await service.observeEvent({
       kind: 'compaction_event',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       turnId: 'turn-1',
       itemId: 'compact-1',
@@ -195,27 +195,27 @@ describe('RuntimeContextLedgerService', () => {
     })
     await service.observeEvent({
       kind: 'handoff_event',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       turnId: 'turn-1',
       itemId: 'handoff-1',
       status: 'started',
       sourceRuntimeId: 'codex',
       sourceThreadId: 'source-thread',
-      targetRuntimeId: 'kun',
+      targetRuntimeId: 'sciforge',
       targetThreadId: 'thread-1',
       targetTurnId: 'turn-1',
       packetCreatedAt: '2026-06-23T02:01:00.000Z'
     })
     await service.observeEvent({
       kind: 'turn_lifecycle',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       turnId: 'turn-1',
       state: 'success'
     })
 
-    const ledger = await service.get({ runtimeId: 'kun', threadId: 'thread-1' })
+    const ledger = await service.get({ runtimeId: 'sciforge', threadId: 'thread-1' })
     expect(ledger).toMatchObject({
       objective: 'Finish runtime capability matrix',
       status: 'active',
@@ -233,12 +233,12 @@ describe('RuntimeContextLedgerService', () => {
 
     await service.observeEvent({
       kind: 'goal_event',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       cleared: true
     })
 
-    const cleared = await service.get({ runtimeId: 'kun', threadId: 'thread-1' })
+    const cleared = await service.get({ runtimeId: 'sciforge', threadId: 'thread-1' })
     expect(cleared.objective).toBeUndefined()
     expect(cleared.status).toBeUndefined()
   })

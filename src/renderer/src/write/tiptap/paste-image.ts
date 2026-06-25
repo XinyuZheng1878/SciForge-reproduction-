@@ -46,11 +46,11 @@ export const WritePasteImage = Extension.create<WritePasteImageOptions>({
               options.onError('Open a workspace file before pasting an image.')
               return true
             }
-            if (typeof window.dsGui?.saveWorkspaceClipboardImage !== 'function') return false
+            if (typeof window.sciforge?.saveWorkspaceClipboardImage !== 'function') return false
 
             event.preventDefault()
             const imageDirectory = options.getImageDirectory().trim()
-            void window.dsGui
+            void window.sciforge
               .saveWorkspaceClipboardImage({
                 workspaceRoot,
                 currentFilePath: filePath,

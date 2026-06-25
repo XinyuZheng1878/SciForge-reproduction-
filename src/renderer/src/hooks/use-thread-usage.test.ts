@@ -7,7 +7,7 @@ function setAgentRuntimeUsage(agentRuntimeUsage: AgentRuntimeUsage): void {
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
-      dsGui: {
+      sciforge: {
         agentRuntime: {
           usage: agentRuntimeUsage
         }

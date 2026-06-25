@@ -190,7 +190,7 @@ export const MemoryCapabilityConfig = CapabilityToggleConfig.extend({
 }).strict()
 export type MemoryCapabilityConfig = z.infer<typeof MemoryCapabilityConfig>
 
-export const KunCapabilitiesConfig = z
+export const LocalRuntimeCapabilitiesConfig = z
   .object({
     mcp: McpCapabilityConfig.default(() => McpCapabilityConfig.parse({})),
     web: WebCapabilityConfig.default(() => WebCapabilityConfig.parse({})),
@@ -200,9 +200,9 @@ export const KunCapabilitiesConfig = z
     memory: MemoryCapabilityConfig.default(() => MemoryCapabilityConfig.parse({}))
   })
   .strict()
-export type KunCapabilitiesConfig = z.infer<typeof KunCapabilitiesConfig>
+export type LocalRuntimeCapabilitiesConfig = z.infer<typeof LocalRuntimeCapabilitiesConfig>
 
-export const DEFAULT_KUN_CAPABILITIES_CONFIG: KunCapabilitiesConfig = KunCapabilitiesConfig.parse({})
+export const DEFAULT_LOCAL_RUNTIME_CAPABILITIES_CONFIG: LocalRuntimeCapabilitiesConfig = LocalRuntimeCapabilitiesConfig.parse({})
 
 export const RuntimeCapabilityManifest = z
   .object({
@@ -266,7 +266,7 @@ export const RuntimeCapabilityManifest = z
 export type RuntimeCapabilityManifest = z.infer<typeof RuntimeCapabilityManifest>
 
 export function buildRuntimeCapabilityManifest(input: {
-  config?: KunCapabilitiesConfig
+  config?: LocalRuntimeCapabilitiesConfig
   model: ModelCapabilityMetadata
   mcp?: {
     configuredServers?: number
@@ -311,7 +311,7 @@ export function buildRuntimeCapabilityManifest(input: {
     reason?: string
   }
 }): RuntimeCapabilityManifest {
-  const config = KunCapabilitiesConfig.parse(input.config ?? {})
+  const config = LocalRuntimeCapabilitiesConfig.parse(input.config ?? {})
   const configuredMcpServers = input.mcp?.configuredServers ?? Object.keys(config.mcp.servers).length
   const connectedMcpServers = input.mcp?.connectedServers ?? 0
   const mcpToolCount = input.mcp?.toolCount ?? 0

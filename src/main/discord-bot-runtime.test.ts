@@ -6,7 +6,7 @@ import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -30,9 +30,9 @@ function settings(channel: ClawImChannelV1): AppSettingsV1 {
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     modelRouter: defaultModelRouterSettings(),
-    activeAgentRuntime: 'kun',
+    activeAgentRuntime: 'sciforge',
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
@@ -66,7 +66,7 @@ function discordChannel(): ClawImChannelV1 {
     enabled: true,
     model: 'auto',
     threadId: '',
-    runtimeId: 'kun',
+    runtimeId: 'sciforge',
     agentThreadIds: {},
     workspaceRoot: '/tmp/support',
     agentProfile: {
@@ -192,7 +192,7 @@ async function openDiscordGateway(
 
 describe('DiscordBotRuntime guard ownership', () => {
   it('defaults newly bound channels to the app workspace', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-workspace-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-workspace-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     writeFileSync(join(userDataPath, 'discord-bot.json'), JSON.stringify({
       botToken: 'token-1',
@@ -256,7 +256,7 @@ describe('DiscordBotRuntime guard ownership', () => {
   })
 
   it('reports another installation guarding the same bot/channel and supports force takeover', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     writeFileSync(join(userDataPath, 'discord-bot.json'), JSON.stringify({
       botToken: 'token-1',
@@ -330,7 +330,7 @@ describe('DiscordBotRuntime guard ownership', () => {
   })
 
   it('keeps project and thread bindings when toggling guard mode', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-guard-bindings-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-guard-bindings-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     writeDiscordBotSecret(userDataPath)
 
@@ -424,7 +424,7 @@ describe('DiscordBotRuntime guard ownership', () => {
   })
 
   it('reports an access error when the connected bot cannot see the bound channel', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-access-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-access-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     writeFileSync(join(userDataPath, 'discord-bot.json'), JSON.stringify({
       botToken: 'token-1',
@@ -495,7 +495,7 @@ describe('DiscordBotRuntime guard ownership', () => {
   })
 
   it('handles Discord slash /new interactions through the shared IM command path', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-interaction-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-interaction-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     writeFileSync(join(userDataPath, 'discord-bot.json'), JSON.stringify({
       botToken: 'token-1',
@@ -597,7 +597,7 @@ describe('DiscordBotRuntime guard ownership', () => {
 
 describe('DiscordBotRuntime remote failure replies', () => {
   it('sends a generic Discord message failure when runtime diagnostics contain secrets and paths', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-message-failure-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-message-failure-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     writeDiscordBotSecret(userDataPath)
     const sockets = stubDiscordGateway()
@@ -610,14 +610,14 @@ describe('DiscordBotRuntime remote failure replies', () => {
 
     try {
       const current = settings(localDiscordChannel())
-      const sensitiveMessage = 'Provider token=sk-proj-secret failed in /Users/alice/.deepseekgui/claw/runtime.json'
+      const sensitiveMessage = 'Provider token=sk-proj-secret failed in /Users/alice/.sciforge/claw/runtime.json'
       const handleIncomingMessage = vi.fn(async () => ({
         ok: false as const,
         message: sensitiveMessage,
         details: {
           provider: 'openai',
           token: 'sk-proj-secret',
-          path: '/Users/alice/.deepseekgui/claw/runtime.json'
+          path: '/Users/alice/.sciforge/claw/runtime.json'
         }
       }))
       const logError = vi.fn()
@@ -663,12 +663,12 @@ describe('DiscordBotRuntime remote failure replies', () => {
         'claw-discord',
         'Claw runtime returned a failure for Discord message.',
         expect.objectContaining({
-          message: 'Provider token=<redacted> failed in /Users/alice/.deepseekgui/claw/runtime.json',
+          message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/claw/runtime.json',
           result: expect.objectContaining({
-            message: 'Provider token=<redacted> failed in /Users/alice/.deepseekgui/claw/runtime.json',
+            message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/claw/runtime.json',
             details: expect.objectContaining({
               token: '<redacted>',
-              path: '/Users/alice/.deepseekgui/claw/runtime.json'
+              path: '/Users/alice/.sciforge/claw/runtime.json'
             })
           })
         })
@@ -680,7 +680,7 @@ describe('DiscordBotRuntime remote failure replies', () => {
   })
 
   it('sends the local-thread-deleted rebind guidance instead of a generic Discord failure', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-local-thread-deleted-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-local-thread-deleted-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     writeDiscordBotSecret(userDataPath)
     const sockets = stubDiscordGateway()
@@ -745,7 +745,7 @@ describe('DiscordBotRuntime remote failure replies', () => {
   })
 
   it('sends a generic Discord slash failure when runtime diagnostics contain secrets and paths', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-slash-failure-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-slash-failure-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     writeDiscordBotSecret(userDataPath)
     const sockets = stubDiscordGateway()
@@ -756,14 +756,14 @@ describe('DiscordBotRuntime remote failure replies', () => {
 
     try {
       const current = settings(localDiscordChannel())
-      const sensitiveMessage = 'Provider token=sk-proj-secret failed in /Users/alice/.deepseekgui/claw/runtime.json'
+      const sensitiveMessage = 'Provider token=sk-proj-secret failed in /Users/alice/.sciforge/claw/runtime.json'
       const handleIncomingMessage = vi.fn(async () => ({
         ok: false as const,
         message: sensitiveMessage,
         details: {
           provider: 'openai',
           token: 'sk-proj-secret',
-          path: '/Users/alice/.deepseekgui/claw/runtime.json'
+          path: '/Users/alice/.sciforge/claw/runtime.json'
         }
       }))
       const logError = vi.fn()
@@ -815,12 +815,12 @@ describe('DiscordBotRuntime remote failure replies', () => {
         'claw-discord',
         'Claw runtime returned a failure for Discord interaction.',
         expect.objectContaining({
-          message: 'Provider token=<redacted> failed in /Users/alice/.deepseekgui/claw/runtime.json',
+          message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/claw/runtime.json',
           result: expect.objectContaining({
-            message: 'Provider token=<redacted> failed in /Users/alice/.deepseekgui/claw/runtime.json',
+            message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/claw/runtime.json',
             details: expect.objectContaining({
               token: '<redacted>',
-              path: '/Users/alice/.deepseekgui/claw/runtime.json'
+              path: '/Users/alice/.sciforge/claw/runtime.json'
             })
           })
         })
@@ -834,7 +834,7 @@ describe('DiscordBotRuntime remote failure replies', () => {
 
 describe('DiscordBotRuntime token setup errors', () => {
   it('saves a Discord-only HTTP proxy URL in status', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-proxy-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-proxy-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
 
     try {
@@ -860,7 +860,7 @@ describe('DiscordBotRuntime token setup errors', () => {
   })
 
   it('uses the configured proxy for Discord token setup requests', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-proxy-fetch-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-proxy-fetch-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     writeFileSync(join(userDataPath, 'discord-bot.json'), JSON.stringify({
       clientId: 'client-1',
@@ -911,7 +911,7 @@ describe('DiscordBotRuntime token setup errors', () => {
   })
 
   it('returns an actionable network message when Discord API cannot be reached', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-network-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-network-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     vi.stubGlobal('fetch', vi.fn(async () => {
       throw new DOMException('The operation was aborted due to timeout', 'TimeoutError')
@@ -935,7 +935,7 @@ describe('DiscordBotRuntime token setup errors', () => {
   })
 
   it('explains rejected tokens instead of surfacing raw Discord REST errors', async () => {
-    const userDataPath = join(tmpdir(), `deepseek-gui-discord-token-${Date.now()}-${Math.random()}`)
+    const userDataPath = join(tmpdir(), `sciforge-discord-token-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     vi.stubGlobal('fetch', vi.fn(async () =>
       new Response(JSON.stringify({ message: '401: Unauthorized', code: 0 }), {

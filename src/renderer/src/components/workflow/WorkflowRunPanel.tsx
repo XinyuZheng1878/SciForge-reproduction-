@@ -58,9 +58,9 @@ export function WorkflowRunPanel({ enabled }: Props): ReactElement | null {
     }
     let cancelled = false
     const poll = async (): Promise<void> => {
-      if (typeof window.dsGui?.getWorkflowStatus !== 'function') return
+      if (typeof window.sciforge?.getWorkflowStatus !== 'function') return
       try {
-        const next = await window.dsGui.getWorkflowStatus()
+        const next = await window.sciforge.getWorkflowStatus()
         if (!cancelled) setStatus(next)
       } catch {
         /* ignore transient status errors */
@@ -197,7 +197,7 @@ export function WorkflowRunPanel({ enabled }: Props): ReactElement | null {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => void window.dsGui.resolveWorkflowApproval(approval.token, 'approved')}
+                  onClick={() => void window.sciforge.resolveWorkflowApproval(approval.token, 'approved')}
                   className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-500/90 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-emerald-500"
                 >
                   <Check className="h-3.5 w-3.5" strokeWidth={2.2} />
@@ -205,7 +205,7 @@ export function WorkflowRunPanel({ enabled }: Props): ReactElement | null {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void window.dsGui.resolveWorkflowApproval(approval.token, 'rejected')}
+                  onClick={() => void window.sciforge.resolveWorkflowApproval(approval.token, 'rejected')}
                   className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-ds-border bg-ds-card px-3 py-1.5 text-[12.5px] font-semibold text-red-600 transition hover:bg-red-500/10"
                 >
                   <X className="h-3.5 w-3.5" strokeWidth={2.2} />

@@ -12,6 +12,7 @@ import {
 import { createServer as createNetServer } from 'node:net'
 import { dirname, join } from 'node:path'
 import { DEFAULT_WEIXIN_BRIDGE_RPC_URL } from '../shared/app-settings'
+import { APP_WEBHOOK_SECRET_HEADER } from '../shared/app-brand'
 import { logError, logInfo, logWarn } from './logger'
 
 const requireFromHere = createRequire(import.meta.url)
@@ -944,8 +945,7 @@ async function postToSciForgeWebhook(message: WeixinMessage, accountId: string):
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (settings.webhookSecret) {
     headers.authorization = `Bearer ${settings.webhookSecret}`
-    headers['x-sciforge-secret'] = settings.webhookSecret
-    headers['x-deepseek-gui-secret'] = settings.webhookSecret
+    headers[APP_WEBHOOK_SECRET_HEADER] = settings.webhookSecret
   }
   const res = await fetch(settings.webhookUrl, {
     method: 'POST',
@@ -1282,6 +1282,7 @@ export function stopWeixinBridgeRuntime(): void {
 export const weixinBridgeRuntimeInternals = {
   buildBaseInfo,
   enqueueWeixinSenderDispatch,
+  postToSciForgeWebhook,
   webhookGeneratedFiles,
   normalizeAccountId
 }

@@ -24,7 +24,7 @@ import { getDialogThreadTitle } from '../../lib/thread-title'
 import { workspaceLabelFromPath } from '../../lib/workspace-label'
 import {
   isClawWorkspacePath,
-  isInternalDeepSeekGuiWorkspace,
+  isInternalSciForgeWorkspace,
   isInternalTemporaryWorkspace,
   normalizeWorkspaceRoot,
   workspaceRootIdentityKey
@@ -125,7 +125,7 @@ export function buildSidebarWorkspaceGroups(options: {
 
   for (const th of options.threads) {
     if (isInternalTemporaryWorkspace(th.workspace)) continue
-    if (isInternalDeepSeekGuiWorkspace(th.workspace)) continue
+    if (isInternalSciForgeWorkspace(th.workspace)) continue
     if (isClawWorkspacePath(th.workspace)) continue
     if ((th.archived === true) !== options.showArchived) continue
     const key = normalizeWorkspaceRoot(th.workspace)
@@ -150,7 +150,7 @@ export function buildSidebarWorkspaceGroups(options: {
       if (!key || map.has(workspaceRootIdentityKey(key))) continue
       if (isHiddenWorkspace(key)) continue
       if (isInternalTemporaryWorkspace(key)) continue
-      if (isInternalDeepSeekGuiWorkspace(key)) continue
+      if (isInternalSciForgeWorkspace(key)) continue
       if (isClawWorkspacePath(key)) continue
       upsertWorkspace(key)
     }

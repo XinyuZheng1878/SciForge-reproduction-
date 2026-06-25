@@ -23,12 +23,12 @@ import {
   RUNTIME_INSPECTOR_DIAGNOSTICS_RESOURCE_URI,
   RUNTIME_INSPECTOR_MCP_SERVER_NAME,
   RUNTIME_INSPECTOR_MCP_SERVER_VERSION,
-  RUNTIME_KUN_RESOURCE_URI,
+  RUNTIME_LOCAL_RESOURCE_URI,
   RUNTIME_MODEL_ROUTER_RESOURCE_URI,
   RUNTIME_PORTS_RESOURCE_URI,
   RuntimeDependencyReportInputSchema,
   RuntimeHealthInputSchema,
-  RuntimeKunStatusInputSchema,
+  RuntimeLocalStatusInputSchema,
   RuntimeModelRouterStatusInputSchema,
   RuntimePortsInputSchema,
   gitCheckpointResourceUri,
@@ -89,13 +89,13 @@ export function createRuntimeInspectorMcpServer(
   }, async (args) => resultToToolResult(await service.gitCheckpointPreview(args), 'git checkpoint preview'))
 
   server.registerTool('gui_runtime_ports', {
-    description: 'Report configured Model Router and Kun ports, optionally checking local TCP reachability.',
+    description: 'Report configured Model Router and local runtime ports, optionally checking local TCP reachability.',
     inputSchema: RuntimePortsInputSchema,
     annotations: readOnlyAnnotations('Inspect runtime ports')
   }, async (args) => resultToToolResult(await service.runtimePorts(args), 'runtime ports'))
 
   server.registerTool('gui_runtime_health', {
-    description: 'Read combined Model Router and Kun health without starting, stopping, or controlling runtime processes.',
+    description: 'Read combined Model Router and local runtime health without starting, stopping, or controlling runtime processes.',
     inputSchema: RuntimeHealthInputSchema,
     annotations: readOnlyAnnotations('Inspect runtime health')
   }, async (args) => resultToToolResult(await service.runtimeHealth(args), 'runtime health'))
@@ -112,11 +112,11 @@ export function createRuntimeInspectorMcpServer(
     annotations: readOnlyAnnotations('Inspect Model Router status')
   }, async (args) => resultToToolResult(await service.runtimeModelRouterStatus(args), 'model router status'))
 
-  server.registerTool('gui_runtime_kun_status', {
-    description: 'Read Kun health and optional authenticated diagnostics. This worker does not expose Kun process control.',
-    inputSchema: RuntimeKunStatusInputSchema,
-    annotations: readOnlyAnnotations('Inspect Kun status')
-  }, async (args) => resultToToolResult(await service.runtimeKunStatus(args), 'kun status'))
+  server.registerTool('gui_runtime_status', {
+    description: 'Read local runtime health and optional authenticated diagnostics. This worker does not expose process control.',
+    inputSchema: RuntimeLocalStatusInputSchema,
+    annotations: readOnlyAnnotations('Inspect local runtime status')
+  }, async (args) => resultToToolResult(await service.runtimeLocalStatus(args), 'local runtime status'))
 
   server.registerTool('gui_lsp_status', {
     description: 'Inspect TypeScript/JavaScript LSP availability and per-workspace session lifecycle state.',
@@ -222,13 +222,13 @@ function registerRuntimeInspectorResources(server: McpServer, service: RuntimeIn
 
   server.registerResource('runtime_ports', RUNTIME_PORTS_RESOURCE_URI, {
     title: 'Runtime ports',
-    description: 'Configured Model Router and Kun ports.',
+    description: 'Configured Model Router and local runtime ports.',
     mimeType: 'application/json'
   }, async () => jsonResource(RUNTIME_PORTS_RESOURCE_URI, await service.runtimePorts({ include_reachability: true })))
 
   server.registerResource('runtime_health', RUNTIME_HEALTH_RESOURCE_URI, {
     title: 'Runtime health',
-    description: 'Combined Model Router and Kun health.',
+    description: 'Combined Model Router and local runtime health.',
     mimeType: 'application/json'
   }, async () => jsonResource(RUNTIME_HEALTH_RESOURCE_URI, await service.runtimeHealth({})))
 
@@ -244,11 +244,11 @@ function registerRuntimeInspectorResources(server: McpServer, service: RuntimeIn
     mimeType: 'application/json'
   }, async () => jsonResource(RUNTIME_MODEL_ROUTER_RESOURCE_URI, await service.runtimeModelRouterStatus({})))
 
-  server.registerResource('runtime_kun', RUNTIME_KUN_RESOURCE_URI, {
-    title: 'Kun status',
-    description: 'Kun endpoint, health, and process-control boundary.',
+  server.registerResource('runtime_local', RUNTIME_LOCAL_RESOURCE_URI, {
+    title: 'Local runtime status',
+    description: 'Local runtime endpoint, health, and process-control boundary.',
     mimeType: 'application/json'
-  }, async () => jsonResource(RUNTIME_KUN_RESOURCE_URI, await service.runtimeKunStatus({})))
+  }, async () => jsonResource(RUNTIME_LOCAL_RESOURCE_URI, await service.runtimeLocalStatus({})))
 
   server.registerResource('lsp_status', LSP_STATUS_RESOURCE_URI, {
     title: 'LSP status',
@@ -281,10 +281,10 @@ function renderSuccessSummary(result: Exclude<RuntimeInspectorAnyResult, Runtime
   if ('checkpoints' in result) return `Found ${result.total} Git checkpoint(s); returned ${result.checkpoints.length}.`
   if ('checkpoint' in result) return `Git checkpoint preview loaded for ${result.checkpoint.checkpointId}.`
   if ('ports' in result) return `Runtime port report contains ${result.ports.length} endpoint(s).`
-  if ('modelRouter' in result && 'kun' in result) return `Runtime health is ${result.status}.`
+  if ('modelRouter' in result && 'localRuntime' in result) return `Runtime health is ${result.status}.`
   if ('dependencies' in result) return `Runtime dependency report contains ${result.dependencies.length} item(s).`
   if ('managementUrl' in result) return `Model Router status is ${result.health.status}.`
-  if ('lifecycleBoundary' in result) return `Kun status is ${result.health.status}; process control is not exposed.`
+  if ('lifecycleBoundary' in result) return `Local runtime status is ${result.health.status}; process control is not exposed.`
   if ('lifecycle' in result) return `LSP status is ${result.status}; ${result.lifecycle.activeSessionCount} session(s) active.`
   if ('operation' in result && 'unsavedBufferPolicy' in result) return `LSP ${result.operation} completed.`
   if ('transport' in result) return `Runtime inspector ${result.version} is available over ${result.transport}.`

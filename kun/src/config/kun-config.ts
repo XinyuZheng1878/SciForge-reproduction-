@@ -9,14 +9,14 @@ import {
   SandboxModeSchema
 } from '../contracts/policy.js'
 import {
-  DEFAULT_KUN_CAPABILITIES_CONFIG,
-  KunCapabilitiesConfig,
+  DEFAULT_LOCAL_RUNTIME_CAPABILITIES_CONFIG,
+  LocalRuntimeCapabilitiesConfig,
   ModelInputModality,
   ModelMessagePartSupport
 } from '../contracts/capabilities.js'
 
-export const KUN_CONFIG_FILENAME = 'config.json'
-export const DEFAULT_KUN_MODEL = 'deepseek-v4-pro'
+export const LOCAL_RUNTIME_CONFIG_FILENAME = 'config.json'
+export const DEFAULT_LOCAL_RUNTIME_MODEL = 'deepseek-v4-pro'
 
 const PositiveInt = z.number().int().positive()
 const PositiveRatio = z.number().positive().max(1)
@@ -160,7 +160,7 @@ export const DEFAULT_STORAGE_CONFIG: StorageConfig = {
   backend: 'hybrid'
 }
 
-export const KunServeConfigSchema = z
+export const LocalRuntimeServeConfigSchema = z
   .object({
     host: z.string().optional(),
     port: z.number().int().min(0).max(65_535).optional(),
@@ -178,30 +178,30 @@ export const KunServeConfigSchema = z
   })
   .strict()
 
-export const KunConfigSchema = z
+export const LocalRuntimeConfigSchema = z
   .object({
-    serve: KunServeConfigSchema.optional(),
+    serve: LocalRuntimeServeConfigSchema.optional(),
     models: ModelConfigSchema.optional(),
     contextCompaction: ContextCompactionConfigSchema.optional(),
     runtime: RuntimeTuningConfigSchema.optional(),
-    capabilities: KunCapabilitiesConfig.default(DEFAULT_KUN_CAPABILITIES_CONFIG)
+    capabilities: LocalRuntimeCapabilitiesConfig.default(DEFAULT_LOCAL_RUNTIME_CAPABILITIES_CONFIG)
   })
   .strict()
 
-export type KunConfig = z.infer<typeof KunConfigSchema>
-export type KunServeConfig = z.infer<typeof KunServeConfigSchema>
+export type LocalRuntimeConfig = z.infer<typeof LocalRuntimeConfigSchema>
+export type LocalRuntimeServeConfig = z.infer<typeof LocalRuntimeServeConfigSchema>
 export type ModelConfig = z.infer<typeof ModelConfigSchema>
 export type ContextCompactionConfig = z.infer<typeof ContextCompactionConfigSchema>
 export type RuntimeTuningConfig = z.infer<typeof RuntimeTuningConfigSchema>
 export type TokenEconomyConfig = z.infer<typeof TokenEconomyConfigSchema>
 export type StorageConfig = z.infer<typeof StorageConfigSchema>
 
-export type LoadedKunConfig = {
+export type LoadedLocalRuntimeConfig = {
   path: string
-  config: KunConfig
+  config: LocalRuntimeConfig
 }
 
-export function readKunConfigFile(path: string): LoadedKunConfig {
+export function readLocalRuntimeConfigFile(path: string): LoadedLocalRuntimeConfig {
   const resolvedPath = expandHomePath(path)
   const text = readFileSync(resolvedPath, 'utf8')
   let json: unknown
@@ -209,28 +209,28 @@ export function readKunConfigFile(path: string): LoadedKunConfig {
     json = JSON.parse(text)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Failed to parse Kun config JSON at ${resolvedPath}: ${message}`)
+    throw new Error(`Failed to parse SciForge Runtime config JSON at ${resolvedPath}: ${message}`)
   }
-  const parsed = KunConfigSchema.safeParse(json)
+  const parsed = LocalRuntimeConfigSchema.safeParse(json)
   if (!parsed.success) {
     throw new Error(
-      `Invalid Kun config at ${resolvedPath}: ${JSON.stringify(parsed.error.issues, null, 2)}`
+      `Invalid SciForge Runtime config at ${resolvedPath}: ${JSON.stringify(parsed.error.issues, null, 2)}`
     )
   }
   return { path: resolvedPath, config: parsed.data }
 }
 
-export function readOptionalKunConfigFile(path: string | undefined): LoadedKunConfig | null {
+export function readOptionalLocalRuntimeConfigFile(path: string | undefined): LoadedLocalRuntimeConfig | null {
   if (!path) return null
   const resolvedPath = expandHomePath(path)
   if (!existsSync(resolvedPath)) return null
-  return readKunConfigFile(resolvedPath)
+  return readLocalRuntimeConfigFile(resolvedPath)
 }
 
-export function kunConfigPathForDataDir(dataDir: string | undefined): string | undefined {
+export function localRuntimeConfigPathForDataDir(dataDir: string | undefined): string | undefined {
   const trimmed = dataDir?.trim()
   if (!trimmed) return undefined
-  return join(expandHomePath(trimmed), KUN_CONFIG_FILENAME)
+  return join(expandHomePath(trimmed), LOCAL_RUNTIME_CONFIG_FILENAME)
 }
 
 export function expandHomePath(path: string): string {

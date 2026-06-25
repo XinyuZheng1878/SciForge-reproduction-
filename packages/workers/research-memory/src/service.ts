@@ -27,6 +27,7 @@ import {
   GithubIssueInputSchema,
   GithubPreparePrInputSchema,
   PolicyCheckInputSchema,
+  RESEARCH_MEMORY_STATUS_HTML_PATH,
   RenderStatusHtmlInputSchema,
   ResearchMemoryStatusInputSchema,
   RiskLevelSchema,
@@ -377,7 +378,7 @@ export class ResearchMemoryService {
           'Remove local paths, secrets, server details, or high-risk public claims before rendering status.html.'
         )
       }
-      const outputPath = parsed.data.output_path ?? 'status.html'
+      const outputPath = RESEARCH_MEMORY_STATUS_HTML_PATH
       const preview = parsed.data.dry_run === true || parsed.data.preview === true
       if (!preview) await this.writeWorkspaceFile(workspace.root, outputPath, html)
       return {

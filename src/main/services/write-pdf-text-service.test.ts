@@ -44,7 +44,7 @@ afterEach(() => {
 
 describe('write PDF text service', () => {
   it('extracts page text from a text-layer PDF fixture', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'ds-gui-write-pdf-text-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-write-pdf-text-'))
     const pdfPath = join(workspaceRoot, 'papers', 'fixture.pdf')
     await mkdir(join(workspaceRoot, 'papers'), { recursive: true })
     await writeFile(pdfPath, createSimpleTextPdf('PDF BM25 keyword retrieval context'))
@@ -66,7 +66,7 @@ describe('write PDF text service', () => {
   })
 
   it('rejects path traversal, symlink escapes, and oversized PDFs before extraction', async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), 'ds-gui-write-pdf-guard-'))
+    const tempRoot = await mkdtemp(join(tmpdir(), 'sciforge-write-pdf-guard-'))
     const workspaceRoot = join(tempRoot, 'workspace')
     const outsideRoot = join(tempRoot, 'outside')
     await mkdir(workspaceRoot, { recursive: true })

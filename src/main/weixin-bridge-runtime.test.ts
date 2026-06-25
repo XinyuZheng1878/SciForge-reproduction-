@@ -1,18 +1,33 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createRequire } from 'node:module'
-import { weixinBridgeRuntimeInternals } from './weixin-bridge-runtime'
+import {
+  configureWeixinBridgeRuntimeContextProvider,
+  weixinBridgeRuntimeInternals
+} from './weixin-bridge-runtime'
 
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
-    getPath: () => '/tmp/deepseek-gui-test-user-data',
+    getPath: () => '/tmp/sciforge-test-user-data',
     getVersion: () => '0.2.0-test'
   }
 }))
 
 const requireFromTest = createRequire(import.meta.url)
 
+function headersToRecord(headers: HeadersInit | undefined): Record<string, string> {
+  if (!headers) return {}
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries())
+  if (Array.isArray(headers)) return Object.fromEntries(headers)
+  return { ...headers }
+}
+
 describe('weixin bridge runtime', () => {
+  afterEach(() => {
+    configureWeixinBridgeRuntimeContextProvider(null)
+    vi.unstubAllGlobals()
+  })
+
   it('builds WeChat base_info from the bundled WeChat plugin package', () => {
     const pkg = requireFromTest('@tencent-weixin/openclaw-weixin/package.json') as {
       version: string
@@ -112,5 +127,39 @@ describe('weixin bridge runtime', () => {
       'status:已收到，正在处理。',
       'run:second'
     ])
+  })
+
+  it('posts webhook messages with the current SciForge secret header only', async () => {
+    configureWeixinBridgeRuntimeContextProvider(async () => ({
+      webhookUrl: 'http://127.0.0.1:8787/claw/im',
+      webhookSecret: 'bridge-secret',
+      channelId: 'channel_weixin'
+    }))
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
+      JSON.stringify({ ok: true, reply: 'ok' }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(weixinBridgeRuntimeInternals.postToSciForgeWebhook({
+      message_id: 'wx_msg_1',
+      from_user_id: 'wx_user_1',
+      item_list: [{ type: 1, text_item: { text: 'hello' } }]
+    }, 'account-1')).resolves.toMatchObject({ ok: true, reply: 'ok' })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const init = fetchMock.mock.calls[0]?.[1]
+    expect(init).toBeDefined()
+    expect(headersToRecord(init?.headers)).toEqual({
+      'content-type': 'application/json',
+      authorization: 'Bearer bridge-secret',
+      'x-sciforge-secret': 'bridge-secret'
+    })
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      provider: 'weixin',
+      channelId: 'channel_weixin',
+      text: 'hello',
+      messageId: 'wx_msg_1'
+    })
   })
 })

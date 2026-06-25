@@ -86,7 +86,7 @@ export function newScheduledTask(workspaceRoot: string, defaults?: Partial<Sched
     lastStatus: 'idle',
     lastMessage: '',
     lastThreadId: '',
-    runtimeId: 'kun',
+    runtimeId: 'sciforge',
     agentThreadIds: {},
     ...defaults,
     mode: 'agent'
@@ -185,7 +185,7 @@ export function scheduledTaskLastThreadId(
   task: Pick<ScheduledTaskV1, 'lastThreadId' | 'runtimeId' | 'agentThreadIds'>
 ): string {
   const runtimeId = normalizeAgentRuntimeId(task.runtimeId)
-  return task.agentThreadIds?.[runtimeId]?.trim() || (runtimeId === 'kun' ? task.lastThreadId.trim() : '')
+  return task.agentThreadIds?.[runtimeId]?.trim() || ''
 }
 
 export function scheduledTaskLastThreadRuntimeId(
@@ -193,7 +193,6 @@ export function scheduledTaskLastThreadRuntimeId(
 ): AgentRuntimeId | undefined {
   const runtimeId = normalizeAgentRuntimeId(task.runtimeId)
   if (task.agentThreadIds?.[runtimeId]?.trim()) return runtimeId
-  if (task.lastThreadId.trim()) return 'kun'
   return undefined
 }
 
@@ -238,8 +237,8 @@ export function ScheduleTasksView({
     try {
       const [nextSettings, nextStatus] = await Promise.all([
         rendererRuntimeClient.getSettings({ forceRefresh: true }),
-        typeof window.dsGui?.getScheduleStatus === 'function'
-          ? window.dsGui.getScheduleStatus()
+        typeof window.sciforge?.getScheduleStatus === 'function'
+          ? window.sciforge.getScheduleStatus()
           : Promise.resolve(null)
       ])
       setSettings(nextSettings)
@@ -269,8 +268,8 @@ export function ScheduleTasksView({
     setSettings({ ...settings, schedule: nextSchedule })
     const saved = await rendererRuntimeClient.setSettings({ schedule: nextSchedule })
     setSettings(saved)
-    if (typeof window.dsGui?.getScheduleStatus === 'function') {
-      setStatus(await window.dsGui.getScheduleStatus())
+    if (typeof window.sciforge?.getScheduleStatus === 'function') {
+      setStatus(await window.sciforge.getScheduleStatus())
     }
   }
 
@@ -307,10 +306,10 @@ export function ScheduleTasksView({
   const pickDialogWorkspace = async (): Promise<void> => {
     if (!dialog) return
     try {
-      if (typeof window.dsGui?.pickWorkspaceDirectory !== 'function') {
+      if (typeof window.sciforge?.pickWorkspaceDirectory !== 'function') {
         throw new Error(t('workspacePickerUnavailable'))
       }
-      const picked = await window.dsGui.pickWorkspaceDirectory(resolveDialogWorkspaceRoot(dialog.draft.workspaceRoot) || undefined)
+      const picked = await window.sciforge.pickWorkspaceDirectory(resolveDialogWorkspaceRoot(dialog.draft.workspaceRoot) || undefined)
       if (picked.canceled || !picked.path) return
       onDraftChangeInDialog({ workspaceRoot: picked.path })
       setDialogError(null)
@@ -380,8 +379,8 @@ export function ScheduleTasksView({
   }
 
   const runTask = async (taskId: string): Promise<void> => {
-    if (typeof window.dsGui?.runScheduleTask !== 'function') return
-    const result = await window.dsGui.runScheduleTask(taskId)
+    if (typeof window.sciforge?.runScheduleTask !== 'function') return
+    const result = await window.sciforge.runScheduleTask(taskId)
     if (!result.ok) {
       setError(result.message)
       return

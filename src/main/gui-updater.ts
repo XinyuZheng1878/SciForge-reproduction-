@@ -27,7 +27,7 @@ let lastState: GuiUpdateState = { status: 'idle' }
 let downloaded = false
 let downloadPromise: Promise<string[]> | null = null
 let configuredChannel: GuiUpdateChannel = normalizeGuiUpdateChannel(
-  envValue('SCIFORGE_UPDATE_CHANNEL', 'DEEPSEEK_GUI_UPDATE_CHANNEL')
+  envValue('SCIFORGE_UPDATE_CHANNEL')
 )
 let configuredFeedUrl = ''
 let getSelectedChannel: (() => GuiUpdateChannel | Promise<GuiUpdateChannel>) | null = null
@@ -52,14 +52,14 @@ function joinUrl(base: string, ...parts: string[]): string {
   return [cleanBase, ...cleanParts].join('/')
 }
 
-function envValue(primary: string, legacy?: string): string {
-  return process.env[primary]?.trim() || (legacy ? process.env[legacy]?.trim() : '') || ''
+function envValue(primary: string): string {
+  return process.env[primary]?.trim() || ''
 }
 
 function envUpdateUrl(channel: GuiUpdateChannel): string {
   const channelSpecific =
-    envValue(`SCIFORGE_UPDATE_URL_${channel.toUpperCase()}`, `DEEPSEEK_GUI_UPDATE_URL_${channel.toUpperCase()}`)
-  const direct = channelSpecific || envValue('SCIFORGE_UPDATE_URL', 'DEEPSEEK_GUI_UPDATE_URL')
+    envValue(`SCIFORGE_UPDATE_URL_${channel.toUpperCase()}`)
+  const direct = channelSpecific || envValue('SCIFORGE_UPDATE_URL')
   return direct ? direct.replace(/\{channel\}/g, channel).replace(/\/?$/, '/') : ''
 }
 
@@ -124,7 +124,7 @@ function readPackageJson(): Record<string, unknown> | null {
 }
 
 function resolveGithubReleaseUrl(): string | null {
-  const envRepo = normalizeGithubOwnerRepo(envValue('SCIFORGE_GITHUB_REPO', 'DEEPSEEK_GUI_GITHUB_REPO'))
+  const envRepo = normalizeGithubOwnerRepo(envValue('SCIFORGE_GITHUB_REPO'))
   if (envRepo) return `https://github.com/${envRepo}/releases`
 
   const pkg = readPackageJson()
@@ -140,7 +140,7 @@ function resolveGithubReleaseUrl(): string | null {
 }
 
 function downloadPageUrl(): string {
-  const direct = envValue('SCIFORGE_DOWNLOAD_URL', 'DEEPSEEK_GUI_DOWNLOAD_URL')
+  const direct = envValue('SCIFORGE_DOWNLOAD_URL')
   if (direct) return direct
 
   const pkg = readPackageJson()
@@ -190,7 +190,7 @@ function parseYamlScalar(source: string, key: string): string {
 
 function macAutoUpdateAllowed(): boolean {
   if (process.platform !== 'darwin') return true
-  if (process.env.SCIFORGE_ALLOW_UNSIGNED_UPDATES === '1' || process.env.DEEPSEEK_GUI_ALLOW_UNSIGNED_UPDATES === '1') return true
+  if (process.env.SCIFORGE_ALLOW_UNSIGNED_UPDATES === '1') return true
 
   const pkg = readPackageJson()
   const hints = pkg?.buildHints

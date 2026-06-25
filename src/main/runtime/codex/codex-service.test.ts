@@ -8,7 +8,7 @@ import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -41,7 +41,7 @@ function settings(): AppSettingsV1 {
     activeAgentRuntime: 'codex',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()
     },
     modelRouter: {
@@ -142,7 +142,7 @@ function clientWithQueuedEvents(): {
 }
 
 async function tempRoot(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'deepseek-gui-codex-service-'))
+  return mkdtemp(join(tmpdir(), 'sciforge-codex-service-'))
 }
 
 function deferred<T>(): {
@@ -1084,8 +1084,8 @@ describe('CodexRuntimeService compatibility operations', () => {
       sink: { send: vi.fn() },
       managedCodexHome: codexHome,
       scheduleMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       },
       mcpClientFactory: async (server) => {
@@ -1102,9 +1102,9 @@ describe('CodexRuntimeService compatibility operations', () => {
     expect(seenServers).toEqual([
       expect.objectContaining({
         id: 'gui_schedule',
-        command: '/tmp/deepseek-gui-test-app/SciForge',
+        command: '/tmp/sciforge-test-app/SciForge',
         args: [
-          '/tmp/deepseek-gui-test-app/out/main/schedule-mcp-node-entry.js',
+          '/tmp/sciforge-test-app/out/main/schedule-mcp-node-entry.js',
           '--gui-schedule-mcp-server',
           '--base-url',
           'http://127.0.0.1:9797'
@@ -1154,13 +1154,13 @@ describe('CodexRuntimeService compatibility operations', () => {
       sink: { send: vi.fn() },
       managedCodexHome: codexHome,
       workflowMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       },
       workspaceIntelMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       },
       mcpClientFactory: async (server) => {
@@ -1194,7 +1194,7 @@ describe('CodexRuntimeService compatibility operations', () => {
       expect.objectContaining({
         id: 'gui_workflow',
         args: [
-          '/tmp/deepseek-gui-test-app/out/main/workflow-mcp-node-entry.js',
+          '/tmp/sciforge-test-app/out/main/workflow-mcp-node-entry.js',
           '--gui-workflow-mcp-server',
           '--base-url',
           'http://127.0.0.1:9898'
@@ -1208,7 +1208,7 @@ describe('CodexRuntimeService compatibility operations', () => {
       expect.objectContaining({
         id: 'gui_workspace_intel',
         args: [
-          '/tmp/deepseek-gui-test-app/out/main/workspace-intel-mcp-node-entry.js',
+          '/tmp/sciforge-test-app/out/main/workspace-intel-mcp-node-entry.js',
           '--gui-workspace-intel-mcp-server',
           '--include-global-skills',
           '--workspace-root',

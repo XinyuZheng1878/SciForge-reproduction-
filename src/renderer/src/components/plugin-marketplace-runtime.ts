@@ -1,7 +1,7 @@
 import type {
-  CoreRuntimeInfoJson,
-  CoreRuntimeToolDiagnosticsJson
-} from '../agent/kun-contract'
+  LocalRuntimeInfoJson,
+  LocalRuntimeToolDiagnosticsJson
+} from '../agent/local-runtime-contract'
 
 export type McpMarketplaceOverlayStatus =
   | 'offline'
@@ -28,8 +28,8 @@ export type McpMarketplaceOverlay = {
 }
 
 export function buildMcpMarketplaceOverlay(input: {
-  runtimeInfo?: CoreRuntimeInfoJson | null
-  toolDiagnostics?: CoreRuntimeToolDiagnosticsJson | null
+  runtimeInfo?: LocalRuntimeInfoJson | null
+  toolDiagnostics?: LocalRuntimeToolDiagnosticsJson | null
   managedServers?: Array<{ id: string; toolCount?: number }>
 }): McpMarketplaceOverlay {
   const capability = input.runtimeInfo?.capabilities?.mcp

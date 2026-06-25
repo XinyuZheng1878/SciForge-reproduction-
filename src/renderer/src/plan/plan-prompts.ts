@@ -2,7 +2,7 @@ const GUI_PLAN_OPEN = '<gui_plan>'
 const GUI_PLAN_CLOSE = '</gui_plan>'
 /**
  * @deprecated Kept for legacy prompt compatibility only. New turns use
- * the native Kun `create_plan` tool; the renderer still emits a
+ * the native local-runtime `create_plan` tool; the renderer still emits a
  * brief tag-based fallback section for legacy providers.
  */
 export const GUI_PLAN_CREATE_TOOL_NAME = 'create_plan'

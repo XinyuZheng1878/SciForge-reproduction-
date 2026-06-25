@@ -66,9 +66,9 @@ function createHarness(): {
   return { actions, get }
 }
 
-function installDsGui(overrides: Partial<Window['dsGui']>): void {
+function installSciForge(overrides: Partial<Window['sciforge']>): void {
   vi.stubGlobal('window', {
-    dsGui: overrides
+    sciforge: overrides
   })
 }
 
@@ -78,7 +78,7 @@ afterEach(() => {
 
 describe('write workspace file actions', () => {
   it('clears loading state and records list errors when directory IPC throws', async () => {
-    installDsGui({
+    installSciForge({
       listWorkspaceDirectory: vi.fn(async () => {
         throw new Error('bridge down')
       })
@@ -93,7 +93,7 @@ describe('write workspace file actions', () => {
   })
 
   it('returns null and reports file errors when create file IPC throws', async () => {
-    installDsGui({
+    installSciForge({
       createWorkspaceFile: vi.fn(async () => {
         throw new Error('create failed')
       })
@@ -107,7 +107,7 @@ describe('write workspace file actions', () => {
   })
 
   it('returns null and reports file errors when rename IPC throws', async () => {
-    installDsGui({
+    installSciForge({
       renameWorkspaceEntry: vi.fn(async () => {
         throw new Error('rename failed')
       })
@@ -121,7 +121,7 @@ describe('write workspace file actions', () => {
   })
 
   it('returns false and reports file errors when delete IPC throws', async () => {
-    installDsGui({
+    installSciForge({
       deleteWorkspaceEntry: vi.fn(async () => {
         throw new Error('delete failed')
       })
@@ -146,7 +146,7 @@ describe('write workspace file actions', () => {
       truncated: false as const,
       mtimeMs: 1234
     }))
-    installDsGui({
+    installSciForge({
       readWorkspaceFile
     })
     const { actions, get } = createHarness()
@@ -177,7 +177,7 @@ describe('write workspace file actions', () => {
   })
 
   it('rejects PDF paths when the unified reader returns a non-PDF result', async () => {
-    installDsGui({
+    installSciForge({
       readWorkspaceFile: vi.fn(async () => ({
         ok: true as const,
         kind: 'text' as const,

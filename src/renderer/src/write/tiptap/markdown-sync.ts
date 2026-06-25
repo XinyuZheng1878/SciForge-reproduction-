@@ -2,7 +2,7 @@ import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { parseWriteMarkdown } from './markdown-manager'
 
-export const writeRichExternalSyncMeta = 'deepseek-gui.write.rich.external-sync'
+export const writeRichExternalSyncMeta = 'sciforge.write.rich.external-sync'
 
 export type BlockSyncReplacement = {
   from: number

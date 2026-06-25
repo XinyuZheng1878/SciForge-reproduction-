@@ -8,7 +8,7 @@ import {
   applySddDerivedStatuses,
   type SddTraceSnapshot
 } from '@shared/sdd-trace'
-import { buildPlanRelativePath, GUI_PLAN_LEGACY_RELATIVE_DIR } from '@shared/gui-plan'
+import { buildPlanRelativePath } from '@shared/gui-plan'
 import { useChatStore } from '../store/chat-store'
 import { useGuiPlanStore } from '../plan/plan-store'
 import { useSddDraftStore } from './sdd-draft-store'
@@ -34,9 +34,7 @@ function parseTraceSnapshot(raw: string): SddTraceSnapshot | null {
 export function sddPlanRelativePathForDraft(draftRelativePath: string): string | null {
   const folder = sddDraftFolderFromRelativePath(draftRelativePath)
   if (!folder) return null
-  return draftRelativePath.startsWith('.kunsdd/draft/')
-    ? `${GUI_PLAN_LEGACY_RELATIVE_DIR}/sdd-${folder}.md`
-    : buildPlanRelativePath(`sdd-${folder}`)
+  return buildPlanRelativePath(`sdd-${folder}`)
 }
 
 export function useSddTrace(input: {
@@ -90,20 +88,20 @@ export function useSddTrace(input: {
     }
     let cancelled = false
     const load = async (): Promise<void> => {
-      if (typeof window.dsGui?.readWorkspaceFile !== 'function') return
-      const requirement = await window.dsGui
+      if (typeof window.sciforge?.readWorkspaceFile !== 'function') return
+      const requirement = await window.sciforge
         .readWorkspaceFile({ workspaceRoot, path: draftRelativePath })
         .catch(() => null)
       if (!cancelled) setDiskRequirement(requirement?.ok ? requirement.content : null)
       if (!planIsActive) {
-        const plan = await window.dsGui
+        const plan = await window.sciforge
           .readWorkspaceFile({ workspaceRoot, path: planRelativePath })
           .catch(() => null)
         if (!cancelled) setDiskPlan(plan?.ok ? plan.content : null)
       }
       const tracePath = sddDraftTraceRelativePath(draftRelativePath)
       if (tracePath) {
-        const trace = await window.dsGui
+        const trace = await window.sciforge
           .readWorkspaceFile({ workspaceRoot, path: tracePath })
           .catch(() => null)
         if (!cancelled) setSnapshot(trace?.ok ? parseTraceSnapshot(trace.content) : null)
@@ -157,8 +155,8 @@ export function useSddTrace(input: {
           await saveActiveSddDraftToDisk()
           return
         }
-        if (typeof window.dsGui?.writeWorkspaceFile !== 'function') return
-        const written = await window.dsGui.writeWorkspaceFile({
+        if (typeof window.sciforge?.writeWorkspaceFile !== 'function') return
+        const written = await window.sciforge.writeWorkspaceFile({
           workspaceRoot,
           path: draftRelativePath,
           content: next

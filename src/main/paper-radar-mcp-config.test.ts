@@ -53,7 +53,7 @@ describe('Paper Radar MCP config', () => {
     expect(config.disabled).toBe(false)
   })
 
-  it('removes GUI-managed Paper Radar servers from external Kun mcp.json', () => {
+  it('removes GUI-managed Paper Radar servers from external local runtime mcp.json', () => {
     const synced = buildSyncedPaperRadarMcpJson({
       timeouts: { connect_timeout: 3, execute_timeout: 30, read_timeout: 90 },
       servers: {

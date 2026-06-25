@@ -225,7 +225,6 @@ export function ClawSidebarContent({
 
 function channelMappedThreadIds(channel: ClawImChannelV1): string[] {
   const ids = new Set<string>()
-  addThreadId(ids, channel.threadId)
   for (const threadId of Object.values(channel.agentThreadIds ?? {})) {
     addThreadId(ids, threadId)
   }
@@ -331,20 +330,18 @@ function conversationRuntimeId(
   channel: ClawImChannelV1,
   conversation: ClawImChannelV1['conversations'][number]
 ): AgentRuntimeId {
-  return conversation.runtimeId ?? channel.runtimeId ?? 'kun'
+  return conversation.runtimeId ?? channel.runtimeId ?? 'sciforge'
 }
 
 function conversationThreadId(
   conversation: ClawImChannelV1['conversations'][number],
   runtimeId: AgentRuntimeId
 ): string {
-  return conversation.agentThreadIds?.[runtimeId]?.trim() ||
-    (runtimeId === 'kun' ? conversation.localThreadId.trim() : '')
+  return conversation.agentThreadIds?.[runtimeId]?.trim() || ''
 }
 
 function conversationThreadIds(conversation: ClawImChannelV1['conversations'][number]): string[] {
   return [
-    conversation.localThreadId,
     ...Object.values(conversation.agentThreadIds ?? {})
   ].map((value) => value?.trim() ?? '').filter(Boolean)
 }

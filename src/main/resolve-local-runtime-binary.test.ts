@@ -3,15 +3,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  buildKunServeArgs,
-  resolveKunExecutable,
-  type KunBinaryResolution
-} from './resolve-kun-binary'
+  buildLocalRuntimeServeArgs,
+  resolveLocalRuntimeExecutable,
+  type LocalRuntimeBinaryResolution
+} from './resolve-local-runtime-binary'
 
 const tempRoots: string[] = []
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'kun-resolver-'))
+  const root = mkdtempSync(join(tmpdir(), 'local-runtime-resolver-'))
   tempRoots.push(root)
   return root
 }
@@ -28,13 +28,13 @@ afterEach(() => {
   }
 })
 
-describe('resolveKunExecutable', () => {
-  it('resolves the built Kun entry from the app root', () => {
+describe('resolveLocalRuntimeExecutable', () => {
+  it('resolves the built local runtime entry from the app root', () => {
     const root = tempRoot()
     const entry = join(root, 'kun/dist/cli/serve-entry.js')
     touch(entry)
 
-    const resolution = resolveKunExecutable(root, '')
+    const resolution = resolveLocalRuntimeExecutable(root, '')
 
     expect(resolution).toEqual({
       kind: 'node-script',
@@ -48,7 +48,7 @@ describe('resolveKunExecutable', () => {
     const root = tempRoot()
     touch(join(root, 'kun/src/cli/serve-entry.ts'))
 
-    const resolution = resolveKunExecutable(root, '')
+    const resolution = resolveLocalRuntimeExecutable(root, '')
 
     expect(resolution).toEqual({
       kind: 'node-script',
@@ -58,12 +58,12 @@ describe('resolveKunExecutable', () => {
     })
   })
 
-  it('accepts a Kun package directory as a custom binary path', () => {
+  it('accepts a local runtime package directory as a custom binary path', () => {
     const root = tempRoot()
     const entry = join(root, 'dist/cli/serve-entry.js')
     touch(entry)
 
-    const resolution = resolveKunExecutable('/app', root)
+    const resolution = resolveLocalRuntimeExecutable('/app', root)
 
     expect(resolution).toEqual({
       kind: 'node-script',
@@ -74,7 +74,7 @@ describe('resolveKunExecutable', () => {
   })
 
   it('runs a non-JavaScript custom executable directly', () => {
-    const resolution = resolveKunExecutable('/app', '/usr/local/bin/kun')
+    const resolution = resolveLocalRuntimeExecutable('/app', '/usr/local/bin/kun')
 
     expect(resolution).toEqual({
       kind: 'custom',
@@ -85,20 +85,20 @@ describe('resolveKunExecutable', () => {
   })
 })
 
-describe('buildKunServeArgs', () => {
+describe('buildLocalRuntimeServeArgs', () => {
   it('does not place runtime secrets on the child process argv', () => {
-    const resolution: KunBinaryResolution = {
+    const resolution: LocalRuntimeBinaryResolution = {
       kind: 'node-script',
       command: '/usr/bin/node',
       args: ['/app/kun/dist/cli/serve-entry.js'],
       dataDir: ''
     }
 
-    const args = buildKunServeArgs({
+    const args = buildLocalRuntimeServeArgs({
       resolution,
       host: '127.0.0.1',
       port: 8899,
-      dataDir: '/tmp/kun',
+      dataDir: '/tmp/local-runtime',
       modelRouterBaseUrl: 'http://127.0.0.1:3892/v1',
       model: 'sciforge-router',
       forceDefaultModel: true,

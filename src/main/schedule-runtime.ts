@@ -1,7 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { URL } from 'node:url'
-import { mkdir } from 'node:fs/promises'
 import type {
   AgentRuntimeId,
   AppSettingsV1,
@@ -14,10 +13,10 @@ import type {
 } from '../shared/app-settings'
 import {
   DEFAULT_SCHEDULE_MODEL,
-  buildScheduleRuntimePrompt,
   normalizeAgentRuntimeId,
   normalizeScheduleReasoningEffort
 } from '../shared/app-settings'
+import { APP_WEBHOOK_SECRET_HEADER } from '../shared/app-brand'
 import {
   buildScheduledTaskFromDetectedRequest,
   detectClawScheduledTaskRequest
@@ -29,22 +28,16 @@ import {
   computeScheduleNextRunAt,
   hasEnabledScheduledTask,
   internalUrl,
-  isRunningStatus,
-  latestAssistantText,
   nestedRecord,
-  normalizeTaskModel,
   parseJsonObject,
   readRequestBody,
-  sleep,
+  runPromptViaRuntime,
   summarizeTaskResult,
+  waitForAssistantTextViaRuntime,
   writeJson,
   type RunPromptOptions,
-  type ScheduleRuntimeDeps,
-  type ThreadDetailJson
+  type ScheduleRuntimeDeps
 } from './schedule-runtime-helpers'
-
-const UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE =
-  'unsupported_runtime_request: AgentRuntimeHost is required for Schedule runtime requests.'
 
 export { computeScheduleNextRunAt } from './schedule-runtime-helpers'
 
@@ -53,10 +46,6 @@ export function scheduledThreadTitle(title: string): string {
   const prefix = '[Scheduled task]'
   const suffix = Array.from(trimmed).slice(0, 4).join('')
   return suffix ? `${prefix} ${suffix}` : prefix
-}
-
-function unsupportedAgentRuntimeHostRunResult(): ScheduleRunResult {
-  return { ok: false, message: UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE }
 }
 
 function withAgentThreadId(
@@ -80,7 +69,7 @@ function withScheduleThreadMapping(
   return {
     ...task,
     runtimeId,
-    ...(runtimeId === 'kun' ? { lastThreadId: trimmed } : {}),
+    ...(runtimeId === 'sciforge' ? { lastThreadId: trimmed } : {}),
     agentThreadIds: withAgentThreadId(task.agentThreadIds, runtimeId, trimmed)
   }
 }
@@ -424,17 +413,15 @@ export class ScheduleRuntime {
     taskId: string,
     threadId: string,
     turnId: string,
-    runtimeId: AgentRuntimeId = 'kun'
+    runtimeId: AgentRuntimeId = 'sciforge'
   ): Promise<void> {
     try {
-      const settings = await this.deps.store.load()
-      const task = settings.schedule.tasks.find((item) => item.id === taskId)
-      const text = await this.waitForAssistantText(
+      const text = await waitForAssistantTextViaRuntime(
+        this.deps,
+        runtimeId,
         threadId,
         turnId,
-        TASK_RESPONSE_TIMEOUT_MS,
-        task?.workspaceRoot || this.resolveDefaultWorkspaceRoot(settings),
-        runtimeId
+        TASK_RESPONSE_TIMEOUT_MS
       )
       const finishedAt = new Date()
       await this.updateTask(taskId, (current) => ({
@@ -449,7 +436,11 @@ export class ScheduleRuntime {
       const message = error instanceof Error ? error.message : String(error)
       const finishedAt = new Date()
       await this.updateTask(taskId, (current) => ({
-        ...withScheduleThreadMapping(current, runtimeId, threadId || current.agentThreadIds?.[runtimeId] || current.lastThreadId),
+        ...withScheduleThreadMapping(
+          current,
+          runtimeId,
+          threadId || current.agentThreadIds?.[runtimeId] || (runtimeId === 'sciforge' ? current.lastThreadId : '')
+        ),
         ...(current.schedule.kind === 'at' ? { enabled: false } : {}),
         nextRunAt: current.schedule.kind === 'at' ? '' : computeScheduleNextRunAt(current, finishedAt),
         lastStatus: 'error',
@@ -463,107 +454,7 @@ export class ScheduleRuntime {
   }
 
   private async runPrompt(settings: AppSettingsV1, options: RunPromptOptions): Promise<ScheduleRunResult> {
-    const workspace = options.workspaceRoot.trim() || this.resolveDefaultWorkspaceRoot(settings)
-    const runtimeId = normalizeAgentRuntimeId(options.runtimeId)
-    if (workspace) {
-      await mkdir(workspace, { recursive: true })
-    }
-    if (!this.deps.agentRuntime) return unsupportedAgentRuntimeHostRunResult()
-    return this.runAgentRuntimePrompt(settings, options, runtimeId, workspace)
-  }
-
-  private async runAgentRuntimePrompt(
-    settings: AppSettingsV1,
-    options: RunPromptOptions,
-    runtimeId: AgentRuntimeId,
-    workspace: string
-  ): Promise<ScheduleRunResult> {
-    const agentRuntime = this.deps.agentRuntime
-    if (!agentRuntime) return unsupportedAgentRuntimeHostRunResult()
-    const model = normalizeTaskModel(options.model) ?? DEFAULT_SCHEDULE_MODEL
-    let thread: { id: string }
-    try {
-      thread = await agentRuntime.startThread({
-        runtimeId,
-        workspace,
-        title: options.title.trim() || undefined,
-        mode: options.mode,
-        model
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return { ok: false, message: message || 'Failed to create thread.' }
-    }
-
-    let turn: { threadId: string; turnId: string }
-    try {
-      turn = await agentRuntime.startTurn({
-        runtimeId,
-        threadId: thread.id,
-        text: buildScheduleRuntimePrompt(settings, options.prompt),
-        workspace,
-        mode: options.mode,
-        model,
-        reasoningEffort: options.reasoningEffort,
-        governanceProfile: 'remote_guard'
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return { ok: false, message: message || 'Failed to start turn.' }
-    }
-
-    const threadId = turn.threadId.trim() || thread.id
-    const turnId = turn.turnId.trim()
-    if (!turnId) {
-      return { ok: false, message: 'Failed to start turn: missing turn id.' }
-    }
-    if (!options.waitForResult) {
-      return { ok: true, threadId, turnId, message: 'Started' }
-    }
-
-    const text = await this.waitForAssistantText(
-      threadId,
-      turnId,
-      options.responseTimeoutMs,
-      workspace,
-      runtimeId
-    )
-    return { ok: true, threadId, turnId, text, message: text || 'Completed' }
-  }
-
-  private async waitForAssistantText(
-    threadId: string,
-    turnId: string,
-    timeoutMs: number,
-    workspaceRoot?: string,
-    runtimeId: AgentRuntimeId = 'kun'
-  ): Promise<string> {
-    void workspaceRoot
-    const deadline = Date.now() + timeoutMs
-    let lastText = ''
-    while (Date.now() < deadline) {
-      await sleep(1_500)
-      const detail = await this.readThreadDetail(threadId, runtimeId)
-      lastText = latestAssistantText(detail, { turnId }) || lastText
-      const targetTurn = Array.isArray(detail.turns)
-        ? detail.turns.find((turn) => turn.id === turnId)
-        : undefined
-      if (!targetTurn) continue
-      if (isRunningStatus(targetTurn.status)) continue
-      if (targetTurn.status === 'failed' || targetTurn.status === 'aborted') {
-        const error = targetTurn.error?.trim()
-        throw new Error(error || `Agent turn ${targetTurn.status}.`)
-      }
-      if (targetTurn.status === 'completed' && lastText) return lastText
-    }
-    if (lastText) return lastText
-    throw new Error('Timed out waiting for agent response.')
-  }
-
-  private async readThreadDetail(threadId: string, runtimeId: AgentRuntimeId): Promise<ThreadDetailJson> {
-    const agentRuntime = this.deps.agentRuntime
-    if (!agentRuntime) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
-    return agentRuntime.readThread({ runtimeId, threadId }) as Promise<ThreadDetailJson>
+    return runPromptViaRuntime(this.deps, settings, options)
   }
 
   private resolveDefaultWorkspaceRoot(settings: AppSettingsV1): string {
@@ -615,12 +506,8 @@ export class ScheduleRuntime {
       const secret = settings.schedule.internal.secret.trim()
       if (secret) {
         const auth = req.headers.authorization ?? ''
-        const headerSecret = Array.isArray(req.headers['x-sciforge-secret'])
-          ? req.headers['x-sciforge-secret'][0]
-          : req.headers['x-sciforge-secret'] ??
-            (Array.isArray(req.headers['x-deepseek-gui-secret'])
-              ? req.headers['x-deepseek-gui-secret'][0]
-              : req.headers['x-deepseek-gui-secret'])
+        const secretHeader = req.headers[APP_WEBHOOK_SECRET_HEADER]
+        const headerSecret = Array.isArray(secretHeader) ? secretHeader[0] : secretHeader
         if (auth !== `Bearer ${secret}` && headerSecret !== secret) {
           writeJson(res, 401, { ok: false, message: 'Unauthorized.' })
           return

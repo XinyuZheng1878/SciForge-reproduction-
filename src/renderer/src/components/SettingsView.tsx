@@ -4,16 +4,16 @@ import { useTranslation } from 'react-i18next'
 import {
   codexSettingsPatch,
   claudeSettingsPatch,
-  kunSettingsPatch,
+  localRuntimeSettingsPatch,
   type AppSettingsPatch,
   type CodexRuntimeSettingsPatchV1,
   type ClaudeRuntimeSettingsPatchV1,
   getActiveAgentApiKey,
   getClaudeRuntimeSettings,
   getCodexRuntimeSettings,
-  getKunRuntimeSettings,
+  getLocalRuntimeSettings,
   getModelProviderSettings,
-  isKunRuntimeInsecure,
+  isLocalRuntimeInsecure,
   type AppSettingsV1,
 } from '@shared/app-settings'
 import type {
@@ -23,10 +23,10 @@ import type {
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import { getProvider } from '../agent/registry'
 import type {
-  CoreMemoryRecordJson,
-  CoreRuntimeInfoJson,
-  CoreRuntimeToolDiagnosticsJson
-} from '../agent/kun-contract'
+  LocalRuntimeMemoryRecordJson,
+  LocalRuntimeInfoJson,
+  LocalRuntimeToolDiagnosticsJson
+} from '../agent/local-runtime-contract'
 import { applyTheme, applyUiFontScale } from '../lib/apply-theme'
 import { formatWorkspacePickerError } from '../lib/format-workspace-picker-error'
 import {
@@ -47,7 +47,7 @@ import {
   mergeSettings,
   splitSettingsList
 } from './settings-utils'
-import { loadKunDiagnostics } from '../lib/load-kun-diagnostics'
+import { loadLocalRuntimeDiagnostics } from '../lib/load-local-runtime-diagnostics'
 import { createSettingsMemoryActions } from '../lib/settings-memory-actions'
 import { emitRendererSettingsChanged } from '../lib/keyboard-shortcut-settings'
 import type { InlineNotice } from './settings-controls'
@@ -135,16 +135,16 @@ export function SettingsView(): ReactElement {
   const [logDirOpenError, setLogDirOpenError] = useState<string | null>(null)
   const [skillRootId, setSkillRootId] = useState<SkillRootId>(() => loadPreferredSkillRootId())
   const [skillNotice, setSkillNotice] = useState<InlineNotice | null>(null)
-  const [mcpConfigPath, setMcpConfigPath] = useState('~/.kun/mcp.json')
+  const [mcpConfigPath, setMcpConfigPath] = useState('~/.sciforge/mcp.json')
   const [mcpConfigText, setMcpConfigText] = useState('')
   const [mcpConfigExists, setMcpConfigExists] = useState(false)
   const [mcpLoading, setMcpLoading] = useState(false)
   const [mcpLoaded, setMcpLoaded] = useState(false)
   const [mcpBusy, setMcpBusy] = useState(false)
   const [mcpNotice, setMcpNotice] = useState<InlineNotice | null>(null)
-  const [runtimeInfo, setRuntimeInfo] = useState<CoreRuntimeInfoJson | null>(null)
-  const [toolDiagnostics, setToolDiagnostics] = useState<CoreRuntimeToolDiagnosticsJson | null>(null)
-  const [memoryRecords, setMemoryRecords] = useState<CoreMemoryRecordJson[]>([])
+  const [runtimeInfo, setRuntimeInfo] = useState<LocalRuntimeInfoJson | null>(null)
+  const [toolDiagnostics, setToolDiagnostics] = useState<LocalRuntimeToolDiagnosticsJson | null>(null)
+  const [memoryRecords, setMemoryRecords] = useState<LocalRuntimeMemoryRecordJson[]>([])
   const [memoryScopeFilter, setMemoryScopeFilter] = useState<MemoryScopeFilter>('all')
   const [memoryQuery, setMemoryQuery] = useState('')
   const [memoryDraftContent, setMemoryDraftContent] = useState('')
@@ -169,8 +169,8 @@ export function SettingsView(): ReactElement {
   const formTheme = form?.theme
   const formUiFontScale = form?.uiFontScale
   const formWorkspaceRoot = form?.workspaceRoot
-  const formKun = form ? getKunRuntimeSettings(form) : null
-  const formPort = formKun?.port
+  const formLocalRuntime = form ? getLocalRuntimeSettings(form) : null
+  const formPort = formLocalRuntime?.port
   const formGuiUpdateChannel = form?.guiUpdate?.channel
   const {
     checkingGuiUpdate,
@@ -193,7 +193,7 @@ export function SettingsView(): ReactElement {
 
   useEffect(() => {
     let cancelled = false
-    if (typeof window.dsGui === 'undefined') {
+    if (typeof window.sciforge === 'undefined') {
       setLoadError('PRELOAD_BRIDGE')
       return
     }
@@ -217,8 +217,8 @@ export function SettingsView(): ReactElement {
   }, [formTheme, formUiFontScale])
 
   useEffect(() => {
-    if (typeof window.dsGui?.getLogPath !== 'function') return
-    void window.dsGui.getLogPath().then((p) => setLogPath(p)).catch(() => undefined)
+    if (typeof window.sciforge?.getLogPath !== 'function') return
+    void window.sciforge.getLogPath().then((p) => setLogPath(p)).catch(() => undefined)
   }, [category])
 
   useEffect(() => {
@@ -308,9 +308,9 @@ export function SettingsView(): ReactElement {
         available: true
       },
       {
-        id: 'global-deepseek',
+        id: 'global-sciforge',
         label: tCommon('pluginSkillRootGlobalDeepseek'),
-        path: '~/.kun/skills',
+        path: '~/.sciforge/skills',
         available: true
       }
     ]
@@ -333,11 +333,11 @@ export function SettingsView(): ReactElement {
   }, [skillRootId, skillRootOptions])
 
   const loadMcpConfig = async (): Promise<void> => {
-    if (typeof window.dsGui?.getDeepseekConfigFile !== 'function') return
+    if (typeof window.sciforge?.getRuntimeConfigFile !== 'function') return
     setMcpLoading(true)
     setMcpNotice(null)
     try {
-      const config = await window.dsGui.getDeepseekConfigFile()
+      const config = await window.sciforge.getRuntimeConfigFile()
       setMcpConfigPath(config.path)
       setMcpConfigText(config.content)
       setMcpConfigExists(config.exists)
@@ -362,20 +362,20 @@ export function SettingsView(): ReactElement {
       setSkillNotice({ tone: 'error', message: t('skillsRootUnavailable') })
       return
     }
-    if (typeof window.dsGui?.openSkillRoot !== 'function') return
+    if (typeof window.sciforge?.openSkillRoot !== 'function') return
     setSkillNotice(null)
-    const result = await window.dsGui.openSkillRoot(selectedSkillRoot.path)
+    const result = await window.sciforge.openSkillRoot(selectedSkillRoot.path)
     if (!result.ok) {
       setSkillNotice({ tone: 'error', message: result.message ?? t('applyFailed') })
     }
   }
 
   const saveMcpConfig = async (): Promise<void> => {
-    if (typeof window.dsGui?.setDeepseekConfigFile !== 'function') return
+    if (typeof window.sciforge?.setRuntimeConfigFile !== 'function') return
     setMcpBusy(true)
     setMcpNotice(null)
     try {
-      const result = await window.dsGui.setDeepseekConfigFile(mcpConfigText)
+      const result = await window.sciforge.setRuntimeConfigFile(mcpConfigText)
       setMcpConfigPath(result.path)
       setMcpConfigExists(true)
       setMcpNotice({
@@ -393,19 +393,19 @@ export function SettingsView(): ReactElement {
   }
 
   const openMcpConfigDir = async (): Promise<void> => {
-    if (typeof window.dsGui?.openDeepseekConfigDir !== 'function') return
-    const result = await window.dsGui.openDeepseekConfigDir()
+    if (typeof window.sciforge?.openRuntimeConfigDir !== 'function') return
+    const result = await window.sciforge.openRuntimeConfigDir()
     if (!result.ok) {
       setMcpNotice({ tone: 'error', message: result.message ?? t('applyFailed') })
     }
   }
 
-  const refreshKunDiagnostics = useCallback(async (): Promise<void> => {
+  const refreshLocalRuntimeDiagnostics = useCallback(async (): Promise<void> => {
     const provider = getProvider()
     setRuntimeDiagnosticsBusy(true)
     setRuntimeDiagnosticsNotice(null)
     try {
-      const loaded = await loadKunDiagnostics(provider, {
+      const loaded = await loadLocalRuntimeDiagnostics(provider, {
         workspace: normalizeWorkspaceRoot(formWorkspaceRoot),
         memoryScope: memoryScopeFilter === 'all' ? undefined : memoryScopeFilter,
         memoryQuery
@@ -511,8 +511,8 @@ export function SettingsView(): ReactElement {
 
   useEffect(() => {
     if (category !== 'agents') return
-    void refreshKunDiagnostics()
-  }, [category, refreshKunDiagnostics])
+    void refreshLocalRuntimeDiagnostics()
+  }, [category, refreshLocalRuntimeDiagnostics])
 
   const {
     createMemoryRecord,
@@ -672,7 +672,7 @@ export function SettingsView(): ReactElement {
     )
   }
 
-  const kun = getKunRuntimeSettings(form)
+  const localRuntime = getLocalRuntimeSettings(form)
   const codex = getCodexRuntimeSettings(form)
   const claude = getClaudeRuntimeSettings(form)
   const provider = getModelProviderSettings(form)
@@ -688,14 +688,8 @@ export function SettingsView(): ReactElement {
     scheduleSave(next)
   }
 
-  const sharedApiKey = provider.apiKey
-  const sharedBaseUrl = provider.baseUrl
-  const updateSharedCredential = (patch: { apiKey?: string; baseUrl?: string }): void => {
-    update({ provider: patch })
-  }
-
-  const updateKun = (patch: Partial<AppSettingsV1['agents']['kun']>): void => {
-    update({ agents: kunSettingsPatch(patch) })
+  const updateLocalRuntime = (patch: Partial<AppSettingsV1['agents']['sciforge']>): void => {
+    update({ agents: localRuntimeSettingsPatch(patch) })
   }
 
   const updateCodex = (patch: CodexRuntimeSettingsPatchV1): void => {
@@ -709,10 +703,10 @@ export function SettingsView(): ReactElement {
   const pickWorkspace = async (): Promise<void> => {
     try {
       setWorkspacePickerError(null)
-      if (typeof window.dsGui?.pickWorkspaceDirectory !== 'function') {
+      if (typeof window.sciforge?.pickWorkspaceDirectory !== 'function') {
         throw new Error('workspace:pick-directory unavailable')
       }
-      const picked = await window.dsGui.pickWorkspaceDirectory(form.workspaceRoot || undefined)
+      const picked = await window.sciforge.pickWorkspaceDirectory(form.workspaceRoot || undefined)
       if (!picked.canceled && picked.path) {
         update({ workspaceRoot: picked.path })
       }
@@ -729,10 +723,10 @@ export function SettingsView(): ReactElement {
   const pickClawWorkspace = async (): Promise<void> => {
     try {
       setClawWorkspacePickerError(null)
-      if (typeof window.dsGui?.pickWorkspaceDirectory !== 'function') {
+      if (typeof window.sciforge?.pickWorkspaceDirectory !== 'function') {
         throw new Error('workspace:pick-directory unavailable')
       }
-      const picked = await window.dsGui.pickWorkspaceDirectory(
+      const picked = await window.sciforge.pickWorkspaceDirectory(
         form.claw.im.workspaceRoot || form.workspaceRoot || undefined
       )
       if (!picked.canceled && picked.path) {
@@ -749,7 +743,7 @@ export function SettingsView(): ReactElement {
   }
 
   const prepareResearchMemoryWorkspace = async (): Promise<void> => {
-    if (typeof window.dsGui?.prepareResearchMemoryWorkspace !== 'function') {
+    if (typeof window.sciforge?.prepareResearchMemoryWorkspace !== 'function') {
       setResearchMemoryNotice({ tone: 'error', message: t('researchMemoryPrepareUnavailable') })
       return
     }
@@ -757,7 +751,7 @@ export function SettingsView(): ReactElement {
     setResearchMemoryNotice(null)
     try {
       await flushPendingSave()
-      const result = await window.dsGui.prepareResearchMemoryWorkspace()
+      const result = await window.sciforge.prepareResearchMemoryWorkspace()
       if (!result.ok) {
         setResearchMemoryNotice({
           tone: 'error',
@@ -787,17 +781,14 @@ export function SettingsView(): ReactElement {
     tCommon,
     form,
     provider,
-    kun,
+    localRuntime,
     codex,
     claude,
     activeApiKey,
     update,
-    updateKun,
+    updateLocalRuntime,
     updateCodex,
     updateClaude,
-    updateSharedCredential,
-    sharedApiKey,
-    sharedBaseUrl,
     showApiKey,
     setShowApiKey,
     showRuntimeToken,
@@ -868,7 +859,7 @@ export function SettingsView(): ReactElement {
     setGitCheckpointForceRestore,
     runtimeDiagnosticsBusy,
     runtimeDiagnosticsNotice,
-    refreshKunDiagnostics,
+    refreshLocalRuntimeDiagnostics,
     clearModelAuditRecords,
     previewGitCheckpoint,
     restoreGitCheckpoint,

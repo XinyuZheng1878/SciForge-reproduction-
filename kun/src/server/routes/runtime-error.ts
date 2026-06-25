@@ -1,7 +1,7 @@
 import { jsonResponse, type JsonResponse } from '../response.js'
-import type { KunErrorBody } from '../../contracts/errors.js'
+import type { LocalRuntimeErrorBody } from '../../contracts/errors.js'
 
-export type RuntimeError = KunErrorBody
+export type RuntimeError = LocalRuntimeErrorBody
 
 export function errorResponse(
   body: RuntimeError,

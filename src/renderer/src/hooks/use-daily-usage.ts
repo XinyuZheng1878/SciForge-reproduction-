@@ -237,8 +237,8 @@ export async function loadDailyUsage(
   range: DailyUsageRange,
   runtimeId?: AgentRuntimeId
 ): Promise<DailyUsageSummary | null> {
-  if (typeof window.dsGui?.agentRuntime?.usage !== 'function') return null
-  const parsed = await window.dsGui.agentRuntime.usage(buildDailyUsageQuery(range, runtimeId)) as RawDailyUsageResponse
+  if (typeof window.sciforge?.agentRuntime?.usage !== 'function') return null
+  const parsed = await window.sciforge.agentRuntime.usage(buildDailyUsageQuery(range, runtimeId)) as RawDailyUsageResponse
   if (parsed.supported === false) return null
   if ((parsed.groupBy ?? parsed.group_by) !== 'day') {
     throw new Error('daily usage response did not use day grouping')

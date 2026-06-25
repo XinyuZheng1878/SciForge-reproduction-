@@ -3,14 +3,14 @@ import {
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
-import { createKunAgentRuntimeAdapter } from './kun-agent-runtime-adapter'
+import { createLocalRuntimeAgentRuntimeAdapter } from './local-runtime-agent-runtime-adapter'
 
 type CapturedRequest = {
   pathAndQuery: string
@@ -31,7 +31,7 @@ function buildSettings(): AppSettingsV1 {
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings()
+      sciforge: defaultLocalRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: true, retentionDays: 7 },
@@ -48,7 +48,7 @@ function buildSettings(): AppSettingsV1 {
 }
 
 function adapterWithCapturedRequests(captured: CapturedRequest[]) {
-  return createKunAgentRuntimeAdapter({
+  return createLocalRuntimeAgentRuntimeAdapter({
     request: vi.fn(async (_settings, pathAndQuery, init) => {
       if (init.body) {
         captured.push({
@@ -92,9 +92,9 @@ function jsonResponse(body: unknown) {
   }
 }
 
-describe('createKunAgentRuntimeAdapter', () => {
+describe('createLocalRuntimeAgentRuntimeAdapter', () => {
   it('reports GUI-managed computer-use MCP capability through the shared runtime contract', async () => {
-    const adapter = createKunAgentRuntimeAdapter({
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async (_settings, pathAndQuery) => {
         if (pathAndQuery === '/v1/runtime/info') {
           return jsonResponse({
@@ -113,7 +113,7 @@ describe('createKunAgentRuntimeAdapter', () => {
     })
 
     await expect(adapter.capabilities({ settings: buildSettings() })).resolves.toMatchObject({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       tools: {
         mcp: { available: true, toolCount: 1 },
         computerUse: {
@@ -130,8 +130,8 @@ describe('createKunAgentRuntimeAdapter', () => {
     })
   })
 
-  it('normalizes legacy Kun computer-use backend info to the isolated MCP backend', async () => {
-    const adapter = createKunAgentRuntimeAdapter({
+  it('normalizes legacy local runtime computer-use backend info to the isolated MCP backend', async () => {
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async (_settings, pathAndQuery) => {
         if (pathAndQuery === '/v1/runtime/info') {
           return jsonResponse({
@@ -210,7 +210,7 @@ describe('createKunAgentRuntimeAdapter', () => {
       const captured: CapturedRequest[] = []
       const adapter = adapterWithCapturedRequests(captured)
       const resumeSession = adapter.resumeSession
-      if (!resumeSession) throw new Error('Expected Kun adapter to support session resume.')
+      if (!resumeSession) throw new Error('Expected local runtime adapter to support session resume.')
 
       await resumeSession({ settings: buildSettings() }, {
         sessionId: 'session-1',
@@ -225,8 +225,8 @@ describe('createKunAgentRuntimeAdapter', () => {
     }
   )
 
-  it('maps Kun tool call and result items to the same callId-backed item id', async () => {
-    const adapter = createKunAgentRuntimeAdapter({
+  it('maps local runtime tool call and result items to the same callId-backed item id', async () => {
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async () => jsonResponse({
         id: 'thread-1',
         title: 'Thread 1',
@@ -274,8 +274,8 @@ describe('createKunAgentRuntimeAdapter', () => {
     ])
   })
 
-  it('maps Kun tool_call_ready events onto the same tool event chain', async () => {
-    const adapter = createKunAgentRuntimeAdapter({
+  it('maps local runtime tool_call_ready events onto the same tool event chain', async () => {
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async () => jsonResponse({})),
       events: async function* () {
         yield {
@@ -321,8 +321,8 @@ describe('createKunAgentRuntimeAdapter', () => {
     ])
   })
 
-  it('maps Kun assistant reasoning deltas to neutral reasoning events', async () => {
-    const adapter = createKunAgentRuntimeAdapter({
+  it('maps local runtime assistant reasoning deltas to neutral reasoning events', async () => {
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async () => jsonResponse({})),
       events: async function* () {
         yield {
@@ -361,8 +361,8 @@ describe('createKunAgentRuntimeAdapter', () => {
     ])
   })
 
-  it('maps Kun child lifecycle metadata into neutral child events', async () => {
-    const adapter = createKunAgentRuntimeAdapter({
+  it('maps local runtime child lifecycle metadata into neutral child events', async () => {
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async () => jsonResponse({})),
       events: async function* () {
         yield {
@@ -416,13 +416,13 @@ describe('createKunAgentRuntimeAdapter', () => {
         itemId: 'child-1',
         child: expect.objectContaining({
           id: 'child-1',
-          runtimeId: 'kun',
+          runtimeId: 'sciforge',
           parentThreadId: 'thread-1',
           parentTurnId: 'turn-1',
           kind: 'agent',
           status: 'running',
           label: 'research',
-          metadata: expect.objectContaining({ source: 'kun.runtime_event', childSeq: 1 })
+          metadata: expect.objectContaining({ source: 'local-runtime.runtime_event', childSeq: 1 })
         })
       }),
       expect.objectContaining({
@@ -441,9 +441,9 @@ describe('createKunAgentRuntimeAdapter', () => {
     ])
   })
 
-  it('maps Kun child run records through listThreadChildren auxiliary', async () => {
+  it('maps local runtime child run records through listThreadChildren auxiliary', async () => {
     const seen: string[] = []
-    const adapter = createKunAgentRuntimeAdapter({
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async (_settings, pathAndQuery) => {
         seen.push(pathAndQuery)
         if (pathAndQuery === '/v1/threads/thread-1/children?turn_id=turn-1&limit=10') {
@@ -484,13 +484,13 @@ describe('createKunAgentRuntimeAdapter', () => {
       operation: 'listThreadChildren',
       payload: { threadId: 'thread-1', turnId: 'turn-1', limit: 10 }
     })).resolves.toMatchObject({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       parentTurnId: 'turn-1',
       children: [
         {
           id: 'child-1',
-          runtimeId: 'kun',
+          runtimeId: 'sciforge',
           parentThreadId: 'thread-1',
           parentTurnId: 'turn-1',
           kind: 'agent',
@@ -510,15 +510,15 @@ describe('createKunAgentRuntimeAdapter', () => {
           transcriptRef: {
             id: 'child-1',
             kind: 'runtime',
-            runtimeId: 'kun',
+            runtimeId: 'sciforge',
             childId: 'child-1',
             transcriptId: 'child-1',
-            source: 'kun-child-run',
+            source: 'local-runtime-child-run',
             label: 'research'
           },
           completedAt: '2026-06-02T00:00:10.000Z',
           metadata: {
-            source: 'kun.delegate_task',
+            source: 'local-runtime.delegate_task',
             workspace: '/tmp/workspace',
             model: 'deepseek-chat'
           }
@@ -529,12 +529,12 @@ describe('createKunAgentRuntimeAdapter', () => {
     expect(seen).toEqual(['/v1/threads/thread-1/children?turn_id=turn-1&limit=10'])
   })
 
-  it('reads Kun child transcripts through the runtime endpoint', async () => {
+  it('reads local runtime child transcripts through the runtime endpoint', async () => {
     const request = vi.fn(async (_settings, pathAndQuery) => {
       if (pathAndQuery === '/v1/threads/thread-1/children/child-1/transcript?limit=20') {
         return jsonResponse({
           transcript: {
-            runtimeId: 'kun',
+            runtimeId: 'sciforge',
             threadId: 'thread-1',
             parentThreadId: 'thread-1',
             parentTurnId: 'turn-1',
@@ -543,10 +543,10 @@ describe('createKunAgentRuntimeAdapter', () => {
             transcriptRef: {
               id: 'child-1',
               kind: 'runtime',
-              runtimeId: 'kun',
+              runtimeId: 'sciforge',
               childId: 'child-1',
               transcriptId: 'child-1',
-              source: 'kun-child-run',
+              source: 'local-runtime-child-run',
               label: 'research'
             },
             entries: [{
@@ -557,20 +557,20 @@ describe('createKunAgentRuntimeAdapter', () => {
             }],
             summary: 'child output',
             usage: { promptTokens: 5, completionTokens: 3, totalTokens: 8 },
-            metadata: { source: 'kun.child-runs' }
+            metadata: { source: 'local-runtime.child-runs' }
           }
         })
       }
       return jsonResponse({})
     })
-    const adapter = createKunAgentRuntimeAdapter({ request })
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({ request })
 
     await expect(adapter.auxiliary?.({ settings: buildSettings() }, {
       operation: 'readChildTranscript',
       payload: { threadId: 'thread-1', parentTurnId: 'turn-1', childId: 'child-1', limit: 20 }
     })).resolves.toMatchObject({
       transcript: {
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         threadId: 'thread-1',
         parentThreadId: 'thread-1',
         parentTurnId: 'turn-1',
@@ -578,10 +578,10 @@ describe('createKunAgentRuntimeAdapter', () => {
         transcriptRef: {
           id: 'child-1',
           kind: 'runtime',
-          runtimeId: 'kun',
+          runtimeId: 'sciforge',
           childId: 'child-1',
           transcriptId: 'child-1',
-          source: 'kun-child-run',
+          source: 'local-runtime-child-run',
           label: 'research'
         },
         format: 'jsonl',
@@ -597,7 +597,7 @@ describe('createKunAgentRuntimeAdapter', () => {
           outputTokens: 3,
           totalTokens: 8
         },
-        metadata: { source: 'kun.child-runs' }
+        metadata: { source: 'local-runtime.child-runs' }
       }
     })
     expect(request).toHaveBeenCalledWith(
@@ -609,7 +609,7 @@ describe('createKunAgentRuntimeAdapter', () => {
 
   it('treats an unavailable memory store as an empty memory list', async () => {
     const seen: string[] = []
-    const adapter = createKunAgentRuntimeAdapter({
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async (_settings, pathAndQuery) => {
         seen.push(pathAndQuery)
         return {
@@ -630,8 +630,8 @@ describe('createKunAgentRuntimeAdapter', () => {
     expect(seen).toEqual(['/v1/memory?workspace=%2Ftmp%2Fworkspace&include_deleted=false'])
   })
 
-  it('maps Kun compaction and goal events into shared context events', async () => {
-    const adapter = createKunAgentRuntimeAdapter({
+  it('maps local runtime compaction and goal events into shared context events', async () => {
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async () => jsonResponse({})),
       events: async function* () {
         yield {
@@ -641,7 +641,7 @@ describe('createKunAgentRuntimeAdapter', () => {
           itemId: 'compact-1',
           seq: 8,
           timestamp: '2026-06-02T00:00:02.000Z',
-          summary: 'Kun compacted summary',
+          summary: 'Runtime compacted summary',
           replacedTokens: 1234,
           sourceDigest: 'digest-123',
           digestMarker: '<compact:digest-123>',
@@ -685,12 +685,12 @@ describe('createKunAgentRuntimeAdapter', () => {
       expect.objectContaining({
         kind: 'compaction_event',
         threadId: 'thread-1',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         turnId: 'turn-1',
         itemId: 'compact-1',
         seq: 8,
         status: 'success',
-        summary: 'Kun compacted summary',
+        summary: 'Runtime compacted summary',
         detail: 'replacedTokens=1234',
         auto: false,
         replacedTokens: 1234,
@@ -702,7 +702,7 @@ describe('createKunAgentRuntimeAdapter', () => {
       expect.objectContaining({
         kind: 'goal_event',
         threadId: 'thread-1',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         seq: 9,
         objective: 'Finish the migration',
         status: 'active',
@@ -711,7 +711,7 @@ describe('createKunAgentRuntimeAdapter', () => {
       expect.objectContaining({
         kind: 'goal_event',
         threadId: 'thread-1',
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         seq: 10,
         cleared: true
       })

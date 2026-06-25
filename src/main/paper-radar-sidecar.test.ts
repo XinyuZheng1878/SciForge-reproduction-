@@ -10,14 +10,14 @@ import {
 describe('Paper Radar sidecar launch', () => {
   it('builds an on-demand dev workspace launch with local storage paths', () => {
     const launch = buildPaperRadarLaunch({
-      userDataDir: '/tmp/deepseek-gui-user-data',
-      appRoot: '/repo/deepseek-gui',
+      userDataDir: '/tmp/sciforge-user-data',
+      appRoot: '/repo/sciforge',
       env: {},
       npmCommand: 'npm'
     })
 
     expect(launch.command).toBe('npm')
-    expect(launch.cwd).toBe('/repo/deepseek-gui')
+    expect(launch.cwd).toBe('/repo/sciforge')
     expect(launch.args).toEqual([
       '--workspace',
       'sciforge-paper-radar-service',
@@ -25,8 +25,8 @@ describe('Paper Radar sidecar launch', () => {
       'start'
     ])
     expect(launch.baseUrl).toBe('http://127.0.0.1:3901')
-    expect(launch.dbPath).toBe(paperRadarDbPath('/tmp/deepseek-gui-user-data'))
-    expect(launch.profilesPath).toBe(paperRadarProfilesPath('/tmp/deepseek-gui-user-data'))
+    expect(launch.dbPath).toBe(paperRadarDbPath('/tmp/sciforge-user-data'))
+    expect(launch.profilesPath).toBe(paperRadarProfilesPath('/tmp/sciforge-user-data'))
     expect(launch.env.PAPER_RADAR_HOST).toBe('127.0.0.1')
     expect(launch.env.PAPER_RADAR_PORT).toBe('3901')
     expect(launch.env.PAPER_RADAR_AUTO_SYNC).toBe('0')
@@ -38,8 +38,8 @@ describe('Paper Radar sidecar launch', () => {
 
   it('uses explicit storage env overrides when provided', () => {
     const launch = buildPaperRadarLaunch({
-      userDataDir: '/tmp/deepseek-gui-user-data',
-      appRoot: '/repo/deepseek-gui',
+      userDataDir: '/tmp/sciforge-user-data',
+      appRoot: '/repo/sciforge',
       env: {
         PAPER_RADAR_SERVICE_URL: 'http://127.0.0.1:3905',
         PAPER_RADAR_DB: '/tmp/custom-paper-radar.sqlite',

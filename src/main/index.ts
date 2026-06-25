@@ -14,11 +14,11 @@ import { APP_PRODUCT_NAME, configureAppIdentity } from './app-identity'
 import {
   applyCodexRuntimePatch,
   applyClaudeRuntimePatch,
-  applyKunRuntimePatch,
-  kunSettingsEnvelope,
-  getKunRuntimeSettings,
+  applyLocalRuntimePatch,
+  agentRuntimeSettingsEnvelope,
+  getLocalRuntimeSettings,
   getActiveAgentRuntime,
-  mergeKunRuntimeSettings,
+  mergeLocalRuntimeSettings,
   mergeClawSettings,
   mergeAgentCapabilitySettings,
   mergeComputerUseSettings,
@@ -32,7 +32,7 @@ import {
   normalizeAppBehaviorSettings,
   normalizeKeyboardShortcuts,
   resolveRuntimeModelRouterSettings,
-  resolveKunRuntimeSettings,
+  resolveLocalRuntimeSettings,
   type AgentRuntimeId,
   type AppBehaviorConfigV1,
   type AppSettingsPatch,
@@ -49,13 +49,13 @@ import {
   stopPaperRadarSidecar
 } from './paper-radar-sidecar'
 import {
-  kunRuntimeAdapter,
+  localRuntimeAdapter,
   getRuntimeBaseUrlForSettings,
   runtimeAuthHeaders,
-  kunHttpRequestViaHost
-} from './runtime/kun-adapter'
+  localRuntimeHttpRequestViaHost
+} from './runtime/local-runtime-adapter'
 import { createAgentRuntimeHost } from './runtime/agent-runtime/host'
-import { createKunAgentRuntimeAdapter } from './runtime/kun-agent-runtime-adapter'
+import { createLocalRuntimeAgentRuntimeAdapter } from './runtime/local-runtime-agent-runtime-adapter'
 import { createCodexAgentRuntimeAdapter } from './runtime/codex/codex-agent-runtime-adapter'
 import {
   ClaudeCodeRuntimeService,
@@ -82,7 +82,7 @@ import { createScheduleRuntime, type ScheduleRuntime } from './schedule-runtime'
 import { createWorkflowRuntime, type WorkflowRuntime } from './workflow-runtime'
 import {
   scheduleMcpSettingsChanged,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   syncScheduleMcpConfig,
   type ScheduleMcpLaunchConfig
 } from './schedule-mcp-config'
@@ -97,7 +97,11 @@ import type { RuntimeInspectorMcpLaunchConfig } from './runtime-inspector-mcp-co
 import { syncExternalManagedGuiMcpConfig } from './gui-mcp-registry'
 import { registerAppIpcHandlers } from './ipc/register-app-ipc-handlers'
 import { registerTerminalPtyIpc } from './terminal/terminal-pty-ipc'
-import { startDevBrowserBridgeServer, type DevBrowserBridgeServer } from './dev-browser-bridge'
+import {
+  DEV_BROWSER_BRIDGE_TOKEN_HEADER,
+  startDevBrowserBridgeServer,
+  type DevBrowserBridgeServer
+} from './dev-browser-bridge'
 import {
   configureManagedWeixinBridgeUrlResolver,
   pollFeishuInstall,
@@ -105,7 +109,7 @@ import {
   startFeishuInstallQrcode,
   startWeixinInstallQrcode
 } from './claw-platform-install'
-import { kunRuntimeEvents } from './runtime-sse-ipc'
+import { localRuntimeEvents } from './runtime-sse-ipc'
 import {
   CodexRuntimeService,
   type CodexRuntimeEventSink
@@ -117,19 +121,18 @@ import {
   stopWeixinBridgeRuntime
 } from './weixin-bridge-runtime'
 import { webhookUrl } from './claw-runtime-helpers'
-import { isKunHealthResponseBody } from './kun-health'
+import { isLocalRuntimeHealthResponseBody } from './local-runtime-health'
 import {
-  resolveAvailableKunPort,
-  setKunUnexpectedExitHandler,
-  type KunUnexpectedExitInfo
-} from './kun-process'
-import { RestartBudget, type KunRuntimeStatus } from './kun-runtime-supervisor'
+  resolveAvailableLocalRuntimePort,
+  setLocalRuntimeUnexpectedExitHandler,
+  type LocalRuntimeUnexpectedExitInfo
+} from './local-runtime-process'
+import { RestartBudget, type LocalRuntimeStatus } from './local-runtime-supervisor'
 import { APP_USER_MODEL_ID } from '../shared/app-brand'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const HIDDEN_START_ARG = '--hidden'
-const startupTraceEnabled =
-  process.env.SCIFORGE_STARTUP_TRACE === '1' || process.env.DEEPSEEK_GUI_STARTUP_TRACE === '1'
+const startupTraceEnabled = process.env.SCIFORGE_STARTUP_TRACE === '1'
 const startupTraceStart = Date.now()
 
 function traceStartup(label: string, detail?: unknown): void {
@@ -315,6 +318,10 @@ type GuiUpdaterModule = typeof import('./gui-updater')
 let guiUpdaterModulePromise: Promise<GuiUpdaterModule> | null = null
 let guiUpdaterInitialized = false
 
+function resolveDevBrowserBridgeToken(): string | undefined {
+  return process.env.SCIFORGE_DEV_BROWSER_BRIDGE_TOKEN?.trim() || undefined
+}
+
 function emitClawChannelActivity(payload: {
   channelId: string
   threadId: string
@@ -443,7 +450,7 @@ async function stopManagedRuntimes(): Promise<void> {
       stopWeixinBridgeRuntime()
       await claudeCodeRuntime?.stop()
       await codexRuntime?.stop()
-      await kunRuntimeAdapter.stopAndWait()
+      await localRuntimeAdapter.stopAndWait()
       publishRuntimeStatus({ state: 'stopped', source: 'app-shutdown' })
     })().finally(() => {
       managedRuntimesStopPromise = null
@@ -663,7 +670,7 @@ async function showTurnCompleteNotification(
   }
 }
 
-async function waitForKunHealth(settings: AppSettingsV1, timeoutMs: number): Promise<boolean> {
+async function waitForLocalRuntimeHealth(settings: AppSettingsV1, timeoutMs: number): Promise<boolean> {
   const base = getRuntimeBaseUrlForSettings(settings)
   const deadline = Date.now() + timeoutMs
 
@@ -674,7 +681,7 @@ async function waitForKunHealth(settings: AppSettingsV1, timeoutMs: number): Pro
         headers: runtimeAuthHeaders(settings),
         signal: AbortSignal.timeout(Math.max(250, Math.min(1_000, remaining)))
       })
-      if (res.ok && isKunHealthResponseBody(await res.text())) return true
+      if (res.ok && isLocalRuntimeHealthResponseBody(await res.text())) return true
     } catch {
       /* retry until the deadline */
     }
@@ -714,16 +721,16 @@ const runtimeRestartBudget = new RestartBudget({
   windowMs: 60_000,
   maxRestarts: RUNTIME_RESTART_MAX_ATTEMPTS
 })
-let lastRuntimeStatus: KunRuntimeStatus | null = null
+let lastRuntimeStatus: LocalRuntimeStatus | null = null
 let supervisedRestartInFlight = false
 let runtimeWatchdogTimer: NodeJS.Timeout | null = null
 let runtimeWatchdogFailures = 0
 let runtimeWatchdogTickInFlight = false
-let managedKunPortOverride: { configuredPort: number; port: number } | null = null
+let managedLocalRuntimePortOverride: { configuredPort: number; port: number } | null = null
 let runtimeRestartBudgetResetTimer: NodeJS.Timeout | null = null
 
-function publishRuntimeStatus(status: Omit<KunRuntimeStatus, 'at'>): void {
-  const full: KunRuntimeStatus = { ...status, at: new Date().toISOString() }
+function publishRuntimeStatus(status: Omit<LocalRuntimeStatus, 'at'>): void {
+  const full: LocalRuntimeStatus = { ...status, at: new Date().toISOString() }
   lastRuntimeStatus = full
   logWarn('runtime-status', `${full.state} (${full.source})${full.message ? `: ${full.message}` : ''}`)
   for (const win of BrowserWindow.getAllWindows()) {
@@ -756,34 +763,34 @@ function clearRuntimeRestartBudgetReset(): void {
   runtimeRestartBudgetResetTimer = null
 }
 
-function handleUnexpectedKunExit(info: KunUnexpectedExitInfo): void {
-  void superviseKunCrash(info).catch((error: unknown) => {
-    logError('kun-supervisor', 'Supervised Kun restart crashed.', {
+function handleUnexpectedLocalRuntimeExit(info: LocalRuntimeUnexpectedExitInfo): void {
+  void superviseLocalRuntimeCrash(info).catch((error: unknown) => {
+    logError('local-runtime-supervisor', 'Supervised local runtime restart crashed.', {
       message: error instanceof Error ? error.message : String(error)
     })
   })
 }
 
-async function superviseKunCrash(info: KunUnexpectedExitInfo): Promise<void> {
+async function superviseLocalRuntimeCrash(info: LocalRuntimeUnexpectedExitInfo): Promise<void> {
   if (managedRuntimesStoppedForQuit || isQuitting) return
   clearRuntimeRestartBudgetReset()
   const exitLabel = info.signal ? `signal ${info.signal}` : `code ${info.code ?? 'unknown'}`
   publishRuntimeStatus({
     state: 'crashed',
     source: 'supervisor',
-    message: `Kun exited unexpectedly (${exitLabel}).`,
+    message: `SciForge Runtime exited unexpectedly (${exitLabel}).`,
     stderrTail: info.stderrTail
   })
   if (supervisedRestartInFlight) return
   supervisedRestartInFlight = true
   try {
     const settings = await store.load()
-    const runtime = getKunRuntimeSettings(settings)
+    const runtime = getLocalRuntimeSettings(settings)
     if (!resolveConfiguredApiKey(settings) || !runtime.autoStart) {
       publishRuntimeStatus({
         state: 'stopped',
         source: 'supervisor',
-        message: 'Kun exited and automatic restart is unavailable because the API key is missing or auto-start is disabled.'
+        message: 'SciForge Runtime exited and automatic restart is unavailable because the API key is missing or auto-start is disabled.'
       })
       return
     }
@@ -797,8 +804,8 @@ async function superviseKunCrash(info: KunUnexpectedExitInfo): Promise<void> {
           state: 'failed',
           source: 'supervisor',
           message: lastError
-            ? `Kun keeps crashing; automatic restarts are paused. Last error: ${lastError}`
-            : 'Kun keeps crashing; automatic restarts are paused. Check the runtime logs, then retry.',
+            ? `SciForge Runtime keeps crashing; automatic restarts are paused. Last error: ${lastError}`
+            : 'SciForge Runtime keeps crashing; automatic restarts are paused. Check the runtime logs, then retry.',
           stderrTail: info.stderrTail
         })
         return
@@ -808,7 +815,7 @@ async function superviseKunCrash(info: KunUnexpectedExitInfo): Promise<void> {
         source: 'supervisor',
         attempt: verdict.attempt,
         maxAttempts: RUNTIME_RESTART_MAX_ATTEMPTS,
-        message: `Restarting Kun automatically (attempt ${verdict.attempt}/${RUNTIME_RESTART_MAX_ATTEMPTS}).`
+        message: `Restarting SciForge Runtime automatically (attempt ${verdict.attempt}/${RUNTIME_RESTART_MAX_ATTEMPTS}).`
       })
       await sleep(verdict.delayMs)
       try {
@@ -817,7 +824,7 @@ async function superviseKunCrash(info: KunUnexpectedExitInfo): Promise<void> {
         return
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error)
-        logWarn('kun-supervisor', `Automatic restart attempt ${verdict.attempt} failed: ${lastError}`)
+        logWarn('local-runtime-supervisor', `Automatic restart attempt ${verdict.attempt} failed: ${lastError}`)
       }
     }
   } finally {
@@ -829,7 +836,7 @@ function startRuntimeWatchdog(): void {
   if (runtimeWatchdogTimer) return
   const timer = setInterval(() => {
     void runtimeWatchdogTick().catch((error: unknown) => {
-      logWarn('kun-watchdog', 'Watchdog tick failed.', {
+      logWarn('local-runtime-watchdog', 'Watchdog tick failed.', {
         message: error instanceof Error ? error.message : String(error)
       })
     })
@@ -858,20 +865,20 @@ async function runtimeWatchdogTick(): Promise<void> {
   ) {
     return
   }
-  if (!kunRuntimeAdapter.isChildRunning()) return
+  if (!localRuntimeAdapter.isChildRunning()) return
 
   runtimeWatchdogTickInFlight = true
   try {
     const settings = await store.load()
-    const healthy = await waitForKunHealth(settings, 5_000)
+    const healthy = await waitForLocalRuntimeHealth(settings, 5_000)
     if (healthy) {
       runtimeWatchdogFailures = 0
       return
     }
     runtimeWatchdogFailures += 1
     logWarn(
-      'kun-watchdog',
-      `Kun health probe failed (${runtimeWatchdogFailures}/${RUNTIME_WATCHDOG_FAILURE_THRESHOLD}).`
+      'local-runtime-watchdog',
+      `SciForge Runtime health probe failed (${runtimeWatchdogFailures}/${RUNTIME_WATCHDOG_FAILURE_THRESHOLD}).`
     )
     if (runtimeWatchdogFailures < RUNTIME_WATCHDOG_FAILURE_THRESHOLD) return
     runtimeWatchdogFailures = 0
@@ -880,7 +887,7 @@ async function runtimeWatchdogTick(): Promise<void> {
       publishRuntimeStatus({
         state: 'failed',
         source: 'watchdog',
-        message: 'Kun remains unhealthy after repeated automatic restarts; automatic restarts are paused.'
+        message: 'SciForge Runtime remains unhealthy after repeated automatic restarts; automatic restarts are paused.'
       })
       return
     }
@@ -889,7 +896,7 @@ async function runtimeWatchdogTick(): Promise<void> {
       source: 'watchdog',
       attempt: verdict.attempt,
       maxAttempts: RUNTIME_RESTART_MAX_ATTEMPTS,
-      message: `Kun stopped responding to health checks; restarting it (attempt ${verdict.attempt}/${RUNTIME_RESTART_MAX_ATTEMPTS}).`
+      message: `SciForge Runtime stopped responding to health checks; restarting it (attempt ${verdict.attempt}/${RUNTIME_RESTART_MAX_ATTEMPTS}).`
     })
     try {
       await restartRuntime(settings)
@@ -898,7 +905,7 @@ async function runtimeWatchdogTick(): Promise<void> {
       publishRuntimeStatus({
         state: 'failed',
         source: 'watchdog',
-        message: `Kun is unresponsive and the automatic restart failed: ${
+        message: `SciForge Runtime is unresponsive and the automatic restart failed: ${
           error instanceof Error ? error.message : String(error)
         }`
       })
@@ -925,7 +932,7 @@ function queueRuntimeSettingsApply(prev: AppSettingsV1, next: AppSettingsV1): vo
       await restartManagedRuntimeForSettingsChange(anchor, current)
     })
     .catch((error: unknown) => {
-      logWarn('settings-apply', 'Failed to apply Kun runtime settings in background', {
+      logWarn('settings-apply', 'Failed to apply local runtime settings in background', {
         message: error instanceof Error ? error.message : String(error)
       })
     })
@@ -949,7 +956,7 @@ function queueRuntimeMcpConfigApply(settings: AppSettingsV1): void {
       await restartManagedRuntimeForMcpConfigChange(current)
     })
     .catch((error: unknown) => {
-      logWarn('mcp-config', 'Failed to apply Kun MCP config change in background', {
+      logWarn('mcp-config', 'Failed to apply local runtime MCP config change in background', {
         message: error instanceof Error ? error.message : String(error)
       })
     })
@@ -969,13 +976,13 @@ async function waitForQueuedRuntimeSettingsApply(): Promise<void> {
 
 /**
  * Build a stable fingerprint of the settings that affect the
- * Kun runtime so that `ensureRuntime` can debounce on real
+ * local runtime so that `ensureRuntime` can debounce on real
  * state instead of on a single in-flight promise. Without this,
  * a fresh call that arrives while a failing ensure is still pending
  * would re-throw the old error.
  */
 function runtimeFingerprint(settings: AppSettingsV1): string {
-  return stableSettingsStringify(resolveKunRuntimeSettings(settings))
+  return stableSettingsStringify(resolveLocalRuntimeSettings(settings))
 }
 
 async function ensureRuntime(settings: AppSettingsV1): Promise<void> {
@@ -1020,57 +1027,57 @@ async function ensureRuntime(settings: AppSettingsV1): Promise<void> {
 
 async function ensureRuntimeOnce(settings: AppSettingsV1): Promise<void> {
   await waitForQueuedRuntimeSettingsApply()
-  await ensureKunRuntime(settings)
+  await ensureLocalRuntime(settings)
 }
 
 function syncSettingsObject(target: AppSettingsV1, source: AppSettingsV1): void {
   Object.assign(target, source)
 }
 
-function settingsWithKunPort(settings: AppSettingsV1, port: number): AppSettingsV1 {
+function settingsWithLocalRuntimePort(settings: AppSettingsV1, port: number): AppSettingsV1 {
   return {
     ...settings,
     agents: {
       ...settings.agents,
-      kun: {
-        ...settings.agents.kun,
+      sciforge: {
+        ...settings.agents.sciforge,
         port
       }
     }
   }
 }
 
-function applyManagedKunPortOverride(settings: AppSettingsV1): AppSettingsV1 {
-  const override = managedKunPortOverride
+function applyManagedLocalRuntimePortOverride(settings: AppSettingsV1): AppSettingsV1 {
+  const override = managedLocalRuntimePortOverride
   if (!override) return settings
-  const runtime = getKunRuntimeSettings(settings)
+  const runtime = getLocalRuntimeSettings(settings)
   if (runtime.port === override.port) return settings
   if (runtime.port !== override.configuredPort) {
-    managedKunPortOverride = null
+    managedLocalRuntimePortOverride = null
     return settings
   }
-  const next = settingsWithKunPort(settings, override.port)
+  const next = settingsWithLocalRuntimePort(settings, override.port)
   syncSettingsObject(settings, next)
   return settings
 }
 
-async function resolveManagedKunLaunchSettings(
+async function resolveManagedLocalRuntimeLaunchSettings(
   settings: AppSettingsV1,
   source: string
 ): Promise<AppSettingsV1> {
-  const runtime = getKunRuntimeSettings(settings)
-  const resolved = await resolveAvailableKunPort(runtime.port)
+  const runtime = getLocalRuntimeSettings(settings)
+  const resolved = await resolveAvailableLocalRuntimePort(runtime.port)
   if (!resolved.changed) {
-    if (managedKunPortOverride?.configuredPort === runtime.port) {
-      managedKunPortOverride = null
+    if (managedLocalRuntimePortOverride?.configuredPort === runtime.port) {
+      managedLocalRuntimePortOverride = null
     }
     return settings
   }
 
-  managedKunPortOverride = { configuredPort: runtime.port, port: resolved.port }
-  const next = settingsWithKunPort(settings, resolved.port)
+  managedLocalRuntimePortOverride = { configuredPort: runtime.port, port: resolved.port }
+  const next = settingsWithLocalRuntimePort(settings, resolved.port)
   syncSettingsObject(settings, next)
-  const message = `Kun runtime port ${runtime.port} is unavailable; using ${resolved.port} instead.`
+  const message = `SciForge Runtime port ${runtime.port} is unavailable; using ${resolved.port} instead.`
   logWarn(source, message, {
     previousPort: runtime.port,
     port: resolved.port,
@@ -1084,12 +1091,12 @@ async function resolveManagedKunLaunchSettings(
   return settings
 }
 
-async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
-  settings = applyManagedKunPortOverride(settings)
-  const runtime = getKunRuntimeSettings(settings)
+async function ensureLocalRuntime(settings: AppSettingsV1): Promise<void> {
+  settings = applyManagedLocalRuntimePortOverride(settings)
+  const runtime = getLocalRuntimeSettings(settings)
   const hasApiKey = Boolean(resolveConfiguredApiKey(settings))
 
-  const healthy = await waitForKunHealth(settings, 2_000)
+  const healthy = await waitForLocalRuntimeHealth(settings, 2_000)
   if (healthy) {
     noteRuntimeHealthy('ensure')
     return
@@ -1098,37 +1105,37 @@ async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
   if (!hasApiKey) {
     throw runtimeJsonError(
       'missing_api_key',
-      'Model Router runtime API key is required before the GUI can start Kun.'
+      'Model Router runtime API key is required before the GUI can start SciForge Runtime.'
     )
   }
   if (!runtime.autoStart) {
     throw runtimeJsonError(
       'runtime_offline',
-      'Kun is offline. Enable automatic startup in Settings, or start `kun serve` manually.'
+      'SciForge Runtime is offline. Enable automatic startup in Settings, or start the configured runtime service manually.'
     )
   }
 
   publishRuntimeStatus({ state: 'starting', source: 'ensure' })
   try {
-    const launchSettings = await resolveManagedKunLaunchSettings(settings, 'runtime-start')
-    const adapter = kunRuntimeAdapter
+    const launchSettings = await resolveManagedLocalRuntimeLaunchSettings(settings, 'runtime-start')
+    const adapter = localRuntimeAdapter
     await adapter.ensureRunning(launchSettings)
-    const started = await waitForKunHealth(launchSettings, 20_000)
+    const started = await waitForLocalRuntimeHealth(launchSettings, 20_000)
     if (!started) {
       throw runtimeJsonError(
         'runtime_unhealthy',
-        'Kun did not become healthy after launch.'
+        'SciForge Runtime did not become healthy after launch.'
       )
     }
 
     noteRuntimeHealthy('ensure')
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
-    console.error('[sciforge] failed to start kun:', e)
+    console.error('[sciforge] failed to start local runtime:', e)
     publishRuntimeStatus({
       state: 'failed',
       source: 'ensure',
-      message: `Kun failed to start: ${message}`
+      message: `SciForge Runtime failed to start: ${message}`
     })
     throw e
   }
@@ -1150,37 +1157,37 @@ async function restartRuntime(settings: AppSettingsV1): Promise<void> {
 
 async function restartRuntimeOnce(settings: AppSettingsV1): Promise<void> {
   await waitForQueuedRuntimeSettingsApply()
-  const runtime = getKunRuntimeSettings(settings)
+  const runtime = getLocalRuntimeSettings(settings)
 
   if (!resolveConfiguredApiKey(settings)) {
     throw runtimeJsonError(
       'missing_api_key',
-      'Model Router runtime API key is required before the GUI can start Kun.'
+      'Model Router runtime API key is required before the GUI can start SciForge Runtime.'
     )
   }
   if (!runtime.autoStart) {
     throw runtimeJsonError(
       'runtime_offline',
-      'Kun is offline. Enable automatic startup in Settings, or start `kun serve` manually.'
+      'SciForge Runtime is offline. Enable automatic startup in Settings, or start the configured runtime service manually.'
     )
   }
 
-  const adapter = kunRuntimeAdapter
+  const adapter = localRuntimeAdapter
   await adapter.stopAndWait()
-  const launchSettings = await resolveManagedKunLaunchSettings(settings, 'runtime-restart')
+  const launchSettings = await resolveManagedLocalRuntimeLaunchSettings(settings, 'runtime-restart')
 
   try {
     await adapter.ensureRunning(launchSettings)
   } catch (e) {
-    console.error('[sciforge] failed to restart kun:', e)
+    console.error('[sciforge] failed to restart local runtime:', e)
     throw e
   }
 
-  const healthy = await waitForKunHealth(launchSettings, 20_000)
+  const healthy = await waitForLocalRuntimeHealth(launchSettings, 20_000)
   if (!healthy) {
     throw runtimeJsonError(
       'runtime_unhealthy',
-      'Kun did not become healthy after restart.'
+      'SciForge Runtime did not become healthy after restart.'
     )
   }
 
@@ -1255,13 +1262,13 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
 }
 
 /**
- * Stable equality for the Kun runtime settings. Most fields are flat,
+ * Stable equality for the local runtime settings. Most fields are flat,
  * but GUI-managed capability options can be nested, so compare values
  * structurally while still surviving future field additions.
  */
-function kunRuntimeConfigChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
-  const a = resolveKunRuntimeSettings(prev)
-  const b = resolveKunRuntimeSettings(next)
+function localRuntimeConfigChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
+  const a = resolveLocalRuntimeSettings(prev)
+  const b = resolveLocalRuntimeSettings(next)
   const keys = new Set([...Object.keys(a), ...Object.keys(b)] as Array<keyof typeof a>)
   for (const key of keys) {
     if (!stableSettingsValueEqual(a[key], b[key])) return true
@@ -1289,7 +1296,7 @@ function canonicalSettingsValue(value: unknown): unknown {
 }
 
 function runtimeStartupConfigChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
-  return kunRuntimeConfigChanged(prev, next) || scheduleMcpSettingsChanged(prev, next)
+  return localRuntimeConfigChanged(prev, next) || scheduleMcpSettingsChanged(prev, next)
 }
 
 async function restartManagedRuntimeForSettingsChange(
@@ -1298,8 +1305,8 @@ async function restartManagedRuntimeForSettingsChange(
 ): Promise<void> {
   if (!runtimeStartupConfigChanged(prev, next)) return
 
-  const runtime = resolveKunRuntimeSettings(next)
-  const adapter = kunRuntimeAdapter
+  const runtime = resolveLocalRuntimeSettings(next)
+  const adapter = localRuntimeAdapter
   const wasRunning = adapter.isChildRunning()
 
   if (!wasRunning) return
@@ -1309,35 +1316,35 @@ async function restartManagedRuntimeForSettingsChange(
     publishRuntimeStatus({
       state: 'stopped',
       source: 'settings-apply',
-      message: 'Kun was stopped because the new settings have no API key or auto-start is disabled.'
+      message: 'SciForge Runtime was stopped because the new settings have no API key or auto-start is disabled.'
     })
     return
   }
 
   publishRuntimeStatus({ state: 'restarting', source: 'settings-apply' })
   try {
-    const launchSettings = await resolveManagedKunLaunchSettings(next, 'settings-apply')
+    const launchSettings = await resolveManagedLocalRuntimeLaunchSettings(next, 'settings-apply')
     await adapter.ensureRunning(launchSettings)
-    const healthy = await waitForKunHealth(launchSettings, 20_000)
+    const healthy = await waitForLocalRuntimeHealth(launchSettings, 20_000)
     if (!healthy) {
-      throw new Error('Kun did not become healthy after the settings change')
+      throw new Error('SciForge Runtime did not become healthy after the settings change')
     }
     noteRuntimeHealthy('settings-apply')
     publishRuntimeStatus({ state: 'running', source: 'settings-apply' })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
-    console.warn('[sciforge] Kun restart failed after settings change:', e)
+    console.warn('[sciforge] local runtime restart failed after settings change:', e)
     publishRuntimeStatus({
       state: 'failed',
       source: 'settings-apply',
-      message: `Kun failed to restart after the settings change: ${message}`
+      message: `SciForge Runtime failed to restart after the settings change: ${message}`
     })
   }
 }
 
 async function restartManagedRuntimeForMcpConfigChange(settings: AppSettingsV1): Promise<void> {
-  const runtime = resolveKunRuntimeSettings(settings)
-  const adapter = kunRuntimeAdapter
+  const runtime = resolveLocalRuntimeSettings(settings)
+  const adapter = localRuntimeAdapter
   const wasRunning = adapter.isChildRunning()
 
   if (!wasRunning) return
@@ -1347,21 +1354,21 @@ async function restartManagedRuntimeForMcpConfigChange(settings: AppSettingsV1):
 
   publishRuntimeStatus({ state: 'restarting', source: 'mcp-config' })
   try {
-    const launchSettings = await resolveManagedKunLaunchSettings(settings, 'mcp-config')
+    const launchSettings = await resolveManagedLocalRuntimeLaunchSettings(settings, 'mcp-config')
     await adapter.ensureRunning(launchSettings)
-    const healthy = await waitForKunHealth(launchSettings, 20_000)
+    const healthy = await waitForLocalRuntimeHealth(launchSettings, 20_000)
     if (!healthy) {
-      throw new Error('Kun did not become healthy after the MCP config change')
+      throw new Error('SciForge Runtime did not become healthy after the MCP config change')
     }
     noteRuntimeHealthy('mcp-config')
     publishRuntimeStatus({ state: 'running', source: 'mcp-config' })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
-    console.warn('[sciforge] Kun restart failed after MCP config change:', e)
+    console.warn('[sciforge] local runtime restart failed after MCP config change:', e)
     publishRuntimeStatus({
       state: 'failed',
       source: 'mcp-config',
-      message: `Kun failed to restart after the MCP config change: ${message}`
+      message: `SciForge Runtime failed to restart after the MCP config change: ${message}`
     })
   }
 }
@@ -1370,18 +1377,18 @@ async function waitForManagedRuntimeReadyBeforeStop(
   settings: AppSettingsV1,
   source: string
 ): Promise<void> {
-  const healthy = await waitForKunHealth(settings, 20_000)
+  const healthy = await waitForLocalRuntimeHealth(settings, 20_000)
   if (!healthy) {
-    logWarn(source, 'Kun did not become healthy before a managed restart; stopping it anyway')
+    logWarn(source, 'SciForge Runtime did not become healthy before a managed restart; stopping it anyway')
     return
   }
   const idle = await waitForRuntimeTurnsIdle({
     listThreads: runtimeIdleListThreads ?? undefined
   })
   if (idle === 'timeout') {
-    logWarn(source, 'Kun still has running turns after waiting; stopping it anyway')
+    logWarn(source, 'SciForge Runtime still has running turns after waiting; stopping it anyway')
   } else if (idle === 'unavailable') {
-    logWarn(source, 'Could not verify Kun turn idleness before a managed restart; stopping it anyway')
+    logWarn(source, 'Could not verify SciForge Runtime turn idleness before a managed restart; stopping it anyway')
   }
 }
 
@@ -1401,7 +1408,7 @@ app.whenReady().then(async () => {
   traceStartup('settings load:start')
   const initial = await store.load()
   traceStartup('settings load:done')
-  setKunUnexpectedExitHandler(handleUnexpectedKunExit)
+  setLocalRuntimeUnexpectedExitHandler(handleUnexpectedLocalRuntimeExit)
   appBehavior = initial.appBehavior
   syncLoginItemSettings(initial)
   syncTray(initial)
@@ -1409,7 +1416,7 @@ app.whenReady().then(async () => {
     console.error('[schedule-mcp] failed to sync config on startup:', error)
   })
   await syncExternalManagedGuiMcpConfig().catch((error) => {
-    console.error('[managed-gui-mcp] failed to clean external Kun MCP config on startup:', error)
+    console.error('[managed-gui-mcp] failed to clean external SciForge MCP config on startup:', error)
   })
 
   logDir = resolveLogDirectory()
@@ -1439,10 +1446,10 @@ app.whenReady().then(async () => {
   const agentRuntimeHost = createAgentRuntimeHost({
     settings: async () => store.load(),
     adapters: [
-      createKunAgentRuntimeAdapter({
+      createLocalRuntimeAgentRuntimeAdapter({
         request: async (settings, pathAndQuery, init) =>
-          kunHttpRequestViaHost(settings, pathAndQuery, init, ensureRuntime),
-        events: kunRuntimeEvents
+          localRuntimeHttpRequestViaHost(settings, pathAndQuery, init, ensureRuntime),
+        events: localRuntimeEvents
       }),
       createCodexAgentRuntimeAdapter(getCodexRuntime()),
       createClaudeCodeAgentRuntimeAdapter(getClaudeCodeRuntime())
@@ -1536,7 +1543,7 @@ app.whenReady().then(async () => {
     } = partial
     const next = normalizeAppSettings({
       ...applyClaudeRuntimePatch(
-        applyCodexRuntimePatch(applyKunRuntimePatch(prev, agentsPatch?.kun), agentsPatch?.codex),
+        applyCodexRuntimePatch(applyLocalRuntimePatch(prev, agentsPatch?.sciforge), agentsPatch?.codex),
         agentsPatch?.claude
       ),
       ...restPatch,
@@ -1571,7 +1578,7 @@ app.whenReady().then(async () => {
       console.error('[schedule-mcp] failed to sync config after settings change:', error)
     })
     await syncExternalManagedGuiMcpConfig().catch((error) => {
-      console.error('[managed-gui-mcp] failed to clean external Kun MCP config after settings change:', error)
+      console.error('[managed-gui-mcp] failed to clean external SciForge MCP config after settings change:', error)
     })
     if (prev.guiUpdate.channel !== saved.guiUpdate.channel && guiUpdaterModulePromise) {
       void guiUpdaterModulePromise.then((module) => module.setGuiUpdateChannel(saved.guiUpdate.channel))
@@ -1648,10 +1655,10 @@ app.whenReady().then(async () => {
     pollFeishuInstall,
     startWeixinInstallQrcode,
     pollWeixinInstall,
-    resolveKunConfigPath: resolveKunMcpJsonPath,
+    resolveRuntimeConfigPath: resolveLocalRuntimeMcpJsonPath,
     openModelRouterConfigFile,
     getPaperRadarService: () => getPaperRadarWorkerService(),
-    onKunMcpConfigWritten: async () => {
+    onRuntimeMcpConfigWritten: async () => {
       const settings = await store.load()
       queueRuntimeMcpConfigApply(settings)
     },
@@ -1663,12 +1670,15 @@ app.whenReady().then(async () => {
     logError
   })
 
-  if (!app.isPackaged && process.env.SCIFORGE_DEV_BROWSER_BRIDGE !== '0' && process.env.DEEPSEEK_GUI_DEV_BROWSER_BRIDGE !== '0') {
+  if (!app.isPackaged && process.env.SCIFORGE_DEV_BROWSER_BRIDGE !== '0') {
+    const devBrowserBridgeToken = resolveDevBrowserBridgeToken()
     void startDevBrowserBridgeServer({
-      dispatcher: appBridgeDispatcher
+      dispatcher: appBridgeDispatcher,
+      token: devBrowserBridgeToken
     }).then((server) => {
       devBrowserBridgeServer = server
       console.info(`[sciforge dev] browser bridge listening at ${server.url}`)
+      console.info(`[sciforge dev] browser bridge requires ${DEV_BROWSER_BRIDGE_TOKEN_HEADER}: ${server.token}`)
     }).catch((error) => {
       console.warn('[sciforge dev] failed to start browser bridge:', error)
     })
@@ -1690,8 +1700,8 @@ app.whenReady().then(async () => {
 
   if (resolveConfiguredApiKey(initial)) {
     setTimeout(() => {
-      void kunRuntimeAdapter.resolveExecutable(initial).catch((err) => {
-        console.warn('[sciforge] prewarm Kun binary:', err)
+      void localRuntimeAdapter.resolveExecutable(initial).catch((err) => {
+        console.warn('[sciforge] prewarm local runtime binary:', err)
       })
     }, 1500)
   }
@@ -1713,7 +1723,7 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   void stopManagedRuntimes().catch((error) => {
-    console.warn('[sciforge] failed to stop Kun runtime:', error)
+    console.warn('[sciforge] failed to stop local runtime:', error)
   })
   if (process.platform !== 'darwin') {
     app.quit()
@@ -1737,7 +1747,7 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   void stopManagedRuntimesForQuit()
     .catch((error) => {
-      console.warn('[sciforge] failed to stop Kun runtime:', error)
+      console.warn('[sciforge] failed to stop local runtime:', error)
       managedRuntimesStoppedForQuit = true
     })
     .finally(() => {

@@ -5,12 +5,11 @@ import {
   type ApprovalPolicy,
   type CodexRuntimeSettingsPatchV1,
   type CodexRuntimeSettingsV1,
-  type KunSettingsEnvelopePatchV1,
+  type AgentRuntimeSettingsEnvelopePatchV1,
   type SandboxMode
 } from './app-settings-types'
 
 const DEFAULT_CODEX_COMMAND = 'codex'
-const LEGACY_CODEX_DATA_DIR = '~/.deepseekgui/codex'
 const DEFAULT_CODEX_APPROVAL_POLICY: ApprovalPolicy = 'on-request'
 const DEFAULT_CODEX_SANDBOX_MODE: SandboxMode = 'workspace-write'
 const CODEX_APPROVAL_POLICIES = new Set<ApprovalPolicy>([
@@ -39,9 +38,10 @@ export function defaultCodexRuntimeSettings(): CodexRuntimeSettingsV1 {
 }
 
 export function normalizeAgentRuntimeId(value: unknown): AgentRuntimeId {
+  if (value === 'sciforge') return value
   if (value === 'claude') return value
   if (value === 'codex') return value
-  return 'kun'
+  return 'sciforge'
 }
 
 export function getActiveAgentRuntime(settings: AppSettingsV1): AgentRuntimeId {
@@ -57,7 +57,7 @@ export function getCodexRuntimeSettings(settings: AppSettingsV1): CodexRuntimeSe
 
 export function codexSettingsPatch(
   codex: CodexRuntimeSettingsPatchV1 | undefined
-): KunSettingsEnvelopePatchV1 {
+): AgentRuntimeSettingsEnvelopePatchV1 {
   return codex ? { codex } : {}
 }
 
@@ -100,11 +100,10 @@ function normalizeCodexRuntimeSettings(
 ): CodexRuntimeSettingsV1 {
   const defaults = defaultCodexRuntimeSettings()
   const command = nonEmptyString(input?.command, defaults.command)
-  const codexHome = upgradeLegacyCodexHome(nonEmptyString(input?.codexHome, defaults.codexHome))
   return {
     command,
     autoStart: input?.autoStart !== false,
-    codexHome,
+    codexHome: nonEmptyString(input?.codexHome, defaults.codexHome),
     profile: optionalString(input?.profile),
     model: optionalString(input?.model),
     modelProvider: optionalString(input?.modelProvider),
@@ -124,13 +123,6 @@ function normalizeSandboxMode(value: unknown, fallback: SandboxMode): SandboxMod
 
 function nonEmptyString(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
-}
-
-function upgradeLegacyCodexHome(value: string): string {
-  const normalized = value.replace(/\\/g, '/').toLowerCase()
-  return normalized === LEGACY_CODEX_DATA_DIR || normalized.endsWith('/.deepseekgui/codex')
-    ? DEFAULT_CODEX_DATA_DIR
-    : value
 }
 
 function optionalString(value: unknown): string {

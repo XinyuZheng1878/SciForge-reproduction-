@@ -51,7 +51,7 @@ export async function guiSkillRootsForRuntime(
   ])
   const globalRoots = [
     join(homedir(), '.agents', 'skills'),
-    join(homedir(), '.kun', 'skills'),
+    join(homedir(), '.sciforge', 'skills'),
     ...await discoverCodexPluginSkillRoots()
   ]
   const configuredExtraRoots = [

@@ -189,8 +189,8 @@ export async function loadModelUsage(
   range: DailyUsageRange,
   runtimeId?: AgentRuntimeId
 ): Promise<ModelUsageSummary | null> {
-  if (typeof window.dsGui?.agentRuntime?.usage !== 'function') return null
-  const parsed = await window.dsGui.agentRuntime.usage(buildModelUsageQuery(range, runtimeId)) as RawModelUsageResponse
+  if (typeof window.sciforge?.agentRuntime?.usage !== 'function') return null
+  const parsed = await window.sciforge.agentRuntime.usage(buildModelUsageQuery(range, runtimeId)) as RawModelUsageResponse
   if (parsed.supported === false) return null
   if ((parsed.groupBy ?? parsed.group_by) !== 'model') {
     throw new Error('model usage response did not use model grouping')

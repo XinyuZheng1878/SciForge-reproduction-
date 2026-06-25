@@ -256,10 +256,10 @@ export function WorkspaceFilePreviewPanel({
       workspaceRoot: target.workspaceRoot ?? workspaceRoot
     }
     const readTask: Promise<WorkspacePreviewResult> = isImagePreviewTarget(target)
-      ? window.dsGui.readWorkspaceImage(fileTarget).then((next) =>
+      ? window.sciforge.readWorkspaceImage(fileTarget).then((next) =>
           next.ok ? { ...next, kind: 'image' as const } : next
         )
-      : window.dsGui.readWorkspaceFile(fileTarget)
+      : window.sciforge.readWorkspaceFile(fileTarget)
 
     void readTask
       .then((next) => {
@@ -402,7 +402,7 @@ export function WorkspaceFilePreviewPanel({
     let cancelled = false
     setHtmlPreviewLoading(true)
     setHtmlPreview(null)
-    void window.dsGui.previewWorkspaceHtml({
+    void window.sciforge.previewWorkspaceHtml({
       path: result.path,
       workspaceRoot: target?.workspaceRoot ?? workspaceRoot
     }).then((next) => {
@@ -426,7 +426,7 @@ export function WorkspaceFilePreviewPanel({
     setTextSaveState('saving')
     setTextSaveError(null)
     try {
-      const writeResult = await window.dsGui.writeWorkspaceFile({
+      const writeResult = await window.sciforge.writeWorkspaceFile({
         workspaceRoot: target?.workspaceRoot ?? workspaceRoot,
         path: result.path,
         content: textDraft
@@ -450,11 +450,11 @@ export function WorkspaceFilePreviewPanel({
   }, [])
 
   const savePdfSidecarSoon = useCallback((sidecar: PdfAnnotationSidecar): void => {
-    if (!pdfPath || typeof window.dsGui?.pdfAnnotations?.save !== 'function') return
+    if (!pdfPath || typeof window.sciforge?.pdfAnnotations?.save !== 'function') return
     if (pdfSidecarSaveTimerRef.current) window.clearTimeout(pdfSidecarSaveTimerRef.current)
     pdfSidecarSaveTimerRef.current = window.setTimeout(() => {
       pdfSidecarSaveTimerRef.current = null
-      void window.dsGui?.pdfAnnotations?.save({
+      void window.sciforge?.pdfAnnotations?.save({
         pdfPath,
         workspaceRoot: pdfWorkspaceRoot,
         sidecar
@@ -522,13 +522,13 @@ export function WorkspaceFilePreviewPanel({
     setSelectedPdfThreadId(null)
     setHoveredPdfThreadId(null)
     setPdfJumpToRect(null)
-    if (typeof window.dsGui?.pdfAnnotations?.load !== 'function') {
+    if (typeof window.sciforge?.pdfAnnotations?.load !== 'function') {
       showPdfNotice({ tone: 'error', message: t('writePdfAnnotationReloadUnavailable') })
       return
     }
 
     let cancelled = false
-    void window.dsGui.pdfAnnotations.load({
+    void window.sciforge.pdfAnnotations.load({
       pdfPath,
       workspaceRoot: pdfWorkspaceRoot
     }).then((loadResult) => {
@@ -643,14 +643,14 @@ export function WorkspaceFilePreviewPanel({
 
   const exportPdfAnnotationPackage = useCallback(async (): Promise<void> => {
     if (!pdfPath || !pdfSidecar) return
-    if (typeof window.dsGui?.pdfAnnotations?.export !== 'function') {
+    if (typeof window.sciforge?.pdfAnnotations?.export !== 'function') {
       showPdfNotice({ tone: 'error', message: t('writePdfAnnotationExportUnavailable') })
       return
     }
 
     setPdfAnnotationPackageAction('export')
     try {
-      const exportResult = await window.dsGui.pdfAnnotations.export({
+      const exportResult = await window.sciforge.pdfAnnotations.export({
         pdfPath,
         workspaceRoot: pdfWorkspaceRoot,
         sidecar: pdfSidecar
@@ -680,7 +680,7 @@ export function WorkspaceFilePreviewPanel({
 
   const importPdfAnnotationPackageFile = useCallback(async (file: File): Promise<void> => {
     if (!pdfPath) return
-    if (typeof window.dsGui?.pdfAnnotations?.import !== 'function') {
+    if (typeof window.sciforge?.pdfAnnotations?.import !== 'function') {
       showPdfNotice({ tone: 'error', message: t('writePdfAnnotationImportUnavailable') })
       return
     }
@@ -688,7 +688,7 @@ export function WorkspaceFilePreviewPanel({
     setPdfAnnotationPackageAction('import')
     try {
       const packageBase64 = await fileToBase64(file)
-      const importPackage = (attemptRelocation: boolean) => window.dsGui.pdfAnnotations!.import({
+      const importPackage = (attemptRelocation: boolean) => window.sciforge.pdfAnnotations!.import({
         pdfPath,
         workspaceRoot: pdfWorkspaceRoot,
         packageBase64,
@@ -747,14 +747,14 @@ export function WorkspaceFilePreviewPanel({
 
   const reloadPdfAnnotationSidecar = useCallback(async (): Promise<void> => {
     if (!pdfPath) return
-    if (typeof window.dsGui?.pdfAnnotations?.load !== 'function') {
+    if (typeof window.sciforge?.pdfAnnotations?.load !== 'function') {
       showPdfNotice({ tone: 'error', message: t('writePdfAnnotationReloadUnavailable') })
       return
     }
 
     setPdfAnnotationPackageAction('reload')
     try {
-      const loadResult = await window.dsGui.pdfAnnotations.load({
+      const loadResult = await window.sciforge.pdfAnnotations.load({
         pdfPath,
         workspaceRoot: pdfWorkspaceRoot
       })
@@ -824,7 +824,7 @@ export function WorkspaceFilePreviewPanel({
       target?.workspaceRoot ?? workspaceRoot
     ).then((next) => {
       if (!next.ok) {
-        void window.dsGui?.logError?.('editor-open', 'Failed to open previewed file', {
+        void window.sciforge?.logError?.('editor-open', 'Failed to open previewed file', {
           message: next.message,
           target
         })?.catch(() => undefined)
@@ -834,7 +834,7 @@ export function WorkspaceFilePreviewPanel({
 
   const openHtmlPreviewExternal = (): void => {
     if (!htmlPreview?.ok) return
-    void window.dsGui.openExternal(htmlPreview.url)
+    void window.sciforge.openExternal(htmlPreview.url)
   }
 
   const copyPath = async (): Promise<void> => {

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
@@ -14,7 +14,7 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
-import { fetchUpstreamModelIds, readConfiguredKunModelIds } from './upstream-models'
+import { fetchUpstreamModelIds, readConfiguredLocalRuntimeModelIds } from './upstream-models'
 
 function settings(dataDir: string, model = 'settings-model'): AppSettingsV1 {
   const provider = defaultModelProviderSettings()
@@ -44,8 +44,8 @@ function settings(dataDir: string, model = 'settings-model'): AppSettingsV1 {
       runtimeApiKey: 'local-runtime-router-key'
     },
     agents: {
-      kun: {
-        ...defaultKunRuntimeSettings(),
+      sciforge: {
+        ...defaultLocalRuntimeSettings(),
         dataDir,
         model,
         providerId: 'custom-provider'
@@ -70,8 +70,8 @@ describe('upstream model picker list', () => {
     vi.unstubAllGlobals()
   })
 
-  it('includes Kun config model profiles, aliases, and the configured agent model', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
+  it('includes local runtime config model profiles, aliases, and the configured agent model', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'sciforge-models-'))
     await mkdir(dataDir, { recursive: true })
     await writeFile(
       join(dataDir, 'config.json'),
@@ -92,7 +92,7 @@ describe('upstream model picker list', () => {
       'utf8'
     )
 
-    const ids = await readConfiguredKunModelIds(settings(dataDir))
+    const ids = await readConfiguredLocalRuntimeModelIds(settings(dataDir))
 
     expect(ids).toEqual(expect.arrayContaining([
       'auto',
@@ -106,7 +106,7 @@ describe('upstream model picker list', () => {
   })
 
   it('queries the local Model Router /v1/models with the runtime API key', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'sciforge-models-'))
     await mkdir(dataDir, { recursive: true })
     await writeFile(
       join(dataDir, 'config.json'),
@@ -166,7 +166,7 @@ describe('upstream model picker list', () => {
   })
 
   it('fails closed without a Model Router runtime key', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'sciforge-models-'))
     const appSettings = settings(dataDir, 'local-only-model')
     appSettings.modelRouter = {
       ...appSettings.modelRouter!,
@@ -185,7 +185,7 @@ describe('upstream model picker list', () => {
   })
 
   it('fails closed without a Model Router base URL', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'deepseek-gui-models-'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'sciforge-models-'))
     const appSettings = settings(dataDir, 'local-only-model')
     appSettings.modelRouter = {
       ...appSettings.modelRouter!,

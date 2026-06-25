@@ -25,10 +25,10 @@ import type {
   AgentRuntimeThreadRelationInput,
   AgentRuntimeThreadRenameInput,
   AgentRuntimeUserInputResolveInput
-} from '@shared/ds-gui-api'
+} from '@shared/sciforge-api'
 import { runtimeErrorToError } from '@shared/runtime-error'
 
-type AgentRuntimePreloadBridge = Window['dsGui']['agentRuntime']
+type AgentRuntimePreloadBridge = Window['sciforge']['agentRuntime']
 
 function unavailable(method: keyof AgentRuntimePreloadBridge): Error {
   return runtimeErrorToError({
@@ -148,11 +148,11 @@ class AgentRuntimeClient {
         else resolve()
       }
       const onAbort = (): void => {
-        void window.dsGui.agentRuntime?.stopEvents(activeStreamId)
+        void window.sciforge.agentRuntime?.stopEvents(activeStreamId)
         finish()
       }
 
-      const bridge = window.dsGui.agentRuntime
+      const bridge = window.sciforge.agentRuntime
       if (!bridge) {
         finish(unavailable('subscribeEvents'))
         return
@@ -190,7 +190,7 @@ class AgentRuntimeClient {
     method: keyof AgentRuntimePreloadBridge,
     call: (bridge: AgentRuntimePreloadBridge) => Promise<T>
   ): Promise<T> {
-    const bridge = window.dsGui.agentRuntime
+    const bridge = window.sciforge.agentRuntime
     if (!bridge || typeof bridge[method] !== 'function') throw unavailable(method)
     return call(bridge)
   }

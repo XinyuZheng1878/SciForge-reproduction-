@@ -8,16 +8,16 @@ import {
 import { GUI_RESEARCH_MEMORY_MCP_LAUNCH_FLAG } from './research-memory-mcp-server'
 import { ResearchMemoryToolNames } from '../../packages/workers/research-memory/src/contract'
 import {
-  buildExternalKunMcpJson,
-  buildManagedGuiKunMcpServerConfig,
+  buildExternalLocalRuntimeMcpJson,
+  buildManagedGuiLocalRuntimeMcpServerConfig,
   buildManagedGuiMcpJsonServerConfig,
   ELECTRON_RUN_AS_NODE_ENV,
   managedGuiMcpNames,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   resolveManagedGuiMcpCommand,
   resolveManagedGuiMcpNodeEntryPath,
   stringRecord,
-  syncExternalKunMcpJson,
+  syncExternalLocalRuntimeMcpJson,
   type JsonRecord,
   type ManagedGuiMcpDescriptor,
   type ManagedGuiMcpLaunchConfig
@@ -103,13 +103,13 @@ export function buildResearchMemoryMcpServerConfig(
   })
 }
 
-export function buildResearchMemoryKunMcpServerConfig(
+export function buildResearchMemoryLocalRuntimeMcpServerConfig(
   settings: AppSettingsV1,
   launch: ResearchMemoryMcpLaunchConfig,
   existing: unknown = {}
 ): JsonRecord {
   const env = stringRecord((existing as { env?: unknown } | null)?.env)
-  return buildManagedGuiKunMcpServerConfig({
+  return buildManagedGuiLocalRuntimeMcpServerConfig({
     descriptor: GUI_RESEARCH_MEMORY_MCP_DESCRIPTOR,
     launch,
     args: buildResearchMemoryMcpArgs(settings, launch),
@@ -126,7 +126,7 @@ export function buildSyncedResearchMemoryMcpJson(
 ): JsonRecord {
   void settings
   void launch
-  return buildExternalKunMcpJson(existing, managedGuiMcpNames(GUI_RESEARCH_MEMORY_MCP_DESCRIPTOR))
+  return buildExternalLocalRuntimeMcpJson(existing, managedGuiMcpNames(GUI_RESEARCH_MEMORY_MCP_DESCRIPTOR))
 }
 
 export async function syncResearchMemoryMcpConfig(
@@ -134,8 +134,8 @@ export async function syncResearchMemoryMcpConfig(
   launch: ResearchMemoryMcpLaunchConfig,
   paths: ResearchMemoryMcpConfigPaths = {}
 ): Promise<void> {
-  const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
+  const mcpJsonPath = paths.mcpJsonPath ?? resolveLocalRuntimeMcpJsonPath()
   void settings
   void launch
-  await syncExternalKunMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_RESEARCH_MEMORY_MCP_DESCRIPTOR))
+  await syncExternalLocalRuntimeMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_RESEARCH_MEMORY_MCP_DESCRIPTOR))
 }

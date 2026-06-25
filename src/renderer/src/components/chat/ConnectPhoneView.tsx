@@ -37,7 +37,7 @@ import type {
   DiscordBotStatus,
   DiscordChannel,
   DiscordGuild
-} from '@shared/ds-gui-api'
+} from '@shared/sciforge-api'
 import {
   type ClawInstallQrState,
   type ClawInstallTarget,
@@ -99,7 +99,6 @@ const INITIAL_QR_STATE: ClawInstallQrState = {
   error: ''
 }
 const INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.sciforge/claw/'
-const LEGACY_INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.deepseekgui/claw/'
 
 export function connectPhoneProviderForTarget(target: ClawInstallTarget): ClawImProvider {
   return target === 'weixin' ? 'weixin' : 'feishu'
@@ -153,9 +152,7 @@ export function normalizeConnectPhoneWorkspaceRoot(workspaceRoot?: string): stri
 function isInternalClawWorkspaceRoot(workspaceRoot: string): boolean {
   const normalized = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   return normalized.includes(INTERNAL_CLAW_WORKSPACE_FRAGMENT) ||
-    normalized.includes(LEGACY_INTERNAL_CLAW_WORKSPACE_FRAGMENT) ||
-    normalized.startsWith('~/.sciforge/claw/') ||
-    normalized.startsWith('~/.deepseekgui/claw/')
+    normalized.startsWith('~/.sciforge/claw/')
 }
 
 export function resolveConnectPhoneWorkspaceRoot(
@@ -191,7 +188,7 @@ export function connectPhoneRecentMessageLabel(message: NonNullable<ClawImChanne
 
 export function createConnectPhoneAgentProfile(): ClawImAgentProfileV1 {
   return {
-    name: 'kun',
+    name: 'SciForge Runtime',
     description: '',
     identity: '',
     personality: '',
@@ -355,7 +352,7 @@ export function ConnectPhoneView({
     }
     if (
       typeof window === 'undefined' ||
-      typeof window.dsGui?.startClawImInstallQr !== 'function'
+      typeof window.sciforge?.startClawImInstallQr !== 'function'
     ) {
       setInstallQr({
         ...INITIAL_QR_STATE,
@@ -374,7 +371,7 @@ export function ConnectPhoneView({
     const request = connectPhoneInstallRequestOptions(target)
     let result: ClawImInstallQrResult
     try {
-      result = await window.dsGui.startClawImInstallQr(request.provider, request.options)
+      result = await window.sciforge.startClawImInstallQr(request.provider, request.options)
     } catch (error) {
       if (installAttempt !== installAttemptRef.current) return
       setInstallQr({
@@ -426,11 +423,11 @@ export function ConnectPhoneView({
       try {
         if (
           typeof window === 'undefined' ||
-          typeof window.dsGui?.pollClawImInstall !== 'function'
+          typeof window.sciforge?.pollClawImInstall !== 'function'
         ) {
           throw new Error(t('clawAddImOfficialQrUnavailable'))
         }
-        const poll = await window.dsGui.pollClawImInstall(request.provider, result.deviceCode)
+        const poll = await window.sciforge.pollClawImInstall(request.provider, result.deviceCode)
         if (installAttempt !== installAttemptRef.current) return
         if (poll.done) {
           clearInstallTimers()
@@ -628,7 +625,7 @@ export function ConnectPhoneView({
                 <div className="relative flex h-12 shrink-0 items-center justify-between border-b border-[#f0f1ef] px-4 text-[#111827]">
                   <ChevronLeft className="h-6 w-6" strokeWidth={1.8} />
                   <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 text-[14px] font-semibold">
-                    <span>kun</span>
+                    <span>SciForge</span>
                     <span className="rounded-[4px] bg-[#eee7ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#8b5cf6]">AI</span>
                   </div>
                   <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
@@ -639,16 +636,16 @@ export function ConnectPhoneView({
                       {t('connectPhonePreviewUser')}
                     </div>
                     <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#f6d75d] text-[12px] font-bold text-[#695000]">
-                      K
+                      S
                     </div>
                   </div>
                   <div className="mt-5 flex max-w-[274px] items-start gap-2">
                     <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#dbeafe] bg-[#f1f7fd] text-[12px] font-bold text-[#2563eb]">
-                      K
+                      S
                     </span>
                     <div className="overflow-hidden rounded-[8px] border border-[#dfe6e9] bg-[#fffefa] text-left shadow-sm">
                       <div className="flex items-center gap-2 bg-[#d2f5db] px-3 py-2">
-                        <span className="text-[12px] font-semibold text-[#15803d]">kun</span>
+                        <span className="text-[12px] font-semibold text-[#15803d]">SciForge</span>
                         <span className="rounded-[4px] bg-[#bff0cf] px-1.5 py-0.5 text-[10px] font-semibold text-[#15803d]">
                           {t('connectPhonePreviewDone')}
                         </span>
@@ -810,7 +807,7 @@ export function ConnectPhoneSidebarPanel({
     }
     if (
       typeof window === 'undefined' ||
-      typeof window.dsGui?.startClawImInstallQr !== 'function'
+      typeof window.sciforge?.startClawImInstallQr !== 'function'
     ) {
       setInstallQr({
         ...INITIAL_QR_STATE,
@@ -829,7 +826,7 @@ export function ConnectPhoneSidebarPanel({
     const request = connectPhoneInstallRequestOptions(phoneTarget)
     let result: ClawImInstallQrResult
     try {
-      result = await window.dsGui.startClawImInstallQr(request.provider, request.options)
+      result = await window.sciforge.startClawImInstallQr(request.provider, request.options)
     } catch (error) {
       if (installAttempt !== installAttemptRef.current) return
       setInstallQr({
@@ -881,11 +878,11 @@ export function ConnectPhoneSidebarPanel({
       try {
         if (
           typeof window === 'undefined' ||
-          typeof window.dsGui?.pollClawImInstall !== 'function'
+          typeof window.sciforge?.pollClawImInstall !== 'function'
         ) {
           throw new Error(t('clawAddImOfficialQrUnavailable'))
         }
-        const poll = await window.dsGui.pollClawImInstall(request.provider, result.deviceCode)
+        const poll = await window.sciforge.pollClawImInstall(request.provider, result.deviceCode)
         if (installAttempt !== installAttemptRef.current) return
         if (poll.done) {
           clearInstallTimers()
@@ -1163,10 +1160,10 @@ export function DiscordBotSetupPanel({
   const configuredDiscordChannels = configuredChannels.filter((channel) => channel.provider === 'discord')
 
   const refreshStatus = useCallback(async (): Promise<void> => {
-    if (typeof window.dsGui?.getDiscordBotStatus !== 'function') return
+    if (typeof window.sciforge?.getDiscordBotStatus !== 'function') return
     setLoadingStatus(true)
     try {
-      const next = await window.dsGui.getDiscordBotStatus()
+      const next = await window.sciforge.getDiscordBotStatus()
       setStatus(next)
       setClientId((current) => current || next.clientId || next.bot?.applicationId || '')
       setProxyUrl((current) => current || next.proxyUrl || '')
@@ -1180,11 +1177,11 @@ export function DiscordBotSetupPanel({
   }, [])
 
   const refreshGuilds = useCallback(async (): Promise<void> => {
-    if (typeof window.dsGui?.listDiscordGuilds !== 'function') return
+    if (typeof window.sciforge?.listDiscordGuilds !== 'function') return
     setLoadingGuilds(true)
     setError('')
     try {
-      const result = await window.dsGui.listDiscordGuilds()
+      const result = await window.sciforge.listDiscordGuilds()
       if (!result.ok) {
         setError(result.message)
         return
@@ -1205,11 +1202,11 @@ export function DiscordBotSetupPanel({
   }, [status.guildId])
 
   const refreshChannels = useCallback(async (guildId: string): Promise<void> => {
-    if (!guildId || typeof window.dsGui?.listDiscordChannels !== 'function') return
+    if (!guildId || typeof window.sciforge?.listDiscordChannels !== 'function') return
     setLoadingChannels(true)
     setError('')
     try {
-      const result = await window.dsGui.listDiscordChannels(guildId)
+      const result = await window.sciforge.listDiscordChannels(guildId)
       if (!result.ok) {
         setError(result.message)
         setChannels([])
@@ -1269,14 +1266,14 @@ export function DiscordBotSetupPanel({
       setError(t('connectPhoneDiscordClientIdRequired'))
       return
     }
-    if (typeof window.dsGui?.configureDiscordClientId !== 'function') {
+    if (typeof window.sciforge?.configureDiscordClientId !== 'function') {
       setError(t('connectPhoneDiscordUnavailable'))
       return
     }
     setSavingClient(true)
     setError('')
     try {
-      const result = await window.dsGui.configureDiscordClientId(trimmed)
+      const result = await window.sciforge.configureDiscordClientId(trimmed)
       if (!result.ok) {
         setError(result.message)
         return
@@ -1296,7 +1293,7 @@ export function DiscordBotSetupPanel({
       setError(t('connectPhoneDiscordTokenRequired'))
       return
     }
-    if (typeof window.dsGui?.configureDiscordBotToken !== 'function') {
+    if (typeof window.sciforge?.configureDiscordBotToken !== 'function') {
       setError(t('connectPhoneDiscordUnavailable'))
       return
     }
@@ -1304,7 +1301,7 @@ export function DiscordBotSetupPanel({
     setError('')
     setTested(false)
     try {
-      const result = await window.dsGui.configureDiscordBotToken(trimmed, clientId.trim() || undefined)
+      const result = await window.sciforge.configureDiscordBotToken(trimmed, clientId.trim() || undefined)
       if (!result.ok) {
         setError(result.message)
         return
@@ -1321,14 +1318,14 @@ export function DiscordBotSetupPanel({
   }
 
   const configureProxy = async (): Promise<void> => {
-    if (typeof window.dsGui?.configureDiscordProxy !== 'function') {
+    if (typeof window.sciforge?.configureDiscordProxy !== 'function') {
       setError(t('connectPhoneDiscordUnavailable'))
       return
     }
     setSavingProxy(true)
     setError('')
     try {
-      const result = await window.dsGui.configureDiscordProxy(proxyUrl.trim())
+      const result = await window.sciforge.configureDiscordProxy(proxyUrl.trim())
       if (!result.ok) {
         setError(result.message)
         return
@@ -1355,8 +1352,8 @@ export function DiscordBotSetupPanel({
 
   const openInviteUrl = (): void => {
     if (!hasInviteUrl) return
-    if (typeof window.dsGui?.openExternal === 'function') {
-      void window.dsGui.openExternal(inviteUrl).catch(() => undefined)
+    if (typeof window.sciforge?.openExternal === 'function') {
+      void window.sciforge.openExternal(inviteUrl).catch(() => undefined)
       return
     }
     window.open(inviteUrl, '_blank', 'noopener,noreferrer')
@@ -1364,8 +1361,8 @@ export function DiscordBotSetupPanel({
 
   const openDeveloperPortal = (): void => {
     const url = 'https://discord.com/developers/applications'
-    if (typeof window.dsGui?.openExternal === 'function') {
-      void window.dsGui.openExternal(url).catch(() => undefined)
+    if (typeof window.sciforge?.openExternal === 'function') {
+      void window.sciforge.openExternal(url).catch(() => undefined)
       return
     }
     window.open(url, '_blank', 'noopener,noreferrer')
@@ -1377,9 +1374,9 @@ export function DiscordBotSetupPanel({
       return
     }
     if (
-      typeof window.dsGui?.bindDiscordChannel !== 'function' ||
-      typeof window.dsGui?.testDiscordChannel !== 'function' ||
-      typeof window.dsGui?.setDiscordGuard !== 'function'
+      typeof window.sciforge?.bindDiscordChannel !== 'function' ||
+      typeof window.sciforge?.testDiscordChannel !== 'function' ||
+      typeof window.sciforge?.setDiscordGuard !== 'function'
     ) {
       setError(t('connectPhoneDiscordUnavailable'))
       return
@@ -1389,7 +1386,7 @@ export function DiscordBotSetupPanel({
     setTested(false)
     try {
       const bindingWorkspaceRoot = resolveConnectPhoneWorkspaceRoot(workspaceRoot, currentWorkspaceRoot)
-      const bind = await window.dsGui.bindDiscordChannel({
+      const bind = await window.sciforge.bindDiscordChannel({
         ...(selectedChannelConfigId ? { channelConfigId: selectedChannelConfigId } : {}),
         guildId: selectedGuild.id,
         guildName: selectedGuild.name,
@@ -1407,7 +1404,7 @@ export function DiscordBotSetupPanel({
         return
       }
       setStatus(bind.status)
-      const test = await window.dsGui.testDiscordChannel(
+      const test = await window.sciforge.testDiscordChannel(
         selectedChannel.id,
         t('connectPhoneDiscordTestMessage')
       )
@@ -1416,7 +1413,7 @@ export function DiscordBotSetupPanel({
         return
       }
       setTested(true)
-      const guard = await window.dsGui.setDiscordGuard(true, bind.channelConfigId)
+      const guard = await window.sciforge.setDiscordGuard(true, bind.channelConfigId)
       if (!guard.ok) {
         setError(guard.message)
         if (guard.status) setStatus(guard.status)
@@ -1431,11 +1428,11 @@ export function DiscordBotSetupPanel({
   }
 
   const disableGuard = async (): Promise<void> => {
-    if (typeof window.dsGui?.setDiscordGuard !== 'function') return
+    if (typeof window.sciforge?.setDiscordGuard !== 'function') return
     setBinding(true)
     setError('')
     try {
-      const result = await window.dsGui.setDiscordGuard(false, selectedChannelConfigId)
+      const result = await window.sciforge.setDiscordGuard(false, selectedChannelConfigId)
       if (result.ok) setStatus(result.status)
       else setError(result.message)
     } catch (error) {
@@ -1450,11 +1447,11 @@ export function DiscordBotSetupPanel({
     enabled: boolean,
     forceTakeover = false
   ): Promise<void> => {
-    if (!channelConfigId || typeof window.dsGui?.setDiscordGuard !== 'function') return
+    if (!channelConfigId || typeof window.sciforge?.setDiscordGuard !== 'function') return
     setBinding(true)
     setError('')
     try {
-      const result = await window.dsGui.setDiscordGuard(enabled, channelConfigId, forceTakeover)
+      const result = await window.sciforge.setDiscordGuard(enabled, channelConfigId, forceTakeover)
       if (result.ok) {
         setStatus(result.status)
         return
@@ -1469,7 +1466,7 @@ export function DiscordBotSetupPanel({
   }
 
   const takeOverGuard = async (channelConfigId?: string): Promise<void> => {
-    if (!channelConfigId || typeof window.dsGui?.setDiscordGuard !== 'function') return
+    if (!channelConfigId || typeof window.sciforge?.setDiscordGuard !== 'function') return
     await setGuardForChannel(channelConfigId, true, true)
   }
 

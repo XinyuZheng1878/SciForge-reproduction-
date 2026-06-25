@@ -64,6 +64,16 @@ test('serves research-memory tools and artifact calls over MCP', async (t) => {
   assert.equal(structuredUpsert.wrote, true)
   assert.equal(asRecord(structuredUpsert.artifact).id, 'EXP-mcp-upsert')
 
+  const customStatusPath = await client.callTool({
+    name: 'gui_research_memory_render_status_html',
+    arguments: {
+      output_path: 'reports/status.html'
+    }
+  })
+  assert.equal(customStatusPath.isError, true)
+  assert.match(customStatusPath.content[0]?.text ?? '', /expected \\"status\.html\\"/)
+  await assert.rejects(readFile(join(workspaceRoot, 'reports', 'status.html'), 'utf8'))
+
   const list = await client.callTool({
     name: 'gui_research_memory_artifact_list',
     arguments: { tag: 'mcp' }

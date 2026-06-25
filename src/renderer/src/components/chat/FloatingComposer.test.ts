@@ -180,7 +180,7 @@ describe('FloatingComposer voice input helpers', () => {
     })
   })
 
-  it('ignores legacy Kun speech-to-text settings so voice input stays a unified composer setting', () => {
+  it('ignores legacy local runtime speech-to-text settings so voice input stays a unified composer setting', () => {
     const settings = {
       agents: {
         kun: {
@@ -393,7 +393,7 @@ describe('FloatingComposer image transfer helpers', () => {
     const screenshot = new File([new Uint8Array([1])], 'shot.png', { type: 'image/png' })
     const getPathForFile = vi.fn(() => '/tmp/project/shot.png')
     vi.stubGlobal('window', {
-      dsGui: { getPathForFile }
+      sciforge: { getPathForFile }
     })
     const source = {
       files: {
@@ -412,7 +412,7 @@ describe('FloatingComposer image transfer helpers', () => {
     const pdf = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'paper.pdf', { type: 'application/pdf' })
     const getPathForFile = vi.fn(() => '/tmp/project/papers/paper.pdf')
     vi.stubGlobal('window', {
-      dsGui: { getPathForFile }
+      sciforge: { getPathForFile }
     })
 
     expect(attachmentInputsFromPickedFiles([pdf])).toEqual([
@@ -425,7 +425,7 @@ describe('FloatingComposer image transfer helpers', () => {
     const fasta = new File(['>seq\\nACGT\\n'], 'sample.fasta', { type: 'text/plain' })
     const getPathForFile = vi.fn(() => '/tmp/project/data/sample.fasta')
     vi.stubGlobal('window', {
-      dsGui: { getPathForFile }
+      sciforge: { getPathForFile }
     })
 
     expect(attachmentInputsFromPickedFiles([fasta])).toEqual([
@@ -520,7 +520,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: 'thr_1',
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       threads: []
     })
 
@@ -528,7 +528,7 @@ describe('FloatingComposer capability controls', () => {
       createElement(FloatingComposer, {
         input: '/',
         setInput: () => undefined,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         mode: 'agent',
         setMode: () => undefined,
         busy: false,
@@ -549,7 +549,7 @@ describe('FloatingComposer capability controls', () => {
           id: 'openspec-apply-change',
           name: 'Openspec Apply Change',
           description: 'Implement tasks from an OpenSpec change',
-          root: '/workspace/deepseek-gui/.codex/skills/openspec-apply-change'
+          root: '/workspace/sciforge/.codex/skills/openspec-apply-change'
         }],
         runtimeCapabilities: {
           compact: false,
@@ -576,7 +576,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: 'thr_1',
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       threads: []
     })
 
@@ -584,7 +584,7 @@ describe('FloatingComposer capability controls', () => {
       createElement(FloatingComposer, {
         input: 'add this now',
         setInput: () => undefined,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         mode: 'agent',
         setMode: () => undefined,
         busy: true,
@@ -613,7 +613,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: 'thr_1',
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       threads: []
     })
 
@@ -621,7 +621,7 @@ describe('FloatingComposer capability controls', () => {
       createElement(FloatingComposer, {
         input: '/ste',
         setInput: () => undefined,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         mode: 'agent',
         setMode: () => undefined,
         busy: true,
@@ -649,7 +649,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: 'thr_1',
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       threads: []
     })
 
@@ -657,7 +657,7 @@ describe('FloatingComposer capability controls', () => {
       createElement(FloatingComposer, {
         input: '/steer add this now',
         setInput: () => undefined,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         mode: 'agent',
         setMode: () => undefined,
         busy: true,
@@ -685,7 +685,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: 'thr_1',
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       threads: []
     })
 
@@ -693,7 +693,7 @@ describe('FloatingComposer capability controls', () => {
       createElement(FloatingComposer, {
         input: '',
         setInput: () => undefined,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         mode: 'agent',
         setMode: () => undefined,
         busy: true,
@@ -723,7 +723,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: 'thr_1',
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       threads: []
     })
 
@@ -731,7 +731,7 @@ describe('FloatingComposer capability controls', () => {
       createElement(FloatingComposer, {
         input: 'continue later',
         setInput: () => undefined,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         mode: 'agent',
         setMode: () => undefined,
         busy: true,
@@ -772,7 +772,7 @@ describe('FloatingComposer capability controls', () => {
         busy: false,
         runtimeReady: true,
         hasActiveThread: false,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         composerModel: '',
         composerPickList: [],
         onComposerModelChange: () => undefined,
@@ -807,7 +807,7 @@ describe('FloatingComposer capability controls', () => {
         busy: false,
         runtimeReady: true,
         hasActiveThread: false,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         composerModel: '',
         composerPickList: [],
         onComposerModelChange: () => undefined,
@@ -831,7 +831,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: 'thr_1',
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       threads: []
     })
 
@@ -839,7 +839,7 @@ describe('FloatingComposer capability controls', () => {
       createElement(FloatingComposer, {
         input: '/openspec',
         setInput: () => undefined,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         mode: 'agent',
         setMode: () => undefined,
         busy: false,
@@ -858,7 +858,7 @@ describe('FloatingComposer capability controls', () => {
           id: 'openspec-apply-change',
           name: 'Openspec Apply Change',
           description: 'Implement tasks from an OpenSpec change',
-          root: '/workspace/deepseek-gui/.codex/skills/openspec-apply-change'
+          root: '/workspace/sciforge/.codex/skills/openspec-apply-change'
         }]
       })
     )
@@ -1134,7 +1134,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: null,
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       threads: []
     })
 
@@ -1142,7 +1142,7 @@ describe('FloatingComposer capability controls', () => {
       createElement(FloatingComposer, {
         input: '',
         setInput: () => undefined,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         mode: 'agent',
         setMode: () => undefined,
         busy: false,
@@ -1222,7 +1222,7 @@ describe('FloatingComposer capability controls', () => {
         onInterrupt: () => undefined,
         fileReferenceEnabled: true,
         fileReferences: [{
-          path: '/workspace/deepseek-gui/papers/spec.pdf',
+          path: '/workspace/sciforge/papers/spec.pdf',
           relativePath: 'papers/spec.pdf',
           name: 'spec.pdf',
           kind: 'pdf',
@@ -1248,7 +1248,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: 'thr_1',
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui'
+      workspaceRoot: '/workspace/sciforge'
     })
 
     const html = renderToStaticMarkup(
@@ -1296,7 +1296,7 @@ describe('FloatingComposer capability controls', () => {
         }
       },
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui'
+      workspaceRoot: '/workspace/sciforge'
     })
 
     const html = renderToStaticMarkup(
@@ -1345,7 +1345,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: 'thr_1',
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui'
+      workspaceRoot: '/workspace/sciforge'
     })
 
     const html = renderToStaticMarkup(
@@ -1389,7 +1389,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: null,
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       threads: []
     })
 
@@ -1397,7 +1397,7 @@ describe('FloatingComposer capability controls', () => {
       createElement(FloatingComposer, {
         input: '',
         setInput: () => undefined,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         mode: 'agent',
         setMode: () => undefined,
         busy: false,
@@ -1463,7 +1463,7 @@ describe('FloatingComposer capability controls', () => {
       activeThreadId: null,
       activeThreadGoal: null,
       route: 'chat',
-      workspaceRoot: '/workspace/deepseek-gui',
+      workspaceRoot: '/workspace/sciforge',
       threads: []
     })
 
@@ -1471,7 +1471,7 @@ describe('FloatingComposer capability controls', () => {
       createElement(FloatingComposer, {
         input: 'draft during startup',
         setInput: () => undefined,
-        workspaceRootOverride: '/workspace/deepseek-gui',
+        workspaceRootOverride: '/workspace/sciforge',
         mode: 'agent',
         setMode: () => undefined,
         busy: false,

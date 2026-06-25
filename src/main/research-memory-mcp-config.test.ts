@@ -13,7 +13,7 @@ import { ResearchMemoryToolNames } from '../../packages/workers/research-memory/
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -37,7 +37,7 @@ function createSettings(workspaceRoot = '/tmp/workspace'): AppSettingsV1 {
     provider: defaultModelProviderSettings(),
     modelRouter: defaultModelRouterSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings()
+      sciforge: defaultLocalRuntimeSettings()
     },
     workspaceRoot,
     log: {
@@ -110,7 +110,7 @@ describe('research memory MCP config', () => {
     })
   })
 
-  it('removes GUI-managed research memory servers from external Kun mcp.json', () => {
+  it('removes GUI-managed research memory servers from external local runtime mcp.json', () => {
     const synced = buildSyncedResearchMemoryMcpJson({
       timeouts: { connect_timeout: 3, execute_timeout: 30, read_timeout: 90 },
       servers: {

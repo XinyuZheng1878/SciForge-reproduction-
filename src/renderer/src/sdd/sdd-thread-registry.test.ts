@@ -12,7 +12,7 @@ import {
 } from './sdd-thread-registry'
 import type { SddDraft } from './sdd-draft-store'
 
-const SDD_THREAD_REGISTRY_KEY = 'deepseekgui.sdd.threadRegistry.v1'
+const SDD_THREAD_REGISTRY_KEY = 'sciforge.sdd.threadRegistry.v1'
 
 function createMemoryStorage(): BrowserStorageLike {
   const items = new Map<string, string>()
@@ -26,9 +26,9 @@ function createMemoryStorage(): BrowserStorageLike {
 
 function draft(partial: Partial<SddDraft> = {}): SddDraft {
   return {
-    id: '/tmp/app:.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+    id: '/tmp/app:.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
     workspaceRoot: '/tmp/app',
-    relativePath: '.deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
+    relativePath: '.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md',
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...partial
@@ -73,7 +73,7 @@ describe('sdd-thread-registry', () => {
     expect(isSddAssistantThread({ id: 'thread-sdd-1' }, registry)).toBe(false)
     expect(isSddAssistantThread({
       id: 'thread-sdd-1',
-      title: '下一步: .kunsdd/draft/draft-1/requirement.md'
+      title: '下一步: .sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md'
     }, registry)).toBe(false)
   })
 
@@ -90,20 +90,16 @@ describe('sdd-thread-registry', () => {
     expect(isSddAssistantThread({ id: 'thread-sdd-2' }, registry)).toBe(false)
   })
 
-  it('recognizes legacy SDD threads by draft paths even without registry data', () => {
+  it('recognizes SDD threads by current draft paths even without registry data', () => {
     const registry = normalizeSddThreadRegistry(null)
 
     expect(isSddAssistantThread({
-      id: 'thread-legacy-next',
-      title: '下一步: .kunsdd/draft/draft-1/requirement.md'
-    }, registry)).toBe(true)
-    expect(isSddAssistantThread({
       id: 'thread-current-next',
-      title: '下一步: .deepseekgui/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md'
+      title: '下一步: .sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000/requirement.md'
     }, registry)).toBe(true)
     expect(isSddAssistantThread({
-      id: 'thread-legacy-workspace',
-      workspace: '/tmp/app/.kunsdd/draft/draft-1'
+      id: 'thread-current-workspace',
+      workspace: '/tmp/app/.sciforge/sdd/requirements/123e4567-e89b-12d3-a456-426614174000'
     }, registry)).toBe(true)
     expect(isSddAssistantThread({
       id: 'thread-normal',

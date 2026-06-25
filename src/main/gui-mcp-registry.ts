@@ -1,7 +1,7 @@
 import { isResearchMemoryEnabledForAgents, type AppSettingsV1 } from '../shared/app-settings'
 import {
   buildScheduleMcpArgs,
-  buildScheduleKunMcpServerConfig,
+  buildScheduleLocalRuntimeMcpServerConfig,
   scheduleMcpEnabledTools,
   GUI_SCHEDULE_INTERNAL_SECRET_ENV,
   GUI_SCHEDULE_MCP_DESCRIPTOR,
@@ -12,7 +12,7 @@ import {
 } from './schedule-mcp-config'
 import {
   buildComputerUseClaudeCodeMcpServerConfig,
-  buildComputerUseKunMcpServerConfig,
+  buildComputerUseLocalRuntimeMcpServerConfig,
   buildComputerUseRuntimeMcpServerConfig,
   GUI_COMPUTER_USE_MCP_DESCRIPTOR,
   GUI_COMPUTER_USE_MCP_SERVER_NAME,
@@ -20,7 +20,7 @@ import {
 } from './computer-use-mcp-config'
 import {
   buildPaperRadarMcpArgs,
-  buildPaperRadarKunMcpServerConfig,
+  buildPaperRadarLocalRuntimeMcpServerConfig,
   GUI_PAPER_RADAR_MCP_DESCRIPTOR,
   GUI_PAPER_RADAR_MCP_SERVER_NAME,
   PAPER_RADAR_MCP_TIMEOUT_MS,
@@ -31,7 +31,7 @@ import {
 } from './paper-radar-mcp-config'
 import {
   buildResearchSearchMcpArgs,
-  buildResearchSearchKunMcpServerConfig,
+  buildResearchSearchLocalRuntimeMcpServerConfig,
   GUI_RESEARCH_MCP_DESCRIPTOR,
   GUI_RESEARCH_MCP_SERVER_NAME,
   RESEARCH_SEARCH_MCP_TIMEOUT_MS,
@@ -42,7 +42,7 @@ import {
 } from './research-search-mcp-config'
 import {
   buildResearchMemoryMcpArgs,
-  buildResearchMemoryKunMcpServerConfig,
+  buildResearchMemoryLocalRuntimeMcpServerConfig,
   GUI_RESEARCH_MEMORY_MCP_DESCRIPTOR,
   GUI_RESEARCH_MEMORY_MCP_SERVER_NAME,
   RESEARCH_MEMORY_MCP_TIMEOUT_MS,
@@ -53,7 +53,7 @@ import {
 } from './research-memory-mcp-config'
 import {
   buildRuntimeInspectorMcpArgs,
-  buildRuntimeInspectorKunMcpServerConfig,
+  buildRuntimeInspectorLocalRuntimeMcpServerConfig,
   GUI_RUNTIME_INSPECTOR_MCP_DESCRIPTOR,
   GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME,
   resolveRuntimeInspectorMcpCommand,
@@ -64,7 +64,7 @@ import {
 } from './runtime-inspector-mcp-config'
 import {
   buildWorkspaceIntelMcpArgs,
-  buildWorkspaceIntelKunMcpServerConfig,
+  buildWorkspaceIntelLocalRuntimeMcpServerConfig,
   GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR,
   GUI_WORKSPACE_INTEL_MCP_SERVER_NAME,
   resolveWorkspaceIntelMcpCommand,
@@ -75,7 +75,7 @@ import {
 } from './workspace-intel-mcp-config'
 import {
   buildWorkflowMcpArgs,
-  buildWorkflowKunMcpServerConfig,
+  buildWorkflowLocalRuntimeMcpServerConfig,
   GUI_WORKFLOW_INTERNAL_SECRET_ENV,
   GUI_WORKFLOW_MCP_DESCRIPTOR,
   GUI_WORKFLOW_MCP_SERVER_NAME,
@@ -87,7 +87,7 @@ import {
 } from './workflow-mcp-config'
 import {
   buildWriteAssistMcpArgs,
-  buildWriteAssistKunMcpServerConfig,
+  buildWriteAssistLocalRuntimeMcpServerConfig,
   GUI_WRITE_ASSIST_MCP_DESCRIPTOR,
   GUI_WRITE_ASSIST_MCP_SERVER_NAME,
   resolveWriteAssistMcpCommand,
@@ -98,8 +98,8 @@ import {
 } from './write-assist-mcp-config'
 import {
   managedGuiMcpNames,
-  resolveKunMcpJsonPath,
-  syncExternalKunMcpJson,
+  resolveLocalRuntimeMcpJsonPath,
+  syncExternalLocalRuntimeMcpJson,
   type ManagedGuiMcpDescriptor
 } from './managed-gui-mcp-config'
 
@@ -150,7 +150,7 @@ export type GuiMcpRegistryInput = {
   }
 }
 
-type KunServerBuilder = (existing: unknown) => Record<string, unknown>
+type LocalRuntimeServerBuilder = (existing: unknown) => Record<string, unknown>
 
 export const GUI_MCP_DESCRIPTORS: readonly ManagedGuiMcpDescriptor[] = [
   GUI_SCHEDULE_MCP_DESCRIPTOR,
@@ -168,16 +168,16 @@ export function managedGuiMcpServerNames(): string[] {
   return GUI_MCP_DESCRIPTORS.flatMap((descriptor) => managedGuiMcpNames(descriptor))
 }
 
-export async function syncExternalManagedGuiMcpConfig(path = resolveKunMcpJsonPath()): Promise<void> {
-  await syncExternalKunMcpJson(path, managedGuiMcpServerNames())
+export async function syncExternalManagedGuiMcpConfig(path = resolveLocalRuntimeMcpJsonPath()): Promise<void> {
+  await syncExternalLocalRuntimeMcpJson(path, managedGuiMcpServerNames())
 }
 
-export function buildKunManagedGuiMcpServers(
+export function buildLocalRuntimeManagedGuiMcpServers(
   input: GuiMcpRegistryInput,
   existingServers: Record<string, unknown> = {}
 ): Record<string, unknown> {
   const servers: Record<string, unknown> = {}
-  for (const [serverName, build] of kunServerBuilders(input)) {
+  for (const [serverName, build] of localRuntimeServerBuilders(input)) {
     servers[serverName] = build(existingServers[serverName])
   }
   return servers
@@ -218,27 +218,27 @@ export function buildClaudeCodeManagedGuiMcpServers(
   }
 }
 
-function kunServerBuilders(input: GuiMcpRegistryInput): Array<[string, KunServerBuilder]> {
-  const builders: Array<[string, KunServerBuilder]> = []
+function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, LocalRuntimeServerBuilder]> {
+  const builders: Array<[string, LocalRuntimeServerBuilder]> = []
   const settings = input.settings
   const scheduleSettings = input.scheduleMcp?.settings ?? settings
   if (input.scheduleMcp && scheduleSettings) {
     builders.push([
       GUI_SCHEDULE_MCP_SERVER_NAME,
-      (existing) => buildScheduleKunMcpServerConfig(scheduleSettings, input.scheduleMcp!.launch, existing)
+      (existing) => buildScheduleLocalRuntimeMcpServerConfig(scheduleSettings, input.scheduleMcp!.launch, existing)
     ])
   }
   if (input.researchMcp) {
     builders.push([
       GUI_RESEARCH_MCP_SERVER_NAME,
-      (existing) => buildResearchSearchKunMcpServerConfig(input.researchMcp!.launch, existing)
+      (existing) => buildResearchSearchLocalRuntimeMcpServerConfig(input.researchMcp!.launch, existing)
     ])
   }
   const researchMemorySettings = input.researchMemoryMcp?.settings ?? settings
   if (input.researchMemoryMcp && researchMemorySettings) {
     builders.push([
       GUI_RESEARCH_MEMORY_MCP_SERVER_NAME,
-      (existing) => buildResearchMemoryKunMcpServerConfig(
+      (existing) => buildResearchMemoryLocalRuntimeMcpServerConfig(
         researchMemorySettings,
         input.researchMemoryMcp!.launch,
         existing
@@ -249,14 +249,14 @@ function kunServerBuilders(input: GuiMcpRegistryInput): Array<[string, KunServer
   if (input.workflowMcp && workflowSettings) {
     builders.push([
       GUI_WORKFLOW_MCP_SERVER_NAME,
-      (existing) => buildWorkflowKunMcpServerConfig(workflowSettings, input.workflowMcp!.launch, existing)
+      (existing) => buildWorkflowLocalRuntimeMcpServerConfig(workflowSettings, input.workflowMcp!.launch, existing)
     ])
   }
   const workspaceIntelSettings = input.workspaceIntelMcp?.settings ?? settings
   if (input.workspaceIntelMcp && workspaceIntelSettings) {
     builders.push([
       GUI_WORKSPACE_INTEL_MCP_SERVER_NAME,
-      (existing) => buildWorkspaceIntelKunMcpServerConfig(
+      (existing) => buildWorkspaceIntelLocalRuntimeMcpServerConfig(
         workspaceIntelSettings,
         input.workspaceIntelMcp!.launch,
         existing
@@ -266,21 +266,21 @@ function kunServerBuilders(input: GuiMcpRegistryInput): Array<[string, KunServer
   if (input.paperRadarMcp) {
     builders.push([
       GUI_PAPER_RADAR_MCP_SERVER_NAME,
-      (existing) => buildPaperRadarKunMcpServerConfig(input.paperRadarMcp!.launch, existing)
+      (existing) => buildPaperRadarLocalRuntimeMcpServerConfig(input.paperRadarMcp!.launch, existing)
     ])
   }
   const writeAssistSettings = input.writeAssistMcp?.settings ?? settings
   if (input.writeAssistMcp && writeAssistSettings) {
     builders.push([
       GUI_WRITE_ASSIST_MCP_SERVER_NAME,
-      (existing) => buildWriteAssistKunMcpServerConfig(writeAssistSettings, input.writeAssistMcp!.launch, existing)
+      (existing) => buildWriteAssistLocalRuntimeMcpServerConfig(writeAssistSettings, input.writeAssistMcp!.launch, existing)
     ])
   }
   const runtimeInspectorSettings = input.runtimeInspectorMcp?.settings ?? settings
   if (input.runtimeInspectorMcp && runtimeInspectorSettings) {
     builders.push([
       GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME,
-      (existing) => buildRuntimeInspectorKunMcpServerConfig(
+      (existing) => buildRuntimeInspectorLocalRuntimeMcpServerConfig(
         runtimeInspectorSettings,
         input.runtimeInspectorMcp!.launch,
         existing
@@ -290,7 +290,7 @@ function kunServerBuilders(input: GuiMcpRegistryInput): Array<[string, KunServer
   if (input.computerUseMcp) {
     builders.push([
       GUI_COMPUTER_USE_MCP_SERVER_NAME,
-      (existing) => buildComputerUseKunMcpServerConfig(
+      (existing) => buildComputerUseLocalRuntimeMcpServerConfig(
         input.computerUseMcp!.launch,
         input.computerUseMcp!.enabled !== false,
         existing

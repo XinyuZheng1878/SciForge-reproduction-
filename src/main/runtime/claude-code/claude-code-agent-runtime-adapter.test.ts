@@ -9,7 +9,7 @@ describe('createClaudeCodeAgentRuntimeAdapter', () => {
       isComputerUseMcpConfigured: () => true,
       runtimeInfo: async () => ({
         command: 'claude',
-        model: 'deepseek-gui-router'
+        model: 'sciforge-router'
       })
     } as unknown as ClaudeCodeRuntimeService)
     const ctx = { settings: {} } as AgentRuntimeAdapterContext
@@ -60,7 +60,7 @@ describe('createClaudeCodeAgentRuntimeAdapter', () => {
     const adapter = createClaudeCodeAgentRuntimeAdapter({
       runtimeInfo: async () => ({
         command: 'claude',
-        model: 'deepseek-gui-router'
+        model: 'sciforge-router'
       })
     } as unknown as ClaudeCodeRuntimeService)
     const ctx = {
@@ -101,7 +101,7 @@ describe('createClaudeCodeAgentRuntimeAdapter', () => {
     const adapter = createClaudeCodeAgentRuntimeAdapter({
       runtimeInfo: async () => ({
         command: 'claude',
-        model: 'deepseek-gui-router'
+        model: 'sciforge-router'
       })
     } as unknown as ClaudeCodeRuntimeService)
     const ctx = { settings: {} } as AgentRuntimeAdapterContext
@@ -117,7 +117,7 @@ describe('createClaudeCodeAgentRuntimeAdapter', () => {
     })).resolves.toMatchObject({
       host: 'claude-code',
       command: 'claude',
-      model: 'deepseek-gui-router',
+      model: 'sciforge-router',
       capabilities: {
         attachments: { available: false },
         web: {

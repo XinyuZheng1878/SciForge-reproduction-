@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultClawSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -89,9 +89,9 @@ function buildSettings(): AppSettingsV1 {
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     modelRouter: defaultModelRouterSettings(),
-    activeAgentRuntime: 'kun',
+    activeAgentRuntime: 'sciforge',
     agents: {
-      kun: defaultKunRuntimeSettings()
+      sciforge: defaultLocalRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
     log: { enabled: false, retentionDays: 7 },
@@ -111,7 +111,7 @@ function buildSettings(): AppSettingsV1 {
 describe('GeneralSettingsSection', () => {
   beforeEach(() => {
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         platform: 'linux',
         openLogDir: vi.fn(),
         openModelRouterConfigFile: vi.fn()
@@ -147,7 +147,7 @@ describe('GeneralSettingsSection', () => {
         checkGuiUpdate: vi.fn(),
         downloadGuiUpdate: vi.fn(),
         installGuiUpdate: vi.fn(),
-        logPath: '/tmp/deepseek-gui.log',
+        logPath: '/tmp/sciforge.log',
         logDirOpenError: null,
         setLogDirOpenError: vi.fn()
       }

@@ -12,23 +12,23 @@ test('resolves runtime inspector CLI options from env and argv', () => {
     '/data/from-argv',
     '--model-router-base-url',
     'http://127.0.0.1:3999/v1',
-    '--kun-base-url',
+    '--runtime-base-url',
     'http://127.0.0.1:8999',
-    '--kun-runtime-token',
+    '--runtime-token',
     'token-from-argv',
     '--timeout-ms',
     '1234'
   ], {
     SCIFORGE_RUNTIME_INSPECTOR_WORKSPACE_ROOT: '/workspace/from-env',
     SCIFORGE_RUNTIME_INSPECTOR_CHECKPOINT_DATA_DIR: '/data/from-env',
-    SCIFORGE_RUNTIME_INSPECTOR_KUN_RUNTIME_TOKEN: 'token-from-env'
+    SCIFORGE_RUNTIME_INSPECTOR_RUNTIME_TOKEN: 'token-from-env'
   })
 
   assert.equal(options.quiet, true)
   assert.equal(options.serviceOptions.workspaceRoot, '/workspace/from-argv')
   assert.equal(options.serviceOptions.checkpointDataDir, '/data/from-argv')
   assert.equal(options.serviceOptions.modelRouterBaseUrl, 'http://127.0.0.1:3999/v1')
-  assert.equal(options.serviceOptions.kunBaseUrl, 'http://127.0.0.1:8999')
-  assert.equal(options.serviceOptions.kunRuntimeToken, 'token-from-argv')
+  assert.equal(options.serviceOptions.runtimeBaseUrl, 'http://127.0.0.1:8999')
+  assert.equal(options.serviceOptions.runtimeToken, 'token-from-argv')
   assert.equal(options.serviceOptions.timeoutMs, 1234)
 })

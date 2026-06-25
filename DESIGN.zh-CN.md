@@ -288,7 +288,7 @@ i18n:
 # ---------- 13. Brand & voice ----------
 brand:
   product_name: "SciForge"
-  tagline: "把 Kun 的本地智能体能力带进桌面窗口"
+  tagline: "把 SciForge Runtime 的本地智能体能力带进桌面窗口"
   hero_kw: [Code, Write, Connect phone]
   pillars:
     - "本地优先 (Local-first): settings, sessions, logs all on disk; runtime model calls go through the local Model Router."
@@ -312,12 +312,12 @@ a11y:
 
 # ---------- 15. Don't (anti-patterns enforced by the codebase) ----------
 dont:
-  - "Add an implicit runtime fallback; Kun is default and Codex must be selected explicitly."
+  - "Add an implicit runtime fallback; SciForge Runtime is default and Codex must be selected explicitly."
   - "Add AgentSwitcher / ConnectionStatusBar / RuntimeDiagnosticsDialog."
   - "Add CodeWhale/Reasonix adapters, process managers, RPC bridges, updaters, importers."
   - "Add a design/drawing starter card in the core workbench."
   - "Add /usage or /runtime slash command that opens a runtime control panel."
-  - "Save settings under agents.codewhale or agents.reasonix; only agents.kun and agents.codex are valid."
+  - "Save settings under agents.codewhale or agents.reasonix; only agents.sciforge and agents.codex are valid."
   - "Use emoji in production copy or as functional UI affordance."
   - "Apply a tint or hue that isn't in the palette above."
   - "Use a font outside the three declared families."
@@ -355,8 +355,8 @@ the frontmatter wins, and the markdown needs an update.
 ## 1. Project at a glance
 
 SciForge is a local desktop workbench for agentic project work.
-Kun is the default runtime, and Codex app-server is an optional runtime
-that must be selected explicitly. The desktop shell is Electron; Kun is
+SciForge Runtime is the default runtime, and Codex app-server is an optional runtime
+that must be selected explicitly. The desktop shell is Electron; SciForge Runtime is
 a TypeScript package that speaks HTTP/SSE; Codex is hosted by the main
 process through JSON-RPC stdio; the renderer is React 19 + Zustand 5
 and consumes both through the neutral AgentRuntime contract. The visual
@@ -375,7 +375,7 @@ human staying in the loop on every mutating call.
 | **Connect phone** | Background automation: Feishu / Lark channels, webhook / relay, scheduled tasks. Internal route and storage names still use `claw` for compatibility. |
 
 All product surfaces share the same AgentRuntime boundary and settings
-choice. Kun remains the default path; Codex is used only after explicit
+choice. SciForge Runtime remains the default path; Codex is used only after explicit
 selection. Both share the same visual system. Any runtime path that needs an
 LLM provider API uses the local Model Router as its only provider boundary.
 
@@ -387,7 +387,7 @@ These six rules are not aspirations — they are how the product is
 already built. New screens must follow them, not re-interpret them.
 
 1. **One runtime contract, explicit runtime choice.** Code, Write, and
-   Connect phone all enter through AgentRuntime. Kun is the default
+   Connect phone all enter through AgentRuntime. SciForge Runtime is the default
    adapter behind that contract; Codex is optional and never a silent
    fallback. The renderer never embeds an agent loop or talks to backend
    transports directly.
@@ -399,7 +399,7 @@ already built. New screens must follow them, not re-interpret them.
 3. **No legacy agent switcher, no runtime console.** The product
    intentionally does not surface old provider diagnostics or
    model-control panels in the main canvas. Runtime selection belongs in
-   Settings, and it may only select Kun or Codex.
+   Settings, and it may only select SciForge Runtime or Codex.
 4. **The renderer maps AgentRuntime events, it does not implement agent
    logic.** Approvals, steering, compaction, fork, resume, usage, and
    runtime status come through the AgentRuntime contract, never as
@@ -626,7 +626,7 @@ first.
   Write, and Connect phone"), second person for the user. No emoji. No
   marketing language. Error messages are full sentences ending in
   punctuation; never a raw stack trace.
-- The product name is "SciForge". The runtime is "Kun".
+- The product name is "SciForge". The runtime is "SciForge Runtime".
   The main workbenches are "Code" and "Write"; the phone/IM surface is
   "Connect phone" in English and "连接手机" in zh copy. Internal code may
   still say `claw`, but production copy should not expose it as the product name.
@@ -686,7 +686,7 @@ If any box is unchecked, fix it before merging.
 │       │                                                      │
 │       │ spawn child process + runtime transport              │
 │       ▼                                                      │
-│ Kun: HTTP/SSE, cache-first AgentLoop                         │
+│ SciForge Runtime: HTTP/SSE, cache-first AgentLoop                         │
 │ Codex: app-server JSON-RPC stdio, GUI-owned thread store      │
 │       │                                                      │
 │       │ HTTPS to model API                                   │
@@ -698,15 +698,15 @@ If any box is unchecked, fix it before merging.
 Three lessons baked into this shape:
 
 1. The renderer **does not know** which runtime it talks to
-   beyond neutral AgentRuntime capabilities. Kun is the default;
+   beyond neutral AgentRuntime capabilities. SciForge Runtime is the default;
    Codex must be selected explicitly in Settings.
 2. The main process **does not implement agent logic**. It
-   hosts adapters, forwards Kun HTTP/SSE or Codex JSON-RPC stdio, and
+   hosts adapters, forwards SciForge Runtime HTTP/SSE or Codex JSON-RPC stdio, and
    owns GUI-only services (settings, updater, Connect phone runtime,
    workspace
    files, external editors, and Write export/completion) that the
    renderer can ask for.
-3. The runtime adapter **is** the boundary. Kun keeps its loop, tool
+3. The runtime adapter **is** the boundary. SciForge Runtime keeps its loop, tool
    host, stores, model client, and server behind HTTP/SSE. Codex keeps
    app-server state and normalization behind `src/main/runtime/codex/`.
    Renderer code consumes the shared contract documented in
@@ -714,9 +714,9 @@ Three lessons baked into this shape:
 
 ---
 
-## 5. Core runtime: Kun default, Codex optional
+## 5. Core runtime: SciForge Runtime default, Codex optional
 
-The Kun package (`kun/`) is the default agent runtime. It is a
+The SciForge Runtime package (`kun/`) is the default agent runtime. It is a
 TypeScript ESM package that ships its own HTTP server and is built
 before the Electron app. Codex is optional and is hosted by the main
 process through `codex app-server --listen stdio://`.
@@ -739,17 +739,17 @@ kun/src/
   telemetry/       # Usage counter, cache telemetry
   server/          # HTTP server, router, auth, SSE, response helpers,
                    # runtime-factory, route handlers
-  prompt/          # System prompt for the Kun identity
+  prompt/          # System prompt for the SciForge Runtime identity
   shared/          # Shared types with the GUI
 ```
 
 ### 5.2 Hexagonal shape
 
-Kun is structured as **ports & adapters**:
+SciForge Runtime is structured as **ports & adapters**:
 
 - `contracts/` — the boundary. Zod schemas describe every HTTP/SSE
-  DTO. The main-side Kun adapter maps these DTOs into the shared
-  AgentRuntime contract; renderer business code should not call Kun
+  DTO. The main-side SciForge Runtime adapter maps these DTOs into the shared
+  AgentRuntime contract; renderer business code should not call SciForge Runtime
   endpoints directly.
 - `domain/` — entities. Thread, Turn, Item, Event, Approval, Usage.
   No I/O.
@@ -799,7 +799,7 @@ telemetry. The principles:
   pinned constraints from the immutable prefix. Soft threshold
   16k tokens, hard threshold 24k tokens.
 - **Tool pair healing.** Before sending history to the model,
-  Kun drops orphan `tool_result`s and tool calls with
+  SciForge Runtime drops orphan `tool_result`s and tool calls with
   missing results, to avoid 400/retry storms.
 
 Cache hit rate is reported as `hit / (hit + miss)` using
@@ -901,7 +901,7 @@ next replay skips them).
 
 ### 6.1 Process roles
 
-- **Main** (`src/main/`) — Node process. Owns the Kun
+- **Main** (`src/main/`) — Node process. Owns the SciForge Runtime
   child process, settings store, updater, Connect phone runtime,
   file/git/editor helpers, Write services, IPC handlers, logger,
   GUI updater, macOS/Windows code-signing glue.
@@ -949,7 +949,7 @@ src/
 `window.dsGui` is the only thing the renderer is allowed to call
 on the system. It includes:
 
-- `runtimeRequest(path, method, body)` — legacy Kun-only JSON request
+- `runtimeRequest(path, method, body)` — legacy SciForge Runtime-only JSON request
   compatibility path. New renderer code should use `agentRuntime`.
 - `startSse(threadId, sinceSeq, streamId)` / `stopSse` /
   `onSseEvent` — legacy compatibility subscription for a thread.
@@ -983,11 +983,11 @@ and validated at the IPC boundary by Zod schemas in
 ### 6.4 The runtime adapter
 
 The main process owns runtime selection through `AgentRuntimeHost`.
-It reads `activeAgentRuntime`, defaults to Kun, and delegates to Codex
+It reads `activeAgentRuntime`, defaults to SciForge Runtime, and delegates to Codex
 only after explicit user selection:
 
 - `KunAgentRuntimeAdapter` maps the shared contract to `kun serve`
-  HTTP/SSE. Kun child process startup, port, token, and config remain
+  HTTP/SSE. SciForge Runtime child process startup, port, token, and config remain
   behind `kunRuntimeAdapter`.
 - `CodexAgentRuntimeAdapter` maps the shared contract to the
   app-server service under `src/main/runtime/codex/`. JSON-RPC,
@@ -1050,7 +1050,7 @@ Persistence is layered:
   fork registry).
 - `electron-store` (main) — settings, Connect phone config (internal Claw key), write
   workspace config.
-- `~/.deepseekgui/kun` (Kun) — threads,
+- `~/.deepseekgui/kun` (SciForge Runtime) — threads,
   events, sessions, usage.
 
 ### 7.3 The AgentProvider interface
@@ -1062,8 +1062,8 @@ implementation is `AgentRuntimeProvider`, which calls
 objects into `ThreadEventSink` / `ChatBlock`.
 
 `getProvider()` (in `registry.ts`) returns a single cached registry
-provider backed by `AgentRuntimeProvider`. Kun and Codex renderer-side
-provider splits are removed; optional Kun-only surfaces go through the
+provider backed by `AgentRuntimeProvider`. SciForge Runtime and Codex renderer-side
+provider splits are removed; optional SciForge Runtime-only surfaces go through the
 neutral `agentRuntime.auxiliary` bridge and unsupported runtimes fail
 closed by capability.
 `resetProviderCacheForTests()` exists for unit tests and must not be
@@ -1110,9 +1110,9 @@ only which renderer and local workflow state the store pulls in.
   main-process services.
 - **Connect phone** — internal `claw` channel registry. Each IM channel has its
   own thread id, model, workspace root, runtime id, and runtime-specific thread
-  mapping. `ClawRuntime` still fails closed for non-Kun execution until the
+  mapping. `ClawRuntime` still fails closed for non-SciForge Runtime execution until the
   background workflow has native adapter support; it must not write Codex thread
-  ids into Kun mappings.
+  ids into SciForge Runtime mappings.
 
 ---
 
@@ -1124,9 +1124,9 @@ only which renderer and local workflow state the store pulls in.
 | Session list / workbench layout | `localStorage` | JSON | Renderer |
 | Write thread registry | `localStorage` | JSON | Renderer |
 | Connect phone channels | OS app-data dir | JSON | `JsonSettingsStore` |
-| Threads / turns / events | `~/.deepseekgui/kun` | JSON + JSONL | Kun |
-| Usage counters | Kun data dir | JSON | Kun |
-| Skill / MCP files | Kun data dir + workspace | Markdown / JSON | Kun + renderer |
+| Threads / turns / events | `~/.deepseekgui/kun` | JSON + JSONL | SciForge Runtime |
+| Usage counters | SciForge Runtime data dir | JSON | SciForge Runtime |
+| Skill / MCP files | SciForge Runtime data dir + workspace | Markdown / JSON | SciForge Runtime + renderer |
 | GUI logs | OS app-data dir / `log/` | NDJSON | `logger.ts` |
 | Inline completion debug | OS app-data dir | NDJSON | `write-inline-completion-service.ts` |
 
@@ -1197,9 +1197,9 @@ compaction block inline with a "show replaced" detail.
 ### 9.5 Connect phone automation
 
 - `ClawRuntime` (main process) creates and reuses threads through the
-  configured AgentRuntime. Kun remains the default mapping for migrated
-  data; non-Kun background execution currently fails closed until native
-  adapter support exists, and must not write Codex thread ids into Kun mappings.
+  configured AgentRuntime. SciForge Runtime remains the default mapping for migrated
+  data; non-SciForge Runtime background execution currently fails closed until native
+  adapter support exists, and must not write Codex thread ids into SciForge Runtime mappings.
 - Feishu / Lark integration uses `@larksuiteoapi/node-sdk`.
   Install is device-flow QR code; the renderer polls
   `claw:im-install:poll` until authorized.
@@ -1250,7 +1250,7 @@ postmortem timing.
   nodes. Code blocks go through `shiki` with a fixed theme.
 - **Settings file** — written atomically, debounced, never
   read on the renderer side. Legacy `codewhale` / `reasonix`
-  keys are migrated to `agents.kun` once and discarded; Codex may only
+  keys are migrated to `agents.sciforge` once and discarded; Codex may only
   appear under `agents.codex` after explicit user configuration.
 
 ---
@@ -1260,14 +1260,14 @@ postmortem timing.
 These are enforced by `docs/AGENTS.md` and reflect real product
 decisions. New work must respect them.
 
-- **User-selectable local agent runtime.** Kun is default; Codex is
+- **User-selectable local agent runtime.** SciForge Runtime is default; Codex is
   optional and must be selected explicitly. No implicit fallback, no
   legacy CodeWhale / Reasonix process path.
 - **No UI surface for runtime internals.** No AgentSwitcher,
   no ConnectionStatusBar, no RuntimeDiagnosticsDialog, no
   RuntimeInsightsPanel, no `/usage` or `/runtime` slash
   command.
-- **Saved settings only contain `agents.kun` and `agents.codex`.**
+- **Saved settings only contain `agents.sciforge` and `agents.codex`.**
   Old keys may only appear in migration.
 - **Renderer does not implement agent logic.** Approvals,
   steering, compaction, fork, resume, usage — all come from
@@ -1297,10 +1297,10 @@ intentionally boring.
    `kun/src/server/routes/`, registered in
    `routes/index.ts`.
 4. **Map the endpoint / event through AgentRuntime.** Add or update the
-   shared contract as needed, then map Kun behavior in
+   shared contract as needed, then map SciForge Runtime behavior in
    `src/main/runtime/kun-agent-runtime-adapter.ts` and renderer display in
    `src/renderer/src/agent/agent-runtime-event-dispatcher.ts`.
-5. **Add runtime settings only under `agents.kun` or
+5. **Add runtime settings only under `agents.sciforge` or
    `agents.codex`.** Anything else gets migrated away.
 6. **Add i18n strings to both `zh` and `en` locale files.**
 7. **If the surface needs a new visual element, add it to
@@ -1327,9 +1327,9 @@ Manual smoke (full list in `docs/AGENTS.md`):
 - Code: create thread, stream reply, approve / deny, interrupt.
 - Write: open workspace, request inline completion, run
   selected-text agent.
-- Connect phone: save settings, run a manual Kun task, and verify non-Kun
-  background execution fails closed without corrupting Kun mappings.
-- Settings → Agents: shows Kun and Codex, with Kun selected by default.
+- Connect phone: save settings, run a manual SciForge Runtime task, and verify non-SciForge Runtime
+  background execution fails closed without corrupting SciForge Runtime mappings.
+- Settings → Agents: shows SciForge Runtime and Codex, with SciForge Runtime selected by default.
 - Cache telemetry on a hot thread should stay ≥ 90% hit.
 
 If any check fails, the change is not ready.
@@ -1343,7 +1343,7 @@ If any check fails, the change is not ready.
 | App lifecycle | `src/main/index.ts` |
 | Runtime contract | `src/shared/agent-runtime-contract.ts` |
 | Runtime host | `src/main/runtime/agent-runtime/host.ts` |
-| Kun adapter | `src/main/runtime/kun-agent-runtime-adapter.ts`, `src/main/runtime/kun-adapter.ts` |
+| SciForge Runtime adapter | `src/main/runtime/kun-agent-runtime-adapter.ts`, `src/main/runtime/kun-adapter.ts` |
 | Codex adapter | `src/main/runtime/codex/codex-agent-runtime-adapter.ts`, `src/main/runtime/codex/` |
 | Child process | `src/main/kun-process.ts` |
 | Settings | `src/main/settings-store.ts`, `src/shared/app-settings.ts` |
@@ -1363,23 +1363,23 @@ If any check fails, the change is not ready.
 | HTTP routes | `kun/src/server/routes/` |
 | Tool host | `kun/src/adapters/tool/local-tool-host.ts` |
 | Model client | `kun/src/adapters/model/deepseek-compat-model-client.ts` |
-| Cache doc | `docs/kun-cache-optimization.md` |
+| Cache doc | `docs/local-runtime-cache-optimization.md` |
 | Runtime contract doc | `docs/agent-runtime-contract.md` |
-| Architecture doc | `docs/kun-architecture.md` |
-| Contribution doc | `docs/kun-contributing.md` |
+| Architecture doc | `docs/local-runtime-architecture.md` |
+| Contribution doc | `docs/local-runtime-contributing.md` |
 
 ---
 
 ## 15. References
 
-- `docs/agent-runtime-contract.md` — neutral Kun/Codex runtime
+- `docs/agent-runtime-contract.md` — neutral SciForge Runtime/Codex runtime
   contract, event model, capability model, and compatibility cleanup
   conditions.
-- `docs/kun-architecture.md` — Kun runtime architecture and
+- `docs/local-runtime-architecture.md` — SciForge Runtime runtime architecture and
   GUI拆改范围.
-- `docs/kun-cache-optimization.md` — cache hit rate
+- `docs/local-runtime-cache-optimization.md` — cache hit rate
   measurement, stable prefix rules, tool pair healing.
-- `docs/kun-contributing.md` — port & adapter / FCIS
+- `docs/local-runtime-contributing.md` — port & adapter / FCIS
   patterns, four PR archetypes.
 - `kun/README.md` — CLI flags, env vars, data dir layout,
   HTTP API.

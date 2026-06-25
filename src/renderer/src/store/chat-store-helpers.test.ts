@@ -17,7 +17,7 @@ import {
   watchedClawThreadIdsFromChannels
 } from './chat-store-helpers'
 
-const TURN_MODEL_STORAGE_KEY = 'deepseekgui.turnModelLabel'
+const TURN_MODEL_STORAGE_KEY = 'sciforge.turnModelLabel'
 
 function createMemoryStorage(): Storage {
   const items = new Map<string, string>()
@@ -46,6 +46,7 @@ function clawChannel(): ClawImChannelV1 {
     enabled: true,
     model: 'auto',
     threadId: 'kun-channel',
+    agentThreadIds: { sciforge: 'kun-channel' },
     workspaceRoot: '/Users/zxy/project',
     agentProfile: {
       name: '',
@@ -64,6 +65,7 @@ function clawChannel(): ClawImChannelV1 {
         senderId: 'sender-1',
         senderName: 'Alex',
         localThreadId: 'kun-conversation',
+        agentThreadIds: { sciforge: 'kun-conversation' },
         workspaceRoot: '/Users/zxy/project',
         createdAt: now,
         updatedAt: now
@@ -89,7 +91,7 @@ describe('chat-store Claw helpers', () => {
         '/Users/zxy/project-a',
         '/Users/zxy/project-a/',
         '/tmp/transient',
-        '/Users/zxy/.deepseekgui/claw/agent/conversations/chat',
+        '/Users/zxy/.sciforge/claw/agent/conversations/chat',
         '/Users/zxy/.sciforge/default_workspace',
         '~/.sciforge/write_workspace',
         '',
@@ -107,7 +109,7 @@ describe('chat-store Claw helpers', () => {
       compactCodeWorkspaceRoots([
         '~/.sciforge/default_workspace',
         'C:\\Users\\zxy\\.sciforge\\default_workspace',
-        'C:\\Users\\zxy\\.deepseekgui\\default_workspace\\'
+        'C:\\Users\\zxy\\.sciforge\\default_workspace\\'
       ])
     ).toEqual(['~/.sciforge/default_workspace'])
   })
@@ -188,7 +190,7 @@ describe('chat-store Claw helpers', () => {
 
     const bindings = clawThreadRemoteBindingsFromChannels([channel])
 
-    expect(bindings.get('kun-channel')).toMatchObject({
+    expect(bindings.get('codex-channel')).toMatchObject({
       providerLabel: 'WeChat',
       scope: 'channel',
       channelLabel: 'WeChat',

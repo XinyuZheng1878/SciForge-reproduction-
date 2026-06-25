@@ -104,7 +104,7 @@ describe('write retrieval service', () => {
   })
 
   it('retrieves relevant cross-document snippets and excludes the active file', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'ds-gui-write-rag-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-write-rag-'))
     await mkdir(join(workspaceRoot, 'research'), { recursive: true })
     await writeFile(
       join(workspaceRoot, 'draft.md'),
@@ -136,7 +136,7 @@ describe('write retrieval service', () => {
   })
 
   it('ignores unsupported large data files while scanning the workspace', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'ds-gui-write-rag-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-write-rag-'))
     await writeFile(join(workspaceRoot, 'draft.md'), '# Draft\n\nembedding cache', 'utf8')
     await writeFile(
       join(workspaceRoot, 'notes.md'),
@@ -170,7 +170,7 @@ describe('write retrieval service', () => {
   })
 
   it('retrieves PDF chunks for assistant context with page locations', async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'ds-gui-write-pdf-rag-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-write-pdf-rag-'))
     const pdfPath = join(workspaceRoot, 'papers', 'study.pdf')
     await mkdir(join(workspaceRoot, 'papers'), { recursive: true })
     await writeFile(join(workspaceRoot, 'draft.md'), '# Draft\n\nExplain literature context.', 'utf8')

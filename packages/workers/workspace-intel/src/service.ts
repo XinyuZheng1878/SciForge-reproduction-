@@ -472,7 +472,7 @@ export class WorkspaceIntelService {
     if (this.includeGlobalSkillRoots) {
       roots.push(
         { path: join(homedir(), '.agents', 'skills'), scope: 'configured' },
-        { path: join(homedir(), '.kun', 'skills'), scope: 'configured' },
+        { path: join(homedir(), '.sciforge', 'skills'), scope: 'configured' },
         { path: join(homedir(), '.codex', 'skills'), scope: 'configured' }
       )
     }

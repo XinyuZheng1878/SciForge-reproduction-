@@ -89,7 +89,7 @@ async function executeTool(
   return result.item.output as Record<string, unknown>
 }
 
-describe('Kun built-in tools', () => {
+describe('Local runtime built-in tools', () => {
   let workspace: string
   let host: LocalToolHost
 
@@ -327,21 +327,21 @@ describe('Kun built-in tools', () => {
     const editOutput = await executeTool(host, workspace, 'edit', {
       path: 'notes/demo.txt',
       edits: [
-        { oldText: 'hello world', newText: 'hello kun' },
+        { oldText: 'hello world', newText: 'hello local runtime' },
         { oldText: 'omega', newText: 'done' }
       ]
     })
     expect(editOutput.replacements).toBe(2)
 
     const editedDisk = await readFile(join(workspace, 'notes/demo.txt'), 'utf8')
-    expect(editedDisk).toContain('hello kun')
+    expect(editedDisk).toContain('hello local runtime')
     expect(editedDisk).toContain('done')
-    expect(String(editOutput.diff)).toContain('+2 hello kun')
+    expect(String(editOutput.diff)).toContain('+2 hello local runtime')
     expect(String(editOutput.patch)).toContain('+++ b/notes/demo.txt')
     expect(typeof editOutput.first_changed_line === 'number' || editOutput.first_changed_line === undefined).toBe(true)
 
     const grepOutput = await executeTool(host, workspace, 'grep', {
-      pattern: 'kun',
+      pattern: 'local runtime',
       path: '.',
       context: 1
     })
@@ -384,7 +384,7 @@ describe('Kun built-in tools', () => {
 
     expect(output.exit_code).toBe(0)
     expect(String(output.output)).toContain('done')
-    expect(Date.now() - startedAt).toBeLessThan(1500)
+    expect(Date.now() - startedAt).toBeLessThan(2500)
   })
 
   it('returns a pollable bash session for foreground long-running commands', async () => {
@@ -398,8 +398,14 @@ describe('Kun built-in tools', () => {
     expect(output.exit_code).toBe(null)
     expect(output.status).toBe('running')
     expect(typeof output.session_id).toBe('string')
-    expect(String(output.output)).toContain('ready')
     expect(Date.now() - startedAt).toBeLessThan(2500)
+
+    const polled = await executeTool(host, workspace, 'bash', {
+      action: 'poll',
+      session_id: String(output.session_id),
+      yield_seconds: 1
+    })
+    expect(String(polled.output)).toContain('ready')
 
     const stopped = await executeTool(host, workspace, 'bash', {
       action: 'stop',

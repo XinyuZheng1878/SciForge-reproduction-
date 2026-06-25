@@ -38,7 +38,7 @@ export async function waitForRuntimeTurnsIdle(
   while (true) {
     let threads: RuntimeThreadWithTurns[]
     try {
-      threads = await listThreads({ runtimeId: 'kun', limit: 500, includeArchived: true })
+      threads = await listThreads({ runtimeId: 'sciforge', limit: 500, includeArchived: true })
     } catch {
       return 'unavailable'
     }

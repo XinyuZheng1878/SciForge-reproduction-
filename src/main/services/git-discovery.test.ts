@@ -7,7 +7,7 @@ import { findNearestGitRoot } from './git-discovery'
 let sandbox = ''
 
 beforeEach(async () => {
-  sandbox = await mkdtemp(join(tmpdir(), 'ds-gui-git-discovery-'))
+  sandbox = await mkdtemp(join(tmpdir(), 'sciforge-git-discovery-'))
 })
 
 afterEach(async () => {
@@ -78,7 +78,7 @@ describe('findNearestGitRoot', () => {
   })
 
   it('returns null after walking to the filesystem root', async () => {
-    await expect(findNearestGitRoot('/this/path/does/not/exist/for-ds-gui')).resolves.toBeNull()
+    await expect(findNearestGitRoot('/this/path/does/not/exist/for-sciforge')).resolves.toBeNull()
   })
 
   it('returns null for an empty workspace root', async () => {

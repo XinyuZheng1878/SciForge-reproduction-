@@ -15,7 +15,7 @@ export const RUNTIME_PORTS_RESOURCE_URI = 'runtime://ports'
 export const RUNTIME_HEALTH_RESOURCE_URI = 'runtime://health'
 export const RUNTIME_DEPENDENCIES_RESOURCE_URI = 'runtime://dependencies'
 export const RUNTIME_MODEL_ROUTER_RESOURCE_URI = 'runtime://model-router'
-export const RUNTIME_KUN_RESOURCE_URI = 'runtime://kun'
+export const RUNTIME_LOCAL_RESOURCE_URI = 'runtime://local'
 export const LSP_STATUS_RESOURCE_URI = 'lsp://status'
 
 export const RUNTIME_INSPECTOR_DEFAULT_LIMIT = 100
@@ -27,7 +27,7 @@ export const RUNTIME_INSPECTOR_MAX_PATCH_BYTES = 200 * 1024
 export const RUNTIME_INSPECTOR_DEFAULT_TIMEOUT_MS = 5_000
 export const RUNTIME_INSPECTOR_MAX_TIMEOUT_MS = 30_000
 export const RUNTIME_INSPECTOR_DEFAULT_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
-export const RUNTIME_INSPECTOR_DEFAULT_KUN_BASE_URL = 'http://127.0.0.1:8899'
+export const RUNTIME_INSPECTOR_DEFAULT_RUNTIME_BASE_URL = 'http://127.0.0.1:8899'
 
 export const RuntimeInspectorToolNames = [
   'gui_git_status',
@@ -39,7 +39,7 @@ export const RuntimeInspectorToolNames = [
   'gui_runtime_health',
   'gui_runtime_dependency_report',
   'gui_runtime_model_router_status',
-  'gui_runtime_kun_status',
+  'gui_runtime_status',
   'gui_lsp_status',
   'gui_lsp_query'
 ] as const
@@ -166,7 +166,7 @@ export const GitDiffPreviewInputSchema = RuntimeInspectorWorkspaceInputSchema.ex
   cursor: cursorSchema
 }).strict()
 
-export const AgentRuntimeIdSchema = z.enum(['kun', 'codex', 'claude'])
+export const AgentRuntimeIdSchema = z.enum(['sciforge', 'codex', 'claude'])
 
 export const GitCheckpointListInputSchema = z.object({
   checkpoint_data_dir: optionalWorkspacePathSchema.describe('App userData directory that contains git-checkpoints/. Defaults to worker configuration.'),
@@ -201,7 +201,7 @@ export const RuntimeDependencyReportInputSchema = z.object({
 
 export const RuntimeModelRouterStatusInputSchema = z.object({}).strict()
 
-export const RuntimeKunStatusInputSchema = z.object({
+export const RuntimeLocalStatusInputSchema = z.object({
   include_tools: z.boolean().optional()
 }).strict()
 
@@ -253,7 +253,7 @@ export type RuntimePortsInput = z.infer<typeof RuntimePortsInputSchema>
 export type RuntimeHealthInput = z.infer<typeof RuntimeHealthInputSchema>
 export type RuntimeDependencyReportInput = z.infer<typeof RuntimeDependencyReportInputSchema>
 export type RuntimeModelRouterStatusInput = z.infer<typeof RuntimeModelRouterStatusInputSchema>
-export type RuntimeKunStatusInput = z.infer<typeof RuntimeKunStatusInputSchema>
+export type RuntimeLocalStatusInput = z.infer<typeof RuntimeLocalStatusInputSchema>
 export type LspStatusInput = z.infer<typeof LspStatusInputSchema>
 export type LspQueryInput = z.infer<typeof LspQueryInputSchema>
 export type LspOperation = z.infer<typeof LspOperationSchema>
@@ -359,7 +359,7 @@ export type GitCheckpointPreviewResult = RuntimeInspectorResult<{
 }>
 
 export type RuntimePortSummary = {
-  id: 'model-router' | 'kun'
+  id: 'model-router' | 'local-runtime'
   label: string
   baseUrl: string
   host: string
@@ -390,7 +390,7 @@ export type RuntimeModelRouterStatusResult = RuntimeInspectorResult<{
   resourceUri: string
 }>
 
-export type RuntimeKunStatusResult = RuntimeInspectorResult<{
+export type RuntimeLocalStatusResult = RuntimeInspectorResult<{
   baseUrl: string
   port: number | null
   health: RuntimeEndpointStatus
@@ -406,7 +406,7 @@ export type RuntimeKunStatusResult = RuntimeInspectorResult<{
 export type RuntimeHealthResult = RuntimeInspectorResult<{
   status: 'healthy' | 'degraded' | 'unavailable'
   modelRouter: RuntimeModelRouterStatusResult
-  kun: RuntimeKunStatusResult
+  localRuntime: RuntimeLocalStatusResult
   resourceUri: string
 }>
 
@@ -486,8 +486,8 @@ export type RuntimeInspectorDiagnosticsResult = RuntimeInspectorResult<{
     workspaceRoot?: string
     checkpointDataDir?: string
     modelRouterBaseUrl: string
-    kunBaseUrl: string
-    kunRuntimeTokenConfigured: boolean
+    runtimeBaseUrl: string
+    runtimeTokenConfigured: boolean
   }
 }>
 
@@ -501,7 +501,7 @@ export type RuntimeInspectorAnyResult =
   | RuntimeHealthResult
   | RuntimeDependencyReportResult
   | RuntimeModelRouterStatusResult
-  | RuntimeKunStatusResult
+  | RuntimeLocalStatusResult
   | LspStatusResult
   | LspQueryResult
   | RuntimeInspectorDiagnosticsResult

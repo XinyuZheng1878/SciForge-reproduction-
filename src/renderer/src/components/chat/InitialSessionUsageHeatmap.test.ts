@@ -130,7 +130,7 @@ describe('InitialSessionUsageHeatmap', () => {
     expect(html).toContain('Models')
     expect(html).toContain('All')
     expect(html).toContain('90d')
-    expect(html).toContain('Daily Kun usage calendar')
+    expect(html).toContain('Daily SciForge Runtime usage calendar')
     expect(html).toContain('Sessions')
     expect(html).toContain('Messages')
     expect(html).toContain('Current streak')
@@ -149,7 +149,7 @@ describe('InitialSessionUsageHeatmap', () => {
     })
 
     expect(populatedHtml).toContain('Daily Codex usage calendar')
-    expect(populatedHtml).not.toContain('Daily Kun usage calendar')
+    expect(populatedHtml).not.toContain('Daily SciForge Runtime usage calendar')
 
     const emptyHtml = render(state({ usage: usage([bucket('2026-05-01', 0, 0)]), loaded: true }), {
       runtimeLabel: 'Codex'
@@ -252,7 +252,7 @@ describe('InitialSessionUsageHeatmap', () => {
     expect(loadingHtml).toContain('Preparing your usage calendar')
     expect(loadingHtml).toContain('Checking history')
     expect(loadingHtml).toContain('Collapse calendar')
-    expect(loadingHtml).not.toContain('Daily Kun usage calendar')
+    expect(loadingHtml).not.toContain('Daily SciForge Runtime usage calendar')
     expect(loadingHtml).not.toContain('Explain this project&#x27;s structure')
 
     const emptyHtml = render(state({ usage: usage([bucket('2026-05-01', 0, 0)]), loaded: true }))
@@ -274,7 +274,7 @@ describe('InitialSessionUsageHeatmap', () => {
     expect(html).toContain('ds-runtime-wake-stage')
     expect(html).toContain('ds-work-logo')
     expect(html).not.toContain('Keep the canvas clear')
-    expect(html).not.toContain('Daily Kun usage calendar')
+    expect(html).not.toContain('Daily SciForge Runtime usage calendar')
   })
 
   it('uses turns as the intensity fallback when token totals are unavailable', () => {

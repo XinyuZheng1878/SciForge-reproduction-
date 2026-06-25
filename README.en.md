@@ -6,16 +6,16 @@
 
 [简体中文](./README.md) | English
 
-> Bring Kun's high-token-ROI local agent runtime into a desktop workbench: **Code** for project work, **Write** for documents, and **Connect phone** for IM automation and scheduled tasks. Every token is steered toward requirements, code, decisions, and results.
+> Bring SciForge Runtime's high-token-ROI local agent runtime into a desktop workbench: **Code** for project work, **Write** for documents, and **Connect phone** for IM automation and scheduled tasks. Every token is steered toward requirements, code, decisions, and results.
 
 [Website](https://sciforge.ai) | [Download](https://sciforge.ai)
 
 [![GitHub release](https://img.shields.io/github/v/release/XingYu-Zhong/SciForge?label=github)](https://github.com/XingYu-Zhong/SciForge/releases)
 [![License](https://img.shields.io/github/license/XingYu-Zhong/SciForge)](./LICENSE)
 
-SciForge is a local desktop workbench for developers, frequent AI users, and scientific research workflows. It uses Kun by default and lets users explicitly choose Codex app-server as a local agent runtime, turning the terminal agent experience into an easier, longer-lived app: choose a workspace, start a task, watch reasoning and tool calls stream in, review file changes, and approve sensitive actions when needed.
+SciForge is a local desktop workbench for developers, frequent AI users, and scientific research workflows. It uses SciForge Runtime by default and lets users explicitly choose Codex app-server as a local agent runtime, turning the terminal agent experience into an easier, longer-lived app: choose a workspace, start a task, watch reasoning and tool calls stream in, review file changes, and approve sensitive actions when needed.
 
-The goal is not to ship another chat wrapper. The goal is to make SciForge feel like a reliable desktop partner for real project work and scientific research. Kun's core advantage is high token ROI: the same context budget spends less on repeated prefixes, giant tool catalogs, and runaway output, and more on the information that actually moves the task forward.
+The goal is not to ship another chat wrapper. The goal is to make SciForge feel like a reliable desktop partner for real project work and scientific research. SciForge Runtime's core advantage is high token ROI: the same context budget spends less on repeated prefixes, giant tool catalogs, and runaway output, and more on the information that actually moves the task forward.
 
 ---
 
@@ -25,22 +25,22 @@ The goal is not to ship another chat wrapper. The goal is to make SciForge feel 
   </a>
 </p>
 
-## Why Kun Delivers High Token ROI
+## Why SciForge Runtime Delivers High Token ROI
 
-Kun makes token economy the default behavior of the agent loop, not a cleanup step after the fact. It does more than compress text: before each model call, it decides which information is worth entering context.
+SciForge Runtime makes token economy the default behavior of the agent loop, not a cleanup step after the fact. It does more than compress text: before each model call, it decides which information is worth entering context.
 
-| Kun advantage | Where the ROI comes from |
+| SciForge Runtime advantage | Where the ROI comes from |
 | --- | --- |
 | **Cache-first agent loop** | Stable system prompts, tool schemas, and immutable prefixes make DeepSeek-native cache hits more likely, so long sessions do not keep paying for the same background. |
-| **Tool context on demand** | When MCP catalogs are large, Kun can search for relevant tools first, then describe and call the target tool instead of sending every tool schema on every turn. |
+| **Tool context on demand** | When MCP catalogs are large, SciForge Runtime can search for relevant tools first, then describe and call the target tool instead of sending every tool schema on every turn. |
 | **Context hygiene** | Long tool results, long arguments, base64 payloads, repeated tool loops, and low-value history are bounded while code, paths, errors, decisions, and open tasks are preserved. |
 | **Visible usage payback** | Runtime telemetry tracks cache hit/miss, token usage, and estimated savings; the GUI surfaces Token economy savings so cost return is observable over time. |
 
-The result: Kun is built for real project work with long tasks, long sessions, and many tools. It keeps the model's attention on high-value context, helping the same API budget produce more useful progress.
+The result: SciForge Runtime is built for real project work with long tasks, long sessions, and many tools. It keeps the model's attention on high-value context, helping the same API budget produce more useful progress.
 
 ## What We Built
 
-- A desktop app around the Kun local runtime, with default runtime auto-start and management.
+- A desktop app around SciForge Runtime, with default runtime auto-start and management.
 - A full chat workbench with multiple sessions, streaming output, history, interruption, and resend flows.
 - Local workspace integration so the agent can read, edit, and create files in real projects.
 - Change review surfaces that make every file modification visible and inspectable.
@@ -62,34 +62,32 @@ The result: Kun is built for real project work with long tasks, long sessions, a
 - **Side conversations and thread control**: `/btw` opens a context-inheriting side conversation; threads also support compact, fork, archive, and restore flows.
 - **Change review**: inline diffs and a side review panel help you understand exactly what the agent changed.
 - **Controlled permissions**: choose read-only, workspace-write, full-access, or external sandbox modes, and decide when tool calls require approval.
-- **Managed runtime**: use the bundled Kun by default, point the app at your own
-  `kun` executable, or explicitly select Codex app-server as an optional runtime.
+- **Managed runtime**: use the bundled SciForge Runtime by default, point the app at your own
+  local runtime executable, or explicitly select Codex app-server as an optional runtime.
 - **Skill and MCP support**: create Skills, edit MCP config, add common tools, and open the related folders from the UI.
-- **Feature-flagged agent extensions**: Kun can enable MCP, web fetch/search, Skills, standalone CLI use, image attachments, cross-session memory, and delegated subagents by config; Settings shows the runtime-reported capability and diagnostics state.
+- **Feature-flagged agent extensions**: SciForge Runtime can enable MCP, web fetch/search, Skills, standalone CLI use, image attachments, cross-session memory, and delegated subagents by config; Settings shows the runtime-reported capability and diagnostics state.
 - **Connect phone**: run a background agent alongside normal chat, with current support for Feishu / Lark / WeChat, IM webhook / relay flows, and scheduled tasks.
-- **Scheduled tasks**: create one-time, daily, interval, or manual tasks with their own workspace, model, and reasoning effort so Kun can run while the computer is awake.
+- **Scheduled tasks**: create one-time, daily, interval, or manual tasks with their own workspace, model, and reasoning effort so SciForge Runtime can run while the computer is awake.
 - **Write mode**: manage `~/.sciforge/write_workspace` and custom writing spaces, browse Markdown files, use live Markdown editing, preview relative images, get Model Router-backed short completion / inspiration completion with optional cross-document BM25 + keyword retrieval, export the current document as `HTML / PDF / DOC / DOCX`, and invoke the writing assistant directly from selected text.
-- **High token ROI**: Kun keeps prompt prefixes stable, tracks DeepSeek-native cache hit/miss fields, compacts context and tool output, and uses MCP search to discover tools progressively so tokens stay focused on requirements, code, decisions, and results.
+- **High token ROI**: SciForge Runtime keeps prompt prefixes stable, tracks DeepSeek-native cache hit/miss fields, compacts context and tool output, and uses MCP search to discover tools progressively so tokens stay focused on requirements, code, decisions, and results.
 - **Friendly first launch**: choose language, then configure the local Model Router runtime key, public model alias, and member provider profile.
 - **Local-first**: preferences, sessions, logs, and runtime config stay on your machine; runtime model calls enter the local Model Router, which uses the provider credentials you configure there.
 - **English and Chinese UI**: switch languages from Settings at any time.
 - **Cross-platform use**: macOS `.dmg/.zip`, Windows `.exe`, and Linux `.AppImage`; source builds remain available.
 
-## Runtime: Kun By Default, Codex Optional
+## Runtime: SciForge Runtime By Default, Codex Optional
 
 The default local agent runtime in SciForge is
-**Kun** (shipped under `kun/`), a self-contained
+**SciForge Runtime** (shipped under `kun/`), a self-contained
 TypeScript package that boots a local HTTP/SSE server as the
-stable boundary between the GUI and the Kun agent loop. Advanced
+stable boundary between the GUI and the SciForge Runtime agent loop. Advanced
 users can explicitly select **Codex app-server**, which is managed by
 the main process through `codex app-server --listen stdio://`.
 
-The name Kun is inspired by the great fish in Zhuangzi's line,
-"In the northern sea there is a fish; its name is Kun." The idea is
-not a temporary chat shell, but a deeper local runtime that can carry
-longer context, richer tools, and sustained project collaboration.
+SciForge Runtime is not a temporary chat shell. It is the local runtime layer
+that carries longer context, richer tools, and sustained project collaboration.
 
-Kun's operating principle is to raise the ROI of every token. The
+SciForge Runtime's operating principle is to raise the ROI of every token. The
 user's context budget should go toward requirements, code, decisions,
 and results, not repeated tool schemas, runaway tool output, invalid
 history, or prefixes that could have been reused from cache. It is
@@ -97,33 +95,33 @@ optimized less for one-off questions and more for real workflows that
 read and write projects, call tools repeatedly, and carry context over
 long sessions.
 
-Kun fuses a design that has been battle-tested in the
+SciForge Runtime fuses a design that has been battle-tested in the
 wild:
 
 - **The cache-first agent loop borrowed from Reasonix**: immutable prompt prefix (with sha256 fingerprint), append-only session log, bounded TTL/LRU cache, inflight tracking with guaranteed cleanup, mid-turn steering queue, context compaction that preserves pinned constraints, and cache/usage telemetry.
-- **Token economy and tool-context optimization**: Kun stabilizes system prompts and tool schemas, reads DeepSeek-native cache hit/miss fields, bounds long tool results, long arguments, base64 payloads, and repeated tool loops, and can use `mcp_search` / `mcp_describe` / `mcp_call` to discover MCP tools progressively when a tool catalog is too large to advertise all at once.
+- **Token economy and tool-context optimization**: SciForge Runtime stabilizes system prompts and tool schemas, reads DeepSeek-native cache hit/miss fields, bounds long tool results, long arguments, base64 payloads, and repeated tool loops, and can use `mcp_search` / `mcp_describe` / `mcp_call` to discover MCP tools progressively when a tool catalog is too large to advertise all at once.
 
 > Thanks to the Reasonix team for sharing the runnable references
 > that made this design pillar testable in the first place. Nearly
-> every performance trait of Kun — cache hit rate, token replay,
+> every performance trait of SciForge Runtime — cache hit rate, token replay,
 > reconnect, and interruptable approvals — can be traced back to
 > this project. The full design rationale
 > and the borrow map live in
-> [`docs/kun-architecture.md`](docs/kun-architecture.md).
+> [`docs/local-runtime-architecture.md`](docs/local-runtime-architecture.md).
 
 If you want the dedicated write-up for cache behavior, including
 stable prefixes, tool schema canonicalization, DeepSeek native
 hit/miss accounting, tool-pair healing, and validation strategy, see
-[`docs/kun-cache-optimization.md`](docs/kun-cache-optimization.md).
+[`docs/local-runtime-cache-optimization.md`](docs/local-runtime-cache-optimization.md).
 
-Kun's larger agent capabilities are controlled by feature flags:
+SciForge Runtime's larger agent capabilities are controlled by feature flags:
 `capabilities.mcp` connects third-party MCP servers,
 `capabilities.web` exposes `web_fetch` / `web_search`,
 `capabilities.skills` discovers `skill.json` and legacy `SKILL.md`,
 `capabilities.attachments` enables image attachments with text-model fallback, `capabilities.memory`
 enables cross-session recall, and `capabilities.subagents` allows
-budgeted delegated child runs. `kun run`, `kun chat`, and `kun exec`
-can run without the GUI. The GUI reads `/v1/runtime/info` and
+budgeted delegated child runs. The standalone local runtime CLI can run
+without the GUI. The GUI reads `/v1/runtime/info` and
 `/v1/runtime/tools` in Settings to show what is actually available.
 These capabilities are off by config or limited by model capability
 until explicitly enabled; examples and troubleshooting live in
@@ -136,11 +134,11 @@ Renderer (React)
   → AgentRuntimeProvider
   → preload: dsGui.agentRuntime.*
   → main: AgentRuntimeHost
-  → KunAgentRuntimeAdapter → kun serve (HTTP + SSE)
+  → SciForge Runtime adapter → local runtime service (HTTP + SSE)
   → CodexAgentRuntimeAdapter → codex app-server (JSON-RPC stdio)
 ```
 
-Renderer consumes only neutral threads, turns, events, and capabilities. Kun is
+Renderer consumes only neutral threads, turns, events, and capabilities. SciForge Runtime is
 the default runtime, and Codex is used only after explicit user selection. Legacy
 `runtimeRequest` / `startSse` paths remain compatibility shims only; renderer
 specific `codex:*` IPC has been removed.
@@ -150,9 +148,8 @@ The full contract is documented in
 Settings live under **Settings → Agent runtime**: binary path, port,
 auto-start, Model Router base URL, runtime API key, public model alias,
 data dir, model, approval policy, sandbox mode, and the insecure switch.
-If an older provider was saved before, settings are migrated into
-`agents.kun` and a Model Router member profile on load; after saving,
-Kun settings are preserved and `agents.codex` settings may be added.
+SciForge Runtime settings live under `agents.sciforge`, and `agents.codex`
+settings may be added.
 
 The full endpoint list, CLI flags, environment variables, data dir
 layout, and SSE event schema are documented in
@@ -172,7 +169,7 @@ layout, and SSE event schema are documented in
 SciForge is centered on two main workbenches, **Code** and **Write**,
 with additional entry points for **Connect phone**, **Scheduled tasks**,
 and **Plugins / Skills / MCP**. They share the same AgentRuntime path and
-settings choice; Kun is the default, and Codex is used only after explicit
+settings choice; SciForge Runtime is the default, and Codex is used only after explicit
 selection. Sessions, workspaces, and layouts stay separate so you can switch by
 task.
 
@@ -215,9 +212,9 @@ Background automation and IM integration, so the active AgentRuntime can keep ha
 - Every IM agent gets its own thread, so you can debug replies and tool calls directly in the GUI.
 - Local webhook / relay support for team workflows and personal automation.
 - Scheduled tasks can run once, daily, on an interval, or manually. Each task
-  records the runtime id chosen at creation; Kun remains the default thread path,
-  while non-Kun background execution currently fails closed so Codex thread ids
-  are not written into Kun mappings. Native adapter support can enable Codex
+  records the runtime id chosen at creation; SciForge Runtime remains the default thread path,
+  while other background runtime paths currently fail closed so Codex thread ids
+  are not written into local runtime mappings. Native adapter support can enable Codex
   background execution later.
 
 ---
@@ -349,7 +346,7 @@ By default, uninstalling removes the app but keeps local settings, sessions, and
 | Windows | `%APPDATA%\SciForge` |
 | Linux | `~/.config/SciForge` |
 
-Kun data lives under `~/.sciforge/kun` or the configured Kun data dir; older installs may still have a compatible `~/.deepseekgui/kun` directory. Check it before deleting, because it may contain sessions, MCP, or Skill settings you still need.
+SciForge Runtime data lives under `~/.sciforge/runtime` or the configured SciForge Runtime data dir; older installs may still have a compatible `~/.sciforge/runtime` directory. Check it before deleting, because it may contain sessions, MCP, or Skill settings you still need.
 
 ---
 
@@ -391,11 +388,11 @@ For the full development workflow, see [DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
 | Doc | Contents |
 | --- | --- |
-| [docs/agent-runtime-contract.md](docs/agent-runtime-contract.md) | Neutral AgentRuntime contract, events, and capabilities shared by Kun and Codex |
-| [docs/kun-architecture.en.md](docs/kun-architecture.en.md) | Kun runtime architecture, GUI boundaries, HTTP/SSE contract, and legacy agent retirement notes |
-| [docs/kun-cache-optimization.en.md](docs/kun-cache-optimization.en.md) | Kun cache optimization, token economy, MCP search, tool-output compaction, and usage savings |
-| [docs/kun-contributing.en.md](docs/kun-contributing.en.md) | Kun contribution guide: hexagonal architecture, design patterns (Ports & Adapters / Functional Core Imperative Shell / event sourcing / explicit DI / composition root), four typical PR scenarios |
-| [kun/README.md](kun/README.md) | Kun package: CLI, env, data dir, HTTP API |
+| [docs/agent-runtime-contract.md](docs/agent-runtime-contract.md) | Neutral AgentRuntime contract, events, and capabilities shared by SciForge Runtime and Codex |
+| [docs/local-runtime-architecture.en.md](docs/local-runtime-architecture.en.md) | SciForge Runtime architecture, GUI boundaries, HTTP/SSE contract, and legacy agent retirement notes |
+| [docs/local-runtime-cache-optimization.en.md](docs/local-runtime-cache-optimization.en.md) | SciForge Runtime cache optimization, token economy, MCP search, tool-output compaction, and usage savings |
+| [docs/local-runtime-contributing.en.md](docs/local-runtime-contributing.en.md) | SciForge Runtime contribution guide: hexagonal architecture, design patterns (Ports & Adapters / Functional Core Imperative Shell / event sourcing / explicit DI / composition root), four typical PR scenarios |
+| [kun/README.md](kun/README.md) | SciForge Runtime package: CLI, env, data dir, HTTP API |
 | [CONTRIBUTING.en.md](docs/CONTRIBUTING.en.md) | Contribution guide |
 | [DEVELOPMENT.en.md](docs/DEVELOPMENT.en.md) | Local development workflow |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community code of conduct |
@@ -405,9 +402,9 @@ For the full development workflow, see [DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
 ## Thanks
 
-Kun stands on the shoulders of prior projects:
+SciForge Runtime stands on the shoulders of prior projects:
 
-- **Reasonix** — the cache-first agent loop. `ImmutablePrefix` (with sha256 fingerprint) and its explicit mutation API, `AppendOnlySessionLog` (in-memory window + JSONL on disk), `LruCache` / `TtlLruCache`, `InflightTracker` with `finally`-block cleanup, `SteeringQueue` for mid-turn user guidance, `ContextCompactor` that preserves pinned constraints, and `UsageCounter` + `CacheTelemetry` are direct TypeScript ports and refinements of Reasonix's design prototypes. Reasonix's split between reasoning events and assistant text, the `tool_call` / `tool_result` pairing via `callId`, and the usage replay pattern also flow directly into the Kun event contract.
+- **Reasonix** — the cache-first agent loop. `ImmutablePrefix` (with sha256 fingerprint) and its explicit mutation API, `AppendOnlySessionLog` (in-memory window + JSONL on disk), `LruCache` / `TtlLruCache`, `InflightTracker` with `finally`-block cleanup, `SteeringQueue` for mid-turn user guidance, `ContextCompactor` that preserves pinned constraints, and `UsageCounter` + `CacheTelemetry` are direct TypeScript ports and refinements of Reasonix's design prototypes. Reasonix's split between reasoning events and assistant text, the `tool_call` / `tool_result` pairing via `callId`, and the usage replay pattern also flow directly into the SciForge Runtime event contract.
 
 We are also grateful to:
 

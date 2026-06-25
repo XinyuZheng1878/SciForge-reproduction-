@@ -52,8 +52,8 @@ type WebviewTitleEvent = Event & {
   title: string
 }
 
-const PREVIEW_URL_STORAGE_KEY = 'deepseekgui.devPreview.url'
-const PREVIEW_AUTO_FOLLOW_STORAGE_KEY = 'deepseekgui.devPreview.autoFollow'
+const PREVIEW_URL_STORAGE_KEY = 'sciforge.devPreview.url'
+const PREVIEW_AUTO_FOLLOW_STORAGE_KEY = 'sciforge.devPreview.autoFollow'
 
 function readStoredUrl(): string | null {
   try {
@@ -133,7 +133,7 @@ export function DevBrowserPanel({
   const detectedUrls = useMemo(() => extractDetectedDevPreviewUrls(blocks), [blocks])
   const latestDetectedUrl = detectedUrls[0] ?? null
   const useElectronWebview = canUseElectronWebviewEnvironment({
-    openExternalAvailable: typeof window.dsGui?.openExternal === 'function',
+    openExternalAvailable: typeof window.sciforge?.openExternal === 'function',
     userAgent: window.navigator.userAgent
   })
   const normalizedPreferredUrl = useMemo(
@@ -339,8 +339,8 @@ export function DevBrowserPanel({
     if (!activeUrl) return
     const normalized = normalizeDevPreviewUrlInput(activeUrl)
     if (!normalized) return
-    if (typeof window.dsGui?.openExternal === 'function') {
-      void window.dsGui.openExternal(normalized).catch(() => undefined)
+    if (typeof window.sciforge?.openExternal === 'function') {
+      void window.sciforge.openExternal(normalized).catch(() => undefined)
       return
     }
     window.open(normalized, '_blank', 'noopener,noreferrer')

@@ -1,4 +1,4 @@
-export function isKunHealthResponseBody(body: string): boolean {
+export function isLocalRuntimeHealthResponseBody(body: string): boolean {
   let parsed: unknown
   try {
     parsed = JSON.parse(body) as unknown

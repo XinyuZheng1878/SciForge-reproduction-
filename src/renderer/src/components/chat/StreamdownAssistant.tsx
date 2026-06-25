@@ -75,9 +75,9 @@ function StreamdownLink({
       return
     }
 
-    if (isExternal && href && typeof window.dsGui?.openExternal === 'function') {
+    if (isExternal && href && typeof window.sciforge?.openExternal === 'function') {
       event.preventDefault()
-      void window.dsGui.openExternal(href).catch(() => undefined)
+      void window.sciforge.openExternal(href).catch(() => undefined)
     }
   }
 
@@ -86,7 +86,7 @@ function StreamdownLink({
     event.preventDefault()
     void openWorkspacePathInEditor(resolvedFileTarget, workspaceRoot).then((result) => {
       if (!result.ok) {
-        void window.dsGui?.logError?.('editor-open', 'Failed to open file reference', {
+        void window.sciforge?.logError?.('editor-open', 'Failed to open file reference', {
           message: result.message,
           target: resolvedFileTarget
         })?.catch(() => undefined)

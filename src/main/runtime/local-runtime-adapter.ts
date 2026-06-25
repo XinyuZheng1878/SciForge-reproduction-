@@ -2,24 +2,24 @@ import { app } from 'electron'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
-  DEFAULT_KUN_DATA_DIR,
-  getKunRuntimeSettings,
+  DEFAULT_LOCAL_RUNTIME_DATA_DIR,
+  getLocalRuntimeSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
 import {
-  buildKunServeArgs,
-  resolveKunExecutable
-} from '../resolve-kun-binary'
+  buildLocalRuntimeServeArgs,
+  resolveLocalRuntimeExecutable
+} from '../resolve-local-runtime-binary'
 import {
-  isKunChildRunning,
-  reclaimKunPort,
-  startKunChild,
-  stopKunChildAndWait
-} from '../kun-process'
-import { getKunBaseUrl } from '../kun-base-url'
+  isLocalRuntimeChildRunning,
+  reclaimLocalRuntimePort,
+  startLocalRuntimeChild,
+  stopLocalRuntimeChildAndWait
+} from '../local-runtime-process'
+import { getLocalRuntimeBaseUrl } from '../local-runtime-base-url'
 import type { ManagedRuntimeAdapter } from './runtime-adapter'
 
-const KUN_RUNTIME_ID = 'kun' as const
+const SCIFORGE_RUNTIME_ID = 'sciforge' as const
 
 function appRoot(): string {
   return app.isPackaged
@@ -27,58 +27,58 @@ function appRoot(): string {
     : app.getAppPath()
 }
 
-export const kunRuntimeAdapter: ManagedRuntimeAdapter & {
+export const localRuntimeAdapter: ManagedRuntimeAdapter & {
   resolveExecutable(settings: AppSettingsV1): Promise<string>
   getBaseUrl(settings: AppSettingsV1): string
   reclaimPort(port: number): Promise<{ ok: true } | { ok: false; message: string }>
 } = {
-  id: KUN_RUNTIME_ID,
+  id: SCIFORGE_RUNTIME_ID,
 
   async resolveExecutable(settings: AppSettingsV1): Promise<string> {
-    const runtime = getKunRuntimeSettings(settings)
-    const resolution = resolveKunExecutable(appRoot(), runtime.binaryPath)
+    const runtime = getLocalRuntimeSettings(settings)
+    const resolution = resolveLocalRuntimeExecutable(appRoot(), runtime.binaryPath)
     if (resolution.kind === 'node-script') {
       const scriptPath = resolution.args[0] ?? ''
       return runtime.binaryPath.trim()
         ? `Node.js script (${scriptPath})`
-        : `Bundled Kun (${scriptPath})`
+        : `Bundled SciForge Runtime (${scriptPath})`
     }
     return resolution.command
   },
 
   ensureRunning(settings: AppSettingsV1): Promise<void> {
-    return startKunChild(settings)
+    return startLocalRuntimeChild(settings)
   },
 
   stopAndWait(): Promise<void> {
-    return stopKunChildAndWait()
+    return stopLocalRuntimeChildAndWait()
   },
 
   isChildRunning(): boolean {
-    return isKunChildRunning()
+    return isLocalRuntimeChildRunning()
   },
 
   getBaseUrl(settings: AppSettingsV1): string {
-    const runtime = getKunRuntimeSettings(settings)
-    return getKunBaseUrl(runtime.port)
+    const runtime = getLocalRuntimeSettings(settings)
+    return getLocalRuntimeBaseUrl(runtime.port)
   },
 
   reclaimPort(port: number): Promise<{ ok: true } | { ok: false; message: string }> {
-    return reclaimKunPort(port)
+    return reclaimLocalRuntimePort(port)
   },
 
-  request(settings: AppSettingsV1, pathAndQuery: string, init: KunHttpRequestInit) {
-    return kunHttpRequestViaHost(settings, pathAndQuery, init, (current) => this.ensureRunning(current))
+  request(settings: AppSettingsV1, pathAndQuery: string, init: LocalRuntimeHttpRequestInit) {
+    return localRuntimeHttpRequestViaHost(settings, pathAndQuery, init, (current) => this.ensureRunning(current))
   }
 }
 
 export function getRuntimeBaseUrlForSettings(settings: AppSettingsV1): string {
-  return kunRuntimeAdapter.getBaseUrl(settings)
+  return localRuntimeAdapter.getBaseUrl(settings)
 }
 
-/** Build the bearer-token authorization header for Kun requests. */
+/** Build the bearer-token authorization header for local runtime requests. */
 export function runtimeAuthHeaders(settings: AppSettingsV1): Headers {
-  const runtime = getKunRuntimeSettings(settings)
+  const runtime = getLocalRuntimeSettings(settings)
   const headers = new Headers()
   if (runtime.runtimeToken.trim()) {
     headers.set('Authorization', `Bearer ${runtime.runtimeToken.trim()}`)
@@ -86,16 +86,16 @@ export function runtimeAuthHeaders(settings: AppSettingsV1): Headers {
   return headers
 }
 
-export type KunHttpRequestInit = {
+export type LocalRuntimeHttpRequestInit = {
   method?: string
   body?: string
   headers?: Record<string, string>
 }
 
-export async function kunHttpRequestViaHost(
+export async function localRuntimeHttpRequestViaHost(
   settings: AppSettingsV1,
   pathAndQuery: string,
-  init: KunHttpRequestInit,
+  init: LocalRuntimeHttpRequestInit,
   ensureRuntime: (settings: AppSettingsV1) => Promise<void>
 ): Promise<{ ok: boolean; status: number; body: string }> {
   await ensureRuntime(settings)
@@ -120,13 +120,13 @@ export async function kunHttpRequestViaHost(
   return { ok: res.ok, status: res.status, body: text }
 }
 
-export { buildKunServeArgs, resolveKunExecutable }
+export { buildLocalRuntimeServeArgs, resolveLocalRuntimeExecutable }
 
 /**
  * Default data directory used when the user has not provided one.
  * The path lives under the app user-data directory so packaged
  * installs do not need write access to the install folder.
  */
-export function defaultKunDataDir(): string {
-  return DEFAULT_KUN_DATA_DIR.replace(/^~(?=$|[\\/])/, homedir())
+export function defaultLocalRuntimeDataDir(): string {
+  return DEFAULT_LOCAL_RUNTIME_DATA_DIR.replace(/^~(?=$|[\\/])/, homedir())
 }

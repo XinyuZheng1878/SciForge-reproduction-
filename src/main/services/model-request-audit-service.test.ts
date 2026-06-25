@@ -19,7 +19,7 @@ describe('ModelRequestAuditRecorder', () => {
       request: { threadId: 'thread-2', text: 'two', workspace: '/Users/test/project' }
     })
     recorder.start({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-3',
       model: 'alias-c',
       request: { threadId: 'thread-3', text: 'three', workspace: '/Users/test/project' }
@@ -136,7 +136,7 @@ describe('ModelRequestAuditRecorder', () => {
   it('redacts inline secrets and absolute paths from requests, streamed output, tools, and errors', () => {
     const recorder = new ModelRequestAuditRecorder()
     const id = recorder.start({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-secret',
       model: 'deepseek-v4',
       modelRouterUrl: 'http://127.0.0.1:1234/v1',
@@ -147,7 +147,7 @@ describe('ModelRequestAuditRecorder', () => {
         endpointRoute: 'responses'
       },
       request: {
-        runtimeId: 'kun',
+        runtimeId: 'sciforge',
         threadId: 'thread-secret',
         text: 'Authorization: Bearer super-secret-token in /Users/alice/project',
         workspace: '/Users/alice/project',
@@ -162,10 +162,10 @@ describe('ModelRequestAuditRecorder', () => {
         ]
       }
     })
-    recorder.attachTurn(id, 'kun', 'thread-secret', 'turn-secret')
+    recorder.attachTurn(id, 'sciforge', 'thread-secret', 'turn-secret')
     recorder.observeEvent({
       kind: 'assistant_delta',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-secret',
       turnId: 'turn-secret',
       itemId: 'assistant-secret',
@@ -173,7 +173,7 @@ describe('ModelRequestAuditRecorder', () => {
     })
     recorder.observeEvent({
       kind: 'tool_event',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-secret',
       turnId: 'turn-secret',
       itemId: 'tool-secret',
@@ -188,7 +188,7 @@ describe('ModelRequestAuditRecorder', () => {
     })
     recorder.observeEvent({
       kind: 'error',
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       threadId: 'thread-secret',
       turnId: 'turn-secret',
       recoverable: false,

@@ -2,7 +2,7 @@ const { execFileSync } = require('node:child_process')
 const { chmodSync, existsSync, readdirSync, rmSync } = require('node:fs')
 const { join } = require('node:path')
 
-const KUN_RUNTIME_REQUIRED_PATHS = [
+const LOCAL_RUNTIME_REQUIRED_PATHS = [
   'kun/dist/cli/serve-entry.js',
   'kun/package.json',
   'kun/package-lock.json',
@@ -158,9 +158,9 @@ function prunePackedKunDependencies(context) {
   rmSync(join(kunDir, 'node_modules', 'better-sqlite3'), { recursive: true, force: true })
 }
 
-function validateBundledKunRuntime(context) {
+function validateBundledLocalRuntime(context) {
   const root = unpackedAppRoot(context)
-  for (const relativePath of KUN_RUNTIME_REQUIRED_PATHS) {
+  for (const relativePath of LOCAL_RUNTIME_REQUIRED_PATHS) {
     assertExists(join(root, relativePath), relativePath)
   }
   assertExists(
@@ -283,7 +283,7 @@ function ensureNodePtyHelpersExecutable(context) {
 
 async function afterPack(context) {
   prunePackedKunDependencies(context)
-  validateBundledKunRuntime(context)
+  validateBundledLocalRuntime(context)
   validateBundledModelRouterRuntime(context)
   validateBundledComputerUseRuntime(context)
   validateBundledSearchRuntime(context)
@@ -298,7 +298,7 @@ async function afterPack(context) {
   maybeAdhocSignMacApp(context)
 }
 
-exports.KUN_RUNTIME_REQUIRED_PATHS = KUN_RUNTIME_REQUIRED_PATHS
+exports.LOCAL_RUNTIME_REQUIRED_PATHS = LOCAL_RUNTIME_REQUIRED_PATHS
 exports.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS = MODEL_ROUTER_RUNTIME_REQUIRED_PATHS
 exports.COMPUTER_USE_RUNTIME_REQUIRED_PATHS = COMPUTER_USE_RUNTIME_REQUIRED_PATHS
 exports.SEARCH_RUNTIME_REQUIRED_PATHS = SEARCH_RUNTIME_REQUIRED_PATHS
@@ -316,7 +316,7 @@ exports._internals = {
   projectRoot,
   npmCommand,
   prunePackedKunDependencies,
-  validateBundledKunRuntime,
+  validateBundledLocalRuntime,
   validateBundledModelRouterRuntime,
   validateBundledComputerUseRuntime,
   validateBundledSearchRuntime,

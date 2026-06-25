@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyKunRuntimePatch,
+  applyLocalRuntimePatch,
   applyCodexRuntimePatch,
   codexSettingsPatch,
-  kunSettingsEnvelope,
-  kunSettingsPatch,
+  agentRuntimeSettingsEnvelope,
+  localRuntimeSettingsPatch,
   DEFAULT_CODEX_DATA_DIR,
   DEFAULT_CLAUDE_CONFIG_DIR,
-  DEFAULT_KUN_DATA_DIR,
-  DEFAULT_KUN_MODEL,
+  DEFAULT_LOCAL_RUNTIME_DATA_DIR,
+  DEFAULT_LOCAL_RUNTIME_MODEL,
   DEFAULT_APPROVAL_POLICY,
   DEFAULT_SANDBOX_MODE,
   DEFAULT_WEIXIN_BRIDGE_RPC_URL,
@@ -21,7 +21,7 @@ import {
   defaultRuntimeGuardSettings,
   defaultAgentCapabilitySettings,
   defaultComputerUseSettings,
-  mergeKunRuntimeSettings,
+  mergeLocalRuntimeSettings,
   mergeRuntimeGuardSettings,
   mergeAgentCapabilitySettings,
   mergeComputerUseSettings,
@@ -29,7 +29,7 @@ import {
   mergeSpeechToTextSettings,
   defaultCodexRuntimeSettings,
   defaultClaudeRuntimeSettings,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
@@ -41,14 +41,13 @@ import {
   getComputerUseSettings,
   isComputerUseEnabledForRuntime,
   getAgentCapabilitySettings,
-  isKunRuntimeInsecure,
+  isLocalRuntimeInsecure,
   mergeClawSettings,
-  migrateLegacyAppSettings,
   normalizeAppSettings,
   normalizeRuntimeGuardSettings,
   parseClawUserPromptForDisplay,
   normalizeScheduleSettings,
-  resolveKunRuntimeSettings,
+  resolveLocalRuntimeSettings,
   resolveSpeechToTextSettings,
   resolveWriteInlineCompletionApiKey,
   resolveWriteInlineCompletionBaseUrl,
@@ -66,9 +65,9 @@ function settings(): AppSettingsV1 {
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
     modelRouter: defaultModelRouterSettings(),
-    activeAgentRuntime: 'kun',
+    activeAgentRuntime: 'sciforge',
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
@@ -94,7 +93,7 @@ function clawChannel(provider: ClawImProvider, label: string, name = label): Cla
     enabled: true,
     model: 'auto',
     threadId: '',
-    runtimeId: 'kun',
+    runtimeId: 'sciforge',
     agentThreadIds: {},
     workspaceRoot: '',
     agentProfile: {
@@ -111,28 +110,28 @@ function clawChannel(provider: ClawImProvider, label: string, name = label): Cla
   }
 }
 
-describe('kun defaults', () => {
+describe('local runtime defaults', () => {
   it('keeps a single shared default data directory source', () => {
-    expect(defaultKunRuntimeSettings().dataDir).toBe(DEFAULT_KUN_DATA_DIR)
+    expect(defaultLocalRuntimeSettings().dataDir).toBe(DEFAULT_LOCAL_RUNTIME_DATA_DIR)
   })
 
   it('defaults the assistant model to v4 pro', () => {
-    expect(defaultKunRuntimeSettings().model).toBe(DEFAULT_KUN_MODEL)
+    expect(defaultLocalRuntimeSettings().model).toBe(DEFAULT_LOCAL_RUNTIME_MODEL)
   })
 
   it('defaults approval policy to auto', () => {
-    expect(defaultKunRuntimeSettings().approvalPolicy).toBe(DEFAULT_APPROVAL_POLICY)
-    expect(defaultKunRuntimeSettings().approvalPolicy).toBe('auto')
+    expect(defaultLocalRuntimeSettings().approvalPolicy).toBe(DEFAULT_APPROVAL_POLICY)
+    expect(defaultLocalRuntimeSettings().approvalPolicy).toBe('auto')
   })
 
   it('defaults sandbox mode to full access', () => {
-    expect(defaultKunRuntimeSettings().sandboxMode).toBe(DEFAULT_SANDBOX_MODE)
-    expect(defaultKunRuntimeSettings().sandboxMode).toBe('danger-full-access')
+    expect(defaultLocalRuntimeSettings().sandboxMode).toBe(DEFAULT_SANDBOX_MODE)
+    expect(defaultLocalRuntimeSettings().sandboxMode).toBe('danger-full-access')
   })
 
   it('defaults token economy mode to off', () => {
-    expect(defaultKunRuntimeSettings().tokenEconomyMode).toBe(false)
-    expect(defaultKunRuntimeSettings().tokenEconomy).toMatchObject({
+    expect(defaultLocalRuntimeSettings().tokenEconomyMode).toBe(false)
+    expect(defaultLocalRuntimeSettings().tokenEconomy).toMatchObject({
       enabled: false,
       compressToolDescriptions: true,
       compressToolResults: true,
@@ -192,7 +191,7 @@ describe('kun defaults', () => {
   })
 
   it('defaults MCP search discovery to off', () => {
-    expect(defaultKunRuntimeSettings().mcpSearch).toMatchObject({
+    expect(defaultLocalRuntimeSettings().mcpSearch).toMatchObject({
       enabled: false,
       mode: 'auto',
       autoThresholdToolCount: 24,
@@ -201,8 +200,8 @@ describe('kun defaults', () => {
     })
   })
 
-  it('defaults advanced Kun runtime tuning to conservative values', () => {
-    expect(defaultKunRuntimeSettings()).toMatchObject({
+  it('defaults advanced local runtime tuning to conservative values', () => {
+    expect(defaultLocalRuntimeSettings()).toMatchObject({
       storage: {
         backend: 'hybrid',
         sqlitePath: ''
@@ -243,7 +242,7 @@ describe('kun defaults', () => {
     expect(defaultComputerUseSettings()).toEqual({
       enabled: true,
       runtimeEnabled: {
-        kun: true,
+        sciforge: true,
         codex: true,
         claude: true
       }
@@ -256,7 +255,7 @@ describe('kun defaults', () => {
       computerUse: {
         enabled: false,
         runtimeEnabled: {
-          kun: true,
+          sciforge: true,
           codex: false,
           claude: true
         },
@@ -269,20 +268,20 @@ describe('kun defaults', () => {
     expect(getComputerUseSettings(normalized)).toEqual({
       enabled: false,
       runtimeEnabled: {
-        kun: true,
+        sciforge: true,
         codex: false,
         claude: true
       }
     })
     expect(isComputerUseEnabledForRuntime(normalized, 'codex')).toBe(false)
-    expect(isComputerUseEnabledForRuntime(normalized, 'kun')).toBe(false)
+    expect(isComputerUseEnabledForRuntime(normalized, 'sciforge')).toBe(false)
 
     const legacyExperimental = normalizeAppSettings({
       ...settings(),
       computerUse: {
         enabled: true,
         runtimeEnabled: {
-          kun: true,
+          sciforge: true,
           codex: true,
           claude: true
         },
@@ -294,54 +293,26 @@ describe('kun defaults', () => {
     expect(getComputerUseSettings(legacyExperimental)).toEqual({
       enabled: true,
       runtimeEnabled: {
-        kun: true,
+        sciforge: true,
         codex: true,
         claude: true
       }
     })
   })
 
-  it('normalizes legacy tool storm settings into runtime guards', () => {
-    expect(normalizeRuntimeGuardSettings(undefined, {
-      kunToolStorm: {
+  it('normalizes runtime guard tool storm settings', () => {
+    expect(normalizeRuntimeGuardSettings({
+      toolStorm: {
         enabled: false,
-        windowSize: 12,
-        threshold: 4
-      }
-    }).toolStorm).toEqual({
-      enabled: false,
-      windowSize: 12,
-      softThreshold: 4,
-      hardThreshold: 6
-    })
-    expect(normalizeRuntimeGuardSettings(undefined, {
-      runtimeToolStorm: {
         windowSize: 10,
         softThreshold: 5,
         hardThreshold: 7
       }
-    }).toolStorm).toMatchObject({
+    }).toolStorm).toEqual({
+      enabled: false,
       windowSize: 10,
       softThreshold: 5,
       hardThreshold: 7
-    })
-  })
-
-  it('migrates old persisted tool storm fields into normalized runtime guards', () => {
-    const normalized = normalizeAppSettings({
-      ...settings(),
-      runtimeGuards: undefined,
-      kunToolStorm: {
-        windowSize: 9,
-        threshold: 4
-      }
-    } as unknown as AppSettingsV1)
-
-    expect(normalized.runtimeGuards?.toolStorm).toMatchObject({
-      enabled: true,
-      windowSize: 9,
-      softThreshold: 4,
-      hardThreshold: 6
     })
   })
 })
@@ -495,7 +466,7 @@ describe('claw settings', () => {
     expect(normalized.claw.im.weixinBridgeUrl).toBe('http://127.0.0.1:8787/rpc')
   })
 
-  it('preserves Codex-only Claw IM conversations without a legacy Kun thread id', () => {
+  it('preserves Codex-only Claw IM conversations without a legacy local runtime thread id', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       claw: {
@@ -624,7 +595,7 @@ describe('claw settings', () => {
     ])
   })
 
-  it('migrates legacy claw channel and conversation threads to Kun mappings', () => {
+  it('keeps current Claw thread fields as SciForge mappings without legacy provider-only mappings', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       claw: {
@@ -671,29 +642,25 @@ describe('claw settings', () => {
     } as unknown as AppSettingsV1)
 
     const channel = normalized.claw.channels[0]
-    expect(channel.runtimeId).toBe('kun')
+    expect(channel.runtimeId).toBe('sciforge')
     expect(channel.threadId).toBe('legacy-channel-thread')
-    expect(channel.agentThreadIds).toEqual({ kun: 'legacy-channel-thread' })
+    expect(channel.agentThreadIds).toEqual({ sciforge: 'legacy-channel-thread' })
     expect(channel.agentThreadIds?.codex).toBeUndefined()
 
-    const conversation = channel.conversations[0]
-    expect(conversation.runtimeId).toBe('kun')
-    expect(conversation.localThreadId).toBe('legacy-reasonix-conversation')
-    expect(conversation.agentThreadIds).toEqual({ kun: 'legacy-reasonix-conversation' })
-    expect(conversation.agentThreadIds?.codex).toBeUndefined()
+    expect(channel.conversations).toEqual([])
   })
 
-  it('round-trips Codex claw thread mappings while keeping legacy Kun fields', () => {
+  it('round-trips Codex claw thread mappings while keeping SciForge fields', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       claw: {
         ...defaultClawSettings(),
         channels: [{
           ...clawChannel('feishu', 'Codex Channel'),
-          threadId: 'kun-channel-thread',
+          threadId: 'sciforge-channel-thread',
           runtimeId: 'codex',
           agentThreadIds: {
-            kun: 'kun-channel-thread',
+            sciforge: 'sciforge-channel-thread',
             codex: 'codex-channel-thread'
           },
           conversations: [{
@@ -703,10 +670,10 @@ describe('claw settings', () => {
             latestMessageId: 'message-1',
             senderId: '',
             senderName: '',
-            localThreadId: 'kun-conversation-thread',
+            localThreadId: 'sciforge-conversation-thread',
             runtimeId: 'codex',
             agentThreadIds: {
-              kun: 'kun-conversation-thread',
+              sciforge: 'sciforge-conversation-thread',
               codex: 'codex-conversation-thread'
             },
             workspaceRoot: '',
@@ -719,32 +686,32 @@ describe('claw settings', () => {
 
     const channel = normalized.claw.channels[0]
     expect(channel.runtimeId).toBe('codex')
-    expect(channel.threadId).toBe('kun-channel-thread')
+    expect(channel.threadId).toBe('sciforge-channel-thread')
     expect(channel.agentThreadIds).toEqual({
-      kun: 'kun-channel-thread',
+      sciforge: 'sciforge-channel-thread',
       codex: 'codex-channel-thread'
     })
 
     const conversation = channel.conversations[0]
     expect(conversation.runtimeId).toBe('codex')
-    expect(conversation.localThreadId).toBe('kun-conversation-thread')
+    expect(conversation.localThreadId).toBe('sciforge-conversation-thread')
     expect(conversation.agentThreadIds).toEqual({
-      kun: 'kun-conversation-thread',
+      sciforge: 'sciforge-conversation-thread',
       codex: 'codex-conversation-thread'
     })
   })
 
-  it('merges claw settings without dropping Kun or Codex thread mappings', () => {
+  it('merges claw settings without dropping SciForge or Codex thread mappings', () => {
     const current = normalizeAppSettings({
       ...settings(),
       claw: {
         ...defaultClawSettings(),
         channels: [{
           ...clawChannel('feishu', 'Merged Channel'),
-          threadId: 'kun-channel-thread',
+          threadId: 'sciforge-channel-thread',
           runtimeId: 'codex',
           agentThreadIds: {
-            kun: 'kun-channel-thread',
+            sciforge: 'sciforge-channel-thread',
             codex: 'codex-channel-thread'
           }
         }]
@@ -759,19 +726,19 @@ describe('claw settings', () => {
     })
 
     expect(merged.channels[0].runtimeId).toBe('codex')
-    expect(merged.channels[0].threadId).toBe('kun-channel-thread')
+    expect(merged.channels[0].threadId).toBe('sciforge-channel-thread')
     expect(merged.channels[0].agentThreadIds).toEqual({
-      kun: 'kun-channel-thread',
+      sciforge: 'sciforge-channel-thread',
       codex: 'codex-channel-thread'
     })
   })
 })
 
-describe('isKunRuntimeInsecure', () => {
+describe('isLocalRuntimeInsecure', () => {
   it('treats an empty runtime token as effectively insecure', () => {
     expect(
-      isKunRuntimeInsecure({
-        ...defaultKunRuntimeSettings(),
+      isLocalRuntimeInsecure({
+        ...defaultLocalRuntimeSettings(),
         insecure: false,
         runtimeToken: ''
       })
@@ -780,8 +747,8 @@ describe('isKunRuntimeInsecure', () => {
 
   it('keeps auth enabled when a token exists and insecure is false', () => {
     expect(
-      isKunRuntimeInsecure({
-        ...defaultKunRuntimeSettings(),
+      isLocalRuntimeInsecure({
+        ...defaultLocalRuntimeSettings(),
         insecure: false,
         runtimeToken: 'tok-1'
       })
@@ -799,7 +766,7 @@ describe('mergeComputerUseSettings', () => {
     expect(current).toEqual({
       enabled: true,
       runtimeEnabled: {
-        kun: true,
+        sciforge: true,
         codex: true,
         claude: true
       }
@@ -813,7 +780,7 @@ describe('mergeComputerUseSettings', () => {
     expect(disabled).toEqual({
       enabled: false,
       runtimeEnabled: {
-        kun: true,
+        sciforge: true,
         codex: true,
         claude: true
       }
@@ -829,17 +796,17 @@ describe('mergeComputerUseSettings', () => {
     })
 
     expect(next.runtimeEnabled).toEqual({
-      kun: true,
+      sciforge: true,
       codex: false,
       claude: false
     })
   })
 })
 
-describe('mergeKunRuntimeSettings', () => {
-  it('merges a direct kun patch without the envelope wrapper', () => {
-    const current = defaultKunRuntimeSettings()
-    const next = mergeKunRuntimeSettings(current, {
+describe('mergeLocalRuntimeSettings', () => {
+  it('merges a direct local runtime patch without the envelope wrapper', () => {
+    const current = defaultLocalRuntimeSettings()
+    const next = mergeLocalRuntimeSettings(current, {
       model: 'deepseek-reasoner',
       port: 9000,
       tokenEconomyMode: true
@@ -848,12 +815,24 @@ describe('mergeKunRuntimeSettings', () => {
     expect(next.port).toBe(9000)
     expect(next.tokenEconomyMode).toBe(true)
     expect(next.tokenEconomy.enabled).toBe(true)
-    expect(next.baseUrl).toBe(current.baseUrl)
+    expect(next.providerId).toBe(current.providerId)
+  })
+
+  it('drops legacy local runtime credential patches', () => {
+    const next = mergeLocalRuntimeSettings(defaultLocalRuntimeSettings(), {
+      apiKey: 'sk-local',
+      baseUrl: 'https://local-runtime.example/v1',
+      model: 'deepseek-reasoner'
+    } as unknown as Parameters<typeof mergeLocalRuntimeSettings>[1])
+
+    expect(next.model).toBe('deepseek-reasoner')
+    expect('apiKey' in next).toBe(false)
+    expect('baseUrl' in next).toBe(false)
   })
 
   it('deep-merges token economy settings and keeps the legacy switch synced', () => {
-    const current = defaultKunRuntimeSettings()
-    const next = mergeKunRuntimeSettings(current, {
+    const current = defaultLocalRuntimeSettings()
+    const next = mergeLocalRuntimeSettings(current, {
       tokenEconomy: {
         enabled: true,
         compressToolResults: false,
@@ -872,14 +851,14 @@ describe('mergeKunRuntimeSettings', () => {
       current.tokenEconomy.historyHygiene.maxToolResultBytes
     )
 
-    const legacySwitch = mergeKunRuntimeSettings(next, { tokenEconomyMode: false })
+    const legacySwitch = mergeLocalRuntimeSettings(next, { tokenEconomyMode: false })
     expect(legacySwitch.tokenEconomyMode).toBe(false)
     expect(legacySwitch.tokenEconomy.enabled).toBe(false)
   })
 
   it('deep-merges MCP search settings', () => {
-    const current = defaultKunRuntimeSettings()
-    const next = mergeKunRuntimeSettings(current, {
+    const current = defaultLocalRuntimeSettings()
+    const next = mergeLocalRuntimeSettings(current, {
       mcpSearch: {
         enabled: true,
         mode: 'search',
@@ -893,11 +872,11 @@ describe('mergeKunRuntimeSettings', () => {
     expect(next.mcpSearch.topKMax).toBe(current.mcpSearch.topKMax)
   })
 
-  it('deep-merges advanced Kun settings', () => {
-    const current = defaultKunRuntimeSettings()
-    const next = mergeKunRuntimeSettings(current, {
+  it('deep-merges advanced local runtime settings', () => {
+    const current = defaultLocalRuntimeSettings()
+    const next = mergeLocalRuntimeSettings(current, {
       storage: {
-        sqlitePath: ' /tmp/kun.sqlite3 '
+        sqlitePath: ' /tmp/sciforge.sqlite3 '
       },
       contextCompaction: {
         defaultSoftThreshold: 64000
@@ -910,7 +889,7 @@ describe('mergeKunRuntimeSettings', () => {
     })
 
     expect(next.storage.backend).toBe('hybrid')
-    expect(next.storage.sqlitePath).toBe('/tmp/kun.sqlite3')
+    expect(next.storage.sqlitePath).toBe('/tmp/sciforge.sqlite3')
     expect(next.contextCompaction.defaultSoftThreshold).toBe(64000)
     expect(next.contextCompaction.defaultHardThreshold).toBe(64000)
     expect(next.contextCompaction.summaryMode).toBe('heuristic')
@@ -943,34 +922,34 @@ describe('mergeKunRuntimeSettings', () => {
   })
 })
 
-describe('kun envelope helpers', () => {
+describe('local runtime envelope helpers', () => {
   it('wraps runtime settings and patches into the compatibility shell', () => {
-    const runtime = defaultKunRuntimeSettings()
-    expect(kunSettingsEnvelope(runtime)).toEqual({ kun: runtime })
-    expect(kunSettingsPatch({ model: 'deepseek-reasoner' })).toEqual({
-      kun: { model: 'deepseek-reasoner' }
+    const runtime = defaultLocalRuntimeSettings()
+    expect(agentRuntimeSettingsEnvelope(runtime)).toEqual({ sciforge: runtime })
+    expect(localRuntimeSettingsPatch({ model: 'deepseek-reasoner' })).toEqual({
+      sciforge: { model: 'deepseek-reasoner' }
     })
   })
 
-  it('applies a kun patch onto full app settings', () => {
+  it('applies a local runtime patch onto full app settings', () => {
     const current = settings()
-    const next = applyKunRuntimePatch(current, { model: 'deepseek-reasoner' })
-    expect(next.agents.kun.model).toBe('deepseek-reasoner')
+    const next = applyLocalRuntimePatch(current, { model: 'deepseek-reasoner' })
+    expect(next.agents.sciforge.model).toBe('deepseek-reasoner')
     expect(getCodexRuntimeSettings(next)).toEqual(getCodexRuntimeSettings(current))
     expect(next.write).toEqual(current.write)
   })
 })
 
 describe('agent runtime settings', () => {
-  it('defaults to Kun while normalizing a Codex runtime settings slot', () => {
+  it('defaults to SciForge while normalizing a Codex runtime settings slot', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       agents: {
-        kun: defaultKunRuntimeSettings()
+        sciforge: defaultLocalRuntimeSettings()
       }
     })
 
-    expect(getActiveAgentRuntime(normalized)).toBe('kun')
+    expect(getActiveAgentRuntime(normalized)).toBe('sciforge')
     expect(getCodexRuntimeSettings(normalized)).toEqual(expect.objectContaining({
       command: 'codex',
       codexHome: DEFAULT_CODEX_DATA_DIR,
@@ -978,13 +957,13 @@ describe('agent runtime settings', () => {
     }))
   })
 
-  it('normalizes invalid runtime ids back to Kun', () => {
+  it('normalizes invalid runtime ids back to SciForge', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       activeAgentRuntime: 'mystery-runtime'
     } as unknown as AppSettingsV1)
 
-    expect(getActiveAgentRuntime(normalized)).toBe('kun')
+    expect(getActiveAgentRuntime(normalized)).toBe('sciforge')
   })
 
   it('preserves Claude Code as an active runtime with default settings', () => {
@@ -992,7 +971,7 @@ describe('agent runtime settings', () => {
       ...settings(),
       activeAgentRuntime: 'claude',
       agents: {
-        kun: defaultKunRuntimeSettings(),
+        sciforge: defaultLocalRuntimeSettings(),
         codex: defaultCodexRuntimeSettings(),
         claude: {
           ...defaultClaudeRuntimeSettings(),
@@ -1010,7 +989,7 @@ describe('agent runtime settings', () => {
     }))
   })
 
-  it('does not require a Kun API key when Codex is the active runtime', () => {
+  it('does not require a local runtime API key when Codex is the active runtime', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       activeAgentRuntime: 'codex',
@@ -1052,7 +1031,7 @@ describe('agent runtime settings', () => {
     expect(normalized.modelRouter).toBeDefined()
     const modelRouter = normalized.modelRouter!
     expect(modelRouter.baseUrl).toBe('http://127.0.0.1:3892/v1')
-    expect(resolveKunRuntimeSettings(normalized).baseUrl).toBe('http://127.0.0.1:3892/v1')
+    expect(resolveLocalRuntimeSettings(normalized).baseUrl).toBe('http://127.0.0.1:3892/v1')
     expect(resolveWriteInlineCompletionBaseUrl(normalized)).toBe('http://127.0.0.1:3892/v1')
   })
 
@@ -1076,14 +1055,14 @@ describe('agent runtime settings', () => {
     })
   })
 
-  it('applies a codex patch without changing Kun settings', () => {
+  it('applies a codex patch without changing SciForge settings', () => {
     const current = settings()
     const next = applyCodexRuntimePatch(current, {
       codexHome: '/tmp/codex-home',
       approvalPolicy: 'never'
     })
 
-    expect(next.agents.kun).toEqual(current.agents.kun)
+    expect(next.agents.sciforge).toEqual(current.agents.sciforge)
     expect(getCodexRuntimeSettings(next)).toEqual(expect.objectContaining({
       codexHome: '/tmp/codex-home',
       approvalPolicy: 'never'
@@ -1110,108 +1089,48 @@ describe('agent runtime settings', () => {
   })
 })
 
-describe('legacy Kun defaults migration', () => {
-  it('normalizes old master settings without an agents.kun envelope', () => {
+describe('local runtime settings normalization', () => {
+  it('drops local runtime credential fields without mutating provider settings', () => {
     const normalized = normalizeAppSettings({
-      version: 1,
-      locale: 'zh',
-      theme: 'dark',
-      uiFontScale: 'small',
-      agentProvider: 'deepseek-runtime',
-      deepseek: {
-        binaryPath: '/usr/local/bin/deepseek',
-        port: 8787,
-        autoStart: false,
-        apiKey: 'sk-old',
-        baseUrl: 'https://api.deepseek.com',
-        runtimeToken: 'old-token',
-        extraCorsOrigins: [],
-        approvalPolicy: 'on-request',
-        sandboxMode: 'read-only'
-      },
-      workspaceRoot: '/tmp/legacy-workspace',
-      log: { enabled: true, retentionDays: 2 },
-      notifications: { turnComplete: true },
-      guiUpdate: { channel: 'frontier' },
-      claw: defaultClawSettings()
-    } as unknown as AppSettingsV1)
+      ...settings(),
+      agents: {
+        sciforge: {
+          ...defaultLocalRuntimeSettings(),
+          apiKey: 'sk-runtime-old',
+          baseUrl: 'https://runtime-old.example/v1'
+        } as unknown as AppSettingsV1['agents']['sciforge']
+      }
+    })
 
-    expect(normalized.agents.kun).toEqual(expect.objectContaining({
-      binaryPath: '',
-      port: 8787,
-      autoStart: false,
-      runtimeToken: 'old-token',
-      approvalPolicy: 'on-request',
-      sandboxMode: 'read-only'
-    }))
     expect(normalized.provider).toEqual(expect.objectContaining({
-      apiKey: 'sk-old',
-      baseUrl: 'https://api.deepseek.com'
+      apiKey: settings().provider.apiKey,
+      baseUrl: settings().provider.baseUrl
     }))
-    expect('agentProvider' in normalized).toBe(false)
-    expect('deepseek' in normalized).toBe(false)
+    expect('apiKey' in normalized.agents.sciforge).toBe(false)
+    expect('baseUrl' in normalized.agents.sciforge).toBe(false)
   })
 
-  it('moves the legacy local HTTP default port to the Kun default port', () => {
-    const migrated = migrateLegacyAppSettings({
-      version: 1,
-      agentProvider: 'deepseek-runtime',
-      deepseek: {
-        port: 7878
-      }
-    } as unknown as Parameters<typeof migrateLegacyAppSettings>[0])
-
-    expect(migrated.agents?.kun?.port).toBe(8899)
-  })
-
-  it('uses the current approval policy default for missing legacy local HTTP settings', () => {
-    const migrated = migrateLegacyAppSettings({
-      version: 1,
-      agentProvider: 'deepseek-runtime',
-      deepseek: {}
-    } as unknown as Parameters<typeof migrateLegacyAppSettings>[0])
-
-    expect(migrated.agents?.kun?.approvalPolicy).toBe(DEFAULT_APPROVAL_POLICY)
-  })
-
-  it('upgrades old persisted Kun defaults to the current defaults', () => {
-    const migrated = migrateLegacyAppSettings({
-      version: 1,
+  it('preserves local runtime model and data directory overrides', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
       agents: {
-        kun: {
-          dataDir: '~/.deepseekgui/coreagent',
-          model: 'deepseek-chat'
-        }
-      }
-    } as Parameters<typeof migrateLegacyAppSettings>[0])
-
-    expect(migrated.agents?.kun).toEqual(expect.objectContaining({
-      dataDir: DEFAULT_KUN_DATA_DIR,
-      model: DEFAULT_KUN_MODEL
-    }))
-  })
-
-  it('preserves a non-legacy Kun model override', () => {
-    const migrated = migrateLegacyAppSettings({
-      version: 1,
-      agents: {
-        kun: {
-          dataDir: '/tmp/custom-kun',
+        sciforge: {
+          ...defaultLocalRuntimeSettings(),
+          dataDir: '/tmp/custom-sciforge',
           model: 'deepseek-v4-flash'
         }
       }
-    } as Parameters<typeof migrateLegacyAppSettings>[0])
+    } as AppSettingsV1)
 
-    expect(migrated.agents?.kun).toEqual(expect.objectContaining({
-      dataDir: '/tmp/custom-kun',
+    expect(normalized.agents.sciforge).toEqual(expect.objectContaining({
+      dataDir: '/tmp/custom-sciforge',
       model: 'deepseek-v4-flash'
     }))
   })
 
-  it('preserves custom model providers while migrating legacy settings', () => {
-    const migrated = normalizeAppSettings({
+  it('preserves custom model providers without runtime credential migration', () => {
+    const normalized = normalizeAppSettings({
       ...settings(),
-      agentProvider: 'deepseek-runtime',
       provider: {
         apiKey: 'sk-default',
         baseUrl: 'https://api.deepseek.com',
@@ -1228,15 +1147,15 @@ describe('legacy Kun defaults migration', () => {
         ]
       },
       agents: {
-        kun: {
-          ...defaultKunRuntimeSettings(),
+        sciforge: {
+          ...defaultLocalRuntimeSettings(),
           providerId: 'custom-provider-2',
           model: 'custom-model'
         }
       }
     } as unknown as AppSettingsV1)
 
-    expect(migrated.provider.providers).toEqual(
+    expect(normalized.provider.providers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: 'custom-provider-2',
@@ -1248,8 +1167,8 @@ describe('legacy Kun defaults migration', () => {
         })
       ])
     )
-    expect(migrated.agents.kun.providerId).toBe('custom-provider-2')
-    expect(resolveKunRuntimeSettings(migrated)).toEqual(
+    expect(normalized.agents.sciforge.providerId).toBe('custom-provider-2')
+    expect(resolveLocalRuntimeSettings(normalized)).toEqual(
       expect.objectContaining({
         apiKey: '',
         baseUrl: 'http://127.0.0.1:3892/v1',
@@ -1287,7 +1206,7 @@ describe('schedule settings', () => {
       lastStatus: 'idle' as const,
       lastMessage: '',
       lastThreadId: '',
-      runtimeId: 'kun' as const,
+      runtimeId: 'sciforge' as const,
       agentThreadIds: {}
     }
     const normalized = normalizeAppSettings({
@@ -1323,7 +1242,7 @@ describe('schedule settings', () => {
     expect(merged.tasks[0].reasoningEffort).toBe('medium')
   })
 
-  it('migrates legacy scheduled task threads to Kun mappings', () => {
+  it('migrates legacy scheduled task threads to SciForge mappings', () => {
     const normalized = normalizeScheduleSettings({
       tasks: [{
         id: 'task-1',
@@ -1337,23 +1256,23 @@ describe('schedule settings', () => {
     } as unknown as AppSettingsV1['schedule'])
 
     expect(normalized.tasks[0]).toMatchObject({
-      runtimeId: 'kun',
+      runtimeId: 'sciforge',
       lastThreadId: 'legacy-task-thread',
-      agentThreadIds: { kun: 'legacy-task-thread' }
+      agentThreadIds: { sciforge: 'legacy-task-thread' }
     })
     expect(normalized.tasks[0].agentThreadIds?.codex).toBeUndefined()
   })
 
-  it('round-trips Codex scheduled task mappings while keeping Kun mappings', () => {
+  it('round-trips Codex scheduled task mappings while keeping SciForge mappings', () => {
     const current = normalizeScheduleSettings({
       tasks: [{
         id: 'task-1',
         title: 'Codex task',
         prompt: 'Run',
-        lastThreadId: 'kun-task-thread',
+        lastThreadId: 'sciforge-task-thread',
         runtimeId: 'codex',
         agentThreadIds: {
-          kun: 'kun-task-thread',
+          sciforge: 'sciforge-task-thread',
           codex: 'codex-task-thread'
         }
       }]
@@ -1361,9 +1280,9 @@ describe('schedule settings', () => {
 
     expect(current.tasks[0]).toMatchObject({
       runtimeId: 'codex',
-      lastThreadId: 'kun-task-thread',
+      lastThreadId: 'sciforge-task-thread',
       agentThreadIds: {
-        kun: 'kun-task-thread',
+        sciforge: 'sciforge-task-thread',
         codex: 'codex-task-thread'
       }
     })
@@ -1376,9 +1295,9 @@ describe('schedule settings', () => {
     })
 
     expect(merged.tasks[0].runtimeId).toBe('codex')
-    expect(merged.tasks[0].lastThreadId).toBe('kun-task-thread')
+    expect(merged.tasks[0].lastThreadId).toBe('sciforge-task-thread')
     expect(merged.tasks[0].agentThreadIds).toEqual({
-      kun: 'kun-task-thread',
+      sciforge: 'sciforge-task-thread',
       codex: 'codex-task-thread'
     })
   })
@@ -1412,14 +1331,14 @@ describe('claw runtime prompts', () => {
     state.claw.channels = [{
       id: 'channel-1',
       provider: 'feishu',
-      label: 'kun',
+      label: 'sciforge',
       enabled: true,
       model: 'auto',
       threadId: '',
       workspaceRoot: '',
       conversations: [],
       agentProfile: {
-        name: 'kun',
+        name: 'sciforge',
         description: '',
         identity: '',
         personality: '',
@@ -1433,7 +1352,7 @@ describe('claw runtime prompts', () => {
     const prompt = buildClawRuntimePrompt(state, 'hi', { channel: state.claw.channels[0] })
 
     expect(prompt).toContain('[Claw managed instructions]')
-    expect(prompt).toContain('[Agent name]\nkun')
+    expect(prompt).toContain('[Agent name]\nsciforge')
     expect(prompt).not.toContain('gui_schedule')
     expect(prompt).not.toContain('scheduled-task tools')
   })
@@ -1445,7 +1364,7 @@ describe('claw runtime prompts', () => {
       '[Claw IM agent instructions]',
       '',
       '[Agent name]',
-      'kun',
+      'sciforge',
       '',
       '---',
       '[Current user request]',
@@ -1502,15 +1421,15 @@ describe('write inline completion runtime config', () => {
     expect(resolveWriteInlineCompletionBaseUrl(state)).toBe('http://127.0.0.1:3892/v1')
   })
 
-  it('uses the Model Router public alias instead of the Kun model', () => {
+  it('uses the Model Router public alias instead of the local runtime model', () => {
     const state = settings()
-    state.agents.kun.model = 'deepseek-chat'
+    state.agents.sciforge.model = 'deepseek-chat'
     expect(resolveWriteInlineCompletionModel(state)).toBe('sciforge-router')
   })
 
   it('ignores explicit write model overrides for runtime-facing calls', () => {
     const state = settings()
-    state.agents.kun.model = 'deepseek-chat'
+    state.agents.sciforge.model = 'deepseek-chat'
     state.write.inlineCompletion.inheritModel = false
     state.write.inlineCompletion.model = 'deepseek-v4-flash'
 
@@ -1519,7 +1438,7 @@ describe('write inline completion runtime config', () => {
 
   it('ignores explicit request models for runtime-facing calls', () => {
     const state = settings()
-    state.agents.kun.model = 'deepseek-chat'
+    state.agents.sciforge.model = 'deepseek-chat'
     expect(resolveWriteInlineCompletionModel(state, 'deepseek-v4-pro')).toBe('sciforge-router')
   })
 
@@ -1532,7 +1451,7 @@ describe('write inline completion runtime config', () => {
       ...state.modelRouter,
       runtimeApiKey: 'local-runtime-router-key'
     }
-    state.agents.kun.model = 'deepseek-chat'
+    state.agents.sciforge.model = 'deepseek-chat'
     const legacyInlineCompletion = { ...state.write.inlineCompletion } as Partial<AppSettingsV1['write']['inlineCompletion']>
     delete legacyInlineCompletion.apiKey
     delete legacyInlineCompletion.baseUrl
@@ -1547,7 +1466,7 @@ describe('write inline completion runtime config', () => {
 
   it('keeps legacy flash defaults behind the Model Router public alias', () => {
     const state = settings()
-    state.agents.kun.model = 'deepseek-chat'
+    state.agents.sciforge.model = 'deepseek-chat'
     const legacyInlineCompletion = {
       ...state.write.inlineCompletion,
       model: 'deepseek-v4-flash'

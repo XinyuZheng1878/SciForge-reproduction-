@@ -55,7 +55,7 @@ function thread(id: string, goal: ThreadGoal | null = null): NormalizedThread {
     updatedAt: '2026-06-04T00:00:00.000Z',
     model: 'deepseek-v4-pro',
     mode: 'agent',
-    workspace: '/workspace/deepseek-gui',
+    workspace: '/workspace/sciforge',
     status: 'idle',
     goal
   }
@@ -314,7 +314,7 @@ describe('chat-store-maintenance-actions goal actions', () => {
 
     await actions.compactActiveThread('manual compaction')
 
-    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('thr_existing', 'kun')
+    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('thr_existing', 'sciforge')
     expect(provider.compactThread).toHaveBeenCalledWith('thr_existing', 'manual compaction')
     expect(refreshThreads).toHaveBeenCalledTimes(1)
     expect(selectThread).toHaveBeenCalledWith('thr_existing')
@@ -532,7 +532,7 @@ describe('chat-store-maintenance-actions goal actions', () => {
   it('clears stale busy state when the runtime reports no active turn during interrupt', async () => {
     const { actions, drainQueuedMessages, provider, refreshThreads, state } = buildHarness()
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         logError: vi.fn(async () => undefined)
       }
     })

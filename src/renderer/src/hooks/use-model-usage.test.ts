@@ -8,7 +8,7 @@ function setAgentRuntimeUsage(agentRuntimeUsage: AgentRuntimeUsage): void {
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
-      dsGui: {
+      sciforge: {
         agentRuntime: {
           usage: agentRuntimeUsage
         }
@@ -23,7 +23,7 @@ afterEach(() => {
 })
 
 describe('model usage helpers', () => {
-  it('builds a semantic model usage query without exposing Kun endpoints', () => {
+  it('builds a semantic model usage query without exposing local runtime endpoints', () => {
     expect(
       (modelUsage as unknown as {
         buildModelUsageQuery(range: unknown, runtimeId?: AgentRuntimeId): unknown

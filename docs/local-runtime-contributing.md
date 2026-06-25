@@ -1,15 +1,15 @@
-# Kun 贡献指南:架构、设计模式与代码组织思想
+# SciForge Runtime 贡献指南:架构、设计模式与代码组织思想
 
 > 适用对象:任何想向 `kun/` 包贡献代码的工程师。
 > 阅读路径:第一次贡献可以按顺序读完全文;之后再回来查找具体章节。
-> 配套文档:[`kun-architecture.md`](./kun-architecture.md)
+> 配套文档:[`local-runtime-architecture.md`](./local-runtime-architecture.md)
 > 讲的是"为什么这样设计",本文讲的是"如何按这种设计写代码"。
 
 ---
 
 ## 1. 一句话总结
 
-**Kun 是一个严格执行 Ports & Adapters + Functional Core / Imperative
+**SciForge Runtime 是一个严格执行 Ports & Adapters + Functional Core / Imperative
 Shell 的 TypeScript 包**。每个修改都应当:
 
 1. 先在 `contracts/` 用 zod 写 schema,导出类型;
@@ -27,7 +27,7 @@ Shell 的 TypeScript 包**。每个修改都应当:
 
 ## 2. 整体架构:六边形 (Hexagonal / Ports & Adapters)
 
-Kun 的目录本身就是六边形的物理布局:
+SciForge Runtime 的目录本身就是六边形的物理布局:
 
 ```text
                        ┌─────────────────────────────┐
@@ -111,7 +111,7 @@ tests/contracts.test.ts   → 新增一个 variant 的 zod 解析测试
 
 ## 3. 核心设计模式
 
-Kun 同时使用了多个经典模式,它们互相加强而不是冲突。
+SciForge Runtime 同时使用了多个经典模式,它们互相加强而不是冲突。
 
 ### 3.1 Ports & Adapters (Hexagonal)
 
@@ -439,9 +439,9 @@ cache 路由"。
 
 ### 4.5 文档先于代码,但和代码同步
 
-- `docs/kun-architecture.md` 描述"为什么这样设计";
+- `docs/local-runtime-architecture.md` 描述"为什么这样设计";
 - `kun/README.md` 描述 CLI / env / data dir;
-- `docs/kun-contributing.md`(本文)描述"如何贡献";
+- `docs/local-runtime-contributing.md`(本文)描述"如何贡献";
 - `docs/AGENTS.md` 描述扩展时该改哪些文件。
 
 **贡献规则**:
@@ -560,7 +560,7 @@ cache 路由"。
 - [ ] 新增 ports/contracts/loop 函数都至少有 1 个测试
 - [ ] 跑 `cd kun && npm run typecheck && npm test`
 - [ ] 跑 `cd .. && npm run typecheck && npm test`
-- [ ] 不修改任何 `docs/kun-architecture.md` 描述以外的文件
+- [ ] 不修改任何 `docs/local-runtime-architecture.md` 描述以外的文件
       来"绕过" typecheck
 
 ### 6.2 推荐
@@ -569,8 +569,8 @@ cache 路由"。
       写在 PR 描述里
 - [ ] 改了 public contract 时,更新 `kun/README.md` 端点表
 - [ ] 借鉴/致谢有变化时,更新根目录 `README.md` 和 `README.en.md`
-- [ ] 新增 SSE 事件时,给 `docs/kun-architecture.md` 加一行
-- [ ] 在 `docs/kun-architecture.md` 的 borrow map 中(如未来
+- [ ] 新增 SSE 事件时,给 `docs/local-runtime-architecture.md` 加一行
+- [ ] 在 `docs/local-runtime-architecture.md` 的 borrow map 中(如未来
       添加 OpenAI-style 借鉴)说明设计来源
 
 ### 6.3 不做
@@ -607,7 +607,7 @@ cache 路由"。
 
 回到开头的"一句话总结":
 
-> **Kun 是一个严格执行 Ports & Adapters + Functional Core /
+> **SciForge Runtime 是一个严格执行 Ports & Adapters + Functional Core /
 > Imperative Shell 的 TypeScript 包**。
 
 每个新 PR 都按这个图走:定义 contract → 描述 port → 写 functional

@@ -12,7 +12,7 @@ import {
   defaultClaudeRuntimeSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
   defaultScheduleSettings,
@@ -46,7 +46,7 @@ function settings(): AppSettingsV1 {
     activeAgentRuntime: 'claude',
     provider: defaultModelProviderSettings(),
     agents: {
-      kun: defaultKunRuntimeSettings(),
+      sciforge: defaultLocalRuntimeSettings(),
       codex: defaultCodexRuntimeSettings(),
       claude: {
         ...defaultClaudeRuntimeSettings(),
@@ -56,7 +56,7 @@ function settings(): AppSettingsV1 {
     modelRouter: {
       ...defaultModelRouterSettings(),
       baseUrl: 'http://127.0.0.1:49876/v1',
-      publicModelAlias: 'deepseek-gui-router',
+      publicModelAlias: 'sciforge-router',
       runtimeApiKey: 'local-runtime-router-key'
     },
     workspaceRoot: '/tmp/sciforge-workspace',
@@ -468,8 +468,8 @@ describe('ClaudeCodeRuntimeService', () => {
       managedConfigDir: '/tmp/sciforge-claude-config',
       claudeAgentSdk: sdk,
       computerUseMcpLaunch: {
-        appPath: '/tmp/deepseek-gui-test-app',
-        execPath: '/tmp/deepseek-gui-test-app/SciForge',
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false
       }
     })

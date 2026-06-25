@@ -2,7 +2,7 @@
 
 ## 目标
 
-SciForge 需要同时支持 Kun、Codex app-server，以及后续可能新增的 runtime。架构目标是让入口、状态治理、事件语义和稳定性保护尽量共用；runtime 差异只留在 adapter 和 runtime 原生层。
+SciForge 需要同时支持 SciForge Runtime、Codex app-server，以及后续可能新增的 runtime。架构目标是让入口、状态治理、事件语义和稳定性保护尽量共用；runtime 差异只留在 adapter 和 runtime 原生层。
 
 ```text
 UI / Write / Claw / Schedule
@@ -20,7 +20,7 @@ UI / Write / Claw / Schedule
 
 - UI 对话、写作助手、Claw、定时任务都调用同一个 runtime host。
 - 入口可以提供场景参数，例如值守入口更严格的预算。
-- 入口不直接调用 Kun HTTP、Codex JSON-RPC 或任何 LLM API。
+- 入口不直接调用 SciForge Runtime HTTP、Codex JSON-RPC 或任何 LLM API。
 
 ### 公共治理层
 
@@ -54,7 +54,7 @@ Adapter 不负责业务策略；同类策略应上移到公共治理层。
 
 Runtime 原生层保留各自能力：
 
-- Kun 保留 AgentLoop、pre-exec tool host、ToolStormBreaker、request history hygiene。
+- SciForge Runtime 保留 AgentLoop、pre-exec tool host、ToolStormBreaker、request history hygiene。
 - Codex app-server 保留原生 sandbox、approval、file change、thread、session、JSON-RPC 生命周期。
 - 新 runtime 只要实现 adapter 合同并声明能力，就能接入公共治理层。
 
@@ -74,7 +74,7 @@ userInput = sync | async | unsupported
 
 示例：
 
-- Kun: `guard.toolStorm = native`，因为它能在工具执行前 suppress。
+- SciForge Runtime: `guard.toolStorm = native`，因为它能在工具执行前 suppress。
 - Codex: `guard.toolStorm = observe`，因为 GUI 侧主要通过已归一事件观察后纠偏。
 
 ## 工具循环治理
@@ -100,7 +100,7 @@ userInput = sync | async | unsupported
   -> 如果不支持 interrupt：标记 degraded，交给原生 runtime 收尾
 ```
 
-Kun 的 native guard 在执行前生效；公共层只消费它的结果事件。Codex 的 observe guard 在事件后生效，优先 steer，继续重复再 interrupt。
+SciForge Runtime 的 native guard 在执行前生效；公共层只消费它的结果事件。Codex 的 observe guard 在事件后生效，优先 steer，继续重复再 interrupt。
 
 ## 配置边界
 
@@ -115,7 +115,7 @@ runtimeGuards.budgets.defaultMaxToolEvents
 runtimeGuards.budgets.remoteGuardMaxToolEvents
 ```
 
-迁移时兼容读取旧的 `kunToolStorm` 或 `runtime.toolStorm` 字段，但写回新字段。UI 文案使用 Runtime Guard，不再使用 Kun-only 命名。
+设置只读取 `runtimeGuards.toolStorm`。UI 文案使用 Runtime Guard，不再使用默认运行时专属命名。
 
 ## 拓展规则
 
@@ -131,7 +131,7 @@ runtimeGuards.budgets.remoteGuardMaxToolEvents
 
 1. 先定义 runtime-neutral 事件或状态输入。
 2. 再定义 capability 开关。
-3. Kun/Codex adapter 分别声明支持程度。
+3. SciForge Runtime/Codex adapter 分别声明支持程度。
 4. 最后删除入口层或 runtime 分支里的重复逻辑。
 
 ## 风险控制

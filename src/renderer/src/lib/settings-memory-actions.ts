@@ -98,7 +98,7 @@ export function createSettingsMemoryActions(deps: SettingsMemoryActionsDeps): Se
         deps.setMemoryDraftContent('')
         deps.setNotice({
           tone: 'success',
-          message: deps.t('kunMemoryCreated')
+          message: deps.t('localRuntimeMemoryCreated')
         })
       } catch (error) {
         setError(error)
@@ -133,7 +133,7 @@ export function createSettingsMemoryActions(deps: SettingsMemoryActionsDeps): Se
         cancelEditingMemoryRecord()
         deps.setNotice({
           tone: 'success',
-          message: deps.t('kunMemoryUpdated')
+          message: deps.t('localRuntimeMemoryUpdated')
         })
       } catch (error) {
         setError(error)

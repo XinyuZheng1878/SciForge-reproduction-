@@ -1,16 +1,16 @@
 import { PAPER_RADAR_MCP_TOOL_CONTRACTS } from '../../packages/workers/paper-radar/src/contract'
 import { GUI_PAPER_RADAR_MCP_LAUNCH_FLAG } from './paper-radar-mcp-server'
 import {
-  buildExternalKunMcpJson,
-  buildManagedGuiKunMcpServerConfig,
+  buildExternalLocalRuntimeMcpJson,
+  buildManagedGuiLocalRuntimeMcpServerConfig,
   buildManagedGuiMcpJsonServerConfig,
   ELECTRON_RUN_AS_NODE_ENV,
   managedGuiMcpNames,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   resolveManagedGuiMcpCommand,
   resolveManagedGuiMcpNodeEntryPath,
   stringRecord,
-  syncExternalKunMcpJson,
+  syncExternalLocalRuntimeMcpJson,
   type JsonRecord,
   type ManagedGuiMcpDescriptor,
   type ManagedGuiMcpLaunchConfig
@@ -84,12 +84,12 @@ export function buildPaperRadarMcpServerConfig(
   })
 }
 
-export function buildPaperRadarKunMcpServerConfig(
+export function buildPaperRadarLocalRuntimeMcpServerConfig(
   launch: PaperRadarMcpLaunchConfig,
   existing: unknown = {}
 ): JsonRecord {
   const env = stringRecord((existing as { env?: unknown } | null)?.env)
-  return buildManagedGuiKunMcpServerConfig({
+  return buildManagedGuiLocalRuntimeMcpServerConfig({
     descriptor: GUI_PAPER_RADAR_MCP_DESCRIPTOR,
     launch,
     args: buildPaperRadarMcpArgs(launch),
@@ -103,14 +103,14 @@ export function buildSyncedPaperRadarMcpJson(
   launch: PaperRadarMcpLaunchConfig
 ): JsonRecord {
   void launch
-  return buildExternalKunMcpJson(existing, managedGuiMcpNames(GUI_PAPER_RADAR_MCP_DESCRIPTOR))
+  return buildExternalLocalRuntimeMcpJson(existing, managedGuiMcpNames(GUI_PAPER_RADAR_MCP_DESCRIPTOR))
 }
 
 export async function syncPaperRadarMcpConfig(
   launch: PaperRadarMcpLaunchConfig,
   paths: PaperRadarMcpConfigPaths = {}
 ): Promise<void> {
-  const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
+  const mcpJsonPath = paths.mcpJsonPath ?? resolveLocalRuntimeMcpJsonPath()
   void launch
-  await syncExternalKunMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_PAPER_RADAR_MCP_DESCRIPTOR))
+  await syncExternalLocalRuntimeMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_PAPER_RADAR_MCP_DESCRIPTOR))
 }

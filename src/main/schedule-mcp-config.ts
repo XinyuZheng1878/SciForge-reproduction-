@@ -2,21 +2,21 @@ import type { AppSettingsV1 } from '../shared/app-settings'
 import { GUI_SCHEDULE_MCP_LAUNCH_FLAG } from './schedule-mcp-server'
 import { SCHEDULE_TOOL_SIDE_EFFECTS } from '../../packages/workers/schedule/src/contract'
 import {
-  buildExternalKunMcpJson,
-  buildManagedGuiKunMcpServerConfig,
+  buildExternalLocalRuntimeMcpJson,
+  buildManagedGuiLocalRuntimeMcpServerConfig,
   buildManagedGuiMcpJsonServerConfig,
   ELECTRON_RUN_AS_NODE_ENV,
   managedGuiMcpNames,
-  resolveKunMcpJsonPath,
+  resolveLocalRuntimeMcpJsonPath,
   resolveManagedGuiMcpCommand,
   resolveManagedGuiMcpNodeEntryPath,
-  syncExternalKunMcpJson,
+  syncExternalLocalRuntimeMcpJson,
   type JsonRecord,
   type ManagedGuiMcpDescriptor,
   type ManagedGuiMcpLaunchConfig
 } from './managed-gui-mcp-config'
 
-export { resolveKunMcpJsonPath } from './managed-gui-mcp-config'
+export { resolveLocalRuntimeMcpJsonPath } from './managed-gui-mcp-config'
 
 export const GUI_SCHEDULE_MCP_SERVER_NAME = 'gui_schedule'
 const GUI_SCHEDULE_MCP_NODE_ENTRY = 'out/main/schedule-mcp-node-entry.js'
@@ -73,12 +73,12 @@ export function buildScheduleMcpServerConfig(
   })
 }
 
-export function buildScheduleKunMcpServerConfig(
+export function buildScheduleLocalRuntimeMcpServerConfig(
   settings: AppSettingsV1,
   launch: ScheduleMcpLaunchConfig,
   existing: unknown = {}
 ): JsonRecord {
-  return buildManagedGuiKunMcpServerConfig({
+  return buildManagedGuiLocalRuntimeMcpServerConfig({
     descriptor: GUI_SCHEDULE_MCP_DESCRIPTOR,
     launch,
     args: buildScheduleMcpArgs(settings, launch),
@@ -98,7 +98,7 @@ export function buildSyncedScheduleMcpJson(
 ): JsonRecord {
   void settings
   void launch
-  return buildExternalKunMcpJson(existing, managedGuiMcpNames(GUI_SCHEDULE_MCP_DESCRIPTOR))
+  return buildExternalLocalRuntimeMcpJson(existing, managedGuiMcpNames(GUI_SCHEDULE_MCP_DESCRIPTOR))
 }
 
 export function scheduleMcpSettingsChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
@@ -115,7 +115,7 @@ export async function syncScheduleMcpConfig(
 ): Promise<void> {
   void settings
   void launch
-  const mcpJsonPath = paths.mcpJsonPath ?? resolveKunMcpJsonPath()
+  const mcpJsonPath = paths.mcpJsonPath ?? resolveLocalRuntimeMcpJsonPath()
 
-  await syncExternalKunMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_SCHEDULE_MCP_DESCRIPTOR))
+  await syncExternalLocalRuntimeMcpJson(mcpJsonPath, managedGuiMcpNames(GUI_SCHEDULE_MCP_DESCRIPTOR))
 }

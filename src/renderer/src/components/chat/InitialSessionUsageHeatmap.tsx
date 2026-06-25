@@ -57,8 +57,8 @@ const MODEL_USAGE_BREAKDOWN_COLORS = {
 } as const
 const EMPTY_DAILY_USAGE_BUCKETS: DailyUsageBucket[] = []
 const DEFAULT_USAGE_RUNTIME_META: UsageRuntimeMeta = {
-  runtimeId: 'kun',
-  runtimeLabel: 'Kun',
+  runtimeId: 'sciforge',
+  runtimeLabel: 'SciForge Runtime',
   modelLabel: ''
 }
 const PENDING_DAILY_USAGE_STATE: DailyUsageState = {
@@ -223,7 +223,7 @@ function usageViewMode(state: DailyUsageState): UsageViewMode {
 
 function usageRuntimeLabel(runtimeId: AgentRuntimeId): string {
   if (runtimeId === 'claude') return 'Claude Code'
-  return runtimeId === 'codex' ? 'Codex' : 'Kun'
+  return runtimeId === 'codex' ? 'Codex' : 'SciForge Runtime'
 }
 
 function usageRuntimeMetaFromSettings(settings: AppSettingsV1): UsageRuntimeMeta {
@@ -233,7 +233,7 @@ function usageRuntimeMetaFromSettings(settings: AppSettingsV1): UsageRuntimeMeta
     ? getClaudeRuntimeSettings(settings).model
     : runtimeId === 'codex'
       ? getCodexRuntimeSettings(settings).model
-      : settings.agents.kun.model
+      : settings.agents.sciforge.model
   return {
     runtimeId,
     runtimeLabel,
@@ -797,11 +797,11 @@ export function InitialSessionUsageHeatmap(): ReactElement {
 
   useEffect(() => {
     let cancelled = false
-    if (typeof window === 'undefined' || typeof window.dsGui?.getSettings !== 'function') {
+    if (typeof window === 'undefined' || typeof window.sciforge?.getSettings !== 'function') {
       setRuntimeMeta(DEFAULT_USAGE_RUNTIME_META)
       return
     }
-    void window.dsGui.getSettings()
+    void window.sciforge.getSettings()
       .then((settings) => {
         if (!cancelled) setRuntimeMeta(usageRuntimeMetaFromSettings(settings))
       })

@@ -1,7 +1,7 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createReadStream } from 'node:fs'
-import { access, realpath, stat } from 'node:fs/promises'
-import { dirname, extname, isAbsolute, relative, resolve } from 'node:path'
+import { access, stat } from 'node:fs/promises'
+import { extname, isAbsolute, relative, resolve } from 'node:path'
 import type {
   WorkspaceFileTarget,
   WorkspaceHtmlPreviewResult
@@ -80,7 +80,7 @@ export class WorkspaceHtmlPreviewService {
 
   private async resolvePreviewRoot(input: WorkspaceFileTarget, targetPath: string): Promise<string> {
     const rawRoot = input.workspaceRoot?.trim()
-    if (!rawRoot) return realpath(dirname(targetPath)).catch(() => dirname(targetPath))
+    if (!rawRoot) throw new Error('Workspace root is required.')
     const root = await canonicalPath(resolve(expandHomePath(rawRoot)))
     const canonicalTarget = await canonicalPath(targetPath)
     if (!isWithin(root, canonicalTarget)) {

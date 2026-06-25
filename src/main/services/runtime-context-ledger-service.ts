@@ -333,7 +333,7 @@ function normalizeLedger(value: unknown): AgentRuntimeContextLedger | null {
 }
 
 function normalizeRuntimeId(value: unknown): AgentRuntimeId | null {
-  return value === 'kun' || value === 'codex' || value === 'claude' ? value : null
+  return value === 'sciforge' || value === 'codex' || value === 'claude' ? value : null
 }
 
 function normalizeStringArray(value: unknown): string[] | undefined {

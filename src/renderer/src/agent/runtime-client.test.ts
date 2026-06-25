@@ -3,7 +3,7 @@ import {
   defaultClawSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
-  defaultKunRuntimeSettings,
+  defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultScheduleSettings,
@@ -25,10 +25,7 @@ function settings(apiKey: string): AppSettingsV1 {
       runtimeApiKey: apiKey
     },
     agents: {
-      kun: {
-        ...defaultKunRuntimeSettings(),
-        apiKey
-      },
+      sciforge: defaultLocalRuntimeSettings(),
       codex: defaultCodexRuntimeSettings()
     },
     workspaceRoot: '/tmp/workspace',
@@ -54,7 +51,7 @@ describe('rendererRuntimeClient', () => {
   it('caches settings reads until invalidated', async () => {
     const getSettings = vi.fn(async () => settings('sk-1'))
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings,
         setSettings: vi.fn(),
         codex: {},
@@ -65,8 +62,8 @@ describe('rendererRuntimeClient', () => {
     const first = await rendererRuntimeClient.getSettings()
     const second = await rendererRuntimeClient.getSettings()
 
-    expect(first.agents.kun.apiKey).toBe('sk-1')
-    expect(second.agents.kun.apiKey).toBe('sk-1')
+    expect(first.modelRouter?.runtimeApiKey).toBe('sk-1')
+    expect(second.modelRouter?.runtimeApiKey).toBe('sk-1')
     expect(getSettings).toHaveBeenCalledTimes(1)
   })
 
@@ -74,7 +71,7 @@ describe('rendererRuntimeClient', () => {
     const getSettings = vi.fn(async () => settings('sk-1'))
     const setSettings = vi.fn(async () => settings('sk-2'))
     vi.stubGlobal('window', {
-      dsGui: {
+      sciforge: {
         getSettings,
         setSettings,
         codex: {},
@@ -86,8 +83,8 @@ describe('rendererRuntimeClient', () => {
     const next = await rendererRuntimeClient.setSettings({ workspaceRoot: '/tmp/next' })
     const cached = await rendererRuntimeClient.getSettings()
 
-    expect(next.agents.kun.apiKey).toBe('sk-2')
-    expect(cached.agents.kun.apiKey).toBe('sk-2')
+    expect(next.modelRouter?.runtimeApiKey).toBe('sk-2')
+    expect(cached.modelRouter?.runtimeApiKey).toBe('sk-2')
     expect(getSettings).toHaveBeenCalledTimes(1)
     expect(setSettings).toHaveBeenCalledTimes(1)
   })

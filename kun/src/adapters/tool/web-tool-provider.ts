@@ -1,4 +1,4 @@
-import type { KunCapabilitiesConfig, WebCapabilityConfig } from '../../contracts/capabilities.js'
+import type { LocalRuntimeCapabilitiesConfig, WebCapabilityConfig } from '../../contracts/capabilities.js'
 import type { WebFetchResult, WebProvider, WebSearchResult } from '../../ports/web-provider.js'
 import { sourceIdFor, UnavailableWebProvider } from '../../ports/web-provider.js'
 import type { CapabilityToolProvider } from './capability-registry.js'
@@ -33,7 +33,7 @@ export type WebToolProviderOptions = {
 }
 
 export function buildWebToolProviders(
-  config: KunCapabilitiesConfig['web'] | undefined,
+  config: LocalRuntimeCapabilitiesConfig['web'] | undefined,
   options: WebToolProviderOptions = {}
 ): WebToolProviderBuildResult {
   const web = config
