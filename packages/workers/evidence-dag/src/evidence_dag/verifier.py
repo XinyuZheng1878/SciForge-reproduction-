@@ -16,11 +16,15 @@ Per-node status uses noisy-OR aggregation against a threshold (default 0.7):
 from __future__ import annotations
 
 import json
+import logging
 import re
+from typing import Optional
 
 from .graph import ThreadGraph
 from .llm import LLM
 from .model import EdgeRel, NodeStatus, NodeType
+
+logger = logging.getLogger(__name__)
 
 # Both judges keep the "EDAG-TASK: nli" marker so the offline StubLLM routes them
 # to its nli handler; the real model reads the framing below.
@@ -54,6 +58,81 @@ def split_sentences(text: str) -> list[str]:
 # so the offline StubLLM (which returns {"entailment": ...}) keeps working.
 _SCORE_KEYS = ("support", "contradiction", "score", "entailment")
 
+# Greedy first-`{` to last-`}` capture, to pull a JSON object out of any prose the
+# model wrapped around it (e.g. "Here is the result: {...}. Hope this helps.").
+_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+# A score literal in [0,1]: 0, 1, 0.83, 1.0, .9 — but NOT a bare count like 3 or
+# 83, so "score depends on 3 factors" can't be misread as a 3.0/1.0 score.
+_SCORE_LITERAL = r"(0(?:\.\d+)?|1(?:\.0+)?|\.\d+)"
+
+# Numeric fallback used ONLY when JSON is unrecoverable: a recognised score key,
+# then a SHORT non-digit gap, then the score literal ("score is 0.83", "support:
+# 0.3"). Requiring the keyword to PRECEDE the number is what rejects prose like
+# "1 strong reason supports …" — there the stray "1" comes first, so it never
+# binds. The old fallback `re.search(r"([01](?:\.\d+)?)", raw)` grabbed exactly
+# that leading digit and returned 1.0, turning a hedged reply into a perfect score.
+_KEYED_NUM_RES = tuple(
+    (k, re.compile(rf"{k}\D{{0,20}}?{_SCORE_LITERAL}", re.IGNORECASE))
+    for k in _SCORE_KEYS
+)
+
+
+def _strip_code_fence(raw: str) -> str:
+    """Drop a leading ```/```json fence and a trailing ``` fence, if present."""
+    t = (raw or "").strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[^\n]*\n?", "", t)
+        t = re.sub(r"\n?```\s*$", "", t).strip()
+    return t
+
+
+def _score_from_obj(obj: object) -> Optional[float]:
+    if isinstance(obj, dict):
+        for k in _SCORE_KEYS:
+            if k in obj:
+                try:
+                    return _clamp(float(obj[k]))
+                except (TypeError, ValueError):
+                    continue
+    elif isinstance(obj, (int, float)) and not isinstance(obj, bool):
+        return _clamp(float(obj))
+    return None
+
+
+def parse_judge_score(raw: str) -> Optional[float]:
+    """Pull a 0..1 score out of a judge reply, robustly. Returns None when nothing
+    trustworthy is found (the caller then defaults to 0.0 and logs a warning).
+
+    Order of attempts:
+      1. strict JSON on the fence-stripped reply (handles ```json … ``` fences);
+      2. strict JSON on the first `{…}` object embedded in surrounding prose;
+      3. a KEY-ANCHORED numeric match (`support: 0.8`, `score=0.3`, …).
+    A bare number is honoured only when it parses as standalone JSON — never
+    scraped from arbitrary prose, so counts/list-markers can't masquerade as scores.
+    """
+    text = _strip_code_fence(raw)
+    candidates = [text]
+    m = _OBJ_RE.search(text)
+    if m:
+        candidates.append(m.group(0))
+    for cand in candidates:
+        try:
+            obj = json.loads(cand)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        score = _score_from_obj(obj)
+        if score is not None:
+            return score
+    for _key, pat in _KEYED_NUM_RES:
+        m = pat.search(text)
+        if m:
+            try:
+                return _clamp(float(m.group(1)))
+            except ValueError:
+                continue
+    return None
+
 
 def _judge(llm: LLM, system: str, premise: str, hypothesis: str) -> float:
     raw = llm.chat(
@@ -64,15 +143,14 @@ def _judge(llm: LLM, system: str, premise: str, hypothesis: str) -> float:
         temperature=0.0,
         max_tokens=200,
     )
-    try:
-        obj = json.loads(raw.strip().strip("`"))
-        for k in _SCORE_KEYS:
-            if isinstance(obj, dict) and k in obj:
-                return _clamp(float(obj[k]))
-    except (json.JSONDecodeError, TypeError, ValueError):
-        pass
-    m = re.search(r"([01](?:\.\d+)?)", raw)
-    return _clamp(float(m.group(1))) if m else 0.0
+    score = parse_judge_score(raw)
+    if score is None:
+        logger.warning(
+            "NLI judge reply not parseable as a 0..1 score; defaulting to 0.0. raw=%r",
+            (raw or "")[:200],
+        )
+        return 0.0
+    return score
 
 
 def nli_score(llm: LLM, premise: str, hypothesis: str) -> float:
