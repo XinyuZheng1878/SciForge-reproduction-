@@ -686,6 +686,20 @@ export function Workbench(): ReactElement {
     }),
     [activeThread?.workspace, codeWorkspaceRoots, workspaceRoot]
   )
+  const [fileTreeWorkspaceOverride, setFileTreeWorkspaceOverride] = useState<string | null>(null)
+  const fileTreeWorkspaceRoot = fileTreeWorkspaceOverride || activeWorkspaceReferenceRoot || workspaceRoot
+  const fileTreeWorkspaceGroups = useMemo(
+    () =>
+      fileTreeWorkspaceOverride
+        ? [{
+            id: `research-memory:${fileTreeWorkspaceOverride}`,
+            label: t('rightPanelResearchMemory'),
+            workspaceRoot: fileTreeWorkspaceOverride,
+            kind: 'worktree' as const
+          }]
+        : workspaceReferenceGroups,
+    [fileTreeWorkspaceOverride, t, workspaceReferenceGroups]
+  )
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.dsGui?.updateClawActiveThreadContext !== 'function') return
     if (!activeThreadId || route === 'claw' || (activeThread && isClawThread(activeThread, clawChannels))) {
@@ -1038,12 +1052,43 @@ export function Workbench(): ReactElement {
     const nextWorkspaceRoot = normalizeWorkspaceRoot(
       target.workspaceRoot || activeWorkspaceReferenceRoot || workspaceRoot
     )
+    const hasKnownWorkspaceGroup = workspaceReferenceGroups.some(
+      (group) => normalizeWorkspaceRoot(group.workspaceRoot) === nextWorkspaceRoot
+    )
+    setFileTreeWorkspaceOverride(hasKnownWorkspaceGroup ? null : nextWorkspaceRoot)
     setFileTreeInitialDirectory((current) => ({
       workspaceRoot: nextWorkspaceRoot,
       path: target.path,
       nonce: (current?.nonce ?? 0) + 1
     }))
     setFilePreviewTarget(null)
+    setRightPanelMode('file')
+  }
+
+  const toggleTopBarRightPanelMode = (mode: Exclude<RightPanelMode, null>): void => {
+    if (mode === 'file') setFileTreeWorkspaceOverride(null)
+    toggleRightPanelMode(mode)
+  }
+
+  const openResearchMemoryWorkspace = async (): Promise<void> => {
+    if (typeof window.dsGui?.prepareResearchMemoryWorkspace !== 'function') {
+      setError('Research Memory workspace actions are unavailable in this build.')
+      return
+    }
+    const result = await window.dsGui.prepareResearchMemoryWorkspace()
+    if (!result.ok) {
+      setError(result.message)
+      return
+    }
+    const memoryRoot = normalizeWorkspaceRoot(result.localPath)
+    setFileTreeWorkspaceOverride(memoryRoot)
+    setFileTreeInitialDirectory((current) => ({
+      workspaceRoot: memoryRoot,
+      path: '.agent',
+      nonce: (current?.nonce ?? 0) + 1
+    }))
+    setFilePreviewTarget(null)
+    setRightSidebarWidth((width) => Math.max(width, 360))
     setRightPanelMode('file')
   }
 
@@ -1916,15 +1961,15 @@ export function Workbench(): ReactElement {
             {rightPanelMode === 'file' && filePreviewTarget ? (
               <WorkspaceFilePreviewPanel
                 target={filePreviewTarget}
-                workspaceRoot={filePreviewTarget.workspaceRoot || activeWorkspaceReferenceRoot || workspaceRoot}
+                workspaceRoot={filePreviewTarget.workspaceRoot || fileTreeWorkspaceRoot}
                 className="h-full max-h-full w-full"
                 onClose={() => setFilePreviewTarget(null)}
                 onOpenDirectory={openFileTreeDirectory}
               />
             ) : rightPanelMode === 'file' ? (
               <ChatFileTreePanel
-                workspaceRoot={activeWorkspaceReferenceRoot || workspaceRoot}
-                workspaceGroups={workspaceReferenceGroups}
+                workspaceRoot={fileTreeWorkspaceRoot}
+                workspaceGroups={fileTreeWorkspaceGroups}
                 selectedPath={filePreviewTarget?.path}
                 initialDirectory={fileTreeInitialDirectory}
                 selectedReferences={composerFileReferences}
@@ -2156,7 +2201,7 @@ export function Workbench(): ReactElement {
                   ) : null}
                   <WorkbenchTopBar
                     rightPanelMode={rightPanelMode}
-                    onToggleRightPanelMode={toggleRightPanelMode}
+                    onToggleRightPanelMode={toggleTopBarRightPanelMode}
                     planPanelEnabled={Boolean(activeGuiPlan)}
                     paperRadarEnabled={paperRadarEnabled}
                     terminalOpen={terminalOpen}
@@ -2164,12 +2209,18 @@ export function Workbench(): ReactElement {
                     sideChatCount={currentSideConversations.length}
                     sideChatRunningCount={currentSideRunningCount}
                     sideChatOpen={sidePanel.open}
+                    researchMemoryOpen={rightPanelMode === 'file' && Boolean(fileTreeWorkspaceOverride)}
                     sideChatEnabled={
                       runtimeConnection === 'ready' &&
                       Boolean(activeThreadId) &&
                       runtimeCapabilities?.sideConversations !== false
                     }
                     onOpenSideChat={openSideChat}
+                    onOpenResearchMemory={() => {
+                      void openResearchMemoryWorkspace().catch((error) => {
+                        setError(error instanceof Error ? error.message : String(error))
+                      })
+                    }}
                     onOpenEvidenceDag={() => {
                       const id = (activeThreadId ?? '').trim()
                       if (id && typeof window.dsGui?.openEvidenceDag === 'function') {

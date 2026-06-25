@@ -45,6 +45,7 @@ function buildHarness(): {
   let state: ChatState
   state = {
     activeThreadId: 'thr_existing',
+    activeAgentRuntime: 'kun',
     blocks: [],
     busy: true,
     activeThreadContextState: null,
@@ -495,6 +496,8 @@ describe('chat-store-thread-actions queued messages', () => {
 
     expect(provider.sendUserMessage).toHaveBeenCalledWith('thr_existing', 'hello from UI', {
       mode: undefined,
+      workspace: '/workspace/deepseek-gui',
+      title: 'thr_existing',
       model: 'gpt-5.4',
       displayText: 'hello from UI'
     })
@@ -508,6 +511,48 @@ describe('chat-store-thread-actions queued messages', () => {
     ])
     expect(state.currentTurnUserId).toBe('runtime-user-1')
     expect(Object.keys(state.turnStartedAtByUserId)).toEqual(['runtime-user-1'])
+  })
+
+  it('keeps the active conversation stable when sending after switching runtime', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      rememberThreadRuntime: vi.fn(),
+      sendUserMessage: vi.fn(async () => ({
+        threadId: 'thr_existing',
+        turnId: 'turn-codex',
+        userMessageItemId: 'runtime-user-codex'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.activeAgentRuntime = 'codex'
+    state.lastSeq = 12
+    state.threads = [{
+      ...thread('thr_existing'),
+      runtimeId: 'kun'
+    }]
+
+    await expect(actions.sendMessage('continue with codex')).resolves.toBe(true)
+
+    expect(state.activeThreadId).toBe('thr_existing')
+    expect(state.threads.find((item) => item.id === 'thr_existing')?.runtimeId).toBe('codex')
+    expect(provider.sendUserMessage).toHaveBeenCalledWith(
+      'thr_existing',
+      'continue with codex',
+      expect.objectContaining({
+        workspace: '/workspace/deepseek-gui',
+        title: 'thr_existing'
+      })
+    )
+    expect(provider.subscribeThreadEvents).toHaveBeenCalledWith(
+      'thr_existing',
+      0,
+      expect.any(Object),
+      expect.any(AbortSignal)
+    )
+    expect(provider.rememberThreadRuntime).toHaveBeenLastCalledWith('thr_existing', 'codex')
   })
 
   it('sends only workspace-relative file references to the runtime provider', async () => {

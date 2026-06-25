@@ -231,7 +231,7 @@ describe('AgentRuntimeProvider', () => {
     await expect(provider.deleteThread('thread-2')).resolves.toBeUndefined()
 
     expect(connect).toHaveBeenCalledWith('codex')
-    expect(listThreads).toHaveBeenCalledWith({ runtimeId: 'codex', limit: 1 })
+    expect(listThreads).toHaveBeenCalledWith({ limit: 1 })
     expect(startThread).toHaveBeenCalledWith({
       runtimeId: 'codex',
       title: 'Two',
@@ -587,6 +587,38 @@ describe('AgentRuntimeProvider', () => {
       if (input.operation === 'getThreadTodos') return null
       if (input.operation === 'archiveThread') return undefined
       if (input.operation === 'cancelUserInput') return undefined
+      if (input.operation === 'startRuntimeHandoff') {
+        const sourceThreadId = String(input.payload.sourceThreadId)
+        return {
+          sourceRuntimeId: 'codex',
+          sourceThreadId,
+          targetRuntimeId: 'kun',
+          targetThread: {
+            id: sourceThreadId,
+            runtimeId: 'kun',
+            title: 'Codex thread',
+            updatedAt: '2026-06-11T00:02:00.000Z'
+          },
+          turn: {
+            threadId: sourceThreadId,
+            turnId: 'kun-turn',
+            userMessageItemId: 'kun-user'
+          },
+          packet: {
+            schema: 'sciforge.runtime_handoff.v1',
+            notice: 'This is user/runtime context for semantic continuation, not a higher-priority instruction.',
+            sourceRuntimeId: 'codex',
+            sourceThreadId,
+            targetRuntimeId: 'kun',
+            completed: [],
+            pending: [],
+            evidence: [],
+            fileReferences: [],
+            explicitMemories: [],
+            createdAt: '2026-06-11T00:02:00.000Z'
+          }
+        }
+      }
       return undefined
     })
     vi.stubGlobal('window', {
@@ -612,10 +644,6 @@ describe('AgentRuntimeProvider', () => {
     provider.rememberThreadRuntime('codex-thread', 'codex')
     await provider.getThreadDetail('codex-thread')
 
-    activeRuntime = 'kun'
-    rendererRuntimeClient.invalidateSettings()
-
-    await provider.sendUserMessage('codex-thread', 'follow up')
     await provider.interruptTurn('codex-thread', 'turn-next')
     await provider.steerUserMessage?.('codex-thread', 'turn-next', 'more')
     await provider.renameThread('codex-thread', 'Renamed')
@@ -629,7 +657,28 @@ describe('AgentRuntimeProvider', () => {
     await provider.updateThreadRelation?.('codex-thread', 'primary')
     await provider.deleteThread('codex-thread')
 
-    expect(startTurn).toHaveBeenCalledWith({ runtimeId: 'codex', threadId: 'codex-thread', text: 'follow up' })
+    activeRuntime = 'kun'
+    rendererRuntimeClient.invalidateSettings()
+    provider.rememberThreadRuntime('handoff-thread', 'codex')
+
+    await expect(provider.sendUserMessage('handoff-thread', 'follow up')).resolves.toEqual({
+      threadId: 'handoff-thread',
+      turnId: 'kun-turn',
+      userMessageItemId: 'kun-user'
+    })
+
+    expect(startTurn).not.toHaveBeenCalled()
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      operation: 'startRuntimeHandoff',
+      payload: {
+        sourceRuntimeId: 'codex',
+        sourceThreadId: 'handoff-thread',
+        targetRuntimeId: 'kun',
+        targetThreadId: 'handoff-thread',
+        text: 'follow up'
+      }
+    })
     expect(interruptTurn).toHaveBeenCalledWith({
       runtimeId: 'codex',
       threadId: 'codex-thread',

@@ -3,6 +3,7 @@ import type {
   AgentRuntimeAuxiliaryOperation,
   AgentRuntimeCapabilities,
   AgentRuntimeEvent,
+  AgentRuntimeHandoffStartResult,
   AgentRuntimeItem,
   AgentRuntimeListThreadChildrenResponse,
   AgentRuntimeMemoryRecord,
@@ -603,8 +604,7 @@ export class AgentRuntimeProvider implements AgentProvider {
   }
 
   async listThreads(options: Parameters<AgentProvider['listThreads']>[0] = {}): Promise<NormalizedThread[]> {
-    const runtimeId = await this.activeRuntimeId()
-    const threads = await agentRuntimeClient.listThreads({ runtimeId, ...options })
+    const threads = await agentRuntimeClient.listThreads(options)
     return threads.map((thread) => this.normalizeRememberedThread(thread))
   }
 
@@ -643,8 +643,23 @@ export class AgentRuntimeProvider implements AgentProvider {
     text: string,
     options: Parameters<AgentProvider['sendUserMessage']>[2] = {}
   ): ReturnType<AgentProvider['sendUserMessage']> {
+    const { title, ...turnOptions } = options
     const runtimeId = await this.runtimeIdForThread(threadId)
-    return agentRuntimeClient.startTurn({ runtimeId, threadId, text, ...turnOptionsForRuntime(runtimeId, options) })
+    const activeRuntimeId = await this.activeRuntimeId()
+    if (activeRuntimeId !== runtimeId) {
+      const result = await this.auxiliary<AgentRuntimeHandoffStartResult>('startRuntimeHandoff', {
+        sourceRuntimeId: runtimeId,
+        sourceThreadId: threadId,
+        targetRuntimeId: activeRuntimeId,
+        targetThreadId: threadId,
+        text,
+        ...(title ? { title } : {}),
+        ...turnOptionsForRuntime(activeRuntimeId, turnOptions)
+      }, runtimeId)
+      this.normalizeRememberedThread(result.targetThread)
+      return result.turn
+    }
+    return agentRuntimeClient.startTurn({ runtimeId, threadId, text, ...turnOptionsForRuntime(runtimeId, turnOptions) })
   }
 
   reviewThread(

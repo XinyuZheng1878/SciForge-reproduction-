@@ -9,7 +9,7 @@ describe('Codex app-server reasoning config', () => {
     expect(codexAppServerThreadReasoningConfig({ reasoningEffort: 'high' })).toEqual({
       model_reasoning_effort: 'high',
       show_raw_agent_reasoning: true,
-      model_reasoning_summary: 'auto'
+      model_reasoning_summary: 'detailed'
     })
   })
 
@@ -18,7 +18,7 @@ describe('Codex app-server reasoning config', () => {
 
     expect(params).toEqual({
       effort: 'low',
-      summary: 'auto'
+      summary: 'detailed'
     })
     expect(params).not.toHaveProperty('text')
     expect(params).not.toHaveProperty('reasoning_text')
@@ -33,14 +33,14 @@ describe('Codex app-server reasoning config', () => {
     })).toEqual({
       model_reasoning_effort: 'medium',
       show_raw_agent_reasoning: false,
-      model_reasoning_summary: 'auto'
+      model_reasoning_summary: 'detailed'
     })
     expect(codexAppServerTurnReasoningParams({
       reasoningEffort: null,
       reasoningSummary: ' '
     })).toEqual({
       effort: 'medium',
-      summary: 'auto'
+      summary: 'detailed'
     })
   })
 

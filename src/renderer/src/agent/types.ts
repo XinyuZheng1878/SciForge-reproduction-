@@ -497,6 +497,7 @@ export interface AgentProvider {
     options?: {
       mode?: string
       workspace?: string
+      title?: string
       model?: string
       reasoningEffort?: string
       governanceProfile?: 'default' | 'write' | 'remote_guard'

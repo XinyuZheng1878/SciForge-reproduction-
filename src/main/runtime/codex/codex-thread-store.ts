@@ -25,6 +25,18 @@ export type CodexThreadStoreOptions = {
   now?: () => Date
 }
 
+type CodexThreadStoreUpsertInput = {
+  guiThreadId?: string
+  codexThreadId: string
+  workspace?: string
+  title?: string
+  archived?: boolean
+  latestSeq?: number
+  latestTurnId?: string
+  latestUserMessageId?: string
+  updatedAt?: string
+}
+
 export class CodexThreadStore {
   private readonly filePath: string
   private readonly now: () => Date
@@ -57,63 +69,36 @@ export class CodexThreadStore {
     return snapshot.threads.find((thread) => thread.codexThreadId === id) ?? null
   }
 
-  async upsert(input: {
-    guiThreadId?: string
-    codexThreadId: string
-    workspace?: string
-    title?: string
-    archived?: boolean
-    latestSeq?: number
-    latestTurnId?: string
-    latestUserMessageId?: string
-    updatedAt?: string
-  }): Promise<CodexStoredThread> {
+  async upsert(input: CodexThreadStoreUpsertInput): Promise<CodexStoredThread> {
     return this.enqueue(async () => this.upsertNow(input))
   }
 
-  private async upsertNow(input: {
-    guiThreadId?: string
-    codexThreadId: string
-    workspace?: string
-    title?: string
-    archived?: boolean
-    latestSeq?: number
-    latestTurnId?: string
-    latestUserMessageId?: string
-    updatedAt?: string
-  }): Promise<CodexStoredThread> {
+  private async upsertNow(input: CodexThreadStoreUpsertInput): Promise<CodexStoredThread> {
     const codexThreadId = input.codexThreadId.trim()
     if (!codexThreadId) throw new Error('Codex thread id is required.')
+    const guiThreadId = stringValue(input.guiThreadId)
     const snapshot = await this.load()
-    const existingIndex = snapshot.threads.findIndex((thread) =>
+    const matchesInput = (thread: CodexStoredThread): boolean => (
       thread.codexThreadId === codexThreadId ||
-      (input.guiThreadId !== undefined && thread.guiThreadId === input.guiThreadId.trim())
+      (guiThreadId !== '' && thread.guiThreadId === guiThreadId)
     )
-    const existing = existingIndex >= 0 ? snapshot.threads[existingIndex] : null
     const now = this.now().toISOString()
     const updatedAt = validIso(input.updatedAt) ?? now
-    const next: CodexStoredThread = {
-      guiThreadId: nonEmpty(input.guiThreadId, existing?.guiThreadId ?? codexThreadId),
+    const matchingThreads = snapshot.threads.filter(matchesInput)
+    const next = mergeThreadRecords(matchingThreads, {
+      guiThreadId,
       codexThreadId,
-      runtimeId: 'codex',
-      workspace: nonEmpty(input.workspace, existing?.workspace ?? ''),
-      title: nonEmpty(input.title, existing?.title ?? 'Codex thread'),
-      createdAt: existing?.createdAt ?? now,
       updatedAt,
-      archived: input.archived ?? existing?.archived ?? false,
-      latestSeq: typeof input.latestSeq === 'number'
-        ? Math.max(0, Math.floor(input.latestSeq))
-        : existing?.latestSeq ?? 0,
-      ...(input.latestTurnId !== undefined
-        ? { latestTurnId: input.latestTurnId }
-        : existing?.latestTurnId ? { latestTurnId: existing.latestTurnId } : {}),
-      ...(input.latestUserMessageId !== undefined
-        ? { latestUserMessageId: input.latestUserMessageId }
-        : existing?.latestUserMessageId ? { latestUserMessageId: existing.latestUserMessageId } : {})
-    }
-    const threads = [...snapshot.threads]
-    if (existingIndex >= 0) threads[existingIndex] = next
-    else threads.push(next)
+      now,
+      workspace: input.workspace,
+      title: input.title,
+      archived: input.archived,
+      latestSeq: input.latestSeq,
+      latestTurnId: input.latestTurnId,
+      latestUserMessageId: input.latestUserMessageId
+    })
+    const threads = snapshot.threads.filter((thread) => !matchesInput(thread))
+    threads.push(next)
     await this.save({ version: 1, threads })
     return next
   }
@@ -172,7 +157,7 @@ function normalizeSnapshot(raw: unknown): CodexThreadStoreSnapshot {
   const threads = Array.isArray(record.threads)
     ? record.threads.map(normalizeThread).filter((thread): thread is CodexStoredThread => Boolean(thread))
     : []
-  return { version: 1, threads }
+  return { version: 1, threads: dedupeThreads(threads) }
 }
 
 function parseSnapshotJson(raw: string): unknown {
@@ -241,6 +226,127 @@ function normalizeThread(raw: unknown): CodexStoredThread | null {
     ...(stringValue(record.latestTurnId) ? { latestTurnId: stringValue(record.latestTurnId) } : {}),
     ...(stringValue(record.latestUserMessageId) ? { latestUserMessageId: stringValue(record.latestUserMessageId) } : {})
   }
+}
+
+function dedupeThreads(threads: CodexStoredThread[]): CodexStoredThread[] {
+  const groups: CodexStoredThread[][] = []
+  for (const thread of threads) {
+    const matchingIndexes = groups
+      .map((group, index) => ({ group, index }))
+      .filter(({ group }) => group.some((candidate) => sameThreadIdentity(candidate, thread)))
+      .map(({ index }) => index)
+    if (matchingIndexes.length === 0) {
+      groups.push([thread])
+      continue
+    }
+    const [firstIndex, ...otherIndexes] = matchingIndexes
+    groups[firstIndex].push(thread)
+    for (const index of [...otherIndexes].sort((a, b) => b - a)) {
+      groups[firstIndex].push(...groups[index])
+      groups.splice(index, 1)
+    }
+  }
+  return groups.map((group) => mergeThreadRecords(group))
+}
+
+function sameThreadIdentity(a: CodexStoredThread, b: CodexStoredThread): boolean {
+  return a.guiThreadId === b.guiThreadId || a.codexThreadId === b.codexThreadId
+}
+
+function mergeThreadRecords(
+  records: CodexStoredThread[],
+  overrides: {
+    guiThreadId?: string
+    codexThreadId?: string
+    workspace?: string
+    title?: string
+    archived?: boolean
+    latestSeq?: number
+    latestTurnId?: string
+    latestUserMessageId?: string
+    updatedAt?: string
+    now?: string
+  } = {}
+): CodexStoredThread {
+  const preferredRecords = [...records].sort(compareThreadActivity)
+  const preferred = preferredRecords[0]
+  const now = validIso(overrides.now) ?? new Date(0).toISOString()
+  const guiThreadId = nonEmpty(overrides.guiThreadId, preferred?.guiThreadId ?? overrides.codexThreadId ?? '')
+  const codexThreadId = nonEmpty(overrides.codexThreadId, preferred?.codexThreadId ?? guiThreadId)
+  return {
+    guiThreadId,
+    codexThreadId,
+    runtimeId: 'codex',
+    workspace: chooseString([overrides.workspace, ...preferredRecords.map((thread) => thread.workspace)]),
+    title: chooseDisplayTitle([overrides.title, ...preferredRecords.map((thread) => thread.title)]) ?? 'Codex thread',
+    createdAt: earliestIso(preferredRecords.map((thread) => thread.createdAt)) ?? now,
+    updatedAt: validIso(overrides.updatedAt) ?? latestIso(preferredRecords.map((thread) => thread.updatedAt)) ?? now,
+    archived: overrides.archived ?? preferred?.archived ?? false,
+    latestSeq: Math.max(
+      numberValue(overrides.latestSeq),
+      ...preferredRecords.map((thread) => thread.latestSeq)
+    ),
+    ...optionalString('latestTurnId', overrides.latestTurnId, preferredRecords),
+    ...optionalString('latestUserMessageId', overrides.latestUserMessageId, preferredRecords)
+  }
+}
+
+function compareThreadActivity(a: CodexStoredThread, b: CodexStoredThread): number {
+  return b.latestSeq - a.latestSeq ||
+    timestampValue(b.updatedAt) - timestampValue(a.updatedAt) ||
+    timestampValue(b.createdAt) - timestampValue(a.createdAt)
+}
+
+function chooseString(values: unknown[]): string {
+  for (const value of values) {
+    const text = stringValue(value)
+    if (text) return text
+  }
+  return ''
+}
+
+function chooseDisplayTitle(values: unknown[]): string | null {
+  for (const value of values) {
+    const title = stringValue(value)
+    if (title && !isGeneratedRuntimeTitle(title)) return title
+  }
+  return null
+}
+
+function isGeneratedRuntimeTitle(title: string): boolean {
+  return title.includes('<sciforge_runtime_instruction>') ||
+    title.includes('Runtime context ledger for this thread:')
+}
+
+function optionalString(
+  key: 'latestTurnId' | 'latestUserMessageId',
+  override: string | undefined,
+  records: CodexStoredThread[]
+): Partial<Pick<CodexStoredThread, 'latestTurnId' | 'latestUserMessageId'>> {
+  if (override !== undefined) return override ? { [key]: override } : {}
+  const value = records.map((thread) => thread[key]).find((candidate) => stringValue(candidate))
+  return value ? { [key]: value } : {}
+}
+
+function earliestIso(values: string[]): string | null {
+  return validIsoBy(values, (a, b) => a - b)
+}
+
+function latestIso(values: string[]): string | null {
+  return validIsoBy(values, (a, b) => b - a)
+}
+
+function validIsoBy(values: string[], compare: (a: number, b: number) => number): string | null {
+  const valid = values
+    .map((value) => ({ value: validIso(value), timestamp: timestampValue(value) }))
+    .filter((item): item is { value: string; timestamp: number } => item.value !== null)
+    .sort((a, b) => compare(a.timestamp, b.timestamp))
+  return valid[0]?.value ?? null
+}
+
+function timestampValue(value: string): number {
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : 0
 }
 
 function nonEmpty(value: unknown, fallback: string): string {

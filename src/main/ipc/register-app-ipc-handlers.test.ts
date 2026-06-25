@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { shell } from 'electron'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -361,6 +361,35 @@ describe('registerAppIpcHandlers', () => {
     await expect(dispatcher.invoke('settings:set', payload, sender)).resolves.toEqual(settings())
     expect(applySettingsPatch).toHaveBeenCalledWith(payload)
     expect(handlers.get('settings:set')).toBeTypeOf('function')
+  })
+
+  it('routes HTML preview requests through the dev browser dispatcher', async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), 'sciforge-html-ipc-'))
+    const htmlPath = join(workspaceRoot, 'status.html')
+    writeFileSync(htmlPath, '<!doctype html><title>Status</title>')
+    const { workspaceHtmlPreviewService } = await import('../services/workspace-html-preview-service')
+    try {
+      const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+      const sender = createSender(902)
+
+      const dispatcher = registerAppIpcHandlers(registerOptions())
+      const result = await dispatcher.invoke(
+        'file:preview-workspace-html',
+        { path: htmlPath, workspaceRoot },
+        sender
+      )
+
+      expect(result).toMatchObject({
+        ok: true,
+        path: realpathSync(htmlPath),
+        workspaceRoot: realpathSync(workspaceRoot)
+      })
+      expect((result as { url?: string }).url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/status\.html/)
+      expect(handlers.get('file:preview-workspace-html')).toBeTypeOf('function')
+    } finally {
+      await workspaceHtmlPreviewService.close()
+      rmSync(workspaceRoot, { recursive: true, force: true })
+    }
   })
 
   it('routes neutral agent runtime IPC calls through the injected host', async () => {

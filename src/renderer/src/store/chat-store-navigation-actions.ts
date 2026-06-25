@@ -90,11 +90,6 @@ type StoreActionContext = {
 let bootPromise: Promise<void> | null = null
 let clawChannelActivityUnsubscribe: (() => void) | null = null
 
-function threadBelongsToActiveRuntime(thread: NormalizedThread | null, activeRuntime: AgentRuntimeId): boolean {
-  if (!thread) return false
-  return (thread.runtimeId ?? 'kun') === activeRuntime
-}
-
 function stateHasRecoverableActiveTurn(state: ChatState): boolean {
   return state.busy || Boolean(state.currentTurnId) || state.blocks.some(hasPendingRuntimeWork)
 }
@@ -489,7 +484,6 @@ export function createNavigationActions(
     if (get().runtimeConnection !== 'ready') return
     try {
       const p = getProvider()
-      const activeRuntime = getActiveAgentRuntime(await rendererRuntimeClient.getSettings())
       let rawThreads: NormalizedThread[]
       try {
         rawThreads = await p.listThreads({ limit: 200, includeArchived: true })
@@ -519,7 +513,7 @@ export function createNavigationActions(
       const forkRegistry = hydrateThreadForkRegistry(sidebarThreads, readThreadForkRegistry())
       saveThreadForkRegistry(forkRegistry)
       const enrichedThreads = enrichThreadsWithForkInfo(sidebarThreads, forkRegistry)
-      // Preserve the active Kun thread when it is not in the listing yet.
+      // Preserve the active runtime thread when it is not in the listing yet.
       // A brand-new thread can be absent from `listThreads` until the first
       // message is written. Without this, the optimistic thread would be wiped
       // from the sidebar and its live turn aborted by the selection clearing
@@ -548,26 +542,20 @@ export function createNavigationActions(
         activeThreadIsSdd && activeId
           ? activeRawThread ?? get().threads.find((thread) => thread.id === activeId) ?? null
           : null
-      const activeRuntimeSddThread = threadBelongsToActiveRuntime(preservedSddActiveThread, activeRuntime)
-        ? preservedSddActiveThread
-        : null
       const pendingActiveThread =
         activeId != null &&
         !activeThreadFilteredFromCodeSidebar &&
         !enrichedThreads.some((thread) => thread.id === activeId)
           ? get().threads.find((thread) => thread.id === activeId) ?? null
           : null
-      const activeRuntimePendingThread = threadBelongsToActiveRuntime(pendingActiveThread, activeRuntime)
-        ? pendingActiveThread
-        : null
-      let displayThreads = activeRuntimePendingThread
-        ? [activeRuntimePendingThread, ...enrichedThreads]
+      let displayThreads = pendingActiveThread
+        ? [pendingActiveThread, ...enrichedThreads]
         : enrichedThreads
       if (
-        activeRuntimeSddThread &&
-        !displayThreads.some((thread) => thread.id === activeRuntimeSddThread.id)
+        preservedSddActiveThread &&
+        !displayThreads.some((thread) => thread.id === preservedSddActiveThread.id)
       ) {
-        displayThreads = [activeRuntimeSddThread, ...displayThreads]
+        displayThreads = [preservedSddActiveThread, ...displayThreads]
       }
       const activeThreadId = get().activeThreadId
       const activeThread = activeThreadId
@@ -577,8 +565,28 @@ export function createNavigationActions(
         get().route === 'chat' &&
         activeThread != null &&
         isClawThread(activeThread, get().clawChannels)
+      const activeThreadHasLocalConversation =
+        activeId != null &&
+        (
+          get().blocks.length > 0 ||
+          Boolean((get().liveAssistant ?? '').trim()) ||
+          Boolean((get().liveReasoning ?? '').trim()) ||
+          stateHasRecoverableActiveTurn(get())
+        )
       const shouldClearSelection =
-        activeThreadId != null && !displayThreads.some((thread) => thread.id === activeThreadId)
+        activeThreadId != null &&
+        !activeThreadHasLocalConversation &&
+        !displayThreads.some((thread) => thread.id === activeThreadId)
+      const locallyActiveThread =
+        activeThreadHasLocalConversation && activeId
+          ? activeRawThread ?? get().threads.find((thread) => thread.id === activeId) ?? null
+          : null
+      if (
+        locallyActiveThread &&
+        !displayThreads.some((thread) => thread.id === locallyActiveThread.id)
+      ) {
+        displayThreads = [locallyActiveThread, ...displayThreads]
+      }
       if (shouldClearSelection) {
         sseAbortRef.current?.abort()
         sseAbortRef.current = null

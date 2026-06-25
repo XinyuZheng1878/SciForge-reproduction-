@@ -6,7 +6,9 @@ import {
   DEFAULT_APPROVAL_POLICY,
   DEFAULT_CODEX_DATA_DIR,
   DEFAULT_CLAUDE_CONFIG_DIR,
+  defaultAgentCapabilitySettings,
   defaultCodexRuntimeSettings,
+  getAgentCapabilitySettings,
   getClaudeRuntimeSettings,
   defaultKunRuntimeSettings,
   defaultModelProviderSettings,
@@ -25,6 +27,7 @@ describe('JsonSettingsStore', () => {
 
     expect(loaded.guiUpdate.channel).toBe(DEFAULT_GUI_UPDATE_CHANNEL)
     expect(loaded.activeAgentRuntime).toBe('kun')
+    expect(getAgentCapabilitySettings(loaded)).toEqual(defaultAgentCapabilitySettings())
     expect(loaded.agents.kun.approvalPolicy).toBe(DEFAULT_APPROVAL_POLICY)
     expect(getCodexRuntimeSettings(loaded).codexHome).toBe(DEFAULT_CODEX_DATA_DIR)
     expect(getClaudeRuntimeSettings(loaded).configDir).toBe(DEFAULT_CLAUDE_CONFIG_DIR)
@@ -34,6 +37,36 @@ describe('JsonSettingsStore', () => {
       closeToTray: false
     })
     expect(loaded.speechToText).toEqual(defaultSpeechToTextSettings())
+  })
+
+  it('patches shared agent capability settings', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+
+    const store = new JsonSettingsStore(userDataDir)
+    const next = await store.patch({
+      agentCapabilities: {
+        subagents: {
+          enabled: false,
+          maxParallel: 3
+        }
+      }
+    })
+
+    expect(getAgentCapabilitySettings(next)).toEqual({
+      subagents: {
+        enabled: false,
+        maxParallel: 3,
+        maxChildRuns: 4
+      }
+    })
+    const raw = JSON.parse(await readFile(join(userDataDir, 'sciforge-settings.json'), 'utf8'))
+    expect(raw.agentCapabilities).toMatchObject({
+      subagents: {
+        enabled: false,
+        maxParallel: 3,
+        maxChildRuns: 4
+      }
+    })
   })
 
   it('patches the active runtime and Claude Code settings without changing Kun', async () => {
@@ -115,6 +148,27 @@ describe('JsonSettingsStore', () => {
       profile: 'work',
       extraArgs: ['--search']
     }))
+  })
+
+  it('backfills shared agent capability settings into existing settings files', async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), 'ds-gui-settings-'))
+
+    await writeFile(
+      join(userDataDir, 'sciforge-settings.json'),
+      JSON.stringify({
+        version: 1,
+        agents: {
+          kun: defaultKunRuntimeSettings()
+        }
+      }),
+      'utf8'
+    )
+
+    const store = new JsonSettingsStore(userDataDir)
+    await store.load()
+
+    const raw = JSON.parse(await readFile(join(userDataDir, 'sciforge-settings.json'), 'utf8'))
+    expect(raw.agentCapabilities).toEqual(defaultAgentCapabilitySettings())
   })
 
   it('creates a default write workspace with welcome.md', async () => {

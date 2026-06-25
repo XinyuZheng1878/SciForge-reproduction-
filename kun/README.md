@@ -217,7 +217,7 @@ Shape:
       "legacySkillMd": true
     },
     "subagents": {
-      "enabled": false,
+      "enabled": true,
       "maxParallel": 2,
       "maxChildRuns": 4
     },

@@ -62,6 +62,7 @@ import {
   GUI_RESEARCH_MCP_SERVER_NAME,
   type ResearchSearchMcpLaunchConfig
 } from '../../research-search-mcp-config'
+import type { ResearchMemoryMcpLaunchConfig } from '../../research-memory-mcp-config'
 import type { ScheduleMcpLaunchConfig } from '../../schedule-mcp-config'
 import {
   GUI_COMPUTER_USE_MCP_SERVER_NAME,
@@ -98,6 +99,7 @@ export type CodexRuntimeServiceOptions = {
   managedCodexHome?: string
   scheduleMcpLaunch?: ScheduleMcpLaunchConfig
   researchMcpLaunch?: ResearchSearchMcpLaunchConfig
+  researchMemoryMcpLaunch?: ResearchMemoryMcpLaunchConfig
   workflowMcpLaunch?: WorkflowMcpLaunchConfig
   workspaceIntelMcpLaunch?: WorkspaceIntelMcpLaunchConfig
   paperRadarMcpLaunch?: PaperRadarMcpLaunchConfig
@@ -283,6 +285,8 @@ export class CodexRuntimeService {
         ...thread,
         workspace: thread.workspace || workspace,
         title: payload.title || thread.title
+      }, {
+        ...(payload.threadId ? { guiThreadId: payload.threadId } : {})
       })
       await this.emitRuntimeStatus({
         threadId: storedThread?.guiThreadId ?? thread.id,
@@ -748,6 +752,7 @@ export class CodexRuntimeService {
         managedCodexHome: this.options.managedCodexHome,
         scheduleMcpLaunch: this.options.scheduleMcpLaunch,
         researchMcpLaunch: this.options.researchMcpLaunch,
+        researchMemoryMcpLaunch: this.options.researchMemoryMcpLaunch,
         workflowMcpLaunch: this.options.workflowMcpLaunch,
         workspaceIntelMcpLaunch: this.options.workspaceIntelMcpLaunch,
         paperRadarMcpLaunch: this.options.paperRadarMcpLaunch,
@@ -1724,6 +1729,9 @@ function codexDynamicMcpServers(
     researchMcp: options.researchMcpLaunch
       ? { launch: options.researchMcpLaunch }
       : undefined,
+    researchMemoryMcp: options.researchMemoryMcpLaunch && settings
+      ? { settings, launch: options.researchMemoryMcpLaunch }
+      : undefined,
     workflowMcp: options.workflowMcpLaunch && settings
       ? { settings, launch: options.workflowMcpLaunch }
       : undefined,
@@ -2019,7 +2027,13 @@ function itemBlock(item: Record<string, unknown>, turnId: string, createdAt?: st
   }
   if (type === 'reasoning') {
     const text = [...arrayValue(item.summary), ...arrayValue(item.content)]
-      .map((entry) => typeof entry === 'string' ? entry : '')
+      .map((entry) => {
+        if (typeof entry === 'string') return entry
+        const record = asRecord(entry)
+        return stringValue(record?.text) ||
+          stringValue(record?.summary) ||
+          stringValue(record?.content)
+      })
       .filter(Boolean)
       .join('\n')
     return text ? [{ kind: 'reasoning', id, createdAt, ...turnMeta, text }] : []

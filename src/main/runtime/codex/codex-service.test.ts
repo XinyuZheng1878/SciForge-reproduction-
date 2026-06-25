@@ -1453,12 +1453,12 @@ describe('CodexRuntimeService compatibility operations', () => {
       config: {
         model_reasoning_effort: 'medium',
         show_raw_agent_reasoning: true,
-        model_reasoning_summary: 'auto'
+        model_reasoning_summary: 'detailed'
       }
     }))
     expect(client.startTurn).toHaveBeenCalledWith(expect.objectContaining({
       effort: 'high',
-      summary: 'auto'
+      summary: 'detailed'
     }))
   })
 

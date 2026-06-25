@@ -11,7 +11,9 @@ import {
   LEGACY_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   isKunRuntimeInsecure,
   isComputerUseEnabledForRuntime,
+  normalizeAgentCapabilitySettings,
   normalizeRuntimeGuardSettings,
+  type AgentCapabilitySettingsV1,
   resolveKunRuntimeSettings,
   type RuntimeGuardSettingsV1,
   type KunRuntimeSettingsV1,
@@ -43,6 +45,7 @@ import {
   type ScheduleMcpLaunchConfig
 } from './schedule-mcp-config'
 import type { ResearchSearchMcpLaunchConfig } from './research-search-mcp-config'
+import type { ResearchMemoryMcpLaunchConfig } from './research-memory-mcp-config'
 import type { ComputerUseMcpLaunchConfig } from './computer-use-mcp-config'
 import {
   GUI_WORKFLOW_INTERNAL_SECRET_ENV,
@@ -313,6 +316,7 @@ async function startKunChildOnce(
   }
   const dataDir = resolveKunDataDir(runtime)
   await syncGuiManagedKunConfig(dataDir, runtime, {
+    agentCapabilities: settings.agentCapabilities,
     runtimeGuards: normalizeRuntimeGuardSettings(settings.runtimeGuards),
     scheduleMcp: {
       settings,
@@ -323,6 +327,14 @@ async function startKunChildOnce(
       }
     },
     researchMcp: {
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+    },
+    researchMemoryMcp: {
+      settings,
       launch: {
         appPath: app.getAppPath(),
         execPath: process.execPath,
@@ -476,6 +488,7 @@ export async function syncGuiManagedKunConfig(
     'mcpSearch' | 'tokenEconomy' | 'storage' | 'contextCompaction' | 'runtimeTuning'
   >,
   options?: {
+    agentCapabilities?: AgentCapabilitySettingsV1
     runtimeGuards?: RuntimeGuardSettingsV1
     scheduleMcp?: {
       settings: AppSettingsV1
@@ -483,6 +496,10 @@ export async function syncGuiManagedKunConfig(
     }
     researchMcp?: {
       launch: ResearchSearchMcpLaunchConfig
+    }
+    researchMemoryMcp?: {
+      settings: AppSettingsV1
+      launch: ResearchMemoryMcpLaunchConfig
     }
     workflowMcp?: {
       settings: AppSettingsV1
@@ -532,12 +549,15 @@ export async function syncGuiManagedKunConfig(
   const attachments = objectValue(capabilities.attachments)
   const web = objectValue(capabilities.web)
   const skills = objectValue(capabilities.skills)
+  const subagents = objectValue(capabilities.subagents)
+  const agentCapabilities = normalizeAgentCapabilitySettings(options?.agentCapabilities)
   const storage = storageConfigForRuntime(runtime.storage)
   const mcpSearch = runtime.mcpSearch
   const skillCapability = await skillCapabilityConfigForRuntime(skills, options?.scheduleMcp?.settings)
   const managedMcpServers = buildKunManagedGuiMcpServers({
     scheduleMcp: options?.scheduleMcp,
     researchMcp: options?.researchMcp,
+    researchMemoryMcp: options?.researchMemoryMcp,
     workflowMcp: options?.workflowMcp,
     workspaceIntelMcp: options?.workspaceIntelMcp,
     paperRadarMcp: options?.paperRadarMcp,
@@ -567,11 +587,18 @@ export async function syncGuiManagedKunConfig(
         fetchEnabled: web.fetchEnabled === false ? false : true
       },
       skills: skillCapability,
+      subagents: {
+        ...subagents,
+        enabled: agentCapabilities.subagents.enabled,
+        maxParallel: agentCapabilities.subagents.maxParallel,
+        maxChildRuns: agentCapabilities.subagents.maxChildRuns
+      },
       mcp: {
         ...mcp,
         ...(
           options?.scheduleMcp ||
           options?.researchMcp ||
+          options?.researchMemoryMcp ||
           options?.workflowMcp ||
           options?.workspaceIntelMcp ||
           options?.paperRadarMcp ||
@@ -852,6 +879,12 @@ function runtimeTuningConfigForRuntime(
       maxStringBytes: runtimeTuning.toolArgumentRepair.maxStringBytes
     }
   }
+}
+
+function boundedPositiveInt(value: unknown, fallback: number, max: number): number {
+  const numberValue = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(numberValue) || numberValue <= 0) return fallback
+  return Math.min(numberValue, max)
 }
 
 async function readJsonObjectIfExists(path: string): Promise<Record<string, unknown> | null> {

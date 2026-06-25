@@ -72,7 +72,7 @@ import type { ServerRuntime } from './server-runtime.js'
  * - `POST /v1/threads/{id}/compact` (auth)
  * - `GET /v1/threads/{id}/events` (auth)
  * - `GET /v1/threads/{id}/children` (auth)
- * - `GET /v1/threads/{id}/children/{childId}/transcript` (auth, degraded until transcripts persist)
+ * - `GET /v1/threads/{id}/children/{childId}/transcript` (auth)
  * - `POST /v1/approvals/{id}` (auth)
  * - `POST /v1/user-inputs/{id}` and `/v1/user-input/{id}` (auth)
  * - `POST /v1/sessions/{id}/resume-thread` (auth)

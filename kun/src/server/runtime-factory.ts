@@ -22,6 +22,7 @@ import { LocalWorkspaceInspector } from '../adapters/workspace/local-workspace-i
 import { createImmutablePrefix } from '../cache/immutable-prefix.js'
 import {
   buildRuntimeCapabilityManifest,
+  DEFAULT_KUN_CAPABILITIES_CONFIG,
   type KunCapabilitiesConfig
 } from '../contracts/capabilities.js'
 import type { ApprovalPolicy, SandboxMode } from '../contracts/policy.js'
@@ -164,20 +165,21 @@ export async function createKunServeRuntime(
     ...(tokenEconomy ? { tokenEconomy } : {}),
     ...(options.runtime ? { runtime: options.runtime } : {})
   })
-  const mcpProviders = await buildMcpToolProviders(options.capabilities?.mcp)
-  const webProviders = buildWebToolProviders(options.capabilities?.web)
-  const skillRuntime = await SkillRuntime.create(options.capabilities?.skills)
-  const attachmentStore = options.capabilities?.attachments.enabled
+  const capabilityConfig = options.capabilities ?? DEFAULT_KUN_CAPABILITIES_CONFIG
+  const mcpProviders = await buildMcpToolProviders(capabilityConfig.mcp)
+  const webProviders = buildWebToolProviders(capabilityConfig.web)
+  const skillRuntime = await SkillRuntime.create(capabilityConfig.skills)
+  const attachmentStore = capabilityConfig.attachments.enabled
     ? new FileAttachmentStore({
         rootDir: join(options.dataDir, 'attachments'),
-        config: options.capabilities.attachments,
+        config: capabilityConfig.attachments,
         nowIso
       })
     : undefined
-  const memoryStore = options.capabilities?.memory.enabled
+  const memoryStore = capabilityConfig.memory.enabled
     ? new FileMemoryStore({
         rootDir: join(options.dataDir, 'memory'),
-        config: options.capabilities.memory,
+        config: capabilityConfig.memory,
         nowIso
       })
     : undefined
@@ -195,9 +197,9 @@ export async function createKunServeRuntime(
   ]
   const childRegistry = new CapabilityRegistry(baseToolProviders)
   const childToolHost = new LocalToolHost({ registry: childRegistry, readTracker: true })
-  const delegationRuntime = options.capabilities?.subagents.enabled
+  const delegationRuntime = capabilityConfig.subagents.enabled
     ? new DelegationRuntime({
-        config: options.capabilities.subagents,
+        config: capabilityConfig.subagents,
         store: new FileDelegationStore(join(options.dataDir, 'child-runs')),
         events,
         nowIso,
@@ -223,10 +225,10 @@ export async function createKunServeRuntime(
       })
     : undefined
   const capabilities = buildRuntimeCapabilityManifest({
-    config: options.capabilities,
+    config: capabilityConfig,
     model: modelCapabilitiesForModel(options.model, modelProfiles),
     mcp: {
-      configuredServers: Object.keys(options.capabilities?.mcp.servers ?? {}).length,
+      configuredServers: Object.keys(capabilityConfig.mcp.servers).length,
       connectedServers: mcpProviders.connectedServers,
       toolCount: mcpProviders.toolCount,
       lastError: mcpProviders.diagnostics.find((diagnostic) => diagnostic.lastError)?.lastError,
@@ -242,9 +244,9 @@ export async function createKunServeRuntime(
       provider: webProviders.provider,
       reason: webProviders.diagnostics.find((diagnostic) => diagnostic.reason)?.reason
     },
-    research: researchCapabilityInput(options.capabilities, mcpProviders.diagnostics),
+    research: researchCapabilityInput(capabilityConfig, mcpProviders.diagnostics),
     skills: {
-      configuredRoots: options.capabilities?.skills.roots.length,
+      configuredRoots: capabilityConfig.skills.roots.length,
       discoveredSkills: skillRuntime.count(),
       reason: skillRuntime.diagnostics().validationErrors[0]?.message
     },

@@ -2,11 +2,13 @@ import {
   DEFAULT_GUI_UPDATE_CHANNEL,
   normalizeGuiUpdateChannel,
   type AppBehaviorConfigV1,
+  type AgentCapabilitySettingsPatchV1,
   type AppSettingsV1,
   type ComputerUseSettingsPatchV1,
   type ClawSettingsPatchV1,
   type GuiUpdateConfigV1,
   type NotificationConfigV1,
+  type ResearchMemorySettingsPatchV1,
   type ScheduleSettingsPatchV1,
   type SpeechToTextSettingsPatchV1,
   type WorkflowSettingsPatchV1,
@@ -41,6 +43,8 @@ import { normalizeWorkflowSettings } from './app-settings-workflow'
 import { normalizeWriteSettings } from './app-settings-write'
 import { normalizeSpeechToTextSettings } from './speech-to-text'
 import { normalizeComputerUseSettings } from './app-settings-computer-use'
+import { normalizeResearchMemorySettings } from './app-settings-research-memory'
+import { normalizeAgentCapabilitySettings } from './app-settings-agent-capabilities'
 
 export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
   const migrated = shouldMigrateLegacySettings(settings)
@@ -59,7 +63,9 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     speechToText?: SpeechToTextSettingsPatchV1
     guiUpdate?: Partial<GuiUpdateConfigV1>
     runtimeGuards?: Parameters<typeof normalizeRuntimeGuardSettings>[0]
+    agentCapabilities?: AgentCapabilitySettingsPatchV1
     computerUse?: ComputerUseSettingsPatchV1
+    researchMemory?: ResearchMemorySettingsPatchV1
     kunToolStorm?: unknown
     runtime?: { toolStorm?: unknown }
   }
@@ -87,7 +93,9 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
       kunToolStorm: maybeSettings.kunToolStorm,
       runtimeToolStorm: maybeSettings.runtime?.toolStorm
     }),
+    agentCapabilities: normalizeAgentCapabilitySettings(maybeSettings.agentCapabilities),
     computerUse: normalizeComputerUseSettings(maybeSettings.computerUse),
+    researchMemory: normalizeResearchMemorySettings(maybeSettings.researchMemory),
     activeAgentRuntime: normalizeAgentRuntimeId(maybeSettings.activeAgentRuntime),
     agents: {
       ...kunSettingsEnvelope(mergeKunRuntimeSettings(defaultKunRuntimeSettings(), {

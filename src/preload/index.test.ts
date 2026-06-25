@@ -72,12 +72,18 @@ describe('preload agentRuntime bridge', () => {
   it('keeps PDF preview on the generic workspace file IPC channel', async () => {
     const api = exposedApi as {
       readWorkspaceFile(options: unknown): Promise<unknown>
+      previewWorkspaceHtml(options: unknown): Promise<unknown>
     }
 
     await api.readWorkspaceFile({ path: 'paper.pdf', workspaceRoot: '/tmp/workspace' })
+    await api.previewWorkspaceHtml({ path: 'status.html', workspaceRoot: '/tmp/workspace' })
 
     expect(invoke).toHaveBeenCalledWith('file:read-workspace', {
       path: 'paper.pdf',
+      workspaceRoot: '/tmp/workspace'
+    })
+    expect(invoke).toHaveBeenCalledWith('file:preview-workspace-html', {
+      path: 'status.html',
       workspaceRoot: '/tmp/workspace'
     })
   })

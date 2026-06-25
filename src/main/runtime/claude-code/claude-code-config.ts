@@ -68,6 +68,7 @@ export async function prepareClaudeCodeSdkLaunch(options: {
   text: string
   workspace?: string
   sessionId?: string
+  reasoningEffort?: string
   env?: NodeJS.ProcessEnv
   managedConfigDir?: string
   computerUseMcpLaunch?: ComputerUseMcpLaunchConfig
@@ -94,11 +95,13 @@ export async function prepareClaudeCodeSdkLaunch(options: {
   const mcpServers = claudeCodeMcpServers(
     isComputerUseEnabledForRuntime(options.settings, 'claude') ? options.computerUseMcpLaunch : undefined
   )
+  const reasoningOptions = claudeCodeReasoningOptions(options.reasoningEffort)
   const sdkOptions: ClaudeAgentSdkOptions = {
     cwd,
     env,
     model: cliModel,
     permissionMode,
+    ...reasoningOptions,
     ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
     ...(options.sessionId ? { resume: options.sessionId } : {}),
     ...(pathToClaudeCodeExecutable ? { pathToClaudeCodeExecutable } : {}),
@@ -123,6 +126,48 @@ function claudeCodeMcpServers(
   return buildClaudeCodeManagedGuiMcpServers(
     computerUseMcpLaunch ? { computerUseMcp: { launch: computerUseMcpLaunch } } : {}
   )
+}
+
+function claudeCodeReasoningOptions(
+  reasoningEffort: string | undefined
+): Pick<ClaudeAgentSdkOptions, 'thinking' | 'effort' | 'includePartialMessages'> {
+  const normalized = normalizeClaudeReasoningEffort(reasoningEffort)
+  if (!normalized) return {}
+  if (normalized === 'off') {
+    return {
+      thinking: { type: 'disabled' }
+    }
+  }
+  return {
+    thinking: { type: 'adaptive', display: 'summarized' },
+    effort: normalized,
+    includePartialMessages: true
+  }
+}
+
+function normalizeClaudeReasoningEffort(value: string | undefined): 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined {
+  const normalized = value?.trim().toLowerCase()
+  switch (normalized) {
+    case 'off':
+    case 'none':
+    case 'disabled':
+      return 'off'
+    case 'minimal':
+    case 'low':
+      return 'low'
+    case 'medium':
+      return 'medium'
+    case 'high':
+      return 'high'
+    case 'xhigh':
+    case 'extra-high':
+    case 'extra_high':
+      return 'xhigh'
+    case 'max':
+      return 'max'
+    default:
+      return undefined
+  }
 }
 
 export function resolveClaudeWorkspace(settings: AppSettingsV1, workspace?: string): string {

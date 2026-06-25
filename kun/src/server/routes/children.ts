@@ -37,12 +37,53 @@ export async function listThreadChildren(
   })
 }
 
-export function readChildTranscript(
-  _runtime: ServerRuntime,
+export async function readChildTranscript(
+  runtime: ServerRuntime,
   threadId: string,
   childId: string
+): Promise<JsonResponse> {
+  if (!runtime.delegationRuntime) {
+    return degradedChildTranscript(threadId, childId, 'Kun subagents are disabled or unavailable.')
+  }
+  const child = await runtime.delegationRuntime.child(threadId, childId)
+  if (!child) {
+    return degradedChildTranscript(threadId, childId, 'Kun child agent run was not found.')
+  }
+  return jsonResponse({
+    transcript: {
+      runtimeId: 'kun',
+      threadId,
+      parentThreadId: threadId,
+      childId,
+      parentTurnId: child.parentTurnId,
+      child,
+      transcriptRef: {
+        id: child.id,
+        kind: 'runtime',
+        runtimeId: 'kun',
+        childId: child.id,
+        transcriptId: child.id,
+        source: 'kun-child-run',
+        label: child.label || child.id
+      },
+      format: 'jsonl',
+      entries: child.transcript,
+      summary: child.summary,
+      usage: child.usage,
+      ...(child.error ? { reason: child.error } : {}),
+      metadata: {
+        source: 'kun.child-runs',
+        status: child.status
+      }
+    }
+  })
+}
+
+function degradedChildTranscript(
+  threadId: string,
+  childId: string,
+  reason: string
 ): JsonResponse {
-  const reason = 'Kun child agent transcripts are not persisted by the runtime yet.'
   return jsonResponse({
     transcript: {
       runtimeId: 'kun',

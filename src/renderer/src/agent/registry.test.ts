@@ -159,17 +159,17 @@ describe('registry provider selector', () => {
     expect(first).toBe(second)
   })
 
-  it('passes the active Kun runtime id through neutral IPC', async () => {
+  it('lists shared threads through neutral IPC while Kun is active', async () => {
     const { forbiddenDirectCall, codexListThreads, agentRuntimeListThreads } = installDsGui('kun')
 
     await expect(getProvider().listThreads()).resolves.toEqual([])
 
-    expect(agentRuntimeListThreads).toHaveBeenCalledWith({ runtimeId: 'kun' })
+    expect(agentRuntimeListThreads).toHaveBeenCalledWith({})
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(codexListThreads).not.toHaveBeenCalled()
   })
 
-  it('passes the active Codex runtime id through neutral IPC', async () => {
+  it('lists shared threads through neutral IPC while Codex is active', async () => {
     const { forbiddenDirectCall, codexListThreads, agentRuntimeListThreads } = installDsGui('codex')
     const provider = getProvider()
 
@@ -177,7 +177,7 @@ describe('registry provider selector', () => {
     expect(provider.id).toBe('codex')
     await expect(provider.listThreads()).resolves.toEqual([])
 
-    expect(agentRuntimeListThreads).toHaveBeenCalledWith({ runtimeId: 'codex' })
+    expect(agentRuntimeListThreads).toHaveBeenCalledWith({})
     expect(codexListThreads).not.toHaveBeenCalled()
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })

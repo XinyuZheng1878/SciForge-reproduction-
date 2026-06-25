@@ -20,7 +20,9 @@ import {
   getActiveAgentRuntime,
   mergeKunRuntimeSettings,
   mergeClawSettings,
+  mergeAgentCapabilitySettings,
   mergeComputerUseSettings,
+  mergeResearchMemorySettings,
   mergeModelProviderSettings,
   mergeScheduleSettings,
   mergeWorkflowSettings,
@@ -68,6 +70,7 @@ import { GitCheckpointService } from './services/git-checkpoint-service'
 import { SharedMemoryService } from './services/shared-memory-service'
 import { RuntimeGoalService } from './services/runtime-goal-service'
 import { WorkspaceReferenceService } from './services/workspace-reference-service'
+import { workspaceHtmlPreviewService } from './services/workspace-html-preview-service'
 import {
   createPaperRadarWorkerService,
   type PaperRadarWorkerService
@@ -85,6 +88,7 @@ import {
 } from './schedule-mcp-config'
 import type { ComputerUseMcpLaunchConfig } from './computer-use-mcp-config'
 import type { ResearchSearchMcpLaunchConfig } from './research-search-mcp-config'
+import type { ResearchMemoryMcpLaunchConfig } from './research-memory-mcp-config'
 import type { WorkflowMcpLaunchConfig } from './workflow-mcp-config'
 import type { WorkspaceIntelMcpLaunchConfig } from './workspace-intel-mcp-config'
 import type { PaperRadarMcpLaunchConfig } from './paper-radar-mcp-config'
@@ -172,6 +176,14 @@ function getScheduleMcpLaunchConfig(): ScheduleMcpLaunchConfig {
 }
 
 function getResearchSearchMcpLaunchConfig(): ResearchSearchMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged
+  }
+}
+
+function getResearchMemoryMcpLaunchConfig(): ResearchMemoryMcpLaunchConfig {
   return {
     appPath: app.getAppPath(),
     execPath: process.execPath,
@@ -337,6 +349,7 @@ function getCodexRuntime(): CodexRuntimeService {
       : join(process.cwd(), '.codex-runtime', 'codex-home'),
     scheduleMcpLaunch: getScheduleMcpLaunchConfig(),
     researchMcpLaunch: getResearchSearchMcpLaunchConfig(),
+    researchMemoryMcpLaunch: getResearchMemoryMcpLaunchConfig(),
     workflowMcpLaunch: getWorkflowMcpLaunchConfig(),
     workspaceIntelMcpLaunch: getWorkspaceIntelMcpLaunchConfig(),
     paperRadarMcpLaunch: getPaperRadarMcpLaunchConfig(),
@@ -1515,7 +1528,9 @@ app.whenReady().then(async () => {
     const {
       agents: agentsPatch,
       provider: providerPatch,
+      agentCapabilities: agentCapabilitiesPatch,
       computerUse: computerUsePatch,
+      researchMemory: researchMemoryPatch,
       speechToText: speechToTextPatch,
       ...restPatch
     } = partial
@@ -1526,7 +1541,9 @@ app.whenReady().then(async () => {
       ),
       ...restPatch,
       provider: mergeModelProviderSettings(prev.provider, providerPatch),
+      agentCapabilities: mergeAgentCapabilitySettings(prev.agentCapabilities, agentCapabilitiesPatch),
       computerUse: mergeComputerUseSettings(prev.computerUse, computerUsePatch),
+      researchMemory: mergeResearchMemorySettings(prev.researchMemory, researchMemoryPatch),
       log: { ...prev.log, ...(partial.log ?? {}) },
       notifications: { ...prev.notifications, ...(partial.notifications ?? {}) },
       appBehavior: normalizeAppBehaviorSettings({
@@ -1708,6 +1725,9 @@ app.on('will-quit', () => {
   devBrowserBridgeServer = null
   void server?.close().catch((error) => {
     console.warn('[sciforge dev] failed to stop browser bridge:', error)
+  })
+  void workspaceHtmlPreviewService.close().catch((error) => {
+    console.warn('[sciforge] failed to stop HTML preview server:', error)
   })
 })
 

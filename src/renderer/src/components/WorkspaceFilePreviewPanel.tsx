@@ -1,6 +1,7 @@
 import type {
   WorkspaceFileReadResult,
   WorkspaceFileTarget,
+  WorkspaceHtmlPreviewResult,
   WorkspaceImageReadResult
 } from '@shared/workspace-file'
 import {
@@ -91,6 +92,7 @@ type BreadcrumbItem = {
 }
 
 type MarkdownFilePreviewMode = 'source' | 'split' | 'preview'
+type HtmlFilePreviewMode = 'source' | 'preview'
 type TextFileSaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const COPY_RESET_MS = 1400
@@ -106,6 +108,7 @@ const IMAGE_PREVIEW_EXTENSIONS = new Set([
   '.ico'
 ])
 const MARKDOWN_PREVIEW_EXTENSIONS = new Set(['.md', '.mdx', '.markdown'])
+const HTML_PREVIEW_EXTENSIONS = new Set(['.html', '.htm'])
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -129,6 +132,10 @@ function isImagePreviewPath(path: string): boolean {
 
 function isMarkdownPreviewPath(path: string): boolean {
   return MARKDOWN_PREVIEW_EXTENSIONS.has(extensionFromPath(path))
+}
+
+function isHtmlPreviewPath(path: string): boolean {
+  return HTML_PREVIEW_EXTENSIONS.has(extensionFromPath(path))
 }
 
 function splitPath(path: string): string[] {
@@ -210,6 +217,10 @@ export function WorkspaceFilePreviewPanel({
   const [copied, setCopied] = useState(false)
   const [highlightHtml, setHighlightHtml] = useState(() => renderFallbackCodeHtml(''))
   const [markdownMode, setMarkdownMode] = useState<MarkdownFilePreviewMode>('preview')
+  const [htmlMode, setHtmlMode] = useState<HtmlFilePreviewMode>('preview')
+  const [htmlPreview, setHtmlPreview] = useState<WorkspaceHtmlPreviewResult | null>(null)
+  const [htmlPreviewLoading, setHtmlPreviewLoading] = useState(false)
+  const [htmlPreviewRefreshKey, setHtmlPreviewRefreshKey] = useState(0)
   const [textDraft, setTextDraft] = useState('')
   const [textSavedContent, setTextSavedContent] = useState('')
   const [textSaveState, setTextSaveState] = useState<TextFileSaveState>('idle')
@@ -321,6 +332,14 @@ export function WorkspaceFilePreviewPanel({
   const pdfMtimeMs = pdfResult?.mtimeMs ?? null
   const textPreviewActive = result?.ok && result.kind === 'text'
   const markdownPreviewActive = textPreviewActive && isMarkdownPreviewPath(result.path)
+  const htmlPreviewActive = textPreviewActive && isHtmlPreviewPath(result.path)
+  const showTextSource = markdownPreviewActive
+    ? markdownMode !== 'preview'
+    : htmlPreviewActive
+      ? htmlMode === 'source'
+      : textPreviewActive
+  const showMarkdownPreview = markdownPreviewActive && markdownMode !== 'source'
+  const showHtmlPreview = htmlPreviewActive && htmlMode === 'preview'
   const textDirty = textPreviewActive && textDraft !== textSavedContent
   const textEditable = textPreviewActive && !result.truncated
   const activeLine = result?.ok && result.kind === 'text' && result.line && result.line >= 1 && result.line <= lines.length
@@ -370,7 +389,36 @@ export function WorkspaceFilePreviewPanel({
     setTextSavedContent(result.content)
     setTextSaveState('idle')
     setTextSaveError(null)
+    if (isHtmlPreviewPath(result.path)) setHtmlMode('preview')
   }, [result])
+
+  useEffect(() => {
+    if (!result?.ok || result.kind !== 'text' || !isHtmlPreviewPath(result.path)) {
+      setHtmlPreview(null)
+      setHtmlPreviewLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setHtmlPreviewLoading(true)
+    setHtmlPreview(null)
+    void window.dsGui.previewWorkspaceHtml({
+      path: result.path,
+      workspaceRoot: target?.workspaceRoot ?? workspaceRoot
+    }).then((next) => {
+      if (!cancelled) setHtmlPreview(next)
+    }).catch((error) => {
+      if (!cancelled) {
+        setHtmlPreview({ ok: false, message: error instanceof Error ? error.message : String(error) })
+      }
+    }).finally(() => {
+      if (!cancelled) setHtmlPreviewLoading(false)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [htmlPreviewRefreshKey, result, target?.workspaceRoot, workspaceRoot])
 
   const saveTextDraft = useCallback(async (): Promise<void> => {
     if (!result?.ok || result.kind !== 'text' || result.truncated) return
@@ -390,6 +438,7 @@ export function WorkspaceFilePreviewPanel({
       }
       setTextSavedContent(textDraft)
       setTextSaveState('saved')
+      if (isHtmlPreviewPath(result.path)) setHtmlPreviewRefreshKey((current) => current + 1)
     } catch (error) {
       setTextSaveState('error')
       setTextSaveError(error instanceof Error ? error.message : String(error))
@@ -783,6 +832,11 @@ export function WorkspaceFilePreviewPanel({
     })
   }
 
+  const openHtmlPreviewExternal = (): void => {
+    if (!htmlPreview?.ok) return
+    void window.dsGui.openExternal(htmlPreview.url)
+  }
+
   const copyPath = async (): Promise<void> => {
     const path = result?.ok ? result.path : target?.path
     if (!path || !navigator?.clipboard?.writeText) return
@@ -1026,6 +1080,28 @@ export function WorkspaceFilePreviewPanel({
                           <span className="ml-1.5 hidden xl:inline">{label}</span>
                         </button>
                       ))
+                    ) : htmlPreviewActive ? (
+                      ([
+                        ['source', FilePenLine, t('writeModeSourceShort')],
+                        ['preview', Eye, t('writeModePreviewShort')]
+                      ] as const).map(([mode, Icon, label]) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setHtmlMode(mode)}
+                          className={`flex h-7 min-w-7 items-center justify-center rounded-md px-2 text-[11px] font-medium transition ${
+                            htmlMode === mode
+                              ? 'bg-ds-hover text-ds-ink'
+                              : 'text-ds-muted hover:bg-ds-hover/70 hover:text-ds-ink'
+                          }`}
+                          title={label}
+                          aria-label={label}
+                          aria-pressed={htmlMode === mode}
+                        >
+                          <Icon className="h-3.5 w-3.5" strokeWidth={1.8} />
+                          <span className="ml-1.5 hidden xl:inline">{label}</span>
+                        </button>
+                      ))
                     ) : (
                       <span className="flex h-7 items-center gap-1.5 rounded-md bg-ds-hover px-2 text-[11px] font-medium text-ds-ink">
                         <FilePenLine className="h-3.5 w-3.5" strokeWidth={1.8} />
@@ -1042,6 +1118,17 @@ export function WorkspaceFilePreviewPanel({
                       <span className="text-[11px] text-ds-faint">{t('filePreviewUnsaved')}</span>
                     ) : textSaveState === 'saved' ? (
                       <span className="text-[11px] text-emerald-600 dark:text-emerald-300">{t('filePreviewSaved')}</span>
+                    ) : null}
+                    {htmlPreviewActive && htmlPreview?.ok ? (
+                      <button
+                        type="button"
+                        onClick={openHtmlPreviewExternal}
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
+                        title={t('filePreviewOpenHtmlPreview')}
+                        aria-label={t('filePreviewOpenHtmlPreview')}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.8} />
+                      </button>
                     ) : null}
                     <button
                       type="button"
@@ -1060,8 +1147,8 @@ export function WorkspaceFilePreviewPanel({
                   </div>
                 </div>
                 <div className={`min-h-0 flex-1 ${markdownPreviewActive && markdownMode === 'split' ? 'grid grid-cols-2' : 'flex flex-col'}`}>
-                  {(!markdownPreviewActive || markdownMode !== 'preview') ? (
-                    <div className={`min-h-0 ${markdownPreviewActive && markdownMode === 'split' ? 'border-r border-ds-border-muted/70' : 'flex-1'}`}>
+                  {showTextSource ? (
+                    <div className={`min-h-0 ${showMarkdownPreview && markdownMode === 'split' ? 'border-r border-ds-border-muted/70' : 'flex-1'}`}>
                       <WriteMarkdownEditor
                         value={textDraft}
                         workspaceRoot={target?.workspaceRoot ?? workspaceRoot}
@@ -1088,7 +1175,7 @@ export function WorkspaceFilePreviewPanel({
                       />
                     </div>
                   ) : null}
-                  {markdownPreviewActive && markdownMode !== 'source' ? (
+                  {showMarkdownPreview ? (
                     <div
                       ref={scrollRef}
                       className="min-h-0 flex-1 overflow-auto px-5 py-5"
@@ -1099,6 +1186,30 @@ export function WorkspaceFilePreviewPanel({
                         filePath={result.path}
                         previewErrorMessage={t('writePreviewErrorFallback')}
                       />
+                    </div>
+                  ) : null}
+                  {showHtmlPreview ? (
+                    <div className="relative min-h-0 flex-1 bg-white">
+                      {htmlPreviewLoading ? (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-white text-[12px] text-slate-500">
+                          <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.8} />
+                          {t('filePreviewHtmlLoading')}
+                        </div>
+                      ) : null}
+                      {htmlPreview && !htmlPreview.ok ? (
+                        <div className="flex h-full items-center justify-center px-6 text-center text-[12px] leading-6 text-red-700">
+                          {htmlPreview.message}
+                        </div>
+                      ) : htmlPreview?.ok ? (
+                        <iframe
+                          key={htmlPreview.url}
+                          src={htmlPreview.url}
+                          title={fileNameFromPath(result.path)}
+                          className="h-full w-full border-0 bg-white"
+                          sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

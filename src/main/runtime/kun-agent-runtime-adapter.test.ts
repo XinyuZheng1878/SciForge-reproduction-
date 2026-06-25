@@ -321,6 +321,46 @@ describe('createKunAgentRuntimeAdapter', () => {
     ])
   })
 
+  it('maps Kun assistant reasoning deltas to neutral reasoning events', async () => {
+    const adapter = createKunAgentRuntimeAdapter({
+      request: vi.fn(async () => jsonResponse({})),
+      events: async function* () {
+        yield {
+          kind: 'assistant_reasoning_delta',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          seq: 8,
+          timestamp: '2026-06-02T00:00:02.000Z',
+          item: {
+            id: 'reasoning-1',
+            summary: 'Check options.'
+          },
+          visibility: 'trace'
+        }
+      }
+    })
+
+    const events = []
+    for await (const event of adapter.subscribeEvents?.(
+      { settings: buildSettings() },
+      { threadId: 'thread-1', sinceSeq: 0 }
+    ) ?? []) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'reasoning_delta',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        seq: 8,
+        itemId: 'reasoning-1',
+        text: 'Check options.',
+        visibility: 'trace'
+      })
+    ])
+  })
+
   it('maps Kun child lifecycle metadata into neutral child events', async () => {
     const adapter = createKunAgentRuntimeAdapter({
       request: vi.fn(async () => jsonResponse({})),
@@ -467,6 +507,15 @@ describe('createKunAgentRuntimeAdapter', () => {
             cacheWriteTokens: 7,
             costUsd: 0.02
           },
+          transcriptRef: {
+            id: 'child-1',
+            kind: 'runtime',
+            runtimeId: 'kun',
+            childId: 'child-1',
+            transcriptId: 'child-1',
+            source: 'kun-child-run',
+            label: 'research'
+          },
           completedAt: '2026-06-02T00:00:10.000Z',
           metadata: {
             source: 'kun.delegate_task',
@@ -480,27 +529,82 @@ describe('createKunAgentRuntimeAdapter', () => {
     expect(seen).toEqual(['/v1/threads/thread-1/children?turn_id=turn-1&limit=10'])
   })
 
-  it('returns a degraded child transcript response because Kun does not persist child transcripts', async () => {
-    const request = vi.fn(async () => jsonResponse({}))
+  it('reads Kun child transcripts through the runtime endpoint', async () => {
+    const request = vi.fn(async (_settings, pathAndQuery) => {
+      if (pathAndQuery === '/v1/threads/thread-1/children/child-1/transcript?limit=20') {
+        return jsonResponse({
+          transcript: {
+            runtimeId: 'kun',
+            threadId: 'thread-1',
+            parentThreadId: 'thread-1',
+            parentTurnId: 'turn-1',
+            childId: 'child-1',
+            format: 'jsonl',
+            transcriptRef: {
+              id: 'child-1',
+              kind: 'runtime',
+              runtimeId: 'kun',
+              childId: 'child-1',
+              transcriptId: 'child-1',
+              source: 'kun-child-run',
+              label: 'research'
+            },
+            entries: [{
+              id: 'entry-1',
+              kind: 'assistant_message',
+              text: 'child output',
+              createdAt: '2026-06-02T00:00:03.000Z'
+            }],
+            summary: 'child output',
+            usage: { promptTokens: 5, completionTokens: 3, totalTokens: 8 },
+            metadata: { source: 'kun.child-runs' }
+          }
+        })
+      }
+      return jsonResponse({})
+    })
     const adapter = createKunAgentRuntimeAdapter({ request })
 
     await expect(adapter.auxiliary?.({ settings: buildSettings() }, {
       operation: 'readChildTranscript',
-      payload: { threadId: 'thread-1', parentTurnId: 'turn-1', childId: 'child-1' }
-    })).resolves.toEqual({
+      payload: { threadId: 'thread-1', parentTurnId: 'turn-1', childId: 'child-1', limit: 20 }
+    })).resolves.toMatchObject({
       transcript: {
         runtimeId: 'kun',
         threadId: 'thread-1',
         parentThreadId: 'thread-1',
         parentTurnId: 'turn-1',
         childId: 'child-1',
-        format: 'unknown',
-        entries: [],
-        degraded: true,
-        reason: 'Kun child agent transcripts are not persisted by the runtime yet.'
+        transcriptRef: {
+          id: 'child-1',
+          kind: 'runtime',
+          runtimeId: 'kun',
+          childId: 'child-1',
+          transcriptId: 'child-1',
+          source: 'kun-child-run',
+          label: 'research'
+        },
+        format: 'jsonl',
+        entries: [{
+          id: 'entry-1',
+          kind: 'assistant_message',
+          text: 'child output',
+          createdAt: '2026-06-02T00:00:03.000Z'
+        }],
+        summary: 'child output',
+        usage: {
+          inputTokens: 5,
+          outputTokens: 3,
+          totalTokens: 8
+        },
+        metadata: { source: 'kun.child-runs' }
       }
     })
-    expect(request).not.toHaveBeenCalled()
+    expect(request).toHaveBeenCalledWith(
+      buildSettings(),
+      '/v1/threads/thread-1/children/child-1/transcript?limit=20',
+      { method: 'GET' }
+    )
   })
 
   it('treats an unavailable memory store as an empty memory list', async () => {

@@ -278,12 +278,16 @@ describe('AgentRuntimeHost', () => {
       adapters: [kun, codex]
     })
 
-    await expect(host.listThreads()).resolves.toEqual([codexThread])
+    await expect(host.listThreads()).resolves.toEqual(expect.arrayContaining([kunThread, codexThread]))
     await expect(host.listThreads({ runtimeId: 'kun', limit: 2 })).resolves.toEqual([kunThread])
     await expect(host.capabilities('kun')).resolves.toMatchObject({ runtimeId: 'kun' })
     await host.renameThread({ runtimeId: 'kun', threadId: 'kun-thread', title: 'Renamed' })
     await host.updateThreadRelation({ runtimeId: 'kun', threadId: 'kun-thread', relation: 'primary' })
 
+    expect(kun.listThreads).toHaveBeenCalledWith(
+      { settings: expect.objectContaining({ activeAgentRuntime: 'codex' }) },
+      {}
+    )
     expect(codex.listThreads).toHaveBeenCalledWith(
       { settings: expect.objectContaining({ activeAgentRuntime: 'codex' }) },
       {}
@@ -590,6 +594,29 @@ describe('AgentRuntimeHost', () => {
       title: 'Codex',
       updatedAt: '2026-06-10T00:00:00.000Z'
     })
+    vi.mocked(codex.readThread).mockResolvedValue({
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z',
+      latestSeq: 4,
+      items: [
+        {
+          id: 'source-user-1',
+          turnId: 'source-turn-1',
+          kind: 'user_message',
+          text: 'Original research question: analyze AI Scientist survey for life sciences research hotspots.',
+          createdAt: '2026-06-10T00:00:01.000Z'
+        },
+        {
+          id: 'source-assistant-1',
+          turnId: 'source-turn-1',
+          kind: 'assistant_message',
+          text: 'We identified wet-lab closed-loop agents and experiment protocol automation as likely next hotspots.',
+          createdAt: '2026-06-10T00:00:02.000Z'
+        }
+      ]
+    })
     const claudeTargetThread = {
       id: 'claude-handoff-thread',
       runtimeId: 'claude' as const,
@@ -666,6 +693,9 @@ describe('AgentRuntimeHost', () => {
     expect(startTurnInput?.text).toContain('Runtime handoff packet for semantic continuation.')
     expect(startTurnInput?.text).toContain('"schema": "sciforge.runtime_handoff.v1"')
     expect(startTurnInput?.text).toContain('"objective": "handoff across runtimes"')
+    expect(startTurnInput?.text).toContain('"schema": "sciforge.runtime_handoff_transcript.v1"')
+    expect(startTurnInput?.text).toContain('Original research question: analyze AI Scientist survey')
+    expect(startTurnInput?.text).toContain('wet-lab closed-loop agents and experiment protocol automation')
     expect(startTurnInput?.text).toContain('Current user request:\nPlease continue from here')
     expect(startTurnInput?.metadata).toMatchObject({
       schemaVersion: 'sciforge.model-router.request-audit.v1',

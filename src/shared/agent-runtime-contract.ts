@@ -522,6 +522,7 @@ export type AgentRuntimeThreadListInput = {
 
 export type AgentRuntimeThreadStartInput = {
   runtimeId?: AgentRuntimeId
+  threadId?: string
   workspace?: string
   title?: string
   mode?: string

@@ -24,7 +24,11 @@ import type {
 } from './codex-runtime-api'
 import type { AgentRuntimeAdapter } from '../agent-runtime/adapter'
 import type { CodexRuntimeService } from './codex-service'
-import { isComputerUseEnabledForRuntime, type AppSettingsV1 } from '../../../shared/app-settings'
+import {
+  isComputerUseEnabledForRuntime,
+  normalizeAgentCapabilitySettings,
+  type AppSettingsV1
+} from '../../../shared/app-settings'
 import {
   computerUseMcpDiagnosticsServer,
   computerUseMcpRuntimeInfoState,
@@ -59,6 +63,7 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
 
     async startThread(_context, input) {
       const result = await service.startThread({
+        threadId: input.threadId,
         workspace: input.workspace,
         title: input.title,
         model: input.model
@@ -226,12 +231,18 @@ type CodexMcpState = {
   mcpConfigured: boolean
   researchConfigured: boolean
   computerUseConfigured: boolean
+  subagents: {
+    enabled: boolean
+    maxParallel: number
+    maxChildRuns: number
+  }
 }
 
 const emptyCodexMcpState: CodexMcpState = {
   mcpConfigured: false,
   researchConfigured: false,
-  computerUseConfigured: false
+  computerUseConfigured: false,
+  subagents: normalizeAgentCapabilitySettings(undefined).subagents
 }
 
 function serviceMcpState(service: CodexRuntimeService, settings?: AppSettingsV1): CodexMcpState {
@@ -245,7 +256,12 @@ function serviceMcpState(service: CodexRuntimeService, settings?: AppSettingsV1)
     typeof service.isMcpConfigured === 'function'
       ? (researchConfigured || computerUseConfigured) && service.isMcpConfigured()
       : researchConfigured || computerUseConfigured
-  return { mcpConfigured, researchConfigured, computerUseConfigured }
+  return {
+    mcpConfigured,
+    researchConfigured,
+    computerUseConfigured,
+    subagents: normalizeAgentCapabilitySettings(settings?.agentCapabilities).subagents
+  }
 }
 
 function codexCapabilities(state: CodexMcpState = emptyCodexMcpState): AgentRuntimeCapabilities {
@@ -324,11 +340,20 @@ function codexCapabilities(state: CodexMcpState = emptyCodexMcpState): AgentRunt
         ? configuredComputerUseCapability()
         : unavailableComputerUseCapability('Shared computer-use MCP server is not configured for Codex yet.'),
       skills: { available: false, reason: 'Codex skills are not exposed through this service yet.' },
-      subagents: {
-        available: true,
-        degraded: true,
-        reason: 'Codex child runs are visible when app-server emits native subagent/collab metadata.'
-      },
+      subagents: state.subagents.enabled
+        ? {
+            available: true,
+            degraded: true,
+            reason: 'Codex child runs are visible when app-server emits native subagent/collab metadata.',
+            maxParallel: state.subagents.maxParallel,
+            maxChildren: state.subagents.maxChildRuns
+          }
+        : {
+            available: false,
+            reason: 'Subagents are disabled by shared agentCapabilities settings.',
+            maxParallel: 0,
+            maxChildren: 0
+          },
       diagnostics: { available: false, reason: 'Codex tool diagnostics are not exposed through this service yet.' }
     },
     controls: {

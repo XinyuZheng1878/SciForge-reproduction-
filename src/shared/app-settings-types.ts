@@ -140,6 +140,23 @@ export type ComputerUseSettingsPatchV1 = Partial<Omit<ComputerUseSettingsV1, 'ru
   runtimeEnabled?: Partial<Record<AgentRuntimeId, boolean>>
 }
 
+export type ResearchMemorySettingsV1 = {
+  /** Local project memory is enabled by default; GitHub binding is optional. */
+  enabled: boolean
+  /** Optional remote memory repository URL, for example git@github.com:org/memory.git. */
+  githubRepoUrl: string
+  /** Branch to clone/fetch for the memory repository. */
+  branch: string
+  /** Optional local clone path. Empty means derive one from the project workspace. */
+  localPath: string
+  /** Fetch the remote repository when opening the memory workspace. */
+  autoFetch: boolean
+  /** Expose Research Memory MCP to agent runtimes by default. */
+  defaultForAgents: boolean
+}
+
+export type ResearchMemorySettingsPatchV1 = Partial<ResearchMemorySettingsV1>
+
 export type KunRuntimeSettingsV1 = {
   binaryPath: string
   port: number
@@ -246,6 +263,20 @@ export type RuntimeGuardSettingsV1 = {
 export type RuntimeGuardSettingsPatchV1 = {
   toolStorm?: Partial<RuntimeToolStormGuardSettingsV1>
   budgets?: Partial<RuntimeBudgetSettingsV1>
+}
+
+export type AgentSubagentSettingsV1 = {
+  enabled: boolean
+  maxParallel: number
+  maxChildRuns: number
+}
+
+export type AgentCapabilitySettingsV1 = {
+  subagents: AgentSubagentSettingsV1
+}
+
+export type AgentCapabilitySettingsPatchV1 = {
+  subagents?: Partial<AgentSubagentSettingsV1>
 }
 
 export type CodexRuntimeSettingsV1 = {
@@ -1352,7 +1383,9 @@ export type AppSettingsV1 = {
   provider: ModelProviderSettingsV1
   modelRouter?: ModelRouterSettingsV1
   runtimeGuards?: RuntimeGuardSettingsV1
+  agentCapabilities?: AgentCapabilitySettingsV1
   computerUse?: ComputerUseSettingsV1
+  researchMemory?: ResearchMemorySettingsV1
   activeAgentRuntime?: AgentRuntimeId
   agents: KunSettingsEnvelopeV1
   workspaceRoot: string
@@ -1370,12 +1403,14 @@ export type AppSettingsV1 = {
 }
 
 export type AppSettingsPatch = Partial<
-  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'speechToText' | 'claw' | 'schedule' | 'workflow' | 'guiUpdate' | 'computerUse'>
+  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'speechToText' | 'claw' | 'schedule' | 'workflow' | 'guiUpdate' | 'computerUse' | 'researchMemory' | 'agentCapabilities'>
 > & {
   provider?: ModelProviderSettingsPatchV1
   modelRouter?: ModelRouterSettingsPatchV1
   runtimeGuards?: RuntimeGuardSettingsPatchV1
+  agentCapabilities?: AgentCapabilitySettingsPatchV1
   computerUse?: ComputerUseSettingsPatchV1
+  researchMemory?: ResearchMemorySettingsPatchV1
   agents?: KunSettingsEnvelopePatchV1
   log?: Partial<LogConfigV1>
   notifications?: Partial<NotificationConfigV1>

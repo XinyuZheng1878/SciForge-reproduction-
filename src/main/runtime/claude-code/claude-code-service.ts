@@ -107,9 +107,11 @@ type ClaudeRuntimeEventSubscriber = {
 
 type ClaudeSdkTurnState = {
   assistantTextSeen: boolean
+  reasoningDeltaSeen: boolean
   firstDeltaEmitted: boolean
   terminalState: Extract<AgentRuntimeEvent, { kind: 'turn_lifecycle' }>['state']
   terminalMessage?: string
+  partialContentTypes: Map<number, string>
   toolUses: Map<string, { name: string; input: Record<string, unknown> }>
 }
 
@@ -168,6 +170,7 @@ export class ClaudeCodeRuntimeService {
   }
 
   async startThread(payload: {
+    threadId?: string
     workspace?: string
     title?: string
   }): Promise<ClaudeCodeThreadStartResult> {
@@ -176,7 +179,7 @@ export class ClaudeCodeRuntimeService {
       const workspace = resolveClaudeWorkspace(settings, payload.workspace)
       const model = resolveRuntimeModelRouterSettings(settings).model
       const thread = await this.threadStore.upsert({
-        guiThreadId: `claude-thread-${randomUUID()}`,
+        guiThreadId: payload.threadId?.trim() || `claude-thread-${randomUUID()}`,
         workspace,
         title: payload.title || 'Claude Code thread',
         model,
@@ -227,6 +230,7 @@ export class ClaudeCodeRuntimeService {
     text: string
     displayText?: string
     workspace?: string
+    reasoningEffort?: string
   }): Promise<ClaudeCodeTurnStartResult> {
     try {
       const settings = await this.options.settings()
@@ -240,6 +244,7 @@ export class ClaudeCodeRuntimeService {
         text: payload.text,
         workspace,
         sessionId: existingThread?.claudeSessionId,
+        reasoningEffort: payload.reasoningEffort,
         managedConfigDir: this.options.managedConfigDir,
         computerUseMcpLaunch: isComputerUseEnabledForRuntime(settings, 'claude') && this.options.computerUseMcpLaunch
           ? {
@@ -584,8 +589,10 @@ export class ClaudeCodeRuntimeService {
   }): Promise<void> {
     const state: ClaudeSdkTurnState = {
       assistantTextSeen: false,
+      reasoningDeltaSeen: false,
       firstDeltaEmitted: false,
       terminalState: 'completed',
+      partialContentTypes: new Map(),
       toolUses: new Map()
     }
     try {
@@ -634,6 +641,10 @@ export class ClaudeCodeRuntimeService {
     }
     if (message.type === 'system') {
       await this.handleSystemMessage(message, options, state)
+      return
+    }
+    if (message.type === 'stream_event') {
+      await this.handleStreamEvent(message, options, state)
     }
   }
 
@@ -679,10 +690,49 @@ export class ClaudeCodeRuntimeService {
       })
     }
 
-    const text = textFromContent(messageRecord.content)
+    const reasoningText = reasoningTextFromContent(messageRecord.content)
+    if (reasoningText && !state.reasoningDeltaSeen) {
+      await this.emitReasoningText(reasoningText, options, state)
+    }
+
+    const text = assistantTextFromContent(messageRecord.content)
     if (text) {
       await this.emitAssistantText(text, options, state)
     }
+  }
+
+  private async handleStreamEvent(
+    message: Extract<SDKMessage, { type: 'stream_event' }>,
+    options: {
+      threadId: string
+      turnId: string
+      assistantItemId: string
+      startedAtMs: number
+    },
+    state: ClaudeSdkTurnState
+  ): Promise<void> {
+    const record = recordValue(message)
+    const event = recordValue(record.event)
+    const eventType = stringField(event.type)
+    if (eventType === 'content_block_start') {
+      const index = numberField(event.index)
+      const contentBlock = recordValue(event.content_block)
+      const contentType = stringField(contentBlock.type)
+      if (typeof index === 'number' && contentType) {
+        state.partialContentTypes.set(index, contentType)
+      }
+      const text = reasoningTextFromPart(contentBlock)
+      if (text) await this.emitReasoningText(text, options, state)
+      return
+    }
+    if (eventType !== 'content_block_delta') return
+    const index = numberField(event.index)
+    const contentType = typeof index === 'number' ? state.partialContentTypes.get(index) : undefined
+    const delta = recordValue(event.delta)
+    const deltaType = stringField(delta.type)
+    if (!isReasoningContentType(deltaType) && !isReasoningContentType(contentType)) return
+    const text = reasoningTextFromPart(delta)
+    if (text) await this.emitReasoningText(text, options, state)
   }
 
   private async handleUserMessage(
@@ -845,6 +895,37 @@ export class ClaudeCodeRuntimeService {
       kind: 'assistant_delta',
       itemId: options.assistantItemId,
       text
+    })
+    if (!state.firstDeltaEmitted) {
+      state.firstDeltaEmitted = true
+      await this.emit({
+        threadId: options.threadId,
+        turnId: options.turnId,
+        kind: 'runtime_status',
+        phase: 'first_delta',
+        latencyMs: Date.now() - options.startedAtMs
+      })
+    }
+  }
+
+  private async emitReasoningText(
+    text: string,
+    options: {
+      threadId: string
+      turnId: string
+      assistantItemId: string
+      startedAtMs: number
+    },
+    state: ClaudeSdkTurnState
+  ): Promise<void> {
+    state.reasoningDeltaSeen = true
+    await this.emit({
+      threadId: options.threadId,
+      turnId: options.turnId,
+      kind: 'reasoning_delta',
+      itemId: `${options.assistantItemId}-reasoning`,
+      text,
+      visibility: 'summary'
     })
     if (!state.firstDeltaEmitted) {
       state.firstDeltaEmitted = true
@@ -1352,6 +1433,46 @@ function textFromContent(content: unknown): string {
     })
     .filter(Boolean)
     .join('\n')
+}
+
+function assistantTextFromContent(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((part) => {
+      if (typeof part === 'string') return part
+      if (!isRecord(part) || isReasoningContentType(stringField(part.type))) return ''
+      return stringField(part.text) ||
+        stringField(part.content) ||
+        stringField(recordValue(part.input).prompt) ||
+        stringField(recordValue(part.input).description)
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+function reasoningTextFromContent(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((part) => isRecord(part) ? reasoningTextFromPart(part) : '')
+    .filter(Boolean)
+    .join('\n')
+}
+
+function reasoningTextFromPart(part: Record<string, unknown>): string {
+  if (!isReasoningContentType(stringField(part.type))) return ''
+  return stringField(part.thinking) ||
+    stringField(part.reasoning) ||
+    stringField(part.summary) ||
+    stringField(part.text) ||
+    stringField(part.content)
+}
+
+function isReasoningContentType(type: string | undefined): boolean {
+  const normalized = type?.trim().toLowerCase()
+  if (!normalized) return false
+  if (normalized.includes('redacted')) return false
+  return normalized.includes('thinking') || normalized.includes('reasoning')
 }
 
 function failure(error: unknown, defaultCode = 'claude_runtime_error'): ClaudeCodeRuntimeFailure {

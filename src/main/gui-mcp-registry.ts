@@ -1,4 +1,4 @@
-import type { AppSettingsV1 } from '../shared/app-settings'
+import { isResearchMemoryEnabledForAgents, type AppSettingsV1 } from '../shared/app-settings'
 import {
   buildScheduleMcpArgs,
   buildScheduleKunMcpServerConfig,
@@ -40,6 +40,17 @@ import {
   resolveResearchSearchMcpCommand,
   type ResearchSearchMcpLaunchConfig
 } from './research-search-mcp-config'
+import {
+  buildResearchMemoryMcpArgs,
+  buildResearchMemoryKunMcpServerConfig,
+  GUI_RESEARCH_MEMORY_MCP_DESCRIPTOR,
+  GUI_RESEARCH_MEMORY_MCP_SERVER_NAME,
+  RESEARCH_MEMORY_MCP_TIMEOUT_MS,
+  researchMemoryMcpEnabledTools,
+  researchMemoryMcpEnv,
+  resolveResearchMemoryMcpCommand,
+  type ResearchMemoryMcpLaunchConfig
+} from './research-memory-mcp-config'
 import {
   buildRuntimeInspectorMcpArgs,
   buildRuntimeInspectorKunMcpServerConfig,
@@ -110,6 +121,10 @@ export type GuiMcpRegistryInput = {
   researchMcp?: {
     launch: ResearchSearchMcpLaunchConfig
   }
+  researchMemoryMcp?: {
+    settings?: AppSettingsV1
+    launch: ResearchMemoryMcpLaunchConfig
+  }
   workflowMcp?: {
     settings?: AppSettingsV1
     launch: WorkflowMcpLaunchConfig
@@ -140,6 +155,7 @@ type KunServerBuilder = (existing: unknown) => Record<string, unknown>
 export const GUI_MCP_DESCRIPTORS: readonly ManagedGuiMcpDescriptor[] = [
   GUI_SCHEDULE_MCP_DESCRIPTOR,
   GUI_RESEARCH_MCP_DESCRIPTOR,
+  GUI_RESEARCH_MEMORY_MCP_DESCRIPTOR,
   GUI_WORKFLOW_MCP_DESCRIPTOR,
   GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR,
   GUI_PAPER_RADAR_MCP_DESCRIPTOR,
@@ -216,6 +232,17 @@ function kunServerBuilders(input: GuiMcpRegistryInput): Array<[string, KunServer
     builders.push([
       GUI_RESEARCH_MCP_SERVER_NAME,
       (existing) => buildResearchSearchKunMcpServerConfig(input.researchMcp!.launch, existing)
+    ])
+  }
+  const researchMemorySettings = input.researchMemoryMcp?.settings ?? settings
+  if (input.researchMemoryMcp && researchMemorySettings) {
+    builders.push([
+      GUI_RESEARCH_MEMORY_MCP_SERVER_NAME,
+      (existing) => buildResearchMemoryKunMcpServerConfig(
+        researchMemorySettings,
+        input.researchMemoryMcp!.launch,
+        existing
+      )
     ])
   }
   const workflowSettings = input.workflowMcp?.settings ?? settings
@@ -298,6 +325,17 @@ function codexServerConfigs(input: GuiMcpRegistryInput): GuiMcpRuntimeServerConf
       env: researchSearchMcpEnv(process.env),
       timeoutMs: RESEARCH_SEARCH_MCP_TIMEOUT_MS,
       enabledTools: researchSearchMcpEnabledTools()
+    })
+  }
+  const researchMemorySettings = input.researchMemoryMcp?.settings ?? settings
+  if (input.researchMemoryMcp && researchMemorySettings && isResearchMemoryEnabledForAgents(researchMemorySettings)) {
+    servers.push({
+      id: GUI_RESEARCH_MEMORY_MCP_SERVER_NAME,
+      command: resolveResearchMemoryMcpCommand(input.researchMemoryMcp.launch),
+      args: buildResearchMemoryMcpArgs(researchMemorySettings, input.researchMemoryMcp.launch),
+      env: researchMemoryMcpEnv(),
+      timeoutMs: RESEARCH_MEMORY_MCP_TIMEOUT_MS,
+      enabledTools: researchMemoryMcpEnabledTools()
     })
   }
   const workflowSettings = input.workflowMcp?.settings ?? settings

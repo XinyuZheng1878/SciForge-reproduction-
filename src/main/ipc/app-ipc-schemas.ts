@@ -167,6 +167,7 @@ export const agentRuntimeListThreadsPayloadSchema = z.object({
 
 export const agentRuntimeStartThreadPayloadSchema = z.object({
   runtimeId: agentRuntimeIdSchema.optional(),
+  threadId: optionalTrimmedString(MAX_ID_LENGTH),
   workspace: defaultPathSchema,
   title: z.string().trim().max(200).optional(),
   mode: z.string().trim().max(64).optional(),
@@ -488,6 +489,14 @@ const runtimeGuardPatchSchema = z.object({
   }).strict().optional()
 }).strict()
 
+const agentCapabilityPatchSchema = z.object({
+  subagents: z.object({
+    enabled: z.boolean().optional(),
+    maxParallel: z.number().int().positive().max(16).optional(),
+    maxChildRuns: z.number().int().positive().max(64).optional()
+  }).strict().optional()
+}).strict()
+
 const computerUsePatchSchema = z.object({
   enabled: z.boolean().optional(),
   runtimeEnabled: z.object({
@@ -495,6 +504,15 @@ const computerUsePatchSchema = z.object({
     codex: z.boolean().optional(),
     claude: z.boolean().optional()
   }).strict().optional()
+}).strict()
+
+const researchMemoryPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  githubRepoUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+  branch: z.string().trim().max(MAX_BRANCH_LENGTH).optional(),
+  localPath: z.string().trim().max(MAX_PATH_LENGTH).optional(),
+  autoFetch: z.boolean().optional(),
+  defaultForAgents: z.boolean().optional()
 }).strict()
 
 const claudeRuntimePatchSchema = z.object({
@@ -1322,7 +1340,9 @@ const settingsPatchObjectSchema = z.object({
   provider: modelProviderPatchSchema.optional(),
   modelRouter: modelRouterPatchSchema.optional(),
   runtimeGuards: runtimeGuardPatchSchema.optional(),
+  agentCapabilities: agentCapabilityPatchSchema.optional(),
   computerUse: computerUsePatchSchema.optional(),
+  researchMemory: researchMemoryPatchSchema.optional(),
   activeAgentRuntime: agentRuntimeIdSchema.optional(),
   agents: z.object({
     kun: kunRuntimePatchSchema.optional(),

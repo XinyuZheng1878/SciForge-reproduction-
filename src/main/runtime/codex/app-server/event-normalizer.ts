@@ -820,7 +820,8 @@ function sessionTurnId(
 function deltaText(params: Record<string, unknown>): string {
   return stringValue(params.delta) ||
     stringValue(params.text) ||
-    stringValue(params.content)
+    stringValue(params.content) ||
+    stringValue(params.summary)
 }
 
 function responseMessageText(payload: Record<string, unknown>): string {
@@ -842,11 +843,13 @@ function contentText(value: unknown): string {
 }
 
 function reasoningText(payload: Record<string, unknown>): string {
-  return arrayValue(payload.summary)
+  return [...arrayValue(payload.summary), ...arrayValue(payload.content)]
     .map((entry) => {
       if (typeof entry === 'string') return entry
       const record = asRecord(entry)
-      return stringValue(record?.text)
+      return stringValue(record?.text) ||
+        stringValue(record?.summary) ||
+        stringValue(record?.content)
     })
     .filter(Boolean)
     .join('\n')

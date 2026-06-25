@@ -140,6 +140,7 @@ export type CodexThreadListOptions = {
 }
 
 export type CodexThreadStartPayload = {
+  threadId?: string
   workspace?: string
   title?: string
   model?: string

@@ -18,7 +18,11 @@ import {
   configuredComputerUseCapability,
   unavailableComputerUseCapability
 } from '../../computer-use-mcp-config'
-import { isComputerUseEnabledForRuntime } from '../../../shared/app-settings'
+import {
+  isComputerUseEnabledForRuntime,
+  normalizeAgentCapabilitySettings,
+  type AgentSubagentSettingsV1
+} from '../../../shared/app-settings'
 
 export function createClaudeCodeAgentRuntimeAdapter(
   service: ClaudeCodeRuntimeService
@@ -33,7 +37,10 @@ export function createClaudeCodeAgentRuntimeAdapter(
     },
 
     async capabilities(context) {
-      return claudeCapabilities(service.isComputerUseMcpConfigured?.(context.settings) === true)
+      return claudeCapabilities(
+        service.isComputerUseMcpConfigured?.(context.settings) === true,
+        normalizeAgentCapabilitySettings(context.settings.agentCapabilities).subagents
+      )
     },
 
     async listThreads(_context, input): Promise<AgentRuntimeThread[]> {
@@ -49,6 +56,7 @@ export function createClaudeCodeAgentRuntimeAdapter(
 
     async startThread(_context, input): Promise<AgentRuntimeThread> {
       const result = await service.startThread({
+        threadId: input.threadId,
         workspace: input.workspace,
         title: input.title
       })
@@ -67,7 +75,8 @@ export function createClaudeCodeAgentRuntimeAdapter(
         threadId: input.threadId,
         text: input.text,
         displayText: input.displayText,
-        workspace: input.workspace
+        workspace: input.workspace,
+        reasoningEffort: input.reasoningEffort
       })
       if (!result.ok) throw claudeFailure(result)
       return {
@@ -114,7 +123,8 @@ export function createClaudeCodeAgentRuntimeAdapter(
         case 'getRuntimeInfo':
           return claudeRuntimeInfo(
             await service.runtimeInfo(),
-            service.isComputerUseMcpConfigured?.(_context.settings) === true
+            service.isComputerUseMcpConfigured?.(_context.settings) === true,
+            normalizeAgentCapabilitySettings(_context.settings.agentCapabilities).subagents
           )
         case 'getToolDiagnostics': {
           const computerUseConfigured =
@@ -185,9 +195,10 @@ export function createClaudeCodeAgentRuntimeAdapter(
 
 function claudeRuntimeInfo(
   info: Record<string, unknown>,
-  computerUseConfigured = false
+  computerUseConfigured = false,
+  subagents: AgentSubagentSettingsV1 = normalizeAgentCapabilitySettings(undefined).subagents
 ): Record<string, unknown> {
-  const caps = claudeCapabilities(computerUseConfigured)
+  const caps = claudeCapabilities(computerUseConfigured, subagents)
   return {
     host: 'claude-code',
     port: 0,
@@ -254,7 +265,10 @@ function claudeRuntimeInfo(
   }
 }
 
-function claudeCapabilities(computerUseConfigured = false): AgentRuntimeCapabilities {
+function claudeCapabilities(
+  computerUseConfigured = false,
+  subagents: AgentSubagentSettingsV1 = normalizeAgentCapabilitySettings(undefined).subagents
+): AgentRuntimeCapabilities {
   const unavailable = { available: false, reason: 'unsupported' }
   const computerUseReason = 'Claude Code computer-use MCP server is not configured yet.'
   const caps = createDefaultAgentRuntimeCapabilities({
@@ -293,10 +307,10 @@ function claudeCapabilities(computerUseConfigured = false): AgentRuntimeCapabili
       turnDurationMetric: true
     },
     reasoning: {
-      available: false,
-      streaming: false,
-      visibility: 'none',
-      source: 'backend_redacted'
+      available: true,
+      streaming: true,
+      visibility: 'summary',
+      source: 'model'
     },
     model: {
       inputModalities: ['text'],
@@ -321,7 +335,18 @@ function claudeCapabilities(computerUseConfigured = false): AgentRuntimeCapabili
         ? configuredComputerUseCapability()
         : unavailableComputerUseCapability(computerUseReason),
       skills: { available: false, reason: 'Claude Code skills are not exposed through this service yet.' },
-      subagents: { available: true },
+      subagents: subagents.enabled
+        ? {
+            available: true,
+            maxParallel: subagents.maxParallel,
+            maxChildren: subagents.maxChildRuns
+          }
+        : {
+            available: false,
+            reason: 'Subagents are disabled by shared agentCapabilities settings.',
+            maxParallel: 0,
+            maxChildren: 0
+          },
       diagnostics: { available: false, reason: 'Claude Code tool diagnostics are not exposed through this service yet.' }
     },
     controls: {

@@ -120,6 +120,37 @@ function assistantText(text: string, sessionId: string): SDKMessage {
   })
 }
 
+function assistantThinking(thinking: string, text: string, sessionId: string): SDKMessage {
+  return sdkMessage({
+    type: 'assistant',
+    session_id: sessionId,
+    uuid: randomTestId('assistant'),
+    parent_tool_use_id: null,
+    message: {
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking },
+        { type: 'text', text }
+      ],
+      usage: { input_tokens: 3, output_tokens: 4 }
+    }
+  })
+}
+
+function thinkingDelta(text: string, sessionId: string): SDKMessage {
+  return sdkMessage({
+    type: 'stream_event',
+    session_id: sessionId,
+    uuid: randomTestId('stream'),
+    parent_tool_use_id: null,
+    event: {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'thinking_delta', thinking: text }
+    }
+  })
+}
+
 function result(text: string, sessionId: string): SDKMessage {
   return sdkMessage({
     type: 'result',
@@ -333,6 +364,97 @@ describe('ClaudeCodeRuntimeService', () => {
     expect(detail.detail.items?.filter((item) =>
       item.kind === 'assistant_message' && item.text === 'Hello from Claude.'
     )).toHaveLength(2)
+  })
+
+  it('maps Claude thinking content blocks to reasoning items without mixing them into assistant text', async () => {
+    const { sdk } = fakeSdk(() => [
+      init('claude-session-thinking'),
+      assistantThinking('Check the code path.', 'Done from Claude.', 'claude-session-thinking'),
+      result('Done from Claude.', 'claude-session-thinking')
+    ])
+    const service = new ClaudeCodeRuntimeService({
+      settings: async () => settings(),
+      storageRoot: await serviceRoot(),
+      claudeAgentSdk: sdk
+    })
+
+    const thread = await service.startThread({ workspace: '/tmp/workspace', title: 'Thinking' })
+    if (!thread.ok) throw new Error(thread.message)
+    const turn = await service.startTurn({
+      threadId: thread.thread.id,
+      text: 'think out loud',
+      workspace: '/tmp/workspace'
+    })
+    if (!turn.ok) throw new Error(turn.message)
+
+    await waitUntil(async () => {
+      const detail = await service.readThread(thread.thread.id)
+      return detail.ok && detail.detail.latestTurnStatus === 'completed'
+    })
+    const detail = await service.readThread(thread.thread.id)
+    if (!detail.ok) throw new Error(detail.message)
+
+    expect(detail.detail.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'reasoning',
+        text: 'Check the code path.'
+      }),
+      expect.objectContaining({
+        kind: 'assistant_message',
+        text: 'Done from Claude.'
+      })
+    ]))
+    expect(detail.detail.items?.some((item) =>
+      item.kind === 'assistant_message' && item.text?.includes('Check the code path.')
+    )).toBe(false)
+  })
+
+  it('passes Claude reasoning effort to the SDK and stores streamed thinking deltas once', async () => {
+    const { sdk, calls } = fakeSdk(() => [
+      init('claude-session-stream-thinking'),
+      thinkingDelta('Streaming thought.', 'claude-session-stream-thinking'),
+      assistantThinking('Final thought should not duplicate.', 'Finished.', 'claude-session-stream-thinking'),
+      result('Finished.', 'claude-session-stream-thinking')
+    ])
+    const service = new ClaudeCodeRuntimeService({
+      settings: async () => settings(),
+      storageRoot: await serviceRoot(),
+      claudeAgentSdk: sdk
+    })
+
+    const thread = await service.startThread({ workspace: '/tmp/workspace', title: 'Streaming thinking' })
+    if (!thread.ok) throw new Error(thread.message)
+    const turn = await service.startTurn({
+      threadId: thread.thread.id,
+      text: 'think while working',
+      workspace: '/tmp/workspace',
+      reasoningEffort: 'max'
+    })
+    if (!turn.ok) throw new Error(turn.message)
+
+    await waitUntil(async () => {
+      const detail = await service.readThread(thread.thread.id)
+      return detail.ok && detail.detail.latestTurnStatus === 'completed'
+    })
+    const detail = await service.readThread(thread.thread.id)
+    if (!detail.ok) throw new Error(detail.message)
+
+    expect(calls[0]?.options?.thinking).toEqual({ type: 'adaptive', display: 'summarized' })
+    expect(calls[0]?.options?.effort).toBe('max')
+    expect(calls[0]?.options?.includePartialMessages).toBe(true)
+    expect(detail.detail.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'reasoning',
+        text: 'Streaming thought.'
+      }),
+      expect.objectContaining({
+        kind: 'assistant_message',
+        text: 'Finished.'
+      })
+    ]))
+    expect(detail.detail.items?.some((item) =>
+      item.kind === 'reasoning' && item.text?.includes('Final thought should not duplicate.')
+    )).toBe(false)
   })
 
   it('passes per-turn computer-use defaults to the Claude MCP server', async () => {

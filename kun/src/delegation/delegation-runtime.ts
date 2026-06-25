@@ -23,6 +23,26 @@ const ChildRunUsage = z.object({
   tokenEconomySavingsCny: z.number().nonnegative().optional()
 })
 
+const ChildRunTranscriptEntryKind = z.enum([
+  'user_message',
+  'assistant_message',
+  'reasoning',
+  'tool',
+  'system',
+  'event'
+])
+
+export const ChildRunTranscriptEntry = z.object({
+  id: z.string().min(1),
+  kind: ChildRunTranscriptEntryKind,
+  text: z.string().optional(),
+  summary: z.string().optional(),
+  status: z.string().optional(),
+  createdAt: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional()
+}).strict()
+export type ChildRunTranscriptEntry = z.infer<typeof ChildRunTranscriptEntry>
+
 export const ChildRunRecord = z.object({
   id: z.string().min(1),
   parentThreadId: z.string().min(1),
@@ -35,6 +55,7 @@ export const ChildRunRecord = z.object({
   summary: z.string().optional(),
   error: z.string().optional(),
   usage: ChildRunUsage.default({ promptTokens: 0, completionTokens: 0, totalTokens: 0 }),
+  transcript: z.array(ChildRunTranscriptEntry).default([]),
   createdAt: z.string(),
   updatedAt: z.string()
 }).strict()
@@ -49,7 +70,11 @@ export type ChildRunExecutor = (input: {
   workspace?: string
   model?: string
   signal: AbortSignal
-}) => Promise<{ summary: string; usage?: ChildRunRecord['usage'] }>
+}) => Promise<{
+  summary: string
+  usage?: ChildRunRecord['usage']
+  transcript?: ChildRunTranscriptEntry[]
+}>
 
 export type ChildRunAggregate = {
   key: string
@@ -89,6 +114,11 @@ export class FileDelegationStore {
       .filter((record): record is ChildRunRecord => Boolean(record))
       .filter((record) => !parentThreadId || record.parentThreadId === parentThreadId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  }
+
+  async get(parentThreadId: string, childId: string): Promise<ChildRunRecord | null> {
+    const records = await this.list(parentThreadId)
+    return records.find((record) => record.id === childId) ?? null
   }
 }
 
@@ -130,6 +160,12 @@ export class DelegationRuntime {
       workspace: input.workspace,
       model: input.model,
       status: 'running',
+      transcript: [{
+        id: `${id}-prompt`,
+        kind: 'user_message',
+        text: input.prompt,
+        createdAt: now
+      }],
       createdAt: now,
       updatedAt: now
     })
@@ -153,6 +189,10 @@ export class DelegationRuntime {
         status: 'completed',
         summary: result.summary,
         usage: result.usage ?? record.usage,
+        transcript: normalizeTranscript(result.transcript, record, {
+          summary: result.summary,
+          completedAt: this.now()
+        }),
         updatedAt: this.now()
       })
       await this.options.store.upsert(record)
@@ -164,6 +204,10 @@ export class DelegationRuntime {
         ...record,
         status: input.signal.aborted ? 'aborted' : 'failed',
         error: errorMessage(error),
+        transcript: normalizeTranscript(record.transcript, record, {
+          error: errorMessage(error),
+          completedAt: this.now()
+        }),
         updatedAt: this.now()
       })
       await this.options.store.upsert(record)
@@ -187,6 +231,10 @@ export class DelegationRuntime {
       childRuns,
       aggregates: aggregateChildRuns(childRuns)
     }
+  }
+
+  async child(parentThreadId: string, childId: string): Promise<ChildRunRecord | null> {
+    return this.options.store.get(parentThreadId, childId)
   }
 
   private async recordChildEvent(record: ChildRunRecord): Promise<void> {
@@ -280,9 +328,56 @@ export function aggregateChildRuns(records: readonly ChildRunRecord[]): ChildRun
 }
 
 const defaultExecutor: ChildRunExecutor = async (input) => {
-  return { summary: `Child result: ${input.prompt}` }
+  return {
+    summary: `Child result: ${input.prompt}`,
+    transcript: [{
+      id: `${input.childId}-summary`,
+      kind: 'assistant_message',
+      text: `Child result: ${input.prompt}`
+    }]
+  }
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function normalizeTranscript(
+  transcript: readonly ChildRunTranscriptEntry[] | undefined,
+  record: ChildRunRecord,
+  outcome: { summary?: string; error?: string; completedAt?: string }
+): ChildRunTranscriptEntry[] {
+  const entries = ChildRunTranscriptEntry.array().catch([]).parse(transcript ?? [])
+  const withPrompt = entries.some((entry) => entry.kind === 'user_message')
+    ? entries
+    : [{
+        id: `${record.id}-prompt`,
+        kind: 'user_message' as const,
+        text: record.prompt,
+        createdAt: record.createdAt
+      }, ...entries]
+  const hasOutcome = withPrompt.some((entry) =>
+    (outcome.summary && entry.kind === 'assistant_message' && entry.text === outcome.summary) ||
+    (outcome.error && entry.status === 'failed' && entry.text === outcome.error)
+  )
+  if (hasOutcome) return withPrompt
+  if (outcome.summary) {
+    return [...withPrompt, {
+      id: `${record.id}-summary`,
+      kind: 'assistant_message',
+      text: outcome.summary,
+      createdAt: outcome.completedAt
+    }]
+  }
+  if (outcome.error) {
+    return [...withPrompt, {
+      id: `${record.id}-error`,
+      kind: 'event',
+      text: outcome.error,
+      status: record.status,
+      createdAt: outcome.completedAt,
+      metadata: { code: 'child_agent_failed' }
+    }]
+  }
+  return withPrompt
 }

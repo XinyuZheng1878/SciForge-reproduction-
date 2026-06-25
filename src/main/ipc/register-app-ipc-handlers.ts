@@ -185,6 +185,7 @@ import {
   requestComputerUsePermission
 } from '../services/computer-use-permissions'
 import { readComputerUseRuntimeStatus } from '../services/computer-use-status'
+import { prepareResearchMemoryWorkspace } from '../services/research-memory-workspace-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { listGuiSkills } from '../services/skill-service'
 import {
@@ -193,6 +194,7 @@ import {
   loadPdfAnnotationSidecar,
   savePdfAnnotationSidecar
 } from '../services/pdf-annotation-sidecar-service'
+import { workspaceHtmlPreviewService } from '../services/workspace-html-preview-service'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -544,6 +546,11 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       permissions: await getComputerUsePermissions(),
       runtime: await readComputerUseRuntimeStatus(statusPath)
     }
+  })
+
+  handleInvoke('researchMemory:prepare-workspace', async () => {
+    const settings = await store.load()
+    return prepareResearchMemoryWorkspace(settings)
   })
 
   const requirePaperRadarService = (): PaperRadarWorkerService => {
@@ -1205,6 +1212,11 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   handleInvoke('file:read-workspace', async (_, payload: unknown) =>
     readWorkspaceFile(
       parseIpcPayload('file:read-workspace', workspaceFileTargetPayloadSchema, payload)
+    )
+  )
+  handleInvoke('file:preview-workspace-html', async (_, payload: unknown) =>
+    workspaceHtmlPreviewService.preview(
+      parseIpcPayload('file:preview-workspace-html', workspaceFileTargetPayloadSchema, payload)
     )
   )
   handleInvoke('file:read-workspace-image', async (_, payload: unknown) =>

@@ -297,6 +297,17 @@ function itemsFromEvents(events: AgentRuntimeEvent[]): AgentRuntimeItem[] {
       })
       continue
     }
+    if (event.kind === 'reasoning_delta') {
+      const current = items.get(event.itemId)
+      items.set(event.itemId, {
+        id: event.itemId,
+        turnId: event.turnId,
+        kind: 'reasoning',
+        text: `${current?.text ?? ''}${event.text}`,
+        createdAt: current?.createdAt ?? event.createdAt
+      })
+      continue
+    }
     if (event.kind === 'item_snapshot') {
       items.set(event.item.id, {
         ...event.item,

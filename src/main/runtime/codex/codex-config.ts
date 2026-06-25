@@ -13,6 +13,7 @@ import {
   type ScheduleMcpLaunchConfig
 } from '../../schedule-mcp-config'
 import type { ResearchSearchMcpLaunchConfig } from '../../research-search-mcp-config'
+import type { ResearchMemoryMcpLaunchConfig } from '../../research-memory-mcp-config'
 import type { ComputerUseMcpLaunchConfig } from '../../computer-use-mcp-config'
 import {
   GUI_WORKFLOW_INTERNAL_SECRET_ENV,
@@ -77,6 +78,7 @@ export async function prepareCodexAppServerLaunch(options: {
   managedCodexHome?: string
   scheduleMcpLaunch?: ScheduleMcpLaunchConfig
   researchMcpLaunch?: ResearchSearchMcpLaunchConfig
+  researchMemoryMcpLaunch?: ResearchMemoryMcpLaunchConfig
   workflowMcpLaunch?: WorkflowMcpLaunchConfig
   workspaceIntelMcpLaunch?: WorkspaceIntelMcpLaunchConfig
   paperRadarMcpLaunch?: PaperRadarMcpLaunchConfig
@@ -243,6 +245,10 @@ function codexConfigToml(modelRouter: CodexModelRouterConfig): string {
   return [
     `model = "${tomlString(DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS)}"`,
     `model_provider = "${tomlString(DEFAULT_MODEL_ROUTER_PROVIDER_ID)}"`,
+    'hide_agent_reasoning = false',
+    'show_raw_agent_reasoning = true',
+    'model_reasoning_summary = "detailed"',
+    'model_supports_reasoning_summaries = true',
     '',
     `[model_providers.${DEFAULT_MODEL_ROUTER_PROVIDER_ID}]`,
     'name = "SciForge Model Router"',

@@ -16,7 +16,7 @@ export type CodexAppServerTurnReasoningParams = {
 }
 
 const DEFAULT_REASONING_EFFORT = 'medium'
-const DEFAULT_REASONING_SUMMARY = 'auto'
+const DEFAULT_REASONING_SUMMARY = 'detailed'
 const CODEX_APP_SERVER_REASONING_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh'])
 
 export function codexAppServerThreadReasoningConfig(

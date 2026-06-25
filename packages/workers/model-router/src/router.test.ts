@@ -633,6 +633,51 @@ test('pure text responses are routed only to the configured text reasoner', asyn
   }
 });
 
+test('pure text responses expose upstream reasoning content as a Responses reasoning item', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-text-reasoning-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion(
+        'text-reasoner-answer',
+        'The text answer.',
+        undefined,
+        { reasoning_content: 'Need a concise one sentence answer.' },
+      ),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: 'Explain SciForge in one sentence.',
+        reasoning: { effort: 'high', summary: 'detailed' },
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as { output?: Array<Record<string, unknown>>; output_text?: string };
+    assert.equal(body.output_text, 'The text answer.');
+    assert.deepEqual(body.output?.map((item) => item.type), ['reasoning', 'message']);
+    assert.deepEqual(body.output?.[0]?.summary, [{
+      type: 'summary_text',
+      text: 'Need a concise one sentence answer.',
+    }]);
+    assert.deepEqual(calls[0]?.body.reasoning, { effort: 'high', summary: 'detailed' });
+    assert.equal(calls[0]?.body.reasoning_effort, 'high');
+    assert.equal(calls[0]?.body.include_reasoning, true);
+  } finally {
+    await server.close();
+  }
+});
+
 test('responses trace records sanitized handoff audit metadata without owning runtime lifecycle', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-handoff-audit-'));
   const calls: CapturedFetch[] = [];
@@ -1213,8 +1258,14 @@ test('responses tool calls pass through the Model Router API without becoming te
     assert.equal(response.status, 200);
     const body = await response.json() as { output?: Array<Record<string, unknown>>; output_text?: string };
     assert.equal(body.output_text, '');
-    assert.deepEqual(body.output, [{
-      id: body.output?.[0]?.id,
+    const reasoning = body.output?.find((item) => item.type === 'reasoning');
+    const toolCall = body.output?.find((item) => item.type === 'function_call');
+    assert.deepEqual(reasoning?.summary, [{
+      type: 'summary_text',
+      text: 'Need to present the answer through the GUI tool.',
+    }]);
+    assert.deepEqual(toolCall, {
+      id: toolCall?.id,
       type: 'function_call',
       status: 'completed',
       call_id: 'call_gui_present_1',
@@ -1224,7 +1275,7 @@ test('responses tool calls pass through the Model Router API without becoming te
         content: { kind: 'markdown', value: 'Visible answer.' },
       }),
       reasoning_content: 'Need to present the answer through the GUI tool.',
-    }]);
+    });
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.body.tool_choice, 'auto');
     assert.equal((calls[0]?.body.tools as Array<{ function?: { name?: string } }> | undefined)?.[0]?.function?.name, 'gui_present');
@@ -1795,7 +1846,8 @@ test('responses tool outputs restore cached function calls stripped by app-serve
 
     assert.equal(first.status, 200);
     const firstBody = await first.json() as { output?: Array<Record<string, unknown>> };
-    assert.equal(firstBody.output?.[0]?.reasoning_content, 'Need to run date before answering.');
+    const firstFunctionCall = firstBody.output?.find((item) => item.type === 'function_call');
+    assert.equal(firstFunctionCall?.reasoning_content, 'Need to run date before answering.');
 
     const second = await fetch(`${server.url}/v1/responses`, {
       method: 'POST',
@@ -2120,6 +2172,65 @@ test('streaming responses emit function_call items when the text reasoner choose
       reasoning_output_tokens: 0,
     });
     assert.doesNotMatch(body, /response\.output_text\.delta/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('streaming text responses emit reasoning items before final answer text', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-stream-reasoning-'));
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch([], [
+      chatCompletion(
+        'text-reasoning-stream',
+        'The streamed answer.',
+        undefined,
+        { reasoning_content: 'Need to answer briefly.' },
+      ),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        stream: true,
+        input: 'Answer briefly.',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    const events = parseSseEvents(body);
+    assert.deepEqual(events.map((event) => event.type), [
+      'response.created',
+      'response.output_item.added',
+      'response.output_item.done',
+      'response.output_item.added',
+      'response.content_part.added',
+      'response.output_text.delta',
+      'response.output_text.done',
+      'response.content_part.done',
+      'response.output_item.done',
+      'response.completed',
+    ]);
+    assert.equal(events[1]?.item?.type, 'reasoning');
+    assert.deepEqual(events[1]?.item?.summary, [{
+      type: 'summary_text',
+      text: 'Need to answer briefly.',
+    }]);
+    assert.equal(events[5]?.output_index, 1);
+    assert.equal(events[5]?.delta, 'The streamed answer.');
+    assert.deepEqual(events.find((event) => event.type === 'response.completed')?.response?.output?.map((item: Record<string, unknown>) => item.type), [
+      'reasoning',
+      'message',
+    ]);
   } finally {
     await server.close();
   }

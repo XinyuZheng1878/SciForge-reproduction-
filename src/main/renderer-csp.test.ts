@@ -22,4 +22,16 @@ describe('renderer content security policy', () => {
       'http://localhost:5174'
     ]))
   })
+
+  it('allows loopback iframe HTML previews', () => {
+    const html = readFileSync(resolve('src/renderer/index.html'), 'utf8')
+    const csp = html.match(/Content-Security-Policy"[\s\S]*?content="([^"]+)"/)?.[1] ?? ''
+    const frameSrc = csp.match(/frame-src\s+([^;]+)/)?.[1] ?? ''
+
+    expect(frameSrc.split(/\s+/)).toEqual(expect.arrayContaining([
+      "'self'",
+      'http://127.0.0.1:*',
+      'http://localhost:*'
+    ]))
+  })
 })

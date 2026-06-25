@@ -155,6 +155,7 @@ function createApi(): DsGuiApi {
     setDeepseekConfigFile: (content) => invoke('deepseek:config:write', content),
     openDeepseekConfigDir: () => invoke('deepseek:config:open-dir'),
     openModelRouterConfigFile: () => invoke('modelRouter:config:open'),
+    prepareResearchMemoryWorkspace: () => invoke('researchMemory:prepare-workspace'),
     getGitBranches: (workspaceRoot) => invoke('git:branches', workspaceRoot),
     switchGitBranch: (workspaceRoot, branch) =>
       invoke('git:switch-branch', { workspaceRoot, branch }),
@@ -165,6 +166,7 @@ function createApi(): DsGuiApi {
     listWorkspaceDirectory: (options) => invoke('file:list-workspace-directory', options),
     resolveWorkspaceFile: (options) => invoke('file:resolve-workspace', options),
     readWorkspaceFile: (options) => invoke('file:read-workspace', options),
+    previewWorkspaceHtml: (options) => invoke('file:preview-workspace-html', options),
     readWorkspaceImage: (options) => invoke('file:read-workspace-image', options),
     writeWorkspaceFile: (payload) => invoke('file:write-workspace', payload),
     createWorkspaceFile: (payload) => invoke('file:create-workspace', payload),

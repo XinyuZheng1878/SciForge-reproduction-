@@ -126,6 +126,17 @@ export type WorkspaceImageReadResult =
     }
   | { ok: false; message: string }
 
+export type WorkspaceHtmlPreviewResult =
+  | {
+      ok: true
+      path: string
+      workspaceRoot: string
+      url: string
+      size: number
+      mtimeMs: number
+    }
+  | { ok: false; message: string }
+
 export type WorkspaceFileResolveResult =
   | {
       ok: true

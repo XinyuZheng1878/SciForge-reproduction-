@@ -7,6 +7,7 @@ import type {
   AgentRuntimeCapabilities,
   AgentRuntimeChild,
   AgentRuntimeChildStatus,
+  AgentRuntimeChildTranscriptEntry,
   AgentRuntimeEvent,
   AgentRuntimeItem,
   AgentRuntimeModality,
@@ -17,7 +18,8 @@ import type {
   AgentRuntimeTurn,
   AgentRuntimeTurnHandle,
   AgentRuntimeUsageQuery,
-  AgentRuntimeUsageResponse
+  AgentRuntimeUsageResponse,
+  ReasoningVisibility
 } from '../../shared/agent-runtime-contract'
 import {
   createAgentRuntimeCapabilityMatrix,
@@ -39,6 +41,7 @@ import {
   kunApprovalPath,
   kunMemoryRecordPath,
   kunSessionResumePath,
+  kunThreadChildTranscriptPath,
   kunThreadCompactPath,
   kunThreadChildrenPath,
   kunThreadForkPath,
@@ -490,18 +493,53 @@ async function kunAuxiliary(
         requiredString(payload, 'threadId', input.operation)
       const parentTurnId = optionalString(payload.parentTurnId) ?? optionalString(payload.turnId)
       const childId = requiredString(payload, 'childId', input.operation)
-      const reason = 'Kun child agent transcripts are not persisted by the runtime yet.'
+      let result: unknown
+      try {
+        result = await requestJson(
+          options,
+          context,
+          `${kunThreadChildTranscriptPath(threadId, childId)}${queryString({
+            cursor: optionalString(payload.cursor),
+            limit: optionalPositiveIntegerString(payload.limit)
+          })}`,
+          { method: 'GET' }
+        )
+      } catch (error) {
+        if (!isKunNotFoundError(error)) throw error
+        return degradedKunChildTranscript({
+          threadId,
+          parentTurnId,
+          childId,
+          reason: 'Kun child transcript endpoint is unavailable.'
+        })
+      }
+      const transcriptRecord = asRecord(asRecord(result)?.transcript) ?? {}
+      const child = mapKunChildRun(transcriptRecord.child, threadId)
+      const transcriptFormat = mapKunTranscriptFormat(transcriptRecord.format)
       return {
         transcript: {
           runtimeId: 'kun',
-          threadId,
+          threadId: optionalString(transcriptRecord.threadId) ?? threadId,
           parentThreadId: threadId,
-          ...(parentTurnId ? { parentTurnId } : {}),
+          ...(optionalString(transcriptRecord.parentTurnId) ?? parentTurnId
+            ? { parentTurnId: optionalString(transcriptRecord.parentTurnId) ?? parentTurnId }
+            : {}),
           childId,
-          format: 'unknown',
-          entries: [],
-          degraded: true,
-          reason
+          ...(child ? { child } : {}),
+          transcriptRef: mapKunTranscriptRef(
+            asRecord(transcriptRecord.transcriptRef) ?? undefined,
+            childId,
+            child?.label ?? child?.name
+          ),
+          ...(transcriptFormat ? { format: transcriptFormat } : {}),
+          entries: arrayValue(transcriptRecord.entries)
+            .map(mapKunTranscriptEntry)
+            .filter((entry): entry is NonNullable<ReturnType<typeof mapKunTranscriptEntry>> => entry != null),
+          summary: optionalString(transcriptRecord.summary) ?? child?.summary,
+          usage: mapUsage(transcriptRecord.usage) ?? child?.usage,
+          ...(transcriptRecord.degraded === true ? { degraded: true } : {}),
+          ...(optionalString(transcriptRecord.reason) ? { reason: optionalString(transcriptRecord.reason) } : {}),
+          ...(asRecord(transcriptRecord.metadata) ? { metadata: asRecord(transcriptRecord.metadata) } : {})
         }
       }
     }
@@ -932,8 +970,13 @@ function mapKunEvent(value: unknown, fallbackThreadId: string): AgentRuntimeEven
       createdAt,
       turnId,
       itemId: itemId || stringValue(item?.id) || `kun-reasoning-${seq ?? Date.now()}`,
-      text: stringValue(record.text) || stringValue(record.delta) || stringValue(item?.text),
-      visibility: 'summary'
+      text: stringValue(record.text) ||
+        stringValue(record.delta) ||
+        stringValue(record.summary) ||
+        stringValue(item?.text) ||
+        stringValue(item?.delta) ||
+        stringValue(item?.summary),
+      visibility: reasoningVisibility(record.visibility) || reasoningVisibility(item?.visibility) || 'summary'
     }
   }
 
@@ -1313,6 +1356,111 @@ function mapUsage(value: unknown): AgentRuntimeThreadDetail['usage'] {
   }
 }
 
+function mapKunTranscriptRef(
+  record: Record<string, unknown> | undefined,
+  childId: string,
+  label?: string
+): NonNullable<AgentRuntimeChild['transcriptRef']> {
+  const path = optionalString(record?.path)
+  const url = optionalString(record?.url)
+  const mimeType = optionalString(record?.mimeType)
+  const metadata = asRecord(record?.metadata) ?? undefined
+  return {
+    id: optionalString(record?.id) ?? childId,
+    kind: mapKunTranscriptRefKind(record?.kind) ?? 'runtime',
+    runtimeId: 'kun',
+    childId,
+    transcriptId: optionalString(record?.transcriptId) ?? childId,
+    source: optionalString(record?.source) ?? 'kun-child-run',
+    label: optionalString(record?.label) ?? label ?? childId,
+    ...(path ? { path } : {}),
+    ...(url ? { url } : {}),
+    ...(mimeType ? { mimeType } : {}),
+    ...(metadata ? { metadata } : {})
+  }
+}
+
+function mapKunTranscriptRefKind(value: unknown): NonNullable<AgentRuntimeChild['transcriptRef']>['kind'] | undefined {
+  if (value === 'runtime' || value === 'file' || value === 'directory' || value === 'url' || value === 'remote') {
+    return value
+  }
+  return undefined
+}
+
+function mapKunTranscriptFormat(value: unknown): 'jsonl' | 'markdown' | 'text' | 'unknown' | undefined {
+  if (value === 'jsonl' || value === 'markdown' || value === 'text' || value === 'unknown') return value
+  return undefined
+}
+
+function mapKunTranscriptEntry(value: unknown): AgentRuntimeChildTranscriptEntry | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const id = optionalString(record.id)
+  const kind = mapKunTranscriptEntryKind(record.kind)
+  if (!id || !kind) return null
+  const text = optionalString(record.text)
+  const summary = optionalString(record.summary)
+  const status = optionalString(record.status)
+  const createdAt = optionalString(record.createdAt)
+  const metadata = asRecord(record.metadata) ?? undefined
+  return {
+    id,
+    kind,
+    ...(text ? { text } : {}),
+    ...(summary ? { summary } : {}),
+    ...(status ? { status } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(metadata ? { metadata } : {})
+  }
+}
+
+function mapKunTranscriptEntryKind(value: unknown): AgentRuntimeChildTranscriptEntry['kind'] | null {
+  if (
+    value === 'user_message' ||
+    value === 'assistant_message' ||
+    value === 'reasoning' ||
+    value === 'tool' ||
+    value === 'system' ||
+    value === 'event'
+  ) {
+    return value
+  }
+  return null
+}
+
+function degradedKunChildTranscript(input: {
+  threadId: string
+  parentTurnId?: string
+  childId: string
+  reason: string
+}): {
+  transcript: {
+    runtimeId: 'kun'
+    threadId: string
+    parentThreadId: string
+    parentTurnId?: string
+    childId: string
+    format: 'unknown'
+    entries: []
+    degraded: true
+    reason: string
+  }
+} {
+  return {
+    transcript: {
+      runtimeId: 'kun',
+      threadId: input.threadId,
+      parentThreadId: input.threadId,
+      ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+      childId: input.childId,
+      format: 'unknown',
+      entries: [],
+      degraded: true,
+      reason: input.reason
+    }
+  }
+}
+
 function mapKunChildRun(value: unknown, fallbackParentThreadId: string): AgentRuntimeChild | null {
   const record = asRecord(value)
   if (!record) return null
@@ -1339,6 +1487,7 @@ function mapKunChildRun(value: unknown, fallbackParentThreadId: string): AgentRu
     prompt: optionalString(record.prompt),
     summary: optionalString(record.summary) ?? optionalString(record.text) ?? error,
     usage: mapUsage(record.usage),
+    transcriptRef: mapKunTranscriptRef(asRecord(record.transcriptRef) ?? undefined, id, label),
     createdAt: optionalString(record.createdAt) ?? optionalString(record.created_at),
     startedAt: optionalString(record.startedAt) ?? optionalString(record.started_at) ?? optionalString(record.createdAt) ?? optionalString(record.created_at),
     updatedAt,
@@ -1601,6 +1750,18 @@ function stringValue(value: unknown): string {
 function optionalString(value: unknown): string | undefined {
   const text = stringValue(value)
   return text || undefined
+}
+
+function reasoningVisibility(value: unknown): ReasoningVisibility | undefined {
+  switch (stringValue(value)) {
+    case 'none':
+    case 'summary':
+    case 'trace':
+    case 'full_runtime_text':
+      return value as ReasoningVisibility
+    default:
+      return undefined
+  }
 }
 
 function stringArrayValue(value: unknown): string[] | undefined {

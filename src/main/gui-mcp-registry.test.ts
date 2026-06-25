@@ -21,6 +21,8 @@ import {
   COMPUTER_USE_STATUS_PATH_ENV,
   GUI_COMPUTER_USE_MCP_SERVER_NAME
 } from './computer-use-mcp-config'
+import { GUI_RESEARCH_MEMORY_MCP_SERVER_NAME } from './research-memory-mcp-config'
+import { ResearchMemoryToolNames } from '../../packages/workers/research-memory/src/contract'
 
 const launch = {
   appPath: '/Applications/SciForge.app/Contents/Resources/app.asar.unpacked',
@@ -81,6 +83,7 @@ describe('GUI MCP runtime registry', () => {
     expect(managedGuiMcpServerNames()).toEqual(expect.arrayContaining([
       'gui_schedule',
       'gui_research',
+      'gui_research_memory',
       'gui_workflow',
       'gui_workspace_intel',
       'gui_paper_radar',
@@ -94,6 +97,7 @@ describe('GUI MCP runtime registry', () => {
     const settings = createSettings()
     const servers = buildKunManagedGuiMcpServers({
       scheduleMcp: { settings, launch },
+      researchMemoryMcp: { settings, launch },
       workflowMcp: { settings, launch },
       computerUseMcp: {
         launch: {
@@ -115,6 +119,12 @@ describe('GUI MCP runtime registry', () => {
       env: { ELECTRON_RUN_AS_NODE: '1' },
       timeoutMs: 5000
     })
+    expect(servers.gui_research_memory).toMatchObject({
+      enabled: true,
+      args: expect.arrayContaining(['--gui-research-memory-mcp-server', '--workspace-root', '/tmp/project']),
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      timeoutMs: 30000
+    })
     expect(servers.gui_workflow).toMatchObject({
       enabled: true,
       args: expect.arrayContaining(['--gui-workflow-mcp-server', '--base-url', 'http://127.0.0.1:9898']),
@@ -135,6 +145,7 @@ describe('GUI MCP runtime registry', () => {
     const servers = buildCodexManagedGuiMcpServers({
       settings,
       scheduleMcp: { settings, launch },
+      researchMemoryMcp: { settings, launch },
       workflowMcp: { settings, launch },
       workspaceIntelMcp: { settings, launch },
       computerUseMcp: { launch, enabled: false }
@@ -142,6 +153,7 @@ describe('GUI MCP runtime registry', () => {
 
     expect(servers.map((server) => server.id)).toEqual([
       'gui_schedule',
+      'gui_research_memory',
       'gui_workflow',
       'gui_workspace_intel'
     ])
@@ -151,6 +163,11 @@ describe('GUI MCP runtime registry', () => {
         GUI_SCHEDULE_INTERNAL_SECRET: 'schedule-secret'
       },
       enabledTools: expect.arrayContaining(['gui_schedule_list', 'gui_schedule_run'])
+    })
+    expect(servers.find((server) => server.id === GUI_RESEARCH_MEMORY_MCP_SERVER_NAME)).toMatchObject({
+      args: expect.arrayContaining(['--gui-research-memory-mcp-server', '--workspace-root', '/tmp/project']),
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      enabledTools: [...ResearchMemoryToolNames]
     })
     expect(servers.find((server) => server.id === 'gui_workflow')).toMatchObject({
       env: {

@@ -612,6 +612,7 @@ async function routeResponsesRequest(
       });
       addUsage(usage, textResult.usage);
       const hasToolCall = textResult.outputItems.some((item) => item.type === 'function_call');
+      const reasoningItems = textResult.outputItems.filter((item) => item.type === 'reasoning');
       if (hasToolCall) {
         outputText = textResult.outputText;
         outputItems = textResult.outputItems;
@@ -621,6 +622,7 @@ async function routeResponsesRequest(
       const control = parseTextControl(textResult.outputText);
       if (control?.type === 'final_answer') {
         outputText = publicProviderOutputText(control.content, profile, publicModelAlias, traceRedactionSecrets);
+        outputItems = reasoningItems;
         break;
       }
 
@@ -672,6 +674,7 @@ async function routeResponsesRequest(
       }
 
       outputText = publicProviderOutputText(textResult.outputText, profile, publicModelAlias, traceRedactionSecrets);
+      outputItems = reasoningItems;
       break;
     }
   } catch (error) {
@@ -707,7 +710,9 @@ async function routeResponsesRequest(
   if (degraded && !mentionsModalityUnavailable(outputText)) {
     outputText = `${degradedUnavailablePrefix(extracted.modalities)} ${outputText}`;
   }
-  if (!outputItems.length) outputItems = outputText ? [messageOutputItem(outputText)] : [];
+  if (outputText && !outputItems.some((item) => item.type !== 'reasoning')) {
+    outputItems = [...outputItems, messageOutputItem(outputText)];
+  }
   rememberFunctionCalls(context.toolCallCache, outputItems);
 
   await writeRoutingTrace({
@@ -1825,6 +1830,9 @@ function chatRequestOptionsFromResponsesRequest(request: Record<string, unknown>
     max_tokens: chatRequest.max_tokens,
     parallel_tool_calls: chatRequest.parallel_tool_calls,
     metadata: chatRequest.metadata,
+    reasoning: chatRequest.reasoning,
+    reasoning_effort: chatRequest.reasoning_effort,
+    include_reasoning: chatRequest.include_reasoning,
   }).filter(([, value]) => value !== undefined));
 }
 
@@ -2188,8 +2196,10 @@ function responseObject(result: RoutedResponse, messageItemId?: string): JsonObj
 }
 
 function responseOutputItems(result: RoutedResponse, messageItemId?: string): JsonObject[] {
-  if (messageItemId && result.outputItems.length === 1 && result.outputItems[0]?.type === 'message') {
-    return [{ ...result.outputItems[0], id: messageItemId }];
+  if (messageItemId && result.outputItems.length) {
+    return result.outputItems.map((item) => (
+      item.type === 'message' ? { ...item, id: messageItemId } : item
+    ));
   }
   if (result.outputItems.length) return result.outputItems;
   return result.outputText ? [messageOutputItem(result.outputText, messageItemId)] : [];
@@ -2361,23 +2371,40 @@ function anthropicStreamStartBlock(contentBlock: JsonObject): JsonObject {
 }
 
 function writeResponseStreamResult(response: ServerResponse, result: RoutedResponse) {
-  const outputIndex = 0;
+  let outputIndex = 0;
   const contentIndex = 0;
   const messageItemId = makeId('msg');
   const outputItems = responseOutputItems(result, messageItemId);
-  const completedMessage = outputItems.length === 1 && outputItems[0]?.type === 'message'
-    ? outputItems[0]
+  const reasoningItems = outputItems.filter((item) => item.type === 'reasoning');
+  const nonReasoningItems = outputItems.filter((item) => item.type !== 'reasoning');
+
+  reasoningItems.forEach((item) => {
+    writeSse(response, 'response.output_item.added', {
+      type: 'response.output_item.added',
+      output_index: outputIndex,
+      item,
+    });
+    writeSse(response, 'response.output_item.done', {
+      type: 'response.output_item.done',
+      output_index: outputIndex,
+      item,
+    });
+    outputIndex += 1;
+  });
+
+  const completedMessage = nonReasoningItems.length === 1 && nonReasoningItems[0]?.type === 'message'
+    ? nonReasoningItems[0]
     : undefined;
   if (!completedMessage) {
-    outputItems.forEach((item, index) => {
+    nonReasoningItems.forEach((item, index) => {
       writeSse(response, 'response.output_item.added', {
         type: 'response.output_item.added',
-        output_index: index,
+        output_index: outputIndex + index,
         item,
       });
       writeSse(response, 'response.output_item.done', {
         type: 'response.output_item.done',
-        output_index: index,
+        output_index: outputIndex + index,
         item,
       });
     });

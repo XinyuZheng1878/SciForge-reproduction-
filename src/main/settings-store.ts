@@ -16,6 +16,7 @@ import {
   defaultKunRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
+  defaultAgentCapabilitySettings,
   defaultComputerUseSettings,
   defaultRuntimeGuardSettings,
   defaultScheduleSettings,
@@ -30,6 +31,8 @@ import {
   mergeModelRouterSettings,
   mergeModelProviderSettings,
   mergeComputerUseSettings,
+  mergeResearchMemorySettings,
+  mergeAgentCapabilitySettings,
   mergeRuntimeGuardSettings,
   defaultWriteSettings,
   mergeClawSettings,
@@ -249,6 +252,7 @@ const defaultSettings = (): AppSettingsV1 => ({
   uiFontScale: 'small',
   provider: defaultModelProviderSettings(),
   modelRouter: defaultModelRouterSettings(),
+  agentCapabilities: defaultAgentCapabilitySettings(),
   computerUse: defaultComputerUseSettings(),
   runtimeGuards: defaultRuntimeGuardSettings(),
   activeAgentRuntime: 'kun',
@@ -285,6 +289,7 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
     ...migrated,
     provider: mergeModelProviderSettings(defaults.provider, migrated.provider),
     modelRouter: mergeModelRouterSettings(defaults.modelRouter, migrated.modelRouter),
+    agentCapabilities: mergeAgentCapabilitySettings(defaults.agentCapabilities, migrated.agentCapabilities),
     computerUse: mergeComputerUseSettings(defaults.computerUse, migrated.computerUse),
     runtimeGuards: mergeRuntimeGuardSettings(defaults.runtimeGuards, migrated.runtimeGuards),
     activeAgentRuntime: normalizeAgentRuntimeId(migrated.activeAgentRuntime ?? defaults.activeAgentRuntime),
@@ -446,7 +451,8 @@ export class JsonSettingsStore {
     if (
       sourcePath !== this.path ||
       getModelRouterSettings(normalized).runtimeApiKey !== getModelRouterSettings(normalizedBeforeLocalIds).runtimeApiKey ||
-      normalized.installationId !== normalizedBeforeLocalIds.installationId
+      normalized.installationId !== normalizedBeforeLocalIds.installationId ||
+      !('agentCapabilities' in parsed)
     ) {
       await this.save(normalized)
     }
@@ -470,6 +476,8 @@ export class JsonSettingsStore {
       provider: providerPatch,
       modelRouter: modelRouterPatch,
       computerUse: computerUsePatch,
+      agentCapabilities: agentCapabilitiesPatch,
+      researchMemory: researchMemoryPatch,
       runtimeGuards: runtimeGuardsPatch,
       speechToText: speechToTextPatch,
       ...restPatch
@@ -482,7 +490,9 @@ export class JsonSettingsStore {
       ...restPatch,
       provider: mergeModelProviderSettings(cur.provider, providerPatch),
       modelRouter: mergeModelRouterSettings(cur.modelRouter, modelRouterPatch),
+      agentCapabilities: mergeAgentCapabilitySettings(cur.agentCapabilities, agentCapabilitiesPatch),
       computerUse: mergeComputerUseSettings(cur.computerUse, computerUsePatch),
+      researchMemory: mergeResearchMemorySettings(cur.researchMemory, researchMemoryPatch),
       runtimeGuards: mergeRuntimeGuardSettings(cur.runtimeGuards, runtimeGuardsPatch),
       log: { ...cur.log, ...(partial.log ?? {}) },
       notifications: { ...cur.notifications, ...(partial.notifications ?? {}) },

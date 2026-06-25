@@ -94,9 +94,9 @@
       "legacySkillMd": true
     },
     "subagents": {
-      "enabled": false,
-      "maxParallel": 0,
-      "maxChildRuns": 0
+      "enabled": true,
+      "maxParallel": 2,
+      "maxChildRuns": 4
     },
     "attachments": {
       "enabled": false,

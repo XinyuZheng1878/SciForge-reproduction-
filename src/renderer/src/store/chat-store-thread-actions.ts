@@ -23,7 +23,7 @@ import {
 import { workspaceLabelFromPath } from '../lib/workspace-label'
 import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { parseSteerCommand } from '../lib/steer-command'
-import { buildClawRuntimePrompt, buildCodeRuntimePrompt, getActiveAgentApiKey } from '@shared/app-settings'
+import { buildClawRuntimePrompt, buildCodeRuntimePrompt, getActiveAgentApiKey, type AgentRuntimeId } from '@shared/app-settings'
 import type { AgentRuntimeContextState, AgentRuntimeFileReference } from '@shared/agent-runtime-contract'
 import type { ChatState, ChatStoreGet, ChatStoreSet, QueuedUserMessage } from './chat-store-types'
 import {
@@ -163,6 +163,37 @@ function canSteerPlainTextMessage(
     !message.attachments?.length &&
     !message.fileReferences?.length &&
     !message.guiPlan
+}
+
+function upsertRuntimeTargetThread(
+  threads: NormalizedThread[],
+  input: {
+    previousThreadId: string
+    nextThreadId: string
+    runtimeId: AgentRuntimeId
+    updatedAt: string
+  }
+): NormalizedThread[] {
+  const existing = threads.find((thread) => thread.id === input.nextThreadId)
+  const previous = threads.find((thread) => thread.id === input.previousThreadId)
+  const next: NormalizedThread = {
+    ...(previous ?? {
+      id: input.nextThreadId,
+      title: input.nextThreadId.slice(0, 8),
+      model: '',
+      mode: 'agent'
+    }),
+    ...(existing ?? {}),
+    id: input.nextThreadId,
+    runtimeId: input.runtimeId,
+    updatedAt: input.updatedAt,
+    title: existing?.title ?? previous?.title ?? input.nextThreadId.slice(0, 8),
+    model: existing?.model ?? previous?.model ?? '',
+    mode: existing?.mode ?? previous?.mode ?? 'agent',
+    workspace: existing?.workspace ?? previous?.workspace
+  }
+  const withoutTarget = threads.filter((thread) => thread.id !== input.nextThreadId)
+  return [next, ...withoutTarget]
 }
 
 export function publishActiveClawThreadContext(state: ChatState, threadId: string | null): void {
@@ -801,8 +832,14 @@ export function createThreadActions(
     sseAbortRef.current = null
     clearBusyWatchdog()
     try {
+      if (!activeThreadId) throw new Error('Failed to resolve target thread id.')
+      const previousThreadId = activeThreadId
       const seqAtSend = get().lastSeq
-      rememberProviderThreadRuntime(p, activeThreadId, get().threads)
+      const sendingThread = get().threads.find((thread) => thread.id === previousThreadId)
+      const sendingRuntimeId = sendingThread?.runtimeId ?? 'kun'
+      const targetRuntimeId = get().activeAgentRuntime
+      const runtimeSwitchExpected = sendingRuntimeId !== targetRuntimeId
+      rememberProviderThreadRuntime(p, previousThreadId, get().threads)
       const channel = sourceRoute === 'claw' ? activeClawChannel(get()) : null
       const settings = await rendererRuntimeClient.getSettings()
       let runtimeText: string
@@ -817,8 +854,10 @@ export function createThreadActions(
           ? 'remote_guard'
           : undefined
       )
-      const { turnId, userMessageItemId } = await p.sendUserMessage(activeThreadId, runtimeText, {
+      const turnHandle = await p.sendUserMessage(previousThreadId, runtimeText, {
         mode,
+        ...(sendingThread?.workspace ? { workspace: sendingThread.workspace } : {}),
+        ...(sendingThread?.title ? { title: sendingThread.title } : {}),
         ...(composerModel ? { model: composerModel } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(governanceProfile ? { governanceProfile } : {}),
@@ -827,6 +866,22 @@ export function createThreadActions(
         ...(attachmentIds.length ? { attachmentIds } : {}),
         ...(fileReferences.length ? { fileReferences } : {})
       })
+      const deliveredThreadId = turnHandle.threadId?.trim() || previousThreadId
+      const { turnId, userMessageItemId } = turnHandle
+      const subscribedFromSeq = runtimeSwitchExpected || deliveredThreadId !== previousThreadId ? 0 : seqAtSend
+      if (runtimeSwitchExpected || deliveredThreadId !== previousThreadId) {
+        set((s) => ({
+          activeThreadId: deliveredThreadId,
+          threads: upsertRuntimeTargetThread(s.threads, {
+            previousThreadId,
+            nextThreadId: deliveredThreadId,
+            runtimeId: targetRuntimeId,
+            updatedAt: new Date(now).toISOString()
+          }),
+          lastSeq: subscribedFromSeq
+        }))
+        activeThreadId = deliveredThreadId
+      }
       // Mirror the composer model selection against the runtime's stable
       // user_message item id so the badge survives page refresh / thread
       // re-selection. The runtime itself doesn't persist per-turn metadata.
@@ -908,8 +963,8 @@ export function createThreadActions(
       set({ currentTurnId: turnId })
       const ac = new AbortController()
       sseAbortRef.current = ac
-      const sink = buildThreadEventSink(set, get, { threadId: activeThreadId, signal: ac.signal, sinceSeq: seqAtSend })
-      subscribeThreadEventsWithRecovery(p, activeThreadId, seqAtSend, sink, ac.signal, get)
+      const sink = buildThreadEventSink(set, get, { threadId: activeThreadId, signal: ac.signal, sinceSeq: subscribedFromSeq })
+      subscribeThreadEventsWithRecovery(p, activeThreadId, subscribedFromSeq, sink, ac.signal, get)
       armBusyWatchdog(set, get)
       await get().refreshThreads()
       return true

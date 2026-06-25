@@ -51,6 +51,14 @@ describe('normalizeCodexEvent', () => {
       threadId: 'thread-1',
       deltas: [{ text: 'summary', kind: 'agent_reasoning' }]
     })
+
+    expect(normalizeCodexEvent({
+      method: 'item/reasoning/summaryDelta',
+      params: { threadId: 'thread-1', summary: 'summary field' }
+    })).toEqual({
+      threadId: 'thread-1',
+      deltas: [{ text: 'summary field', kind: 'agent_reasoning' }]
+    })
   })
 
   it('maps reasoning delta aliases to reasoning deltas', () => {
@@ -217,6 +225,18 @@ describe('normalizeCodexEvent', () => {
     expect(normalizeCodexEvent({
       type: 'response_item',
       payload: {
+        type: 'reasoning',
+        content: [{ type: 'reasoning_text', text: 'content reasoning' }]
+      }
+    }, { threadId: 'thread-1', turnId: 'turn-1' })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      deltas: [{ text: 'content reasoning', kind: 'agent_reasoning' }]
+    })
+
+    expect(normalizeCodexEvent({
+      type: 'response_item',
+      payload: {
         type: 'message',
         role: 'assistant',
         content: [{ type: 'output_text', text: 'visible answer' }],
@@ -263,6 +283,22 @@ describe('normalizeCodexEvent', () => {
         status: 'running',
         toolKind: 'command_execution'
       }
+    })
+
+    expect(normalizeCodexEvent({
+      method: 'rawResponseItem/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          type: 'reasoning',
+          content: [{ type: 'reasoning_text', text: 'raw reasoning' }]
+        }
+      }
+    })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      deltas: [{ text: 'raw reasoning', kind: 'agent_reasoning' }]
     })
 
     expect(normalizeCodexEvent({

@@ -1,0 +1,21 @@
+{
+  "id": "research-memory",
+  "name": "Research Memory",
+  "description": "Use Research Memory MCP to draft, confirm, and sync local research state to GitHub review surfaces.",
+  "version": "0.1.0",
+  "entry": "SKILL.md",
+  "triggers": {
+    "commands": ["/research-memory"],
+    "promptPatterns": [
+      "research memory",
+      "artifact",
+      "status\\.html",
+      "github.*(summary|issue|pr|feedback)",
+      "experiment.*(complete|blocker|update)"
+    ],
+    "fileTypes": []
+  },
+  "allowedTools": [],
+  "assets": [],
+  "priority": 0
+}

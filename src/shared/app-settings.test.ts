@@ -19,9 +19,11 @@ import {
   defaultModelProviderSettings,
   defaultSpeechToTextSettings,
   defaultRuntimeGuardSettings,
+  defaultAgentCapabilitySettings,
   defaultComputerUseSettings,
   mergeKunRuntimeSettings,
   mergeRuntimeGuardSettings,
+  mergeAgentCapabilitySettings,
   mergeComputerUseSettings,
   mergeScheduleSettings,
   mergeSpeechToTextSettings,
@@ -38,6 +40,7 @@ import {
   getClaudeRuntimeSettings,
   getComputerUseSettings,
   isComputerUseEnabledForRuntime,
+  getAgentCapabilitySettings,
   isKunRuntimeInsecure,
   mergeClawSettings,
   migrateLegacyAppSettings,
@@ -141,6 +144,49 @@ describe('kun defaults', () => {
         maxToolArgumentStringBytes: 8192,
         maxToolArgumentStringTokens: 2000,
         maxArrayItems: 80
+      }
+    })
+  })
+
+  it('defaults shared agent subagent capabilities on', () => {
+    expect(defaultAgentCapabilitySettings()).toEqual({
+      subagents: {
+        enabled: true,
+        maxParallel: 2,
+        maxChildRuns: 4
+      }
+    })
+  })
+
+  it('normalizes shared agent capability settings', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      agentCapabilities: {
+        subagents: {
+          enabled: false,
+          maxParallel: 99,
+          maxChildRuns: 0
+        }
+      }
+    })
+
+    expect(getAgentCapabilitySettings(normalized)).toEqual({
+      subagents: {
+        enabled: false,
+        maxParallel: 16,
+        maxChildRuns: 4
+      }
+    })
+  })
+
+  it('merges shared agent capability patches', () => {
+    expect(mergeAgentCapabilitySettings(defaultAgentCapabilitySettings(), {
+      subagents: { maxParallel: 3 }
+    })).toEqual({
+      subagents: {
+        enabled: true,
+        maxParallel: 3,
+        maxChildRuns: 4
       }
     })
   })

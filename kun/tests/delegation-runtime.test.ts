@@ -36,7 +36,17 @@ describe('DelegationRuntime', () => {
     })
 
     expect(result).toMatchObject({ status: 'completed', summary: 'done: Research A' })
+    expect(result.transcript).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'user_message', text: 'Research A' }),
+      expect.objectContaining({ kind: 'assistant_message', text: 'done: Research A' })
+    ]))
     expect((await runtime.diagnostics('thr_1')).childRuns).toHaveLength(1)
+    await expect(runtime.child('thr_1', result.id)).resolves.toMatchObject({
+      id: result.id,
+      transcript: expect.arrayContaining([
+        expect.objectContaining({ kind: 'assistant_message', text: 'done: Research A' })
+      ])
+    })
     const events = await sessionStore.loadEventsSince('thr_1', 0)
     expect(events.some((event) => event.child?.childId === result.id && event.child.childStatus === 'completed')).toBe(true)
     expect(externalUsage).toHaveLength(1)

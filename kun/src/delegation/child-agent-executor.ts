@@ -23,7 +23,7 @@ import { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
 import { ThreadService } from '../services/thread-service.js'
 import { TurnService } from '../services/turn-service.js'
 import { UsageService } from '../services/usage-service.js'
-import type { ChildRunExecutor } from './delegation-runtime.js'
+import type { ChildRunExecutor, ChildRunTranscriptEntry } from './delegation-runtime.js'
 
 export type ChildAgentExecutorOptions = {
   model: ModelClient
@@ -137,7 +137,8 @@ export function createChildAgentExecutor(options: ChildAgentExecutorOptions): Ch
     }
     return {
       summary,
-      usage: usage.forThread(thread.id)
+      usage: usage.forThread(thread.id),
+      transcript: transcriptEntriesForChild(items, started.turnId)
     }
   }
 }
@@ -183,5 +184,122 @@ function stringifySummary(value: unknown): string {
     return JSON.stringify(value)
   } catch {
     return String(value)
+  }
+}
+
+function transcriptEntriesForChild(
+  items: readonly TurnItem[],
+  turnId: string
+): ChildRunTranscriptEntry[] {
+  return items
+    .filter((item) => item.turnId === turnId)
+    .map((item) => transcriptEntryFromItem(item))
+    .filter((entry): entry is ChildRunTranscriptEntry => entry != null)
+}
+
+function transcriptEntryFromItem(item: TurnItem): ChildRunTranscriptEntry | null {
+  const base = {
+    id: item.id,
+    createdAt: item.createdAt,
+    ...(item.status ? { status: item.status } : {})
+  }
+  switch (item.kind) {
+    case 'user_message':
+      return {
+        ...base,
+        kind: 'user_message',
+        text: item.displayText?.trim() || item.text
+      }
+    case 'assistant_text':
+      return {
+        ...base,
+        kind: 'assistant_message',
+        text: item.text
+      }
+    case 'assistant_reasoning':
+      return {
+        ...base,
+        kind: 'reasoning',
+        text: item.text
+      }
+    case 'tool_call':
+      return {
+        ...base,
+        kind: 'tool',
+        summary: item.summary ?? `Call ${item.toolName}`,
+        text: stringifySummary(item.arguments),
+        metadata: {
+          phase: 'call',
+          toolName: item.toolName,
+          callId: item.callId,
+          toolKind: item.toolKind
+        }
+      }
+    case 'tool_result':
+      return {
+        ...base,
+        kind: 'tool',
+        summary: item.isError ? `${item.toolName} failed` : `${item.toolName} result`,
+        text: stringifySummary(item.output),
+        metadata: {
+          phase: 'result',
+          toolName: item.toolName,
+          callId: item.callId,
+          toolKind: item.toolKind,
+          isError: item.isError
+        }
+      }
+    case 'approval':
+      return {
+        ...base,
+        kind: 'event',
+        summary: item.summary,
+        text: item.summary,
+        metadata: {
+          approvalId: item.approvalId,
+          toolName: item.toolName
+        }
+      }
+    case 'user_input':
+      return {
+        ...base,
+        kind: 'event',
+        text: item.prompt,
+        metadata: {
+          inputId: item.inputId,
+          questions: item.questions
+        }
+      }
+    case 'compaction':
+      return {
+        ...base,
+        kind: 'system',
+        text: item.summary,
+        metadata: {
+          replacedTokens: item.replacedTokens,
+          pinnedConstraints: item.pinnedConstraints
+        }
+      }
+    case 'review':
+      return {
+        ...base,
+        kind: 'assistant_message',
+        summary: item.title,
+        text: item.reviewText ?? stringifySummary(item.output)
+      }
+    case 'error':
+      return {
+        ...base,
+        kind: 'event',
+        text: item.message,
+        status: item.status,
+        metadata: {
+          ...(item.code ? { code: item.code } : {}),
+          ...(item.severity ? { severity: item.severity } : {}),
+          ...(item.details !== undefined ? { details: item.details } : {})
+        }
+      }
+    default:
+      return null
   }
 }

@@ -5,7 +5,9 @@ import {
   defaultClaudeRuntimeSettings,
   defaultKunRuntimeSettings,
   defaultRuntimeGuardSettings,
+  defaultAgentCapabilitySettings,
   defaultComputerUseSettings,
+  defaultResearchMemorySettings,
   applyCodexRuntimePatch,
   applyKunRuntimePatch,
   getCodexRuntimeSettings,
@@ -19,6 +21,8 @@ import {
   mergeModelRouterSettings,
   mergeModelProviderSettings,
   mergeComputerUseSettings,
+  mergeResearchMemorySettings,
+  mergeAgentCapabilitySettings,
   mergeRuntimeGuardSettings,
   mergeScheduleSettings,
   mergeSpeechToTextSettings,
@@ -32,6 +36,8 @@ import {
   normalizeModelProviderSettings,
   normalizeModelRouterSettings,
   normalizeComputerUseSettings,
+  normalizeAgentCapabilitySettings,
+  normalizeResearchMemorySettings,
   normalizeScheduleSettings,
   normalizeSpeechToTextSettings,
   normalizeWorkflowSettings,
@@ -68,7 +74,9 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
     agents: agentsPatch,
     provider: providerPatch,
     modelRouter: modelRouterPatch,
+    agentCapabilities: agentCapabilitiesPatch,
     computerUse: computerUsePatch,
+    researchMemory: researchMemoryPatch,
     runtimeGuards: runtimeGuardsPatch,
     ...restPatch
   } = patch
@@ -91,7 +99,9 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
     ...restSettingsPatch,
     provider: mergeModelProviderSettings(safeCurrent.provider, providerPatch),
     modelRouter: mergeModelRouterSettings(safeCurrent.modelRouter, modelRouterPatch),
+    agentCapabilities: mergeAgentCapabilitySettings(safeCurrent.agentCapabilities, agentCapabilitiesPatch),
     computerUse: mergeComputerUseSettings(safeCurrent.computerUse, computerUsePatch),
+    researchMemory: mergeResearchMemorySettings(safeCurrent.researchMemory, researchMemoryPatch),
     runtimeGuards: mergeRuntimeGuardSettings(safeCurrent.runtimeGuards, runtimeGuardsPatch),
     log: {
       ...safeCurrent.log,
@@ -141,7 +151,15 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     uiFontScale,
     provider: normalizeModelProviderSettings(raw.provider),
     modelRouter: normalizeModelRouterSettings(raw.modelRouter),
+    agentCapabilities: mergeAgentCapabilitySettings(
+      defaultAgentCapabilitySettings(),
+      normalizeAgentCapabilitySettings(raw.agentCapabilities)
+    ),
     computerUse: mergeComputerUseSettings(defaultComputerUseSettings(), normalizeComputerUseSettings(raw.computerUse)),
+    researchMemory: mergeResearchMemorySettings(
+      defaultResearchMemorySettings(),
+      normalizeResearchMemorySettings(raw.researchMemory)
+    ),
     runtimeGuards: mergeRuntimeGuardSettings(defaultRuntimeGuardSettings(), raw.runtimeGuards),
     activeAgentRuntime: normalizeAgentRuntimeId(raw.activeAgentRuntime),
     agents: {

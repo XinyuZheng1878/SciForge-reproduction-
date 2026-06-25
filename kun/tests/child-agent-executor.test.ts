@@ -58,6 +58,16 @@ describe('child agent executor', () => {
     })
 
     expect(result.summary).toBe('child answer')
+    expect(result.transcript).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'user_message',
+        text: 'Research the issue'
+      }),
+      expect.objectContaining({
+        kind: 'assistant_message',
+        text: 'child answer'
+      })
+    ]))
     expect(result.usage).toMatchObject({
       promptTokens: 11,
       completionTokens: 3,

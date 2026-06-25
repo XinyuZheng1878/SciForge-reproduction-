@@ -39,20 +39,24 @@ function buildHarness(options: {
   activeRuntime: AgentRuntimeId
   activeThread: NormalizedThread
   listedThreads: NormalizedThread[]
+  blocks?: ChatState['blocks']
+  detailBlocks?: ChatState['blocks']
 }): {
   refreshThreads: ReturnType<typeof createNavigationActions>['refreshThreads']
   state: ChatState
 } {
   let state: ChatState
+  const storedBlocks = options.detailBlocks ?? [{ kind: 'user' as const, id: 'stored-user', text: 'stored' }]
   const provider = {
-    listThreads: vi.fn(async () => options.listedThreads)
+    listThreads: vi.fn(async () => options.listedThreads),
+    getThreadDetail: vi.fn(async () => ({ blocks: storedBlocks }))
   }
   registryMock.getProvider.mockReturnValue(provider)
   runtimeClientMock.getSettings.mockResolvedValue({ activeAgentRuntime: options.activeRuntime })
 
   state = {
     activeThreadId: options.activeThread.id,
-    blocks: [],
+    blocks: options.blocks ?? [],
     busy: false,
     clawChannels: [],
     codeWorkspaceRoots: [],
@@ -97,18 +101,19 @@ describe('chat-store-navigation-actions refreshThreads', () => {
     })
   })
 
-  it('drops the active thread when it belongs to the previous runtime', async () => {
+  it('preserves the active thread when refreshing after a runtime switch', async () => {
     const codexThread = thread('codex-thread', 'codex')
+    const kunThread = thread('kun-thread', 'kun')
     const { refreshThreads, state } = buildHarness({
       activeRuntime: 'codex',
-      activeThread: thread('kun-thread', 'kun'),
+      activeThread: kunThread,
       listedThreads: [codexThread]
     })
 
     await refreshThreads()
 
-    expect(state.threads).toEqual([codexThread])
-    expect(state.activeThreadId).toBeNull()
+    expect(state.threads).toEqual([kunThread, codexThread])
+    expect(state.activeThreadId).toBe('kun-thread')
   })
 
   it('preserves an unlisted active thread when it belongs to the active runtime', async () => {
@@ -139,7 +144,7 @@ describe('chat-store-navigation-actions refreshThreads', () => {
     expect(state.activeThreadId).toBe('legacy-kun-thread')
   })
 
-  it('does not preserve a hidden SDD active thread from the previous runtime', async () => {
+  it('preserves a hidden SDD active thread when refreshing after a runtime switch', async () => {
     currentSddRegistryJson = JSON.stringify({
       version: 1,
       drafts: {
@@ -154,16 +159,57 @@ describe('chat-store-navigation-actions refreshThreads', () => {
       }
     })
     const kunThread = thread('kun-thread', 'kun')
+    const sddThread = thread('sdd-codex-thread', 'codex')
     const { refreshThreads, state } = buildHarness({
       activeRuntime: 'kun',
-      activeThread: thread('sdd-codex-thread', 'codex'),
+      activeThread: sddThread,
       listedThreads: [kunThread]
     })
 
     await refreshThreads()
 
-    expect(state.threads).toEqual([kunThread])
+    expect(state.threads).toEqual([sddThread, kunThread])
+    expect(state.activeThreadId).toBe('sdd-codex-thread')
+  })
+
+  it('keeps the active thread selected when sidebar filtering sees an empty detail during send', async () => {
+    const activeThread = {
+      ...thread('12345678abcdef', 'codex'),
+      title: '12345678'
+    }
+    const { refreshThreads, state } = buildHarness({
+      activeRuntime: 'codex',
+      activeThread,
+      listedThreads: [activeThread],
+      detailBlocks: [],
+      blocks: [{ kind: 'user', id: 'optimistic-user', text: 'continue this thread' }]
+    })
+
+    await refreshThreads()
+
+    expect(state.threads).toEqual([activeThread])
+    expect(state.activeThreadId).toBe('12345678abcdef')
+    expect(state.blocks).toEqual([{ kind: 'user', id: 'optimistic-user', text: 'continue this thread' }])
+  })
+
+  it('still clears an empty active fallback-title thread that sidebar filtering hides', async () => {
+    const activeThread = {
+      ...thread('87654321abcdef', 'codex'),
+      title: '87654321'
+    }
+    const { refreshThreads, state } = buildHarness({
+      activeRuntime: 'codex',
+      activeThread,
+      listedThreads: [activeThread],
+      detailBlocks: [],
+      blocks: []
+    })
+
+    await refreshThreads()
+
+    expect(state.threads).toEqual([])
     expect(state.activeThreadId).toBeNull()
+    expect(state.blocks).toEqual([])
   })
 })
 

@@ -31,6 +31,7 @@ import type {
   WorkspaceClipboardImageSavePayload,
   WorkspaceClipboardImageSaveResult,
   WorkspaceFileReadResult,
+  WorkspaceHtmlPreviewResult,
   WorkspaceImageReadResult,
   WorkspaceDirectoryCreatePayload,
   WorkspaceDirectoryCreateResult,
@@ -231,6 +232,18 @@ export type DeepseekConfigSaveResult = { ok: true; path: string }
 export type ModelRouterConfigOpenResult =
   | { ok: true; path: string }
   | { ok: false; path: string; message: string }
+export type ResearchMemoryWorkspaceResult =
+  | {
+      ok: true
+      workspaceRoot: string
+      localPath: string
+      githubRepoUrl: string
+      branch: string
+      cloned: boolean
+      fetched: boolean
+      message?: string
+    }
+  | { ok: false; message: string; localPath?: string }
 export type TurnCompleteNotificationPayload = {
   threadId?: string
   title: string
@@ -475,6 +488,7 @@ export type DsGuiApi = {
   setDeepseekConfigFile: (content: string) => Promise<DeepseekConfigSaveResult>
   openDeepseekConfigDir: () => Promise<PathOpenResult>
   openModelRouterConfigFile: () => Promise<ModelRouterConfigOpenResult>
+  prepareResearchMemoryWorkspace: () => Promise<ResearchMemoryWorkspaceResult>
   getGitBranches: (workspaceRoot: string) => Promise<GitBranchesResult>
   switchGitBranch: (workspaceRoot: string, branch: string) => Promise<GitBranchesResult>
   createAndSwitchGitBranch: (workspaceRoot: string, branch: string) => Promise<GitBranchesResult>
@@ -483,6 +497,7 @@ export type DsGuiApi = {
   listWorkspaceDirectory: (options: WorkspaceDirectoryTarget) => Promise<WorkspaceDirectoryListResult>
   resolveWorkspaceFile: (options: WorkspaceFileTarget) => Promise<WorkspaceFileResolveResult>
   readWorkspaceFile: (options: WorkspaceFileTarget) => Promise<WorkspaceFileReadResult>
+  previewWorkspaceHtml: (options: WorkspaceFileTarget) => Promise<WorkspaceHtmlPreviewResult>
   readWorkspaceImage: (options: WorkspaceFileTarget) => Promise<WorkspaceImageReadResult>
   writeWorkspaceFile: (payload: WorkspaceFileWritePayload) => Promise<WorkspaceFileWriteResult>
   createWorkspaceFile: (payload: WorkspaceFileCreatePayload) => Promise<WorkspaceFileCreateResult>

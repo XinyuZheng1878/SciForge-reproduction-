@@ -22,6 +22,8 @@ export type ResponsesRequest = {
   parallel_tool_calls?: unknown;
   metadata?: unknown;
   asr_options?: unknown;
+  reasoning?: unknown;
+  reasoning_effort?: unknown;
 };
 
 type ResponseToolDescriptor = {
@@ -88,6 +90,17 @@ export function messageOutputItem(text: string, id = makeId('msg')): JsonObject 
   };
 }
 
+export function reasoningOutputItem(text: string, id = makeId('rs')): JsonObject {
+  return {
+    id,
+    type: 'reasoning',
+    summary: [{
+      type: 'summary_text',
+      text,
+    }],
+  };
+}
+
 export function chatToolNameAliasesFromResponsesTools(tools: unknown): Record<string, string> {
   const aliases: Record<string, string> = {};
   const used = new Set<string>();
@@ -103,6 +116,8 @@ export function responsesToChatCompletions(
   options: { defaultModel?: string } = {},
 ): JsonObject {
   const toolAliases = chatToolNameAliasesFromResponsesTools(request.tools);
+  const reasoning = isRecord(request.reasoning) ? request.reasoning : undefined;
+  const reasoningEffort = stringValue(request.reasoning_effort) || (reasoning ? stringValue(reasoning.effort) : '');
   return compactJsonObject({
     model: stringValue(request.model) || options.defaultModel || '',
     messages: responsesInputToMessages(request, toolAliases),
@@ -114,6 +129,9 @@ export function responsesToChatCompletions(
     parallel_tool_calls: request.parallel_tool_calls,
     metadata: request.metadata,
     asr_options: request.asr_options,
+    reasoning: request.reasoning,
+    reasoning_effort: reasoningEffort || undefined,
+    include_reasoning: shouldRequestReasoningContent(request.reasoning) ? true : undefined,
   });
 }
 
@@ -126,10 +144,14 @@ export function chatCompletionToResponse(
   const message = firstChoiceMessage(completion);
   const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
   const reasoningContent = messageReasoningContent(message);
+  const reasoningItems = reasoningContent ? [reasoningOutputItem(reasoningContent)] : [];
   const output = toolCalls.length > 0
-    ? toolCalls.map((toolCall) => chatToolCallToResponseItem(toolCall, toolNameAliases, reasoningContent))
+    ? [
+      ...reasoningItems,
+      ...toolCalls.map((toolCall) => chatToolCallToResponseItem(toolCall, toolNameAliases, reasoningContent)),
+    ]
     : responseTextFromMessage(message)
-      ? [messageOutputItem(responseTextFromMessage(message))]
+      ? [...reasoningItems, messageOutputItem(responseTextFromMessage(message))]
       : [];
   return {
     id: stringValue(completion.id) || makeId('resp'),
@@ -830,6 +852,11 @@ function messageReasoningContent(message: Record<string, unknown>): string {
     return stringValue(message.reasoning.content) || stringValue(message.reasoning.text);
   }
   return '';
+}
+
+function shouldRequestReasoningContent(reasoning: unknown): boolean {
+  if (!isRecord(reasoning)) return false;
+  return stringValue(reasoning.summary).toLowerCase() !== 'none';
 }
 
 function compactJsonObject(values: Record<string, unknown>): JsonObject {

@@ -381,6 +381,13 @@ describe('app-ipc-schemas', () => {
     const payload = settingsPatchSchema.parse({
       theme: 'dark',
       activeAgentRuntime: 'claude',
+      agentCapabilities: {
+        subagents: {
+          enabled: true,
+          maxParallel: 3,
+          maxChildRuns: 6
+        }
+      },
       agents: {
         kun: {
           port: 9000,
@@ -419,6 +426,8 @@ describe('app-ipc-schemas', () => {
     expect(payload.agents?.kun?.tokenEconomy?.enabled).toBe(true)
     expect(payload.agents?.kun?.tokenEconomy?.historyHygiene?.maxToolResultTokens).toBe(4000)
     expect(payload.activeAgentRuntime).toBe('claude')
+    expect(payload.agentCapabilities?.subagents?.maxParallel).toBe(3)
+    expect(payload.agentCapabilities?.subagents?.maxChildRuns).toBe(6)
     expect(payload.agents?.codex?.codexHome).toBe('/tmp/codex-home')
     expect(payload.agents?.claude?.configDir).toBe('/tmp/claude-code')
     expect(payload.write?.inlineCompletion?.model).toBe('deepseek-v4-pro')

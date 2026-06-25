@@ -74,6 +74,28 @@ describe('createCodexAgentRuntimeAdapter', () => {
     })
   })
 
+  it('honors shared subagent capability settings', async () => {
+    const adapter = createCodexAgentRuntimeAdapter({} as never)
+
+    const caps = await adapter.capabilities({
+      settings: {
+        agentCapabilities: {
+          subagents: {
+            enabled: false,
+            maxParallel: 2,
+            maxChildRuns: 4
+          }
+        }
+      } as never
+    })
+
+    expect(caps.tools.subagents).toMatchObject({
+      available: false,
+      maxParallel: 0,
+      maxChildren: 0
+    })
+  })
+
   it('keeps Codex thread blocks grouped by their source turn id', async () => {
     const service = {
       readThread: vi.fn(async () => ({

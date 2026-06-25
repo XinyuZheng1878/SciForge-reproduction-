@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { configureLogger } from './logger'
 import {
   defaultClawSettings,
+  defaultAgentCapabilitySettings,
   defaultKeyboardShortcuts,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   defaultKunRuntimeSettings,
@@ -463,7 +464,36 @@ describe('syncGuiManagedKunConfig', () => {
     expect(parsed.runtime.toolArgumentRepair).toMatchObject({ maxStringBytes: 524288 })
     expect(parsed.capabilities.attachments).toMatchObject({ enabled: true })
     expect(parsed.capabilities.web).toMatchObject({ enabled: true, fetchEnabled: true })
+    expect(parsed.capabilities.subagents).toMatchObject({
+      enabled: true,
+      maxParallel: 2,
+      maxChildRuns: 4
+    })
     expect(parsed.capabilities.mcp.search).toMatchObject({ enabled: false, mode: 'auto' })
+  })
+
+  it('derives Kun subagent capability config from shared agent settings', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    const module = await import('./kun-process')
+
+    await module.syncGuiManagedKunConfig(tempRoot, defaultKunRuntimeSettings(), {
+      agentCapabilities: {
+        ...defaultAgentCapabilitySettings(),
+        subagents: {
+          enabled: false,
+          maxParallel: 3,
+          maxChildRuns: 7
+        }
+      }
+    })
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.subagents).toMatchObject({
+      enabled: false,
+      maxParallel: 3,
+      maxChildRuns: 7
+    })
   })
 
   it('adds the built-in schedule MCP server to Kun runtime capabilities', async () => {
@@ -902,6 +932,11 @@ describe('syncGuiManagedKunConfig', () => {
     expect(parsed.runtime.customRuntimeFlag).toBeUndefined()
     expect(parsed.runtime.toolArgumentRepair).toMatchObject({ maxStringBytes: 262144 })
     expect(parsed.capabilities.attachments).toMatchObject({ enabled: true })
+    expect(parsed.capabilities.subagents).toMatchObject({
+      enabled: true,
+      maxParallel: 2,
+      maxChildRuns: 4
+    })
     expect(parsed.capabilities.mcp.servers.github.command).toBe('github-mcp')
     expect(parsed.capabilities.web.fetchEnabled).toBe(true)
     expect(parsed.capabilities.mcp.search).toMatchObject({

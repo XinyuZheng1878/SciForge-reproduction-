@@ -56,6 +56,47 @@ describe('createClaudeCodeAgentRuntimeAdapter', () => {
     })
   })
 
+  it('honors shared subagent capability settings', async () => {
+    const adapter = createClaudeCodeAgentRuntimeAdapter({
+      runtimeInfo: async () => ({
+        command: 'claude',
+        model: 'deepseek-gui-router'
+      })
+    } as unknown as ClaudeCodeRuntimeService)
+    const ctx = {
+      settings: {
+        agentCapabilities: {
+          subagents: {
+            enabled: false,
+            maxParallel: 2,
+            maxChildRuns: 4
+          }
+        }
+      }
+    } as AgentRuntimeAdapterContext
+
+    await expect(adapter.capabilities(ctx)).resolves.toMatchObject({
+      tools: {
+        subagents: {
+          available: false,
+          maxParallel: 0,
+          maxChildren: 0
+        }
+      }
+    })
+    await expect(adapter.auxiliary?.(ctx, {
+      operation: 'getRuntimeInfo'
+    })).resolves.toMatchObject({
+      capabilities: {
+        subagents: {
+          available: false,
+          maxParallel: 0,
+          maxChildRuns: 0
+        }
+      }
+    })
+  })
+
   it('reports memory as unavailable without failing listMemories diagnostics', async () => {
     const adapter = createClaudeCodeAgentRuntimeAdapter({
       runtimeInfo: async () => ({

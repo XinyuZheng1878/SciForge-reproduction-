@@ -69,6 +69,8 @@ const api = {
     ipcRenderer.invoke('deepseek:config:open-dir'),
   openModelRouterConfigFile: () =>
     ipcRenderer.invoke('modelRouter:config:open'),
+  prepareResearchMemoryWorkspace: () =>
+    ipcRenderer.invoke('researchMemory:prepare-workspace'),
   getGitBranches: (workspaceRoot) =>
     ipcRenderer.invoke('git:branches', workspaceRoot),
   switchGitBranch: (workspaceRoot, branch) =>
@@ -84,6 +86,8 @@ const api = {
     ipcRenderer.invoke('file:resolve-workspace', options),
   readWorkspaceFile: (options) =>
     ipcRenderer.invoke('file:read-workspace', options),
+  previewWorkspaceHtml: (options) =>
+    ipcRenderer.invoke('file:preview-workspace-html', options),
   readWorkspaceImage: (options) =>
     ipcRenderer.invoke('file:read-workspace-image', options),
   writeWorkspaceFile: (payload) =>
