@@ -1,20 +1,23 @@
 #!/bin/bash
 # ============================================================================
-# One-click START for the scientific-modality plug-in on a GPU server.
+# One-click START for the sci-modality-router worker's GPU services.
 # Brings up (idempotently; skips anything already healthy):
-#   GPU 0  ChemLLM-7B via vLLM            :8000   (molecule expert; optional)
-#   GPU 1  expert-translator (6 experts)  :8001   (real transformer experts)
-#          sci-modality-router (this TS module) :3898  -> ServiceResult API
+#   expert-translator (4 native-to-text experts) :8001   (lazy-loaded generative models)
+#   sci-modality-router (this TS worker)          :3898   -> ServiceResult API
+#
+# Experts load lazily on first request (no eager startup load), so this is light
+# and only used modalities consume VRAM. Behind the GFW, models download via
+# HF_ENDPOINT=https://hf-mirror.com (exported below).
 #
 # The local SciForge app reaches :3898 over an SSH port-forward and sets
 # SCIFORGE_SCIMODALITY_SERVICE_URL=http://127.0.0.1:3898 (see DEPLOYMENT.md).
 #
-# Env overrides: PYTHON, EXPERT_MODEL_DIR, CHEMLLM_MODEL_DIR, SKIP_CHEMLLM=1
+# Env overrides: PYTHON, EXPERT_MODEL_DIR, EXPERT_DEVICE
 # Pidfiles in ./run; tear down with stop.sh; acceptance with verify.sh.
 # ============================================================================
 set -u
 HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-MODULE_DIR="$(cd "$HERE/.." && pwd)"        # the TS module (plugins/sci-modality-router-service)
+MODULE_DIR="$(cd "$HERE/.." && pwd)"        # the worker root (packages/workers/sci-modality-router)
 PROVIDER_DIR="$MODULE_DIR/provider"
 RUN="$HERE/run"; mkdir -p "$RUN"
 PYTHON="${PYTHON:-/root/miniconda3/envs/serve/bin/python}"
@@ -23,6 +26,7 @@ if [ -f "$MODULE_DIR/.env" ]; then
   . "$MODULE_DIR/.env"
   set +a
 fi
+export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 
 log() { printf '[scimodality-start] %s\n' "$*"; }
 EXPERT_PROVIDER_API_KEY="${EXPERT_PROVIDER_API_KEY:?EXPERT_PROVIDER_API_KEY is required for provider health checks}"
@@ -52,21 +56,14 @@ ensure() { # name healthurl cmd logfile pidkey
   wait_for "$name" "$url" "$header"
 }
 
-if [ "${SKIP_CHEMLLM:-0}" != "1" ]; then
-  ensure chemllm "http://127.0.0.1:${CHEMLLM_PORT:-8000}/v1/models" \
-    "exec bash '$PROVIDER_DIR/serve-chemllm.sh'" "$RUN/chemllm.log" chemllm
-else
-  log "SKIP_CHEMLLM=1 - molecule expert will be unavailable"
-fi
-
 ensure experts "http://127.0.0.1:${EXPERT_TRANSLATOR_PORT:-8001}/health" \
-  "cd '$PROVIDER_DIR' && EXPERT_DEVICE='${EXPERT_DEVICE:-cuda:1}' exec bash start.sh" \
+  "cd '$PROVIDER_DIR' && EXPERT_DEVICE='${EXPERT_DEVICE:-cuda:0}' exec bash start.sh" \
   "$RUN/experts.log" experts "Authorization: Bearer ${EXPERT_PROVIDER_API_KEY}"
 
 ensure scimodality "http://127.0.0.1:${SCIMODALITY_ROUTER_PORT:-3898}/health" \
-  "cd '$MODULE_DIR' && exec node --env-file-if-exists=.env --import tsx src/index.ts" \
+  "cd '$MODULE_DIR' && exec node --env-file-if-exists=.env --import tsx src/cli.ts" \
   "$RUN/scimodality.log" scimodality "Authorization: Bearer ${SCIMODALITY_ROUTER_RUNTIME_TOKEN}"
 
-log "================ scientific-modality plug-in UP ================"
+log "================ scientific-modality worker UP ================"
 log "Module: http://127.0.0.1:${SCIMODALITY_ROUTER_PORT:-3898}  (GET /experts/status to check experts)"
 log "Model Router host: ssh -p <port> -N -L 3898:127.0.0.1:3898 <server>  then SCIFORGE_SCIMODALITY_SERVICE_URL=http://127.0.0.1:3898"

@@ -340,13 +340,15 @@ describe('electron-builder local runtime packaging', () => {
       'plugins/paper-radar-service'
     ])
     expect(builderConfig.files).not.toEqual(expect.arrayContaining([
-      'plugins/**/*'
+      'plugins/**/*',
+      'packages/workers/sci-modality-router/**/*'
     ]))
     expect(unpackedPluginGlobs).toEqual([
       '**/plugins/paper-radar-service/**/*'
     ])
     expect(builderConfig.asarUnpack).not.toEqual(expect.arrayContaining([
-      '**/plugins/**/*'
+      '**/plugins/**/*',
+      '**/packages/workers/sci-modality-router/**/*'
     ]))
   })
 
@@ -381,7 +383,10 @@ describe('electron-builder local runtime packaging', () => {
       'packages/workers/model-router/tools/model-router-trace-audit.ts'
     ]))
     expect(afterPack.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS).not.toEqual(expect.arrayContaining([
-      'plugins/sci-modality-router-service/package.json'
+      'packages/workers/model-router/vision-router-service/package.json',
+      'packages/workers/model-router/vision-router-service/src/index.ts',
+      'plugins/vision-router-service/package.json',
+      'packages/workers/sci-modality-router/package.json'
     ]))
 
     const root = tempRoot()
@@ -725,7 +730,7 @@ describe('root package workspace contracts', () => {
     expect(rootPackage.workspaces).toEqual(expect.arrayContaining([
       'packages/workers/computer-use',
       'packages/workers/model-router',
-      'plugins/sci-modality-router-service'
+      'packages/workers/sci-modality-router'
     ]))
     expect(rootPackage.workspaces).not.toEqual(expect.arrayContaining([
       'kun'

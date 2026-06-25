@@ -1,3 +1,6 @@
+// Executable entry point for the sci-modality router worker.
+// Reads provider/listen config from the environment, starts the HTTP service, and
+// shuts down cleanly on SIGINT/SIGTERM. The library surface lives in ./index.ts.
 import { createSciModalityRouterServer, SCIMODALITY_ROUTER_RUNTIME_TOKEN_ENV } from './server.js';
 import type { ExpertConfig } from './experts.js';
 
