@@ -69,6 +69,10 @@ const workspaceIntelWorkerDir = 'packages/workers/workspace-intel'
 const writeAssistWorkerDir = 'packages/workers/write-assist'
 const paperRadarWorkerDir = 'packages/workers/paper-radar'
 const runtimeInspectorWorkerDir = 'packages/workers/runtime-inspector'
+const scientificPlottingWorkerDir = 'packages/workers/scientific-plotting'
+const imageGenerationWorkerDir = 'packages/workers/image-generation'
+const pptMasterWorkerDir = 'packages/workers/ppt-master'
+const canvasWorkerDir = 'packages/workers/canvas'
 const paperRadarServiceDir = 'plugins/paper-radar-service'
 
 function normalizeUpdateChannel(raw) {
@@ -100,6 +104,10 @@ module.exports = {
     `**/${writeAssistWorkerDir}/**/*`,
     `**/${paperRadarWorkerDir}/**/*`,
     `**/${runtimeInspectorWorkerDir}/**/*`,
+    `**/${scientificPlottingWorkerDir}/**/*`,
+    `**/${imageGenerationWorkerDir}/**/*`,
+    `**/${pptMasterWorkerDir}/**/*`,
+    `**/${canvasWorkerDir}/**/*`,
     `**/${paperRadarServiceDir}/**/*`,
     '**/node_modules/better-sqlite3/**/*',
     '**/node_modules/node-pty/**/*',
@@ -191,6 +199,38 @@ module.exports = {
     {
       from: runtimeInspectorWorkerDir,
       to: runtimeInspectorWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: scientificPlottingWorkerDir,
+      to: scientificPlottingWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: imageGenerationWorkerDir,
+      to: imageGenerationWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: pptMasterWorkerDir,
+      to: pptMasterWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: canvasWorkerDir,
+      to: canvasWorkerDir,
       filter: [
         '**/*',
         '**/.*'

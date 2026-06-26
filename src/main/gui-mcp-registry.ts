@@ -97,6 +97,61 @@ import {
   type WriteAssistMcpLaunchConfig
 } from './write-assist-mcp-config'
 import {
+  buildScientificSkillsMcpArgs,
+  buildScientificSkillsKunMcpServerConfig,
+  buildScientificSkillsMcpJsonServerConfig,
+  GUI_SCIENTIFIC_SKILLS_MCP_DESCRIPTOR,
+  GUI_SCIENTIFIC_SKILLS_MCP_SERVER_NAME,
+  GUI_SCIENTIFIC_SKILLS_MCP_TIMEOUT_MS,
+  resolveScientificSkillsMcpCommand,
+  scientificSkillsMcpEnabledTools,
+  type ScientificSkillsMcpLaunchConfig
+} from './scientific-skills-mcp-config'
+import {
+  buildScientificPlottingMcpArgs,
+  buildScientificPlottingKunMcpServerConfig,
+  buildScientificPlottingMcpJsonServerConfig,
+  GUI_SCIENTIFIC_PLOTTING_MCP_DESCRIPTOR,
+  GUI_SCIENTIFIC_PLOTTING_MCP_SERVER_NAME,
+  GUI_SCIENTIFIC_PLOTTING_MCP_TIMEOUT_MS,
+  resolveScientificPlottingMcpCommand,
+  scientificPlottingMcpEnabledTools,
+  type ScientificPlottingMcpLaunchConfig
+} from './scientific-plotting-mcp-config'
+import {
+  buildImageGenerationMcpArgs,
+  buildImageGenerationKunMcpServerConfig,
+  buildImageGenerationMcpJsonServerConfig,
+  GUI_IMAGE_GENERATION_MCP_DESCRIPTOR,
+  GUI_IMAGE_GENERATION_MCP_SERVER_NAME,
+  GUI_IMAGE_GENERATION_MCP_TIMEOUT_MS,
+  resolveImageGenerationMcpCommand,
+  imageGenerationMcpEnabledTools,
+  type ImageGenerationMcpLaunchConfig
+} from './image-generation-mcp-config'
+import {
+  buildPptMasterMcpArgs,
+  buildPptMasterKunMcpServerConfig,
+  buildPptMasterMcpJsonServerConfig,
+  GUI_PPT_MASTER_MCP_DESCRIPTOR,
+  GUI_PPT_MASTER_MCP_SERVER_NAME,
+  GUI_PPT_MASTER_MCP_TIMEOUT_MS,
+  resolvePptMasterMcpCommand,
+  pptMasterMcpEnabledTools,
+  type PptMasterMcpLaunchConfig
+} from './ppt-master-mcp-config'
+import {
+  buildSciforgeCanvasMcpArgs,
+  buildSciforgeCanvasKunMcpServerConfig,
+  buildSciforgeCanvasMcpJsonServerConfig,
+  GUI_SCIFORGE_CANVAS_MCP_DESCRIPTOR,
+  GUI_SCIFORGE_CANVAS_MCP_SERVER_NAME,
+  GUI_SCIFORGE_CANVAS_MCP_TIMEOUT_MS,
+  resolveSciforgeCanvasMcpCommand,
+  sciforgeCanvasMcpEnabledTools,
+  type SciforgeCanvasMcpLaunchConfig
+} from './sciforge-canvas-mcp-config'
+import {
   managedGuiMcpNames,
   resolveLocalRuntimeMcpJsonPath,
   syncExternalLocalRuntimeMcpJson,
@@ -149,6 +204,26 @@ export type GuiMcpRegistryInput = {
     launch: ComputerUseMcpLaunchConfig
     enabled?: boolean
   }
+  scientificSkillsMcp?: {
+    settings?: AppSettingsV1
+    launch: ScientificSkillsMcpLaunchConfig
+  }
+  scientificPlottingMcp?: {
+    settings?: AppSettingsV1
+    launch: ScientificPlottingMcpLaunchConfig
+  }
+  imageGenerationMcp?: {
+    settings?: AppSettingsV1
+    launch: ImageGenerationMcpLaunchConfig
+  }
+  pptMasterMcp?: {
+    settings?: AppSettingsV1
+    launch: PptMasterMcpLaunchConfig
+  }
+  sciforgeCanvasMcp?: {
+    settings?: AppSettingsV1
+    launch: SciforgeCanvasMcpLaunchConfig
+  }
 }
 
 type LocalRuntimeServerBuilder = (existing: unknown) => Record<string, unknown>
@@ -162,6 +237,11 @@ export const GUI_MCP_DESCRIPTORS: readonly ManagedGuiMcpDescriptor[] = [
   GUI_PAPER_RADAR_MCP_DESCRIPTOR,
   GUI_WRITE_ASSIST_MCP_DESCRIPTOR,
   GUI_RUNTIME_INSPECTOR_MCP_DESCRIPTOR,
+  GUI_SCIENTIFIC_SKILLS_MCP_DESCRIPTOR,
+  GUI_SCIENTIFIC_PLOTTING_MCP_DESCRIPTOR,
+  GUI_IMAGE_GENERATION_MCP_DESCRIPTOR,
+  GUI_PPT_MASTER_MCP_DESCRIPTOR,
+  GUI_SCIFORGE_CANVAS_MCP_DESCRIPTOR,
   GUI_COMPUTER_USE_MCP_DESCRIPTOR
 ] as const
 
@@ -288,6 +368,62 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
       )
     ])
   }
+  const scientificSkillsSettings = input.scientificSkillsMcp?.settings ?? settings
+  if (input.scientificSkillsMcp && scientificSkillsSettings) {
+    builders.push([
+      GUI_SCIENTIFIC_SKILLS_MCP_SERVER_NAME,
+      (existing) => buildScientificSkillsKunMcpServerConfig(
+        input.scientificSkillsMcp!.launch,
+        existing,
+        scientificSkillsSettings.workspaceRoot
+      )
+    ])
+  }
+  const scientificPlottingSettings = input.scientificPlottingMcp?.settings ?? settings
+  if (input.scientificPlottingMcp && scientificPlottingSettings) {
+    builders.push([
+      GUI_SCIENTIFIC_PLOTTING_MCP_SERVER_NAME,
+      (existing) => buildScientificPlottingKunMcpServerConfig(
+        input.scientificPlottingMcp!.launch,
+        existing,
+        scientificPlottingSettings.workspaceRoot
+      )
+    ])
+  }
+  const imageGenerationSettings = input.imageGenerationMcp?.settings ?? settings
+  if (input.imageGenerationMcp && imageGenerationSettings) {
+    builders.push([
+      GUI_IMAGE_GENERATION_MCP_SERVER_NAME,
+      (existing) => buildImageGenerationKunMcpServerConfig(
+        input.imageGenerationMcp!.launch,
+        existing,
+        imageGenerationSettings.workspaceRoot,
+        imageGenerationSettings.imageGeneration
+      )
+    ])
+  }
+  const pptMasterSettings = input.pptMasterMcp?.settings ?? settings
+  if (input.pptMasterMcp && pptMasterSettings) {
+    builders.push([
+      GUI_PPT_MASTER_MCP_SERVER_NAME,
+      (existing) => buildPptMasterKunMcpServerConfig(
+        input.pptMasterMcp!.launch,
+        existing,
+        pptMasterSettings.workspaceRoot
+      )
+    ])
+  }
+  const sciforgeCanvasSettings = input.sciforgeCanvasMcp?.settings ?? settings
+  if (input.sciforgeCanvasMcp && sciforgeCanvasSettings) {
+    builders.push([
+      GUI_SCIFORGE_CANVAS_MCP_SERVER_NAME,
+      (existing) => buildSciforgeCanvasKunMcpServerConfig(
+        input.sciforgeCanvasMcp!.launch,
+        existing,
+        sciforgeCanvasSettings.workspaceRoot
+      )
+    ])
+  }
   if (input.computerUseMcp) {
     builders.push([
       GUI_COMPUTER_USE_MCP_SERVER_NAME,
@@ -393,10 +529,99 @@ function codexServerConfigs(input: GuiMcpRegistryInput): GuiMcpRuntimeServerConf
       enabledTools: runtimeInspectorMcpEnabledTools()
     })
   }
+  const scientificSkillsSettings = input.scientificSkillsMcp?.settings ?? settings
+  if (input.scientificSkillsMcp && scientificSkillsSettings) {
+    servers.push({
+      id: GUI_SCIENTIFIC_SKILLS_MCP_SERVER_NAME,
+      command: resolveScientificSkillsMcpCommand(input.scientificSkillsMcp.launch),
+      args: buildScientificSkillsMcpArgs(
+        input.scientificSkillsMcp.launch,
+        scientificSkillsSettings.workspaceRoot
+      ),
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      timeoutMs: GUI_SCIENTIFIC_SKILLS_MCP_TIMEOUT_MS,
+      enabledTools: scientificSkillsMcpEnabledTools()
+    })
+  }
+  const scientificPlottingSettings = input.scientificPlottingMcp?.settings ?? settings
+  if (input.scientificPlottingMcp && scientificPlottingSettings) {
+    servers.push({
+      id: GUI_SCIENTIFIC_PLOTTING_MCP_SERVER_NAME,
+      command: resolveScientificPlottingMcpCommand(input.scientificPlottingMcp.launch),
+      args: buildScientificPlottingMcpArgs(
+        input.scientificPlottingMcp.launch,
+        scientificPlottingSettings.workspaceRoot
+      ),
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      timeoutMs: GUI_SCIENTIFIC_PLOTTING_MCP_TIMEOUT_MS,
+      enabledTools: scientificPlottingMcpEnabledTools()
+    })
+  }
+  const imageGenerationSettings = input.imageGenerationMcp?.settings ?? settings
+  if (input.imageGenerationMcp && imageGenerationSettings) {
+    const config = buildImageGenerationMcpJsonServerConfig(
+      input.imageGenerationMcp.launch,
+      imageGenerationSettings.workspaceRoot,
+      imageGenerationSettings.imageGeneration
+    )
+    servers.push(runtimeServerConfigFromJson(
+      GUI_IMAGE_GENERATION_MCP_SERVER_NAME,
+      config,
+      GUI_IMAGE_GENERATION_MCP_TIMEOUT_MS,
+      imageGenerationMcpEnabledTools()
+    ))
+  }
+  const pptMasterSettings = input.pptMasterMcp?.settings ?? settings
+  if (input.pptMasterMcp && pptMasterSettings) {
+    const config = buildPptMasterMcpJsonServerConfig(
+      input.pptMasterMcp.launch,
+      pptMasterSettings.workspaceRoot
+    )
+    servers.push(runtimeServerConfigFromJson(GUI_PPT_MASTER_MCP_SERVER_NAME, config, GUI_PPT_MASTER_MCP_TIMEOUT_MS, pptMasterMcpEnabledTools()))
+  }
+  const sciforgeCanvasSettings = input.sciforgeCanvasMcp?.settings ?? settings
+  if (input.sciforgeCanvasMcp && sciforgeCanvasSettings) {
+    servers.push({
+      id: GUI_SCIFORGE_CANVAS_MCP_SERVER_NAME,
+      command: resolveSciforgeCanvasMcpCommand(input.sciforgeCanvasMcp.launch),
+      args: buildSciforgeCanvasMcpArgs(
+        input.sciforgeCanvasMcp.launch,
+        sciforgeCanvasSettings.workspaceRoot
+      ),
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      timeoutMs: GUI_SCIFORGE_CANVAS_MCP_TIMEOUT_MS,
+      enabledTools: sciforgeCanvasMcpEnabledTools()
+    })
+  }
   if (input.computerUseMcp?.launch && input.computerUseMcp.enabled !== false) {
     servers.push(buildComputerUseRuntimeMcpServerConfig(input.computerUseMcp.launch))
   }
   return servers
+}
+
+function runtimeServerConfigFromJson(
+  id: string,
+  config: Record<string, unknown>,
+  timeoutMs: number,
+  enabledTools: string[]
+): GuiMcpRuntimeServerConfig {
+  return {
+    id,
+    command: typeof config.command === 'string' ? config.command : '',
+    args: Array.isArray(config.args) ? config.args.filter((item): item is string => typeof item === 'string') : [],
+    env: stringRecord(config.env),
+    timeoutMs,
+    enabledTools
+  }
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  const record = objectValue(value)
+  const out: Record<string, string> = {}
+  for (const [key, item] of Object.entries(record)) {
+    if (typeof item === 'string') out[key] = item
+  }
+  return out
 }
 
 function objectValue(value: unknown): Record<string, unknown> {

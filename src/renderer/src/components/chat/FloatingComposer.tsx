@@ -20,6 +20,7 @@ import {
   FileText,
   Folder,
   GitFork,
+  ImagePlus,
   Paperclip,
   ListTodo,
   Loader2,
@@ -90,7 +91,10 @@ import {
 import { useComposerDraft } from './use-composer-draft'
 import {
   SPEECH_TRANSCRIPTION_MAX_DURATION_MS,
-  type AgentRuntimeId
+  getImageGenerationSettings,
+  type AgentRuntimeId,
+  type AppSettingsV1,
+  type ImageGenerationSettingsV1
 } from '@shared/app-settings'
 import {
   useSpeechToTextSettings,
@@ -98,6 +102,7 @@ import {
   type VoiceDictationIntent
 } from './use-voice-dictation'
 import type { ComposerChangedFile } from '../../lib/composer-change-summary'
+import { SETTINGS_CHANGED_EVENT } from '../../lib/keyboard-shortcut-settings'
 
 export type { ComposerFileReference } from '../../lib/composer-file-references'
 
@@ -158,7 +163,7 @@ type Props = {
   onAddFileReference?: (reference: ComposerFileReference) => void
   onPreviewFileReference?: (reference: ComposerFileReference) => void
   onRemoveFileReference?: (relativePath: string, workspaceRoot?: string) => void
-  onSend: () => void
+  onSend: (intent?: ComposerSendIntent) => void
   onInterrupt: (options?: { discard?: boolean }) => void
   onPlanCommand?: () => void
   onReviewCommand?: (target: ReviewTarget) => void
@@ -193,6 +198,10 @@ type ComposerTransferItem = {
 export type ComposerImageAttachmentInput = {
   file: File
   path?: string
+}
+
+export type ComposerSendIntent = {
+  kind: 'image-generation'
 }
 
 export type ComposerImageTransferSource = {
@@ -513,6 +522,41 @@ function shouldShowThreadContextState(state: AgentRuntimeContextState): boolean 
   )
 }
 
+export function isImageGenerationConfigured(
+  settings: Pick<ImageGenerationSettingsV1, 'enabled' | 'apiKey' | 'model'> | null | undefined
+): boolean {
+  return Boolean(settings?.enabled && settings.apiKey.trim() && settings.model.trim())
+}
+
+function useImageGenerationComposerSettings(): ImageGenerationSettingsV1 | null {
+  const [imageGeneration, setImageGeneration] = useState<ImageGenerationSettingsV1 | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let cancelled = false
+    const apply = (settings: AppSettingsV1): void => {
+      if (!cancelled) setImageGeneration(getImageGenerationSettings(settings))
+    }
+
+    if (typeof window.sciforge?.getSettings === 'function') {
+      void window.sciforge.getSettings().then(apply).catch(() => {
+        if (!cancelled) setImageGeneration(null)
+      })
+    }
+
+    const onSettingsChanged = (event: Event): void => {
+      apply((event as CustomEvent<AppSettingsV1>).detail)
+    }
+    window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
+    return () => {
+      cancelled = true
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
+    }
+  }, [])
+
+  return imageGeneration
+}
+
 export function runParsedGoalCommandForComposer({
   command,
   canOpenGoalPanel,
@@ -694,6 +738,10 @@ export function FloatingComposer({
   )
   const canOpenAttachmentPicker = canEditComposer && Boolean(onPickAttachments) && !attachmentUploadBusy
   const canPickAttachment = canOpenAttachmentPicker && attachmentUploadEnabled
+  const imageGenerationSettings = useImageGenerationComposerSettings()
+  const imageGenerationConfigured = isImageGenerationConfigured(imageGenerationSettings)
+  const showImageGenerationMenuItem = !compact && route === 'chat' && !isRemoteChannelThread
+  const canCreateImageRequest = showImageGenerationMenuItem && canCompose
   const runtimeSupportsCompact = runtimeCapabilities?.compact !== false
   const runtimeSupportsFork = runtimeCapabilities?.fork !== false
   const runtimeSupportsGoals = runtimeCapabilities?.goals !== false
@@ -708,6 +756,7 @@ export function FloatingComposer({
   const canOpenGoalPanel = canCompose && !isRemoteChannelThread && runtimeSupportsGoals
   const canRunReview = canCompose && !isRemoteChannelThread && runtimeSupportsReview && Boolean(onReviewCommand)
   const canOpenComposerMenu = showComposerMenuButton && (
+    showImageGenerationMenuItem ||
     canOpenAttachmentPicker ||
     canTogglePlanMode ||
     canOpenGoalPanel ||
@@ -739,6 +788,7 @@ export function FloatingComposer({
   const [selectedFileMentionIndex, setSelectedFileMentionIndex] = useState(0)
   const [dismissedFileMentionKey, setDismissedFileMentionKey] = useState<string | null>(null)
   const [composerMenuOpen, setComposerMenuOpen] = useState(false)
+  const [imageGenerationMode, setImageGenerationMode] = useState(false)
   const [goalPanelOpen, setGoalPanelOpen] = useState(false)
   const [goalRuntimeNowMs, setGoalRuntimeNowMs] = useState(() => Date.now())
   const [voiceNowMs, setVoiceNowMs] = useState(() => Date.now())
@@ -749,16 +799,40 @@ export function FloatingComposer({
   const goalPanelRef = useRef<HTMLDivElement | null>(null)
   const goalRuntimeStartedAtRef = useRef<number | null>(null)
   const pendingVoiceSendInputRef = useRef<string | null>(null)
+  const imageGenerationModeRef = useRef(false)
+  const pendingImageGenerationSendRef = useRef(false)
   const speechToText = useSpeechToTextSettings()
+
+  useEffect(() => {
+    imageGenerationModeRef.current = imageGenerationMode
+  }, [imageGenerationMode])
+
+  useEffect(() => {
+    if (!pendingImageGenerationSendRef.current || input.trim().length > 0) return
+    pendingImageGenerationSendRef.current = false
+    imageGenerationModeRef.current = false
+    setImageGenerationMode(false)
+  }, [input])
+
+  useEffect(() => {
+    if (imageGenerationMode && !showImageGenerationMenuItem) {
+      pendingImageGenerationSendRef.current = false
+      imageGenerationModeRef.current = false
+      setImageGenerationMode(false)
+    }
+  }, [imageGenerationMode, showImageGenerationMenuItem])
+
   const placeholder = !runtimeReady
     ? t('runtimeActionNeedsConnection')
     : !hasActiveThread && !effectiveWorkspaceRoot
       ? t('workspaceRequiredToCreateThread')
       : goalPanelOpen && !isRemoteChannelThread
-        ? t('goalComposerPlaceholder')
+      ? t('goalComposerPlaceholder')
       : busy
         ? t('composerQueuePlaceholder')
-        : isRemoteChannelThread
+        : imageGenerationMode
+          ? t('composerImageGenerationPlaceholder')
+          : isRemoteChannelThread
             ? clawHasInboundConversation
               ? t('clawPlaceholder', { name: clawAgentName })
               : t('clawPlaceholderNeedsInbound')
@@ -988,6 +1062,8 @@ export function FloatingComposer({
       ? parsedSteerCommand !== false && runtimeSupportsSteer
         ? t('steerMessage')
         : t('queueContinuation')
+      : imageGenerationMode
+        ? t('composerMenuCreateImage')
       : t('send')
   const primaryActionDisabled = highlightedSlashCommand
     ? highlightedSlashCommand.disabled === true
@@ -1223,6 +1299,16 @@ export function FloatingComposer({
     draft.focusComposer()
   }
 
+  const handleCreateImageMenuClick = (): void => {
+    if (!canCreateImageRequest) return
+    setComposerMenuOpen(false)
+    setGoalPanelOpen(false)
+    setMode('agent')
+    imageGenerationModeRef.current = true
+    setImageGenerationMode(true)
+    draft.focusComposer()
+  }
+
   const handlePlanToolbarClick = (): void => {
     if (!canTogglePlanMode) return
     setComposerMenuOpen(false)
@@ -1322,7 +1408,12 @@ export function FloatingComposer({
         return
       }
     }
-    onSend()
+    const shouldUseImageGeneration = imageGenerationMode || imageGenerationModeRef.current
+    const intent = shouldUseImageGeneration ? { kind: 'image-generation' as const } : undefined
+    if (shouldUseImageGeneration) {
+      pendingImageGenerationSendRef.current = true
+    }
+    onSend(intent)
   }
   const handlePrimaryAction = useCallback((): void => {
     primaryActionRef.current()
@@ -1595,7 +1686,11 @@ export function FloatingComposer({
 
       <div className="relative">
         {showContextStateBanner || (!compact && activeThreadGoal && slashQuery == null && !goalPanelOpen && !composerMenuOpen) ? (
-          <div className="pointer-events-none absolute inset-x-3 bottom-full z-20 mb-2 flex flex-col items-center gap-2">
+          <div
+            className={queuedMessages.length > 0
+              ? 'mb-2 flex flex-col items-center gap-2'
+              : 'pointer-events-none absolute inset-x-3 bottom-full z-20 mb-2 flex flex-col items-center gap-2'}
+          >
             {showContextStateBanner ? (
               <div
                 className="pointer-events-auto flex min-h-9 w-full max-w-[46rem] items-center gap-2 rounded-full border border-ds-border bg-ds-card/95 px-3 py-1.5 text-ds-muted shadow-[0_12px_34px_rgba(15,23,42,0.10)] backdrop-blur-xl dark:bg-ds-card/90"
@@ -1671,6 +1766,21 @@ export function FloatingComposer({
             ref={composerMenuPanelRef}
             className="absolute bottom-12 left-1 z-40 w-48 overflow-hidden rounded-[18px] border border-ds-border bg-white py-1.5 text-[13px] text-ds-muted shadow-[0_18px_48px_rgba(15,23,42,0.16)] dark:bg-ds-card"
           >
+            {showImageGenerationMenuItem ? (
+              <>
+                <button
+                  type="button"
+                  disabled={!canCreateImageRequest}
+                  onClick={handleCreateImageMenuClick}
+                  className="ds-no-drag flex h-8 w-full items-center gap-2 px-3 text-left transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-ds-muted"
+                  title={imageGenerationConfigured ? t('composerMenuCreateImage') : t('composerMenuCreateImageDisabled')}
+                >
+                  <ImagePlus className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+                  <span className="min-w-0 flex-1 truncate">{t('composerMenuCreateImage')}</span>
+                </button>
+                <div className="my-1 h-px bg-ds-border-muted/70" />
+              </>
+            ) : null}
             {showAttachmentToolbarButton ? (
               <>
                 <button
@@ -2007,6 +2117,28 @@ export function FloatingComposer({
                   ) : null}
                 </div>
               </div>
+            </div>
+          ) : null}
+          {imageGenerationMode ? (
+            <div className="flex flex-wrap items-center gap-2 px-1 pb-0.5">
+              <span className="ds-no-drag inline-flex h-7 max-w-full items-center gap-1.5 rounded-lg border border-accent/25 bg-accent/10 px-2 text-[12px] font-semibold text-accent shadow-sm">
+                <ImagePlus className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+                <span className="truncate">{t('composerImageGenerationMode')}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    pendingImageGenerationSendRef.current = false
+                    imageGenerationModeRef.current = false
+                    setImageGenerationMode(false)
+                    draft.focusComposer()
+                  }}
+                  className="rounded-full p-0.5 text-accent/70 transition hover:bg-accent/15 hover:text-accent"
+                  aria-label={t('composerImageGenerationExit')}
+                  title={t('composerImageGenerationExit')}
+                >
+                  <X className="h-3 w-3" strokeWidth={2} />
+                </button>
+              </span>
             </div>
           ) : null}
           <textarea

@@ -63,6 +63,22 @@ import {
   desktopCommandSchema,
   evidenceDagViewPayloadSchema,
   defaultPathSchema,
+  figureStyleEvaluatePayloadSchema,
+  figureStyleReviewPayloadSchema,
+  figureStyleExtractPayloadSchema,
+  pptMasterMcpConfigPayloadSchema,
+  sciforgeCanvasImportRecentArtifactsPayloadSchema,
+  sciforgeCanvasInsertArtifactPayloadSchema,
+  sciforgeCanvasMcpConfigPayloadSchema,
+  sciforgeCanvasOpenPayloadSchema,
+  sciforgeCanvasReviewPacketPayloadSchema,
+  sciforgeCanvasSavePayloadSchema,
+  sciforgeCanvasSelectionSavePayloadSchema,
+  scientificPlottingPrepareReferencePayloadSchema,
+  scientificPlottingMcpConfigPayloadSchema,
+  scientificPlottingStatusPayloadSchema,
+  scientificSkillsInstallPayloadSchema,
+  scientificSkillsMcpConfigPayloadSchema,
   gitBranchPayloadSchema,
   guiUpdateChannelSchema,
   logErrorPayloadSchema,
@@ -108,6 +124,66 @@ import {
   workflowTestNodePayloadSchema,
   workspaceRootSchema
 } from './app-ipc-schemas'
+import {
+  buildScientificSkillsMcpConfigFragment,
+  type ScientificSkillsMcpLaunchConfig
+} from '../scientific-skills-mcp-config'
+import {
+  buildScientificPlottingMcpConfigFragment,
+  type ScientificPlottingMcpLaunchConfig
+} from '../scientific-plotting-mcp-config'
+import {
+  buildImageGenerationMcpConfigFragment,
+  type ImageGenerationMcpLaunchConfig
+} from '../image-generation-mcp-config'
+import {
+  buildSciforgeCanvasMcpConfigFragment,
+  type SciforgeCanvasMcpLaunchConfig
+} from '../sciforge-canvas-mcp-config'
+import {
+  buildPptMasterMcpConfigFragment,
+  type PptMasterMcpLaunchConfig
+} from '../ppt-master-mcp-config'
+import {
+  getScientificPlottingStatus,
+  prepareScientificPlottingReference
+} from '../../../packages/workers/scientific-plotting/src/scientific-plotting-engine'
+import {
+  exportSciforgeCanvasReviewPacket,
+  getSciforgeCanvasStatus,
+  importRecentSciforgeCanvasArtifacts,
+  insertSciforgeCanvasArtifact,
+  openOrCreateSciforgeCanvas,
+  saveSciforgeCanvasSelection,
+  saveSciforgeCanvasSnapshot
+} from '../../../packages/workers/canvas/src/sciforge-canvas-engine'
+import {
+  buildScientificSkillsIndex,
+  buildScientificSkillsStatusSummary
+} from '../../../packages/workers/scientific-plotting/src/scientific-skills-index'
+import {
+  installScientificSkills,
+  type ScientificSkillsInstallRequest,
+  type ScientificSkillsInstallResult
+} from '../../../packages/workers/scientific-plotting/src/scientific-skills-installer'
+import {
+  evaluateFigureStyleSimilarity,
+  extractFigureStyle,
+  reviewFigureStyleOutput
+} from '../../../packages/workers/scientific-plotting/src/figure-style-extractor'
+import type {
+  FigureStyleExtractRequest,
+  FigureStyleExtractResult,
+  FigureStyleReviewRequest,
+  FigureStyleReviewResult,
+  FigureStyleSimilarityRequest,
+  FigureStyleSimilarityResult
+} from '../../shared/figure-style'
+import type {
+  ScientificPlottingPrepareReferenceRequest,
+  ScientificPlottingPrepareReferenceResult,
+  ScientificPlottingStatusResult
+} from '../../shared/scientific-plotting'
 import {
   EVIDENCE_DAG_API_KEY_ENV,
   EVIDENCE_DAG_SERVICE_URL_ENV,
@@ -287,6 +363,26 @@ type RegisterAppIpcHandlersOptions = {
   readGuiUpdateState: () => Promise<GuiUpdateState>
   loadGuiUpdaterModule: () => Promise<GuiUpdaterModule>
   resolveLogDirectory: () => string
+  getScientificSkillsMcpLaunchConfig?: () => ScientificSkillsMcpLaunchConfig
+  getScientificPlottingMcpLaunchConfig?: () => ScientificPlottingMcpLaunchConfig
+  getImageGenerationMcpLaunchConfig?: () => ImageGenerationMcpLaunchConfig
+  getSciforgeCanvasMcpLaunchConfig?: () => SciforgeCanvasMcpLaunchConfig
+  getPptMasterMcpLaunchConfig?: () => PptMasterMcpLaunchConfig
+  installScientificSkills?: (request: ScientificSkillsInstallRequest) => Promise<ScientificSkillsInstallResult>
+  getScientificPlottingStatus?: () => Promise<ScientificPlottingStatusResult>
+  prepareScientificPlottingReference?: (
+    request: ScientificPlottingPrepareReferenceRequest
+  ) => Promise<ScientificPlottingPrepareReferenceResult>
+  getSciforgeCanvasStatus?: typeof getSciforgeCanvasStatus
+  openOrCreateSciforgeCanvas?: typeof openOrCreateSciforgeCanvas
+  saveSciforgeCanvasSnapshot?: typeof saveSciforgeCanvasSnapshot
+  saveSciforgeCanvasSelection?: typeof saveSciforgeCanvasSelection
+  insertSciforgeCanvasArtifact?: typeof insertSciforgeCanvasArtifact
+  importRecentSciforgeCanvasArtifacts?: typeof importRecentSciforgeCanvasArtifacts
+  exportSciforgeCanvasReviewPacket?: typeof exportSciforgeCanvasReviewPacket
+  extractFigureStyle?: (request: FigureStyleExtractRequest) => Promise<FigureStyleExtractResult>
+  evaluateFigureStyle?: (request: FigureStyleSimilarityRequest) => Promise<FigureStyleSimilarityResult>
+  reviewFigureStyle?: (request: FigureStyleReviewRequest) => Promise<FigureStyleReviewResult>
   logError: (category: string, message: string, detail?: unknown) => void
   ensureEvidenceDagReady?: () => Promise<void>
   transcribeSpeech?: (
@@ -456,6 +552,24 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     readGuiUpdateState,
     loadGuiUpdaterModule,
     resolveLogDirectory,
+    getScientificSkillsMcpLaunchConfig,
+    getScientificPlottingMcpLaunchConfig,
+    getImageGenerationMcpLaunchConfig,
+    getSciforgeCanvasMcpLaunchConfig,
+    getPptMasterMcpLaunchConfig,
+    installScientificSkills: installScientificSkillsHandler = installScientificSkills,
+    getScientificPlottingStatus: getScientificPlottingStatusHandler = getScientificPlottingStatus,
+    prepareScientificPlottingReference: prepareScientificPlottingReferenceHandler = prepareScientificPlottingReference,
+    getSciforgeCanvasStatus: getSciforgeCanvasStatusHandler = getSciforgeCanvasStatus,
+    openOrCreateSciforgeCanvas: openOrCreateSciforgeCanvasHandler = openOrCreateSciforgeCanvas,
+    saveSciforgeCanvasSnapshot: saveSciforgeCanvasSnapshotHandler = saveSciforgeCanvasSnapshot,
+    saveSciforgeCanvasSelection: saveSciforgeCanvasSelectionHandler = saveSciforgeCanvasSelection,
+    insertSciforgeCanvasArtifact: insertSciforgeCanvasArtifactHandler = insertSciforgeCanvasArtifact,
+    importRecentSciforgeCanvasArtifacts: importRecentSciforgeCanvasArtifactsHandler = importRecentSciforgeCanvasArtifacts,
+    exportSciforgeCanvasReviewPacket: exportSciforgeCanvasReviewPacketHandler = exportSciforgeCanvasReviewPacket,
+    extractFigureStyle: extractFigureStyleHandler = extractFigureStyle,
+    evaluateFigureStyle: evaluateFigureStyleHandler = evaluateFigureStyleSimilarity,
+    reviewFigureStyle: reviewFigureStyleHandler = reviewFigureStyleOutput,
     logError,
     ensureEvidenceDagReady,
     transcribeSpeech = requestSpeechTranscription
@@ -1135,6 +1249,32 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   })
 
+  handleInvoke('workspace:pick-file', async (_, defaultPath: unknown): Promise<WorkspacePickResult> => {
+    const normalizedDefaultPath = parseIpcPayload(
+      'workspace:pick-file',
+      z.object({ defaultPath: defaultPathSchema }).strict(),
+      { defaultPath }
+    ).defaultPath
+    const options: Electron.OpenDialogOptions = {
+      title: 'Select reference figure',
+      defaultPath: normalizedDefaultPath,
+      properties: ['openFile', 'dontAddToRecent'],
+      filters: [
+        { name: 'Figures', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'pdf'] },
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    }
+    const mainWindow = getMainWindow()
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options)
+    return {
+      canceled: result.canceled,
+      path: result.canceled ? null : (result.filePaths[0] ?? null)
+    }
+  })
+
   handleInvoke(
     'skill:save-file',
     async (_, payload: unknown) => {
@@ -1163,6 +1303,369 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     const request = parseIpcPayload('skill:list', skillListPayloadSchema, payload)
     const settings = await store.load()
     return listGuiSkills(settings, request.workspaceRoot)
+  })
+
+  handleInvoke('mcp:scientific-skills-config', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'mcp:scientific-skills-config',
+      scientificSkillsMcpConfigPayloadSchema,
+      payload
+    )
+    try {
+      const launch = getScientificSkillsMcpLaunchConfig?.() ?? {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+      return {
+        ok: true as const,
+        config: buildScientificSkillsMcpConfigFragment(launch, request.workspaceRoot)
+      }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('mcp:scientific-skills-status', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'mcp:scientific-skills-status',
+      scientificSkillsMcpConfigPayloadSchema,
+      payload
+    )
+    try {
+      const summary = buildScientificSkillsStatusSummary(
+        await buildScientificSkillsIndex({ workspaceRoot: request.workspaceRoot })
+      )
+      return {
+        ok: true as const,
+        ...summary
+      }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('mcp:scientific-plotting-config', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'mcp:scientific-plotting-config',
+      scientificPlottingMcpConfigPayloadSchema,
+      payload
+    )
+    try {
+      const launch = getScientificPlottingMcpLaunchConfig?.() ?? {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+      return {
+        ok: true as const,
+        config: buildScientificPlottingMcpConfigFragment(launch, request.workspaceRoot)
+      }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('mcp:image-generation-config', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'mcp:image-generation-config',
+      scientificPlottingMcpConfigPayloadSchema,
+      payload
+    )
+    try {
+      const launch = getImageGenerationMcpLaunchConfig?.() ?? {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+      const settings = await store.load()
+      return {
+        ok: true as const,
+        config: buildImageGenerationMcpConfigFragment(
+          launch,
+          request.workspaceRoot,
+          settings.imageGeneration
+        )
+      }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('mcp:sciforge-canvas-config', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'mcp:sciforge-canvas-config',
+      sciforgeCanvasMcpConfigPayloadSchema,
+      payload
+    )
+    try {
+      const launch = getSciforgeCanvasMcpLaunchConfig?.() ?? {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+      return {
+        ok: true as const,
+        config: buildSciforgeCanvasMcpConfigFragment(launch, request.workspaceRoot)
+      }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('sciforge-canvas:status', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'sciforge-canvas:status',
+      sciforgeCanvasMcpConfigPayloadSchema,
+      payload
+    )
+    try {
+      return getSciforgeCanvasStatusHandler(request.workspaceRoot)
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('sciforge-canvas:open', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'sciforge-canvas:open',
+      sciforgeCanvasOpenPayloadSchema,
+      payload
+    )
+    try {
+      return openOrCreateSciforgeCanvasHandler(request)
+    } catch (error) {
+      return {
+        ok: false as const,
+        status: 'invalid_request' as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('sciforge-canvas:save', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'sciforge-canvas:save',
+      sciforgeCanvasSavePayloadSchema,
+      payload
+    )
+    try {
+      return saveSciforgeCanvasSnapshotHandler(request)
+    } catch (error) {
+      return {
+        ok: false as const,
+        status: 'invalid_request' as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('sciforge-canvas:save-selection', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'sciforge-canvas:save-selection',
+      sciforgeCanvasSelectionSavePayloadSchema,
+      payload
+    )
+    try {
+      return saveSciforgeCanvasSelectionHandler(request)
+    } catch (error) {
+      return {
+        ok: false as const,
+        status: 'invalid_request' as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('sciforge-canvas:insert-artifact', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'sciforge-canvas:insert-artifact',
+      sciforgeCanvasInsertArtifactPayloadSchema,
+      payload
+    )
+    try {
+      return insertSciforgeCanvasArtifactHandler(request)
+    } catch (error) {
+      return {
+        ok: false as const,
+        status: 'invalid_request' as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('sciforge-canvas:import-recent-artifacts', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'sciforge-canvas:import-recent-artifacts',
+      sciforgeCanvasImportRecentArtifactsPayloadSchema,
+      payload
+    )
+    try {
+      return importRecentSciforgeCanvasArtifactsHandler(request)
+    } catch (error) {
+      return {
+        ok: false as const,
+        status: 'invalid_request' as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('sciforge-canvas:export-review-packet', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'sciforge-canvas:export-review-packet',
+      sciforgeCanvasReviewPacketPayloadSchema,
+      payload
+    )
+    try {
+      return exportSciforgeCanvasReviewPacketHandler(request)
+    } catch (error) {
+      return {
+        ok: false as const,
+        status: 'invalid_request' as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('scientific-plotting:status', async (_, payload: unknown) => {
+    parseIpcPayload(
+      'scientific-plotting:status',
+      scientificPlottingStatusPayloadSchema,
+      payload
+    )
+    try {
+      return getScientificPlottingStatusHandler()
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('scientific-plotting:prepare-reference', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'scientific-plotting:prepare-reference',
+      scientificPlottingPrepareReferencePayloadSchema,
+      payload
+    )
+    try {
+      return prepareScientificPlottingReferenceHandler(request)
+    } catch (error) {
+      return {
+        ok: false as const,
+        status: 'invalid_request' as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('scientific-skills:install', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'scientific-skills:install',
+      scientificSkillsInstallPayloadSchema,
+      payload
+    )
+    try {
+      return installScientificSkillsHandler(request)
+    } catch (error) {
+      return {
+        ok: false as const,
+        status: 'unexpected_error' as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('figure-style:extract', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'figure-style:extract',
+      figureStyleExtractPayloadSchema,
+      payload
+    )
+    try {
+      return extractFigureStyleHandler(request)
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('figure-style:evaluate', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'figure-style:evaluate',
+      figureStyleEvaluatePayloadSchema,
+      payload
+    )
+    try {
+      return evaluateFigureStyleHandler(request)
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('figure-style:review', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'figure-style:review',
+      figureStyleReviewPayloadSchema,
+      payload
+    )
+    try {
+      return reviewFigureStyleHandler(request)
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  handleInvoke('mcp:ppt-master-config', async (_, payload: unknown) => {
+    const request = parseIpcPayload(
+      'mcp:ppt-master-config',
+      pptMasterMcpConfigPayloadSchema,
+      payload
+    )
+    try {
+      const launch = getPptMasterMcpLaunchConfig?.() ?? {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+      return {
+        ok: true as const,
+        config: buildPptMasterMcpConfigFragment(launch, request.workspaceRoot)
+      }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
   })
 
   handleInvoke('skill:open-root', async (_, rootPath: unknown) => {

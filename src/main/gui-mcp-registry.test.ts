@@ -91,6 +91,11 @@ describe('GUI MCP runtime registry', () => {
       'gui_paper_radar',
       'gui_write_assist',
       'gui_runtime_inspector',
+      'scientific_skills',
+      'scientific_plotting',
+      'image_generation',
+      'ppt_master',
+      'sciforge_canvas',
       'gui_computer_use'
     ]))
   })
@@ -182,6 +187,33 @@ describe('GUI MCP runtime registry', () => {
       },
       enabledTools: expect.arrayContaining(['gui_workflow_list', 'gui_workflow_run'])
     })
+  })
+
+  it('passes the workspace root to artifact worker MCP launch args', () => {
+    const settings = createSettings()
+    const localRuntime = buildLocalRuntimeManagedGuiMcpServers({
+      settings,
+      scientificSkillsMcp: { launch },
+      scientificPlottingMcp: { launch },
+      imageGenerationMcp: { launch },
+      pptMasterMcp: { launch },
+      sciforgeCanvasMcp: { launch }
+    }) as Record<string, { args?: string[] }>
+    const codex = buildCodexManagedGuiMcpServers({
+      settings,
+      scientificSkillsMcp: { launch },
+      scientificPlottingMcp: { launch },
+      imageGenerationMcp: { launch },
+      pptMasterMcp: { launch },
+      sciforgeCanvasMcp: { launch }
+    })
+
+    for (const id of ['scientific_skills', 'scientific_plotting', 'image_generation', 'ppt_master', 'sciforge_canvas']) {
+      expect(localRuntime[id]?.args).toEqual(expect.arrayContaining(['--workspace-root', '/tmp/project']))
+      expect(codex.find((server) => server.id === id)?.args).toEqual(
+        expect.arrayContaining(['--workspace-root', '/tmp/project'])
+      )
+    }
   })
 
   it('builds Claude Code MCP config from the same computer-use registry entry', () => {

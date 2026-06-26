@@ -8,6 +8,7 @@ import {
   defaultConnectPhoneSettings,
   defaultRemoteChannelSettings,
   defaultAgentCapabilitySettings,
+  defaultImageGenerationSettings,
   defaultKeyboardShortcuts,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   defaultLocalRuntimeSettings,
@@ -620,6 +621,55 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
       },
       trustScope: 'user',
       timeoutMs: 30000
+    })
+  })
+
+  it('adds the image generation MCP server to the local runtime capabilities', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    const module = await import('./local-runtime-process')
+    const settings = {
+      ...createSettings('/tmp/fake-local-runtime-child.js'),
+      imageGeneration: {
+        ...defaultImageGenerationSettings(),
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:4321/v1',
+        apiKey: 'test-image-key',
+        model: 'test-image-model'
+      }
+    }
+
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
+      imageGenerationMcp: {
+        settings,
+        launch: {
+          appPath: '/tmp/sciforge-test-app',
+          execPath: '/tmp/electron',
+          isPackaged: false
+        }
+      }
+    })
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.mcp.enabled).toBe(true)
+    expect(parsed.capabilities.mcp.servers.image_generation).toMatchObject({
+      enabled: true,
+      transport: 'stdio',
+      command: '/tmp/electron',
+      args: [
+        '/tmp/sciforge-test-app/out/main/image-generation-mcp-node-entry.js',
+        '--image-generation-mcp-server',
+        '--workspace-root',
+        '/tmp/workspace'
+      ],
+      env: {
+        ELECTRON_RUN_AS_NODE: '1',
+        SCIFORGE_IMAGE_API_KEY: 'test-image-key',
+        SCIFORGE_IMAGE_BASE_URL: 'http://127.0.0.1:4321/v1',
+        SCIFORGE_IMAGE_MODEL: 'test-image-model'
+      },
+      trustScope: 'user',
+      timeoutMs: 120000
     })
   })
 

@@ -324,6 +324,37 @@ describe('electron-builder local runtime packaging', () => {
     ]))
   })
 
+  it('includes the full SciForge artifact worker trees in unpacked packaged app files', () => {
+    const workerDirs = [
+      'packages/workers/scientific-plotting',
+      'packages/workers/image-generation',
+      'packages/workers/ppt-master',
+      'packages/workers/canvas'
+    ]
+
+    for (const workerDir of workerDirs) {
+      const workerFileSet = builderConfig.files.find((entry: unknown) => {
+        return (
+          typeof entry === 'object' &&
+          entry !== null &&
+          (entry as { from?: string }).from === workerDir
+        )
+      }) as { from?: string; to?: string; filter?: string[] } | undefined
+
+      expect(workerFileSet).toMatchObject({
+        from: workerDir,
+        to: workerDir
+      })
+      expect(workerFileSet?.filter).toEqual(expect.arrayContaining([
+        '**/*',
+        '**/.*'
+      ]))
+      expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+        `**/${workerDir}/**/*`
+      ]))
+    }
+  })
+
   it('leaves top-level plugin services out of bundled app content', () => {
     const bundledDirectoryFileSets = (builderConfig.files as unknown[])
       .filter((entry: unknown): entry is { from?: string } => {
