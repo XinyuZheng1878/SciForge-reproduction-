@@ -74,6 +74,11 @@ import type { WorkspaceIntelMcpLaunchConfig } from '../../workspace-intel-mcp-co
 import type { PaperRadarMcpLaunchConfig } from '../../paper-radar-mcp-config'
 import type { WriteAssistMcpLaunchConfig } from '../../write-assist-mcp-config'
 import type { RuntimeInspectorMcpLaunchConfig } from '../../runtime-inspector-mcp-config'
+import type { ScientificSkillsMcpLaunchConfig } from '../../scientific-skills-mcp-config'
+import type { ScientificPlottingMcpLaunchConfig } from '../../scientific-plotting-mcp-config'
+import type { ImageGenerationMcpLaunchConfig } from '../../image-generation-mcp-config'
+import type { PptMasterMcpLaunchConfig } from '../../ppt-master-mcp-config'
+import type { SciforgeCanvasMcpLaunchConfig } from '../../sciforge-canvas-mcp-config'
 import { buildCodexManagedGuiMcpServers } from '../../gui-mcp-registry'
 import {
   createCodexDynamicMcpToolBridge,
@@ -107,6 +112,11 @@ export type CodexRuntimeServiceOptions = {
   writeAssistMcpLaunch?: WriteAssistMcpLaunchConfig
   runtimeInspectorMcpLaunch?: RuntimeInspectorMcpLaunchConfig
   computerUseMcpLaunch?: ComputerUseMcpLaunchConfig
+  scientificSkillsMcpLaunch?: ScientificSkillsMcpLaunchConfig
+  scientificPlottingMcpLaunch?: ScientificPlottingMcpLaunchConfig
+  imageGenerationMcpLaunch?: ImageGenerationMcpLaunchConfig
+  pptMasterMcpLaunch?: PptMasterMcpLaunchConfig
+  sciforgeCanvasMcpLaunch?: SciforgeCanvasMcpLaunchConfig
   managedMcpServers?: readonly CodexDynamicMcpServerConfig[]
   mcpClientFactory?: (server: CodexDynamicMcpServerConfig) => Promise<CodexDynamicMcpClient>
   createClient?: (options: CodexAppServerJsonRpcClientOptions) => CodexAppServerJsonRpcClient
@@ -759,7 +769,12 @@ export class CodexRuntimeService {
         paperRadarMcpLaunch: this.options.paperRadarMcpLaunch,
         writeAssistMcpLaunch: this.options.writeAssistMcpLaunch,
         runtimeInspectorMcpLaunch: this.options.runtimeInspectorMcpLaunch,
-        computerUseMcpLaunch
+        computerUseMcpLaunch,
+        scientificSkillsMcpLaunch: this.options.scientificSkillsMcpLaunch,
+        scientificPlottingMcpLaunch: this.options.scientificPlottingMcpLaunch,
+        imageGenerationMcpLaunch: this.options.imageGenerationMcpLaunch,
+        pptMasterMcpLaunch: this.options.pptMasterMcpLaunch,
+        sciforgeCanvasMcpLaunch: this.options.sciforgeCanvasMcpLaunch
       })
       this.dynamicMcpBridge = createCodexDynamicMcpToolBridge({
         servers: codexDynamicMcpServers(this.options, current),
@@ -820,6 +835,11 @@ export class CodexRuntimeService {
   isResearchMcpConfigured(): boolean {
     return Boolean(
       this.options.researchMcpLaunch ||
+      this.options.scientificSkillsMcpLaunch ||
+      this.options.scientificPlottingMcpLaunch ||
+      this.options.imageGenerationMcpLaunch ||
+      this.options.pptMasterMcpLaunch ||
+      this.options.sciforgeCanvasMcpLaunch ||
       (this.options.managedMcpServers ?? []).some((server) => server.id === GUI_RESEARCH_MCP_SERVER_NAME)
     )
   }
@@ -1753,6 +1773,21 @@ function codexDynamicMcpServers(
           launch: options.computerUseMcpLaunch,
           enabled: !settings || isComputerUseEnabledForRuntime(settings, 'codex')
         }
+      : undefined,
+    scientificSkillsMcp: options.scientificSkillsMcpLaunch && settings
+      ? { settings, launch: options.scientificSkillsMcpLaunch }
+      : undefined,
+    scientificPlottingMcp: options.scientificPlottingMcpLaunch && settings
+      ? { settings, launch: options.scientificPlottingMcpLaunch }
+      : undefined,
+    imageGenerationMcp: options.imageGenerationMcpLaunch && settings
+      ? { settings, launch: options.imageGenerationMcpLaunch }
+      : undefined,
+    pptMasterMcp: options.pptMasterMcpLaunch && settings
+      ? { settings, launch: options.pptMasterMcpLaunch }
+      : undefined,
+    sciforgeCanvasMcp: options.sciforgeCanvasMcpLaunch && settings
+      ? { settings, launch: options.sciforgeCanvasMcpLaunch }
       : undefined
   }, options.managedMcpServers)
 }

@@ -11,6 +11,7 @@ import {
   imageAttachmentInputsFromTransfer,
   imageFilesFromTransfer,
   imageTransferHasImages,
+  isImageGenerationConfigured,
   runParsedGoalCommandForComposer,
   parseCompactCommand,
   parseGoalCommand,
@@ -512,6 +513,28 @@ describe('FloatingComposer image transfer helpers', () => {
     expect(preventDefault).toHaveBeenCalledTimes(1)
     expect(onPasteClipboardImage).toHaveBeenCalledWith({ silentNoImage: false })
   })
+})
+
+describe('FloatingComposer image generation helpers', () => {
+  it('requires an enabled image model with an API key and model id', () => {
+    expect(isImageGenerationConfigured(null)).toBe(false)
+    expect(isImageGenerationConfigured({
+      enabled: false,
+      apiKey: 'sk-image',
+      model: 'gpt-image-1'
+    })).toBe(false)
+    expect(isImageGenerationConfigured({
+      enabled: true,
+      apiKey: '',
+      model: 'gpt-image-1'
+    })).toBe(false)
+    expect(isImageGenerationConfigured({
+      enabled: true,
+      apiKey: 'sk-image',
+      model: 'gpt-image-1'
+    })).toBe(true)
+  })
+
 })
 
 describe('FloatingComposer capability controls', () => {

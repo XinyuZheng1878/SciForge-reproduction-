@@ -191,6 +191,45 @@ function createApi(): SciForgeApi {
         ...(forceTakeover ? { forceTakeover } : {})
       }),
     pickWorkspaceDirectory: (defaultPath) => invoke('workspace:pick-directory', defaultPath),
+    pickWorkspaceFile: (defaultPath) => invoke('workspace:pick-file', defaultPath),
+    buildScientificSkillsMcpConfig: (workspaceRoot) =>
+      invoke('mcp:scientific-skills-config', { workspaceRoot }),
+    buildScientificPlottingMcpConfig: (workspaceRoot) =>
+      invoke('mcp:scientific-plotting-config', { workspaceRoot }),
+    buildImageGenerationMcpConfig: (workspaceRoot) =>
+      invoke('mcp:image-generation-config', { workspaceRoot }),
+    buildSciforgeCanvasMcpConfig: (workspaceRoot) =>
+      invoke('mcp:sciforge-canvas-config', { workspaceRoot }),
+    buildPptMasterMcpConfig: (workspaceRoot) =>
+      invoke('mcp:ppt-master-config', { workspaceRoot }),
+    getScientificSkillsStatus: (workspaceRoot) =>
+      invoke('mcp:scientific-skills-status', { workspaceRoot }),
+    installScientificSkills: (request) =>
+      invoke('scientific-skills:install', request),
+    getScientificPlottingStatus: (workspaceRoot) =>
+      invoke('scientific-plotting:status', { workspaceRoot }),
+    prepareScientificPlottingReference: (request) =>
+      invoke('scientific-plotting:prepare-reference', request),
+    getSciforgeCanvasStatus: (workspaceRoot) =>
+      invoke('sciforge-canvas:status', { workspaceRoot }),
+    openSciforgeCanvas: (request) =>
+      invoke('sciforge-canvas:open', request),
+    saveSciforgeCanvas: (request) =>
+      invoke('sciforge-canvas:save', request),
+    saveSciforgeCanvasSelection: (request) =>
+      invoke('sciforge-canvas:save-selection', request),
+    insertSciforgeCanvasArtifact: (request) =>
+      invoke('sciforge-canvas:insert-artifact', request),
+    importRecentSciforgeCanvasArtifacts: (request) =>
+      invoke('sciforge-canvas:import-recent-artifacts', request),
+    exportSciforgeCanvasReviewPacket: (request) =>
+      invoke('sciforge-canvas:export-review-packet', request),
+    extractFigureStyle: (request) =>
+      invoke('figure-style:extract', request),
+    evaluateFigureStyle: (request) =>
+      invoke('figure-style:evaluate', request),
+    reviewFigureStyle: (request) =>
+      invoke('figure-style:review', request),
     listSkills: (workspaceRoot) => invoke('skill:list', { workspaceRoot }),
     saveSkillFile: (rootPath, skillName, content) =>
       invoke('skill:save-file', { rootPath, skillName, content }),

@@ -54,6 +54,11 @@ import type { WorkspaceIntelMcpLaunchConfig } from './workspace-intel-mcp-config
 import type { PaperRadarMcpLaunchConfig } from './paper-radar-mcp-config'
 import type { WriteAssistMcpLaunchConfig } from './write-assist-mcp-config'
 import type { RuntimeInspectorMcpLaunchConfig } from './runtime-inspector-mcp-config'
+import type { ScientificSkillsMcpLaunchConfig } from './scientific-skills-mcp-config'
+import type { ScientificPlottingMcpLaunchConfig } from './scientific-plotting-mcp-config'
+import type { ImageGenerationMcpLaunchConfig } from './image-generation-mcp-config'
+import type { PptMasterMcpLaunchConfig } from './ppt-master-mcp-config'
+import type { SciforgeCanvasMcpLaunchConfig } from './sciforge-canvas-mcp-config'
 import {
   buildLocalRuntimeManagedGuiMcpServers,
   hasEnabledManagedGuiMcpServer,
@@ -373,6 +378,56 @@ async function startLocalRuntimeChildOnce(
         isPackaged: app.isPackaged
       }
     },
+    runtimeInspectorMcp: {
+      settings,
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged,
+        checkpointDataDir: app.getPath('userData')
+      }
+    },
+    scientificSkillsMcp: {
+      settings,
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+    },
+    scientificPlottingMcp: {
+      settings,
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+    },
+    imageGenerationMcp: {
+      settings,
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+    },
+    pptMasterMcp: {
+      settings,
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged,
+        homeDir: app.getPath('home')
+      }
+    },
+    sciforgeCanvasMcp: {
+      settings,
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+    },
     computerUseMcp: {
       launch: {
         appPath: app.getAppPath(),
@@ -510,6 +565,26 @@ export async function syncGuiManagedLocalRuntimeConfig(
       launch: ComputerUseMcpLaunchConfig
       enabled?: boolean
     }
+    scientificSkillsMcp?: {
+      settings: AppSettingsV1
+      launch: ScientificSkillsMcpLaunchConfig
+    }
+    scientificPlottingMcp?: {
+      settings: AppSettingsV1
+      launch: ScientificPlottingMcpLaunchConfig
+    }
+    imageGenerationMcp?: {
+      settings: AppSettingsV1
+      launch: ImageGenerationMcpLaunchConfig
+    }
+    pptMasterMcp?: {
+      settings: AppSettingsV1
+      launch: PptMasterMcpLaunchConfig
+    }
+    sciforgeCanvasMcp?: {
+      settings: AppSettingsV1
+      launch: SciforgeCanvasMcpLaunchConfig
+    }
     mcpConfigPath?: string
   }
 ): Promise<void> {
@@ -549,7 +624,12 @@ export async function syncGuiManagedLocalRuntimeConfig(
     paperRadarMcp: options?.paperRadarMcp,
     writeAssistMcp: options?.writeAssistMcp,
     runtimeInspectorMcp: options?.runtimeInspectorMcp,
-    computerUseMcp: options?.computerUseMcp
+    computerUseMcp: options?.computerUseMcp,
+    scientificSkillsMcp: options?.scientificSkillsMcp,
+    scientificPlottingMcp: options?.scientificPlottingMcp,
+    imageGenerationMcp: options?.imageGenerationMcp,
+    pptMasterMcp: options?.pptMasterMcp,
+    sciforgeCanvasMcp: options?.sciforgeCanvasMcp
   }, mcpServers)
   const hasEnabledManagedMcpServer = hasEnabledManagedGuiMcpServer(managedMcpServers)
   const next = {
@@ -590,6 +670,11 @@ export async function syncGuiManagedLocalRuntimeConfig(
           options?.paperRadarMcp ||
           options?.writeAssistMcp ||
           options?.runtimeInspectorMcp ||
+          options?.scientificSkillsMcp ||
+          options?.scientificPlottingMcp ||
+          options?.imageGenerationMcp ||
+          options?.pptMasterMcp ||
+          options?.sciforgeCanvasMcp ||
           hasEnabledManagedMcpServer ||
           mcpSearch.enabled ||
           hasImportedEnabledMcpServer

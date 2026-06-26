@@ -25,6 +25,7 @@ import {
   settingsPatchSchema,
   shellOpenExternalUrlSchema,
   speechTranscriptionPayloadSchema,
+  sciforgeCanvasInsertArtifactPayloadSchema,
   skillListPayloadSchema,
   workspaceDirectoryCreatePayloadSchema,
   workspaceDirectoryTargetPayloadSchema,
@@ -86,6 +87,28 @@ describe('app-ipc-schemas', () => {
         text: ' '
       })
     ).toThrow()
+  })
+
+  it('accepts generated and edited image artifacts for SciForge Canvas insertion', () => {
+    expect(sciforgeCanvasInsertArtifactPayloadSchema.parse({
+      workspaceRoot: ' /tmp/workspace ',
+      canvasId: ' thread-1 ',
+      artifactKind: 'generated_image',
+      outputPath: ' .sciforge/images/cover.png ',
+      manifestPath: ' .sciforge/artifacts/cover.manifest.json '
+    })).toMatchObject({
+      workspaceRoot: '/tmp/workspace',
+      canvasId: 'thread-1',
+      artifactKind: 'generated_image',
+      outputPath: '.sciforge/images/cover.png',
+      manifestPath: '.sciforge/artifacts/cover.manifest.json'
+    })
+
+    expect(sciforgeCanvasInsertArtifactPayloadSchema.parse({
+      workspaceRoot: '/tmp/workspace',
+      artifactKind: 'edited_image',
+      outputPath: '.sciforge/images/cover-v2.png'
+    }).artifactKind).toBe('edited_image')
   })
 
   it('accepts Evidence DAG open payloads for Claude runtime threads', () => {
@@ -392,10 +415,18 @@ describe('app-ipc-schemas', () => {
           maxChildRuns: 6
         }
       },
+      imageGeneration: {
+        enabled: true,
+        provider: 'openai-compatible',
+        baseUrl: 'https://api.example.test/v1',
+        apiKey: 'image-key',
+        model: 'image-model'
+      },
       agents: {
         sciforge: {
           port: 9000,
           model: 'deepseek-chat',
+          endpointFormat: 'chat_completions',
           tokenEconomy: {
             enabled: true,
             compressToolResults: false,
@@ -422,10 +453,20 @@ describe('app-ipc-schemas', () => {
         inlineCompletion: {
           maxTokens: 128
         }
+      },
+      speechToText: {
+        enabled: false,
+        protocol: 'mimo-asr',
+        baseUrl: '',
+        apiKey: '',
+        model: '',
+        language: '',
+        timeoutMs: 60000
       }
     })
 
     expect(payload.agents?.sciforge?.port).toBe(9000)
+    expect(payload.agents?.sciforge?.endpointFormat).toBe('chat_completions')
     expect(payload.agents?.sciforge?.tokenEconomy?.enabled).toBe(true)
     expect(payload.agents?.sciforge?.tokenEconomy?.historyHygiene?.maxToolResultTokens).toBe(4000)
     expect(payload.activeAgentRuntime).toBe('claude')
@@ -434,6 +475,9 @@ describe('app-ipc-schemas', () => {
     expect(payload.agents?.codex?.codexHome).toBe('/tmp/codex-home')
     expect(payload.agents?.claude?.configDir).toBe('/tmp/claude-code')
     expect(payload.write?.inlineCompletion?.maxTokens).toBe(128)
+    expect(payload.speechToText?.baseUrl).toBe('')
+    expect(payload.imageGeneration?.enabled).toBe(true)
+    expect(payload.imageGeneration?.model).toBe('image-model')
   })
 
   it('rejects Local Runtime credential override patches', () => {

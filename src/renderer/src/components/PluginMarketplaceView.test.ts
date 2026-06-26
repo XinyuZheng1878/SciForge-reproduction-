@@ -36,6 +36,43 @@ describe('PluginMarketplaceView MCP config helpers', () => {
     expect(mcpConfigHasServer(merged.text, 'playwright')).toBe(true)
   })
 
+  it('preserves full Kun capability config when adding recommended MCP servers', () => {
+    const existing = JSON.stringify({
+      serve: { approvalPolicy: 'auto' },
+      servers: {
+        stale_root_server: { command: 'stale' }
+      },
+      capabilities: {
+        mcp: {
+          enabled: true,
+          servers: {
+            gui_schedule: { command: '/Applications/SciForge.app' }
+          }
+        }
+      }
+    })
+
+    const merged = mergeMcpJsonConfig(
+      existing,
+      buildMcpConfig('image_generation', '/Applications/SciForge.app', ['image-generation'])
+    )
+    const parsed = JSON.parse(merged.text) as Record<string, any>
+
+    expect(merged.alreadyExists).toBe(false)
+    expect(parsed.servers).toBeUndefined()
+    expect(parsed.serve).toEqual({ approvalPolicy: 'auto' })
+    expect(parsed.capabilities.mcp.enabled).toBe(true)
+    expect(parsed.capabilities.mcp.servers.stale_root_server).toEqual({ command: 'stale' })
+    expect(parsed.capabilities.mcp.servers.gui_schedule).toEqual({ command: '/Applications/SciForge.app' })
+    expect(parsed.capabilities.mcp.servers.image_generation).toMatchObject({
+      enabled: true,
+      transport: 'stdio',
+      command: '/Applications/SciForge.app',
+      args: ['image-generation']
+    })
+    expect(mcpConfigHasServer(merged.text, 'image_generation')).toBe(true)
+  })
+
   it('detects duplicate MCP servers instead of appending old-style snippets', () => {
     const fragment = buildMcpConfig('context7', 'npx', ['-y', '@upstash/context7-mcp@latest'])
     const first = mergeMcpJsonConfig('', fragment)

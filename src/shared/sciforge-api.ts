@@ -124,6 +124,33 @@ import type {
   PdfAnnotationSidecarSaveResult,
   PdfAnnotationSidecarTarget
 } from './pdf-annotations'
+import type {
+  FigureStyleExtractRequest,
+  FigureStyleExtractResult,
+  FigureStyleReviewRequest,
+  FigureStyleReviewResult,
+  FigureStyleSimilarityRequest,
+  FigureStyleSimilarityResult
+} from './figure-style'
+import type {
+  ScientificPlottingPrepareReferenceRequest,
+  ScientificPlottingPrepareReferenceResult,
+  ScientificPlottingStatusResult
+} from './scientific-plotting'
+import type {
+  SciforgeCanvasInsertArtifactRequest,
+  SciforgeCanvasInsertArtifactResult,
+  SciforgeCanvasImportRecentArtifactsRequest,
+  SciforgeCanvasImportRecentArtifactsResult,
+  SciforgeCanvasOpenRequest,
+  SciforgeCanvasOpenResult,
+  SciforgeCanvasReviewPacketRequest,
+  SciforgeCanvasReviewPacketResult,
+  SciforgeCanvasSaveRequest,
+  SciforgeCanvasSaveResult,
+  SciforgeCanvasSelectionSaveRequest,
+  SciforgeCanvasStatusResult
+} from './sciforge-canvas'
 
 export type WorkspacePickResult = { canceled: boolean; path: string | null }
 export type PathOpenResult = { ok: boolean; message?: string }
@@ -226,6 +253,90 @@ export type SkillListResult =
   | { ok: false; message: string }
 export type RuntimeConfigFileResult = { path: string; content: string; exists: boolean }
 export type RuntimeConfigSaveResult = { ok: true; path: string }
+export type ScientificSkillsMcpConfigResult =
+  | { ok: true; config: Record<string, unknown> }
+  | { ok: false; message: string }
+export type ScientificPlottingMcpConfigResult =
+  | { ok: true; config: Record<string, unknown> }
+  | { ok: false; message: string }
+export type ImageGenerationMcpConfigResult =
+  | { ok: true; config: Record<string, unknown> }
+  | { ok: false; message: string }
+export type SciforgeCanvasMcpConfigResult =
+  | { ok: true; config: Record<string, unknown> }
+  | { ok: false; message: string }
+export type PptMasterMcpConfigResult =
+  | { ok: true; config: Record<string, unknown> }
+  | { ok: false; message: string }
+export type ScientificSkillsInstallRequest = {
+  workspaceRoot: string
+  backend?: 'git' | 'npx'
+  ref?: string
+}
+export type ScientificSkillsInstallResult =
+  | {
+      ok: true
+      status: 'installed' | 'already_installed'
+      backend: 'git' | 'npx'
+      targetPath: string
+      commit?: string
+      provenancePath?: string
+      stdoutTail?: string
+      stderrTail?: string
+    }
+  | {
+      ok: false
+      status:
+        | 'invalid_workspace'
+        | 'invalid_existing_target'
+        | 'clone_failed'
+        | 'verification_failed'
+        | 'npx_failed'
+        | 'not_discovered_after_npx'
+        | 'unexpected_error'
+      backend?: 'git' | 'npx'
+      targetPath?: string
+      message: string
+      stdoutTail?: string
+      stderrTail?: string
+    }
+export type ScientificSkillsStatusResult =
+  | {
+      ok: true
+      installed: boolean
+      skillCount: number
+      fingerprint: string
+      indexedAt: string
+      roots: Array<{
+        path: string
+        source: string
+        exists: boolean
+        skillCount: number
+        error?: string
+      }>
+      validationErrors: Array<{ path: string; message: string }>
+      plottingPack: {
+        total: number
+        installed: number
+        missing: number
+        items: Array<{
+          skillId: string
+          label: string
+          installed: boolean
+          name?: string
+          description?: string
+          entryPath?: string
+          dependencyRisk?: string
+          validationErrors: string[]
+        }>
+      }
+      installHint?: string
+      onDemandPolicy: {
+        mode: 'manual-approval'
+        summary: string
+      }
+    }
+  | { ok: false; message: string }
 export type ModelRouterConfigOpenResult =
   | { ok: true; path: string }
   | { ok: false; path: string; message: string }
@@ -487,6 +598,36 @@ export type SciForgeApi = {
     forceTakeover?: boolean
   ) => Promise<DiscordGuardResult>
   pickWorkspaceDirectory: (defaultPath?: string) => Promise<WorkspacePickResult>
+  pickWorkspaceFile: (defaultPath?: string) => Promise<WorkspacePickResult>
+  buildScientificSkillsMcpConfig: (workspaceRoot?: string) => Promise<ScientificSkillsMcpConfigResult>
+  buildScientificPlottingMcpConfig: (workspaceRoot?: string) => Promise<ScientificPlottingMcpConfigResult>
+  buildImageGenerationMcpConfig: (workspaceRoot?: string) => Promise<ImageGenerationMcpConfigResult>
+  buildSciforgeCanvasMcpConfig: (workspaceRoot?: string) => Promise<SciforgeCanvasMcpConfigResult>
+  buildPptMasterMcpConfig: (workspaceRoot?: string) => Promise<PptMasterMcpConfigResult>
+  getScientificSkillsStatus: (workspaceRoot?: string) => Promise<ScientificSkillsStatusResult>
+  installScientificSkills: (request: ScientificSkillsInstallRequest) => Promise<ScientificSkillsInstallResult>
+  getScientificPlottingStatus: (workspaceRoot?: string) => Promise<ScientificPlottingStatusResult>
+  prepareScientificPlottingReference: (
+    request: ScientificPlottingPrepareReferenceRequest
+  ) => Promise<ScientificPlottingPrepareReferenceResult>
+  getSciforgeCanvasStatus: (workspaceRoot?: string) => Promise<SciforgeCanvasStatusResult>
+  openSciforgeCanvas: (request: SciforgeCanvasOpenRequest) => Promise<SciforgeCanvasOpenResult>
+  saveSciforgeCanvas: (request: SciforgeCanvasSaveRequest) => Promise<SciforgeCanvasSaveResult>
+  saveSciforgeCanvasSelection: (
+    request: SciforgeCanvasSelectionSaveRequest
+  ) => Promise<SciforgeCanvasSaveResult>
+  insertSciforgeCanvasArtifact: (
+    request: SciforgeCanvasInsertArtifactRequest
+  ) => Promise<SciforgeCanvasInsertArtifactResult>
+  importRecentSciforgeCanvasArtifacts: (
+    request: SciforgeCanvasImportRecentArtifactsRequest
+  ) => Promise<SciforgeCanvasImportRecentArtifactsResult>
+  exportSciforgeCanvasReviewPacket: (
+    request: SciforgeCanvasReviewPacketRequest
+  ) => Promise<SciforgeCanvasReviewPacketResult>
+  extractFigureStyle: (request: FigureStyleExtractRequest) => Promise<FigureStyleExtractResult>
+  evaluateFigureStyle: (request: FigureStyleSimilarityRequest) => Promise<FigureStyleSimilarityResult>
+  reviewFigureStyle: (request: FigureStyleReviewRequest) => Promise<FigureStyleReviewResult>
   listSkills: (workspaceRoot?: string) => Promise<SkillListResult>
   saveSkillFile: (rootPath: string, skillName: string, content: string) => Promise<SkillSaveResult>
   openSkillRoot: (rootPath: string) => Promise<PathOpenResult>

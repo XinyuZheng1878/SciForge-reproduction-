@@ -38,6 +38,7 @@ import { normalizeModelProviderSettings } from './app-settings-provider'
 import { normalizeModelRouterSettings } from './app-settings-model-router'
 import { normalizeInstallationId } from './app-settings-normalizers'
 import { normalizeConnectPhoneSettings, normalizeRemoteChannelSettings } from './app-settings-claw'
+import { normalizeImageGenerationSettings } from './app-settings-image-generation'
 import { normalizeScheduleSettings } from './app-settings-schedule'
 import { normalizeWorkflowSettings } from './app-settings-workflow'
 import { normalizeWriteSettings } from './app-settings-write'
@@ -53,6 +54,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     notifications?: Partial<NotificationConfigV1>
     provider?: Parameters<typeof normalizeModelProviderSettings>[0]
     modelRouter?: Parameters<typeof normalizeModelRouterSettings>[0]
+    imageGeneration?: Parameters<typeof normalizeImageGenerationSettings>[0]
     write?: WriteSettingsPatchV1
     remoteChannel?: RemoteChannelSettingsPatchV1
     connectPhone?: ConnectPhoneSettingsPatchV1
@@ -86,6 +88,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     modelRouter: normalizeModelRouterSettings(maybeSettings.modelRouter),
     runtimeGuards: normalizeRuntimeGuardSettings(maybeSettings.runtimeGuards),
     agentCapabilities: normalizeAgentCapabilitySettings(maybeSettings.agentCapabilities),
+    imageGeneration: normalizeImageGenerationSettings(maybeSettings.imageGeneration),
     computerUse: normalizeComputerUseSettings(maybeSettings.computerUse),
     researchMemory: normalizeResearchMemorySettings(maybeSettings.researchMemory),
     activeAgentRuntime: normalizeAgentRuntimeId(maybeSettings.activeAgentRuntime),

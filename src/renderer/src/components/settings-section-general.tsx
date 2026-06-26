@@ -6,6 +6,7 @@ import type {
   SandboxMode
 } from '@shared/app-settings'
 import {
+  defaultImageGenerationSettings,
   getResearchMemorySettings,
   resolveResearchMemoryLocalPath
 } from '@shared/app-settings'
@@ -30,10 +31,13 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
     activeApiKey,
     update,
     updateSharedCredential,
+    updateImageGeneration,
     sharedApiKey,
     sharedBaseUrl,
     showApiKey,
     setShowApiKey,
+    showImageGenerationApiKey,
+    setShowImageGenerationApiKey,
     showRuntimeToken,
     setShowRuntimeToken,
     portError,
@@ -95,6 +99,11 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
   const updateResearchMemory = (patch: ResearchMemorySettingsPatchV1): void => {
     update({ researchMemory: { ...researchMemory, ...patch } })
   }
+  const imageGenerationSettings = form.imageGeneration ?? defaultImageGenerationSettings()
+  const updateImageGenerationSettings =
+    typeof updateImageGeneration === 'function'
+      ? updateImageGeneration
+      : (patch: Partial<NonNullable<AppSettingsV1['imageGeneration']>>) => update({ imageGeneration: patch })
   const [modelRouterConfigNotice, setModelRouterConfigNotice] =
     useState<{ tone: 'error' | 'info' | 'success'; message: string } | null>(null)
   const openModelRouterConfigFile = async (): Promise<void> => {
@@ -177,6 +186,57 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
                       </button>
                       {modelRouterConfigNotice ? <InlineNoticeView notice={modelRouterConfigNotice} /> : null}
                     </div>
+                  }
+                />
+                <SettingRow
+                  title={t('imageGenerationEnabled')}
+                  description={t('imageGenerationEnabledDesc')}
+                  control={
+                    <Toggle
+                      checked={imageGenerationSettings.enabled}
+                      onChange={(enabled) => updateImageGenerationSettings({ enabled })}
+                    />
+                  }
+                />
+                <SettingRow
+                  title={t('imageGenerationApiKey')}
+                  description={t('imageGenerationApiKeyDesc')}
+                  control={
+                    <SecretInput
+                      value={imageGenerationSettings.apiKey}
+                      onChange={(apiKey) => updateImageGenerationSettings({ apiKey })}
+                      visible={showImageGenerationApiKey}
+                      onToggleVisibility={() => setShowImageGenerationApiKey((value: boolean) => !value)}
+                      placeholder="sk-..."
+                      autoComplete="off"
+                      showLabel={t('showSecret')}
+                      hideLabel={t('hideSecret')}
+                      className="md:max-w-md"
+                    />
+                  }
+                />
+                <SettingRow
+                  title={t('imageGenerationBaseUrl')}
+                  description={t('imageGenerationBaseUrlDesc')}
+                  control={
+                    <input
+                      className="w-full min-w-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 md:max-w-md"
+                      placeholder={t('imageGenerationBaseUrlPlaceholder')}
+                      value={imageGenerationSettings.baseUrl}
+                      onChange={(e) => updateImageGenerationSettings({ baseUrl: e.target.value })}
+                    />
+                  }
+                />
+                <SettingRow
+                  title={t('imageGenerationModel')}
+                  description={t('imageGenerationModelDesc')}
+                  control={
+                    <input
+                      className="w-full min-w-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 md:max-w-md"
+                      placeholder={t('imageGenerationModelPlaceholder')}
+                      value={imageGenerationSettings.model}
+                      onChange={(e) => updateImageGenerationSettings({ model: e.target.value })}
+                    />
                   }
                 />
                 <SettingRow

@@ -11,10 +11,12 @@ import {
   getActiveAgentApiKey,
   getClaudeRuntimeSettings,
   getCodexRuntimeSettings,
+  getImageGenerationSettings,
   getLocalRuntimeSettings,
   getModelProviderSettings,
   isLocalRuntimeInsecure,
   type AppSettingsV1,
+  type ImageGenerationSettingsPatchV1,
 } from '@shared/app-settings'
 import type {
   AgentRuntimeGitCheckpoint,
@@ -129,6 +131,7 @@ export function SettingsView(): ReactElement {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
+  const [showImageGenerationApiKey, setShowImageGenerationApiKey] = useState(false)
   const [showRuntimeToken, setShowRuntimeToken] = useState(false)
   const [logPath, setLogPath] = useState('')
   const [logDirOpenError, setLogDirOpenError] = useState<string | null>(null)
@@ -671,6 +674,7 @@ export function SettingsView(): ReactElement {
   const codex = getCodexRuntimeSettings(form)
   const claude = getClaudeRuntimeSettings(form)
   const provider = getModelProviderSettings(form)
+  const imageGeneration = getImageGenerationSettings(form)
   const activeApiKey = getActiveAgentApiKey(form)
 
   const update = (partial: SettingsPatch): void => {
@@ -685,6 +689,16 @@ export function SettingsView(): ReactElement {
 
   const updateLocalRuntime = (patch: Partial<AppSettingsV1['agents']['sciforge']>): void => {
     update({ agents: localRuntimeSettingsPatch(patch) })
+  }
+
+  const sharedApiKey = provider.apiKey
+  const sharedBaseUrl = provider.baseUrl
+  const updateSharedCredential = (patch: { apiKey?: string; baseUrl?: string }): void => {
+    update({ provider: patch })
+  }
+
+  const updateImageGeneration = (patch: ImageGenerationSettingsPatchV1): void => {
+    update({ imageGeneration: patch })
   }
 
   const updateCodex = (patch: CodexRuntimeSettingsPatchV1): void => {
@@ -777,6 +791,7 @@ export function SettingsView(): ReactElement {
     form,
     provider,
     localRuntime,
+    imageGeneration,
     codex,
     claude,
     activeApiKey,
@@ -784,8 +799,14 @@ export function SettingsView(): ReactElement {
     updateLocalRuntime,
     updateCodex,
     updateClaude,
+    updateSharedCredential,
+    updateImageGeneration,
+    sharedApiKey,
+    sharedBaseUrl,
     showApiKey,
     setShowApiKey,
+    showImageGenerationApiKey,
+    setShowImageGenerationApiKey,
     showRuntimeToken,
     setShowRuntimeToken,
     portError,

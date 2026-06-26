@@ -305,6 +305,13 @@ function runtimeContextUserTextForDisplay(text: string): string {
 
 function stripOneRuntimeContextPrefix(text: string): string {
   const trimmed = text.trimStart()
+  if (startsWithSciforgeHiddenWorkflow(trimmed)) {
+    const requestMarker = trimmed.lastIndexOf('[Current user request]')
+    if (requestMarker >= 0) {
+      const candidate = trimmed.slice(requestMarker + '[Current user request]'.length).trimStart()
+      if (candidate) return candidate
+    }
+  }
   if (!startsWithLegacyRuntimeContext(trimmed)) return text
 
   const codeRequestMarker = trimmed.lastIndexOf(CODE_CURRENT_USER_REQUEST_HEADING)
@@ -331,6 +338,11 @@ function stripOneRuntimeContextPrefix(text: string): string {
 
 function startsWithLegacyRuntimeContext(text: string): boolean {
   return LEGACY_RUNTIME_CONTEXT_HEADINGS.some((heading) => text.startsWith(heading))
+}
+
+function startsWithSciforgeHiddenWorkflow(text: string): boolean {
+  return text.startsWith('[SciForge artifact workflow]') ||
+    text.startsWith('[SciForge image generation workflow]')
 }
 
 function MessageSourceTag({

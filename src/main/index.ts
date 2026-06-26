@@ -24,6 +24,7 @@ import {
   mergeAgentCapabilitySettings,
   mergeComputerUseSettings,
   mergeResearchMemorySettings,
+  mergeImageGenerationSettings,
   mergeModelProviderSettings,
   mergeScheduleSettings,
   mergeWorkflowSettings,
@@ -96,6 +97,11 @@ import type { WorkspaceIntelMcpLaunchConfig } from './workspace-intel-mcp-config
 import type { PaperRadarMcpLaunchConfig } from './paper-radar-mcp-config'
 import type { WriteAssistMcpLaunchConfig } from './write-assist-mcp-config'
 import type { RuntimeInspectorMcpLaunchConfig } from './runtime-inspector-mcp-config'
+import type { ScientificSkillsMcpLaunchConfig } from './scientific-skills-mcp-config'
+import type { ScientificPlottingMcpLaunchConfig } from './scientific-plotting-mcp-config'
+import type { ImageGenerationMcpLaunchConfig } from './image-generation-mcp-config'
+import type { PptMasterMcpLaunchConfig } from './ppt-master-mcp-config'
+import type { SciforgeCanvasMcpLaunchConfig } from './sciforge-canvas-mcp-config'
 import { syncExternalManagedGuiMcpConfig } from './gui-mcp-registry'
 import { registerAppIpcHandlers } from './ipc/register-app-ipc-handlers'
 import { registerTerminalPtyIpc } from './terminal/terminal-pty-ipc'
@@ -240,6 +246,47 @@ function getRuntimeInspectorMcpLaunchConfig(): RuntimeInspectorMcpLaunchConfig {
   }
 }
 
+function getScientificSkillsMcpLaunchConfig(): ScientificSkillsMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged
+  }
+}
+
+function getScientificPlottingMcpLaunchConfig(): ScientificPlottingMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged
+  }
+}
+
+function getImageGenerationMcpLaunchConfig(): ImageGenerationMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged
+  }
+}
+
+function getPptMasterMcpLaunchConfig(): PptMasterMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged,
+    homeDir: app.getPath('home')
+  }
+}
+
+function getSciforgeCanvasMcpLaunchConfig(): SciforgeCanvasMcpLaunchConfig {
+  return {
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+    isPackaged: app.isPackaged
+  }
+}
+
 function getComputerUseMcpLaunchConfig(): ComputerUseMcpLaunchConfig {
   return {
     appPath: app.getAppPath(),
@@ -364,7 +411,12 @@ function getCodexRuntime(): CodexRuntimeService {
     paperRadarMcpLaunch: getPaperRadarMcpLaunchConfig(),
     writeAssistMcpLaunch: getWriteAssistMcpLaunchConfig(),
     runtimeInspectorMcpLaunch: getRuntimeInspectorMcpLaunchConfig(),
-    computerUseMcpLaunch: getComputerUseMcpLaunchConfig()
+    computerUseMcpLaunch: getComputerUseMcpLaunchConfig(),
+    scientificSkillsMcpLaunch: getScientificSkillsMcpLaunchConfig(),
+    scientificPlottingMcpLaunch: getScientificPlottingMcpLaunchConfig(),
+    imageGenerationMcpLaunch: getImageGenerationMcpLaunchConfig(),
+    pptMasterMcpLaunch: getPptMasterMcpLaunchConfig(),
+    sciforgeCanvasMcpLaunch: getSciforgeCanvasMcpLaunchConfig()
   })
   return codexRuntime
 }
@@ -1555,6 +1607,7 @@ app.whenReady().then(async () => {
       agents: agentsPatch,
       provider: providerPatch,
       agentCapabilities: agentCapabilitiesPatch,
+      imageGeneration: imageGenerationPatch,
       computerUse: computerUsePatch,
       researchMemory: researchMemoryPatch,
       speechToText: speechToTextPatch,
@@ -1569,6 +1622,7 @@ app.whenReady().then(async () => {
       ...restPatch,
       provider: mergeModelProviderSettings(prev.provider, providerPatch),
       agentCapabilities: mergeAgentCapabilitySettings(prev.agentCapabilities, agentCapabilitiesPatch),
+      imageGeneration: mergeImageGenerationSettings(prev.imageGeneration, imageGenerationPatch),
       computerUse: mergeComputerUseSettings(prev.computerUse, computerUsePatch),
       researchMemory: mergeResearchMemorySettings(prev.researchMemory, researchMemoryPatch),
       log: { ...prev.log, ...(partial.log ?? {}) },
@@ -1590,7 +1644,7 @@ app.whenReady().then(async () => {
       schedule: mergeScheduleSettings(prev.schedule, partial.schedule),
       workflow: mergeWorkflowSettings(prev.workflow, partial.workflow),
       guiUpdate: { ...prev.guiUpdate, ...(partial.guiUpdate ?? {}) }
-    })
+    } as AppSettingsV1)
     if (prev.log.enabled !== next.log.enabled || prev.log.retentionDays !== next.log.retentionDays) {
       configureLogger({ enabled: next.log.enabled, retentionDays: next.log.retentionDays })
     }
@@ -1688,6 +1742,11 @@ app.whenReady().then(async () => {
     readGuiUpdateState,
     loadGuiUpdaterModule,
     resolveLogDirectory,
+    getScientificSkillsMcpLaunchConfig,
+    getScientificPlottingMcpLaunchConfig,
+    getImageGenerationMcpLaunchConfig,
+    getPptMasterMcpLaunchConfig,
+    getSciforgeCanvasMcpLaunchConfig,
     logError
   })
 

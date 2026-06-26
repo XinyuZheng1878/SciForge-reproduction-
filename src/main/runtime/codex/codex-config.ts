@@ -23,6 +23,11 @@ import type { WorkspaceIntelMcpLaunchConfig } from '../../workspace-intel-mcp-co
 import type { PaperRadarMcpLaunchConfig } from '../../paper-radar-mcp-config'
 import type { WriteAssistMcpLaunchConfig } from '../../write-assist-mcp-config'
 import type { RuntimeInspectorMcpLaunchConfig } from '../../runtime-inspector-mcp-config'
+import type { ScientificSkillsMcpLaunchConfig } from '../../scientific-skills-mcp-config'
+import type { ScientificPlottingMcpLaunchConfig } from '../../scientific-plotting-mcp-config'
+import type { ImageGenerationMcpLaunchConfig } from '../../image-generation-mcp-config'
+import type { PptMasterMcpLaunchConfig } from '../../ppt-master-mcp-config'
+import type { SciforgeCanvasMcpLaunchConfig } from '../../sciforge-canvas-mcp-config'
 import { internalSecretEnv } from '../../internal-http-secret'
 
 const RUNTIME_API_KEY_ENV = 'SCIFORGE_RUNTIME_API_KEY'
@@ -85,6 +90,11 @@ export async function prepareCodexAppServerLaunch(options: {
   writeAssistMcpLaunch?: WriteAssistMcpLaunchConfig
   runtimeInspectorMcpLaunch?: RuntimeInspectorMcpLaunchConfig
   computerUseMcpLaunch?: ComputerUseMcpLaunchConfig
+  scientificSkillsMcpLaunch?: ScientificSkillsMcpLaunchConfig
+  scientificPlottingMcpLaunch?: ScientificPlottingMcpLaunchConfig
+  imageGenerationMcpLaunch?: ImageGenerationMcpLaunchConfig
+  pptMasterMcpLaunch?: PptMasterMcpLaunchConfig
+  sciforgeCanvasMcpLaunch?: SciforgeCanvasMcpLaunchConfig
 }): Promise<CodexAppServerLaunchConfig> {
   const runtime = getCodexRuntimeSettings(options.settings)
   const command = runtime.command.trim()

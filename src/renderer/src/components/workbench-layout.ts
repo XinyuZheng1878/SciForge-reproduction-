@@ -9,6 +9,7 @@ import {
 } from '../lib/browser-storage'
 import { WORKSPACE_FILE_PREVIEW_EVENT, type WorkspaceFilePreviewDetail } from '../lib/workspace-file-preview'
 import type { RightPanelMode } from './chat/WorkbenchTopBar'
+import { FIGURE_STYLE_PANEL_PAGE_KEY } from './figure-style/figure-style-panel-state'
 
 const LEFT_PANEL_WIDTH_KEY = 'sciforge.layout.leftSidebarWidth'
 const LEFT_PANEL_COLLAPSED_KEY = 'sciforge.layout.leftSidebarCollapsed'
@@ -56,15 +57,20 @@ function persistBoolean(key: string, value: boolean): void {
   writeBrowserStorageItem(key, value ? '1' : '0')
 }
 
-function readStoredRightPanelMode(): RightPanelMode {
+export function readStoredRightPanelMode(): RightPanelMode {
   const raw = readBrowserStorageItem(RIGHT_PANEL_MODE_KEY)
-  return raw === 'todo' || raw === 'changes' || raw === 'browser' || raw === 'checkpoints' || raw === 'file'
+  if (raw === 'sciforge-canvas') {
+    writeBrowserStorageItem(FIGURE_STYLE_PANEL_PAGE_KEY, 'canvas')
+    writeBrowserStorageItem(RIGHT_PANEL_MODE_KEY, 'figure-style')
+    return 'figure-style'
+  }
+  return raw === 'todo' || raw === 'changes' || raw === 'browser' || raw === 'checkpoints' || raw === 'file' || raw === 'paper' || raw === 'plan' || raw === 'figure-style'
     ? raw
     : null
 }
 
-function persistRightPanelMode(mode: RightPanelMode): void {
-  if (mode === 'todo' || mode === 'changes' || mode === 'browser' || mode === 'checkpoints' || mode === 'file') {
+export function persistRightPanelMode(mode: RightPanelMode): void {
+  if (mode === 'todo' || mode === 'changes' || mode === 'browser' || mode === 'checkpoints' || mode === 'file' || mode === 'paper' || mode === 'plan' || mode === 'figure-style') {
     writeBrowserStorageItem(RIGHT_PANEL_MODE_KEY, mode)
   } else {
     removeBrowserStorageItem(RIGHT_PANEL_MODE_KEY)

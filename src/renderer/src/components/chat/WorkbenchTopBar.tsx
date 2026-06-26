@@ -18,6 +18,7 @@ import {
   Loader2,
   MessageCircleMore,
   Network,
+  Palette,
   Newspaper,
   RefreshCw,
   RotateCcw,
@@ -36,6 +37,7 @@ export type RightPanelMode =
   | 'sdd-ai'
   | 'checkpoints'
   | 'paper'
+  | 'figure-style'
   | null
 
 type Props = {
@@ -83,6 +85,7 @@ export function WorkbenchTopBar({
     { mode: 'todo' as const, label: t('rightPanelTodo'), icon: ListTodo },
     ...(paperRadarEnabled ? [{ mode: 'paper' as const, label: t('rightPanelPaperRadar'), icon: Newspaper }] : []),
     ...(planPanelEnabled ? [{ mode: 'plan' as const, label: t('rightPanelPlan'), icon: ClipboardList }] : []),
+    { mode: 'figure-style' as const, label: t('rightPanelFigureStyle'), icon: Palette },
     { mode: 'file' as const, label: t('rightPanelFiles'), icon: FolderOpen },
     { mode: 'changes' as const, label: t('rightPanelChanges'), icon: FileEdit },
     { mode: 'checkpoints' as const, label: t('rightPanelCheckpoints'), icon: RotateCcw },

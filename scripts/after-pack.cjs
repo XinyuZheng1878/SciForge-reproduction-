@@ -74,6 +74,37 @@ const RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/runtime-inspector/src/contract.ts'
 ]
 
+const SCIENTIFIC_PLOTTING_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/scientific-plotting/package.json',
+  'packages/workers/scientific-plotting/src/scientific-plotting-mcp-server.ts',
+  'packages/workers/scientific-plotting/src/scientific-skills-mcp-server.ts',
+  'packages/workers/scientific-plotting/src/scientific-plotting-engine.ts',
+  'packages/workers/scientific-plotting/src/scientific-skills-index.ts',
+  'packages/workers/scientific-plotting/src/contract.ts'
+]
+
+const IMAGE_GENERATION_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/image-generation/package.json',
+  'packages/workers/image-generation/src/mcp-server.ts',
+  'packages/workers/image-generation/src/image-generation-engine.ts',
+  'packages/workers/image-generation/src/contract.ts'
+]
+
+const PPT_MASTER_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/ppt-master/package.json',
+  'packages/workers/ppt-master/src/server.ts',
+  'packages/workers/ppt-master/src/service.ts',
+  'packages/workers/ppt-master/src/contract.ts',
+  'packages/workers/ppt-master/ui-kit/sciforge_research/preset.json'
+]
+
+const CANVAS_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/canvas/package.json',
+  'packages/workers/canvas/src/sciforge-canvas-mcp-server.ts',
+  'packages/workers/canvas/src/sciforge-canvas-engine.ts',
+  'packages/workers/canvas/src/contract.ts'
+]
+
 const MCP_NODE_ENTRY_REQUIRED_PATHS = [
   'out/main/schedule-mcp-node-entry.js',
   'out/main/computer-use-mcp-node-entry.js',
@@ -82,7 +113,12 @@ const MCP_NODE_ENTRY_REQUIRED_PATHS = [
   'out/main/workspace-intel-mcp-node-entry.js',
   'out/main/write-assist-mcp-node-entry.js',
   'out/main/paper-radar-mcp-node-entry.js',
-  'out/main/runtime-inspector-mcp-node-entry.js'
+  'out/main/runtime-inspector-mcp-node-entry.js',
+  'out/main/scientific-skills-mcp-node-entry.js',
+  'out/main/scientific-plotting-mcp-node-entry.js',
+  'out/main/image-generation-mcp-node-entry.js',
+  'out/main/ppt-master-mcp-node-entry.js',
+  'out/main/sciforge-canvas-mcp-node-entry.js'
 ]
 
 function normalizePlatform(platform) {
@@ -185,6 +221,34 @@ function validateBundledRuntimeInspectorRuntime(context) {
   }
 }
 
+function validateBundledScientificPlottingRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of SCIENTIFIC_PLOTTING_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
+function validateBundledImageGenerationRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of IMAGE_GENERATION_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
+function validateBundledPptMasterRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of PPT_MASTER_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
+function validateBundledCanvasRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of CANVAS_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
 function validateBuiltMcpNodeEntries(context) {
   const root = projectRoot(context)
   for (const relativePath of MCP_NODE_ENTRY_REQUIRED_PATHS) {
@@ -246,6 +310,10 @@ async function afterPack(context) {
   validateBundledWriteAssistRuntime(context)
   validateBundledPaperRadarRuntime(context)
   validateBundledRuntimeInspectorRuntime(context)
+  validateBundledScientificPlottingRuntime(context)
+  validateBundledImageGenerationRuntime(context)
+  validateBundledPptMasterRuntime(context)
+  validateBundledCanvasRuntime(context)
   validateBuiltMcpNodeEntries(context)
   ensureNodePtyHelpersExecutable(context)
   maybeAdhocSignMacApp(context)
@@ -261,6 +329,10 @@ exports.WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS = WORKSPACE_INTEL_RUNTIME_REQUIRE
 exports.WRITE_ASSIST_RUNTIME_REQUIRED_PATHS = WRITE_ASSIST_RUNTIME_REQUIRED_PATHS
 exports.PAPER_RADAR_RUNTIME_REQUIRED_PATHS = PAPER_RADAR_RUNTIME_REQUIRED_PATHS
 exports.RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS = RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS
+exports.SCIENTIFIC_PLOTTING_RUNTIME_REQUIRED_PATHS = SCIENTIFIC_PLOTTING_RUNTIME_REQUIRED_PATHS
+exports.IMAGE_GENERATION_RUNTIME_REQUIRED_PATHS = IMAGE_GENERATION_RUNTIME_REQUIRED_PATHS
+exports.PPT_MASTER_RUNTIME_REQUIRED_PATHS = PPT_MASTER_RUNTIME_REQUIRED_PATHS
+exports.CANVAS_RUNTIME_REQUIRED_PATHS = CANVAS_RUNTIME_REQUIRED_PATHS
 exports.MCP_NODE_ENTRY_REQUIRED_PATHS = MCP_NODE_ENTRY_REQUIRED_PATHS
 exports._internals = {
   appBundlePath,
@@ -279,6 +351,10 @@ exports._internals = {
   validateBundledWriteAssistRuntime,
   validateBundledPaperRadarRuntime,
   validateBundledRuntimeInspectorRuntime,
+  validateBundledScientificPlottingRuntime,
+  validateBundledImageGenerationRuntime,
+  validateBundledPptMasterRuntime,
+  validateBundledCanvasRuntime,
   validateBuiltMcpNodeEntries,
   ensureNodePtyHelpersExecutable
 }

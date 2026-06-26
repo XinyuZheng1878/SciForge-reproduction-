@@ -40,7 +40,8 @@ import { MessageTimeline } from './chat/MessageTimeline'
 import {
   FloatingComposer,
   type ComposerImageAttachmentInput,
-  type ComposerFileReference
+  type ComposerFileReference,
+  type ComposerSendIntent
 } from './chat/FloatingComposer'
 import {
   composerReasoningEffortRequestValue,
@@ -141,6 +142,9 @@ const PaperRadarPanel = lazy(() =>
 )
 const TerminalPanel = lazy(() =>
   import('./terminal/TerminalPanel').then((module) => ({ default: module.TerminalPanel }))
+)
+const FigureStylePanel = lazy(() =>
+  import('./figure-style/FigureStylePanel').then((module) => ({ default: module.FigureStylePanel }))
 )
 
 type PendingSddPlanTarget = {
@@ -798,6 +802,7 @@ export function Workbench(): ReactElement {
       await useChatStore.getState().refreshThreads()
     }
   })
+  const activeSciforgeCanvasId = activeThreadId ? `thread-${activeThreadId}` : undefined
 
   useEffect(() => {
     const runDesktopShortcut = (command: DesktopCommand): void => {
@@ -1700,11 +1705,11 @@ export function Workbench(): ReactElement {
     maxDirectoryFiles: COMPOSER_DIRECTORY_CONTEXT_MAX_FILES
   })
 
-  const handleSend = (): void => {
-    void handleSendAsync()
+  const handleSend = (intent?: ComposerSendIntent): void => {
+    void handleSendAsync(intent)
   }
 
-  const handleSendAsync = async (): Promise<void> => {
+  const handleSendAsync = async (_intent?: ComposerSendIntent): Promise<void> => {
     const v = input.trim()
     const attachments = route === 'chat' ? composerAttachments : []
     const attachmentIds = attachments.map((attachment) => attachment.id)
@@ -1726,10 +1731,11 @@ export function Workbench(): ReactElement {
           : t('composerImageOnlyDisplay')
     const messageText = v || emptyPrompt
     const prepareChatMessage = async (): Promise<{ text: string; displayText?: string } | null> => {
+      const userVisibleText = v || emptyDisplayText
       if (fileReferences.length === 0) {
         return {
           text: messageText,
-          ...(emptyDisplayText ? { displayText: emptyDisplayText } : {})
+          ...(userVisibleText ? { displayText: userVisibleText } : {})
         }
       }
       const workspace = normalizeWorkspaceRoot(
@@ -1741,10 +1747,9 @@ export function Workbench(): ReactElement {
       }
       try {
         const fileContext = await readComposerFileContextEntries(fileReferences, workspace)
-        const displayText = v || emptyDisplayText
         return {
           text: buildComposerFileContextPrompt(messageText, fileContext),
-          ...(displayText ? { displayText } : {})
+          ...(userVisibleText ? { displayText: userVisibleText } : {})
         }
       } catch (error) {
         setError(error instanceof Error ? error.message : String(error))
@@ -1877,6 +1882,19 @@ export function Workbench(): ReactElement {
       ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
       ...(fileReferences.length ? { fileReferences } : {})
     })
+  }
+
+  const sendCanvasReviewRequest = async (text: string): Promise<void> => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    setRoute('chat')
+    setMode('agent')
+    const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
+    const sent = await sendMessage(trimmed, 'agent', {
+      displayText: trimmed,
+      ...(reasoningEffort ? { reasoningEffort } : {})
+    })
+    if (!sent) setInput(trimmed)
   }
 
   const openThread = (id: string, runtimeId?: AgentRuntimeId): void => {
@@ -2070,6 +2088,16 @@ export function Workbench(): ReactElement {
                 className="h-full max-h-full w-full"
                 onCollapse={closeRightPanel}
                 onRestored={() => useChatStore.getState().refreshThreads()}
+              />
+            ) : rightPanelMode === 'figure-style' ? (
+              <FigureStylePanel
+                workspaceRoot={activeThread?.workspace || workspaceRoot}
+                canvasId={activeSciforgeCanvasId}
+                className="h-full max-h-full w-full"
+                onCollapse={closeRightPanel}
+                onCanvasReviewRequest={(text) => {
+                  void sendCanvasReviewRequest(text)
+                }}
               />
             ) : rightPanelMode === 'plan' ? (
               <PlanPanel
