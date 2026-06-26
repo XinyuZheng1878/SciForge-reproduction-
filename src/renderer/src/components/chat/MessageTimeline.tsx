@@ -3,6 +3,7 @@ import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatBlock, RuntimeConnectionStatus } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
+import { isClawThread } from '../../store/chat-store-helpers'
 import { useTimelineStores } from './use-timeline-stores'
 import { useTimelineScroll } from './use-timeline-scroll'
 import { deriveTurnSections } from './derive-turn-sections'
@@ -87,9 +88,9 @@ export function MessageTimeline({
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const {
-    route,
     workspaceRoot,
     chooseWorkspace,
+    clawChannels,
     activeClawChannel,
     busy,
     currentTurnUserId,
@@ -100,7 +101,7 @@ export function MessageTimeline({
     activeThread
   } = useTimelineStores(activeThreadId)
 
-  const heroRoute: 'chat' | 'claw' = route === 'claw' ? 'claw' : 'chat'
+  const remoteChannelMode = Boolean(activeThread && isClawThread(activeThread, clawChannels))
   const hasContent = blocks.length > 0 || live || liveReasoning
   const endRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -159,7 +160,7 @@ export function MessageTimeline({
       <div className="ds-message-timeline-content ds-chat-column-inset mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-8 pb-10 pt-8">
         {!hasContent || !activeThreadId ? (
           <MessageTimelineEmptyHero
-            route={heroRoute}
+            remoteChannelMode={remoteChannelMode}
             ready={runtimeConnection === 'ready'}
             hasWorkspace={!!workspaceRoot}
             runtimeError={runtimeError}

@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path'
 import { DEFAULT_WEIXIN_BRIDGE_RPC_URL } from '../shared/app-settings'
 import { APP_WEBHOOK_SECRET_HEADER } from '../shared/app-brand'
 import { logError, logInfo, logWarn } from './logger'
+import { isLocalHttpBodyTooLargeError, readIncomingMessageBody } from './local-http-body'
 
 const requireFromHere = createRequire(import.meta.url)
 const WEIXIN_BRIDGE_PORT = 18790
@@ -44,6 +45,7 @@ const WEIXIN_RUNNING_MESSAGE = '已收到，正在处理。'
 const WEIXIN_QUEUED_MESSAGE = '已收到，前一条消息还在处理中，这条已排队。'
 const WEIXIN_FAILED_MESSAGE = '处理失败，请稍后重试。'
 const MAX_WEBHOOK_FILES_PER_REPLY = 3
+const WEIXIN_RPC_BODY_LIMIT_BYTES = 1_000_000
 
 type JsonRecord = Record<string, unknown>
 
@@ -159,7 +161,7 @@ async function resolveRuntimeContext(): Promise<WeixinBridgeRuntimeContext> {
   return runtimeContextProvider
     ? runtimeContextProvider()
     : {
-        webhookUrl: 'http://127.0.0.1:8787/claw/im',
+        webhookUrl: 'http://127.0.0.1:8787/remote-channel/webhook',
         webhookSecret: '',
         channelId: ''
       }
@@ -1118,9 +1120,7 @@ async function dispatchRpc(method: string, params: JsonRecord): Promise<JsonReco
 }
 
 async function readRequestBody(request: IncomingMessage): Promise<string> {
-  const chunks: Buffer[] = []
-  for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-  return Buffer.concat(chunks).toString('utf8')
+  return readIncomingMessageBody(request, WEIXIN_RPC_BODY_LIMIT_BYTES)
 }
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {
@@ -1148,7 +1148,7 @@ async function handleBridgeRequest(request: IncomingMessage, response: ServerRes
     writeJson(response, 200, { jsonrpc: '2.0', id, ok: true, result })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    writeJson(response, 200, {
+    writeJson(response, isLocalHttpBodyTooLargeError(error) ? 413 : 200, {
       jsonrpc: '2.0',
       id: null,
       ok: false,

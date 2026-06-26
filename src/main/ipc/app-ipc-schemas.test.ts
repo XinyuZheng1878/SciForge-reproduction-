@@ -12,11 +12,15 @@ import {
   agentRuntimeEventSubscribePayloadSchema,
   agentRuntimeUserInputResolvePayloadSchema,
   agentRuntimeStartTurnPayloadSchema,
-  clawImInstallPollPayloadSchema,
+  connectPhoneInstallQrPayloadSchema,
+  connectPhoneInstallPollPayloadSchema,
   evidenceDagOpenPayloadSchema,
   isSafeOpenExternalUrl,
   pdfAnnotationSidecarImportPayloadSchema,
   pdfAnnotationSidecarLoadPayloadSchema,
+  remoteChannelActiveThreadContextPayloadSchema,
+  remoteChannelMirrorPayloadSchema,
+  remoteChannelTaskFromTextPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
   settingsPatchSchema,
   shellOpenExternalUrlSchema,
@@ -416,7 +420,6 @@ describe('app-ipc-schemas', () => {
       },
       write: {
         inlineCompletion: {
-          model: 'deepseek-v4-pro',
           maxTokens: 128
         }
       }
@@ -430,7 +433,7 @@ describe('app-ipc-schemas', () => {
     expect(payload.agentCapabilities?.subagents?.maxChildRuns).toBe(6)
     expect(payload.agents?.codex?.codexHome).toBe('/tmp/codex-home')
     expect(payload.agents?.claude?.configDir).toBe('/tmp/claude-code')
-    expect(payload.write?.inlineCompletion?.model).toBe('deepseek-v4-pro')
+    expect(payload.write?.inlineCompletion?.maxTokens).toBe(128)
   })
 
   it('rejects Local Runtime credential override patches', () => {
@@ -440,6 +443,32 @@ describe('app-ipc-schemas', () => {
           sciforge: {
             apiKey: 'sk-local',
             baseUrl: 'https://local-runtime.example/v1'
+          }
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+  })
+
+  it('rejects write inline direct-provider override patches', () => {
+    expect(() =>
+      settingsPatchSchema.parse({
+        write: {
+          inlineCompletion: {
+            apiKey: 'sk-write-only',
+            baseUrl: 'https://write-only.example/v1'
+          }
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+  })
+
+  it('rejects write inline model override patches', () => {
+    expect(() =>
+      settingsPatchSchema.parse({
+        write: {
+          inlineCompletion: {
+            inheritModel: false,
+            model: 'deepseek-v4-pro'
           }
         }
       })
@@ -483,7 +512,7 @@ describe('app-ipc-schemas', () => {
           lastStatus: 'idle'
         }]
       },
-      claw: {
+      remoteChannel: {
         channels: [{
           id: 'channel-1',
           provider: 'feishu',
@@ -503,15 +532,6 @@ describe('app-ipc-schemas', () => {
             agentThreadIds: { codex: 'codex-conversation-thread' },
             workspaceRoot: '/tmp/claw'
           }]
-        }],
-        tasks: [{
-          id: 'claw-task-1',
-          title: 'Claw review',
-          prompt: 'Review chat',
-          workspaceRoot: '/tmp/claw',
-          runtimeId: 'codex',
-          agentThreadIds: { codex: 'codex-claw-task-thread' },
-          lastThreadId: ''
         }]
       }
     })
@@ -520,11 +540,10 @@ describe('app-ipc-schemas', () => {
     expect(payload.schedule?.tasks?.[0]?.schedule?.kind).toBe('daily')
     expect(payload.schedule?.tasks?.[0]?.reasoningEffort).toBe('high')
     expect(payload.schedule?.tasks?.[0]?.agentThreadIds).toEqual({ codex: 'codex-task-thread' })
-    expect(payload.claw?.channels?.[0]?.agentThreadIds).toEqual({ codex: 'codex-channel-thread' })
-    expect(payload.claw?.channels?.[0]?.conversations?.[0]?.agentThreadIds).toEqual({
+    expect(payload.remoteChannel?.channels?.[0]?.agentThreadIds).toEqual({ codex: 'codex-channel-thread' })
+    expect(payload.remoteChannel?.channels?.[0]?.conversations?.[0]?.agentThreadIds).toEqual({
       codex: 'codex-conversation-thread'
     })
-    expect(payload.claw?.tasks?.[0]?.agentThreadIds).toEqual({ codex: 'codex-claw-task-thread' })
 
     const fromText = scheduleTaskFromTextPayloadSchema.parse({
       text: 'Remind me tomorrow morning to ship the review',
@@ -537,30 +556,36 @@ describe('app-ipc-schemas', () => {
     expect(fromText.modelHint).toBe('deepseek-v4-pro')
   })
 
-  it('strips legacy settings keys before validating settings patches', () => {
-    const payload = settingsPatchSchema.parse({
-      locale: 'zh',
-      reasonix: { model: 'legacy-reasoner' },
-      quickChat: { enabled: true },
-      agents: {
-        sciforge: {
-          port: 9001
-        },
-        reasonix: {
-          model: 'legacy-reasoner'
-        },
-        quickChat: {
-          enabled: true
-        }
-      }
-    })
+  it('rejects legacy settings keys instead of stripping them', () => {
+    expect(() =>
+      settingsPatchSchema.parse({
+        locale: 'zh',
+        reasonix: { model: 'legacy-reasoner' }
+      })
+    ).toThrow(/Unrecognized key/)
 
-    expect(payload.locale).toBe('zh')
-    expect(payload.agents?.sciforge?.port).toBe(9001)
-    expect('reasonix' in payload).toBe(false)
-    expect('quickChat' in payload).toBe(false)
-    expect('reasonix' in (payload.agents ?? {})).toBe(false)
-    expect('quickChat' in (payload.agents ?? {})).toBe(false)
+    expect(() =>
+      settingsPatchSchema.parse({
+        locale: 'zh',
+        quickChat: { enabled: true }
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(() =>
+      settingsPatchSchema.parse({
+        agents: {
+          sciforge: { port: 9001 },
+          reasonix: { model: 'legacy-reasoner' }
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(settingsPatchSchema.parse({
+      locale: 'zh',
+      agents: {
+        sciforge: { port: 9001 }
+      }
+    }).agents?.sciforge?.port).toBe(9001)
   })
 
   it('accepts partial provider profiles in settings patches', () => {
@@ -595,6 +620,48 @@ describe('app-ipc-schemas', () => {
     expect(payload.keyboardShortcuts?.bindings?.settings).toEqual(['Ctrl+,'])
   })
 
+  it('enforces canonical settings domains for remote-channel and connect-phone patches', () => {
+    expect(() =>
+      settingsPatchSchema.parse({
+        claw: {}
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(() =>
+      settingsPatchSchema.parse({
+        remoteChannel: {
+          tasks: []
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(() =>
+      settingsPatchSchema.parse({
+        remoteChannel: {
+          im: {
+            openClawGatewayUrl: 'https://gateway.example/webhook'
+          }
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(() =>
+      settingsPatchSchema.parse({
+        remoteChannel: {
+          im: {
+            weixinBridgeUrl: 'https://weixin.example/bridge'
+          }
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(settingsPatchSchema.parse({
+      connectPhone: {
+        weixinBridgeUrl: ' https://weixin.example/bridge '
+      }
+    }).connectPhone?.weixinBridgeUrl).toBe('https://weixin.example/bridge')
+  })
+
   it('rejects unknown settings patch fields', () => {
     expect(() =>
       settingsPatchSchema.parse({
@@ -625,22 +692,28 @@ describe('app-ipc-schemas', () => {
     expect(settingsPatchSchema.parse({
       runtimeGuards: {
         toolStorm: {
-          softThreshold: 4,
-          hardThreshold: 8
-        },
-        budgets: {
-          writeMaxToolEvents: 64
+          threshold: 4
         }
       }
     }).runtimeGuards).toMatchObject({
       toolStorm: {
-        softThreshold: 4,
-        hardThreshold: 8
-      },
-      budgets: {
-        writeMaxToolEvents: 64
+        threshold: 4
       }
     })
+
+    expect(() =>
+      settingsPatchSchema.parse({
+        runtimeGuards: {
+          toolStorm: {
+            softThreshold: 4,
+            hardThreshold: 8
+          },
+          budgets: {
+            writeMaxToolEvents: 64
+          }
+        }
+      })
+    ).toThrow(/Unrecognized key/)
   })
 
   it('rejects unknown schedule patch fields', () => {
@@ -671,12 +744,64 @@ describe('app-ipc-schemas', () => {
 
   it('accepts long Feishu install device codes', () => {
     const deviceCode = 'x'.repeat(2_048)
-    const payload = clawImInstallPollPayloadSchema.parse({
+    const payload = connectPhoneInstallPollPayloadSchema.parse({
       provider: 'feishu',
       deviceCode
     })
 
     expect(payload.deviceCode).toBe(deviceCode)
+  })
+
+  it('accepts canonical connect-phone and remote-channel IPC payloads', async () => {
+    const schemas = await import('./app-ipc-schemas')
+    expect('clawImInstallQrPayloadSchema' in schemas).toBe(false)
+    expect('clawImInstallPollPayloadSchema' in schemas).toBe(false)
+    expect('clawActiveThreadContextPayloadSchema' in schemas).toBe(false)
+    expect('clawMirrorPayloadSchema' in schemas).toBe(false)
+    expect('clawTaskFromTextPayloadSchema' in schemas).toBe(false)
+    expect(connectPhoneInstallQrPayloadSchema.parse({
+      provider: 'feishu',
+      isLark: true
+    })).toEqual({
+      provider: 'feishu',
+      isLark: true
+    })
+    expect(connectPhoneInstallPollPayloadSchema.parse({
+      provider: 'weixin',
+      deviceCode: ' device-1 '
+    })).toEqual({
+      provider: 'weixin',
+      deviceCode: 'device-1'
+    })
+    expect(remoteChannelActiveThreadContextPayloadSchema.parse({
+      threadId: ' thread-1 ',
+      runtimeId: 'codex',
+      workspaceRoot: ' /tmp/workspace '
+    })).toEqual({
+      threadId: 'thread-1',
+      runtimeId: 'codex',
+      workspaceRoot: '/tmp/workspace'
+    })
+    expect(remoteChannelMirrorPayloadSchema.parse({
+      threadId: ' thread-1 ',
+      text: ' hello ',
+      direction: 'user'
+    })).toEqual({
+      threadId: 'thread-1',
+      text: 'hello',
+      direction: 'user'
+    })
+    expect(remoteChannelTaskFromTextPayloadSchema.parse({
+      text: ' schedule ',
+      channelId: ' channel-1 ',
+      modelHint: ' auto ',
+      mode: 'agent'
+    })).toEqual({
+      text: 'schedule',
+      channelId: 'channel-1',
+      modelHint: 'auto',
+      mode: 'agent'
+    })
   })
 
   it('accepts Discord Client ID, binding, and guarded takeover payloads', async () => {
@@ -839,16 +964,55 @@ describe('app-ipc-schemas', () => {
         insertedText: 'Some',
         beforeContext: '',
         afterContext: ' intro'
-      }],
-      model: 'deepseek-v4-pro'
+      }]
     })
 
-    expect(payload.model).toBe('deepseek-v4-pro')
     expect(payload.mode).toBe('edit')
     expect(payload.workspaceRoot).toBe('/tmp/workspace')
     expect(payload.cursor.line).toBe(3)
     expect(payload.editCandidate?.kind).toBe('paragraph')
     expect(payload.recentEdits?.[0].insertedText).toBe('Some')
+  })
+
+  it('rejects inline completion payload model overrides', () => {
+    expect(() =>
+      writeInlineCompletionPayloadSchema.parse({
+        prefix: 'Hello',
+        suffix: '',
+        cursor: { line: 1, column: 5 },
+        context: {
+          language: 'markdown',
+          currentLinePrefix: 'Hello',
+          currentLineSuffix: '',
+          previousLine: '',
+          previousNonEmptyLine: '',
+          nextLine: '',
+          indentation: '',
+          signals: {
+            list: false,
+            quote: false,
+            heading: false,
+            table: false,
+            atLineEnd: true,
+            endsWithSentencePunctuation: false,
+            previousLineEndsWithSentencePunctuation: false,
+            prefersNewLineCompletion: false,
+            paragraphBreakOpportunity: false
+          }
+        },
+        policy: {
+          name: 'precision-inline-v2',
+          instruction: 'Return only text.',
+          acceptanceCriteria: [],
+          rejectionCriteria: []
+        },
+        preview: {
+          local: 'Hello',
+          documentTail: 'Hello'
+        },
+        model: 'deepseek-v4-pro'
+      })
+    ).toThrow(/Unrecognized key/)
   })
 
   it('accepts structured write retrieval payloads', () => {

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createHash, randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import type {
   PaperRadarApiResult,
@@ -24,10 +25,12 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 15_000
 const SYNC_REQUEST_TIMEOUT_MS = 120_000
 const SIDECAR_READY_TIMEOUT_MS = 12_000
 const PAPER_RADAR_SERVICE_ID = 'sciforge.paper-radar'
+const PAPER_RADAR_RUNTIME_TOKEN_BYTES = 32
 
 let paperRadarChild: ChildProcess | null = null
 let paperRadarLaunchSignature: string | null = null
 let paperRadarReadyPromise: Promise<void> | null = null
+let generatedPaperRadarRuntimeToken: string | null = null
 
 export type PaperRadarLaunch = {
   command: string
@@ -37,6 +40,7 @@ export type PaperRadarLaunch = {
   baseUrl: string
   dbPath: string
   profilesPath: string
+  runtimeToken: string
 }
 
 export function paperRadarBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
@@ -49,6 +53,13 @@ export function paperRadarDbPath(userDataDir: string): string {
 
 export function paperRadarProfilesPath(userDataDir: string): string {
   return join(userDataDir, 'paper-radar', 'profiles.json')
+}
+
+export function paperRadarRuntimeToken(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.PAPER_RADAR_RUNTIME_TOKEN?.trim()
+  if (configured) return configured
+  generatedPaperRadarRuntimeToken ??= randomBytes(PAPER_RADAR_RUNTIME_TOKEN_BYTES).toString('base64url')
+  return generatedPaperRadarRuntimeToken
 }
 
 export function isPaperRadarServiceHealth(
@@ -70,6 +81,7 @@ export function buildPaperRadarLaunch(options: {
   const npmArgsPrefix = options.npmCommand ? [] : process.platform === 'win32' ? ['/d', '/s', '/c', 'npm.cmd'] : []
   const dbPath = baseEnv.PAPER_RADAR_DB || paperRadarDbPath(options.userDataDir)
   const profilesPath = baseEnv.PAPER_RADAR_PROFILES || paperRadarProfilesPath(options.userDataDir)
+  const runtimeToken = paperRadarRuntimeToken(baseEnv)
   return {
     command: npmCommand,
     cwd: options.appRoot ?? process.cwd(),
@@ -86,11 +98,13 @@ export function buildPaperRadarLaunch(options: {
       PAPER_RADAR_PORT: String(port),
       PAPER_RADAR_DB: dbPath,
       PAPER_RADAR_PROFILES: profilesPath,
+      PAPER_RADAR_RUNTIME_TOKEN: runtimeToken,
       PAPER_RADAR_AUTO_SYNC: baseEnv.PAPER_RADAR_AUTO_SYNC ?? '0'
     },
     baseUrl,
     dbPath,
-    profilesPath
+    profilesPath,
+    runtimeToken
   }
 }
 
@@ -116,13 +130,13 @@ export async function ensurePaperRadarSidecar(options: {
   const signature = paperRadarLaunchSignatureValue(launch)
   if (isPaperRadarChildRunning()) {
     if (paperRadarLaunchSignature === signature) {
-      await (paperRadarReadyPromise ?? waitForPaperRadarHealth(launch.baseUrl, SIDECAR_READY_TIMEOUT_MS))
+      await (paperRadarReadyPromise ?? waitForPaperRadarHealth(launch.baseUrl, SIDECAR_READY_TIMEOUT_MS, launch.runtimeToken))
       return
     }
     options.log?.('Paper Radar sidecar launch settings changed; restarting sidecar.')
     await stopPaperRadarSidecar()
   } else {
-    const health = await checkPaperRadarHealth(launch.baseUrl).catch(() => null)
+    const health = await checkPaperRadarHealth(launch.baseUrl, launch.runtimeToken).catch(() => null)
     if (isPaperRadarServiceHealth(health)) return
   }
 
@@ -135,7 +149,7 @@ export async function ensurePaperRadarSidecar(options: {
     detached: false
   })
   paperRadarLaunchSignature = signature
-  paperRadarReadyPromise = waitForPaperRadarHealth(launch.baseUrl, SIDECAR_READY_TIMEOUT_MS)
+  paperRadarReadyPromise = waitForPaperRadarHealth(launch.baseUrl, SIDECAR_READY_TIMEOUT_MS, launch.runtimeToken)
   const child = paperRadarChild
   attachPaperRadarChildLogging(child, options.log)
   child.once('error', (error) => {
@@ -266,18 +280,18 @@ export async function digestPaperRadar(
   return paperRadarPost<PaperRadarDigestResult>(`${baseUrl}/digest`, input)
 }
 
-async function checkPaperRadarHealth(baseUrl: string): Promise<PaperRadarStatus> {
-  const result = await paperRadarGet<PaperRadarStatus>(`${baseUrl}/health`)
+async function checkPaperRadarHealth(baseUrl: string, runtimeToken = paperRadarRuntimeToken()): Promise<PaperRadarStatus> {
+  const result = await paperRadarGet<PaperRadarStatus>(`${baseUrl}/health`, runtimeToken)
   if (!result.ok) return { ok: false, message: result.message }
   return result.data
 }
 
-async function waitForPaperRadarHealth(baseUrl: string, timeoutMs: number): Promise<void> {
+async function waitForPaperRadarHealth(baseUrl: string, timeoutMs: number, runtimeToken = paperRadarRuntimeToken()): Promise<void> {
   const startedAt = Date.now()
   let lastMessage = ''
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const health = await checkPaperRadarHealth(baseUrl)
+      const health = await checkPaperRadarHealth(baseUrl, runtimeToken)
       if (isPaperRadarServiceHealth(health)) return
       lastMessage = health.ok
         ? `Unexpected Paper Radar service id: ${health.service ?? 'unknown'}`
@@ -290,23 +304,25 @@ async function waitForPaperRadarHealth(baseUrl: string, timeoutMs: number): Prom
   throw new Error(lastMessage || `Paper Radar did not become ready within ${Math.round(timeoutMs / 1000)} seconds.`)
 }
 
-async function paperRadarGet<T>(url: string): Promise<PaperRadarApiResult<T>> {
-  return requestPaperRadar<T>(url)
+async function paperRadarGet<T>(url: string, runtimeToken = paperRadarRuntimeToken()): Promise<PaperRadarApiResult<T>> {
+  return requestPaperRadar<T>(url, undefined, DEFAULT_REQUEST_TIMEOUT_MS, runtimeToken)
 }
 
-async function paperRadarPost<T>(url: string, body: unknown, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<PaperRadarApiResult<T>> {
+async function paperRadarPost<T>(url: string, body: unknown, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, runtimeToken = paperRadarRuntimeToken()): Promise<PaperRadarApiResult<T>> {
   return requestPaperRadar<T>(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body ?? {})
-  }, timeoutMs)
+  }, timeoutMs, runtimeToken)
 }
 
-async function requestPaperRadar<T>(url: string, init?: RequestInit, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<PaperRadarApiResult<T>> {
+async function requestPaperRadar<T>(url: string, init?: RequestInit, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, runtimeToken = paperRadarRuntimeToken()): Promise<PaperRadarApiResult<T>> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal })
+    const headers = new Headers(init?.headers)
+    headers.set('Authorization', `Bearer ${runtimeToken}`)
+    const response = await fetch(url, { ...init, headers, signal: controller.signal })
     const body = await response.json().catch(() => null) as unknown
     if (!response.ok) {
       return { ok: false, message: messageFromBody(body) || `Paper Radar returned HTTP ${response.status}` }
@@ -373,8 +389,13 @@ function paperRadarLaunchSignatureValue(launch: PaperRadarLaunch): string {
     cwd: launch.cwd,
     baseUrl: launch.baseUrl,
     dbPath: launch.dbPath,
-    profilesPath: launch.profilesPath
+    profilesPath: launch.profilesPath,
+    runtimeToken: runtimeTokenFingerprint(launch.runtimeToken)
   })
+}
+
+function runtimeTokenFingerprint(token: string): string {
+  return createHash('sha256').update(token).digest('base64url').slice(0, 16)
 }
 
 function attachPaperRadarChildLogging(

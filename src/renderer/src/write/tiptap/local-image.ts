@@ -7,6 +7,7 @@ import {
 export type WriteLocalImageOptions = {
   className?: string
   getFilePath?: () => string
+  getWorkspaceRoot?: () => string
 }
 
 /**
@@ -20,7 +21,8 @@ export const WriteLocalImage = Image.extend<WriteLocalImageOptions>({
       ...this.parent?.(),
       allowBase64: true,
       className: 'write-rich-image',
-      getFilePath: () => ''
+      getFilePath: () => '',
+      getWorkspaceRoot: () => ''
     }
   },
 
@@ -37,16 +39,23 @@ export const WriteLocalImage = Image.extend<WriteLocalImageOptions>({
         const alt = typeof attrs.alt === 'string' ? attrs.alt : ''
         const title = typeof attrs.title === 'string' ? attrs.title : ''
         const filePath = this.options.getFilePath?.() || null
+        const localPath = resolveWriteMarkdownResourcePath(src, filePath)
         const resolved = resolveWriteMarkdownResource(src, filePath)
-        if (resolved) dom.src = resolved
+        dom.classList.remove('write-rich-image-error')
+        if (!localPath && resolved) dom.src = resolved
         else dom.removeAttribute('src')
         dom.alt = alt
         if (title) dom.title = title
         else dom.removeAttribute('title')
         dom.dataset.rawSrc = src
-        const localPath = resolveWriteMarkdownResourcePath(src, filePath)
-        if (!localPath || typeof window.sciforge?.readWorkspaceImage !== 'function') return
-        void window.sciforge.readWorkspaceImage({ path: localPath })
+        if (!localPath) return
+        const workspaceRoot = this.options.getWorkspaceRoot?.().trim()
+        if (!workspaceRoot || typeof window.sciforge?.readWorkspaceImage !== 'function') {
+          dom.classList.add('write-rich-image-error')
+          dom.title = 'Image could not be loaded'
+          return
+        }
+        void window.sciforge.readWorkspaceImage({ path: localPath, workspaceRoot })
           .then((result) => {
             if (dom.dataset.rawSrc !== src) return
             if (result.ok) {

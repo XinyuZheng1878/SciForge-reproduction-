@@ -141,7 +141,8 @@ export class ImageWidget extends WidgetType {
     private src: string,
     private alt: string,
     private from: number,
-    private localPath?: string
+    private localPath?: string,
+    private workspaceRoot?: string
   ) {
     super()
   }
@@ -150,7 +151,8 @@ export class ImageWidget extends WidgetType {
     return other.src === this.src &&
       other.alt === this.alt &&
       other.from === this.from &&
-      other.localPath === this.localPath
+      other.localPath === this.localPath &&
+      other.workspaceRoot === this.workspaceRoot
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -164,16 +166,20 @@ export class ImageWidget extends WidgetType {
     })
     const image = document.createElement('img')
     image.className = 'cm-write-md-image'
-    image.src = this.src
+    if (this.src) image.src = this.src
     image.alt = this.alt
     image.loading = 'lazy'
     wrapper.appendChild(image)
-    if (this.localPath && typeof window.sciforge?.readWorkspaceImage === 'function') {
-      void window.sciforge.readWorkspaceImage({ path: this.localPath })
+    const root = this.workspaceRoot?.trim()
+    if (this.localPath && root && typeof window.sciforge?.readWorkspaceImage === 'function') {
+      void window.sciforge.readWorkspaceImage({ path: this.localPath, workspaceRoot: root })
         .then((result) => {
           if (result.ok) image.src = result.dataUrl
         })
         .catch(() => undefined)
+    } else if (this.localPath) {
+      image.classList.add('cm-write-md-image-error')
+      image.title = 'Image could not be loaded'
     }
     return wrapper
   }

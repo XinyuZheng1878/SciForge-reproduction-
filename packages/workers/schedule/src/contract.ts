@@ -47,12 +47,12 @@ export const SCHEDULE_TOOL_SIDE_EFFECTS = {
   gui_schedule_create: {
     effect: 'write',
     supportsDryRun: true,
-    requiresConfirmation: false
+    requiresConfirmation: true
   },
   gui_schedule_update: {
     effect: 'write',
     supportsDryRun: true,
-    requiresConfirmation: false
+    requiresConfirmation: true
   },
   gui_schedule_delete: {
     effect: 'destructive',
@@ -81,14 +81,15 @@ const optionalTrimmedString = (max = 16_384) => z.string().trim().max(max).optio
 const timeOfDaySchema = z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Expected 24h time like 09:00')
 const dryRunField = z.boolean().optional().describe('Validate and return a preview without performing the schedule operation')
 const previewField = z.boolean().optional().describe('Alias for dry_run; return the planned operation without side effects')
-const confirmedField = z.boolean().optional().describe('Set true only after explicit user confirmation for destructive schedule actions')
-const confirmationField = optionalTrimmedString(512).describe('Required for destructive operations. Use the exact confirmation value from dry_run or confirmation_required responses')
+const confirmedField = z.boolean().optional().describe('Set true only after explicit user confirmation for schedule actions that require it')
+const confirmationField = optionalTrimmedString(512).describe('Legacy confirmation value for operations that require it. Use the exact confirmation value from dry_run or confirmation_required responses')
 const confirmationIdField = optionalTrimmedString(512).describe('Optional confirmation id from a confirmation_required response')
 const writeControlFields = {
   dry_run: dryRunField,
   preview: previewField,
   confirmed: confirmedField,
-  confirmation_id: confirmationIdField
+  confirmation_id: confirmationIdField,
+  confirmation: confirmationField
 }
 
 export const scheduledTaskScheduleSchema = z.object({

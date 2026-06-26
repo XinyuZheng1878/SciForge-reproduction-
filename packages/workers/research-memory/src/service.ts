@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process'
+import { constants } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { promisify } from 'node:util'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, open, realpath, stat } from 'node:fs/promises'
 import {
   basename,
   dirname,
@@ -92,6 +93,7 @@ export type ResearchMemoryServiceOptions = {
 
 type ResolvedWorkspace = {
   root: string
+  realRoot: string
   artifactIndexPath: string
 }
 
@@ -109,6 +111,10 @@ type GithubGuardInput = {
 }
 
 const DEFAULT_TIMEOUT_MS = 20_000
+const ARTIFACT_INDEX_RELATIVE_PATH = '.agent/artifacts.yml'
+const NOFOLLOW_FLAG = constants.O_NOFOLLOW ?? 0
+const WORKSPACE_READ_FLAGS = constants.O_RDONLY | NOFOLLOW_FLAG
+const WORKSPACE_WRITE_FLAGS = constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | NOFOLLOW_FLAG
 
 const GITHUB_FEEDBACK_LABELS = [
   'question',
@@ -294,7 +300,7 @@ export class ResearchMemoryService {
       if (!policy.ok) return policy
       const preview = parsed.data.dry_run === true || parsed.data.preview === true
       const path = join('.agent', 'research-memory', 'drafts', `${safeTimestamp(this.nowIso())}-${parsed.data.draft_type}.md`)
-      if (!preview) await this.writeWorkspaceFile(workspace.root, path, `# ${draft.title}\n\n${draft.body}\n`)
+      if (!preview) await this.writeWorkspaceFile(workspace.realRoot, path, `# ${draft.title}\n\n${draft.body}\n`)
       return {
         ok: true,
         dryRun: parsed.data.dry_run === true,
@@ -318,7 +324,7 @@ export class ResearchMemoryService {
       const path = join('.agent', 'research-memory', 'experiments', `${artifact.id}.md`)
       const preview = parsed.data.dry_run === true || parsed.data.preview === true
       if (!preview) {
-        await this.writeWorkspaceFile(workspace.root, path, content)
+        await this.writeWorkspaceFile(workspace.realRoot, path, content)
         await this.addReferenceToArtifact(workspace, artifact.id, { label: 'Experiment card', path })
       }
       return {
@@ -343,7 +349,7 @@ export class ResearchMemoryService {
       const path = join('.agent', 'research-memory', 'decisions', `${artifact.id}.md`)
       const preview = parsed.data.dry_run === true || parsed.data.preview === true
       if (!preview) {
-        await this.writeWorkspaceFile(workspace.root, path, content)
+        await this.writeWorkspaceFile(workspace.realRoot, path, content)
         await this.addReferenceToArtifact(workspace, artifact.id, { label: 'Decision record', path })
       }
       return {
@@ -380,7 +386,7 @@ export class ResearchMemoryService {
       }
       const outputPath = RESEARCH_MEMORY_STATUS_HTML_PATH
       const preview = parsed.data.dry_run === true || parsed.data.preview === true
-      if (!preview) await this.writeWorkspaceFile(workspace.root, outputPath, html)
+      if (!preview) await this.writeWorkspaceFile(workspace.realRoot, outputPath, html)
       return {
         ok: true,
         dryRun: parsed.data.dry_run === true,
@@ -616,7 +622,7 @@ export class ResearchMemoryService {
         riskLevel: parsed.data.risk_level
       })
       if (!guard.ok) return guard
-      const files = parsed.data.files ?? ['.agent/artifacts.yml', '.agent/research-memory', 'status.html']
+      const files = parsed.data.files ?? ['.agent/artifacts.yml', '.agent/research-memory', RESEARCH_MEMORY_STATUS_HTML_PATH]
       const branch = parsed.data.branch ?? `research-memory/${safeTimestamp(this.nowIso())}`
       if (guard.preview) {
         return {
@@ -630,7 +636,7 @@ export class ResearchMemoryService {
       }
       await this.runCommand('git', ['check-ref-format', '--branch', branch], workspace.root)
       await this.runCommand('git', ['switch', '-c', branch], workspace.root)
-      await this.runCommand('git', ['add', '--', ...files], workspace.root)
+      await this.runCommand('git', ['--literal-pathspecs', 'add', '--', ...files], workspace.root)
       await this.runCommand('git', ['commit', '-m', title], workspace.root)
       return {
         ok: true,
@@ -806,8 +812,8 @@ export class ResearchMemoryService {
   }
 
   private async readArtifactIndex(workspace: ResolvedWorkspace): Promise<ArtifactIndexDocument> {
-    const raw = await readFile(workspace.artifactIndexPath, 'utf8').catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return ''
+    const raw = await readWorkspaceFile(workspace.realRoot, ARTIFACT_INDEX_RELATIVE_PATH).catch((error: NodeJS.ErrnoException) => {
+      if (isServiceError(error)) throw error
       throw serviceError('read_failed', `Unable to read .agent/artifacts.yml: ${error.message}`, false, 'Check file permissions.')
     })
     if (!raw.trim()) return { version: 1, artifacts: [] }
@@ -822,7 +828,6 @@ export class ResearchMemoryService {
   }
 
   private async writeArtifactIndex(workspace: ResolvedWorkspace, index: ArtifactIndexDocument): Promise<void> {
-    await mkdir(dirname(workspace.artifactIndexPath), { recursive: true })
     const normalized: ArtifactIndexDocument = {
       version: 1,
       artifacts: [...index.artifacts].map((artifact) => normalizeArtifact(artifact, this.nowIso()))
@@ -833,15 +838,15 @@ export class ResearchMemoryService {
       noRefs: true,
       sortKeys: false
     })
-    await writeFile(workspace.artifactIndexPath, text, 'utf8').catch((error: Error) => {
+    await this.writeWorkspaceFile(workspace.realRoot, ARTIFACT_INDEX_RELATIVE_PATH, text).catch((error: Error) => {
+      if (isServiceError(error)) throw error
       throw serviceError('write_failed', `Unable to write .agent/artifacts.yml: ${error.message}`, false, 'Check file permissions.')
     })
   }
 
   private async writeWorkspaceFile(workspaceRoot: string, relativePath: string, content: string): Promise<void> {
-    const path = resolveWorkspaceRelativePath(workspaceRoot, relativePath)
-    await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, content, 'utf8').catch((error: Error) => {
+    await writeWorkspaceFile(workspaceRoot, relativePath, content).catch((error: Error) => {
+      if (isServiceError(error)) throw error
       throw serviceError('write_failed', `Unable to write ${relativePath}: ${error.message}`, false, 'Check file permissions.')
     })
   }
@@ -861,8 +866,12 @@ export class ResearchMemoryService {
     if (!stats.isDirectory()) {
       throw serviceError('workspace_root_not_found', `Workspace root is not a directory: ${root}`, false, 'Choose an existing workspace directory.')
     }
+    const realRoot = await realpath(resolved).catch((error: Error) => {
+      throw serviceError('workspace_root_not_found', `Unable to resolve workspace root: ${error.message}`, false, 'Choose an existing workspace directory.')
+    })
     return {
       root: resolved,
+      realRoot,
       artifactIndexPath: join(resolved, '.agent', 'artifacts.yml')
     }
   }
@@ -1228,9 +1237,113 @@ function artifactPolicyText(artifact: ArtifactRecord): string {
   ].join('\n')
 }
 
+async function readWorkspaceFile(workspaceRoot: string, relativePath: string): Promise<string> {
+  const path = resolveWorkspaceRelativePath(workspaceRoot, relativePath)
+  await assertSafeWorkspaceAncestors(workspaceRoot, dirname(path), relativePath)
+  await assertSafeWorkspaceTarget(workspaceRoot, path, relativePath)
+  const handle = await open(path, WORKSPACE_READ_FLAGS).catch((error) => {
+    if (isNodeError(error, 'ENOENT')) return ''
+    throw workspacePathOpenError('read_failed', 'read', relativePath, error)
+  })
+  if (typeof handle === 'string') return handle
+  try {
+    return await handle.readFile({ encoding: 'utf8' })
+  } catch (error) {
+    throw workspacePathOpenError('read_failed', 'read', relativePath, error)
+  } finally {
+    await handle.close()
+  }
+}
+
+async function writeWorkspaceFile(workspaceRoot: string, relativePath: string, content: string): Promise<void> {
+  const path = resolveWorkspaceRelativePath(workspaceRoot, relativePath)
+  const parent = dirname(path)
+  await assertSafeWorkspaceAncestors(workspaceRoot, parent, relativePath)
+  await mkdir(parent, { recursive: true }).catch((error: Error) => {
+    throw workspacePathOpenError('write_failed', 'create parent directories for', relativePath, error)
+  })
+  await assertSafeWorkspaceAncestors(workspaceRoot, parent, relativePath)
+  await assertRealPathInsideWorkspace(workspaceRoot, parent, relativePath)
+  await assertSafeWorkspaceTarget(workspaceRoot, path, relativePath)
+  const handle = await open(path, WORKSPACE_WRITE_FLAGS, 0o666).catch((error) => {
+    throw workspacePathOpenError(isSymlinkError(error) ? 'invalid_request' : 'write_failed', 'write', relativePath, error)
+  })
+  try {
+    await handle.writeFile(content, 'utf8')
+  } catch (error) {
+    throw workspacePathOpenError('write_failed', 'write', relativePath, error)
+  } finally {
+    await handle.close()
+  }
+  await assertRealPathInsideWorkspace(workspaceRoot, path, relativePath)
+}
+
+async function assertSafeWorkspaceAncestors(
+  workspaceRoot: string,
+  absolutePath: string,
+  relativePath: string
+): Promise<void> {
+  const rel = relative(workspaceRoot, absolutePath)
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    throw unsafeWorkspacePath(relativePath, 'parent directory escapes the workspace')
+  }
+  if (!rel) return
+  let current = workspaceRoot
+  for (const segment of rel.split(/[\\/]+/).filter(Boolean)) {
+    current = join(current, segment)
+    const stats = await lstat(current).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return undefined
+      throw workspacePathOpenError('read_failed', 'inspect', relativePath, error)
+    })
+    if (!stats) return
+    if (stats.isSymbolicLink()) {
+      throw unsafeWorkspacePath(relativePath, `symlinked parent component: ${workspaceRelative(workspaceRoot, current)}`)
+    }
+    if (!stats.isDirectory()) {
+      throw unsafeWorkspacePath(relativePath, `parent component is not a directory: ${workspaceRelative(workspaceRoot, current)}`)
+    }
+    await assertRealPathInsideWorkspace(workspaceRoot, current, relativePath)
+  }
+}
+
+async function assertSafeWorkspaceTarget(
+  workspaceRoot: string,
+  absolutePath: string,
+  relativePath: string
+): Promise<void> {
+  const stats = await lstat(absolutePath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined
+    throw workspacePathOpenError('read_failed', 'inspect', relativePath, error)
+  })
+  if (!stats) return
+  if (stats.isSymbolicLink()) {
+    throw unsafeWorkspacePath(relativePath, 'target file is a symlink')
+  }
+  await assertRealPathInsideWorkspace(workspaceRoot, absolutePath, relativePath)
+}
+
+async function assertRealPathInsideWorkspace(
+  workspaceRoot: string,
+  absolutePath: string,
+  relativePath: string
+): Promise<void> {
+  const real = await realpath(absolutePath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined
+    throw workspacePathOpenError('read_failed', 'resolve', relativePath, error)
+  })
+  if (!real) return
+  const rel = relative(workspaceRoot, real)
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    throw unsafeWorkspacePath(relativePath, 'real path escapes the workspace')
+  }
+}
+
 function resolveWorkspaceRelativePath(workspaceRoot: string, path: string): string {
-  if (isAbsolute(path)) {
+  if (isAbsolute(path) || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\')) {
     throw serviceError('invalid_request', 'Workspace output paths must be relative.', false, 'Use a repository-relative path such as status.html.')
+  }
+  if (path.split(/[\\/]+/).some((segment) => segment === '..')) {
+    throw serviceError('invalid_request', `Path escapes workspace: ${path}`, false, 'Choose a path inside the workspace.')
   }
   const resolved = resolve(workspaceRoot, path)
   const rel = relative(workspaceRoot, resolved)
@@ -1238,6 +1351,38 @@ function resolveWorkspaceRelativePath(workspaceRoot: string, path: string): stri
     throw serviceError('invalid_request', `Path escapes workspace: ${path}`, false, 'Choose a path inside the workspace.')
   }
   return resolved
+}
+
+function unsafeWorkspacePath(relativePath: string, detail: string): ServiceError {
+  return serviceError(
+    'invalid_request',
+    `Unsafe workspace path for ${relativePath}: ${detail}.`,
+    false,
+    'Use regular files and directories inside the workspace; remove symlinks from .agent-managed paths.'
+  )
+}
+
+function workspacePathOpenError(
+  fallbackCode: ResearchMemoryErrorCode,
+  action: string,
+  relativePath: string,
+  error: unknown
+): ServiceError {
+  if (isSymlinkError(error)) return unsafeWorkspacePath(relativePath, 'target file is a symlink')
+  return serviceError(
+    fallbackCode,
+    `Unable to ${action} ${relativePath}: ${error instanceof Error ? error.message : String(error)}`,
+    false,
+    'Check file permissions and workspace path safety.'
+  )
+}
+
+function isSymlinkError(error: unknown): boolean {
+  return isNodeError(error, 'ELOOP')
+}
+
+function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === code
 }
 
 function workspaceRelative(workspaceRoot: string, path: string): string {

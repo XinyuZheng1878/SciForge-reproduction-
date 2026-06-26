@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { basename, extname, join, resolve } from 'node:path'
+import { extname, join, resolve } from 'node:path'
 import { z } from 'zod'
 import type { SkillsCapabilityConfig } from '../contracts/capabilities.js'
 
@@ -101,7 +101,7 @@ export class SkillRuntime {
     config: SkillsCapabilityConfig | undefined,
     options: SkillRuntimeOptions = {}
   ): Promise<SkillRuntime> {
-    const normalized = config ?? { enabled: false, roots: [], legacySkillMd: true }
+    const normalized = config ?? { enabled: false, roots: [] }
     const resolvedOptions = {
       activeLimit: options.activeLimit ?? DEFAULT_ACTIVE_LIMIT,
       instructionBudgetBytes: options.instructionBudgetBytes ?? DEFAULT_INSTRUCTION_BUDGET_BYTES
@@ -221,7 +221,7 @@ async function discoverSkills(config: SkillsCapabilityConfig): Promise<{
       return []
     })
     for (const candidate of candidates) {
-      const loaded = await loadSkillPackage(candidate, config.legacySkillMd).catch((error) => {
+      const loaded = await loadSkillPackage(candidate).catch((error) => {
         validationErrors.push({ root: candidate, message: errorMessage(error) })
         return null
       })
@@ -238,14 +238,14 @@ async function discoverSkills(config: SkillsCapabilityConfig): Promise<{
 
 async function packageCandidates(root: string): Promise<string[]> {
   const candidates = new Set<string>()
-  if (await exists(join(root, 'skill.json')) || await exists(join(root, 'SKILL.md'))) {
+  if (await exists(join(root, 'skill.json'))) {
     candidates.add(root)
   }
   const entries = await readdir(root, { withFileTypes: true })
   for (const entry of entries) {
     if (entry.isDirectory()) {
       const dir = join(root, entry.name)
-      if (await exists(join(dir, 'skill.json')) || await exists(join(dir, 'SKILL.md'))) {
+      if (await exists(join(dir, 'skill.json'))) {
         candidates.add(dir)
       }
     }
@@ -253,7 +253,7 @@ async function packageCandidates(root: string): Promise<string[]> {
   return [...candidates]
 }
 
-async function loadSkillPackage(root: string, allowLegacy: boolean): Promise<LoadedSkill | null> {
+async function loadSkillPackage(root: string): Promise<LoadedSkill | null> {
   const manifestPath = join(root, 'skill.json')
   if (await exists(manifestPath)) {
     const manifest = SkillManifest.parse(JSON.parse(await readFile(manifestPath, 'utf8')))
@@ -274,27 +274,7 @@ async function loadSkillPackage(root: string, allowLegacy: boolean): Promise<Loa
       legacy: false
     }
   }
-  if (!allowLegacy) return null
-  const legacyPath = join(root, 'SKILL.md')
-  if (!await exists(legacyPath)) return null
-  const entry = await readFile(legacyPath, 'utf8')
-  const frontmatter = readFrontmatter(entry)
-  const folderName = basename(root)
-  const name = frontmatter.name || folderName
-  return {
-    id: slug(frontmatter.id || folderName),
-    name,
-    description: frontmatter.description,
-    version: 'legacy',
-    root,
-    entryPath: legacyPath,
-    entry,
-    triggers: { commands: [], promptPatterns: [], fileTypes: [] },
-    allowedTools: [],
-    assets: [],
-    priority: 0,
-    legacy: true
-  }
+  return null
 }
 
 function buildInjection(
@@ -393,40 +373,6 @@ function fileTypesFrom(paths: readonly string[], prompt: string): Set<string> {
 function normalizeFileType(value: string): string {
   const trimmed = value.trim().toLowerCase()
   return trimmed.startsWith('.') ? trimmed : `.${trimmed}`
-}
-
-function firstMarkdownParagraph(markdown: string): string | undefined {
-  return markdown
-    .split(/\n{2,}/)
-    .map((block) => block.replace(/^#+\s*/, '').trim())
-    .find(Boolean)
-}
-
-function readFrontmatter(content: string): { id?: string; name?: string; description?: string } {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content)
-  if (!match) return { description: firstMarkdownParagraph(content) }
-  const yaml = match[1] ?? ''
-  return {
-    id: frontmatterString(yaml, 'id'),
-    name: frontmatterString(yaml, 'name'),
-    description: frontmatterString(yaml, 'description') || firstMarkdownParagraph(content.slice(match[0].length))
-  }
-}
-
-function frontmatterString(yaml: string, key: string): string | undefined {
-  const match = new RegExp(`^${key}:\\s*(.+?)\\s*$`, 'm').exec(yaml)
-  return match ? stripQuotes(match[1] ?? '').trim() || undefined : undefined
-}
-
-function stripQuotes(value: string): string {
-  const trimmed = value.trim()
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1)
-  }
-  return trimmed
 }
 
 function slug(value: string): string {

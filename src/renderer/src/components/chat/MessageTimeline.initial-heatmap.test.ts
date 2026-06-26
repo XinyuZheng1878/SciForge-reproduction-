@@ -5,14 +5,14 @@ import i18n from '../../i18n'
 import { MessageTimelineEmptyHero } from './message-timeline-empty'
 
 function renderHero(options: {
-  route?: 'chat' | 'claw'
+  remoteChannelMode?: boolean
   ready?: boolean
   hasWorkspace?: boolean
   runtimeError?: string | null
 } = {}): string {
   return renderToStaticMarkup(
     createElement(MessageTimelineEmptyHero, {
-      route: options.route ?? 'chat',
+      remoteChannelMode: options.remoteChannelMode ?? false,
       ready: options.ready ?? true,
       hasWorkspace: options.hasWorkspace ?? true,
       runtimeError: options.runtimeError ?? null,
@@ -44,7 +44,7 @@ describe('MessageTimeline initial heatmap empty hero routing', () => {
     expect(offlineHtml).toContain('ds-runtime-wake-logo')
     expect(offlineHtml).toContain('ds-work-logo')
     expect(renderHero({ hasWorkspace: false })).toContain('Choose working directory')
-    const clawHtml = renderHero({ route: 'claw' })
+    const clawHtml = renderHero({ remoteChannelMode: true })
     expect(clawHtml).toContain('Start a conversation with this assistant')
     expect(clawHtml).toContain('ds-claw-empty-whale-logo')
     expect(clawHtml).toContain('ds-work-logo')

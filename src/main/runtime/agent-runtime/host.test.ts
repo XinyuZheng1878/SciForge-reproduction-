@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
@@ -65,7 +66,8 @@ function settings(activeAgentRuntime: AppSettingsV1['activeAgentRuntime'] = 'cod
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
-    claw: defaultClawSettings(),
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
@@ -2656,6 +2658,7 @@ describe('AgentRuntimeHost', () => {
 
   it('feeds completed turns from the neutral runtime event path into Evidence DAG', async () => {
     vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:3897/')
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_API_KEY', 'dag-secret')
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
     const claude = fakeAdapter('claude', {
@@ -2716,6 +2719,9 @@ describe('AgentRuntimeHost', () => {
       'http://127.0.0.1:3897/threads/claude%3Aclaude-thread/ingest-trace',
       expect.objectContaining({
         method: 'POST',
+        headers: expect.objectContaining({
+          authorization: 'Bearer dag-secret'
+        }),
         body: JSON.stringify({
           trace: [
             { id: 'u1', type: 'message', role: 'user', content: 'question' },
@@ -2759,13 +2765,7 @@ describe('AgentRuntimeHost', () => {
           toolStorm: {
             enabled: true,
             windowSize: 8,
-            softThreshold: 2,
-            hardThreshold: 3
-          },
-          budgets: {
-            defaultMaxToolEvents: 80,
-            writeMaxToolEvents: 96,
-            remoteGuardMaxToolEvents: 32
+            threshold: 2
           }
         }
       }),
@@ -2851,13 +2851,7 @@ describe('AgentRuntimeHost', () => {
           toolStorm: {
             enabled: true,
             windowSize: 8,
-            softThreshold: 2,
-            hardThreshold: 3
-          },
-          budgets: {
-            defaultMaxToolEvents: 80,
-            writeMaxToolEvents: 96,
-            remoteGuardMaxToolEvents: 32
+            threshold: 2
           }
         }
       }),
@@ -2900,13 +2894,7 @@ describe('AgentRuntimeHost', () => {
           toolStorm: {
             enabled: true,
             windowSize: 8,
-            softThreshold: 2,
-            hardThreshold: 3
-          },
-          budgets: {
-            defaultMaxToolEvents: 80,
-            writeMaxToolEvents: 96,
-            remoteGuardMaxToolEvents: 32
+            threshold: 2
           }
         }
       }),
@@ -2948,13 +2936,7 @@ describe('AgentRuntimeHost', () => {
           toolStorm: {
             enabled: true,
             windowSize: 8,
-            softThreshold: 2,
-            hardThreshold: 3
-          },
-          budgets: {
-            defaultMaxToolEvents: 80,
-            writeMaxToolEvents: 96,
-            remoteGuardMaxToolEvents: 32
+            threshold: 2
           }
         }
       }),
@@ -3018,13 +3000,7 @@ describe('AgentRuntimeHost', () => {
           toolStorm: {
             enabled: true,
             windowSize: 8,
-            softThreshold: 2,
-            hardThreshold: 3
-          },
-          budgets: {
-            defaultMaxToolEvents: 80,
-            writeMaxToolEvents: 96,
-            remoteGuardMaxToolEvents: 32
+            threshold: 2
           }
         }
       }),
@@ -3065,13 +3041,7 @@ describe('AgentRuntimeHost', () => {
           toolStorm: {
             enabled: true,
             windowSize: 8,
-            softThreshold: 2,
-            hardThreshold: 3
-          },
-          budgets: {
-            defaultMaxToolEvents: 80,
-            writeMaxToolEvents: 96,
-            remoteGuardMaxToolEvents: 32
+            threshold: 2
           }
         }
       }),
@@ -3121,13 +3091,7 @@ describe('AgentRuntimeHost', () => {
           toolStorm: {
             enabled: true,
             windowSize: 8,
-            softThreshold: 2,
-            hardThreshold: 3
-          },
-          budgets: {
-            defaultMaxToolEvents: 80,
-            writeMaxToolEvents: 96,
-            remoteGuardMaxToolEvents: 32
+            threshold: 2
           }
         }
       }),
@@ -3179,13 +3143,7 @@ describe('AgentRuntimeHost', () => {
           toolStorm: {
             enabled: true,
             windowSize: 8,
-            softThreshold: 2,
-            hardThreshold: 3
-          },
-          budgets: {
-            defaultMaxToolEvents: 80,
-            writeMaxToolEvents: 96,
-            remoteGuardMaxToolEvents: 32
+            threshold: 2
           }
         }
       }),
@@ -3204,61 +3162,6 @@ describe('AgentRuntimeHost', () => {
     expect(codex.steerTurn).not.toHaveBeenCalled()
     expect(codex.interruptTurn).not.toHaveBeenCalled()
     expect(codex.publishSyntheticEvent).not.toHaveBeenCalled()
-  })
-
-  it('uses the default tool-event budget as a soft steer instead of interrupting local turns', async () => {
-    const codex = fakeAdapter('codex', {
-      id: 'codex-thread',
-      runtimeId: 'codex',
-      title: 'Codex',
-      updatedAt: '2026-06-10T00:00:00.000Z'
-    })
-    vi.mocked(codex.subscribeEvents).mockImplementation(async function* () {
-      yield commandToolEvent('date', 1)
-      yield commandToolEvent('pwd', 2)
-      yield commandToolEvent('ls', 3)
-    })
-    const host = createAgentRuntimeHost({
-      settings: async () => ({
-        ...settings('codex'),
-        runtimeGuards: {
-          toolStorm: {
-            enabled: true,
-            windowSize: 8,
-            softThreshold: 10,
-            hardThreshold: 20
-          },
-          budgets: {
-            defaultMaxToolEvents: 2,
-            writeMaxToolEvents: 96,
-            remoteGuardMaxToolEvents: 32
-          }
-        }
-      }),
-      adapters: [codex]
-    })
-
-    for await (const _event of host.subscribeEvents({
-      runtimeId: 'codex',
-      threadId: 'codex-thread',
-      sinceSeq: 0
-    })) {
-      // exhaust stream
-    }
-    await vi.waitFor(() => {
-      expect(codex.steerTurn).toHaveBeenCalledTimes(1)
-    })
-
-    expect(codex.interruptTurn).not.toHaveBeenCalled()
-    expect(codex.publishSyntheticEvent).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        metadata: expect.objectContaining({
-          level: 'soft',
-          family: 'tool-budget'
-        })
-      })
-    )
   })
 
   it('does not run observe tool-storm controls for native-guard runtimes', async () => {
@@ -3293,13 +3196,7 @@ describe('AgentRuntimeHost', () => {
           toolStorm: {
             enabled: true,
             windowSize: 8,
-            softThreshold: 2,
-            hardThreshold: 3
-          },
-          budgets: {
-            defaultMaxToolEvents: 80,
-            writeMaxToolEvents: 96,
-            remoteGuardMaxToolEvents: 32
+            threshold: 2
           }
         }
       }),

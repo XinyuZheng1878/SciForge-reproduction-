@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { request } from 'node:http'
 import {
   DEV_BROWSER_BRIDGE_TOKEN_HEADER,
+  DEV_BROWSER_BRIDGE_TOKEN_QUERY_PARAM,
   startDevBrowserBridgeServer,
   type DevBrowserBridgeDispatcher
 } from './dev-browser-bridge'
@@ -87,10 +88,18 @@ function postJson(path: string, body: unknown, options: PostJsonOptions | string
   })
 }
 
-function openSse(path: string): Promise<{ close: () => void; chunks: string[] }> {
+type OpenSseOptions = {
+  token?: string | null
+}
+
+function openSse(path: string, options: OpenSseOptions = {}): Promise<{ close: () => void; chunks: string[] }> {
   return new Promise((resolve, reject) => {
     const chunks: string[] = []
     const url = new URL(path, server?.url)
+    const token = 'token' in options ? options.token : server?.token
+    if (token !== null && token !== undefined && !url.searchParams.has(DEV_BROWSER_BRIDGE_TOKEN_QUERY_PARAM)) {
+      url.searchParams.set(DEV_BROWSER_BRIDGE_TOKEN_QUERY_PARAM, token)
+    }
     const req = request(url, {
       method: 'GET',
       headers: {
@@ -117,7 +126,7 @@ describe('dev browser bridge server', () => {
     await closeServer()
   })
 
-  it('serves health and forwards authenticated invoke requests to the dispatcher', async () => {
+  it('serves health and forwards authenticated read requests to the dispatcher', async () => {
     const invoke = vi.fn(async (_channel, payload) => ({ ok: true, payload }))
     const dispatcher: DevBrowserBridgeDispatcher = { invoke }
 
@@ -132,15 +141,15 @@ describe('dev browser bridge server', () => {
     expect(health.headers['access-control-allow-origin']).toBe('http://localhost:5173')
 
     const response = await postJson('/invoke', {
-      channel: 'settings:set',
-      payload: { theme: 'dark' }
+      channel: 'settings:get',
+      payload: { scope: 'all' }
     })
 
     expect(response.status).toBe(200)
-    expect(JSON.parse(response.body)).toEqual({ ok: true, payload: { ok: true, payload: { theme: 'dark' } } })
+    expect(JSON.parse(response.body)).toEqual({ ok: true, payload: { ok: true, payload: { scope: 'all' } } })
     expect(invoke).toHaveBeenCalledWith(
-      'settings:set',
-      { theme: 'dark' },
+      'settings:get',
+      { scope: 'all' },
       expect.objectContaining({ id: expect.any(Number), send: expect.any(Function) })
     )
   })
@@ -167,6 +176,75 @@ describe('dev browser bridge server', () => {
     expect(invoke).not.toHaveBeenCalled()
   })
 
+  it('rejects event streams that do not include the bridge token', async () => {
+    const invoke = vi.fn(async () => ({ ok: true }))
+    const dispatcher: DevBrowserBridgeDispatcher = { invoke }
+
+    server = await startDevBrowserBridgeServer({
+      dispatcher,
+      port: 0,
+      token: 'test-bridge-token-123'
+    })
+
+    const response = await readFromResponse('/events?clientId=browser-unauth')
+
+    expect(response.status).toBe(401)
+    expect(JSON.parse(response.body)).toEqual({
+      ok: false,
+      message: 'Dev browser bridge token is missing or invalid.'
+    })
+  })
+
+  it('rejects local mutating channels by default', async () => {
+    const invoke = vi.fn(async () => ({ ok: true }))
+    const dispatcher: DevBrowserBridgeDispatcher = { invoke }
+
+    server = await startDevBrowserBridgeServer({
+      dispatcher,
+      port: 0,
+      token: 'test-bridge-token-123'
+    })
+
+    for (const channel of ['settings:set', 'agentRuntime:connect', 'agentRuntime:startTurn'] as const) {
+      const response = await postJson('/invoke', {
+        channel,
+        payload: { theme: 'dark' }
+      })
+
+      expect(response.status).toBe(403)
+      expect(JSON.parse(response.body)).toEqual({
+        ok: false,
+        message: `Dev browser bridge channel is not allowed: ${channel}`
+      })
+    }
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('allows callers to explicitly opt into mutating channels', async () => {
+    const invoke = vi.fn(async (_channel, payload) => ({ ok: true, payload }))
+    const dispatcher: DevBrowserBridgeDispatcher = { invoke }
+
+    server = await startDevBrowserBridgeServer({
+      dispatcher,
+      port: 0,
+      token: 'test-bridge-token-123',
+      allowedChannels: ['settings:set']
+    })
+
+    const response = await postJson('/invoke', {
+      channel: 'settings:set',
+      payload: { theme: 'dark' }
+    })
+
+    expect(response.status).toBe(200)
+    expect(JSON.parse(response.body)).toEqual({ ok: true, payload: { ok: true, payload: { theme: 'dark' } } })
+    expect(invoke).toHaveBeenCalledWith(
+      'settings:set',
+      { theme: 'dark' },
+      expect.objectContaining({ id: expect.any(Number), send: expect.any(Function) })
+    )
+  })
+
   it('rejects invoke requests for channels outside the default allowlist', async () => {
     const invoke = vi.fn(async () => ({ ok: true }))
     const dispatcher: DevBrowserBridgeDispatcher = { invoke }
@@ -186,6 +264,29 @@ describe('dev browser bridge server', () => {
     expect(JSON.parse(response.body)).toEqual({
       ok: false,
       message: 'Dev browser bridge channel is not allowed: desktop:command'
+    })
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('rejects oversized invoke request bodies before dispatching', async () => {
+    const invoke = vi.fn(async () => ({ ok: true }))
+    const dispatcher: DevBrowserBridgeDispatcher = { invoke }
+
+    server = await startDevBrowserBridgeServer({
+      dispatcher,
+      port: 0,
+      token: 'test-bridge-token-123'
+    })
+
+    const response = await postJson('/invoke', {
+      channel: 'settings:get',
+      payload: 'x'.repeat(2_000_000)
+    })
+
+    expect(response.status).toBe(413)
+    expect(JSON.parse(response.body)).toEqual({
+      ok: false,
+      message: 'Request body is too large.'
     })
     expect(invoke).not.toHaveBeenCalled()
   })
@@ -226,16 +327,16 @@ describe('dev browser bridge server', () => {
     const first = await openSse('/events?clientId=browser-a')
     const second = await openSse('/events?clientId=browser-b')
 
-    server.send('claw:channel-activity', {
+    server.send('remoteChannel:activity', {
       channelId: 'channel-1',
       threadId: 'thread-1',
       runtimeId: 'codex'
     })
 
     await vi.waitFor(() => {
-      expect(first.chunks.join('')).toContain('"channel":"claw:channel-activity"')
+      expect(first.chunks.join('')).toContain('"channel":"remoteChannel:activity"')
       expect(first.chunks.join('')).toContain('"threadId":"thread-1"')
-      expect(second.chunks.join('')).toContain('"channel":"claw:channel-activity"')
+      expect(second.chunks.join('')).toContain('"channel":"remoteChannel:activity"')
       expect(second.chunks.join('')).toContain('"threadId":"thread-1"')
     })
     first.close()

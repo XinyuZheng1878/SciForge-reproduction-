@@ -32,7 +32,8 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
   | 'setRoute'
   | 'openSettings'
   | 'openPlugins'
-  | 'openClaw'
+  | 'openConnectPhone'
+  | 'setConnectPhonePanelOpen'
   | 'openSchedule'
   | 'openWorkflow'
   | 'selectRemoteGuardChannel'
@@ -112,13 +113,14 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
 
     setRoute: (route) => set({
       route,
-      ...(route === 'chat' ? {} : { activeRemoteChannelId: null })
+      ...(route === 'chat' ? {} : { activeRemoteChannelId: null, connectPhonePanelOpen: false })
     }),
 
     openSettings: (section: SettingsRouteSection = 'general') =>
       set((state) => ({
         route: 'settings',
         activeRemoteChannelId: null,
+        connectPhonePanelOpen: false,
         settingsSection: section,
         settingsReturnRoute: state.route === 'settings' ? state.settingsReturnRoute : state.route
       })),
@@ -127,20 +129,26 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
       set((state) => ({
         route: 'plugins',
         activeRemoteChannelId: null,
+        connectPhonePanelOpen: false,
         pluginHostRoute: host ?? 'chat'
       })),
 
-    openClaw: () => {
-      set({ route: 'chat', activeRemoteChannelId: null })
+    openConnectPhone: () => {
+      set({ route: 'chat', activeRemoteChannelId: null, connectPhonePanelOpen: true })
       void get().refreshClawChannels()
     },
 
+    setConnectPhonePanelOpen: (open) => set({
+      connectPhonePanelOpen: open,
+      ...(open ? { route: 'chat' as const, activeRemoteChannelId: null } : {})
+    }),
+
     openSchedule: () => {
-      set({ route: 'schedule', activeRemoteChannelId: null })
+      set({ route: 'schedule', activeRemoteChannelId: null, connectPhonePanelOpen: false })
     },
 
     openWorkflow: () => {
-      set({ route: 'workflow', activeRemoteChannelId: null })
+      set({ route: 'workflow', activeRemoteChannelId: null, connectPhonePanelOpen: false })
     },
 
     selectRemoteGuardChannel: (channelId) => {
@@ -149,6 +157,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
       set({
         route: 'chat',
         activeRemoteChannelId: channel.id,
+        connectPhonePanelOpen: false,
         activeClawChannelId: channel.id,
         error: null
       })
@@ -178,12 +187,12 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
         workspaceRoot,
         workspaceLabel: workspaceLabelFromPath(workspaceRoot),
         activeAgentRuntime: getActiveAgentRuntime(settings),
-        clawChannels: settings.claw.channels,
-        activeClawChannelId: settings.claw.channels.some(
+        clawChannels: settings.remoteChannel.channels,
+        activeClawChannelId: settings.remoteChannel.channels.some(
           (channel) => channel.id === get().activeClawChannelId && channel.enabled
         )
           ? get().activeClawChannelId
-          : settings.claw.channels.find((channel) => channel.enabled)?.id ?? ''
+          : settings.remoteChannel.channels.find((channel) => channel.enabled)?.id ?? ''
       })
       await get().applyI18nFromSettings(settings.locale)
       if (get().runtimeConnection === 'ready') {

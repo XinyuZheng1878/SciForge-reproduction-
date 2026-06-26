@@ -1,14 +1,26 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { test } from 'node:test';
 
-import { startModelRouterServer, type ModelRouterConfig } from './router';
+import {
+  DEFAULT_MODEL_ROUTER_TRACE_ROOT,
+  startModelRouterServer as startModelRouterServerRaw,
+  type ModelRouterConfig,
+} from './router';
 
 const pngDataUrl = `data:image/png;base64,${Buffer.from('tiny-png').toString('base64')}`;
 const forbiddenPublicSurfacePattern =
   /text-secret|vision-secret|Authorization|Bearer|baseUrl|apiKeyEnv|SCIFORGE_TEXT_API_KEY|SCIFORGE_VISION_API_KEY|text-model|vision-model|text-provider|vision-provider|https:\/\/text\.example|https:\/\/vision\.example/i;
+
+function startModelRouterServer(options: Parameters<typeof startModelRouterServerRaw>[0]) {
+  const workspaceRoot = options.workspaceRoot ?? process.cwd();
+  return startModelRouterServerRaw({
+    ...options,
+    traceDataRoot: options.traceDataRoot ?? traceDataRootForWorkspace(workspaceRoot),
+  });
+}
 
 test('public manifest exposes only the Model Router worker contract', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-public-manifest-'));
@@ -628,6 +640,69 @@ test('pure text responses are routed only to the configured text reasoner', asyn
     assert.match(traceText, /"toolCount":\s*0/);
     assert.match(traceText, /"stopReason":\s*"stop"/);
     assert.match(traceText, /"latencyMs":\s*\d+/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('relative trace roots resolve under trace data root instead of workspace symlinks', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-trace-workspace-'));
+  const symlinkTarget = await mkdtemp(join(tmpdir(), 'sciforge-model-router-trace-symlink-target-'));
+  await symlink(symlinkTarget, join(workspaceRoot, '.sciforge'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig({ traceRoot: '.sciforge/model-router-traces' }),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-reasoner-answer', 'The text answer.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: 'Explain SciForge in one sentence.',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    await access(join(traceDataRootForWorkspace(workspaceRoot), '.sciforge/model-router-traces'));
+    await assert.rejects(access(join(symlinkTarget, 'model-router-traces')));
+  } finally {
+    await server.close();
+  }
+});
+
+test('trace roots inside the workspace are rejected', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-workspace-trace-root-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig({ traceRoot: join(workspaceRoot, 'model-router-traces') }),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, []),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: 'Explain SciForge in one sentence.',
+      }),
+    });
+
+    assert.equal(response.status, 500);
+    const body = await response.json() as { error?: { code?: string } };
+    assert.equal(body.error?.code, 'invalid_trace_root');
+    assert.equal(calls.length, 0);
   } finally {
     await server.close();
   }
@@ -2405,7 +2480,11 @@ test('scientific file uploads are translated to evidence via the standalone sci-
   const server = await startModelRouterServer({
     port: 0,
     config: testConfig(),
-    env: { ...testEnv(), SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://sci-modality.example:3898' },
+    env: {
+      ...testEnv(),
+      SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://sci-modality.example:3898',
+      SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'sci-modality-runtime-token',
+    },
     workspaceRoot,
     fetchImpl: captureFetch(calls, [
       // 1) standalone sci-modality service translate (real expert model, here stubbed): evidence only.
@@ -2447,6 +2526,7 @@ test('scientific file uploads are translated to evidence via the standalone sci-
     assert.equal(calls.length, 2);
     // The sci-modality service was called with the file content as payload (translate-only contract).
     assert.match(calls[0]?.url ?? '', /\/modality\/translate$/);
+    assert.equal(calls[0]?.headers.authorization, 'Bearer sci-modality-runtime-token');
     assert.match(String(calls[0]?.body.payload ?? ''), /MQIFVKTLTGK/);
     // The text reasoner received the real expert evidence as an observation (no cheating, no raw fallback).
     const textBody = JSON.stringify(calls[1]?.body);
@@ -2454,6 +2534,55 @@ test('scientific file uploads are translated to evidence via the standalone sci-
     assert.match(textBody, /source=sci-modality:protein\/esm2-protein/);
     assert.match(textBody, /ESM-2 pseudo-perplexity 9\.4/);
     assert.doesNotMatch(textBody, /status=unsupported/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('workspace file materialization rejects symlink escapes before provider calls', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-symlink-'));
+  const outsideRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-outside-'));
+  const outsideSecretPath = join(outsideRoot, 'secret.fasta');
+  await writeFile(outsideSecretPath, '>secret\nSHOULD_NOT_LEAK_TO_PROVIDER\n');
+  const uploadDir = join(workspaceRoot, '.sciforge', 'uploads', 'session-sci');
+  await mkdir(uploadDir, { recursive: true });
+  await symlink(outsideSecretPath, join(uploadDir, 'secret.fasta'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: {
+      ...testEnv(),
+      SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://sci-modality.example:3898',
+      SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'sci-modality-runtime-token',
+    },
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-final', JSON.stringify({ type: 'final_answer', content: 'No readable in-workspace evidence.' })),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [{
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'What protein is this?' },
+            { type: 'input_object', ref: '.sciforge/uploads/session-sci/secret.fasta', mimeType: 'text/plain', title: 'secret.fasta' },
+          ],
+        }],
+        metadata: { profile: 'default' },
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, 'https://text.example/v1/chat/completions');
+    assert.doesNotMatch(JSON.stringify(calls[0]?.body), /SHOULD_NOT_LEAK_TO_PROVIDER/);
   } finally {
     await server.close();
   }
@@ -3276,7 +3405,7 @@ function testConfig(options: { traceRoot?: string; publicModelAlias?: string | n
     publicModelAlias: options.publicModelAlias === undefined ? 'sciforge-router' : undefined,
     profiles: {
       default: {
-        traceRoot: options.traceRoot ?? '.sciforge/model-router-traces',
+        traceRoot: options.traceRoot ?? DEFAULT_MODEL_ROUTER_TRACE_ROOT,
         textReasoner: {
           provider: 'text-provider',
           baseUrl: 'https://text.example/v1',
@@ -3367,7 +3496,7 @@ function chatCompletion(
 }
 
 async function readTraceBundle(workspaceRoot: string) {
-  const root = join(workspaceRoot, '.sciforge/model-router-traces');
+  const root = defaultTraceRootForWorkspace(workspaceRoot);
   const days = await readdir(root);
   const contents: string[] = [];
   for (const day of days.sort()) {
@@ -3381,8 +3510,16 @@ async function readTraceBundle(workspaceRoot: string) {
 }
 
 async function readSingleTraceFile(workspaceRoot: string, fileName: string) {
-  const root = join(workspaceRoot, '.sciforge/model-router-traces');
+  const root = defaultTraceRootForWorkspace(workspaceRoot);
   const days = await readdir(root);
   const runs = await readdir(join(root, days[0] ?? 'missing'));
   return await readFile(join(root, days[0] ?? 'missing', runs[0] ?? 'missing', fileName), 'utf8');
+}
+
+function traceDataRootForWorkspace(workspaceRoot: string): string {
+  return join(dirname(workspaceRoot), `${basename(workspaceRoot)}-model-router-data`);
+}
+
+function defaultTraceRootForWorkspace(workspaceRoot: string): string {
+  return join(traceDataRootForWorkspace(workspaceRoot), DEFAULT_MODEL_ROUTER_TRACE_ROOT);
 }

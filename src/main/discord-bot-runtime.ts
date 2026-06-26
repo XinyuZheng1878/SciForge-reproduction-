@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { connect as connectTcp, type Socket } from 'node:net'
 import { dirname, join } from 'node:path'
 import { connect as connectTls, type TLSSocket } from 'node:tls'
-import { atomicWriteFile } from '../../kun/src/adapters/file/atomic-write.js'
+import { atomicWriteFile } from './atomic-write-file'
 import type {
   AppSettingsV1,
   ClawImAgentProfileV1,
@@ -45,7 +45,10 @@ const DISCORD_INTENTS =
 const DISCORD_TEXT_CHANNEL_TYPES = new Set([0, 5])
 const MAX_DISCORD_MESSAGE_LENGTH = 2_000
 const MESSAGE_CONTENT_WARNING_INTERVAL_MS = 10 * 60_000
-const INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.sciforge/claw/'
+const INTERNAL_REMOTE_CHANNEL_WORKSPACE_FRAGMENTS = [
+  '/.sciforge/remote-channel/',
+  '/.sciforge/claw/'
+] as const
 const DISCORD_MESSAGE_FAILURE_REPLY = 'Sorry, I could not process that message.'
 const DISCORD_COMMAND_FAILURE_REPLY = 'Sorry, I could not process that command.'
 const require = createRequire(import.meta.url)
@@ -337,7 +340,8 @@ function normalizeWorkspaceRoot(raw: string | null | undefined): string {
 
 function isInternalClawWorkspaceRoot(workspaceRoot: string): boolean {
   const normalized = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-  return normalized.includes(INTERNAL_CLAW_WORKSPACE_FRAGMENT) ||
+  return INTERNAL_REMOTE_CHANNEL_WORKSPACE_FRAGMENTS.some((fragment) => normalized.includes(fragment)) ||
+    normalized.startsWith('~/.sciforge/remote-channel/') ||
     normalized.startsWith('~/.sciforge/claw/')
 }
 
@@ -744,8 +748,8 @@ export class DiscordBotRuntime {
       configured: tokenConfigured,
       connected: this.connected,
       enabled: Boolean(
-        settings.claw.enabled &&
-        settings.claw.im.enabled &&
+        settings.remoteChannel.enabled &&
+        settings.remoteChannel.im.enabled &&
         channelStatuses.some((channel) => channel.enabled && !channel.conflict && !channel.accessError)
       ),
       ...(secret?.bot ? { bot: secret.bot } : {}),
@@ -862,7 +866,7 @@ export class DiscordBotRuntime {
             label,
             enabled: input.enabled ?? true,
             guardMode: 'all_messages',
-            model: (input.model?.trim() || existing.model || settings.claw.im.model || 'auto') as ClawModel,
+            model: (input.model?.trim() || existing.model || settings.remoteChannel.im.model || 'auto') as ClawModel,
             runtimeId: input.runtimeId ?? existing.runtimeId ?? settings.activeAgentRuntime,
             workspaceRoot,
             agentProfile: {
@@ -878,7 +882,7 @@ export class DiscordBotRuntime {
             label,
             enabled: input.enabled ?? true,
             guardMode: 'all_messages',
-            model: (input.model?.trim() || settings.claw.im.model || 'auto') as ClawModel,
+            model: (input.model?.trim() || settings.remoteChannel.im.model || 'auto') as ClawModel,
             threadId: '',
             runtimeId: input.runtimeId ?? settings.activeAgentRuntime,
             agentThreadIds: {},
@@ -894,14 +898,14 @@ export class DiscordBotRuntime {
             updatedAt: now
           }
       const saved = await this.deps.store.patch({
-        claw: {
+        remoteChannel: {
           enabled: true,
           im: {
             enabled: true,
             provider: 'discord'
           },
           channels: [
-            ...settings.claw.channels.filter((item) => item.id !== (existing?.id || channel.id)),
+            ...settings.remoteChannel.channels.filter((item) => item.id !== (existing?.id || channel.id)),
             channel
           ]
         }
@@ -947,13 +951,13 @@ export class DiscordBotRuntime {
       const now = new Date().toISOString()
       const installationId = settings.installationId ?? ''
       const saved = await this.deps.store.patch({
-        claw: {
-          enabled: enabled ? true : settings.claw.enabled,
+        remoteChannel: {
+          enabled: enabled ? true : settings.remoteChannel.enabled,
           im: {
-            enabled: enabled ? true : settings.claw.im.enabled,
+            enabled: enabled ? true : settings.remoteChannel.im.enabled,
             provider: 'discord'
           },
-          channels: settings.claw.channels.map((item) =>
+          channels: settings.remoteChannel.channels.map((item) =>
             item.id === channel.id
               ? {
                   ...item,
@@ -1042,7 +1046,7 @@ export class DiscordBotRuntime {
 
   sync(settings: AppSettingsV1): void {
     const channels = this.resolveRunnableDiscordChannels(settings)
-    if (!settings.claw.enabled || !settings.claw.im.enabled || channels.length === 0) {
+    if (!settings.remoteChannel.enabled || !settings.remoteChannel.im.enabled || channels.length === 0) {
       this.disconnect()
       return
     }
@@ -1425,7 +1429,7 @@ export class DiscordBotRuntime {
   }
 
   private resolveDiscordChannels(settings: AppSettingsV1): ClawImChannelV1[] {
-    return settings.claw.channels.filter((channel) =>
+    return settings.remoteChannel.channels.filter((channel) =>
       channel.provider === 'discord' && channel.platformCredential?.kind === 'discord'
     )
   }

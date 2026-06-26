@@ -28,10 +28,12 @@ import {
   removeBrowserStorageItem,
   writeBrowserStorageItem
 } from '../lib/browser-storage'
+import { openSafeExternalUrl } from '../lib/open-external'
 
 type DevWebviewTag = HTMLElement & {
   canGoBack(): boolean
   canGoForward(): boolean
+  getWebContentsId(): number
   getURL(): string
   goBack(): void
   goForward(): void
@@ -116,6 +118,20 @@ export function canUseElectronWebviewEnvironment(input: {
   return input.openExternalAvailable && /\bElectron\//.test(input.userAgent)
 }
 
+export function resolveDevPreviewNavigateEventUrl(
+  payload: unknown,
+  webContentsId: number | null
+): string | null {
+  if (webContentsId == null || !payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null
+  }
+  const eventPayload = payload as { url?: unknown; webContentsId?: unknown }
+  if (eventPayload.webContentsId !== webContentsId || typeof eventPayload.url !== 'string') {
+    return null
+  }
+  return normalizeDevPreviewUrlInput(eventPayload.url)
+}
+
 export function DevBrowserPanel({
   blocks,
   preferredUrl,
@@ -129,7 +145,9 @@ export function DevBrowserPanel({
 }): ReactElement {
   const { t } = useTranslation('common')
   const webviewRef = useRef<DevWebviewTag | null>(null)
+  const webviewContentsIdRef = useRef<number | null>(null)
   const iframeLoadedUrlRef = useRef<string | null>(null)
+  const loadUrlRef = useRef<(value: string, options?: LoadOptions) => void>(() => undefined)
   const detectedUrls = useMemo(() => extractDetectedDevPreviewUrls(blocks), [blocks])
   const latestDetectedUrl = detectedUrls[0] ?? null
   const useElectronWebview = canUseElectronWebviewEnvironment({
@@ -193,8 +211,16 @@ export function DevBrowserPanel({
     const webview = webviewRef.current
     if (!useElectronWebview || !activeUrl || !webview) return
 
+    const syncWebviewContentsId = (): void => {
+      try {
+        webviewContentsIdRef.current = webview.getWebContentsId()
+      } catch {
+        webviewContentsIdRef.current = null
+      }
+    }
     const syncNavigationState = (): void => {
       try {
+        syncWebviewContentsId()
         setCanGoBack(webview.canGoBack())
         setCanGoForward(webview.canGoForward())
         const currentUrl = normalizeDevPreviewUrlInput(webview.getURL())
@@ -233,7 +259,12 @@ export function DevBrowserPanel({
     const handleTitle: EventListener = (event): void => {
       setPageTitle((event as WebviewTitleEvent).title)
     }
+    const handleAttach = (): void => {
+      syncWebviewContentsId()
+    }
 
+    syncWebviewContentsId()
+    webview.addEventListener('did-attach', handleAttach)
     webview.addEventListener('did-start-loading', handleStartLoading)
     webview.addEventListener('did-stop-loading', handleStopLoading)
     webview.addEventListener('did-navigate', handleNavigate)
@@ -242,12 +273,14 @@ export function DevBrowserPanel({
     webview.addEventListener('page-title-updated', handleTitle)
 
     return () => {
+      webview.removeEventListener('did-attach', handleAttach)
       webview.removeEventListener('did-start-loading', handleStartLoading)
       webview.removeEventListener('did-stop-loading', handleStopLoading)
       webview.removeEventListener('did-navigate', handleNavigate)
       webview.removeEventListener('did-navigate-in-page', handleNavigate)
       webview.removeEventListener('did-fail-load', handleFailLoad)
       webview.removeEventListener('page-title-updated', handleTitle)
+      if (webviewRef.current === webview) webviewContentsIdRef.current = null
     }
   }, [activeUrl, previewInstanceNonce, t, useElectronWebview])
 
@@ -287,6 +320,16 @@ export function DevBrowserPanel({
     setLoading(true)
     setActiveUrl(normalized)
   }
+  loadUrlRef.current = loadUrl
+
+  useEffect(() => {
+    if (!useElectronWebview) return undefined
+    return window.sciforge?.onDevPreviewNavigate?.((payload) => {
+      const normalized = resolveDevPreviewNavigateEventUrl(payload, webviewContentsIdRef.current)
+      if (!normalized) return
+      loadUrlRef.current(normalized, { keepAutoFollow: true })
+    })
+  }, [useElectronWebview])
 
   const submitUrl = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -339,11 +382,7 @@ export function DevBrowserPanel({
     if (!activeUrl) return
     const normalized = normalizeDevPreviewUrlInput(activeUrl)
     if (!normalized) return
-    if (typeof window.sciforge?.openExternal === 'function') {
-      void window.sciforge.openExternal(normalized).catch(() => undefined)
-      return
-    }
-    window.open(normalized, '_blank', 'noopener,noreferrer')
+    void openSafeExternalUrl(normalized).catch(() => undefined)
   }
 
   const goBack = (): void => {
@@ -591,7 +630,7 @@ export function DevBrowserPanel({
             key={`iframe:${previewInstanceNonce}:${activeUrl}:${iframeReloadNonce}`}
             src={activeUrl}
             title={pageTitle || t('browserTitle')}
-            sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+            sandbox="allow-downloads allow-forms allow-modals allow-scripts"
             referrerPolicy="no-referrer"
             onLoad={() => {
               iframeLoadedUrlRef.current = activeUrl

@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Minimize2 } from 'lucide-react'
 import type { ChatBlock, ToolBlock } from '../../agent/types'
 import { extractUnifiedDiffText } from '../../lib/diff-stats'
 import { useDeferredRender } from '../../hooks/use-deferred-render'
+import { openSafeExternalUrl } from '../../lib/open-external'
 import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
 import { previewWorkspaceFile } from '../../lib/workspace-file-preview'
 import { useChatStore } from '../../store/chat-store'
@@ -787,10 +788,13 @@ function RuntimeMetaBadges({
           <a
             key={`${source.url}-${index}`}
             href={source.url}
-            target="_blank"
             rel="noreferrer"
             className={chipClass}
             title={source.url}
+            onClick={(event) => {
+              event.preventDefault()
+              void openSafeExternalUrl(source.url).catch(() => undefined)
+            }}
           >
             {t('toolSources')} {index + 1}
             <span className="max-w-32 truncate text-ds-muted">{source.title || source.url}</span>

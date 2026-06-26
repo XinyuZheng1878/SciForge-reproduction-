@@ -4,6 +4,7 @@ const DEFAULT_BRIDGE_URL = 'http://127.0.0.1:5174'
 const CLIENT_ID_STORAGE_KEY = 'sciforge.dev-browser-bridge.client-id'
 const TOKEN_STORAGE_KEY = 'sciforge.dev-browser-bridge.token'
 const TOKEN_HEADER = 'X-SciForge-Bridge-Token'
+const TOKEN_QUERY_PARAM = 'sciforgeBridgeToken'
 
 type BridgeEnvelope<T> =
   | { ok: true; payload: T }
@@ -71,7 +72,10 @@ function resolveBridgeToken(): string {
 
 function ensureEventSource(): void {
   if (eventSource || typeof EventSource === 'undefined') return
-  eventSource = new EventSource(`${bridgeUrl}/events?clientId=${encodeURIComponent(clientId)}`)
+  const eventsUrl = new URL('/events', bridgeUrl)
+  eventsUrl.searchParams.set('clientId', clientId)
+  if (bridgeToken) eventsUrl.searchParams.set(TOKEN_QUERY_PARAM, bridgeToken)
+  eventSource = new EventSource(eventsUrl.toString())
   eventSource.addEventListener('bridge-message', (event) => {
     let message: BridgeMessage
     try {
@@ -123,13 +127,36 @@ async function invoke<T>(channel: string, payload?: unknown): Promise<T> {
 }
 
 function createApi(): SciForgeApi {
+  const getConnectPhoneStatus: SciForgeApi['getConnectPhoneStatus'] = () => invoke('connectPhone:status')
+  const startConnectPhoneInstallQr: SciForgeApi['startConnectPhoneInstallQr'] = (provider, options) =>
+    invoke('connectPhone:install:qrcode', { provider, isLark: options?.isLark })
+  const pollConnectPhoneInstall: SciForgeApi['pollConnectPhoneInstall'] = (provider, deviceCode) =>
+    invoke('connectPhone:install:poll', { provider, deviceCode })
+  const onRemoteChannelActivity: SciForgeApi['onRemoteChannelActivity'] = (handler) =>
+    onChannel('remoteChannel:activity', handler)
+  const updateRemoteChannelActiveThreadContext: SciForgeApi['updateRemoteChannelActiveThreadContext'] = (payload) =>
+    invoke('remoteChannel:active-thread-context', payload)
+  const mirrorRemoteChannelMessage: SciForgeApi['mirrorRemoteChannelMessage'] = (threadId, text, direction) =>
+    invoke('remoteChannel:message:mirror', { threadId, text, direction })
+  const mirrorRemoteChannelMessageToFeishu: SciForgeApi['mirrorRemoteChannelMessageToFeishu'] = (
+    threadId,
+    text,
+    direction
+  ) => invoke('remoteChannel:message:mirror-to-feishu', { threadId, text, direction })
+  const createRemoteChannelTaskFromText: SciForgeApi['createRemoteChannelTaskFromText'] = (text, options) =>
+    invoke('remoteChannel:task:create-from-text', {
+      text,
+      channelId: options?.channelId,
+      modelHint: options?.modelHint,
+      mode: options?.mode
+    })
+
   return {
     platform: detectPlatform(),
     getSettings: () => invoke('settings:get'),
     setSettings: (partial) => invoke('settings:set', partial),
     fetchUpstreamModels: () => invoke('upstream:models'),
-    getClawStatus: () => invoke('claw:status'),
-    runClawTask: (taskId) => invoke('claw:task:run', taskId),
+    getConnectPhoneStatus,
     getScheduleStatus: () => invoke('schedule:status'),
     runScheduleTask: (taskId) => invoke('schedule:task:run', taskId),
     getWorkflowStatus: () => invoke('workflow:status'),
@@ -141,10 +168,8 @@ function createApi(): SciForgeApi {
     resolveWorkflowApproval: (token, decision) =>
       invoke('workflow:approval:resolve', { token, decision }),
     checkWorkflowCode: (language, code) => invoke('workflow:code:check', { language, code }),
-    startClawImInstallQr: (provider, options) =>
-      invoke('claw:im-install:qrcode', { provider, isLark: options?.isLark }),
-    pollClawImInstall: (provider, deviceCode) =>
-      invoke('claw:im-install:poll', { provider, deviceCode }),
+    startConnectPhoneInstallQr,
+    pollConnectPhoneInstall,
     getDiscordBotStatus: () => invoke('discord:status'),
     configureDiscordClientId: (clientId) =>
       invoke('discord:configure-client', { clientId }),
@@ -251,20 +276,11 @@ function createApi(): SciForgeApi {
       onEnd: (handler) => onChannel('agentRuntime:end', handler),
       onError: (handler) => onChannel('agentRuntime:error', handler)
     },
-    onClawChannelActivity: (handler) => onChannel('claw:channel-activity', handler),
-    updateClawActiveThreadContext: (payload) =>
-      invoke('claw:active-thread-context', payload),
-    mirrorClawChannelMessage: (threadId, text, direction) =>
-      invoke('claw:channel:mirror', { threadId, text, direction }),
-    mirrorClawChannelMessageToFeishu: (threadId, text, direction) =>
-      invoke('claw:channel:mirror-to-feishu', { threadId, text, direction }),
-    createClawTaskFromText: (text, options) =>
-      invoke('claw:task:create-from-text', {
-        text,
-        channelId: options?.channelId,
-        modelHint: options?.modelHint,
-        mode: options?.mode
-      }),
+    onRemoteChannelActivity,
+    updateRemoteChannelActiveThreadContext,
+    mirrorRemoteChannelMessage,
+    mirrorRemoteChannelMessageToFeishu,
+    createRemoteChannelTaskFromText,
     createScheduleTaskFromText: (text, options) =>
       invoke('schedule:task:create-from-text', {
         text,

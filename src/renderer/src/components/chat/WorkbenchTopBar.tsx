@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { readPreferredEditorId, writePreferredEditorId } from '../../lib/editor-preferences'
+import { openSafeExternalUrl } from '../../lib/open-external'
 
 export type RightPanelMode =
   | 'todo'
@@ -221,9 +222,7 @@ export function WorkbenchTopBar({
   const runGuiUpdateAction = async (): Promise<void> => {
     if (!guiUpdateAction || guiUpdateBusy) return
     if (guiUpdateAction.manualOnly) {
-      if (typeof window.sciforge?.openExternal === 'function') {
-        await window.sciforge.openExternal(guiUpdateAction.releaseUrl)
-      }
+      await openSafeExternalUrl(guiUpdateAction.releaseUrl)
       return
     }
     if (

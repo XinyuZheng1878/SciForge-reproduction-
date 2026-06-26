@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { createServer as createTcpServer, type AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
@@ -130,7 +131,8 @@ function settingsWith(workflows: WorkflowV1[], port: number, secret = 'workflow-
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
-    claw: defaultClawSettings(),
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
     schedule: defaultScheduleSettings(),
     workflow: mergeWorkflowSettings(defaultWorkflowSettings(), {
       enabled: true,
@@ -342,6 +344,25 @@ describe('WorkflowRuntime internal HTTP facade', () => {
           },
           message: 'Workflow imported.'
         }
+      })
+    } finally {
+      runtime.stop()
+    }
+  })
+
+  it('denies internal HTTP requests when the stored workflow secret is empty', async () => {
+    const port = await findAvailablePort()
+    const store = createStore(settingsWith([makeWorkflow()], port, ''))
+    const runtime = new WorkflowRuntime({
+      store: store as never,
+      logError: vi.fn()
+    })
+    runtime.sync(store.read())
+
+    try {
+      await expect(requestInternal(port, '/workflow/internal/list', undefined, 'anything')).resolves.toMatchObject({
+        status: 401,
+        json: { ok: false, message: 'Unauthorized.' }
       })
     } finally {
       runtime.stop()

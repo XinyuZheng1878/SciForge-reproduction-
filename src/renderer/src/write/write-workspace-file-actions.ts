@@ -1,14 +1,11 @@
 import i18n from '../i18n'
 import { isWriteImageFilePath, isWritePdfFilePath, isWriteWorkspaceFilePath } from '@shared/write-text-file'
-import { writePathToFileUrl } from '@shared/write-markdown-resource'
 import type { WriteWorkspaceGet, WriteWorkspaceSet, WriteWorkspaceState } from './write-workspace-store-types'
 import {
   emptySelection,
   filterWriteEntries,
   formatWriteImageLoadError,
-  imageMimeTypeFromPath,
   initialState,
-  isMissingImageIpc,
   normalizePath,
   readRememberedActiveFile,
   rememberActiveFile,
@@ -256,28 +253,6 @@ export function createWriteFileActions({
           quotedSelections: []
         })
       } catch (error) {
-        if (isWriteImageFilePath(path) && isMissingImageIpc(error)) {
-          setLastSavedContent('')
-          rememberActiveFile(workspaceRoot, path)
-          set({
-            activeFilePath: path,
-            activeFileKind: 'image',
-            fileContent: '',
-            imageDataUrl: writePathToFileUrl(path),
-            imageMimeType: imageMimeTypeFromPath(path),
-            pdfDataBase64: '',
-            pdfMimeType: '',
-            pdfMtimeMs: 0,
-            fileSize: 0,
-            fileTruncated: false,
-            fileLoading: false,
-            fileError: null,
-            saveStatus: 'saved',
-            selection: emptySelection(),
-            quotedSelections: []
-          })
-          return
-        }
         set({
           fileLoading: false,
           fileError: isWriteImageFilePath(path)

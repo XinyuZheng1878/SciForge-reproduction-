@@ -36,8 +36,10 @@ function ClawEmptyHero({
   const agentName = clawChannelDisplayName(channel, t('clawEmptyHeroFallbackName'))
   void onSelectSuggestion
   const hasInboundConversation = Boolean(
-    channel?.threadId.trim() ||
-    channel?.conversations.some((conversation) => conversation.localThreadId.trim()) ||
+    Object.values(channel?.agentThreadIds ?? {}).some((threadId) => threadId.trim()) ||
+    channel?.conversations.some((conversation) =>
+      Object.values(conversation.agentThreadIds ?? {}).some((threadId) => threadId.trim())
+    ) ||
     channel?.conversations.length ||
     channel?.remoteSession?.chatId?.trim()
   )
@@ -124,7 +126,7 @@ function RuntimeWakeHero({
 }
 
 export function MessageTimelineEmptyHero({
-  route,
+  remoteChannelMode,
   ready,
   hasWorkspace,
   runtimeError,
@@ -134,7 +136,7 @@ export function MessageTimelineEmptyHero({
   onOpenSettings,
   onSelectSuggestion
 }: {
-  route: 'chat' | 'claw'
+  remoteChannelMode?: boolean
   ready: boolean
   hasWorkspace: boolean
   runtimeError?: string | null
@@ -171,7 +173,7 @@ export function MessageTimelineEmptyHero({
     )
   }
 
-  if (route === 'claw') {
+  if (remoteChannelMode) {
     return (
       <ClawEmptyHero
         channel={activeClawChannel}

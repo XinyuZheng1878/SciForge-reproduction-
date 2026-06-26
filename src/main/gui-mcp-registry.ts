@@ -102,6 +102,7 @@ import {
   syncExternalLocalRuntimeMcpJson,
   type ManagedGuiMcpDescriptor
 } from './managed-gui-mcp-config'
+import { internalSecretEnv } from './internal-http-secret'
 
 export type GuiMcpRuntimeServerConfig = {
   id: string
@@ -311,7 +312,7 @@ function codexServerConfigs(input: GuiMcpRegistryInput): GuiMcpRuntimeServerConf
       args: buildScheduleMcpArgs(scheduleSettings, input.scheduleMcp.launch),
       env: {
         ELECTRON_RUN_AS_NODE: '1',
-        ...localSecretEnv(GUI_SCHEDULE_INTERNAL_SECRET_ENV, scheduleSettings.schedule.internal.secret)
+        ...internalSecretEnv(GUI_SCHEDULE_INTERNAL_SECRET_ENV, scheduleSettings.schedule.internal.secret)
       },
       timeoutMs: GUI_SCHEDULE_MCP_TIMEOUT_MS,
       enabledTools: scheduleMcpEnabledTools()
@@ -344,7 +345,7 @@ function codexServerConfigs(input: GuiMcpRegistryInput): GuiMcpRuntimeServerConf
       id: GUI_WORKFLOW_MCP_SERVER_NAME,
       command: resolveWorkflowMcpCommand(input.workflowMcp.launch),
       args: buildWorkflowMcpArgs(workflowSettings, input.workflowMcp.launch),
-      env: workflowMcpEnv(localSecretEnv(GUI_WORKFLOW_INTERNAL_SECRET_ENV, workflowSettings.workflow.webhookSecret)),
+      env: workflowMcpEnv(internalSecretEnv(GUI_WORKFLOW_INTERNAL_SECRET_ENV, workflowSettings.workflow.webhookSecret)),
       timeoutMs: WORKFLOW_MCP_TIMEOUT_MS,
       enabledTools: workflowMcpEnabledTools()
     })
@@ -396,11 +397,6 @@ function codexServerConfigs(input: GuiMcpRegistryInput): GuiMcpRuntimeServerConf
     servers.push(buildComputerUseRuntimeMcpServerConfig(input.computerUseMcp.launch))
   }
   return servers
-}
-
-function localSecretEnv(name: string, value: string | undefined): Record<string, string> {
-  const secret = value?.trim()
-  return secret ? { [name]: secret } : {}
 }
 
 function objectValue(value: unknown): Record<string, unknown> {

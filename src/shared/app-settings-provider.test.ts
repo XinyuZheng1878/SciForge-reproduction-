@@ -3,7 +3,8 @@ import {
   DEFAULT_DEEPSEEK_BASE_URL,
   DEFAULT_MODEL_PROVIDER_ID,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
@@ -14,7 +15,6 @@ import {
   resolveLocalRuntimeSettings,
   type AppSettingsV1
 } from './app-settings'
-import { DeepseekCompatModelClient } from '../../kun/src/adapters/model/deepseek-compat-model-client'
 
 function settings(): AppSettingsV1 {
   return {
@@ -53,7 +53,8 @@ function settings(): AppSettingsV1 {
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
-    claw: defaultClawSettings(),
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
@@ -65,14 +66,6 @@ describe('model provider settings', () => {
   it('keeps the DeepSeek provider allowlist stable during product rebrands', () => {
     const provider = defaultModelProviderSettings()
     const defaultProvider = provider.providers[0]
-    const compatClient = new DeepseekCompatModelClient({
-      apiKey: 'sk-test',
-      baseUrl: 'https://api.deepseek.com',
-      model: 'deepseek-v4-pro',
-      fetchImpl: (() => {
-        throw new Error('fetch should not be called')
-      }) as typeof fetch
-    })
 
     expect(DEFAULT_MODEL_PROVIDER_ID).toBe('deepseek')
     expect(DEFAULT_DEEPSEEK_BASE_URL).toBe('http://127.0.0.1:3892/v1')
@@ -84,8 +77,6 @@ describe('model provider settings', () => {
       endpointFormat: 'chat_completions',
       models: ['deepseek-v4-pro', 'deepseek-v4-flash']
     })
-    expect(compatClient.provider).toBe('deepseek-compat')
-    expect(compatClient.model).toBe('deepseek-v4-pro')
   })
 
   it('resolves local runtime credentials only from the local Model Router boundary', () => {

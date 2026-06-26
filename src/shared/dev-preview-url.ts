@@ -1,4 +1,5 @@
 export const DEFAULT_DEV_PREVIEW_URL = 'http://127.0.0.1:5173/'
+export const DEV_PREVIEW_NAVIGATE_CHANNEL = 'dev-preview:navigate'
 
 function stripIpv6Brackets(hostname: string): string {
   return hostname.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '')

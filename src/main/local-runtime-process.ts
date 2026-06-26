@@ -28,9 +28,7 @@ import {
   LocalRuntimeServeConfigSchema,
   ModelConfigSchema,
   ContextCompactionConfigSchema,
-  RuntimeTuningConfigSchema
-} from '../../kun/src/config/kun-config.js'
-import {
+  RuntimeTuningConfigSchema,
   AttachmentsCapabilityConfig,
   McpCapabilityConfig,
   McpServerConfig,
@@ -38,12 +36,13 @@ import {
   SkillsCapabilityConfig,
   SubagentsCapabilityConfig,
   WebCapabilityConfig
-} from '../../kun/src/contracts/capabilities.js'
+} from './local-runtime-package-contract'
 import {
   GUI_SCHEDULE_INTERNAL_SECRET_ENV,
   resolveLocalRuntimeMcpJsonPath,
   type ScheduleMcpLaunchConfig
 } from './schedule-mcp-config'
+import { internalSecretEnv } from './internal-http-secret'
 import type { ResearchSearchMcpLaunchConfig } from './research-search-mcp-config'
 import type { ResearchMemoryMcpLaunchConfig } from './research-memory-mcp-config'
 import type { ComputerUseMcpLaunchConfig } from './computer-use-mcp-config'
@@ -463,12 +462,8 @@ async function startLocalRuntimeChildOnce(
 
 function runtimeSecretEnv(settings: AppSettingsV1): NodeJS.ProcessEnv {
   return {
-    ...(settings.schedule.internal.secret.trim()
-      ? { [GUI_SCHEDULE_INTERNAL_SECRET_ENV]: settings.schedule.internal.secret.trim() }
-      : {}),
-    ...(settings.workflow.webhookSecret.trim()
-      ? { [GUI_WORKFLOW_INTERNAL_SECRET_ENV]: settings.workflow.webhookSecret.trim() }
-      : {})
+    ...internalSecretEnv(GUI_SCHEDULE_INTERNAL_SECRET_ENV, settings.schedule.internal.secret),
+    ...internalSecretEnv(GUI_WORKFLOW_INTERNAL_SECRET_ENV, settings.workflow.webhookSecret)
   }
 }
 
@@ -644,15 +639,15 @@ async function skillCapabilityConfigForRuntime(
   existing: Record<string, unknown>,
   settings?: AppSettingsV1
 ): Promise<Record<string, unknown>> {
+  const { legacySkillMd: _legacySkillMd, ...existingWithoutLegacy } = existing
   const roots = uniqueStrings([
     ...stringArrayValue(existing.roots).map(normalizeSkillRootPath),
     ...(await guiSkillRootsForRuntime(settings)).map((root) => root.path)
   ])
   return {
-    ...existing,
+    ...existingWithoutLegacy,
     enabled: existing.enabled === false ? false : roots.length > 0 || existing.enabled === true,
-    roots,
-    legacySkillMd: existing.legacySkillMd === false ? false : true
+    roots
   }
 }
 
@@ -776,7 +771,7 @@ function modelConfigForRuntime(existing: Record<string, unknown>): Record<string
   const profiles: Record<string, unknown> = { ...DEFAULT_LOCAL_RUNTIME_MODEL_PROFILES }
   for (const [modelId, profile] of Object.entries(existingProfiles)) {
     const defaultProfile = objectValue(DEFAULT_LOCAL_RUNTIME_MODEL_PROFILES[modelId])
-    const existingProfile = objectValue(profile)
+    const existingProfile = sanitizeModelProfileForRuntime(profile)
     profiles[modelId] = {
       ...defaultProfile,
       ...existingProfile,
@@ -790,6 +785,15 @@ function modelConfigForRuntime(existing: Record<string, unknown>): Record<string
     ...existing,
     profiles
   }
+}
+
+function sanitizeModelProfileForRuntime(value: unknown): Record<string, unknown> {
+  const profile = { ...objectValue(value) }
+  delete profile.softRatio
+  delete profile.hardRatio
+  delete profile.softThreshold
+  delete profile.hardThreshold
+  return profile
 }
 
 function tokenEconomyConfigForRuntime(
@@ -836,10 +840,9 @@ function storageConfigForRuntime(
 
 function contextCompactionConfigForRuntime(
   contextCompaction: Pick<LocalRuntimeSettingsV1, 'contextCompaction'>['contextCompaction'],
-  existing: Record<string, unknown>
+  _existing: Record<string, unknown>
 ): Record<string, unknown> {
   return {
-    ...existing,
     defaultSoftThreshold: contextCompaction.defaultSoftThreshold,
     defaultHardThreshold: contextCompaction.defaultHardThreshold,
     summaryMode: contextCompaction.summaryMode,
@@ -863,7 +866,7 @@ function runtimeTuningConfigForRuntime(
       ...existingToolStorm,
       enabled: toolStorm.enabled,
       windowSize: toolStorm.windowSize,
-      threshold: toolStorm.softThreshold
+      threshold: toolStorm.threshold
     },
     toolArgumentRepair: {
       ...existingToolArgumentRepair,
@@ -920,6 +923,19 @@ function sanitizeLocalRuntimeCapabilitiesConfig(value: unknown): Record<string, 
   return next
 }
 
+function sanitizeLocalRuntimeModelConfig(value: unknown): Record<string, unknown> {
+  const raw = objectValue(value)
+  const profiles = objectValue(raw.profiles)
+  const sanitizedProfiles: Record<string, unknown> = {}
+  for (const [modelId, profile] of Object.entries(profiles)) {
+    sanitizedProfiles[modelId] = sanitizeModelProfileForRuntime(profile)
+  }
+  return {
+    ...raw,
+    ...(Object.keys(sanitizedProfiles).length > 0 ? { profiles: sanitizedProfiles } : {})
+  }
+}
+
 function sanitizeLocalRuntimeConfigSections(
   existing: Record<string, unknown> | null
 ): Record<string, unknown> | null {
@@ -927,7 +943,10 @@ function sanitizeLocalRuntimeConfigSections(
   const serve = stripLocalRuntimeServeProviderFields(objectValue(existing.serve))
   return {
     serve: parseLocalRuntimeConfigSection(LocalRuntimeServeConfigSchema, serve),
-    models: parseLocalRuntimeConfigSection(ModelConfigSchema, existing.models),
+    models: parseLocalRuntimeConfigSection(
+      ModelConfigSchema,
+      sanitizeLocalRuntimeModelConfig(existing.models)
+    ),
     contextCompaction: parseLocalRuntimeConfigSection(
       ContextCompactionConfigSchema,
       existing.contextCompaction

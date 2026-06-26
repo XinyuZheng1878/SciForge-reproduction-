@@ -14,7 +14,8 @@ import {
   DEFAULT_WEIXIN_BRIDGE_RPC_URL,
   DEFAULT_SCHEDULE_INTERNAL_PORT,
   buildClawRuntimePrompt,
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultSpeechToTextSettings,
@@ -42,7 +43,7 @@ import {
   isComputerUseEnabledForRuntime,
   getAgentCapabilitySettings,
   isLocalRuntimeInsecure,
-  mergeClawSettings,
+  mergeRemoteChannelSettings,
   normalizeAppSettings,
   normalizeRuntimeGuardSettings,
   parseClawUserPromptForDisplay,
@@ -76,7 +77,8 @@ function settings(): AppSettingsV1 {
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
-    claw: defaultClawSettings(),
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
@@ -223,17 +225,11 @@ describe('local runtime defaults', () => {
   })
 
   it('defaults runtime guard settings to runtime-neutral tool storm limits', () => {
-    expect(defaultRuntimeGuardSettings()).toEqual({
+    expect(defaultRuntimeGuardSettings()).toMatchObject({
       toolStorm: {
         enabled: true,
         windowSize: 8,
-        softThreshold: 3,
-        hardThreshold: 6
-      },
-      budgets: {
-        defaultMaxToolEvents: 80,
-        writeMaxToolEvents: 96,
-        remoteGuardMaxToolEvents: 32
+        threshold: 3
       }
     })
   })
@@ -305,14 +301,25 @@ describe('local runtime defaults', () => {
       toolStorm: {
         enabled: false,
         windowSize: 10,
+        threshold: 5
+      }
+    }).toolStorm).toMatchObject({
+      enabled: false,
+      windowSize: 10,
+      threshold: 5
+    })
+  })
+
+  it('drops legacy runtime guard soft and hard thresholds', () => {
+    expect(normalizeRuntimeGuardSettings({
+      toolStorm: {
         softThreshold: 5,
         hardThreshold: 7
       }
-    }).toolStorm).toEqual({
-      enabled: false,
-      windowSize: 10,
-      softThreshold: 5,
-      hardThreshold: 7
+    } as never).toolStorm).toMatchObject({
+      enabled: true,
+      windowSize: 8,
+      threshold: 3
     })
   })
 })
@@ -431,46 +438,57 @@ describe('speech-to-text settings', () => {
 })
 
 describe('claw settings', () => {
-  it('stores the WeChat bridge URL in Claw IM settings', () => {
-    const defaults = defaultClawSettings()
-    expect(defaults.im.weixinBridgeUrl).toBe(DEFAULT_WEIXIN_BRIDGE_RPC_URL)
+  it('defaults remote channel webhooks to the canonical path', () => {
+    const defaults = defaultRemoteChannelSettings()
+    expect(defaults.im.path).toBe('/remote-channel/webhook')
 
     const normalized = normalizeAppSettings({
       ...settings(),
-      claw: {
+      remoteChannel: {
         ...defaults,
         im: {
           ...defaults.im,
-          weixinBridgeUrl: '  http://127.0.0.1:8787/rpc  '
+          path: ''
         }
       }
     })
 
-    expect(normalized.claw.im.weixinBridgeUrl).toBe('http://127.0.0.1:8787/rpc')
+    expect(normalized.remoteChannel.im.path).toBe('/remote-channel/webhook')
   })
 
-  it('migrates the legacy OpenClaw Gateway URL into the WeChat bridge URL', () => {
-    const defaults = defaultClawSettings()
+  it('stores the WeChat bridge URL in connect phone settings', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
-      claw: {
-        ...defaults,
-        im: {
-          ...defaults.im,
-          weixinBridgeUrl: '',
-          openClawGatewayUrl: '  http://127.0.0.1:8787/rpc  '
-        } as typeof defaults.im & { openClawGatewayUrl: string }
+      connectPhone: {
+        weixinBridgeUrl: '  http://127.0.0.1:8787/rpc  '
       }
     })
 
-    expect(normalized.claw.im.weixinBridgeUrl).toBe('http://127.0.0.1:8787/rpc')
+    expect(defaultConnectPhoneSettings().weixinBridgeUrl).toBe(DEFAULT_WEIXIN_BRIDGE_RPC_URL)
+    expect(normalized.connectPhone.weixinBridgeUrl).toBe('http://127.0.0.1:8787/rpc')
+  })
+
+  it('does not read legacy OpenClaw Gateway URL from remote channel settings', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      remoteChannel: {
+        ...defaultRemoteChannelSettings(),
+        im: {
+          ...defaultRemoteChannelSettings().im,
+          openClawGatewayUrl: '  http://127.0.0.1:8787/rpc  '
+        } as ReturnType<typeof defaultRemoteChannelSettings>['im'] & { openClawGatewayUrl: string }
+      }
+    })
+
+    expect(normalized.connectPhone.weixinBridgeUrl).toBe(DEFAULT_WEIXIN_BRIDGE_RPC_URL)
+    expect('weixinBridgeUrl' in normalized.remoteChannel.im).toBe(false)
   })
 
   it('preserves Codex-only Claw IM conversations without a legacy local runtime thread id', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
-      claw: {
-        ...defaultClawSettings(),
+      remoteChannel: {
+        ...defaultRemoteChannelSettings(),
         channels: [{
           ...clawChannel('feishu', 'team'),
           runtimeId: 'codex',
@@ -494,12 +512,12 @@ describe('claw settings', () => {
       }
     })
 
-    expect(normalized.claw.channels[0]).toMatchObject({
+    expect(normalized.remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'codex',
       threadId: '',
       agentThreadIds: { codex: 'codex-channel-thread' }
     })
-    expect(normalized.claw.channels[0]?.conversations).toEqual([
+    expect(normalized.remoteChannel.channels[0]?.conversations).toEqual([
       expect.objectContaining({
         id: 'conversation-1',
         localThreadId: '',
@@ -512,8 +530,8 @@ describe('claw settings', () => {
   it('preserves Claude Claw IM thread mappings', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
-      claw: {
-        ...defaultClawSettings(),
+      remoteChannel: {
+        ...defaultRemoteChannelSettings(),
         channels: [{
           ...clawChannel('feishu', 'Claude Channel'),
           runtimeId: 'claude',
@@ -537,7 +555,7 @@ describe('claw settings', () => {
       }
     })
 
-    const channel = normalized.claw.channels[0]
+    const channel = normalized.remoteChannel.channels[0]
     expect(channel.runtimeId).toBe('claude')
     expect(channel.agentThreadIds).toEqual({ claude: 'claude-channel-thread' })
     expect(channel.conversations[0]).toMatchObject({
@@ -549,8 +567,8 @@ describe('claw settings', () => {
   it('normalizes Claw IM channel guard mode with an only_mention default', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
-      claw: {
-        ...defaultClawSettings(),
+      remoteChannel: {
+        ...defaultRemoteChannelSettings(),
         channels: [
           clawChannel('feishu', 'Default Guard'),
           {
@@ -565,7 +583,7 @@ describe('claw settings', () => {
       }
     })
 
-    expect(normalized.claw.channels.map((channel) => channel.guardMode)).toEqual([
+    expect(normalized.remoteChannel.channels.map((channel) => channel.guardMode)).toEqual([
       'only_mention',
       'all_messages',
       'only_mention'
@@ -575,8 +593,8 @@ describe('claw settings', () => {
   it('normalizes phone agent default names without touching custom names', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
-      claw: {
-        ...defaultClawSettings(),
+      remoteChannel: {
+        ...defaultRemoteChannelSettings(),
         channels: [
           clawChannel('weixin', 'WeChat Agent', 'WeChat Agent'),
           clawChannel('feishu', 'Feishu / Lark', 'Feishu Agent'),
@@ -585,7 +603,7 @@ describe('claw settings', () => {
       }
     })
 
-    expect(normalized.claw.channels.map((channel) => ({
+    expect(normalized.remoteChannel.channels.map((channel) => ({
       label: channel.label,
       name: channel.agentProfile.name
     }))).toEqual([
@@ -598,8 +616,8 @@ describe('claw settings', () => {
   it('keeps current Claw thread fields as SciForge mappings without legacy provider-only mappings', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
-      claw: {
-        ...defaultClawSettings(),
+      remoteChannel: {
+        ...defaultRemoteChannelSettings(),
         channels: [{
           id: 'channel-1',
           provider: 'weixin',
@@ -641,7 +659,7 @@ describe('claw settings', () => {
       }
     } as unknown as AppSettingsV1)
 
-    const channel = normalized.claw.channels[0]
+    const channel = normalized.remoteChannel.channels[0]
     expect(channel.runtimeId).toBe('sciforge')
     expect(channel.threadId).toBe('legacy-channel-thread')
     expect(channel.agentThreadIds).toEqual({ sciforge: 'legacy-channel-thread' })
@@ -653,8 +671,8 @@ describe('claw settings', () => {
   it('round-trips Codex claw thread mappings while keeping SciForge fields', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
-      claw: {
-        ...defaultClawSettings(),
+      remoteChannel: {
+        ...defaultRemoteChannelSettings(),
         channels: [{
           ...clawChannel('feishu', 'Codex Channel'),
           threadId: 'sciforge-channel-thread',
@@ -684,7 +702,7 @@ describe('claw settings', () => {
       }
     })
 
-    const channel = normalized.claw.channels[0]
+    const channel = normalized.remoteChannel.channels[0]
     expect(channel.runtimeId).toBe('codex')
     expect(channel.threadId).toBe('sciforge-channel-thread')
     expect(channel.agentThreadIds).toEqual({
@@ -704,8 +722,8 @@ describe('claw settings', () => {
   it('merges claw settings without dropping SciForge or Codex thread mappings', () => {
     const current = normalizeAppSettings({
       ...settings(),
-      claw: {
-        ...defaultClawSettings(),
+      remoteChannel: {
+        ...defaultRemoteChannelSettings(),
         channels: [{
           ...clawChannel('feishu', 'Merged Channel'),
           threadId: 'sciforge-channel-thread',
@@ -716,9 +734,9 @@ describe('claw settings', () => {
           }
         }]
       }
-    }).claw
+    }).remoteChannel
 
-    const merged = mergeClawSettings(current, {
+    const merged = mergeRemoteChannelSettings(current, {
       channels: [{
         ...current.channels[0],
         label: 'Merged Channel Renamed'
@@ -901,23 +919,14 @@ describe('mergeLocalRuntimeSettings', () => {
   it('deep-merges runtime guard settings through the new config model', () => {
     const next = mergeRuntimeGuardSettings(defaultRuntimeGuardSettings(), {
       toolStorm: {
-        softThreshold: 5
-      },
-      budgets: {
-        remoteGuardMaxToolEvents: 16
+        threshold: 5
       }
     })
 
-    expect(next.toolStorm).toEqual({
+    expect(next.toolStorm).toMatchObject({
       enabled: true,
       windowSize: 8,
-      softThreshold: 5,
-      hardThreshold: 6
-    })
-    expect(next.budgets).toEqual({
-      defaultMaxToolEvents: 80,
-      writeMaxToolEvents: 96,
-      remoteGuardMaxToolEvents: 16
+      threshold: 5
     })
   })
 })
@@ -1211,14 +1220,14 @@ describe('schedule settings', () => {
     }
     const normalized = normalizeAppSettings({
       ...settings(),
-      claw: {
-        ...defaultClawSettings(),
+      remoteChannel: {
+        ...defaultRemoteChannelSettings(),
         tasks: [legacyTask]
-      },
+      } as unknown as AppSettingsV1['remoteChannel'],
       schedule: undefined as unknown as AppSettingsV1['schedule']
     })
 
-    expect(normalized.claw.tasks).toHaveLength(1)
+    expect('tasks' in normalized.remoteChannel).toBe(false)
     expect(normalized.schedule.tasks).toEqual([])
 
     const merged = mergeScheduleSettings(normalizeScheduleSettings(undefined), {
@@ -1328,7 +1337,7 @@ describe('schedule settings', () => {
 describe('claw runtime prompts', () => {
   it('does not duplicate default Schedule MCP tool instructions in managed prompts', () => {
     const state = settings()
-    state.claw.channels = [{
+    state.remoteChannel.channels = [{
       id: 'channel-1',
       provider: 'feishu',
       label: 'sciforge',
@@ -1349,9 +1358,9 @@ describe('claw runtime prompts', () => {
       updatedAt: '2026-06-01T00:00:00.000Z'
     }]
 
-    const prompt = buildClawRuntimePrompt(state, 'hi', { channel: state.claw.channels[0] })
+    const prompt = buildClawRuntimePrompt(state, 'hi', { channel: state.remoteChannel.channels[0] })
 
-    expect(prompt).toContain('[Claw managed instructions]')
+    expect(prompt).toContain('[Remote channel managed instructions]')
     expect(prompt).toContain('[Agent name]\nsciforge')
     expect(prompt).not.toContain('gui_schedule')
     expect(prompt).not.toContain('scheduled-task tools')
@@ -1359,9 +1368,9 @@ describe('claw runtime prompts', () => {
 
   it('parses managed IM prompts into compact display text', () => {
     const parsed = parseClawUserPromptForDisplay([
-      '[Claw managed instructions]',
+      '[Remote channel managed instructions]',
       '',
-      '[Claw IM agent instructions]',
+      '[Remote channel agent instructions]',
       '',
       '[Agent name]',
       'sciforge',
@@ -1414,10 +1423,13 @@ describe('write inline completion runtime config', () => {
     expect(resolveWriteInlineCompletionBaseUrl(state)).toBe('http://127.0.0.1:3892/v1')
   })
 
-  it('ignores an explicit write-only baseUrl override for runtime-facing calls', () => {
+  it('drops legacy write-only baseUrl overrides from runtime-facing calls', () => {
     const state = settings()
     state.provider.baseUrl = 'https://general.example/v1'
-    state.write.inlineCompletion.baseUrl = 'https://write-only.example/v1'
+    state.write.inlineCompletion = {
+      ...state.write.inlineCompletion,
+      baseUrl: 'https://write-only.example/v1'
+    } as AppSettingsV1['write']['inlineCompletion']
     expect(resolveWriteInlineCompletionBaseUrl(state)).toBe('http://127.0.0.1:3892/v1')
   })
 
@@ -1427,19 +1439,16 @@ describe('write inline completion runtime config', () => {
     expect(resolveWriteInlineCompletionModel(state)).toBe('sciforge-router')
   })
 
-  it('ignores explicit write model overrides for runtime-facing calls', () => {
+  it('drops legacy write model overrides from runtime-facing calls', () => {
     const state = settings()
     state.agents.sciforge.model = 'deepseek-chat'
-    state.write.inlineCompletion.inheritModel = false
-    state.write.inlineCompletion.model = 'deepseek-v4-flash'
+    state.write.inlineCompletion = {
+      ...state.write.inlineCompletion,
+      inheritModel: false,
+      model: 'deepseek-v4-flash'
+    } as AppSettingsV1['write']['inlineCompletion']
 
     expect(resolveWriteInlineCompletionModel(state)).toBe('sciforge-router')
-  })
-
-  it('ignores explicit request models for runtime-facing calls', () => {
-    const state = settings()
-    state.agents.sciforge.model = 'deepseek-chat'
-    expect(resolveWriteInlineCompletionModel(state, 'deepseek-v4-pro')).toBe('sciforge-router')
   })
 
   it('tolerates legacy write inline settings without new override fields', () => {
@@ -1452,7 +1461,12 @@ describe('write inline completion runtime config', () => {
       runtimeApiKey: 'local-runtime-router-key'
     }
     state.agents.sciforge.model = 'deepseek-chat'
-    const legacyInlineCompletion = { ...state.write.inlineCompletion } as Partial<AppSettingsV1['write']['inlineCompletion']>
+    const legacyInlineCompletion = { ...state.write.inlineCompletion } as Partial<AppSettingsV1['write']['inlineCompletion']> & {
+      apiKey?: string
+      baseUrl?: string
+      inheritModel?: boolean
+      model?: string
+    }
     delete legacyInlineCompletion.apiKey
     delete legacyInlineCompletion.baseUrl
     delete legacyInlineCompletion.inheritModel
@@ -1470,7 +1484,10 @@ describe('write inline completion runtime config', () => {
     const legacyInlineCompletion = {
       ...state.write.inlineCompletion,
       model: 'deepseek-v4-flash'
-    } as Partial<AppSettingsV1['write']['inlineCompletion']>
+    } as Partial<AppSettingsV1['write']['inlineCompletion']> & {
+      inheritModel?: boolean
+      model?: string
+    }
     delete legacyInlineCompletion.inheritModel
     state.write.inlineCompletion = legacyInlineCompletion as AppSettingsV1['write']['inlineCompletion']
 

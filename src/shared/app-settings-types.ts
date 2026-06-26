@@ -1,21 +1,21 @@
 import type { GuiUpdateChannel } from './gui-update'
 import type { KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
 import type { SpeechToTextSettingsPatchV1, SpeechToTextSettingsV1 } from './speech-to-text'
-import type { ApprovalPolicy, SandboxMode } from '../../kun/src/contracts/policy.js'
-import type { ModelEndpointFormat } from '../../kun/src/contracts/model-endpoint-format.js'
+import type { ApprovalPolicy, SandboxMode } from './runtime-policy'
+import type { ModelEndpointFormat } from './model-endpoint-format'
 export {
   DEFAULT_MODEL_ENDPOINT_FORMAT,
   MODEL_ENDPOINT_FORMATS,
   modelEndpointPath,
   normalizeModelEndpointFormat
-} from '../../kun/src/contracts/model-endpoint-format.js'
+} from './model-endpoint-format'
 export { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel, type GuiUpdateChannel } from './gui-update'
 export {
   DEFAULT_APPROVAL_POLICY,
   DEFAULT_SANDBOX_MODE,
   type ApprovalPolicy,
   type SandboxMode
-} from '../../kun/src/contracts/policy.js'
+} from './runtime-policy'
 export type UiFontScale = 'small' | 'medium' | 'large'
 export type ScheduleRunMode = 'agent' | 'plan'
 export type ScheduleKind = 'manual' | 'interval' | 'daily' | 'at'
@@ -45,9 +45,6 @@ export const DEFAULT_LOCAL_RUNTIME_DATA_DIR = '~/.sciforge/runtime'
 export const DEFAULT_CODEX_DATA_DIR = '~/.sciforge/codex'
 export const DEFAULT_CLAUDE_CONFIG_DIR = '~/.sciforge/claude-code'
 export const DEFAULT_LOCAL_RUNTIME_MODEL = 'deepseek-v4-pro'
-export const DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL = DEFAULT_MODEL_ROUTER_BASE_URL
-export const DEFAULT_WRITE_INLINE_COMPLETION_MODEL = 'deepseek-v4-flash'
-export const WRITE_INLINE_COMPLETION_MODEL_IDS = ['deepseek-v4-pro', 'deepseek-v4-flash'] as const
 export const DEFAULT_WRITE_INLINE_COMPLETION_DEBOUNCE_MS = 650
 export const DEFAULT_WRITE_INLINE_COMPLETION_MIN_ACCEPT_SCORE = 0.52
 export const DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS = 96
@@ -246,24 +243,15 @@ export type LocalRuntimeTuningSettingsV1 = {
 export type RuntimeToolStormGuardSettingsV1 = {
   enabled: boolean
   windowSize: number
-  softThreshold: number
-  hardThreshold: number
-}
-
-export type RuntimeBudgetSettingsV1 = {
-  defaultMaxToolEvents: number
-  writeMaxToolEvents: number
-  remoteGuardMaxToolEvents: number
+  threshold: number
 }
 
 export type RuntimeGuardSettingsV1 = {
   toolStorm: RuntimeToolStormGuardSettingsV1
-  budgets: RuntimeBudgetSettingsV1
 }
 
 export type RuntimeGuardSettingsPatchV1 = {
-  toolStorm?: Partial<RuntimeToolStormGuardSettingsV1>
-  budgets?: Partial<RuntimeBudgetSettingsV1>
+  toolStorm?: Partial<Pick<RuntimeToolStormGuardSettingsV1, 'enabled' | 'windowSize' | 'threshold'>>
 }
 
 export type AgentSubagentSettingsV1 = {
@@ -418,21 +406,15 @@ export type ClawImSettingsV1 = {
   port: number
   path: string
   secret: string
-  weixinBridgeUrl: string
   workspaceRoot: string
   model: string
   mode: ClawRunMode
   responseTimeoutMs: number
 }
 
-export type ClawTaskScheduleV1 = {
-  kind: ClawScheduleKind
-  everyMinutes: number
-  timeOfDay: string
-  atTime: string
+export type ConnectPhoneSettingsV1 = {
+  weixinBridgeUrl: string
 }
-
-export type ClawTaskV1 = ScheduledTaskV1
 
 export type ClawImAgentProfileV1 = {
   name: string
@@ -518,7 +500,7 @@ export type ClawImConversationV1 = {
   latestMessageId: string
   senderId: string
   senderName: string
-  /** Local runtime thread id this conversation maps to. */
+  /** Derived mirror of `agentThreadIds.sciforge` for legacy display surfaces. */
   localThreadId: string
   runtimeId?: AgentRuntimeId
   agentThreadIds?: AgentThreadIdsV1
@@ -535,7 +517,7 @@ export type ClawImChannelV1 = {
   enabled: boolean
   guardMode?: ClawImChannelGuardModeV1
   model: string
-  /** Local runtime thread id this channel maps to. */
+  /** Derived mirror of `agentThreadIds.sciforge` for legacy display surfaces. */
   threadId: string
   runtimeId?: AgentRuntimeId
   agentThreadIds?: AgentThreadIdsV1
@@ -550,12 +532,11 @@ export type ClawImChannelV1 = {
   updatedAt: string
 }
 
-export type ClawSettingsV1 = {
+export type RemoteChannelSettingsV1 = {
   enabled: boolean
   skills: ClawSkillSettingsV1
   im: ClawImSettingsV1
   channels: ClawImChannelV1[]
-  tasks: ClawTaskV1[]
 }
 
 // Workflow (n8n-style node-based automation)
@@ -1294,11 +1275,6 @@ export type WriteInlineCompletionSettingsV1 = {
   enabled: boolean
   retrievalEnabled: boolean
   longCompletionEnabled: boolean
-  apiKey: string
-  baseUrl: string
-  /** When true, Write inherits the local runtime model instead of using `model` as an override. */
-  inheritModel: boolean
-  model: string
   debounceMs: number
   longDebounceMs: number
   minAcceptScore: number
@@ -1314,12 +1290,13 @@ export type WriteSettingsV1 = {
   inlineCompletion: WriteInlineCompletionSettingsV1
 }
 
-export type ClawSettingsPatchV1 = Partial<Omit<ClawSettingsV1, 'skills' | 'im' | 'channels' | 'tasks'>> & {
+export type RemoteChannelSettingsPatchV1 = Partial<Omit<RemoteChannelSettingsV1, 'skills' | 'im' | 'channels'>> & {
   skills?: Partial<ClawSkillSettingsV1>
   im?: Partial<ClawImSettingsV1>
   channels?: Array<Partial<ClawImChannelV1>>
-  tasks?: Array<Partial<ClawTaskV1>>
 }
+
+export type ConnectPhoneSettingsPatchV1 = Partial<ConnectPhoneSettingsV1>
 
 export type ScheduleSettingsPatchV1 = Partial<
   Omit<ScheduleSettingsV1, 'skills' | 'internal' | 'tasks'>
@@ -1390,7 +1367,8 @@ export type AppSettingsV1 = {
   keyboardShortcuts: KeyboardShortcutsConfigV1
   write: WriteSettingsV1
   speechToText?: SpeechToTextSettingsV1
-  claw: ClawSettingsV1
+  remoteChannel: RemoteChannelSettingsV1
+  connectPhone: ConnectPhoneSettingsV1
   schedule: ScheduleSettingsV1
   workflow: WorkflowSettingsV1
   guiUpdate: GuiUpdateConfigV1
@@ -1398,7 +1376,7 @@ export type AppSettingsV1 = {
 }
 
 export type AppSettingsPatch = Partial<
-  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'speechToText' | 'claw' | 'schedule' | 'workflow' | 'guiUpdate' | 'computerUse' | 'researchMemory' | 'agentCapabilities'>
+  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'speechToText' | 'remoteChannel' | 'connectPhone' | 'schedule' | 'workflow' | 'guiUpdate' | 'computerUse' | 'researchMemory' | 'agentCapabilities'>
 > & {
   provider?: ModelProviderSettingsPatchV1
   modelRouter?: ModelRouterSettingsPatchV1
@@ -1413,7 +1391,8 @@ export type AppSettingsPatch = Partial<
   keyboardShortcuts?: Partial<KeyboardShortcutsConfigV1>
   write?: WriteSettingsPatchV1
   speechToText?: SpeechToTextSettingsPatchV1
-  claw?: ClawSettingsPatchV1
+  remoteChannel?: RemoteChannelSettingsPatchV1
+  connectPhone?: ConnectPhoneSettingsPatchV1
   schedule?: ScheduleSettingsPatchV1
   workflow?: WorkflowSettingsPatchV1
   guiUpdate?: Partial<GuiUpdateConfigV1>

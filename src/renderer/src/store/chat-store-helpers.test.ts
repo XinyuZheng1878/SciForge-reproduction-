@@ -91,6 +91,7 @@ describe('chat-store Claw helpers', () => {
         '/Users/zxy/project-a',
         '/Users/zxy/project-a/',
         '/tmp/transient',
+        '/Users/zxy/.sciforge/remote-channel/agent/conversations/chat',
         '/Users/zxy/.sciforge/claw/agent/conversations/chat',
         '/Users/zxy/.sciforge/default_workspace',
         '~/.sciforge/write_workspace',
@@ -262,10 +263,11 @@ describe('chat-store Claw helpers', () => {
     expect(weixin.agentProfile.name).toBe('weixin agent')
   })
 
-  it('recognizes Claw managed prompt summaries as Claw sessions', () => {
+  it('recognizes remote-channel prompt summaries and legacy Claw titles as managed sessions', () => {
     expect(
       clawThreadTitleLooksManaged(`${CLAW_MANAGED_INSTRUCTIONS_HEADING} SciForge scheduled-task tools`)
     ).toBe(true)
+    expect(isClawThread({ id: 'remote-channel', title: '[Remote channel:Feishu Agent]' })).toBe(true)
     expect(isClawThread({ id: 'kun-leaked', title: '[Claw:Feishu Agent]' })).toBe(true)
   })
 

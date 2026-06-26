@@ -33,8 +33,8 @@ In addition to leaving recent edits to the model for understanding, this round a
 When a user replaces one phrase with another all at once, for example:
 
 ```text
-deepseek gui -> SciForge
-deepseek gui -> DXGUI
+legacy editor -> SciForge Write
+legacy editor -> Live editor
 
 ```
 
@@ -45,7 +45,7 @@ In order to avoid accidental injury, there are these restrictions on disseminati
 - Propagate only within the same natural paragraph, not across blank lines, headers, code fences and separators.
 - Only handles one-time phrase replacement, not normal verbatim input.
 - The phrase must be morphologically similar to a term, such as being long enough, containing spaces, uppercase and lowercase letters, numbers, underscores, or hyphens.
-- Will check word boundaries to avoid accidentally replacing local strings in `mydeepseek gui`.
+- Will check word boundaries to avoid accidentally replacing local strings in `mylegacy editor`.
 
 Record structure:
 
@@ -157,7 +157,7 @@ flowchart LR
   E --> F
   F --> G["write:inline-completion payload (mode=edit)"]
   G --> H["main process builds edit prompt"]
-  H --> I["DeepSeek EDIT action"]
+  H --> I["Model Router EDIT action"]
   I --> J["replace in place"]
   J --> K["record inline-edit recent edit"]
 

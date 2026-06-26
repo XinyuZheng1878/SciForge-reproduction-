@@ -19,6 +19,7 @@ import type {
 } from '@shared/agent-runtime-contract'
 import type { NormalizedThread } from '../../agent/types'
 import { getProvider } from '../../agent/registry'
+import { openSafeExternalUrl } from '../../lib/open-external'
 import {
   SidebarIconButton,
   SidebarSectionHeader,
@@ -553,9 +554,7 @@ export function SidebarChildrenSection({
       return
     }
     const url = recordString(ref, 'url')
-    if (url && typeof window.sciforge?.openExternal === 'function') {
-      void window.sciforge.openExternal(url).catch(() => undefined)
-    }
+    void openSafeExternalUrl(url).catch(() => undefined)
   }
 
   const handleShowTranscript = (child: AgentRuntimeChild): void => {

@@ -10,6 +10,10 @@ import {
   executeCreatePlanTool,
   isPlanToolContextActive
 } from '../src/adapters/tool/create-plan-tool.js'
+import {
+  buildPlanRelativePath,
+  normalizeGuiPlanRelativePath
+} from '../src/shared/gui-plan.js'
 import type { ToolHostContext } from '../src/ports/tool-host.js'
 
 function buildContext(overrides: Partial<ToolHostContext> = {}): ToolHostContext {
@@ -146,6 +150,52 @@ describe('create_plan tool: path validation', () => {
     expect(JSON.stringify(result.output)).toMatch(/does not match the reserved/)
   })
 
+  it('accepts normalized explicit paths that match the reserved GUI plan path', async () => {
+    const rawPath = './.sciforge\\plan//login.md'
+    const result = await executeCreatePlanTool(
+      {
+        markdown: '# normalized',
+        operation: 'draft',
+        plan_relative_path: rawPath
+      },
+      buildContext({
+        threadMode: 'plan',
+        guiPlan: {
+          operation: 'draft',
+          workspaceRoot: '/tmp/ws',
+          relativePath: '.sciforge/plan/login.md',
+          planId: 'plan_login'
+        }
+      }),
+      {
+        writePlan: async (target) => ({ path: target.absolutePath, savedAt: 'now' })
+      }
+    )
+    expect(result.isError).toBeFalsy()
+    expect((result.output as { relative_path: string }).relative_path).toBe(
+      normalizeGuiPlanRelativePath(rawPath)
+    )
+  })
+
+  it('normalizes explicit free-form plan paths through the shared GUI plan helper', async () => {
+    const rawPath = './.sciforge\\plan//Manual.md'
+    const result = await executeCreatePlanTool(
+      {
+        markdown: '# manual',
+        operation: 'draft',
+        plan_relative_path: rawPath
+      },
+      buildContext({ threadMode: 'plan', workspace: '/tmp/ws' }),
+      {
+        writePlan: async (target) => ({ path: target.absolutePath, savedAt: 'now' })
+      }
+    )
+    expect(result.isError).toBeFalsy()
+    expect((result.output as { relative_path: string }).relative_path).toBe(
+      normalizeGuiPlanRelativePath(rawPath)
+    )
+  })
+
   it('rejects an operation that differs from the active GUI plan operation', async () => {
     const result = await executeCreatePlanTool(
       {
@@ -164,8 +214,9 @@ describe('create_plan tool: path validation', () => {
 
 describe('create_plan tool: execution safety', () => {
   it('allows a free-form plan-mode call without a GUI plan context and self-allocates a path', async () => {
+    const seed = 'Build Login: OAuth / SSO?'
     const result = await executeCreatePlanTool(
-      { markdown: '# allowed', operation: 'draft', title: 'disk cleanup' },
+      { markdown: '# allowed', operation: 'draft', title: seed },
       buildContext({ threadMode: 'plan', workspace: '/tmp/ws' }),
       {
         listPlanFiles: () => [],
@@ -174,7 +225,7 @@ describe('create_plan tool: execution safety', () => {
     )
     expect(result.isError).toBeFalsy()
     expect((result.output as { relative_path: string }).relative_path).toBe(
-      '.sciforge/plan/disk-cleanup.md'
+      buildPlanRelativePath(seed)
     )
   })
 

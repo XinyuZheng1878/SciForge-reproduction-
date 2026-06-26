@@ -52,6 +52,7 @@ const KIND: ComputerUseBackendKind = 'browser-cdp'
 const TARGET_ID = 'browser-cdp:isolated-browser'
 const DEFAULT_VIEWPORT = { width: 1280, height: 831 }
 const BROWSER_PATH_ENV = 'SCIFORGE_COMPUTER_USE_BROWSER_PATH'
+const BROWSER_NAVIGATION_PROTOCOLS = new Set(['http:', 'https:'])
 
 export class BrowserCdpComputerUseBackend implements ComputerUseBackend {
   readonly kind = KIND
@@ -231,7 +232,7 @@ export class BrowserCdpComputerUseBackend implements ComputerUseBackend {
     const client = browser.client
     switch (input.action) {
       case 'navigate': {
-        const url = normalizeUrl(input.url ?? input.text)
+        const url = normalizeBrowserNavigationUrl(input.url ?? input.text)
         if (!url) throw new Error('navigate action requires url')
         await client.send('Page.navigate', { url })
         await waitForLoad(client, input.signal)
@@ -544,11 +545,22 @@ function virtualKeyCode(key: string): number | undefined {
   return key.length === 1 ? key.toUpperCase().charCodeAt(0) : undefined
 }
 
-function normalizeUrl(value: string | undefined): string {
+export function normalizeBrowserNavigationUrl(value: string | undefined): string {
   const trimmed = value?.trim() ?? ''
   if (!trimmed) return ''
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed
-  return `https://${trimmed}`
+  const candidate = /^[a-z][a-z0-9+.-]*:/i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`
+  let parsed: URL
+  try {
+    parsed = new URL(candidate)
+  } catch {
+    throw new Error('navigate action requires a valid http or https url')
+  }
+  if (!BROWSER_NAVIGATION_PROTOCOLS.has(parsed.protocol)) {
+    throw new Error(`navigate action blocked unsupported url scheme: ${parsed.protocol}`)
+  }
+  return parsed.toString()
 }
 
 function wait(ms: number, signal?: AbortSignal): Promise<void> {

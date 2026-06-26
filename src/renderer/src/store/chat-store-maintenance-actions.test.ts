@@ -36,6 +36,8 @@ type Harness = {
     getCapabilities: ReturnType<typeof vi.fn>
     rememberThreadRuntime: ReturnType<typeof vi.fn>
     resumeSession: ReturnType<typeof vi.fn>
+    submitUserInputResponse: ReturnType<typeof vi.fn>
+    cancelUserInput: ReturnType<typeof vi.fn>
     setThreadGoal: ReturnType<typeof vi.fn>
     clearThreadGoal: ReturnType<typeof vi.fn>
     interruptTurn: ReturnType<typeof vi.fn>
@@ -48,9 +50,14 @@ type Harness = {
   state: ChatState
 }
 
-function thread(id: string, goal: ThreadGoal | null = null): NormalizedThread {
+function thread(
+  id: string,
+  goal: ThreadGoal | null = null,
+  runtimeId: NormalizedThread['runtimeId'] = 'sciforge'
+): NormalizedThread {
   return {
     id,
+    runtimeId,
     title: id,
     updatedAt: '2026-06-04T00:00:00.000Z',
     model: 'deepseek-v4-pro',
@@ -120,6 +127,8 @@ function buildHarness(options: {
       threadId: 'thr_resumed',
       runtimeId: 'codex' as const
     })),
+    submitUserInputResponse: vi.fn(async () => undefined),
+    cancelUserInput: vi.fn(async () => undefined),
     setThreadGoal: vi.fn(async (threadId: string, patch: GoalPatch) =>
       goal(
         threadId,
@@ -400,6 +409,88 @@ describe('chat-store-maintenance-actions goal actions', () => {
     expect(state.activeThreadGoal).toBeNull()
     expect(state.threads[0]?.goal).toBeNull()
     expect(refreshThreads).toHaveBeenCalledTimes(1)
+  })
+
+  it('submits pending user input through the provider and marks the block submitted', async () => {
+    const { actions, provider, state } = buildHarness()
+    const answers = [{ id: 'choice', label: 'Use neutral path', value: 'Use neutral path' }]
+    Object.assign(state, {
+      blocks: [{
+        kind: 'user_input',
+        id: 'input-block',
+        requestId: 'request-1',
+        questions: [{
+          id: 'choice',
+          header: 'Choice',
+          question: 'How should this resolve?',
+          options: [{ label: 'Use neutral path', description: 'Submit directly to runtime.' }]
+        }],
+        status: 'pending'
+      }],
+      busy: false,
+      error: null
+    })
+
+    await actions.resolveUserInput('input-block', { kind: 'submit', answers })
+
+    expect(provider.submitUserInputResponse).toHaveBeenCalledWith('request-1', answers)
+    expect(provider.interruptTurn).not.toHaveBeenCalled()
+    expect(state.blocks[0]).toMatchObject({
+      kind: 'user_input',
+      status: 'submitted',
+      answers
+    })
+    expect(state.error).toBeNull()
+  })
+
+  it('fails unsupported user input submit without queueing or interrupting', async () => {
+    const { actions, drainQueuedMessages, provider, refreshThreads, state } = buildHarness()
+    vi.stubGlobal('window', {
+      sciforge: {
+        logError: vi.fn(async () => undefined)
+      }
+    })
+    provider.submitUserInputResponse.mockRejectedValueOnce(new Error(JSON.stringify({
+      code: 'runtime_request_user_input_unsupported',
+      message: 'Runtime cannot submit request_user_input responses.'
+    })))
+    const queuedMessages = [{ id: 'q-existing', text: 'keep me queued' }]
+    const answers = [{ id: 'choice', label: 'Use neutral path', value: 'Use neutral path' }]
+    Object.assign(state, {
+      blocks: [{
+        kind: 'user_input',
+        id: 'input-block',
+        requestId: 'request-1',
+        questions: [{
+          id: 'choice',
+          header: 'Choice',
+          question: 'How should this resolve?',
+          options: [{ label: 'Use neutral path', description: 'Submit directly to runtime.' }]
+        }],
+        status: 'pending'
+      }],
+      busy: true,
+      currentTurnId: 'turn-1',
+      currentTurnUserId: 'user-1',
+      queuedMessages,
+      error: null
+    })
+
+    await actions.resolveUserInput('input-block', { kind: 'submit', answers })
+
+    expect(provider.submitUserInputResponse).toHaveBeenCalledWith('request-1', answers)
+    expect(provider.interruptTurn).not.toHaveBeenCalled()
+    expect(drainQueuedMessages).not.toHaveBeenCalled()
+    expect(refreshThreads).not.toHaveBeenCalled()
+    expect(state.queuedMessages).toEqual(queuedMessages)
+    expect(state.currentTurnId).toBe('turn-1')
+    expect(state.busy).toBe(true)
+    expect(state.error).toBeTruthy()
+    expect(state.blocks[0]).toMatchObject({
+      kind: 'user_input',
+      status: 'error',
+      errorMessage: state.error
+    })
   })
 
   it('settles local runtime work after interrupt succeeds', async () => {

@@ -1,7 +1,8 @@
 import { createServer, type AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
@@ -68,7 +69,8 @@ function settingsWith(
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
-    claw: defaultClawSettings(),
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
     schedule: mergeScheduleSettings(defaultScheduleSettings(), {
       enabled: true,
       tasks,
@@ -88,7 +90,7 @@ function createStore(initial: AppSettingsV1) {
       current = {
         ...current,
         schedule: mergeScheduleSettings(current.schedule, partial.schedule),
-        claw: current.claw
+        remoteChannel: current.remoteChannel
       }
       return current
     }),
@@ -201,7 +203,7 @@ describe('ScheduleRuntime', () => {
       mode: 'plan',
       schedule: { kind: 'at', atTime: future }
     })
-    expect(store.read().claw.tasks).toEqual([])
+    expect('tasks' in store.read().remoteChannel).toBe(false)
   })
 
   it('starts a SciForge thread through agentRuntime with a Schedule title and records running status', async () => {
@@ -753,6 +755,25 @@ describe('ScheduleRuntime', () => {
         workspaceRoot: '/tmp/workspace',
         modelHint: 'deepseek-v4-flash',
         mode: 'plan'
+      })
+    } finally {
+      runtime.stop()
+    }
+  })
+
+  it('denies internal HTTP requests when the stored schedule secret is empty', async () => {
+    const port = await findAvailablePort()
+    const settings = settingsWith([], { internal: { port, secret: '' } })
+    const { runtime } = createRuntime(settings)
+    const syncInternalServer = (runtime as unknown as {
+      syncInternalServer: (settings: AppSettingsV1) => void
+    }).syncInternalServer.bind(runtime)
+    syncInternalServer(settings)
+
+    try {
+      await expect(postInternal(port, '/schedule/internal/status', {}, 'anything')).resolves.toMatchObject({
+        status: 401,
+        json: { ok: false, message: 'Unauthorized.' }
       })
     } finally {
       runtime.stop()

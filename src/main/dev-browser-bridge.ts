@@ -3,11 +3,13 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { AppBridgeSender } from './ipc/register-app-ipc-handlers'
+import { isLocalHttpBodyTooLargeError, readIncomingMessageBody } from './local-http-body'
 
 const DEFAULT_DEV_BROWSER_BRIDGE_PORT = 5174
 const MAX_INVOKE_BODY_BYTES = 2_000_000
 const CLIENT_DESTROY_DELAY_MS = 1_000
 export const DEV_BROWSER_BRIDGE_TOKEN_HEADER = 'X-SciForge-Bridge-Token'
+export const DEV_BROWSER_BRIDGE_TOKEN_QUERY_PARAM = 'sciforgeBridgeToken'
 const DEV_BROWSER_BRIDGE_ALLOWED_HEADERS = [
   'Content-Type',
   'Authorization',
@@ -15,19 +17,13 @@ const DEV_BROWSER_BRIDGE_ALLOWED_HEADERS = [
   DEV_BROWSER_BRIDGE_TOKEN_HEADER
 ].join(',')
 
+// Keep the default bridge surface read-only/status/subscription oriented.
+// Callers that need write actions must opt in via allowedChannels.
 export const DEFAULT_DEV_BROWSER_BRIDGE_ALLOWED_CHANNELS = [
   'settings:get',
-  'settings:set',
   'upstream:models',
-  'claw:status',
-  'claw:task:run',
-  'claw:active-thread-context',
-  'claw:channel:mirror',
-  'claw:channel:mirror-to-feishu',
-  'claw:task:create-from-text',
+  'connectPhone:status',
   'schedule:status',
-  'schedule:task:run',
-  'schedule:task:create-from-text',
   'workflow:status',
   'workflow:code:check',
   'discord:status',
@@ -54,31 +50,15 @@ export const DEFAULT_DEV_BROWSER_BRIDGE_ALLOWED_CHANNELS = [
   'paperRadar:search',
   'paperRadar:rank',
   'paperRadar:digest',
-  'agentRuntime:connect',
   'agentRuntime:capabilities',
   'agentRuntime:listThreads',
-  'agentRuntime:startThread',
   'agentRuntime:readThread',
-  'agentRuntime:startTurn',
-  'agentRuntime:interruptTurn',
-  'agentRuntime:steerTurn',
   'agentRuntime:subscribeEvents',
   'agentRuntime:stopEvents',
-  'agentRuntime:renameThread',
-  'agentRuntime:deleteThread',
-  'agentRuntime:compactThread',
-  'agentRuntime:forkThread',
-  'agentRuntime:resumeSession',
-  'agentRuntime:updateThreadRelation',
   'agentRuntime:usage',
-  'agentRuntime:auxiliary',
-  'agentRuntime:resolveApproval',
-  'agentRuntime:resolveUserInput',
-  'notification:turn-complete',
   'app:version',
   'gui:update-state',
   'gui:update-check',
-  'log:error',
   'log:get-path'
 ] as const
 
@@ -227,14 +207,16 @@ function parseAuthorizationBearer(value: string): string {
   return match?.[1]?.trim() ?? ''
 }
 
-function getInvokeToken(request: IncomingMessage): string {
+function getBridgeToken(request: IncomingMessage, requestUrl?: URL): string {
   const primary = normalizeHeaderValue(request.headers[DEV_BROWSER_BRIDGE_TOKEN_HEADER.toLowerCase()])
   if (primary) return primary
-  return parseAuthorizationBearer(normalizeHeaderValue(request.headers.authorization))
+  const bearer = parseAuthorizationBearer(normalizeHeaderValue(request.headers.authorization))
+  if (bearer) return bearer
+  return normalizeToken(requestUrl?.searchParams.get(DEV_BROWSER_BRIDGE_TOKEN_QUERY_PARAM) ?? undefined) ?? ''
 }
 
-function hasValidInvokeToken(request: IncomingMessage, expectedToken: string): boolean {
-  const providedToken = getInvokeToken(request)
+function hasValidBridgeToken(request: IncomingMessage, expectedToken: string, requestUrl?: URL): boolean {
+  const providedToken = getBridgeToken(request, requestUrl)
   return Boolean(providedToken) && timingSafeStringEqual(providedToken, expectedToken)
 }
 
@@ -245,17 +227,7 @@ function createAllowedChannelSet(channels: readonly string[] | undefined): Reado
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = []
-  let size = 0
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-    size += buffer.byteLength
-    if (size > MAX_INVOKE_BODY_BYTES) {
-      throw new Error('Request body is too large.')
-    }
-    chunks.push(buffer)
-  }
-  const text = Buffer.concat(chunks).toString('utf8')
+  const text = await readIncomingMessageBody(request, MAX_INVOKE_BODY_BYTES)
   if (!text.trim()) return null
   return JSON.parse(text) as unknown
 }
@@ -310,6 +282,13 @@ export async function startDevBrowserBridgeServer(
     }
 
     if (request.method === 'GET' && requestUrl.pathname === '/events') {
+      if (!hasValidBridgeToken(request, token, requestUrl)) {
+        writeJson(response, 401, {
+          ok: false,
+          message: 'Dev browser bridge token is missing or invalid.'
+        })
+        return
+      }
       const clientId = normalizeClientId(requestUrl.searchParams.get('clientId') ?? undefined)
       const client = getClient(clientId)
       response.writeHead(200, {
@@ -323,7 +302,7 @@ export async function startDevBrowserBridgeServer(
     }
 
     if (request.method === 'POST' && requestUrl.pathname === '/invoke') {
-      if (!hasValidInvokeToken(request, token)) {
+      if (!hasValidBridgeToken(request, token)) {
         writeJson(response, 401, {
           ok: false,
           message: 'Dev browser bridge token is missing or invalid.'
@@ -344,7 +323,7 @@ export async function startDevBrowserBridgeServer(
           const payload = await options.dispatcher.invoke(body.channel, body.payload, getClient(clientId))
           writeJson(response, 200, { ok: true, payload })
         } catch (error) {
-          writeJson(response, 500, {
+          writeJson(response, isLocalHttpBodyTooLargeError(error) ? 413 : 500, {
             ok: false,
             message: error instanceof Error ? error.message : String(error)
           })

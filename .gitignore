@@ -4,6 +4,7 @@ out/
 dist/
 .cache/
 .deepseek/
+.kunsdd/
 .codex-runtime/
 .claude-code-runtime/
 *.log

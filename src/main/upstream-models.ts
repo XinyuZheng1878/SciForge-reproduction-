@@ -110,10 +110,8 @@ export async function readConfiguredLocalRuntimeModelIds(settings: AppSettingsV1
   }
   const root = objectValue(parsed)
   const models = objectValue(root.models)
-  const contextCompaction = objectValue(root.contextCompaction)
   return mergeModelIds([
     ...ids,
-    ...modelIdsFromProfiles(objectValue(contextCompaction.modelProfiles)),
     ...modelIdsFromProfiles(objectValue(models.profiles))
   ])
 }
@@ -194,9 +192,7 @@ async function readConfiguredProfileAliasGroups(
   }
   const root = objectValue(parsed)
   const models = objectValue(root.models)
-  const contextCompaction = objectValue(root.contextCompaction)
   const aliasesByModel = new Map<string, string[]>()
-  collectModelProfileAliases(aliasesByModel, objectValue(contextCompaction.modelProfiles))
   collectModelProfileAliases(aliasesByModel, objectValue(models.profiles))
 
   const aliasGroups: ModelProviderModelGroup[] = []

@@ -6,6 +6,7 @@ import {
   guiPlanWorkspaceMatches,
   isGuiPlanCurrentRelativePath,
   isGuiPlanRelativePath,
+  normalizeGuiPlanRelativePath,
   nextAvailablePlanRelativePath,
   planDisplayNameFromRelativePath,
   planFeatureNameFromRequest,
@@ -19,6 +20,15 @@ describe('gui-plan path validation', () => {
     expect(isGuiPlanRelativePath(`${GUI_PLAN_RELATIVE_DIR}\\login.md`)).toBe(true)
     expect(isGuiPlanCurrentRelativePath(`${GUI_PLAN_RELATIVE_DIR}/login.md`)).toBe(true)
     expect(isGuiPlanCurrentRelativePath(`${GUI_PLAN_RELATIVE_DIR}\\login.md`)).toBe(true)
+  })
+
+  it('normalizes equivalent GUI plan relative path syntax', () => {
+    expect(normalizeGuiPlanRelativePath(`  ./${GUI_PLAN_RELATIVE_DIR}\\Login.md  `)).toBe(
+      `${GUI_PLAN_RELATIVE_DIR}/Login.md`
+    )
+    expect(normalizeGuiPlanRelativePath(`${GUI_PLAN_RELATIVE_DIR}//Login.md`)).toBe(
+      `${GUI_PLAN_RELATIVE_DIR}/Login.md`
+    )
   })
 
   it('rejects non-canonical plan directories', () => {
@@ -89,6 +99,15 @@ describe('plan feature name sanitisation', () => {
   it('keeps the display name in sync with the relative path', () => {
     const path = buildPlanRelativePath('demo-feature', 2)
     expect(planDisplayNameFromRelativePath(path)).toBe('demo-feature-2')
+  })
+
+  it('builds sanitized plan paths from raw request text', () => {
+    const request = 'Build Login: OAuth / SSO?'
+    expect(buildPlanRelativePath(request)).toBe(`${GUI_PLAN_RELATIVE_DIR}/build-login-oauth-sso.md`)
+    expect(buildPlanRelativePath('../')).toBe(`${GUI_PLAN_RELATIVE_DIR}/plan.md`)
+    expect(nextAvailablePlanRelativePath(request, [buildPlanRelativePath(request)])).toBe(
+      `${GUI_PLAN_RELATIVE_DIR}/build-login-oauth-sso-2.md`
+    )
   })
 })
 

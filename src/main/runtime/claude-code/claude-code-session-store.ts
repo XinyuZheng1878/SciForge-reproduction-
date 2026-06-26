@@ -1,10 +1,11 @@
-import { appendFile, mkdir, readFile, readdir } from 'node:fs/promises'
-import { dirname, join, relative, sep } from 'node:path'
+import { readdir } from 'node:fs/promises'
+import { join, relative, sep } from 'node:path'
 import type {
   SessionKey,
   SessionStore,
   SessionStoreEntry
 } from '@anthropic-ai/claude-agent-sdk'
+import { AppDataJsonlStore } from '../../services/app-data-store'
 
 export type ClaudeCodeSessionTranscript = {
   key: SessionKey
@@ -14,28 +15,20 @@ export type ClaudeCodeSessionTranscript = {
 
 export class ClaudeCodeSessionStore implements SessionStore {
   private readonly rootDir: string
-  private readonly pathQueues = new Map<string, Promise<void>>()
+  private readonly jsonlStores = new Map<string, AppDataJsonlStore>()
 
   constructor(options: { rootDir: string }) {
-    this.rootDir = join(options.rootDir, 'sdk-session-store')
+    this.rootDir = options.rootDir
   }
 
   async append(key: SessionKey, entries: SessionStoreEntry[]): Promise<void> {
     if (entries.length === 0) return
-    const filePath = this.pathForKey(key)
-    await this.enqueueForPath(filePath, async () => {
-      await mkdir(dirname(filePath), { recursive: true })
-      await appendFile(
-        filePath,
-        entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n',
-        'utf8'
-      )
-    })
+    await this.jsonlForKey(key).appendJson(entries)
   }
 
   async load(key: SessionKey): Promise<SessionStoreEntry[] | null> {
     try {
-      return parseJsonl(await readFile(this.pathForKey(key), 'utf8'))
+      return parseJsonl(await this.jsonlForKey(key).readText())
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
       throw error
@@ -104,7 +97,7 @@ export class ClaudeCodeSessionStore implements SessionStore {
   }
 
   private async findKeysForSession(sessionId: string, subpath?: string): Promise<SessionKey[]> {
-    const projectsDir = join(this.rootDir, 'projects')
+    const projectsDir = join(this.rootDir, 'sdk-session-store', 'projects')
     let projects: string[]
     try {
       projects = (await readdir(projectsDir, { withFileTypes: true }))
@@ -126,31 +119,53 @@ export class ClaudeCodeSessionStore implements SessionStore {
   }
 
   private pathForKey(key: SessionKey): string {
-    const projectDir = this.projectDir(key.projectKey)
+    const projectDir = join(this.rootDir, ...this.projectDirSegments(key.projectKey))
     if (!key.subpath) return join(projectDir, `${safeFileSegment(key.sessionId)}.jsonl`)
     return join(
-      this.sessionDir(key.projectKey, key.sessionId),
+      join(this.rootDir, ...this.sessionDirSegments(key.projectKey, key.sessionId)),
       `${normalizeSubpath(key.subpath).split('/').map(safeFileSegment).join(sep)}.jsonl`
     )
   }
 
   private projectDir(projectKey: string): string {
-    return join(this.rootDir, 'projects', safeFileSegment(projectKey))
+    return join(this.rootDir, ...this.projectDirSegments(projectKey))
   }
 
   private sessionDir(projectKey: string, sessionId: string): string {
-    return join(this.projectDir(projectKey), safeFileSegment(sessionId))
+    return join(this.rootDir, ...this.sessionDirSegments(projectKey, sessionId))
   }
 
-  private enqueueForPath<T>(filePath: string, task: () => Promise<T>): Promise<T> {
-    const previous = this.pathQueues.get(filePath) ?? Promise.resolve()
-    const run = previous.then(task, task)
-    const next = run.then(() => undefined, () => undefined)
-    this.pathQueues.set(filePath, next)
-    void next.then(() => {
-      if (this.pathQueues.get(filePath) === next) this.pathQueues.delete(filePath)
+  private jsonlForKey(key: SessionKey): AppDataJsonlStore {
+    const segments = this.segmentsForKey(key)
+    const storeKey = segments.join('\u0000')
+    const existing = this.jsonlStores.get(storeKey)
+    if (existing) return existing
+    const created = new AppDataJsonlStore({
+      rootDir: this.rootDir,
+      segments
     })
-    return run
+    this.jsonlStores.set(storeKey, created)
+    return created
+  }
+
+  private segmentsForKey(key: SessionKey): string[] {
+    if (!key.subpath) {
+      return [...this.projectDirSegments(key.projectKey), `${safeFileSegment(key.sessionId)}.jsonl`]
+    }
+    return [
+      ...this.sessionDirSegments(key.projectKey, key.sessionId),
+      ...normalizeSubpath(key.subpath).split('/').map(safeFileSegment).map((segment, index, segments) =>
+        index === segments.length - 1 ? `${segment}.jsonl` : segment
+      )
+    ]
+  }
+
+  private projectDirSegments(projectKey: string): string[] {
+    return ['sdk-session-store', 'projects', safeFileSegment(projectKey)]
+  }
+
+  private sessionDirSegments(projectKey: string, sessionId: string): string[] {
+    return [...this.projectDirSegments(projectKey), safeFileSegment(sessionId)]
   }
 }
 

@@ -6,7 +6,8 @@ import {
   managedGuiMcpServerNames
 } from './gui-mcp-registry'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
@@ -74,7 +75,8 @@ function createSettings(): AppSettingsV1 {
       channel: 'stable'
     },
     codePromptPrefix: '',
-    claw: defaultClawSettings()
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings()
   }
 }
 
@@ -116,7 +118,7 @@ describe('GUI MCP runtime registry', () => {
       enabled: true,
       command: expect.stringContaining('SciForge Helper'),
       args: expect.arrayContaining(['--gui-schedule-mcp-server', '--base-url', 'http://127.0.0.1:9797']),
-      env: { ELECTRON_RUN_AS_NODE: '1' },
+      env: { ELECTRON_RUN_AS_NODE: '1', GUI_SCHEDULE_INTERNAL_SECRET: 'schedule-secret' },
       timeoutMs: 5000
     })
     expect(servers.gui_research_memory).toMatchObject({
@@ -128,7 +130,11 @@ describe('GUI MCP runtime registry', () => {
     expect(servers.gui_workflow).toMatchObject({
       enabled: true,
       args: expect.arrayContaining(['--gui-workflow-mcp-server', '--base-url', 'http://127.0.0.1:9898']),
-      env: { WORKFLOW_KEEP: 'yes', ELECTRON_RUN_AS_NODE: '1' },
+      env: {
+        WORKFLOW_KEEP: 'yes',
+        ELECTRON_RUN_AS_NODE: '1',
+        GUI_WORKFLOW_INTERNAL_SECRET: 'workflow-secret'
+      },
       timeoutMs: 30000
     })
     expect(servers.gui_computer_use).toMatchObject({

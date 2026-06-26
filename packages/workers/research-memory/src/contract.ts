@@ -230,6 +230,16 @@ export const WriteDecisionRecordInputSchema = WorkspaceRootInputSchema.extend({
 }).strict()
 
 const StatusHtmlOutputPathSchema = z.string().trim().pipe(z.literal(RESEARCH_MEMORY_STATUS_HTML_PATH))
+const WorkspaceRelativePathSchema = z.string()
+  .trim()
+  .min(1)
+  .max(1024)
+  .refine((path) => !path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path), {
+    message: 'Workspace paths must be relative.'
+  })
+  .refine((path) => !path.split(/[\\/]+/).some((segment) => segment === '..'), {
+    message: 'Workspace paths must stay inside the workspace.'
+  })
 
 export const RenderStatusHtmlInputSchema = WorkspaceRootInputSchema.extend({
   output_path: StatusHtmlOutputPathSchema.optional(),
@@ -285,7 +295,7 @@ export const GithubPreparePrInputSchema = WorkspaceRootInputSchema.merge(GithubW
   branch: z.string().trim().min(1).max(160).optional(),
   title: z.string().trim().min(1).max(240).optional(),
   body: z.string().trim().min(1).max(200_000).optional(),
-  files: z.array(z.string().trim().min(1).max(1024)).optional(),
+  files: z.array(WorkspaceRelativePathSchema).optional(),
   evidence_level: EvidenceLevelSchema.optional(),
   claim_scope: ClaimScopeSchema.optional(),
   risk_level: RiskLevelSchema.optional()

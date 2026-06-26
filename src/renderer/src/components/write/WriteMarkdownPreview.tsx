@@ -24,24 +24,33 @@ import type { PluggableList } from 'unified'
 import { useTranslation } from 'react-i18next'
 import {
   resolveWriteMarkdownResource,
-  resolveWriteMarkdownResourcePath
+  resolveWriteMarkdownResourcePath,
+  transformWriteMarkdownLinkUrl,
+  transformWriteMarkdownMediaUrl
 } from '@shared/write-markdown-resource'
+import {
+  SAFE_EMBEDDED_MEDIA_PROTOCOLS,
+  SAFE_EXTERNAL_PROTOCOLS,
+  normalizeSafeEmbeddedMediaUrl
+} from '@shared/external-url-policy'
 import { normalizeMarkdownMathDelimiters } from '@shared/write-markdown-math'
 import {
   highlightCodeHtml,
   renderFallbackCodeHtml
 } from '../../lib/code-highlighting'
+import { FILE_REFERENCE_SCHEMES } from '../../lib/file-references'
+import { openSafeExternalUrl } from '../../lib/open-external'
 
 export {
   resolveWriteMarkdownResource,
-  resolveWriteMarkdownResourcePath,
-  writePathToFileUrl
+  resolveWriteMarkdownResourcePath
 } from '@shared/write-markdown-resource'
 
 type Props = {
   content: string
   isMarkdown: boolean
   filePath?: string | null
+  workspaceRoot?: string | null
   previewErrorMessage?: string
 }
 
@@ -51,8 +60,8 @@ type CodeProps = DetailedHTMLProps<HTMLAttributes<HTMLElement>, HTMLElement> & {
 
 export const writeMarkdownHardenOptions = {
   defaultOrigin: 'https://sciforge.local',
-  allowedLinkPrefixes: ['*'],
-  allowedImagePrefixes: ['*']
+  allowedLinkPrefixes: [...SAFE_EXTERNAL_PROTOCOLS, ...FILE_REFERENCE_SCHEMES],
+  allowedImagePrefixes: [...SAFE_EMBEDDED_MEDIA_PROTOCOLS]
 }
 
 const rehypePlugins = [
@@ -70,18 +79,18 @@ const TRAILING_NEWLINES_REGEX = /\n+$/
 const COLLAPSE_HEIGHT = 200
 const COPY_RESET_MS = 2000
 
+function writeMarkdownUrlTransform(value: string, key: string): string {
+  if (key === 'src') return transformWriteMarkdownMediaUrl(value)
+  if (key === 'href') return transformWriteMarkdownLinkUrl(value)
+  return value
+}
+
 function plainTextFallback(content: string): ReactElement {
   return (
     <pre className="m-0 whitespace-pre-wrap break-words font-mono text-[13.5px] leading-6 text-ds-ink">
       {content}
     </pre>
   )
-}
-
-function isMissingImageIpc(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return message.includes('No handler registered for') ||
-    message.includes('readWorkspaceImage is not a function')
 }
 
 function extractText(node: ReactNode): string {
@@ -266,12 +275,14 @@ type ResolvedMarkdownImageProps = {
   src?: string
   alt?: string | null
   filePath?: string | null
+  workspaceRoot?: string | null
 } & Omit<ComponentPropsWithoutRef<'img'>, 'src' | 'alt'>
 
 function ResolvedMarkdownImage({
   src,
   alt,
   filePath,
+  workspaceRoot,
   ...props
 }: ResolvedMarkdownImageProps): ReactElement {
   const [resolvedSrc, setResolvedSrc] = useState(() => resolveWriteMarkdownResource(src, filePath))
@@ -281,28 +292,34 @@ function ResolvedMarkdownImage({
     let cancelled = false
     setLoadFailed(false)
     const localPath = resolveWriteMarkdownResourcePath(src, filePath)
-    const fallback = resolveWriteMarkdownResource(src, filePath)
-    setResolvedSrc(fallback)
+    const externalSrc = resolveWriteMarkdownResource(src, filePath)
+    setResolvedSrc(localPath ? undefined : externalSrc)
 
-    if (!localPath || typeof window.sciforge?.readWorkspaceImage !== 'function') return
+    if (!localPath) return
+    const root = workspaceRoot?.trim()
+    if (!root || typeof window.sciforge?.readWorkspaceImage !== 'function') {
+      setLoadFailed(true)
+      return
+    }
 
-    void window.sciforge.readWorkspaceImage({ path: localPath })
+    void window.sciforge.readWorkspaceImage({ path: localPath, workspaceRoot: root })
       .then((result) => {
         if (cancelled) return
-        if (result.ok) {
-          setResolvedSrc(result.dataUrl)
+        const safeDataUrl = result.ok ? normalizeSafeEmbeddedMediaUrl(result.dataUrl) : null
+        if (safeDataUrl) {
+          setResolvedSrc(safeDataUrl)
         } else {
           setLoadFailed(true)
         }
       })
-      .catch((error) => {
-        if (!cancelled && !isMissingImageIpc(error)) setLoadFailed(true)
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true)
       })
 
     return () => {
       cancelled = true
     }
-  }, [src, filePath])
+  }, [src, filePath, workspaceRoot])
 
   if (loadFailed) {
     return (
@@ -315,8 +332,8 @@ function ResolvedMarkdownImage({
   return (
     <img
       {...props}
-      src={resolvedSrc}
       alt={alt ?? ''}
+      {...(resolvedSrc ? { src: resolvedSrc } : {})}
     />
   )
 }
@@ -361,7 +378,7 @@ class PreviewErrorBoundary extends Component<PreviewBoundaryProps, PreviewBounda
   }
 }
 
-function WriteMarkdownPreviewContent({ content, isMarkdown, filePath }: Props): ReactElement {
+function WriteMarkdownPreviewContent({ content, isMarkdown, filePath, workspaceRoot }: Props): ReactElement {
   if (!isMarkdown) return plainTextFallback(content)
   const markdownContent = normalizeMarkdownMathDelimiters(content)
 
@@ -370,6 +387,7 @@ function WriteMarkdownPreviewContent({ content, isMarkdown, filePath }: Props): 
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
+        urlTransform={writeMarkdownUrlTransform}
         components={{
           a: ({ href, children, ...props }): ReactNode => (
             <a
@@ -378,7 +396,7 @@ function WriteMarkdownPreviewContent({ content, isMarkdown, filePath }: Props): 
               onClick={(event) => {
                 if (!href) return
                 event.preventDefault()
-                void window.sciforge?.openExternal?.(href)?.catch(() => undefined)
+                void openSafeExternalUrl(href).catch(() => undefined)
               }}
             >
               {children}
@@ -390,6 +408,7 @@ function WriteMarkdownPreviewContent({ content, isMarkdown, filePath }: Props): 
               src={src}
               alt={alt}
               filePath={filePath}
+              workspaceRoot={workspaceRoot}
             />
           ),
           code: ({ className, children, node, ...props }): ReactNode => (

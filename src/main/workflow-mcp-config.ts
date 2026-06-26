@@ -16,6 +16,7 @@ import {
   type ManagedGuiMcpDescriptor,
   type ManagedGuiMcpLaunchConfig
 } from './managed-gui-mcp-config'
+import { internalSecretEnv } from './internal-http-secret'
 
 export const GUI_WORKFLOW_MCP_SERVER_NAME = 'gui_workflow'
 const GUI_WORKFLOW_MCP_NODE_ENTRY = 'out/main/workflow-mcp-node-entry.js'
@@ -67,6 +68,13 @@ export function workflowMcpEnv(existingEnv: Record<string, string> = {}): Record
   }
 }
 
+function workflowMcpSecretEnv(settings: AppSettingsV1, existingEnv: Record<string, string> = {}): Record<string, string> {
+  return workflowMcpEnv({
+    ...existingEnv,
+    ...internalSecretEnv(GUI_WORKFLOW_INTERNAL_SECRET_ENV, settings.workflow.webhookSecret)
+  })
+}
+
 export function workflowMcpEnabledTools(): string[] {
   return Object.keys(WORKFLOW_TOOL_CONTRACTS)
 }
@@ -81,7 +89,7 @@ export function buildWorkflowMcpServerConfig(
     descriptor: GUI_WORKFLOW_MCP_DESCRIPTOR,
     launch,
     args: buildWorkflowMcpArgs(settings, launch),
-    env: workflowMcpEnv(env),
+    env: workflowMcpSecretEnv(settings, env),
     existing
   })
 }
@@ -96,7 +104,7 @@ export function buildWorkflowLocalRuntimeMcpServerConfig(
     descriptor: GUI_WORKFLOW_MCP_DESCRIPTOR,
     launch,
     args: buildWorkflowMcpArgs(settings, launch),
-    env: workflowMcpEnv(env),
+    env: workflowMcpSecretEnv(settings, env),
     existing
   })
 }

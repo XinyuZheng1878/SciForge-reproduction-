@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import {
   SCHEDULE_INTERNAL_ENDPOINTS,
   SCHEDULE_TOOL_SIDE_EFFECTS,
@@ -160,7 +162,7 @@ export class ScheduleHttpClient implements ScheduleInternalHttpClient {
 
   constructor(options: ScheduleInternalHttpClientOptions = {}) {
     this.baseUrl = normalizeBaseUrl(options.baseUrl ?? scheduleBaseUrlFromEnv())
-    this.secret = options.secret ?? scheduleSecretFromEnv()
+    this.secret = (options.secret ?? scheduleSecretFromEnv()).trim()
     this.timeoutMs = normalizeTimeoutMs(options.timeoutMs ?? scheduleTimeoutMsFromEnv())
     this.fetchImpl = options.fetch ?? defaultFetch()
   }
@@ -170,14 +172,21 @@ export class ScheduleHttpClient implements ScheduleInternalHttpClient {
     body: Record<string, unknown>,
     options: { signal?: AbortSignal } = {}
   ): Promise<Record<string, unknown>> {
-    const url = new URL(path, this.baseUrl).toString()
+    const endpointPath = normalizeInternalEndpointPath(path)
+    const url = new URL(endpointPath, this.baseUrl).toString()
     const headers: Record<string, string> = {
       Accept: 'application/json',
       'Content-Type': 'application/json'
     }
-    if (this.secret.trim()) {
-      headers.Authorization = `Bearer ${this.secret.trim()}`
+    if (!this.secret) {
+      throw new ScheduleWorkerError({
+        code: 'unauthorized',
+        reason: 'Schedule internal secret is not configured.',
+        retryable: false,
+        suggestion: 'Restart SciForge so the managed schedule MCP worker receives GUI_SCHEDULE_INTERNAL_SECRET.'
+      })
     }
+    headers.Authorization = `Bearer ${this.secret}`
 
     const requestSignal = createRequestSignal(options.signal, this.timeoutMs)
     try {
@@ -273,6 +282,10 @@ export class ScheduleService {
   ): Promise<ScheduleCreateResult> {
     return this.audited('create', SCHEDULE_TOOL_SIDE_EFFECTS.gui_schedule_create.effect, input, async () => {
       const parsed = scheduleCreateToolInputSchema.parse(input)
+      const requiresConfirmation = createRequiresConfirmation(parsed)
+      const confirmation = requiresConfirmation
+        ? confirmationValueFor('create', fingerprintCreateInput(parsed))
+        : undefined
       if (inputRequestsPreview(parsed)) {
         return createDryRunResult({
           action: 'create',
@@ -293,7 +306,17 @@ export class ScheduleService {
               timeOfDay: parsed.time_of_day,
               everyMinutes: parsed.every_minutes
             }
-          }
+          },
+          confirmation
+        })
+      }
+      if (confirmation) {
+        requireConfirmation({
+          action: 'create',
+          tool: 'gui_schedule_create',
+          destructive: false,
+          confirmationId: confirmation,
+          input: parsed
         })
       }
       const response = await this.internalClient.postJson(SCHEDULE_INTERNAL_ENDPOINTS.create, {
@@ -324,6 +347,10 @@ export class ScheduleService {
     return this.audited('update', SCHEDULE_TOOL_SIDE_EFFECTS.gui_schedule_update.effect, input, async () => {
       const parsed = scheduleUpdateToolInputSchema.parse(input)
       const patch = buildUpdatePatch(parsed)
+      const requiresConfirmation = updateRequiresConfirmation(patch)
+      const confirmation = requiresConfirmation
+        ? confirmationValueFor('update', `${parsed.task_id}:${fingerprintRecord(patch)}`)
+        : undefined
       if (inputRequestsPreview(parsed)) {
         return createDryRunResult({
           action: 'update',
@@ -334,7 +361,17 @@ export class ScheduleService {
           input: {
             taskId: parsed.task_id,
             patch: sanitizePatchForPreview(patch)
-          }
+          },
+          confirmation
+        })
+      }
+      if (confirmation) {
+        requireConfirmation({
+          action: 'update',
+          tool: 'gui_schedule_update',
+          destructive: false,
+          confirmationId: confirmation,
+          input: parsed
         })
       }
       const response = await this.internalClient.postJson(SCHEDULE_INTERNAL_ENDPOINTS.update, {
@@ -363,7 +400,13 @@ export class ScheduleService {
           confirmation
         })
       }
-      requireConfirmation('delete', parsed.task_id, parsed)
+      requireConfirmation({
+        action: 'delete',
+        tool: 'gui_schedule_delete',
+        destructive: true,
+        confirmationId: confirmation,
+        input: parsed
+      })
       const response = await this.internalClient.postJson(SCHEDULE_INTERNAL_ENDPOINTS.delete, {
         taskId: parsed.task_id
       }, options)
@@ -411,7 +454,13 @@ export class ScheduleService {
           confirmation
         })
       }
-      requireConfirmation('run', parsed.task_id, parsed)
+      requireConfirmation({
+        action: 'run',
+        tool: 'gui_schedule_run',
+        destructive: true,
+        confirmationId: confirmation,
+        input: parsed
+      })
       const response = await this.internalClient.postJson(SCHEDULE_INTERNAL_ENDPOINTS.run, {
         taskId: parsed.task_id
       }, options)
@@ -527,8 +576,8 @@ export function isScheduleDryRunResult(value: unknown): value is ScheduleDryRunR
   return isRecord(value) && value.ok === true && value.dryRun === true && isRecord(value.preview)
 }
 
-export function confirmationValueFor(action: 'delete' | 'run', taskId: string): string {
-  return `${action}:${taskId}`
+export function confirmationValueFor(action: 'create' | 'update' | 'delete' | 'run', target: string): string {
+  return `${action}:${target}`
 }
 
 function buildUpdatePatch(parsed: ScheduleUpdateToolInput): Record<string, unknown> {
@@ -554,6 +603,56 @@ function buildUpdatePatch(parsed: ScheduleUpdateToolInput): Record<string, unkno
     }
   }
   return patch
+}
+
+function createRequiresConfirmation(parsed: ScheduleCreateToolInput): boolean {
+  return parsed.enabled !== false
+}
+
+function updateRequiresConfirmation(patch: Record<string, unknown>): boolean {
+  if (patch.prompt !== undefined) return true
+  if (patch.workspaceRoot !== undefined) return true
+  if (patch.model !== undefined) return true
+  if (patch.reasoningEffort !== undefined) return true
+  if (patch.mode !== undefined) return true
+  if (patch.schedule !== undefined) return true
+  return patch.enabled === true
+}
+
+function fingerprintCreateInput(parsed: ScheduleCreateToolInput): string {
+  return fingerprintRecord({
+    title: parsed.title,
+    prompt: parsed.prompt,
+    workspaceRoot: parsed.workspace_root ?? '',
+    model: parsed.model ?? '',
+    reasoningEffort: parsed.reasoning_effort ?? '',
+    mode: parsed.mode ?? '',
+    enabled: parsed.enabled !== false,
+    schedule: {
+      kind: parsed.schedule_kind,
+      atTime: parsed.at_time ?? '',
+      timeOfDay: parsed.time_of_day ?? '',
+      everyMinutes: parsed.every_minutes ?? null
+    }
+  })
+}
+
+function fingerprintRecord(record: Record<string, unknown>): string {
+  return createHash('sha256')
+    .update(stableJson(record))
+    .digest('hex')
+    .slice(0, 16)
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (isRecord(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value)
 }
 
 function createDryRunResult(options: {
@@ -584,20 +683,22 @@ function createDryRunResult(options: {
   }
 }
 
-function requireConfirmation(
-  action: 'delete' | 'run',
-  taskId: string,
-  input: ScheduleDeleteToolInput | ScheduleRunToolInput
-): void {
-  const expected = confirmationValueFor(action, taskId)
-  const control = mcpWriteControlFromInput(input)
+function requireConfirmation(options: {
+  action: 'create' | 'update' | 'delete' | 'run'
+  tool: 'gui_schedule_create' | 'gui_schedule_update' | 'gui_schedule_delete' | 'gui_schedule_run'
+  destructive: boolean
+  confirmationId: string
+  input: ScheduleCreateToolInput | ScheduleUpdateToolInput | ScheduleDeleteToolInput | ScheduleRunToolInput
+}): void {
+  const expected = options.confirmationId
+  const control = mcpWriteControlFromInput(options.input)
   const confirmedWithExpectedId = control.confirmed && control.confirmationId === expected
-  if (input.confirmation === expected || confirmedWithExpectedId) return
+  if (inputConfirmationValue(options.input) === expected || confirmedWithExpectedId) return
   const confirmationRequired = mcpWriteConfirmationRequired({
     worker: 'schedule',
-    tool: action === 'delete' ? 'gui_schedule_delete' : 'gui_schedule_run',
-    action,
-    destructive: true,
+    tool: options.tool,
+    action: options.action,
+    destructive: options.destructive,
     confirmationId: expected
   })
   throw new ScheduleWorkerError({
@@ -607,6 +708,12 @@ function requireConfirmation(
     suggestion: `Call again with confirmed: true and confirmation_id: "${expected}", or use dry_run/preview to inspect without side effects.`,
     confirmationRequired
   })
+}
+
+function inputConfirmationValue(input: unknown): string | undefined {
+  return isRecord(input) && typeof input.confirmation === 'string' && input.confirmation.trim()
+    ? input.confirmation.trim()
+    : undefined
 }
 
 function sanitizePatchForPreview(patch: Record<string, unknown>): Record<string, unknown> {
@@ -892,7 +999,60 @@ function defaultFetch(): ScheduleFetch {
 
 function normalizeBaseUrl(value: string): string {
   const trimmed = value.trim() || 'http://127.0.0.1:8788'
-  return trimmed.endsWith('/') ? trimmed : `${trimmed}/`
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    throw new ScheduleWorkerError({
+      code: 'internal_http_unavailable',
+      reason: 'Schedule internal base URL is invalid.',
+      retryable: false,
+      suggestion: 'Use a loopback HTTP URL such as http://127.0.0.1:8788.'
+    })
+  }
+  if (parsed.protocol !== 'http:' || !isLoopbackHostname(parsed.hostname)) {
+    throw new ScheduleWorkerError({
+      code: 'internal_http_unavailable',
+      reason: 'Schedule internal base URL must use loopback HTTP.',
+      retryable: false,
+      suggestion: 'Use the managed SciForge schedule URL, for example http://127.0.0.1:8788.'
+    })
+  }
+  return parsed.toString().endsWith('/') ? parsed.toString() : `${parsed.toString()}/`
+}
+
+function normalizeInternalEndpointPath(path: string): string {
+  const trimmed = path.trim()
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
+    throw new ScheduleWorkerError({
+      code: 'internal_http_unavailable',
+      reason: 'Schedule internal endpoint path must be a relative internal route.',
+      retryable: false,
+      suggestion: 'Use one of the schedule internal endpoint constants.'
+    })
+  }
+  const allowed = new Set<string>(Object.values(SCHEDULE_INTERNAL_ENDPOINTS))
+  if (!allowed.has(trimmed)) {
+    throw new ScheduleWorkerError({
+      code: 'internal_http_unavailable',
+      reason: `Schedule internal endpoint is not allowed: ${trimmed}`,
+      retryable: false,
+      suggestion: 'Use one of the schedule internal endpoint constants.'
+    })
+  }
+  return trimmed
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase()
+  if (normalized === 'localhost' || normalized === '[::1]' || normalized === '::1') return true
+  const parts = normalized.split('.')
+  if (parts.length !== 4 || parts[0] !== '127') return false
+  return parts.every((part) => {
+    if (!/^\d+$/.test(part)) return false
+    const value = Number(part)
+    return Number.isInteger(value) && value >= 0 && value <= 255
+  })
 }
 
 function scheduleBaseUrlFromEnv(): string {

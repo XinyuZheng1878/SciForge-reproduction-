@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { mkdtempSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
@@ -57,7 +58,8 @@ function settings(dataDir: string, model = 'settings-model'): AppSettingsV1 {
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
-    claw: defaultClawSettings(),
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
@@ -78,7 +80,9 @@ describe('upstream model picker list', () => {
       JSON.stringify({
         contextCompaction: {
           modelProfiles: {
-            'legacy-model': {}
+            'legacy-model': {
+              aliases: ['vendor/legacy-model']
+            }
           }
         },
         models: {
@@ -99,10 +103,11 @@ describe('upstream model picker list', () => {
       'deepseek-v4-pro',
       'deepseek-v4-flash',
       'sciforge-router',
-      'legacy-model',
       'custom-model',
       'vendor/custom-model'
     ]))
+    expect(ids).not.toContain('legacy-model')
+    expect(ids).not.toContain('vendor/legacy-model')
   })
 
   it('queries the local Model Router /v1/models with the runtime API key', async () => {

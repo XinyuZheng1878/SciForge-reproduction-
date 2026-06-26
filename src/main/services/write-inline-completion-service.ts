@@ -92,7 +92,7 @@ function appendInlineCompletionPreflightFailure(
   request: WriteInlineCompletionRequest,
   message: string
 ): void {
-  const model = resolveModel(request, settings)
+  const model = resolveModel(settings)
   const mode = resolveMode(request)
   const prompt = buildWriteInlineCompletionPrompt(request, null)
   appendInlineCompletionDebugEntry({
@@ -117,8 +117,8 @@ function appendInlineCompletionPreflightFailure(
   })
 }
 
-function resolveModel(request: WriteInlineCompletionRequest, settings: AppSettingsV1): string {
-  return resolveWriteInlineCompletionModel(settings, request.model)
+function resolveModel(settings: AppSettingsV1): string {
+  return resolveWriteInlineCompletionModel(settings)
 }
 
 function resolveMode(request: WriteInlineCompletionRequest): WriteInlineCompletionMode {
@@ -583,7 +583,7 @@ export async function requestWriteInlineCompletion(
     return { ok: false, message }
   }
 
-  const model = resolveModel(request, settings)
+  const model = resolveModel(settings)
   const mode = resolveMode(request)
   const actionMayEdit = Boolean(request.editCandidate && request.recentEdits?.length)
   const useActionProtocol = mode === 'edit' || actionMayEdit

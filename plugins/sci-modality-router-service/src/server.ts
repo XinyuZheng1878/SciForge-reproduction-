@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 import {
@@ -15,20 +15,26 @@ import { MODALITIES } from './types.js';
 
 export const SERVICE_ID = 'sciforge.sci-modality-router';
 export const SERVICE_VERSION = '0.1.0';
+export const SCIMODALITY_ROUTER_RUNTIME_TOKEN_ENV = 'SCIMODALITY_ROUTER_RUNTIME_TOKEN';
+export const DEFAULT_MAX_JSON_BODY_BYTES = 40 * 1024 * 1024;
 
 export interface SciModalityRouterOptions {
   experts: ExpertConfig;
   fetchImpl?: typeof fetch;
+  maxBodyBytes?: number;
+  runtimeToken: string;
   /** Deterministic clock for tests. */
   now?: () => Date;
 }
 
 export function createSciModalityRouterServer(options: SciModalityRouterOptions): Server {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const maxBodyBytes = normalizeMaxBodyBytes(options.maxBodyBytes);
+  const runtimeToken = normalizeRuntimeToken(options.runtimeToken);
   const now = options.now ?? (() => new Date());
 
   return createServer((req, res) => {
-    handle(req, res, options, fetchImpl, now).catch((error) => {
+    handle(req, res, options, fetchImpl, now, { runtimeToken, maxBodyBytes }).catch((error) => {
       sendJson(res, 500, errorResult('INTERNAL_ERROR', messageOf(error), false));
     });
   });
@@ -40,9 +46,13 @@ async function handle(
   options: SciModalityRouterOptions,
   fetchImpl: typeof fetch,
   now: () => Date,
+  security: { runtimeToken: string; maxBodyBytes: number },
 ): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
 
+  if (!hasValidRuntimeToken(req, security.runtimeToken)) {
+    return sendJson(res, 401, errorResult('UNAUTHENTICATED', 'Unauthorized.', false));
+  }
   if (req.method === 'GET' && url.pathname === '/health') {
     return sendJson(res, 200, { ok: true, service: SERVICE_ID, checkedAt: now().toISOString() });
   }
@@ -58,7 +68,7 @@ async function handle(
     return expertsStatusRoute(res, options, fetchImpl, now);
   }
   if (req.method === 'POST' && url.pathname === '/modality/translate') {
-    return translateRoute(req, res, options, fetchImpl, now);
+    return translateRoute(req, res, options, fetchImpl, now, security.maxBodyBytes);
   }
   return sendJson(res, 404, errorResult('NOT_FOUND', `No route for ${req.method} ${url.pathname}`, false));
 }
@@ -80,7 +90,10 @@ async function expertsStatusRoute(
     const timer = setTimeout(() => controller.abort(), 5000);
     let resp: Response;
     try {
-      resp = await fetchImpl(`${base}/health`, { signal: controller.signal });
+      resp = await fetchImpl(`${base}/health`, {
+        headers: { authorization: `Bearer ${options.experts.apiKey}` },
+        signal: controller.signal,
+      });
     } finally {
       clearTimeout(timer);
     }
@@ -113,12 +126,16 @@ async function translateRoute(
   options: SciModalityRouterOptions,
   fetchImpl: typeof fetch,
   now: () => Date,
+  maxBodyBytes: number,
 ): Promise<void> {
   const startedAt = now().toISOString();
   let body: ModalityTranslateRequest;
   try {
-    body = (await readJson(req)) as ModalityTranslateRequest;
-  } catch {
+    body = (await readJson(req, maxBodyBytes)) as ModalityTranslateRequest;
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return sendJson(res, 413, errorResult('PAYLOAD_TOO_LARGE', `Request body exceeds ${error.limitBytes} bytes.`, false));
+    }
     return sendJson(res, 400, errorResult('INVALID_ARGUMENT', 'Request body must be valid JSON.', false));
   }
 
@@ -229,13 +246,72 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(req: IncomingMessage, maxBodyBytes: number): Promise<unknown> {
+  const contentLength = parseContentLength(req.headers['content-length']);
+  if (contentLength !== null && contentLength > maxBodyBytes) {
+    throw new RequestBodyTooLargeError(maxBodyBytes);
+  }
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.byteLength;
+    if (size > maxBodyBytes) {
+      throw new RequestBodyTooLargeError(maxBodyBytes);
+    }
+    chunks.push(buffer);
+  }
   if (!chunks.length) return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeMaxBodyBytes(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_MAX_JSON_BODY_BYTES;
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error('Sci-Modality Router max body bytes must be a positive integer.');
+  }
+  return value;
+}
+
+function normalizeRuntimeToken(token: string): string {
+  const normalized = token.trim();
+  if (!normalized) {
+    throw new Error(`${SCIMODALITY_ROUTER_RUNTIME_TOKEN_ENV} is required to start the Sci-Modality Router service.`);
+  }
+  return normalized;
+}
+
+function parseContentLength(value: string | string[] | undefined): number | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function hasValidRuntimeToken(req: IncomingMessage, expectedToken: string): boolean {
+  const providedToken = bearerTokenFromHeader(req.headers.authorization);
+  return Boolean(providedToken) && timingSafeStringEqual(providedToken, expectedToken);
+}
+
+function bearerTokenFromHeader(value: string | string[] | undefined): string {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return '';
+  const match = /^Bearer\s+(.+)$/i.exec(raw);
+  return match?.[1]?.trim() ?? '';
+}
+
+function timingSafeStringEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.byteLength === rightBuffer.byteLength && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+class RequestBodyTooLargeError extends Error {
+  constructor(readonly limitBytes: number) {
+    super('Request body is too large.');
+  }
 }

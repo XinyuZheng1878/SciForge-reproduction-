@@ -17,6 +17,7 @@ concurrency:
 env:
   NODE_VERSION: '22'
   RELEASE_CHANNEL: stable
+  RELEASE_ARTIFACT_PREFIX: SciForge
 
 jobs:
   prepare:
@@ -54,8 +55,8 @@ jobs:
     runs-on: macos-latest
     needs: prepare
     env:
-      DEEPSEEK_GUI_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      DEEPSEEK_GUI_UPDATE_CHANNEL: stable
+      SCIFORGE_APP_VERSION: ${{ needs.prepare.outputs.version }}
+      SCIFORGE_UPDATE_CHANNEL: stable
       RELEASE_CHANNEL: stable
       CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
@@ -127,9 +128,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           path: |
-            dist/DeepSeek-GUI-*-mac-*.dmg
-            dist/DeepSeek-GUI-*-mac-*.zip
-            dist/DeepSeek-GUI-*-mac-*.blockmap
+            dist/${{ env.RELEASE_ARTIFACT_PREFIX }}-*-mac-*.dmg
+            dist/${{ env.RELEASE_ARTIFACT_PREFIX }}-*-mac-*.zip
+            dist/${{ env.RELEASE_ARTIFACT_PREFIX }}-*-mac-*.blockmap
             dist/latest-mac.yml
 
   build-windows:
@@ -137,8 +138,8 @@ jobs:
     runs-on: windows-latest
     needs: prepare
     env:
-      DEEPSEEK_GUI_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      DEEPSEEK_GUI_UPDATE_CHANNEL: stable
+      SCIFORGE_APP_VERSION: ${{ needs.prepare.outputs.version }}
+      SCIFORGE_UPDATE_CHANNEL: stable
       RELEASE_CHANNEL: stable
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
@@ -167,8 +168,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           path: |
-            dist/DeepSeek-GUI-*-win-x64.exe
-            dist/DeepSeek-GUI-*-win-x64.exe.blockmap
+            dist/${{ env.RELEASE_ARTIFACT_PREFIX }}-*-win-x64.exe
+            dist/${{ env.RELEASE_ARTIFACT_PREFIX }}-*-win-x64.exe.blockmap
             dist/latest.yml
 
   build-linux:
@@ -176,8 +177,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: prepare
     env:
-      DEEPSEEK_GUI_APP_VERSION: ${{ needs.prepare.outputs.version }}
-      DEEPSEEK_GUI_UPDATE_CHANNEL: stable
+      SCIFORGE_APP_VERSION: ${{ needs.prepare.outputs.version }}
+      SCIFORGE_UPDATE_CHANNEL: stable
       RELEASE_CHANNEL: stable
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
@@ -211,8 +212,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           path: |
-            dist/DeepSeek-GUI-*-linux-x86_64.AppImage
-            dist/DeepSeek-GUI-*-linux-x86_64.AppImage.blockmap
+            dist/${{ env.RELEASE_ARTIFACT_PREFIX }}-*-linux-x86_64.AppImage
+            dist/${{ env.RELEASE_ARTIFACT_PREFIX }}-*-linux-x86_64.AppImage.blockmap
             dist/latest-linux.yml
 
   publish:
@@ -230,7 +231,7 @@ jobs:
       RELEASE_NAME: ${{ needs.prepare.outputs.release_name }}
       PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
       RELEASE_CHANNEL: stable
-      DEEPSEEK_GUI_UPDATE_CHANNEL: stable
+      SCIFORGE_UPDATE_CHANNEL: stable
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
@@ -265,12 +266,12 @@ jobs:
         run: |
           set -euo pipefail
           required=(
-            "DeepSeek-GUI-*-mac-arm64.dmg"
-            "DeepSeek-GUI-*-mac-x64.dmg"
-            "DeepSeek-GUI-*-mac-arm64.zip"
-            "DeepSeek-GUI-*-mac-x64.zip"
-            "DeepSeek-GUI-*-win-x64.exe"
-            "DeepSeek-GUI-*-linux-x86_64.AppImage"
+            "${RELEASE_ARTIFACT_PREFIX}-*-mac-arm64.dmg"
+            "${RELEASE_ARTIFACT_PREFIX}-*-mac-x64.dmg"
+            "${RELEASE_ARTIFACT_PREFIX}-*-mac-arm64.zip"
+            "${RELEASE_ARTIFACT_PREFIX}-*-mac-x64.zip"
+            "${RELEASE_ARTIFACT_PREFIX}-*-win-x64.exe"
+            "${RELEASE_ARTIFACT_PREFIX}-*-linux-x86_64.AppImage"
             "latest-mac.yml"
             "latest.yml"
             "latest-linux.yml"
@@ -348,7 +349,7 @@ jobs:
           set -euo pipefail
           mapfile -d '' assets < <(
             find release-artifacts -type f \
-              \( -name 'DeepSeek-GUI-*' -o -name 'latest*.yml' \) \
+              \( -name "${RELEASE_ARTIFACT_PREFIX}-*" -o -name 'latest*.yml' \) \
               -print0
           )
 

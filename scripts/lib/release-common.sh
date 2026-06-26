@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for release-mac.sh / release-win.sh / release.sh
+# Shared helpers for release-mac.sh / release-win.sh
 
 red()  { printf '\033[31m%s\033[0m\n' "$*" >&2; }
 green(){ printf '\033[32m%s\033[0m\n' "$*"; }

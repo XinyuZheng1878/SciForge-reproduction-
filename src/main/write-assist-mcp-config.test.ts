@@ -9,7 +9,8 @@ import {
 import { GUI_WRITE_ASSIST_MCP_LAUNCH_FLAG } from './write-assist-mcp-server'
 import { WriteAssistToolNames } from '../../packages/workers/write-assist/src/contract'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
@@ -54,7 +55,8 @@ function createSettings(workspaceRoot = '/tmp/workspace'): AppSettingsV1 {
       channel: 'stable'
     },
     codePromptPrefix: '',
-    claw: defaultClawSettings()
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings()
   }
 }
 

@@ -22,7 +22,6 @@ type RuntimeGovernanceControls = {
 
 type ToolStormState = {
   events: ToolFingerprint[]
-  totalEvents: number
   steered: Set<string>
   interrupted: Set<string>
   observedRunningToolIds: Set<string>
@@ -51,7 +50,6 @@ export class RuntimeGovernanceSupervisor {
     const key = `${capabilities.runtimeId}:${threadId}:${turnId}`
     const state = this.toolStormStates.get(key) ?? {
       events: [],
-      totalEvents: 0,
       steered: new Set(),
       interrupted: new Set(),
       observedRunningToolIds: new Set()
@@ -63,42 +61,16 @@ export class RuntimeGovernanceSupervisor {
     }
     if (runningToolId) state.observedRunningToolIds.add(runningToolId)
     const fingerprint = toolFingerprint(event)
-    state.totalEvents += 1
     state.events.push(fingerprint)
     state.events = state.events.slice(-settings.toolStorm.windowSize)
     this.toolStormStates.set(key, state)
 
-    if (state.totalEvents > maxToolEventsForProfile(settings, controls.governanceProfile)) {
-      if (shouldInterruptForToolBudget(controls.governanceProfile)) {
-        if (!state.interrupted.has('budget')) {
-          state.interrupted.add('budget')
-          void controls.interruptTurn({
-            runtimeId: capabilities.runtimeId,
-            threadId,
-            turnId,
-            discard: false
-          }).catch(() => undefined)
-          void publishToolStormEvent(controls, event, capabilities.runtimeId, 'hard', 'tool-budget')
-        }
-        return
-      }
-      if (!state.steered.has('budget')) {
-        state.steered.add('budget')
-        void controls.steerTurn({
-          runtimeId: capabilities.runtimeId,
-          threadId,
-          turnId,
-          text: 'You have used many tool calls in this turn. Continue only with tools that materially advance the task; otherwise summarize progress, state what remains, and ask the user before doing more.'
-        }).catch(() => undefined)
-        void publishToolStormEvent(controls, event, capabilities.runtimeId, 'soft', 'tool-budget')
-      }
-      return
-    }
-
+    const softThreshold = settings.toolStorm.threshold
+    const hardThreshold = softThreshold + 1
     const exactCount = countMatches(state.events, 'exact', fingerprint.exact)
     const exactSteerKey = `exact:${fingerprint.exact}`
     const exactInterruptKey = `exact:${fingerprint.exact}`
-    if (exactCount >= settings.toolStorm.hardThreshold && !state.interrupted.has(exactInterruptKey)) {
+    if (exactCount >= hardThreshold && !state.interrupted.has(exactInterruptKey)) {
       state.interrupted.add(exactInterruptKey)
       void controls.interruptTurn({
         runtimeId: capabilities.runtimeId,
@@ -109,7 +81,7 @@ export class RuntimeGovernanceSupervisor {
       void publishToolStormEvent(controls, event, capabilities.runtimeId, 'hard', fingerprint.family)
       return
     }
-    if (exactCount >= settings.toolStorm.softThreshold && !state.steered.has(exactSteerKey)) {
+    if (exactCount >= softThreshold && !state.steered.has(exactSteerKey)) {
       state.steered.add(exactSteerKey)
       void controls.steerTurn({
         runtimeId: capabilities.runtimeId,
@@ -337,19 +309,6 @@ function countMatches<T extends keyof ToolFingerprint>(
   value: ToolFingerprint[T]
 ): number {
   return events.filter((event) => event[key] === value).length
-}
-
-function maxToolEventsForProfile(
-  settings: RuntimeGuardSettingsV1,
-  profile: AgentRuntimeGovernanceProfile | undefined
-): number {
-  if (profile === 'remote_guard') return settings.budgets.remoteGuardMaxToolEvents
-  if (profile === 'write') return settings.budgets.writeMaxToolEvents
-  return settings.budgets.defaultMaxToolEvents
-}
-
-function shouldInterruptForToolBudget(profile: AgentRuntimeGovernanceProfile | undefined): boolean {
-  return profile === 'remote_guard'
 }
 
 function runningToolIdentity(event: Extract<AgentRuntimeEvent, { kind: 'tool_event' }>): string {

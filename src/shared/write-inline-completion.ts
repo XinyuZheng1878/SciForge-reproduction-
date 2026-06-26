@@ -73,7 +73,6 @@ export type WriteInlineCompletionRequest = {
   }
   editCandidate?: WriteInlineCompletionEditCandidate
   recentEdits?: WriteInlineEditRecentEdit[]
-  model?: string
 }
 
 export type WriteInlineCompletionResult =

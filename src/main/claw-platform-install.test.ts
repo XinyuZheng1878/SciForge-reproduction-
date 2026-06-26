@@ -196,4 +196,48 @@ describe('claw platform install', () => {
     })
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
+
+  it('treats an existing WeChat bridge connection as complete', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const payload = JSON.parse(String(init?.body ?? '{}')) as { method?: string; params?: Record<string, unknown> }
+      if (payload.method === 'web.login.start') {
+        return jsonResponse({
+          ok: true,
+          payload: {
+            qrDataUrl: 'data:image/png;base64,qr',
+            sessionKey: 'existing-session'
+          }
+        })
+      }
+      if (payload.method === 'web.login.wait') {
+        return jsonResponse({
+          ok: true,
+          payload: {
+            connected: false,
+            message: '已连接过此微信桥接'
+          }
+        })
+      }
+      if (payload.method === 'channels.start') {
+        expect(payload.params).toMatchObject({
+          channel: 'openclaw-weixin',
+          accountId: 'existing-session'
+        })
+        return jsonResponse({ ok: true, payload: { started: true } })
+      }
+      return jsonResponse({ ok: false, error: { message: `unexpected method ${payload.method}` } }, 400)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const start = await startWeixinInstallQrcode()
+    expect(start).toMatchObject({ ok: true })
+    if (!start.ok) throw new Error(start.message)
+
+    await expect(pollWeixinInstall(start.deviceCode)).resolves.toMatchObject({
+      done: true,
+      kind: 'weixin',
+      accountId: 'existing-session'
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
 })

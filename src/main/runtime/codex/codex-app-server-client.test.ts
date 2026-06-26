@@ -341,7 +341,9 @@ describe('createCodexAppServerClient', () => {
     client.start()
     fake.emitStdout({ id: 'server-1', method: 'item/permissions/requestApproval', params: {} })
     fake.emitStdout({ id: 'server-2', method: 'mcpServer/elicitation/request', params: {} })
-    fake.emitStdout({ id: 'server-3', method: 'request_user_input', params: {} })
+    fake.emitStdout({ id: 'server-3', method: 'item/tool/requestUserInput', params: {} })
+    fake.emitStdout({ id: 'server-4', method: 'execCommandApproval', params: {} })
+    fake.emitStdout({ id: 'server-5', method: 'applyPatchApproval', params: {} })
 
     await vi.waitFor(() => {
       expect(fake.writtenMessages()).toContainEqual({
@@ -355,6 +357,42 @@ describe('createCodexAppServerClient', () => {
       expect(fake.writtenMessages()).toContainEqual({
         id: 'server-3',
         result: { answers: {} }
+      })
+      expect(fake.writtenMessages()).toContainEqual({
+        id: 'server-4',
+        result: { decision: 'decline' }
+      })
+      expect(fake.writtenMessages()).toContainEqual({
+        id: 'server-5',
+        result: { decision: 'decline' }
+      })
+    })
+  })
+
+  it('fails legacy user-input server requests closed', async () => {
+    const { client, fake } = createHarness()
+    const iterator = client.subscribe()[Symbol.asyncIterator]()
+
+    client.start()
+    fake.emitStdout({ id: 'server-legacy-input', method: 'request_user_input', params: {} })
+
+    await expect(iterator.next()).resolves.toEqual({
+      value: {
+        channel: 'codex:error',
+        type: 'error',
+        error: {
+          message: 'Codex requested an unsupported operation and it was declined.'
+        }
+      },
+      done: false
+    })
+    await vi.waitFor(() => {
+      expect(fake.writtenMessages()).toContainEqual({
+        id: 'server-legacy-input',
+        error: {
+          code: -32000,
+          message: 'Unsupported Codex app-server request: request_user_input'
+        }
       })
     })
   })

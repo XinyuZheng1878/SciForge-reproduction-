@@ -30,14 +30,6 @@ export type ModelContextProfileConfig = {
   aliases?: readonly string[]
   contextWindowTokens?: number
   contextCompaction?: ModelContextCompactionProfileConfig
-  /** @deprecated Use contextCompaction.softRatio. */
-  softRatio?: number
-  /** @deprecated Use contextCompaction.hardRatio. */
-  hardRatio?: number
-  /** @deprecated Use contextCompaction.softThreshold. */
-  softThreshold?: number
-  /** @deprecated Use contextCompaction.hardThreshold. */
-  hardThreshold?: number
   inputModalities?: readonly ModelInputModality[]
   outputModalities?: readonly ModelInputModality[]
   supportsToolCalling?: boolean
@@ -55,11 +47,6 @@ export type ContextCompactionConfig = {
   summaryTimeoutMs?: number
   summaryMaxTokens?: number
   summaryInputMaxBytes?: number
-  /**
-   * @deprecated Model-specific context windows and compaction thresholds belong
-   * in top-level models.profiles. This field is still read for compatibility.
-   */
-  modelProfiles?: Record<string, ModelContextProfileConfig>
 }
 
 export type ModelProfileConfigSource = {
@@ -173,17 +160,17 @@ function mergeModelContextProfile(
 ): ModelContextProfile {
   const compaction = input.contextCompaction ?? {}
   const configuredContextWindowTokens = input.contextWindowTokens ?? current?.contextWindowTokens
-  const softThreshold = compaction.softThreshold ?? input.softThreshold ?? thresholdFromWindow({
+  const softThreshold = compaction.softThreshold ?? thresholdFromWindow({
     contextWindowTokens: configuredContextWindowTokens,
-    ratio: compaction.softRatio ?? input.softRatio,
+    ratio: compaction.softRatio,
     fallbackRatio: current
       ? current.softThreshold / current.contextWindowTokens
       : DEEPSEEK_V4_SOFT_THRESHOLD_RATIO,
     fallbackThreshold: current?.softThreshold
   })
-  const hardThreshold = compaction.hardThreshold ?? input.hardThreshold ?? thresholdFromWindow({
+  const hardThreshold = compaction.hardThreshold ?? thresholdFromWindow({
     contextWindowTokens: configuredContextWindowTokens,
-    ratio: compaction.hardRatio ?? input.hardRatio,
+    ratio: compaction.hardRatio,
     fallbackRatio: current
       ? current.hardThreshold / current.contextWindowTokens
       : DEEPSEEK_V4_HARD_THRESHOLD_RATIO,
@@ -230,16 +217,10 @@ function modelProfileGroupsFromConfig(
 ): Array<Record<string, ModelContextProfileConfig>> {
   if (!config) return []
   if ('models' in config || 'contextCompaction' in config) {
-    return [
-      ...(config.contextCompaction?.modelProfiles ? [config.contextCompaction.modelProfiles] : []),
-      ...(config.models?.profiles ? [config.models.profiles] : [])
-    ]
+    return config.models?.profiles ? [config.models.profiles] : []
   }
   if ('profiles' in config) {
     return config.profiles ? [config.profiles] : []
-  }
-  if ('modelProfiles' in config) {
-    return config.modelProfiles ? [config.modelProfiles] : []
   }
   return []
 }

@@ -33,8 +33,8 @@
 当用户一次性把一个短语替换成另一个短语时，例如：
 
 ```text
-deepseek gui -> SciForge
-deepseek gui -> DXGUI
+旧编辑器 -> SciForge Write
+旧编辑器 -> Live editor
 ```
 
 编辑器会在当前自然段内查找其他大小写不敏感的同短语，并同步替换。这解决的是“我刚把这里改成大写，其他地方也应该变成大写”的基础文本编辑体验。
@@ -44,7 +44,7 @@ deepseek gui -> DXGUI
 - 只在同一自然段内传播，不跨空行、标题、代码围栏和分隔线。
 - 只处理一次性短语替换，不处理普通逐字输入。
 - 要求短语形态足够像术语，例如长度足够、包含空格、大小写、数字、下划线或连字符。
-- 会检查词边界，避免把 `mydeepseek gui` 里的局部字符串误替换。
+- 会检查词边界，避免把 `my旧编辑器` 里的局部字符串误替换。
 
 记录结构：
 
@@ -154,7 +154,7 @@ flowchart LR
   E --> F
   F --> G["write:inline-completion payload (mode=edit)"]
   G --> H["主进程构造编辑 prompt"]
-  H --> I["DeepSeek EDIT action"]
+  H --> I["Model Router EDIT action"]
   I --> J["原地替换"]
   J --> K["记录 inline-edit recent edit"]
 ```

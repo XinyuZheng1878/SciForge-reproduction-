@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { PaperRadarProfile, PaperRadarRecord, PaperRadarStatus, PaperRadarSyncResult } from '@shared/paper-radar'
+import { openSafeExternalUrl } from '../../lib/open-external'
 
 type Props = {
   className?: string
@@ -231,8 +232,7 @@ export function PaperRadarPanel({ className = '', onCollapse }: Props): ReactEle
   }
 
   const openExternal = (url: string | undefined): void => {
-    if (!url || typeof window.sciforge?.openExternal !== 'function') return
-    void window.sciforge.openExternal(url)
+    void openSafeExternalUrl(url).catch(() => undefined)
   }
 
   const renderPaperGroups = (): ReactElement => {

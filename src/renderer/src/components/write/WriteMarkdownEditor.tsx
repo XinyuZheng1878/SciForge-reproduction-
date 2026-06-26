@@ -37,7 +37,6 @@ type Props = {
   livePreviewEnabled?: boolean
   markdownFeatures?: boolean
   readOnly?: boolean
-  completionModel: string
   completionEnabled: boolean
   completionDebounceMs: number
   completionMinAcceptScore: number
@@ -185,7 +184,6 @@ export function WriteMarkdownEditor({
   livePreviewEnabled = appearance === 'live',
   markdownFeatures = true,
   readOnly = false,
-  completionModel,
   completionEnabled,
   completionDebounceMs,
   completionMinAcceptScore,
@@ -211,7 +209,6 @@ export function WriteMarkdownEditor({
   const livePreviewEnabledRef = useRef(livePreviewEnabled)
   const markdownFeaturesRef = useRef(markdownFeatures)
   const readOnlyRef = useRef(readOnly)
-  const completionModelRef = useRef(completionModel)
   const completionEnabledRef = useRef(completionEnabled)
   const completionDebounceMsRef = useRef(completionDebounceMs)
   const completionMinAcceptScoreRef = useRef(completionMinAcceptScore)
@@ -234,7 +231,6 @@ export function WriteMarkdownEditor({
   livePreviewEnabledRef.current = livePreviewEnabled
   markdownFeaturesRef.current = markdownFeatures
   readOnlyRef.current = readOnly
-  completionModelRef.current = completionModel
   completionEnabledRef.current = completionEnabled
   completionDebounceMsRef.current = completionDebounceMs
   completionMinAcceptScoreRef.current = completionMinAcceptScore
@@ -270,12 +266,10 @@ export function WriteMarkdownEditor({
       isEnabled: () => completionEnabledRef.current && !readOnlyRef.current,
       getFilePath: () => filePathRef.current,
       language: 'markdown',
-      getModel: () => completionModelRef.current,
       requestCompletion: async (context, mode) => {
         if (typeof window.sciforge?.requestWriteInlineCompletion !== 'function') return null
         const result = await window.sciforge.requestWriteInlineCompletion(
           buildInlineCompletionPayload(context, {
-            model: completionModelRef.current,
             workspaceRoot: workspaceRootRef.current,
             mode,
             recentEdits: recentEditsRef.current
@@ -305,7 +299,7 @@ export function WriteMarkdownEditor({
         themeCompartment.of(buildEditorTheme(appearanceRef.current)),
         livePreviewCompartment.of(
           markdownFeaturesRef.current && appearanceRef.current === 'live' && livePreviewEnabledRef.current
-            ? writeMarkdownLivePreviewExtensions(filePathRef.current)
+            ? writeMarkdownLivePreviewExtensions(filePathRef.current, workspaceRootRef.current)
             : []
         ),
         editableCompartment.of(buildInteractionExtensions(readOnlyRef.current, appearanceRef.current)),
@@ -460,12 +454,14 @@ export function WriteMarkdownEditor({
       effects: [
         themeCompartment.reconfigure(buildEditorTheme(appearance)),
         livePreviewCompartment.reconfigure(
-          markdownFeatures && appearance === 'live' && livePreviewEnabled ? writeMarkdownLivePreviewExtensions(filePath) : []
+          markdownFeatures && appearance === 'live' && livePreviewEnabled
+            ? writeMarkdownLivePreviewExtensions(filePath, workspaceRoot)
+            : []
         ),
         editableCompartment.reconfigure(buildInteractionExtensions(readOnly, appearance))
       ]
     })
-  }, [appearance, filePath, livePreviewEnabled, markdownFeatures, readOnly])
+  }, [appearance, filePath, livePreviewEnabled, markdownFeatures, readOnly, workspaceRoot])
 
   useEffect(() => {
     const view = viewRef.current

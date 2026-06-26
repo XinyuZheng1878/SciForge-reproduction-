@@ -14,8 +14,44 @@ export const GUI_PLAN_RELATIVE_DIR = '.sciforge/plan'
 
 export const GUI_PLAN_CREATE_PLAN_TOOL_NAME = 'create_plan'
 
+const MAX_FEATURE_NAME_LENGTH = 96
+const ILLEGAL_FILENAME_CHARS = /[<>:"|?*\\/]+/g
+const SEPARATOR_CHARS = /[\s_]+/g
+const MULTIPLE_DASHES = /-+/g
+
+function trimPlanName(value: string): string {
+  return value
+    .replace(MULTIPLE_DASHES, '-')
+    .replace(/^[.\-\s]+/, '')
+    .replace(/[.\-\s]+$/, '')
+}
+
+export function planFeatureNameFromRequest(request: string): string {
+  const normalized = request
+    .normalize('NFKC')
+    .toLowerCase()
+    .split('')
+    .map((char) => (char.charCodeAt(0) < 32 ? ' ' : char))
+    .join('')
+    .replace(ILLEGAL_FILENAME_CHARS, ' ')
+    .replace(SEPARATOR_CHARS, '-')
+  const compact = trimPlanName(normalized)
+  const safe = compact || 'plan'
+  return safe.slice(0, MAX_FEATURE_NAME_LENGTH).replace(/[.\-\s]+$/, '') || 'plan'
+}
+
+export function buildPlanRelativePath(featureName: string, suffix?: number): string {
+  const safeFeatureName = planFeatureNameFromRequest(featureName)
+  const safeSuffix = typeof suffix === 'number' && suffix > 1 ? `-${Math.floor(suffix)}` : ''
+  return `${GUI_PLAN_RELATIVE_DIR}/${safeFeatureName}${safeSuffix}.md`
+}
+
+export function normalizeGuiPlanRelativePath(value: string): string {
+  return value.trim().replaceAll('\\', '/').replace(/\/+/g, '/').replace(/^\.\//, '')
+}
+
 function normalizeRelativePathForCompare(value: string): string {
-  return value.replaceAll('\\', '/').replace(/\/+/g, '/').replace(/^\.\//, '').toLowerCase()
+  return normalizeGuiPlanRelativePath(value).toLowerCase()
 }
 
 export function isGuiPlanRelativePath(value: string): boolean {
@@ -89,11 +125,6 @@ export function validateCreatePlanToolInput(input: Partial<CreatePlanToolInput>)
   return issues
 }
 
-export function buildPlanRelativePath(featureName: string, suffix?: number): string {
-  const safeSuffix = typeof suffix === 'number' && suffix > 1 ? `-${Math.floor(suffix)}` : ''
-  return `${GUI_PLAN_RELATIVE_DIR}/${featureName}${safeSuffix}.md`
-}
-
 export function nextAvailablePlanRelativePath(
   featureName: string,
   existingRelativePaths: Iterable<string>,
@@ -108,10 +139,7 @@ export function nextAvailablePlanRelativePath(
 }
 
 export function planDisplayNameFromRelativePath(relativePath: string): string {
-  const fileName = relativePath.split('/').pop() ?? ''
+  const normalized = normalizeRelativePathForCompare(relativePath)
+  const fileName = normalized.split('/').pop() ?? ''
   return fileName.replace(/\.md$/i, '') || 'plan'
-}
-
-export function planFeatureNameFromRequest(request: string): string {
-  return request.trim().slice(0, 96) || 'plan'
 }

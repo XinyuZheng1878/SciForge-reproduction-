@@ -4,10 +4,12 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import { createElement, type ComponentPropsWithoutRef, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import ReactMarkdown from 'react-markdown'
+import { unified } from 'unified'
+import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -21,8 +23,19 @@ import type {
 } from '../../shared/write-export'
 import { normalizeMarkdownMathDelimiters } from '../../shared/write-markdown-math'
 import { markdownToLatexDocument } from '../../shared/write-markdown-latex'
-import { resolveWriteMarkdownResource } from '../../shared/write-markdown-resource'
-import { resolveWorkspaceFile } from './workspace-service'
+import {
+  resolveWriteMarkdownLinkResource,
+  resolveWriteMarkdownResource,
+  resolveWriteMarkdownResourcePath,
+  transformWriteMarkdownLinkUrl,
+  transformWriteMarkdownMediaUrl
+} from '../../shared/write-markdown-resource'
+import { normalizeSafeEmbeddedMediaUrl } from '../../shared/external-url-policy'
+import { readWorkspaceImage, resolveWorkspaceFile } from './workspace-service'
+import {
+  resolveSafeWorkspaceWriteTarget,
+  writeSafeWorkspaceFile
+} from './workspace-paths'
 
 type HtmlToDocxDocumentOptions = {
   title?: string
@@ -40,12 +53,24 @@ type HtmlToDocxConverter = (
   footerHtmlString?: string | null
 ) => Promise<ArrayBuffer | Blob>
 
+type MarkdownAstNode = {
+  type?: string
+  url?: unknown
+  children?: MarkdownAstNode[]
+}
+
 const require = createRequire(import.meta.url)
 const htmlToDocx = require('html-to-docx') as HtmlToDocxConverter
 const katexCssPath = require.resolve('katex/dist/katex.min.css')
 
 const markdownRemarkPlugins = [remarkMath, remarkGfm]
 const markdownRehypePlugins = [rehypeKatex] as unknown as PluggableList
+
+function writeMarkdownUrlTransform(value: string, key: string): string {
+  if (key === 'src') return transformWriteMarkdownMediaUrl(value)
+  if (key === 'href') return transformWriteMarkdownLinkUrl(value)
+  return value
+}
 
 const EXPORT_CSS = `
   :root {
@@ -224,7 +249,6 @@ const EXPORT_CSS = `
   }
 `
 
-const LOCAL_IMAGE_PATTERN = /(<img\b[^>]*?\bsrc=")([^"]+)(")/gi
 let katexCssCache: string | null = null
 
 function isMarkdownFile(filePath: string): boolean {
@@ -262,17 +286,6 @@ function exportDialogFilter(format: WriteExportFormat): Electron.FileFilter {
   return { name: 'DOCX', extensions: ['docx'] }
 }
 
-function mimeTypeForPath(filePath: string): string | null {
-  const extension = extname(filePath).toLowerCase()
-  if (extension === '.png') return 'image/png'
-  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg'
-  if (extension === '.gif') return 'image/gif'
-  if (extension === '.webp') return 'image/webp'
-  if (extension === '.bmp') return 'image/bmp'
-  if (extension === '.svg') return 'image/svg+xml'
-  return null
-}
-
 function ensureExportExtension(targetPath: string, format: WriteExportFormat): string {
   const extension = exportExtension(format)
   return extname(targetPath).trim() ? targetPath : `${targetPath}${extension}`
@@ -280,20 +293,6 @@ function ensureExportExtension(targetPath: string, format: WriteExportFormat): s
 
 function defaultExportPath(sourcePath: string, format: WriteExportFormat): string {
   return join(dirname(sourcePath), `${basenameWithoutExtension(sourcePath)}${exportExtension(format)}`)
-}
-
-async function localFileUrlToDataUri(value: string): Promise<string | null> {
-  try {
-    const parsed = new URL(value)
-    if (parsed.protocol !== 'file:') return null
-    const filePath = fileURLToPath(parsed)
-    const mimeType = mimeTypeForPath(filePath)
-    if (!mimeType) return null
-    const buffer = await readFile(filePath)
-    return `data:${mimeType};base64,${buffer.toString('base64')}`
-  } catch {
-    return null
-  }
 }
 
 async function readKatexCss(): Promise<string> {
@@ -304,26 +303,6 @@ async function readKatexCss(): Promise<string> {
     katexCssCache = ''
   }
   return katexCssCache
-}
-
-export async function inlineLocalImagesInHtml(html: string): Promise<string> {
-  const matches = [...html.matchAll(LOCAL_IMAGE_PATTERN)]
-  if (matches.length === 0) return html
-
-  const replacements = new Map<string, string>()
-  await Promise.all(
-    matches.map(async (match) => {
-      const rawSrc = match[2]
-      if (!rawSrc || replacements.has(rawSrc)) return
-      const dataUri = await localFileUrlToDataUri(rawSrc)
-      if (dataUri) replacements.set(rawSrc, dataUri)
-    })
-  )
-
-  if (replacements.size === 0) return html
-  return html.replace(LOCAL_IMAGE_PATTERN, (fullMatch, prefix, rawSrc, suffix) => {
-    return `${prefix}${replacements.get(rawSrc) ?? rawSrc}${suffix}`
-  })
 }
 
 function renderPlainTextFragment(content: string): string {
@@ -338,37 +317,83 @@ function renderPlainTextFragment(content: string): string {
   )
 }
 
-function renderMarkdownFragment(content: string, sourcePath: string): string {
+function collectMarkdownImageSources(content: string): Set<string> {
+  const tree = unified().use(remarkParse).parse(content) as MarkdownAstNode
+  const sources = new Set<string>()
+  const visit = (node: MarkdownAstNode): void => {
+    if (node.type === 'image' && typeof node.url === 'string' && node.url.trim()) {
+      sources.add(node.url.trim())
+    }
+    for (const child of node.children ?? []) visit(child)
+  }
+  visit(tree)
+  return sources
+}
+
+async function collectWorkspaceImageDataUrls(
+  content: string,
+  sourcePath: string,
+  workspaceRoot?: string
+): Promise<Map<string, string>> {
+  const root = workspaceRoot?.trim()
+  if (!root) return new Map()
+
+  const sources = collectMarkdownImageSources(content)
+  if (sources.size === 0) return new Map()
+
+  const dataUrls = new Map<string, string>()
+  await Promise.all([...sources].map(async (src) => {
+    const localPath = resolveWriteMarkdownResourcePath(src, sourcePath)
+    if (!localPath) return
+    const result = await readWorkspaceImage({ path: localPath, workspaceRoot: root })
+    const dataUrl = result.ok ? normalizeSafeEmbeddedMediaUrl(result.dataUrl) : null
+    if (dataUrl) dataUrls.set(src, dataUrl)
+  }))
+  return dataUrls
+}
+
+async function renderMarkdownFragment(
+  content: string,
+  sourcePath: string,
+  workspaceRoot?: string
+): Promise<string> {
+  const localImageDataUrls = await collectWorkspaceImageDataUrls(content, sourcePath, workspaceRoot)
   return renderToStaticMarkup(
     createElement(
       ReactMarkdown,
       {
         remarkPlugins: markdownRemarkPlugins,
         rehypePlugins: markdownRehypePlugins,
+        urlTransform: writeMarkdownUrlTransform,
         components: {
           a: ({
             href,
             children,
             ...props
-          }: ComponentPropsWithoutRef<'a'> & { href?: string; children?: ReactNode }): ReactNode =>
-            createElement(
+          }: ComponentPropsWithoutRef<'a'> & { href?: string; children?: ReactNode }): ReactNode => {
+            const resolvedHref = resolveWriteMarkdownLinkResource(href)
+            return createElement(
               'a',
               {
                 ...props,
-                href: resolveWriteMarkdownResource(href, sourcePath) ?? href
+                ...(resolvedHref ? { href: resolvedHref } : {})
               },
               children
-            ),
+            )
+          },
           img: ({
             src,
             alt,
             ...props
-          }: ComponentPropsWithoutRef<'img'> & { src?: string; alt?: string | null }): ReactNode =>
-            createElement('img', {
+          }: ComponentPropsWithoutRef<'img'> & { src?: string; alt?: string | null }): ReactNode => {
+            const resolvedSrc = (src ? localImageDataUrls.get(src) : undefined) ??
+              resolveWriteMarkdownResource(src, sourcePath)
+            return createElement('img', {
               ...props,
-              src: resolveWriteMarkdownResource(src, sourcePath),
+              ...(resolvedSrc ? { src: resolvedSrc } : {}),
               alt: alt ?? ''
             })
+          }
         }
       },
       content
@@ -379,12 +404,12 @@ function renderMarkdownFragment(content: string, sourcePath: string): string {
 export async function buildWriteClipboardHtmlFragment(options: {
   sourcePath: string
   content: string
+  workspaceRoot?: string
 }): Promise<string> {
   const fragment = isMarkdownFile(options.sourcePath)
-    ? renderMarkdownFragment(options.content, options.sourcePath)
+    ? await renderMarkdownFragment(options.content, options.sourcePath, options.workspaceRoot)
     : renderPlainTextFragment(options.content)
-  const body = await inlineLocalImagesInHtml(fragment)
-  return `<article class="markdown-body">${body}</article>`
+  return `<article class="markdown-body">${fragment}</article>`
 }
 
 export function buildWriteExportFileName(sourcePath: string, format: WriteExportFormat): string {
@@ -396,12 +421,14 @@ export async function buildWriteExportHtmlDocument(options: {
   content: string
   title?: string
   wordCompatible?: boolean
+  workspaceRoot?: string
 }): Promise<string> {
   const title = options.title?.trim() || basenameWithoutExtension(options.sourcePath)
   const katexCss = await readKatexCss()
   const body = await buildWriteClipboardHtmlFragment({
     sourcePath: options.sourcePath,
-    content: options.content
+    content: options.content,
+    workspaceRoot: options.workspaceRoot
   })
   const baseHref = pathToFileURL(`${dirname(options.sourcePath)}/`).href
   const namespaces = options.wordCompatible
@@ -455,7 +482,8 @@ export async function copyWriteDocumentAsRichText(
 
     const html = await buildWriteClipboardHtmlFragment({
       sourcePath: resolved.path,
-      content: payload.content
+      content: payload.content,
+      workspaceRoot: payload.workspaceRoot
     })
 
     clipboard.write({
@@ -568,17 +596,21 @@ export async function exportWriteDocument(
       }
     }
 
-    const targetPath = ensureExportExtension(exportDialogResult.filePath, payload.format)
+    const target = await resolveSafeWorkspaceWriteTarget(
+      ensureExportExtension(exportDialogResult.filePath, payload.format),
+      payload.workspaceRoot,
+      { createParentDirectories: true }
+    )
     const title = basenameWithoutExtension(sourcePath)
     if (payload.format === 'tex') {
-      await writeFile(targetPath, buildWriteExportLatexDocument({
+      await writeSafeWorkspaceFile(target, buildWriteExportLatexDocument({
         sourcePath,
         content: payload.content,
         title
-      }), 'utf8')
+      }), { encoding: 'utf8' })
       return {
         ok: true,
-        path: targetPath,
+        path: target.path,
         format: payload.format,
         exportedAt: new Date().toISOString()
       }
@@ -588,11 +620,12 @@ export async function exportWriteDocument(
       sourcePath,
       content: payload.content,
       title,
-      wordCompatible: payload.format === 'doc'
+      wordCompatible: payload.format === 'doc',
+      workspaceRoot: payload.workspaceRoot
     })
 
     if (payload.format === 'html' || payload.format === 'doc') {
-      await writeFile(targetPath, html, 'utf8')
+      await writeSafeWorkspaceFile(target, html, { encoding: 'utf8' })
     } else if (payload.format === 'docx') {
       const docx = await htmlToDocx(html, null, {
         title,
@@ -602,14 +635,14 @@ export async function exportWriteDocument(
         font: 'Arial',
         fontSize: 24
       })
-      await writeFile(targetPath, await bufferFromDocxResult(docx))
+      await writeSafeWorkspaceFile(target, await bufferFromDocxResult(docx))
     } else {
-      await writeFile(targetPath, await renderHtmlToPdf(html))
+      await writeSafeWorkspaceFile(target, await renderHtmlToPdf(html))
     }
 
     return {
       ok: true,
-      path: targetPath,
+      path: target.path,
       format: payload.format,
       exportedAt: new Date().toISOString()
     }

@@ -9,11 +9,11 @@ function run(command, args, options = {}) {
   })
 }
 
-require('./ensure-kun-install.cjs')
-
-const buildKun = run('npm', ['--prefix', 'kun', 'run', 'build'])
-if (buildKun.status !== 0) {
-  process.exit(buildKun.status || 1)
+try {
+  require('./local-runtime-package.cjs').buildProjectKun()
+} catch (error) {
+  console.error(`[postinstall] local runtime build failed: ${error.message}`)
+  process.exit(error.status || 1)
 }
 
 // node-pty powers the built-in terminal in the Electron main process. Its

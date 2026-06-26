@@ -15,6 +15,7 @@ import {
   type ManagedGuiMcpDescriptor,
   type ManagedGuiMcpLaunchConfig
 } from './managed-gui-mcp-config'
+import { internalSecretEnv } from './internal-http-secret'
 
 export { resolveLocalRuntimeMcpJsonPath } from './managed-gui-mcp-config'
 
@@ -69,7 +70,10 @@ export function buildScheduleMcpServerConfig(
     descriptor: GUI_SCHEDULE_MCP_DESCRIPTOR,
     launch,
     args: buildScheduleMcpArgs(settings, launch),
-    env: { ...ELECTRON_RUN_AS_NODE_ENV }
+    env: {
+      ...ELECTRON_RUN_AS_NODE_ENV,
+      ...internalSecretEnv(GUI_SCHEDULE_INTERNAL_SECRET_ENV, settings.schedule.internal.secret)
+    }
   })
 }
 
@@ -82,7 +86,10 @@ export function buildScheduleLocalRuntimeMcpServerConfig(
     descriptor: GUI_SCHEDULE_MCP_DESCRIPTOR,
     launch,
     args: buildScheduleMcpArgs(settings, launch),
-    env: { ...ELECTRON_RUN_AS_NODE_ENV },
+    env: {
+      ...ELECTRON_RUN_AS_NODE_ENV,
+      ...internalSecretEnv(GUI_SCHEDULE_INTERNAL_SECRET_ENV, settings.schedule.internal.secret)
+    },
     existing
   })
 }

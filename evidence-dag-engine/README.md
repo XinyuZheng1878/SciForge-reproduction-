@@ -113,5 +113,6 @@ GUI 主进程 env（不设则该 seam 为 no-op，行为不变）：
 | Var | 默认 | 含义 |
 |---|---|---|
 | `SCIFORGE_EVIDENCE_DAG_SERVICE_URL` | — | 引擎 base url(gate;不设=关) |
-| `SCIFORGE_EVIDENCE_DAG_API_KEY` | — | 可选 Bearer |
+| `SCIFORGE_EVIDENCE_DAG_API_KEY` | — | 必填 Bearer；服务端未配置或 GUI 未配置时 JSON API/feed 均 fail closed/no-op |
+| `SCIFORGE_EVIDENCE_DAG_MAX_BODY_BYTES` | `1048576` | 服务端 JSON body 上限，`Content-Length` 与 chunked 读取都会执行 |
 | `SCIFORGE_EVIDENCE_DAG_TIMEOUT_MS` | `600000` | 单次喂入超时(fire-and-forget) |

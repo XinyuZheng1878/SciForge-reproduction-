@@ -1,4 +1,8 @@
 import { desktopCapturer, shell, systemPreferences } from 'electron'
+import {
+  MACOS_SCREEN_RECORDING_SETTINGS_URL,
+  normalizeSafeSystemSettingsUrl
+} from '../../shared/external-url-policy'
 
 export type ComputerUsePermissionState = 'granted' | 'denied' | 'unknown'
 
@@ -110,12 +114,16 @@ export async function requestComputerUsePermission(
           // Best effort enrollment only.
         }
       }
-      await shell.openExternal(
-        'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
-      )
+      await openSystemSettingsPane(MACOS_SCREEN_RECORDING_SETTINGS_URL)
     }
   } catch {
     // Permission prompts are best-effort; return the refreshed state below.
   }
   return getComputerUsePermissions()
+}
+
+export async function openSystemSettingsPane(url: string): Promise<void> {
+  const validatedUrl = normalizeSafeSystemSettingsUrl(url)
+  if (!validatedUrl) throw new Error('Unsupported system settings URL.')
+  await shell.openExternal(validatedUrl)
 }

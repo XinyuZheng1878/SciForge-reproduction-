@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
@@ -217,6 +217,20 @@ describe('CodexThreadStore', () => {
       Array.from({ length: 20 }, (_, index) => `codex-thread-${index}`).sort()
     )
   })
+
+  it('does not follow a symlinked app-data thread snapshot target', async () => {
+    const rootDir = await tempRoot()
+    const outsideDir = await tempRoot()
+    const outsideFile = join(outsideDir, 'threads.json')
+    await writeFile(outsideFile, 'outside', 'utf8')
+    await symlink(outsideFile, join(rootDir, 'threads.json'))
+
+    await expect(new CodexThreadStore({ rootDir }).upsert({
+      codexThreadId: 'codex-thread-1',
+      title: 'Codex work'
+    })).rejects.toThrow(/not a symlink|regular file/)
+    await expect(readFile(outsideFile, 'utf8')).resolves.toBe('outside')
+  })
 })
 
 describe('CodexEventStore', () => {
@@ -261,6 +275,10 @@ describe('CodexEventStore', () => {
     expect((await store.read('thread-1')).map((event) => event.seq)).toEqual(
       Array.from({ length: 21 }, (_, index) => index + 1)
     )
+    const raw = await readFile(join(rootDir, 'events', `${Buffer.from('thread-1').toString('base64url')}.jsonl`), 'utf8')
+    const rows = raw.trim().split('\n').map((line) => JSON.parse(line) as { seq: number })
+    expect(rows).toHaveLength(21)
+    expect(rows.map((row) => row.seq)).toEqual(Array.from({ length: 21 }, (_, index) => index + 1))
   })
 
   it('ignores malformed JSONL rows when replaying events', async () => {
@@ -275,5 +293,27 @@ describe('CodexEventStore', () => {
     )
 
     expect((await store.read('thread-1')).map((event) => event.seq)).toEqual([1])
+  })
+
+  it('rejects event append through symlinked app-data event parents and targets', async () => {
+    const parentRoot = await tempRoot()
+    const outsideParent = await tempRoot()
+    await symlink(outsideParent, join(parentRoot, 'events'))
+    await expect(new CodexEventStore({ rootDir: parentRoot }).append('thread-1', {
+      threadId: 'thread-1',
+      turnComplete: true
+    })).rejects.toThrow(/must not cross a symlink/)
+
+    const targetRoot = await tempRoot()
+    const outsideTarget = join(await tempRoot(), 'thread.jsonl')
+    await mkdir(join(targetRoot, 'events'))
+    await writeFile(outsideTarget, 'outside', 'utf8')
+    await symlink(outsideTarget, join(targetRoot, 'events', `${Buffer.from('thread-1').toString('base64url')}.jsonl`))
+
+    await expect(new CodexEventStore({ rootDir: targetRoot }).append('thread-1', {
+      threadId: 'thread-1',
+      turnComplete: true
+    })).rejects.toThrow(/not a symlink|regular file/)
+    await expect(readFile(outsideTarget, 'utf8')).resolves.toBe('outside')
   })
 })

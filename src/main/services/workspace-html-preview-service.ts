@@ -1,7 +1,8 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
+import { randomBytes } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { access, stat } from 'node:fs/promises'
-import { extname, isAbsolute, relative, resolve } from 'node:path'
+import { dirname, extname, isAbsolute, relative, resolve } from 'node:path'
 import type {
   WorkspaceFileTarget,
   WorkspaceHtmlPreviewResult
@@ -14,6 +15,7 @@ import {
 
 type PreviewServerRecord = {
   root: string
+  token: string
   server: Server
   port: number
 }
@@ -53,10 +55,13 @@ export class WorkspaceHtmlPreviewService {
         return { ok: false, message: 'Only .html and .htm files can be served as HTML previews.' }
       }
 
-      const workspaceRoot = await this.resolvePreviewRoot(input, targetPath)
-      const server = await this.serverForRoot(workspaceRoot)
-      const relativePath = relative(workspaceRoot, targetPath).split('\\').join('/')
-      const url = new URL(`http://127.0.0.1:${server.port}/${encodePathSegments(relativePath)}`)
+      const workspaceRoot = await this.resolveWorkspaceRoot(input, targetPath)
+      const previewRoot = await this.resolvePreviewRoot(workspaceRoot, targetPath)
+      const server = await this.serverForRoot(previewRoot)
+      const relativePath = relative(previewRoot, targetPath).split('\\').join('/')
+      const url = new URL(
+        `http://127.0.0.1:${server.port}/${server.token}/${encodePathSegments(relativePath)}`
+      )
       url.searchParams.set('sciforge_preview', String(Math.floor(fileInfo.mtimeMs)))
 
       return {
@@ -78,7 +83,7 @@ export class WorkspaceHtmlPreviewService {
     await Promise.all(records.map((record) => closeServer(record.server)))
   }
 
-  private async resolvePreviewRoot(input: WorkspaceFileTarget, targetPath: string): Promise<string> {
+  private async resolveWorkspaceRoot(input: WorkspaceFileTarget, targetPath: string): Promise<string> {
     const rawRoot = input.workspaceRoot?.trim()
     if (!rawRoot) throw new Error('Workspace root is required.')
     const root = await canonicalPath(resolve(expandHomePath(rawRoot)))
@@ -89,20 +94,30 @@ export class WorkspaceHtmlPreviewService {
     return root
   }
 
+  private async resolvePreviewRoot(workspaceRoot: string, targetPath: string): Promise<string> {
+    const root = await canonicalPath(dirname(targetPath))
+    if (!isWithin(workspaceRoot, root)) {
+      throw new Error('Path must stay within the selected workspace.')
+    }
+    return root
+  }
+
   private async serverForRoot(root: string): Promise<PreviewServerRecord> {
     const existing = this.servers.get(root)
     if (existing) return existing
 
+    const token = createPreviewToken()
     const server = createServer((request, response) => {
-      void this.handleRequest(root, request, response)
+      void this.handleRequest(root, token, request, response)
     })
-    const record = await listen(server, root)
+    const record = await listen(server, root, token)
     this.servers.set(root, record)
     return record
   }
 
   private async handleRequest(
     root: string,
+    token: string,
     request: IncomingMessage,
     response: ServerResponse
   ): Promise<void> {
@@ -112,7 +127,12 @@ export class WorkspaceHtmlPreviewService {
         return
       }
       const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1')
-      const requestedPath = decodePathname(requestUrl.pathname)
+      const tokenizedPath = parseTokenizedPath(requestUrl.pathname)
+      if (!tokenizedPath || tokenizedPath.token !== token) {
+        sendText(response, 403, 'Invalid HTML preview token')
+        return
+      }
+      const requestedPath = tokenizedPath.path
       const targetPath = await resolveServedPath(root, requestedPath)
       const fileInfo = await stat(targetPath)
       if (fileInfo.isDirectory()) {
@@ -123,7 +143,7 @@ export class WorkspaceHtmlPreviewService {
       await this.streamFile(targetPath, request, response)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      sendText(response, message.includes('workspace') ? 403 : 404, message)
+      sendText(response, message.includes('workspace') || message.includes('preview') ? 403 : 404, message)
     }
   }
 
@@ -157,7 +177,7 @@ export class WorkspaceHtmlPreviewService {
 
 export const workspaceHtmlPreviewService = new WorkspaceHtmlPreviewService()
 
-function listen(server: Server, root: string): Promise<PreviewServerRecord> {
+function listen(server: Server, root: string, token: string): Promise<PreviewServerRecord> {
   return new Promise((resolveRecord, reject) => {
     const onError = (error: Error): void => {
       server.off('listening', onListening)
@@ -171,12 +191,16 @@ function listen(server: Server, root: string): Promise<PreviewServerRecord> {
         reject(new Error('HTML preview server did not report a port.'))
         return
       }
-      resolveRecord({ root, server, port })
+      resolveRecord({ root, token, server, port })
     }
     server.once('error', onError)
     server.once('listening', onListening)
     server.listen(0, '127.0.0.1')
   })
+}
+
+function createPreviewToken(): string {
+  return randomBytes(24).toString('base64url')
 }
 
 function closeServer(server: Server): Promise<void> {
@@ -187,13 +211,20 @@ async function resolveServedPath(root: string, requestPath: string): Promise<str
   const normalized = requestPath.replace(/^\/+/u, '')
   const targetPath = resolve(root, normalized || 'index.html')
   if (!isWithin(root, targetPath)) {
-    throw new Error('Path must stay within the selected workspace.')
+    throw new Error('Path must stay within the selected preview directory.')
   }
   const canonicalTarget = await canonicalPath(targetPath)
   if (!isWithin(root, canonicalTarget)) {
-    throw new Error('Path must stay within the selected workspace.')
+    throw new Error('Path must stay within the selected preview directory.')
   }
   return canonicalTarget
+}
+
+function parseTokenizedPath(pathname: string): { token: string; path: string } | null {
+  const decoded = decodePathname(pathname).replace(/^\/+/u, '')
+  const [token, ...pathParts] = decoded.split('/')
+  if (!token) return null
+  return { token, path: pathParts.join('/') }
 }
 
 function decodePathname(pathname: string): string {

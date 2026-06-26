@@ -1,5 +1,8 @@
 import type { CodexAppServerJsonRpcRequest } from './protocol'
-import { isCodexAppServerUserInputRequestMethod } from './request-registry'
+import {
+  codexAppServerApprovalMethodInfo,
+  isCodexAppServerUserInputRequestMethod
+} from './request-registry'
 
 export function defaultCodexAppServerServerRequestHandler(
   request: CodexAppServerJsonRpcRequest
@@ -10,13 +13,10 @@ export function defaultCodexAppServerServerRequestHandler(
 export function defaultCodexAppServerServerRequestResponse(
   request: CodexAppServerJsonRpcRequest
 ): unknown {
-  if (request.method === 'item/commandExecution/requestApproval') return { decision: 'decline' }
-  if (request.method === 'item/fileChange/requestApproval') return { decision: 'decline' }
-  if (request.method === 'item/permissions/requestApproval') return { permissions: {}, scope: 'turn' }
+  const approvalInfo = codexAppServerApprovalMethodInfo(request.method)
+  if (approvalInfo) return approvalInfo.defaultResponse()
   if (request.method === 'mcpServer/elicitation/request') return { action: 'cancel', content: null }
   if (isCodexAppServerUserInputRequestMethod(request.method)) return { answers: {} }
-  if (request.method === 'applyPatchApproval') return { decision: 'denied' }
-  if (request.method === 'execCommandApproval') return { decision: 'denied' }
   if (request.method === 'attestation/generate') return { token: '' }
   throw new Error(`Unsupported Codex app-server request: ${request.method}`)
 }

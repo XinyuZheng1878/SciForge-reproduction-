@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { configureLogger } from './logger'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultAgentCapabilitySettings,
   defaultKeyboardShortcuts,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
@@ -18,7 +19,7 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
-import { LocalRuntimeConfigSchema } from '../../kun/src/config/kun-config.js'
+import { LocalRuntimeConfigSchema } from './local-runtime-package-contract'
 
 vi.mock('electron', () => ({
   app: {
@@ -54,7 +55,8 @@ function createSettings(binaryPath: string, port = 8899): AppSettingsV1 {
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
-    claw: defaultClawSettings(),
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
@@ -90,6 +92,14 @@ async function listenOnPort(port: number): Promise<ReturnType<typeof createServe
 
 async function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
   await new Promise<void>((resolve) => server.close(() => resolve()))
+}
+
+async function allocateAvailablePort(): Promise<number> {
+  const server = await listenOnPort(0)
+  const address = server.address() as AddressInfo
+  const port = address.port
+  await closeServer(server)
+  return port
 }
 
 async function canBindPort(port: number): Promise<boolean> {
@@ -157,6 +167,7 @@ describe('startLocalRuntimeChild', () => {
   })
 
   it('resolves from /health when the stdout ready marker is delayed', async () => {
+    const port = await allocateAvailablePort()
     const script = writeScript(
       'health-child.js',
       [
@@ -180,11 +191,11 @@ describe('startLocalRuntimeChild', () => {
       ].join('\n')
     )
     const module = await import('./local-runtime-process')
-    await expect(module.startLocalRuntimeChild(createSettings(script))).resolves.toBeUndefined()
+    await expect(module.startLocalRuntimeChild(createSettings(script, port))).resolves.toBeUndefined()
     expect(module.isLocalRuntimeChildRunning()).toBe(true)
     await module.stopLocalRuntimeChildAndWait()
     const logText = await readLocalRuntimeLog()
-    expect(logText).toContain('health probe confirmed ready on port 8899')
+    expect(logText).toContain(`health probe confirmed ready on port ${port}`)
   })
 
   it('coalesces concurrent startup requests into one child process', async () => {
@@ -526,7 +537,8 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
         'http://127.0.0.1:9788'
       ],
       env: {
-        ELECTRON_RUN_AS_NODE: '1'
+        ELECTRON_RUN_AS_NODE: '1',
+        GUI_SCHEDULE_INTERNAL_SECRET: 'top-secret'
       },
       trustScope: 'user'
     })
@@ -603,7 +615,8 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
         'http://127.0.0.1:9898'
       ],
       env: {
-        ELECTRON_RUN_AS_NODE: '1'
+        ELECTRON_RUN_AS_NODE: '1',
+        GUI_WORKFLOW_INTERNAL_SECRET: 'workflow-secret'
       },
       trustScope: 'user',
       timeoutMs: 30000
@@ -728,7 +741,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     const workspaceRoot = join(tempRoot, 'workspace')
     const extraRoot = join(tempRoot, 'extra-skills')
     settings.workspaceRoot = workspaceRoot
-    settings.claw.skills.extraDirs = [extraRoot]
+    settings.remoteChannel.skills.extraDirs = [extraRoot]
     mkdirSync(join(workspaceRoot, '.codex', 'skills'), { recursive: true })
 
     await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
@@ -744,7 +757,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
     expect(parsed.capabilities.skills.enabled).toBe(true)
-    expect(parsed.capabilities.skills.legacySkillMd).toBe(true)
+    expect(parsed.capabilities.skills).not.toHaveProperty('legacySkillMd')
     expect(parsed.capabilities.skills.roots).toEqual(expect.arrayContaining([
       join(workspaceRoot, '.codex', 'skills'),
       extraRoot
@@ -767,6 +780,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
         profiles: {
           'user-model': {
             contextWindowTokens: 96000,
+            softThreshold: 82000,
             contextCompaction: {
               softThreshold: 86000
             }
@@ -863,8 +877,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
         toolStorm: {
           enabled: false,
           windowSize: 12,
-          softThreshold: 4,
-          hardThreshold: 8
+          threshold: 4
         }
       }
     })
@@ -905,15 +918,14 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
       summaryMaxTokens: 1600,
       summaryInputMaxBytes: 131072
     })
-    expect(parsed.contextCompaction.modelProfiles['custom-model']).toMatchObject({
-      contextWindowTokens: 128000
-    })
+    expect(parsed.contextCompaction.modelProfiles).toBeUndefined()
     expect(parsed.models.profiles['user-model']).toMatchObject({
       contextWindowTokens: 96000,
       contextCompaction: {
         softThreshold: 86000
       }
     })
+    expect(parsed.models.profiles['user-model'].softThreshold).toBeUndefined()
     expect(parsed.models.profiles['deepseek-v4-pro']).toMatchObject({
       contextWindowTokens: 1_000_000,
       contextCompaction: {

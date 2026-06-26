@@ -32,8 +32,8 @@ contract、event 与 capability 形状见
   选择、renderer provider registry、Settings UI 可以知道 `sciforge | codex`。
 7. 设置项写入 `agents.sciforge` 或 `agents.codex`，并由 `activeAgentRuntime`
    记录用户显式选择。
-8. 旧 `runtimeRequest` / `startSse` 路径只作为兼容 shim 保留；renderer 专用
-   `codex:*` IPC 已删除，`codex:` 字符串只能作为 app-server 内部
+8. 不要新增 `runtimeRequest` / `startSse` renderer 路径；应用代码统一走中性的
+   `agentRuntime:*` IPC 表面。renderer 专用 `codex:*` IPC 已删除，`codex:` 字符串只能作为 app-server 内部
    method/event 名称存在。
 
 ## 禁止路径

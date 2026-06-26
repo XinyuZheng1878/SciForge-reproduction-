@@ -69,6 +69,26 @@ describe('preload agentRuntime bridge', () => {
     expect(api.getPathForFile(file)).toBe('/tmp/file.txt')
   })
 
+  it('exposes filtered dev preview navigation notifications', () => {
+    const api = exposedApi as {
+      onDevPreviewNavigate(handler: (payload: unknown) => void): () => void
+    }
+    const handler = vi.fn()
+
+    const unsubscribe = api.onDevPreviewNavigate(handler)
+    const wrapped = on.mock.calls.find(([channel]) => channel === 'dev-preview:navigate')?.[1]
+    wrapped?.({}, { url: 'http://127.0.0.1:5173/docs', webContentsId: 42 })
+    wrapped?.({}, { url: 'http://127.0.0.1:5173/docs', webContentsId: '42' })
+    unsubscribe()
+
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(handler).toHaveBeenCalledWith({
+      url: 'http://127.0.0.1:5173/docs',
+      webContentsId: 42
+    })
+    expect(removeListener).toHaveBeenCalledWith('dev-preview:navigate', wrapped)
+  })
+
   it('keeps PDF preview on the generic workspace file IPC channel', async () => {
     const api = exposedApi as {
       readWorkspaceFile(options: unknown): Promise<unknown>
@@ -103,6 +123,66 @@ describe('preload agentRuntime bridge', () => {
     await api.speechToText.transcribe(payload)
 
     expect(invoke).toHaveBeenCalledWith('speech:transcribe', payload)
+  })
+
+  it('exposes connect-phone and remote-channel APIs on canonical IPC channels', async () => {
+    const api = exposedApi as {
+      getConnectPhoneStatus(): Promise<unknown>
+      runScheduleTask(taskId: string): Promise<unknown>
+      startConnectPhoneInstallQr(provider: 'feishu' | 'weixin', options?: { isLark?: boolean }): Promise<unknown>
+      pollConnectPhoneInstall(provider: 'feishu' | 'weixin', deviceCode: string): Promise<unknown>
+      onRemoteChannelActivity(handler: (payload: unknown) => void): () => void
+      updateRemoteChannelActiveThreadContext(payload: unknown): Promise<unknown>
+      mirrorRemoteChannelMessage(threadId: string, text: string, direction: 'user' | 'assistant'): Promise<unknown>
+      createRemoteChannelTaskFromText(text: string, options?: { channelId?: string; modelHint?: string; mode?: 'agent' | 'plan' }): Promise<unknown>
+    }
+
+    expect('getClawStatus' in api).toBe(false)
+    expect('runClawTask' in api).toBe(false)
+    expect('runConnectPhoneTask' in api).toBe(false)
+    expect('startClawImInstallQr' in api).toBe(false)
+    expect('pollClawImInstall' in api).toBe(false)
+    expect('onClawChannelActivity' in api).toBe(false)
+    expect('updateClawActiveThreadContext' in api).toBe(false)
+    expect('mirrorClawChannelMessage' in api).toBe(false)
+    expect('createClawTaskFromText' in api).toBe(false)
+
+    await api.getConnectPhoneStatus()
+    await api.runScheduleTask('task-1')
+    await api.startConnectPhoneInstallQr('feishu', { isLark: true })
+    await api.pollConnectPhoneInstall('feishu', 'device-1')
+    await api.updateRemoteChannelActiveThreadContext({ threadId: 'thread-1' })
+    await api.mirrorRemoteChannelMessage('thread-1', 'hello', 'user')
+    await api.createRemoteChannelTaskFromText('schedule this', {
+      channelId: 'channel-1',
+      modelHint: 'auto',
+      mode: 'agent'
+    })
+
+    const handler = vi.fn()
+    const unsubscribe = api.onRemoteChannelActivity(handler)
+    const wrapped = on.mock.calls.find(([channel]) => channel === 'remoteChannel:activity')?.[1]
+    wrapped?.({}, { channelId: 'channel-1', threadId: 'thread-1' })
+    unsubscribe()
+
+    expect(invoke).toHaveBeenCalledWith('connectPhone:status')
+    expect(invoke).toHaveBeenCalledWith('schedule:task:run', 'task-1')
+    expect(invoke).toHaveBeenCalledWith('connectPhone:install:qrcode', { provider: 'feishu', isLark: true })
+    expect(invoke).toHaveBeenCalledWith('connectPhone:install:poll', { provider: 'feishu', deviceCode: 'device-1' })
+    expect(invoke).toHaveBeenCalledWith('remoteChannel:active-thread-context', { threadId: 'thread-1' })
+    expect(invoke).toHaveBeenCalledWith('remoteChannel:message:mirror', {
+      threadId: 'thread-1',
+      text: 'hello',
+      direction: 'user'
+    })
+    expect(invoke).toHaveBeenCalledWith('remoteChannel:task:create-from-text', {
+      text: 'schedule this',
+      channelId: 'channel-1',
+      modelHint: 'auto',
+      mode: 'agent'
+    })
+    expect(handler).toHaveBeenCalledWith({ channelId: 'channel-1', threadId: 'thread-1' })
+    expect(removeListener).toHaveBeenCalledWith('remoteChannel:activity', wrapped)
   })
 
   it('exposes Paper Radar IPC methods through the preload bridge', async () => {

@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -136,5 +136,53 @@ describe('CodexUsageStore', () => {
         turns: 1
       }]
     })
+  })
+
+  it('serializes concurrent usage appends without losing JSONL rows', async () => {
+    const rootDir = await tempRoot()
+    const store = new CodexUsageStore({ rootDir })
+
+    await Promise.all(Array.from({ length: 30 }, (_, index) => store.record({
+      threadId: 'thread-1',
+      turnId: `turn-${index}`,
+      createdAt: '2026-06-10T01:00:00.000Z',
+      model: 'gpt-5-codex',
+      usage: {
+        inputTokens: index + 1,
+        outputTokens: 1,
+        totalTokens: index + 2
+      }
+    })))
+
+    const raw = await readFile(join(rootDir, 'usage', 'codex-usage.jsonl'), 'utf8')
+    const rows = raw.trim().split('\n').map((line) => JSON.parse(line) as { turnId: string })
+    expect(rows).toHaveLength(30)
+    expect(new Set(rows.map((row) => row.turnId)).size).toBe(30)
+    await expect(store.summary({ groupBy: 'thread', timezone: 'UTC' })).resolves.toMatchObject({
+      totals: { turns: 30, threadCount: 1 }
+    })
+  })
+
+  it('rejects symlinked usage append parents and targets', async () => {
+    const parentRoot = await tempRoot()
+    await symlink(await tempRoot(), join(parentRoot, 'usage'))
+    await expect(new CodexUsageStore({ rootDir: parentRoot }).record({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+    })).rejects.toThrow(/must not cross a symlink/)
+
+    const targetRoot = await tempRoot()
+    const outsideFile = join(await tempRoot(), 'codex-usage.jsonl')
+    await mkdir(join(targetRoot, 'usage'))
+    await writeFile(outsideFile, 'outside', 'utf8')
+    await symlink(outsideFile, join(targetRoot, 'usage', 'codex-usage.jsonl'))
+
+    await expect(new CodexUsageStore({ rootDir: targetRoot }).record({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+    })).rejects.toThrow(/not a symlink|regular file/)
+    await expect(readFile(outsideFile, 'utf8')).resolves.toBe('outside')
   })
 })

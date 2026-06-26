@@ -2,15 +2,10 @@ import {
   DEFAULT_WRITE_INLINE_COMPLETION_DEBOUNCE_MS,
   DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
   DEFAULT_WRITE_INLINE_COMPLETION_MIN_ACCEPT_SCORE,
-  DEFAULT_WRITE_INLINE_COMPLETION_MODEL,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_DEBOUNCE_MS,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MIN_ACCEPT_SCORE,
   DEFAULT_WRITE_WORKSPACE_ROOT,
-  normalizeWriteInlineCompletionModel,
-  resolveWriteInlineCompletionApiKey,
-  resolveWriteInlineCompletionBaseUrl,
-  resolveWriteInlineCompletionModel,
   type AppSettingsV1,
   type WriteInlineCompletionSettingsV1,
   type WriteSettingsV1
@@ -92,8 +87,6 @@ export function normalizeWriteSettings(settings?: Partial<WriteSettingsV1> | nul
   const longMinAcceptScore = Number(rawInlineCompletion.longMinAcceptScore)
   const maxTokens = Number(rawInlineCompletion.maxTokens)
   const longMaxTokens = Number(rawInlineCompletion.longMaxTokens)
-  const model = normalizeWriteInlineCompletionModel(rawInlineCompletion.model)
-  const rawModel = typeof rawInlineCompletion.model === 'string' ? rawInlineCompletion.model.trim() : ''
   return {
     defaultWorkspaceRoot,
     activeWorkspaceRoot: workspaces.includes(activeWorkspaceRoot) ? activeWorkspaceRoot : defaultWorkspaceRoot,
@@ -102,12 +95,6 @@ export function normalizeWriteSettings(settings?: Partial<WriteSettingsV1> | nul
       enabled: rawInlineCompletion.enabled !== false,
       retrievalEnabled: rawInlineCompletion.retrievalEnabled !== false,
       longCompletionEnabled: rawInlineCompletion.longCompletionEnabled !== false,
-      apiKey: rawInlineCompletion.apiKey?.trim() || '',
-      baseUrl: rawInlineCompletion.baseUrl?.trim() || '',
-      inheritModel: typeof rawInlineCompletion.inheritModel === 'boolean'
-        ? rawInlineCompletion.inheritModel
-        : !rawModel || rawModel === DEFAULT_WRITE_INLINE_COMPLETION_MODEL,
-      model,
       debounceMs: Number.isFinite(debounceMs)
         ? Math.max(150, Math.min(5_000, Math.round(debounceMs)))
         : DEFAULT_WRITE_INLINE_COMPLETION_DEBOUNCE_MS,
@@ -137,21 +124,17 @@ export function withResolvedInlineCompletionSettings(
     workspaces: string[]
     inlineCompletion: WriteInlineCompletionSettingsV1
   },
-  settings: Pick<AppSettingsV1, 'provider' | 'agents' | 'write'>
+  settings: Pick<AppSettingsV1, 'modelRouter' | 'write'>
 ): {
   defaultWorkspaceRoot: string
   activeWorkspaceRoot: string
   workspaces: string[]
   inlineCompletion: WriteInlineCompletionSettingsV1
 } {
+  void settings
   return {
     ...write,
-    inlineCompletion: {
-      ...write.inlineCompletion,
-      apiKey: resolveWriteInlineCompletionApiKey(settings as never),
-      baseUrl: resolveWriteInlineCompletionBaseUrl(settings as never),
-      model: resolveWriteInlineCompletionModel(settings as never)
-    }
+    inlineCompletion: write.inlineCompletion
   }
 }
 

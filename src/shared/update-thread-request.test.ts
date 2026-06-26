@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { UpdateThreadRequest } from '../../kun/src/contracts/threads'
+import { UpdateThreadRequest } from './thread-contract'
 
 describe('UpdateThreadRequest', () => {
   it('accepts workspace as a valid patch field', () => {

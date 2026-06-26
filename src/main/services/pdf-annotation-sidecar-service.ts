@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { readFile, rename, rm, stat } from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
 import JSZip from 'jszip'
 import {
@@ -28,7 +28,9 @@ import {
   expandHomePath,
   pathExists,
   resolveOpenTargetPath,
-  resolveTargetPathWithinWorkspace
+  resolveSafeWorkspaceWriteTarget,
+  type ResolvedWorkspaceWriteTarget,
+  writeSafeWorkspaceFile
 } from './workspace-paths'
 
 const MAX_SIDECAR_JSON_BYTES = 16 * 1024 * 1024
@@ -38,10 +40,17 @@ type ResolvedPdfTarget = {
   pdfPath: string
   workspaceRoot?: string
   sidecarRoot: string
+  defaultSidecarTarget: ResolvedWorkspaceWriteTarget
   defaultSidecarPath: string
   legacySidecarPath: string
+  exportPackageTarget: ResolvedWorkspaceWriteTarget
   exportPackagePath: string
   fingerprint: PdfFingerprint
+}
+
+type ResolvePdfAnnotationTargetOptions = {
+  createDefaultSidecarParents?: boolean
+  createExportPackageParents?: boolean
 }
 
 function normalizeWorkspaceRoot(workspaceRoot: string | undefined): string | undefined {
@@ -77,29 +86,36 @@ async function fingerprintPdf(path: string, pageCount?: number): Promise<PdfFing
   }
 }
 
-async function resolvePdfAnnotationTarget(target: PdfAnnotationSidecarTarget): Promise<ResolvedPdfTarget> {
+async function resolvePdfAnnotationTarget(
+  target: PdfAnnotationSidecarTarget,
+  options?: ResolvePdfAnnotationTargetOptions
+): Promise<ResolvedPdfTarget> {
   const workspaceRoot = normalizeWorkspaceRoot(target.workspaceRoot)
   const pdfPath = await resolveOpenTargetPath(target.pdfPath, workspaceRoot)
   const fingerprint = await fingerprintPdf(pdfPath, target.pageCount)
   const sidecarRoot = workspaceRoot
     ? await canonicalPath(workspaceRoot)
     : dirname(pdfPath)
-  const defaultSidecarPath = await resolveTargetPathWithinWorkspace(
+  const defaultSidecarTarget = await resolveSafeWorkspaceWriteTarget(
     join(PDF_ANNOTATION_DEFAULT_DIR, `${fingerprint.sha256}.json`),
-    sidecarRoot
+    sidecarRoot,
+    { createParentDirectories: options?.createDefaultSidecarParents ?? false }
   )
   const legacySidecarPath = join(dirname(pdfPath), `${basename(pdfPath)}${PDF_ANNOTATION_LEGACY_SUFFIX}`)
-  const exportPackagePath = await resolveTargetPathWithinWorkspace(
+  const exportPackageTarget = await resolveSafeWorkspaceWriteTarget(
     `${withoutPdfExtension(basename(pdfPath))}${PDF_ANNOTATION_PACKAGE_SUFFIX}`,
-    sidecarRoot
+    sidecarRoot,
+    { createParentDirectories: options?.createExportPackageParents ?? false }
   )
   return {
     pdfPath,
     workspaceRoot,
     sidecarRoot,
-    defaultSidecarPath,
+    defaultSidecarTarget,
+    defaultSidecarPath: defaultSidecarTarget.path,
     legacySidecarPath,
-    exportPackagePath,
+    exportPackageTarget,
+    exportPackagePath: exportPackageTarget.path,
     fingerprint
   }
 }
@@ -112,15 +128,21 @@ async function readJsonFile(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, 'utf8')) as unknown
 }
 
-async function writeJsonFile(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const tmpPath = `${path}.tmp-${process.pid}-${randomUUID()}`
+async function writeJsonFile(target: ResolvedWorkspaceWriteTarget, value: unknown): Promise<void> {
+  const tmpTarget = await resolveSafeWorkspaceWriteTarget(
+    join(target.parentPath, `${basename(target.path)}.tmp-${process.pid}-${randomUUID()}`),
+    target.workspaceRoot,
+    { createParentDirectories: false }
+  )
   const content = `${JSON.stringify(value, null, 2)}\n`
-  await writeFile(tmpPath, content, 'utf8')
+  await writeSafeWorkspaceFile(tmpTarget, content, { encoding: 'utf8', exclusive: true })
   try {
-    await rename(tmpPath, path)
+    await resolveSafeWorkspaceWriteTarget(target.path, target.workspaceRoot, {
+      createParentDirectories: false
+    })
+    await rename(tmpTarget.path, target.path)
   } catch (error) {
-    await rm(tmpPath, { force: true })
+    await rm(tmpTarget.path, { force: true })
     throw error
   }
 }
@@ -188,7 +210,7 @@ export async function savePdfAnnotationSidecar(
   payload: PdfAnnotationSidecarSavePayload
 ): Promise<PdfAnnotationSidecarSaveResult> {
   try {
-    const resolved = await resolvePdfAnnotationTarget(payload)
+    const resolved = await resolvePdfAnnotationTarget(payload, { createDefaultSidecarParents: true })
     const now = new Date().toISOString()
     const sidecar = stablePdfAnnotationSidecar({
       ...withResolvedFingerprint(payload.sidecar, resolved),
@@ -202,7 +224,7 @@ export async function savePdfAnnotationSidecar(
       }
     })
     const parsed = pdfAnnotationSidecarSchema.parse(sidecar)
-    await writeJsonFile(resolved.defaultSidecarPath, parsed)
+    await writeJsonFile(resolved.defaultSidecarTarget, parsed)
     return {
       ok: true,
       sidecar: parsed,
@@ -228,7 +250,7 @@ export async function exportPdfAnnotationSidecarPackage(
   payload: PdfAnnotationSidecarExportPayload
 ): Promise<PdfAnnotationSidecarExportResult> {
   try {
-    const resolved = await resolvePdfAnnotationTarget(payload)
+    const resolved = await resolvePdfAnnotationTarget(payload, { createExportPackageParents: true })
     const loaded = payload.sidecar
       ? { ok: true as const, sidecar: payload.sidecar }
       : await loadPdfAnnotationSidecar(payload)
@@ -256,8 +278,7 @@ export async function exportPdfAnnotationSidecarPackage(
       compression: 'DEFLATE',
       compressionOptions: { level: 6 }
     })
-    await mkdir(dirname(resolved.exportPackagePath), { recursive: true })
-    await writeFile(resolved.exportPackagePath, bytes)
+    await writeSafeWorkspaceFile(resolved.exportPackageTarget, bytes)
     return {
       ok: true,
       path: resolved.exportPackagePath,
@@ -287,7 +308,7 @@ export async function importPdfAnnotationSidecarPackage(
   payload: PdfAnnotationSidecarImportPayload
 ): Promise<PdfAnnotationSidecarImportResult> {
   try {
-    const resolved = await resolvePdfAnnotationTarget(payload)
+    const resolved = await resolvePdfAnnotationTarget(payload, { createDefaultSidecarParents: true })
     const zip = await JSZip.loadAsync(await readImportPackage(payload, resolved.workspaceRoot))
     const annotationsEntry = zip.file('annotations.json')
     if (!annotationsEntry) throw new Error('PDF annotation package is missing annotations.json.')
@@ -311,7 +332,7 @@ export async function importPdfAnnotationSidecarPackage(
         updatedAt: now
       }
     })
-    await writeJsonFile(resolved.defaultSidecarPath, imported)
+    await writeJsonFile(resolved.defaultSidecarTarget, imported)
     return {
       ok: true,
       sidecar: imported,

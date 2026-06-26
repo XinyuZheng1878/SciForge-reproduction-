@@ -1,6 +1,5 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
 import type { CodexThreadEventPayload } from './codex-runtime-api'
+import { AppDataJsonlStore } from '../../services/app-data-store'
 
 export type CodexStoredEvent = {
   seq: number
@@ -18,6 +17,7 @@ export class CodexEventStore {
   private readonly rootDir: string
   private readonly now: () => Date
   private readonly threadQueues = new Map<string, Promise<void>>()
+  private readonly jsonlStores = new Map<string, AppDataJsonlStore>()
 
   constructor(options: CodexEventStoreOptions) {
     this.rootDir = options.rootDir
@@ -42,8 +42,7 @@ export class CodexEventStore {
         seq
       }
     }
-    await mkdir(dirname(this.eventsPath(threadId)), { recursive: true })
-    await appendFile(this.eventsPath(threadId), `${JSON.stringify(stored)}\n`, 'utf8')
+    await this.jsonlForThread(threadId).appendJson([stored])
     return stored
   }
 
@@ -55,7 +54,7 @@ export class CodexEventStore {
     if (!normalizedThreadId) return []
     let raw = ''
     try {
-      raw = await readFile(this.eventsPath(normalizedThreadId), 'utf8')
+      raw = await this.jsonlForThread(normalizedThreadId).readText()
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
       throw error
@@ -77,8 +76,16 @@ export class CodexEventStore {
     return Math.max(0, ...events.map((event) => event.seq))
   }
 
-  private eventsPath(threadId: string): string {
-    return join(this.rootDir, 'events', `${safeSegment(threadId)}.jsonl`)
+  private jsonlForThread(threadId: string): AppDataJsonlStore {
+    const storeKey = safeSegment(threadId)
+    const existing = this.jsonlStores.get(storeKey)
+    if (existing) return existing
+    const created = new AppDataJsonlStore({
+      rootDir: this.rootDir,
+      segments: ['events', `${storeKey}.jsonl`]
+    })
+    this.jsonlStores.set(storeKey, created)
+    return created
   }
 
   private enqueueForThread<T>(threadId: string, task: () => Promise<T>): Promise<T> {

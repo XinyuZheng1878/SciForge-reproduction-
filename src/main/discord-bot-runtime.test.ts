@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
@@ -41,16 +42,17 @@ function settings(channel: ClawImChannelV1): AppSettingsV1 {
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
-    claw: {
-      ...defaultClawSettings(),
+    remoteChannel: {
+      ...defaultRemoteChannelSettings(),
       enabled: true,
       im: {
-        ...defaultClawSettings().im,
+        ...defaultRemoteChannelSettings().im,
         enabled: true,
         provider: 'discord'
       },
       channels: [channel]
     },
+    connectPhone: defaultConnectPhoneSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
@@ -210,8 +212,8 @@ describe('DiscordBotRuntime guard ownership', () => {
       let current: AppSettingsV1 = {
         ...settings(discordChannel()),
         workspaceRoot: '/repo/current',
-        claw: {
-          ...settings(discordChannel()).claw,
+        remoteChannel: {
+          ...settings(discordChannel()).remoteChannel,
           channels: []
         }
       }
@@ -221,14 +223,14 @@ describe('DiscordBotRuntime guard ownership', () => {
           current = {
             ...current,
             ...patch,
-            claw: {
-              ...current.claw,
-              ...patch.claw,
+            remoteChannel: {
+              ...current.remoteChannel,
+              ...patch.remoteChannel,
               im: {
-                ...current.claw.im,
-                ...(patch.claw?.im ?? {})
+                ...current.remoteChannel.im,
+                ...(patch.remoteChannel?.im ?? {})
               },
-              channels: (patch.claw?.channels as ClawImChannelV1[] | undefined) ?? current.claw.channels
+              channels: (patch.remoteChannel?.channels as ClawImChannelV1[] | undefined) ?? current.remoteChannel.channels
             }
           }
           return current
@@ -248,8 +250,8 @@ describe('DiscordBotRuntime guard ownership', () => {
         channelName: 'support',
         enabled: false
       })).resolves.toMatchObject({ ok: true })
-      expect(current.claw.channels[0].workspaceRoot).toBe('/repo/current')
-      expect(current.claw.channels[0].guardMode).toBe('all_messages')
+      expect(current.remoteChannel.channels[0].workspaceRoot).toBe('/repo/current')
+      expect(current.remoteChannel.channels[0].guardMode).toBe('all_messages')
     } finally {
       rmSync(userDataPath, { recursive: true, force: true })
     }
@@ -278,14 +280,14 @@ describe('DiscordBotRuntime guard ownership', () => {
           current = {
             ...current,
             ...patch,
-            claw: {
-              ...current.claw,
-              ...patch.claw,
+            remoteChannel: {
+              ...current.remoteChannel,
+              ...patch.remoteChannel,
               im: {
-                ...current.claw.im,
-                ...(patch.claw?.im ?? {})
+                ...current.remoteChannel.im,
+                ...(patch.remoteChannel?.im ?? {})
               },
-              channels: (patch.claw?.channels as ClawImChannelV1[] | undefined) ?? current.claw.channels
+              channels: (patch.remoteChannel?.channels as ClawImChannelV1[] | undefined) ?? current.remoteChannel.channels
             }
           }
           return current
@@ -320,10 +322,10 @@ describe('DiscordBotRuntime guard ownership', () => {
           forceTakeover: true
         })
       ).resolves.toMatchObject({ ok: true })
-      expect(current.claw.channels[0].platformCredential).toMatchObject({
+      expect(current.remoteChannel.channels[0].platformCredential).toMatchObject({
         guardOwnerInstallationId: 'dsgui-local'
       })
-      expect(current.claw.channels[0].guardMode).toBe('all_messages')
+      expect(current.remoteChannel.channels[0].guardMode).toBe('all_messages')
     } finally {
       rmSync(userDataPath, { recursive: true, force: true })
     }
@@ -362,14 +364,14 @@ describe('DiscordBotRuntime guard ownership', () => {
           current = {
             ...current,
             ...patch,
-            claw: {
-              ...current.claw,
-              ...patch.claw,
+            remoteChannel: {
+              ...current.remoteChannel,
+              ...patch.remoteChannel,
               im: {
-                ...current.claw.im,
-                ...(patch.claw?.im ?? {})
+                ...current.remoteChannel.im,
+                ...(patch.remoteChannel?.im ?? {})
               },
-              channels: (patch.claw?.channels as ClawImChannelV1[] | undefined) ?? current.claw.channels
+              channels: (patch.remoteChannel?.channels as ClawImChannelV1[] | undefined) ?? current.remoteChannel.channels
             }
           }
           return current
@@ -385,7 +387,7 @@ describe('DiscordBotRuntime guard ownership', () => {
       await expect(
         runtime.setGuard(false, { channelConfigId: 'discord-bot-1-guild-1-channel-1' })
       ).resolves.toMatchObject({ ok: true })
-      expect(current.claw.channels[0]).toMatchObject({
+      expect(current.remoteChannel.channels[0]).toMatchObject({
         enabled: false,
         threadId: 'legacy-kun-thread',
         runtimeId: 'codex',
@@ -403,7 +405,7 @@ describe('DiscordBotRuntime guard ownership', () => {
       await expect(
         runtime.setGuard(true, { channelConfigId: 'discord-bot-1-guild-1-channel-1' })
       ).resolves.toMatchObject({ ok: true })
-      expect(current.claw.channels[0]).toMatchObject({
+      expect(current.remoteChannel.channels[0]).toMatchObject({
         enabled: true,
         guardMode: 'all_messages',
         threadId: 'legacy-kun-thread',
@@ -610,14 +612,14 @@ describe('DiscordBotRuntime remote failure replies', () => {
 
     try {
       const current = settings(localDiscordChannel())
-      const sensitiveMessage = 'Provider token=sk-proj-secret failed in /Users/alice/.sciforge/claw/runtime.json'
+      const sensitiveMessage = 'Provider token=sk-proj-secret failed in /Users/alice/.sciforge/remote-channel/runtime.json'
       const handleIncomingMessage = vi.fn(async () => ({
         ok: false as const,
         message: sensitiveMessage,
         details: {
           provider: 'openai',
           token: 'sk-proj-secret',
-          path: '/Users/alice/.sciforge/claw/runtime.json'
+          path: '/Users/alice/.sciforge/remote-channel/runtime.json'
         }
       }))
       const logError = vi.fn()
@@ -663,12 +665,12 @@ describe('DiscordBotRuntime remote failure replies', () => {
         'claw-discord',
         'Claw runtime returned a failure for Discord message.',
         expect.objectContaining({
-          message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/claw/runtime.json',
+          message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/remote-channel/runtime.json',
           result: expect.objectContaining({
-            message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/claw/runtime.json',
+            message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/remote-channel/runtime.json',
             details: expect.objectContaining({
               token: '<redacted>',
-              path: '/Users/alice/.sciforge/claw/runtime.json'
+              path: '/Users/alice/.sciforge/remote-channel/runtime.json'
             })
           })
         })
@@ -756,14 +758,14 @@ describe('DiscordBotRuntime remote failure replies', () => {
 
     try {
       const current = settings(localDiscordChannel())
-      const sensitiveMessage = 'Provider token=sk-proj-secret failed in /Users/alice/.sciforge/claw/runtime.json'
+      const sensitiveMessage = 'Provider token=sk-proj-secret failed in /Users/alice/.sciforge/remote-channel/runtime.json'
       const handleIncomingMessage = vi.fn(async () => ({
         ok: false as const,
         message: sensitiveMessage,
         details: {
           provider: 'openai',
           token: 'sk-proj-secret',
-          path: '/Users/alice/.sciforge/claw/runtime.json'
+          path: '/Users/alice/.sciforge/remote-channel/runtime.json'
         }
       }))
       const logError = vi.fn()
@@ -815,12 +817,12 @@ describe('DiscordBotRuntime remote failure replies', () => {
         'claw-discord',
         'Claw runtime returned a failure for Discord interaction.',
         expect.objectContaining({
-          message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/claw/runtime.json',
+          message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/remote-channel/runtime.json',
           result: expect.objectContaining({
-            message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/claw/runtime.json',
+            message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/remote-channel/runtime.json',
             details: expect.objectContaining({
               token: '<redacted>',
-              path: '/Users/alice/.sciforge/claw/runtime.json'
+              path: '/Users/alice/.sciforge/remote-channel/runtime.json'
             })
           })
         })

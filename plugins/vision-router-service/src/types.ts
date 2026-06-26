@@ -18,6 +18,7 @@ export type ServiceErrorCode =
   | 'TIMEOUT'
   | 'RATE_LIMITED'
   | 'UNAVAILABLE'
+  | 'PAYLOAD_TOO_LARGE'
   | 'INTERNAL_ERROR';
 
 export interface ServiceError {

@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -134,6 +134,22 @@ describe('RuntimeContextLedgerService', () => {
     expect(persisted).toMatchObject({
       summary: 'Summary survives goal clear.'
     })
+  })
+
+  it('does not follow a symlinked app-data ledger store target', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'runtime-context-ledger-'))
+    const outsideDir = await mkdtemp(join(tmpdir(), 'runtime-context-ledger-outside-'))
+    const outsideFile = join(outsideDir, 'ledgers.json')
+    await mkdir(join(dataDir, 'runtime-context-ledgers'))
+    await writeFile(outsideFile, 'outside', 'utf8')
+    await symlink(outsideFile, join(dataDir, 'runtime-context-ledgers', 'ledgers.json'))
+
+    await expect(new RuntimeContextLedgerService(dataDir).record({
+      runtimeId: 'codex',
+      threadId: 'thread-1',
+      patch: { summary: 'stay inside app data' }
+    })).rejects.toThrow(/not a symlink|regular file/)
+    await expect(readFile(outsideFile, 'utf8')).resolves.toBe('outside')
   })
 
   it('observes neutral runtime events into goals, handoff evidence, compaction, usage, and recent tail digest', async () => {

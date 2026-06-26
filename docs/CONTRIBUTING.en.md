@@ -172,7 +172,7 @@ Examples:
 
 - `docs: rewrite README and contribution guides`
 - `feat: improve runtime connection recovery`
-- `fix: handle missing DeepSeek binary path`
+- `fix: handle missing local runtime executable path`
 
 ## Reporting Issues
 

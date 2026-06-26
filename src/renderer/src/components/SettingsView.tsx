@@ -113,7 +113,6 @@ export function SettingsView(): ReactElement {
   const settingsReturnRoute = useChatStore((s) => s.settingsReturnRoute)
   const settingsSection = useChatStore((s) => s.settingsSection)
   const openCode = useChatStore((s) => s.openCode)
-  const openClaw = useChatStore((s) => s.openClaw)
   const openSchedule = useChatStore((s) => s.openSchedule)
   const openInitialSetup = useChatStore((s) => s.openInitialSetup)
   const openPlugins = useChatStore((s) => s.openPlugins)
@@ -624,10 +623,6 @@ export function SettingsView(): ReactElement {
     void (async () => {
       await flushPendingSave()
       await reloadUiSettings()
-      if (settingsReturnRoute === 'claw') {
-        openClaw()
-        return
-      }
       if (settingsReturnRoute === 'schedule') {
         openSchedule()
         return
@@ -727,10 +722,10 @@ export function SettingsView(): ReactElement {
         throw new Error('workspace:pick-directory unavailable')
       }
       const picked = await window.sciforge.pickWorkspaceDirectory(
-        form.claw.im.workspaceRoot || form.workspaceRoot || undefined
+        form.remoteChannel.im.workspaceRoot || form.workspaceRoot || undefined
       )
       if (!picked.canceled && picked.path) {
-        update({ claw: { im: { workspaceRoot: picked.path } } })
+        update({ remoteChannel: { im: { workspaceRoot: picked.path } } })
       }
     } catch (e) {
       setClawWorkspacePickerError(formatWorkspacePickerError(e))
@@ -739,7 +734,7 @@ export function SettingsView(): ReactElement {
 
   const resetClawWorkspaceToDefault = (): void => {
     setClawWorkspacePickerError(null)
-    update({ claw: { im: { workspaceRoot: '' } } })
+    update({ remoteChannel: { im: { workspaceRoot: '' } } })
   }
 
   const prepareResearchMemoryWorkspace = async (): Promise<void> => {

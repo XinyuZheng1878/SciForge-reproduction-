@@ -1,9 +1,10 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   emptyComputerUseRuntimeStatus,
+  recordComputerUseDiagnostic,
   readComputerUseRuntimeStatus
 } from './computer-use-status'
 
@@ -93,5 +94,38 @@ describe('computer-use runtime status', () => {
         targetId: 'main-desktop'
       }
     ])
+  })
+
+  it('does not follow a symlinked app-data status target when recording diagnostics', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sciforge-computer-use-status-'))
+    const outside = await mkdtemp(join(tmpdir(), 'sciforge-computer-use-status-outside-'))
+    const outsideFile = join(outside, 'status.json')
+    const statusPath = join(root, 'status.json')
+    await writeFile(outsideFile, 'outside', 'utf8')
+    await symlink(outsideFile, statusPath)
+
+    await expect(recordComputerUseDiagnostic(statusPath, {
+      backend: 'global-native',
+      available: true,
+      platform: 'darwin',
+      activeLeases: [],
+      recentRejections: []
+    })).rejects.toThrow(/not a symlink|regular file/)
+    await expect(readFile(outsideFile, 'utf8')).resolves.toBe('outside')
+  })
+
+  it('does not cross a symlinked computer-use app-data directory', async () => {
+    const userData = await mkdtemp(join(tmpdir(), 'sciforge-computer-use-user-data-'))
+    const outside = await mkdtemp(join(tmpdir(), 'sciforge-computer-use-status-outside-'))
+    await symlink(outside, join(userData, 'computer-use'))
+
+    await expect(recordComputerUseDiagnostic(join(userData, 'computer-use', 'status.json'), {
+      backend: 'global-native',
+      available: true,
+      platform: 'darwin',
+      activeLeases: [],
+      recentRejections: []
+    })).rejects.toThrow(/must not cross a symlink/)
+    await expect(readFile(join(outside, 'status.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })

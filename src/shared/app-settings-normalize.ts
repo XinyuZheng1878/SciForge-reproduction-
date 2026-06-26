@@ -4,8 +4,9 @@ import {
   type AppBehaviorConfigV1,
   type AgentCapabilitySettingsPatchV1,
   type AppSettingsV1,
+  type ConnectPhoneSettingsPatchV1,
   type ComputerUseSettingsPatchV1,
-  type ClawSettingsPatchV1,
+  type RemoteChannelSettingsPatchV1,
   type GuiUpdateConfigV1,
   type NotificationConfigV1,
   type ResearchMemorySettingsPatchV1,
@@ -36,7 +37,7 @@ import {
 import { normalizeModelProviderSettings } from './app-settings-provider'
 import { normalizeModelRouterSettings } from './app-settings-model-router'
 import { normalizeInstallationId } from './app-settings-normalizers'
-import { normalizeClawSettings } from './app-settings-claw'
+import { normalizeConnectPhoneSettings, normalizeRemoteChannelSettings } from './app-settings-claw'
 import { normalizeScheduleSettings } from './app-settings-schedule'
 import { normalizeWorkflowSettings } from './app-settings-workflow'
 import { normalizeWriteSettings } from './app-settings-write'
@@ -53,7 +54,8 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     provider?: Parameters<typeof normalizeModelProviderSettings>[0]
     modelRouter?: Parameters<typeof normalizeModelRouterSettings>[0]
     write?: WriteSettingsPatchV1
-    claw?: ClawSettingsPatchV1
+    remoteChannel?: RemoteChannelSettingsPatchV1
+    connectPhone?: ConnectPhoneSettingsPatchV1
     schedule?: ScheduleSettingsPatchV1
     workflow?: WorkflowSettingsPatchV1
     speechToText?: SpeechToTextSettingsPatchV1
@@ -67,7 +69,6 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
   const codexRuntime = getCodexRuntimeSettings(maybeSettings)
   const claudeRuntime = getClaudeRuntimeSettings(maybeSettings)
   return {
-    ...settings,
     version: 1,
     installationId: normalizeInstallationId(maybeSettings.installationId),
     locale: maybeSettings.locale === 'zh' ? 'zh' : 'en',
@@ -105,7 +106,8 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     keyboardShortcuts: normalizeKeyboardShortcuts(maybeSettings.keyboardShortcuts),
     write: normalizeWriteSettings(maybeSettings.write),
     speechToText: normalizeSpeechToTextSettings(maybeSettings.speechToText),
-    claw: normalizeClawSettings(maybeSettings.claw),
+    remoteChannel: normalizeRemoteChannelSettings(maybeSettings.remoteChannel),
+    connectPhone: normalizeConnectPhoneSettings(maybeSettings.connectPhone),
     schedule: normalizeScheduleSettings(maybeSettings.schedule),
     workflow: normalizeWorkflowSettings(maybeSettings.workflow),
     guiUpdate: {

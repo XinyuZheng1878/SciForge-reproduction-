@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
@@ -41,7 +42,8 @@ function buildSettings(): AppSettingsV1 {
     write: defaultWriteSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
-    claw: defaultClawSettings(),
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }

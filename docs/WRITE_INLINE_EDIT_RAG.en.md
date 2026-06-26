@@ -57,7 +57,7 @@ Newly added is the editing layer:
 
 - When the user selects a short word or sentence, the editing scope is expanded to the current natural paragraph by default.
 - When the user selects long text or text that spans blank lines, only the original selection will be edited.
-- When users manually perform one-time phrase replacement, they will first use deterministic rules to replace other identical phrases in the same paragraph, such as `deepseek gui -> SciForge`.
+- When users manually perform one-time phrase replacement, they will first use deterministic rules to replace other identical phrases in the same paragraph, such as `legacy editor -> SciForge Write`.
 - The rendering side sends `prefix`, `suffix`, `original`, `instruction` and selection metadata.
 - The rendering end will bring the user/AI editing records of the current file in the last 2 minutes to help the model understand "continue to change like this".
 - The main process constructs an edit prompt and injects retrieved fragments as reference-only context.
@@ -89,7 +89,7 @@ Explicit edit requests currently use the same `write:inline-completion` IPC, but
 
 ```json
 {
-  "model": "deepseek-v4-flash",
+  "model": "sciforge-router",
   "messages": [
     {
       "role": "system",
@@ -111,7 +111,7 @@ This allows the model to see both the front and rear boundaries of the edit and 
 
 BM25 + keyword RAG solves cross-file references, recent edits solves the editing intention that just happened in the current file. The implementation logs user input and deleted/inserted text produced by AI in-place editing, before and after neighbors, edit source, and AI editing instructions.
 
-Additionally, term casing and simple renaming are not entirely model dependent. The editor will propagate one-time phrase replacements in the same paragraph: when you change `deepseek gui` to `SciForge` or `DXGUI`, other `deepseek gui` in the same natural paragraph will be replaced simultaneously. This deterministic layer is responsible for the consistency of "must happen", and recent edits and RAG are responsible for understanding this intent during subsequent AI edits.
+Additionally, term casing and simple renaming are not entirely model dependent. The editor will propagate one-time phrase replacements in the same paragraph: when you change `legacy editor` to `SciForge Write` or `Live editor`, other `legacy editor` phrases in the same natural paragraph will be replaced simultaneously. This deterministic layer is responsible for the consistency of "must happen", and recent edits and RAG are responsible for understanding this intent during subsequent AI edits.
 
 When the user enters weak instructions such as "Continue to change like this", "Replace the same", "Retouch as before", the prompt will remind the model to infer the current editing mode from recent edits; if recent edits conflict with the current instruction, the current instruction will take precedence.
 

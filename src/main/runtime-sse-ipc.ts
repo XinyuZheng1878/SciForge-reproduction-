@@ -2,7 +2,8 @@ import { URL } from 'node:url'
 import type { AppSettingsV1 } from '../shared/app-settings'
 import { localRuntimeThreadEventsPath } from '../shared/local-runtime-endpoints'
 import { getRuntimeBaseUrlForSettings, runtimeAuthHeaders } from './runtime/local-runtime-adapter'
-import type { RuntimeHostEventPayload } from './runtime/runtime-host'
+
+type LocalRuntimeEventPayload = Record<string, unknown>
 
 const SSE_RECONNECT_BASE_MS = 750
 const SSE_RECONNECT_MAX_MS = 5_000
@@ -134,7 +135,7 @@ export async function* localRuntimeEvents(
   threadId: string,
   sinceSeq: number,
   signal: AbortSignal
-): AsyncIterable<RuntimeHostEventPayload> {
+): AsyncIterable<LocalRuntimeEventPayload> {
   const base = getRuntimeBaseUrlForSettings(settings)
   const headers: Record<string, string> = { Accept: 'text/event-stream' }
   runtimeAuthHeaders(settings).forEach((value, key) => {

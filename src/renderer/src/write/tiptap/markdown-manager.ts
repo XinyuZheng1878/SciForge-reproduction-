@@ -68,6 +68,7 @@ function trimTrailingNewlines(markdown: string): string {
 
 export function buildWriteRichExtensions(options: {
   getFilePath?: () => string
+  getWorkspaceRoot?: () => string
 } = {}): AnyExtension[] {
   return [
     StarterKit.configure({
@@ -85,7 +86,8 @@ export function buildWriteRichExtensions(options: {
       }
     }),
     WriteLocalImage.configure({
-      getFilePath: options.getFilePath ?? (() => '')
+      getFilePath: options.getFilePath ?? (() => ''),
+      getWorkspaceRoot: options.getWorkspaceRoot ?? (() => '')
     })
   ]
 }

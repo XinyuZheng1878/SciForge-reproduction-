@@ -63,10 +63,6 @@ export function formatClawInstallError(
   const value = message.trim()
   if (
     /WeChat login bridge/i.test(value) ||
-    (/OpenClaw Gateway/i.test(value) &&
-    (/unavailable/i.test(value) ||
-      /not configured/i.test(value) ||
-      /requires/i.test(value))) ||
     /^not found$/i.test(value) ||
     /fetch failed/i.test(value) ||
     /ECONNREFUSED/i.test(value) ||
@@ -136,7 +132,7 @@ export const CLAW_AGENT_TABS: Array<{
   }
 ]
 
-export const DEFAULT_CLAW_WORKSPACE_ROOT = '~/.sciforge/claw'
+export const DEFAULT_REMOTE_CHANNEL_WORKSPACE_ROOT = '~/.sciforge/remote-channel'
 
 export const CLAW_DIALOG_STEPS: Array<{
   id: ClawDialogStep
@@ -255,7 +251,7 @@ export function clawDefaultChannelWorkspacePreview(
     const workspaceId = accountId?.trim()
       ? sanitizeWorkspaceSegment(accountId, 'account')
       : '<account-id-or-channel-id>'
-    return `${DEFAULT_CLAW_WORKSPACE_ROOT}/${provider}/weixin/${workspaceId}`
+    return `${DEFAULT_REMOTE_CHANNEL_WORKSPACE_ROOT}/${provider}/weixin/${workspaceId}`
   }
   const domain = sanitizeWorkspaceSegment(
     platformCredential?.kind === 'feishu' ? platformCredential.domain : target,
@@ -266,7 +262,7 @@ export function clawDefaultChannelWorkspacePreview(
     : channelId?.trim()
       ? sanitizeWorkspaceSegment(channelId, 'channel')
       : '<appId-or-channel-id>'
-  return `${DEFAULT_CLAW_WORKSPACE_ROOT}/${provider}/${domain}/${workspaceId}`
+  return `${DEFAULT_REMOTE_CHANNEL_WORKSPACE_ROOT}/${provider}/${domain}/${workspaceId}`
 }
 
 function sanitizeWorkspaceSegment(raw: string | null | undefined, fallback: string): string {

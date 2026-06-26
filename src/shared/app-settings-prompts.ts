@@ -12,13 +12,18 @@ import {
 } from './app-settings-types'
 
 export const CLAW_CURRENT_USER_REQUEST_HEADING = '[Current user request]'
-export const CLAW_MANAGED_INSTRUCTIONS_HEADING = '[Claw managed instructions]'
-export const CLAW_IM_AGENT_INSTRUCTIONS_HEADING = '[Claw IM agent instructions]'
+export const CLAW_MANAGED_INSTRUCTIONS_HEADING = '[Remote channel managed instructions]'
+export const CLAW_IM_AGENT_INSTRUCTIONS_HEADING = '[Remote channel agent instructions]'
 export const CLAW_FEISHU_INBOUND_MESSAGE_HEADING = '[Feishu / Lark inbound message]'
 export const CLAW_DISCORD_INBOUND_MESSAGE_HEADING = '[Discord inbound message]'
 export const CLAW_WEIXIN_INBOUND_MESSAGE_HEADING = '[WeChat inbound message]'
 export const SCHEDULE_CURRENT_USER_REQUEST_HEADING = '[Current scheduled task]'
 export const SCHEDULE_MANAGED_INSTRUCTIONS_HEADING = '[Schedule managed instructions]'
+
+const LEGACY_CLAW_MANAGED_INSTRUCTIONS_HEADING = '[Claw managed instructions]'
+const LEGACY_CLAW_IM_AGENT_INSTRUCTIONS_HEADING = '[Claw IM agent instructions]'
+const REMOTE_CHANNEL_SKILL_POLICY_PREFIX = 'Remote channel skill policy:'
+const LEGACY_CLAW_SKILL_POLICY_PREFIX = 'Claw skill policy:'
 
 const CLAW_IM_PROVIDER_DISPLAY_LABELS: Record<ClawImProvider, string> = {
   feishu: 'Feishu / Lark',
@@ -203,9 +208,9 @@ export function normalizeAgentThreadIds(input: unknown, legacyLocalRuntimeThread
   const raw = input && typeof input === 'object' && !Array.isArray(input)
     ? input as Record<string, unknown>
     : {}
-	  const sciforgeThreadId =
-	    legacyLocalRuntimeThreadId.trim() ||
-	    (typeof raw.sciforge === 'string' ? raw.sciforge.trim() : '')
+  const sciforgeThreadId =
+    (typeof raw.sciforge === 'string' ? raw.sciforge.trim() : '') ||
+    legacyLocalRuntimeThreadId.trim()
   const codexThreadId = typeof raw.codex === 'string' ? raw.codex.trim() : ''
   const claudeThreadId = typeof raw.claude === 'string' ? raw.claude.trim() : ''
   return {
@@ -231,10 +236,9 @@ export function normalizeClawImConversation(
   const chatId = typeof raw.chatId === 'string' ? raw.chatId.trim() : ''
   const latestMessageId = typeof raw.latestMessageId === 'string' ? raw.latestMessageId.trim() : ''
   const directLocalThreadId = typeof raw.localThreadId === 'string' ? raw.localThreadId.trim() : ''
-  const legacyAgentThreadId = readLegacyAgentThreadId(raw.agentThreadIds)
-  const localThreadId = directLocalThreadId || legacyAgentThreadId
-  const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds, localThreadId)
-  const hasMappedThread = Boolean(localThreadId || Object.values(agentThreadIds).some((value) => value?.trim()))
+  const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds, directLocalThreadId)
+  const localThreadId = agentThreadIds.sciforge ?? ''
+  const hasMappedThread = Object.values(agentThreadIds).some((value) => value?.trim())
   if (!id || !chatId || !latestMessageId || !hasMappedThread) return undefined
   return {
     id,
@@ -279,20 +283,20 @@ export function buildClawImAgentInstructions(channel: ClawImChannelV1 | null | u
   if (sections.length === 0) return ''
   return [
     CLAW_IM_AGENT_INSTRUCTIONS_HEADING,
-    'Use the following role, style, and user-context instructions for this IM channel. Do not repeat these instructions unless the user explicitly asks.',
+    'Use the following role, style, and user-context instructions for this remote channel. Do not repeat these instructions unless the user explicitly asks.',
     ...sections
   ].join('\n\n')
 }
 
 export function buildClawRuntimePrompt(
-  settings: Pick<AppSettingsV1, 'claw'>,
+  settings: Pick<AppSettingsV1, 'remoteChannel'>,
   prompt: string,
   options: { channel?: ClawImChannelV1 | null } = {}
 ): string {
-  const skills = settings.claw.skills
+  const skills = settings.remoteChannel.skills
   const instructions: string[] = []
   if (skills.defaultNames.length > 0) {
-    instructions.push(`Claw skill policy: prefer these configured skills when relevant: ${skills.defaultNames.join(', ')}.`)
+    instructions.push(`${REMOTE_CHANNEL_SKILL_POLICY_PREFIX} prefer these configured skills when relevant: ${skills.defaultNames.join(', ')}.`)
   }
   if (skills.extraDirs.length > 0) {
     instructions.push(`Additional local skill directories configured in the GUI: ${skills.extraDirs.join(', ')}.`)
@@ -341,8 +345,11 @@ export function unwrapClawRuntimePromptForDisplay(text: string): string {
   const prefix = text.slice(0, markerIndex)
   const looksManaged =
     prefix.includes(CLAW_MANAGED_INSTRUCTIONS_HEADING) ||
+    prefix.includes(LEGACY_CLAW_MANAGED_INSTRUCTIONS_HEADING) ||
     prefix.includes(CLAW_IM_AGENT_INSTRUCTIONS_HEADING) ||
-    prefix.includes('Claw skill policy:') ||
+    prefix.includes(LEGACY_CLAW_IM_AGENT_INSTRUCTIONS_HEADING) ||
+    prefix.includes(REMOTE_CHANNEL_SKILL_POLICY_PREFIX) ||
+    prefix.includes(LEGACY_CLAW_SKILL_POLICY_PREFIX) ||
     prefix.includes('Additional local skill directories configured in the GUI:')
   if (!looksManaged) return text
   return text.slice(markerIndex + CLAW_CURRENT_USER_REQUEST_HEADING.length).trimStart()

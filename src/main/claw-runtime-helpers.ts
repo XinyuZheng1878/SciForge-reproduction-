@@ -639,7 +639,7 @@ export function classifyClawFailure(input: {
 }
 
 export function clawFailureResult(input: ClawFailureInput): ClawFailureResult {
-  const message = input.message.trim() || 'Claw runtime failed.'
+  const message = input.message.trim() || 'Remote channel runtime failed.'
   const failureKind = classifyClawFailure({
     message,
     code: input.code,
@@ -912,7 +912,7 @@ export function normalizeTaskModel(model: string): string | undefined {
 }
 
 export function webhookUrl(settings: AppSettingsV1): string {
-  return `http://127.0.0.1:${settings.claw.im.port}${settings.claw.im.path}`
+  return `http://127.0.0.1:${settings.remoteChannel.im.port}${settings.remoteChannel.im.path}`
 }
 
 export function asString(value: unknown): string {

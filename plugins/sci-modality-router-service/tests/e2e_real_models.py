@@ -18,7 +18,9 @@ arguments that a stub could not survive:
 Run on the server (after starting expert-translator, ChemLLM vLLM, and the router):
     python3 tests/e2e_real_models.py
 Env overrides: SCIMODALITY_ROUTER_URL (default http://127.0.0.1:3898),
-               EXPERT_PROVIDER_URL   (default http://127.0.0.1:8001)
+               EXPERT_PROVIDER_URL   (default http://127.0.0.1:8001),
+               SCIMODALITY_ROUTER_RUNTIME_TOKEN,
+               EXPERT_PROVIDER_API_KEY
 """
 
 from __future__ import annotations
@@ -31,7 +33,13 @@ import requests
 
 ROUTER = os.environ.get("SCIMODALITY_ROUTER_URL", "http://127.0.0.1:3898").rstrip("/")
 PROVIDER = os.environ.get("EXPERT_PROVIDER_URL", "http://127.0.0.1:8001").rstrip("/")
+ROUTER_TOKEN = os.environ.get("SCIMODALITY_ROUTER_RUNTIME_TOKEN", "")
+PROVIDER_TOKEN = os.environ.get("EXPERT_PROVIDER_API_KEY", "")
 TIMEOUT = float(os.environ.get("E2E_TIMEOUT", "300"))
+
+if not ROUTER_TOKEN or not PROVIDER_TOKEN:
+    print("SCIMODALITY_ROUTER_RUNTIME_TOKEN and EXPERT_PROVIDER_API_KEY are required.", file=sys.stderr)
+    sys.exit(2)
 
 PASS, FAIL = [], []
 
@@ -48,7 +56,12 @@ def translate(payload: str, modality: str | None = None, instruction: str | None
         body["modality"] = modality
     if instruction:
         body["instruction"] = instruction
-    r = requests.post(f"{ROUTER}/modality/translate", json=body, timeout=TIMEOUT)
+    r = requests.post(
+        f"{ROUTER}/modality/translate",
+        json=body,
+        headers={"Authorization": f"Bearer {ROUTER_TOKEN}"},
+        timeout=TIMEOUT,
+    )
     return r.json()
 
 
@@ -57,6 +70,7 @@ def provider_raw(model: str, payload: str) -> dict:
     r = requests.post(
         f"{PROVIDER}/v1/chat/completions",
         json={"model": model, "messages": [{"role": "user", "content": payload}]},
+        headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"},
         timeout=TIMEOUT,
     )
     r.raise_for_status()
@@ -87,7 +101,11 @@ def main() -> int:
     # --- A. provider health: real CUDA + six experts -----------------------------------
     print("A. Provider health (real GPU, six experts)")
     try:
-        h = requests.get(f"{PROVIDER}/health", timeout=30).json()
+        h = requests.get(
+            f"{PROVIDER}/health",
+            headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"},
+            timeout=30,
+        ).json()
     except Exception as exc:  # noqa: BLE001
         check("provider /health reachable", False, str(exc))
         return summary()

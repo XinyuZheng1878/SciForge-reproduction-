@@ -38,10 +38,9 @@ export async function guiSkillRootsForRuntime(
   const workspaceRoots = uniqueStrings([
     workspaceRootOverride,
     settings?.workspaceRoot,
-    settings?.claw.im.workspaceRoot,
+    settings?.remoteChannel.im.workspaceRoot,
     settings?.schedule.defaultWorkspaceRoot,
-    ...(settings?.claw.channels.map((channel) => channel.workspaceRoot) ?? []),
-    ...(settings?.claw.tasks.map((task) => task.workspaceRoot) ?? []),
+    ...(settings?.remoteChannel.channels.map((channel) => channel.workspaceRoot) ?? []),
     ...(settings?.schedule.tasks.map((task) => task.workspaceRoot) ?? [])
   ].map(normalizeSkillRootPath).filter(Boolean))
   const projectRoots = workspaceRoots.flatMap((workspaceRoot) => [
@@ -55,7 +54,7 @@ export async function guiSkillRootsForRuntime(
     ...await discoverCodexPluginSkillRoots()
   ]
   const configuredExtraRoots = [
-    ...(settings?.claw.skills.extraDirs ?? []),
+    ...(settings?.remoteChannel.skills.extraDirs ?? []),
     ...(settings?.schedule.skills.extraDirs ?? [])
   ].map(normalizeSkillRootPath)
 

@@ -39,7 +39,7 @@ GUI 启动 SciForge Runtime 时会按下面的顺序合并配置。
 1. GUI 读取 `sciforge-settings.json`，得到 `agents.sciforge` 和本地 Model Router 配置。
 2. GUI 在启动 SciForge Runtime 前同步 `<dataDir>/config.json`，写入 UI 管理的 token economy、默认压缩摘要参数、默认模型 profiles、runtime tuning、MCP search 和附件能力。
 3. SciForge Runtime serve 读取 `<dataDir>/config.json` 或 `--config` 指定的文件。
-4. CLI 参数和环境变量会覆盖 `serve` 里的基础启动字段，例如 `--model`、`--port`、`SCIFORGE_MODEL`、`SCIFORGE_PORT`。
+4. CLI 参数和环境变量会覆盖 `serve` 里的基础启动字段，例如 `--model`、`--port`、`KUN_MODEL`、`KUN_PORT`。
 5. AgentLoop、review loop 和子 Agent 都从同一份模型配置加载模型能力与上下文压缩阈值。
 
 ## 推荐的 config.json 结构
@@ -52,7 +52,6 @@ GUI 启动 SciForge Runtime 时会按下面的顺序合并配置。
     "dataDir": "~/.sciforge/runtime",
     "runtimeToken": "",
     "apiKey": "local-runtime-router-key",
-    "baseUrl": "http://127.0.0.1:3892/v1",
     "model": "sciforge-router",
     "approvalPolicy": "auto",
     "sandboxMode": "workspace-write"
@@ -83,11 +82,13 @@ GUI 启动 SciForge Runtime 时会按下面的顺序合并配置。
 }
 ```
 
+`serve.apiKey` 是 SciForge Runtime 调用本地 Model Router 的 runtime key，不是上游 provider key。本地 Model Router `/v1` endpoint 由 GUI 的 Model Router 设置、standalone 的 `--model-router-base-url`，或 `KUN_MODEL_ROUTER_BASE_URL` 提供；不要把 router endpoint 写进 SciForge Runtime config。
+
 ## 模型配置写在哪里
 
 模型相关配置写在顶层 `models.profiles`。
 
-每个 key 是模型 ID。GUI 启动 SciForge Runtime 时，这个 ID 应优先是 Model Router 的 public model alias，例如 `sciforge-router`。模型 ID 会按小写匹配，也支持 provider 前缀，例如请求模型是 `vendor/deepseek-v4-pro` 时，也可以匹配 `deepseek-v4-pro`。
+每个 key 是模型 ID。GUI 启动 SciForge Runtime 时，这个 ID 应优先是 Model Router 的 public model alias，例如 `sciforge-router`。模型 ID 会按小写匹配，也支持带命名空间的 alias，例如请求模型是 `router/sciforge-router-fast` 时，也可以匹配 `sciforge-router-fast`。
 
 ```json
 {
@@ -123,7 +124,7 @@ GUI 启动 SciForge Runtime 时会按下面的顺序合并配置。
 - `supportsToolCalling`: 模型是否支持 tool calling。
 - `messageParts`: 模型消息 part 能力，例如 `["text"]` 或 `["text", "image_url"]`。
 
-如果同时写了 `softThreshold` 和 `softRatio`，显式 token 阈值优先。`hardThreshold` 必须大于或等于 `softThreshold`。
+如果同时写了 `contextCompaction.softThreshold` 和 `contextCompaction.softRatio`，显式 token 阈值优先。`contextCompaction.hardThreshold` 必须大于或等于 `contextCompaction.softThreshold`。
 
 ## 默认模型 profile
 
@@ -145,7 +146,6 @@ SciForge Runtime 可以内置或同步 Model Router public alias 对应的模型
         "messageParts": ["text"]
       },
       "sciforge-router-fast": {
-        "aliases": ["deepseek-chat", "deepseek-reasoner"],
         "contextWindowTokens": 1000000,
         "contextCompaction": {
           "softThreshold": 980000,
@@ -267,9 +267,9 @@ SciForge Runtime 可以内置或同步 Model Router public alias 对应的模型
 }
 ```
 
-## 兼容旧配置
+## 旧配置不再支持
 
-旧版本曾支持把模型 profile 写在：
+旧版本曾支持把模型 profile 写在 `contextCompaction.modelProfiles`：
 
 ```json
 {
@@ -279,7 +279,7 @@ SciForge Runtime 可以内置或同步 Model Router public alias 对应的模型
 }
 ```
 
-这个位置仍然会被读取，以免已有用户配置失效。但新配置请使用：
+这个位置不再读取。模型 profile 只写在：
 
 ```json
 {
@@ -289,12 +289,12 @@ SciForge Runtime 可以内置或同步 Model Router public alias 对应的模型
 }
 ```
 
-当两个位置都写了同一个模型时，`models.profiles` 的配置优先。
+每个 profile 的压缩阈值也只写在 `models.profiles[model].contextCompaction`，不再支持把 `softRatio`、`hardRatio`、`softThreshold` 或 `hardThreshold` 平铺在 profile 顶层。
 
 ## 相关源码
 
 - 默认 GUI Agent 设置：`src/shared/app-settings-local-runtime.ts`
-- GUI 同步 `<dataDir>/config.json`：`src/main/kun-process.ts`
+- GUI 同步 `<dataDir>/config.json`：`src/main/local-runtime-process.ts`
 - SciForge Runtime config schema：`kun/src/config/kun-config.ts`
 - 模型 profile 解析：`kun/src/loop/model-context-profile.ts`
 - 上下文压缩器：`kun/src/loop/context-compactor.ts`

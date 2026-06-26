@@ -5,8 +5,8 @@ import type {
 } from '../../shared/agent-runtime-contract'
 import {
   DEFAULT_EVIDENCE_DAG_TIMEOUT_MS,
-  EVIDENCE_DAG_API_KEY_ENV,
   EVIDENCE_DAG_TIMEOUT_MS_ENV,
+  evidenceDagApiKeyFromEnv,
   evidenceDagServiceUrlFromEnv,
   evidenceDagThreadId
 } from '../../shared/evidence-dag'
@@ -42,7 +42,7 @@ function toolName(item: AgentRuntimeItem): string {
 }
 
 export function isEvidenceDagFeedEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return Boolean(evidenceDagServiceUrlFromEnv(env))
+  return Boolean(evidenceDagServiceUrlFromEnv(env) && evidenceDagApiKeyFromEnv(env))
 }
 
 export function toEvidenceDagTraceItems(items: readonly AgentRuntimeItem[]): EngineTraceItem[] {
@@ -92,11 +92,12 @@ export async function feedEvidenceDag(options: FeedOptions): Promise<void> {
   const env = options.env ?? process.env
   const base = evidenceDagServiceUrlFromEnv(env)
   if (!base) return
+  const apiKey = evidenceDagApiKeyFromEnv(env)
+  if (!apiKey) return
 
   const trace = toEvidenceDagTraceItems(options.items)
   if (trace.length === 0) return
 
-  const apiKey = (env[EVIDENCE_DAG_API_KEY_ENV] ?? '').trim()
   const timeoutMs = Number(env[EVIDENCE_DAG_TIMEOUT_MS_ENV] ?? DEFAULT_EVIDENCE_DAG_TIMEOUT_MS)
   const controller = new AbortController()
   const timer = setTimeout(
@@ -109,7 +110,7 @@ export async function feedEvidenceDag(options: FeedOptions): Promise<void> {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {})
+        authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({ trace, merge: true }),
       signal: controller.signal

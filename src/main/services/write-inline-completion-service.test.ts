@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
@@ -61,7 +62,8 @@ function createSettings(patch: Partial<AppSettingsV1['write']['inlineCompletion'
       channel: 'stable'
     },
     codePromptPrefix: '',
-    claw: defaultClawSettings()
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings()
   }
 }
 
@@ -103,8 +105,7 @@ function createRequest(): WriteInlineCompletionRequest {
     preview: {
       local: 'This is',
       documentTail: '# Draft This is'
-    },
-    model: 'deepseek-v4-flash'
+    }
   }
 }
 
@@ -207,7 +208,7 @@ describe('requestWriteInlineCompletion', () => {
     expect(debugEntries[0].prompt.endsWith('# Draft\n\nThis is')).toBe(true)
   })
 
-  it('ignores requested provider models and uses the router public alias', async () => {
+  it('uses the router public alias for inline completion requests', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ output_text: ' flash text' }), {
         status: 200,
@@ -216,11 +217,7 @@ describe('requestWriteInlineCompletion', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    const request = {
-      ...createRequest(),
-      model: 'deepseek-v4-pro'
-    }
-    const result = await requestWriteInlineCompletion(createSettings(), request)
+    const result = await requestWriteInlineCompletion(createSettings(), createRequest())
 
     expect(result).toMatchObject({
       ok: true,
@@ -232,7 +229,7 @@ describe('requestWriteInlineCompletion', () => {
     })
   })
 
-  it('ignores General/local runtime/write direct-provider settings in favor of the router settings', async () => {
+  it('ignores General/local runtime/legacy write direct-provider settings in favor of the router settings', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ output_text: ' fallback text' }), {
         status: 200,
@@ -244,13 +241,13 @@ describe('requestWriteInlineCompletion', () => {
     const settings = createSettings()
     settings.provider.baseUrl = 'https://general.example/v1'
     settings.agents.sciforge.model = 'deepseek-chat'
-    settings.write.inlineCompletion.baseUrl = 'https://api.deepseek.com/beta'
-    settings.write.inlineCompletion.model = 'deepseek-v4-flash'
+    settings.write.inlineCompletion = {
+      ...settings.write.inlineCompletion,
+      baseUrl: 'https://api.deepseek.com/beta',
+      model: 'deepseek-v4-flash'
+    } as AppSettingsV1['write']['inlineCompletion']
 
-    const result = await requestWriteInlineCompletion(settings, {
-      ...createRequest(),
-      model: ''
-    })
+    const result = await requestWriteInlineCompletion(settings, createRequest())
 
     expect(result).toMatchObject({
       ok: true,
@@ -263,7 +260,7 @@ describe('requestWriteInlineCompletion', () => {
     })
   })
 
-  it('uses the configured router public alias when write disables model inheritance', async () => {
+  it('uses the configured router public alias', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ output_text: ' explicit flash' }), {
         status: 200,
@@ -272,18 +269,12 @@ describe('requestWriteInlineCompletion', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    const settings = createSettings({
-      inheritModel: false,
-      model: 'deepseek-v4-flash'
-    })
+    const settings = createSettings()
     settings.provider.baseUrl = 'https://general.example/v1'
     settings.agents.sciforge.model = 'deepseek-chat'
     settings.modelRouter!.publicModelAlias = 'custom-router-alias'
 
-    const result = await requestWriteInlineCompletion(settings, {
-      ...createRequest(),
-      model: ''
-    })
+    const result = await requestWriteInlineCompletion(settings, createRequest())
 
     expect(result).toMatchObject({
       ok: true,
@@ -550,7 +541,6 @@ describe('requestWriteInlineCompletion', () => {
 
     const request = {
       ...createRequest(),
-      model: 'gpt-4.1-mini',
       mode: 'edit' as const,
       editCandidate: {
         kind: 'paragraph' as const,

@@ -62,6 +62,28 @@ test('uses fake internal HTTP fetch for list and run', async () => {
   })
 })
 
+test('internal HTTP client fails closed when no workflow secret is configured', async () => {
+  const calls: Array<{ url: string; init: RequestInit }> = []
+  const fetch: WorkflowFetch = async (url, init = {}) => {
+    calls.push({ url: String(url), init })
+    return jsonResponse({ ok: true, workflows: [] })
+  }
+  const service = createWorkflowService({
+    client: createWorkflowInternalHttpClient({
+      baseUrl: 'http://127.0.0.1:8787',
+      secret: '',
+      fetch
+    })
+  })
+
+  const result = await service.list()
+
+  assert.equal(result.ok, false)
+  assert.equal(result.ok ? '' : result.error.code, 'runtime_http_error')
+  assert.match(result.ok ? '' : result.error.reason, /secret is not configured/i)
+  assert.equal(calls.length, 0)
+})
+
 test('run dry-run previews without invoking runtime run endpoint', async () => {
   const client = new FakeWorkflowClient({
     '/workflow/internal/list': {

@@ -84,8 +84,7 @@ function createRequest(workspaceRoot: string): WriteInlineCompletionRequest {
     preview: {
       local: 'BM25 关键词',
       documentTail: '# Draft BM25 关键词'
-    },
-    model: 'deepseek-v4-flash'
+    }
   }
 }
 

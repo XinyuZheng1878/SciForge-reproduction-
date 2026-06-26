@@ -19,17 +19,17 @@ describe('write term propagation', () => {
   it('propagates a case-only phrase replacement within the same paragraph', () => {
     const content = [
       'i build SciForge, li is amazing ui production.',
-      'deepseek gui can write paper, also can code. deepseek gui is use',
-      'deepseek api, but it not only that.',
+      'legacy gui can write paper, also can code. legacy gui is use',
+      'legacy api, but it not only that.',
       '',
-      'deepseek gui in another paragraph stays untouched.'
+      'legacy gui in another paragraph stays untouched.'
     ].join('\n')
     const seedFrom = content.indexOf('SciForge')
 
     const changes = buildWriteTermPropagationChanges(content, {
       from: seedFrom,
       to: seedFrom + 'SciForge'.length,
-      deletedText: 'deepseek gui',
+      deletedText: 'legacy gui',
       insertedText: 'SciForge'
     })
 
@@ -37,18 +37,18 @@ describe('write term propagation', () => {
     expect(applyChanges(content, changes)).toBe([
       'i build SciForge, li is amazing ui production.',
       'SciForge can write paper, also can code. SciForge is use',
-      'deepseek api, but it not only that.',
+      'legacy api, but it not only that.',
       '',
-      'deepseek gui in another paragraph stays untouched.'
+      'legacy gui in another paragraph stays untouched.'
     ].join('\n'))
   })
 
-  it('propagates a term rename such as deepseek gui to DXGUI', () => {
-    const content = 'DXGUI is here. deepseek gui is there. deepseek gui again.'
+  it('propagates a term rename such as legacy gui to DXGUI', () => {
+    const content = 'DXGUI is here. legacy gui is there. legacy gui again.'
     const changes = buildWriteTermPropagationChanges(content, {
       from: 0,
       to: 'DXGUI'.length,
-      deletedText: 'deepseek gui',
+      deletedText: 'legacy gui',
       insertedText: 'DXGUI'
     })
 
@@ -56,23 +56,23 @@ describe('write term propagation', () => {
   })
 
   it('does not replace partial word matches', () => {
-    const content = 'SciForge works. mydeepseek gui should not. deepseek gui should.'
+    const content = 'SciForge works. mylegacy gui should not. legacy gui should.'
     const seedFrom = content.indexOf('SciForge')
 
     const changes = buildWriteTermPropagationChanges(content, {
       from: seedFrom,
       to: seedFrom + 'SciForge'.length,
-      deletedText: 'deepseek gui',
+      deletedText: 'legacy gui',
       insertedText: 'SciForge'
     })
 
     expect(applyChanges(content, changes)).toBe(
-      'SciForge works. mydeepseek gui should not. SciForge should.'
+      'SciForge works. mylegacy gui should not. SciForge should.'
     )
   })
 
   it('propagates canonical casing after an incremental case edit', () => {
-    const content = 'SciForge works. sciforge should follow. deepseek api should not.'
+    const content = 'SciForge works. sciforge should follow. legacy api should not.'
     const seedFrom = content.indexOf('SciForge')
 
     const changes = buildWriteCanonicalTermPropagationChanges(content, {
@@ -83,7 +83,7 @@ describe('write term propagation', () => {
     })
 
     expect(applyChanges(content, changes)).toBe(
-      'SciForge works. SciForge should follow. deepseek api should not.'
+      'SciForge works. SciForge should follow. legacy api should not.'
     )
   })
 })

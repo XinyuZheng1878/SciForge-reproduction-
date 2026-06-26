@@ -4,9 +4,6 @@ import type {
   AgentRuntimeId,
   ClawImAgentProfileV1,
   ComputerUseSettingsV1,
-  ClawRunResult,
-  ClawTaskFromTextResult,
-  ClawRuntimeStatus,
   ScheduleRunResult,
   ScheduleRuntimeStatus,
   ScheduleTaskFromTextResult,
@@ -252,18 +249,22 @@ export type TurnCompleteNotificationPayload = {
 export type SystemNotificationResult =
   | { ok: true; shown: boolean; reason?: string }
   | { ok: false; message: string }
-export type ClawChannelActivityPayload = {
+export type DevPreviewNavigatePayload = {
+  url: string
+  webContentsId: number
+}
+export type RemoteChannelActivityPayload = {
   channelId: string
   threadId: string
   runtimeId?: AgentRuntimeId
   previousThreadId?: string
 }
-export type ClawActiveThreadContextPayload = {
+export type RemoteChannelActiveThreadContextPayload = {
   threadId: string
   runtimeId?: AgentRuntimeId
   workspaceRoot?: string
 }
-export type ClawChannelMirrorResult =
+export type RemoteChannelMirrorResult =
   | { ok: true }
   | { ok: false; message: string }
 export type UpstreamModelsResult =
@@ -322,13 +323,19 @@ export type ComputerUseStatusView = {
   permissions: ComputerUsePermissions
   runtime: ComputerUseRuntimeStatusView
 }
-export type ClawImInstallQrResult =
+export type ConnectPhoneInstallQrResult =
   | { ok: true; url: string; deviceCode: string; userCode: string; interval: number; expireIn: number }
   | { ok: false; message: string }
-export type ClawImInstallPollResult =
+export type ConnectPhoneInstallPollResult =
   | { done: true; kind: 'feishu'; appId: string; appSecret: string; domain: string }
   | { done: true; kind: 'weixin'; accountId: string; sessionKey: string }
   | { done: false; error?: string }
+export type ConnectPhoneRuntimeStatus = {
+  imServerRunning: boolean
+  imUrl: string
+  runningTaskIds: string[]
+}
+export type RemoteChannelTaskFromTextResult = ScheduleTaskFromTextResult
 export type DiscordBotInfo = {
   applicationId: string
   botId: string
@@ -437,8 +444,7 @@ export type SciForgeApi = {
   getSettings: () => Promise<AppSettingsV1>
   setSettings: (partial: AppSettingsPatch) => Promise<AppSettingsV1>
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
-  getClawStatus: () => Promise<ClawRuntimeStatus>
-  runClawTask: (taskId: string) => Promise<ClawRunResult>
+  getConnectPhoneStatus: () => Promise<ConnectPhoneRuntimeStatus>
   getScheduleStatus: () => Promise<ScheduleRuntimeStatus>
   runScheduleTask: (taskId: string) => Promise<ScheduleRunResult>
   getWorkflowStatus: () => Promise<WorkflowRuntimeStatus>
@@ -448,14 +454,14 @@ export type SciForgeApi = {
   testWorkflowNode: (workflowId: string, nodeId: string, mockJson: string) => Promise<WorkflowNodeTestResult>
   resolveWorkflowApproval: (token: string, decision: WorkflowApprovalDecision) => Promise<{ ok: boolean }>
   checkWorkflowCode: (language: WorkflowCodeLanguage, code: string) => Promise<WorkflowCodeCheckResult>
-  startClawImInstallQr: (
+  startConnectPhoneInstallQr: (
     provider: 'feishu' | 'weixin',
     options?: { isLark?: boolean }
-  ) => Promise<ClawImInstallQrResult>
-  pollClawImInstall: (
+  ) => Promise<ConnectPhoneInstallQrResult>
+  pollConnectPhoneInstall: (
     provider: 'feishu' | 'weixin',
     deviceCode: string
-  ) => Promise<ClawImInstallPollResult>
+  ) => Promise<ConnectPhoneInstallPollResult>
   getDiscordBotStatus: () => Promise<DiscordBotStatus>
   configureDiscordClientId: (clientId: string) => Promise<DiscordConfigureClientResult>
   configureDiscordBotToken: (token: string, clientId?: string) => Promise<DiscordConfigureTokenResult>
@@ -579,28 +585,29 @@ export type SciForgeApi = {
     onEnd: (handler: (payload: AgentRuntimeEventEndPayload) => void) => () => void
     onError: (handler: (payload: AgentRuntimeEventErrorPayload) => void) => () => void
   }
-  onClawChannelActivity: (handler: (payload: ClawChannelActivityPayload) => void) => () => void
-  updateClawActiveThreadContext: (payload: ClawActiveThreadContextPayload | null) => Promise<void>
-  mirrorClawChannelMessage: (
+  onRemoteChannelActivity: (handler: (payload: RemoteChannelActivityPayload) => void) => () => void
+  updateRemoteChannelActiveThreadContext: (payload: RemoteChannelActiveThreadContextPayload | null) => Promise<void>
+  mirrorRemoteChannelMessage: (
     threadId: string,
     text: string,
     direction: 'user' | 'assistant'
-  ) => Promise<ClawChannelMirrorResult>
-  mirrorClawChannelMessageToFeishu: (
+  ) => Promise<RemoteChannelMirrorResult>
+  mirrorRemoteChannelMessageToFeishu: (
     threadId: string,
     text: string,
     direction: 'user' | 'assistant'
-  ) => Promise<ClawChannelMirrorResult>
-  createClawTaskFromText: (
+  ) => Promise<RemoteChannelMirrorResult>
+  createRemoteChannelTaskFromText: (
     text: string,
     options?: { channelId?: string; modelHint?: string; mode?: 'agent' | 'plan' }
-  ) => Promise<ClawTaskFromTextResult>
+  ) => Promise<RemoteChannelTaskFromTextResult>
   createScheduleTaskFromText: (
     text: string,
     options?: { workspaceRoot?: string; modelHint?: string; mode?: 'agent' | 'plan' }
   ) => Promise<ScheduleTaskFromTextResult>
   runDesktopCommand: (command: DesktopCommand) => Promise<void>
   openExternal: (url: string) => Promise<void>
+  onDevPreviewNavigate?: (handler: (payload: DevPreviewNavigatePayload) => void) => () => void
   getComputerUsePermissions: () => Promise<ComputerUsePermissions>
   requestComputerUsePermission: (
     kind: ComputerUsePermissionKind

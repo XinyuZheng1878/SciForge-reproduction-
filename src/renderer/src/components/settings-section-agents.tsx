@@ -1564,10 +1564,9 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                   />
                   <SettingRow
                     title={t('runtimeGuardToolStormLimits')}
-                    description={t('runtimeGuardToolStormLimitsDesc')}
                     wideControl
                     control={
-                      <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
                         <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
                           {t('runtimeGuardToolStormWindowSize')}
                           <input
@@ -1581,27 +1580,15 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                           />
                         </label>
                         <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
-                          {t('runtimeGuardToolStormSoftThreshold')}
+                          {t('runtimeGuardToolStormLimits')}
                           <input
                             type="number"
                             min={2}
                             max={128}
                             className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
-                            value={runtimeGuards.toolStorm.softThreshold}
+                            value={runtimeGuards.toolStorm.threshold}
                             disabled={!runtimeGuards.toolStorm.enabled}
-                            onChange={(e) => updateToolStorm({ softThreshold: Number(e.target.value) })}
-                          />
-                        </label>
-                        <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-ds-muted">
-                          {t('runtimeGuardToolStormHardThreshold')}
-                          <input
-                            type="number"
-                            min={2}
-                            max={256}
-                            className="rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
-                            value={runtimeGuards.toolStorm.hardThreshold}
-                            disabled={!runtimeGuards.toolStorm.enabled}
-                            onChange={(e) => updateToolStorm({ hardThreshold: Number(e.target.value) })}
+                            onChange={(e) => updateToolStorm({ threshold: Number(e.target.value) })}
                           />
                         </label>
                       </div>
@@ -2024,10 +2011,10 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                     wideControl
                     control={
                       <textarea
-                        value={listSettingsText(form.claw.skills.extraDirs)}
+                        value={listSettingsText(form.remoteChannel.skills.extraDirs)}
                         onChange={(event) =>
                           update({
-                            claw: {
+                            remoteChannel: {
                               skills: {
                                 extraDirs: splitSettingsList(event.target.value)
                               }

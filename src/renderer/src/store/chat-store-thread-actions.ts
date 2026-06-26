@@ -23,11 +23,22 @@ import {
 import { workspaceLabelFromPath } from '../lib/workspace-label'
 import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { parseSteerCommand } from '../lib/steer-command'
-import { buildClawRuntimePrompt, buildCodeRuntimePrompt, getActiveAgentApiKey, type AgentRuntimeId } from '@shared/app-settings'
+import {
+  mirrorRemoteChannelMessageApi,
+  updateRemoteChannelActiveThreadContextApi
+} from '../lib/remote-channel-api'
+import {
+  buildClawRuntimePrompt,
+  buildCodeRuntimePrompt,
+  getActiveAgentApiKey,
+  type AgentRuntimeId,
+  type ClawImChannelV1
+} from '@shared/app-settings'
 import type { AgentRuntimeContextState, AgentRuntimeFileReference } from '@shared/agent-runtime-contract'
 import type { ChatState, ChatStoreGet, ChatStoreSet, QueuedUserMessage } from './chat-store-types'
 import {
   activeClawChannel,
+  clawThreadRemoteBindingsFromChannels,
   clawThreadIdsFromChannels,
   compactCodeWorkspaceRoots,
   forgetCodeWorkspaceRoot,
@@ -77,6 +88,18 @@ import {
 } from './chat-store-runtime'
 
 type SseAbortRef = { current: AbortController | null }
+
+function remoteChannelForThread(state: ChatState, threadId: string | null | undefined): ClawImChannelV1 | null {
+  const targetThreadId = threadId?.trim() ?? ''
+  if (!targetThreadId) return null
+  const binding = clawThreadRemoteBindingsFromChannels(state.clawChannels).get(targetThreadId)
+  if (binding) {
+    return state.clawChannels.find((channel) => channel.id === binding.channelId) ?? null
+  }
+  const thread = state.threads.find((item) => item.id === targetThreadId) ?? null
+  if (!thread || !isClawThread(thread, state.clawChannels)) return null
+  return activeClawChannel(state)
+}
 
 function normalizeRuntimeFileReferencePath(value: string): string | null {
   const normalized = value.trim().replaceAll('\\', '/').replace(/\/+/g, '/').replace(/^\.\//u, '')
@@ -197,17 +220,18 @@ function upsertRuntimeTargetThread(
 }
 
 export function publishActiveClawThreadContext(state: ChatState, threadId: string | null): void {
-  if (typeof window.sciforge?.updateClawActiveThreadContext !== 'function') return
+  const updateRemoteChannelActiveThreadContext = updateRemoteChannelActiveThreadContextApi(window.sciforge)
+  if (typeof updateRemoteChannelActiveThreadContext !== 'function') return
   if (!threadId) {
-    void window.sciforge.updateClawActiveThreadContext(null).catch(() => undefined)
+    void updateRemoteChannelActiveThreadContext(null).catch(() => undefined)
     return
   }
   const thread = state.threads.find((item) => item.id === threadId)
   if (thread && isClawThread(thread, state.clawChannels)) {
-    void window.sciforge.updateClawActiveThreadContext(null).catch(() => undefined)
+    void updateRemoteChannelActiveThreadContext(null).catch(() => undefined)
     return
   }
-  void window.sciforge.updateClawActiveThreadContext({
+  void updateRemoteChannelActiveThreadContext({
     threadId,
     runtimeId: thread?.runtimeId,
     workspaceRoot: thread?.workspace || state.workspaceRoot || undefined
@@ -597,14 +621,14 @@ export function createThreadActions(
       const threadSnap = activeThreadId
         ? get().threads.find((thread) => thread.id === activeThreadId)
         : undefined
-      const clawModel = activeClawChannel(get())?.model
+      const queuedTargetThreadId = targetThreadId || activeThreadId || undefined
+      const remoteChannel = remoteChannelForThread(get(), queuedTargetThreadId || activeThreadId)
       const overrideModel = overrides?.model?.trim()
       const composerModel =
-        overrideModel ?? (get().route === 'claw' && clawModel ? clawModel : get().composerModel.trim())
+        overrideModel ?? remoteChannel?.model ?? get().composerModel.trim()
       const userModelChip =
         overrides?.modelLabel ?? optimisticUserModelLabel(composerModel, threadSnap?.model)
       const displayText = overrides?.displayText?.trim()
-      const queuedTargetThreadId = targetThreadId || activeThreadId || undefined
       const reasoningEffort = overrides?.reasoningEffort?.trim()
       const attachmentIds = overrides?.attachmentIds?.filter((id) => id.trim().length > 0)
       const attachments = overrides?.attachments?.filter((attachment) => attachment.id.trim().length > 0)
@@ -690,7 +714,8 @@ export function createThreadActions(
     const displayText = queued?.displayText ?? overrides?.displayText?.trim() ?? messageText
     const userDisplayText = displayText !== messageText ? displayText : undefined
     const generatedTitle = deriveThreadTitleFromPrompt(displayText)
-    const shouldAutoRenameForRoute = sourceRoute === 'chat'
+    const initialRemoteChannel = remoteChannelForThread(get(), activeThreadId)
+    const shouldAutoRenameForRoute = sourceRoute === 'chat' && initialRemoteChannel == null
     const activeThread = activeThreadId
       ? get().threads.find((thread) => thread.id === activeThreadId) ?? null
       : null
@@ -700,10 +725,10 @@ export function createThreadActions(
       get().blocks.every((block) => block.kind !== 'user') &&
       shouldAutoTitleThread(activeThread)
     const threadSnap = get().threads.find((thread) => thread.id === activeThreadId)
-    const clawModel = activeClawChannel(get())?.model
+    const remoteChannel = remoteChannelForThread(get(), activeThreadId)
     const overrideModel = overrides?.model?.trim()
     const composerModel =
-      queued?.model ?? overrideModel ?? (get().route === 'claw' && clawModel ? clawModel : get().composerModel.trim())
+      queued?.model ?? overrideModel ?? remoteChannel?.model ?? get().composerModel.trim()
     const reasoningEffort = queued?.reasoningEffort ?? overrides?.reasoningEffort?.trim()
     const userModelChip =
       queued?.modelLabel ?? overrides?.modelLabel ?? optimisticUserModelLabel(composerModel, threadSnap?.model)
@@ -840,7 +865,7 @@ export function createThreadActions(
       const targetRuntimeId = get().activeAgentRuntime
       const runtimeSwitchExpected = sendingRuntimeId !== targetRuntimeId
       rememberProviderThreadRuntime(p, previousThreadId, get().threads)
-      const channel = sourceRoute === 'claw' ? activeClawChannel(get()) : null
+      const channel = remoteChannelForThread(get(), previousThreadId)
       const settings = await rendererRuntimeClient.getSettings()
       let runtimeText: string
       if (channel) {
@@ -933,8 +958,9 @@ export function createThreadActions(
       const shouldMirrorToIm =
         Boolean(channel) ||
         clawThreadIdsFromChannels(get().clawChannels).has(activeThreadId)
-      if (shouldMirrorToIm && typeof window.sciforge?.mirrorClawChannelMessage === 'function') {
-        const userMirror = await window.sciforge.mirrorClawChannelMessage(
+      const mirrorRemoteChannelMessage = mirrorRemoteChannelMessageApi(window.sciforge)
+      if (shouldMirrorToIm && typeof mirrorRemoteChannelMessage === 'function') {
+        const userMirror = await mirrorRemoteChannelMessage(
           activeThreadId,
           messageText,
           'user'

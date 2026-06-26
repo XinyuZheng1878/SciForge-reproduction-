@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
 import { normalizeAgentRuntimeTurnState } from '../../shared/agent-runtime-contract'
 import type {
   AgentRuntimeContextLedger,
@@ -13,6 +11,10 @@ import type {
   AgentRuntimeUsage,
   AgentRuntimeWorkspaceReference
 } from '../../shared/agent-runtime-contract'
+import {
+  atomicWriteAppDataJson,
+  readAppDataStoreText
+} from './app-data-store'
 
 export type RuntimeContextLedgerPatch = {
   objective?: string | null
@@ -31,6 +33,8 @@ export type RuntimeContextLedgerPatch = {
 type StoredRuntimeContextLedgers = {
   ledgers: AgentRuntimeContextLedger[]
 }
+
+const RUNTIME_CONTEXT_LEDGERS_STORE = ['runtime-context-ledgers', 'ledgers.json'] as const
 
 export class RuntimeContextLedgerService {
   private readonly recentTail = new Map<string, string[]>()
@@ -259,7 +263,7 @@ export class RuntimeContextLedgerService {
 
   private async load(): Promise<StoredRuntimeContextLedgers> {
     if (!this.loaded) {
-      this.loaded = readFile(runtimeContextLedgersPath(this.dataDir), 'utf8')
+      this.loaded = readAppDataStoreText(this.dataDir, RUNTIME_CONTEXT_LEDGERS_STORE)
         .then((raw) => normalizeStore(JSON.parse(raw) as unknown))
         .catch(() => ({ ledgers: [] }))
     }
@@ -267,18 +271,12 @@ export class RuntimeContextLedgerService {
   }
 
   private async save(store: StoredRuntimeContextLedgers): Promise<void> {
-    const path = runtimeContextLedgersPath(this.dataDir)
-    await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, JSON.stringify(normalizeStore(store), null, 2), 'utf8')
+    await atomicWriteAppDataJson(this.dataDir, RUNTIME_CONTEXT_LEDGERS_STORE, normalizeStore(store))
   }
 }
 
 function key(runtimeId: AgentRuntimeId, threadId: string): string {
   return `${runtimeId}:${threadId}`
-}
-
-function runtimeContextLedgersPath(dataDir: string): string {
-  return join(resolve(dataDir), 'runtime-context-ledgers', 'ledgers.json')
 }
 
 function findLedger(

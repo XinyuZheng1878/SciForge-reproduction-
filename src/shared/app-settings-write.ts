@@ -1,9 +1,7 @@
 import {
-  DEFAULT_WRITE_INLINE_COMPLETION_BASE_URL,
   DEFAULT_WRITE_INLINE_COMPLETION_DEBOUNCE_MS,
   DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
   DEFAULT_WRITE_INLINE_COMPLETION_MIN_ACCEPT_SCORE,
-  DEFAULT_WRITE_INLINE_COMPLETION_MODEL,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_DEBOUNCE_MS,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MIN_ACCEPT_SCORE,
@@ -25,10 +23,6 @@ export function defaultWriteSettings(): WriteSettingsV1 {
       enabled: true,
       retrievalEnabled: true,
       longCompletionEnabled: true,
-      apiKey: '',
-      baseUrl: '',
-      inheritModel: true,
-      model: DEFAULT_WRITE_INLINE_COMPLETION_MODEL,
       debounceMs: DEFAULT_WRITE_INLINE_COMPLETION_DEBOUNCE_MS,
       longDebounceMs: DEFAULT_WRITE_INLINE_LONG_COMPLETION_DEBOUNCE_MS,
       minAcceptScore: DEFAULT_WRITE_INLINE_COMPLETION_MIN_ACCEPT_SCORE,
@@ -49,15 +43,10 @@ function normalizeWriteInlineCompletionSettings(
   const longMinAcceptScore = Number(input?.longMinAcceptScore)
   const maxTokens = Number(input?.maxTokens)
   const longMaxTokens = Number(input?.longMaxTokens)
-  const model = normalizeWriteInlineCompletionModel(input?.model)
   return {
     enabled: input?.enabled !== false,
     retrievalEnabled: input?.retrievalEnabled !== false,
     longCompletionEnabled: input?.longCompletionEnabled !== false,
-    apiKey: typeof input?.apiKey === 'string' ? input.apiKey.trim() : defaults.apiKey,
-    baseUrl: typeof input?.baseUrl === 'string' ? input.baseUrl.trim() : defaults.baseUrl,
-    inheritModel: shouldInheritWriteInlineCompletionModel(input),
-    model,
     debounceMs:
       Number.isFinite(debounceMs)
         ? Math.max(150, Math.min(5_000, Math.round(debounceMs)))
@@ -85,20 +74,6 @@ function normalizeWriteInlineCompletionSettings(
   }
 }
 
-export function normalizeWriteInlineCompletionModel(value: unknown): string {
-  const trimmed = typeof value === 'string' ? value.trim() : ''
-  if (!trimmed || trimmed === 'auto') return DEFAULT_WRITE_INLINE_COMPLETION_MODEL
-  return trimmed
-}
-
-export function shouldInheritWriteInlineCompletionModel(
-  input: Partial<Pick<WriteInlineCompletionSettingsV1, 'inheritModel' | 'model'>> | undefined
-): boolean {
-  if (typeof input?.inheritModel === 'boolean') return input.inheritModel
-  const trimmed = typeof input?.model === 'string' ? input.model.trim() : ''
-  return !trimmed || trimmed === DEFAULT_WRITE_INLINE_COMPLETION_MODEL
-}
-
 function getNormalizedWriteInlineCompletionSettings(settings: AppSettingsV1): WriteInlineCompletionSettingsV1 {
   return normalizeWriteSettings(
     (settings as { write?: WriteSettingsPatchV1 }).write
@@ -113,11 +88,7 @@ export function resolveWriteInlineCompletionApiKey(settings: AppSettingsV1): str
   return resolveRuntimeModelRouterSettings(settings).apiKey
 }
 
-export function resolveWriteInlineCompletionModel(
-  settings: AppSettingsV1,
-  requestedModel?: string | null
-): string {
-  void requestedModel
+export function resolveWriteInlineCompletionModel(settings: AppSettingsV1): string {
   return resolveRuntimeModelRouterSettings(settings).model
 }
 
@@ -151,10 +122,6 @@ export function mergeWriteSettings(
   const nextInlineCompletion: Partial<WriteInlineCompletionSettingsV1> = {
     ...current.inlineCompletion,
     ...inlinePatch
-  }
-
-  if ('model' in inlinePatch && !('inheritModel' in inlinePatch)) {
-    delete (nextInlineCompletion as { inheritModel?: boolean }).inheritModel
   }
 
   return normalizeWriteSettings({

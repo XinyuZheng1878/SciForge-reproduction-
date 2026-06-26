@@ -18,8 +18,9 @@ import {
   agentRuntimeSettingsEnvelope,
   getLocalRuntimeSettings,
   getActiveAgentRuntime,
+  mergeConnectPhoneSettings,
   mergeLocalRuntimeSettings,
-  mergeClawSettings,
+  mergeRemoteChannelSettings,
   mergeAgentCapabilitySettings,
   mergeComputerUseSettings,
   mergeResearchMemorySettings,
@@ -40,8 +41,9 @@ import {
 } from '../shared/app-settings'
 import { runtimeErrorToError, type RuntimeErrorCode } from '../shared/runtime-error'
 import type { GuiUpdateState } from '../shared/gui-update'
-import { isAllowedDevPreviewUrl } from '../shared/dev-preview-url'
+import { DEV_PREVIEW_NAVIGATE_CHANNEL, isAllowedDevPreviewUrl } from '../shared/dev-preview-url'
 import { fetchUpstreamModelIds } from './upstream-models'
+import { decideDevPreviewPopup } from './dev-preview-popup-policy'
 import { ensureModelRouterConfigFile, ensureModelRouterSidecar, stopModelRouterSidecar } from './model-router-sidecar'
 import {
   paperRadarDbPath,
@@ -146,9 +148,9 @@ function traceStartup(label: string, detail?: unknown): void {
 }
 
 function shouldStartWeixinBridgeRuntime(settings: AppSettingsV1): boolean {
-  return settings.claw.enabled &&
-    settings.claw.im.enabled &&
-    settings.claw.channels.some((channel) => channel.enabled && channel.provider === 'weixin')
+  return settings.remoteChannel.enabled &&
+    settings.remoteChannel.im.enabled &&
+    settings.remoteChannel.channels.some((channel) => channel.enabled && channel.provider === 'weixin')
 }
 
 function syncWeixinBridgeRuntime(settings: AppSettingsV1): void {
@@ -329,9 +331,9 @@ function emitClawChannelActivity(payload: {
   previousThreadId?: string
 }): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('claw:channel-activity', payload)
+    mainWindow.webContents.send('remoteChannel:activity', payload)
   }
-  devBrowserBridgeServer?.send('claw:channel-activity', payload)
+  devBrowserBridgeServer?.send('remoteChannel:activity', payload)
 }
 
 const codexRuntimeEventSink: CodexRuntimeEventSink = {
@@ -520,8 +522,25 @@ function installDevPreviewWebviewGuards(): void {
     })
 
     contents.setWindowOpenHandler(({ url }) => {
-      if (contents.getType() !== 'webview') return { action: 'allow' }
-      return isAllowedDevPreviewUrl(url) ? { action: 'allow' } : { action: 'deny' }
+      const decision = decideDevPreviewPopup(url, { fromWebview: contents.getType() === 'webview' })
+      if (decision.action === 'navigate-preview') {
+        try {
+          const hostContents = contents.hostWebContents
+          if (!hostContents.isDestroyed()) {
+            hostContents.send(DEV_PREVIEW_NAVIGATE_CHANNEL, {
+              url: decision.url,
+              webContentsId: contents.id
+            })
+          }
+        } catch {
+          /* host webContents may be unavailable while the guest is being torn down */
+        }
+        return { action: 'deny' }
+      }
+      if (decision.action === 'open-external') {
+        void shell.openExternal(decision.url).catch(() => undefined)
+      }
+      return { action: 'deny' }
     })
   })
 }
@@ -1514,10 +1533,10 @@ app.whenReady().then(async () => {
   discordBotRuntime.sync(initial)
   configureWeixinBridgeRuntimeContextProvider(async () => {
     const settings = await store.load()
-    const channel = settings.claw.channels.find((item) => item.enabled && item.provider === 'weixin')
+    const channel = settings.remoteChannel.channels.find((item) => item.enabled && item.provider === 'weixin')
     return {
       webhookUrl: webhookUrl(settings),
-      webhookSecret: settings.claw.im.secret,
+      webhookSecret: settings.remoteChannel.im.secret,
       channelId: channel?.id ?? ''
     }
   })
@@ -1539,6 +1558,7 @@ app.whenReady().then(async () => {
       computerUse: computerUsePatch,
       researchMemory: researchMemoryPatch,
       speechToText: speechToTextPatch,
+      connectPhone: connectPhonePatch,
       ...restPatch
     } = partial
     const next = normalizeAppSettings({
@@ -1565,7 +1585,8 @@ app.whenReady().then(async () => {
       }),
       write: mergeWriteSettings(prev.write, partial.write),
       speechToText: mergeSpeechToTextSettings(prev.speechToText, speechToTextPatch),
-      claw: mergeClawSettings(prev.claw, partial.claw),
+      remoteChannel: mergeRemoteChannelSettings(prev.remoteChannel, partial.remoteChannel),
+      connectPhone: mergeConnectPhoneSettings(prev.connectPhone, connectPhonePatch),
       schedule: mergeScheduleSettings(prev.schedule, partial.schedule),
       workflow: mergeWorkflowSettings(prev.workflow, partial.workflow),
       guiUpdate: { ...prev.guiUpdate, ...(partial.guiUpdate ?? {}) }

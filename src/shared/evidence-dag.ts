@@ -31,6 +31,10 @@ export function evidenceDagServiceUrlFromEnv(env: Record<string, string | undefi
   return normalizeEvidenceDagServiceUrl(env[EVIDENCE_DAG_SERVICE_URL_ENV])
 }
 
+export function evidenceDagApiKeyFromEnv(env: Record<string, string | undefined>): string {
+  return (env[EVIDENCE_DAG_API_KEY_ENV] ?? '').trim()
+}
+
 export function evidenceDagUiUrl(input: {
   runtimeId?: AgentRuntimeId | string
   threadId?: string | null

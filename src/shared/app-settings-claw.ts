@@ -6,9 +6,10 @@ import {
   type ClawImRecentMessageV1,
   type ClawImSettingsV1,
   type ClawImProvider,
-  type ClawSettingsPatchV1,
-  type ClawSettingsV1,
-  type ClawTaskV1
+  type ConnectPhoneSettingsPatchV1,
+  type ConnectPhoneSettingsV1,
+  type RemoteChannelSettingsPatchV1,
+  type RemoteChannelSettingsV1
 } from './app-settings-types'
 import {
   normalizeClawImAgentProfile,
@@ -17,10 +18,8 @@ import {
   normalizeClawImPlatformCredential,
   normalizeClawImRemoteSession,
   normalizeAgentThreadIds,
-  normalizeSettingsRuntimeId,
-  readLegacyAgentThreadId
+  normalizeSettingsRuntimeId
 } from './app-settings-prompts'
-import { normalizeScheduledTask } from './app-settings-schedule'
 import {
   compactStrings,
   normalizeBoolean,
@@ -31,10 +30,6 @@ import {
   normalizePositiveInteger,
   normalizeRunMode
 } from './app-settings-normalizers'
-
-type LegacyClawImSettingsPatch = Partial<ClawImSettingsV1> & {
-  openClawGatewayUrl?: unknown
-}
 
 function defaultClawChannelLabel(provider: ClawImProvider): string {
   if (provider === 'discord') return 'discord bot'
@@ -95,7 +90,7 @@ function normalizeClawImRecentMessage(input: unknown, fallbackProvider: ClawImPr
   }
 }
 
-export function defaultClawSettings(): ClawSettingsV1 {
+export function defaultRemoteChannelSettings(): RemoteChannelSettingsV1 {
   return {
     enabled: false,
     skills: {
@@ -107,27 +102,28 @@ export function defaultClawSettings(): ClawSettingsV1 {
       enabled: false,
       provider: 'feishu',
       port: 8787,
-      path: '/claw/im',
+      path: '/remote-channel/webhook',
       secret: '',
-      weixinBridgeUrl: DEFAULT_WEIXIN_BRIDGE_RPC_URL,
       workspaceRoot: '',
       model: DEFAULT_CLAW_MODEL,
       mode: 'agent',
       responseTimeoutMs: 120_000
     },
-    channels: [],
-    tasks: []
+    channels: []
   }
 }
 
-export function normalizeClawSettings(input: ClawSettingsPatchV1 | undefined): ClawSettingsV1 {
-  const defaults = defaultClawSettings()
+export function defaultConnectPhoneSettings(): ConnectPhoneSettingsV1 {
+  return {
+    weixinBridgeUrl: DEFAULT_WEIXIN_BRIDGE_RPC_URL
+  }
+}
+
+export function normalizeRemoteChannelSettings(input: RemoteChannelSettingsPatchV1 | undefined): RemoteChannelSettingsV1 {
+  const defaults = defaultRemoteChannelSettings()
   const source = input ?? {}
   const skills = source.skills ?? defaults.skills
-  const im = (source.im ?? defaults.im) as LegacyClawImSettingsPatch
-  const weixinBridgeUrl = typeof im.weixinBridgeUrl === 'string' ? im.weixinBridgeUrl.trim() : ''
-  const legacyOpenClawGatewayUrl =
-    typeof im.openClawGatewayUrl === 'string' ? im.openClawGatewayUrl.trim() : ''
+  const im = source.im ?? defaults.im
   const rawChannels = Array.isArray(source.channels)
     ? source.channels.filter((channel) => {
         const raw = channel as Partial<ClawImChannelV1>
@@ -154,7 +150,6 @@ export function normalizeClawSettings(input: ClawSettingsPatchV1 | undefined): C
       port: normalizePositiveInteger(im.port, defaults.im.port, 1024, 65_535),
       path: normalizePathSegment(im.path),
       secret: typeof im.secret === 'string' ? im.secret.trim() : '',
-      weixinBridgeUrl: weixinBridgeUrl || legacyOpenClawGatewayUrl || defaults.im.weixinBridgeUrl,
       workspaceRoot: typeof im.workspaceRoot === 'string' ? im.workspaceRoot.trim() : '',
       model: typeof im.model === 'string' && im.model.trim() ? im.model.trim() : DEFAULT_CLAW_MODEL,
       mode: normalizeRunMode(im.mode),
@@ -164,10 +159,9 @@ export function normalizeClawSettings(input: ClawSettingsPatchV1 | undefined): C
       .map((channel, index): ClawImChannelV1 => {
           const raw = channel as Record<string, unknown>
           const provider = normalizeImProvider(raw.provider as ClawImProvider)
-          const directThreadId = typeof raw.threadId === 'string' ? raw.threadId.trim() : ''
-          const legacyAgentThreadId = readLegacyAgentThreadId(raw.agentThreadIds)
-          const threadId = directThreadId || legacyAgentThreadId
-          const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds, threadId)
+          const legacyThreadId = typeof raw.threadId === 'string' ? raw.threadId.trim() : ''
+          const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds, legacyThreadId)
+          const threadId = agentThreadIds.sciforge ?? ''
           const agentProfile = normalizeClawImAgentProfile(raw.agentProfile)
           const label = normalizeClawChannelLabel(provider, typeof raw.label === 'string' ? raw.label : '')
           const profileName = normalizeLegacyDefaultClawChannelName(provider, agentProfile.name)
@@ -203,19 +197,26 @@ export function normalizeClawSettings(input: ClawSettingsPatchV1 | undefined): C
             createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : now,
             updatedAt: typeof raw.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : now
           }
-        }),
-    tasks: Array.isArray(source.tasks)
-      ? source.tasks.map((task, index) => normalizeScheduledTask(task as Partial<ClawTaskV1>, index, now))
-      : []
+        })
   }
 }
 
-export function mergeClawSettings(
-  current: ClawSettingsV1,
-  patch: ClawSettingsPatchV1 | undefined
-): ClawSettingsV1 {
-  if (!patch) return normalizeClawSettings(current)
-  return normalizeClawSettings({
+export function normalizeConnectPhoneSettings(
+  input: ConnectPhoneSettingsPatchV1 | undefined
+): ConnectPhoneSettingsV1 {
+  const defaults = defaultConnectPhoneSettings()
+  const weixinBridgeUrl = typeof input?.weixinBridgeUrl === 'string' ? input.weixinBridgeUrl.trim() : ''
+  return {
+    weixinBridgeUrl: weixinBridgeUrl || defaults.weixinBridgeUrl
+  }
+}
+
+export function mergeRemoteChannelSettings(
+  current: RemoteChannelSettingsV1,
+  patch: RemoteChannelSettingsPatchV1 | undefined
+): RemoteChannelSettingsV1 {
+  if (!patch) return normalizeRemoteChannelSettings(current)
+  return normalizeRemoteChannelSettings({
     ...current,
     ...patch,
     skills: {
@@ -226,7 +227,17 @@ export function mergeClawSettings(
       ...current.im,
       ...(patch.im ?? {})
     },
-    channels: patch.channels ?? current.channels,
-    tasks: patch.tasks ?? current.tasks
+    channels: patch.channels ?? current.channels
+  })
+}
+
+export function mergeConnectPhoneSettings(
+  current: ConnectPhoneSettingsV1,
+  patch: ConnectPhoneSettingsPatchV1 | undefined
+): ConnectPhoneSettingsV1 {
+  if (!patch) return normalizeConnectPhoneSettings(current)
+  return normalizeConnectPhoneSettings({
+    ...current,
+    ...patch
   })
 }

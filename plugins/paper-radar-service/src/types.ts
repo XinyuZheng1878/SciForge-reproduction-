@@ -64,7 +64,7 @@ export interface SyncResult {
 }
 
 export interface ServiceError {
-  code: 'INVALID_ARGUMENT' | 'NOT_FOUND' | 'UPSTREAM_ERROR' | 'INTERNAL_ERROR';
+  code: 'INVALID_ARGUMENT' | 'NOT_FOUND' | 'UPSTREAM_ERROR' | 'INTERNAL_ERROR' | 'UNAUTHORIZED' | 'PAYLOAD_TOO_LARGE';
   message: string;
   retryable: boolean;
 }

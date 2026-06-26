@@ -3,8 +3,14 @@ import { Streamdown, type AnimateOptions, type StreamdownProps } from 'streamdow
 import remarkGfm from 'remark-gfm'
 import { harden } from 'rehype-harden'
 import 'streamdown/styles.css'
-import { parseFileReferenceHref, rehypeFileReferences } from '../../lib/file-references'
+import {
+  FILE_REFERENCE_SCHEMES,
+  isFileReferenceHref,
+  parseFileReferenceHref,
+  rehypeFileReferences
+} from '../../lib/file-references'
 import { useValidatedFileReference } from '../../lib/file-reference-validation'
+import { openSafeExternalUrl } from '../../lib/open-external'
 import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
 import { previewWorkspaceFile } from '../../lib/workspace-file-preview'
 import { useChatStore } from '../../store/chat-store'
@@ -30,7 +36,7 @@ const rehypePlugins = [
   [
     harden,
     {
-      allowedLinkPrefixes: ['*']
+      allowedLinkPrefixes: ['http:', 'https:', 'mailto:', ...FILE_REFERENCE_SCHEMES]
     }
   ]
 ] satisfies StreamdownProps['rehypePlugins']
@@ -51,9 +57,18 @@ function StreamdownLink({
 }: StreamdownLinkProps): ReactElement {
   const workspaceRoot = useChatStore((s) => s.workspaceRoot)
   const fileTarget = parseFileReferenceHref(href)
+  const fileReferenceHref = isFileReferenceHref(href)
   const validation = useValidatedFileReference(fileTarget, workspaceRoot)
   const isExternal = href ? /^(https?:|mailto:)/i.test(href) : false
   const cleanClassName = className?.replace(/\bds-file-reference-link\b/g, '').trim()
+
+  if (fileReferenceHref && !fileTarget) {
+    return (
+      <span className={cleanClassName} title={title}>
+        {children}
+      </span>
+    )
+  }
 
   if (fileTarget && validation.status !== 'valid') {
     return (
@@ -75,9 +90,9 @@ function StreamdownLink({
       return
     }
 
-    if (isExternal && href && typeof window.sciforge?.openExternal === 'function') {
+    if (isExternal && href) {
       event.preventDefault()
-      void window.sciforge.openExternal(href).catch(() => undefined)
+      void openSafeExternalUrl(href).catch(() => undefined)
     }
   }
 

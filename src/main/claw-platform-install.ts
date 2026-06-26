@@ -15,7 +15,7 @@ const feishuInstallTargets = new Map<string, boolean>()
 const MAX_FEISHU_INSTALL_TARGETS = 32
 const weixinInstallSessions = new Map<string, string>()
 const MAX_WEIXIN_INSTALL_SESSIONS = 32
-const WEIXIN_ALREADY_CONNECTED_MESSAGE = '已连接过此 OpenClaw'
+const WEIXIN_ALREADY_CONNECTED_MESSAGE = '已连接过此微信桥接'
 const WEIXIN_BRIDGE_URL_ENV_KEYS = [
   'SCIFORGE_WEIXIN_BRIDGE_URL',
   'SCIFORGE_OPENCLAW_GATEWAY_URL',
@@ -341,7 +341,7 @@ export async function pollWeixinInstall(
     if (!accountId) {
       return { done: false, error: 'WeChat login completed, but no account id was returned.' }
     }
-    await startWeixinBridgeChannel(recordString(data, 'accountId'), weixinBridgeUrl)
+    await startWeixinBridgeChannel(accountId, weixinBridgeUrl)
     weixinInstallSessions.delete(deviceCode)
     return { done: true, kind: 'weixin', accountId, sessionKey }
   } catch (error) {

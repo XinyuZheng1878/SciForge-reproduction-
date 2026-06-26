@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import JSZip from 'jszip'
@@ -44,6 +44,27 @@ describe('pdf annotation sidecar service', () => {
     const content = await readFile(saved.path, 'utf8')
     expect(content).toContain('"schemaVersion": 1')
     expect(content.endsWith('\n')).toBe(true)
+  })
+
+  it('rejects default sidecar writes through symlinked metadata directories outside the workspace', async () => {
+    const workspaceRoot = await createTempWorkspace()
+    const outsideRoot = await createTempWorkspace()
+    const pdfPath = join(workspaceRoot, 'paper.pdf')
+    await writeFile(pdfPath, '%PDF-1.7\nfake\n', 'utf8')
+
+    const loaded = await loadPdfAnnotationSidecar({ pdfPath, workspaceRoot, pageCount: 3 })
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+
+    await mkdir(outsideRoot, { recursive: true })
+    await symlink(outsideRoot, join(workspaceRoot, '.sciforge'), 'dir')
+
+    const saved = await savePdfAnnotationSidecar({ pdfPath, workspaceRoot, sidecar: loaded.sidecar })
+    expect(saved.ok).toBe(false)
+    if (!saved.ok) {
+      expect(saved.message).toContain('within the selected workspace')
+    }
+    await expect(readdir(outsideRoot)).resolves.toEqual([])
   })
 
   it('loads compatible same-directory legacy sidecars', async () => {

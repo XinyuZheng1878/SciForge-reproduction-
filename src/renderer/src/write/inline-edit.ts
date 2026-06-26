@@ -129,7 +129,6 @@ export function buildWriteInlineEditDraft(
   options: {
     workspaceRoot?: string
     currentFilePath?: string
-    model?: string
     language?: string
     recentEdits?: WriteRecentEdit[]
     now?: number
@@ -177,8 +176,7 @@ export function buildWriteInlineEditDraft(
             scope,
             now: options.now
           })
-        : undefined,
-      model: options.model
+        : undefined
     }
   }
 }
@@ -254,7 +252,6 @@ export function buildWriteInlineEditCompletionRequest(
       original: request.original,
       selectedText: request.context.selectedText
     },
-    recentEdits: request.recentEdits,
-    model: request.model
+    recentEdits: request.recentEdits
   }
 }

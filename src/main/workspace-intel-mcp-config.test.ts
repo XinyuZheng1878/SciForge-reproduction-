@@ -11,7 +11,8 @@ import {
 import { GUI_WORKSPACE_INTEL_MCP_LAUNCH_FLAG } from './workspace-intel-mcp-server'
 import { WorkspaceIntelToolNames } from '../../packages/workers/workspace-intel/src/contract'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
@@ -29,7 +30,7 @@ const launch: WorkspaceIntelMcpLaunchConfig = {
 }
 
 function createSettings(workspaceRoot = '/tmp/workspace'): AppSettingsV1 {
-  const claw = defaultClawSettings()
+  const remoteChannel = defaultRemoteChannelSettings()
   return {
     version: 1,
     locale: 'en',
@@ -57,7 +58,8 @@ function createSettings(workspaceRoot = '/tmp/workspace'): AppSettingsV1 {
       channel: 'stable'
     },
     codePromptPrefix: '',
-    claw
+    remoteChannel,
+    connectPhone: defaultConnectPhoneSettings()
   }
 }
 

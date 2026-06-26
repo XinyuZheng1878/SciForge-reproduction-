@@ -110,6 +110,7 @@ class MoleculeExpert:
         self.base_url = (base_url or os.environ.get("CHEMLLM_BASE_URL", "http://127.0.0.1:8000/v1")).rstrip("/")
         self.model = model or os.environ.get("CHEMLLM_MODEL", "chemllm")
         self.timeout = timeout if timeout is not None else float(os.environ.get("CHEMLLM_TIMEOUT", "120"))
+        self.api_key = os.environ.get("CHEMLLM_API_KEY", "").strip()
         self.model_id = "AI4Chem/ChemLLM-7B-Chat"
         self.device = "cuda:0 (vLLM)"
 
@@ -124,6 +125,7 @@ class MoleculeExpert:
             user += f"\n(Context for what matters, not a task to solve: {instruction})"
         resp = requests.post(
             f"{self.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.api_key}"} if self.api_key else None,
             json={
                 "model": self.model,
                 "messages": [

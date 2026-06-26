@@ -140,7 +140,6 @@ function contextNotes(context: InlineCompletionRequestContext): string[] {
 export function buildInlineCompletionPayload(
   context: InlineCompletionRequestContext,
   options: {
-    model?: string
     workspaceRoot?: string
     mode?: WriteInlineCompletionMode
     recentEdits?: WriteRecentEdit[]
@@ -246,7 +245,6 @@ export function buildInlineCompletionPayload(
       documentTail: compactText(context.docPreview).slice(0, 180)
     },
     editCandidate,
-    recentEdits: recentEdits?.length ? recentEdits : undefined,
-    model: options.model
+    recentEdits: recentEdits?.length ? recentEdits : undefined
   }
 }

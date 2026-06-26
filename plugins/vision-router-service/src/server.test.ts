@@ -15,6 +15,7 @@ const qwen: QwenConfig = {
   maxAttempts: 1,
   retryBaseMs: 1,
 };
+const runtimeToken = 'vision-test-token';
 
 // A fake OpenAI-compatible chat/completions provider.
 function stubFetch(reply: { status?: number; content?: unknown }): typeof fetch {
@@ -31,8 +32,9 @@ async function withServer(
   fetchImpl: typeof fetch,
   run: (base: string) => Promise<void>,
   cfg: QwenConfig = qwen,
+  options: { maxBodyBytes?: number } = {},
 ): Promise<void> {
-  const server = createVisionRouterServer({ qwen: cfg, fetchImpl });
+  const server = createVisionRouterServer({ qwen: cfg, fetchImpl, runtimeToken, maxBodyBytes: options.maxBodyBytes });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address() as AddressInfo;
@@ -44,13 +46,30 @@ async function withServer(
   }
 }
 
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    authorization: `Bearer ${runtimeToken}`,
+    ...extra,
+  };
+}
+
 test('health and version respond', async () => {
   await withServer(stubFetch({}), async (base) => {
-    const health = await (await fetch(`${base}/health`)).json();
+    const health = await (await fetch(`${base}/health`, { headers: authHeaders() })).json();
     assert.equal(health.ok, true);
-    const version = await (await fetch(`${base}/version`)).json();
+    const version = await (await fetch(`${base}/version`, { headers: authHeaders() })).json();
     assert.equal(version.service, 'sciforge.vision-router');
     assert.equal(version.model, 'Qwen3.7-Plus');
+  });
+});
+
+test('requests require the runtime bearer token', async () => {
+  await withServer(stubFetch({}), async (base) => {
+    const res = await fetch(`${base}/health`);
+    assert.equal(res.status, 401);
+    const result = (await res.json()) as ServiceResult<never>;
+    assert.equal(result.ok, false);
+    assert.equal(result.ok === false && result.error.code, 'UNAUTHENTICATED');
   });
 });
 
@@ -58,7 +77,7 @@ test('translate returns a template ServiceResult with the description', async ()
   await withServer(stubFetch({ content: 'A bar chart titled Q3 Revenue with three bars.' }), async (base) => {
     const res = await fetch(`${base}/vision/translate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({ instruction: 'what does this show?', image: { base64: 'AAAA', mime: 'image/png' } }),
     });
     assert.equal(res.status, 200);
@@ -75,7 +94,7 @@ test('missing image is rejected with INVALID_ARGUMENT', async () => {
   await withServer(stubFetch({}), async (base) => {
     const res = await fetch(`${base}/vision/translate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({ instruction: 'no image here' }),
     });
     assert.equal(res.status, 400);
@@ -85,11 +104,31 @@ test('missing image is rejected with INVALID_ARGUMENT', async () => {
   });
 });
 
+test('oversized translate bodies are rejected before upstream calls', async () => {
+  let upstreamCalls = 0;
+  const fetchImpl = (async () => {
+    upstreamCalls++;
+    return new Response('{}');
+  }) as unknown as typeof fetch;
+  await withServer(fetchImpl, async (base) => {
+    const res = await fetch(`${base}/vision/translate`, {
+      method: 'POST',
+      headers: authHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ image: { base64: 'A'.repeat(64), mime: 'image/png' } }),
+    });
+    assert.equal(res.status, 413);
+    const result = (await res.json()) as ServiceResult<never>;
+    assert.equal(result.ok, false);
+    assert.equal(result.ok === false && result.error.code, 'PAYLOAD_TOO_LARGE');
+  }, qwen, { maxBodyBytes: 32 });
+  assert.equal(upstreamCalls, 0);
+});
+
 test('upstream auth failure maps to UNAUTHENTICATED', async () => {
   await withServer(stubFetch({ status: 401 }), async (base) => {
     const res = await fetch(`${base}/vision/translate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({ image: { url: 'https://example.test/x.png' } }),
     });
     assert.equal(res.status, 502);
@@ -115,7 +154,7 @@ test('retries transient 5xx then succeeds (service owns robustness)', async () =
   await withServer(flaky.fetch, async (base) => {
     const res = await fetch(`${base}/vision/translate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({ image: { base64: 'AAAA', mime: 'image/png' } }),
     });
     assert.equal(res.status, 200);
@@ -130,7 +169,7 @@ test('does NOT retry auth failures (non-retryable)', async () => {
   await withServer(flaky.fetch, async (base) => {
     const res = await fetch(`${base}/vision/translate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({ image: { base64: 'AAAA', mime: 'image/png' } }),
     });
     assert.equal(res.status, 502);

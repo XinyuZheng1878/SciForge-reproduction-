@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -53,5 +53,19 @@ describe('SharedMemoryService', () => {
     const deleted = await service.delete(userMemory.id)
     expect(deleted.deleted).toBe(true)
     expect(await service.list({ includeDeleted: false })).toHaveLength(1)
+  })
+
+  it('does not follow a symlinked app-data memory store target', async () => {
+    const dataDir = await tempDir()
+    const outsideDir = await tempDir()
+    const outsideFile = join(outsideDir, 'memories.json')
+    await mkdir(join(dataDir, 'shared-memory'))
+    await writeFile(outsideFile, 'outside', 'utf8')
+    await symlink(outsideFile, join(dataDir, 'shared-memory', 'memories.json'))
+
+    await expect(new SharedMemoryService(dataDir).create({
+      text: 'keep writes inside app data'
+    })).rejects.toThrow(/not a symlink|regular file/)
+    await expect(readFile(outsideFile, 'utf8')).resolves.toBe('outside')
   })
 })

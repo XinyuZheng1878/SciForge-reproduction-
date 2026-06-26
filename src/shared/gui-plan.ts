@@ -32,8 +32,12 @@ export function buildPlanRelativePath(featureName: string, suffix?: number): str
   return `${GUI_PLAN_RELATIVE_DIR}/${safeFeatureName}${safeSuffix}.md`
 }
 
+export function normalizeGuiPlanRelativePath(value: string): string {
+  return value.trim().replaceAll('\\', '/').replace(/\/+/g, '/').replace(/^\.\//, '')
+}
+
 function normalizeRelativePathForCompare(value: string): string {
-  return value.replaceAll('\\', '/').replace(/\/+/g, '/').replace(/^\.\//, '').toLowerCase()
+  return normalizeGuiPlanRelativePath(value).toLowerCase()
 }
 
 export function isGuiPlanRelativePath(value: string): boolean {

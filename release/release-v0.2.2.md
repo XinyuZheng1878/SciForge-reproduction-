@@ -1,30 +1,30 @@
-# DeepSeek GUI v0.2.2
+# SciForge v0.2.2
 
 这一版是 v0.2.1 之后的一次维护型更新，重点放在两个地方：一是 GUI 更新安装时更安全，二是 SciForge Runtime 的安装和构建流程更稳。它不主打新功能，而是让升级、打包和本地构建更少出问题。
 
 ### 更新安装前先停掉受管运行时
 
-- 安装 GUI 更新前，会先停止当前由应用管理的运行时，包括 `schedule`、`Claw`、`Weixin bridge` 和 `SciForge Runtime`。
+- 安装 GUI 更新前，会先停止当前由应用管理的运行时，包括定时任务服务、连接手机桥接、微信桥接和 SciForge Runtime。
 - 这样可以降低文件占用、半升级状态和更新后运行时残留带来的问题。
 - 对用户来说，更新流程会更可控，安装完成后也更接近“干净重启”的状态。
 
 ### SciForge Runtime 安装和构建更可靠
 
-- `build:local-runtime` 现在会先检查 SciForge Runtime 依赖是否齐全，缺少关键文件时会自动执行 `npm --prefix kun ci` 补齐。
+- `build:local-runtime` 现在会先检查 SciForge Runtime 依赖是否齐全，缺少关键文件时会自动补齐本地 runtime 依赖。
 - `postinstall` 也会复用同一套检查逻辑，减少“装好了但 SciForge Runtime 依赖不完整”的情况。
-- SciForge Runtime 安装过程中会主动清理 `kun/node_modules/better-sqlite3`，让本地根依赖统一管理这个原生模块，避免重复或冲突。
+- SciForge Runtime 安装过程中会主动清理 runtime 包内重复的 `better-sqlite3` 依赖，让本地根依赖统一管理这个原生模块，避免重复或冲突。
 - 这版还把 GUI schedule MCP 的启动超时调得更短了一些，让相关启动流程更快失败、更快回退，不容易卡太久。
 
 ### 构建链路更顺手
 
 - 现在无论是日常开发还是安装后构建，SciForge Runtime 都会先被验证和修复，再进入后续编译流程。
-- 这能减少因为本地 `kun/node_modules` 缺失、损坏或和主工程状态不一致而导致的构建失败。
+- 这能减少因为本地 runtime 依赖缺失、损坏或和主工程状态不一致而导致的构建失败。
 - 对打包和本地调试来说，这一版更偏向“让流程自己收拾干净”，而不是要求维护者手动排查依赖状态。
 
 ### 升级说明
 
 - 如果你是从 `v0.2.1` 升级，推荐直接通过 GUI 更新，不需要手动停掉各个 runtime。
-- 如果你在本地改过 SciForge Runtime 依赖目录，升级或重新安装后可以留意 `kun/node_modules` 是否被重新整理，这属于预期行为。
+- 如果你在本地改过 SciForge Runtime 依赖目录，升级或重新安装后可以留意 runtime 依赖是否被重新整理，这属于预期行为。
 - 如果你之前曾遇到“更新后服务没完全退出”或“SciForge Runtime 安装不完整”的问题，这一版就是针对这些场景的补强。
 
 ### 总结

@@ -10,7 +10,7 @@ import {
   type ModelProviderSettingsV1,
   type ResolvedLocalRuntimeSettingsV1
 } from './app-settings-types'
-import { normalizeModelEndpointFormat } from '../../kun/src/contracts/model-endpoint-format.js'
+import { normalizeModelEndpointFormat } from './model-endpoint-format'
 import { getLocalRuntimeSettings } from './app-settings-local-runtime'
 import { resolveRuntimeModelRouterSettings } from './app-settings-model-router'
 import { normalizeDeepseekBaseUrl } from './app-settings-normalizers'

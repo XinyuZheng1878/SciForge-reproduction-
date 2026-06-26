@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
@@ -114,7 +115,7 @@ describe('skill-service', () => {
     await writeFile(entryPath, '# Paper Helper\n\nSummarize paper notes.', 'utf8')
 
     const settings = createSettings(workspaceRoot)
-    settings.claw.skills.extraDirs = [extraRoot]
+    settings.remoteChannel.skills.extraDirs = [extraRoot]
 
     const result = await listGuiSkills(settings, workspaceRoot)
 
@@ -145,7 +146,8 @@ describe('skill-service', () => {
       appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
       keyboardShortcuts: defaultKeyboardShortcuts(),
       write: defaultWriteSettings(),
-      claw: defaultClawSettings(),
+      remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
       schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
       guiUpdate: { channel: 'stable' },

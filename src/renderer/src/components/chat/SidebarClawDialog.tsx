@@ -24,7 +24,7 @@ import type {
   ClawImProvider,
   ClawRunMode
 } from '@shared/app-settings'
-import type { ClawImInstallQrResult } from '@shared/sciforge-api'
+import type { ConnectPhoneInstallQrResult } from '@shared/sciforge-api'
 import {
   ClawProviderLogo,
   clawProviderDisplayLabel
@@ -51,6 +51,10 @@ import {
   clawInstallTargetLabel,
   clawPayloadQrTitleKey
 } from './SidebarClawDialogHelpers'
+import {
+  pollConnectPhoneInstallApi,
+  startConnectPhoneInstallQrApi
+} from '../../lib/remote-channel-api'
 import { ClawConfigureOverview, ClawDialogFooter, ClawManageSelection } from './SidebarClawDialogSections'
 import { ClawStepContent } from './SidebarClawDialogStepContent'
 export function ClawAddImDialog({
@@ -103,9 +107,9 @@ export function ClawAddImDialog({
     selectedOption.connectionMode === 'official-install-qr'
     ? effectiveProvider
     : null
-  const [endpoint, setEndpoint] = useState('http://127.0.0.1:8787/claw/im')
+  const [endpoint, setEndpoint] = useState('http://127.0.0.1:8787/remote-channel/webhook')
   const [imPort, setImPort] = useState(8787)
-  const [imPath, setImPath] = useState('/claw/im')
+  const [imPath, setImPath] = useState('/remote-channel/webhook')
   const [secret, setSecret] = useState('')
   const [imEnabled, setImEnabled] = useState(true)
   const [responseTimeoutSec, setResponseTimeoutSec] = useState(120)
@@ -228,16 +232,16 @@ export function ClawAddImDialog({
       .getSettings()
       .then((settings) => {
         if (cancelled) return
-        const path = settings.claw.im.path.startsWith('/')
-          ? settings.claw.im.path
-          : `/${settings.claw.im.path}`
-        setImEnabled(settings.claw.im.enabled)
-        setImPort(settings.claw.im.port)
+        const path = settings.remoteChannel.im.path.startsWith('/')
+          ? settings.remoteChannel.im.path
+          : `/${settings.remoteChannel.im.path}`
+        setImEnabled(settings.remoteChannel.im.enabled)
+        setImPort(settings.remoteChannel.im.port)
         setImPath(path)
-        setEndpoint(`http://127.0.0.1:${settings.claw.im.port}${path}`)
-        setSecret(settings.claw.im.secret.trim())
-        setResponseTimeoutSec(Math.round(settings.claw.im.responseTimeoutMs / 1000))
-        setRunMode(settings.claw.im.mode)
+        setEndpoint(`http://127.0.0.1:${settings.remoteChannel.im.port}${path}`)
+        setSecret(settings.remoteChannel.im.secret.trim())
+        setResponseTimeoutSec(Math.round(settings.remoteChannel.im.responseTimeoutMs / 1000))
+        setRunMode(settings.remoteChannel.im.mode)
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
@@ -271,7 +275,7 @@ export function ClawAddImDialog({
   )
   const bindingPayload = useMemo(() => {
     const payload: Record<string, unknown> = {
-      kind: 'sciforge.claw-im',
+      kind: 'sciforge.remote-channel.binding.v1',
       provider: effectiveProvider,
       endpoint,
       method: 'POST',
@@ -312,7 +316,8 @@ export function ClawAddImDialog({
 
   const startOfficialInstallQr = async (): Promise<void> => {
     if (!officialInstallProvider) return
-    if (typeof window.sciforge?.startClawImInstallQr !== 'function') {
+    const startConnectPhoneInstallQr = startConnectPhoneInstallQrApi(window.sciforge)
+    if (typeof startConnectPhoneInstallQr !== 'function') {
       setInstallQr({
         status: 'error',
         url: '',
@@ -329,9 +334,9 @@ export function ClawAddImDialog({
     setError(null)
     setPlatformCredential(undefined)
     setInstallQr({ status: 'loading', url: '', deviceCode: '', userCode: '', timeLeft: 0, error: '' })
-    let result: ClawImInstallQrResult
+    let result: ConnectPhoneInstallQrResult
     try {
-      result = await window.sciforge.startClawImInstallQr(officialInstallProvider, {
+      result = await startConnectPhoneInstallQr(officialInstallProvider, {
         isLark: officialInstallProvider === 'feishu' && officialInstallTarget === 'lark'
       })
     } catch (e) {
@@ -384,7 +389,11 @@ export function ClawAddImDialog({
     }, 1000)
     const waitForInstall = async (): Promise<void> => {
       try {
-        const poll = await window.sciforge.pollClawImInstall(officialInstallProvider, result.deviceCode)
+        const pollConnectPhoneInstall = pollConnectPhoneInstallApi(window.sciforge)
+        if (typeof pollConnectPhoneInstall !== 'function') {
+          throw new Error(t('clawAddImOfficialQrUnavailable'))
+        }
+        const poll = await pollConnectPhoneInstall(officialInstallProvider, result.deviceCode)
         if (installAttempt !== installAttemptRef.current) return
         if (poll.done) {
           clearInstallTimers()

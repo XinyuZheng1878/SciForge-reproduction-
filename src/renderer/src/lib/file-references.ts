@@ -19,7 +19,9 @@ type HastNode = {
   children?: HastNode[]
 }
 
-const FILE_REFERENCE_SCHEME = 'deepseek-file:'
+export const FILE_REFERENCE_SCHEME = 'sciforge-file:'
+export const LEGACY_FILE_REFERENCE_SCHEME = 'deepseek-file:'
+export const FILE_REFERENCE_SCHEMES = [FILE_REFERENCE_SCHEME, LEGACY_FILE_REFERENCE_SCHEME] as const
 const PATH_PREFIX_BOUNDARY = String.raw`(?<![\w@.~\/\\-])`
 
 const EXTENSIONS = [
@@ -164,7 +166,7 @@ export function createFileReferenceHref(target: FileReferenceTarget): string {
 }
 
 export function parseFileReferenceHref(href: string | undefined): FileReferenceTarget | null {
-  if (!href?.startsWith(FILE_REFERENCE_SCHEME)) return null
+  if (!isFileReferenceHref(href)) return null
   try {
     const url = new URL(href)
     const path = url.searchParams.get('path')?.trim()
@@ -179,6 +181,10 @@ export function parseFileReferenceHref(href: string | undefined): FileReferenceT
   } catch {
     return null
   }
+}
+
+export function isFileReferenceHref(href: string | undefined): href is string {
+  return typeof href === 'string' && FILE_REFERENCE_SCHEMES.some((scheme) => href.startsWith(scheme))
 }
 
 function linkifyTextNode(node: HastNode): HastNode[] {

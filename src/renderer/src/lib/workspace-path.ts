@@ -35,7 +35,8 @@ export function isClawWorkspacePath(path?: string): boolean {
   const trimmed = path?.trim() ?? ''
   if (!trimmed) return false
   const normalized = normalizePathForMatch(trimmed)
-  return normalized.includes('/.sciforge/claw/')
+  return normalized.includes('/.sciforge/remote-channel/') ||
+    normalized.includes('/.sciforge/claw/')
 }
 
 export function isInternalSciForgeWorkspace(path?: string): boolean {

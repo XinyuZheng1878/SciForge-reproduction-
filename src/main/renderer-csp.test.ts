@@ -9,6 +9,7 @@ describe('renderer content security policy', () => {
     const imgSrc = csp.match(/img-src\s+([^;]+)/)?.[1] ?? ''
 
     expect(imgSrc.split(/\s+/)).toContain('blob:')
+    expect(imgSrc.split(/\s+/)).not.toContain('file:')
   })
 
   it('allows the dev browser bridge fetch and EventSource endpoints', () => {

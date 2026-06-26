@@ -115,6 +115,9 @@ describe('dev sciforge browser bridge', () => {
         })
       })
     )
+    expect(MockEventSource.instances[0]?.url).toBe(
+      'http://127.0.0.1:5174/events?clientId=client-1&sciforgeBridgeToken=query-token-123'
+    )
   })
 
   it('dispatches bridge SSE messages through preload-shaped event subscriptions', async () => {
@@ -193,6 +196,59 @@ describe('dev sciforge browser bridge', () => {
         })
       })
     )
+  })
+
+  it('forwards connect-phone and remote-channel APIs through canonical bridge channels', async () => {
+    installWindow()
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      payload: { ok: true }
+    })))
+    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, configurable: true })
+    const { installDevSciForgeBridge } = await import('./dev-sciforge-bridge')
+
+    installDevSciForgeBridge()
+    await window.sciforge.startConnectPhoneInstallQr('feishu', { isLark: true })
+    await window.sciforge.createRemoteChannelTaskFromText('schedule this', {
+      channelId: 'channel-1',
+      modelHint: 'auto',
+      mode: 'agent'
+    })
+    const handler = vi.fn()
+    const unsubscribe = window.sciforge.onRemoteChannelActivity(handler)
+
+    MockEventSource.instances[0].emit('bridge-message', {
+      channel: 'remoteChannel:activity',
+      payload: { channelId: 'channel-1', threadId: 'thread-1' }
+    })
+    unsubscribe()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:5174/invoke',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          channel: 'connectPhone:install:qrcode',
+          payload: { provider: 'feishu', isLark: true }
+        })
+      })
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:5174/invoke',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          channel: 'remoteChannel:task:create-from-text',
+          payload: {
+            text: 'schedule this',
+            channelId: 'channel-1',
+            modelHint: 'auto',
+            mode: 'agent'
+          }
+        })
+      })
+    )
+    expect(handler).toHaveBeenCalledWith({ channelId: 'channel-1', threadId: 'thread-1' })
   })
 
   it('does not replace the real Electron preload bridge', async () => {

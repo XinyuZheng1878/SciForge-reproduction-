@@ -18,7 +18,7 @@ so a text-only main agent (DeepSeek V4) can "see" the image.
 
 ```bash
 npm install
-cp .env.example .env   # fill VISION_PROVIDER_API_KEY from ../开发资源.txt (Qwen3.7-Plus)
+cp .env.example .env   # fill VISION_PROVIDER_API_KEY and VISION_ROUTER_RUNTIME_TOKEN
 npm start              # http://127.0.0.1:3899
 ```
 
@@ -29,6 +29,8 @@ GET  /health   -> { ok, service, checkedAt }
 GET  /version  -> { service, version, model }
 POST /vision/translate
 ```
+
+All routes require `Authorization: Bearer $VISION_ROUTER_RUNTIME_TOKEN`.
 
 `POST /vision/translate` request:
 

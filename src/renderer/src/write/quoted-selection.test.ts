@@ -3,7 +3,6 @@ import { harden } from 'rehype-harden'
 import {
   resolveWriteMarkdownResource,
   resolveWriteMarkdownResourcePath,
-  writePathToFileUrl,
   writeMarkdownHardenOptions
 } from '../components/write/WriteMarkdownPreview'
 import {
@@ -421,11 +420,16 @@ describe('write quoted selections', () => {
 describe('write markdown preview resources', () => {
   it('uses a rehype-harden config that can initialize without crashing preview', () => {
     expect(() => harden(writeMarkdownHardenOptions)).not.toThrow()
+    expect(writeMarkdownHardenOptions.allowedLinkPrefixes).not.toContain('*')
+    expect(writeMarkdownHardenOptions.allowedLinkPrefixes).toEqual(
+      expect.arrayContaining(['http:', 'https:', 'mailto:', 'sciforge-file:', 'deepseek-file:'])
+    )
+    expect(writeMarkdownHardenOptions.allowedImagePrefixes).toEqual(['http:', 'https:', 'data:', 'blob:'])
   })
 
-  it('resolves relative image paths from the current markdown file', () => {
+  it('resolves relative image paths for workspace IPC instead of file URLs', () => {
     const resolved = resolveWriteMarkdownResource('../assets/hero image.png', '/tmp/workspace/docs/draft.md')
-    expect(resolved).toBe('file:///tmp/workspace/assets/hero%20image.png')
+    expect(resolved).toBeUndefined()
     expect(resolveWriteMarkdownResourcePath('../assets/hero image.png', '/tmp/workspace/docs/draft.md')).toBe(
       '/tmp/workspace/assets/hero image.png'
     )
@@ -433,11 +437,15 @@ describe('write markdown preview resources', () => {
 
   it('keeps explicit external URLs unchanged', () => {
     expect(resolveWriteMarkdownResource('https://example.com/a.png', '/tmp/workspace/docs/draft.md')).toBe('https://example.com/a.png')
+    expect(resolveWriteMarkdownResource('data:image/png;base64,AAAA', '/tmp/workspace/docs/draft.md')).toBe('data:image/png;base64,AAAA')
     expect(resolveWriteMarkdownResourcePath('https://example.com/a.png', '/tmp/workspace/docs/draft.md')).toBeUndefined()
   })
 
-  it('does not pass through explicit file URLs from markdown content', () => {
+  it('does not pass through unsafe explicit URLs from markdown content', () => {
     expect(resolveWriteMarkdownResource('file:///tmp/secret.png', '/tmp/workspace/docs/draft.md')).toBeUndefined()
-    expect(writePathToFileUrl('/tmp/workspace/assets/hero image.png')).toBe('file:///tmp/workspace/assets/hero%20image.png')
+    expect(resolveWriteMarkdownResource('javascript:alert(1)', '/tmp/workspace/docs/draft.md')).toBeUndefined()
+    expect(resolveWriteMarkdownResource('ftp://example.com/a.png', '/tmp/workspace/docs/draft.md')).toBeUndefined()
+    expect(resolveWriteMarkdownResource('data:image/svg+xml;base64,AAAA', '/tmp/workspace/docs/draft.md')).toBeUndefined()
+    expect(resolveWriteMarkdownResource('data:text/html;base64,AAAA', '/tmp/workspace/docs/draft.md')).toBeUndefined()
   })
 })

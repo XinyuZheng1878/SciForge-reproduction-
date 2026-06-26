@@ -42,6 +42,7 @@ import { MAX_WORKFLOW_RUNS, normalizeWorkflow } from '../shared/app-settings-wor
 import { buildModelRouterResponsesUrl } from '../shared/model-router-url'
 import { exportWorkflowDsl } from '../shared/workflow-dsl'
 import { researchSearchEnvForGuiMcp } from './research-search-mcp-server'
+import { isAuthorizedInternalHttpRequest } from './internal-http-secret'
 import {
   SCHEDULER_INTERVAL_MS,
   hasEnabledScheduledTask,
@@ -1447,14 +1448,9 @@ export class WorkflowRuntime {
     try {
       const settings = await this.deps.store.load()
       const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
-      const secret = settings.workflow.webhookSecret.trim()
-      if (secret) {
-        const rawHeader = req.headers['x-sciforge-secret']
-        const headerSecret = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader
-        if (req.headers.authorization !== `Bearer ${secret}` && headerSecret !== secret) {
-          writeJson(res, 401, { ok: false, message: 'Unauthorized.' })
-          return
-        }
+      if (!isAuthorizedInternalHttpRequest(req, settings.workflow.webhookSecret)) {
+        writeJson(res, 401, { ok: false, message: 'Unauthorized.' })
+        return
       }
       // Internal endpoints used by the GUI-hosted workflow MCP server (agent tool)
       // and the local runtime hook bridge.

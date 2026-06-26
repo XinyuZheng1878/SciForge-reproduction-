@@ -284,7 +284,6 @@ export function SddDraftEditorView({
             appearance="live"
             livePreviewEnabled
             readOnly={readOnly}
-            completionModel={inlineCompletion.model}
             completionEnabled={inlineCompletion.enabled && inlineCompletionApiReady}
             completionDebounceMs={inlineCompletion.debounceMs}
             completionMinAcceptScore={inlineCompletion.minAcceptScore}

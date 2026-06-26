@@ -2,7 +2,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
@@ -75,15 +76,16 @@ function buildSettings(): AppSettingsV1 {
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
-    claw: defaultClawSettings(),
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }
-  settings.claw.enabled = true
-  settings.claw.im.workspaceRoot = '/tmp/claw'
-  settings.claw.channels = [
+  settings.remoteChannel.enabled = true
+  settings.remoteChannel.im.workspaceRoot = '/tmp/claw'
+  settings.remoteChannel.channels = [
     {
       id: 'channel_1',
       provider: 'feishu',
@@ -136,7 +138,7 @@ describe('ClawSettingsSection', () => {
 
   it('surfaces Discord local-online guard state and takeover placeholder', () => {
     const form = buildSettings()
-    form.claw.channels = [
+    form.remoteChannel.channels = [
       {
         id: 'discord-1',
         provider: 'discord',
@@ -195,7 +197,7 @@ describe('ClawSettingsSection', () => {
 
   it('enables all Discord channel messages when restoring local guard ownership', () => {
     const form = buildSettings()
-    form.claw.channels = [
+    form.remoteChannel.channels = [
       {
         id: 'discord-1',
         provider: 'discord',
@@ -231,7 +233,7 @@ describe('ClawSettingsSection', () => {
       }
     ]
 
-    expect(discordGuardOwnerPatch(form, form.claw.channels[0], true)).toMatchObject({
+    expect(discordGuardOwnerPatch(form, form.remoteChannel.channels[0], true)).toMatchObject({
       enabled: true,
       guardMode: 'all_messages',
       platformCredential: {

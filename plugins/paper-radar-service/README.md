@@ -22,6 +22,7 @@ This service syncs paper metadata only. It does not mirror arXiv and does not do
 Requires Node.js 22.5 or newer because it uses the built-in `node:sqlite` module.
 
 ```bash
+export PAPER_RADAR_RUNTIME_TOKEN="$(openssl rand -base64 32)"
 npm --workspace sciforge-paper-radar-service run start
 ```
 
@@ -46,10 +47,15 @@ Default profile file:
 Override with:
 
 ```bash
+PAPER_RADAR_RUNTIME_TOKEN=required-internal-token
 PAPER_RADAR_DB=/path/to/paper-radar.sqlite
 PAPER_RADAR_PROFILES=/path/to/paper-radar-profiles.json
 PAPER_RADAR_PORT=3901
+PAPER_RADAR_MAX_BODY_BYTES=1000000
 ```
+
+`PAPER_RADAR_RUNTIME_TOKEN` is required. The service rejects every route without
+`Authorization: Bearer <token>` and exits closed when the token is absent.
 
 By default the service does **not** sync on startup. The desktop extension starts it on demand and
 syncs only when the user clicks a Paper Radar action.
@@ -68,13 +74,15 @@ PAPER_RADAR_MAX_RECORDS=200
 ### Health
 
 ```bash
-curl http://127.0.0.1:3901/health
+curl http://127.0.0.1:3901/health \
+  -H "authorization: Bearer $PAPER_RADAR_RUNTIME_TOKEN"
 ```
 
 ### Sync arXiv
 
 ```bash
 curl -X POST http://127.0.0.1:3901/sync/arxiv \
+  -H "authorization: Bearer $PAPER_RADAR_RUNTIME_TOKEN" \
   -H "content-type: application/json" \
   -d '{"categories":["q-bio","cs.LG","stat.ML"],"since":"2026-06-16","maxRecords":200}'
 ```
@@ -83,6 +91,7 @@ curl -X POST http://127.0.0.1:3901/sync/arxiv \
 
 ```bash
 curl -X POST http://127.0.0.1:3901/sync/biorxiv \
+  -H "authorization: Bearer $PAPER_RADAR_RUNTIME_TOKEN" \
   -H "content-type: application/json" \
   -d '{"from":"2026-06-16","to":"2026-06-17","maxRecords":200}'
 ```
@@ -90,19 +99,22 @@ curl -X POST http://127.0.0.1:3901/sync/biorxiv \
 ### Search Papers
 
 ```bash
-curl "http://127.0.0.1:3901/papers/search?q=single-cell%20foundation%20model&source=biorxiv&topK=10"
+curl "http://127.0.0.1:3901/papers/search?q=single-cell%20foundation%20model&source=biorxiv&topK=10" \
+  -H "authorization: Bearer $PAPER_RADAR_RUNTIME_TOKEN"
 ```
 
 ### List Profiles
 
 ```bash
-curl http://127.0.0.1:3901/profiles
+curl http://127.0.0.1:3901/profiles \
+  -H "authorization: Bearer $PAPER_RADAR_RUNTIME_TOKEN"
 ```
 
 ### Save Profile
 
 ```bash
 curl -X POST http://127.0.0.1:3901/profiles \
+  -H "authorization: Bearer $PAPER_RADAR_RUNTIME_TOKEN" \
   -H "content-type: application/json" \
   -d '{"name":"lab_default","keywords":["protein design","single-cell"],"excludeKeywords":["review"],"arxivCategories":["q-bio","cs.LG"],"biorxivSubjects":["bioinformatics"]}'
 ```
@@ -111,6 +123,7 @@ curl -X POST http://127.0.0.1:3901/profiles \
 
 ```bash
 curl -X POST http://127.0.0.1:3901/papers/rank \
+  -H "authorization: Bearer $PAPER_RADAR_RUNTIME_TOKEN" \
   -H "content-type: application/json" \
   -d '{"profile":"lab_default","keywords":["foundation model"],"topK":10}'
 ```
@@ -119,6 +132,7 @@ curl -X POST http://127.0.0.1:3901/papers/rank \
 
 ```bash
 curl -X POST http://127.0.0.1:3901/digest \
+  -H "authorization: Bearer $PAPER_RADAR_RUNTIME_TOKEN" \
   -H "content-type: application/json" \
   -d '{"profile":"lab_default","keywords":["protein design","single-cell","foundation model"],"excludeKeywords":["review"],"topK":10}'
 ```

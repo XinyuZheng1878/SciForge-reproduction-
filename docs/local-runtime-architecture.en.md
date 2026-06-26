@@ -2,7 +2,7 @@
 
 This document describes the boundary and internal constraints of the SciForge Runtime
 inside SciForge. It no longer describes the whole product as tied to one default runtime:
-product-level code selects `sciforge | codex` through `RuntimeHost`, SciForge Runtime remains the
+product-level code selects `sciforge | codex` through `AgentRuntimeHost`, SciForge Runtime remains the
 default runtime, and Codex must be selected or enabled explicitly by the user.
 This document only constrains the default runtime path, SciForge Runtime cache optimization, and legacy
 provider cleanup.
@@ -73,7 +73,7 @@ SciForge Runtime cache-hit metrics should be computed and optimized using DeepSe
 - Use hit rate as `hit / (hit + miss)`, not `hit / prompt_tokens`.
   DeepSeek native misses are not always equal to `prompt_tokens - hit`; Reasonix also uses
   the `hit + miss` denominator.
-- `kun/src/prompt/kun-system-prompt.ts` is the stable prefix.
+- The SciForge Runtime system prompt is the stable prefix.
   It may only contain long-lived SciForge Runtime run contract content and must not include
   workspace names, timestamps, file snippets, selected text, user dynamic state,
 or one-off tool outputs.
@@ -139,7 +139,7 @@ The legacy UI sections listed below should be removed or kept removed:
 
 - Legacy agent switcher: the CodeWhale/Reasonix `AgentSwitcher` is no longer
   shown. If a user-visible runtime selector is added, it may only select
-  `sciforge | codex` and must go through Settings / `RuntimeHost` / provider registry.
+  `sciforge | codex` and must go through Settings / `AgentRuntimeHost` / provider registry.
 - Top connection status + legacy runtime diagnostics entry: old provider
   detection is no longer the user entrypoint.
 - Runtime insights / right panel: retain only `Changes`, `Preview`, `Plan`, and GUI workspace
@@ -148,25 +148,24 @@ The legacy UI sections listed below should be removed or kept removed:
   and should not be the runtime selection entrypoint.
 - Settings provider selector: `Settings -> Agents` may show SciForge Runtime and Codex
   configuration. SciForge Runtime config still includes:
-  `binaryPath`, `port`, `autoStart`, Model Router `baseUrl`, runtime `apiKey`,
-  `runtimeToken`, `dataDir`, public model alias, `approvalPolicy`, `sandboxMode`,
-  `insecure`.
+  `binaryPath`, `port`, `autoStart`, `runtimeToken`, `dataDir`, default
+  provider/model-router member values, `approvalPolicy`, `sandboxMode`, and
+  `insecure`. Model Router `baseUrl`, runtime `apiKey`, and public model alias
+  belong under `modelRouter`; they are no longer written to `agents.sciforge`.
 - Painting/Design starter card is removed; only Code, Write, and Connect phone remain.
 
 ## Main / preload responsibilities to remove
 
 Main process and preload no longer expose old provider IPC:
 
-- Remove `deepseek:spawn-if-needed`, `deepseek:update-*`, `deepseek:diagnostics`.
+- Remove legacy provider-specific spawn, update, and diagnostics IPC.
 - Remove `reasonix:rpc-send`, `reasonix:spawn-if-needed`, and the `reasonix` RPC bridge.
 - Remove CodeWhale adapter, Reasonix adapter, Reasonix HTTP bridge,
-  DeepSeek/CodeWhale updater, legacy binary resolver, and old process manager.
+  provider-specific updater, legacy binary resolver, and old process manager.
 - Remove diagnostic/importer modules unrelated to supported runtimes.
 
 Main-process runtime responsibilities are:
 
-- `RuntimeHost`: read `activeAgentRuntime`, default to `sciforge`, and delegate to
-  `codex` only after explicit user selection.
 - `AgentRuntimeHost`: expose the neutral connect/capabilities/thread/turn/event/control
   methods defined in `docs/agent-runtime-contract.md`; renderer calls it through
   `window.sciforge.agentRuntime`.
@@ -175,10 +174,8 @@ and append auth headers.
 - `src/main/runtime/codex/`: centralize Codex app-server client, configuration,
   event normalization, thread/event stores, and lifecycle; outside files only
   integrate through the narrow adapter surface.
-- Legacy `runtimeRequestViaHost`, `runtimeRequest`, and `startSse` / `stopSse`:
-  keep them for one compatibility round only. New renderer code must not depend
-  on these paths; delete the shims once the neutral contract exposes the same
-  capability and focused coverage proves the replacement path.
+- `runtimeRequestViaHost`, `runtimeRequest`, and `startSse` / `stopSse` bypasses
+  have been removed; new renderer code must not restore those paths.
 - Model Router is the LLM provider boundary for the current stage; SciForge
   workspace server, Browser, Computer Use, and similar sidecars still do not
   belong to this SciForge Runtime contract.
@@ -197,8 +194,6 @@ allowed for user-configured Codex.
       "binaryPath": "",
       "port": 8899,
       "autoStart": true,
-      "apiKey": "local-runtime-router-key",
-      "baseUrl": "http://127.0.0.1:3892/v1",
       "runtimeToken": "",
       "dataDir": "~/.sciforge/runtime",
       "model": "sciforge-router",
@@ -228,15 +223,16 @@ code is for one-time migration from old settings:
 - `agentProvider: codewhale | reasonix | deepseek-runtime` normalizes to
   `activeAgentRuntime: "sciforge"`.
 - Old `agents.deepseek` / `agents.codewhale` values for `port`, `autoStart`,
-  `runtimeToken`, `approvalPolicy`, and `sandboxMode` are migrated into
-  `agents.sciforge`; old upstream API keys, base URLs, and models may only seed a
-  Model Router member profile or require user reconfiguration.
-- For old `agents.reasonix` values, `autoStart` may seed `agents.sciforge`; upstream
-  provider fields may only seed a Model Router member profile or require user
-  reconfiguration.
+  `runtimeToken`, `approvalPolicy`, and `sandboxMode` are no longer migrated
+  into `agents.sciforge`; old upstream API keys, base URLs, and models must be
+  reconfigured through Model Router instead of being written back to local
+  runtime settings.
+- Old `agents.reasonix` values, including `autoStart` and upstream provider
+  fields, are no longer migrated into `agents.sciforge`; provider values must be
+  reconfigured through Model Router.
 - Persisted files after migration preserve `agents.sciforge`, may preserve
   `agents.codex`, and no longer retain `agents.codewhale` / `agents.reasonix`.
-- Legacy Connect phone fields (internally still named Claw) `agentThreadIds.codewhale` and `agentThreadIds.reasonix` are collapsed
+- Legacy Connect phone fields `agentThreadIds.codewhale` and `agentThreadIds.reasonix` are collapsed
   to `agentThreadIds.sciforge`.
 - New Codex thread IDs must be written to Codex-owned thread/event stores or
   Codex mappings such as `agentThreadIds.codex`; they must not pollute SciForge Runtime
@@ -254,8 +250,9 @@ code is for one-time migration from old settings:
   Inline completion uses a Write public model alias on Model Router for
   low-latency completion.
 - Connect phone: scheduled tasks, Feishu/Lark/WeChat, and IM webhooks create or reuse SciForge Runtime threads.
-  The codebase still uses the internal `claw` route, settings key, and runtime file names for legacy-name compatibility.
-  `threadId` / `localThreadId` remain only for legacy settings compatibility;
+  Renderer state uses the chat route with explicit Connect phone panel/channel state, and persisted settings use
+  `remoteChannel` plus `connectPhone`.
+  `threadId` / `localThreadId` remain only for legacy settings input;
   canonical local runtime mapping is written to `agentThreadIds.sciforge`.
   New tasks need to record the runtime id used; Codex thread IDs must not be
   written into local runtime mappings.
@@ -294,14 +291,14 @@ Legacy runtime paths should not reappear:
 - `src/main/runtime/codewhale-adapter.ts`
 - `src/main/runtime/reasonix-adapter.ts`
 - `src/main/runtime/reasonix-http-bridge.ts`
-- `src/main/deepseek-process.ts`
-- `src/main/resolve-deepseek-binary.ts`
-- `src/main/deepseek-updater.ts`
+- Legacy provider process manager modules
+- Legacy provider binary resolver modules
+- Legacy provider updater modules
 - `src/main/reasonix-process.ts`
 - `src/main/reasonix-config.ts`
 - `src/main/resolve-reasonix-binary.ts`
 - `src/shared/reasonix-protocol.ts`
-- `src/shared/deepseek-update.ts`
+- Legacy provider update contracts
 - Diagnostic/importer modules for old runtime paths.
 
 Legacy UI entrypoints should not reappear:

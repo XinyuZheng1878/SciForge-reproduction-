@@ -1,4 +1,9 @@
 import type { CodexThreadEventPayload } from '../codex-runtime-api'
+import {
+  codexAppServerApprovalToolName,
+  isCodexAppServerApprovalRequestMethod,
+  isCodexAppServerUserInputRequestMethod
+} from './request-registry'
 
 export type CodexEventNormalizeContext = {
   threadId?: string
@@ -127,9 +132,9 @@ export function normalizeCodexEvent(
       }
     }
   }
-  if (isApprovalRequest(method)) {
+  if (isCodexAppServerApprovalRequestMethod(method)) {
     const itemId = stringValue(params.itemId) || turnId || 'codex-approval'
-    const toolName = stringValue(params.toolName) || approvalToolName(method)
+    const toolName = stringValue(params.toolName) || codexAppServerApprovalToolName(method)
     return {
       threadId,
       ...(turnId ? { turnId } : {}),
@@ -141,7 +146,7 @@ export function normalizeCodexEvent(
       }
     }
   }
-  if (isUserInputRequest(method)) {
+  if (isCodexAppServerUserInputRequestMethod(method)) {
     const itemId = stringValue(params.itemId) || stringValue(params.requestId) || turnId || 'codex-user-input'
     return {
       threadId,
@@ -730,14 +735,6 @@ function eventIso(value: unknown): string | undefined {
   return undefined
 }
 
-function isApprovalRequest(method: string): boolean {
-  return method === 'item/commandExecution/requestApproval' ||
-    method === 'item/fileChange/requestApproval' ||
-    method === 'item/permissions/requestApproval' ||
-    method === 'applyPatchApproval' ||
-    method === 'execCommandApproval'
-}
-
 function isAgentMessageDelta(method: string): boolean {
   return method === 'item/agentMessage/delta' ||
     method === 'item/agentMessage/textDelta' ||
@@ -755,21 +752,6 @@ function isReasoningDelta(method: string): boolean {
     method === 'item/reasoning/contentDelta' ||
     method === 'item/agentReasoning/delta' ||
     method === 'item/agentReasoning/textDelta'
-}
-
-function approvalToolName(method: string): string {
-  if (method === 'item/commandExecution/requestApproval' || method === 'execCommandApproval') return 'command execution'
-  if (method === 'item/fileChange/requestApproval' || method === 'applyPatchApproval') return 'file change'
-  return 'tool'
-}
-
-function isUserInputRequest(method: string): boolean {
-  return method === 'item/userInput/request' ||
-    method === 'item/userInput/requested' ||
-    method === 'userInput/request' ||
-    method === 'user_input/request' ||
-    method === 'request_user_input' ||
-    method === 'item/requestUserInput'
 }
 
 function normalizeRuntimeErrorCode(code: string, message: string): string {

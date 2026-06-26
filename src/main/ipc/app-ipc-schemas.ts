@@ -4,12 +4,12 @@ import {
   MODEL_ENDPOINT_FORMATS,
   SCHEDULE_MODEL_IDS,
   SCHEDULE_REASONING_EFFORT_IDS,
-  SPEECH_TO_TEXT_PROTOCOLS,
-  WRITE_INLINE_COMPLETION_MODEL_IDS
+  SPEECH_TO_TEXT_PROTOCOLS
 } from '../../shared/app-settings'
 import { DESKTOP_COMMANDS } from '../../shared/sciforge-api'
 import { GUI_UPDATE_CHANNELS } from '../../shared/gui-update'
 import { KEYBOARD_SHORTCUT_COMMANDS } from '../../shared/keyboard-shortcuts'
+import { isSafeExternalUrl as isSafeOpenExternalUrl } from '../../shared/external-url-policy'
 import {
   SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS,
   SPEECH_TRANSCRIPTION_MAX_DURATION_MS
@@ -47,7 +47,7 @@ const MAX_DEVICE_CODE_LENGTH = 8_192
 const MAX_EDITOR_COMPLETION_TEXT = 200_000
 const MAX_MIME_TYPE_LENGTH = 128
 
-const SAFE_OPEN_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
+export { isSafeExternalUrl as isSafeOpenExternalUrl } from '../../shared/external-url-policy'
 
 function trimmedString(max: number): z.ZodString {
   return z.string().trim().min(1).max(max)
@@ -55,15 +55,6 @@ function trimmedString(max: number): z.ZodString {
 
 function optionalTrimmedString(max: number): z.ZodOptional<z.ZodString> {
   return z.string().trim().max(max).optional()
-}
-
-export function isSafeOpenExternalUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value)
-    return SAFE_OPEN_EXTERNAL_PROTOCOLS.has(parsed.protocol)
-  } catch {
-    return false
-  }
 }
 
 export const defaultPathSchema = optionalTrimmedString(MAX_PATH_LENGTH)
@@ -127,14 +118,9 @@ const clawImChannelGuardModeSchema = z.enum(['only_mention', 'all_messages', 'of
 const clawImOfficialInstallProviderSchema = z.enum(['feishu', 'weixin'])
 const clawScheduleKindSchema = z.enum(['manual', 'interval', 'daily', 'at'])
 const clawTaskStatusSchema = z.enum(['idle', 'running', 'success', 'error'])
-const clawModelSchema = z.enum(CLAW_MODEL_IDS)
 const scheduleReasoningEffortSchema = z.enum(SCHEDULE_REASONING_EFFORT_IDS)
 const speechToTextProtocolSchema = z.enum(SPEECH_TO_TEXT_PROTOCOLS)
 const paperRadarSourceSchema = z.enum(['arxiv', 'biorxiv'])
-const writeInlineCompletionModelSchema = z.union([
-  z.enum(WRITE_INLINE_COMPLETION_MODEL_IDS),
-  trimmedString(128)
-])
 const modelEndpointFormatSchema = z.enum(MODEL_ENDPOINT_FORMATS)
 const agentThreadIdsSchema = z.object({
   sciforge: z.string().max(MAX_ID_LENGTH).optional(),
@@ -478,13 +464,7 @@ const runtimeGuardPatchSchema = z.object({
   toolStorm: z.object({
     enabled: z.boolean().optional(),
     windowSize: z.number().int().positive().max(256).optional(),
-    softThreshold: z.number().int().min(2).max(128).optional(),
-    hardThreshold: z.number().int().min(2).max(256).optional()
-  }).strict().optional(),
-  budgets: z.object({
-    defaultMaxToolEvents: z.number().int().positive().max(10_000).optional(),
-    writeMaxToolEvents: z.number().int().positive().max(10_000).optional(),
-    remoteGuardMaxToolEvents: z.number().int().positive().max(10_000).optional()
+    threshold: z.number().int().min(2).max(128).optional()
   }).strict().optional()
 }).strict()
 
@@ -554,10 +534,6 @@ const writeInlineCompletionPatchSchema = z.object({
   enabled: z.boolean().optional(),
   retrievalEnabled: z.boolean().optional(),
   longCompletionEnabled: z.boolean().optional(),
-  apiKey: z.string().max(MAX_BODY_BYTES).optional(),
-  baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
-  inheritModel: z.boolean().optional(),
-  model: writeInlineCompletionModelSchema.optional(),
   debounceMs: z.number().int().min(150).max(5_000).optional(),
   longDebounceMs: z.number().int().min(1_000).max(15_000).optional(),
   minAcceptScore: z.number().min(0.1).max(0.95).optional(),
@@ -593,8 +569,6 @@ const clawImPatchSchema = z.object({
   port: z.number().int().min(1024).max(65_535).optional(),
   path: trimmedString(MAX_PATH_LENGTH).optional(),
   secret: z.string().max(MAX_BODY_BYTES).optional(),
-  weixinBridgeUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
-  openClawGatewayUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
   workspaceRoot: defaultPathSchema,
   model: z.string().trim().min(1).max(128).optional(),
   mode: clawRunModeSchema.optional(),
@@ -695,40 +669,15 @@ const clawImChannelPatchSchema = z.object({
   updatedAt: z.string().max(128).optional()
 }).strict()
 
-const clawTaskSchedulePatchSchema = z.object({
-  kind: clawScheduleKindSchema.optional(),
-  everyMinutes: z.number().int().min(1).max(10_080).optional(),
-  timeOfDay: z.string().max(16).optional(),
-  atTime: z.string().max(128).optional()
-}).strict()
-
-const clawTaskPatchSchema = z.object({
-  id: z.string().max(MAX_ID_LENGTH).optional(),
-  title: z.string().max(512).optional(),
-  enabled: z.boolean().optional(),
-  prompt: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
-  workspaceRoot: defaultPathSchema,
-  model: z.string().trim().min(1).max(128).optional(),
-  reasoningEffort: scheduleReasoningEffortSchema.optional(),
-  mode: clawRunModeSchema.optional(),
-  runtimeId: agentRuntimeIdSchema.optional(),
-  agentThreadIds: agentThreadIdsSchema.optional(),
-  schedule: clawTaskSchedulePatchSchema.optional(),
-  createdAt: z.string().max(128).optional(),
-  updatedAt: z.string().max(128).optional(),
-  lastRunAt: z.string().max(128).optional(),
-  nextRunAt: z.string().max(128).optional(),
-  lastStatus: clawTaskStatusSchema.optional(),
-  lastMessage: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
-  lastThreadId: z.string().max(MAX_ID_LENGTH).optional()
-}).strict()
-
-const clawSettingsPatchSchema = z.object({
+const remoteChannelSettingsPatchSchema = z.object({
   enabled: z.boolean().optional(),
   skills: clawSkillPatchSchema.optional(),
   im: clawImPatchSchema.optional(),
-  channels: z.array(clawImChannelPatchSchema).max(512).optional(),
-  tasks: z.array(clawTaskPatchSchema).max(512).optional()
+  channels: z.array(clawImChannelPatchSchema).max(512).optional()
+}).strict()
+
+const connectPhoneSettingsPatchSchema = z.object({
+  weixinBridgeUrl: z.string().trim().max(MAX_URL_LENGTH).optional()
 }).strict()
 
 const scheduleSkillPatchSchema = z.object({
@@ -1309,27 +1258,6 @@ export const workflowCodeCheckPayloadSchema = z
   })
   .strict()
 
-function stripLegacySettingsPatchKeys(payload: unknown): unknown {
-  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return payload
-  const source = payload as Record<string, unknown>
-  const next: Record<string, unknown> = { ...source }
-
-  delete next.agentProvider
-  delete next.deepseek
-  delete next.reasonix
-  delete next.quickChat
-
-  if (typeof next.agents === 'object' && next.agents !== null && !Array.isArray(next.agents)) {
-    const agents = { ...(next.agents as Record<string, unknown>) }
-    delete agents.codewhale
-    delete agents.reasonix
-    delete agents.quickChat
-    next.agents = agents
-  }
-
-  return next
-}
-
 const settingsPatchObjectSchema = z.object({
   version: z.literal(1).optional(),
   installationId: z.string().max(128).optional(),
@@ -1355,7 +1283,8 @@ const settingsPatchObjectSchema = z.object({
   keyboardShortcuts: keyboardShortcutsPatchSchema.optional(),
   write: writeSettingsPatchSchema.optional(),
   speechToText: speechToTextPatchSchema.optional(),
-  claw: clawSettingsPatchSchema.optional(),
+  remoteChannel: remoteChannelSettingsPatchSchema.optional(),
+  connectPhone: connectPhoneSettingsPatchSchema.optional(),
   schedule: scheduleSettingsPatchSchema.optional(),
   workflow: workflowSettingsPatchSchema.optional(),
   guiUpdate: z.object({
@@ -1364,7 +1293,7 @@ const settingsPatchObjectSchema = z.object({
   codePromptPrefix: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional()
 }).strict()
 
-export const settingsPatchSchema = z.preprocess(stripLegacySettingsPatchKeys, settingsPatchObjectSchema)
+export const settingsPatchSchema = settingsPatchObjectSchema
 
 export const skillSaveFilePayloadSchema = z
   .object({
@@ -1594,11 +1523,10 @@ export const writeInlineCompletionPayloadSchema = z
       .object({
         local: z.string().max(5_000),
         documentTail: z.string().max(20_000)
-      })
+    })
       .strict(),
     editCandidate: writeInlineCompletionEditCandidateSchema.optional(),
-    recentEdits: z.array(writeInlineEditRecentEditSchema).max(12).optional(),
-    model: optionalTrimmedString(128)
+    recentEdits: z.array(writeInlineEditRecentEditSchema).max(12).optional()
   })
   .strict()
 
@@ -1670,7 +1598,7 @@ export const logErrorPayloadSchema = z
   })
   .strict()
 
-export const clawMirrorPayloadSchema = z
+export const remoteChannelMirrorPayloadSchema = z
   .object({
     threadId: trimmedString(MAX_ID_LENGTH),
     text: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH),
@@ -1678,7 +1606,7 @@ export const clawMirrorPayloadSchema = z
   })
   .strict()
 
-export const clawActiveThreadContextPayloadSchema = z
+export const remoteChannelActiveThreadContextPayloadSchema = z
   .object({
     threadId: trimmedString(MAX_ID_LENGTH),
     runtimeId: agentRuntimeIdSchema.optional(),
@@ -1687,7 +1615,7 @@ export const clawActiveThreadContextPayloadSchema = z
   .strict()
   .nullable()
 
-export const clawTaskFromTextPayloadSchema = z
+export const remoteChannelTaskFromTextPayloadSchema = z
   .object({
     text: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH),
     channelId: z.string().trim().min(1).max(MAX_ID_LENGTH).nullable().optional(),
@@ -1761,7 +1689,14 @@ export const scheduleTaskFromTextPayloadSchema = z
   })
   .strict()
 
-export const clawImInstallPollPayloadSchema = z
+export const connectPhoneInstallQrPayloadSchema = z
+  .object({
+    provider: clawImOfficialInstallProviderSchema,
+    isLark: z.boolean().optional()
+  })
+  .strict()
+
+export const connectPhoneInstallPollPayloadSchema = z
   .object({
     provider: clawImOfficialInstallProviderSchema,
     deviceCode: trimmedString(MAX_DEVICE_CODE_LENGTH)

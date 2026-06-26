@@ -9,6 +9,7 @@ import {
   buildGuiPlanId,
   guiPlanWorkspaceMatches,
   isGuiPlanRelativePath,
+  normalizeGuiPlanRelativePath,
   nextAvailablePlanRelativePath,
   type CreatePlanToolInput,
   type CreatePlanToolOutput,
@@ -88,10 +89,6 @@ function buildTempPath(target: string): string {
   return `${base}.tmp-${process.pid}-${Date.now()}${ext}`
 }
 
-function toRelativePath(raw: string): string {
-  return raw.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '')
-}
-
 function planDirectory(workspaceRoot: string): string {
   return isAbsolute(workspaceRoot)
     ? join(workspaceRoot, GUI_PLAN_RELATIVE_DIR)
@@ -103,28 +100,6 @@ function assertWithinWorkspace(absolutePath: string, workspaceRoot: string): voi
   if (rel.startsWith('..') || isAbsolute(rel)) {
     throw new Error('plan write escaped the configured workspace root')
   }
-}
-
-/**
- * Derive a filesystem-safe plan feature name from free-form text. Mirrors
- * the renderer's `planFeatureNameFromRequest` so self-allocated plan files
- * stay consistent with GUI-reserved ones. Non-ASCII (e.g. CJK) text is
- * preserved; only illegal filename characters are stripped.
- */
-function deriveFeatureName(seed: string | undefined): string {
-  const raw = (seed ?? '')
-    .normalize('NFKC')
-    .toLowerCase()
-    .split('')
-    .map((char) => (char.charCodeAt(0) < 32 ? ' ' : char))
-    .join('')
-    .replace(/[<>:"|?*\\/]+/g, ' ')
-    .replace(/[\s_]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^[.\-\s]+/, '')
-    .replace(/[.\-\s]+$/, '')
-  const safe = raw.slice(0, 96).replace(/[.\-\s]+$/, '')
-  return safe || 'plan'
 }
 
 export type CreatePlanAdapterOptions = {
@@ -352,11 +327,14 @@ function resolveReservedTarget(
   if (!guiPlanWorkspaceMatches(context.workspace, contextPlan.workspaceRoot)) {
     return { error: 'tool workspace does not match the active GUI plan workspace' }
   }
-  const relativePath = toRelativePath(contextPlan.relativePath)
+  const relativePath = normalizeGuiPlanRelativePath(contextPlan.relativePath)
   if (!relativePath || !isGuiPlanRelativePath(relativePath)) {
     return { error: 'plan_relative_path must be a direct Markdown file under .sciforge/plan' }
   }
-  if (input.plan_relative_path && toRelativePath(input.plan_relative_path) !== contextPlan.relativePath) {
+  if (
+    input.plan_relative_path &&
+    normalizeGuiPlanRelativePath(input.plan_relative_path) !== relativePath
+  ) {
     return { error: 'plan_relative_path does not match the reserved GUI plan path' }
   }
   if (input.plan_id && input.plan_id !== contextPlan.planId) {
@@ -392,13 +370,13 @@ async function resolveFreeFormTarget(
   }
   let relativePath: string
   if (input.plan_relative_path) {
-    const candidate = toRelativePath(input.plan_relative_path)
+    const candidate = normalizeGuiPlanRelativePath(input.plan_relative_path)
     if (!candidate || !isGuiPlanRelativePath(candidate)) {
       return { error: 'plan_relative_path must be a direct Markdown file under .sciforge/plan' }
     }
     relativePath = candidate
   } else {
-    const featureName = deriveFeatureName(input.title ?? input.source_request)
+    const featureName = input.title ?? input.source_request ?? ''
     const existing = await listExistingPlanRelativePaths(workspaceRoot, options)
     relativePath = nextAvailablePlanRelativePath(featureName, existing)
   }

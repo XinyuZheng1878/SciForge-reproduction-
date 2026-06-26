@@ -553,7 +553,7 @@ describe('cli', () => {
     expect(model.messageParts).toEqual(['text', 'image_url'])
   })
 
-  it('keeps legacy contextCompaction model profiles as a compatibility path', () => {
+  it('ignores legacy contextCompaction model profiles', () => {
     const profiles = modelContextProfilesFromConfig({
       contextCompaction: {
         modelProfiles: {
@@ -564,13 +564,54 @@ describe('cli', () => {
           }
         }
       }
-    })
+    } as never)
     const model = modelCapabilitiesForModel('legacy-model', profiles)
     const legacy = profiles.find((profile) => profile.canonicalModel === 'legacy-model')
 
-    expect(model.contextWindowTokens).toBe(64_000)
-    expect(legacy?.softThreshold).toBe(48_000)
-    expect(legacy?.hardThreshold).toBe(56_000)
+    expect(model.contextWindowTokens).toBeUndefined()
+    expect(legacy).toBeUndefined()
+  })
+
+  it('rejects legacy contextCompaction model profile config files', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kun-config-legacy-model-profiles-'))
+    try {
+      const configPath = join(dir, 'local-runtime.config.json')
+      await writeFile(configPath, JSON.stringify({
+        contextCompaction: {
+          modelProfiles: {
+            'legacy-model': {
+              contextWindowTokens: 64_000
+            }
+          }
+        }
+      }), 'utf8')
+
+      expect(() => parseServeOptions(['--config', configPath])).toThrow(/modelProfiles/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects flat per-profile context compaction thresholds', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kun-config-flat-model-profile-'))
+    try {
+      const configPath = join(dir, 'local-runtime.config.json')
+      await writeFile(configPath, JSON.stringify({
+        models: {
+          profiles: {
+            'flat-model': {
+              contextWindowTokens: 64_000,
+              softThreshold: 48_000,
+              hardThreshold: 56_000
+            }
+          }
+        }
+      }), 'utf8')
+
+      expect(() => parseServeOptions(['--config', configPath])).toThrow(/softThreshold/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('uses 980k as the built-in DeepSeek v4 soft compaction threshold', () => {

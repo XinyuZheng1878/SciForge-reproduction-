@@ -16,8 +16,9 @@ import {
   agentRuntimeSettingsEnvelope,
   mergeCodexRuntimeSettings,
   mergeClaudeRuntimeSettings,
+  mergeConnectPhoneSettings,
   mergeLocalRuntimeSettings,
-  mergeClawSettings,
+  mergeRemoteChannelSettings,
   mergeModelRouterSettings,
   mergeModelProviderSettings,
   mergeComputerUseSettings,
@@ -30,7 +31,8 @@ import {
   mergeWriteSettings,
   normalizeAppBehaviorSettings,
   normalizeAgentRuntimeId,
-  normalizeClawSettings,
+  normalizeConnectPhoneSettings,
+  normalizeRemoteChannelSettings,
   normalizeGuiUpdateChannel,
   normalizeKeyboardShortcuts,
   normalizeModelProviderSettings,
@@ -78,6 +80,7 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
     computerUse: computerUsePatch,
     researchMemory: researchMemoryPatch,
     runtimeGuards: runtimeGuardsPatch,
+    connectPhone: connectPhonePatch,
     ...restPatch
   } = patch
   const restSettingsPatch = restPatch as Partial<Pick<
@@ -123,7 +126,8 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
     }),
     write: mergeWriteSettings(safeCurrent.write, patch.write),
     speechToText: mergeSpeechToTextSettings(safeCurrent.speechToText, patch.speechToText),
-    claw: mergeClawSettings(safeCurrent.claw, patch.claw),
+    remoteChannel: mergeRemoteChannelSettings(safeCurrent.remoteChannel, patch.remoteChannel),
+    connectPhone: mergeConnectPhoneSettings(safeCurrent.connectPhone, connectPhonePatch),
     schedule: mergeScheduleSettings(safeCurrent.schedule, patch.schedule),
     workflow: mergeWorkflowSettings(safeCurrent.workflow, patch.workflow),
     guiUpdate: {
@@ -179,7 +183,8 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     keyboardShortcuts: normalizeKeyboardShortcuts(raw.keyboardShortcuts),
     write: normalizeWriteSettings(raw.write),
     speechToText: normalizeSpeechToTextSettings(raw.speechToText),
-    claw: normalizeClawSettings(raw.claw),
+    remoteChannel: normalizeRemoteChannelSettings(raw.remoteChannel),
+    connectPhone: normalizeConnectPhoneSettings(raw.connectPhone),
     schedule: normalizeScheduleSettings(raw.schedule),
     workflow: normalizeWorkflowSettings(raw.workflow),
     guiUpdate: {

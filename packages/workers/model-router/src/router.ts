@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdir, open, readFile, realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { extname, isAbsolute, relative, resolve, sep, join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -24,6 +26,7 @@ import {
   modelRouterManifest,
   type ModelRouterUpstreamDiagnostic,
 } from './manifest';
+import { readIncomingMessageBody } from './http-body';
 import { hygienizeChatProviderBody } from './request-hygiene';
 import { redactTraceText } from './trace-redaction';
 
@@ -54,6 +57,7 @@ export interface ModelRouterServerOptions {
   config: ModelRouterConfig;
   env?: Record<string, string | undefined>;
   workspaceRoot?: string;
+  traceDataRoot?: string;
   fetchImpl?: typeof fetch;
   log?: (message: string) => void;
 }
@@ -182,8 +186,10 @@ type TextControl =
   | { type: 'need_more_visual_info'; target: string; question: string; reason?: string };
 
 const MAX_TRANSIENT_PROVIDER_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_MODEL_ROUTER_REQUEST_BODY_BYTES = 40 * 1024 * 1024;
 const MAX_TOOL_CALL_CACHE_ENTRIES = 512;
 const MAX_TEXT_MODALITY_BYTES = 256 * 1024;
+export const DEFAULT_MODEL_ROUTER_TRACE_ROOT = 'traces';
 
 // Uploaded scientific files (sequence / structure / spectra) that a domain expert model can read.
 // These are classified as 'document' for routing but, when the standalone sci-modality service is
@@ -199,7 +205,8 @@ function isScientificModalityPath(path: string): boolean {
 export function createModelRouterServer(options: ModelRouterServerOptions): Server {
   const fetchImpl = options.fetchImpl ?? fetch;
   const env = options.env ?? processEnvSnapshot();
-  const workspaceRoot = options.workspaceRoot ?? process.cwd();
+  const workspaceRoot = resolve(options.workspaceRoot ?? process.cwd());
+  const traceDataRoot = resolveModelRouterTraceDataRoot(env, options.traceDataRoot);
   const visionTranslationCache = new Map<string, VisionTranslationCacheEntry>();
   const toolCallCache: ToolCallCache = new Map();
 
@@ -258,6 +265,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
               env,
               fetchImpl,
               workspaceRoot,
+              traceDataRoot,
               request,
               visionTranslationCache,
               toolCallCache,
@@ -270,6 +278,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
           env,
           fetchImpl,
           workspaceRoot,
+          traceDataRoot,
           request,
           visionTranslationCache,
           toolCallCache,
@@ -301,6 +310,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
               env,
               fetchImpl,
               workspaceRoot,
+              traceDataRoot,
               request,
               visionTranslationCache,
               toolCallCache,
@@ -313,6 +323,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
           env,
           fetchImpl,
           workspaceRoot,
+          traceDataRoot,
           request,
           visionTranslationCache,
           toolCallCache,
@@ -422,6 +433,7 @@ async function routeResponsesRequest(
     env: Record<string, string | undefined>;
     fetchImpl: typeof fetch;
     workspaceRoot: string;
+    traceDataRoot: string;
     request: IncomingMessage;
     visionTranslationCache: Map<string, VisionTranslationCacheEntry>;
     toolCallCache: ToolCallCache;
@@ -439,7 +451,7 @@ async function routeResponsesRequest(
   const visionSecret = visionTranslator ? optionalSecretForProvider(visionTranslator, context.env) : undefined;
 
   const responseId = context.responseId ?? makeId('resp');
-  const trace = createTraceContext(context.workspaceRoot, profile.traceRoot, responseId);
+  const trace = createTraceContext(context.workspaceRoot, context.traceDataRoot, profile.traceRoot, responseId);
   const requestInputs = extractRequestInputs(request.input, request.instructions);
   const requestAuditMetadata = requestAuditMetadataFromRequest(request.metadata, requestAuditRoute(context.request));
   const extracted = {
@@ -1160,7 +1172,7 @@ function normalizeModalityPart(value: Record<string, unknown>, ordinal: number, 
 // Inline a readable workspace text file (e.g. uploaded .txt / .csv / unmatched scientific file) as the
 // observation so the text reasoner can answer directly instead of blindly searching the filesystem.
 async function readWorkspaceTextModalityObservation(item: ModalityRef, workspaceRoot: string): Promise<string | undefined> {
-  const target = workspaceImageTarget(item, workspaceRoot);
+  const target = await workspaceImageTarget(item, workspaceRoot);
   if (!target) return undefined;
   try {
     const stats = await stat(target.absolutePath);
@@ -1196,7 +1208,9 @@ async function translateScientificModalityObservation(
 ): Promise<string | undefined> {
   const serviceUrl = (env.SCIFORGE_SCIMODALITY_SERVICE_URL ?? '').trim();
   if (!serviceUrl) return undefined;
-  const target = workspaceImageTarget(item, workspaceRoot);
+  const serviceToken = (env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN ?? '').trim();
+  if (!serviceToken) return undefined;
+  const target = await workspaceImageTarget(item, workspaceRoot);
   if (!target || !isScientificModalityPath(target.relativeRef)) return undefined;
   try {
     const stats = await stat(target.absolutePath);
@@ -1214,7 +1228,7 @@ async function translateScientificModalityObservation(
     try {
       const resp = await fetchImpl(`${serviceUrl.replace(/\/+$/, '')}/modality/translate`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${serviceToken}` },
         body: JSON.stringify({ payload, objectId: item.id }),
         signal: controller.signal,
       });
@@ -1264,7 +1278,7 @@ async function materializeWorkspaceImageRefs(modalities: ModalityRef[], workspac
 }
 
 async function transientWorkspaceImagePart(item: ModalityRef, workspaceRoot: string) {
-  const target = workspaceImageTarget(item, workspaceRoot);
+  const target = await workspaceImageTarget(item, workspaceRoot);
   if (!target) return undefined;
   const mime = imageMimeForRef(target.absolutePath, item.mime) ?? imageMimeForRef(target.relativeRef, item.mime);
   if (!mime) return undefined;
@@ -1287,8 +1301,8 @@ async function transientWorkspaceImagePart(item: ModalityRef, workspaceRoot: str
   }
 }
 
-function workspaceImageTarget(item: ModalityRef, workspaceRoot: string): { absolutePath: string; relativeRef: string } | undefined {
-  const workspace = resolve(workspaceRoot);
+async function workspaceImageTarget(item: ModalityRef, workspaceRoot: string): Promise<{ absolutePath: string; relativeRef: string } | undefined> {
+  const workspaceCandidate = resolve(workspaceRoot);
   const candidate = item.materializationPath
     ? filesystemPathFromLocalCandidate(item.materializationPath)
     : item.safeRef
@@ -1296,10 +1310,17 @@ function workspaceImageTarget(item: ModalityRef, workspaceRoot: string): { absol
       : undefined;
   if (!candidate) return undefined;
   if (!item.materializationPath && !isConservativeTraceRefPath(candidate)) return undefined;
-  const absolutePath = isAbsolute(candidate) ? resolve(candidate) : resolve(workspace, candidate);
-  if (!isPathInsideWorkspace(absolutePath, workspace)) return undefined;
-  const relativeRef = relative(workspace, absolutePath).replace(/\\/g, '/');
-  return { absolutePath, relativeRef };
+  const lexicalPath = isAbsolute(candidate) ? resolve(candidate) : resolve(workspaceCandidate, candidate);
+  if (!isPathInsideWorkspace(lexicalPath, workspaceCandidate)) return undefined;
+  try {
+    const workspace = await realpath(workspaceCandidate);
+    const absolutePath = await realpath(lexicalPath);
+    if (!isPathInsideWorkspace(absolutePath, workspace)) return undefined;
+    const relativeRef = relative(workspace, absolutePath).replace(/\\/g, '/');
+    return { absolutePath, relativeRef };
+  } catch {
+    return undefined;
+  }
 }
 
 function filesystemPathFromLocalCandidate(value: string): string | undefined {
@@ -2471,31 +2492,168 @@ type TraceContext = {
   traceId: string;
   absoluteDir: string;
   relativeDir: string;
+  workspaceRoot: string;
+  traceDataRoot?: string;
 };
 
-function createTraceContext(workspaceRoot: string, traceRoot: string, responseId: string): TraceContext {
+export function resolveModelRouterTraceDataRoot(
+  env: Record<string, string | undefined> = process.env,
+  explicitRoot?: string,
+): string {
+  const configured = explicitRoot?.trim() || env.SCIFORGE_MODEL_ROUTER_TRACE_DATA_ROOT?.trim();
+  if (configured) return resolve(configured);
+  const xdgStateHome = env.XDG_STATE_HOME?.trim();
+  if (xdgStateHome) return resolve(xdgStateHome, 'sciforge', 'model-router');
+  const localAppData = env.LOCALAPPDATA?.trim();
+  if (localAppData) return resolve(localAppData, 'SciForge', 'ModelRouter');
+  const home = homedir();
+  return resolve(home || tmpdir(), '.local', 'state', 'sciforge', 'model-router');
+}
+
+function createTraceContext(
+  workspaceRoot: string,
+  traceDataRoot: string,
+  traceRoot: string,
+  responseId: string,
+): TraceContext {
   const day = new Date().toISOString().slice(0, 10);
   const traceId = responseId;
-  const traceRootIsAbsolute = traceRoot.startsWith('/')
-    || traceRoot.startsWith('~')
-    || /^[A-Za-z]:[\\/]/.test(traceRoot)
-    || /^\\\\/.test(traceRoot);
-  const absoluteDir = traceRootIsAbsolute
-    ? join(traceRoot, day, responseId)
-    : join(workspaceRoot, traceRoot, day, responseId);
+  const workspaceRootAbsolute = resolve(workspaceRoot);
+  const configuredTraceRoot = traceRoot.trim() || DEFAULT_MODEL_ROUTER_TRACE_ROOT;
+  const traceRootIsAbsolute = isTraceRootAbsolute(configuredTraceRoot);
+  let traceDataRootAbsolute: string | undefined;
+  let traceRootAbsolute: string;
+
+  if (traceRootIsAbsolute) {
+    traceRootAbsolute = resolve(configuredTraceRoot);
+  } else {
+    traceDataRootAbsolute = resolve(traceDataRoot);
+    assertPathOutsideWorkspaceLexically(traceDataRootAbsolute, workspaceRootAbsolute);
+    traceRootAbsolute = resolve(traceDataRootAbsolute, configuredTraceRoot);
+    if (!isPathWithinOrEqual(traceRootAbsolute, traceDataRootAbsolute)) {
+      throw routerError(400, 'invalid_trace_root', 'Relative Model Router trace roots must stay within the trace data root.');
+    }
+  }
+
+  assertPathOutsideWorkspaceLexically(traceRootAbsolute, workspaceRootAbsolute);
+
+  const absoluteDir = resolve(traceRootAbsolute, day, responseId);
+  assertPathOutsideWorkspaceLexically(absoluteDir, workspaceRootAbsolute);
   const relativeDir = traceRootIsAbsolute
     ? safeTraceRef(absoluteDir)
-    : join(traceRoot, day, responseId);
+    : toTraceRef(relative(traceDataRootAbsolute ?? resolve(traceDataRoot), absoluteDir));
   return {
     traceId,
     relativeDir,
     absoluteDir,
+    workspaceRoot: workspaceRootAbsolute,
+    traceDataRoot: traceDataRootAbsolute,
   };
 }
 
 async function writeTraceJson(trace: TraceContext, fileName: string, payload: JsonObject) {
+  const workspaceRootReal = await realpathOrResolved(trace.workspaceRoot);
+  if (trace.traceDataRoot) {
+    await assertPathOutsideWorkspace(trace.traceDataRoot, trace.workspaceRoot, workspaceRootReal);
+    await assertNearestExistingParentOutsideWorkspace(trace.traceDataRoot, trace.workspaceRoot, workspaceRootReal);
+  }
+  await assertNearestExistingParentOutsideWorkspace(trace.absoluteDir, trace.workspaceRoot, workspaceRootReal);
   await mkdir(trace.absoluteDir, { recursive: true });
-  await writeFile(join(trace.absoluteDir, fileName), `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  await assertPreparedTraceDirectory(trace, workspaceRootReal);
+  await writeFileNoFollow(join(trace.absoluteDir, fileName), `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function isTraceRootAbsolute(traceRoot: string): boolean {
+  return isAbsolute(traceRoot) || /^[A-Za-z]:[\\/]/.test(traceRoot) || /^\\\\/.test(traceRoot);
+}
+
+async function assertPreparedTraceDirectory(trace: TraceContext, workspaceRootReal: string): Promise<void> {
+  const realDir = await realpath(trace.absoluteDir);
+  await assertPathOutsideWorkspace(realDir, trace.workspaceRoot, workspaceRootReal);
+  if (trace.traceDataRoot) {
+    const traceDataRootReal = await realpath(trace.traceDataRoot);
+    await assertPathOutsideWorkspace(traceDataRootReal, trace.workspaceRoot, workspaceRootReal);
+    if (!isPathWithinOrEqual(realDir, traceDataRootReal)) {
+      throw routerError(500, 'invalid_trace_root', 'Model Router trace root escaped the trace data root.');
+    }
+  }
+}
+
+function assertPathOutsideWorkspaceLexically(candidate: string, workspaceRoot: string): void {
+  if (isPathWithinOrEqual(candidate, workspaceRoot)) {
+    throw routerError(500, 'invalid_trace_root', 'Model Router trace roots must not be inside the workspace.');
+  }
+}
+
+async function assertNearestExistingParentOutsideWorkspace(
+  candidate: string,
+  workspaceRoot: string,
+  workspaceRootReal: string,
+): Promise<void> {
+  let current = resolve(candidate);
+  while (true) {
+    try {
+      const realParent = await realpath(current);
+      await assertPathOutsideWorkspace(realParent, workspaceRoot, workspaceRootReal);
+      return;
+    } catch (error) {
+      if (!isNodeError(error, 'ENOENT')) throw error;
+      const parent = dirname(current);
+      if (parent === current) return;
+      current = parent;
+    }
+  }
+}
+
+async function assertPathOutsideWorkspace(
+  candidate: string,
+  workspaceRoot: string,
+  workspaceRootReal: string,
+): Promise<void> {
+  const resolved = resolve(candidate);
+  if (isPathWithinOrEqual(resolved, workspaceRoot) || isPathWithinOrEqual(resolved, workspaceRootReal)) {
+    throw routerError(500, 'invalid_trace_root', 'Model Router trace roots must not be inside the workspace.');
+  }
+  const real = await realpathIfExists(resolved);
+  if (real && (isPathWithinOrEqual(real, workspaceRoot) || isPathWithinOrEqual(real, workspaceRootReal))) {
+    throw routerError(500, 'invalid_trace_root', 'Model Router trace roots must not be inside the workspace.');
+  }
+}
+
+async function realpathOrResolved(path: string): Promise<string> {
+  return await realpathIfExists(path) ?? resolve(path);
+}
+
+async function realpathIfExists(path: string): Promise<string | undefined> {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    if (isNodeError(error, 'ENOENT')) return undefined;
+    throw error;
+  }
+}
+
+async function writeFileNoFollow(path: string, data: string): Promise<void> {
+  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0);
+  const handle = await open(path, flags, 0o600);
+  try {
+    await handle.writeFile(data, 'utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
+function isPathWithinOrEqual(candidate: string, root: string): boolean {
+  const relativePath = relative(resolve(root), resolve(candidate));
+  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath));
+}
+
+function toTraceRef(path: string): string {
+  return path.split(sep).join('/');
+}
+
+function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
 }
 
 async function writeRoutingTrace(options: {
@@ -2664,10 +2822,9 @@ function isRouterError(error: unknown): error is Error & { status: number; code:
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  if (chunks.length === 0) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+  const body = await readIncomingMessageBody(request, MAX_MODEL_ROUTER_REQUEST_BODY_BYTES);
+  if (!body) return {};
+  return JSON.parse(body) as unknown;
 }
 
 function sendCors(response: ServerResponse) {

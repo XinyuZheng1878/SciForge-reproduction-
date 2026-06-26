@@ -6,7 +6,7 @@
 
 schema_version: 1
 project: SciForge
-default_runtime: kun
+default_runtime: sciforge
 optional_runtimes: [codex]
 themes: [light, dark, system]
 
@@ -372,7 +372,7 @@ human staying in the loop on every mutating call.
 | --- | --- |
 | **Code** | Bound to a local repo, drives the agent through tool calls, file changes, commands, and review. |
 | **Write** | A long-form writing space: Markdown files, Model Router-backed inline completion, selection-scoped inline agent. |
-| **Connect phone** | Background automation: Feishu / Lark channels, webhook / relay, scheduled tasks. Internal route and storage names still use `claw` for compatibility. |
+| **Connect phone** | Background automation: Feishu / Lark channels, webhook / relay, scheduled tasks. UI state lives in the chat route; persistent settings use `remoteChannel` and `connectPhone`. |
 
 All product surfaces share the same AgentRuntime boundary and settings
 choice. SciForge Runtime remains the default path; Codex is used only after explicit
@@ -601,8 +601,7 @@ Every screen in SciForge follows the same macro-grammar:
   title, mode switcher, and right-side action cluster. The topbar
   is *always* draggable for window move; interactive elements
   inside it must opt out with `.ds-no-drag`.
-- **Left sidebar**: workspace roots (Code) / channels (Connect phone,
-  internal `claw`) /
+- **Left sidebar**: workspace roots (Code) / channels (Connect phone) /
   spaces (Write). Collapsible, drag-resizable, 268 px default.
 - **Center column**: the work surface — message timeline (Code /
   Connect phone) or editor (Write). Never bleed into the sidebars.
@@ -628,8 +627,7 @@ first.
   punctuation; never a raw stack trace.
 - The product name is "SciForge". The runtime is "SciForge Runtime".
   The main workbenches are "Code" and "Write"; the phone/IM surface is
-  "Connect phone" in English and "连接手机" in zh copy. Internal code may
-  still say `claw`, but production copy should not expose it as the product name.
+  "Connect phone" in English and "连接手机" in zh copy.
 
 ### 3.11 Theme switching
 
@@ -673,14 +671,14 @@ If any box is unchecked, fix it before merging.
 │  AppShell  →  Workbench  →  (Code | Write | Connect phone) UI│
 │       │                                                      │
 │       │ AgentRuntimeProvider                                │
-│       │ window.dsGui.agentRuntime.*                         │
+│       │ window.sciforge.agentRuntime.*                      │
 │       ▼                                                      │
 │ Preload (contextBridge, contextIsolated)                    │
-│  dsGui.* IPC surface                                         │
+│  window.sciforge.* IPC surface                              │
 │       │                                                      │
 │       ▼                                                      │
 │ Main process (Node)                                          │
-│  AgentRuntimeHost  →  KunAgentRuntimeAdapter                 │
+│  AgentRuntimeHost  →  local-runtime adapter                  │
 │                    →  CodexAgentRuntimeAdapter               │
 │  Settings / Connect phone runtime / Terminal / Updater / Logger│
 │       │                                                      │
@@ -716,15 +714,14 @@ Three lessons baked into this shape:
 
 ## 5. Core runtime: SciForge Runtime default, Codex optional
 
-The SciForge Runtime package (`kun/`) is the default agent runtime. It is a
-TypeScript ESM package that ships its own HTTP server and is built
-before the Electron app. Codex is optional and is hosted by the main
-process through `codex app-server --listen stdio://`.
+SciForge Runtime is the default local runtime. It ships its own HTTP server
+and is built before the Electron app. Codex is optional and is hosted by the
+main process through `codex app-server --listen stdio://`.
 
 ### 5.1 Module layout
 
 ```text
-kun/src/
+local-runtime/
   cli/             # Command-line entrypoints (serve)
   contracts/       # Zod schemas and inferred types for HTTP/SSE
   domain/          # Thread, Turn, Item, Event, Approval, Usage entities
@@ -906,7 +903,7 @@ next replay skips them).
   file/git/editor helpers, Write services, IPC handlers, logger,
   GUI updater, macOS/Windows code-signing glue.
 - **Preload** (`src/preload/`) — `contextBridge` surface.
-  Exposes a typed `window.dsGui` API to the renderer. No Node
+  Exposes a typed `window.sciforge` API to the renderer. No Node
   access leaks into the renderer.
 - **Renderer** (`src/renderer/`) — Chromium process. React 19
   SPA. Runs Code / Write / Connect phone UIs.
@@ -921,13 +918,13 @@ src/
     runtime/                        # runtime adapter (process, host, port, token)
     services/                       # git, workspace, editor, write-* services
     settings-store.ts               # JSON-backed settings store
-    claw-runtime.ts                 # Connect phone IM / webhook / scheduled-task engine (internal claw name)
+    claw-runtime.ts                 # Connect phone IM / webhook / scheduled-task engine
     schedule-mcp-*                  # schedule MCP config + node-entry server
     gui-updater.ts                  # electron-updater integration
     logger.ts                       # structured logger
-    resolve-kun-binary.ts     # CLI / dev-script / packaged binary resolver
+    resolve-local-runtime-binary.ts # CLI / dev-script / packaged binary resolver
   preload/
-    index.ts                        # contextBridge surface (window.dsGui)
+    index.ts                        # contextBridge surface (window.sciforge)
     index.d.ts                      # API type definitions
   shared/                           # types + constants shared by main and renderer
   renderer/
@@ -944,15 +941,11 @@ src/
       write/                        # Write-mode workspace, inline edit, RAG
 ```
 
-### 6.3 The dsGui API surface
+### 6.3 The SciForge API Surface
 
-`window.dsGui` is the only thing the renderer is allowed to call
+`window.sciforge` is the only thing the renderer is allowed to call
 on the system. It includes:
 
-- `runtimeRequest(path, method, body)` — legacy SciForge Runtime-only JSON request
-  compatibility path. New renderer code should use `agentRuntime`.
-- `startSse(threadId, sinceSeq, streamId)` / `stopSse` /
-  `onSseEvent` — legacy compatibility subscription for a thread.
 - `agentRuntime.*` — neutral connect/capabilities/thread/turn/event/control
   API defined by `docs/agent-runtime-contract.md`.
 - `getSettings` / `setSettings` — typed settings I/O.
@@ -967,16 +960,17 @@ on the system. It includes:
   `requestWriteInlineCompletion`,
   `listWriteInlineCompletionDebugEntries`,
   `clearWriteInlineCompletionDebugEntries`).
-- Connect phone / internal Claw (`getClawStatus`, `runClawTask`,
-  `startClawImInstallQr`, `pollClawImInstall`,
-  `createClawTaskFromText`, `mirrorClawChannelMessageToFeishu`,
-  `onClawChannelActivity`).
+- Connect phone / remote channel (`getConnectPhoneStatus`,
+  `startConnectPhoneInstallQr`,
+  `pollConnectPhoneInstall`, `createRemoteChannelTaskFromText`,
+  `mirrorRemoteChannelMessageToFeishu`, `onRemoteChannelActivity`).
+- Schedule (`getScheduleStatus`, `runScheduleTask`).
 - Shell / notifications / updater / logger (`openExternal`,
   `showTurnCompleteNotification`, `getGuiUpdateState`,
   `checkGuiUpdate`, `downloadGuiUpdate`, `installGuiUpdate`,
   `onGuiUpdateState`, `logError`, `getLogPath`, `openLogDir`).
 
-Every method on this surface is typed in `src/shared/ds-gui-api.ts`
+Every method on this surface is typed in `src/shared/sciforge-api.ts`
 and validated at the IPC boundary by Zod schemas in
 `src/main/ipc/app-ipc-schemas.ts`.
 
@@ -986,17 +980,16 @@ The main process owns runtime selection through `AgentRuntimeHost`.
 It reads `activeAgentRuntime`, defaults to SciForge Runtime, and delegates to Codex
 only after explicit user selection:
 
-- `KunAgentRuntimeAdapter` maps the shared contract to `kun serve`
+- The local-runtime adapter maps the shared contract to SciForge Runtime
   HTTP/SSE. SciForge Runtime child process startup, port, token, and config remain
-  behind `kunRuntimeAdapter`.
+  behind `localRuntimeAdapter`.
 - `CodexAgentRuntimeAdapter` maps the shared contract to the
   app-server service under `src/main/runtime/codex/`. JSON-RPC,
   server request registry, event normalization, and thread/event stores
   stay in that module boundary.
-- Legacy `runtimeRequestViaHost`, `runtimeRequest`, `startSse`, and
-  `codex:*` IPC are compatibility shims only. Remove or stop using them
-  once the neutral contract exposes the same capability and focused
-  coverage proves the replacement.
+- Runtime request/SSE and renderer `codex:*` IPC bypasses are removed. New
+  capabilities must go through the neutral AgentRuntime contract or a narrow
+  typed `window.sciforge` method.
 
 ---
 
@@ -1007,7 +1000,7 @@ only after explicit user selection:
 ```text
 App
   └── AppShell  (Suspense)
-        ├── Workbench          (routes: chat / claw / write / plugins / schedule; claw = Connect phone)
+        ├── Workbench          (routes: chat / write / plugins / schedule; Connect phone is a chat panel)
         │     ├── Sidebar      (left, drag-resizable, 268 px)
         │     ├── Topbar       (translucent glass strip)
         │     ├── Center column
@@ -1037,7 +1030,7 @@ store is split into modules under `src/renderer/src/store/`:
 - `chat-store-types.ts` — the store's TS surface.
 - `chat-store-app-actions.ts`, `chat-store-claw-actions.ts`,
   `chat-store-side-actions.ts` — action creators grouped by
-  domain (`claw` is the internal Connect phone domain).
+  domain.
 - `chat-store-runtime-helpers.ts` — pure helpers around the
   runtime.
 - `chat-store-schedulers.ts` — busy watchdog, completion poll,
@@ -1048,9 +1041,9 @@ Persistence is layered:
 - `localStorage` — UI-only state (panel sizes, collapsed flags,
   composer model, write thread registry, code workspace roots,
   fork registry).
-- `electron-store` (main) — settings, Connect phone config (internal Claw key), write
+- `electron-store` (main) — settings, Connect phone config, write
   workspace config.
-- `~/.deepseekgui/kun` (SciForge Runtime) — threads,
+- `~/.sciforge/runtime` (SciForge Runtime) — threads,
   events, sessions, usage.
 
 ### 7.3 The AgentProvider interface
@@ -1058,7 +1051,7 @@ Persistence is layered:
 The renderer talks to the runtime through one interface,
 `AgentProvider` (`src/renderer/src/agent/types.ts`). The default
 implementation is `AgentRuntimeProvider`, which calls
-`window.dsGui.agentRuntime` and dispatches shared `AgentRuntimeEvent`
+`window.sciforge.agentRuntime` and dispatches shared `AgentRuntimeEvent`
 objects into `ThreadEventSink` / `ChatBlock`.
 
 `getProvider()` (in `registry.ts`) returns a single cached registry
@@ -1077,7 +1070,7 @@ surface, and optional right inspector, and lazy-loads the heavy panels
 (`ChangeInspector`, `TodoPanel`, `PlanPanel`, `WorkspaceFilePreviewPanel`,
 `DevBrowserPanel`, `PluginMarketplaceView`, `ScheduleTasksView`)
 via `React.lazy`. Panel sizes and the selected right-panel mode are persisted to `localStorage`
-under `deepseekgui.layout.*` keys.
+under `sciforge.layout.*` keys.
 
 The chat timeline is a virtualized list of `ChatBlock`s. Each
 block kind has its own renderer:
@@ -1096,10 +1089,10 @@ block kind has its own renderer:
 ### 7.5 Workbench routes, one store
 
 The store distinguishes the main workbench and entry routes through `route`
-(`chat`, `write`, `claw`, `plugins`, `schedule`) plus thread metadata.
-The Code / Write mode switcher lives in the sidebar; Connect phone uses the
-legacy `claw` route internally. Switching does not change the runtime contract,
-only which renderer and local workflow state the store pulls in.
+(`chat`, `write`, `plugins`, `schedule`) plus thread metadata. Connect phone
+is represented as `route: 'chat'` with explicit panel/channel state, so it does
+not introduce a second chat-like route. Switching does not change the runtime
+contract, only which renderer and local workflow state the store pulls in.
 
 - **Code** — default mode, full agent flow, workspace roots,
   todo panel, changes inspector, plan panel, file preview, and dev browser.
@@ -1108,7 +1101,7 @@ only which renderer and local workflow state the store pulls in.
   separate `WRITE_ASSISTANT_THREAD_TITLE` namespace. Inline
   completion and selected-text agent go through dedicated
   main-process services.
-- **Connect phone** — internal `claw` channel registry. Each IM channel has its
+- **Connect phone** — remote channel registry. Each IM channel has its
   own thread id, model, workspace root, runtime id, and runtime-specific thread
   mapping. `ClawRuntime` still fails closed for non-SciForge Runtime execution until the
   background workflow has native adapter support; it must not write Codex thread
@@ -1124,7 +1117,7 @@ only which renderer and local workflow state the store pulls in.
 | Session list / workbench layout | `localStorage` | JSON | Renderer |
 | Write thread registry | `localStorage` | JSON | Renderer |
 | Connect phone channels | OS app-data dir | JSON | `JsonSettingsStore` |
-| Threads / turns / events | `~/.deepseekgui/kun` | JSON + JSONL | SciForge Runtime |
+| Threads / turns / events | `~/.sciforge/runtime` | JSON + JSONL | SciForge Runtime |
 | Usage counters | SciForge Runtime data dir | JSON | SciForge Runtime |
 | Skill / MCP files | SciForge Runtime data dir + workspace | Markdown / JSON | SciForge Runtime + renderer |
 | GUI logs | OS app-data dir / `log/` | NDJSON | `logger.ts` |
@@ -1145,7 +1138,7 @@ the README and respected by the install script.
 
 ### 9.1 Tool execution & approval
 
-- `LocalToolHost` (`kun/src/adapters/tool/local-tool-host.ts`)
+- `LocalToolHost`
   holds the registered tools and their policies. Policies:
   `auto`, `on-request`, `suggest`, `never`, `untrusted`.
 - A tool with `shouldAdvertise(ctx)` is gated at the listing
@@ -1202,12 +1195,12 @@ compaction block inline with a "show replaced" detail.
   adapter support exists, and must not write Codex thread ids into SciForge Runtime mappings.
 - Feishu / Lark integration uses `@larksuiteoapi/node-sdk`.
   Install is device-flow QR code; the renderer polls
-  `claw:im-install:poll` until authorized.
+  `connectPhone:install:poll` until authorized.
 - Webhook / relay is a small HTTP server in `ClawRuntime` that
   POSTs inbound webhooks into the configured runtime thread.
 - Scheduled tasks are detected from natural-language Connect phone
   prompts (`claw-scheduled-task-detector.ts`) and stored under
-  `claw.scheduledTasks` in settings.
+  `schedule.tasks` in settings.
 - The managed `schedule-mcp-node-entry` hosts schedule tools over MCP
   through the `gui_schedule` worker entry, hiding the macOS dock icon
   when running headless.
@@ -1243,7 +1236,7 @@ postmortem timing.
   workspace inspector and the file/tool adapters.
 - **Renderer isolation** — `contextIsolation: true`, no
   `nodeIntegration`, no `webviewTag` exposure. The renderer
-  only sees the `window.dsGui` API surface.
+  only sees the `window.sciforge` API surface.
 - **External links** — `openExternal` is the only way to leave
   the app; URLs are validated against an allow-list.
 - **Markdown rendering** — `rehype-harden` strips unsafe
@@ -1287,18 +1280,15 @@ escalate before coding.
 When you need to add a new capability, follow this path. It's
 intentionally boring.
 
-1. **Add the protocol field.** New Zod schema in
-   `kun/src/contracts/`. Run `npm --prefix kun run
-   build`.
-2. **Add the agent behavior.** In `kun/src/loop/`,
-   `kun/src/services/`, or a new port + adapter pair
-   under `kun/src/ports/` and `kun/src/adapters/`.
-3. **Add the HTTP route.** New file under
-   `kun/src/server/routes/`, registered in
-   `routes/index.ts`.
+1. **Add the protocol field.** New Zod schema in the local-runtime
+   contracts. Run `npm run build:local-runtime`.
+2. **Add the agent behavior.** In the local-runtime loop,
+   services, or a new port + adapter pair.
+3. **Add the HTTP route.** New route under the local-runtime HTTP
+   server, registered in its route index.
 4. **Map the endpoint / event through AgentRuntime.** Add or update the
    shared contract as needed, then map SciForge Runtime behavior in
-   `src/main/runtime/kun-agent-runtime-adapter.ts` and renderer display in
+   `src/main/runtime/local-runtime-agent-runtime-adapter.ts` and renderer display in
    `src/renderer/src/agent/agent-runtime-event-dispatcher.ts`.
 5. **Add runtime settings only under `agents.sciforge` or
    `agents.codex`.** Anything else gets migrated away.
@@ -1343,12 +1333,12 @@ If any check fails, the change is not ready.
 | App lifecycle | `src/main/index.ts` |
 | Runtime contract | `src/shared/agent-runtime-contract.ts` |
 | Runtime host | `src/main/runtime/agent-runtime/host.ts` |
-| SciForge Runtime adapter | `src/main/runtime/kun-agent-runtime-adapter.ts`, `src/main/runtime/kun-adapter.ts` |
+| SciForge Runtime adapter | `src/main/runtime/local-runtime-agent-runtime-adapter.ts`, `src/main/runtime/local-runtime-adapter.ts` |
 | Codex adapter | `src/main/runtime/codex/codex-agent-runtime-adapter.ts`, `src/main/runtime/codex/` |
-| Child process | `src/main/kun-process.ts` |
+| Child process | `src/main/local-runtime-process.ts` |
 | Settings | `src/main/settings-store.ts`, `src/shared/app-settings.ts` |
 | IPC | `src/main/ipc/register-app-ipc-handlers.ts`, `src/main/ipc/app-ipc-schemas.ts` |
-| dsGui API | `src/preload/index.ts`, `src/shared/ds-gui-api.ts` |
+| SciForge API | `src/preload/index.ts`, `src/shared/sciforge-api.ts` |
 | Agent provider | `src/renderer/src/agent/agent-runtime-provider.ts`, `src/renderer/src/agent/registry.ts` |
 | Event mapping | `src/renderer/src/agent/agent-runtime-event-dispatcher.ts` |
 | App shell | `src/renderer/src/AppShell.tsx` |
@@ -1358,11 +1348,11 @@ If any check fails, the change is not ready.
 | Write services | `src/main/services/write-*-service.ts` |
 | Workspace/editor services | `src/main/services/workspace-*.ts`, `src/main/services/workspace-editors.ts` |
 | Tokens / styles | `src/renderer/src/styles/*.css`, `src/renderer/src/index.css` |
-| Agent loop | `kun/src/loop/agent-loop.ts` |
-| Immutable prefix | `kun/src/cache/immutable-prefix.ts` |
-| HTTP routes | `kun/src/server/routes/` |
-| Tool host | `kun/src/adapters/tool/local-tool-host.ts` |
-| Model client | `kun/src/adapters/model/deepseek-compat-model-client.ts` |
+| Agent loop | SciForge Runtime loop |
+| Immutable prefix | SciForge Runtime cache module |
+| HTTP routes | SciForge Runtime HTTP routes |
+| Tool host | SciForge Runtime local tool host |
+| Model client | SciForge Runtime model client |
 | Cache doc | `docs/local-runtime-cache-optimization.md` |
 | Runtime contract doc | `docs/agent-runtime-contract.md` |
 | Architecture doc | `docs/local-runtime-architecture.md` |
@@ -1381,7 +1371,7 @@ If any check fails, the change is not ready.
   measurement, stable prefix rules, tool pair healing.
 - `docs/local-runtime-contributing.md` — port & adapter / FCIS
   patterns, four PR archetypes.
-- `kun/README.md` — CLI flags, env vars, data dir layout,
+- Local runtime package README — CLI flags, env vars, data dir layout,
   HTTP API.
 - `docs/AGENTS.md` — agent runtime notes (constraints enforced
   on contributors).

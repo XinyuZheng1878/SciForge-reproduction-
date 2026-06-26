@@ -8,12 +8,15 @@ import { test } from 'node:test';
 
 import { createPaperRadarServer } from './server.js';
 
+const RUNTIME_TOKEN = 'paper-radar-e2e-token';
+
 test('end-to-end metadata flow works through HTTP and SQLite', async () => {
   const dbPath = join(mkdtempSync(join(tmpdir(), 'paper-radar-e2e-')), 'papers.sqlite');
   const server = createPaperRadarServer({
     dbPath,
     fetchImpl: upstreamStub(),
     now: () => new Date('2026-06-17T00:00:00.000Z'),
+    runtimeToken: RUNTIME_TOKEN,
   });
 
   server.listen(0, '127.0.0.1');
@@ -87,17 +90,23 @@ function upstreamStub(): typeof fetch {
 }
 
 async function fetchJson(url: string): Promise<any> {
-  return (await fetch(url)).json();
+  return (await fetch(url, withAuth())).json();
 }
 
 async function postJson(url: string, body: unknown): Promise<any> {
   return (
-    await fetch(url, {
+    await fetch(url, withAuth({
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
-    })
+    }))
   ).json();
+}
+
+function withAuth(init: RequestInit = {}): RequestInit {
+  const headers = new Headers(init.headers);
+  headers.set('authorization', `Bearer ${RUNTIME_TOKEN}`);
+  return { ...init, headers };
 }
 
 function biorxivJson(): unknown {

@@ -8,6 +8,7 @@ import http.client
 import json
 import os
 import random
+import socket
 import sys
 import threading
 import unittest
@@ -266,12 +267,17 @@ class TestFuzz(unittest.TestCase):
 EXTRACT_JSON = ('{"nodes":[{"tmp_id":"s","type":"source","content":"Evidence.","trace_ref":"step-1"},'
                 '{"tmp_id":"c","type":"claim","content":"Claim.","trace_ref":"step-2"}],'
                 '"edges":[{"src":"s","dst":"c","rel":"supports"}]}')
+SERVER_TOKEN = "test-evidence-dag-token"
 
 
 class TestServerRobustness(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.prev_token = Handler.api_token
+        cls.prev_max_body = Handler.max_json_body_bytes
         Handler.engine = Engine(StubLLM(extract_response=EXTRACT_JSON, nli_handler=lambda p, h: 0.9))
+        Handler.api_token = SERVER_TOKEN
+        Handler.max_json_body_bytes = 1_048_576
         cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         cls.port = cls.httpd.server_address[1]
         cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
@@ -280,27 +286,102 @@ class TestServerRobustness(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.httpd.shutdown()
+        cls.httpd.server_close()
+        Handler.api_token = cls.prev_token
+        Handler.max_json_body_bytes = cls.prev_max_body
 
-    def _req(self, method, path, body=None):
+    def _req(self, method, path, body=None, token=SERVER_TOKEN):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         headers = {"Content-Type": "application/json"}
+        if token is not None:
+            headers["Authorization"] = f"Bearer {token}"
         conn.request(method, path, body=json.dumps(body) if body is not None else None, headers=headers)
         resp = conn.getresponse()
         data = json.loads(resp.read().decode("utf-8"))
         conn.close()
         return resp.status, data
 
-    def _raw_post(self, path, raw: bytes):
+    def _raw_post(self, path, raw: bytes, token=SERVER_TOKEN):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        conn.request("POST", path, body=raw, headers={"Content-Type": "application/json"})
+        headers = {"Content-Type": "application/json"}
+        if token is not None:
+            headers["Authorization"] = f"Bearer {token}"
+        conn.request("POST", path, body=raw, headers=headers)
         resp = conn.getresponse()
         data = json.loads(resp.read().decode("utf-8"))
         conn.close()
         return resp.status, data
 
+    def _chunked_post(self, path, chunks, token=SERVER_TOKEN):
+        body = b"".join(f"{len(chunk):x}\r\n".encode("ascii") + chunk + b"\r\n" for chunk in chunks)
+        body += b"0\r\n\r\n"
+        headers = [
+            f"POST {path} HTTP/1.1",
+            f"Host: 127.0.0.1:{self.port}",
+            "Content-Type: application/json",
+            "Transfer-Encoding: chunked",
+        ]
+        if token is not None:
+            headers.append(f"Authorization: Bearer {token}")
+        request = ("\r\n".join(headers) + "\r\n\r\n").encode("ascii") + body
+        with socket.create_connection(("127.0.0.1", self.port), timeout=10) as sock:
+            sock.sendall(request)
+            sock.shutdown(socket.SHUT_WR)
+            raw = b""
+            while True:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                raw += chunk
+        header_bytes, _, response_body = raw.partition(b"\r\n\r\n")
+        status = int(header_bytes.split(b" ", 2)[1])
+        data = json.loads(response_body.decode("utf-8"))
+        return status, data
+
     def test_health_version(self):
-        self.assertEqual(self._req("GET", "/health")[0], 200)
+        self.assertEqual(self._req("GET", "/health", token=None)[0], 200)
         self.assertEqual(self._req("GET", "/version")[1]["data"]["service"], "evidence-dag-engine")
+
+    def test_json_api_requires_configured_bearer_token(self):
+        status, data = self._req("GET", "/threads", token=None)
+        self.assertEqual(status, 401)
+        self.assertEqual(data["error"]["code"], "UNAUTHORIZED")
+
+        status, data = self._req("GET", "/threads", token="wrong")
+        self.assertEqual(status, 401)
+        self.assertEqual(data["error"]["code"], "UNAUTHORIZED")
+
+        old_token = Handler.api_token
+        old_env = os.environ.pop("SCIFORGE_EVIDENCE_DAG_API_KEY", None)
+        try:
+            Handler.api_token = ""
+            status, data = self._req("GET", "/threads", token=SERVER_TOKEN)
+            self.assertEqual(status, 503)
+            self.assertEqual(data["error"]["code"], "UNAVAILABLE")
+        finally:
+            Handler.api_token = old_token
+            if old_env is not None:
+                os.environ["SCIFORGE_EVIDENCE_DAG_API_KEY"] = old_env
+
+    def test_content_length_body_cap_is_413(self):
+        old_max = Handler.max_json_body_bytes
+        try:
+            Handler.max_json_body_bytes = 8
+            status, data = self._raw_post("/threads/t/ingest-trace", b'{"trace":[]}')
+            self.assertEqual(status, 413)
+            self.assertEqual(data["error"]["code"], "PAYLOAD_TOO_LARGE")
+        finally:
+            Handler.max_json_body_bytes = old_max
+
+    def test_chunked_body_cap_is_413(self):
+        old_max = Handler.max_json_body_bytes
+        try:
+            Handler.max_json_body_bytes = 8
+            status, data = self._chunked_post("/threads/t/ingest-trace", [b'{"trace":', b'[]}'])
+            self.assertEqual(status, 413)
+            self.assertEqual(data["error"]["code"], "PAYLOAD_TOO_LARGE")
+        finally:
+            Handler.max_json_body_bytes = old_max
 
     def test_bad_json_body_is_400(self):
         status, data = self._raw_post("/threads/t/ingest-trace", b"{ this is not json ")

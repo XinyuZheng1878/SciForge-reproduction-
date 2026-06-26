@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdir, mkdtemp, readFile, realpath, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, readdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -166,6 +166,45 @@ describe('workspace-service boundary checks', () => {
     expect(written).toEqual(pdfBytes)
   })
 
+  it('rejects workspace writes through symlinked parent directories that leave the workspace', async () => {
+    const outsideDir = join(rootDir, 'outside-dir')
+    await mkdir(outsideDir)
+    await symlink(outsideDir, join(workspaceRoot, 'linked-out'), 'dir')
+
+    const saveResult = await writeWorkspaceFile({
+      path: 'linked-out/escaped.md',
+      workspaceRoot,
+      content: 'escape'
+    })
+    const createResult = await createWorkspaceDirectory({
+      path: 'linked-out/generated',
+      workspaceRoot
+    })
+
+    expect(saveResult.ok).toBe(false)
+    expect(createResult.ok).toBe(false)
+    if (!saveResult.ok) expect(saveResult.message).toContain('within the selected workspace')
+    if (!createResult.ok) expect(createResult.message).toContain('within the selected workspace')
+    await expect(readFile(join(outsideDir, 'escaped.md'), 'utf8')).rejects.toThrow()
+    await expect(readdir(join(outsideDir, 'generated'))).rejects.toThrow()
+  })
+
+  it('rejects existing symlink write targets instead of following them', async () => {
+    await symlink(outsideFile, join(workspaceRoot, 'linked-target.txt'))
+
+    const result = await writeWorkspaceFile({
+      path: 'linked-target.txt',
+      workspaceRoot,
+      content: 'overwrite'
+    })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.message).toMatch(/within the selected workspace|symlink/)
+    }
+    await expect(readFile(outsideFile, 'utf8')).resolves.toBe('outside')
+  })
+
   it('marks oversized files as truncated when loading preview content', async () => {
     const largePath = join(workspaceRoot, 'large.md')
     await writeFile(largePath, 'a'.repeat(1_500_001), 'utf8')
@@ -264,6 +303,32 @@ describe('workspace-service boundary checks', () => {
     expect(await realpath(dirname(result.path))).toBe(await realpath(join(workspaceRoot, '.sciforge', 'sdd', 'requirements', draftId, 'img')))
     expect(result.markdownPath.startsWith('img/pasted-image-')).toBe(true)
     await expect(readFile(result.path)).resolves.toEqual(Buffer.from('sdd-png-bytes'))
+  })
+
+  it('rejects pasted clipboard image writes through symlinked image directories outside the workspace', async () => {
+    const currentFilePath = join(workspaceRoot, 'notes', 'draft.md')
+    const outsideDir = join(rootDir, 'outside-images')
+    await mkdir(join(workspaceRoot, 'notes'), { recursive: true })
+    await mkdir(outsideDir)
+    await writeFile(currentFilePath, '# draft', 'utf8')
+    await symlink(outsideDir, join(workspaceRoot, 'linked-images'), 'dir')
+
+    vi.mocked(clipboard.readImage).mockReturnValue({
+      isEmpty: () => false,
+      toPNG: () => Buffer.from('clipboard-png-bytes')
+    } as Electron.NativeImage)
+
+    const result = await saveWorkspaceClipboardImage({
+      workspaceRoot,
+      currentFilePath,
+      imageDirectory: 'linked-images'
+    })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.message).toContain('within the selected workspace')
+    }
+    await expect(readdir(outsideDir)).resolves.toEqual([])
   })
 
   it('reads supported workspace images as data URLs', async () => {

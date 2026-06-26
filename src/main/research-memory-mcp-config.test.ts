@@ -11,7 +11,8 @@ import {
 import { GUI_RESEARCH_MEMORY_MCP_LAUNCH_FLAG } from './research-memory-mcp-server'
 import { ResearchMemoryToolNames } from '../../packages/workers/research-memory/src/contract'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
@@ -56,7 +57,8 @@ function createSettings(workspaceRoot = '/tmp/workspace'): AppSettingsV1 {
       channel: 'stable'
     },
     codePromptPrefix: '',
-    claw: defaultClawSettings()
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings()
   }
 }
 

@@ -8,6 +8,8 @@ const host = process.env.PAPER_RADAR_HOST ?? '127.0.0.1';
 const port = Number(process.env.PAPER_RADAR_PORT ?? 3901);
 const dbPath = process.env.PAPER_RADAR_DB ?? join(homedir(), '.sciforge', 'paper-radar.sqlite');
 const profilesPath = process.env.PAPER_RADAR_PROFILES ?? join(homedir(), '.sciforge', 'paper-radar-profiles.json');
+const runtimeToken = process.env.PAPER_RADAR_RUNTIME_TOKEN ?? '';
+const maxBodyBytes = process.env.PAPER_RADAR_MAX_BODY_BYTES ? Number(process.env.PAPER_RADAR_MAX_BODY_BYTES) : undefined;
 const autoSync = process.env.PAPER_RADAR_AUTO_SYNC === '1';
 const syncIntervalMs = Number(process.env.PAPER_RADAR_SYNC_INTERVAL_HOURS ?? 24) * 60 * 60 * 1000;
 const arxivCategories = (process.env.PAPER_RADAR_ARXIV_CATEGORIES ?? 'q-bio,cs.LG,stat.ML')
@@ -16,7 +18,7 @@ const arxivCategories = (process.env.PAPER_RADAR_ARXIV_CATEGORIES ?? 'q-bio,cs.L
   .filter(Boolean);
 const maxRecords = Number(process.env.PAPER_RADAR_MAX_RECORDS ?? 200);
 
-const server = createPaperRadarServer({ dbPath, profilesPath });
+const server = createPaperRadarServer({ dbPath, profilesPath, runtimeToken, maxBodyBytes });
 const scheduler = autoSync
   ? startDailySync({ dbPath, profilesPath, arxivCategories, maxRecords }, syncIntervalMs)
   : undefined;

@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import type { GuiUpdateInfo, GuiUpdateProgress } from '@shared/gui-update'
 import { AlertCircle, CheckCircle2, Download, Loader2, RefreshCw } from 'lucide-react'
+import { openSafeExternalUrl } from '../lib/open-external'
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -159,7 +160,7 @@ export function GuiUpdateControl({
         {releaseUrl ? (
           <button
             type="button"
-            onClick={() => void window.sciforge.openExternal(releaseUrl).catch(() => undefined)}
+            onClick={() => void openSafeExternalUrl(releaseUrl).catch(() => undefined)}
             className="inline-flex items-center gap-1.5 rounded-xl bg-ds-userbubble px-3 py-2 text-[13px] font-medium text-ds-userbubbleFg shadow-sm transition hover:opacity-90"
           >
             {t('guiUpdateOpenRelease')}

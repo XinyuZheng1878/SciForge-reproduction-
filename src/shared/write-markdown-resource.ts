@@ -1,3 +1,8 @@
+import {
+  normalizeSafeEmbeddedMediaUrl,
+  normalizeSafeExternalUrl
+} from './external-url-policy'
+
 function normalizePath(value: string): string {
   return value.replaceAll('\\', '/')
 }
@@ -25,28 +30,8 @@ function normalizeJoinedPath(pathname: string): string {
   return `${prefix}${parts.join('/')}`
 }
 
-export function writePathToFileUrl(pathname: string): string {
-  const normalized = normalizeJoinedPath(pathname)
-  const encoded = normalized
-    .split('/')
-    .map((part) => {
-      if (/^[a-zA-Z]:$/.test(part)) return part
-      return encodeURIComponent(part).replaceAll('~', '%7E')
-    })
-    .join('/')
-  return `file://${encoded.startsWith('/') ? encoded : `/${encoded}`}`
-}
-
 export function isExplicitWriteResourceUrl(value: string): boolean {
   return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)
-}
-
-function explicitResourceProtocol(value: string): string | null {
-  try {
-    return new URL(value).protocol
-  } catch {
-    return null
-  }
 }
 
 export function resolveWriteMarkdownResource(
@@ -54,10 +39,27 @@ export function resolveWriteMarkdownResource(
   filePath?: string | null
 ): string | undefined {
   const resolvedPath = resolveWriteMarkdownResourcePath(src, filePath)
-  if (resolvedPath) return writePathToFileUrl(resolvedPath)
+  if (resolvedPath) return undefined
   if (!src?.trim()) return src
+  return normalizeSafeEmbeddedMediaUrl(src) ?? undefined
+}
+
+export function resolveWriteMarkdownLinkResource(href: string | undefined): string | undefined {
+  if (!href?.trim()) return href
+  const value = href.trim()
+  if (!isExplicitWriteResourceUrl(value)) return href
+  return normalizeSafeExternalUrl(value) ?? undefined
+}
+
+export function transformWriteMarkdownMediaUrl(src: string): string {
   const value = src.trim()
-  return explicitResourceProtocol(value) === 'file:' ? undefined : src
+  if (!value) return ''
+  if (!isExplicitWriteResourceUrl(value)) return src
+  return normalizeSafeEmbeddedMediaUrl(src) ?? ''
+}
+
+export function transformWriteMarkdownLinkUrl(href: string): string {
+  return resolveWriteMarkdownLinkResource(href) ?? ''
 }
 
 export function resolveWriteMarkdownResourcePath(

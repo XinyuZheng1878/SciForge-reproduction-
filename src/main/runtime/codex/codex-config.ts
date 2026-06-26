@@ -23,6 +23,7 @@ import type { WorkspaceIntelMcpLaunchConfig } from '../../workspace-intel-mcp-co
 import type { PaperRadarMcpLaunchConfig } from '../../paper-radar-mcp-config'
 import type { WriteAssistMcpLaunchConfig } from '../../write-assist-mcp-config'
 import type { RuntimeInspectorMcpLaunchConfig } from '../../runtime-inspector-mcp-config'
+import { internalSecretEnv } from '../../internal-http-secret'
 
 const RUNTIME_API_KEY_ENV = 'SCIFORGE_RUNTIME_API_KEY'
 const CODEX_MANAGED_DIRS = ['sessions', 'memories', 'logs'] as const
@@ -103,11 +104,11 @@ export async function prepareCodexAppServerLaunch(options: {
       codexHome,
       modelRouter.apiKey,
       {
-        ...(options.scheduleMcpLaunch && options.settings.schedule.internal.secret.trim()
-          ? { [GUI_SCHEDULE_INTERNAL_SECRET_ENV]: options.settings.schedule.internal.secret.trim() }
+        ...(options.scheduleMcpLaunch
+          ? internalSecretEnv(GUI_SCHEDULE_INTERNAL_SECRET_ENV, options.settings.schedule.internal.secret)
           : {}),
-        ...(options.workflowMcpLaunch && options.settings.workflow.webhookSecret.trim()
-          ? { [GUI_WORKFLOW_INTERNAL_SECRET_ENV]: options.settings.workflow.webhookSecret.trim() }
+        ...(options.workflowMcpLaunch
+          ? internalSecretEnv(GUI_WORKFLOW_INTERNAL_SECRET_ENV, options.settings.workflow.webhookSecret)
           : {})
       }
     ),

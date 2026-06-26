@@ -9,12 +9,10 @@ TypeScript-typed agent loop with a stable, GUI-friendly contract:
 - The loop is cache-first by construction: immutable prompt prefix, bounded
   TTL/LRU caches, inflight tracking, and explicit context compaction.
 
-The name SciForge Runtime is inspired by the great fish in Zhuangzi's line,
-"In the northern sea there is a fish; its name is SciForge Runtime." In
-SciForge, it means a deeper local runtime rather than a thin model
-UI: one agent loop that can carry project context, call tools
-reliably, resume sessions, and serve desktop chat, writing, phone
-connections, and scheduled tasks.
+In SciForge, the runtime is more than a thin model UI: it is one local
+agent loop that can carry project context, call tools reliably, resume
+sessions, and serve desktop chat, writing, phone connections, and
+scheduled tasks.
 
 SciForge Runtime's core goal is to improve the ROI of every token. Tokens should be
 spent on user requirements, code, decisions, and results, not repeated
@@ -30,7 +28,7 @@ kun/
     contracts/   Zod schemas and inferred types for the HTTP/SSE contract
     domain/      Thread, Turn, Item, Event, Approval, Usage entities
     ports/       ModelClient, ToolHost, stores, EventBus, ApprovalGate, ...
-    adapters/    DeepSeek-compatible model client, local tool host,
+    adapters/    Model Router-compatible model client, local tool host,
                  in-memory and file-backed stores, workspace inspector
     services/    Thread and turn orchestration services
     loop/        The cache-first agent loop and inflight helpers
@@ -62,9 +60,9 @@ Run from the `kun/` directory.
 | `--port` | HTTP port | `8899` |
 | `--data-dir` | Root directory for threads, events, and usage | required |
 | `--runtime-token` | Bearer token for `/v1/*` requests | empty |
-| `--api-key` | DeepSeek-compatible API key | empty |
-| `--base-url` | DeepSeek-compatible model API base URL | `https://api.deepseek.com/beta` |
-| `--model` | Default model id | `deepseek-v4-pro` |
+| `--api-key` | Model Router runtime API key | empty |
+| `--model-router-base-url` | Local Model Router `/v1` base URL | `http://127.0.0.1:3892/v1` |
+| `--model` | Model Router public model alias | `sciforge-router` |
 | `--approval-policy` | `on-request` \| `untrusted` \| `never` \| `auto` \| `suggest` | `auto` |
 | `--sandbox-mode` | `read-only` \| `workspace-write` \| `danger-full-access` \| `external-sandbox` | `workspace-write` |
 | `--insecure` | Disable bearer token check (local dev only) | off |
@@ -78,8 +76,9 @@ kun serve \
   --port 8899 \
   --data-dir ~/.sciforge/runtime \
   --runtime-token dev-token \
-  --api-key "$DEEPSEEK_API_KEY" \
-  --model deepseek-v4-pro
+  --api-key "$KUN_MODEL_ROUTER_API_KEY" \
+  --model-router-base-url http://127.0.0.1:3892/v1 \
+  --model sciforge-router
 ```
 
 SciForge Runtime can also run as a standalone agent without the GUI:
@@ -105,12 +104,9 @@ The runtime reads these from `process.env` when not set via CLI flags.
 - `KUN_PORT` – bind port (overrides `--port` if set)
 - `KUN_DATA_DIR` – root data directory (overrides `--data-dir` if set)
 - `KUN_RUNTIME_TOKEN` – bearer token (overrides `--runtime-token` if set)
-- `KUN_BASE_URL` – model API base URL (overrides `--base-url` if set)
-- `DEEPSEEK_BASE_URL` – fallback model API base URL
+- `KUN_MODEL_ROUTER_API_KEY` – Model Router runtime API key (overrides `serve.apiKey`)
+- `KUN_MODEL_ROUTER_BASE_URL` – local Model Router `/v1` base URL (overrides `--model-router-base-url`)
 - `KUN_MODEL` – default model id (overrides `--model` if set)
-- `DEEPSEEK_API_KEY` – the DeepSeek API key the adapter forwards
-  to the upstream model. Required at runtime for the default
-  model client.
 
 ## Config file
 
@@ -142,9 +138,8 @@ Shape:
     "port": 8899,
     "dataDir": "~/.sciforge/runtime",
     "runtimeToken": "",
-    "apiKey": "",
-    "baseUrl": "https://api.deepseek.com/beta",
-    "model": "deepseek-v4-pro",
+    "apiKey": "local-runtime-router-key",
+    "model": "sciforge-router",
     "approvalPolicy": "auto",
     "sandboxMode": "workspace-write",
     "storage": {
@@ -162,15 +157,14 @@ Shape:
   },
   "models": {
     "profiles": {
-      "deepseek-v4-pro": {
+      "sciforge-router": {
         "contextWindowTokens": 1000000,
         "contextCompaction": {
           "softThreshold": 980000,
           "hardThreshold": 990000
         }
       },
-      "deepseek-v4-flash": {
-        "aliases": ["deepseek-chat", "deepseek-reasoner"],
+      "sciforge-router-fast": {
         "contextWindowTokens": 1000000,
         "contextCompaction": {
           "softThreshold": 980000,
@@ -213,8 +207,7 @@ Shape:
     },
     "skills": {
       "enabled": false,
-      "roots": ["~/.agents/skills", "./.agents/skills"],
-      "legacySkillMd": true
+      "roots": ["~/.agents/skills", "./.agents/skills"]
     },
     "subagents": {
       "enabled": true,
@@ -239,6 +232,11 @@ Shape:
 }
 ```
 
+`serve.apiKey` is the local Model Router runtime key, not an upstream
+provider credential. The router endpoint is supplied by the GUI Model
+Router settings, `--model-router-base-url`, or `KUN_MODEL_ROUTER_BASE_URL`;
+it is not stored in the SciForge Runtime config.
+
 SciForge Runtime defaults to hybrid session storage: `threads/{threadId}/messages.jsonl`
 and `events.jsonl` remain the canonical transcript/replay logs, while
 `index.sqlite3` stores only rebuildable thread metadata for fast lists
@@ -248,11 +246,11 @@ default `{dataDir}/index.sqlite3` path.
 
 Model-specific context windows, capabilities, and compaction thresholds
 belong in `models.profiles`. Built-in profiles already cover
-`deepseek-v4-pro`, `deepseek-v4-flash`, and the compatibility aliases
-`deepseek-chat` / `deepseek-reasoner`; DeepSeek V4 defaults to a 1M
-context window and starts compaction around 980k input tokens.
-The legacy `contextCompaction.modelProfiles` location is still read for
-backward compatibility, but new configs should use `models.profiles`.
+Model Router public aliases such as `sciforge-router` and
+`sciforge-router-fast`; the default router profiles use a 1M context
+window and start compaction around 980k input tokens.
+The legacy `contextCompaction.modelProfiles` location and flat per-profile
+threshold fields are no longer read; use `models.profiles[model].contextCompaction`.
 See `../docs/local-runtime-config.md` for the detailed file layout and examples.
 
 Feature flags are intentionally explicit:
@@ -263,7 +261,7 @@ Feature flags are intentionally explicit:
 - `contextCompaction` controls fallback long-thread compaction thresholds and summary behavior. Per-model thresholds live in `models.profiles`. Compaction preserves goals, constraints, decisions, touched files, tool outcomes, and unresolved next steps.
 - `serve.runtimeTuning.toolStorm` suppresses repeated identical tool calls within a turn so useless tool loops do not keep spending tokens.
 - `capabilities.web` exposes `web_fetch` and/or `web_search`. The built-in provider can fetch HTTP(S) pages; search requires a provider implementation and may report unavailable.
-- `capabilities.skills` scans configured roots for `skill.json` manifests and, when `legacySkillMd` is true, older `SKILL.md` directories.
+- `capabilities.skills` scans configured roots for `skill.json` manifests. A manifest may point its `entry` at `SKILL.md`, but a bare `SKILL.md` file is not a package marker.
 - `capabilities.attachments` stores image bytes outside thread logs and allows turns to reference `attachmentIds`. Vision-capable models receive image parts; text-only models receive a bounded compressed base64 text fallback.
 - `capabilities.memory` stores long-term records under the data dir, retrieves scoped matches before turns, and exposes `memory_create`, `memory_update`, and `memory_delete` tools.
 - `capabilities.subagents` exposes `delegate_task` with `maxParallel` and `maxChildRuns` concurrency budgets.
@@ -364,17 +362,17 @@ threads to keep the main thread list uncluttered. Pass
 
 ## Migration notes
 
-Legacy Skill folders that only contain `SKILL.md` continue to work
-when `capabilities.skills.legacySkillMd` is true. New Skills should
-prefer a `skill.json` manifest with explicit `id`, `description`,
-trigger metadata, instruction file, and allowed tool list; this makes
-activation and diagnostics deterministic. A safe migration path is:
+Skill folders must contain a `skill.json` manifest with explicit `id`,
+`description`, trigger metadata, instruction file, and allowed tool
+list; this keeps activation and diagnostics deterministic. A safe
+migration path for older folders that only contain `SKILL.md` is:
 
 1. Keep the existing `SKILL.md`.
 2. Add a `skill.json` next to it that points at the same instructions.
 3. Restart SciForge Runtime or refresh diagnostics.
 4. Once `/v1/runtime/tools` reports the Skill without validation
-   errors, decide whether to keep legacy compatibility enabled.
+   errors, the folder is loaded through the manifest-only package
+   entry.
 
 Existing thread-level `pinnedConstraints` are not converted into
 long-term memory automatically. They remain part of compaction items
@@ -404,7 +402,7 @@ stay local to one thread, leave it as a pinned constraint.
   `lastInjectedIds`.
 - `kun run`, `kun chat`, or `kun exec` cannot authenticate or load
   config: pass the same `--config`, `--data-dir`, `--api-key`,
-  `--base-url`, and `--runtime-token` values used by `kun serve`.
+  `--model-router-base-url`, and `--runtime-token` values used by `kun serve`.
   `kun exec --list-tools --json` is the quickest way to verify the
   effective tool registry for a CLI environment.
 - A capability reports `disabled`: that normally means the config flag
@@ -414,15 +412,14 @@ stay local to one thread, leave it as a pinned constraint.
 ## GUI integration
 
 After the legacy provider retirement, the SciForge main process
-starts SciForge Runtime through `kun-process.ts` and routes all
-`runtimeRequest` calls to the active base URL with a bearer token.
-The renderer uses the same `AgentProvider` interface as the legacy
-CodeWhale provider because SciForge Runtime speaks the same HTTP/SSE
-contract. Settings live under `agents.sciforge` in
+starts SciForge Runtime through `local-runtime-process.ts` and exposes it
+through the neutral `AgentRuntime` adapter. The renderer uses
+`window.sciforge.agentRuntime` instead of calling the local HTTP/SSE service
+directly. Settings live under `agents.sciforge` in
 `AppSettingsV1` and include `binaryPath`, `port`, `autoStart`,
 `runtimeToken`, `dataDir`, `model`, `approvalPolicy`, `sandboxMode`,
-and `insecure`. Credentials and upstream base URLs live in provider
-and Model Router settings.
+and `insecure`. Upstream provider credentials and member base URLs live
+inside Model Router settings.
 
 The renderer also consumes the extension routes added for the larger
 agent surface: `/v1/runtime/info`, `/v1/runtime/tools`,
@@ -433,5 +430,5 @@ servers, Skill roots, web provider state, attachment store state,
 memory records, and the live capability manifest.
 
 Historical provider-specific settings are not part of the current
-runtime path; the GUI stores one local runtime entry and uses provider
-settings plus the Model Router for credentials and upstream routing.
+runtime path; the GUI stores one local runtime entry and uses the Model
+Router for credentials and upstream routing.

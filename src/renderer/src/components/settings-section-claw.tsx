@@ -45,7 +45,7 @@ function updateChannels(
   update: (partial: AppSettingsPatch) => void,
   mapper: (channel: ClawImChannelV1) => ClawImChannelV1
 ): void {
-  update({ claw: { channels: form.claw.channels.map(mapper) } })
+  update({ remoteChannel: { channels: form.remoteChannel.channels.map(mapper) } })
 }
 
 function updateChannel(
@@ -77,7 +77,7 @@ function updateChannelProfile(
 }
 
 function channelEffectiveWorkspace(form: AppSettingsV1, channel: ClawImChannelV1): string {
-  return channel.workspaceRoot.trim() || form.claw.im.workspaceRoot.trim() || form.workspaceRoot
+  return channel.workspaceRoot.trim() || form.remoteChannel.im.workspaceRoot.trim() || form.workspaceRoot
 }
 
 function discordChannelName(name: string): string {
@@ -146,8 +146,8 @@ export function ClawSettingsSection({ ctx }: { ctx: ClawSettingsContext }): Reac
           description={t('clawEnabledDesc')}
           control={
             <Toggle
-              checked={form.claw.enabled}
-              onChange={(value) => update({ claw: { enabled: value } })}
+              checked={form.remoteChannel.enabled}
+              onChange={(value) => update({ remoteChannel: { enabled: value } })}
             />
           }
         />
@@ -159,10 +159,10 @@ export function ClawSettingsSection({ ctx }: { ctx: ClawSettingsContext }): Reac
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input
                   className={textInputClass()}
-                  value={form.claw.im.workspaceRoot}
+                  value={form.remoteChannel.im.workspaceRoot}
                   onChange={(e) =>
                     update({
-                      claw: {
+                      remoteChannel: {
                         im: {
                           workspaceRoot: e.target.value
                         }
@@ -197,12 +197,12 @@ export function ClawSettingsSection({ ctx }: { ctx: ClawSettingsContext }): Reac
       </SettingsCard>
 
       <SettingsCard title={t('clawManageAgents')} className="mt-6">
-        {form.claw.channels.length === 0 ? (
+        {form.remoteChannel.channels.length === 0 ? (
           <div className="px-3 py-4 text-[13px] leading-6 text-ds-muted">
             {t('clawManageAgentsEmpty')}
           </div>
         ) : (
-          form.claw.channels.map((channel) => {
+          form.remoteChannel.channels.map((channel) => {
             const name = channel.agentProfile.name.trim() || channel.label
             const discord = discordCredential(channel)
             const discordConflict = hasDiscordGuardConflict(form, channel)
@@ -310,7 +310,7 @@ export function ClawSettingsSection({ ctx }: { ctx: ClawSettingsContext }): Reac
                       value={channel.workspaceRoot}
                       onChange={(e) => updateChannel(form, update, channel.id, { workspaceRoot: e.target.value })}
                       placeholder={t('clawWorkspaceInherit', {
-                        path: form.claw.im.workspaceRoot.trim() || form.workspaceRoot
+                        path: form.remoteChannel.im.workspaceRoot.trim() || form.workspaceRoot
                       })}
                     />
                   </label>

@@ -2,8 +2,15 @@ import type { ComponentPropsWithRef, ReactElement } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy, Download, ExternalLink, ImageIcon, Loader2, TriangleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import {
+  hasSafeEmbeddedMediaExtension,
+  isSafeEmbeddedMediaMimeType,
+  normalizeSafeEmbeddedMediaUrl,
+  normalizeSafeRemoteEmbeddedMediaUrl
+} from '@shared/external-url-policy'
 import type { AttachmentReference, RuntimeDisclosureMetadata } from '../../agent/types'
 import { getProvider } from '../../agent/registry'
+import { openSafeExternalUrl } from '../../lib/open-external'
 import { useChatStore } from '../../store/chat-store'
 import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
 import { ImagePreviewLightbox } from './ImagePreviewLightbox'
@@ -39,9 +46,6 @@ type PreviewRequest =
 
 type ImageActionState = 'idle' | 'busy' | 'done' | 'error'
 
-const IMAGE_EXTENSIONS = /\.(?:png|jpe?g|webp|gif|bmp|avif|ico|svg)(?:$|[?#])/i
-const DATA_IMAGE_URL_REGEX = /^data:image\/[a-z0-9.+-]+;base64,/i
-const SAFE_REMOTE_IMAGE_URL_REGEX = /^https?:\/\//i
 const ACTION_RESET_MS = 1600
 
 function readString(raw: Record<string, unknown>, ...keys: string[]): string | undefined {
@@ -196,15 +200,13 @@ function rawPreviewUrl(image: TimelineImageReference): string | undefined {
 }
 
 function isSafePreviewUrl(value: string | undefined): boolean {
-  if (!value) return false
-  return DATA_IMAGE_URL_REGEX.test(value) || SAFE_REMOTE_IMAGE_URL_REGEX.test(value)
+  return normalizeSafeEmbeddedMediaUrl(value) !== null
 }
 
 function isImageReference(image: TimelineImageReference): boolean {
-  const mimeType = image.mimeType?.toLowerCase() ?? ''
-  if (mimeType.startsWith('image/')) return true
+  if (isSafeEmbeddedMediaMimeType(image.mimeType)) return true
   const source = [image.name, image.fileName, image.path, image.relativePath, image.absolutePath, image.url].find(Boolean)
-  if (source && IMAGE_EXTENSIONS.test(source)) return true
+  if (source && hasSafeEmbeddedMediaExtension(source)) return true
   return isSafePreviewUrl(rawPreviewUrl(image))
 }
 
@@ -265,12 +267,16 @@ function usePreviewState(images: TimelineImageReference[]): PreviewState {
             ...(activeThreadId ? { threadId: activeThreadId } : {}),
             ...(workspaceRoot ? { workspace: workspaceRoot } : {})
           })
-          if (!content.attachment.mimeType.startsWith('image/')) {
+          if (!isSafeEmbeddedMediaMimeType(content.attachment.mimeType)) {
             return { key: request.key, failed: 'Attachment is not an image.' }
+          }
+          const previewUrl = normalizeSafeEmbeddedMediaUrl(`data:${content.attachment.mimeType};base64,${content.dataBase64}`)
+          if (!previewUrl) {
+            return { key: request.key, failed: 'Attachment image type is not supported.' }
           }
           return {
             key: request.key,
-            previewUrl: `data:${content.attachment.mimeType};base64,${content.dataBase64}`,
+            previewUrl,
             path: content.attachment.localFilePath
           }
         }
@@ -344,9 +350,9 @@ function TimelineImageTile({
   const [openState, setOpenState] = useState<ImageActionState>('idle')
   const title = imageTitle(image)
   const sourcePath = resolvedPath || imagePath(image)
-  const sourceUrl = image.url && SAFE_REMOTE_IMAGE_URL_REGEX.test(image.url) ? image.url : undefined
+  const sourceUrl = normalizeSafeRemoteEmbeddedMediaUrl(image.url) ?? undefined
   const rawUrl = rawPreviewUrl(image)
-  const safeRawUrl = isSafePreviewUrl(rawUrl) ? rawUrl : undefined
+  const safeRawUrl = normalizeSafeEmbeddedMediaUrl(rawUrl) ?? undefined
   const src = safeRawUrl || previewUrl
   const copyValue = sourcePath || sourceUrl
   const byteSize = formatByteSize(image.byteSize)
@@ -398,8 +404,7 @@ function TimelineImageTile({
         setOpenState(result.ok ? 'done' : 'error')
         return
       }
-      if (sourceUrl && typeof window.sciforge?.openExternal === 'function') {
-        await window.sciforge.openExternal(sourceUrl)
+      if (await openSafeExternalUrl(sourceUrl)) {
         setOpenState('done')
         return
       }

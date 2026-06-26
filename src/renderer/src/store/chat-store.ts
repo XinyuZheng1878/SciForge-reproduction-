@@ -108,6 +108,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   settingsSection: 'general',
   initialSetupOpen: false,
   initialSetupMode: 'required',
+  connectPhonePanelOpen: false,
   workspaceRoot: '',
   workspaceLabel: i18n.t('common:workingDirectory'),
   runtimeConnection: 'idle',

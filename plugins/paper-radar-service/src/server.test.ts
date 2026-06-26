@@ -8,12 +8,19 @@ import { test } from 'node:test';
 
 import { createPaperRadarServer } from './server.js';
 
-async function withServer(fetchImpl: typeof fetch, run: (base: string) => Promise<void>): Promise<void> {
-  const dbPath = join(mkdtempSync(join(tmpdir(), 'paper-radar-')), 'papers.sqlite');
+const RUNTIME_TOKEN = 'paper-radar-test-token';
+
+async function withServer(
+  fetchImpl: typeof fetch,
+  run: (base: string) => Promise<void>,
+  options: { maxBodyBytes?: number } = {},
+): Promise<void> {
   const server = createPaperRadarServer({
-    dbPath,
+    dbPath: testDbPath(),
     fetchImpl,
+    maxBodyBytes: options.maxBodyBytes,
     now: () => new Date('2026-06-17T00:00:00.000Z'),
+    runtimeToken: RUNTIME_TOKEN,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -25,6 +32,41 @@ async function withServer(fetchImpl: typeof fetch, run: (base: string) => Promis
     await once(server, 'close');
   }
 }
+
+test('requires a runtime token and rejects unauthenticated requests', async () => {
+  assert.throws(
+    () => createPaperRadarServer({ dbPath: testDbPath(), runtimeToken: '' }),
+    /PAPER_RADAR_RUNTIME_TOKEN/,
+  );
+
+  await withServer(stubFetch(), async (base) => {
+    const missing = await fetch(`${base}/health`);
+    assert.equal(missing.status, 401);
+    assert.equal((await missing.json()).error.code, 'UNAUTHORIZED');
+
+    const invalid = await fetch(`${base}/health`, { headers: { authorization: 'Bearer wrong-token' } });
+    assert.equal(invalid.status, 401);
+
+    const health = await fetchJson(`${base}/health`);
+    assert.equal(health.ok, true);
+    assert.equal(health.service, 'sciforge.paper-radar');
+  });
+});
+
+test('caps JSON request bodies before mutating routes run', async () => {
+  await withServer(stubFetch(), async (base) => {
+    const response = await fetch(`${base}/digest`, withAuth({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ keywords: ['protein'.repeat(8)] }),
+    }));
+
+    assert.equal(response.status, 413);
+    const body = await response.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.error.code, 'PAYLOAD_TOO_LARGE');
+  }, { maxBodyBytes: 32 });
+});
 
 test('syncs bioRxiv metadata and searches it locally', async () => {
   await withServer(stubFetch(), async (base) => {
@@ -197,7 +239,17 @@ function jsonResponse(body: unknown): Response {
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
-  return (await fetch(url, init)).json();
+  return (await fetch(url, withAuth(init))).json();
+}
+
+function withAuth(init: RequestInit = {}): RequestInit {
+  const headers = new Headers(init.headers);
+  headers.set('authorization', `Bearer ${RUNTIME_TOKEN}`);
+  return { ...init, headers };
+}
+
+function testDbPath(): string {
+  return join(mkdtempSync(join(tmpdir(), 'paper-radar-')), 'papers.sqlite');
 }
 
 function arxivXml(): string {

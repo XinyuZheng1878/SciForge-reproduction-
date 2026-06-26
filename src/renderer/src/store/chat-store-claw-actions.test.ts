@@ -20,7 +20,7 @@ function channel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1 {
     enabled: true,
     model: 'auto',
     threadId: 'thr-codewhale-channel',
-    workspaceRoot: '/Users/zxy/.sciforge/claw/agent01',
+    workspaceRoot: '/Users/zxy/.sciforge/remote-channel/feishu/feishu/channel-1',
     agentProfile: {
       name: '',
       description: '',
@@ -38,7 +38,7 @@ function channel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1 {
         senderId: 'sender-1',
         senderName: 'Alex',
         localThreadId: 'thr-codewhale-conversation',
-        workspaceRoot: '/Users/zxy/.sciforge/claw/agent01/conversations/chat-1',
+        workspaceRoot: '/Users/zxy/.sciforge/remote-channel/feishu/feishu/channel-1/conversations/chat-1',
         createdAt: now,
         updatedAt: now
       }
@@ -63,7 +63,7 @@ function thread(id: string, title: string, updatedAt = '2026-06-01T00:00:00.000Z
 type TestSettings = {
   workspaceRoot: string
   activeAgentRuntime?: AgentRuntimeId
-  claw: {
+  remoteChannel: {
     enabled: boolean
     im: {
       enabled: boolean
@@ -89,7 +89,7 @@ function settingsWithChannels(
   return {
     workspaceRoot: '/Users/zxy/project',
     activeAgentRuntime,
-    claw: {
+    remoteChannel: {
       enabled: true,
       im: {
         enabled: true,
@@ -110,13 +110,13 @@ function createClawActionHarness(options: {
   let settings = options.settings
   const sciforge = {
     getSettings: vi.fn(async () => settings),
-    setSettings: vi.fn(async (patch: { claw?: { channels?: ClawImChannelV1[] } }) => {
+    setSettings: vi.fn(async (patch: { remoteChannel?: { channels?: ClawImChannelV1[] } }) => {
       settings = {
         ...settings,
-        claw: {
-          ...settings.claw,
-          ...(patch.claw ?? {}),
-          channels: patch.claw?.channels ?? settings.claw.channels
+        remoteChannel: {
+          ...settings.remoteChannel,
+          ...(patch.remoteChannel ?? {}),
+          channels: patch.remoteChannel?.channels ?? settings.remoteChannel.channels
         }
       }
       return settings
@@ -128,7 +128,7 @@ function createClawActionHarness(options: {
     id: 'sciforge' as AgentRuntimeId,
     rememberThreadRuntime: vi.fn<(threadId: string, runtimeId?: AgentRuntimeId) => void>(),
     createThread: vi.fn<(input: { workspace: string; title: string; mode: 'agent' | 'plan' }) => Promise<NormalizedThread>>(
-      async () => thread('created-thread', '[Claw:Feishu Agent01]')
+      async () => thread('created-thread', '[Remote channel:Feishu Agent01]')
     ),
     getThreadDetail: vi.fn<(threadId: string) => Promise<{ blocks: ChatBlock[] }>>(async () => ({ blocks: [] })),
     deleteThread: vi.fn<(threadId: string) => Promise<void>>(async () => undefined),
@@ -144,8 +144,10 @@ function createClawActionHarness(options: {
   state = {
     runtimeConnection: 'ready',
     route: 'chat',
-    clawChannels: settings.claw.channels,
+    connectPhonePanelOpen: false,
+    clawChannels: settings.remoteChannel.channels,
     activeClawChannelId: '',
+    activeRemoteChannelId: null,
     threads: [],
     activeThreadId: '',
     blocks: [],
@@ -251,7 +253,7 @@ describe('chat-store Claw actions helpers', () => {
     const item = channel()
     const recovered = findRecoverableClawThread(
       [
-        thread('empty-claw-thread', '[Claw:Feishu Agent01]', '2026-06-01T00:02:00.000Z'),
+        thread('empty-claw-thread', '[Remote channel:Feishu Agent01]', '2026-06-01T00:02:00.000Z'),
         thread('old-content-thread', `${CLAW_MANAGED_INSTRUCTIONS_HEADING} SciForge scheduled-task tools`, '2026-06-01T00:01:00.000Z')
       ],
       [item],
@@ -261,12 +263,12 @@ describe('chat-store Claw actions helpers', () => {
     expect(recovered?.id).toBe('old-content-thread')
   })
 
-  it('writes recovered provider thread ids back to both channel and conversation', () => {
+  it('writes recovered provider thread ids to the single runtime mapping', () => {
     const now = '2026-06-01T00:03:00.000Z'
     const next = channelWithClawThreadMapping(channel(), 'kun-thread', now, 'conversation-1')
 
-    expect(next.threadId).toBe('kun-thread')
-    expect(next.conversations[0]?.localThreadId).toBe('kun-thread')
+    expect(next.threadId).toBe('thr-codewhale-channel')
+    expect(next.conversations[0]?.localThreadId).toBe('thr-codewhale-conversation')
     expect(next.agentThreadIds).toEqual({ sciforge: 'kun-thread' })
     expect(next.conversations[0]?.agentThreadIds).toEqual({ sciforge: 'kun-thread' })
   })
@@ -300,20 +302,22 @@ describe('chat-store Claw actions helpers', () => {
 
   it('uses the current project workspace when adding a new IM channel without an explicit workspace', async () => {
     const baseChannel = channel({ workspaceRoot: '', threadId: '', conversations: [] })
-    const { actions, sciforge, getSettings } = createClawActionHarness({
+    const { actions, sciforge, getSettings, getState } = createClawActionHarness({
       settings: settingsWithChannels([], 'codex'),
       newClawChannel: () => baseChannel
     })
 
     await actions.addClawChannel('feishu')
 
-    expect(getSettings().claw.channels[0]).toMatchObject({
+    expect(getSettings().remoteChannel.channels[0]).toMatchObject({
       id: 'channel-1',
       runtimeId: 'codex',
       workspaceRoot: '/Users/zxy/project'
     })
+    expect(getState().route).toBe('chat')
+    expect(getState().connectPhonePanelOpen).toBe(true)
     expect(sciforge.setSettings).toHaveBeenCalledWith(expect.objectContaining({
-      claw: expect.objectContaining({
+      remoteChannel: expect.objectContaining({
         channels: [expect.objectContaining({ workspaceRoot: '/Users/zxy/project' })]
       })
     }))
@@ -362,7 +366,7 @@ describe('chat-store Claw actions helpers', () => {
       }]
     })
     const createdThread = {
-      ...thread('created-codex-thread', '[Claw:Feishu Agent01]'),
+      ...thread('created-codex-thread', '[Remote channel:Feishu Agent01]'),
       runtimeId: 'codex' as const
     }
     const { actions, provider, sciforge, getState } = createClawActionHarness({
@@ -373,7 +377,7 @@ describe('chat-store Claw actions helpers', () => {
       },
       state: {
         threads: [{
-          ...thread('recoverable-kun-thread', '[Claw:Feishu Agent01]', '2026-06-01T00:02:00.000Z'),
+          ...thread('recoverable-kun-thread', '[Remote channel:Feishu Agent01]', '2026-06-01T00:02:00.000Z'),
           runtimeId: 'sciforge' as const
         }]
       }
@@ -381,7 +385,7 @@ describe('chat-store Claw actions helpers', () => {
 
     await actions.selectClawChannel('channel-1')
 
-    const savedChannels = sciforge.setSettings.mock.calls.at(-1)?.[0].claw?.channels ?? []
+    const savedChannels = sciforge.setSettings.mock.calls.at(-1)?.[0].remoteChannel?.channels ?? []
     expect(provider.createThread).toHaveBeenCalledTimes(1)
     expect(getState().activeThreadId).toBe('created-codex-thread')
     expect(savedChannels[0]?.agentThreadIds).toEqual({
@@ -465,7 +469,7 @@ describe('chat-store Claw actions helpers', () => {
       }]
     })
     const createdThread = {
-      ...thread('new-codex-thread', '[Claw:Feishu Agent01]'),
+      ...thread('new-codex-thread', '[Remote channel:Feishu Agent01]'),
       runtimeId: 'codex' as const
     }
     const { actions, provider, sciforge } = createClawActionHarness({
@@ -478,7 +482,7 @@ describe('chat-store Claw actions helpers', () => {
 
     await actions.resetClawChannelSession('channel-1')
 
-    const savedChannels = sciforge.setSettings.mock.calls.at(-1)?.[0].claw?.channels ?? []
+    const savedChannels = sciforge.setSettings.mock.calls.at(-1)?.[0].remoteChannel?.channels ?? []
     expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('old-codex-channel-thread', 'codex')
     expect(provider.deleteThread).toHaveBeenCalledWith('old-codex-channel-thread')
     expect(savedChannels[0]).toEqual(expect.objectContaining({
@@ -525,7 +529,7 @@ describe('chat-store Claw actions helpers', () => {
     rendererRuntimeClient.invalidateSettings()
     let settings = {
       workspaceRoot: '/Users/zxy/project',
-      claw: {
+      remoteChannel: {
         enabled: true,
         im: {
           enabled: true,
@@ -537,13 +541,13 @@ describe('chat-store Claw actions helpers', () => {
     }
     const sciforge = {
       getSettings: vi.fn(async () => settings),
-      setSettings: vi.fn(async (patch: { claw?: { channels?: ClawImChannelV1[] } }) => {
+      setSettings: vi.fn(async (patch: { remoteChannel?: { channels?: ClawImChannelV1[] } }) => {
         settings = {
           ...settings,
-          claw: {
-            ...settings.claw,
-            ...(patch.claw ?? {}),
-            channels: patch.claw?.channels ?? settings.claw.channels
+          remoteChannel: {
+            ...settings.remoteChannel,
+            ...(patch.remoteChannel ?? {}),
+            channels: patch.remoteChannel?.channels ?? settings.remoteChannel.channels
           }
         }
         return settings
@@ -561,8 +565,10 @@ describe('chat-store Claw actions helpers', () => {
     let state: Record<string, unknown> = {
       runtimeConnection: 'ready',
       route: 'chat',
-      clawChannels: settings.claw.channels,
+      connectPhonePanelOpen: false,
+      clawChannels: settings.remoteChannel.channels,
       activeClawChannelId: '',
+      activeRemoteChannelId: null,
       threads: [],
       activeThreadId: 'thr_previous',
       blocks: [{ kind: 'user', id: 'u1', text: 'hello' }],

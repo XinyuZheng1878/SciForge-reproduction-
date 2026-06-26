@@ -214,14 +214,14 @@ describe('chat-store-navigation-actions refreshThreads', () => {
 })
 
 describe('chat-store-runtime helper defaults', () => {
-  it('remembers legacy threads without a runtime id as SciForge threads', () => {
+  it('does not remember legacy threads without a runtime id as SciForge threads', () => {
     const provider = {
       rememberThreadRuntime: vi.fn<(threadId: string, runtimeId?: AgentRuntimeId) => void>()
     }
 
     rememberProviderThreadRuntime(provider, 'legacy-thread', [thread('legacy-thread')])
 
-    expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('legacy-thread', 'sciforge')
+    expect(provider.rememberThreadRuntime).not.toHaveBeenCalled()
   })
 })
 
@@ -309,7 +309,7 @@ describe('syncClawChannelActivityToStore', () => {
     }
     registryMock.getProvider.mockReturnValue(provider)
     runtimeClientMock.getSettings.mockResolvedValue({
-      claw: {
+      remoteChannel: {
         channels: [{
           id: 'channel-1',
           enabled: true,
@@ -323,6 +323,7 @@ describe('syncClawChannelActivityToStore', () => {
     const state = {
       activeClawChannelId: '',
       activeThreadId: 'desktop-thread',
+      connectPhonePanelOpen: false,
       clawChannels: [],
       recoverActiveTurn: vi.fn(async () => true),
       refreshThreads: vi.fn(async () => undefined),
@@ -377,6 +378,25 @@ describe('syncClawChannelActivityToStore', () => {
     expect(state.refreshThreads).toHaveBeenCalledTimes(1)
     expect(state.unreadThreadIds['remote-thread']).toBe(true)
     expect(state.watchTurnCompletion['remote-thread']).toBe(true)
+  })
+
+  it('follows phone activity while the Connect phone panel is open', async () => {
+    const { state } = buildActivityHarness({ connectPhonePanelOpen: true })
+    const set: ChatStoreSet = (partial) => {
+      const update = typeof partial === 'function' ? partial(state) : partial
+      Object.assign(state, update)
+    }
+
+    await syncClawChannelActivityToStore(set, () => state, {
+      channelId: 'channel-1',
+      threadId: 'remote-thread',
+      runtimeId: 'codex'
+    })
+
+    expect(state.activeClawChannelId).toBe('channel-1')
+    expect(state.selectClawConversation).toHaveBeenCalledWith('channel-1', 'remote-thread')
+    expect(state.refreshThreads).not.toHaveBeenCalled()
+    expect(state.unreadThreadIds['remote-thread']).toBeUndefined()
   })
 
   it('follows a replacement thread when phone activity replaces the current desktop thread', async () => {

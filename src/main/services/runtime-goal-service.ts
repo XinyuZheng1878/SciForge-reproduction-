@@ -1,14 +1,18 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
 import type {
   AgentRuntimeId,
   AgentRuntimeThreadGoal,
   AgentRuntimeThreadGoalStatus
 } from '../../shared/agent-runtime-contract'
+import {
+  atomicWriteAppDataJson,
+  readAppDataStoreText
+} from './app-data-store'
 
 type StoredRuntimeGoals = {
   goals: AgentRuntimeThreadGoal[]
 }
+
+const RUNTIME_GOALS_STORE = ['runtime-goals', 'goals.json'] as const
 
 export type RuntimeGoalPatch = {
   objective?: string
@@ -91,7 +95,7 @@ export class RuntimeGoalService {
 
   private async load(): Promise<StoredRuntimeGoals> {
     if (!this.loaded) {
-      this.loaded = readFile(runtimeGoalsPath(this.dataDir), 'utf8')
+      this.loaded = readAppDataStoreText(this.dataDir, RUNTIME_GOALS_STORE)
         .then((raw) => normalizeStore(JSON.parse(raw) as unknown))
         .catch(() => ({ goals: [] }))
     }
@@ -99,14 +103,8 @@ export class RuntimeGoalService {
   }
 
   private async save(store: StoredRuntimeGoals): Promise<void> {
-    const path = runtimeGoalsPath(this.dataDir)
-    await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, JSON.stringify(normalizeStore(store), null, 2), 'utf8')
+    await atomicWriteAppDataJson(this.dataDir, RUNTIME_GOALS_STORE, normalizeStore(store))
   }
-}
-
-function runtimeGoalsPath(dataDir: string): string {
-  return join(resolve(dataDir), 'runtime-goals', 'goals.json')
 }
 
 function normalizeStore(value: unknown): StoredRuntimeGoals {

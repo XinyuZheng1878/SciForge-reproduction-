@@ -88,6 +88,11 @@ import {
 } from '../lib/plugin-install-state'
 import { collectComposerChangeSummary } from '../lib/composer-change-summary'
 import {
+  createRemoteChannelTaskFromTextApi,
+  mirrorRemoteChannelMessageApi,
+  updateRemoteChannelActiveThreadContextApi
+} from '../lib/remote-channel-api'
+import {
   buildComposerFileContextPrompt,
   composerFileReferenceKey,
   mergeComposerFileReferences,
@@ -455,12 +460,15 @@ export function Workbench(): ReactElement {
     busy,
     route,
     pluginHostRoute,
+    connectPhonePanelOpen,
     workspaceRoot,
     runtimeConnection,
     activeAgentRuntime,
     setRoute,
     openSettings,
     openPlugins,
+    openConnectPhone,
+    setConnectPhonePanelOpen,
     openSchedule,
     openWorkflow,
     chooseWorkspace,
@@ -514,12 +522,15 @@ export function Workbench(): ReactElement {
       busy: s.busy,
       route: s.route,
       pluginHostRoute: s.pluginHostRoute,
+      connectPhonePanelOpen: s.connectPhonePanelOpen,
       workspaceRoot: s.workspaceRoot,
       runtimeConnection: s.runtimeConnection,
       activeAgentRuntime: s.activeAgentRuntime,
       setRoute: s.setRoute,
       openSettings: s.openSettings,
       openPlugins: s.openPlugins,
+      openConnectPhone: s.openConnectPhone,
+      setConnectPhonePanelOpen: s.setConnectPhonePanelOpen,
       openSchedule: s.openSchedule,
       openWorkflow: s.openWorkflow,
       chooseWorkspace: s.chooseWorkspace,
@@ -571,7 +582,6 @@ export function Workbench(): ReactElement {
   const [composerFileReferences, setComposerFileReferences] = useState<ComposerFileReference[]>([])
   const [attachmentUploadBusy, setAttachmentUploadBusy] = useState(false)
   const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null)
-  const [connectPhoneSidebarOpen, setConnectPhoneSidebarOpen] = useState(false)
   const [runtimeLogPath, setRuntimeLogPath] = useState('')
   const assistantModel = useWriteWorkspaceStore((s) => s.assistantModel)
   const setAssistantModel = useWriteWorkspaceStore((s) => s.setAssistantModel)
@@ -636,9 +646,6 @@ export function Workbench(): ReactElement {
       : null,
     [activeRemoteChannelId, clawChannels]
   )
-  useEffect(() => {
-    if (route === 'claw') setRoute('chat')
-  }, [route, setRoute])
   const activeThread = useMemo(
     () => threads.find((thread) => thread.id === activeThreadId) ?? null,
     [activeThreadId, threads]
@@ -654,6 +661,14 @@ export function Workbench(): ReactElement {
   const activeRemoteBinding = activeThreadId
     ? remoteThreadBindings.get(activeThreadId) ?? null
     : null
+  const activeThreadIsRemoteChannel = Boolean(
+    activeRemoteBinding ||
+    (activeThread && isClawThread(activeThread, clawChannels))
+  )
+  const activeRemoteComposerChannel = activeRemoteBinding
+    ? clawChannels.find((channel) => channel.id === activeRemoteBinding.channelId) ?? activeClawChannel
+    : activeClawChannel
+  const activeRemoteComposerChannelId = activeRemoteComposerChannel?.id ?? activeClawChannelId
   const activeRemoteStatusKind = activeThreadId
     ? deriveClawThreadRemoteStatusKind({
         binding: activeRemoteBinding,
@@ -698,12 +713,15 @@ export function Workbench(): ReactElement {
     [fileTreeWorkspaceOverride, t, workspaceReferenceGroups]
   )
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.sciforge?.updateClawActiveThreadContext !== 'function') return
-    if (!activeThreadId || route === 'claw' || (activeThread && isClawThread(activeThread, clawChannels))) {
-      void window.sciforge.updateClawActiveThreadContext(null).catch(() => undefined)
+    const updateRemoteChannelActiveThreadContext = typeof window !== 'undefined'
+      ? updateRemoteChannelActiveThreadContextApi(window.sciforge)
+      : undefined
+    if (typeof updateRemoteChannelActiveThreadContext !== 'function') return
+    if (!activeThreadId || (activeThread && isClawThread(activeThread, clawChannels))) {
+      void updateRemoteChannelActiveThreadContext(null).catch(() => undefined)
       return
     }
-    void window.sciforge.updateClawActiveThreadContext({
+    void updateRemoteChannelActiveThreadContext({
       threadId: activeThreadId,
       runtimeId: activeThread?.runtimeId,
       workspaceRoot: activeThread?.workspace || workspaceRoot || undefined
@@ -883,14 +901,15 @@ export function Workbench(): ReactElement {
   )
 
   const mirrorClawCommand = async (userText: string, replyText: string): Promise<void> => {
-    if (!activeThreadId || typeof window.sciforge?.mirrorClawChannelMessage !== 'function') return
-    const userResult = await window.sciforge.mirrorClawChannelMessage(
+    const mirrorRemoteChannelMessage = mirrorRemoteChannelMessageApi(window.sciforge)
+    if (!activeThreadId || typeof mirrorRemoteChannelMessage !== 'function') return
+    const userResult = await mirrorRemoteChannelMessage(
       activeThreadId,
       userText,
       'user'
     )
     if (!userResult.ok) return
-    await window.sciforge.mirrorClawChannelMessage(
+    await mirrorRemoteChannelMessage(
       activeThreadId,
       replyText,
       'assistant'
@@ -1743,30 +1762,16 @@ export function Workbench(): ReactElement {
       void handleGuiPlanCommand(planCommand.kind === 'create' ? planCommand.request : undefined)
       return
     }
-    if (route === 'chat' && mode === 'plan') {
-      const prepared = await prepareChatMessage()
-      if (!prepared) return
-      setInput('')
-      clearComposerAttachments()
-      clearComposerFileReferences()
-      void sendPlanTurn(prepared.text, {
-        ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
-        ...(reasoningEffort ? { reasoningEffort } : {}),
-        ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
-        ...(fileReferences.length ? { fileReferences } : {})
-      })
-      return
-    }
-    if (route === 'claw') {
+    if (activeThreadIsRemoteChannel) {
       const command = parseClawCommand(v)
       if (command?.kind === 'clear') {
-        if (!activeClawChannelId) {
+        if (!activeRemoteComposerChannelId) {
           setError(t('clawNoActiveIm'))
           return
         }
         setInput('')
         void (async () => {
-          await resetClawChannelSession(activeClawChannelId)
+          await resetClawChannelSession(activeRemoteComposerChannelId)
           const replyText = t('clawNewSessionStarted')
           appendLocalClawTurn(v, replyText)
           await mirrorClawCommand(v, replyText)
@@ -1781,13 +1786,13 @@ export function Workbench(): ReactElement {
         return
       }
       if (command?.kind === 'model') {
-        if (!activeClawChannelId) {
+        if (!activeRemoteComposerChannelId) {
           setError(t('clawNoActiveIm'))
           return
         }
         setInput('')
         void (async () => {
-          await setClawChannelModel(activeClawChannelId, command.model)
+          await setClawChannelModel(activeRemoteComposerChannelId, command.model)
           const replyText = t('clawModelChanged', { model: command.model })
           appendLocalClawTurn(v, replyText)
           await mirrorClawCommand(v, replyText)
@@ -1795,13 +1800,13 @@ export function Workbench(): ReactElement {
         return
       }
       if (command?.kind === 'showModel') {
-        if (!activeClawChannelId) {
+        if (!activeRemoteComposerChannelId) {
           setError(t('clawNoActiveIm'))
           return
         }
         setInput('')
         const replyText = t('clawModelCurrent', {
-          model: activeClawChannel?.model ?? 'auto'
+          model: activeRemoteComposerChannel?.model ?? 'auto'
         })
         appendLocalClawTurn(v, replyText)
         void mirrorClawCommand(v, replyText)
@@ -1811,16 +1816,17 @@ export function Workbench(): ReactElement {
         setError(t('clawModelCommandHint'))
         return
       }
-      if (!activeClawChannelId) {
+      if (!activeRemoteComposerChannelId) {
         setError(t('clawNoActiveIm'))
         return
       }
       setInput('')
       void (async () => {
-        const taskResult = typeof window.sciforge?.createClawTaskFromText === 'function'
-          ? await window.sciforge.createClawTaskFromText(v, {
-              channelId: activeClawChannelId,
-              modelHint: activeClawChannel?.model,
+        const createRemoteChannelTaskFromText = createRemoteChannelTaskFromTextApi(window.sciforge)
+        const taskResult = typeof createRemoteChannelTaskFromText === 'function'
+          ? await createRemoteChannelTaskFromText(v, {
+              channelId: activeRemoteComposerChannelId,
+              modelHint: activeRemoteComposerChannel?.model,
               mode
             })
           : { kind: 'noop' as const }
@@ -1834,7 +1840,7 @@ export function Workbench(): ReactElement {
           return
         }
         if (!activeThreadId) {
-          await selectClawChannel(activeClawChannelId)
+          await selectClawChannel(activeRemoteComposerChannelId)
           await useChatStore.getState().sendMessage(v, mode === 'plan' ? 'plan' : 'agent', {
             ...(reasoningEffort ? { reasoningEffort } : {})
           })
@@ -1844,6 +1850,20 @@ export function Workbench(): ReactElement {
           ...(reasoningEffort ? { reasoningEffort } : {})
         })
       })()
+      return
+    }
+    if (route === 'chat' && mode === 'plan') {
+      const prepared = await prepareChatMessage()
+      if (!prepared) return
+      setInput('')
+      clearComposerAttachments()
+      clearComposerFileReferences()
+      void sendPlanTurn(prepared.text, {
+        ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
+        ...(fileReferences.length ? { fileReferences } : {})
+      })
       return
     }
     const prepared = await prepareChatMessage()
@@ -1863,11 +1883,11 @@ export function Workbench(): ReactElement {
     void (async () => {
       const thread = threads.find((item) => item.id === id) ?? null
       if (await openSddRequirementDraftFromSidebarThread(id, thread)) {
-        setConnectPhoneSidebarOpen(false)
+        setConnectPhonePanelOpen(false)
         return
       }
       if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
-      setConnectPhoneSidebarOpen(false)
+      setConnectPhonePanelOpen(false)
       setRoute('chat')
       getProvider().rememberThreadRuntime?.(id, runtimeId)
       await selectThread(id)
@@ -1876,39 +1896,43 @@ export function Workbench(): ReactElement {
 
   const startNewChat = (): void => {
     if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
-    setConnectPhoneSidebarOpen(false)
+    setConnectPhonePanelOpen(false)
     setRoute('chat')
     void createThread({ forceNew: true })
   }
 
   const startNewChatInWorkspace = (workspaceRoot: string): void => {
     if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
-    setConnectPhoneSidebarOpen(false)
+    setConnectPhonePanelOpen(false)
     setRoute('chat')
     void createThread({ workspaceRoot, forceNew: true })
   }
 
   const openPluginsView = (): void => {
-    setConnectPhoneSidebarOpen(false)
+    setConnectPhonePanelOpen(false)
     openPlugins('chat')
   }
 
   const openScheduleView = (): void => {
-    setConnectPhoneSidebarOpen(false)
+    setConnectPhonePanelOpen(false)
     openSchedule()
   }
 
   const openWorkflowView = (): void => {
-    setConnectPhoneSidebarOpen(false)
+    setConnectPhonePanelOpen(false)
     openWorkflow()
   }
 
   const toggleConnectPhone = (): void => {
     if (activeSddDraft) dismissActiveSddDraft({ closeAssistant: true })
-    setConnectPhoneSidebarOpen((open) => !open)
+    if (connectPhonePanelOpen) {
+      setConnectPhonePanelOpen(false)
+    } else {
+      openConnectPhone()
+    }
   }
 
-  const sidebarView: 'chat' | 'claw' | 'schedule' | 'workflow' =
+  const sidebarView: 'chat' | 'schedule' | 'workflow' =
     route === 'schedule'
         ? 'schedule'
       : route === 'workflow'
@@ -2078,7 +2102,7 @@ export function Workbench(): ReactElement {
               threads={codeThreads}
               activeThreadId={activeThreadId}
               activeView={sidebarView}
-              connectPhoneSidebarOpen={connectPhoneSidebarOpen}
+              connectPhoneSidebarOpen={connectPhonePanelOpen}
               pluginsActive={route === 'plugins'}
               runtimeReady={runtimeConnection === 'ready'}
               threadSearch={threadSearch}
@@ -2235,7 +2259,7 @@ export function Workbench(): ReactElement {
               <RemoteGuardDetailView
                 channel={activeRemoteChannel}
                 onOpenThread={openThread}
-                onOpenSettings={() => setConnectPhoneSidebarOpen(true)}
+                onOpenSettings={openConnectPhone}
                 t={t}
               />
             ) : (
@@ -2274,19 +2298,19 @@ export function Workbench(): ReactElement {
                     runtimeReady={runtimeConnection === 'ready'}
                     hasActiveThread={Boolean(activeThreadId)}
                     composerModel={
-                      route === 'claw'
-                        ? clawChannels.find((channel) => channel.id === activeClawChannelId)?.model ?? 'auto'
+                      activeThreadIsRemoteChannel
+                        ? activeRemoteComposerChannel?.model ?? 'auto'
                         : composerModel
                     }
                     composerPickList={composerPickList}
                     composerModelGroups={composerModelGroups}
                     activeAgentRuntime={activeAgentRuntime}
                     composerReasoningEffort={
-                      route === 'chat' || route === 'claw' ? composerReasoningEffort : undefined
+                      route === 'chat' ? composerReasoningEffort : undefined
                     }
                     onComposerModelChange={(modelId) => {
-                      if (route === 'claw' && activeClawChannelId) {
-                        void setClawChannelModel(activeClawChannelId, modelId)
+                      if (activeThreadIsRemoteChannel && activeRemoteComposerChannelId) {
+                        void setClawChannelModel(activeRemoteComposerChannelId, modelId)
                         return
                       }
                       setComposerModel(modelId)
@@ -2295,14 +2319,14 @@ export function Workbench(): ReactElement {
                       void setActiveAgentRuntime(runtimeId)
                     }}
                     onComposerReasoningEffortChange={
-                      route === 'chat' || route === 'claw' ? setComposerReasoningEffort : undefined
+                      route === 'chat' ? setComposerReasoningEffort : undefined
                     }
                     onSend={handleSend}
                     attachments={composerAttachments}
                     attachmentUploadEnabled={attachmentUploadEnabled}
                     attachmentUploadBusy={attachmentUploadBusy}
                     attachmentUploadError={attachmentUploadError}
-                    fileReferenceEnabled={route === 'chat' && !activeSddDraft}
+                    fileReferenceEnabled={route === 'chat' && !activeSddDraft && !activeThreadIsRemoteChannel}
                     fileReferences={composerFileReferences}
                     webAccessAvailable={webAccessAvailable}
                     changedFiles={composerChangeSummary?.files}

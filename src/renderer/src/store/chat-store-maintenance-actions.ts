@@ -61,7 +61,6 @@ import {
 } from './chat-store-schedulers'
 import {
   armBusyWatchdog,
-  buildFollowupMessageFromUserInput,
   buildThreadEventSink,
   clearWatchedCompletionNotification,
   finalizeTurnTiming,
@@ -709,48 +708,10 @@ export function createMaintenanceActions(
     const p = getProvider()
     try {
       if (action.kind === 'submit') {
-        const state = get()
         if (typeof p.submitUserInputResponse !== 'function') {
           throw new Error(i18n.t('common:runtimeUserInputUnsupported'))
         }
-        try {
-          await p.submitUserInputResponse(block.requestId, action.answers)
-        } catch (fallbackErr) {
-          const activeThreadId = state.activeThreadId
-          const currentTurnId = state.currentTurnId
-          if (
-            getRuntimeErrorCode(fallbackErr) === 'runtime_request_user_input_unsupported' &&
-            typeof p.interruptTurn === 'function' &&
-            activeThreadId &&
-            currentTurnId
-          ) {
-            const activeThread = state.threads.find((thread) => thread.id === activeThreadId)
-            const followupText = buildFollowupMessageFromUserInput(block.questions, action.answers)
-            set((s) => ({
-              queuedMessages: [
-                ...s.queuedMessages,
-                {
-                  id: `q-${Date.now()}-${s.queuedMessages.length}`,
-                  threadId: activeThreadId,
-                  ...(activeThread?.runtimeId ? { runtimeId: activeThread.runtimeId } : {}),
-                  text: followupText
-                }
-              ],
-              blocks: s.blocks.map((b) =>
-                b.id === blockId && b.kind === 'user_input'
-                  ? { ...b, status: 'submitted' as const, answers: action.answers }
-                : b
-              )
-            }))
-            rememberActionThreadRuntime(p, get, activeThreadId)
-            await p.interruptTurn(activeThreadId, currentTurnId)
-            settleInterruptedTurn(set, get)
-            void get().refreshThreads()
-            void get().drainQueuedMessages()
-            return
-          }
-          throw fallbackErr
-        }
+        await p.submitUserInputResponse(block.requestId, action.answers)
         if (get().busy) armBusyWatchdog(set, get)
         set((s) => ({
           blocks: s.blocks.map((b) =>

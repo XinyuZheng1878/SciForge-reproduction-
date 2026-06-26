@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
-import { open, readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { lstat, open, readdir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import {
   isAbsolute,
@@ -402,10 +403,10 @@ export class RuntimeInspectorService {
       )
       const includePatches = request.include_patches !== false
       const stagedPatch = includePatches
-        ? await readTextFileChunk(join(checkpointDir(checkpointDataDir, checkpointId), 'staged.patch'), request.staged_offset ?? 0, maxBytes)
+        ? await readCheckpointTextFileChunk(checkpointDataDir, checkpointId, 'staged.patch', request.staged_offset ?? 0, maxBytes)
         : undefined
       const unstagedPatch = includePatches
-        ? await readTextFileChunk(join(checkpointDir(checkpointDataDir, checkpointId), 'unstaged.patch'), request.unstaged_offset ?? 0, maxBytes)
+        ? await readCheckpointTextFileChunk(checkpointDataDir, checkpointId, 'unstaged.patch', request.unstaged_offset ?? 0, maxBytes)
         : undefined
       return {
         ok: true,
@@ -771,6 +772,7 @@ function parseBranchLine(line: string): GitBranchSummary | null {
 
 function diffArgs(scope: GitDiffScope, options: string[], path: string | undefined): string[] {
   return [
+    '--literal-pathspecs',
     'diff',
     '--no-ext-diff',
     ...(scope === 'staged' ? ['--cached'] : []),
@@ -906,7 +908,9 @@ function gitErrorText(error: unknown): string {
 
 async function readCheckpointMetadata(dataDir: string, checkpointId: string): Promise<CheckpointMetadata | null> {
   try {
-    const raw = JSON.parse(await readFile(join(checkpointDir(dataDir, checkpointId), 'metadata.json'), 'utf8')) as unknown
+    const metadata = await readCheckpointFile(dataDir, checkpointId, 'metadata.json')
+    if (!metadata) return null
+    const raw = JSON.parse(metadata) as unknown
     const record = asRecord(raw)
     const id = stringValue(record.checkpointId)
     const runtimeId = stringValue(record.runtimeId)
@@ -963,6 +967,43 @@ function checkpointDir(dataDir: string, checkpointId: string): string {
   return join(resolve(dataDir), 'git-checkpoints', checkpointId)
 }
 
+async function readCheckpointFile(dataDir: string, checkpointId: string, fileName: string): Promise<string | null> {
+  const path = await safeCheckpointFilePath(dataDir, checkpointId, fileName)
+  if (!path) return null
+  const file = await open(path, readOnlyNoFollowFlags()).catch(() => null)
+  if (!file) return null
+  try {
+    return await file.readFile('utf8')
+  } finally {
+    await file.close()
+  }
+}
+
+async function safeCheckpointFilePath(dataDir: string, checkpointId: string, fileName: string): Promise<string | null> {
+  if (fileName.includes('/') || fileName.includes('\\')) return null
+  const checkpointRoot = resolve(dataDir, 'git-checkpoints')
+  const dir = checkpointDir(dataDir, checkpointId)
+  const path = join(dir, fileName)
+  const [rootReal, dirInfo, fileInfo] = await Promise.all([
+    realpath(checkpointRoot).catch(() => null),
+    lstat(dir).catch(() => null),
+    lstat(path).catch(() => null)
+  ])
+  if (!rootReal || !dirInfo?.isDirectory() || !fileInfo?.isFile()) return null
+  const [dirReal, fileReal] = await Promise.all([
+    realpath(dir).catch(() => null),
+    realpath(path).catch(() => null)
+  ])
+  if (!dirReal || !fileReal) return null
+  if (!isPathWithin(rootReal, dirReal) || !isPathWithin(dirReal, fileReal)) return null
+  return path
+}
+
+function isPathWithin(root: string, target: string): boolean {
+  const rel = relative(root, target)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
 function safeCheckpointId(raw: string): string {
   const value = raw.trim()
   if (!/^[A-Za-z0-9._-]{1,160}$/.test(value)) {
@@ -971,14 +1012,27 @@ function safeCheckpointId(raw: string): string {
   return value
 }
 
+async function readCheckpointTextFileChunk(
+  dataDir: string,
+  checkpointId: string,
+  fileName: string,
+  offset: number,
+  maxBytes: number
+): Promise<ProcessChunk> {
+  const path = await safeCheckpointFilePath(dataDir, checkpointId, fileName)
+  if (!path) return emptyTextFileChunk(offset)
+  return readTextFileChunk(path, offset, maxBytes)
+}
+
 async function readTextFileChunk(path: string, offset: number, maxBytes: number): Promise<ProcessChunk> {
-  const info = await stat(path).catch(() => null)
-  if (!info || info.size === 0) {
-    return { text: '', offset, bytesRead: 0, truncated: false }
-  }
-  const safeOffset = Math.min(offset, info.size)
-  const file = await open(path, 'r')
+  const fileInfo = await lstat(path).catch(() => null)
+  if (!fileInfo?.isFile() || fileInfo.size === 0) return emptyTextFileChunk(offset)
+  const file = await open(path, readOnlyNoFollowFlags()).catch(() => null)
+  if (!file) return emptyTextFileChunk(offset)
   try {
+    const info = await file.stat()
+    if (!info.isFile() || info.size === 0) return emptyTextFileChunk(offset)
+    const safeOffset = Math.min(offset, info.size)
     const buffer = Buffer.alloc(Math.min(maxBytes + 1, Math.max(0, info.size - safeOffset)))
     const result = await file.read(buffer, 0, buffer.length, safeOffset)
     const truncated = safeOffset + result.bytesRead < info.size || result.bytesRead > maxBytes
@@ -994,6 +1048,14 @@ async function readTextFileChunk(path: string, offset: number, maxBytes: number)
   } finally {
     await file.close()
   }
+}
+
+function emptyTextFileChunk(offset: number): ProcessChunk {
+  return { text: '', offset, bytesRead: 0, truncated: false }
+}
+
+function readOnlyNoFollowFlags(): number {
+  return constants.O_RDONLY | constants.O_NOFOLLOW
 }
 
 function endpointSummary(id: 'model-router' | 'local-runtime', label: string, baseUrl: string): {

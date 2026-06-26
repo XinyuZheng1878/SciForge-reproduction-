@@ -21,6 +21,7 @@ import {
 } from '../lib/thread-fork-registry'
 import { workspaceLabelFromPath } from '../lib/workspace-label'
 import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
+import { onRemoteChannelActivityApi } from '../lib/remote-channel-api'
 import { buildClawRuntimePrompt, getActiveAgentApiKey, getActiveAgentRuntime, type AgentRuntimeId } from '@shared/app-settings'
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import {
@@ -104,20 +105,20 @@ export async function syncClawChannelActivityToStore(
   const state = get()
   const previousThreadId = payload.previousThreadId?.trim() ?? ''
   const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
-  const channels = settings.claw.channels
+  const channels = settings.remoteChannel.channels
   const activityChannel = channels.find((channel) => channel.id === payload.channelId && channel.enabled)
   const activeChannelId = channels.some(
     (channel) => channel.id === state.activeClawChannelId && channel.enabled
   )
     ? state.activeClawChannelId
     : channels.find((channel) => channel.enabled)?.id ?? ''
-  const nextActiveChannelId = state.route === 'claw' && activityChannel ? payload.channelId : activeChannelId
+  const nextActiveChannelId = state.connectPhonePanelOpen && activityChannel ? payload.channelId : activeChannelId
   set({ clawChannels: channels, activeClawChannelId: nextActiveChannelId })
 
   const provider = getProvider()
   provider.rememberThreadRuntime?.(threadId, payload.runtimeId)
 
-  if (state.route === 'claw' && activityChannel) {
+  if (state.connectPhonePanelOpen && activityChannel) {
     if (state.activeThreadId === threadId) {
       await get().recoverActiveTurn()
     } else {
@@ -271,8 +272,9 @@ export function createNavigationActions(
         applyTheme(settings.theme)
         applyUiFontScale(settings.uiFontScale)
         await get().applyI18nFromSettings(settings.locale)
-        if (!clawChannelActivityUnsubscribe && typeof window.sciforge.onClawChannelActivity === 'function') {
-          clawChannelActivityUnsubscribe = window.sciforge.onClawChannelActivity(({
+        const onRemoteChannelActivity = onRemoteChannelActivityApi(window.sciforge)
+        if (!clawChannelActivityUnsubscribe && typeof onRemoteChannelActivity === 'function') {
+          clawChannelActivityUnsubscribe = onRemoteChannelActivity(({
             channelId,
             threadId,
             runtimeId,
@@ -294,8 +296,8 @@ export function createNavigationActions(
           hiddenCodeWorkspaceRoots,
           workspaceLabel: workspaceLabelFromPath(workspaceRoot),
           activeAgentRuntime: getActiveAgentRuntime(settings),
-          clawChannels: settings.claw.channels,
-          activeClawChannelId: settings.claw.channels.find((channel) => channel.enabled)?.id ?? '',
+          clawChannels: settings.remoteChannel.channels,
+          activeClawChannelId: settings.remoteChannel.channels.find((channel) => channel.enabled)?.id ?? '',
           runtimeConnection: needsInitialSetup ? 'idle' : get().runtimeConnection,
           error: needsInitialSetup ? null : get().error,
           runtimeErrorDetail: needsInitialSetup ? null : get().runtimeErrorDetail

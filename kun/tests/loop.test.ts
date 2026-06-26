@@ -1934,12 +1934,16 @@ describe('AgentLoop', () => {
     const compactor = new ContextCompactor({
       contextCompaction: {
         defaultSoftThreshold: 123,
-        defaultHardThreshold: 456,
-        modelProfiles: {
+        defaultHardThreshold: 456
+      },
+      models: {
+        profiles: {
           'custom-model': {
             aliases: ['vendor/custom-model'],
-            softThreshold: 1_000,
-            hardThreshold: 2_000
+            contextCompaction: {
+              softThreshold: 1_000,
+              hardThreshold: 2_000
+            }
           }
         }
       }

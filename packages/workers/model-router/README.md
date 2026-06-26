@@ -2,7 +2,7 @@
 
 Standalone provider-compatible `/v1/responses` facade for SciForge multimodal routing.
 
-The router is a deterministic orchestrator. It selects registered profile roles, translates visual inputs into text observations, runs a bounded supplement loop, and writes refs-first trace bundles under `.sciforge/model-router-traces`. It does not plan tasks, choose capabilities for agents, execute desktop actions, or silently fall back to unregistered providers.
+The router is a deterministic orchestrator. It selects registered profile roles, translates visual inputs into text observations, runs a bounded supplement loop, and writes refs-first trace bundles under the configured Model Router trace data root. It does not plan tasks, choose capabilities for agents, execute desktop actions, or silently fall back to unregistered providers.
 
 ## Run
 
@@ -20,9 +20,10 @@ export SCIFORGE_TEXT_API_KEY=...
 export SCIFORGE_VISION_BASE_URL=https://vision-provider.example/v1
 export SCIFORGE_VISION_MODEL=private-vision-model
 export SCIFORGE_VISION_API_KEY=...
+export SCIFORGE_MODEL_ROUTER_TRACE_DATA_ROOT=/var/tmp/sciforge-model-router
 ```
 
-`SCIFORGE_MODEL_ROUTER_CONFIG=/path/to/router.config.json` can provide the same `ModelRouterConfig` shape exported by `src/router.ts`. Public UI and audits should show only the router alias/profile/role readiness; provider URLs, API keys, and raw model slugs remain private router configuration.
+`SCIFORGE_MODEL_ROUTER_CONFIG=/path/to/router.config.json` can provide the same `ModelRouterConfig` shape exported by `src/router.ts`. Relative profile `traceRoot` values resolve under `SCIFORGE_MODEL_ROUTER_TRACE_DATA_ROOT` or the platform state-data default, never under the workspace. Public UI and audits should show only the router alias/profile/role readiness; provider URLs, API keys, and raw model slugs remain private router configuration.
 
 ## Trace Audit
 
@@ -30,7 +31,7 @@ Trace bundles are refs-first evidence. They should contain role aliases, hashes,
 
 ```bash
 npm --workspace @sciforge/model-router exec -- node --import tsx tools/model-router-trace-audit.ts \
-  --trace-root .sciforge/model-router-traces \
+  --trace-root "$SCIFORGE_MODEL_ROUTER_TRACE_DATA_ROOT/traces" \
   --known-secret-env SCIFORGE_TEXT_API_KEY \
   --known-secret-env SCIFORGE_VISION_API_KEY \
   --out docs/test-artifacts/model-router-live-trace-audit/report.json

@@ -18,6 +18,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import time
@@ -32,6 +33,15 @@ from .service import Engine
 
 SERVICE_ID = "evidence-dag-engine"
 _UI_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "ui", "index.html")
+API_TOKEN_ENV = "SCIFORGE_EVIDENCE_DAG_API_KEY"
+MAX_JSON_BODY_BYTES_ENV = "SCIFORGE_EVIDENCE_DAG_MAX_BODY_BYTES"
+DEFAULT_MAX_JSON_BODY_BYTES = 1_048_576
+_READ_CHUNK_BYTES = 64 * 1024
+_MAX_CHUNK_LINE_BYTES = 8192
+
+
+class RequestBodyTooLarge(ValueError):
+    pass
 
 
 def _load_ui() -> Optional[str]:
@@ -68,6 +78,8 @@ def err(code: str, message: str, *, retryable: bool = False, operation: str = ""
 
 class Handler(BaseHTTPRequestHandler):
     engine: Engine = None  # type: ignore[assignment]
+    api_token: str = ""
+    max_json_body_bytes: int = DEFAULT_MAX_JSON_BODY_BYTES
 
     def log_message(self, *args):  # silence default stderr spam
         pass
@@ -107,17 +119,127 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    @staticmethod
+    def _normalize_max_body_bytes(value: Any) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return DEFAULT_MAX_JSON_BODY_BYTES
+        return parsed if parsed > 0 else DEFAULT_MAX_JSON_BODY_BYTES
+
+    def _max_body_bytes(self) -> int:
+        return self._normalize_max_body_bytes(self.max_json_body_bytes)
+
+    def _configured_api_token(self) -> str:
+        return (self.api_token or os.environ.get(API_TOKEN_ENV, "")).strip()
+
+    def _request_bearer_token(self) -> str:
+        header = self.headers.get("Authorization", "")
+        scheme, _, token = header.partition(" ")
+        if scheme.lower() != "bearer":
+            return ""
+        return token.strip()
+
+    def _require_auth(self, *, operation: str, request_id: str, started: str) -> bool:
+        expected = self._configured_api_token()
+        if not expected:
+            self._send(503, err("UNAVAILABLE", f"{API_TOKEN_ENV} is required for Evidence DAG JSON APIs",
+                                retryable=True, operation=operation, request_id=request_id, started=started))
+            return False
+        supplied = self._request_bearer_token()
+        if not supplied or not hmac.compare_digest(supplied, expected):
+            self._send(401, err("UNAUTHORIZED", "missing or invalid Evidence DAG bearer token",
+                                operation=operation, request_id=request_id, started=started))
+            return False
+        return True
+
     def do_OPTIONS(self):  # noqa: N802
         self.send_response(204)
         self._cors()
         self.end_headers()
 
     def _body(self) -> dict:
-        length = int(self.headers.get("Content-Length", 0) or 0)
-        if length <= 0:
+        transfer_encoding = self.headers.get("Transfer-Encoding", "")
+        if any(part.strip().lower() == "chunked" for part in transfer_encoding.split(",")):
+            raw = self._read_chunked_body()
+            return self._parse_json_body(raw)
+        if transfer_encoding and transfer_encoding.strip().lower() != "identity":
+            raise ValueError(f"unsupported Transfer-Encoding: {transfer_encoding}")
+
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
             return {}
         try:
-            parsed = json.loads(self.rfile.read(length).decode("utf-8"))
+            length = int(raw_length)
+        except ValueError as exc:
+            raise ValueError("invalid Content-Length") from exc
+        if length < 0:
+            raise ValueError("invalid Content-Length")
+        if length <= 0:
+            return {}
+        max_bytes = self._max_body_bytes()
+        if length > max_bytes:
+            raise RequestBodyTooLarge(f"JSON body exceeds {max_bytes} bytes")
+        raw = self._read_fixed_body(length, max_bytes)
+        return self._parse_json_body(raw)
+
+    def _read_fixed_body(self, length: int, max_bytes: int) -> bytes:
+        chunks: list[bytes] = []
+        remaining = length
+        total = 0
+        while remaining > 0:
+            chunk = self.rfile.read(min(remaining, _READ_CHUNK_BYTES))
+            if not chunk:
+                raise ValueError("request body ended before Content-Length")
+            total += len(chunk)
+            if total > max_bytes:
+                raise RequestBodyTooLarge(f"JSON body exceeds {max_bytes} bytes")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+
+    def _read_chunked_body(self) -> bytes:
+        max_bytes = self._max_body_bytes()
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            line = self.rfile.readline(_MAX_CHUNK_LINE_BYTES + 1)
+            if not line:
+                raise ValueError("chunked body ended before final chunk")
+            if len(line) > _MAX_CHUNK_LINE_BYTES:
+                raise RequestBodyTooLarge(f"chunk header exceeds {_MAX_CHUNK_LINE_BYTES} bytes")
+            size_text = line.split(b";", 1)[0].strip()
+            try:
+                size = int(size_text, 16)
+            except ValueError as exc:
+                raise ValueError("invalid chunk size") from exc
+            if size < 0:
+                raise ValueError("invalid chunk size")
+            if size == 0:
+                self._consume_chunked_trailers()
+                return b"".join(chunks)
+            total += size
+            if total > max_bytes:
+                raise RequestBodyTooLarge(f"JSON body exceeds {max_bytes} bytes")
+            chunk = self.rfile.read(size)
+            if len(chunk) != size:
+                raise ValueError("chunked body ended before declared chunk size")
+            if self.rfile.read(2) != b"\r\n":
+                raise ValueError("invalid chunk framing")
+            chunks.append(chunk)
+
+    def _consume_chunked_trailers(self) -> None:
+        while True:
+            line = self.rfile.readline(_MAX_CHUNK_LINE_BYTES + 1)
+            if not line or line in (b"\r\n", b"\n"):
+                return
+            if len(line) > _MAX_CHUNK_LINE_BYTES:
+                raise RequestBodyTooLarge(f"chunk trailer exceeds {_MAX_CHUNK_LINE_BYTES} bytes")
+
+    @staticmethod
+    def _parse_json_body(raw: bytes) -> dict:
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise ValueError(f"invalid JSON body: {exc}") from exc
         if not isinstance(parsed, dict):
@@ -139,14 +261,16 @@ class Handler(BaseHTTPRequestHandler):
         path, qs = parsed.path, parse_qs(parsed.query)
         if path == "/health":
             return self._send(200, ok({"status": "ok"}, operation="health", request_id=rid, started=started))
-        if path == "/version":
-            return self._send(200, ok({"version": __version__, "service": SERVICE_ID},
-                                      operation="version", request_id=rid, started=started))
         if path in ("/", "/ui", "/ui/"):
             html = _load_ui()
             if html is None:
                 return self._send(404, err("NOT_FOUND", "UI not bundled", operation="ui", request_id=rid, started=started))
             return self._send_html(200, html)
+        if not self._require_auth(operation="get", request_id=rid, started=started):
+            return
+        if path == "/version":
+            return self._send(200, ok({"version": __version__, "service": SERVICE_ID},
+                                      operation="version", request_id=rid, started=started))
         if path == "/threads":
             return self._send(200, ok({"threads": self.engine.list_threads()},
                                       operation="threads", request_id=rid, started=started))
@@ -179,6 +303,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         rid, started = uuid.uuid4().hex, _now()
+        if not self._require_auth(operation="post", request_id=rid, started=started):
+            return
         tid, action = self._thread_route(urlparse(self.path).path)
         if not tid:
             return self._send(404, err("NOT_FOUND", f"no route for {self.path}", operation="post", request_id=rid, started=started))
@@ -237,6 +363,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, err("INVALID_ARGUMENT", "body.doc must be a PROV-JSON object", operation="prov-json.import", request_id=rid, started=started))
                 g = self.engine.import_prov_json(doc)
                 return self._send(200, ok({"summary": g.summary()}, operation="prov-json.import", request_id=rid, started=started))
+        except RequestBodyTooLarge as exc:
+            return self._send(413, err("PAYLOAD_TOO_LARGE", str(exc), operation=action or "post", request_id=rid, started=started))
         except ValueError as exc:
             return self._send(400, err("INVALID_ARGUMENT", str(exc), operation=action or "post", request_id=rid, started=started))
         except KeyError as exc:
@@ -258,8 +386,14 @@ def build_engine() -> Engine:
 
 def serve(host: str = "127.0.0.1", port: int = 3897, engine: Optional[Engine] = None) -> None:
     Handler.engine = engine or build_engine()
+    Handler.api_token = os.environ.get(API_TOKEN_ENV, "").strip()
+    Handler.max_json_body_bytes = Handler._normalize_max_body_bytes(
+        os.environ.get(MAX_JSON_BODY_BYTES_ENV, DEFAULT_MAX_JSON_BODY_BYTES)
+    )
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f"[{SERVICE_ID}] listening on http://{host}:{port}  (llm={'on' if Handler.engine.llm else 'off'})")
+    auth = "on" if Handler.api_token else "missing"
+    print(f"[{SERVICE_ID}] listening on http://{host}:{port}  "
+          f"(llm={'on' if Handler.engine.llm else 'off'}, auth={auth})")
     httpd.serve_forever()
 
 

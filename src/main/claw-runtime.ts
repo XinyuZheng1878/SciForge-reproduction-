@@ -95,7 +95,7 @@ const RECENT_REMOTE_MESSAGE_TTL_MS = 24 * 60 * 60_000
 const ATTACH_CURRENT_ACTIVE_TTL_MS = 10 * 60_000
 const AGENT_RUNTIME_INTERRUPT_TIMEOUT_MS = 5_000
 const UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE =
-  'unsupported_runtime_request: AgentRuntimeHost is required for Claw runtime requests.'
+  'unsupported_runtime_request: AgentRuntimeHost is required for remote channel runtime requests.'
 
 type FeishuClawChannel = ClawImChannelV1 & {
   platformCredential: ClawImFeishuPlatformCredentialV1
@@ -240,7 +240,7 @@ function isChineseLocale(settings: AppSettingsV1): boolean {
 }
 
 function currentImModel(settings: AppSettingsV1, channel?: ClawImChannelV1): string {
-  return channel?.model?.trim() || settings.claw.im.model.trim() || DEFAULT_CLAW_MODEL
+  return channel?.model?.trim() || settings.remoteChannel.im.model.trim() || DEFAULT_CLAW_MODEL
 }
 
 function effectiveImRuntimeModel(
@@ -260,7 +260,7 @@ function effectiveImRuntimeModel(
 }
 
 function currentImMode(settings: AppSettingsV1): ClawRunMode {
-  return settings.claw.im.mode === 'plan' ? 'plan' : 'agent'
+  return settings.remoteChannel.im.mode === 'plan' ? 'plan' : 'agent'
 }
 
 function channelGuardMode(channel?: ClawImChannelV1): NonNullable<ClawImChannelV1['guardMode']> {
@@ -339,9 +339,7 @@ function clawThreadIdForRuntime(
     conversation?.agentThreadIds?.[runtimeId]?.trim() ||
     channel?.agentThreadIds?.[runtimeId]?.trim() ||
     ''
-  if (mapped) return mapped
-  if (runtimeId !== 'sciforge') return ''
-  return conversation?.localThreadId.trim() || channel?.threadId.trim() || ''
+  return mapped
 }
 
 function clawConversationThreadIdForRuntime(
@@ -349,9 +347,7 @@ function clawConversationThreadIdForRuntime(
   runtimeId: AgentRuntimeId
 ): string {
   const mapped = conversation?.agentThreadIds?.[runtimeId]?.trim() || ''
-  if (mapped) return mapped
-  if (runtimeId !== 'sciforge') return ''
-  return conversation?.localThreadId.trim() || ''
+  return mapped
 }
 
 function incomingThreadIdForRuntime(
@@ -374,8 +370,6 @@ function withClawThreadMapping<T extends ClawImChannelV1 | ClawImConversationV1>
   return {
     ...item,
     runtimeId,
-    ...(runtimeId === 'sciforge' && 'threadId' in item ? { threadId: trimmed } : {}),
-    ...(runtimeId === 'sciforge' && 'localThreadId' in item ? { localThreadId: trimmed } : {}),
     agentThreadIds: withAgentThreadId(item.agentThreadIds, runtimeId, trimmed)
   }
 }
@@ -383,7 +377,7 @@ function withClawThreadMapping<T extends ClawImChannelV1 | ClawImConversationV1>
 function imCommandHelpText(settings: AppSettingsV1): string {
   if (isChineseLocale(settings)) {
     return [
-      'Claw IM 命令：',
+      '远程通道命令：',
       '- `/help`：显示所有命令、参数、示例和注意事项。',
       '- `/where`：查看当前远端会话绑定的 provider、channel、项目、thread、model、mode、队列状态。',
       '- `/projects`：列出最近/可用项目，返回编号、名称、路径摘要和当前选中项。',
@@ -404,7 +398,7 @@ function imCommandHelpText(settings: AppSettingsV1): string {
     ].join('\n')
   }
   return [
-    'Claw IM commands:',
+    'Remote channel commands:',
     '- `/help`: show every command, parameter, example, and note.',
     '- `/where`: show the current remote provider, channel, project, thread, model, mode, and queue state.',
     '- `/projects`: list recent/available projects with numbers, names, path summaries, and the current selection.',
@@ -448,14 +442,14 @@ function imModelCommandHint(settings: AppSettingsV1): string {
 
 function imModelCurrentText(settings: AppSettingsV1, model: string): string {
   return isChineseLocale(settings)
-    ? `当前 Claw IM 模型是 \`${model}\`。`
-    : `Current Claw IM model: \`${model}\`.`
+    ? `当前远程通道模型是 \`${model}\`。`
+    : `Current remote channel model: \`${model}\`.`
 }
 
 function imModelChangedText(settings: AppSettingsV1, model: string): string {
   return isChineseLocale(settings)
-    ? `Claw IM 模型已切换到 \`${model}\`。`
-    : `Claw IM model switched to \`${model}\`.`
+    ? `远程通道模型已切换到 \`${model}\`。`
+    : `Remote channel model switched to \`${model}\`.`
 }
 
 function imNewTopicText(settings: AppSettingsV1): string {
@@ -495,14 +489,14 @@ function imModeCommandHint(settings: AppSettingsV1): string {
 
 function imModeCurrentText(settings: AppSettingsV1): string {
   return isChineseLocale(settings)
-    ? `当前 Claw IM 模式是 \`${currentImMode(settings)}\`。`
-    : `Current Claw IM mode: \`${currentImMode(settings)}\`.`
+    ? `当前远程通道模式是 \`${currentImMode(settings)}\`。`
+    : `Current remote channel mode: \`${currentImMode(settings)}\`.`
 }
 
 function imModeChangedText(settings: AppSettingsV1, mode: ClawRunMode): string {
   return isChineseLocale(settings)
-    ? `Claw IM 模式已切换到 \`${mode}\`。`
-    : `Claw IM mode switched to \`${mode}\`.`
+    ? `远程通道模式已切换到 \`${mode}\`。`
+    : `Remote channel mode switched to \`${mode}\`.`
 }
 
 function imDetachedText(settings: AppSettingsV1): string {
@@ -712,14 +706,14 @@ export class ClawRuntime {
   async status(): Promise<ClawRuntimeStatus> {
     const settings = await this.deps.store.load()
     return {
-      imServerRunning: this.server !== null && settings.claw.enabled && settings.claw.im.enabled,
+      imServerRunning: this.server !== null && settings.remoteChannel.enabled && settings.remoteChannel.im.enabled,
       imUrl: webhookUrl(settings),
       runningTaskIds: []
     }
   }
 
   async runTask(_taskId: string): Promise<ClawRunResult> {
-    return { ok: false, message: 'Claw scheduled tasks have moved to Schedule.' }
+    return { ok: false, message: 'Remote channel scheduled tasks have moved to Schedule.' }
   }
 
   private logRemoteFailure(
@@ -747,7 +741,7 @@ export class ClawRuntime {
   ): Promise<void> {
     if (!input.channel) return
     const currentSettings = await this.deps.store.load()
-    const currentChannel = currentSettings.claw.channels.find((item) => item.id === input.channel?.id)
+    const currentChannel = currentSettings.remoteChannel.channels.find((item) => item.id === input.channel?.id)
     if (!currentChannel) return
     const currentConversation = input.conversation
       ? currentChannel.conversations.find((item) => item.id === input.conversation?.id)
@@ -763,8 +757,8 @@ export class ClawRuntime {
       failure: input.failure
     })
     await this.deps.store.patch({
-      claw: {
-        channels: currentSettings.claw.channels.map((item) => {
+      remoteChannel: {
+        channels: currentSettings.remoteChannel.channels.map((item) => {
           if (item.id !== currentChannel.id) return item
           return {
             ...item,
@@ -937,7 +931,7 @@ export class ClawRuntime {
         if (hasPendingDesktopApproval(detail, { turnId })) {
           throw clawFailureError(
             'waiting_desktop_approval',
-            'Waiting for desktop approval before Claw can continue.',
+            'Waiting for desktop approval before the remote channel can continue.',
             { threadId, turnId, runtimeId }
           )
         }
@@ -1017,7 +1011,7 @@ export class ClawRuntime {
   }
 
   private resolveChannelWorkspaceRoot(settings: AppSettingsV1, channel?: ClawImChannelV1): string {
-    return channel?.workspaceRoot.trim() || settings.claw.im.workspaceRoot.trim() || settings.workspaceRoot
+    return channel?.workspaceRoot.trim() || settings.remoteChannel.im.workspaceRoot.trim() || settings.workspaceRoot
   }
 
   private legacyEmptyBaseConversationWorkspaceRoot(
@@ -1115,7 +1109,7 @@ export class ClawRuntime {
   }> {
     const currentSettings = await this.deps.store.load()
     const currentChannel = input.channel
-      ? currentSettings.claw.channels.find((item) => item.id === input.channel?.id) ?? input.channel
+      ? currentSettings.remoteChannel.channels.find((item) => item.id === input.channel?.id) ?? input.channel
       : undefined
     const sharedThread = this.shouldUseChannelThreadForIncoming(
       input.provider,
@@ -1216,12 +1210,12 @@ export class ClawRuntime {
       ? `${context.runtimeId}:${shortThreadId(context.threadId)}`
       : (isChineseLocale(settings) ? '未绑定' : 'unbound')
     const queue = this.incomingQueueText(context.settings, channel, input.remoteSession)
-    const server = this.server !== null && context.settings.claw.enabled && context.settings.claw.im.enabled
+    const server = this.server !== null && context.settings.remoteChannel.enabled && context.settings.remoteChannel.im.enabled
       ? (isChineseLocale(settings) ? '运行中' : 'running')
       : (isChineseLocale(settings) ? '未运行' : 'not running')
     if (isChineseLocale(settings)) {
       return [
-        'Claw IM 状态：',
+        '远程通道状态：',
         `- Channel：${channel ? `${channel.label} (${channel.provider})` : input.provider}`,
         `- Guard：${channelGuardMode(channel)}`,
         `- Mode：${currentImMode(context.settings)}`,
@@ -1233,7 +1227,7 @@ export class ClawRuntime {
       ].join('\n')
     }
     return [
-      'Claw IM status:',
+      'Remote channel status:',
       `- Channel: ${channel ? `${channel.label} (${channel.provider})` : input.provider}`,
       `- Guard: ${channelGuardMode(channel)}`,
       `- Mode: ${currentImMode(context.settings)}`,
@@ -1319,7 +1313,7 @@ export class ClawRuntime {
   ): Promise<void> {
     if (!input.channel) return
     const currentSettings = await this.deps.store.load()
-    const currentChannel = currentSettings.claw.channels.find((item) => item.id === input.channel?.id)
+    const currentChannel = currentSettings.remoteChannel.channels.find((item) => item.id === input.channel?.id)
     if (!currentChannel) return
     const session = input.remoteSession
     const currentConversation = session
@@ -1330,8 +1324,8 @@ export class ClawRuntime {
     const runtimeId = clawRuntimeId(currentSettings, currentChannel, currentConversation)
     const now = new Date().toISOString()
     await this.deps.store.patch({
-      claw: {
-        channels: currentSettings.claw.channels.map((item) => {
+      remoteChannel: {
+        channels: currentSettings.remoteChannel.channels.map((item) => {
           if (item.id !== currentChannel.id) return item
           return {
             ...withClawThreadMapping(item, runtimeId, ''),
@@ -1357,14 +1351,14 @@ export class ClawRuntime {
 
   private async setIncomingImModel(channel: ClawImChannelV1 | undefined, model: ClawModel): Promise<void> {
     if (!channel) {
-      await this.deps.store.patch({ claw: { im: { model } } })
+      await this.deps.store.patch({ remoteChannel: { im: { model } } })
       return
     }
     const currentSettings = await this.deps.store.load()
     const now = new Date().toISOString()
     await this.deps.store.patch({
-      claw: {
-        channels: currentSettings.claw.channels.map((item) =>
+      remoteChannel: {
+        channels: currentSettings.remoteChannel.channels.map((item) =>
           item.id === channel.id
             ? {
                 ...item,
@@ -1378,7 +1372,7 @@ export class ClawRuntime {
   }
 
   private async setIncomingImMode(mode: ClawRunMode): Promise<void> {
-    await this.deps.store.patch({ claw: { im: { mode } } })
+    await this.deps.store.patch({ remoteChannel: { im: { mode } } })
   }
 
   private projectCandidates(
@@ -1393,15 +1387,12 @@ export class ClawRuntime {
     const currentWorkspaceRoot = context.workspaceRoot || this.resolveChannelWorkspaceRoot(settings, context.channel)
     pushProjectRoot(map, currentWorkspaceRoot, context.conversation?.updatedAt ?? context.channel?.updatedAt, currentWorkspaceRoot)
     pushProjectRoot(map, settings.workspaceRoot, '', currentWorkspaceRoot)
-    pushProjectRoot(map, settings.claw.im.workspaceRoot, '', currentWorkspaceRoot)
-    for (const channel of settings.claw.channels) {
+    pushProjectRoot(map, settings.remoteChannel.im.workspaceRoot, '', currentWorkspaceRoot)
+    for (const channel of settings.remoteChannel.channels) {
       pushProjectRoot(map, channel.workspaceRoot, channel.updatedAt, currentWorkspaceRoot)
       for (const conversation of channel.conversations) {
         pushProjectRoot(map, conversation.workspaceRoot || channel.workspaceRoot, conversation.updatedAt, currentWorkspaceRoot)
       }
-    }
-    for (const task of settings.claw.tasks) {
-      pushProjectRoot(map, task.workspaceRoot, task.updatedAt, currentWorkspaceRoot)
     }
     for (const task of settings.schedule.tasks) {
       pushProjectRoot(map, task.workspaceRoot, task.updatedAt, currentWorkspaceRoot)
@@ -1483,8 +1474,8 @@ export class ClawRuntime {
     const now = new Date().toISOString()
     const project = resolved.project
     await this.deps.store.patch({
-      claw: {
-        channels: context.settings.claw.channels.map((item) => {
+      remoteChannel: {
+        channels: context.settings.remoteChannel.channels.map((item) => {
           if (item.id !== context.channel?.id) return item
           const nextChannel = context.sharedThread || !context.conversation
             ? withClawThreadMapping(item, context.runtimeId, '')
@@ -1627,8 +1618,8 @@ export class ClawRuntime {
           }, runtimeId, thread.id)
         : null
     await this.deps.store.patch({
-      claw: {
-        channels: context.settings.claw.channels.map((item) => {
+      remoteChannel: {
+        channels: context.settings.remoteChannel.channels.map((item) => {
           if (item.id !== context.channel?.id) return item
           const nextChannel = context.sharedThread || !context.conversation
             ? withClawThreadMapping(item, runtimeId, thread.id)
@@ -1674,8 +1665,8 @@ export class ClawRuntime {
     if (!context.threadId) return imNoThreadText(settings)
     const now = new Date().toISOString()
     await this.deps.store.patch({
-      claw: {
-        channels: context.settings.claw.channels.map((item) => {
+      remoteChannel: {
+        channels: context.settings.remoteChannel.channels.map((item) => {
           if (item.id !== context.channel?.id) return item
           const shouldClearChannel = context.sharedThread || !context.conversation
           const nextChannel = shouldClearChannel
@@ -1714,7 +1705,7 @@ export class ClawRuntime {
   ): Promise<string> {
     const currentSettings = await this.deps.store.load()
     const currentChannel = input.channel
-      ? currentSettings.claw.channels.find((item) => item.id === input.channel?.id) ?? input.channel
+      ? currentSettings.remoteChannel.channels.find((item) => item.id === input.channel?.id) ?? input.channel
       : undefined
     if (!currentChannel) {
       return isChineseLocale(settings)
@@ -1743,7 +1734,7 @@ export class ClawRuntime {
         runtimeId,
         workspace: workspaceRoot,
         title,
-        mode: currentSettings.claw.im.mode,
+        mode: currentSettings.remoteChannel.im.mode,
         model: normalizeTaskModel(currentImModel(currentSettings, currentChannel))
       })
       threadId = thread.id.trim()
@@ -1802,8 +1793,8 @@ export class ClawRuntime {
           }, runtimeId, threadId)
         : null
     await this.deps.store.patch({
-      claw: {
-        channels: currentSettings.claw.channels.map((item) => {
+      remoteChannel: {
+        channels: currentSettings.remoteChannel.channels.map((item) => {
           if (item.id !== currentChannel.id) return item
           return {
             ...withClawThreadMapping(item, runtimeId, threadId),
@@ -1852,7 +1843,7 @@ export class ClawRuntime {
         : 'The active desktop conversation has been idle for more than 10 minutes, so it cannot be attached. Reopen or use that desktop conversation, then send /attach current again.'
     }
     const currentSettings = await this.deps.store.load()
-    const currentChannel = currentSettings.claw.channels.find((item) => item.id === input.channel?.id)
+    const currentChannel = currentSettings.remoteChannel.channels.find((item) => item.id === input.channel?.id)
     if (!currentChannel) {
       return isChineseLocale(settings)
         ? '当前 IM 渠道不可用，无法绑定到电脑端会话。'
@@ -1898,8 +1889,8 @@ export class ClawRuntime {
           }, runtimeId, activeThreadId)
         : null
     await this.deps.store.patch({
-      claw: {
-        channels: currentSettings.claw.channels.map((item) => {
+      remoteChannel: {
+        channels: currentSettings.remoteChannel.channels.map((item) => {
           if (item.id !== currentChannel.id) return item
           return {
             ...withClawThreadMapping(item, runtimeId, activeThreadId),
@@ -2092,13 +2083,13 @@ export class ClawRuntime {
       : incomingThreadIdForRuntime(channel, conversation, runtimeId, Boolean(remoteSession))
     const run = () => this.runPrompt(settings, {
       prompt,
-      title: channel ? `[Claw IM:${channel.label}] ${sender}` : `[Claw IM:${provider}] ${sender}`,
+      title: channel ? `[Remote channel:${channel.label}] ${sender}` : `[Remote channel:${provider}] ${sender}`,
       workspaceRoot: this.resolveIncomingWorkspaceRoot(settings, channel, conversation, remoteSession),
-      model: channel?.model ?? settings.claw.im.model,
-      mode: settings.claw.im.mode,
+      model: channel?.model ?? settings.remoteChannel.im.model,
+      mode: settings.remoteChannel.im.mode,
       displayText: input.displayText,
       waitForResult: true,
-      responseTimeoutMs: settings.claw.im.responseTimeoutMs,
+      responseTimeoutMs: settings.remoteChannel.im.responseTimeoutMs,
       source: 'im',
       runtimeId,
       threadId: initialThreadId || undefined,
@@ -2106,13 +2097,13 @@ export class ClawRuntime {
       onTurnStarted: async ({ threadId, previousThreadId }) => {
         if (!channel) return
         const currentSettings = await this.deps.store.load()
-        const currentChannel = currentSettings.claw.channels.find((item) => item.id === channel.id)
+        const currentChannel = currentSettings.remoteChannel.channels.find((item) => item.id === channel.id)
         if (!currentChannel) return
         const now = new Date().toISOString()
         if (remoteSession && sharedThread) {
           await this.deps.store.patch({
-            claw: {
-              channels: currentSettings.claw.channels.map((item) =>
+            remoteChannel: {
+              channels: currentSettings.remoteChannel.channels.map((item) =>
                 item.id === currentChannel.id
                   ? {
                       ...withClawThreadMapping(item, runtimeId, threadId),
@@ -2153,8 +2144,8 @@ export class ClawRuntime {
                 updatedAt: now
               }, runtimeId, threadId)
           await this.deps.store.patch({
-            claw: {
-              channels: currentSettings.claw.channels.map((item) =>
+            remoteChannel: {
+              channels: currentSettings.remoteChannel.channels.map((item) =>
                 item.id === currentChannel.id
                   ? {
                       ...withClawThreadMapping(item, runtimeId, threadId),
@@ -2169,8 +2160,8 @@ export class ClawRuntime {
           })
         } else if (!initialThreadId) {
           await this.deps.store.patch({
-            claw: {
-              channels: currentSettings.claw.channels.map((item) =>
+            remoteChannel: {
+              channels: currentSettings.remoteChannel.channels.map((item) =>
                 item.id === currentChannel.id
                   ? { ...withClawThreadMapping(item, runtimeId, threadId), updatedAt: now }
                   : item
@@ -2205,8 +2196,8 @@ export class ClawRuntime {
 
   async handleIncomingImMessage(input: ClawIncomingImMessageInput): Promise<ClawIncomingImMessageResult> {
     const settings = await this.deps.store.load()
-    if (!settings.claw.enabled || !settings.claw.im.enabled) {
-      return { ok: false, message: 'Claw IM is disabled.' }
+    if (!settings.remoteChannel.enabled || !settings.remoteChannel.im.enabled) {
+      return { ok: false, message: 'Remote channel is disabled.' }
     }
     const incomingText = validateIncomingImText(settings, input.provider, input.text, {
       hasAttachmentHint: Boolean(input.runtimePrompt?.trim())
@@ -2222,12 +2213,12 @@ export class ClawRuntime {
     const text = incomingText.text
     const command = parseClawCommand(text)
     const channel = normalizedInput.channelId
-      ? settings.claw.channels.find(
+      ? settings.remoteChannel.channels.find(
           (item) => item.enabled && item.id === normalizedInput.channelId
-        ) ?? settings.claw.channels.find(
+        ) ?? settings.remoteChannel.channels.find(
           (item) => item.enabled && item.provider === normalizedInput.provider
         )
-      : settings.claw.channels.find(
+      : settings.remoteChannel.channels.find(
           (item) => item.enabled && item.provider === normalizedInput.provider
         )
     if (!this.shouldHandleIncomingByGuard({
@@ -2281,8 +2272,8 @@ export class ClawRuntime {
 
   private async handleIncomingImMessageNow(input: ClawIncomingImMessageInput): Promise<ClawIncomingImMessageResult> {
     const settings = await this.deps.store.load()
-    if (!settings.claw.enabled || !settings.claw.im.enabled) {
-      return { ok: false, message: 'Claw IM is disabled.' }
+    if (!settings.remoteChannel.enabled || !settings.remoteChannel.im.enabled) {
+      return { ok: false, message: 'Remote channel is disabled.' }
     }
     const incomingText = validateIncomingImText(settings, input.provider, input.text, {
       hasAttachmentHint: Boolean(input.runtimePrompt?.trim())
@@ -2291,12 +2282,12 @@ export class ClawRuntime {
     const text = incomingText.text
     const command = parseClawCommand(text)
     const channel = input.channelId
-      ? settings.claw.channels.find(
+      ? settings.remoteChannel.channels.find(
           (item) => item.enabled && item.id === input.channelId
-        ) ?? settings.claw.channels.find(
+        ) ?? settings.remoteChannel.channels.find(
           (item) => item.enabled && item.provider === input.provider
         )
-      : settings.claw.channels.find(
+      : settings.remoteChannel.channels.find(
           (item) => item.enabled && item.provider === input.provider
         )
     const remoteSession = input.remoteSession
@@ -2341,8 +2332,8 @@ export class ClawRuntime {
     }
     const taskCreation = await this.deps.createScheduledTaskFromText?.(text, {
       workspaceRoot: this.resolveChannelWorkspaceRoot(settings, channel),
-      modelHint: channel?.model ?? settings.claw.im.model,
-      mode: settings.claw.im.mode
+      modelHint: channel?.model ?? settings.remoteChannel.im.model,
+      mode: settings.remoteChannel.im.mode
     }) ?? { kind: 'noop' as const }
     if (taskCreation.kind === 'created') {
       return {
@@ -2381,8 +2372,8 @@ export class ClawRuntime {
   }
 
   private resolveFeishuChannels(settings: AppSettingsV1): FeishuClawChannel[] {
-    if (!settings.claw.enabled) return []
-    return settings.claw.channels.filter(
+    if (!settings.remoteChannel.enabled) return []
+    return settings.remoteChannel.channels.filter(
       (channel): channel is FeishuClawChannel =>
         channel.enabled &&
         channel.provider === 'feishu' &&
@@ -2426,8 +2417,8 @@ export class ClawRuntime {
       return
     }
     await this.deps.store.patch({
-      claw: {
-        channels: settings.claw.channels.map((item) =>
+      remoteChannel: {
+        channels: settings.remoteChannel.channels.map((item) =>
           item.id === channel.id
             ? {
                 ...item,
@@ -2662,20 +2653,16 @@ export class ClawRuntime {
   ): { channel: ClawImChannelV1; conversation?: ClawImConversationV1 } | null {
     const targetThreadId = threadId.trim()
     if (!targetThreadId) return null
-    for (const channel of settings.claw.channels) {
+    for (const channel of settings.remoteChannel.channels) {
       if (!channel.enabled) continue
       const conversation =
         [...channel.conversations]
           .filter((item) =>
-            item.localThreadId.trim() === targetThreadId ||
             Object.values(item.agentThreadIds ?? {}).some((id) => id.trim() === targetThreadId)
           )
           .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
       if (conversation) return { channel, conversation }
-      if (
-        channel.threadId.trim() === targetThreadId ||
-        Object.values(channel.agentThreadIds ?? {}).some((id) => id.trim() === targetThreadId)
-      ) return { channel }
+      if (Object.values(channel.agentThreadIds ?? {}).some((id) => id.trim() === targetThreadId)) return { channel }
     }
     return null
   }
@@ -2712,7 +2699,7 @@ export class ClawRuntime {
           kind: 'provider_send_failed',
           details: { threadId, direction, channelId: channel.id, to, chunkIndex: index }
         })
-        this.deps.logError('claw-weixin', 'Failed to mirror Claw message to WeChat', {
+        this.deps.logError('claw-weixin', 'Failed to mirror remote channel message to WeChat', {
           message: failure.message,
           failureKind: failure.failureKind,
           threadId,
@@ -2758,7 +2745,7 @@ export class ClawRuntime {
           kind: 'provider_send_failed',
           details: { threadId, direction, channelId: channel.id, to, chunkIndex: index }
         })
-        this.deps.logError('claw-discord', 'Failed to mirror Claw message to Discord', {
+        this.deps.logError('claw-discord', 'Failed to mirror remote channel message to Discord', {
           message: failure.message,
           failureKind: failure.failureKind,
           threadId,
@@ -2807,7 +2794,6 @@ export class ClawRuntime {
       target.conversation ??
       [...channel.conversations]
         .filter((item) =>
-          item.localThreadId.trim() === threadId.trim() ||
           Object.values(item.agentThreadIds ?? {}).some((id) => id.trim() === threadId.trim())
         )
         .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
@@ -2838,7 +2824,7 @@ export class ClawRuntime {
         error,
         providerSendFailureMessage('Feishu / Lark', errorMessage(error))
       )
-      this.deps.logError('claw-feishu', 'Failed to mirror Claw message to Feishu / Lark', {
+      this.deps.logError('claw-feishu', 'Failed to mirror remote channel message to Feishu / Lark', {
         message: failure.message,
         failureKind: failure.failureKind,
         threadId,
@@ -2859,7 +2845,7 @@ export class ClawRuntime {
   private async handleFeishuMessage(channelId: string, message: NormalizedMessage): Promise<void> {
     const bridge = this.feishuChannels.get(channelId)
     const settings = await this.deps.store.load()
-    const channel = settings.claw.channels.find((item) => item.id === channelId && item.enabled)
+    const channel = settings.remoteChannel.channels.find((item) => item.id === channelId && item.enabled)
     if (!bridge || !channel) return
     if (bridge.botIdentity?.openId && message.senderId === bridge.botIdentity.openId) return
     const inboundCommand = parseClawCommand(message.content)
@@ -2934,7 +2920,7 @@ export class ClawRuntime {
     const taskCreation = await this.deps.createScheduledTaskFromText?.(message.content, {
       workspaceRoot: this.resolveChannelWorkspaceRoot(settings, channel),
       modelHint: channel.model,
-      mode: settings.claw.im.mode
+      mode: settings.remoteChannel.im.mode
     }) ?? { kind: 'noop' as const }
     if (taskCreation.kind === 'created') {
       await this.sendFeishuMarkdownMessage(
@@ -3298,7 +3284,7 @@ export class ClawRuntime {
       .catch(() => undefined)
       .then(async () => {
         const currentSettings = await this.deps.store.load()
-        const currentChannel = currentSettings.claw.channels.find((channel) => channel.id === channelId)
+        const currentChannel = currentSettings.remoteChannel.channels.find((channel) => channel.id === channelId)
         const currentRecentMessages = this.compactRecentRemoteMessages(currentChannel?.recentMessages ?? [], now)
         if (currentRecentMessages.some((message) => remoteMessageDedupeKey(message) === key)) {
           return false
@@ -3320,8 +3306,8 @@ export class ClawRuntime {
           receivedAt
         }
         await this.deps.store.patch({
-          claw: {
-            channels: currentSettings.claw.channels.map((channel) =>
+          remoteChannel: {
+            channels: currentSettings.remoteChannel.channels.map((channel) =>
               channel.id === channelId
                 ? {
                     ...channel,
@@ -3431,7 +3417,7 @@ export class ClawRuntime {
 
   private async enqueueFeishuMessage(channelId: string, message: NormalizedMessage): Promise<void> {
     const settings = await this.deps.store.load()
-    const channel = settings.claw.channels.find((item) => item.id === channelId && item.enabled)
+    const channel = settings.remoteChannel.channels.find((item) => item.id === channelId && item.enabled)
     const bridge = this.feishuChannels.get(channelId)
     if (bridge?.botIdentity?.openId && message.senderId === bridge.botIdentity.openId) return
     const inboundCommand = parseClawCommand(message.content)
@@ -3489,7 +3475,7 @@ export class ClawRuntime {
       const domain = target.platformCredential!.domain.trim().toLowerCase() === 'lark' ? 'lark' : 'feishu'
       const allowedFileDirs = [
         this.resolveChannelWorkspaceRoot(settings, target),
-        settings.claw.im.workspaceRoot,
+        settings.remoteChannel.im.workspaceRoot,
         settings.workspaceRoot
       ]
         .map((entry) => entry.trim())
@@ -3608,7 +3594,7 @@ export class ClawRuntime {
   }
 
   private syncWebhook(settings: AppSettingsV1): void {
-    const im = settings.claw.im
+    const im = settings.remoteChannel.im
     const key = `${im.port}|${im.path}`
     if (this.server && this.serverKey === key) return
     this.closeWebhook()
@@ -3617,7 +3603,7 @@ export class ClawRuntime {
       void this.handleWebhook(req, res)
     })
     server.on('error', (error) => {
-      this.deps.logError('claw-webhook', 'Claw IM webhook server failed', {
+      this.deps.logError('claw-webhook', 'Remote channel webhook server failed', {
         message: error instanceof Error ? error.message : String(error)
       })
       if (this.server === server) {
@@ -3640,27 +3626,14 @@ export class ClawRuntime {
   private async handleWebhook(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       const settings = await this.deps.store.load()
-      const im = settings.claw.im
+      const im = settings.remoteChannel.im
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
-      if (url.pathname === '/claw/internal/gui-plan/create' && req.method === 'POST') {
-        // The legacy `gui_plan_create` MCP bridge is no longer the
-        // active plan path. GUI plan creation now flows through the
-        // native local-runtime `create_plan` tool. Reject legacy calls
-        // loudly so older clients see a clear migration error.
-        writeJson(res, 410, {
-          ok: false,
-          code: 'gui_plan_create_retired',
-          message:
-            'The /claw/internal/gui-plan/create endpoint is no longer active. Use the create_plan tool.'
-        })
-        return
-      }
       if (req.method !== 'POST' || url.pathname !== im.path) {
         writeJson(res, 404, { ok: false, message: 'Not found.' })
         return
       }
-      if (!settings.claw.enabled || !im.enabled) {
-        writeJson(res, 503, { ok: false, message: 'Claw IM webhook is disabled.' })
+      if (!settings.remoteChannel.enabled || !im.enabled) {
+        writeJson(res, 503, { ok: false, message: 'Remote channel webhook is disabled.' })
         return
       }
       if (im.secret) {
@@ -3702,7 +3675,7 @@ export class ClawRuntime {
         ...(remoteSession ? { remoteSession } : {})
       })
       if (!result.ok) {
-        this.logRemoteFailure('claw-webhook', 'Claw IM webhook returned a structured failure.', result, {
+        this.logRemoteFailure('claw-webhook', 'Remote channel webhook returned a structured failure.', result, {
           provider,
           channelId: incomingChannelId,
           sender
@@ -3723,7 +3696,7 @@ export class ClawRuntime {
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      this.deps.logError('claw-webhook', 'Claw IM webhook request failed', {
+      this.deps.logError('claw-webhook', 'Remote channel webhook request failed', {
         message: redactSecretText(message)
       })
       writeJson(res, 500, { ok: false, message: 'Internal server error.' })

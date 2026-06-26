@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 import { createPaperRadarCoreService, type PaperRadarCoreService } from './service.js';
@@ -6,15 +7,21 @@ import type { DigestRequest, RankRequest, SearchRequest, ServiceError, ServiceRe
 
 export const SERVICE_ID = 'sciforge.paper-radar';
 export const SERVICE_VERSION = '0.1.0';
+export const PAPER_RADAR_RUNTIME_TOKEN_ENV = 'PAPER_RADAR_RUNTIME_TOKEN';
+export const DEFAULT_MAX_JSON_BODY_BYTES = 1_000_000;
 
 export interface PaperRadarOptions {
   dbPath: string;
   fetchImpl?: typeof fetch;
+  maxBodyBytes?: number;
   now?: () => Date;
   profilesPath?: string;
+  runtimeToken: string;
 }
 
 export function createPaperRadarServer(options: PaperRadarOptions): Server {
+  const runtimeToken = normalizeRuntimeToken(options.runtimeToken);
+  const maxBodyBytes = normalizeMaxBodyBytes(options.maxBodyBytes);
   const service = createPaperRadarCoreService({
     dbPath: options.dbPath,
     profilesPath: options.profilesPath,
@@ -24,8 +31,9 @@ export function createPaperRadarServer(options: PaperRadarOptions): Server {
   const now = options.now ?? (() => new Date());
 
   const server = createServer((req, res) => {
-    handle(req, res, service, now).catch((error) => {
-      sendJson(res, 500, errorResult('INTERNAL_ERROR', messageOf(error), false));
+    handle(req, res, service, now, { runtimeToken, maxBodyBytes }).catch((error) => {
+      const httpError = toHttpError(error);
+      sendJson(res, httpError.status, errorResult(httpError.code, httpError.message, false));
     });
   });
   server.on('close', () => service.close());
@@ -37,9 +45,13 @@ async function handle(
   res: ServerResponse,
   service: PaperRadarCoreService,
   now: () => Date,
+  security: { runtimeToken: string; maxBodyBytes: number },
 ): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
 
+  if (!hasValidRuntimeToken(req, security.runtimeToken)) {
+    return sendJson(res, 401, errorResult('UNAUTHORIZED', 'Unauthorized.', false));
+  }
   if (req.method === 'GET' && url.pathname === '/health') {
     return sendJson(res, 200, { ok: true, service: SERVICE_ID, stats: service.stats(), checkedAt: now().toISOString() });
   }
@@ -47,46 +59,46 @@ async function handle(
     return sendJson(res, 200, { service: SERVICE_ID, version: SERVICE_VERSION });
   }
   if (req.method === 'POST' && url.pathname === '/sync/arxiv') {
-    return syncArxivRoute(req, res, service);
+    return syncArxivRoute(req, res, service, security.maxBodyBytes);
   }
   if (req.method === 'POST' && url.pathname === '/sync/biorxiv') {
-    return syncBiorxivRoute(req, res, service);
+    return syncBiorxivRoute(req, res, service, security.maxBodyBytes);
   }
   if (req.method === 'POST' && url.pathname === '/sync/profile') {
-    return syncProfileRoute(req, res, service);
+    return syncProfileRoute(req, res, service, security.maxBodyBytes);
   }
   if (req.method === 'GET' && url.pathname === '/profiles') {
     return sendJson(res, 200, ok({ profiles: service.listProfiles() }));
   }
   if (req.method === 'POST' && url.pathname === '/profiles') {
-    return upsertProfileRoute(req, res, service);
+    return upsertProfileRoute(req, res, service, security.maxBodyBytes);
   }
   if (req.method === 'GET' && url.pathname === '/papers/search') {
     return searchRoute(url, res, service);
   }
   if (req.method === 'POST' && url.pathname === '/papers/rank') {
-    return rankRoute(req, res, service);
+    return rankRoute(req, res, service, security.maxBodyBytes);
   }
   if (req.method === 'POST' && url.pathname === '/digest') {
-    return digestRoute(req, res, service);
+    return digestRoute(req, res, service, security.maxBodyBytes);
   }
   return sendJson(res, 404, errorResult('NOT_FOUND', `No route for ${req.method} ${url.pathname}`, false));
 }
 
-async function syncArxivRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
-  const body = (await readJson(req)) as ArxivSyncRequest;
+async function syncArxivRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService, maxBodyBytes: number): Promise<void> {
+  const body = (await readJson(req, maxBodyBytes)) as ArxivSyncRequest;
   const result = await service.syncArxiv(body);
   return sendJson(res, 200, ok(result));
 }
 
-async function syncBiorxivRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
-  const body = (await readJson(req)) as BiorxivSyncRequest;
+async function syncBiorxivRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService, maxBodyBytes: number): Promise<void> {
+  const body = (await readJson(req, maxBodyBytes)) as BiorxivSyncRequest;
   const result = await service.syncBiorxiv(body);
   return sendJson(res, 200, ok(result));
 }
 
-async function syncProfileRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
-  const body = (await readJson(req)) as { profile?: string; from?: string; to?: string; maxRecords?: number };
+async function syncProfileRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService, maxBodyBytes: number): Promise<void> {
+  const body = (await readJson(req, maxBodyBytes)) as { profile?: string; from?: string; to?: string; maxRecords?: number };
   const result = await service.syncProfile(body);
   return sendJson(res, 200, ok(result));
 }
@@ -103,19 +115,19 @@ function searchRoute(url: URL, res: ServerResponse, service: PaperRadarCoreServi
   return sendJson(res, 200, ok(service.search(req)));
 }
 
-async function upsertProfileRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
-  const body = (await readJson(req)) as TopicProfile;
+async function upsertProfileRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService, maxBodyBytes: number): Promise<void> {
+  const body = (await readJson(req, maxBodyBytes)) as TopicProfile;
   const profile = service.saveProfile(body);
   return sendJson(res, 200, ok({ profile }));
 }
 
-async function rankRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
-  const body = (await readJson(req)) as RankRequest;
+async function rankRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService, maxBodyBytes: number): Promise<void> {
+  const body = (await readJson(req, maxBodyBytes)) as RankRequest;
   return sendJson(res, 200, ok(service.rank(body)));
 }
 
-async function digestRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService): Promise<void> {
-  const body = (await readJson(req)) as DigestRequest;
+async function digestRoute(req: IncomingMessage, res: ServerResponse, service: PaperRadarCoreService, maxBodyBytes: number): Promise<void> {
+  const body = (await readJson(req, maxBodyBytes)) as DigestRequest;
   return sendJson(res, 200, ok(service.digest(body)));
 }
 
@@ -143,13 +155,85 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(req: IncomingMessage, maxBodyBytes: number): Promise<unknown> {
+  const contentLength = parseContentLength(req.headers['content-length']);
+  if (contentLength !== null && contentLength > maxBodyBytes) {
+    throw new HttpError(413, 'PAYLOAD_TOO_LARGE', `Request body exceeds ${maxBodyBytes} bytes.`);
+  }
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.byteLength;
+    if (size > maxBodyBytes) {
+      throw new HttpError(413, 'PAYLOAD_TOO_LARGE', `Request body exceeds ${maxBodyBytes} bytes.`);
+    }
+    chunks.push(buffer);
+  }
   if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new HttpError(400, 'INVALID_ARGUMENT', 'Request body must be valid JSON.');
+  }
 }
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeRuntimeToken(token: string): string {
+  const normalized = token.trim();
+  if (!normalized) {
+    throw new Error(`${PAPER_RADAR_RUNTIME_TOKEN_ENV} is required to start the Paper Radar HTTP service.`);
+  }
+  return normalized;
+}
+
+function normalizeMaxBodyBytes(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_MAX_JSON_BODY_BYTES;
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error('Paper Radar max body bytes must be a positive integer.');
+  }
+  return value;
+}
+
+function parseContentLength(value: string | string[] | undefined): number | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function hasValidRuntimeToken(req: IncomingMessage, expectedToken: string): boolean {
+  const providedToken = bearerTokenFromHeader(req.headers.authorization);
+  return Boolean(providedToken) && timingSafeStringEqual(providedToken, expectedToken);
+}
+
+function bearerTokenFromHeader(value: string | string[] | undefined): string {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return '';
+  const match = /^Bearer\s+(.+)$/i.exec(raw);
+  return match?.[1]?.trim() ?? '';
+}
+
+function timingSafeStringEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.byteLength === rightBuffer.byteLength && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: ServiceError['code'],
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+function toHttpError(error: unknown): HttpError {
+  if (error instanceof HttpError) return error;
+  return new HttpError(500, 'INTERNAL_ERROR', messageOf(error));
 }

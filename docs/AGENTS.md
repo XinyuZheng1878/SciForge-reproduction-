@@ -10,8 +10,7 @@ the runtime-neutral `AgentRuntime` contract. Renderer code should use
 `AgentRuntimeProvider` and the `window.sciforge.agentRuntime` preload API instead
 of calling SciForge Runtime `/v1/*` endpoints or Codex `codex:*` IPC directly. SciForge Runtime continues
 to serve HTTP/SSE behind its adapter. Codex runtime code must stay modular and
-centralized under `src/main/runtime/codex/`. Connect phone still uses the
-internal `claw` name in code for compatibility. Connect phone and scheduled
+centralized under `src/main/runtime/codex/`. Connect phone and scheduled
 tasks record runtime ids and preserve runtime-specific thread mappings, but
 their non-default runtime execution path currently fails closed until native adapter support
 is implemented for those background workflows.
@@ -37,8 +36,9 @@ The contract and event/capability shape are documented in
    about `sciforge | codex`.
 7. Add settings under `agents.sciforge` or `agents.codex`, with
    `activeAgentRuntime` recording the explicit user choice.
-8. Legacy `runtimeRequest` / `startSse` paths are compatibility shims only.
-   Renderer-specific `codex:*` IPC has been removed; `codex:` strings should
+8. Do not add `runtimeRequest` / `startSse` renderer paths; app code uses the
+   neutral `agentRuntime:*` IPC surface. Renderer-specific `codex:*` IPC has
+   been removed; `codex:` strings should
    remain internal app-server method/event names only.
 
 ## Forbidden Paths
@@ -68,7 +68,7 @@ Old persisted keys may be read only inside settings migration:
   `agents.sciforge` once.
 - Saved settings preserve `agents.sciforge` and may contain `agents.codex`; they must
   not retain `agents.codewhale` or `agents.reasonix`.
-- Old Connect phone (internal Claw) `agentThreadIds.codewhale/reasonix` fold into
+- Old Connect phone `agentThreadIds.codewhale/reasonix` fold into
   `agentThreadIds.sciforge`.
 - New Codex thread mappings must use Codex-owned runtime/thread storage and must
   not be written into local runtime mappings.

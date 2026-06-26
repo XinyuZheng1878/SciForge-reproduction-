@@ -4,7 +4,8 @@ import {
   isPaperRadarServiceHealth,
   paperRadarBaseUrl,
   paperRadarDbPath,
-  paperRadarProfilesPath
+  paperRadarProfilesPath,
+  paperRadarRuntimeToken
 } from './paper-radar-sidecar'
 
 describe('Paper Radar sidecar launch', () => {
@@ -29,6 +30,8 @@ describe('Paper Radar sidecar launch', () => {
     expect(launch.profilesPath).toBe(paperRadarProfilesPath('/tmp/sciforge-user-data'))
     expect(launch.env.PAPER_RADAR_HOST).toBe('127.0.0.1')
     expect(launch.env.PAPER_RADAR_PORT).toBe('3901')
+    expect(launch.env.PAPER_RADAR_RUNTIME_TOKEN).toBe(launch.runtimeToken)
+    expect(launch.runtimeToken).toMatch(/^[A-Za-z0-9_-]{32,}$/)
     expect(launch.env.PAPER_RADAR_AUTO_SYNC).toBe('0')
   })
 
@@ -44,6 +47,7 @@ describe('Paper Radar sidecar launch', () => {
         PAPER_RADAR_SERVICE_URL: 'http://127.0.0.1:3905',
         PAPER_RADAR_DB: '/tmp/custom-paper-radar.sqlite',
         PAPER_RADAR_PROFILES: '/tmp/custom-paper-radar-profiles.json',
+        PAPER_RADAR_RUNTIME_TOKEN: 'configured-paper-radar-token',
         PAPER_RADAR_AUTO_SYNC: '1'
       } as NodeJS.ProcessEnv,
       npmCommand: 'npm'
@@ -54,8 +58,17 @@ describe('Paper Radar sidecar launch', () => {
     expect(launch.profilesPath).toBe('/tmp/custom-paper-radar-profiles.json')
     expect(launch.env.PAPER_RADAR_DB).toBe('/tmp/custom-paper-radar.sqlite')
     expect(launch.env.PAPER_RADAR_PROFILES).toBe('/tmp/custom-paper-radar-profiles.json')
+    expect(launch.env.PAPER_RADAR_RUNTIME_TOKEN).toBe('configured-paper-radar-token')
+    expect(launch.runtimeToken).toBe('configured-paper-radar-token')
     expect(launch.env.PAPER_RADAR_PORT).toBe('3905')
     expect(launch.env.PAPER_RADAR_AUTO_SYNC).toBe('1')
+  })
+
+  it('prefers an explicit runtime token and otherwise generates one per process', () => {
+    expect(paperRadarRuntimeToken({ PAPER_RADAR_RUNTIME_TOKEN: ' configured ' } as NodeJS.ProcessEnv)).toBe('configured')
+    const generated = paperRadarRuntimeToken({})
+    expect(generated).toMatch(/^[A-Za-z0-9_-]{32,}$/)
+    expect(paperRadarRuntimeToken({})).toBe(generated)
   })
 
   it('accepts only the Paper Radar service health identity', () => {

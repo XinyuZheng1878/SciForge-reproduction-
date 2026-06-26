@@ -1,8 +1,58 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { SciForgeApi } from '../shared/sciforge-api'
+import { DEV_PREVIEW_NAVIGATE_CHANNEL } from '../shared/dev-preview-url'
+import type { DevPreviewNavigatePayload, SciForgeApi } from '../shared/sciforge-api'
 
 const transcribeSpeech = (payload: Parameters<SciForgeApi['speechToText']['transcribe']>[0]) =>
   ipcRenderer.invoke('speech:transcribe', payload)
+
+const getConnectPhoneStatus = () => ipcRenderer.invoke('connectPhone:status')
+const startConnectPhoneInstallQr = (
+  provider: Parameters<SciForgeApi['startConnectPhoneInstallQr']>[0],
+  options?: Parameters<SciForgeApi['startConnectPhoneInstallQr']>[1]
+) => ipcRenderer.invoke('connectPhone:install:qrcode', { provider, isLark: options?.isLark })
+const pollConnectPhoneInstall = (
+  provider: Parameters<SciForgeApi['pollConnectPhoneInstall']>[0],
+  deviceCode: string
+) => ipcRenderer.invoke('connectPhone:install:poll', { provider, deviceCode })
+const onRemoteChannelActivity = (
+  handler: Parameters<SciForgeApi['onRemoteChannelActivity']>[0]
+) => {
+  const wrapped = (
+    _: Electron.IpcRendererEvent,
+    payload: Parameters<typeof handler>[0]
+  ) => handler(payload)
+  ipcRenderer.on('remoteChannel:activity', wrapped)
+  return () => ipcRenderer.removeListener('remoteChannel:activity', wrapped)
+}
+const updateRemoteChannelActiveThreadContext = (
+  payload: Parameters<SciForgeApi['updateRemoteChannelActiveThreadContext']>[0]
+) => ipcRenderer.invoke('remoteChannel:active-thread-context', payload)
+const mirrorRemoteChannelMessage = (
+  threadId: string,
+  text: string,
+  direction: Parameters<SciForgeApi['mirrorRemoteChannelMessage']>[2]
+) => ipcRenderer.invoke('remoteChannel:message:mirror', { threadId, text, direction })
+const mirrorRemoteChannelMessageToFeishu = (
+  threadId: string,
+  text: string,
+  direction: Parameters<SciForgeApi['mirrorRemoteChannelMessageToFeishu']>[2]
+) => ipcRenderer.invoke('remoteChannel:message:mirror-to-feishu', { threadId, text, direction })
+const createRemoteChannelTaskFromText = (
+  text: string,
+  options?: Parameters<SciForgeApi['createRemoteChannelTaskFromText']>[1]
+) =>
+  ipcRenderer.invoke('remoteChannel:task:create-from-text', {
+    text,
+    channelId: options?.channelId,
+    modelHint: options?.modelHint,
+    mode: options?.mode
+  })
+
+function isDevPreviewNavigatePayload(value: unknown): value is DevPreviewNavigatePayload {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const payload = value as { url?: unknown; webContentsId?: unknown }
+  return typeof payload.url === 'string' && Number.isInteger(payload.webContentsId)
+}
 
 const api = {
   platform: process.platform,
@@ -10,9 +60,7 @@ const api = {
   setSettings: (partial) =>
     ipcRenderer.invoke('settings:set', partial),
   fetchUpstreamModels: () => ipcRenderer.invoke('upstream:models'),
-  getClawStatus: () => ipcRenderer.invoke('claw:status'),
-  runClawTask: (taskId) =>
-    ipcRenderer.invoke('claw:task:run', taskId),
+  getConnectPhoneStatus,
   getScheduleStatus: () => ipcRenderer.invoke('schedule:status'),
   runScheduleTask: (taskId) =>
     ipcRenderer.invoke('schedule:task:run', taskId),
@@ -29,10 +77,8 @@ const api = {
     ipcRenderer.invoke('workflow:approval:resolve', { token, decision }),
   checkWorkflowCode: (language, code) =>
     ipcRenderer.invoke('workflow:code:check', { language, code }),
-  startClawImInstallQr: (provider, options) =>
-    ipcRenderer.invoke('claw:im-install:qrcode', { provider, isLark: options?.isLark }),
-  pollClawImInstall: (provider, deviceCode) =>
-    ipcRenderer.invoke('claw:im-install:poll', { provider, deviceCode }),
+  startConnectPhoneInstallQr,
+  pollConnectPhoneInstall,
   getDiscordBotStatus: () => ipcRenderer.invoke('discord:status'),
   configureDiscordClientId: (clientId) =>
     ipcRenderer.invoke('discord:configure-client', { clientId }),
@@ -206,27 +252,11 @@ const api = {
     ipcRenderer.on('runtime:status', wrapped)
     return () => ipcRenderer.removeListener('runtime:status', wrapped)
   },
-  onClawChannelActivity: (handler) => {
-    const wrapped = (
-      _: Electron.IpcRendererEvent,
-      payload: Parameters<typeof handler>[0]
-    ) => handler(payload)
-    ipcRenderer.on('claw:channel-activity', wrapped)
-    return () => ipcRenderer.removeListener('claw:channel-activity', wrapped)
-  },
-  updateClawActiveThreadContext: (payload) =>
-    ipcRenderer.invoke('claw:active-thread-context', payload),
-  mirrorClawChannelMessage: (threadId, text, direction) =>
-    ipcRenderer.invoke('claw:channel:mirror', { threadId, text, direction }),
-  mirrorClawChannelMessageToFeishu: (threadId, text, direction) =>
-    ipcRenderer.invoke('claw:channel:mirror-to-feishu', { threadId, text, direction }),
-  createClawTaskFromText: (text, options) =>
-    ipcRenderer.invoke('claw:task:create-from-text', {
-      text,
-      channelId: options?.channelId,
-      modelHint: options?.modelHint,
-      mode: options?.mode
-    }),
+  onRemoteChannelActivity,
+  updateRemoteChannelActiveThreadContext,
+  mirrorRemoteChannelMessage,
+  mirrorRemoteChannelMessageToFeishu,
+  createRemoteChannelTaskFromText,
   createScheduleTaskFromText: (text, options) =>
     ipcRenderer.invoke('schedule:task:create-from-text', {
       text,
@@ -237,6 +267,13 @@ const api = {
   runDesktopCommand: (command) =>
     ipcRenderer.invoke('desktop:command', command),
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+  onDevPreviewNavigate: (handler) => {
+    const wrapped = (_: Electron.IpcRendererEvent, payload: unknown) => {
+      if (isDevPreviewNavigatePayload(payload)) handler(payload)
+    }
+    ipcRenderer.on(DEV_PREVIEW_NAVIGATE_CHANNEL, wrapped)
+    return () => ipcRenderer.removeListener(DEV_PREVIEW_NAVIGATE_CHANNEL, wrapped)
+  },
   getComputerUsePermissions: () => ipcRenderer.invoke('computer-use:permissions'),
   requestComputerUsePermission: (kind) =>
     ipcRenderer.invoke('computer-use:request-permission', kind),

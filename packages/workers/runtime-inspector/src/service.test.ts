@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -68,6 +68,12 @@ test('inspects Git status, branches, diff preview, and saved checkpoints read-on
   assert.match(failedDiagnostics.recentError ?? '', /path_outside_repository/)
   assert.ok(failedDiagnostics.capabilities.includes('gui_runtime_health'))
 
+  await writeFile(join(repo, ':(top)literal.txt'), 'literal pathspec-looking file\n', 'utf8')
+  const literalDiff = await service.gitDiffPreview({ path: ':(top)literal.txt' })
+  assert.equal(literalDiff.ok, true)
+  if (!literalDiff.ok) return
+  assert.match(literalDiff.stat, /:\(top\)literal\.txt/)
+
   const checkpoints = await service.gitCheckpointList({})
   assert.equal(checkpoints.ok, true)
   if (!checkpoints.ok) return
@@ -88,6 +94,62 @@ test('inspects Git status, branches, diff preview, and saved checkpoints read-on
   if (!recoveredDiagnostics.ok) return
   assert.equal(recoveredDiagnostics.health.status, 'healthy')
   assert.equal(recoveredDiagnostics.recentError, null)
+})
+
+test('git checkpoint preview ignores symlinked checkpoint files', async (t) => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'runtime-inspector-checkpoint-link-'))
+  t.after(async () => {
+    await rm(tempRoot, { recursive: true, force: true })
+  })
+
+  const dataDir = join(tempRoot, 'app-data')
+  const checkpointId = 'turn_link'
+  const checkpointPath = join(dataDir, 'git-checkpoints', checkpointId)
+  await mkdir(checkpointPath, { recursive: true })
+  const metadata = {
+    checkpointId,
+    runtimeId: 'sciforge',
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    workspaceRoot: process.cwd(),
+    repositoryRoot: process.cwd(),
+    branch: null,
+    head: 'abcdef123456',
+    checkpointRef: `refs/sciforge/checkpoints/${checkpointId}`,
+    createdAt: '2026-06-23T00:00:00.000Z',
+    diffStat: 'tracked.txt | 1 +',
+    status: 'available',
+    untrackedFiles: []
+  }
+
+  const outsideMetadataPath = join(tempRoot, 'outside-metadata.json')
+  await writeFile(outsideMetadataPath, `${JSON.stringify(metadata, null, 2)}\n`, 'utf8')
+  await symlink(outsideMetadataPath, join(checkpointPath, 'metadata.json'))
+
+  const service = createRuntimeInspectorService({
+    workspaceRoot: process.cwd(),
+    checkpointDataDir: dataDir,
+    fetch: fakeRuntimeFetch()
+  })
+
+  const rejected = await service.gitCheckpointPreview({ checkpoint_id: checkpointId })
+  assert.equal(rejected.ok, false)
+  if (rejected.ok) return
+  assert.equal(rejected.error.code, 'checkpoint_not_found')
+
+  await rm(join(checkpointPath, 'metadata.json'), { force: true })
+  await writeFile(join(checkpointPath, 'metadata.json'), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8')
+  const outsidePatchPath = join(tempRoot, 'outside.patch')
+  await writeFile(outsidePatchPath, 'SECRET_PATCH\n', 'utf8')
+  await symlink(outsidePatchPath, join(checkpointPath, 'staged.patch'))
+  await writeFile(join(checkpointPath, 'unstaged.patch'), 'unstaged patch text\n', 'utf8')
+
+  const preview = await service.gitCheckpointPreview({ checkpoint_id: checkpointId })
+  assert.equal(preview.ok, true)
+  if (!preview.ok) return
+  assert.equal(preview.stagedPatch?.text ?? '', '')
+  assert.doesNotMatch(JSON.stringify(preview), /SECRET_PATCH/)
+  assert.match(preview.unstagedPatch?.text ?? '', /unstaged/)
 })
 
 test('reports runtime health, dependencies, redacted local runtime info, and LSP availability boundaries', async (t) => {
@@ -283,7 +345,8 @@ async function createGitRepo(tempRoot: string): Promise<string> {
   await git(repo, ['config', 'user.email', 'runtime-inspector@example.test'])
   await git(repo, ['config', 'user.name', 'Runtime Inspector'])
   await writeFile(join(repo, 'tracked.txt'), 'initial line\n', 'utf8')
-  await git(repo, ['add', 'tracked.txt'])
+  await writeFile(join(repo, ':(top)literal.txt'), 'initial literal pathspec-looking file\n', 'utf8')
+  await git(repo, ['--literal-pathspecs', 'add', 'tracked.txt', ':(top)literal.txt'])
   await git(repo, ['commit', '-m', 'initial'])
   return repo
 }

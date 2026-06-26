@@ -56,9 +56,9 @@ agent 编排是边界外能力，可以通过协议接进来。**
 - User input UI：复用现有中性 user_input 卡片，不做 Codex 专用 UI。
 - Reasoning 可见性：只显示 app-server 实际给出的 reasoning summary/trace/raw
   文本，不补写、不伪装 SciForge Runtime 式完整思考。
-- 兼容策略：renderer 专用 `codex:*` IPC 已删除；旧 `runtimeRequest` /
-  `startSse` / `stopSse` 只作为 SciForge Runtime/legacy 兼容入口保留，新代码走中性
-  `agentRuntime:*` IPC。
+- 入口策略：renderer 专用 `codex:*` IPC 已删除；应用代码统一走中性
+  `agentRuntime:*` IPC，不再保留 `runtimeRequest` / `startSse` / `stopSse`
+  旁路。
 - E2E 验收：Codex 和 SciForge Runtime 都至少做一次真实 assistant 回复 smoke；recoverable
   error 作为单独错误路径验证，不替代正常路径。
 
@@ -348,8 +348,7 @@ src/renderer/src/agent/agent-runtime-event-dispatcher.ts
    sendResponse、server request normalizer、reasoning config、README。
 4. 为 Codex 增加 `codex-agent-runtime-adapter`，复用 `CodexRuntimeService`、
    app-server capsule 和 GUI-owned store。
-5. RuntimeHost 保留默认运行时 legacy request/SSE 兼容路径；Codex 通过
-   `AgentRuntimeHost` 暴露。
+5. `AgentRuntimeHost` 统一暴露默认运行时与 Codex 的中性 request/event 路径。
 6. Renderer 使用 `AgentRuntimeProvider` 作为唯一业务 provider；旧
    SciForge Runtime/Codex renderer provider 分叉已删除。
 7. Codex 专用 renderer IPC 已删除，main-side Codex 模块化边界保留。

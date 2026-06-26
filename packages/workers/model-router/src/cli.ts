@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { startModelRouterServer, type ModelRouterConfig } from './router';
+import { DEFAULT_MODEL_ROUTER_TRACE_ROOT, startModelRouterServer, type ModelRouterConfig } from './router';
 import { resolveModelRouterCliOptions } from './cli-options';
 
 const options = resolveModelRouterCliOptions(process.argv.slice(2), process.env);
@@ -12,6 +12,7 @@ const server = await startModelRouterServer({
   port: options.port,
   config,
   workspaceRoot: options.workspaceRoot,
+  traceDataRoot: options.traceDataRoot,
   log: options.quiet ? undefined : (message) => console.error(`[sciforge-model-router] ${message}`),
 });
 
@@ -47,7 +48,7 @@ function envModelRouterConfig(): ModelRouterConfig {
     publicModelAlias: process.env.SCIFORGE_MODEL_ROUTER_PUBLIC_MODEL_ALIAS || 'sciforge-router',
     profiles: {
       [defaultProfile]: {
-        traceRoot: process.env.SCIFORGE_MODEL_ROUTER_TRACE_ROOT || '.sciforge/model-router-traces',
+        traceRoot: process.env.SCIFORGE_MODEL_ROUTER_TRACE_ROOT || DEFAULT_MODEL_ROUTER_TRACE_ROOT,
         textReasoner: {
           provider: process.env.SCIFORGE_TEXT_PROVIDER || 'text-reasoner',
           baseUrl: requiredEnv('SCIFORGE_TEXT_BASE_URL'),

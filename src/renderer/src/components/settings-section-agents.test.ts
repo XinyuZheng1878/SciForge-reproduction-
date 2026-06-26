@@ -313,7 +313,7 @@ function baseCtx(): Record<string, unknown> {
     form: {
       activeAgentRuntime: 'sciforge',
       agents: { sciforge: localRuntime, codex },
-      claw: { skills: { extraDirs: ['/tmp/project/.agents/skills'] } }
+      remoteChannel: { skills: { extraDirs: ['/tmp/project/.agents/skills'] } }
     },
     localRuntime,
     codex,
@@ -742,6 +742,14 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
     expect(html).toContain('Token-saving advanced settings')
     expect(html).toContain('MCP advanced settings')
     expect(html).not.toContain('<details open')
+  })
+
+  it('renders the supported tool storm threshold without a hard-threshold control', () => {
+    const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx: baseCtx() }))
+
+    expect(html).toContain('Tool storm window')
+    expect(html).toContain('Tool storm limits')
+    expect(html).not.toContain('Hard threshold')
   })
 
   it('renders pure JSONL as a selectable storage backend', () => {

@@ -17,7 +17,7 @@ import { MessageTimelineEmptyHero } from './message-timeline-empty'
 function renderOfflineHero(runtimeError: string | null = null): string {
   return renderToStaticMarkup(
     createElement(MessageTimelineEmptyHero, {
-      route: 'chat',
+      remoteChannelMode: false,
       ready: false,
       hasWorkspace: true,
       runtimeError,

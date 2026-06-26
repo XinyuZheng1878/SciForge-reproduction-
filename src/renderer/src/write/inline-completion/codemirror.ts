@@ -37,7 +37,6 @@ type InlineCompletionConfig = {
   isEnabled?: () => boolean
   getFilePath?: () => string
   language?: string
-  getModel?: () => string
   requestCompletion: (
     context: InlineCompletionRequestContext,
     mode: WriteInlineCompletionMode

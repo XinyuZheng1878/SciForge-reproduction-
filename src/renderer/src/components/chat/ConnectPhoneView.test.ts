@@ -162,10 +162,16 @@ describe('ConnectPhoneView', () => {
     expect(resolveConnectPhoneWorkspaceRoot('/repo/custom', '/repo/current')).toBe('/repo/custom')
     expect(
       resolveConnectPhoneWorkspaceRoot(
-        '/Users/zxy/.sciforge/claw/discord/server/channel',
+        '/Users/zxy/.sciforge/remote-channel/discord/server/channel',
         '/repo/current'
       )
     ).toBe('/repo/current')
+    expect(
+      connectPhoneWorkspaceLabel(
+        '/Users/zxy/.sciforge/remote-channel/discord/server/channel',
+        'default workspace'
+      )
+    ).toBe('default workspace')
     expect(
       connectPhoneWorkspaceLabel(
         '/Users/zxy/.sciforge/claw/discord/server/channel',

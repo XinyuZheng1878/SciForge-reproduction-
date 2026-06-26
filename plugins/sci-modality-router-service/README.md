@@ -54,7 +54,7 @@ cd provider && bash start.sh           # FastAPI on :8001 (cuda:1); ChemLLM via 
 
 # 2) This module (calls the provider)
 npm install
-cp .env.example .env                    # EXPERT_PROVIDER_BASE_URL -> the running provider
+cp .env.example .env                    # fill provider/router runtime tokens
 npm start                               # http://127.0.0.1:3898
 ```
 
@@ -69,6 +69,10 @@ GET  /health   -> { ok, service, checkedAt }
 GET  /version  -> { service, version, provider, modalities }
 POST /modality/translate
 ```
+
+All routes require `Authorization: Bearer $SCIMODALITY_ROUTER_RUNTIME_TOKEN`.
+The GPU provider behind this router requires `EXPERT_PROVIDER_API_KEY`; the
+molecule vLLM helper also requires `CHEMLLM_API_KEY` when enabled.
 
 `POST /modality/translate` request:
 
@@ -124,10 +128,10 @@ Model Router consumes this module during input routing:
 - Model Router gates refs by explicit scientific extensions such as `.fasta`, `.smi`, `.mol`,
   `.sdf`, `.mgf`, `.pdb`, `.cif`, `.vcf`, `.bed`, and `.seq`. Generic `.txt`, `.csv`, and `.tsv`
   are not auto-routed to this service.
-- When `SCIFORGE_SCIMODALITY_SERVICE_URL` is set in the Model Router environment, Model Router
-  reads the workspace file text, POSTs it here (`/modality/translate`), and injects the returned
-  evidence into the text reasoner. When unset or unavailable, Model Router falls back to readable
-  raw text where safe.
+- When `SCIFORGE_SCIMODALITY_SERVICE_URL` and `SCIFORGE_SCIMODALITY_SERVICE_TOKEN` are set in the
+  Model Router environment, Model Router reads the workspace file text, POSTs it here
+  (`/modality/translate`), and injects the returned evidence into the text reasoner. When unset or
+  unavailable, Model Router falls back to readable raw text where safe.
 
 ## Test
 

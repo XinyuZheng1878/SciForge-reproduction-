@@ -4,9 +4,8 @@
     "port": 8899,
     "dataDir": "~/.sciforge/runtime",
     "runtimeToken": "",
-    "apiKey": "",
-    "baseUrl": "https://api.deepseek.com/beta",
-    "model": "deepseek-v4-pro",
+    "apiKey": "local-runtime-router-key",
+    "model": "sciforge-router",
     "approvalPolicy": "auto",
     "sandboxMode": "workspace-write",
     "tokenEconomyMode": false,
@@ -39,7 +38,7 @@
   },
   "models": {
     "profiles": {
-      "deepseek-v4-pro": {
+      "sciforge-router": {
         "contextWindowTokens": 1000000,
         "contextCompaction": {
           "softThreshold": 980000,
@@ -50,8 +49,7 @@
         "supportsToolCalling": true,
         "messageParts": ["text"]
       },
-      "deepseek-v4-flash": {
-        "aliases": ["deepseek-chat", "deepseek-reasoner"],
+      "sciforge-router-fast": {
         "contextWindowTokens": 1000000,
         "contextCompaction": {
           "softThreshold": 980000,
@@ -90,8 +88,7 @@
     },
     "skills": {
       "enabled": false,
-      "roots": [],
-      "legacySkillMd": true
+      "roots": []
     },
     "subagents": {
       "enabled": true,

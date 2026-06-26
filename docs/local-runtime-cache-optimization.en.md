@@ -309,8 +309,8 @@ This document emphasizes a production-level constraint: cache optimization belon
 
 The GUI side should only do:
 
-- runtimeRequest
-- SSE Subscription
+- Start thread requests through `AgentRuntimeProvider` / `agentRuntime:*` IPC
+- Receive SSE events through runtime event subscriptions
 - usage display
 - Approval interacts with user input
 

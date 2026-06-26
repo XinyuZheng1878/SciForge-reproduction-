@@ -3,6 +3,7 @@ import type { AgentRuntimeItem, AgentRuntimeThreadDetail } from '../../shared/ag
 import {
   completedTurnItems,
   feedEvidenceDag,
+  isEvidenceDagFeedEnabled,
   toEvidenceDagTraceItems
 } from './evidence-dag-feed'
 
@@ -60,6 +61,19 @@ describe('Evidence DAG runtime feed', () => {
     expect(completedTurnItems({ ...detail, turns: [] }, 'turn-1').map((item) => item.id)).toEqual(['flat'])
   })
 
+  it('requires both service URL and API key before enabling the feed', () => {
+    expect(isEvidenceDagFeedEnabled({
+      SCIFORGE_EVIDENCE_DAG_SERVICE_URL: 'http://127.0.0.1:3897',
+      SCIFORGE_EVIDENCE_DAG_API_KEY: 'secret'
+    })).toBe(true)
+    expect(isEvidenceDagFeedEnabled({
+      SCIFORGE_EVIDENCE_DAG_SERVICE_URL: 'http://127.0.0.1:3897'
+    })).toBe(false)
+    expect(isEvidenceDagFeedEnabled({
+      SCIFORGE_EVIDENCE_DAG_API_KEY: 'secret'
+    })).toBe(false)
+  })
+
   it('posts merge-mode traces with runtime-scoped, URL-encoded thread ids', async () => {
     const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }))
 
@@ -88,5 +102,22 @@ describe('Evidence DAG runtime feed', () => {
         })
       })
     )
+  })
+
+  it('does not post when the service URL has no non-empty API key', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }))
+
+    await feedEvidenceDag({
+      runtimeId: 'claude',
+      threadId: 'thread',
+      items: [{ id: 'u1', kind: 'user_message', text: 'hello' }],
+      env: {
+        SCIFORGE_EVIDENCE_DAG_SERVICE_URL: 'http://127.0.0.1:3897/',
+        SCIFORGE_EVIDENCE_DAG_API_KEY: '   '
+      },
+      fetchImpl
+    })
+
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 })

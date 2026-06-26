@@ -78,7 +78,7 @@ The result: SciForge Runtime is built for real project work with long tasks, lon
 ## Runtime: SciForge Runtime By Default, Codex Optional
 
 The default local agent runtime in SciForge is
-**SciForge Runtime** (shipped under `kun/`), a self-contained
+**SciForge Runtime** (the bundled local runtime package), a self-contained
 TypeScript package that boots a local HTTP/SSE server as the
 stable boundary between the GUI and the SciForge Runtime agent loop. Advanced
 users can explicitly select **Codex app-server**, which is managed by
@@ -125,23 +125,23 @@ without the GUI. The GUI reads `/v1/runtime/info` and
 `/v1/runtime/tools` in Settings to show what is actually available.
 These capabilities are off by config or limited by model capability
 until explicitly enabled; examples and troubleshooting live in
-[`kun/README.md`](kun/README.md).
+[the SciForge Runtime package README](kun/README.md).
 
 Simplified architecture:
 
 ```text
 Renderer (React)
   → AgentRuntimeProvider
-  → preload: dsGui.agentRuntime.*
+  → preload: window.sciforge.agentRuntime.*
   → main: AgentRuntimeHost
   → SciForge Runtime adapter → local runtime service (HTTP + SSE)
   → CodexAgentRuntimeAdapter → codex app-server (JSON-RPC stdio)
 ```
 
 Renderer consumes only neutral threads, turns, events, and capabilities. SciForge Runtime is
-the default runtime, and Codex is used only after explicit user selection. Legacy
-`runtimeRequest` / `startSse` paths remain compatibility shims only; renderer
-specific `codex:*` IPC has been removed.
+the default runtime, and Codex is used only after explicit user selection. The old
+renderer bypasses have been removed, and renderer-specific `codex:*` IPC has also
+been removed.
 The full contract is documented in
 [`docs/agent-runtime-contract.md`](docs/agent-runtime-contract.md).
 
@@ -153,7 +153,7 @@ settings may be added.
 
 The full endpoint list, CLI flags, environment variables, data dir
 layout, and SSE event schema are documented in
-[`kun/README.md`](kun/README.md).
+[the SciForge Runtime package README](kun/README.md).
 
 ## Who It Is For
 
@@ -195,7 +195,7 @@ A dedicated Markdown writing workbench that keeps writing files, save state, and
   <img src="src/asset/img/writemode.png" alt="SciForge Write mode" width="860">
 </p>
 
-- Manage `~/.sciforge/write_workspace` plus custom writing spaces from the left file tree; older installs may still have a compatible `~/.deepseekgui/write_workspace` directory.
+- Manage `~/.sciforge/write_workspace` plus custom writing spaces from the left file tree; older installs may still have a compatible legacy writing workspace directory.
 - Switch between **Live / Source / Split / Preview**; Live keeps Markdown source on the active line and renders the rest.
 - Export the current Markdown document from the toolbar as `HTML / PDF / DOC / DOCX`, with best-effort preservation for headings, lists, code blocks, tables, and local images.
 - Model Router-backed short and inspiration completion, plus selection-based inline agent actions and a right-side writing assistant for summaries, outlines, and polish.
@@ -205,7 +205,7 @@ A dedicated Markdown writing workbench that keeps writing files, save state, and
 Background automation and IM integration, so the active AgentRuntime can keep handling phone messages and scheduled jobs outside normal desktop chat.
 
 <p align="center">
-  <img src="src/asset/img/clawmode.png" alt="SciForge Connect phone" width="860">
+  <img src="src/asset/img/connect-phone-mode.png" alt="SciForge Connect phone" width="860">
 </p>
 
 - Configure dedicated agents for Feishu / Lark / WeChat and other channels, each with its own profile, default model, and workspace.
@@ -284,7 +284,7 @@ See [Workbench And Entry Points](#workbench-and-entry-points) above for Connect 
 Settings manages:
 
 - Model Router base URL, runtime API key, public model alias, runtime port, and runtime token.
-- Auto-start for the local runtime, plus optional custom `deepseek` path.
+- Auto-start for the local runtime, plus an optional custom runtime executable path.
 - Tool approval policy and filesystem access mode.
 - Default workspace, language, theme, font size, and completion notifications.
 - GUI updates and local error logs.
@@ -392,7 +392,7 @@ For the full development workflow, see [DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 | [docs/local-runtime-architecture.en.md](docs/local-runtime-architecture.en.md) | SciForge Runtime architecture, GUI boundaries, HTTP/SSE contract, and legacy agent retirement notes |
 | [docs/local-runtime-cache-optimization.en.md](docs/local-runtime-cache-optimization.en.md) | SciForge Runtime cache optimization, token economy, MCP search, tool-output compaction, and usage savings |
 | [docs/local-runtime-contributing.en.md](docs/local-runtime-contributing.en.md) | SciForge Runtime contribution guide: hexagonal architecture, design patterns (Ports & Adapters / Functional Core Imperative Shell / event sourcing / explicit DI / composition root), four typical PR scenarios |
-| [kun/README.md](kun/README.md) | SciForge Runtime package: CLI, env, data dir, HTTP API |
+| [SciForge Runtime package README](kun/README.md) | CLI, env, data dir, HTTP API |
 | [CONTRIBUTING.en.md](docs/CONTRIBUTING.en.md) | Contribution guide |
 | [DEVELOPMENT.en.md](docs/DEVELOPMENT.en.md) | Local development workflow |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community code of conduct |

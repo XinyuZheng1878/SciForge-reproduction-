@@ -1,4 +1,4 @@
-import { createVisionRouterServer } from './server.js';
+import { createVisionRouterServer, VISION_ROUTER_RUNTIME_TOKEN_ENV } from './server.js';
 import type { QwenConfig } from './qwen.js';
 
 function requiredEnv(name: string): string {
@@ -20,8 +20,10 @@ const qwen: QwenConfig = {
 
 const host = process.env.VISION_ROUTER_HOST ?? '127.0.0.1';
 const port = Number(process.env.VISION_ROUTER_PORT ?? 3899);
+const runtimeToken = requiredEnv(VISION_ROUTER_RUNTIME_TOKEN_ENV);
+const maxBodyBytes = process.env.VISION_ROUTER_MAX_BODY_BYTES ? Number(process.env.VISION_ROUTER_MAX_BODY_BYTES) : undefined;
 
-const server = createVisionRouterServer({ qwen });
+const server = createVisionRouterServer({ qwen, runtimeToken, maxBodyBytes });
 server.listen(port, host, () => {
   console.log(`SciForge Vision Router listening at http://${host}:${port}`);
   console.log(`Vision provider: ${qwen.model} @ ${qwen.baseUrl}`);

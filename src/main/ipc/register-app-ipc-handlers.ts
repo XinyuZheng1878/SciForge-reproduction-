@@ -7,9 +7,6 @@ import { z } from 'zod'
 import {
   type AppSettingsPatch,
   type AppSettingsV1,
-  type ClawRunResult,
-  type ClawTaskFromTextResult,
-  type ClawRuntimeStatus,
   type ScheduleRunResult,
   type ScheduleRuntimeStatus,
   type ScheduleTaskFromTextResult,
@@ -19,8 +16,9 @@ import {
   type WorkflowRuntimeStatus
 } from '../../shared/app-settings'
 import type {
-  ClawImInstallPollResult,
-  ClawImInstallQrResult,
+  ConnectPhoneInstallPollResult,
+  ConnectPhoneInstallQrResult,
+  ConnectPhoneRuntimeStatus,
   DesktopCommand,
   ModelRouterConfigOpenResult,
   SystemNotificationResult,
@@ -33,7 +31,6 @@ import {
   agentRuntimeConnectPayloadSchema,
   agentRuntimeAuxiliaryPayloadSchema,
   agentRuntimeApprovalResolvePayloadSchema,
-  clawActiveThreadContextPayloadSchema,
   discordBindChannelPayloadSchema,
   discordConfigureClientPayloadSchema,
   discordConfigureProxyPayloadSchema,
@@ -56,10 +53,12 @@ import {
   agentRuntimeTurnTargetPayloadSchema,
   agentRuntimeUsagePayloadSchema,
   agentRuntimeUserInputResolvePayloadSchema,
-  clawMirrorPayloadSchema,
-  clawImInstallPollPayloadSchema,
-  clawTaskFromTextPayloadSchema,
+  connectPhoneInstallPollPayloadSchema,
+  connectPhoneInstallQrPayloadSchema,
   computerUsePermissionKindSchema,
+  remoteChannelActiveThreadContextPayloadSchema,
+  remoteChannelMirrorPayloadSchema,
+  remoteChannelTaskFromTextPayloadSchema,
   runtimeConfigContentSchema,
   desktopCommandSchema,
   evidenceDagOpenPayloadSchema,
@@ -268,10 +267,10 @@ type RegisterAppIpcHandlersOptions = {
   } | null) => void
   getScheduleRuntime: () => ScheduleRuntime | null
   getWorkflowRuntime?: () => WorkflowRuntime | null
-  startFeishuInstallQrcode: (isLark: boolean) => Promise<ClawImInstallQrResult>
-  pollFeishuInstall: (deviceCode: string) => Promise<ClawImInstallPollResult>
-  startWeixinInstallQrcode: (weixinBridgeUrl?: string) => Promise<ClawImInstallQrResult>
-  pollWeixinInstall: (deviceCode: string, weixinBridgeUrl?: string) => Promise<ClawImInstallPollResult>
+  startFeishuInstallQrcode: (isLark: boolean) => Promise<ConnectPhoneInstallQrResult>
+  pollFeishuInstall: (deviceCode: string) => Promise<ConnectPhoneInstallPollResult>
+  startWeixinInstallQrcode: (weixinBridgeUrl?: string) => Promise<ConnectPhoneInstallQrResult>
+  pollWeixinInstall: (deviceCode: string, weixinBridgeUrl?: string) => Promise<ConnectPhoneInstallPollResult>
   resolveRuntimeConfigPath: () => string
   openModelRouterConfigFile: (settings: AppSettingsV1) => Promise<ModelRouterConfigOpenResult>
   getPaperRadarService?: () => PaperRadarWorkerService | null
@@ -783,20 +782,13 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
 
   handleInvoke('upstream:models', async () => fetchUpstreamModels())
 
-  handleInvoke('claw:status', async (): Promise<ClawRuntimeStatus> =>
+  handleInvoke('connectPhone:status', async (): Promise<ConnectPhoneRuntimeStatus> =>
     getClawRuntime()?.status() ?? {
       imServerRunning: false,
       imUrl: '',
       runningTaskIds: []
     }
   )
-
-  handleInvoke('claw:task:run', async (_, taskId: unknown): Promise<ClawRunResult> => {
-    const normalizedTaskId = parseIpcPayload('claw:task:run', streamIdSchema, taskId)
-    const scheduleRuntime = getScheduleRuntime()
-    if (!scheduleRuntime) return { ok: false, message: 'Schedule runtime is not initialized.' }
-    return scheduleRuntime.runTask(normalizedTaskId)
-  })
 
   handleInvoke('schedule:status', async (): Promise<ScheduleRuntimeStatus> =>
     getScheduleRuntime()?.status() ?? {
@@ -872,11 +864,11 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   })
 
   handleInvoke(
-    'claw:active-thread-context',
+    'remoteChannel:active-thread-context',
     async (_, payload: unknown) => {
       const request = parseIpcPayload(
-        'claw:active-thread-context',
-        clawActiveThreadContextPayloadSchema,
+        'remoteChannel:active-thread-context',
+        remoteChannelActiveThreadContextPayloadSchema,
         payload
       )
       options.setClawActiveThreadContext?.(request)
@@ -884,11 +876,11 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   )
 
   handleInvoke(
-    'claw:channel:mirror',
+    'remoteChannel:message:mirror',
     async (_, payload: unknown) => {
-      const request = parseIpcPayload('claw:channel:mirror', clawMirrorPayloadSchema, payload)
+      const request = parseIpcPayload('remoteChannel:message:mirror', remoteChannelMirrorPayloadSchema, payload)
       const clawRuntime = getClawRuntime()
-      if (!clawRuntime) return { ok: false as const, message: 'Claw runtime is not initialized.' }
+      if (!clawRuntime) return { ok: false as const, message: 'Remote channel runtime is not initialized.' }
       return clawRuntime.mirrorThreadMessageToIm(
         request.threadId,
         request.text,
@@ -898,32 +890,36 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   )
 
   handleInvoke(
-    'claw:channel:mirror-to-feishu',
+    'remoteChannel:message:mirror-to-feishu',
     async (_, payload: unknown) => {
-      const request = parseIpcPayload('claw:channel:mirror-to-feishu', clawMirrorPayloadSchema, payload)
-      const clawRuntime = getClawRuntime()
-      if (!clawRuntime) return { ok: false as const, message: 'Claw runtime is not initialized.' }
-      return clawRuntime.mirrorThreadMessageToIm(
-        request.threadId,
-        request.text,
-        request.direction
-      )
-    }
-  )
-
-  handleInvoke(
-    'claw:task:create-from-text',
-    async (_, payload: unknown): Promise<ClawTaskFromTextResult> => {
       const request = parseIpcPayload(
-        'claw:task:create-from-text',
-        clawTaskFromTextPayloadSchema,
+        'remoteChannel:message:mirror-to-feishu',
+        remoteChannelMirrorPayloadSchema,
+        payload
+      )
+      const clawRuntime = getClawRuntime()
+      if (!clawRuntime) return { ok: false as const, message: 'Remote channel runtime is not initialized.' }
+      return clawRuntime.mirrorThreadMessageToIm(
+        request.threadId,
+        request.text,
+        request.direction
+      )
+    }
+  )
+
+  handleInvoke(
+    'remoteChannel:task:create-from-text',
+    async (_, payload: unknown): Promise<ScheduleTaskFromTextResult> => {
+      const request = parseIpcPayload(
+        'remoteChannel:task:create-from-text',
+        remoteChannelTaskFromTextPayloadSchema,
         payload
       )
       const scheduleRuntime = getScheduleRuntime()
       if (!scheduleRuntime) return { kind: 'error', message: 'Schedule runtime is not initialized.' }
       const settings = await store.load()
       const channel = request.channelId
-        ? settings.claw.channels.find((item) => item.id === request.channelId)
+        ? settings.remoteChannel.channels.find((item) => item.id === request.channelId)
         : undefined
       return scheduleRuntime.createScheduledTaskFromText(request.text, {
         workspaceRoot: channel?.workspaceRoot || settings.schedule.defaultWorkspaceRoot || settings.workspaceRoot,
@@ -952,26 +948,32 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   )
 
   handleInvoke(
-    'claw:im-install:qrcode',
+    'connectPhone:install:qrcode',
     async (_, payload: unknown) => {
       const request = parseIpcPayload(
-        'claw:im-install:qrcode',
-        z.object({ provider: z.enum(['feishu', 'weixin']), isLark: z.boolean().optional() }).strict(),
+        'connectPhone:install:qrcode',
+        connectPhoneInstallQrPayloadSchema,
         payload
       )
       if (request.provider === 'weixin') {
-        return startWeixinInstallQrcode()
+        const settings = await store.load()
+        return startWeixinInstallQrcode(settings.connectPhone.weixinBridgeUrl)
       }
       return startFeishuInstallQrcode(request.isLark === true)
     }
   )
 
   handleInvoke(
-    'claw:im-install:poll',
+    'connectPhone:install:poll',
     async (_, payload: unknown) => {
-      const request = parseIpcPayload('claw:im-install:poll', clawImInstallPollPayloadSchema, payload)
+      const request = parseIpcPayload(
+        'connectPhone:install:poll',
+        connectPhoneInstallPollPayloadSchema,
+        payload
+      )
       if (request.provider === 'weixin') {
-        return pollWeixinInstall(request.deviceCode)
+        const settings = await store.load()
+        return pollWeixinInstall(request.deviceCode, settings.connectPhone.weixinBridgeUrl)
       }
       return pollFeishuInstall(request.deviceCode)
     }

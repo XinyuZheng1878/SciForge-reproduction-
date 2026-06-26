@@ -93,41 +93,108 @@ describe('Codex app-server pending request registry', () => {
     expect(registry.pending()).toEqual([])
   })
 
-  it('captures legacy request_user_input aliases as user-input requests', async () => {
+  it('captures current MCP elicitation requests as user-input requests', async () => {
     const observed: CodexAppServerPendingRequest[] = []
     const registry = createCodexAppServerPendingRequestRegistry({
       onPendingRequest: (request) => observed.push(request)
     })
 
     const input = registry.handle({
-      id: 'input-legacy',
-      method: 'request_user_input',
+      id: 'input-mcp',
+      method: 'mcpServer/elicitation/request',
       params: {
         threadId: 'thread-1',
         turnId: 'turn-1',
-        itemId: 'input-item-legacy',
+        itemId: 'input-item-mcp',
         questions: [{ id: 'q1', question: 'Pick one' }]
       }
     })
 
     expect(observed).toEqual([
       expect.objectContaining({
-        requestId: 'input-legacy',
-        method: 'request_user_input',
+        requestId: 'input-mcp',
+        method: 'mcpServer/elicitation/request',
         kind: 'user_input',
         threadId: 'thread-1',
         turnId: 'turn-1',
-        itemId: 'input-item-legacy',
-        summary: 'User input requested'
+        itemId: 'input-item-mcp',
+        summary: 'MCP input requested'
       })
     ])
 
     registry.resolveUserInput({
-      requestId: 'input-legacy',
+      requestId: 'input-mcp',
       answers: [{ id: 'q1', value: 'A' }]
     })
 
-    await expect(input).resolves.toEqual({ answers: { q1: { answers: ['A'] } } })
+    await expect(input).resolves.toEqual({ action: 'accept', content: { q1: 'A' } })
+  })
+
+  it('fails legacy user-input aliases closed', async () => {
+    const onPendingRequest = vi.fn()
+    const onUnknownRequest = vi.fn()
+    const registry = createCodexAppServerPendingRequestRegistry({
+      onPendingRequest,
+      onUnknownRequest
+    })
+
+    for (const method of [
+      'item/userInput/request',
+      'item/userInput/requested',
+      'userInput/request',
+      'user_input/request',
+      'request_user_input',
+      'item/requestUserInput'
+    ]) {
+      await expect(registry.handle({
+        id: `input-${method}`,
+        method,
+        params: { threadId: 'thread-1' }
+      })).rejects.toThrow(`Unsupported Codex app-server request: ${method}`)
+    }
+
+    expect(onPendingRequest).not.toHaveBeenCalled()
+    expect(onUnknownRequest).toHaveBeenCalledTimes(6)
+    expect(registry.pending()).toEqual([])
+  })
+
+  it('classifies current approval methods with consistent summaries and denial responses', async () => {
+    const observed: CodexAppServerPendingRequest[] = []
+    const registry = createCodexAppServerPendingRequestRegistry({
+      onPendingRequest: (request) => observed.push(request)
+    })
+
+    const command = registry.handle({
+      id: 'approval-exec',
+      method: 'execCommandApproval',
+      params: { threadId: 'thread-1', turnId: 'turn-1' }
+    })
+    const patch = registry.handle({
+      id: 'approval-patch',
+      method: 'applyPatchApproval',
+      params: { threadId: 'thread-1', turnId: 'turn-1' }
+    })
+
+    expect(observed).toEqual([
+      expect.objectContaining({
+        requestId: 'approval-exec',
+        method: 'execCommandApproval',
+        kind: 'approval',
+        summary: 'Command approval requested'
+      }),
+      expect.objectContaining({
+        requestId: 'approval-patch',
+        method: 'applyPatchApproval',
+        kind: 'approval',
+        summary: 'File change approval requested'
+      })
+    ])
+
+    registry.resolveApproval({ requestId: 'approval-exec', decision: 'denied' })
+    registry.resolveApproval({ requestId: 'approval-patch', decision: 'denied' })
+
+    await expect(command).resolves.toEqual({ decision: 'decline' })
+    await expect(patch).resolves.toEqual({ decision: 'decline' })
   })
 
   it('routes dynamic tool call requests to the configured handler without queuing them', async () => {
@@ -164,7 +231,7 @@ describe('Codex app-server pending request registry', () => {
     expect(registry.pending()).toEqual([])
   })
 
-  it('normalizes dotted dynamic tool names when app-server omits namespace', async () => {
+  it('normalizes dotted params.tool values when app-server omits namespace', async () => {
     const onToolCallRequest = vi.fn(async () => ({
       contentItems: [{ type: 'inputText' as const, text: 'tool-ok' }],
       success: true
@@ -176,7 +243,7 @@ describe('Codex app-server pending request registry', () => {
       method: 'item/tool/call',
       params: {
         threadId: 'thread-1',
-        toolName: 'mcp_server.lookup',
+        tool: 'mcp_server.lookup',
         arguments: { id: 'ABC-123' }
       }
     })).resolves.toEqual({
@@ -191,6 +258,30 @@ describe('Codex app-server pending request registry', () => {
       tool: 'lookup',
       arguments: { id: 'ABC-123' }
     })
+    expect(registry.pending()).toEqual([])
+  })
+
+  it('fails legacy dynamic tool name fallbacks closed', async () => {
+    const onToolCallRequest = vi.fn()
+    const onUnknownRequest = vi.fn()
+    const registry = createCodexAppServerPendingRequestRegistry({
+      onToolCallRequest,
+      onUnknownRequest
+    })
+
+    for (const params of [
+      { toolName: 'mcp_server.lookup' },
+      { name: 'mcp_server.lookup' }
+    ]) {
+      await expect(registry.handle({
+        id: `tool-request-${Object.keys(params)[0]}`,
+        method: 'item/tool/call',
+        params
+      })).rejects.toThrow('Unsupported Codex app-server request: item/tool/call')
+    }
+
+    expect(onToolCallRequest).not.toHaveBeenCalled()
+    expect(onUnknownRequest).toHaveBeenCalledTimes(2)
     expect(registry.pending()).toEqual([])
   })
 

@@ -20,7 +20,7 @@ describe('SkillRuntime', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  it('loads manifests, legacy SKILL.md packages, and validation diagnostics', async () => {
+  it('loads manifest-backed packages, ignores bare SKILL.md folders, and reports validation diagnostics', async () => {
     await writeSkill('review', {
       name: 'Review Skill',
       description: 'Review changes in the current workspace',
@@ -36,28 +36,23 @@ describe('SkillRuntime', () => {
     const runtime = await createRuntime()
     const diagnostics = runtime.diagnostics()
 
-    expect(diagnostics.skills.map((skill) => skill.id).sort()).toEqual(['legacy', 'review-skill'])
+    expect(diagnostics.skills.map((skill) => skill.id).sort()).toEqual(['review-skill'])
     expect(diagnostics.skills.find((skill) => skill.id === 'review-skill')).toMatchObject({
       description: 'Review changes in the current workspace',
       version: '1.0.0'
     })
-    expect(diagnostics.skills.find((skill) => skill.id === 'legacy')?.legacy).toBe(true)
+    expect(diagnostics.skills.find((skill) => skill.id === 'legacy')).toBeUndefined()
     expect(diagnostics.validationErrors[0]?.message).toMatch(/expected string/i)
   })
 
-  it('uses Chinese legacy frontmatter names for diagnostics without changing folder ids', async () => {
-    const skillRoot = join(root, 'tdd')
-    await mkdir(skillRoot, { recursive: true })
-    await writeFile(join(skillRoot, 'SKILL.md'), [
-      '---',
-      'name: 测试驱动开发(TDD)',
-      'description: 用测试先行推进实现。',
-      '---',
-      '',
-      '# TDD',
-      '',
-      '先写失败测试，再实现。'
-    ].join('\n'), 'utf8')
+  it('keeps manifest entries that explicitly use SKILL.md as the instruction file', async () => {
+    await writeSkill('tdd', {
+      id: 'tdd',
+      name: '测试驱动开发(TDD)',
+      description: '用测试先行推进实现。',
+      entry: 'SKILL.md',
+      triggers: { commands: ['/tdd'] }
+    }, '# TDD\n\n先写失败测试，再实现。')
 
     const runtime = await createRuntime()
     const diagnostics = runtime.diagnostics()
@@ -66,8 +61,19 @@ describe('SkillRuntime', () => {
       id: 'tdd',
       name: '测试驱动开发(TDD)',
       description: '用测试先行推进实现。',
-      legacy: true
+      legacy: false
     }))
+    expect(runtime.resolveTurn({ prompt: '/tdd run', workspace: root }).activeSkillIds).toEqual(['tdd'])
+  })
+
+  it('rejects the removed legacySkillMd capability field', () => {
+    expect(() => LocalRuntimeCapabilitiesConfig.parse({
+      skills: {
+        enabled: true,
+        roots: [root],
+        legacySkillMd: true
+      }
+    })).toThrow(/legacySkillMd|unrecognized/i)
   })
 
   it('keeps skill.json manifests with Chinese names from collapsing to one id', async () => {
@@ -234,8 +240,7 @@ describe('SkillRuntime', () => {
     const config = LocalRuntimeCapabilitiesConfig.parse({
       skills: {
         enabled: true,
-        roots: [root],
-        legacySkillMd: true
+        roots: [root]
       }
     })
     return SkillRuntime.create(config.skills, options)

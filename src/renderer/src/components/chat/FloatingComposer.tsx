@@ -44,6 +44,7 @@ import type { ModelProviderModelGroup } from '@shared/sciforge-api'
 import type { AgentRuntimeContextState } from '@shared/agent-runtime-contract'
 import type { AgentProviderCapabilities, AttachmentReference, ReviewTarget } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
+import { clawThreadIdsFromChannels, isClawThread } from '../../store/chat-store-helpers'
 import { normalizeWorkspaceRoot } from '../../lib/workspace-path'
 import {
   composerFileReferenceKey,
@@ -642,6 +643,17 @@ export function FloatingComposer({
   const activeThread = activeThreadId
     ? threads.find((thread) => thread.id === activeThreadId) ?? null
     : null
+  const remoteChannelThreadIds = useMemo(
+    () => clawThreadIdsFromChannels(clawChannels),
+    [clawChannels]
+  )
+  const isRemoteChannelThread = Boolean(
+    activeThreadId &&
+    (
+      remoteChannelThreadIds.has(activeThreadId) ||
+      (activeThread && isClawThread(activeThread, clawChannels))
+    )
+  )
   const activeThreadArchived = activeThread?.archived === true
   const showThreadUsageFooter = !compact && route === 'chat' && Boolean(activeThreadId) && runtimeReady
   const threadUsageState = useThreadUsageState(
@@ -660,15 +672,17 @@ export function FloatingComposer({
     || t('clawEmptyHeroFallbackName')
   const clawHasInboundConversation = Boolean(
     activeThreadId ||
-    activeClawChannel?.threadId.trim() ||
-    activeClawChannel?.conversations.some((conversation) => conversation.localThreadId.trim()) ||
+    Object.values(activeClawChannel?.agentThreadIds ?? {}).some((threadId) => threadId.trim()) ||
+    activeClawChannel?.conversations.some((conversation) =>
+      Object.values(conversation.agentThreadIds ?? {}).some((threadId) => threadId.trim())
+    ) ||
     activeClawChannel?.conversations.length ||
     activeClawChannel?.remoteSession?.chatId?.trim()
   )
 
-  const canEditComposer = route === 'claw' ? clawHasInboundConversation : true
+  const canEditComposer = isRemoteChannelThread ? clawHasInboundConversation : true
   const canCompose = runtimeReady && (
-    route === 'claw'
+    isRemoteChannelThread
       ? clawHasInboundConversation
       : (hasActiveThread || !!effectiveWorkspaceRoot)
   )
@@ -691,8 +705,8 @@ export function FloatingComposer({
   const showComposerMenuButton = showIntentToolbar
   const showAttachmentToolbarButton = Boolean(onPickAttachments)
   const canTogglePlanMode = canCompose && Boolean(onPlanCommand)
-  const canOpenGoalPanel = canCompose && route !== 'claw' && runtimeSupportsGoals
-  const canRunReview = canCompose && route !== 'claw' && runtimeSupportsReview && Boolean(onReviewCommand)
+  const canOpenGoalPanel = canCompose && !isRemoteChannelThread && runtimeSupportsGoals
+  const canRunReview = canCompose && !isRemoteChannelThread && runtimeSupportsReview && Boolean(onReviewCommand)
   const canOpenComposerMenu = showComposerMenuButton && (
     canOpenAttachmentPicker ||
     canTogglePlanMode ||
@@ -740,11 +754,11 @@ export function FloatingComposer({
     ? t('runtimeActionNeedsConnection')
     : !hasActiveThread && !effectiveWorkspaceRoot
       ? t('workspaceRequiredToCreateThread')
-      : goalPanelOpen && route !== 'claw'
+      : goalPanelOpen && !isRemoteChannelThread
         ? t('goalComposerPlaceholder')
       : busy
         ? t('composerQueuePlaceholder')
-        : route === 'claw'
+        : isRemoteChannelThread
             ? clawHasInboundConversation
               ? t('clawPlaceholder', { name: clawAgentName })
               : t('clawPlaceholderNeedsInbound')
@@ -757,7 +771,7 @@ export function FloatingComposer({
     ? t('composerOfflineHint')
     : !hasActiveThread && !effectiveWorkspaceRoot
       ? t('composerWorkspaceHint')
-      : route === 'claw'
+      : isRemoteChannelThread
           ? clawHasInboundConversation
             ? t('clawComposerHint')
             : t('clawComposerHintNeedsInbound')
@@ -777,7 +791,7 @@ export function FloatingComposer({
       })
     }
 
-    if (route !== 'claw') {
+    if (!isRemoteChannelThread) {
       const dynamicSkillCommands = runtimeSupportsSkills
         ? skillCommands
           .filter((skill) => skill.id.trim() && skill.name.trim())
@@ -915,7 +929,7 @@ export function FloatingComposer({
     onBtwCommand,
     onPlanCommand,
     onReviewCommand,
-    route,
+    isRemoteChannelThread,
     runtimeReady,
     runtimeSupportsCompact,
     runtimeSupportsFork,
@@ -962,7 +976,7 @@ export function FloatingComposer({
   const parsedSteerCommand = parseSteerCommand(input)
   const goalPanelDraftObjective = getGoalPanelDraftObjective(input, goalPanelOpen)
   const canSetGoalPanelDraft =
-    route !== 'claw'
+    !isRemoteChannelThread
     && runtimeReady
     && canOpenGoalPanel
     && goalPanelDraftObjective.length > 0

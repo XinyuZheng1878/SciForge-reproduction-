@@ -767,7 +767,7 @@ describe('normalizeCodexEvent', () => {
   it('maps user input requests to a fail-closed blocked notice', () => {
     expect(normalizeCodexEvent({
       id: 'server-input-1',
-      method: 'request_user_input',
+      method: 'item/tool/requestUserInput',
       params: {
         threadId: 'thread-1',
         turnId: 'turn-1',
@@ -788,5 +788,36 @@ describe('normalizeCodexEvent', () => {
         severity: 'warning'
       }
     })
+
+    expect(normalizeCodexEvent({
+      id: 'server-input-2',
+      method: 'mcpServer/elicitation/request',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        requestId: 'mcp-input-1'
+      }
+    })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      runtimeError: {
+        itemId: 'mcp-input-1',
+        message: 'Codex is blocked on a user input request, but user input handling is not available yet.',
+        code: 'user_input_required',
+        severity: 'warning'
+      }
+    })
+  })
+
+  it('ignores legacy user input request aliases', () => {
+    expect(normalizeCodexEvent({
+      id: 'server-input-legacy',
+      method: 'request_user_input',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        requestId: 'input-1'
+      }
+    })).toBeNull()
   })
 })

@@ -35,6 +35,7 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatFilePathForDisplay } from '../lib/diff-stats'
+import { openSafeExternalUrl } from '../lib/open-external'
 import { openWorkspacePathInEditor } from '../lib/open-workspace-path'
 import {
   highlightCodeHtml,
@@ -834,7 +835,7 @@ export function WorkspaceFilePreviewPanel({
 
   const openHtmlPreviewExternal = (): void => {
     if (!htmlPreview?.ok) return
-    void window.sciforge.openExternal(htmlPreview.url)
+    void openSafeExternalUrl(htmlPreview.url).catch(() => undefined)
   }
 
   const copyPath = async (): Promise<void> => {
@@ -1158,7 +1159,6 @@ export function WorkspaceFilePreviewPanel({
                         livePreviewEnabled={false}
                         markdownFeatures={markdownPreviewActive}
                         readOnly={!textEditable}
-                        completionModel=""
                         completionEnabled={false}
                         completionDebounceMs={0}
                         completionMinAcceptScore={0}
@@ -1184,6 +1184,7 @@ export function WorkspaceFilePreviewPanel({
                         content={textDraft}
                         isMarkdown
                         filePath={result.path}
+                        workspaceRoot={target?.workspaceRoot ?? workspaceRoot}
                         previewErrorMessage={t('writePreviewErrorFallback')}
                       />
                     </div>
@@ -1206,7 +1207,7 @@ export function WorkspaceFilePreviewPanel({
                           src={htmlPreview.url}
                           title={fileNameFromPath(result.path)}
                           className="h-full w-full border-0 bg-white"
-                          sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+                          sandbox="allow-downloads allow-forms allow-modals allow-scripts"
                           referrerPolicy="no-referrer"
                         />
                       ) : null}

@@ -1,5 +1,3 @@
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
 import type {
   AgentRuntimeEvent,
   AgentRuntimeItem,
@@ -7,6 +5,11 @@ import type {
   AgentRuntimeThreadDetail,
   AgentRuntimeTurn
 } from '../../../shared/agent-runtime-contract'
+import {
+  AppDataJsonlStore,
+  atomicWriteAppDataJson,
+  readAppDataStoreText
+} from '../../services/app-data-store'
 
 export type ClaudeCodeStoredThread = {
   guiThreadId: string
@@ -30,11 +33,11 @@ export type ClaudeCodeThreadStoreSnapshot = {
 }
 
 export class ClaudeCodeThreadStore {
-  private readonly filePath: string
+  private readonly rootDir: string
   private transactionQueue: Promise<void> = Promise.resolve()
 
   constructor(private readonly options: { rootDir: string; now?: () => Date }) {
-    this.filePath = join(options.rootDir, 'threads.json')
+    this.rootDir = options.rootDir
   }
 
   async list(options: { includeArchived?: boolean } = {}): Promise<ClaudeCodeStoredThread[]> {
@@ -129,7 +132,7 @@ export class ClaudeCodeThreadStore {
 
   private async load(): Promise<ClaudeCodeThreadStoreSnapshot> {
     try {
-      const raw = await readFile(this.filePath, 'utf8')
+      const raw = await readAppDataStoreText(this.rootDir, CLAUDE_CODE_THREADS_STORE)
       return normalizeThreadSnapshot(JSON.parse(raw) as unknown)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyThreadSnapshot()
@@ -138,10 +141,9 @@ export class ClaudeCodeThreadStore {
   }
 
   private async save(snapshot: ClaudeCodeThreadStoreSnapshot): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true })
-    const tmpPath = `${this.filePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
-    await writeFile(tmpPath, `${JSON.stringify(normalizeThreadSnapshot(snapshot), null, 2)}\n`, 'utf8')
-    await rename(tmpPath, this.filePath)
+    await atomicWriteAppDataJson(this.rootDir, CLAUDE_CODE_THREADS_STORE, normalizeThreadSnapshot(snapshot), {
+      trailingNewline: true
+    })
   }
 
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -150,6 +152,8 @@ export class ClaudeCodeThreadStore {
     return run
   }
 }
+
+const CLAUDE_CODE_THREADS_STORE = ['threads.json'] as const
 
 export type ClaudeCodeStoredEvent = {
   seq: number
@@ -162,6 +166,7 @@ export class ClaudeCodeEventStore {
   private readonly rootDir: string
   private readonly now: () => Date
   private readonly threadQueues = new Map<string, Promise<void>>()
+  private readonly jsonlStores = new Map<string, AppDataJsonlStore>()
 
   constructor(options: { rootDir: string; now?: () => Date }) {
     this.rootDir = options.rootDir
@@ -181,7 +186,7 @@ export class ClaudeCodeEventStore {
     if (!normalizedThreadId) return []
     let raw = ''
     try {
-      raw = await readFile(this.eventsPath(normalizedThreadId), 'utf8')
+      raw = await this.jsonlForThread(normalizedThreadId).readText()
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
       throw error
@@ -219,13 +224,20 @@ export class ClaudeCodeEventStore {
         createdAt
       }
     }
-    await mkdir(dirname(this.eventsPath(threadId)), { recursive: true })
-    await appendFile(this.eventsPath(threadId), `${JSON.stringify(stored)}\n`, 'utf8')
+    await this.jsonlForThread(threadId).appendJson([stored])
     return stored
   }
 
-  private eventsPath(threadId: string): string {
-    return join(this.rootDir, 'events', `${safeSegment(threadId)}.jsonl`)
+  private jsonlForThread(threadId: string): AppDataJsonlStore {
+    const storeKey = safeSegment(threadId)
+    const existing = this.jsonlStores.get(storeKey)
+    if (existing) return existing
+    const created = new AppDataJsonlStore({
+      rootDir: this.rootDir,
+      segments: ['events', `${storeKey}.jsonl`]
+    })
+    this.jsonlStores.set(storeKey, created)
+    return created
   }
 
   private enqueueForThread<T>(threadId: string, task: () => Promise<T>): Promise<T> {

@@ -2,7 +2,6 @@ import { useMemo } from 'react'
 import { useChatStore } from '../../store/chat-store'
 import type { ClawImChannelV1 } from '@shared/app-settings'
 import type { NormalizedThread } from '../../agent/types'
-import type { AppRoute } from '../../store/chat-store-types'
 
 /**
  * Snapshot of chat-store fields that `MessageTimeline` needs. Co-locates
@@ -10,7 +9,6 @@ import type { AppRoute } from '../../store/chat-store-types'
  * to the timeline only touches this hook + the consuming component.
  */
 export type TimelineStores = {
-  route: AppRoute
   workspaceRoot: string
   chooseWorkspace: () => Promise<string | null>
   clawChannels: ClawImChannelV1[]
@@ -25,7 +23,6 @@ export type TimelineStores = {
 }
 
 export function useTimelineStores(activeThreadId: string | null): TimelineStores {
-  const route = useChatStore((s) => s.route)
   const workspaceRoot = useChatStore((s) => s.workspaceRoot)
   const chooseWorkspace = useChatStore((s) => s.chooseWorkspace)
   const clawChannels = useChatStore((s) => s.clawChannels)
@@ -45,7 +42,6 @@ export function useTimelineStores(activeThreadId: string | null): TimelineStores
   )
 
   return {
-    route,
     workspaceRoot,
     chooseWorkspace,
     clawChannels,

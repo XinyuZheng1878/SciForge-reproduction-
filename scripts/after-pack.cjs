@@ -1,15 +1,9 @@
 const { execFileSync } = require('node:child_process')
-const { chmodSync, existsSync, readdirSync, rmSync } = require('node:fs')
+const { chmodSync, existsSync, readdirSync } = require('node:fs')
 const { join } = require('node:path')
+const localRuntimePackage = require('./local-runtime-package.cjs')
 
-const LOCAL_RUNTIME_REQUIRED_PATHS = [
-  'kun/dist/cli/serve-entry.js',
-  'kun/package.json',
-  'kun/package-lock.json',
-  'kun/node_modules/zod/package.json',
-  'kun/node_modules/diff/package.json',
-  'kun/node_modules/@modelcontextprotocol/sdk/package.json'
-]
+const LOCAL_RUNTIME_REQUIRED_PATHS = localRuntimePackage.LOCAL_RUNTIME_REQUIRED_PATHS
 
 const MODEL_ROUTER_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/model-router/package.json',
@@ -120,53 +114,12 @@ function assertExists(path, label) {
   }
 }
 
-function npmCommand(args, platform = process.platform) {
-  if (platform === 'win32') {
-    return {
-      command: 'cmd.exe',
-      args: ['/d', '/s', '/c', 'npm', ...args]
-    }
-  }
-  return { command: 'npm', args }
-}
-
 function prunePackedKunDependencies(context) {
-  const root = unpackedAppRoot(context)
-  const kunDir = join(root, 'kun')
-  if (!existsSync(kunDir)) return
-
-  assertExists(join(kunDir, 'package.json'), 'Kun package manifest')
-  assertExists(join(kunDir, 'node_modules'), 'Kun node_modules')
-
-  const prune = npmCommand(['prune', '--omit=dev', '--ignore-scripts'])
-  execFileSync(prune.command, prune.args, {
-    cwd: kunDir,
-    env: {
-      ...process.env,
-      npm_config_audit: 'false',
-      npm_config_fund: 'false'
-    },
-    stdio: 'inherit'
-  })
-
-  // Keep native SQLite on the app root dependency so electron-builder's
-  // native-module rebuild owns the target arch and Electron ABI.
-  assertExists(
-    join(root, 'node_modules', 'better-sqlite3', 'package.json'),
-    'root better-sqlite3 dependency'
-  )
-  rmSync(join(kunDir, 'node_modules', 'better-sqlite3'), { recursive: true, force: true })
+  localRuntimePackage.prunePackedKunDependencies(unpackedAppRoot(context))
 }
 
 function validateBundledLocalRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of LOCAL_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-  assertExists(
-    join(root, 'node_modules', 'better-sqlite3', 'package.json'),
-    'root better-sqlite3 dependency'
-  )
+  localRuntimePackage.validateBundledLocalRuntime(unpackedAppRoot(context))
 }
 
 function validateBundledModelRouterRuntime(context) {
@@ -314,7 +267,7 @@ exports._internals = {
   packedResourcesDir,
   unpackedAppRoot,
   projectRoot,
-  npmCommand,
+  npmCommand: localRuntimePackage.npmCommand,
   prunePackedKunDependencies,
   validateBundledLocalRuntime,
   validateBundledModelRouterRuntime,

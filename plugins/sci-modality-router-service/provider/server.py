@@ -20,12 +20,14 @@ Bind: 127.0.0.1:8001  (EXPERT_TRANSLATOR_HOST / EXPERT_TRANSLATOR_PORT to overri
 from __future__ import annotations
 
 import os
+import secrets
 import time
 import uuid
 from typing import Any
 
 import torch
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from experts.protein import ProteinExpert
@@ -39,6 +41,13 @@ DEVICE = os.environ.get("EXPERT_DEVICE", "cuda:1")
 HOST = os.environ.get("EXPERT_TRANSLATOR_HOST", "127.0.0.1")
 PORT = int(os.environ.get("EXPERT_TRANSLATOR_PORT", "8001"))
 MODEL_DIR = os.environ.get("EXPERT_MODEL_DIR", "/root/expert-models")
+EXPERT_PROVIDER_API_KEY = os.environ.get("EXPERT_PROVIDER_API_KEY", "").strip()
+MAX_BODY_BYTES = int(os.environ.get("EXPERT_TRANSLATOR_MAX_BODY_BYTES", str(40 * 1024 * 1024)))
+
+if not EXPERT_PROVIDER_API_KEY:
+    raise RuntimeError("EXPERT_PROVIDER_API_KEY is required to start the expert-translator provider.")
+if MAX_BODY_BYTES <= 0:
+    raise RuntimeError("EXPERT_TRANSLATOR_MAX_BODY_BYTES must be positive.")
 
 print(f"[expert-translator] loading encoder experts on {DEVICE} ...", flush=True)
 _singlecell_backend = SingleCellExpert(f"{MODEL_DIR}/scibert", device=DEVICE)
@@ -68,6 +77,27 @@ class ChatRequest(BaseModel):
 
 
 app = FastAPI(title="SciForge Expert Translator", version="2.0.0")
+
+
+@app.middleware("http")
+async def require_runtime_token_and_cap_body(request: Request, call_next):
+    if not _has_valid_bearer(request.headers.get("authorization")):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized."})
+
+    raw_content_length = request.headers.get("content-length")
+    if raw_content_length:
+        try:
+            if int(raw_content_length) > MAX_BODY_BYTES:
+                return JSONResponse(status_code=413, content={"detail": "Request body is too large."})
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length."})
+
+    if request.method in {"POST", "PUT", "PATCH"}:
+        body = await request.body()
+        if len(body) > MAX_BODY_BYTES:
+            return JSONResponse(status_code=413, content={"detail": "Request body is too large."})
+
+    return await call_next(request)
 
 
 @app.get("/v1/models")
@@ -143,6 +173,13 @@ def _split_instruction_and_payload(user_text: str) -> tuple[str, str]:
             instruction = instruction.split(":", 1)[1].strip()
         return instruction, payload.strip()
     return "", user_text.strip()
+
+
+def _has_valid_bearer(value: str | None) -> bool:
+    if not value:
+        return False
+    scheme, _, token = value.partition(" ")
+    return scheme.lower() == "bearer" and secrets.compare_digest(token.strip(), EXPERT_PROVIDER_API_KEY)
 
 
 if __name__ == "__main__":

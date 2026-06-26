@@ -11,7 +11,8 @@ import {
   type RuntimeInspectorMcpLaunchConfig
 } from './runtime-inspector-mcp-config'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
@@ -31,7 +32,7 @@ const launch: RuntimeInspectorMcpLaunchConfig = {
 }
 
 function createSettings(): AppSettingsV1 {
-  const claw = defaultClawSettings()
+  const remoteChannel = defaultRemoteChannelSettings()
   const sciforge = defaultLocalRuntimeSettings(9876)
   const modelRouter = defaultModelRouterSettings()
   return {
@@ -44,9 +45,9 @@ function createSettings(): AppSettingsV1 {
       ...modelRouter,
       baseUrl: 'http://127.0.0.1:4567/v1'
     },
-	    agents: {
-	      sciforge
-	    },
+    agents: {
+      sciforge
+    },
     workspaceRoot: '/tmp/workspace',
     log: {
       enabled: true,
@@ -64,16 +65,17 @@ function createSettings(): AppSettingsV1 {
       channel: 'stable'
     },
     codePromptPrefix: '',
-    claw: {
-      ...claw,
+    remoteChannel: {
+      ...remoteChannel,
       enabled: true,
       im: {
-        ...claw.im,
+        ...remoteChannel.im,
         enabled: true,
         port: 8787,
         secret: ''
       }
-    }
+    },
+    connectPhone: defaultConnectPhoneSettings()
   }
 }
 

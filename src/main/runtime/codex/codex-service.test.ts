@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_MODEL_ROUTER_PROVIDER_ID,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultCodexRuntimeSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
@@ -54,7 +55,8 @@ function settings(): AppSettingsV1 {
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
-    claw: defaultClawSettings(),
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
@@ -2477,6 +2479,77 @@ describe('CodexRuntimeService compatibility operations', () => {
     } finally {
       queued.close()
       vi.useRealTimers()
+    }
+  })
+
+  it('classifies current app-server approval methods as command and file-change tools', async () => {
+    const queued = clientWithQueuedEvents()
+    let onPendingRequest: ((request: CodexAppServerPendingRequest) => void) | undefined
+    const sink = { send: vi.fn() }
+    const createClient = vi.fn((options: CodexAppServerJsonRpcClientOptions) => {
+      onPendingRequest = (
+        options.pendingServerRequests as { onPendingRequest?: (request: CodexAppServerPendingRequest) => void }
+      )?.onPendingRequest
+      return queued.client
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      createClient
+    })
+
+    try {
+      await expect(service.startTurn({ threadId: 'thread-1', text: 'review changes' })).resolves.toMatchObject({
+        ok: true,
+        turnId: 'turn-1'
+      })
+      onPendingRequest?.({
+        requestId: 'approval-exec',
+        method: 'execCommandApproval',
+        kind: 'approval',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'cmd-approval-1',
+        summary: 'Command approval requested',
+        params: { command: 'npm test' }
+      })
+      onPendingRequest?.({
+        requestId: 'approval-patch',
+        method: 'applyPatchApproval',
+        kind: 'approval',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'patch-approval-1',
+        summary: 'File change approval requested',
+        params: {}
+      })
+
+      await vi.waitFor(() => {
+        expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {
+          event: expect.objectContaining({
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            tool: expect.objectContaining({
+              itemId: 'cmd-approval-1',
+              summary: 'Command approval requested',
+              toolKind: 'command_execution'
+            })
+          })
+        })
+        expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {
+          event: expect.objectContaining({
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            tool: expect.objectContaining({
+              itemId: 'patch-approval-1',
+              summary: 'File change approval requested',
+              toolKind: 'file_change'
+            })
+          })
+        })
+      })
+    } finally {
+      queued.close()
     }
   })
 

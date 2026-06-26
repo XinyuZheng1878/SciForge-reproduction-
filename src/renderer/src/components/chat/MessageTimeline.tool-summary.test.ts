@@ -233,6 +233,27 @@ describe('MessageTimeline local runtime metadata smoke', () => {
     expect(html).toContain('plot.png')
   })
 
+  it('does not render unsupported generated image data URLs as thumbnails', () => {
+    const block: ChatBlock = {
+      kind: 'assistant',
+      id: 'assistant_unsafe_image',
+      text: 'Here is the image.',
+      meta: {
+        generatedFiles: [{
+          name: 'plot.png',
+          mimeType: 'image/svg+xml',
+          dataUrl: 'data:image/svg+xml;base64,AAAA'
+        }]
+      }
+    }
+
+    const html = renderToStaticMarkup(createElement(MessageBubble, { block }))
+
+    expect(html).toContain('plot.png')
+    expect(html).toContain('Preview unavailable')
+    expect(html).not.toContain('src="data:image/svg+xml;base64,AAAA"')
+  })
+
   it('surfaces successful tool result images in the completed turn body', () => {
     const blocks: ChatBlock[] = [
       { kind: 'user', id: 'user_image', text: 'make an image' },
@@ -283,14 +304,14 @@ describe('MessageTimeline local runtime metadata smoke', () => {
     expect(html).toContain('Preview unavailable')
   })
 
-  it('renders managed Claw prompts as the user-visible message', () => {
+  it('renders managed remote-channel prompts as the user-visible message', () => {
     const block: ChatBlock = {
       kind: 'user',
       id: 'user_claw',
       text: [
-        '[Claw managed instructions]',
+        '[Remote channel managed instructions]',
         '',
-        '[Claw IM agent instructions]',
+        '[Remote channel agent instructions]',
         '',
         '[Agent name]',
         'kun',
@@ -308,7 +329,7 @@ describe('MessageTimeline local runtime metadata smoke', () => {
     const html = renderToStaticMarkup(createElement(MessageBubble, { block }))
 
     expect(html).toContain('hi')
-    expect(html).not.toContain('Claw managed instructions')
+    expect(html).not.toContain('Remote channel managed instructions')
     expect(html).not.toContain('Agent name')
     expect(html).not.toContain('Feishu / Lark inbound message')
   })

@@ -154,8 +154,7 @@ export const WebCapabilityConfig = CapabilityToggleConfig.extend({
 export type WebCapabilityConfig = z.infer<typeof WebCapabilityConfig>
 
 export const SkillsCapabilityConfig = CapabilityToggleConfig.extend({
-  roots: z.array(z.string().min(1)).default([]),
-  legacySkillMd: z.boolean().default(true)
+  roots: z.array(z.string().min(1)).default([])
 }).strict()
 export type SkillsCapabilityConfig = z.infer<typeof SkillsCapabilityConfig>
 

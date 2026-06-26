@@ -12,7 +12,8 @@ import {
 import { GUI_WORKFLOW_MCP_LAUNCH_FLAG } from './workflow-mcp-server'
 import { WORKFLOW_TOOL_CONTRACTS } from '../../packages/workers/workflow/src/contract'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
@@ -60,7 +61,8 @@ function createSettings(): AppSettingsV1 {
       channel: 'stable'
     },
     codePromptPrefix: '',
-    claw: defaultClawSettings()
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings()
   }
 }
 
@@ -87,7 +89,7 @@ describe('workflow MCP config', () => {
     })
   })
 
-  it('builds runtime-specific server configs without leaking the webhook secret', () => {
+  it('builds runtime-specific server configs with the internal secret in env only', () => {
     const settings = createSettings()
     const server = buildWorkflowMcpServerConfig(settings, launch, {
       env: { EXISTING: 'kept' },
@@ -99,7 +101,7 @@ describe('workflow MCP config', () => {
 
     expect(server).toMatchObject({
       args: buildWorkflowMcpArgs(settings, launch),
-      env: workflowMcpEnv({ EXISTING: 'kept' }),
+      env: workflowMcpEnv({ EXISTING: 'kept', GUI_WORKFLOW_INTERNAL_SECRET: 'workflow-secret' }),
       enabled: true,
       disabled: false,
       enabled_tools: workflowMcpEnabledTools(),
@@ -110,11 +112,11 @@ describe('workflow MCP config', () => {
       trustScope: 'user',
       timeoutMs: 30_000,
       args: buildWorkflowMcpArgs(settings, launch),
-      env: workflowMcpEnv({ EXISTING: 'kept' }),
+      env: workflowMcpEnv({ EXISTING: 'kept', GUI_WORKFLOW_INTERNAL_SECRET: 'workflow-secret' }),
       enabled: true
     })
-    expect(JSON.stringify(server)).not.toContain('workflow-secret')
-    expect(JSON.stringify(localRuntimeServer)).not.toContain('workflow-secret')
+    expect(JSON.stringify(server)).not.toContain('--secret')
+    expect(JSON.stringify(localRuntimeServer)).not.toContain('--secret')
   })
 
   it('removes GUI-managed workflow servers from external local runtime mcp.json', () => {

@@ -873,8 +873,16 @@ describe('FloatingComposer capability controls', () => {
     useChatStore.setState({
       activeThreadId: 'thr_weixin',
       activeThreadGoal: null,
-      route: 'claw',
+      route: 'chat',
       workspaceRoot: '',
+      threads: [{
+        id: 'thr_weixin',
+        title: '[Remote channel:weixin agent]',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+        model: 'auto',
+        mode: 'agent',
+        workspace: ''
+      }],
       activeClawChannelId: 'channel_weixin',
       clawChannels: [{
         id: 'channel_weixin',
@@ -882,7 +890,10 @@ describe('FloatingComposer capability controls', () => {
         label: 'weixin agent',
         enabled: true,
         model: 'auto',
-        threadId: 'thr_weixin',
+        threadId: '',
+        agentThreadIds: {
+          sciforge: 'thr_weixin'
+        },
         workspaceRoot: '',
         agentProfile: {
           name: '',

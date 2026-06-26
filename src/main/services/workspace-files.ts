@@ -8,8 +8,7 @@ import {
   rename,
   rm,
   stat,
-  unlink,
-  writeFile
+  unlink
 } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
@@ -43,15 +42,18 @@ import { createWorkspaceIntelService } from '../../../packages/workers/workspace
 import {
   canonicalPath,
   compareWorkspaceEntries,
+  ensureSafeWorkspaceDirectory,
   expandHomePath,
   extensionFromName,
   normalizePathSeparators,
   normalizeUserPath,
   pathExists,
   resolveOpenTargetPath,
+  resolveSafeWorkspaceWriteTarget,
   resolveTargetPathWithinWorkspace,
   resolveWorkspaceDirectory,
-  validateEntryName
+  validateEntryName,
+  writeSafeWorkspaceFile
 } from './workspace-paths'
 
 const MAX_FILE_PREVIEW_BYTES = 1_500_000
@@ -78,14 +80,18 @@ function splitCopyName(name: string): { stem: string; ext: string } {
   return { stem: name.slice(0, dot), ext: name.slice(dot) }
 }
 
-async function availableTargetPath(directory: string, name: string): Promise<string> {
-  const direct = join(directory, name)
-  if (!await pathExists(direct)) return direct
+async function availableTargetPath(workspaceRoot: string, directory: string, name: string): Promise<string> {
+  const direct = await resolveSafeWorkspaceWriteTarget(join(directory, name), workspaceRoot, {
+    createParentDirectories: false
+  })
+  if (!await pathExists(direct.path)) return direct.path
   const { stem, ext } = splitCopyName(name)
   for (let index = 1; index < 10_000; index += 1) {
     const suffix = index === 1 ? ' copy' : ` copy ${index}`
-    const candidate = join(directory, `${stem}${suffix}${ext}`)
-    if (!await pathExists(candidate)) return candidate
+    const candidate = await resolveSafeWorkspaceWriteTarget(join(directory, `${stem}${suffix}${ext}`), workspaceRoot, {
+      createParentDirectories: false
+    })
+    if (!await pathExists(candidate.path)) return candidate.path
   }
   throw new Error('Could not find an available copy name.')
 }
@@ -248,16 +254,17 @@ export async function writeWorkspaceFile(
   payload: WorkspaceFileWritePayload
 ): Promise<WorkspaceFileWriteResult> {
   try {
-    const targetPath = await resolveTargetPathWithinWorkspace(payload.path, payload.workspaceRoot)
-    await mkdir(dirname(targetPath), { recursive: true })
+    const target = await resolveSafeWorkspaceWriteTarget(payload.path, payload.workspaceRoot, {
+      createParentDirectories: true
+    })
     if (payload.contentBase64 !== undefined) {
-      await writeFile(targetPath, Buffer.from(payload.contentBase64, 'base64'))
+      await writeSafeWorkspaceFile(target, Buffer.from(payload.contentBase64, 'base64'))
     } else {
-      await writeFile(targetPath, payload.content ?? '', 'utf8')
+      await writeSafeWorkspaceFile(target, payload.content ?? '', { encoding: 'utf8' })
     }
     return {
       ok: true,
-      path: targetPath,
+      path: target.path,
       savedAt: new Date().toISOString()
     }
   } catch (error) {
@@ -272,15 +279,16 @@ export async function createWorkspaceFile(
   payload: WorkspaceFileCreatePayload
 ): Promise<WorkspaceFileCreateResult> {
   try {
-    const targetPath = await resolveTargetPathWithinWorkspace(payload.path, payload.workspaceRoot)
-    await mkdir(dirname(targetPath), { recursive: true })
-    if (await pathExists(targetPath)) {
+    const target = await resolveSafeWorkspaceWriteTarget(payload.path, payload.workspaceRoot, {
+      createParentDirectories: true
+    })
+    if (await pathExists(target.path)) {
       return { ok: false, message: 'File already exists.' }
     }
-    await writeFile(targetPath, payload.content ?? '', { encoding: 'utf8', flag: 'wx' })
+    await writeSafeWorkspaceFile(target, payload.content ?? '', { encoding: 'utf8', exclusive: true })
     return {
       ok: true,
-      path: targetPath,
+      path: target.path,
       createdAt: new Date().toISOString()
     }
   } catch (error) {
@@ -295,11 +303,15 @@ export async function createWorkspaceDirectory(
   payload: WorkspaceDirectoryCreatePayload
 ): Promise<WorkspaceDirectoryCreateResult> {
   try {
-    const targetPath = await resolveTargetPathWithinWorkspace(payload.path, payload.workspaceRoot)
-    if (await pathExists(targetPath)) {
+    const target = await resolveSafeWorkspaceWriteTarget(payload.path, payload.workspaceRoot, {
+      createParentDirectories: true,
+      targetKind: 'directory'
+    })
+    if (await pathExists(target.path)) {
       return { ok: false, message: 'Directory already exists.' }
     }
-    await mkdir(targetPath)
+    await mkdir(target.path)
+    const targetPath = await ensureSafeWorkspaceDirectory(target.path, payload.workspaceRoot)
     return {
       ok: true,
       path: targetPath,
@@ -366,19 +378,19 @@ export async function saveWorkspaceClipboardImage(
     }
 
     const imageDirectory = payload.imageDirectory?.trim() || WORKSPACE_IMAGE_DIR
-    const imageDir = await resolveTargetPathWithinWorkspace(imageDirectory, payload.workspaceRoot)
-    await mkdir(imageDir, { recursive: true })
+    const imageDir = await ensureSafeWorkspaceDirectory(imageDirectory, payload.workspaceRoot)
 
-    const targetPath = await resolveTargetPathWithinWorkspace(
+    const target = await resolveSafeWorkspaceWriteTarget(
       join(imageDir, buildWorkspaceImageName()),
-      payload.workspaceRoot
+      payload.workspaceRoot,
+      { createParentDirectories: false }
     )
-    await writeFile(targetPath, buffer)
+    await writeSafeWorkspaceFile(target, buffer, { exclusive: true })
 
     return {
       ok: true,
-      path: targetPath,
-      markdownPath: normalizePathSeparators(relative(dirname(currentFilePath), targetPath)),
+      path: target.path,
+      markdownPath: normalizePathSeparators(relative(dirname(currentFilePath), target.path)),
       createdAt: new Date().toISOString()
     }
   } catch (error) {
@@ -396,10 +408,12 @@ export async function renameWorkspaceEntry(
     const sourcePath = await resolveTargetPathWithinWorkspace(payload.path, payload.workspaceRoot)
     await stat(sourcePath)
     const nextName = validateEntryName(payload.newName)
-    const targetPath = await resolveTargetPathWithinWorkspace(
+    const target = await resolveSafeWorkspaceWriteTarget(
       join(dirname(sourcePath), nextName),
-      payload.workspaceRoot
+      payload.workspaceRoot,
+      { createParentDirectories: false }
     )
+    const targetPath = target.path
     if (sourcePath === targetPath) {
       return {
         ok: true,
@@ -437,7 +451,7 @@ export async function copyWorkspaceEntry(
       workspaceRoot: payload.targetWorkspaceRoot,
       ...(payload.targetDirectory.trim() ? { path: payload.targetDirectory } : {})
     })
-    const targetPath = await availableTargetPath(targetDirectory, basename(sourcePath))
+    const targetPath = await availableTargetPath(payload.targetWorkspaceRoot, targetDirectory, basename(sourcePath))
     await cp(sourcePath, targetPath, {
       recursive: true,
       force: false,
@@ -468,7 +482,12 @@ export async function moveWorkspaceEntry(
       workspaceRoot: payload.targetWorkspaceRoot,
       ...(payload.targetDirectory.trim() ? { path: payload.targetDirectory } : {})
     })
-    const directTargetPath = join(targetDirectory, basename(sourcePath))
+    const directTarget = await resolveSafeWorkspaceWriteTarget(
+      join(targetDirectory, basename(sourcePath)),
+      payload.targetWorkspaceRoot,
+      { createParentDirectories: false }
+    )
+    const directTargetPath = directTarget.path
     const sourceCanonical = await canonicalPath(sourcePath)
     const directTargetCanonical = await canonicalPath(directTargetPath)
     if (sourceCanonical === directTargetCanonical) {
@@ -479,7 +498,7 @@ export async function moveWorkspaceEntry(
         movedAt: new Date().toISOString()
       }
     }
-    const targetPath = await availableTargetPath(targetDirectory, basename(sourcePath))
+    const targetPath = await availableTargetPath(payload.targetWorkspaceRoot, targetDirectory, basename(sourcePath))
     try {
       await rename(sourcePath, targetPath)
     } catch (error) {

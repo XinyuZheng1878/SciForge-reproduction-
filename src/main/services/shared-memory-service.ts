@@ -1,15 +1,19 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
   AgentRuntimeMemoryRecord,
   AgentRuntimeMemoryScope
 } from '../../shared/agent-runtime-contract'
+import {
+  atomicWriteAppDataJson,
+  readAppDataStoreText
+} from './app-data-store'
 import { canonicalPath } from './workspace-paths'
 
 type StoredMemory = {
   records: AgentRuntimeMemoryRecord[]
 }
+
+const SHARED_MEMORY_STORE = ['shared-memory', 'memories.json'] as const
 
 export type MemoryListInput = {
   scope?: AgentRuntimeMemoryScope
@@ -123,7 +127,7 @@ export class SharedMemoryService {
 
   private async load(): Promise<StoredMemory> {
     if (!this.loaded) {
-      this.loaded = readFile(memoryPath(this.dataDir), 'utf8')
+      this.loaded = readAppDataStoreText(this.dataDir, SHARED_MEMORY_STORE)
         .then((raw) => normalizeStore(JSON.parse(raw) as unknown))
         .catch(() => ({ records: [] }))
     }
@@ -131,14 +135,8 @@ export class SharedMemoryService {
   }
 
   private async save(store: StoredMemory): Promise<void> {
-    const path = memoryPath(this.dataDir)
-    await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, JSON.stringify(store, null, 2), 'utf8')
+    await atomicWriteAppDataJson(this.dataDir, SHARED_MEMORY_STORE, normalizeStore(store))
   }
-}
-
-function memoryPath(dataDir: string): string {
-  return join(resolve(dataDir), 'shared-memory', 'memories.json')
 }
 
 function normalizeStore(value: unknown): StoredMemory {

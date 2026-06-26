@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createRequire } from 'node:module'
 import {
   configureWeixinBridgeRuntimeContextProvider,
+  ensureWeixinBridgeRpcUrl,
+  stopWeixinBridgeRuntime,
   weixinBridgeRuntimeInternals
 } from './weixin-bridge-runtime'
 
@@ -24,6 +26,7 @@ function headersToRecord(headers: HeadersInit | undefined): Record<string, strin
 
 describe('weixin bridge runtime', () => {
   afterEach(() => {
+    stopWeixinBridgeRuntime()
     configureWeixinBridgeRuntimeContextProvider(null)
     vi.unstubAllGlobals()
   })
@@ -131,7 +134,7 @@ describe('weixin bridge runtime', () => {
 
   it('posts webhook messages with the current SciForge secret header only', async () => {
     configureWeixinBridgeRuntimeContextProvider(async () => ({
-      webhookUrl: 'http://127.0.0.1:8787/claw/im',
+      webhookUrl: 'http://127.0.0.1:8787/remote-channel/webhook',
       webhookSecret: 'bridge-secret',
       channelId: 'channel_weixin'
     }))
@@ -160,6 +163,28 @@ describe('weixin bridge runtime', () => {
       channelId: 'channel_weixin',
       text: 'hello',
       messageId: 'wx_msg_1'
+    })
+  })
+
+  it('rejects oversized local RPC request bodies before dispatching', async () => {
+    const rpcUrl = await ensureWeixinBridgeRpcUrl()
+    const response = await fetch(new URL('/api/v1/admin/rpc', rpcUrl), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'oversized',
+        method: 'accounts.list',
+        params: { payload: 'x'.repeat(1_000_000) }
+      })
+    })
+
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      ok: false,
+      error: { message: 'Request body is too large.' }
     })
   })
 })

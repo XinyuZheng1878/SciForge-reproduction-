@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
@@ -178,6 +178,96 @@ test('writes experiment cards, decision records, and status.html with dry-run su
   const indexText = await readFile(join(workspaceRoot, '.agent', 'artifacts.yml'), 'utf8')
   assert.match(indexText, /Experiment card/)
   assert.match(indexText, /Decision record/)
+})
+
+test('rejects symlinked .agent artifact index paths', async (t) => {
+  const workspaceRoot = await makeWorkspace(t, 'research-memory-agent-symlink-')
+  const outsideRoot = await makeWorkspace(t, 'research-memory-agent-outside-')
+  await symlink(outsideRoot, join(workspaceRoot, '.agent'), 'dir')
+  const service = createResearchMemoryService({
+    workspaceRoot,
+    nowIso: () => NOW
+  })
+
+  const result = await service.upsertArtifact({
+    artifact: artifact('EXP-agent-symlink')
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'invalid_request')
+  await assert.rejects(access(join(outsideRoot, 'artifacts.yml')))
+})
+
+test('rejects symlinked .agent/artifacts.yml reads and writes', async (t) => {
+  const workspaceRoot = await makeWorkspace(t, 'research-memory-index-symlink-')
+  const outsideRoot = await makeWorkspace(t, 'research-memory-index-outside-')
+  const outsideIndex = join(outsideRoot, 'artifacts.yml')
+  await mkdir(join(workspaceRoot, '.agent'), { recursive: true })
+  await writeFile(outsideIndex, 'version: 1\nartifacts: []\n', 'utf8')
+  await symlink(outsideIndex, join(workspaceRoot, '.agent', 'artifacts.yml'))
+  const service = createResearchMemoryService({
+    workspaceRoot,
+    nowIso: () => NOW
+  })
+
+  const list = await service.listArtifacts({})
+  assert.equal(list.ok, false)
+  assert.equal(list.error.code, 'invalid_request')
+
+  const upsert = await service.upsertArtifact({
+    artifact: artifact('EXP-index-symlink')
+  })
+  assert.equal(upsert.ok, false)
+  assert.equal(upsert.error.code, 'invalid_request')
+  assert.equal(await readFile(outsideIndex, 'utf8'), 'version: 1\nartifacts: []\n')
+})
+
+test('rejects symlinked .agent/research-memory directories', async (t) => {
+  const workspaceRoot = await makeWorkspace(t, 'research-memory-dir-symlink-')
+  const outsideRoot = await makeWorkspace(t, 'research-memory-dir-outside-')
+  const service = createResearchMemoryService({
+    workspaceRoot,
+    nowIso: () => NOW
+  })
+  await service.upsertArtifact({
+    artifact: artifact('EXP-research-memory-dir-symlink')
+  })
+  await symlink(outsideRoot, join(workspaceRoot, '.agent', 'research-memory'), 'dir')
+
+  const result = await service.writeExperimentCard({
+    artifact_id: 'EXP-research-memory-dir-symlink',
+    result: 'This should not be written outside the workspace.'
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'invalid_request')
+  await assert.rejects(access(join(outsideRoot, 'experiments', 'EXP-research-memory-dir-symlink.md')))
+})
+
+test('rejects symlinked research-memory target files without touching the link target', async (t) => {
+  const workspaceRoot = await makeWorkspace(t, 'research-memory-target-symlink-')
+  const outsideRoot = await makeWorkspace(t, 'research-memory-target-outside-')
+  const outsideCard = join(outsideRoot, 'card.md')
+  const targetPath = join(workspaceRoot, '.agent', 'research-memory', 'experiments', 'EXP-target-symlink.md')
+  const service = createResearchMemoryService({
+    workspaceRoot,
+    nowIso: () => NOW
+  })
+  await service.upsertArtifact({
+    artifact: artifact('EXP-target-symlink')
+  })
+  await mkdir(join(workspaceRoot, '.agent', 'research-memory', 'experiments'), { recursive: true })
+  await writeFile(outsideCard, 'outside card stays unchanged\n', 'utf8')
+  await symlink(outsideCard, targetPath)
+
+  const result = await service.writeExperimentCard({
+    artifact_id: 'EXP-target-symlink',
+    result: 'This should not overwrite the symlink target.'
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'invalid_request')
+  assert.equal(await readFile(outsideCard, 'utf8'), 'outside card stays unchanged\n')
 })
 
 test('generates draft sync content and stable status.html snapshots', async (t) => {
@@ -453,8 +543,75 @@ test('prepare PR creates branch, stages memory files, and commits after confirma
   assert.deepEqual(calls.map((call) => [call.command, ...call.args]), [
     ['git', 'check-ref-format', '--branch', 'research-memory/test-branch'],
     ['git', 'switch', '-c', 'research-memory/test-branch'],
-    ['git', 'add', '--', '.agent/artifacts.yml', 'status.html'],
+    ['git', '--literal-pathspecs', 'add', '--', '.agent/artifacts.yml', 'status.html'],
     ['git', 'commit', '-m', 'Prepare research memory PR']
+  ])
+})
+
+test('prepare PR rejects files outside the workspace before running git', async (t) => {
+  const workspaceRoot = await makeWorkspace(t, 'research-memory-prepare-pr-files-')
+  const calls: Array<{ command: string; args: string[] }> = []
+  const service = createResearchMemoryService({
+    workspaceRoot,
+    commandRunner: async (command, args) => {
+      calls.push({ command, args })
+      return { stdout: '', stderr: '' }
+    }
+  })
+  await service.upsertArtifact({
+    artifact: artifact('EXP-prepare-pr-files', {
+      title: 'Prepare PR files',
+      summary: 'Safe summary for prepare PR file validation.'
+    })
+  })
+
+  const absolute = await service.preparePr({
+    artifact_ids: ['EXP-prepare-pr-files'],
+    files: ['/tmp/status.html'],
+    confirmed: true
+  })
+  const traversal = await service.preparePr({
+    artifact_ids: ['EXP-prepare-pr-files'],
+    files: ['.agent/../outside.yml'],
+    confirmed: true
+  })
+
+  assert.equal(absolute.ok, false)
+  assert.equal(absolute.error.code, 'invalid_request')
+  assert.equal(traversal.ok, false)
+  assert.equal(traversal.error.code, 'invalid_request')
+  assert.deepEqual(calls, [])
+})
+
+test('prepare PR stages pathspec-looking files literally', async (t) => {
+  const workspaceRoot = await makeWorkspace(t, 'research-memory-prepare-pr-literal-')
+  const calls: Array<{ command: string; args: string[] }> = []
+  const service = createResearchMemoryService({
+    workspaceRoot,
+    commandRunner: async (command, args) => {
+      calls.push({ command, args })
+      return { stdout: '', stderr: '' }
+    }
+  })
+  await service.upsertArtifact({
+    artifact: artifact('EXP-prepare-pr-literal', {
+      title: 'Prepare PR literal files',
+      summary: 'Safe summary for literal pathspec staging.'
+    })
+  })
+
+  const result = await service.preparePr({
+    artifact_ids: ['EXP-prepare-pr-literal'],
+    files: [':(top)status.html', 'notes/*.md'],
+    confirmed: true
+  })
+
+  assert.equal(result.ok, true)
+  assert.deepEqual(calls.map((call) => [call.command, ...call.args]), [
+    ['git', 'check-ref-format', '--branch', result.branch],
+    ['git', 'switch', '-c', result.branch],
+    ['git', '--literal-pathspecs', 'add', '--', ':(top)status.html', 'notes/*.md'],
+    ['git', 'commit', '-m', 'Update research memory for EXP-prepare-pr-literal']
   ])
 })
 

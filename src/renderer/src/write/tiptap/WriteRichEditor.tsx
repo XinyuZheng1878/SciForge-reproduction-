@@ -56,7 +56,6 @@ type Props = {
   filePath?: string | null
   imageDirectory?: string | null
   readOnly?: boolean
-  completionModel?: string
   completionEnabled?: boolean
   completionDebounceMs?: number
   completionMinAcceptScore?: number
@@ -162,7 +161,6 @@ export function WriteRichEditor({
   filePath,
   imageDirectory,
   readOnly = false,
-  completionModel = '',
   completionEnabled = false,
   completionDebounceMs = 0,
   completionMinAcceptScore = 0,
@@ -187,7 +185,6 @@ export function WriteRichEditor({
   const filePathRef = useRef(filePath ?? '')
   const imageDirectoryRef = useRef(imageDirectory ?? '')
   const readOnlyRef = useRef(readOnly)
-  const completionModelRef = useRef(completionModel)
   const completionEnabledRef = useRef(completionEnabled)
   const completionDebounceMsRef = useRef(completionDebounceMs)
   const completionMinAcceptScoreRef = useRef(completionMinAcceptScore)
@@ -209,7 +206,6 @@ export function WriteRichEditor({
   filePathRef.current = filePath ?? ''
   imageDirectoryRef.current = imageDirectory ?? ''
   readOnlyRef.current = readOnly
-  completionModelRef.current = completionModel
   completionEnabledRef.current = completionEnabled
   completionDebounceMsRef.current = completionDebounceMs
   completionMinAcceptScoreRef.current = completionMinAcceptScore
@@ -266,7 +262,8 @@ export function WriteRichEditor({
 
     const extensions: AnyExtension[] = [
       ...buildWriteRichExtensions({
-        getFilePath: () => filePathRef.current
+        getFilePath: () => filePathRef.current,
+        getWorkspaceRoot: () => workspaceRootRef.current
       }),
       WritePasteImage.configure({
         getWorkspaceRoot: () => workspaceRootRef.current,
@@ -288,7 +285,6 @@ export function WriteRichEditor({
           if (typeof window.sciforge?.requestWriteInlineCompletion !== 'function') return null
           const result = await window.sciforge.requestWriteInlineCompletion(
             buildInlineCompletionPayload(context, {
-              model: completionModelRef.current,
               workspaceRoot: workspaceRootRef.current,
               mode,
               recentEdits: recentEditsRef.current

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Bot,
@@ -21,11 +21,6 @@ import {
 import type {
   ClawImChannelV1,
 } from '@shared/app-settings'
-import {
-  ClawSidebarContent
-} from './SidebarClaw'
-import type { ClawImDialogMode } from './SidebarClawDialogHelpers'
-import { ClawAddImDialog } from './SidebarClawDialog'
 import { ConnectPhoneDialog, resolveConnectPhoneWorkspaceRoot } from './ConnectPhoneView'
 import { SidebarChildrenSection } from './SidebarChildrenSection'
 import { SidebarProjectsSection } from './SidebarProjectsSection'
@@ -39,7 +34,7 @@ import {
 type Props = {
   threads: NormalizedThread[]
   activeThreadId: string | null
-  activeView: 'chat' | 'claw' | 'schedule' | 'workflow'
+  activeView: 'chat' | 'schedule' | 'workflow'
   connectPhoneSidebarOpen: boolean
   pluginsActive: boolean
   runtimeReady: boolean
@@ -102,19 +97,9 @@ export function Sidebar({
   const clawChannels = useChatStore((s) => s.clawChannels)
   const activeClawChannelId = useChatStore((s) => s.activeClawChannelId)
   const activeRemoteChannelId = useChatStore((s) => s.activeRemoteChannelId)
-  const selectClawChannel = useChatStore((s) => s.selectClawChannel)
-  const selectClawConversation = useChatStore((s) => s.selectClawConversation)
   const selectRemoteGuardChannel = useChatStore((s) => s.selectRemoteGuardChannel)
   const addClawChannel = useChatStore((s) => s.addClawChannel)
   const deleteClawChannel = useChatStore((s) => s.deleteClawChannel)
-  const resetClawChannelSession = useChatStore((s) => s.resetClawChannelSession)
-
-  const [imDialogMode, setImDialogMode] = useState<ClawImDialogMode | null>(null)
-
-  const activeClawChannel = useMemo(
-    () => clawChannels.find((channel) => channel.id === activeClawChannelId) ?? clawChannels[0] ?? null,
-    [clawChannels, activeClawChannelId]
-  )
   const botWatchedThreadIds = useMemo(
     () => watchedClawThreadIdsFromChannels(clawChannels),
     [clawChannels]
@@ -163,7 +148,7 @@ export function Sidebar({
       }
     >
       <div className="ds-no-drag flex flex-col px-1">
-        {activeView !== 'claw' && activeView !== 'schedule' && activeView !== 'workflow' ? (
+        {activeView !== 'schedule' && activeView !== 'workflow' ? (
           <>
             <SidebarCommandRow
               icon={<Plus className="h-4 w-4" strokeWidth={2} />}
@@ -205,24 +190,7 @@ export function Sidebar({
 
       <div className="ds-no-drag mx-1 my-3" />
 
-      {activeView === 'claw' ? (
-        <ClawSidebarContent
-          channels={clawChannels}
-          activeChannelId={activeClawChannelId}
-          activeThreadId={activeThreadId}
-          runtimeReady={runtimeReady}
-          busy={busy}
-          watchTurnCompletion={watchTurnCompletion}
-          unreadThreadIds={unreadThreadIds}
-          queuedThreadIds={queuedThreadIds}
-          onSelectChannel={(channelId) => void selectClawChannel(channelId)}
-          onSelectConversation={(channelId, threadId) => void selectClawConversation(channelId, threadId)}
-          onAddChannel={() => setImDialogMode('add')}
-          onResetChannel={(channelId) => void resetClawChannelSession(channelId)}
-          onOpenSettings={() => setImDialogMode('edit')}
-          t={t}
-        />
-      ) : activeView === 'workflow' ? (
+      {activeView === 'workflow' ? (
         <div className="ds-no-drag flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
           <Workflow className="h-7 w-7 text-ds-faint" strokeWidth={1.5} />
           <p className="text-[12.5px] leading-5 text-ds-faint">{t('workflowSidebarHint')}</p>
@@ -331,20 +299,6 @@ export function Sidebar({
       />
     ) : null}
 
-    {imDialogMode ? (
-      <ClawAddImDialog
-        mode={imDialogMode}
-        initialProvider={activeClawChannel?.provider}
-        initialChannelId={imDialogMode === 'edit' ? activeClawChannel?.id : undefined}
-        channels={clawChannels}
-        onClose={() => setImDialogMode(null)}
-        onAddProvider={(provider, agentProfile, platformCredential, options) =>
-          addClawChannel(provider, agentProfile, platformCredential, options)
-        }
-        onDeleteChannel={(channelId) => deleteClawChannel(channelId)}
-        t={t}
-      />
-    ) : null}
     </>
   )
 }

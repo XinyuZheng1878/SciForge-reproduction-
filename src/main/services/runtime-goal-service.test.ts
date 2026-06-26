@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -61,5 +61,21 @@ describe('RuntimeGoalService', () => {
       threadId: 'thread-1',
       patch: { status: 'paused' }
     })).rejects.toThrow(/no goal exists/)
+  })
+
+  it('does not follow a symlinked app-data goal store target', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'runtime-goals-'))
+    const outsideDir = await mkdtemp(join(tmpdir(), 'runtime-goals-outside-'))
+    const outsideFile = join(outsideDir, 'goals.json')
+    await mkdir(join(dataDir, 'runtime-goals'))
+    await writeFile(outsideFile, 'outside', 'utf8')
+    await symlink(outsideFile, join(dataDir, 'runtime-goals', 'goals.json'))
+
+    await expect(new RuntimeGoalService(dataDir).set({
+      runtimeId: 'codex',
+      threadId: 'thread-1',
+      patch: { objective: 'keep writes inside app data' }
+    })).rejects.toThrow(/not a symlink|regular file/)
+    await expect(readFile(outsideFile, 'utf8')).resolves.toBe('outside')
   })
 })

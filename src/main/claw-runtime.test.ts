@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
@@ -54,37 +55,18 @@ function buildSettings(): AppSettingsV1 {
     write: defaultWriteSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
-    claw: {
-      ...defaultClawSettings(),
-      enabled: true,
-      tasks: [
-        {
-          id: 'task_1',
-          title: 'Task 1',
-          enabled: true,
-          prompt: 'Summarize changes',
-          workspaceRoot: '/tmp/workspace',
-          model: 'auto',
-          reasoningEffort: 'medium',
-          mode: 'agent',
-          schedule: { kind: 'manual', everyMinutes: 60, timeOfDay: '09:00', atTime: '' },
-          createdAt: '2026-06-02T00:00:00.000Z',
-          updatedAt: '2026-06-02T00:00:00.000Z',
-          lastRunAt: '',
-          nextRunAt: '',
-          lastStatus: 'idle',
-          lastMessage: '',
-          lastThreadId: ''
-        }
-      ]
+    remoteChannel: {
+      ...defaultRemoteChannelSettings(),
+      enabled: true
     },
+    connectPhone: defaultConnectPhoneSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }
 }
 
 function buildConversation(overrides: Partial<ClawImConversationV1> = {}): ClawImConversationV1 {
-  return {
+  const conversation = {
     id: 'conv_1',
     chatId: 'oc_chat_a',
     remoteThreadId: '',
@@ -97,10 +79,16 @@ function buildConversation(overrides: Partial<ClawImConversationV1> = {}): ClawI
     updatedAt: '2026-06-02T00:00:00.000Z',
     ...overrides
   }
+  return {
+    ...conversation,
+    agentThreadIds: overrides.agentThreadIds ?? (
+      conversation.localThreadId.trim() ? { sciforge: conversation.localThreadId.trim() } : {}
+    )
+  }
 }
 
 function buildChannel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1 {
-  return {
+  const channel = {
     id: 'channel_1',
     provider: 'feishu' as const,
     label: 'Phone',
@@ -121,6 +109,12 @@ function buildChannel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1
     updatedAt: '2026-06-02T00:00:00.000Z',
     ...overrides
   }
+  return {
+    ...channel,
+    agentThreadIds: overrides.agentThreadIds ?? (
+      channel.threadId.trim() ? { sciforge: channel.threadId.trim() } : {}
+    )
+  }
 }
 
 function mutableSettingsStore(initialSettings: AppSettingsV1): {
@@ -137,15 +131,15 @@ function mutableSettingsStore(initialSettings: AppSettingsV1): {
       currentSettings = {
         ...currentSettings,
         ...partial,
-        claw: partial.claw
+        remoteChannel: partial.remoteChannel
           ? {
-              ...currentSettings.claw,
-              ...partial.claw,
-              im: partial.claw.im
-                ? { ...currentSettings.claw.im, ...partial.claw.im }
-                : currentSettings.claw.im
+              ...currentSettings.remoteChannel,
+              ...partial.remoteChannel,
+              im: partial.remoteChannel.im
+                ? { ...currentSettings.remoteChannel.im, ...partial.remoteChannel.im }
+                : currentSettings.remoteChannel.im
             }
-          : currentSettings.claw
+          : currentSettings.remoteChannel
       }
       return currentSettings
     })
@@ -388,7 +382,7 @@ describe('ClawRuntime', () => {
 
   it('bases Feishu conversation workspaces on the configured Claw workspace', () => {
     const settings = buildSettings()
-    settings.claw.im.workspaceRoot = '/tmp/claw-default'
+    settings.remoteChannel.im.workspaceRoot = '/tmp/claw-default'
     const channel: ClawImChannelV1 = {
       id: 'channel_1',
       provider: 'feishu' as const,
@@ -409,7 +403,7 @@ describe('ClawRuntime', () => {
       createdAt: '2026-06-02T00:00:00.000Z',
       updatedAt: '2026-06-02T00:00:00.000Z'
     }
-    settings.claw.channels = [channel]
+    settings.remoteChannel.channels = [channel]
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined
@@ -432,7 +426,7 @@ describe('ClawRuntime', () => {
 
   it('repairs legacy Feishu conversation workspaces created from an empty channel root', () => {
     const settings = buildSettings()
-    settings.claw.im.workspaceRoot = '/tmp/claw-default'
+    settings.remoteChannel.im.workspaceRoot = '/tmp/claw-default'
     const conversation: ClawImConversationV1 = {
       id: 'conv_1',
       chatId: 'oc_chat_a',
@@ -465,7 +459,7 @@ describe('ClawRuntime', () => {
       createdAt: '2026-06-02T00:00:00.000Z',
       updatedAt: '2026-06-02T00:00:00.000Z'
     }
-    settings.claw.channels = [channel]
+    settings.remoteChannel.channels = [channel]
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined
@@ -488,7 +482,7 @@ describe('ClawRuntime', () => {
 
   it('repairs legacy Feishu conversation sub-workspaces under the channel project root', () => {
     const settings = buildSettings()
-    settings.claw.im.workspaceRoot = '/tmp/claw-default'
+    settings.remoteChannel.im.workspaceRoot = '/tmp/claw-default'
     const conversation = buildConversation({
       chatId: 'oc_chat_a',
       remoteThreadId: '',
@@ -520,7 +514,7 @@ describe('ClawRuntime', () => {
 
   it('delegates reminder creation to Schedule without writing claw tasks', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
+    settings.remoteChannel.im.enabled = true
     const store = {
       load: vi.fn(async () => settings),
       patch: vi.fn(async () => settings)
@@ -540,7 +534,7 @@ describe('ClawRuntime', () => {
     const body = JSON.stringify({ text: 'Remind me tomorrow to ship the review.' })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -569,11 +563,11 @@ describe('ClawRuntime', () => {
     })
     expect(createScheduledTaskFromText).toHaveBeenCalledWith('Remind me tomorrow to ship the review.', {
       workspaceRoot: settings.workspaceRoot,
-      modelHint: settings.claw.im.model,
-      mode: settings.claw.im.mode
+      modelHint: settings.remoteChannel.im.model,
+      mode: settings.remoteChannel.im.mode
     })
     expect(store.patch).not.toHaveBeenCalled()
-    expect(settings.claw.tasks).toHaveLength(1)
+    expect('tasks' in settings.remoteChannel).toBe(false)
   })
 
   it('reports that scheduled tasks have moved to Schedule', async () => {
@@ -597,7 +591,7 @@ describe('ClawRuntime', () => {
         currentSettings = {
           ...currentSettings,
           ...partial,
-          claw: { ...currentSettings.claw, ...(partial.claw ?? {}) }
+          remoteChannel: { ...currentSettings.remoteChannel, ...(partial.remoteChannel ?? {}) }
         }
         return currentSettings
       })
@@ -609,7 +603,7 @@ describe('ClawRuntime', () => {
 
     const result = await runtime.runTask('task_1')
 
-    expect(result).toEqual({ ok: false, message: 'Claw scheduled tasks have moved to Schedule.' })
+    expect(result).toEqual({ ok: false, message: 'Remote channel scheduled tasks have moved to Schedule.' })
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
@@ -1107,9 +1101,9 @@ describe('ClawRuntime', () => {
   it('drops duplicate Discord message ids before starting another agent turn', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_500
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'discord-bot-1-guild-1-channel-1',
       label: '#debug',
@@ -1182,8 +1176,8 @@ describe('ClawRuntime', () => {
     })
     expect(agentRuntime.startThread).toHaveBeenCalledTimes(1)
     expect(agentRuntime.startTurn).toHaveBeenCalledTimes(1)
-    expect(current().claw.channels[0].recentMessages).toHaveLength(1)
-    expect(current().claw.channels[0].recentMessages?.[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].recentMessages).toHaveLength(1)
+    expect(current().remoteChannel.channels[0].recentMessages?.[0]).toMatchObject({
       provider: 'discord',
       messageId: 'discord-duplicate-message',
       text: 'dedupe this'
@@ -1192,8 +1186,8 @@ describe('ClawRuntime', () => {
 
   it('ignores unmentioned Feishu group messages when channel guard mode is only_mention', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({ guardMode: 'only_mention' })]
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({ guardMode: 'only_mention' })]
     const forbiddenDirectCall = vi.fn()
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
     const addReaction = vi.fn(async () => 'rc_1')
@@ -1238,8 +1232,8 @@ describe('ClawRuntime', () => {
 
   it('ignores ordinary messages in guard mode off while still answering commands', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'discord-bot-1-guild-1-channel-1',
       label: '#debug',
@@ -1287,16 +1281,16 @@ describe('ClawRuntime', () => {
     })
     expect(command).toMatchObject({
       ok: true,
-      reply: expect.stringContaining('Claw IM commands')
+      reply: expect.stringContaining('Remote channel commands')
     })
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('handles all_messages Feishu groups through the shared channel thread', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_000
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_000
+    settings.remoteChannel.channels = [buildChannel({
       guardMode: 'all_messages',
       threadId: '',
       conversations: []
@@ -1346,11 +1340,11 @@ describe('ClawRuntime', () => {
       mentions: []
     })
 
-    expect(current().claw.channels[0]).toMatchObject({
-      threadId: 'thr_group',
+    expect(current().remoteChannel.channels[0]).toMatchObject({
+      agentThreadIds: { sciforge: 'thr_group' },
       remoteSession: expect.objectContaining({ chatId: 'oc_group_a', messageId: 'om_group_1' })
     })
-    expect(current().claw.channels[0].conversations).toEqual([])
+    expect(current().remoteChannel.channels[0].conversations).toEqual([])
     expect(send).toHaveBeenCalledWith(
       'oc_group_a',
       { markdown: 'group reply' },
@@ -1364,9 +1358,9 @@ describe('ClawRuntime', () => {
 
   it('handles Feishu /clear locally by clearing the mapped IM thread', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
+    settings.remoteChannel.im.enabled = true
     const conversation = buildConversation()
-    settings.claw.channels = [buildChannel({ conversations: [conversation] })]
+    settings.remoteChannel.channels = [buildChannel({ conversations: [conversation] })]
     const { current, store } = mutableSettingsStore(settings)
     const forbiddenDirectCall = vi.fn()
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
@@ -1411,16 +1405,16 @@ describe('ClawRuntime', () => {
       { markdown: 'Started a new topic. The next message will create a fresh local conversation.' },
       { replyTo: 'om_inbound', replyInThread: false }
     )
-    expect(current().claw.channels[0].threadId).toBe('')
-    expect(current().claw.channels[0].conversations[0].localThreadId).toBe('')
-    expect(current().claw.channels[0].remoteSession?.messageId).toBe('om_inbound')
+    expect(current().remoteChannel.channels[0].agentThreadIds).toEqual({})
+    expect(current().remoteChannel.channels[0].conversations[0].agentThreadIds).toEqual({})
+    expect(current().remoteChannel.channels[0].remoteSession?.messageId).toBe('om_inbound')
   })
 
   it('creates a readable Feishu thread title for bare /new', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       runtimeId: 'codex',
       threadId: '',
       conversations: []
@@ -1483,11 +1477,11 @@ describe('ClawRuntime', () => {
       { markdown: expect.stringContaining('Remote conversation - Alice') },
       { replyTo: 'om_bare_new', replyInThread: false }
     )
-    expect(current().claw.channels[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'codex',
       agentThreadIds: { codex: 'thr_bare_new_feishu' }
     })
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       chatId: 'oc_chat_a',
       latestMessageId: 'om_bare_new',
       senderName: 'Alice',
@@ -1500,8 +1494,8 @@ describe('ClawRuntime', () => {
   it('creates and binds a new IM thread from /new with a title', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'discord-bot-1-guild-1-channel-1',
       label: '#debug',
@@ -1576,11 +1570,11 @@ describe('ClawRuntime', () => {
       threadId: 'new-discord-thread',
       runtimeId: 'codex'
     })
-    expect(current().claw.channels[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'codex',
       agentThreadIds: { codex: 'new-discord-thread' }
     })
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       chatId: 'channel-1',
       latestMessageId: 'discord-new-title',
       runtimeId: 'codex',
@@ -1636,8 +1630,8 @@ describe('ClawRuntime', () => {
   it('returns the runtime reason when /new cannot create a thread', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'sciforge'
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'discord-bot-1-guild-1-channel-1',
       label: '#debug',
@@ -1685,7 +1679,7 @@ describe('ClawRuntime', () => {
       runtimeId: 'sciforge'
     }))
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
-    expect(current().claw.channels[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'sciforge',
       threadId: '',
       lastFailure: expect.objectContaining({
@@ -1696,15 +1690,15 @@ describe('ClawRuntime', () => {
         chatId: 'channel-1'
       })
     })
-    expect(current().claw.channels[0].agentThreadIds?.sciforge).toBeUndefined()
-    expect(current().claw.channels[0].conversations).toEqual([])
+    expect(current().remoteChannel.channels[0].agentThreadIds?.sciforge).toBeUndefined()
+    expect(current().remoteChannel.channels[0].conversations).toEqual([])
   })
 
   it('creates local runtime /new IM threads through agentRuntime when the host is available', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'sciforge'
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'discord-bot-1-guild-1-channel-1',
       label: '#debug',
@@ -1758,9 +1752,8 @@ describe('ClawRuntime', () => {
       workspace: '/tmp/workspace',
       title: 'Fix failing model'
     }))
-    expect(current().claw.channels[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'sciforge',
-      threadId: 'kun-host-thread',
       agentThreadIds: {
         sciforge: 'kun-host-thread'
       }
@@ -1771,8 +1764,8 @@ describe('ClawRuntime', () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
     settings.workspaceRoot = '/workspace/current'
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'discord-bot-1-guild-1-channel-1',
       label: '#debug',
@@ -1869,7 +1862,7 @@ describe('ClawRuntime', () => {
       ok: true,
       reply: expect.stringContaining('Switched project to target')
     })
-    expect(current().claw.channels[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0]).toMatchObject({
       workspaceRoot: '/workspace/target',
       agentThreadIds: {}
     })
@@ -1882,7 +1875,7 @@ describe('ClawRuntime', () => {
       ok: true,
       reply: expect.stringContaining('Switched to thread')
     })
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       chatId: 'channel-1',
       latestMessageId: 'discord-target-follow-up',
       runtimeId: 'codex',
@@ -1908,8 +1901,8 @@ describe('ClawRuntime', () => {
   it('reports current remote jobs by reading the bound thread', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'discord-bot-1-guild-1-channel-1',
       label: '#debug',
@@ -1978,8 +1971,8 @@ describe('ClawRuntime', () => {
 
   it('handles Feishu model commands locally for the current IM channel', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel()]
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel()]
     const { current, store } = mutableSettingsStore(settings)
     const forbiddenDirectCall = vi.fn()
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
@@ -2018,18 +2011,18 @@ describe('ClawRuntime', () => {
     })
 
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
-    expect(current().claw.channels[0].model).toBe('deepseek-v4-flash')
+    expect(current().remoteChannel.channels[0].model).toBe('deepseek-v4-flash')
     expect(send).toHaveBeenCalledWith(
       'oc_chat_a',
-      { markdown: 'Claw IM model switched to `deepseek-v4-flash`.' },
+      { markdown: 'Remote channel model switched to `deepseek-v4-flash`.' },
       { replyTo: 'om_inbound', replyInThread: false }
     )
   })
 
   it('handles generic IM lifecycle commands for mode, summary, status, detach, and new private', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -2072,9 +2065,9 @@ describe('ClawRuntime', () => {
 
     await expect(commandInput('/mode plan', 'wx_msg_mode')).resolves.toMatchObject({
       ok: true,
-      reply: 'Claw IM mode switched to `plan`.'
+      reply: 'Remote channel mode switched to `plan`.'
     })
-    expect(current().claw.im.mode).toBe('plan')
+    expect(current().remoteChannel.im.mode).toBe('plan')
 
     await expect(commandInput('/status', 'wx_msg_status')).resolves.toMatchObject({
       ok: true,
@@ -2100,14 +2093,14 @@ describe('ClawRuntime', () => {
       ok: true,
       reply: expect.stringContaining('Detached')
     })
-    expect(current().claw.channels[0].conversations[0].localThreadId).toBe('')
+    expect(current().remoteChannel.channels[0].conversations[0].agentThreadIds).toEqual({})
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('handles webhook /help as an IM command before starting a local runtime turn', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({ provider: 'weixin' as const, id: 'channel_weixin' })]
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({ provider: 'weixin' as const, id: 'channel_weixin' })]
     const { store } = mutableSettingsStore(settings)
     const forbiddenDirectCall = vi.fn()
     const createScheduledTaskFromText = vi.fn()
@@ -2119,7 +2112,7 @@ describe('ClawRuntime', () => {
     const body = JSON.stringify({ text: '/help', provider: 'weixin', channelId: 'channel_weixin' })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -2143,7 +2136,7 @@ describe('ClawRuntime', () => {
     expect(status).toBe(200)
     expect(JSON.parse(responseBody)).toMatchObject({
       ok: true,
-      reply: expect.stringContaining('Claw IM commands:')
+      reply: expect.stringContaining('Remote channel commands:')
     })
     const reply = JSON.parse(responseBody).reply as string
     for (const command of [
@@ -2167,12 +2160,47 @@ describe('ClawRuntime', () => {
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
+  it('rejects the retired gui-plan webhook endpoint through normal routing', async () => {
+    const settings = buildSettings()
+    settings.remoteChannel.im.enabled = true
+    const runtime = createClawRuntime({
+      store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
+      logError: () => undefined,
+      createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+    })
+    const req = {
+      method: 'POST',
+      url: '/claw/internal/gui-plan/create',
+      headers: {},
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from(JSON.stringify({ kind: 'gui_plan_create', prompt: 'legacy plan' }))
+      }
+    }
+    let status = 0
+    let responseBody = ''
+    const res = {
+      writeHead: vi.fn((nextStatus: number) => {
+        status = nextStatus
+      }),
+      end: vi.fn((payload: string) => {
+        responseBody = payload
+      })
+    }
+
+    await (runtime as unknown as {
+      handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+    }).handleWebhook(req, res)
+
+    expect(status).toBe(404)
+    expect(JSON.parse(responseBody)).toEqual({ ok: false, message: 'Not found.' })
+  })
+
   it('authenticates IM webhooks with Bearer or x-sciforge-secret only', async () => {
     const settings = buildSettings()
     const secret = 'webhook-secret'
-    settings.claw.im.enabled = true
-    settings.claw.im.secret = secret
-    settings.claw.channels = [buildChannel({ provider: 'weixin' as const, id: 'channel_weixin' })]
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.secret = secret
+    settings.remoteChannel.channels = [buildChannel({ provider: 'weixin' as const, id: 'channel_weixin' })]
     const { store } = mutableSettingsStore(settings)
     const createScheduledTaskFromText = vi.fn()
     const runtime = createClawRuntime({
@@ -2195,7 +2223,7 @@ describe('ClawRuntime', () => {
       })
       const req = {
         method: 'POST',
-        url: settings.claw.im.path,
+        url: settings.remoteChannel.im.path,
         headers,
         async *[Symbol.asyncIterator]() {
           yield Buffer.from(body)
@@ -2223,19 +2251,19 @@ describe('ClawRuntime', () => {
     })
     await expect(post({ 'x-sciforge-secret': secret })).resolves.toMatchObject({
       status: 200,
-      body: { ok: true, reply: expect.stringContaining('Claw IM commands:') }
+      body: { ok: true, reply: expect.stringContaining('Remote channel commands:') }
     })
     await expect(post({ authorization: `Bearer ${secret}` })).resolves.toMatchObject({
       status: 200,
-      body: { ok: true, reply: expect.stringContaining('Claw IM commands:') }
+      body: { ok: true, reply: expect.stringContaining('Remote channel commands:') }
     })
     expect(createScheduledTaskFromText).not.toHaveBeenCalled()
   })
 
   it('returns clear webhook degradation messages for empty, attachment-only, and oversized input', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({ provider: 'discord' as const, id: 'channel_discord' })]
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({ provider: 'discord' as const, id: 'channel_discord' })]
     const forbiddenDirectCall = vi.fn()
     const runtime = createClawRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
@@ -2245,7 +2273,7 @@ describe('ClawRuntime', () => {
     const post = async (payload: Record<string, unknown>): Promise<{ status: number; body: { ok: false; message: string } }> => {
       const req = {
         method: 'POST',
-        url: settings.claw.im.path,
+        url: settings.remoteChannel.im.path,
         headers: {},
         async *[Symbol.asyncIterator]() {
           yield Buffer.from(JSON.stringify(payload))
@@ -2312,7 +2340,7 @@ describe('ClawRuntime', () => {
     })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(JSON.stringify({ text: 'hello' }))
@@ -2338,7 +2366,7 @@ describe('ClawRuntime', () => {
     expect(responseBody).not.toContain('raw-webhook-secret')
     expect(logError).toHaveBeenCalledWith(
       'claw-webhook',
-      'Claw IM webhook request failed',
+      'Remote channel webhook request failed',
       expect.objectContaining({
         message: 'Authorization: Bearer <redacted> failed'
       })
@@ -2347,9 +2375,9 @@ describe('ClawRuntime', () => {
 
   it('sanitizes structured webhook failures returned by IM processing', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_000
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_000
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -2385,7 +2413,7 @@ describe('ClawRuntime', () => {
     })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -2415,7 +2443,7 @@ describe('ClawRuntime', () => {
     expect(responseBody).not.toContain('raw-runtime-secret')
     expect(logError).toHaveBeenCalledWith(
       'claw-webhook',
-      'Claw IM webhook returned a structured failure.',
+      'Remote channel webhook returned a structured failure.',
       expect.objectContaining({
         failure: expect.objectContaining({
           message: 'Authorization: Bearer <redacted> failed'
@@ -2428,8 +2456,8 @@ describe('ClawRuntime', () => {
   it('attaches a remote IM conversation to the active desktop thread', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -2462,7 +2490,7 @@ describe('ClawRuntime', () => {
     })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -2491,11 +2519,11 @@ describe('ClawRuntime', () => {
       threadId: 'desktop-thread-1',
       runtimeId: 'codex'
     })
-    expect(current().claw.channels[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'codex',
       agentThreadIds: { codex: 'desktop-thread-1' }
     })
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       chatId: 'wx_user_1',
       latestMessageId: 'wx_msg_attach',
       senderId: 'wx_user_1',
@@ -2509,9 +2537,9 @@ describe('ClawRuntime', () => {
   it('keeps Discord messages on the conversation attached to the active desktop thread', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_500
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'discord-bot-1-guild-1-channel-1',
       label: '#debug',
@@ -2615,19 +2643,19 @@ describe('ClawRuntime', () => {
     expect(agentRuntime.startTurn).not.toHaveBeenCalledWith(expect.objectContaining({
       threadId: 'desktop-thread-2'
     }))
-    expect(current().claw.channels[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'codex',
       agentThreadIds: { codex: 'desktop-thread-1' }
     })
-    expect(current().claw.channels[0].conversations).toHaveLength(1)
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations).toHaveLength(1)
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       chatId: 'channel-1',
       latestMessageId: 'discord-message-5',
       runtimeId: 'codex',
       agentThreadIds: { codex: 'desktop-thread-1' },
       workspaceRoot: '/tmp/workspace'
     })
-    expect(current().claw.channels[0].recentMessages?.filter((message) =>
+    expect(current().remoteChannel.channels[0].recentMessages?.filter((message) =>
       message.text?.startsWith('E2E_ATTACH_')
     )).toHaveLength(5)
   }, 15_000)
@@ -2639,9 +2667,9 @@ describe('ClawRuntime', () => {
   ])('keeps %s remote conversations on the attach-bound thread after desktop focus changes', async ({ provider, channelId, chatId, chatType }) => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_500
+    settings.remoteChannel.channels = [buildChannel({
       provider,
       id: channelId,
       label: provider,
@@ -2728,7 +2756,7 @@ describe('ClawRuntime', () => {
     expect(agentRuntime.startTurn).not.toHaveBeenCalledWith(expect.objectContaining({
       threadId: 'desktop-thread-b'
     }))
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       chatId,
       latestMessageId: `${provider}-follow-up`,
       runtimeId: 'codex',
@@ -2739,9 +2767,9 @@ describe('ClawRuntime', () => {
 
   it('records WeChat webhook conversations and returns the GUI-generated reply', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_500
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -2772,7 +2800,7 @@ describe('ClawRuntime', () => {
     })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -2802,23 +2830,23 @@ describe('ClawRuntime', () => {
       governanceProfile: 'remote_guard'
     }))
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
-    expect(JSON.parse(responseBody).reply).toContain('Claw IM commands:')
-    expect(current().claw.channels[0].threadId).toBe('thr_weixin')
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(JSON.parse(responseBody).reply).toContain('Remote channel commands:')
+    expect(current().remoteChannel.channels[0].agentThreadIds).toEqual({ sciforge: 'thr_weixin' })
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       chatId: 'wx_user_1',
       latestMessageId: 'wx_msg_1',
       senderId: 'wx_user_1',
       senderName: 'Alice',
-      localThreadId: 'thr_weixin'
+      agentThreadIds: { sciforge: 'thr_weixin' }
     })
   })
 
   it('handles Codex-bound IM channels through agentRuntime instead of direct /v1 call', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_500
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -2874,7 +2902,7 @@ describe('ClawRuntime', () => {
     })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -2900,12 +2928,12 @@ describe('ClawRuntime', () => {
       ok: true,
       reply: expect.stringContaining('hello from codex')
     })
-    expect(JSON.parse(responseBody).reply).toContain('Claw IM commands:')
+    expect(JSON.parse(responseBody).reply).toContain('Remote channel commands:')
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
       runtimeId: 'codex',
       workspace: '/tmp/workspace',
-      title: '[Claw IM:WeChat] webhook'
+      title: '[Remote channel:WeChat] webhook'
     }))
     expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
       runtimeId: 'codex',
@@ -2917,7 +2945,7 @@ describe('ClawRuntime', () => {
       runtimeId: 'codex',
       threadId: 'codex-thread'
     })
-    expect(current().claw.channels[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'codex',
       threadId: 'local-thread',
       agentThreadIds: {
@@ -2925,7 +2953,7 @@ describe('ClawRuntime', () => {
         codex: 'codex-thread'
       }
     })
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       chatId: 'wx_user_1',
       latestMessageId: 'wx_msg_1',
       senderId: 'wx_user_1',
@@ -2941,9 +2969,9 @@ describe('ClawRuntime', () => {
   it('passes rich inbound IM content to runtime while keeping the display text readable', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_500
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'discord-bot-1-guild-1-channel-1',
       label: '#debug',
@@ -3041,9 +3069,9 @@ describe('ClawRuntime', () => {
   it('reports runtime offline to the remote caller and keeps the binding usable after recovery', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_500
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -3097,7 +3125,7 @@ describe('ClawRuntime', () => {
     }> => {
       const req = {
         method: 'POST',
-        url: settings.claw.im.path,
+        url: settings.remoteChannel.im.path,
         headers: {},
         async *[Symbol.asyncIterator]() {
           yield Buffer.from(JSON.stringify({
@@ -3137,7 +3165,7 @@ describe('ClawRuntime', () => {
         failureKind: 'runtime_offline'
       }
     })
-    expect(current().claw.channels[0].conversations[0].lastFailure).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations[0].lastFailure).toMatchObject({
       provider: 'weixin',
       message: 'app-server offline',
       failureKind: 'runtime_offline',
@@ -3168,7 +3196,7 @@ describe('ClawRuntime', () => {
       displayText: 'second after runtime recovers'
     }))
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       chatId: 'wx_user_1',
       latestMessageId: 'wx_recovered',
       runtimeId: 'codex',
@@ -3181,7 +3209,7 @@ describe('ClawRuntime', () => {
     try {
       const settings = buildSettings()
       settings.activeAgentRuntime = 'codex'
-      settings.claw.im.enabled = true
+      settings.remoteChannel.im.enabled = true
       const agentRuntime = {
         startThread: vi.fn(async () => ({
           id: 'codex-thread',
@@ -3258,7 +3286,7 @@ describe('ClawRuntime', () => {
     try {
       const settings = buildSettings()
       settings.activeAgentRuntime = 'codex'
-      settings.claw.im.enabled = true
+      settings.remoteChannel.im.enabled = true
       const logError = vi.fn()
       const agentRuntime = {
         startThread: vi.fn(async () => ({
@@ -3346,9 +3374,9 @@ describe('ClawRuntime', () => {
   it('starts a conversation-bound Codex thread for an unbound phone conversation instead of following desktop or channel focus', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_500
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -3411,7 +3439,7 @@ describe('ClawRuntime', () => {
     })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -3441,7 +3469,7 @@ describe('ClawRuntime', () => {
     expect(agentRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
       runtimeId: 'codex',
       workspace: '/tmp/workspace',
-      title: '[Claw IM:WeChat] webhook'
+      title: '[Remote channel:WeChat] webhook'
     }))
     expect(agentRuntime.startTurn).toHaveBeenCalledWith(expect.objectContaining({
       runtimeId: 'codex',
@@ -3457,11 +3485,11 @@ describe('ClawRuntime', () => {
       threadId: 'new-codex-thread',
       runtimeId: 'codex'
     })
-    expect(current().claw.channels[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'codex',
       agentThreadIds: { codex: 'new-codex-thread' }
     })
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       chatId: 'wx_user_1',
       latestMessageId: 'wx_msg_1',
       senderId: 'wx_user_1',
@@ -3475,9 +3503,9 @@ describe('ClawRuntime', () => {
   it('serializes Feishu private messages with per-message remote thread ids on one local conversation', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 3_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 3_500
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'feishu' as const,
       id: 'channel_feishu',
       label: 'Feishu',
@@ -3583,14 +3611,14 @@ describe('ClawRuntime', () => {
       threadId: 'phone-thread-1',
       displayText: 'Q2'
     }))
-    expect(current().claw.channels[0].conversations).toHaveLength(1)
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations).toHaveLength(1)
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       chatId: 'oc_private_chat',
       remoteThreadId: '',
       latestMessageId: 'om_q2',
       agentThreadIds: { codex: 'phone-thread-1' }
     })
-    expect(current().claw.channels[0].recentMessages).toEqual([
+    expect(current().remoteChannel.channels[0].recentMessages).toEqual([
       expect.objectContaining({
         messageId: 'om_q1',
         senderName: 'Alice',
@@ -3609,9 +3637,9 @@ describe('ClawRuntime', () => {
     try {
       const settings = buildSettings()
       settings.activeAgentRuntime = 'codex'
-      settings.claw.im.enabled = true
-      settings.claw.im.responseTimeoutMs = 10_000
-      settings.claw.channels = [buildChannel({
+      settings.remoteChannel.im.enabled = true
+      settings.remoteChannel.im.responseTimeoutMs = 10_000
+      settings.remoteChannel.channels = [buildChannel({
         provider: 'discord' as const,
         id: 'discord-bot-1-guild-1-channel-1',
         label: '#debug',
@@ -3740,9 +3768,9 @@ describe('ClawRuntime', () => {
     try {
       const settings = buildSettings()
       settings.activeAgentRuntime = 'codex'
-      settings.claw.im.enabled = true
-      settings.claw.im.responseTimeoutMs = 10_000
-      settings.claw.channels = [buildChannel({
+      settings.remoteChannel.im.enabled = true
+      settings.remoteChannel.im.responseTimeoutMs = 10_000
+      settings.remoteChannel.channels = [buildChannel({
         provider: 'feishu' as const,
         id: 'channel_feishu',
         label: 'Feishu',
@@ -3876,9 +3904,9 @@ describe('ClawRuntime', () => {
   it('continues an existing phone conversation mapping instead of rebinding to active desktop focus', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_500
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -3954,7 +3982,7 @@ describe('ClawRuntime', () => {
     })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -3993,8 +4021,8 @@ describe('ClawRuntime', () => {
       threadId: 'stale-phone-thread',
       runtimeId: 'codex'
     })
-    expect(current().claw.channels[0].conversations).toHaveLength(1)
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations).toHaveLength(1)
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       id: 'conversation-1',
       latestMessageId: 'wx_msg_2',
       runtimeId: 'codex',
@@ -4006,9 +4034,9 @@ describe('ClawRuntime', () => {
   it('keeps a reconnected phone conversation on its stored runtime instead of using active desktop runtime', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_500
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -4073,7 +4101,7 @@ describe('ClawRuntime', () => {
     })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -4112,14 +4140,13 @@ describe('ClawRuntime', () => {
       threadId: 'stale-kun-conversation-thread',
       runtimeId: 'sciforge'
     })
-    expect(current().claw.channels[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'sciforge',
-      threadId: 'stale-kun-conversation-thread',
       agentThreadIds: {
         sciforge: 'stale-kun-conversation-thread'
       }
     })
-    expect(current().claw.channels[0].conversations[0]).toMatchObject({
+    expect(current().remoteChannel.channels[0].conversations[0]).toMatchObject({
       id: 'conversation-1',
       latestMessageId: 'wx_msg_3',
       runtimeId: 'sciforge',
@@ -4133,9 +4160,9 @@ describe('ClawRuntime', () => {
 
   it('waits for the current WeChat turn to complete before returning the final reply', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_500
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_500
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -4209,7 +4236,7 @@ describe('ClawRuntime', () => {
     })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -4235,16 +4262,16 @@ describe('ClawRuntime', () => {
       ok: true,
       reply: expect.stringContaining('final result')
     })
-    expect(JSON.parse(responseBody).reply).toContain('Claw IM commands:')
+    expect(JSON.parse(responseBody).reply).toContain('Remote channel commands:')
     expect(getCount).toBe(2)
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
   it('does not return a previous WeChat session reply for a new turn', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 10
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 10
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -4295,7 +4322,7 @@ describe('ClawRuntime', () => {
     })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -4438,16 +4465,16 @@ describe('ClawRuntime', () => {
 
     expect(result).toMatchObject({
       ok: false,
-      message: 'Waiting for desktop approval before Claw can continue.',
+      message: 'Waiting for desktop approval before the remote channel can continue.',
       failureKind: 'waiting_desktop_approval'
     })
   })
 
   it('does not return historical WeChat text when the current turn fails', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_000
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_000
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       label: 'WeChat',
@@ -4505,7 +4532,7 @@ describe('ClawRuntime', () => {
     })
     const req = {
       method: 'POST',
-      url: settings.claw.im.path,
+      url: settings.remoteChannel.im.path,
       headers: {},
       async *[Symbol.asyncIterator]() {
         yield Buffer.from(body)
@@ -4536,8 +4563,8 @@ describe('ClawRuntime', () => {
 
   it('mirrors local Claw thread messages back to the bundled WeChat bridge', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       threadId: 'thr_weixin',
@@ -4574,8 +4601,8 @@ describe('ClawRuntime', () => {
 
   it('splits long mirrored WeChat messages by provider limits', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       threadId: 'thr_weixin',
@@ -4616,8 +4643,8 @@ describe('ClawRuntime', () => {
 
   it('splits long mirrored Discord messages by provider limits', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'discord' as const,
       id: 'channel_discord',
       threadId: 'thr_discord',
@@ -4662,8 +4689,8 @@ describe('ClawRuntime', () => {
 
   it('returns and records provider send failures when mirroring to WeChat fails', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel({
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
       provider: 'weixin' as const,
       id: 'channel_weixin',
       threadId: 'thr_weixin',
@@ -4698,7 +4725,7 @@ describe('ClawRuntime', () => {
     })
     expect(logError).toHaveBeenCalledWith(
       'claw-weixin',
-      'Failed to mirror Claw message to WeChat',
+      'Failed to mirror remote channel message to WeChat',
       expect.objectContaining({
         failureKind: 'provider_send_failed',
         message: 'WeChat send failed: bridge offline'
@@ -4713,8 +4740,8 @@ describe('ClawRuntime', () => {
     const realFilePath = await realpath(filePath)
     try {
       const settings = buildSettings()
-      settings.claw.im.enabled = true
-      settings.claw.im.responseTimeoutMs = 2_000
+      settings.remoteChannel.im.enabled = true
+      settings.remoteChannel.im.responseTimeoutMs = 2_000
       const conversation: ClawImConversationV1 = {
         id: 'conv_1',
         chatId: 'oc_chat_a',
@@ -4723,6 +4750,7 @@ describe('ClawRuntime', () => {
         senderId: 'ou_1',
         senderName: 'Alice',
         localThreadId: 'thr_1',
+        agentThreadIds: { sciforge: 'thr_1' },
         workspaceRoot,
         createdAt: '2026-06-02T00:00:00.000Z',
         updatedAt: '2026-06-02T00:00:00.000Z'
@@ -4747,7 +4775,7 @@ describe('ClawRuntime', () => {
         createdAt: '2026-06-02T00:00:00.000Z',
         updatedAt: '2026-06-02T00:00:00.000Z'
       }
-      settings.claw.channels = [channel]
+      settings.remoteChannel.channels = [channel]
       const store = {
         load: vi.fn(async () => settings),
         patch: vi.fn(async () => settings)
@@ -4852,9 +4880,9 @@ describe('ClawRuntime', () => {
 
   it('sends agent reply containing markdown as Feishu / Lark markdown', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_000
-    settings.claw.channels = [buildChannel({ threadId: 'thr_1', conversations: [buildConversation({ localThreadId: 'thr_1' })] })]
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_000
+    settings.remoteChannel.channels = [buildChannel({ threadId: 'thr_1', conversations: [buildConversation({ localThreadId: 'thr_1' })] })]
     const store = {
       load: vi.fn(async () => settings),
       patch: vi.fn(async () => settings)
@@ -4964,9 +4992,9 @@ describe('ClawRuntime', () => {
 
   it('continues agent flow when pending reaction add fails', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.im.responseTimeoutMs = 2_000
-    settings.claw.channels = [buildChannel({ threadId: 'thr_1', conversations: [buildConversation({ localThreadId: 'thr_1' })] })]
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.im.responseTimeoutMs = 2_000
+    settings.remoteChannel.channels = [buildChannel({ threadId: 'thr_1', conversations: [buildConversation({ localThreadId: 'thr_1' })] })]
     const store = {
       load: vi.fn(async () => settings),
       patch: vi.fn(async () => settings)
@@ -5040,8 +5068,8 @@ describe('ClawRuntime', () => {
 
   it('does not add a pending reaction for IM commands', async () => {
     const settings = buildSettings()
-    settings.claw.im.enabled = true
-    settings.claw.channels = [buildChannel()]
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel()]
     const store = {
       load: vi.fn(async () => settings),
       patch: vi.fn(async () => settings)

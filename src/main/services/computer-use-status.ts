@@ -1,10 +1,15 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import type {
   ComputerUseBackendDiagnostic,
   ComputerUseLease,
   ComputerUseLeaseRejection
 } from '../../../packages/workers/computer-use/src/contract'
+import {
+  atomicWriteAppDataJson,
+  atomicWriteAppDataJsonAtPath,
+  readAppDataStoreText,
+  readAppDataStoreTextAtPath
+} from './app-data-store'
 
 export type ComputerUseStatusServer = ComputerUseBackendDiagnostic & {
   serverId: string
@@ -24,6 +29,8 @@ type ComputerUseStatusFile = {
   version: 1
   servers: Record<string, ComputerUseStatusServer>
 }
+
+const COMPUTER_USE_STATUS_STORE = ['computer-use', 'status.json'] as const
 
 export function emptyComputerUseRuntimeStatus(): ComputerUseRuntimeStatus {
   return {
@@ -65,14 +72,21 @@ export async function recordComputerUseDiagnostic(
     pid: process.pid,
     updatedAt: now
   }
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, `${JSON.stringify(current, null, 2)}\n`, 'utf8')
+  const store = computerUseStatusStore(path)
+  if (store) {
+    await atomicWriteAppDataJson(store.rootDir, COMPUTER_USE_STATUS_STORE, current, { trailingNewline: true })
+    return
+  }
+  await atomicWriteAppDataJsonAtPath(path, current, { trailingNewline: true })
 }
 
 async function readStatusFile(path: string): Promise<ComputerUseStatusFile | null> {
   let raw = ''
   try {
-    raw = await readFile(path, 'utf8')
+    const store = computerUseStatusStore(path)
+    raw = store
+      ? await readAppDataStoreText(store.rootDir, COMPUTER_USE_STATUS_STORE)
+      : await readAppDataStoreTextAtPath(path)
   } catch (error) {
     if (isErrno(error) && error.code === 'ENOENT') return null
     throw error
@@ -84,6 +98,12 @@ async function readStatusFile(path: string): Promise<ComputerUseStatusFile | nul
   } catch {
     return null
   }
+}
+
+function computerUseStatusStore(path: string): { rootDir: string } | null {
+  const resolved = resolve(path)
+  if (basename(resolved) !== 'status.json' || basename(dirname(resolved)) !== 'computer-use') return null
+  return { rootDir: dirname(dirname(resolved)) }
 }
 
 function isFreshServer(server: ComputerUseStatusServer): boolean {

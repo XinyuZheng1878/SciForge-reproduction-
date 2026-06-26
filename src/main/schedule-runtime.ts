@@ -16,11 +16,11 @@ import {
   normalizeAgentRuntimeId,
   normalizeScheduleReasoningEffort
 } from '../shared/app-settings'
-import { APP_WEBHOOK_SECRET_HEADER } from '../shared/app-brand'
 import {
   buildScheduledTaskFromDetectedRequest,
   detectClawScheduledTaskRequest
 } from './claw-scheduled-task-detector'
+import { isAuthorizedInternalHttpRequest } from './internal-http-secret'
 import {
   SCHEDULER_INTERVAL_MS,
   TASK_RESPONSE_TIMEOUT_MS,
@@ -503,15 +503,9 @@ export class ScheduleRuntime {
         writeJson(res, 405, { ok: false, message: 'Method not allowed.' })
         return
       }
-      const secret = settings.schedule.internal.secret.trim()
-      if (secret) {
-        const auth = req.headers.authorization ?? ''
-        const secretHeader = req.headers[APP_WEBHOOK_SECRET_HEADER]
-        const headerSecret = Array.isArray(secretHeader) ? secretHeader[0] : secretHeader
-        if (auth !== `Bearer ${secret}` && headerSecret !== secret) {
-          writeJson(res, 401, { ok: false, message: 'Unauthorized.' })
-          return
-        }
+      if (!isAuthorizedInternalHttpRequest(req, settings.schedule.internal.secret)) {
+        writeJson(res, 401, { ok: false, message: 'Unauthorized.' })
+        return
       }
 
       if (url.pathname === '/schedule/internal/list') {

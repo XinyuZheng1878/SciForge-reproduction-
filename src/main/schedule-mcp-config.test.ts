@@ -15,7 +15,8 @@ import {
   type ScheduleMcpLaunchConfig
 } from './schedule-mcp-config'
 import {
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
@@ -27,7 +28,7 @@ import {
 import { SCHEDULE_TOOL_SIDE_EFFECTS } from '../../packages/workers/schedule/src/contract'
 
 function createSettings(patch: Partial<AppSettingsV1['schedule']['internal']> = {}): AppSettingsV1 {
-  const claw = defaultClawSettings()
+  const remoteChannel = defaultRemoteChannelSettings()
   const schedule = defaultScheduleSettings()
   return {
     version: 1,
@@ -61,16 +62,17 @@ function createSettings(patch: Partial<AppSettingsV1['schedule']['internal']> = 
       channel: 'stable'
     },
     codePromptPrefix: '',
-    claw: {
-      ...claw,
+    remoteChannel: {
+      ...remoteChannel,
       enabled: true,
       im: {
-        ...claw.im,
+        ...remoteChannel.im,
         enabled: true,
         port: 8787,
         secret: ''
       }
-    }
+    },
+    connectPhone: defaultConnectPhoneSettings()
   }
 }
 
@@ -85,7 +87,7 @@ describe('schedule MCP config', () => {
     expect(resolveLocalRuntimeMcpJsonPath()).toBe(join(homedir(), '.sciforge', 'mcp.json'))
   })
 
-  it('builds the managed gui_schedule server config without leaking secrets', () => {
+  it('builds the managed gui_schedule server config with the internal secret in env only', () => {
     const settings = createSettings({ port: 9787, secret: 'top-secret' })
     const server = buildScheduleMcpServerConfig(settings, launch)
     const localRuntimeServer = buildScheduleLocalRuntimeMcpServerConfig(settings, launch)
@@ -99,7 +101,8 @@ describe('schedule MCP config', () => {
         'http://127.0.0.1:9787'
       ],
       env: {
-        ELECTRON_RUN_AS_NODE: '1'
+        ELECTRON_RUN_AS_NODE: '1',
+        GUI_SCHEDULE_INTERNAL_SECRET: 'top-secret'
       },
       url: null,
       enabled: true,
@@ -117,13 +120,13 @@ describe('schedule MCP config', () => {
         'http://127.0.0.1:9787'
       ],
       env: {
-        ELECTRON_RUN_AS_NODE: '1'
+        ELECTRON_RUN_AS_NODE: '1',
+        GUI_SCHEDULE_INTERNAL_SECRET: 'top-secret'
       },
       enabled: true
     })
-    expect(JSON.stringify(server)).not.toContain('top-secret')
-    expect(JSON.stringify(localRuntimeServer)).not.toContain('top-secret')
     expect(JSON.stringify(server)).not.toContain('--secret')
+    expect(JSON.stringify(localRuntimeServer)).not.toContain('--secret')
     expect(scheduleMcpEnabledTools()).toEqual(Object.keys(SCHEDULE_TOOL_SIDE_EFFECTS))
   })
 

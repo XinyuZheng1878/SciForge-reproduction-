@@ -1,10 +1,9 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
 import type {
   AgentRuntimeUsage,
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse
 } from '../../../shared/agent-runtime-contract'
+import { AppDataJsonlStore } from '../../services/app-data-store'
 
 export type CodexUsageRecord = {
   version: 1
@@ -60,22 +59,21 @@ type UsageCounters = {
 }
 
 export class CodexUsageStore {
-  private readonly filePath: string
+  private readonly jsonlStore: AppDataJsonlStore
   private readonly now: () => Date
-  private writeQueue: Promise<void> = Promise.resolve()
 
   constructor(options: CodexUsageStoreOptions) {
-    this.filePath = join(options.rootDir, 'usage', 'codex-usage.jsonl')
+    this.jsonlStore = new AppDataJsonlStore({
+      rootDir: options.rootDir,
+      segments: ['usage', 'codex-usage.jsonl']
+    })
     this.now = options.now ?? (() => new Date())
   }
 
   async record(input: CodexUsageRecordInput): Promise<CodexUsageRecord | null> {
     const record = normalizeRecordInput(input, this.now)
     if (!record) return null
-    await this.enqueue(async () => {
-      await mkdir(dirname(this.filePath), { recursive: true })
-      await appendFile(this.filePath, `${JSON.stringify(record)}\n`, 'utf8')
-    })
+    await this.jsonlStore.appendJson([record])
     return record
   }
 
@@ -111,7 +109,7 @@ export class CodexUsageStore {
   private async records(): Promise<CodexUsageRecord[]> {
     let raw = ''
     try {
-      raw = await readFile(this.filePath, 'utf8')
+      raw = await this.jsonlStore.readText()
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
       throw error
@@ -126,11 +124,6 @@ export class CodexUsageStore {
     return [...byTurn.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   }
 
-  private enqueue(task: () => Promise<void>): Promise<void> {
-    const run = this.writeQueue.then(task, task)
-    this.writeQueue = run.then(() => undefined, () => undefined)
-    return run
-  }
 }
 
 function normalizeRecordInput(

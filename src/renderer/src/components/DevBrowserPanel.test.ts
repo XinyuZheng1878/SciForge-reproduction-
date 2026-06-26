@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   canUseElectronWebviewEnvironment,
+  resolveDevPreviewNavigateEventUrl,
   resolveInitialDevBrowserUrl
 } from './DevBrowserPanel'
 
@@ -71,5 +72,37 @@ describe('DevBrowserPanel initial URL resolution', () => {
         latestDetectedUrl: 'http://localhost:5000/'
       })
     ).toBe('http://localhost:5000/')
+  })
+})
+
+describe('DevBrowserPanel popup navigation events', () => {
+  it('accepts matching local preview navigation events', () => {
+    expect(
+      resolveDevPreviewNavigateEventUrl({
+        url: 'http://127.0.0.1:4173/docs?tab=1',
+        webContentsId: 42
+      }, 42)
+    ).toBe('http://127.0.0.1:4173/docs?tab=1')
+  })
+
+  it('rejects events for other webviews or non-preview URLs', () => {
+    expect(
+      resolveDevPreviewNavigateEventUrl({
+        url: 'http://127.0.0.1:4173/docs',
+        webContentsId: 42
+      }, 7)
+    ).toBeNull()
+    expect(
+      resolveDevPreviewNavigateEventUrl({
+        url: 'https://example.com/docs',
+        webContentsId: 42
+      }, 42)
+    ).toBeNull()
+    expect(
+      resolveDevPreviewNavigateEventUrl({
+        url: 'http://127.0.0.1:4173/docs',
+        webContentsId: '42'
+      }, 42)
+    ).toBeNull()
   })
 })

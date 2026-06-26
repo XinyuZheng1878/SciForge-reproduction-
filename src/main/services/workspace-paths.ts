@@ -1,11 +1,27 @@
-import { type Dirent } from 'node:fs'
-import { access, readdir, realpath, stat } from 'node:fs/promises'
+import { constants, type Dirent } from 'node:fs'
+import { access, lstat, mkdir, open, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import type { WorkspaceDirectoryTarget } from '../../shared/workspace-file'
 
 export type ResolveTargetOptions = {
   allowBasenameFallback?: boolean
+}
+
+export type ResolveWorkspaceWriteTargetOptions = {
+  createParentDirectories?: boolean
+  targetKind?: 'file' | 'directory'
+}
+
+export type ResolvedWorkspaceWriteTarget = {
+  path: string
+  parentPath: string
+  workspaceRoot: string
+}
+
+export type SafeWorkspaceWriteOptions = {
+  encoding?: BufferEncoding
+  exclusive?: boolean
 }
 
 const SKIP_SEARCH_DIRS = new Set([
@@ -46,6 +62,18 @@ export async function pathExists(targetPath: string): Promise<boolean> {
     return true
   } catch {
     return false
+  }
+}
+
+async function lstatIfExists(targetPath: string) {
+  try {
+    return await lstat(targetPath)
+  } catch (error) {
+    const code = typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : ''
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null
+    throw error
   }
 }
 
@@ -183,6 +211,189 @@ export async function resolveTargetPathWithinWorkspace(rawPath: string, workspac
     }
   }
   throw new Error('Path must stay within the selected workspace.')
+}
+
+async function resolveLexicalWorkspaceTarget(
+  rawPath: string,
+  workspaceRoot?: string
+): Promise<{ workspacePath: string; targetPath: string }> {
+  const value = normalizeUserPath(rawPath)
+  if (!value) throw new Error('File path is required.')
+
+  const expanded = expandHomePath(value)
+  const rawWorkspace = requireWorkspaceRoot(workspaceRoot)
+  const workspaceInputPath = resolve(expandHomePath(rawWorkspace))
+  const workspacePath = await canonicalPath(workspaceInputPath)
+  const directPath = isAbsolute(expanded)
+    ? resolve(expanded)
+    : resolve(workspacePath, expanded)
+  const targetPath = isAbsolute(expanded) && !isWithinWorkspace(workspacePath, directPath) &&
+    isWithinWorkspace(workspaceInputPath, directPath)
+    ? resolve(workspacePath, relative(workspaceInputPath, directPath))
+    : directPath
+
+  if (!isWithinWorkspace(workspacePath, targetPath)) {
+    throw new Error('Path must stay within the selected workspace.')
+  }
+
+  return { workspacePath, targetPath }
+}
+
+function relativeWorkspaceSegments(workspacePath: string, targetPath: string): string[] {
+  const rel = relative(workspacePath, targetPath)
+  return rel ? rel.split(/[\\/]+/).filter(Boolean) : []
+}
+
+async function canonicalDirectoryInsideWorkspace(
+  targetPath: string,
+  workspacePath: string
+): Promise<string> {
+  const canonical = await realpath(targetPath)
+  if (!isWithinWorkspace(workspacePath, canonical)) {
+    throw new Error('Path must stay within the selected workspace.')
+  }
+  const info = await stat(canonical)
+  if (!info.isDirectory()) {
+    throw new Error('Target parent is not a directory.')
+  }
+  return canonical
+}
+
+async function resolveWriteParentSegment(
+  currentPath: string,
+  segment: string,
+  workspacePath: string,
+  createDirectory: boolean
+): Promise<{ path: string; missing: boolean }> {
+  const candidate = join(currentPath, segment)
+  let info = await lstatIfExists(candidate)
+
+  if (!info) {
+    if (!createDirectory) {
+      return { path: candidate, missing: true }
+    }
+    await mkdir(candidate)
+    info = await lstatIfExists(candidate)
+  }
+
+  if (!info) {
+    throw new Error('Target parent directory could not be created.')
+  }
+
+  if (info.isSymbolicLink()) {
+    return { path: await canonicalDirectoryInsideWorkspace(candidate, workspacePath), missing: false }
+  }
+  if (!info.isDirectory()) {
+    throw new Error('Target parent is not a directory.')
+  }
+  return { path: await canonicalDirectoryInsideWorkspace(candidate, workspacePath), missing: false }
+}
+
+async function verifyExistingWriteTarget(
+  targetPath: string,
+  workspacePath: string,
+  targetKind: 'file' | 'directory'
+): Promise<void> {
+  const info = await lstatIfExists(targetPath)
+  if (!info) return
+
+  if (info.isSymbolicLink()) {
+    let canonical = ''
+    try {
+      canonical = await realpath(targetPath)
+    } catch {
+      throw new Error('Workspace write target must not be a symlink.')
+    }
+    if (!isWithinWorkspace(workspacePath, canonical)) {
+      throw new Error('Path must stay within the selected workspace.')
+    }
+    throw new Error('Workspace write target must not be a symlink.')
+  }
+
+  if (targetKind === 'directory' && !info.isDirectory()) {
+    throw new Error('Target path is not a directory.')
+  }
+
+  const canonical = await realpath(targetPath)
+  if (!isWithinWorkspace(workspacePath, canonical)) {
+    throw new Error('Path must stay within the selected workspace.')
+  }
+}
+
+export async function resolveSafeWorkspaceWriteTarget(
+  rawPath: string,
+  workspaceRoot?: string,
+  options?: ResolveWorkspaceWriteTargetOptions
+): Promise<ResolvedWorkspaceWriteTarget> {
+  const targetKind = options?.targetKind ?? 'file'
+  const createParentDirectories = options?.createParentDirectories ?? true
+  const { workspacePath, targetPath } = await resolveLexicalWorkspaceTarget(rawPath, workspaceRoot)
+  const segments = relativeWorkspaceSegments(workspacePath, targetPath)
+  if (!segments.length && targetKind === 'file') {
+    throw new Error('File path must point inside the selected workspace.')
+  }
+
+  const targetName = segments.at(-1)
+  let parentPath = workspacePath
+  const parentSegments = segments.slice(0, -1)
+  for (let index = 0; index < parentSegments.length; index += 1) {
+    const segment = parentSegments[index]
+    const nextParent = await resolveWriteParentSegment(parentPath, segment, workspacePath, createParentDirectories)
+    parentPath = nextParent.path
+    if (nextParent.missing) {
+      for (const missingSegment of parentSegments.slice(index + 1)) {
+        parentPath = join(parentPath, missingSegment)
+      }
+      break
+    }
+  }
+
+  const resolvedTarget = targetName ? join(parentPath, targetName) : workspacePath
+  await verifyExistingWriteTarget(resolvedTarget, workspacePath, targetKind)
+  return {
+    path: resolvedTarget,
+    parentPath,
+    workspaceRoot: workspacePath
+  }
+}
+
+export async function ensureSafeWorkspaceDirectory(rawPath: string, workspaceRoot?: string): Promise<string> {
+  const target = await resolveSafeWorkspaceWriteTarget(rawPath, workspaceRoot, {
+    createParentDirectories: true,
+    targetKind: 'directory'
+  })
+  const info = await lstatIfExists(target.path)
+  if (!info) {
+    await mkdir(target.path)
+  }
+  await verifyExistingWriteTarget(target.path, target.workspaceRoot, 'directory')
+  return realpath(target.path)
+}
+
+export async function writeSafeWorkspaceFile(
+  target: ResolvedWorkspaceWriteTarget,
+  content: string | Uint8Array,
+  options?: SafeWorkspaceWriteOptions
+): Promise<void> {
+  await verifyExistingWriteTarget(target.parentPath, target.workspaceRoot, 'directory')
+  await verifyExistingWriteTarget(target.path, target.workspaceRoot, 'file')
+
+  const noFollow = constants.O_NOFOLLOW ?? 0
+  const flags = constants.O_WRONLY |
+    constants.O_CREAT |
+    (options?.exclusive ? constants.O_EXCL : constants.O_TRUNC) |
+    noFollow
+  const handle = await open(target.path, flags, 0o666)
+  try {
+    if (typeof content === 'string') {
+      await handle.writeFile(content, options?.encoding ?? 'utf8')
+    } else {
+      await handle.writeFile(content)
+    }
+  } finally {
+    await handle.close()
+  }
+  await verifyExistingWriteTarget(target.path, target.workspaceRoot, 'file')
 }
 
 export async function resolveOpenTargetPath(

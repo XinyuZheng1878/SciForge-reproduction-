@@ -20,6 +20,15 @@ export type CodexAppServerPendingRequest = {
   params: Record<string, unknown>
 }
 
+export type CodexAppServerApprovalToolKind = 'tool_call' | 'command_execution' | 'file_change'
+
+export type CodexAppServerApprovalMethodInfo = {
+  summary: string
+  toolName: string
+  toolKind: CodexAppServerApprovalToolKind
+  defaultResponse: () => unknown
+}
+
 export type CodexAppServerUnknownRequestNotice = {
   requestId: CodexAppServerRequestId
   method: string
@@ -62,25 +71,60 @@ type PendingEntry = {
   reject: (error: Error) => void
 }
 
-const APPROVAL_METHODS = new Set([
-  'item/commandExecution/requestApproval',
-  'item/fileChange/requestApproval',
-  'item/permissions/requestApproval'
+const APPROVAL_METHOD_INFO = new Map<string, CodexAppServerApprovalMethodInfo>([
+  ['item/commandExecution/requestApproval', {
+    summary: 'Command approval requested',
+    toolName: 'command execution',
+    toolKind: 'command_execution',
+    defaultResponse: () => ({ decision: 'decline' })
+  }],
+  ['execCommandApproval', {
+    summary: 'Command approval requested',
+    toolName: 'command execution',
+    toolKind: 'command_execution',
+    defaultResponse: () => ({ decision: 'decline' })
+  }],
+  ['item/fileChange/requestApproval', {
+    summary: 'File change approval requested',
+    toolName: 'file change',
+    toolKind: 'file_change',
+    defaultResponse: () => ({ decision: 'decline' })
+  }],
+  ['applyPatchApproval', {
+    summary: 'File change approval requested',
+    toolName: 'file change',
+    toolKind: 'file_change',
+    defaultResponse: () => ({ decision: 'decline' })
+  }],
+  ['item/permissions/requestApproval', {
+    summary: 'Permission approval requested',
+    toolName: 'tool',
+    toolKind: 'tool_call',
+    defaultResponse: () => ({ permissions: {}, scope: 'turn' })
+  }]
 ])
 
 const USER_INPUT_METHODS = new Set([
   'item/tool/requestUserInput',
-  'item/userInput/request',
-  'item/userInput/requested',
-  'userInput/request',
-  'user_input/request',
-  'request_user_input',
-  'item/requestUserInput',
   'mcpServer/elicitation/request'
 ])
 
 export function isCodexAppServerUserInputRequestMethod(method: string): boolean {
   return USER_INPUT_METHODS.has(method)
+}
+
+export function isCodexAppServerApprovalRequestMethod(method: string): boolean {
+  return APPROVAL_METHOD_INFO.has(method)
+}
+
+export function codexAppServerApprovalMethodInfo(
+  method: string
+): CodexAppServerApprovalMethodInfo | null {
+  return APPROVAL_METHOD_INFO.get(method) ?? null
+}
+
+export function codexAppServerApprovalToolName(method: string): string {
+  return codexAppServerApprovalMethodInfo(method)?.toolName ?? 'tool'
 }
 
 export function createCodexAppServerPendingRequestRegistry(
@@ -163,13 +207,14 @@ function requestKey(requestId: CodexAppServerRequestId): string {
 
 function toPendingRequest(request: CodexAppServerJsonRpcRequest): CodexAppServerPendingRequest | null {
   const params = asRecord(request.params) ?? {}
-  if (APPROVAL_METHODS.has(request.method)) {
+  const approvalInfo = codexAppServerApprovalMethodInfo(request.method)
+  if (approvalInfo) {
     return {
       requestId: request.id,
       method: request.method,
       kind: 'approval',
       ...commonRequestFields(params),
-      summary: approvalSummary(request.method),
+      summary: approvalInfo.summary,
       params
     }
   }
@@ -191,9 +236,11 @@ function toDynamicToolCallRequest(
 ): CodexAppServerDynamicToolCallRequest | null {
   if (request.method !== 'item/tool/call') return null
   const params = asRecord(request.params) ?? {}
+  const tool = stringValue(params.tool)
+  if (!tool) return null
   const normalizedName = normalizeDynamicToolName(
     stringValue(params.namespace),
-    stringValue(params.tool) || stringValue(params.toolName) || stringValue(params.name)
+    tool
   )
   return {
     requestId: request.id,
@@ -228,13 +275,6 @@ function commonRequestFields(params: Record<string, unknown>): {
     ...(stringValue(params.turnId) ? { turnId: stringValue(params.turnId) } : {}),
     ...(stringValue(params.itemId) ? { itemId: stringValue(params.itemId) } : {})
   }
-}
-
-function approvalSummary(method: string): string {
-  if (method === 'item/commandExecution/requestApproval') return 'Command approval requested'
-  if (method === 'item/fileChange/requestApproval') return 'File change approval requested'
-  if (method === 'item/permissions/requestApproval') return 'Permission approval requested'
-  return 'Approval requested'
 }
 
 function userInputSummary(method: string): string {

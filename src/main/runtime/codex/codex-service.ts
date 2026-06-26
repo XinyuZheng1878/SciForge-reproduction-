@@ -44,10 +44,11 @@ import {
   type CodexAppServerTurnSandboxPolicy,
   type CodexAppServerThreadStartParams
 } from './app-server/json-rpc-client'
-import type {
-  CodexAppServerPendingRequest,
-  CodexAppServerResolveApprovalInput,
-  CodexAppServerResolveUserInputInput
+import {
+  codexAppServerApprovalMethodInfo,
+  type CodexAppServerPendingRequest,
+  type CodexAppServerResolveApprovalInput,
+  type CodexAppServerResolveUserInputInput
 } from './app-server/request-registry'
 import {
   codexAppServerThreadReasoningConfig,
@@ -1891,8 +1892,8 @@ function pendingServerRequestEvent(request: CodexAppServerPendingRequest): Codex
 function pendingToolKind(
   request: CodexAppServerPendingRequest
 ): NonNullable<CodexThreadEventPayload['tool']>['toolKind'] {
-  if (request.method === 'item/commandExecution/requestApproval') return 'command_execution'
-  if (request.method === 'item/fileChange/requestApproval') return 'file_change'
+  const approvalInfo = codexAppServerApprovalMethodInfo(request.method)
+  if (approvalInfo) return approvalInfo.toolKind
   return 'tool_call'
 }
 

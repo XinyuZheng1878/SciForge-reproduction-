@@ -1,11 +1,45 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import type { AgentRuntimeId } from '@shared/app-settings'
 import type { ChatBlock } from '../agent/types'
 import {
   hasPendingRuntimeWork,
+  rememberProviderThreadRuntime,
   settlePendingRuntimeWorkAfterCompletion,
   settlePendingRuntimeWorkAfterInterrupt,
   threadSnapshotLooksRunning
 } from './chat-store-runtime-helpers'
+
+describe('rememberProviderThreadRuntime', () => {
+  function provider() {
+    return {
+      rememberThreadRuntime: vi.fn<(threadId: string, runtimeId?: AgentRuntimeId) => void>()
+    }
+  }
+
+  it('remembers the thread runtime when the store has a concrete runtime id', () => {
+    const p = provider()
+
+    rememberProviderThreadRuntime(p, ' codex-thread ', [{ id: 'codex-thread', runtimeId: 'codex' }])
+
+    expect(p.rememberThreadRuntime).toHaveBeenCalledWith('codex-thread', 'codex')
+  })
+
+  it('does not invent a SciForge runtime for a thread missing a runtime id', () => {
+    const p = provider()
+
+    rememberProviderThreadRuntime(p, 'legacy-thread', [{ id: 'legacy-thread', runtimeId: undefined }])
+
+    expect(p.rememberThreadRuntime).not.toHaveBeenCalled()
+  })
+
+  it('does not invent a SciForge runtime for an unknown thread id', () => {
+    const p = provider()
+
+    rememberProviderThreadRuntime(p, 'missing-thread', [{ id: 'known-thread', runtimeId: 'sciforge' }])
+
+    expect(p.rememberThreadRuntime).not.toHaveBeenCalled()
+  })
+})
 
 describe('chat-store-runtime-helpers compaction state', () => {
   it('keeps the thread busy while a compaction item is running', () => {

@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 const require = createRequire(import.meta.url)
 const builderConfig = require('../../electron-builder.config.cjs')
 const afterPack = require('../../scripts/after-pack.cjs')
+const localRuntimePackage = require('../../scripts/local-runtime-package.cjs')
 const macNotarize = require('../../scripts/mac-notarize.cjs')
 const rootPackage = require('../../package.json')
 
@@ -76,6 +77,22 @@ afterEach(() => {
 })
 
 describe('electron-builder local runtime packaging', () => {
+  it('keeps local runtime install/build decisions in one package script', () => {
+    const root = tempRoot()
+
+    expect(localRuntimePackage.hasProjectKunInstall(root)).toBe(false)
+    for (const relativePath of localRuntimePackage.KUN_INSTALL_REQUIRED_PATHS) {
+      touch(join(root, relativePath))
+    }
+    expect(localRuntimePackage.hasProjectKunInstall(root)).toBe(true)
+
+    const sqliteModule = join(root, 'kun/node_modules/better-sqlite3')
+    touch(join(sqliteModule, 'package.json'))
+    localRuntimePackage.removeProjectKunSqlite(root)
+
+    expect(existsSync(sqliteModule)).toBe(false)
+  })
+
   it('includes local runtime dependencies in the packaged app', () => {
     expect(builderConfig.files).toEqual(expect.arrayContaining([
       'kun/dist/**/*',
@@ -313,29 +330,31 @@ describe('electron-builder local runtime packaging', () => {
         return typeof entry === 'object' && entry !== null
       })
       .map((entry) => entry.from)
+    const bundledPluginFileSets = bundledDirectoryFileSets.filter((entry): entry is string => {
+      return typeof entry === 'string' && entry.startsWith('plugins/')
+    })
+    const unpackedPluginGlobs = (builderConfig.asarUnpack as unknown[])
+      .filter((entry): entry is string => typeof entry === 'string' && entry.includes('/plugins/'))
 
-    expect(bundledDirectoryFileSets).not.toEqual(expect.arrayContaining([
-      'plugins',
-      'plugins/vision-router-service',
-      'plugins/sci-modality-router-service'
-    ]))
-    expect(builderConfig.files).not.toEqual(expect.arrayContaining([
-      'plugins/**/*',
-      'plugins/vision-router-service/**/*',
-      'plugins/sci-modality-router-service/**/*'
-    ]))
-    expect(builderConfig.asarUnpack).not.toEqual(expect.arrayContaining([
-      '**/plugins/**/*',
-      '**/plugins/vision-router-service/**/*',
-      '**/plugins/sci-modality-router-service/**/*',
-      '**/packages/workers/model-router/vision-router-service/**/*'
-    ]))
-    expect(bundledDirectoryFileSets).toEqual(expect.arrayContaining([
+    expect(bundledPluginFileSets).toEqual([
       'plugins/paper-radar-service'
+    ])
+    expect(builderConfig.files).not.toEqual(expect.arrayContaining([
+      'plugins/**/*'
+    ]))
+    expect(unpackedPluginGlobs).toEqual([
+      '**/plugins/paper-radar-service/**/*'
+    ])
+    expect(builderConfig.asarUnpack).not.toEqual(expect.arrayContaining([
+      '**/plugins/**/*'
     ]))
   })
 
   it('validates the unpacked local runtime before release artifacts are created', () => {
+    expect(afterPack.LOCAL_RUNTIME_REQUIRED_PATHS).toEqual(
+      localRuntimePackage.LOCAL_RUNTIME_REQUIRED_PATHS
+    )
+
     const root = tempRoot()
     const context = createMacPackContext(root)
     const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
@@ -362,9 +381,6 @@ describe('electron-builder local runtime packaging', () => {
       'packages/workers/model-router/tools/model-router-trace-audit.ts'
     ]))
     expect(afterPack.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS).not.toEqual(expect.arrayContaining([
-      'packages/workers/model-router/vision-router-service/package.json',
-      'packages/workers/model-router/vision-router-service/src/index.ts',
-      'plugins/vision-router-service/package.json',
       'plugins/sci-modality-router-service/package.json'
     ]))
 
@@ -709,21 +725,18 @@ describe('root package workspace contracts', () => {
     expect(rootPackage.workspaces).toEqual(expect.arrayContaining([
       'packages/workers/computer-use',
       'packages/workers/model-router',
-      'plugins/vision-router-service',
       'plugins/sci-modality-router-service'
     ]))
     expect(rootPackage.workspaces).not.toEqual(expect.arrayContaining([
-      'packages/workers/model-router/vision-router-service'
+      'kun'
     ]))
     expect(rootPackage.scripts).toMatchObject({
+      'build:local-runtime': 'node ./scripts/local-runtime-package.cjs build',
       'computer-use:start': 'npm --workspace @sciforge/computer-use run start',
       'computer-use:test': 'npm --workspace @sciforge/computer-use run test',
       'computer-use:typecheck': 'npm --workspace @sciforge/computer-use run typecheck',
       'model-router:start': 'npm --workspace @sciforge/model-router run start',
-      'model-router:test': 'npm --workspace @sciforge/model-router run test',
-      'vision-router:start': 'npm --workspace sciforge-vision-router-service run start',
-      'vision-router:test': 'npm --workspace sciforge-vision-router-service run test',
-      'vision-router:typecheck': 'npm --workspace sciforge-vision-router-service run typecheck'
+      'model-router:test': 'npm --workspace @sciforge/model-router run test'
     })
   })
 })

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, ChevronRight, Copy, FileEdit, Loader2, MessageSquareQuote, PencilLine, Terminal, Wrench } from 'lucide-react'
 import type { ChatBlock, RuntimeDisclosureMetadata, ToolBlock, UserInputAnswer, UserInputQuestion } from '../../agent/types'
 import { extractUnifiedDiffText } from '../../lib/diff-stats'
+import { openSafeExternalUrl } from '../../lib/open-external'
 import { useChatStore } from '../../store/chat-store'
 import {
   CODE_MANAGED_INSTRUCTIONS_HEADING,
@@ -35,7 +36,6 @@ function UserMessageBubble({
 }): ReactElement {
   const { t } = useTranslation('common')
   const busy = useChatStore((s) => s.busy)
-  const route = useChatStore((s) => s.route)
   const activeThreadId = useChatStore((s) => s.activeThreadId)
   const clawChannels = useChatStore((s) => s.clawChannels)
   const rewindAndResend = useChatStore((s) => s.rewindAndResend)
@@ -51,17 +51,18 @@ function UserMessageBubble({
     const parsed = parseClawUserPromptForDisplay(metaDisplayText)
     return parsed.managed || parsed.inbound ? parsed : null
   }, [metaDisplayText])
-  const parsedClawPrompt = useMemo(() => {
-    const parsed = parseClawUserPromptForDisplay(block.text)
-    if (!parsed.managed && !parsed.inbound && block.managedBy !== 'claw' && route !== 'claw') {
-      return parsedMetaClawPrompt
-    }
-    return parsed
-  }, [block.managedBy, block.text, parsedMetaClawPrompt, route])
   const remoteBinding = useMemo(() => {
     if (!activeThreadId) return null
     return clawThreadRemoteBindingsFromChannels(clawChannels).get(activeThreadId) ?? null
   }, [activeThreadId, clawChannels])
+  const isRemoteChannelMessage = Boolean(remoteBinding || block.managedBy === 'claw')
+  const parsedClawPrompt = useMemo(() => {
+    const parsed = parseClawUserPromptForDisplay(block.text)
+    if (!parsed.managed && !parsed.inbound && !isRemoteChannelMessage) {
+      return parsedMetaClawPrompt
+    }
+    return parsed
+  }, [block.text, isRemoteChannelMessage, parsedMetaClawPrompt])
   const sourceLabel = useMemo(
     () => messageSourceLabel(block, parsedClawPrompt, remoteBinding?.providerLabel),
     [block, parsedClawPrompt, remoteBinding]
@@ -72,7 +73,7 @@ function UserMessageBubble({
   )
   const displayText = parsedMetaClawPrompt?.text ?? metaDisplayText ?? parsedClawPrompt?.text ?? legacyRuntimeDisplayText
   const canEdit = !metaDisplayText
-  const showClawInboundCard = route === 'claw' && parsedClawPrompt?.inbound === true
+  const showClawInboundCard = isRemoteChannelMessage && parsedClawPrompt?.inbound === true
 
   useEffect(() => {
     if (!editing) return
@@ -454,10 +455,13 @@ function RuntimeMetaChips({
           <a
             key={`${source.url}-${index}`}
             href={source.url}
-            target="_blank"
             rel="noreferrer"
             className={chipClass}
             title={source.url}
+            onClick={(event) => {
+              event.preventDefault()
+              void openSafeExternalUrl(source.url).catch(() => undefined)
+            }}
           >
             {t('toolSources')} {index + 1}
           </a>

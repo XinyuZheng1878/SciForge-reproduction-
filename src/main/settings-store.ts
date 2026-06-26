@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import { atomicWriteFile } from '../../kun/src/adapters/file/atomic-write.js'
+import { atomicWriteFile } from './atomic-write-file'
 import {
   applyLocalRuntimePatch,
   applyCodexRuntimePatch,
@@ -10,7 +10,8 @@ import {
   agentRuntimeSettingsEnvelope,
   DEFAULT_GUI_UPDATE_CHANNEL,
   DEFAULT_WRITE_WORKSPACE_ROOT,
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultClaudeRuntimeSettings,
   defaultCodexRuntimeSettings,
   defaultLocalRuntimeSettings,
@@ -31,11 +32,12 @@ import {
   mergeModelRouterSettings,
   mergeModelProviderSettings,
   mergeComputerUseSettings,
+  mergeConnectPhoneSettings,
   mergeResearchMemorySettings,
   mergeAgentCapabilitySettings,
   mergeRuntimeGuardSettings,
   defaultWriteSettings,
-  mergeClawSettings,
+  mergeRemoteChannelSettings,
   mergeScheduleSettings,
   mergeSpeechToTextSettings,
   mergeWorkflowSettings,
@@ -50,11 +52,12 @@ import {
   type ClawImConversationV1
 } from '../shared/app-settings'
 import { APP_SETTINGS_FILE_NAME } from '../shared/app-brand'
+import { createInternalHttpSecret } from './internal-http-secret'
 
 export type { AppSettingsV1 }
 
 const DEFAULT_WORKSPACE_ROOT = join(homedir(), '.sciforge', 'default_workspace')
-const DEFAULT_CLAW_CHANNELS_ROOT = join(homedir(), '.sciforge', 'claw')
+const DEFAULT_REMOTE_CHANNELS_ROOT = join(homedir(), '.sciforge', 'remote-channel')
 const DEFAULT_WRITE_WORKSPACE_ROOT_ABSOLUTE = expandHomePath(DEFAULT_WRITE_WORKSPACE_ROOT)
 const SETTINGS_FILE_NAME = APP_SETTINGS_FILE_NAME
 const WELCOME_MARKDOWN = `# Welcome to Write
@@ -110,7 +113,7 @@ function defaultClawChannelWorkspaceRoot(channel: ClawImChannelV1): string {
         ? credential.channelId
         : ''
   const workspaceId = sanitizePathSegment(credentialId || channel.id, 'channel')
-  return join(DEFAULT_CLAW_CHANNELS_ROOT, channel.provider, domain, workspaceId)
+  return join(DEFAULT_REMOTE_CHANNELS_ROOT, channel.provider, domain, workspaceId)
 }
 
 function normalizeClawChannelWorkspaceRoot(channel: ClawImChannelV1): string {
@@ -155,9 +158,9 @@ function normalizeStoredSettings(settings: AppSettingsV1): AppSettingsV1 {
       workspaces: writeWorkspaces.length > 0 ? writeWorkspaces : [writeDefaultRoot],
       inlineCompletion: normalized.write.inlineCompletion
     },
-    claw: {
-      ...normalized.claw,
-      channels: normalized.claw.channels.map((channel) => ({
+    remoteChannel: {
+      ...normalized.remoteChannel,
+      channels: normalized.remoteChannel.channels.map((channel) => ({
         ...channel,
         workspaceRoot: normalizeClawChannelWorkspaceRoot(channel),
         conversations: channel.conversations.map((conversation) => ({
@@ -194,8 +197,28 @@ function withGeneratedInstallationId(settings: AppSettingsV1): AppSettingsV1 {
   }
 }
 
+function withGeneratedInternalHttpSecrets(settings: AppSettingsV1): AppSettingsV1 {
+  const scheduleSecret = settings.schedule.internal.secret.trim()
+  const workflowSecret = settings.workflow.webhookSecret.trim()
+  if (scheduleSecret && workflowSecret) return settings
+  return {
+    ...settings,
+    schedule: {
+      ...settings.schedule,
+      internal: {
+        ...settings.schedule.internal,
+        secret: scheduleSecret || createInternalHttpSecret('schedule')
+      }
+    },
+    workflow: {
+      ...settings.workflow,
+      webhookSecret: workflowSecret || createInternalHttpSecret('workflow')
+    }
+  }
+}
+
 function withGeneratedLocalIds(settings: AppSettingsV1): AppSettingsV1 {
-  return withGeneratedInstallationId(withGeneratedModelRouterRuntimeKey(settings))
+  return withGeneratedInternalHttpSecrets(withGeneratedInstallationId(withGeneratedModelRouterRuntimeKey(settings)))
 }
 
 export async function ensureWorkspaceRootExists(workspaceRoot: string): Promise<string> {
@@ -221,7 +244,7 @@ async function ensureWriteWorkspaceRootsExist(settings: AppSettingsV1): Promise<
 }
 
 async function ensureClawChannelWorkspaceRootsExist(settings: AppSettingsV1): Promise<void> {
-  for (const channel of settings.claw.channels) {
+  for (const channel of settings.remoteChannel.channels) {
     const workspaceRoot = normalizeClawChannelWorkspaceRoot(channel)
     if (!workspaceRoot) continue
     await mkdir(workspaceRoot, { recursive: true })
@@ -265,7 +288,8 @@ const defaultSettings = (): AppSettingsV1 => ({
   },
   codePromptPrefix: '',
   write: defaultWriteSettings(),
-  claw: defaultClawSettings(),
+  remoteChannel: defaultRemoteChannelSettings(),
+  connectPhone: defaultConnectPhoneSettings(),
   schedule: defaultScheduleSettings(),
   workflow: defaultWorkflowSettings()
 })
@@ -274,8 +298,11 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
   const migrated = parsed
   const defaults = defaultSettings()
   return {
-    ...defaults,
-    ...migrated,
+    version: 1,
+    installationId: migrated.installationId ?? defaults.installationId,
+    locale: migrated.locale ?? defaults.locale,
+    theme: migrated.theme ?? defaults.theme,
+    uiFontScale: migrated.uiFontScale ?? defaults.uiFontScale,
     provider: mergeModelProviderSettings(defaults.provider, migrated.provider),
     modelRouter: mergeModelRouterSettings(defaults.modelRouter, migrated.modelRouter),
     agentCapabilities: mergeAgentCapabilitySettings(defaults.agentCapabilities, migrated.agentCapabilities),
@@ -295,6 +322,7 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
         migrated.agents?.claude
       )
     },
+    workspaceRoot: migrated.workspaceRoot ?? defaults.workspaceRoot,
     log: { ...defaults.log, ...migrated.log },
     notifications: { ...defaults.notifications, ...migrated.notifications },
     appBehavior: normalizeAppBehaviorSettings({
@@ -303,7 +331,8 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
     }),
     keyboardShortcuts: normalizeKeyboardShortcuts(migrated.keyboardShortcuts),
     write: mergeWriteSettings(defaults.write, migrated.write),
-    claw: mergeClawSettings(defaults.claw, migrated.claw),
+    remoteChannel: mergeRemoteChannelSettings(defaults.remoteChannel, migrated.remoteChannel),
+    connectPhone: mergeConnectPhoneSettings(defaults.connectPhone, migrated.connectPhone),
     schedule: mergeScheduleSettings(defaults.schedule, migrated.schedule),
     workflow: mergeWorkflowSettings(defaults.workflow, migrated.workflow),
     guiUpdate: { ...defaults.guiUpdate, ...migrated.guiUpdate },
@@ -406,6 +435,8 @@ export class JsonSettingsStore {
     if (
       getModelRouterSettings(normalized).runtimeApiKey !== getModelRouterSettings(normalizedBeforeLocalIds).runtimeApiKey ||
       normalized.installationId !== normalizedBeforeLocalIds.installationId ||
+      normalized.schedule.internal.secret !== normalizedBeforeLocalIds.schedule.internal.secret ||
+      normalized.workflow.webhookSecret !== normalizedBeforeLocalIds.workflow.webhookSecret ||
       !('agentCapabilities' in parsed)
     ) {
       await this.save(normalized)
@@ -414,7 +445,7 @@ export class JsonSettingsStore {
   }
 
   async save(data: AppSettingsV1): Promise<void> {
-    const normalized = withGeneratedInstallationId(normalizeStoredSettings(data))
+    const normalized = withGeneratedLocalIds(normalizeStoredSettings(data))
     await ensureWorkspaceRootExists(normalized.workspaceRoot)
     await ensureWriteWorkspaceRootsExist(normalized)
     await ensureClawChannelWorkspaceRootsExist(normalized)
@@ -434,14 +465,21 @@ export class JsonSettingsStore {
       researchMemory: researchMemoryPatch,
       runtimeGuards: runtimeGuardsPatch,
       speechToText: speechToTextPatch,
-      ...restPatch
+      connectPhone: connectPhonePatch,
     } = partial
-    const next = normalizeStoredSettings({
-      ...applyClaudeRuntimePatch(
-        applyCodexRuntimePatch(applyLocalRuntimePatch(cur, agentsPatch?.sciforge), agentsPatch?.codex),
-        agentsPatch?.claude
-      ),
-      ...restPatch,
+    const patchedRuntimeSettings = applyClaudeRuntimePatch(
+      applyCodexRuntimePatch(applyLocalRuntimePatch(cur, agentsPatch?.sciforge), agentsPatch?.codex),
+      agentsPatch?.claude
+    )
+    const next = withGeneratedLocalIds(normalizeStoredSettings({
+      ...patchedRuntimeSettings,
+      installationId: partial.installationId ?? cur.installationId,
+      locale: partial.locale ?? cur.locale,
+      theme: partial.theme ?? cur.theme,
+      uiFontScale: partial.uiFontScale ?? cur.uiFontScale,
+      activeAgentRuntime: partial.activeAgentRuntime ?? cur.activeAgentRuntime,
+      workspaceRoot: partial.workspaceRoot ?? cur.workspaceRoot,
+      codePromptPrefix: partial.codePromptPrefix ?? cur.codePromptPrefix,
       provider: mergeModelProviderSettings(cur.provider, providerPatch),
       modelRouter: mergeModelRouterSettings(cur.modelRouter, modelRouterPatch),
       agentCapabilities: mergeAgentCapabilitySettings(cur.agentCapabilities, agentCapabilitiesPatch),
@@ -462,11 +500,12 @@ export class JsonSettingsStore {
       }),
       write: mergeWriteSettings(cur.write, partial.write),
       speechToText: mergeSpeechToTextSettings(cur.speechToText, speechToTextPatch),
-      claw: mergeClawSettings(cur.claw, partial.claw),
+      remoteChannel: mergeRemoteChannelSettings(cur.remoteChannel, partial.remoteChannel),
+      connectPhone: mergeConnectPhoneSettings(cur.connectPhone, connectPhonePatch),
       schedule: mergeScheduleSettings(cur.schedule, partial.schedule),
       workflow: mergeWorkflowSettings(cur.workflow, partial.workflow),
       guiUpdate: { ...cur.guiUpdate, ...(partial.guiUpdate ?? {}) }
-    })
+    }))
     await this.save(next)
     return next
   }

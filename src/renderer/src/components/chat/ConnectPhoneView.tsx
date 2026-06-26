@@ -32,8 +32,8 @@ import {
   type ClawModel
 } from '@shared/app-settings'
 import type {
-  ClawImInstallPollResult,
-  ClawImInstallQrResult,
+  ConnectPhoneInstallPollResult,
+  ConnectPhoneInstallQrResult,
   DiscordBotStatus,
   DiscordChannel,
   DiscordGuild
@@ -46,6 +46,11 @@ import {
 } from './SidebarClawDialogHelpers'
 import { ClawProviderLogo } from './SidebarClaw'
 import { SidebarTitlebarToggleButton } from '../sidebar/SidebarPrimitives'
+import { openSafeExternalUrl } from '../../lib/open-external'
+import {
+  pollConnectPhoneInstallApi,
+  startConnectPhoneInstallQrApi
+} from '../../lib/remote-channel-api'
 import { workspaceLabelFromPath } from '../../lib/workspace-label'
 
 export type AddClawPhoneChannel = (
@@ -98,7 +103,10 @@ const INITIAL_QR_STATE: ClawInstallQrState = {
   timeLeft: 0,
   error: ''
 }
-const INTERNAL_CLAW_WORKSPACE_FRAGMENT = '/.sciforge/claw/'
+const INTERNAL_REMOTE_CHANNEL_WORKSPACE_FRAGMENTS = [
+  '/.sciforge/remote-channel/',
+  '/.sciforge/claw/'
+] as const
 
 export function connectPhoneProviderForTarget(target: ClawInstallTarget): ClawImProvider {
   return target === 'weixin' ? 'weixin' : 'feishu'
@@ -151,7 +159,8 @@ export function normalizeConnectPhoneWorkspaceRoot(workspaceRoot?: string): stri
 
 function isInternalClawWorkspaceRoot(workspaceRoot: string): boolean {
   const normalized = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-  return normalized.includes(INTERNAL_CLAW_WORKSPACE_FRAGMENT) ||
+  return INTERNAL_REMOTE_CHANNEL_WORKSPACE_FRAGMENTS.some((fragment) => normalized.includes(fragment)) ||
+    normalized.startsWith('~/.sciforge/remote-channel/') ||
     normalized.startsWith('~/.sciforge/claw/')
 }
 
@@ -219,7 +228,7 @@ export function createConnectPhoneChannelOptions(
 }
 
 export function createConnectPhoneCredential(
-  poll: Extract<ClawImInstallPollResult, { done: true }>,
+  poll: Extract<ConnectPhoneInstallPollResult, { done: true }>,
   createdAt: string = new Date().toISOString()
 ): ClawImPlatformCredentialV1 {
   if (poll.kind === 'weixin') {
@@ -299,7 +308,7 @@ export function ConnectPhoneView({
   }, [cancelInstallAttempt, hasExistingChannel])
 
   const addConnectedChannel = async (
-    poll: Extract<ClawImInstallPollResult, { done: true }>
+    poll: Extract<ConnectPhoneInstallPollResult, { done: true }>
   ): Promise<void> => {
     const provider = poll.kind
     if (hasClawPhoneChannel(channels, provider)) {
@@ -350,10 +359,10 @@ export function ConnectPhoneView({
     ) {
       return
     }
-    if (
-      typeof window === 'undefined' ||
-      typeof window.sciforge?.startClawImInstallQr !== 'function'
-    ) {
+    const startConnectPhoneInstallQr = typeof window !== 'undefined'
+      ? startConnectPhoneInstallQrApi(window.sciforge)
+      : undefined
+    if (typeof startConnectPhoneInstallQr !== 'function') {
       setInstallQr({
         ...INITIAL_QR_STATE,
         status: 'error',
@@ -369,9 +378,9 @@ export function ConnectPhoneView({
     setSaving(false)
     setInstallQr({ ...INITIAL_QR_STATE, status: 'loading' })
     const request = connectPhoneInstallRequestOptions(target)
-    let result: ClawImInstallQrResult
+    let result: ConnectPhoneInstallQrResult
     try {
-      result = await window.sciforge.startClawImInstallQr(request.provider, request.options)
+      result = await startConnectPhoneInstallQr(request.provider, request.options)
     } catch (error) {
       if (installAttempt !== installAttemptRef.current) return
       setInstallQr({
@@ -421,13 +430,13 @@ export function ConnectPhoneView({
     }, 1000)
     const waitForInstall = async (): Promise<void> => {
       try {
-        if (
-          typeof window === 'undefined' ||
-          typeof window.sciforge?.pollClawImInstall !== 'function'
-        ) {
+        const pollConnectPhoneInstall = typeof window !== 'undefined'
+          ? pollConnectPhoneInstallApi(window.sciforge)
+          : undefined
+        if (typeof pollConnectPhoneInstall !== 'function') {
           throw new Error(t('clawAddImOfficialQrUnavailable'))
         }
-        const poll = await window.sciforge.pollClawImInstall(request.provider, result.deviceCode)
+        const poll = await pollConnectPhoneInstall(request.provider, result.deviceCode)
         if (installAttempt !== installAttemptRef.current) return
         if (poll.done) {
           clearInstallTimers()
@@ -750,7 +759,7 @@ export function ConnectPhoneSidebarPanel({
   }, [cancelInstallAttempt, hasExistingChannel])
 
   const addConnectedChannel = async (
-    poll: Extract<ClawImInstallPollResult, { done: true }>
+    poll: Extract<ConnectPhoneInstallPollResult, { done: true }>
   ): Promise<void> => {
     const provider = poll.kind
     if (hasClawPhoneChannel(channels, provider)) {
@@ -805,10 +814,10 @@ export function ConnectPhoneSidebarPanel({
     ) {
       return
     }
-    if (
-      typeof window === 'undefined' ||
-      typeof window.sciforge?.startClawImInstallQr !== 'function'
-    ) {
+    const startConnectPhoneInstallQr = typeof window !== 'undefined'
+      ? startConnectPhoneInstallQrApi(window.sciforge)
+      : undefined
+    if (typeof startConnectPhoneInstallQr !== 'function') {
       setInstallQr({
         ...INITIAL_QR_STATE,
         status: 'error',
@@ -824,9 +833,9 @@ export function ConnectPhoneSidebarPanel({
     setSaving(false)
     setInstallQr({ ...INITIAL_QR_STATE, status: 'loading' })
     const request = connectPhoneInstallRequestOptions(phoneTarget)
-    let result: ClawImInstallQrResult
+    let result: ConnectPhoneInstallQrResult
     try {
-      result = await window.sciforge.startClawImInstallQr(request.provider, request.options)
+      result = await startConnectPhoneInstallQr(request.provider, request.options)
     } catch (error) {
       if (installAttempt !== installAttemptRef.current) return
       setInstallQr({
@@ -876,13 +885,13 @@ export function ConnectPhoneSidebarPanel({
     }, 1000)
     const waitForInstall = async (): Promise<void> => {
       try {
-        if (
-          typeof window === 'undefined' ||
-          typeof window.sciforge?.pollClawImInstall !== 'function'
-        ) {
+        const pollConnectPhoneInstall = typeof window !== 'undefined'
+          ? pollConnectPhoneInstallApi(window.sciforge)
+          : undefined
+        if (typeof pollConnectPhoneInstall !== 'function') {
           throw new Error(t('clawAddImOfficialQrUnavailable'))
         }
-        const poll = await window.sciforge.pollClawImInstall(request.provider, result.deviceCode)
+        const poll = await pollConnectPhoneInstall(request.provider, result.deviceCode)
         if (installAttempt !== installAttemptRef.current) return
         if (poll.done) {
           clearInstallTimers()
@@ -1352,20 +1361,11 @@ export function DiscordBotSetupPanel({
 
   const openInviteUrl = (): void => {
     if (!hasInviteUrl) return
-    if (typeof window.sciforge?.openExternal === 'function') {
-      void window.sciforge.openExternal(inviteUrl).catch(() => undefined)
-      return
-    }
-    window.open(inviteUrl, '_blank', 'noopener,noreferrer')
+    void openSafeExternalUrl(inviteUrl).catch(() => undefined)
   }
 
   const openDeveloperPortal = (): void => {
-    const url = 'https://discord.com/developers/applications'
-    if (typeof window.sciforge?.openExternal === 'function') {
-      void window.sciforge.openExternal(url).catch(() => undefined)
-      return
-    }
-    window.open(url, '_blank', 'noopener,noreferrer')
+    void openSafeExternalUrl('https://discord.com/developers/applications').catch(() => undefined)
   }
 
   const testAndEnable = async (): Promise<void> => {

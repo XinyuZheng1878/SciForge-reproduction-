@@ -42,7 +42,7 @@ import {
 
 type SidebarProjectsSectionProps = {
   threads: NormalizedThread[]
-  activeView: 'chat' | 'write' | 'claw'
+  activeView: 'chat' | 'write'
   activeThreadId: string | null
   runtimeReady: boolean
   searchQuery: string

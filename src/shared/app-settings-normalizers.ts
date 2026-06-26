@@ -91,7 +91,7 @@ export function normalizeAtTime(value: unknown): string {
 
 export function normalizePathSegment(value: unknown): string {
   const raw = typeof value === 'string' ? value.trim() : ''
-  if (!raw) return '/claw/im'
+  if (!raw) return '/remote-channel/webhook'
   return raw.startsWith('/') ? raw : `/${raw}`
 }
 

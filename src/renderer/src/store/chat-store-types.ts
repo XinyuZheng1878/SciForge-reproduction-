@@ -91,8 +91,8 @@ export type SendMessageOverrides = {
 
 export type InitialSetupMode = 'required' | 'preview'
 export type SettingsRouteSection = 'general' | 'speechToText' | 'agents' | 'skill' | 'mcp' | 'shortcuts' | 'claw'
-export type AppRoute = 'chat' | 'settings' | 'plugins' | 'claw' | 'schedule' | 'workflow'
-export type PluginHostRoute = 'chat' | 'claw'
+export type AppRoute = 'chat' | 'settings' | 'plugins' | 'schedule' | 'workflow'
+export type PluginHostRoute = 'chat'
 
 /**
  * A side conversation ("by-the-way") running alongside the active
@@ -136,6 +136,7 @@ export type ChatState = {
   settingsSection: SettingsRouteSection
   initialSetupOpen: boolean
   initialSetupMode: InitialSetupMode
+  connectPhonePanelOpen: boolean
   workspaceRoot: string
   workspaceLabel: string
   runtimeConnection: RuntimeConnectionStatus
@@ -188,7 +189,8 @@ export type ChatState = {
   openCode: () => Promise<void>
   openSettings: (section?: SettingsRouteSection) => void
   openPlugins: (host?: PluginHostRoute) => void
-  openClaw: () => void
+  openConnectPhone: () => void
+  setConnectPhonePanelOpen: (open: boolean) => void
   openSchedule: () => void
   openWorkflow: () => void
   selectRemoteGuardChannel: (channelId: string) => void

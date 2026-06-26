@@ -15,22 +15,16 @@ const strictBudgetSettings: RuntimeGuardSettingsV1 = {
   toolStorm: {
     enabled: true,
     windowSize: 8,
-    softThreshold: 10,
-    hardThreshold: 20
-  },
-  budgets: {
-    defaultMaxToolEvents: 2,
-    writeMaxToolEvents: 2,
-    remoteGuardMaxToolEvents: 2
+    threshold: 2
   }
 }
 
 describe('RuntimeGovernanceSupervisor', () => {
-  it('steers local Codex turns when they exceed the total tool budget without interrupting', async () => {
+  it('steers repeated tool calls at the configured threshold', async () => {
     const supervisor = new RuntimeGovernanceSupervisor()
     const controls = controlsSpy()
 
-    for (let index = 1; index <= 3; index += 1) {
+    for (let index = 1; index <= 2; index += 1) {
       supervisor.observe(toolEvent(index), baseCapabilities, strictBudgetSettings, controls)
     }
     await Promise.resolve()
@@ -46,14 +40,14 @@ describe('RuntimeGovernanceSupervisor', () => {
       metadata: expect.objectContaining({
         guard: 'toolStorm',
         level: 'soft',
-        family: 'tool-budget'
+        family: 'tool_call:lookup'
       })
     }))
   })
 
-  it('keeps remote guard tool budget overruns as hard interrupts', async () => {
+  it('interrupts repeated tool calls after one extra repeat', async () => {
     const supervisor = new RuntimeGovernanceSupervisor()
-    const controls = controlsSpy('remote_guard')
+    const controls = controlsSpy()
 
     for (let index = 1; index <= 3; index += 1) {
       supervisor.observe(toolEvent(index), baseCapabilities, strictBudgetSettings, controls)
@@ -69,7 +63,7 @@ describe('RuntimeGovernanceSupervisor', () => {
     expect(controls.publishSyntheticEvent).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'error',
       code: 'runtime_tool_storm_interrupted',
-      message: expect.stringContaining('tool-budget')
+      message: expect.stringContaining('tool_call:lookup')
     }))
   })
 })
@@ -92,11 +86,11 @@ function toolEvent(index: number): AgentRuntimeEvent {
     itemId: `tool-${index}`,
     status: 'running',
     toolKind: 'tool_call',
-    summary: `lookup-${index}`,
+    summary: 'lookup',
     meta: {
-      toolName: `lookup-${index}`,
+      toolName: 'lookup',
       callId: `call-${index}`,
-      arguments: { query: `q${index}` }
+      arguments: { query: 'q' }
     }
   }
 }

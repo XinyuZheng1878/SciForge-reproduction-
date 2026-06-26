@@ -559,7 +559,7 @@ export function createWorkflowService(options: WorkflowServiceOptions = {}): Wor
 
 export function createWorkflowInternalHttpClient(options: WorkflowInternalHttpClientOptions = {}): WorkflowInternalHttpClient {
   const baseUrl = trimTrailingSlash(options.baseUrl ?? process.env.GUI_WORKFLOW_INTERNAL_BASE_URL ?? 'http://127.0.0.1:8787')
-  const secret = options.secret ?? process.env.GUI_WORKFLOW_INTERNAL_SECRET ?? ''
+  const secret = (options.secret ?? process.env.GUI_WORKFLOW_INTERNAL_SECRET ?? '').trim()
   const timeoutMs = options.timeoutMs ?? numberFromEnv(process.env.GUI_WORKFLOW_INTERNAL_TIMEOUT_MS, 15_000)
   const fetchImpl = options.fetch ?? globalThis.fetch
   if (typeof fetchImpl !== 'function') {
@@ -585,7 +585,14 @@ export function createWorkflowInternalHttpClient(options: WorkflowInternalHttpCl
           headers['Content-Type'] = 'application/json'
           init.body = JSON.stringify(request.body)
         }
-        if (secret.trim()) headers.Authorization = `Bearer ${secret.trim()}`
+        if (!secret) {
+          throw new WorkflowRuntimeHttpError(401, {
+            ok: false,
+            code: 'runtime_http_error',
+            message: 'Workflow internal secret is not configured.'
+          }, 'Workflow internal secret is not configured.')
+        }
+        headers.Authorization = `Bearer ${secret}`
         const response = await fetchImpl(`${baseUrl}${path}`, init)
         const body = await parseResponseBody(response)
         if (!response.ok) {

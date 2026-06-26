@@ -3,6 +3,7 @@ import type {
   AgentRuntimeFileReference,
   AgentRuntimeWorkspaceReference
 } from '@shared/agent-runtime-contract'
+import { defaultRemoteChannelSettings } from '@shared/app-settings'
 import type { NormalizedThread } from '../agent/types'
 import type { ChatState, ChatStoreGet, ChatStoreSet, GuiPlanMessageContext } from './chat-store-types'
 
@@ -89,7 +90,10 @@ describe('chat-store-thread-actions queued messages', () => {
     registryMock.getProvider.mockReset()
     registryMock.getProvider.mockReturnValue({})
     runtimeClientMock.getSettings.mockReset()
-    runtimeClientMock.getSettings.mockResolvedValue({ codePromptPrefix: '' })
+    runtimeClientMock.getSettings.mockResolvedValue({
+      codePromptPrefix: '',
+      remoteChannel: defaultRemoteChannelSettings()
+    })
     clearPendingClawFeishuMirrors()
     vi.stubGlobal('window', {
       sciforge: {
@@ -658,11 +662,11 @@ describe('chat-store-thread-actions queued messages', () => {
 
   it('mirrors desktop Code route messages when the active thread is bound to an IM channel', async () => {
     const { actions, state } = buildHarness()
-    const mirrorClawChannelMessage = vi.fn(async () => ({ ok: true as const }))
+    const mirrorRemoteChannelMessage = vi.fn(async () => ({ ok: true as const }))
     vi.stubGlobal('window', {
       sciforge: {
         logError: vi.fn(async () => undefined),
-        mirrorClawChannelMessage
+        mirrorRemoteChannelMessage
       },
       localStorage: {
         getItem: vi.fn(() => null),
@@ -711,7 +715,7 @@ describe('chat-store-thread-actions queued messages', () => {
 
     await expect(actions.sendMessage('hello from desktop')).resolves.toBe(true)
 
-    expect(mirrorClawChannelMessage).toHaveBeenCalledWith(
+    expect(mirrorRemoteChannelMessage).toHaveBeenCalledWith(
       'thr_existing',
       'hello from desktop',
       'user'
@@ -728,7 +732,7 @@ describe('publishActiveClawThreadContext', () => {
   beforeEach(() => {
     vi.stubGlobal('window', {
       sciforge: {
-        updateClawActiveThreadContext: vi.fn(async () => undefined)
+        updateRemoteChannelActiveThreadContext: vi.fn(async () => undefined)
       }
     })
   })
@@ -747,7 +751,7 @@ describe('publishActiveClawThreadContext', () => {
 
     publishActiveClawThreadContext(state, 'desktop-thread')
 
-    expect(window.sciforge.updateClawActiveThreadContext).toHaveBeenCalledWith({
+    expect(window.sciforge.updateRemoteChannelActiveThreadContext).toHaveBeenCalledWith({
       threadId: 'desktop-thread',
       runtimeId: 'codex',
       workspaceRoot: '/workspace/desktop'
@@ -760,7 +764,7 @@ describe('publishActiveClawThreadContext', () => {
       workspaceRoot: '/workspace/fallback',
       threads: [{
         ...thread('claw-thread'),
-        title: '[Claw IM:WeChat] Alice',
+        title: '[Remote channel:WeChat] Alice',
         workspace: '/workspace/claw'
       }],
       clawChannels: [{
@@ -788,6 +792,6 @@ describe('publishActiveClawThreadContext', () => {
 
     publishActiveClawThreadContext(state, 'claw-thread')
 
-    expect(window.sciforge.updateClawActiveThreadContext).toHaveBeenCalledWith(null)
+    expect(window.sciforge.updateRemoteChannelActiveThreadContext).toHaveBeenCalledWith(null)
   })
 })

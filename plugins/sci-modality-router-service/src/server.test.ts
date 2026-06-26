@@ -15,6 +15,7 @@ const experts: ExpertConfig = {
   maxAttempts: 1,
   retryBaseMs: 1,
 };
+const runtimeToken = 'sci-modality-test-token';
 
 // A fake OpenAI-compatible expert-translator. Echoes the requested expert model id so tests can
 // assert the router selected the right expert; never invents scientific content.
@@ -40,8 +41,9 @@ async function withServer(
   fetchImpl: typeof fetch,
   run: (base: string) => Promise<void>,
   cfg: ExpertConfig = experts,
+  options: { maxBodyBytes?: number } = {},
 ): Promise<void> {
-  const server = createSciModalityRouterServer({ experts: cfg, fetchImpl });
+  const server = createSciModalityRouterServer({ experts: cfg, fetchImpl, runtimeToken, maxBodyBytes: options.maxBodyBytes });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address() as AddressInfo;
@@ -56,18 +58,35 @@ async function withServer(
 function post(base: string, body: unknown): Promise<Response> {
   return fetch(`${base}/modality/translate`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: authHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify(body),
   });
 }
 
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    authorization: `Bearer ${runtimeToken}`,
+    ...extra,
+  };
+}
+
 test('health and version respond, version lists six modalities', async () => {
   await withServer(stubFetch().fetch, async (base) => {
-    const health = await (await fetch(`${base}/health`)).json();
+    const health = await (await fetch(`${base}/health`, { headers: authHeaders() })).json();
     assert.equal(health.ok, true);
-    const version = await (await fetch(`${base}/version`)).json();
+    const version = await (await fetch(`${base}/version`, { headers: authHeaders() })).json();
     assert.equal(version.service, 'sciforge.sci-modality-router');
     assert.equal(version.modalities.length, 6);
+  });
+});
+
+test('requests require the runtime bearer token', async () => {
+  await withServer(stubFetch().fetch, async (base) => {
+    const res = await fetch(`${base}/health`);
+    assert.equal(res.status, 401);
+    const result = (await res.json()) as ServiceResult<never>;
+    assert.equal(result.ok, false);
+    assert.equal(result.ok === false && result.error.code, 'UNAUTHENTICATED');
   });
 });
 
@@ -115,6 +134,22 @@ test('missing payload is rejected with INVALID_ARGUMENT', async () => {
     const result = (await res.json()) as ServiceResult<never>;
     assert.equal(result.ok === false && result.error.code, 'INVALID_ARGUMENT');
   });
+});
+
+test('oversized translate bodies are rejected before upstream calls', async () => {
+  let upstreamCalls = 0;
+  const fetchImpl = (async () => {
+    upstreamCalls++;
+    return new Response('{}');
+  }) as unknown as typeof fetch;
+  await withServer(fetchImpl, async (base) => {
+    const res = await post(base, { modality: 'protein', payload: 'M'.repeat(80) });
+    assert.equal(res.status, 413);
+    const result = (await res.json()) as ServiceResult<never>;
+    assert.equal(result.ok, false);
+    assert.equal(result.ok === false && result.error.code, 'PAYLOAD_TOO_LARGE');
+  }, experts, { maxBodyBytes: 32 });
+  assert.equal(upstreamCalls, 0);
 });
 
 test('undetectable payload is rejected with INVALID_ARGUMENT', async () => {

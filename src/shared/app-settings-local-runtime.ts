@@ -9,6 +9,7 @@ import {
   type LocalRuntimeHistoryHygieneSettingsV1,
   type LocalRuntimeMcpSearchSettingsV1,
   type LocalRuntimeTuningSettingsV1,
+  type LocalRuntimeTuningSettingsPatchV1,
   type RuntimeGuardSettingsPatchV1,
   type RuntimeGuardSettingsV1,
   type LocalRuntimeSettingsPatchV1,
@@ -16,6 +17,7 @@ import {
   type AgentRuntimeSettingsEnvelopePatchV1,
   type AgentRuntimeSettingsEnvelopeV1,
   type LocalRuntimeStorageSettingsV1,
+  type LocalRuntimeTokenEconomySettingsPatchV1,
   type LocalRuntimeTokenEconomySettingsV1
 } from './app-settings-types'
 import {
@@ -29,11 +31,6 @@ import {
   defaultClaudeRuntimeSettings,
   mergeClaudeRuntimeSettings
 } from './app-settings-claude'
-
-type LocalRuntimeSettingsInputV1 = Partial<LocalRuntimeSettingsV1> & {
-  apiKey?: string
-  baseUrl?: string
-}
 
 /**
  * Local runtime settings. Mirrors the bundled runtime CLI
@@ -125,13 +122,7 @@ export function defaultRuntimeGuardSettings(): RuntimeGuardSettingsV1 {
     toolStorm: {
       enabled: true,
       windowSize: 8,
-      softThreshold: 3,
-      hardThreshold: 6
-    },
-    budgets: {
-      defaultMaxToolEvents: 80,
-      writeMaxToolEvents: 96,
-      remoteGuardMaxToolEvents: 32
+      threshold: 3
     }
   }
 }
@@ -140,41 +131,16 @@ export function normalizeRuntimeGuardSettings(
   input: Partial<RuntimeGuardSettingsV1> | undefined
 ): RuntimeGuardSettingsV1 {
   const defaults = defaultRuntimeGuardSettings()
-  const toolStormInput = input?.toolStorm as
-    | (Partial<RuntimeGuardSettingsV1['toolStorm']> & { threshold?: number })
-    | undefined
-  const softThreshold = Math.max(2, boundedPositiveInt(
-    toolStormInput?.softThreshold,
-    toolStormInput?.threshold ?? defaults.toolStorm.softThreshold,
-    128
-  ))
-  const hardThreshold = Math.max(
-    softThreshold,
-    boundedPositiveInt(toolStormInput?.hardThreshold, defaults.toolStorm.hardThreshold, 256)
+  const toolStormInput = input?.toolStorm
+  const threshold = Math.max(
+    2,
+    boundedPositiveInt(toolStormInput?.threshold, defaults.toolStorm.threshold, 128)
   )
   return {
     toolStorm: {
       enabled: toolStormInput?.enabled !== false,
       windowSize: boundedPositiveInt(toolStormInput?.windowSize, defaults.toolStorm.windowSize, 256),
-      softThreshold,
-      hardThreshold
-    },
-    budgets: {
-      defaultMaxToolEvents: boundedPositiveInt(
-        input?.budgets?.defaultMaxToolEvents,
-        defaults.budgets.defaultMaxToolEvents,
-        10_000
-      ),
-      writeMaxToolEvents: boundedPositiveInt(
-        input?.budgets?.writeMaxToolEvents,
-        defaults.budgets.writeMaxToolEvents,
-        10_000
-      ),
-      remoteGuardMaxToolEvents: boundedPositiveInt(
-        input?.budgets?.remoteGuardMaxToolEvents,
-        defaults.budgets.remoteGuardMaxToolEvents,
-        10_000
-      )
+      threshold
     }
   }
 }
@@ -188,10 +154,6 @@ export function mergeRuntimeGuardSettings(
     toolStorm: {
       ...normalizedCurrent.toolStorm,
       ...(patch?.toolStorm ?? {})
-    },
-    budgets: {
-      ...normalizedCurrent.budgets,
-      ...(patch?.budgets ?? {})
     }
   })
 }
@@ -199,7 +161,7 @@ export function mergeRuntimeGuardSettings(
 export function getLocalRuntimeSettings(
   settings: AppSettingsV1
 ): LocalRuntimeSettingsV1 {
-  const raw = (settings as { agents?: { sciforge?: LocalRuntimeSettingsInputV1 } }).agents?.sciforge
+  const raw = (settings as { agents?: { sciforge?: LocalRuntimeSettingsPatchV1 } }).agents?.sciforge
   return mergeLocalRuntimeSettings(defaultLocalRuntimeSettings(), raw)
 }
 
@@ -219,7 +181,7 @@ export function mergeLocalRuntimeSettings(
   current: LocalRuntimeSettingsV1,
   patch: LocalRuntimeSettingsPatchV1 | undefined
 ): LocalRuntimeSettingsV1 {
-  const runtimePatch = stripLocalRuntimeCredentialPatch(patch)
+  const runtimePatch = supportedLocalRuntimePatch(patch)
   const currentMcpSearch = normalizeLocalRuntimeMcpSearchSettings(current.mcpSearch)
   const nextMcpSearch = normalizeLocalRuntimeMcpSearchSettings({
     ...currentMcpSearch,
@@ -281,14 +243,47 @@ export function mergeLocalRuntimeSettings(
   }
 }
 
-function stripLocalRuntimeCredentialPatch(
-  patch: LocalRuntimeSettingsPatchV1 | LocalRuntimeSettingsInputV1 | undefined
+function supportedLocalRuntimePatch(
+  patch: LocalRuntimeSettingsPatchV1 | undefined
 ): LocalRuntimeSettingsPatchV1 | undefined {
   if (!patch) return undefined
-  const next = { ...patch } as Record<string, unknown>
-  delete next.apiKey
-  delete next.baseUrl
-  return next as LocalRuntimeSettingsPatchV1
+  const source = patch as Record<string, unknown>
+  const next: LocalRuntimeSettingsPatchV1 = {}
+  if (typeof source.binaryPath === 'string') next.binaryPath = source.binaryPath
+  if (typeof source.port === 'number') next.port = source.port
+  if (typeof source.autoStart === 'boolean') next.autoStart = source.autoStart
+  if (typeof source.providerId === 'string') next.providerId = source.providerId
+  if (typeof source.runtimeToken === 'string') next.runtimeToken = source.runtimeToken
+  if (typeof source.dataDir === 'string') next.dataDir = source.dataDir
+  if (typeof source.model === 'string') next.model = source.model
+  if (typeof source.approvalPolicy === 'string') {
+    next.approvalPolicy = source.approvalPolicy as LocalRuntimeSettingsPatchV1['approvalPolicy']
+  }
+  if (typeof source.sandboxMode === 'string') {
+    next.sandboxMode = source.sandboxMode as LocalRuntimeSettingsPatchV1['sandboxMode']
+  }
+  if (typeof source.tokenEconomyMode === 'boolean') next.tokenEconomyMode = source.tokenEconomyMode
+  if (isPlainObject(source.tokenEconomy)) {
+    next.tokenEconomy = source.tokenEconomy as LocalRuntimeTokenEconomySettingsPatchV1
+  }
+  if (typeof source.insecure === 'boolean') next.insecure = source.insecure
+  if (isPlainObject(source.mcpSearch)) {
+    next.mcpSearch = source.mcpSearch as LocalRuntimeSettingsPatchV1['mcpSearch']
+  }
+  if (isPlainObject(source.storage)) {
+    next.storage = source.storage as LocalRuntimeSettingsPatchV1['storage']
+  }
+  if (isPlainObject(source.contextCompaction)) {
+    next.contextCompaction = source.contextCompaction as LocalRuntimeSettingsPatchV1['contextCompaction']
+  }
+  if (isPlainObject(source.runtimeTuning)) {
+    next.runtimeTuning = source.runtimeTuning as LocalRuntimeTuningSettingsPatchV1
+  }
+  return Object.keys(next).length > 0 ? next : undefined
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function normalizeLocalRuntimeTokenEconomySettings(

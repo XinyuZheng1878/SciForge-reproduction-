@@ -1,5 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import {
+  atomicWriteAppDataJson,
+  readAppDataStoreText
+} from '../../services/app-data-store'
 
 export type CodexStoredThread = {
   guiThreadId: string
@@ -38,12 +40,12 @@ type CodexThreadStoreUpsertInput = {
 }
 
 export class CodexThreadStore {
-  private readonly filePath: string
+  private readonly rootDir: string
   private readonly now: () => Date
   private transactionQueue: Promise<void> = Promise.resolve()
 
   constructor(options: CodexThreadStoreOptions) {
-    this.filePath = join(options.rootDir, 'threads.json')
+    this.rootDir = options.rootDir
     this.now = options.now ?? (() => new Date())
   }
 
@@ -125,7 +127,7 @@ export class CodexThreadStore {
 
   private async load(): Promise<CodexThreadStoreSnapshot> {
     try {
-      const raw = await readFile(this.filePath, 'utf8')
+      const raw = await readAppDataStoreText(this.rootDir, CODEX_THREADS_STORE)
       return normalizeSnapshot(parseSnapshotJson(raw))
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptySnapshot()
@@ -134,10 +136,9 @@ export class CodexThreadStore {
   }
 
   private async save(snapshot: CodexThreadStoreSnapshot): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true })
-    const tmpPath = `${this.filePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
-    await writeFile(tmpPath, `${JSON.stringify(normalizeSnapshot(snapshot), null, 2)}\n`, 'utf8')
-    await rename(tmpPath, this.filePath)
+    await atomicWriteAppDataJson(this.rootDir, CODEX_THREADS_STORE, normalizeSnapshot(snapshot), {
+      trailingNewline: true
+    })
   }
 
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -146,6 +147,8 @@ export class CodexThreadStore {
     return run
   }
 }
+
+const CODEX_THREADS_STORE = ['threads.json'] as const
 
 function emptySnapshot(): CodexThreadStoreSnapshot {
   return { version: 1, threads: [] }

@@ -49,7 +49,7 @@ test('schedule MCP stdio server lists tools, resources, and structured results',
     clients.push(client)
     await client.connect(new StdioClientTransport({
       command: process.execPath,
-      args: ['--import', 'tsx', 'src/cli.ts', '--quiet', '--base-url', fakeServer.baseUrl],
+      args: ['--import', 'tsx', 'src/cli.ts', '--quiet', '--base-url', fakeServer.baseUrl, '--secret', 'test-secret'],
       cwd: packageRoot,
       stderr: 'pipe'
     }), { timeout: 20_000 })
@@ -124,7 +124,7 @@ test('schedule MCP destructive tools support preview and structured confirmation
     clients.push(client)
     await client.connect(new StdioClientTransport({
       command: process.execPath,
-      args: ['--import', 'tsx', 'src/cli.ts', '--quiet', '--base-url', fakeServer.baseUrl],
+      args: ['--import', 'tsx', 'src/cli.ts', '--quiet', '--base-url', fakeServer.baseUrl, '--secret', 'test-secret'],
       cwd: packageRoot,
       stderr: 'pipe'
     }), { timeout: 20_000 })
@@ -149,6 +149,39 @@ test('schedule MCP destructive tools support preview and structured confirmation
     assert.equal(missingStructured.code, 'confirmation_required')
     assert.equal(asRecord(missingStructured.error).code, 'confirmation_required')
     assert.equal(asRecord(missingStructured.confirmationRequired).code, 'confirmation_required')
+    assert.deepEqual(requests, [])
+
+    const missingCreateConfirmation = await client.callTool({
+      name: 'gui_schedule_create',
+      arguments: {
+        title: 'Create later',
+        prompt: 'Run MCP create later.',
+        schedule_kind: 'interval',
+        every_minutes: 30
+      }
+    }, undefined, { timeout: 20_000 })
+    assert.equal(missingCreateConfirmation.isError, true)
+    assert.equal(asRecord(missingCreateConfirmation.structuredContent).code, 'confirmation_required')
+    assert.equal(
+      String(asRecord(asRecord(missingCreateConfirmation.structuredContent).confirmationRequired).confirmationId).startsWith('create:'),
+      true
+    )
+    assert.deepEqual(requests, [])
+
+    const missingUpdateConfirmation = await client.callTool({
+      name: 'gui_schedule_update',
+      arguments: {
+        task_id: 'task-mcp',
+        prompt: 'Change the future scheduled prompt.'
+      }
+    }, undefined, { timeout: 20_000 })
+    assert.equal(missingUpdateConfirmation.isError, true)
+    assert.equal(asRecord(missingUpdateConfirmation.structuredContent).code, 'confirmation_required')
+    assert.equal(
+      String(asRecord(asRecord(missingUpdateConfirmation.structuredContent).confirmationRequired).confirmationId)
+        .startsWith('update:task-mcp:'),
+      true
+    )
     assert.deepEqual(requests, [])
 
     const runResult = await client.callTool({
@@ -205,23 +238,39 @@ test('schedule MCP stdio server maps write tools to internal HTTP endpoints', as
     clients.push(client)
     await client.connect(new StdioClientTransport({
       command: process.execPath,
-      args: ['--import', 'tsx', 'src/cli.ts', '--quiet', '--base-url', fakeServer.baseUrl],
+      args: ['--import', 'tsx', 'src/cli.ts', '--quiet', '--base-url', fakeServer.baseUrl, '--secret', 'test-secret'],
       cwd: packageRoot,
       stderr: 'pipe'
     }), { timeout: 20_000 })
 
+    const createArguments = {
+      title: 'Created from MCP',
+      prompt: 'Do MCP work.',
+      schedule_kind: 'interval',
+      every_minutes: 15,
+      workspace_root: '/tmp/workspace',
+      model: 'auto',
+      reasoning_effort: 'medium',
+      mode: 'agent',
+      enabled: true
+    } as const
+    const createPreview = await client.callTool({
+      name: 'gui_schedule_create',
+      arguments: {
+        ...createArguments,
+        dry_run: true
+      }
+    }, undefined, { timeout: 20_000 })
+    assert.equal(createPreview.isError, undefined)
+    assert.equal(asRecord(createPreview.structuredContent).dryRun, true)
+    assert.deepEqual(requests, [])
+
     const createResult = await client.callTool({
       name: 'gui_schedule_create',
       arguments: {
-        title: 'Created from MCP',
-        prompt: 'Do MCP work.',
-        schedule_kind: 'interval',
-        every_minutes: 15,
-        workspace_root: '/tmp/workspace',
-        model: 'auto',
-        reasoning_effort: 'medium',
-        mode: 'agent',
-        enabled: true
+        ...createArguments,
+        confirmed: true,
+        confirmation_id: structuredConfirmationValue(createPreview)
       }
     }, undefined, { timeout: 20_000 })
     assert.equal(createResult.isError, undefined)
@@ -382,4 +431,10 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
+}
+
+function structuredConfirmationValue(result: { structuredContent?: unknown }): string {
+  const value = asRecord(asRecord(result.structuredContent).confirmation).value
+  assert.equal(typeof value, 'string')
+  return value as string
 }

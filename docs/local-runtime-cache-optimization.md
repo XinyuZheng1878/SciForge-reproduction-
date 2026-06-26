@@ -303,8 +303,8 @@ GUI 通过 SciForge Runtime 使用统一接口读取 usage：
 
 GUI 侧只应该做：
 
-- runtimeRequest
-- SSE 订阅
+- 通过 `AgentRuntimeProvider` / `agentRuntime:*` IPC 发起线程请求
+- 通过 runtime event subscription 接收 SSE 事件
 - usage 展示
 - 审批与用户输入交互
 

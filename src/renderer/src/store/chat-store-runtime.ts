@@ -19,6 +19,7 @@ import {
 import i18n from '../i18n'
 import { describeRuntimeError, formatRuntimeError } from '../lib/format-runtime-error'
 import { isClawWorkspacePath, isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
+import { mirrorRemoteChannelMessageApi } from '../lib/remote-channel-api'
 import type { ClawImChannelV1 } from '@shared/app-settings'
 import {
   isAgentRuntimeActiveTurnState,
@@ -725,14 +726,16 @@ export function buildThreadEventSink(
       return base
     })
     if (completed) refreshCompletedThreadSnapshot(completedThreadId, set, get)
+    const mirrorRemoteChannelMessage = typeof window !== 'undefined'
+      ? mirrorRemoteChannelMessageApi(window.sciforge)
+      : undefined
     if (
       completed &&
       pendingMirror &&
       assistantMirrorText &&
-      typeof window !== 'undefined' &&
-      typeof window.sciforge?.mirrorClawChannelMessage === 'function'
+      typeof mirrorRemoteChannelMessage === 'function'
     ) {
-      void window.sciforge.mirrorClawChannelMessage(
+      void mirrorRemoteChannelMessage(
         pendingMirror.threadId,
         assistantMirrorText,
         'assistant'

@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { test } from 'node:test';
 
 import { auditModelRouterTraceBundle } from './trace-audit';
-import { startModelRouterServer, type ModelRouterConfig } from './router';
+import {
+  DEFAULT_MODEL_ROUTER_TRACE_ROOT,
+  startModelRouterServer as startModelRouterServerRaw,
+  type ModelRouterConfig,
+} from './router';
 
 const pngDataUrl = `data:image/png;base64,${Buffer.from('tiny-png').toString('base64')}`;
 const echoedSecretBlob = `data:image/png;base64,${Buffer.from('provider echoed private pixels').toString('base64')}`;
@@ -22,6 +26,14 @@ const echoedTraceLeak = [
   'text-provider',
   'text-model',
 ].join(' ');
+
+function startModelRouterServer(options: Parameters<typeof startModelRouterServerRaw>[0]) {
+  const workspaceRoot = options.workspaceRoot ?? process.cwd();
+  return startModelRouterServerRaw({
+    ...options,
+    traceDataRoot: options.traceDataRoot ?? traceDataRootForWorkspace(workspaceRoot),
+  });
+}
 
 test('provider-originated text is redacted from trace summaries and public answers', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-trace-redaction-'));
@@ -82,7 +94,7 @@ test('provider-originated text is redacted from trace summaries and public answe
     assert.doesNotMatch(traceText, /vision-provider|vision-model|text-provider|text-model/i);
 
     const report = await auditModelRouterTraceBundle({
-      traceRoot: join(workspaceRoot, '.sciforge/model-router-traces'),
+      traceRoot: defaultTraceRootForWorkspace(workspaceRoot),
       knownSecrets: ['text-secret', 'vision-secret', 'sk-echo-secret', 'echo-assignment-secret'],
     });
     assert.equal(report.status, 'pass', JSON.stringify(report.findings, null, 2));
@@ -103,7 +115,7 @@ function testConfig(options: { maxSupplementRounds?: number } = {}): ModelRouter
     publicModelAlias: 'sciforge-router',
     profiles: {
       default: {
-        traceRoot: '.sciforge/model-router-traces',
+        traceRoot: DEFAULT_MODEL_ROUTER_TRACE_ROOT,
         textReasoner: {
           provider: 'text-provider',
           baseUrl: 'https://text.example/v1',
@@ -163,10 +175,18 @@ function chatCompletion(id: string, content: string) {
 }
 
 async function readTraceBundle(workspaceRoot: string) {
-  const root = join(workspaceRoot, '.sciforge/model-router-traces');
+  const root = defaultTraceRootForWorkspace(workspaceRoot);
   const days = await readdir(root);
   const runs = await readdir(join(root, days[0] ?? 'missing'));
   const files = await readdir(join(root, days[0] ?? 'missing', runs[0] ?? 'missing'));
   const contents = await Promise.all(files.map((file) => readFile(join(root, days[0] ?? 'missing', runs[0] ?? 'missing', file), 'utf8')));
   return contents.join('\n');
+}
+
+function traceDataRootForWorkspace(workspaceRoot: string): string {
+  return join(dirname(workspaceRoot), `${basename(workspaceRoot)}-model-router-data`);
+}
+
+function defaultTraceRootForWorkspace(workspaceRoot: string): string {
+  return join(traceDataRootForWorkspace(workspaceRoot), DEFAULT_MODEL_ROUTER_TRACE_ROOT);
 }

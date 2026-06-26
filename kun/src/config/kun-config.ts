@@ -47,10 +47,6 @@ export const ModelContextProfileConfigSchema = z
     aliases: z.array(z.string().min(1)).optional(),
     contextWindowTokens: PositiveInt.optional(),
     contextCompaction: ModelContextCompactionProfileConfigSchema.optional(),
-    softRatio: PositiveRatio.optional(),
-    hardRatio: PositiveRatio.optional(),
-    softThreshold: PositiveInt.optional(),
-    hardThreshold: PositiveInt.optional(),
     inputModalities: z.array(ModelInputModality).optional(),
     outputModalities: z.array(ModelInputModality).optional(),
     supportsToolCalling: z.boolean().optional(),
@@ -59,8 +55,6 @@ export const ModelContextProfileConfigSchema = z
   .strict()
   .superRefine((profile, ctx) => {
     const hasRatio =
-      profile.softRatio !== undefined ||
-      profile.hardRatio !== undefined ||
       profile.contextCompaction?.softRatio !== undefined ||
       profile.contextCompaction?.hardRatio !== undefined
     if (hasRatio && profile.contextWindowTokens === undefined) {
@@ -69,8 +63,8 @@ export const ModelContextProfileConfigSchema = z
         message: 'softRatio and hardRatio require contextWindowTokens'
       })
     }
-    const softThreshold = profile.contextCompaction?.softThreshold ?? profile.softThreshold
-    const hardThreshold = profile.contextCompaction?.hardThreshold ?? profile.hardThreshold
+    const softThreshold = profile.contextCompaction?.softThreshold
+    const hardThreshold = profile.contextCompaction?.hardThreshold
     if (softThreshold !== undefined && hardThreshold !== undefined && hardThreshold < softThreshold) {
       ctx.addIssue({
         code: 'custom',
@@ -92,8 +86,7 @@ export const ContextCompactionConfigSchema = z
     summaryMode: z.enum(['heuristic', 'model']).optional(),
     summaryTimeoutMs: PositiveInt.optional(),
     summaryMaxTokens: PositiveInt.optional(),
-    summaryInputMaxBytes: PositiveInt.optional(),
-    modelProfiles: z.record(z.string().min(1), ModelContextProfileConfigSchema).optional()
+    summaryInputMaxBytes: PositiveInt.optional()
   })
   .strict()
   .superRefine((config, ctx) => {

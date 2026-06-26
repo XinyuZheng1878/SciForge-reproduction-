@@ -11,6 +11,7 @@ import {
 import {
   ScheduleService,
   confirmationValueFor,
+  createScheduleInternalHttpClient,
   isScheduleDryRunResult,
   type ScheduleAuditEvent,
   type ScheduleInternalHttpClient
@@ -100,7 +101,7 @@ test('service maps tool inputs to internal HTTP payloads with an injected client
   })
   const service = new ScheduleService({ internalClient: client })
 
-  await service.create({
+  const createInput = {
     title: 'Created',
     prompt: 'Do work.',
     schedule_kind: 'interval',
@@ -109,8 +110,26 @@ test('service maps tool inputs to internal HTTP payloads with an injected client
     reasoning_effort: 'medium',
     mode: 'agent',
     enabled: true
+  } as const
+  const createConfirmation = dryRunConfirmation(await service.create({
+    ...createInput,
+    dry_run: true
+  }))
+  await service.create({
+    ...createInput,
+    confirmed: true,
+    confirmation_id: createConfirmation
   })
-  await service.update({ task_id: 'created', time_of_day: '10:30', schedule_kind: 'daily' })
+  const updateInput = { task_id: 'created', time_of_day: '10:30', schedule_kind: 'daily' } as const
+  const updateConfirmation = dryRunConfirmation(await service.update({
+    ...updateInput,
+    dry_run: true
+  }))
+  await service.update({
+    ...updateInput,
+    confirmed: true,
+    confirmation_id: updateConfirmation
+  })
   await service.delete({ task_id: 'created', confirmation: confirmationValueFor('delete', 'created') })
   await service.run({ task_id: 'created', confirmation: confirmationValueFor('run', 'created') })
   await service.detectFromText({ text: 'Tomorrow at 9 remind me to write notes' })
@@ -185,6 +204,10 @@ test('service dry-runs write operations without internal side effects and audits
   assert.ok(isScheduleDryRunResult(deletePreview))
   assert.ok(isScheduleDryRunResult(runPreview))
   assert.ok(isScheduleDryRunResult(detectPreview))
+  assert.equal(createPreview.confirmation?.required, true)
+  assert.equal(createPreview.confirmation?.value.startsWith('create:'), true)
+  assert.equal(updatePreview.confirmation?.required, true)
+  assert.equal(updatePreview.confirmation?.value.startsWith('update:task-preview:'), true)
   assert.equal(deletePreview.confirmation?.value, confirmationValueFor('delete', 'task-preview'))
   assert.equal(runPreview.confirmation?.value, confirmationValueFor('run', 'task-preview'))
   assert.deepEqual(client.calls, [])
@@ -210,11 +233,38 @@ test('service dry-runs write operations without internal side effects and audits
 
 test('service requires confirmation for destructive operations and records structured audit failures', async () => {
   const client = new FakeInternalClient({
+    [SCHEDULE_INTERNAL_ENDPOINTS.create]: { ok: true, task: sampleTask({ id: 'created-danger' }) },
+    [SCHEDULE_INTERNAL_ENDPOINTS.update]: { ok: true, task: sampleTask({ id: 'danger', prompt: 'Updated prompt.' }) },
     [SCHEDULE_INTERNAL_ENDPOINTS.delete]: { ok: true },
     [SCHEDULE_INTERNAL_ENDPOINTS.run]: { ok: true, threadId: 'thread-1', turnId: 'turn-1', message: 'Started' }
   })
   const service = new ScheduleService({ internalClient: client })
 
+  const dangerousCreate = {
+    title: 'Danger create',
+    prompt: 'Run later.',
+    schedule_kind: 'interval',
+    every_minutes: 60
+  } as const
+  const dangerousUpdate = { task_id: 'danger', prompt: 'Updated prompt.' } as const
+  await assert.rejects(
+    () => service.create(dangerousCreate),
+    (error) => {
+      assert.ok(error instanceof ScheduleWorkerError)
+      assert.equal(error.code, 'confirmation_required')
+      assert.equal(error.confirmationRequired?.confirmationId?.startsWith('create:'), true)
+      return true
+    }
+  )
+  await assert.rejects(
+    () => service.update(dangerousUpdate),
+    (error) => {
+      assert.ok(error instanceof ScheduleWorkerError)
+      assert.equal(error.code, 'confirmation_required')
+      assert.equal(error.confirmationRequired?.confirmationId?.startsWith('update:danger:'), true)
+      return true
+    }
+  )
   await assert.rejects(
     () => service.delete({ task_id: 'danger' }),
     (error) => {
@@ -236,14 +286,58 @@ test('service requires confirmation for destructive operations and records struc
   assert.deepEqual(client.calls, [])
 
   const failures = service.getAuditEvents()
-  assert.equal(failures.length, 2)
-  assert.deepEqual(failures.map((event) => event.outcome), ['confirmation_required', 'confirmation_required'])
+  assert.equal(failures.length, 4)
+  assert.deepEqual(failures.map((event) => event.outcome), [
+    'confirmation_required',
+    'confirmation_required',
+    'confirmation_required',
+    'confirmation_required'
+  ])
   assert.equal(failures[0]?.error?.code, 'confirmation_required')
   assert.equal(failures[0]?.confirmationRequired, true)
 
+  await service.create({
+    ...dangerousCreate,
+    confirmed: true,
+    confirmation_id: dryRunConfirmation(await service.create({ ...dangerousCreate, dry_run: true }))
+  })
+  await service.update({
+    ...dangerousUpdate,
+    confirmed: true,
+    confirmation_id: dryRunConfirmation(await service.update({ ...dangerousUpdate, dry_run: true }))
+  })
   await service.delete({ task_id: 'danger', confirmation: confirmationValueFor('delete', 'danger') })
   await service.run({ task_id: 'danger', confirmed: true, confirmation_id: confirmationValueFor('run', 'danger') })
   assert.deepEqual(client.calls, [
+    {
+      path: SCHEDULE_INTERNAL_ENDPOINTS.create,
+      body: {
+        input: {
+          title: 'Danger create',
+          prompt: 'Run later.',
+          workspaceRoot: undefined,
+          model: undefined,
+          reasoningEffort: undefined,
+          mode: undefined,
+          enabled: undefined,
+          schedule: {
+            kind: 'interval',
+            atTime: undefined,
+            timeOfDay: undefined,
+            everyMinutes: 60
+          }
+        }
+      }
+    },
+    {
+      path: SCHEDULE_INTERNAL_ENDPOINTS.update,
+      body: {
+        taskId: 'danger',
+        patch: {
+          prompt: 'Updated prompt.'
+        }
+      }
+    },
     {
       path: SCHEDULE_INTERNAL_ENDPOINTS.delete,
       body: { taskId: 'danger' }
@@ -255,8 +349,30 @@ test('service requires confirmation for destructive operations and records struc
   ])
 })
 
-test('service normalizes HTTP errors into schedule worker errors', async () => {
+test('service allows safe task metadata updates without confirmation', async () => {
+  const client = new FakeInternalClient({
+    [SCHEDULE_INTERNAL_ENDPOINTS.update]: { ok: true, task: sampleTask({ id: 'safe', title: 'Renamed', enabled: false }) }
+  })
+  const service = new ScheduleService({ internalClient: client })
+
+  await service.update({ task_id: 'safe', title: 'Renamed', enabled: false })
+
+  assert.deepEqual(client.calls, [{
+    path: SCHEDULE_INTERNAL_ENDPOINTS.update,
+    body: {
+      taskId: 'safe',
+      patch: {
+        title: 'Renamed',
+        enabled: false
+      }
+    }
+  }])
+})
+
+test('service fails closed without a configured schedule internal secret', async () => {
+  let requestCount = 0
   const server = await listenFakeServer(async (_req, res) => {
+    requestCount += 1
     writeJson(res, 401, { ok: false, message: 'Unauthorized.' })
   })
 
@@ -268,13 +384,66 @@ test('service normalizes HTTP errors into schedule worker errors', async () => {
         assert.ok(error instanceof ScheduleWorkerError)
         assert.equal(error.code, 'unauthorized')
         assert.equal(error.retryable, false)
-        assert.match(error.suggestion, /secret/)
+        assert.match(error.suggestion, /secret/i)
         return true
       }
     )
+    assert.equal(requestCount, 0)
   } finally {
     await server.close()
   }
+})
+
+test('service rejects non-local internal HTTP configuration and endpoint bypasses', async () => {
+  let fetchCount = 0
+  const fetchImpl = async () => {
+    fetchCount += 1
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true })
+    }
+  }
+
+  assert.throws(
+    () => createScheduleInternalHttpClient({
+      baseUrl: 'https://example.com:8788',
+      secret: 'test-secret',
+      fetch: fetchImpl
+    }),
+    (error) => {
+      assert.ok(error instanceof ScheduleWorkerError)
+      assert.equal(error.code, 'internal_http_unavailable')
+      assert.match(error.message, /loopback HTTP/)
+      return true
+    }
+  )
+
+  const client = createScheduleInternalHttpClient({
+    baseUrl: 'http://127.0.0.1:8788',
+    secret: 'test-secret',
+    fetch: fetchImpl
+  })
+
+  await assert.rejects(
+    () => client.postJson('http://attacker.invalid/schedule/internal/list', {}),
+    (error) => {
+      assert.ok(error instanceof ScheduleWorkerError)
+      assert.equal(error.code, 'internal_http_unavailable')
+      assert.match(error.message, /endpoint path/)
+      return true
+    }
+  )
+  await assert.rejects(
+    () => client.postJson('/not/schedule/internal/list', {}),
+    (error) => {
+      assert.ok(error instanceof ScheduleWorkerError)
+      assert.equal(error.code, 'internal_http_unavailable')
+      assert.match(error.message, /not allowed/)
+      return true
+    }
+  )
+  assert.equal(fetchCount, 0)
 })
 
 class FakeInternalClient implements ScheduleInternalHttpClient {
@@ -288,6 +457,13 @@ class FakeInternalClient implements ScheduleInternalHttpClient {
     if (!response) throw new Error(`unexpected path ${path}`)
     return response
   }
+}
+
+function dryRunConfirmation(result: unknown): string {
+  if (!isScheduleDryRunResult(result) || !result.confirmation?.value) {
+    throw new Error('Expected dry-run result with confirmation value.')
+  }
+  return result.confirmation.value
 }
 
 function sampleTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {

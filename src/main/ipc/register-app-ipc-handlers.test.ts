@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   mergeScheduleSettings,
-  defaultClawSettings,
+  defaultConnectPhoneSettings,
+  defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
@@ -102,7 +103,8 @@ function settings(): AppSettingsV1 {
     appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
     keyboardShortcuts: defaultKeyboardShortcuts(),
     write: defaultWriteSettings(),
-    claw: defaultClawSettings(),
+    remoteChannel: defaultRemoteChannelSettings(),
+    connectPhone: defaultConnectPhoneSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
     guiUpdate: { channel: 'stable' },
@@ -384,7 +386,9 @@ describe('registerAppIpcHandlers', () => {
         path: realpathSync(htmlPath),
         workspaceRoot: realpathSync(workspaceRoot)
       })
-      expect((result as { url?: string }).url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/status\.html/)
+      expect((result as { url?: string }).url).toMatch(
+        /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{32}\/status\.html/
+      )
       expect(handlers.get('file:preview-workspace-html')).toBeTypeOf('function')
     } finally {
       await workspaceHtmlPreviewService.close()
@@ -1061,7 +1065,7 @@ describe('registerAppIpcHandlers', () => {
   it('uses the GUI-managed WeChat bridge for WeChat install handlers', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const configuredSettings = settings()
-    configuredSettings.claw.im.weixinBridgeUrl = 'http://127.0.0.1:8787/rpc'
+    configuredSettings.connectPhone.weixinBridgeUrl = 'http://127.0.0.1:8787/rpc'
     const store = { load: vi.fn(async () => configuredSettings) }
     const startWeixinInstallQrcode = vi.fn(async () => ({
       ok: false as const,
@@ -1075,15 +1079,17 @@ describe('registerAppIpcHandlers', () => {
       pollWeixinInstall
     }))
 
+    expect(handlers.has('remoteChannel:im-install:qrcode')).toBe(false)
+    expect(handlers.has('remoteChannel:im-install:poll')).toBe(false)
     await expect(
-      handlers.get('claw:im-install:qrcode')?.({}, { provider: 'weixin' })
+      handlers.get('connectPhone:install:qrcode')?.({}, { provider: 'weixin' })
     ).resolves.toMatchObject({ ok: false })
     await expect(
-      handlers.get('claw:im-install:poll')?.({}, { provider: 'weixin', deviceCode: 'device-1' })
+      handlers.get('connectPhone:install:poll')?.({}, { provider: 'weixin', deviceCode: 'device-1' })
     ).resolves.toEqual({ done: false })
 
-    expect(startWeixinInstallQrcode).toHaveBeenCalledWith()
-    expect(pollWeixinInstall).toHaveBeenCalledWith('device-1')
+    expect(startWeixinInstallQrcode).toHaveBeenCalledWith('http://127.0.0.1:8787/rpc')
+    expect(pollWeixinInstall).toHaveBeenCalledWith('device-1', 'http://127.0.0.1:8787/rpc')
   })
 
   it('routes schedule task IPC calls to the Schedule runtime', async () => {
@@ -1108,6 +1114,7 @@ describe('registerAppIpcHandlers', () => {
       getScheduleRuntime: () => scheduleRuntime as never
     }))
 
+    expect(handlers.has('connectPhone:task:run')).toBe(false)
     await expect(handlers.get('schedule:status')?.({})).resolves.toMatchObject({
       internalServerRunning: true,
       runningTaskIds: ['task-1'],
