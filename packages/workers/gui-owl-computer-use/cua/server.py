@@ -18,10 +18,12 @@ machine). imagePath/imageBase64 override it for testing or headless dry-runs.
 """
 from __future__ import annotations
 import base64
+import hmac
 import io
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Optional
 
 from PIL import Image
 
@@ -31,6 +33,37 @@ from .config import CONFIG
 from .runner import run_task
 
 VERSION = "0.1.0"
+
+
+def _bearer_token(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    scheme, _, token = value.strip().partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return ""
+    return token.strip()
+
+
+def _auth_error() -> dict:
+    # If execution is enabled, require an explicit token even before checking the
+    # request header. This prevents an accidentally unauthenticated live sidecar.
+    if not CONFIG.service_token and CONFIG.allow_execute:
+        return R.err(
+            "UNAUTHENTICATED",
+            "CUA_SERVICE_TOKEN is required when CUA_ALLOW_EXECUTE=true.",
+            blocked_reason="sidecar-auth-required")
+    return R.err("UNAUTHENTICATED", "missing or invalid bearer token")
+
+
+def _check_auth(header_value: Optional[str]) -> Optional[dict]:
+    if not CONFIG.service_token and not CONFIG.allow_execute:
+        return None
+    if not CONFIG.service_token:
+        return _auth_error()
+    token = _bearer_token(header_value)
+    if hmac.compare_digest(token, CONFIG.service_token):
+        return None
+    return _auth_error()
 
 
 def _screenshot_provider(body: dict):
@@ -66,12 +99,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "data": {
                 "service": R.SERVICE_ID, "version": VERSION,
                 "model": CONFIG.model_name, "engine": "gui-owl-native",
-                "allowExecute": CONFIG.allow_execute}})
+                "allowExecute": CONFIG.allow_execute,
+                "authRequired": bool(CONFIG.service_token or CONFIG.allow_execute)}})
         return self._send(404, R.err("NOT_FOUND", f"no route {self.path}"))
 
     def do_POST(self):
         if self.path not in ("/computer-use/run", "/computer-use/cancel"):
             return self._send(404, R.err("NOT_FOUND", f"no route {self.path}"))
+        auth_error = _check_auth(self.headers.get("Authorization"))
+        if auth_error:
+            return self._send(401, auth_error)
         try:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -102,7 +139,8 @@ def main():
     srv = ThreadingHTTPServer(("127.0.0.1", CONFIG.port), Handler)
     print(f"computer-use plugin on http://127.0.0.1:{CONFIG.port} "
           f"(model={CONFIG.model_name} @ {CONFIG.model_base_url}, "
-          f"allow_execute={CONFIG.allow_execute})")
+          f"allow_execute={CONFIG.allow_execute}, "
+          f"auth_required={bool(CONFIG.service_token or CONFIG.allow_execute)})")
     srv.serve_forever()
 
 

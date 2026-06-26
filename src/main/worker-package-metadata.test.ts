@@ -11,6 +11,8 @@ type WorkerPackageJson = {
   scripts?: Record<string, string>
   sciforge?: {
     lifecycleLayer?: string
+    runtime?: string
+    language?: string
     publicContract?: boolean
     runtimeAdapter?: boolean
     mcpServer?: boolean
@@ -40,13 +42,21 @@ describe('worker package metadata', () => {
 
     for (const packageDir of workerPackages) {
       const metadata = readWorkerPackageJson(packageDir)
+      const runtime = metadata.sciforge?.runtime ?? metadata.sciforge?.language ?? 'node'
 
       expect(metadata.name, packageDir).toMatch(/^@sciforge\/[a-z0-9-]+$/)
-      expect(metadata.type, metadata.name).toBe('module')
-      expect(metadata.bin, metadata.name).toBeDefined()
-      expect(metadata.exports, metadata.name).toBeDefined()
-      expect(metadata.files, metadata.name).toEqual(expect.arrayContaining(['src', 'package.json', 'README.md']))
-      expect(metadata.scripts?.start, metadata.name).toContain('src/cli.ts')
+      if (runtime === 'python') {
+        if (metadata.files) {
+          expect(metadata.files, metadata.name).toEqual(expect.arrayContaining(['package.json', 'README.md']))
+        }
+        expect(metadata.scripts?.start, metadata.name).toContain('python')
+      } else {
+        expect(metadata.type, metadata.name).toBe('module')
+        expect(metadata.bin, metadata.name).toBeDefined()
+        expect(metadata.exports, metadata.name).toBeDefined()
+        expect(metadata.files, metadata.name).toEqual(expect.arrayContaining(['src', 'package.json', 'README.md']))
+        expect(metadata.scripts?.start, metadata.name).toContain('src/cli.ts')
+      }
 
       expect(metadata.sciforge?.lifecycleLayer, metadata.name).toBe('workers')
       expect(typeof metadata.sciforge?.publicContract, metadata.name).toBe('boolean')
@@ -64,6 +74,7 @@ describe('worker package metadata', () => {
     for (const packageDir of workerPackages) {
       const metadata = readWorkerPackageJson(packageDir)
       if (!metadata.sciforge?.mcpServer) continue
+      if ((metadata.sciforge.runtime ?? metadata.sciforge.language) === 'python') continue
 
       expect(metadata.exports, metadata.name).toEqual(expect.objectContaining({
         '.': './src/index.ts',

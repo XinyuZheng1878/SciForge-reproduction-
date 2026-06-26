@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import urllib.request
 import uuid
@@ -34,11 +35,15 @@ DEFAULT_TASKS = [
 ]
 
 
-def post(url: str, path: str, body: dict, timeout: float = 600.0) -> dict:
+def _auth_headers(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def post(url: str, path: str, body: dict, token: str = "", timeout: float = 600.0) -> dict:
     req = urllib.request.Request(
         url.rstrip("/") + path,
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **_auth_headers(token)},
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -80,6 +85,7 @@ def main() -> int:
     ap.add_argument("--execute", action="store_true", help="真机执行 (发送 execute+approve)")
     ap.add_argument("--task", action="append", help="自定义任务 (可重复); 不给则用默认列表")
     args = ap.parse_args()
+    token = os.environ.get("CUA_SERVICE_TOKEN") or os.environ.get("SCIFORGE_CUA_SERVICE_TOKEN") or ""
 
     try:
         with urllib.request.urlopen(args.url.rstrip("/") + "/health", timeout=5) as r:
@@ -90,14 +96,15 @@ def main() -> int:
 
     tasks = args.task if args.task else DEFAULT_TASKS
     mode = "EXECUTE (真机)" if args.execute else "DRY-RUN (安全)"
-    print(f"computer-use 验收 @ {args.url}  模式: {mode}  任务数: {len(tasks)}")
+    print(f"computer-use 验收 @ {args.url}  模式: {mode}  任务数: {len(tasks)}"
+          f"  auth={'on' if token else 'off'}")
 
     for task in tasks:
         body = {"instruction": task, "requestId": str(uuid.uuid4())}
         if args.execute:
             body["execute"] = True
             body["approve"] = True
-        print_result(task, post(args.url, "/computer-use/run", body))
+        print_result(task, post(args.url, "/computer-use/run", body, token=token))
     print("\n" + "=" * 78 + "\n验收结束。")
     return 0
 

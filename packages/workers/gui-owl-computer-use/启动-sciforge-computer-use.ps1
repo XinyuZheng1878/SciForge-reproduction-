@@ -63,6 +63,15 @@ if (-not $env:CUA_LOCAL_PORT) { $env:CUA_LOCAL_PORT = "4243" }
 $env:CUA_ALLOW_EXECUTE = if ($SafeDryRun) { "false" } else { "true" }
 # 让 GUI 里的 Kun runtime 暴露 computer_use 工具并指向本地服务。
 $env:SCIFORGE_CUA_SERVICE_URL = "http://127.0.0.1:$($env:CUA_PORT)"
+# 生成本次启动专用的本地 sidecar token。Computer-Use 服务和 GUI 子进程都
+# 继承同一个值；没有这个 bearer token 的本机 HTTP 请求不能调用 run/cancel。
+if (-not $env:CUA_SERVICE_TOKEN) {
+  $tokenBytes = New-Object byte[] 32
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $rng.GetBytes($tokenBytes) } finally { $rng.Dispose() }
+  $env:CUA_SERVICE_TOKEN = [Convert]::ToBase64String($tokenBytes)
+}
+$env:SCIFORGE_CUA_SERVICE_TOKEN = $env:CUA_SERVICE_TOKEN
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Die "找不到 node, 请先安装 Node.js" }
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) { Die "找不到 python, 请先安装并加入 PATH" }

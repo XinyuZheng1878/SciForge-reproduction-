@@ -44,6 +44,11 @@ class Config:
     reflect_model: str = os.environ.get("CUA_REFLECT_MODEL", "")
     # destructive actions are OFF unless the caller both sets execute and approves.
     allow_execute: bool = os.environ.get("CUA_ALLOW_EXECUTE", "false").lower() == "true"
+    # HTTP sidecar bearer token. The GUI launcher generates a random token and
+    # passes it to both this service and the Kun tool provider. If live execution
+    # is enabled, POST endpoints require this token.
+    service_token: str = os.environ.get(
+        "CUA_SERVICE_TOKEN", os.environ.get("SCIFORGE_CUA_SERVICE_TOKEN", "")).strip()
     # paint a click-through mouse overlay on the real desktop during live execution
     # (Windows; degrades to no-op elsewhere). Off => no visualization.
     show_overlay: bool = os.environ.get("CUA_SHOW_OVERLAY", "true").lower() == "true"

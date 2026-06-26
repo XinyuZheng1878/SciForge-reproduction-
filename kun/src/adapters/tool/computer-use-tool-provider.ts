@@ -7,10 +7,9 @@ import { LocalToolHost } from './local-tool-host.js'
  * Exposes a single `computer_use` tool that lets the main agent (DeepSeek)
  * drive the user's real desktop (click / type / scroll) by handing a
  * natural-language instruction to the standalone Computer-Use plugin
- * (`computer-use-plugin/`, default http://127.0.0.1:3900). The plugin runs
- * the AgentS2_5 loop (qwen planner + GUI-Owl grounder + local executor) and
- * returns a ServiceResult trace — it never claims the task is done; the host
- * agent decides.
+ * (`packages/workers/gui-owl-computer-use/`, default http://127.0.0.1:3900).
+ * The plugin runs one end-to-end GUI-Owl loop and returns a ServiceResult trace
+ * — it never claims the task is done; the host agent decides.
  *
  * Boundary (Servic_Module_Template.md): the tool talks to the plugin over
  * HTTP and returns the structured trace/status, never a final answer.
@@ -29,17 +28,38 @@ const DEFAULT_TIMEOUT_MS = 600_000 // generous: the desktop loop can be many ste
 export type ComputerUseToolConfig = {
   /** Base URL of the running Computer-Use plugin, e.g. http://127.0.0.1:3900 */
   serviceUrl?: string
+  /** Bearer token shared with the local HTTP sidecar. */
+  serviceToken?: string
   /** Per-request safety timeout (ms). The real step/retry budget lives in the plugin. */
   timeoutMs?: number
 }
 
-function resolveConfig(config?: ComputerUseToolConfig): Required<ComputerUseToolConfig> | undefined {
+type ResolvedComputerUseToolConfig = {
+  serviceUrl: string
+  serviceToken: string
+  timeoutMs: number
+}
+
+function resolveConfig(config?: ComputerUseToolConfig): ResolvedComputerUseToolConfig | undefined {
   const serviceUrl = (config?.serviceUrl ?? process.env.SCIFORGE_CUA_SERVICE_URL ?? '').trim()
   if (!serviceUrl) return undefined
+  const serviceToken = (
+    config?.serviceToken ??
+    process.env.SCIFORGE_CUA_SERVICE_TOKEN ??
+    process.env.CUA_SERVICE_TOKEN ??
+    ''
+  ).trim()
   const envTimeout = Number(process.env.SCIFORGE_CUA_SERVICE_TIMEOUT_MS)
   const timeoutMs =
     config?.timeoutMs ?? (Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : DEFAULT_TIMEOUT_MS)
-  return { serviceUrl: serviceUrl.replace(/\/+$/, ''), timeoutMs }
+  return { serviceUrl: serviceUrl.replace(/\/+$/, ''), serviceToken, timeoutMs }
+}
+
+function jsonHeaders(serviceToken: string): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    ...(serviceToken ? { Authorization: `Bearer ${serviceToken}` } : {})
+  }
 }
 
 type ComputerUseRunStep = {
@@ -123,7 +143,7 @@ export function buildComputerUseToolProviders(
               // stops the mouse/keyboard between steps. Fire-and-forget.
               void fetch(`${resolved.serviceUrl}/computer-use/cancel`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: jsonHeaders(resolved.serviceToken),
                 body: JSON.stringify({ requestId })
               }).catch(() => {})
             }
@@ -132,7 +152,7 @@ export function buildComputerUseToolProviders(
             try {
               const response = await fetch(`${resolved.serviceUrl}/computer-use/run`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: jsonHeaders(resolved.serviceToken),
                 body: JSON.stringify({ instruction, execute: true, approve: true, requestId }),
                 signal: controller.signal
               })

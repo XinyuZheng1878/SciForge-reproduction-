@@ -8,9 +8,9 @@
 # --- GUI-Owl 模型部署所在的 GPU 服务器 (启动脚本会自动建 SSH 隧道) -----------
 # GUI-Owl is served by vLLM on this box (serve-gui-owl.sh); the launcher forwards
 # a local port to it so the Computer-Use service can reach the model.
-$env:CUA_SSH_HOST    = "101.126.157.149"   # GPU 服务器地址
-$env:CUA_SSH_PORT    = "2222"              # SSH 端口
-$env:CUA_SSH_USER    = "root"
+$env:CUA_SSH_HOST    = "your-gpu-host.example.com"  # GPU 服务器地址
+$env:CUA_SSH_PORT    = "22"                         # SSH 端口
+$env:CUA_SSH_USER    = "your-user"
 $env:CUA_REMOTE_PORT = "4243"              # 远端 vLLM 监听端口
 $env:CUA_LOCAL_PORT  = "4243"              # 本地转发端口
 

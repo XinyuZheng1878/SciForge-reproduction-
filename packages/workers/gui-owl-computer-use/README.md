@@ -50,6 +50,10 @@ This worker is **not** a duplicate of the existing
   mouse/keyboard happens only when the call sets `execute=true` **and**
   `approve=true` **and** the worker was started with `CUA_ALLOW_EXECUTE=true`;
   otherwise it returns `NEEDS_APPROVAL`.
+- **HTTP sidecar auth**: `POST /computer-use/run` and
+  `POST /computer-use/cancel` accept an optional bearer token via
+  `CUA_SERVICE_TOKEN`. The GUI launcher generates a random token per start and
+  passes it to the Kun tool provider as `SCIFORGE_CUA_SERVICE_TOKEN`.
 - **Refs-first**: screenshots are written to disk and returned as artifact refs,
   never inlined into a tool result.
 - **Model router**: in production point `CUA_MODEL_BASE_URL` at the SciForge
@@ -91,6 +95,7 @@ block alongside a one-line summary; screenshots stay as artifact refs.
 
 ```bash
 python -m pip install -r requirements.txt
+export CUA_SERVICE_TOKEN=dev-local-token
 
 # MCP stdio server (for Kun / Codex / agent runtimes):
 python -m cua.cli --stdio
@@ -100,10 +105,12 @@ python -m cua.cli --http        # -> http://127.0.0.1:3900
 
 # dry-run (safe): plan + ground against a static screen, no actions
 curl -s localhost:3900/computer-use/run \
+  -H "Authorization: Bearer $CUA_SERVICE_TOKEN" \
   -d '{"instruction":"click the Save button","imagePath":"some_ui.png"}'
 
 # live execution (opt-in): start with CUA_ALLOW_EXECUTE=true, then
 curl -s localhost:3900/computer-use/run \
+  -H "Authorization: Bearer $CUA_SERVICE_TOKEN" \
   -d '{"instruction":"open Notepad and type hello","execute":true,"approve":true}'
 ```
 
@@ -125,11 +132,11 @@ minimal wiring needed to expose it to the agent runtime:
 |---|---|
 | `kun/src/adapters/tool/computer-use-tool-provider.ts` (+ test) | the Kun `computer_use` tool that calls this service over HTTP |
 | `kun/src/server/runtime-factory.ts` | registers the tool provider (1 import + 1 spread) |
-| `src/main/kun-process.ts` | disables the built-in browser/native `computer_use` MCP when this module is active (avoids a duplicate tool name) |
+| `src/main/local-runtime-process.ts` | disables the built-in browser/native `computer_use` MCP when this module is active (avoids a duplicate tool name) |
 | `src/main/model-router-sidecar.ts` | unrelated Windows fix: spawn `npm.cmd` via a shell (Node EINVAL) so the Model Router can auto-start |
 
 ## Config
 
 See [`.env.example`](.env.example). Key vars: `CUA_MODEL_BASE_URL`, `CUA_MODEL`,
 `CUA_MODEL_API_KEY`, `CUA_MAX_STEPS`, `CUA_REFLECT`, `CUA_ALLOW_EXECUTE`,
-`CUA_PORT`, `CUA_SHOW_OVERLAY`, `CUA_ARTIFACT_DIR`.
+`CUA_PORT`, `CUA_SERVICE_TOKEN`, `CUA_SHOW_OVERLAY`, `CUA_ARTIFACT_DIR`.

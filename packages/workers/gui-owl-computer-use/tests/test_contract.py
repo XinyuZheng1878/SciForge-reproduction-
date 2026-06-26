@@ -106,6 +106,35 @@ def test_build_messages_official_multiturn_optional():
     assert any(p.get("type") == "image_url" for p in msgs[-1]["content"])
 
 
+def test_http_sidecar_bearer_auth_optional():
+    """HTTP auth helpers stay pure; skip cleanly if optional deps are absent."""
+    try:
+        from cua import server
+    except Exception:  # noqa: BLE001
+        return
+
+    old_token = server.CONFIG.service_token
+    old_allow_execute = server.CONFIG.allow_execute
+    try:
+        server.CONFIG.service_token = ""
+        server.CONFIG.allow_execute = False
+        assert server._check_auth(None) is None
+
+        server.CONFIG.service_token = "secret"
+        server.CONFIG.allow_execute = False
+        assert server._check_auth("Bearer secret") is None
+        bad = server._check_auth("Bearer wrong")
+        assert bad is not None and bad["error"]["code"] == "UNAUTHENTICATED"
+
+        server.CONFIG.service_token = ""
+        server.CONFIG.allow_execute = True
+        missing = server._check_auth(None)
+        assert missing is not None and missing["error"]["code"] == "UNAUTHENTICATED"
+    finally:
+        server.CONFIG.service_token = old_token
+        server.CONFIG.allow_execute = old_allow_execute
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

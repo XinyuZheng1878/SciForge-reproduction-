@@ -16,6 +16,8 @@ function fakeContext(): ToolHostContext {
 afterEach(() => {
   vi.restoreAllMocks()
   delete process.env.SCIFORGE_CUA_SERVICE_URL
+  delete process.env.SCIFORGE_CUA_SERVICE_TOKEN
+  delete process.env.CUA_SERVICE_TOKEN
 })
 
 describe('buildComputerUseToolProviders', () => {
@@ -53,12 +55,18 @@ describe('buildComputerUseToolProviders', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    const tool = buildComputerUseToolProviders({ serviceUrl: 'http://127.0.0.1:3900/' })[0]!.tools[0]!
+    const tool = buildComputerUseToolProviders({
+      serviceUrl: 'http://127.0.0.1:3900/',
+      serviceToken: 'test-token'
+    })[0]!.tools[0]!
     const res = await tool.execute({ instruction: 'click the Save button' }, fakeContext())
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]!
     expect(url).toBe('http://127.0.0.1:3900/computer-use/run') // trailing slash trimmed
+    expect((init as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer test-token'
+    })
     expect(JSON.parse((init as RequestInit).body as string)).toMatchObject({
       instruction: 'click the Save button',
       execute: true,
@@ -69,6 +77,25 @@ describe('buildComputerUseToolProviders', () => {
       status: 'agent_reported_done',
       executed: true,
       stepCount: 1
+    })
+  })
+
+  it('reads the bearer token from the environment', async () => {
+    process.env.SCIFORGE_CUA_SERVICE_TOKEN = 'env-token'
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ ok: true, data: { status: 'dry_run_planned', steps: [] } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const tool = buildComputerUseToolProviders({ serviceUrl: 'http://127.0.0.1:3900' })[0]!.tools[0]!
+    await tool.execute({ instruction: 'observe' }, fakeContext())
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer env-token'
     })
   })
 
