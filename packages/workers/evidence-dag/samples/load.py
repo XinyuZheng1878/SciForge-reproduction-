@@ -4,8 +4,8 @@ Each sample is a multi-turn agent trace; the engine extracts one DAG per thread
 (extract + auto-verify), after which the threads show up in the web UI dropdown.
 
 Usage (engine must be running on :3897):
-  python samples/load.py                 # loads every samples/*.json
-  EDAG_URL=http://127.0.0.1:3897 python samples/load.py
+  SCIFORGE_EVIDENCE_DAG_API_KEY=dev-token python samples/load.py
+  EDAG_URL=http://127.0.0.1:3897 SCIFORGE_EVIDENCE_DAG_API_KEY=dev-token python samples/load.py
 """
 from __future__ import annotations
 
@@ -15,10 +15,14 @@ import os
 import urllib.request
 
 URL = os.environ.get("EDAG_URL", "http://127.0.0.1:3897").rstrip("/")
+API_KEY = os.environ.get("SCIFORGE_EVIDENCE_DAG_API_KEY", "").strip()
 HERE = os.path.dirname(__file__)
 
 
 def main() -> None:
+    if not API_KEY:
+        print("SCIFORGE_EVIDENCE_DAG_API_KEY is required")
+        return
     files = sorted(glob.glob(os.path.join(HERE, "*.json")))
     if not files:
         print("no sample *.json found")
@@ -30,7 +34,7 @@ def main() -> None:
         body = json.dumps({"trace": sample["trace"]}).encode("utf-8")
         req = urllib.request.Request(
             f"{URL}/threads/{tid}/ingest-trace", data=body,
-            headers={"Content-Type": "application/json"}, method="POST",
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {API_KEY}"}, method="POST",
         )
         title = sample.get("title", tid)
         turns = sum(1 for it in sample["trace"] if it.get("type") == "message" and it.get("role") == "user")

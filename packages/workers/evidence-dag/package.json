@@ -1,0 +1,27 @@
+{
+  "name": "@sciforge/evidence-dag",
+  "version": "0.1.0",
+  "type": "module",
+  "private": false,
+  "description": "Standalone Evidence-DAG engine: turns an agent trace into a typed claim-evidence DAG, verifies supports edges with an NLI judge, and serialises to PROV-JSON. HTTP service (ServiceResult-only).",
+  "sciforge": {
+    "lifecycleLayer": "workers",
+    "skillFacing": false,
+    "sideEffects": "filesystem, network",
+    "publicContract": true,
+    "runtimeAdapter": false,
+    "mcpServer": false,
+    "language": "python",
+    "packagingStrategy": "Python sidecar (stdlib + networkx, requires-python >=3.10). `npm run start` runs `pip install -e .` then `python -m evidence_dag.server` on :3897. The desktop app reaches it over HTTP only (SCIFORGE_EVIDENCE_DAG_SERVICE_URL); it never imports renderer/main code. ship the src/ + ui/ + pyproject.toml; the launcher sets PYTHONPATH and the LLM/storage env."
+  },
+  "scripts": {
+    "prestart": "python -m pip install -q -e .",
+    "start": "python -m evidence_dag.server",
+    "serve": "python -m evidence_dag.server",
+    "test": "PYTHONPATH=src python -m unittest discover -s tests -v",
+    "samples": "python samples/load.py"
+  },
+  "engines": {
+    "python": ">=3.10"
+  }
+}

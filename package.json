@@ -16,6 +16,7 @@
     "packages/workers/write-assist",
     "packages/workers/paper-radar",
     "packages/workers/runtime-inspector",
+    "packages/workers/evidence-dag",
     "plugins/paper-radar-service",
     "plugins/sci-modality-router-service"
   ],
@@ -76,6 +77,9 @@
     "runtime-inspector:typecheck": "npm --workspace @sciforge/runtime-inspector run typecheck",
     "local-runtime:test": "npm --prefix kun run test",
     "local-runtime:typecheck": "npm --prefix kun run typecheck",
+    "evidence-dag:start": "npm --workspace @sciforge/evidence-dag run start",
+    "evidence-dag:test": "npm --workspace @sciforge/evidence-dag run test",
+    "evidence-dag:samples": "npm --workspace @sciforge/evidence-dag run samples",
     "paper-radar:start": "npm --workspace sciforge-paper-radar-service run start",
     "paper-radar:test": "npm --workspace sciforge-paper-radar-service run test",
     "paper-radar:typecheck": "npm --workspace sciforge-paper-radar-service run typecheck",

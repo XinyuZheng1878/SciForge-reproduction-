@@ -16,7 +16,7 @@ verify），随后在 UI 下拉框出现。都取材自**真实可核查**的科
 引擎先跑起来（端口 3897，带 LLM env）：
 
 ```powershell
-cd evidence-dag-engine; $env:PYTHONPATH='src'; $env:PYTHONUTF8='1'; $env:EDAG_STORAGE_DIR='./out/threads'
+cd packages/workers/evidence-dag; $env:PYTHONPATH='src'; $env:PYTHONUTF8='1'; $env:EDAG_STORAGE_DIR='./out/threads'
 $env:EDAG_LLM_BASE_URL='http://35.220.164.252:3888/v1'; $env:EDAG_LLM_API_KEY='sk-...'; $env:EDAG_LLM_MODEL='bailian/deepseek-v4-flash'
 python -m evidence_dag.server
 ```

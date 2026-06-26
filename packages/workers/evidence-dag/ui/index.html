@@ -329,28 +329,66 @@ function toElements(graph){
   return [...nodes, ...edges];
 }
 
-function render(graph){
-  lastGraph = graph;
-  hidePlus();
-  cy.elements().remove();
-  cy.add(toElements(graph));
+// Node positions persist across re-renders so reading-time actions (⚡ what-if,
+// expand, verify, auto-refresh, fragility marking) never throw away a layout you
+// arranged by hand. Only an explicit reset / "show all" / thread switch relays
+// out and refits.
+let savedPositions = {};   // nodeId -> {x,y}, survives remove()/add() cycles
+let hasFitted = false;     // fit the viewport once; afterwards leave pan/zoom alone
+
+function runLayout(){
+  const useDagre = cy.nodes().length > 0 && window.dagre;
   // dagre layered layout: rankDir LR => evidence (no incoming) leftmost, flow
   // rightward to claims; crossing-minimised so support lines don't tangle.
-  const useDagre = cy.nodes().length > 0 && window.dagre;
   cy.layout(useDagre
     ? { name:'dagre', rankDir:'LR', nodeSep:34, rankSep:80, edgeSep:16, ranker:'network-simplex', padding:30 }
     : { name:'breadthfirst', directed:true, spacingFactor:1.1, padding:24 }
   ).run();
-  cy.fit(undefined, 40);
+}
+
+// Drop a freshly-revealed node next to its already-placed neighbours (so an
+// expand / what-if appears locally) instead of relaying the whole graph out.
+function placeNewNode(n){
+  const placed = n.neighborhood('node').filter(x => savedPositions[x.id()]);
+  if (placed.length){
+    let sx=0, sy=0; placed.forEach(x=>{ sx+=savedPositions[x.id()].x; sy+=savedPositions[x.id()].y; });
+    const k = (Object.keys(savedPositions).length % 5) - 2;   // fan out a little
+    n.position({ x: sx/placed.length + 70, y: sy/placed.length + k*46 });
+  } else {
+    const e = cy.extent(); n.position({ x:(e.x1+e.x2)/2, y:(e.y1+e.y2)/2 });
+  }
+}
+
+function render(graph, opts){
+  opts = opts || {};
+  lastGraph = graph;
+  hidePlus();
+  // 1) remember where everything currently sits (incl. nodes you dragged)
+  cy.nodes().forEach(n => { savedPositions[n.id()] = { x:n.position('x'), y:n.position('y') }; });
+  if (opts.relayout) savedPositions = {};   // explicit reset: forget the arrangement
+  cy.elements().remove();
+  cy.add(toElements(graph));
+  // 2) lay out only when there is nothing to restore (first paint / reset / thread
+  //    switch); otherwise keep known nodes put and just place any new ones.
+  if (!Object.keys(savedPositions).length){
+    runLayout();
+  } else {
+    cy.nodes().forEach(n => { const p = savedPositions[n.id()]; if (p) n.position(p); });
+    cy.nodes().filter(n => !savedPositions[n.id()]).forEach(placeNewNode);
+  }
+  // 3) record the resulting arrangement (so new nodes stick next time too)
+  cy.nodes().forEach(n => { savedPositions[n.id()] = { x:n.position('x'), y:n.position('y') }; });
+  // 4) frame the graph once; after that leave the viewport where you put it
+  if (opts.fit || !hasFitted){ cy.fit(undefined, 40); hasFitted = true; }
   setStatus(`${cy.nodes().length}/${graph.nodes.length} nodes shown · ${anchors.length} claim(s) in focus · hover a node and click ＋ to expand`);
 }
 
 function expandOneHop(id){ if (id && lastGraph){ revealed.add(id); render(lastGraph); } }
-function resetView(){ revealed = new Set(); anchors = []; if (lastGraph) render(lastGraph); }
+function resetView(){ revealed = new Set(); anchors = []; if (lastGraph) render(lastGraph, {relayout:true, fit:true}); }
 function showAllClaims(){
   if (!lastGraph) return;
   anchors = lastGraph.nodes.filter(n => n.type === 'claim').map(n => n.id);
-  render(lastGraph);
+  render(lastGraph, {relayout:true, fit:true});
 }
 
 // floating "＋" expand button (hover affordance)
@@ -412,8 +450,10 @@ async function loadGraph(){
     extractTries = 0;
     // reset focus to Top-3 only when the thread actually changed; auto-refresh
     // (same thread) must preserve the expert's expansions.
-    if (currentThread !== renderedThread){ anchors = []; revealed = new Set(); renderedThread = currentThread; }
-    render(g.data.graph);
+    const threadChanged = currentThread !== renderedThread;
+    if (threadChanged){ anchors = []; revealed = new Set(); renderedThread = currentThread; }
+    // same thread re-poll keeps your arrangement; a different thread lays out fresh.
+    render(g.data.graph, threadChanged ? {relayout:true, fit:true} : {});
     renderedSig = sigOf(g.data);   // remember what's on screen; the watcher diffs against this
     markUpdated(false);            // clear any "updated" flag now that we're current
     // If the graph has supports edges but none are scored, verification never ran
@@ -701,6 +741,8 @@ function initCy(){
   cy.on('mouseout','node', ()=>{ plusHideTimer = setTimeout(hidePlus, 220); });
   cy.on('cxttap','node', e=>{ if(e.target.data('plus')) expandOneHop(e.target.id()); });
   cy.on('pan zoom drag', hidePlus);
+  // remember a card's spot the moment you drop it, so the next re-render keeps it
+  cy.on('dragfree','node', e=>{ savedPositions[e.target.id()] = { x:e.target.position('x'), y:e.target.position('y') }; });
   const pl = $("plus");
   pl.onmouseenter = ()=>{ if(plusHideTimer) clearTimeout(plusHideTimer); };
   pl.onmouseleave = hidePlus;

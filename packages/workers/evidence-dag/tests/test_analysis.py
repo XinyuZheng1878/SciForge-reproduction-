@@ -37,6 +37,10 @@ def _con(g, s, d):
     g.add_edge(s, d, EdgeRel.CONTRADICTS)
 
 
+def _con_scored(g, s, d, nu):
+    g.add_edge(s, d, EdgeRel.CONTRADICTS, nli_score=nu)
+
+
 class TestFragility(unittest.TestCase):
     def test_single_source_is_spof_and_fragile(self):
         g = _g()
@@ -101,6 +105,20 @@ class TestFragility(unittest.TestCase):
         _sup(g, s2, c, nu=0.2)
         r = analyze(g)
         self.assertNotIn(c, {f["id"] for f in r["fragile"]})
+        weak = {w["id"]: w for w in r["weakly_supported"]}
+        self.assertIn(c, weak)
+        self.assertEqual(r["summary"]["n_weakly_supported"], 1)
+
+    def test_low_contradiction_score_is_not_contested(self):
+        g = _g()
+        s1, s2 = _src(g, "Supports it."), _src(g, "Barely conflicts.")
+        c = _claim(g, "Mostly supported claim.")
+        _sup(g, s1, c)
+        _sup(g, s2, c)
+        _con_scored(g, s2, c, 0.05)
+        r = analyze(g)
+        self.assertNotIn(c, {f["id"] for f in r["fragile"]})
+        self.assertEqual(r["summary"]["n_robust"], 1)
 
     def test_single_source_reasoning_not_fragile(self):
         # a reasoning step built on one source is normal plumbing, not fragile;
@@ -151,6 +169,24 @@ class TestHiddenSharedSource(unittest.TestCase):
         self.assertEqual(r["pseudo_robust"], [])
         self.assertEqual(r["summary"]["n_pseudo_robust"], 0)
         self.assertNotIn(c, {f["id"] for f in r["fragile"]})  # no SPOF, multi-source
+
+    def test_two_paths_shared_reasoning_is_pseudo_robust(self):
+        g = _g()
+        s1, s2 = _src(g, "Paper A."), _src(g, "Paper B.")
+        shared = _rea(g, "Shared assumption.")
+        r1, r2 = _rea(g, "Angle one."), _rea(g, "Angle two.")
+        c = _claim(g, "Claim depends on the shared assumption.")
+        _sup(g, s1, shared)
+        _sup(g, s2, shared)
+        _sup(g, shared, r1)
+        _sup(g, shared, r2)
+        _sup(g, r1, c)
+        _sup(g, r2, c)
+        r = analyze(g)
+        pr = {p["id"]: p for p in r["pseudo_robust"]}
+        self.assertIn(c, pr)
+        self.assertEqual(pr[c]["shared_reasoning"], [shared])
+        self.assertIn("reasoning", pr[c]["bottleneck"])
 
 
 class TestLoadBearing(unittest.TestCase):

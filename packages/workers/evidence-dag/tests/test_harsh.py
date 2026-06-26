@@ -24,7 +24,7 @@ from evidence_dag.metrics import all_metrics  # noqa: E402
 from evidence_dag.model import EdgeRel, NodeStatus, NodeType, normalize  # noqa: E402
 from evidence_dag.server import Handler  # noqa: E402
 from evidence_dag.service import Engine  # noqa: E402
-from evidence_dag.verifier import edge_nli, noisy_or, nli_score, split_sentences, verify  # noqa: E402
+from evidence_dag.verifier import edge_nli, noisy_or, nli_score, parse_judge_score, split_sentences, verify  # noqa: E402
 
 
 class FakeLLM:
@@ -215,6 +215,11 @@ class TestVerifierRobustness(unittest.TestCase):
         self.assertEqual(nli_score(FakeLLM("absolutely yes, strongly entailed!"), "p", "h"), 0.0)
         self.assertAlmostEqual(nli_score(FakeLLM("score is 0.83 I think"), "p", "h"), 0.83)
         self.assertAlmostEqual(nli_score(FakeLLM('{"entailment": 1.7}'), "p", "h"), 1.0)  # clamp
+
+    def test_judge_score_parser_rejects_unkeyed_prose_numbers(self):
+        self.assertIsNone(parse_judge_score("1 strong reason supports this, but no score was given"))
+        self.assertAlmostEqual(parse_judge_score('```json\n{"support": 0.62}\n```'), 0.62)
+        self.assertAlmostEqual(parse_judge_score("Here is the result: {\"contradiction\": 0.4}"), 0.4)
 
     def test_verify_empty_graph(self):
         g = ThreadGraph("t")
