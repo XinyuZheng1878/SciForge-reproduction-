@@ -76,7 +76,7 @@ import {
 import { parseGuiPlanCommand } from '../plan/plan-command'
 import { DevPreviewLaunchCard } from './DevPreviewLaunchCard'
 import { RuntimeBanner } from './RuntimeBanner'
-import { useWorkbenchLayout } from './workbench-layout'
+import { CODE_PANEL_PREFERRED, useWorkbenchLayout } from './workbench-layout'
 import { useWorkbenchPlanController } from './workbench-plan-controller'
 import { prepareImageAttachmentUpload } from '../lib/image-attachment-upload'
 import { isChatAttachmentUploadEnabled } from '../lib/attachment-upload-availability'
@@ -106,6 +106,9 @@ const ChangeInspector = lazy(() =>
 )
 const DevBrowserPanel = lazy(() =>
   import('./DevBrowserPanel').then((module) => ({ default: module.DevBrowserPanel }))
+)
+const EvidenceDagPanel = lazy(() =>
+  import('./evidence/EvidenceDagPanel').then((module) => ({ default: module.EvidenceDagPanel }))
 )
 const GitCheckpointPanel = lazy(() =>
   import('./GitCheckpointPanel').then((module) => ({ default: module.GitCheckpointPanel }))
@@ -1083,6 +1086,7 @@ export function Workbench(): ReactElement {
 
   const toggleTopBarRightPanelMode = (mode: Exclude<RightPanelMode, null>): void => {
     if (mode === 'file') setFileTreeWorkspaceOverride(null)
+    if (mode === 'evidence') setRightSidebarWidth((width) => Math.max(width, CODE_PANEL_PREFERRED))
     toggleRightPanelMode(mode)
   }
 
@@ -2055,6 +2059,13 @@ export function Workbench(): ReactElement {
                 className="h-full max-h-full w-full"
                 onCollapse={closeRightPanel}
               />
+            ) : rightPanelMode === 'evidence' ? (
+              <EvidenceDagPanel
+                activeThreadId={activeThreadId}
+                runtimeId={activeThread?.runtimeId}
+                className="h-full max-h-full w-full"
+                onCollapse={closeRightPanel}
+              />
             ) : rightPanelMode === 'browser' ? (
               <DevBrowserPanel
                 blocks={devPreviewBlocks}
@@ -2223,6 +2234,7 @@ export function Workbench(): ReactElement {
                   <WorkbenchTopBar
                     rightPanelMode={rightPanelMode}
                     onToggleRightPanelMode={toggleTopBarRightPanelMode}
+                    workspaceRoot={activeWorkspaceReferenceRoot}
                     planPanelEnabled={Boolean(activeGuiPlan)}
                     paperRadarEnabled={paperRadarEnabled}
                     terminalOpen={terminalOpen}
@@ -2241,15 +2253,6 @@ export function Workbench(): ReactElement {
                       void openResearchMemoryWorkspace().catch((error) => {
                         setError(error instanceof Error ? error.message : String(error))
                       })
-                    }}
-                    onOpenEvidenceDag={() => {
-                      const id = (activeThreadId ?? '').trim()
-                      if (id && typeof window.sciforge?.openEvidenceDag === 'function') {
-                        void window.sciforge.openEvidenceDag({
-                          threadId: id,
-                          runtimeId: activeThread?.runtimeId
-                        }).catch(() => undefined)
-                      }
                     }}
                   />
                 </div>

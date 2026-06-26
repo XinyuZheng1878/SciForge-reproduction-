@@ -3,8 +3,8 @@
 Standalone, dependency-light **Python** service (`packages/workers/evidence-dag`) that
 turns an agent trace into a typed **claim–evidence DAG**, verifies its `supports` edges
 with an NLI judge, and serialises losslessly to **PROV-JSON**. It is the engine half of the
-"living evidence DAG" — the React view + the kun/codex trace-feed seam live in the SciForge
-desktop app (`src/main/runtime/evidence-dag-feed.ts`, `src/renderer/.../WorkbenchTopBar.tsx`).
+"living evidence DAG" — the embedded Workbench view, sidecar launcher, and trace-feed contract live in this
+package's `desktop/` modules and are called from the SciForge desktop app.
 
 The service returns structured **`ServiceResult`** evidence only (graph, provenance,
 metrics) — never a user-level final answer or completion truth.
@@ -21,7 +21,7 @@ metrics) — never a user-level final answer or completion truth.
 | Data contract (Node/Edge/enums, content-addressed ids, dedup key) | `src/evidence_dag/model.py` |
 | Thread graph: dedup, cycle detection, provenance traversal, topo layers | `src/evidence_dag/graph.py` |
 | PROV-JSON serialize/deserialize (lossless round-trip) | `src/evidence_dag/provjson.py` |
-| OpenAI-compatible LLM client (+ offline stub) | `src/evidence_dag/llm.py` |
+| Model Router client (+ offline stub) | `src/evidence_dag/llm.py` |
 | Trace → DAG extractor (LLM structured output) | `src/evidence_dag/extractor.py` |
 | L2 verifier: NLI ν per supports edge, noisy-OR status | `src/evidence_dag/verifier.py` |
 | Four AAR metrics | `src/evidence_dag/metrics.py` |
@@ -29,7 +29,8 @@ metrics) — never a user-level final answer or completion truth.
 | Reconcile / what-if 扰动 (deterministic, read-only) | `src/evidence_dag/reconcile.py` |
 | Engine facade + per-thread persistence | `src/evidence_dag/service.py` |
 | HTTP service (`ServiceResult`) | `src/evidence_dag/server.py` |
-| Bundled web UI (graph view, served at `/`) | `ui/index.html` |
+| Bundled Workbench UI (graph view, served at `/`) | `ui/index.html` |
+| Desktop contract/sidecar modules | `desktop/*.ts` |
 | Demo multi-turn traces for acceptance | `samples/*.json`, `samples/load.py` |
 
 ## Run
@@ -38,25 +39,30 @@ As an npm workspace (installs the Python package editable, then serves on :3897)
 
 ```bash
 export SCIFORGE_EVIDENCE_DAG_API_KEY=dev-token
+export EDAG_MODEL_ROUTER_BASE_URL=http://127.0.0.1:3892/v1
+export EDAG_MODEL_ROUTER_API_KEY=local-router-key
+export EDAG_MODEL_ROUTER_MODEL=sciforge-router
 npm --workspace @sciforge/evidence-dag run start
 ```
 
-Or directly (what the one-click launcher does):
+The desktop app normally starts this sidecar automatically from
+`desktop/sidecar.ts`, using the app's local Model Router settings. Direct runs are
+for diagnostics:
 
 ```powershell
 cd packages/workers/evidence-dag
 python -m pip install -r requirements.txt    # networkx (stdlib otherwise)
 $env:PYTHONPATH = 'src'; $env:PYTHONUTF8 = '1'
 $env:EDAG_STORAGE_DIR = '.\out\threads'      # optional PROV-JSON persistence
-# LLM env enables extraction + verify (omit for an offline graph-only server):
-$env:EDAG_LLM_BASE_URL = 'http://35.220.164.252:3888/v1'
-$env:EDAG_LLM_API_KEY  = 'sk-...'
-$env:EDAG_LLM_MODEL    = 'bailian/deepseek-v4-flash'
+$env:EDAG_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
+$env:EDAG_MODEL_ROUTER_API_KEY  = 'local-router-key'
+$env:EDAG_MODEL_ROUTER_MODEL    = 'sciforge-router'
 $env:SCIFORGE_EVIDENCE_DAG_API_KEY = 'dev-token'
 python -m evidence_dag.server                # http://127.0.0.1:3897
 ```
 
-Load the demo traces into a running engine, then open `http://127.0.0.1:3897/`:
+Load the sample traces into a running engine for diagnostics, then open
+`http://127.0.0.1:3897/#token=dev-token` or use the Workbench right-panel item:
 
 ```bash
 SCIFORGE_EVIDENCE_DAG_API_KEY=dev-token python samples/load.py
@@ -86,6 +92,10 @@ All JSON APIs except `/health` and the bundled UI require
 without a configured API key, JSON APIs return `UNAVAILABLE` instead of running
 open on localhost.
 
+The bundled UI reads the token from the URL hash fragment, removes it from the
+address bar, and then sends JSON API requests with the same bearer token. The
+desktop Workbench right-panel item fills this in automatically from the main-process env.
+
 `/analysis` (read-only, no LLM) reports **load-bearing** nodes (dominators ≥2 conclusions
 depend on), **fragile** conclusions (ungrounded / single-source / contested), and
 **hidden shared-source** claims (look multi-supported but every path funnels through one
@@ -98,9 +108,9 @@ thread's graph incrementally across turns; default replaces it (whole-conversati
 
 | Var | Default | Meaning |
 |---|---|---|
-| `EDAG_LLM_BASE_URL` | — | OpenAI-compatible base url (enables extraction/verify; omit for offline) |
-| `EDAG_LLM_API_KEY` | — | Bearer key |
-| `EDAG_LLM_MODEL` | `bailian/deepseek-v4-flash` | extraction + NLI-judge model |
+| `EDAG_MODEL_ROUTER_BASE_URL` | — | local Model Router base URL (enables extraction/verify; omit for offline) |
+| `EDAG_MODEL_ROUTER_API_KEY` | — | Model Router runtime bearer key |
+| `EDAG_MODEL_ROUTER_MODEL` | `sciforge-router` | public Model Router alias |
 | `EDAG_AUTO_VERIFY` | `1` | auto-verify supports edges right after ingest |
 | `EDAG_STORAGE_DIR` | — | if set, each thread's DAG is persisted as PROV-JSON |
 | `EDAG_HOST` / `EDAG_PORT` | `127.0.0.1` / `3897` | HTTP bind |
@@ -119,16 +129,18 @@ Evidence-DAG seam. Touch points in the app:
 
 | Piece | Location |
 |---|---|
+| Embedded view + sidecar modules | `packages/workers/evidence-dag/desktop/*.ts` |
 | Mapping + feed (pure mapping + fail-open client) | `src/main/runtime/evidence-dag-feed.ts` |
 | Call site (completed turn, fire-and-forget) | `src/main/runtime/agent-runtime/host.ts` |
-| Open UI | `evidenceDag:open` IPC + Workbench top-bar Evidence DAG button |
+| Resolve UI view | `evidenceDag:view` IPC + Workbench right-panel Evidence DAG item |
 
-GUI main-process env (unset = the seam is a no-op, behaviour unchanged):
+GUI main-process env. In normal app runs `desktop/sidecar.ts` fills these from the
+managed sidecar config; manual env remains useful for diagnostics:
 
 | Var | Default | Meaning |
 |---|---|---|
-| `SCIFORGE_EVIDENCE_DAG_SERVICE_URL` | — | engine base url (gate; unset = off) |
-| `SCIFORGE_EVIDENCE_DAG_API_KEY` | — | required Bearer; GUI feed is disabled without it |
+| `SCIFORGE_EVIDENCE_DAG_SERVICE_URL` | `http://127.0.0.1:3897` | engine base URL |
+| `SCIFORGE_EVIDENCE_DAG_API_KEY` | generated | required Bearer for app feed/view |
 | `SCIFORGE_EVIDENCE_DAG_TIMEOUT_MS` | `600000` | per-feed timeout (fire-and-forget) |
 
 `trace_ref` reuses the neutral `AgentRuntimeItem.id` (stable, persistent); when the LLM does

@@ -323,6 +323,14 @@ export type ComputerUseStatusView = {
   permissions: ComputerUsePermissions
   runtime: ComputerUseRuntimeStatusView
 }
+export type EvidenceDagViewRequest = {
+  threadId?: string
+  runtimeId?: AgentRuntimeId
+}
+export type EvidenceDagViewResult = {
+  url: string
+  threadId?: string
+}
 export type ConnectPhoneInstallQrResult =
   | { ok: true; url: string; deviceCode: string; userCode: string; interval: number; expireIn: number }
   | { ok: false; message: string }
@@ -613,7 +621,7 @@ export type SciForgeApi = {
     kind: ComputerUsePermissionKind
   ) => Promise<ComputerUsePermissions>
   getComputerUseStatus: () => Promise<ComputerUseStatusView>
-  openEvidenceDag: (input: { threadId: string; runtimeId?: AgentRuntimeId }) => Promise<void>
+  getEvidenceDagView: (input: EvidenceDagViewRequest) => Promise<EvidenceDagViewResult>
   showTurnCompleteNotification: (
     payload: TurnCompleteNotificationPayload
   ) => Promise<SystemNotificationResult>

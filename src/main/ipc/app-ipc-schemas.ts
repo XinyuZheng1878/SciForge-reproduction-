@@ -1569,7 +1569,7 @@ export const shellOpenExternalUrlSchema = trimmedString(MAX_URL_LENGTH).refine(
   { message: 'Only http, https, and mailto URLs are allowed.' }
 )
 
-export const evidenceDagOpenPayloadSchema = z
+export const evidenceDagViewPayloadSchema = z
   .object({
     threadId: optionalTrimmedString(MAX_ID_LENGTH),
     runtimeId: agentRuntimeIdSchema.optional()

@@ -12,7 +12,7 @@
     "runtimeAdapter": false,
     "mcpServer": false,
     "language": "python",
-    "packagingStrategy": "Python sidecar (stdlib + networkx, requires-python >=3.10). `npm run start` runs `pip install -e .` then `python -m evidence_dag.server` on :3897. The desktop app reaches it over HTTP only (SCIFORGE_EVIDENCE_DAG_SERVICE_URL); it never imports renderer/main code. ship the src/ + ui/ + pyproject.toml; the launcher sets PYTHONPATH and the LLM/storage env."
+    "packagingStrategy": "Python sidecar (stdlib + networkx, requires-python >=3.10). `npm run start` runs `pip install -e .` then `python -m evidence_dag.server` on :3897. The desktop app reaches it over HTTP only (SCIFORGE_EVIDENCE_DAG_SERVICE_URL) through the package desktop sidecar and embedded-view contract modules. LLM calls use only Model Router env (EDAG_MODEL_ROUTER_*); ship the src/ + ui/ + desktop/ + pyproject.toml."
   },
   "scripts": {
     "prestart": "python -m pip install -q -e .",

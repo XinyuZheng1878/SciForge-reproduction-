@@ -1,8 +1,8 @@
-"""Pluggable OpenAI-compatible chat client (stdlib only) + offline stub.
+"""Pluggable Model Router client (stdlib only) + offline stub.
 
 The extractor and the NLI judge both depend on this. Real runs hit an
-OpenAI-compatible `chat/completions` endpoint (DeepSeek-V4 by default); tests
-inject `StubLLM` so they run fully offline and deterministically.
+in-app Model Router `/v1/responses` endpoint; tests inject `StubLLM` so they
+run fully offline and deterministically.
 """
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ class LLM(Protocol):
              max_tokens: int = 2048) -> str: ...
 
 
-class OpenAICompatLLM:
-    """Minimal chat client with retry/backoff (robustness lives in the module)."""
+class ModelRouterLLM:
+    """Minimal Model Router responses client with retry/backoff."""
 
     def __init__(
         self,
@@ -33,35 +33,41 @@ class OpenAICompatLLM:
         retry_base_s: float = 1.5,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        self.base_url = (base_url or os.environ.get("EDAG_LLM_BASE_URL", "")).rstrip("/")
-        self.api_key = api_key or os.environ.get("EDAG_LLM_API_KEY", "")
-        self.model = model or os.environ.get("EDAG_LLM_MODEL", "bailian/deepseek-v4-flash")
+        self.base_url = (base_url or os.environ.get("EDAG_MODEL_ROUTER_BASE_URL", "")).rstrip("/")
+        self.api_key = api_key or os.environ.get("EDAG_MODEL_ROUTER_API_KEY", "")
+        self.model = model or os.environ.get("EDAG_MODEL_ROUTER_MODEL", "sciforge-router")
         self.timeout_s = timeout_s
         self.max_attempts = max_attempts
         self.retry_base_s = retry_base_s
         self._sleep = sleep
         if not self.base_url:
-            raise ValueError("EDAG_LLM_BASE_URL not set")
+            raise ValueError("EDAG_MODEL_ROUTER_BASE_URL not set")
+        if not self.api_key:
+            raise ValueError("EDAG_MODEL_ROUTER_API_KEY not set")
 
     def chat(self, messages: list[dict], *, temperature: float = 0.0,
              max_tokens: int = 2048) -> str:
         payload = json.dumps({
             "model": self.model,
-            "messages": messages,
+            "instructions": _system_text(messages),
+            "input": _conversation_text(messages),
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_output_tokens": max_tokens,
+            "metadata": {
+                "source": "evidence-dag",
+                "operation": "extract-or-verify",
+            },
         }).encode("utf-8")
-        url = f"{self.base_url}/chat/completions"
+        url = f"{self.base_url}/responses" if self.base_url.endswith("/v1") else f"{self.base_url}/v1/responses"
         last_err: Optional[Exception] = None
         for attempt in range(1, self.max_attempts + 1):
             req = urllib.request.Request(url, data=payload, method="POST")
             req.add_header("Content-Type", "application/json")
-            if self.api_key:
-                req.add_header("Authorization", f"Bearer {self.api_key}")
+            req.add_header("Authorization", f"Bearer {self.api_key}")
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
                     body = json.loads(resp.read().decode("utf-8"))
-                return body["choices"][0]["message"]["content"] or ""
+                return _response_text(body)
             except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, KeyError) as exc:
                 last_err = exc
                 if attempt < self.max_attempts:
@@ -99,3 +105,53 @@ def _split_nli_user(user: str) -> tuple[str, str]:
         elif line.startswith("HYPOTHESIS:"):
             hypothesis = line[len("HYPOTHESIS:"):].strip()
     return premise, hypothesis
+
+
+def _message_content_text(message: dict) -> str:
+    content = message.get("content", "")
+    if isinstance(content, str):
+        return content
+    try:
+        return json.dumps(content, ensure_ascii=False)
+    except TypeError:
+        return str(content)
+
+
+def _system_text(messages: list[dict]) -> str:
+    return "\n\n".join(
+        _message_content_text(message).strip()
+        for message in messages
+        if message.get("role") == "system" and _message_content_text(message).strip()
+    )
+
+
+def _conversation_text(messages: list[dict]) -> str:
+    parts: list[str] = []
+    for message in messages:
+        role = str(message.get("role", "user"))
+        if role == "system":
+            continue
+        text = _message_content_text(message).strip()
+        if text:
+            parts.append(f"{role.upper()}: {text}")
+    return "\n\n".join(parts) or ""
+
+
+def _response_text(body: dict) -> str:
+    text = body.get("output_text")
+    if isinstance(text, str):
+        return text
+    output = body.get("output")
+    if isinstance(output, list):
+        chunks: list[str] = []
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if isinstance(block, dict) and isinstance(block.get("text"), str):
+                    chunks.append(block["text"])
+        return "".join(chunks)
+    return ""

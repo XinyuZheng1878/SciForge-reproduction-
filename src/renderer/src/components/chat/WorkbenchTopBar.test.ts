@@ -29,4 +29,25 @@ describe('WorkbenchTopBar Paper Radar entry', () => {
     expect(html).toContain('Paper Radar')
     expect(html).toContain('aria-pressed="true"')
   })
+
+  it('shows Evidence DAG as a right panel item', () => {
+    const html = renderToStaticMarkup(createElement(WorkbenchTopBar, {
+      rightPanelMode: 'evidence',
+      onToggleRightPanelMode: vi.fn()
+    }))
+
+    expect(html).toContain('Evidence DAG')
+    expect(html).toContain('aria-pressed="true"')
+  })
+
+  it('renders separate controls for opening the workspace and choosing the default editor', () => {
+    const html = renderToStaticMarkup(createElement(WorkbenchTopBar, {
+      rightPanelMode: null,
+      onToggleRightPanelMode: vi.fn(),
+      workspaceRoot: '/workspace/sciforge'
+    }))
+
+    expect(html).toContain('aria-label="Open workspace in editor"')
+    expect(html).toContain('aria-label="Choose default editor"')
+  })
 })

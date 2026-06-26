@@ -5,6 +5,7 @@ const CLIENT_ID_STORAGE_KEY = 'sciforge.dev-browser-bridge.client-id'
 const TOKEN_STORAGE_KEY = 'sciforge.dev-browser-bridge.token'
 const TOKEN_HEADER = 'X-SciForge-Bridge-Token'
 const TOKEN_QUERY_PARAM = 'sciforgeBridgeToken'
+const DEFAULT_BRIDGE_TOKEN = 'sciforge-dev-browser-bridge'
 
 type BridgeEnvelope<T> =
   | { ok: true; payload: T }
@@ -67,7 +68,7 @@ function resolveBridgeToken(): string {
   }
   const fromEnv = (import.meta.env.VITE_SCIFORGE_DEV_BROWSER_BRIDGE_TOKEN ?? '').trim()
   if (fromEnv) return fromEnv
-  return storageGet(globalThis.sessionStorage, TOKEN_STORAGE_KEY)?.trim() ?? ''
+  return storageGet(globalThis.sessionStorage, TOKEN_STORAGE_KEY)?.trim() || DEFAULT_BRIDGE_TOKEN
 }
 
 function ensureEventSource(): void {
@@ -293,7 +294,7 @@ function createApi(): SciForgeApi {
     getComputerUsePermissions: () => invoke('computer-use:permissions'),
     requestComputerUsePermission: (kind) => invoke('computer-use:request-permission', kind),
     getComputerUseStatus: () => invoke('computer-use:status'),
-    openEvidenceDag: (input) => invoke('evidenceDag:open', input),
+    getEvidenceDagView: (input) => invoke('evidenceDag:view', input),
     showTurnCompleteNotification: (payload) => invoke('notification:turn-complete', payload),
     getAppVersion: () => invoke('app:version'),
     getGuiUpdateState: () => invoke('gui:update-state'),

@@ -85,14 +85,19 @@ describe('dev sciforge browser bridge', () => {
       'http://127.0.0.1:5174/invoke',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({ 'X-SciForge-Client': 'client-1' }),
+        headers: expect.objectContaining({
+          'X-SciForge-Client': 'client-1',
+          'X-SciForge-Bridge-Token': 'sciforge-dev-browser-bridge'
+        }),
         body: JSON.stringify({
           channel: 'agentRuntime:listThreads',
           payload: { runtimeId: 'codex' }
         })
       })
     )
-    expect(MockEventSource.instances[0]?.url).toBe('http://127.0.0.1:5174/events?clientId=client-1')
+    expect(MockEventSource.instances[0]?.url).toBe(
+      'http://127.0.0.1:5174/events?clientId=client-1&sciforgeBridgeToken=sciforge-dev-browser-bridge'
+    )
   })
 
   it('sends a configured bridge token with invoke requests', async () => {

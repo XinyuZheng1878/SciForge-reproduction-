@@ -278,7 +278,7 @@ const api = {
   requestComputerUsePermission: (kind) =>
     ipcRenderer.invoke('computer-use:request-permission', kind),
   getComputerUseStatus: () => ipcRenderer.invoke('computer-use:status'),
-  openEvidenceDag: (input) => ipcRenderer.invoke('evidenceDag:open', input),
+  getEvidenceDagView: (input) => ipcRenderer.invoke('evidenceDag:view', input),
   showTurnCompleteNotification: (payload) => ipcRenderer.invoke('notification:turn-complete', payload),
   getAppVersion: () => ipcRenderer.invoke('app:version'),
   getGuiUpdateState: () => ipcRenderer.invoke('gui:update-state'),

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { AppBridgeSender } from './ipc/register-app-ipc-handlers'
@@ -10,6 +10,7 @@ const MAX_INVOKE_BODY_BYTES = 2_000_000
 const CLIENT_DESTROY_DELAY_MS = 1_000
 export const DEV_BROWSER_BRIDGE_TOKEN_HEADER = 'X-SciForge-Bridge-Token'
 export const DEV_BROWSER_BRIDGE_TOKEN_QUERY_PARAM = 'sciforgeBridgeToken'
+export const DEV_BROWSER_BRIDGE_DEFAULT_TOKEN = 'sciforge-dev-browser-bridge'
 const DEV_BROWSER_BRIDGE_ALLOWED_HEADERS = [
   'Content-Type',
   'Authorization',
@@ -80,6 +81,7 @@ type StartDevBrowserBridgeServerOptions = {
   port?: number
   token?: string
   allowedChannels?: readonly string[]
+  allowAllChannels?: boolean
 }
 
 class DevBrowserBridgeClient extends EventEmitter implements AppBridgeSender {
@@ -192,7 +194,7 @@ function normalizeToken(value: string | undefined): string | undefined {
 }
 
 function createBridgeToken(configuredToken: string | undefined): string {
-  return normalizeToken(configuredToken) ?? randomBytes(32).toString('hex')
+  return normalizeToken(configuredToken) ?? DEV_BROWSER_BRIDGE_DEFAULT_TOKEN
 }
 
 function timingSafeStringEqual(actual: string, expected: string): boolean {
@@ -312,7 +314,7 @@ export async function startDevBrowserBridgeServer(
       void (async () => {
         try {
           const body = parseInvokeBody(await readJsonBody(request))
-          if (!allowedChannels.has(body.channel)) {
+          if (!options.allowAllChannels && !allowedChannels.has(body.channel)) {
             writeJson(response, 403, {
               ok: false,
               message: `Dev browser bridge channel is not allowed: ${body.channel}`

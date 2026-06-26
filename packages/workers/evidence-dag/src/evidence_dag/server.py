@@ -28,7 +28,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import __version__
-from .llm import OpenAICompatLLM
+from .llm import ModelRouterLLM
 from .service import Engine
 
 SERVICE_ID = "evidence-dag-engine"
@@ -379,8 +379,8 @@ class Handler(BaseHTTPRequestHandler):
 def build_engine() -> Engine:
     storage = os.environ.get("EDAG_STORAGE_DIR")
     llm = None
-    if os.environ.get("EDAG_LLM_BASE_URL"):
-        llm = OpenAICompatLLM()
+    if os.environ.get("EDAG_MODEL_ROUTER_BASE_URL"):
+        llm = ModelRouterLLM()
     return Engine(llm, storage_dir=storage)
 
 

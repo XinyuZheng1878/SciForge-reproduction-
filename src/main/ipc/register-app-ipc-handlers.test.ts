@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { shell } from 'electron'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -168,6 +167,15 @@ function waitForAbortStream(signal: AbortSignal): AsyncIterable<unknown> {
   }
 }
 
+function stubEvidenceDagReady(status = 200) {
+  const fetchMock = vi.fn(async () => new Response(
+    JSON.stringify({ ok: status >= 200 && status < 300, data: { service: 'evidence-dag-engine' } }),
+    { status }
+  ))
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
 function createPaperRadarServiceMock() {
   return {
     status: vi.fn(async () => ({ ok: true, service: 'sciforge.paper-radar', stats: { papers: 0, arxiv: 0, biorxiv: 0 } })),
@@ -188,6 +196,7 @@ describe('registerAppIpcHandlers', () => {
     handlers.clear()
     vi.clearAllMocks()
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
   })
 
   it('rejects invalid settings patches at the handler boundary', async () => {
@@ -333,16 +342,113 @@ describe('registerAppIpcHandlers', () => {
     expect(pdfAnnotations.importPdfAnnotationSidecarPackage).not.toHaveBeenCalled()
   })
 
-  it('opens Evidence DAG with a runtime-scoped thread id', async () => {
+  it('returns an Evidence DAG view URL with a runtime-scoped thread id', async () => {
     vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:4897/')
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_API_KEY', 'test-token')
+    const fetchMock = stubEvidenceDagReady()
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
 
     registerAppIpcHandlers(registerOptions())
 
-    const handler = handlers.get('evidenceDag:open')
+    const handler = handlers.get('evidenceDag:view')
     expect(handler).toBeTypeOf('function')
-    await handler?.({}, { runtimeId: 'codex', threadId: 'thread-1' })
-    expect(shell.openExternal).toHaveBeenCalledWith('http://127.0.0.1:4897/?thread=codex%3Athread-1')
+    await expect(handler?.({}, { runtimeId: 'codex', threadId: 'thread-1' })).resolves.toEqual({
+      threadId: 'thread-1',
+      url: 'http://127.0.0.1:4897/?thread=codex%3Athread-1#token=test-token'
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:4897/version',
+      expect.objectContaining({
+        method: 'GET',
+        headers: { authorization: 'Bearer test-token' }
+      })
+    )
+  })
+
+  it('returns the global Evidence DAG view without an active thread', async () => {
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:4897/')
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_API_KEY', 'test-token')
+    stubEvidenceDagReady()
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+
+    registerAppIpcHandlers(registerOptions())
+
+    await expect(handlers.get('evidenceDag:view')?.({}, {})).resolves.toEqual({
+      url: 'http://127.0.0.1:4897/#token=test-token'
+    })
+  })
+
+  it('rejects Evidence DAG view when the service is not configured', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+
+    registerAppIpcHandlers(registerOptions())
+
+    await expect(
+      handlers.get('evidenceDag:view')?.({}, { runtimeId: 'codex', threadId: 'thread-1' })
+    ).rejects.toThrow(/Evidence DAG is not ready/)
+  })
+
+  it('rejects Evidence DAG view when the service health check fails', async () => {
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:4897/')
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_API_KEY', 'test-token')
+    stubEvidenceDagReady(503)
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+
+    registerAppIpcHandlers(registerOptions())
+
+    await expect(
+      handlers.get('evidenceDag:view')?.({}, { runtimeId: 'codex', threadId: 'thread-1' })
+    ).rejects.toThrow(/Evidence DAG service is not reachable/)
+  })
+
+  it('backfills the active thread into Evidence DAG when loading the view', async () => {
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:4897/')
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_API_KEY', 'test-token')
+    const fetchMock = stubEvidenceDagReady()
+    const agentRuntime = {
+      readThread: vi.fn(async () => ({
+        id: 'thread-1',
+        runtimeId: 'codex',
+        title: 'Thread',
+        updatedAt: '2026-06-26T00:00:00.000Z',
+        latestSeq: 1,
+        items: [
+          { id: 'u1', turnId: 'turn-1', kind: 'user_message', text: 'question' },
+          { id: 'a1', turnId: 'turn-1', kind: 'assistant_message', text: 'answer' }
+        ]
+      }))
+    }
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+
+    registerAppIpcHandlers(registerOptions({ agentRuntime: agentRuntime as never }))
+
+    await expect(
+      handlers.get('evidenceDag:view')?.({}, { runtimeId: 'codex', threadId: 'thread-1' })
+    ).resolves.toEqual({
+      threadId: 'thread-1',
+      url: 'http://127.0.0.1:4897/?thread=codex%3Athread-1#token=test-token'
+    })
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:4897/threads/codex%3Athread-1/ingest-trace',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            authorization: 'Bearer test-token',
+            'content-type': 'application/json'
+          }),
+          body: JSON.stringify({
+            trace: [
+              { id: 'u1', type: 'message', role: 'user', content: 'question' },
+              { id: 'a1', type: 'message', role: 'assistant', content: 'answer' }
+            ],
+            merge: true
+          })
+        })
+      )
+    })
+    expect(agentRuntime.readThread).toHaveBeenCalledWith({ runtimeId: 'codex', threadId: 'thread-1' })
   })
 
   it('returns a dispatcher for dev browser bridge calls that uses the same handlers', async () => {
@@ -1184,19 +1290,22 @@ describe('registerAppIpcHandlers', () => {
     expect(mainWindow.close).toHaveBeenCalledTimes(1)
   })
 
-  it('opens Evidence DAG with a runtime-scoped thread id from the main process environment', async () => {
+  it('returns Evidence DAG view with a runtime-scoped thread id from the main process environment', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:4897/')
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_API_KEY', 'main-process-token')
+    stubEvidenceDagReady()
 
     registerAppIpcHandlers(registerOptions())
 
     await expect(
-      handlers.get('evidenceDag:open')?.({}, {
+      handlers.get('evidenceDag:view')?.({}, {
         runtimeId: 'claude',
         threadId: ' thread-1 '
       })
-    ).resolves.toBeUndefined()
-
-    expect(shell.openExternal).toHaveBeenCalledWith('http://127.0.0.1:4897/?thread=claude%3Athread-1')
+    ).resolves.toEqual({
+      threadId: 'thread-1',
+      url: 'http://127.0.0.1:4897/?thread=claude%3Athread-1#token=main-process-token'
+    })
   })
 })

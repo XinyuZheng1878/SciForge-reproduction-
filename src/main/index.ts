@@ -46,6 +46,10 @@ import { fetchUpstreamModelIds } from './upstream-models'
 import { decideDevPreviewPopup } from './dev-preview-popup-policy'
 import { ensureModelRouterConfigFile, ensureModelRouterSidecar, stopModelRouterSidecar } from './model-router-sidecar'
 import {
+  ensureEvidenceDagSidecar,
+  stopEvidenceDagSidecar
+} from '../../packages/workers/evidence-dag/desktop/sidecar'
+import {
   paperRadarDbPath,
   paperRadarProfilesPath,
   stopPaperRadarSidecar
@@ -447,6 +451,7 @@ async function stopManagedRuntimes(): Promise<void> {
       codeNavigationService?.shutdown()
       paperRadarWorkerService?.close()
       paperRadarWorkerService = null
+      await stopEvidenceDagSidecar()
       await stopModelRouterSidecar()
       await stopPaperRadarSidecar()
       stopWeixinBridgeRuntime()
@@ -1454,6 +1459,15 @@ app.whenReady().then(async () => {
       message: error instanceof Error ? error.message : String(error)
     })
   })
+  void ensureEvidenceDagSidecar(initial, {
+    userDataDir: app.getPath('userData'),
+    appRoot: app.getAppPath(),
+    log: (message) => logWarn('evidence-dag', message)
+  }).catch((error) => {
+    logWarn('evidence-dag', 'Failed to auto-start Evidence DAG.', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+  })
   codeNavigationService = new LspCodeNavigationService()
   const modelAuditRecorder = new ModelRequestAuditRecorder()
   const contextStateService = new RuntimeContextStateService()
@@ -1616,6 +1630,15 @@ app.whenReady().then(async () => {
           message: error instanceof Error ? error.message : String(error)
         })
       })
+      void ensureEvidenceDagSidecar(saved, {
+        userDataDir: app.getPath('userData'),
+        appRoot: app.getAppPath(),
+        log: (message) => logWarn('evidence-dag', message)
+      }).catch((error) => {
+        logWarn('evidence-dag', 'Failed to auto-start Evidence DAG after settings change.', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
     }
     scheduleRuntime?.sync(saved)
     workflowRuntime?.sync(saved)
@@ -1688,14 +1711,23 @@ app.whenReady().then(async () => {
     readGuiUpdateState,
     loadGuiUpdaterModule,
     resolveLogDirectory,
-    logError
+    logError,
+    ensureEvidenceDagReady: async () => {
+      const settings = await store.load()
+      await ensureEvidenceDagSidecar(settings, {
+        userDataDir: app.getPath('userData'),
+        appRoot: app.getAppPath(),
+        log: (message) => logWarn('evidence-dag', message)
+      })
+    }
   })
 
   if (!app.isPackaged && process.env.SCIFORGE_DEV_BROWSER_BRIDGE !== '0') {
     const devBrowserBridgeToken = resolveDevBrowserBridgeToken()
     void startDevBrowserBridgeServer({
       dispatcher: appBridgeDispatcher,
-      token: devBrowserBridgeToken
+      token: devBrowserBridgeToken,
+      allowAllChannels: true
     }).then((server) => {
       devBrowserBridgeServer = server
       console.info(`[sciforge dev] browser bridge listening at ${server.url}`)

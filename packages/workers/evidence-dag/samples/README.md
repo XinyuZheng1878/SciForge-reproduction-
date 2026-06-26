@@ -13,18 +13,20 @@ verify），随后在 UI 下拉框出现。都取材自**真实可核查**的科
 
 ## 用法
 
-引擎先跑起来（端口 3897，带 LLM env）：
+引擎先跑起来（端口 3897，带 Model Router env）。正常桌面 App 会自动启动它；下面是诊断用手动方式：
 
 ```powershell
 cd packages/workers/evidence-dag; $env:PYTHONPATH='src'; $env:PYTHONUTF8='1'; $env:EDAG_STORAGE_DIR='./out/threads'
-$env:EDAG_LLM_BASE_URL='http://35.220.164.252:3888/v1'; $env:EDAG_LLM_API_KEY='sk-...'; $env:EDAG_LLM_MODEL='bailian/deepseek-v4-flash'
+$env:EDAG_MODEL_ROUTER_BASE_URL='http://127.0.0.1:3892/v1'; $env:EDAG_MODEL_ROUTER_API_KEY='local-router-key'; $env:EDAG_MODEL_ROUTER_MODEL='sciforge-router'
+$env:SCIFORGE_EVIDENCE_DAG_API_KEY='dev-token'
 python -m evidence_dag.server
 ```
 
 另开一个终端灌入全部样例（每条 extract + 自动 verify，约 30–60s）：
 
 ```powershell
-python samples/load.py        # 或 $env:EDAG_URL='http://127.0.0.1:3897'; python samples/load.py
+$env:SCIFORGE_EVIDENCE_DAG_API_KEY='dev-token'; python samples/load.py
+# 或 $env:EDAG_URL='http://127.0.0.1:3897'; $env:SCIFORGE_EVIDENCE_DAG_API_KEY='dev-token'; python samples/load.py
 ```
 
-然后打开 `http://127.0.0.1:3897/`，在下拉框选 `sample-*` 线程查看其证据 DAG、点 claim 看证据回溯。
+然后打开 `http://127.0.0.1:3897/#token=dev-token`，或在 Workbench 顶栏点 Evidence DAG，在右侧内置栏查看当前线程视角。

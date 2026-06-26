@@ -14,7 +14,7 @@ import {
   agentRuntimeStartTurnPayloadSchema,
   connectPhoneInstallQrPayloadSchema,
   connectPhoneInstallPollPayloadSchema,
-  evidenceDagOpenPayloadSchema,
+  evidenceDagViewPayloadSchema,
   isSafeOpenExternalUrl,
   pdfAnnotationSidecarImportPayloadSchema,
   pdfAnnotationSidecarLoadPayloadSchema,
@@ -88,8 +88,8 @@ describe('app-ipc-schemas', () => {
     ).toThrow()
   })
 
-  it('accepts Evidence DAG open payloads for Claude runtime threads', () => {
-    expect(evidenceDagOpenPayloadSchema.parse({
+  it('accepts Evidence DAG view payloads for Claude runtime threads', () => {
+    expect(evidenceDagViewPayloadSchema.parse({
       runtimeId: 'claude',
       threadId: ' thread-1 '
     })).toEqual({

@@ -471,6 +471,17 @@ async function openWithResolvedEditor(
   column?: number
 ): Promise<void> {
   if (editor.id === 'finder') {
+    let targetIsDirectory = false
+    try {
+      targetIsDirectory = (await stat(targetPath)).isDirectory()
+    } catch {
+      targetIsDirectory = false
+    }
+    if (targetIsDirectory) {
+      const result = await openPathWithShell(targetPath)
+      if (!result.ok) throw new Error(result.message ?? 'Could not open path.')
+      return
+    }
     shell.showItemInFolder(targetPath)
     return
   }

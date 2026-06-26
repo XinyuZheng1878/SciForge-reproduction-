@@ -245,6 +245,34 @@ describe('dev browser bridge server', () => {
     )
   })
 
+  it('allows all app bridge channels when explicitly enabled for local dev parity', async () => {
+    const invoke = vi.fn(async (_channel, payload) => ({ ok: true, payload }))
+    const dispatcher: DevBrowserBridgeDispatcher = { invoke }
+
+    server = await startDevBrowserBridgeServer({
+      dispatcher,
+      port: 0,
+      token: 'test-bridge-token-123',
+      allowAllChannels: true
+    })
+
+    const response = await postJson('/invoke', {
+      channel: 'agentRuntime:startTurn',
+      payload: { threadId: 'thread-1', text: 'hello' }
+    })
+
+    expect(response.status).toBe(200)
+    expect(JSON.parse(response.body)).toEqual({
+      ok: true,
+      payload: { ok: true, payload: { threadId: 'thread-1', text: 'hello' } }
+    })
+    expect(invoke).toHaveBeenCalledWith(
+      'agentRuntime:startTurn',
+      { threadId: 'thread-1', text: 'hello' },
+      expect.objectContaining({ id: expect.any(Number), send: expect.any(Function) })
+    )
+  })
+
   it('rejects invoke requests for channels outside the default allowlist', async () => {
     const invoke = vi.fn(async () => ({ ok: true }))
     const dispatcher: DevBrowserBridgeDispatcher = { invoke }

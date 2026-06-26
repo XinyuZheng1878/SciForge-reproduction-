@@ -9,7 +9,7 @@ import {
   evidenceDagApiKeyFromEnv,
   evidenceDagServiceUrlFromEnv,
   evidenceDagThreadId
-} from '../../shared/evidence-dag'
+} from '../../../packages/workers/evidence-dag/desktop/contract'
 
 type EngineTraceItem = Record<string, unknown>
 

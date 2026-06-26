@@ -61,7 +61,7 @@ import {
   remoteChannelTaskFromTextPayloadSchema,
   runtimeConfigContentSchema,
   desktopCommandSchema,
-  evidenceDagOpenPayloadSchema,
+  evidenceDagViewPayloadSchema,
   defaultPathSchema,
   gitBranchPayloadSchema,
   guiUpdateChannelSchema,
@@ -109,13 +109,17 @@ import {
   workspaceRootSchema
 } from './app-ipc-schemas'
 import {
+  EVIDENCE_DAG_API_KEY_ENV,
+  EVIDENCE_DAG_SERVICE_URL_ENV,
+  evidenceDagApiKeyFromEnv,
   evidenceDagServiceUrlFromEnv,
   evidenceDagUiUrl
-} from '../../shared/evidence-dag'
+} from '../../../packages/workers/evidence-dag/desktop/contract'
 import type {
   AgentRuntimeAuxiliaryInput,
   AgentRuntimeCapabilities,
   AgentRuntimeId,
+  AgentRuntimeItem,
   AgentRuntimeThread,
   AgentRuntimeThreadDetail,
   AgentRuntimeThreadListInput,
@@ -194,6 +198,7 @@ import {
   savePdfAnnotationSidecar
 } from '../services/pdf-annotation-sidecar-service'
 import { workspaceHtmlPreviewService } from '../services/workspace-html-preview-service'
+import { feedEvidenceDag } from '../runtime/evidence-dag-feed'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -283,6 +288,7 @@ type RegisterAppIpcHandlersOptions = {
   loadGuiUpdaterModule: () => Promise<GuiUpdaterModule>
   resolveLogDirectory: () => string
   logError: (category: string, message: string, detail?: unknown) => void
+  ensureEvidenceDagReady?: () => Promise<void>
   transcribeSpeech?: (
     settings: AppSettingsV1,
     request: SpeechTranscriptionRequest
@@ -294,6 +300,60 @@ function parseIpcPayload<T>(channel: string, schema: z.ZodType<T>, payload: unkn
   if (parsed.success) return parsed.data
   const issue = parsed.error.issues[0]
   throw new Error(`Invalid payload for ${channel}: ${issue?.message ?? 'Bad request.'}`)
+}
+
+const EVIDENCE_DAG_VIEW_HEALTH_TIMEOUT_MS = 1500
+
+function evidenceDagViewConfig(env: Record<string, string | undefined>): {
+  serviceUrl: string
+  apiKey: string
+} {
+  const serviceUrl = evidenceDagServiceUrlFromEnv(env)
+  const apiKey = evidenceDagApiKeyFromEnv(env)
+  if (!serviceUrl || !apiKey) {
+    throw new Error(
+      `Evidence DAG is not ready. The app starts it from Model Router settings; check Model Router status or set ${EVIDENCE_DAG_SERVICE_URL_ENV} and ${EVIDENCE_DAG_API_KEY_ENV} for a manual sidecar.`
+    )
+  }
+  return { serviceUrl, apiKey }
+}
+
+async function assertEvidenceDagServiceReachable(
+  serviceUrl: string,
+  apiKey: string,
+  fetchImpl: typeof fetch | undefined = globalThis.fetch
+): Promise<void> {
+  if (typeof fetchImpl !== 'function') return
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), EVIDENCE_DAG_VIEW_HEALTH_TIMEOUT_MS)
+  try {
+    const response = await fetchImpl(`${serviceUrl}/version`, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        authorization: `Bearer ${apiKey}`
+      },
+      signal: controller.signal
+    })
+    if (!response.ok) {
+      throw new Error(`version returned HTTP ${response.status}`)
+    }
+    const body = await response.json().catch(() => null) as { data?: { service?: unknown } } | null
+    if (body?.data?.service !== 'evidence-dag-engine') {
+      throw new Error('unexpected Evidence DAG service response')
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`Evidence DAG service is not reachable at ${serviceUrl}: ${detail}`)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function evidenceDagBackfillItems(detail: AgentRuntimeThreadDetail): AgentRuntimeItem[] {
+  if (detail.items?.length) return [...detail.items]
+  return (detail.turns ?? []).flatMap((turn) => turn.items ?? [])
 }
 
 function validateMcpConfigContent(content: string): void {
@@ -397,6 +457,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     loadGuiUpdaterModule,
     resolveLogDirectory,
     logError,
+    ensureEvidenceDagReady,
     transcribeSpeech = requestSpeechTranscription
   } = options
   const workspaceFileWatchers = new Map<string, WorkspaceFileWatchRecord>()
@@ -1376,13 +1437,33 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     const validatedUrl = parseIpcPayload('shell:open-external', shellOpenExternalUrlSchema, url)
     await shell.openExternal(validatedUrl)
   })
-  handleInvoke('evidenceDag:open', async (_, payload: unknown) => {
-    const input = parseIpcPayload('evidenceDag:open', evidenceDagOpenPayloadSchema, payload)
-    await shell.openExternal(evidenceDagUiUrl({
-      runtimeId: input.runtimeId,
-      threadId: input.threadId,
-      serviceUrl: evidenceDagServiceUrlFromEnv(process.env)
-    }))
+  handleInvoke('evidenceDag:view', async (_, payload: unknown) => {
+    const input = parseIpcPayload('evidenceDag:view', evidenceDagViewPayloadSchema, payload)
+    await ensureEvidenceDagReady?.()
+    const config = evidenceDagViewConfig(process.env)
+    await assertEvidenceDagServiceReachable(config.serviceUrl, config.apiKey)
+    const backfillThreadId = input.threadId?.trim()
+    if (agentRuntime && backfillThreadId) {
+      void agentRuntime.readThread({
+        runtimeId: input.runtimeId,
+        threadId: backfillThreadId
+      }).then((detail) =>
+        feedEvidenceDag({
+          runtimeId: input.runtimeId ?? '',
+          threadId: backfillThreadId,
+          items: evidenceDagBackfillItems(detail)
+        })
+      ).catch(() => undefined)
+    }
+    return {
+      url: evidenceDagUiUrl({
+        runtimeId: input.runtimeId,
+        threadId: backfillThreadId,
+        serviceUrl: config.serviceUrl,
+        apiKey: config.apiKey
+      }),
+      ...(backfillThreadId ? { threadId: backfillThreadId } : {})
+    }
   })
   handleInvoke('notification:turn-complete', async (_, payload: unknown) =>
     showTurnCompleteNotification(

@@ -1,4 +1,4 @@
-import type { AgentRuntimeId } from './agent-runtime-contract'
+import type { AgentRuntimeId } from '../../../../src/shared/agent-runtime-contract'
 
 export const EVIDENCE_DAG_SERVICE_URL_ENV = 'SCIFORGE_EVIDENCE_DAG_SERVICE_URL'
 export const EVIDENCE_DAG_API_KEY_ENV = 'SCIFORGE_EVIDENCE_DAG_API_KEY'
@@ -39,9 +39,19 @@ export function evidenceDagUiUrl(input: {
   runtimeId?: AgentRuntimeId | string
   threadId?: string | null
   serviceUrl?: string
+  apiKey?: string | null
 }): string {
   const base = normalizeEvidenceDagServiceUrl(input.serviceUrl) || DEFAULT_EVIDENCE_DAG_SERVICE_URL
+  const url = new URL(`${base}/`)
   const threadId = input.threadId?.trim()
-  if (!threadId) return `${base}/`
-  return `${base}/?thread=${encodeURIComponent(evidenceDagThreadId(input.runtimeId, threadId))}`
+  if (threadId) {
+    url.searchParams.set('thread', evidenceDagThreadId(input.runtimeId, threadId))
+  }
+  const apiKey = input.apiKey?.trim()
+  if (apiKey) {
+    const hash = new URLSearchParams()
+    hash.set('token', apiKey)
+    url.hash = hash.toString()
+  }
+  return url.toString()
 }
