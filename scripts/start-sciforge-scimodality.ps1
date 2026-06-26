@@ -20,11 +20,14 @@
 
   Why no GUI code change is needed: the GUI spawns Model Router as a child process with
   env = { ...process.env, ... } (src/main/model-router-sidecar.ts), so the child INHERITS this
-  shell's environment. Exporting SCIFORGE_SCIMODALITY_SERVICE_URL here is enough.
+  shell's environment. Exporting SCIFORGE_SCIMODALITY_SERVICE_URL and
+  SCIFORGE_SCIMODALITY_SERVICE_TOKEN here is enough.
 
   Prerequisites:
     * Node 20+ and npm on PATH; OpenSSH client (ssh) on PATH.
     * Key-based SSH access to the GPU server (no password prompt).
+    * SCIFORGE_SCIMODALITY_SERVICE_TOKEN for the sci-modality worker; in local mode,
+      EXPERT_PROVIDER_API_KEY for the tunneled GPU provider.
     * The GPU server already running its expert stack (on the server:
       `cd packages/workers/sci-modality-router && bash deploy/start.sh`).
     * Model Router enabled + configured (API keys) in the SciForge GUI settings — that is what
@@ -44,6 +47,8 @@ param(
   [int]$SshPort = 2222,
   [int]$ServicePort = 3898,   # sci-modality service port (the one Model Router talks to)
   [int]$ProviderPort = 8001,  # GPU provider port (only tunneled in -Mode local)
+  [string]$ServiceToken = $env:SCIFORGE_SCIMODALITY_SERVICE_TOKEN,
+  [string]$ProviderToken = $env:EXPERT_PROVIDER_API_KEY,
   [int]$ServiceTimeoutMs = 0, # optional override for SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS
   [int]$ReadyTimeoutSec = 60,
   [switch]$Smoke,             # POST one sample protein and print the evidence before launching
@@ -61,17 +66,22 @@ function Info($m) { Write-Host "[start] $m" -ForegroundColor Cyan }
 function Warn($m) { Write-Host "[start] $m" -ForegroundColor Yellow }
 function Die($m) { Write-Host "[start] $m" -ForegroundColor Red; throw $m }
 
-function Test-Health([int]$port) {
+function AuthHeaders([string]$token) {
+  if ($token) { return @{ Authorization = "Bearer $token" } }
+  return @{}
+}
+
+function Test-Health([int]$port, [string]$token = '') {
   try {
-    $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 -Uri "http://127.0.0.1:$port/health"
+    $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 -Headers (AuthHeaders $token) -Uri "http://127.0.0.1:$port/health"
     return $r.StatusCode -eq 200
   } catch { return $false }
 }
 
-function Wait-Health([int]$port, [int]$timeoutSec, [string]$what) {
+function Wait-Health([int]$port, [int]$timeoutSec, [string]$what, [string]$token = '') {
   Info "waiting for $what on :$port (up to ${timeoutSec}s) ..."
   for ($i = 0; $i -lt $timeoutSec; $i++) {
-    if (Test-Health $port) { Info "$what is READY"; return $true }
+    if (Test-Health $port $token) { Info "$what is READY"; return $true }
     Start-Sleep -Seconds 1
   }
   return $false
@@ -83,6 +93,12 @@ try {
   if (-not $npm) { Die 'npm not found on PATH (need Node 20+).' }
   $ssh = (Get-Command ssh -ErrorAction SilentlyContinue).Source
   if (-not $SkipTunnel -and -not $ssh) { Die 'ssh not found on PATH (install the OpenSSH client).' }
+  if (-not $ServiceToken) {
+    Die 'SCIFORGE_SCIMODALITY_SERVICE_TOKEN is required. Pass -ServiceToken or set the environment variable.'
+  }
+  if ($Mode -eq 'local' -and -not $ProviderToken) {
+    Die 'EXPERT_PROVIDER_API_KEY is required in -Mode local. Pass -ProviderToken or set the environment variable.'
+  }
 
   # 1) Dependencies (one-time; heavy because postinstall builds the Kun runtime).
   if (-not $SkipInstall -and -not (Test-Path (Join-Path $RepoRoot 'node_modules'))) {
@@ -112,10 +128,12 @@ try {
 
   # 3) In local mode, run this repo's worker against the tunneled provider.
   if ($Mode -eq 'local') {
-    if (-not $SkipTunnel) { Wait-Health $ProviderPort 30 'GPU provider (tunneled :8001)' | Out-Null }
+    if (-not $SkipTunnel) { Wait-Health $ProviderPort 30 'GPU provider (tunneled :8001)' $ProviderToken | Out-Null }
     $env:EXPERT_PROVIDER_BASE_URL = "http://127.0.0.1:$ProviderPort/v1"
+    $env:EXPERT_PROVIDER_API_KEY = "$ProviderToken"
     $env:SCIMODALITY_ROUTER_HOST = '127.0.0.1'
     $env:SCIMODALITY_ROUTER_PORT = "$ServicePort"
+    $env:SCIMODALITY_ROUTER_RUNTIME_TOKEN = "$ServiceToken"
     Info "starting local @sciforge/sci-modality-router worker on :$ServicePort (provider -> :$ProviderPort)"
     $worker = Start-Process -FilePath $npm `
       -ArgumentList @('--workspace', '@sciforge/sci-modality-router', 'run', 'start') `
@@ -126,7 +144,7 @@ try {
   }
 
   # 4) Wait for the service endpoint the GUI will use, and show expert status.
-  if (-not (Wait-Health $ServicePort $ReadyTimeoutSec 'sci-modality service')) {
+  if (-not (Wait-Health $ServicePort $ReadyTimeoutSec 'sci-modality service' $ServiceToken)) {
     Warn "sci-modality service not healthy on :$ServicePort."
     if ($Mode -eq 'remote') {
       Warn 'On the GPU server, ensure it is up:  cd packages/workers/sci-modality-router && bash deploy/start.sh'
@@ -136,7 +154,7 @@ try {
     Warn 'Continuing anyway (Model Router fails open to raw text). Ctrl+C to abort.'
   } else {
     try {
-      $st = Invoke-RestMethod -UseBasicParsing -TimeoutSec 5 -Uri "http://127.0.0.1:$ServicePort/experts/status"
+      $st = Invoke-RestMethod -UseBasicParsing -TimeoutSec 5 -Headers (AuthHeaders $ServiceToken) -Uri "http://127.0.0.1:$ServicePort/experts/status"
       Info ("provider reachable: {0}   device: {1}" -f $st.providerReachable, $st.device)
       foreach ($e in $st.experts) {
         Info ("  expert {0,-18} model {1,-22} online={2}" -f $e.modality, $e.model, $e.online)
@@ -154,7 +172,7 @@ try {
     } | ConvertTo-Json
     try {
       $r = Invoke-RestMethod -UseBasicParsing -TimeoutSec 600 -Method Post -ContentType 'application/json' `
-        -Uri "http://127.0.0.1:$ServicePort/modality/translate" -Body $body
+        -Headers (AuthHeaders $ServiceToken) -Uri "http://127.0.0.1:$ServicePort/modality/translate" -Body $body
       if ($r.ok) {
         Info ("smoke OK   model={0}   modality={1}" -f $r.data.model, $r.data.modality)
         Write-Host $r.data.summary -ForegroundColor Green
@@ -166,6 +184,7 @@ try {
 
   # 5) Point Model Router at the service. The GUI-spawned Model Router child inherits this.
   $env:SCIFORGE_SCIMODALITY_SERVICE_URL = "http://127.0.0.1:$ServicePort"
+  $env:SCIFORGE_SCIMODALITY_SERVICE_TOKEN = "$ServiceToken"
   if ($ServiceTimeoutMs -gt 0) { $env:SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS = "$ServiceTimeoutMs" }
   Info "SCIFORGE_SCIMODALITY_SERVICE_URL = $($env:SCIFORGE_SCIMODALITY_SERVICE_URL)"
 
@@ -181,5 +200,6 @@ finally {
   }
   # Drop the env we set so a later plain `npm run dev` in this shell is unaffected.
   Remove-Item Env:SCIFORGE_SCIMODALITY_SERVICE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:SCIFORGE_SCIMODALITY_SERVICE_TOKEN -ErrorAction SilentlyContinue
   Remove-Item Env:SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS -ErrorAction SilentlyContinue
 }

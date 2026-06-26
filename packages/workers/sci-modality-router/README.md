@@ -101,7 +101,7 @@ Response — `ServiceResult<ModalityTranslation>`:
 ```jsonc
 {
   "ok": true,
-  "summary": "[esm2-protein] mean NLL 2.13; …",   // bounded preview
+  "summary": "[esm2text-protein] generated protein evidence; …",   // bounded preview
   "data": {
     "summary": "…full multi-line evidence from the model…",
     "modality": "protein",
@@ -126,12 +126,13 @@ therefore stays a thin one-shot POST. Tunables (env):
 | Var | Default | Meaning |
 |---|---|---|
 | `EXPERT_PROVIDER_BASE_URL` | _(required)_ | OpenAI-compatible provider, e.g. `http://127.0.0.1:8001/v1`. |
-| `EXPERT_PROVIDER_API_KEY` | `sk-local` | Bearer token for the provider (usually a placeholder). |
+| `EXPERT_PROVIDER_API_KEY` | _(required)_ | Bearer token for the provider. |
 | `EXPERT_PROVIDER_TIMEOUT_MS` | `180000` | Per-attempt timeout (GPU can be slow). |
 | `EXPERT_PROVIDER_MAX_ATTEMPTS` | `6` | Total attempts before giving up. |
 | `EXPERT_PROVIDER_RETRY_BASE_MS` | `1500` | Exponential backoff base (capped at 15s). |
 | `SCIMODALITY_ROUTER_HOST` | `127.0.0.1` | Bind host for this worker. |
 | `SCIMODALITY_ROUTER_PORT` | `3898` | Bind port for this worker. |
+| `SCIMODALITY_ROUTER_RUNTIME_TOKEN` | _(required)_ | Bearer token required by this worker's HTTP API. |
 
 ## How SciForge uses it
 
@@ -142,10 +143,10 @@ Model Router consumes this worker during input routing:
 - Model Router gates refs by explicit scientific extensions such as `.fasta`, `.smi`, `.mol`,
   `.sdf`, `.mgf`, `.pdb`, `.cif`, `.vcf`, `.bed`, and `.seq`. Generic `.txt`, `.csv`, and `.tsv`
   are not auto-routed to this service.
-- When `SCIFORGE_SCIMODALITY_SERVICE_URL` is set in the Model Router environment, Model Router
-  reads the workspace file text, POSTs it here (`/modality/translate`), and injects the returned
-  evidence into the text reasoner. When unset or unavailable, Model Router falls back to readable
-  raw text where safe (fail-open).
+- When `SCIFORGE_SCIMODALITY_SERVICE_URL` and `SCIFORGE_SCIMODALITY_SERVICE_TOKEN` are set in the
+  Model Router environment, Model Router reads the workspace file text, POSTs it here
+  (`/modality/translate`), and injects the returned evidence into the text reasoner. When unset or
+  unavailable, Model Router falls back to readable raw text where safe (fail-open).
 
 ## Test
 
