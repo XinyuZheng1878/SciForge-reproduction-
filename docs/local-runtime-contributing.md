@@ -336,7 +336,7 @@ async record(event: RuntimeEvent): Promise<void> {
 - `index.json` / `thread.json` / `session.json` 用 atomic rename 写入;
 - 列表/详情读取靠 index,实时事件/历史回放靠 JSONL。
 
-这是 Reasonix 直接沿用过来的设计,让"崩溃后能恢复"成为自然结果。
+这是受 Reasonix append-only / log+snapshot 思路启发的独立实现,让"崩溃后能恢复"成为自然结果；未复制 Reasonix 源码、测试或资产。
 `kun/src/adapters/file/file-thread-store.ts` 的
 `atomicWrite` 用 tmp + rename 保证读者永远不会看到半写文件。
 

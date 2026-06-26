@@ -29,13 +29,19 @@ import threading
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-MODEL_DIR = os.environ.get(
-    "PROT2TEXT_MODEL_DIR",
-    "/fs-computility-new/upzd_share/shared/sciforge-expert-models/prot2text-large",
-)
+if os.environ.get("SCIFORGE_ENABLE_LOCAL_EXPERT_PROVIDER", "").strip() != "1":
+    raise RuntimeError(
+        "Local Prot2Text provider is disabled by default. Set "
+        "SCIFORGE_ENABLE_LOCAL_EXPERT_PROVIDER=1 only after verifying the model license."
+    )
+
+MODEL_DIR = os.environ.get("PROT2TEXT_MODEL_DIR", "").strip()
 DEVICE = os.environ.get("PROT2TEXT_DEVICE", "cuda:1")
 HOST = os.environ.get("PROT2TEXT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PROT2TEXT_PORT", "8002"))
+
+if not MODEL_DIR:
+    raise RuntimeError("PROT2TEXT_MODEL_DIR is required; commercial builds do not bundle Prot2Text weights.")
 
 _lock = threading.Lock()
 _model = None

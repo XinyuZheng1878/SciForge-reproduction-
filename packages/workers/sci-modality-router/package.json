@@ -1,9 +1,10 @@
 {
   "name": "@sciforge/sci-modality-router",
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "private": false,
-  "description": "SciForge sci-modality router worker: translates non-text scientific inputs (protein sequence, protein 3D structure, molecule, single-cell) into natural-language evidence via real native-to-text GPU expert models. Translate-only; never reasons. Called by @sciforge/model-router during input pre-extraction.",
+  "description": "SciForge sci-modality router worker: translates non-text scientific inputs into natural-language evidence via an operator-configured native-to-text expert provider. Translate-only; never reasons. Called by @sciforge/model-router during input pre-extraction.",
   "sciforge": {
     "lifecycleLayer": "workers",
     "skillFacing": false,
@@ -11,7 +12,7 @@
     "publicContract": true,
     "runtimeAdapter": true,
     "mcpServer": false,
-    "packagingStrategy": "server-side GPU service: runs on the GPU host (or locally against a tunneled provider), not bundled into the desktop app. Model Router reaches it via SCIFORGE_SCIMODALITY_SERVICE_URL."
+    "packagingStrategy": "optional Model-Router-managed worker: model weights and provider startup are not bundled into the desktop app; local expert startup requires SCIFORGE_ENABLE_LOCAL_EXPERT_PROVIDER=1 and externally supplied licensed weights."
   },
   "engines": {
     "node": ">=20"

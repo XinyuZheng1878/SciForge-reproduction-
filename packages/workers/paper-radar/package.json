@@ -1,6 +1,7 @@
 {
   "name": "@sciforge/paper-radar",
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "private": false,
   "description": "SciForge Paper Radar MCP facade backed by the shared Paper Radar SQLite store.",

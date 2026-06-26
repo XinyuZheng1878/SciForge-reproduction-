@@ -106,6 +106,88 @@ def test_build_messages_official_multiturn_optional():
     assert any(p.get("type") == "image_url" for p in msgs[-1]["content"])
 
 
+def test_model_calls_use_model_router_responses_optional():
+    """The worker must call Model Router /v1/responses, never a raw provider chat endpoint."""
+    try:
+        from cua import owl_agent
+    except Exception:  # noqa: BLE001
+        return
+
+    calls = []
+    original_post = owl_agent.requests.post
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"output_text": "Action: wait\n<tool_call>{\"arguments\":{\"action\":\"wait\",\"time\":1}}</tool_call>"}
+
+    def fake_post(url, headers=None, json=None, timeout=None):  # noqa: A002
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return FakeResponse()
+
+    try:
+        owl_agent.requests.post = fake_post
+        text = owl_agent.call_owl(
+            "http://127.0.0.1:3892/v1",
+            "sciforge-router",
+            "runtime-token",
+            [
+                {"role": "system", "content": "system prompt"},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "inspect"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                ]},
+            ],
+        )
+    finally:
+        owl_agent.requests.post = original_post
+
+    assert "Action: wait" in text
+    assert calls and calls[0]["url"] == "http://127.0.0.1:3892/v1/responses"
+    assert calls[0]["headers"]["Authorization"] == "Bearer runtime-token"
+    assert calls[0]["json"]["model"] == "sciforge-router"
+    assert calls[0]["json"]["instructions"] == "system prompt"
+    serialized = str(calls[0]["json"])
+    assert "/chat/completions" not in calls[0]["url"]
+    assert "input_image" in serialized and "data:image/png;base64,AAAA" in serialized
+
+
+def test_config_ignores_legacy_direct_provider_env_optional():
+    """Legacy direct provider env must not silently re-enable raw model access."""
+    try:
+        from cua.config import Config
+    except Exception:  # noqa: BLE001
+        return
+    old = {name: os.environ.get(name) for name in [
+        "CUA_MODEL_BASE_URL",
+        "CUA_MODEL",
+        "CUA_MODEL_API_KEY",
+        "CUA_MODEL_ROUTER_BASE_URL",
+        "CUA_MODEL_ROUTER_MODEL",
+        "CUA_MODEL_ROUTER_API_KEY",
+        "SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY",
+    ]}
+    try:
+        os.environ["CUA_MODEL_BASE_URL"] = "http://raw-provider.local/v1"
+        os.environ["CUA_MODEL"] = "raw-model"
+        os.environ["CUA_MODEL_API_KEY"] = "raw-key"
+        for name in ["CUA_MODEL_ROUTER_BASE_URL", "CUA_MODEL_ROUTER_MODEL", "CUA_MODEL_ROUTER_API_KEY", "SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY"]:
+            os.environ.pop(name, None)
+        cfg = Config()
+    finally:
+        for name, value in old.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+    assert cfg.model_base_url == ""
+    assert cfg.model_name == "sciforge-router"
+    assert cfg.model_api_key == ""
+
+
 def test_http_sidecar_bearer_auth_optional():
     """HTTP auth helpers stay pure; skip cleanly if optional deps are absent."""
     try:

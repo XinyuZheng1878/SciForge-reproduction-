@@ -226,7 +226,7 @@ window:
   no_drag_class: ds-no-drag  # add to anything clickable in the title bar
   macos_top_inset_px: 42     # safe area for traffic-light controls
   app_icon: src/asset/img/sciforge.png
-  secondary_logos: [sciforge.png]
+  secondary_logos: [sciforge-icon.svg]
 
 # ---------- 9. Iconography ----------
 icons:

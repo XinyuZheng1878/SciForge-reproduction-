@@ -4,13 +4,13 @@ import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 
 import { createVisionRouterServer } from './server.js';
-import type { QwenConfig } from './qwen.js';
+import type { VisionProviderConfig } from './qwen.js';
 import type { ServiceResult, VisionTranslation } from './types.js';
 
-const qwen: QwenConfig = {
+const provider: VisionProviderConfig = {
   baseUrl: 'http://provider.test/v1',
   apiKey: 'test-key',
-  model: 'Qwen3.7-Plus',
+  model: 'vision-translator-model',
   timeoutMs: 5_000,
   maxAttempts: 1,
   retryBaseMs: 1,
@@ -31,10 +31,10 @@ function stubFetch(reply: { status?: number; content?: unknown }): typeof fetch 
 async function withServer(
   fetchImpl: typeof fetch,
   run: (base: string) => Promise<void>,
-  cfg: QwenConfig = qwen,
+  cfg: VisionProviderConfig = provider,
   options: { maxBodyBytes?: number } = {},
 ): Promise<void> {
-  const server = createVisionRouterServer({ qwen: cfg, fetchImpl, runtimeToken, maxBodyBytes: options.maxBodyBytes });
+  const server = createVisionRouterServer({ provider: cfg, fetchImpl, runtimeToken, maxBodyBytes: options.maxBodyBytes });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address() as AddressInfo;
@@ -59,7 +59,7 @@ test('health and version respond', async () => {
     assert.equal(health.ok, true);
     const version = await (await fetch(`${base}/version`, { headers: authHeaders() })).json();
     assert.equal(version.service, 'sciforge.vision-router');
-    assert.equal(version.model, 'Qwen3.7-Plus');
+    assert.equal(version.model, 'vision-translator-model');
   });
 });
 
@@ -84,7 +84,7 @@ test('translate returns a template ServiceResult with the description', async ()
     const result = (await res.json()) as ServiceResult<VisionTranslation>;
     assert.ok(result.ok);
     assert.match(result.data.summary, /bar chart titled Q3 Revenue/);
-    assert.equal(result.data.model, 'Qwen3.7-Plus');
+    assert.equal(result.data.model, 'vision-translator-model');
     assert.equal(result.provenance?.serviceId, 'sciforge.vision-router');
     assert.equal(result.provenance?.operation, 'vision_translate');
   });
@@ -120,7 +120,7 @@ test('oversized translate bodies are rejected before upstream calls', async () =
     const result = (await res.json()) as ServiceResult<never>;
     assert.equal(result.ok, false);
     assert.equal(result.ok === false && result.error.code, 'PAYLOAD_TOO_LARGE');
-  }, qwen, { maxBodyBytes: 32 });
+  }, provider, { maxBodyBytes: 32 });
   assert.equal(upstreamCalls, 0);
 });
 
@@ -160,7 +160,7 @@ test('retries transient 5xx then succeeds (service owns robustness)', async () =
     assert.equal(res.status, 200);
     const result = (await res.json()) as ServiceResult<VisionTranslation>;
     assert.ok(result.ok && /Q3 Revenue/.test(result.data.summary));
-  }, { ...qwen, maxAttempts: 4, retryBaseMs: 1 });
+  }, { ...provider, maxAttempts: 4, retryBaseMs: 1 });
   assert.equal(flaky.calls(), 3, 'retried twice, succeeded on the third attempt');
 });
 
@@ -173,6 +173,6 @@ test('does NOT retry auth failures (non-retryable)', async () => {
       body: JSON.stringify({ image: { base64: 'AAAA', mime: 'image/png' } }),
     });
     assert.equal(res.status, 502);
-  }, { ...qwen, maxAttempts: 5, retryBaseMs: 1 });
+  }, { ...provider, maxAttempts: 5, retryBaseMs: 1 });
   assert.equal(flaky.calls(), 1, 'auth failure is not retried');
 });

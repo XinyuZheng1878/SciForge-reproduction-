@@ -144,7 +144,7 @@ const DEFAULT_LOCAL_RUNTIME_MODEL_PROFILES: Record<string, Record<string, unknow
       hardThreshold: 990_000
     },
     // The local runtime always reaches the model through the local Model Router, which translates images via the
-    // vision model (Qwen3.7-Plus) before the text reasoner. So the endpoint accepts image input even
+    // configured vision translator before the text reasoner. So the endpoint accepts image input even
     // though DeepSeek itself is text-only — declare it so the runtime sends image_url parts instead of
     // base64-dumping uploads as opaque text fallbacks.
     inputModalities: ['text', 'image'],

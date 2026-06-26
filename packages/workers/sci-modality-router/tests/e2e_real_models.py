@@ -20,8 +20,10 @@ file: set E2E_PDB_PATH to exercise it, otherwise it is skipped.
 
 Run on the server (after starting expert-translator, prot2text service, and the router):
     python3 tests/e2e_real_models.py
-Env overrides: SCIMODALITY_ROUTER_URL (default http://127.0.0.1:3898),
-               EXPERT_PROVIDER_URL   (default http://127.0.0.1:8001),
+Required env: SCIMODALITY_ROUTER_URL,
+              SCIMODALITY_ROUTER_RUNTIME_TOKEN,
+              EXPERT_PROVIDER_URL,
+              EXPERT_PROVIDER_API_KEY,
                E2E_PDB_PATH          (a .pdb file to test protein_structure; optional)
 """
 
@@ -32,8 +34,17 @@ import sys
 
 import requests
 
-ROUTER = os.environ.get("SCIMODALITY_ROUTER_URL", "http://127.0.0.1:3898").rstrip("/")
-PROVIDER = os.environ.get("EXPERT_PROVIDER_URL", "http://127.0.0.1:8001").rstrip("/")
+def required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise SystemExit(f"{name} is required for live expert e2e tests.")
+    return value
+
+
+ROUTER = required_env("SCIMODALITY_ROUTER_URL").rstrip("/")
+ROUTER_TOKEN = required_env("SCIMODALITY_ROUTER_RUNTIME_TOKEN")
+PROVIDER = required_env("EXPERT_PROVIDER_URL").rstrip("/")
+PROVIDER_TOKEN = required_env("EXPERT_PROVIDER_API_KEY")
 TIMEOUT = float(os.environ.get("E2E_TIMEOUT", "600"))
 
 PASS, FAIL, SKIP = [], [], []
@@ -59,12 +70,18 @@ def translate(payload: str, modality: str | None = None, instruction: str | None
         body["modality"] = modality
     if instruction:
         body["instruction"] = instruction
-    return requests.post(f"{ROUTER}/modality/translate", json=body, timeout=TIMEOUT).json()
+    return requests.post(
+        f"{ROUTER}/modality/translate",
+        headers={"Authorization": f"Bearer {ROUTER_TOKEN}"},
+        json=body,
+        timeout=TIMEOUT,
+    ).json()
 
 
 def provider_raw(model: str, payload: str) -> dict:
     r = requests.post(
         f"{PROVIDER}/v1/chat/completions",
+        headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"},
         json={"model": model, "messages": [{"role": "user", "content": payload}]},
         timeout=TIMEOUT,
     )
@@ -108,7 +125,11 @@ def main() -> int:
     # --- A. provider health: real CUDA + the four native-to-text experts ----------------
     print("A. Provider health (real GPU, four native-to-text experts)")
     try:
-        h = requests.get(f"{PROVIDER}/health", timeout=30).json()
+        h = requests.get(
+            f"{PROVIDER}/health",
+            headers={"Authorization": f"Bearer {PROVIDER_TOKEN}"},
+            timeout=30,
+        ).json()
     except Exception as exc:  # noqa: BLE001
         check("provider /health reachable", False, str(exc))
         return done()

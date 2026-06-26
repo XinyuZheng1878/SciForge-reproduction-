@@ -4,6 +4,7 @@
   "description": "SciForge Runtime local HTTP/SSE agent runtime for SciForge",
   "type": "module",
   "private": true,
+  "license": "MIT",
   "main": "./dist/index.js",
   "exports": {
     ".": {

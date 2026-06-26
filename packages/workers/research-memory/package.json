@@ -1,6 +1,7 @@
 {
   "name": "@sciforge/research-memory",
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "private": false,
   "description": "MCP-first SciForge research memory worker for local artifacts, policy checks, drafts, status pages, and GitHub review handoff.",

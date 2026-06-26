@@ -1,8 +1,9 @@
 {
   "name": "@sciforge/gui-owl-computer-use",
   "version": "0.1.0",
+  "license": "MIT",
   "private": false,
-  "description": "GUI-Owl-1.5 vision computer-use worker: turns one natural-language task into real desktop actions (click/type/scroll) via an autonomous VLM loop with Mobile-Agent-v3 reflection. Exposed as an MCP stdio server and an HTTP ServiceResult sidecar.",
+  "description": "Model-Router-backed vision computer-use worker: turns one natural-language task into desktop actions through a user-configured routed model. Exposed as an MCP stdio server and an HTTP ServiceResult sidecar.",
   "sciforge": {
     "lifecycleLayer": "workers",
     "runtime": "python",

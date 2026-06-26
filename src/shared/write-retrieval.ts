@@ -1,35 +1,20 @@
-export type WriteRetrievalSnippetLocation =
-  | {
-      kind: 'text'
-      lineStart: number
-      lineEnd: number
-    }
-  | {
-      kind: 'pdf'
-      pageStart: number
-      pageEnd: number
-    }
+import type {
+  WriteRetrievalSnippet as WriteAssistRetrievalSnippet,
+  WriteRetrievalSnippetLocation as WriteAssistRetrievalSnippetLocation,
+  WriteRetrieveContextResult
+} from '../../packages/workers/write-assist/src/contract'
 
-export type WriteRetrievalSnippet = {
-  path: string
-  title: string
-  text: string
-  score: number
-  keywords: string[]
-  location: WriteRetrievalSnippetLocation
-  lineStart?: number
-  lineEnd?: number
-  pageStart?: number
-  pageEnd?: number
-}
+type SuccessfulWriteAssistRetrieval = Extract<WriteRetrieveContextResult, { ok: true }>
 
-export type WriteRetrievalContext = {
-  source: 'bm25-keyword'
-  query: string
-  keywords: string[]
+export type WriteRetrievalSnippetLocation = WriteAssistRetrievalSnippetLocation
+
+export type WriteRetrievalSnippet = Omit<WriteAssistRetrievalSnippet, 'resourceUri'>
+
+export type WriteRetrievalContext = Pick<
+  SuccessfulWriteAssistRetrieval,
+  'source' | 'query' | 'keywords' | 'indexedFiles' | 'indexedChunks'
+> & {
   snippets: WriteRetrievalSnippet[]
-  indexedFiles: number
-  indexedChunks: number
 }
 
 export type WriteRetrievalRequest = {

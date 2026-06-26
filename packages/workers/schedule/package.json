@@ -1,6 +1,7 @@
 {
   "name": "@sciforge/schedule",
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "private": false,
   "description": "Shared SciForge schedule worker MCP server and internal HTTP client.",

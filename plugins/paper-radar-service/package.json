@@ -5,6 +5,11 @@
   "type": "module",
   "license": "UNLICENSED",
   "private": true,
+  "sciforge": {
+    "distribution": "private-internal-service",
+    "publicNpmPackage": false,
+    "commercialBundlePolicy": "May be bundled only as part of the SciForge product under the project owner's commercial terms; not published or relicensed as a public npm package."
+  },
   "bin": {
     "sciforge-paper-radar": "./src/index.ts"
   },

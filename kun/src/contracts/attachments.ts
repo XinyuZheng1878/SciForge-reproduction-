@@ -1,40 +1,52 @@
 import { z } from 'zod'
 
+const nonEmptyText = z.string().min(1)
+const storedByteCount = z.number().int().nonnegative()
+const imageDimension = z.number().int().positive()
+const isoTimestamp = z.string()
+
+const optionalImageSize = {
+  width: imageDimension.optional(),
+  height: imageDimension.optional()
+}
+
+const attachmentScope = {
+  threadIds: z.array(nonEmptyText).default([]),
+  workspaces: z.array(nonEmptyText).default([])
+}
+
 export const AttachmentTextFallback = z.object({
-  dataBase64: z.string().min(1),
-  mimeType: z.string().min(1),
-  byteSize: z.number().int().nonnegative(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
+  dataBase64: nonEmptyText,
+  mimeType: nonEmptyText,
+  byteSize: storedByteCount,
+  ...optionalImageSize,
   wasCompressed: z.boolean().optional()
 }).strict()
 export type AttachmentTextFallback = z.infer<typeof AttachmentTextFallback>
 
 export const AttachmentMetadata = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  mimeType: z.string().min(1),
-  byteSize: z.number().int().nonnegative(),
-  hash: z.string().min(1),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  localFilePath: z.string().min(1).optional(),
+  id: nonEmptyText,
+  name: nonEmptyText,
+  mimeType: nonEmptyText,
+  byteSize: storedByteCount,
+  hash: nonEmptyText,
+  ...optionalImageSize,
+  localFilePath: nonEmptyText.optional(),
   textFallback: AttachmentTextFallback.optional(),
-  threadIds: z.array(z.string().min(1)).default([]),
-  workspaces: z.array(z.string().min(1)).default([]),
-  createdAt: z.string(),
-  updatedAt: z.string()
+  ...attachmentScope,
+  createdAt: isoTimestamp,
+  updatedAt: isoTimestamp
 }).strict()
 export type AttachmentMetadata = z.infer<typeof AttachmentMetadata>
 
 export const AttachmentUploadRequest = z.object({
-  name: z.string().min(1),
-  mimeType: z.string().min(1).optional(),
-  dataBase64: z.string().min(1),
-  localFilePath: z.string().min(1).optional(),
+  name: nonEmptyText,
+  mimeType: nonEmptyText.optional(),
+  dataBase64: nonEmptyText,
+  localFilePath: nonEmptyText.optional(),
   textFallback: AttachmentTextFallback.optional(),
-  threadId: z.string().min(1).optional(),
-  workspace: z.string().min(1).optional()
+  threadId: nonEmptyText.optional(),
+  workspace: nonEmptyText.optional()
 }).strict()
 export type AttachmentUploadRequest = z.infer<typeof AttachmentUploadRequest>
 
@@ -46,7 +58,7 @@ export type AttachmentUploadResponse = z.infer<typeof AttachmentUploadResponse>
 export const AttachmentDiagnostics = z.object({
   enabled: z.boolean(),
   rootDir: z.string(),
-  count: z.number().int().nonnegative(),
-  totalBytes: z.number().int().nonnegative()
+  count: storedByteCount,
+  totalBytes: storedByteCount
 }).strict()
 export type AttachmentDiagnostics = z.infer<typeof AttachmentDiagnostics>

@@ -34,6 +34,7 @@ export const MODEL_ROUTER_WORKER_CAPABILITIES = [
   'model_router_messages',
   'text_reasoning',
   'vision_translation',
+  'scientific_translation',
   'refs_first_trace',
 ] as const;
 
@@ -66,7 +67,7 @@ export const modelRouterManifest: ToolWorkerManifest = {
   protocolVersion: 'sciforge.tools.v1',
   workerId: 'sciforge.model-router',
   workerVersion: MODEL_ROUTER_WORKER_VERSION,
-  description: 'Provider-compatible SciForge /v1/responses and /v1/messages facade for text reasoning and refs-first visual translation.',
+  description: 'Provider-compatible SciForge /v1/responses and /v1/messages facade for text reasoning and refs-first visual/scientific translation.',
   capabilities: [...MODEL_ROUTER_WORKER_CAPABILITIES],
   providers: [
     {
@@ -99,13 +100,23 @@ export const modelRouterManifest: ToolWorkerManifest = {
       permissions: ['network', 'filesystem'],
       status: 'available',
     },
+    {
+      providerId: 'sciforge.model-router.scientific-translator',
+      capabilityId: 'scientific_translation',
+      transport: 'http',
+      invokePath: '/v1/responses',
+      healthPath: '/healthz',
+      manifestPath: '/manifest',
+      permissions: ['network', 'filesystem'],
+      status: 'available',
+    },
   ],
   tools: [
     {
       id: 'model_router_responses',
       name: 'Model Router Responses',
       version: '0.1.0',
-      description: 'Expose a Codex provider-compatible /v1/responses endpoint backed by profile-selected text and vision roles.',
+      description: 'Expose a Codex provider-compatible /v1/responses endpoint backed by profile-selected text, vision, and managed scientific translation roles.',
       inputSchema: {
         input: { type: 'object', required: true, description: 'Responses-compatible input payload with optional visual refs.' },
         profile: { type: 'string', description: 'Optional registered Model Router profile id.' },

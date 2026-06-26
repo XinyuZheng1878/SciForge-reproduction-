@@ -17,9 +17,25 @@ type DirectCallHit = {
 }
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const sourceRoots = ['src', 'kun/src', 'scripts']
-const sourceExtensions = new Set(['.cjs', '.js', '.json', '.jsx', '.mjs', '.ts', '.tsx', '.yaml', '.yml'])
-const excludedSegments = new Set(['dist', 'docs', 'node_modules', 'out'])
+const sourceRoots = ['src', 'kun/src', 'packages/workers', 'plugins/vision-router-service/src', 'scripts']
+const sourceExtensions = new Set([
+  '.bat',
+  '.cjs',
+  '.cmd',
+  '.js',
+  '.json',
+  '.jsx',
+  '.mjs',
+  '.ps1',
+  '.py',
+  '.sh',
+  '.ts',
+  '.tsx',
+  '.yaml',
+  '.yml'
+])
+const excludedSegments = new Set(['dist', 'docs', 'node_modules', 'out', 'tests'])
+const excludedFileNames = new Set(['package-lock.json'])
 const excludedPrefixes = ['packages/workers/model-router/']
 const testFilePattern = /(?:^|[/.-])(?:test|spec)\.[cm]?[jt]sx?$/
 
@@ -42,6 +58,8 @@ function toRepoPath(path: string): string {
 
 function isExcludedProductionPath(path: string): boolean {
   const repoPath = toRepoPath(path)
+  const fileName = repoPath.split('/').at(-1) ?? ''
+  if (excludedFileNames.has(fileName)) return true
   if (excludedPrefixes.some((prefix) => repoPath.startsWith(prefix))) return true
   if (repoPath.split('/').some((segment) => excludedSegments.has(segment))) return true
   return testFilePattern.test(repoPath)
@@ -110,6 +128,16 @@ function isAllowedBoundaryMarker(hit: DirectCallHit): boolean {
   ) {
     return /^'[A-Z0-9_]+(?:_API_KEY)?',?$/.test(hit.text)
   }
+  if (
+    hit.marker === 'chat completions endpoint' &&
+    (
+      hit.file === 'packages/workers/sci-modality-router/src/experts.ts' ||
+      hit.file === 'packages/workers/sci-modality-router/provider/server.py' ||
+      hit.file === 'plugins/vision-router-service/src/qwen.ts'
+    )
+  ) {
+    return true
+  }
   return false
 }
 
@@ -125,6 +153,8 @@ describe('model router API boundary static audit inventory', () => {
 
     expect(files).toContain('src/main/index.ts')
     expect(files).toContain('src/shared/app-settings-types.ts')
+    expect(files).toContain('packages/workers/sci-modality-router/src/experts.ts')
+    expect(files).toContain('plugins/vision-router-service/src/qwen.ts')
     expect(files.some((file) => file.startsWith('packages/workers/model-router/'))).toBe(false)
     expect(files.some((file) => testFilePattern.test(file))).toBe(false)
     expect(hits.every((hit) => !hit.file.startsWith('packages/workers/model-router/'))).toBe(true)

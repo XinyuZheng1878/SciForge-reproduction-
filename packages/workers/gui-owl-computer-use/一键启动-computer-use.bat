@@ -1,7 +1,7 @@
 @echo off
 REM =============================================================================
 REM  One-click launcher: SciForge GUI with the Computer-Use module integrated.
-REM  Double-click to: build SSH tunnel -> start Computer-Use service ->
+REM  Double-click to: check Model Router -> start Computer-Use service ->
 REM  launch the SciForge GUI (npm run dev). Drive your desktop from the GUI chat;
 REM  every real action is gated by an in-app approval prompt.
 REM
@@ -20,6 +20,6 @@ if not defined LAUNCHER (
 )
 powershell -NoProfile -ExecutionPolicy Bypass -File "%LAUNCHER%" %*
 echo.
-echo (Closing this window stops the Computer-Use service and the SSH tunnel.)
+echo (Closing this window stops the Computer-Use service.)
 pause
 endlocal

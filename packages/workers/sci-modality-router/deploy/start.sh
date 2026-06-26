@@ -29,6 +29,12 @@ fi
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 
 log() { printf '[scimodality-start] %s\n' "$*"; }
+if [ "${SCIFORGE_ENABLE_LOCAL_EXPERT_PROVIDER:-}" != "1" ]; then
+  log "local expert provider startup is disabled by default"
+  log "set SCIFORGE_ENABLE_LOCAL_EXPERT_PROVIDER=1 only after verifying all model licenses"
+  exit 2
+fi
+: "${EXPERT_MODEL_DIR:?EXPERT_MODEL_DIR is required and must point to licensed external weights}"
 EXPERT_PROVIDER_API_KEY="${EXPERT_PROVIDER_API_KEY:?EXPERT_PROVIDER_API_KEY is required for provider health checks}"
 SCIMODALITY_ROUTER_RUNTIME_TOKEN="${SCIMODALITY_ROUTER_RUNTIME_TOKEN:?SCIMODALITY_ROUTER_RUNTIME_TOKEN is required for router health checks}"
 wait_for() {

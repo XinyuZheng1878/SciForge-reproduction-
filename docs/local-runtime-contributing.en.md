@@ -346,7 +346,7 @@ Combination:
 - `index.json` / `thread.json` / `session.json` are written using atomic rename;
 - List/detail reading relies on index, and real-time event/historical playback relies on JSONL.
 
-This is a design directly inherited from Reasonix, making "recovery after crash" a natural result.
+This is an independent implementation inspired by Reasonix append-only / log+snapshot ideas, making "recovery after crash" a natural result. No Reasonix source, tests, or assets are copied.
 of `kun/src/adapters/file/file-thread-store.ts`
 `atomicWrite` uses tmp + rename to ensure that readers never see half-written files.
 

@@ -1,6 +1,7 @@
 {
   "name": "@sciforge/model-router",
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "private": false,
   "description": "SciForge provider-compatible multimodal model router.",

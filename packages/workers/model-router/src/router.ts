@@ -192,9 +192,9 @@ const MAX_TEXT_MODALITY_BYTES = 256 * 1024;
 export const DEFAULT_MODEL_ROUTER_TRACE_ROOT = 'traces';
 
 // Uploaded scientific files (sequence / structure / spectra) that a domain expert model can read.
-// These are classified as 'document' for routing but, when the standalone sci-modality service is
-// configured (SCIFORGE_SCIMODALITY_SERVICE_URL), are translated to natural-language evidence by real
-// expert models instead of being inlined as raw text.
+// These are classified as 'document' for routing but, when the Model-Router-managed sci-modality
+// worker is configured (SCIFORGE_SCIMODALITY_SERVICE_URL), are translated to natural-language
+// evidence instead of being inlined as raw text.
 const SCIENTIFIC_MODALITY_EXTENSIONS =
   /\.(?:fasta|fa|faa|fna|ffn|frn|fastq|fq|smi|smiles|mol|mol2|sdf|mgf|pdb|cif|gb|gbk|gff|gff3|gtf|vcf|bed|nwk|seq)(?:$|[?#])/i;
 
@@ -504,8 +504,8 @@ async function routeResponsesRequest(
 
   if (unsupportedModalities.length > 0) {
     for (const item of unsupportedModalities) {
-      // 1) Scientific file (.fasta / .smi / .mol / .mgf …) + standalone sci-modality service configured:
-      //    translate to natural-language evidence via real GPU expert models (pluggable module owns retry).
+      // 1) Scientific file (.fasta / .smi / .mol / .mgf …) + managed sci-modality worker configured:
+      //    translate to natural-language evidence (the worker owns retry).
       const expert = await translateScientificModalityObservation(item, context.workspaceRoot, context.env, context.fetchImpl, context.scientificTranslationCache);
       if (expert) {
         observations.push(expert.observation);
@@ -1212,8 +1212,8 @@ async function readWorkspaceTextModalityObservation(item: ModalityRef, workspace
   }
 }
 
-// Translate an uploaded scientific file to natural-language evidence via the standalone sci-modality
-// worker (real GPU expert models). Gated by SCIFORGE_SCIMODALITY_SERVICE_URL; the worker owns modality
+// Translate an uploaded scientific file to natural-language evidence via the Model-Router-managed
+// sci-modality worker. Gated by SCIFORGE_SCIMODALITY_SERVICE_URL; the worker owns modality
 // auto-detection + retry/robustness. Translation-only: it returns evidence, never answers. Returns
 // undefined (fail-open) when the service is unconfigured, the ref is not a scientific file, the file is
 // unreadable/binary, or the call fails — callers then fall back to text inlining.

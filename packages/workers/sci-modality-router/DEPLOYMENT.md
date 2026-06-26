@@ -1,27 +1,30 @@
-# Scientific-modality plug-in — GPU server deployment
+# Scientific-modality worker — optional self-hosting after license review
 
 This plug-in translates uploaded **scientific files** (protein sequence / protein 3D structure /
-molecule / single-cell) into natural-language evidence using **real native-to-text expert models
-on a GPU**. It is optional and decoupled: when it is not running, the app simply reads the raw file
-text instead — no errors (see *When the server is down*).
+molecule / single-cell) into natural-language evidence using an operator-managed
+native-to-text expert provider. It is optional and decoupled: when it is not running, Model Router
+falls back to readable raw file text where safe (see *When the server is down*).
+
+Commercial builds do not bundle model weights, do not auto-start this provider, and do not ship a
+default expert connection. Use this document only after independently verifying that every selected
+model, dependency, and deployment mode is allowed for your commercial use case.
 
 ## Where things run
 
 ```
-  GPU server (this plug-in)                 Local machine                    Cloud
+  Operator-managed service                  Local machine                    Provider cloud / remote
   ─────────────────────────                 ─────────────                    ─────
-  expert-translator        :8001  ┐── provider (real text-output models, lazy)
+  expert-translator        :8001  ┐── provider (licensed text-output models, lazy)
   sci-modality module      :3898  ┘── ServiceResult HTTP API  <—— SSH tunnel ——  SciForge app
-                                                                                 model-router ──> DeepSeek (text)
-                                                                                              └─> Qwen3.7-Plus (vision)
+                                                                                 model-router ──> configured text provider
+                                                                                              └─> configured vision provider
 ```
 
-- The **GPU server** runs only the experts + this module. It can be shut down anytime.
-- The **app + model-router** run on the local machine; **DeepSeek (text)** and **Qwen3.7-Plus
-  (vision)** are cloud endpoints — so **text and image still work even when the GPU server is off**;
-  only scientific-file translation needs this plug-in.
+- The **operator-managed service** runs only the experts + this module. It can be shut down anytime.
+- The **app + Model Router** run on the local machine; text, vision, and other LLM/API traffic still
+  go through Model Router. Only scientific-file translation needs this optional worker.
 
-## One-time setup (on the GPU server)
+## One-time setup (operator-managed service)
 
 1. **Python env** (CUDA-enabled), e.g. `conda create -n serve python=3.10 && conda activate serve`.
 2. Install a CUDA torch build, then the provider deps:
@@ -29,17 +32,10 @@ text instead — no errors (see *When the server is down*).
    pip install torch --index-url https://download.pytorch.org/whl/cu121
    pip install -r provider/requirements.txt
    ```
-3. **Download the models** into `$EXPERT_MODEL_DIR` (default the shared mount
-   `/fs-computility-new/upzd_share/shared/sciforge-expert-models`). Behind the GFW use the
-   mirror: `export HF_ENDPOINT=https://hf-mirror.com`. All four are open, runnable weights:
-   ```bash
-   D=$EXPERT_MODEL_DIR
-   huggingface-cli download habdine/Esm2Text-Base-v1-1       --local-dir $D/esm2text-base            # protein
-   huggingface-cli download habdine/Prot2Text-Large-v1-1     --local-dir $D/prot2text-large          # protein_structure
-   huggingface-cli download QizhiPei/biot5-plus-base-chebi20 --local-dir $D/biot5-plus-base-chebi20  # molecule
-   huggingface-cli download vandijklab/C2S-Scale-Gemma-2-27B --local-dir $D/c2s-scale-gemma2-27b     # single_cell
-   ```
-   BioT5+ needs `pip install selfies` (SMILES→SELFIES).
+3. Place reviewed, licensed model weights outside the repository and set
+   `EXPERT_MODEL_DIR` / `PROT2TEXT_MODEL_DIR` to those absolute paths. Do not commit, package,
+   or publish the weights from this repo. BioT5+-style molecule providers need `pip install selfies`
+   (SMILES→SELFIES).
 4. **Prot2Text micro-service (`protein_structure`)** runs in its own conda env because its graph
    pipeline pulls invasive deps; keep it out of the main `serve` env:
    ```bash
@@ -56,20 +52,25 @@ text instead — no errors (see *When the server is down*).
 
 ```bash
 cd packages/workers/sci-modality-router
+export SCIFORGE_ENABLE_LOCAL_EXPERT_PROVIDER=1
+export EXPERT_MODEL_DIR=/absolute/path/to/licensed/expert-models
+export PROT2TEXT_MODEL_DIR=/absolute/path/to/licensed/prot2text-checkpoint
 bash deploy/start.sh                # idempotent; brings up experts(:8001) + module(:3898)
 bash provider/start_prot2text.sh &  # protein_structure micro-service on :8002 (p2t env)
 bash deploy/verify.sh               # no-cheat check: real fingerprints + input-dependent generated text
 bash deploy/stop.sh                 # frees the GPUs
 ```
 
-Useful env overrides: `PYTHON`, `EXPERT_MODEL_DIR`, `EXPERT_DEVICE` (default `cuda:0`),
+Required license-gated env: `SCIFORGE_ENABLE_LOCAL_EXPERT_PROVIDER=1`, `EXPERT_MODEL_DIR`, and
+`PROT2TEXT_MODEL_DIR` for the structure micro-service.
+
+Useful env overrides: `PYTHON`, `EXPERT_DEVICE` (default `cuda:0`),
 `C2S_DEVICE` (default `cuda:1`; C2S-Scale-27B ~54GB gets its own GPU), `HF_ENDPOINT`
 (default `https://hf-mirror.com`). Experts load lazily on first request, so startup is instant
 and only the modalities you actually use consume VRAM. `protein_structure` is served by the
 separate `start_prot2text.sh` process (`PROT2TEXT_DEVICE`, default GPU1).
 
-**Run it when the server boots** — just re-run `bash deploy/start.sh` (it skips anything already up).
-To make it automatic, add that line to a `@reboot` cron entry or a systemd unit.
+For unattended service management, keep the same license-gated environment in your process manager.
 
 ## Connect Model Router
 
@@ -85,10 +86,9 @@ online state and device.
 
 ## When the server is down (graceful, no errors)
 
-If the GPU server is off (or the tunnel is down), Model Router fails open and **falls back to
-readable raw file text where safe**. The turn still completes, and GUI/Kun/Codex do not call this
-service directly. Text chat and image (Qwen) are unaffected. Nothing to do — bring the server back
-up and re-run `deploy/start.sh` to restore experts.
+If the optional service is off (or the private connection is down), Model Router fails open and
+**falls back to readable raw file text where safe**. The turn still completes, and GUI/Kun/Codex
+do not call this service directly. Other model traffic is unaffected.
 
 ## Troubleshooting
 

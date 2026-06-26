@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
-import { ClientAbortError, ProviderError, translateImage, type QwenConfig } from './qwen.js';
+import { ClientAbortError, ProviderError, translateImage, type VisionProviderConfig } from './qwen.js';
 import type { ServiceError, ServiceResult, VisionTranslateRequest, VisionTranslation } from './types.js';
 
 export const SERVICE_ID = 'sciforge.vision-router';
@@ -10,7 +10,7 @@ export const VISION_ROUTER_RUNTIME_TOKEN_ENV = 'VISION_ROUTER_RUNTIME_TOKEN';
 export const DEFAULT_MAX_JSON_BODY_BYTES = 40 * 1024 * 1024;
 
 export interface VisionRouterOptions {
-  qwen: QwenConfig;
+  provider: VisionProviderConfig;
   fetchImpl?: typeof fetch;
   maxBodyBytes?: number;
   runtimeToken: string;
@@ -48,7 +48,7 @@ async function handle(
     return sendJson(res, 200, { ok: true, service: SERVICE_ID, checkedAt: now().toISOString() });
   }
   if (req.method === 'GET' && url.pathname === '/version') {
-    return sendJson(res, 200, { service: SERVICE_ID, version: SERVICE_VERSION, model: options.qwen.model });
+    return sendJson(res, 200, { service: SERVICE_ID, version: SERVICE_VERSION, model: options.provider.model });
   }
   if (req.method === 'POST' && url.pathname === '/vision/translate') {
     return translateRoute(req, res, options, fetchImpl, now, security.maxBodyBytes);
@@ -95,7 +95,7 @@ async function translateRoute(
   });
 
   try {
-    const translation = await translateImage(options.qwen, body.image, body.instruction, fetchImpl, upstream.signal);
+    const translation = await translateImage(options.provider, body.image, body.instruction, fetchImpl, upstream.signal);
     console.log(`[vision] requestId=${requestId} OK summary="${boundedSummary(translation.summary, 80)}"`);
     const result: ServiceResult<VisionTranslation> = {
       ok: true,

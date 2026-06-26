@@ -1,15 +1,13 @@
 # SciForge plug-in services
 
-Standalone, **plug-and-play** services. Each service owns its own `package.json` and talks to the
-desktop app through HTTP rather than renderer imports. Services that are part of the app lifecycle
-are exposed as root npm workspaces; standalone translator modules can still be run from their own
-directory. Model Router translation services stay fail-open when absent; UI extensions such as
-Paper Radar are opt-in from the Plugins page and start their local service only when the enabled UI
-panel calls it.
+Optional service modules. Each service owns its own `package.json` and talks to the desktop app
+through HTTP rather than renderer imports. Model Router translator workers are managed through the
+router and stay fail-open when absent; UI extensions such as Paper Radar are opt-in from the Plugins
+page and start their local service only when the enabled UI panel calls it.
 
 | Plug-in | Port | Endpoint | Translates | Upstream model(s) |
 |---|---|---|---|---|
-| [`vision-router-service`](./vision-router-service) | 3899 | `POST /vision/translate` | image / video frame → text | Qwen3.7-Plus (cloud, OpenAI-compatible) |
+| [`vision-router-service`](./vision-router-service) | 3899 | `POST /vision/translate` | image / video frame → text | configured OpenAI-compatible vision provider |
 | [`paper-radar-service`](./paper-radar-service) | 3901 | `GET /health`, `POST /sync/profile`, `POST /digest` | paper metadata → ranked daily digest | arXiv OAI-PMH + bioRxiv API |
 
 > The scientific-modality translator now lives as a **worker** at
@@ -23,9 +21,9 @@ traces. Paper Radar is a separate UI extension service, not a Model Router trans
 
 ## How the app uses them
 
-- **Vision**: the model router translates image inputs via its `translators.vision` provider
-  (Qwen). The `vision-router-service` packages that same translate-only behavior as a standalone
-  service for reuse outside the default router lifecycle.
+- **Vision**: Model Router translates image inputs via its configured `translators.vision` provider.
+  The `vision-router-service` packages that same translate-only behavior as a managed worker for
+  deployments that want a separate service boundary.
 - **Scientific**: now a worker — see
   [`packages/workers/sci-modality-router`](../packages/workers/sci-modality-router). Gated inside
   Model Router by `SCIFORGE_SCIMODALITY_SERVICE_URL` and `SCIFORGE_SCIMODALITY_SERVICE_TOKEN`.
@@ -40,7 +38,7 @@ traces. Paper Radar is a separate UI extension service, not a Model Router trans
 ## Run a plug-in
 
 ```bash
-(cd plugins/vision-router-service && npm start)                  # :3899 standalone
+(cd plugins/vision-router-service && npm start)                  # :3899 managed translator worker
 npm --workspace sciforge-paper-radar-service run start           # :3901
 npm --workspace sciforge-paper-radar-service test                # service e2e/unit tests
 
@@ -49,5 +47,5 @@ npm --workspace @sciforge/sci-modality-router run start          # :3898
 npm --workspace @sciforge/sci-modality-router run test           # stubbed unit tests
 ```
 
-The scientific expert models themselves (the GPU "provider" behind `@sciforge/sci-modality-router`)
-are deployed separately on the GPU server — see the GPU deployment docs.
+The scientific expert provider behind `@sciforge/sci-modality-router` is deployed separately after
+license review; see the worker deployment docs.

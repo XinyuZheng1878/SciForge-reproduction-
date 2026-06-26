@@ -47,16 +47,17 @@ SciForge Runtime service (TypeScript package)
   /v1/workspace/status
 ```
 
-This boundary follows the HTTP architecture used by TUI/CodeWhale: GUI never
+This boundary follows the same broad HTTP service pattern used by TUI/CodeWhale: GUI never
 embeds the SciForge Runtime agent loop, and the default runtime path treats the local HTTP server as the
 stable API boundary. Codex may use stdio app-server in a separate runtime
 adapter. Renderer consumes the neutral
 [`AgentRuntime` contract](./agent-runtime-contract.md) and does not need to know
 whether the backend is SciForge Runtime HTTP/SSE or Codex JSON-RPC stdio; that does not
 change the SciForge Runtime HTTP/SSE contract.
-Inside `sciforge`, the cache-first agent loop is adopted from Reasonix (`immutable` prompt
+Inside `sciforge`, the cache-first agent loop uses Reasonix as a design reference only (`immutable` prompt
 prefix, append-only log, bounded LRU/TTL cache, inflight cleanup, steering queue,
-context compaction, usage/cache telemetry).
+context compaction, usage/cache telemetry). The current repository does not copy Reasonix or
+CodeWhale source, tests, or assets.
 When SciForge Runtime needs a model call, it treats the local Model Router `/v1` endpoint as a
 normal Responses-compatible provider. Upstream provider base URLs, provider API
 keys, vision service URLs, and internal profiles belong to Model Router
@@ -64,14 +65,15 @@ configuration, not SciForge Runtime configuration.
 
 ## Cache-hit optimization
 
-SciForge Runtime cache-hit metrics should be computed and optimized using DeepSeek native fields first:
+SciForge Runtime cache-hit metrics should be computed and optimized using DeepSeek native fields first;
+Reasonix cache-first materials are one design reference for that metric policy:
 
 - Model client prefers native fields:
   `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens`.
   Only when those are missing should it fall back to compatibility fields
   such as `prompt_tokens_details.cached_tokens` and `cache_read_input_tokens`.
 - Use hit rate as `hit / (hit + miss)`, not `hit / prompt_tokens`.
-  DeepSeek native misses are not always equal to `prompt_tokens - hit`; Reasonix also uses
+  DeepSeek native misses are not always equal to `prompt_tokens - hit`; Reasonix materials also use
   the `hit + miss` denominator.
 - The SciForge Runtime system prompt is the stable prefix.
   It may only contain long-lived SciForge Runtime run contract content and must not include
@@ -113,7 +115,7 @@ Pre-existing usage events persisted before optimization cannot be rewritten beca
 DeepSeek native cache fields were not recorded then; they only reflect old behavior and
 should not be treated as evidence that current hit rates are lower.
 
-Reasonix findings still useful as future references:
+Reasonix findings still useful as future reference/inspiration only:
 
 - Tool-collection mutation policy: adding tools should be append-only; edit/reorder/remove
   requires either restart or a new session boundary to avoid sudden cache misses.

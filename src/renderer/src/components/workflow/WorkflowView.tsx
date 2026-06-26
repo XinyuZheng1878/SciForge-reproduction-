@@ -21,10 +21,8 @@ import {
   mergeWorkflowSettings,
   normalizeWorkflowSettings,
   type AppSettingsV1,
-  type WorkflowCustomModuleV1,
   type WorkflowHookTriggerV1,
   type WorkflowInputFieldV1,
-  type WorkflowNodePresetV1,
   type WorkflowNodeRunResultV1,
   type WorkflowNodeV1,
   type WorkflowPendingApprovalV1,
@@ -47,8 +45,6 @@ type Props = {
 }
 
 const EMPTY_WORKFLOWS: WorkflowV1[] = []
-const EMPTY_PRESETS: WorkflowNodePresetV1[] = []
-const EMPTY_MODULES: WorkflowCustomModuleV1[] = []
 
 function statusTone(status: WorkflowV1['lastStatus']): string {
   if (status === 'running') return 'bg-amber-500/15 text-amber-900 dark:text-amber-100'
@@ -122,8 +118,6 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
 
   const workflowSettings = settings ? normalizeWorkflowSettings(settings.workflow) : null
   const workflows = workflowSettings?.workflows ?? EMPTY_WORKFLOWS
-  const presets = workflowSettings?.presets ?? EMPTY_PRESETS
-  const modules = workflowSettings?.modules ?? EMPTY_MODULES
   const runningIds = useMemo(() => new Set(status?.runningWorkflowIds ?? []), [status])
   const pendingApprovalsByWorkflow = useMemo(() => {
     const grouped = new Map<string, WorkflowPendingApprovalV1[]>()
@@ -142,38 +136,6 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
     if (count < prevRunningCount.current) void load()
     prevRunningCount.current = count
   }, [runningIds, load])
-
-  const persistPresets = useCallback(
-    async (nextPresets: WorkflowNodePresetV1[]): Promise<void> => {
-      if (!settings) return
-      const nextWorkflow = mergeWorkflowSettings(settings.workflow, { presets: nextPresets })
-      setSettings({ ...settings, workflow: nextWorkflow })
-      const saved = await rendererRuntimeClient.setSettings({ workflow: nextWorkflow })
-      setSettings(saved)
-    },
-    [settings]
-  )
-
-  const handleSavePreset = useCallback(
-    (preset: WorkflowNodePresetV1): Promise<void> => persistPresets([...presets, preset]),
-    [persistPresets, presets]
-  )
-
-  const handleDeletePreset = useCallback(
-    (presetId: string): Promise<void> => persistPresets(presets.filter((preset) => preset.id !== presetId)),
-    [persistPresets, presets]
-  )
-
-  const handleSaveModules = useCallback(
-    async (nextModules: WorkflowCustomModuleV1[]): Promise<void> => {
-      if (!settings) return
-      const nextWorkflow = mergeWorkflowSettings(settings.workflow, { modules: nextModules })
-      setSettings({ ...settings, workflow: nextWorkflow })
-      const saved = await rendererRuntimeClient.setSettings({ workflow: nextWorkflow })
-      setSettings(saved)
-    },
-    [settings]
-  )
 
   const persist = useCallback(
     async (nextWorkflows: WorkflowV1[]): Promise<void> => {
@@ -384,11 +346,6 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
           onRunNode={(nodeId) => handleRunNode(editingWorkflow.id, nodeId)}
           onStop={() => handleStop(editingWorkflow.id)}
           onBack={() => setEditingId(null)}
-          presets={presets}
-          onSavePreset={handleSavePreset}
-          onDeletePreset={handleDeletePreset}
-          modules={modules}
-          onSaveModules={handleSaveModules}
         />
         {runInputTarget ? (
           <RunInputDialog

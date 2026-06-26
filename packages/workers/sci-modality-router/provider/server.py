@@ -1,7 +1,7 @@
 """SciForge expert-translator service.
 
-OpenAI-compatible /v1/chat/completions that dispatches to one of FOUR domain experts
-— the GPU "model provider" behind the standalone sci-modality-router service module.
+OpenAI-compatible /v1/chat/completions that dispatches to configured domain experts
+behind the Model-Router-managed sci-modality worker.
 Every expert is a real domain model whose **native output is text**: it runs a real
 forward pass that generates a natural-language description of the input. There are NO
 general-LLM interpreters here — only models that natively translate their modality to
@@ -38,16 +38,24 @@ from experts.protein_structure import ProteinStructureExpert
 from experts.singlecell import SingleCellExpert
 from experts.molecule import MoleculeExpert
 
+if os.environ.get("SCIFORGE_ENABLE_LOCAL_EXPERT_PROVIDER", "").strip() != "1":
+    raise RuntimeError(
+        "Local expert provider is disabled by default. Set "
+        "SCIFORGE_ENABLE_LOCAL_EXPERT_PROVIDER=1 only after verifying the model licenses."
+    )
+
 DEVICE = os.environ.get("EXPERT_DEVICE", "cuda:0")
 # C2S-Scale-27B (~54GB) gets its own GPU (C2S_DEVICE) so it doesn't contend with the smaller
 # experts (BioT5 + Esm2Text, together <5GB) which share DEVICE. Override with C2S_DEVICE if needed.
 C2S_DEVICE = os.environ.get("C2S_DEVICE", "cuda:1")
 HOST = os.environ.get("EXPERT_TRANSLATOR_HOST", "127.0.0.1")
 PORT = int(os.environ.get("EXPERT_TRANSLATOR_PORT", "8001"))
-MODEL_DIR = os.environ.get("EXPERT_MODEL_DIR", "/root/expert-models")
+MODEL_DIR = os.environ.get("EXPERT_MODEL_DIR", "").strip()
 EXPERT_PROVIDER_API_KEY = os.environ.get("EXPERT_PROVIDER_API_KEY", "").strip()
 MAX_BODY_BYTES = int(os.environ.get("EXPERT_TRANSLATOR_MAX_BODY_BYTES", str(40 * 1024 * 1024)))
 
+if not MODEL_DIR:
+    raise RuntimeError("EXPERT_MODEL_DIR is required; commercial builds do not bundle expert weights.")
 if not EXPERT_PROVIDER_API_KEY:
     raise RuntimeError("EXPERT_PROVIDER_API_KEY is required to start the expert-translator provider.")
 if MAX_BODY_BYTES <= 0:

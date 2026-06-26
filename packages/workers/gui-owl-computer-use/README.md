@@ -1,29 +1,29 @@
 # @sciforge/gui-owl-computer-use
 
-GUI-Owl-1.5 **vision** computer-use worker: turn one natural-language task into
-real desktop actions (click / type / scroll / open apps) on the user's own
-**Windows / macOS / Linux** machine.
+Model-Router-backed **vision** computer-use worker: turn one natural-language
+task into real desktop actions (click / type / scroll / open apps) on the
+user's own **Windows / macOS / Linux** machine.
 
-Computer-use is delegated **end-to-end to one model — GUI-Owl-1.5-32B**
-(Qwen3-VL based). That single model is the whole agent: it reads the screen,
-plans, grounds (pixel coords) *and* decides when to stop — **no planner/grounder
-split, no Agent-S, and the main agent (DeepSeek) does not plan the steps**; it
-just hands the whole task to `computer_use`. The optional Mobile-Agent-v3
-Reflector is **off by default** for the 32B (it's strong enough end-to-end).
+Computer-use is delegated through **SciForge Model Router** to a user/operator
+configured vision-capable computer-use model or remote service. The selected
+model reads the screen, plans, grounds pixel coordinates, and decides when to
+stop. The main agent does not call provider APIs or plan the desktop steps; it
+hands the task to `computer_use`, and this worker sends model traffic only to
+Model Router.
 
 ```
                 ┌──────────────────────────────────────────────┐
-task ──▶        │  observe → GUI-Owl plans+grounds+decides → act → …    │
-                │   model  → GUI-Owl-1.5-32B (remote vLLM, served "gui-owl") │
+task ──▶        │  observe → routed model plans+grounds+decides → act → …    │
+                │   model  → SciForge Model Router /v1/responses             │
                 │   act    → DesktopExecutor (local, the only OS layer) │
                 └──────────────────────────────────────────────┘
 ```
 
 The model is remote (it only sees screenshots + text); the executor runs locally
-where the desktop is. No Linux VM required. Serve it with
-[`server/serve-gui-owl-32b.sh`](server/serve-gui-owl-32b.sh) (tensor-parallel
-across 2 GPUs). The 8B variant also works — just point `CUA_MODEL_BASE_URL` at it
-and set `CUA_REFLECT=true`.
+where the desktop is. No Linux VM required. This package does not ship model
+weights or a default raw provider URL. The development-only
+[`server/serve-gui-owl-32b.sh`](server/serve-gui-owl-32b.sh) helper refuses to
+start unless the operator explicitly opts in and supplies a licensed checkpoint.
 
 ## Relationship to `@sciforge/computer-use`
 
@@ -33,7 +33,7 @@ This worker is **not** a duplicate of the existing
 | | `@sciforge/computer-use` | `@sciforge/gui-owl-computer-use` (this) |
 |---|---|---|
 | Level | low-level **primitives** (`click x,y`, `type`, `screenshot`) | high-level **autonomous task** (NL → multi-step) |
-| Decides what to click | the caller | the GUI-Owl VLM |
+| Decides what to click | the caller | the Model Router selected computer-use model |
 | Tool | `computer_use` (action verbs) | `gui_computer_use_run` (one instruction) |
 
 > Follow-up (not in this drop): the executor could delegate its individual
@@ -56,8 +56,9 @@ This worker is **not** a duplicate of the existing
   passes it to the Kun tool provider as `SCIFORGE_CUA_SERVICE_TOKEN`.
 - **Refs-first**: screenshots are written to disk and returned as artifact refs,
   never inlined into a tool result.
-- **Model router**: in production point `CUA_MODEL_BASE_URL` at the SciForge
-  model router's OpenAI-compatible gateway rather than the raw vLLM endpoint.
+- **Model router only**: set `CUA_MODEL_ROUTER_BASE_URL`,
+  `CUA_MODEL_ROUTER_MODEL`, and `CUA_MODEL_ROUTER_API_KEY`. Legacy direct-provider
+  env vars are ignored.
 
 ## Package layout
 
@@ -66,7 +67,7 @@ This worker is **not** a duplicate of the existing
 | Public contract (tool names, schemas, error codes, result mapping) | `cua/contract.py` |
 | ServiceResult envelope | `cua/result.py` |
 | Service core: the observe→plan→act→reflect loop, trace, safety | `cua/runner.py` |
-| GUI-Owl driver (prompt, call, parse, coord mapping) | `cua/owl_agent.py` |
+| Routed model driver (prompt, call, parse, coord mapping) | `cua/owl_agent.py` |
 | Mobile-Agent-v3 reflector | `cua/reflector.py` |
 | Env-driven config | `cua/config.py` |
 | Cancellation registry | `cua/cancel.py` |
@@ -76,8 +77,8 @@ This worker is **not** a duplicate of the existing
 | Cross-platform desktop executor | `driver/desktop.py` |
 | Click-through mouse overlay | `driver/overlay.py` |
 | Pure contract/result/parse tests | `tests/test_contract.py` |
-| GUI-Owl 32B vLLM serve script (runs on the GPU box) | `server/serve-gui-owl-32b.sh` |
-| One-click launcher: tunnel + service + SciForge GUI | `一键启动-computer-use.bat`, `启动-sciforge-computer-use.ps1` |
+| Development-only local model serve helper | `server/serve-gui-owl-32b.sh` |
+| One-click launcher: Model Router check + service + SciForge GUI | `一键启动-computer-use.bat`, `启动-sciforge-computer-use.ps1` |
 | Launcher secrets template (copy to `启动-secrets.local.ps1`) | `启动-secrets.example.ps1` |
 
 Everything for the module lives in this one folder; see **Integration touchpoints**
@@ -96,6 +97,9 @@ block alongside a one-line summary; screenshots stay as artifact refs.
 ```bash
 python -m pip install -r requirements.txt
 export CUA_SERVICE_TOKEN=dev-local-token
+export CUA_MODEL_ROUTER_BASE_URL=http://127.0.0.1:3892/v1
+export CUA_MODEL_ROUTER_MODEL=sciforge-router
+export CUA_MODEL_ROUTER_API_KEY=replace-with-model-router-runtime-key
 
 # MCP stdio server (for Kun / Codex / agent runtimes):
 python -m cua.cli --stdio
@@ -119,9 +123,9 @@ Standalone service smoke test (no GUI): start `--http`, then
 
 To launch the **full SciForge GUI with this module wired in** (so the in-app
 agent gets a `computer_use` tool), double-click `一键启动-computer-use.bat`
-(or run `启动-sciforge-computer-use.ps1`) **in this folder**: it builds the SSH
-tunnel to the GUI-Owl box, starts this service, sets `SCIFORGE_CUA_SERVICE_URL`,
-then runs `npm run dev` from the repo root.
+(or run `启动-sciforge-computer-use.ps1`) **in this folder**: it verifies Model
+Router config, starts this service, sets `SCIFORGE_CUA_SERVICE_URL`, then runs
+`npm run dev` from the repo root.
 
 ## Integration touchpoints (outside this folder)
 
@@ -137,6 +141,7 @@ minimal wiring needed to expose it to the agent runtime:
 
 ## Config
 
-See [`.env.example`](.env.example). Key vars: `CUA_MODEL_BASE_URL`, `CUA_MODEL`,
-`CUA_MODEL_API_KEY`, `CUA_MAX_STEPS`, `CUA_REFLECT`, `CUA_ALLOW_EXECUTE`,
+See [`.env.example`](.env.example). Key vars: `CUA_MODEL_ROUTER_BASE_URL`,
+`CUA_MODEL_ROUTER_MODEL`, `CUA_MODEL_ROUTER_API_KEY`, `CUA_MAX_STEPS`,
+`CUA_REFLECT`, `CUA_ALLOW_EXECUTE`,
 `CUA_PORT`, `CUA_SERVICE_TOKEN`, `CUA_SHOW_OVERLAY`, `CUA_ARTIFACT_DIR`.

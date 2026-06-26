@@ -1,6 +1,7 @@
 {
   "name": "@sciforge/runtime-inspector",
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "private": false,
   "description": "Read-only SciForge Git, LSP, and runtime diagnostics MCP worker.",

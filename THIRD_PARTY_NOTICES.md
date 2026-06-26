@@ -1,0 +1,192 @@
+# Third Party Notices
+
+Last updated: 2026-06-27
+
+This file records the third-party license and distribution boundary for the current SciForge source tree. It is an engineering compliance index, not legal advice. The exact npm dependency graph is pinned by `package-lock.json`; the separate Kun runtime graph is pinned by `kun/package-lock.json`.
+
+## SciForge Source Boundary
+
+The SciForge source code in this repository is distributed under the MIT License in `LICENSE`, except where a file or package says otherwise.
+
+Package metadata policy:
+
+| Scope | Package metadata | Distribution policy |
+| --- | --- | --- |
+| Root desktop app | `private: true`, `license: MIT` | Not published as a public npm package. Source release follows root `LICENSE`. |
+| `kun` local runtime | `private: true`, `license: MIT` | Bundled as project code, not published as a public npm package. |
+| `packages/workers/*` | `license: MIT` | Project-owned worker packages. |
+| `plugins/paper-radar-service` | `private: true`, `license: UNLICENSED` | Private internal service. May be bundled only under the SciForge product owner's commercial terms; not published or relicensed as a public npm package. |
+| `plugins/vision-router-service` | `private: true`, `license: UNLICENSED` | Private internal service. May be bundled only under the SciForge product owner's commercial terms; not published or relicensed as a public npm package. |
+| `vendor/openclaw-shim` | `private: true`, `license: MIT` | Project-local compatibility shim for peer imports; not an upstream OpenClaw source distribution. |
+
+## Reference-Only Upstream Inspiration
+
+README and design documentation mention these upstream projects as product or architecture references. They are not bundled third-party source distributions in the current repository:
+
+| Project | Current use in SciForge | Audit statement |
+| --- | --- | --- |
+| Reasonix | Cache-first runtime ideas such as stable prompt prefixes, append-only logs, bounded cache discipline, history hygiene, steering, compaction, and cache/usage telemetry. | Reference/inspiration only. Current SciForge Runtime code is independently implemented; no Reasonix source code, tests, fixtures, event contracts, binaries, or assets are copied into this repository. |
+| OpenHanako | Write-mode interaction ideas such as Markdown live editing, writing-space organization, and selected-text inline agent UX. | Reference/inspiration only. No OpenHanako source code, tests, fixtures, binaries, or assets are copied into this repository. |
+| LobsterAI | Connect phone product-flow ideas such as IM management, QR binding, agent binding, and customizable agent profiles. | Reference/inspiration only. No LobsterAI source code, tests, fixtures, binaries, or assets are copied into this repository. |
+
+If future work copies implementation code, generated code, tests, protocol fixtures, media, or brand assets from any of these projects, the copied material must be replaced or listed here with the upstream copyright, license, and redistribution conditions before commercial release.
+
+## npm Dependency Notices
+
+The authoritative npm evidence source is `package-lock.json`. A release audit should preserve the dependency license files that npm installs under each package and should regenerate this section when dependencies change.
+
+Direct root dependencies recorded in `package-lock.json`:
+
+| Package | Version range | License metadata |
+| --- | --- | --- |
+| `@anthropic-ai/claude-agent-sdk` | `^0.3.185` | `SEE LICENSE IN README.md` |
+| `@aws-sdk/client-s3` | `^3.1049.0` | `Apache-2.0` |
+| `@codemirror/commands` | `^6.10.3` | `MIT` |
+| `@codemirror/lang-markdown` | `^6.5.0` | `MIT` |
+| `@codemirror/language` | `^6.12.3` | `MIT` |
+| `@codemirror/language-data` | `^6.5.2` | `MIT` |
+| `@codemirror/state` | `^6.6.0` | `MIT` |
+| `@codemirror/view` | `^6.43.0` | `MIT` |
+| `@larksuiteoapi/node-sdk` | `^1.64.0` | `MIT` |
+| `@modelcontextprotocol/sdk` | `^1.29.0` | `MIT` |
+| `@tencent-weixin/openclaw-weixin` | `2.4.3` | `MIT` |
+| `@tiptap/core` | `3.26.0` | `MIT` |
+| `@tiptap/extension-image` | `3.26.0` | `MIT` |
+| `@tiptap/extension-list` | `3.26.0` | `MIT` |
+| `@tiptap/extension-mathematics` | `3.26.0` | `MIT` |
+| `@tiptap/extension-table` | `3.26.0` | `MIT` |
+| `@tiptap/markdown` | `3.26.0` | `MIT` |
+| `@tiptap/pm` | `3.26.0` | `MIT` |
+| `@tiptap/starter-kit` | `3.26.0` | `MIT` |
+| `@xterm/addon-fit` | `^0.11.0` | `MIT` |
+| `@xterm/addon-web-links` | `^0.12.0` | `MIT` |
+| `@xterm/xterm` | `^6.0.0` | `MIT` |
+| `@xyflow/react` | `^12.11.0` | `MIT` |
+| `better-sqlite3` | `^12.10.0` | `MIT` |
+| `electron-store` | `^10.1.0` | `MIT` |
+| `electron-updater` | `^6.8.3` | `MIT` |
+| `html-to-docx` | `^1.8.0` | `MIT` |
+| `i18next` | `^25.4.2` | `MIT` |
+| `jszip` | `^3.10.1` | `(MIT OR GPL-3.0-or-later)` |
+| `katex` | `^0.16.22` | `MIT` |
+| `lucide-react` | `^0.544.0` | `ISC` |
+| `node-pty` | `^1.1.0` | `MIT` |
+| `openclaw` | `file:vendor/openclaw-shim` | `MIT`, project-local shim |
+| `pdfjs-dist` | `5.4.394` | `Apache-2.0` |
+| `qrcode.react` | `^4.2.0` | `ISC` |
+| `react` | `^19.0.0` | `MIT` |
+| `react-dom` | `^19.0.0` | `MIT` |
+| `react-i18next` | `^15.7.4` | `MIT` |
+| `react-markdown` | `^10.1.0` | `MIT` |
+| `rehype-harden` | `^1.1.8` | `MIT` |
+| `rehype-katex` | `^7.0.1` | `MIT` |
+| `remark-gfm` | `^4.0.1` | `MIT` |
+| `remark-math` | `^6.0.0` | `MIT` |
+| `remark-parse` | `^11.0.0` | `MIT` |
+| `shiki` | `^3.23.0` | `MIT` |
+| `streamdown` | `^2.5.0` | `Apache-2.0` |
+| `unified` | `^11.0.5` | `MIT` |
+| `ws` | `^8.20.1` | `MIT` |
+| `zod` | `^4.4.3` | `MIT` |
+| `zustand` | `^5.0.3` | `MIT` |
+
+Direct root development dependencies include `electron`, `electron-vite`, `vite`, `vitest`, `typescript`, ESLint packages, React type packages, Tailwind/PostCSS, and related build tools. Their license metadata in `package-lock.json` is MIT or Apache-2.0 unless the lockfile records a more specific package license.
+
+Transitive license categories currently observed in the root lockfile include MIT, Apache-2.0, ISC, BSD-2-Clause, BSD-3-Clause, 0BSD, Unlicense, BlueOak-1.0.0, Python-2.0, CC-BY-4.0, `(MIT OR CC0-1.0)`, `(MIT AND Zlib)`, `(MIT OR WTFPL)`, `(BSD-2-Clause OR MIT OR Apache-2.0)`, `(MPL-2.0 OR Apache-2.0)`, and `SEE LICENSE IN ...` entries. The known dual-license package `jszip` is used under the MIT option.
+
+Packages with `SEE LICENSE IN ...` metadata must have their package README/LICENSE files included in release evidence. At this update, the notable direct package is `@anthropic-ai/claude-agent-sdk`; several transitive Tiptap/ProseMirror-related packages also carry package-local license references in the lockfile.
+
+## Electron, Chromium, and Node Runtime Notices
+
+The desktop app uses Electron. Electron itself is MIT-licensed, and an Electron distribution also contains Chromium, Node.js, V8, and other third-party components with their own notices. A final app bundle must include or make available the Electron and Chromium notice artifacts from the packaged Electron distribution, including the Chromium license notice file shipped with Electron.
+
+Release evidence should capture:
+
+- The Electron version from `package-lock.json`.
+- Electron's own license file from the installed package.
+- Chromium third-party notices from the installed Electron distribution.
+- Any platform-specific Electron Builder artifacts included in the installer.
+
+## Native Modules and Binaries
+
+Current source dependencies that may include native code or platform binaries:
+
+| Component | Source | License metadata |
+| --- | --- | --- |
+| `better-sqlite3` | npm dependency | `MIT` |
+| `node-pty` | npm dependency | `MIT` |
+| `@computer-use/nut-js` | `packages/workers/computer-use` dependency | Verify from installed package metadata during worker release audit. |
+| Electron/Chromium/Node/V8 | Electron runtime | See Electron and Chromium notices above. |
+
+No repository-tracked `.node`, `.dylib`, `.so`, or `.dll` files were found in the source tree outside ignored build/dependency directories during this update. Final installers must be scanned separately because native binaries can be introduced by packaging.
+
+## Fonts and Rendered Content Assets
+
+SciForge uses `katex` for math rendering. KaTeX is MIT-licensed and may install web fonts under `node_modules/katex/dist/fonts`. If those fonts are bundled in the final app, include the KaTeX license evidence with the app notices.
+
+`pdfjs-dist` is Apache-2.0 and may include worker files, CMaps, standard fonts, or WASM assets depending on the build path. If included in the final app bundle, preserve the `pdfjs-dist` license and notice files.
+
+## Source Media and Brand Assets
+
+Current tracked media assets in `src/asset/img` are project-owned,
+self-generated geometry or UI illustrations. Their editable SVG sources are
+kept beside the generated PNGs and documented in `src/asset/img/README.md`.
+
+| Asset | Current notice status |
+| --- | --- |
+| `sciforge-icon.svg` | Self-generated project icon source; no external media input. |
+| `sciforge-tray.svg` | Self-generated tray icon source; no external media input. |
+| `sciforge.png` | Generated from `sciforge-icon.svg`. |
+| `sciforge_tray.png` | Generated from `sciforge-tray.svg`. |
+| `codemode.svg` | Self-generated generic UI illustration source; no screenshot or third-party mark. |
+| `codemode.png` | Generated from `codemode.svg`. |
+| `writemode.svg` | Self-generated generic UI illustration source; no screenshot or third-party mark. |
+| `writemode.png` | Generated from `writemode.svg`. |
+| `connect-phone-mode.svg` | Self-generated generic UI illustration source; no screenshot or third-party mark. |
+| `connect-phone-mode.png` | Generated from `connect-phone-mode.svg`. |
+
+Commercial release rule: only self-owned, generated-with-commercial-rights, or
+clearly permissive assets may be bundled. Third-party logos, screenshots,
+videos, and trademarks must not be treated as covered by the project MIT
+license.
+
+## Vendored Code
+
+`vendor/openclaw-shim` is a project-local compatibility shim named `openclaw` so `@tencent-weixin/openclaw-weixin` peer imports can resolve inside SciForge packaging. The shim is marked private and MIT in its package metadata. It is not intended to redistribute upstream OpenClaw source code.
+
+If future changes copy implementation code, generated code, or assets from upstream OpenClaw or Tencent packages into this shim, the copied material must be listed here with its upstream copyright and license.
+
+## Python and Sidecar Worker Dependencies
+
+Python workers are not governed by npm lockfiles. Their dependency files are separate release evidence sources:
+
+| Worker | Dependency file | Distribution note |
+| --- | --- | --- |
+| `packages/workers/evidence-dag` | `pyproject.toml`, `requirements.txt` | Depends on `networkx>=3.0`; Python package metadata must be captured during worker packaging. |
+| `packages/workers/gui-owl-computer-use` | `requirements.txt` | Depends on user/runtime environment packages such as `requests`, `pyautogui`, `mss`, `pyperclip`, `Pillow`, and `mcp`; audit Python package metadata before bundling. |
+| `packages/workers/sci-modality-router/provider` | `requirements.txt` | Server-side GPU/provider environment only. Not bundled into the desktop app by default. |
+
+## Model Capability and Provider Notices
+
+SciForge's commercial distribution policy is that model and LLM capabilities go through Model Router. Users configure their own providers or remote services. The commercial desktop package must not bundle model weights or default connections for models whose commercial rights are unclear.
+
+Current model capability notes:
+
+| Capability | Distribution note |
+| --- | --- |
+| GUI-Owl / vision computer use | Do not bundle model weights by default. Use Model Router or a user-configured remote service. |
+| Qwen/VLM style routing | Use Model Router. Users are responsible for provider terms and API credentials. |
+| Esm2Text, Prot2Text, BioT5+, C2S-Scale, and related sci-modality experts | Server-side or user-provided expert services only unless each model's license permits the target commercial use and redistribution. |
+| Anthropic/OpenAI-compatible providers | Access must be mediated by Model Router. Provider SDK/API terms are separate from the SciForge MIT source license. |
+
+## Release Audit Checklist
+
+Before a commercial source or binary release:
+
+- Regenerate npm dependency evidence from `package-lock.json` and any plugin-local lockfiles.
+- Capture Electron, Chromium, Node/V8, and platform installer notices from the final packaged app.
+- Capture native module licenses and platform binaries from the final packaged app.
+- Confirm or replace all media and brand assets listed above.
+- Confirm Python dependency metadata for any sidecar worker actually distributed.
+- Confirm that no model weights, default model endpoints, or provider credentials are bundled outside the Model Router policy.
+- Re-run the Kun exact-blob provenance scan against the final source package.

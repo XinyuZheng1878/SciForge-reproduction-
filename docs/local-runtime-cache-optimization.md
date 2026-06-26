@@ -34,7 +34,7 @@ schema、超长工具输出、MCP 工具目录、无效 retry 或历史噪声消
 
 ## 总体原则
 
-SciForge Runtime 借鉴了 Reasonix 的 cache-first 设计，但按 GUI 场景做了收束：
+SciForge Runtime 参考了 Reasonix 的 cache-first 设计思想，但按 GUI 场景做了独立实现和收束；该参考关系仅为 reference/inspiration only，未复制 Reasonix 源码、测试或资产：
 
 - GUI 不拼 prompt，不在 renderer 或 main process 做缓存判断。
 - 本地 runtime service 是唯一请求出口，缓存相关策略都放在运行时内部。
@@ -133,7 +133,7 @@ SciForge Runtime 当前在模型请求边界对消息做一层共享的 model hi
 - `kun/src/adapters/model/deepseek-compat-model-client.ts`
 - `kun/src/loop/agent-loop.ts`
 
-SciForge Runtime 也会在模型请求边界做一层 Reasonix 风格的 history hygiene：
+SciForge Runtime 也会在模型请求边界做一层参考 Reasonix 思路的 history hygiene：
 
 - 只压缩发给模型的历史，不改磁盘/session 里保存的完整工具结果。
 - 超大的 `tool_result` 会按字节、行数和轻量 token 估算上限保留 head、
@@ -319,7 +319,7 @@ GUI 不应该做：
 
 ## 当前已借鉴与未完成项
 
-已经落地的 Reasonix 思路：
+已经落地的 Reasonix 参考思路（独立实现，未复制源码、测试或资产）：
 
 - 稳定前缀文件
 - immutable prefix 指纹
@@ -343,7 +343,7 @@ GUI 不应该做：
 - LLM fold summarizer：未来若使用模型做 compaction，应复用主前缀，避免
   summarizer 自己变成冷请求
 - 大工具结果 token cap：当前已加入轻量 token-aware 估算；如未来内置 DeepSeek
-  tokenizer，可改为 Reasonix 那种 token 精确上限
+  tokenizer，可参考 Reasonix 资料中描述的 token 精确上限
 - volatile scratch 边界：把“展示给用户的思考”与“重放给模型的历史”继续分离
 
 ## 相关文档

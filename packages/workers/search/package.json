@@ -1,6 +1,7 @@
 {
   "name": "@sciforge/search",
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "private": false,
   "description": "Shared SciForge research search MCP server.",

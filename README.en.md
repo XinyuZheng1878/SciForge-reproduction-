@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/asset/img/logo.png" width="96" alt="SciForge icon">
+  <img src="src/asset/img/sciforge.png" width="96" alt="SciForge icon">
 </p>
 
 # SciForge
@@ -20,8 +20,8 @@ The goal is not to ship another chat wrapper. The goal is to make SciForge feel 
 ---
 
 <p align="center">
-  <a href="src/asset/img/code.gif">
-    <img src="src/asset/img/code.gif" width="680" alt="SciForge Code mode demo">
+  <a href="src/asset/img/codemode.png">
+    <img src="src/asset/img/codemode.png" width="680" alt="SciForge Code mode illustration">
   </a>
 </p>
 
@@ -98,15 +98,14 @@ long sessions.
 SciForge Runtime fuses a design that has been battle-tested in the
 wild:
 
-- **The cache-first agent loop borrowed from Reasonix**: immutable prompt prefix (with sha256 fingerprint), append-only session log, bounded TTL/LRU cache, inflight tracking with guaranteed cleanup, mid-turn steering queue, context compaction that preserves pinned constraints, and cache/usage telemetry.
+- **The cache-first agent loop uses Reasonix as a design reference**: immutable prompt prefix (with sha256 fingerprint), append-only session log, bounded TTL/LRU cache, inflight tracking with guaranteed cleanup, mid-turn steering queue, context compaction that preserves pinned constraints, and cache/usage telemetry. Reasonix is reference/inspiration only in this project; SciForge Runtime is independently implemented, with no Reasonix source, tests, or assets copied.
 - **Token economy and tool-context optimization**: SciForge Runtime stabilizes system prompts and tool schemas, reads DeepSeek-native cache hit/miss fields, bounds long tool results, long arguments, base64 payloads, and repeated tool loops, and can use `mcp_search` / `mcp_describe` / `mcp_call` to discover MCP tools progressively when a tool catalog is too large to advertise all at once.
 
-> Thanks to the Reasonix team for sharing the runnable references
-> that made this design pillar testable in the first place. Nearly
-> every performance trait of SciForge Runtime — cache hit rate, token replay,
-> reconnect, and interruptable approvals — can be traced back to
-> this project. The full design rationale
-> and the borrow map live in
+> Thanks to the Reasonix team for sharing runnable references
+> that helped validate this cache-first runtime direction. This repository
+> treats Reasonix as a design reference only and does not include Reasonix
+> source code, test fixtures, or assets. The full design rationale
+> and reference map live in
 > [`docs/local-runtime-architecture.md`](docs/local-runtime-architecture.md).
 
 If you want the dedicated write-up for cache behavior, including
@@ -302,10 +301,10 @@ Keyboard shortcuts:
 
 ## Write Mode Design Notes
 
-Write mode extends SciForge from a code/chat workbench into a long-form writing workspace. Its implementation borrows several ideas from the local `openhanako` reference project:
+Write mode extends SciForge from a code/chat workbench into a long-form writing workspace. Its implementation references interaction ideas from the local `openhanako` project. OpenHanako is reference/inspiration only in this project, with no OpenHanako source, tests, or assets copied.
 
-- Markdown live editing: openhanako inspired the CodeMirror decorations approach where the active line stays editable as Markdown source while inactive lines render headings, tasks, images, dividers, and tables through widgets.
-- Selection inline agent: openhanako inspired the selection-capture and floating-input interaction, so selected text can be sent with file path, line numbers, and bounded original text as structured context.
+- Markdown live editing: OpenHanako informed the CodeMirror decorations interaction where the active line stays editable as Markdown source while inactive lines render headings, tasks, images, dividers, and tables through widgets.
+- Selection inline agent: OpenHanako informed the selection-capture and floating-input interaction, so selected text can be sent with file path, line numbers, and bounded original text as structured context.
 - AI session isolation: Write assistant threads follow the active agent runtime, while the GUI keeps a local write thread registry per writing space and runtime so write conversations do not pollute Code / Connect phone sidebars.
 - Text completion: writing completion calls the local Model Router through its Responses-compatible interface, using a Write inline completion public model alias for low-latency ghost text. Short completion uses a short debounce, small token budget, and strict local filtering; inspiration completion uses a longer pause, larger token budget, and only runs at line ends or paragraph boundaries. Before completion, the app builds a short-TTL lightweight index over Markdown / text files in the writing space, retrieves cross-document snippets with BM25 + keyword matching, and injects them as a hidden Markdown comment so terminology, facts, and style stay consistent.
 
@@ -404,12 +403,12 @@ For the full development workflow, see [DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
 SciForge Runtime stands on the shoulders of prior projects:
 
-- **Reasonix** — the cache-first agent loop. `ImmutablePrefix` (with sha256 fingerprint) and its explicit mutation API, `AppendOnlySessionLog` (in-memory window + JSONL on disk), `LruCache` / `TtlLruCache`, `InflightTracker` with `finally`-block cleanup, `SteeringQueue` for mid-turn user guidance, `ContextCompactor` that preserves pinned constraints, and `UsageCounter` + `CacheTelemetry` are direct TypeScript ports and refinements of Reasonix's design prototypes. Reasonix's split between reasoning events and assistant text, the `tool_call` / `tool_result` pairing via `callId`, and the usage replay pattern also flow directly into the SciForge Runtime event contract.
+- **Reasonix** — the cache-first agent loop. `ImmutablePrefix` (with sha256 fingerprint) and its explicit mutation API, `AppendOnlySessionLog` (in-memory window + JSONL on disk), `LruCache` / `TtlLruCache`, `InflightTracker` with `finally`-block cleanup, `SteeringQueue` for mid-turn user guidance, `ContextCompactor` that preserves pinned constraints, and `UsageCounter` + `CacheTelemetry` were important design references for SciForge Runtime. The current implementation is independent TypeScript code, with no Reasonix source, tests, event contracts, or assets copied.
 
 We are also grateful to:
 
-- **[LobsterAI](https://github.com/netease-youdao/LobsterAI)**: its IM management, QR binding, agent binding, and customizable agent-profile flows inspired the Connect phone integration in this project.
-- **OpenHanako**: its Markdown live editing, writing-space, and selection inline-agent patterns heavily informed Write mode.
+- **[LobsterAI](https://github.com/netease-youdao/LobsterAI)**: its IM management, QR binding, agent binding, and customizable agent-profile flows informed the Connect phone product direction. LobsterAI is reference/inspiration only in this project, with no LobsterAI source, tests, or assets copied.
+- **OpenHanako**: its Markdown live editing, writing-space, and selection inline-agent patterns informed Write mode. OpenHanako is reference/inspiration only in this project, with no OpenHanako source, tests, or assets copied.
 - **[DeepSeek](https://github.com/deepseek-ai)**: for the models and API.
 - Everyone who contributes issues, ideas, code, and documentation to SciForge.
 

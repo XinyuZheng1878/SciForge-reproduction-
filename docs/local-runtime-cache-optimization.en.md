@@ -42,7 +42,7 @@ single cache-hit metric:
 
 ## General principles
 
-SciForge Runtime borrowed Reasonix’s cache-first design, but adapted it to the GUI scenario:
+SciForge Runtime references Reasonix's cache-first design ideas, but adapts them through an independent GUI-oriented implementation. This reference relationship is reference/inspiration only, with no Reasonix source, tests, or assets copied:
 
 - The GUI does not spell prompt, and does not make cache judgments in renderer or main process.
 - The local runtime service is the only request exit, and cache-related strategies are placed inside the runtime.
@@ -140,7 +140,7 @@ Implementation location:
 - `kun/src/adapters/model/deepseek-compat-model-client.ts`
 - `kun/src/loop/agent-loop.ts`
 
-SciForge Runtime will also do a layer of Reasonix-style history hygiene at model request boundaries:
+SciForge Runtime will also do a layer of history hygiene at model request boundaries, using Reasonix materials as a design reference:
 
 - Only the history sent to the model is compressed, and the complete tool results saved in the disk/session are not changed.
 - Extra large `tool_result` will retain head,
@@ -325,7 +325,7 @@ In this way, the Code / Write / Connect phone entry points can share the same se
 
 ## Current referenced and unfinished items
 
-Reasonix ideas that have been implemented:
+Reasonix reference ideas implemented independently, with no source, tests, or assets copied:
 
 - Stable prefix file
 - immutable prefix fingerprint
@@ -348,8 +348,8 @@ Points worth learning from in the next stage:
   Explicit restart or new session boundaries
 - LLM fold summarizer: If you use the model for compaction in the future, you should reuse the main prefix to avoid
   The summarizer turns itself into a cold request
-- Big tool result token cap: Currently lightweight token-aware estimation has been added; DeepSeek will be built-in in the future
-  tokenizer, which can be changed to the precise upper limit of tokens like Reasonix
+- Big tool result token cap: Currently lightweight token-aware estimation has been added; if a DeepSeek
+  tokenizer is added later, the bound can use precise token limits similar to those described in Reasonix materials
 - Volatile scratch boundary: continue to separate "the thinking displayed to the user" and the "history replayed to the model"
 
 ## Related documents

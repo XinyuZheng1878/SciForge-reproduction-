@@ -1,6 +1,5 @@
-# GUI-Owl computer-use worker — runtime deps.
-# Model HTTP client (talks to the GUI-Owl vLLM OpenAI-compatible endpoint /
-# the SciForge model router; see CUA_MODEL_BASE_URL).
+# Computer-use worker runtime deps.
+# Model HTTP client talks only to SciForge Model Router; see CUA_MODEL_ROUTER_BASE_URL.
 requests>=2.31.0
 # Local desktop executor — cross-platform.
 pyautogui>=0.9.54

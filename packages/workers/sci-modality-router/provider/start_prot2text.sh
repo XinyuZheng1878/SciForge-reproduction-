@@ -6,7 +6,13 @@
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
-MD="${PROT2TEXT_MODEL_DIR:-/fs-computility-new/upzd_share/shared/sciforge-expert-models/prot2text-large}"
+if [ "${SCIFORGE_ENABLE_LOCAL_EXPERT_PROVIDER:-}" != "1" ]; then
+  echo "Local Prot2Text provider is disabled by default. Set SCIFORGE_ENABLE_LOCAL_EXPERT_PROVIDER=1 after verifying model licenses." >&2
+  exit 2
+fi
+
+: "${PROT2TEXT_MODEL_DIR:?Set PROT2TEXT_MODEL_DIR to a licensed external Prot2Text checkpoint directory.}"
+MD="$PROT2TEXT_MODEL_DIR"
 P2T_PY="${P2T_PYTHON:-/root/miniconda3/envs/p2t/bin/python}"
 
 # Prot2Text ships custom modeling code with relative imports; transformers' dynamic-module

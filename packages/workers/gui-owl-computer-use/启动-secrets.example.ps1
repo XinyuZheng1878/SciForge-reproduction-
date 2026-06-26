@@ -5,25 +5,19 @@
 #  Copy this file to  启动-secrets.local.ps1  and fill in real values (gitignored).
 # =============================================================================
 
-# --- GUI-Owl 模型部署所在的 GPU 服务器 (启动脚本会自动建 SSH 隧道) -----------
-# GUI-Owl is served by vLLM on this box (serve-gui-owl.sh); the launcher forwards
-# a local port to it so the Computer-Use service can reach the model.
-$env:CUA_SSH_HOST    = "your-gpu-host.example.com"  # GPU 服务器地址
-$env:CUA_SSH_PORT    = "22"                         # SSH 端口
-$env:CUA_SSH_USER    = "your-user"
-$env:CUA_REMOTE_PORT = "4243"              # 远端 vLLM 监听端口
-$env:CUA_LOCAL_PORT  = "4243"              # 本地转发端口
-
-# --- Computer-Use 服务 (worker) 调用的模型端点 -------------------------------
-# 默认指向上面的本地隧道。生产环境应改为 SciForge model router 的 OpenAI 兼容网关。
-$env:CUA_MODEL_BASE_URL = "http://127.0.0.1:$($env:CUA_LOCAL_PORT)/v1"
-$env:CUA_MODEL          = "gui-owl"        # served-model-name; 服务器跑 32B (server/serve-gui-owl-32b.sh)
-$env:CUA_MODEL_API_KEY  = "EMPTY"          # vLLM 无需鉴权; 走网关时填真实 key
+# --- Computer-Use worker model access ----------------------------------------
+# All model traffic must go through SciForge Model Router. Configure the router
+# profile with your own licensed provider or remote service, then put the local
+# router URL and runtime key here.
+$env:CUA_MODEL_ROUTER_BASE_URL = "http://127.0.0.1:3892/v1"
+$env:CUA_MODEL_ROUTER_MODEL    = "sciforge-router"
+$env:CUA_MODEL_ROUTER_API_KEY  = "replace-with-model-router-runtime-key"
 
 # --- Computer-Use 服务端口 / 行为 --------------------------------------------
 $env:CUA_PORT         = "3900"             # HTTP sidecar 端口 (GUI 通过它调用)
 $env:CUA_MAX_STEPS    = "15"
-# GUI-Owl 32B 端到端足够强, 关闭 reflector 提速 (用 8B 时再设 "true")。
+# Reflection makes an additional routed model call. Keep it off unless the active
+# Model Router profile is intended to process the before/after screenshots.
 $env:CUA_REFLECT      = "false"
 $env:CUA_SHOW_OVERLAY = "true"             # 真机执行时显示鼠标高亮 (仅 Windows)
 

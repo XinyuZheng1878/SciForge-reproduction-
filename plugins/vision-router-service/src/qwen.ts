@@ -1,10 +1,10 @@
 import type { VisionImageInput, VisionTranslation } from './types.js';
 
-export interface QwenConfig {
+export interface VisionProviderConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
-  /** Per-attempt timeout. Qwen3.7 vision can be slow, so wait generously. */
+  /** Per-attempt timeout. Vision providers can be slow, so wait generously. */
   timeoutMs: number;
   /** Max attempts (>= 1). Transient failures are retried — see translateImage. */
   maxAttempts: number;
@@ -40,13 +40,14 @@ export class ClientAbortError extends Error {
 }
 
 /**
- * Translate one image to text via Qwen (OpenAI-compatible chat/completions), retrying transient
+ * Translate one image to text via the configured OpenAI-compatible provider, retrying transient
  * failures (timeout / 5xx / 429 / network) with exponential backoff. The downstream main agent has
  * no vision, so there is no useful fallback — this service is the authority on "keep trying until
- * Qwen answers". The only non-retryable outcomes are auth failures (401/403) and a caller abort.
+ * the configured vision translator answers". The only non-retryable outcomes are auth failures
+ * (401/403) and a caller abort.
  */
 export async function translateImage(
-  config: QwenConfig,
+  config: VisionProviderConfig,
   image: VisionImageInput,
   instruction: string | undefined,
   fetchImpl: typeof fetch = fetch,
@@ -73,9 +74,9 @@ function isRetryable(error: unknown): boolean {
   return true;
 }
 
-/** One Qwen call with a per-attempt timeout. Throws ProviderError / AbortError. */
+/** One provider call with a per-attempt timeout. Throws ProviderError / AbortError. */
 async function translateOnce(
-  config: QwenConfig,
+  config: VisionProviderConfig,
   image: VisionImageInput,
   instruction: string | undefined,
   fetchImpl: typeof fetch,

@@ -2,7 +2,7 @@
 
 Standalone provider-compatible `/v1/responses` facade for SciForge multimodal routing.
 
-The router is a deterministic orchestrator. It selects registered profile roles, translates visual inputs into text observations, runs a bounded supplement loop, and writes refs-first trace bundles under the configured Model Router trace data root. It does not plan tasks, choose capabilities for agents, execute desktop actions, or silently fall back to unregistered providers.
+The router is a deterministic orchestrator. It selects registered profile roles, translates visual and scientific inputs into text observations, runs a bounded supplement loop, and writes refs-first trace bundles under the configured Model Router trace data root. It does not plan tasks, choose capabilities for agents, execute desktop actions, or silently fall back to unregistered providers.
 
 ## Run
 
@@ -22,6 +22,16 @@ export SCIFORGE_VISION_MODEL=private-vision-model
 export SCIFORGE_VISION_API_KEY=...
 export SCIFORGE_MODEL_ROUTER_TRACE_DATA_ROOT=/var/tmp/sciforge-model-router
 ```
+
+Optional translator workers are attached only through Model Router-owned environment:
+
+```bash
+export SCIFORGE_SCIMODALITY_SERVICE_URL=http://127.0.0.1:3898
+export SCIFORGE_SCIMODALITY_SERVICE_TOKEN=...
+```
+
+Do not configure app runtimes to call these workers or provider APIs directly. If a translator
+worker is unset, Model Router degrades or falls back according to its own routing policy.
 
 `SCIFORGE_MODEL_ROUTER_CONFIG=/path/to/router.config.json` can provide the same `ModelRouterConfig` shape exported by `src/router.ts`. Relative profile `traceRoot` values resolve under `SCIFORGE_MODEL_ROUTER_TRACE_DATA_ROOT` or the platform state-data default, never under the workspace. Public UI and audits should show only the router alias/profile/role readiness; provider URLs, API keys, and raw model slugs remain private router configuration.
 

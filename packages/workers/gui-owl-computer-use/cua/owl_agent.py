@@ -1,8 +1,9 @@
-"""Native GUI-Owl-1.5 driver — no Agent-S, no planner/grounder split.
+"""Computer-use model driver routed through SciForge Model Router.
 
-GUI-Owl 1.5 (Qwen3-VL based) is a full end-to-end GUI agent: given the system
-prompt (which defines the `computer_use` action space), the task, the previous
-actions, and the current screenshot, it returns one step as:
+The configured Model Router profile must point its public model alias at a
+vision-capable GUI agent chosen by the user/operator. Given the system prompt
+(which defines the `computer_use` action space), the task, previous actions, and
+the current screenshot, the routed model returns one step as:
 
     Action: <short imperative>
     <tool_call>
@@ -12,11 +13,8 @@ actions, and the current screenshot, it returns one step as:
 Coordinates are in a 1000x1000 normalized space (the system prompt tells the
 model "the screen's resolution is 1000x1000"); we map them to real screen pixels.
 
-This module only talks to the model and parses its output. Execution (mapping a
-parsed action to mouse/keyboard) lives in the runner via DesktopExecutor.
-
-Prompt + action space + parsing are reproduced from the official PC inference
-script (X-PLUG/MobileAgent, Mobile-Agent-v3.5/computer_use).
+This module only talks to Model Router and parses its output. Execution (mapping
+a parsed action to mouse/keyboard) lives in the runner via DesktopExecutor.
 """
 from __future__ import annotations
 
@@ -194,23 +192,113 @@ def build_messages(instruction: str, history: List[Dict[str, str]],
 def call_owl(base_url: str, model: str, api_key: str,
              messages: List[Dict[str, Any]], timeout: float = 120.0,
              max_tokens: int = 1024) -> str:
-    """POST to an OpenAI-compatible /chat/completions and return the text."""
-    url = base_url.rstrip("/") + "/chat/completions"
+    """POST to Model Router /v1/responses and return output_text."""
+    url = _model_router_responses_url(base_url)
     headers = {"Content-Type": "application/json"}
-    if api_key and api_key != "EMPTY":
-        headers["Authorization"] = f"Bearer {api_key}"
-    body = {"model": model, "messages": messages,
-            "max_tokens": max_tokens, "temperature": 0.0, "stream": False}
+    if not api_key:
+        raise RuntimeError("CUA_MODEL_ROUTER_API_KEY or SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY is required.")
+    headers["Authorization"] = f"Bearer {api_key}"
+    instructions, input_items = _messages_to_responses_input(messages)
+    body = {
+        "model": model,
+        "input": input_items,
+        "max_tokens": max_tokens,
+        "temperature": 0.0,
+        "stream": False,
+    }
+    if instructions:
+        body["instructions"] = instructions
     r = requests.post(url, headers=headers, json=body, timeout=timeout)
     r.raise_for_status()
-    msg = r.json()["choices"][0]["message"]
-    text = msg.get("content") or ""
-    if isinstance(text, list):  # some servers return content as parts
-        text = "".join(p.get("text", "") for p in text if isinstance(p, dict))
-    reasoning = msg.get("reasoning_content")
-    if reasoning:
-        text = f"<thinking>\n{reasoning}\n</thinking>{text}"
-    return text
+    return _responses_output_text(r.json())
+
+
+def _model_router_responses_url(base_url: str) -> str:
+    base = base_url.strip().rstrip("/")
+    if not base:
+        raise RuntimeError("CUA_MODEL_ROUTER_BASE_URL is required.")
+    if base.endswith("/responses"):
+        return base
+    if base.endswith("/v1"):
+        return base + "/responses"
+    return base + "/v1/responses"
+
+
+def _messages_to_responses_input(messages: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
+    instructions: List[str] = []
+    input_items: List[Dict[str, Any]] = []
+    for msg in messages:
+        role = str(msg.get("role") or "user")
+        content = msg.get("content", "")
+        if role == "system":
+            text = _content_to_text(content)
+            if text:
+                instructions.append(text)
+            continue
+        input_items.append({
+            "role": role if role in ("user", "assistant") else "user",
+            "content": _content_to_responses_parts(content, role),
+        })
+    if not input_items:
+        input_items.append({"role": "user", "content": [{"type": "input_text", "text": ""}]})
+    return "\n\n".join(instructions), input_items
+
+
+def _content_to_responses_parts(content: Any, role: str) -> List[Dict[str, Any]]:
+    if isinstance(content, str):
+        part_type = "output_text" if role == "assistant" else "input_text"
+        return [{"type": part_type, "text": content}]
+    if not isinstance(content, list):
+        return [{"type": "input_text", "text": _content_to_text(content)}]
+    parts: List[Dict[str, Any]] = []
+    for part in content:
+        if not isinstance(part, dict):
+            text = str(part)
+            if text:
+                parts.append({"type": "input_text", "text": text})
+            continue
+        if part.get("type") == "text":
+            parts.append({
+                "type": "output_text" if role == "assistant" else "input_text",
+                "text": str(part.get("text") or ""),
+            })
+            continue
+        if part.get("type") == "image_url":
+            image_url = part.get("image_url") if isinstance(part.get("image_url"), dict) else {}
+            url = image_url.get("url") or part.get("url")
+            if url:
+                parts.append({"type": "input_image", "image_url": str(url)})
+            continue
+        parts.append({"type": "input_text", "text": json.dumps(part, ensure_ascii=False)})
+    return parts or [{"type": "input_text", "text": ""}]
+
+
+def _content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        chunks = []
+        for part in content:
+            if isinstance(part, dict):
+                chunks.append(str(part.get("text") or part.get("content") or ""))
+            else:
+                chunks.append(str(part))
+        return "\n".join(chunk for chunk in chunks if chunk)
+    return str(content or "")
+
+
+def _responses_output_text(payload: Dict[str, Any]) -> str:
+    output_text = payload.get("output_text")
+    if isinstance(output_text, str):
+        return output_text
+    chunks: List[str] = []
+    for item in payload.get("output", []) if isinstance(payload.get("output"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        for part in item.get("content", []) if isinstance(item.get("content"), list) else []:
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                chunks.append(part["text"])
+    return "\n".join(chunks)
 
 
 def extract_action(text: str) -> Optional[Dict[str, Any]]:

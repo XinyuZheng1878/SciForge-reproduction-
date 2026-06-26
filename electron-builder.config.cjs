@@ -205,6 +205,11 @@ module.exports = {
       ]
     }
   ],
+  extraResources: [
+    { from: 'LICENSE', to: 'compliance/LICENSE' },
+    { from: 'THIRD_PARTY_NOTICES.md', to: 'compliance/THIRD_PARTY_NOTICES.md' },
+    { from: 'src/asset/img/README.md', to: 'compliance/ASSET_PROVENANCE.md' }
+  ],
   artifactName: `SciForge-${artifactVersion}-\${os}-\${arch}.\${ext}`,
   publish: [
     {
