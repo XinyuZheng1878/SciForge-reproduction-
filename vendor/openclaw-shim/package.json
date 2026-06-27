@@ -4,7 +4,7 @@
   "description": "DeepSeek GUI compatibility shim for @tencent-weixin/openclaw-weixin peer imports.",
   "type": "module",
   "private": true,
-  "license": "MIT",
+  "license": "LicenseRef-SciForge-Academic-NonCommercial",
   "sciforge": {
     "distribution": "vendored-compatibility-shim",
     "provenance": "Project-local compatibility shim for @tencent-weixin/openclaw-weixin peer imports; not an upstream OpenClaw source distribution."

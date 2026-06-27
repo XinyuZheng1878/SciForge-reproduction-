@@ -1,25 +1,29 @@
-# Commercial Source Release Boundary
+# Source Release Boundary
 
 Last updated: 2026-06-27
 
-This note defines the commercial-use source boundary for SciForge cleanup work.
+This note was originally created during commercial-use cleanup work. SciForge is
+now distributed under the SciForge Academic Non-Commercial License, which
+permits academic non-commercial use and prohibits commercial use without
+separate written permission. This document now defines the source boundary for
+non-commercial academic releases and preserves the historical cleanup evidence.
 It is an engineering release note, not legal advice.
 
 ## Release Scope
 
-The commercial source package is produced from the cleaned working tree used for
-release. It must not include `.git`, local refs, historical branches, build
-output, dependency directories, local secrets, or Codex runtime state.
+The source package is produced from the cleaned working tree used for release.
+It must not include `.git`, local refs, historical branches, build output,
+dependency directories, local secrets, or Codex runtime state.
 
 The project intentionally does not rewrite all historical Git refs in this
 cleanup phase. Historical refs may still contain exact Git blobs that match Kun
 content introduced after Kun changed away from MIT. Those historical refs are
-outside the commercial source package boundary and must not be included in a
-commercial source archive.
+outside the source package boundary and must not be included in a release
+archive.
 
 ## Required Evidence
 
-Before publishing a commercial source package:
+Before publishing a source package:
 
 1. Run the Kun exact-hit scan on the release working tree:
 
@@ -76,8 +80,8 @@ release commit and no historical refs.
 - Model and LLM capabilities must go through Model Router. Users configure their
   own providers or remote services.
 - Do not bundle model weights, default model endpoints, or provider credentials
-  unless their license and commercial terms are explicitly cleared.
+  unless their license and target-use terms are explicitly cleared.
 - Do not bundle media, logos, screenshots, or videos unless their provenance and
-  commercial rights are clear.
+  release rights are clear.
 - Preserve `THIRD_PARTY_NOTICES.md`, dependency lockfiles, and any package-local
   license files that are part of the release evidence.

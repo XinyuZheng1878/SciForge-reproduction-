@@ -6,18 +6,21 @@ This file records the third-party license and distribution boundary for the curr
 
 ## SciForge Source Boundary
 
-The SciForge source code in this repository is distributed under the MIT License in `LICENSE`, except where a file or package says otherwise.
+The SciForge source code in this repository is distributed under the custom
+SciForge Academic Non-Commercial License in `LICENSE`, except where a file or
+package says otherwise. The license permits academic non-commercial use and
+prohibits commercial use without separate written permission.
 
 Package metadata policy:
 
 | Scope | Package metadata | Distribution policy |
 | --- | --- | --- |
-| Root desktop app | `private: true`, `license: MIT` | Not published as a public npm package. Source release follows root `LICENSE`. |
-| `kun` local runtime | `private: true`, `license: MIT` | Bundled as project code, not published as a public npm package. |
-| `packages/workers/*` | `license: MIT` | Project-owned worker packages. |
-| `plugins/paper-radar-service` | `private: true`, `license: UNLICENSED` | Private internal service. May be bundled only under the SciForge product owner's commercial terms; not published or relicensed as a public npm package. |
-| `plugins/vision-router-service` | `private: true`, `license: UNLICENSED` | Private internal service. May be bundled only under the SciForge product owner's commercial terms; not published or relicensed as a public npm package. |
-| `vendor/openclaw-shim` | `private: true`, `license: MIT` | Project-local compatibility shim for peer imports; not an upstream OpenClaw source distribution. |
+| Root desktop app | `private: true`, `license: LicenseRef-SciForge-Academic-NonCommercial` | Not published as a public npm package. Source release follows root `LICENSE`. |
+| `kun` local runtime | `private: true`, `license: LicenseRef-SciForge-Academic-NonCommercial` | Bundled as project code, not published as a public npm package. |
+| `packages/workers/*` | `license: LicenseRef-SciForge-Academic-NonCommercial` | Project-owned worker packages. |
+| `plugins/paper-radar-service` | `private: true`, `license: LicenseRef-SciForge-Academic-NonCommercial` | Private internal service. May be bundled only under the SciForge Academic Non-Commercial License or separate written permission; not published or relicensed as a public npm package. |
+| `plugins/vision-router-service` | `private: true`, `license: LicenseRef-SciForge-Academic-NonCommercial` | Private internal service. May be bundled only under the SciForge Academic Non-Commercial License or separate written permission; not published or relicensed as a public npm package. |
+| `vendor/openclaw-shim` | `private: true`, `license: LicenseRef-SciForge-Academic-NonCommercial` | Project-local compatibility shim for peer imports; not an upstream OpenClaw source distribution. |
 
 ## Reference-Only Upstream Inspiration
 
@@ -29,7 +32,7 @@ README and design documentation mention these upstream projects as product or ar
 | OpenHanako | Write-mode interaction ideas such as Markdown live editing, writing-space organization, and selected-text inline agent UX. | Reference/inspiration only. No OpenHanako source code, tests, fixtures, binaries, or assets are copied into this repository. |
 | LobsterAI | Connect phone product-flow ideas such as IM management, QR binding, agent binding, and customizable agent profiles. | Reference/inspiration only. No LobsterAI source code, tests, fixtures, binaries, or assets are copied into this repository. |
 
-If future work copies implementation code, generated code, tests, protocol fixtures, media, or brand assets from any of these projects, the copied material must be replaced or listed here with the upstream copyright, license, and redistribution conditions before commercial release.
+If future work copies implementation code, generated code, tests, protocol fixtures, media, or brand assets from any of these projects, the copied material must be replaced or listed here with the upstream copyright, license, and redistribution conditions before release.
 
 ## npm Dependency Notices
 
@@ -71,7 +74,7 @@ Direct root dependencies recorded in `package-lock.json`:
 | `katex` | `^0.16.22` | `MIT` |
 | `lucide-react` | `^0.544.0` | `ISC` |
 | `node-pty` | `^1.1.0` | `MIT` |
-| `openclaw` | `file:vendor/openclaw-shim` | `MIT`, project-local shim |
+| `openclaw` | `file:vendor/openclaw-shim` | `LicenseRef-SciForge-Academic-NonCommercial`, project-local shim |
 | `pdfjs-dist` | `5.4.394` | `Apache-2.0` |
 | `qrcode.react` | `^4.2.0` | `ISC` |
 | `react` | `^19.0.0` | `MIT` |
@@ -128,16 +131,18 @@ SciForge uses `katex` for math rendering. KaTeX is MIT-licensed and may install 
 
 ## Source Media and Brand Assets
 
-Current tracked media assets in `src/asset/img` are project-owned,
-self-generated geometry or UI illustrations. Their editable SVG sources are
-kept beside the generated PNGs and documented in `src/asset/img/README.md`.
+Current tracked media assets in `src/asset/img` are project brand assets,
+project-owned demo media, or self-generated generic UI illustrations. Their
+provenance is documented in `src/asset/img/README.md`.
 
 | Asset | Current notice status |
 | --- | --- |
-| `sciforge-icon.svg` | Self-generated project icon source; no external media input. |
-| `sciforge-tray.svg` | Self-generated tray icon source; no external media input. |
-| `sciforge.png` | Generated from `sciforge-icon.svg`. |
-| `sciforge_tray.png` | Generated from `sciforge-tray.svg`. |
+| `logo.png` | Legacy SciForge icon restored from project history by owner preference. |
+| `sciforge.png` | Transparent legacy SciForge icon restored from project history for app icon usage. |
+| `sciforge_tray.png` | Legacy SciForge tray icon restored from project history. |
+| `code.gif` | Legacy SciForge Code mode demo restored from project history for README display. |
+| `sciforge-icon.svg` | Self-generated project icon source retained for future editable use. |
+| `sciforge-tray.svg` | Self-generated tray icon source retained for future editable use. |
 | `codemode.svg` | Self-generated generic UI illustration source; no screenshot or third-party mark. |
 | `codemode.png` | Generated from `codemode.svg`. |
 | `writemode.svg` | Self-generated generic UI illustration source; no screenshot or third-party mark. |
@@ -145,14 +150,13 @@ kept beside the generated PNGs and documented in `src/asset/img/README.md`.
 | `connect-phone-mode.svg` | Self-generated generic UI illustration source; no screenshot or third-party mark. |
 | `connect-phone-mode.png` | Generated from `connect-phone-mode.svg`. |
 
-Commercial release rule: only self-owned, generated-with-commercial-rights, or
-clearly permissive assets may be bundled. Third-party logos, screenshots,
-videos, and trademarks must not be treated as covered by the project MIT
-license.
+Release rule: only project-owned, generated-with-appropriate-rights, or clearly
+permissive assets may be bundled. Third-party logos, screenshots, videos, and
+trademarks must not be treated as covered by the project license.
 
 ## Vendored Code
 
-`vendor/openclaw-shim` is a project-local compatibility shim named `openclaw` so `@tencent-weixin/openclaw-weixin` peer imports can resolve inside SciForge packaging. The shim is marked private and MIT in its package metadata. It is not intended to redistribute upstream OpenClaw source code.
+`vendor/openclaw-shim` is a project-local compatibility shim named `openclaw` so `@tencent-weixin/openclaw-weixin` peer imports can resolve inside SciForge packaging. The shim is marked private and uses the SciForge Academic Non-Commercial License in its package metadata. It is not intended to redistribute upstream OpenClaw source code.
 
 If future changes copy implementation code, generated code, or assets from upstream OpenClaw or Tencent packages into this shim, the copied material must be listed here with its upstream copyright and license.
 
@@ -168,7 +172,7 @@ Python workers are not governed by npm lockfiles. Their dependency files are sep
 
 ## Model Capability and Provider Notices
 
-SciForge's commercial distribution policy is that model and LLM capabilities go through Model Router. Users configure their own providers or remote services. The commercial desktop package must not bundle model weights or default connections for models whose commercial rights are unclear.
+SciForge's distribution policy is that model and LLM capabilities go through Model Router. Users configure their own providers or remote services. The desktop package must not bundle model weights or default connections for models whose redistribution or target-use rights are unclear.
 
 Current model capability notes:
 
@@ -176,12 +180,12 @@ Current model capability notes:
 | --- | --- |
 | GUI-Owl / vision computer use | Do not bundle model weights by default. Use Model Router or a user-configured remote service. |
 | Qwen/VLM style routing | Use Model Router. Users are responsible for provider terms and API credentials. |
-| Esm2Text, Prot2Text, BioT5+, C2S-Scale, and related sci-modality experts | Server-side or user-provided expert services only unless each model's license permits the target commercial use and redistribution. |
-| Anthropic/OpenAI-compatible providers | Access must be mediated by Model Router. Provider SDK/API terms are separate from the SciForge MIT source license. |
+| Esm2Text, Prot2Text, BioT5+, C2S-Scale, and related sci-modality experts | Server-side or user-provided expert services only unless each model's license permits the target use and redistribution. |
+| Anthropic/OpenAI-compatible providers | Access must be mediated by Model Router. Provider SDK/API terms are separate from the SciForge source license. |
 
 ## Release Audit Checklist
 
-Before a commercial source or binary release:
+Before any source or binary release:
 
 - Regenerate npm dependency evidence from `package-lock.json` and any plugin-local lockfiles.
 - Capture Electron, Chromium, Node/V8, and platform installer notices from the final packaged app.

@@ -1,20 +1,27 @@
 # Asset provenance
 
-The commercial release asset set in this directory is limited to project-owned,
-self-generated geometry and UI illustrations. The SVG files in this directory
-are the editable sources; the PNG files are generated from those SVGs.
+The release asset set in this directory is limited to project brand assets,
+project-owned demo media, and self-generated generic UI illustrations.
 
-No third-party logos, screenshots, videos, product marks, or externally sourced
-media are bundled here.
+Restored project brand/demo assets:
 
-Generated assets:
+- `logo.png`: legacy SciForge icon restored from project history by owner
+  preference.
+- `sciforge.png`: transparent legacy SciForge icon restored from project
+  history for app icon usage.
+- `sciforge_tray.png`: legacy SciForge tray icon restored from project history.
+- `code.gif`: legacy SciForge Code mode demo restored from project history for
+  README display.
 
-- `sciforge-icon.svg` -> `sciforge.png`
-- `sciforge-tray.svg` -> `sciforge_tray.png`
+Self-generated illustration assets:
+
+- `sciforge-icon.svg`
+- `sciforge-tray.svg`
 - `codemode.svg` -> `codemode.png`
 - `writemode.svg` -> `writemode.png`
 - `connect-phone-mode.svg` -> `connect-phone-mode.png`
 
-Removed legacy assets included source-unknown demo screenshots/videos and
-third-party brand marks. If new media is added later, record its source and
-commercial-use permission here before shipping it.
+No third-party logos, product marks, or externally sourced media are intended to
+be bundled here. Removed legacy assets included DeepSeek/Feishu brand marks and
+source-unknown videos. If new media is added later, record its source and
+target-use permission here before shipping it.

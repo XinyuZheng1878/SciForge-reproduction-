@@ -3,7 +3,7 @@
   "productName": "SciForge",
   "version": "0.1.0",
   "private": true,
-  "license": "MIT",
+  "license": "LicenseRef-SciForge-Academic-NonCommercial",
   "description": "Electron workbench for selectable local agent runtimes",
   "main": "./out/main/index.js",
   "type": "module",

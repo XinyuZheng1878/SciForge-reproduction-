@@ -202,4 +202,4 @@ npm run dev
 
 ## 许可证
 
-向 SciForge 贡献代码即表示你同意你的贡献将基于 [MIT 许可证](../LICENSE) 发布。
+向 SciForge 贡献代码即表示你同意你的贡献将基于 [SciForge Academic Non-Commercial License](../LICENSE) 发布；该许可证允许学术非商用使用，禁止商业使用。

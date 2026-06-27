@@ -416,12 +416,9 @@ We are also grateful to:
   <img src="https://contrib.rocks/image?repo=XingYu-Zhong/SciForge" />
 </a>
 
-> [!NOTE]
-> This project is not affiliated with DeepSeek Inc.
-
 ## License
 
-[MIT](./LICENSE)
+[SciForge Academic Non-Commercial License](./LICENSE): academic non-commercial use is permitted; commercial use is prohibited.
 
 ## Star History
 

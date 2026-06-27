@@ -1,6 +1,7 @@
 {
   "name": "@sciforge/scientific-plotting",
   "version": "0.1.0",
+  "license": "LicenseRef-SciForge-Academic-NonCommercial",
   "type": "module",
   "private": false,
   "description": "SciForge controlled scientific plotting and K-Dense scientific skills MCP workers.",

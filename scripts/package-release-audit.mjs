@@ -20,13 +20,11 @@ const NATIVE_BINARY_EXTENSIONS = new Set(['.dylib', '.dll', '.exe', '.node', '.s
 const MEDIA_EXTENSIONS = new Set(['.gif', '.icns', '.ico', '.jpg', '.jpeg', '.mov', '.mp4', '.png', '.svg', '.webp'])
 const ARCHIVE_EXTENSIONS = new Set(['.7z', '.appimage', '.asar', '.dmg', '.pkg', '.zip'])
 const FORBIDDEN_MEDIA_NAMES = [
-  'code.gif',
   'code.mp4',
   'deepseek.png',
   'deepseek.svg',
   'deepseek_gui_tray.png',
   'feishu.mp4',
-  'logo.png',
   'sdd.mp4',
   'web.mp4',
   'write.mp4'
@@ -53,7 +51,7 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`Usage: node scripts/package-release-audit.mjs [--target <dir>] [--json]
 
-Scans a built release/install output directory for commercial-use evidence:
+Scans a built release/install output directory for release-boundary evidence:
 required notices, media assets, native binaries, archives, and bundled model
 weight-like files. The command exits 2 when required notices are missing,
 legacy risky media names are present, or model-weight-like files are bundled.`)

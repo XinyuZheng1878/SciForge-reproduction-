@@ -1,6 +1,7 @@
 {
   "name": "@sciforge/canvas",
   "version": "0.1.0",
+  "license": "LicenseRef-SciForge-Academic-NonCommercial",
   "type": "module",
   "private": false,
   "description": "SciForge Canvas worker MCP server with Cowart-compatible review workflows.",

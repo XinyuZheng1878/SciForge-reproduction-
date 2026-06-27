@@ -1,10 +1,12 @@
-# SciForge 商业使用风险清理任务板
+# SciForge 历史商业使用风险清理任务板
 
 更新时间：2026-06-27
 
+> 当前项目许可证已改为 [SciForge Academic Non-Commercial License](./LICENSE)，允许学术非商用使用，禁止商业使用。本文档保留此前围绕商业使用风险清理形成的工程证据、决策和验收记录；当前对外发布应以根 `LICENSE` 为准。
+
 ## 当前目标
 
-清理从 Kun 改为非商用许可证后引入或精确命中的代码、资产与依赖风险，让当前可发布源码包和最终安装包具备可审计的商业使用证据链。
+清理从 Kun 改为非商用许可证后引入或精确命中的代码、资产与依赖风险，并保留可审计的许可证证据链。
 
 本任务板只管理商业使用风险清理。实现时优先删除或重写风险来源，不保留旧兼容旁路；每完成一个切片后必须重新跑 exact blob 扫描和相关测试。
 
@@ -57,18 +59,18 @@
 
 - [x] 列出全 refs 中的 post-change exact blob，标注所在 ref、首次引入提交和是否仍会进入发布包：`node scripts/license-risk-scan.mjs` 最新输出 23 个 all-ref unique blob，其中 12 个不在当前 `HEAD` exact-hit 集合中；实际源码包隔离扫描为 0。
 - [x] 本轮不重写完整 git 历史；历史/其它 ref 命中不阻塞当前源码包清理。
-- [x] 发布说明中明确：商业发布源码包基于清理后的 tree，历史 refs 中的 post-change exact blob 不进入发布包。见 [docs/commercial-release-boundary.md](docs/commercial-release-boundary.md)。
+- [x] 发布说明中明确：发布源码包基于清理后的 tree，历史 refs 中的 post-change exact blob 不进入发布包。见 [docs/commercial-release-boundary.md](docs/commercial-release-boundary.md)。
 - [x] 对 `write-pdf-text-service*`、`write-retrieval-service*`、`WorkflowNodes`、`workflow-types`、`app-settings-workflow`、`workflow-output-descriptors` 等历史命中确认当前 HEAD 是否已重写或删除。最新扫描中这些文件只出现在 historic-only 集合；隔离源码包扫描 all refs 为 0。
 - [x] 发布前对实际导出的源码包重新跑 exact-hit 扫描，确保不受本地 refs 或未跟踪文件影响。已按 `docs/commercial-release-boundary.md` 导出临时源码包，扫描结果：`current HEAD exact hits: 0`、`worktree exact hits: 0`、`all refs exact hits: 0`、`historic-only exact hits: 0`。
 
 ## 来源与许可证元数据
 
-- [x] 给 root `package.json`、`kun/package.json` 和 workspace packages 明确 `license` 或 `private`，避免 npm 元数据与根 `LICENSE` 不一致。已补 `license: MIT` / `private: true`，并同步 root 与 Kun lockfile 中的包元数据。
+- [x] 给 root `package.json`、`kun/package.json` 和 workspace packages 明确 `license` 或 `private`，避免 npm 元数据与根 `LICENSE` 不一致。当前项目自有包统一使用 `LicenseRef-SciForge-Academic-NonCommercial`，并同步 root、Kun 与相关 package lockfile 中的包元数据。
 - [x] 新增 `NOTICE` 或 `THIRD_PARTY_NOTICES`，覆盖 npm 依赖、Electron/Chromium、native 模块、字体、图片、视频和 vendored 代码。已新增 `THIRD_PARTY_NOTICES.md` 作为当前源码包的第三方审计入口。
-- [x] 确认 `vendor/openclaw-shim` 是否完全自写；若有上游派生，补版权和许可证声明。当前文件为项目本地兼容 shim，已标注 `private: true`、`license: MIT` 和 provenance；若未来拷入上游实现，需另补上游声明。
+- [x] 确认 `vendor/openclaw-shim` 是否完全自写；若有上游派生，补版权和许可证声明。当前文件为项目本地兼容 shim，已标注 `private: true`、`license: LicenseRef-SciForge-Academic-NonCommercial` 和 provenance；若未来拷入上游实现，需另补上游声明。
 - [x] 确认 README 中 Reasonix、OpenHanako、LobsterAI 相关描述是否仅为思想/设计参考；如存在代码派生，补来源许可证或重写。已把高风险措辞改为 reference/inspiration only，并在 `THIRD_PARTY_NOTICES.md` 记录无源码、测试、资产复制。
-- [x] 确认 `src/asset/img` 下图片、视频、logo、截图的来源和商标授权；无法确认的素材直接替换为自有或可商用素材，或从商业包移除。已删除未知来源/第三方品牌风险素材，保留资产均由同目录 SVG 自生成，并由 `src/asset/img/README.md` 记录 provenance。
-- [x] 确认 `plugins/paper-radar-service` 与 `plugins/vision-router-service` 的 `UNLICENSED` 状态是否符合分发目标；若随产品发布，改为明确项目内授权或私有不分发。已保留 `private: true` + `UNLICENSED`，并在 package metadata 与 `THIRD_PARTY_NOTICES.md` 中写明仅作为 SciForge 私有内部服务随产品条款分发，不作为公共 npm 包授权。
+- [x] 确认 `src/asset/img` 下图片、视频、logo、截图的来源和商标授权；无法确认的素材直接替换为自有或可商用素材，或从商业包移除。已删除 DeepSeek/Feishu 品牌素材和来源不明视频；按项目 owner 偏好恢复旧 SciForge 图标与 `code.gif` 演示资产，其余保留插图为自生成资产，并由 `src/asset/img/README.md` 记录 provenance。
+- [x] 确认 `plugins/paper-radar-service` 与 `plugins/vision-router-service` 的授权状态是否符合分发目标；若随产品发布，改为明确项目内授权或私有不分发。当前已使用 `private: true` + `LicenseRef-SciForge-Academic-NonCommercial`，并在 package metadata 与 `THIRD_PARTY_NOTICES.md` 中写明仅可按 SciForge 学术非商用许可证或单独书面许可分发，不作为公共 npm 包授权。
 
 ## 模型与服务链路合规
 
