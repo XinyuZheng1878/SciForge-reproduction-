@@ -1,7 +1,7 @@
 {
   "name": "@sciforge/evidence-dag",
   "version": "0.1.0",
-  "license": "LicenseRef-SciForge-Academic-NonCommercial",
+  "license": "MIT",
   "type": "module",
   "private": false,
   "description": "Standalone Evidence-DAG engine: turns an agent trace into a typed claim-evidence DAG, verifies supports edges with an NLI judge, and serialises to PROV-JSON. HTTP service (ServiceResult-only).",

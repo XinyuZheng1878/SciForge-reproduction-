@@ -418,7 +418,7 @@ We are also grateful to:
 
 ## License
 
-[SciForge Academic Non-Commercial License](./LICENSE): academic non-commercial use is permitted; commercial use is prohibited.
+[MIT](./LICENSE)
 
 ## Star History
 

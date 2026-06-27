@@ -6,21 +6,19 @@ This file records the third-party license and distribution boundary for the curr
 
 ## SciForge Source Boundary
 
-The SciForge source code in this repository is distributed under the custom
-SciForge Academic Non-Commercial License in `LICENSE`, except where a file or
-package says otherwise. The license permits academic non-commercial use and
-prohibits commercial use without separate written permission.
+The SciForge source code in this repository is distributed under the MIT
+License in `LICENSE`, except where a file or package says otherwise.
 
 Package metadata policy:
 
 | Scope | Package metadata | Distribution policy |
 | --- | --- | --- |
-| Root desktop app | `private: true`, `license: LicenseRef-SciForge-Academic-NonCommercial` | Not published as a public npm package. Source release follows root `LICENSE`. |
-| `kun` local runtime | `private: true`, `license: LicenseRef-SciForge-Academic-NonCommercial` | Bundled as project code, not published as a public npm package. |
-| `packages/workers/*` | `license: LicenseRef-SciForge-Academic-NonCommercial` | Project-owned worker packages. |
-| `plugins/paper-radar-service` | `private: true`, `license: LicenseRef-SciForge-Academic-NonCommercial` | Private internal service. May be bundled only under the SciForge Academic Non-Commercial License or separate written permission; not published or relicensed as a public npm package. |
-| `plugins/vision-router-service` | `private: true`, `license: LicenseRef-SciForge-Academic-NonCommercial` | Private internal service. May be bundled only under the SciForge Academic Non-Commercial License or separate written permission; not published or relicensed as a public npm package. |
-| `vendor/openclaw-shim` | `private: true`, `license: LicenseRef-SciForge-Academic-NonCommercial` | Project-local compatibility shim for peer imports; not an upstream OpenClaw source distribution. |
+| Root desktop app | `private: true`, `license: MIT` | Not published as a public npm package. Source release follows root `LICENSE`. |
+| `kun` local runtime | `private: true`, `license: MIT` | Bundled as project code, not published as a public npm package. |
+| `packages/workers/*` | `license: MIT` | Project-owned worker packages. |
+| `plugins/paper-radar-service` | `private: true`, `license: MIT` | Private internal service. May be bundled only under the SciForge MIT License; not published as a public npm package. |
+| `plugins/vision-router-service` | `private: true`, `license: MIT` | Private internal service. May be bundled only under the SciForge MIT License; not published as a public npm package. |
+| `vendor/openclaw-shim` | `private: true`, `license: MIT` | Project-local compatibility shim for peer imports; not an upstream OpenClaw source distribution. |
 
 ## Reference-Only Upstream Inspiration
 
@@ -74,7 +72,7 @@ Direct root dependencies recorded in `package-lock.json`:
 | `katex` | `^0.16.22` | `MIT` |
 | `lucide-react` | `^0.544.0` | `ISC` |
 | `node-pty` | `^1.1.0` | `MIT` |
-| `openclaw` | `file:vendor/openclaw-shim` | `LicenseRef-SciForge-Academic-NonCommercial`, project-local shim |
+| `openclaw` | `file:vendor/openclaw-shim` | `MIT`, project-local shim |
 | `pdfjs-dist` | `5.4.394` | `Apache-2.0` |
 | `qrcode.react` | `^4.2.0` | `ISC` |
 | `react` | `^19.0.0` | `MIT` |
@@ -156,7 +154,7 @@ trademarks must not be treated as covered by the project license.
 
 ## Vendored Code
 
-`vendor/openclaw-shim` is a project-local compatibility shim named `openclaw` so `@tencent-weixin/openclaw-weixin` peer imports can resolve inside SciForge packaging. The shim is marked private and uses the SciForge Academic Non-Commercial License in its package metadata. It is not intended to redistribute upstream OpenClaw source code.
+`vendor/openclaw-shim` is a project-local compatibility shim named `openclaw` so `@tencent-weixin/openclaw-weixin` peer imports can resolve inside SciForge packaging. The shim is marked private and MIT in its package metadata. It is not intended to redistribute upstream OpenClaw source code.
 
 If future changes copy implementation code, generated code, or assets from upstream OpenClaw or Tencent packages into this shim, the copied material must be listed here with its upstream copyright and license.
 

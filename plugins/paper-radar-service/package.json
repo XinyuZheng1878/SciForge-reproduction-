@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "description": "Standalone SciForge service for daily arXiv and bioRxiv metadata sync, local search, and daily paper digests.",
   "type": "module",
-  "license": "LicenseRef-SciForge-Academic-NonCommercial",
+  "license": "MIT",
   "private": true,
   "sciforge": {
     "distribution": "private-internal-service",
     "publicNpmPackage": false,
-    "distributionPolicy": "May be bundled only as part of SciForge under the SciForge Academic Non-Commercial License or separate written permission; not published or relicensed as a public npm package."
+    "distributionPolicy": "May be bundled only as part of SciForge under the MIT License; not published as a public npm package."
   },
   "bin": {
     "sciforge-paper-radar": "./src/index.ts"

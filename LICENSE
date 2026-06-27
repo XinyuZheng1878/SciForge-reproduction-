@@ -1,75 +1,21 @@
-SciForge Academic Non-Commercial License
-Version 1.0
+MIT License
 
 Copyright (c) 2026 XingYu Zhong and SciForge contributors.
 
-This license governs the SciForge source code, documentation, project-owned
-assets, and binaries in this repository, except for third-party components or
-files that include their own license notices. Third-party components remain
-governed by their respective licenses.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-1. Definitions
-
-"Software" means the SciForge materials covered by this license.
-
-"Academic Non-Commercial Use" means use for non-commercial teaching, private
-study, academic research, peer review, publication, reproducibility,
-evaluation, or collaboration by students, educators, researchers, academic
-labs, or non-profit research institutions.
-
-"Commercial Use" means use that is intended for or directed toward commercial
-advantage, monetary compensation, revenue generation, internal business
-operations, paid consulting, paid services, proprietary products, hosted
-services, or commercialization of a product or service. Commercial Use includes
-use by or for a for-profit company unless the copyright holder gives separate
-written permission.
-
-2. Academic Non-Commercial Grant
-
-Subject to this license, you may use, copy, modify, merge, publish, display,
-perform, and distribute the Software for Academic Non-Commercial Use only.
-You may distribute modified versions only under this same license and only for
-Academic Non-Commercial Use.
-
-3. Conditions
-
-You must:
-
-- keep this license and copyright notice in all copies or substantial portions
-  of the Software;
-- clearly mark material modifications you make; and
-- preserve third-party license notices and attribution notices included with
-  the Software.
-
-4. Commercial Use Prohibited
-
-You may not use, copy, modify, distribute, sublicense, sell, rent, lease,
-provide, host, or otherwise exploit the Software for Commercial Use without
-separate prior written permission from the copyright holder.
-
-5. No Trademark Grant
-
-This license does not grant rights to use the names, logos, trademarks, service
-marks, or branding of SciForge or its contributors except as necessary for
-reasonable attribution and license compliance.
-
-6. Contributions
-
-Unless a separate written agreement says otherwise, any contribution submitted
-to this repository is licensed under this SciForge Academic Non-Commercial
-License.
-
-7. No Warranty
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR
-OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
-FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-IN THE SOFTWARE.
-
-8. Commercial Licensing
-
-For permission to use SciForge commercially, obtain separate written permission
-from the copyright holder.
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

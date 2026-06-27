@@ -2,7 +2,7 @@
 
 更新时间：2026-06-27
 
-> 当前项目许可证已改为 [SciForge Academic Non-Commercial License](./LICENSE)，允许学术非商用使用，禁止商业使用。本文档保留此前围绕商业使用风险清理形成的工程证据、决策和验收记录；当前对外发布应以根 `LICENSE` 为准。
+> 当前项目许可证为 [MIT](./LICENSE)。本文档保留此前围绕商业使用风险清理形成的工程证据、决策和验收记录；当前对外发布应以根 `LICENSE` 为准。
 
 ## 当前目标
 
@@ -65,12 +65,12 @@
 
 ## 来源与许可证元数据
 
-- [x] 给 root `package.json`、`kun/package.json` 和 workspace packages 明确 `license` 或 `private`，避免 npm 元数据与根 `LICENSE` 不一致。当前项目自有包统一使用 `LicenseRef-SciForge-Academic-NonCommercial`，并同步 root、Kun 与相关 package lockfile 中的包元数据。
+- [x] 给 root `package.json`、`kun/package.json` 和 workspace packages 明确 `license` 或 `private`，避免 npm 元数据与根 `LICENSE` 不一致。当前项目自有包统一使用 `MIT`，并同步 root、Kun 与相关 package lockfile 中的包元数据。
 - [x] 新增 `NOTICE` 或 `THIRD_PARTY_NOTICES`，覆盖 npm 依赖、Electron/Chromium、native 模块、字体、图片、视频和 vendored 代码。已新增 `THIRD_PARTY_NOTICES.md` 作为当前源码包的第三方审计入口。
-- [x] 确认 `vendor/openclaw-shim` 是否完全自写；若有上游派生，补版权和许可证声明。当前文件为项目本地兼容 shim，已标注 `private: true`、`license: LicenseRef-SciForge-Academic-NonCommercial` 和 provenance；若未来拷入上游实现，需另补上游声明。
+- [x] 确认 `vendor/openclaw-shim` 是否完全自写；若有上游派生，补版权和许可证声明。当前文件为项目本地兼容 shim，已标注 `private: true`、`license: MIT` 和 provenance；若未来拷入上游实现，需另补上游声明。
 - [x] 确认 README 中 Reasonix、OpenHanako、LobsterAI 相关描述是否仅为思想/设计参考；如存在代码派生，补来源许可证或重写。已把高风险措辞改为 reference/inspiration only，并在 `THIRD_PARTY_NOTICES.md` 记录无源码、测试、资产复制。
 - [x] 确认 `src/asset/img` 下图片、视频、logo、截图的来源和商标授权；无法确认的素材直接替换为自有或可商用素材，或从商业包移除。已删除 DeepSeek/Feishu 品牌素材和来源不明视频；按项目 owner 偏好恢复旧 SciForge 图标与 `code.gif` 演示资产，其余保留插图为自生成资产，并由 `src/asset/img/README.md` 记录 provenance。
-- [x] 确认 `plugins/paper-radar-service` 与 `plugins/vision-router-service` 的授权状态是否符合分发目标；若随产品发布，改为明确项目内授权或私有不分发。当前已使用 `private: true` + `LicenseRef-SciForge-Academic-NonCommercial`，并在 package metadata 与 `THIRD_PARTY_NOTICES.md` 中写明仅可按 SciForge 学术非商用许可证或单独书面许可分发，不作为公共 npm 包授权。
+- [x] 确认 `plugins/paper-radar-service` 与 `plugins/vision-router-service` 的授权状态是否符合分发目标；若随产品发布，改为明确项目内授权或私有不分发。当前已使用 `private: true` + `MIT`，并在 package metadata 与 `THIRD_PARTY_NOTICES.md` 中写明不作为公共 npm 包发布。
 
 ## 模型与服务链路合规
 

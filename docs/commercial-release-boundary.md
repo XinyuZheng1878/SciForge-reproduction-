@@ -2,12 +2,10 @@
 
 Last updated: 2026-06-27
 
-This note was originally created during commercial-use cleanup work. SciForge is
-now distributed under the SciForge Academic Non-Commercial License, which
-permits academic non-commercial use and prohibits commercial use without
-separate written permission. This document now defines the source boundary for
-non-commercial academic releases and preserves the historical cleanup evidence.
-It is an engineering release note, not legal advice.
+This note was created during commercial-use cleanup work. SciForge is
+distributed under the MIT License in `LICENSE`. This document defines the
+source boundary for releases and preserves the historical cleanup evidence. It
+is an engineering release note, not legal advice.
 
 ## Release Scope
 

@@ -202,4 +202,4 @@ If requirements are unclear, ask for clarification before making broad architect
 
 ## License
 
-By contributing to SciForge, you agree that your contributions will be licensed under the [SciForge Academic Non-Commercial License](../LICENSE), which permits academic non-commercial use and prohibits commercial use.
+By contributing to SciForge, you agree that your contributions will be licensed under the [MIT License](../LICENSE).
