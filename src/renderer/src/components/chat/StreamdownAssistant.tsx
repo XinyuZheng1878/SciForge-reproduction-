@@ -31,13 +31,16 @@ const STREAMING_ANIMATED: AnimateOptions = {
   animation: 'fadeIn'
 }
 
+export const STREAMDOWN_HARDEN_OPTIONS = {
+  defaultOrigin: 'https://sciforge.local',
+  allowedLinkPrefixes: ['http:', 'https:', 'mailto:', ...FILE_REFERENCE_SCHEMES]
+}
+
 const rehypePlugins = [
   rehypeFileReferences,
   [
     harden,
-    {
-      allowedLinkPrefixes: ['http:', 'https:', 'mailto:', ...FILE_REFERENCE_SCHEMES]
-    }
+    STREAMDOWN_HARDEN_OPTIONS
   ]
 ] satisfies StreamdownProps['rehypePlugins']
 
@@ -46,6 +49,11 @@ const components = {
   a: StreamdownLink,
   img: AssistantMarkdownImage
 } satisfies StreamdownProps['components']
+
+// Table action controls can trigger React update-depth loops on long final answers.
+export const STREAMDOWN_CONTROLS = {
+  table: false
+} satisfies StreamdownProps['controls']
 
 type StreamdownLinkProps = ComponentPropsWithRef<'a'> & { node?: unknown }
 
@@ -170,6 +178,7 @@ export function StreamdownAssistant({ text, streaming, className }: Props): Reac
       animated={animated}
       remarkPlugins={[remarkGfm]}
       rehypePlugins={rehypePlugins}
+      controls={STREAMDOWN_CONTROLS}
       components={components}
     >
       {text}

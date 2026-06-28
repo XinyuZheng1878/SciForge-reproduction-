@@ -1,6 +1,8 @@
 import type {
   GuiPlanContextJson,
   Turn,
+  BashCommandPolicyJson,
+  FilePathPolicyJson,
   TurnFileAttachmentJson,
   TurnReasoningEffort,
   TurnStatus
@@ -23,11 +25,16 @@ export function createTurnRecord(input: {
   mode?: ThreadMode
   approvalPolicy?: ApprovalPolicy
   sandboxMode?: SandboxMode
+  allowedToolNames?: string[]
+  bashCommandPolicy?: BashCommandPolicyJson
+  filePathPolicy?: FilePathPolicyJson
+  strictAllowedToolNames?: boolean
   createdAt?: string
   status?: TurnStatus
 }): TurnEntity {
   const model = input.model?.trim()
   const reasoningEffort = normalizeReasoningEffort(input.reasoningEffort)
+  const allowedToolNames = normalizeAllowedToolNames(input.allowedToolNames)
   return {
     id: input.id,
     threadId: input.threadId,
@@ -45,12 +52,21 @@ export function createTurnRecord(input: {
     ...(input.mode ? { mode: input.mode } : {}),
     ...(input.approvalPolicy ? { approvalPolicy: input.approvalPolicy } : {}),
     ...(input.sandboxMode ? { sandboxMode: input.sandboxMode } : {}),
+    ...(allowedToolNames !== undefined ? { allowedToolNames } : {}),
+    ...(input.bashCommandPolicy ? { bashCommandPolicy: input.bashCommandPolicy } : {}),
+    ...(input.filePathPolicy ? { filePathPolicy: input.filePathPolicy } : {}),
+    ...(input.strictAllowedToolNames !== undefined ? { strictAllowedToolNames: input.strictAllowedToolNames } : {}),
     createdAt: input.createdAt ?? new Date().toISOString()
   }
 }
 
 function normalizeReasoningEffort(effort: TurnReasoningEffort | undefined): TurnReasoningEffort | undefined {
   return effort && effort !== 'auto' ? effort : undefined
+}
+
+function normalizeAllowedToolNames(names: string[] | undefined): string[] | undefined {
+  if (names === undefined) return undefined
+  return [...new Set(names.map((name) => name.trim()).filter(Boolean))]
 }
 
 export function appendTurnItem(turn: TurnEntity, item: TurnItem): TurnEntity {

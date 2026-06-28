@@ -74,7 +74,14 @@ describe('agent runtime contract', () => {
       { kind: 'runtime_status', threadId: 'thr', phase: 'process_start', message: 'starting' },
       { kind: 'user_message', threadId: 'thr', itemId: 'user', text: 'hello' },
       { kind: 'assistant_delta', threadId: 'thr', itemId: 'assistant', text: 'hi' },
-      { kind: 'reasoning_delta', threadId: 'thr', itemId: 'reasoning', text: 'thinking', visibility: 'summary' },
+      {
+        kind: 'reasoning_delta',
+        threadId: 'thr',
+        itemId: 'reasoning',
+        text: 'thinking',
+        visibility: 'summary',
+        source: 'model'
+      },
       {
         kind: 'item_snapshot',
         threadId: 'thr',

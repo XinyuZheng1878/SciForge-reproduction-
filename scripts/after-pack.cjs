@@ -90,6 +90,15 @@ const IMAGE_GENERATION_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/image-generation/src/contract.ts'
 ]
 
+const MULTI_AGENT_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/multi-agent/package.json',
+  'packages/workers/multi-agent/dist/index.js',
+  'packages/workers/multi-agent/dist/contract.js',
+  'packages/workers/multi-agent/dist/runtime.js',
+  'packages/workers/multi-agent/dist/store.js',
+  'packages/workers/multi-agent/dist/delegate-task.js'
+]
+
 const PPT_MASTER_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/ppt-master/package.json',
   'packages/workers/ppt-master/src/server.ts',
@@ -235,6 +244,13 @@ function validateBundledImageGenerationRuntime(context) {
   }
 }
 
+function validateBundledMultiAgentRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of MULTI_AGENT_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
 function validateBundledPptMasterRuntime(context) {
   const root = unpackedAppRoot(context)
   for (const relativePath of PPT_MASTER_RUNTIME_REQUIRED_PATHS) {
@@ -312,6 +328,7 @@ async function afterPack(context) {
   validateBundledRuntimeInspectorRuntime(context)
   validateBundledScientificPlottingRuntime(context)
   validateBundledImageGenerationRuntime(context)
+  validateBundledMultiAgentRuntime(context)
   validateBundledPptMasterRuntime(context)
   validateBundledCanvasRuntime(context)
   validateBuiltMcpNodeEntries(context)
@@ -331,6 +348,7 @@ exports.PAPER_RADAR_RUNTIME_REQUIRED_PATHS = PAPER_RADAR_RUNTIME_REQUIRED_PATHS
 exports.RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS = RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS
 exports.SCIENTIFIC_PLOTTING_RUNTIME_REQUIRED_PATHS = SCIENTIFIC_PLOTTING_RUNTIME_REQUIRED_PATHS
 exports.IMAGE_GENERATION_RUNTIME_REQUIRED_PATHS = IMAGE_GENERATION_RUNTIME_REQUIRED_PATHS
+exports.MULTI_AGENT_RUNTIME_REQUIRED_PATHS = MULTI_AGENT_RUNTIME_REQUIRED_PATHS
 exports.PPT_MASTER_RUNTIME_REQUIRED_PATHS = PPT_MASTER_RUNTIME_REQUIRED_PATHS
 exports.CANVAS_RUNTIME_REQUIRED_PATHS = CANVAS_RUNTIME_REQUIRED_PATHS
 exports.MCP_NODE_ENTRY_REQUIRED_PATHS = MCP_NODE_ENTRY_REQUIRED_PATHS
@@ -353,6 +371,7 @@ exports._internals = {
   validateBundledRuntimeInspectorRuntime,
   validateBundledScientificPlottingRuntime,
   validateBundledImageGenerationRuntime,
+  validateBundledMultiAgentRuntime,
   validateBundledPptMasterRuntime,
   validateBundledCanvasRuntime,
   validateBuiltMcpNodeEntries,

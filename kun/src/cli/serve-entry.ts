@@ -47,7 +47,9 @@ async function serveMain(argv: readonly string[]): Promise<number> {
   process.stdout.write(`${KUN_READY_PREFIX}${JSON.stringify(startupInfo)}\n`)
   process.stdout.write(JSON.stringify(startupInfo, null, 2) + '\n')
   await new Promise<void>((resolve) => {
+    const keepAlive = setInterval(() => undefined, 60_000)
     const stop = () => {
+      clearInterval(keepAlive)
       void handle.close().finally(resolve)
     }
     process.once('SIGTERM', stop)

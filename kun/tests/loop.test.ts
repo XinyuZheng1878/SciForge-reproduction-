@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { appendFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { InMemoryEventBus } from '../src/adapters/in-memory-event-bus.js'
 import { LocalToolHost, buildDefaultLocalTools } from '../src/adapters/tool/local-tool-host.js'
+import { CapabilityRegistry } from '../src/adapters/tool/capability-registry.js'
 import { CREATE_PLAN_TOOL_NAME } from '../src/adapters/tool/create-plan-tool.js'
 import { GET_GOAL_TOOL_NAME, UPDATE_GOAL_TOOL_NAME } from '../src/adapters/tool/goal-tools.js'
 import { FileThreadStore, FileSessionStore } from '../src/adapters/file/index.js'
@@ -59,6 +60,83 @@ describe('AgentLoop', () => {
     expect(request.contextInstructions?.join('\n')).toContain('<shell>bash</shell>')
     expect(request.contextInstructions?.join('\n')).toContain('<syntax>POSIX shell</syntax>')
     expect(request.contextInstructions?.join('\n')).not.toContain('shell commands appropriate for the host platform')
+  })
+
+  it('runs delegate_task calls from one parent turn in parallel', async () => {
+    let modelCalls = 0
+    let activeDelegates = 0
+    let maxActiveDelegates = 0
+    const delegateTask = LocalToolHost.defineTool({
+      name: 'delegate_task',
+      description: 'Run a bounded child agent task and return its summary.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string' },
+          label: { type: 'string' }
+        },
+        required: ['prompt']
+      },
+      policy: 'auto',
+      execute: async (args) => {
+        activeDelegates += 1
+        maxActiveDelegates = Math.max(maxActiveDelegates, activeDelegates)
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        activeDelegates -= 1
+        return {
+          output: {
+            status: 'completed',
+            summary: `done: ${String(args.label ?? args.prompt)}`
+          }
+        }
+      }
+    })
+    const h = makeHarness(
+      {
+        provider: 'delegate-parallel',
+        model: 'delegate-parallel',
+        async *stream(): AsyncIterable<ModelStreamChunk> {
+          modelCalls += 1
+          if (modelCalls === 1) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_delegate_a',
+              toolName: 'delegate_task',
+              arguments: { label: 'A', prompt: 'work A' }
+            }
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_delegate_b',
+              toolName: 'delegate_task',
+              arguments: { label: 'B', prompt: 'work B' }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      {
+        toolHost: new LocalToolHost({
+          registry: new CapabilityRegistry([{
+            id: 'delegation',
+            kind: 'delegation',
+            enabled: true,
+            available: true,
+            tools: [delegateTask]
+          }])
+        })
+      }
+    )
+    await bootstrapThread(h)
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const results = (await h.sessionStore.loadItems(h.threadId))
+      .filter((item) => item.kind === 'tool_result' && item.toolName === 'delegate_task')
+
+    expect(status).toBe('completed')
+    expect(results).toHaveLength(2)
+    expect(maxActiveDelegates).toBe(2)
   })
 
   it('records elapsed seconds for active goals after a turn finishes', async () => {
@@ -123,14 +201,19 @@ describe('AgentLoop', () => {
 
     const status = await h.loop.runTurn(h.threadId, h.turnId)
     const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
+    const turn = await h.turns.getTurn(h.threadId, h.turnId)
 
     expect(status).toBe('failed')
+    expect(turn?.error).toContain('model request failed with status 400')
     expect(events.some((event) =>
       event.kind === 'error' &&
       event.message === 'model request failed with status 400' &&
       event.code === 'http_400'
     )).toBe(true)
-    expect(events.some((event) => event.kind === 'turn_failed')).toBe(true)
+    expect(events.some((event) =>
+      event.kind === 'turn_failed' &&
+      event.message?.includes('model request failed with status 400')
+    )).toBe(true)
   })
 
   it('emits named pipeline lifecycle stages for a model request', async () => {
@@ -1514,6 +1597,274 @@ describe('AgentLoop', () => {
     expect(turn?.toolCatalogFingerprint).toMatch(/^[0-9a-f]{16}$/)
     expect(turn?.toolCatalogToolCount).toBeGreaterThan(0)
     expect(turn?.toolCatalogDrift).toBe(false)
+  })
+
+  it('honors per-turn allowed tool names when advertising tools', async () => {
+    let advertisedToolNames: string[] = []
+    const h = makeHarness(
+      {
+        provider: 'allowed-tools',
+        model: 'allowed-tools',
+        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+          advertisedToolNames = request.tools.map((tool) => tool.name).sort()
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      { tools: buildDefaultLocalTools() }
+    )
+    await bootstrapThread(h, {
+      request: {
+        prompt: 'bounded tool turn',
+        allowedToolNames: ['read']
+      }
+    })
+
+    await h.loop.runTurn(h.threadId, h.turnId)
+
+    expect(advertisedToolNames).toContain('read')
+    expect(advertisedToolNames).not.toContain('bash')
+    expect(advertisedToolNames).not.toContain('write')
+    const turn = await h.turns.getTurn(h.threadId, h.turnId)
+    expect(turn?.allowedToolNames).toEqual(['read'])
+  })
+
+  it('keeps per-turn allowed tool names exact in strict mode', async () => {
+    let advertisedToolNames: string[] = []
+    const fakeTodoTools = ['todo_list', 'todo_write'].map((name) =>
+      LocalToolHost.defineTool({
+        name,
+        description: `fake ${name}`,
+        inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+        policy: 'auto',
+        execute: async () => ({ output: { ok: true } })
+      })
+    )
+    const h = makeHarness(
+      {
+        provider: 'strict-allowed-tools',
+        model: 'strict-allowed-tools',
+        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+          advertisedToolNames = request.tools.map((tool) => tool.name).sort()
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      { tools: [...buildDefaultLocalTools(), ...fakeTodoTools] }
+    )
+    await bootstrapThread(h, {
+      request: {
+        prompt: 'strict bounded tool turn',
+        allowedToolNames: ['bash'],
+        strictAllowedToolNames: true
+      }
+    })
+
+    await h.loop.runTurn(h.threadId, h.turnId)
+
+    expect(advertisedToolNames).toEqual(['bash'])
+    const turn = await h.turns.getTurn(h.threadId, h.turnId)
+    expect(turn?.strictAllowedToolNames).toBe(true)
+  })
+
+  it('blocks bash commands denied by a per-turn command policy', async () => {
+    let calls = 0
+    const h = makeHarness(
+      {
+        provider: 'bash-policy',
+        model: 'bash-policy',
+        async *stream(): AsyncIterable<ModelStreamChunk> {
+          calls += 1
+          if (calls === 1) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_ls',
+              toolName: 'bash',
+              arguments: { command: 'ls .' }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      { tools: buildDefaultLocalTools() }
+    )
+    await bootstrapThread(h, {
+      request: {
+        prompt: 'bounded bash',
+        allowedToolNames: ['bash'],
+        bashCommandPolicy: {
+          allowPatterns: ['^python3 - <<']
+        }
+      }
+    })
+
+    await h.loop.runTurn(h.threadId, h.turnId)
+
+    const items = await h.sessionStore.loadItems(h.threadId)
+    const result = items.find((item) => item.kind === 'tool_result' && item.toolName === 'bash')
+    expect(result).toMatchObject({
+      kind: 'tool_result',
+      isError: true,
+      output: {
+        code: 'bash_command_policy_denied'
+      }
+    })
+    const turn = await h.turns.getTurn(h.threadId, h.turnId)
+    expect(turn?.bashCommandPolicy?.allowPatterns).toEqual(['^python3 - <<'])
+  })
+
+  it('allows bash session polling under a per-turn command policy', async () => {
+    let calls = 0
+    const h = makeHarness(
+      {
+        provider: 'bash-policy-poll',
+        model: 'bash-policy-poll',
+        async *stream(): AsyncIterable<ModelStreamChunk> {
+          calls += 1
+          if (calls === 1) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_poll',
+              toolName: 'bash',
+              arguments: { action: 'poll', session_id: 'missing' }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      { tools: buildDefaultLocalTools() }
+    )
+    await bootstrapThread(h, {
+      request: {
+        prompt: 'poll bash',
+        allowedToolNames: ['bash'],
+        bashCommandPolicy: {
+          allowPatterns: ['^python3 - <<']
+        }
+      }
+    })
+
+    await h.loop.runTurn(h.threadId, h.turnId)
+
+    const items = await h.sessionStore.loadItems(h.threadId)
+    const result = items.find((item) => item.kind === 'tool_result' && item.toolName === 'bash')
+    expect(result).toMatchObject({
+      kind: 'tool_result',
+      isError: true,
+      output: {
+        error: 'bash session not found'
+      }
+    })
+    if (result?.kind === 'tool_result') {
+      expect(JSON.stringify(result.output)).not.toContain('bash_command_policy_denied')
+    }
+  })
+
+  it('blocks file tool paths outside a per-turn file path policy', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'kun-loop-file-policy-'))
+    try {
+      let calls = 0
+      const h = makeHarness(
+        {
+          provider: 'file-path-policy',
+          model: 'file-path-policy',
+          async *stream(): AsyncIterable<ModelStreamChunk> {
+            calls += 1
+            if (calls === 1) {
+              yield {
+                kind: 'tool_call_complete',
+                callId: 'call_read',
+                toolName: 'read',
+                arguments: { path: 'blocked.txt' }
+              }
+              yield { kind: 'completed', stopReason: 'tool_calls' }
+              return
+            }
+            yield { kind: 'completed', stopReason: 'stop' }
+          }
+        },
+        { tools: buildDefaultLocalTools() }
+      )
+      await bootstrapThread(h, {
+        workspace,
+        request: {
+          prompt: 'bounded read',
+          allowedToolNames: ['read'],
+          filePathPolicy: {
+            allowPaths: ['allowed.txt']
+          }
+        }
+      })
+
+      await h.loop.runTurn(h.threadId, h.turnId)
+
+      const items = await h.sessionStore.loadItems(h.threadId)
+      const result = items.find((item) => item.kind === 'tool_result' && item.toolName === 'read')
+      expect(result).toMatchObject({
+        kind: 'tool_result',
+        isError: true,
+        output: {
+          code: 'file_path_policy_denied'
+        }
+      })
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it('allows file tool paths inside a per-turn file path policy', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'kun-loop-file-policy-'))
+    try {
+      await writeFile(join(workspace, 'allowed.txt'), 'hello policy', 'utf8')
+      let calls = 0
+      const h = makeHarness(
+        {
+          provider: 'file-path-policy-allow',
+          model: 'file-path-policy-allow',
+          async *stream(): AsyncIterable<ModelStreamChunk> {
+            calls += 1
+            if (calls === 1) {
+              yield {
+                kind: 'tool_call_complete',
+                callId: 'call_read',
+                toolName: 'read',
+                arguments: { path: 'allowed.txt' }
+              }
+              yield { kind: 'completed', stopReason: 'tool_calls' }
+              return
+            }
+            yield { kind: 'completed', stopReason: 'stop' }
+          }
+        },
+        { tools: buildDefaultLocalTools() }
+      )
+      await bootstrapThread(h, {
+        workspace,
+        request: {
+          prompt: 'bounded read',
+          allowedToolNames: ['read'],
+          filePathPolicy: {
+            allowPaths: ['allowed.txt']
+          }
+        }
+      })
+
+      await h.loop.runTurn(h.threadId, h.turnId)
+
+      const items = await h.sessionStore.loadItems(h.threadId)
+      const result = items.find((item) => item.kind === 'tool_result' && item.toolName === 'read')
+      expect(result).toMatchObject({
+        kind: 'tool_result'
+      })
+      if (result?.kind === 'tool_result') {
+        expect(result.isError).not.toBe(true)
+        expect(JSON.stringify(result.output)).toContain('hello policy')
+      }
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
   })
 
   it('uses persisted GUI plan context to advertise and execute create_plan', async () => {

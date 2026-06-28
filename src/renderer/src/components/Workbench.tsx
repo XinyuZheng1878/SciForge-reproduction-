@@ -48,6 +48,7 @@ import {
   type ComposerReasoningEffort
 } from './chat/FloatingComposerModelPicker'
 import { SideConversationPanel } from './chat/SideConversationPanel'
+import { ChildAgentsPanel, useThreadChildren } from './chat/ChildAgentsPanel'
 import type { FileTreeInitialDirectory } from './chat/ChatFileTreePanel'
 import {
   RemoteGuardDetailView,
@@ -514,6 +515,7 @@ export function Workbench(): ReactElement {
     openSideConversationDraft,
     selectSideConversation,
     setSidePanelOpen,
+    childRefreshKey,
     sideConversations,
     sidePanel,
     codeWorkspaceRoots
@@ -576,6 +578,7 @@ export function Workbench(): ReactElement {
       openSideConversationDraft: s.openSideConversationDraft,
       selectSideConversation: s.selectSideConversation,
       setSidePanelOpen: s.setSidePanelOpen,
+      childRefreshKey: s.childRefreshKey,
       sideConversations: s.sideConversations,
       sidePanel: s.sidePanel,
       codeWorkspaceRoots: s.codeWorkspaceRoots
@@ -748,11 +751,24 @@ export function Workbench(): ReactElement {
     () =>
       Object.values(sideConversations)
         .filter((side) => side.parentThreadId === activeThreadId)
+        .filter((side) => (side.source ?? 'side') === 'side')
         .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)),
     [activeThreadId, sideConversations]
   )
   const currentSideRunningCount = currentSideConversations.reduce(
     (count, side) => count + (side.busy ? 1 : 0),
+    0
+  )
+  const threadChildrenState = useThreadChildren({
+    activeThreadId,
+    activeRuntimeId: activeThread?.runtimeId,
+    childRefreshKey,
+    runtimeReady: runtimeConnection === 'ready',
+    busy
+  })
+  const childAgentCount = threadChildrenState.children.length
+  const childAgentRunningCount = threadChildrenState.children.reduce(
+    (count, child) => count + (child.status === 'running' || child.status === 'queued' ? 1 : 0),
     0
   )
   const {
@@ -2080,6 +2096,16 @@ export function Workbench(): ReactElement {
                 className="h-full max-h-full w-full flex-col"
                 onCollapse={closeRightPanel}
               />
+            ) : rightPanelMode === 'child-agents' ? (
+              <ChildAgentsPanel
+                activeThreadId={activeThreadId}
+                activeThread={activeThread}
+                children={threadChildrenState.children}
+                loading={threadChildrenState.loading}
+                error={threadChildrenState.error}
+                className="h-full max-h-full w-full"
+                onCollapse={closeRightPanel}
+              />
             ) : rightPanelMode === 'todo' ? (
               <TodoPanel
                 className="h-full max-h-full w-full"
@@ -2284,12 +2310,16 @@ export function Workbench(): ReactElement {
                     sideChatCount={currentSideConversations.length}
                     sideChatRunningCount={currentSideRunningCount}
                     sideChatOpen={sidePanel.open}
+                    childAgentCount={childAgentCount}
+                    childAgentRunningCount={childAgentRunningCount}
+                    childAgentsOpen={rightPanelMode === 'child-agents'}
                     researchMemoryOpen={rightPanelMode === 'file' && Boolean(fileTreeWorkspaceOverride)}
                     sideChatEnabled={
                       runtimeConnection === 'ready' &&
                       Boolean(activeThreadId) &&
                       runtimeCapabilities?.sideConversations !== false
                     }
+                    onOpenChildAgents={() => toggleTopBarRightPanelMode('child-agents')}
                     onOpenSideChat={openSideChat}
                     onOpenResearchMemory={() => {
                       void openResearchMemoryWorkspace().catch((error) => {

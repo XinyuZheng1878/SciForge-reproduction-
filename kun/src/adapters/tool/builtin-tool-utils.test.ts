@@ -9,8 +9,10 @@ import {
   shellDisplayName,
   shellRuntimeInfo,
   shellRuntimeInstruction,
+  spawnCapture,
   terminateSpawnTree
 } from './builtin-tool-utils.js'
+import { DEFAULT_MAX_BYTES } from './truncate.js'
 
 function lookup(results: Record<string, string>) {
   return ((command: string, args: string[]) => {
@@ -180,6 +182,31 @@ describe('terminateSpawnTree', () => {
     terminateSpawnTree(child as never, { platform: 'win32' })
 
     expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+  })
+})
+
+describe('spawnCapture', () => {
+  it('truncates oversized stdout and stderr instead of accumulating unbounded strings', async () => {
+    const script = [
+      'process.stdout.write("out-start\\n")',
+      'process.stdout.write("x".repeat(1024 * 1024))',
+      'process.stdout.write("\\nout-end\\n")',
+      'process.stderr.write("err-start\\n")',
+      'process.stderr.write("y".repeat(1024 * 1024))',
+      'process.stderr.write("\\nerr-end\\n")'
+    ].join(';')
+
+    const result = await spawnCapture(process.execPath, ['-e', script], {
+      cwd: process.cwd()
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdoutTruncated).toBe(true)
+    expect(result.stderrTruncated).toBe(true)
+    expect(Buffer.byteLength(result.stdout, 'utf8')).toBeLessThanOrEqual(DEFAULT_MAX_BYTES)
+    expect(Buffer.byteLength(result.stderr, 'utf8')).toBeLessThanOrEqual(DEFAULT_MAX_BYTES)
+    expect(result.stdout).toContain('out-end')
+    expect(result.stderr).toContain('err-end')
   })
 })
 

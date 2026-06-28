@@ -172,7 +172,13 @@ describe('HTTP server', () => {
     const h = buildHarness()
     h.runtime.delegationRuntime = {
       diagnostics: async (parentThreadId?: string) => ({
-        enabled: true,
+        contractVersion: 1,
+        config: {
+          enabled: true,
+          maxParallel: 2,
+          maxChildren: 4,
+          maxTranscriptEntries: 1000
+        },
         active: 1,
         childRuns: [
           {
@@ -198,7 +204,16 @@ describe('HTTP server', () => {
             updatedAt: '2026-06-02T00:00:03.000Z'
           }
         ],
-        aggregates: []
+        statusCounts: {
+          queued: 0,
+          running: 1,
+          completed: 1,
+          failed: 0,
+          aborted: 0
+        },
+        usage: { promptTokens: 4, completionTokens: 6, totalTokens: 10 },
+        aggregates: [],
+        storage: { records: 2, invalidRecords: 0, issues: [] }
       })
     } as unknown as typeof h.runtime.delegationRuntime
 

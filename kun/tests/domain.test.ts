@@ -76,6 +76,26 @@ describe('domain.turn', () => {
     prompt: 'hi'
   })
 
+  it('preserves normalized per-turn tool allow-lists', () => {
+    const turn = createTurnRecord({
+      id: 'turn_tools',
+      threadId: 'thr_1',
+      prompt: 'bounded',
+      allowedToolNames: [' bash ', 'read', 'bash'],
+      bashCommandPolicy: {
+        allowPatterns: ['^python3 - <<']
+      },
+      filePathPolicy: {
+        allowPaths: ['/tmp/allowed.py']
+      },
+      strictAllowedToolNames: true
+    })
+    expect(turn.allowedToolNames).toEqual(['bash', 'read'])
+    expect(turn.bashCommandPolicy?.allowPatterns).toEqual(['^python3 - <<'])
+    expect(turn.filePathPolicy?.allowPaths).toEqual(['/tmp/allowed.py'])
+    expect(turn.strictAllowedToolNames).toBe(true)
+  })
+
   it('appends items without duplicates', () => {
     const item = makeUserItem({ id: 'i1', turnId: 'turn_1', threadId: 'thr_1', text: 'hi' })
     const next = appendTurnItem(appendTurnItem(baseTurn, item), item)

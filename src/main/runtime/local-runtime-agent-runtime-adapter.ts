@@ -978,7 +978,8 @@ function mapLocalRuntimeEvent(value: unknown, fallbackThreadId: string): AgentRu
         stringValue(item?.text) ||
         stringValue(item?.delta) ||
         stringValue(item?.summary),
-      visibility: reasoningVisibility(record.visibility) || reasoningVisibility(item?.visibility) || 'summary'
+      visibility: reasoningVisibility(record.visibility) || reasoningVisibility(item?.visibility) || 'summary',
+      source: 'model'
     }
   }
 
@@ -1477,7 +1478,8 @@ function mapLocalRuntimeChildRun(value: unknown, fallbackParentThreadId: string)
     : undefined
   const workspace = optionalString(record.workspace)
   const model = optionalString(record.model)
-  const error = optionalString(record.error)
+  const errorRecord = asRecord(record.error)
+  const error = optionalString(record.error) ?? optionalString(errorRecord?.message)
   return {
     id,
     runtimeId: SCIFORGE_RUNTIME_ID,
@@ -1498,7 +1500,8 @@ function mapLocalRuntimeChildRun(value: unknown, fallbackParentThreadId: string)
       source: 'local-runtime.delegate_task',
       ...(workspace ? { workspace } : {}),
       ...(model ? { model } : {}),
-      ...(error ? { error } : {})
+      ...(error ? { error } : {}),
+      ...(errorRecord ? { errorInfo: errorRecord } : {})
     }
   }
 }

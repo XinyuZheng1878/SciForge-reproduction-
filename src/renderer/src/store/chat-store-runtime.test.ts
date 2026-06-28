@@ -42,9 +42,11 @@ function makeSinkHarness(overrides: Partial<ChatState> = {}): {
     activeThreadId: 'thread-current',
     blocks: [],
     liveReasoning: '',
+    liveReasoningMeta: null,
     liveAssistant: '',
     lastSeq: 0,
     usageRefreshKey: 0,
+    childRefreshKey: 0,
     busy: true,
     error: null,
     currentTurnId: 'turn-current',
@@ -122,6 +124,163 @@ describe('thread event sink binding', () => {
     expect(getState().liveReasoning).toBe('fresh reasoning')
     expect(getState().lastSeq).toBe(9)
     expect(getState().turnReasoningFirstAtByUserId['user-current']).toEqual(expect.any(Number))
+  })
+
+  it('preserves reasoning disclosure metadata when live reasoning flushes into process blocks', () => {
+    const { getState, set, get } = makeSinkHarness({ activeThreadId: 'thread-current' })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onDeltas([{
+      kind: 'agent_reasoning',
+      text: 'visible reasoning',
+      seq: 9,
+      meta: { reasoning: { visibility: 'trace', source: 'model' } }
+    }])
+    sink.onTool({
+      itemId: 'tool-1',
+      summary: 'Read',
+      status: 'running'
+    })
+
+    expect(getState().liveReasoning).toBe('')
+    expect(getState().liveReasoningMeta).toBeNull()
+    expect(getState().blocks[0]).toEqual(expect.objectContaining({
+      kind: 'reasoning',
+      text: 'visible reasoning',
+      meta: { reasoning: { visibility: 'trace', source: 'model' } }
+    }))
+  })
+
+  it('increments the child refresh key for current child events without storing child records', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      childRefreshKey: 2
+    })
+    const sink = buildThreadEventSink(set, get, {
+      threadId: 'thread-current',
+      sinceSeq: 10
+    })
+
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'child_event',
+        threadId: 'thread-current',
+        turnId: 'turn-current',
+        seq: 11,
+        child: {
+          runtimeId: 'codex',
+          parentThreadId: 'thread-current',
+          parentTurnId: 'turn-current',
+          id: 'child-1',
+          kind: 'agent',
+          status: 'running'
+        }
+      },
+      sink
+    )
+
+    expect(getState().childRefreshKey).toBe(3)
+    expect(getState()).not.toHaveProperty('children')
+
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'child_event',
+        threadId: 'thread-current',
+        turnId: 'turn-current',
+        seq: 11,
+        child: {
+          runtimeId: 'codex',
+          parentThreadId: 'thread-current',
+          id: 'child-1',
+          kind: 'agent',
+          status: 'completed'
+        }
+      },
+      sink
+    )
+
+    expect(getState().childRefreshKey).toBe(3)
+  })
+
+  it('applies distinct runtime events that share a Codex sequence number', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      childRefreshKey: 2,
+      lastSeq: 10,
+      busy: true,
+      currentTurnId: 'turn-current',
+      currentTurnUserId: 'user-current',
+      blocks: []
+    })
+    const sink = buildThreadEventSink(set, get, {
+      threadId: 'thread-current',
+      sinceSeq: 10
+    })
+
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'reasoning_delta',
+        threadId: 'thread-current',
+        turnId: 'turn-current',
+        itemId: 'reasoning-11',
+        text: 'reasoning summary',
+        visibility: 'summary',
+        source: 'runtime_summary',
+        seq: 11
+      },
+      sink
+    )
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'assistant_delta',
+        threadId: 'thread-current',
+        turnId: 'turn-current',
+        itemId: 'assistant-11',
+        text: 'assistant output',
+        seq: 11
+      },
+      sink
+    )
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'child_event',
+        threadId: 'thread-current',
+        turnId: 'turn-current',
+        seq: 11,
+        child: {
+          runtimeId: 'codex',
+          parentThreadId: 'thread-current',
+          parentTurnId: 'turn-current',
+          id: 'child-11',
+          kind: 'agent',
+          status: 'completed'
+        }
+      },
+      sink
+    )
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'turn_lifecycle',
+        threadId: 'thread-current',
+        turnId: 'turn-current',
+        state: 'completed',
+        seq: 11
+      },
+      sink
+    )
+
+    expect(getState().lastSeq).toBe(11)
+    expect(getState().childRefreshKey).toBe(3)
+    expect(getState().busy).toBe(false)
+    expect(getState().currentTurnId).toBeNull()
+    expect(getState().blocks).toEqual([
+      expect.objectContaining({
+        kind: 'reasoning',
+        text: 'reasoning summary',
+        meta: { reasoning: { visibility: 'summary', source: 'runtime_summary' } }
+      }),
+      expect.objectContaining({ kind: 'assistant', text: 'assistant output' })
+    ])
   })
 
   it('keeps the event cursor monotonic when stale seq ticks arrive', () => {

@@ -25,14 +25,14 @@ export function groupProcessSections(blocks: ChatBlock[]): ProcessSection[] {
   const sections: ProcessSection[] = []
 
   for (const block of blocks) {
-    const kind =
-      block.kind === 'reasoning'
-        ? 'reasoning'
-        : block.kind === 'assistant'
-          ? 'output'
-          : 'execution'
+    const kind = 'execution'
     const last = sections[sections.length - 1]
-    if (last && last.kind === kind) {
+    const canJoinLast =
+      block.kind !== 'reasoning' &&
+      block.kind !== 'assistant' &&
+      last?.kind === kind &&
+      last.blocks.every((item) => item.kind !== 'reasoning' && item.kind !== 'assistant')
+    if (canJoinLast && last) {
       last.blocks.push(block)
       continue
     }
@@ -99,6 +99,79 @@ function sectionHasRequestUserInput(section: ProcessSection): boolean {
   return section.blocks.some(isRequestUserInputTool)
 }
 
+type ReasoningMetadata = NonNullable<NonNullable<Extract<ChatBlock, { kind: 'reasoning' }>['meta']>['reasoning']>
+
+function reasoningSectionMetadata(blocks: ChatBlock[]): ReasoningMetadata | null {
+  let visibility: ReasoningMetadata['visibility']
+  let source: ReasoningMetadata['source']
+  for (const block of blocks) {
+    if (block.kind !== 'reasoning') continue
+    visibility ??= block.meta?.reasoning?.visibility
+    source ??= block.meta?.reasoning?.source
+    if (visibility && source) break
+  }
+  return visibility || source ? { ...(visibility ? { visibility } : {}), ...(source ? { source } : {}) } : null
+}
+
+function reasoningVisibilityLabel(
+  visibility: NonNullable<ReasoningMetadata['visibility']>,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string {
+  switch (visibility) {
+    case 'summary':
+      return t('reasoningVisibilitySummary')
+    case 'trace':
+      return t('reasoningVisibilityTrace')
+    case 'full_runtime_text':
+      return t('reasoningVisibilityFullRuntimeText')
+    case 'none':
+    default:
+      return t('reasoningVisibilityNone')
+  }
+}
+
+function reasoningSourceLabel(
+  source: NonNullable<ReasoningMetadata['source']>,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string {
+  switch (source) {
+    case 'model':
+      return t('reasoningSourceModel')
+    case 'runtime_summary':
+      return t('reasoningSourceRuntimeSummary')
+    case 'backend_redacted':
+      return t('reasoningSourceBackendRedacted')
+    case 'unknown':
+    default:
+      return t('reasoningSourceUnknown')
+  }
+}
+
+function ReasoningMetaBadges({
+  metadata,
+  t
+}: {
+  metadata: ReasoningMetadata | null
+  t: (key: string, opts?: Record<string, unknown>) => string
+}): ReactElement | null {
+  if (!metadata) return null
+  const chipClass = 'inline-flex max-w-full shrink-0 items-center rounded border border-ds-border-muted bg-ds-card/70 px-1.5 py-0.5 text-[10.5px] font-medium leading-none text-ds-faint'
+  return (
+    <>
+      {metadata.visibility ? (
+        <span className={chipClass} title={t('reasoningVisibility')}>
+          {reasoningVisibilityLabel(metadata.visibility, t)}
+        </span>
+      ) : null}
+      {metadata.source ? (
+        <span className={chipClass} title={t('reasoningSource')}>
+          {reasoningSourceLabel(metadata.source, t)}
+        </span>
+      ) : null}
+    </>
+  )
+}
+
 export function ProcessSectionRow({
   section,
   processing,
@@ -140,6 +213,7 @@ export function ProcessSectionRow({
     singleReasoningSection
   })
   const reasoningText = section.kind === 'reasoning' ? getReasoningSectionText(section) : ''
+  const reasoningMetadata = section.kind === 'reasoning' ? reasoningSectionMetadata(section.blocks) : null
   const canToggleSection = hasDetails
   const showActiveError = active && hasError
   const { ref: deferredDetailRef, shouldRender: shouldRenderDetail } = useDeferredRender<HTMLDivElement>({
@@ -190,6 +264,7 @@ export function ProcessSectionRow({
             </span>
           ) : null}
           <span className={active && !hasError ? 'ds-shiny-text' : ''}>{title}</span>
+          <ReasoningMetaBadges metadata={reasoningMetadata} t={t} />
           {expanded ? (
             <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-45" strokeWidth={1.8} />
           ) : (
@@ -208,6 +283,7 @@ export function ProcessSectionRow({
             </span>
           ) : null}
           <span className={active && !hasError ? 'ds-shiny-text' : ''}>{title}</span>
+          <ReasoningMetaBadges metadata={reasoningMetadata} t={t} />
         </div>
       )}
 
@@ -247,6 +323,7 @@ function processBlockIsAutoOpenPending(block: ChatBlock, processing: boolean): b
 
 function processBlockIsActive(block: ChatBlock, processing: boolean): boolean {
   return (
+    (processing && block.kind === 'reasoning' && block.id === 'live-reasoning') ||
     processBlockIsRunningTool(block, processing) ||
     processBlockIsAutoOpenPending(block, processing) ||
     (processing && block.kind === 'assistant' && block.id === 'live-assistant')
@@ -378,19 +455,19 @@ function ProcessEntryRow({
   const detail = getProcessDetail(block, summary)
   const canExpand = detail.kind !== 'none'
   const isAssistantProcessText = block.kind === 'assistant'
-  const isRunningTool = processBlockIsRunningTool(block, processing)
   const isAutoOpenPending = processBlockIsAutoOpenPending(block, processing)
   const isStreamingAssistant = processing && block.kind === 'assistant' && block.id === 'live-assistant'
+  const isLiveReasoning = processing && block.kind === 'reasoning' && block.id === 'live-reasoning'
   const isError = processBlockHasError(block)
-  const forceOpen = isAutoOpenPending || isAssistantProcessText || isStreamingAssistant
+  const forceOpen = isAutoOpenPending || isAssistantProcessText || isStreamingAssistant || isLiveReasoning
   const defaultOpen = isError
   const open =
     canExpand &&
     (forceOpen || (userOpen ?? defaultOpen))
 
   const { verb, rest } = splitVerb(summary)
-  const rowActive = isRunningTool || isAutoOpenPending || isStreamingAssistant
-  const wrapSummary = (block.kind === 'system' && !canExpand) || isAssistantProcessText
+  const rowActive = processBlockIsActive(block, processing)
+  const wrapSummary = (block.kind === 'system' && !canExpand) || isAssistantProcessText || block.kind === 'reasoning'
   const canToggle = canExpand && !forceOpen
   const handleToggle = (): void => {
     if (!canToggle) return
@@ -429,16 +506,24 @@ function ProcessEntryRow({
             rowActive && !isError ? 'ds-shiny-text' : ''
           }`}
         >
-          <span
-            className={`font-medium ${isError ? '' : rowActive ? '' : 'text-ds-muted'}`}
-          >
-            {verb}
-          </span>
-          {rest ? (
-            <span className="ml-1.5 font-mono text-[13px]">
-              <ProcessSummaryText block={block} summary={rest} />
+          {block.kind === 'reasoning' ? (
+            <span className="text-ds-muted">
+              <ProcessSummaryText block={block} summary={summary} />
             </span>
-          ) : null}
+          ) : (
+            <>
+              <span
+                className={`font-medium ${isError ? '' : rowActive ? '' : 'text-ds-muted'}`}
+              >
+                {verb}
+              </span>
+              {rest ? (
+                <span className="ml-1.5 font-mono text-[13px]">
+                  <ProcessSummaryText block={block} summary={rest} />
+                </span>
+              ) : null}
+            </>
+          )}
         </span>
         {canExpand ? (
           open ? (
@@ -974,7 +1059,7 @@ function describeProcessBlock(
   t: (key: string, opts?: Record<string, unknown>) => string
 ): string {
   if (block.kind === 'reasoning') {
-    return t('thinkingLabel')
+    return summarizeProcessText(block.text, 96) || t('processed')
   }
   if (block.kind === 'assistant') {
     return t('processTextLabel')

@@ -94,7 +94,8 @@ describe('buildComputerUseToolProviders', () => {
     await tool.execute({ instruction: 'observe' }, fakeContext())
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect((fetchMock.mock.calls[0]![1] as RequestInit).headers).toMatchObject({
+    const fetchCalls = fetchMock.mock.calls as unknown as Array<[unknown, RequestInit]>
+    expect(fetchCalls[0]?.[1].headers).toMatchObject({
       Authorization: 'Bearer env-token'
     })
   })

@@ -50,14 +50,12 @@ export function buildWorkspaceIntelMcpArgs(
   settings: AppSettingsV1,
   launch: WorkspaceIntelMcpLaunchConfig
 ): string[] {
-  const args = [
+  void settings
+  return [
     resolveWorkspaceIntelMcpNodeEntryPath(launch),
     GUI_WORKSPACE_INTEL_MCP_LAUNCH_FLAG,
     '--include-global-skills'
   ]
-  const workspaceRoot = settings.workspaceRoot.trim()
-  if (workspaceRoot) args.push('--workspace-root', workspaceRoot)
-  return args
 }
 
 export function workspaceIntelMcpEnv(existingEnv: Record<string, string> = {}): Record<string, string> {

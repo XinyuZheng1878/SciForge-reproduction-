@@ -635,7 +635,11 @@ export class ResearchMemoryService {
         }
       }
       await this.runCommand('git', ['check-ref-format', '--branch', branch], workspace.root)
-      await this.runCommand('git', ['switch', '-c', branch], workspace.root)
+      const existingBranches = await this.runCommand('git', ['branch', '--list', branch, '--format=%(refname)'], workspace.root)
+      const branchExists = existingBranches.stdout
+        .split(/\r?\n/)
+        .some((line) => line.trim() === `refs/heads/${branch}`)
+      await this.runCommand('git', branchExists ? ['switch', branch] : ['switch', '-c', branch], workspace.root)
       await this.runCommand('git', ['--literal-pathspecs', 'add', '--', ...files], workspace.root)
       await this.runCommand('git', ['commit', '-m', title], workspace.root)
       return {

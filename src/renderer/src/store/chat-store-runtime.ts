@@ -5,7 +5,9 @@ import type {
   NormalizedThread,
   ReviewBlock,
   ReviewEventPayload,
+  RuntimeDisclosureMetadata,
   RuntimeStatusEventPayload,
+  ThreadDeltaEvent,
   ThreadEventSink,
   ToolBlock,
   TurnLifecycleEventPayload,
@@ -25,6 +27,7 @@ import {
   isAgentRuntimeActiveTurnState,
   isAgentRuntimeTerminalTurnState
 } from '@shared/agent-runtime-contract'
+import type { AgentRuntimeEvent } from '@shared/agent-runtime-contract'
 import type { ChatState } from './chat-store-types'
 import { hydrateBlockModelLabels, isClawThread } from './chat-store-helpers'
 import {
@@ -193,6 +196,21 @@ function runtimeEventStartedAt(createdAt: string | undefined, now = Date.now()):
   return parsed
 }
 
+function mergeLiveReasoningMeta(
+  current: RuntimeDisclosureMetadata | null,
+  incoming: RuntimeDisclosureMetadata | undefined
+): RuntimeDisclosureMetadata | null {
+  if (!incoming) return current
+  return {
+    ...(current ?? {}),
+    ...incoming,
+    reasoning: {
+      ...(current?.reasoning ?? {}),
+      ...(incoming.reasoning ?? {})
+    }
+  }
+}
+
 export function forkedMessageCount(blocks: ChatBlock[]): number {
   return blocks.filter((block) => block.kind === 'user' || block.kind === 'assistant').length
 }
@@ -278,16 +296,25 @@ export function flushLiveBlocks(state: ChatState, base: Partial<ChatState> = {})
   const now = Date.now()
   const createdAt = new Date(now).toISOString()
   if (state.liveReasoning.trim()) {
-    nextBlocks.push({ kind: 'reasoning', id: `r-${now}`, createdAt, text: state.liveReasoning })
+    nextBlocks.push({
+      kind: 'reasoning',
+      id: `r-${now}`,
+      createdAt,
+      text: state.liveReasoning,
+      ...(state.liveReasoningMeta ? { meta: state.liveReasoningMeta } : {})
+    })
   }
   if (state.liveAssistant.trim()) {
     nextBlocks.push({ kind: 'assistant', id: `a-${now}`, createdAt, text: state.liveAssistant })
   }
-  if (nextBlocks.length === state.blocks.length) return base
+  if (nextBlocks.length === state.blocks.length) {
+    return state.liveReasoningMeta ? { ...base, liveReasoningMeta: null } : base
+  }
   return {
     ...base,
     blocks: nextBlocks,
     liveReasoning: '',
+    liveReasoningMeta: null,
     liveAssistant: ''
   }
 }
@@ -302,7 +329,8 @@ function flushLiveReasoningOnly(state: ChatState): { blocks: ChatBlock[]; change
         kind: 'reasoning',
         id: `r-${now}`,
         createdAt: new Date(now).toISOString(),
-        text: state.liveReasoning
+        text: state.liveReasoning,
+        ...(state.liveReasoningMeta ? { meta: state.liveReasoningMeta } : {})
       }
     ],
     changed: true
@@ -623,7 +651,8 @@ function refreshCompletedThreadSnapshot(
           blocks: mergedBlocks,
           lastSeq: latestSeq,
           liveAssistant: '',
-          liveReasoning: ''
+          liveReasoning: '',
+          liveReasoningMeta: null
         }
       })
     } catch {
@@ -638,6 +667,42 @@ export type ThreadEventSinkBinding = {
   sinceSeq?: number
 }
 
+function runtimeEventReplayKey(event: AgentRuntimeEvent): string {
+  const record = event as unknown as Record<string, unknown>
+  const child = record.child && typeof record.child === 'object'
+    ? record.child as Record<string, unknown>
+    : null
+  return [
+    event.kind,
+    event.threadId ?? '',
+    event.turnId ?? '',
+    stringRecordValue(record, 'itemId'),
+    stringRecordValue(record, 'approvalId'),
+    stringRecordValue(record, 'requestId'),
+    stringRecordValue(record, 'phase'),
+    stringRecordValue(record, 'state'),
+    stringRecordValue(record, 'status'),
+    stringRecordValue(record, 'decision'),
+    child ? stringRecordValue(child, 'id') : '',
+    event.kind === 'assistant_delta' || event.kind === 'reasoning_delta'
+      ? stringRecordValue(record, 'text')
+      : ''
+  ].join('\u0001')
+}
+
+function deltaReplayKey(delta: ThreadDeltaEvent): string {
+  return [
+    delta.kind,
+    delta.itemId ?? '',
+    delta.itemId ? '' : delta.text
+  ].join('\u0001')
+}
+
+function stringRecordValue(record: Record<string, unknown>, key: string): string {
+  const value = record[key]
+  return typeof value === 'string' ? value : ''
+}
+
 export function buildThreadEventSink(
   set: (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void,
   get: () => ChatState,
@@ -645,7 +710,9 @@ export function buildThreadEventSink(
 ): ThreadEventSink {
   const boundThreadId = binding.threadId?.trim() ?? ''
   let appliedEventSeqFloor = binding.sinceSeq ?? 0
+  let appliedEventKeysAtFloor: Set<string> | null = null
   let appliedDeltaSeqFloor = binding.sinceSeq ?? 0
+  let appliedDeltaKeysAtFloor: Set<string> | null = null
   const settledTerminalTurnKeys = new Set<string>()
   const isCurrentStream = (): boolean => {
     if (binding.signal?.aborted) return false
@@ -656,8 +723,15 @@ export function buildThreadEventSink(
     if (!isCurrentStream()) return false
     if (event.kind === 'heartbeat') return false
     if (typeof event.seq !== 'number') return true
-    if (event.seq <= appliedEventSeqFloor) return false
+    const key = runtimeEventReplayKey(event)
+    if (event.seq < appliedEventSeqFloor) return false
+    if (event.seq === appliedEventSeqFloor) {
+      if (!appliedEventKeysAtFloor || appliedEventKeysAtFloor.has(key)) return false
+      appliedEventKeysAtFloor.add(key)
+      return true
+    }
     appliedEventSeqFloor = event.seq
+    appliedEventKeysAtFloor = new Set([key])
     return true
   }
 
@@ -803,7 +877,9 @@ export function buildThreadEventSink(
         const nextBlocks = upsertAssistantMessageBlock(flushedReasoning.blocks, ev)
         return {
           blocks: nextBlocks,
-          ...(flushedReasoning.changed || s.liveReasoning ? { liveReasoning: '' } : {}),
+          ...(flushedReasoning.changed || s.liveReasoning
+            ? { liveReasoning: '', liveReasoningMeta: null }
+            : {}),
           ...(s.liveAssistant ? { liveAssistant: '' } : {}),
           error: clearRuntimeStreamRecoveringError(s.error)
         }
@@ -813,8 +889,16 @@ export function buildThreadEventSink(
       const deltas: typeof rawDeltas = []
       for (const delta of rawDeltas) {
         if (typeof delta.seq === 'number') {
-          if (delta.seq <= appliedDeltaSeqFloor) continue
+          const key = deltaReplayKey(delta)
+          if (delta.seq < appliedDeltaSeqFloor) continue
+          if (delta.seq === appliedDeltaSeqFloor) {
+            if (!appliedDeltaKeysAtFloor || appliedDeltaKeysAtFloor.has(key)) continue
+            appliedDeltaKeysAtFloor.add(key)
+            deltas.push(delta)
+            continue
+          }
           appliedDeltaSeqFloor = delta.seq
+          appliedDeltaKeysAtFloor = new Set([key])
         }
         deltas.push(delta)
       }
@@ -832,13 +916,16 @@ export function buildThreadEventSink(
           ...(nextLastSeq !== s.lastSeq ? { lastSeq: nextLastSeq } : {})
         }
         let liveReasoning = s.liveReasoning
+        let liveReasoningMeta = s.liveReasoning.trim() ? s.liveReasoningMeta : null
         let liveAssistant = s.liveAssistant
         let nextReasoningFirstAtByUserId = s.turnReasoningFirstAtByUserId
         let nextReasoningLastAtByUserId = s.turnReasoningLastAtByUserId
         const userId = s.currentTurnUserId
         for (const delta of deltas) {
           if (delta.kind === 'agent_reasoning') {
+            if (!liveReasoning.trim()) liveReasoningMeta = null
             liveReasoning += delta.text
+            liveReasoningMeta = mergeLiveReasoningMeta(liveReasoningMeta, delta.meta)
             if (userId) {
               const now = Date.now()
               if (typeof nextReasoningFirstAtByUserId[userId] !== 'number') {
@@ -859,6 +946,7 @@ export function buildThreadEventSink(
         return {
           ...base,
           ...(liveReasoning !== s.liveReasoning ? { liveReasoning } : {}),
+          ...(liveReasoningMeta !== s.liveReasoningMeta ? { liveReasoningMeta } : {}),
           ...(liveAssistant !== s.liveAssistant ? { liveAssistant } : {}),
           ...(nextReasoningFirstAtByUserId !== s.turnReasoningFirstAtByUserId
             ? { turnReasoningFirstAtByUserId: nextReasoningFirstAtByUserId }
@@ -1299,6 +1387,10 @@ export function buildThreadEventSink(
       // Re-arm the watchdog so a stuck SSE stream doesn't leave the UI
       // permanently in the busy state.
       if (get().busy) armBusyWatchdog(set, get)
+    },
+    onChild: () => {
+      if (!isCurrentStream()) return
+      set((s) => ({ childRefreshKey: (s.childRefreshKey ?? 0) + 1 }))
     },
     onUsage: () => {
       if (!isCurrentStream()) return

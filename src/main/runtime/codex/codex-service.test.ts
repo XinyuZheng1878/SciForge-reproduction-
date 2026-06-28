@@ -975,13 +975,19 @@ describe('CodexRuntimeService compatibility operations', () => {
     })
 
     expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
-      dynamicTools: [{
+      dynamicTools: expect.arrayContaining([{
         type: 'function',
         name: 'research_search',
         description: 'Search research papers.',
         inputSchema: { type: 'object', properties: { query: { type: 'string' } } }
-      }],
+      }]),
       developerInstructions: expect.stringContaining('specialized MCP tools')
+    }))
+    expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      dynamicTools: expect.arrayContaining([
+        expect.objectContaining({ name: 'delegate_task' })
+      ]),
+      developerInstructions: expect.stringContaining('delegate_task')
     }))
     expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
       developerInstructions: expect.stringContaining('stream to a `.part` file')
@@ -1002,6 +1008,191 @@ describe('CodexRuntimeService compatibility operations', () => {
     })
     expect(callTool).toHaveBeenCalledWith(
       { name: 'research.search', arguments: { query: 'agentic RL' } },
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
+    )
+  })
+
+  it('advertises and executes Codex multi-agent dynamic spawn calls as child threads', async () => {
+    const queued = clientWithQueuedEvents()
+    const storageRoot = await tempRoot()
+    const sink = { send: vi.fn() }
+    let pendingServerRequests: CodexAppServerPendingRequestRegistryOptions | undefined
+    vi.mocked(queued.client.startThread)
+      .mockResolvedValueOnce({ thread: { id: 'parent-codex-thread' } })
+      .mockResolvedValueOnce({ thread: { id: 'child-codex-thread' } })
+    vi.mocked(queued.client.startTurn).mockResolvedValueOnce({ turn: { id: 'child-turn' } })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      storageRoot,
+      createClient: (options) => {
+        pendingServerRequests = options.pendingServerRequests as CodexAppServerPendingRequestRegistryOptions
+        return queued.client
+      }
+    })
+
+    await expect(service.startThread({ threadId: 'parent-gui-thread', title: 'Parent' })).resolves.toMatchObject({
+      ok: true,
+      thread: expect.objectContaining({ id: 'parent-gui-thread' })
+    })
+    expect(queued.client.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      dynamicTools: expect.arrayContaining([
+        expect.objectContaining({ name: 'delegate_task' })
+      ]),
+      developerInstructions: expect.stringContaining('delegate_task')
+    }))
+
+    const pending = pendingServerRequests?.onToolCallRequest?.({
+      requestId: 'multi-agent-request-1',
+      threadId: 'parent-codex-thread',
+      turnId: 'parent-turn',
+      tool: 'delegate_task',
+      arguments: {
+        label: 'Reviewer',
+        prompt: 'Return child-ok only.'
+      }
+    })
+    await vi.waitFor(() => {
+      expect(queued.client.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+        threadId: 'child-codex-thread',
+        input: expect.arrayContaining([
+          expect.objectContaining({ text: 'Return child-ok only.' })
+        ])
+      }))
+    })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: 'child-codex-thread',
+          turnId: 'child-turn',
+          text: 'child-ok'
+        }
+      }
+    })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'turn/completed',
+        params: {
+          threadId: 'child-codex-thread',
+          turnId: 'child-turn'
+        }
+      }
+    })
+
+    await expect(pending).resolves.toMatchObject({
+      success: true,
+      contentItems: [expect.objectContaining({
+        type: 'inputText',
+        text: expect.stringContaining('"status": "completed"')
+      })]
+    })
+    await vi.waitFor(() => {
+      expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {
+        event: expect.objectContaining({
+          threadId: 'parent-gui-thread',
+          turnId: 'parent-turn',
+          child: expect.objectContaining({
+            id: expect.any(String),
+            label: 'Reviewer',
+            status: 'completed',
+            summary: 'child-ok',
+            openAsThreadRef: expect.objectContaining({
+              runtimeId: 'codex',
+              threadId: 'child-codex-thread'
+            })
+          })
+        })
+      })
+    })
+    queued.close()
+  })
+
+  it('injects the thread workspace into workspace-intel dynamic MCP calls', async () => {
+    const client = controllableClient()
+    const storageRoot = await tempRoot()
+    let pendingServerRequests: CodexAppServerPendingRequestRegistryOptions | undefined
+    const seenServers: unknown[] = []
+    const callTool = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'read-ok' }]
+    }))
+    const mcpClient: CodexDynamicMcpClient = {
+      listTools: vi.fn(async () => ({
+        tools: [{
+          name: 'gui_workspace_read',
+          description: 'Read workspace file.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+              workspaceRoot: { type: 'string' }
+            }
+          }
+        }]
+      })),
+      callTool,
+      close: vi.fn(async () => undefined)
+    }
+    const service = new CodexRuntimeService({
+      settings: async () => ({
+        ...settings(),
+        workspaceRoot: '/tmp/settings-workspace'
+      }),
+      sink: { send: vi.fn() },
+      storageRoot,
+      workspaceIntelMcpLaunch: {
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
+        isPackaged: false
+      },
+      mcpClientFactory: async (server) => {
+        seenServers.push(server)
+        return mcpClient
+      },
+      createClient: (options) => {
+        pendingServerRequests = options.pendingServerRequests as CodexAppServerPendingRequestRegistryOptions
+        return client
+      }
+    })
+
+    await expect(service.startThread({
+      title: 'Workspace intel thread',
+      workspace: '/tmp/awesome-ai-scientist'
+    })).resolves.toMatchObject({
+      ok: true
+    })
+    expect(seenServers).toEqual([
+      expect.objectContaining({
+        id: 'gui_workspace_intel',
+        args: [
+          '/tmp/sciforge-test-app/out/main/workspace-intel-mcp-node-entry.js',
+          '--gui-workspace-intel-mcp-server',
+          '--include-global-skills'
+        ]
+      })
+    ])
+
+    await expect(pendingServerRequests?.onToolCallRequest?.({
+      requestId: 'tool-request-1',
+      threadId: 'thread-1',
+      tool: 'gui_workspace_read',
+      arguments: { path: 'docs/research/single_cell/smoke_test_plan.md' }
+    })).resolves.toMatchObject({
+      contentItems: [{ type: 'inputText', text: 'read-ok' }],
+      success: true
+    })
+    expect(callTool).toHaveBeenCalledWith(
+      {
+        name: 'gui_workspace_read',
+        arguments: {
+          path: 'docs/research/single_cell/smoke_test_plan.md',
+          workspaceRoot: '/tmp/awesome-ai-scientist'
+        }
+      },
       expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
     )
   })
@@ -1122,12 +1313,12 @@ describe('CodexRuntimeService compatibility operations', () => {
     expect(config).not.toContain('schedule-mcp-node-entry')
     expect(config).not.toContain('schedule-secret')
     expect(client.startThread).toHaveBeenCalledWith(expect.objectContaining({
-      dynamicTools: [{
+      dynamicTools: expect.arrayContaining([{
         type: 'function',
         name: 'gui_schedule_list',
         description: 'List schedule tasks.',
         inputSchema: { type: 'object', properties: {} }
-      }],
+      }]),
       developerInstructions: expect.stringContaining('specialized MCP tools')
     }))
   })
@@ -1212,9 +1403,7 @@ describe('CodexRuntimeService compatibility operations', () => {
         args: [
           '/tmp/sciforge-test-app/out/main/workspace-intel-mcp-node-entry.js',
           '--gui-workspace-intel-mcp-server',
-          '--include-global-skills',
-          '--workspace-root',
-          '/tmp/codex-workspace'
+          '--include-global-skills'
         ],
         enabledTools: expect.arrayContaining(['gui_workspace_list', 'gui_workspace_preview'])
       })

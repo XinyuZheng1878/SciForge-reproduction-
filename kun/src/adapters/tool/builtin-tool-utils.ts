@@ -3,6 +3,7 @@ import { readFile, readdir, stat } from 'node:fs/promises'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { ToolHostContext } from '../../ports/tool-host.js'
+import { OutputAccumulator } from './output-accumulator.js'
 import type {
   EditInstruction,
   FsStats,
@@ -14,6 +15,7 @@ import type {
   TruncateMode
 } from './builtin-tool-types.js'
 import { COMPACT_RESOURCE_FILE_NAMES } from './builtin-tool-types.js'
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from './truncate.js'
 
 type SpawnSyncLike = typeof spawnSync
 type SpawnLike = typeof spawn
@@ -389,23 +391,39 @@ function executableResponds(candidate: string): boolean {
 export async function spawnCapture(
   file: string,
   args: string[],
-  options: { cwd: string; signal?: AbortSignal }
-): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  options: { cwd: string; signal?: AbortSignal; maxLines?: number; maxBytes?: number }
+): Promise<{
+  stdout: string
+  stderr: string
+  exitCode: number | null
+  stdoutTruncated: boolean
+  stderrTruncated: boolean
+}> {
   const child = spawn(file, args, {
     cwd: options.cwd,
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true
   })
-  let stdout = ''
-  let stderr = ''
+  const captureOptions = {
+    maxLines: options.maxLines ?? DEFAULT_MAX_LINES,
+    maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES
+  }
+  const stdout = new OutputAccumulator({
+    ...captureOptions,
+    tempFilePrefix: 'sciforge-runtime-spawn-stdout'
+  })
+  const stderr = new OutputAccumulator({
+    ...captureOptions,
+    tempFilePrefix: 'sciforge-runtime-spawn-stderr'
+  })
   const onAbort = () => terminateSpawnTree(child)
   options.signal?.addEventListener('abort', onAbort, { once: true })
   child.stdout?.on('data', (chunk: Buffer | string) => {
-    stdout += chunk.toString()
+    stdout.append(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   })
   child.stderr?.on('data', (chunk: Buffer | string) => {
-    stderr += chunk.toString()
+    stderr.append(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   })
   const exitCode = await new Promise<number | null>((resolvePromise, rejectPromise) => {
     child.once('error', rejectPromise)
@@ -414,7 +432,18 @@ export async function spawnCapture(
     options.signal?.removeEventListener('abort', onAbort)
   })
   if (options.signal?.aborted) throw new Error('command aborted')
-  return { stdout, stderr, exitCode }
+  stdout.finish()
+  stderr.finish()
+  const stdoutSnapshot = stdout.snapshot()
+  const stderrSnapshot = stderr.snapshot()
+  await Promise.all([stdout.closeTempFile(), stderr.closeTempFile()])
+  return {
+    stdout: stdoutSnapshot.content,
+    stderr: stderrSnapshot.content,
+    exitCode,
+    stdoutTruncated: stdoutSnapshot.truncation.truncated,
+    stderrTruncated: stderrSnapshot.truncation.truncated
+  }
 }
 
 export async function collectPaths(root: string, options: { includeDirectories?: boolean; limit: number }): Promise<string[]> {

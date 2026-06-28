@@ -52,10 +52,12 @@ describe('worker package metadata', () => {
         expect(metadata.scripts?.start, metadata.name).toContain('python')
       } else {
         expect(metadata.type, metadata.name).toBe('module')
-        expect(metadata.bin, metadata.name).toBeDefined()
         expect(metadata.exports, metadata.name).toBeDefined()
         expect(metadata.files, metadata.name).toEqual(expect.arrayContaining(['src', 'package.json', 'README.md']))
-        expect(metadata.scripts?.start, metadata.name).toContain('src/cli.ts')
+        if (metadata.sciforge?.mcpServer) {
+          expect(metadata.bin, metadata.name).toBeDefined()
+          expect(metadata.scripts?.start, metadata.name).toContain('src/cli.ts')
+        }
       }
 
       expect(metadata.sciforge?.lifecycleLayer, metadata.name).toBe('workers')

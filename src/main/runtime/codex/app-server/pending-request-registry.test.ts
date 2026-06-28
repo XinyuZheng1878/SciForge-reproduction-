@@ -261,6 +261,38 @@ describe('Codex app-server pending request registry', () => {
     expect(registry.pending()).toEqual([])
   })
 
+  it('normalizes dotted multi-agent dynamic tool names', async () => {
+    const onToolCallRequest = vi.fn(async () => ({
+      contentItems: [{ type: 'inputText' as const, text: 'child-ok' }],
+      success: true
+    }))
+    const registry = createCodexAppServerPendingRequestRegistry({ onToolCallRequest })
+
+    await expect(registry.handle({
+      id: 'tool-request-multi-agent',
+      method: 'item/tool/call',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        tool: 'multi_agent_v1.spawn_agent',
+        arguments: { prompt: 'Run child' }
+      }
+    })).resolves.toEqual({
+      contentItems: [{ type: 'inputText', text: 'child-ok' }],
+      success: true
+    })
+    expect(onToolCallRequest).toHaveBeenCalledWith({
+      requestId: 'tool-request-multi-agent',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      callId: undefined,
+      namespace: 'multi_agent_v1',
+      tool: 'spawn_agent',
+      arguments: { prompt: 'Run child' }
+    })
+    expect(registry.pending()).toEqual([])
+  })
+
   it('fails legacy dynamic tool name fallbacks closed', async () => {
     const onToolCallRequest = vi.fn()
     const onUnknownRequest = vi.fn()

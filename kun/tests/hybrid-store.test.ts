@@ -273,7 +273,8 @@ describe('HybridThreadStore', () => {
         prompt: 'describe this data',
         model: 'deepseek-v4-pro',
         attachmentIds: ['att_image'],
-        mode: 'agent'
+        mode: 'agent',
+        allowedToolNames: ['bash']
       }
     })
     const fetched = await threadStore.get(thread.id)
@@ -283,7 +284,8 @@ describe('HybridThreadStore', () => {
     expect(fetched?.turns[0]).toMatchObject({
       id: response.turnId,
       attachmentIds: ['att_image'],
-      model: 'deepseek-v4-pro'
+      model: 'deepseek-v4-pro',
+      allowedToolNames: ['bash']
     })
     expect(fetched?.turns[0]?.items[0]).toMatchObject({
       kind: 'user_message',

@@ -79,8 +79,8 @@ describe('createClaudeCodeAgentRuntimeAdapter', () => {
       tools: {
         subagents: {
           available: false,
-          maxParallel: 0,
-          maxChildren: 0
+          maxParallel: 2,
+          maxChildren: 4
         }
       }
     })
@@ -90,8 +90,9 @@ describe('createClaudeCodeAgentRuntimeAdapter', () => {
       capabilities: {
         subagents: {
           available: false,
-          maxParallel: 0,
-          maxChildRuns: 0
+          maxParallel: 2,
+          maxChildren: 4,
+          maxChildRuns: 4
         }
       }
     })

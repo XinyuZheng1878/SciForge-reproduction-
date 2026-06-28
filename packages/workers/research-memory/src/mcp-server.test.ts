@@ -62,7 +62,22 @@ test('serves research-memory tools and artifact calls over MCP', async (t) => {
   const structuredUpsert = asRecord(upsert.structuredContent)
   assert.equal(structuredUpsert.ok, true)
   assert.equal(structuredUpsert.wrote, true)
-  assert.equal(asRecord(structuredUpsert.artifact).id, 'EXP-mcp-upsert')
+  const compactUpsertArtifact = asRecord(structuredUpsert.artifact)
+  assert.equal(compactUpsertArtifact.id, 'EXP-mcp-upsert')
+  assert.equal(compactUpsertArtifact.summary, undefined)
+
+  const renderedStatus = await client.callTool({
+    name: 'gui_research_memory_render_status_html',
+    arguments: {}
+  })
+  assert.equal(renderedStatus.isError, undefined)
+  const structuredRenderedStatus = asRecord(renderedStatus.structuredContent)
+  assert.equal(structuredRenderedStatus.ok, true)
+  assert.equal(structuredRenderedStatus.wrote, true)
+  assert.equal(structuredRenderedStatus.outputPath, 'status.html')
+  assert.equal(structuredRenderedStatus.html, undefined)
+  assert.equal(typeof structuredRenderedStatus.htmlPreview, 'string')
+  assert.equal(typeof structuredRenderedStatus.htmlBytes, 'number')
 
   const customStatusPath = await client.callTool({
     name: 'gui_research_memory_render_status_html',

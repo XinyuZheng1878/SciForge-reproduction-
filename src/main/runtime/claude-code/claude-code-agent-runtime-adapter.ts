@@ -248,6 +248,7 @@ function claudeRuntimeInfo(
       subagents: {
         ...coreCapability(caps.tools.subagents),
         maxParallel: caps.tools.subagents.maxParallel ?? 0,
+        maxChildren: caps.tools.subagents.maxChildren ?? 0,
         maxChildRuns: caps.tools.subagents.maxChildren ?? 0
       },
       attachments: {
@@ -344,8 +345,8 @@ function claudeCapabilities(
         : {
             available: false,
             reason: 'Subagents are disabled by shared agentCapabilities settings.',
-            maxParallel: 0,
-            maxChildren: 0
+            maxParallel: subagents.maxParallel,
+            maxChildren: subagents.maxChildRuns
           },
       diagnostics: { available: false, reason: 'Claude Code tool diagnostics are not exposed through this service yet.' }
     },

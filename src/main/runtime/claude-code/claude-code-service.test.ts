@@ -494,7 +494,7 @@ describe('ClaudeCodeRuntimeService', () => {
     })
   })
 
-  it('maps Agent and Workflow tool output and reads mirrored subagent transcripts', async () => {
+  it('maps Task and Workflow tool output and reads canonical child transcripts', async () => {
     const { sdk } = fakeSdk(async (call) => {
       await call.options?.sessionStore?.append({
         projectKey: 'project-a',
@@ -521,7 +521,7 @@ describe('ClaudeCodeRuntimeService', () => {
             content: [{
               type: 'tool_use',
               id: 'tool-agent',
-              name: 'Agent',
+              name: 'Task',
               input: { prompt: 'Inspect auth', subagent_type: 'code-reviewer' }
             }, {
               type: 'tool_use',
@@ -649,5 +649,103 @@ describe('ClaudeCodeRuntimeService', () => {
         text: 'Nested transcript line.'
       })
     ])
+
+    const workflowTranscript = await service.readChildTranscript({
+      parentThreadId: thread.thread.id,
+      childId: 'run-9'
+    })
+    expect(workflowTranscript.transcript).toMatchObject({
+      runtimeId: 'claude',
+      parentThreadId: thread.thread.id,
+      childId: 'run-9',
+      child: expect.objectContaining({
+        kind: 'workflow',
+        name: 'spec'
+      }),
+      entries: [
+        { id: 'run-9-summary', kind: 'assistant_message', text: 'Workflow finished.' }
+      ],
+      summary: 'Workflow finished.',
+      degraded: true
+    })
+  })
+
+  it('maps Claude task system messages with camelCase fields to canonical children', async () => {
+    const { sdk } = fakeSdk(() => [
+      init('claude-session-task-events'),
+      sdkMessage({
+        type: 'system',
+        subtype: 'task_started',
+        session_id: 'claude-session-task-events',
+        uuid: 'task-started',
+        taskId: 'task-camel',
+        subagentType: 'researcher',
+        prompt: 'Find context'
+      }),
+      sdkMessage({
+        type: 'system',
+        subtype: 'task_notification',
+        session_id: 'claude-session-task-events',
+        uuid: 'task-notification',
+        taskId: 'task-camel',
+        subagentType: 'researcher',
+        status: 'success',
+        summary: 'Context found.'
+      }),
+      result('Done.', 'claude-session-task-events')
+    ])
+    const service = new ClaudeCodeRuntimeService({
+      settings: async () => settings(),
+      storageRoot: await serviceRoot(),
+      claudeAgentSdk: sdk
+    })
+
+    const thread = await service.startThread({ workspace: '/tmp/workspace', title: 'Task events' })
+    if (!thread.ok) throw new Error(thread.message)
+    const turn = await service.startTurn({
+      threadId: thread.thread.id,
+      text: 'delegate',
+      workspace: '/tmp/workspace'
+    })
+    if (!turn.ok) throw new Error(turn.message)
+
+    await waitUntil(async () => {
+      const children = await service.listThreadChildren({ threadId: thread.thread.id })
+      return children.children.some((child) => child.id === 'task-camel' && child.status === 'completed')
+    })
+    const children = await service.listThreadChildren({ threadId: thread.thread.id, parentTurnId: turn.turnId })
+    expect(children.children).toEqual([
+      expect.objectContaining({
+        id: 'task-camel',
+        runtimeId: 'claude',
+        parentThreadId: thread.thread.id,
+        parentTurnId: turn.turnId,
+        kind: 'agent',
+        status: 'completed',
+        name: 'researcher',
+        prompt: 'Find context',
+        summary: 'Context found.',
+        transcriptRef: expect.objectContaining({
+          runtimeId: 'claude',
+          childId: 'task-camel',
+          transcriptId: 'subagents/agent-task-camel'
+        })
+      })
+    ])
+
+    const transcript = await service.readChildTranscript({
+      parentThreadId: thread.thread.id,
+      parentTurnId: turn.turnId,
+      childId: 'task-camel'
+    })
+    expect(transcript.transcript).toMatchObject({
+      childId: 'task-camel',
+      parentTurnId: turn.turnId,
+      entries: [
+        { id: 'task-camel-prompt', kind: 'user_message', text: 'Find context' },
+        { id: 'task-camel-summary', kind: 'assistant_message', text: 'Context found.' }
+      ],
+      degraded: true
+    })
   })
 })

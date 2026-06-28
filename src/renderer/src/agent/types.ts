@@ -11,6 +11,7 @@ import type { AgentRuntimeId } from '@shared/app-settings'
 import type {
   AgentRuntimeCodeNavigationInput,
   AgentRuntimeCodeNavigationOutput,
+  AgentRuntimeChild,
   AgentRuntimeContextState,
   AgentRuntimeFileReference,
   AgentRuntimeGitCheckpoint,
@@ -23,7 +24,9 @@ import type {
   AgentRuntimeResult,
   AgentRuntimeTurnStatus,
   AgentRuntimeWorkspaceReference,
-  AgentRuntimeWorkspaceReferencePreview
+  AgentRuntimeWorkspaceReferencePreview,
+  ReasoningSource,
+  ReasoningVisibility
 } from '@shared/agent-runtime-contract'
 
 export type ToolItemKind = 'tool_call' | 'command_execution' | 'file_change'
@@ -74,6 +77,11 @@ export type WebCitationSource = {
   retrievedAt?: string
 }
 
+export type RuntimeReasoningMetadata = {
+  visibility?: ReasoningVisibility
+  source?: ReasoningSource
+}
+
 export type RuntimeDisclosureMetadata = {
   displayText?: string
   source?: 'desktop' | 'feishu' | 'weixin' | 'discord' | string
@@ -86,6 +94,7 @@ export type RuntimeDisclosureMetadata = {
   skillInjectionBytes?: number
   child?: RuntimeChildMetadata
   sources?: WebCitationSource[]
+  reasoning?: RuntimeReasoningMetadata
 }
 
 export type UserInputOption = {
@@ -261,7 +270,7 @@ export type ChatBlock =
       meta?: RuntimeDisclosureMetadata
     }
   | { kind: 'assistant'; id: string; createdAt?: string; text: string; meta?: RuntimeDisclosureMetadata }
-  | { kind: 'reasoning'; id: string; createdAt?: string; text: string }
+  | { kind: 'reasoning'; id: string; createdAt?: string; text: string; meta?: RuntimeDisclosureMetadata }
   | ToolBlock
   | CompactionBlock
   | ReviewBlock
@@ -401,10 +410,21 @@ export type TurnLifecycleEventPayload = {
   createdAt?: string
 }
 
+export type ChildEventPayload = {
+  threadId: string
+  turnId?: string
+  seq?: number
+  createdAt?: string
+  child: AgentRuntimeChild
+  message?: string
+}
+
 export type ThreadDeltaEvent = {
+  itemId?: string
   text: string
   kind: 'agent_message' | 'agent_reasoning'
   seq?: number
+  meta?: RuntimeDisclosureMetadata
 }
 
 export type AssistantMessageEventPayload = {
@@ -448,6 +468,7 @@ export type ThreadEventSink = {
   onRuntimeStatus?(ev: RuntimeStatusEventPayload): void
   onRuntimeError?(ev: RuntimeErrorEventPayload): void
   onTurnLifecycle?(ev: TurnLifecycleEventPayload): void
+  onChild?(ev: ChildEventPayload): void
   onGoal(ev: { threadId: string; goal: ThreadGoal | null; cleared?: boolean; createdAt?: string }): void
   onTodos?(ev: { threadId: string; todos: ThreadTodoList | null; cleared?: boolean; createdAt?: string }): void
   onTurnComplete(): void

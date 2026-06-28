@@ -213,6 +213,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
   // the GPU expert every round. With it the expert runs once and its output is re-surfaced each round.
   const scientificTranslationCache = new Map<string, ScientificEvidence>();
   const toolCallCache: ToolCallCache = new Map();
+  let recentRouterError: { code: string; status: number; at: number } | null = null;
 
   return createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
@@ -222,8 +223,14 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
         return sendJson(response, 200, { ok: true, service: 'sciforge.model-router', checkedAt: new Date().toISOString() });
       }
       if (request.method === 'GET' && url.pathname === '/healthz') {
-        const upstream = modelRouterHealthzUpstreamDiagnostic(options.config, env);
-        const diagnostics = createModelRouterWorkerDiagnostics(upstream);
+        const recentProviderAuth = recentProviderAuthError(recentRouterError);
+        const upstream = recentProviderAuth
+          ? recentProviderAuthDiagnostic(recentProviderAuth.status)
+          : modelRouterHealthzUpstreamDiagnostic(options.config, env);
+        const diagnostics = createModelRouterWorkerDiagnostics(
+          upstream,
+          recentProviderAuth ? recentProviderAuth.code : undefined,
+        );
         return sendJson(response, upstream.ok ? 200 : 503, {
           ok: upstream.ok,
           service: 'sciforge.model-router',
@@ -351,6 +358,11 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
       return sendJson(response, 404, { error: { code: 'not_found', message: 'Route not found' } });
     } catch (error) {
       const routerError = normalizeRouterError(error);
+      recentRouterError = {
+        code: routerError.code,
+        status: routerError.status,
+        at: Date.now(),
+      };
       options.log?.(`model-router ${routerError.code}: ${routerError.message}`);
       return sendJson(response, routerError.status, {
         error: {
@@ -360,6 +372,23 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
       });
     }
   });
+}
+
+function recentProviderAuthDiagnostic(httpStatus: number): ModelRouterUpstreamDiagnostic {
+  return {
+    category: 'provider-auth',
+    ok: false,
+    retryable: false,
+    httpStatus,
+    releaseAcceptance: 'not-evaluated',
+  };
+}
+
+function recentProviderAuthError(error: { code: string; status: number; at: number } | null) {
+  if (!error) return null;
+  if (Date.now() - error.at > 5 * 60 * 1000) return null;
+  if (/^provider_http_40[13]$/.test(error.code)) return error;
+  return null;
 }
 
 function assertRuntimeAuthorized(

@@ -5,6 +5,7 @@ import type {
   ToolCallLike,
   ToolExecutionUpdate
 } from '../../ports/tool-host.js'
+import { isAbsolute, relative, resolve } from 'node:path'
 import type { ApprovalRequest } from '../../domain/approval.js'
 import { createApprovalRequest } from '../../domain/approval.js'
 import type { TurnItem } from '../../contracts/items.js'
@@ -26,6 +27,8 @@ import {
   type ReadTrackerOptions
 } from './read-tracker.js'
 import { sandboxBlockForTool, type SandboxBlock } from './sandbox-policy.js'
+
+const FILE_PATH_POLICY_TOOL_NAMES = new Set(['read', 'write', 'edit', 'list', 'glob', 'grep'])
 
 /**
  * A single registered tool. Tools are pure functions that observe the
@@ -265,12 +268,19 @@ export class LocalToolHost implements ToolHost {
     tool: LocalTool,
     call: ToolCallLike,
     context: ToolHostContext
-  ): SandboxBlock | { code: 'approval_policy_blocked'; message: string } | null {
+  ): SandboxBlock | {
+    code: 'approval_policy_blocked' | 'bash_command_policy_denied' | 'file_path_policy_denied'
+    message: string
+  } | null {
     const sandboxBlock = sandboxBlockForTool(
       { name: call.toolName, toolKind: call.toolKind ?? tool.toolKind },
       context
     )
     if (sandboxBlock) return sandboxBlock
+    const bashPolicyBlock = bashCommandPolicyBlock(call, context)
+    if (bashPolicyBlock) return bashPolicyBlock
+    const filePolicyBlock = filePathPolicyBlock(call, context)
+    if (filePolicyBlock) return filePolicyBlock
     if (this.isInteractiveGuiGateTool(call.toolName)) return null
     if (context.approvalPolicy !== 'never') return null
     if (tool.policy === 'never') return null
@@ -341,6 +351,92 @@ export class LocalToolHost implements ToolHost {
       execute: tool.execute,
       ...(tool.shouldAdvertise ? { shouldAdvertise: tool.shouldAdvertise } : {})
     }
+  }
+}
+
+function bashCommandPolicyBlock(
+  call: ToolCallLike,
+  context: ToolHostContext
+): { code: 'bash_command_policy_denied'; message: string } | null {
+  if (call.toolName !== 'bash') return null
+  const policy = context.bashCommandPolicy
+  if (!policy) return null
+  const command = typeof call.arguments.command === 'string' ? call.arguments.command : null
+  if (command === null) {
+    const action = typeof call.arguments.action === 'string' ? call.arguments.action : ''
+    if (action === 'poll' || action === 'stop') return null
+    return {
+      code: 'bash_command_policy_denied',
+      message: 'bash command policy only allows command execution or bash session control actions'
+    }
+  }
+  const allowPatterns = policy.allowPatterns ?? []
+  if (allowPatterns.length > 0 && !allowPatterns.some((pattern) => regexMatches(pattern, command))) {
+    return {
+      code: 'bash_command_policy_denied',
+      message: 'bash command does not match this turn command policy allowPatterns'
+    }
+  }
+  const denyPattern = (policy.denyPatterns ?? []).find((pattern) => regexMatches(pattern, command))
+  if (denyPattern) {
+    return {
+      code: 'bash_command_policy_denied',
+      message: `bash command matched this turn command policy denyPattern: ${denyPattern}`
+    }
+  }
+  return null
+}
+
+function filePathPolicyBlock(
+  call: ToolCallLike,
+  context: ToolHostContext
+): { code: 'file_path_policy_denied'; message: string } | null {
+  const policy = context.filePathPolicy
+  if (!policy) return null
+  if (!FILE_PATH_POLICY_TOOL_NAMES.has(call.toolName)) return null
+  const rawPath = typeof call.arguments.path === 'string' ? call.arguments.path : null
+  if (rawPath === null) return null
+  const path = normalizePolicyPath(rawPath, context.workspace)
+  const allowPaths = (policy.allowPaths ?? []).map((allowedPath) =>
+    normalizePolicyPath(allowedPath, context.workspace)
+  )
+  const allowPatterns = policy.allowPatterns ?? []
+  const allowedByPath = allowPaths.length > 0 && allowPaths.some((allowedPath) =>
+    isPathWithinOrSame(path, allowedPath)
+  )
+  const allowedByPattern = allowPatterns.length > 0 && allowPatterns.some((pattern) =>
+    regexMatches(pattern, path)
+  )
+  if ((allowPaths.length > 0 || allowPatterns.length > 0) && !allowedByPath && !allowedByPattern) {
+    return {
+      code: 'file_path_policy_denied',
+      message: 'file path does not match this turn file path policy'
+    }
+  }
+  const denyPattern = (policy.denyPatterns ?? []).find((pattern) => regexMatches(pattern, path))
+  if (denyPattern) {
+    return {
+      code: 'file_path_policy_denied',
+      message: `file path matched this turn file path policy denyPattern: ${denyPattern}`
+    }
+  }
+  return null
+}
+
+function normalizePolicyPath(path: string, workspace: string): string {
+  return isAbsolute(path) ? resolve(path) : resolve(workspace || process.cwd(), path)
+}
+
+function isPathWithinOrSame(path: string, allowedPath: string): boolean {
+  const rel = relative(allowedPath, path)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
+function regexMatches(pattern: string, value: string): boolean {
+  try {
+    return new RegExp(pattern).test(value)
+  } catch {
+    return false
   }
 }
 

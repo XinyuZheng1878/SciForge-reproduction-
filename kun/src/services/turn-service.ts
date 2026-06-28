@@ -57,7 +57,11 @@ export class TurnService {
       guiPlan: input.request.guiPlan,
       mode: input.request.mode,
       approvalPolicy: input.request.approvalPolicy,
-      sandboxMode: input.request.sandboxMode
+      sandboxMode: input.request.sandboxMode,
+      allowedToolNames: input.request.allowedToolNames,
+      bashCommandPolicy: input.request.bashCommandPolicy,
+      filePathPolicy: input.request.filePathPolicy,
+      strictAllowedToolNames: input.request.strictAllowedToolNames
     })
     const userItem = makeUserItem({
       id: `item_${turnId}_user`,

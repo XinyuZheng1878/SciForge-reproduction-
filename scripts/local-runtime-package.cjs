@@ -6,6 +6,8 @@ const PROJECT_ROOT = resolve(__dirname, '..')
 
 const KUN_INSTALL_REQUIRED_PATHS = [
   'kun/package-lock.json',
+  'packages/workers/multi-agent/dist/index.js',
+  'kun/node_modules/@sciforge/multi-agent/package.json',
   'kun/node_modules/diff/package.json',
   'kun/node_modules/zod/package.json',
   'kun/node_modules/@modelcontextprotocol/sdk/package.json'
@@ -15,6 +17,8 @@ const LOCAL_RUNTIME_REQUIRED_PATHS = [
   'kun/dist/cli/serve-entry.js',
   'kun/package.json',
   'kun/package-lock.json',
+  'packages/workers/multi-agent/dist/index.js',
+  'kun/node_modules/@sciforge/multi-agent/package.json',
   'kun/node_modules/zod/package.json',
   'kun/node_modules/diff/package.json',
   'kun/node_modules/@modelcontextprotocol/sdk/package.json'
@@ -74,6 +78,11 @@ function removeProjectKunSqlite(projectRoot = PROJECT_ROOT) {
 }
 
 function ensureProjectKunInstall(projectRoot = PROJECT_ROOT) {
+  runNpm(['--workspace', '@sciforge/multi-agent', 'run', 'build'], {
+    cwd: projectRoot,
+    label: 'npm --workspace @sciforge/multi-agent run build'
+  })
+
   if (!hasProjectKunInstall(projectRoot)) {
     runNpm(['--prefix', 'kun', 'ci'], {
       cwd: projectRoot,

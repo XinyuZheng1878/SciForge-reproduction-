@@ -1,7 +1,8 @@
 # AgentRuntime 中性接口设计
 
 本文记录 SciForge 下一阶段的运行时中性接口设计。目标不是让 Codex 伪装成
-SciForge Runtime HTTP/SSE server，而是让 **SciForge Runtime** 和 **Codex** 都接入同一个
+SciForge Runtime HTTP/SSE server，而是让 **SciForge Runtime**、**Codex** 和
+**Claude Code** 都接入同一个
 `AgentRuntime` contract。Renderer 只消费中性线程、turn、event 和 capability，
 不再关心底层是 SciForge Runtime HTTP/SSE 还是 Codex app-server JSON-RPC stdio。
 
@@ -139,6 +140,7 @@ type AgentRuntimeAdapter = {
 - `review_event`
 - `goal_event`
 - `todo_event`
+- `child_event`
 - `usage`
 - `error`
 - `heartbeat`
@@ -146,6 +148,22 @@ type AgentRuntimeAdapter = {
 事件必须带 `threadId`、可选 `turnId`、可选 `itemId`、可选 `seq` 和
 `createdAt`。SciForge Runtime 的 SSE event 与 Codex app-server raw event 都先在 main side
 归一化成该事件，再进入 renderer。
+
+`reasoning_delta` 必须声明 `visibility`，并可声明 `source`：
+
+- `visibility = 'none'` 的内容不能进入可见 chat/process block。
+- `source = 'model'` 表示 provider/runtime 明确暴露的模型 reasoning 或 thinking
+  流，例如 SciForge Runtime 的 `assistant_reasoning_delta` 和 Claude Code SDK
+  thinking content。
+- `source = 'runtime_summary'` 表示 runtime/backend 提供的 summary，不承诺完整
+  隐藏思考，例如 Codex app-server reasoning summary。
+- Renderer 只展示这些显式字段，不补写、不推断隐藏 reasoning。
+
+`child_event` 只作为实时刷新信号。Renderer 的 `ThreadEventSink.onChild` 不维护第二份
+children 缓存；sidebar 收到信号后重新调用 runtime 的 children endpoint 或 adapter
+canonical projection。所有 runtime child 必须归一到 `AgentRuntimeChild`，transcript
+必须归一到 `AgentRuntimeChildTranscript`。raw provider 字段可以进入 `metadata`，
+不能以 `child_id`、`thread_id` 等 alias 混入 canonical 顶层字段。
 
 ## Capability 关键字段
 
@@ -224,6 +242,12 @@ type AgentRuntimeCapabilities = {
 `CapabilityState` 的共享形状是
 `{ available: boolean; reason?: string; degraded?: boolean }`。默认 capability
 只能把未实现功能声明为 unavailable，不能通过省略字段让 renderer 猜测为可用。
+
+`tools.subagents.available` 表示当前 runtime 可以在统一 children/transcript UI 中展示
+child/subagent 工作，并按 runtime 能力使用 multi-agent 链路。`maxParallel` 和
+`maxChildren` 来自共享 agent capability settings。SciForge Runtime 的 `delegate_task`
+使用 `packages/workers/multi-agent` 的共享 child-run contract；Codex 和 Claude Code
+保留 native child/workflow/subagent 解析，但输出必须是同一 `AgentRuntimeChild` 形状。
 
 SciForge Runtime 初始值大致为：
 

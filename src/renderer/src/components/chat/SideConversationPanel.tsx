@@ -216,6 +216,7 @@ export function SideConversationPanel({
     () =>
       Object.values(sideData.sides)
         .filter((side) => side.parentThreadId === sideData.parentThreadId)
+        .filter((side) => (side.source ?? 'side') === 'side')
         .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)),
     [sideData.parentThreadId, sideData.sides]
   )

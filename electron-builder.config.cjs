@@ -71,6 +71,7 @@ const paperRadarWorkerDir = 'packages/workers/paper-radar'
 const runtimeInspectorWorkerDir = 'packages/workers/runtime-inspector'
 const scientificPlottingWorkerDir = 'packages/workers/scientific-plotting'
 const imageGenerationWorkerDir = 'packages/workers/image-generation'
+const multiAgentWorkerDir = 'packages/workers/multi-agent'
 const pptMasterWorkerDir = 'packages/workers/ppt-master'
 const canvasWorkerDir = 'packages/workers/canvas'
 const paperRadarServiceDir = 'plugins/paper-radar-service'
@@ -106,6 +107,7 @@ module.exports = {
     `**/${runtimeInspectorWorkerDir}/**/*`,
     `**/${scientificPlottingWorkerDir}/**/*`,
     `**/${imageGenerationWorkerDir}/**/*`,
+    `**/${multiAgentWorkerDir}/**/*`,
     `**/${pptMasterWorkerDir}/**/*`,
     `**/${canvasWorkerDir}/**/*`,
     `**/${paperRadarServiceDir}/**/*`,
@@ -215,6 +217,14 @@ module.exports = {
     {
       from: imageGenerationWorkerDir,
       to: imageGenerationWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: multiAgentWorkerDir,
+      to: multiAgentWorkerDir,
       filter: [
         '**/*',
         '**/.*'

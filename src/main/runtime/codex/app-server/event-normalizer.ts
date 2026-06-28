@@ -448,7 +448,7 @@ function childFromSubagentThreadRecord(
   lifecycle: 'running' | 'completed'
 ): CodexNormalizedChild | null {
   const source = normalizedThreadSource(record)
-  if (source !== 'subagent') return null
+  if (!isNativeThreadChildSource(source)) return null
   const childThreadId = stringValue(record.id) ||
     stringValue(record.threadId) ||
     stringValue(record.thread_id) ||
@@ -467,16 +467,18 @@ function childFromSubagentThreadRecord(
     stringValue(context.turnId)
   const name = stringValue(record.agentNickname) ||
     stringValue(record.agent_nickname) ||
+    stringValue(record.workflowName) ||
+    stringValue(record.workflow_name) ||
     stringValue(record.name) ||
     stringValue(record.title)
-  const role = stringValue(record.agentRole) || stringValue(record.agent_role)
+  const role = stringValue(record.agentRole) || stringValue(record.agent_role) || stringValue(record.label)
   const status = childStatus(record, lifecycle)
   return withCleanMetadata({
     id: childThreadId,
     runtimeId: 'codex',
     parentThreadId,
     ...(parentTurnId ? { parentTurnId } : {}),
-    kind: 'thread',
+    kind: childKindFromThreadSource(source),
     status,
     ...(name ? { name } : {}),
     ...(role ? { label: role } : {}),
@@ -491,7 +493,10 @@ function childFromSubagentThreadRecord(
     ...(status === 'completed' && eventIso(record.completedAt) ? { completedAt: eventIso(record.completedAt) } : {}),
     metadata: {
       threadSource: source,
-      ...(role ? { agentRole: role } : {})
+      ...(role ? { agentRole: role } : {}),
+      ...(stringValue(record.workflowName) || stringValue(record.workflow_name)
+        ? { workflowName: stringValue(record.workflowName) || stringValue(record.workflow_name) }
+        : {})
     }
   })
 }
@@ -515,10 +520,12 @@ function childFromCollabAgentToolCall(
   const name = stringValue(item.agentNickname) ||
     stringValue(item.agent_nickname) ||
     stringValue(item.agentName) ||
-    stringValue(item.agent_name)
+    stringValue(item.agent_name) ||
+    stringValue(item.name)
   const role = stringValue(item.agentRole) ||
     stringValue(item.agent_role) ||
-    stringValue(item.role)
+    stringValue(item.role) ||
+    stringValue(item.label)
   const status = childStatus(item, lifecycle)
   return withCleanMetadata({
     id,
@@ -570,6 +577,14 @@ function threadSource(record: Record<string, unknown>): string {
 
 function normalizedThreadSource(record: Record<string, unknown>): string {
   return threadSource(record).trim().toLowerCase()
+}
+
+function isNativeThreadChildSource(source: string): boolean {
+  return source === 'subagent' || source === 'workflow' || source === 'local_workflow'
+}
+
+function childKindFromThreadSource(source: string): CodexNormalizedChild['kind'] {
+  return source === 'workflow' || source === 'local_workflow' ? 'workflow' : 'thread'
 }
 
 function receiverThreadIdsFromItem(item: Record<string, unknown>): string[] {
@@ -639,8 +654,10 @@ function contentItemsText(value: unknown): string {
 function recordArguments(record: Record<string, unknown>): Record<string, unknown> | null {
   return asRecord(record.arguments) ||
     asRecord(record.args) ||
+    asRecord(record.input) ||
     parseJsonObject(stringValue(record.arguments)) ||
-    parseJsonObject(stringValue(record.args))
+    parseJsonObject(stringValue(record.args)) ||
+    parseJsonObject(stringValue(record.input))
 }
 
 function childStatus(
@@ -649,8 +666,10 @@ function childStatus(
 ): CodexNormalizedChild['status'] {
   const status = stringValue(record.status).toLowerCase()
   if (status === 'queued' || status === 'pending') return 'queued'
-  if (status === 'running' || status === 'inprogress' || status === 'in_progress') return 'running'
-  if (status === 'completed' || status === 'success' || status === 'succeeded') return 'completed'
+  if (status === 'running' || status === 'inprogress' || status === 'in_progress' || status === 'started') return 'running'
+  if (status === 'completed' || status === 'complete' || status === 'success' || status === 'succeeded' || status === 'done') {
+    return 'completed'
+  }
   if (status === 'failed' || status === 'error' || status === 'declined') return 'failed'
   if (status === 'aborted' || status === 'cancelled' || status === 'canceled' || status === 'interrupted') return 'aborted'
   if (typeof record.exitCode === 'number' && record.exitCode !== 0) return 'failed'

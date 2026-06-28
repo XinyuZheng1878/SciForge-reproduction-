@@ -73,8 +73,9 @@ import { GET_GOAL_TOOL_NAME, UPDATE_GOAL_TOOL_NAME } from '../adapters/tool/goal
 import { TODO_LIST_TOOL_NAME, TODO_WRITE_TOOL_NAME } from '../adapters/tool/todo-tools.js'
 import { shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
 
+const MAX_PARALLEL_TOOL_CALLS = 4
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
-const MAX_PARALLEL_TOOL_CALLS = 3
+const PARALLEL_DELEGATION_TOOL_NAMES = new Set(['delegate_task', 'delegate_tasks'])
 const MAX_TURN_MODEL_STEPS = 64
 const DEFAULT_TOOL_LOOP_MAX_RECOVERY_STEPS = 1
 const DEFAULT_TOOL_LOOP_NON_PROGRESS_THRESHOLD = 3
@@ -351,6 +352,17 @@ function allowedToolNamesWithGuiStateTools(
   next.add(TODO_LIST_TOOL_NAME)
   next.add(TODO_WRITE_TOOL_NAME)
   return [...next]
+}
+
+function mergeAllowedToolNames(
+  skillAllowedToolNames: readonly string[] | undefined,
+  turnAllowedToolNames: readonly string[] | undefined
+): readonly string[] | undefined {
+  if (!skillAllowedToolNames && !turnAllowedToolNames) return undefined
+  if (!skillAllowedToolNames) return turnAllowedToolNames
+  if (!turnAllowedToolNames) return skillAllowedToolNames
+  const turnAllowed = new Set(turnAllowedToolNames)
+  return skillAllowedToolNames.filter((toolName) => turnAllowed.has(toolName))
 }
 
 export type AgentLoopOptions = {
@@ -692,10 +704,16 @@ export class AgentLoop {
       ? null
       : goalContinuationInstruction(thread?.goal)
     const activeTodoInstruction = todoContinuationInstruction(thread?.todos)
-    const allowedToolNames = allowedToolNamesWithGuiStateTools(
+    const baseAllowedToolNames = mergeAllowedToolNames(
       skillResolution.allowedToolNames,
-      activeGoalInstruction !== null
+      turn?.allowedToolNames
     )
+    const allowedToolNames = turn?.strictAllowedToolNames
+      ? baseAllowedToolNames
+      : allowedToolNamesWithGuiStateTools(
+        baseAllowedToolNames,
+        activeGoalInstruction !== null
+      )
     const toolContext: ToolHostContext = {
       threadId,
       turnId,
@@ -707,6 +725,8 @@ export class AgentLoop {
       memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },
       delegationPolicy: { enabled: false },
       ...(allowedToolNames ? { allowedToolNames } : {}),
+      ...(turn?.bashCommandPolicy ? { bashCommandPolicy: turn.bashCommandPolicy } : {}),
+      ...(turn?.filePathPolicy ? { filePathPolicy: turn.filePathPolicy } : {}),
       approvalPolicy,
       sandboxMode,
       abortSignal: signal,
@@ -841,6 +861,7 @@ export class AgentLoop {
     let reasoningItemId = ''
     const completedToolCalls: ToolCallLike[] = []
     let stopReason: 'stop' | 'tool_calls' | 'length' | 'error' = 'stop'
+    let modelStreamError: { message: string; code?: string } | undefined
     await this.recordPipelineStage(threadId, turnId, 'pre_send', {
       model: request.model,
       historyItems: request.history.length,
@@ -956,6 +977,10 @@ export class AgentLoop {
           stopReason = chunk.stopReason
           break
         case 'error':
+          modelStreamError = {
+            message: chunk.message,
+            ...(chunk.code ? { code: chunk.code } : {})
+          }
           await this.opts.events.record({
             kind: 'error',
             threadId,
@@ -997,7 +1022,16 @@ export class AgentLoop {
         })
       )
     }
-    if (stopReason === 'error') return 'failed'
+    if (stopReason === 'error') {
+      const errorMessage = modelStreamError
+        ? [
+            'Model stream returned an error chunk',
+            modelStreamError.code ? `(${modelStreamError.code})` : '',
+            modelStreamError.message
+          ].filter(Boolean).join(': ')
+        : 'Model stream returned an error chunk.'
+      throw new Error(errorMessage)
+    }
     if (completedToolCalls.length === 0) {
       if (request.requiredToolName) {
         if (
@@ -1065,6 +1099,8 @@ export class AgentLoop {
             modelCapabilities,
             activeSkillIds: skillResolution.activeSkillIds,
             allowedToolNames,
+            bashCommandPolicy: turn?.bashCommandPolicy,
+            filePathPolicy: turn?.filePathPolicy,
             toolProviderKinds: new Map(tools.map((tool) => [tool.name, tool.providerKind])),
             approvalPolicy,
             sandboxMode,
@@ -1163,6 +1199,8 @@ export class AgentLoop {
       modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
       allowedToolNames,
+      bashCommandPolicy: turn?.bashCommandPolicy,
+      filePathPolicy: turn?.filePathPolicy,
       toolProviderKinds: new Map(tools.map((tool) => [tool.name, tool.providerKind])),
       approvalPolicy,
       sandboxMode,
@@ -1187,6 +1225,8 @@ export class AgentLoop {
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
     allowedToolNames?: readonly string[]
+    bashCommandPolicy?: ToolHostContext['bashCommandPolicy']
+    filePathPolicy?: ToolHostContext['filePathPolicy']
     toolProviderKinds: ReadonlyMap<string, ToolProviderKind | undefined>
     approvalPolicy: ToolHostContext['approvalPolicy']
     sandboxMode: NonNullable<ToolHostContext['sandboxMode']>
@@ -1444,9 +1484,12 @@ export class AgentLoop {
     approvalPolicy: ToolHostContext['approvalPolicy'],
     toolProviderKinds: ReadonlyMap<string, ToolProviderKind | undefined>
   ): boolean {
-    if (!PARALLEL_READ_ONLY_TOOL_NAMES.has(call.toolName)) return false
     if (call.toolKind && call.toolKind !== 'tool_call') return false
     if (approvalPolicy === 'untrusted' || approvalPolicy === 'never') return false
+    if (PARALLEL_DELEGATION_TOOL_NAMES.has(call.toolName)) {
+      return toolProviderKinds.get(call.toolName) === 'delegation'
+    }
+    if (!PARALLEL_READ_ONLY_TOOL_NAMES.has(call.toolName)) return false
     return toolProviderKinds.get(call.toolName) === 'built-in'
   }
 
@@ -1459,6 +1502,8 @@ export class AgentLoop {
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
     allowedToolNames?: readonly string[]
+    bashCommandPolicy?: ToolHostContext['bashCommandPolicy']
+    filePathPolicy?: ToolHostContext['filePathPolicy']
     approvalPolicy: ToolHostContext['approvalPolicy']
     sandboxMode: NonNullable<ToolHostContext['sandboxMode']>
     signal: AbortSignal
@@ -1474,6 +1519,8 @@ export class AgentLoop {
       memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },
       delegationPolicy: { enabled: false },
       ...(input.allowedToolNames ? { allowedToolNames: input.allowedToolNames } : {}),
+      ...(input.bashCommandPolicy ? { bashCommandPolicy: input.bashCommandPolicy } : {}),
+      ...(input.filePathPolicy ? { filePathPolicy: input.filePathPolicy } : {}),
       approvalPolicy: input.approvalPolicy,
       sandboxMode: input.sandboxMode,
       abortSignal: input.signal,

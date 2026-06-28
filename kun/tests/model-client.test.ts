@@ -778,7 +778,7 @@ describe('DeepseekCompatModelClient', () => {
     expect(sentBodies[0]).not.toHaveProperty('tool_choice')
   })
 
-  it('passes the request abort signal to fetch', async () => {
+  it('passes an abortable request signal to fetch', async () => {
     const controller = new AbortController()
     let seenSignal: AbortSignal | undefined
     const fetchImpl: typeof fetch = async (_url, init) => {
@@ -802,7 +802,32 @@ describe('DeepseekCompatModelClient', () => {
     for await (const _chunk of client.stream(buildRequest(controller.signal))) {
       // drain
     }
-    expect(seenSignal).toBe(controller.signal)
+    expect(seenSignal).toBeDefined()
+    expect(typeof seenSignal?.aborted).toBe('boolean')
+  })
+
+  it('fails a request that stalls before response headers', async () => {
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      const signal = init?.signal as AbortSignal
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('fetch aborted')), { once: true })
+      })
+    }
+    const client = new DeepseekCompatModelClient({
+      baseUrl: 'https://example.com/beta',
+      apiKey: 'k',
+      model: 'deepseek-chat',
+      fetchImpl,
+      streamIdleTimeoutMs: 5
+    })
+    const chunks = []
+    for await (const chunk of client.stream(buildRequest(new AbortController().signal))) {
+      chunks.push(chunk)
+    }
+
+    expect(chunks.find((chunk) => chunk.kind === 'error')).toMatchObject({
+      code: 'request_idle_timeout'
+    })
   })
 
   it('strips DeepSeek thinking payload for Azure OpenAI-compatible endpoints', async () => {

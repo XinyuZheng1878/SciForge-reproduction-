@@ -57,7 +57,7 @@ describe('JsonSettingsStore', () => {
       subagents: {
         enabled: false,
         maxParallel: 3,
-        maxChildRuns: 4
+        maxChildRuns: 16
       }
     })
     const raw = JSON.parse(await readFile(join(userDataDir, 'sciforge-settings.json'), 'utf8'))
@@ -65,7 +65,7 @@ describe('JsonSettingsStore', () => {
       subagents: {
         enabled: false,
         maxParallel: 3,
-        maxChildRuns: 4
+        maxChildRuns: 16
       }
     })
   })

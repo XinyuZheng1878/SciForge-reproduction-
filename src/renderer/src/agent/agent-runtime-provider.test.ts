@@ -1166,7 +1166,7 @@ describe('AgentRuntimeProvider', () => {
     ac.abort()
     await subscription
 
-    expect(sink.onDeltas).toHaveBeenCalledWith([{ kind: 'agent_message', text: 'hi', seq: 1 }])
+    expect(sink.onDeltas).toHaveBeenCalledWith([{ kind: 'agent_message', itemId: 'assistant-1', text: 'hi', seq: 1 }])
   })
 
   it('resolves approval and user input requests through neutral IPC after reading thread detail', async () => {

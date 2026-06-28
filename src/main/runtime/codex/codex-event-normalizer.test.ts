@@ -596,6 +596,45 @@ describe('normalizeCodexEvent', () => {
     })
   })
 
+  it('maps native workflow thread events to workflow children', () => {
+    expect(normalizeCodexEvent({
+      method: 'thread/completed',
+      params: {
+        sourceThreadId: 'parent-thread',
+        turnId: 'turn-1',
+        thread: {
+          threadId: 'workflow-thread',
+          thread_source: 'workflow',
+          workflow_name: 'release-check',
+          label: 'workflow',
+          status: 'done',
+          input: { prompt: 'Run release checks' },
+          result: { summary: 'Release checks passed.' }
+        }
+      }
+    })).toMatchObject({
+      threadId: 'parent-thread',
+      turnId: 'turn-1',
+      child: {
+        id: 'workflow-thread',
+        runtimeId: 'codex',
+        parentThreadId: 'parent-thread',
+        parentTurnId: 'turn-1',
+        kind: 'workflow',
+        status: 'completed',
+        name: 'release-check',
+        label: 'workflow',
+        prompt: 'Run release checks',
+        summary: 'Release checks passed.',
+        transcriptRef: {
+          runtimeId: 'codex',
+          childId: 'workflow-thread',
+          transcriptId: 'workflow-thread'
+        }
+      }
+    })
+  })
+
   it('maps turn completion to a done event', () => {
     expect(normalizeCodexEvent({
       method: 'turn/completed',

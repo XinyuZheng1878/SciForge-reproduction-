@@ -26,6 +26,8 @@ import {
 
 const GUI_COMPUTER_USE_MCP_SERVER_ID = 'gui_computer_use'
 const GUI_COMPUTER_USE_TOOL_NAME = 'computer_use'
+const GUI_WORKSPACE_INTEL_MCP_SERVER_ID = 'gui_workspace_intel'
+const GUI_WORKSPACE_TOOL_PREFIX = 'gui_workspace_'
 
 export type McpToolDescriptor = {
   name: string
@@ -364,6 +366,12 @@ function mcpToolArgumentsForContext(
   args: Record<string, unknown>,
   context: ToolHostContext
 ): Record<string, unknown> {
+  if (state.serverId === GUI_WORKSPACE_INTEL_MCP_SERVER_ID && descriptor.name.startsWith(GUI_WORKSPACE_TOOL_PREFIX)) {
+    const workspaceRoot = typeof args.workspaceRoot === 'string' && args.workspaceRoot.trim()
+      ? args.workspaceRoot
+      : context.workspace.trim()
+    return workspaceRoot ? { ...args, workspaceRoot } : args
+  }
   if (state.serverId !== GUI_COMPUTER_USE_MCP_SERVER_ID || descriptor.name !== GUI_COMPUTER_USE_TOOL_NAME) {
     return args
   }
@@ -407,7 +415,8 @@ async function callMcpToolWithReconnect(
 
 function isTransientMcpConnectionError(error: unknown): boolean {
   const message = errorMessage(error)
-  return /\b(connection|transport|stdio|stream|socket)\b.*\b(closed|ended|terminated|reset|stale|lost)\b/i.test(message)
+  return /\bnot connected\b/i.test(message)
+    || /\b(connection|transport|stdio|stream|socket)\b.*\b(closed|ended|terminated|reset|stale|lost)\b/i.test(message)
     || /\b(closed|ended|terminated|reset|stale|lost)\b.*\b(connection|transport|stdio|stream|socket)\b/i.test(message)
 }
 

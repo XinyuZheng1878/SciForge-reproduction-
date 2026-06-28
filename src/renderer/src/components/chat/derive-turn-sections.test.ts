@@ -58,7 +58,7 @@ describe('deriveTurnSections', () => {
     expect(result.processBlocks.map((block) => block.kind)).toEqual(['tool'])
   })
 
-  it('keeps completed assistant text that was separated by tool output', () => {
+  it('keeps intermediate assistant text in the completed process timeline', () => {
     const result = sections([
       { kind: 'assistant', id: 'intro', text: 'I found the likely cause.' },
       {
@@ -93,14 +93,17 @@ describe('deriveTurnSections', () => {
     ])
 
     expect(result.assistantContentBlocks.map((block) => block.id)).toEqual([
-      'intro',
-      'analysis',
       'next'
     ])
-    expect(result.assistantContentBlocks.map((block) => block.text).join('\n\n')).toContain(
+    expect(result.processBlocks.map((block) => block.id)).toEqual([
+      'intro',
+      'tool_read',
+      'analysis',
+      'tool_issue'
+    ])
+    expect(result.processBlocks.map((block) => 'text' in block ? block.text : '').join('\n\n')).toContain(
       'command output line 2'
     )
-    expect(result.processBlocks.map((block) => block.id)).toEqual(['tool_read', 'tool_issue'])
   })
 
   it('does not create assistant content from tool-only process work', () => {
@@ -204,6 +207,26 @@ describe('deriveTurnSections', () => {
     expect(result.assistantContentBlocks).toEqual([])
     expect(result.processBlocks).toEqual([
       { kind: 'reasoning', id: 'live-reasoning', text: 'private reasoning' }
+    ])
+  })
+
+  it('attaches live reasoning metadata to the process block', () => {
+    const result = deriveTurnSections({
+      turn: { blocks: [] } satisfies Turn,
+      isProcessing: true,
+      liveProcessText: 'visible reasoning',
+      liveProcessMeta: { reasoning: { visibility: 'trace', source: 'model' } },
+      liveContent: '',
+      workspaceRoot: '/tmp'
+    })
+
+    expect(result.processBlocks).toEqual([
+      {
+        kind: 'reasoning',
+        id: 'live-reasoning',
+        text: 'visible reasoning',
+        meta: { reasoning: { visibility: 'trace', source: 'model' } }
+      }
     ])
   })
 

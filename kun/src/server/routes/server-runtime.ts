@@ -19,7 +19,7 @@ import type { AttachmentStore } from '../../attachments/attachment-store.js'
 import type { MemoryDiagnostics } from '../../contracts/memory.js'
 import type { MemoryStore } from '../../memory/memory-store.js'
 import type { ReviewTarget } from '../../contracts/review.js'
-import type { DelegationRuntime } from '../../delegation/delegation-runtime.js'
+import type { MultiAgentRuntime } from '@sciforge/multi-agent'
 
 export type RuntimeToolDiagnostics = {
   providers: ToolProviderPolicy[]
@@ -50,7 +50,7 @@ export type ServerRuntime = {
   toolHost?: ToolHost
   attachmentStore?: AttachmentStore
   memoryStore?: MemoryStore
-  delegationRuntime?: DelegationRuntime
+  delegationRuntime?: MultiAgentRuntime
   runTurn(threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'> | void
   runReview?(input: {
     threadId: string

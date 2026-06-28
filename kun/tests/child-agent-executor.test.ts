@@ -54,7 +54,8 @@ describe('child agent executor', () => {
       label: 'research',
       prompt: 'Research the issue',
       workspace: '/tmp/project',
-      signal: new AbortController().signal
+      signal: new AbortController().signal,
+      appendTranscript: async () => undefined
     })
 
     expect(result.summary).toBe('child answer')
@@ -105,7 +106,13 @@ describe('child agent executor', () => {
       parentThreadId: 'thr_parent',
       parentTurnId: 'turn_parent',
       prompt: 'Fail',
-      signal: new AbortController().signal
-    })).rejects.toThrow(/child agent failed|model failed/i)
+      signal: new AbortController().signal,
+      appendTranscript: async () => undefined
+    })).rejects.toMatchObject({
+      message: expect.stringMatching(/child agent failed|model failed/i),
+      multiAgentTranscript: expect.arrayContaining([
+        expect.objectContaining({ kind: 'user_message', text: 'Fail' })
+      ])
+    })
   })
 })

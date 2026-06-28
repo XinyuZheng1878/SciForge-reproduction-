@@ -134,7 +134,7 @@ export function parseServeOptions(
     },
     models: loadedConfig?.config.models,
     contextCompaction: loadedConfig?.config.contextCompaction,
-    runtime: loadedConfig?.config.runtime,
+    runtime: runtimeTuningFromRawEnvOrConfig(raw, env, loadedConfig),
     capabilities: loadedConfig?.config.capabilities ?? DEFAULT_SERVE_OPTIONS.capabilities
   }
   return ServeOptionsSchema.parse(merged)
@@ -165,6 +165,8 @@ Options:
   --approval-policy <p>    on-request | untrusted | never | auto | suggest
   --sandbox-mode <mode>    read-only | workspace-write | danger-full-access | external-sandbox
   --token-economy          Compress safe tool context before model calls
+  --model-stream-idle-timeout-ms <ms>
+                           Abort stalled model streams after this idle window
   --insecure               Disable bearer token check (local dev only)
   --storage-backend <b>    hybrid | file (default hybrid)
   --sqlite-path <path>     SQLite index path for hybrid storage
@@ -267,6 +269,31 @@ function storageSqlitePathFromRawOrEnv(
     env.KUN_SQLITE_PATH
 }
 
+function runtimeTuningFromRawEnvOrConfig(
+  raw: Record<string, string | boolean>,
+  env: Record<string, string | undefined>,
+  loadedConfig: LoadedLocalRuntimeConfig | null
+): ServeOptions['runtime'] {
+  const modelStreamIdleTimeoutMs =
+    numberFlag(raw, 'model-stream-idle-timeout-ms') ??
+    numberFlag(raw, 'modelStreamIdleTimeoutMs') ??
+    envNumber(env.KUN_MODEL_STREAM_IDLE_TIMEOUT_MS) ??
+    loadedConfig?.config.runtime?.modelStreamIdleTimeoutMs
+  const runtime = {
+    ...(loadedConfig?.config.runtime ?? {}),
+    ...(modelStreamIdleTimeoutMs !== undefined ? { modelStreamIdleTimeoutMs } : {})
+  }
+  return Object.keys(runtime).length ? runtime : undefined
+}
+
+function numberFlag(
+  raw: Record<string, string | boolean>,
+  key: string
+): number | undefined {
+  const value = stringFlag(raw, key)
+  return value === undefined ? undefined : Number(value)
+}
+
 function stringFlag(
   raw: Record<string, string | boolean>,
   key: string
@@ -293,4 +320,10 @@ function envBoolean(value: string | undefined): boolean | undefined {
     return false
   }
   return true
+}
+
+function envNumber(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined
+  const trimmed = value.trim()
+  return trimmed ? Number(trimmed) : undefined
 }

@@ -128,6 +128,9 @@ type StreamReadResult =
   | { kind: 'timeout' }
   | { kind: 'aborted' }
   | { kind: 'error'; message: string }
+type ChatCompletionPostResult =
+  | { kind: 'response'; response: Response }
+  | { kind: 'error'; message: string; code?: string }
 
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 45_000
 const DEFAULT_MESSAGES_MAX_TOKENS = 4096
@@ -171,7 +174,7 @@ export class DeepseekCompatModelClient implements ModelClient {
     const headers = this.buildHeaders(stream, endpointFormat)
     const result = await this.postChatCompletion(url, headers, body, request.abortSignal)
     if (result.kind === 'error') {
-      yield { kind: 'error', message: result.message }
+      yield { kind: 'error', message: result.message, ...(result.code ? { code: result.code } : {}) }
       return
     }
     let response = result.response
@@ -181,7 +184,7 @@ export class DeepseekCompatModelClient implements ModelClient {
         const retryBody = this.buildRequestBody(request, stream, { includeStreamUsage: false })
         const retry = await this.postChatCompletion(url, headers, retryBody, request.abortSignal)
         if (retry.kind === 'error') {
-          yield { kind: 'error', message: retry.message }
+          yield { kind: 'error', message: retry.message, ...(retry.code ? { code: retry.code } : {}) }
           return
         }
         response = retry.response
@@ -236,19 +239,77 @@ export class DeepseekCompatModelClient implements ModelClient {
     headers: Record<string, string>,
     body: Record<string, unknown>,
     signal: AbortSignal
-  ): Promise<{ kind: 'response'; response: Response } | { kind: 'error'; message: string }> {
-    try {
-      const response = await this.fetchImpl(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal
-      })
-      return { kind: 'response', response }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return { kind: 'error', message: `model request failed: ${message}` }
+  ): Promise<ChatCompletionPostResult> {
+    const idleTimeoutMs = normalizeStreamIdleTimeoutMs(this.config.streamIdleTimeoutMs)
+    const controller = new AbortController()
+    let timedOut = false
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    let cleanupParentAbort: (() => void) | undefined
+    let cleanupAbortRace: (() => void) | undefined
+
+    const abortFromParent = (): void => {
+      controller.abort(signal.reason)
     }
+    if (signal.aborted) controller.abort(signal.reason)
+    else {
+      signal.addEventListener('abort', abortFromParent, { once: true })
+      cleanupParentAbort = () => signal.removeEventListener('abort', abortFromParent)
+    }
+
+    const fetchPromise = this.fetchImpl(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal
+    })
+      .then((response): ChatCompletionPostResult => ({ kind: 'response', response }))
+      .catch((error): ChatCompletionPostResult => {
+        if (timedOut) {
+          return {
+            kind: 'error',
+            message: `model request stalled for ${idleTimeoutMs}ms before response`,
+            code: 'request_idle_timeout'
+          }
+        }
+        if (signal.aborted) {
+          return { kind: 'error', message: 'model request was aborted', code: 'aborted' }
+        }
+        const message = error instanceof Error ? error.message : String(error)
+        return { kind: 'error', message: `model request failed: ${message}` }
+      })
+
+    const abortPromise = new Promise<ChatCompletionPostResult>((resolve) => {
+      const onAbort = (): void => {
+        controller.abort(signal.reason)
+        resolve({ kind: 'error', message: 'model request was aborted', code: 'aborted' })
+      }
+      if (signal.aborted) {
+        onAbort()
+        return
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      cleanupAbortRace = () => signal.removeEventListener('abort', onAbort)
+    })
+    const candidates: Array<Promise<ChatCompletionPostResult>> = [fetchPromise, abortPromise]
+    if (idleTimeoutMs > 0) {
+      candidates.push(new Promise<ChatCompletionPostResult>((resolve) => {
+        timeout = setTimeout(() => {
+          timedOut = true
+          controller.abort('model request response timeout')
+          resolve({
+            kind: 'error',
+            message: `model request stalled for ${idleTimeoutMs}ms before response`,
+            code: 'request_idle_timeout'
+          })
+        }, idleTimeoutMs)
+      }))
+    }
+
+    const result = await Promise.race(candidates)
+    if (timeout) clearTimeout(timeout)
+    cleanupParentAbort?.()
+    cleanupAbortRace?.()
+    return result
   }
 
   private buildHeaders(stream: boolean, endpointFormat: ModelEndpointFormat): Record<string, string> {

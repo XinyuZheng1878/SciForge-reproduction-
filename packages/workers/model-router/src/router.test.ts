@@ -577,6 +577,54 @@ test('healthz blocks missing provider credentials without leaking binding names'
   }
 });
 
+test('healthz reports recent provider auth failures after a routed request fails', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-healthz-recent-auth-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      Response.json({ error: { message: 'upstream key rejected' } }, { status: 401 }),
+    ]),
+  });
+
+  try {
+    const failed = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ model: 'sciforge-router', input: 'hello' }),
+    });
+    assert.equal(failed.status, 401);
+    const failedBody = await failed.json() as Record<string, { code?: string }>;
+    assert.equal(failedBody.error?.code, 'provider_http_401');
+
+    const response = await fetch(`${server.url}/healthz?check=upstream`);
+    assert.equal(response.status, 503);
+    const body = await response.json() as Record<string, unknown>;
+    const serialized = JSON.stringify(body);
+
+    assert.equal(body.ok, false);
+    assert.deepEqual(body.health, {
+      status: 'unhealthy',
+      available: false,
+      reason: 'provider-auth',
+    });
+    assert.equal(body.recentError, 'provider_http_401');
+    assert.deepEqual(body.upstream, {
+      category: 'provider-auth',
+      ok: false,
+      retryable: false,
+      httpStatus: 401,
+      releaseAcceptance: 'not-evaluated',
+    });
+    assert.doesNotMatch(serialized, forbiddenPublicSurfacePattern);
+  } finally {
+    await server.close();
+  }
+});
+
 test('pure text responses are routed only to the configured text reasoner', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-text-'));
   const calls: CapturedFetch[] = [];

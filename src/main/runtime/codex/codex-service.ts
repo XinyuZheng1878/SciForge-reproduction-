@@ -1,5 +1,7 @@
+import { join } from 'node:path'
 import {
   DEFAULT_MODEL_ROUTER_PROVIDER_ID,
+  getAgentCapabilitySettings,
   getCodexRuntimeSettings,
   isComputerUseEnabledForRuntime,
   resolveRuntimeModelRouterSettings,
@@ -80,6 +82,7 @@ import type { ImageGenerationMcpLaunchConfig } from '../../image-generation-mcp-
 import type { PptMasterMcpLaunchConfig } from '../../ppt-master-mcp-config'
 import type { SciforgeCanvasMcpLaunchConfig } from '../../sciforge-canvas-mcp-config'
 import { buildCodexManagedGuiMcpServers } from '../../gui-mcp-registry'
+import { WorkspaceIntelToolNames } from '../../../../packages/workers/workspace-intel/src/contract'
 import {
   createCodexDynamicMcpToolBridge,
   type CodexAppServerDynamicToolCallRequest,
@@ -90,6 +93,18 @@ import {
   type CodexDynamicMcpServerConfig,
   type CodexDynamicMcpToolBridge
 } from './codex-dynamic-mcp-tools'
+import {
+  codexChildFromMultiAgentRecord,
+  createCodexMultiAgentToolBridge,
+  type CodexMultiAgentToolBridge
+} from './codex-multi-agent-tools'
+import type {
+  MultiAgentExecutorInput,
+  MultiAgentExecutorResult,
+  MultiAgentChildEvent,
+  MultiAgentTranscriptEntry,
+  MultiAgentUsage
+} from '../../../../packages/workers/multi-agent/src'
 
 export type CodexRuntimeEventSink = {
   send(channel: typeof CODEX_MAIN_IPC_CHANNELS.event, payload: CodexEventPayload): void
@@ -172,6 +187,11 @@ const CODEX_SPECIALIZED_MCP_DEVELOPER_INSTRUCTIONS = [
   'For explicit computer_use, mouse, keyboard, browser, or GUI-control requests, continue through the computer_use tool actions instead of shell/open/osascript/screencapture/pbpaste fallbacks unless the user explicitly permits that fallback.',
   ...CODEX_COMMAND_DOWNLOAD_INSTRUCTION_LINES
 ].join('\n')
+const CODEX_MULTI_AGENT_DEVELOPER_INSTRUCTIONS = [
+  'SciForge provides `delegate_task` for bounded child-agent work.',
+  'Use it when parallel investigation or independent implementation subtasks materially help the user request.',
+  'Give each child a concise label and a self-contained prompt; do not use it for trivial work or as a substitute for doing the main task.'
+].join('\n')
 
 type CodexRuntimeEventSubscriber = {
   threadId: string
@@ -190,6 +210,7 @@ export class CodexRuntimeService {
   private readonly eventStore: CodexEventStore | null
   private readonly usageStore: CodexUsageStore | null
   private dynamicMcpBridge: CodexDynamicMcpToolBridge | null = null
+  private multiAgentBridge: CodexMultiAgentToolBridge | null = null
   private usageBackfillPromise: Promise<void> | null = null
   private readonly activeTurns = new Map<string, string>()
   private readonly turnTimings = new Map<string, CodexTurnTiming>()
@@ -281,10 +302,11 @@ export class CodexRuntimeService {
           latencyMs: elapsedMs(startedAtMs)
         }, { persist: false })
       }
-      const dynamicTools = await this.codexDynamicTools()
+      const dynamicTools = await this.codexDynamicTools(settings)
       const response = await client.startThread({
         ...baseThreadParams(settings, workspace, {
-          specializedMcpConfigured: dynamicTools.length > 0,
+          specializedMcpConfigured: this.hasDynamicMcpServersConfigured(),
+          multiAgentConfigured: Boolean(this.ensureCodexMultiAgentBridge(settings)),
           dynamicTools
         }),
         ...codexModelRouterThreadParams(settings),
@@ -602,6 +624,7 @@ export class CodexRuntimeService {
       const codexThreadId = await this.codexThreadIdFor(threadId)
       const { client } = await this.ensureConnectedClient()
       this.dynamicMcpBridge?.abortRequestsForTurn(threadId, turnId, 'user_stop')
+      this.multiAgentBridge?.abortRequestsForTurn(threadId, turnId)
       await client.interruptTurn({ threadId: codexThreadId, turnId })
       if (options.discard) await this.stop('user_stop')
       return { ok: true }
@@ -780,6 +803,7 @@ export class CodexRuntimeService {
         servers: codexDynamicMcpServers(this.options, current),
         ...(this.options.mcpClientFactory ? { clientFactory: this.options.mcpClientFactory } : {})
       })
+      this.ensureCodexMultiAgentBridge(current)
       const createClient = this.options.createClient ?? createCodexAppServerClient
       const client = createClient({
         command: launch.command,
@@ -860,13 +884,22 @@ export class CodexRuntimeService {
     return this.dynamicMcpBridge?.hasConfiguredServers() ?? codexDynamicMcpServers(this.options).length > 0
   }
 
-  private async codexDynamicTools(): Promise<CodexAppServerDynamicToolSpec[]> {
-    return await this.dynamicMcpBridge?.dynamicTools() ?? []
+  private async codexDynamicTools(settings?: AppSettingsV1): Promise<CodexAppServerDynamicToolSpec[]> {
+    const current = settings ?? await this.options.settings()
+    return [
+      ...(this.ensureCodexMultiAgentBridge(current)?.dynamicTools() ?? []),
+      ...(await this.dynamicMcpBridge?.dynamicTools() ?? [])
+    ]
   }
 
   private async handleDynamicToolCall(
     request: CodexAppServerDynamicToolCallRequest
   ): Promise<CodexAppServerDynamicToolCallResponse> {
+    const settings = await this.options.settings()
+    const multiAgentBridge = this.ensureCodexMultiAgentBridge(settings)
+    if (multiAgentBridge?.canHandle(request)) {
+      return multiAgentBridge.callTool(await this.requestWithGuiThreadContext(request))
+    }
     const bridge = this.dynamicMcpBridge
     if (!bridge) {
       return {
@@ -875,7 +908,7 @@ export class CodexRuntimeService {
       }
     }
     try {
-      return await bridge.callTool(request)
+      return await bridge.callTool(await this.requestWithThreadWorkspace(request))
     } catch (error) {
       const name = request.namespace ? `${request.namespace}.${request.tool}` : request.tool
       return {
@@ -885,6 +918,202 @@ export class CodexRuntimeService {
         }],
         success: false
       }
+    }
+  }
+
+  private async requestWithThreadWorkspace(
+    request: CodexAppServerDynamicToolCallRequest
+  ): Promise<CodexAppServerDynamicToolCallRequest> {
+    if (!workspaceIntelToolNameForRequest(request)) return request
+    const args = dynamicToolArgumentsRecord(request.arguments)
+    if (!args || stringValue(args.workspaceRoot).trim()) return request
+
+    const threadId = stringValue(request.threadId).trim()
+    if (!threadId) return request
+    const storedThread = await this.findStoredThread(threadId)
+    const workspaceRoot = storedThread?.workspace?.trim()
+    if (!workspaceRoot) return request
+
+    return {
+      ...request,
+      arguments: {
+        ...args,
+        workspaceRoot
+      }
+    }
+  }
+
+  private async requestWithGuiThreadContext(
+    request: CodexAppServerDynamicToolCallRequest
+  ): Promise<CodexAppServerDynamicToolCallRequest> {
+    const threadId = stringValue(request.threadId).trim()
+    if (!threadId) return request
+    const storedThread = await this.findStoredThread(threadId)
+    if (!storedThread || storedThread.guiThreadId === threadId) return request
+    return { ...request, threadId: storedThread.guiThreadId }
+  }
+
+  private ensureCodexMultiAgentBridge(settings: AppSettingsV1): CodexMultiAgentToolBridge | null {
+    const subagents = getAgentCapabilitySettings(settings).subagents
+    if (!subagents.enabled) {
+      this.multiAgentBridge = null
+      return null
+    }
+    if (!this.multiAgentBridge) {
+      this.multiAgentBridge = createCodexMultiAgentToolBridge({
+        enabled: true,
+        maxParallel: subagents.maxParallel,
+        maxChildren: subagents.maxChildRuns,
+        ...(this.options.storageRoot ? { storeRoot: join(this.options.storageRoot, 'multi-agent-child-runs') } : {}),
+        executor: (input) => this.runCodexMultiAgentChild(input),
+        onChildEvent: (event) => this.publishCodexMultiAgentChildEvent(event)
+      })
+    }
+    return this.multiAgentBridge
+  }
+
+  private async publishCodexMultiAgentChildEvent(event: MultiAgentChildEvent): Promise<void> {
+    const record = await this.multiAgentBridge?.child(event.parentThreadId, event.childId)
+    if (!record) return
+    await this.publishClientEvent({
+      threadId: event.parentThreadId,
+      turnId: record.parentTurnId,
+      child: codexChildFromMultiAgentRecord(record, event)
+    })
+  }
+
+  private async runCodexMultiAgentChild(input: MultiAgentExecutorInput): Promise<MultiAgentExecutorResult> {
+    const settings = await this.options.settings()
+    const { client } = await this.ensureConnectedClient(settings)
+    const workspace = resolveCodexWorkspace(settings, input.workspace)
+    const dynamicTools = await this.codexDynamicTools(settings)
+    const threadResponse = await client.startThread({
+      ...baseThreadParams(settings, workspace, {
+        specializedMcpConfigured: this.hasDynamicMcpServersConfigured(),
+        multiAgentConfigured: Boolean(this.ensureCodexMultiAgentBridge(settings)),
+        dynamicTools
+      }),
+      ...codexModelRouterThreadParams(settings),
+      serviceName: 'SciForge',
+      ephemeral: false
+    })
+    const childThread = normalizeThread(readThread(threadResponse))
+    if (!childThread.id) throw new Error('Codex child thread did not return a thread id.')
+    const title = input.label || childThreadTitle(input.prompt)
+    const storedChild = await this.persistThread({
+      ...childThread,
+      workspace: childThread.workspace || workspace,
+      title
+    }, {
+      workspace,
+      title
+    })
+    const childGuiThreadId = storedChild?.guiThreadId ?? childThread.id
+    const childCodexThreadId = storedChild?.codexThreadId ?? childThread.id
+    const subscriber = this.addEventSubscriber(childGuiThreadId)
+    const startedAtMs = Date.now()
+    try {
+      const turnResponse = await client.startTurn(turnStartParams({
+        threadId: childCodexThreadId,
+        text: input.prompt,
+        workspace,
+        model: input.model ?? codexModelRouterModel(settings),
+        runtime: getCodexRuntimeSettings(settings)
+      }))
+      const turn = asRecord(asRecord(turnResponse)?.turn) ?? {}
+      const childTurnId = stringValue(turn.id) || ''
+      if (!childTurnId) throw new Error('Codex child turn did not return a turn id.')
+      this.recordActiveTurn(childGuiThreadId, childTurnId, startedAtMs)
+      this.recordTurnModelHint(childGuiThreadId, childTurnId, input.model ?? codexModelRouterModel(settings))
+      await input.appendTranscript({
+        id: `${input.childId}-thread-start`,
+        kind: 'event',
+        summary: 'Codex child thread started',
+        text: `Thread: ${childGuiThreadId}`,
+        createdAt: new Date().toISOString(),
+        metadata: { threadId: childGuiThreadId, turnId: childTurnId }
+      })
+      const result = await this.waitForCodexChildTurn({
+        subscriber,
+        threadId: childGuiThreadId,
+        codexThreadId: childCodexThreadId,
+        turnId: childTurnId,
+        signal: input.signal
+      })
+      return {
+        summary: result.summary || `Child agent ${childGuiThreadId} completed.`,
+        usage: result.usage,
+        transcript: result.transcript,
+        threadRef: {
+          runtime: 'codex',
+          threadId: childGuiThreadId,
+          turnId: childTurnId
+        }
+      }
+    } finally {
+      this.closeEventSubscriber(subscriber)
+    }
+  }
+
+  private async waitForCodexChildTurn(input: {
+    subscriber: CodexRuntimeEventSubscriber
+    threadId: string
+    codexThreadId: string
+    turnId: string
+    signal: AbortSignal
+  }): Promise<{
+    summary: string
+    usage?: Partial<MultiAgentUsage>
+    transcript: MultiAgentTranscriptEntry[]
+  }> {
+    const transcript: MultiAgentTranscriptEntry[] = []
+    let assistantText = ''
+    let usage: Partial<MultiAgentUsage> | undefined
+    const onAbort = (): void => this.closeEventSubscriber(input.subscriber)
+    input.signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      while (!input.signal.aborted) {
+        const event = await this.nextSubscriberEvent(input.subscriber)
+        if (!event) break
+        const turnId = event.turnId || event.userMessage?.turnId || ''
+        if (turnId && turnId !== input.turnId) continue
+        for (const [index, delta] of (event.deltas ?? []).entries()) {
+          if (!delta.text) continue
+          if (delta.kind === 'agent_message') assistantText += delta.text
+          transcript.push({
+            id: `codex-child-${input.turnId}-${event.seq ?? Date.now()}-${index}`,
+            kind: delta.kind === 'agent_reasoning' ? 'reasoning' : 'assistant_message',
+            text: delta.text,
+            createdAt: new Date().toISOString()
+          })
+        }
+        if (event.tool) {
+          transcript.push({
+            id: event.tool.itemId,
+            kind: 'tool',
+            summary: event.tool.summary,
+            text: event.tool.detail,
+            status: event.tool.status,
+            metadata: event.tool.meta
+          })
+        }
+        if (event.usage) usage = multiAgentUsageFromCodexUsage(event.usage)
+        if (isTerminalRuntimeError(event.runtimeError)) {
+          throw new Error(event.runtimeError?.message || 'Codex child turn failed.')
+        }
+        if (event.turnComplete) break
+      }
+      if (input.signal.aborted) {
+        await this.client?.interruptTurn({ threadId: input.codexThreadId, turnId: input.turnId }).catch(() => undefined)
+        throw new Error('Codex child turn was aborted.')
+      }
+      return {
+        summary: assistantText.trim(),
+        ...(usage ? { usage } : {}),
+        transcript
+      }
+    } finally {
+      input.signal.removeEventListener('abort', onAbort)
     }
   }
 
@@ -1221,10 +1450,11 @@ export class CodexRuntimeService {
     storedThread: CodexStoredThread | null
     workspace: string
   }): Promise<CodexStoredThread> {
-    const dynamicTools = await this.codexDynamicTools()
+    const dynamicTools = await this.codexDynamicTools(input.settings)
     const response = await input.client.startThread({
       ...baseThreadParams(input.settings, input.workspace, {
-        specializedMcpConfigured: dynamicTools.length > 0,
+        specializedMcpConfigured: this.hasDynamicMcpServersConfigured(),
+        multiAgentConfigured: Boolean(this.ensureCodexMultiAgentBridge(input.settings)),
         dynamicTools
       }),
       ...codexModelRouterThreadParams(input.settings),
@@ -1566,6 +1796,9 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
           createdAt: item.createdAt,
           ...(turnId ? { turnId } : {}),
           text: delta.text,
+          ...(delta.kind === 'agent_reasoning'
+            ? { meta: { reasoning: { visibility: 'summary', source: 'runtime_summary' } } }
+            : {}),
           ...(delta.kind === 'agent_message' && delta.snapshot ? { snapshot: true } : {})
         })
       }
@@ -1797,6 +2030,7 @@ function baseThreadParams(
   workspace?: string,
   dynamicMcp: {
     specializedMcpConfigured?: boolean
+    multiAgentConfigured?: boolean
     dynamicTools?: CodexAppServerDynamicToolSpec[]
   } = {}
 ): CodexAppServerThreadStartParams {
@@ -1808,9 +2042,19 @@ function baseThreadParams(
     approvalPolicy: mapApprovalPolicy(runtime.approvalPolicy),
     sandbox: mapThreadSandboxMode(runtime.sandboxMode),
     config: codexAppServerThreadReasoningConfig(),
-    ...(dynamicMcp.specializedMcpConfigured ? { developerInstructions: CODEX_SPECIALIZED_MCP_DEVELOPER_INSTRUCTIONS } : {}),
+    ...(dynamicDeveloperInstructions(dynamicMcp) ? { developerInstructions: dynamicDeveloperInstructions(dynamicMcp) } : {}),
     ...(dynamicTools ? { dynamicTools } : {})
   }
+}
+
+function dynamicDeveloperInstructions(input: {
+  specializedMcpConfigured?: boolean
+  multiAgentConfigured?: boolean
+}): string {
+  return [
+    input.specializedMcpConfigured ? CODEX_SPECIALIZED_MCP_DEVELOPER_INSTRUCTIONS : '',
+    input.multiAgentConfigured ? CODEX_MULTI_AGENT_DEVELOPER_INSTRUCTIONS : ''
+  ].filter(Boolean).join('\n\n')
 }
 
 function codexModelRouterThreadParams(
@@ -1991,12 +2235,17 @@ function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread
     latestTurnId: stringValue(latestTurn?.id),
     latestTurnStatus: stringValue(latestTurn?.status),
     ...(threadSource ? { threadSource } : {}),
-    ...(threadSource === 'subagent' ? { relation: 'side' as const } : {}),
+    ...(isCodexChildThreadSource(threadSource) ? { relation: 'side' as const } : {}),
     ...(parentThreadId ? { parentThreadId } : {}),
     ...(parentTurnId ? { parentTurnId } : {}),
     ...(agentNickname ? { agentNickname } : {}),
     ...(agentRole ? { agentRole } : {})
   }
+}
+
+function isCodexChildThreadSource(source: string | undefined): boolean {
+  const normalized = source?.trim().toLowerCase()
+  return normalized === 'subagent' || normalized === 'workflow' || normalized === 'local_workflow'
 }
 
 function threadDetail(thread: Record<string, unknown>): CodexThreadDetail {
@@ -2072,10 +2321,19 @@ function itemBlock(item: Record<string, unknown>, turnId: string, createdAt?: st
       })
       .filter(Boolean)
       .join('\n')
-    return text ? [{ kind: 'reasoning', id, createdAt, ...turnMeta, text }] : []
+    return text
+      ? [{ kind: 'reasoning', id, createdAt, ...turnMeta, text, meta: { reasoning: { visibility: 'summary', source: 'runtime_summary' } } }]
+      : []
   }
   if (type === 'plan') {
-    return [{ kind: 'reasoning', id, createdAt, ...turnMeta, text: stringValue(item.text) }]
+    return [{
+      kind: 'reasoning',
+      id,
+      createdAt,
+      ...turnMeta,
+      text: stringValue(item.text),
+      meta: { reasoning: { visibility: 'summary', source: 'runtime_summary' } }
+    }]
   }
   if (type === 'commandExecution') {
     const status = mapToolStatus(stringValue(item.status))
@@ -2203,6 +2461,23 @@ function usageHasTokens(usage: AgentRuntimeUsage): boolean {
     safeUsageInteger(usage.cacheWriteTokens) > 0
 }
 
+function multiAgentUsageFromCodexUsage(usage: AgentRuntimeUsage): Partial<MultiAgentUsage> {
+  return {
+    promptTokens: usage.inputTokens,
+    completionTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+    cachedTokens: usage.cacheReadTokens,
+    cacheHitTokens: usage.cacheReadTokens,
+    cacheMissTokens: usage.cacheWriteTokens
+  }
+}
+
+function childThreadTitle(prompt: string): string {
+  const normalized = prompt.trim().replace(/\s+/g, ' ')
+  if (!normalized) return 'Child agent'
+  return `Child agent: ${normalized.slice(0, 72)}${normalized.length > 72 ? '...' : ''}`
+}
+
 function safeUsageInteger(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
 }
@@ -2273,6 +2548,25 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null
+}
+
+function dynamicToolArgumentsRecord(value: unknown): Record<string, unknown> | null {
+  const record = asRecord(value)
+  if (record) return record
+  if (typeof value !== 'string' || !value.trim()) return null
+  try {
+    return asRecord(JSON.parse(value) as unknown)
+  } catch {
+    return null
+  }
+}
+
+function workspaceIntelToolNameForRequest(
+  request: CodexAppServerDynamicToolCallRequest
+): string | null {
+  const tool = request.tool.trim()
+  if (!tool) return null
+  return WorkspaceIntelToolNames.find((name) => tool === name || tool.endsWith(`_${name}`)) ?? null
 }
 
 function arrayValue(value: unknown): unknown[] {

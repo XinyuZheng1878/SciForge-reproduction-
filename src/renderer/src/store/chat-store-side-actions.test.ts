@@ -19,6 +19,7 @@ class FakeProvider implements AgentProvider {
   readonly id = 'sciforge' as const
   readonly displayName = 'Fake'
   forkMock = vi.fn()
+  getDetailMock = vi.fn()
   sendMock = vi.fn()
   deleteMock = vi.fn()
   patchMock = vi.fn()
@@ -37,7 +38,8 @@ class FakeProvider implements AgentProvider {
   async createThread(): Promise<NormalizedThread> {
     throw new Error('not used')
   }
-  async getThreadDetail() {
+  async getThreadDetail(threadId: string) {
+    this.getDetailMock(threadId)
     return { blocks: [], latestSeq: 0 }
   }
   async sendUserMessage(
@@ -199,6 +201,7 @@ function buildHarness(overrides: Partial<ChatState> = {}): Harness {
     compactActiveThread: async () => undefined,
     forkActiveThread: async () => undefined,
     spawnSideConversation: async () => null,
+    attachSideConversation: async () => null,
     openSideConversationDraft: () => undefined,
     sendSideMessage: async () => false,
     interruptSide: async () => undefined,
@@ -277,6 +280,36 @@ describe('chat-store-side-actions', () => {
     expect(state.sidePanel.activeSideId).toBeNull()
     expect(state.sideConversations).toEqual({})
     expect(provider.forkMock).not.toHaveBeenCalled()
+  })
+
+  it('attaches an existing child thread without opening the side panel or changing the main thread', async () => {
+    const { actions, state, provider } = buildHarness()
+    expect(state.activeThreadId).toBe('thr_main')
+
+    const id = await actions.attachSideConversation({
+      threadId: 'child-thread',
+      parentThreadId: 'thr_main',
+      runtimeId: 'codex',
+      title: 'research-child',
+      source: 'child_agent'
+    })
+
+    expect(id).toBe('child-thread')
+    expect(provider.forkMock).not.toHaveBeenCalled()
+    expect(provider.getDetailMock).toHaveBeenCalledWith('child-thread')
+    expect(provider.subscribeMock).toHaveBeenCalledWith('child-thread', 0, expect.anything(), expect.anything())
+    expect(state.activeThreadId).toBe('thr_main')
+    expect(state.sidePanel.open).toBe(false)
+    expect(state.sidePanel.activeSideId).toBeNull()
+    expect(state.sideConversations['child-thread']).toEqual(
+      expect.objectContaining({
+        threadId: 'child-thread',
+        parentThreadId: 'thr_main',
+        runtimeId: 'codex',
+        title: 'research-child',
+        source: 'child_agent'
+      })
+    )
   })
 
   it('spawnSideConversation with seedText immediately sends the first turn', async () => {

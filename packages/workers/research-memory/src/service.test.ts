@@ -542,9 +542,50 @@ test('prepare PR creates branch, stages memory files, and commits after confirma
   assert.equal(result.branch, 'research-memory/test-branch')
   assert.deepEqual(calls.map((call) => [call.command, ...call.args]), [
     ['git', 'check-ref-format', '--branch', 'research-memory/test-branch'],
+    ['git', 'branch', '--list', 'research-memory/test-branch', '--format=%(refname)'],
     ['git', 'switch', '-c', 'research-memory/test-branch'],
     ['git', '--literal-pathspecs', 'add', '--', '.agent/artifacts.yml', 'status.html'],
     ['git', 'commit', '-m', 'Prepare research memory PR']
+  ])
+})
+
+test('prepare PR reuses an existing local branch', async (t) => {
+  const workspaceRoot = await makeWorkspace(t, 'research-memory-prepare-pr-existing-')
+  const calls: Array<{ command: string; args: string[] }> = []
+  const commandRunner: ResearchMemoryCommandRunner = async (command, args) => {
+    calls.push({ command, args })
+    if (command === 'git' && args.join(' ') === 'branch --list research-memory/existing --format=%(refname)') {
+      return { stdout: 'refs/heads/research-memory/existing\n', stderr: '' }
+    }
+    return { stdout: '', stderr: '' }
+  }
+  const service = createResearchMemoryService({
+    workspaceRoot,
+    commandRunner,
+    nowIso: () => NOW
+  })
+  await service.upsertArtifact({
+    artifact: artifact('EXP-prepare-pr-existing', {
+      title: 'Prepare existing PR',
+      summary: 'Safe summary for existing prepare PR branch.'
+    })
+  })
+
+  const result = await service.preparePr({
+    artifact_ids: ['EXP-prepare-pr-existing'],
+    branch: 'research-memory/existing',
+    title: 'Prepare existing research memory PR',
+    files: ['.agent/artifacts.yml'],
+    confirmed: true
+  })
+
+  assert.equal(result.ok, true)
+  assert.deepEqual(calls.map((call) => [call.command, ...call.args]), [
+    ['git', 'check-ref-format', '--branch', 'research-memory/existing'],
+    ['git', 'branch', '--list', 'research-memory/existing', '--format=%(refname)'],
+    ['git', 'switch', 'research-memory/existing'],
+    ['git', '--literal-pathspecs', 'add', '--', '.agent/artifacts.yml'],
+    ['git', 'commit', '-m', 'Prepare existing research memory PR']
   ])
 })
 
@@ -609,6 +650,7 @@ test('prepare PR stages pathspec-looking files literally', async (t) => {
   assert.equal(result.ok, true)
   assert.deepEqual(calls.map((call) => [call.command, ...call.args]), [
     ['git', 'check-ref-format', '--branch', result.branch],
+    ['git', 'branch', '--list', result.branch, '--format=%(refname)'],
     ['git', 'switch', '-c', result.branch],
     ['git', '--literal-pathspecs', 'add', '--', ':(top)status.html', 'notes/*.md'],
     ['git', 'commit', '-m', 'Update research memory for EXP-prepare-pr-literal']

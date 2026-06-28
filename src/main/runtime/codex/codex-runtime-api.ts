@@ -38,7 +38,7 @@ type CodexChatBlockBase = {
 export type CodexChatBlock =
   | (CodexChatBlockBase & { kind: 'user'; text: string; displayText?: string })
   | (CodexChatBlockBase & { kind: 'assistant'; text: string; snapshot?: boolean })
-  | (CodexChatBlockBase & { kind: 'reasoning'; text: string })
+  | (CodexChatBlockBase & { kind: 'reasoning'; text: string; meta?: Record<string, unknown> })
   | (CodexChatBlockBase & {
       kind: 'tool'
       summary: string

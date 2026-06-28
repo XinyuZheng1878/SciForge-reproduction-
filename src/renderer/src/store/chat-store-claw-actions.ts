@@ -41,6 +41,7 @@ type CreateClawActionsOptions = {
     | 'activeThreadId'
     | 'blocks'
     | 'liveReasoning'
+    | 'liveReasoningMeta'
     | 'liveAssistant'
     | 'busy'
     | 'lastSeq'

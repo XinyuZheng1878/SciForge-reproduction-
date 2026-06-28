@@ -161,7 +161,7 @@ export type SkillsCapabilityConfig = z.infer<typeof SkillsCapabilityConfig>
 export const SubagentsCapabilityConfig = CapabilityToggleConfig.extend({
   enabled: z.boolean().default(true),
   maxParallel: z.number().int().nonnegative().default(2),
-  maxChildRuns: z.number().int().nonnegative().default(4),
+  maxChildRuns: z.number().int().nonnegative().default(16),
   // Accept the removed legacy field so old configs keep loading, but ignore it.
   defaultStepLimit: z.number().int().positive().optional()
 })

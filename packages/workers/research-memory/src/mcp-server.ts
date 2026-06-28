@@ -179,7 +179,7 @@ function resultToToolResult(result: Record<string, unknown> | ResearchMemoryFail
   }
   return {
     content: [{ type: 'text', text: successSummary(result, label) }],
-    structuredContent: result
+    structuredContent: compactStructuredContent(result, label)
   }
 }
 
@@ -192,6 +192,117 @@ function successSummary(result: Record<string, unknown>, label: string): string 
   if (result.preview === true) return `${label} preview generated.`
   if (result.wrote === true) return `${label} wrote local Research Memory output.`
   return `${label} completed.`
+}
+
+const COMPACT_STRUCTURED_RESULT_LABELS = new Set([
+  'artifact upsert',
+  'draft sync',
+  'write experiment card',
+  'write decision record',
+  'render status.html',
+  'create GitHub issue',
+  'create GitHub comment',
+  'prepare GitHub PR',
+  'create GitHub PR'
+])
+
+function compactStructuredContent(result: Record<string, unknown>, label: string): Record<string, unknown> {
+  if (!COMPACT_STRUCTURED_RESULT_LABELS.has(label)) return result
+
+  const compact: Record<string, unknown> = {}
+  copyFields(result, compact, [
+    'ok',
+    'dryRun',
+    'preview',
+    'wouldWrite',
+    'wrote',
+    'wouldCreateIssue',
+    'wouldCreateComment',
+    'wouldCreatePr',
+    'issue',
+    'comment',
+    'pr',
+    'url',
+    'path',
+    'outputPath',
+    'artifactIndexPath',
+    'branch',
+    'committedFiles',
+    'title',
+    'labels'
+  ])
+
+  const artifact = asRecord(result.artifact)
+  if (artifact) {
+    compact.artifact = pickPresent(artifact, [
+      'id',
+      'kind',
+      'evidence_level',
+      'claim_scope',
+      'risk_level',
+      'status',
+      'tags',
+      'created_at',
+      'updated_at'
+    ])
+  }
+
+  const draft = asRecord(result.draft)
+  if (draft) {
+    compact.draft = {
+      ...pickPresent(draft, ['title']),
+      bodyPreview: previewText(draft.body),
+      bodyBytes: textBytes(draft.body)
+    }
+  }
+
+  const policy = asRecord(result.policy)
+  if (policy) {
+    const findings = Array.isArray(policy.findings) ? policy.findings : []
+    compact.policy = {
+      ...pickPresent(policy, ['ok', 'allowed', 'target', 'requiresConfirmation']),
+      findingCount: findings.length,
+      findings
+    }
+  }
+
+  copyLargeTextMetadata(result, compact, 'body')
+  copyLargeTextMetadata(result, compact, 'content')
+  copyLargeTextMetadata(result, compact, 'html')
+  return compact
+}
+
+function copyFields(source: Record<string, unknown>, target: Record<string, unknown>, fields: string[]): void {
+  for (const field of fields) {
+    if (source[field] !== undefined) target[field] = source[field]
+  }
+}
+
+function pickPresent(source: Record<string, unknown>, fields: string[]): Record<string, unknown> {
+  const picked: Record<string, unknown> = {}
+  copyFields(source, picked, fields)
+  return picked
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function copyLargeTextMetadata(source: Record<string, unknown>, target: Record<string, unknown>, field: string): void {
+  if (typeof source[field] !== 'string') return
+  target[`${field}Preview`] = previewText(source[field])
+  target[`${field}Bytes`] = textBytes(source[field])
+}
+
+function previewText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  return value.length > 240 ? `${value.slice(0, 240)}...` : value
+}
+
+function textBytes(value: unknown): number | undefined {
+  return typeof value === 'string' ? Buffer.byteLength(value, 'utf8') : undefined
 }
 
 function resourceJson(uri: string, value: unknown): { contents: Array<{ uri: string; text: string; mimeType: string }> } {

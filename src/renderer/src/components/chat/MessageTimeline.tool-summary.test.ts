@@ -6,7 +6,7 @@ import type { ChatBlock, NormalizedThread, ToolBlock } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
 import { MessageTimeline, summarizeToolBlock } from './MessageTimeline'
 import { MessageBubble } from './message-timeline-bubbles'
-import { ProcessSectionRow } from './message-timeline-process'
+import { ProcessSectionRow, groupProcessSections } from './message-timeline-process'
 
 const labels: Record<string, string> = {
   toolActionCommand: 'Ran command',
@@ -16,7 +16,17 @@ const labels: Record<string, string> = {
   toolBuiltinGrep: 'Search',
   toolBuiltinFind: 'Find',
   toolBuiltinLs: 'List',
-  toolBuiltinBash: 'Bash'
+  toolBuiltinBash: 'Bash',
+  reasoningVisibility: 'Reasoning visibility',
+  reasoningVisibilitySummary: 'Summary',
+  reasoningVisibilityTrace: 'Trace',
+  reasoningVisibilityFullRuntimeText: 'Full runtime text',
+  reasoningVisibilityNone: 'Hidden',
+  reasoningSource: 'Reasoning source',
+  reasoningSourceModel: 'Model',
+  reasoningSourceRuntimeSummary: 'Runtime summary',
+  reasoningSourceBackendRedacted: 'Redacted',
+  reasoningSourceUnknown: 'Unknown source'
 }
 
 const t = (key: string) => labels[key] ?? (key === 'toolActionCommand' ? 'Ran command' : key)
@@ -70,6 +80,28 @@ function remoteChannel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV
 }
 
 describe('MessageTimeline tool summaries', () => {
+  it('keeps reasoning, tool work, and intermediate output in one chronological process stream', () => {
+    const sections = groupProcessSections([
+      { kind: 'reasoning', id: 'reasoning_1', text: 'inspect the plan' },
+      toolBlock({ id: 'tool_read', summary: 'read: file' }),
+      { kind: 'assistant', id: 'intermediate', text: 'I found the config.' },
+      toolBlock({ id: 'tool_grep', summary: 'grep: query' })
+    ])
+
+    expect(sections.map((section) => section.kind)).toEqual([
+      'execution',
+      'execution',
+      'execution',
+      'execution'
+    ])
+    expect(sections.map((section) => section.blocks.map((block) => block.id))).toEqual([
+      ['reasoning_1'],
+      ['tool_read'],
+      ['intermediate'],
+      ['tool_grep']
+    ])
+  })
+
   it('summarizes built-in read/write/edit tools with their file path', () => {
     expect(
       summarizeToolBlock(
@@ -589,6 +621,28 @@ describe('MessageTimeline local runtime metadata smoke', () => {
     expect(html).toContain('ds-shiny-text')
     expect(html).not.toContain('ds-work-logo')
     expect(html).toContain('current reasoning summary')
+  })
+
+  it('labels reasoning process rows with visibility and source metadata', () => {
+    const block: ChatBlock = {
+      kind: 'reasoning',
+      id: 'reasoning_1',
+      text: 'summarized reasoning',
+      meta: { reasoning: { visibility: 'summary', source: 'model' } }
+    }
+
+    const html = renderToStaticMarkup(
+      createElement(ProcessSectionRow, {
+        section: { id: 'reasoning_1', kind: 'reasoning', blocks: [block] },
+        processing: false,
+        singleReasoningSection: true,
+        viewportRef: { current: null }
+      })
+    )
+
+    expect(html).toContain('Summary')
+    expect(html).toContain('Model')
+    expect(html).not.toContain('summarized reasoning')
   })
 
   it('keeps same-batch tool calls collapsed by default', () => {

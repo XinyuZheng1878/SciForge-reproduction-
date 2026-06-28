@@ -26,6 +26,7 @@ function makeSink(): ThreadEventSink {
     onUserInputStatus: vi.fn(),
     onRuntimeStatus: vi.fn(),
     onRuntimeError: vi.fn(),
+    onChild: vi.fn(),
     onGoal: vi.fn(),
     onTodos: vi.fn(),
     onTurnComplete: vi.fn(),
@@ -142,8 +143,19 @@ describe('agent runtime event dispatcher', () => {
 
     expect(sink.onSeq).toHaveBeenNthCalledWith(1, 7)
     expect(sink.onSeq).toHaveBeenNthCalledWith(2, 8)
-    expect(sink.onDeltas).toHaveBeenNthCalledWith(1, [{ kind: 'agent_message', text: 'hello', seq: 7 }])
-    expect(sink.onDeltas).toHaveBeenNthCalledWith(2, [{ kind: 'agent_reasoning', text: 'thinking', seq: 8 }])
+    expect(sink.onDeltas).toHaveBeenNthCalledWith(1, [{
+      kind: 'agent_message',
+      itemId: 'assistant-1',
+      text: 'hello',
+      seq: 7
+    }])
+    expect(sink.onDeltas).toHaveBeenNthCalledWith(2, [{
+      kind: 'agent_reasoning',
+      itemId: 'reasoning-1',
+      text: 'thinking',
+      seq: 8,
+      meta: { reasoning: { visibility: 'summary' } }
+    }])
   })
 
   it('keeps hidden reasoning deltas out of visible chat blocks', () => {
@@ -163,6 +175,39 @@ describe('agent runtime event dispatcher', () => {
 
     expect(sink.onSeq).toHaveBeenCalledWith(9)
     expect(sink.onDeltas).not.toHaveBeenCalled()
+  })
+
+  it('dispatches child events to the thread sink without caching children in the dispatcher', () => {
+    const sink = makeSink()
+
+    dispatchAgentRuntimeEvent(
+      {
+        kind: 'child_event',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        seq: 12,
+        createdAt: '2026-06-11T00:00:00.000Z',
+        child: {
+          runtimeId: 'codex',
+          parentThreadId: 'thread-1',
+          id: 'child-1',
+          kind: 'agent',
+          status: 'running'
+        },
+        message: 'Child started'
+      },
+      sink
+    )
+
+    expect(sink.onSeq).toHaveBeenCalledWith(12)
+    expect(sink.onChild).toHaveBeenCalledWith({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      seq: 12,
+      createdAt: '2026-06-11T00:00:00.000Z',
+      child: expect.objectContaining({ id: 'child-1', status: 'running' }),
+      message: 'Child started'
+    })
   })
 
   it('does not advance the cursor for heartbeat events', () => {

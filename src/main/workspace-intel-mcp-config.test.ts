@@ -70,9 +70,7 @@ describe('workspace intel MCP config', () => {
     expect(buildWorkspaceIntelMcpArgs(settings, launch)).toEqual([
       '/Applications/SciForge.app/Contents/Resources/app.asar.unpacked/out/main/workspace-intel-mcp-node-entry.js',
       GUI_WORKSPACE_INTEL_MCP_LAUNCH_FLAG,
-      '--include-global-skills',
-      '--workspace-root',
-      '/tmp/project'
+      '--include-global-skills'
     ])
     expect(workspaceIntelMcpEnabledTools()).toEqual([...WorkspaceIntelToolNames])
   })

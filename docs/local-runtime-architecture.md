@@ -1,8 +1,8 @@
 # SciForge Runtime 架构说明
 
 本文记录 SciForge 中 SciForge Runtime 的边界和内部约束。它不再把全产品描述为
-只能围绕 SciForge Runtime：产品层面由 `AgentRuntimeHost` 在 `sciforge | codex` 之间选择，SciForge Runtime 仍是
-默认运行时，Codex 只能由用户显式选择或启用。本文只约束 SciForge Runtime 路径、
+只能围绕 SciForge Runtime：产品层面由 `AgentRuntimeHost` 在 `sciforge | codex | claude`
+之间选择，SciForge Runtime 仍是默认运行时，Codex 和 Claude Code 只能由用户显式选择或启用。本文只约束 SciForge Runtime 路径、
 SciForge Runtime cache optimization 和旧 provider 清理。
 
 Codex runtime 的 app-server JSON-RPC、配置、事件归一化、thread/event store
@@ -56,6 +56,24 @@ steering queue、context compaction、usage/cache telemetry。该参考关系仅
 SciForge Runtime 需要调用模型时，把本地 Model Router `/v1` 当成普通 Responses-compatible
 provider；上游 provider base URL、provider API key、vision service URL 和
 internal profile 都属于 Model Router 内部配置，不进入 SciForge Runtime 配置。
+
+## Multi-Agent Worker 边界
+
+SciForge Runtime 的通用 child run contract、store、diagnostics 和 bounded runtime
+位于 `packages/workers/multi-agent`。该 worker 只管理 child-run 记录、并发预算、
+transcript、usage 聚合和 `delegate_task` 输入输出；它不持有 provider API key，
+也不直接调用上游模型。
+
+模型调用只允许由 host 注入的 executor 完成。SciForge Runtime 注入的 executor 仍然复用
+本地 `AgentLoop` 和 Model Router-backed `ModelClient`，因此 child agent 与主 agent
+共享同一个 Model Router 边界。没有 executor 时，worker 返回 `executor_missing`，
+不会创建 echo/fallback child run。
+
+SciForge Runtime 只保留依赖自身 loop/service 的 child executor；
+旧 `kun/src/delegation` 中通用 store/runtime/schema 已删除。HTTP children/transcript
+接口返回 canonical child run 数据，main-side local runtime adapter 再归一到
+`AgentRuntimeChild` / `AgentRuntimeChildTranscript`，renderer 只通过
+`child_event` 触发重新拉取 canonical children。
 
 ## 缓存命中优化
 

@@ -108,6 +108,8 @@ export type { ComposerFileReference } from '../../lib/composer-file-references'
 
 type Props = {
   variant?: 'default' | 'compact'
+  threadIdOverride?: string | null
+  disableThreadManagementCommands?: boolean
   workspaceRootOverride?: string
   preferWorkspaceRootOverride?: boolean
   input: string
@@ -610,6 +612,8 @@ export function runParsedGoalCommandForComposer({
 
 export function FloatingComposer({
   variant = 'default',
+  threadIdOverride,
+  disableThreadManagementCommands = false,
   workspaceRootOverride,
   preferWorkspaceRootOverride = false,
   input,
@@ -662,13 +666,13 @@ export function FloatingComposer({
   const { t, i18n } = useTranslation('common')
   const route = useChatStore((s) => s.route)
   const workspaceRoot = useChatStore((s) => s.workspaceRoot)
-  const activeThreadId = useChatStore((s) => s.activeThreadId)
+  const storeActiveThreadId = useChatStore((s) => s.activeThreadId)
   const usageRefreshKey = useChatStore((s) => s.usageRefreshKey)
   const threads = useChatStore((s) => s.threads)
   const compactActiveThread = useChatStore((s) => s.compactActiveThread)
   const forkActiveThread = useChatStore((s) => s.forkActiveThread)
   const archiveThread = useChatStore((s) => s.archiveThread)
-  const activeThreadGoal = useChatStore((s) => s.activeThreadGoal)
+  const storeActiveThreadGoal = useChatStore((s) => s.activeThreadGoal)
   const storeActiveThreadContextState = useChatStore((s) => s.activeThreadContextState)
   const setActiveThreadGoal = useChatStore((s) => s.setActiveThreadGoal)
   const setActiveThreadGoalStatus = useChatStore((s) => s.setActiveThreadGoalStatus)
@@ -676,6 +680,8 @@ export function FloatingComposer({
   const clawChannels = useChatStore((s) => s.clawChannels)
   const activeClawChannelId = useChatStore((s) => s.activeClawChannelId)
   const compact = variant === 'compact'
+  const activeThreadId = threadIdOverride === undefined ? storeActiveThreadId : threadIdOverride
+  const activeThreadGoal = disableThreadManagementCommands ? null : storeActiveThreadGoal
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const activeClawChannel = useMemo(
     () => clawChannels.find((channel) => channel.id === activeClawChannelId) ?? null,
@@ -753,7 +759,8 @@ export function FloatingComposer({
   const showComposerMenuButton = showIntentToolbar
   const showAttachmentToolbarButton = Boolean(onPickAttachments)
   const canTogglePlanMode = canCompose && Boolean(onPlanCommand)
-  const canOpenGoalPanel = canCompose && !isRemoteChannelThread && runtimeSupportsGoals
+  const canOpenGoalPanel =
+    !disableThreadManagementCommands && canCompose && !isRemoteChannelThread && runtimeSupportsGoals
   const canRunReview = canCompose && !isRemoteChannelThread && runtimeSupportsReview && Boolean(onReviewCommand)
   const canOpenComposerMenu = showComposerMenuButton && (
     showImageGenerationMenuItem ||
@@ -902,7 +909,7 @@ export function FloatingComposer({
         : []
       commands.push(...dynamicSkillCommands)
 
-      if (runtimeSupportsGoals) {
+      if (!disableThreadManagementCommands && runtimeSupportsGoals) {
         commands.push({
           id: 'goal',
           title: t('slashCommandGoalTitle'),
@@ -913,7 +920,7 @@ export function FloatingComposer({
         })
       }
 
-      if (onBtwCommand && !hideBtwCommand && runtimeSupportsSideConversations) {
+      if (!disableThreadManagementCommands && onBtwCommand && !hideBtwCommand && runtimeSupportsSideConversations) {
         // `/btw` is available even while the main thread is busy — the
         // point of the command is to run a parallel aside next to a
         // running task.
@@ -927,7 +934,7 @@ export function FloatingComposer({
         })
       }
 
-      if (runtimeSupportsSteer) {
+      if (!disableThreadManagementCommands && runtimeSupportsSteer) {
         commands.push({
           id: 'steer',
           title: t('slashCommandSteerTitle'),
@@ -939,7 +946,7 @@ export function FloatingComposer({
         })
       }
 
-      if (onReviewCommand && runtimeSupportsReview) {
+      if (!disableThreadManagementCommands && onReviewCommand && runtimeSupportsReview) {
         commands.push({
           id: 'review',
           title: t('slashCommandReviewTitle'),
@@ -950,7 +957,7 @@ export function FloatingComposer({
         })
       }
 
-      if (runtimeSupportsCompact) {
+      if (!disableThreadManagementCommands && runtimeSupportsCompact) {
         commands.push({
           id: 'compact',
           title: t('slashCommandCompactTitle'),
@@ -960,7 +967,7 @@ export function FloatingComposer({
           disabled: threadActionDisabled
         })
       }
-      if (runtimeSupportsFork) {
+      if (!disableThreadManagementCommands && runtimeSupportsFork) {
         commands.push({
           id: 'fork',
           title: t('slashCommandForkTitle'),
@@ -971,7 +978,10 @@ export function FloatingComposer({
         })
       }
 
-      if (activeThreadArchived) {
+      if (disableThreadManagementCommands) {
+        // Child-agent and embedded composers reuse the same input UI
+        // without exposing commands that mutate the main selected thread.
+      } else if (activeThreadArchived) {
         commands.push({
           id: 'restore',
           title: t('slashCommandRestoreTitle'),
@@ -998,6 +1008,7 @@ export function FloatingComposer({
     activeThreadId,
     busy,
     canOpenGoalPanel,
+    disableThreadManagementCommands,
     effectiveWorkspaceRoot,
     hideBtwCommand,
     onBtwCommand,
@@ -1372,14 +1383,14 @@ export function FloatingComposer({
       applySlashCommand(highlightedSlashCommand.id)
       return
     }
-    if (setGoalFromComposerInput()) {
+    if (!disableThreadManagementCommands && setGoalFromComposerInput()) {
       return
     }
-    if (runGoalCommand(parsedGoalCommand)) {
+    if (!disableThreadManagementCommands && runGoalCommand(parsedGoalCommand)) {
       return
     }
     const compactCommand = parseCompactCommand(input)
-    if (compactCommand) {
+    if (!disableThreadManagementCommands && compactCommand) {
       const command = slashCommands.find((item) => item.id === 'compact')
       if (!command || command.disabled || !runtimeSupportsCompact) return
       setInput('')
@@ -1387,7 +1398,7 @@ export function FloatingComposer({
       draft.focusComposer()
       return
     }
-    if (onReviewCommand && runtimeSupportsReview) {
+    if (!disableThreadManagementCommands && onReviewCommand && runtimeSupportsReview) {
       const reviewCommand = parseReviewCommand(input)
       if (reviewCommand !== false) {
         const command = slashCommands.find((item) => item.id === 'review')
@@ -1400,7 +1411,7 @@ export function FloatingComposer({
     }
     // Send-time interception: `/btw <question>` is treated as a side
     // conversation spawn, mirroring the plan-mode interception.
-    if (onBtwCommand && !hideBtwCommand && runtimeSupportsSideConversations) {
+    if (!disableThreadManagementCommands && onBtwCommand && !hideBtwCommand && runtimeSupportsSideConversations) {
       const parsed = parseBtwCommand(input)
       if (parsed !== false) {
         setInput('')

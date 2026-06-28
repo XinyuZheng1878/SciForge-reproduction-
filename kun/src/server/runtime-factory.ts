@@ -54,9 +54,15 @@ import { TurnService } from '../services/turn-service.js'
 import { ReviewService } from '../services/review-service.js'
 import { UsageService } from '../services/usage-service.js'
 import type { UsageEvent } from '../contracts/events.js'
+import type { UsageSnapshot } from '../contracts/usage.js'
 import { SkillRuntime } from '../skills/skill-runtime.js'
 import { FileMemoryStore } from '../memory/memory-store.js'
-import { DelegationRuntime, FileDelegationStore } from '../delegation/delegation-runtime.js'
+import {
+  FileMultiAgentStore,
+  MultiAgentRuntime,
+  type MultiAgentChildEvent,
+  type MultiAgentUsage
+} from '@sciforge/multi-agent'
 import { createChildAgentExecutor } from '../delegation/child-agent-executor.js'
 
 const GUI_RESEARCH_MCP_SERVER_NAME = 'gui_research'
@@ -148,7 +154,8 @@ export async function createLocalRuntimeServeRuntime(
     apiKey: options.apiKey,
     endpointFormat: 'responses',
     model: options.model,
-    forceDefaultModel: options.forceDefaultModel
+    forceDefaultModel: options.forceDefaultModel,
+    streamIdleTimeoutMs: options.runtime?.modelStreamIdleTimeoutMs
   })
   const modelProfiles = modelContextProfilesFromConfig({
     contextCompaction: options.contextCompaction,
@@ -199,10 +206,12 @@ export async function createLocalRuntimeServeRuntime(
   const childRegistry = new CapabilityRegistry(baseToolProviders)
   const childToolHost = new LocalToolHost({ registry: childRegistry, readTracker: true })
   const delegationRuntime = capabilityConfig.subagents.enabled
-    ? new DelegationRuntime({
-        config: capabilityConfig.subagents,
-        store: new FileDelegationStore(join(options.dataDir, 'child-runs')),
-        events,
+    ? new MultiAgentRuntime({
+        config: multiAgentConfigForSubagents(capabilityConfig.subagents),
+        store: new FileMultiAgentStore(join(options.dataDir, 'child-runs')),
+        events: {
+          onChildEvent: (event) => recordMultiAgentChildEvent(events, event)
+        },
         nowIso,
         executor: createChildAgentExecutor({
           model: modelClient,
@@ -220,8 +229,8 @@ export async function createLocalRuntimeServeRuntime(
           ...(memoryStore ? { memoryStore } : {}),
           nowIso
         }),
-        recordExternalUsage: (threadId, usage) => {
-          usageService.record(threadId, usage)
+        recordUsage: (threadId, usage) => {
+          usageService.record(threadId, usageSnapshotFromMultiAgentUsage(usage))
         }
       })
     : undefined
@@ -452,6 +461,77 @@ function tokenEconomyConfigForOptions(
   return {
     ...(options.tokenEconomy ?? {}),
     enabled: options.tokenEconomy?.enabled ?? options.tokenEconomyMode
+  }
+}
+
+function multiAgentConfigForSubagents(config: LocalRuntimeCapabilitiesConfig['subagents']) {
+  return {
+    enabled: config.enabled,
+    maxParallel: config.maxParallel,
+    maxChildren: config.maxChildRuns
+  }
+}
+
+function recordMultiAgentChildEvent(
+  events: RuntimeEventRecorder,
+  event: MultiAgentChildEvent
+): Promise<void> {
+  return events.record({
+    kind: childRunRuntimeEventKind(event.status),
+    threadId: event.parentThreadId,
+    turnId: event.parentTurnId,
+    status: event.status,
+    text: event.summary ?? event.error?.message,
+    child: {
+      parentThreadId: event.parentThreadId,
+      parentTurnId: event.parentTurnId,
+      childId: event.childId,
+      ...(event.label ? { childLabel: event.label } : {}),
+      childStatus: event.status,
+      childSeq: event.seq
+    }
+  }).then(() => undefined)
+}
+
+function usageSnapshotFromMultiAgentUsage(usage: MultiAgentUsage): UsageSnapshot {
+  return {
+    promptTokens: usage.promptTokens,
+    completionTokens: usage.completionTokens,
+    totalTokens: usage.totalTokens,
+    ...(usage.cachedTokens !== undefined ? { cachedTokens: usage.cachedTokens } : {}),
+    ...(usage.cacheHitTokens !== undefined ? { cacheHitTokens: usage.cacheHitTokens } : {}),
+    ...(usage.cacheMissTokens !== undefined ? { cacheMissTokens: usage.cacheMissTokens } : {}),
+    cacheHitRate: usage.cacheHitRate ?? null,
+    turns: usage.turns ?? 1,
+    ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
+    ...(usage.costCny !== undefined ? { costCny: usage.costCny } : {}),
+    ...(usage.cacheSavingsUsd !== undefined ? { cacheSavingsUsd: usage.cacheSavingsUsd } : {}),
+    ...(usage.cacheSavingsCny !== undefined ? { cacheSavingsCny: usage.cacheSavingsCny } : {}),
+    ...(usage.tokenEconomySavingsTokens !== undefined
+      ? { tokenEconomySavingsTokens: usage.tokenEconomySavingsTokens }
+      : {}),
+    ...(usage.tokenEconomySavingsUsd !== undefined
+      ? { tokenEconomySavingsUsd: usage.tokenEconomySavingsUsd }
+      : {}),
+    ...(usage.tokenEconomySavingsCny !== undefined
+      ? { tokenEconomySavingsCny: usage.tokenEconomySavingsCny }
+      : {})
+  }
+}
+
+function childRunRuntimeEventKind(
+  status: MultiAgentChildEvent['status']
+): 'turn_started' | 'turn_completed' | 'turn_failed' | 'turn_aborted' {
+  switch (status) {
+    case 'completed':
+      return 'turn_completed'
+    case 'failed':
+      return 'turn_failed'
+    case 'aborted':
+      return 'turn_aborted'
+    case 'queued':
+    case 'running':
+      return 'turn_started'
   }
 }
 

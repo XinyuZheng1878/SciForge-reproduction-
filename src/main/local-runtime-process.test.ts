@@ -477,7 +477,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     expect(parsed.capabilities.subagents).toMatchObject({
       enabled: true,
       maxParallel: 2,
-      maxChildRuns: 4
+      maxChildRuns: 16
     })
     expect(parsed.capabilities.mcp.search).toMatchObject({ enabled: false, mode: 'auto' })
   })
@@ -702,9 +702,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
       args: [
         '/tmp/sciforge-test-app/out/main/workspace-intel-mcp-node-entry.js',
         '--gui-workspace-intel-mcp-server',
-        '--include-global-skills',
-        '--workspace-root',
-        '/tmp/workspace-intel-root'
+        '--include-global-skills'
       ],
       env: {
         ELECTRON_RUN_AS_NODE: '1'
@@ -995,7 +993,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     expect(parsed.capabilities.subagents).toMatchObject({
       enabled: true,
       maxParallel: 2,
-      maxChildRuns: 4
+      maxChildRuns: 16
     })
     expect(parsed.capabilities.mcp.servers.github.command).toBe('github-mcp')
     expect(parsed.capabilities.web.fetchEnabled).toBe(true)

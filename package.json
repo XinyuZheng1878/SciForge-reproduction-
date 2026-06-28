@@ -22,6 +22,7 @@
     "packages/workers/runtime-inspector",
     "packages/workers/scientific-plotting",
     "packages/workers/image-generation",
+    "packages/workers/multi-agent",
     "packages/workers/ppt-master",
     "packages/workers/canvas",
     "plugins/paper-radar-service"
@@ -100,6 +101,8 @@
     "image-generation:start": "npm --workspace @sciforge/image-generation run start",
     "image-generation:test": "npm --workspace @sciforge/image-generation run test",
     "image-generation:typecheck": "npm --workspace @sciforge/image-generation run typecheck",
+    "multi-agent:test": "npm --workspace @sciforge/multi-agent run test",
+    "multi-agent:typecheck": "npm --workspace @sciforge/multi-agent run typecheck",
     "ppt-master:start": "npm --workspace @sciforge/ppt-master run start",
     "ppt-master:test": "npm --workspace @sciforge/ppt-master run test",
     "ppt-master:typecheck": "npm --workspace @sciforge/ppt-master run typecheck",

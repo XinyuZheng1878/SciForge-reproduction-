@@ -23,7 +23,7 @@ import { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
 import { ThreadService } from '../services/thread-service.js'
 import { TurnService } from '../services/turn-service.js'
 import { UsageService } from '../services/usage-service.js'
-import type { ChildRunExecutor, ChildRunTranscriptEntry } from './delegation-runtime.js'
+import type { ChildRunExecutor, ChildRunTranscriptEntry } from '@sciforge/multi-agent'
 
 export type ChildAgentExecutorOptions = {
   model: ModelClient
@@ -125,22 +125,36 @@ export function createChildAgentExecutor(options: ChildAgentExecutorOptions): Ch
       }
     })
     const status = await loop.runTurn(thread.id, started.turnId)
-    const runtimeError = (await sessionStore.loadEventsSince(thread.id, 0))
+    const childEvents = await sessionStore.loadEventsSince(thread.id, 0)
+    const runtimeError = childEvents
       .find((event) => event.kind === 'error' && event.turnId === started.turnId)
-    if (runtimeError?.kind === 'error') {
-      throw new Error(runtimeError.message)
-    }
     const items = await sessionStore.loadItems(thread.id)
+    const transcript = transcriptEntriesForChild(items, started.turnId)
     const summary = summarizeChildTurn(items, started.turnId, status)
+    const threadUsage = usage.forThread(thread.id)
+    if (runtimeError?.kind === 'error') {
+      throw childAgentFailure(runtimeError.message, transcript, threadUsage)
+    }
     if (status !== 'completed') {
-      throw new Error(summary || `child agent ${status}`)
+      throw childAgentFailure(summary || `child agent ${status}`, transcript, threadUsage)
     }
     return {
       summary,
-      usage: usage.forThread(thread.id),
-      transcript: transcriptEntriesForChild(items, started.turnId)
+      usage: threadUsage,
+      transcript
     }
   }
+}
+
+function childAgentFailure(
+  message: string,
+  transcript: ChildRunTranscriptEntry[],
+  usage: ReturnType<UsageService['forThread']>
+): Error {
+  return Object.assign(new Error(message), {
+    multiAgentTranscript: transcript,
+    multiAgentUsage: usage
+  })
 }
 
 function childThreadTitle(childId: string, label?: string): string {

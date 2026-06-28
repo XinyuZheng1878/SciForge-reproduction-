@@ -11,7 +11,8 @@ const registryMock = vi.hoisted(() => ({
   getProvider: vi.fn()
 }))
 const runtimeClientMock = vi.hoisted(() => ({
-  getSettings: vi.fn()
+  getSettings: vi.fn(),
+  setSettings: vi.fn()
 }))
 
 vi.mock('../agent/registry', () => ({
@@ -19,7 +20,8 @@ vi.mock('../agent/registry', () => ({
 }))
 vi.mock('../agent/runtime-client', () => ({
   rendererRuntimeClient: {
-    getSettings: runtimeClientMock.getSettings
+    getSettings: runtimeClientMock.getSettings,
+    setSettings: runtimeClientMock.setSettings
   }
 }))
 
@@ -90,10 +92,17 @@ describe('chat-store-thread-actions queued messages', () => {
     registryMock.getProvider.mockReset()
     registryMock.getProvider.mockReturnValue({})
     runtimeClientMock.getSettings.mockReset()
+    runtimeClientMock.setSettings.mockReset()
     runtimeClientMock.getSettings.mockResolvedValue({
       codePromptPrefix: '',
+      workspaceRoot: '/workspace/sciforge',
       remoteChannel: defaultRemoteChannelSettings()
     })
+    runtimeClientMock.setSettings.mockImplementation(async (patch: { workspaceRoot?: string }) => ({
+      codePromptPrefix: '',
+      workspaceRoot: patch.workspaceRoot ?? '/workspace/sciforge',
+      remoteChannel: defaultRemoteChannelSettings()
+    }))
     clearPendingClawFeishuMirrors()
     vi.stubGlobal('window', {
       sciforge: {
@@ -279,6 +288,125 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(state.selectThread).toHaveBeenCalledWith('thr_created')
     expect(state.activeThreadId).toBe('thr_created')
     expect(state.threads[0]?.id).toBe('thr_created')
+  })
+
+  it('syncs an explicit project workspace before creating the runtime thread', async () => {
+    const { actions, state } = buildHarness()
+    const createdThread = {
+      ...thread('thr_project'),
+      workspace: '/workspace/project-b',
+      status: 'idle'
+    }
+    const provider = {
+      createThread: vi.fn(async () => createdThread)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    runtimeClientMock.getSettings.mockResolvedValueOnce({
+      codePromptPrefix: '',
+      workspaceRoot: '/workspace/startup',
+      remoteChannel: defaultRemoteChannelSettings()
+    })
+    runtimeClientMock.setSettings.mockResolvedValueOnce({
+      codePromptPrefix: '',
+      workspaceRoot: '/workspace/project-b',
+      remoteChannel: defaultRemoteChannelSettings()
+    })
+    state.workspaceRoot = '/workspace/startup'
+    state.codeWorkspaceRoots = ['/workspace/startup']
+    state.busy = false
+    state.blocks = []
+    state.selectThread = vi.fn(async (id: string) => {
+      state.activeThreadId = id
+    }) as unknown as ChatState['selectThread']
+
+    await actions.createThread({ workspaceRoot: '/workspace/project-b', forceNew: true })
+
+    expect(runtimeClientMock.setSettings).toHaveBeenCalledWith({ workspaceRoot: '/workspace/project-b' })
+    expect(provider.createThread).toHaveBeenCalledWith({
+      workspace: '/workspace/project-b',
+      title: expect.any(String),
+      mode: 'agent'
+    })
+    expect(state.workspaceRoot).toBe('/workspace/project-b')
+    expect(state.codeWorkspaceRoots).toEqual(['/workspace/project-b', '/workspace/startup'])
+  })
+
+  it('still creates an explicit project thread when workspace settings sync fails', async () => {
+    const { actions, state } = buildHarness()
+    const createdThread = {
+      ...thread('thr_project'),
+      workspace: '/workspace/project-b',
+      status: 'idle'
+    }
+    const provider = {
+      createThread: vi.fn(async () => createdThread)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    runtimeClientMock.getSettings.mockResolvedValueOnce({
+      codePromptPrefix: '',
+      workspaceRoot: '/workspace/startup',
+      remoteChannel: defaultRemoteChannelSettings()
+    })
+    runtimeClientMock.setSettings.mockRejectedValueOnce(new Error('settings unavailable'))
+    state.workspaceRoot = '/workspace/startup'
+    state.codeWorkspaceRoots = ['/workspace/startup']
+    state.busy = false
+    state.blocks = []
+    state.selectThread = vi.fn(async (id: string) => {
+      state.activeThreadId = id
+    }) as unknown as ChatState['selectThread']
+
+    await actions.createThread({ workspaceRoot: '/workspace/project-b', forceNew: true })
+
+    expect(window.sciforge.logError).toHaveBeenCalledWith(
+      'create-thread',
+      'Failed to sync requested workspace before creating thread',
+      expect.objectContaining({ workspaceRoot: '/workspace/project-b' })
+    )
+    expect(provider.createThread).toHaveBeenCalledWith({
+      workspace: '/workspace/project-b',
+      title: expect.any(String),
+      mode: 'agent'
+    })
+    expect(state.activeThreadId).toBe('thr_project')
+    expect(state.workspaceRoot).toBe('/workspace/project-b')
+  })
+
+  it('prefers the current settings workspace over the active thread workspace for ordinary new chats', async () => {
+    const { actions, state } = buildHarness()
+    const createdThread = {
+      ...thread('thr_current'),
+      workspace: '/workspace/current',
+      status: 'idle'
+    }
+    const provider = {
+      createThread: vi.fn(async () => createdThread)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    runtimeClientMock.getSettings.mockResolvedValueOnce({
+      codePromptPrefix: '',
+      workspaceRoot: '/workspace/current',
+      remoteChannel: defaultRemoteChannelSettings()
+    })
+    state.threads = [{
+      ...thread('thr_existing'),
+      workspace: '/workspace/old-active'
+    }]
+    state.workspaceRoot = '/workspace/current'
+    state.busy = false
+    state.blocks = []
+    state.selectThread = vi.fn(async (id: string) => {
+      state.activeThreadId = id
+    }) as unknown as ChatState['selectThread']
+
+    await actions.createThread({ forceNew: true })
+
+    expect(runtimeClientMock.setSettings).not.toHaveBeenCalled()
+    expect(provider.createThread).toHaveBeenCalledWith({
+      workspace: '/workspace/current',
+      title: expect.any(String),
+      mode: 'agent'
+    })
   })
 
   it('removes stale queued GUI plan messages before draining normal queued messages', async () => {

@@ -50,4 +50,31 @@ describe('WorkbenchTopBar Paper Radar entry', () => {
     expect(html).toContain('aria-label="Open workspace in editor"')
     expect(html).toContain('aria-label="Choose default editor"')
   })
+
+  it('hides the child agent status button until children exist', () => {
+    const html = renderToStaticMarkup(createElement(WorkbenchTopBar, {
+      rightPanelMode: null,
+      onToggleRightPanelMode: vi.fn(),
+      childAgentCount: 0,
+      onOpenChildAgents: vi.fn()
+    }))
+
+    expect(html).not.toContain('aria-label="Children"')
+  })
+
+  it('shows the child agent status button with count and active state', () => {
+    const html = renderToStaticMarkup(createElement(WorkbenchTopBar, {
+      rightPanelMode: 'child-agents',
+      onToggleRightPanelMode: vi.fn(),
+      childAgentCount: 2,
+      childAgentRunningCount: 1,
+      childAgentsOpen: true,
+      onOpenChildAgents: vi.fn()
+    }))
+
+    expect(html).toContain('aria-label="Children"')
+    expect(html).toContain('aria-pressed="true"')
+    expect(html).toContain('>2</span>')
+    expect(html).toContain('animate-pulse')
+  })
 })

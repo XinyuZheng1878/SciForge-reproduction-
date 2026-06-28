@@ -49,6 +49,32 @@ export const TurnFileAttachmentSchema = z.object({
 })
 export type TurnFileAttachmentJson = z.infer<typeof TurnFileAttachmentSchema>
 
+const RegexPatternSchema = z.string().min(1).refine((pattern) => {
+  try {
+    new RegExp(pattern)
+    return true
+  } catch {
+    return false
+  }
+}, { message: 'must be a valid JavaScript regular expression' })
+
+export const BashCommandPolicySchema = z
+  .object({
+    allowPatterns: z.array(RegexPatternSchema).optional(),
+    denyPatterns: z.array(RegexPatternSchema).optional()
+  })
+  .strict()
+export type BashCommandPolicyJson = z.infer<typeof BashCommandPolicySchema>
+
+export const FilePathPolicySchema = z
+  .object({
+    allowPaths: z.array(z.string().min(1)).optional(),
+    allowPatterns: z.array(RegexPatternSchema).optional(),
+    denyPatterns: z.array(RegexPatternSchema).optional()
+  })
+  .strict()
+export type FilePathPolicyJson = z.infer<typeof FilePathPolicySchema>
+
 export const TurnStatus = z.enum([
   'queued',
   'running',
@@ -76,6 +102,10 @@ export const TurnSchema = z.object({
   activeSkillIds: z.array(z.string().min(1)).default([]),
   injectedMemoryIds: z.array(z.string().min(1)).default([]),
   skillInjectionBytes: z.number().int().nonnegative().optional(),
+  allowedToolNames: z.array(z.string().min(1)).optional(),
+  bashCommandPolicy: BashCommandPolicySchema.optional(),
+  filePathPolicy: FilePathPolicySchema.optional(),
+  strictAllowedToolNames: z.boolean().optional(),
   toolCatalogFingerprint: z.string().optional(),
   toolCatalogToolCount: z.number().int().nonnegative().optional(),
   toolCatalogDrift: z.boolean().optional(),
@@ -101,6 +131,29 @@ export const StartTurnRequest = z.object({
   reasoningEffort: TurnReasoningEffortSchema.optional(),
   approvalPolicy: ApprovalPolicySchema.optional(),
   sandboxMode: SandboxModeSchema.optional(),
+  /**
+   * Optional per-turn tool allow-list. When present, SciForge Runtime
+   * advertises and executes only the intersection of this list and any
+   * skill-selected tool policy, plus GUI state tools required by goals/todos.
+   */
+  allowedToolNames: z.array(z.string().min(1)).optional(),
+  /**
+   * When true, `allowedToolNames` is treated as an exact allow-list and
+   * SciForge Runtime does not add GUI state helpers such as todo/goal tools.
+   */
+  strictAllowedToolNames: z.boolean().optional(),
+  /**
+   * Optional per-turn bash command policy. This scopes the command
+   * execution tool itself, which is useful when a task must avoid
+   * exploratory shell commands even though bash remains available.
+   */
+  bashCommandPolicy: BashCommandPolicySchema.optional(),
+  /**
+   * Optional per-turn path policy for local file tools such as read/write/edit.
+   * This allows a turn to expose file tools while keeping them scoped to a
+   * known artifact path.
+   */
+  filePathPolicy: FilePathPolicySchema.optional(),
   /**
    * Optional per-turn mode. Overrides the thread mode for this turn so
    * the GUI can toggle Plan/agent without recreating the thread. In Plan

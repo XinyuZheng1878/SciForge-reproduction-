@@ -22,6 +22,9 @@ import type {
   AgentRuntimeUsageResponse
 } from '../../../shared/agent-runtime-contract'
 import {
+  filterAgentRuntimeThreadChildren
+} from '../../../shared/agent-runtime-contract'
+import {
   isComputerUseEnabledForRuntime,
   resolveRuntimeModelRouterSettings,
   type AppSettingsV1
@@ -418,9 +421,12 @@ export class ClaudeCodeRuntimeService {
     limit?: number
   }): Promise<AgentRuntimeListThreadChildrenResponse> {
     const children = await this.childrenForThread(input.threadId)
-    const filtered = children
-      .filter((child) => input.parentTurnId ? child.parentTurnId === input.parentTurnId : true)
-      .filter((child) => input.activeOnly ? isChildActive(child) : true)
+    const filtered = filterAgentRuntimeThreadChildren(children, {
+      runtimeId: 'claude',
+      parentThreadId: input.threadId,
+      ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+      ...(input.activeOnly ? { activeOnly: true } : {})
+    })
       .slice(0, Math.max(0, Math.floor(input.limit ?? 100)))
     return {
       runtimeId: 'claude',
@@ -445,15 +451,30 @@ export class ClaudeCodeRuntimeService {
     )
     const ref = optionalRecord(input.transcriptRef) ?? optionalRecord(child?.transcriptRef) ?? {}
     const metadata = recordValue(ref.metadata)
-    const sessionId = stringField(metadata.sessionId) ||
-      stringField(recordValue(child?.metadata).sessionId)
-    const subpath = stringField(metadata.subpath) ||
-      stringField(recordValue(child?.metadata).transcriptSubpath) ||
-      transcriptSubpathForAgent(input.childId)
+    const childMetadata = recordValue(child?.metadata)
+    const sessionId = firstString(
+      metadata.sessionId,
+      metadata.session_id,
+      ref.sessionId,
+      ref.session_id,
+      childMetadata.sessionId,
+      childMetadata.session_id
+    )
+    const subpath = firstString(
+      metadata.subpath,
+      metadata.transcriptSubpath,
+      metadata.transcript_subpath,
+      ref.subpath,
+      ref.transcriptId,
+      ref.transcript_id,
+      childMetadata.transcriptSubpath,
+      childMetadata.transcript_subpath
+    ) || transcriptSubpathForAgent(input.childId)
     const transcript = sessionId
       ? await this.sessionStore.readTranscript({ sessionId, subpath })
       : null
     if (!transcript) {
+      const childKindLabel = child?.kind === 'workflow' ? 'workflow' : 'subagent'
       return {
         transcript: {
           runtimeId: 'claude',
@@ -461,11 +482,13 @@ export class ClaudeCodeRuntimeService {
           ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
           childId: input.childId,
           ...(child ? { child } : {}),
-          ...(child?.transcriptRef ? { transcriptRef: child.transcriptRef } : {}),
-          entries: [],
+          ...(child?.transcriptRef || Object.keys(ref).length > 0 ? { transcriptRef: child?.transcriptRef ?? ref } : {}),
+          entries: degradedChildTranscriptEntries(input.childId, child ?? null),
+          summary: child?.summary,
+          usage: child?.usage,
           degraded: true,
           reason: sessionId
-            ? `Claude subagent transcript ${subpath}.jsonl has not been mirrored yet.`
+            ? `Claude ${childKindLabel} transcript ${subpath}.jsonl has not been mirrored yet.`
             : 'Claude child transcript is not available without an SDK session id.'
         }
       }
@@ -925,7 +948,8 @@ export class ClaudeCodeRuntimeService {
       kind: 'reasoning_delta',
       itemId: `${options.assistantItemId}-reasoning`,
       text,
-      visibility: 'summary'
+      visibility: 'summary',
+      source: 'model'
     })
     if (!state.firstDeltaEmitted) {
       state.firstDeltaEmitted = true
@@ -949,11 +973,11 @@ export class ClaudeCodeRuntimeService {
     isError: boolean
     sessionId: string
   }): Promise<void> {
-    if (input.toolName === 'Agent') {
+    if (isClaudeAgentToolName(input.toolName)) {
       await this.emitChild(await this.childFromAgentToolResult(input))
       return
     }
-    if (input.toolName === 'Workflow') {
+    if (isClaudeWorkflowToolName(input.toolName)) {
       await this.emitChild(await this.childFromWorkflowToolResult(input))
     }
   }
@@ -967,23 +991,57 @@ export class ClaudeCodeRuntimeService {
     isError: boolean
     sessionId: string
   }): Promise<AgentRuntimeChild> {
-    const agentId = stringField(input.payload.agentId) ||
-      stringField(input.payload.agent_id) ||
-      input.toolUseId
-    const agentType = stringField(input.payload.agentType) ||
-      stringField(input.payload.agent_type) ||
-      stringField(input.payload.subagent_type) ||
-      stringField(input.toolInput.agentType) ||
-      stringField(input.toolInput.agent_type) ||
-      stringField(input.toolInput.subagent_type)
-    const prompt = stringField(input.payload.prompt) || stringField(input.toolInput.prompt)
+    const agentId = firstString(
+      input.payload.agentId,
+      input.payload.agent_id,
+      input.payload.taskId,
+      input.payload.task_id,
+      input.payload.id,
+      input.toolInput.agentId,
+      input.toolInput.agent_id,
+      input.toolInput.taskId,
+      input.toolInput.task_id
+    ) || input.toolUseId
+    const agentType = firstString(
+      input.payload.agentType,
+      input.payload.agent_type,
+      input.payload.subagentType,
+      input.payload.subagent_type,
+      input.payload.name,
+      input.toolInput.agentType,
+      input.toolInput.agent_type,
+      input.toolInput.subagentType,
+      input.toolInput.subagent_type,
+      input.toolInput.name
+    )
+    const prompt = firstString(
+      input.payload.prompt,
+      input.payload.instructions,
+      input.payload.description,
+      input.toolInput.prompt,
+      input.toolInput.instructions,
+      input.toolInput.description
+    )
     const status = childStatus(input.payload.status, input.isError ? 'failed' : 'completed')
     const totalTokens = numberField(input.payload.totalTokens) ||
       numberField(input.payload.total_tokens)
     const usage = usageFromRecord(input.payload.usage, totalTokens)
     const outputFile = stringField(input.payload.outputFile) ||
       stringField(input.payload.output_file)
-    const subpath = transcriptSubpathForAgent(agentId)
+    const summary = firstString(
+      input.payload.summary,
+      input.payload.output,
+      input.payload.text,
+      input.payload.message
+    ) || outputFile
+    const subpath = firstString(
+      input.payload.transcriptSubpath,
+      input.payload.transcript_subpath,
+      input.payload.subpath,
+      input.toolInput.transcriptSubpath,
+      input.toolInput.transcript_subpath,
+      input.toolInput.subpath
+    ) || transcriptSubpathForAgent(agentId)
     return {
       id: agentId,
       runtimeId: 'claude',
@@ -994,7 +1052,7 @@ export class ClaudeCodeRuntimeService {
       ...(agentType ? { name: agentType, label: agentType } : {}),
       ...(prompt ? { prompt } : {}),
       ...(usage ? { usage } : {}),
-      ...(outputFile ? { summary: outputFile } : {}),
+      ...(summary ? { summary } : {}),
       transcriptRef: transcriptRef({
         childId: agentId,
         sessionId: input.sessionId,
@@ -1024,25 +1082,28 @@ export class ClaudeCodeRuntimeService {
     isError: boolean
     sessionId: string
   }): Promise<AgentRuntimeChild> {
-    const taskId = stringField(input.payload.taskId) ||
-      stringField(input.payload.task_id) ||
-      stringField(input.toolInput.taskId) ||
-      stringField(input.toolInput.task_id)
-    const runId = stringField(input.payload.runId) ||
-      stringField(input.payload.run_id) ||
-      stringField(input.toolInput.runId) ||
-      stringField(input.toolInput.run_id)
-    const workflowName = stringField(input.payload.workflowName) ||
-      stringField(input.payload.workflow_name) ||
-      stringField(input.toolInput.workflowName) ||
-      stringField(input.toolInput.workflow_name) ||
-      stringField(input.toolInput.name)
-    const summary = stringField(input.payload.summary)
-    const transcriptDir = stringField(input.payload.transcriptDir) ||
-      stringField(input.payload.transcript_dir)
-    const scriptPath = stringField(input.payload.scriptPath) ||
-      stringField(input.payload.script_path)
+    const taskId = firstString(input.payload.taskId, input.payload.task_id, input.toolInput.taskId, input.toolInput.task_id)
+    const runId = firstString(input.payload.runId, input.payload.run_id, input.toolInput.runId, input.toolInput.run_id)
+    const workflowName = firstString(
+      input.payload.workflowName,
+      input.payload.workflow_name,
+      input.payload.name,
+      input.toolInput.workflowName,
+      input.toolInput.workflow_name,
+      input.toolInput.name
+    )
+    const prompt = firstString(input.payload.prompt, input.payload.instructions, input.toolInput.prompt, input.toolInput.instructions)
+    const summary = firstString(input.payload.summary, input.payload.output, input.payload.text, input.payload.message)
+    const transcriptDir = firstString(
+      input.payload.transcriptDir,
+      input.payload.transcript_dir,
+      input.payload.transcriptPath,
+      input.payload.transcript_path,
+      input.payload.path
+    )
+    const scriptPath = firstString(input.payload.scriptPath, input.payload.script_path)
     const status = childStatus(input.payload.status, input.isError ? 'failed' : 'completed')
+    const usage = usageFromRecord(input.payload.usage, numberField(input.payload.totalTokens) || numberField(input.payload.total_tokens))
     return {
       id: runId || taskId || input.toolUseId,
       runtimeId: 'claude',
@@ -1051,7 +1112,9 @@ export class ClaudeCodeRuntimeService {
       kind: 'workflow',
       status,
       ...(workflowName ? { name: workflowName, label: workflowName } : {}),
+      ...(prompt ? { prompt } : {}),
       ...(summary ? { summary } : {}),
+      ...(usage ? { usage } : {}),
       ...(transcriptDir ? {
         transcriptRef: transcriptRef({
           childId: runId || taskId || input.toolUseId,
@@ -1084,19 +1147,26 @@ export class ClaudeCodeRuntimeService {
     turnId: string
   ): Promise<AgentRuntimeChild | null> {
     const subtype = stringField(record.subtype)
-    const taskId = stringField(record.task_id)
+    const taskId = firstString(record.taskId, record.task_id, record.id)
     if (!taskId) return null
-    const sessionId = stringField(record.session_id)
-    const workflowName = stringField(record.workflow_name)
-    const subagentType = stringField(record.subagent_type)
-    const isWorkflow = stringField(record.task_type) === 'local_workflow' || Boolean(workflowName)
+    const sessionId = firstString(record.sessionId, record.session_id)
+    const workflowName = firstString(record.workflowName, record.workflow_name)
+    const subagentType = firstString(record.subagentType, record.subagent_type, record.agentType, record.agent_type)
+    const taskType = firstString(record.taskType, record.task_type)
+    const isWorkflow = taskType === 'local_workflow' || taskType === 'workflow' || Boolean(workflowName)
     const status = subtype === 'task_notification'
       ? childStatus(record.status, 'completed')
       : subtype === 'task_updated'
-        ? childStatus(recordValue(record.patch).status, 'running')
+        ? childStatus(recordValue(record.patch).status ?? recordValue(record.patch).state, 'running')
         : 'running'
     const usageRecord = recordValue(record.usage)
-    const subpath = !isWorkflow ? transcriptSubpathForAgent(taskId) : ''
+    const transcriptPath = firstString(record.transcriptPath, record.transcript_path)
+    const transcriptDir = firstString(record.transcriptDir, record.transcript_dir)
+    const subpath = firstString(record.transcriptSubpath, record.transcript_subpath, record.subpath) ||
+      (!isWorkflow ? transcriptSubpathForAgent(taskId) : '')
+    const prompt = firstString(record.prompt, record.description, record.instructions)
+    const summary = firstString(record.summary, record.output, record.message, record.text)
+    const usage = usageFromRecord(usageRecord, numberField(usageRecord.total_tokens) || numberField(usageRecord.totalTokens))
     return {
       id: taskId,
       runtimeId: 'claude',
@@ -1108,14 +1178,23 @@ export class ClaudeCodeRuntimeService {
         name: workflowName || subagentType,
         label: workflowName || subagentType
       } : {}),
-      prompt: stringField(record.prompt) || stringField(record.description) || undefined,
-      summary: stringField(record.summary) || undefined,
-      usage: usageFromRecord(usageRecord, numberField(usageRecord.total_tokens)),
+      ...(prompt ? { prompt } : {}),
+      ...(summary ? { summary } : {}),
+      ...(usage ? { usage } : {}),
       ...(!isWorkflow && sessionId ? {
         transcriptRef: transcriptRef({
           childId: taskId,
           sessionId,
           subpath
+        })
+      } : {}),
+      ...(isWorkflow && (transcriptDir || transcriptPath) ? {
+        transcriptRef: transcriptRef({
+          childId: taskId,
+          sessionId,
+          source: 'claude.Workflow',
+          path: transcriptDir || transcriptPath,
+          kind: transcriptDir ? 'directory' : 'file'
         })
       } : {}),
       updatedAt: new Date().toISOString(),
@@ -1125,11 +1204,13 @@ export class ClaudeCodeRuntimeService {
       metadata: {
         source: `claude-agent-sdk.${subtype}`,
         taskId,
-        ...(stringField(record.tool_use_id) ? { toolUseId: stringField(record.tool_use_id) } : {}),
-        ...(stringField(record.task_type) ? { taskType: stringField(record.task_type) } : {}),
+        ...(firstString(record.toolUseId, record.tool_use_id) ? { toolUseId: firstString(record.toolUseId, record.tool_use_id) } : {}),
+        ...(taskType ? { taskType } : {}),
         ...(subagentType ? { agentType: subagentType } : {}),
         ...(workflowName ? { workflowName } : {}),
-        ...(stringField(record.output_file) ? { outputFile: stringField(record.output_file) } : {}),
+        ...(firstString(record.outputFile, record.output_file) ? { outputFile: firstString(record.outputFile, record.output_file) } : {}),
+        ...(transcriptDir ? { transcriptDir } : {}),
+        ...(transcriptPath ? { transcriptPath } : {}),
         ...(sessionId ? { sessionId } : {}),
         ...(!isWorkflow && subpath ? { transcriptSubpath: subpath } : {})
       }
@@ -1137,9 +1218,11 @@ export class ClaudeCodeRuntimeService {
   }
 
   private async emitChild(child: AgentRuntimeChild): Promise<void> {
-    const key = childStateKey(child.parentThreadId, child.id)
-    const existing = this.childState.get(key) ?? await this.latestStoredChild(child.parentThreadId, child.id)
-    const next = mergeChild(existing, child)
+    const normalized = normalizeClaudeChild(child, child.parentThreadId)
+    if (!normalized) return
+    const key = childStateKey(normalized.parentThreadId, normalized.id)
+    const existing = this.childState.get(key) ?? await this.latestStoredChild(normalized.parentThreadId, normalized.id)
+    const next = mergeChild(existing, normalized)
     this.childState.set(key, next)
     await this.emit({
       threadId: next.parentThreadId,
@@ -1159,7 +1242,8 @@ export class ClaudeCodeRuntimeService {
     for (const stored of storedEvents) {
       const event = stored.event
       if (event.kind !== 'child_event') continue
-      const child = event.child
+      const child = normalizeClaudeChild(event.child, threadId)
+      if (!child) continue
       children.set(child.id, mergeChild(children.get(child.id), child))
     }
     return [...children.values()]
@@ -1289,8 +1373,18 @@ function firstRecord(...records: Record<string, unknown>[]): Record<string, unkn
   return records.find((record) => Object.keys(record).length > 0) ?? null
 }
 
+function isClaudeAgentToolName(name: string): boolean {
+  const normalized = name.trim().toLowerCase()
+  return normalized === 'agent' || normalized === 'task' || normalized === 'subagent'
+}
+
+function isClaudeWorkflowToolName(name: string): boolean {
+  const normalized = name.trim().toLowerCase()
+  return normalized === 'workflow' || normalized === 'local_workflow'
+}
+
 function childStatus(value: unknown, fallback: AgentRuntimeChildStatus): AgentRuntimeChildStatus {
-  const normalized = stringField(value)
+  const normalized = stringField(value).toLowerCase()
   if (
     normalized === 'queued' ||
     normalized === 'running' ||
@@ -1302,19 +1396,41 @@ function childStatus(value: unknown, fallback: AgentRuntimeChildStatus): AgentRu
     return normalized
   }
   if (normalized === 'pending') return 'queued'
-  if (normalized === 'success') return 'completed'
-  if (normalized === 'error') return 'failed'
-  if (normalized === 'killed' || normalized === 'stopped') return 'aborted'
+  if (normalized === 'started' || normalized === 'in_progress' || normalized === 'inprogress') return 'running'
+  if (normalized === 'success' || normalized === 'succeeded' || normalized === 'complete' || normalized === 'done') {
+    return 'completed'
+  }
+  if (normalized === 'error' || normalized === 'declined') return 'failed'
+  if (normalized === 'killed' || normalized === 'stopped' || normalized === 'cancelled' || normalized === 'canceled') return 'aborted'
   return fallback
-}
-
-function isChildActive(child: Pick<AgentRuntimeChild, 'status'>): boolean {
-  return child.status === 'queued' || child.status === 'running'
 }
 
 function transcriptSubpathForAgent(agentId: string): string {
   const normalized = agentId.trim()
   return `subagents/agent-${normalized || 'unknown'}`
+}
+
+function degradedChildTranscriptEntries(
+  childId: string,
+  child: AgentRuntimeChild | null
+): AgentRuntimeChildTranscriptEntry[] {
+  if (!child) return []
+  const entries: AgentRuntimeChildTranscriptEntry[] = []
+  if (child.prompt) {
+    entries.push({
+      id: `${childId}-prompt`,
+      kind: 'user_message',
+      text: child.prompt
+    })
+  }
+  if (child.summary) {
+    entries.push({
+      id: `${childId}-summary`,
+      kind: 'assistant_message',
+      text: child.summary
+    })
+  }
+  return entries
 }
 
 function transcriptRef(input: {
@@ -1368,13 +1484,35 @@ function transcriptEntryFromSessionStore(
 }
 
 function transcriptEntryKind(type: unknown): AgentRuntimeChildTranscriptEntry['kind'] {
-  const normalized = stringField(type)
+  const normalized = stringField(type).toLowerCase()
   if (normalized === 'user') return 'user_message'
   if (normalized === 'assistant') return 'assistant_message'
   if (normalized.includes('tool')) return 'tool'
   if (normalized.includes('reasoning') || normalized.includes('thinking')) return 'reasoning'
   if (normalized === 'system') return 'system'
   return 'event'
+}
+
+function normalizeClaudeChild(value: unknown, fallbackParentThreadId: string): AgentRuntimeChild | null {
+  const record = recordValue(value)
+  const id = firstString(record.id, record.childId, record.child_id, record.taskId, record.task_id)
+  const parentThreadId = firstString(record.parentThreadId, record.parent_thread_id, fallbackParentThreadId)
+  if (!id || !parentThreadId) return null
+  const parentTurnId = firstString(record.parentTurnId, record.parent_turn_id, record.turnId, record.turn_id)
+  return {
+    ...(value && typeof value === 'object' && !Array.isArray(value) ? value as AgentRuntimeChild : {}),
+    id,
+    runtimeId: 'claude',
+    parentThreadId,
+    ...(parentTurnId ? { parentTurnId } : {}),
+    kind: claudeChildKind(record.kind),
+    status: childStatus(record.status, 'unknown')
+  }
+}
+
+function claudeChildKind(value: unknown): AgentRuntimeChild['kind'] {
+  if (value === 'workflow' || value === 'thread' || value === 'remote') return value
+  return 'agent'
 }
 
 function childStateKey(threadId: string, childId: string): string {
@@ -1497,6 +1635,14 @@ function stringifyUnknown(value: unknown): string | undefined {
 
 function stringField(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    const text = stringField(value)
+    if (text) return text
+  }
+  return ''
 }
 
 function numberField(value: unknown): number {

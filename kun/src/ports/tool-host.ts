@@ -2,6 +2,7 @@ import type { ApprovalPolicy, SandboxMode } from '../contracts/policy.js'
 import type { ApprovalRequest } from '../domain/approval.js'
 import type { TurnItem } from '../contracts/items.js'
 import type { ModelCapabilityMetadata } from '../contracts/capabilities.js'
+import type { BashCommandPolicyJson, FilePathPolicyJson } from '../contracts/turns.js'
 import type {
   UserInputRequest,
   UserInputResolution
@@ -79,6 +80,10 @@ export type ToolHostContext = {
   allowedProviderIds?: readonly string[]
   /** Optional tool-name allow-list. When set, other tools are not advertised or executed. */
   allowedToolNames?: readonly string[]
+  /** Optional per-turn command policy for the bash command-execution tool. */
+  bashCommandPolicy?: BashCommandPolicyJson
+  /** Optional per-turn path policy for local file tools such as read/write/edit. */
+  filePathPolicy?: FilePathPolicyJson
   approvalPolicy: ApprovalPolicy
   /** Filesystem/command sandbox selected for this turn. */
   sandboxMode?: SandboxMode

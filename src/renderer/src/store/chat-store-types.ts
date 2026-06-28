@@ -2,6 +2,7 @@ import type {
   AttachmentReference,
   ChatBlock,
   NormalizedThread,
+  RuntimeDisclosureMetadata,
   RuntimeConnectionStatus,
   ReviewTarget,
   ThreadGoal,
@@ -107,6 +108,7 @@ export type SideConversation = {
   threadId: string
   runtimeId?: AgentRuntimeId
   parentThreadId: string
+  source?: 'side' | 'child_agent'
   title: string
   createdAt: string
   /** Timestamp the snapshot was taken from the parent. */
@@ -152,9 +154,11 @@ export type ChatState = {
   activeThreadContextState: AgentRuntimeContextState | null
   blocks: ChatBlock[]
   liveReasoning: string
+  liveReasoningMeta: RuntimeDisclosureMetadata | null
   liveAssistant: string
   lastSeq: number
   usageRefreshKey: number
+  childRefreshKey: number
   busy: boolean
   error: string | null
   runtimeErrorDetail: string | null
@@ -255,6 +259,19 @@ export type ChatState = {
    * If `seedText` is provided, immediately sends it as the first turn.
    */
   spawnSideConversation: (seedText?: string) => Promise<string | null>
+  /**
+   * Attach an existing auxiliary thread to the isolated right-side
+   * conversation state without changing the active main thread.
+   */
+  attachSideConversation: (input: {
+    threadId: string
+    parentThreadId: string
+    runtimeId?: AgentRuntimeId
+    title?: string
+    model?: string
+    source?: SideConversation['source']
+    openPanel?: boolean
+  }) => Promise<string | null>
   /**
    * Open the side chat surface without creating an underlying side
    * thread. The first draft send will create the side thread.

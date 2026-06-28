@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { shouldAnimateStreamingText } from './StreamdownAssistant'
+import { harden } from 'rehype-harden'
+import {
+  STREAMDOWN_CONTROLS,
+  STREAMDOWN_HARDEN_OPTIONS,
+  shouldAnimateStreamingText
+} from './StreamdownAssistant'
+
+describe('STREAMDOWN_CONTROLS', () => {
+  it('keeps final-answer tables static in chat rendering', () => {
+    expect(STREAMDOWN_CONTROLS).toEqual({ table: false })
+  })
+})
+
+describe('STREAMDOWN_HARDEN_OPTIONS', () => {
+  it('initializes rehype-harden when chat links are restricted', () => {
+    expect(() => harden(STREAMDOWN_HARDEN_OPTIONS)).not.toThrow()
+    expect(STREAMDOWN_HARDEN_OPTIONS.defaultOrigin).toBe('https://sciforge.local')
+  })
+})
 
 describe('shouldAnimateStreamingText', () => {
   it('keeps the lightweight reveal for short single-line text', () => {

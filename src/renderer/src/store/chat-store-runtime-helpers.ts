@@ -200,6 +200,7 @@ export function clearedThreadSelection(): Pick<
   | 'blocks'
   | 'lastSeq'
   | 'liveReasoning'
+  | 'liveReasoningMeta'
   | 'liveAssistant'
   | 'busy'
   | 'currentTurnId'
@@ -219,6 +220,7 @@ export function clearedThreadSelection(): Pick<
     blocks: [],
     lastSeq: 0,
     liveReasoning: '',
+    liveReasoningMeta: null,
     liveAssistant: '',
     busy: false,
     currentTurnId: null,

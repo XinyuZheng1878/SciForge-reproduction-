@@ -30,8 +30,9 @@ export async function listThreadChildren(
     children,
     ...(nextOffset < filtered.length ? { nextCursor: String(nextOffset) } : {}),
     metadata: {
-      enabled: diagnostics.enabled,
+      enabled: diagnostics.config.enabled,
       active: diagnostics.active,
+      statusCounts: diagnostics.statusCounts,
       aggregates: diagnostics.aggregates
     }
   })
@@ -70,10 +71,11 @@ export async function readChildTranscript(
       entries: child.transcript,
       summary: child.summary,
       usage: child.usage,
-      ...(child.error ? { reason: child.error } : {}),
+      ...(child.error ? { reason: child.error.message } : {}),
       metadata: {
         source: 'local-runtime.child-runs',
-        status: child.status
+        status: child.status,
+        ...(child.error ? { error: child.error } : {})
       }
     }
   })

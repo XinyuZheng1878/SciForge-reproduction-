@@ -4,13 +4,16 @@ import type {
   AgentRuntimeItem,
   AgentRuntimePhase,
   AgentRuntimeToolKind,
-  AgentRuntimeUsage
+  AgentRuntimeUsage,
+  ReasoningSource,
+  ReasoningVisibility
 } from '@shared/agent-runtime-contract'
 import { isAgentRuntimeTerminalTurnState } from '@shared/agent-runtime-contract'
 import type {
   ApprovalRequestPayload,
   CompactionEventPayload,
   ReviewEventPayload,
+  RuntimeDisclosureMetadata,
   RuntimeStatusEventPayload,
   ThreadEventSink,
   ThreadGoal,
@@ -36,6 +39,57 @@ function shouldDispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: ThreadE
 
 function eventAdvancesSeq(event: AgentRuntimeEvent): event is AgentRuntimeEvent & { seq: number } {
   return event.kind !== 'heartbeat' && typeof event.seq === 'number'
+}
+
+const REASONING_VISIBILITIES: readonly ReasoningVisibility[] = [
+  'none',
+  'summary',
+  'trace',
+  'full_runtime_text'
+]
+
+const REASONING_SOURCES: readonly ReasoningSource[] = [
+  'model',
+  'runtime_summary',
+  'backend_redacted',
+  'unknown'
+]
+
+function reasoningVisibilityFromValue(value: unknown): ReasoningVisibility | undefined {
+  return typeof value === 'string' && REASONING_VISIBILITIES.includes(value as ReasoningVisibility)
+    ? value as ReasoningVisibility
+    : undefined
+}
+
+function reasoningSourceFromValue(value: unknown): ReasoningSource | undefined {
+  return typeof value === 'string' && REASONING_SOURCES.includes(value as ReasoningSource)
+    ? value as ReasoningSource
+    : undefined
+}
+
+function reasoningDisclosureMeta(input: {
+  visibility?: unknown
+  source?: unknown
+  meta?: Record<string, unknown>
+}): RuntimeDisclosureMetadata | undefined {
+  const meta = input.meta
+  const visibility =
+    reasoningVisibilityFromValue(input.visibility) ??
+    reasoningVisibilityFromValue(meta?.visibility) ??
+    reasoningVisibilityFromValue(meta?.reasoningVisibility) ??
+    reasoningVisibilityFromValue(meta?.reasoning_visibility)
+  const source =
+    reasoningSourceFromValue(input.source) ??
+    reasoningSourceFromValue(meta?.source) ??
+    reasoningSourceFromValue(meta?.reasoningSource) ??
+    reasoningSourceFromValue(meta?.reasoning_source)
+  if (!visibility && !source) return undefined
+  return {
+    reasoning: {
+      ...(visibility ? { visibility } : {}),
+      ...(source ? { source } : {})
+    }
+  }
 }
 
 function runtimeDisclosureMetaFromRecord(
@@ -282,12 +336,21 @@ function dispatchItemSnapshot(event: Extract<AgentRuntimeEvent, { kind: 'item_sn
             ...(meta ? { meta } : {})
           })
         } else {
-          sink.onDeltas([{ kind: 'agent_message', text: item.text, seq: event.seq }])
+          sink.onDeltas([{ kind: 'agent_message', itemId: item.id, text: item.text, seq: event.seq }])
         }
       }
       return
     case 'reasoning':
-      if (item.text) sink.onDeltas([{ kind: 'agent_reasoning', text: item.text, seq: event.seq }])
+      if (item.text) {
+        const meta = reasoningDisclosureMeta({ meta: item.meta })
+        sink.onDeltas([{
+          kind: 'agent_reasoning',
+          itemId: item.id,
+          text: item.text,
+          seq: event.seq,
+          ...(meta ? { meta } : {})
+        }])
+      }
       return
     case 'tool':
       sink.onTool(toolEventFromItem(item))
@@ -477,12 +540,23 @@ export function dispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: Thread
       })
       return
     case 'assistant_delta':
-      sink.onDeltas([{ kind: 'agent_message', text: event.text, seq: event.seq }])
+      sink.onDeltas([{ kind: 'agent_message', itemId: event.itemId, text: event.text, seq: event.seq }])
       return
-    case 'reasoning_delta':
+    case 'reasoning_delta': {
       if (event.visibility === 'none') return
-      sink.onDeltas([{ kind: 'agent_reasoning', text: event.text, seq: event.seq }])
+      const meta = reasoningDisclosureMeta({
+        visibility: event.visibility,
+        source: event.source
+      })
+      sink.onDeltas([{
+        kind: 'agent_reasoning',
+        itemId: event.itemId,
+        text: event.text,
+        seq: event.seq,
+        ...(meta ? { meta } : {})
+      }])
       return
+    }
     case 'item_snapshot':
       dispatchItemSnapshot(event, sink)
       return
@@ -553,6 +627,14 @@ export function dispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: Thread
       })
       return
     case 'child_event':
+      sink.onChild?.({
+        threadId: event.threadId,
+        turnId: event.turnId,
+        seq: event.seq,
+        createdAt: event.createdAt,
+        child: event.child,
+        message: event.message
+      })
       return
     case 'usage':
       sink.onUsage?.(usageFromRuntime(event.usage))

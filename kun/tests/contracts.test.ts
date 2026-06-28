@@ -121,6 +121,46 @@ describe('contracts', () => {
     expect(parsed.reasoningEffort).toBe('max')
   })
 
+  it('accepts per-turn tool allow-lists on start turn payloads', () => {
+    const parsed = StartTurnRequest.parse({
+      prompt: 'Run the bounded experiment',
+      allowedToolNames: ['bash', 'read'],
+      strictAllowedToolNames: true,
+      bashCommandPolicy: {
+        allowPatterns: ['^python3 - <<'],
+        denyPatterns: ['\\bls\\b']
+      },
+      filePathPolicy: {
+        allowPaths: ['/tmp/allowed.py'],
+        denyPatterns: ['\\.h5ad$']
+      }
+    })
+    expect(parsed.allowedToolNames).toEqual(['bash', 'read'])
+    expect(parsed.strictAllowedToolNames).toBe(true)
+    expect(parsed.bashCommandPolicy?.denyPatterns).toEqual(['\\bls\\b'])
+    expect(parsed.filePathPolicy?.allowPaths).toEqual(['/tmp/allowed.py'])
+  })
+
+  it('rejects invalid bash command policy regexes', () => {
+    const result = StartTurnRequest.safeParse({
+      prompt: 'Run the bounded experiment',
+      bashCommandPolicy: {
+        allowPatterns: ['[']
+      }
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects invalid file path policy regexes', () => {
+    const result = StartTurnRequest.safeParse({
+      prompt: 'Patch the bounded artifact',
+      filePathPolicy: {
+        allowPatterns: ['[']
+      }
+    })
+    expect(result.success).toBe(false)
+  })
+
   it('accepts turn failure lifecycle messages', () => {
     const event = RuntimeEvent.parse({
       kind: 'turn_failed',
@@ -322,6 +362,8 @@ describe('cli', () => {
       '--sandbox-mode',
       'workspace-write',
       '--token-economy',
+      '--model-stream-idle-timeout-ms',
+      '180000',
       '--insecure'
     ])
     expect(parsed.host).toBe('127.0.0.1')
@@ -330,6 +372,7 @@ describe('cli', () => {
     expect(parsed.tokenEconomy?.enabled).toBe(true)
     expect(parsed.insecure).toBe(true)
     expect(parsed.modelRouterBaseUrl).toBe('http://127.0.0.1:4892/v1')
+    expect(parsed.runtime?.modelStreamIdleTimeoutMs).toBe(180_000)
   })
 
   it('parses flags in --key=value form', () => {
@@ -400,6 +443,7 @@ describe('cli', () => {
           }
         },
         runtime: {
+          modelStreamIdleTimeoutMs: 120_000,
           toolStorm: {
             enabled: true,
             windowSize: 5,
@@ -466,6 +510,7 @@ describe('cli', () => {
       expect(parsed.runtime?.toolStorm?.windowSize).toBe(5)
       expect(parsed.runtime?.toolStorm?.threshold).toBe(4)
       expect(parsed.runtime?.toolArgumentRepair?.maxStringBytes).toBe(4096)
+      expect(parsed.runtime?.modelStreamIdleTimeoutMs).toBe(120_000)
       expect(parsed.capabilities.web.enabled).toBe(true)
       expect(parsed.capabilities.web.fetchEnabled).toBe(true)
       expect(parsed.capabilities.skills.roots).toEqual(['/tmp/skills'])
@@ -503,6 +548,7 @@ describe('cli', () => {
     expect(config.web.enabled).toBe(false)
     expect(config.skills.enabled).toBe(false)
     expect(config.subagents.maxParallel).toBe(2)
+    expect(config.subagents.maxChildRuns).toBe(16)
     expect(config.attachments.allowedMimeTypes).toContain('image/png')
     expect(config.attachments.textFallbackMaxBase64Bytes).toBe(512 * 1024)
     expect(config.attachments.textFallbackMaxImageDimension).toBe(1280)
@@ -515,7 +561,7 @@ describe('cli', () => {
       subagents: {
         enabled: true,
         maxParallel: 2,
-        maxChildRuns: 4,
+        maxChildRuns: 16,
         defaultStepLimit: 99
       }
     })
@@ -523,7 +569,7 @@ describe('cli', () => {
     expect(config.subagents).toMatchObject({
       enabled: true,
       maxParallel: 2,
-      maxChildRuns: 4
+      maxChildRuns: 16
     })
     expect('defaultStepLimit' in config.subagents).toBe(false)
   })

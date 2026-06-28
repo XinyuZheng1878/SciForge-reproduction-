@@ -938,6 +938,7 @@ export type AgentRuntimeEvent =
       itemId: string
       text: string
       visibility: ReasoningVisibility
+      source?: ReasoningSource
     })
   | (AgentRuntimeBaseEvent & {
       kind: 'item_snapshot'

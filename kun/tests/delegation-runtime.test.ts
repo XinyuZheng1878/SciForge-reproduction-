@@ -8,10 +8,10 @@ import { CapabilityRegistry } from '../src/adapters/tool/capability-registry.js'
 import { buildDelegationToolProviders } from '../src/adapters/tool/delegation-tool-provider.js'
 import { LocalToolHost } from '../src/adapters/tool/local-tool-host.js'
 import { LocalRuntimeCapabilitiesConfig } from '../src/contracts/capabilities.js'
-import { DelegationRuntime, FileDelegationStore } from '../src/delegation/delegation-runtime.js'
+import { FileMultiAgentStore, MultiAgentRuntime } from '@sciforge/multi-agent'
 import { RuntimeEventRecorder } from '../src/services/runtime-event-recorder.js'
 
-describe('DelegationRuntime', () => {
+describe('MultiAgentRuntime delegation integration', () => {
   let dir = ''
 
   beforeEach(async () => {
@@ -25,7 +25,7 @@ describe('DelegationRuntime', () => {
   it('creates child runs, persists records, and emits child event metadata', async () => {
     const sessionStore = new InMemorySessionStore()
     const externalUsage: unknown[] = []
-    const runtime = createRuntime({ sessionStore, recordExternalUsage: (_threadId, usage) => externalUsage.push(usage) })
+    const runtime = createRuntime({ sessionStore, recordUsage: (_threadId, usage) => externalUsage.push(usage) })
     const result = await runtime.runChild({
       parentThreadId: 'thr_1',
       parentTurnId: 'turn_1',
@@ -62,7 +62,7 @@ describe('DelegationRuntime', () => {
       signal: new AbortController().signal
     })).rejects.toThrow(/disabled/)
 
-    const budgeted = createRuntime({ maxChildRuns: 1 })
+    const budgeted = createRuntime({ maxChildren: 1 })
     await budgeted.runChild({
       parentThreadId: 'thr_1',
       parentTurnId: 'turn_1',
@@ -101,6 +101,64 @@ describe('DelegationRuntime', () => {
         status: 'completed',
         summary: 'done: Investigate A',
         usage: { totalTokens: 3 }
+      })
+    }
+  })
+
+  it('executes delegate_tasks as a bounded parallel batch through the normal tool host', async () => {
+    let active = 0
+    let maxSeen = 0
+    const runtime = createRuntime({
+      maxParallel: 2,
+      executor: async ({ prompt }) => {
+        active += 1
+        maxSeen = Math.max(maxSeen, active)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        active -= 1
+        return {
+          summary: `done: ${prompt}`,
+          usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 }
+        }
+      }
+    })
+    const host = new LocalToolHost({
+      registry: new CapabilityRegistry(buildDelegationToolProviders(runtime))
+    })
+    const result = await host.execute({
+      callId: 'call_batch',
+      toolName: 'delegate_tasks',
+      arguments: {
+        tasks: [
+          { label: 'A', prompt: 'Investigate A' },
+          { label: 'B', prompt: 'Investigate B' },
+          { label: 'C', prompt: 'Investigate C' }
+        ]
+      }
+    }, {
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      workspace: '/tmp/ws',
+      approvalPolicy: 'auto',
+      abortSignal: new AbortController().signal,
+      awaitApproval: async () => 'allow'
+    })
+
+    expect(maxSeen).toBe(2)
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
+    if (result.item.kind === 'tool_result') {
+      expect(result.item.output).toMatchObject({
+        total: 3,
+        completed: 3,
+        failed: 0,
+        aborted: 0,
+        concurrency: 2
+      })
+      expect(result.item.output).toMatchObject({
+        children: expect.arrayContaining([
+          expect.objectContaining({ label: 'A', status: 'completed', summary: 'done: Investigate A' }),
+          expect.objectContaining({ label: 'B', status: 'completed', summary: 'done: Investigate B' }),
+          expect.objectContaining({ label: 'C', status: 'completed', summary: 'done: Investigate C' })
+        ])
       })
     }
   })
@@ -174,7 +232,7 @@ describe('DelegationRuntime', () => {
       parentTurnId: 'turn_1',
       prompt: 'fail',
       signal: new AbortController().signal
-    })).resolves.toMatchObject({ status: 'failed', error: 'child failed' })
+    })).resolves.toMatchObject({ status: 'failed', error: { message: 'child failed' } })
 
     const controller = new AbortController()
     controller.abort()
@@ -194,10 +252,11 @@ describe('DelegationRuntime', () => {
 
   function createRuntime(options: {
     enabled?: boolean
-    maxChildRuns?: number
+    maxChildren?: number
+    maxParallel?: number
     sessionStore?: InMemorySessionStore
-    executor?: ConstructorParameters<typeof DelegationRuntime>[0]['executor']
-    recordExternalUsage?: ConstructorParameters<typeof DelegationRuntime>[0]['recordExternalUsage']
+    executor?: ConstructorParameters<typeof MultiAgentRuntime>[0]['executor']
+    recordUsage?: ConstructorParameters<typeof MultiAgentRuntime>[0]['recordUsage']
   } = {}) {
     const sessionStore = options.sessionStore ?? new InMemorySessionStore()
     const bus = new InMemoryEventBus()
@@ -210,17 +269,45 @@ describe('DelegationRuntime', () => {
     const config = LocalRuntimeCapabilitiesConfig.parse({
       subagents: {
         enabled: options.enabled ?? true,
-        maxParallel: 1,
-        maxChildRuns: options.maxChildRuns ?? 3
+        maxParallel: options.maxParallel ?? 1,
+        maxChildRuns: options.maxChildren ?? 3
       }
     }).subagents
-    return new DelegationRuntime({
-      config,
-      store: new FileDelegationStore(join(dir, 'children')),
-      events: recorder,
+    return new MultiAgentRuntime({
+      config: {
+        enabled: config.enabled,
+        maxParallel: config.maxParallel,
+        maxChildren: config.maxChildRuns
+      },
+      store: new FileMultiAgentStore(join(dir, 'children')),
+      events: {
+        onChildEvent: async (event) => {
+          await recorder.record({
+            kind: event.status === 'completed'
+              ? 'turn_completed'
+              : event.status === 'failed'
+                ? 'turn_failed'
+                : event.status === 'aborted'
+                  ? 'turn_aborted'
+                  : 'turn_started',
+            threadId: event.parentThreadId,
+            turnId: event.parentTurnId,
+            status: event.status,
+            text: event.summary ?? event.error?.message,
+            child: {
+              parentThreadId: event.parentThreadId,
+              parentTurnId: event.parentTurnId,
+              childId: event.childId,
+              ...(event.label ? { childLabel: event.label } : {}),
+              childStatus: event.status,
+              childSeq: event.seq
+            }
+          })
+        }
+      },
       nowIso: () => '2026-06-03T00:00:00.000Z',
       idGenerator: () => `child_${Math.random().toString(36).slice(2, 8)}`,
-      recordExternalUsage: options.recordExternalUsage,
+      recordUsage: options.recordUsage,
       executor: options.executor ?? (async ({ prompt }) => ({
         summary: `done: ${prompt}`,
         usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 }

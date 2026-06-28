@@ -299,16 +299,35 @@ export function createThreadActions(
     }
     try {
       const p = getProvider()
-      const settings = await rendererRuntimeClient.getSettings()
+      let settings = await rendererRuntimeClient.getSettings()
+      const requestedWorkspaceRoot = normalizeWorkspaceRoot(options.workspaceRoot)
+      if (requestedWorkspaceRoot) {
+        try {
+          settings = await rendererRuntimeClient.setSettings({ workspaceRoot: requestedWorkspaceRoot })
+        } catch (error) {
+          void window.sciforge.logError('create-thread', 'Failed to sync requested workspace before creating thread', {
+            message: error instanceof Error ? error.message : String(error),
+            workspaceRoot: requestedWorkspaceRoot
+          }).catch(() => undefined)
+          settings = { ...settings, workspaceRoot: requestedWorkspaceRoot }
+        } finally {
+          set((s) => ({
+            workspaceRoot: requestedWorkspaceRoot,
+            workspaceLabel: workspaceLabelFromPath(requestedWorkspaceRoot),
+            codeWorkspaceRoots: rememberCodeWorkspaceRoots(s.codeWorkspaceRoots, [requestedWorkspaceRoot])
+          }))
+        }
+      }
       const activeThread = get().activeThreadId
         ? get().threads.find((thread) => thread.id === get().activeThreadId)
         : null
+      const settingsWorkspaceRoot = normalizeWorkspaceRoot(settings.workspaceRoot)
       const workspaceRoot =
-        normalizeWorkspaceRoot(options.workspaceRoot) ||
+        requestedWorkspaceRoot ||
+        settingsWorkspaceRoot ||
         (activeThread && !isInternalTemporaryWorkspace(activeThread.workspace)
           ? normalizeWorkspaceRoot(activeThread.workspace)
-          : '') ||
-        normalizeWorkspaceRoot(settings.workspaceRoot)
+          : '')
       if (!workspaceRoot) {
         await get().chooseWorkspace({ createThreadAfter: true })
         return

@@ -9,7 +9,11 @@ import type {
 } from '../agent/types'
 import { DEFAULT_LOCAL_RUNTIME_MODEL } from '@shared/app-settings'
 import type { ChatState, SideConversation, SidePanelState } from './chat-store-types'
-import { rememberProviderThreadRuntime, upsertUserBlock } from './chat-store-runtime-helpers'
+import {
+  rememberProviderThreadRuntime,
+  threadSnapshotLooksRunning,
+  upsertUserBlock
+} from './chat-store-runtime-helpers'
 
 type SideContext = {
   set: (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void
@@ -43,6 +47,10 @@ function defaultSideModel(state: ChatState, parentThreadId: string): string {
   if (parent?.model) return parent.model
   if (state.composerModel) return state.composerModel
   return DEFAULT_LOCAL_RUNTIME_MODEL
+}
+
+function sideConversationIsRegular(side: SideConversation): boolean {
+  return (side.source ?? 'side') === 'side'
 }
 
 function providerSupportsCapability(
@@ -330,6 +338,7 @@ function startSideSubscription(sideId: string, sinceSeq: number, ctx: SideContex
 export function createSideActions(ctx: SideContext): Pick<
   ChatState,
   | 'spawnSideConversation'
+  | 'attachSideConversation'
   | 'openSideConversationDraft'
   | 'sendSideMessage'
   | 'interruptSide'
@@ -345,6 +354,7 @@ export function createSideActions(ctx: SideContext): Pick<
   const actions: Pick<
     ChatState,
     | 'spawnSideConversation'
+    | 'attachSideConversation'
     | 'openSideConversationDraft'
     | 'sendSideMessage'
     | 'interruptSide'
@@ -357,6 +367,81 @@ export function createSideActions(ctx: SideContext): Pick<
     | 'discardSideConversation'
     | 'promoteSideConversation'
   > = {
+    attachSideConversation: async (input) => {
+      const threadId = input.threadId.trim()
+      const parentThreadId = input.parentThreadId.trim()
+      if (!threadId || !parentThreadId) return null
+      const state = ctx.get()
+      if (state.runtimeConnection !== 'ready') {
+        ctx.set({ error: ctx.t('common:runtimeActionNeedsConnection') })
+        return null
+      }
+
+      const existing = state.sideConversations[threadId]
+      if (existing) {
+        ctx.set((s) => ({
+          sideConversations: {
+            ...s.sideConversations,
+            [threadId]: {
+              ...existing,
+              parentThreadId,
+              ...(input.runtimeId ? { runtimeId: input.runtimeId } : {}),
+              ...(input.title?.trim() ? { title: input.title.trim() } : {}),
+              ...(input.model?.trim() ? { model: input.model.trim() } : {}),
+              source: input.source ?? existing.source ?? 'side'
+            }
+          },
+          ...(input.openPanel
+            ? { sidePanel: setSidePanel(s.sidePanel, { open: true, activeSideId: threadId }) }
+            : {})
+        }))
+        startSideSubscription(threadId, existing.lastSeq, ctx)
+        return threadId
+      }
+
+      const provider = ctx.getProvider()
+      if (input.runtimeId) provider.rememberThreadRuntime?.(threadId, input.runtimeId)
+      let detail: Awaited<ReturnType<AgentProvider['getThreadDetail']>>
+      try {
+        detail = await provider.getThreadDetail(threadId)
+      } catch (e) {
+        ctx.set({ error: ctx.formatRuntimeError(e) })
+        return null
+      }
+
+      const title = input.title?.trim() || threadId.slice(0, 8)
+      const now = new Date().toISOString()
+      const side: SideConversation = {
+        threadId,
+        ...(input.runtimeId ? { runtimeId: input.runtimeId } : {}),
+        parentThreadId,
+        source: input.source ?? 'side',
+        title,
+        createdAt: now,
+        inheritedAt: now,
+        blocks: detail.blocks,
+        liveReasoning: '',
+        liveAssistant: '',
+        lastSeq: detail.latestSeq,
+        input: '',
+        model: input.model?.trim() || defaultSideModel(state, parentThreadId),
+        reasoningEffort: 'max',
+        busy: threadSnapshotLooksRunning(detail.blocks, detail.threadStatus),
+        turnId: detail.latestTurnId ?? null,
+        userItemId: detail.latestUserMessageId ?? null,
+        error: null
+      }
+
+      ctx.set((s) => ({
+        sideConversations: { ...s.sideConversations, [threadId]: side },
+        ...(input.openPanel
+          ? { sidePanel: setSidePanel(s.sidePanel, { open: true, activeSideId: threadId }) }
+          : {})
+      }))
+      startSideSubscription(threadId, detail.latestSeq, ctx)
+      return threadId
+    },
+
     spawnSideConversation: async (seedText) => {
       const state = ctx.get()
       const parentId = state.activeThreadId
@@ -399,6 +484,7 @@ export function createSideActions(ctx: SideContext): Pick<
         threadId: forked.id,
         ...(forked.runtimeId ? { runtimeId: forked.runtimeId } : {}),
         parentThreadId: parentId,
+        source: 'side',
         title: forked.title ?? title,
         createdAt: now,
         inheritedAt,
@@ -528,7 +614,9 @@ export function createSideActions(ctx: SideContext): Pick<
         delete next[sideId]
         const nextActiveId =
           s.sidePanel.activeSideId === sideId && closingSide
-            ? Object.values(next).find((side) => side.parentThreadId === closingSide.parentThreadId)?.threadId ?? null
+            ? Object.values(next).find((side) =>
+              side.parentThreadId === closingSide.parentThreadId && sideConversationIsRegular(side)
+            )?.threadId ?? null
             : s.sidePanel.activeSideId
         const nextPanel: SidePanelState = {
           open: nextActiveId ? s.sidePanel.open : false,
@@ -547,7 +635,9 @@ export function createSideActions(ctx: SideContext): Pick<
         delete next[sideId]
         const nextActiveId =
           s.sidePanel.activeSideId === sideId && side
-            ? Object.values(next).find((candidate) => candidate.parentThreadId === side.parentThreadId)?.threadId ?? null
+            ? Object.values(next).find((candidate) =>
+              candidate.parentThreadId === side.parentThreadId && sideConversationIsRegular(candidate)
+            )?.threadId ?? null
             : s.sidePanel.activeSideId
         const nextPanel: SidePanelState = {
           open: nextActiveId ? s.sidePanel.open : false,

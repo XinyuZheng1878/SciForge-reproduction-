@@ -229,6 +229,7 @@ export function useWorkbenchLayout({
     previewThreadId.current = activeThreadId
     autoOpenedPreviewUrlRef.current = null
     if (rightPanelMode === 'browser') setRightPanelMode(null)
+    if (rightPanelMode === 'child-agents') setRightPanelMode(null)
     if (rightPanelMode === 'file') {
       setRightPanelMode(null)
       setFilePreviewTarget(null)

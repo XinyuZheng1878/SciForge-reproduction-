@@ -91,8 +91,32 @@ describe('createCodexAgentRuntimeAdapter', () => {
 
     expect(caps.tools.subagents).toMatchObject({
       available: false,
-      maxParallel: 0,
-      maxChildren: 0
+      maxParallel: 2,
+      maxChildren: 4
+    })
+
+    await expect(adapter.auxiliary!({
+      settings: {
+        agentCapabilities: {
+          subagents: {
+            enabled: false,
+            maxParallel: 2,
+            maxChildRuns: 4
+          }
+        }
+      } as never
+    }, {
+      runtimeId: 'codex',
+      operation: 'getRuntimeInfo'
+    })).resolves.toMatchObject({
+      capabilities: {
+        subagents: {
+          available: false,
+          maxParallel: 2,
+          maxChildren: 4,
+          maxChildRuns: 4
+        }
+      }
     })
   })
 
@@ -645,6 +669,82 @@ describe('createCodexAgentRuntimeAdapter', () => {
           threadId: 'child-thread'
         }
       }
+    })
+  })
+
+  it('normalizes raw Codex child event aliases before replaying and listing children', async () => {
+    const service = {
+      readStoredEvents: vi.fn(async () => [
+        {
+          threadId: 'parent-thread',
+          turnId: 'turn-1',
+          seq: 1,
+          child: {
+            child_id: 'workflow-1',
+            parent_thread_id: 'parent-thread',
+            parent_turn_id: 'turn-1',
+            kind: 'workflow',
+            status: 'done',
+            name: 'release-check',
+            summary: 'Release checks passed.',
+            openAsThreadRef: {
+              thread_id: 'workflow-thread'
+            },
+            transcriptRef: {
+              transcript_id: 'workflow-thread',
+              source: 'codex-workflow'
+            }
+          }
+        }
+      ])
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    const events = []
+    for await (const event of adapter.subscribeEvents({ settings: {} as never }, {
+      runtimeId: 'codex',
+      threadId: 'parent-thread'
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'child_event',
+        child: expect.objectContaining({
+          id: 'workflow-1',
+          runtimeId: 'codex',
+          parentThreadId: 'parent-thread',
+          parentTurnId: 'turn-1',
+          kind: 'workflow',
+          status: 'completed',
+          openAsThreadRef: {
+            runtimeId: 'codex',
+            threadId: 'workflow-thread',
+            relation: 'side'
+          },
+          transcriptRef: expect.objectContaining({
+            runtimeId: 'codex',
+            childId: 'workflow-1',
+            transcriptId: 'workflow-thread',
+            source: 'codex-workflow'
+          })
+        })
+      })
+    ])
+
+    await expect(adapter.auxiliary!({ settings: {} as never }, {
+      runtimeId: 'codex',
+      operation: 'listThreadChildren',
+      payload: { threadId: 'parent-thread', parentTurnId: 'turn-1' }
+    })).resolves.toMatchObject({
+      children: [{
+        id: 'workflow-1',
+        kind: 'workflow',
+        status: 'completed',
+        parentThreadId: 'parent-thread',
+        parentTurnId: 'turn-1'
+      }]
     })
   })
 

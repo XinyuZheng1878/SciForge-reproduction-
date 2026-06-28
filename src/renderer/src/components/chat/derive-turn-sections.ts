@@ -1,10 +1,11 @@
-import type { ChatBlock, ToolBlock } from '../../agent/types'
+import type { ChatBlock, RuntimeDisclosureMetadata, ToolBlock } from '../../agent/types'
 import {
   extractDiffFilePath,
   extractUnifiedDiffText,
   formatFilePathForDisplay,
 } from '../../lib/diff-stats'
 import {
+  findTrailingAssistantContentStart,
   isProcessBlock,
   splitThink,
   type Turn
@@ -27,6 +28,7 @@ type DeriveTurnSectionsInput = {
   turn: Turn
   isProcessing: boolean
   liveProcessText: string
+  liveProcessMeta?: RuntimeDisclosureMetadata | null
   liveContent: string
   workspaceRoot: string
 }
@@ -74,14 +76,19 @@ export function deriveTurnSections({
   turn,
   isProcessing,
   liveProcessText,
+  liveProcessMeta,
   liveContent,
   workspaceRoot
 }: DeriveTurnSectionsInput): TurnSections {
   const processBlocks: ChatBlock[] = []
   const assistantContentBlocks: TurnAssistantBlock[] = []
   let latestAssistantContentBlock: TurnAssistantBlock | null = null
+  const trailingAssistantStart = isProcessing ? turn.blocks.length : findTrailingAssistantContentStart(turn.blocks)
+  const fallbackFinalAssistantId = !isProcessing && trailingAssistantStart === turn.blocks.length
+    ? [...turn.blocks].reverse().find((block) => block.kind === 'assistant' && splitThink(block.text).content.trim())?.id
+    : undefined
 
-  for (const block of turn.blocks) {
+  for (const [index, block] of turn.blocks.entries()) {
     if (block.kind === 'assistant') {
       const split = splitThink(block.text)
       if (split.think) {
@@ -90,7 +97,7 @@ export function deriveTurnSections({
       if (split.content.trim()) {
         const contentBlock: TurnAssistantBlock = { ...block, text: split.content }
         latestAssistantContentBlock = contentBlock
-        if (isProcessing) {
+        if (isProcessing || (index < trailingAssistantStart && block.id !== fallbackFinalAssistantId)) {
           processBlocks.push(contentBlock)
         } else {
           assistantContentBlocks.push(contentBlock)
@@ -108,7 +115,12 @@ export function deriveTurnSections({
   }
 
   if (liveProcessText.trim()) {
-    processBlocks.push({ kind: 'reasoning', id: 'live-reasoning', text: liveProcessText })
+    processBlocks.push({
+      kind: 'reasoning',
+      id: 'live-reasoning',
+      text: liveProcessText,
+      ...(liveProcessMeta ? { meta: liveProcessMeta } : {})
+    })
   }
 
   const turnFileChanges: ToolBlock[] = isProcessing

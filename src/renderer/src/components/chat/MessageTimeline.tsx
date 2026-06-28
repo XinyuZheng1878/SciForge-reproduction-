@@ -1,7 +1,7 @@
 import type { ReactElement, RefObject } from 'react'
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ChatBlock, RuntimeConnectionStatus } from '../../agent/types'
+import type { ChatBlock, RuntimeConnectionStatus, RuntimeDisclosureMetadata } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
 import { isClawThread } from '../../store/chat-store-helpers'
 import { useTimelineStores } from './use-timeline-stores'
@@ -44,6 +44,12 @@ type Props = {
   onBuildPlan?: () => void
   /** Opens/focuses the Plan panel (Open button on the inline card). */
   onOpenPlan?: () => void
+  busyOverride?: boolean
+  currentTurnUserIdOverride?: string | null
+  turnStartedAtByUserIdOverride?: Record<string, number>
+  turnDurationByUserIdOverride?: Record<string, number>
+  turnReasoningFirstAtByUserIdOverride?: Record<string, number>
+  turnReasoningLastAtByUserIdOverride?: Record<string, number>
 }
 
 const TURN_PAGE_SIZE = 18
@@ -84,7 +90,13 @@ export function MessageTimeline({
   devPreviewCard,
   planActionsBusy,
   onBuildPlan,
-  onOpenPlan
+  onOpenPlan,
+  busyOverride,
+  currentTurnUserIdOverride,
+  turnStartedAtByUserIdOverride,
+  turnDurationByUserIdOverride,
+  turnReasoningFirstAtByUserIdOverride,
+  turnReasoningLastAtByUserIdOverride
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const {
@@ -100,6 +112,17 @@ export function MessageTimeline({
     turnReasoningLastAtByUserId,
     activeThread
   } = useTimelineStores(activeThreadId)
+  const effectiveBusy = busyOverride ?? busy
+  const effectiveCurrentTurnUserId = currentTurnUserIdOverride ?? currentTurnUserId
+  const effectiveTurnStartedAtByUserId = turnStartedAtByUserIdOverride ?? turnStartedAtByUserId
+  const effectiveTurnDurationByUserId = turnDurationByUserIdOverride ?? turnDurationByUserId
+  const effectiveTurnReasoningFirstAtByUserId =
+    turnReasoningFirstAtByUserIdOverride ?? turnReasoningFirstAtByUserId
+  const effectiveTurnReasoningLastAtByUserId =
+    turnReasoningLastAtByUserIdOverride ?? turnReasoningLastAtByUserId
+  const liveReasoningMeta = useChatStore((s) =>
+    activeThreadId && activeThreadId === s.activeThreadId ? s.liveReasoningMeta : null
+  )
 
   const remoteChannelMode = Boolean(activeThread && isClawThread(activeThread, clawChannels))
   const hasContent = blocks.length > 0 || live || liveReasoning
@@ -114,7 +137,9 @@ export function MessageTimeline({
     blocks.length,
     blockScrollStamp(latestBlock),
     live.length,
-    liveReasoning.length
+    liveReasoning.length,
+    liveReasoningMeta?.reasoning?.visibility ?? '',
+    liveReasoningMeta?.reasoning?.source ?? ''
   ].join(':')
   const {
     visibleTurnCount,
@@ -128,12 +153,12 @@ export function MessageTimeline({
     pageSize: TURN_PAGE_SIZE,
     autoCollapseThreshold: AUTO_COLLAPSE_THRESHOLD,
     totalTurns: turns.length,
-    busy,
-    autoScrollEnabled,
-    scrollDeps: {
+      busy: effectiveBusy,
+      autoScrollEnabled,
+      scrollDeps: {
       contentKey: scrollContentKey,
       streaming: Boolean(live.trim() || liveReasoning.trim()),
-      userTurnKey: currentTurnUserId ?? ''
+      userTurnKey: effectiveCurrentTurnUserId ?? ''
     }
   })
   const visibleTurns = useMemo(
@@ -149,11 +174,11 @@ export function MessageTimeline({
   // Tick a clock while a turn is running so the live "Worked for Xs" updates.
   const [tickNow, setTickNow] = useState(() => Date.now())
   useEffect(() => {
-    if (!busy || !currentTurnUserId) return
+    if (!effectiveBusy || !effectiveCurrentTurnUserId) return
     setTickNow(Date.now())
     const id = window.setInterval(() => setTickNow(Date.now()), 1000)
     return () => window.clearInterval(id)
-  }, [busy, currentTurnUserId])
+  }, [effectiveBusy, effectiveCurrentTurnUserId])
 
   return (
     <div ref={containerRef} className="ds-no-drag flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
@@ -191,16 +216,16 @@ export function MessageTimeline({
         {visibleTurns.map((turn, index) => {
           const absoluteTurnIndex = hiddenTurnCount + index
           const userId = turn.user?.id
-          const isLive = !!(userId && currentTurnUserId === userId)
-          const startedAt = userId ? turnStartedAtByUserId[userId] : undefined
-          const recordedDuration = userId ? turnDurationByUserId[userId] : undefined
+          const isLive = !!(userId && effectiveCurrentTurnUserId === userId)
+          const startedAt = userId ? effectiveTurnStartedAtByUserId[userId] : undefined
+          const recordedDuration = userId ? effectiveTurnDurationByUserId[userId] : undefined
           const durationMs =
             recordedDuration ??
             (isLive && typeof startedAt === 'number'
               ? Math.max(0, tickNow - startedAt)
               : undefined)
-          const reasoningFirst = userId ? turnReasoningFirstAtByUserId[userId] : undefined
-          const reasoningLast = userId ? turnReasoningLastAtByUserId[userId] : undefined
+          const reasoningFirst = userId ? effectiveTurnReasoningFirstAtByUserId[userId] : undefined
+          const reasoningLast = userId ? effectiveTurnReasoningLastAtByUserId[userId] : undefined
           const reasoningDurationMs =
             typeof reasoningFirst === 'number' && typeof reasoningLast === 'number'
               ? Math.max(0, reasoningLast - reasoningFirst)
@@ -215,8 +240,9 @@ export function MessageTimeline({
               {showForkPoint ? <ThreadForkPoint parentTitle={forkedFromTitle} /> : null}
               <MemoMessageTurn
                 turn={turn}
-                isProcessing={(busy && isLatestTurn) || turnPending || hasLiveStream}
+                isProcessing={(effectiveBusy && isLatestTurn) || turnPending || hasLiveStream}
                 liveReasoning={isLatestTurn ? liveReasoning : ''}
+                liveReasoningMeta={isLatestTurn ? liveReasoningMeta : null}
                 live={isLatestTurn ? live : ''}
                 durationMs={durationMs}
                 reasoningDurationMs={reasoningDurationMs}
@@ -236,7 +262,7 @@ export function MessageTimeline({
           <ThreadForkPoint parentTitle={forkedFromTitle} />
         ) : null}
 
-        {hiddenTurnCount === 0 && turns.length > TURN_PAGE_SIZE && turns.length > AUTO_COLLAPSE_THRESHOLD && !busy ? (
+        {hiddenTurnCount === 0 && turns.length > TURN_PAGE_SIZE && turns.length > AUTO_COLLAPSE_THRESHOLD && !effectiveBusy ? (
           <div className="flex items-center justify-center">
             <button
               type="button"
@@ -253,20 +279,21 @@ export function MessageTimeline({
         {blocks.length === 0 && (live || liveReasoning) ? (
           <MemoMessageTurn
             turn={{ blocks: [] }}
-            isProcessing={busy}
+            isProcessing={effectiveBusy}
             liveReasoning={liveReasoning}
+            liveReasoningMeta={liveReasoningMeta}
             live={live}
             devPreviewCard={devPreviewCard}
             viewportRef={containerRef}
             durationMs={
-              currentTurnUserId && typeof turnStartedAtByUserId[currentTurnUserId] === 'number'
-                ? Math.max(0, tickNow - turnStartedAtByUserId[currentTurnUserId])
+              effectiveCurrentTurnUserId && typeof effectiveTurnStartedAtByUserId[effectiveCurrentTurnUserId] === 'number'
+                ? Math.max(0, tickNow - effectiveTurnStartedAtByUserId[effectiveCurrentTurnUserId])
                 : undefined
             }
             reasoningDurationMs={(() => {
-              if (!currentTurnUserId) return undefined
-              const first = turnReasoningFirstAtByUserId[currentTurnUserId]
-              const last = turnReasoningLastAtByUserId[currentTurnUserId]
+              if (!effectiveCurrentTurnUserId) return undefined
+              const first = effectiveTurnReasoningFirstAtByUserId[effectiveCurrentTurnUserId]
+              const last = effectiveTurnReasoningLastAtByUserId[effectiveCurrentTurnUserId]
               if (typeof first !== 'number' || typeof last !== 'number') return undefined
               return Math.max(0, last - first)
             })()}
@@ -282,6 +309,7 @@ function MessageTurn({
   turn,
   isProcessing,
   liveReasoning,
+  liveReasoningMeta,
   live,
   durationMs,
   reasoningDurationMs,
@@ -294,6 +322,7 @@ function MessageTurn({
   turn: Turn
   isProcessing: boolean
   liveReasoning: string
+  liveReasoningMeta?: RuntimeDisclosureMetadata | null
   live: string
   durationMs?: number
   reasoningDurationMs?: number
@@ -319,6 +348,7 @@ function MessageTurn({
   }, [turn.blocks, isProcessing])
   const { think: liveThink, content: liveContent } = splitThink(live)
   const liveProcessText = [liveReasoning, liveThink].filter(Boolean).join('\n\n')
+  const liveProcessMeta = liveReasoning.trim() ? liveReasoningMeta : null
   const [workExpandedOverride, setWorkExpandedOverride] = useState<boolean | null>(null)
   const workExpanded = workExpandedOverride ?? isProcessing
 
@@ -328,10 +358,11 @@ function MessageTurn({
         turn,
         isProcessing,
         liveProcessText,
+        liveProcessMeta,
         liveContent,
         workspaceRoot
       }),
-    [turn, isProcessing, liveProcessText, liveContent, workspaceRoot]
+    [turn, isProcessing, liveProcessText, liveProcessMeta, liveContent, workspaceRoot]
   )
   const reviewBlocks = useMemo(
     () => turn.blocks.filter((block) => block.kind === 'review'),
@@ -450,6 +481,7 @@ const MemoMessageTurn = memo(MessageTurn, (prev, next) => (
   sameTurnContent(prev.turn, next.turn) &&
   prev.isProcessing === next.isProcessing &&
   prev.liveReasoning === next.liveReasoning &&
+  prev.liveReasoningMeta === next.liveReasoningMeta &&
   prev.live === next.live &&
   prev.durationMs === next.durationMs &&
   prev.reasoningDurationMs === next.reasoningDurationMs &&
