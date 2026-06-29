@@ -85,3 +85,68 @@
   height: 22px;
   width: 1px;
 }
+
+.sciforge-canvas-tldraw-surface .tl-corner-handle {
+  fill: rgb(47 128 237) !important;
+  stroke: rgb(255 255 255) !important;
+  stroke-width: calc(2px * var(--tl-scale)) !important;
+}
+
+.sciforge-canvas-tldraw-surface .tl-selection__fg__outline {
+  stroke: rgb(47 128 237) !important;
+}
+
+.sciforge-canvas-tldraw-surface .tlui-contextual-toolbar {
+  display: none !important;
+}
+
+.sciforge-canvas-selection-actions {
+  align-items: center;
+  background: rgb(255 255 255 / 0.96);
+  border: 1px solid rgb(192 204 222 / 0.95);
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgb(28 35 50 / 0.16);
+  display: flex;
+  gap: 4px;
+  left: 50%;
+  max-width: calc(100% - 24px);
+  padding: 5px;
+  position: absolute;
+  top: 14px;
+  transform: translateX(-50%);
+  z-index: 96;
+}
+
+.sciforge-canvas-selection-actions-status,
+.sciforge-canvas-selection-action {
+  align-items: center;
+  border-radius: 8px;
+  color: rgb(57 68 84);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 650;
+  gap: 5px;
+  height: 30px;
+  min-width: 0;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.sciforge-canvas-selection-actions-status {
+  background: rgb(244 247 251);
+  border: 1px solid rgb(223 230 240);
+}
+
+.sciforge-canvas-selection-action {
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.sciforge-canvas-selection-action:hover {
+  background: rgb(47 128 237 / 0.12);
+  color: rgb(30 93 190);
+}
+
+.sciforge-canvas-selection-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

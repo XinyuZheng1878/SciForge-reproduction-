@@ -195,7 +195,7 @@ describe('dev browser bridge server', () => {
     })
   })
 
-  it('rejects local mutating channels by default', async () => {
+  it('rejects unrelated host mutating channels by default', async () => {
     const invoke = vi.fn(async () => ({ ok: true }))
     const dispatcher: DevBrowserBridgeDispatcher = { invoke }
 
@@ -205,19 +205,68 @@ describe('dev browser bridge server', () => {
       token: 'test-bridge-token-123'
     })
 
-    for (const channel of ['settings:set', 'agentRuntime:connect', 'agentRuntime:startTurn'] as const) {
+    const response = await postJson('/invoke', {
+      channel: 'desktop:command',
+      payload: { command: 'open-settings' }
+    })
+
+    expect(response.status).toBe(403)
+    expect(JSON.parse(response.body)).toEqual({
+      ok: false,
+      message: 'Dev browser bridge channel is not allowed: desktop:command'
+    })
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('allows authenticated settings writes in browser dev mode', async () => {
+    const invoke = vi.fn(async (_channel, payload) => ({ ok: true, payload }))
+    const dispatcher: DevBrowserBridgeDispatcher = { invoke }
+
+    server = await startDevBrowserBridgeServer({
+      dispatcher,
+      port: 0,
+      token: 'test-bridge-token-123'
+    })
+
+    const response = await postJson('/invoke', {
+      channel: 'settings:set',
+      payload: { provider: { apiKey: 'provider-key' } }
+    })
+
+    expect(response.status).toBe(200)
+    expect(JSON.parse(response.body)).toEqual({
+      ok: true,
+      payload: { ok: true, payload: { provider: { apiKey: 'provider-key' } } }
+    })
+    expect(invoke).toHaveBeenCalledWith(
+      'settings:set',
+      { provider: { apiKey: 'provider-key' } },
+      expect.objectContaining({ id: expect.any(Number), send: expect.any(Function) })
+    )
+  })
+
+  it('allows authenticated agent runtime actions in browser dev mode', async () => {
+    const invoke = vi.fn(async (_channel, payload) => ({ ok: true, payload }))
+    const dispatcher: DevBrowserBridgeDispatcher = { invoke }
+
+    server = await startDevBrowserBridgeServer({
+      dispatcher,
+      port: 0,
+      token: 'test-bridge-token-123'
+    })
+
+    for (const channel of ['agentRuntime:connect', 'agentRuntime:startTurn', 'sciforge-canvas:open'] as const) {
       const response = await postJson('/invoke', {
         channel,
-        payload: { theme: 'dark' }
+        payload: channel === 'sciforge-canvas:open'
+          ? { workspaceRoot: '/tmp/workspace', canvasId: 'thread-test' }
+          : { runtimeId: 'sciforge' }
       })
 
-      expect(response.status).toBe(403)
-      expect(JSON.parse(response.body)).toEqual({
-        ok: false,
-        message: `Dev browser bridge channel is not allowed: ${channel}`
-      })
+      expect(response.status).toBe(200)
+      expect(JSON.parse(response.body).ok).toBe(true)
     }
-    expect(invoke).not.toHaveBeenCalled()
+    expect(invoke).toHaveBeenCalledTimes(3)
   })
 
   it('allows callers to explicitly opt into mutating channels', async () => {

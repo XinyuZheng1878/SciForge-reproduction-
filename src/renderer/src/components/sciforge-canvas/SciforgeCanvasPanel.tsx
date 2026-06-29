@@ -9,11 +9,13 @@ import type {
   SciforgeCanvasSelectionState
 } from '@shared/sciforge-canvas'
 import {
+  ArrowUpRight,
   Download,
   Frame,
   ChevronDown,
   Loader2,
   MessageSquarePlus,
+  Move,
   Send,
   RefreshCw,
   Square,
@@ -43,6 +45,8 @@ type Props = {
   onCollapse?: () => void
   variant?: 'standalone' | 'embedded'
   onSendReviewRequest?: (text: string) => void
+  refreshKey?: number
+  focusShapeId?: string
 }
 
 type CanvasSnapshot = Extract<SciforgeCanvasOpenResult, { ok: true }>['snapshot']
@@ -57,6 +61,13 @@ type AnnotationToolPickerProps = {
   activeMode: AnnotationMode | null
   variant: 'toolbar' | 'floating'
   onSelect: (mode: AnnotationMode) => void
+}
+type SelectionActionBarProps = {
+  selectedCount: number
+  sendingReviewRequest: boolean
+  canSendReviewRequest: boolean
+  onStartAnnotation: (mode: AnnotationMode) => void
+  onSendReviewRequest: () => void
 }
 type AnnotationDragState = {
   shapeId: TLShapeId
@@ -525,13 +536,81 @@ function AnnotationToolPicker({
   )
 }
 
+function SelectionActionBar({
+  selectedCount,
+  sendingReviewRequest,
+  canSendReviewRequest,
+  onStartAnnotation,
+  onSendReviewRequest
+}: SelectionActionBarProps): ReactElement | null {
+  if (selectedCount <= 0) return null
+
+  return (
+    <div className="sciforge-canvas-selection-actions" aria-label="选中对象操作">
+      <div className="sciforge-canvas-selection-actions-status" title="拖动图片可以移动；拖动蓝色角点可以缩放。">
+        <Move className="h-3.5 w-3.5" aria-hidden="true" />
+        <span>{selectedCount} 个对象</span>
+      </div>
+      <button
+        type="button"
+        className="sciforge-canvas-selection-action"
+        title="添加箭头批注，适合指出具体位置或方向"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onStartAnnotation('arrow')
+        }}
+      >
+        <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+        <span>箭头</span>
+      </button>
+      <button
+        type="button"
+        className="sciforge-canvas-selection-action"
+        title="添加范围框批注，适合圈定一块需要修改的区域"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onStartAnnotation('box')
+        }}
+      >
+        <Square className="h-3.5 w-3.5" aria-hidden="true" />
+        <span>范围框</span>
+      </button>
+      <button
+        type="button"
+        className="sciforge-canvas-selection-action"
+        title="导出审改包，并把当前画布标注发送到对话框"
+        disabled={!canSendReviewRequest || sendingReviewRequest}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onSendReviewRequest()
+        }}
+      >
+        {sendingReviewRequest ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+        ) : (
+          <Send className="h-3.5 w-3.5" aria-hidden="true" />
+        )}
+        <span>{sendingReviewRequest ? '发送中' : '发送修改'}</span>
+      </button>
+    </div>
+  )
+}
+
 export function SciforgeCanvasPanel({
   workspaceRoot,
   canvasId = DEFAULT_CANVAS_ID,
   className = '',
   onCollapse,
   variant = 'standalone',
-  onSendReviewRequest
+  onSendReviewRequest,
+  refreshKey,
+  focusShapeId
 }: Props): ReactElement {
   const [snapshot, setSnapshot] = useState<CanvasSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
@@ -551,7 +630,28 @@ export function SciforgeCanvasPanel({
   const annotationDragRef = useRef<AnnotationDragState | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSelectionRef = useRef('')
+  const lastFocusedShapeRef = useRef('')
   const annotationCaptureActive = annotationCaptureMode !== null
+
+  const focusShape = useCallback((editor: Editor, shapeId: string | undefined): boolean => {
+    const normalizedShapeId = shapeId?.trim()
+    if (!normalizedShapeId) return false
+    const shape = editor.getShape(normalizedShapeId as TLShapeId)
+    if (!shape) return false
+    editor.select(normalizedShapeId as TLShapeId)
+    const maybeEditor = editor as Editor & {
+      zoomToSelection?: (options?: unknown) => void
+      zoomToBounds?: (bounds: unknown, options?: unknown) => void
+      getShapePageBounds?: (id: TLShapeId) => unknown
+    }
+    if (typeof maybeEditor.zoomToSelection === 'function') {
+      maybeEditor.zoomToSelection({ animation: { duration: 180 } })
+    } else if (typeof maybeEditor.zoomToBounds === 'function' && typeof maybeEditor.getShapePageBounds === 'function') {
+      const bounds = maybeEditor.getShapePageBounds(normalizedShapeId as TLShapeId)
+      if (bounds) maybeEditor.zoomToBounds(bounds, { animation: { duration: 180 } })
+    }
+    return true
+  }, [])
 
   const loadCanvas = useCallback(async () => {
     setLoading(true)
@@ -591,6 +691,11 @@ export function SciforgeCanvasPanel({
   useEffect(() => {
     void loadCanvas()
   }, [loadCanvas])
+
+  useEffect(() => {
+    if (refreshKey === undefined) return
+    void loadCanvas()
+  }, [loadCanvas, refreshKey])
 
   const saveCanvasNow = useCallback(async (editor: Editor): Promise<boolean> => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
@@ -639,6 +744,18 @@ export function SciforgeCanvasPanel({
     return selection
   }, [canvasId, workspaceRoot])
 
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor || !focusShapeId?.trim()) return
+    const focusKey = `${canvasId}:${refreshKey ?? 'initial'}:${focusShapeId}`
+    if (lastFocusedShapeRef.current === focusKey) return
+    const timer = window.setTimeout(() => {
+      if (focusShape(editor, focusShapeId)) lastFocusedShapeRef.current = focusKey
+      void saveSelection(editor, true)
+    }, 120)
+    return () => window.clearTimeout(timer)
+  }, [canvasId, focusShape, focusShapeId, refreshKey, saveSelection, snapshot])
+
   const handleMount = useCallback((editor: Editor) => {
     editorRef.current = editor
     let isSyncingAnnotationRecords = false
@@ -669,8 +786,18 @@ export function SciforgeCanvasPanel({
       { source: 'all', scope: 'document' }
     )
     void saveSelection(editor)
+    const focusInitial = focusShapeId?.trim()
+      ? window.setTimeout(() => {
+          const focusKey = `${canvasId}:${refreshKey ?? 'initial'}:${focusShapeId}`
+          if (lastFocusedShapeRef.current !== focusKey && focusShape(editor, focusShapeId)) {
+            lastFocusedShapeRef.current = focusKey
+          }
+          void saveSelection(editor, true)
+        }, 120)
+      : null
     return () => {
       window.clearTimeout(saveInitial)
+      if (focusInitial !== null) window.clearTimeout(focusInitial)
       window.clearInterval(selectionTimer)
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       unsubscribeDocument()
@@ -680,7 +807,7 @@ export function SciforgeCanvasPanel({
       void saveSelection(editor, true)
       if (editorRef.current === editor) editorRef.current = null
     }
-  }, [saveCanvas, saveCanvasNow, saveSelection])
+  }, [canvasId, focusShape, focusShapeId, refreshKey, saveCanvas, saveCanvasNow, saveSelection])
 
   const cancelAnnotationCapture = useCallback((messageText = '批注已取消。') => {
     const editor = editorRef.current
@@ -1285,11 +1412,20 @@ export function SciforgeCanvasPanel({
         ) : snapshot ? (
           <>
             <Tldraw
-              key={`${workspaceRoot}::${canvasId}`}
+              key={`${workspaceRoot}::${canvasId}::${refreshKey ?? 0}`}
               snapshot={snapshot as never}
               onMount={handleMount}
               components={SCIFORGE_CANVAS_TLDRAW_COMPONENTS}
             />
+            {!annotationCaptureActive ? (
+              <SelectionActionBar
+                selectedCount={selectedCount}
+                sendingReviewRequest={sendingReviewRequest}
+                canSendReviewRequest={Boolean(onSendReviewRequest)}
+                onStartAnnotation={startAnnotation}
+                onSendReviewRequest={() => void sendReviewRequestToChat()}
+              />
+            ) : null}
             {annotationCaptureActive ? (
               <div
                 className="sciforge-canvas-annotation-capture"

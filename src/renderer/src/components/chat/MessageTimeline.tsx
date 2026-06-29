@@ -10,7 +10,11 @@ import { deriveTurnSections } from './derive-turn-sections'
 import { MessageTimelineEmptyHero, ThreadForkBanner, ThreadForkPoint } from './message-timeline-empty'
 import { MessageBubble } from './message-timeline-bubbles'
 import { ReviewPlanCard, ReviewSummaryCard, TurnChangeSummary, WorkMetaRow } from './message-timeline-cards'
-import { TimelineImageResultsPanel } from './message-timeline-media'
+import {
+  TimelineImageResultsPanel,
+  timelineImagesFromToolBlocks,
+  type TimelineImageCanvasArtifact
+} from './message-timeline-media'
 import { ProcessSectionRow, groupProcessSections } from './message-timeline-process'
 import { AnimatedWorkLogo } from './AnimatedWorkLogo'
 import {
@@ -50,6 +54,7 @@ type Props = {
   turnDurationByUserIdOverride?: Record<string, number>
   turnReasoningFirstAtByUserIdOverride?: Record<string, number>
   turnReasoningLastAtByUserIdOverride?: Record<string, number>
+  onOpenImageArtifactInCanvas?: (artifact: TimelineImageCanvasArtifact) => void
 }
 
 const TURN_PAGE_SIZE = 18
@@ -96,7 +101,8 @@ export function MessageTimeline({
   turnStartedAtByUserIdOverride,
   turnDurationByUserIdOverride,
   turnReasoningFirstAtByUserIdOverride,
-  turnReasoningLastAtByUserIdOverride
+  turnReasoningLastAtByUserIdOverride,
+  onOpenImageArtifactInCanvas
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const {
@@ -250,6 +256,7 @@ export function MessageTimeline({
                 planActionsBusy={planActionsBusy}
                 onBuildPlan={onBuildPlan}
                 onOpenPlan={onOpenPlan}
+                onOpenImageArtifactInCanvas={onOpenImageArtifactInCanvas}
                 viewportRef={containerRef}
               />
             </Fragment>
@@ -284,6 +291,7 @@ export function MessageTimeline({
             liveReasoningMeta={liveReasoningMeta}
             live={live}
             devPreviewCard={devPreviewCard}
+            onOpenImageArtifactInCanvas={onOpenImageArtifactInCanvas}
             viewportRef={containerRef}
             durationMs={
               effectiveCurrentTurnUserId && typeof effectiveTurnStartedAtByUserId[effectiveCurrentTurnUserId] === 'number'
@@ -317,6 +325,7 @@ function MessageTurn({
   planActionsBusy,
   onBuildPlan,
   onOpenPlan,
+  onOpenImageArtifactInCanvas,
   viewportRef
 }: {
   turn: Turn
@@ -330,6 +339,7 @@ function MessageTurn({
   planActionsBusy?: boolean
   onBuildPlan?: () => void
   onOpenPlan?: () => void
+  onOpenImageArtifactInCanvas?: (artifact: TimelineImageCanvasArtifact) => void
   viewportRef: RefObject<HTMLDivElement | null>
 }): ReactElement {
   const workspaceRoot = useChatStore((s) => s.workspaceRoot)
@@ -377,6 +387,10 @@ function MessageTurn({
             block.kind === 'tool' && block.status === 'success'
         ),
     [isProcessing, turn.blocks]
+  )
+  const turnArtifactImages = useMemo(
+    () => timelineImagesFromToolBlocks(toolResultImageBlocks),
+    [toolResultImageBlocks]
   )
 
   const processSections = useMemo(
@@ -428,16 +442,20 @@ function MessageTurn({
         <MessageBubble
           key={block.id}
           block={block}
+          markdownImages={turnArtifactImages}
+          onOpenImageArtifactInCanvas={onOpenImageArtifactInCanvas}
         />
       ))}
 
       {showLiveAssistant ? (
         <MessageBubble
           block={{ kind: 'assistant', id: 'live-assistant', text: liveContent }}
+          markdownImages={turnArtifactImages}
+          onOpenImageArtifactInCanvas={onOpenImageArtifactInCanvas}
         />
       ) : null}
 
-      <TimelineImageResultsPanel blocks={toolResultImageBlocks} />
+      <TimelineImageResultsPanel blocks={toolResultImageBlocks} onOpenCanvas={onOpenImageArtifactInCanvas} />
 
       {reviewBlocks.map((review) => (
         <ReviewSummaryCard key={review.id} review={review} />
@@ -489,5 +507,6 @@ const MemoMessageTurn = memo(MessageTurn, (prev, next) => (
   prev.planActionsBusy === next.planActionsBusy &&
   prev.onBuildPlan === next.onBuildPlan &&
   prev.onOpenPlan === next.onOpenPlan &&
+  prev.onOpenImageArtifactInCanvas === next.onOpenImageArtifactInCanvas &&
   prev.viewportRef === next.viewportRef
 ))

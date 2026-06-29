@@ -130,6 +130,7 @@ export async function renderImageGeneration(request: ImageGenerationRenderReques
       tool: 'image_generation_render',
       createdAt: new Date().toISOString(),
       requestHash: hashValue({ recipe }),
+      workspaceRoot,
       outputPath,
       ...(request.canvasId ? { canvasId: request.canvasId } : {}),
       ...(request.threadId ? { threadId: request.threadId } : {}),
@@ -155,6 +156,7 @@ export async function renderImageGeneration(request: ImageGenerationRenderReques
     return {
       ok: true,
       status: providerResult.placeholder ? 'rendered_placeholder' : review.ok ? 'rendered' : 'review_failed',
+      workspaceRoot,
       outputPath,
       manifestPath,
       artifactManifestPath,
@@ -195,7 +197,13 @@ export async function editImageFromCanvasPacket(
     }
     const outputDir = await resolveOutputDir(workspaceRoot, request.outputDir)
     await mkdir(outputDir, { recursive: true })
-    const outputs: Array<{ outputPath: string; manifestPath: string; artifactManifestPath: string; provider: 'image-endpoint' | 'placeholder' }> = []
+    const outputs: Array<{
+      workspaceRoot: string
+      outputPath: string
+      manifestPath: string
+      artifactManifestPath: string
+      provider: 'image-endpoint' | 'placeholder'
+    }> = []
     for (const [index, intent] of intents.entries()) {
       const imageId = slugForId(request.imageId ?? 'edited-image-' + new Date().toISOString() + '-' + (index + 1))
       const outputPath = join(outputDir, imageId + '.' + (intent.outputFormat ?? 'png'))
@@ -210,6 +218,7 @@ export async function editImageFromCanvasPacket(
         tool: 'image_generation_edit_from_canvas_packet',
         createdAt: new Date().toISOString(),
         requestHash: hashValue({ intent }),
+        workspaceRoot,
         outputPath,
         ...(canvasId ? { canvasId } : {}),
         ...(threadId ? { threadId } : {}),
@@ -225,14 +234,14 @@ export async function editImageFromCanvasPacket(
         artifactKind: 'edited_image',
         sourceTool: 'image_generation',
         outputPath,
-      manifestPath,
-      sourcePath: intent.sourcePath,
-      title: intent.instruction.slice(0, 90) || imageId,
+        manifestPath,
+        sourcePath: intent.sourcePath,
+        title: intent.instruction.slice(0, 90) || imageId,
         ...(canvasId ? { canvasId } : {}),
         ...(threadId ? { threadId } : {}),
-      review
+        review
       })
-      outputs.push({ outputPath, manifestPath, artifactManifestPath, provider: providerResult.provider })
+      outputs.push({ workspaceRoot, outputPath, manifestPath, artifactManifestPath, provider: providerResult.provider })
     }
     return {
       ok: true,
@@ -414,7 +423,31 @@ async function renderWithImageEndpoint(
     outputPath: string
   }
 ): Promise<void> {
-  const response = await fetch(baseUrl + '/images/generations', {
+  let response = await fetchOpenAiImagesEndpoint(baseUrl, input, 'prompt')
+  let payload = await parseProviderJson(response, 'Image endpoint')
+
+  if (!response.ok && shouldRetryImagesEndpointWithTextPayload(response.status, payload)) {
+    response = await fetchOpenAiImagesEndpoint(baseUrl, input, 'text')
+    payload = await parseProviderJson(response, 'Image endpoint')
+  }
+
+  if (!response.ok) throw new ProviderError(providerHttpError('Image endpoint', response.status, payload))
+  const first = payload.data?.[0]
+  if (await writeProviderImage(first, input.outputPath)) return
+  throw new ProviderError('Image endpoint response did not include b64_json or url.')
+}
+
+async function fetchOpenAiImagesEndpoint(
+  baseUrl: string,
+  input: {
+    apiKey: string
+    model: string
+    prompt: string
+    size: ImageSize
+  },
+  promptField: 'prompt' | 'text'
+): Promise<Response> {
+  return fetch(baseUrl + '/images/generations', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -422,16 +455,17 @@ async function renderWithImageEndpoint(
     },
     body: JSON.stringify({
       model: input.model,
-      prompt: input.prompt,
+      [promptField]: input.prompt,
       size: input.size.width + 'x' + input.size.height,
       n: 1
     })
   })
-  const payload = await parseProviderJson(response, 'Image endpoint')
-  if (!response.ok) throw new ProviderError(providerHttpError('Image endpoint', response.status, payload))
-  const first = payload.data?.[0]
-  if (await writeProviderImage(first, input.outputPath)) return
-  throw new ProviderError('Image endpoint response did not include b64_json or url.')
+}
+
+function shouldRetryImagesEndpointWithTextPayload(status: number, payload: Record<string, any>): boolean {
+  if (status !== 400) return false
+  const message = (stringValue(asRecord(payload.error).message) ?? '').toLowerCase()
+  return message.includes('text') && message.includes('image') && message.includes('provided')
 }
 
 async function parseProviderJson(
@@ -659,6 +693,7 @@ async function writeImageArtifactManifest(input: {
     createdAt: new Date().toISOString(),
     sourceTool: input.sourceTool,
     artifactKind: input.artifactKind,
+    workspaceRoot: input.workspaceRoot,
     path: input.outputPath,
     outputPath: input.outputPath,
     manifestPath: input.manifestPath,

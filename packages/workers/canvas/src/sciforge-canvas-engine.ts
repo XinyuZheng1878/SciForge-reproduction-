@@ -632,6 +632,7 @@ async function buildArtifactMetadata(
 
   const artifact: SciforgeCanvasArtifactMetadata = {
     artifactKind: request.artifactKind,
+    workspaceRoot,
     ...(sourcePath ? { sourcePath } : {}),
     ...(outputPath ? { outputPath } : {}),
     ...(previewPath ? { previewPath } : {}),
@@ -687,6 +688,13 @@ async function resolveOptionalExistingDirectory(raw: string | undefined, workspa
 }
 
 function displayPathForArtifact(artifact: SciforgeCanvasArtifactMetadata): string | undefined {
+  if (artifact.artifactKind === 'ppt_export') {
+    return imageDisplayPath(artifact.previewPath)
+      ?? imageDisplayPath(artifact.renderedPagePath)
+      ?? imageDisplayPath(artifact.svgPath)
+      ?? imageDisplayPath(artifact.outputPath)
+      ?? imageDisplayPath(artifact.sourcePath)
+  }
   if (artifact.previewPath) return artifact.previewPath
   if (artifact.renderedPagePath) return artifact.renderedPagePath
   if (artifact.artifactKind === 'ppt_slide') return artifact.svgPath ?? artifact.outputPath ?? artifact.sourcePath
@@ -701,6 +709,11 @@ function displayPathForArtifact(artifact: SciforgeCanvasArtifactMetadata): strin
   return artifact.outputPath ?? artifact.sourcePath
 }
 
+function imageDisplayPath(path: string | undefined): string | undefined {
+  if (!path) return undefined
+  return IMAGE_EXTENSIONS.has(extensionFromName(path)) ? path : undefined
+}
+
 async function prepareCanvasArtifactPreview(input: {
   artifact: SciforgeCanvasArtifactMetadata
   request: SciforgeCanvasInsertArtifactRequest
@@ -711,10 +724,27 @@ async function prepareCanvasArtifactPreview(input: {
   if (!input.artifact.pptxPath) return input.artifact
   if (displayPathForArtifact(input.artifact)) return input.artifact
 
+  const svgPreview = await findPptMasterSvgPreview(input)
+  if (svgPreview) {
+    input.warnings.push(`ppt_export slide ${svgPreview.pageNumber} using ppt-master SVG preview for canvas review.`)
+    return {
+      ...input.artifact,
+      previewPath: svgPreview.svgPath,
+      renderedPagePath: svgPreview.svgPath,
+      renderedFromPptxPath: input.artifact.pptxPath,
+      renderedSlideIndex: svgPreview.slideIndex
+    }
+  }
+
+  if (process.env.SCIFORGE_CANVAS_DISABLE_PPT_RENDER === '1') {
+    input.warnings.push('ppt_export will be represented as a canvas placeholder because PPTX preview rendering is disabled.')
+    return input.artifact
+  }
+
   try {
     const preview = await renderPptxSlidePreview({
       pptxPath: input.artifact.pptxPath,
-      slideIndex: Math.max(0, Math.floor(input.request.slideIndex ?? 0)),
+      slideIndex: slideIndexForPptArtifact(input.artifact, input.request),
       paths: input.paths
     })
     input.warnings.push(`ppt_export slide ${preview.pageNumber} rendered to PNG preview for canvas review.`)
@@ -728,6 +758,105 @@ async function prepareCanvasArtifactPreview(input: {
   } catch (error) {
     input.warnings.push(`ppt_export preview rendering unavailable: ${error instanceof Error ? error.message : String(error)}`)
     return input.artifact
+  }
+}
+
+type PptMasterSvgPreview = {
+  svgPath: string
+  slideIndex: number
+  pageNumber: number
+}
+
+async function findPptMasterSvgPreview(input: {
+  artifact: SciforgeCanvasArtifactMetadata
+  request: SciforgeCanvasInsertArtifactRequest
+  paths: CanvasPaths
+}): Promise<PptMasterSvgPreview | null> {
+  const slideIndex = slideIndexForPptArtifact(input.artifact, input.request)
+  const pageNumber = slideIndex + 1
+  const pageFileName = `page_${String(pageNumber).padStart(2, '0')}.svg`
+  const projectPaths = await collectPptProjectPathCandidates(input.artifact, input.paths.workspaceRoot)
+
+  for (const projectPath of projectPaths) {
+    for (const relativePath of [join('svg_final', pageFileName), join('svg_output', pageFileName)]) {
+      const svgPath = join(projectPath, relativePath)
+      try {
+        const info = await stat(svgPath)
+        if (info.isFile()) return { svgPath, slideIndex, pageNumber }
+      } catch {
+        // Try the next ppt-master export location.
+      }
+    }
+  }
+  return null
+}
+
+function slideIndexForPptArtifact(
+  artifact: SciforgeCanvasArtifactMetadata,
+  request: SciforgeCanvasInsertArtifactRequest
+): number {
+  return Math.max(0, Math.floor(request.slideIndex ?? artifact.slideIndex ?? 0))
+}
+
+async function collectPptProjectPathCandidates(
+  artifact: SciforgeCanvasArtifactMetadata,
+  workspaceRoot: string
+): Promise<string[]> {
+  const rawCandidates: string[] = []
+  if (artifact.projectPath) rawCandidates.push(artifact.projectPath)
+  if (artifact.manifestPath) {
+    rawCandidates.push(...await readPptProjectCandidatesFromManifest(artifact.manifestPath, workspaceRoot))
+  }
+  if (artifact.pptxPath) {
+    rawCandidates.push(dirname(artifact.pptxPath))
+    if (basename(dirname(artifact.pptxPath)) === 'exports') rawCandidates.push(dirname(dirname(artifact.pptxPath)))
+  }
+
+  const resolved: string[] = []
+  const seen = new Set<string>()
+  for (const candidate of rawCandidates) {
+    const projectPath = await resolveExistingPptProjectPath(candidate, workspaceRoot)
+    if (!projectPath || seen.has(projectPath)) continue
+    seen.add(projectPath)
+    resolved.push(projectPath)
+  }
+  return resolved
+}
+
+async function readPptProjectCandidatesFromManifest(
+  manifestPath: string,
+  workspaceRoot: string
+): Promise<string[]> {
+  try {
+    const resolvedManifestPath = await resolveOpenTargetPath(manifestPath, workspaceRoot, { allowBasenameFallback: false })
+    const parsed = JSON.parse(await readFile(resolvedManifestPath, 'utf8')) as unknown
+    const manifest = parseSciforgeArtifactManifest(parsed)
+    const record = asRecord(parsed)
+    const candidates: string[] = []
+    if (manifest?.projectPath) candidates.push(manifest.projectPath)
+    if (typeof record?.projectPath === 'string') candidates.push(record.projectPath)
+    if (typeof record?.pptxPath === 'string') {
+      candidates.push(dirname(record.pptxPath))
+      if (basename(dirname(record.pptxPath)) === 'exports') candidates.push(dirname(dirname(record.pptxPath)))
+    }
+    if (typeof record?.path === 'string') {
+      candidates.push(dirname(record.path))
+      if (basename(dirname(record.path)) === 'exports') candidates.push(dirname(dirname(record.path)))
+    }
+    return candidates
+  } catch {
+    return []
+  }
+}
+
+async function resolveExistingPptProjectPath(rawPath: string, workspaceRoot: string): Promise<string | null> {
+  if (!rawPath.trim()) return null
+  try {
+    const resolvedPath = await resolveTargetPathWithinWorkspace(rawPath, workspaceRoot)
+    const info = await stat(resolvedPath)
+    return info.isDirectory() ? resolvedPath : null
+  } catch {
+    return null
   }
 }
 

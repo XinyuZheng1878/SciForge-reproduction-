@@ -103,7 +103,10 @@ import type { WriteAssistMcpLaunchConfig } from './write-assist-mcp-config'
 import type { RuntimeInspectorMcpLaunchConfig } from './runtime-inspector-mcp-config'
 import type { ScientificSkillsMcpLaunchConfig } from './scientific-skills-mcp-config'
 import type { ScientificPlottingMcpLaunchConfig } from './scientific-plotting-mcp-config'
-import type { ImageGenerationMcpLaunchConfig } from './image-generation-mcp-config'
+import {
+  imageGenerationMcpSettingsChanged,
+  type ImageGenerationMcpLaunchConfig
+} from './image-generation-mcp-config'
 import type { PptMasterMcpLaunchConfig } from './ppt-master-mcp-config'
 import type { SciforgeCanvasMcpLaunchConfig } from './sciforge-canvas-mcp-config'
 import { syncExternalManagedGuiMcpConfig } from './gui-mcp-registry'
@@ -1372,7 +1375,11 @@ function canonicalSettingsValue(value: unknown): unknown {
 }
 
 function runtimeStartupConfigChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
-  return localRuntimeConfigChanged(prev, next) || scheduleMcpSettingsChanged(prev, next)
+  return (
+    localRuntimeConfigChanged(prev, next) ||
+    scheduleMcpSettingsChanged(prev, next) ||
+    imageGenerationMcpSettingsChanged(prev, next)
+  )
 }
 
 async function restartManagedRuntimeForSettingsChange(

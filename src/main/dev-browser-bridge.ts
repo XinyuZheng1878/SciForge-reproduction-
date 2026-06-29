@@ -18,10 +18,12 @@ const DEV_BROWSER_BRIDGE_ALLOWED_HEADERS = [
   DEV_BROWSER_BRIDGE_TOKEN_HEADER
 ].join(',')
 
-// Keep the default bridge surface read-only/status/subscription oriented.
-// Callers that need write actions must opt in via allowedChannels.
+// The bridge is protected by a per-dev-session token and is used to run the
+// full app in an external browser during development. Keep unrelated host
+// write actions opt-in, but allow the runtime channels the workbench needs.
 export const DEFAULT_DEV_BROWSER_BRIDGE_ALLOWED_CHANNELS = [
   'settings:get',
+  'settings:set',
   'upstream:models',
   'connectPhone:status',
   'schedule:status',
@@ -51,12 +53,34 @@ export const DEFAULT_DEV_BROWSER_BRIDGE_ALLOWED_CHANNELS = [
   'paperRadar:search',
   'paperRadar:rank',
   'paperRadar:digest',
+  'mcp:sciforge-canvas-config',
+  'sciforge-canvas:status',
+  'sciforge-canvas:open',
+  'sciforge-canvas:save',
+  'sciforge-canvas:save-selection',
+  'sciforge-canvas:insert-artifact',
+  'sciforge-canvas:import-recent-artifacts',
+  'sciforge-canvas:export-review-packet',
   'agentRuntime:capabilities',
+  'agentRuntime:connect',
   'agentRuntime:listThreads',
+  'agentRuntime:startThread',
   'agentRuntime:readThread',
+  'agentRuntime:startTurn',
+  'agentRuntime:interruptTurn',
+  'agentRuntime:steerTurn',
   'agentRuntime:subscribeEvents',
   'agentRuntime:stopEvents',
+  'agentRuntime:renameThread',
+  'agentRuntime:deleteThread',
+  'agentRuntime:compactThread',
+  'agentRuntime:forkThread',
+  'agentRuntime:resumeSession',
+  'agentRuntime:updateThreadRelation',
   'agentRuntime:usage',
+  'agentRuntime:auxiliary',
+  'agentRuntime:resolveApproval',
+  'agentRuntime:resolveUserInput',
   'app:version',
   'gui:update-state',
   'gui:update-check',

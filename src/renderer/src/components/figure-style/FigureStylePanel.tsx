@@ -53,6 +53,9 @@ type Props = {
   className?: string
   onCollapse: () => void
   onCanvasReviewRequest?: (text: string) => void
+  preferredPage?: FigureStylePanelPage
+  canvasRefreshKey?: number
+  canvasFocusShapeId?: string
 }
 
 const COPY_RESET_MS = 1400
@@ -174,7 +177,10 @@ export function FigureStylePanel({
   canvasId,
   className = '',
   onCollapse,
-  onCanvasReviewRequest
+  onCanvasReviewRequest,
+  preferredPage,
+  canvasRefreshKey,
+  canvasFocusShapeId
 }: Props): ReactElement {
   const { t } = useTranslation('common')
   const [activePage, setActivePage] = useState<FigureStylePanelPage>(() => readStoredFigureStylePanelPage())
@@ -209,6 +215,11 @@ export function FigureStylePanel({
     },
     []
   )
+
+  useEffect(() => {
+    if (!preferredPage) return
+    setActivePage(preferredPage)
+  }, [preferredPage, canvasRefreshKey])
 
   useEffect(() => {
     persistFigureStylePanelPage(activePage)
@@ -997,6 +1008,8 @@ export function FigureStylePanel({
               variant="embedded"
               className="h-full max-h-full w-full"
               onSendReviewRequest={onCanvasReviewRequest}
+              refreshKey={canvasRefreshKey}
+              focusShapeId={canvasFocusShapeId}
             />
           </Suspense>
         </div>

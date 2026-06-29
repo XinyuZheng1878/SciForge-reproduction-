@@ -413,6 +413,55 @@ fs.writeFileSync(prefix + '-1.png', Buffer.from(png, 'base64'))
     }
   })
 
+  it('uses ppt-master SVG slide previews from artifact manifests before blank PPT placeholders', async () => {
+    const workspaceRoot = await makeWorkspace()
+    const deckDir = join(workspaceRoot, 'nature-ppt_ppt169_20260629')
+    const svgPath = join(deckDir, 'svg_final', 'page_01.svg')
+    const pptxPath = join(deckDir, 'exports', 'nature-ppt_20260629_135226.pptx')
+    const artifactManifestPath = join(workspaceRoot, '.sciforge', 'artifacts', 'nature-ppt.artifact.json')
+    await mkdir(dirname(svgPath), { recursive: true })
+    await mkdir(dirname(pptxPath), { recursive: true })
+    await mkdir(dirname(artifactManifestPath), { recursive: true })
+    await writeFile(svgPath, '<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720"><rect width="1280" height="720" fill="#fff"/><text x="80" y="120">Nature deck</text></svg>')
+    await writeFile(pptxPath, 'pptx-bytes')
+    await writeFile(artifactManifestPath, JSON.stringify({
+      kind: 'sciforge_artifact',
+      version: 1,
+      sourceTool: 'ppt_master',
+      artifactKind: 'ppt_export',
+      path: pptxPath,
+      pptxPath,
+      projectPath: deckDir,
+      title: 'Nature PPT'
+    }))
+
+    const previousDisable = process.env.SCIFORGE_CANVAS_DISABLE_PPT_RENDER
+    process.env.SCIFORGE_CANVAS_DISABLE_PPT_RENDER = '1'
+    try {
+      const inserted = await insertSciforgeCanvasArtifact({
+        workspaceRoot,
+        artifactKind: 'ppt_export',
+        outputPath: pptxPath,
+        sourcePath: pptxPath,
+        pptxPath,
+        manifestPath: artifactManifestPath,
+        title: 'Nature PPT'
+      })
+      expect(inserted.ok).toBe(true)
+      if (!inserted.ok) return
+      expect(inserted.assetId).toBeTruthy()
+      expect(inserted.artifact.previewPath).toMatch(/svg_final\/page_01\.svg$/)
+      expect(inserted.artifact.renderedPagePath).toMatch(/svg_final\/page_01\.svg$/)
+      expect(inserted.warnings.join('\n')).toContain('using ppt-master SVG preview')
+      const snapshot = JSON.parse(await readFile(inserted.canvasPath, 'utf8'))
+      expect(snapshot.store[inserted.shapeId].type).toBe('image')
+      expect(snapshot.store[inserted.shapeId].meta.sciforgeCanvasPlaceholder).toBeUndefined()
+      expect(snapshot.store[inserted.shapeId].meta.sciforgeArtifact.previewPath).toMatch(/svg_final\/page_01\.svg$/)
+    } finally {
+      restoreEnv('SCIFORGE_CANVAS_DISABLE_PPT_RENDER', previousDisable)
+    }
+  })
+
   it('imports recent workspace plot and PPTX artifacts into the canvas', async () => {
     const workspaceRoot = await makeWorkspace()
     const plotPath = join(workspaceRoot, 'financial_chart.png')

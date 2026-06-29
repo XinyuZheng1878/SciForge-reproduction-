@@ -6,6 +6,12 @@ import type { ChatBlock, NormalizedThread, ToolBlock } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
 import { MessageTimeline, summarizeToolBlock } from './MessageTimeline'
 import { MessageBubble } from './message-timeline-bubbles'
+import {
+  resolveMarkdownImageReference,
+  timelineCanvasArtifactsFromToolBlock,
+  timelineImagesFromToolBlock,
+  timelineImagesFromToolBlocks
+} from './message-timeline-media'
 import { ProcessSectionRow, groupProcessSections } from './message-timeline-process'
 
 const labels: Record<string, string> = {
@@ -316,6 +322,301 @@ describe('MessageTimeline local runtime metadata smoke', () => {
 
     expect(html).toContain('generated.png')
     expect(html).toContain('src="data:image/png;base64,tool"')
+  })
+
+  it('extracts image generation MCP artifacts from structured tool detail', () => {
+    const block = toolBlock({
+      summary: 'image_generation_render: rendered',
+      detail: JSON.stringify({
+        structuredContent: {
+          result: {
+            ok: true,
+            status: 'rendered',
+            outputPath: '/tmp/project/.sciforge/images/nature.png',
+            manifestPath: '/tmp/project/.sciforge/images/nature.manifest.json',
+            artifactManifestPath: '/tmp/project/.sciforge/artifacts/nature.generated-image.artifact.json'
+          }
+        }
+      }),
+      meta: { toolName: 'mcp_image_generation_image_generation_render' }
+    })
+
+    expect(timelineImagesFromToolBlock(block)).toEqual([
+      expect.objectContaining({
+        artifactKind: 'generated_image',
+        outputPath: '/tmp/project/.sciforge/images/nature.png',
+        artifactManifestPath: '/tmp/project/.sciforge/artifacts/nature.generated-image.artifact.json',
+        workspaceRoot: '/tmp/project',
+        sourceTool: 'image_generation'
+      })
+    ])
+  })
+
+  it('normalizes artifact workspace roots when the runtime points at the .sciforge child folder', () => {
+    const block = toolBlock({
+      summary: 'image_generation_render: rendered',
+      detail: JSON.stringify({
+        structuredContent: {
+          result: {
+            ok: true,
+            status: 'rendered',
+            workspaceRoot: '/tmp/project/.sciforge',
+            outputPath: '/tmp/project/nature-infographic/nature-infographic-001.png',
+            manifestPath: '/tmp/project/nature-infographic/nature-infographic-001.manifest.json',
+            artifactManifestPath: '/tmp/project/.sciforge/artifacts/nature-infographic-001.generated-image.artifact.json'
+          }
+        }
+      }),
+      meta: { toolName: 'mcp_image_generation_image_generation_render' }
+    })
+
+    expect(timelineImagesFromToolBlock(block)).toEqual([
+      expect.objectContaining({
+        artifactKind: 'generated_image',
+        outputPath: '/tmp/project/nature-infographic/nature-infographic-001.png',
+        workspaceRoot: '/tmp/project',
+        sourceTool: 'image_generation'
+      })
+    ])
+  })
+
+  it('normalizes image cards when the selected workspace is nested under .sciforge', () => {
+    const block = toolBlock({
+      summary: 'image_generation_render: rendered',
+      detail: JSON.stringify({
+        structuredContent: {
+          result: {
+            ok: true,
+            status: 'rendered',
+            workspaceRoot: '/tmp/project/.sciforge/default',
+            outputPath: '/tmp/project/science-cover/science-cover-001.png',
+            manifestPath: '/tmp/project/science-cover/science-cover-001.manifest.json'
+          }
+        }
+      }),
+      meta: { toolName: 'mcp_image_generation_image_generation_render' }
+    })
+
+    expect(timelineImagesFromToolBlock(block)).toEqual([
+      expect.objectContaining({
+        artifactKind: 'generated_image',
+        outputPath: '/tmp/project/science-cover/science-cover-001.png',
+        workspaceRoot: '/tmp/project',
+        sourceTool: 'image_generation'
+      })
+    ])
+  })
+
+  it('extracts scientific plotting render artifacts from structured tool detail', () => {
+    const block = toolBlock({
+      summary: 'scientific_plotting_render: rendered',
+      detail: JSON.stringify({
+        structuredContent: {
+          result: {
+            ok: true,
+            status: 'rendered',
+            outputPath: '/tmp/project/figures/nature-research-flowchart.png',
+            manifestPath: '/tmp/project/figures/nature-research-flowchart.manifest.json',
+            artifactManifestPath: '/tmp/project/.sciforge/artifacts/nature-research-flowchart.scientific-plot.artifact.json'
+          }
+        }
+      }),
+      meta: { toolName: 'scientific_plotting_render' }
+    })
+
+    expect(timelineImagesFromToolBlock(block)).toEqual([
+      expect.objectContaining({
+        artifactKind: 'scientific_plot',
+        outputPath: '/tmp/project/figures/nature-research-flowchart.png',
+        artifactManifestPath: '/tmp/project/.sciforge/artifacts/nature-research-flowchart.scientific-plot.artifact.json',
+        workspaceRoot: '/tmp/project',
+        sourceTool: 'scientific_plotting'
+      })
+    ])
+  })
+
+  it('extracts ppt-master export artifacts from structured tool detail', () => {
+    const block = toolBlock({
+      summary: 'ppt_master_export_pptx: exported',
+      detail: JSON.stringify({
+        structuredContent: {
+          result: {
+            exitCode: 0,
+            pptxPath: '/tmp/project/ppt_nature/exports/nature.pptx',
+            artifactManifestPath: '/tmp/project/.sciforge/artifacts/ppt_nature.ppt-export.artifact.json'
+          }
+        }
+      }),
+      meta: { toolName: 'ppt_master_export_pptx' }
+    })
+
+    expect(timelineCanvasArtifactsFromToolBlock(block)).toEqual([
+      expect.objectContaining({
+        artifactKind: 'ppt_export',
+        pptxPath: '/tmp/project/ppt_nature/exports/nature.pptx',
+        artifactManifestPath: '/tmp/project/.sciforge/artifacts/ppt_nature.ppt-export.artifact.json',
+        workspaceRoot: '/tmp/project',
+        sourceTool: 'ppt_master'
+      })
+    ])
+  })
+
+  it('renders ppt export artifact cards without an external original opener', () => {
+    const blocks: ChatBlock[] = [
+      { kind: 'user', id: 'user_ppt', text: 'make a ppt' },
+      toolBlock({
+        id: 'tool_ppt',
+        summary: 'ppt_master_export_pptx: exported',
+        detail: JSON.stringify({
+          structuredContent: {
+            result: {
+              exitCode: 0,
+              pptxPath: '/tmp/project/ppt_nature/exports/nature.pptx',
+              artifactManifestPath: '/tmp/project/.sciforge/artifacts/ppt_nature.ppt-export.artifact.json'
+            }
+          }
+        }),
+        meta: { toolName: 'ppt_master_export_pptx' }
+      })
+    ]
+
+    const html = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        blocks,
+        liveReasoning: '',
+        live: '',
+        activeThreadId: 'thr_1',
+        runtimeConnection: 'ready',
+        onRetryConnection: () => undefined,
+        onOpenSettings: () => undefined,
+        onOpenImageArtifactInCanvas: () => undefined
+      })
+    )
+
+    expect(html).toContain('PPTX export')
+    expect(html).toContain('Open canvas review')
+    expect(html).toContain('Copy path')
+    expect(html).not.toContain('Open original')
+  })
+
+  it('extracts generated images from canvas insertion tool artifacts', () => {
+    const block = toolBlock({
+      summary: 'sciforge_canvas_insert_artifact: inserted',
+      detail: JSON.stringify({
+        structuredContent: {
+          result: {
+            ok: true,
+            canvasId: 'nature-intro-canvas',
+            canvasDir: '/tmp/project/.sciforge/canvases/nature-intro-canvas',
+            shapeId: 'shape:nature-infographic-001',
+            artifact: {
+              artifactKind: 'generated_image',
+              outputPath: '/tmp/project/.sciforge/images/nature-infographic-001.png',
+              artifactManifestPath: '/tmp/project/.sciforge/artifacts/nature-infographic-001.artifact.json',
+              title: 'Nature Infographic',
+              sourceTool: 'image_generation'
+            }
+          }
+        }
+      }),
+      meta: { toolName: 'sciforge_canvas_insert_artifact' }
+    })
+
+    expect(timelineImagesFromToolBlock(block)).toEqual([
+      expect.objectContaining({
+        artifactKind: 'generated_image',
+        outputPath: '/tmp/project/.sciforge/images/nature-infographic-001.png',
+        artifactManifestPath: '/tmp/project/.sciforge/artifacts/nature-infographic-001.artifact.json',
+        workspaceRoot: '/tmp/project',
+        canvasId: 'nature-intro-canvas',
+        name: 'Nature Infographic',
+        sourceTool: 'image_generation'
+      })
+    ])
+  })
+
+  it('keeps the project workspace root when image artifacts are merged across tool blocks', () => {
+    const renderBlock = toolBlock({
+      id: 'tool_render',
+      summary: 'image_generation_render: rendered',
+      detail: JSON.stringify({
+        structuredContent: {
+          result: {
+            ok: true,
+            status: 'rendered',
+            outputPath: '/tmp/project/nature-infographic/nature-infographic-001.png',
+            manifestPath: '/tmp/project/nature-infographic/nature-infographic-001.manifest.json',
+            artifactManifestPath: '/tmp/project/.sciforge/artifacts/nature-infographic-001.generated-image.artifact.json'
+          }
+        }
+      }),
+      meta: { toolName: 'mcp_image_generation_image_generation_render' }
+    })
+    const canvasBlock = toolBlock({
+      id: 'tool_canvas',
+      summary: 'sciforge_canvas_insert_artifact: inserted',
+      detail: JSON.stringify({
+        structuredContent: {
+          result: {
+            ok: true,
+            canvasId: 'nature-intro-canvas',
+            canvasDir: '/tmp/project/.sciforge/canvases/nature-intro-canvas',
+            artifact: {
+              artifactKind: 'generated_image',
+              outputPath: '/tmp/project/nature-infographic/nature-infographic-001.png',
+              title: 'Nature Infographic',
+              sourceTool: 'image_generation'
+            }
+          }
+        }
+      }),
+      meta: { toolName: 'sciforge_canvas_insert_artifact' }
+    })
+
+    expect(timelineImagesFromToolBlocks([renderBlock, canvasBlock])).toEqual([
+      expect.objectContaining({
+        name: 'Nature Infographic',
+        path: '/tmp/project/nature-infographic/nature-infographic-001.png',
+        outputPath: '/tmp/project/nature-infographic/nature-infographic-001.png',
+        workspaceRoot: '/tmp/project',
+        canvasId: 'nature-intro-canvas'
+      })
+    ])
+  })
+
+  it('resolves assistant markdown relative images against same-turn MCP artifacts', () => {
+    const renderBlock = toolBlock({
+      summary: 'image_generation_render: rendered',
+      detail: JSON.stringify({
+        structuredContent: {
+          result: {
+            ok: true,
+            status: 'rendered',
+            outputPath: '/tmp/project/science-cover/science-cover-001.png',
+            manifestPath: '/tmp/project/science-cover/science-cover-001.manifest.json',
+            artifactManifestPath: '/tmp/project/.sciforge/artifacts/science-cover-001.generated-image.artifact.json'
+          }
+        }
+      }),
+      meta: { toolName: 'mcp_image_generation_image_generation_render' }
+    })
+
+    const resolved = resolveMarkdownImageReference(
+      {
+        source: 'generated',
+        name: 'Science Journal Cover',
+        path: 'science-cover/science-cover-001.png'
+      },
+      timelineImagesFromToolBlocks([renderBlock])
+    )
+
+    expect(resolved).toEqual(expect.objectContaining({
+      name: 'Science Journal Cover',
+      path: '/tmp/project/science-cover/science-cover-001.png',
+      outputPath: '/tmp/project/science-cover/science-cover-001.png',
+      workspaceRoot: '/tmp/project',
+      artifactKind: 'generated_image'
+    }))
   })
 
   it('renders an explanatory fallback when an image path has not loaded', () => {

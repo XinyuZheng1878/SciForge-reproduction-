@@ -138,4 +138,59 @@ describe('image generation engine', () => {
       'http://image-provider.local/v1/images/generations'
     ])
   })
+
+  it('retries the images endpoint with a text field for providers that do not accept prompt', async () => {
+    const pngBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='
+    process.env.SCIFORGE_IMAGE_PROVIDER = 'openai'
+    process.env.SCIFORGE_IMAGE_API_KEY = 'test-key'
+    process.env.SCIFORGE_IMAGE_BASE_URL = 'http://image-provider.local'
+    process.env.SCIFORGE_IMAGE_MODEL = 'qwen-image-2.0-pro'
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url !== 'http://image-provider.local/v1/images/generations') throw new Error('Unexpected URL ' + url)
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+      if ('prompt' in body) {
+        return new Response(JSON.stringify({
+          error: { message: "Either 'text' or 'image' must be provided, but not both." }
+        }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+      if (body.text === 'A tiny generated image') {
+        return new Response(JSON.stringify({
+          data: [
+            {
+              b64_json: pngBase64
+            }
+          ]
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+      throw new Error('Unexpected request body ' + JSON.stringify(body))
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const result = await renderImageGeneration({
+      workspaceRoot,
+      imageId: 'qwen-text-payload-image',
+      recipe: {
+        mode: 'text_to_image',
+        prompt: 'A tiny generated image',
+        size: { width: 512, height: 512 },
+        outputFormat: 'png'
+      }
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.message)
+    expect(result.provider).toBe('image-endpoint')
+    expect(readFileSync(result.outputPath).toString('base64')).toBe(pngBase64)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ prompt: 'A tiny generated image' })
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({ text: 'A tiny generated image' })
+  })
 })

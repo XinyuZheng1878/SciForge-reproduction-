@@ -52,6 +52,7 @@ export type SciforgeCanvasSelectionState = {
 
 export type SciforgeCanvasArtifactMetadata = {
   artifactKind: SciforgeCanvasArtifactKind
+  workspaceRoot?: string
   outputPath?: string
   sourcePath?: string
   previewPath?: string

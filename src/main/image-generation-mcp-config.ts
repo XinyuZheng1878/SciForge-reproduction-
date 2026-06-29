@@ -12,7 +12,11 @@ import {
   IMAGE_GENERATION_MCP_FLAG,
   IMAGE_GENERATION_TOOL_SIDE_EFFECTS
 } from '../../packages/workers/image-generation/src/contract'
-import type { ImageGenerationSettingsV1 } from '../shared/app-settings'
+import {
+  getImageGenerationSettings,
+  type AppSettingsV1,
+  type ImageGenerationSettingsV1
+} from '../shared/app-settings'
 
 export const GUI_IMAGE_GENERATION_MCP_SERVER_NAME = 'image_generation'
 const GUI_IMAGE_GENERATION_MCP_NODE_ENTRY = 'out/main/image-generation-mcp-node-entry.js'
@@ -118,6 +122,23 @@ export function buildImageGenerationMcpConfigFragment(
 
 export function imageGenerationMcpEnabledTools(): string[] {
   return Object.keys(IMAGE_GENERATION_TOOL_SIDE_EFFECTS)
+}
+
+export function imageGenerationMcpSettingsChanged(prev: AppSettingsV1, next: AppSettingsV1): boolean {
+  const a = getImageGenerationSettings(prev)
+  const b = getImageGenerationSettings(next)
+  const aConfigured = a.enabled && Boolean(a.apiKey.trim())
+  const bConfigured = b.enabled && Boolean(b.apiKey.trim())
+
+  if (aConfigured !== bConfigured) return true
+  if (!aConfigured && !bConfigured) return false
+
+  return (
+    a.provider !== b.provider ||
+    a.apiKey.trim() !== b.apiKey.trim() ||
+    a.baseUrl.trim() !== b.baseUrl.trim() ||
+    a.model.trim() !== b.model.trim()
+  )
 }
 
 export function imageGenerationMcpEnv(

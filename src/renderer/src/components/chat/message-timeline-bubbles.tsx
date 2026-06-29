@@ -16,7 +16,13 @@ import {
 } from '@shared/app-settings'
 import { DiffView } from '../DiffView'
 import { AssistantMarkdown } from './AssistantMarkdown'
-import { TimelineImagesFromMeta, timelineImagesFromMeta } from './message-timeline-media'
+import {
+  MarkdownImageArtifactProvider,
+  TimelineImagesFromMeta,
+  timelineImagesFromMeta,
+  type TimelineImageCanvasArtifact,
+  type TimelineImageReference
+} from './message-timeline-media'
 import { ModelMetaTag } from './message-timeline-cards'
 import { readNumber, formatDuration, formatToolTitle } from './message-timeline-tools'
 import { clawThreadRemoteBindingsFromChannels } from '../../store/chat-store-helpers'
@@ -917,10 +923,14 @@ function formatMessageDateTime(input: string, locale: string): string {
 
 export function MessageBubble({
   block,
-  nested = false
+  nested = false,
+  markdownImages = [],
+  onOpenImageArtifactInCanvas
 }: {
   block: ChatBlock
   nested?: boolean
+  markdownImages?: TimelineImageReference[]
+  onOpenImageArtifactInCanvas?: (artifact: TimelineImageCanvasArtifact) => void
 }): ReactElement {
   const { t, i18n } = useTranslation('common')
   const resolveApproval = useChatStore((s) => s.resolveApproval)
@@ -935,9 +945,11 @@ export function MessageBubble({
     return (
       <div className="group/message flex min-w-0 max-w-full flex-col">
         <div className="ds-markdown ds-chat-answer min-w-0 max-w-full text-ds-ink">
-          <AssistantMarkdown text={block.text} streaming={streaming} />
+          <MarkdownImageArtifactProvider images={markdownImages} onOpenCanvas={onOpenImageArtifactInCanvas}>
+            <AssistantMarkdown text={block.text} streaming={streaming} />
+          </MarkdownImageArtifactProvider>
         </div>
-        <TimelineImagesFromMeta meta={block.meta} variant="assistant" />
+        <TimelineImagesFromMeta meta={block.meta} variant="assistant" onOpenCanvas={onOpenImageArtifactInCanvas} />
         {!streaming ? (
           <div className="mt-1 flex min-h-5 min-w-0 flex-wrap items-center justify-between gap-2 text-[11.5px] text-ds-faint opacity-0 transition duration-150 group-hover/message:opacity-100">
             <span className="min-w-0 truncate">{createdAtLabel ?? ''}</span>

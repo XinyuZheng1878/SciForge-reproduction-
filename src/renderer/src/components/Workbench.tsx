@@ -37,6 +37,7 @@ import { Sidebar } from './chat/Sidebar'
 import { WorkbenchTopBar, type RightPanelMode } from './chat/WorkbenchTopBar'
 import { ActiveRemoteBindingDetails } from './chat/RemoteBindingDetailsPill'
 import { MessageTimeline } from './chat/MessageTimeline'
+import type { TimelineImageCanvasArtifact } from './chat/message-timeline-media'
 import {
   FloatingComposer,
   type ComposerImageAttachmentInput,
@@ -106,6 +107,7 @@ import {
 } from '../lib/composer-file-references'
 import { readComposerFileContextEntries as readComposerFileContextEntriesFromReferences } from '../lib/composer-file-context'
 import { buildWorkspaceReferenceGroups } from '../lib/workspace-reference-groups'
+import type { FigureStylePanelPage } from './figure-style/figure-style-panel-state'
 
 const ChangeInspector = lazy(() =>
   import('./ChangeInspector').then((module) => ({ default: module.ChangeInspector }))
@@ -154,6 +156,59 @@ const TerminalPanel = lazy(() =>
 const FigureStylePanel = lazy(() =>
   import('./figure-style/FigureStylePanel').then((module) => ({ default: module.FigureStylePanel }))
 )
+
+const CANVAS_DISPLAY_IMAGE_PATH_RE = /\.(?:png|jpe?g|webp|svg)(?:[?#].*)?$/i
+const PPTX_PATH_RE = /\.pptx(?:[?#].*)?$/i
+
+function isCanvasDisplayImagePath(value: string | undefined): boolean {
+  return Boolean(value?.trim() && CANVAS_DISPLAY_IMAGE_PATH_RE.test(value.trim()))
+}
+
+function isPptxPath(value: string | undefined): boolean {
+  return Boolean(value?.trim() && PPTX_PATH_RE.test(value.trim()))
+}
+
+function normalizeCanvasArtifactPath(value: string | undefined): string | null {
+  const normalized = value?.trim()
+  return normalized ? normalized.replace(/\\/g, '/').replace(/\/+$/g, '') : null
+}
+
+function snapshotContainsCanvasArtifact(
+  snapshot: unknown,
+  candidates: string[],
+  options?: { requireDisplayPreview?: boolean }
+): boolean {
+  const wanted = new Set(candidates.map(normalizeCanvasArtifactPath).filter((value): value is string => Boolean(value)))
+  if (wanted.size === 0 || !snapshot || typeof snapshot !== 'object') return false
+  const store = (snapshot as { store?: unknown }).store
+  if (!store || typeof store !== 'object') return false
+  for (const record of Object.values(store as Record<string, unknown>)) {
+    if (!record || typeof record !== 'object') continue
+    const meta = (record as { meta?: unknown }).meta
+    if (!meta || typeof meta !== 'object') continue
+    const artifact = (meta as { sciforgeArtifact?: unknown }).sciforgeArtifact
+    if (!artifact || typeof artifact !== 'object') continue
+    for (const key of ['outputPath', 'sourcePath', 'previewPath', 'renderedPagePath', 'manifestPath', 'svgPath', 'pptxPath']) {
+      const normalized = normalizeCanvasArtifactPath((artifact as Record<string, unknown>)[key] as string | undefined)
+      if (!normalized || !wanted.has(normalized)) continue
+      if (!options?.requireDisplayPreview) return true
+      const artifactRecord = artifact as Record<string, unknown>
+      const previewCandidates = [
+        artifactRecord.previewPath as string | undefined,
+        artifactRecord.renderedPagePath as string | undefined,
+        artifactRecord.svgPath as string | undefined,
+        artifactRecord.outputPath as string | undefined,
+        artifactRecord.sourcePath as string | undefined
+      ]
+      const hasDisplayPreview = previewCandidates.some((path) => {
+        if (!normalizeCanvasArtifactPath(path)) return false
+        return artifactRecord.artifactKind === 'ppt_export' ? isCanvasDisplayImagePath(path) : true
+      })
+      if (hasDisplayPreview && (meta as { sciforgeCanvasPlaceholder?: unknown }).sciforgeCanvasPlaceholder !== true) return true
+    }
+  }
+  return false
+}
 
 type PendingSddPlanTarget = {
   planId: string
@@ -799,6 +854,13 @@ export function Workbench(): ReactElement {
     workspaceRoot
   })
   const [fileTreeInitialDirectory, setFileTreeInitialDirectory] = useState<FileTreeInitialDirectory | null>(null)
+  const [figureStylePanelRequest, setFigureStylePanelRequest] = useState<{
+    page: FigureStylePanelPage
+    refreshKey: number
+    canvasId?: string
+    workspaceRoot?: string
+    focusShapeId?: string
+  } | null>(null)
   const {
     activeGuiPlan,
     buildGuiPlan,
@@ -1931,6 +1993,80 @@ export function Workbench(): ReactElement {
     if (!sent) setInput(trimmed)
   }
 
+  const openImageArtifactInCanvas = async (artifact: TimelineImageCanvasArtifact): Promise<void> => {
+    const root = artifact.workspaceRoot || activeThread?.workspace || workspaceRoot
+    const canvasId = activeSciforgeCanvasId || artifact.canvasId
+    const sourcePath = artifact.outputPath || artifact.sourcePath || artifact.previewPath || artifact.renderedPagePath || artifact.svgPath || artifact.pptxPath
+    if (!root?.trim() || !canvasId || !sourcePath?.trim()) {
+      setError(t('canvasArtifactReviewUnavailable'))
+      return
+    }
+
+    try {
+      const opened = await window.sciforge.openSciforgeCanvas({ workspaceRoot: root, canvasId })
+      if (!opened.ok) {
+        setError(opened.message)
+        return
+      }
+      const candidates = [
+        artifact.outputPath,
+        artifact.sourcePath,
+        artifact.previewPath,
+        artifact.renderedPagePath,
+        artifact.manifestPath,
+        artifact.artifactManifestPath,
+        artifact.svgPath,
+        artifact.pptxPath
+      ]
+        .filter((value): value is string => Boolean(value?.trim()))
+      let focusShapeId: string | undefined
+      if (!snapshotContainsCanvasArtifact(opened.snapshot, candidates, {
+        requireDisplayPreview: artifact.artifactKind === 'ppt_export'
+      })) {
+        const outputPath = artifact.artifactKind === 'ppt_export' && !isCanvasDisplayImagePath(artifact.outputPath)
+          ? undefined
+          : artifact.outputPath
+        const sourceDisplayPath = artifact.artifactKind === 'ppt_export' && !isCanvasDisplayImagePath(artifact.sourcePath)
+          ? undefined
+          : artifact.sourcePath
+        const pptxPath = artifact.pptxPath ||
+          (artifact.artifactKind === 'ppt_export'
+            ? [artifact.outputPath, artifact.sourcePath, sourcePath].find(isPptxPath)
+            : undefined)
+        const result = await window.sciforge.insertSciforgeCanvasArtifact({
+          workspaceRoot: root,
+          canvasId,
+          artifactKind: artifact.artifactKind,
+          ...(outputPath ? { outputPath } : {}),
+          ...(artifact.artifactKind !== 'ppt_export' && !outputPath ? { outputPath: sourcePath } : {}),
+          ...(sourceDisplayPath ? { sourcePath: sourceDisplayPath } : {}),
+          ...(artifact.previewPath ? { previewPath: artifact.previewPath } : {}),
+          ...(artifact.renderedPagePath ? { renderedPagePath: artifact.renderedPagePath } : {}),
+          ...(artifact.artifactManifestPath || artifact.manifestPath ? { manifestPath: artifact.artifactManifestPath || artifact.manifestPath } : {}),
+          ...(artifact.projectPath ? { projectPath: artifact.projectPath } : {}),
+          ...(artifact.svgPath ? { svgPath: artifact.svgPath } : {}),
+          ...(pptxPath ? { pptxPath } : {}),
+          ...(artifact.slideIndex !== undefined ? { slideIndex: artifact.slideIndex } : {}),
+          ...(artifact.title ? { title: artifact.title } : {}),
+          ...(artifact.caption ? { caption: artifact.caption } : {}),
+          sourceTool: artifact.sourceTool || (artifact.artifactKind === 'ppt_export' || artifact.artifactKind === 'ppt_slide' ? 'ppt_master' : 'image_generation'),
+          placement: 'below',
+          margin: 56
+        })
+        if (!result.ok) {
+          setError(result.message)
+          return
+        }
+        focusShapeId = result.shapeId
+      }
+      setFigureStylePanelRequest({ page: 'canvas', refreshKey: Date.now(), canvasId, workspaceRoot: root, focusShapeId })
+      setRightSidebarWidth((width) => Math.max(width, 560))
+      setRightPanelMode('figure-style')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   const openThread = (id: string, runtimeId?: AgentRuntimeId): void => {
     void (async () => {
       const thread = threads.find((item) => item.id === id) ?? null
@@ -2142,13 +2278,16 @@ export function Workbench(): ReactElement {
               />
             ) : rightPanelMode === 'figure-style' ? (
               <FigureStylePanel
-                workspaceRoot={activeThread?.workspace || workspaceRoot}
-                canvasId={activeSciforgeCanvasId}
+                workspaceRoot={figureStylePanelRequest?.workspaceRoot || activeThread?.workspace || workspaceRoot}
+                canvasId={figureStylePanelRequest?.canvasId || activeSciforgeCanvasId}
                 className="h-full max-h-full w-full"
                 onCollapse={closeRightPanel}
                 onCanvasReviewRequest={(text) => {
                   void sendCanvasReviewRequest(text)
                 }}
+                preferredPage={figureStylePanelRequest?.page}
+                canvasRefreshKey={figureStylePanelRequest?.refreshKey}
+                canvasFocusShapeId={figureStylePanelRequest?.focusShapeId}
               />
             ) : rightPanelMode === 'plan' ? (
               <PlanPanel
@@ -2353,6 +2492,7 @@ export function Workbench(): ReactElement {
                   planActionsBusy={busy}
                   onBuildPlan={() => void buildGuiPlan()}
                   onOpenPlan={openGuiPlanPanel}
+                  onOpenImageArtifactInCanvas={openImageArtifactInCanvas}
                   devPreviewCard={
                     showDevPreviewCard ? (
                       <DevPreviewLaunchCard

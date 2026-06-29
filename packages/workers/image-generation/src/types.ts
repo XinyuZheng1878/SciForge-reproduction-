@@ -95,6 +95,7 @@ export type ImageGenerationRenderResult =
   | {
       ok: true
       status: 'rendered' | 'rendered_placeholder' | 'review_failed'
+      workspaceRoot: string
       outputPath: string
       manifestPath: string
       artifactManifestPath: string
@@ -155,6 +156,7 @@ export type ImageGenerationEditFromCanvasPacketResult =
       status: 'edited' | 'edited_placeholder'
       intents: ImageEditIntent[]
       outputs: Array<{
+        workspaceRoot: string
         outputPath: string
         manifestPath: string
         artifactManifestPath: string
@@ -199,6 +201,7 @@ export type ImageGenerationManifest = {
   tool: 'image_generation_render' | 'image_generation_edit_from_canvas_packet'
   createdAt: string
   requestHash: string
+  workspaceRoot: string
   outputPath: string
   canvasId?: string
   threadId?: string
