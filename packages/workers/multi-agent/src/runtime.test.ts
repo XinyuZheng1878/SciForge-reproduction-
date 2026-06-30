@@ -315,6 +315,21 @@ test('runtime records executor failure, abort, and timeout as canonical error co
   })
   assert.equal(timedOut.status, 'failed')
   assert.equal(timedOut.error?.code, 'timeout')
+
+  const perChildTimedOutRuntime = new MultiAgentRuntime({
+    config: { childTimeoutMs: 60_000 },
+    store: new InMemoryMultiAgentStore(),
+    idGenerator: () => 'child-timeout-override',
+    executor: async () => new Promise(() => undefined)
+  })
+  const perChildTimedOut = await perChildTimedOutRuntime.runChild({
+    parentThreadId: 'thread-1',
+    parentTurnId: 'turn-4',
+    prompt: 'Timeout override',
+    childTimeoutMs: 5
+  })
+  assert.equal(perChildTimedOut.status, 'failed')
+  assert.equal(perChildTimedOut.error?.code, 'timeout')
 })
 
 function clock(): () => string {

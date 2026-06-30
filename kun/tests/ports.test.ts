@@ -485,6 +485,41 @@ describe('LocalToolHost', () => {
     })
   })
 
+  it('does not treat read payload content as a rate-limit error', async () => {
+    const read = LocalToolHost.defineTool({
+      name: 'read',
+      description: 'read',
+      inputSchema: { type: 'object', properties: {}, required: [] },
+      policy: 'auto',
+      execute: async () => ({
+        output: {
+          path: '/tmp/rate-limit-note.md',
+          relative_path: 'rate-limit-note.md',
+          content: 'The note documents a rate_limited tool result and an HTTP 429 response.'
+        }
+      })
+    })
+    const host = new LocalToolHost({ tools: [read] })
+    const result = await host.execute(
+      { callId: 'c_read_rate_limit_note', toolName: 'read', arguments: {} },
+      {
+        threadId: 'th',
+        turnId: 'tu',
+        workspace: '/tmp',
+        approvalPolicy: 'on-request',
+        abortSignal: new AbortController().signal,
+        awaitApproval: async () => 'allow'
+      }
+    )
+    expect(result.item).toMatchObject({
+      kind: 'tool_result',
+      isError: false,
+      output: {
+        content: expect.stringContaining('rate_limited')
+      }
+    })
+  })
+
   it('enforces read-before-edit within the same turn', async () => {
     const read = LocalToolHost.defineTool({
       name: 'read',

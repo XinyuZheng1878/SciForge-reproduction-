@@ -29,6 +29,7 @@ import {
 import { sandboxBlockForTool, type SandboxBlock } from './sandbox-policy.js'
 
 const FILE_PATH_POLICY_TOOL_NAMES = new Set(['read', 'write', 'edit', 'list', 'glob', 'grep'])
+const RATE_LIMIT_PAYLOAD_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const REMOTE_EXECUTOR_MCP_SERVER_ID = 'remote_executor'
 
 /**
@@ -240,7 +241,9 @@ export class LocalToolHost implements ToolHost {
       }
     }
     const hookedResult = applyPostToolHookResults(result, postHookResults)
-    const rateLimited = normalizeRateLimitedToolOutput(hookedResult.output)
+    const rateLimited = shouldNormalizeRateLimitedToolOutput(activeCall.toolName)
+      ? normalizeRateLimitedToolOutput(hookedResult.output)
+      : { output: hookedResult.output, isError: false, rateLimited: false }
     const output = rateLimited.rateLimited ? rateLimited.output : hookedResult.output
     const isError = hookedResult.isError || rateLimited.isError
     this.readTracker.observeToolResult({
@@ -361,6 +364,10 @@ export class LocalToolHost implements ToolHost {
       ...(tool.shouldAdvertise ? { shouldAdvertise: tool.shouldAdvertise } : {})
     }
   }
+}
+
+function shouldNormalizeRateLimitedToolOutput(toolName: string): boolean {
+  return !RATE_LIMIT_PAYLOAD_TOOL_NAMES.has(toolName)
 }
 
 function mcpServerIdFromTool(tool: LocalTool): string {

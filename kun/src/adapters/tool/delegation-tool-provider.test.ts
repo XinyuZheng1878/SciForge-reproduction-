@@ -49,7 +49,11 @@ describe('buildDelegationToolProviders', () => {
     const { runtime, runChild } = fakeRuntime()
     const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_task')
 
-    await tool?.execute({ label: 'qa', prompt: 'Read the figure and report quality.' }, fakeContext())
+    await tool?.execute({
+      label: 'qa',
+      prompt: 'Read the figure and report quality.',
+      timeout_ms: 1_800_000
+    }, fakeContext())
 
     const prompt = runChild.mock.calls[0]?.[0].prompt
     expect(prompt).toContain('Child-agent runtime guardrails:')
@@ -58,6 +62,7 @@ describe('buildDelegationToolProviders', () => {
     expect(prompt).toContain('Never read app settings')
     expect(prompt).toContain('read-before-edit guard')
     expect(prompt).toContain('Read the figure and report quality.')
+    expect(runChild.mock.calls[0]?.[0].childTimeoutMs).toBe(1_800_000)
   })
 
   it('injects guardrails into every delegate_tasks prompt without duplicating existing guardrails', async () => {
@@ -66,9 +71,10 @@ describe('buildDelegationToolProviders', () => {
     const guarded = withChildRuntimeGuardrails('Already guarded task.')
 
     await tool?.execute({
+      timeout_ms: 900_000,
       tasks: [
         { label: 'one', prompt: 'Plain task.' },
-        { label: 'two', prompt: guarded }
+        { label: 'two', prompt: guarded, timeout_ms: 1_200_000 }
       ]
     }, fakeContext())
 
@@ -78,5 +84,6 @@ describe('buildDelegationToolProviders', () => {
     expect(prompts[0]).toContain('Plain task.')
     expect(prompts[1].match(/Child-agent runtime guardrails:/g)).toHaveLength(1)
     expect(prompts[1]).toContain('Already guarded task.')
+    expect(runChild.mock.calls.map((call) => call[0].childTimeoutMs)).toEqual([900_000, 1_200_000])
   })
 })

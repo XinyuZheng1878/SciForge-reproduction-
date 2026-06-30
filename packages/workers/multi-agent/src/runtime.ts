@@ -52,6 +52,7 @@ export type RunChildInput = {
   strictAllowedToolNames?: boolean
   bashCommandPolicy?: Record<string, unknown>
   filePathPolicy?: Record<string, unknown>
+  childTimeoutMs?: number
   signal?: AbortSignal
 }
 
@@ -106,7 +107,7 @@ export class MultiAgentRuntime {
     })
     await this.persistAndEmit(record)
 
-    const boundary = createExecutionBoundary(input.signal, this.config.childTimeoutMs)
+    const boundary = createExecutionBoundary(input.signal, normalized.childTimeoutMs ?? this.config.childTimeoutMs)
     let acceptingTranscript = true
     this.active += 1
     this.activeChildIds.add(id)
@@ -365,8 +366,15 @@ function normalizeRunChildInput(input: RunChildInput): Required<Pick<RunChildInp
     allowedToolNames: normalizeAllowedToolNames(input.allowedToolNames),
     strictAllowedToolNames: input.strictAllowedToolNames === true,
     bashCommandPolicy: input.bashCommandPolicy,
-    filePathPolicy: input.filePathPolicy
+    filePathPolicy: input.filePathPolicy,
+    childTimeoutMs: normalizeChildTimeoutMs(input.childTimeoutMs)
   }
+}
+
+function normalizeChildTimeoutMs(value: number | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const normalized = Math.trunc(value)
+  return normalized > 0 ? normalized : undefined
 }
 
 function normalizeAllowedToolNames(value: readonly string[] | undefined): string[] | undefined {

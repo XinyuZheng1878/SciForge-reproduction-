@@ -29,7 +29,8 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
             label: { type: 'string' },
             prompt: { type: 'string' },
             workspace: { type: 'string' },
-            model: { type: 'string' }
+            model: { type: 'string' },
+            timeout_ms: { type: 'number' }
           },
           required: ['prompt'],
           additionalProperties: false
@@ -46,6 +47,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
             prompt: withChildRuntimeGuardrails(prompt),
             workspace: typeof args.workspace === 'string' ? args.workspace : context.workspace,
             model: normalizeDelegateModel(args.model) ?? context.model?.id,
+            childTimeoutMs: normalizeDelegateTimeoutMs(args.timeout_ms),
             allowedToolNames: context.allowedToolNames,
             strictAllowedToolNames: false,
             ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
@@ -83,14 +85,16 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
                   label: { type: 'string' },
                   prompt: { type: 'string' },
                   workspace: { type: 'string' },
-                  model: { type: 'string' }
+                  model: { type: 'string' },
+                  timeout_ms: { type: 'number' }
                 },
                 required: ['prompt'],
                 additionalProperties: false
               }
             },
             workspace: { type: 'string' },
-            model: { type: 'string' }
+            model: { type: 'string' },
+            timeout_ms: { type: 'number' }
           },
           required: ['tasks'],
           additionalProperties: false
@@ -109,6 +113,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
           const firstSpawnIndex = diagnostics.childRuns.length + 1
           const sharedWorkspace = typeof args.workspace === 'string' ? args.workspace.trim() : ''
           const sharedModel = normalizeDelegateModel(args.model)
+          const sharedTimeoutMs = normalizeDelegateTimeoutMs(args.timeout_ms)
           const records = await runWithConcurrency(tasks, concurrency, async (task) => runtime.runChild({
             parentThreadId: context.threadId,
             parentTurnId: context.turnId,
@@ -116,6 +121,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
             prompt: withChildRuntimeGuardrails(task.prompt),
             workspace: (task.workspace ?? sharedWorkspace) || context.workspace,
             model: task.model ?? sharedModel ?? context.model?.id,
+            childTimeoutMs: task.timeoutMs ?? sharedTimeoutMs,
             allowedToolNames: context.allowedToolNames,
             strictAllowedToolNames: false,
             ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
@@ -138,6 +144,8 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
               failed: children.filter((child) => child.status === 'failed').length,
               aborted: children.filter((child) => child.status === 'aborted').length,
               concurrency,
+              configured_concurrency: diagnostics.config.maxParallel,
+              ...(sharedTimeoutMs !== undefined ? { shared_timeout_ms: sharedTimeoutMs } : {}),
               ...(firstSpawnIndex > 1
                 ? { warning: `This batch starts at child agent spawn #${firstSpawnIndex} for the thread. Spawn only when the extra prefix/cache cost is worth it.` }
                 : {})
@@ -161,6 +169,7 @@ type NormalizedDelegateTask = {
   label?: string
   workspace?: string
   model?: string
+  timeoutMs?: number
 }
 
 function normalizeDelegateTask(value: unknown): NormalizedDelegateTask | null {
@@ -171,11 +180,13 @@ function normalizeDelegateTask(value: unknown): NormalizedDelegateTask | null {
   const label = trimOptional(record.label)
   const workspace = trimOptional(record.workspace)
   const model = normalizeDelegateModel(record.model)
+  const timeoutMs = normalizeDelegateTimeoutMs(record.timeout_ms)
   return {
     prompt,
     ...(label ? { label } : {}),
     ...(workspace ? { workspace } : {}),
-    ...(model ? { model } : {})
+    ...(model ? { model } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {})
   }
 }
 
@@ -188,6 +199,12 @@ function normalizeDelegateModel(value: unknown): string | undefined {
   const model = trimOptional(value)
   if (!model || model.toLowerCase() === 'auto') return undefined
   return model
+}
+
+function normalizeDelegateTimeoutMs(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const normalized = Math.trunc(value)
+  return normalized > 0 ? normalized : undefined
 }
 
 async function runWithConcurrency<T, R>(
