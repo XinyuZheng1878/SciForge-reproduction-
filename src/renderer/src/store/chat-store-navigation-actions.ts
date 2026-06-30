@@ -60,11 +60,12 @@ import {
   clearBusyWatchdog,
   resetBusyRecoveryAttempts,
   scheduleStartupRuntimeProbe,
-  stopTurnCompletionPoll
+  stopRuntimeThreadRefreshPoll,
+  stopTurnCompletionPoll,
+  syncRuntimeThreadRefreshPoll
 } from './chat-store-schedulers'
 import {
   armBusyWatchdog,
-  buildFollowupMessageFromUserInput,
   buildThreadEventSink,
   clearWatchedCompletionNotification,
   finalizeTurnTiming,
@@ -251,6 +252,7 @@ export function createNavigationActions(
           /* refreshThreads sets state */
         }
       }
+      syncRuntimeThreadRefreshPoll(get)
       if (get().activeThreadId && stateHasRecoverableActiveTurn(get())) {
         await get().recoverActiveTurn()
       }
@@ -259,6 +261,7 @@ export function createNavigationActions(
       const detail = runtimeErrorDetail(e)
       const needsSettings = shouldOpenSettingsForError(e)
       if (mode === 'user') {
+        stopRuntimeThreadRefreshPoll()
         stopTurnCompletionPoll()
         set({
           runtimeConnection: 'offline',
@@ -269,6 +272,7 @@ export function createNavigationActions(
             : {})
         })
       } else if (prev === 'ready') {
+        stopRuntimeThreadRefreshPoll()
         stopTurnCompletionPoll()
         set({
           runtimeConnection: 'offline',
@@ -686,10 +690,12 @@ export function createNavigationActions(
       if (!shouldClearSelection && get().activeThreadId && stateHasRecoverableActiveTurn(get())) {
         armBusyWatchdog(set, get)
       }
+      syncRuntimeThreadRefreshPoll(get)
       if (activeThreadIsManagedInCodeRoute) {
         await get().openCode()
       }
     } catch (e) {
+      stopRuntimeThreadRefreshPoll()
       stopTurnCompletionPoll()
       set({
         runtimeConnection: 'offline',

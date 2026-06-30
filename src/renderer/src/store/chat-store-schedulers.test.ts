@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   armBusyWatchdog,
   clearBusyWatchdog,
-  resetBusyRecoveryAttempts
+  resetBusyRecoveryAttempts,
+  stopRuntimeThreadRefreshPoll,
+  syncRuntimeThreadRefreshPoll
 } from './chat-store-schedulers'
 import type { ChatState, ChatStoreSet } from './chat-store-types'
 
@@ -136,5 +138,59 @@ describe('busyTimeout minutes interpolation (#131)', () => {
     vi.advanceTimersByTime(10)
     expect(typeof h.getState().error).toBe('string')
     expect(h.getState().error as string).toMatch(/已等待 9 分钟/)
+  })
+})
+
+describe('syncRuntimeThreadRefreshPoll', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    stopRuntimeThreadRefreshPoll()
+    vi.useRealTimers()
+  })
+
+  it('polls refreshThreads while the runtime is ready', async () => {
+    const refreshThreads = vi.fn(async () => undefined)
+    const h = makeHarness({
+      runtimeConnection: 'ready',
+      refreshThreads
+    } as Partial<ChatState>)
+
+    syncRuntimeThreadRefreshPoll(h.get, { intervalMs: 10 })
+
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refreshThreads).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops without refreshing when the runtime is no longer ready', async () => {
+    const refreshThreads = vi.fn(async () => undefined)
+    const h = makeHarness({
+      runtimeConnection: 'ready',
+      refreshThreads
+    } as Partial<ChatState>)
+
+    syncRuntimeThreadRefreshPoll(h.get, { intervalMs: 10 })
+    h.set({ runtimeConnection: 'offline' } as Partial<ChatState>)
+
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refreshThreads).not.toHaveBeenCalled()
+  })
+
+  it('does not overlap refresh calls when a previous refresh is still in flight', async () => {
+    const refreshThreads = vi.fn(() => new Promise<void>(() => undefined))
+    const h = makeHarness({
+      runtimeConnection: 'ready',
+      refreshThreads
+    } as Partial<ChatState>)
+
+    syncRuntimeThreadRefreshPoll(h.get, { intervalMs: 10 })
+
+    await vi.advanceTimersByTimeAsync(10)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
   })
 })

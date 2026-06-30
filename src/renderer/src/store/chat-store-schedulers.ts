@@ -5,6 +5,10 @@ let startupRuntimeProbeTimer: ReturnType<typeof setTimeout> | null = null
 let busyWatchdogTimer: ReturnType<typeof setTimeout> | null = null
 let busyRecoveryAttempts = 0
 let turnCompletionPollTimer: ReturnType<typeof setInterval> | null = null
+let runtimeThreadRefreshPollTimer: ReturnType<typeof setInterval> | null = null
+let runtimeThreadRefreshInFlight = false
+
+const RUNTIME_THREAD_REFRESH_POLL_MS = 5_000
 
 type BusyWatchdogOptions = {
   timeoutMs: number
@@ -80,6 +84,45 @@ export function stopTurnCompletionPoll(): void {
     clearInterval(turnCompletionPollTimer)
     turnCompletionPollTimer = null
   }
+}
+
+export function stopRuntimeThreadRefreshPoll(): void {
+  if (runtimeThreadRefreshPollTimer) {
+    clearInterval(runtimeThreadRefreshPollTimer)
+    runtimeThreadRefreshPollTimer = null
+  }
+  runtimeThreadRefreshInFlight = false
+}
+
+export function syncRuntimeThreadRefreshPoll(
+  get: ChatStoreGet,
+  options: { intervalMs?: number } = {}
+): void {
+  if (get().runtimeConnection !== 'ready') {
+    stopRuntimeThreadRefreshPoll()
+    return
+  }
+  if (runtimeThreadRefreshPollTimer != null) return
+
+  const tick = (): void => {
+    if (runtimeThreadRefreshInFlight) return
+    const state = get()
+    if (state.runtimeConnection !== 'ready') {
+      stopRuntimeThreadRefreshPoll()
+      return
+    }
+    runtimeThreadRefreshInFlight = true
+    void Promise.resolve(state.refreshThreads())
+      .catch(() => undefined)
+      .finally(() => {
+        runtimeThreadRefreshInFlight = false
+      })
+  }
+
+  runtimeThreadRefreshPollTimer = setInterval(
+    tick,
+    options.intervalMs ?? RUNTIME_THREAD_REFRESH_POLL_MS
+  )
 }
 
 export function syncTurnCompletionPoll(
