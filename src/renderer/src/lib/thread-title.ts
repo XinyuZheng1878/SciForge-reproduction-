@@ -1,7 +1,16 @@
 import type { NormalizedThread } from '../agent/types'
 import i18n from '../i18n'
 
-const LEGACY_PLACEHOLDER_TITLES = new Set(['New Thread', '新会话'])
+const LEGACY_PLACEHOLDER_TITLES = new Set([
+  'New Thread',
+  'New chat',
+  '新会话',
+  'Codex thread',
+  'Claude Code thread',
+  'Claude thread',
+  'Agent Runtime thread',
+  'Runtime thread'
+])
 const INTERNAL_PLACEHOLDER_TITLE_PATTERN = /^__codex_[a-z0-9_]+__$/i
 const MAX_THREAD_TITLE_LENGTH = 48
 const MAX_DIALOG_THREAD_TITLE_LENGTH = 80
@@ -64,7 +73,14 @@ export function getDisplayThreadTitle(
   thread: Pick<NormalizedThread, 'title' | 'preview'> | null | undefined
 ): string {
   const raw = thread?.title?.trim() ?? ''
-  if (raw && !hasInternalPromptTitleContent(raw)) return raw
+  if (
+    raw &&
+    !hasInternalPromptTitleContent(raw) &&
+    !isInternalPlaceholderThreadTitle(raw) &&
+    !hasPlaceholderThreadTitle(raw)
+  ) {
+    return raw
+  }
 
   const preview = thread?.preview?.trim() ?? ''
   if (preview && !hasInternalPromptTitleContent(preview)) {
@@ -86,6 +102,11 @@ export function getDialogThreadTitle(
 export function isInternalPlaceholderThreadTitle(title: string | null | undefined): boolean {
   const raw = title?.trim() ?? ''
   return INTERNAL_PLACEHOLDER_TITLE_PATTERN.test(raw)
+}
+
+export function hasInternalPromptThreadTitle(title: string | null | undefined): boolean {
+  const raw = title?.trim() ?? ''
+  return raw ? hasInternalPromptTitleContent(raw) : false
 }
 
 export function hasThreadIdFallbackTitle(

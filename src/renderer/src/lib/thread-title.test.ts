@@ -29,6 +29,15 @@ describe('thread-title', () => {
     ).toBe('帮我启动项目服务，然后替换 README 里的 gif')
   })
 
+  it('falls back to preview text when the raw title is a runtime placeholder', () => {
+    expect(
+      getDisplayThreadTitle(thread({
+        title: 'Codex thread',
+        preview: '继续修复同一个 session 生成新会话的问题'
+      }))
+    ).toBe('继续修复同一个 session 生成新会话的问题')
+  })
+
   it('keeps confirmation titles single-line and bounded', () => {
     const title = getDialogThreadTitle(thread({
       title: '这是一个很长的会话标题\n第二行还包含更多内容 '.repeat(8)

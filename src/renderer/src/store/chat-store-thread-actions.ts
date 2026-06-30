@@ -99,6 +99,52 @@ function remoteChannelForThread(state: ChatState, threadId: string | null | unde
   return activeClawChannel(state)
 }
 
+function adoptDeliveredThread(
+  threads: NormalizedThread[],
+  previousThreadId: string,
+  deliveredThreadId: string,
+  runtimeId: NormalizedThread['runtimeId'] | undefined
+): NormalizedThread[] {
+  const previous = threads.find((thread) => thread.id === previousThreadId) ?? null
+  const delivered = threads.find((thread) => thread.id === deliveredThreadId) ?? null
+  let changed = false
+  const next: NormalizedThread[] = []
+
+  for (const thread of threads) {
+    if (thread.id === previousThreadId && previousThreadId !== deliveredThreadId) {
+      changed = true
+      if (!delivered) {
+        next.push({
+          ...thread,
+          id: deliveredThreadId,
+          ...(runtimeId ? { runtimeId } : {})
+        })
+      }
+      continue
+    }
+    if (thread.id === deliveredThreadId && runtimeId && thread.runtimeId !== runtimeId) {
+      changed = true
+      next.push({ ...thread, runtimeId })
+      continue
+    }
+    next.push(thread)
+  }
+
+  if (!previous && !delivered && previousThreadId !== deliveredThreadId) {
+    changed = true
+    next.unshift({
+      id: deliveredThreadId,
+      title: deliveredThreadId,
+      updatedAt: new Date().toISOString(),
+      model: '',
+      mode: 'agent',
+      ...(runtimeId ? { runtimeId } : {})
+    })
+  }
+
+  return changed ? next : threads
+}
+
 function normalizeRuntimeFileReferencePath(value: string): string | null {
   const normalized = value.trim().replaceAll('\\', '/').replace(/\/+/g, '/').replace(/^\.\//u, '')
   if (!normalized || normalized === '.' || normalized === '..') return null
@@ -715,7 +761,6 @@ export function createThreadActions(
     let shouldRenameThreadAfterSend =
       shouldAutoRenameForRoute &&
       !!activeThreadId &&
-      get().blocks.every((block) => block.kind !== 'user') &&
       shouldAutoTitleThread(activeThread)
     const threadSnap = get().threads.find((thread) => thread.id === activeThreadId)
     const remoteChannel = remoteChannelForThread(get(), activeThreadId)
@@ -856,6 +901,11 @@ export function createThreadActions(
       const sendingThread = get().threads.find((thread) => thread.id === previousThreadId)
       rememberProviderThreadRuntime(p, previousThreadId, get().threads)
       const channel = remoteChannelForThread(get(), previousThreadId)
+      const desiredRuntimeId = channel?.runtimeId ?? get().activeAgentRuntime
+      const sendingRuntimeId = sendingThread?.runtimeId
+      const runtimeSwitchExpected = Boolean(
+        sendingRuntimeId && desiredRuntimeId && sendingRuntimeId !== desiredRuntimeId
+      )
       const settings = await rendererRuntimeClient.getSettings()
       let runtimeText: string
       if (channel) {
@@ -882,8 +932,27 @@ export function createThreadActions(
         ...(attachmentIds.length ? { attachmentIds } : {}),
         ...(fileReferences.length ? { fileReferences } : {})
       })
+      const deliveredThreadId = turnHandle.threadId?.trim() || previousThreadId
+      const deliveredThreadChanged = deliveredThreadId !== previousThreadId
+      const subscribedRuntimeId = runtimeSwitchExpected
+        ? desiredRuntimeId
+        : sendingRuntimeId
+      const subscribedFromSeq = runtimeSwitchExpected || deliveredThreadChanged ? 0 : seqAtSend
+      if (runtimeSwitchExpected || deliveredThreadChanged) {
+        set((s) => ({
+          activeThreadId: deliveredThreadId,
+          lastSeq: subscribedFromSeq,
+          threads: adoptDeliveredThread(
+            s.threads,
+            previousThreadId,
+            deliveredThreadId,
+            subscribedRuntimeId
+          )
+        }))
+        p.rememberThreadRuntime?.(deliveredThreadId, subscribedRuntimeId)
+        activeThreadId = deliveredThreadId
+      }
       const { turnId, userMessageItemId } = turnHandle
-      const subscribedFromSeq = seqAtSend
       // Mirror the composer model selection against the runtime's stable
       // user_message item id so the badge survives page refresh / thread
       // re-selection. The runtime itself doesn't persist per-turn metadata.

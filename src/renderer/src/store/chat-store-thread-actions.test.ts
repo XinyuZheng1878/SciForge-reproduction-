@@ -4,7 +4,7 @@ import type {
   AgentRuntimeWorkspaceReference
 } from '@shared/agent-runtime-contract'
 import { defaultRemoteChannelSettings } from '@shared/app-settings'
-import type { NormalizedThread } from '../agent/types'
+import type { NormalizedThread, ThreadEventSink } from '../agent/types'
 import type { ChatState, ChatStoreGet, ChatStoreSet, GuiPlanMessageContext } from './chat-store-types'
 
 const registryMock = vi.hoisted(() => ({
@@ -84,6 +84,7 @@ function buildHarness(): {
     sseAbortRef: { current: null }
   })
   state.sendMessage = actions.sendMessage
+  state.drainQueuedMessages = actions.drainQueuedMessages
   return { actions, state }
 }
 
@@ -421,6 +422,42 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(state.threads[0]?.id).toBe('thr_created_on_send')
   })
 
+  it('renders the final assistant response and clears busy when the runtime completes', async () => {
+    const { actions, state } = buildHarness()
+    const captured: { sink: ThreadEventSink | null } = { sink: null }
+    const provider = {
+      sendUserMessage: vi.fn(async () => ({
+        threadId: 'thr_existing',
+        turnId: 'turn-complete',
+        userMessageItemId: 'runtime-user-complete'
+      })),
+      subscribeThreadEvents: vi.fn(async (_threadId: string, _sinceSeq: number, sink: ThreadEventSink) => {
+        captured.sink = sink
+      }),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.error = null
+    state.threads = [{ ...thread('thr_existing'), runtimeId: 'codex' }]
+
+    await expect(actions.sendMessage('finish this turn')).resolves.toBe(true)
+
+    if (!captured.sink) throw new Error('Expected sendMessage to subscribe to runtime events.')
+    captured.sink.onDeltas([{ kind: 'agent_message', text: 'done for the user', seq: 1 }])
+    captured.sink.onTurnComplete()
+
+    expect(state.busy).toBe(false)
+    expect(state.currentTurnId).toBeNull()
+    expect(state.error).toBeNull()
+    expect(state.blocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'assistant',
+        text: 'done for the user'
+      })
+    ]))
+  })
+
   it('removes stale queued GUI plan messages before draining normal queued messages', async () => {
     const { actions, state } = buildHarness()
     const sendMessage = vi.fn(async (_text, _mode, overrides) => {
@@ -657,7 +694,49 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(Object.keys(state.turnStartedAtByUserId)).toEqual(['runtime-user-1'])
   })
 
-  it('keeps the active conversation stable when active runtime and returned thread id differ', async () => {
+  it('keeps the GUI conversation stable when switching runtime on the same thread id', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      rememberThreadRuntime: vi.fn(),
+      sendUserMessage: vi.fn(async () => ({
+        threadId: 'thr_existing',
+        turnId: 'turn-sciforge',
+        userMessageItemId: 'runtime-user-sciforge'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.activeAgentRuntime = 'codex'
+    state.lastSeq = 12
+    state.threads = [{
+      ...thread('thr_existing'),
+      runtimeId: 'sciforge'
+    }]
+
+    await expect(actions.sendMessage('continue after restart')).resolves.toBe(true)
+
+    expect(state.activeThreadId).toBe('thr_existing')
+    expect(state.threads.find((item) => item.id === 'thr_existing')?.runtimeId).toBe('codex')
+    expect(provider.sendUserMessage).toHaveBeenCalledWith(
+      'thr_existing',
+      'continue after restart',
+      expect.objectContaining({
+        workspace: '/workspace/sciforge',
+        title: 'thr_existing'
+      })
+    )
+    expect(provider.subscribeThreadEvents).toHaveBeenCalledWith(
+      'thr_existing',
+      0,
+      expect.any(Object),
+      expect.any(AbortSignal)
+    )
+    expect(provider.rememberThreadRuntime).toHaveBeenLastCalledWith('thr_existing', 'codex')
+  })
+
+  it('adopts a delivered runtime thread id so terminal events are not dropped', async () => {
     const { actions, state } = buildHarness()
     const provider = {
       rememberThreadRuntime: vi.fn(),
@@ -680,24 +759,16 @@ describe('chat-store-thread-actions queued messages', () => {
 
     await expect(actions.sendMessage('continue after restart')).resolves.toBe(true)
 
-    expect(state.activeThreadId).toBe('thr_existing')
-    expect(state.threads.find((item) => item.id === 'thr_existing')?.runtimeId).toBe('sciforge')
-    expect(state.threads.some((item) => item.id === 'runtime-returned-other')).toBe(false)
-    expect(provider.sendUserMessage).toHaveBeenCalledWith(
-      'thr_existing',
-      'continue after restart',
-      expect.objectContaining({
-        workspace: '/workspace/sciforge',
-        title: 'thr_existing'
-      })
-    )
+    expect(state.activeThreadId).toBe('runtime-returned-other')
+    expect(state.threads.some((item) => item.id === 'thr_existing')).toBe(false)
+    expect(state.threads.find((item) => item.id === 'runtime-returned-other')?.runtimeId).toBe('codex')
     expect(provider.subscribeThreadEvents).toHaveBeenCalledWith(
-      'thr_existing',
-      12,
+      'runtime-returned-other',
+      0,
       expect.any(Object),
       expect.any(AbortSignal)
     )
-    expect(provider.rememberThreadRuntime).toHaveBeenLastCalledWith('thr_existing', 'sciforge')
+    expect(provider.rememberThreadRuntime).toHaveBeenLastCalledWith('runtime-returned-other', 'codex')
   })
 
   it('sends only workspace-relative file references to the runtime provider', async () => {

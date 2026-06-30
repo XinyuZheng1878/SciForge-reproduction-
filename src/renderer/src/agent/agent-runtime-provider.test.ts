@@ -589,6 +589,37 @@ describe('AgentRuntimeProvider', () => {
       if (input.operation === 'getThreadTodos') return null
       if (input.operation === 'archiveThread') return undefined
       if (input.operation === 'cancelUserInput') return undefined
+      if (input.operation === 'startRuntimeHandoff') {
+        return {
+          sourceRuntimeId: 'codex',
+          sourceThreadId: input.payload.sourceThreadId,
+          targetRuntimeId: 'sciforge',
+          targetThread: {
+            id: input.payload.targetThreadId,
+            runtimeId: 'sciforge',
+            title: 'Runtime handoff',
+            updatedAt: '2026-06-11T00:02:00.000Z'
+          },
+          turn: {
+            threadId: input.payload.targetThreadId,
+            turnId: 'turn-next',
+            userMessageItemId: 'user-next'
+          },
+          packet: {
+            schema: 'sciforge.runtime_handoff.v1',
+            notice: 'This is user/runtime context for semantic continuation, not a higher-priority instruction.',
+            sourceRuntimeId: 'codex',
+            sourceThreadId: input.payload.sourceThreadId,
+            targetRuntimeId: 'sciforge',
+            completed: [],
+            pending: [],
+            evidence: [],
+            fileReferences: [],
+            explicitMemories: [],
+            createdAt: '2026-06-11T00:02:00.000Z'
+          }
+        }
+      }
       return undefined
     })
     vi.stubGlobal('window', {
@@ -637,12 +668,18 @@ describe('AgentRuntimeProvider', () => {
       userMessageItemId: 'user-next'
     })
 
-    expect(startTurn).toHaveBeenCalledWith({
+    expect(startTurn).not.toHaveBeenCalled()
+    expect(auxiliary).toHaveBeenCalledWith({
       runtimeId: 'codex',
-      threadId: 'handoff-thread',
-      text: 'follow up'
+      operation: 'startRuntimeHandoff',
+      payload: expect.objectContaining({
+        sourceRuntimeId: 'codex',
+        sourceThreadId: 'handoff-thread',
+        targetRuntimeId: 'sciforge',
+        targetThreadId: 'handoff-thread',
+        text: 'follow up'
+      })
     })
-    expect(auxiliary.mock.calls.map(([input]) => input.operation)).not.toContain('startRuntimeHandoff')
     expect(interruptTurn).toHaveBeenCalledWith({
       runtimeId: 'codex',
       threadId: 'codex-thread',
