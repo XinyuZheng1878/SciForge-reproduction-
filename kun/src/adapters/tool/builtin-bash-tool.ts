@@ -195,6 +195,7 @@ async function bashExecute(
       if (updateTimer) clearTimeout(updateTimer)
       signal.removeEventListener('abort', onAbort)
     })
+    terminateSpawnTree(child)
   }
 
   if (signal.aborted) {
@@ -381,6 +382,11 @@ function sessionById(sessionId: unknown): BashSession | null {
   return id ? bashSessions.get(id) ?? null : null
 }
 
+function isCacheHygienePlaceholder(value: string): boolean {
+  const trimmed = value.trim()
+  return trimmed.startsWith('[cache hygiene:') && trimmed.length < 4096
+}
+
 async function startBashSession(
   input: {
     command: string
@@ -416,6 +422,20 @@ async function startBashSession(
   }
   bashSessions.set(session.id, session)
 
+  let abortListenerAttached = false
+  const onAbort = () => stopSession(session)
+  const cleanupAbortListener = () => {
+    if (!abortListenerAttached) return
+    input.signal.removeEventListener('abort', onAbort)
+    abortListenerAttached = false
+  }
+  if (input.signal.aborted) {
+    onAbort()
+  } else {
+    input.signal.addEventListener('abort', onAbort, { once: true })
+    abortListenerAttached = true
+  }
+
   let updateDirty = false
   let updateTimer: NodeJS.Timeout | undefined
   let lastUpdateAt = 0
@@ -449,34 +469,37 @@ async function startBashSession(
   child.stderr.on('data', handleData)
   child.once('error', (error) => {
     settleSession(session, 'failed', null, error.message)
+    cleanupAbortListener()
   })
   child.once('exit', (code) => {
     settleSession(session, session.stopRequested ? 'stopped' : 'completed', code)
+    terminateSpawnTree(child)
+    cleanupAbortListener()
   })
 
-  const onAbort = () => stopSession(session)
-  input.signal.addEventListener('abort', onAbort, { once: true })
   const timeoutMs = input.timeoutSeconds * 1000
   const yieldMs = Math.min(input.yieldSeconds * 1000, timeoutMs)
   const exited = await waitForSessionExitOrDelay(session, yieldMs)
-  input.signal.removeEventListener('abort', onAbort)
   if (updateTimer) clearTimeout(updateTimer)
 
   if (input.signal.aborted) {
     liveUpdates = false
     stopSession(session)
+    cleanupAbortListener()
     throw new Error('command aborted')
   }
   if (!exited && timeoutMs <= yieldMs) {
     liveUpdates = false
     stopSession(session)
     await waitForSessionExitOrDelay(session, STOP_GRACE_MS)
+    cleanupAbortListener()
     throw new Error(`command timed out after ${input.timeoutSeconds} seconds`)
   }
 
   if (exited) {
     await emitUpdate()
     liveUpdates = false
+    cleanupAbortListener()
     const payload = await sessionPayload(session)
     if (session.status === 'failed') return { payload, isError: true }
     return { payload, isError: session.exitCode !== null && session.exitCode !== 0 }
@@ -552,6 +575,14 @@ export function createBashLocalTool(options: BashLocalToolOptions = {}): LocalTo
 
       const command = typeof args.command === 'string' ? args.command : ''
       if (!command.trim()) return { output: { error: 'command is required' }, isError: true }
+      if (isCacheHygienePlaceholder(command)) {
+        return {
+          output: {
+            error: 'Refusing to execute cache-hygiene placeholder as a shell command.'
+          },
+          isError: true
+        }
+      }
       const timeout = normalizePositiveInteger(
         args.timeout,
         options.defaultTimeoutSeconds ?? DEFAULT_BASH_TIMEOUT_SECONDS

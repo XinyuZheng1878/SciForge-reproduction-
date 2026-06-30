@@ -376,7 +376,8 @@ const modelRouterMemberProviderPatchSchema = z.object({
   provider: z.string().trim().min(1).max(80).optional(),
   baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
   apiKey: z.string().max(MAX_BODY_BYTES).optional(),
-  model: z.string().trim().max(128).optional()
+  model: z.string().trim().max(128).optional(),
+  maxSupplementRounds: z.number().int().min(0).max(3).optional()
 }).strict()
 
 const modelRouterPatchSchema = z.object({
@@ -481,7 +482,7 @@ const agentCapabilityPatchSchema = z.object({
   subagents: z.object({
     enabled: z.boolean().optional(),
     maxParallel: z.number().int().positive().max(16).optional(),
-    maxChildRuns: z.number().int().positive().max(256).optional()
+    maxChildRuns: z.number().int().positive().max(4096).optional()
   }).strict().optional()
 }).strict()
 

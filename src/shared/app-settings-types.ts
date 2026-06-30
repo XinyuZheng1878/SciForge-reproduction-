@@ -82,6 +82,7 @@ export type ModelRouterMemberProviderSettingsV1 = {
   baseUrl: string
   apiKey: string
   model: string
+  maxSupplementRounds?: number
 }
 
 export type ModelRouterProfileSettingsV1 = {

@@ -49,7 +49,8 @@ function settings(): AppSettingsV1 {
               provider: 'qwen-compatible',
               baseUrl: 'https://vision-provider.example/v1',
               apiKey: 'vision-secret',
-              model: 'vision-model'
+              model: 'vision-model',
+              maxSupplementRounds: 1
             }
           }
         }
@@ -117,6 +118,13 @@ describe('buildModelRouterSidecarLaunch', () => {
     })
     expect(JSON.stringify(result.launch.config)).not.toContain('text-secret')
     expect(JSON.stringify(result.launch.config)).not.toContain('vision-secret')
+    expect(result.launch.config?.profiles.default.translators.vision).toEqual({
+      provider: 'qwen-compatible',
+      baseUrl: 'https://vision-provider.example/v1',
+      apiKeyEnv: 'SCIFORGE_MODEL_ROUTER_VISION_API_KEY',
+      model: 'vision-model',
+      maxSupplementRounds: 1
+    })
   })
 
   it('builds a launch when the text reasoner member is incomplete in UI settings', () => {

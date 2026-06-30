@@ -37,6 +37,20 @@ describe('OutputAccumulator', () => {
     expect(output.snapshot().content).toBe('测试')
   })
 
+  it('does not mistake UTF-8 markdown output for UTF-16LE', () => {
+    const output = createAccumulator()
+    let text = [
+      '589:- **Sync status**: GitHub-facing memory PR prepared; status.html rendered; PR ready for review merge — NOT validated)',
+      '1008:- **Description**: Status synchronization turn only — no experiments, no paper edits, no CellAgent rerun.'
+    ].join('\n')
+    if (Buffer.byteLength(text, 'utf8') % 2 !== 0) text += ' '
+
+    output.append(Buffer.from(text, 'utf8'))
+    output.finish()
+
+    expect(output.snapshot().content).toBe(text)
+  })
+
   it('previews short pending output before finish', () => {
     const utf8 = createAccumulator()
     utf8.append(Buffer.from('hi', 'utf8'))

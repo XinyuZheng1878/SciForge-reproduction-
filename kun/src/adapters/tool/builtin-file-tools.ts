@@ -39,6 +39,15 @@ export function createWriteLocalTool(_options: WriteLocalToolOptions = {}): Loca
       if (!rawPath.trim() || content == null) {
         return { output: { error: 'path and content are required' }, isError: true }
       }
+      if (isCacheHygienePlaceholder(content)) {
+        return {
+          output: {
+            error:
+              'refusing to write a cache-hygiene placeholder as file content; read the source or generate the real content before retrying'
+          },
+          isError: true
+        }
+      }
       const { absolutePath, relativePath } = resolveWorkspacePath(rawPath, context)
       assertCanWritePath(absolutePath, context)
       return withFileMutationQueue(absolutePath, async () => {
@@ -95,6 +104,15 @@ export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalT
       if (!rawPath.trim() || edits.length === 0) {
         return { output: { error: 'path and at least one edit are required' }, isError: true }
       }
+      if (edits.some((edit) => isCacheHygienePlaceholder(edit.newText))) {
+        return {
+          output: {
+            error:
+              'refusing to insert a cache-hygiene placeholder into a file; read the source or generate the real replacement before retrying'
+          },
+          isError: true
+        }
+      }
       const { absolutePath, relativePath } = resolveWorkspacePath(rawPath, context)
       assertCanWritePath(absolutePath, context)
       return withFileMutationQueue(absolutePath, async () => {
@@ -125,3 +143,8 @@ export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalT
 
 export const createEditTool = createEditLocalTool
 export const createEditToolDefinition = createEditLocalTool
+
+function isCacheHygienePlaceholder(value: string): boolean {
+  const trimmed = value.trim()
+  return trimmed.startsWith('[cache hygiene:') && trimmed.length < 4096
+}

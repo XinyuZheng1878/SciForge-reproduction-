@@ -22,7 +22,9 @@ export async function listThreadChildren(
     .filter((child) => !query.activeOnly || child.status === 'queued' || child.status === 'running')
   const start = query.cursor ? Number(query.cursor) : 0
   const limit = query.limit ?? filtered.length
-  const children = filtered.slice(start, start + limit)
+  const children = filtered
+    .slice(start, start + limit)
+    .map((child) => query.includeTranscript ? child : childListRecord(child))
   const nextOffset = start + children.length
   return jsonResponse({
     threadId,
@@ -41,8 +43,10 @@ export async function listThreadChildren(
 export async function readChildTranscript(
   runtime: ServerRuntime,
   threadId: string,
-  childId: string
+  childId: string,
+  request: Request
 ): Promise<JsonResponse> {
+  const query = parseTranscriptQuery(request)
   if (!runtime.delegationRuntime) {
     return degradedChildTranscript(threadId, childId, 'Local runtime subagents are disabled or unavailable.')
   }
@@ -68,7 +72,8 @@ export async function readChildTranscript(
         label: child.label || child.id
       },
       format: 'jsonl',
-      entries: child.transcript,
+      entries: child.transcript.slice(query.start, query.start + query.limit),
+      ...(query.start + query.limit < child.transcript.length ? { nextCursor: String(query.start + query.limit) } : {}),
       summary: child.summary,
       usage: child.usage,
       ...(child.error ? { reason: child.error.message } : {}),
@@ -105,18 +110,40 @@ function parseChildrenQuery(request: Request): {
   activeOnly: boolean
   cursor?: string
   limit?: number
+  includeTranscript: boolean
 } {
   const url = new URL(request.url)
   const turnId = stringQuery(url, 'turn_id') ?? stringQuery(url, 'turnId') ?? stringQuery(url, 'parent_turn_id')
   const activeOnly = booleanQuery(url, 'active_only') ?? booleanQuery(url, 'activeOnly') ?? false
   const cursor = cursorQuery(url)
   const limit = positiveIntegerQuery(url, 'limit')
+  const includeTranscript = booleanQuery(url, 'include_transcript') ??
+    booleanQuery(url, 'includeTranscript') ??
+    false
   return {
     ...(turnId ? { turnId } : {}),
     activeOnly,
     ...(cursor ? { cursor } : {}),
-    ...(limit ? { limit } : {})
+    ...(limit ? { limit } : {}),
+    includeTranscript
   }
+}
+
+function parseTranscriptQuery(request: Request): {
+  start: number
+  limit: number
+} {
+  const url = new URL(request.url)
+  const cursor = cursorQuery(url)
+  return {
+    start: cursor ? Number(cursor) : 0,
+    limit: positiveIntegerQuery(url, 'limit') ?? 100
+  }
+}
+
+function childListRecord<T extends { transcript?: unknown }>(child: T): Omit<T, 'transcript'> {
+  const { transcript: _transcript, ...rest } = child
+  return rest
 }
 
 function stringQuery(url: URL, key: string): string | undefined {

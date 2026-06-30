@@ -244,6 +244,42 @@ test('anthropic messages route through the configured text reasoner', async () =
   }
 });
 
+test('public text preserves workspace-local paths while redacting external local paths', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-workspace-paths-'));
+  const workspaceDataPath = join(workspaceRoot, 'data', 'input.h5ad');
+  const privatePath = '/Users/alice/private/input.h5ad';
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-reasoner-answer', `Read ${workspaceDataPath} but never read ${privatePath}.`),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/messages`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        max_tokens: 256,
+        messages: [{ role: 'user', content: 'generate code for the local dataset' }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, any>;
+    assert.equal(body.content?.[0]?.text, `Read ${workspaceDataPath} but never read [redacted-path].`);
+    assert.doesNotMatch(String(body.content?.[0]?.text ?? ''), /\/Users\/alice/);
+    assert.equal(calls.length, 1);
+  } finally {
+    await server.close();
+  }
+});
+
 test('anthropic messages can stream text response events', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-messages-stream-'));
   const calls: CapturedFetch[] = [];
@@ -314,6 +350,157 @@ test('anthropic messages accepts Claude Code model aliases as router public alia
     assert.deepEqual(body.content, [{ type: 'text', text: 'Routed through the local Model Router.' }]);
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.url, 'https://text.example/v1/chat/completions');
+  } finally {
+    await server.close();
+  }
+});
+
+test('chat completions compatibility route returns OpenAI-shaped text choices', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-chat-compat-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-reasoner-answer', 'The chat-compatible answer.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/chat/completions`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        max_tokens: 256,
+        messages: [
+          { role: 'system', content: 'Be concise.' },
+          { role: 'user', content: 'hello' },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, any>;
+    assert.equal(body.object, 'chat.completion');
+    assert.equal(body.choices?.[0]?.message?.role, 'assistant');
+    assert.equal(body.choices?.[0]?.message?.content, 'The chat-compatible answer.');
+    assert.equal(body.choices?.[0]?.finish_reason, 'stop');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, 'https://text.example/v1/chat/completions');
+    assert.equal(calls[0]?.body.messages?.[0]?.role, 'user');
+    assert.match(JSON.stringify(calls[0]?.body.messages), /Be concise/);
+    assert.match(JSON.stringify(calls[0]?.body.messages), /hello/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('chat completions compatibility route sends image_url inputs through vision routing', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-chat-vision-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('vision-initial', 'Observation: the figure has readable labels.'),
+      chatCompletion('text-final', JSON.stringify({ type: 'final_answer', content: 'The figure is readable.' })),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/chat/completions`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        max_tokens: 256,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Can this figure be read?' },
+            { type: 'image_url', image_url: { url: pngDataUrl } },
+          ],
+        }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, any>;
+    assert.equal(body.object, 'chat.completion');
+    assert.equal(body.choices?.[0]?.message?.content, 'The figure is readable.');
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]?.url, 'https://vision.example/v1/chat/completions');
+    assert.match(JSON.stringify(calls[0]?.body), /data:image\/png;base64/);
+    assert.equal(calls[1]?.url, 'https://text.example/v1/chat/completions');
+    assert.equal(calls[1]?.body.max_tokens, 1024);
+    assert.doesNotMatch(JSON.stringify(calls[1]?.body), /data:image|base64|tiny-png/i);
+  } finally {
+    await server.close();
+  }
+});
+
+test('vision routing strips attachment base64 text fallbacks from provider prompts', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-vision-fallback-strip-'));
+  const calls: CapturedFetch[] = [];
+  const secondImageUrl = `data:image/png;base64,${Buffer.from('second-image').toString('base64')}`;
+  const fallbackBase64 = 'A'.repeat(8192);
+  const fallbackText = [
+    '[Attached image as base64 text]',
+    'Name: duplicate-fallback.png',
+    'MIME: image/png',
+    'Dimensions: 100x80',
+    'Bytes: 6144',
+    'Base64:',
+    '```base64',
+    fallbackBase64,
+    '```',
+    '[/Attached image]',
+  ].join('\n');
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('vision-initial-a', 'Observation: first image.'),
+      chatCompletion('vision-initial-b', 'Observation: second image.'),
+      chatCompletion('text-final', JSON.stringify({ type: 'final_answer', content: 'Both images were inspected.' })),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/chat/completions`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Inspect these images.' },
+            { type: 'image_url', image_url: { url: pngDataUrl } },
+            { type: 'image_url', image_url: { url: secondImageUrl } },
+            { type: 'text', text: fallbackText },
+          ],
+        }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, any>;
+    assert.equal(body.choices?.[0]?.message?.content, 'Both images were inspected.');
+    assert.equal(calls.length, 3);
+    assert.equal(imagePartCount(calls[0]?.body.messages), 1);
+    assert.equal(imagePartCount(calls[1]?.body.messages), 1);
+    assert.equal(imagePartCount(calls[2]?.body.messages), 0);
+    assert.doesNotMatch(textOnlyJson(calls[0]?.body.messages), new RegExp(fallbackBase64));
+    assert.doesNotMatch(textOnlyJson(calls[1]?.body.messages), new RegExp(fallbackBase64));
+    assert.doesNotMatch(textOnlyJson(calls[2]?.body.messages), new RegExp(fallbackBase64));
   } finally {
     await server.close();
   }
@@ -597,8 +784,11 @@ test('healthz reports recent provider auth failures after a routed request fails
       body: JSON.stringify({ model: 'sciforge-router', input: 'hello' }),
     });
     assert.equal(failed.status, 401);
-    const failedBody = await failed.json() as Record<string, { code?: string }>;
+    const failedBody = await failed.json() as Record<string, { code?: string; message?: string }>;
     assert.equal(failedBody.error?.code, 'provider_http_401');
+    assert.match(failedBody.error?.message ?? '', /upstream provider credentials were rejected/i);
+    assert.match(failedBody.error?.message ?? '', /Update the upstream API key in SciForge Model Router settings/i);
+    assert.doesNotMatch(JSON.stringify(failedBody), forbiddenPublicSurfacePattern);
 
     const response = await fetch(`${server.url}/healthz?check=upstream`);
     assert.equal(response.status, 503);
@@ -617,6 +807,40 @@ test('healthz reports recent provider auth failures after a routed request fails
       ok: false,
       retryable: false,
       httpStatus: 401,
+      releaseAcceptance: 'not-evaluated',
+    });
+    assert.doesNotMatch(serialized, forbiddenPublicSurfacePattern);
+  } finally {
+    await server.close();
+  }
+});
+
+test('healthz blocks missing vision translator credentials', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-healthz-missing-vision-auth-'));
+  const env = testEnv();
+  delete (env as Partial<typeof env>).SCIFORGE_VISION_API_KEY;
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env,
+    workspaceRoot,
+    fetchImpl: captureFetch([], []),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/healthz?check=upstream`);
+    assert.equal(response.status, 503);
+    const body = await response.json() as Record<string, unknown>;
+    const serialized = JSON.stringify(body);
+
+    assert.equal(body.ok, false);
+    assert.equal(body.recentError, 'provider-auth');
+    assert.deepEqual(body.upstream, {
+      category: 'provider-auth',
+      ok: false,
+      retryable: false,
+      httpStatus: 401,
+      role: 'visionTranslator',
       releaseAcceptance: 'not-evaluated',
     });
     assert.doesNotMatch(serialized, forbiddenPublicSurfacePattern);
@@ -3448,6 +3672,56 @@ test('vision translator failures force an explicit image unavailable final answe
   }
 });
 
+test('vision translator auth failures are visible in healthz after text fallback', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-vision-auth-failure-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      Response.json({ error: { message: 'vision key rejected with sk-should-not-leak' } }, { status: 401 }),
+      chatCompletion('text-final', JSON.stringify({ type: 'final_answer', content: 'Based on the text prompt, there is not enough information.' })),
+    ]),
+  });
+
+  try {
+    const routed = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [{ role: 'user', content: [{ type: 'input_text', text: 'What is in the image?' }, { type: 'input_image', image_url: pngDataUrl }] }],
+      }),
+    });
+
+    assert.equal(routed.status, 200);
+    const routedBody = await routed.json() as Record<string, unknown>;
+    assert.match(String(routedBody.output_text), /could not inspect the image/i);
+    assert.doesNotMatch(String(routedBody.output_text), /sk-should-not-leak|data:image|base64/i);
+
+    const response = await fetch(`${server.url}/healthz?check=upstream`);
+    assert.equal(response.status, 503);
+    const body = await response.json() as Record<string, unknown>;
+    const serialized = JSON.stringify(body);
+
+    assert.equal(body.ok, false);
+    assert.equal(body.recentError, 'provider_http_401');
+    assert.deepEqual(body.upstream, {
+      category: 'provider-auth',
+      ok: false,
+      retryable: false,
+      httpStatus: 401,
+      role: 'visionTranslator',
+      releaseAcceptance: 'not-evaluated',
+    });
+    assert.doesNotMatch(serialized, forbiddenPublicSurfacePattern);
+  } finally {
+    await server.close();
+  }
+});
+
 type CapturedFetch = {
   url: string;
   headers: Record<string, string>;
@@ -3522,6 +3796,26 @@ function parseSseEvents(body: string): Array<Record<string, any>> {
     .map((chunk) => chunk.split(/\n/).find((line) => line.startsWith('data: '))?.slice('data: '.length))
     .filter((payload): payload is string => Boolean(payload) && payload !== '[DONE]')
     .map((payload) => JSON.parse(payload) as Record<string, any>);
+}
+
+function imagePartCount(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + imagePartCount(item), 0);
+  if (!value || typeof value !== 'object') return 0;
+  const record = value as Record<string, unknown>;
+  const ownImagePart = record.type === 'image_url' || record.image_url !== undefined ? 1 : 0;
+  return ownImagePart + Object.values(record).reduce((sum, item) => sum + imagePartCount(item), 0);
+}
+
+function textOnlyJson(value: unknown): string {
+  return JSON.stringify(stripImagePayloads(value));
+}
+
+function stripImagePayloads(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripImagePayloads);
+  if (!value || typeof value !== 'object') return value;
+  const record = value as Record<string, unknown>;
+  if (record.type === 'image_url' || record.image_url !== undefined) return { type: 'image_url', image_url: '[omitted]' };
+  return Object.fromEntries(Object.entries(record).map(([key, entry]) => [key, stripImagePayloads(entry)]));
 }
 
 function chatCompletion(

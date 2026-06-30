@@ -99,7 +99,7 @@ describe('MultiAgentRuntime delegation integration', () => {
     if (result.item.kind === 'tool_result') {
       expect(result.item.output).toMatchObject({
         status: 'completed',
-        summary: 'done: Investigate A',
+        summary: expect.stringContaining('Investigate A'),
         usage: { totalTokens: 3 }
       })
     }
@@ -155,12 +155,58 @@ describe('MultiAgentRuntime delegation integration', () => {
       })
       expect(result.item.output).toMatchObject({
         children: expect.arrayContaining([
-          expect.objectContaining({ label: 'A', status: 'completed', summary: 'done: Investigate A' }),
-          expect.objectContaining({ label: 'B', status: 'completed', summary: 'done: Investigate B' }),
-          expect.objectContaining({ label: 'C', status: 'completed', summary: 'done: Investigate C' })
+          expect.objectContaining({ label: 'A', status: 'completed', summary: expect.stringContaining('Investigate A') }),
+          expect.objectContaining({ label: 'B', status: 'completed', summary: expect.stringContaining('Investigate B') }),
+          expect.objectContaining({ label: 'C', status: 'completed', summary: expect.stringContaining('Investigate C') })
         ])
       })
     }
+  })
+
+  it('resolves delegate auto models to the parent model alias', async () => {
+    const seenModels: Array<string | undefined> = []
+    const runtime = createRuntime({
+      maxParallel: 2,
+      executor: async ({ model, prompt }) => {
+        seenModels.push(model)
+        return {
+          summary: `done: ${prompt}`,
+          usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 }
+        }
+      }
+    })
+    const host = new LocalToolHost({
+      registry: new CapabilityRegistry(buildDelegationToolProviders(runtime))
+    })
+
+    const result = await host.execute({
+      callId: 'call_auto_model_batch',
+      toolName: 'delegate_tasks',
+      arguments: {
+        model: 'auto',
+        tasks: [
+          { label: 'A', prompt: 'Investigate A', model: 'auto' },
+          { label: 'B', prompt: 'Investigate B' }
+        ]
+      }
+    }, {
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      workspace: '/tmp/ws',
+      model: {
+        id: 'sciforge-router',
+        inputModalities: ['text'],
+        outputModalities: ['text'],
+        supportsToolCalling: true,
+        messageParts: ['text']
+      },
+      approvalPolicy: 'auto',
+      abortSignal: new AbortController().signal,
+      awaitApproval: async () => 'allow'
+    })
+
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
+    expect(seenModels).toEqual(['sciforge-router', 'sciforge-router'])
   })
 
   it('warns when delegate_task is spawned repeatedly in one parent thread', async () => {

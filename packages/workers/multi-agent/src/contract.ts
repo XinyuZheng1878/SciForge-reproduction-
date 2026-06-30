@@ -243,6 +243,10 @@ export type MultiAgentExecutorInput = {
   prompt: string
   workspace?: string
   model?: string
+  allowedToolNames?: readonly string[]
+  strictAllowedToolNames?: boolean
+  bashCommandPolicy?: Record<string, unknown>
+  filePathPolicy?: Record<string, unknown>
   signal: AbortSignal
   appendTranscript: (entry: MultiAgentTranscriptEntry) => Promise<void>
 }

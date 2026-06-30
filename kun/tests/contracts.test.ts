@@ -444,6 +444,7 @@ describe('cli', () => {
         },
         runtime: {
           modelStreamIdleTimeoutMs: 120_000,
+          maxTurnModelSteps: 128,
           toolStorm: {
             enabled: true,
             windowSize: 5,
@@ -511,6 +512,7 @@ describe('cli', () => {
       expect(parsed.runtime?.toolStorm?.threshold).toBe(4)
       expect(parsed.runtime?.toolArgumentRepair?.maxStringBytes).toBe(4096)
       expect(parsed.runtime?.modelStreamIdleTimeoutMs).toBe(120_000)
+      expect(parsed.runtime?.maxTurnModelSteps).toBe(128)
       expect(parsed.capabilities.web.enabled).toBe(true)
       expect(parsed.capabilities.web.fetchEnabled).toBe(true)
       expect(parsed.capabilities.skills.roots).toEqual(['/tmp/skills'])

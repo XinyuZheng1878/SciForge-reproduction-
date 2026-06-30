@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { CapabilityRegistry } from '../src/adapters/tool/capability-registry.js'
 import { LocalToolHost } from '../src/adapters/tool/local-tool-host.js'
 import { createImmutablePrefix } from '../src/cache/immutable-prefix.js'
-import { createChildAgentExecutor } from '../src/delegation/child-agent-executor.js'
+import {
+  DEFAULT_CHILD_MAX_TURN_MODEL_STEPS,
+  createChildAgentExecutor,
+  resolveChildMaxTurnModelSteps
+} from '../src/delegation/child-agent-executor.js'
 import type { ModelClient, ModelRequest, ModelStreamChunk } from '../src/ports/model-client.js'
 
 function model(chunks: ModelStreamChunk[], seen: ModelRequest[] = []): ModelClient {
@@ -18,6 +22,12 @@ function model(chunks: ModelStreamChunk[], seen: ModelRequest[] = []): ModelClie
 }
 
 describe('child agent executor', () => {
+  it('raises low parent step budgets for delegated long-running child turns', () => {
+    expect(resolveChildMaxTurnModelSteps(undefined)).toBe(DEFAULT_CHILD_MAX_TURN_MODEL_STEPS)
+    expect(resolveChildMaxTurnModelSteps({ maxTurnModelSteps: 128 })).toBe(DEFAULT_CHILD_MAX_TURN_MODEL_STEPS)
+    expect(resolveChildMaxTurnModelSteps({ maxTurnModelSteps: 1024 })).toBe(1024)
+  })
+
   it('runs a real child AgentLoop and returns assistant summary plus usage', async () => {
     const seen: ModelRequest[] = []
     const executor = createChildAgentExecutor({
@@ -90,6 +100,152 @@ describe('child agent executor', () => {
       ]
     })
     expect(seen[0]?.tools).toEqual([])
+  })
+
+  it('redacts secrets before persisting child transcripts', async () => {
+    const runtimeToken = 'local-router-11111111-2222-3333-4444-555555555555'
+    const providerToken = 'sk-testsecret1234567890abcdef'
+    let calls = 0
+    const transcript: unknown[] = []
+    const qaTool = LocalToolHost.defineTool({
+      name: 'vision_qa',
+      description: 'Run figure QA',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          apiKey: { type: 'string' },
+          prompt: { type: 'string' }
+        },
+        required: ['apiKey', 'prompt']
+      },
+      policy: 'auto',
+      execute: async () => ({
+        output: {
+          ok: true,
+          token: runtimeToken,
+          message: `Authorization: Bearer ${providerToken}`
+        }
+      })
+    })
+    const executor = createChildAgentExecutor({
+      model: {
+        provider: 'child-redaction-test',
+        model: 'child-redaction-test',
+        async *stream(): AsyncIterable<ModelStreamChunk> {
+          calls += 1
+          if (calls === 1) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_vision',
+              toolName: 'vision_qa',
+              arguments: {
+                apiKey: runtimeToken,
+                prompt: `use ${providerToken}`
+              }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield {
+            kind: 'assistant_text_delta',
+            text: `QA complete with ${runtimeToken} and ${providerToken}`
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      toolHost: new LocalToolHost({
+        registry: new CapabilityRegistry([
+          { id: 'local', kind: 'built-in', enabled: true, available: true, tools: [qaTool] }
+        ])
+      }),
+      prefix: createImmutablePrefix({ systemPrompt: 'child system' }),
+      defaultModel: 'child-redaction-test',
+      nowIso: () => '2026-06-03T00:00:00.000Z'
+    })
+
+    const result = await executor({
+      childId: 'child_redacted',
+      parentThreadId: 'thr_parent',
+      parentTurnId: 'turn_parent',
+      prompt: `Check figure with token ${runtimeToken}`,
+      signal: new AbortController().signal,
+      appendTranscript: async (entry) => { transcript.push(entry) }
+    })
+
+    const serialized = JSON.stringify({ result, transcript })
+    expect(serialized).not.toContain(runtimeToken)
+    expect(serialized).not.toContain(providerToken)
+    expect(serialized).toContain('<redacted>')
+  })
+
+  it('does not fail a child run for tool-loop recovery warnings when the child recovers', async () => {
+    const seen: ModelRequest[] = []
+    let calls = 0
+    let executions = 0
+    const echoTool = LocalToolHost.defineTool({
+      name: 'echo',
+      description: 'Echo text',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text']
+      },
+      policy: 'auto',
+      execute: async () => {
+        executions += 1
+        return { output: { ok: executions } }
+      }
+    })
+    const executor = createChildAgentExecutor({
+      model: {
+        provider: 'child-storm-test',
+        model: 'child-storm-test',
+        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+          seen.push(request)
+          calls += 1
+          if (calls <= 3) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: `call_echo_${calls}`,
+              toolName: 'echo',
+              arguments: { text: 'repeat me' }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield { kind: 'assistant_text_delta', text: 'Recovered with a substantive child summary.' }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      toolHost: new LocalToolHost({
+        registry: new CapabilityRegistry([
+          { id: 'local', kind: 'built-in', enabled: true, available: true, tools: [echoTool] }
+        ])
+      }),
+      prefix: createImmutablePrefix({ systemPrompt: 'child system' }),
+      defaultModel: 'child-storm-test',
+      nowIso: () => '2026-06-03T00:00:00.000Z'
+    })
+
+    const result = await executor({
+      childId: 'child_recovered',
+      parentThreadId: 'thr_parent',
+      parentTurnId: 'turn_parent',
+      prompt: 'Recover from repeated tool calls',
+      signal: new AbortController().signal,
+      appendTranscript: async () => undefined
+    })
+
+    expect(result.summary).toBe('Recovered with a substantive child summary.')
+    expect(calls).toBe(4)
+    expect(executions).toBe(2)
+    expect(seen.at(-1)?.contextInstructions?.join('\n')).toContain('Tool loop recovery')
+    expect(result.transcript).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'assistant_message',
+        text: 'Recovered with a substantive child summary.'
+      })
+    ]))
   })
 
   it('fails the child run when the child loop cannot produce a completed turn', async () => {

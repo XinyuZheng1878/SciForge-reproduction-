@@ -10,6 +10,15 @@ function call(argumentsValue: Record<string, unknown>): ToolCallLike {
   }
 }
 
+function bashCall(argumentsValue: Record<string, unknown>): ToolCallLike {
+  return {
+    callId: Math.random().toString(36),
+    toolName: 'bash',
+    toolKind: 'command_execution',
+    arguments: argumentsValue
+  }
+}
+
 describe('ToolStormBreaker', () => {
   it('suppresses the third identical tool call in a turn', () => {
     const breaker = new ToolStormBreaker()
@@ -44,5 +53,24 @@ describe('ToolStormBreaker', () => {
       }).suppress
     ).toBe(false)
     expect(breaker.inspect(call({ path: 'src/a.ts' })).suppress).toBe(false)
+  })
+
+  it('allows repeated bash session polls for long-running commands', () => {
+    const breaker = new ToolStormBreaker()
+    const args = { action: 'poll', session_id: 'bash_123', yield_seconds: 30 }
+
+    expect(breaker.inspect(bashCall(args)).suppress).toBe(false)
+    expect(breaker.inspect(bashCall(args)).suppress).toBe(false)
+    expect(breaker.inspect(bashCall(args)).suppress).toBe(false)
+    expect(breaker.inspect(bashCall(args)).suppress).toBe(false)
+  })
+
+  it('still suppresses repeated bash command executions', () => {
+    const breaker = new ToolStormBreaker()
+    const args = { command: 'npm test', timeout: 300 }
+
+    expect(breaker.inspect(bashCall(args)).suppress).toBe(false)
+    expect(breaker.inspect(bashCall(args)).suppress).toBe(false)
+    expect(breaker.inspect(bashCall(args)).suppress).toBe(true)
   })
 })

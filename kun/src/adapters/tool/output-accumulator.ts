@@ -96,8 +96,20 @@ function textStats(text: string): {
   return stats
 }
 
+function printableAsciiByteRatio(buffer: Buffer): number {
+  if (buffer.length === 0) return 0
+  let printable = 0
+  for (const byte of buffer) {
+    if (byte === 0x09 || byte === 0x0a || byte === 0x0d || (byte >= 0x20 && byte <= 0x7e)) {
+      printable += 1
+    }
+  }
+  return printable / buffer.length
+}
+
 function looksLikeHanUtf16LeWithoutNuls(buffer: Buffer): boolean {
   if (buffer.length < 4 || buffer.length % 2 !== 0 || buffer.includes(0)) return false
+  const rawPrintableAsciiRatio = printableAsciiByteRatio(buffer)
   const utf16Text = new TextDecoder('utf-16le').decode(buffer)
   const utf8Text = new TextDecoder('utf-8').decode(buffer)
   const utf16 = textStats(utf16Text)
@@ -105,6 +117,7 @@ function looksLikeHanUtf16LeWithoutNuls(buffer: Buffer): boolean {
   if (utf16.total === 0 || utf16.han < 2) return false
   if (utf16.replacement > 0 || utf16.control > 0 || utf16.privateUse > 0) return false
   if (utf16.han / utf16.total < 0.6) return false
+  if (utf8.replacement === 0 && rawPrintableAsciiRatio >= 0.6) return false
   if (utf8.replacement > 0) return true
   if (utf8.han > 0) return false
   return utf8.ascii > 0 && utf8.ascii < utf8.total

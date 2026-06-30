@@ -188,6 +188,9 @@ describe('HTTP server', () => {
             label: 'research',
             prompt: 'Research A',
             status: 'running',
+            transcript: [
+              { id: 'entry-1', kind: 'assistant_message', text: 'large transcript payload' }
+            ],
             usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
             createdAt: '2026-06-02T00:00:00.000Z',
             updatedAt: '2026-06-02T00:00:01.000Z'
@@ -228,7 +231,7 @@ describe('HTTP server', () => {
     const body = await readJson(response) as {
       threadId?: string
       turnId?: string
-      children?: Array<{ id: string; status: string; prompt: string }>
+      children?: Array<{ id: string; status: string; prompt: string; transcript?: unknown[] }>
       metadata?: { enabled?: boolean; active?: number }
     }
     expect(body).toMatchObject({
@@ -246,6 +249,20 @@ describe('HTTP server', () => {
         active: 1
       }
     })
+    expect(body.children?.[0]?.transcript).toBeUndefined()
+
+    const fullResponse = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thread-1/children?turn_id=turn-1&active_only=true&limit=1&include_transcript=true', {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+    const fullBody = await readJson(fullResponse) as {
+      children?: Array<{ transcript?: unknown[] }>
+    }
+    expect(fullBody.children?.[0]?.transcript).toEqual([
+      { id: 'entry-1', kind: 'assistant_message', text: 'large transcript payload' }
+    ])
   })
 
   it('lists discovered skills through the HTTP layer', async () => {

@@ -190,7 +190,20 @@ describe('local runtime defaults', () => {
       }
     })
 
-    expect(getAgentCapabilitySettings(highChildBudget).subagents.maxChildRuns).toBe(256)
+    expect(getAgentCapabilitySettings(highChildBudget).subagents.maxChildRuns).toBe(999)
+
+    const cappedChildBudget = normalizeAppSettings({
+      ...settings(),
+      agentCapabilities: {
+        subagents: {
+          enabled: true,
+          maxParallel: 2,
+          maxChildRuns: 9999
+        }
+      }
+    })
+
+    expect(getAgentCapabilitySettings(cappedChildBudget).subagents.maxChildRuns).toBe(4096)
   })
 
   it('merges shared agent capability patches', () => {
@@ -1069,6 +1082,31 @@ describe('agent runtime settings', () => {
     expect(normalized.modelRouter).toBeDefined()
     const modelRouter = normalized.modelRouter!
     expect(modelRouter.baseUrl).toBe('http://localhost:49876/v1')
+  })
+
+  it('preserves Model Router vision supplement rounds when configured', () => {
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      modelRouter: {
+        ...defaultModelRouterSettings(),
+        profiles: {
+          default: {
+            textReasoner: defaultModelRouterSettings().profiles.default.textReasoner,
+            translators: {
+              vision: {
+                provider: 'openai-compatible',
+                baseUrl: 'https://vision.example/v1',
+                apiKey: 'vision-key',
+                model: 'vision-model',
+                maxSupplementRounds: 1.9
+              }
+            }
+          }
+        }
+      }
+    })
+
+    expect(normalized.modelRouter?.profiles.default.translators.vision.maxSupplementRounds).toBe(1)
   })
 
   it('wraps codex runtime patches into the shared agents envelope', () => {

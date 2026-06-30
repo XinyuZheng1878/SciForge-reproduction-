@@ -1,5 +1,6 @@
 export type TraceTextRedactionOptions = {
   sensitiveValues?: string[];
+  allowedLocalPathPrefixes?: string[];
 };
 
 const dataImagePattern = /\bdata:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=_-]*/gi;
@@ -8,7 +9,7 @@ const rawAuthHeaderPattern = /\bAuthorization\s*:\s*(?:Bearer|Basic)?\s*[A-Za-z0
 const bearerTokenPattern = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi;
 const providerTokenPattern = /\bsk-[A-Za-z0-9_-]{8,}\b/gi;
 const httpUrlPattern = /\bhttps?:\/\/[^\s"'<>),\]]+/gi;
-const localAbsolutePathPattern = /(^|[\s"'([])(?:(?:file:\/\/)?\/(?:Applications|Users|Volumes|private|tmp|var|home|opt|etc)\/[^\s"'<>),\]]+|[A-Za-z]:\\[^\s"'<>),\]]+|\\\\[^\s"'<>),\]]+)/gi;
+const localAbsolutePathPattern = /(^|[\s"'([])((?:file:\/\/)?\/(?:Applications|Users|Volumes|private|tmp|var|home|opt|etc)\/[^\s"'<>),\]]+|[A-Za-z]:\\[^\s"'<>),\]]+|\\\\[^\s"'<>),\]]+)/gi;
 const genericSecretAssignmentPattern = /\b(?:api[_-]?key|token|secret|password|credential)\s*[:=]\s*("[^"]+"|'[^']+'|[^\s,;&]+)/gi;
 const likelyBase64BlobPattern = /\b[A-Za-z0-9+/]{120,}={0,2}\b/g;
 
@@ -18,7 +19,12 @@ export function redactTraceText(value: string, options: TraceTextRedactionOption
   redacted = redacted.replace(inlineBase64PayloadPattern, ';base64,[redacted]');
   redacted = redacted.replace(rawAuthHeaderPattern, '[redacted-auth-header]');
   redacted = redacted.replace(httpUrlPattern, '[redacted-url]');
-  redacted = redacted.replace(localAbsolutePathPattern, (_match, prefix: string) => `${prefix}[redacted-path]`);
+  redacted = redacted.replace(localAbsolutePathPattern, (_match: string, prefix: string, localPath: string) => {
+    const split = splitTrailingPathPunctuation(localPath);
+    return isAllowedLocalPath(split.path, options.allowedLocalPathPrefixes ?? [])
+      ? `${prefix}${split.path}${split.suffix}`
+      : `${prefix}[redacted-path]${split.suffix}`;
+  });
   redacted = redacted.replace(bearerTokenPattern, '[redacted-bearer-token]');
   redacted = redacted.replace(providerTokenPattern, '[redacted-provider-token]');
   redacted = redacted.replace(genericSecretAssignmentPattern, '[redacted-secret-assignment]');
@@ -29,6 +35,40 @@ export function redactTraceText(value: string, options: TraceTextRedactionOption
   }
 
   return redacted;
+}
+
+function isAllowedLocalPath(localPath: string, allowedPrefixes: string[]) {
+  const normalizedPath = normalizeLocalPathForCompare(localPath);
+  if (!normalizedPath) return false;
+  for (const prefix of allowedPrefixes) {
+    const normalizedPrefix = normalizeLocalPathForCompare(prefix);
+    if (!normalizedPrefix) continue;
+    if (normalizedPath === normalizedPrefix || normalizedPath.startsWith(`${normalizedPrefix}/`)) return true;
+  }
+  return false;
+}
+
+function splitTrailingPathPunctuation(value: string) {
+  const match = /^(.*?)([.!?;:]+)$/u.exec(value);
+  if (!match || !match[1]) return { path: value, suffix: '' };
+  return { path: match[1], suffix: match[2] ?? '' };
+}
+
+function normalizeLocalPathForCompare(value: string) {
+  const stripped = value.trim().replace(/^file:\/\//i, '').replace(/\\/g, '/');
+  if (!stripped) return '';
+  const hasLeadingSlash = stripped.startsWith('/');
+  const parts: string[] = [];
+  for (const part of stripped.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  const joined = parts.join('/');
+  return hasLeadingSlash ? `/${joined}` : joined;
 }
 
 function normalizedSensitiveValues(values: string[]) {

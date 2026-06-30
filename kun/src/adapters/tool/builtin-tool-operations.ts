@@ -159,6 +159,7 @@ export function createLocalBashOperations(): BashLocalToolOperations {
         clearTimeout(timer)
         options.signal.removeEventListener('abort', onAbort)
       })
+      terminateSpawnTree(child)
       if (options.signal.aborted) throw new Error('command aborted')
       if (timedOut) throw new Error(`command timed out after ${options.timeoutSeconds} seconds`)
       return { exitCode, shell: name }

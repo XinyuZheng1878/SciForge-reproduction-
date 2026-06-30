@@ -364,6 +364,88 @@ describe('Local runtime built-in tools', () => {
     expect((lsOutput.names as Array<string>)[0]).toBe('demo.txt')
   })
 
+  it('refuses to persist cache-hygiene placeholders as file content', async () => {
+    const placeholder =
+      '[cache hygiene: omitted completed write.content argument, 12.5KB, approx 3375 token(s), 358 line(s); see following tool result] preview="generated script"'
+
+    const writeResult = await host.execute(
+      {
+        callId: 'call_write_placeholder',
+        toolName: 'write',
+        arguments: {
+          path: 'generated.py',
+          content: placeholder
+        }
+      },
+      buildContext(workspace)
+    )
+
+    expect(writeResult.item).toMatchObject({
+      kind: 'tool_result',
+      toolName: 'write',
+      isError: true
+    })
+    await expect(readFile(join(workspace, 'generated.py'), 'utf8')).rejects.toThrow()
+
+    await writeFile(join(workspace, 'existing.txt'), 'alpha\n', 'utf8')
+    const editResult = await host.execute(
+      {
+        callId: 'call_edit_placeholder',
+        toolName: 'edit',
+        arguments: {
+          path: 'existing.txt',
+          oldText: 'alpha',
+          newText: placeholder
+        }
+      },
+      buildContext(workspace)
+    )
+
+    expect(editResult.item).toMatchObject({
+      kind: 'tool_result',
+      toolName: 'edit',
+      isError: true
+    })
+    await expect(readFile(join(workspace, 'existing.txt'), 'utf8')).resolves.toBe('alpha\n')
+  })
+
+  it('refuses to execute cache-hygiene placeholders as bash commands', async () => {
+    let executed = false
+    const placeholder =
+      '[cache hygiene: omitted completed bash.command argument, 1.2KB, approx 300 token(s), 20 line(s); see following tool result] preview="touch should-not-run"'
+    const bashOnlyHost = new LocalToolHost({
+      tools: [
+        createBashLocalTool({
+          operations: {
+            exec: async () => {
+              executed = true
+              return { exitCode: 0 }
+            }
+          }
+        })
+      ]
+    })
+
+    const result = await bashOnlyHost.execute(
+      {
+        callId: 'call_bash_placeholder',
+        toolName: 'bash',
+        arguments: { command: placeholder }
+      },
+      buildContext(workspace)
+    )
+
+    expect(result.item).toMatchObject({
+      kind: 'tool_result',
+      toolName: 'bash',
+      isError: true
+    })
+    expect(executed).toBe(false)
+    expect(JSON.stringify(result.item.kind === 'tool_result' ? result.item.output : {})).toContain(
+      'Refusing to execute cache-hygiene placeholder'
+    )
+  })
+
   it('executes bash commands in the workspace', async () => {
     await writeFile(join(workspace, 'cmd.txt'), 'from bash\n', 'utf8')
     const output = await executeTool(host, workspace, 'bash', {
@@ -385,6 +467,21 @@ describe('Local runtime built-in tools', () => {
     expect(output.exit_code).toBe(0)
     expect(String(output.output)).toContain('done')
     expect(Date.now() - startedAt).toBeLessThan(2500)
+  })
+
+  it('cleans up background children after the shell exits', async () => {
+    if (process.platform === 'win32') return
+    const marker = join(workspace, 'background-child-survived.txt')
+
+    const output = await executeTool(host, workspace, 'bash', {
+      command: `(sleep 2; printf survived > ${JSON.stringify(marker)}) & echo done`,
+      timeout: 5
+    })
+
+    expect(output.exit_code).toBe(0)
+    expect(String(output.output)).toContain('done')
+    await new Promise((resolve) => setTimeout(resolve, 2500))
+    await expect(readFile(marker, 'utf8')).rejects.toThrow()
   })
 
   it('returns a pollable bash session for foreground long-running commands', async () => {
@@ -413,6 +510,42 @@ describe('Local runtime built-in tools', () => {
     })
     expect(stopped.status).toBe('stopped')
     expect(stopped.stop_sent).toBe(true)
+  })
+
+  it('stops a pollable bash session when the parent turn aborts after the first yield', async () => {
+    const controller = new AbortController()
+    const result = await host.execute(
+      {
+        callId: 'call_bash_abort_session',
+        toolName: 'bash',
+        arguments: {
+          command: 'echo ready; sleep 30',
+          yield_seconds: 1,
+          timeout: 40
+        }
+      },
+      {
+        ...buildContext(workspace),
+        abortSignal: controller.signal
+      }
+    )
+    expect(result.item.kind).toBe('tool_result')
+    if (result.item.kind !== 'tool_result') {
+      throw new Error('expected tool_result')
+    }
+
+    const output = result.item.output as Record<string, unknown>
+    expect(output.status).toBe('running')
+    expect(typeof output.session_id).toBe('string')
+
+    controller.abort()
+
+    const polled = await executeTool(host, workspace, 'bash', {
+      action: 'poll',
+      session_id: String(output.session_id),
+      yield_seconds: 1
+    })
+    expect(polled.status).toBe('stopped')
   })
 
   it('polls completed bash sessions for final output', async () => {

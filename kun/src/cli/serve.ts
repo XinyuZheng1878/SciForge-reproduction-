@@ -279,9 +279,15 @@ function runtimeTuningFromRawEnvOrConfig(
     numberFlag(raw, 'modelStreamIdleTimeoutMs') ??
     envNumber(env.KUN_MODEL_STREAM_IDLE_TIMEOUT_MS) ??
     loadedConfig?.config.runtime?.modelStreamIdleTimeoutMs
+  const maxTurnModelSteps =
+    numberFlag(raw, 'max-turn-model-steps') ??
+    numberFlag(raw, 'maxTurnModelSteps') ??
+    envNumber(env.KUN_MAX_TURN_MODEL_STEPS) ??
+    loadedConfig?.config.runtime?.maxTurnModelSteps
   const runtime = {
     ...(loadedConfig?.config.runtime ?? {}),
-    ...(modelStreamIdleTimeoutMs !== undefined ? { modelStreamIdleTimeoutMs } : {})
+    ...(modelStreamIdleTimeoutMs !== undefined ? { modelStreamIdleTimeoutMs } : {}),
+    ...(maxTurnModelSteps !== undefined ? { maxTurnModelSteps } : {})
   }
   return Object.keys(runtime).length ? runtime : undefined
 }

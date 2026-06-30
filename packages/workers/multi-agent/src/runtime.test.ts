@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { MultiAgentChildEvent, MultiAgentExecutorResult } from './contract.js'
+import { MultiAgentChildRunRecord, type MultiAgentChildEvent, type MultiAgentExecutorResult } from './contract.js'
 import { MultiAgentRuntime, MultiAgentRuntimeError } from './runtime.js'
 import { InMemoryMultiAgentStore } from './store.js'
 
@@ -20,6 +20,10 @@ test('runtime persists queued/running/completed records through an injected exec
     executor: async (input) => {
       assert.equal(input.childId, 'child-1')
       assert.equal(input.model, 'router-model')
+      assert.deepEqual(input.allowedToolNames, ['bash', 'delegate_tasks'])
+      assert.equal(input.strictAllowedToolNames, true)
+      assert.deepEqual(input.bashCommandPolicy, { allowPatterns: ['^python3 '] })
+      assert.deepEqual(input.filePathPolicy, { allowPaths: ['/workspace'] })
       assert.equal(input.signal.aborted, false)
       await input.appendTranscript({
         id: 'tool-1',
@@ -43,7 +47,11 @@ test('runtime persists queued/running/completed records through an injected exec
     label: 'Notes',
     prompt: '  Summarize notes  ',
     workspace: '/workspace',
-    model: 'router-model'
+    model: 'router-model',
+    allowedToolNames: ['bash', 'delegate_tasks', 'bash'],
+    strictAllowedToolNames: true,
+    bashCommandPolicy: { allowPatterns: ['^python3 '] },
+    filePathPolicy: { allowPaths: ['/workspace'] }
   })
 
   assert.equal(record.status, 'completed')
@@ -58,6 +66,50 @@ test('runtime persists queued/running/completed records through an injected exec
   assert.equal(diagnostics.statusCounts.completed, 1)
   assert.equal(diagnostics.usage.totalTokens, 5)
   assert.equal(diagnostics.aggregates[0]?.key, 'Notes:router-model')
+})
+
+test('runtime merges streamed transcript updates by entry id', async () => {
+  const store = new InMemoryMultiAgentStore()
+  const runtime = new MultiAgentRuntime({
+    store,
+    idGenerator: () => 'child-streamed',
+    nowIso: clock(),
+    executor: async (input) => {
+      await input.appendTranscript({
+        id: 'tool-1',
+        kind: 'tool',
+        summary: 'Read notes',
+        text: '{"status":"running"}',
+        status: 'running',
+        createdAt: '2026-06-27T00:00:03.000Z'
+      })
+      await input.appendTranscript({
+        id: 'tool-1',
+        kind: 'tool',
+        summary: 'Read notes result',
+        text: '{"status":"completed"}',
+        status: 'completed',
+        createdAt: '2026-06-27T00:00:03.000Z'
+      })
+      return { summary: 'Done' }
+    }
+  })
+
+  const record = await runtime.runChild({
+    parentThreadId: 'thread-1',
+    parentTurnId: 'turn-1',
+    prompt: 'Summarize notes'
+  })
+
+  assert.equal(record.transcript.filter((entry) => entry.id === 'tool-1').length, 1)
+  assert.deepEqual(record.transcript.find((entry) => entry.id === 'tool-1'), {
+    id: 'tool-1',
+    kind: 'tool',
+    summary: 'Read notes result',
+    text: '{"status":"completed"}',
+    status: 'completed',
+    createdAt: '2026-06-27T00:00:03.000Z'
+  })
 })
 
 test('runtime drops runtime-only usage fields returned by child executors', async () => {
@@ -120,6 +172,9 @@ test('runtime enforces maxParallel and maxChildren bounds', async () => {
     prompt: 'First'
   })
   await entered.promise
+  const liveDiagnostics = await runtime.diagnostics('thread-1')
+  assert.equal(liveDiagnostics.active, 1)
+  assert.equal(liveDiagnostics.statusCounts.running, 1)
 
   await assert.rejects(
     runtime.runChild({
@@ -141,6 +196,42 @@ test('runtime enforces maxParallel and maxChildren bounds', async () => {
     }),
     (error) => error instanceof MultiAgentRuntimeError && error.code === 'child_budget_exhausted'
   )
+})
+
+test('runtime diagnostics hide stale persisted active records after restart', async () => {
+  const store = new InMemoryMultiAgentStore()
+  await store.upsert(MultiAgentChildRunRecord.parse({
+    id: 'child-stale',
+    parentThreadId: 'thread-1',
+    parentTurnId: 'turn-1',
+    label: 'stale-worker',
+    prompt: 'Do work',
+    model: 'router-model',
+    status: 'running',
+    usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+    transcript: [{
+      id: 'child-stale-prompt',
+      kind: 'user_message',
+      text: 'Do work',
+      createdAt: '2026-06-27T00:00:00.000Z'
+    }],
+    createdAt: '2026-06-27T00:00:00.000Z',
+    startedAt: '2026-06-27T00:00:01.000Z',
+    updatedAt: '2026-06-27T00:00:02.000Z'
+  }))
+  const runtime = new MultiAgentRuntime({ store })
+
+  const diagnostics = await runtime.diagnostics('thread-1')
+  assert.equal(diagnostics.active, 0)
+  assert.equal(diagnostics.childRuns[0]?.status, 'aborted')
+  assert.equal(diagnostics.childRuns[0]?.error?.code, 'child_aborted')
+  assert.equal(diagnostics.childRuns[0]?.finishedAt, '2026-06-27T00:00:02.000Z')
+  assert.equal(diagnostics.statusCounts.running, 0)
+  assert.equal(diagnostics.statusCounts.aborted, 1)
+  assert.equal(diagnostics.aggregates[0]?.running, 0)
+  assert.equal(diagnostics.aggregates[0]?.aborted, 1)
+  assert.equal((await runtime.child('thread-1', 'child-stale'))?.status, 'aborted')
+  assert.equal((await store.get('thread-1', 'child-stale'))?.status, 'running')
 })
 
 test('runtime records executor failure, abort, and timeout as canonical error codes', async () => {

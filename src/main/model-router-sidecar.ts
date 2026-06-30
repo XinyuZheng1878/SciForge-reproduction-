@@ -295,7 +295,8 @@ function providerConfig(
     provider: provider.provider,
     baseUrl: provider.baseUrl,
     apiKeyEnv,
-    model: provider.model
+    model: provider.model,
+    ...(provider.maxSupplementRounds === undefined ? {} : { maxSupplementRounds: provider.maxSupplementRounds })
   }
 }
 

@@ -67,7 +67,15 @@ export async function interruptTurn(
   if (!parsed.success) {
     return ERRORS.validation('invalid interrupt turn body', parsed.error.issues)
   }
-  const result = await turns.interruptTurn({ threadId, turnId, discard: parsed.data.discard })
+  let result: { status: 'queued' | 'running' | 'completed' | 'failed' | 'aborted' }
+  try {
+    result = await turns.interruptTurn({ threadId, turnId, discard: parsed.data.discard })
+  } catch (error) {
+    if (error instanceof Error && /not found/i.test(error.message)) {
+      return ERRORS.notFound(error.message)
+    }
+    throw error
+  }
   const payload: InterruptTurnResponse = {
     threadId,
     turnId,

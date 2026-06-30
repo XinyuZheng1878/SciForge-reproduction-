@@ -132,11 +132,13 @@ function normalizeModelRouterMemberProvider(
   input: ModelRouterMemberProviderSettingsPatchV1 | undefined,
   defaults: ModelRouterMemberProviderSettingsV1
 ): ModelRouterMemberProviderSettingsV1 {
+  const maxSupplementRounds = optionalNonNegativeInteger(input?.maxSupplementRounds)
   return {
     provider: nonEmptyString(input?.provider, defaults.provider),
     baseUrl: optionalString(input?.baseUrl),
     apiKey: optionalString(input?.apiKey),
-    model: optionalString(input?.model)
+    model: optionalString(input?.model),
+    ...(maxSupplementRounds === undefined ? {} : { maxSupplementRounds })
   }
 }
 
@@ -150,4 +152,9 @@ function nonEmptyString(value: unknown, fallback: string): string {
 
 function optionalString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function optionalNonNegativeInteger(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return Math.max(0, Math.floor(value))
 }

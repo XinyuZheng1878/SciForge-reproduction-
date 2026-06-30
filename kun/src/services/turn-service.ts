@@ -118,6 +118,11 @@ export class TurnService {
   }
 
   async interruptTurn(input: { threadId: string; turnId: string; discard?: boolean }): Promise<{ status: TurnStatus }> {
+    const thread = await this.deps.threadStore.get(input.threadId)
+    if (!thread) throw new Error(`thread not found: ${input.threadId}`)
+    if (!thread.turns.some((turn) => turn.id === input.turnId)) {
+      throw new Error(`turn not found: ${input.turnId}`)
+    }
     const controller = this.inflightTurns.get(input.turnId)
     if (controller) controller.abort()
     this.deps.steering.clear()

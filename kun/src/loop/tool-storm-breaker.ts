@@ -33,6 +33,7 @@ export class ToolStormBreaker {
 
   inspect(call: ToolCallLike): { suppress: boolean; reason?: string } {
     if (STORM_EXEMPT_TOOL_NAMES.has(call.toolName)) return { suppress: false }
+    if (isBashSessionControlCall(call)) return { suppress: false }
     const name = call.toolName
     const args = stableStringify(call.arguments)
     const readOnly = !isMutatingToolCall(call)
@@ -73,6 +74,12 @@ export class ToolStormBreaker {
 function isMutatingToolCall(call: ToolCallLike): boolean {
   if (call.toolKind === 'file_change') return true
   return MUTATING_TOOL_NAMES.has(call.toolName)
+}
+
+function isBashSessionControlCall(call: ToolCallLike): boolean {
+  if (call.toolName !== 'bash') return false
+  const action = typeof call.arguments.action === 'string' ? call.arguments.action : ''
+  return action === 'poll' || action === 'write' || action === 'stop'
 }
 
 function stableStringify(value: unknown): string {

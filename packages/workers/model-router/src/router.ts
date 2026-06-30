@@ -128,6 +128,15 @@ type ProviderCallRecord = {
   errorSummary?: string;
 };
 
+const MIN_MULTIMODAL_TEXT_REASONER_MAX_TOKENS = 1024;
+
+type RecentProviderError = {
+  code: string;
+  status: number;
+  at: number;
+  role?: ProviderCallRecord['role'];
+};
+
 type RequestAuditMetadata = {
   schemaVersion: 'sciforge.model-router.request-audit.v1';
   route: 'model-router.responses' | 'model-router.messages';
@@ -190,6 +199,7 @@ const MAX_MODEL_ROUTER_REQUEST_BODY_BYTES = 40 * 1024 * 1024;
 const MAX_TOOL_CALL_CACHE_ENTRIES = 512;
 const MAX_TEXT_MODALITY_BYTES = 256 * 1024;
 export const DEFAULT_MODEL_ROUTER_TRACE_ROOT = 'traces';
+const RECENT_PROVIDER_AUTH_ERROR_TTL_MS = 30 * 60 * 1000;
 
 // Uploaded scientific files (sequence / structure / spectra) that a domain expert model can read.
 // These are classified as 'document' for routing but, when the Model-Router-managed sci-modality
@@ -213,7 +223,13 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
   // the GPU expert every round. With it the expert runs once and its output is re-surfaced each round.
   const scientificTranslationCache = new Map<string, ScientificEvidence>();
   const toolCallCache: ToolCallCache = new Map();
-  let recentRouterError: { code: string; status: number; at: number } | null = null;
+  let recentRouterError: RecentProviderError | null = null;
+  const recordProviderError = (error: Omit<RecentProviderError, 'at'>) => {
+    recentRouterError = {
+      ...error,
+      at: Date.now(),
+    };
+  };
 
   return createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
@@ -225,7 +241,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
       if (request.method === 'GET' && url.pathname === '/healthz') {
         const recentProviderAuth = recentProviderAuthError(recentRouterError);
         const upstream = recentProviderAuth
-          ? recentProviderAuthDiagnostic(recentProviderAuth.status)
+          ? recentProviderAuthDiagnostic(recentProviderAuth.status, recentProviderAuth.role)
           : modelRouterHealthzUpstreamDiagnostic(options.config, env);
         const diagnostics = createModelRouterWorkerDiagnostics(
           upstream,
@@ -282,6 +298,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
               scientificTranslationCache,
               toolCallCache,
               responseId,
+              recordProviderError,
             }),
           );
         }
@@ -295,8 +312,34 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
           visionTranslationCache,
           scientificTranslationCache,
           toolCallCache,
+          recordProviderError,
         });
         return sendJson(response, 200, responseObject(result));
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/chat/completions') {
+        assertRuntimeAuthorized(request, options.config, env);
+        const body = await readJson(request);
+        if (!isRecord(body)) {
+          throw routerError(400, 'invalid_request', 'Chat completions request body must be a JSON object.');
+        }
+        if (body.stream === true) {
+          throw routerError(400, 'unsupported_stream', 'Streaming chat completions are not supported by the Model Router public compatibility endpoint yet.');
+        }
+        const publicModelAlias = options.config.publicModelAlias ?? 'sciforge-model-router';
+        const responseRequest = chatCompletionsToResponsesRequest(body, publicModelAlias);
+        const result = await routeResponsesRequest(responseRequest, {
+          config: options.config,
+          env,
+          fetchImpl,
+          workspaceRoot,
+          traceDataRoot,
+          request,
+          visionTranslationCache,
+          scientificTranslationCache,
+          toolCallCache,
+          recordProviderError,
+        });
+        return sendJson(response, 200, responseToChatCompletion(responseObject(result), body));
       }
       if (
         request.method === 'POST' &&
@@ -329,6 +372,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
               scientificTranslationCache,
               toolCallCache,
               responseId,
+              recordProviderError,
             }),
           );
         }
@@ -342,6 +386,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
           visionTranslationCache,
           scientificTranslationCache,
           toolCallCache,
+          recordProviderError,
         });
         return sendJson(response, 200, responseToAnthropicMessage(responseObject(result), body));
       }
@@ -358,11 +403,10 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
       return sendJson(response, 404, { error: { code: 'not_found', message: 'Route not found' } });
     } catch (error) {
       const routerError = normalizeRouterError(error);
-      recentRouterError = {
+      recordProviderError({
         code: routerError.code,
         status: routerError.status,
-        at: Date.now(),
-      };
+      });
       options.log?.(`model-router ${routerError.code}: ${routerError.message}`);
       return sendJson(response, routerError.status, {
         error: {
@@ -374,21 +418,39 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
   });
 }
 
-function recentProviderAuthDiagnostic(httpStatus: number): ModelRouterUpstreamDiagnostic {
+function recentProviderAuthDiagnostic(
+  httpStatus: number,
+  role?: ProviderCallRecord['role'],
+): ModelRouterUpstreamDiagnostic {
   return {
     category: 'provider-auth',
     ok: false,
     retryable: false,
     httpStatus,
+    ...(role ? { role } : {}),
     releaseAcceptance: 'not-evaluated',
   };
 }
 
-function recentProviderAuthError(error: { code: string; status: number; at: number } | null) {
+function recentProviderAuthError(error: RecentProviderError | null) {
   if (!error) return null;
-  if (Date.now() - error.at > 5 * 60 * 1000) return null;
+  if (Date.now() - error.at > RECENT_PROVIDER_AUTH_ERROR_TTL_MS) return null;
   if (/^provider_http_40[13]$/.test(error.code)) return error;
   return null;
+}
+
+function recordProviderAuthFailure(
+  context: { recordProviderError?: (error: Omit<RecentProviderError, 'at'>) => void },
+  summary: string,
+  role: ProviderCallRecord['role'],
+): void {
+  const match = /^provider_http_(40[13])$/.exec(summary);
+  if (!match) return;
+  context.recordProviderError?.({
+    code: summary,
+    status: Number(match[1]),
+    role,
+  });
 }
 
 function assertRuntimeAuthorized(
@@ -433,6 +495,27 @@ function modelRouterHealthzUpstreamDiagnostic(
       releaseAcceptance: 'not-evaluated',
     };
   }
+  const visionProvider = profile.translators.vision;
+  if (visionProvider) {
+    if (!visionProvider.baseUrl || !visionProvider.model) {
+      return {
+        category: 'repo-bug',
+        ok: false,
+        retryable: false,
+        releaseAcceptance: 'not-evaluated',
+      };
+    }
+    if (!stringField(env[visionProvider.apiKeyEnv])) {
+      return {
+        category: 'provider-auth',
+        ok: false,
+        retryable: false,
+        httpStatus: 401,
+        role: 'visionTranslator',
+        releaseAcceptance: 'not-evaluated',
+      };
+    }
+  }
   return {
     category: 'ready',
     ok: true,
@@ -476,6 +559,7 @@ async function routeResponsesRequest(
     scientificTranslationCache: Map<string, ScientificEvidence>;
     toolCallCache: ToolCallCache;
     responseId?: string;
+    recordProviderError?: (error: Omit<RecentProviderError, 'at'>) => void;
   },
 ): Promise<RoutedResponse> {
   const request = isRecord(body) ? body : {};
@@ -615,6 +699,7 @@ async function routeResponsesRequest(
           degraded = true;
           observationStatus = 'failed';
           const summary = traceErrorSummary(error);
+          recordProviderAuthFailure(context, summary, 'visionTranslator');
           observation = [
             `modality_input=${modality.id}`,
             'kind=vision.image',
@@ -673,7 +758,7 @@ async function routeResponsesRequest(
 
       const control = parseTextControl(textResult.outputText);
       if (control?.type === 'final_answer') {
-        outputText = publicProviderOutputText(control.content, profile, publicModelAlias, traceRedactionSecrets);
+        outputText = publicProviderOutputText(control.content, profile, publicModelAlias, traceRedactionSecrets, [context.workspaceRoot]);
         outputItems = reasoningItems;
         break;
       }
@@ -682,7 +767,7 @@ async function routeResponsesRequest(
         const target = visionModalities.find((modality) => modality.id === control.target);
         if (target) {
           supplementRounds += 1;
-          const safeControl = sanitizeTextControl(control, profile, publicModelAlias, traceRedactionSecrets);
+          const safeControl = sanitizeTextControl(control, profile, publicModelAlias, traceRedactionSecrets, [context.workspaceRoot]);
           let supplementStatus: 'ok' | 'failed' = 'ok';
           let supplementObservation: string;
           try {
@@ -701,6 +786,7 @@ async function routeResponsesRequest(
             degraded = true;
             supplementStatus = 'failed';
             const summary = traceErrorSummary(error);
+            recordProviderAuthFailure(context, summary, 'visionTranslator');
             supplementObservation = [
               `modality_input=${target.id}`,
               'kind=vision.image',
@@ -725,7 +811,7 @@ async function routeResponsesRequest(
         }
       }
 
-      outputText = publicProviderOutputText(textResult.outputText, profile, publicModelAlias, traceRedactionSecrets);
+      outputText = publicProviderOutputText(textResult.outputText, profile, publicModelAlias, traceRedactionSecrets, [context.workspaceRoot]);
       outputItems = reasoningItems;
       break;
     }
@@ -910,11 +996,36 @@ function extractRequestInputs(input: unknown, instructions: unknown): { userText
   if (typeof instructions === 'string' && instructions.trim()) texts.push(instructions.trim());
   const modalities: ModalityRef[] = [];
   visitInput(input, texts, modalities);
-  const textual = extractTextualModalityRefs(texts.filter(Boolean).join('\n').trim(), modalities.length + 1);
+  const userText = sanitizeRoutingUserText(texts.filter(Boolean).join('\n').trim());
+  const textual = extractTextualModalityRefs(userText, modalities.length + 1);
   return {
     userText: textual.userText,
     modalities: [...modalities, ...textual.modalities],
   };
+}
+
+function sanitizeRoutingUserText(value: string): string {
+  if (!value) return value;
+  return value
+    .replace(
+      /\[Attached image as base64 text\]([\s\S]*?)Base64:\s*```base64\s*[\s\S]*?```\s*\[\/Attached image\]/g,
+      (_matched, metadata: string) => {
+        const safeMetadata = metadata
+          .split(/\r?\n/u)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .filter((line) => !/^Base64:/iu.test(line))
+          .join('\n');
+        return [
+          '[Attached image metadata; base64 omitted because the image is routed as structured visual input]',
+          safeMetadata,
+          '[/Attached image]',
+        ].filter(Boolean).join('\n');
+      },
+    )
+    .replace(/\bdata:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=_-]+/gi, '[image data omitted; routed as structured visual input]')
+    .replace(/```base64\s*[\s\S]{512,}?```/g, '```base64\n[base64 data omitted]\n```')
+    .replace(/\b[A-Za-z0-9+/]{4096,}={0,2}\b/g, '[large base64 data omitted]');
 }
 
 function visitInput(value: unknown, texts: string[], modalities: ModalityRef[]) {
@@ -1782,7 +1893,7 @@ async function callTextReasoner(options: {
     body: {
       model: options.profile.textReasoner.model,
       messages,
-      ...options.requestOptions,
+      ...multimodalTextReasonerRequestOptions(options.requestOptions, options.observations.length > 0),
     },
     role: 'textReasoner',
     phase: options.observations.length ? 'text-control-or-final' : 'text-direct',
@@ -1913,10 +2024,16 @@ function providerHttpErrorMessage(
   secret: string,
   responseBody: string,
 ): string {
-  const prefix = `Provider returned HTTP ${status}`;
+  const prefix = isProviderAuthStatus(status)
+    ? `Provider returned HTTP ${status}: upstream provider credentials were rejected. Update the upstream API key in SciForge Model Router settings, then restart or reload the router.`
+    : `Provider returned HTTP ${status}`;
   const body = responseBody.trim();
   if (!body) return prefix;
   return `${prefix}: ${boundedProviderTraceText(body, provider, [secret])}`;
+}
+
+function isProviderAuthStatus(status: number): boolean {
+  return status === 401 || status === 403;
 }
 
 function recordFailedProviderCall(
@@ -1963,6 +2080,22 @@ function chatRequestOptionsFromResponsesRequest(request: Record<string, unknown>
     reasoning_effort: chatRequest.reasoning_effort,
     include_reasoning: chatRequest.include_reasoning,
   }).filter(([, value]) => value !== undefined));
+}
+
+function multimodalTextReasonerRequestOptions(options: Record<string, unknown>, hasModalityObservations: boolean): Record<string, unknown> {
+  if (!hasModalityObservations) return options;
+  const maxTokens = chatMaxTokens(options.max_tokens);
+  if (maxTokens === undefined || maxTokens >= MIN_MULTIMODAL_TEXT_REASONER_MAX_TOKENS) return options;
+  return {
+    ...options,
+    max_tokens: MIN_MULTIMODAL_TEXT_REASONER_MAX_TOKENS,
+  };
+}
+
+function chatMaxTokens(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.floor(value));
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) return Number.parseInt(value.trim(), 10);
+  return undefined;
 }
 
 function chatMessagesFromResponsesRequest(request: Record<string, unknown>, defaultModel: string): JsonObject[] {
@@ -2298,12 +2431,13 @@ function sanitizeTextControl(
   profile: ModelRouterProfile,
   publicModelAlias: string,
   sensitiveValues: string[],
+  allowedLocalPathPrefixes: string[] = [],
 ): Extract<TextControl, { type: 'need_more_visual_info' }> {
   return {
     type: 'need_more_visual_info',
     target: control.target,
-    question: publicProviderOutputText(control.question, profile, publicModelAlias, sensitiveValues),
-    reason: control.reason ? publicProviderOutputText(control.reason, profile, publicModelAlias, sensitiveValues) : undefined,
+    question: publicProviderOutputText(control.question, profile, publicModelAlias, sensitiveValues, allowedLocalPathPrefixes),
+    reason: control.reason ? publicProviderOutputText(control.reason, profile, publicModelAlias, sensitiveValues, allowedLocalPathPrefixes) : undefined,
   };
 }
 
@@ -2332,6 +2466,128 @@ function responseOutputItems(result: RoutedResponse, messageItemId?: string): Js
   }
   if (result.outputItems.length) return result.outputItems;
   return result.outputText ? [messageOutputItem(result.outputText, messageItemId)] : [];
+}
+
+function chatCompletionsToResponsesRequest(body: Record<string, unknown>, publicModelAlias: string): ResponsesRequest {
+  const messages = Array.isArray(body.messages) ? body.messages.filter(isRecord) : [];
+  const instructions = messages
+    .filter((message) => {
+      const role = stringField(message.role);
+      return role === 'system' || role === 'developer';
+    })
+    .map((message) => chatMessageContentText(message.content))
+    .filter(Boolean)
+    .join('\n\n');
+  const inputMessages = messages
+    .filter((message) => {
+      const role = stringField(message.role);
+      return role !== 'system' && role !== 'developer';
+    })
+    .map((message) => {
+      const role = stringField(message.role) ?? 'user';
+      const content = jsonValueField(message.content) ?? chatMessageContentText(message.content) ?? '';
+      return compactObject({
+        role,
+        content,
+      });
+    });
+  const maxTokens = body.max_tokens ?? body.max_completion_tokens;
+  return {
+    model: stringField(body.model) || publicModelAlias,
+    input: inputMessages.length ? inputMessages : chatMessageContentText(body.prompt) ?? '',
+    ...(instructions ? { instructions } : {}),
+    ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
+    ...(body.top_p !== undefined ? { top_p: body.top_p } : {}),
+    ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+    ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
+    ...(body.reasoning !== undefined ? { reasoning: body.reasoning } : {}),
+    ...(body.reasoning_effort !== undefined ? { reasoning_effort: body.reasoning_effort } : {}),
+  };
+}
+
+function chatMessageContentText(content: unknown): string {
+  if (content === undefined || content === null) return '';
+  if (typeof content === 'string' || typeof content === 'number' || typeof content === 'boolean') return String(content);
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (!isRecord(part)) return '';
+        return stringField(part.text) ?? stringField(part.content) ?? '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  if (!isRecord(content)) return '';
+  return stringField(content.text) ?? stringField(content.content) ?? stringField(content.input) ?? '';
+}
+
+function responseToChatCompletion(response: JsonObject, request: Record<string, unknown>): JsonObject {
+  const output = Array.isArray(response.output) ? response.output.filter(isRecord) as JsonObject[] : [];
+  const functionCalls = output.filter((item) => item.type === 'function_call');
+  const outputText = stringField(response.output_text) ?? responseOutputText(output);
+  const message = compactObject({
+    role: 'assistant',
+    content: functionCalls.length && !outputText ? null : outputText,
+    tool_calls: functionCalls.length ? functionCalls.map(responseFunctionCallToChatToolCall) : undefined,
+  });
+  return {
+    id: stringField(response.id) || makeId('chatcmpl'),
+    object: 'chat.completion',
+    created: numberField(response.created_at) ?? Math.floor(Date.now() / 1000),
+    model: stringField(request.model) || stringField(response.model) || '',
+    choices: [{
+      index: 0,
+      message,
+      finish_reason: functionCalls.length ? 'tool_calls' : 'stop',
+    }],
+    usage: chatCompletionUsageFromResponse(response.usage),
+  };
+}
+
+function responseOutputText(output: JsonObject[]): string {
+  return output
+    .flatMap((item) => {
+      if (item.type !== 'message') return [];
+      const content = Array.isArray(item.content) ? item.content : [];
+      return content.map((part) => {
+        if (!isRecord(part)) return '';
+        return stringField(part.text) ?? stringField(part.content) ?? '';
+      });
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function responseFunctionCallToChatToolCall(item: JsonObject): JsonObject {
+  return {
+    id: stringField(item.call_id) || stringField(item.id) || makeId('call'),
+    type: 'function',
+    function: {
+      name: stringField(item.name) || '',
+      arguments: stringField(item.arguments) || '',
+    },
+  };
+}
+
+function chatCompletionUsageFromResponse(usage: unknown): JsonObject {
+  const record = isRecord(usage) ? usage : {};
+  const promptTokens = numberField(record.prompt_tokens) ?? numberField(record.input_tokens) ?? 0;
+  const completionTokens = numberField(record.completion_tokens) ?? numberField(record.output_tokens) ?? 0;
+  const totalTokens = numberField(record.total_tokens) ?? promptTokens + completionTokens;
+  const inputDetails = isRecord(record.input_tokens_details) ? record.input_tokens_details : {};
+  const outputDetails = isRecord(record.output_tokens_details) ? record.output_tokens_details : {};
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: totalTokens,
+    prompt_tokens_details: {
+      cached_tokens: numberField(record.cached_input_tokens) ?? numberField(inputDetails.cached_tokens) ?? 0,
+    },
+    completion_tokens_details: {
+      reasoning_tokens: numberField(record.reasoning_output_tokens) ?? numberField(outputDetails.reasoning_tokens) ?? 0,
+    },
+  };
 }
 
 function sendResponseStream(response: ServerResponse, result: RoutedResponse) {
@@ -3173,9 +3429,11 @@ function publicProviderOutputText(
   profile: ModelRouterProfile,
   publicModelAlias: string,
   sensitiveValues: string[] = [],
+  allowedLocalPathPrefixes: string[] = [],
 ) {
   return redactTraceText(value, {
     sensitiveValues: [...profileTraceRedactionValues(profile, publicModelAlias), ...sensitiveValues],
+    allowedLocalPathPrefixes,
   });
 }
 

@@ -76,7 +76,7 @@ import { shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
 const MAX_PARALLEL_TOOL_CALLS = 4
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const PARALLEL_DELEGATION_TOOL_NAMES = new Set(['delegate_task', 'delegate_tasks'])
-const MAX_TURN_MODEL_STEPS = 64
+const DEFAULT_MAX_TURN_MODEL_STEPS = 64
 const DEFAULT_TOOL_LOOP_MAX_RECOVERY_STEPS = 1
 const DEFAULT_TOOL_LOOP_NON_PROGRESS_THRESHOLD = 3
 const DEFAULT_TOOL_LOOP_MAX_STEPS_AFTER_RECOVERY = 8
@@ -388,6 +388,7 @@ export type AgentLoopOptions = {
   memoryStore?: MemoryStore
   tokenEconomy?: TokenEconomyConfig
   contextCompaction?: ContextCompactionConfig
+  maxTurnModelSteps?: number
   toolStorm?: ToolStormBreakerOptions & {
     enabled?: boolean
     maxRecoverySteps?: number
@@ -579,11 +580,15 @@ export class AgentLoop {
     turnId: string,
     signal: AbortSignal
   ): Promise<'completed' | 'failed' | 'aborted'> {
+    const maxTurnModelSteps = positiveIntegerOrDefault(
+      this.opts.maxTurnModelSteps,
+      DEFAULT_MAX_TURN_MODEL_STEPS
+    )
     for (let step = 0; ; step += 1) {
       if (signal.aborted) return 'aborted'
-      if (step >= MAX_TURN_MODEL_STEPS) {
+      if (step >= maxTurnModelSteps) {
         const message =
-          `Turn stopped after ${MAX_TURN_MODEL_STEPS} model steps without reaching a final response.`
+          `Turn stopped after ${maxTurnModelSteps} model steps without reaching a final response.`
         await this.opts.events.record({
           kind: 'error',
           threadId,

@@ -48,6 +48,10 @@ export type RunChildInput = {
   prompt: string
   workspace?: string
   model?: string
+  allowedToolNames?: readonly string[]
+  strictAllowedToolNames?: boolean
+  bashCommandPolicy?: Record<string, unknown>
+  filePathPolicy?: Record<string, unknown>
   signal?: AbortSignal
 }
 
@@ -64,6 +68,7 @@ export type MultiAgentRuntimeOptions = {
 export class MultiAgentRuntime {
   private readonly config: MultiAgentRuntimeConfigType
   private active = 0
+  private readonly activeChildIds = new Set<string>()
   private eventSeq = 0
 
   constructor(private readonly options: MultiAgentRuntimeOptions) {
@@ -104,6 +109,7 @@ export class MultiAgentRuntime {
     const boundary = createExecutionBoundary(input.signal, this.config.childTimeoutMs)
     let acceptingTranscript = true
     this.active += 1
+    this.activeChildIds.add(id)
     try {
       const startedAt = this.now()
       record = MultiAgentChildRunRecord.parse({
@@ -126,6 +132,10 @@ export class MultiAgentRuntime {
           prompt: normalized.prompt,
           workspace: normalized.workspace,
           model: normalized.model,
+          allowedToolNames: normalized.allowedToolNames,
+          strictAllowedToolNames: normalized.strictAllowedToolNames,
+          bashCommandPolicy: normalized.bashCommandPolicy,
+          filePathPolicy: normalized.filePathPolicy,
           signal: boundary.signal,
           appendTranscript: async (entry) => {
             if (!acceptingTranscript) return
@@ -186,11 +196,13 @@ export class MultiAgentRuntime {
       acceptingTranscript = false
       boundary.dispose()
       this.active -= 1
+      this.activeChildIds.delete(id)
     }
   }
 
   async child(parentThreadId: string, childId: string): Promise<MultiAgentChildRunRecord | null> {
-    return this.options.store.get(parentThreadId, childId)
+    const record = await this.options.store.get(parentThreadId, childId)
+    return record ? normalizeRuntimeView(record, this.activeChildIds) : null
   }
 
   async transcript(
@@ -202,7 +214,8 @@ export class MultiAgentRuntime {
   }
 
   async diagnostics(parentThreadId?: string): Promise<MultiAgentDiagnostics> {
-    const childRuns = await this.options.store.list(parentThreadId ? { parentThreadId } : {})
+    const childRuns = (await this.options.store.list(parentThreadId ? { parentThreadId } : {}))
+      .map((record) => normalizeRuntimeView(record, this.activeChildIds))
     return {
       contractVersion: MULTI_AGENT_CONTRACT_VERSION,
       config: this.config,
@@ -246,7 +259,7 @@ export class MultiAgentRuntime {
     const updatedAt = this.now()
     const next = MultiAgentChildRunRecord.parse({
       ...record,
-      transcript: trimTranscript([...record.transcript, parsed], this.config.maxTranscriptEntries),
+      transcript: trimTranscript(mergeTranscript(record.transcript, [parsed]), this.config.maxTranscriptEntries),
       updatedAt
     })
     await this.persistAndEmit(next)
@@ -348,8 +361,20 @@ function normalizeRunChildInput(input: RunChildInput): Required<Pick<RunChildInp
     prompt,
     label: trimOptional(input.label),
     workspace: trimOptional(input.workspace),
-    model: trimOptional(input.model)
+    model: trimOptional(input.model),
+    allowedToolNames: normalizeAllowedToolNames(input.allowedToolNames),
+    strictAllowedToolNames: input.strictAllowedToolNames === true,
+    bashCommandPolicy: input.bashCommandPolicy,
+    filePathPolicy: input.filePathPolicy
   }
+}
+
+function normalizeAllowedToolNames(value: readonly string[] | undefined): string[] | undefined {
+  if (!value) return undefined
+  const names = value
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+  return names.length ? [...new Set(names)] : undefined
 }
 
 function normalizeUsage(usage: Partial<MultiAgentUsageType> | undefined): MultiAgentUsageType {
@@ -464,6 +489,25 @@ function countStatuses(records: readonly MultiAgentChildRunRecord[]): Record<Mul
   }
   for (const record of records) counts[record.status] += 1
   return counts
+}
+
+function normalizeRuntimeView(
+  record: MultiAgentChildRunRecord,
+  activeChildIds: ReadonlySet<string>
+): MultiAgentChildRunRecord {
+  if ((record.status !== 'queued' && record.status !== 'running') || activeChildIds.has(record.id)) {
+    return record
+  }
+  return MultiAgentChildRunRecord.parse({
+    ...record,
+    status: 'aborted',
+    error: record.error ?? createMultiAgentError(
+      'child_aborted',
+      'multi-agent child run is no longer active in this runtime process',
+      { details: { staleStatus: record.status } }
+    ),
+    finishedAt: record.finishedAt ?? record.updatedAt
+  })
 }
 
 function sumUsage(records: readonly MultiAgentChildRunRecord[]): MultiAgentUsageType {

@@ -178,6 +178,7 @@ export class ReviewService {
         this.deps.modelCapabilities?.(model) ?? modelCapabilitiesForModel(model),
       ...(this.deps.contextCompaction ? { contextCompaction: this.deps.contextCompaction } : {}),
       ...(this.deps.tokenEconomy ? { tokenEconomy: this.deps.tokenEconomy } : {}),
+      ...(this.deps.runtime?.maxTurnModelSteps ? { maxTurnModelSteps: this.deps.runtime.maxTurnModelSteps } : {}),
       ...(this.deps.runtime?.toolStorm ? { toolStorm: this.deps.runtime.toolStorm } : {}),
       ...(this.deps.runtime?.toolArgumentRepair ? { toolArgumentRepair: this.deps.runtime.toolArgumentRepair } : {})
     })

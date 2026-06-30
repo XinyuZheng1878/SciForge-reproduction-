@@ -1,7 +1,9 @@
 const SECRET_KEY_PATTERN = /(api[-_]?key|authorization|bearer|client[-_]?secret|password|secret|token)/i
 const SECRET_TEXT_PATTERNS = [
-  /\b(authorization|api[-_]?key|client[-_]?secret|password|token)\s*[:=]\s*((?:Bearer\s+)?[^\s,;]+)/gi,
-  /\bbearer\s+([^\s,;]+)/gi
+  /\blocal-router-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
+  /\bsk-[A-Za-z0-9_-]{16,}\b/g,
+  /\b(authorization|api[-_]?key|client[-_]?secret|password|token)\s*[:=]\s*(?:"(?:Bearer\s+)?[^"\s,;}]+?"|'(?:Bearer\s+)?[^'\s,;}]+?'|(?:Bearer\s+)?[^\s,;"'}]+)/gi,
+  /\bbearer\s+([^\s,;"'}]+)/gi
 ]
 
 export const REDACTED_SECRET = '<redacted>'
@@ -28,9 +30,10 @@ function redact(value: unknown, key = ''): unknown {
 
 export function redactSecretText(value: string): string {
   return SECRET_TEXT_PATTERNS.reduce((current, pattern) =>
-    current.replace(pattern, (match, key) =>
-      match.toLowerCase().startsWith('bearer ')
+    current.replace(pattern, (match, key) => {
+      if (/^(local-router-|sk-)/i.test(match)) return REDACTED_SECRET
+      return match.toLowerCase().startsWith('bearer ')
         ? `Bearer ${REDACTED_SECRET}`
         : `${key}=${REDACTED_SECRET}`
-    ), value)
+    }), value)
 }

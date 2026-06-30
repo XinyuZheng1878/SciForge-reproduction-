@@ -72,6 +72,7 @@ import { defaultLocalRuntimeDataDir } from './runtime/local-runtime-adapter'
 import { isLocalRuntimeHealthResponseBody } from './local-runtime-health'
 import { appendManagedLogLine } from './logger'
 import { guiSkillRootsForRuntime, normalizeSkillRootPath } from './services/skill-service'
+import { APP_MODEL_ROUTER_RUNTIME_API_KEY_ENV } from '../shared/app-brand'
 
 let child: ChildProcess | null = null
 let childLogCapture: LocalRuntimeChildLogCapture | null = null
@@ -467,6 +468,14 @@ async function startLocalRuntimeChildOnce(
       KUN_RUNTIME_TOKEN: runtime.runtimeToken,
       KUN_MODEL_ROUTER_API_KEY: runtime.apiKey,
       KUN_MODEL_ROUTER_BASE_URL: runtime.baseUrl,
+      KUN_MODEL_ROUTER_MODEL: runtime.model,
+      [APP_MODEL_ROUTER_RUNTIME_API_KEY_ENV]: runtime.apiKey,
+      SCIFORGE_MODEL_ROUTER_BASE_URL: runtime.baseUrl,
+      SCIFORGE_MODEL_ROUTER_MODEL: runtime.model,
+      MODEL_ROUTER_API_KEY: runtime.apiKey,
+      MODEL_ROUTER_RUNTIME_API_KEY: runtime.apiKey,
+      MODEL_ROUTER_BASE_URL: runtime.baseUrl,
+      MODEL_ROUTER_MODEL: runtime.model,
       ...runtimeSecretEnv(settings)
     },
     stdio: ['ignore', 'pipe', 'pipe'],

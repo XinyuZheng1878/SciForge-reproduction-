@@ -2,6 +2,16 @@ import type { MultiAgentRuntime } from '@sciforge/multi-agent'
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { LocalToolHost } from './local-tool-host.js'
 
+const CHILD_AGENT_RUNTIME_GUARDRAILS = [
+  'Child-agent runtime guardrails:',
+  '- Work only inside the assigned workspace unless a tool explicitly permits otherwise.',
+  '- Never read app settings, API key files, tokens, or secrets from paths outside the workspace.',
+  '- If local Model Router access is needed, use environment variables only: SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY, KUN_MODEL_ROUTER_API_KEY, or MODEL_ROUTER_API_KEY for the key; SCIFORGE_MODEL_ROUTER_BASE_URL or MODEL_ROUTER_BASE_URL for the base URL; and SCIFORGE_MODEL_ROUTER_MODEL or MODEL_ROUTER_MODEL for the model. Never print secret values.',
+  '- Before editing an existing file, read that file in this child run first; if a read-before-edit guard blocks an edit, read the file and retry once.',
+  '',
+  'Delegated task:'
+].join('\n')
+
 export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefined): CapabilityToolProvider[] {
   if (!runtime) return []
   return [{
@@ -33,9 +43,13 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
             parentThreadId: context.threadId,
             parentTurnId: context.turnId,
             label: typeof args.label === 'string' ? args.label : undefined,
-            prompt,
+            prompt: withChildRuntimeGuardrails(prompt),
             workspace: typeof args.workspace === 'string' ? args.workspace : context.workspace,
-            model: typeof args.model === 'string' ? args.model : context.model?.id,
+            model: normalizeDelegateModel(args.model) ?? context.model?.id,
+            allowedToolNames: context.allowedToolNames,
+            strictAllowedToolNames: false,
+            ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
+            ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
             signal: context.abortSignal
           })
           return {
@@ -94,14 +108,18 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
           const concurrency = Math.min(tasks.length, availableParallel)
           const firstSpawnIndex = diagnostics.childRuns.length + 1
           const sharedWorkspace = typeof args.workspace === 'string' ? args.workspace.trim() : ''
-          const sharedModel = typeof args.model === 'string' ? args.model.trim() : ''
+          const sharedModel = normalizeDelegateModel(args.model)
           const records = await runWithConcurrency(tasks, concurrency, async (task) => runtime.runChild({
             parentThreadId: context.threadId,
             parentTurnId: context.turnId,
             label: task.label,
-            prompt: task.prompt,
+            prompt: withChildRuntimeGuardrails(task.prompt),
             workspace: (task.workspace ?? sharedWorkspace) || context.workspace,
-            model: (task.model ?? sharedModel) || context.model?.id,
+            model: task.model ?? sharedModel ?? context.model?.id,
+            allowedToolNames: context.allowedToolNames,
+            strictAllowedToolNames: false,
+            ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
+            ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
             signal: context.abortSignal
           }))
           const children = records.map((record) => ({
@@ -132,6 +150,12 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
   }]
 }
 
+export function withChildRuntimeGuardrails(prompt: string): string {
+  const trimmed = prompt.trim()
+  if (trimmed.startsWith(CHILD_AGENT_RUNTIME_GUARDRAILS)) return trimmed
+  return `${CHILD_AGENT_RUNTIME_GUARDRAILS}\n\n${trimmed}`
+}
+
 type NormalizedDelegateTask = {
   prompt: string
   label?: string
@@ -146,7 +170,7 @@ function normalizeDelegateTask(value: unknown): NormalizedDelegateTask | null {
   if (!prompt) return null
   const label = trimOptional(record.label)
   const workspace = trimOptional(record.workspace)
-  const model = trimOptional(record.model)
+  const model = normalizeDelegateModel(record.model)
   return {
     prompt,
     ...(label ? { label } : {}),
@@ -158,6 +182,12 @@ function normalizeDelegateTask(value: unknown): NormalizedDelegateTask | null {
 function trimOptional(value: unknown): string | undefined {
   const trimmed = typeof value === 'string' ? value.trim() : ''
   return trimmed ? trimmed : undefined
+}
+
+function normalizeDelegateModel(value: unknown): string | undefined {
+  const model = trimOptional(value)
+  if (!model || model.toLowerCase() === 'auto') return undefined
+  return model
 }
 
 async function runWithConcurrency<T, R>(

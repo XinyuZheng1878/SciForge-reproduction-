@@ -235,7 +235,7 @@ export function buildRouter(runtime: ServerRuntime): Router {
   })
   router.add('GET', '/v1/threads/:id/children/:childId/transcript', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
-    return readChildTranscript(runtime, ctx.params.id, ctx.params.childId)
+    return readChildTranscript(runtime, ctx.params.id, ctx.params.childId, request)
   })
   router.add('POST', '/v1/approvals/:id', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
