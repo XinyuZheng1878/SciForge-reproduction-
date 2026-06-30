@@ -65,7 +65,6 @@ import {
   GUI_RESEARCH_MCP_SERVER_NAME,
   type ResearchSearchMcpLaunchConfig
 } from '../../research-search-mcp-config'
-import type { ResearchMemoryMcpLaunchConfig } from '../../research-memory-mcp-config'
 import type { ScheduleMcpLaunchConfig } from '../../schedule-mcp-config'
 import {
   GUI_COMPUTER_USE_MCP_SERVER_NAME,
@@ -120,7 +119,6 @@ export type CodexRuntimeServiceOptions = {
   managedCodexHome?: string
   scheduleMcpLaunch?: ScheduleMcpLaunchConfig
   researchMcpLaunch?: ResearchSearchMcpLaunchConfig
-  researchMemoryMcpLaunch?: ResearchMemoryMcpLaunchConfig
   workflowMcpLaunch?: WorkflowMcpLaunchConfig
   workspaceIntelMcpLaunch?: WorkspaceIntelMcpLaunchConfig
   paperRadarMcpLaunch?: PaperRadarMcpLaunchConfig
@@ -786,7 +784,6 @@ export class CodexRuntimeService {
         managedCodexHome: this.options.managedCodexHome,
         scheduleMcpLaunch: this.options.scheduleMcpLaunch,
         researchMcpLaunch: this.options.researchMcpLaunch,
-        researchMemoryMcpLaunch: this.options.researchMemoryMcpLaunch,
         workflowMcpLaunch: this.options.workflowMcpLaunch,
         workspaceIntelMcpLaunch: this.options.workspaceIntelMcpLaunch,
         paperRadarMcpLaunch: this.options.paperRadarMcpLaunch,
@@ -1982,9 +1979,6 @@ function codexDynamicMcpServers(
       : undefined,
     researchMcp: options.researchMcpLaunch
       ? { launch: options.researchMcpLaunch }
-      : undefined,
-    researchMemoryMcp: options.researchMemoryMcpLaunch && settings
-      ? { settings, launch: options.researchMemoryMcpLaunch }
       : undefined,
     workflowMcp: options.workflowMcpLaunch && settings
       ? { settings, launch: options.workflowMcpLaunch }

@@ -13,7 +13,6 @@ import {
   type ScheduleMcpLaunchConfig
 } from '../../schedule-mcp-config'
 import type { ResearchSearchMcpLaunchConfig } from '../../research-search-mcp-config'
-import type { ResearchMemoryMcpLaunchConfig } from '../../research-memory-mcp-config'
 import type { ComputerUseMcpLaunchConfig } from '../../computer-use-mcp-config'
 import {
   GUI_WORKFLOW_INTERNAL_SECRET_ENV,
@@ -83,7 +82,6 @@ export async function prepareCodexAppServerLaunch(options: {
   managedCodexHome?: string
   scheduleMcpLaunch?: ScheduleMcpLaunchConfig
   researchMcpLaunch?: ResearchSearchMcpLaunchConfig
-  researchMemoryMcpLaunch?: ResearchMemoryMcpLaunchConfig
   workflowMcpLaunch?: WorkflowMcpLaunchConfig
   workspaceIntelMcpLaunch?: WorkspaceIntelMcpLaunchConfig
   paperRadarMcpLaunch?: PaperRadarMcpLaunchConfig

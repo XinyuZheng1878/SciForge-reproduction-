@@ -238,7 +238,6 @@ function createApi(): SciForgeApi {
     setRuntimeConfigFile: (content) => invoke('runtimeConfig:write', content),
     openRuntimeConfigDir: () => invoke('runtimeConfig:open-dir'),
     openModelRouterConfigFile: () => invoke('modelRouter:config:open'),
-    prepareResearchMemoryWorkspace: () => invoke('researchMemory:prepare-workspace'),
     getGitBranches: (workspaceRoot) => invoke('git:branches', workspaceRoot),
     switchGitBranch: (workspaceRoot, branch) =>
       invoke('git:switch-branch', { workspaceRoot, branch }),

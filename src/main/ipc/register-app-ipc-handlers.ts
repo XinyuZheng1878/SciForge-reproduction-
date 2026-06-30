@@ -264,7 +264,6 @@ import {
   requestComputerUsePermission
 } from '../services/computer-use-permissions'
 import { readComputerUseRuntimeStatus } from '../services/computer-use-status'
-import { prepareResearchMemoryWorkspace } from '../services/research-memory-workspace-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { listGuiSkills } from '../services/skill-service'
 import {
@@ -720,11 +719,6 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       permissions: await getComputerUsePermissions(),
       runtime: await readComputerUseRuntimeStatus(statusPath)
     }
-  })
-
-  handleInvoke('researchMemory:prepare-workspace', async () => {
-    const settings = await store.load()
-    return prepareResearchMemoryWorkspace(settings)
   })
 
   const requirePaperRadarService = (): PaperRadarWorkerService => {

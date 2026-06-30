@@ -10,7 +10,6 @@ import {
   ChevronDown,
   Code2,
   ClipboardList,
-  Database,
   Download,
   ExternalLink,
   FileEdit,
@@ -60,8 +59,6 @@ type Props = {
   childAgentRunningCount?: number
   childAgentsOpen?: boolean
   onOpenChildAgents?: () => void
-  onOpenResearchMemory?: () => void
-  researchMemoryOpen?: boolean
   terminalOpen?: boolean
   onToggleTerminal?: () => void
 }
@@ -81,8 +78,6 @@ export function WorkbenchTopBar({
   childAgentRunningCount = 0,
   childAgentsOpen = false,
   onOpenChildAgents,
-  onOpenResearchMemory,
-  researchMemoryOpen = false,
   terminalOpen = false,
   onToggleTerminal
 }: Props): ReactElement {
@@ -510,25 +505,8 @@ export function WorkbenchTopBar({
         </button>
       ) : null}
 
-      {onOpenResearchMemory ? (
-        <button
-          type="button"
-          onClick={onOpenResearchMemory}
-          className={`rounded-full border px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] transition dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ${
-            researchMemoryOpen
-              ? 'border-ds-border-strong bg-white/70 text-ds-ink dark:bg-white/10'
-              : 'border-transparent bg-white/38 text-ds-faint opacity-90 hover:border-ds-border-muted hover:bg-white/55 hover:text-ds-ink hover:opacity-100 dark:bg-white/4 dark:hover:bg-white/8'
-          }`}
-          aria-label={t('rightPanelResearchMemory')}
-          aria-pressed={researchMemoryOpen}
-          title={t('rightPanelResearchMemory')}
-        >
-          <Database className="h-4 w-4" strokeWidth={1.75} />
-        </button>
-      ) : null}
-
       {items.map((item) => {
-        const active = rightPanelMode === item.mode && !(item.mode === 'file' && researchMemoryOpen)
+        const active = rightPanelMode === item.mode
         const Icon = item.icon
         const isChanges = item.mode === 'changes'
         return (

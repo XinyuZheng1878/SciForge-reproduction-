@@ -10,7 +10,6 @@
   "workspaces": [
     "packages/workers/computer-use",
     "packages/workers/model-router",
-    "packages/workers/research-memory",
     "packages/workers/schedule",
     "packages/workers/search",
     "packages/workers/workflow",
@@ -62,9 +61,6 @@
     "computer-use:smoke:mac": "npm --workspace @sciforge/computer-use run smoke:mac",
     "search:start": "npm --workspace @sciforge/search run start",
     "search:test": "npm --workspace @sciforge/search run test",
-    "research-memory:start": "npm --workspace @sciforge/research-memory run start",
-    "research-memory:test": "npm --workspace @sciforge/research-memory run test",
-    "research-memory:typecheck": "npm --workspace @sciforge/research-memory run typecheck",
     "schedule:start": "npm --workspace @sciforge/schedule run start",
     "schedule:test": "npm --workspace @sciforge/schedule run test",
     "schedule:typecheck": "npm --workspace @sciforge/schedule run typecheck",

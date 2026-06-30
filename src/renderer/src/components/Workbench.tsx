@@ -773,8 +773,8 @@ export function Workbench(): ReactElement {
     () =>
       fileTreeWorkspaceOverride
         ? [{
-            id: `research-memory:${fileTreeWorkspaceOverride}`,
-            label: t('rightPanelResearchMemory'),
+            id: `workspace:${fileTreeWorkspaceOverride}`,
+            label: t('rightPanelFiles'),
             workspaceRoot: fileTreeWorkspaceOverride,
             kind: 'worktree' as const
           }]
@@ -1175,28 +1175,6 @@ export function Workbench(): ReactElement {
     if (mode === 'file') setFileTreeWorkspaceOverride(null)
     if (mode === 'evidence') setRightSidebarWidth((width) => Math.max(width, CODE_PANEL_PREFERRED))
     toggleRightPanelMode(mode)
-  }
-
-  const openResearchMemoryWorkspace = async (): Promise<void> => {
-    if (typeof window.sciforge?.prepareResearchMemoryWorkspace !== 'function') {
-      setError('Research Memory workspace actions are unavailable in this build.')
-      return
-    }
-    const result = await window.sciforge.prepareResearchMemoryWorkspace()
-    if (!result.ok) {
-      setError(result.message)
-      return
-    }
-    const memoryRoot = normalizeWorkspaceRoot(result.localPath)
-    setFileTreeWorkspaceOverride(memoryRoot)
-    setFileTreeInitialDirectory((current) => ({
-      workspaceRoot: memoryRoot,
-      path: '.agent',
-      nonce: (current?.nonce ?? 0) + 1
-    }))
-    setFilePreviewTarget(null)
-    setRightSidebarWidth((width) => Math.max(width, 360))
-    setRightPanelMode('file')
   }
 
   const removeComposerFileReference = (relativePath: string, referenceWorkspaceRoot?: string): void => {
@@ -2452,7 +2430,6 @@ export function Workbench(): ReactElement {
                     childAgentCount={childAgentCount}
                     childAgentRunningCount={childAgentRunningCount}
                     childAgentsOpen={rightPanelMode === 'child-agents'}
-                    researchMemoryOpen={rightPanelMode === 'file' && Boolean(fileTreeWorkspaceOverride)}
                     sideChatEnabled={
                       runtimeConnection === 'ready' &&
                       Boolean(activeThreadId) &&
@@ -2460,11 +2437,6 @@ export function Workbench(): ReactElement {
                     }
                     onOpenChildAgents={() => toggleTopBarRightPanelMode('child-agents')}
                     onOpenSideChat={openSideChat}
-                    onOpenResearchMemory={() => {
-                      void openResearchMemoryWorkspace().catch((error) => {
-                        setError(error instanceof Error ? error.message : String(error))
-                      })
-                    }}
                   />
                 </div>
               </div>

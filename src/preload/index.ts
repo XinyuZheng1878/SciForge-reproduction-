@@ -155,8 +155,6 @@ const api = {
     ipcRenderer.invoke('runtimeConfig:open-dir'),
   openModelRouterConfigFile: () =>
     ipcRenderer.invoke('modelRouter:config:open'),
-  prepareResearchMemoryWorkspace: () =>
-    ipcRenderer.invoke('researchMemory:prepare-workspace'),
   getGitBranches: (workspaceRoot) =>
     ipcRenderer.invoke('git:branches', workspaceRoot),
   switchGitBranch: (workspaceRoot, branch) =>

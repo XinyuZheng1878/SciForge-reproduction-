@@ -23,7 +23,6 @@ import {
   mergeRemoteChannelSettings,
   mergeAgentCapabilitySettings,
   mergeComputerUseSettings,
-  mergeResearchMemorySettings,
   mergeImageGenerationSettings,
   mergeModelProviderSettings,
   mergeScheduleSettings,
@@ -95,7 +94,6 @@ import {
 } from './schedule-mcp-config'
 import type { ComputerUseMcpLaunchConfig } from './computer-use-mcp-config'
 import type { ResearchSearchMcpLaunchConfig } from './research-search-mcp-config'
-import type { ResearchMemoryMcpLaunchConfig } from './research-memory-mcp-config'
 import type { WorkflowMcpLaunchConfig } from './workflow-mcp-config'
 import type { WorkspaceIntelMcpLaunchConfig } from './workspace-intel-mcp-config'
 import type { PaperRadarMcpLaunchConfig } from './paper-radar-mcp-config'
@@ -194,14 +192,6 @@ function getScheduleMcpLaunchConfig(): ScheduleMcpLaunchConfig {
 }
 
 function getResearchSearchMcpLaunchConfig(): ResearchSearchMcpLaunchConfig {
-  return {
-    appPath: app.getAppPath(),
-    execPath: process.execPath,
-    isPackaged: app.isPackaged
-  }
-}
-
-function getResearchMemoryMcpLaunchConfig(): ResearchMemoryMcpLaunchConfig {
   return {
     appPath: app.getAppPath(),
     execPath: process.execPath,
@@ -412,7 +402,6 @@ function getCodexRuntime(): CodexRuntimeService {
       : join(process.cwd(), '.codex-runtime', 'codex-home'),
     scheduleMcpLaunch: getScheduleMcpLaunchConfig(),
     researchMcpLaunch: getResearchSearchMcpLaunchConfig(),
-    researchMemoryMcpLaunch: getResearchMemoryMcpLaunchConfig(),
     workflowMcpLaunch: getWorkflowMcpLaunchConfig(),
     workspaceIntelMcpLaunch: getWorkspaceIntelMcpLaunchConfig(),
     paperRadarMcpLaunch: getPaperRadarMcpLaunchConfig(),
@@ -1630,7 +1619,6 @@ app.whenReady().then(async () => {
       agentCapabilities: agentCapabilitiesPatch,
       imageGeneration: imageGenerationPatch,
       computerUse: computerUsePatch,
-      researchMemory: researchMemoryPatch,
       speechToText: speechToTextPatch,
       connectPhone: connectPhonePatch,
       ...restPatch
@@ -1645,7 +1633,6 @@ app.whenReady().then(async () => {
       agentCapabilities: mergeAgentCapabilitySettings(prev.agentCapabilities, agentCapabilitiesPatch),
       imageGeneration: mergeImageGenerationSettings(prev.imageGeneration, imageGenerationPatch),
       computerUse: mergeComputerUseSettings(prev.computerUse, computerUsePatch),
-      researchMemory: mergeResearchMemorySettings(prev.researchMemory, researchMemoryPatch),
       log: { ...prev.log, ...(partial.log ?? {}) },
       notifications: { ...prev.notifications, ...(partial.notifications ?? {}) },
       appBehavior: normalizeAppBehaviorSettings({

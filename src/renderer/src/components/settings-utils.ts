@@ -7,7 +7,6 @@ import {
   defaultRuntimeGuardSettings,
   defaultAgentCapabilitySettings,
   defaultComputerUseSettings,
-  defaultResearchMemorySettings,
   applyCodexRuntimePatch,
   applyLocalRuntimePatch,
   getCodexRuntimeSettings,
@@ -23,7 +22,6 @@ import {
   mergeModelProviderSettings,
   mergeImageGenerationSettings,
   mergeComputerUseSettings,
-  mergeResearchMemorySettings,
   mergeAgentCapabilitySettings,
   mergeRuntimeGuardSettings,
   mergeScheduleSettings,
@@ -41,7 +39,6 @@ import {
   normalizeImageGenerationSettings,
   normalizeComputerUseSettings,
   normalizeAgentCapabilitySettings,
-  normalizeResearchMemorySettings,
   normalizeScheduleSettings,
   normalizeSpeechToTextSettings,
   normalizeWorkflowSettings,
@@ -81,7 +78,6 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
     agentCapabilities: agentCapabilitiesPatch,
     imageGeneration: imageGenerationPatch,
     computerUse: computerUsePatch,
-    researchMemory: researchMemoryPatch,
     runtimeGuards: runtimeGuardsPatch,
     connectPhone: connectPhonePatch,
     ...restPatch
@@ -108,7 +104,6 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
     agentCapabilities: mergeAgentCapabilitySettings(safeCurrent.agentCapabilities, agentCapabilitiesPatch),
     imageGeneration: mergeImageGenerationSettings(safeCurrent.imageGeneration, imageGenerationPatch),
     computerUse: mergeComputerUseSettings(safeCurrent.computerUse, computerUsePatch),
-    researchMemory: mergeResearchMemorySettings(safeCurrent.researchMemory, researchMemoryPatch),
     runtimeGuards: mergeRuntimeGuardSettings(safeCurrent.runtimeGuards, runtimeGuardsPatch),
     log: {
       ...safeCurrent.log,
@@ -165,10 +160,6 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     ),
     imageGeneration: normalizeImageGenerationSettings(raw.imageGeneration),
     computerUse: mergeComputerUseSettings(defaultComputerUseSettings(), normalizeComputerUseSettings(raw.computerUse)),
-    researchMemory: mergeResearchMemorySettings(
-      defaultResearchMemorySettings(),
-      normalizeResearchMemorySettings(raw.researchMemory)
-    ),
     runtimeGuards: mergeRuntimeGuardSettings(defaultRuntimeGuardSettings(), raw.runtimeGuards),
     activeAgentRuntime: normalizeAgentRuntimeId(raw.activeAgentRuntime),
     agents: {

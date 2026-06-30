@@ -9,7 +9,6 @@ import {
   type RemoteChannelSettingsPatchV1,
   type GuiUpdateConfigV1,
   type NotificationConfigV1,
-  type ResearchMemorySettingsPatchV1,
   type ScheduleSettingsPatchV1,
   type SpeechToTextSettingsPatchV1,
   type WorkflowSettingsPatchV1,
@@ -44,7 +43,6 @@ import { normalizeWorkflowSettings } from './app-settings-workflow'
 import { normalizeWriteSettings } from './app-settings-write'
 import { normalizeSpeechToTextSettings } from './speech-to-text'
 import { normalizeComputerUseSettings } from './app-settings-computer-use'
-import { normalizeResearchMemorySettings } from './app-settings-research-memory'
 import { normalizeAgentCapabilitySettings } from './app-settings-agent-capabilities'
 
 export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
@@ -65,7 +63,6 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     runtimeGuards?: Parameters<typeof normalizeRuntimeGuardSettings>[0]
     agentCapabilities?: AgentCapabilitySettingsPatchV1
     computerUse?: ComputerUseSettingsPatchV1
-    researchMemory?: ResearchMemorySettingsPatchV1
   }
   const runtime = getLocalRuntimeSettings(maybeSettings)
   const codexRuntime = getCodexRuntimeSettings(maybeSettings)
@@ -90,7 +87,6 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     agentCapabilities: normalizeAgentCapabilitySettings(maybeSettings.agentCapabilities),
     imageGeneration: normalizeImageGenerationSettings(maybeSettings.imageGeneration),
     computerUse: normalizeComputerUseSettings(maybeSettings.computerUse),
-    researchMemory: normalizeResearchMemorySettings(maybeSettings.researchMemory),
     activeAgentRuntime: normalizeAgentRuntimeId(maybeSettings.activeAgentRuntime),
     agents: {
       ...agentRuntimeSettingsEnvelope(mergeLocalRuntimeSettings(defaultLocalRuntimeSettings(), runtime)),

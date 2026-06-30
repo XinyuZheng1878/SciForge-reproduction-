@@ -95,7 +95,7 @@
 - [x] 整合剩余 sub agent 的历史审查结果，继续拆分下一轮互不重叠的清理任务。
 - [x] 统一 Plan 工作链路，只保留当前 `.sciforge/plan` 路径，删除历史兼容旁路。
 - [x] 统一 runtime config IPC/API 命名，删除旧 `deepseek:config:*` / `kun:config:*` GUI 通道。
-- [x] 收紧 Research Memory worker，避免 `status.html` 生成路径旁路。
+- [x] 将 Research Memory 收敛为 Skill + GitHub 约定 + 文件模板，不再依赖 MCP worker。
 - [x] 清理用户可见 Kun 文案，让默认本地 runtime 对外呈现为 SciForge Runtime。
 - [x] 修复 workspace 无根路径、dev browser bridge、terminal PTY owner token 等高风险旁路。
 - [x] 清理 runtime-inspector MCP 外露工具/资源/env/CLI 命名，改为 local runtime 契约。

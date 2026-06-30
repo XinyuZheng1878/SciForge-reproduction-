@@ -2,17 +2,14 @@ import { useState, type ReactElement } from 'react'
 import type {
   ApprovalPolicy,
   AppSettingsV1,
-  ResearchMemorySettingsPatchV1,
   SandboxMode
 } from '@shared/app-settings'
 import {
-  defaultImageGenerationSettings,
-  getResearchMemorySettings,
-  resolveResearchMemoryLocalPath
+  defaultImageGenerationSettings
 } from '@shared/app-settings'
 import type { GuiUpdateChannel } from '@shared/gui-update'
 import type { SkillRootId } from '../lib/skill-root-preference'
-import { FolderOpen, Loader2, PencilLine, RefreshCw, Settings } from 'lucide-react'
+import { FolderOpen, PencilLine, RefreshCw, Settings } from 'lucide-react'
 import { GuiUpdateControl } from './settings-gui-update'
 import {
   InlineNoticeView,
@@ -46,9 +43,6 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
     pickWorkspace,
     resetWorkspaceToDefault,
     workspacePickerError,
-    researchMemoryBusy,
-    researchMemoryNotice,
-    prepareResearchMemoryWorkspace,
     guiUpdateInfo,
     checkingGuiUpdate,
     downloadingGuiUpdate,
@@ -94,11 +88,6 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
   const openAtLoginSupported = platform === 'win32' || platform === 'darwin'
   const startMinimizedSupported = platform === 'win32'
   const desktopBehavior = form.appBehavior
-  const researchMemory = getResearchMemorySettings(form)
-  const researchMemoryResolvedPath = resolveResearchMemoryLocalPath(form)
-  const updateResearchMemory = (patch: ResearchMemorySettingsPatchV1): void => {
-    update({ researchMemory: { ...researchMemory, ...patch } })
-  }
   const imageGenerationSettings = form.imageGeneration ?? defaultImageGenerationSettings()
   const updateImageGenerationSettings =
     typeof updateImageGeneration === 'function'
@@ -342,103 +331,6 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
                           {workspacePickerError}
                         </p>
                       ) : null}
-                    </div>
-                  }
-                />
-              </SettingsCard>
-
-              <SettingsCard title={t('researchMemoryTitle')} className="mt-6">
-                <SettingRow
-                  title={t('researchMemoryEnabled')}
-                  description={t('researchMemoryEnabledDesc')}
-                  control={
-                    <Toggle
-                      checked={researchMemory.enabled}
-                      onChange={(v) => updateResearchMemory({ enabled: v })}
-                    />
-                  }
-                />
-                <SettingRow
-                  title={t('researchMemoryRepoUrl')}
-                  description={t('researchMemoryRepoUrlDesc')}
-                  control={
-                    <input
-                      className="w-full min-w-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 md:max-w-md"
-                      placeholder={t('researchMemoryRepoUrlPlaceholder')}
-                      value={researchMemory.githubRepoUrl}
-                      onChange={(e) => updateResearchMemory({ githubRepoUrl: e.target.value })}
-                    />
-                  }
-                />
-                <SettingRow
-                  title={t('researchMemoryBranch')}
-                  description={t('researchMemoryBranchDesc')}
-                  control={
-                    <input
-                      className="w-full min-w-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30 md:max-w-xs"
-                      placeholder="main"
-                      value={researchMemory.branch}
-                      onChange={(e) => updateResearchMemory({ branch: e.target.value })}
-                    />
-                  }
-                />
-                <SettingRow
-                  title={t('researchMemoryLocalPath')}
-                  description={t('researchMemoryLocalPathDesc')}
-                  wideControl
-                  control={
-                    <div className="grid w-full gap-2">
-                      <input
-                        className="w-full min-w-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
-                        placeholder={researchMemoryResolvedPath}
-                        value={researchMemory.localPath}
-                        onChange={(e) => updateResearchMemory({ localPath: e.target.value })}
-                      />
-                      <code className="block w-full max-w-full break-all rounded-xl bg-ds-main/70 px-3 py-2 font-mono text-[12px] text-ds-muted shadow-sm">
-                        {researchMemoryResolvedPath}
-                      </code>
-                    </div>
-                  }
-                />
-                <SettingRow
-                  title={t('researchMemoryDefaultForAgents')}
-                  description={t('researchMemoryDefaultForAgentsDesc')}
-                  control={
-                    <Toggle
-                      checked={researchMemory.defaultForAgents}
-                      onChange={(v) => updateResearchMemory({ defaultForAgents: v })}
-                    />
-                  }
-                />
-                <SettingRow
-                  title={t('researchMemoryAutoFetch')}
-                  description={t('researchMemoryAutoFetchDesc')}
-                  control={
-                    <Toggle
-                      checked={researchMemory.autoFetch}
-                      onChange={(v) => updateResearchMemory({ autoFetch: v })}
-                    />
-                  }
-                />
-                <SettingRow
-                  title={t('researchMemoryOpenWorkspace')}
-                  description={t('researchMemoryOpenWorkspaceDesc')}
-                  control={
-                    <div className="grid gap-2">
-                      <button
-                        type="button"
-                        disabled={researchMemoryBusy}
-                        onClick={() => void prepareResearchMemoryWorkspace()}
-                        className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {researchMemoryBusy ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <FolderOpen className="h-4 w-4" />
-                        )}
-                        {t('researchMemoryOpenWorkspaceButton')}
-                      </button>
-                      {researchMemoryNotice ? <InlineNoticeView notice={researchMemoryNotice} /> : null}
                     </div>
                   }
                 />

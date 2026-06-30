@@ -44,7 +44,6 @@ import {
 } from './schedule-mcp-config'
 import { internalSecretEnv } from './internal-http-secret'
 import type { ResearchSearchMcpLaunchConfig } from './research-search-mcp-config'
-import type { ResearchMemoryMcpLaunchConfig } from './research-memory-mcp-config'
 import type { ComputerUseMcpLaunchConfig } from './computer-use-mcp-config'
 import {
   GUI_WORKFLOW_INTERNAL_SECRET_ENV,
@@ -338,14 +337,6 @@ async function startLocalRuntimeChildOnce(
         isPackaged: app.isPackaged
       }
     },
-    researchMemoryMcp: {
-      settings,
-      launch: {
-        appPath: app.getAppPath(),
-        execPath: process.execPath,
-        isPackaged: app.isPackaged
-      }
-    },
     workflowMcp: {
       settings,
       launch: {
@@ -554,10 +545,6 @@ export async function syncGuiManagedLocalRuntimeConfig(
     researchMcp?: {
       launch: ResearchSearchMcpLaunchConfig
     }
-    researchMemoryMcp?: {
-      settings: AppSettingsV1
-      launch: ResearchMemoryMcpLaunchConfig
-    }
     workflowMcp?: {
       settings: AppSettingsV1
       launch: WorkflowMcpLaunchConfig
@@ -634,7 +621,6 @@ export async function syncGuiManagedLocalRuntimeConfig(
   const managedMcpServers = buildLocalRuntimeManagedGuiMcpServers({
     scheduleMcp: options?.scheduleMcp,
     researchMcp: options?.researchMcp,
-    researchMemoryMcp: options?.researchMemoryMcp,
     workflowMcp: options?.workflowMcp,
     workspaceIntelMcp: options?.workspaceIntelMcp,
     paperRadarMcp: options?.paperRadarMcp,
@@ -680,7 +666,6 @@ export async function syncGuiManagedLocalRuntimeConfig(
         ...(
           options?.scheduleMcp ||
           options?.researchMcp ||
-          options?.researchMemoryMcp ||
           options?.workflowMcp ||
           options?.workspaceIntelMcp ||
           options?.paperRadarMcp ||

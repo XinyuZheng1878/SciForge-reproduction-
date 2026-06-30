@@ -340,18 +340,6 @@ export type ScientificSkillsStatusResult =
 export type ModelRouterConfigOpenResult =
   | { ok: true; path: string }
   | { ok: false; path: string; message: string }
-export type ResearchMemoryWorkspaceResult =
-  | {
-      ok: true
-      workspaceRoot: string
-      localPath: string
-      githubRepoUrl: string
-      branch: string
-      cloned: boolean
-      fetched: boolean
-      message?: string
-    }
-  | { ok: false; message: string; localPath?: string }
 export type TurnCompleteNotificationPayload = {
   threadId?: string
   title: string
@@ -643,7 +631,6 @@ export type SciForgeApi = {
   setRuntimeConfigFile: (content: string) => Promise<RuntimeConfigSaveResult>
   openRuntimeConfigDir: () => Promise<PathOpenResult>
   openModelRouterConfigFile: () => Promise<ModelRouterConfigOpenResult>
-  prepareResearchMemoryWorkspace: () => Promise<ResearchMemoryWorkspaceResult>
   getGitBranches: (workspaceRoot: string) => Promise<GitBranchesResult>
   switchGitBranch: (workspaceRoot: string, branch: string) => Promise<GitBranchesResult>
   createAndSwitchGitBranch: (workspaceRoot: string, branch: string) => Promise<GitBranchesResult>

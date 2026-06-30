@@ -495,15 +495,6 @@ const computerUsePatchSchema = z.object({
   }).strict().optional()
 }).strict()
 
-const researchMemoryPatchSchema = z.object({
-  enabled: z.boolean().optional(),
-  githubRepoUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
-  branch: z.string().trim().max(MAX_BRANCH_LENGTH).optional(),
-  localPath: z.string().trim().max(MAX_PATH_LENGTH).optional(),
-  autoFetch: z.boolean().optional(),
-  defaultForAgents: z.boolean().optional()
-}).strict()
-
 const claudeRuntimePatchSchema = z.object({
   command: z.string().trim().min(1).max(MAX_PATH_LENGTH).optional(),
   configDir: defaultPathSchema,
@@ -1282,7 +1273,6 @@ const settingsPatchObjectSchema = z.object({
   runtimeGuards: runtimeGuardPatchSchema.optional(),
   agentCapabilities: agentCapabilityPatchSchema.optional(),
   computerUse: computerUsePatchSchema.optional(),
-  researchMemory: researchMemoryPatchSchema.optional(),
   activeAgentRuntime: agentRuntimeIdSchema.optional(),
   agents: z.object({
     sciforge: localRuntimePatchSchema.optional(),

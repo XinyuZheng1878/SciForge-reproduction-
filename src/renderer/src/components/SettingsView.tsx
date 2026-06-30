@@ -126,8 +126,6 @@ export function SettingsView(): ReactElement {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [workspacePickerError, setWorkspacePickerError] = useState<string | null>(null)
   const [clawWorkspacePickerError, setClawWorkspacePickerError] = useState<string | null>(null)
-  const [researchMemoryBusy, setResearchMemoryBusy] = useState(false)
-  const [researchMemoryNotice, setResearchMemoryNotice] = useState<InlineNotice | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
@@ -751,37 +749,6 @@ export function SettingsView(): ReactElement {
     update({ remoteChannel: { im: { workspaceRoot: '' } } })
   }
 
-  const prepareResearchMemoryWorkspace = async (): Promise<void> => {
-    if (typeof window.sciforge?.prepareResearchMemoryWorkspace !== 'function') {
-      setResearchMemoryNotice({ tone: 'error', message: t('researchMemoryPrepareUnavailable') })
-      return
-    }
-    setResearchMemoryBusy(true)
-    setResearchMemoryNotice(null)
-    try {
-      await flushPendingSave()
-      const result = await window.sciforge.prepareResearchMemoryWorkspace()
-      if (!result.ok) {
-        setResearchMemoryNotice({
-          tone: 'error',
-          message: result.message || tCommon('unknownError')
-        })
-        return
-      }
-      setResearchMemoryNotice({
-        tone: 'success',
-        message: t('researchMemoryPrepareSuccess', { path: result.localPath })
-      })
-    } catch (error) {
-      setResearchMemoryNotice({
-        tone: 'error',
-        message: error instanceof Error ? error.message : String(error)
-      })
-    } finally {
-      setResearchMemoryBusy(false)
-    }
-  }
-
   const selectControlClass =
     'w-full min-w-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30'
 
@@ -815,9 +782,6 @@ export function SettingsView(): ReactElement {
     pickWorkspace,
     resetWorkspaceToDefault,
     workspacePickerError,
-    researchMemoryBusy,
-    researchMemoryNotice,
-    prepareResearchMemoryWorkspace,
     guiUpdateInfo,
     checkingGuiUpdate,
     downloadingGuiUpdate,

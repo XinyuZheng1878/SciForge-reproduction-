@@ -11,6 +11,8 @@ release/
 .scimodality-run/
 *.log
 .DS_Store
+__pycache__/
+*.py[cod]
 
 ### Local environment
 .env
