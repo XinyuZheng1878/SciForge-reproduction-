@@ -1926,10 +1926,10 @@ async function callChatProvider(options: {
       },
       body: JSON.stringify(body),
     });
-  } catch {
-    const errorSummary = 'provider_exception';
+  } catch (error) {
+    const errorSummary = providerExceptionSummary(error, 'fetch_failed');
     recordFailedProviderCall({ ...options, body }, Date.now() - startedAt, errorSummary);
-    throw new Error(errorSummary);
+    throw routerError(500, 'provider_exception', `Provider request failed (${errorSummary}).`);
   }
   const latencyMs = Date.now() - startedAt;
   if (!response.ok) {
@@ -1942,9 +1942,14 @@ async function callChatProvider(options: {
   try {
     payload = await response.json();
   } catch {
-    const errorSummary = 'provider_exception';
+    const errorSummary = 'provider_invalid_json';
     recordFailedProviderCall({ ...options, body }, latencyMs, errorSummary);
-    throw new Error(errorSummary);
+    throw routerError(500, 'provider_invalid_json', 'Provider returned a non-JSON response.');
+  }
+  if (isProviderErrorPayload(payload)) {
+    const errorSummary = 'provider_error_payload';
+    recordFailedProviderCall({ ...options, body }, latencyMs, errorSummary);
+    throw routerError(500, 'provider_error_payload', 'Provider returned an error payload instead of a chat completion.');
   }
   options.calls.push({
     role: options.role,
@@ -1958,6 +1963,23 @@ async function callChatProvider(options: {
     stopReason: chatCompletionStopReason(payload),
   });
   return chatCompletionResult(payload, options.responseRequest, options.toolNameAliases);
+}
+
+function providerExceptionSummary(error: unknown, fallback: string): string {
+  const name = error instanceof Error ? error.name.toLowerCase() : '';
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  if (name.includes('abort') || message.includes('timeout') || message.includes('timed out')) {
+    return 'provider_exception_timeout';
+  }
+  if (message.includes('econnreset') || message.includes('socket') || message.includes('network')) {
+    return 'provider_exception_network';
+  }
+  return `provider_exception_${fallback.replace(/[^a-z0-9_]+/gi, '_').toLowerCase()}`;
+}
+
+function isProviderErrorPayload(payload: unknown): boolean {
+  if (!isRecord(payload)) return false;
+  return payload.error !== undefined && !Array.isArray(payload.choices);
 }
 
 function providerChatCompletionsUrl(baseUrl: string): string {

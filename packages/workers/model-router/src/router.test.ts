@@ -3628,8 +3628,92 @@ test('text reasoner exceptions still write sanitized failure traces', async () =
     assert.match(traceText, /"phase":\s*"text-direct"/);
     assert.match(traceText, /"status":\s*"failed"/);
     assert.match(traceText, /"errorSummary":\s*"provider_exception"/);
+    assert.match(traceText, /"errorSummary":\s*"provider_exception_(?:fetch_failed|network)"/);
     assert.match(traceText, /"schemaVersion":\s*"sciforge\.model-router\.final-routing-summary\.v1"/);
     assert.doesNotMatch(traceText, /text-secret|raw-payload-private|Explain SciForge|text-provider|text-model/i);
+  } finally {
+    await server.close();
+  }
+});
+
+test('text reasoner invalid JSON failures preserve safe provider diagnostics', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-text-invalid-json-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      new Response('not json with text-secret raw prompt payload', { status: 200 }),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: 'Explain SciForge.',
+      }),
+    });
+
+    assert.equal(response.status, 500);
+    const responseBody = await response.json() as Record<string, { code?: string; message?: string }>;
+    assert.equal(responseBody.error?.code, 'provider_invalid_json');
+    assert.match(responseBody.error?.message ?? '', /non-JSON response/);
+    assert.doesNotMatch(responseBody.error?.message ?? '', /text-secret|raw prompt payload|Explain SciForge|text-model/i);
+
+    const traceText = await readTraceBundle(workspaceRoot);
+    assert.match(traceText, /"phase":\s*"text-direct"/);
+    assert.match(traceText, /"status":\s*"failed"/);
+    assert.match(traceText, /"errorSummary":\s*"provider_invalid_json"/);
+    assert.doesNotMatch(traceText, /text-secret|raw prompt payload|Explain SciForge|text-provider|text-model/i);
+  } finally {
+    await server.close();
+  }
+});
+
+test('text reasoner provider error payloads are classified without leaking body text', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-text-error-payload-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      Response.json({
+        error: {
+          message: 'provider returned text-secret raw prompt payload for Explain SciForge',
+          request: { model: 'text-model' },
+        },
+      }),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: 'Explain SciForge.',
+      }),
+    });
+
+    assert.equal(response.status, 500);
+    const responseBody = await response.json() as Record<string, { code?: string; message?: string }>;
+    assert.equal(responseBody.error?.code, 'provider_error_payload');
+    assert.match(responseBody.error?.message ?? '', /error payload/);
+    assert.doesNotMatch(responseBody.error?.message ?? '', /text-secret|raw prompt payload|Explain SciForge|text-model/i);
+
+    const traceText = await readTraceBundle(workspaceRoot);
+    assert.match(traceText, /"phase":\s*"text-direct"/);
+    assert.match(traceText, /"status":\s*"failed"/);
+    assert.match(traceText, /"errorSummary":\s*"provider_error_payload"/);
+    assert.doesNotMatch(traceText, /text-secret|raw prompt payload|Explain SciForge|text-provider|text-model/i);
   } finally {
     await server.close();
   }
