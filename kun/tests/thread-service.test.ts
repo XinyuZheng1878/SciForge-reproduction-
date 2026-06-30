@@ -402,6 +402,90 @@ describe('ThreadService todos', () => {
       await rm(workspace, { recursive: true, force: true })
     }
   })
+
+  it('accepts workspace-relative non-GUI todo source paths without patching files', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'kun-todos-'))
+    try {
+      const { service } = buildService()
+      await service.create(
+        { workspace, model: 'deepseek-chat', mode: 'agent' },
+        { id: 'thr_outputs_todos', title: 'Output Todos' }
+      )
+
+      const initial = await service.setTodos('thr_outputs_todos', {
+        todos: [{
+          content: 'Create stage report',
+          status: 'pending',
+          source: {
+            kind: 'plan',
+            planId: 'stage3b-v32',
+            relativePath: 'outputs/04_stage3b_v3_2/stage3b_implementation_plan.md',
+            ordinal: 1,
+            contentHash: 'hash1'
+          }
+        }]
+      })
+
+      expect(initial.items[0]?.source?.relativePath).toBe(
+        'outputs/04_stage3b_v3_2/stage3b_implementation_plan.md'
+      )
+
+      const updated = await service.setTodos('thr_outputs_todos', {
+        todos: [{
+          id: initial.items[0]?.id,
+          content: 'Create stage report',
+          status: 'completed',
+          source: initial.items[0]?.source
+        }]
+      })
+      expect(updated.items[0]?.status).toBe('completed')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it('normalizes absolute workspace todo source paths and rejects escaping paths', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'kun-todos-'))
+    try {
+      const { service } = buildService()
+      await service.create(
+        { workspace, model: 'deepseek-chat', mode: 'agent' },
+        { id: 'thr_absolute_todos', title: 'Absolute Todos' }
+      )
+
+      const absoluteInside = join(workspace, 'code/meiosis_agent/pipeline_v3_2.py')
+      const accepted = await service.setTodos('thr_absolute_todos', {
+        todos: [{
+          content: 'Implement v3.2',
+          status: 'pending',
+          source: {
+            kind: 'plan',
+            planId: 'stage3b-v32',
+            relativePath: absoluteInside,
+            ordinal: 2,
+            contentHash: 'hash2'
+          }
+        }]
+      })
+      expect(accepted.items[0]?.source?.relativePath).toBe('code/meiosis_agent/pipeline_v3_2.py')
+
+      await expect(service.setTodos('thr_absolute_todos', {
+        todos: [{
+          content: 'Escape workspace',
+          status: 'pending',
+          source: {
+            kind: 'plan',
+            planId: 'stage3b-v32',
+            relativePath: join(tmpdir(), 'outside.md'),
+            ordinal: 3,
+            contentHash: 'hash3'
+          }
+        }]
+      })).rejects.toThrow(/escapes workspace/)
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('ThreadService.list with relation filter', () => {

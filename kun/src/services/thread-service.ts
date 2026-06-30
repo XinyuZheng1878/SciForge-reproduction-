@@ -247,6 +247,7 @@ export class ThreadService {
     const items = normalizeTodoItems({
       rawItems: request.todos,
       existingItems: current.todos?.items ?? [],
+      workspace: current.workspace,
       now,
       ids: this.ids
     })
@@ -329,10 +330,8 @@ export class ThreadService {
     for (const item of changedPlanItems) {
       const source = item.source
       if (!source || source.kind !== 'plan') continue
-      const relativePath = normalizePlanRelativePath(source.relativePath)
-      if (!isGuiPlanRelativePath(relativePath)) {
-        throw new Error(`invalid GUI plan relative path: ${source.relativePath}`)
-      }
+      const relativePath = normalizeWorkspaceTodoRelativePath(current.workspace, source.relativePath)
+      if (!isGuiPlanRelativePath(relativePath)) continue
       byRelativePath.set(relativePath, [...(byRelativePath.get(relativePath) ?? []), item])
     }
 
@@ -507,6 +506,7 @@ function cloneGoalForThread(goal: ThreadGoal, threadId: string, now: string): Th
 function normalizeTodoItems(input: {
   rawItems: SetThreadTodosRequest['todos']
   existingItems: readonly ThreadTodoItem[]
+  workspace: string
   now: string
   ids: IdGenerator
 }): ThreadTodoItem[] {
@@ -521,7 +521,7 @@ function normalizeTodoItems(input: {
       if (inProgressSeen) throw new Error('at most one todo can be in_progress')
       inProgressSeen = true
     }
-    const source = raw.source ? normalizeTodoSource(raw.source) : undefined
+    const source = raw.source ? normalizeTodoSource(raw.source, input.workspace) : undefined
     const requestedId = raw.id?.trim()
     const existing =
       (requestedId ? existingById.get(requestedId) : undefined) ??
@@ -549,12 +549,9 @@ function normalizeTodoStatus(status: ThreadTodoStatus): ThreadTodoStatus {
   throw new Error(`unsupported todo status: ${String(status)}`)
 }
 
-function normalizeTodoSource(source: ThreadTodoSource): ThreadTodoSource {
+function normalizeTodoSource(source: ThreadTodoSource, workspace: string): ThreadTodoSource {
   if (source.kind !== 'plan') throw new Error(`unsupported todo source: ${String(source.kind)}`)
-  const relativePath = normalizePlanRelativePath(source.relativePath)
-  if (!isGuiPlanRelativePath(relativePath)) {
-    throw new Error(`invalid GUI plan relative path: ${source.relativePath}`)
-  }
+  const relativePath = normalizeWorkspaceTodoRelativePath(workspace, source.relativePath)
   return {
     kind: 'plan',
     planId: source.planId,
@@ -629,6 +626,22 @@ function resolveWorkspaceRelativePath(workspace: string, relativePath: string): 
     throw new Error(`plan path escapes workspace: ${relativePath}`)
   }
   return target
+}
+
+function normalizeWorkspaceTodoRelativePath(workspace: string, rawPath: string): string {
+  const value = rawPath.trim()
+  if (!value) throw new Error('todo source relative path is required')
+  if (isAbsolute(value)) {
+    const root = resolve(workspace)
+    const target = resolve(value)
+    const fromRoot = relative(root, target)
+    if (!fromRoot || fromRoot.startsWith('..') || isAbsolute(fromRoot)) {
+      throw new Error(`todo source path escapes workspace: ${rawPath}`)
+    }
+    return normalizePlanRelativePath(fromRoot)
+  }
+  const target = resolveWorkspaceRelativePath(workspace, normalizePlanRelativePath(value))
+  return normalizePlanRelativePath(relative(resolve(workspace), target))
 }
 
 /**
