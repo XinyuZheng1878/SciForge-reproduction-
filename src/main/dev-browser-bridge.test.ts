@@ -154,6 +154,27 @@ describe('dev browser bridge server', () => {
     )
   })
 
+  it('generates a per-server token when no token is configured', async () => {
+    const invoke = vi.fn(async () => ({ ok: true }))
+    const dispatcher: DevBrowserBridgeDispatcher = { invoke }
+
+    server = await startDevBrowserBridgeServer({ dispatcher, port: 0 })
+
+    expect(server.token).toMatch(/^[a-f0-9]{64}$/)
+    expect(server.token).not.toBe('sciforge-dev-browser-bridge')
+
+    const response = await postJson('/invoke', {
+      channel: 'settings:get'
+    }, { token: 'sciforge-dev-browser-bridge' })
+
+    expect(response.status).toBe(401)
+    expect(JSON.parse(response.body)).toEqual({
+      ok: false,
+      message: 'Dev browser bridge token is missing or invalid.'
+    })
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
   it('rejects invoke requests that do not include the bridge token', async () => {
     const invoke = vi.fn(async () => ({ ok: true }))
     const dispatcher: DevBrowserBridgeDispatcher = { invoke }

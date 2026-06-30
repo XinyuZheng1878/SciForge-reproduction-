@@ -5,7 +5,6 @@ const CLIENT_ID_STORAGE_KEY = 'sciforge.dev-browser-bridge.client-id'
 const TOKEN_STORAGE_KEY = 'sciforge.dev-browser-bridge.token'
 const TOKEN_HEADER = 'X-SciForge-Bridge-Token'
 const TOKEN_QUERY_PARAM = 'sciforgeBridgeToken'
-const DEFAULT_BRIDGE_TOKEN = 'sciforge-dev-browser-bridge'
 
 type BridgeEnvelope<T> =
   | { ok: true; payload: T }
@@ -68,7 +67,7 @@ function resolveBridgeToken(): string {
   }
   const fromEnv = (import.meta.env.VITE_SCIFORGE_DEV_BROWSER_BRIDGE_TOKEN ?? '').trim()
   if (fromEnv) return fromEnv
-  return storageGet(globalThis.sessionStorage, TOKEN_STORAGE_KEY)?.trim() || DEFAULT_BRIDGE_TOKEN
+  return storageGet(globalThis.sessionStorage, TOKEN_STORAGE_KEY)?.trim() || ''
 }
 
 function ensureEventSource(): void {

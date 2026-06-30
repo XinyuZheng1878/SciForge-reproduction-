@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { timingSafeEqual } from 'node:crypto'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { AppBridgeSender } from './ipc/register-app-ipc-handlers'
@@ -10,7 +10,7 @@ const MAX_INVOKE_BODY_BYTES = 2_000_000
 const CLIENT_DESTROY_DELAY_MS = 1_000
 export const DEV_BROWSER_BRIDGE_TOKEN_HEADER = 'X-SciForge-Bridge-Token'
 export const DEV_BROWSER_BRIDGE_TOKEN_QUERY_PARAM = 'sciforgeBridgeToken'
-export const DEV_BROWSER_BRIDGE_DEFAULT_TOKEN = 'sciforge-dev-browser-bridge'
+const DEV_BROWSER_BRIDGE_TOKEN_BYTES = 32
 const DEV_BROWSER_BRIDGE_ALLOWED_HEADERS = [
   'Content-Type',
   'Authorization',
@@ -218,7 +218,7 @@ function normalizeToken(value: string | undefined): string | undefined {
 }
 
 function createBridgeToken(configuredToken: string | undefined): string {
-  return normalizeToken(configuredToken) ?? DEV_BROWSER_BRIDGE_DEFAULT_TOKEN
+  return normalizeToken(configuredToken) ?? randomBytes(DEV_BROWSER_BRIDGE_TOKEN_BYTES).toString('hex')
 }
 
 function timingSafeStringEqual(actual: string, expected: string): boolean {

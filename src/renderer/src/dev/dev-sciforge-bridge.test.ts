@@ -66,9 +66,9 @@ describe('dev sciforge browser bridge', () => {
     })
   })
 
-  it('installs window.sciforge in a plain dev browser and forwards calls to the bridge server', async () => {
+  it('installs window.sciforge in a plain dev browser without sending a public fallback token', async () => {
     installWindow()
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
       ok: true,
       payload: [{ id: 'thread-1', runtimeId: 'codex', title: 'Thread', updatedAt: '2026-06-12T00:00:00.000Z' }]
     })))
@@ -86,8 +86,7 @@ describe('dev sciforge browser bridge', () => {
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
-          'X-SciForge-Client': 'client-1',
-          'X-SciForge-Bridge-Token': 'sciforge-dev-browser-bridge'
+          'X-SciForge-Client': 'client-1'
         }),
         body: JSON.stringify({
           channel: 'agentRuntime:listThreads',
@@ -95,8 +94,9 @@ describe('dev sciforge browser bridge', () => {
         })
       })
     )
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty('X-SciForge-Bridge-Token')
     expect(MockEventSource.instances[0]?.url).toBe(
-      'http://127.0.0.1:5174/events?clientId=client-1&sciforgeBridgeToken=sciforge-dev-browser-bridge'
+      'http://127.0.0.1:5174/events?clientId=client-1'
     )
   })
 
