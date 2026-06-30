@@ -377,6 +377,58 @@ describe('AgentLoop', () => {
     expect(toolCall).toMatchObject({ kind: 'tool_call', status: 'completed' })
   })
 
+  it('passes remote target context to model instructions and tool execution', async () => {
+    let modelCalls = 0
+    let observedInstructions = ''
+    let observedRemoteTargetId: string | undefined
+    const remoteProbe = LocalToolHost.defineTool({
+      name: 'remote_probe',
+      description: 'Capture remote context.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      policy: 'auto',
+      execute: async (_args, context) => {
+        observedRemoteTargetId = context.remoteTargetId
+        return { output: { remoteTargetId: context.remoteTargetId } }
+      }
+    })
+    const h = makeHarness(
+      {
+        provider: 'remote-target-context',
+        model: 'remote-target-context',
+        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+          modelCalls += 1
+          if (modelCalls === 1) {
+            observedInstructions = request.contextInstructions?.join('\n') ?? ''
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_remote_probe',
+              toolName: 'remote_probe',
+              arguments: {}
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      { tools: [remoteProbe] }
+    )
+    await bootstrapThread(h, {
+      request: {
+        prompt: 'Run on the selected machine',
+        remoteTargetId: 'gpu-a'
+      }
+    })
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const turn = await h.turns.getTurn(h.threadId, h.turnId)
+
+    expect(status).toBe('completed')
+    expect(turn?.remoteTargetId).toBe('gpu-a')
+    expect(observedRemoteTargetId).toBe('gpu-a')
+    expect(observedInstructions).toContain('Remote execution target selected for this turn: gpu-a.')
+  })
+
   it('keeps running past the legacy eight-step ceiling until the model stops', async () => {
     let calls = 0
     const h = makeHarness(

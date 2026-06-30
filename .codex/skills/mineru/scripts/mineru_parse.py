@@ -60,7 +60,7 @@ def request_json(method: str, url: str, payload: dict[str, Any] | None = None, t
 
 def put_file(url: str, path: Path) -> int:
     data = path.read_bytes()
-    req = urllib.request.Request(url, data=data, headers={"User-Agent": USER_AGENT}, method="PUT")
+    req = urllib.request.Request(url, data=data, headers={"User-Agent": USER_AGENT, "Content-Type": ""}, method="PUT")
     try:
         with urllib.request.urlopen(req, timeout=300) as res:
             return int(res.status)

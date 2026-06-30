@@ -17,6 +17,7 @@ import {
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
+  defaultRemoteExecutorSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
@@ -54,6 +55,7 @@ function createSettings(workspaceRoot = '/tmp/workspace'): AppSettingsV1 {
     write: defaultWriteSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
+    remoteExecutor: defaultRemoteExecutorSettings(),
     guiUpdate: {
       channel: 'stable'
     },

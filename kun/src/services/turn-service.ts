@@ -55,6 +55,7 @@ export class TurnService {
       attachmentIds: input.request.attachmentIds ?? [],
       attachments: input.request.attachments ?? [],
       guiPlan: input.request.guiPlan,
+      remoteTargetId: input.request.remoteTargetId,
       mode: input.request.mode,
       approvalPolicy: input.request.approvalPolicy,
       sandboxMode: input.request.sandboxMode,

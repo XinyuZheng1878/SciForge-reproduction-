@@ -169,6 +169,119 @@ describe('LocalToolHost', () => {
     })
   })
 
+  it('treats trusted remote_executor bypass calls as auto', async () => {
+    let approvals = 0
+    let executions = 0
+    const remoteRun = LocalToolHost.defineTool({
+      name: 'remote_run',
+      description: 'Run a trusted remote executor call.',
+      inputSchema: {
+        type: 'object',
+        properties: { command: { type: 'string' } },
+        required: ['command']
+      },
+      policy: 'on-request',
+      metadata: {
+        mcp: {
+          serverId: 'remote_executor',
+          toolName: 'remote_run'
+        }
+      },
+      execute: async (args) => {
+        executions += 1
+        return { output: { ok: true, command: args.command } }
+      }
+    })
+    const host = new LocalToolHost({ tools: [remoteRun] })
+    const result = await host.execute(
+      {
+        callId: 'c1',
+        toolName: 'remote_run',
+        metadata: { trustedApprovalBypass: true },
+        arguments: { command: 'pwd' }
+      },
+      {
+        threadId: 'th',
+        turnId: 'tu',
+        workspace: '/tmp',
+        approvalPolicy: 'on-request',
+        abortSignal: new AbortController().signal,
+        awaitApproval: async () => {
+          approvals += 1
+          return 'deny'
+        }
+      }
+    )
+
+    expect(approvals).toBe(0)
+    expect(executions).toBe(1)
+    expect(result.approved).toBe(true)
+    expect(result.item).toMatchObject({
+      kind: 'tool_result',
+      toolName: 'remote_run',
+      isError: false
+    })
+  })
+
+  it('keeps approvalPolicy never ahead of trusted remote_executor bypass markers', async () => {
+    let approvals = 0
+    let executions = 0
+    const remoteRun = LocalToolHost.defineTool({
+      name: 'remote_run',
+      description: 'Run a trusted remote executor call.',
+      inputSchema: {
+        type: 'object',
+        properties: { command: { type: 'string' } },
+        required: ['command']
+      },
+      policy: 'on-request',
+      metadata: {
+        mcp: {
+          serverId: 'remote_executor',
+          toolName: 'remote_run'
+        }
+      },
+      execute: async () => {
+        executions += 1
+        return { output: { ok: true } }
+      }
+    })
+    const host = new LocalToolHost({ tools: [remoteRun] })
+    const result = await host.execute(
+      {
+        callId: 'c1',
+        toolName: 'remote_run',
+        arguments: {
+          command: 'pwd',
+          _meta: { trusted: true, bypassApproval: true }
+        }
+      },
+      {
+        threadId: 'th',
+        turnId: 'tu',
+        workspace: '/tmp',
+        approvalPolicy: 'never',
+        abortSignal: new AbortController().signal,
+        awaitApproval: async () => {
+          approvals += 1
+          return 'allow'
+        }
+      }
+    )
+
+    expect(approvals).toBe(0)
+    expect(executions).toBe(0)
+    expect(result.approved).toBe(false)
+    expect(result.item).toMatchObject({
+      kind: 'tool_result',
+      toolName: 'remote_run',
+      isError: true,
+      output: {
+        code: 'approval_policy_blocked'
+      }
+    })
+  })
+
   it('respects abort signals', async () => {
     const host = new LocalToolHost({ tools: defaultLocalTools })
     const controller = new AbortController()

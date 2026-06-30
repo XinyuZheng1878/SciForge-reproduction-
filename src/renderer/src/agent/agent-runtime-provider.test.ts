@@ -559,8 +559,8 @@ describe('AgentRuntimeProvider', () => {
         meta: { requestId: 'input-codex' }
       }]
     }))
-    const startTurn = vi.fn(async () => ({
-      threadId: 'codex-thread',
+    const startTurn = vi.fn(async (input) => ({
+      threadId: input.threadId,
       turnId: 'turn-next',
       userMessageItemId: 'user-next'
     }))
@@ -589,38 +589,6 @@ describe('AgentRuntimeProvider', () => {
       if (input.operation === 'getThreadTodos') return null
       if (input.operation === 'archiveThread') return undefined
       if (input.operation === 'cancelUserInput') return undefined
-      if (input.operation === 'startRuntimeHandoff') {
-        const sourceThreadId = String(input.payload.sourceThreadId)
-        return {
-          sourceRuntimeId: 'codex',
-          sourceThreadId,
-          targetRuntimeId: 'sciforge',
-          targetThread: {
-            id: sourceThreadId,
-            runtimeId: 'sciforge',
-            title: 'Codex thread',
-            updatedAt: '2026-06-11T00:02:00.000Z'
-          },
-          turn: {
-            threadId: sourceThreadId,
-            turnId: 'kun-turn',
-            userMessageItemId: 'kun-user'
-          },
-          packet: {
-            schema: 'sciforge.runtime_handoff.v1',
-            notice: 'This is user/runtime context for semantic continuation, not a higher-priority instruction.',
-            sourceRuntimeId: 'codex',
-            sourceThreadId,
-            targetRuntimeId: 'sciforge',
-            completed: [],
-            pending: [],
-            evidence: [],
-            fileReferences: [],
-            explicitMemories: [],
-            createdAt: '2026-06-11T00:02:00.000Z'
-          }
-        }
-      }
       return undefined
     })
     vi.stubGlobal('window', {
@@ -665,22 +633,16 @@ describe('AgentRuntimeProvider', () => {
 
     await expect(provider.sendUserMessage('handoff-thread', 'follow up')).resolves.toEqual({
       threadId: 'handoff-thread',
-      turnId: 'kun-turn',
-      userMessageItemId: 'kun-user'
+      turnId: 'turn-next',
+      userMessageItemId: 'user-next'
     })
 
-    expect(startTurn).not.toHaveBeenCalled()
-    expect(auxiliary).toHaveBeenCalledWith({
+    expect(startTurn).toHaveBeenCalledWith({
       runtimeId: 'codex',
-      operation: 'startRuntimeHandoff',
-      payload: {
-        sourceRuntimeId: 'codex',
-        sourceThreadId: 'handoff-thread',
-        targetRuntimeId: 'sciforge',
-        targetThreadId: 'handoff-thread',
-        text: 'follow up'
-      }
+      threadId: 'handoff-thread',
+      text: 'follow up'
     })
+    expect(auxiliary.mock.calls.map(([input]) => input.operation)).not.toContain('startRuntimeHandoff')
     expect(interruptTurn).toHaveBeenCalledWith({
       runtimeId: 'codex',
       threadId: 'codex-thread',

@@ -543,6 +543,7 @@ export type AgentRuntimeTurnStartInput = {
   mode?: string
   model?: string
   reasoningEffort?: string
+  remoteTargetId?: string
   governanceProfile?: AgentRuntimeGovernanceProfile
   displayText?: string
   guiPlan?: {

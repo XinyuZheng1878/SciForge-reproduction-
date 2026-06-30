@@ -50,6 +50,7 @@ import {
   type WorkflowMcpLaunchConfig
 } from './workflow-mcp-config'
 import type { WorkspaceIntelMcpLaunchConfig } from './workspace-intel-mcp-config'
+import type { RemoteExecutorMcpLaunchConfig } from './remote-executor-mcp-config'
 import type { PaperRadarMcpLaunchConfig } from './paper-radar-mcp-config'
 import type { WriteAssistMcpLaunchConfig } from './write-assist-mcp-config'
 import type { RuntimeInspectorMcpLaunchConfig } from './runtime-inspector-mcp-config'
@@ -353,6 +354,14 @@ async function startLocalRuntimeChildOnce(
         isPackaged: app.isPackaged
       }
     },
+    remoteExecutorMcp: {
+      settings,
+      launch: {
+        appPath: app.getAppPath(),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged
+      }
+    },
     paperRadarMcp: {
       launch: {
         appPath: app.getAppPath(),
@@ -553,6 +562,11 @@ export async function syncGuiManagedLocalRuntimeConfig(
       settings: AppSettingsV1
       launch: WorkspaceIntelMcpLaunchConfig
     }
+    remoteExecutorMcp?: {
+      settings?: AppSettingsV1
+      launch: RemoteExecutorMcpLaunchConfig
+      enabled?: boolean
+    }
     paperRadarMcp?: {
       launch: PaperRadarMcpLaunchConfig
     }
@@ -623,6 +637,7 @@ export async function syncGuiManagedLocalRuntimeConfig(
     researchMcp: options?.researchMcp,
     workflowMcp: options?.workflowMcp,
     workspaceIntelMcp: options?.workspaceIntelMcp,
+    remoteExecutorMcp: options?.remoteExecutorMcp,
     paperRadarMcp: options?.paperRadarMcp,
     writeAssistMcp: options?.writeAssistMcp,
     runtimeInspectorMcp: options?.runtimeInspectorMcp,
@@ -668,6 +683,7 @@ export async function syncGuiManagedLocalRuntimeConfig(
           options?.researchMcp ||
           options?.workflowMcp ||
           options?.workspaceIntelMcp ||
+          (options?.remoteExecutorMcp && options.remoteExecutorMcp.enabled !== false) ||
           options?.paperRadarMcp ||
           options?.writeAssistMcp ||
           options?.runtimeInspectorMcp ||

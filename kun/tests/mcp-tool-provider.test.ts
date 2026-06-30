@@ -118,6 +118,180 @@ describe('MCP tool provider', () => {
     }
   })
 
+  it('adds flat remote_* aliases for first-party remote_executor tools', async () => {
+    const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
+    const config = LocalRuntimeCapabilitiesConfig.parse({
+      mcp: {
+        enabled: true,
+        servers: {
+          remote_executor: {
+            transport: 'stdio',
+            command: 'node',
+            trustScope: 'user'
+          }
+        }
+      }
+    })
+    const built = await buildMcpToolProviders(config.mcp, {
+      clientFactory: async () => ({
+        async listTools() {
+          return {
+            tools: [
+              {
+                name: 'remote_run',
+                description: 'Run a command on a configured remote target.',
+                inputSchema: {
+                  type: 'object',
+                  properties: { command: { type: 'string' } },
+                  required: ['command']
+                }
+              }
+            ]
+          }
+        },
+        async callTool(input) {
+          callInputs.push(input)
+          return { ok: true, called: input.name, arguments: input.arguments }
+        },
+        async close() {
+          // no-op
+        }
+      })
+    })
+    const host = new LocalToolHost({ registry: new CapabilityRegistry(built.providers) })
+    const context = buildContext('/tmp/project')
+
+    expect((await host.listTools(context)).map((tool) => tool.name)).toEqual([
+      'mcp_remote_executor_remote_run',
+      'remote_run'
+    ])
+    expect(built.toolCount).toBe(1)
+    expect(built.diagnostics[0]).toMatchObject({ id: 'remote_executor', toolCount: 1 })
+
+    await host.execute({
+      callId: 'call_remote_run',
+      toolName: 'remote_run',
+      arguments: { command: 'pwd' }
+    }, context)
+
+    expect(callInputs[0]).toEqual({
+      name: 'remote_run',
+      arguments: { command: 'pwd' }
+    })
+  })
+
+  it('injects the selected remote target id for remote_executor tools', async () => {
+    const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
+    const config = LocalRuntimeCapabilitiesConfig.parse({
+      mcp: {
+        enabled: true,
+        servers: {
+          remote_executor: {
+            transport: 'stdio',
+            command: 'node',
+            trustScope: 'user'
+          }
+        }
+      }
+    })
+    const built = await buildMcpToolProviders(config.mcp, {
+      clientFactory: async () => ({
+        async listTools() {
+          return {
+            tools: [
+              {
+                name: 'remote_run',
+                description: 'Run a command on a configured remote target.',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    target_id: { type: 'string' },
+                    command: { type: 'string' }
+                  },
+                  required: ['target_id', 'command']
+                }
+              }
+            ]
+          }
+        },
+        async callTool(input) {
+          callInputs.push(input)
+          return { ok: true, called: input.name, arguments: input.arguments }
+        },
+        async close() {
+          // no-op
+        }
+      })
+    })
+    const host = new LocalToolHost({ registry: new CapabilityRegistry(built.providers) })
+    const context = {
+      ...buildContext('/tmp/project'),
+      remoteTargetId: 'gpu-a'
+    }
+
+    await host.execute({
+      callId: 'call_remote_default',
+      toolName: 'remote_run',
+      arguments: { command: 'pwd' }
+    }, context)
+    await host.execute({
+      callId: 'call_remote_explicit',
+      toolName: 'remote_run',
+      arguments: { target_id: 'cpu-b', command: 'hostname' }
+    }, context)
+
+    expect(callInputs).toEqual([
+      {
+        name: 'remote_run',
+        arguments: { target_id: 'gpu-a', command: 'pwd' }
+      },
+      {
+        name: 'remote_run',
+        arguments: { target_id: 'cpu-b', command: 'hostname' }
+      }
+    ])
+  })
+
+  it('skips remote_executor flat aliases that would collide with reserved tool names', async () => {
+    const config = LocalRuntimeCapabilitiesConfig.parse({
+      mcp: {
+        enabled: true,
+        servers: {
+          remote_executor: {
+            transport: 'stdio',
+            command: 'node',
+            trustScope: 'user'
+          }
+        }
+      }
+    })
+    const built = await buildMcpToolProviders(config.mcp, {
+      reservedToolNames: ['remote_run'],
+      clientFactory: async () => ({
+        async listTools() {
+          return {
+            tools: [
+              {
+                name: 'remote_run',
+                inputSchema: { type: 'object' }
+              }
+            ]
+          }
+        },
+        async callTool(input) {
+          return { ok: true, called: input.name }
+        },
+        async close() {
+          // no-op
+        }
+      })
+    })
+
+    expect(built.providers[0]?.tools.map((tool) => tool.name)).toEqual([
+      'mcp_remote_executor_remote_run'
+    ])
+  })
+
   it('repairs direct MCP tool arguments to satisfy numeric schema bounds', async () => {
     const callInputs: Array<{ name: string; arguments: Record<string, unknown> }> = []
     const config = LocalRuntimeCapabilitiesConfig.parse({

@@ -61,6 +61,8 @@ export type ToolHostContext = {
   threadMode?: 'agent' | 'plan'
   /** Optional GUI plan context (see above). */
   guiPlan?: GuiPlanContext
+  /** Optional remote execution target selected for this turn. */
+  remoteTargetId?: string
   /** Active model capability metadata used by capability-aware providers. */
   model?: ModelCapabilityMetadata
   /** Skill ids activated for this turn, if the Skill runtime is enabled. */
@@ -101,6 +103,7 @@ export type ToolCallLike = {
   toolName: string
   providerId?: string
   toolKind?: 'tool_call' | 'command_execution' | 'file_change'
+  metadata?: Record<string, unknown>
   arguments: Record<string, unknown>
 }
 

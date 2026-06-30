@@ -260,15 +260,10 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(state.error).toBeNull()
   })
 
-  it('forces a new runtime thread instead of reusing the active empty thread', async () => {
+  it('starts a fresh draft instead of creating an empty runtime thread', async () => {
     const { actions, state } = buildHarness()
-    const createdThread = {
-      ...thread('thr_created'),
-      workspace: '/workspace/sciforge',
-      status: 'idle'
-    }
     const provider = {
-      createThread: vi.fn(async () => createdThread)
+      createThread: vi.fn()
     }
     registryMock.getProvider.mockReturnValue(provider)
     state.busy = false
@@ -280,25 +275,18 @@ describe('chat-store-thread-actions queued messages', () => {
 
     await actions.createThread({ workspaceRoot: '/workspace/sciforge', forceNew: true })
 
-    expect(provider.createThread).toHaveBeenCalledWith({
-      workspace: '/workspace/sciforge',
-      title: expect.any(String),
-      mode: 'agent'
-    })
-    expect(state.selectThread).toHaveBeenCalledWith('thr_created')
-    expect(state.activeThreadId).toBe('thr_created')
-    expect(state.threads[0]?.id).toBe('thr_created')
+    expect(provider.createThread).not.toHaveBeenCalled()
+    expect(state.selectThread).not.toHaveBeenCalled()
+    expect(state.activeThreadId).toBeNull()
+    expect(state.blocks).toEqual([])
+    expect(state.error).toBeNull()
+    expect(state.threads.map((item) => item.id)).toEqual(['thr_existing'])
   })
 
-  it('syncs an explicit project workspace before creating the runtime thread', async () => {
+  it('syncs an explicit project workspace before starting a draft', async () => {
     const { actions, state } = buildHarness()
-    const createdThread = {
-      ...thread('thr_project'),
-      workspace: '/workspace/project-b',
-      status: 'idle'
-    }
     const provider = {
-      createThread: vi.fn(async () => createdThread)
+      createThread: vi.fn()
     }
     registryMock.getProvider.mockReturnValue(provider)
     runtimeClientMock.getSettings.mockResolvedValueOnce({
@@ -322,24 +310,16 @@ describe('chat-store-thread-actions queued messages', () => {
     await actions.createThread({ workspaceRoot: '/workspace/project-b', forceNew: true })
 
     expect(runtimeClientMock.setSettings).toHaveBeenCalledWith({ workspaceRoot: '/workspace/project-b' })
-    expect(provider.createThread).toHaveBeenCalledWith({
-      workspace: '/workspace/project-b',
-      title: expect.any(String),
-      mode: 'agent'
-    })
+    expect(provider.createThread).not.toHaveBeenCalled()
     expect(state.workspaceRoot).toBe('/workspace/project-b')
     expect(state.codeWorkspaceRoots).toEqual(['/workspace/project-b', '/workspace/startup'])
+    expect(state.activeThreadId).toBeNull()
   })
 
-  it('still creates an explicit project thread when workspace settings sync fails', async () => {
+  it('still starts an explicit project draft when workspace settings sync fails', async () => {
     const { actions, state } = buildHarness()
-    const createdThread = {
-      ...thread('thr_project'),
-      workspace: '/workspace/project-b',
-      status: 'idle'
-    }
     const provider = {
-      createThread: vi.fn(async () => createdThread)
+      createThread: vi.fn()
     }
     registryMock.getProvider.mockReturnValue(provider)
     runtimeClientMock.getSettings.mockResolvedValueOnce({
@@ -363,24 +343,15 @@ describe('chat-store-thread-actions queued messages', () => {
       'Failed to sync requested workspace before creating thread',
       expect.objectContaining({ workspaceRoot: '/workspace/project-b' })
     )
-    expect(provider.createThread).toHaveBeenCalledWith({
-      workspace: '/workspace/project-b',
-      title: expect.any(String),
-      mode: 'agent'
-    })
-    expect(state.activeThreadId).toBe('thr_project')
+    expect(provider.createThread).not.toHaveBeenCalled()
+    expect(state.activeThreadId).toBeNull()
     expect(state.workspaceRoot).toBe('/workspace/project-b')
   })
 
   it('prefers the current settings workspace over the active thread workspace for ordinary new chats', async () => {
     const { actions, state } = buildHarness()
-    const createdThread = {
-      ...thread('thr_current'),
-      workspace: '/workspace/current',
-      status: 'idle'
-    }
     const provider = {
-      createThread: vi.fn(async () => createdThread)
+      createThread: vi.fn()
     }
     registryMock.getProvider.mockReturnValue(provider)
     runtimeClientMock.getSettings.mockResolvedValueOnce({
@@ -402,11 +373,52 @@ describe('chat-store-thread-actions queued messages', () => {
     await actions.createThread({ forceNew: true })
 
     expect(runtimeClientMock.setSettings).not.toHaveBeenCalled()
+    expect(provider.createThread).not.toHaveBeenCalled()
+    expect(state.workspaceRoot).toBe('/workspace/current')
+    expect(state.activeThreadId).toBeNull()
+  })
+
+  it('creates the runtime thread when the first draft message is sent', async () => {
+    const { actions, state } = buildHarness()
+    const createdThread = {
+      ...thread('thr_created_on_send'),
+      title: 'hello from a fresh draft',
+      workspace: '/workspace/sciforge',
+      status: 'idle'
+    }
+    const provider = {
+      createThread: vi.fn(async () => createdThread),
+      sendUserMessage: vi.fn(async () => ({
+        threadId: 'thr_created_on_send',
+        turnId: 'turn-1',
+        userMessageItemId: 'runtime-user-1'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.activeThreadId = null
+    state.busy = false
+    state.blocks = []
+
+    await expect(actions.sendMessage('hello from a fresh draft')).resolves.toBe(true)
+
     expect(provider.createThread).toHaveBeenCalledWith({
-      workspace: '/workspace/current',
-      title: expect.any(String),
+      workspace: '/workspace/sciforge',
+      title: 'hello from a fresh draft',
       mode: 'agent'
     })
+    expect(provider.sendUserMessage).toHaveBeenCalledWith(
+      'thr_created_on_send',
+      'hello from a fresh draft',
+      expect.objectContaining({
+        workspace: '/workspace/sciforge',
+        title: 'hello from a fresh draft',
+        displayText: 'hello from a fresh draft'
+      })
+    )
+    expect(state.activeThreadId).toBe('thr_created_on_send')
+    expect(state.threads[0]?.id).toBe('thr_created_on_send')
   })
 
   it('removes stale queued GUI plan messages before draining normal queued messages', async () => {
@@ -645,14 +657,14 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(Object.keys(state.turnStartedAtByUserId)).toEqual(['runtime-user-1'])
   })
 
-  it('keeps the active conversation stable when sending after switching runtime', async () => {
+  it('keeps the active conversation stable when active runtime and returned thread id differ', async () => {
     const { actions, state } = buildHarness()
     const provider = {
       rememberThreadRuntime: vi.fn(),
       sendUserMessage: vi.fn(async () => ({
-        threadId: 'thr_existing',
-        turnId: 'turn-codex',
-        userMessageItemId: 'runtime-user-codex'
+        threadId: 'runtime-returned-other',
+        turnId: 'turn-sciforge',
+        userMessageItemId: 'runtime-user-sciforge'
       })),
       subscribeThreadEvents: vi.fn(async () => undefined),
       renameThread: vi.fn(async () => undefined)
@@ -666,13 +678,14 @@ describe('chat-store-thread-actions queued messages', () => {
       runtimeId: 'sciforge'
     }]
 
-    await expect(actions.sendMessage('continue with codex')).resolves.toBe(true)
+    await expect(actions.sendMessage('continue after restart')).resolves.toBe(true)
 
     expect(state.activeThreadId).toBe('thr_existing')
-    expect(state.threads.find((item) => item.id === 'thr_existing')?.runtimeId).toBe('codex')
+    expect(state.threads.find((item) => item.id === 'thr_existing')?.runtimeId).toBe('sciforge')
+    expect(state.threads.some((item) => item.id === 'runtime-returned-other')).toBe(false)
     expect(provider.sendUserMessage).toHaveBeenCalledWith(
       'thr_existing',
-      'continue with codex',
+      'continue after restart',
       expect.objectContaining({
         workspace: '/workspace/sciforge',
         title: 'thr_existing'
@@ -680,11 +693,11 @@ describe('chat-store-thread-actions queued messages', () => {
     )
     expect(provider.subscribeThreadEvents).toHaveBeenCalledWith(
       'thr_existing',
-      0,
+      12,
       expect.any(Object),
       expect.any(AbortSignal)
     )
-    expect(provider.rememberThreadRuntime).toHaveBeenLastCalledWith('thr_existing', 'codex')
+    expect(provider.rememberThreadRuntime).toHaveBeenLastCalledWith('thr_existing', 'sciforge')
   })
 
   it('sends only workspace-relative file references to the runtime provider', async () => {

@@ -206,6 +206,23 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     }
   )
 
+  it('passes the selected remote target id to the local runtime startTurn request', async () => {
+    const captured: CapturedRequest[] = []
+    const adapter = adapterWithCapturedRequests(captured)
+
+    await adapter.startTurn({ settings: buildSettings() }, {
+      threadId: 'thread-1',
+      text: 'Run on the remote box',
+      remoteTargetId: ' gpu-a '
+    })
+
+    expect(captured).toHaveLength(1)
+    expect(captured[0]).toMatchObject({
+      pathAndQuery: '/v1/threads/thread-1/turns',
+      body: { remoteTargetId: 'gpu-a' }
+    })
+  })
+
   it.each(MODEL_ROUTER_MODEL_CASES)(
     'routes resumeSession %s model through the resolved Model Router alias',
     async (_name, model) => {

@@ -121,6 +121,14 @@ describe('contracts', () => {
     expect(parsed.reasoningEffort).toBe('max')
   })
 
+  it('accepts a remote target id on start turn payloads', () => {
+    const parsed = StartTurnRequest.parse({
+      prompt: 'Run on the remote machine',
+      remoteTargetId: ' gpu-a '
+    })
+    expect(parsed.remoteTargetId).toBe('gpu-a')
+  })
+
   it('accepts per-turn tool allow-lists on start turn payloads', () => {
     const parsed = StartTurnRequest.parse({
       prompt: 'Run the bounded experiment',

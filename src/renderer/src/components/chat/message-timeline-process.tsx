@@ -14,6 +14,7 @@ import { AssistantMarkdown } from './AssistantMarkdown'
 import { MessageBubble } from './message-timeline-bubbles'
 import { blockHasPendingRuntimeWork, splitThink } from './message-timeline-turns'
 import { formatDuration, formatToolTitle } from './message-timeline-tools'
+import { remoteToolMetadataChips, remoteToolSummarySuffix } from './remote-tool-metadata'
 
 export type ProcessSection = {
   id: string
@@ -825,6 +826,7 @@ function RuntimeMetaBadges({
   const meta = block.kind === 'tool' || block.kind === 'approval' || block.kind === 'user' ? block.meta : undefined
   if (!meta) return null
   const sources = readMetaSources(meta)
+  const remoteChips = block.kind === 'tool' ? remoteToolMetadataChips(meta, t) : []
   const attachmentIds = readMetaStringArray(meta, 'attachmentIds')
   const activeSkillIds = readMetaStringArray(meta, 'activeSkillIds')
   const injectedMemoryIds = readMetaStringArray(meta, 'injectedMemoryIds')
@@ -837,6 +839,7 @@ function RuntimeMetaBadges({
         : ''
   if (
     sources.length === 0 &&
+    remoteChips.length === 0 &&
     attachmentIds.length === 0 &&
     activeSkillIds.length === 0 &&
     injectedMemoryIds.length === 0 &&
@@ -853,6 +856,11 @@ function RuntimeMetaBadges({
           <span className="max-w-28 truncate font-mono text-ds-muted">{childLabel}</span>
         </span>
       ) : null}
+      {remoteChips.map((chip) => (
+        <span key={chip.key} className={chipClass} title={chip.title ?? chip.label}>
+          {chip.label}
+        </span>
+      ))}
       {activeSkillIds.length > 0 ? (
         <span className={chipClass} title={activeSkillIds.join(', ')}>
           {t('toolActiveSkills')} {activeSkillIds.length}
@@ -898,6 +906,7 @@ export function summarizeToolBlock(
   block: ToolBlock,
   t: (key: string, opts?: Record<string, unknown>) => string
 ): string {
+  const withRemoteSummary = (summary: string): string => `${summary}${remoteToolSummarySuffix(block.meta, t)}`
   const rawSummary = block.summary?.trim() ?? ''
   const metaToolName = readMetaString(block.meta, 'toolName')
   const toolName = extractToolName(rawSummary) || metaToolName || ''
@@ -911,32 +920,32 @@ export function summarizeToolBlock(
   const command = readMetaString(block.meta, 'command')
 
   if ((toolName === 'read_file' || toolName === 'read') && filePath) {
-    return `${label} ${filePath}`
+    return withRemoteSummary(`${label} ${filePath}`)
   }
   if ((toolName === 'write' || toolName === 'edit' || toolName === 'write_file' || toolName === 'edit_file') && filePath) {
-    return `${label} ${filePath}`
+    return withRemoteSummary(`${label} ${filePath}`)
   }
   if ((toolName === 'grep_files' || toolName === 'search_files' || toolName === 'grep' || toolName === 'find') && pattern) {
-    return filePath ? `${label} ${pattern} · ${filePath}` : `${label} ${pattern}`
+    return withRemoteSummary(filePath ? `${label} ${pattern} · ${filePath}` : `${label} ${pattern}`)
   }
   if (toolName === 'ls' && filePath) {
-    return `${label} ${filePath}`
+    return withRemoteSummary(`${label} ${filePath}`)
   }
   if (command && block.toolKind === 'command_execution') {
-    return `${formatToolTitle(block, t)} ${summarizeProcessText(command, 72)}`
+    return withRemoteSummary(`${formatToolTitle(block, t)} ${summarizeProcessText(command, 72)}`)
   }
   if (filePath) {
-    return `${label} ${filePath}`
+    return withRemoteSummary(`${label} ${filePath}`)
   }
   if (pattern) {
-    return `${label} ${pattern}`
+    return withRemoteSummary(`${label} ${pattern}`)
   }
   if (rawSummary) {
     const compact = toolName ? rawSummary.replace(/^([a-z0-9_-]+)\s*:\s*/i, '') : rawSummary
     const summary = summarizeProcessText(compact, 72)
-    return summary ? `${label} ${summary}` : label
+    return withRemoteSummary(summary ? `${label} ${summary}` : label)
   }
-  return label
+  return withRemoteSummary(label)
 }
 
 function normalizeProcessText(text: string): string {

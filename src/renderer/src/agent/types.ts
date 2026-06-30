@@ -521,6 +521,7 @@ export interface AgentProvider {
       title?: string
       model?: string
       reasoningEffort?: string
+      remoteTargetId?: string
       governanceProfile?: 'default' | 'write' | 'remote_guard'
       displayText?: string
       guiPlan?: {

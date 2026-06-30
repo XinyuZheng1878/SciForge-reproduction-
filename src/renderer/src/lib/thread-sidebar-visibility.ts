@@ -1,6 +1,7 @@
 import type { ChatBlock, NormalizedThread } from '../agent/types'
 import {
   hasThreadIdFallbackTitle,
+  hasPlaceholderThreadTitle,
   isInternalPlaceholderThreadTitle
 } from './thread-title'
 
@@ -17,7 +18,8 @@ export function shouldHideThreadFromSidebarByTitle(
 export function shouldInspectThreadForSidebarVisibility(
   thread: Pick<NormalizedThread, 'id' | 'title'>
 ): boolean {
-  return !shouldHideThreadFromSidebarByTitle(thread) && hasThreadIdFallbackTitle(thread)
+  return !shouldHideThreadFromSidebarByTitle(thread) &&
+    (hasThreadIdFallbackTitle(thread) || hasPlaceholderThreadTitle(thread.title))
 }
 
 export function shouldHideThreadFromSidebarByBlocks(blocks: ChatBlock[]): boolean {

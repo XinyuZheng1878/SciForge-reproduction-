@@ -49,7 +49,7 @@ describe('thread-sidebar-visibility', () => {
       shouldInspectThreadForSidebarVisibility(
         thread({ id: 'thr_279f3fef', title: '新会话' })
       )
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it('treats only empty threads as hidden fallback entries', () => {
@@ -70,14 +70,16 @@ describe('thread-sidebar-visibility', () => {
     ]
     const getThreadDetail = vi.fn(async (threadId: string) => {
       if (threadId === 'thr_279f3fef') return { blocks: [] }
+      if (threadId === 'thr_gui0001') return { blocks: [] }
       return { blocks: [userBlock()] }
     })
 
     const visible = await filterThreadsForSidebar(threads, { getThreadDetail })
 
-    expect(visible.map((thread) => thread.id)).toEqual(['thr_gui0001', 'thr_real0001'])
-    expect(getThreadDetail).toHaveBeenCalledTimes(1)
+    expect(visible.map((thread) => thread.id)).toEqual(['thr_real0001'])
+    expect(getThreadDetail).toHaveBeenCalledTimes(2)
     expect(getThreadDetail).toHaveBeenCalledWith('thr_279f3fef')
+    expect(getThreadDetail).toHaveBeenCalledWith('thr_gui0001')
   })
 
   it('keeps fallback titled threads when detail shows real content', async () => {
@@ -88,6 +90,16 @@ describe('thread-sidebar-visibility', () => {
     })
 
     expect(visible).toEqual([fallbackThread])
+  })
+
+  it('keeps placeholder titled threads when detail shows real content', async () => {
+    const placeholderThread = thread({ id: 'thr_placeholder', title: 'New Thread' })
+
+    const visible = await filterThreadsForSidebar([placeholderThread], {
+      getThreadDetail: async () => ({ blocks: [userBlock('real content')] })
+    })
+
+    expect(visible).toEqual([placeholderThread])
   })
 
   it('filters fallback titled CodeWhale Claw sessions after inspecting detail', async () => {

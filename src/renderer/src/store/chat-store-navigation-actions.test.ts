@@ -8,7 +8,8 @@ const registryMock = vi.hoisted(() => ({
   getProvider: vi.fn()
 }))
 const runtimeClientMock = vi.hoisted(() => ({
-  getSettings: vi.fn()
+  getSettings: vi.fn(),
+  setSettings: vi.fn()
 }))
 
 vi.mock('../agent/registry', () => ({
@@ -16,7 +17,8 @@ vi.mock('../agent/registry', () => ({
 }))
 vi.mock('../agent/runtime-client', () => ({
   rendererRuntimeClient: {
-    getSettings: runtimeClientMock.getSettings
+    getSettings: runtimeClientMock.getSettings,
+    setSettings: runtimeClientMock.setSettings
   }
 }))
 
@@ -87,6 +89,7 @@ describe('chat-store-navigation-actions refreshThreads', () => {
   beforeEach(() => {
     registryMock.getProvider.mockReset()
     runtimeClientMock.getSettings.mockReset()
+    runtimeClientMock.setSettings.mockReset()
     currentSddRegistryJson = null
     vi.stubGlobal('window', {
       localStorage: {
@@ -210,6 +213,89 @@ describe('chat-store-navigation-actions refreshThreads', () => {
     expect(state.threads).toEqual([])
     expect(state.activeThreadId).toBeNull()
     expect(state.blocks).toEqual([])
+  })
+})
+
+describe('chat-store-navigation-actions chooseWorkspace', () => {
+  beforeEach(() => {
+    registryMock.getProvider.mockReset()
+    runtimeClientMock.getSettings.mockReset()
+    runtimeClientMock.setSettings.mockReset()
+  })
+
+  function buildChooseWorkspaceHarness(): {
+    chooseWorkspace: ReturnType<typeof createNavigationActions>['chooseWorkspace']
+    state: ChatState
+  } {
+    registryMock.getProvider.mockReturnValue({})
+    runtimeClientMock.setSettings.mockImplementation(async (patch: { workspaceRoot?: string }) => ({
+      activeAgentRuntime: 'codex',
+      workspaceRoot: patch.workspaceRoot ?? '/workspace/new',
+      remoteChannel: { channels: [] }
+    }))
+    const state = {
+      activeThreadId: 'old-thread',
+      activeRemoteChannelId: null,
+      blocks: [],
+      busy: false,
+      clawChannels: [],
+      codeWorkspaceRoots: ['/workspace/old'],
+      hiddenCodeWorkspaceRoots: [],
+      error: null,
+      route: 'chat',
+      runtimeConnection: 'ready',
+      threads: [thread('old-thread', 'codex')],
+      unreadThreadIds: {},
+      watchTurnCompletion: {},
+      workspaceRoot: '/workspace/old',
+      createThread: vi.fn(async () => undefined),
+      refreshThreads: vi.fn(async () => undefined),
+      selectThread: vi.fn(async (threadId: string) => {
+        state.activeThreadId = threadId
+      })
+    } as unknown as ChatState
+    vi.stubGlobal('window', {
+      sciforge: {
+        pickWorkspaceDirectory: vi.fn(async () => ({ canceled: false, path: '/workspace/new' }))
+      },
+      localStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn()
+      }
+    })
+    const set: ChatStoreSet = (partial) => {
+      const update = typeof partial === 'function' ? partial(state) : partial
+      Object.assign(state, update)
+    }
+    const actions = createNavigationActions({
+      set,
+      get: () => state,
+      sseAbortRef: { current: null }
+    })
+    return { chooseWorkspace: actions.chooseWorkspace, state }
+  }
+
+  it('does not create an empty thread when selecting an empty workspace', async () => {
+    const { chooseWorkspace, state } = buildChooseWorkspaceHarness()
+
+    await expect(chooseWorkspace()).resolves.toBe('/workspace/new')
+
+    expect(runtimeClientMock.setSettings).toHaveBeenCalledWith({ workspaceRoot: '/workspace/new' })
+    expect(state.refreshThreads).toHaveBeenCalledTimes(1)
+    expect(state.createThread).not.toHaveBeenCalled()
+    expect(state.selectThread).not.toHaveBeenCalled()
+    expect(state.activeThreadId).toBeNull()
+    expect(state.workspaceRoot).toBe('/workspace/new')
+  })
+
+  it('creates a draft only when workspace selection explicitly asks for it', async () => {
+    const { chooseWorkspace, state } = buildChooseWorkspaceHarness()
+
+    await expect(chooseWorkspace({ createThreadAfter: true })).resolves.toBe('/workspace/new')
+
+    expect(state.createThread).toHaveBeenCalledWith({ workspaceRoot: '/workspace/new' })
+    expect(state.activeThreadId).toBe('old-thread')
   })
 })
 

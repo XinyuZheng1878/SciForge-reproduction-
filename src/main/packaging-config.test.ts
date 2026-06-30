@@ -324,6 +324,28 @@ describe('electron-builder local runtime packaging', () => {
     ]))
   })
 
+  it('includes the full Remote Executor worker tree in unpacked packaged app files', () => {
+    const remoteExecutorFileSet = builderConfig.files.find((entry: unknown) => {
+      return (
+        typeof entry === 'object' &&
+        entry !== null &&
+        (entry as { from?: string }).from === 'packages/workers/remote-executor'
+      )
+    }) as { from?: string; to?: string; filter?: string[] } | undefined
+
+    expect(remoteExecutorFileSet).toMatchObject({
+      from: 'packages/workers/remote-executor',
+      to: 'packages/workers/remote-executor'
+    })
+    expect(remoteExecutorFileSet?.filter).toEqual(expect.arrayContaining([
+      '**/*',
+      '**/.*'
+    ]))
+    expect(builderConfig.asarUnpack).toEqual(expect.arrayContaining([
+      '**/packages/workers/remote-executor/**/*'
+    ]))
+  })
+
   it('includes the full SciForge artifact worker trees in unpacked packaged app files', () => {
     const workerDirs = [
       'packages/workers/scientific-plotting',
@@ -580,6 +602,35 @@ describe('electron-builder local runtime packaging', () => {
     )
   })
 
+  it('validates the unpacked Remote Executor worker before release artifacts are created', () => {
+    expect(afterPack.REMOTE_EXECUTOR_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      'packages/workers/remote-executor/package.json',
+      'packages/workers/remote-executor/src/mcp-server.ts',
+      'packages/workers/remote-executor/src/service.ts',
+      'packages/workers/remote-executor/src/contract.ts',
+      'packages/workers/remote-executor/remote_worker.py'
+    ]))
+
+    const root = tempRoot()
+    const context = createMacPackContext(root)
+    const unpackedRoot = afterPack._internals.unpackedAppRoot(context)
+
+    for (const relativePath of afterPack.REMOTE_EXECUTOR_RUNTIME_REQUIRED_PATHS) {
+      touch(join(unpackedRoot, relativePath))
+    }
+
+    expect(() => afterPack._internals.validateBundledRemoteExecutorRuntime(context)).not.toThrow()
+
+    rmSync(
+      join(unpackedRoot, 'packages/workers/remote-executor/src/mcp-server.ts'),
+      { recursive: true, force: true }
+    )
+
+    expect(() => afterPack._internals.validateBundledRemoteExecutorRuntime(context)).toThrow(
+      /packages\/workers\/remote-executor\/src\/mcp-server\.ts/
+    )
+  })
+
   it('validates the unpacked Write Assist worker before release artifacts are created', () => {
     expect(afterPack.WRITE_ASSIST_RUNTIME_REQUIRED_PATHS).toEqual(expect.arrayContaining([
       'packages/workers/write-assist/package.json',
@@ -673,6 +724,7 @@ describe('electron-builder local runtime packaging', () => {
       'out/main/research-search-mcp-node-entry.js',
       'out/main/workflow-mcp-node-entry.js',
       'out/main/workspace-intel-mcp-node-entry.js',
+      'out/main/remote-executor-mcp-node-entry.js',
       'out/main/write-assist-mcp-node-entry.js',
       'out/main/paper-radar-mcp-node-entry.js',
       'out/main/runtime-inspector-mcp-node-entry.js'

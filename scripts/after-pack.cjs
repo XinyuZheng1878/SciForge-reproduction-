@@ -50,6 +50,14 @@ const WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/workspace-intel/src/contract.ts'
 ]
 
+const REMOTE_EXECUTOR_RUNTIME_REQUIRED_PATHS = [
+  'packages/workers/remote-executor/package.json',
+  'packages/workers/remote-executor/src/mcp-server.ts',
+  'packages/workers/remote-executor/src/service.ts',
+  'packages/workers/remote-executor/src/contract.ts',
+  'packages/workers/remote-executor/remote_worker.py'
+]
+
 const WRITE_ASSIST_RUNTIME_REQUIRED_PATHS = [
   'packages/workers/write-assist/package.json',
   'packages/workers/write-assist/src/mcp-server.ts',
@@ -120,6 +128,7 @@ const MCP_NODE_ENTRY_REQUIRED_PATHS = [
   'out/main/research-search-mcp-node-entry.js',
   'out/main/workflow-mcp-node-entry.js',
   'out/main/workspace-intel-mcp-node-entry.js',
+  'out/main/remote-executor-mcp-node-entry.js',
   'out/main/write-assist-mcp-node-entry.js',
   'out/main/paper-radar-mcp-node-entry.js',
   'out/main/runtime-inspector-mcp-node-entry.js',
@@ -205,6 +214,13 @@ function validateBundledWorkflowRuntime(context) {
 function validateBundledWorkspaceIntelRuntime(context) {
   const root = unpackedAppRoot(context)
   for (const relativePath of WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS) {
+    assertExists(join(root, relativePath), relativePath)
+  }
+}
+
+function validateBundledRemoteExecutorRuntime(context) {
+  const root = unpackedAppRoot(context)
+  for (const relativePath of REMOTE_EXECUTOR_RUNTIME_REQUIRED_PATHS) {
     assertExists(join(root, relativePath), relativePath)
   }
 }
@@ -323,6 +339,7 @@ async function afterPack(context) {
   validateBundledScheduleRuntime(context)
   validateBundledWorkflowRuntime(context)
   validateBundledWorkspaceIntelRuntime(context)
+  validateBundledRemoteExecutorRuntime(context)
   validateBundledWriteAssistRuntime(context)
   validateBundledPaperRadarRuntime(context)
   validateBundledRuntimeInspectorRuntime(context)
@@ -343,6 +360,7 @@ exports.SEARCH_RUNTIME_REQUIRED_PATHS = SEARCH_RUNTIME_REQUIRED_PATHS
 exports.SCHEDULE_RUNTIME_REQUIRED_PATHS = SCHEDULE_RUNTIME_REQUIRED_PATHS
 exports.WORKFLOW_RUNTIME_REQUIRED_PATHS = WORKFLOW_RUNTIME_REQUIRED_PATHS
 exports.WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS = WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS
+exports.REMOTE_EXECUTOR_RUNTIME_REQUIRED_PATHS = REMOTE_EXECUTOR_RUNTIME_REQUIRED_PATHS
 exports.WRITE_ASSIST_RUNTIME_REQUIRED_PATHS = WRITE_ASSIST_RUNTIME_REQUIRED_PATHS
 exports.PAPER_RADAR_RUNTIME_REQUIRED_PATHS = PAPER_RADAR_RUNTIME_REQUIRED_PATHS
 exports.RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS = RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS
@@ -366,6 +384,7 @@ exports._internals = {
   validateBundledScheduleRuntime,
   validateBundledWorkflowRuntime,
   validateBundledWorkspaceIntelRuntime,
+  validateBundledRemoteExecutorRuntime,
   validateBundledWriteAssistRuntime,
   validateBundledPaperRadarRuntime,
   validateBundledRuntimeInspectorRuntime,

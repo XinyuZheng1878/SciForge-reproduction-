@@ -63,6 +63,17 @@ import {
   type WorkspaceIntelMcpLaunchConfig
 } from './workspace-intel-mcp-config'
 import {
+  buildRemoteExecutorMcpArgs,
+  buildRemoteExecutorLocalRuntimeMcpServerConfig,
+  GUI_REMOTE_EXECUTOR_MCP_DESCRIPTOR,
+  GUI_REMOTE_EXECUTOR_MCP_SERVER_NAME,
+  GUI_REMOTE_EXECUTOR_MCP_TIMEOUT_MS,
+  remoteExecutorMcpEnabledTools,
+  remoteExecutorMcpEnv,
+  resolveRemoteExecutorMcpCommand,
+  type RemoteExecutorMcpLaunchConfig
+} from './remote-executor-mcp-config'
+import {
   buildWorkflowMcpArgs,
   buildWorkflowLocalRuntimeMcpServerConfig,
   GUI_WORKFLOW_INTERNAL_SECRET_ENV,
@@ -174,6 +185,11 @@ export type GuiMcpRegistryInput = {
     settings?: AppSettingsV1
     launch: WorkspaceIntelMcpLaunchConfig
   }
+  remoteExecutorMcp?: {
+    settings?: AppSettingsV1
+    launch: RemoteExecutorMcpLaunchConfig
+    enabled?: boolean
+  }
   paperRadarMcp?: {
     launch: PaperRadarMcpLaunchConfig
   }
@@ -218,6 +234,7 @@ export const GUI_MCP_DESCRIPTORS: readonly ManagedGuiMcpDescriptor[] = [
   GUI_RESEARCH_MCP_DESCRIPTOR,
   GUI_WORKFLOW_MCP_DESCRIPTOR,
   GUI_WORKSPACE_INTEL_MCP_DESCRIPTOR,
+  GUI_REMOTE_EXECUTOR_MCP_DESCRIPTOR,
   GUI_PAPER_RADAR_MCP_DESCRIPTOR,
   GUI_WRITE_ASSIST_MCP_DESCRIPTOR,
   GUI_RUNTIME_INSPECTOR_MCP_DESCRIPTOR,
@@ -314,6 +331,18 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
         workspaceIntelSettings,
         input.workspaceIntelMcp!.launch,
         existing
+      )
+    ])
+  }
+  if (input.remoteExecutorMcp) {
+    const remoteExecutorSettings = input.remoteExecutorMcp.settings ?? settings
+    builders.push([
+      GUI_REMOTE_EXECUTOR_MCP_SERVER_NAME,
+      (existing) => buildRemoteExecutorLocalRuntimeMcpServerConfig(
+        input.remoteExecutorMcp!.launch,
+        existing,
+        input.remoteExecutorMcp!.enabled !== false,
+        remoteExecutorSettings
       )
     ])
   }
@@ -457,6 +486,17 @@ function codexServerConfigs(input: GuiMcpRegistryInput): GuiMcpRuntimeServerConf
       env: workspaceIntelMcpEnv(),
       timeoutMs: WORKSPACE_INTEL_MCP_TIMEOUT_MS,
       enabledTools: workspaceIntelMcpEnabledTools()
+    })
+  }
+  if (input.remoteExecutorMcp?.launch && input.remoteExecutorMcp.enabled !== false) {
+    const remoteExecutorSettings = input.remoteExecutorMcp.settings ?? settings
+    servers.push({
+      id: GUI_REMOTE_EXECUTOR_MCP_SERVER_NAME,
+      command: resolveRemoteExecutorMcpCommand(input.remoteExecutorMcp.launch),
+      args: buildRemoteExecutorMcpArgs(input.remoteExecutorMcp.launch),
+      env: remoteExecutorMcpEnv({}, remoteExecutorSettings),
+      timeoutMs: GUI_REMOTE_EXECUTOR_MCP_TIMEOUT_MS,
+      enabledTools: remoteExecutorMcpEnabledTools()
     })
   }
   if (input.paperRadarMcp) {

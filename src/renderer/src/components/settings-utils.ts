@@ -27,6 +27,7 @@ import {
   mergeScheduleSettings,
   mergeSpeechToTextSettings,
   mergeWorkflowSettings,
+  mergeRemoteExecutorSettings,
   mergeWriteSettings,
   normalizeAppBehaviorSettings,
   normalizeAgentRuntimeId,
@@ -42,6 +43,7 @@ import {
   normalizeScheduleSettings,
   normalizeSpeechToTextSettings,
   normalizeWorkflowSettings,
+  normalizeRemoteExecutorSettings,
   normalizeWriteSettings,
   type AppSettingsPatch,
   type AppSettingsV1
@@ -80,6 +82,7 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
     computerUse: computerUsePatch,
     runtimeGuards: runtimeGuardsPatch,
     connectPhone: connectPhonePatch,
+    remoteExecutor: remoteExecutorPatch,
     ...restPatch
   } = patch
   const restSettingsPatch = restPatch as Partial<Pick<
@@ -129,6 +132,7 @@ export function mergeSettings(current: AppSettingsV1, patch: SettingsPatch): App
     connectPhone: mergeConnectPhoneSettings(safeCurrent.connectPhone, connectPhonePatch),
     schedule: mergeScheduleSettings(safeCurrent.schedule, patch.schedule),
     workflow: mergeWorkflowSettings(safeCurrent.workflow, patch.workflow),
+    remoteExecutor: mergeRemoteExecutorSettings(safeCurrent.remoteExecutor, remoteExecutorPatch),
     guiUpdate: {
       ...safeCurrent.guiUpdate,
       ...(patch.guiUpdate ?? {})
@@ -183,6 +187,7 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     connectPhone: normalizeConnectPhoneSettings(raw.connectPhone),
     schedule: normalizeScheduleSettings(raw.schedule),
     workflow: normalizeWorkflowSettings(raw.workflow),
+    remoteExecutor: normalizeRemoteExecutorSettings(raw.remoteExecutor),
     guiUpdate: {
       channel: normalizeGuiUpdateChannel(raw.guiUpdate?.channel ?? DEFAULT_GUI_UPDATE_CHANNEL)
     },

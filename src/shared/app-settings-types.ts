@@ -1342,6 +1342,79 @@ export type GuiUpdateConfigV1 = {
   channel: GuiUpdateChannel
 }
 
+export type RemoteExecutorTargetKindV1 = 'ssh' | 'slurm'
+
+export type RemoteExecutorSshSettingsV1 = {
+  host?: string
+  user?: string
+  port?: number
+  pythonPath?: string
+  identityFile?: string
+}
+
+export type RemoteExecutorSlurmDefaultsV1 = {
+  partition?: string
+  account?: string
+  qos?: string
+  timeLimit?: string
+  nodes?: number
+  ntasks?: number
+  cpusPerTask?: number
+  gpus?: number
+  memory?: string
+  constraint?: string
+  gres?: string
+  extraArgs?: string[]
+}
+
+export type RemoteExecutorSlurmSettingsV1 = {
+  defaults?: RemoteExecutorSlurmDefaultsV1
+}
+
+export type RemoteExecutorTrustedWorkspaceV1 = {
+  workspaceRoot: string
+  targetFingerprint: string
+  trustedAt: string
+  trustedBy: string
+  approvalBypass: true
+}
+
+export type RemoteExecutorTargetV1 = {
+  id: string
+  label: string
+  enabled: boolean
+  kind: RemoteExecutorTargetKindV1
+  ssh?: RemoteExecutorSshSettingsV1
+  remoteWorkspaceRoot: string
+  slurm?: RemoteExecutorSlurmSettingsV1
+  trustedWorkspaces: RemoteExecutorTrustedWorkspaceV1[]
+}
+
+export type RemoteExecutorSettingsV1 = {
+  enabled: boolean
+  defaultTargetId: string
+  targets: RemoteExecutorTargetV1[]
+}
+
+export type RemoteExecutorSshSettingsPatchV1 = Partial<RemoteExecutorSshSettingsV1>
+export type RemoteExecutorSlurmDefaultsPatchV1 = Partial<RemoteExecutorSlurmDefaultsV1>
+export type RemoteExecutorSlurmSettingsPatchV1 = {
+  defaults?: RemoteExecutorSlurmDefaultsPatchV1
+}
+export type RemoteExecutorTrustedWorkspacePatchV1 = Partial<RemoteExecutorTrustedWorkspaceV1>
+export type RemoteExecutorTargetPatchV1 = Partial<
+  Omit<RemoteExecutorTargetV1, 'ssh' | 'slurm' | 'trustedWorkspaces'>
+> & {
+  ssh?: RemoteExecutorSshSettingsPatchV1
+  slurm?: RemoteExecutorSlurmSettingsPatchV1
+  trustedWorkspaces?: RemoteExecutorTrustedWorkspacePatchV1[]
+}
+export type RemoteExecutorSettingsPatchV1 = Partial<
+  Omit<RemoteExecutorSettingsV1, 'targets'>
+> & {
+  targets?: RemoteExecutorTargetPatchV1[]
+}
+
 export type AppSettingsV1 = {
   version: 1
   installationId?: string
@@ -1367,12 +1440,13 @@ export type AppSettingsV1 = {
   connectPhone: ConnectPhoneSettingsV1
   schedule: ScheduleSettingsV1
   workflow: WorkflowSettingsV1
+  remoteExecutor?: RemoteExecutorSettingsV1
   guiUpdate: GuiUpdateConfigV1
   codePromptPrefix: string
 }
 
 export type AppSettingsPatch = Partial<
-  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'speechToText' | 'remoteChannel' | 'connectPhone' | 'schedule' | 'workflow' | 'guiUpdate' | 'computerUse' | 'agentCapabilities' | 'imageGeneration'>
+  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'speechToText' | 'remoteChannel' | 'connectPhone' | 'schedule' | 'workflow' | 'remoteExecutor' | 'guiUpdate' | 'computerUse' | 'agentCapabilities' | 'imageGeneration'>
 > & {
   provider?: ModelProviderSettingsPatchV1
   modelRouter?: ModelRouterSettingsPatchV1
@@ -1391,5 +1465,6 @@ export type AppSettingsPatch = Partial<
   connectPhone?: ConnectPhoneSettingsPatchV1
   schedule?: ScheduleSettingsPatchV1
   workflow?: WorkflowSettingsPatchV1
+  remoteExecutor?: RemoteExecutorSettingsPatchV1
   guiUpdate?: Partial<GuiUpdateConfigV1>
 }

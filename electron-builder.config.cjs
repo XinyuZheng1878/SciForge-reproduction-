@@ -66,6 +66,7 @@ const scheduleWorkerDir = 'packages/workers/schedule'
 const searchWorkerDir = 'packages/workers/search'
 const workflowWorkerDir = 'packages/workers/workflow'
 const workspaceIntelWorkerDir = 'packages/workers/workspace-intel'
+const remoteExecutorWorkerDir = 'packages/workers/remote-executor'
 const writeAssistWorkerDir = 'packages/workers/write-assist'
 const paperRadarWorkerDir = 'packages/workers/paper-radar'
 const runtimeInspectorWorkerDir = 'packages/workers/runtime-inspector'
@@ -102,6 +103,7 @@ module.exports = {
     `**/${searchWorkerDir}/**/*`,
     `**/${workflowWorkerDir}/**/*`,
     `**/${workspaceIntelWorkerDir}/**/*`,
+    `**/${remoteExecutorWorkerDir}/**/*`,
     `**/${writeAssistWorkerDir}/**/*`,
     `**/${paperRadarWorkerDir}/**/*`,
     `**/${runtimeInspectorWorkerDir}/**/*`,
@@ -177,6 +179,14 @@ module.exports = {
     {
       from: workspaceIntelWorkerDir,
       to: workspaceIntelWorkerDir,
+      filter: [
+        '**/*',
+        '**/.*'
+      ]
+    },
+    {
+      from: remoteExecutorWorkerDir,
+      to: remoteExecutorWorkerDir,
       filter: [
         '**/*',
         '**/.*'

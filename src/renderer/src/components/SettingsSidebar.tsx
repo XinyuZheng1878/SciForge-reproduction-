@@ -1,7 +1,7 @@
 import type { Dispatch, ReactElement, SetStateAction } from 'react'
-import { Bot, ChevronLeft, Globe, Keyboard, Mic, Settings, Smartphone } from 'lucide-react'
+import { Bot, ChevronLeft, Globe, Keyboard, Mic, ServerCog, Settings, Smartphone } from 'lucide-react'
 
-type SettingsCategory = 'general' | 'speechToText' | 'agents' | 'shortcuts' | 'claw'
+type SettingsCategory = 'general' | 'speechToText' | 'agents' | 'shortcuts' | 'claw' | 'remoteResources'
 
 export function SettingsSidebar({
   category,
@@ -50,6 +50,10 @@ export function SettingsSidebar({
         <button type="button" className={catCls('shortcuts')} onClick={() => setCategory('shortcuts')}>
           <Keyboard className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
           {t('keyboardShortcuts')}
+        </button>
+        <button type="button" className={catCls('remoteResources')} onClick={() => setCategory('remoteResources')}>
+          <ServerCog className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
+          {t('remoteResources')}
         </button>
         <button type="button" className={catCls('claw')} onClick={() => setCategory('claw')}>
           <Smartphone className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />

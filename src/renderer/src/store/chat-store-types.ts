@@ -41,6 +41,7 @@ export type QueuedUserMessage = {
   model?: string
   modelLabel?: string
   reasoningEffort?: string
+  remoteTargetId?: string
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
   fileReferences?: AgentRuntimeFileReference[]
@@ -79,6 +80,7 @@ export type SendMessageOverrides = {
   model?: string
   modelLabel?: string
   reasoningEffort?: string
+  remoteTargetId?: string
   displayText?: string
   sourceRoute?: AppRoute
   targetThreadId?: string
@@ -91,7 +93,15 @@ export type SendMessageOverrides = {
 }
 
 export type InitialSetupMode = 'required' | 'preview'
-export type SettingsRouteSection = 'general' | 'speechToText' | 'agents' | 'skill' | 'mcp' | 'shortcuts' | 'claw'
+export type SettingsRouteSection =
+  | 'general'
+  | 'speechToText'
+  | 'agents'
+  | 'skill'
+  | 'mcp'
+  | 'shortcuts'
+  | 'claw'
+  | 'remoteResources'
 export type AppRoute = 'chat' | 'settings' | 'plugins' | 'schedule' | 'workflow'
 export type PluginHostRoute = 'chat'
 
@@ -184,6 +194,7 @@ export type ChatState = {
   clawChannels: ClawImChannelV1[]
   activeClawChannelId: string
   activeRemoteChannelId: string | null
+  remoteTargetId: string | null
   appendLocalClawTurn: (userText: string, replyText: string) => void
   setError: (message: string | null) => void
   setComposerModel: (modelId: string) => void
@@ -199,6 +210,7 @@ export type ChatState = {
   openWorkflow: () => void
   selectRemoteGuardChannel: (channelId: string) => void
   clearRemoteGuardChannel: () => void
+  setRemoteTargetId: (targetId: string | null) => void
   refreshClawChannels: () => Promise<void>
   addClawChannel: (
     provider: ClawImProvider,

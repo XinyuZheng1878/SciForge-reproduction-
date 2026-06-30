@@ -14,6 +14,7 @@ export default defineConfig({
           'research-search-mcp-node-entry': resolve('src/main/research-search-mcp-node-entry.ts'),
           'workflow-mcp-node-entry': resolve('src/main/workflow-mcp-node-entry.ts'),
           'workspace-intel-mcp-node-entry': resolve('src/main/workspace-intel-mcp-node-entry.ts'),
+          'remote-executor-mcp-node-entry': resolve('src/main/remote-executor-mcp-node-entry.ts'),
           'write-assist-mcp-node-entry': resolve('src/main/write-assist-mcp-node-entry.ts'),
           'paper-radar-mcp-node-entry': resolve('src/main/paper-radar-mcp-node-entry.ts'),
           'runtime-inspector-mcp-node-entry': resolve('src/main/runtime-inspector-mcp-node-entry.ts'),

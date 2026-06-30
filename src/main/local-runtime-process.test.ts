@@ -14,6 +14,7 @@ import {
   defaultLocalRuntimeSettings,
   defaultModelRouterSettings,
   defaultModelProviderSettings,
+  defaultRemoteExecutorSettings,
   defaultRuntimeGuardSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
@@ -60,6 +61,7 @@ function createSettings(binaryPath: string, port = 8899): AppSettingsV1 {
     connectPhone: defaultConnectPhoneSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
+    remoteExecutor: defaultRemoteExecutorSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: ''
   }
@@ -735,6 +737,39 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
         '/tmp/sciforge-test-app/out/main/workspace-intel-mcp-node-entry.js',
         '--gui-workspace-intel-mcp-server',
         '--include-global-skills'
+      ],
+      env: {
+        ELECTRON_RUN_AS_NODE: '1'
+      },
+      trustScope: 'user',
+      timeoutMs: 30000
+    })
+  })
+
+  it('adds the first-party remote executor MCP server to the local runtime capabilities', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    const module = await import('./local-runtime-process')
+
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
+      remoteExecutorMcp: {
+        launch: {
+          appPath: '/tmp/sciforge-test-app',
+          execPath: '/tmp/electron',
+          isPackaged: false
+        }
+      }
+    })
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.mcp.enabled).toBe(true)
+    expect(parsed.capabilities.mcp.servers.remote_executor).toMatchObject({
+      enabled: true,
+      transport: 'stdio',
+      command: '/tmp/electron',
+      args: [
+        '/tmp/sciforge-test-app/out/main/remote-executor-mcp-node-entry.js',
+        '--gui-remote-executor-mcp-server'
       ],
       env: {
         ELECTRON_RUN_AS_NODE: '1'

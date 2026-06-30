@@ -7,7 +7,6 @@ import { formatWorkspacePickerError } from '../lib/format-workspace-picker-error
 import { formatRuntimeError } from '../lib/format-runtime-error'
 import {
   deriveThreadTitleFromPrompt,
-  getDefaultThreadTitle,
   shouldAutoTitleThread
 } from '../lib/thread-title'
 import { filterThreadsForSidebar } from '../lib/thread-sidebar-visibility'
@@ -392,12 +391,34 @@ export function createNavigationActions(
           .filter((thread) => threadBelongsToWorkspace(thread, workspaceRoot))
           .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
 
-        if (createThreadAfter || workspaceThreads.length === 0) {
+        if (createThreadAfter) {
           await get().createThread({ workspaceRoot })
         } else {
           const targetThreadId = workspaceThreads[0]?.id
           if (targetThreadId && get().activeThreadId !== targetThreadId) {
             await get().selectThread(targetThreadId)
+          } else if (!targetThreadId) {
+            const activeThread = get().activeThreadId
+              ? get().threads.find((thread) => thread.id === get().activeThreadId) ?? null
+              : null
+            if (!activeThread || !threadBelongsToWorkspace(activeThread, workspaceRoot)) {
+              const state = get()
+              const nextWatch = { ...(state.watchTurnCompletion ?? {}) }
+              if (state.activeThreadId && state.busy) {
+                nextWatch[state.activeThreadId] = true
+                watchTurnCompletionNotification(state.activeThreadId)
+              }
+              sseAbortRef.current?.abort()
+              sseAbortRef.current = null
+              clearBusyWatchdog()
+              set({
+                ...clearedThreadSelection(),
+                route: 'chat',
+                activeRemoteChannelId: null,
+                watchTurnCompletion: nextWatch
+              })
+              syncTurnCompletionPoll(set, get)
+            }
           }
         }
       }

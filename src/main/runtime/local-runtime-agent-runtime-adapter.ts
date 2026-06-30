@@ -149,6 +149,7 @@ export function createLocalRuntimeAgentRuntimeAdapter(options: LocalRuntimeAgent
       body.approvalPolicy = runtime.approvalPolicy
       body.sandboxMode = runtime.sandboxMode
       if (input.guiPlan) body.guiPlan = input.guiPlan
+      if (input.remoteTargetId?.trim()) body.remoteTargetId = input.remoteTargetId.trim()
       if (input.metadata) body.metadata = input.metadata
       if (input.attachmentIds?.length) body.attachmentIds = input.attachmentIds
       const modelObjectReferences = input.fileReferences

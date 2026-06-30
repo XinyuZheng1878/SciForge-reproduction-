@@ -3,7 +3,6 @@ import type {
   AgentRuntimeAuxiliaryOperation,
   AgentRuntimeCapabilities,
   AgentRuntimeEvent,
-  AgentRuntimeHandoffStartResult,
   AgentRuntimeItem,
   AgentRuntimeListThreadChildrenResponse,
   AgentRuntimeMemoryRecord,
@@ -643,22 +642,9 @@ export class AgentRuntimeProvider implements AgentProvider {
     text: string,
     options: Parameters<AgentProvider['sendUserMessage']>[2] = {}
   ): ReturnType<AgentProvider['sendUserMessage']> {
-    const { title, ...turnOptions } = options
+    const turnOptions = { ...options }
+    delete turnOptions.title
     const runtimeId = await this.runtimeIdForThread(threadId)
-    const activeRuntimeId = await this.activeRuntimeId()
-    if (activeRuntimeId !== runtimeId) {
-      const result = await this.auxiliary<AgentRuntimeHandoffStartResult>('startRuntimeHandoff', {
-        sourceRuntimeId: runtimeId,
-        sourceThreadId: threadId,
-        targetRuntimeId: activeRuntimeId,
-        targetThreadId: threadId,
-        text,
-        ...(title ? { title } : {}),
-        ...turnOptionsForRuntime(activeRuntimeId, turnOptions)
-      }, runtimeId)
-      this.normalizeRememberedThread(result.targetThread)
-      return result.turn
-    }
     return agentRuntimeClient.startTurn({ runtimeId, threadId, text, ...turnOptionsForRuntime(runtimeId, turnOptions) })
   }
 

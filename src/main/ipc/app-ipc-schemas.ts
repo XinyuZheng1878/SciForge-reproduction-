@@ -173,6 +173,7 @@ export const agentRuntimeStartTurnPayloadSchema = z.object({
   mode: z.string().trim().max(64).optional(),
   model: z.string().trim().max(128).optional(),
   reasoningEffort: z.string().trim().max(64).optional(),
+  remoteTargetId: z.string().trim().max(MAX_ID_LENGTH).optional(),
   governanceProfile: agentRuntimeGovernanceProfileSchema.optional(),
   displayText: z.string().trim().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
   guiPlan: z.object({

@@ -22,6 +22,7 @@ export function createTurnRecord(input: {
   attachmentIds?: string[]
   attachments?: TurnFileAttachmentJson[]
   guiPlan?: GuiPlanContextJson
+  remoteTargetId?: string
   mode?: ThreadMode
   approvalPolicy?: ApprovalPolicy
   sandboxMode?: SandboxMode
@@ -49,6 +50,7 @@ export function createTurnRecord(input: {
     ...(model ? { model } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(input.guiPlan ? { guiPlan: input.guiPlan } : {}),
+    ...(input.remoteTargetId?.trim() ? { remoteTargetId: input.remoteTargetId.trim() } : {}),
     ...(input.mode ? { mode: input.mode } : {}),
     ...(input.approvalPolicy ? { approvalPolicy: input.approvalPolicy } : {}),
     ...(input.sandboxMode ? { sandboxMode: input.sandboxMode } : {}),

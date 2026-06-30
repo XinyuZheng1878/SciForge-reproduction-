@@ -56,6 +56,7 @@ import {
   remoteGuardChannelTitle,
   remoteGuardProviderLabel
 } from './chat/RemoteGuardDetailView'
+import { ThreadTargetSelector } from './chat/ThreadTargetSelector'
 import { SessionHeader } from './SessionHeader'
 import { SddAssistantPanel } from './sdd/SddAssistantPanel'
 import { SddDraftEditorView } from './sdd/SddDraftEditorView'
@@ -542,6 +543,7 @@ export function Workbench(): ReactElement {
     clawChannels,
     activeClawChannelId,
     activeRemoteChannelId,
+    remoteTargetId,
     selectClawChannel,
     resetClawChannelSession,
     setClawChannelModel,
@@ -605,6 +607,7 @@ export function Workbench(): ReactElement {
       clawChannels: s.clawChannels,
       activeClawChannelId: s.activeClawChannelId,
       activeRemoteChannelId: s.activeRemoteChannelId,
+      remoteTargetId: s.remoteTargetId,
       selectClawChannel: s.selectClawChannel,
       resetClawChannelSession: s.resetClawChannelSession,
       setClawChannelModel: s.setClawChannelModel,
@@ -734,6 +737,8 @@ export function Workbench(): ReactElement {
     activeRemoteBinding ||
     (activeThread && isClawThread(activeThread, clawChannels))
   )
+  const selectedRemoteTargetId =
+    route === 'chat' && !activeThreadIsRemoteChannel ? remoteTargetId?.trim() ?? '' : ''
   const activeRemoteComposerChannel = activeRemoteBinding
     ? clawChannels.find((channel) => channel.id === activeRemoteBinding.channelId) ?? activeClawChannel
     : activeClawChannel
@@ -1940,6 +1945,7 @@ export function Workbench(): ReactElement {
       void sendPlanTurn(prepared.text, {
         ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(selectedRemoteTargetId ? { remoteTargetId: selectedRemoteTargetId } : {}),
         ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
         ...(fileReferences.length ? { fileReferences } : {})
       })
@@ -1953,6 +1959,7 @@ export function Workbench(): ReactElement {
     void sendMessage(prepared.text, isImageGenerationIntent ? 'agent' : mode === 'plan' ? 'plan' : 'agent', {
       ...(prepared.displayText ? { displayText: prepared.displayText } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(selectedRemoteTargetId ? { remoteTargetId: selectedRemoteTargetId } : {}),
       ...(attachmentIds.length ? { attachmentIds, attachments } : {}),
       ...(fileReferences.length ? { fileReferences } : {})
     })
@@ -2411,6 +2418,7 @@ export function Workbench(): ReactElement {
                   ) : null}
                 </div>
                 <div className="chat-topbar-actions flex min-w-0 flex-wrap items-center justify-end gap-2 self-start">
+                  {!activeRemoteChannel ? <ThreadTargetSelector /> : null}
                   {busy ? (
                     <span className="inline-flex shrink-0 rounded-full bg-amber-500/16 px-2.5 py-1 text-[11.5px] font-semibold text-amber-950 dark:text-amber-100">
                       {t('running')}

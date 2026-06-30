@@ -26,6 +26,7 @@ import {
 import { ModelMetaTag } from './message-timeline-cards'
 import { readNumber, formatDuration, formatToolTitle } from './message-timeline-tools'
 import { clawThreadRemoteBindingsFromChannels } from '../../store/chat-store-helpers'
+import { remoteToolMetadataChips } from './remote-tool-metadata'
 
 const COPY_FEEDBACK_RESET_MS = 1600
 
@@ -429,6 +430,7 @@ function RuntimeMetaChips({
   const activeSkillIds = metaStringArray(meta, 'activeSkillIds')
   const injectedMemoryIds = metaStringArray(meta, 'injectedMemoryIds')
   const sources = metaSources(meta)
+  const remoteChips = remoteToolMetadataChips(meta, t)
   const child = meta?.child && typeof meta.child === 'object' ? meta.child as Record<string, unknown> : null
   const childLabel =
     typeof child?.childLabel === 'string' && child.childLabel.trim()
@@ -441,6 +443,7 @@ function RuntimeMetaChips({
     activeSkillIds.length === 0 &&
     injectedMemoryIds.length === 0 &&
     sources.length === 0 &&
+    remoteChips.length === 0 &&
     !childLabel
   ) {
     return null
@@ -468,6 +471,11 @@ function RuntimeMetaChips({
           {t('toolChildAgent')} <span className="max-w-28 truncate font-mono text-ds-muted">{childLabel}</span>
         </span>
       ) : null}
+      {remoteChips.map((chip) => (
+        <span key={chip.key} className={chipClass} title={chip.title ?? chip.label}>
+          {chip.label}
+        </span>
+      ))}
       {sources.slice(0, 4).map((source, index) =>
         source.url ? (
           <a

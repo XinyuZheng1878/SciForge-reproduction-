@@ -110,6 +110,7 @@ export const TurnSchema = z.object({
   toolCatalogToolCount: z.number().int().nonnegative().optional(),
   toolCatalogDrift: z.boolean().optional(),
   guiPlan: GuiPlanContextSchema.optional(),
+  remoteTargetId: z.string().min(1).optional(),
   /**
    * Optional per-turn mode override. When set, it takes precedence over
    * the thread mode for this turn (e.g. a Plan-mode turn inside an
@@ -167,7 +168,9 @@ export const StartTurnRequest = z.object({
    * `create_plan` tool for the turn and writes only to the reserved
    * path advertised in the context.
    */
-  guiPlan: GuiPlanContextSchema.optional()
+  guiPlan: GuiPlanContextSchema.optional(),
+  /** Optional remote execution target selected by the GUI for this turn. */
+  remoteTargetId: z.string().trim().min(1).optional()
 })
 export type StartTurnRequest = z.input<typeof StartTurnRequest>
 

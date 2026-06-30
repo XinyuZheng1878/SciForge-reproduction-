@@ -96,6 +96,16 @@ describe('domain.turn', () => {
     expect(turn.strictAllowedToolNames).toBe(true)
   })
 
+  it('preserves the normalized remote target id', () => {
+    const turn = createTurnRecord({
+      id: 'turn_remote',
+      threadId: 'thr_1',
+      prompt: 'remote',
+      remoteTargetId: ' gpu-a '
+    })
+    expect(turn.remoteTargetId).toBe('gpu-a')
+  })
+
   it('appends items without duplicates', () => {
     const item = makeUserItem({ id: 'i1', turnId: 'turn_1', threadId: 'thr_1', text: 'hi' })
     const next = appendTurnItem(appendTurnItem(baseTurn, item), item)

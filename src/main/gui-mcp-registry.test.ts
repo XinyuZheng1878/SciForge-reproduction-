@@ -12,6 +12,7 @@ import {
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
+  defaultRemoteExecutorSettings,
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
@@ -22,6 +23,7 @@ import {
   COMPUTER_USE_STATUS_PATH_ENV,
   GUI_COMPUTER_USE_MCP_SERVER_NAME
 } from './computer-use-mcp-config'
+import { GUI_REMOTE_EXECUTOR_MCP_SERVER_NAME } from './remote-executor-mcp-config'
 
 const launch = {
   appPath: '/Applications/SciForge.app/Contents/Resources/app.asar.unpacked',
@@ -69,6 +71,7 @@ function createSettings(): AppSettingsV1 {
       webhookPort: 9898,
       webhookSecret: 'workflow-secret'
     },
+    remoteExecutor: defaultRemoteExecutorSettings(),
     guiUpdate: {
       channel: 'stable'
     },
@@ -85,6 +88,7 @@ describe('GUI MCP runtime registry', () => {
       'gui_research',
       'gui_workflow',
       'gui_workspace_intel',
+      'remote_executor',
       'gui_paper_radar',
       'gui_write_assist',
       'gui_runtime_inspector',
@@ -99,9 +103,24 @@ describe('GUI MCP runtime registry', () => {
 
   it('builds local runtime managed server configs from shared descriptors and preserves existing env safely', () => {
     const settings = createSettings()
+    settings.remoteExecutor = {
+      enabled: true,
+      defaultTargetId: 'cluster-a',
+      targets: [{
+        id: 'cluster-a',
+        label: 'Cluster A',
+        enabled: true,
+        kind: 'slurm',
+        ssh: { host: 'cluster.example.edu', user: 'alice', port: 2222 },
+        remoteWorkspaceRoot: '/home/alice/project',
+        slurm: { defaults: { partition: 'gpu' } },
+        trustedWorkspaces: []
+      }]
+    }
     const servers = buildLocalRuntimeManagedGuiMcpServers({
       scheduleMcp: { settings, launch },
       workflowMcp: { settings, launch },
+      remoteExecutorMcp: { settings, launch },
       computerUseMcp: {
         launch: {
           ...launch,
@@ -132,6 +151,31 @@ describe('GUI MCP runtime registry', () => {
       },
       timeoutMs: 30000
     })
+    expect(servers[GUI_REMOTE_EXECUTOR_MCP_SERVER_NAME]).toMatchObject({
+      enabled: true,
+      command: expect.stringContaining('SciForge Helper'),
+      args: expect.arrayContaining(['--gui-remote-executor-mcp-server']),
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      trustScope: 'user',
+      timeoutMs: 30000
+    })
+    const remoteEnv = (servers[GUI_REMOTE_EXECUTOR_MCP_SERVER_NAME] as { env?: Record<string, string> }).env
+    expect(JSON.parse(remoteEnv?.SCIFORGE_REMOTE_EXECUTOR_TARGETS_JSON ?? '[]')).toEqual([{
+      id: 'cluster-a',
+      label: 'Cluster A',
+      kind: 'ssh',
+      host: 'cluster.example.edu',
+      disabled: false,
+      capabilities: {
+        directRun: true,
+        stdin: true,
+        deploy: true,
+        slurm: true
+      },
+      user: 'alice',
+      port: 2222,
+      workspaceRoot: '/home/alice/project'
+    }])
     expect(servers.gui_computer_use).toMatchObject({
       enabled: false,
       env: {
@@ -148,13 +192,15 @@ describe('GUI MCP runtime registry', () => {
       scheduleMcp: { settings, launch },
       workflowMcp: { settings, launch },
       workspaceIntelMcp: { settings, launch },
+      remoteExecutorMcp: { launch },
       computerUseMcp: { launch, enabled: false }
     })
 
     expect(servers.map((server) => server.id)).toEqual([
       'gui_schedule',
       'gui_workflow',
-      'gui_workspace_intel'
+      'gui_workspace_intel',
+      'remote_executor'
     ])
     expect(servers.find((server) => server.id === 'gui_schedule')).toMatchObject({
       env: {
@@ -169,6 +215,11 @@ describe('GUI MCP runtime registry', () => {
         GUI_WORKFLOW_INTERNAL_SECRET: 'workflow-secret'
       },
       enabledTools: expect.arrayContaining(['gui_workflow_list', 'gui_workflow_run'])
+    })
+    expect(servers.find((server) => server.id === 'remote_executor')).toMatchObject({
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      args: expect.arrayContaining(['--gui-remote-executor-mcp-server']),
+      enabledTools: expect.arrayContaining(['remote_run'])
     })
   })
 

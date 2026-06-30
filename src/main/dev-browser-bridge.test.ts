@@ -18,14 +18,18 @@ async function closeServer(): Promise<void> {
   server = null
 }
 
-function readFromResponse(path: string): Promise<{ status: number; body: string; headers: Record<string, string | string[] | undefined> }> {
+function readFromResponse(
+  path: string,
+  options: { origin?: string | null } = {}
+): Promise<{ status: number; body: string; headers: Record<string, string | string[] | undefined> }> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, server?.url)
+    const headers: Record<string, string> = {}
+    const origin = 'origin' in options ? options.origin : 'http://localhost:5173'
+    if (origin) headers.Origin = origin
     const req = request(url, {
       method: 'GET',
-      headers: {
-        Origin: 'http://localhost:5173'
-      }
+      headers
     }, (res) => {
       let body = ''
       res.setEncoding('utf8')
@@ -173,6 +177,38 @@ describe('dev browser bridge server', () => {
       message: 'Dev browser bridge token is missing or invalid.'
     })
     expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('bootstraps the per-server token for the local renderer dev origin only', async () => {
+    const invoke = vi.fn(async () => ({ ok: true }))
+    const dispatcher: DevBrowserBridgeDispatcher = { invoke }
+
+    server = await startDevBrowserBridgeServer({
+      dispatcher,
+      port: 0,
+      token: 'test-bridge-token-123'
+    })
+
+    const allowed = await readFromResponse('/bootstrap')
+    expect(allowed.status).toBe(200)
+    expect(JSON.parse(allowed.body)).toEqual({
+      ok: true,
+      token: 'test-bridge-token-123'
+    })
+
+    const missingOrigin = await readFromResponse('/bootstrap', { origin: null })
+    expect(missingOrigin.status).toBe(403)
+    expect(JSON.parse(missingOrigin.body)).toEqual({
+      ok: false,
+      message: 'Dev browser bridge bootstrap origin is not allowed.'
+    })
+
+    const unrelatedOrigin = await readFromResponse('/bootstrap', { origin: 'http://localhost:6006' })
+    expect(unrelatedOrigin.status).toBe(403)
+    expect(JSON.parse(unrelatedOrigin.body)).toEqual({
+      ok: false,
+      message: 'Dev browser bridge bootstrap origin is not allowed.'
+    })
   })
 
   it('rejects invoke requests that do not include the bridge token', async () => {

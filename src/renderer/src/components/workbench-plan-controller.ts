@@ -33,7 +33,14 @@ type PlanResultMatch = {
 
 type PlanTurnOverrides = Pick<
   SendMessageOverrides,
-  'attachmentIds' | 'attachments' | 'displayText' | 'fileReferences' | 'guiPlan' | 'model' | 'reasoningEffort'
+  | 'attachmentIds'
+  | 'attachments'
+  | 'displayText'
+  | 'fileReferences'
+  | 'guiPlan'
+  | 'model'
+  | 'reasoningEffort'
+  | 'remoteTargetId'
 > & {
   workspaceRoot?: string
 }
@@ -220,6 +227,7 @@ export function useWorkbenchPlanController({
     planTurnInFlightRef.current = true
     const planOverrides = planTurnOverrides(targetWorkspaceRoot, currentChatState.activeThreadId)
     const { workspaceRoot: _workspaceRoot, ...messageOverrides } = overrides ?? {}
+    const remoteTargetId = messageOverrides.remoteTargetId ?? currentChatState.remoteTargetId ?? undefined
     const guiPlan = messageOverrides.guiPlan ?? planOverrides?.guiPlan ?? buildDraftGuiPlanTurnOverrides({
       request: text,
       workspaceRoot: targetWorkspaceRoot,
@@ -228,6 +236,7 @@ export function useWorkbenchPlanController({
     }).guiPlan
     const sent = await sendMessage(text, 'plan', {
       ...messageOverrides,
+      ...(remoteTargetId?.trim() ? { remoteTargetId: remoteTargetId.trim() } : {}),
       guiPlan
     })
     if (!sent) planTurnInFlightRef.current = false

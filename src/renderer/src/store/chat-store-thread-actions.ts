@@ -8,7 +8,6 @@ import { formatRuntimeError } from '../lib/format-runtime-error'
 import { parseRuntimeErrorBody } from '@shared/runtime-error'
 import {
   deriveThreadTitleFromPrompt,
-  getDefaultThreadTitle,
   shouldAutoTitleThread
 } from '../lib/thread-title'
 import { filterThreadsForSidebar } from '../lib/thread-sidebar-visibility'
@@ -31,7 +30,6 @@ import {
   buildClawRuntimePrompt,
   buildCodeRuntimePrompt,
   getActiveAgentApiKey,
-  type AgentRuntimeId,
   type ClawImChannelV1
 } from '@shared/app-settings'
 import type { AgentRuntimeContextState, AgentRuntimeFileReference } from '@shared/agent-runtime-contract'
@@ -188,37 +186,6 @@ function canSteerPlainTextMessage(
     !message.guiPlan
 }
 
-function upsertRuntimeTargetThread(
-  threads: NormalizedThread[],
-  input: {
-    previousThreadId: string
-    nextThreadId: string
-    runtimeId: AgentRuntimeId
-    updatedAt: string
-  }
-): NormalizedThread[] {
-  const existing = threads.find((thread) => thread.id === input.nextThreadId)
-  const previous = threads.find((thread) => thread.id === input.previousThreadId)
-  const next: NormalizedThread = {
-    ...(previous ?? {
-      id: input.nextThreadId,
-      title: input.nextThreadId.slice(0, 8),
-      model: '',
-      mode: 'agent'
-    }),
-    ...(existing ?? {}),
-    id: input.nextThreadId,
-    runtimeId: input.runtimeId,
-    updatedAt: input.updatedAt,
-    title: existing?.title ?? previous?.title ?? input.nextThreadId.slice(0, 8),
-    model: existing?.model ?? previous?.model ?? '',
-    mode: existing?.mode ?? previous?.mode ?? 'agent',
-    workspace: existing?.workspace ?? previous?.workspace
-  }
-  const withoutTarget = threads.filter((thread) => thread.id !== input.nextThreadId)
-  return [next, ...withoutTarget]
-}
-
 export function publishActiveClawThreadContext(state: ChatState, threadId: string | null): void {
   const updateRemoteChannelActiveThreadContext = updateRemoteChannelActiveThreadContextApi(window.sciforge)
   if (typeof updateRemoteChannelActiveThreadContext !== 'function') return
@@ -298,7 +265,6 @@ export function createThreadActions(
       return
     }
     try {
-      const p = getProvider()
       let settings = await rendererRuntimeClient.getSettings()
       const requestedWorkspaceRoot = normalizeWorkspaceRoot(options.workspaceRoot)
       if (requestedWorkspaceRoot) {
@@ -334,14 +300,16 @@ export function createThreadActions(
       }
       const codeWorkspaceRoots = rememberCodeWorkspaceRoots(get().codeWorkspaceRoots, [workspaceRoot])
       set({ codeWorkspaceRoots })
-      const reusableThreadId = options.forceNew
-        ? null
-        : await findReusableEmptyThreadId(
-            get(),
-            p,
-            workspaceRoot,
-            (thread) => isCodeThread(thread, get().clawChannels)
-          )
+      let reusableThreadId: string | null = null
+      if (!options.forceNew) {
+        const p = getProvider()
+        reusableThreadId = await findReusableEmptyThreadId(
+          get(),
+          p,
+          workspaceRoot,
+          (thread) => isCodeThread(thread, get().clawChannels)
+        )
+      }
       if (reusableThreadId) {
         if (get().activeThreadId !== reusableThreadId) {
           await get().selectThread(reusableThreadId)
@@ -350,22 +318,26 @@ export function createThreadActions(
         }
         return
       }
-      const t = await p.createThread({
-        workspace: workspaceRoot,
-        title: getDefaultThreadTitle(),
-        mode: 'agent'
-      })
-      // Register + activate optimistically before refreshing. A freshly created
-      // SciForge Runtime thread may not be listed until the first message is written.
-      // Setting it active first lets refreshThreads preserve it in the sidebar.
+      const state = get()
+      const nextWatch = { ...(state.watchTurnCompletion ?? {}) }
+      if (state.activeThreadId && state.busy) {
+        nextWatch[state.activeThreadId] = true
+        watchTurnCompletionNotification(state.activeThreadId)
+      }
+      sseAbortRef.current?.abort()
+      sseAbortRef.current = null
+      clearBusyWatchdog()
       set((s) => ({
-        activeThreadId: t.id,
+        ...clearedThreadSelection(),
+        route: 'chat',
         activeRemoteChannelId: null,
-        codeWorkspaceRoots: rememberCodeWorkspaceRoots(s.codeWorkspaceRoots, [workspaceRoot, t.workspace]),
-        threads: s.threads.some((thread) => thread.id === t.id) ? s.threads : [t, ...s.threads]
+        workspaceRoot,
+        workspaceLabel: workspaceLabelFromPath(workspaceRoot),
+        codeWorkspaceRoots: rememberCodeWorkspaceRoots(s.codeWorkspaceRoots, [workspaceRoot]),
+        error: null,
+        watchTurnCompletion: nextWatch
       }))
-      await get().selectThread(t.id)
-      await get().refreshThreads()
+      syncTurnCompletionPoll(set, get)
     } catch (e) {
       set({
         error: formatRuntimeError(e),
@@ -628,6 +600,7 @@ export function createThreadActions(
     const queued = overrides?.queued
     const sourceRoute = queued?.sourceRoute ?? overrides?.sourceRoute ?? get().route
     const requestedGovernanceProfile = queued?.governanceProfile ?? overrides?.governanceProfile
+    const remoteTargetId = (queued?.remoteTargetId ?? overrides?.remoteTargetId)?.trim() || ''
     let targetThreadId = (queued?.targetThreadId ?? overrides?.targetThreadId)?.trim() || ''
     const hasPendingActiveTurn = get().blocks.some(hasPendingRuntimeWork)
     if (get().busy || hasPendingActiveTurn) {
@@ -701,6 +674,7 @@ export function createThreadActions(
             ...(composerModel ? { model: composerModel } : {}),
             ...(userModelChip ? { modelLabel: userModelChip } : {}),
             ...(reasoningEffort ? { reasoningEffort } : {}),
+            ...(remoteTargetId ? { remoteTargetId } : {}),
             ...(overrides?.guiPlan ? { guiPlan: overrides.guiPlan } : {}),
             ...(attachmentIds?.length ? { attachmentIds } : {}),
             ...(attachments?.length ? { attachments } : {}),
@@ -880,9 +854,6 @@ export function createThreadActions(
       const previousThreadId = activeThreadId
       const seqAtSend = get().lastSeq
       const sendingThread = get().threads.find((thread) => thread.id === previousThreadId)
-      const sendingRuntimeId = sendingThread?.runtimeId ?? 'sciforge'
-      const targetRuntimeId = get().activeAgentRuntime
-      const runtimeSwitchExpected = sendingRuntimeId !== targetRuntimeId
       rememberProviderThreadRuntime(p, previousThreadId, get().threads)
       const channel = remoteChannelForThread(get(), previousThreadId)
       const settings = await rendererRuntimeClient.getSettings()
@@ -904,28 +875,15 @@ export function createThreadActions(
         ...(sendingThread?.title ? { title: sendingThread.title } : {}),
         ...(composerModel ? { model: composerModel } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(remoteTargetId ? { remoteTargetId } : {}),
         ...(governanceProfile ? { governanceProfile } : {}),
         ...(runtimeDisplayText ? { displayText: runtimeDisplayText } : {}),
         ...((queued?.guiPlan ?? overrides?.guiPlan) ? { guiPlan: queued?.guiPlan ?? overrides?.guiPlan } : {}),
         ...(attachmentIds.length ? { attachmentIds } : {}),
         ...(fileReferences.length ? { fileReferences } : {})
       })
-      const deliveredThreadId = turnHandle.threadId?.trim() || previousThreadId
       const { turnId, userMessageItemId } = turnHandle
-      const subscribedFromSeq = runtimeSwitchExpected || deliveredThreadId !== previousThreadId ? 0 : seqAtSend
-      if (runtimeSwitchExpected || deliveredThreadId !== previousThreadId) {
-        set((s) => ({
-          activeThreadId: deliveredThreadId,
-          threads: upsertRuntimeTargetThread(s.threads, {
-            previousThreadId,
-            nextThreadId: deliveredThreadId,
-            runtimeId: targetRuntimeId,
-            updatedAt: new Date(now).toISOString()
-          }),
-          lastSeq: subscribedFromSeq
-        }))
-        activeThreadId = deliveredThreadId
-      }
+      const subscribedFromSeq = seqAtSend
       // Mirror the composer model selection against the runtime's stable
       // user_message item id so the badge survives page refresh / thread
       // re-selection. The runtime itself doesn't persist per-turn metadata.

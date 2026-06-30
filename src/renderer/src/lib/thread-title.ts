@@ -96,13 +96,17 @@ export function hasThreadIdFallbackTitle(
   return raw === thread.id.slice(0, 8)
 }
 
+export function hasPlaceholderThreadTitle(title: string | null | undefined): boolean {
+  const raw = title?.trim() ?? ''
+  return raw === getDefaultThreadTitle() || LEGACY_PLACEHOLDER_TITLES.has(raw)
+}
+
 export function shouldAutoTitleThread(
   thread: Pick<NormalizedThread, 'id' | 'title'> | null | undefined
 ): boolean {
   const raw = thread?.title?.trim() ?? ''
   if (!raw) return true
-  if (raw === getDefaultThreadTitle()) return true
-  if (LEGACY_PLACEHOLDER_TITLES.has(raw)) return true
+  if (hasPlaceholderThreadTitle(raw)) return true
   if (hasThreadIdFallbackTitle(thread)) return true
   return false
 }

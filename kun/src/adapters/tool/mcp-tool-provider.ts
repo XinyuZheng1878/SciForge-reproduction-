@@ -28,6 +28,8 @@ const GUI_COMPUTER_USE_MCP_SERVER_ID = 'gui_computer_use'
 const GUI_COMPUTER_USE_TOOL_NAME = 'computer_use'
 const GUI_WORKSPACE_INTEL_MCP_SERVER_ID = 'gui_workspace_intel'
 const GUI_WORKSPACE_TOOL_PREFIX = 'gui_workspace_'
+const REMOTE_EXECUTOR_MCP_SERVER_ID = 'remote_executor'
+const REMOTE_EXECUTOR_TOOL_PREFIX = 'remote_'
 
 export type McpToolDescriptor = {
   name: string
@@ -86,6 +88,7 @@ export type McpToolProviderBuildResult = {
 export type McpToolProviderOptions = {
   clientFactory?: (serverId: string, server: McpServerConfig) => Promise<McpClientLike>
   nowIso?: () => string
+  reservedToolNames?: readonly string[]
 }
 
 type McpConnectionState = {
@@ -108,6 +111,7 @@ export async function buildMcpToolProviders(
   const directProviders: CapabilityToolProvider[] = []
   const diagnostics: McpServerDiagnostic[] = []
   const connected: McpConnectionState[] = []
+  const directToolNames = new Set(options.reservedToolNames ?? [])
   const catalogState: McpSearchCatalogState = { records: [] }
   const mcp = config
   const nowIso = options.nowIso ?? (() => new Date().toISOString())
@@ -155,7 +159,7 @@ export async function buildMcpToolProviders(
       connected.push(state)
       const listed = await refreshMcpConnectionCatalog(state)
       catalogState.records.push(...listed.map((tool) => createMcpSearchCatalogRecord(state, tool)))
-      const tools = listed.map((tool) => createMcpLocalTool(state, tool))
+      const tools = listed.flatMap((tool) => createMcpLocalTools(state, tool, directToolNames))
       directProviders.push({
         id: `mcp:${serverId}`,
         kind: 'mcp',
@@ -163,7 +167,7 @@ export async function buildMcpToolProviders(
         available: true,
         tools
       })
-      diagnostics.push(serverDiagnostic(state, 'connected', tools.length))
+      diagnostics.push(serverDiagnostic(state, 'connected', listed.length))
     } catch (error) {
       diagnostics.push(serverDiagnostic({ serverId, server }, 'error', 0, errorMessage(error)))
     }
@@ -282,15 +286,41 @@ function fetchWithHeaders(headers: Record<string, string>): typeof fetch {
   }
 }
 
+function createMcpLocalTools(
+  state: McpConnectionState,
+  descriptor: McpToolDescriptor,
+  usedNames: Set<string>
+): LocalTool[] {
+  const canonicalName = normalizeMcpToolName(state.serverId, descriptor.name)
+  const tools = [createMcpLocalTool(state, descriptor, canonicalName)]
+  usedNames.add(canonicalName)
+
+  const aliasName = remoteExecutorFlatToolAliasName(state, descriptor)
+  if (aliasName && !usedNames.has(aliasName)) {
+    tools.push(createMcpLocalTool(state, descriptor, aliasName))
+    usedNames.add(aliasName)
+  }
+
+  return tools
+}
+
 function createMcpLocalTool(
   state: McpConnectionState,
-  descriptor: McpToolDescriptor
+  descriptor: McpToolDescriptor,
+  toolName: string
 ): LocalTool {
   return LocalToolHost.defineTool({
-    name: normalizeMcpToolName(state.serverId, descriptor.name),
+    name: toolName,
     description: descriptor.description ?? `MCP tool ${descriptor.name} from ${state.serverId}`,
     inputSchema: descriptor.inputSchema ?? { type: 'object' },
     policy: policyFromAnnotations(descriptor.annotations),
+    metadata: {
+      mcp: {
+        serverId: state.serverId,
+        toolName: descriptor.name,
+        canonicalName: normalizeMcpToolName(state.serverId, descriptor.name)
+      }
+    },
     shouldAdvertise: (context: ToolHostContext) => isMcpServerTrusted(state.server, context.workspace),
     execute: async (args, context) => {
       if (!isMcpServerTrusted(state.server, context.workspace)) {
@@ -325,6 +355,16 @@ function createMcpLocalTool(
       }
     }
   })
+}
+
+function remoteExecutorFlatToolAliasName(
+  state: McpConnectionState,
+  descriptor: McpToolDescriptor
+): string | null {
+  if (state.serverId !== REMOTE_EXECUTOR_MCP_SERVER_ID) return null
+  if (!descriptor.name.startsWith(REMOTE_EXECUTOR_TOOL_PREFIX)) return null
+  if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(descriptor.name)) return null
+  return descriptor.name
 }
 
 async function listAllMcpTools(client: McpClientLike, timeout: number): Promise<McpToolDescriptor[]> {
@@ -372,6 +412,9 @@ function mcpToolArgumentsForContext(
       : context.workspace.trim()
     return workspaceRoot ? { ...args, workspaceRoot } : args
   }
+  if (state.serverId === REMOTE_EXECUTOR_MCP_SERVER_ID && descriptor.name.startsWith(REMOTE_EXECUTOR_TOOL_PREFIX)) {
+    return remoteExecutorArgumentsForContext(descriptor, args, context)
+  }
   if (state.serverId !== GUI_COMPUTER_USE_MCP_SERVER_ID || descriptor.name !== GUI_COMPUTER_USE_TOOL_NAME) {
     return args
   }
@@ -385,6 +428,30 @@ function mcpToolArgumentsForContext(
     turnId,
     computerUseSessionId: agentId
   }
+}
+
+function remoteExecutorArgumentsForContext(
+  descriptor: McpToolDescriptor,
+  args: Record<string, unknown>,
+  context: ToolHostContext
+): Record<string, unknown> {
+  const remoteTargetId = context.remoteTargetId?.trim()
+  if (!remoteTargetId) return args
+  const properties = schemaProperties(descriptor.inputSchema)
+  if (properties.target_id !== undefined && args.target_id === undefined) {
+    return { ...args, target_id: remoteTargetId }
+  }
+  if (properties.targetId !== undefined && args.targetId === undefined) {
+    return { ...args, targetId: remoteTargetId }
+  }
+  return args
+}
+
+function schemaProperties(schema: Record<string, unknown> | undefined): Record<string, unknown> {
+  const properties = schema?.properties
+  return properties && typeof properties === 'object' && !Array.isArray(properties)
+    ? properties as Record<string, unknown>
+    : {}
 }
 
 async function refreshMcpConnectionCatalog(state: McpConnectionState): Promise<McpToolDescriptor[]> {

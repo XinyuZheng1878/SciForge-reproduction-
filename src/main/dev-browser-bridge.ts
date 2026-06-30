@@ -11,6 +11,11 @@ const CLIENT_DESTROY_DELAY_MS = 1_000
 export const DEV_BROWSER_BRIDGE_TOKEN_HEADER = 'X-SciForge-Bridge-Token'
 export const DEV_BROWSER_BRIDGE_TOKEN_QUERY_PARAM = 'sciforgeBridgeToken'
 const DEV_BROWSER_BRIDGE_TOKEN_BYTES = 32
+const DEFAULT_DEV_BROWSER_BRIDGE_BOOTSTRAP_ORIGINS = new Set([
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://[::1]:5173'
+])
 const DEV_BROWSER_BRIDGE_ALLOWED_HEADERS = [
   'Content-Type',
   'Authorization',
@@ -106,6 +111,7 @@ type StartDevBrowserBridgeServerOptions = {
   token?: string
   allowedChannels?: readonly string[]
   allowAllChannels?: boolean
+  bootstrapOrigins?: readonly string[]
 }
 
 class DevBrowserBridgeClient extends EventEmitter implements AppBridgeSender {
@@ -177,6 +183,24 @@ function isAllowedOrigin(origin: string | undefined): boolean {
   } catch {
     return false
   }
+}
+
+function normalizeOrigin(value: string | undefined): string | null {
+  if (!value) return null
+  try {
+    return new URL(value).origin
+  } catch {
+    return null
+  }
+}
+
+function createBootstrapOriginSet(origins: readonly string[] | undefined): ReadonlySet<string> {
+  if (!origins) return DEFAULT_DEV_BROWSER_BRIDGE_BOOTSTRAP_ORIGINS
+  return new Set(
+    origins
+      .map((origin) => normalizeOrigin(origin))
+      .filter((origin): origin is string => Boolean(origin))
+  )
 }
 
 function applyCors(request: IncomingMessage, response: ServerResponse): boolean {
@@ -279,6 +303,7 @@ export async function startDevBrowserBridgeServer(
   const port = options.port ?? DEFAULT_DEV_BROWSER_BRIDGE_PORT
   const token = createBridgeToken(options.token)
   const allowedChannels = createAllowedChannelSet(options.allowedChannels)
+  const bootstrapOrigins = createBootstrapOriginSet(options.bootstrapOrigins)
   const clients = new Map<string, DevBrowserBridgeClient>()
   let nextClientNumericId = 1
 
@@ -304,6 +329,21 @@ export async function startDevBrowserBridgeServer(
     const requestUrl = new URL(request.url ?? '/', `http://${host}:${port}`)
     if (request.method === 'GET' && requestUrl.pathname === '/health') {
       writeJson(response, 200, { ok: true })
+      return
+    }
+
+    if (request.method === 'GET' && requestUrl.pathname === '/bootstrap') {
+      const requestOrigin = normalizeOrigin(
+        typeof request.headers.origin === 'string' ? request.headers.origin : undefined
+      )
+      if (!requestOrigin || !bootstrapOrigins.has(requestOrigin)) {
+        writeJson(response, 403, {
+          ok: false,
+          message: 'Dev browser bridge bootstrap origin is not allowed.'
+        })
+        return
+      }
+      writeJson(response, 200, { ok: true, token })
       return
     }
 

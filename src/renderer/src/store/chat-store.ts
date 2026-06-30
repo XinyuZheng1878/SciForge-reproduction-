@@ -150,6 +150,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   clawChannels: [],
   activeClawChannelId: '',
   activeRemoteChannelId: null,
+  remoteTargetId: null,
+  setRemoteTargetId: (targetId) => set({ remoteTargetId: targetId?.trim() || null }),
 
   ...createClawActions({
     set,

@@ -243,6 +243,13 @@ function toolLoopRecoveryInstruction(): string {
   ].join('\n')
 }
 
+function remoteTargetInstruction(remoteTargetId: string): string {
+  return [
+    `Remote execution target selected for this turn: ${remoteTargetId}.`,
+    'Use remote executor tools with this target unless the user asks for a different target.'
+  ].join('\n')
+}
+
 function isRepeatedNoToolAssistantText(previous: string | undefined, current: string): boolean {
   if (previous === undefined) return false
   const a = normalizeNoToolAssistantText(previous)
@@ -725,6 +732,7 @@ export class AgentLoop {
       workspace: thread?.workspace ?? '',
       threadMode: effectiveMode,
       ...(activePlanContext ? { guiPlan: activePlanContext } : {}),
+      ...(turn?.remoteTargetId ? { remoteTargetId: turn.remoteTargetId } : {}),
       model: modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
       memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },
@@ -817,6 +825,7 @@ export class AgentLoop {
       ...(activeTodoInstruction ? [activeTodoInstruction] : []),
       ...memoryInstructions(memories),
       ...skillResolution.instructions,
+      ...(turn?.remoteTargetId ? [remoteTargetInstruction(turn.remoteTargetId)] : []),
       ...(specializedToolInstruction ? [specializedToolInstruction] : []),
       ...(effectiveToolSpecs.some((tool) => tool.name === 'bash') ? [shellRuntimeInstruction()] : []),
       ...(toolCatalogDriftMessage ? [toolCatalogDriftMessage] : [])
@@ -1101,6 +1110,7 @@ export class AgentLoop {
             workspace: thread?.workspace ?? '',
             threadMode: effectiveMode,
             activePlanContext,
+            remoteTargetId: turn?.remoteTargetId,
             modelCapabilities,
             activeSkillIds: skillResolution.activeSkillIds,
             allowedToolNames,
@@ -1201,6 +1211,7 @@ export class AgentLoop {
       workspace: thread?.workspace ?? '',
       threadMode: effectiveMode,
       activePlanContext,
+      remoteTargetId: turn?.remoteTargetId,
       modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
       allowedToolNames,
@@ -1227,6 +1238,7 @@ export class AgentLoop {
     workspace: string
     threadMode?: 'agent' | 'plan'
     activePlanContext?: GuiPlanContext
+    remoteTargetId?: string
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
     allowedToolNames?: readonly string[]
@@ -1504,6 +1516,7 @@ export class AgentLoop {
     workspace: string
     threadMode?: 'agent' | 'plan'
     activePlanContext?: GuiPlanContext
+    remoteTargetId?: string
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
     allowedToolNames?: readonly string[]
@@ -1519,6 +1532,7 @@ export class AgentLoop {
       workspace: input.workspace,
       threadMode: input.threadMode,
       ...(input.activePlanContext ? { guiPlan: input.activePlanContext } : {}),
+      ...(input.remoteTargetId ? { remoteTargetId: input.remoteTargetId } : {}),
       model: input.modelCapabilities,
       activeSkillIds: input.activeSkillIds,
       memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },
