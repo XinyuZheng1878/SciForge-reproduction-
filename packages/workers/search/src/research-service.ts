@@ -1,5 +1,6 @@
 import { ArxivResearchProvider } from './providers/arxiv.js';
 import { BiorxivResearchProvider } from './providers/biorxiv.js';
+import { EuropePmcResearchProvider } from './providers/europe-pmc.js';
 import { SemanticScholarResearchProvider } from './providers/semantic-scholar.js';
 import { TavilyResearchProvider } from './providers/tavily.js';
 import {
@@ -140,6 +141,7 @@ export function researchSearchConfigFromEnv(env: Record<string, string | undefin
   return {
     arxivEnabled: booleanEnv(env, 'SCIFORGE_RESEARCH_ARXIV_ENABLED', true),
     biorxivEnabled: booleanEnv(env, 'SCIFORGE_RESEARCH_BIORXIV_ENABLED', true),
+    europePmcEnabled: booleanEnv(env, 'SCIFORGE_RESEARCH_EUROPE_PMC_ENABLED', true),
     semanticScholarEnabled: booleanEnv(env, 'SCIFORGE_RESEARCH_SEMANTIC_SCHOLAR_ENABLED', true),
     semanticScholarApiKey,
     tavilyEnabled: booleanEnv(env, 'SCIFORGE_RESEARCH_TAVILY_ENABLED', Boolean(tavilyApiKey)),
@@ -159,6 +161,12 @@ function buildProviderEntries(
   const entries: ProviderEntry[] = [];
   if (config.arxivEnabled) entries.push({ source: 'arxiv', provider: providers.arxiv ?? new ArxivResearchProvider() });
   if (config.biorxivEnabled) entries.push({ source: 'biorxiv', provider: providers.biorxiv ?? new BiorxivResearchProvider() });
+  if (config.europePmcEnabled) {
+    entries.push({
+      source: 'europe_pmc',
+      provider: providers.europe_pmc ?? new EuropePmcResearchProvider()
+    });
+  }
   if (config.semanticScholarEnabled) {
     entries.push({
       source: 'semantic_scholar',
@@ -194,6 +202,11 @@ function configuredDiagnostics(config: ResearchSearchConfig): ResearchProviderDi
       available: config.biorxivEnabled
     },
     {
+      id: 'europe_pmc',
+      enabled: config.europePmcEnabled,
+      available: config.europePmcEnabled
+    },
+    {
       id: 'semantic_scholar',
       enabled: config.semanticScholarEnabled,
       available: config.semanticScholarEnabled
@@ -218,7 +231,12 @@ function configuredDiagnostics(config: ResearchSearchConfig): ResearchProviderDi
 function normalizeSources(value: unknown): ResearchSourceKind[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   const out = value.filter((item): item is ResearchSourceKind =>
-    item === 'arxiv' || item === 'biorxiv' || item === 'semantic_scholar' || item === 'web' || item === 'cns'
+    item === 'arxiv' ||
+    item === 'biorxiv' ||
+    item === 'europe_pmc' ||
+    item === 'semantic_scholar' ||
+    item === 'web' ||
+    item === 'cns'
   );
   return out.length ? [...new Set(out)] : null;
 }
@@ -257,7 +275,7 @@ function citationsFor(
 }
 
 function allSources(): ResearchSourceKind[] {
-  return ['arxiv', 'biorxiv', 'semantic_scholar', 'web', 'cns'];
+  return ['arxiv', 'biorxiv', 'europe_pmc', 'semantic_scholar', 'web', 'cns'];
 }
 
 function boundedInt(value: unknown, fallback: number, min: number, max: number): number {

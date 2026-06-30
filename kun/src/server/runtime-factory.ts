@@ -66,7 +66,7 @@ import {
 import { createChildAgentExecutor } from '../delegation/child-agent-executor.js'
 
 const GUI_RESEARCH_MCP_SERVER_NAME = 'gui_research'
-const DEFAULT_RESEARCH_SOURCES = ['arxiv', 'biorxiv', 'semantic_scholar'] as const
+const DEFAULT_RESEARCH_SOURCES = ['arxiv', 'biorxiv', 'europe_pmc', 'semantic_scholar'] as const
 const DEFAULT_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
 
 export type LocalRuntimeServeOptions = {

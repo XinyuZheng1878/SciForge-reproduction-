@@ -16,9 +16,9 @@ export type ResearchDomain =
   | 'climate'
   | 'general';
 
-export type ResearchSourceKind = 'arxiv' | 'biorxiv' | 'semantic_scholar' | 'web' | 'cns';
+export type ResearchSourceKind = 'arxiv' | 'biorxiv' | 'europe_pmc' | 'semantic_scholar' | 'web' | 'cns';
 
-export type ResearchProviderId = 'arxiv' | 'biorxiv' | 'semantic_scholar' | 'tavily' | 'cns';
+export type ResearchProviderId = 'arxiv' | 'biorxiv' | 'europe_pmc' | 'semantic_scholar' | 'tavily' | 'cns';
 
 export type ResearchSearchRequest = {
   query: string;
@@ -77,6 +77,7 @@ export interface ResearchSearchProvider {
 export type ResearchSearchConfig = {
   arxivEnabled: boolean;
   biorxivEnabled: boolean;
+  europePmcEnabled: boolean;
   semanticScholarEnabled: boolean;
   semanticScholarApiKey: string;
   tavilyEnabled: boolean;

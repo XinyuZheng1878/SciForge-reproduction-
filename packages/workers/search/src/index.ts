@@ -26,6 +26,7 @@ export {
 } from './contract.js';
 export { planResearchQueries, type ResearchQueryPlan } from './query-planner.js';
 export { buildArxivQuery } from './providers/arxiv.js';
+export { buildEuropePmcQuery, parseEuropePmcPapers } from './providers/europe-pmc.js';
 export type {
   ResearchDomain,
   ResearchIntent,

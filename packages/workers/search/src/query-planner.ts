@@ -19,7 +19,7 @@ const INTENT_KEYWORDS: Array<[ResearchIntent, RegExp]> = [
 ];
 
 const DOMAIN_KEYWORDS: Array<[ResearchDomain, RegExp]> = [
-  ['biology', /\b(protein|genom|rna|dna|cell|bio|enzyme|antibody|biology|生物|蛋白)\b/i],
+  ['biology', /\b(protein|genom|rna|dna|cell|bio|enzyme|antibody|biology|meiosis|meiotic|germ\s*cell|gametogenesis|spermatogenesis|oogenesis|retinoic\s+acid|stra8|meiosin|生物|蛋白)\b/i],
   ['chemistry', /\b(molecule|molecular|chemical|chemistry|reaction|drug|ligand|分子|化学|药物)\b/i],
   ['materials', /\b(material|crystal|catalyst|battery|polymer|alloy|材料|晶体|催化)\b/i],
   ['physics', /\b(physics|pde|fluid|quantum|turbulence|simulation|物理|偏微分|流体|量子)\b/i],
@@ -55,9 +55,12 @@ export function planResearchQueries(input: {
   const query = normalizeQuery(input.query);
   const intent = normalizeIntent(input.intent) ?? inferIntent(query);
   const domain = normalizeDomain(input.domain) ?? inferDomain(query);
+  const domainExpansions = domain === 'biology' && isWetBiologyQuery(query)
+    ? wetBiologyExpansions(query)
+    : DOMAIN_EXPANSIONS[domain];
   const candidates = new Set<string>();
   candidates.add(query);
-  for (const expansion of DOMAIN_EXPANSIONS[domain]) {
+  for (const expansion of domainExpansions) {
     candidates.add(`${query} ${expansion}`);
   }
   for (const expansion of INTENT_EXPANSIONS[intent]) {
@@ -78,6 +81,22 @@ export function planResearchQueries(input: {
     },
     generatedQueries
   };
+}
+
+function isWetBiologyQuery(query: string): boolean {
+  return /\b(meiosis|meiotic|germ\s*cell|gametogenesis|spermatogenesis|oogenesis|retinoic\s+acid|stra8|meiosin|dmrt1|synaptonemal|chromatin|transcription factor|rna-binding|pubmed)\b/i
+    .test(query);
+}
+
+function wetBiologyExpansions(query: string): string[] {
+  const expansions = ['PubMed Europe PMC', 'germ cell development'];
+  if (/\b(meiosis|meiotic|stra8|meiosin|retinoic\s+acid)\b/i.test(query)) {
+    expansions.unshift('meiotic entry retinoic acid');
+  }
+  if (/\b(spermatogenesis|male|testis|spermatogonial)\b/i.test(query)) {
+    expansions.unshift('spermatogenesis meiotic initiation');
+  }
+  return [...new Set(expansions)];
 }
 
 function inferIntent(query: string): ResearchIntent {

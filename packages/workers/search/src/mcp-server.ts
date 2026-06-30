@@ -24,7 +24,7 @@ export function createResearchSearchMcpServer(
 
   server.registerTool('research_search', {
     description: [
-      'Explore an AI4S or scientific research direction using arXiv, bioRxiv, Semantic Scholar, CNS official sites, and configured web search.',
+      'Explore an AI4S or scientific research direction using arXiv, bioRxiv, Europe PMC/PubMed, Semantic Scholar, CNS official sites, and configured web search.',
       'Use it for latest progress, baselines, SOTA, datasets, code, or research gap discovery.',
       'One call expands the query and searches multiple enabled sources; normally call it once per user request, then synthesize the result.',
       'The returned structured data is internal evidence for the assistant; synthesize it instead of showing raw JSON unless requested.'
@@ -35,7 +35,7 @@ export function createResearchSearchMcpServer(
       domain: z.enum(['ai4s', 'biology', 'chemistry', 'materials', 'physics', 'climate', 'general']).optional(),
       sinceYear: z.number().int().min(1991).max(3000).optional(),
       maxResults: z.number().int().min(1).max(service.config.maxResults).optional(),
-      sources: z.array(z.enum(['arxiv', 'biorxiv', 'semantic_scholar', 'web', 'cns'])).optional()
+      sources: z.array(z.enum(['arxiv', 'biorxiv', 'europe_pmc', 'semantic_scholar', 'web', 'cns'])).optional()
     }
   }, async (args, extra) => {
     try {

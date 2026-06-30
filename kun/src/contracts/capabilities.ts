@@ -15,7 +15,7 @@ export const RuntimeCapabilityState = z
   .strict()
 export type RuntimeCapabilityState = z.infer<typeof RuntimeCapabilityState>
 
-export const ResearchSourceKind = z.enum(['arxiv', 'biorxiv', 'semantic_scholar', 'web', 'cns'])
+export const ResearchSourceKind = z.enum(['arxiv', 'biorxiv', 'europe_pmc', 'semantic_scholar', 'web', 'cns'])
 export type ResearchSourceKind = z.infer<typeof ResearchSourceKind>
 
 export const ModelInputModality = z.enum(['text', 'image'])
