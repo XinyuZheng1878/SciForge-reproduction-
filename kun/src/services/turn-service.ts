@@ -289,6 +289,51 @@ export class TurnService {
     return thread?.turns.find((turn) => turn.id === turnId) ?? null
   }
 
+  async reconcileStaleRunningTurns(input: {
+    message?: string
+    code?: string
+  } = {}): Promise<{ reconciledTurns: number; reconciledThreads: number }> {
+    const message = input.message ??
+      'Runtime restarted before this turn completed; marking stale in-progress turn as aborted.'
+    const code = input.code ?? 'stale_turn_reconciled'
+    let reconciledTurns = 0
+    let reconciledThreads = 0
+    const summaries = await this.deps.threadStore.list({
+      includeArchived: true,
+      includeSide: true
+    })
+    for (const summary of summaries) {
+      const thread = await this.deps.threadStore.get(summary.id)
+      if (!thread) continue
+      const staleTurns = thread.turns.filter((turn) =>
+        turn.status === 'queued' || turn.status === 'running'
+      )
+      if (staleTurns.length === 0) {
+        if (thread.status === 'running') {
+          await this.upsertThread(thread.id, (current) => ({
+            ...touchThread(current, this.deps.nowIso()),
+            status: 'idle'
+          }))
+          reconciledThreads += 1
+        }
+        continue
+      }
+      for (const turn of staleTurns) {
+        await this.finishTurn({
+          threadId: thread.id,
+          turnId: turn.id,
+          status: 'aborted',
+          error: message,
+          code,
+          severity: 'warning'
+        })
+        reconciledTurns += 1
+      }
+      reconciledThreads += 1
+    }
+    return { reconciledTurns, reconciledThreads }
+  }
+
   async updateTurnMetadata(
     threadId: string,
     turnId: string,

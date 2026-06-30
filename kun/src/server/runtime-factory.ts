@@ -148,6 +148,7 @@ export async function createLocalRuntimeServeRuntime(
     nowIso
   })
   const threadService = new ThreadService({ threadStore, sessionStore, events, ids, nowIso })
+  await turnService.reconcileStaleRunningTurns()
   await seedUsageCarryover({ threadStore, sessionStore, usageService })
   const modelClient = new DeepseekCompatModelClient({
     baseUrl: modelRouter.baseUrl,

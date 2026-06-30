@@ -12,6 +12,10 @@ describe('child agent final response classification', () => {
     expect(isPrematureChildClarification(
       'I read the draft. What would you like me to do next? For example, I can edit, add citations, or check consistency.'
     )).toBe(true)
+
+    expect(isPrematureChildClarification(
+      '我已经阅读了所有材料。请告诉我你想要我做什么？'
+    )).toBe(true)
   })
 
   it('does not flag normal completion summaries that report verified outputs', () => {

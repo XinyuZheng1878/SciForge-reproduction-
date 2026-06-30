@@ -56,10 +56,35 @@ it('startTurn rejects a second running turn on the same thread', async () => {
   expect(thread?.turns.map((turn) => turn.id)).toEqual([first.turnId])
 })
 
-function createTurnService() {
+it('reconcileStaleRunningTurns aborts persisted running turns after runtime restart', async () => {
+  const firstRuntime = createTurnService()
+  await firstRuntime.threadStore.upsert(makeThread('thread_1'))
+  const started = await firstRuntime.turns.startTurn({
+    threadId: 'thread_1',
+    request: { prompt: 'Long work' }
+  })
+
+  const restartedRuntime = createTurnService({
+    threadStore: firstRuntime.threadStore,
+    sessionStore: firstRuntime.sessionStore
+  })
+  const result = await restartedRuntime.turns.reconcileStaleRunningTurns()
+
+  expect(result).toEqual({ reconciledTurns: 1, reconciledThreads: 1 })
+  const thread = await restartedRuntime.threadStore.get('thread_1')
+  expect(thread?.status).toBe('idle')
+  const turn = await restartedRuntime.turns.getTurn('thread_1', started.turnId)
+  expect(turn?.status).toBe('aborted')
+  expect(turn?.error).toContain('Runtime restarted')
+})
+
+function createTurnService(deps: {
+  threadStore?: InMemoryThreadStore
+  sessionStore?: InMemorySessionStore
+} = {}) {
   const eventBus = new InMemoryEventBus()
-  const sessionStore = new InMemorySessionStore()
-  const threadStore = new InMemoryThreadStore()
+  const sessionStore = deps.sessionStore ?? new InMemorySessionStore()
+  const threadStore = deps.threadStore ?? new InMemoryThreadStore()
   const events = new RuntimeEventRecorder({
     eventBus,
     sessionStore,
@@ -76,7 +101,7 @@ function createTurnService() {
     ids: new SequentialIdGenerator(),
     nowIso: () => '2026-06-28T00:00:00.000Z'
   })
-  return { turns, threadStore }
+  return { turns, threadStore, sessionStore }
 }
 
 function makeThread(id: string): ThreadRecord {

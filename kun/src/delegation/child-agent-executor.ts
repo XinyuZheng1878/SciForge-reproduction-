@@ -306,6 +306,7 @@ export function isPrematureChildClarification(text: string | undefined): boolean
     /\bshould i\b.{0,80}\b(?:edit|write|continue|proceed|revise|add|check)\b/i,
     /\bplease let me know\b.{0,120}\b(?:next|how to proceed|what to do|which option)\b/i,
     /请问.{0,40}(?:需要|希望).{0,20}我.{0,20}(?:做|修改|补充|继续|检查|润色)/,
+    /请告诉我.{0,40}(?:想要|需要|希望).{0,20}我.{0,20}(?:做|修改|补充|继续|检查|润色)/,
     /你.{0,20}(?:需要|希望).{0,20}我.{0,20}(?:做|修改|补充|继续|检查|润色)/,
     /需要我.{0,30}(?:做什么|继续|修改|补充|润色|检查)/,
     /我可以.{0,40}(?:润色|修改|补充|检查|继续|添加)/
