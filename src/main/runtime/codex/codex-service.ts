@@ -266,6 +266,12 @@ export class CodexRuntimeService {
         )
       }
     } catch (error) {
+      if (this.activeTurns.size > 0) {
+        return {
+          ok: true,
+          threads: filterThreadList(stored.map(storedThreadToNormalizedThread), options)
+        }
+      }
       await this.discardClientAfterFailure()
       if (stored.length > 0) {
         return { ok: true, threads: filterThreadList(stored.map(storedThreadToNormalizedThread), options) }
@@ -356,13 +362,23 @@ export class CodexRuntimeService {
       const usage = await this.usageStore?.threadUsage(storedThread?.guiThreadId ?? threadId)
       const detailWithUsage = usage ? { ...detail, usage } : detail
       const storedDetailWithUsage = storedDetail && usage ? { ...storedDetail, usage } : storedDetail
-      return { ok: true, detail: preferThreadDetail(detailWithUsage, storedDetailWithUsage) }
+      const preferredDetail = preferThreadDetail(detailWithUsage, storedDetailWithUsage)
+      if (storedDetail && this.shouldRepairStaleTurnDetail(guiThreadId, preferredDetail, storedDetail)) {
+        const repairedDetail = await this.readStoredDetail(guiThreadId, { repairStale: true })
+        return { ok: true, detail: repairedDetail ?? preferredDetail }
+      }
+      return { ok: true, detail: preferredDetail }
     } catch (error) {
       if (isMissingOrUnmaterializedThreadError(error) && isEmptyStoredThread(storedThread, storedDetail)) {
         return { ok: true, detail: emptyThreadDetail() }
       }
-      if (storedDetail && this.activeTurns.has(guiThreadId) && !isCodexRuntimeDisconnectedError(error)) {
-        return { ok: true, detail: storedDetail }
+      if (isEmptyStoredThread(storedThread, storedDetail)) {
+        if (this.activeTurns.size === 0) await this.discardClientAfterFailure()
+        return { ok: true, detail: emptyThreadDetail() }
+      }
+      if (this.activeTurns.size > 0) {
+        if (storedDetail) return { ok: true, detail: storedDetail }
+        return failure(error)
       }
       await this.discardClientAfterFailure()
       if (storedDetail) {
@@ -465,6 +481,7 @@ export class CodexRuntimeService {
       }
       return { ok: true }
     } catch (error) {
+      if (this.activeTurns.size > 0) return failure(error)
       await this.discardClientAfterFailure()
       return failure(error)
     }
@@ -1466,7 +1483,8 @@ export class CodexRuntimeService {
     const staleRunningTurn = latestTurnId &&
       !this.activeTurns.has(threadId) &&
       !terminalStatus &&
-      !storedTurnHasAssistantResponse(events, latestTurnId)
+      !storedTurnHasAssistantResponse(events, latestTurnId) &&
+      storedTurnAgeExceeds(events, latestTurnId, FIRST_CODEX_ACTIVITY_TIMEOUT_MS)
     if (staleRunningTurn && latestTurnId && options.repairStale === true) {
       await this.emitRuntimeError({
         threadId,
@@ -1487,6 +1505,25 @@ export class CodexRuntimeService {
       latestTurnId,
       ...(terminalStatus ? { threadStatus: terminalStatus } : {})
     }
+  }
+
+  private shouldRepairStaleTurnDetail(
+    threadId: string,
+    detail: CodexThreadDetail,
+    storedDetail?: CodexThreadDetail | null
+  ): boolean {
+    const turnId = detail.latestTurnId?.trim()
+    return Boolean(
+      turnId &&
+      !this.activeTurns.has(threadId) &&
+      !isTerminalThreadStatus(detail.threadStatus) &&
+      detailTurnAgeExceeds([detail, storedDetail ?? null], turnId, FIRST_CODEX_ACTIVITY_TIMEOUT_MS) &&
+      !detail.blocks.some((block) =>
+        block.kind === 'assistant' &&
+        block.turnId === turnId &&
+        block.text.trim()
+      )
+    )
   }
 
   private async findStoredThread(threadId: string): Promise<CodexStoredThread | null> {
@@ -1804,7 +1841,7 @@ function filterThreadList(
   const includeArchived = options.includeArchived === true
   const archivedOnly = options.archivedOnly === true
   const search = options.search?.trim().toLowerCase() ?? ''
-  let output = threads
+  let output = threads.filter((thread) => !isEmptyPlaceholderThread(thread))
   if (archivedOnly) {
     output = output.filter((thread) => thread.archived === true)
   } else if (!includeArchived) {
@@ -1820,6 +1857,21 @@ function filterThreadList(
     output = output.slice(0, Math.floor(options.limit))
   }
   return output
+}
+
+const EMPTY_PLACEHOLDER_THREAD_TITLES = new Set([
+  'Codex thread',
+  'New Thread',
+  'New chat',
+  '新会话'
+])
+
+function isEmptyPlaceholderThread(thread: CodexNormalizedThread): boolean {
+  const title = thread.title.trim()
+  if (thread.latestTurnId?.trim()) return false
+  if (thread.preview?.trim()) return false
+  if (EMPTY_PLACEHOLDER_THREAD_TITLES.has(title)) return true
+  return title === thread.id.slice(0, 8)
 }
 
 function storedThreadToNormalizedThread(thread: CodexStoredThread): CodexNormalizedThread {
@@ -2031,6 +2083,29 @@ function storedTurnHasAssistantResponse(events: CodexStoredEvent[], turnId: stri
     }
   }
   return false
+}
+
+function storedTurnAgeExceeds(events: CodexStoredEvent[], turnId: string, minAgeMs: number): boolean {
+  const timestamps = events
+    .filter((item) => (item.event.turnId || item.event.userMessage?.turnId) === turnId)
+    .map((item) => Date.parse(item.createdAt))
+    .filter((value) => Number.isFinite(value))
+  if (timestamps.length === 0) return false
+  return Date.now() - Math.max(...timestamps) >= minAgeMs
+}
+
+function detailTurnAgeExceeds(
+  details: Array<CodexThreadDetail | null>,
+  turnId: string,
+  minAgeMs: number
+): boolean {
+  const timestamps = details
+    .flatMap((detail) => detail?.blocks ?? [])
+    .filter((block) => block.turnId === turnId)
+    .map((block) => Date.parse(block.createdAt ?? ''))
+    .filter((value) => Number.isFinite(value))
+  if (timestamps.length === 0) return false
+  return Date.now() - Math.max(...timestamps) >= minAgeMs
 }
 
 function isTerminalThreadStatus(status: string | undefined): boolean {
