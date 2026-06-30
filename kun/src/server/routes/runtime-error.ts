@@ -21,6 +21,8 @@ export const ERRORS = {
     errorResponse({ code: 'validation_error', message, details: issues }, 400),
   attachmentValidation: (message: string, issues?: unknown) =>
     errorResponse({ code: 'attachment_validation_failed', message, details: issues }, 400),
+  turnInProgress: (message: string) =>
+    errorResponse({ code: 'turn_in_progress', message }, 409),
   conflict: (message: string) =>
     errorResponse({ code: 'conflict', message }, 409),
   notImplemented: (message: string) =>

@@ -10,7 +10,7 @@ import {
 import { jsonResponse, type JsonResponse } from '../response.js'
 import { readJsonBody } from '../read-json-body.js'
 import { ERRORS } from './runtime-error.js'
-import type { TurnService } from '../../services/turn-service.js'
+import { TurnInProgressError, type TurnService } from '../../services/turn-service.js'
 
 export async function startTurn(
   turns: TurnService,
@@ -32,6 +32,9 @@ export async function startTurn(
     onStarted?.(response)
     return jsonResponse(response, 202)
   } catch (error) {
+    if (error instanceof TurnInProgressError) {
+      return ERRORS.turnInProgress(error.message)
+    }
     if (error instanceof Error && /not found/i.test(error.message)) {
       return ERRORS.notFound(error.message)
     }

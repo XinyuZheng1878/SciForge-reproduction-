@@ -8,7 +8,7 @@ import { InflightTracker } from '../loop/inflight-tracker.js'
 import { SteeringQueue } from '../loop/steering-queue.js'
 import { SequentialIdGenerator } from '../ports/id-generator.js'
 import { RuntimeEventRecorder } from './runtime-event-recorder.js'
-import { TurnService } from './turn-service.js'
+import { TurnInProgressError, TurnService } from './turn-service.js'
 
 it('interruptTurn rejects missing thread or turn instead of reporting a fake abort', async () => {
   const { turns, threadStore } = createTurnService()
@@ -37,6 +37,23 @@ it('interruptTurn still aborts an existing in-flight turn', async () => {
   expect(result.status).toBe('aborted')
   const turn = await turns.getTurn('thread_1', started.turnId)
   expect(turn?.status).toBe('aborted')
+})
+
+it('startTurn rejects a second running turn on the same thread', async () => {
+  const { turns, threadStore } = createTurnService()
+  await threadStore.upsert(makeThread('thread_1'))
+  const first = await turns.startTurn({
+    threadId: 'thread_1',
+    request: { prompt: 'Work' }
+  })
+
+  await expect(turns.startTurn({
+    threadId: 'thread_1',
+    request: { prompt: 'Overlapping work' }
+  })).rejects.toThrow(TurnInProgressError)
+
+  const thread = await threadStore.get('thread_1')
+  expect(thread?.turns.map((turn) => turn.id)).toEqual([first.turnId])
 })
 
 function createTurnService() {

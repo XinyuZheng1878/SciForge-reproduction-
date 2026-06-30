@@ -13,6 +13,15 @@ import { appendTurnItem, createTurnRecord, finishTurn, replaceTurnItem, startTur
 import { touchThread } from '../domain/thread.js'
 import type { RuntimeEventRecorder } from './runtime-event-recorder.js'
 
+export class TurnInProgressError extends Error {
+  constructor(threadId: string, turnId?: string) {
+    super(turnId
+      ? `turn already in progress for thread ${threadId}: ${turnId}`
+      : `turn already in progress for thread ${threadId}`)
+    this.name = 'TurnInProgressError'
+  }
+}
+
 export type TurnServiceDeps = {
   threadStore: ThreadStore
   sessionStore: SessionStore
@@ -73,17 +82,23 @@ export class TurnService {
       attachmentIds: input.request.attachmentIds ?? []
     })
     const controller = new AbortController()
-    await this.upsertThread(input.threadId, (current) => ({
-      ...touchThread(current, this.deps.nowIso()),
-      status: 'running',
-      ...(input.request.approvalPolicy !== undefined
-        ? { approvalPolicy: input.request.approvalPolicy }
-        : {}),
-      ...(input.request.sandboxMode !== undefined
-        ? { sandboxMode: input.request.sandboxMode }
-        : {}),
-      turns: [...current.turns, startTurnRecord(appendTurnItem(turn, userItem))]
-    }))
+    await this.upsertThread(input.threadId, (current) => {
+      const runningTurn = current.turns.find((candidate) => candidate.status === 'running')
+      if (current.status === 'running' || runningTurn) {
+        throw new TurnInProgressError(input.threadId, runningTurn?.id)
+      }
+      return {
+        ...touchThread(current, this.deps.nowIso()),
+        status: 'running',
+        ...(input.request.approvalPolicy !== undefined
+          ? { approvalPolicy: input.request.approvalPolicy }
+          : {}),
+        ...(input.request.sandboxMode !== undefined
+          ? { sandboxMode: input.request.sandboxMode }
+          : {}),
+        turns: [...current.turns, startTurnRecord(appendTurnItem(turn, userItem))]
+      }
+    })
     await this.deps.sessionStore.appendItem(input.threadId, userItem)
     await this.deps.events.record({
       kind: 'turn_started',
