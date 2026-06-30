@@ -199,6 +199,20 @@ export function createChildAgentExecutor(options: ChildAgentExecutorOptions): Ch
     if (status !== 'completed' && !recoveredToolLoopFailure) {
       throw childAgentFailure(summary || `child agent ${status}`, transcript, threadUsage)
     }
+    if (isBlockedChildFinalText(summary)) {
+      throw childAgentFailure(
+        summary || 'child agent reported a blocker',
+        transcript,
+        threadUsage
+      )
+    }
+    if (isPrematureChildClarification(summary)) {
+      throw childAgentFailure(
+        'child agent stopped for clarification instead of completing the delegated task',
+        transcript,
+        threadUsage
+      )
+    }
     return {
       summary,
       usage: threadUsage,
@@ -273,6 +287,32 @@ function isUsefulChildFinalText(text: string | undefined): boolean {
   if (/^(done|completed|finished|ok|okay|cannot continue|i'?m stuck)\.?$/i.test(trimmed)) return false
   if (/^Tool loop recovery failed:/i.test(trimmed)) return false
   return true
+}
+
+export function isBlockedChildFinalText(text: string | undefined): boolean {
+  return /^\s*CHILD_AGENT_BLOCKED\b/i.test(text?.trim() ?? '')
+}
+
+export function isPrematureChildClarification(text: string | undefined): boolean {
+  const trimmed = text?.trim() ?? ''
+  if (trimmed.length < 20) return false
+  if (isBlockedChildFinalText(trimmed)) return false
+
+  const asksForNextInstruction = [
+    /\bwhat would you like me to\b/i,
+    /\bhow would you like me to\b/i,
+    /\bwould you like me to\b/i,
+    /\bdo you want me to\b/i,
+    /\bshould i\b.{0,80}\b(?:edit|write|continue|proceed|revise|add|check)\b/i,
+    /\bplease let me know\b.{0,120}\b(?:next|how to proceed|what to do|which option)\b/i,
+    /请问.{0,40}(?:需要|希望).{0,20}我.{0,20}(?:做|修改|补充|继续|检查|润色)/,
+    /你.{0,20}(?:需要|希望).{0,20}我.{0,20}(?:做|修改|补充|继续|检查|润色)/,
+    /需要我.{0,30}(?:做什么|继续|修改|补充|润色|检查)/,
+    /我可以.{0,40}(?:润色|修改|补充|检查|继续|添加)/
+  ]
+  if (!asksForNextInstruction.some((pattern) => pattern.test(trimmed))) return false
+
+  return /[?？]/.test(trimmed) || /(?:例如|for example|options include)/i.test(trimmed)
 }
 
 function stringifySummary(value: unknown): string {
