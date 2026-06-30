@@ -173,6 +173,8 @@ const EMPTY_CODEX_TURN_USAGE: AgentRuntimeUsage = {
 
 const FIRST_CODEX_ACTIVITY_TIMEOUT_MS = 75_000
 const INTERRUPT_TIMED_OUT_TURN_MS = 5_000
+const CODEX_TURN_DISCONNECTED_MESSAGE = 'Codex runtime disconnected before this turn completed. The stuck turn was closed so you can retry.'
+const CODEX_TURN_STOPPED_MESSAGE = 'Codex runtime stopped before this turn completed. The stuck turn was closed so you can retry.'
 const CODEX_COMMAND_DOWNLOAD_INSTRUCTION_LINES = [
   'For bulk file downloads or long network transfers through command execution, make progress observable and bounded: stream to a `.part` file, print per-file progress/status, use connect/overall/low-speed timeouts and retries, validate expected file type/size, then atomically rename into place.',
   'When the user explicitly asks to use the system proxy for command-based network work, inspect the current system proxy settings first, such as `scutil --proxy` on macOS, and pass the appropriate `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` values only to those network commands.',
@@ -359,11 +361,13 @@ export class CodexRuntimeService {
       if (isMissingOrUnmaterializedThreadError(error) && isEmptyStoredThread(storedThread, storedDetail)) {
         return { ok: true, detail: emptyThreadDetail() }
       }
-      if (storedDetail && this.activeTurns.has(guiThreadId)) {
+      if (storedDetail && this.activeTurns.has(guiThreadId) && !isCodexRuntimeDisconnectedError(error)) {
         return { ok: true, detail: storedDetail }
       }
       await this.discardClientAfterFailure()
-      if (storedDetail) return { ok: true, detail: storedDetail }
+      if (storedDetail) {
+        return { ok: true, detail: await this.readStoredDetail(guiThreadId, { repairStale: true }) ?? storedDetail }
+      }
       return failure(error)
     }
   }
@@ -727,6 +731,13 @@ export class CodexRuntimeService {
   async stop(reason: CodexDynamicMcpReleaseReason = 'service_shutdown'): Promise<void> {
     const client = this.client
     const dynamicMcpBridge = this.dynamicMcpBridge
+    await this.finalizeActiveTurnsBeforeTeardown({
+      code: reason === 'user_stop' ? 'aborted' : 'runtime_stopped',
+      message: reason === 'user_stop'
+        ? 'Codex turn was stopped before it completed.'
+        : CODEX_TURN_STOPPED_MESSAGE,
+      details: { reason }
+    })
     this.client = null
     this.dynamicMcpBridge = null
     this.clientPromise = null
@@ -748,6 +759,11 @@ export class CodexRuntimeService {
   private async discardClientAfterFailure(): Promise<void> {
     const client = this.client
     const dynamicMcpBridge = this.dynamicMcpBridge
+    await this.finalizeActiveTurnsBeforeTeardown({
+      code: 'runtime_disconnected',
+      message: CODEX_TURN_DISCONNECTED_MESSAGE,
+      details: { reason: 'runtime_disconnected' }
+    })
     this.client = null
     this.dynamicMcpBridge = null
     this.clientPromise = null
@@ -768,6 +784,32 @@ export class CodexRuntimeService {
       await client.stop()
     } catch {
       // The request path already has the meaningful failure. Cleanup is best-effort.
+    }
+  }
+
+  private async finalizeActiveTurnsBeforeTeardown(input: {
+    code: string
+    message: string
+    details?: unknown
+  }): Promise<void> {
+    const activeTurns = [...this.activeTurns.entries()]
+    for (const [threadId, turnId] of activeTurns) {
+      if (this.activeTurns.get(threadId) !== turnId) continue
+      try {
+        await this.emitRuntimeError({
+          threadId,
+          turnId,
+          message: input.message,
+          code: input.code,
+          details: input.details,
+          severity: 'error'
+        })
+      } catch (error) {
+        this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.error, {
+          message: error instanceof Error ? error.message : String(error),
+          detail: error
+        })
+      }
     }
   }
 
@@ -1411,23 +1453,39 @@ export class CodexRuntimeService {
     return null
   }
 
-  private async readStoredDetail(threadId: string): Promise<CodexThreadDetail | null> {
+  private async readStoredDetail(
+    threadId: string,
+    options: { repairStale?: boolean } = {}
+  ): Promise<CodexThreadDetail | null> {
     if (!this.eventStore) return null
-    const events = await this.eventStore.read(threadId, { includeAll: true })
+    let events = await this.eventStore.read(threadId, { includeAll: true })
     if (events.length === 0) return null
-    const latest = events.at(-1)
-    const latestTurnId = latestStoredTurnId(events)
-    const terminalStatus = latestTurnId ? storedTerminalTurnStatus(events, latestTurnId) : undefined
+    let latest = events.at(-1)
+    let latestTurnId = latestStoredTurnId(events)
+    let terminalStatus = latestTurnId ? storedTerminalTurnStatus(events, latestTurnId) : undefined
     const staleRunningTurn = latestTurnId &&
       !this.activeTurns.has(threadId) &&
-      !terminalStatus
+      !terminalStatus &&
+      !storedTurnHasAssistantResponse(events, latestTurnId)
+    if (staleRunningTurn && latestTurnId && options.repairStale === true) {
+      await this.emitRuntimeError({
+        threadId,
+        turnId: latestTurnId,
+        message: CODEX_TURN_DISCONNECTED_MESSAGE,
+        code: 'runtime_disconnected',
+        details: { reason: 'stale_stored_turn' },
+        severity: 'error'
+      }, { forceTurnDone: true })
+      events = await this.eventStore.read(threadId, { includeAll: true })
+      latest = events.at(-1)
+      latestTurnId = latestStoredTurnId(events)
+      terminalStatus = latestTurnId ? storedTerminalTurnStatus(events, latestTurnId) : undefined
+    }
     return {
       blocks: storedEventsToBlocks(events),
       latestSeq: latest?.seq ?? 0,
       latestTurnId,
-      ...(terminalStatus
-        ? { threadStatus: terminalStatus }
-        : staleRunningTurn ? { threadStatus: 'failed' } : {})
+      ...(terminalStatus ? { threadStatus: terminalStatus } : {})
     }
   }
 
@@ -1537,9 +1595,13 @@ export class CodexRuntimeService {
     })
   }
 
-  private async emitTurnDoneIfNeeded(event: CodexThreadEventPayload): Promise<void> {
+  private async emitTurnDoneIfNeeded(
+    event: CodexThreadEventPayload,
+    options: { force?: boolean } = {}
+  ): Promise<void> {
     const turnId = event.turnId || event.userMessage?.turnId || ''
-    if (!turnId || this.activeTurns.get(event.threadId) !== turnId) return
+    if (!turnId) return
+    if (!options.force && this.activeTurns.get(event.threadId) !== turnId) return
     if (!event.turnComplete && !isTerminalRuntimeError(event.runtimeError)) return
     const timing = this.turnTimings.get(turnTimingKey(event.threadId, turnId))
     const errorMessage = event.runtimeError?.message?.trim()
@@ -1575,7 +1637,10 @@ export class CodexRuntimeService {
     return published
   }
 
-  private async emitRuntimeError(event: CodexRuntimeErrorInput): Promise<CodexThreadEventPayload> {
+  private async emitRuntimeError(
+    event: CodexRuntimeErrorInput,
+    options: { forceTurnDone?: boolean } = {}
+  ): Promise<CodexThreadEventPayload> {
     const runtimeEvent: CodexThreadEventPayload = {
       threadId: event.threadId,
       ...(event.turnId ? { turnId: event.turnId } : {}),
@@ -1590,7 +1655,7 @@ export class CodexRuntimeService {
     }
     const stored = await this.persistEvent(event.threadId, runtimeEvent)
     const published = stored?.event ?? runtimeEvent
-    await this.emitTurnDoneIfNeeded(published)
+    await this.emitTurnDoneIfNeeded(published, { force: options.forceTurnDone === true })
     this.noteRuntimeEvent(published)
     this.broadcastEvent(published)
     this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.event, { event: published })
@@ -1955,6 +2020,17 @@ function storedTerminalTurnStatus(
     if (item.event.turnComplete === true) return 'completed'
   }
   return undefined
+}
+
+function storedTurnHasAssistantResponse(events: CodexStoredEvent[], turnId: string): boolean {
+  for (const item of events) {
+    const eventTurnId = item.event.turnId || item.event.userMessage?.turnId
+    if (eventTurnId !== turnId) continue
+    if (item.event.deltas?.some((delta) => delta.kind === 'agent_message' && delta.text.trim())) {
+      return true
+    }
+  }
+  return false
 }
 
 function isTerminalThreadStatus(status: string | undefined): boolean {
@@ -2479,6 +2555,11 @@ function safeUsageInteger(value: unknown): number {
 function isMissingOrUnmaterializedThreadError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return /thread\s+.*not found|thread not found|no rollout found|not materialized yet|includeTurns is unavailable/i.test(message)
+}
+
+function isCodexRuntimeDisconnectedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /app-server client stopped|event stream (?:closed|ended)|runtime disconnected|socket hang up|ECONNRESET|EPIPE/i.test(message)
 }
 
 function isTerminalRuntimeError(error: CodexThreadEventPayload['runtimeError']): boolean {

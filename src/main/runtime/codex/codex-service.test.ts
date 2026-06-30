@@ -474,12 +474,34 @@ describe('CodexRuntimeService storage fallback', () => {
     await expect(service.readThread('codex-thread-1')).resolves.toEqual({
       ok: true,
       detail: expect.objectContaining({
-        latestSeq: 1,
+        latestSeq: 3,
         latestTurnId: 'turn-1',
         threadStatus: 'failed',
-        blocks: [expect.objectContaining({ kind: 'user', id: 'user-1', turnId: 'turn-1', text: 'hello' })]
+        blocks: [
+          expect.objectContaining({ kind: 'user', id: 'user-1', turnId: 'turn-1', text: 'hello' }),
+          expect.objectContaining({
+            kind: 'system',
+            turnId: 'turn-1',
+            code: 'runtime_disconnected',
+            severity: 'error'
+          })
+        ]
       })
     })
+    await expect(eventStore.read('codex-thread-1', { includeAll: true })).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            runtimeError: expect.objectContaining({ code: 'runtime_disconnected' })
+          })
+        }),
+        expect.objectContaining({
+          event: expect.objectContaining({
+            runtimeStatus: expect.objectContaining({ phase: 'turn_done' })
+          })
+        })
+      ])
+    )
   })
 
   it('prefers stored terminal turn state when app-server live read still reports running', async () => {
@@ -842,6 +864,89 @@ describe('CodexRuntimeService compatibility operations', () => {
       code: 'turn_not_running'
     })
     queued.close()
+  })
+
+  it('persists terminal errors for active turns before stopping the runtime', async () => {
+    const storageRoot = await tempRoot()
+    const eventStore = new CodexEventStore({ rootDir: storageRoot })
+    const client = controllableClient()
+    const sink = { send: vi.fn() }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink,
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+    sink.send.mockClear()
+
+    await service.stop()
+
+    await expect(eventStore.read('thread-1', { includeAll: true })).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            runtimeError: expect.objectContaining({
+              code: 'runtime_stopped',
+              severity: 'error'
+            })
+          })
+        }),
+        expect.objectContaining({
+          event: expect.objectContaining({
+            runtimeStatus: expect.objectContaining({ phase: 'turn_done' })
+          })
+        })
+      ])
+    )
+    expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {
+      event: expect.objectContaining({
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        runtimeError: expect.objectContaining({ code: 'runtime_stopped' })
+      })
+    })
+  })
+
+  it('finalizes active stored turns when readThread sees a stopped client', async () => {
+    const storageRoot = await tempRoot()
+    const eventStore = new CodexEventStore({ rootDir: storageRoot })
+    const client = controllableClient()
+    vi.mocked(client.readThread).mockRejectedValue(new Error('Codex app-server client stopped.'))
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+
+    await expect(service.readThread('thread-1')).resolves.toEqual({
+      ok: true,
+      detail: expect.objectContaining({
+        threadStatus: 'failed',
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ kind: 'system', code: 'runtime_disconnected' })
+        ])
+      })
+    })
+    await expect(eventStore.read('thread-1', { includeAll: true })).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            runtimeError: expect.objectContaining({ code: 'runtime_disconnected' })
+          })
+        })
+      ])
+    )
   })
 
   it('archives local Codex thread state when app-server cannot find the rollout', async () => {

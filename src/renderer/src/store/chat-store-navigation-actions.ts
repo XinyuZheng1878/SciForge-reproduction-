@@ -7,6 +7,8 @@ import { formatWorkspacePickerError } from '../lib/format-workspace-picker-error
 import { formatRuntimeError } from '../lib/format-runtime-error'
 import {
   deriveThreadTitleFromPrompt,
+  hasInternalPromptThreadTitle,
+  hasPlaceholderThreadTitle,
   shouldAutoTitleThread
 } from '../lib/thread-title'
 import { filterThreadsForSidebar } from '../lib/thread-sidebar-visibility'
@@ -92,6 +94,42 @@ let clawChannelActivityUnsubscribe: (() => void) | null = null
 
 function stateHasRecoverableActiveTurn(state: ChatState): boolean {
   return state.busy || Boolean(state.currentTurnId) || state.blocks.some(hasPendingRuntimeWork)
+}
+
+function titleFromLocalUserBlocks(blocks: ChatState['blocks']): string | null {
+  for (const block of blocks) {
+    if (block.kind !== 'user' || block.managedBy === 'claw') continue
+    const text = block.meta?.displayText?.trim() || block.text.trim()
+    if (!text || hasInternalPromptThreadTitle(text)) continue
+    const title = deriveThreadTitleFromPrompt(text)
+    if (!title || hasPlaceholderThreadTitle(title) || hasInternalPromptThreadTitle(title)) continue
+    return title
+  }
+  return null
+}
+
+function threadNeedsSidebarTitle(thread: Pick<NormalizedThread, 'id' | 'title'>): boolean {
+  return shouldAutoTitleThread(thread) || hasInternalPromptThreadTitle(thread.title)
+}
+
+function activeThreadFilteredFromSidebar(options: {
+  activeId: string | null
+  rawThreads: NormalizedThread[]
+  sidebarThreads: NormalizedThread[]
+}): boolean {
+  return options.activeId != null &&
+    options.rawThreads.some((thread) => thread.id === options.activeId) &&
+    !options.sidebarThreads.some((thread) => thread.id === options.activeId)
+}
+
+function preserveLocalActiveThreadForSidebar(
+  thread: NormalizedThread | null,
+  blocks: ChatState['blocks']
+): NormalizedThread | null {
+  if (!thread) return null
+  if (!threadNeedsSidebarTitle(thread)) return thread
+  const title = titleFromLocalUserBlocks(blocks)
+  return title ? { ...thread, title } : null
 }
 
 export async function syncClawChannelActivityToStore(
@@ -555,19 +593,16 @@ export function createNavigationActions(
         isEmptySddAssistantThreadCandidate(
           activeId ? get().threads.find((thread) => thread.id === activeId) ?? null : null
         )
-      const activeThreadFilteredFromCodeSidebar =
-        get().route === 'chat' &&
-        activeId != null &&
+      const activeThreadWasFilteredFromSidebar =
         !activeThreadIsSdd &&
-        threads.some((thread) => thread.id === activeId) &&
-        !sidebarThreads.some((thread) => thread.id === activeId)
+        activeThreadFilteredFromSidebar({ activeId, rawThreads: threads, sidebarThreads })
       const preservedSddActiveThread =
         activeThreadIsSdd && activeId
           ? activeRawThread ?? get().threads.find((thread) => thread.id === activeId) ?? null
           : null
       const pendingActiveThread =
         activeId != null &&
-        !activeThreadFilteredFromCodeSidebar &&
+        !activeThreadWasFilteredFromSidebar &&
         !enrichedThreads.some((thread) => thread.id === activeId)
           ? get().threads.find((thread) => thread.id === activeId) ?? null
           : null
@@ -602,7 +637,10 @@ export function createNavigationActions(
         !displayThreads.some((thread) => thread.id === activeThreadId)
       const locallyActiveThread =
         activeThreadHasLocalConversation && activeId
-          ? activeRawThread ?? get().threads.find((thread) => thread.id === activeId) ?? null
+          ? preserveLocalActiveThreadForSidebar(
+              activeRawThread ?? get().threads.find((thread) => thread.id === activeId) ?? null,
+              get().blocks
+            )
           : null
       if (
         locallyActiveThread &&

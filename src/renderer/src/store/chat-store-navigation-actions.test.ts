@@ -190,7 +190,7 @@ describe('chat-store-navigation-actions refreshThreads', () => {
 
     await refreshThreads()
 
-    expect(state.threads).toEqual([activeThread])
+    expect(state.threads).toEqual([{ ...activeThread, title: 'continue this thread' }])
     expect(state.activeThreadId).toBe('12345678abcdef')
     expect(state.blocks).toEqual([{ kind: 'user', id: 'optimistic-user', text: 'continue this thread' }])
   })

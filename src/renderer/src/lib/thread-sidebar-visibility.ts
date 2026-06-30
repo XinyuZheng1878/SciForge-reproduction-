@@ -46,6 +46,12 @@ function titleFromThreadBlocks(blocks: ChatBlock[]): string | null {
   return hasPlaceholderThreadTitle(title) || hasInternalPromptThreadTitle(title) ? null : title
 }
 
+function needsRealDerivedTitle(thread: Pick<NormalizedThread, 'id' | 'title'>): boolean {
+  return hasThreadIdFallbackTitle(thread) ||
+    hasPlaceholderThreadTitle(thread.title) ||
+    hasInternalPromptThreadTitle(thread.title)
+}
+
 export async function filterThreadsForSidebar(
   threads: NormalizedThread[],
   reader: ThreadDetailReader
@@ -70,7 +76,7 @@ export async function filterThreadsForSidebar(
         return {
           threadId: thread.id,
           hide: shouldHideThreadFromSidebarByBlocks(detail.blocks) ||
-            (hasInternalPromptThreadTitle(thread.title) && !title),
+            (needsRealDerivedTitle(thread) && !title),
           title
         }
       })

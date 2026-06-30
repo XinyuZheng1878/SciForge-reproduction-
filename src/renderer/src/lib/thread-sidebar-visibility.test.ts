@@ -122,6 +122,31 @@ describe('thread-sidebar-visibility', () => {
     expect(visible).toEqual([])
   })
 
+  it('hides placeholder titled threads with only non-user runtime blocks', async () => {
+    const placeholderThread = thread({ id: 'thr_placeholder_runtime', title: '新会话' })
+
+    const visible = await filterThreadsForSidebar([placeholderThread], {
+      getThreadDetail: async () => ({
+        blocks: [
+          { kind: 'system', id: 'status-1', text: 'Starting runtime' },
+          { kind: 'assistant', id: 'assistant-1', text: 'internal status only' }
+        ]
+      })
+    })
+
+    expect(visible).toEqual([])
+  })
+
+  it('hides placeholder titled threads when the only user text is also a placeholder', async () => {
+    const placeholderThread = thread({ id: 'thr_placeholder_user', title: '新会话' })
+
+    const visible = await filterThreadsForSidebar([placeholderThread], {
+      getThreadDetail: async () => ({ blocks: [userBlock('新会话')] })
+    })
+
+    expect(visible).toEqual([])
+  })
+
   it('derives display titles for leaked runtime prompt titles with real content', async () => {
     const leakedThread = thread({
       id: 'thr_leaked_prompt',
