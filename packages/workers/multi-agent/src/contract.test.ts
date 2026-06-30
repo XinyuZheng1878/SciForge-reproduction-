@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  DEFAULT_MULTI_AGENT_CHILD_TIMEOUT_MS,
   DelegateTaskInput,
   MULTI_AGENT_CONTRACT_VERSION,
   MultiAgentChildRunRecord,
@@ -13,6 +14,7 @@ test('runtime config and child run records apply contract defaults', () => {
     enabled: true,
     maxParallel: 2,
     maxChildren: 16,
+    childTimeoutMs: DEFAULT_MULTI_AGENT_CHILD_TIMEOUT_MS,
     maxTranscriptEntries: 1000
   })
 
