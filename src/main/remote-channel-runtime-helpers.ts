@@ -366,7 +366,7 @@ export function splitRemoteChannelReplyText(
   )
 }
 
-export function clawImAttachmentKindForFileName(fileName: string): 'file' | 'image' {
+export function remoteChannelAttachmentKindForFileName(fileName: string): 'file' | 'image' {
   const lower = fileName.trim().toLowerCase()
   const dotIndex = lower.lastIndexOf('.')
   const extension = dotIndex >= 0 ? lower.slice(dotIndex) : ''
@@ -376,14 +376,14 @@ export function clawImAttachmentKindForFileName(fileName: string): 'file' | 'ima
 export function remoteChannelAttachmentFromGeneratedFile(file: RemoteChannelGeneratedFileV1): RemoteChannelOutboundAttachment {
   const name = file.fileName.trim() || basename(file.path)
   return {
-    kind: clawImAttachmentKindForFileName(name),
+    kind: remoteChannelAttachmentKindForFileName(name),
     name,
     path: file.path,
     summary: file.relativePath?.trim() || name
   }
 }
 
-export function supportedClawImAttachments(
+export function supportedRemoteChannelImAttachments(
   provider: RemoteChannelProvider,
   attachments: readonly RemoteChannelOutboundAttachment[]
 ): RemoteChannelOutboundAttachment[] {
@@ -399,11 +399,11 @@ export function supportedClawImAttachments(
   })
 }
 
-export function unsupportedClawImAttachments(
+export function unsupportedRemoteChannelImAttachments(
   provider: RemoteChannelProvider,
   attachments: readonly RemoteChannelOutboundAttachment[]
 ): RemoteChannelOutboundAttachment[] {
-  const supported = new Set(supportedClawImAttachments(provider, attachments))
+  const supported = new Set(supportedRemoteChannelImAttachments(provider, attachments))
   return attachments.filter((attachment) => !supported.has(attachment))
 }
 
@@ -444,7 +444,7 @@ export function prepareRemoteChannelReplyText(
 ): RemoteChannelPreparedReply {
   const capability = getRemoteChannelProviderCapabilities(provider)
   const attachments = options.attachments ?? []
-  const unsupportedAttachments = unsupportedClawImAttachments(provider, attachments)
+  const unsupportedAttachments = unsupportedRemoteChannelImAttachments(provider, attachments)
   const fallbackText = buildRemoteChannelAttachmentFallbackText(provider, unsupportedAttachments)
   const body = [text.trim(), fallbackText].filter(Boolean).join('\n\n')
   return {
@@ -545,7 +545,7 @@ export function parseJsonObject(raw: string): Record<string, unknown> | null {
   }
 }
 
-const CLAW_FAILURE_TITLES: Record<RemoteChannelFailureKind, string> = {
+const REMOTE_CHANNEL_FAILURE_TITLES: Record<RemoteChannelFailureKind, string> = {
   runtime_offline: 'Runtime offline',
   model_missing: 'Model missing',
   timeout: 'Timed out',
@@ -555,7 +555,7 @@ const CLAW_FAILURE_TITLES: Record<RemoteChannelFailureKind, string> = {
   provider_send_failed: 'Provider send failed'
 }
 
-const CLAW_FAILURE_RECOVERABLE: Record<RemoteChannelFailureKind, boolean> = {
+const REMOTE_CHANNEL_FAILURE_RECOVERABLE: Record<RemoteChannelFailureKind, boolean> = {
   runtime_offline: true,
   model_missing: true,
   timeout: true,
@@ -589,7 +589,7 @@ function parsedRuntimeFailure(raw: string): {
   }
 }
 
-export function classifyClawFailure(input: {
+export function classifyRemoteChannelFailure(input: {
   message?: string
   code?: string
   status?: number
@@ -641,7 +641,7 @@ export function classifyClawFailure(input: {
 
 export function remoteChannelFailureResult(input: RemoteChannelFailureInput): RemoteChannelFailureResult {
   const message = input.message.trim() || 'Remote channel runtime failed.'
-  const failureKind = classifyClawFailure({
+  const failureKind = classifyRemoteChannelFailure({
     message,
     code: input.code,
     status: input.status,
@@ -651,8 +651,8 @@ export function remoteChannelFailureResult(input: RemoteChannelFailureInput): Re
     ok: false,
     message,
     failureKind,
-    failureTitle: CLAW_FAILURE_TITLES[failureKind],
-    recoverable: CLAW_FAILURE_RECOVERABLE[failureKind],
+    failureTitle: REMOTE_CHANNEL_FAILURE_TITLES[failureKind],
+    recoverable: REMOTE_CHANNEL_FAILURE_RECOVERABLE[failureKind],
     ...(input.details !== undefined ? { details: input.details } : {})
   }
 }

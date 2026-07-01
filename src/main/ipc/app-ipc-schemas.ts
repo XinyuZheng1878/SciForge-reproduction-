@@ -87,12 +87,12 @@ const claudeSandboxModeSchema = z.enum(['read-only', 'workspace-write', 'danger-
 const mcpSearchModeSchema = z.enum(['direct', 'search', 'auto'])
 const localRuntimeStorageBackendSchema = z.enum(['hybrid', 'file'])
 const localRuntimeCompactionSummaryModeSchema = z.enum(['heuristic', 'model'])
-const clawRunModeSchema = z.enum(['agent', 'plan'])
-const clawImProviderSchema = z.enum(['feishu', 'weixin', 'discord'])
-const clawImChannelGuardModeSchema = z.enum(['only_mention', 'all_messages', 'off'])
-const clawImOfficialInstallProviderSchema = z.enum(['feishu', 'weixin'])
-const clawScheduleKindSchema = z.enum(['manual', 'interval', 'daily', 'at'])
-const clawTaskStatusSchema = z.enum(['idle', 'running', 'success', 'error'])
+const runModeSchema = z.enum(['agent', 'plan'])
+const remoteChannelProviderSchema = z.enum(['feishu', 'weixin', 'discord'])
+const remoteChannelGuardModeSchema = z.enum(['only_mention', 'all_messages', 'off'])
+const connectPhoneInstallProviderSchema = z.enum(['feishu', 'weixin'])
+const scheduleKindSchema = z.enum(['manual', 'interval', 'daily', 'at'])
+const taskStatusSchema = z.enum(['idle', 'running', 'success', 'error'])
 const scheduleReasoningEffortSchema = z.enum(SCHEDULE_REASONING_EFFORT_IDS)
 const speechToTextProtocolSchema = z.enum(SPEECH_TO_TEXT_PROTOCOLS)
 const paperRadarSourceSchema = z.enum(['arxiv', 'biorxiv'])
@@ -545,25 +545,25 @@ const speechToTextPatchSchema = z.object({
   timeoutMs: z.number().int().min(5_000).max(600_000).optional()
 }).strict()
 
-const clawSkillPatchSchema = z.object({
+const remoteChannelSkillPatchSchema = z.object({
   defaultNames: z.array(trimmedString(128)).max(128).optional(),
   extraDirs: z.array(trimmedString(MAX_PATH_LENGTH)).max(128).optional(),
   promptPrefix: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional()
 }).strict()
 
-const clawImPatchSchema = z.object({
+const remoteChannelImPatchSchema = z.object({
   enabled: z.boolean().optional(),
-  provider: clawImProviderSchema.optional(),
+  provider: remoteChannelProviderSchema.optional(),
   port: z.number().int().min(1024).max(65_535).optional(),
   path: trimmedString(MAX_PATH_LENGTH).optional(),
   secret: z.string().max(MAX_BODY_BYTES).optional(),
   workspaceRoot: defaultPathSchema,
   model: z.string().trim().min(1).max(128).optional(),
-  mode: clawRunModeSchema.optional(),
+  mode: runModeSchema.optional(),
   responseTimeoutMs: z.number().int().min(5_000).max(600_000).optional()
 }).strict()
 
-const clawImAgentProfilePatchSchema = z.object({
+const remoteChannelAgentProfilePatchSchema = z.object({
   name: z.string().max(200).optional(),
   description: z.string().max(2_000).optional(),
   identity: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
@@ -572,7 +572,7 @@ const clawImAgentProfilePatchSchema = z.object({
   replyRules: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional()
 }).strict()
 
-const clawImPlatformCredentialPatchSchema = z.union([
+const remoteChannelPlatformCredentialPatchSchema = z.union([
   z.object({
     kind: z.literal('feishu').optional(),
     appId: z.string().max(512).optional(),
@@ -602,7 +602,7 @@ const clawImPlatformCredentialPatchSchema = z.union([
   }).strict()
 ])
 
-const clawImRemoteSessionPatchSchema = z.object({
+const remoteChannelRemoteSessionPatchSchema = z.object({
   chatId: z.string().max(MAX_ID_LENGTH).optional(),
   messageId: z.string().max(MAX_ID_LENGTH).optional(),
   threadId: z.string().max(MAX_ID_LENGTH).optional(),
@@ -611,8 +611,8 @@ const clawImRemoteSessionPatchSchema = z.object({
   updatedAt: z.string().max(128).optional()
 }).strict()
 
-const clawImRecentMessagePatchSchema = z.object({
-  provider: clawImProviderSchema.optional(),
+const remoteChannelRecentMessagePatchSchema = z.object({
+  provider: remoteChannelProviderSchema.optional(),
   channelId: z.string().max(MAX_ID_LENGTH).optional(),
   chatId: z.string().max(MAX_ID_LENGTH).optional(),
   remoteThreadId: z.string().max(MAX_ID_LENGTH).optional(),
@@ -622,7 +622,7 @@ const clawImRecentMessagePatchSchema = z.object({
   receivedAt: z.string().max(128).optional()
 }).strict()
 
-const clawImConversationPatchSchema = z.object({
+const remoteChannelConversationPatchSchema = z.object({
   id: z.string().max(MAX_ID_LENGTH).optional(),
   chatId: z.string().max(MAX_ID_LENGTH).optional(),
   remoteThreadId: z.string().max(MAX_ID_LENGTH).optional(),
@@ -636,30 +636,30 @@ const clawImConversationPatchSchema = z.object({
   updatedAt: z.string().max(128).optional()
 }).strict()
 
-const clawImChannelPatchSchema = z.object({
+const remoteChannelPatchSchema = z.object({
   id: z.string().max(MAX_ID_LENGTH).optional(),
-  provider: clawImProviderSchema.optional(),
+  provider: remoteChannelProviderSchema.optional(),
   label: z.string().max(512).optional(),
   enabled: z.boolean().optional(),
-  guardMode: clawImChannelGuardModeSchema.optional(),
+  guardMode: remoteChannelGuardModeSchema.optional(),
   model: z.string().trim().min(1).max(128).optional(),
   runtimeId: agentRuntimeIdSchema.optional(),
   agentThreadIds: agentThreadIdsSchema.optional(),
   workspaceRoot: defaultPathSchema,
-  agentProfile: clawImAgentProfilePatchSchema.optional(),
-  platformCredential: clawImPlatformCredentialPatchSchema.optional(),
-  remoteSession: clawImRemoteSessionPatchSchema.optional(),
-  conversations: z.array(clawImConversationPatchSchema).max(512).optional(),
-  recentMessages: z.array(clawImRecentMessagePatchSchema).max(2_000).optional(),
+  agentProfile: remoteChannelAgentProfilePatchSchema.optional(),
+  platformCredential: remoteChannelPlatformCredentialPatchSchema.optional(),
+  remoteSession: remoteChannelRemoteSessionPatchSchema.optional(),
+  conversations: z.array(remoteChannelConversationPatchSchema).max(512).optional(),
+  recentMessages: z.array(remoteChannelRecentMessagePatchSchema).max(2_000).optional(),
   createdAt: z.string().max(128).optional(),
   updatedAt: z.string().max(128).optional()
 }).strict()
 
 const remoteChannelSettingsPatchSchema = z.object({
   enabled: z.boolean().optional(),
-  skills: clawSkillPatchSchema.optional(),
-  im: clawImPatchSchema.optional(),
-  channels: z.array(clawImChannelPatchSchema).max(512).optional()
+  skills: remoteChannelSkillPatchSchema.optional(),
+  im: remoteChannelImPatchSchema.optional(),
+  channels: z.array(remoteChannelPatchSchema).max(512).optional()
 }).strict()
 
 const connectPhoneSettingsPatchSchema = z.object({
@@ -677,7 +677,7 @@ const scheduleInternalPatchSchema = z.object({
 }).strict()
 
 const scheduledTaskSchedulePatchSchema = z.object({
-  kind: clawScheduleKindSchema.optional(),
+  kind: scheduleKindSchema.optional(),
   everyMinutes: z.number().int().min(1).max(10_080).optional(),
   timeOfDay: z.string().max(16).optional(),
   atTime: z.string().max(128).optional()
@@ -691,7 +691,7 @@ const scheduledTaskPatchSchema = z.object({
   workspaceRoot: defaultPathSchema,
   model: z.string().trim().min(1).max(128).optional(),
   reasoningEffort: scheduleReasoningEffortSchema.optional(),
-  mode: clawRunModeSchema.optional(),
+  mode: runModeSchema.optional(),
   runtimeId: agentRuntimeIdSchema.optional(),
   agentThreadIds: agentThreadIdsSchema.optional(),
   schedule: scheduledTaskSchedulePatchSchema.optional(),
@@ -699,7 +699,7 @@ const scheduledTaskPatchSchema = z.object({
   updatedAt: z.string().max(128).optional(),
   lastRunAt: z.string().max(128).optional(),
   nextRunAt: z.string().max(128).optional(),
-  lastStatus: clawTaskStatusSchema.optional(),
+  lastStatus: taskStatusSchema.optional(),
   lastMessage: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional()
 }).strict()
 
@@ -707,7 +707,7 @@ const scheduleSettingsPatchSchema = z.object({
   enabled: z.boolean().optional(),
   defaultWorkspaceRoot: defaultPathSchema,
   model: z.union([z.enum(SCHEDULE_MODEL_IDS), trimmedString(128)]).optional(),
-  mode: clawRunModeSchema.optional(),
+  mode: runModeSchema.optional(),
   promptPrefix: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
   skills: scheduleSkillPatchSchema.optional(),
   keepAwake: z.boolean().optional(),
@@ -756,7 +756,7 @@ const workflowAiAgentConfigSchema = z
     providerId: z.string().trim().max(64).optional(),
     model: optionalTrimmedString(128),
     reasoningEffort: scheduleReasoningEffortSchema.optional(),
-    mode: clawRunModeSchema.optional()
+    mode: runModeSchema.optional()
   })
   .strict()
 
@@ -1109,7 +1109,7 @@ const workflowRunPatchSchema = z
   .object({
     id: z.string().max(MAX_ID_LENGTH).optional(),
     trigger: z.string().max(128).optional(),
-    status: clawTaskStatusSchema.optional(),
+    status: taskStatusSchema.optional(),
     startedAt: z.string().max(128).optional(),
     finishedAt: z.string().max(128).optional(),
     message: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
@@ -1141,7 +1141,7 @@ const workflowPatchSchema = z
     updatedAt: z.string().max(128).optional(),
     lastRunAt: z.string().max(128).optional(),
     nextRunAt: z.string().max(128).optional(),
-    lastStatus: clawTaskStatusSchema.optional(),
+    lastStatus: taskStatusSchema.optional(),
     lastMessage: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
     runs: z.array(workflowRunPatchSchema).max(50).optional()
   })
@@ -1188,7 +1188,7 @@ const workflowSettingsPatchSchema = z
     defaultWorkspaceRoot: defaultPathSchema,
     providerId: z.string().trim().max(64).optional(),
     model: optionalTrimmedString(128),
-    mode: clawRunModeSchema.optional(),
+    mode: runModeSchema.optional(),
     keepAwake: z.boolean().optional(),
     webhookPort: z.number().int().min(1024).max(65_535).optional(),
     webhookSecret: z.string().max(MAX_BODY_BYTES).optional(),
@@ -1857,7 +1857,7 @@ export const discordBindChannelPayloadSchema = z
     workspaceRoot: defaultPathSchema,
     model: z.union([z.enum(REMOTE_CHANNEL_MODEL_IDS), trimmedString(128)]).optional(),
     runtimeId: agentRuntimeIdSchema.optional(),
-    agentProfile: clawImAgentProfilePatchSchema.optional()
+    agentProfile: remoteChannelAgentProfilePatchSchema.optional()
   })
   .strict()
 
@@ -1888,14 +1888,14 @@ export const scheduleTaskFromTextPayloadSchema = z
 
 export const connectPhoneInstallQrPayloadSchema = z
   .object({
-    provider: clawImOfficialInstallProviderSchema,
+    provider: connectPhoneInstallProviderSchema,
     isLark: z.boolean().optional()
   })
   .strict()
 
 export const connectPhoneInstallPollPayloadSchema = z
   .object({
-    provider: clawImOfficialInstallProviderSchema,
+    provider: connectPhoneInstallProviderSchema,
     deviceCode: trimmedString(MAX_DEVICE_CODE_LENGTH)
   })
   .strict()

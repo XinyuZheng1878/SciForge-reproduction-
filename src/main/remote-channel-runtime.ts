@@ -87,7 +87,7 @@ import {
   type IncomingImChatType,
   type RunPromptOptions,
   type ThreadDetailJson
-} from './claw-runtime-helpers'
+} from './remote-channel-runtime-helpers'
 
 const MAX_RECENT_REMOTE_MESSAGE_IDS = 2_000
 const MAX_RECENT_REMOTE_MESSAGE_TEXT_LENGTH = 500
@@ -97,7 +97,7 @@ const AGENT_RUNTIME_INTERRUPT_TIMEOUT_MS = 5_000
 const UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE =
   'unsupported_runtime_request: AgentRuntimeHost is required for remote channel runtime requests.'
 
-type FeishuClawChannel = RemoteChannelV1 & {
+type FeishuRemoteChannel = RemoteChannelV1 & {
   platformCredential: RemoteChannelFeishuPlatformCredentialV1
 }
 
@@ -109,7 +109,7 @@ function isFailedStatus(status: string | undefined): boolean {
   return status === 'failed' || status === 'aborted' || status === 'error' || status === 'cancelled'
 }
 
-export type ClawIncomingImMessageInput = {
+export type RemoteChannelIncomingImMessageInput = {
   provider: RemoteChannelProvider
   channelId?: string
   text: string
@@ -121,7 +121,7 @@ export type ClawIncomingImMessageInput = {
   remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
 }
 
-export type ClawIncomingImMessageResult =
+export type RemoteChannelIncomingImMessageResult =
   | (Extract<RemoteChannelRunResult, { ok: true }> & { reply?: string; createdTaskId?: string })
   | { ok: true; reply: string; message?: string; createdTaskId?: string }
   | { ok: true; ignored: true; message: string; reply?: string }
@@ -135,8 +135,8 @@ function imRemoteQueuedNoticeText(settings: AppSettingsV1): string {
 
 function withRemoteQueuedNotice(
   settings: AppSettingsV1,
-  result: ClawIncomingImMessageResult
-): ClawIncomingImMessageResult {
+  result: RemoteChannelIncomingImMessageResult
+): RemoteChannelIncomingImMessageResult {
   if (!result.ok || ('ignored' in result && result.ignored)) return result
   const notice = imRemoteQueuedNoticeText(settings)
   const reply = 'reply' in result ? result.reply?.trim() ?? '' : ''
@@ -148,7 +148,7 @@ function withRemoteQueuedNotice(
   }
 }
 
-function hasFeishuPlatformCredential(channel: RemoteChannelV1): channel is FeishuClawChannel {
+function hasFeishuPlatformCredential(channel: RemoteChannelV1): channel is FeishuRemoteChannel {
   return channel.platformCredential?.kind === 'feishu' &&
     !!channel.platformCredential.appId.trim() &&
     !!channel.platformCredential.appSecret.trim()
@@ -303,7 +303,7 @@ function shortThreadId(threadId: string): string {
   return threadId.length > 12 ? `${threadId.slice(0, 8)}...${threadId.slice(-4)}` : threadId
 }
 
-function clawRuntimeId(
+function remoteChannelRuntimeId(
   settings: AppSettingsV1,
   channel?: RemoteChannelV1,
   conversation?: RemoteChannelConversationV1
@@ -323,7 +323,7 @@ function withAgentThreadId(
   return next
 }
 
-function clawThreadIdForRuntime(
+function remoteChannelThreadIdForRuntime(
   channel: RemoteChannelV1 | undefined,
   conversation: RemoteChannelConversationV1 | undefined,
   runtimeId: AgentRuntimeId
@@ -335,7 +335,7 @@ function clawThreadIdForRuntime(
   return mapped
 }
 
-function clawConversationThreadIdForRuntime(
+function remoteChannelConversationThreadIdForRuntime(
   conversation: RemoteChannelConversationV1 | undefined,
   runtimeId: AgentRuntimeId
 ): string {
@@ -350,11 +350,11 @@ function incomingThreadIdForRuntime(
   hasRemoteSession: boolean
 ): string {
   return hasRemoteSession
-    ? clawConversationThreadIdForRuntime(conversation, runtimeId)
-    : clawThreadIdForRuntime(channel, conversation, runtimeId)
+    ? remoteChannelConversationThreadIdForRuntime(conversation, runtimeId)
+    : remoteChannelThreadIdForRuntime(channel, conversation, runtimeId)
 }
 
-function withClawThreadMapping<T extends RemoteChannelV1 | RemoteChannelConversationV1>(
+function withRemoteChannelThreadMapping<T extends RemoteChannelV1 | RemoteChannelConversationV1>(
   item: T,
   runtimeId: AgentRuntimeId,
   threadId: string
@@ -665,7 +665,7 @@ function formatUpdatedAt(updatedAt: string): string {
   return new Date(parsed).toISOString()
 }
 
-export class ClawRuntime {
+export class RemoteChannelRuntime {
   private readonly deps: RemoteChannelRuntimeDeps
   private server: Server | null = null
   private serverKey = ''
@@ -815,7 +815,7 @@ export class ClawRuntime {
         return remoteChannelFailureFromError(error, 'Failed to start turn.')
       }
       if (options.source === 'im') {
-        this.deps.logError('claw-runtime', 'Configured IM thread was missing; asking remote user to rebind.', {
+        this.deps.logError('remote-channel-runtime', 'Configured IM thread was missing; asking remote user to rebind.', {
           threadId: existingThreadId,
           channelId: options.channel?.id,
           source: options.source,
@@ -831,7 +831,7 @@ export class ClawRuntime {
           }
         })
       }
-      this.deps.logError('claw-runtime', 'Configured IM thread was missing; creating a replacement thread.', {
+      this.deps.logError('remote-channel-runtime', 'Configured IM thread was missing; creating a replacement thread.', {
         threadId: existingThreadId,
         channelId: options.channel?.id,
         source: options.source,
@@ -966,7 +966,7 @@ export class ClawRuntime {
       })
       void interrupt.catch((error) => {
         if (!timedOut) return
-        this.deps.logError('claw-runtime', 'Timed out agent turn interrupt later failed.', {
+        this.deps.logError('remote-channel-runtime', 'Timed out agent turn interrupt later failed.', {
           runtimeId,
           threadId,
           turnId,
@@ -981,7 +981,7 @@ export class ClawRuntime {
         })
       ])
     } catch (error) {
-      this.deps.logError('claw-runtime', 'Failed to interrupt timed out agent turn.', {
+      this.deps.logError('remote-channel-runtime', 'Failed to interrupt timed out agent turn.', {
         runtimeId,
         threadId,
         turnId,
@@ -1101,9 +1101,9 @@ export class ClawRuntime {
       currentChannel && input.remoteSession && !sharedThread
         ? this.findChannelConversation(currentChannel, input.remoteSession)
         : input.conversation
-    const runtimeId = clawRuntimeId(currentSettings, currentChannel, currentConversation)
+    const runtimeId = remoteChannelRuntimeId(currentSettings, currentChannel, currentConversation)
     const threadId = sharedThread
-      ? clawThreadIdForRuntime(currentChannel, undefined, runtimeId)
+      ? remoteChannelThreadIdForRuntime(currentChannel, undefined, runtimeId)
       : incomingThreadIdForRuntime(currentChannel, currentConversation, runtimeId, Boolean(input.remoteSession))
     return {
       settings: currentSettings,
@@ -1161,7 +1161,7 @@ export class ClawRuntime {
         : `No saved summary is available yet (${context.runtimeId}:${shortThreadId(context.threadId)}).`
     } catch (error) {
       const message = errorMessage(error)
-      this.deps.logError('claw-runtime', 'Failed to read IM summary command context.', redactSecrets({
+      this.deps.logError('remote-channel-runtime', 'Failed to read IM summary command context.', redactSecrets({
         message,
         runtimeId: context.runtimeId,
         threadId: context.threadId,
@@ -1261,7 +1261,7 @@ export class ClawRuntime {
         `- Latest: ${latest?.id ?? 'none'} ${latest?.status ?? ''}`.trim()
       ].join('\n')
     } catch (error) {
-      this.deps.logError('claw-runtime', 'Failed to read IM jobs command context.', redactSecrets({
+      this.deps.logError('remote-channel-runtime', 'Failed to read IM jobs command context.', redactSecrets({
         message: errorMessage(error),
         runtimeId: context.runtimeId,
         threadId: context.threadId,
@@ -1300,19 +1300,19 @@ export class ClawRuntime {
       : input.conversation
         ? currentChannel.conversations.find((item) => item.id === input.conversation?.id)
         : undefined
-    const runtimeId = clawRuntimeId(currentSettings, currentChannel, currentConversation)
+    const runtimeId = remoteChannelRuntimeId(currentSettings, currentChannel, currentConversation)
     const now = new Date().toISOString()
     await this.deps.store.patch({
       remoteChannel: {
         channels: currentSettings.remoteChannel.channels.map((item) => {
           if (item.id !== currentChannel.id) return item
           return {
-            ...withClawThreadMapping(item, runtimeId, ''),
+            ...withRemoteChannelThreadMapping(item, runtimeId, ''),
             conversations: currentConversation
               ? item.conversations.map((conversation) =>
                   conversation.id === currentConversation.id
                     ? {
-                        ...withClawThreadMapping(conversation, runtimeId, ''),
+                        ...withRemoteChannelThreadMapping(conversation, runtimeId, ''),
                         latestMessageId: session?.messageId || conversation.latestMessageId,
                         senderId: session?.senderId || conversation.senderId,
                         senderName: session?.senderName || conversation.senderName,
@@ -1457,7 +1457,7 @@ export class ClawRuntime {
         channels: context.settings.remoteChannel.channels.map((item) => {
           if (item.id !== context.channel?.id) return item
           const nextChannel = context.sharedThread || !context.conversation
-            ? withClawThreadMapping(item, context.runtimeId, '')
+            ? withRemoteChannelThreadMapping(item, context.runtimeId, '')
             : item
           return {
             ...nextChannel,
@@ -1466,7 +1466,7 @@ export class ClawRuntime {
               ? item.conversations.map((conversation) =>
                   conversation.id === context.conversation?.id
                     ? {
-                        ...withClawThreadMapping(conversation, context.runtimeId, ''),
+                        ...withRemoteChannelThreadMapping(conversation, context.runtimeId, ''),
                         workspaceRoot: project.workspaceRoot,
                         updatedAt: now
                       }
@@ -1571,7 +1571,7 @@ export class ClawRuntime {
     const session = input.remoteSession
     const nextConversation: RemoteChannelConversationV1 | null = context.conversation
       ? {
-          ...withClawThreadMapping(context.conversation, runtimeId, thread.id),
+          ...withRemoteChannelThreadMapping(context.conversation, runtimeId, thread.id),
           ...(session
             ? {
                 latestMessageId: session.messageId,
@@ -1583,7 +1583,7 @@ export class ClawRuntime {
           updatedAt: now
         }
       : session
-        ? withClawThreadMapping({
+        ? withRemoteChannelThreadMapping({
             id: randomUUID(),
             chatId: session.chatId,
             remoteThreadId: session.threadId,
@@ -1600,7 +1600,7 @@ export class ClawRuntime {
         channels: context.settings.remoteChannel.channels.map((item) => {
           if (item.id !== context.channel?.id) return item
           const nextChannel = context.sharedThread || !context.conversation
-            ? withClawThreadMapping(item, runtimeId, thread.id)
+            ? withRemoteChannelThreadMapping(item, runtimeId, thread.id)
             : item
           return {
             ...nextChannel,
@@ -1648,7 +1648,7 @@ export class ClawRuntime {
           if (item.id !== context.channel?.id) return item
           const shouldClearChannel = context.sharedThread || !context.conversation
           const nextChannel = shouldClearChannel
-            ? withClawThreadMapping(item, context.runtimeId, '')
+            ? withRemoteChannelThreadMapping(item, context.runtimeId, '')
             : item
           return {
             ...nextChannel,
@@ -1656,7 +1656,7 @@ export class ClawRuntime {
               ? item.conversations.map((conversation) =>
                   conversation.id === context.conversation?.id
                     ? {
-                        ...withClawThreadMapping(conversation, context.runtimeId, ''),
+                        ...withRemoteChannelThreadMapping(conversation, context.runtimeId, ''),
                         updatedAt: now
                       }
                     : conversation
@@ -1696,7 +1696,7 @@ export class ClawRuntime {
       : input.conversation
         ? currentChannel.conversations.find((item) => item.id === input.conversation?.id)
         : undefined
-    const runtimeId = clawRuntimeId(currentSettings, currentChannel, currentConversation)
+    const runtimeId = remoteChannelRuntimeId(currentSettings, currentChannel, currentConversation)
     const workspaceRoot = this.resolveIncomingWorkspaceRoot(
       currentSettings,
       currentChannel,
@@ -1744,7 +1744,7 @@ export class ClawRuntime {
     const now = new Date().toISOString()
     const nextConversation: RemoteChannelConversationV1 | null = currentConversation
       ? {
-          ...withClawThreadMapping(currentConversation, runtimeId, threadId),
+          ...withRemoteChannelThreadMapping(currentConversation, runtimeId, threadId),
           ...(session
             ? {
                 latestMessageId: session.messageId,
@@ -1756,7 +1756,7 @@ export class ClawRuntime {
           updatedAt: now
         }
       : session
-        ? withClawThreadMapping({
+        ? withRemoteChannelThreadMapping({
             id: randomUUID(),
             chatId: session.chatId,
             remoteThreadId: session.threadId,
@@ -1773,7 +1773,7 @@ export class ClawRuntime {
         channels: currentSettings.remoteChannel.channels.map((item) => {
           if (item.id !== currentChannel.id) return item
           return {
-            ...withClawThreadMapping(item, runtimeId, threadId),
+            ...withRemoteChannelThreadMapping(item, runtimeId, threadId),
             conversations: nextConversation
               ? currentConversation
                 ? item.conversations.map((conversation) =>
@@ -1839,7 +1839,7 @@ export class ClawRuntime {
       this.resolveChannelWorkspaceRoot(currentSettings, currentChannel)
     const nextConversation: RemoteChannelConversationV1 | null = existingConversation
       ? {
-          ...withClawThreadMapping(existingConversation, runtimeId, activeThreadId),
+          ...withRemoteChannelThreadMapping(existingConversation, runtimeId, activeThreadId),
           ...(session
             ? {
                 latestMessageId: session.messageId,
@@ -1851,7 +1851,7 @@ export class ClawRuntime {
           updatedAt: now
         }
       : session
-        ? withClawThreadMapping({
+        ? withRemoteChannelThreadMapping({
             id: randomUUID(),
             chatId: session.chatId,
             remoteThreadId: session.threadId,
@@ -1868,7 +1868,7 @@ export class ClawRuntime {
         channels: currentSettings.remoteChannel.channels.map((item) => {
           if (item.id !== currentChannel.id) return item
           return {
-            ...withClawThreadMapping(item, runtimeId, activeThreadId),
+            ...withRemoteChannelThreadMapping(item, runtimeId, activeThreadId),
             conversations: nextConversation
               ? existingConversation
                 ? item.conversations.map((conversation) =>
@@ -2046,7 +2046,7 @@ export class ClawRuntime {
     }
   ): Promise<RemoteChannelRunResult> {
     const { channel, conversation, prompt, provider, remoteSession, sender } = input
-    const runtimeId = clawRuntimeId(settings, channel, conversation)
+    const runtimeId = remoteChannelRuntimeId(settings, channel, conversation)
     const sharedThread = input.sharedThread ?? this.shouldUseChannelThreadForIncoming(
       provider,
       input.chatType,
@@ -2054,7 +2054,7 @@ export class ClawRuntime {
       remoteSession
     )
     const initialThreadId = sharedThread
-      ? clawThreadIdForRuntime(channel, undefined, runtimeId)
+      ? remoteChannelThreadIdForRuntime(channel, undefined, runtimeId)
       : incomingThreadIdForRuntime(channel, conversation, runtimeId, Boolean(remoteSession))
     const run = () => this.runPrompt(settings, {
       prompt,
@@ -2081,7 +2081,7 @@ export class ClawRuntime {
               channels: currentSettings.remoteChannel.channels.map((item) =>
                 item.id === currentChannel.id
                   ? {
-                      ...withClawThreadMapping(item, runtimeId, threadId),
+                      ...withRemoteChannelThreadMapping(item, runtimeId, threadId),
                       remoteSession: {
                         ...remoteSession,
                         updatedAt: now
@@ -2099,14 +2099,14 @@ export class ClawRuntime {
             this.findChannelConversation(channel, remoteSession)
           const nextConversation: RemoteChannelConversationV1 = existingConversation
             ? {
-                ...withClawThreadMapping(existingConversation, runtimeId, threadId),
+                ...withRemoteChannelThreadMapping(existingConversation, runtimeId, threadId),
                 latestMessageId: remoteSession.messageId,
                 senderId: remoteSession.senderId,
                 senderName: remoteSession.senderName,
                 workspaceRoot: this.resolveIncomingWorkspaceRoot(currentSettings, currentChannel, existingConversation, remoteSession),
                 updatedAt: now
               }
-            : withClawThreadMapping({
+            : withRemoteChannelThreadMapping({
                 id: randomUUID(),
                 chatId: remoteSession.chatId,
                 remoteThreadId: remoteSession.threadId,
@@ -2122,7 +2122,7 @@ export class ClawRuntime {
               channels: currentSettings.remoteChannel.channels.map((item) =>
                 item.id === currentChannel.id
                   ? {
-                      ...withClawThreadMapping(item, runtimeId, threadId),
+                      ...withRemoteChannelThreadMapping(item, runtimeId, threadId),
                       conversations: existingConversation
                         ? item.conversations.map((entry) => entry.id === existingConversation.id ? nextConversation : entry)
                         : [...item.conversations, nextConversation],
@@ -2137,7 +2137,7 @@ export class ClawRuntime {
             remoteChannel: {
               channels: currentSettings.remoteChannel.channels.map((item) =>
                 item.id === currentChannel.id
-                  ? { ...withClawThreadMapping(item, runtimeId, threadId), updatedAt: now }
+                  ? { ...withRemoteChannelThreadMapping(item, runtimeId, threadId), updatedAt: now }
                   : item
               )
             }
@@ -2168,7 +2168,7 @@ export class ClawRuntime {
     return result
   }
 
-  async handleIncomingImMessage(input: ClawIncomingImMessageInput): Promise<ClawIncomingImMessageResult> {
+  async handleIncomingImMessage(input: RemoteChannelIncomingImMessageInput): Promise<RemoteChannelIncomingImMessageResult> {
     const settings = await this.deps.store.load()
     if (!settings.remoteChannel.enabled || !settings.remoteChannel.im.enabled) {
       return { ok: false, message: 'Remote channel is disabled.' }
@@ -2177,7 +2177,7 @@ export class ClawRuntime {
       hasAttachmentHint: Boolean(input.runtimePrompt?.trim())
     })
     if (!incomingText.ok) return { ok: false, message: incomingText.message }
-    const normalizedInput: ClawIncomingImMessageInput = input.remoteSession
+    const normalizedInput: RemoteChannelIncomingImMessageInput = input.remoteSession
       ? {
           ...input,
           text: incomingText.text,
@@ -2244,7 +2244,7 @@ export class ClawRuntime {
     return queued ? withRemoteQueuedNotice(settings, result) : result
   }
 
-  private async handleIncomingImMessageNow(input: ClawIncomingImMessageInput): Promise<ClawIncomingImMessageResult> {
+  private async handleIncomingImMessageNow(input: RemoteChannelIncomingImMessageInput): Promise<RemoteChannelIncomingImMessageResult> {
     const settings = await this.deps.store.load()
     if (!settings.remoteChannel.enabled || !settings.remoteChannel.im.enabled) {
       return { ok: false, message: 'Remote channel is disabled.' }
@@ -2345,10 +2345,10 @@ export class ClawRuntime {
     }
   }
 
-  private resolveFeishuChannels(settings: AppSettingsV1): FeishuClawChannel[] {
+  private resolveFeishuChannels(settings: AppSettingsV1): FeishuRemoteChannel[] {
     if (!settings.remoteChannel.enabled) return []
     return settings.remoteChannel.channels.filter(
-      (channel): channel is FeishuClawChannel =>
+      (channel): channel is FeishuRemoteChannel =>
         channel.enabled &&
         channel.provider === 'feishu' &&
         hasFeishuPlatformCredential(channel)
@@ -2417,7 +2417,7 @@ export class ClawRuntime {
     } catch (error) {
       const initialMessage = errorMessage(error)
       if (!options.replyTo) {
-        this.deps.logError('claw-feishu', 'Failed to send Feishu / Lark message', {
+        this.deps.logError('remote-channel-feishu', 'Failed to send Feishu / Lark message', {
           ...context,
           message: initialMessage,
           failureKind: 'provider_send_failed',
@@ -2430,7 +2430,7 @@ export class ClawRuntime {
         )
       }
 
-      this.deps.logError('claw-feishu', 'Failed to send Feishu / Lark reply; falling back to plain chat message.', {
+      this.deps.logError('remote-channel-feishu', 'Failed to send Feishu / Lark reply; falling back to plain chat message.', {
         ...context,
         message: initialMessage,
         replyTo: options.replyTo,
@@ -2445,7 +2445,7 @@ export class ClawRuntime {
         })
       } catch (fallbackError) {
         const fallbackMessage = errorMessage(fallbackError)
-        this.deps.logError('claw-feishu', 'Failed to send Feishu / Lark fallback message', {
+        this.deps.logError('remote-channel-feishu', 'Failed to send Feishu / Lark fallback message', {
           ...context,
           initialMessage,
           message: fallbackMessage,
@@ -2497,7 +2497,7 @@ export class ClawRuntime {
     try {
       realRoot = await realpath(resolve(root))
     } catch (error) {
-      this.deps.logError('claw-feishu', 'Failed to resolve Feishu file workspace root', {
+      this.deps.logError('remote-channel-feishu', 'Failed to resolve Feishu file workspace root', {
         ...context,
         workspaceRoot: root,
         message: errorMessage(error)
@@ -2512,7 +2512,7 @@ export class ClawRuntime {
         const realFile = await realpath(resolve(file.path))
         const relativePath = relative(realRoot, realFile)
         if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-          this.deps.logError('claw-feishu', 'Skipping generated file outside the Feishu workspace', {
+          this.deps.logError('remote-channel-feishu', 'Skipping generated file outside the Feishu workspace', {
             ...context,
             filePath: file.path,
             workspaceRoot: root
@@ -2524,7 +2524,7 @@ export class ClawRuntime {
         if (!fileStat.isFile()) continue
         const maxBytes = getRemoteChannelProviderCapabilities('feishu').attachments.file.maxBytes
         if (fileStat.size > maxBytes) {
-          this.deps.logError('claw-feishu', 'Skipping generated file because it is too large for Feishu upload', {
+          this.deps.logError('remote-channel-feishu', 'Skipping generated file because it is too large for Feishu upload', {
             ...context,
             filePath: realFile,
             bytes: fileStat.size,
@@ -2539,7 +2539,7 @@ export class ClawRuntime {
           fileName: file.fileName || realFile.split(/[\\/]/).pop() || 'attachment'
         })
       } catch (error) {
-        this.deps.logError('claw-feishu', 'Skipping generated file that cannot be read for Feishu upload', {
+        this.deps.logError('remote-channel-feishu', 'Skipping generated file that cannot be read for Feishu upload', {
           ...context,
           filePath: file.path,
           message: errorMessage(error)
@@ -2576,7 +2576,7 @@ export class ClawRuntime {
       } catch (error) {
         const message = errorMessage(error)
         failed.push({ file, message })
-        this.deps.logError('claw-feishu', 'Failed to send Feishu / Lark file attachment', {
+        this.deps.logError('remote-channel-feishu', 'Failed to send Feishu / Lark file attachment', {
           ...context,
           filePath: file.path,
           fileName: file.fileName,
@@ -2604,7 +2604,7 @@ export class ClawRuntime {
         maxFiles: 3
       })
     } catch (error) {
-      this.deps.logError('claw-feishu', 'Failed to inspect runtime thread for recent generated files', {
+      this.deps.logError('remote-channel-feishu', 'Failed to inspect runtime thread for recent generated files', {
         ...context,
         threadId: targetThreadId,
         message: errorMessage(error)
@@ -2665,7 +2665,7 @@ export class ClawRuntime {
           kind: 'provider_send_failed',
           details: { threadId, direction, channelId: channel.id, to, chunkIndex: index }
         })
-        this.deps.logError('claw-weixin', 'Failed to mirror remote channel message to WeChat', {
+        this.deps.logError('remote-channel-weixin', 'Failed to mirror remote channel message to WeChat', {
           message: failure.message,
           failureKind: failure.failureKind,
           threadId,
@@ -2711,7 +2711,7 @@ export class ClawRuntime {
           kind: 'provider_send_failed',
           details: { threadId, direction, channelId: channel.id, to, chunkIndex: index }
         })
-        this.deps.logError('claw-discord', 'Failed to mirror remote channel message to Discord', {
+        this.deps.logError('remote-channel-discord', 'Failed to mirror remote channel message to Discord', {
           message: failure.message,
           failureKind: failure.failureKind,
           threadId,
@@ -2790,7 +2790,7 @@ export class ClawRuntime {
         error,
         providerSendFailureMessage('Feishu / Lark', errorMessage(error))
       )
-      this.deps.logError('claw-feishu', 'Failed to mirror remote channel message to Feishu / Lark', {
+      this.deps.logError('remote-channel-feishu', 'Failed to mirror remote channel message to Feishu / Lark', {
         message: failure.message,
         failureKind: failure.failureKind,
         threadId,
@@ -2842,7 +2842,7 @@ export class ClawRuntime {
           inboundMessageId: message.messageId
         }
       ).catch((error) => {
-        this.deps.logError('claw-feishu', 'Failed to send first-connect help reply', {
+        this.deps.logError('remote-channel-feishu', 'Failed to send first-connect help reply', {
           message: errorMessage(error),
           chatId: message.chatId,
           inboundMessageId: message.messageId
@@ -2896,7 +2896,7 @@ export class ClawRuntime {
       return
     }
     if (taskCreation.kind === 'error') {
-      this.deps.logError('claw-feishu', 'Failed to create scheduled task from Feishu / Lark message', redactSecrets({
+      this.deps.logError('remote-channel-feishu', 'Failed to create scheduled task from Feishu / Lark message', redactSecrets({
         message: taskCreation.message,
         channelId,
         chatId: message.chatId,
@@ -2933,7 +2933,7 @@ export class ClawRuntime {
           }
         )
       } catch (error) {
-        this.deps.logError('claw-feishu', 'Failed to send unsupported-message reply', {
+        this.deps.logError('remote-channel-feishu', 'Failed to send unsupported-message reply', {
           message: errorMessage(error),
           chatId: message.chatId
         })
@@ -2942,9 +2942,9 @@ export class ClawRuntime {
     }
 
     if (shouldDirectSendExistingGeneratedFilesForPrompt(message.content)) {
-      const runtimeId = clawRuntimeId(settings, channel, conversation)
+      const runtimeId = remoteChannelRuntimeId(settings, channel, conversation)
       const existingThreadId = sharedThread
-        ? clawThreadIdForRuntime(channel, undefined, runtimeId)
+        ? remoteChannelThreadIdForRuntime(channel, undefined, runtimeId)
         : incomingThreadIdForRuntime(channel, conversation, runtimeId, true)
       const existingWorkspaceRoot = workspaceRoot
       const existingFiles = await this.resolveFeishuGeneratedFiles(
@@ -2980,7 +2980,7 @@ export class ClawRuntime {
             }
           )
         } catch (error) {
-          this.deps.logError('claw-feishu', 'Failed to send direct file confirmation reply', {
+          this.deps.logError('remote-channel-feishu', 'Failed to send direct file confirmation reply', {
             message: errorMessage(error),
             chatId: message.chatId,
             threadId: existingThreadId
@@ -3017,7 +3017,7 @@ export class ClawRuntime {
             threadId: existingThreadId
           }
         ).catch((error) => {
-          this.deps.logError('claw-feishu', 'Failed to send direct file failure reply', {
+          this.deps.logError('remote-channel-feishu', 'Failed to send direct file failure reply', {
             message: errorMessage(error),
             chatId: message.chatId,
             threadId: existingThreadId
@@ -3048,7 +3048,7 @@ export class ClawRuntime {
     try {
       await bridge.addReaction(message.messageId, 'OnIt')
     } catch (error) {
-      this.deps.logError('claw-feishu', 'Failed to add Feishu / Lark pending reaction; continuing with the agent run.', {
+      this.deps.logError('remote-channel-feishu', 'Failed to add Feishu / Lark pending reaction; continuing with the agent run.', {
         message: errorMessage(error),
         chatId: message.chatId,
         messageId: message.messageId
@@ -3068,7 +3068,7 @@ export class ClawRuntime {
           remoteSession
       })
     } catch (error) {
-      this.deps.logError('claw-feishu', 'Failed to handle Feishu inbound message', {
+      this.deps.logError('remote-channel-feishu', 'Failed to handle Feishu inbound message', {
         message: errorMessage(error),
         chatId: message.chatId,
         senderId: message.senderId
@@ -3108,7 +3108,7 @@ export class ClawRuntime {
     const resultThreadId = result.ok ? result.threadId : undefined
     const resultTurnId = result.ok ? result.turnId : undefined
     if (!result.ok) {
-      this.logRemoteFailure('claw-feishu', 'Feishu / Lark agent run failed before reply.', result, {
+      this.logRemoteFailure('remote-channel-feishu', 'Feishu / Lark agent run failed before reply.', result, {
         channelId,
         chatId: message.chatId,
         inboundMessageId: message.messageId,
@@ -3136,7 +3136,7 @@ export class ClawRuntime {
         error,
         providerSendFailureMessage('Feishu / Lark', errorMessage(error))
       )
-      this.deps.logError('claw-feishu', 'Failed to send Feishu / Lark agent reply', {
+      this.deps.logError('remote-channel-feishu', 'Failed to send Feishu / Lark agent reply', {
         message: failure.message,
         failureKind: failure.failureKind,
         chatId: message.chatId,
@@ -3178,7 +3178,7 @@ export class ClawRuntime {
             turnId: resultTurnId
           }
         ).catch((error) => {
-          this.deps.logError('claw-feishu', 'Failed to send Feishu / Lark file failure reply', {
+          this.deps.logError('remote-channel-feishu', 'Failed to send Feishu / Lark file failure reply', {
             message: errorMessage(error),
             chatId: message.chatId,
             senderId: message.senderId,
@@ -3406,7 +3406,7 @@ export class ClawRuntime {
       remoteThreadId,
       task: () => this.handleFeishuMessage(channelId, message),
       onQueued: bridge ? () => this.sendFeishuQueuedMessage(bridge, channelId, message) : undefined,
-      logCategory: 'claw-feishu',
+      logCategory: 'remote-channel-feishu',
       logContext: {
         channelId,
         chatId: message.chatId,
@@ -3465,7 +3465,7 @@ export class ClawRuntime {
         })
         bridge.on('message', (message) => {
           void this.enqueueFeishuMessage(target.id, message).catch((error) => {
-            this.deps.logError('claw-feishu', 'Failed to enqueue Feishu inbound message', {
+            this.deps.logError('remote-channel-feishu', 'Failed to enqueue Feishu inbound message', {
               message: errorMessage(error),
               channelId: target.id,
               chatId: message.chatId,
@@ -3474,25 +3474,25 @@ export class ClawRuntime {
           })
         })
         bridge.on('error', (error) => {
-          this.deps.logError('claw-feishu', 'Feishu channel error', {
+          this.deps.logError('remote-channel-feishu', 'Feishu channel error', {
             message: error.message,
             code: error.code,
             channelId: target.id
           })
         })
         bridge.on('reject', (event) => {
-          this.deps.logError('claw-feishu', 'Feishu message rejected by channel policy', {
+          this.deps.logError('remote-channel-feishu', 'Feishu message rejected by channel policy', {
             ...event,
             channelId: target.id
           })
         })
         bridge.on('reconnecting', () => {
-          this.deps.logError('claw-feishu', 'Feishu channel reconnecting', {
+          this.deps.logError('remote-channel-feishu', 'Feishu channel reconnecting', {
             channelId: target.id
           })
         })
         bridge.on('reconnected', () => {
-          this.deps.logError('claw-feishu', 'Feishu channel reconnected', {
+          this.deps.logError('remote-channel-feishu', 'Feishu channel reconnected', {
             channelId: target.id
           })
         })
@@ -3519,7 +3519,7 @@ export class ClawRuntime {
         this.feishuChannels.set(target.id, bridge)
         this.feishuChannelKeys.set(target.id, nextKey)
       } catch (error) {
-        this.deps.logError('claw-feishu', 'Failed to start Feishu channel bridge', {
+        this.deps.logError('remote-channel-feishu', 'Failed to start Feishu channel bridge', {
           message: error instanceof Error ? error.message : String(error),
           channelId: target.id
         })
@@ -3533,7 +3533,7 @@ export class ClawRuntime {
     this.feishuChannels.delete(channelId)
     this.feishuChannelKeys.delete(channelId)
     await bridge.disconnect().catch((error) => {
-      this.deps.logError('claw-feishu', 'Failed to stop Feishu channel bridge', {
+      this.deps.logError('remote-channel-feishu', 'Failed to stop Feishu channel bridge', {
         message: error instanceof Error ? error.message : String(error),
         channelId
       })
@@ -3555,7 +3555,7 @@ export class ClawRuntime {
       void this.handleWebhook(req, res)
     })
     server.on('error', (error) => {
-      this.deps.logError('claw-webhook', 'Remote channel webhook server failed', {
+      this.deps.logError('remote-channel-webhook', 'Remote channel webhook server failed', {
         message: error instanceof Error ? error.message : String(error)
       })
       if (this.server === server) {
@@ -3627,7 +3627,7 @@ export class ClawRuntime {
         ...(remoteSession ? { remoteSession } : {})
       })
       if (!result.ok) {
-        this.logRemoteFailure('claw-webhook', 'Remote channel webhook returned a structured failure.', result, {
+        this.logRemoteFailure('remote-channel-webhook', 'Remote channel webhook returned a structured failure.', result, {
           provider,
           channelId: incomingChannelId,
           sender
@@ -3648,7 +3648,7 @@ export class ClawRuntime {
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      this.deps.logError('claw-webhook', 'Remote channel webhook request failed', {
+      this.deps.logError('remote-channel-webhook', 'Remote channel webhook request failed', {
         message: redactSecretText(message)
       })
       writeJson(res, 500, { ok: false, message: 'Internal server error.' })
@@ -3656,6 +3656,6 @@ export class ClawRuntime {
   }
 }
 
-export function createClawRuntime(deps: RemoteChannelRuntimeDeps): ClawRuntime {
-  return new ClawRuntime(deps)
+export function createRemoteChannelRuntime(deps: RemoteChannelRuntimeDeps): RemoteChannelRuntime {
+  return new RemoteChannelRuntime(deps)
 }

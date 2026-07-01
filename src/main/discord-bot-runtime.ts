@@ -30,9 +30,9 @@ import type {
 } from '../shared/sciforge-api'
 import type { JsonSettingsStore } from './settings-store'
 import type {
-  ClawIncomingImMessageInput,
-  ClawIncomingImMessageResult
-} from './claw-runtime'
+  RemoteChannelIncomingImMessageInput,
+  RemoteChannelIncomingImMessageResult
+} from './remote-channel-runtime'
 import { redactSecrets } from '../shared/secret-redaction'
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10'
@@ -162,8 +162,8 @@ type DiscordRuntimeDeps = {
   store: JsonSettingsStore
   userDataPath: string
   handleIncomingMessage: (
-    input: ClawIncomingImMessageInput
-  ) => Promise<ClawIncomingImMessageResult>
+    input: RemoteChannelIncomingImMessageInput
+  ) => Promise<RemoteChannelIncomingImMessageResult>
   onSettingsChanged?: (settings: AppSettingsV1) => void
   logError: (category: string, message: string, detail?: unknown) => void
   fetch?: DiscordFetch
@@ -287,7 +287,7 @@ function compactMessage(text: string, fallback: string): string {
 }
 
 function safeDiscordFailureReply(
-  result: Extract<ClawIncomingImMessageResult, { ok: false }>,
+  result: Extract<RemoteChannelIncomingImMessageResult, { ok: false }>,
   fallback: string
 ): string {
   const failureKind = (result as { failureKind?: unknown }).failureKind
@@ -1050,7 +1050,7 @@ export class DiscordBotRuntime {
       return
     }
     void this.syncGatewayForChannels(channels).catch((error) => {
-      this.deps.logError('claw-discord', 'Failed to sync Discord bot runtime.', {
+      this.deps.logError('remote-channel-discord', 'Failed to sync Discord bot runtime.', {
         message: errorMessage(error),
         channelIds: channels.map((channel) => channel.id)
       })
@@ -1092,7 +1092,7 @@ export class DiscordBotRuntime {
     this.sequence = null
     socket.onmessage = (event) => this.handleGatewayPacket(botToken, event.data, attempt)
     socket.onerror = (event) => {
-      this.deps.logError('claw-discord', 'Discord Gateway socket error.', { event: String(event) })
+      this.deps.logError('remote-channel-discord', 'Discord Gateway socket error.', { event: String(event) })
     }
     socket.onclose = () => {
       this.clearHeartbeat()
@@ -1107,7 +1107,7 @@ export class DiscordBotRuntime {
     try {
       packet = JSON.parse(typeof raw === 'string' ? raw : String(raw)) as DiscordGatewayPacket
     } catch (error) {
-      this.deps.logError('claw-discord', 'Failed to parse Discord Gateway packet.', {
+      this.deps.logError('remote-channel-discord', 'Failed to parse Discord Gateway packet.', {
         message: errorMessage(error)
       })
       return
@@ -1130,7 +1130,7 @@ export class DiscordBotRuntime {
       const ready = packet.d as DiscordReadyPayload
       this.connected = true
       if (ready.session_id) {
-        this.deps.logError('claw-discord', 'Discord Gateway connected.', {
+        this.deps.logError('remote-channel-discord', 'Discord Gateway connected.', {
           sessionId: ready.session_id,
           userId: ready.user?.id,
           guildCount: ready.guilds?.length ?? 0
@@ -1204,7 +1204,7 @@ export class DiscordBotRuntime {
 
   private enqueueDiscordMessage(message: DiscordMessagePayload): void {
     void this.handleDiscordMessage(message).catch((error) => {
-      this.deps.logError('claw-discord', 'Failed to handle Discord message.', {
+      this.deps.logError('remote-channel-discord', 'Failed to handle Discord message.', {
         message: errorMessage(error),
         messageId: message.id,
         channelId: message.channel_id
@@ -1214,7 +1214,7 @@ export class DiscordBotRuntime {
 
   private enqueueDiscordInteraction(interaction: DiscordInteractionPayload): void {
     void this.handleDiscordInteraction(interaction).catch((error) => {
-      this.deps.logError('claw-discord', 'Failed to handle Discord interaction.', {
+      this.deps.logError('remote-channel-discord', 'Failed to handle Discord interaction.', {
         message: errorMessage(error),
         interactionId: interaction.id,
         channelId: interaction.channel_id
@@ -1259,7 +1259,7 @@ export class DiscordBotRuntime {
     const mentionedBot = (message.mentions ?? []).some((user) => user.id?.trim() === credential.botId) ||
       new RegExp(`<@!?${credential.botId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>`).test(text)
 
-    let result: ClawIncomingImMessageResult
+    let result: RemoteChannelIncomingImMessageResult
     try {
       result = await this.deps.handleIncomingMessage({
         provider: 'discord',
@@ -1279,7 +1279,7 @@ export class DiscordBotRuntime {
         }
       })
     } catch (error) {
-      this.deps.logError('claw-discord', 'Failed to process Discord message through remote-channel runtime.', redactSecrets({
+      this.deps.logError('remote-channel-discord', 'Failed to process Discord message through remote-channel runtime.', redactSecrets({
         message: errorMessage(error),
         messageId,
         channelId: credential.channelId,
@@ -1295,7 +1295,7 @@ export class DiscordBotRuntime {
     }
     if (result.ok && 'ignored' in result && result.ignored) return
     if (!result.ok) {
-      this.deps.logError('claw-discord', 'Remote-channel runtime returned a failure for Discord message.', redactSecrets({
+      this.deps.logError('remote-channel-discord', 'Remote-channel runtime returned a failure for Discord message.', redactSecrets({
         message: result.message,
         result,
         messageId,
@@ -1347,7 +1347,7 @@ export class DiscordBotRuntime {
     const user = interaction.member?.user ?? interaction.user
     const authorId = user?.id?.trim() ?? ''
     const sender = user?.global_name?.trim() || user?.username?.trim() || authorId || 'Discord user'
-    let result: ClawIncomingImMessageResult
+    let result: RemoteChannelIncomingImMessageResult
     try {
       result = await this.deps.handleIncomingMessage({
         provider: 'discord',
@@ -1367,7 +1367,7 @@ export class DiscordBotRuntime {
         }
       })
     } catch (error) {
-      this.deps.logError('claw-discord', 'Failed to process Discord interaction through remote-channel runtime.', redactSecrets({
+      this.deps.logError('remote-channel-discord', 'Failed to process Discord interaction through remote-channel runtime.', redactSecrets({
         message: errorMessage(error),
         interactionId,
         channelId: credential.channelId,
@@ -1382,7 +1382,7 @@ export class DiscordBotRuntime {
       return
     }
     if (!result.ok) {
-      this.deps.logError('claw-discord', 'Remote-channel runtime returned a failure for Discord interaction.', redactSecrets({
+      this.deps.logError('remote-channel-discord', 'Remote-channel runtime returned a failure for Discord interaction.', redactSecrets({
         message: result.message,
         result,
         interactionId,
@@ -1410,7 +1410,7 @@ export class DiscordBotRuntime {
       replyToMessageId: messageId,
       text: 'I received the Discord event but not the message text. Enable Message Content Intent for this bot in the Discord Developer Portal, then try again.'
     }).catch((error) => {
-      this.deps.logError('claw-discord', 'Failed to send Message Content Intent warning.', {
+      this.deps.logError('remote-channel-discord', 'Failed to send Message Content Intent warning.', {
         message: errorMessage(error),
         channelId,
         messageId
@@ -1786,7 +1786,7 @@ export class DiscordBotRuntime {
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-      this.deps.logError('claw-discord', 'Failed to read Discord bot secret file.', {
+      this.deps.logError('remote-channel-discord', 'Failed to read Discord bot secret file.', {
         message: errorMessage(error),
         path: this.secretPath
       })

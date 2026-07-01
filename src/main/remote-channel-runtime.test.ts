@@ -17,16 +17,16 @@ import {
   type RemoteChannelV1,
   type RemoteChannelConversationV1
 } from '../shared/app-settings'
-import { createClawRuntime as createProductionClawRuntime } from './claw-runtime'
+import { createRemoteChannelRuntime as createProductionRemoteChannelRuntime } from './remote-channel-runtime'
 import {
   REMOTE_CHANNEL_PROVIDER_CAPABILITIES,
-  classifyClawFailure,
+  classifyRemoteChannelFailure,
   remoteChannelAttachmentFromGeneratedFile,
   latestGeneratedFiles,
   prepareRemoteChannelReplyText,
   splitRemoteChannelReplyText
-} from './claw-runtime-helpers'
-import type { RemoteChannelRuntimeDeps, ThreadDetailJson } from './claw-runtime-helpers'
+} from './remote-channel-runtime-helpers'
+import type { RemoteChannelRuntimeDeps, ThreadDetailJson } from './remote-channel-runtime-helpers'
 
 type TestAgentRuntime = NonNullable<RemoteChannelRuntimeDeps['agentRuntime']>
 type TestThreadDetail = ThreadDetailJson & {
@@ -232,24 +232,24 @@ function unusedAgentRuntime(): TestAgentRuntime {
   } as unknown as TestAgentRuntime
 }
 
-function createClawRuntime(
+function createRemoteChannelRuntime(
   deps: Omit<RemoteChannelRuntimeDeps, 'agentRuntime'> & Partial<Pick<RemoteChannelRuntimeDeps, 'agentRuntime'>>
-): ReturnType<typeof createProductionClawRuntime> {
-  return createProductionClawRuntime({
+): ReturnType<typeof createProductionRemoteChannelRuntime> {
+  return createProductionRemoteChannelRuntime({
     agentRuntime: unusedAgentRuntime(),
     ...deps
   })
 }
 
-describe('ClawRuntime', () => {
+describe('RemoteChannelRuntime', () => {
   it('classifies the standard remote-channel failure buckets', () => {
-    expect(classifyClawFailure({ code: 'runtime_offline', message: 'Local runtime is offline.' })).toBe('runtime_offline')
-    expect(classifyClawFailure({ code: 'provider_unavailable', message: 'model deepseek-v4-pro missing' })).toBe('model_missing')
-    expect(classifyClawFailure({ message: 'Timed out waiting for agent response.' })).toBe('timeout')
-    expect(classifyClawFailure({ code: 'empty_response', message: 'Agent completed without a reply.' })).toBe('empty_response')
-    expect(classifyClawFailure({ code: 'approval_required', message: 'waiting for desktop approval' })).toBe('waiting_desktop_approval')
-    expect(classifyClawFailure({ status: 404, message: 'thread not found' })).toBe('local_thread_deleted')
-    expect(classifyClawFailure({ code: 'provider_send_failed', message: 'Discord send failed' })).toBe('provider_send_failed')
+    expect(classifyRemoteChannelFailure({ code: 'runtime_offline', message: 'Local runtime is offline.' })).toBe('runtime_offline')
+    expect(classifyRemoteChannelFailure({ code: 'provider_unavailable', message: 'model deepseek-v4-pro missing' })).toBe('model_missing')
+    expect(classifyRemoteChannelFailure({ message: 'Timed out waiting for agent response.' })).toBe('timeout')
+    expect(classifyRemoteChannelFailure({ code: 'empty_response', message: 'Agent completed without a reply.' })).toBe('empty_response')
+    expect(classifyRemoteChannelFailure({ code: 'approval_required', message: 'waiting for desktop approval' })).toBe('waiting_desktop_approval')
+    expect(classifyRemoteChannelFailure({ status: 404, message: 'thread not found' })).toBe('local_thread_deleted')
+    expect(classifyRemoteChannelFailure({ code: 'provider_send_failed', message: 'Discord send failed' })).toBe('provider_send_failed')
   })
 
   it('defines provider reply and attachment capabilities for Feishu, WeChat, and Discord', () => {
@@ -427,7 +427,7 @@ describe('ClawRuntime', () => {
       updatedAt: '2026-06-02T00:00:00.000Z'
     }
     settings.remoteChannel.channels = [channel]
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined
     })
@@ -482,7 +482,7 @@ describe('ClawRuntime', () => {
       updatedAt: '2026-06-02T00:00:00.000Z'
     }
     settings.remoteChannel.channels = [channel]
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined
     })
@@ -514,7 +514,7 @@ describe('ClawRuntime', () => {
       workspaceRoot: '',
       conversations: [conversation]
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined
     })
@@ -548,7 +548,7 @@ describe('ClawRuntime', () => {
       scheduleAt: '2026-06-03T09:00:00.000+08:00',
       confirmationText: 'Scheduled.'
     }))
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       logError: () => undefined,
       createScheduledTaskFromText
@@ -606,7 +606,7 @@ describe('ClawRuntime', () => {
       load: vi.fn(async () => settings),
       patch: vi.fn(async () => settings)
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime: agentRuntime as never,
       logError: () => undefined
@@ -657,7 +657,7 @@ describe('ClawRuntime', () => {
         ]
       }
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       agentRuntime,
       logError: () => undefined
@@ -702,7 +702,7 @@ describe('ClawRuntime', () => {
         throw new Error(JSON.stringify({ code: 'not_found', message: 'thread not found: thr_missing' }))
       }
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       agentRuntime,
       logError
@@ -751,7 +751,7 @@ describe('ClawRuntime', () => {
     expect(onTurnStarted).not.toHaveBeenCalled()
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(logError).toHaveBeenCalledWith(
-      'claw-runtime',
+      'remote-channel-runtime',
       'Configured IM thread was missing; asking remote user to rebind.',
       expect.objectContaining({ threadId: 'thr_missing', source: 'im' })
     )
@@ -769,7 +769,7 @@ describe('ClawRuntime', () => {
         }))
       }
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       agentRuntime,
       logError: () => undefined
@@ -816,7 +816,7 @@ describe('ClawRuntime', () => {
       threadId: 'thr_auto_model',
       turnId: 'turn_auto_model'
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       agentRuntime,
       logError: () => undefined
@@ -874,7 +874,7 @@ describe('ClawRuntime', () => {
       })),
       readThread: vi.fn()
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       agentRuntime,
       logError: () => undefined
@@ -922,7 +922,7 @@ describe('ClawRuntime', () => {
     const send = vi.fn()
       .mockRejectedValueOnce(new Error('reply permission denied'))
       .mockResolvedValueOnce({ messageId: 'om_fallback' })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError
     })
@@ -957,7 +957,7 @@ describe('ClawRuntime', () => {
       { replyTo: undefined, replyInThread: undefined }
     )
     expect(logError).toHaveBeenCalledWith(
-      'claw-feishu',
+      'remote-channel-feishu',
       'Failed to send Feishu / Lark reply; falling back to plain chat message.',
       expect.objectContaining({
         channelId: 'channel_1',
@@ -971,7 +971,7 @@ describe('ClawRuntime', () => {
 
   it('queues Feishu messages per chat so SDK event handlers can ack immediately', async () => {
     const settings = buildSettings()
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined
     })
@@ -1041,7 +1041,7 @@ describe('ClawRuntime', () => {
 
   it('drops duplicate Feishu message deliveries before queuing work', async () => {
     const settings = buildSettings()
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined
     })
@@ -1124,7 +1124,7 @@ describe('ClawRuntime', () => {
         items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'discord reply' }]
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       logError: () => undefined,
@@ -1176,7 +1176,7 @@ describe('ClawRuntime', () => {
     const forbiddenDirectCall = vi.fn()
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
     const addReaction = vi.fn(async () => 'rc_1')
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined
     })
@@ -1226,7 +1226,7 @@ describe('ClawRuntime', () => {
       conversations: []
     })]
     const forbiddenDirectCall = vi.fn()
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
@@ -1289,7 +1289,7 @@ describe('ClawRuntime', () => {
     })
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
     const addReaction = vi.fn(async () => 'rc_1')
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime: agentRuntime as never,
       logError: () => undefined,
@@ -1349,7 +1349,7 @@ describe('ClawRuntime', () => {
     const { current, store } = mutableSettingsStore(settings)
     const forbiddenDirectCall = vi.fn()
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       logError: () => undefined
     })
@@ -1416,7 +1416,7 @@ describe('ClawRuntime', () => {
       readThread: vi.fn()
     }
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime: agentRuntime as never,
       logError: () => undefined
@@ -1517,7 +1517,7 @@ describe('ClawRuntime', () => {
         items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'follow-up reply' }]
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       notifyChannelActivity,
@@ -1635,7 +1635,7 @@ describe('ClawRuntime', () => {
         }))
       }
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       logError: () => undefined
@@ -1705,7 +1705,7 @@ describe('ClawRuntime', () => {
       startTurn: vi.fn(),
       readThread: vi.fn()
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime: agentRuntime as never,
       logError: () => undefined
@@ -1809,7 +1809,7 @@ describe('ClawRuntime', () => {
         items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'target reply' }]
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       notifyChannelActivity,
@@ -1919,7 +1919,7 @@ describe('ClawRuntime', () => {
         items: []
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       agentRuntime,
       logError: () => undefined,
@@ -1960,7 +1960,7 @@ describe('ClawRuntime', () => {
     const { current, store } = mutableSettingsStore(settings)
     const forbiddenDirectCall = vi.fn()
     const send = vi.fn(async () => ({ messageId: 'om_sent' }))
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       logError: () => undefined
     })
@@ -2027,7 +2027,7 @@ describe('ClawRuntime', () => {
         items: [{ kind: 'compaction_event', summary: 'Short project summary.' }]
       })
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       logError: () => undefined,
@@ -2088,7 +2088,7 @@ describe('ClawRuntime', () => {
     const { store } = mutableSettingsStore(settings)
     const forbiddenDirectCall = vi.fn()
     const createScheduledTaskFromText = vi.fn()
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       logError: () => undefined,
       createScheduledTaskFromText
@@ -2147,7 +2147,7 @@ describe('ClawRuntime', () => {
   it('rejects the retired gui-plan webhook endpoint through normal routing', async () => {
     const settings = buildSettings()
     settings.remoteChannel.im.enabled = true
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
@@ -2187,7 +2187,7 @@ describe('ClawRuntime', () => {
     settings.remoteChannel.channels = [buildChannel({ provider: 'weixin' as const, id: 'channel_weixin' })]
     const { store } = mutableSettingsStore(settings)
     const createScheduledTaskFromText = vi.fn()
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       logError: () => undefined,
       createScheduledTaskFromText
@@ -2249,7 +2249,7 @@ describe('ClawRuntime', () => {
     settings.remoteChannel.im.enabled = true
     settings.remoteChannel.channels = [buildChannel({ provider: 'discord' as const, id: 'channel_discord' })]
     const forbiddenDirectCall = vi.fn()
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
@@ -2313,7 +2313,7 @@ describe('ClawRuntime', () => {
   it('returns a generic webhook error while logging a redacted diagnostic', async () => {
     const settings = buildSettings()
     const logError = vi.fn()
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: {
         load: vi.fn(async () => {
           throw new Error('Authorization: Bearer raw-webhook-secret failed')
@@ -2349,7 +2349,7 @@ describe('ClawRuntime', () => {
     expect(JSON.parse(responseBody)).toEqual({ ok: false, message: 'Internal server error.' })
     expect(responseBody).not.toContain('raw-webhook-secret')
     expect(logError).toHaveBeenCalledWith(
-      'claw-webhook',
+      'remote-channel-webhook',
       'Remote channel webhook request failed',
       expect.objectContaining({
         message: 'Authorization: Bearer <redacted> failed'
@@ -2380,7 +2380,7 @@ describe('ClawRuntime', () => {
         }))
       }
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       logError,
@@ -2426,7 +2426,7 @@ describe('ClawRuntime', () => {
     })
     expect(responseBody).not.toContain('raw-runtime-secret')
     expect(logError).toHaveBeenCalledWith(
-      'claw-webhook',
+      'remote-channel-webhook',
       'Remote channel webhook returned a structured failure.',
       expect.objectContaining({
         failure: expect.objectContaining({
@@ -2452,7 +2452,7 @@ describe('ClawRuntime', () => {
     const { current, store } = mutableSettingsStore(settings)
     const forbiddenDirectCall = vi.fn()
     const notifyChannelActivity = vi.fn()
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       getActiveThreadContext: () => ({
         threadId: 'desktop-thread-1',
@@ -2565,7 +2565,7 @@ describe('ClawRuntime', () => {
         items: [{ id: `assistant-${turnIndex}`, kind: 'assistant_message' as const, text: `reply ${turnIndex}` }]
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       getActiveThreadContext: () => ({
@@ -2690,7 +2690,7 @@ describe('ClawRuntime', () => {
         items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: `${provider} reply` }]
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       getActiveThreadContext: () => ({
@@ -2767,7 +2767,7 @@ describe('ClawRuntime', () => {
       turnId: 'turn_weixin',
       text: 'hello from GUI'
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       logError: () => undefined,
@@ -2869,7 +2869,7 @@ describe('ClawRuntime', () => {
         items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'hello from codex' }]
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       logError: () => undefined,
@@ -3006,7 +3006,7 @@ describe('ClawRuntime', () => {
         items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'rich reply' }]
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       agentRuntime,
       logError: () => undefined,
@@ -3095,7 +3095,7 @@ describe('ClawRuntime', () => {
         items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'recovered reply' }]
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       logError: () => undefined,
@@ -3218,7 +3218,7 @@ describe('ClawRuntime', () => {
           items: [{ id: 'user-1', kind: 'user_message' as const, text: 'hello' }]
         }))
       }
-      const runtime = createClawRuntime({
+      const runtime = createRemoteChannelRuntime({
         store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
         agentRuntime,
         logError: () => undefined
@@ -3297,7 +3297,7 @@ describe('ClawRuntime', () => {
         })),
         interruptTurn: vi.fn(() => new Promise<void>(() => undefined))
       }
-      const runtime = createClawRuntime({
+      const runtime = createRemoteChannelRuntime({
         store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
         agentRuntime,
         logError
@@ -3339,7 +3339,7 @@ describe('ClawRuntime', () => {
         failureKind: 'timeout'
       })
       expect(logError).toHaveBeenCalledWith(
-        'claw-runtime',
+        'remote-channel-runtime',
         'Failed to interrupt timed out agent turn.',
         expect.objectContaining({
           runtimeId: 'codex',
@@ -3398,7 +3398,7 @@ describe('ClawRuntime', () => {
         items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'phone reply' }]
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime: agentRuntime as never,
       getActiveThreadContext: () => ({
@@ -3543,7 +3543,7 @@ describe('ClawRuntime', () => {
         ]
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       notifyChannelActivity: vi.fn(),
@@ -3683,7 +3683,7 @@ describe('ClawRuntime', () => {
           }))
         }))
       }
-      const runtime = createClawRuntime({
+      const runtime = createRemoteChannelRuntime({
         store: store as never,
         agentRuntime,
         logError: () => undefined,
@@ -3819,7 +3819,7 @@ describe('ClawRuntime', () => {
           items: [{ id: `assistant-${threadId}`, kind: 'assistant_message' as const, turnId: `turn-${threadId}`, text: `reply ${threadId}` }]
         }))
       }
-      const runtime = createClawRuntime({
+      const runtime = createRemoteChannelRuntime({
         store: store as never,
         agentRuntime,
         logError: () => undefined,
@@ -3939,7 +3939,7 @@ describe('ClawRuntime', () => {
         items: [{ id: 'assistant-1', kind: 'assistant_message' as const, text: 'phone reply' }]
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       getActiveThreadContext: () => ({
@@ -4057,7 +4057,7 @@ describe('ClawRuntime', () => {
           : completedThreadDetail(threadId, 'codex-turn', 'new process reply')
       )
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime: agentRuntime as never,
       getActiveThreadContext: () => ({
@@ -4197,7 +4197,7 @@ describe('ClawRuntime', () => {
             }
       }
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       logError: () => undefined,
@@ -4283,7 +4283,7 @@ describe('ClawRuntime', () => {
         ]
       })
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       logError: () => undefined,
@@ -4333,7 +4333,7 @@ describe('ClawRuntime', () => {
   it('interrupts timed out agent runtime turns so phone duty does not stay running', async () => {
     const settings = buildSettings()
     const interruptTurn = vi.fn(async () => undefined)
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       agentRuntime: {
         readThread: vi.fn(async () => ({
@@ -4408,7 +4408,7 @@ describe('ClawRuntime', () => {
         items: []
       }))
     }
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       agentRuntime: agentRuntime as never,
       logError: () => undefined
@@ -4494,7 +4494,7 @@ describe('ClawRuntime', () => {
       }
       throw new Error(`unexpected path ${path}`)
     })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       logError: () => undefined,
       createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
@@ -4561,7 +4561,7 @@ describe('ClawRuntime', () => {
       ok: true as const,
       messageId: 'wx_out_1'
     }))
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined,
       sendWeixinBridgeMessage
@@ -4599,7 +4599,7 @@ describe('ClawRuntime', () => {
       ok: true as const,
       messageId: 'wx_out'
     }))
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined,
       sendWeixinBridgeMessage
@@ -4646,7 +4646,7 @@ describe('ClawRuntime', () => {
       ok: true as const,
       messageId: 'discord_out'
     }))
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError: () => undefined,
       sendDiscordChannelMessage
@@ -4688,7 +4688,7 @@ describe('ClawRuntime', () => {
       ok: false as const,
       message: 'bridge offline'
     }))
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError,
       sendWeixinBridgeMessage
@@ -4702,7 +4702,7 @@ describe('ClawRuntime', () => {
       failureKind: 'provider_send_failed'
     })
     expect(logError).toHaveBeenCalledWith(
-      'claw-weixin',
+      'remote-channel-weixin',
       'Failed to mirror remote channel message to WeChat',
       expect.objectContaining({
         failureKind: 'provider_send_failed',
@@ -4793,7 +4793,7 @@ describe('ClawRuntime', () => {
       })
       const send = vi.fn(async () => ({ messageId: 'om_sent' }))
       const addReaction = vi.fn(async () => 'rc_file_1')
-      const runtime = createClawRuntime({
+      const runtime = createRemoteChannelRuntime({
         store: store as never,
         agentRuntime,
         logError: () => undefined
@@ -4871,7 +4871,7 @@ describe('ClawRuntime', () => {
     })
     const send = vi.fn(async () => ({ messageId: 'om_md' }))
     const addReaction = vi.fn(async () => 'rc_test_1')
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       logError: () => undefined
@@ -4930,7 +4930,7 @@ describe('ClawRuntime', () => {
     const send = vi.fn()
       .mockRejectedValueOnce(new Error('reply permission denied'))
       .mockResolvedValueOnce({ messageId: 'om_fallback' })
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
       logError
     })
@@ -4984,7 +4984,7 @@ describe('ClawRuntime', () => {
     })
     const addReaction = vi.fn().mockRejectedValue(new Error('addReaction API error'))
     const send = vi.fn(async () => ({ messageId: 'om_agent_after_react_fail' }))
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       agentRuntime,
       logError
@@ -5022,7 +5022,7 @@ describe('ClawRuntime', () => {
 
     // The pending reaction failure must be logged and swallowed.
     expect(logError).toHaveBeenCalledWith(
-      'claw-feishu',
+      'remote-channel-feishu',
       expect.stringContaining('pending reaction'),
       expect.objectContaining({
         message: 'addReaction API error',
@@ -5052,7 +5052,7 @@ describe('ClawRuntime', () => {
     }
     const send = vi.fn(async () => ({ messageId: 'om_cmd' }))
     const addReaction = vi.fn(async () => 'rc_cmd_1')
-    const runtime = createClawRuntime({
+    const runtime = createRemoteChannelRuntime({
       store: store as never,
       logError: () => undefined
     })

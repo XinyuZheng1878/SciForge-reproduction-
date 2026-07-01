@@ -64,7 +64,7 @@ function UserMessageBubble({
     return remoteChannelThreadBindingsFromChannels(remoteChannels).get(activeThreadId) ?? null
   }, [activeThreadId, remoteChannels])
   const isRemoteChannelMessage = Boolean(remoteBinding || isRemoteChannelManagedBy(block.managedBy))
-  const parsedClawPrompt = useMemo(() => {
+  const parsedRemoteChannelPrompt = useMemo(() => {
     const parsed = parseRemoteChannelUserPromptForDisplay(block.text)
     if (!parsed.managed && !parsed.inbound && !isRemoteChannelMessage) {
       return parsedMetaClawPrompt
@@ -72,16 +72,16 @@ function UserMessageBubble({
     return parsed
   }, [block.text, isRemoteChannelMessage, parsedMetaClawPrompt])
   const sourceLabel = useMemo(
-    () => messageSourceLabel(block, parsedClawPrompt, remoteBinding?.providerLabel),
-    [block, parsedClawPrompt, remoteBinding]
+    () => messageSourceLabel(block, parsedRemoteChannelPrompt, remoteBinding?.providerLabel),
+    [block, parsedRemoteChannelPrompt, remoteBinding]
   )
   const legacyRuntimeDisplayText = useMemo(
     () => runtimeContextUserTextForDisplay(block.text),
     [block.text]
   )
-  const displayText = parsedMetaClawPrompt?.text ?? metaDisplayText ?? parsedClawPrompt?.text ?? legacyRuntimeDisplayText
+  const displayText = parsedMetaClawPrompt?.text ?? metaDisplayText ?? parsedRemoteChannelPrompt?.text ?? legacyRuntimeDisplayText
   const canEdit = !metaDisplayText
-  const showClawInboundCard = isRemoteChannelMessage && parsedClawPrompt?.inbound === true
+  const showClawInboundCard = isRemoteChannelMessage && parsedRemoteChannelPrompt?.inbound === true
 
   useEffect(() => {
     if (!editing) return
@@ -170,8 +170,8 @@ function UserMessageBubble({
   return (
     <div className="ds-user-message group relative">
       <UserAttachmentPreviews meta={block.meta} />
-      {showClawInboundCard && parsedClawPrompt ? (
-        <ClawInboundMessageCard display={parsedClawPrompt} text={displayText} />
+      {showClawInboundCard && parsedRemoteChannelPrompt ? (
+        <RemoteChannelInboundMessageCard display={parsedRemoteChannelPrompt} text={displayText} />
       ) : (
         <div className="ds-user-message-bubble min-w-0">
           <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-left">
@@ -206,7 +206,7 @@ function UserMessageBubble({
   )
 }
 
-function ClawInboundMessageCard({
+function RemoteChannelInboundMessageCard({
   display,
   text
 }: {
@@ -248,7 +248,7 @@ function ClawInboundMessageCard({
 
 function messageSourceLabel(
   block: Extract<ChatBlock, { kind: 'user' }>,
-  parsedClawPrompt: RemoteChannelUserPromptDisplay | null,
+  parsedRemoteChannelPrompt: RemoteChannelUserPromptDisplay | null,
   remoteProviderLabel?: string
 ): string {
   const meta = block.meta as Record<string, unknown> | undefined
@@ -261,14 +261,14 @@ function messageSourceLabel(
     if (normalizedSource.includes('weixin') || normalizedSource.includes('wechat')) return 'WeChat'
     if (normalizedSource.includes('feishu') || normalizedSource.includes('lark')) return 'Feishu / Lark'
     if (normalizedSource === 'im' || normalizedSource === 'remote' || normalizedSource === 'claw') {
-      return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Remote channel'
+      return remoteProviderLabel || parsedRemoteChannelPrompt?.sourceLabel || 'Remote channel'
     }
     if (normalizedSource === 'desktop' || normalizedSource === 'ui' || normalizedSource === 'user') return 'Desktop'
   }
-  if (parsedClawPrompt?.inbound) {
-    return normalizeMessageSourceLabel(parsedClawPrompt.sourceLabel, remoteProviderLabel)
+  if (parsedRemoteChannelPrompt?.inbound) {
+    return normalizeMessageSourceLabel(parsedRemoteChannelPrompt.sourceLabel, remoteProviderLabel)
   }
-  if (isRemoteChannelManagedBy(block.managedBy)) return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Remote channel'
+  if (isRemoteChannelManagedBy(block.managedBy)) return remoteProviderLabel || parsedRemoteChannelPrompt?.sourceLabel || 'Remote channel'
   return 'Desktop'
 }
 

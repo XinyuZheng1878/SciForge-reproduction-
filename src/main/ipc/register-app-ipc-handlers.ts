@@ -226,7 +226,7 @@ import type {
   AgentRuntimeUserInputResolveInput
 } from '../runtime/agent-runtime/adapter'
 import type { JsonSettingsStore } from '../settings-store'
-import type { ClawRuntime } from '../claw-runtime'
+import type { RemoteChannelRuntime } from '../remote-channel-runtime'
 import type { DiscordBotRuntime } from '../discord-bot-runtime'
 import type { ScheduleRuntime } from '../schedule-runtime'
 import type { PaperRadarWorkerService } from '../services/paper-radar-worker-service'
@@ -338,7 +338,7 @@ type RegisterAppIpcHandlersOptions = {
     resolveUserInput: (input: AgentRuntimeUserInputResolveInput) => Promise<void>
   }
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
-  getRemoteChannelRuntime: () => ClawRuntime | null
+  getRemoteChannelRuntime: () => RemoteChannelRuntime | null
   getDiscordBotRuntime?: () => DiscordBotRuntime | null
   setRemoteChannelActiveThreadContext?: (payload: {
     threadId: string

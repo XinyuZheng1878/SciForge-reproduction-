@@ -81,7 +81,7 @@ import {
   type PaperRadarWorkerService
 } from './services/paper-radar-worker-service'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
-import { createClawRuntime, type ClawRuntime } from './claw-runtime'
+import { createRemoteChannelRuntime, type RemoteChannelRuntime } from './remote-channel-runtime'
 import { createDiscordBotRuntime, type DiscordBotRuntime } from './discord-bot-runtime'
 import { createScheduleRuntime, type ScheduleRuntime } from './schedule-runtime'
 import { createWorkflowRuntime, type WorkflowRuntime } from './workflow-runtime'
@@ -132,7 +132,7 @@ import {
   sendWeixinBridgeMessage,
   stopWeixinBridgeRuntime
 } from './weixin-bridge-runtime'
-import { webhookUrl } from './claw-runtime-helpers'
+import { webhookUrl } from './remote-channel-runtime-helpers'
 import { isLocalRuntimeHealthResponseBody } from './local-runtime-health'
 import {
   resolveAvailableLocalRuntimePort,
@@ -333,7 +333,7 @@ if (process.platform === 'win32') {
 let mainWindow: BrowserWindow | null = null
 let store: JsonSettingsStore
 let logDir = ''
-let remoteChannelRuntime: ClawRuntime | null = null
+let remoteChannelRuntime: RemoteChannelRuntime | null = null
 let discordBotRuntime: DiscordBotRuntime | null = null
 let scheduleRuntime: ScheduleRuntime | null = null
 let workflowRuntime: WorkflowRuntime | null = null
@@ -1576,7 +1576,7 @@ app.whenReady().then(async () => {
     },
     logError
   })
-  remoteChannelRuntime = createClawRuntime({
+  remoteChannelRuntime = createRemoteChannelRuntime({
     store,
     agentRuntime: agentRuntimeHost,
     getActiveThreadContext: () => remoteChannelActiveThreadContext,

@@ -678,7 +678,7 @@ describe('DiscordBotRuntime remote failure replies', () => {
       expect(JSON.stringify(body)).not.toContain('sk-proj-secret')
       expect(JSON.stringify(body)).not.toContain('/Users/alice')
       expect(logError).toHaveBeenCalledWith(
-        'claw-discord',
+        'remote-channel-discord',
         'Remote-channel runtime returned a failure for Discord message.',
         expect.objectContaining({
           message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/remote-channel/runtime.json',
@@ -830,7 +830,7 @@ describe('DiscordBotRuntime remote failure replies', () => {
       expect(JSON.stringify(body)).not.toContain('sk-proj-secret')
       expect(JSON.stringify(body)).not.toContain('/Users/alice')
       expect(logError).toHaveBeenCalledWith(
-        'claw-discord',
+        'remote-channel-discord',
         'Remote-channel runtime returned a failure for Discord interaction.',
         expect.objectContaining({
           message: 'Provider token=<redacted> failed in /Users/alice/.sciforge/remote-channel/runtime.json',

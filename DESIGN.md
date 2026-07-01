@@ -919,7 +919,7 @@ src/
     runtime/                        # runtime adapter (process, host, port, token)
     services/                       # git, workspace, editor, write-* services
     settings-store.ts               # JSON-backed settings store
-    claw-runtime.ts                 # remote channel / webhook / scheduled-task bridge (historical internal filename)
+    remote-channel-runtime.ts       # remote channel / webhook / scheduled-task bridge
     schedule-mcp-*                  # schedule MCP config + node-entry server
     gui-updater.ts                  # electron-updater integration
     logger.ts                       # structured logger
@@ -1030,10 +1030,9 @@ store is split into modules under `src/renderer/src/store/`:
 - `chat-store.ts` — main store, route, thread list, workbench
   panels, status flags.
 - `chat-store-types.ts` — the store's TS surface.
-- `chat-store-app-actions.ts`, `chat-store-claw-actions.ts`,
+- `chat-store-app-actions.ts`, `chat-store-remote-channel-actions.ts`,
   `chat-store-side-actions.ts` — action creators grouped by
-  domain; `chat-store-claw-actions.ts` is the historical internal
-  filename for remote-channel actions.
+  domain.
 - `chat-store-runtime-helpers.ts` — pure helpers around the
   runtime.
 - `chat-store-schedulers.ts` — busy watchdog, completion poll,
@@ -1350,7 +1349,7 @@ If any check fails, the change is not ready.
 | App shell | `src/renderer/src/AppShell.tsx` |
 | Workbench | `src/renderer/src/components/Workbench.tsx` |
 | Chat store | `src/renderer/src/store/chat-store.ts` |
-| Remote channel bridge | `src/main/claw-runtime.ts` (historical internal filename) |
+| Remote channel bridge | `src/main/remote-channel-runtime.ts` |
 | Write services | `src/main/services/write-*-service.ts` |
 | Workspace/editor services | `src/main/services/workspace-*.ts`, `src/main/services/workspace-editors.ts` |
 | Tokens / styles | `src/renderer/src/styles/*.css`, `src/renderer/src/index.css` |
