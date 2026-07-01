@@ -16,6 +16,7 @@ import {
   type AppSettingsV1
 } from '../../../shared/app-settings'
 import type {
+  AgentRuntimeAuxiliaryActiveScopedOperation,
   AgentRuntimeAuxiliaryInput,
   AgentRuntimeCapabilities,
   AgentRuntimeEvent,
@@ -376,14 +377,17 @@ describe('AgentRuntimeHost', () => {
           workspaceRoot: '/tmp/workspace',
           requestId: 'request-1'
         }
-      })).rejects.toThrow('runtimeId is required')
+      } as never)).rejects.toThrow('runtimeId is required')
     }
     expect(adapterAuxiliary).not.toHaveBeenCalled()
 
     const runtimeIdRequired = new Set<AgentRuntimeAuxiliaryInput['operation']>(
       AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS
     )
-    for (const operation of AGENT_RUNTIME_AUXILIARY_OPERATIONS.filter((item) => !runtimeIdRequired.has(item))) {
+    const activeScopedOperations = AGENT_RUNTIME_AUXILIARY_OPERATIONS.filter(
+      (item): item is AgentRuntimeAuxiliaryActiveScopedOperation => !runtimeIdRequired.has(item)
+    )
+    for (const operation of activeScopedOperations) {
       try {
         await host.auxiliary({ operation })
       } catch (error) {
@@ -653,6 +657,16 @@ describe('AgentRuntimeHost', () => {
         }
       }
     })
+
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'recordRuntimeContextLedger',
+      payload: {
+        runtimeId: 'claude',
+        threadId: 'codex-thread',
+        patch: { objective: 'wrong owner' }
+      }
+    })).rejects.toThrow(/payload\.runtimeId must match the top-level runtimeId/)
 
     await expect(host.auxiliary({
       runtimeId: 'codex',
@@ -1234,6 +1248,45 @@ describe('AgentRuntimeHost', () => {
         reason: 'manual cleanup'
       })
     )
+  })
+
+  it('rejects context state auxiliary writes whose payload runtimeId belongs to another owner', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const contextState = new RuntimeContextStateService()
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: { contextState }
+    })
+
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'recordContextCompaction',
+      payload: {
+        runtimeId: 'claude',
+        threadId: 'codex-thread',
+        summary: 'wrong owner'
+      }
+    })).rejects.toThrow(/payload\.runtimeId must match the top-level runtimeId/)
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'updateGoalResumeState',
+      payload: {
+        runtimeId: 'claude',
+        threadId: 'codex-thread',
+        objective: 'wrong owner'
+      }
+    })).rejects.toThrow(/payload\.runtimeId must match the top-level runtimeId/)
+
+    expect(contextState.peek({
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    })).toBeNull()
   })
 
   it('summarizes noop compaction through Model Router when model summaries are enabled', async () => {
@@ -2711,6 +2764,16 @@ describe('AgentRuntimeHost', () => {
         workspaceRoot: '/tmp/workspace'
       }
     })).rejects.toThrow(/payload\.runtimeId must match the top-level runtimeId/)
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'createGitCheckpoint',
+      payload: {
+        runtimeId: 'claude',
+        threadId: 'codex-thread',
+        workspaceRoot: '/tmp/workspace'
+      }
+    })).rejects.toThrow(/payload\.runtimeId must match the top-level runtimeId/)
+    expect(create).not.toHaveBeenCalled()
     await expect(host.auxiliary({
       runtimeId: 'codex',
       operation: 'createGitCheckpoint',
@@ -4593,6 +4656,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
       answers: [{ id: 'choice', value: 'yes' }]
     })).resolves.toBeUndefined()
     await expect(adapter.auxiliary?.(ctx, {
+      runtimeId: 'codex',
       operation: 'archiveThread',
       payload: { threadId: 'codex-thread', archived: false }
     })).resolves.toBeUndefined()

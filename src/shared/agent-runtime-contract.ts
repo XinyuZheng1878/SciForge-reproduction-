@@ -876,11 +876,38 @@ export const AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS = [
   'cancelUserInput'
 ] as const satisfies readonly AgentRuntimeAuxiliaryOperation[]
 
-export type AgentRuntimeAuxiliaryInput = {
-  runtimeId?: AgentRuntimeId
-  operation: AgentRuntimeAuxiliaryOperation
+export type AgentRuntimeAuxiliaryRuntimeIdRequiredOperation =
+  typeof AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS[number]
+
+export type AgentRuntimeAuxiliaryActiveScopedOperation = Exclude<
+  AgentRuntimeAuxiliaryOperation,
+  AgentRuntimeAuxiliaryRuntimeIdRequiredOperation
+>
+
+type AgentRuntimeAuxiliaryInputBase<Operation extends AgentRuntimeAuxiliaryOperation> = {
+  operation: Operation
   payload?: Record<string, unknown>
 }
+
+export type AgentRuntimeAuxiliaryThreadBoundInput = {
+  [Operation in AgentRuntimeAuxiliaryRuntimeIdRequiredOperation]:
+    AgentRuntimeAuxiliaryInputBase<Operation> & { runtimeId: AgentRuntimeId }
+}[AgentRuntimeAuxiliaryRuntimeIdRequiredOperation]
+
+export type AgentRuntimeAuxiliaryActiveScopedInput =
+  AgentRuntimeAuxiliaryInputBase<AgentRuntimeAuxiliaryActiveScopedOperation> & {
+    runtimeId?: AgentRuntimeId
+  }
+
+export type AgentRuntimeAuxiliaryRuntimeScopedInput =
+  AgentRuntimeAuxiliaryInputBase<AgentRuntimeAuxiliaryOperation> & {
+    runtimeId: AgentRuntimeId
+  }
+
+export type AgentRuntimeAuxiliaryInput =
+  | AgentRuntimeAuxiliaryThreadBoundInput
+  | AgentRuntimeAuxiliaryActiveScopedInput
+  | AgentRuntimeAuxiliaryRuntimeScopedInput
 
 export type AgentRuntimeItem = {
   id: string

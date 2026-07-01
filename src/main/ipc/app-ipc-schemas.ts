@@ -13,7 +13,12 @@ import {
   SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS,
   SPEECH_TRANSCRIPTION_MAX_DURATION_MS
 } from '../../shared/speech-to-text'
-import { AGENT_RUNTIME_AUXILIARY_OPERATIONS } from '../../shared/agent-runtime-contract'
+import {
+  AGENT_RUNTIME_AUXILIARY_OPERATIONS,
+  AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS,
+  type AgentRuntimeAuxiliaryActiveScopedOperation,
+  type AgentRuntimeAuxiliaryOperation
+} from '../../shared/agent-runtime-contract'
 import {
   TERMINAL_DEFAULT_COLS,
   TERMINAL_DEFAULT_ROWS,
@@ -66,6 +71,14 @@ const agentRuntimeIdSchema = z.enum(['sciforge', 'codex', 'claude'])
 const agentRuntimeThreadRelationSchema = z.string().trim().pipe(z.enum(['primary', 'fork', 'side']))
 const agentRuntimeUsageGroupBySchema = z.string().trim().pipe(z.enum(['day', 'model', 'thread']))
 const agentRuntimeAuxiliaryOperationSchema = z.enum(AGENT_RUNTIME_AUXILIARY_OPERATIONS)
+const agentRuntimeAuxiliaryRuntimeIdRequiredOperations = new Set<AgentRuntimeAuxiliaryOperation>(
+  AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS
+)
+const agentRuntimeAuxiliaryActiveScopedOperations = AGENT_RUNTIME_AUXILIARY_OPERATIONS.filter(
+  (operation): operation is AgentRuntimeAuxiliaryActiveScopedOperation =>
+    !agentRuntimeAuxiliaryRuntimeIdRequiredOperations.has(operation)
+) as [AgentRuntimeAuxiliaryActiveScopedOperation, ...AgentRuntimeAuxiliaryActiveScopedOperation[]]
+const agentRuntimeAuxiliaryActiveScopedOperationSchema = z.enum(agentRuntimeAuxiliaryActiveScopedOperations)
 const agentRuntimeAuxiliaryPayloadRecordSchema = z.record(z.string(), z.unknown()).optional()
 const approvalPolicySchema = z.enum(['on-request', 'untrusted', 'never', 'auto', 'suggest'])
 const sandboxModeSchema = z.enum(['read-only', 'workspace-write', 'danger-full-access', 'external-sandbox'])
@@ -245,11 +258,22 @@ export const agentRuntimeUsagePayloadSchema = z.object({
   threadId: optionalTrimmedString(MAX_ID_LENGTH)
 }).strict()
 
-export const agentRuntimeAuxiliaryPayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+const agentRuntimeAuxiliaryRuntimeScopedPayloadSchema = z.object({
+  runtimeId: agentRuntimeIdSchema,
   operation: agentRuntimeAuxiliaryOperationSchema,
   payload: agentRuntimeAuxiliaryPayloadRecordSchema
 }).strict()
+
+const agentRuntimeAuxiliaryActiveScopedPayloadSchema = z.object({
+  runtimeId: agentRuntimeIdSchema.optional(),
+  operation: agentRuntimeAuxiliaryActiveScopedOperationSchema,
+  payload: agentRuntimeAuxiliaryPayloadRecordSchema
+}).strict()
+
+export const agentRuntimeAuxiliaryPayloadSchema = z.union([
+  agentRuntimeAuxiliaryRuntimeScopedPayloadSchema,
+  agentRuntimeAuxiliaryActiveScopedPayloadSchema
+])
 
 export const agentRuntimeApprovalResolvePayloadSchema = z.object({
   runtimeId: agentRuntimeIdSchema,

@@ -92,6 +92,15 @@ describe('buildModelRouterSidecarLaunch', () => {
         ANTHROPIC_DEFAULT_SONNET_MODEL: 'outer-sonnet',
         QWEN_API_KEY: 'outer-qwen-key',
         QWEN_BASE_URL: 'https://dashscope.example/v1',
+        TOGETHER_API_KEY: 'outer-together-key',
+        TOGETHER_BASE_URL: 'https://api.together.example/v1',
+        FIREWORKS_API_KEY: 'outer-fireworks-key',
+        XAI_API_KEY: 'outer-xai-key',
+        PERPLEXITY_API_KEY: 'outer-perplexity-key',
+        MOONSHOT_API_KEY: 'outer-moonshot-key',
+        ZHIPU_API_KEY: 'outer-zhipu-key',
+        SILICONFLOW_API_KEY: 'outer-siliconflow-key',
+        ARK_API_KEY: 'outer-ark-key',
         MODEL_PROVIDER: 'outer-provider',
         KUN_BASE_URL: 'https://old-runtime-provider.example/v1',
         SCIFORGE_TEXT_API_KEY: 'outer-standalone-text-key',
@@ -152,6 +161,15 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.launch.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined()
     expect(result.launch.env.QWEN_API_KEY).toBeUndefined()
     expect(result.launch.env.QWEN_BASE_URL).toBeUndefined()
+    expect(result.launch.env.TOGETHER_API_KEY).toBeUndefined()
+    expect(result.launch.env.TOGETHER_BASE_URL).toBeUndefined()
+    expect(result.launch.env.FIREWORKS_API_KEY).toBeUndefined()
+    expect(result.launch.env.XAI_API_KEY).toBeUndefined()
+    expect(result.launch.env.PERPLEXITY_API_KEY).toBeUndefined()
+    expect(result.launch.env.MOONSHOT_API_KEY).toBeUndefined()
+    expect(result.launch.env.ZHIPU_API_KEY).toBeUndefined()
+    expect(result.launch.env.SILICONFLOW_API_KEY).toBeUndefined()
+    expect(result.launch.env.ARK_API_KEY).toBeUndefined()
     expect(result.launch.env.MODEL_PROVIDER).toBeUndefined()
     expect(result.launch.env.KUN_BASE_URL).toBeUndefined()
     expect(result.launch.env.SCIFORGE_TEXT_API_KEY).toBeUndefined()

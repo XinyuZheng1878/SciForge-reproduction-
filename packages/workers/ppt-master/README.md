@@ -42,12 +42,12 @@ Step 4 confirmation or sequential SVG generation rules.
 The optional UI kit also includes a lightweight layout QA pass:
 
 ```bash
-npm --workspace sciforge-ppt-master-mcp-service run layout-check
+npm --workspace @sciforge/ppt-master run layout-check
 ```
 
 This checks template and demo SVGs for safe-area drift, text-slot overflow, and footer
 collisions before the normal ppt-master quality/finalize/export pipeline.
 
 ```bash
-npm --workspace sciforge-ppt-master-mcp-service run start
+npm --workspace @sciforge/ppt-master run start
 ```

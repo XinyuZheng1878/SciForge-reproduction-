@@ -23,7 +23,7 @@ vi.mock('../agent/runtime-client', () => ({
   }
 }))
 
-import { createNavigationActions, syncClawChannelActivityToStore } from './chat-store-navigation-actions'
+import { createNavigationActions, syncRemoteChannelActivityToStore } from './chat-store-navigation-actions'
 
 function thread(id: string, runtimeId?: AgentRuntimeId): NormalizedThread {
   return {
@@ -478,7 +478,7 @@ describe('remote-channel activity sync', () => {
       Object.assign(state, update)
     }
 
-    await syncClawChannelActivityToStore(set, () => state, {
+    await syncRemoteChannelActivityToStore(set, () => state, {
       channelId: 'channel-1',
       threadId: 'desktop-thread',
       runtimeId: 'codex'
@@ -498,7 +498,7 @@ describe('remote-channel activity sync', () => {
       Object.assign(state, update)
     }
 
-    await syncClawChannelActivityToStore(set, () => state, {
+    await syncRemoteChannelActivityToStore(set, () => state, {
       channelId: 'channel-1',
       threadId: 'remote-thread',
       runtimeId: 'codex'
@@ -519,7 +519,7 @@ describe('remote-channel activity sync', () => {
       Object.assign(state, update)
     }
 
-    await syncClawChannelActivityToStore(set, () => state, {
+    await syncRemoteChannelActivityToStore(set, () => state, {
       channelId: 'channel-1',
       threadId: 'remote-thread',
       runtimeId: 'codex'
@@ -538,7 +538,7 @@ describe('remote-channel activity sync', () => {
       Object.assign(state, update)
     }
 
-    await syncClawChannelActivityToStore(set, () => state, {
+    await syncRemoteChannelActivityToStore(set, () => state, {
       channelId: 'channel-1',
       threadId: 'replacement-thread',
       previousThreadId: 'desktop-thread',

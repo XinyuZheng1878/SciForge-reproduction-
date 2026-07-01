@@ -291,6 +291,15 @@ describe('startLocalRuntimeChild', () => {
       ANTHROPIC_AUTH_TOKEN: 'outer-anthropic-token',
       GEMINI_API_KEY: 'outer-gemini-secret',
       OPENROUTER_API_KEY: 'outer-openrouter-secret',
+      TOGETHER_API_KEY: 'outer-together-secret',
+      TOGETHER_BASE_URL: 'https://api.together.example/v1',
+      FIREWORKS_API_KEY: 'outer-fireworks-secret',
+      XAI_API_KEY: 'outer-xai-secret',
+      PERPLEXITY_API_KEY: 'outer-perplexity-secret',
+      MOONSHOT_API_KEY: 'outer-moonshot-secret',
+      ZHIPU_API_KEY: 'outer-zhipu-secret',
+      SILICONFLOW_API_KEY: 'outer-siliconflow-secret',
+      ARK_API_KEY: 'outer-ark-secret',
       DEEPSEEK_BASE_URL: 'https://direct-provider.example/v1',
       KUN_BASE_URL: 'https://direct-local-runtime-provider.example/v1',
       MODEL_PROVIDER: 'direct-provider',
@@ -852,6 +861,29 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
       else process.env.SCIFORGE_CUA_SERVICE_URL = previousSidecarUrl
       await module.stopLocalRuntimeChildAndWait()
     }
+  })
+
+  it('classifies external computer-use service URLs by loopback and explicit allowlist', async () => {
+    const module = await import('./local-runtime-process')
+
+    expect(module.externalComputerUseServiceUrlPolicy({
+      SCIFORGE_CUA_SERVICE_URL: 'http://127.0.0.1:3900'
+    })).toMatchObject({ configured: true, allowed: true, host: '127.0.0.1' })
+    expect(module.externalComputerUseServiceUrlPolicy({
+      SCIFORGE_CUA_SERVICE_URL: 'http://[::1]:3900'
+    })).toMatchObject({ configured: true, allowed: true, host: '::1' })
+    expect(module.externalComputerUseServiceUrlPolicy({
+      SCIFORGE_CUA_SERVICE_URL: 'http://devbox.local:3900'
+    })).toMatchObject({
+      configured: true,
+      allowed: false,
+      host: 'devbox.local',
+      reason: 'non_loopback_without_allowlist'
+    })
+    expect(module.externalComputerUseServiceUrlPolicy({
+      SCIFORGE_CUA_SERVICE_URL: 'http://devbox.local:3900',
+      SCIFORGE_CUA_ALLOWED_HOSTS: 'devbox.local'
+    })).toMatchObject({ configured: true, allowed: true, host: 'devbox.local' })
   })
 
   it('keeps the shared computer-use MCP server disabled when computer use is turned off', async () => {

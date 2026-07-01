@@ -391,7 +391,7 @@ function sidebarRemoteChannelTitle(channel: ClawImChannelV1): string {
     const name = channel.platformCredential.channelName.trim() || channel.platformCredential.channelId.trim()
     return name ? `#${name}` : 'Discord'
   }
-  return channel.label.trim() || channel.agentProfile.name.trim() || clawSidebarProviderLabel(channel.provider)
+  return channel.label.trim() || channel.agentProfile.name.trim() || remoteChannelSidebarProviderLabel(channel.provider)
 }
 
 function sidebarRemoteChannelSecondaryLabel(
@@ -429,7 +429,7 @@ function sidebarRemoteMessageLabel(message: NonNullable<ClawImChannelV1['recentM
   return text || sender || ''
 }
 
-function clawSidebarProviderLabel(provider: ClawImChannelV1['provider']): string {
+function remoteChannelSidebarProviderLabel(provider: ClawImChannelV1['provider']): string {
   if (provider === 'discord') return 'Discord'
   if (provider === 'weixin') return 'WeChat'
   return 'Feishu / Lark'

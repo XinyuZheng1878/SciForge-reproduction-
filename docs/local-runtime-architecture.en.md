@@ -234,8 +234,10 @@ code is for one-time migration from old settings:
   reconfigured through Model Router.
 - Persisted files after migration preserve `agents.sciforge`, may preserve
   `agents.codex`, and no longer retain `agents.codewhale` / `agents.reasonix`.
-- Legacy Connect phone fields `agentThreadIds.codewhale` and `agentThreadIds.reasonix` are collapsed
-  to `agentThreadIds.sciforge`.
+- Legacy Connect phone fields `agentThreadIds.codewhale` and
+  `agentThreadIds.reasonix` are discarded; only canonical runtime/thread
+  mappings such as `agentThreadIds.sciforge`, `agentThreadIds.codex`, and
+  `agentThreadIds.claude` are retained.
 - New Codex thread IDs must be written to Codex-owned thread/event stores or
   Codex mappings such as `agentThreadIds.codex`; they must not pollute SciForge Runtime
   mappings.

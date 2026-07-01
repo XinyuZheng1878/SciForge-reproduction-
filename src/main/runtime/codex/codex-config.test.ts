@@ -89,7 +89,16 @@ describe('codex config launch helpers', () => {
         COHERE_API_KEY: 'sk-cohere',
         OPENROUTER_API_KEY: 'sk-openrouter',
         AZURE_OPENAI_API_KEY: 'sk-azure',
+        TOGETHER_API_KEY: 'sk-together',
+        FIREWORKS_API_KEY: 'sk-fireworks',
+        XAI_API_KEY: 'sk-xai',
+        PERPLEXITY_API_KEY: 'sk-perplexity',
+        MOONSHOT_API_KEY: 'sk-moonshot',
+        ZHIPU_API_KEY: 'sk-zhipu',
+        SILICONFLOW_API_KEY: 'sk-siliconflow',
+        ARK_API_KEY: 'sk-ark',
         OPENAI_MODEL: 'gpt-5',
+        TOGETHER_MODEL: 'together-model',
         DEEPSEEK_MODEL: 'deepseek-chat',
         ANTHROPIC_MODEL: 'opus',
         ANTHROPIC_DEFAULT_OPUS_MODEL: 'bailian/deepseek-v4-flash',
@@ -137,7 +146,16 @@ describe('codex config launch helpers', () => {
     expect(launch.env.COHERE_API_KEY).toBeUndefined()
     expect(launch.env.OPENROUTER_API_KEY).toBeUndefined()
     expect(launch.env.AZURE_OPENAI_API_KEY).toBeUndefined()
+    expect(launch.env.TOGETHER_API_KEY).toBeUndefined()
+    expect(launch.env.FIREWORKS_API_KEY).toBeUndefined()
+    expect(launch.env.XAI_API_KEY).toBeUndefined()
+    expect(launch.env.PERPLEXITY_API_KEY).toBeUndefined()
+    expect(launch.env.MOONSHOT_API_KEY).toBeUndefined()
+    expect(launch.env.ZHIPU_API_KEY).toBeUndefined()
+    expect(launch.env.SILICONFLOW_API_KEY).toBeUndefined()
+    expect(launch.env.ARK_API_KEY).toBeUndefined()
     expect(launch.env.OPENAI_MODEL).toBeUndefined()
+    expect(launch.env.TOGETHER_MODEL).toBeUndefined()
     expect(launch.env.DEEPSEEK_MODEL).toBeUndefined()
     expect(launch.env.ANTHROPIC_MODEL).toBeUndefined()
     expect(launch.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined()

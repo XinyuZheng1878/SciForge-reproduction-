@@ -66,7 +66,15 @@ const directCallMarkers: DirectCallMarker[] = [
   { label: 'Mistral API key env', pattern: /\bMISTRAL_API_KEY\b/ },
   { label: 'Cohere API key env', pattern: /\bCOHERE_API_KEY\b/ },
   { label: 'OpenRouter API key env', pattern: /\bOPENROUTER_API_KEY\b/ },
-  { label: 'Azure OpenAI API key env', pattern: /\bAZURE_OPENAI_API_KEY\b/ }
+  { label: 'Azure OpenAI API key env', pattern: /\bAZURE_OPENAI_API_KEY\b/ },
+  { label: 'Together API key env', pattern: /\bTOGETHER_API_KEY\b/ },
+  { label: 'Fireworks API key env', pattern: /\bFIREWORKS_API_KEY\b/ },
+  { label: 'xAI API key env', pattern: /\bXAI_API_KEY\b/ },
+  { label: 'Perplexity API key env', pattern: /\bPERPLEXITY_API_KEY\b/ },
+  { label: 'Moonshot API key env', pattern: /\bMOONSHOT_API_KEY\b/ },
+  { label: 'Zhipu API key env', pattern: /\bZHIPU_API_KEY\b/ },
+  { label: 'SiliconFlow API key env', pattern: /\bSILICONFLOW_API_KEY\b/ },
+  { label: 'ARK API key env', pattern: /\bARK_API_KEY\b/ }
 ]
 
 function toRepoPath(path: string): string {

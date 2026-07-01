@@ -131,7 +131,12 @@ function normalizePlanRegistry(raw: unknown): PersistedPlanRegistry {
       const workspace = normalizeWorkspaceRoot(workspaceRoot)
       const planId = planIdAliases.get(normalizeText(value)) ?? normalizeText(value)
       const plan = plans[planId]
-      if (workspace && plan && guiPlanWorkspaceMatches(plan.workspaceRoot, workspace)) {
+      if (
+        workspace &&
+        plan &&
+        !plan.threadId?.trim() &&
+        guiPlanWorkspaceMatches(plan.workspaceRoot, workspace)
+      ) {
         activeByWorkspace[workspace] = plan.id
       }
     }
@@ -207,7 +212,9 @@ export function rememberGuiPlan(plan: GuiPlanArtifact): void {
   const workspace = normalizeWorkspaceRoot(normalizedPlan.workspaceRoot)
   const key = threadKey(workspace, normalizedPlan.threadId)
   registry.plans[normalizedPlan.id] = normalizedPlan
-  if (workspace) registry.activeByWorkspace[workspace] = normalizedPlan.id
+  if (workspace && !normalizedPlan.threadId?.trim()) {
+    registry.activeByWorkspace[workspace] = normalizedPlan.id
+  }
   if (key) registry.activeByThread[key] = normalizedPlan.id
   writeRegistry(registry)
 }
@@ -243,10 +250,16 @@ function findActivePlanIdByWorkspace(
   const workspace = normalizeWorkspaceRoot(workspaceRoot)
   if (!workspace) return undefined
   const exact = registry.activeByWorkspace[workspace]
-  if (exact) return exact
-  return Object.entries(registry.activeByWorkspace).find(([storedWorkspace]) =>
-    guiPlanWorkspaceMatches(storedWorkspace, workspace)
-  )?.[1]
+  const exactPlan = exact ? registry.plans[exact] : null
+  if (exactPlan && guiPlanMatchesContext(exactPlan, workspace)) return exactPlan.id
+  for (const [storedWorkspace, planId] of Object.entries(registry.activeByWorkspace)) {
+    if (!guiPlanWorkspaceMatches(storedWorkspace, workspace)) continue
+    const plan = registry.plans[planId]
+    if (plan && guiPlanMatchesContext(plan, workspace)) return plan.id
+  }
+  return Object.values(registry.plans)
+    .filter((plan) => guiPlanMatchesContext(plan, workspace))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.id
 }
 
 function findActivePlanIdByThread(

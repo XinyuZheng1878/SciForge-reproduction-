@@ -466,6 +466,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
       const adapter = createLocalRuntimeAgentRuntimeAdapter({ request })
 
       await expect(adapter.auxiliary?.({ settings: buildSettings() }, {
+        runtimeId: 'sciforge',
         operation: 'getThreadTodos',
         payload: { threadId: 'thread-1' }
       })).resolves.toEqual({
@@ -488,6 +489,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
       })
 
       await expect(adapter.auxiliary?.({ settings: buildSettings() }, {
+        runtimeId: 'sciforge',
         operation: 'setThreadTodos',
         payload: { threadId: 'thread-1', todos: setTodos }
       })).resolves.toEqual({
@@ -823,6 +825,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     })
 
     await expect(adapter.auxiliary?.({ settings: buildSettings() }, {
+      runtimeId: 'sciforge',
       operation: 'listThreadChildren',
       payload: { threadId: 'thread-1', turnId: 'turn-1', limit: 10 }
     })).resolves.toMatchObject({
@@ -908,6 +911,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     const adapter = createLocalRuntimeAgentRuntimeAdapter({ request })
 
     await expect(adapter.auxiliary?.({ settings: buildSettings() }, {
+      runtimeId: 'sciforge',
       operation: 'readChildTranscript',
       payload: { threadId: 'thread-1', parentTurnId: 'turn-1', childId: 'child-1', limit: 20 }
     })).resolves.toMatchObject({

@@ -72,6 +72,14 @@ describe('claude-code config launch helpers', () => {
       COHERE_API_KEY: 'sk-cohere',
       OPENROUTER_API_KEY: 'sk-openrouter',
       AZURE_OPENAI_API_KEY: 'sk-azure',
+      TOGETHER_API_KEY: 'sk-together',
+      FIREWORKS_API_KEY: 'sk-fireworks',
+      XAI_API_KEY: 'sk-xai',
+      PERPLEXITY_API_KEY: 'sk-perplexity',
+      MOONSHOT_API_KEY: 'sk-moonshot',
+      ZHIPU_API_KEY: 'sk-zhipu',
+      SILICONFLOW_API_KEY: 'sk-siliconflow',
+      ARK_API_KEY: 'sk-ark',
       ANTHROPIC_API_KEY: 'sk-anthropic',
       ANTHROPIC_AUTH_TOKEN: 'anthropic-token',
       ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
@@ -110,6 +118,14 @@ describe('claude-code config launch helpers', () => {
     expect(env.COHERE_API_KEY).toBeUndefined()
     expect(env.OPENROUTER_API_KEY).toBeUndefined()
     expect(env.AZURE_OPENAI_API_KEY).toBeUndefined()
+    expect(env.TOGETHER_API_KEY).toBeUndefined()
+    expect(env.FIREWORKS_API_KEY).toBeUndefined()
+    expect(env.XAI_API_KEY).toBeUndefined()
+    expect(env.PERPLEXITY_API_KEY).toBeUndefined()
+    expect(env.MOONSHOT_API_KEY).toBeUndefined()
+    expect(env.ZHIPU_API_KEY).toBeUndefined()
+    expect(env.SILICONFLOW_API_KEY).toBeUndefined()
+    expect(env.ARK_API_KEY).toBeUndefined()
     expect(env.MODEL_PROVIDER).toBeUndefined()
     expect(env.KUN_BASE_URL).toBeUndefined()
     expect(env.SCIFORGE_IMAGE_API_KEY).toBeUndefined()

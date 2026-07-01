@@ -63,7 +63,7 @@ function t(key: string, values?: Record<string, unknown>): string {
 function buildSettings(): AppSettingsV1 {
   const settings: AppSettingsV1 = {
     version: 1,
-    installationId: 'dsgui-local',
+    installationId: 'sciforge-local',
     locale: 'en',
     theme: 'system',
     uiFontScale: 'medium',
@@ -84,7 +84,7 @@ function buildSettings(): AppSettingsV1 {
     codePromptPrefix: ''
   }
   settings.remoteChannel.enabled = true
-  settings.remoteChannel.im.workspaceRoot = '/tmp/claw'
+  settings.remoteChannel.im.workspaceRoot = '/tmp/phone-workspace'
   settings.remoteChannel.channels = [
     {
       id: 'channel_1',
@@ -158,13 +158,13 @@ describe('ConnectPhoneSettingsSection', () => {
           kind: 'discord',
           applicationId: 'client-1',
           botId: 'bot-1',
-          botUsername: 'DeepSeek',
+          botUsername: 'SciForge Bot',
           guildId: 'guild-1',
           guildName: 'Support server',
           channelId: 'channel-1',
           channelName: 'support',
-          installationId: 'dsgui-other',
-          guardOwnerInstallationId: 'dsgui-other',
+          installationId: 'sciforge-other',
+          guardOwnerInstallationId: 'sciforge-other',
           guardOwnerUpdatedAt: '2026-06-03T00:00:00.000Z',
           createdAt: '2026-06-03T00:00:00.000Z'
         },
@@ -217,12 +217,12 @@ describe('ConnectPhoneSettingsSection', () => {
           kind: 'discord',
           applicationId: 'client-1',
           botId: 'bot-1',
-          botUsername: 'DeepSeek',
+          botUsername: 'SciForge Bot',
           guildId: 'guild-1',
           guildName: 'Support server',
           channelId: 'channel-1',
           channelName: 'support',
-          installationId: 'dsgui-local',
+          installationId: 'sciforge-local',
           createdAt: '2026-06-03T00:00:00.000Z'
         },
         conversations: [],
@@ -235,7 +235,7 @@ describe('ConnectPhoneSettingsSection', () => {
       enabled: true,
       guardMode: 'all_messages',
       platformCredential: {
-        guardOwnerInstallationId: 'dsgui-local'
+          guardOwnerInstallationId: 'sciforge-local'
       }
     })
   })

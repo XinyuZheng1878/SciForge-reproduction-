@@ -67,12 +67,14 @@ historical input, not a compatibility API for new writes or new code paths:
 
 - `agentProvider: codewhale | reasonix | deepseek-runtime` maps to
   `activeAgentRuntime: "sciforge"`.
-- `agents.codewhale`, `agents.reasonix`, and historical `deepseek` values seed
-  `agents.sciforge` once.
+- `agents.codewhale`, `agents.reasonix`, and historical `deepseek` values are
+  discarded during migration; configure canonical `agents.sciforge`,
+  `agents.codex`, or `agents.claude` entries instead.
 - Saved settings preserve `agents.sciforge` and may contain `agents.codex`; they must
   not retain `agents.codewhale` or `agents.reasonix`.
-- Old Connect phone `agentThreadIds.codewhale/reasonix` fold into
-  `agentThreadIds.sciforge`.
+- Old Connect phone `agentThreadIds.codewhale/reasonix` mappings are discarded;
+  only canonical `agentThreadIds.sciforge`, `agentThreadIds.codex`, and
+  `agentThreadIds.claude` mappings are retained.
 - New Codex thread mappings must use Codex-owned runtime/thread storage and must
   not be written into local runtime mappings.
 

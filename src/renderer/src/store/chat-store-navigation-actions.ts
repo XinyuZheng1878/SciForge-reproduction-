@@ -134,7 +134,7 @@ function preserveLocalActiveThreadForSidebar(
   return title ? { ...thread, title } : null
 }
 
-export async function syncClawChannelActivityToStore(
+export async function syncRemoteChannelActivityToStore(
   set: ChatStoreSet,
   get: ChatStoreGet,
   payload: { channelId: string; threadId: string; runtimeId?: AgentRuntimeId; previousThreadId?: string }
@@ -324,7 +324,7 @@ export function createNavigationActions(
           }) => {
             void (async () => {
               if (typeof window.sciforge === 'undefined') return
-              await syncClawChannelActivityToStore(set, get, { channelId, threadId, runtimeId, previousThreadId })
+              await syncRemoteChannelActivityToStore(set, get, { channelId, threadId, runtimeId, previousThreadId })
             })()
           })
         }

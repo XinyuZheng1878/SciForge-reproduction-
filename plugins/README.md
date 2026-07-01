@@ -5,7 +5,7 @@ roles directly. Paper Radar's desktop UI now uses the GUI worker service directl
 remains a standalone/debug API while the shared Paper Radar core is still owned by the plug-in
 workspace.
 
-| Plug-in | Port | Endpoint | Translates | Upstream model(s) |
+| Plug-in | Port | Endpoint | Role/Output | Upstream model(s) |
 |---|---|---|---|---|
 | [`paper-radar-service`](./paper-radar-service) | 3901 | `GET /health`, `POST /sync/profile`, `POST /digest` | paper metadata → ranked daily digest | arXiv OAI-PMH + bioRxiv API |
 

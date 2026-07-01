@@ -718,11 +718,11 @@ export function FloatingComposer({
     ? workspaceRootOverride || activeThreadWorkspace
     : activeThreadWorkspace || workspaceRootOverride
   const effectiveWorkspaceRoot = normalizeWorkspaceRoot(preferredWorkspaceRoot || workspaceRoot)
-  const clawAgentName =
+  const remoteChannelAgentName =
     activeClawChannel?.agentProfile.name.trim()
     || activeClawChannel?.label.trim()
     || t('remoteChannelEmptyHeroFallbackName')
-  const clawHasInboundConversation = Boolean(
+  const remoteChannelHasInboundConversation = Boolean(
     activeThreadId ||
     Object.values(activeClawChannel?.agentThreadIds ?? {}).some((threadId) => threadId.trim()) ||
     activeClawChannel?.conversations.some((conversation) =>
@@ -732,10 +732,10 @@ export function FloatingComposer({
     activeClawChannel?.remoteSession?.chatId?.trim()
   )
 
-  const canEditComposer = isRemoteChannelThread ? clawHasInboundConversation : true
+  const canEditComposer = isRemoteChannelThread ? remoteChannelHasInboundConversation : true
   const canCompose = runtimeReady && (
     isRemoteChannelThread
-      ? clawHasInboundConversation
+      ? remoteChannelHasInboundConversation
       : (hasActiveThread || !!effectiveWorkspaceRoot)
   )
   const canChangeModel = canCompose && !busy
@@ -846,8 +846,8 @@ export function FloatingComposer({
         : imageGenerationMode
           ? t('composerImageGenerationPlaceholder')
           : isRemoteChannelThread
-            ? clawHasInboundConversation
-              ? t('remoteChannelPlaceholder', { name: clawAgentName })
+            ? remoteChannelHasInboundConversation
+              ? t('remoteChannelPlaceholder', { name: remoteChannelAgentName })
               : t('remoteChannelPlaceholderNeedsInbound')
             : mode === 'plan'
               ? t('composerPlanPlaceholder')
@@ -859,7 +859,7 @@ export function FloatingComposer({
     : !hasActiveThread && !effectiveWorkspaceRoot
       ? t('composerWorkspaceHint')
       : isRemoteChannelThread
-          ? clawHasInboundConversation
+          ? remoteChannelHasInboundConversation
             ? t('remoteChannelComposerHint')
             : t('remoteChannelComposerHintNeedsInbound')
           : t('composerSlashHint')

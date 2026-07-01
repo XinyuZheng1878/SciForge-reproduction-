@@ -11,14 +11,14 @@ v1.3 先建立“参考图风格识别”的受控底座：用户提供论文图
 1. 用户提出“按某篇文献/参考图/论文风格画同样效果”的科研绘图请求。
 2. `scientific_skills_plan` 识别为绘图 + 风格参考任务，返回 `plottingWorkflow.styleReference`。
 3. 右侧“图风格”面板支持选择或拖入 workspace 内参考图，自动转为 workspace 相对路径，并读取缩略图预览。
-4. Renderer 或受控工具调用 `window.dsGui.extractFigureStyle(...)`，对应 IPC 为 `figure-style:extract`。
+4. Renderer 或受控工具调用 `window.sciforge.extractFigureStyle(...)`，对应 IPC 为 `figure-style:extract`。
 5. 主进程读取 workspace 内图片，提取颜色、背景、边距、轴线、网格、线宽、标记尺寸、导出偏好和置信度。
 6. 输出 `FigureStyleSpec v1`，并可通过 `buildFigureStyleApplyPlan(...)` 生成 Matplotlib rcParams 和 SciForge DataFigure Engine 的下一步提示。
 
 ## API
 
 ```ts
-await window.dsGui.extractFigureStyle({
+await window.sciforge.extractFigureStyle({
   workspaceRoot: '/path/to/workspace',
   sourcePath: 'figures/reference.png',
   sourceType: 'image',
@@ -55,7 +55,7 @@ type FigureStyleExtractResult =
 - IPC schema：`figureStyleExtractPayloadSchema`
 - IPC channel：`figure-style:extract`
 - 文件选择 IPC：`workspace:pick-file`
-- Electron preload：`window.dsGui.extractFigureStyle`、`window.dsGui.pickWorkspaceFile`
+- Electron preload：`window.sciforge.extractFigureStyle`、`window.sciforge.pickWorkspaceFile`
 - Dev browser bridge：`extractFigureStyle`、`pickWorkspaceFile`
 - K-Dense planning：`plottingWorkflow.styleReference`
 - 右侧工作台面板：`FigureStylePanel`，可选择/拖入参考图、预览缩略图、查看置信度/配色/Matplotlib 映射/受控绘图工作流，并保存 `.sciforge/figure-styles/*.json`
@@ -201,8 +201,8 @@ type FigureStyleExtractResult =
   - `scientific-plotting:status`
   - `scientific-plotting:prepare-reference`
 - Electron preload 和 dev browser bridge 均暴露：
-  - `window.dsGui.getScientificPlottingStatus(...)`
-  - `window.dsGui.prepareScientificPlottingReference(...)`
+  - `window.sciforge.getScientificPlottingStatus(...)`
+  - `window.sciforge.prepareScientificPlottingReference(...)`
 - 参考图面板新增受控 crop 参数：
   - PDF page
   - PDF render DPI

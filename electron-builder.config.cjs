@@ -1,5 +1,6 @@
 const { existsSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
+const releaseWorkerManifest = require('./scripts/release-worker-manifest.cjs')
 
 function loadLocalReleaseEnv() {
   const candidates = [
@@ -60,22 +61,6 @@ const releaseAppVersion = (
   ''
 ).trim()
 const artifactVersion = releaseAppVersion || '${version}'
-const modelRouterWorkerDir = 'packages/workers/model-router'
-const computerUseWorkerDir = 'packages/workers/computer-use'
-const scheduleWorkerDir = 'packages/workers/schedule'
-const searchWorkerDir = 'packages/workers/search'
-const workflowWorkerDir = 'packages/workers/workflow'
-const workspaceIntelWorkerDir = 'packages/workers/workspace-intel'
-const remoteExecutorWorkerDir = 'packages/workers/remote-executor'
-const writeAssistWorkerDir = 'packages/workers/write-assist'
-const paperRadarWorkerDir = 'packages/workers/paper-radar'
-const runtimeInspectorWorkerDir = 'packages/workers/runtime-inspector'
-const scientificPlottingWorkerDir = 'packages/workers/scientific-plotting'
-const imageGenerationWorkerDir = 'packages/workers/image-generation'
-const multiAgentWorkerDir = 'packages/workers/multi-agent'
-const pptMasterWorkerDir = 'packages/workers/ppt-master'
-const canvasWorkerDir = 'packages/workers/canvas'
-const paperRadarServiceDir = 'plugins/paper-radar-service'
 
 function normalizeUpdateChannel(raw) {
   const value = String(raw || '').trim()
@@ -97,22 +82,7 @@ module.exports = {
     '**/kun/dist/**/*',
     '**/kun/package*.json',
     '**/kun/node_modules/**/*',
-    `**/${modelRouterWorkerDir}/**/*`,
-    `**/${computerUseWorkerDir}/**/*`,
-    `**/${scheduleWorkerDir}/**/*`,
-    `**/${searchWorkerDir}/**/*`,
-    `**/${workflowWorkerDir}/**/*`,
-    `**/${workspaceIntelWorkerDir}/**/*`,
-    `**/${remoteExecutorWorkerDir}/**/*`,
-    `**/${writeAssistWorkerDir}/**/*`,
-    `**/${paperRadarWorkerDir}/**/*`,
-    `**/${runtimeInspectorWorkerDir}/**/*`,
-    `**/${scientificPlottingWorkerDir}/**/*`,
-    `**/${imageGenerationWorkerDir}/**/*`,
-    `**/${multiAgentWorkerDir}/**/*`,
-    `**/${pptMasterWorkerDir}/**/*`,
-    `**/${canvasWorkerDir}/**/*`,
-    `**/${paperRadarServiceDir}/**/*`,
+    ...releaseWorkerManifest.createAsarUnpackGlobs(),
     '**/node_modules/better-sqlite3/**/*',
     '**/node_modules/node-pty/**/*',
     '**/node_modules/bindings/**/*',
@@ -136,134 +106,7 @@ module.exports = {
     '!**/README*',
     '!**/CHANGELOG*',
     '!**/node_modules/openclaw/**/*',
-    {
-      from: modelRouterWorkerDir,
-      to: modelRouterWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: computerUseWorkerDir,
-      to: computerUseWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: scheduleWorkerDir,
-      to: scheduleWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: searchWorkerDir,
-      to: searchWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: workflowWorkerDir,
-      to: workflowWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: workspaceIntelWorkerDir,
-      to: workspaceIntelWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: remoteExecutorWorkerDir,
-      to: remoteExecutorWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: writeAssistWorkerDir,
-      to: writeAssistWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: paperRadarWorkerDir,
-      to: paperRadarWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: runtimeInspectorWorkerDir,
-      to: runtimeInspectorWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: scientificPlottingWorkerDir,
-      to: scientificPlottingWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: imageGenerationWorkerDir,
-      to: imageGenerationWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: multiAgentWorkerDir,
-      to: multiAgentWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: pptMasterWorkerDir,
-      to: pptMasterWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: canvasWorkerDir,
-      to: canvasWorkerDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    },
-    {
-      from: paperRadarServiceDir,
-      to: paperRadarServiceDir,
-      filter: [
-        '**/*',
-        '**/.*'
-      ]
-    }
+    ...releaseWorkerManifest.createBundledFileSets()
   ],
   extraResources: [
     { from: 'LICENSE', to: 'compliance/LICENSE' },

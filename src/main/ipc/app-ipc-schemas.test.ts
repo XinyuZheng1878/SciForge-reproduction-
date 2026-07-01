@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { AGENT_RUNTIME_AUXILIARY_OPERATIONS } from '../../shared/agent-runtime-contract'
+import {
+  AGENT_RUNTIME_AUXILIARY_OPERATIONS,
+  AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS,
+  type AgentRuntimeAuxiliaryOperation
+} from '../../shared/agent-runtime-contract'
 import {
   agentRuntimeApprovalResolvePayloadSchema,
   agentRuntimeAuxiliaryPayloadSchema,
@@ -371,6 +375,47 @@ describe('app-ipc-schemas', () => {
         payload: { threadId: 'thread-1' }
       }).operation).toBe(operation)
     }
+  })
+
+  it('requires top-level runtime ids only for thread-bound auxiliary operations', () => {
+    const runtimeIdRequired = new Set<AgentRuntimeAuxiliaryOperation>(
+      AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS
+    )
+
+    for (const operation of AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS) {
+      expect(() =>
+        agentRuntimeAuxiliaryPayloadSchema.parse({
+          operation,
+          payload: {
+            threadId: 'thread-1',
+            sourceThreadId: 'thread-1',
+            parentThreadId: 'thread-1',
+            requestId: 'request-1'
+          }
+        })
+      , operation).toThrow()
+
+      expect(agentRuntimeAuxiliaryPayloadSchema.parse({
+        runtimeId: 'codex',
+        operation,
+        payload: { threadId: 'thread-1' }
+      })).toMatchObject({ runtimeId: 'codex', operation })
+    }
+
+    for (const operation of AGENT_RUNTIME_AUXILIARY_OPERATIONS.filter((item) => !runtimeIdRequired.has(item))) {
+      expect(agentRuntimeAuxiliaryPayloadSchema.parse({
+        operation,
+        payload: {}
+      })).toEqual({ operation, payload: {} })
+    }
+
+    expect(agentRuntimeAuxiliaryPayloadSchema.parse({
+      operation: 'listWorkspaceReferences',
+      payload: { workspaceRoot: '/tmp/workspace' }
+    })).toEqual({
+      operation: 'listWorkspaceReferences',
+      payload: { workspaceRoot: '/tmp/workspace' }
+    })
   })
 
   it('accepts skill list payloads with an optional workspace root', () => {

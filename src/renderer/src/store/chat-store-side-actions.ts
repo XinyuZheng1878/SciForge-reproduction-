@@ -6,7 +6,7 @@ import type {
   ToolBlock,
   ToolEventPayload
 } from '../agent/types'
-import { DEFAULT_LOCAL_RUNTIME_MODEL } from '@shared/app-settings'
+import { DEFAULT_LOCAL_RUNTIME_MODEL, type AgentRuntimeId } from '@shared/app-settings'
 import type { ChatState, SideConversation, SidePanelState } from './chat-store-types'
 import {
   rememberProviderThreadRuntime,
@@ -60,6 +60,16 @@ function rememberSideThreadRuntime(
   side: Pick<SideConversation, 'runtimeId'> | null | undefined
 ): void {
   provider.rememberThreadRuntime?.(sideId, side?.runtimeId)
+}
+
+function normalizeRuntimeOwner(value: unknown): AgentRuntimeId | undefined {
+  return value === 'sciforge' || value === 'codex' || value === 'claude' ? value : undefined
+}
+
+function runtimeOwnerFromThreadDetail(
+  detail: Awaited<ReturnType<AgentProvider['getThreadDetail']>>
+): AgentRuntimeId | undefined {
+  return normalizeRuntimeOwner((detail as { runtimeId?: unknown }).runtimeId)
 }
 
 function sideReasoningEffortRequestValue(value: string): string | undefined {
@@ -433,11 +443,13 @@ export function createSideActions(ctx: SideContext): Pick<
         return null
       }
 
+      const runtimeId = input.runtimeId ?? runtimeOwnerFromThreadDetail(detail)
+      if (runtimeId) provider.rememberThreadRuntime?.(threadId, runtimeId)
       const title = input.title?.trim() || threadId.slice(0, 8)
       const now = new Date().toISOString()
       const side: SideConversation = {
         threadId,
-        ...(input.runtimeId ? { runtimeId: input.runtimeId } : {}),
+        ...(runtimeId ? { runtimeId } : {}),
         parentThreadId,
         source: input.source ?? 'side',
         title,

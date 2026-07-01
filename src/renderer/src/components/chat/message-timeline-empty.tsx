@@ -12,7 +12,7 @@ import { WhaleHeroStage } from './WhaleHeroStage'
  * file can focus on rendering turns and scroll behaviour.
  */
 
-function clawChannelDisplayName(
+function remoteChannelDisplayName(
   channel: ClawImChannelV1 | null,
   fallback: string
 ): string {
@@ -25,7 +25,7 @@ function clawChannelDisplayName(
   )
 }
 
-function ClawEmptyHero({
+function RemoteChannelEmptyHero({
   channel,
   onSelectSuggestion
 }: {
@@ -33,7 +33,7 @@ function ClawEmptyHero({
   onSelectSuggestion?: (prompt: string) => void
 }): ReactElement {
   const { t } = useTranslation('common')
-  const agentName = clawChannelDisplayName(channel, t('remoteChannelEmptyHeroFallbackName'))
+  const agentName = remoteChannelDisplayName(channel, t('remoteChannelEmptyHeroFallbackName'))
   void onSelectSuggestion
   const hasInboundConversation = Boolean(
     Object.values(channel?.agentThreadIds ?? {}).some((threadId) => threadId.trim()) ||
@@ -175,7 +175,7 @@ export function MessageTimelineEmptyHero({
 
   if (remoteChannelMode) {
     return (
-      <ClawEmptyHero
+      <RemoteChannelEmptyHero
         channel={activeClawChannel}
         onSelectSuggestion={onSelectSuggestion}
       />

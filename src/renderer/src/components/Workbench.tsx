@@ -997,7 +997,7 @@ export function Workbench(): ReactElement {
     [clawChannels, threads]
   )
 
-  const mirrorClawCommand = async (userText: string, replyText: string): Promise<void> => {
+  const mirrorRemoteChannelCommand = async (userText: string, replyText: string): Promise<void> => {
     const mirrorRemoteChannelMessage = mirrorRemoteChannelMessageApi(window.sciforge)
     if (!activeThreadId || typeof mirrorRemoteChannelMessage !== 'function') return
     const userResult = await mirrorRemoteChannelMessage(
@@ -1886,7 +1886,7 @@ export function Workbench(): ReactElement {
           await resetClawChannelSession(activeRemoteComposerChannelId)
           const replyText = t('remoteChannelNewSessionStarted')
           appendLocalClawTurn(v, replyText)
-          await mirrorClawCommand(v, replyText)
+          await mirrorRemoteChannelCommand(v, replyText)
         })()
         return
       }
@@ -1894,7 +1894,7 @@ export function Workbench(): ReactElement {
         setInput('')
         const replyText = remoteChannelHelpText()
         appendLocalClawTurn(v, replyText)
-        void mirrorClawCommand(v, replyText)
+        void mirrorRemoteChannelCommand(v, replyText)
         return
       }
       if (command?.kind === 'model') {
@@ -1907,7 +1907,7 @@ export function Workbench(): ReactElement {
           await setClawChannelModel(activeRemoteComposerChannelId, command.model)
           const replyText = t('remoteChannelModelChanged', { model: command.model })
           appendLocalClawTurn(v, replyText)
-          await mirrorClawCommand(v, replyText)
+          await mirrorRemoteChannelCommand(v, replyText)
         })()
         return
       }
@@ -1921,7 +1921,7 @@ export function Workbench(): ReactElement {
           model: activeRemoteComposerChannel?.model ?? 'auto'
         })
         appendLocalClawTurn(v, replyText)
-        void mirrorClawCommand(v, replyText)
+        void mirrorRemoteChannelCommand(v, replyText)
         return
       }
       if (command?.kind === 'invalidModel') {
@@ -1944,7 +1944,7 @@ export function Workbench(): ReactElement {
           : { kind: 'noop' as const }
         if (taskResult.kind === 'created') {
           appendLocalClawTurn(v, taskResult.confirmationText)
-          await mirrorClawCommand(v, taskResult.confirmationText)
+          await mirrorRemoteChannelCommand(v, taskResult.confirmationText)
           return
         }
         if (taskResult.kind === 'error') {

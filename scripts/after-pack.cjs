@@ -2,146 +2,10 @@ const { execFileSync } = require('node:child_process')
 const { chmodSync, existsSync, readdirSync } = require('node:fs')
 const { join } = require('node:path')
 const localRuntimePackage = require('./local-runtime-package.cjs')
+const releaseWorkerManifest = require('./release-worker-manifest.cjs')
 
 const LOCAL_RUNTIME_REQUIRED_PATHS = localRuntimePackage.LOCAL_RUNTIME_REQUIRED_PATHS
-
-const MODEL_ROUTER_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/model-router/package.json',
-  'packages/workers/model-router/src/cli.ts',
-  'packages/workers/model-router/src/router.ts',
-  'packages/workers/model-router/src/manifest.ts',
-  'packages/workers/model-router/tools/model-router-trace-audit.ts'
-]
-
-// GUI MCP workers launch through out/main/*-mcp-node-entry.js. The copied worker
-// package files below are implementation dependencies, not packaged GUI entrypoints.
-const COMPUTER_USE_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/computer-use/package.json',
-  'packages/workers/computer-use/src/mcp-server.ts',
-  'packages/workers/computer-use/src/service.ts',
-  'packages/workers/computer-use/src/contract.ts'
-]
-
-const SEARCH_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/search/package.json',
-  'packages/workers/search/src/mcp-server.ts',
-  'packages/workers/search/src/research-service.ts',
-  'packages/workers/search/src/types.ts'
-]
-
-const SCHEDULE_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/schedule/package.json',
-  'packages/workers/schedule/src/mcp-server.ts',
-  'packages/workers/schedule/src/service.ts',
-  'packages/workers/schedule/src/contract.ts'
-]
-
-const WORKFLOW_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/workflow/package.json',
-  'packages/workers/workflow/src/mcp-server.ts',
-  'packages/workers/workflow/src/service.ts',
-  'packages/workers/workflow/src/contract.ts'
-]
-
-const WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/workspace-intel/package.json',
-  'packages/workers/workspace-intel/src/mcp-server.ts',
-  'packages/workers/workspace-intel/src/service.ts',
-  'packages/workers/workspace-intel/src/contract.ts'
-]
-
-const REMOTE_EXECUTOR_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/remote-executor/package.json',
-  'packages/workers/remote-executor/src/mcp-server.ts',
-  'packages/workers/remote-executor/src/service.ts',
-  'packages/workers/remote-executor/src/contract.ts',
-  'packages/workers/remote-executor/remote_worker.py'
-]
-
-const WRITE_ASSIST_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/write-assist/package.json',
-  'packages/workers/write-assist/src/mcp-server.ts',
-  'packages/workers/write-assist/src/service.ts',
-  'packages/workers/write-assist/src/contract.ts'
-]
-
-const PAPER_RADAR_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/paper-radar/package.json',
-  'packages/workers/paper-radar/src/mcp-server.ts',
-  'packages/workers/paper-radar/src/service.ts',
-  'packages/workers/paper-radar/src/contract.ts',
-  'plugins/paper-radar-service/package.json',
-  'plugins/paper-radar-service/src/service.ts',
-  'plugins/paper-radar-service/src/storage.ts',
-  'plugins/paper-radar-service/src/profiles.ts',
-  'plugins/paper-radar-service/src/ranker.ts',
-  'plugins/paper-radar-service/src/sources.ts',
-  'plugins/paper-radar-service/src/types.ts'
-]
-
-const RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/runtime-inspector/package.json',
-  'packages/workers/runtime-inspector/src/mcp-server.ts',
-  'packages/workers/runtime-inspector/src/service.ts',
-  'packages/workers/runtime-inspector/src/contract.ts'
-]
-
-const SCIENTIFIC_PLOTTING_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/scientific-plotting/package.json',
-  'packages/workers/scientific-plotting/src/scientific-plotting-mcp-server.ts',
-  'packages/workers/scientific-plotting/src/scientific-skills-mcp-server.ts',
-  'packages/workers/scientific-plotting/src/scientific-plotting-engine.ts',
-  'packages/workers/scientific-plotting/src/scientific-skills-index.ts',
-  'packages/workers/scientific-plotting/src/contract.ts'
-]
-
-const IMAGE_GENERATION_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/image-generation/package.json',
-  'packages/workers/image-generation/src/mcp-server.ts',
-  'packages/workers/image-generation/src/image-generation-engine.ts',
-  'packages/workers/image-generation/src/contract.ts'
-]
-
-const MULTI_AGENT_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/multi-agent/package.json',
-  'packages/workers/multi-agent/dist/index.js',
-  'packages/workers/multi-agent/dist/contract.js',
-  'packages/workers/multi-agent/dist/runtime.js',
-  'packages/workers/multi-agent/dist/store.js',
-  'packages/workers/multi-agent/dist/delegate-task.js'
-]
-
-const PPT_MASTER_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/ppt-master/package.json',
-  'packages/workers/ppt-master/src/server.ts',
-  'packages/workers/ppt-master/src/service.ts',
-  'packages/workers/ppt-master/src/contract.ts',
-  'packages/workers/ppt-master/ui-kit/sciforge_research/preset.json'
-]
-
-const CANVAS_RUNTIME_REQUIRED_PATHS = [
-  'packages/workers/canvas/package.json',
-  'packages/workers/canvas/src/sciforge-canvas-mcp-server.ts',
-  'packages/workers/canvas/src/sciforge-canvas-engine.ts',
-  'packages/workers/canvas/src/contract.ts'
-]
-
-const MCP_NODE_ENTRY_REQUIRED_PATHS = [
-  'out/main/schedule-mcp-node-entry.js',
-  'out/main/computer-use-mcp-node-entry.js',
-  'out/main/research-search-mcp-node-entry.js',
-  'out/main/workflow-mcp-node-entry.js',
-  'out/main/workspace-intel-mcp-node-entry.js',
-  'out/main/remote-executor-mcp-node-entry.js',
-  'out/main/write-assist-mcp-node-entry.js',
-  'out/main/paper-radar-mcp-node-entry.js',
-  'out/main/runtime-inspector-mcp-node-entry.js',
-  'out/main/scientific-skills-mcp-node-entry.js',
-  'out/main/scientific-plotting-mcp-node-entry.js',
-  'out/main/image-generation-mcp-node-entry.js',
-  'out/main/ppt-master-mcp-node-entry.js',
-  'out/main/sciforge-canvas-mcp-node-entry.js'
-]
+const MCP_NODE_ENTRY_REQUIRED_PATHS = releaseWorkerManifest.mcpNodeEntryRequiredPaths
 
 function normalizePlatform(platform) {
   return platform === 'win' ? 'win32' : platform
@@ -180,108 +44,16 @@ function validateBundledLocalRuntime(context) {
   localRuntimePackage.validateBundledLocalRuntime(unpackedAppRoot(context))
 }
 
-function validateBundledModelRouterRuntime(context) {
+function validateBundledReleaseRuntime(context, runtimeEntry) {
   const root = unpackedAppRoot(context)
-  for (const relativePath of MODEL_ROUTER_RUNTIME_REQUIRED_PATHS) {
+  for (const relativePath of runtimeEntry.requiredPaths) {
     assertExists(join(root, relativePath), relativePath)
   }
 }
 
-function validateBundledComputerUseRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of COMPUTER_USE_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledSearchRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of SEARCH_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledScheduleRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of SCHEDULE_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledWorkflowRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of WORKFLOW_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledWorkspaceIntelRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledRemoteExecutorRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of REMOTE_EXECUTOR_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledWriteAssistRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of WRITE_ASSIST_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledPaperRadarRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of PAPER_RADAR_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledRuntimeInspectorRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledScientificPlottingRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of SCIENTIFIC_PLOTTING_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledImageGenerationRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of IMAGE_GENERATION_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledMultiAgentRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of MULTI_AGENT_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledPptMasterRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of PPT_MASTER_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
-  }
-}
-
-function validateBundledCanvasRuntime(context) {
-  const root = unpackedAppRoot(context)
-  for (const relativePath of CANVAS_RUNTIME_REQUIRED_PATHS) {
-    assertExists(join(root, relativePath), relativePath)
+function validateBundledReleaseRuntimes(context) {
+  for (const runtimeEntry of releaseWorkerManifest.runtimeEntries) {
+    validateBundledReleaseRuntime(context, runtimeEntry)
   }
 }
 
@@ -337,42 +109,18 @@ function ensureNodePtyHelpersExecutable(context) {
 async function afterPack(context) {
   prunePackedLocalRuntimeDependencies(context)
   validateBundledLocalRuntime(context)
-  validateBundledModelRouterRuntime(context)
-  validateBundledComputerUseRuntime(context)
-  validateBundledSearchRuntime(context)
-  validateBundledScheduleRuntime(context)
-  validateBundledWorkflowRuntime(context)
-  validateBundledWorkspaceIntelRuntime(context)
-  validateBundledRemoteExecutorRuntime(context)
-  validateBundledWriteAssistRuntime(context)
-  validateBundledPaperRadarRuntime(context)
-  validateBundledRuntimeInspectorRuntime(context)
-  validateBundledScientificPlottingRuntime(context)
-  validateBundledImageGenerationRuntime(context)
-  validateBundledMultiAgentRuntime(context)
-  validateBundledPptMasterRuntime(context)
-  validateBundledCanvasRuntime(context)
+  validateBundledReleaseRuntimes(context)
   validateBuiltMcpNodeEntries(context)
   ensureNodePtyHelpersExecutable(context)
   maybeAdhocSignMacApp(context)
 }
 
 exports.LOCAL_RUNTIME_REQUIRED_PATHS = LOCAL_RUNTIME_REQUIRED_PATHS
-exports.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS = MODEL_ROUTER_RUNTIME_REQUIRED_PATHS
-exports.COMPUTER_USE_RUNTIME_REQUIRED_PATHS = COMPUTER_USE_RUNTIME_REQUIRED_PATHS
-exports.SEARCH_RUNTIME_REQUIRED_PATHS = SEARCH_RUNTIME_REQUIRED_PATHS
-exports.SCHEDULE_RUNTIME_REQUIRED_PATHS = SCHEDULE_RUNTIME_REQUIRED_PATHS
-exports.WORKFLOW_RUNTIME_REQUIRED_PATHS = WORKFLOW_RUNTIME_REQUIRED_PATHS
-exports.WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS = WORKSPACE_INTEL_RUNTIME_REQUIRED_PATHS
-exports.REMOTE_EXECUTOR_RUNTIME_REQUIRED_PATHS = REMOTE_EXECUTOR_RUNTIME_REQUIRED_PATHS
-exports.WRITE_ASSIST_RUNTIME_REQUIRED_PATHS = WRITE_ASSIST_RUNTIME_REQUIRED_PATHS
-exports.PAPER_RADAR_RUNTIME_REQUIRED_PATHS = PAPER_RADAR_RUNTIME_REQUIRED_PATHS
-exports.RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS = RUNTIME_INSPECTOR_RUNTIME_REQUIRED_PATHS
-exports.SCIENTIFIC_PLOTTING_RUNTIME_REQUIRED_PATHS = SCIENTIFIC_PLOTTING_RUNTIME_REQUIRED_PATHS
-exports.IMAGE_GENERATION_RUNTIME_REQUIRED_PATHS = IMAGE_GENERATION_RUNTIME_REQUIRED_PATHS
-exports.MULTI_AGENT_RUNTIME_REQUIRED_PATHS = MULTI_AGENT_RUNTIME_REQUIRED_PATHS
-exports.PPT_MASTER_RUNTIME_REQUIRED_PATHS = PPT_MASTER_RUNTIME_REQUIRED_PATHS
-exports.CANVAS_RUNTIME_REQUIRED_PATHS = CANVAS_RUNTIME_REQUIRED_PATHS
+for (const [exportName, requiredPaths] of Object.entries(
+  releaseWorkerManifest.runtimeRequiredPathExports
+)) {
+  exports[exportName] = requiredPaths
+}
 exports.MCP_NODE_ENTRY_REQUIRED_PATHS = MCP_NODE_ENTRY_REQUIRED_PATHS
 exports._internals = {
   appBundlePath,
@@ -382,21 +130,8 @@ exports._internals = {
   npmCommand: localRuntimePackage.npmCommand,
   prunePackedLocalRuntimeDependencies,
   validateBundledLocalRuntime,
-  validateBundledModelRouterRuntime,
-  validateBundledComputerUseRuntime,
-  validateBundledSearchRuntime,
-  validateBundledScheduleRuntime,
-  validateBundledWorkflowRuntime,
-  validateBundledWorkspaceIntelRuntime,
-  validateBundledRemoteExecutorRuntime,
-  validateBundledWriteAssistRuntime,
-  validateBundledPaperRadarRuntime,
-  validateBundledRuntimeInspectorRuntime,
-  validateBundledScientificPlottingRuntime,
-  validateBundledImageGenerationRuntime,
-  validateBundledMultiAgentRuntime,
-  validateBundledPptMasterRuntime,
-  validateBundledCanvasRuntime,
+  validateBundledReleaseRuntime,
+  validateBundledReleaseRuntimes,
   validateBuiltMcpNodeEntries,
   ensureNodePtyHelpersExecutable
 }

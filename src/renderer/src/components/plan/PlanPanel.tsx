@@ -18,7 +18,9 @@ import { useChatStore } from '../../store/chat-store'
 import {
   guiPlanMatchesContext,
   readRememberedGuiPlan,
-  useGuiPlanStore
+  useGuiPlanStore,
+  type GuiPlanArtifact,
+  type GuiPlanOperationStatus
 } from '../../plan/plan-store'
 import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
 import { sddDraftRelativePathForPlanPath } from '@shared/sdd'
@@ -48,6 +50,67 @@ function statusLabelKey(saveStatus: string, operationStatus: string): string {
   if (saveStatus === 'saving') return 'planStatusSaving'
   if (saveStatus === 'dirty') return 'planStatusDirty'
   return 'planStatusSaved'
+}
+
+type PlanPanelReadWorkspaceFile = (input: {
+  workspaceRoot: string
+  path: string
+}) => Promise<
+  | { ok: true; path: string; content: string }
+  | { ok: false; message: string }
+>
+
+export function runPlanPanelRememberedPlanRestore(input: {
+  workspaceRoot: string
+  activeThreadId: string | null
+  activePlan: GuiPlanArtifact | null
+  readWorkspaceFile: PlanPanelReadWorkspaceFile
+  setActivePlan: (plan: GuiPlanArtifact, content: string) => void
+  setOperationStatus: (status: GuiPlanOperationStatus, error?: string | null) => void
+  clearActivePlan: () => void
+}): (() => void) | undefined {
+  const normalizedWorkspace = normalizeWorkspaceRoot(input.workspaceRoot)
+  if (!normalizedWorkspace) {
+    if (input.activePlan) input.clearActivePlan()
+    return undefined
+  }
+  if (input.activePlan) {
+    if (guiPlanMatchesContext(input.activePlan, normalizedWorkspace, input.activeThreadId)) {
+      return undefined
+    }
+    input.clearActivePlan()
+    return undefined
+  }
+
+  const remembered = readRememberedGuiPlan(normalizedWorkspace, input.activeThreadId)
+  if (!remembered) return undefined
+
+  let cancelled = false
+  input.setOperationStatus('idle')
+  void input.readWorkspaceFile({
+    workspaceRoot: normalizedWorkspace,
+    path: remembered.relativePath
+  })
+    .then((result) => {
+      if (cancelled) return
+      if (!result.ok) {
+        input.clearActivePlan()
+        input.setOperationStatus('error', result.message)
+        return
+      }
+      input.setActivePlan({ ...remembered, absolutePath: result.path }, result.content)
+    })
+    .catch((loadError) => {
+      if (cancelled) return
+      input.clearActivePlan()
+      input.setOperationStatus(
+        'error',
+        loadError instanceof Error ? loadError.message : String(loadError)
+      )
+    })
+  return () => {
+    cancelled = true
+  }
 }
 
 export function PlanPanel({
@@ -112,42 +175,15 @@ export function PlanPanel({
   }, [loadWriteSettings])
 
   useEffect(() => {
-    const normalizedWorkspace = normalizeWorkspaceRoot(workspaceRoot)
-    if (!normalizedWorkspace) {
-      if (activePlan) clearActivePlan()
-      return
-    }
-    if (activePlan && guiPlanMatchesContext(activePlan, normalizedWorkspace, activeThreadId)) return
-    const remembered = readRememberedGuiPlan(normalizedWorkspace, activeThreadId)
-    if (!remembered) {
-      if (activePlan) clearActivePlan()
-      return
-    }
-    let cancelled = false
-    setOperationStatus('idle')
-    void window.sciforge
-      .readWorkspaceFile({
-        workspaceRoot: normalizedWorkspace,
-        path: remembered.relativePath
-      })
-      .then((result) => {
-        if (cancelled) return
-        if (!result.ok) {
-          setOperationStatus('error', result.message)
-          return
-        }
-        setActivePlan({ ...remembered, absolutePath: result.path }, result.content)
-      })
-      .catch((loadError) => {
-        if (cancelled) return
-        setOperationStatus(
-          'error',
-          loadError instanceof Error ? loadError.message : String(loadError)
-        )
-      })
-    return () => {
-      cancelled = true
-    }
+    return runPlanPanelRememberedPlanRestore({
+      workspaceRoot,
+      activeThreadId,
+      activePlan,
+      readWorkspaceFile: window.sciforge.readWorkspaceFile,
+      setActivePlan,
+      setOperationStatus,
+      clearActivePlan
+    })
   }, [
     activePlan,
     activeThreadId,

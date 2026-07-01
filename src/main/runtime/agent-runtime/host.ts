@@ -446,6 +446,7 @@ export class AgentRuntimeHost {
         }
       }
       case 'recordRuntimeContextLedger': {
+        assertPayloadRuntimeIdMatchesOwner(payload, 'runtimeId', runtimeId)
         const service = this.options.services?.contextLedger
         if (!service) return { handled: false }
         return {
@@ -479,6 +480,7 @@ export class AgentRuntimeHost {
           value: await this.startRuntimeHandoff(runtimeId, payload, context)
         }
       case 'recordContextCompaction': {
+        assertPayloadRuntimeIdMatchesOwner(payload, 'runtimeId', runtimeId)
         const service = this.options.services?.contextState
         if (!service) return { handled: false }
         return {
@@ -500,6 +502,7 @@ export class AgentRuntimeHost {
         }
       }
       case 'updateGoalResumeState': {
+        assertPayloadRuntimeIdMatchesOwner(payload, 'runtimeId', runtimeId)
         const service = this.options.services?.contextState
         if (!service) return { handled: false }
         return {
@@ -525,6 +528,7 @@ export class AgentRuntimeHost {
           }) ?? []
         }
       case 'createGitCheckpoint': {
+        assertPayloadRuntimeIdMatchesOwner(payload, 'runtimeId', runtimeId)
         const service = this.options.services?.gitCheckpoints
         if (!service) return { handled: false }
         return {

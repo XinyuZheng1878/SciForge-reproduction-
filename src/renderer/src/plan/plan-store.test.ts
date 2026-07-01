@@ -138,6 +138,62 @@ describe('plan-store', () => {
     expect(readRememberedGuiPlan('/tmp/app', 'thread-a')).toBeNull()
   })
 
+  it('keeps a workspace threadless fallback when a threaded plan is remembered later', () => {
+    const threadlessPlan = createGuiPlanArtifact({
+      workspaceRoot: '/tmp/app',
+      relativePath: '.sciforge/plan/workspace-draft.md',
+      sourceRequest: 'draft',
+      now: 1
+    })
+    const threadedPlan = createGuiPlanArtifact({
+      workspaceRoot: '/tmp/app',
+      threadId: 'thread-b',
+      relativePath: '.sciforge/plan/thread-draft.md',
+      sourceRequest: 'thread draft',
+      now: 2
+    })
+
+    useGuiPlanStore.getState().setActivePlan(threadlessPlan, '# Workspace draft')
+    useGuiPlanStore.getState().setActivePlan(threadedPlan, '# Thread draft')
+
+    expect(readRememberedGuiPlan('/tmp/app')?.id).toBe(threadlessPlan.id)
+    expect(readRememberedGuiPlan('/tmp/app', 'thread-b')?.id).toBe(threadedPlan.id)
+    expect(readRememberedGuiPlan('/tmp/app', 'thread-a')).toBeNull()
+  })
+
+  it('skips a persisted threaded workspace pointer and restores the threadless fallback', () => {
+    localStorage.setItem(PLAN_REGISTRY_STORAGE_KEY, JSON.stringify({
+      activeByWorkspace: {
+        '/tmp/app': 'threaded'
+      },
+      activeByThread: {
+        '/tmp/app::thread-b': 'threaded'
+      },
+      plans: {
+        threaded: {
+          workspaceRoot: '/tmp/app',
+          threadId: 'thread-b',
+          relativePath: '.sciforge/plan/threaded.md',
+          sourceRequest: 'threaded',
+          createdAt: '2026-01-01T00:00:00.000Z'
+        },
+        fallback: {
+          workspaceRoot: '/tmp/app',
+          relativePath: '.sciforge/plan/fallback.md',
+          sourceRequest: 'fallback',
+          createdAt: '2026-01-02T00:00:00.000Z'
+        }
+      }
+    }))
+
+    expect(readRememberedGuiPlan('/tmp/app')).toMatchObject({
+      id: '/tmp/app:.sciforge/plan/fallback.md'
+    })
+    expect(readRememberedGuiPlan('/tmp/app', 'thread-b')).toMatchObject({
+      id: '/tmp/app:.sciforge/plan/threaded.md'
+    })
+  })
+
   it('normalizes malformed persisted plan registry data before restoring plans', () => {
     localStorage.setItem(PLAN_REGISTRY_STORAGE_KEY, JSON.stringify({
       activeByWorkspace: {

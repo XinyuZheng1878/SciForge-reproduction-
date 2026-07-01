@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AGENT_RUNTIME_AUXILIARY_OPERATIONS,
+  AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS,
   AGENT_RUNTIME_EVENT_KINDS,
   createAgentRuntimeCapabilityMatrix,
   createDefaultAgentRuntimeCapabilities,
@@ -8,6 +10,8 @@ import {
   filterAgentRuntimeThreadChildren,
   isAgentRuntimeChildActive,
   isAgentRuntimeDirectThreadChild,
+  type AgentRuntimeAuxiliaryInput,
+  type AgentRuntimeAuxiliaryOperation,
   type AgentRuntimeCapabilities,
   type AgentRuntimeChild,
   type AgentRuntimeEvent,
@@ -67,6 +71,32 @@ function exhaustiveEventLabel(event: AgentRuntimeEvent): string {
 }
 
 describe('agent runtime contract', () => {
+  it('partitions auxiliary inputs between thread-bound and active-scoped operations', () => {
+    const runtimeIdRequired = new Set<AgentRuntimeAuxiliaryOperation>(
+      AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS
+    )
+    const activeScopedOperations = AGENT_RUNTIME_AUXILIARY_OPERATIONS.filter(
+      (operation) => !runtimeIdRequired.has(operation)
+    )
+    const activeScoped = { operation: 'getRuntimeInfo' } satisfies AgentRuntimeAuxiliaryInput
+    const threadBound = {
+      runtimeId: 'codex',
+      operation: 'getThreadGoal',
+      payload: { threadId: 'thread-1' }
+    } satisfies AgentRuntimeAuxiliaryInput
+
+    expect(activeScoped.operation).toBe('getRuntimeInfo')
+    expect(threadBound.runtimeId).toBe('codex')
+    expect(runtimeIdRequired.has('getThreadGoal')).toBe(true)
+    expect(activeScopedOperations).toEqual(expect.arrayContaining([
+      'getRuntimeInfo',
+      'listSkills',
+      'listMemories',
+      'listWorkspaceReferences'
+    ]))
+    expect(activeScopedOperations).not.toContain('getThreadGoal')
+  })
+
   it('keeps event kinds aligned with the discriminated union', () => {
     const sampleEvents = [
       { kind: 'thread_lifecycle', threadId: 'thr', state: 'created' },

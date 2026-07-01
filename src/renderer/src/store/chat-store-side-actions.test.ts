@@ -37,10 +37,14 @@ class FakeProvider implements AgentProvider {
   updateRelationMock = vi.fn()
   interruptMock = vi.fn()
   subscribeMock = vi.fn()
+  rememberMock = vi.fn()
   refreshThreadsMock = vi.fn()
   closeSideMock = vi.fn()
   getCapabilities() {
     return this.capabilities
+  }
+  rememberThreadRuntime(threadId: string, runtimeId?: NormalizedThread['runtimeId']) {
+    this.rememberMock(threadId, runtimeId)
   }
   async connect() {}
   async listThreads(): Promise<NormalizedThread[]> {
@@ -356,6 +360,32 @@ describe('chat-store-side-actions', () => {
         source: 'child_agent'
       })
     )
+  })
+
+  it('persists the detail runtime owner when attaching without an explicit runtimeId', async () => {
+    const { actions, state, provider } = buildHarness()
+    provider.threadDetail = {
+      blocks: [],
+      latestSeq: 3,
+      runtimeId: 'codex'
+    } as never
+
+    const id = await actions.attachSideConversation({
+      threadId: 'child-thread',
+      parentThreadId: 'thr_main',
+      title: 'research-child'
+    })
+
+    expect(id).toBe('child-thread')
+    expect(state.sideConversations['child-thread']).toEqual(
+      expect.objectContaining({
+        threadId: 'child-thread',
+        parentThreadId: 'thr_main',
+        runtimeId: 'codex',
+        title: 'research-child'
+      })
+    )
+    expect(provider.rememberMock).toHaveBeenCalledWith('child-thread', 'codex')
   })
 
   it('logs side subscription failures and settles attached side state', async () => {

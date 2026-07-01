@@ -90,6 +90,9 @@ let localRuntimeStartPromise: Promise<void> | null = null
 let childStderrTail = ''
 const intentionalStops = new WeakSet<ChildProcess>()
 const readyChildren = new WeakSet<ChildProcess>()
+const EXTERNAL_COMPUTER_USE_SERVICE_URL_ENV = 'SCIFORGE_CUA_SERVICE_URL'
+const EXTERNAL_COMPUTER_USE_ALLOWED_HOSTS_ENV = 'SCIFORGE_CUA_ALLOWED_HOSTS'
+type ExternalComputerUseServiceEnv = { [key: string]: string | undefined }
 
 export type LocalRuntimeUnexpectedExitInfo = {
   code: number | null
@@ -419,7 +422,7 @@ async function startLocalRuntimeChildOnce(
       // a single runtime config must not register duplicate `computer_use` tools.
       enabled:
         isComputerUseEnabledForRuntime(settings, 'sciforge') &&
-        !process.env.SCIFORGE_CUA_SERVICE_URL?.trim()
+        !externalComputerUseServiceUrlPolicy(process.env).configured
     }
   })
   lastResolvedBinary = resolution.command === process.execPath
@@ -1109,6 +1112,64 @@ function localRuntimeChildEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     if (isUpstreamProviderConfigEnv(key) || isLegacyDirectWorkerEnv(key)) delete env[key]
   }
   return env
+}
+
+export function externalComputerUseServiceUrlPolicy(
+  env: ExternalComputerUseServiceEnv
+): { configured: boolean; allowed: boolean; host?: string; reason?: string } {
+  const rawUrl = env[EXTERNAL_COMPUTER_USE_SERVICE_URL_ENV]?.trim()
+  if (!rawUrl) return { configured: false, allowed: false }
+
+  let host = ''
+  try {
+    const url = new URL(rawUrl)
+    if (url.protocol !== 'http:') {
+      return { configured: true, allowed: false, reason: 'unsupported_protocol' }
+    }
+    host = normalizeComputerUseServiceHost(url.hostname)
+  } catch {
+    return { configured: true, allowed: false, reason: 'invalid_url' }
+  }
+
+  if (isLoopbackComputerUseServiceHost(host)) return { configured: true, allowed: true, host }
+
+  const allowedHosts = allowedComputerUseServiceHosts(env[EXTERNAL_COMPUTER_USE_ALLOWED_HOSTS_ENV])
+  if (allowedHosts.has(host)) return { configured: true, allowed: true, host }
+
+  return { configured: true, allowed: false, host, reason: 'non_loopback_without_allowlist' }
+}
+
+function isLoopbackComputerUseServiceHost(host: string): boolean {
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+}
+
+function allowedComputerUseServiceHosts(raw: string | undefined): Set<string> {
+  return new Set(
+    (raw ?? '')
+      .split(/[\s,;]+/u)
+      .map(normalizeComputerUseServiceHost)
+      .filter(Boolean)
+  )
+}
+
+function normalizeComputerUseServiceHost(raw: string): string {
+  let value = raw.trim().toLowerCase()
+  if (!value) return ''
+  try {
+    if (/^https?:\/\//u.test(value)) {
+      value = new URL(value).hostname
+    }
+  } catch {
+    return ''
+  }
+  if (value.startsWith('[') && value.includes(']')) {
+    value = value.slice(1, value.indexOf(']'))
+  }
+  const singlePortSeparator = value.indexOf(':')
+  if (singlePortSeparator > 0 && value.indexOf(':', singlePortSeparator + 1) === -1) {
+    value = value.slice(0, singlePortSeparator)
+  }
+  return value.replace(/^\[|\]$/gu, '')
 }
 
 function isLegacyDirectWorkerEnv(key: string): boolean {

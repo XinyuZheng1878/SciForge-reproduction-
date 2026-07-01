@@ -60,11 +60,13 @@ test('service facade preserves research service exports', () => {
   assert.equal(typeof createResearchSearchService, 'function');
 });
 
-test('root public surface keeps helper exports explicit until the breaking API decision lands', () => {
-  assert.equal(typeof publicSurface.planResearchQueries, 'function');
-  assert.equal(typeof publicSurface.buildArxivQuery, 'function');
-  assert.equal(typeof publicSurface.buildEuropePmcQuery, 'function');
-  assert.equal(typeof publicSurface.parseEuropePmcPapers, 'function');
+test('root public surface excludes internal helper exports', () => {
+  const rootExportNames = Object.keys(publicSurface);
+
+  assert.equal(rootExportNames.includes('planResearchQueries'), false);
+  assert.equal(rootExportNames.includes('buildArxivQuery'), false);
+  assert.equal(rootExportNames.includes('buildEuropePmcQuery'), false);
+  assert.equal(rootExportNames.includes('parseEuropePmcPapers'), false);
 });
 
 test('package metadata declares search worker exports and MCP capability', async () => {

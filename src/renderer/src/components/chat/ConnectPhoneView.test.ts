@@ -30,7 +30,7 @@ function channel(enabled: boolean, provider: ClawImChannelV1['provider'] = 'feis
     model: 'auto',
     workspaceRoot: '',
     agentProfile: {
-      name: 'kun',
+      name: 'SciForge Runtime',
       description: '',
       identity: '',
       personality: '',

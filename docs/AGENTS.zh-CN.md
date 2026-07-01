@@ -59,11 +59,13 @@ contract、event 与 capability 形状见
 
 - `agentProvider: codewhale | reasonix | deepseek-runtime` 映射为
   `activeAgentRuntime: "sciforge"`。
-- `agents.codewhale`、`agents.reasonix` 和历史 `deepseek` 的值会一次性写入 `agents.sciforge`。
+- `agents.codewhale`、`agents.reasonix` 和历史 `deepseek` 的值会在迁移时丢弃；
+  请改用 canonical `agents.sciforge`、`agents.codex` 或 `agents.claude`。
 - 保存后的 settings 保留 `agents.sciforge`，也可以包含 `agents.codex`；不能继续保留
   `agents.codewhale` 或 `agents.reasonix`。
 - 旧手机连接 / remote-channel 数据（历史内部 `claw` 标识）的
-  `agentThreadIds.codewhale/reasonix` 会并入 `agentThreadIds.sciforge`。
+  `agentThreadIds.codewhale/reasonix` 会被丢弃；只保留 canonical
+  `agentThreadIds.sciforge`、`agentThreadIds.codex` 和 `agentThreadIds.claude`。
 - 新的 Codex thread 映射必须使用 Codex 自己的 runtime/thread 存储，不能写进默认运行时映射。
 
 ## 验证清单
