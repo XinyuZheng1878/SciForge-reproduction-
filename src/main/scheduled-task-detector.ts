@@ -25,7 +25,7 @@ type DetectionRequestPayload = {
   body: Record<string, unknown>
 }
 
-export type ParsedClawScheduledTaskRequest = {
+export type ParsedScheduledTaskRequest = {
   kind: 'create'
   sourceText: string
   reminderBody: string
@@ -116,7 +116,7 @@ function normalizeDetectedRequest(
   payload: DetectionPayload | null,
   sourceText: string,
   now = new Date()
-): ParsedClawScheduledTaskRequest | null {
+): ParsedScheduledTaskRequest | null {
   if (!payload?.shouldCreateTask) return null
   const scheduleAt = typeof payload.scheduleAt === 'string' ? payload.scheduleAt.trim() : ''
   if (!scheduleAt || !ISO_WITH_TIMEZONE_RE.test(scheduleAt)) return null
@@ -197,16 +197,16 @@ function extractDetectionContent(rawJson: string): string {
   }).join('').trim()
 }
 
-export function looksLikeClawScheduledTaskCandidate(text: string): boolean {
+export function looksLikeScheduledTaskCandidate(text: string): boolean {
   return SCHEDULED_TASK_CANDIDATE_RE.test(text.trim())
 }
 
-export async function detectClawScheduledTaskRequest(
+export async function detectScheduledTaskRequest(
   settings: AppSettingsV1,
   sourceText: string,
   now = new Date()
-): Promise<ParsedClawScheduledTaskRequest | null> {
-  if (!looksLikeClawScheduledTaskCandidate(sourceText)) return null
+): Promise<ParsedScheduledTaskRequest | null> {
+  if (!looksLikeScheduledTaskCandidate(sourceText)) return null
   const runtime = resolveDetectorModelRouterRuntime(settings)
   if (!runtime) return null
   const detectionRequest = buildDetectionRequest({
@@ -254,7 +254,7 @@ function resolveDetectorModelRouterRuntime(settings: AppSettingsV1): {
 }
 
 export function buildScheduledTaskFromDetectedRequest(options: {
-  request: ParsedClawScheduledTaskRequest
+  request: ParsedScheduledTaskRequest
   workspaceRoot: string
   model: string
   mode: ScheduleRunMode

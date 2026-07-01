@@ -70,9 +70,10 @@
 - [x] 删除旧 `~/.sciforge/claw` 作为内部 remote-channel workspace 的路径兼容；当前 `~/.sciforge/remote-channel` 仍作为内部路径处理，旧 claw 路径按普通 workspace 展示/保存。
 - [x] 删除 legacy Claw prompt/title 展示兼容：`[Claw managed instructions]`、`[Claw IM agent instructions]`、`Claw skill policy:`、无 canonical 空行分隔 inbound prompt、`[Claw:]` / `[Claw IM:]` 标题恢复均不再被当前 remote-channel 链路识别；只保留 `[Remote channel ...]` canonical 链路。
 - [x] Agent Runtime thread/turn/session/interaction 操作跨 IPC/host 边界强制显式 `runtimeId`：shared contract、preload API、IPC schema、host resolver 和 adapter 测试均改为 fail-closed；`connect` / `capabilities` / `listThreads` / `usage` 保留当前 active/aggregate 语义。
-- [x] 收紧 renderer auxiliary thread routing：`getAttachmentContent(options.threadId)`、`listModelAuditRecords({ threadId })`、`listGitCheckpoints({ threadId })`、`createGitCheckpoint({ threadId })` 会按 remembered thread runtime 发起，不再在 active runtime 切换后误走当前 active runtime。
+- [x] 收紧 renderer auxiliary thread routing：`uploadAttachment({ threadId })`、`getAttachmentContent(options.threadId)`、`listModelAuditRecords({ threadId })`、`listGitCheckpoints({ threadId })`、`createGitCheckpoint({ threadId })` 会按 remembered thread runtime 发起，不再在 active runtime 切换后误走当前 active runtime。
 - [x] 补齐 computer-use 状态投影与文案边界：IPC/backend status 聚合保留 `inputIsolation`、`affectsUserInput`、`requiresHostFocus`、`usesHostClipboard` 的 `false` 值，settings UI 改为用户可读安全摘要；README/locale 明确 GUI-managed `@sciforge/computer-use` 默认是 isolated `browser-cdp` primitive path。
 - [x] 清理 Evidence DAG / sci-modality / plugins 文档中的 Kun timeline 命名残留，统一表述为 AgentRuntime / SciForge Runtime / local runtime / Codex / Claude。
+- [x] Schedule detector 内部清名：`claw-scheduled-task-detector` / `ParsedClawScheduledTaskRequest` / `detectClawScheduledTaskRequest` 已改为 neutral `scheduled-task-detector` / `ParsedScheduledTaskRequest` / `detectScheduledTaskRequest`。
 
 ## 验证记录
 
@@ -97,7 +98,7 @@
 - [x] `npx vitest run src/preload/index.test.ts src/renderer/src/dev/dev-sciforge-bridge.test.ts src/renderer/src/lib/remote-channel-api.test.ts src/main/ipc/register-app-ipc-handlers.test.ts src/main/ipc/app-ipc-schemas.test.ts src/renderer/src/store/chat-store-runtime.test.ts src/renderer/src/store/chat-store-thread-actions.test.ts src/main/claw-runtime.test.ts`
 - [x] `npx vitest run src/main/runtime/local-runtime-agent-runtime-adapter.test.ts src/renderer/src/agent/agent-runtime-event-dispatcher.test.ts src/renderer/src/agent/agent-runtime-provider.test.ts src/main/ipc/app-ipc-schemas.test.ts src/main/ipc/register-app-ipc-handlers.test.ts src/renderer/src/agent/agent-runtime-client.test.ts src/renderer/src/store/chat-store-navigation-actions.test.ts`
 - [x] `npm test -- src/main/model-router-api-boundary.test.ts src/main/local-runtime-process.test.ts src/main/image-generation-mcp-config.test.ts src/renderer/src/components/chat/FloatingComposer.test.ts`
-- [x] `npm test -- src/main/claw-runtime.test.ts src/main/claw-scheduled-task-detector.test.ts src/main/schedule-runtime.test.ts`
+- [x] `npm test -- src/main/claw-runtime.test.ts src/main/scheduled-task-detector.test.ts src/main/schedule-runtime.test.ts`
 - [x] `npx vitest run src/renderer/src/components/PluginMarketplaceView.test.ts`
 - [x] `npx vitest run src/renderer/src/store/chat-store-runtime.test.ts`
 - [x] `npx vitest run src/renderer/src/components/PluginMarketplaceView.test.ts src/renderer/src/components/settings-section-agents.test.ts src/renderer/src/components/chat/SidebarClawDialogHelpers.test.ts src/renderer/src/plan/plan-todo-sync.test.ts src/renderer/src/store/chat-store-provider-capabilities.test.ts`
@@ -158,4 +159,4 @@
 - [ ] 等待人工测试两套 computer-use 后，再梳理是否迁移 `@sciforge/computer-use` 的 target/session/lease 合约、lease 冲突检测、shared action lock、native/browser backends、permission/status/audit、confirmation/risk taxonomy、local runtime/Codex/Claude MCP registry。
 - [ ] Paper Radar 仍有旧 HTTP sidecar / plugin workspace 归属残留：当前 IPC 已走 `PaperRadarWorkerService`，但 `src/main/paper-radar-sidecar.ts` 和 `plugins/paper-radar-service` 仍需拆解是否删除旧 sidecar、迁移 core storage/source/profile/ranking 到 worker 内部或 shared core。
 - [ ] Search worker root `index.ts` 仍暴露 query planner/provider helper；需核对外部消费后收窄 public surface。
-- [ ] Schedule detector 内部仍沿用 `claw-scheduled-task-detector` / `ParsedClawScheduledTaskRequest` 命名；可在后续低风险阶段重命名为 neutral scheduled-task detector。
+- [x] Schedule detector 内部旧命名已清理为 neutral scheduled-task detector，并保留 Model Router-only 检测测试。

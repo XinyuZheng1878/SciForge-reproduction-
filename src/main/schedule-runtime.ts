@@ -18,8 +18,8 @@ import {
 } from '../shared/app-settings'
 import {
   buildScheduledTaskFromDetectedRequest,
-  detectClawScheduledTaskRequest
-} from './claw-scheduled-task-detector'
+  detectScheduledTaskRequest
+} from './scheduled-task-detector'
 import { isAuthorizedInternalHttpRequest } from './internal-http-secret'
 import {
   SCHEDULER_INTERVAL_MS,
@@ -124,7 +124,7 @@ export class ScheduleRuntime {
   ): Promise<ScheduleTaskFromTextResult> {
     const settings = await this.deps.store.load()
     try {
-      const request = await detectClawScheduledTaskRequest(settings, text)
+      const request = await detectScheduledTaskRequest(settings, text)
       if (!request) return { kind: 'noop' }
       const task = buildScheduledTaskFromDetectedRequest({
         request,

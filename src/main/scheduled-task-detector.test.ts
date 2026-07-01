@@ -11,7 +11,7 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
-import { detectClawScheduledTaskRequest } from './claw-scheduled-task-detector'
+import { detectScheduledTaskRequest } from './scheduled-task-detector'
 
 function settings(): AppSettingsV1 {
   const provider = defaultModelProviderSettings()
@@ -52,7 +52,7 @@ function settings(): AppSettingsV1 {
   }
 }
 
-describe('detectClawScheduledTaskRequest Model Router calls', () => {
+describe('detectScheduledTaskRequest Model Router calls', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
   })
@@ -70,7 +70,7 @@ describe('detectClawScheduledTaskRequest Model Router calls', () => {
       }), { status: 200 })
     })
 
-    await detectClawScheduledTaskRequest(
+    await detectScheduledTaskRequest(
       settings(),
       'remind me tomorrow to stretch',
       new Date('2026-06-09T12:00:00+08:00')
@@ -99,7 +99,7 @@ describe('detectClawScheduledTaskRequest Model Router calls', () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
 
-    const result = await detectClawScheduledTaskRequest(
+    const result = await detectScheduledTaskRequest(
       appSettings,
       'remind me tomorrow to stretch',
       new Date('2026-06-09T12:00:00+08:00')
@@ -118,7 +118,7 @@ describe('detectClawScheduledTaskRequest Model Router calls', () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
 
-    const result = await detectClawScheduledTaskRequest(
+    const result = await detectScheduledTaskRequest(
       appSettings,
       'remind me tomorrow to stretch',
       new Date('2026-06-09T12:00:00+08:00')
@@ -137,7 +137,7 @@ describe('detectClawScheduledTaskRequest Model Router calls', () => {
       }), { status: 200 })
     })
 
-    await detectClawScheduledTaskRequest(
+    await detectScheduledTaskRequest(
       settings(),
       'remind me tomorrow to stretch',
       new Date('2026-06-09T12:00:00+08:00')

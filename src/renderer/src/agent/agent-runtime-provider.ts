@@ -715,10 +715,11 @@ export class AgentRuntimeProvider implements AgentProvider {
     return this.auxiliary('listSkills')
   }
 
-  uploadAttachment(
+  async uploadAttachment(
     input: Parameters<NonNullable<AgentProvider['uploadAttachment']>>[0]
   ): ReturnType<NonNullable<AgentProvider['uploadAttachment']>> {
-    return this.auxiliary('uploadAttachment', input)
+    const runtimeId = input.threadId ? await this.runtimeIdForThread(input.threadId) : undefined
+    return this.auxiliary('uploadAttachment', input, runtimeId)
   }
 
   async getAttachmentContent(

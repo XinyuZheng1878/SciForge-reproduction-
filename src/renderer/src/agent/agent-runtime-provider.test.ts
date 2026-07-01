@@ -894,6 +894,14 @@ describe('AgentRuntimeProvider', () => {
           updatedAt: '2026-06-20T00:00:01.000Z'
         }
       }
+      if (input.operation === 'uploadAttachment') {
+        return {
+          id: 'attachment-1',
+          name: input.payload?.name,
+          mimeType: input.payload?.mimeType,
+          createdAt: '2026-06-20T00:00:00.000Z'
+        }
+      }
       if (input.operation === 'getAttachmentContent') {
         return {
           ok: true,
@@ -1054,6 +1062,16 @@ describe('AgentRuntimeProvider', () => {
       ok: true,
       attachmentId: 'attachment-1'
     })
+    await expect(provider.uploadAttachment?.({
+      name: 'figure.png',
+      mimeType: 'image/png',
+      dataBase64: 'ZmFrZQ==',
+      threadId: 'codex-thread',
+      workspace: '/tmp/ws'
+    })).resolves.toMatchObject({
+      id: 'attachment-1',
+      name: 'figure.png'
+    })
     await expect(provider.listModelAuditRecords({ threadId: 'codex-thread', limit: 5 })).resolves.toEqual([
       expect.objectContaining({
         id: 'audit-1',
@@ -1115,6 +1133,17 @@ describe('AgentRuntimeProvider', () => {
       runtimeId: 'codex',
       operation: 'getContextState',
       payload: { threadId: 'codex-thread' }
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      operation: 'uploadAttachment',
+      payload: {
+        name: 'figure.png',
+        mimeType: 'image/png',
+        dataBase64: 'ZmFrZQ==',
+        threadId: 'codex-thread',
+        workspace: '/tmp/ws'
+      }
     })
     expect(auxiliary).toHaveBeenCalledWith({
       runtimeId: 'codex',
