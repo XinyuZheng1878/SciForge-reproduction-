@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createRequire } from 'node:module'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
   configureWeixinBridgeRuntimeContextProvider,
   ensureWeixinBridgeRpcUrl,
+  sendWeixinBridgeMessage,
   stopWeixinBridgeRuntime,
   weixinBridgeRuntimeInternals
 } from './weixin-bridge-runtime'
@@ -16,6 +19,8 @@ vi.mock('electron', () => ({
 }))
 
 const requireFromTest = createRequire(import.meta.url)
+const testUserDataDir = '/tmp/sciforge-test-user-data'
+const testWeixinStateDir = join(testUserDataDir, 'weixin-bridge')
 
 function headersToRecord(headers: HeadersInit | undefined): Record<string, string> {
   if (!headers) return {}
@@ -25,10 +30,11 @@ function headersToRecord(headers: HeadersInit | undefined): Record<string, strin
 }
 
 describe('weixin bridge runtime', () => {
-  afterEach(() => {
+  afterEach(async () => {
     stopWeixinBridgeRuntime()
     configureWeixinBridgeRuntimeContextProvider(null)
     vi.unstubAllGlobals()
+    await rm(testWeixinStateDir, { recursive: true, force: true })
   })
 
   it('builds WeChat base_info from the bundled WeChat plugin package', () => {
@@ -164,6 +170,57 @@ describe('weixin bridge runtime', () => {
       text: 'hello',
       messageId: 'wx_msg_1'
     })
+  })
+
+  it('does not configure accounts from legacy credentials token files', async () => {
+    const legacyDir = join(testWeixinStateDir, 'credentials', 'openclaw-weixin')
+    await mkdir(legacyDir, { recursive: true })
+    await writeFile(join(legacyDir, 'credentials.json'), JSON.stringify({ token: 'legacy-token' }), 'utf8')
+
+    const fetchMock = vi.fn(async () => {
+      throw new Error('legacy token should not be used for WeChat API calls')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(sendWeixinBridgeMessage({
+      accountId: 'account-1',
+      to: 'wx_user_1',
+      text: 'hello'
+    })).resolves.toEqual({
+      ok: false,
+      message: 'WeChat account is not configured.'
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('uses the current per-account token for outbound WeChat messages', async () => {
+    const accountDir = join(testWeixinStateDir, 'openclaw-weixin', 'accounts')
+    await mkdir(accountDir, { recursive: true })
+    await writeFile(
+      join(accountDir, 'account-1.json'),
+      JSON.stringify({ token: 'per-account-token', baseUrl: 'https://weixin.example/api/' }),
+      'utf8'
+    )
+
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await sendWeixinBridgeMessage({
+      accountId: 'account-1',
+      to: 'wx_user_1',
+      text: 'hello'
+    })
+
+    expect(result.ok).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] ?? []
+    expect(String(url)).toBe('https://weixin.example/api/ilink/bot/sendmessage')
+    expect(headersToRecord(init?.headers)).toEqual(expect.objectContaining({
+      Authorization: 'Bearer per-account-token'
+    }))
   })
 
   it('rejects oversized local RPC request bodies before dispatching', async () => {

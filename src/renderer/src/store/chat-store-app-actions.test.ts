@@ -14,7 +14,6 @@ function channel(id: string): ClawImChannelV1 {
     label: 'discord bot',
     enabled: true,
     model: 'auto',
-    threadId: 'kun-thread',
     runtimeId: 'codex',
     agentThreadIds: {
       codex: 'codex-thread'
@@ -35,7 +34,6 @@ function channel(id: string): ClawImChannelV1 {
       latestMessageId: 'discord-message-1',
       senderId: 'user-1',
       senderName: 'Alice',
-      localThreadId: '',
       runtimeId: 'codex',
       agentThreadIds: {
         codex: 'codex-thread'
@@ -163,7 +161,6 @@ describe('chat-store app actions', () => {
 
     expect(state.clawChannels).toEqual(bindingBefore)
     expect(state.clawChannels[0]).toMatchObject({
-      threadId: 'kun-thread',
       runtimeId: 'codex',
       agentThreadIds: { codex: 'codex-thread' },
       workspaceRoot: '/workspace/sciforge',
@@ -174,6 +171,8 @@ describe('chat-store app actions', () => {
         workspaceRoot: '/workspace/sciforge'
       })]
     })
+    expect(state.clawChannels[0]).not.toHaveProperty('threadId')
+    expect(state.clawChannels[0]?.conversations[0]).not.toHaveProperty('localThreadId')
     expect(state.activeThreadId).toBe('codex-thread')
     expect(state.refreshClawChannels).toHaveBeenCalledTimes(1)
   })

@@ -883,7 +883,6 @@ export class DiscordBotRuntime {
             enabled: input.enabled ?? true,
             guardMode: 'all_messages',
             model: (input.model?.trim() || settings.remoteChannel.im.model || 'auto') as ClawModel,
-            threadId: '',
             runtimeId: input.runtimeId ?? settings.activeAgentRuntime,
             agentThreadIds: {},
             workspaceRoot,

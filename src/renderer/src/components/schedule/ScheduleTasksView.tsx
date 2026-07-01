@@ -85,7 +85,6 @@ export function newScheduledTask(workspaceRoot: string, defaults?: Partial<Sched
     nextRunAt: '',
     lastStatus: 'idle',
     lastMessage: '',
-    lastThreadId: '',
     runtimeId: 'sciforge',
     agentThreadIds: {},
     ...defaults,
@@ -182,14 +181,14 @@ export function filterScheduledTasks(tasks: ScheduledTaskV1[], filter: TaskFilte
 }
 
 export function scheduledTaskLastThreadId(
-  task: Pick<ScheduledTaskV1, 'lastThreadId' | 'runtimeId' | 'agentThreadIds'>
+  task: Pick<ScheduledTaskV1, 'runtimeId' | 'agentThreadIds'>
 ): string {
   const runtimeId = normalizeAgentRuntimeId(task.runtimeId)
   return task.agentThreadIds?.[runtimeId]?.trim() || ''
 }
 
 export function scheduledTaskLastThreadRuntimeId(
-  task: Pick<ScheduledTaskV1, 'lastThreadId' | 'runtimeId' | 'agentThreadIds'>
+  task: Pick<ScheduledTaskV1, 'runtimeId' | 'agentThreadIds'>
 ): AgentRuntimeId | undefined {
   const runtimeId = normalizeAgentRuntimeId(task.runtimeId)
   if (task.agentThreadIds?.[runtimeId]?.trim()) return runtimeId

@@ -99,7 +99,6 @@ function clawChannel(provider: ClawImProvider, label: string, name = label): Cla
     label,
     enabled: true,
     model: 'auto',
-    threadId: '',
     runtimeId: 'sciforge',
     agentThreadIds: {},
     workspaceRoot: '',
@@ -648,7 +647,6 @@ describe('claw settings', () => {
         channels: [{
           ...clawChannel('feishu', 'team'),
           runtimeId: 'codex',
-          threadId: '',
           agentThreadIds: { codex: 'codex-channel-thread' },
           conversations: [{
             id: 'conversation-1',
@@ -657,7 +655,6 @@ describe('claw settings', () => {
             latestMessageId: 'message-1',
             senderId: 'sender-1',
             senderName: 'Ada',
-            localThreadId: '',
             runtimeId: 'codex',
             agentThreadIds: { codex: 'codex-conversation-thread' },
             workspaceRoot: '/tmp/workspace',
@@ -670,17 +667,17 @@ describe('claw settings', () => {
 
     expect(normalized.remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'codex',
-      threadId: '',
       agentThreadIds: { codex: 'codex-channel-thread' }
     })
+    expect(normalized.remoteChannel.channels[0]).not.toHaveProperty('threadId')
     expect(normalized.remoteChannel.channels[0]?.conversations).toEqual([
       expect.objectContaining({
         id: 'conversation-1',
-        localThreadId: '',
         runtimeId: 'codex',
         agentThreadIds: { codex: 'codex-conversation-thread' }
       })
     ])
+    expect(normalized.remoteChannel.channels[0]?.conversations[0]).not.toHaveProperty('localThreadId')
   })
 
   it('preserves Claude Claw IM thread mappings', () => {
@@ -691,7 +688,6 @@ describe('claw settings', () => {
         channels: [{
           ...clawChannel('feishu', 'Claude Channel'),
           runtimeId: 'claude',
-          threadId: '',
           agentThreadIds: { claude: 'claude-channel-thread' },
           conversations: [{
             id: 'conversation-1',
@@ -700,7 +696,6 @@ describe('claw settings', () => {
             latestMessageId: 'message-1',
             senderId: '',
             senderName: '',
-            localThreadId: '',
             runtimeId: 'claude',
             agentThreadIds: { claude: 'claude-conversation-thread' },
             workspaceRoot: '/tmp/workspace',
@@ -769,7 +764,7 @@ describe('claw settings', () => {
     ])
   })
 
-  it('keeps current Claw thread fields as SciForge mappings without legacy provider-only mappings', () => {
+  it('ignores legacy Claw thread fields instead of seeding SciForge mappings', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       remoteChannel: {
@@ -801,7 +796,6 @@ describe('claw settings', () => {
             latestMessageId: 'message-1',
             senderId: '',
             senderName: '',
-            localThreadId: '',
             agentThreadIds: {
               reasonix: ' legacy-reasonix-conversation '
             },
@@ -817,21 +811,20 @@ describe('claw settings', () => {
 
     const channel = normalized.remoteChannel.channels[0]
     expect(channel.runtimeId).toBe('sciforge')
-    expect(channel.threadId).toBe('legacy-channel-thread')
-    expect(channel.agentThreadIds).toEqual({ sciforge: 'legacy-channel-thread' })
+    expect(channel).not.toHaveProperty('threadId')
+    expect(channel.agentThreadIds).toEqual({})
     expect(channel.agentThreadIds?.codex).toBeUndefined()
 
     expect(channel.conversations).toEqual([])
   })
 
-  it('round-trips Codex claw thread mappings while keeping SciForge fields', () => {
+  it('round-trips Codex claw thread mappings while keeping SciForge mappings', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       remoteChannel: {
         ...defaultRemoteChannelSettings(),
         channels: [{
           ...clawChannel('feishu', 'Codex Channel'),
-          threadId: 'sciforge-channel-thread',
           runtimeId: 'codex',
           agentThreadIds: {
             sciforge: 'sciforge-channel-thread',
@@ -844,7 +837,6 @@ describe('claw settings', () => {
             latestMessageId: 'message-1',
             senderId: '',
             senderName: '',
-            localThreadId: 'sciforge-conversation-thread',
             runtimeId: 'codex',
             agentThreadIds: {
               sciforge: 'sciforge-conversation-thread',
@@ -860,7 +852,7 @@ describe('claw settings', () => {
 
     const channel = normalized.remoteChannel.channels[0]
     expect(channel.runtimeId).toBe('codex')
-    expect(channel.threadId).toBe('sciforge-channel-thread')
+    expect(channel).not.toHaveProperty('threadId')
     expect(channel.agentThreadIds).toEqual({
       sciforge: 'sciforge-channel-thread',
       codex: 'codex-channel-thread'
@@ -868,7 +860,7 @@ describe('claw settings', () => {
 
     const conversation = channel.conversations[0]
     expect(conversation.runtimeId).toBe('codex')
-    expect(conversation.localThreadId).toBe('sciforge-conversation-thread')
+    expect(conversation).not.toHaveProperty('localThreadId')
     expect(conversation.agentThreadIds).toEqual({
       sciforge: 'sciforge-conversation-thread',
       codex: 'codex-conversation-thread'
@@ -882,7 +874,6 @@ describe('claw settings', () => {
         ...defaultRemoteChannelSettings(),
         channels: [{
           ...clawChannel('feishu', 'Merged Channel'),
-          threadId: 'sciforge-channel-thread',
           runtimeId: 'codex',
           agentThreadIds: {
             sciforge: 'sciforge-channel-thread',
@@ -900,7 +891,7 @@ describe('claw settings', () => {
     })
 
     expect(merged.channels[0].runtimeId).toBe('codex')
-    expect(merged.channels[0].threadId).toBe('sciforge-channel-thread')
+    expect(merged.channels[0]).not.toHaveProperty('threadId')
     expect(merged.channels[0].agentThreadIds).toEqual({
       sciforge: 'sciforge-channel-thread',
       codex: 'codex-channel-thread'
@@ -1397,7 +1388,6 @@ describe('schedule settings', () => {
       nextRunAt: '',
       lastStatus: 'idle' as const,
       lastMessage: '',
-      lastThreadId: '',
       runtimeId: 'sciforge' as const,
       agentThreadIds: {}
     }
@@ -1434,7 +1424,7 @@ describe('schedule settings', () => {
     expect(merged.tasks[0].reasoningEffort).toBe('medium')
   })
 
-  it('migrates legacy scheduled task threads to SciForge mappings', () => {
+  it('ignores legacy scheduled task thread fields without canonical agent mappings', () => {
     const normalized = normalizeScheduleSettings({
       tasks: [{
         id: 'task-1',
@@ -1449,9 +1439,9 @@ describe('schedule settings', () => {
 
     expect(normalized.tasks[0]).toMatchObject({
       runtimeId: 'sciforge',
-      lastThreadId: 'legacy-task-thread',
-      agentThreadIds: { sciforge: 'legacy-task-thread' }
+      agentThreadIds: {}
     })
+    expect(normalized.tasks[0]).not.toHaveProperty('lastThreadId')
     expect(normalized.tasks[0].agentThreadIds?.codex).toBeUndefined()
   })
 
@@ -1461,7 +1451,6 @@ describe('schedule settings', () => {
         id: 'task-1',
         title: 'Codex task',
         prompt: 'Run',
-        lastThreadId: 'sciforge-task-thread',
         runtimeId: 'codex',
         agentThreadIds: {
           sciforge: 'sciforge-task-thread',
@@ -1472,12 +1461,12 @@ describe('schedule settings', () => {
 
     expect(current.tasks[0]).toMatchObject({
       runtimeId: 'codex',
-      lastThreadId: 'sciforge-task-thread',
       agentThreadIds: {
         sciforge: 'sciforge-task-thread',
         codex: 'codex-task-thread'
       }
     })
+    expect(current.tasks[0]).not.toHaveProperty('lastThreadId')
 
     const merged = mergeScheduleSettings(current, {
       tasks: [{
@@ -1487,7 +1476,7 @@ describe('schedule settings', () => {
     })
 
     expect(merged.tasks[0].runtimeId).toBe('codex')
-    expect(merged.tasks[0].lastThreadId).toBe('sciforge-task-thread')
+    expect(merged.tasks[0]).not.toHaveProperty('lastThreadId')
     expect(merged.tasks[0].agentThreadIds).toEqual({
       sciforge: 'sciforge-task-thread',
       codex: 'codex-task-thread'
@@ -1500,7 +1489,6 @@ describe('schedule settings', () => {
         id: 'task-1',
         title: 'Claude task',
         prompt: 'Run',
-        lastThreadId: '',
         runtimeId: 'claude',
         agentThreadIds: {
           claude: 'claude-task-thread'
@@ -1526,7 +1514,6 @@ describe('claw runtime prompts', () => {
       label: 'sciforge',
       enabled: true,
       model: 'auto',
-      threadId: '',
       workspaceRoot: '',
       conversations: [],
       agentProfile: {

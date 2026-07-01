@@ -13,7 +13,6 @@ function discordChannel(overrides: DiscordChannelOverrides = {}): ClawImChannelV
     label: 'discord bot',
     enabled: true,
     model: 'auto',
-    threadId: '',
     workspaceRoot: '/Users/zxy/SciForge',
     agentProfile: {
       name: 'discord bot',

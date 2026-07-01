@@ -56,11 +56,14 @@
 - [x] `npx vitest run src/main/packaging-config.test.ts src/main/kun-src-boundary.test.ts src/main/weixin-bridge-runtime.test.ts src/main/ipc/app-ipc-schemas.test.ts src/main/settings-store.test.ts src/renderer/src/components/settings-section-agents.test.ts`
 - [x] `npx vitest run src/renderer/src/components/chat/ConnectPhoneView.test.ts src/renderer/src/components/chat/SidebarClawDialogHelpers.test.ts src/renderer/src/plan/plan-store.test.ts src/renderer/src/plan/plan-command.test.ts src/renderer/src/plan/plan-prompts.test.ts src/renderer/src/store/chat-store-runtime.test.ts src/renderer/src/store/chat-store-runtime-helpers.test.ts`
 - [x] `npx vitest run src/renderer/src/store/chat-store-navigation-actions.test.ts src/renderer/src/store/chat-store-schedulers.test.ts`
+- [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
+- [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
+- [x] `npx vitest run src/shared/app-settings.test.ts src/main/settings-store.test.ts src/main/ipc/app-ipc-schemas.test.ts src/main/weixin-bridge-runtime.test.ts src/main/schedule-runtime.test.ts src/renderer/src/components/schedule/ScheduleTasksView.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts src/renderer/src/store/chat-store-helpers.test.ts src/renderer/src/store/chat-store-app-actions.test.ts src/renderer/src/store/chat-store-thread-actions.test.ts src/renderer/src/components/chat/ConnectPhoneView.test.ts src/renderer/src/components/chat/RemoteGuardDetailView.test.ts src/renderer/src/components/settings-section-claw.test.ts`
 
 ## 已决策待实施
 
-- [ ] 关闭 settings normalizer 旧 `threadId` / `localThreadId` / `lastThreadId` 兼容窗口；后续只读 canonical `agentThreadIds`。
-- [ ] 关闭 WeChat bridge 旧 `openclaw.json` / legacy credentials token 运行态兼容；后续只读当前 `weixin-bridge.json` 与 per-account token。
+- [x] 关闭 settings normalizer 旧 `threadId` / `localThreadId` / `lastThreadId` 兼容窗口：settings 类型、normalizer、IPC patch schema、schedule/remote-channel UI 与测试 fixture 已统一只读写 canonical `agentThreadIds`，旧字段作为 patch 输入会被 strict schema 拒绝。
+- [x] 关闭 WeChat bridge 旧 `openclaw.json` / legacy credentials token 运行态兼容：内置 bridge 不再读取旧 `openclaw.json`，也不再从 `weixin-bridge/credentials/openclaw-weixin/credentials.json` 回退 token；发送链路只使用当前 per-account token。
 - [ ] 收敛 Codex app-server compatibility re-export；内部测试/import 迁到 `app-server/`，删除 shim 与 README 兼容说明。
 - [ ] 收敛 `window.sciforge` 里的 Feishu mirror 旧公开 API；删除 `mirrorRemoteChannelMessageToFeishu` / `mirror-to-feishu` 兼容窗口，改为 remote-channel 中性 API。
 - [ ] public runtime machine protocol 暂继续保留 `KUN_READY`、health `service: "kun"`、CLI/env `KUN_*` 作为底层协议边界；不在本轮做 breaking rename。
@@ -76,4 +79,5 @@
 ## 待核对/拆解
 
 - [x] 已核对并删除 standalone `vision-router-service`：Model Router 已覆盖主链路的 vision translation、runtime auth、body cap、healthz config/auth 诊断、trace redaction、失败降级和多输入形态测试；独立 ServiceResult API 不再保留。
+- [ ] 核对 WeChat bridge 第三方 media sender 是否仍会在包内部读取旧 `openclaw.json`；若存在，改为显式 per-account token / baseUrl 注入或替换调用点，避免文件级隐式兼容。
 - [ ] 等待人工测试两套 computer-use 后，再梳理是否迁移 `@sciforge/computer-use` 的 target/session/lease 合约、lease 冲突检测、shared action lock、native/browser backends、permission/status/audit、confirmation/risk taxonomy、local runtime/Codex/Claude MCP registry。

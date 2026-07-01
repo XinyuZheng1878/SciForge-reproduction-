@@ -283,7 +283,6 @@ export function buildScheduledTaskFromDetectedRequest(options: {
     lastRunAt: '',
     nextRunAt: options.request.scheduleAt,
     lastStatus: 'idle',
-    lastMessage: '',
-    lastThreadId: ''
+    lastMessage: ''
   }
 }

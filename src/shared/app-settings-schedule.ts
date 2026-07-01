@@ -7,8 +7,7 @@ import {
 } from './app-settings-types'
 import {
   normalizeAgentThreadIds,
-  normalizeSettingsRuntimeId,
-  readLegacyAgentThreadId
+  normalizeSettingsRuntimeId
 } from './app-settings-prompts'
 import {
   compactStrings,
@@ -29,10 +28,7 @@ export function normalizeScheduledTask(
 ): ScheduledTaskV1 {
   const schedule = task.schedule
   const raw = task as Record<string, unknown>
-  const directLastThreadId = typeof raw.lastThreadId === 'string' ? raw.lastThreadId.trim() : ''
-  const legacyAgentThreadId = readLegacyAgentThreadId(raw.agentThreadIds)
-  const lastThreadId = directLastThreadId || legacyAgentThreadId
-  const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds, lastThreadId)
+  const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds)
   return {
     id: typeof task.id === 'string' && task.id.trim() ? task.id.trim() : `task-${index + 1}`,
     title: typeof task.title === 'string' && task.title.trim() ? task.title.trim() : `Task ${index + 1}`,
@@ -54,7 +50,6 @@ export function normalizeScheduledTask(
     nextRunAt: typeof task.nextRunAt === 'string' ? task.nextRunAt : '',
     lastStatus: normalizeStatus(task.lastStatus),
     lastMessage: typeof task.lastMessage === 'string' ? task.lastMessage : '',
-    lastThreadId,
     runtimeId: normalizeSettingsRuntimeId(raw.runtimeId),
     agentThreadIds
   }

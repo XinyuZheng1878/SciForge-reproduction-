@@ -28,7 +28,6 @@ function channel(enabled: boolean, provider: ClawImChannelV1['provider'] = 'feis
     label: enabled ? 'Enabled' : 'Disabled',
     enabled,
     model: 'auto',
-    threadId: '',
     workspaceRoot: '',
     agentProfile: {
       name: 'kun',

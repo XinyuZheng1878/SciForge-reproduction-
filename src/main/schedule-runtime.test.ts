@@ -41,7 +41,6 @@ function makeTask(patch: Partial<ScheduledTaskV1> = {}): ScheduledTaskV1 {
     nextRunAt: '',
     lastStatus: 'idle',
     lastMessage: '',
-    lastThreadId: '',
     ...patch,
     schedule
   }
@@ -265,15 +264,15 @@ describe('ScheduleRuntime', () => {
     })
     expect(store.read().schedule.tasks[0]).toMatchObject({
       lastStatus: 'running',
-      lastThreadId: 'thr_1',
-      lastMessage: 'Started'
+      lastMessage: 'Started',
+      agentThreadIds: { sciforge: 'thr_1' }
     })
+    expect(store.read().schedule.tasks[0]).not.toHaveProperty('lastThreadId')
   })
 
   it('runs Codex scheduled tasks through agentRuntime and saves the Codex thread id', async () => {
     const task = makeTask({
       runtimeId: 'codex',
-      lastThreadId: 'sciforge-thread',
       agentThreadIds: { sciforge: 'sciforge-thread' }
     })
     const forbiddenDirectCall = vi.fn()
@@ -317,13 +316,13 @@ describe('ScheduleRuntime', () => {
     expect(store.read().schedule.tasks[0]).toMatchObject({
       runtimeId: 'codex',
       lastStatus: 'running',
-      lastThreadId: 'sciforge-thread',
       lastMessage: 'Started',
       agentThreadIds: {
         sciforge: 'sciforge-thread',
         codex: 'codex-thread'
       }
     })
+    expect(store.read().schedule.tasks[0]).not.toHaveProperty('lastThreadId')
   })
 
   it('runs SciForge scheduled tasks through agentRuntime when the host is available', async () => {
@@ -362,11 +361,11 @@ describe('ScheduleRuntime', () => {
     expect(store.read().schedule.tasks[0]).toMatchObject({
       runtimeId: 'sciforge',
       lastStatus: 'running',
-      lastThreadId: 'sciforge-host-thread',
       agentThreadIds: {
         sciforge: 'sciforge-host-thread'
       }
     })
+    expect(store.read().schedule.tasks[0]).not.toHaveProperty('lastThreadId')
   })
 
   it('records an error when agentRuntime rejects scheduled runs', async () => {
@@ -620,8 +619,9 @@ describe('ScheduleRuntime', () => {
       nextRunAt: '',
       lastStatus: 'success',
       lastMessage: 'done',
-      lastThreadId: 'thr_1'
+      agentThreadIds: { sciforge: 'thr_1' }
     })
+    expect(store.read().schedule.tasks[0]).not.toHaveProperty('lastThreadId')
     expect(agentRuntime.readThread).toHaveBeenCalledWith({ runtimeId: 'sciforge', threadId: 'thr_1' })
   })
 

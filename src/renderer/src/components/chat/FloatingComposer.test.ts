@@ -913,7 +913,6 @@ describe('FloatingComposer capability controls', () => {
         label: 'weixin agent',
         enabled: true,
         model: 'auto',
-        threadId: '',
         agentThreadIds: {
           sciforge: 'thr_weixin'
         },

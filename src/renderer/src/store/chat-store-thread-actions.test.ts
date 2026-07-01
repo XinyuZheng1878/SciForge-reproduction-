@@ -908,7 +908,6 @@ describe('chat-store-thread-actions queued messages', () => {
       provider: 'weixin',
       label: 'WeChat',
       model: 'auto',
-      threadId: '',
       runtimeId: 'codex',
       agentThreadIds: { codex: 'thr_existing' },
       workspaceRoot: '',

@@ -561,7 +561,6 @@ describe('app-ipc-schemas', () => {
           label: 'Team',
           enabled: true,
           model: 'auto',
-          threadId: '',
           runtimeId: 'codex',
           agentThreadIds: { codex: 'codex-channel-thread' },
           workspaceRoot: '/tmp/claw',
@@ -569,7 +568,6 @@ describe('app-ipc-schemas', () => {
             id: 'conversation-1',
             chatId: 'chat-1',
             latestMessageId: 'message-1',
-            localThreadId: '',
             runtimeId: 'codex',
             agentThreadIds: { codex: 'codex-conversation-thread' },
             workspaceRoot: '/tmp/claw'
@@ -618,6 +616,42 @@ describe('app-ipc-schemas', () => {
         agents: {
           sciforge: { port: 9001 },
           reasonix: { model: 'legacy-reasoner' }
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(() =>
+      settingsPatchSchema.parse({
+        remoteChannel: {
+          channels: [{
+            id: 'channel-1',
+            threadId: 'legacy-thread'
+          }]
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(() =>
+      settingsPatchSchema.parse({
+        remoteChannel: {
+          channels: [{
+            id: 'channel-1',
+            conversations: [{
+              id: 'conversation-1',
+              localThreadId: 'legacy-thread'
+            }]
+          }]
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(() =>
+      settingsPatchSchema.parse({
+        schedule: {
+          tasks: [{
+            id: 'task-1',
+            lastThreadId: 'legacy-thread'
+          }]
         }
       })
     ).toThrow(/Unrecognized key/)

@@ -45,7 +45,6 @@ function clawChannel(): ClawImChannelV1 {
     label: 'Feishu Agent',
     enabled: true,
     model: 'auto',
-    threadId: 'kun-channel',
     agentThreadIds: { sciforge: 'kun-channel' },
     workspaceRoot: '/Users/zxy/project',
     agentProfile: {
@@ -64,7 +63,6 @@ function clawChannel(): ClawImChannelV1 {
         latestMessageId: 'message-1',
         senderId: 'sender-1',
         senderName: 'Alex',
-        localThreadId: 'kun-conversation',
         agentThreadIds: { sciforge: 'kun-conversation' },
         workspaceRoot: '/Users/zxy/project',
         createdAt: now,

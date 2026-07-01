@@ -754,7 +754,7 @@ describe('JsonSettingsStore', () => {
     expect(persistedConnectPhone.weixinBridgeUrl).toBe('http://127.0.0.1:9799/rpc')
   })
 
-  it('folds legacy Claw thread ids into the single SciForge mapping', async () => {
+  it('ignores legacy Claw thread id fields when canonical agent mappings are absent', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-settings-'))
 
     await writeFile(
@@ -788,10 +788,10 @@ describe('JsonSettingsStore', () => {
     const store = new JsonSettingsStore(userDataDir)
     const loaded = await store.load()
     const channel = loaded.remoteChannel.channels[0]
-    const conversation = channel?.conversations[0]
 
-    expect(channel?.threadId).toBe('thr_codewhale')
-    expect(conversation?.localThreadId).toBe('thr_conversation_codewhale')
+    expect(channel).not.toHaveProperty('threadId')
+    expect(channel?.agentThreadIds).toEqual({})
+    expect(channel?.conversations).toEqual([])
   })
 
   it('seeds Reasonix-only Claw conversations into the canonical thread id', async () => {
@@ -828,7 +828,7 @@ describe('JsonSettingsStore', () => {
     const loaded = await store.load()
     const channel = loaded.remoteChannel.channels[0]
 
-    expect(channel?.threadId).toBe('')
+    expect(channel).not.toHaveProperty('threadId')
     expect(channel?.agentThreadIds).toEqual({})
     expect(channel?.conversations).toEqual([])
   })

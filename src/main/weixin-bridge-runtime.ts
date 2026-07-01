@@ -326,10 +326,6 @@ function configPath(): string {
   return join(stateRoot(), 'weixin-bridge.json')
 }
 
-function legacyOpenClawConfigPath(): string {
-  return join(stateRoot(), 'openclaw.json')
-}
-
 function isBlockedObjectKey(value: string): boolean {
   return value === '__proto__' || value === 'prototype' || value === 'constructor'
 }
@@ -408,16 +404,6 @@ async function readAccountFile(filePath: string): Promise<WeixinAccountData | nu
   }
 }
 
-async function loadLegacyToken(): Promise<string | undefined> {
-  try {
-    const parsed = await readJsonFile(join(stateRoot(), 'credentials', WEIXIN_PLUGIN_ID, 'credentials.json'))
-    const token = asRecord(parsed).token
-    return typeof token === 'string' && token.trim() ? token.trim() : undefined
-  } catch {
-    return undefined
-  }
-}
-
 async function loadWeixinAccountData(accountId: string): Promise<WeixinAccountData | null> {
   const primary = await readAccountFile(accountPath(accountId))
   if (primary) return primary
@@ -426,8 +412,7 @@ async function loadWeixinAccountData(accountId: string): Promise<WeixinAccountDa
     const compat = await readAccountFile(accountPath(rawId))
     if (compat) return compat
   }
-  const legacyToken = await loadLegacyToken()
-  return legacyToken ? { token: legacyToken } : null
+  return null
 }
 
 async function saveWeixinAccount(accountId: string, update: WeixinAccountData): Promise<void> {
@@ -477,20 +462,6 @@ async function resolveWeixinAccount(accountId: string): Promise<WeixinAccount> {
     token,
     configured: Boolean(token),
     userId: data?.userId?.trim() || undefined
-  }
-}
-
-async function readBridgeConfig(): Promise<JsonRecord> {
-  try {
-    const parsed = await readJsonFile(configPath())
-    return asRecord(parsed)
-  } catch {
-    try {
-      const parsed = await readJsonFile(legacyOpenClawConfigPath())
-      return asRecord(parsed)
-    } catch {
-      return {}
-    }
   }
 }
 
@@ -1244,8 +1215,6 @@ export async function sendWeixinBridgeMessage(options: {
 
   try {
     await ensureWeixinBridgeRpcUrl()
-    const cfg = await readBridgeConfig()
-    void cfg
     const account = await resolveWeixinAccount(accountId)
     if (!account.configured || !account.token?.trim()) {
       return { ok: false as const, message: 'WeChat account is not configured.' }

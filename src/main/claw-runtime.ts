@@ -1600,7 +1600,6 @@ export class ClawRuntime {
             latestMessageId: session.messageId,
             senderId: session.senderId,
             senderName: session.senderName,
-            localThreadId: '',
             workspaceRoot,
             createdAt: now,
             updatedAt: now
@@ -1774,7 +1773,6 @@ export class ClawRuntime {
             latestMessageId: session.messageId,
             senderId: session.senderId,
             senderName: session.senderName,
-            localThreadId: '',
             workspaceRoot,
             createdAt: now,
             updatedAt: now
@@ -1870,7 +1868,6 @@ export class ClawRuntime {
             latestMessageId: session.messageId,
             senderId: session.senderId,
             senderName: session.senderName,
-            localThreadId: '',
             workspaceRoot,
             createdAt: now,
             updatedAt: now
@@ -2126,7 +2123,6 @@ export class ClawRuntime {
                 latestMessageId: remoteSession.messageId,
                 senderId: remoteSession.senderId,
                 senderName: remoteSession.senderName,
-                localThreadId: '',
                 workspaceRoot: this.resolveConversationWorkspaceRoot(currentSettings, currentChannel),
                 createdAt: now,
                 updatedAt: now

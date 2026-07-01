@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentRuntimeId, ClawImChannelV1 } from '@shared/app-settings'
+import type { AgentRuntimeId, ClawImChannelV1, ClawImConversationV1 } from '@shared/app-settings'
 import { CLAW_MANAGED_INSTRUCTIONS_HEADING } from '@shared/app-settings'
 import type { ChatBlock, NormalizedThread } from '../agent/types'
 import { rendererRuntimeClient } from '../agent/runtime-client'
@@ -11,15 +11,50 @@ import {
   resolveClawThreadId
 } from './chat-store-claw-actions'
 
-function channel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1 {
+type TestConversationOverrides = Partial<ClawImConversationV1> & { localThreadId?: string }
+type TestChannelOverrides = Partial<Omit<ClawImChannelV1, 'conversations'>> & {
+  threadId?: string
+  conversations?: TestConversationOverrides[]
+}
+
+function conversation(overrides: TestConversationOverrides = {}): ClawImConversationV1 {
   const now = '2026-06-01T00:00:00.000Z'
+  const {
+    localThreadId = 'thr-codewhale-conversation',
+    agentThreadIds,
+    ...canonicalOverrides
+  } = overrides
+  return {
+    id: 'conversation-1',
+    chatId: 'chat-1',
+    remoteThreadId: '',
+    latestMessageId: 'message-1',
+    senderId: 'sender-1',
+    senderName: 'Alex',
+    workspaceRoot: '/Users/zxy/.sciforge/remote-channel/feishu/feishu/channel-1/conversations/chat-1',
+    createdAt: now,
+    updatedAt: now,
+    ...canonicalOverrides,
+    agentThreadIds: agentThreadIds ?? (
+      localThreadId.trim() ? { sciforge: localThreadId.trim() } : {}
+    )
+  }
+}
+
+function channel(overrides: TestChannelOverrides = {}): ClawImChannelV1 {
+  const now = '2026-06-01T00:00:00.000Z'
+  const {
+    threadId = 'thr-codewhale-channel',
+    conversations,
+    agentThreadIds,
+    ...canonicalOverrides
+  } = overrides
   return {
     id: 'channel-1',
     provider: 'feishu',
     label: 'Feishu Agent01',
     enabled: true,
     model: 'auto',
-    threadId: 'thr-codewhale-channel',
     workspaceRoot: '/Users/zxy/.sciforge/remote-channel/feishu/feishu/channel-1',
     agentProfile: {
       name: '',
@@ -29,23 +64,13 @@ function channel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1 {
       userContext: '',
       replyRules: ''
     },
-    conversations: [
-      {
-        id: 'conversation-1',
-        chatId: 'chat-1',
-        remoteThreadId: '',
-        latestMessageId: 'message-1',
-        senderId: 'sender-1',
-        senderName: 'Alex',
-        localThreadId: 'thr-codewhale-conversation',
-        workspaceRoot: '/Users/zxy/.sciforge/remote-channel/feishu/feishu/channel-1/conversations/chat-1',
-        createdAt: now,
-        updatedAt: now
-      }
-    ],
+    conversations: conversations?.map((item) => conversation(item)) ?? [conversation()],
     createdAt: now,
     updatedAt: now,
-    ...overrides
+    ...canonicalOverrides,
+    agentThreadIds: agentThreadIds ?? (
+      threadId.trim() ? { sciforge: threadId.trim() } : {}
+    )
   }
 }
 
@@ -214,14 +239,14 @@ describe('chat-store Claw actions helpers', () => {
     vi.unstubAllGlobals()
   })
 
-  it('does not fall back to the legacy channel threadId when the latest conversation has none', () => {
-    const item = channel({ threadId: 'kun-channel-thread' })
-    const conversation = { ...item.conversations[0], localThreadId: '' }
-    expect(clawThreadIdForProvider(item, conversation, 'sciforge')).toBe('')
+  it('uses channel mappings only when the latest conversation has none', () => {
+    const item = channel({ agentThreadIds: {} })
+    const latestConversation = { ...item.conversations[0], agentThreadIds: {} }
+    expect(clawThreadIdForProvider(item, latestConversation, 'sciforge')).toBe('')
     expect(clawThreadIdForProvider({
       ...item,
       agentThreadIds: { sciforge: 'sciforge-channel-thread' }
-    }, conversation, 'sciforge')).toBe('sciforge-channel-thread')
+    }, latestConversation, 'sciforge')).toBe('sciforge-channel-thread')
   })
 
   it('uses Codex thread mappings without falling back to legacy local runtime fields', () => {
@@ -269,13 +294,13 @@ describe('chat-store Claw actions helpers', () => {
     const now = '2026-06-01T00:03:00.000Z'
     const next = channelWithClawThreadMapping(channel(), 'kun-thread', now, 'conversation-1', 'sciforge')
 
-    expect(next.threadId).toBe('thr-codewhale-channel')
-    expect(next.conversations[0]?.localThreadId).toBe('thr-codewhale-conversation')
+    expect(next).not.toHaveProperty('threadId')
+    expect(next.conversations[0]).not.toHaveProperty('localThreadId')
     expect(next.agentThreadIds).toEqual({ sciforge: 'kun-thread' })
     expect(next.conversations[0]?.agentThreadIds).toEqual({ sciforge: 'kun-thread' })
   })
 
-  it('writes Codex thread mappings without overwriting local runtime legacy thread ids', () => {
+  it('writes Codex thread mappings without overwriting local runtime mappings', () => {
     const now = '2026-06-01T00:03:00.000Z'
     const next = channelWithClawThreadMapping(
       channel({
@@ -293,9 +318,9 @@ describe('chat-store Claw actions helpers', () => {
       'codex'
     )
 
-    expect(next.threadId).toBe('kun-channel-thread')
+    expect(next).not.toHaveProperty('threadId')
     expect(next.agentThreadIds).toEqual({ sciforge: 'kun-channel-thread', codex: 'codex-thread' })
-    expect(next.conversations[0]?.localThreadId).toBe('kun-conversation-thread')
+    expect(next.conversations[0]).not.toHaveProperty('localThreadId')
     expect(next.conversations[0]?.agentThreadIds).toEqual({
       sciforge: 'kun-conversation-thread',
       codex: 'codex-thread'
@@ -488,21 +513,21 @@ describe('chat-store Claw actions helpers', () => {
     expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('old-codex-channel-thread', 'codex')
     expect(provider.deleteThread).toHaveBeenCalledWith('old-codex-channel-thread')
     expect(savedChannels[0]).toEqual(expect.objectContaining({
-      threadId: 'kun-channel-thread',
       runtimeId: 'codex',
       agentThreadIds: {
         sciforge: 'kun-channel-thread',
         codex: 'new-codex-thread'
       }
     }))
+    expect(savedChannels[0]).not.toHaveProperty('threadId')
     expect(savedChannels[0]?.conversations[0]).toEqual(expect.objectContaining({
-      localThreadId: 'kun-conversation-thread',
       runtimeId: 'codex',
       agentThreadIds: {
         sciforge: 'kun-conversation-thread',
         codex: 'new-codex-thread'
       }
     }))
+    expect(savedChannels[0]?.conversations[0]).not.toHaveProperty('localThreadId')
   })
 
   it('drops stale configured thread ids and falls back to a recovered thread', () => {
@@ -538,7 +563,7 @@ describe('chat-store Claw actions helpers', () => {
           provider: 'feishu',
           workspaceRoot: '/Users/zxy/project'
         },
-        channels: [channel({ threadId: 'thr_missing', conversations: [] })]
+        channels: [channel({ agentThreadIds: {}, conversations: [] })]
       }
     }
     const sciforge = {

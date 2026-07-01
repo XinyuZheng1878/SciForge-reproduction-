@@ -359,7 +359,6 @@ export type ScheduledTaskV1 = {
   nextRunAt: string
   lastStatus: ScheduleTaskStatus
   lastMessage: string
-  lastThreadId: string
   runtimeId?: AgentRuntimeId
   agentThreadIds?: AgentThreadIdsV1
 }
@@ -487,8 +486,6 @@ export type ClawImConversationV1 = {
   latestMessageId: string
   senderId: string
   senderName: string
-  /** Derived mirror of `agentThreadIds.sciforge` for legacy display surfaces. */
-  localThreadId: string
   runtimeId?: AgentRuntimeId
   agentThreadIds?: AgentThreadIdsV1
   workspaceRoot: string
@@ -504,8 +501,6 @@ export type ClawImChannelV1 = {
   enabled: boolean
   guardMode?: ClawImChannelGuardModeV1
   model: string
-  /** Derived mirror of `agentThreadIds.sciforge` for legacy display surfaces. */
-  threadId: string
   runtimeId?: AgentRuntimeId
   agentThreadIds?: AgentThreadIdsV1
   workspaceRoot: string

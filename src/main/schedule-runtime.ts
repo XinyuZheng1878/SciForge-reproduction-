@@ -69,7 +69,6 @@ function withScheduleThreadMapping(
   return {
     ...task,
     runtimeId,
-    ...(runtimeId === 'sciforge' ? { lastThreadId: trimmed } : {}),
     agentThreadIds: withAgentThreadId(task.agentThreadIds, runtimeId, trimmed)
   }
 }
@@ -211,7 +210,6 @@ export class ScheduleRuntime {
       nextRunAt: '',
       lastStatus: 'idle',
       lastMessage: '',
-      lastThreadId: '',
       runtimeId: normalizeAgentRuntimeId(settings.activeAgentRuntime),
       agentThreadIds: {}
     }
@@ -439,7 +437,7 @@ export class ScheduleRuntime {
         ...withScheduleThreadMapping(
           current,
           runtimeId,
-          threadId || current.agentThreadIds?.[runtimeId] || (runtimeId === 'sciforge' ? current.lastThreadId : '')
+          threadId || current.agentThreadIds?.[runtimeId] || ''
         ),
         ...(current.schedule.kind === 'at' ? { enabled: false } : {}),
         nextRunAt: current.schedule.kind === 'at' ? '' : computeScheduleNextRunAt(current, finishedAt),

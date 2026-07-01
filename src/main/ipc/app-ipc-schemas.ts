@@ -641,7 +641,6 @@ const clawImConversationPatchSchema = z.object({
   latestMessageId: z.string().max(MAX_ID_LENGTH).optional(),
   senderId: z.string().max(MAX_ID_LENGTH).optional(),
   senderName: z.string().max(512).optional(),
-  localThreadId: z.string().max(MAX_ID_LENGTH).optional(),
   runtimeId: agentRuntimeIdSchema.optional(),
   agentThreadIds: agentThreadIdsSchema.optional(),
   workspaceRoot: defaultPathSchema,
@@ -656,7 +655,6 @@ const clawImChannelPatchSchema = z.object({
   enabled: z.boolean().optional(),
   guardMode: clawImChannelGuardModeSchema.optional(),
   model: z.string().trim().min(1).max(128).optional(),
-  threadId: z.string().max(MAX_ID_LENGTH).optional(),
   runtimeId: agentRuntimeIdSchema.optional(),
   agentThreadIds: agentThreadIdsSchema.optional(),
   workspaceRoot: defaultPathSchema,
@@ -714,8 +712,7 @@ const scheduledTaskPatchSchema = z.object({
   lastRunAt: z.string().max(128).optional(),
   nextRunAt: z.string().max(128).optional(),
   lastStatus: clawTaskStatusSchema.optional(),
-  lastMessage: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
-  lastThreadId: z.string().max(MAX_ID_LENGTH).optional()
+  lastMessage: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional()
 }).strict()
 
 const scheduleSettingsPatchSchema = z.object({

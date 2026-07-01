@@ -36,6 +36,8 @@ type TestThreadDetail = ThreadDetailJson & {
   updatedAt: string
   latestSeq: number
 }
+type TestConversationOverrides = Partial<ClawImConversationV1> & { localThreadId?: string }
+type TestChannelOverrides = Partial<ClawImChannelV1> & { threadId?: string }
 
 function buildSettings(): AppSettingsV1 {
   return {
@@ -65,7 +67,8 @@ function buildSettings(): AppSettingsV1 {
   }
 }
 
-function buildConversation(overrides: Partial<ClawImConversationV1> = {}): ClawImConversationV1 {
+function buildConversation(overrides: TestConversationOverrides = {}): ClawImConversationV1 {
+  const { localThreadId = 'thr_old', ...canonicalOverrides } = overrides
   const conversation = {
     id: 'conv_1',
     chatId: 'oc_chat_a',
@@ -73,28 +76,27 @@ function buildConversation(overrides: Partial<ClawImConversationV1> = {}): ClawI
     latestMessageId: 'om_previous',
     senderId: 'ou_1',
     senderName: 'Alice',
-    localThreadId: 'thr_old',
     workspaceRoot: '/tmp/workspace/conversations/oc_chat_a',
     createdAt: '2026-06-02T00:00:00.000Z',
     updatedAt: '2026-06-02T00:00:00.000Z',
-    ...overrides
+    ...canonicalOverrides
   }
   return {
     ...conversation,
-    agentThreadIds: overrides.agentThreadIds ?? (
-      conversation.localThreadId.trim() ? { sciforge: conversation.localThreadId.trim() } : {}
+    agentThreadIds: canonicalOverrides.agentThreadIds ?? (
+      localThreadId.trim() ? { sciforge: localThreadId.trim() } : {}
     )
   }
 }
 
-function buildChannel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1 {
+function buildChannel(overrides: TestChannelOverrides = {}): ClawImChannelV1 {
+  const { threadId = 'thr_old', ...canonicalOverrides } = overrides
   const channel = {
     id: 'channel_1',
     provider: 'feishu' as const,
     label: 'Phone',
     enabled: true,
     model: 'auto',
-    threadId: 'thr_old',
     workspaceRoot: '/tmp/workspace',
     agentProfile: {
       name: 'kun',
@@ -107,12 +109,12 @@ function buildChannel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1
     conversations: [],
     createdAt: '2026-06-02T00:00:00.000Z',
     updatedAt: '2026-06-02T00:00:00.000Z',
-    ...overrides
+    ...canonicalOverrides
   }
   return {
     ...channel,
-    agentThreadIds: overrides.agentThreadIds ?? (
-      channel.threadId.trim() ? { sciforge: channel.threadId.trim() } : {}
+    agentThreadIds: canonicalOverrides.agentThreadIds ?? (
+      threadId.trim() ? { sciforge: threadId.trim() } : {}
     )
   }
 }
@@ -411,7 +413,6 @@ describe('ClawRuntime', () => {
       label: 'Phone',
       enabled: true,
       model: 'auto',
-      threadId: '',
       workspaceRoot: '',
       agentProfile: {
         name: 'kun',
@@ -456,7 +457,7 @@ describe('ClawRuntime', () => {
       latestMessageId: 'msg_1',
       senderId: 'ou_1',
       senderName: 'Alice',
-      localThreadId: 'thr_1',
+      agentThreadIds: { sciforge: 'thr_1' },
       workspaceRoot: '/conversations/oc_chat_a',
       createdAt: '2026-06-02T00:00:00.000Z',
       updatedAt: '2026-06-02T00:00:00.000Z'
@@ -467,7 +468,6 @@ describe('ClawRuntime', () => {
       label: 'Phone',
       enabled: true,
       model: 'auto',
-      threadId: '',
       workspaceRoot: '',
       agentProfile: {
         name: 'kun',
@@ -3933,7 +3933,6 @@ describe('ClawRuntime', () => {
       id: 'channel_weixin',
       label: 'WeChat',
       runtimeId: 'codex',
-      threadId: '',
       agentThreadIds: {},
       conversations: [{
         id: 'conversation-1',
@@ -3942,7 +3941,6 @@ describe('ClawRuntime', () => {
         latestMessageId: 'wx_msg_previous',
         senderId: 'wx_user_1',
         senderName: 'Alice',
-        localThreadId: '',
         runtimeId: 'codex',
         agentThreadIds: { codex: 'stale-phone-thread' },
         workspaceRoot: '/tmp/old-phone-workspace',
@@ -4072,7 +4070,6 @@ describe('ClawRuntime', () => {
         latestMessageId: 'wx_msg_previous',
         senderId: 'wx_user_1',
         senderName: 'Alice',
-        localThreadId: 'stale-kun-conversation-thread',
         runtimeId: 'sciforge',
         agentThreadIds: { sciforge: 'stale-kun-conversation-thread' },
         workspaceRoot: '/tmp/old-phone-workspace',
@@ -4771,7 +4768,6 @@ describe('ClawRuntime', () => {
         latestMessageId: 'om_previous',
         senderId: 'ou_1',
         senderName: 'Alice',
-        localThreadId: 'thr_1',
         agentThreadIds: { sciforge: 'thr_1' },
         workspaceRoot,
         createdAt: '2026-06-02T00:00:00.000Z',
@@ -4783,7 +4779,6 @@ describe('ClawRuntime', () => {
         label: 'Phone',
         enabled: true,
         model: 'auto',
-        threadId: '',
         workspaceRoot,
         agentProfile: {
           name: 'kun',

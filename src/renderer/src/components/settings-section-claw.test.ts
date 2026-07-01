@@ -92,7 +92,7 @@ function buildSettings(): AppSettingsV1 {
       label: 'Team helper',
       enabled: true,
       model: 'auto',
-      threadId: 'thr_1',
+      agentThreadIds: { sciforge: 'thr_1' },
       workspaceRoot: '',
       agentProfile: {
         name: 'Team helper',
@@ -145,7 +145,6 @@ describe('ClawSettingsSection', () => {
         label: '#support',
         enabled: true,
         model: 'deepseek-v4-flash',
-        threadId: '',
         workspaceRoot: '/tmp/support',
         agentProfile: {
           name: 'Support bot',
@@ -205,7 +204,6 @@ describe('ClawSettingsSection', () => {
         enabled: false,
         guardMode: 'only_mention',
         model: 'deepseek-v4-flash',
-        threadId: '',
         workspaceRoot: '/tmp/support',
         agentProfile: {
           name: 'Support bot',

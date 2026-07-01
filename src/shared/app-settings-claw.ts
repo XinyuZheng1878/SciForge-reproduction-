@@ -159,9 +159,7 @@ export function normalizeRemoteChannelSettings(input: RemoteChannelSettingsPatch
       .map((channel, index): ClawImChannelV1 => {
           const raw = channel as Record<string, unknown>
           const provider = normalizeImProvider(raw.provider as ClawImProvider)
-          const legacyThreadId = typeof raw.threadId === 'string' ? raw.threadId.trim() : ''
-          const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds, legacyThreadId)
-          const threadId = agentThreadIds.sciforge ?? ''
+          const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds)
           const agentProfile = normalizeClawImAgentProfile(raw.agentProfile)
           const label = normalizeClawChannelLabel(provider, typeof raw.label === 'string' ? raw.label : '')
           const profileName = normalizeLegacyDefaultClawChannelName(provider, agentProfile.name)
@@ -172,7 +170,6 @@ export function normalizeRemoteChannelSettings(input: RemoteChannelSettingsPatch
             enabled: normalizeBoolean(raw.enabled, true),
             guardMode: normalizeClawImChannelGuardMode(raw.guardMode),
             model: normalizeClawModel(raw.model),
-            threadId,
             runtimeId: normalizeSettingsRuntimeId(raw.runtimeId),
             agentThreadIds,
             workspaceRoot: typeof raw.workspaceRoot === 'string' ? raw.workspaceRoot.trim() : '',

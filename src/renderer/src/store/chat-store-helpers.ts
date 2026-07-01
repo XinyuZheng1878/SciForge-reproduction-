@@ -215,7 +215,6 @@ export function newClawChannel(
     label: profileName,
     enabled: true,
     model: 'auto',
-    threadId: '',
     runtimeId: 'sciforge',
     agentThreadIds: {},
     workspaceRoot: '',

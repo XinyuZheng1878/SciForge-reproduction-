@@ -194,23 +194,11 @@ export function normalizeClawImLastFailure(input: unknown, fallbackProvider: Cla
   }
 }
 
-/**
- * Read the local runtime thread id from an `agentThreadIds` record.
- * Returns the empty string when no candidate is present.
- */
-export function readLegacyAgentThreadId(input: unknown): string {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return ''
-  const raw = input as Record<string, unknown>
-  return typeof raw.sciforge === 'string' ? raw.sciforge.trim() : ''
-}
-
-export function normalizeAgentThreadIds(input: unknown, legacyLocalRuntimeThreadId = ''): AgentThreadIdsV1 {
+export function normalizeAgentThreadIds(input: unknown): AgentThreadIdsV1 {
   const raw = input && typeof input === 'object' && !Array.isArray(input)
     ? input as Record<string, unknown>
     : {}
-  const sciforgeThreadId =
-    (typeof raw.sciforge === 'string' ? raw.sciforge.trim() : '') ||
-    legacyLocalRuntimeThreadId.trim()
+  const sciforgeThreadId = typeof raw.sciforge === 'string' ? raw.sciforge.trim() : ''
   const codexThreadId = typeof raw.codex === 'string' ? raw.codex.trim() : ''
   const claudeThreadId = typeof raw.claude === 'string' ? raw.claude.trim() : ''
   return {
@@ -235,9 +223,7 @@ export function normalizeClawImConversation(
   const id = typeof raw.id === 'string' ? raw.id.trim() : ''
   const chatId = typeof raw.chatId === 'string' ? raw.chatId.trim() : ''
   const latestMessageId = typeof raw.latestMessageId === 'string' ? raw.latestMessageId.trim() : ''
-  const directLocalThreadId = typeof raw.localThreadId === 'string' ? raw.localThreadId.trim() : ''
-  const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds, directLocalThreadId)
-  const localThreadId = agentThreadIds.sciforge ?? ''
+  const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds)
   const hasMappedThread = Object.values(agentThreadIds).some((value) => value?.trim())
   if (!id || !chatId || !latestMessageId || !hasMappedThread) return undefined
   return {
@@ -247,7 +233,6 @@ export function normalizeClawImConversation(
     latestMessageId,
     senderId: typeof raw.senderId === 'string' ? raw.senderId.trim() : '',
     senderName: typeof raw.senderName === 'string' ? raw.senderName.trim() : '',
-    localThreadId,
     runtimeId: normalizeSettingsRuntimeId(raw.runtimeId),
     agentThreadIds,
     workspaceRoot: typeof raw.workspaceRoot === 'string' ? raw.workspaceRoot.trim() : '',

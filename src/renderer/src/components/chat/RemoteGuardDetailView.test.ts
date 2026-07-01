@@ -16,7 +16,6 @@ function discordChannel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannel
     label: 'discord bot',
     enabled: true,
     model: 'auto',
-    threadId: 'kun-thread',
     runtimeId: 'codex',
     agentThreadIds: {
       sciforge: 'kun-thread',
@@ -147,7 +146,6 @@ describe('RemoteGuardDetailView', () => {
   it('keeps paused guard entries visible without inventing a mapped thread', () => {
     const channel = discordChannel({
       enabled: false,
-      threadId: '',
       agentThreadIds: {},
       remoteSession: undefined,
       recentMessages: []

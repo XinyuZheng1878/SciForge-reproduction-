@@ -67,7 +67,6 @@ function discordChannel(): ClawImChannelV1 {
     label: '#support',
     enabled: true,
     model: 'auto',
-    threadId: '',
     runtimeId: 'sciforge',
     agentThreadIds: {},
     workspaceRoot: '/tmp/support',
@@ -338,7 +337,6 @@ describe('DiscordBotRuntime guard ownership', () => {
 
     try {
       const channel = localDiscordChannel()
-      channel.threadId = 'legacy-kun-thread'
       channel.runtimeId = 'codex'
       channel.agentThreadIds = { codex: 'attached-desktop-thread' }
       channel.workspaceRoot = '/repo/attached'
@@ -350,7 +348,6 @@ describe('DiscordBotRuntime guard ownership', () => {
         latestMessageId: 'discord-message-1',
         senderId: 'user-1',
         senderName: 'Alice',
-        localThreadId: 'legacy-kun-thread',
         runtimeId: 'codex',
         agentThreadIds: { codex: 'attached-desktop-thread' },
         workspaceRoot: '/repo/attached',
@@ -389,18 +386,18 @@ describe('DiscordBotRuntime guard ownership', () => {
       ).resolves.toMatchObject({ ok: true })
       expect(current.remoteChannel.channels[0]).toMatchObject({
         enabled: false,
-        threadId: 'legacy-kun-thread',
         runtimeId: 'codex',
         agentThreadIds: { codex: 'attached-desktop-thread' },
         workspaceRoot: '/repo/attached',
         conversations: [expect.objectContaining({
           chatId: 'channel-1',
-          localThreadId: 'legacy-kun-thread',
           runtimeId: 'codex',
           agentThreadIds: { codex: 'attached-desktop-thread' },
           workspaceRoot: '/repo/attached'
         })]
       })
+      expect(current.remoteChannel.channels[0]).not.toHaveProperty('threadId')
+      expect(current.remoteChannel.channels[0].conversations[0]).not.toHaveProperty('localThreadId')
 
       await expect(
         runtime.setGuard(true, { channelConfigId: 'discord-bot-1-guild-1-channel-1' })
@@ -408,18 +405,18 @@ describe('DiscordBotRuntime guard ownership', () => {
       expect(current.remoteChannel.channels[0]).toMatchObject({
         enabled: true,
         guardMode: 'all_messages',
-        threadId: 'legacy-kun-thread',
         runtimeId: 'codex',
         agentThreadIds: { codex: 'attached-desktop-thread' },
         workspaceRoot: '/repo/attached',
         conversations: [expect.objectContaining({
           chatId: 'channel-1',
-          localThreadId: 'legacy-kun-thread',
           runtimeId: 'codex',
           agentThreadIds: { codex: 'attached-desktop-thread' },
           workspaceRoot: '/repo/attached'
         })]
       })
+      expect(current.remoteChannel.channels[0]).not.toHaveProperty('threadId')
+      expect(current.remoteChannel.channels[0].conversations[0]).not.toHaveProperty('localThreadId')
     } finally {
       rmSync(userDataPath, { recursive: true, force: true })
     }

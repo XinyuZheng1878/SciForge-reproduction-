@@ -63,7 +63,6 @@ function remoteChannel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV
     label: 'discord bot',
     enabled: true,
     model: 'auto',
-    threadId: 'thr_1',
     runtimeId: 'codex',
     agentThreadIds: {
       codex: 'thr_1'
