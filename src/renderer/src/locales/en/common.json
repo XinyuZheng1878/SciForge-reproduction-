@@ -2190,8 +2190,6 @@
   "pluginScientificSkillsRootWorkspaceAgents": "Workspace .agents",
   "pluginScientificSkillsRootWorkspaceSkills": "Workspace skills",
   "pluginScientificSkillsRootGlobalAgents": "Global .agents",
-  "pluginScientificSkillsRootLegacyLocalRuntime": "Legacy/local runtime input",
-  "pluginScientificSkillsRootLegacyLocalRuntimeTitle": "Legacy local runtime discovery input",
   "pluginMcpPptMasterTitle": "ppt-master",
   "pluginMcpPptMasterDesc": "Turn SciForge research context, drafts, quotes, and Model Router evidence into ppt-master presentation projects.",
   "rightPanelFigureStyle": "Figure style",

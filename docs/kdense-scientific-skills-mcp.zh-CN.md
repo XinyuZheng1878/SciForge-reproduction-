@@ -12,7 +12,7 @@ SciForge v1 将本地已安装的 `K-Dense-AI/scientific-agent-skills` 作为只
 
 默认后端是 `git clone https://github.com/K-Dense-AI/scientific-agent-skills.git`，首次安装使用 `main`，安装后写入 `.sciforge-provenance.json` 记录 source、backend、ref、commit、installedAt、targetPath 和 installerVersion。
 
-legacy/local runtime 来源只作为只读 discovery 输入展示；当前安装入口以 workspace 安装方式为准。若已存在本地安装，SciForge 会按实际 discovery 结果只读索引；未检测到安装时，MCP 工具会返回插件页显式安装提示，而不是崩溃或静默下载。
+当前安装入口以 workspace 安装方式为准。若已存在本地安装，SciForge 会按实际 discovery 结果只读索引；未检测到安装时，MCP 工具会返回插件页显式安装提示，而不是崩溃或静默下载。旧本地 runtime 目录不会作为默认扫描来源；如需读取任意已有目录，需显式设置 `SCIFORGE_KDENSE_SKILLS_ROOT`。
 
 ## 默认扫描路径
 
@@ -22,7 +22,6 @@ MCP server 会按顺序扫描：
 - 当前 workspace 的 `.agents/skills/scientific-agent-skills/skills`
 - 当前 workspace 的 `skills/scientific-agent-skills/skills`
 - `~/.agents/skills/scientific-agent-skills/skills`
-- legacy/local runtime 只读 discovery 输入
 
 如果 `SCIFORGE_KDENSE_SKILLS_ROOT` 指向仓库根目录，SciForge 会同时尝试其 `skills` 子目录。
 

@@ -14,8 +14,8 @@ It must not include `.git`, local refs, historical branches, build output,
 dependency directories, local secrets, or Codex runtime state.
 
 The project intentionally does not rewrite all historical Git refs in this
-cleanup phase. Historical refs may still contain exact Git blobs that match Kun
-content introduced after Kun changed away from MIT. Those historical refs are
+cleanup phase. Historical refs may still contain exact Git blobs that match
+historical reference content introduced after the reference changed away from MIT. Those historical refs are
 outside the source package boundary and must not be included in a release
 archive.
 
@@ -23,10 +23,10 @@ archive.
 
 Before publishing a source package:
 
-1. Run the Kun exact-hit scan on the release working tree:
+1. Run the reference exact-hit scan on the release working tree:
 
    ```sh
-   node scripts/license-risk-scan.mjs --max-details 20
+   REFERENCE_REPO=/path/to/reference node scripts/license-risk-scan.mjs --max-details 20
    ```
 
 2. Export the actual source package from the cleaned working tree, excluding at
@@ -57,7 +57,7 @@ Before publishing a source package:
    git -C "$tmp_repo" init
    git -C "$tmp_repo" add -A
    git -C "$tmp_repo" -c user.name=SciForge -c user.email=sciforge@example.invalid commit -m source-package-scan
-   node scripts/license-risk-scan.mjs --repo "$tmp_repo" --max-details 20
+   node scripts/license-risk-scan.mjs --repo "$tmp_repo" --reference-repo /path/to/reference --max-details 20
    ```
 
 4. Archive the scan output with the release evidence. The expected publish gate

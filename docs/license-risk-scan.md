@@ -1,7 +1,7 @@
 # License Risk Exact-Hit Scan
 
-Use this scan to find exact Git blob matches between this repository and Kun
-content introduced after the Kun license change. The scanner treats Kun
+Use this scan to find exact Git blob matches between this repository and a
+historical reference repository after its license change. The scanner treats the reference
 `363fdf566657cd4d60801f62b0b8f3aa8dfbf2fc`
 (`5472bed3b878854d296851820834145f5fe1a353^`) as the final MIT tree and
 excludes blobs that already exist in that tree.
@@ -9,22 +9,14 @@ excludes blobs that already exist in that tree.
 ## Command
 
 ```sh
-node scripts/license-risk-scan.mjs
-```
-
-The default Kun repository is:
-
-```text
-/Applications/workspace/ailab/research/app/Kun
+REFERENCE_REPO=/path/to/reference node scripts/license-risk-scan.mjs
 ```
 
 Override the inputs when needed:
 
 ```sh
-KUN_REPO=/path/to/Kun node scripts/license-risk-scan.mjs
-
 node scripts/license-risk-scan.mjs \
-  --kun-repo /path/to/Kun \
+  --reference-repo /path/to/reference \
   --license-change-ref 5472bed3b878854d296851820834145f5fe1a353 \
   --mit-ref 363fdf566657cd4d60801f62b0b8f3aa8dfbf2fc
 ```
@@ -41,11 +33,11 @@ exits with code `2` when the current `HEAD` or worktree has risky exact hits.
 ## Output Sections
 
 - `current HEAD exact hits`: tracked files in the current `HEAD` tree whose blob
-  IDs match post-change Kun blobs.
+  IDs match post-change reference blobs.
 - `worktree exact hits`: tracked or untracked, non-ignored files currently on
-  disk whose raw Git blob IDs match post-change Kun blobs.
+  disk whose raw Git blob IDs match post-change reference blobs.
 - `all refs exact hits`: blobs reachable from any local ref in this repository
-  whose IDs match post-change Kun blobs. When the hit count is small enough, the
+  whose IDs match post-change reference blobs. When the hit count is small enough, the
   scanner also reports the first seen commit and refs containing that commit.
 
 ## Partial Clone Behavior
@@ -58,10 +50,10 @@ counted and skipped instead of being fetched from the network.
 
 Last local run: `2026-06-26T17:29:08.869Z`
 
-- Kun MIT tree unique blobs: `762`
-- Kun post-change refs scanned: `21`
-- Kun post-change risk blobs after MIT-tree exclusion: `2627`
-- Missing Kun objects skipped: `0`
+- Reference MIT tree unique blobs: `762`
+- Reference post-change refs scanned: `21`
+- Reference post-change risk blobs after MIT-tree exclusion: `2627`
+- Missing reference objects skipped: `0`
 - Missing target objects skipped: `0`
 - Current `HEAD` exact hits: `11` files / `11` unique blobs
 - Worktree exact hits: `2` files / `2` unique blobs

@@ -145,6 +145,43 @@ describe('scientific skills index', () => {
     expect(plan.nextSciForgeActions.join(' ')).toContain('controlled tool')
   })
 
+  it('does not use legacy local runtime skill roots unless explicitly configured', async () => {
+    const home = await tempDir()
+    const legacyRoot = join(home, '.kun', 'skills', 'scientific-agent-skills')
+    await writeSkill(legacyRoot, 'matplotlib', [
+      '---',
+      'name: matplotlib',
+      'description: Publication plotting with Matplotlib.',
+      'allowed-tools: Read',
+      '---',
+      '# Matplotlib',
+      '',
+      'Build paper-ready plots.'
+    ].join('\n'))
+
+    const defaultIndex = await buildScientificSkillsIndex({
+      env: {},
+      homeDir: home
+    })
+    expect(defaultIndex.installed).toBe(false)
+    expect(defaultIndex.skills.map((skill) => skill.id)).not.toContain('matplotlib')
+    expect(defaultIndex.roots.map((root) => root.path)).not.toContain(join(legacyRoot, 'skills'))
+    expect(JSON.stringify(defaultIndex.roots)).not.toContain('.kun')
+
+    const explicitIndex = await buildScientificSkillsIndex({
+      env: { [SCIENTIFIC_SKILLS_ENV_ROOT]: legacyRoot },
+      homeDir: home
+    })
+    expect(explicitIndex.installed).toBe(true)
+    expect(explicitIndex.roots).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'env',
+        path: join(legacyRoot, 'skills'),
+        skillCount: 1
+      })
+    ]))
+  })
+
   it('summarizes the curated plotting pack and prioritizes it for plotting tasks', async () => {
     const root = await tempDir()
     await writeSkill(root, 'plotly', [

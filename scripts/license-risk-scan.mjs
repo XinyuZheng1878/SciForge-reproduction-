@@ -3,14 +3,13 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const DEFAULT_KUN_REPO = '/Applications/workspace/ailab/research/app/Kun'
 const DEFAULT_CHANGE = '5472bed3b878854d296851820834145f5fe1a353'
 const DEFAULT_MAX_DETAILS = Number.POSITIVE_INFINITY
 
 function parseArgs(argv) {
   const args = {
     repo: process.cwd(),
-    kunRepo: process.env.KUN_REPO || DEFAULT_KUN_REPO,
+    referenceRepo: process.env.REFERENCE_REPO || '',
     change: DEFAULT_CHANGE,
     format: 'text',
     maxDetails: DEFAULT_MAX_DETAILS,
@@ -19,7 +18,7 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--repo') args.repo = readValue(argv, ++index, arg, args.repo)
-    else if (arg === '--kun' || arg === '--kun-repo') args.kunRepo = readValue(argv, ++index, arg, args.kunRepo)
+    else if (arg === '--reference' || arg === '--reference-repo') args.referenceRepo = readValue(argv, ++index, arg, args.referenceRepo)
     else if (arg === '--change' || arg === '--license-change-ref') args.change = readValue(argv, ++index, arg, args.change)
     else if (arg === '--pre-change' || arg === '--mit-ref') args.preChange = readValue(argv, ++index, arg, args.preChange)
     else if (arg === '--json') args.format = 'json'
@@ -34,7 +33,10 @@ function parseArgs(argv) {
     }
   }
   args.repo = resolve(args.repo)
-  args.kunRepo = resolve(args.kunRepo)
+  if (!args.referenceRepo.trim()) {
+    throw new Error('Reference repository is required. Set REFERENCE_REPO or pass --reference-repo.')
+  }
+  args.referenceRepo = resolve(args.referenceRepo)
   return args
 }
 
@@ -63,8 +65,9 @@ function printHelp() {
 
 Options:
   --repo <path>                 Repository to scan (default: current working directory)
-  --kun-repo, --kun <path>      Local Kun repository (default: KUN_REPO or ${DEFAULT_KUN_REPO})
-  --license-change-ref <commit> Kun license-change commit (default: ${DEFAULT_CHANGE})
+  --reference-repo <path>       Local reference repository (or set REFERENCE_REPO)
+  --reference <path>            Alias for --reference-repo
+  --license-change-ref <commit> Reference license-change commit (default: ${DEFAULT_CHANGE})
   --change <commit>             Alias for --license-change-ref
   --mit-ref, --pre-change <ref> Pre-change MIT ref (default: <license-change-ref>^)
   --format <text|json>          Output format (default: text)
@@ -187,7 +190,7 @@ function blobHits({ candidatePaths, referencePaths, safeObjects, typeRepo }) {
     .map((objectId) => ({
       objectId,
       paths: [...candidatePaths.get(objectId)].sort(),
-      kunPaths: [...referencePaths.get(objectId)].sort()
+      referencePaths: [...referencePaths.get(objectId)].sort()
     }))
     .sort((left, right) => (left.paths[0] ?? '').localeCompare(right.paths[0] ?? ''))
 }
@@ -196,7 +199,7 @@ function formatHits(title, hits, maxDetails) {
   const limit = Number.isFinite(maxDetails) ? maxDetails : hits.length
   const lines = [`${title}: ${hits.length}`]
   for (const hit of hits.slice(0, limit)) {
-    lines.push(`  ${hit.objectId}  ${hit.paths.join(', ')}  <= Kun: ${hit.kunPaths.slice(0, 5).join(', ')}`)
+    lines.push(`  ${hit.objectId}  ${hit.paths.join(', ')}  <= reference: ${hit.referencePaths.slice(0, 5).join(', ')}`)
   }
   const hidden = hits.length - limit
   if (hidden > 0) lines.push(`  ... ${hidden} more hit(s) hidden by --max-details`)
@@ -205,12 +208,12 @@ function formatHits(title, hits, maxDetails) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2))
-  const preChange = args.preChange ? revParse(args.kunRepo, args.preChange) : revParse(args.kunRepo, `${args.change}^`)
+  const preChange = args.preChange ? revParse(args.referenceRepo, args.preChange) : revParse(args.referenceRepo, `${args.change}^`)
   const head = revParse(args.repo, 'HEAD')
-  const kunHead = revParse(args.kunRepo, 'HEAD')
+  const referenceHead = revParse(args.referenceRepo, 'HEAD')
 
-  const preChangeObjects = objectPathsFromRevList(args.kunRepo, [preChange])
-  const kunReference = objectPathsFromRevList(args.kunRepo, ['HEAD'])
+  const preChangeObjects = objectPathsFromRevList(args.referenceRepo, [preChange])
+  const referenceObjects = objectPathsFromRevList(args.referenceRepo, ['HEAD'])
   const currentHead = treeBlobPaths(args.repo, 'HEAD')
   const worktree = worktreeBlobPaths(args.repo)
   const allRefs = objectPathsFromRevList(args.repo, ['--all'])
@@ -218,19 +221,19 @@ function main() {
   const safeObjects = new Set(preChangeObjects.pathsByObject.keys())
   const currentHeadHits = blobHits({
     candidatePaths: currentHead,
-    referencePaths: kunReference.pathsByObject,
+    referencePaths: referenceObjects.pathsByObject,
     safeObjects,
     typeRepo: args.repo
   })
   const worktreeHits = blobHits({
     candidatePaths: worktree,
-    referencePaths: kunReference.pathsByObject,
+    referencePaths: referenceObjects.pathsByObject,
     safeObjects,
     typeRepo: null
   })
   const allRefHits = blobHits({
     candidatePaths: allRefs.pathsByObject,
-    referencePaths: kunReference.pathsByObject,
+    referencePaths: referenceObjects.pathsByObject,
     safeObjects,
     typeRepo: args.repo
   })
@@ -240,13 +243,13 @@ function main() {
   const result = {
     repo: args.repo,
     repoHead: head,
-    kunRepo: args.kunRepo,
-    kunHead,
+    referenceRepo: args.referenceRepo,
+    referenceHead,
     licenseChange: args.change,
     preChange,
     missingObjects: {
-      kunPreChange: preChangeObjects.missing,
-      kunHead: kunReference.missing,
+      referencePreChange: preChangeObjects.missing,
+      referenceHead: referenceObjects.missing,
       repoAllRefs: allRefs.missing
     },
     currentHeadHits,
@@ -260,11 +263,11 @@ function main() {
   } else {
     console.log(`repo: ${result.repo}`)
     console.log(`repo HEAD: ${result.repoHead}`)
-    console.log(`Kun repo: ${result.kunRepo}`)
-    console.log(`Kun HEAD: ${result.kunHead}`)
+    console.log(`reference repo: ${result.referenceRepo}`)
+    console.log(`reference HEAD: ${result.referenceHead}`)
     console.log(`license change: ${result.licenseChange}`)
     console.log(`pre-change MIT ref: ${result.preChange}`)
-    console.log(`missing objects: Kun pre-change=${result.missingObjects.kunPreChange}, Kun HEAD=${result.missingObjects.kunHead}, repo all refs=${result.missingObjects.repoAllRefs}`)
+    console.log(`missing objects: reference pre-change=${result.missingObjects.referencePreChange}, reference HEAD=${result.missingObjects.referenceHead}, repo all refs=${result.missingObjects.repoAllRefs}`)
     console.log('')
     console.log(formatHits('current HEAD exact hits', currentHeadHits, args.maxDetails))
     console.log('')

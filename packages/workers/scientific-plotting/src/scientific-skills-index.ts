@@ -54,7 +54,7 @@ export type ScientificSkillRecord = {
 
 export type ScientificSkillsRootStatus = {
   path: string
-  source: 'env' | 'workspace-agents' | 'workspace-skills' | 'global-agents' | 'global-kun'
+  source: 'env' | 'workspace-agents' | 'workspace-skills' | 'global-agents'
   exists: boolean
   skillCount: number
   error?: string
@@ -216,7 +216,6 @@ export function resolveScientificSkillsCandidateRoots(
     add(join(workspaceRoot, 'skills', 'scientific-agent-skills', 'skills'), 'workspace-skills')
   }
   add(join(home, '.agents', 'skills', 'scientific-agent-skills', 'skills'), 'global-agents')
-  add(join(home, '.kun', 'skills', 'scientific-agent-skills', 'skills'), 'global-kun')
 
   const seen = new Set<string>()
   return candidates.filter((candidate) => {

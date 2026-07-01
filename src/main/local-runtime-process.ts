@@ -144,6 +144,7 @@ const UPSTREAM_PROVIDER_CONFIG_ENV_NAMES = [
 ] as const
 // Temporary legacy direct worker env must be injected only through explicit managed MCP server config.
 const LEGACY_DIRECT_WORKER_ENV_PREFIXES = [
+  'EDAG_LLM_',
   'SCIFORGE_IMAGE_',
   'SCIFORGE_SCIMODALITY_SERVICE_'
 ] as const

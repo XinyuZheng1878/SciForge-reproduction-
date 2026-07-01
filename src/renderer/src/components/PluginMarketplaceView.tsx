@@ -1541,8 +1541,6 @@ export function scientificSkillsRootSourceLabel(
       return t('pluginScientificSkillsRootWorkspaceSkills')
     case 'global-agents':
       return t('pluginScientificSkillsRootGlobalAgents')
-    case 'global-kun':
-      return t('pluginScientificSkillsRootLegacyLocalRuntime')
     default:
       return source
   }
@@ -1553,7 +1551,6 @@ export function scientificSkillsRootSourceTitle(
   path: string,
   t: (key: string, values?: Record<string, unknown>) => string
 ): string {
-  if (source === 'global-kun') return t('pluginScientificSkillsRootLegacyLocalRuntimeTitle')
   return path
 }
 

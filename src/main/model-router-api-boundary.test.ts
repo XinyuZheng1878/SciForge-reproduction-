@@ -191,6 +191,12 @@ function isAllowedLegacyImageDirectWorkerEnvMarker(hit: DirectCallHit): boolean 
 }
 
 function isAllowedEvidenceDagLegacyLlmEnvMarker(hit: DirectCallHit): boolean {
+  if (
+    hit.file === 'src/main/local-runtime-process.ts' &&
+    hit.text.includes('LEGACY_DIRECT_WORKER_ENV_PREFIXES')
+  ) {
+    return true
+  }
   return allowedEvidenceDagLegacyLlmEnvFiles.has(hit.file)
 }
 

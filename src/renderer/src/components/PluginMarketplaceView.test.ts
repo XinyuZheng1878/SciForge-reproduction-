@@ -252,29 +252,19 @@ describe('scientific skills root display labels', () => {
     pluginScientificSkillsRootEnv: 'ENV',
     pluginScientificSkillsRootWorkspaceAgents: 'Workspace .agents',
     pluginScientificSkillsRootWorkspaceSkills: 'Workspace skills',
-    pluginScientificSkillsRootGlobalAgents: 'Global .agents',
-    pluginScientificSkillsRootLegacyLocalRuntime: 'Legacy/local runtime input',
-    pluginScientificSkillsRootLegacyLocalRuntimeTitle: 'legacy/local runtime migration input pending'
+    pluginScientificSkillsRootGlobalAgents: 'Global .agents'
   }
   const t = (key: string): string => labels[key] ?? key
-
-  it('keeps the legacy local runtime source neutral in user-visible UI', () => {
-    const label = scientificSkillsRootSourceLabel('global-kun', t)
-    const title = scientificSkillsRootSourceTitle(
-      'global-kun',
-      '/Users/demo/.kun/skills/scientific-agent-skills/skills',
-      t
-    )
-
-    expect(label).toBe('Legacy/local runtime input')
-    expect(title).toBe('legacy/local runtime migration input pending')
-    expect(`${label} ${title}`).not.toMatch(/(?:global-kun|kun|\.kun)/i)
-  })
 
   it('keeps current roots path-addressable', () => {
     expect(scientificSkillsRootSourceLabel('global-agents', t)).toBe('Global .agents')
     expect(scientificSkillsRootSourceTitle('global-agents', '/Users/demo/.agents/skills', t)).toBe(
       '/Users/demo/.agents/skills'
     )
+  })
+
+  it('falls back to unknown source ids without adding legacy root labels', () => {
+    expect(scientificSkillsRootSourceLabel('custom-source', t)).toBe('custom-source')
+    expect(scientificSkillsRootSourceTitle('custom-source', '/tmp/custom', t)).toBe('/tmp/custom')
   })
 })

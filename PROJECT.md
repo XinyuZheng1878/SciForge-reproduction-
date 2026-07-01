@@ -76,6 +76,9 @@
 - [x] Schedule detector 内部清名：`claw-scheduled-task-detector` / `ParsedClawScheduledTaskRequest` / `detectClawScheduledTaskRequest` 已改为 neutral `scheduled-task-detector` / `ParsedScheduledTaskRequest` / `detectScheduledTaskRequest`。
 - [x] 删除 Paper Radar app-side 旧 HTTP sidecar launcher/client：GUI/IPC 继续直连 `PaperRadarWorkerService`，MCP/local runtime 共用 `paper-radar-paths` storage helper；`plugins/paper-radar-service` 仅作为 worker core 依赖和 standalone API 归属待决策。
 - [x] Agent Runtime auxiliary 先加运行期 fail-closed 边界：已明确 thread-bound 的 auxiliary operation 缺 top-level `runtimeId` 会直接拒绝，不再落到 active runtime；active-scoped helpers 保持可省略。
+- [x] license exact-hit 扫描工具清名：`license-risk-scan.mjs` 的公开 CLI/env/JSON/text 输出改为 neutral reference repo 语义，删除内置旧本地参考仓库路径，未显式传 `REFERENCE_REPO` / `--reference-repo` 时 fail-closed。
+- [x] K-Dense Scientific Skills 默认 discovery 不再扫描旧本地 runtime 目录；只保留显式 `SCIFORGE_KDENSE_SKILLS_ROOT`、workspace `.agents` / `skills`、global `.agents` 来源，旧目录只能作为用户显式 env root 输入。
+- [x] local runtime env scrub 补齐 `EDAG_LLM_*`，generic SciForge Runtime 子进程不再继承 Evidence DAG legacy direct LLM env；image-generation 设置文案标注为 worker-contained 临时例外。
 
 ## 验证记录
 
@@ -139,6 +142,12 @@
 - [x] `npm test -- src/main/runtime/agent-runtime/host.test.ts src/main/paper-radar-paths.test.ts src/main/services/paper-radar-worker-service.test.ts src/main/paper-radar-mcp-config.test.ts src/main/local-runtime-process.test.ts src/main/packaging-config.test.ts`
 - [x] `npm --workspace @sciforge/paper-radar run typecheck`
 - [x] `npm --workspace @sciforge/paper-radar run test`
+- [x] `npm test -- packages/workers/scientific-plotting/src/scientific-skills-index.test.ts src/renderer/src/components/PluginMarketplaceView.test.ts src/main/local-runtime-process.test.ts src/main/model-router-api-boundary.test.ts`
+- [x] `npm run scientific-plotting:typecheck`
+- [x] `npm run scientific-plotting:test`
+- [x] `npm test -- src/main/model-router-api-boundary.test.ts`
+- [x] `node scripts/license-risk-scan.mjs --help`
+- [x] `node scripts/license-risk-scan.mjs --max-details 0`（预期 fail-closed：缺少 `REFERENCE_REPO` / `--reference-repo`）
 
 ## 已决策待实施
 
@@ -147,9 +156,9 @@
 - [x] 收敛 Codex app-server compatibility re-export；内部测试/import 已迁到 `app-server/`，已删除 shim、旧 request registry shim 与 README 兼容说明。
 - [x] 收敛 `window.sciforge` 里的 Feishu mirror 旧公开 API；已删除 `mirrorRemoteChannelMessageToFeishu` / `mirror-to-feishu` 兼容窗口，改为 remote-channel 中性 API。
 - [x] public runtime machine protocol 暂继续保留 `KUN_READY`、health `service: "kun"`、CLI/env `KUN_*` 作为底层协议边界；本轮记录为协议边界决策，不做 breaking rename。
-- [ ] 修改 legacy `~/.kun` global skills / MCP 配置兼容：迁移到新的 SciForge/local-runtime 路径，旧路径只作为迁移输入。已完成用户可见文档/UI 中性化、`~/.sciforge/mcp.json` 当前事实修正、内部 MCP builder / renderer helper 清名，以及 generic 默认 roots 不读 `~/.kun` 的防回归测试；仍需决策：迁移目标用 workspace `.agents/skills/...` 还是 global `~/.sciforge/skills/...`；旧 `~/.kun` 内容是复制、移动、提示导入还是忽略；是否保留 `npx skills add` 外部 CLI install 入口；旧 runtime config 中的 `~/.kun` roots 是自动改写还是只提示一次。
+- [ ] 修改 legacy `~/.kun` global skills / MCP 配置兼容：迁移到新的 SciForge/local-runtime 路径，旧路径只作为迁移输入。已完成用户可见文档/UI 中性化、`~/.sciforge/mcp.json` 当前事实修正、内部 MCP builder / renderer helper 清名、generic 默认 roots 不读 `~/.kun` 的防回归测试，以及 K-Dense scientific skills 默认 discovery 不再扫描旧本地 runtime 目录；仍需决策：迁移目标用 workspace `.agents/skills/...` 还是 global `~/.sciforge/skills/...`；旧 `~/.kun` 内容是复制、移动、提示导入还是忽略；是否保留 `npx skills add` 外部 CLI install 入口；旧 runtime config 中的 `~/.kun` roots 是自动改写还是只提示一次。
 - [x] `DeepseekCompatModelClient` 长期收敛原则：LLM 只能走 model router；已加生产边界测试，除 runtime factory 注入 Model Router 客户端外，不允许新增直接 provider 调用。
-- [ ] sci-modality expert provider 与 image-generation direct provider 原则上统一经 model/media router，避免形成新的 LLM/API 旁路。已完成 sci-modality / image-generation 边界防回归和 image-generation worker-contained 临时例外说明；仍需决策：全部并入 Model Router，还是拆出 Media Router 统一承接 image/video/audio 等非文本 provider；任一方案都应保持 GUI/runtime 只依赖 router 层。
+- [ ] sci-modality expert provider 与 image-generation direct provider 原则上统一经 model/media router，避免形成新的 LLM/API 旁路。已完成 sci-modality / image-generation 边界防回归、image-generation worker-contained 临时例外说明、runtime env scrub 覆盖 `EDAG_LLM_*`，以及 settings 文案不把 image direct provider 描述为默认路径；仍需决策：全部并入 Model Router，还是拆出 Media Router 统一承接 image/video/audio 等非文本 provider；任一方案都应保持 GUI/runtime 只依赖 router 层。
 - [x] Model Router provider 诊断只透出少量高价值状态到 health/UI：auth、network/timeout、provider bad response、provider error；不暴露全部内部细节。
 - [ ] side conversation / plan checklist / GUI plan registry 的长期 owner 归 runtime/thread metadata；GUI 只负责展示和即时乐观更新。已完成显式 `includeSide` 读路径、runtime todo snapshot/event 透传、`create_plan` result replay、完成后 goal/todos snapshot merge、GUI plan registry shared helper 对齐、plan/todo merge 语义收敛、side capability gate 与 SSE 失败状态收敛；仍需决策：active GUI plan 存成 `thread.guiPlan` metadata，还是从最近一次 `create_plan` tool result 派生；旧 `sciforge.plan.registry.v1` localStorage 是迁移还是清空；side conversation 重启后是否需要恢复。
 - [ ] remote-channel IM command 边界：账户/连接/线程选择归 GUI；任务执行、计划、工具行为归 runtime/agent，避免新增并行控制链路。已删除 dead `ClawRuntime.runTask()`、stale Feishu mirror API 文档、dead `imCommandNotReadyText`，并补齐 remote-channel task IPC 测试和 public API 文档；仍需决策：IM 是否允许 `/model` / `/mode` 这类 runtime 行为命令；项目/thread 选择是否允许经 IM 发生；schedule/task 创建是否允许从 IM 自动触发。
@@ -157,6 +166,7 @@
 - [ ] `gui-owl-computer-use` 暂停处理：保持 `gui-owl-computer-use` 与旧 `@sciforge/computer-use` 并存，不迁移、不删除，等待人工分别测试两套 computer-use 后再决策。人工测试矩阵需覆盖：`-SafeDryRun` 不动鼠标键盘、live 必须 GUI approve、cancel 有效、无 token live 被拒、是否让手工 dry-run 也强制 token（因为会截图并走 Model Router）。
 - [ ] Agent Runtime auxiliary 仍需决策是否改为按 operation 区分的 discriminated union：运行期 guard 已让 `reviewThread`、`listThreadChildren`、`readChildTranscript`、context ledger/state、runtime handoff、goal/todos、checkpoint create、thread workspace/archive、`cancelUserInput` 等 thread-bound operation 缺 `runtimeId` 时 fail-closed；仍需决策是否把该分类提升到 shared contract / IPC schema 的 operation-specific 类型与校验。`getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences` 等 active-scoped 能力继续允许省略。
 - [ ] `SCIFORGE_CUA_SERVICE_URL` loopback 策略等待 computer-use 人工测试后决策：允许哪些 loopback 形式、是否支持 SSH tunnel hostname、非 loopback 时 fail-closed 并不广告旧 tool，还是保留当前“不启用 GUI-managed MCP 以避免重复注册”的冲突 guard。
+- [ ] Remote Channel / Connect Phone 公开 TypeScript surface 是否破坏式清名：shared typings 仍暴露 `Claw*` 类型/函数/常量（例如 `ClawImChannelV1`、`ClawRunMode`、`parseClawCommand`），但运行时 API/文案已是 `remoteChannel` / `connectPhone`。需决策直接重命名为 `RemoteChannel*` / `ConnectPhone*` 并删除 alias，还是保留 deprecated alias 迁移期；内部 renderer/store/component 文件名也可随后批量中性化。
 
 ## 待核对/拆解
 
