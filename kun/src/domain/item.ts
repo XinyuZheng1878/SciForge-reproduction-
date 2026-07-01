@@ -1,5 +1,6 @@
 import type { TurnItem } from '../contracts/items.js'
 import type { ReviewOutput, ReviewTarget } from '../contracts/review.js'
+import { redactSensitiveString, redactSensitiveValue } from '../shared/redact-sensitive.js'
 
 export type ItemEntity = TurnItem
 
@@ -88,8 +89,8 @@ export function makeToolCallItem(input: {
     toolName: input.toolName,
     callId: input.callId,
     toolKind: input.toolKind ?? 'tool_call',
-    arguments: input.arguments,
-    summary: input.summary
+    arguments: redactSensitiveValue(input.arguments) as Record<string, unknown>,
+    summary: input.summary ? redactSensitiveString(input.summary) : input.summary
   }
 }
 
@@ -122,7 +123,7 @@ export function makeToolResultItem(input: {
     toolName: input.toolName,
     callId: input.callId,
     toolKind: input.toolKind ?? 'tool_call',
-    output: input.output,
+    output: redactSensitiveValue(input.output),
     isError: input.isError ?? false
   }
 }
@@ -144,7 +145,7 @@ export function makeApprovalItem(input: {
     kind: 'approval',
     approvalId: input.approvalId,
     toolName: input.toolName,
-    summary: input.summary,
+    summary: redactSensitiveString(input.summary),
     status: 'pending'
   }
 }

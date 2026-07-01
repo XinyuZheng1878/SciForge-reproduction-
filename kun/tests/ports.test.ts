@@ -148,7 +148,8 @@ describe('LocalToolHost', () => {
     }
   })
 
-  it('blocks auto tools when the thread policy is never', async () => {
+  it('runs tools without approval when the thread policy is never', async () => {
+    let approvals = 0
     const host = new LocalToolHost({ tools: defaultLocalTools })
     const result = await host.execute(
       { callId: 'c1', toolName: 'echo', arguments: { text: 'hi' } },
@@ -158,15 +159,90 @@ describe('LocalToolHost', () => {
         workspace: '/tmp',
         approvalPolicy: 'never',
         abortSignal: new AbortController().signal,
-        awaitApproval: async () => 'allow'
+        awaitApproval: async () => {
+          approvals += 1
+          return 'allow'
+        }
       }
     )
-    expect(result.approved).toBe(false)
+    expect(approvals).toBe(0)
+    expect(result.approved).toBe(true)
     expect(result.item).toMatchObject({
       kind: 'tool_result',
       toolName: 'echo',
-      isError: true
+      isError: false
     })
+  })
+
+  it('redacts secrets from tool result payloads', async () => {
+    const secret = ['sk', '1234567890abcdefghijklmnopqrstuvwxyz'].join('-')
+    const host = new LocalToolHost({
+      tools: [
+        LocalToolHost.defineTool({
+          name: 'leaky_tool',
+          description: 'Returns secret-shaped output.',
+          inputSchema: {
+            type: 'object',
+            properties: {}
+          },
+          policy: 'auto',
+          execute: async () => ({
+            output: {
+              plain: secret,
+              command: `curl -H "Authorization: Bearer ${secret}"`,
+              output: `SCP_HUB_API_KEY=${secret}`
+            }
+          })
+        })
+      ]
+    })
+    const result = await host.execute(
+      { callId: 'c1', toolName: 'leaky_tool', arguments: { token: secret } },
+      {
+        threadId: 'th',
+        turnId: 'tu',
+        workspace: '/tmp',
+        approvalPolicy: 'never',
+        abortSignal: new AbortController().signal,
+        awaitApproval: async () => 'allow'
+      }
+    )
+    expect(result.item.kind).toBe('tool_result')
+    const serialized = JSON.stringify(result.item)
+    expect(serialized).not.toContain(secret)
+    expect(serialized).toContain('sk-REDACTED')
+    expect(serialized).toContain('SCP_HUB_API_KEY=<redacted>')
+    expect(serialized).toContain('Bearer <redacted>')
+  })
+
+  it('blocks tools that declare policy never', async () => {
+    let executions = 0
+    const disabledTool = LocalToolHost.defineTool({
+      name: 'disabled_tool',
+      description: 'A disabled tool.',
+      inputSchema: {
+        type: 'object',
+        properties: {}
+      },
+      policy: 'never',
+      execute: async () => {
+        executions += 1
+        return { output: { ok: true } }
+      }
+    })
+    const host = new LocalToolHost({ tools: [disabledTool] })
+    await expect(host.execute(
+      { callId: 'c1', toolName: 'disabled_tool', arguments: {} },
+      {
+        threadId: 'th',
+        turnId: 'tu',
+        workspace: '/tmp',
+        approvalPolicy: 'never',
+        abortSignal: new AbortController().signal,
+        awaitApproval: async () => 'allow'
+      }
+    )).rejects.toThrow(/disabled_tool is disabled by policy/)
+    expect(executions).toBe(0)
   })
 
   it('treats trusted remote_executor bypass calls as auto', async () => {
@@ -223,7 +299,7 @@ describe('LocalToolHost', () => {
     })
   })
 
-  it('keeps approvalPolicy never ahead of trusted remote_executor bypass markers', async () => {
+  it('runs trusted remote_executor calls without approval when thread policy is never', async () => {
     let approvals = 0
     let executions = 0
     const remoteRun = LocalToolHost.defineTool({
@@ -270,15 +346,12 @@ describe('LocalToolHost', () => {
     )
 
     expect(approvals).toBe(0)
-    expect(executions).toBe(0)
-    expect(result.approved).toBe(false)
+    expect(executions).toBe(1)
+    expect(result.approved).toBe(true)
     expect(result.item).toMatchObject({
       kind: 'tool_result',
       toolName: 'remote_run',
-      isError: true,
-      output: {
-        code: 'approval_policy_blocked'
-      }
+      isError: false
     })
   })
 

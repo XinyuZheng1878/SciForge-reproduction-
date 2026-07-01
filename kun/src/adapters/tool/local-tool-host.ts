@@ -27,6 +27,7 @@ import {
   type ReadTrackerOptions
 } from './read-tracker.js'
 import { sandboxBlockForTool, type SandboxBlock } from './sandbox-policy.js'
+import { redactSensitiveString } from '../../shared/redact-sensitive.js'
 
 const FILE_PATH_POLICY_TOOL_NAMES = new Set(['read', 'write', 'edit', 'list', 'glob', 'grep'])
 const RATE_LIMIT_PAYLOAD_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
@@ -287,12 +288,13 @@ export class LocalToolHost implements ToolHost {
     const filePolicyBlock = filePathPolicyBlock(call, context)
     if (filePolicyBlock) return filePolicyBlock
     if (this.isInteractiveGuiGateTool(call.toolName)) return null
-    if (context.approvalPolicy !== 'never') return null
-    if (tool.policy === 'never') return null
-    return {
-      code: 'approval_policy_blocked',
-      message: `tool ${call.toolName} is disabled by runtime approval policy`
+    if (tool.policy === 'never') {
+      return {
+        code: 'approval_policy_blocked',
+        message: `tool ${call.toolName} is disabled by tool policy`
+      }
     }
+    return null
   }
 
   private requiresApproval(tool: LocalTool, call: ToolCallLike, context: ToolHostContext): boolean {
@@ -324,7 +326,7 @@ export class LocalToolHost implements ToolHost {
     const args = Object.entries(call.arguments)
       .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
       .join(', ')
-    return `Run ${call.toolName}(${args})`
+    return redactSensitiveString(`Run ${call.toolName}(${args})`)
   }
 
   private errorToolResult(

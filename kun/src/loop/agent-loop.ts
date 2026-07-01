@@ -1534,7 +1534,7 @@ export class AgentLoop {
     toolProviderKinds: ReadonlyMap<string, ToolProviderKind | undefined>
   ): boolean {
     if (call.toolKind && call.toolKind !== 'tool_call') return false
-    if (approvalPolicy === 'untrusted' || approvalPolicy === 'never') return false
+    if (approvalPolicy === 'untrusted') return false
     if (PARALLEL_DELEGATION_TOOL_NAMES.has(call.toolName)) {
       return toolProviderKinds.get(call.toolName) === 'delegation'
     }
