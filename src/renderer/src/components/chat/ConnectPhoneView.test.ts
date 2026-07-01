@@ -141,6 +141,8 @@ describe('ConnectPhoneView', () => {
   })
 
   it('uses one workspace rule for phone and Discord bindings', () => {
+    const legacyClawWorkspaceRoot = '/Users/zxy/.sciforge/claw/discord/server/channel'
+
     expect(resolveConnectPhoneWorkspaceRoot('', '/repo/current')).toBe('/repo/current')
     expect(resolveConnectPhoneWorkspaceRoot('/repo/custom', '/repo/current')).toBe('/repo/custom')
     expect(
@@ -155,12 +157,15 @@ describe('ConnectPhoneView', () => {
         'default workspace'
       )
     ).toBe('default workspace')
+    expect(resolveConnectPhoneWorkspaceRoot(legacyClawWorkspaceRoot, '/repo/current')).toBe(
+      legacyClawWorkspaceRoot
+    )
     expect(
       connectPhoneWorkspaceLabel(
-        '/Users/zxy/.sciforge/claw/discord/server/channel',
+        legacyClawWorkspaceRoot,
         'default workspace'
       )
-    ).toBe('default workspace')
+    ).toBe('channel')
     expect(connectPhoneWorkspaceLabel('/repo/SciForge', 'default workspace')).toBe('SciForge')
   })
 

@@ -189,8 +189,8 @@ type ParsedFrontmatter = {
 export function scientificSkillsInstallHint(): string {
   return [
     'K-Dense Scientific Agent Skills is not installed in the configured local paths.',
-    'Install it outside SciForge, for example: npx skills add K-Dense-AI/scientific-agent-skills',
-    `Or set ${SCIENTIFIC_SKILLS_ENV_ROOT} to the local skills directory.`
+    'Use the SciForge plugin page Install / Repair action with explicit approval,',
+    `or set ${SCIENTIFIC_SKILLS_ENV_ROOT} to an existing local skills directory.`
   ].join(' ')
 }
 
@@ -444,8 +444,8 @@ export function planScientificSkills(
   if (!index.installed) {
     const planningInstallHint = [
       'K-Dense Scientific Agent Skills is not installed in the configured local paths.',
-      'Ask the user to install it outside SciForge using the documented K-Dense workflow, or set',
-      `${SCIENTIFIC_SKILLS_ENV_ROOT} to the local skills directory.`
+      'Ask the user to use the SciForge plugin page Install / Repair action with explicit approval, or set',
+      `${SCIENTIFIC_SKILLS_ENV_ROOT} to an existing local skills directory.`
     ].join(' ')
     return {
       installed: false,
@@ -453,7 +453,7 @@ export function planScientificSkills(
       recommendedSkills: [],
       guardrails: readonlyGuardrails(),
       nextSciForgeActions: [
-        'Ask the user to install K-Dense Scientific Agent Skills outside SciForge, then re-run scientific_skills_status.',
+        'Ask the user to install K-Dense Scientific Agent Skills from the SciForge plugin page with explicit approval, then re-run scientific_skills_status.',
         'Keep SciForge skill roots unchanged; consume K-Dense only through this MCP index.'
       ],
       installHint: planningInstallHint,

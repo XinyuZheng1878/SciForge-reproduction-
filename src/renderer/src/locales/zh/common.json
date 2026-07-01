@@ -2191,7 +2191,7 @@
   "pluginScientificSkillsRootWorkspaceSkills": "工作区 skills",
   "pluginScientificSkillsRootGlobalAgents": "全局 .agents",
   "pluginScientificSkillsRootLegacyLocalRuntime": "legacy/local runtime 输入",
-  "pluginScientificSkillsRootLegacyLocalRuntimeTitle": "legacy/local runtime 迁移输入待决策",
+  "pluginScientificSkillsRootLegacyLocalRuntimeTitle": "旧本地运行时发现来源",
   "pluginMcpPptMasterTitle": "ppt-master",
   "pluginMcpPptMasterDesc": "将 SciForge 科研上下文、写作草稿、引用片段和 Model Router 证据整理成 ppt-master 演示项目。",
   "rightPanelFigureStyle": "图风格",

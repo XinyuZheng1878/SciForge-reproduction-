@@ -84,10 +84,7 @@ const INITIAL_QR_STATE: ConnectPhoneInstallQrState = {
   timeLeft: 0,
   error: ''
 }
-const INTERNAL_REMOTE_CHANNEL_WORKSPACE_FRAGMENTS = [
-  '/.sciforge/remote-channel/',
-  '/.sciforge/claw/'
-] as const
+const INTERNAL_REMOTE_CHANNEL_WORKSPACE_ROOT = '/.sciforge/remote-channel'
 
 export function connectPhoneProviderForTarget(target: ConnectPhoneInstallTarget): ClawImProvider {
   return target === 'weixin' ? 'weixin' : 'feishu'
@@ -140,9 +137,12 @@ export function normalizeConnectPhoneWorkspaceRoot(workspaceRoot?: string): stri
 
 function isInternalClawWorkspaceRoot(workspaceRoot: string): boolean {
   const normalized = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-  return INTERNAL_REMOTE_CHANNEL_WORKSPACE_FRAGMENTS.some((fragment) => normalized.includes(fragment)) ||
-    normalized.startsWith('~/.sciforge/remote-channel/') ||
-    normalized.startsWith('~/.sciforge/claw/')
+  return (
+    normalized === '~/.sciforge/remote-channel'
+    || normalized.startsWith('~/.sciforge/remote-channel/')
+    || normalized.endsWith(INTERNAL_REMOTE_CHANNEL_WORKSPACE_ROOT)
+    || normalized.includes(`${INTERNAL_REMOTE_CHANNEL_WORKSPACE_ROOT}/`)
+  )
 }
 
 export function resolveConnectPhoneWorkspaceRoot(

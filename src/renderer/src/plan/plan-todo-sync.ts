@@ -63,9 +63,7 @@ export function mergePlanTodosForRenderer(input: {
   const nextItems: ThreadTodoItem[] = input.planItems.map((planItem) => {
     const existing = findExistingPlanTodo(existingItems, usedExistingIds, planItem)
     if (existing) usedExistingIds.add(existing.id)
-    const status = existing?.status === 'completed'
-      ? existing.status
-      : existing?.status ?? planItem.status
+    const status = existing?.status === 'completed' ? existing.status : planItem.status
     return {
       ...planItem,
       id: existing?.id ?? planItem.id,

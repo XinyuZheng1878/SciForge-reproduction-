@@ -1,6 +1,6 @@
 # SciForge Runtime 贡献指南:架构、设计模式与代码组织思想
 
-> 适用对象:任何想向 `kun/` 包贡献代码的工程师。
+> 适用对象:任何想向 SciForge Runtime 包贡献代码的工程师（当前源码路径为 `kun/`）。
 > 阅读路径:第一次贡献可以按顺序读完全文;之后再回来查找具体章节。
 > 配套文档:[`local-runtime-architecture.md`](./local-runtime-architecture.md)
 > 讲的是"为什么这样设计",本文讲的是"如何按这种设计写代码"。

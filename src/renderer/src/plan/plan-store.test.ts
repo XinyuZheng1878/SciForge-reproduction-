@@ -3,11 +3,10 @@ import {
   createGuiPlanArtifact,
   forgetGuiPlan,
   guiPlanMatchesContext,
+  PLAN_REGISTRY_STORAGE_KEY,
   readRememberedGuiPlan,
   useGuiPlanStore
 } from './plan-store'
-
-const PLAN_REGISTRY_STORAGE_KEY = 'sciforge.plan.registry.v1'
 
 function createMemoryStorage(): Storage {
   const items = new Map<string, string>()
@@ -25,6 +24,12 @@ function createMemoryStorage(): Storage {
       items.set(key, value)
     }
   }
+}
+
+function storageKeys(storage: Storage): string[] {
+  return Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
+    (key): key is string => typeof key === 'string'
+  )
 }
 
 describe('plan-store', () => {
@@ -70,6 +75,23 @@ describe('plan-store', () => {
     expect(readRememberedGuiPlan('/tmp/app', 'thread-a')?.id).toBe(plan.id)
     expect(readRememberedGuiPlan('/tmp/app', 'thread-b')).toBeNull()
     expect(readRememberedGuiPlan('/tmp/app')).toBeNull()
+  })
+
+  it('persists the plan registry only under the current storage key', () => {
+    const plan = createGuiPlanArtifact({
+      workspaceRoot: '/tmp/app',
+      threadId: 'thread-a',
+      relativePath: '.sciforge/plan/auth.md',
+      sourceRequest: 'auth',
+      now: 1
+    })
+
+    useGuiPlanStore.getState().setActivePlan(plan, '# Auth')
+
+    const keys = storageKeys(localStorage)
+    expect(keys).toEqual([PLAN_REGISTRY_STORAGE_KEY])
+    expect(localStorage.getItem(PLAN_REGISTRY_STORAGE_KEY)).toBeTruthy()
+    expect(keys.some((key) => /preview|generated-content/.test(key))).toBe(false)
   })
 
   it('restores remembered plans when workspace casing or separators differ', () => {

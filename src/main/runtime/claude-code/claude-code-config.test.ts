@@ -66,7 +66,17 @@ describe('claude-code config launch helpers', () => {
       ANTHROPIC_API_KEY: 'sk-anthropic',
       ANTHROPIC_AUTH_TOKEN: 'anthropic-token',
       ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
-      ANTHROPIC_MODEL: 'opus'
+      ANTHROPIC_MODEL: 'opus',
+      SCIFORGE_IMAGE_API_KEY: 'outer-image-key',
+      SCIFORGE_IMAGE_BASE_URL: 'https://direct-image-provider.example/v1',
+      SCIFORGE_IMAGE_MODEL: 'outer-image-model',
+      SCIFORGE_IMAGE_ALLOW_PLACEHOLDER: '1',
+      SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://127.0.0.1:3898',
+      SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'outer-sci-modality-token',
+      SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345',
+      EDAG_LLM_BASE_URL: 'https://direct-edag-provider.example/v1',
+      EDAG_LLM_API_KEY: 'outer-edag-key',
+      EDAG_LLM_MODEL: 'outer-edag-model'
     }, {
       configDir: '/tmp/claude-config',
       baseUrl: 'http://127.0.0.1:49876/v1',
@@ -76,6 +86,16 @@ describe('claude-code config launch helpers', () => {
 
     expect(env.OPENAI_API_KEY).toBeUndefined()
     expect(env.DEEPSEEK_API_KEY).toBeUndefined()
+    expect(env.SCIFORGE_IMAGE_API_KEY).toBeUndefined()
+    expect(env.SCIFORGE_IMAGE_BASE_URL).toBeUndefined()
+    expect(env.SCIFORGE_IMAGE_MODEL).toBeUndefined()
+    expect(env.SCIFORGE_IMAGE_ALLOW_PLACEHOLDER).toBeUndefined()
+    expect(env.SCIFORGE_SCIMODALITY_SERVICE_URL).toBeUndefined()
+    expect(env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN).toBeUndefined()
+    expect(env.SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS).toBeUndefined()
+    expect(env.EDAG_LLM_BASE_URL).toBeUndefined()
+    expect(env.EDAG_LLM_API_KEY).toBeUndefined()
+    expect(env.EDAG_LLM_MODEL).toBeUndefined()
     expect(env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:49876')
     expect(env.ANTHROPIC_API_KEY).toBe('local-runtime-router-key')
     expect(env.ANTHROPIC_AUTH_TOKEN).toBe('local-runtime-router-key')

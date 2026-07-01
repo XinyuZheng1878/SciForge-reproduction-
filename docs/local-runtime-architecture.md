@@ -236,7 +236,7 @@ SciForge Runtime provider。Runtime-neutral UI 可以通过 Settings / provider 
   重新配置。
 - 迁移后的落盘文件保留 `agents.sciforge`，可保留 `agents.codex`，但不再保留
   `agents.codewhale` 或 `agents.reasonix`。
-- 连接手机（内部旧名 Claw）旧 `agentThreadIds.codewhale/reasonix` 只折叠成
+- 连接手机旧 `agentThreadIds.codewhale/reasonix` 只折叠成
   `agentThreadIds.sciforge`。
 - 新 Codex thread id 必须写入 Codex 自己的 thread/event store 或
   `agentThreadIds.codex` 等 Codex 映射，不能污染默认运行时映射。

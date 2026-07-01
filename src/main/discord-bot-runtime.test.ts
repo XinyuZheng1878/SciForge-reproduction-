@@ -192,7 +192,7 @@ async function openDiscordGateway(
 }
 
 describe('DiscordBotRuntime guard ownership', () => {
-  it('defaults newly bound channels to the app workspace', async () => {
+  it('uses app workspace for internal remote-channel requests and preserves legacy Claw roots', async () => {
     const userDataPath = join(tmpdir(), `sciforge-discord-workspace-${Date.now()}-${Math.random()}`)
     mkdirSync(userDataPath, { recursive: true })
     writeFileSync(join(userDataPath, 'discord-bot.json'), JSON.stringify({
@@ -251,6 +251,25 @@ describe('DiscordBotRuntime guard ownership', () => {
       })).resolves.toMatchObject({ ok: true })
       expect(current.remoteChannel.channels[0].workspaceRoot).toBe('/repo/current')
       expect(current.remoteChannel.channels[0].guardMode).toBe('all_messages')
+
+      await expect(runtime.bindChannel({
+        guildId: 'guild-1',
+        guildName: 'Support server',
+        channelId: 'channel-1',
+        channelName: 'support',
+        workspaceRoot: '/Users/zxy/.sciforge/remote-channel/discord/server/channel'
+      })).resolves.toMatchObject({ ok: true })
+      expect(current.remoteChannel.channels[0].workspaceRoot).toBe('/repo/current')
+
+      const legacyClawWorkspaceRoot = '/Users/zxy/.sciforge/claw/discord/server/channel'
+      await expect(runtime.bindChannel({
+        guildId: 'guild-1',
+        guildName: 'Support server',
+        channelId: 'channel-1',
+        channelName: 'support',
+        workspaceRoot: legacyClawWorkspaceRoot
+      })).resolves.toMatchObject({ ok: true })
+      expect(current.remoteChannel.channels[0].workspaceRoot).toBe(legacyClawWorkspaceRoot)
     } finally {
       rmSync(userDataPath, { recursive: true, force: true })
     }

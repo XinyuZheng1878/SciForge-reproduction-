@@ -14,6 +14,10 @@ import { checkModelRouterHealth } from './model-router-health'
 const ROUTER_RUNTIME_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY'
 const TEXT_REASONER_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_TEXT_API_KEY'
 const VISION_TRANSLATOR_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_VISION_API_KEY'
+const BLOCKED_INHERITED_WORKER_ENV_PREFIXES = [
+  'SCIFORGE_IMAGE_',
+  'EDAG_LLM_'
+] as const
 
 let modelRouterChild: ChildProcess | null = null
 let modelRouterLaunchSignature: string | null = null
@@ -75,11 +79,9 @@ export function buildModelRouterSidecarLaunch(
   const provider = getModelProviderProfile(settings, runtime.providerId)
   const textReasoner = router.profiles.default.textReasoner
   const vision = router.profiles.default.translators.vision
-  const env: NodeJS.ProcessEnv = {
-    ...baseEnv,
-    [ROUTER_RUNTIME_KEY_ENV]: router.runtimeApiKey,
-    [TEXT_REASONER_KEY_ENV]: textReasoner.apiKey.trim() || provider.apiKey.trim()
-  }
+  const env: NodeJS.ProcessEnv = modelRouterSidecarEnv(baseEnv)
+  env[ROUTER_RUNTIME_KEY_ENV] = router.runtimeApiKey
+  env[TEXT_REASONER_KEY_ENV] = textReasoner.apiKey.trim() || provider.apiKey.trim()
   if (vision.apiKey.trim()) {
     env[VISION_TRANSLATOR_KEY_ENV] = vision.apiKey.trim()
   }
@@ -115,6 +117,18 @@ export function buildModelRouterSidecarLaunch(
 
 export function modelRouterConfigPath(userDataDir: string): string {
   return join(userDataDir, 'model-router', 'config.json')
+}
+
+function modelRouterSidecarEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...baseEnv }
+  for (const key of Object.keys(env)) {
+    if (isBlockedInheritedWorkerEnv(key)) delete env[key]
+  }
+  return env
+}
+
+function isBlockedInheritedWorkerEnv(key: string): boolean {
+  return BLOCKED_INHERITED_WORKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))
 }
 
 export async function ensureModelRouterConfigFile(

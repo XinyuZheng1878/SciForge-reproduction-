@@ -87,6 +87,16 @@ describe('codex config launch helpers', () => {
         ANTHROPIC_DEFAULT_OPUS_MODEL: 'bailian/deepseek-v4-flash',
         ANTHROPIC_DEFAULT_SONNET_MODEL: 'bailian/deepseek-v4-flash',
         MODEL_PROVIDER: 'anthropic',
+        SCIFORGE_IMAGE_API_KEY: 'outer-image-key',
+        SCIFORGE_IMAGE_BASE_URL: 'https://direct-image-provider.example/v1',
+        SCIFORGE_IMAGE_MODEL: 'outer-image-model',
+        SCIFORGE_IMAGE_ALLOW_PLACEHOLDER: '1',
+        SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://127.0.0.1:3898',
+        SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'outer-sci-modality-token',
+        SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345',
+        EDAG_LLM_BASE_URL: 'https://direct-edag-provider.example/v1',
+        EDAG_LLM_API_KEY: 'outer-edag-key',
+        EDAG_LLM_MODEL: 'outer-edag-model',
         SCIFORGE_RUNTIME_API_KEY: 'stale-runtime-key',
         PATH: '/bin',
         CODEX_USER_HOME: '/old',
@@ -112,6 +122,16 @@ describe('codex config launch helpers', () => {
     expect(launch.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined()
     expect(launch.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined()
     expect(launch.env.MODEL_PROVIDER).toBeUndefined()
+    expect(launch.env.SCIFORGE_IMAGE_API_KEY).toBeUndefined()
+    expect(launch.env.SCIFORGE_IMAGE_BASE_URL).toBeUndefined()
+    expect(launch.env.SCIFORGE_IMAGE_MODEL).toBeUndefined()
+    expect(launch.env.SCIFORGE_IMAGE_ALLOW_PLACEHOLDER).toBeUndefined()
+    expect(launch.env.SCIFORGE_SCIMODALITY_SERVICE_URL).toBeUndefined()
+    expect(launch.env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN).toBeUndefined()
+    expect(launch.env.SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS).toBeUndefined()
+    expect(launch.env.EDAG_LLM_BASE_URL).toBeUndefined()
+    expect(launch.env.EDAG_LLM_API_KEY).toBeUndefined()
+    expect(launch.env.EDAG_LLM_MODEL).toBeUndefined()
     expect(launch.env.SCIFORGE_RUNTIME_API_KEY).toBe('local-runtime-router-key')
     expect(launch.env.SCIFORGE_RUNTIME_API_KEY).toBe('local-runtime-router-key')
     expect(launch.env.NO_PROXY).toContain('127.0.0.1')

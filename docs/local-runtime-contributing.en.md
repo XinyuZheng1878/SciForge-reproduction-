@@ -1,6 +1,6 @@
 # SciForge Runtime Contribution Guide: Architecture, design patterns and code organization ideas
 
-> Applicable to: Any engineer who wants to contribute code to the `kun/` package.
+> Applicable to: Any engineer who wants to contribute code to the SciForge Runtime package (currently located at `kun/`).
 > Reading path: For your first contribution, you can read the entire text in order; come back later to find specific chapters.
 > Supporting documents:[`local-runtime-architecture.md`](./local-runtime-architecture.md)
 > It talks about "why it is designed this way", and this article talks about "how to write code according to this design".
@@ -591,8 +591,9 @@ Before submitting a PR, confirm each item:
       Write it in the PR description
 - [ ] When the public contract is changed, update the `kun/README.md` endpoint table
 - [ ] When references/acknowledgments change, update root directories `README.md` and `README.en.md`
-- [ ] When adding a new SSE event, add a line to `docs/local-runtime-architecture.md`- [ ] in the borrow map of `docs/local-runtime-architecture.md` (as in the future
-      Add OpenAI-style reference) to explain the design source
+- [ ] When adding a new SSE event, add a line to `docs/local-runtime-architecture.md`
+- [ ] In the borrow map of `docs/local-runtime-architecture.md` (for example, when adding a future
+      OpenAI-style reference), explain the design source
 
 ### 6.3 Don’t do it
 

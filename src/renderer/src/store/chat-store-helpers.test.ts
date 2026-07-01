@@ -83,7 +83,7 @@ describe('chat-store Claw helpers', () => {
     vi.unstubAllGlobals()
   })
 
-  it('compacts code workspace roots while excluding write, temporary, and Claw roots', () => {
+  it('compacts code workspace roots while excluding write, temporary, and remote-channel roots', () => {
     expect(
       compactCodeWorkspaceRoots([
         '/Users/zxy/project-a',
@@ -98,6 +98,7 @@ describe('chat-store Claw helpers', () => {
       ])
     ).toEqual([
       '/Users/zxy/project-a',
+      '/Users/zxy/.sciforge/claw/agent/conversations/chat',
       '/Users/zxy/.sciforge/default_workspace',
       '/Users/zxy/project-b'
     ])

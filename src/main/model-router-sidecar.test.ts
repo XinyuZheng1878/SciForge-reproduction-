@@ -80,7 +80,18 @@ describe('buildModelRouterSidecarLaunch', () => {
     const result = buildModelRouterSidecarLaunch(settings(), {
       userDataDir: '/tmp/sciforge-user-data',
       appRoot: '/repo/sciforge',
-      env: {},
+      env: {
+        SCIFORGE_IMAGE_API_KEY: 'outer-image-key',
+        SCIFORGE_IMAGE_BASE_URL: 'https://direct-image-provider.example/v1',
+        SCIFORGE_IMAGE_MODEL: 'outer-image-model',
+        SCIFORGE_IMAGE_ALLOW_PLACEHOLDER: '1',
+        EDAG_LLM_BASE_URL: 'https://direct-edag-provider.example/v1',
+        EDAG_LLM_API_KEY: 'outer-edag-key',
+        EDAG_LLM_MODEL: 'outer-edag-model',
+        SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://127.0.0.1:3898',
+        SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'sci-modality-token',
+        SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345'
+      },
       npmCommand: 'npm'
     })
 
@@ -107,6 +118,16 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_TEXT_API_KEY).toBe('text-secret')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_VISION_API_KEY).toBe('vision-secret')
+    expect(result.launch.env.SCIFORGE_IMAGE_API_KEY).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_IMAGE_BASE_URL).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_IMAGE_MODEL).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_IMAGE_ALLOW_PLACEHOLDER).toBeUndefined()
+    expect(result.launch.env.EDAG_LLM_BASE_URL).toBeUndefined()
+    expect(result.launch.env.EDAG_LLM_API_KEY).toBeUndefined()
+    expect(result.launch.env.EDAG_LLM_MODEL).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_URL).toBe('http://127.0.0.1:3898')
+    expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN).toBe('sci-modality-token')
+    expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS).toBe('12345')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_TEXT_API_KEY).toBe('text-secret')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_VISION_API_KEY).toBe('vision-secret')

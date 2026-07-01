@@ -1,14 +1,13 @@
 import type { GuiUpdateChannel } from './gui-update'
 import type { KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
 import type { SpeechToTextSettingsPatchV1, SpeechToTextSettingsV1 } from './speech-to-text'
-import type { ApprovalPolicy, SandboxMode } from './runtime-policy'
 export { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel, type GuiUpdateChannel } from './gui-update'
-export {
-  DEFAULT_APPROVAL_POLICY,
-  DEFAULT_SANDBOX_MODE,
-  type ApprovalPolicy,
-  type SandboxMode
-} from './runtime-policy'
+export const APPROVAL_POLICIES = ['on-request', 'untrusted', 'never', 'auto', 'suggest'] as const
+export type ApprovalPolicy = typeof APPROVAL_POLICIES[number]
+export const DEFAULT_APPROVAL_POLICY: ApprovalPolicy = 'auto'
+export const SANDBOX_MODES = ['read-only', 'workspace-write', 'danger-full-access', 'external-sandbox'] as const
+export type SandboxMode = typeof SANDBOX_MODES[number]
+export const DEFAULT_SANDBOX_MODE: SandboxMode = 'danger-full-access'
 export type UiFontScale = 'small' | 'medium' | 'large'
 export type ScheduleRunMode = 'agent' | 'plan'
 export type ScheduleKind = 'manual' | 'interval' | 'daily' | 'at'

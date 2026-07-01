@@ -45,10 +45,7 @@ const DISCORD_INTENTS =
 const DISCORD_TEXT_CHANNEL_TYPES = new Set([0, 5])
 const MAX_DISCORD_MESSAGE_LENGTH = 2_000
 const MESSAGE_CONTENT_WARNING_INTERVAL_MS = 10 * 60_000
-const INTERNAL_REMOTE_CHANNEL_WORKSPACE_FRAGMENTS = [
-  '/.sciforge/remote-channel/',
-  '/.sciforge/claw/'
-] as const
+const INTERNAL_REMOTE_CHANNEL_WORKSPACE_ROOT = '/.sciforge/remote-channel'
 const DISCORD_MESSAGE_FAILURE_REPLY = 'Sorry, I could not process that message.'
 const DISCORD_COMMAND_FAILURE_REPLY = 'Sorry, I could not process that command.'
 const require = createRequire(import.meta.url)
@@ -340,9 +337,12 @@ function normalizeWorkspaceRoot(raw: string | null | undefined): string {
 
 function isInternalClawWorkspaceRoot(workspaceRoot: string): boolean {
   const normalized = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-  return INTERNAL_REMOTE_CHANNEL_WORKSPACE_FRAGMENTS.some((fragment) => normalized.includes(fragment)) ||
-    normalized.startsWith('~/.sciforge/remote-channel/') ||
-    normalized.startsWith('~/.sciforge/claw/')
+  return (
+    normalized === '~/.sciforge/remote-channel'
+    || normalized.startsWith('~/.sciforge/remote-channel/')
+    || normalized.endsWith(INTERNAL_REMOTE_CHANNEL_WORKSPACE_ROOT)
+    || normalized.includes(`${INTERNAL_REMOTE_CHANNEL_WORKSPACE_ROOT}/`)
+  )
 }
 
 function resolveDiscordChannelWorkspaceRoot(

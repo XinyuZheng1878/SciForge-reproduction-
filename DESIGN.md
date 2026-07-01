@@ -303,7 +303,7 @@ a11y:
   hit_target_min_px: 32
   contrast_target: WCAG_AA
   selection_color: var(--ds-selection)
-  respects_prefers_reduced_motion: false  # TODO: pending
+  respects_prefers_reduced_motion: false
   keyboard_shortcuts:
     Enter: "send message"
     Shift_Enter: "newline in composer"
@@ -1121,6 +1121,7 @@ contract, only which renderer and local workflow state the store pulls in.
 | Settings | OS app-data dir | JSON | `JsonSettingsStore` (main) |
 | Session list / workbench layout | `localStorage` | JSON | Renderer |
 | Write thread registry | `localStorage` | JSON | Renderer |
+| GUI plan registry | `localStorage` (`sciforge.plan.registry.v1`) | JSON | Renderer |
 | Remote-channel connections | OS app-data dir | JSON | `JsonSettingsStore` |
 | Threads / turns / events | `~/.sciforge/runtime` | JSON + JSONL | SciForge Runtime |
 | Usage counters | SciForge Runtime data dir | JSON | SciForge Runtime |

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { GUI_PLAN_CLOSE_TAG, GUI_PLAN_OPEN_TAG } from '@shared/gui-plan'
 import {
   buildDraftPlanPrompt,
   buildPlanBuildPrompt,
@@ -20,7 +21,8 @@ describe('plan-prompts', () => {
     expect(prompt).toContain('The GUI will save your answer')
     expect(prompt).toContain('create_plan')
     expect(prompt).toContain('Do not call any other tools')
-    expect(prompt).toContain('<gui_plan>')
+    expect(prompt).toContain(GUI_PLAN_OPEN_TAG)
+    expect(prompt).toContain(GUI_PLAN_CLOSE_TAG)
     expect(prompt).toContain('Add auth')
   })
 
@@ -70,11 +72,13 @@ describe('plan-prompts', () => {
   })
 
   it('extracts tagged and fenced plan markdown', () => {
-    expect(extractGuiPlanMarkdown('<gui_plan>\n# Plan\n</gui_plan>')).toBe('# Plan')
+    expect(extractGuiPlanMarkdown(`${GUI_PLAN_OPEN_TAG}\n# Plan\n${GUI_PLAN_CLOSE_TAG}`)).toBe(
+      '# Plan'
+    )
     expect(extractGuiPlanMarkdown('```markdown\n# Plan\n```')).toBe('# Plan')
   })
 
   it('extracts partial streaming tagged markdown', () => {
-    expect(extractGuiPlanMarkdown('intro\n<gui_plan>\n# Streaming')).toBe('# Streaming')
+    expect(extractGuiPlanMarkdown(`intro\n${GUI_PLAN_OPEN_TAG}\n# Streaming`)).toBe('# Streaming')
   })
 })

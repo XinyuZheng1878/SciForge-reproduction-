@@ -66,6 +66,11 @@ const UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES = [
   'API_BASE_URL'
 ] as const
 const UPSTREAM_PROVIDER_CONFIG_ENVS = ['MODEL_PROVIDER'] as const
+const LEGACY_DIRECT_WORKER_ENV_PREFIXES = [
+  'SCIFORGE_IMAGE_',
+  'SCIFORGE_SCIMODALITY_SERVICE_',
+  'EDAG_LLM_'
+] as const
 
 export type CodexAppServerLaunchConfig = {
   command: string
@@ -160,7 +165,7 @@ export function codexRuntimeEnv(
     delete env[key]
   }
   for (const key of Object.keys(env)) {
-    if (isUpstreamProviderConfigEnv(key)) {
+    if (isUpstreamProviderConfigEnv(key) || isLegacyDirectWorkerEnv(key)) {
       delete env[key]
     }
   }
@@ -203,6 +208,10 @@ function isUpstreamProviderConfigEnv(key: string): boolean {
   return UPSTREAM_PROVIDER_ENV_PREFIXES.some((prefix) =>
     UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES.some((suffix) => key === `${prefix}_${suffix}`)
   )
+}
+
+function isLegacyDirectWorkerEnv(key: string): boolean {
+  return LEGACY_DIRECT_WORKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))
 }
 
 async function prepareManagedCodexHome(

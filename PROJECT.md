@@ -61,6 +61,13 @@
 - [x] computer-use 决策前收口：文档明确 `@sciforge/computer-use` 与 `gui-owl-computer-use` 暂并存等待人工测试；`gui_computer_use` 注明为 GUI-managed `@sciforge/computer-use` MCP，不等同 GUI-Owl。
 - [x] computer-use 配置加防回归：`SCIFORGE_CUA_SERVICE_URL` 存在时不启用 GUI-managed `@sciforge/computer-use` MCP，避免同一 runtime config 注册重复 `computer_use`。
 - [x] computer-use 状态 UI 只透出高价值 target 安全字段 `inputIsolation`、`affectsUserInput`、`requiresHostFocus`、`usesHostClipboard`，并把 rejection fixture 统一为 canonical `target_in_use`。
+- [x] 清理公开文档/locale 的 pending/旧名残留：K-Dense legacy/local runtime 来源改成只读 discovery 输入，贡献指南标注 SciForge Runtime 包（源码路径 `kun/`），DESIGN 移除待办注释，连接手机架构说明不再暴露内部旧名。
+- [x] K-Dense Scientific Skills 未安装提示统一引导插件页显式 Install / Repair 或 `SCIFORGE_KDENSE_SKILLS_ROOT`，不再提示外部 `npx skills add` 命令作为默认路径。
+- [x] 收紧 Model Router 相关环境继承：Codex/Claude runtime 不继承 `SCIFORGE_IMAGE_*`、`SCIFORGE_SCIMODALITY_SERVICE_*`、`EDAG_LLM_*`；Model Router sidecar 剔除 `SCIFORGE_IMAGE_*` / `EDAG_LLM_*`，仅保留自身需要的 sci-modality service env。
+- [x] sci-modality worker public diagnostics 脱敏：`/version` 和 CLI 启动日志不再返回或打印 expert provider base URL，只给 configured/kind/expert count/token guard 等状态。
+- [x] plan/todo merge 语义与 runtime 对齐：renderer 只继承已完成 todo，不再保留旧 `in_progress`；GUI plan registry key 导出并加防回归；GUI plan shared helper 与 runtime mirror 增加 parity guard。
+- [x] 删除 GUI shared 到 `kun/src/contracts/policy` 的 `runtime-policy.ts` thin wrapper，policy 字面量/default 改由 GUI shared 自有类型声明，`kun/src` import 边界白名单继续收紧。
+- [x] 删除旧 `~/.sciforge/claw` 作为内部 remote-channel workspace 的路径兼容；当前 `~/.sciforge/remote-channel` 仍作为内部路径处理，旧 claw 路径按普通 workspace 展示/保存。
 
 ## 验证记录
 
@@ -103,6 +110,19 @@
 - [x] `npm --workspace @sciforge/sci-modality-router run test`
 - [x] `npx vitest run src/main/claw-platform-install.test.ts src/renderer/src/components/chat/SidebarClawDialogHelpers.test.ts src/renderer/src/components/chat/ConnectPhoneView.test.ts`
 - [x] `npx vitest run src/main/ipc/app-ipc-schemas.test.ts src/main/local-runtime-process.test.ts src/main/services/computer-use-status.test.ts src/renderer/src/components/settings-section-agents.test.ts src/main/computer-use-mcp-config.test.ts`
+- [x] `node -e 'const fs=require("fs"); for (const f of ["src/renderer/src/locales/en/common.json","src/renderer/src/locales/en/settings.json","src/renderer/src/locales/zh/common.json","src/renderer/src/locales/zh/settings.json"]) JSON.parse(fs.readFileSync(f,"utf8"));'`
+- [x] `npx vitest run packages/workers/scientific-plotting/src/scientific-skills-index.test.ts`
+- [x] `npx vitest run src/main/runtime/codex/codex-config.test.ts src/main/runtime/claude-code/claude-code-config.test.ts src/main/model-router-sidecar.test.ts`
+- [x] `npm --workspace @sciforge/sci-modality-router run typecheck`
+- [x] `npm --workspace @sciforge/sci-modality-router run test`
+- [x] `npx vitest run src/renderer/src/plan/plan-todo-sync.test.ts src/renderer/src/plan/plan-store.test.ts src/renderer/src/plan/plan-prompts.test.ts src/shared/gui-plan.test.ts`
+- [x] `npm --prefix kun test -- tests/gui-plan.test.ts`
+- [x] `npx vitest run src/main/kun-src-boundary.test.ts src/shared/app-settings.test.ts src/main/settings-store.test.ts src/renderer/src/components/settings-section-agents.test.ts`
+- [x] `npx vitest run src/renderer/src/components/chat/ConnectPhoneView.test.ts src/renderer/src/store/chat-store-helpers.test.ts src/renderer/src/lib/workspace-path.test.ts src/main/discord-bot-runtime.test.ts`
+- [x] `npm run typecheck`
+- [x] `npm test`（235 files / 1841 tests）
+- [x] `npm --prefix kun test -- tests/builtin-tools.test.ts`
+- [x] `npm --prefix kun test`（53 files / 552 tests）
 - [x] `git diff --check`
 
 ## 已决策待实施

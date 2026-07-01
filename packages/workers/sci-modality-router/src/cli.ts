@@ -3,6 +3,7 @@
 // shuts down cleanly on SIGINT/SIGTERM. The library surface lives in ./index.ts.
 import { createSciModalityRouterServer, SCIMODALITY_ROUTER_RUNTIME_TOKEN_ENV } from './server.js';
 import type { ExpertConfig } from './experts.js';
+import { MODALITIES } from './types.js';
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
@@ -30,7 +31,7 @@ const maxBodyBytes = process.env.SCIMODALITY_ROUTER_MAX_BODY_BYTES
 const server = createSciModalityRouterServer({ experts, runtimeToken, maxBodyBytes });
 server.listen(port, host, () => {
   console.log(`SciForge Sci-Modality Router listening at http://${host}:${port}`);
-  console.log(`Expert provider: ${experts.baseUrl}`);
+  console.log(`Expert provider: configured=true kind=openai-compatible experts=${MODALITIES.length} tokenGuard=enabled`);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

@@ -60,7 +60,11 @@ async function handle(
     return sendJson(res, 200, {
       service: SERVICE_ID,
       version: SERVICE_VERSION,
-      provider: options.experts.baseUrl,
+      provider: {
+        kind: 'openai-compatible',
+        configured: Boolean(options.experts.baseUrl && options.experts.apiKey),
+        expertCount: MODALITIES.length,
+      },
       modalities: MODALITIES,
     });
   }

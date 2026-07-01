@@ -2,6 +2,15 @@ function normalizePathForMatch(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 }
 
+function isRemoteChannelWorkspacePath(normalized: string): boolean {
+  return (
+    normalized === '~/.sciforge/remote-channel'
+    || normalized.startsWith('~/.sciforge/remote-channel/')
+    || normalized.endsWith('/.sciforge/remote-channel')
+    || normalized.includes('/.sciforge/remote-channel/')
+  )
+}
+
 export function workspaceRootIdentityKey(path?: string): string {
   const trimmed = path?.trim() ?? ''
   if (!trimmed) return ''
@@ -35,8 +44,7 @@ export function isClawWorkspacePath(path?: string): boolean {
   const trimmed = path?.trim() ?? ''
   if (!trimmed) return false
   const normalized = normalizePathForMatch(trimmed)
-  return normalized.includes('/.sciforge/remote-channel/') ||
-    normalized.includes('/.sciforge/claw/')
+  return isRemoteChannelWorkspacePath(normalized)
 }
 
 export function isInternalSciForgeWorkspace(path?: string): boolean {

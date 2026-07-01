@@ -251,10 +251,17 @@ describe('scientific skills index', () => {
       homeDir: join(root, 'home')
     })
 
+    expect(index.installHint).toContain('SciForge plugin page')
+    expect(index.installHint).toContain(SCIENTIFIC_SKILLS_ENV_ROOT)
+    expect(index.installHint).not.toContain('npx ')
+    expect(index.installHint).not.toContain('outside SciForge')
+
     const plan = planScientificSkills(index, 'Need scientific plotting skills')
     expect(plan.installed).toBe(false)
+    expect(plan.installHint).toContain('SciForge plugin page')
     expect(plan.installHint).toContain(SCIENTIFIC_SKILLS_ENV_ROOT)
     expect(plan.installHint).not.toContain('npx ')
+    expect(plan.installHint).not.toContain('outside SciForge')
     expect(plan.installRecommendation).toMatchObject({
       recommended: true,
       requiresUserApproval: true

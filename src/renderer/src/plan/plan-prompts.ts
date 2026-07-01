@@ -1,5 +1,5 @@
-const GUI_PLAN_OPEN = '<gui_plan>'
-const GUI_PLAN_CLOSE = '</gui_plan>'
+import { GUI_PLAN_CLOSE_TAG, GUI_PLAN_OPEN_TAG } from '@shared/gui-plan'
+
 /**
  * @deprecated Kept for legacy prompt compatibility only. New turns use
  * the native local-runtime `create_plan` tool; the renderer still emits a
@@ -35,7 +35,7 @@ export function buildDraftPlanPrompt(options: {
     options.request.trim(),
     '',
     'Suggested Markdown structure (write the full plan into the tool call):',
-    GUI_PLAN_OPEN,
+    GUI_PLAN_OPEN_TAG,
     '# <short feature title>',
     '',
     '## Summary',
@@ -46,7 +46,7 @@ export function buildDraftPlanPrompt(options: {
     '',
     '## Tests',
     '- ...',
-    GUI_PLAN_CLOSE
+    GUI_PLAN_CLOSE_TAG
   ].join('\n')
 }
 
@@ -76,9 +76,9 @@ export function buildRefinePlanPrompt(options: {
     '```',
     '',
     'Suggested revised Markdown (write the full revised plan into the tool call):',
-    GUI_PLAN_OPEN,
+    GUI_PLAN_OPEN_TAG,
     '<complete revised markdown plan>',
-    GUI_PLAN_CLOSE
+    GUI_PLAN_CLOSE_TAG
   ].join('\n')
 }
 
@@ -145,10 +145,10 @@ export function formatGuiPlanPromptForDisplay(text: string): string | null {
 export function extractGuiPlanMarkdown(text: string): string {
   const raw = text.trim()
   if (!raw) return ''
-  const openIndex = raw.indexOf(GUI_PLAN_OPEN)
+  const openIndex = raw.indexOf(GUI_PLAN_OPEN_TAG)
   if (openIndex >= 0) {
-    const bodyStart = openIndex + GUI_PLAN_OPEN.length
-    const closeIndex = raw.indexOf(GUI_PLAN_CLOSE, bodyStart)
+    const bodyStart = openIndex + GUI_PLAN_OPEN_TAG.length
+    const closeIndex = raw.indexOf(GUI_PLAN_CLOSE_TAG, bodyStart)
     const body = closeIndex >= 0 ? raw.slice(bodyStart, closeIndex) : raw.slice(bodyStart)
     return stripMarkdownFence(body.trim())
   }

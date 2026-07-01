@@ -76,6 +76,12 @@ test('health and version respond, version lists all modalities', async () => {
     assert.equal(health.ok, true);
     const version = await (await fetch(`${base}/version`, { headers: authHeaders() })).json();
     assert.equal(version.service, 'sciforge.sci-modality-router');
+    assert.deepEqual(version.provider, {
+      kind: 'openai-compatible',
+      configured: true,
+      expertCount: 4,
+    });
+    assert.equal(JSON.stringify(version).includes(experts.baseUrl), false);
     assert.equal(version.modalities.length, 4);
   });
 });

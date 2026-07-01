@@ -24,7 +24,10 @@ const allowedKunBoundaryImports = new Map<string, string[]>([
     'src/main/local-runtime-package-contract.ts',
     ['kun/src/config/kun-config.js', 'kun/src/contracts/capabilities.js']
   ],
-  ['src/shared/runtime-policy.ts', ['kun/src/contracts/policy.js']]
+  [
+    'src/shared/gui-plan.test.ts',
+    ['kun/src/shared/gui-plan']
+  ]
 ])
 
 const localRuntimePackageContractWrapper = 'src/main/local-runtime-package-contract.ts'

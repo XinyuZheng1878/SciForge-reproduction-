@@ -83,10 +83,13 @@ auto-wire this service; Model Router consumes it only when its service URL/token
 
 ```
 GET  /health        -> { ok, service, checkedAt }
-GET  /version       -> { service, version, provider, modalities }
+GET  /version       -> { service, version, provider: { kind, configured, expertCount }, modalities }
 GET  /experts/status-> { ok, providerReachable, device, experts[], checkedAt }
 POST /modality/translate
 ```
+
+Public diagnostics report provider configuration and availability state, but never return the
+expert provider base URL or API key.
 
 `POST /modality/translate` request:
 
