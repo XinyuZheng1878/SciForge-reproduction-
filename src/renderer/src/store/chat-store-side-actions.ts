@@ -1,6 +1,5 @@
 import type {
   AgentProvider,
-  AgentProviderCapabilities,
   ChatBlock,
   CompactionBlock,
   ThreadEventSink,
@@ -14,6 +13,7 @@ import {
   threadSnapshotLooksRunning,
   upsertUserBlock
 } from './chat-store-runtime-helpers'
+import { providerSupportsCapability } from './chat-store-provider-capabilities'
 
 type SideContext = {
   set: (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void
@@ -51,13 +51,6 @@ function defaultSideModel(state: ChatState, parentThreadId: string): string {
 
 function sideConversationIsRegular(side: SideConversation): boolean {
   return (side.source ?? 'side') === 'side'
-}
-
-function providerSupportsCapability(
-  provider: { getCapabilities?: () => Partial<AgentProviderCapabilities> },
-  capability: keyof AgentProviderCapabilities
-): boolean {
-  return provider.getCapabilities?.()[capability] !== false
 }
 
 function rememberSideThreadRuntime(
@@ -325,6 +318,31 @@ function teardownSideSubscription(sideId: string): void {
   }
 }
 
+function handleSideSubscriptionFailure(
+  sideId: string,
+  ac: AbortController,
+  ctx: SideContext,
+  error: unknown
+): void {
+  if (ac.signal.aborted || sideAbortControllers.get(sideId) !== ac) return
+  sideAbortControllers.delete(sideId)
+  const message = ctx.formatRuntimeError(error)
+  if (typeof window !== 'undefined' && typeof window.sciforge?.logError === 'function') {
+    void window.sciforge.logError('side-conversation', 'Side conversation subscription failed', {
+      message,
+      sideId
+    }).catch(() => undefined)
+  }
+  ctx.set((s) =>
+    patchSide(s, sideId, (side) => ({
+      ...side,
+      busy: false,
+      turnId: null,
+      error: message
+    }))
+  )
+}
+
 function startSideSubscription(sideId: string, sinceSeq: number, ctx: SideContext): void {
   teardownSideSubscription(sideId)
   const ac = new AbortController()
@@ -332,7 +350,12 @@ function startSideSubscription(sideId: string, sinceSeq: number, ctx: SideContex
   const sink = buildSideSink(sideId, ctx)
   const provider = ctx.getProvider()
   rememberSideThreadRuntime(provider, sideId, ctx.get().sideConversations[sideId])
-  void provider.subscribeThreadEvents(sideId, sinceSeq, sink, ac.signal)
+  try {
+    void provider.subscribeThreadEvents(sideId, sinceSeq, sink, ac.signal)
+      .catch((error) => handleSideSubscriptionFailure(sideId, ac, ctx, error))
+  } catch (error) {
+    handleSideSubscriptionFailure(sideId, ac, ctx, error)
+  }
 }
 
 export function createSideActions(ctx: SideContext): Pick<

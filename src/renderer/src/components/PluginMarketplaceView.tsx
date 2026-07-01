@@ -239,7 +239,7 @@ export function mergeMcpJsonConfig(content: string, fragment: JsonRecord): { alr
     ...current,
     ...fragmentRest
   }
-  if (usesKunCapabilitiesMcpServers(current)) {
+  if (usesLocalRuntimeCapabilitiesMcpServers(current)) {
     const capabilities = isJsonRecord(next.capabilities) ? next.capabilities : {}
     const mcp = isJsonRecord(capabilities.mcp) ? capabilities.mcp : {}
     next.capabilities = {
@@ -262,7 +262,7 @@ export function mergeMcpJsonConfig(content: string, fragment: JsonRecord): { alr
   return { alreadyExists, text: `${JSON.stringify(next, null, 2)}\n` }
 }
 
-function usesKunCapabilitiesMcpServers(config: JsonRecord): boolean {
+function usesLocalRuntimeCapabilitiesMcpServers(config: JsonRecord): boolean {
   const capabilities = isJsonRecord(config.capabilities) ? config.capabilities : undefined
   const mcp = isJsonRecord(capabilities?.mcp) ? capabilities.mcp : undefined
   return Boolean(mcp)
@@ -608,7 +608,7 @@ export function PluginMarketplaceView(): ReactElement {
       },
       {
         id: 'global-sciforge',
-        label: t('pluginSkillRootGlobalDeepseek'),
+        label: t('pluginSkillRootGlobalSciforge'),
         path: '~/.sciforge/skills',
         available: true
       }

@@ -39,6 +39,23 @@ describe('plan-store', () => {
     useGuiPlanStore.getState().clearActivePlan()
   })
 
+  it('creates artifacts with shared plan id and relative path normalization', () => {
+    const plan = createGuiPlanArtifact({
+      workspaceRoot: 'C:\\Users\\Codex\\APP\\',
+      threadId: 'thread-a',
+      relativePath: '.sciforge\\plan\\Checkout.md',
+      sourceRequest: 'checkout',
+      now: 1
+    })
+
+    expect(plan).toMatchObject({
+      id: 'C:/Users/Codex/APP:.sciforge/plan/checkout.md',
+      workspaceRoot: 'C:/Users/Codex/APP',
+      relativePath: '.sciforge/plan/Checkout.md',
+      featureName: 'checkout'
+    })
+  })
+
   it('remembers active plans only for the owning thread', () => {
     const plan = createGuiPlanArtifact({
       workspaceRoot: '/tmp/app',
@@ -53,6 +70,36 @@ describe('plan-store', () => {
     expect(readRememberedGuiPlan('/tmp/app', 'thread-a')?.id).toBe(plan.id)
     expect(readRememberedGuiPlan('/tmp/app', 'thread-b')).toBeNull()
     expect(readRememberedGuiPlan('/tmp/app')).toBeNull()
+  })
+
+  it('restores remembered plans when workspace casing or separators differ', () => {
+    const threadedPlan = createGuiPlanArtifact({
+      workspaceRoot: 'C:\\Users\\Codex\\APP\\',
+      threadId: 'thread-a',
+      relativePath: '.sciforge\\plan\\Checkout.md',
+      sourceRequest: 'checkout',
+      now: 1
+    })
+
+    useGuiPlanStore.getState().setActivePlan(threadedPlan, '# Checkout')
+
+    expect(readRememberedGuiPlan('c:/users/codex/app/', 'thread-a')?.id).toBe(threadedPlan.id)
+    expect(guiPlanMatchesContext(threadedPlan, 'c:/users/codex/app/', 'thread-a')).toBe(true)
+    expect(readRememberedGuiPlan('c:/users/codex/app/')).toBeNull()
+
+    localStorage.clear()
+
+    const threadlessPlan = createGuiPlanArtifact({
+      workspaceRoot: 'D:\\Work\\APP\\',
+      relativePath: '.sciforge\\plan\\Draft.md',
+      sourceRequest: 'draft',
+      now: 1
+    })
+
+    useGuiPlanStore.getState().setActivePlan(threadlessPlan, '# Draft')
+
+    expect(readRememberedGuiPlan('d:/work/app/')?.id).toBe(threadlessPlan.id)
+    expect(readRememberedGuiPlan('d:/work/app/', 'thread-a')).toBeNull()
   })
 
   it('remembers threadless plans at workspace scope without leaking into threaded context', () => {
@@ -72,11 +119,11 @@ describe('plan-store', () => {
   it('normalizes malformed persisted plan registry data before restoring plans', () => {
     localStorage.setItem(PLAN_REGISTRY_STORAGE_KEY, JSON.stringify({
       activeByWorkspace: {
-        '/tmp/valid': 'valid',
+        '/TMP/VALID/': 'valid',
         '/tmp/missing': 'missing'
       },
       activeByThread: {
-        '/tmp/valid::thread-a': 'valid',
+        '/TMP/VALID::thread-a': 'valid',
         '/tmp/invalid::thread-b': 'invalid'
       },
       plans: {
@@ -96,7 +143,7 @@ describe('plan-store', () => {
     }))
 
     expect(readRememberedGuiPlan('/tmp/valid', 'thread-a')).toMatchObject({
-      id: 'valid',
+      id: '/tmp/valid:.sciforge/plan/draft.md',
       workspaceRoot: '/tmp/valid',
       featureName: 'draft',
       updatedAt: '2026-01-01T00:00:00.000Z'

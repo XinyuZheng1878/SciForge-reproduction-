@@ -396,6 +396,107 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     }))
   })
 
+  it('normalizes auxiliary get/set todo responses through the shared todo mapper', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-02T00:00:09.000Z'))
+    try {
+      const setTodos = [{
+        id: 'todo-2',
+        content: 'Set todo',
+        status: 'completed'
+      }]
+      const request = vi.fn(async (_settings, pathAndQuery, init) => {
+        if (pathAndQuery === '/v1/threads/thread-1/todos' && init.method === 'GET') {
+          return jsonResponse({
+            todos: {
+              thread_id: 'thread-1',
+              updated_at: '2026-06-02T00:00:04.000Z',
+              items: [
+                {
+                  id: 'todo-1',
+                  content: ' Map auxiliary todo ',
+                  status: 'pending',
+                  created_at: '2026-06-02T00:00:01.000Z',
+                  updated_at: '2026-06-02T00:00:02.000Z',
+                  source: {
+                    kind: 'plan',
+                    plan_id: 'plan-1',
+                    relative_path: '.sciforge/plan/aux.md',
+                    ordinal: 1,
+                    content_hash: 'hash-1'
+                  }
+                },
+                { id: 'todo-no-content', content: ' ', status: 'pending' },
+                { id: 'todo-bad-status', content: 'Bad status', status: 'blocked' },
+                null
+              ]
+            }
+          })
+        }
+        if (pathAndQuery === '/v1/threads/thread-1/todos' && init.method === 'POST') {
+          return jsonResponse({
+            todos: {
+              items: [
+                {
+                  id: 'todo-2',
+                  content: 'Set todo',
+                  status: 'completed',
+                  source: {
+                    kind: 'plan',
+                    plan_id: 'plan-2'
+                  }
+                },
+                { id: 'todo-set-invalid', content: 'Invalid', status: 'done' }
+              ]
+            }
+          })
+        }
+        return jsonResponse({})
+      })
+      const adapter = createLocalRuntimeAgentRuntimeAdapter({ request })
+
+      await expect(adapter.auxiliary?.({ settings: buildSettings() }, {
+        operation: 'getThreadTodos',
+        payload: { threadId: 'thread-1' }
+      })).resolves.toEqual({
+        threadId: 'thread-1',
+        updatedAt: '2026-06-02T00:00:04.000Z',
+        items: [{
+          id: 'todo-1',
+          content: 'Map auxiliary todo',
+          status: 'pending',
+          createdAt: '2026-06-02T00:00:01.000Z',
+          updatedAt: '2026-06-02T00:00:02.000Z',
+          source: {
+            kind: 'plan',
+            planId: 'plan-1',
+            relativePath: '.sciforge/plan/aux.md',
+            ordinal: 1,
+            contentHash: 'hash-1'
+          }
+        }]
+      })
+
+      await expect(adapter.auxiliary?.({ settings: buildSettings() }, {
+        operation: 'setThreadTodos',
+        payload: { threadId: 'thread-1', todos: setTodos }
+      })).resolves.toEqual({
+        threadId: 'thread-1',
+        updatedAt: '2026-06-02T00:00:09.000Z',
+        items: [{
+          id: 'todo-2',
+          content: 'Set todo',
+          status: 'completed',
+          createdAt: '2026-06-02T00:00:09.000Z',
+          updatedAt: '2026-06-02T00:00:09.000Z'
+        }]
+      })
+      expect(JSON.parse(request.mock.calls[1][2].body ?? '{}')).toEqual({ todos: setTodos })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('maps local runtime tool_call_ready events onto the same tool event chain', async () => {
     const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async () => jsonResponse({})),

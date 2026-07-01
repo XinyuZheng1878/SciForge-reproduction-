@@ -38,7 +38,7 @@ describe('PluginMarketplaceView MCP config helpers', () => {
     expect(mcpConfigHasServer(merged.text, 'playwright')).toBe(true)
   })
 
-  it('preserves full Kun capability config when adding recommended MCP servers', () => {
+  it('preserves full local runtime capability config when adding recommended MCP servers', () => {
     const existing = JSON.stringify({
       serve: { approvalPolicy: 'auto' },
       servers: {

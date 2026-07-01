@@ -16,6 +16,7 @@ export function formatClawInstallError(
   const value = message.trim()
   if (
     /WeChat login bridge/i.test(value) ||
+    /OpenClaw Gateway/i.test(value) ||
     /^not found$/i.test(value) ||
     /fetch failed/i.test(value) ||
     /ECONNREFUSED/i.test(value) ||

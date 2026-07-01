@@ -36,6 +36,24 @@ describe('workbench plan controller helpers', () => {
     })
     expect(buildGuiPlanTurnOverrides(plan, '/Users/codex/app', 'thread-stale')).toBeUndefined()
     expect(buildGuiPlanTurnOverrides(plan, '/Users/codex/other', 'thread-current')).toBeUndefined()
+
+    const windowsPlan = createGuiPlanArtifact({
+      workspaceRoot: 'C:\\Users\\Codex\\APP\\',
+      threadId: 'thread-current',
+      relativePath: '.sciforge\\plan\\Checkout.md',
+      sourceRequest: 'Improve checkout',
+      now: 1
+    })
+
+    expect(
+      buildGuiPlanTurnOverrides(windowsPlan, 'c:/users/codex/app', 'thread-current')
+    ).toMatchObject({
+      guiPlan: {
+        workspaceRoot: 'C:/Users/Codex/APP',
+        relativePath: '.sciforge/plan/Checkout.md',
+        planId: 'C:/Users/Codex/APP:.sciforge/plan/checkout.md'
+      }
+    })
   })
 
   it('builds draft context for first-class GUI plan turns', () => {

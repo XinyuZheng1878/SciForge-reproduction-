@@ -408,13 +408,14 @@ async function localRuntimeAuxiliary(
       return asRecord(result)?.cleared === true
     }
     case 'getThreadTodos': {
+      const threadId = requiredString(payload, 'threadId', input.operation)
       const result = await requestJson(
         options,
         context,
-        localRuntimeThreadTodosPath(requiredString(payload, 'threadId', input.operation)),
+        localRuntimeThreadTodosPath(threadId),
         { method: 'GET' }
       )
-      return asRecord(result)?.todos ?? null
+      return mapLocalRuntimeTodoList(asRecord(result)?.todos, threadId)
     }
     case 'setThreadTodos': {
       const threadId = requiredString(payload, 'threadId', input.operation)
@@ -422,7 +423,7 @@ async function localRuntimeAuxiliary(
         method: 'POST',
         body: JSON.stringify({ todos: arrayValue(payload.todos) })
       })
-      return asRecord(result)?.todos ?? null
+      return mapLocalRuntimeTodoList(asRecord(result)?.todos, threadId)
     }
     case 'clearThreadTodos': {
       const result = await requestJson(

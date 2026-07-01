@@ -372,7 +372,7 @@ human staying in the loop on every mutating call.
 | --- | --- |
 | **Code** | Bound to a local repo, drives the agent through tool calls, file changes, commands, and review. |
 | **Write** | A long-form writing space: Markdown files, Model Router-backed inline completion, selection-scoped inline agent. |
-| **Connect phone** | Background automation: Feishu / Lark channels, webhook / relay, scheduled tasks. UI state lives in the chat route; persistent settings use `remoteChannel` and `connectPhone`. |
+| **Connect phone** | Background automation: platform-neutral remote channels, phone-connection webhooks / relay, scheduled tasks. UI state lives in the chat route; persistent settings use `remoteChannel` and `connectPhone`. |
 
 All product surfaces share the same AgentRuntime boundary and settings
 choice. SciForge Runtime remains the default path; Codex is used only after explicit
@@ -918,7 +918,7 @@ src/
     runtime/                        # runtime adapter (process, host, port, token)
     services/                       # git, workspace, editor, write-* services
     settings-store.ts               # JSON-backed settings store
-    claw-runtime.ts                 # remote channel / webhook / scheduled-task bridge
+    claw-runtime.ts                 # remote channel / webhook / scheduled-task bridge (historical internal filename)
     schedule-mcp-*                  # schedule MCP config + node-entry server
     gui-updater.ts                  # electron-updater integration
     logger.ts                       # structured logger
@@ -964,7 +964,8 @@ on the system. It includes:
   `startConnectPhoneInstallQr`,
   `pollConnectPhoneInstall`, `createRemoteChannelTaskFromText`,
   `onRemoteChannelActivity`).
-- Schedule (`getScheduleStatus`, `runScheduleTask`).
+- Schedule (`getScheduleStatus`, `runScheduleTask`,
+  `createScheduleTaskFromText`).
 - Shell / notifications / updater / logger (`openExternal`,
   `showTurnCompleteNotification`, `getGuiUpdateState`,
   `checkGuiUpdate`, `downloadGuiUpdate`, `installGuiUpdate`,
@@ -1030,7 +1031,8 @@ store is split into modules under `src/renderer/src/store/`:
 - `chat-store-types.ts` — the store's TS surface.
 - `chat-store-app-actions.ts`, `chat-store-claw-actions.ts`,
   `chat-store-side-actions.ts` — action creators grouped by
-  domain.
+  domain; `chat-store-claw-actions.ts` is the historical internal
+  filename for remote-channel actions.
 - `chat-store-runtime-helpers.ts` — pure helpers around the
   runtime.
 - `chat-store-schedulers.ts` — busy watchdog, completion poll,
@@ -1090,7 +1092,7 @@ block kind has its own renderer:
 
 The store distinguishes the main workbench and entry routes through `route`
 (`chat`, `write`, `plugins`, `schedule`) plus thread metadata. Connect phone
-is represented as `route: 'chat'` with explicit panel/channel state, so it does
+is represented as `route: 'chat'` with explicit panel/remote-channel state, so it does
 not introduce a second chat-like route. Switching does not change the runtime
 contract, only which renderer and local workflow state the store pulls in.
 
@@ -1101,7 +1103,7 @@ contract, only which renderer and local workflow state the store pulls in.
   separate `WRITE_ASSISTANT_THREAD_TITLE` namespace. Inline
   completion and selected-text agent go through dedicated
   main-process services.
-- **Connect phone** — remote channel registry. Each IM channel has its
+- **Connect phone** — remote channel registry. Each remote-channel connection has its
   own thread id, model, workspace root, runtime id, and runtime-specific thread
   mapping. Background remote-channel execution still fails closed for non-SciForge
   Runtime until the local runtime adapter supports it; it must not write Codex thread
@@ -1116,7 +1118,7 @@ contract, only which renderer and local workflow state the store pulls in.
 | Settings | OS app-data dir | JSON | `JsonSettingsStore` (main) |
 | Session list / workbench layout | `localStorage` | JSON | Renderer |
 | Write thread registry | `localStorage` | JSON | Renderer |
-| Connect phone channels | OS app-data dir | JSON | `JsonSettingsStore` |
+| Remote-channel connections | OS app-data dir | JSON | `JsonSettingsStore` |
 | Threads / turns / events | `~/.sciforge/runtime` | JSON + JSONL | SciForge Runtime |
 | Usage counters | SciForge Runtime data dir | JSON | SciForge Runtime |
 | Skill / MCP files | SciForge Runtime data dir + workspace | Markdown / JSON | SciForge Runtime + renderer |
@@ -1193,13 +1195,16 @@ compaction block inline with a "show replaced" detail.
   configured AgentRuntime. SciForge Runtime remains the default mapping for migrated
   data; non-SciForge Runtime background execution currently fails closed until native
   adapter support exists, and must not write Codex thread ids into SciForge Runtime mappings.
-- Feishu / Lark integration uses `@larksuiteoapi/node-sdk`.
-  Install is device-flow QR code; the renderer polls
-  `connectPhone:install:poll` until authorized.
+- The phone-connection adapter sits behind the platform-neutral
+  remote-channel boundary. Vendor-specific SDK details stay behind
+  that implementation boundary; user-facing copy and public API names
+  stay vendor-neutral. Install is device-flow QR code; the renderer
+  polls `connectPhone:install:poll` until authorized.
 - Webhook / relay is a small HTTP server in the remote channel bridge that
   POSTs inbound webhooks into the configured runtime thread.
 - Scheduled tasks are detected from natural-language remote-channel
-  prompts (`claw-scheduled-task-detector.ts`) and stored under
+  prompts (`claw-scheduled-task-detector.ts`, historical internal
+  filename) and stored under
   `schedule.tasks` in settings.
 - The managed `schedule-mcp-node-entry` hosts schedule tools over MCP
   through the `gui_schedule` worker entry, hiding the macOS dock icon
@@ -1344,7 +1349,7 @@ If any check fails, the change is not ready.
 | App shell | `src/renderer/src/AppShell.tsx` |
 | Workbench | `src/renderer/src/components/Workbench.tsx` |
 | Chat store | `src/renderer/src/store/chat-store.ts` |
-| Remote channel bridge | `src/main/claw-runtime.ts` |
+| Remote channel bridge | `src/main/claw-runtime.ts` (historical internal filename) |
 | Write services | `src/main/services/write-*-service.ts` |
 | Workspace/editor services | `src/main/services/workspace-*.ts`, `src/main/services/workspace-editors.ts` |
 | Tokens / styles | `src/renderer/src/styles/*.css`, `src/renderer/src/index.css` |

@@ -603,6 +603,85 @@ describe('FloatingComposer capability controls', () => {
     expect(html).not.toContain('Openspec Apply Change')
   })
 
+  it('hides /btw when the runtime explicitly disables fork support', () => {
+    useChatStore.setState({
+      activeThreadId: 'thr_1',
+      activeThreadGoal: null,
+      route: 'chat',
+      workspaceRoot: '/workspace/sciforge',
+      threads: []
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposer, {
+        input: '/',
+        setInput: () => undefined,
+        workspaceRootOverride: '/workspace/sciforge',
+        mode: 'agent',
+        setMode: () => undefined,
+        busy: false,
+        runtimeReady: true,
+        hasActiveThread: true,
+        composerModel: '',
+        composerPickList: [],
+        onComposerModelChange: () => undefined,
+        queuedMessages: [],
+        onRemoveQueuedMessage: () => undefined,
+        onSend: () => undefined,
+        onInterrupt: () => undefined,
+        onBtwCommand: () => undefined,
+        attachmentUploadEnabled: false,
+        webAccessAvailable: false,
+        runtimeCapabilities: {
+          fork: false,
+          sideConversations: true
+        }
+      })
+    )
+
+    expect(html).not.toContain('/btw')
+  })
+
+  it('hides /btw when the provider method gate is unavailable', () => {
+    useChatStore.setState({
+      activeThreadId: 'thr_1',
+      activeThreadGoal: null,
+      route: 'chat',
+      workspaceRoot: '/workspace/sciforge',
+      threads: []
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposer, {
+        input: '/',
+        setInput: () => undefined,
+        workspaceRootOverride: '/workspace/sciforge',
+        mode: 'agent',
+        setMode: () => undefined,
+        busy: false,
+        runtimeReady: true,
+        hasActiveThread: true,
+        composerModel: '',
+        composerPickList: [],
+        onComposerModelChange: () => undefined,
+        queuedMessages: [],
+        onRemoveQueuedMessage: () => undefined,
+        onSend: () => undefined,
+        onInterrupt: () => undefined,
+        onBtwCommand: () => undefined,
+        attachmentUploadEnabled: false,
+        webAccessAvailable: false,
+        runtimeCapabilities: {
+          fork: true,
+          sideConversations: true
+        },
+        sideConversationsEnabled: false
+      })
+    )
+
+    expect(html).not.toContain('/btw')
+  })
+
   it('labels normal busy sends as queued continuation even when steering is supported', () => {
     useChatStore.setState({
       activeThreadId: 'thr_1',

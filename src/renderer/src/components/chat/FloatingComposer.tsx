@@ -159,6 +159,7 @@ type Props = {
     AgentProviderCapabilities,
     'compact' | 'fork' | 'goals' | 'review' | 'sideConversations' | 'skills' | 'steer'
   >
+  sideConversationsEnabled?: boolean
   onPickAttachments?: (attachments: ComposerImageAttachmentInput[]) => void
   onPasteClipboardImage?: (options?: { silentNoImage?: boolean }) => void | Promise<void>
   onRemoveAttachment?: (id: string) => void
@@ -647,6 +648,7 @@ export function FloatingComposer({
   contextState,
   skillCommands = EMPTY_SKILL_COMMANDS,
   runtimeCapabilities,
+  sideConversationsEnabled,
   onPickAttachments,
   onPasteClipboardImage,
   onRemoveAttachment,
@@ -752,7 +754,11 @@ export function FloatingComposer({
   const runtimeSupportsFork = runtimeCapabilities?.fork !== false
   const runtimeSupportsGoals = runtimeCapabilities?.goals !== false
   const runtimeSupportsReview = runtimeCapabilities?.review !== false
-  const runtimeSupportsSideConversations = runtimeCapabilities?.sideConversations !== false
+  const runtimeSupportsSideConversations =
+    sideConversationsEnabled ?? (
+      runtimeSupportsFork &&
+      runtimeCapabilities?.sideConversations !== false
+    )
   const runtimeSupportsSkills = runtimeCapabilities?.skills !== false
   const runtimeSupportsSteer = runtimeCapabilities?.steer !== false
   const showIntentToolbar = !compact && route === 'chat'

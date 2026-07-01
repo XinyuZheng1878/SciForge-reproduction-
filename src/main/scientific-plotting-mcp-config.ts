@@ -70,7 +70,7 @@ export function buildScientificPlottingMcpServerConfig(
   })
 }
 
-export function buildScientificPlottingKunMcpServerConfig(
+export function buildScientificPlottingLocalRuntimeMcpServerConfig(
   launch: ScientificPlottingMcpLaunchConfig,
   existing: unknown = {},
   workspaceRoot?: string

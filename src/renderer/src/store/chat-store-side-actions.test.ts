@@ -18,6 +18,17 @@ type Harness = {
 class FakeProvider implements AgentProvider {
   readonly id = 'sciforge' as const
   readonly displayName = 'Fake'
+  capabilities: ReturnType<AgentProvider['getCapabilities']> = {
+    interrupt: true,
+    stream: true,
+    approvals: true,
+    attachFiles: false
+  }
+  threadDetail: Awaited<ReturnType<AgentProvider['getThreadDetail']>> = {
+    blocks: [],
+    latestSeq: 0
+  }
+  subscribeError: Error | null = null
   forkMock = vi.fn()
   getDetailMock = vi.fn()
   sendMock = vi.fn()
@@ -29,7 +40,7 @@ class FakeProvider implements AgentProvider {
   refreshThreadsMock = vi.fn()
   closeSideMock = vi.fn()
   getCapabilities() {
-    return { interrupt: true, stream: true, approvals: true, attachFiles: false }
+    return this.capabilities
   }
   async connect() {}
   async listThreads(): Promise<NormalizedThread[]> {
@@ -40,7 +51,7 @@ class FakeProvider implements AgentProvider {
   }
   async getThreadDetail(threadId: string) {
     this.getDetailMock(threadId)
-    return { blocks: [], latestSeq: 0 }
+    return this.threadDetail
   }
   async sendUserMessage(
     threadId: string,
@@ -93,6 +104,7 @@ class FakeProvider implements AgentProvider {
     signal: AbortSignal
   ): Promise<void> {
     this.subscribeMock(threadId, sinceSeq, sink, signal)
+    if (this.subscribeError) throw this.subscribeError
     signal.addEventListener('abort', () => {
       // simulate cleanup; the real implementation stops the SSE stream
     })
@@ -103,6 +115,10 @@ class FakeProvider implements AgentProvider {
   async submitApprovalDecision() {}
   async submitUserInputResponse() {}
   async cancelUserInput() {}
+}
+
+function flushPromises(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 function buildHarness(overrides: Partial<ChatState> = {}): Harness {
@@ -243,7 +259,8 @@ describe('chat-store-side-actions', () => {
   beforeEach(() => {
     ;(globalThis as { window?: unknown }).window = {
       sciforge: {
-        forbiddenDirectCall: vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))
+        forbiddenDirectCall: vi.fn(async () => ({ ok: true, status: 200, body: '{}' })),
+        logError: vi.fn(async () => undefined)
       }
     }
   })
@@ -282,6 +299,37 @@ describe('chat-store-side-actions', () => {
     expect(provider.forkMock).not.toHaveBeenCalled()
   })
 
+  it('does not spawn side conversations when the provider gates are unavailable', async () => {
+    const forkCapability = buildHarness()
+    forkCapability.provider.capabilities = {
+      ...forkCapability.provider.capabilities,
+      fork: false,
+      sideConversations: true
+    }
+
+    await expect(forkCapability.actions.spawnSideConversation()).resolves.toBeNull()
+    expect(forkCapability.provider.forkMock).not.toHaveBeenCalled()
+    expect(forkCapability.state.error).toBe('common:runtimeFeatureUnsupported')
+
+    const sideCapability = buildHarness()
+    sideCapability.provider.capabilities = {
+      ...sideCapability.provider.capabilities,
+      fork: true,
+      sideConversations: false
+    }
+
+    await expect(sideCapability.actions.spawnSideConversation()).resolves.toBeNull()
+    expect(sideCapability.provider.forkMock).not.toHaveBeenCalled()
+    expect(sideCapability.state.error).toBe('common:runtimeFeatureUnsupported')
+
+    const missingForkMethod = buildHarness()
+    Object.defineProperty(missingForkMethod.provider, 'forkThread', { value: undefined })
+
+    await expect(missingForkMethod.actions.spawnSideConversation()).resolves.toBeNull()
+    expect(missingForkMethod.provider.forkMock).not.toHaveBeenCalled()
+    expect(missingForkMethod.state.error).toBe('common:runtimeFeatureUnsupported')
+  })
+
   it('attaches an existing child thread without opening the side panel or changing the main thread', async () => {
     const { actions, state, provider } = buildHarness()
     expect(state.activeThreadId).toBe('thr_main')
@@ -309,6 +357,41 @@ describe('chat-store-side-actions', () => {
         title: 'research-child',
         source: 'child_agent'
       })
+    )
+  })
+
+  it('logs side subscription failures and settles attached side state', async () => {
+    const { actions, state, provider } = buildHarness()
+    provider.subscribeError = new Error('SSE failed')
+    provider.threadDetail = {
+      blocks: [],
+      latestSeq: 7,
+      threadStatus: 'running',
+      latestTurnId: 'turn_child'
+    }
+
+    const id = await actions.attachSideConversation({
+      threadId: 'child-thread',
+      parentThreadId: 'thr_main',
+      openPanel: true
+    })
+    await flushPromises()
+
+    expect(id).toBe('child-thread')
+    expect(state.sideConversations['child-thread']).toEqual(
+      expect.objectContaining({
+        busy: false,
+        turnId: null,
+        error: 'SSE failed'
+      })
+    )
+    expect(window.sciforge.logError).toHaveBeenCalledWith(
+      'side-conversation',
+      'Side conversation subscription failed',
+      {
+        message: 'SSE failed',
+        sideId: 'child-thread'
+      }
     )
   })
 

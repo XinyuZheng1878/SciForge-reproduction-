@@ -1,4 +1,4 @@
-import type { AgentProvider, AgentProviderCapabilities, NormalizedThread, ReviewTarget, ThreadEventSink } from '../agent/types'
+import type { AgentProvider, NormalizedThread, ReviewTarget, ThreadEventSink } from '../agent/types'
 import { getProvider } from '../agent/registry'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import i18n from '../i18n'
@@ -83,6 +83,7 @@ import {
   syncTurnCompletionPoll,
   watchTurnCompletionNotification
 } from './chat-store-runtime'
+import { providerSupportsCapability } from './chat-store-provider-capabilities'
 
 type SseAbortRef = { current: AbortController | null }
 
@@ -213,13 +214,6 @@ function structuredRuntimeErrorCode(error: unknown): string | null {
   const raw = stripIpcErrorPrefix(error instanceof Error ? error.message : String(error ?? ''))
   const parsed = parseRuntimeErrorBody(raw, '')
   return parsed.code === 'unknown' ? null : parsed.code
-}
-
-function providerSupportsCapability(
-  provider: { getCapabilities?: () => Partial<AgentProviderCapabilities> },
-  capability: keyof AgentProviderCapabilities
-): boolean {
-  return provider.getCapabilities?.()[capability] === true
 }
 
 function canSteerPlainTextMessage(

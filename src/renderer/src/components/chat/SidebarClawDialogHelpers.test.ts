@@ -9,7 +9,7 @@ describe('SidebarClawDialogHelpers', () => {
       'translated:clawAddImWeixinBridgeMissing'
     )
     expect(formatClawInstallError('OpenClaw Gateway is unavailable.', t)).toBe(
-      'OpenClaw Gateway is unavailable.'
+      'translated:clawAddImWeixinBridgeMissing'
     )
   })
 })

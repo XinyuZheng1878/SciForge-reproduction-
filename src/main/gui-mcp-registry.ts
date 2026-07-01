@@ -98,7 +98,7 @@ import {
 } from './write-assist-mcp-config'
 import {
   buildScientificSkillsMcpArgs,
-  buildScientificSkillsKunMcpServerConfig,
+  buildScientificSkillsLocalRuntimeMcpServerConfig,
   buildScientificSkillsMcpJsonServerConfig,
   GUI_SCIENTIFIC_SKILLS_MCP_DESCRIPTOR,
   GUI_SCIENTIFIC_SKILLS_MCP_SERVER_NAME,
@@ -109,7 +109,7 @@ import {
 } from './scientific-skills-mcp-config'
 import {
   buildScientificPlottingMcpArgs,
-  buildScientificPlottingKunMcpServerConfig,
+  buildScientificPlottingLocalRuntimeMcpServerConfig,
   buildScientificPlottingMcpJsonServerConfig,
   GUI_SCIENTIFIC_PLOTTING_MCP_DESCRIPTOR,
   GUI_SCIENTIFIC_PLOTTING_MCP_SERVER_NAME,
@@ -120,7 +120,7 @@ import {
 } from './scientific-plotting-mcp-config'
 import {
   buildImageGenerationMcpArgs,
-  buildImageGenerationKunMcpServerConfig,
+  buildImageGenerationLocalRuntimeMcpServerConfig,
   buildImageGenerationMcpJsonServerConfig,
   GUI_IMAGE_GENERATION_MCP_DESCRIPTOR,
   GUI_IMAGE_GENERATION_MCP_SERVER_NAME,
@@ -131,7 +131,7 @@ import {
 } from './image-generation-mcp-config'
 import {
   buildPptMasterMcpArgs,
-  buildPptMasterKunMcpServerConfig,
+  buildPptMasterLocalRuntimeMcpServerConfig,
   buildPptMasterMcpJsonServerConfig,
   GUI_PPT_MASTER_MCP_DESCRIPTOR,
   GUI_PPT_MASTER_MCP_SERVER_NAME,
@@ -142,7 +142,7 @@ import {
 } from './ppt-master-mcp-config'
 import {
   buildSciforgeCanvasMcpArgs,
-  buildSciforgeCanvasKunMcpServerConfig,
+  buildSciforgeCanvasLocalRuntimeMcpServerConfig,
   buildSciforgeCanvasMcpJsonServerConfig,
   GUI_SCIFORGE_CANVAS_MCP_DESCRIPTOR,
   GUI_SCIFORGE_CANVAS_MCP_SERVER_NAME,
@@ -374,7 +374,7 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.scientificSkillsMcp && scientificSkillsSettings) {
     builders.push([
       GUI_SCIENTIFIC_SKILLS_MCP_SERVER_NAME,
-      (existing) => buildScientificSkillsKunMcpServerConfig(
+      (existing) => buildScientificSkillsLocalRuntimeMcpServerConfig(
         input.scientificSkillsMcp!.launch,
         existing,
         scientificSkillsSettings.workspaceRoot
@@ -385,7 +385,7 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.scientificPlottingMcp && scientificPlottingSettings) {
     builders.push([
       GUI_SCIENTIFIC_PLOTTING_MCP_SERVER_NAME,
-      (existing) => buildScientificPlottingKunMcpServerConfig(
+      (existing) => buildScientificPlottingLocalRuntimeMcpServerConfig(
         input.scientificPlottingMcp!.launch,
         existing,
         scientificPlottingSettings.workspaceRoot
@@ -396,7 +396,7 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.imageGenerationMcp && imageGenerationSettings) {
     builders.push([
       GUI_IMAGE_GENERATION_MCP_SERVER_NAME,
-      (existing) => buildImageGenerationKunMcpServerConfig(
+      (existing) => buildImageGenerationLocalRuntimeMcpServerConfig(
         input.imageGenerationMcp!.launch,
         existing,
         imageGenerationSettings.workspaceRoot,
@@ -408,7 +408,7 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.pptMasterMcp && pptMasterSettings) {
     builders.push([
       GUI_PPT_MASTER_MCP_SERVER_NAME,
-      (existing) => buildPptMasterKunMcpServerConfig(
+      (existing) => buildPptMasterLocalRuntimeMcpServerConfig(
         input.pptMasterMcp!.launch,
         existing,
         pptMasterSettings.workspaceRoot
@@ -419,7 +419,7 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.sciforgeCanvasMcp && sciforgeCanvasSettings) {
     builders.push([
       GUI_SCIFORGE_CANVAS_MCP_SERVER_NAME,
-      (existing) => buildSciforgeCanvasKunMcpServerConfig(
+      (existing) => buildSciforgeCanvasLocalRuntimeMcpServerConfig(
         input.sciforgeCanvasMcp!.launch,
         existing,
         sciforgeCanvasSettings.workspaceRoot

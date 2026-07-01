@@ -71,7 +71,7 @@ export function buildScientificSkillsMcpServerConfig(
   })
 }
 
-export function buildScientificSkillsKunMcpServerConfig(
+export function buildScientificSkillsLocalRuntimeMcpServerConfig(
   launch: ScientificSkillsMcpLaunchConfig,
   existing: unknown = {},
   workspaceRoot?: string

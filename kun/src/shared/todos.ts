@@ -16,6 +16,7 @@ export type MergePlanTodosOptions = {
   existing: ThreadTodoList | null | undefined
   planItems: readonly ExtractedPlanTodo[]
   now: string
+  /** Keep runtime-completed plan items completed even when markdown is unchecked. */
   preserveCompleted?: boolean
 }
 
@@ -90,7 +91,7 @@ export function mergePlanTodos(options: MergePlanTodosOptions): ThreadTodoList {
     const status =
       existing && options.preserveCompleted && existing.status === 'completed'
         ? existing.status
-        : existing?.status ?? planItem.status
+        : planItem.status
     nextItems.push({
       ...planItem,
       id: existing?.id ?? planItem.id,

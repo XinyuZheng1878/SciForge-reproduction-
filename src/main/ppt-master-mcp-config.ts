@@ -73,7 +73,7 @@ export function buildPptMasterMcpServerConfig(
   })
 }
 
-export function buildPptMasterKunMcpServerConfig(
+export function buildPptMasterLocalRuntimeMcpServerConfig(
   launch: PptMasterMcpLaunchConfig,
   existing: unknown = {},
   workspaceRoot?: string

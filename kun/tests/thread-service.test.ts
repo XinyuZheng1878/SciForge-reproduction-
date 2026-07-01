@@ -403,6 +403,58 @@ describe('ThreadService todos', () => {
     }
   })
 
+  it('only preserves completed status when syncing plan checklists', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'kun-todos-'))
+    try {
+      const relativePath = '.sciforge/plan/preserve.md'
+      const absolutePath = join(workspace, relativePath)
+      await mkdir(join(workspace, '.sciforge', 'plan'), { recursive: true })
+      const initialMarkdown = '# Plan\n\n- [ ] Track runtime progress\n- [ ] Keep completed runtime item\n'
+      await writeFile(absolutePath, initialMarkdown, 'utf-8')
+
+      const { service } = buildService()
+      await service.create(
+        { workspace, model: 'deepseek-chat', mode: 'agent' },
+        { id: 'thr_preserve_todos', title: 'Preserve Todos' }
+      )
+
+      const synced = await service.syncTodosFromPlan('thr_preserve_todos', {
+        planId: 'plan_preserve',
+        relativePath,
+        markdown: initialMarkdown
+      })
+      await service.setTodos('thr_preserve_todos', {
+        todos: synced.items.map((item) => ({
+          id: item.id,
+          content: item.content,
+          status: item.content === 'Track runtime progress' ? 'in_progress' : 'completed',
+          source: item.source
+        }))
+      })
+
+      const rewritten = await service.syncTodosFromPlan('thr_preserve_todos', {
+        planId: 'plan_preserve',
+        relativePath,
+        markdown: '# Plan\n\n- [x] Track runtime progress\n- [ ] Keep completed runtime item\n'
+      })
+      const rewrittenStatusByContent = new Map(rewritten.items.map((item) => [item.content, item.status]))
+      expect(rewrittenStatusByContent.get('Track runtime progress')).toBe('completed')
+      expect(rewrittenStatusByContent.get('Keep completed runtime item')).toBe('completed')
+
+      const overwritten = await service.syncTodosFromPlan('thr_preserve_todos', {
+        planId: 'plan_preserve',
+        relativePath,
+        markdown: '# Plan\n\n- [ ] Track runtime progress\n- [ ] Keep completed runtime item\n',
+        preserveCompleted: false
+      })
+      const overwrittenStatusByContent = new Map(overwritten.items.map((item) => [item.content, item.status]))
+      expect(overwrittenStatusByContent.get('Track runtime progress')).toBe('pending')
+      expect(overwrittenStatusByContent.get('Keep completed runtime item')).toBe('pending')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
   it('accepts workspace-relative non-GUI todo source paths without patching files', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'kun-todos-'))
     try {

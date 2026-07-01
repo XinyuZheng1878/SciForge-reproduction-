@@ -94,6 +94,7 @@ import {
   isPluginInstalled,
   PAPER_RADAR_EXTENSION_ID
 } from '../lib/plugin-install-state'
+import { providerSupportsCapability } from '../store/chat-store-provider-capabilities'
 import { collectComposerChangeSummary } from '../lib/composer-change-summary'
 import {
   createRemoteChannelTaskFromTextApi,
@@ -1017,7 +1018,6 @@ export function Workbench(): ReactElement {
       '',
       `- \`/help\`: ${t('clawHelpCommandHelp')}`,
       `- \`/new\`: ${t('clawHelpCommandNew')}`,
-      `- \`/attach current\`: ${t('clawHelpCommandAttachCurrent')}`,
       `- \`/model auto\`: ${t('clawHelpCommandModelAuto')}`,
       `- \`/model pro\`: ${t('clawHelpCommandModelPro')}`,
       `- \`/model flash\`: ${t('clawHelpCommandModelFlash')}`,
@@ -1118,8 +1118,14 @@ export function Workbench(): ReactElement {
   const webAccessAvailable =
     runtimeInfo?.capabilities.web.fetch.available === true ||
     runtimeInfo?.capabilities.web.search.available === true
+  const runtimeProvider = getProvider()
   const runtimeCapabilities: AgentProviderCapabilities | undefined =
-    runtimeConnection === 'ready' ? getProvider().getCapabilities() : undefined
+    runtimeConnection === 'ready' ? runtimeProvider.getCapabilities() : undefined
+  const sideConversationsSupported =
+    runtimeConnection === 'ready' &&
+    typeof runtimeProvider.forkThread === 'function' &&
+    providerSupportsCapability(runtimeProvider, 'fork') &&
+    providerSupportsCapability(runtimeProvider, 'sideConversations')
 
   const clearComposerAttachments = (): void => {
     setComposerAttachments([])
@@ -2439,9 +2445,7 @@ export function Workbench(): ReactElement {
                     childAgentRunningCount={childAgentRunningCount}
                     childAgentsOpen={rightPanelMode === 'child-agents'}
                     sideChatEnabled={
-                      runtimeConnection === 'ready' &&
-                      Boolean(activeThreadId) &&
-                      runtimeCapabilities?.sideConversations !== false
+                      Boolean(activeThreadId) && sideConversationsSupported
                     }
                     onOpenChildAgents={() => toggleTopBarRightPanelMode('child-agents')}
                     onOpenSideChat={openSideChat}
@@ -2528,6 +2532,7 @@ export function Workbench(): ReactElement {
                     changedFileStats={composerChangeSummary}
                     skillCommands={runtimeSkills}
                     runtimeCapabilities={runtimeCapabilities}
+                    sideConversationsEnabled={sideConversationsSupported}
                     onPickAttachments={(files) => void handlePickAttachments(files)}
                     onPasteClipboardImage={(options) => void handlePasteClipboardImage(options)}
                     onRemoveAttachment={removeComposerAttachment}

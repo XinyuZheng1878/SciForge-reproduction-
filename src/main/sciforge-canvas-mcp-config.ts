@@ -70,7 +70,7 @@ export function buildSciforgeCanvasMcpServerConfig(
   })
 }
 
-export function buildSciforgeCanvasKunMcpServerConfig(
+export function buildSciforgeCanvasLocalRuntimeMcpServerConfig(
   launch: SciforgeCanvasMcpLaunchConfig,
   existing: unknown = {},
   workspaceRoot?: string

@@ -46,6 +46,11 @@
 - [x] 将 legacy `.kun` skills 来源的用户可见文档/UI 展示改成中性 legacy/local runtime 迁移输入，不再指导写旧 `~/.kun/mcp.json`。
 - [x] 为 image-generation direct provider 临时例外加边界：子进程不继承 `SCIFORGE_IMAGE_*` / `SCIFORGE_SCIMODALITY_SERVICE_*`，静态测试防止 GUI/runtime 新增直连，README 标注为 worker-contained exception。
 - [x] 删除 remote-channel 旧死代码和 stale 文档：移除 `ClawRuntime.runTask()` 墓碑 shim、未使用 Claw schedule alias、schedule detector 未用参数、DESIGN 中已删除的 Feishu mirror API。
+- [x] 继续清理 remote-channel / phone-connection 用户可见旧命名：DESIGN、AGENTS、locale 文案统一为 platform-neutral remote channel / phone connection；`OpenClaw Gateway` 安装错误不再原样透出 UI。
+- [x] 清理 `.kun` 相关内部命名与默认 roots 防回归：MCP builder / renderer MCP merge helper / global SciForge skill root key 改成 local-runtime/SciForge 语义，并补测试确认 generic 默认 roots 不回退 `~/.kun`。
+- [x] 统一 provider capability 判断和 side conversation 入口：thread/side/maintenance action 共享 `providerSupportsCapability`，`/btw` 与 topbar 入口按 `forkThread` / `fork` / `sideConversations` 一致 gating，side SSE 失败会收敛 busy/error 状态。
+- [x] 收敛 plan/todo 一致性：renderer plan merge 保留已完成 todo，runtime `preserveCompleted` 只保护 completed，local-runtime auxiliary get/set todos 统一走 normalizer，GUI plan registry 使用 shared plan id/workspace helper。
+- [x] 补齐 remote-channel / schedule 公开边界测试和文档：删除 stale `imCommandNotReadyText`，Workbench 本地 help 不再广告未支持的 `/attach current`，DESIGN 补列 `createScheduleTaskFromText`，IPC 覆盖 `remoteChannel:task:create-from-text`。
 
 ## 验证记录
 
@@ -53,8 +58,8 @@
 - [x] `npm run model-router:typecheck`
 - [x] `npm run search:typecheck`
 - [x] `npx tsc --noEmit -p tsconfig.node.json`
-- [x] `npm test`（232 files / 1802 tests）
-- [x] `npm --prefix kun test`（52 files / 543 tests）
+- [x] `npm test`（234 files / 1831 tests）
+- [x] `npm --prefix kun test`（53 files / 552 tests）
 - [x] `npm --prefix kun test -- http-server.test.ts tests/loop.test.ts`
 - [x] `npx vitest run src/main/schedule-runtime.test.ts src/main/workflow-runtime.test.ts src/main/claw-runtime.test.ts`
 - [x] `npx vitest run src/shared/agent-runtime-contract.test.ts src/renderer/src/agent/agent-runtime-event-dispatcher.test.ts src/renderer/src/agent/agent-runtime-provider.test.ts src/renderer/src/lib/thread-sidebar-visibility.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts src/renderer/src/store/chat-store-navigation-actions.test.ts`
@@ -73,6 +78,14 @@
 - [x] `npm test -- src/main/claw-runtime.test.ts src/main/claw-scheduled-task-detector.test.ts src/main/schedule-runtime.test.ts`
 - [x] `npx vitest run src/renderer/src/components/PluginMarketplaceView.test.ts`
 - [x] `npx vitest run src/renderer/src/store/chat-store-runtime.test.ts`
+- [x] `npx vitest run src/renderer/src/components/PluginMarketplaceView.test.ts src/renderer/src/components/settings-section-agents.test.ts src/renderer/src/components/chat/SidebarClawDialogHelpers.test.ts src/renderer/src/plan/plan-todo-sync.test.ts src/renderer/src/store/chat-store-provider-capabilities.test.ts`
+- [x] `npx vitest run src/main/ipc/register-app-ipc-handlers.test.ts src/shared/claw-commands.test.ts src/main/ipc/app-ipc-schemas.test.ts src/preload/index.test.ts src/renderer/src/dev/dev-sciforge-bridge.test.ts src/renderer/src/lib/remote-channel-api.test.ts`
+- [x] `npx vitest run src/main/services/skill-service.test.ts packages/workers/workspace-intel/src/service.test.ts`
+- [x] `(packages/workers/workspace-intel) node --import tsx --test src/service.test.ts`
+- [x] `npx vitest run src/shared/gui-plan.test.ts src/renderer/src/plan/plan-store.test.ts src/renderer/src/components/workbench-plan-controller.test.ts`
+- [x] `npx vitest run src/renderer/src/store/chat-store-provider-capabilities.test.ts src/renderer/src/store/chat-store-side-actions.test.ts src/renderer/src/components/chat/FloatingComposer.test.ts src/renderer/src/components/chat/WorkbenchTopBar.test.ts`
+- [x] `npx vitest run src/main/runtime/local-runtime-agent-runtime-adapter.test.ts src/renderer/src/agent/agent-runtime-event-dispatcher.test.ts`
+- [x] `npm --prefix kun test -- tests/thread-service.test.ts`
 - [x] `git diff --check`
 
 ## 已决策待实施
@@ -82,12 +95,12 @@
 - [x] 收敛 Codex app-server compatibility re-export；内部测试/import 已迁到 `app-server/`，已删除 shim、旧 request registry shim 与 README 兼容说明。
 - [x] 收敛 `window.sciforge` 里的 Feishu mirror 旧公开 API；已删除 `mirrorRemoteChannelMessageToFeishu` / `mirror-to-feishu` 兼容窗口，改为 remote-channel 中性 API。
 - [x] public runtime machine protocol 暂继续保留 `KUN_READY`、health `service: "kun"`、CLI/env `KUN_*` 作为底层协议边界；本轮记录为协议边界决策，不做 breaking rename。
-- [ ] 修改 legacy `~/.kun` global skills / MCP 配置兼容：迁移到新的 SciForge/local-runtime 路径，旧路径只作为迁移输入。已完成用户可见文档/UI 中性化和 `~/.sciforge/mcp.json` 当前事实修正；仍需决策：迁移目标用 workspace `.agents/skills/...` 还是 global `~/.sciforge/skills/...`；旧 `~/.kun` 内容是复制、移动、提示导入还是忽略；是否保留 `npx skills add` 外部 CLI install 入口；旧 runtime config 中的 `~/.kun` roots 是自动改写还是只提示一次。
+- [ ] 修改 legacy `~/.kun` global skills / MCP 配置兼容：迁移到新的 SciForge/local-runtime 路径，旧路径只作为迁移输入。已完成用户可见文档/UI 中性化、`~/.sciforge/mcp.json` 当前事实修正、内部 MCP builder / renderer helper 清名，以及 generic 默认 roots 不读 `~/.kun` 的防回归测试；仍需决策：迁移目标用 workspace `.agents/skills/...` 还是 global `~/.sciforge/skills/...`；旧 `~/.kun` 内容是复制、移动、提示导入还是忽略；是否保留 `npx skills add` 外部 CLI install 入口；旧 runtime config 中的 `~/.kun` roots 是自动改写还是只提示一次。
 - [x] `DeepseekCompatModelClient` 长期收敛原则：LLM 只能走 model router；已加生产边界测试，除 runtime factory 注入 Model Router 客户端外，不允许新增直接 provider 调用。
 - [ ] sci-modality expert provider 与 image-generation direct provider 原则上统一经 model/media router，避免形成新的 LLM/API 旁路。已完成 sci-modality / image-generation 边界防回归和 image-generation worker-contained 临时例外说明；仍需决策：全部并入 Model Router，还是拆出 Media Router 统一承接 image/video/audio 等非文本 provider；任一方案都应保持 GUI/runtime 只依赖 router 层。
 - [x] Model Router provider 诊断只透出少量高价值状态到 health/UI：auth、network/timeout、provider bad response、provider error；不暴露全部内部细节。
-- [ ] side conversation / plan checklist / GUI plan registry 的长期 owner 归 runtime/thread metadata；GUI 只负责展示和即时乐观更新。已完成显式 `includeSide` 读路径、runtime todo snapshot/event 透传、`create_plan` result replay 和完成后 goal/todos snapshot merge；仍需决策：active GUI plan 存成 `thread.guiPlan` metadata，还是从最近一次 `create_plan` tool result 派生；旧 `sciforge.plan.registry.v1` localStorage 是迁移还是清空；side conversation 重启后是否需要恢复。
-- [ ] remote-channel IM command 边界：账户/连接/线程选择归 GUI；任务执行、计划、工具行为归 runtime/agent，避免新增并行控制链路。已删除 dead `ClawRuntime.runTask()` 和 stale Feishu mirror API 文档；仍需决策：IM 是否允许 `/model` / `/mode` 这类 runtime 行为命令；项目/thread 选择是否允许经 IM 发生；schedule/task 创建是否允许从 IM 自动触发。
+- [ ] side conversation / plan checklist / GUI plan registry 的长期 owner 归 runtime/thread metadata；GUI 只负责展示和即时乐观更新。已完成显式 `includeSide` 读路径、runtime todo snapshot/event 透传、`create_plan` result replay、完成后 goal/todos snapshot merge、GUI plan registry shared helper 对齐、plan/todo merge 语义收敛、side capability gate 与 SSE 失败状态收敛；仍需决策：active GUI plan 存成 `thread.guiPlan` metadata，还是从最近一次 `create_plan` tool result 派生；旧 `sciforge.plan.registry.v1` localStorage 是迁移还是清空；side conversation 重启后是否需要恢复。
+- [ ] remote-channel IM command 边界：账户/连接/线程选择归 GUI；任务执行、计划、工具行为归 runtime/agent，避免新增并行控制链路。已删除 dead `ClawRuntime.runTask()`、stale Feishu mirror API 文档、dead `imCommandNotReadyText`，并补齐 remote-channel task IPC 测试和 public API 文档；仍需决策：IM 是否允许 `/model` / `/mode` 这类 runtime 行为命令；项目/thread 选择是否允许经 IM 发生；schedule/task 创建是否允许从 IM 自动触发。
 - [x] 删除 `vision-router-service`：Model Router 当前 `translators.vision` 已覆盖默认链路需要的 translate-only vision 能力，视觉输入会先经 vision translator 生成文本 evidence，再交给 text reasoner；已删除 standalone `plugins/vision-router-service` 及其文档/测试/notice 引用，默认链路不再保留第二条服务边界。后续如需要更强 retry/backoff/timeout，只在 Model Router `visionTranslator` provider call 内实现。
 - [ ] `gui-owl-computer-use` 暂停处理：保持 `gui-owl-computer-use` 与旧 `@sciforge/computer-use` 并存，不迁移、不删除，等待人工分别测试两套 computer-use 后再决策。
 

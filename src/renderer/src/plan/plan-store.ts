@@ -1,6 +1,11 @@
 import { create } from 'zustand'
+import {
+  buildGuiPlanId,
+  guiPlanWorkspaceMatches,
+  normalizeGuiPlanRelativePath,
+  planDisplayNameFromRelativePath
+} from '@shared/gui-plan'
 import { browserStorage } from '../lib/browser-storage'
-import { planDisplayNameFromRelativePath } from './plan-path'
 
 export type GuiPlanOperationStatus =
   | 'idle'
@@ -59,6 +64,14 @@ function threadKey(workspaceRoot: string, threadId: string | null | undefined): 
   return workspace && thread ? `${workspace}::${thread}` : ''
 }
 
+function splitThreadKey(key: string): { workspaceRoot: string; threadId: string } | null {
+  const separator = key.lastIndexOf('::')
+  if (separator <= 0) return null
+  const workspaceRoot = key.slice(0, separator)
+  const threadId = key.slice(separator + 2).trim()
+  return workspaceRoot && threadId ? { workspaceRoot, threadId } : null
+}
+
 function emptyRegistry(): PersistedPlanRegistry {
   return { version: 1, activeByWorkspace: {}, activeByThread: {}, plans: {} }
 }
@@ -71,12 +84,12 @@ function normalizeText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-function normalizePlanArtifact(raw: unknown, fallbackId = ''): GuiPlanArtifact | null {
+function normalizePlanArtifact(raw: unknown): GuiPlanArtifact | null {
   if (!isRecord(raw)) return null
-  const id = normalizeText(raw.id) || normalizeText(fallbackId)
   const workspaceRoot = normalizeWorkspaceRoot(normalizeText(raw.workspaceRoot))
-  const relativePath = normalizeText(raw.relativePath)
-  if (!id || !workspaceRoot || !relativePath) return null
+  const relativePath = normalizeGuiPlanRelativePath(normalizeText(raw.relativePath))
+  if (!workspaceRoot || !relativePath) return null
+  const id = buildGuiPlanId(workspaceRoot, relativePath)
   const threadId = normalizeText(raw.threadId)
   const absolutePath = normalizeText(raw.absolutePath)
   const sourceRequest = typeof raw.sourceRequest === 'string' ? raw.sourceRequest : ''
@@ -99,10 +112,15 @@ function normalizePlanArtifact(raw: unknown, fallbackId = ''): GuiPlanArtifact |
 function normalizePlanRegistry(raw: unknown): PersistedPlanRegistry {
   if (!isRecord(raw)) return emptyRegistry()
   const plans: PersistedPlanRegistry['plans'] = {}
+  const planIdAliases = new Map<string, string>()
   if (isRecord(raw.plans)) {
     for (const [planId, value] of Object.entries(raw.plans)) {
-      const plan = normalizePlanArtifact(value, planId)
-      if (plan) plans[plan.id] = plan
+      const plan = normalizePlanArtifact(value)
+      if (!plan) continue
+      plans[plan.id] = plan
+      planIdAliases.set(planId, plan.id)
+      const rawId = isRecord(value) ? normalizeText(value.id) : ''
+      if (rawId) planIdAliases.set(rawId, plan.id)
     }
   }
 
@@ -110,9 +128,9 @@ function normalizePlanRegistry(raw: unknown): PersistedPlanRegistry {
   if (isRecord(raw.activeByWorkspace)) {
     for (const [workspaceRoot, value] of Object.entries(raw.activeByWorkspace)) {
       const workspace = normalizeWorkspaceRoot(workspaceRoot)
-      const planId = normalizeText(value)
+      const planId = planIdAliases.get(normalizeText(value)) ?? normalizeText(value)
       const plan = plans[planId]
-      if (workspace && plan && normalizeWorkspaceRoot(plan.workspaceRoot) === workspace) {
+      if (workspace && plan && guiPlanWorkspaceMatches(plan.workspaceRoot, workspace)) {
         activeByWorkspace[workspace] = plan.id
       }
     }
@@ -122,7 +140,7 @@ function normalizePlanRegistry(raw: unknown): PersistedPlanRegistry {
   if (isRecord(raw.activeByThread)) {
     for (const [key, value] of Object.entries(raw.activeByThread)) {
       const activeKey = normalizeText(key)
-      const planId = normalizeText(value)
+      const planId = planIdAliases.get(normalizeText(value)) ?? normalizeText(value)
       if (activeKey && plans[planId]) activeByThread[activeKey] = plans[planId].id
     }
   }
@@ -159,14 +177,15 @@ export function createGuiPlanArtifact(options: {
   now?: number
 }): GuiPlanArtifact {
   const now = new Date(options.now ?? Date.now()).toISOString()
-  const featureName = planDisplayNameFromRelativePath(options.relativePath)
   const workspaceRoot = normalizeWorkspaceRoot(options.workspaceRoot)
+  const relativePath = normalizeGuiPlanRelativePath(options.relativePath)
+  const featureName = planDisplayNameFromRelativePath(relativePath)
   return {
-    id: `${workspaceRoot}:${options.relativePath}`,
+    id: buildGuiPlanId(workspaceRoot, relativePath),
     workspaceRoot,
     threadId: options.threadId ?? null,
     featureName,
-    relativePath: options.relativePath,
+    relativePath,
     ...(options.absolutePath ? { absolutePath: options.absolutePath } : {}),
     sourceRequest: options.sourceRequest,
     createdAt: now,
@@ -204,10 +223,39 @@ export function guiPlanMatchesContext(
   workspaceRoot: string,
   threadId?: string | null
 ): boolean {
-  if (normalizeWorkspaceRoot(plan.workspaceRoot) !== normalizeWorkspaceRoot(workspaceRoot)) return false
+  if (!guiPlanWorkspaceMatches(plan.workspaceRoot, normalizeWorkspaceRoot(workspaceRoot))) return false
   const activeThread = threadId?.trim() ?? ''
   const planThread = plan.threadId?.trim() ?? ''
   return activeThread ? planThread === activeThread : !planThread
+}
+
+function findActivePlanIdByWorkspace(
+  registry: PersistedPlanRegistry,
+  workspaceRoot: string
+): string | undefined {
+  const workspace = normalizeWorkspaceRoot(workspaceRoot)
+  if (!workspace) return undefined
+  const exact = registry.activeByWorkspace[workspace]
+  if (exact) return exact
+  return Object.entries(registry.activeByWorkspace).find(([storedWorkspace]) =>
+    guiPlanWorkspaceMatches(storedWorkspace, workspace)
+  )?.[1]
+}
+
+function findActivePlanIdByThread(
+  registry: PersistedPlanRegistry,
+  workspaceRoot: string,
+  threadId: string | null | undefined
+): string | undefined {
+  const workspace = normalizeWorkspaceRoot(workspaceRoot)
+  const thread = threadId?.trim()
+  if (!workspace || !thread) return undefined
+  const exact = registry.activeByThread[threadKey(workspace, thread)]
+  if (exact) return exact
+  return Object.entries(registry.activeByThread).find(([key]) => {
+    const parsed = splitThreadKey(key)
+    return parsed?.threadId === thread && guiPlanWorkspaceMatches(parsed.workspaceRoot, workspace)
+  })?.[1]
 }
 
 export function readRememberedGuiPlan(
@@ -216,8 +264,8 @@ export function readRememberedGuiPlan(
 ): GuiPlanArtifact | null {
   const registry = readRegistry()
   const workspace = normalizeWorkspaceRoot(workspaceRoot)
-  const byThread = registry.activeByThread[threadKey(workspace, threadId)]
-  const byWorkspace = threadId?.trim() ? undefined : registry.activeByWorkspace[workspace]
+  const byThread = findActivePlanIdByThread(registry, workspace, threadId)
+  const byWorkspace = threadId?.trim() ? undefined : findActivePlanIdByWorkspace(registry, workspace)
   const plan = registry.plans[byThread ?? byWorkspace ?? ''] ?? null
   return plan && guiPlanMatchesContext(plan, workspace, threadId) ? plan : null
 }

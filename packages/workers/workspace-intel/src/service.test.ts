@@ -143,3 +143,66 @@ test('lists and reads project skills by id', async (t) => {
   if (!read.ok) return
   assert.match(read.content, /Use this skill/)
 })
+
+test('global skill defaults discover neutral roots without falling back to ~/.kun', async (t) => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'workspace-intel-global-skills-'))
+  t.after(async () => {
+    await rm(tempRoot, { recursive: true, force: true })
+  })
+  const homeRoot = join(tempRoot, 'home')
+  const workspaceRoot = join(tempRoot, 'workspace')
+  const neutralSkillRoot = join(homeRoot, '.agents', 'skills', 'neutral-helper')
+  const kunHomeSkillRoot = join(homeRoot, '.kun', 'kun-home-helper')
+  const kunNestedSkillRoot = join(homeRoot, '.kun', 'skills', 'kun-skills-helper')
+  await mkdir(workspaceRoot, { recursive: true })
+  await writeSkill(neutralSkillRoot, 'neutral-helper', 'Neutral helper.')
+  await writeSkill(kunHomeSkillRoot, 'kun-home-helper', 'Legacy Kun home helper.')
+  await writeSkill(kunNestedSkillRoot, 'kun-skills-helper', 'Legacy Kun skills helper.')
+
+  await withHome(homeRoot, async () => {
+    const service = createWorkspaceIntelService({ includeGlobalSkillRoots: true })
+    const list = await service.listSkills({ workspaceRoot })
+
+    assert.equal(list.ok, true)
+    if (!list.ok) return
+    const skillIds = list.skills.map((skill) => skill.id)
+    assert.ok(skillIds.includes('neutral-helper'))
+    assert.equal(skillIds.some((skillId) => skillId.startsWith('kun-')), false)
+    assert.equal(list.skills.find((skill) => skill.id === 'neutral-helper')?.scope, 'configured')
+  })
+})
+
+async function writeSkill(root: string, name: string, description: string): Promise<void> {
+  await mkdir(root, { recursive: true })
+  await writeFile(join(root, 'SKILL.md'), [
+    '---',
+    `name: ${name}`,
+    `description: ${description}`,
+    '---',
+    '',
+    `# ${name}`,
+    '',
+    description
+  ].join('\n'), 'utf8')
+}
+
+async function withHome<T>(homeRoot: string, action: () => Promise<T>): Promise<T> {
+  const originalHome = process.env.HOME
+  const originalUserProfile = process.env.USERPROFILE
+  process.env.HOME = homeRoot
+  process.env.USERPROFILE = homeRoot
+  try {
+    return await action()
+  } finally {
+    if (originalHome === undefined) {
+      delete process.env.HOME
+    } else {
+      process.env.HOME = originalHome
+    }
+    if (originalUserProfile === undefined) {
+      delete process.env.USERPROFILE
+    } else {
+      process.env.USERPROFILE = originalUserProfile
+    }
+  }
+}

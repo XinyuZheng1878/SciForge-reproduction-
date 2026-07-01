@@ -8,8 +8,9 @@ Code、Write、连接手机和定时任务应通过 runtime-neutral 的 `AgentRu
 contract 进入 agent 工作流。Renderer 业务代码应使用 `AgentRuntimeProvider`
 和 `window.sciforge.agentRuntime` preload API，不能直接调用 SciForge Runtime `/v1/*` 端点或
 Codex `codex:*` IPC。SciForge Runtime 继续在 adapter 后面提供 HTTP/SSE 路径。Codex
-运行时代码必须模块化并集中在 `src/main/runtime/codex/` 下。连接手机在代码内部
-仍沿用 `claw` 命名作为兼容标识。连接手机和定时任务会记录 runtime id，并保留
+运行时代码必须模块化并集中在 `src/main/runtime/codex/` 下。手机连接 / remote-channel
+代码仍有少量历史 `claw` 文件或符号；保留时只表示内部历史名称，不作为用户可见或公开
+API 命名。手机连接和定时任务会记录 runtime id，并保留
 按运行时分离的 thread mapping；但这些后台工作流的非 SciForge Runtime 执行路径当前仍是
 fail closed，直到补齐对应的原生 adapter 支持。
 
@@ -60,7 +61,8 @@ contract、event 与 capability 形状见
 - `agents.codewhale`、`agents.reasonix` 和旧 `deepseek` 的值会一次性写入 `agents.sciforge`。
 - 保存后的 settings 保留 `agents.sciforge`，也可以包含 `agents.codex`；不能继续保留
   `agents.codewhale` 或 `agents.reasonix`。
-- 旧连接手机（内部 Claw）的 `agentThreadIds.codewhale/reasonix` 会并入 `agentThreadIds.sciforge`。
+- 旧手机连接 / remote-channel 数据（历史内部 `claw` 标识）的
+  `agentThreadIds.codewhale/reasonix` 会并入 `agentThreadIds.sciforge`。
 - 新的 Codex thread 映射必须使用 Codex 自己的 runtime/thread 存储，不能写进默认运行时映射。
 
 ## 验证清单

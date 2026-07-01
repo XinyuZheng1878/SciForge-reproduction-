@@ -1272,6 +1272,63 @@ describe('registerAppIpcHandlers', () => {
     })
   })
 
+  it('routes remote-channel task creation through the Schedule runtime with channel workspace', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const configuredSettings = settings()
+    configuredSettings.remoteChannel.channels = [{
+      id: 'channel-1',
+      provider: 'feishu',
+      label: 'Team channel',
+      enabled: true,
+      model: 'deepseek-v4-pro',
+      workspaceRoot: '/tmp/channel-workspace',
+      agentProfile: {
+        name: 'Team Agent',
+        description: '',
+        identity: '',
+        personality: '',
+        userContext: '',
+        replyRules: ''
+      },
+      conversations: [],
+      createdAt: '2026-06-03T00:00:00.000Z',
+      updatedAt: '2026-06-03T00:00:00.000Z'
+    }]
+    configuredSettings.schedule.defaultWorkspaceRoot = '/tmp/schedule-default'
+    const store = { load: vi.fn(async () => configuredSettings) }
+    const scheduleRuntime = {
+      createScheduledTaskFromText: vi.fn(async () => ({
+        kind: 'created' as const,
+        taskId: 'task-remote',
+        title: 'Remote Reminder',
+        scheduleAt: '2026-06-03T09:00:00.000+08:00',
+        confirmationText: 'Scheduled from remote channel.'
+      }))
+    }
+
+    registerAppIpcHandlers(registerOptions({
+      store: store as never,
+      getScheduleRuntime: () => scheduleRuntime as never
+    }))
+
+    await expect(
+      handlers.get('remoteChannel:task:create-from-text')?.({}, {
+        text: 'Remind the team tomorrow.',
+        channelId: 'channel-1',
+        modelHint: 'deepseek-v4-pro',
+        mode: 'agent'
+      })
+    ).resolves.toMatchObject({
+      kind: 'created',
+      taskId: 'task-remote'
+    })
+    expect(scheduleRuntime.createScheduledTaskFromText).toHaveBeenCalledWith('Remind the team tomorrow.', {
+      workspaceRoot: '/tmp/channel-workspace',
+      modelHint: 'deepseek-v4-pro',
+      mode: 'agent'
+    })
+  })
+
   it('routes desktop command IPC calls to the focused window and web contents', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const webContents = {

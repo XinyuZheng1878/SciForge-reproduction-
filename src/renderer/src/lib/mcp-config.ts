@@ -134,7 +134,7 @@ export function mergeMcpJsonConfig(content: string, fragment: JsonRecord): McpJs
     ...current,
     ...fragmentRest
   }
-  if (usesKunCapabilitiesMcpServers(current)) {
+  if (usesLocalRuntimeCapabilitiesMcpServers(current)) {
     const capabilities = isJsonRecord(next.capabilities) ? next.capabilities : {}
     const mcp = isJsonRecord(capabilities.mcp) ? capabilities.mcp : {}
     next.capabilities = {
@@ -154,7 +154,7 @@ export function mergeMcpJsonConfig(content: string, fragment: JsonRecord): McpJs
   return { alreadyExists, changed, text: `${JSON.stringify(next, null, 2)}\n` }
 }
 
-function usesKunCapabilitiesMcpServers(config: JsonRecord): boolean {
+function usesLocalRuntimeCapabilitiesMcpServers(config: JsonRecord): boolean {
   const capabilities = isJsonRecord(config.capabilities) ? config.capabilities : undefined
   const mcp = isJsonRecord(capabilities?.mcp) ? capabilities.mcp : undefined
   return Boolean(mcp)

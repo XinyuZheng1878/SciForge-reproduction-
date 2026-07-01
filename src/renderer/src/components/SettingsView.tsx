@@ -315,7 +315,7 @@ export function SettingsView(): ReactElement {
       },
       {
         id: 'global-sciforge',
-        label: tCommon('pluginSkillRootGlobalDeepseek'),
+        label: tCommon('pluginSkillRootGlobalSciforge'),
         path: '~/.sciforge/skills',
         available: true
       }

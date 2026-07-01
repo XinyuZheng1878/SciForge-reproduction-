@@ -510,12 +510,6 @@ function imGuardIgnoredMessage(settings: AppSettingsV1): string {
     : 'Ignored by the current channel guard mode.'
 }
 
-function imCommandNotReadyText(settings: AppSettingsV1, command: string): string {
-  return isChineseLocale(settings)
-    ? `${command} 已被识别为远端命令，但当前版本还没有接入项目/会话列表后端。请先使用 /where、/new <标题> 或 /attach current。`
-    : `${command} is recognized as a remote command, but project/thread listing is not connected in this build yet. Use /where, /new <title>, or /attach current for now.`
-}
-
 function imLocalThreadDeletedText(settings: AppSettingsV1): string {
   return isChineseLocale(settings)
     ? '当前远端会话绑定的本地 thread 已被删除或不可读。请发送 `/new <标题>` 新建，或先发送 `/threads` 再用 `/use thread <编号>` 选择另一个会话。'

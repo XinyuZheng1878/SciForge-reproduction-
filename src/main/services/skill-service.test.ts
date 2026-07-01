@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   defaultConnectPhoneSettings,
@@ -13,7 +13,7 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
-import { listGuiSkills } from './skill-service'
+import { guiSkillRootsForRuntime, listGuiSkills } from './skill-service'
 
 describe('skill-service', () => {
   let tempRoot = ''
@@ -132,6 +132,25 @@ describe('skill-service', () => {
     }))
   })
 
+  it('keeps generic default global skill roots neutral without falling back to ~/.kun', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-default-roots')
+    const homeRoot = join(tempRoot, 'home')
+    const neutralRoot = join(homeRoot, '.agents', 'skills')
+    const kunHome = join(homeRoot, '.kun')
+    const kunRoot = join(kunHome, 'skills')
+    await mkdir(neutralRoot, { recursive: true })
+    await mkdir(kunRoot, { recursive: true })
+
+    await withHome(homeRoot, async () => {
+      const roots = await guiSkillRootsForRuntime(createSettings(workspaceRoot), workspaceRoot)
+
+      expect(roots).toEqual(expect.arrayContaining([
+        { path: neutralRoot, scope: 'global' }
+      ]))
+      expect(roots.some((root) => root.path === kunHome || root.path.startsWith(`${kunHome}${sep}`))).toBe(false)
+    })
+  })
+
   function createSettings(workspaceRoot: string): AppSettingsV1 {
     return {
       version: 1,
@@ -152,6 +171,27 @@ describe('skill-service', () => {
     workflow: defaultWorkflowSettings(),
       guiUpdate: { channel: 'stable' },
       codePromptPrefix: ''
+    }
+  }
+
+  async function withHome<T>(homeRoot: string, action: () => Promise<T>): Promise<T> {
+    const originalHome = process.env.HOME
+    const originalUserProfile = process.env.USERPROFILE
+    process.env.HOME = homeRoot
+    process.env.USERPROFILE = homeRoot
+    try {
+      return await action()
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME
+      } else {
+        process.env.HOME = originalHome
+      }
+      if (originalUserProfile === undefined) {
+        delete process.env.USERPROFILE
+      } else {
+        process.env.USERPROFILE = originalUserProfile
+      }
     }
   }
 })

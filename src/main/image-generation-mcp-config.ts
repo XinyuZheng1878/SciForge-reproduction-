@@ -76,7 +76,7 @@ export function buildImageGenerationMcpServerConfig(
   })
 }
 
-export function buildImageGenerationKunMcpServerConfig(
+export function buildImageGenerationLocalRuntimeMcpServerConfig(
   launch: ImageGenerationMcpLaunchConfig,
   existing: unknown = {},
   workspaceRoot?: string,

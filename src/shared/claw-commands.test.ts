@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parseClawCommand } from './claw-commands'
 
 describe('parseClawCommand', () => {
-  it('parses the PROJECT.md minimal command set', () => {
+  it('parses remote-channel selector and lifecycle commands', () => {
     expect(parseClawCommand('/help')).toEqual({ kind: 'help' })
     expect(parseClawCommand('/where')).toEqual({ kind: 'status', scope: 'where' })
     expect(parseClawCommand('/projects')).toEqual({ kind: 'projects' })
