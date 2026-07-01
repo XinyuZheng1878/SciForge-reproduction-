@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   agentRuntimeApprovalResolvePayloadSchema,
   agentRuntimeAuxiliaryPayloadSchema,
+  agentRuntimeListThreadsPayloadSchema,
   agentRuntimeSessionResumePayloadSchema,
   agentRuntimeThreadCompactPayloadSchema,
   agentRuntimeThreadDeletePayloadSchema,
@@ -122,6 +123,22 @@ describe('app-ipc-schemas', () => {
   })
 
   it('accepts neutral agent runtime event subscription and control payloads', () => {
+    expect(agentRuntimeListThreadsPayloadSchema.parse({
+      runtimeId: 'sciforge',
+      limit: 20,
+      search: ' side path ',
+      includeArchived: true,
+      includeSide: true,
+      summary: true
+    })).toEqual({
+      runtimeId: 'sciforge',
+      limit: 20,
+      search: 'side path',
+      includeArchived: true,
+      includeSide: true,
+      summary: true
+    })
+
     expect(agentRuntimeEventSubscribePayloadSchema.parse({
       runtimeId: 'sciforge',
       threadId: ' thread-1 ',

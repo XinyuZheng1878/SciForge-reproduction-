@@ -73,7 +73,6 @@ describe('detectClawScheduledTaskRequest Model Router calls', () => {
     await detectClawScheduledTaskRequest(
       settings(),
       'remind me tomorrow to stretch',
-      'deepseek-v4-pro',
       new Date('2026-06-09T12:00:00+08:00')
     )
 
@@ -103,7 +102,6 @@ describe('detectClawScheduledTaskRequest Model Router calls', () => {
     const result = await detectClawScheduledTaskRequest(
       appSettings,
       'remind me tomorrow to stretch',
-      'deepseek-v4-pro',
       new Date('2026-06-09T12:00:00+08:00')
     )
 
@@ -123,7 +121,6 @@ describe('detectClawScheduledTaskRequest Model Router calls', () => {
     const result = await detectClawScheduledTaskRequest(
       appSettings,
       'remind me tomorrow to stretch',
-      'deepseek-v4-pro',
       new Date('2026-06-09T12:00:00+08:00')
     )
 
@@ -143,7 +140,6 @@ describe('detectClawScheduledTaskRequest Model Router calls', () => {
     await detectClawScheduledTaskRequest(
       settings(),
       'remind me tomorrow to stretch',
-      'remote-provider-model',
       new Date('2026-06-09T12:00:00+08:00')
     )
 

@@ -525,9 +525,9 @@ function shouldShowThreadContextState(state: AgentRuntimeContextState): boolean 
 }
 
 export function isImageGenerationConfigured(
-  settings: Pick<ImageGenerationSettingsV1, 'enabled' | 'apiKey' | 'model'> | null | undefined
+  settings: Pick<ImageGenerationSettingsV1, 'enabled' | 'apiKey' | 'baseUrl' | 'model'> | null | undefined
 ): boolean {
-  return Boolean(settings?.enabled && settings.apiKey.trim() && settings.model.trim())
+  return Boolean(settings?.enabled && settings.apiKey.trim() && settings.baseUrl.trim() && settings.model.trim())
 }
 
 function useImageGenerationComposerSettings(): ImageGenerationSettingsV1 | null {

@@ -1372,7 +1372,7 @@ function ScientificSkillsStatusPanel({
                 <span
                   key={`${root.source}:${root.path}`}
                   className="rounded-md border border-ds-border-muted bg-ds-subtle px-2 py-0.5 font-mono text-[11px] text-ds-muted"
-                  title={root.path}
+                  title={scientificSkillsRootSourceTitle(root.source, root.path, t)}
                 >
                   {scientificSkillsRootSourceLabel(root.source, t)} · {root.skillCount}
                 </span>
@@ -1528,7 +1528,7 @@ function ScientificSkillsInstallDialog({
   )
 }
 
-function scientificSkillsRootSourceLabel(
+export function scientificSkillsRootSourceLabel(
   source: string,
   t: (key: string, values?: Record<string, unknown>) => string
 ): string {
@@ -1542,10 +1542,19 @@ function scientificSkillsRootSourceLabel(
     case 'global-agents':
       return t('pluginScientificSkillsRootGlobalAgents')
     case 'global-kun':
-      return t('pluginScientificSkillsRootGlobalKun')
+      return t('pluginScientificSkillsRootLegacyLocalRuntime')
     default:
       return source
   }
+}
+
+export function scientificSkillsRootSourceTitle(
+  source: string,
+  path: string,
+  t: (key: string, values?: Record<string, unknown>) => string
+): string {
+  if (source === 'global-kun') return t('pluginScientificSkillsRootLegacyLocalRuntimeTitle')
+  return path
 }
 
 function mcpRuntimeStatusLabel(

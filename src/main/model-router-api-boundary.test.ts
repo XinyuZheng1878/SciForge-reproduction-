@@ -18,6 +18,8 @@ type DirectCallHit = {
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const sourceRoots = ['src', 'kun/src', 'packages/workers', 'scripts']
+const guiRuntimeSourceRoots = ['src', 'kun/src']
+const runtimeImageDirectEnvSourceRoots = ['src/main', 'src/renderer', 'kun/src']
 const sourceExtensions = new Set([
   '.bat',
   '.cjs',
@@ -38,6 +40,11 @@ const excludedSegments = new Set(['dist', 'docs', 'node_modules', 'out', 'tests'
 const excludedFileNames = new Set(['package-lock.json'])
 const excludedPrefixes = ['packages/workers/model-router/']
 const testFilePattern = /(?:^|[/.-])(?:test|spec)\.[cm]?[jt]sx?$/
+const allowedLegacyImageDirectWorkerEnvFiles = new Set([
+  'src/main/image-generation-mcp-config.ts',
+  'src/main/image-generation-mcp-server.ts',
+  'src/main/image-generation-mcp-node-entry.ts'
+])
 
 const directCallMarkers: DirectCallMarker[] = [
   { label: 'DeepSeek API host', pattern: /api\.deepseek\.com/i },
@@ -84,12 +91,18 @@ function collectProductionFiles(root: string): string[] {
   return isSourceLikeFile(root) ? [root] : []
 }
 
-function scanProductionDirectCallMarkers(): { files: string[]; hits: DirectCallHit[] } {
-  const files = sourceRoots
+function scanProductionFiles(sourceRootsToScan: string[] = sourceRoots): string[] {
+  return sourceRootsToScan
     .flatMap((sourceRoot) => collectProductionFiles(join(repoRoot, sourceRoot)))
     .filter((path) => !isExcludedProductionPath(path))
     .map(toRepoPath)
     .sort()
+}
+
+function scanProductionDirectCallMarkers(
+  sourceRootsToScan: string[] = sourceRoots
+): { files: string[]; hits: DirectCallHit[] } {
+  const files = scanProductionFiles(sourceRootsToScan)
 
   const hits = files.flatMap((file) => {
     const absolutePath = join(repoRoot, file)
@@ -115,7 +128,11 @@ function scanProductionDirectCallMarkers(): { files: string[]; hits: DirectCallH
 }
 
 function scanProductionText(pattern: RegExp): DirectCallHit[] {
-  const { files } = scanProductionDirectCallMarkers()
+  return scanProductionTextInRoots(sourceRoots, pattern)
+}
+
+function scanProductionTextInRoots(sourceRootsToScan: string[], pattern: RegExp): DirectCallHit[] {
+  const files = scanProductionFiles(sourceRootsToScan)
   return files.flatMap((file) => {
     const absolutePath = join(repoRoot, file)
     return readFileSync(absolutePath, 'utf8').split(/\r?\n/).flatMap((text, index) => {
@@ -164,6 +181,21 @@ function formatHits(hits: DirectCallHit[]): string {
     .join('\n')
 }
 
+function isAllowedLegacyImageDirectWorkerEnvMarker(hit: DirectCallHit): boolean {
+  if (allowedLegacyImageDirectWorkerEnvFiles.has(hit.file)) return true
+  return (
+    hit.file === 'src/main/local-runtime-process.ts' &&
+    hit.text.includes('LEGACY_DIRECT_WORKER_ENV_PREFIXES')
+  )
+}
+
+function isAllowedSciModalityBoundaryMarker(hit: DirectCallHit): boolean {
+  return (
+    hit.file === 'src/main/local-runtime-process.ts' &&
+    hit.text.includes('LEGACY_DIRECT_WORKER_ENV_PREFIXES')
+  )
+}
+
 describe('model router API boundary static audit inventory', () => {
   it('keeps the static scan scoped to production code outside the Model Router package', () => {
     const { files, hits } = scanProductionDirectCallMarkers()
@@ -189,5 +221,23 @@ describe('P7/P8 model router API boundary enforcement', () => {
     const directConstructors = scanProductionText(/\bnew\s+DeepseekCompatModelClient\b/)
 
     expect(directConstructors.map((hit) => hit.file)).toEqual(['kun/src/server/runtime-factory.ts'])
+  })
+
+  it('blocks GUI/runtime direct calls to the sci-modality service endpoint', () => {
+    const directSciModalityHits = [
+      ...scanProductionTextInRoots(guiRuntimeSourceRoots, /\bSCIFORGE_SCIMODALITY_SERVICE_[A-Z0-9_]+\b/),
+      ...scanProductionTextInRoots(guiRuntimeSourceRoots, /\/modality\/translate/)
+    ].filter((hit) => !isAllowedSciModalityBoundaryMarker(hit))
+
+    expect(formatHits(directSciModalityHits)).toBe('')
+  })
+
+  it('keeps legacy image direct provider env contained to the managed image-generation worker', () => {
+    const legacyImageEnvHits = scanProductionTextInRoots(
+      runtimeImageDirectEnvSourceRoots,
+      /\bSCIFORGE_IMAGE_[A-Z0-9_]+\b/
+    ).filter((hit) => !isAllowedLegacyImageDirectWorkerEnvMarker(hit))
+
+    expect(formatHits(legacyImageEnvHits)).toBe('')
   })
 })

@@ -146,6 +146,7 @@ export const agentRuntimeListThreadsPayloadSchema = z.object({
   search: z.string().trim().max(256).optional(),
   includeArchived: z.boolean().optional(),
   archivedOnly: z.boolean().optional(),
+  includeSide: z.boolean().optional(),
   summary: z.boolean().optional()
 }).strict()
 

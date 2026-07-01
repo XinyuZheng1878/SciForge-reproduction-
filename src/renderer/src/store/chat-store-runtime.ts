@@ -621,10 +621,19 @@ function refreshCompletedThreadSnapshot(
           typeof detail.latestSeq === 'number'
             ? Math.max(state.lastSeq, detail.latestSeq)
             : state.lastSeq
-        if (mergedBlocks === state.blocks && latestSeq === state.lastSeq) return {}
+        const activeThreadGoal = detail.goal ?? null
+        const activeThreadTodos = detail.todos ?? null
+        const threads = state.threads.map((thread) =>
+          thread.id === targetThreadId
+            ? { ...thread, goal: activeThreadGoal, todos: activeThreadTodos }
+            : thread
+        )
         return {
           blocks: mergedBlocks,
           lastSeq: latestSeq,
+          threads,
+          activeThreadGoal,
+          activeThreadTodos,
           liveAssistant: '',
           liveReasoning: '',
           liveReasoningMeta: null

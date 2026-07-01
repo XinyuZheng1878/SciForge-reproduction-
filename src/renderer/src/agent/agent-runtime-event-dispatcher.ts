@@ -281,8 +281,8 @@ function todosFromEvent(event: Extract<AgentRuntimeEvent, { kind: 'todo_event' }
       content: item.content,
       status: item.status,
       ...(item.source ? { source: item.source as ThreadTodoSource } : {}),
-      createdAt: now,
-      updatedAt: now
+      createdAt: item.createdAt || now,
+      updatedAt: item.updatedAt || now
     }))
   }
 }

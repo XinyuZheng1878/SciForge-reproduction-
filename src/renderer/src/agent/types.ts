@@ -201,6 +201,7 @@ export type ThreadListOptions = {
   search?: string
   includeArchived?: boolean
   archivedOnly?: boolean
+  includeSide?: boolean
   summary?: boolean
 }
 

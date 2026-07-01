@@ -551,8 +551,8 @@ describe('agent runtime event dispatcher', () => {
           id: 'todo-1',
           content: 'Map events',
           status: 'pending',
-          createdAt: '2026-06-11T00:00:00.000Z',
-          updatedAt: '2026-06-11T00:00:00.000Z',
+          createdAt: '2026-06-10T23:59:58.000Z',
+          updatedAt: '2026-06-10T23:59:59.000Z',
           source: {
             kind: 'plan',
             planId: 'plan-1',
@@ -603,6 +603,8 @@ describe('agent runtime event dispatcher', () => {
             id: 'todo-1',
             content: 'Map events',
             status: 'pending',
+            createdAt: '2026-06-10T23:59:58.000Z',
+            updatedAt: '2026-06-10T23:59:59.000Z',
             source: {
               kind: 'plan',
               planId: 'plan-1',

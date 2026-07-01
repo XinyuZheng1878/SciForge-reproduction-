@@ -123,7 +123,8 @@ function normalizeThread(thread: AgentRuntimeThread): NormalizedThread {
     forkedAt: thread.forkedAt,
     forkedFromMessageCount: thread.forkedFromMessageCount,
     forkedFromTurnCount: thread.forkedFromTurnCount,
-    goal: thread.goal ?? null
+    goal: thread.goal ?? null,
+    todos: thread.todos ?? null
   }
   return {
     ...normalized,

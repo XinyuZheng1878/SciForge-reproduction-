@@ -95,6 +95,26 @@ function jsonResponse(body: unknown) {
 }
 
 describe('createLocalRuntimeAgentRuntimeAdapter', () => {
+  it('passes side conversation inclusion only when explicitly requested', async () => {
+    const request = vi.fn(async (
+      _settings: AppSettingsV1,
+      _pathAndQuery: string,
+      _init: { method?: string }
+    ) => jsonResponse({ threads: [] }))
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({ request })
+    const context = { settings: buildSettings() }
+
+    await adapter.listThreads(context, {})
+    await adapter.listThreads(context, { includeSide: false })
+    await adapter.listThreads(context, { includeSide: true })
+
+    expect(request.mock.calls.map(([, pathAndQuery]) => pathAndQuery)).toEqual([
+      '/v1/threads',
+      '/v1/threads',
+      '/v1/threads?include=side'
+    ])
+  })
+
   it('reports GUI-managed computer-use MCP capability through the shared runtime contract', async () => {
     const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async (_settings, pathAndQuery) => {
@@ -293,6 +313,89 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     ])
   })
 
+  it('maps local runtime todo snapshots and create_plan result metadata', async () => {
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
+      request: vi.fn(async () => jsonResponse({
+        id: 'thread-1',
+        title: 'Thread 1',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+        todos: {
+          threadId: 'thread-1',
+          updatedAt: '2026-06-02T00:00:02.000Z',
+          items: [{
+            id: 'todo-1',
+            content: 'Write replay test',
+            status: 'in_progress',
+            createdAt: '2026-06-02T00:00:01.000Z',
+            updatedAt: '2026-06-02T00:00:02.000Z',
+            source: {
+              kind: 'plan',
+              planId: 'plan-1',
+              relativePath: '.sciforge/plan/replay.md',
+              ordinal: 0,
+              contentHash: 'hash-1'
+            }
+          }]
+        },
+        turns: [{
+          id: 'turn-1',
+          threadId: 'thread-1',
+          status: 'completed',
+          items: [{
+            id: 'tool-result-source',
+            kind: 'tool_result',
+            status: 'success',
+            callId: 'call-plan',
+            toolName: 'create_plan',
+            output: {
+              summary: 'Saved plan',
+              plan_id: 'plan-1',
+              workspace_root: '/workspace',
+              relative_path: '.sciforge/plan/replay.md',
+              operation: 'draft',
+              saved_at: '2026-06-02T00:00:03.000Z',
+              content_hash: 'hash-1'
+            }
+          }]
+        }]
+      }))
+    })
+
+    const detail = await adapter.readThread({ settings: buildSettings() }, { threadId: 'thread-1' })
+    const tool = detail.items?.find((item) => item.kind === 'tool')
+
+    expect(detail.todos).toEqual({
+      threadId: 'thread-1',
+      updatedAt: '2026-06-02T00:00:02.000Z',
+      items: [expect.objectContaining({
+        id: 'todo-1',
+        content: 'Write replay test',
+        status: 'in_progress',
+        source: {
+          kind: 'plan',
+          planId: 'plan-1',
+          relativePath: '.sciforge/plan/replay.md',
+          ordinal: 0,
+          contentHash: 'hash-1'
+        }
+      })]
+    })
+    expect(tool).toEqual(expect.objectContaining({
+      id: 'tool_call-plan',
+      status: 'success',
+      meta: expect.objectContaining({
+        callId: 'call-plan',
+        toolName: 'create_plan',
+        plan: expect.objectContaining({
+          plan_id: 'plan-1',
+          workspace_root: '/workspace',
+          relative_path: '.sciforge/plan/replay.md',
+          operation: 'draft'
+        })
+      })
+    }))
+  })
+
   it('maps local runtime tool_call_ready events onto the same tool event chain', async () => {
     const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async () => jsonResponse({})),
@@ -336,6 +439,68 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
           readyCount: 1,
           runtimeStatus: 'tool_call_ready'
         })
+      })
+    ])
+  })
+
+  it('maps local runtime todo events into neutral todo events', async () => {
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({
+      request: vi.fn(async () => jsonResponse({})),
+      events: async function* () {
+        yield {
+          kind: 'todos_updated',
+          threadId: 'thread-1',
+          seq: 8,
+          timestamp: '2026-06-02T00:00:05.000Z',
+          todos: {
+            threadId: 'thread-1',
+            updatedAt: '2026-06-02T00:00:04.000Z',
+            items: [{
+              id: 'todo-1',
+              content: 'Map todo event',
+              status: 'completed',
+              createdAt: '2026-06-02T00:00:01.000Z',
+              updatedAt: '2026-06-02T00:00:04.000Z'
+            }]
+          }
+        }
+        yield {
+          kind: 'todos_cleared',
+          threadId: 'thread-1',
+          seq: 9,
+          timestamp: '2026-06-02T00:00:06.000Z',
+          cleared: true
+        }
+      }
+    })
+
+    const events = []
+    for await (const event of adapter.subscribeEvents?.(
+      { settings: buildSettings() },
+      { threadId: 'thread-1', sinceSeq: 0 }
+    ) ?? []) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'todo_event',
+        threadId: 'thread-1',
+        seq: 8,
+        items: [expect.objectContaining({
+          id: 'todo-1',
+          content: 'Map todo event',
+          status: 'completed',
+          createdAt: '2026-06-02T00:00:01.000Z',
+          updatedAt: '2026-06-02T00:00:04.000Z'
+        })]
+      }),
+      expect.objectContaining({
+        kind: 'todo_event',
+        threadId: 'thread-1',
+        seq: 9,
+        items: [],
+        cleared: true
       })
     ])
   })

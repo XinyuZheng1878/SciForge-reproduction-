@@ -151,6 +151,20 @@ describe('chat-store-navigation-actions refreshThreads', () => {
     expect(provider.listThreads).toHaveBeenCalledTimes(2)
   })
 
+  it('does not request side conversations during default navigation refresh', async () => {
+    const activeThread = thread('active-thread', 'sciforge')
+    const listedThread = thread('listed-thread', 'sciforge')
+    const { refreshThreads, provider } = buildHarness({
+      activeRuntime: 'sciforge',
+      activeThread,
+      listedThreads: [listedThread]
+    })
+
+    await refreshThreads()
+
+    expect(provider.listThreads).toHaveBeenCalledWith({ limit: 200, includeArchived: true })
+  })
+
   it('preserves an unlisted active thread when it belongs to the active runtime', async () => {
     const pendingCodexThread = thread('pending-codex-thread', 'codex')
     const { refreshThreads, state } = buildHarness({

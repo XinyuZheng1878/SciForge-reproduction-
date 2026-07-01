@@ -286,24 +286,32 @@ describe('startLocalRuntimeChild', () => {
   })
 
   it('passes only the local Model Router env to the local runtime', async () => {
-    const previousDeepSeekApiKey = process.env.DEEPSEEK_API_KEY
-    const previousDeepSeekBaseUrl = process.env.DEEPSEEK_BASE_URL
-    const previousLocalRuntimeBaseUrl = process.env.KUN_BASE_URL
-    const previousModelProvider = process.env.MODEL_PROVIDER
-    process.env.DEEPSEEK_API_KEY = 'outer-upstream-secret'
-    process.env.DEEPSEEK_BASE_URL = 'https://direct-provider.example/v1'
-    process.env.KUN_BASE_URL = 'https://direct-local-runtime-provider.example/v1'
-    process.env.MODEL_PROVIDER = 'direct-provider'
+    const blockedParentEnv = {
+      DEEPSEEK_API_KEY: 'outer-upstream-secret',
+      DEEPSEEK_BASE_URL: 'https://direct-provider.example/v1',
+      KUN_BASE_URL: 'https://direct-local-runtime-provider.example/v1',
+      MODEL_PROVIDER: 'direct-provider',
+      SCIFORGE_IMAGE_API_KEY: 'outer-image-key',
+      SCIFORGE_IMAGE_BASE_URL: 'https://direct-image-provider.example/v1',
+      SCIFORGE_IMAGE_MODEL: 'outer-image-model',
+      SCIFORGE_IMAGE_ALLOW_PLACEHOLDER: '1',
+      SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://127.0.0.1:3898',
+      SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'outer-sci-modality-token',
+      SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345'
+    }
+    const previousParentEnv = Object.fromEntries(
+      Object.keys(blockedParentEnv).map((name) => [name, process.env[name]])
+    )
+    Object.assign(process.env, blockedParentEnv)
     const script = writeScript(
       'env-child.js',
       [
-        "if (process.env.DEEPSEEK_API_KEY !== undefined) {",
-        "  process.stderr.write('leaked upstream key ' + String(process.env.DEEPSEEK_API_KEY) + '\\n')",
-        '  process.exit(24)',
-        '}',
-        "if (process.env.DEEPSEEK_BASE_URL !== undefined || process.env.KUN_BASE_URL !== undefined || process.env.MODEL_PROVIDER !== undefined) {",
-        "  process.stderr.write('leaked upstream config\\n')",
-        '  process.exit(24)',
+        `const blockedParentEnvNames = ${JSON.stringify(Object.keys(blockedParentEnv))}`,
+        'for (const name of blockedParentEnvNames) {',
+        '  if (process.env[name] !== undefined) {',
+        "    process.stderr.write('leaked parent env ' + name + '=' + String(process.env[name]) + '\\n')",
+        '    process.exit(24)',
+        '  }',
         '}',
         "if (process.env.KUN_MODEL_ROUTER_API_KEY !== 'local-runtime-router-key') {",
         "  process.stderr.write('unexpected router key ' + String(process.env.KUN_MODEL_ROUTER_API_KEY) + '\\n')",
@@ -354,17 +362,10 @@ describe('startLocalRuntimeChild', () => {
       await expect(module.startLocalRuntimeChild(createSettings(script))).resolves.toBeUndefined()
       await module.stopLocalRuntimeChildAndWait()
     } finally {
-      if (previousDeepSeekApiKey === undefined) {
-        delete process.env.DEEPSEEK_API_KEY
-      } else {
-        process.env.DEEPSEEK_API_KEY = previousDeepSeekApiKey
+      for (const [name, value] of Object.entries(previousParentEnv)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
       }
-      if (previousDeepSeekBaseUrl === undefined) delete process.env.DEEPSEEK_BASE_URL
-      else process.env.DEEPSEEK_BASE_URL = previousDeepSeekBaseUrl
-      if (previousLocalRuntimeBaseUrl === undefined) delete process.env.KUN_BASE_URL
-      else process.env.KUN_BASE_URL = previousLocalRuntimeBaseUrl
-      if (previousModelProvider === undefined) delete process.env.MODEL_PROVIDER
-      else process.env.MODEL_PROVIDER = previousModelProvider
     }
   })
 

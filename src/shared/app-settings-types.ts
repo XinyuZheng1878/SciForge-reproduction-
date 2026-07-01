@@ -18,8 +18,6 @@ export type ScheduleReasoningEffort = 'off' | 'low' | 'medium' | 'high' | 'max'
 export type ClawRunMode = ScheduleRunMode
 export type ClawImProvider = 'feishu' | 'weixin' | 'discord'
 export type ClawImChannelGuardModeV1 = 'only_mention' | 'all_messages' | 'off'
-export type ClawScheduleKind = ScheduleKind
-export type ClawTaskStatus = ScheduleTaskStatus
 export type ClawModel = ScheduleModel
 
 export const DEFAULT_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
@@ -1308,8 +1306,6 @@ export type ScheduleTaskFromTextResult =
   | { kind: 'noop' }
   | { kind: 'created'; taskId: string; title: string; scheduleAt: string; confirmationText: string }
   | { kind: 'error'; message: string }
-
-export type ClawTaskFromTextResult = ScheduleTaskFromTextResult
 
 export type ClawRuntimeStatus = {
   imServerRunning: boolean

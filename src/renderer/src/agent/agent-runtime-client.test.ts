@@ -25,11 +25,11 @@ describe('agentRuntimeClient', () => {
       }
     })
 
-    await expect(agentRuntimeClient.listThreads({ runtimeId: 'codex', limit: 1 })).resolves.toEqual([
+    await expect(agentRuntimeClient.listThreads({ runtimeId: 'codex', limit: 1, includeSide: true })).resolves.toEqual([
       { id: 'thread-1', runtimeId: 'codex', title: 'One', updatedAt: '2026-06-11T00:00:00.000Z' }
     ])
 
-    expect(listThreads).toHaveBeenCalledWith({ runtimeId: 'codex', limit: 1 })
+    expect(listThreads).toHaveBeenCalledWith({ runtimeId: 'codex', limit: 1, includeSide: true })
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(codexListThreads).not.toHaveBeenCalled()
   })

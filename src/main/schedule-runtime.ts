@@ -124,11 +124,7 @@ export class ScheduleRuntime {
   ): Promise<ScheduleTaskFromTextResult> {
     const settings = await this.deps.store.load()
     try {
-      const request = await detectClawScheduledTaskRequest(
-        settings,
-        text,
-        options.modelHint?.trim() || settings.schedule.model || DEFAULT_SCHEDULE_MODEL
-      )
+      const request = await detectClawScheduledTaskRequest(settings, text)
       if (!request) return { kind: 'noop' }
       const task = buildScheduledTaskFromDetectedRequest({
         request,

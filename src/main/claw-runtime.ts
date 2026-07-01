@@ -705,10 +705,6 @@ export class ClawRuntime {
     }
   }
 
-  async runTask(_taskId: string): Promise<ClawRunResult> {
-    return { ok: false, message: 'Remote channel scheduled tasks have moved to Schedule.' }
-  }
-
   private logRemoteFailure(
     category: string,
     message: string,

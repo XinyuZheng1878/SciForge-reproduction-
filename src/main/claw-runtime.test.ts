@@ -592,43 +592,6 @@ describe('ClawRuntime', () => {
     expect('tasks' in settings.remoteChannel).toBe(false)
   })
 
-  it('reports that scheduled tasks have moved to Schedule', async () => {
-    const settings = buildSettings()
-    let currentSettings = settings
-    const forbiddenDirectCall = vi.fn(async (_settings, path, init) => {
-      if (path === '/v1/threads') {
-        return { ok: true, status: 200, body: JSON.stringify({ id: 'thr_1' }) }
-      }
-      if (path === '/v1/threads/thr_1') {
-        return { ok: true, status: 200, body: '{}' }
-      }
-      if (path === '/v1/threads/thr_1/turns') {
-        return { ok: true, status: 202, body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_1' }) }
-      }
-      throw new Error(`unexpected path ${path}`)
-    })
-    const store = {
-      load: vi.fn(async () => currentSettings),
-      patch: vi.fn(async (partial: Partial<AppSettingsV1>) => {
-        currentSettings = {
-          ...currentSettings,
-          ...partial,
-          remoteChannel: { ...currentSettings.remoteChannel, ...(partial.remoteChannel ?? {}) }
-        }
-        return currentSettings
-      })
-    }
-    const runtime = createClawRuntime({
-      store: store as never,
-      logError: () => undefined
-    })
-
-    const result = await runtime.runTask('task_1')
-
-    expect(result).toEqual({ ok: false, message: 'Remote channel scheduled tasks have moved to Schedule.' })
-    expect(forbiddenDirectCall).not.toHaveBeenCalled()
-  })
-
   it('accepts assistant_text items when waiting for a Claw turn result', async () => {
     const settings = buildSettings()
     const forbiddenDirectCall = vi.fn()

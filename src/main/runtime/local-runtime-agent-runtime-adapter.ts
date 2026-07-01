@@ -14,6 +14,10 @@ import type {
   AgentRuntimeThread,
   AgentRuntimeThreadGoal,
   AgentRuntimeThreadDetail,
+  AgentRuntimeTodoItem,
+  AgentRuntimeTodoList,
+  AgentRuntimeTodoSource,
+  AgentRuntimeTodoStatus,
   AgentRuntimeToolKind,
   AgentRuntimeTurn,
   AgentRuntimeTurnHandle,
@@ -619,12 +623,14 @@ function threadListQuery(input: {
   search?: string
   includeArchived?: boolean
   archivedOnly?: boolean
+  includeSide?: boolean
 }): string {
   const query = new URLSearchParams()
   if (typeof input.limit === 'number') query.set('limit', String(input.limit))
   if (input.search?.trim()) query.set('search', input.search.trim())
   if (typeof input.includeArchived === 'boolean') query.set('include_archived', String(input.includeArchived))
   if (typeof input.archivedOnly === 'boolean') query.set('archived_only', String(input.archivedOnly))
+  if (input.includeSide === true) query.set('include', 'side')
   const value = query.toString()
   return value ? `?${value}` : ''
 }
@@ -666,7 +672,8 @@ function mapLocalRuntimeThread(value: unknown): AgentRuntimeThread {
     forkedAt: optionalString(record.forkedAt) ?? optionalString(record.forked_at),
     forkedFromMessageCount: numberValue(record.forkedFromMessageCount) ?? numberValue(record.forked_from_message_count),
     forkedFromTurnCount: numberValue(record.forkedFromTurnCount) ?? numberValue(record.forked_from_turn_count),
-    goal: mapLocalRuntimeGoal(record.goal, id)
+    goal: mapLocalRuntimeGoal(record.goal, id),
+    todos: mapLocalRuntimeTodoList(record.todos, id)
   }
 }
 
@@ -837,11 +844,29 @@ function localRuntimeToolMeta(
   toolName: string
 ): Record<string, unknown> {
   const callId = stringValue(record.callId)
+  const plan = localRuntimePlanToolMeta(toolName, record.output)
   return {
     sourceItemId,
     ...(callId ? { callId } : {}),
-    ...(toolName ? { toolName } : {})
+    ...(toolName ? { toolName } : {}),
+    ...(plan ? { plan } : {})
   }
+}
+
+function localRuntimePlanToolMeta(toolName: string, output: unknown): Record<string, unknown> | null {
+  if (toolName !== 'create_plan') return null
+  const record = asRecord(output)
+  if (!record) return null
+  const operation = stringValue(record.operation)
+  if (
+    !stringValue(record.plan_id) ||
+    !stringValue(record.workspace_root) ||
+    !stringValue(record.relative_path) ||
+    (operation !== 'draft' && operation !== 'refine')
+  ) {
+    return null
+  }
+  return record
 }
 
 function mapTurnHandle(value: unknown, fallbackThreadId: string): AgentRuntimeTurnHandle {
@@ -1032,6 +1057,21 @@ function mapLocalRuntimeEvent(value: unknown, fallbackThreadId: string): AgentRu
     }
   }
 
+  if (kind === 'todos_updated' || kind === 'todos_cleared') {
+    const todos = mapLocalRuntimeTodoList(record.todos, threadId)
+    return {
+      kind: 'todo_event',
+      threadId,
+      runtimeId: SCIFORGE_RUNTIME_ID,
+      seq,
+      createdAt: createdAt ?? todos?.updatedAt,
+      turnId,
+      itemId: itemId || optionalString(record.itemId),
+      items: todos?.items ?? [],
+      cleared: kind === 'todos_cleared' || record.cleared === true
+    }
+  }
+
   if (
     kind === 'item_created' ||
     kind === 'item_updated' ||
@@ -1097,6 +1137,52 @@ function mapLocalRuntimeGoalStatus(value: string): Extract<AgentRuntimeEvent, { 
     return value
   }
   return undefined
+}
+
+function mapLocalRuntimeTodoList(value: unknown, fallbackThreadId: string): AgentRuntimeTodoList | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const items = arrayValue(record.items)
+    .map((item) => mapLocalRuntimeTodoItem(item))
+    .filter(Boolean) as AgentRuntimeTodoItem[]
+  return {
+    threadId: stringValue(record.threadId) || stringValue(record.thread_id) || fallbackThreadId,
+    updatedAt: optionalString(record.updatedAt) ?? optionalString(record.updated_at) ?? new Date().toISOString(),
+    items
+  }
+}
+
+function mapLocalRuntimeTodoItem(value: unknown): AgentRuntimeTodoItem | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const id = stringValue(record.id)
+  const content = stringValue(record.content).trim()
+  const status = mapLocalRuntimeTodoStatus(record.status)
+  const source = mapLocalRuntimeTodoSource(record.source)
+  if (!id || !content || !status) return null
+  return {
+    id,
+    content,
+    status,
+    ...(source ? { source } : {}),
+    createdAt: optionalString(record.createdAt) ?? optionalString(record.created_at) ?? new Date().toISOString(),
+    updatedAt: optionalString(record.updatedAt) ?? optionalString(record.updated_at) ?? new Date().toISOString()
+  }
+}
+
+function mapLocalRuntimeTodoStatus(value: unknown): AgentRuntimeTodoStatus | null {
+  return value === 'pending' || value === 'in_progress' || value === 'completed' ? value : null
+}
+
+function mapLocalRuntimeTodoSource(value: unknown): AgentRuntimeTodoSource | undefined {
+  const record = asRecord(value)
+  if (!record || record.kind !== 'plan') return undefined
+  const planId = stringValue(record.planId) || stringValue(record.plan_id)
+  const relativePath = stringValue(record.relativePath) || stringValue(record.relative_path)
+  const ordinal = numberValue(record.ordinal)
+  const contentHash = stringValue(record.contentHash) || stringValue(record.content_hash)
+  if (!planId || !relativePath || ordinal === undefined || !contentHash) return undefined
+  return { kind: 'plan', planId, relativePath, ordinal, contentHash }
 }
 
 function isNeutralEvent(record: Record<string, unknown>): boolean {

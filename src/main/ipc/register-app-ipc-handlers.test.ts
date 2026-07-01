@@ -621,6 +621,18 @@ describe('registerAppIpcHandlers', () => {
       handlers.get('agentRuntime:capabilities')?.({}, { runtimeId: 'codex' })
     ).resolves.toMatchObject({ runtimeId: 'codex' })
     await expect(
+      handlers.get('agentRuntime:listThreads')?.({}, {
+        runtimeId: 'sciforge',
+        includeSide: true,
+        limit: 20
+      })
+    ).resolves.toEqual([])
+    expect(agentRuntime.listThreads).toHaveBeenCalledWith({
+      runtimeId: 'sciforge',
+      includeSide: true,
+      limit: 20
+    })
+    await expect(
       handlers.get('agentRuntime:startTurn')?.({}, { runtimeId: 'codex', threadId: 'thread-1', text: ' hello ' })
     ).resolves.toEqual({ threadId: 'thread-1', turnId: 'turn-1' })
     await expect(

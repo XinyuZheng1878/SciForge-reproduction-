@@ -963,7 +963,7 @@ on the system. It includes:
 - Connect phone / remote channel (`getConnectPhoneStatus`,
   `startConnectPhoneInstallQr`,
   `pollConnectPhoneInstall`, `createRemoteChannelTaskFromText`,
-  `mirrorRemoteChannelMessageToFeishu`, `onRemoteChannelActivity`).
+  `onRemoteChannelActivity`).
 - Schedule (`getScheduleStatus`, `runScheduleTask`).
 - Shell / notifications / updater / logger (`openExternal`,
   `showTurnCompleteNotification`, `getGuiUpdateState`,

@@ -516,21 +516,30 @@ describe('FloatingComposer image transfer helpers', () => {
 })
 
 describe('FloatingComposer image generation helpers', () => {
-  it('requires an enabled image model with an API key and model id', () => {
+  it('requires an enabled image model with an API key, base URL, and model id', () => {
     expect(isImageGenerationConfigured(null)).toBe(false)
     expect(isImageGenerationConfigured({
       enabled: false,
       apiKey: 'sk-image',
+      baseUrl: 'https://image.example/v1',
       model: 'gpt-image-1'
     })).toBe(false)
     expect(isImageGenerationConfigured({
       enabled: true,
       apiKey: '',
+      baseUrl: 'https://image.example/v1',
       model: 'gpt-image-1'
     })).toBe(false)
     expect(isImageGenerationConfigured({
       enabled: true,
       apiKey: 'sk-image',
+      baseUrl: '',
+      model: 'gpt-image-1'
+    })).toBe(false)
+    expect(isImageGenerationConfigured({
+      enabled: true,
+      apiKey: 'sk-image',
+      baseUrl: 'https://image.example/v1',
       model: 'gpt-image-1'
     })).toBe(true)
   })

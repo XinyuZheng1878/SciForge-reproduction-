@@ -12,13 +12,7 @@ SciForge v1 将本地已安装的 `K-Dense-AI/scientific-agent-skills` 作为只
 
 默认后端是 `git clone https://github.com/K-Dense-AI/scientific-agent-skills.git`，首次安装使用 `main`，安装后写入 `.sciforge-provenance.json` 记录 source、backend、ref、commit、installedAt、targetPath 和 installerVersion。
 
-如果希望沿用外部 skills CLI，也可以在 SciForge 外部运行：
-
-```bash
-npx skills add K-Dense-AI/scientific-agent-skills
-```
-
-插件页的 `npx skills add` 后端也仅作为兼容入口：它遵循外部 `skills` CLI 自己的目录策略，完成后 SciForge 重新 discovery，并以实际识别到的 K-Dense 路径为准。未检测到安装时，MCP 工具会返回安装提示，而不是崩溃或静默下载。
+外部 skills CLI / legacy/local runtime 迁移输入待决策；当前文档以 workspace 安装方式为准。若已存在本地安装，SciForge 会按实际 discovery 结果只读索引；未检测到安装时，MCP 工具会返回安装提示，而不是崩溃或静默下载。
 
 ## 默认扫描路径
 
@@ -28,13 +22,13 @@ MCP server 会按顺序扫描：
 - 当前 workspace 的 `.agents/skills/scientific-agent-skills/skills`
 - 当前 workspace 的 `skills/scientific-agent-skills/skills`
 - `~/.agents/skills/scientific-agent-skills/skills`
-- `~/.kun/skills/scientific-agent-skills/skills`
+- legacy/local runtime 迁移输入待决策
 
 如果 `SCIFORGE_KDENSE_SKILLS_ROOT` 指向仓库根目录，SciForge 会同时尝试其 `skills` 子目录。
 
 ## MCP 配置
 
-插件页推荐项为 `K-Dense Scientific Agent Skills`。点击添加后，SciForge 只写入 `~/.kun/mcp.json` 中的 `servers.scientific_skills` 配置，不会把 K-Dense 全库加入 `capabilities.skills.roots`，因此不会把全部第三方 skill 展开成常驻 slash command 或 prompt 注入内容。
+插件页推荐项为 `K-Dense Scientific Agent Skills`。点击添加后，SciForge 只写入当前本地 runtime MCP 配置 `~/.sciforge/mcp.json` 的 `scientific_skills` server 配置，不会把 K-Dense 全库加入 `capabilities.skills.roots`，因此不会把全部第三方 skill 展开成常驻 slash command 或 prompt 注入内容。
 
 插件页还会显示 K-Dense 本地状态：
 

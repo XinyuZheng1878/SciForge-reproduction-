@@ -204,7 +204,6 @@ export function looksLikeClawScheduledTaskCandidate(text: string): boolean {
 export async function detectClawScheduledTaskRequest(
   settings: AppSettingsV1,
   sourceText: string,
-  _modelHint: string,
   now = new Date()
 ): Promise<ParsedClawScheduledTaskRequest | null> {
   if (!looksLikeClawScheduledTaskCandidate(sourceText)) return null

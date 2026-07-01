@@ -133,7 +133,23 @@ describe('AgentRuntimeProvider', () => {
   it('routes provider operations through neutral agentRuntime IPC with the active runtime id', async () => {
     const connect = vi.fn(async () => undefined)
     const listThreads = vi.fn(async () => [
-      { id: 'thread-1', runtimeId: 'codex', title: 'One', updatedAt: '2026-06-11T00:00:00.000Z' }
+      {
+        id: 'thread-1',
+        runtimeId: 'codex',
+        title: 'One',
+        updatedAt: '2026-06-11T00:00:00.000Z',
+        todos: {
+          threadId: 'thread-1',
+          updatedAt: '2026-06-11T00:00:03.000Z',
+          items: [{
+            id: 'todo-list-1',
+            content: 'Preserve list todos',
+            status: 'pending',
+            createdAt: '2026-06-11T00:00:01.000Z',
+            updatedAt: '2026-06-11T00:00:03.000Z'
+          }]
+        }
+      }
     ])
     const startThread = vi.fn(async () => ({
       id: 'thread-2',
@@ -216,9 +232,17 @@ describe('AgentRuntimeProvider', () => {
 
     await expect(provider.connect()).resolves.toBeUndefined()
     expect(provider.id).toBe('codex')
-    await expect(provider.listThreads({ limit: 1 })).resolves.toEqual([
-      expect.objectContaining({ id: 'thread-1', title: 'One', runtimeId: 'codex' })
+    await expect(provider.listThreads({ limit: 1, includeSide: true })).resolves.toEqual([
+      expect.objectContaining({
+        id: 'thread-1',
+        title: 'One',
+        runtimeId: 'codex',
+        todos: expect.objectContaining({
+          items: [expect.objectContaining({ id: 'todo-list-1' })]
+        })
+      })
     ])
+    expect(listThreads).toHaveBeenCalledWith({ limit: 1, includeSide: true })
     await expect(provider.createThread({ title: 'Two', workspace: '/tmp/workspace', mode: 'agent' })).resolves.toEqual(
       expect.objectContaining({ id: 'thread-2', title: 'Two', runtimeId: 'codex' })
     )
@@ -262,7 +286,7 @@ describe('AgentRuntimeProvider', () => {
     await expect(provider.deleteThread('thread-2')).resolves.toBeUndefined()
 
     expect(connect).toHaveBeenCalledWith('codex')
-    expect(listThreads).toHaveBeenCalledWith({ limit: 1 })
+    expect(listThreads).toHaveBeenCalledWith({ limit: 1, includeSide: true })
     expect(startThread).toHaveBeenCalledWith({
       runtimeId: 'codex',
       title: 'Two',

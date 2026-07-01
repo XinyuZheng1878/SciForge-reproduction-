@@ -486,6 +486,7 @@ export type AgentRuntimeThread = {
   forkedFromMessageCount?: number
   forkedFromTurnCount?: number
   goal?: AgentRuntimeThreadGoal | null
+  todos?: AgentRuntimeTodoList | null
 }
 
 export type AgentRuntimeThreadDetail = AgentRuntimeThread & {
@@ -493,7 +494,6 @@ export type AgentRuntimeThreadDetail = AgentRuntimeThread & {
   turns?: AgentRuntimeTurn[]
   items?: AgentRuntimeItem[]
   usage?: AgentRuntimeUsage
-  todos?: AgentRuntimeTodoList | null
 }
 
 export type AgentRuntimeTurn = {
@@ -518,6 +518,7 @@ export type AgentRuntimeThreadListInput = {
   search?: string
   includeArchived?: boolean
   archivedOnly?: boolean
+  includeSide?: boolean
   summary?: boolean
 }
 

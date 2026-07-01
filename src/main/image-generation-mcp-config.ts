@@ -148,6 +148,7 @@ export function imageGenerationMcpEnv(
   void launch
   const env: Record<string, string> = { ...ELECTRON_RUN_AS_NODE_ENV }
   if (!imageGeneration?.enabled || !imageGeneration.apiKey.trim() || !imageGeneration.baseUrl.trim()) return env
+  // Temporary legacy direct worker env: keep this contained to the managed image-generation MCP worker.
   env.SCIFORGE_IMAGE_API_KEY = imageGeneration.apiKey.trim()
   env.SCIFORGE_IMAGE_BASE_URL = imageGeneration.baseUrl.trim()
   if (imageGeneration.model.trim()) env.SCIFORGE_IMAGE_MODEL = imageGeneration.model.trim()

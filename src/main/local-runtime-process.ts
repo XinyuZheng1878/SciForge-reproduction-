@@ -142,6 +142,11 @@ const UPSTREAM_PROVIDER_CONFIG_ENV_NAMES = [
   'MODEL_PROVIDER',
   'KUN_BASE_URL'
 ] as const
+// Temporary legacy direct worker env must be injected only through explicit managed MCP server config.
+const LEGACY_DIRECT_WORKER_ENV_PREFIXES = [
+  'SCIFORGE_IMAGE_',
+  'SCIFORGE_SCIMODALITY_SERVICE_'
+] as const
 const DEFAULT_LOCAL_RUNTIME_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
   'deepseek-v4-pro': {
     contextWindowTokens: 1_000_000,
@@ -1129,7 +1134,7 @@ function localRuntimeChildEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     delete env[name]
   }
   for (const key of Object.keys(env)) {
-    if (isUpstreamProviderConfigEnv(key)) delete env[key]
+    if (isUpstreamProviderConfigEnv(key) || isLegacyDirectWorkerEnv(key)) delete env[key]
   }
   return env
 }
@@ -1138,6 +1143,10 @@ function isUpstreamProviderConfigEnv(key: string): boolean {
   return UPSTREAM_PROVIDER_ENV_PREFIXES.some((prefix) =>
     UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES.some((suffix) => key === `${prefix}_${suffix}`)
   )
+}
+
+function isLegacyDirectWorkerEnv(key: string): boolean {
+  return LEGACY_DIRECT_WORKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))
 }
 
 export async function reclaimLocalRuntimePort(
