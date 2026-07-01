@@ -4625,9 +4625,22 @@ elif template == "schematic-grid":
     columns = int(math.ceil(math.sqrt(len(nodes))))
     rows = int(math.ceil(len(nodes) / max(1, columns)))
     positions = {}
-    ax.set_xlim(0, columns)
-    ax.set_ylim(0, rows)
+    node_sizes = {}
+    explicit_positions = all(isinstance(node.get("x"), (int, float)) and isinstance(node.get("y"), (int, float)) for node in nodes)
+    if explicit_positions:
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        add_layout_note("Used explicit schematic node coordinates.")
+    else:
+        ax.set_xlim(0, columns)
+        ax.set_ylim(0, rows)
     ax.axis("off")
+    def first_present(mapping, *keys):
+        for key in keys:
+            value = mapping.get(key)
+            if value is not None:
+                return value
+        return None
     def wrap_node_label(value):
         text = str(value or "")
         if len(text) <= 14 or " " not in text:
@@ -4655,47 +4668,86 @@ elif template == "schematic-grid":
             return min(base, 7.4)
         return min(base, 8.4)
     for index, node in enumerate(nodes):
-        row_index = index // columns
-        col_index = index % columns
-        col = col_index if row_index % 2 == 0 else columns - 1 - col_index
-        row = rows - 1 - row_index
-        x = col + 0.12
-        y = row + 0.25
-        color = palette[index % len(palette)]
-        rect = Rectangle((x, y), 0.76, 0.5, facecolor=color, edgecolor=mpl.rcParams.get("axes.edgecolor", "#222222"), linewidth=0.8, alpha=0.16, zorder=2)
-        ax.add_patch(rect)
         label = wrap_node_label(node.get("label", ""))
-        ax.text(x + 0.38, y + 0.25, label, ha="center", va="center", fontsize=node_font_size(label), color=mpl.rcParams.get("text.color", "#222222"), wrap=True, linespacing=0.95, zorder=3)
-        positions[node.get("id") or str(index)] = (x + 0.38, y + 0.25)
-    def edge_points(start, end):
+        if explicit_positions:
+            center_x = clamp(float(node.get("x")), 0.08, 0.92)
+            center_y = clamp(float(node.get("y")), 0.10, 0.90)
+            longest = max([len(part) for part in str(label).split("\n")] or [0])
+            width = clamp(0.13 + longest * 0.0055, 0.16, 0.24)
+            height = 0.14 if "\n" not in str(label) else clamp(0.10 + 0.038 * len(str(label).split("\n")), 0.14, 0.20)
+            x = center_x - width / 2
+            y = center_y - height / 2
+        else:
+            row_index = index // columns
+            col_index = index % columns
+            col = col_index if row_index % 2 == 0 else columns - 1 - col_index
+            row = rows - 1 - row_index
+            x = col + 0.12
+            y = row + 0.25
+            width = 0.76
+            height = 0.5
+            center_x = x + width / 2
+            center_y = y + height / 2
+        color = node.get("color") or node.get("fill") or palette[index % len(palette)]
+        rect = Rectangle((x, y), width, height, facecolor=color, edgecolor=mpl.rcParams.get("axes.edgecolor", "#222222"), linewidth=0.9, alpha=0.18, zorder=2)
+        ax.add_patch(rect)
+        ax.text(center_x, center_y, label, ha="center", va="center", fontsize=node_font_size(label), color=mpl.rcParams.get("text.color", "#222222"), wrap=True, linespacing=0.95, zorder=3)
+        node_id = str(node.get("id") or str(index))
+        positions[node_id] = (center_x, center_y)
+        node_sizes[node_id] = (width, height)
+    def edge_points(start_id, end_id):
+        start = positions[start_id]
+        end = positions[end_id]
         sx, sy = start
         ex, ey = end
         dx = ex - sx
         dy = ey - sy
+        start_w, start_h = node_sizes.get(start_id, (0.76, 0.5))
+        end_w, end_h = node_sizes.get(end_id, (0.76, 0.5))
         if abs(dx) >= abs(dy):
-            start_offset = (0.40 if dx > 0 else -0.40, 0)
-            end_offset = (-0.40 if dx > 0 else 0.40, 0)
+            start_offset = ((start_w / 2 + 0.012) if dx > 0 else -(start_w / 2 + 0.012), 0)
+            end_offset = (-(end_w / 2 + 0.012) if dx > 0 else (end_w / 2 + 0.012), 0)
         else:
-            start_offset = (0, 0.30 if dy > 0 else -0.30)
-            end_offset = (0, -0.30 if dy > 0 else 0.30)
+            start_offset = (0, (start_h / 2 + 0.012) if dy > 0 else -(start_h / 2 + 0.012))
+            end_offset = (0, -(end_h / 2 + 0.012) if dy > 0 else (end_h / 2 + 0.012))
         return (sx + start_offset[0], sy + start_offset[1]), (ex + end_offset[0], ey + end_offset[1])
+    drawn_edges = 0
     for edge in edges:
-        start = positions.get(str(edge.get("from")))
-        end = positions.get(str(edge.get("to")))
-        if start and end:
-            start_edge, end_edge = edge_points(start, end)
+        start_id = first_present(edge, "from", "source", "start")
+        end_id = first_present(edge, "to", "target", "end")
+        if start_id is None or end_id is None:
+            continue
+        start_key = str(start_id)
+        end_key = str(end_id)
+        if start_key in positions and end_key in positions:
+            start_edge, end_edge = edge_points(start_key, end_key)
+            edge_style = str(edge.get("style") or edge.get("type") or "").lower()
+            linestyle = "--" if "dash" in edge_style or "inhibit" in edge_style else "-"
+            edge_color = edge.get("color") or mpl.rcParams.get("axes.edgecolor", "#222222")
             arrow = FancyArrowPatch(
                 start_edge,
                 end_edge,
                 arrowstyle="-|>",
-                mutation_scale=10,
-                linewidth=0.7,
-                color=mpl.rcParams.get("axes.edgecolor", "#222222"),
-                alpha=0.72,
-                connectionstyle="angle3,angleA=0,angleB=90",
-                zorder=1,
+                mutation_scale=14,
+                linewidth=1.15,
+                color=edge_color,
+                alpha=0.9,
+                linestyle=linestyle,
+                connectionstyle="arc3,rad=0.0" if explicit_positions else "angle3,angleA=0,angleB=90",
+                shrinkA=2,
+                shrinkB=2,
+                zorder=2.6,
             )
             ax.add_patch(arrow)
+            edge_label = edge.get("label")
+            if edge_label:
+                label_x = (start_edge[0] + end_edge[0]) / 2
+                label_y = (start_edge[1] + end_edge[1]) / 2
+                ax.text(label_x, label_y, str(edge_label).replace("\n", " "), ha="center", va="center", fontsize=min(label_size, 5.8), color=mpl.rcParams.get("text.color", "#222222"), bbox={"boxstyle": "round,pad=0.16", "facecolor": "white", "alpha": 0.82, "edgecolor": "none"}, zorder=4)
+            drawn_edges += 1
+    add_layout_note(f"Rendered {drawn_edges} of {len(edges)} schematic edges.")
+    if drawn_edges < len(edges):
+        add_layout_note("Skipped schematic edges with missing source or target ids.")
     if labels.get("title"):
         ax.set_title(labels.get("title"), pad=4, fontsize=title_size)
 else:

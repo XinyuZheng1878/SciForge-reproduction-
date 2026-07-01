@@ -684,6 +684,33 @@ describe('scientific plotting engine', () => {
       expect((await stat(heatmapWithAliasLabels.outputPath)).size).toBeGreaterThan(1000)
       expect(heatmapWithAliasLabels.attempts[0]?.rendererDiagnostics?.categoryLabelRotation).toBeGreaterThan(0)
 
+      const schematicWithAliasEdges = await renderScientificPlot({
+        workspaceRoot: workspace,
+        template: 'schematic-grid',
+        figureId: 'schematic-source-target-smoke',
+        labels: {
+          title: 'Trigger hierarchy'
+        },
+        data: {
+          nodes: [
+            { id: 'ra', label: 'RA gradient', x: 0.18, y: 0.5, color: '#2166AC' },
+            { id: 'rar', label: 'RAR/RXR licensing', x: 0.48, y: 0.5, color: '#4DAF4A' },
+            { id: 'stra8', label: 'STRA8/MEIOSIN trigger', x: 0.78, y: 0.5, color: '#D6604D' }
+          ],
+          edges: [
+            { source: 'ra', target: 'rar', label: 'binds' },
+            { source: 'rar', target: 'stra8', label: 'activates', style: 'dashed' }
+          ]
+        }
+      })
+      expect(schematicWithAliasEdges).toMatchObject({ ok: true, status: 'rendered' })
+      if (!schematicWithAliasEdges.ok) return
+      expect((await stat(schematicWithAliasEdges.outputPath)).size).toBeGreaterThan(1000)
+      expect(schematicWithAliasEdges.attempts[0]?.rendererDiagnostics?.layoutNotes).toEqual(expect.arrayContaining([
+        'Used explicit schematic node coordinates.',
+        'Rendered 2 of 2 schematic edges.'
+      ]))
+
       const multiPanel = await renderScientificPlot({
         workspaceRoot: workspace,
         template: 'multi-panel',
