@@ -28,6 +28,7 @@ vi.mock('../agent/runtime-client', () => ({
 import { createThreadActions, publishRemoteChannelActiveThreadContext } from './chat-store-thread-actions'
 import { clearPendingRemoteChannelMirrors, takePendingRemoteChannelMirror } from './chat-store-runtime'
 import { composerReferenceFromWorkspaceReference } from '../lib/workspace-reference-composer'
+import { PLAN_REGISTRY_STORAGE_KEY, useGuiPlanStore } from '../plan/plan-store'
 
 function thread(id: string): NormalizedThread {
   return {
@@ -105,6 +106,7 @@ describe('chat-store-thread-actions queued messages', () => {
       remoteChannel: defaultRemoteChannelSettings()
     }))
     clearPendingRemoteChannelMirrors()
+    useGuiPlanStore.getState().clearActivePlan()
     vi.stubGlobal('window', {
       sciforge: {
         logError: vi.fn(async () => undefined)
@@ -549,6 +551,49 @@ describe('chat-store-thread-actions queued messages', () => {
 
     expect(provider.getContextState).toHaveBeenCalledWith('thr_existing')
     expect(state.activeThreadContextState).toEqual(contextState)
+  })
+
+  it('does not activate GUI plan registry from thread metadata during thread selection', async () => {
+    const { actions, state } = buildHarness()
+    const storage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    }
+    vi.stubGlobal('window', {
+      sciforge: {
+        logError: vi.fn(async () => undefined)
+      },
+      localStorage: storage
+    })
+    const provider = {
+      getThreadDetail: vi.fn(async () => ({
+        blocks: [],
+        latestSeq: 2,
+        threadStatus: 'idle',
+        guiPlan: {
+          operation: 'draft' as const,
+          workspaceRoot: '/workspace/sciforge',
+          relativePath: '.sciforge/plan/thread-owned.md',
+          planId: '/workspace/sciforge:.sciforge/plan/thread-owned.md',
+          sourceRequest: 'Plan from runtime metadata',
+          title: 'Thread-owned plan'
+        }
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.error = null
+
+    await actions.selectThread('thr_existing')
+
+    expect(provider.getThreadDetail).toHaveBeenCalledWith('thr_existing')
+    expect(useGuiPlanStore.getState().activePlan).toBeNull()
+    expect(storage.setItem).not.toHaveBeenCalledWith(
+      PLAN_REGISTRY_STORAGE_KEY,
+      expect.any(String)
+    )
   })
 
   it('does not let stale turn recovery restore a thread after the user switches away', async () => {

@@ -132,6 +132,71 @@ describe('skill-service', () => {
     }))
   })
 
+  it('prefers project skills over global skills with the same id', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-priority')
+    const projectPackageRoot = join(workspaceRoot, '.codex', 'skills', 'shared-helper')
+    const globalRoot = join(tempRoot, 'global-skills')
+    const globalPackageRoot = join(globalRoot, 'shared-helper')
+    await writeSkill(projectPackageRoot, {
+      name: 'Project Helper',
+      description: 'Project-local instructions win.'
+    })
+    await writeSkill(globalPackageRoot, {
+      name: 'Global Helper',
+      description: 'Global fallback instructions.'
+    })
+
+    const settings = createSettings(workspaceRoot)
+    settings.remoteChannel.skills.extraDirs = [globalRoot]
+
+    const result = await listGuiSkills(settings, workspaceRoot)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const shared = result.skills.filter((skill) => skill.id === 'shared-helper')
+    expect(shared).toHaveLength(1)
+    expect(shared[0]).toMatchObject({
+      name: 'Project Helper',
+      description: 'Project-local instructions win.',
+      root: projectPackageRoot,
+      scope: 'project'
+    })
+  })
+
+  it('deduplicates configured roots after normalization', async () => {
+    const workspaceRoot = join(tempRoot, 'workspace-dedupe')
+    const projectRoot = join(workspaceRoot, '.codex', 'skills')
+    const externalRoot = join(tempRoot, 'external-dedupe')
+    await writeSkill(join(projectRoot, 'project-only'), {
+      name: 'Project Only',
+      description: 'One project root.'
+    })
+    await writeSkill(join(externalRoot, 'external-only'), {
+      name: 'External Only',
+      description: 'One external root.'
+    })
+    const settings = createSettings(workspaceRoot)
+    settings.remoteChannel.im.workspaceRoot = `${workspaceRoot}${sep}`
+    settings.remoteChannel.skills.extraDirs = [
+      projectRoot,
+      `${projectRoot}${sep}`,
+      `${projectRoot}${sep}..${sep}skills`,
+      externalRoot,
+      `${externalRoot}${sep}`,
+      `${externalRoot}${sep}..${sep}external-dedupe`
+    ]
+    settings.schedule.skills.extraDirs = [externalRoot]
+
+    const roots = await guiSkillRootsForRuntime(settings, workspaceRoot)
+
+    expect(roots.filter((root) => root.path === projectRoot)).toEqual([
+      { path: projectRoot, scope: 'project' }
+    ])
+    expect(roots.filter((root) => root.path === externalRoot)).toEqual([
+      { path: externalRoot, scope: 'global' }
+    ])
+  })
+
   it('keeps generic default global skill roots neutral without falling back to ~/.kun', async () => {
     const workspaceRoot = join(tempRoot, 'workspace-default-roots')
     const homeRoot = join(tempRoot, 'home')
@@ -193,5 +258,22 @@ describe('skill-service', () => {
         process.env.USERPROFILE = originalUserProfile
       }
     }
+  }
+
+  async function writeSkill(
+    root: string,
+    frontmatter: { name: string; description: string }
+  ): Promise<void> {
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, 'SKILL.md'), [
+      '---',
+      `name: ${frontmatter.name}`,
+      `description: ${frontmatter.description}`,
+      '---',
+      '',
+      `# ${frontmatter.name}`,
+      '',
+      frontmatter.description
+    ].join('\n'), 'utf8')
   }
 })

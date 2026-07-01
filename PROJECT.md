@@ -126,9 +126,18 @@
 - [x] Remote Channel thread selector 失败路径 fail-closed：`/threads` / `/use thread` 在 thread list host 缺失、异常、not found、ambiguous 或 provider 返回 archived thread 时给可恢复回复，不写 settings/remoteSession，不启动 runtime turn，不落入 schedule/task detector。
 - [x] sci-modality retry/status 漂移修复：provider 404 明确 non-retryable 并加 call-count 回归；`/experts/status.online` 文档/注释统一为 provider reachable + expert registered/callable，不再暗示 lazy weights 已加载。
 - [x] legacy `~/.kun/mcp.json` 默认路径防回归：默认 MCP sync 只读写 `~/.sciforge/mcp.json`，legacy `~/.kun/mcp.json` 即使存在坏 JSON 也不影响默认路径；显式传入 custom MCP config path 时仍只处理指定文件。
+- [x] GUI skill discovery 边界补强：同一 skill id 同时出现在 project/global roots 时 project 版本优先；configured extra roots 经 normalize 后去重，避免重复扫描或误把 global root 提升为 project。
+- [x] GUI plan owner 迁移前边界补强：thread detail 已能携带 `guiPlan` metadata，但 thread selection 不会自动写入/激活旧 `sciforge.plan.registry.v1` localStorage，旧 registry 迁移策略仍等待人工决策。
+- [x] GUI-Owl computer-use 暂并存期间 packaging 防回归：release packaging candidates 不包含 `packages/workers/gui-owl-computer-use` 的 package、sidecar 启动脚本、local secrets 或模型权重文件，避免未决策前把重资产/敏感文件打进 app。
 
 ## 验证记录
 
+- [x] `npx vitest run src/main/services/skill-service.test.ts`
+- [x] `npx vitest run src/renderer/src/store/chat-store-thread-actions.test.ts`
+- [x] `npx vitest run src/main/packaging-config.test.ts`
+- [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
+- [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
+- [x] `git diff --check`
 - [x] `npm --prefix kun test -- tests/contracts.test.ts tests/domain.test.ts tests/hybrid-store.test.ts tests/loop.test.ts`
 - [x] `npx vitest run src/main/runtime/local-runtime-agent-runtime-adapter.test.ts src/renderer/src/agent/agent-runtime-provider.test.ts`
 - [x] `npm test -- src/main/remote-channel-runtime.test.ts`
@@ -313,6 +322,7 @@
 
 ## 待核对/拆解
 
+- [ ] 性能/推进速度审计：先区分 Codex 开发流程变慢与 SciForge runtime/app 变慢。当前未提交改动主要是测试和 `PROJECT.md`，不会影响产品运行时；运行时高优先疑点是 renderer runtime ready 后持续 `refreshThreads()` 5s 轮询（默认最多 200 threads 并做 sidebar 过滤）、turn completion 2.5s 轮询、Model Router sidecar 冷启动/health 检查、thread detail/side/plan metadata 恢复链路。未决策前不改刷新语义；后续新增边界/guard 必须先说明 runtime cost。需要人工决策：thread refresh 继续 5s 实时轮询，还是改成窗口聚焦/活跃 turn 才轮询、指数退避、事件驱动加手动刷新，或混合策略。
 - [x] 已核对并删除 standalone `vision-router-service`：Model Router 已覆盖主链路的 vision translation、runtime auth、body cap、healthz config/auth 诊断、trace redaction、失败降级和多输入形态测试；独立 ServiceResult API 不再保留。
 - [x] 核对并替换 WeChat bridge 第三方 media sender：旧包内 `send-media` 会经 API wrapper 读取 `OPENCLAW_CONFIG` / state dir `openclaw.json` 的 `routeTag` / `botAgent`；现已改为本地 media upload/send 路径，显式使用当前 per-account token / baseUrl / cdnBaseUrl / contextToken，避免文件级隐式兼容。
 - [x] computer-use 待人工测试项已并入上方 `gui-owl-computer-use` 迁移方向唯一跟踪项，避免同一待决策内容重复出现。

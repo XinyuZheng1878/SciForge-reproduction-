@@ -121,6 +121,16 @@ function bundledDirectoryFileSets(): BuilderFileSet[] {
   })
 }
 
+function stringEntries(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : []
+}
+
+function isPathInside(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}/`)
+}
+
 afterEach(() => {
   while (tempRoots.length > 0) {
     const root = tempRoots.pop()
@@ -217,6 +227,44 @@ describe('electron-builder local runtime packaging', () => {
       'packages/workers/gui-owl-computer-use/**/*'
     ]) {
       expect(builderConfig.files).not.toContain(rawGlob)
+    }
+  })
+
+  it('keeps GUI-Owl sidecar secrets and model weights out of release packaging candidates', () => {
+    const deniedCandidates = [
+      'packages/workers/gui-owl-computer-use/package.json',
+      'packages/workers/gui-owl-computer-use/server/serve-gui-owl-32b.sh',
+      'packages/workers/gui-owl-computer-use/启动-secrets.local.ps1',
+      'packages/workers/gui-owl-computer-use/models/gui-owl.safetensors',
+      'packages/workers/gui-owl-computer-use/models/gui-owl.pt',
+      'packages/workers/gui-owl-computer-use/models/gui-owl.pth',
+      'packages/workers/gui-owl-computer-use/models/gui-owl.gguf'
+    ]
+    const bundledDirectoryFileSetDirs = bundledDirectoryFileSets()
+      .map((entry) => entry.from)
+      .filter((entry): entry is string => typeof entry === 'string')
+    const unpackGlobs = stringEntries(builderConfig.asarUnpack)
+    const fileStringEntries = stringEntries(builderConfig.files)
+    const extraResourceSources = (builderConfig.extraResources as unknown[])
+      .map((entry) => typeof entry === 'object' && entry !== null
+        ? (entry as { from?: unknown }).from
+        : entry)
+      .filter((entry): entry is string => typeof entry === 'string')
+    const runtimeRequiredPaths = releaseWorkerManifest.runtimeEntries
+      .flatMap((entry) => entry.requiredPaths)
+
+    for (const candidate of deniedCandidates) {
+      expect(bundledDirectoryFileSetDirs.some((dir) => isPathInside(candidate, dir))).toBe(false)
+      expect(unpackGlobs).not.toContain(`**/${candidate}`)
+      expect(unpackGlobs.some((glob) =>
+        glob.startsWith('**/') && glob.endsWith('/**/*') &&
+        isPathInside(candidate, glob.slice(3, -5))
+      )).toBe(false)
+      expect(fileStringEntries).not.toContain(candidate)
+      expect(fileStringEntries).not.toContain(`${candidate}/**/*`)
+      expect(fileStringEntries).not.toContain(`${candidate}/**`)
+      expect(extraResourceSources.some((source) => isPathInside(candidate, source))).toBe(false)
+      expect(runtimeRequiredPaths).not.toContain(candidate)
     }
   })
 
