@@ -16,6 +16,8 @@ import {
   type AppSettingsV1
 } from '../../../shared/app-settings'
 import type {
+  AgentRuntimeAuxiliaryInput,
+  AgentRuntimeAuxiliaryOperation,
   AgentRuntimeCapabilities,
   AgentRuntimeEvent,
   AgentRuntimeGitCheckpoint,
@@ -342,6 +344,65 @@ describe('AgentRuntimeHost', () => {
     expect(codex.startTurn).not.toHaveBeenCalled()
     expect(codex.renameThread).not.toHaveBeenCalled()
     expect(codex.subscribeEvents).not.toHaveBeenCalled()
+  })
+
+  it('requires explicit runtime ids for thread-bound auxiliary operations', async () => {
+    const codexThread = {
+      id: 'codex-thread',
+      runtimeId: 'codex' as const,
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    }
+    const codex = fakeAdapter('codex', codexThread)
+    const adapterAuxiliary = vi.fn(async (_context: AgentRuntimeAdapterContext, input: AgentRuntimeAuxiliaryInput) => ({
+      operation: input.operation
+    }))
+    codex.auxiliary = adapterAuxiliary
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [codex]
+    })
+    const threadBoundOperations: AgentRuntimeAuxiliaryOperation[] = [
+      'reviewThread',
+      'listThreadChildren',
+      'readChildTranscript',
+      'getContextState',
+      'getRuntimeContextLedger',
+      'recordRuntimeContextLedger',
+      'createRuntimeHandoffPacket',
+      'startRuntimeHandoff',
+      'recordContextCompaction',
+      'updateGoalResumeState',
+      'createGitCheckpoint',
+      'updateThreadWorkspace',
+      'archiveThread',
+      'getThreadGoal',
+      'setThreadGoal',
+      'clearThreadGoal',
+      'getThreadTodos',
+      'setThreadTodos',
+      'clearThreadTodos',
+      'cancelUserInput'
+    ]
+
+    for (const operation of threadBoundOperations) {
+      await expect(host.auxiliary({
+        operation,
+        payload: {
+          threadId: 'codex-thread',
+          sourceThreadId: 'codex-thread',
+          parentThreadId: 'codex-thread',
+          targetRuntimeId: 'claude',
+          workspaceRoot: '/tmp/workspace',
+          requestId: 'request-1'
+        }
+      })).rejects.toThrow('runtimeId is required')
+    }
+    expect(adapterAuxiliary).not.toHaveBeenCalled()
+
+    await expect(host.auxiliary({ operation: 'getRuntimeInfo' })).resolves.toEqual({ operation: 'getRuntimeInfo' })
+    await expect(host.auxiliary({ operation: 'listSkills' })).resolves.toEqual({ operation: 'listSkills' })
+    expect(adapterAuxiliary).toHaveBeenCalledTimes(2)
   })
 
   it('rejects the legacy local runtime id instead of falling back to SciForge', async () => {

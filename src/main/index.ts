@@ -51,9 +51,8 @@ import {
 } from '../../packages/workers/evidence-dag/desktop/sidecar'
 import {
   paperRadarDbPath,
-  paperRadarProfilesPath,
-  stopPaperRadarSidecar
-} from './paper-radar-sidecar'
+  paperRadarProfilesPath
+} from './paper-radar-paths'
 import {
   localRuntimeAdapter,
   getRuntimeBaseUrlForSettings,
@@ -497,7 +496,6 @@ async function stopManagedRuntimes(): Promise<void> {
       paperRadarWorkerService = null
       await stopEvidenceDagSidecar()
       await stopModelRouterSidecar()
-      await stopPaperRadarSidecar()
       stopWeixinBridgeRuntime()
       await claudeCodeRuntime?.stop()
       await codexRuntime?.stop()

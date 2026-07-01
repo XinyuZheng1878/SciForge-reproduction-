@@ -377,6 +377,7 @@ export class AgentRuntimeHost {
   }
 
   async auxiliary(input: AgentRuntimeAuxiliaryInput): Promise<unknown> {
+    assertAuxiliaryRuntimeId(input)
     const { adapter, context } = await this.resolveOptionalActiveRuntime(input.runtimeId)
     if (isThreadGoalAuxiliaryOperation(input.operation)) {
       return this.handleThreadGoalAuxiliary(adapter, context, input)
@@ -2487,6 +2488,38 @@ function isThreadGoalAuxiliaryOperation(operation: AgentRuntimeAuxiliaryInput['o
   return operation === 'getThreadGoal' ||
     operation === 'setThreadGoal' ||
     operation === 'clearThreadGoal'
+}
+
+const AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS = new Set<AgentRuntimeAuxiliaryInput['operation']>([
+  'reviewThread',
+  'listThreadChildren',
+  'readChildTranscript',
+  'getContextState',
+  'getRuntimeContextLedger',
+  'recordRuntimeContextLedger',
+  'createRuntimeHandoffPacket',
+  'startRuntimeHandoff',
+  'recordContextCompaction',
+  'updateGoalResumeState',
+  'createGitCheckpoint',
+  'updateThreadWorkspace',
+  'archiveThread',
+  'getThreadGoal',
+  'setThreadGoal',
+  'clearThreadGoal',
+  'getThreadTodos',
+  'setThreadTodos',
+  'clearThreadTodos',
+  'cancelUserInput'
+])
+
+function assertAuxiliaryRuntimeId(input: AgentRuntimeAuxiliaryInput): void {
+  if (
+    input.runtimeId === undefined &&
+    AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS.has(input.operation)
+  ) {
+    throw new Error('AgentRuntimeAdapter runtimeId is required for this auxiliary operation.')
+  }
 }
 
 function isUnsupportedAuxiliaryOperation(error: unknown, operation: AgentRuntimeAuxiliaryInput['operation']): boolean {

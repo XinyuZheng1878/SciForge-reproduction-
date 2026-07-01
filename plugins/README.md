@@ -1,9 +1,9 @@
 # SciForge plug-in services
 
-Optional service modules. Each service owns its own `package.json` and talks to the desktop app
-through HTTP rather than renderer imports. Model Router owns translator roles directly; UI
-extensions such as Paper Radar are opt-in from the Plugins page and start their local service only
-when the enabled UI panel calls it.
+Optional service modules. Each service owns its own `package.json`. Model Router owns translator
+roles directly. Paper Radar's desktop UI now uses the GUI worker service directly; the HTTP service
+remains a standalone/debug API while the shared Paper Radar core is still owned by the plug-in
+workspace.
 
 | Plug-in | Port | Endpoint | Translates | Upstream model(s) |
 |---|---|---|---|---|
@@ -29,8 +29,9 @@ Paper Radar is a separate UI extension service, not a Model Router translator.
   (which calls the GPU expert-translator). When unset or unreachable, Model Router falls back to
   readable raw file text where safe — no runtime-side service calls.
 - **Paper Radar**: enabled from `Plugins → Extensions`. The Workbench only shows the Paper Radar
-  right panel after the extension key is installed, and the Electron main process starts
-  `paper-radar-service` on demand for Paper Radar IPC calls in development builds.
+  right panel after the extension key is installed. Paper Radar IPC calls go through
+  `PaperRadarWorkerService`; `paper-radar-service` is not started by Electron main as an app-side
+  HTTP sidecar.
 
 ## Run a plug-in
 

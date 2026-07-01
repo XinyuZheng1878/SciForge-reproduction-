@@ -74,6 +74,8 @@
 - [x] 补齐 computer-use 状态投影与文案边界：IPC/backend status 聚合保留 `inputIsolation`、`affectsUserInput`、`requiresHostFocus`、`usesHostClipboard` 的 `false` 值，settings UI 改为用户可读安全摘要；README/locale 明确 GUI-managed `@sciforge/computer-use` 默认是 isolated `browser-cdp` primitive path。
 - [x] 清理 Evidence DAG / sci-modality / plugins 文档中的 Kun timeline 命名残留，统一表述为 AgentRuntime / SciForge Runtime / local runtime / Codex / Claude。
 - [x] Schedule detector 内部清名：`claw-scheduled-task-detector` / `ParsedClawScheduledTaskRequest` / `detectClawScheduledTaskRequest` 已改为 neutral `scheduled-task-detector` / `ParsedScheduledTaskRequest` / `detectScheduledTaskRequest`。
+- [x] 删除 Paper Radar app-side 旧 HTTP sidecar launcher/client：GUI/IPC 继续直连 `PaperRadarWorkerService`，MCP/local runtime 共用 `paper-radar-paths` storage helper；`plugins/paper-radar-service` 仅作为 worker core 依赖和 standalone API 归属待决策。
+- [x] Agent Runtime auxiliary 先加运行期 fail-closed 边界：已明确 thread-bound 的 auxiliary operation 缺 top-level `runtimeId` 会直接拒绝，不再落到 active runtime；active-scoped helpers 保持可省略。
 
 ## 验证记录
 
@@ -133,6 +135,10 @@
 - [x] `npx vitest run src/shared/app-settings.test.ts src/renderer/src/components/chat/MessageTimeline.tool-summary.test.ts src/renderer/src/store/chat-store-helpers.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts`
 - [x] `npm test -- src/main/services/computer-use-status.test.ts src/renderer/src/components/settings-section-agents.test.ts src/main/ipc/app-ipc-schemas.test.ts src/main/runtime/agent-runtime/host.test.ts src/renderer/src/agent/agent-runtime-client.test.ts src/preload/index.test.ts`
 - [x] `npm test -- src/renderer/src/agent/agent-runtime-provider.test.ts`
+- [x] `npm test -- src/main/paper-radar-paths.test.ts src/main/services/paper-radar-worker-service.test.ts src/main/paper-radar-mcp-config.test.ts src/main/local-runtime-process.test.ts src/main/packaging-config.test.ts`
+- [x] `npm test -- src/main/runtime/agent-runtime/host.test.ts src/main/paper-radar-paths.test.ts src/main/services/paper-radar-worker-service.test.ts src/main/paper-radar-mcp-config.test.ts src/main/local-runtime-process.test.ts src/main/packaging-config.test.ts`
+- [x] `npm --workspace @sciforge/paper-radar run typecheck`
+- [x] `npm --workspace @sciforge/paper-radar run test`
 
 ## 已决策待实施
 
@@ -149,7 +155,7 @@
 - [ ] remote-channel IM command 边界：账户/连接/线程选择归 GUI；任务执行、计划、工具行为归 runtime/agent，避免新增并行控制链路。已删除 dead `ClawRuntime.runTask()`、stale Feishu mirror API 文档、dead `imCommandNotReadyText`，并补齐 remote-channel task IPC 测试和 public API 文档；仍需决策：IM 是否允许 `/model` / `/mode` 这类 runtime 行为命令；项目/thread 选择是否允许经 IM 发生；schedule/task 创建是否允许从 IM 自动触发。
 - [x] 删除 `vision-router-service`：Model Router 当前 `translators.vision` 已覆盖默认链路需要的 translate-only vision 能力，视觉输入会先经 vision translator 生成文本 evidence，再交给 text reasoner；已删除 standalone `plugins/vision-router-service` 及其文档/测试/notice 引用，默认链路不再保留第二条服务边界。后续如需要更强 retry/backoff/timeout，只在 Model Router `visionTranslator` provider call 内实现。
 - [ ] `gui-owl-computer-use` 暂停处理：保持 `gui-owl-computer-use` 与旧 `@sciforge/computer-use` 并存，不迁移、不删除，等待人工分别测试两套 computer-use 后再决策。人工测试矩阵需覆盖：`-SafeDryRun` 不动鼠标键盘、live 必须 GUI approve、cancel 有效、无 token live 被拒、是否让手工 dry-run 也强制 token（因为会截图并走 Model Router）。
-- [ ] Agent Runtime auxiliary 仍需决策是否改为按 operation 区分的 discriminated union：`reviewThread`、`listThreadChildren`、`readChildTranscript`、context ledger/state、runtime handoff、goal/todos、checkpoint create、thread workspace/archive、`cancelUserInput` 等 thread-bound operation 应强制 `runtimeId`；`getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences` 等 active-scoped 能力继续允许省略。
+- [ ] Agent Runtime auxiliary 仍需决策是否改为按 operation 区分的 discriminated union：运行期 guard 已让 `reviewThread`、`listThreadChildren`、`readChildTranscript`、context ledger/state、runtime handoff、goal/todos、checkpoint create、thread workspace/archive、`cancelUserInput` 等 thread-bound operation 缺 `runtimeId` 时 fail-closed；仍需决策是否把该分类提升到 shared contract / IPC schema 的 operation-specific 类型与校验。`getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences` 等 active-scoped 能力继续允许省略。
 - [ ] `SCIFORGE_CUA_SERVICE_URL` loopback 策略等待 computer-use 人工测试后决策：允许哪些 loopback 形式、是否支持 SSH tunnel hostname、非 loopback 时 fail-closed 并不广告旧 tool，还是保留当前“不启用 GUI-managed MCP 以避免重复注册”的冲突 guard。
 
 ## 待核对/拆解
@@ -157,6 +163,6 @@
 - [x] 已核对并删除 standalone `vision-router-service`：Model Router 已覆盖主链路的 vision translation、runtime auth、body cap、healthz config/auth 诊断、trace redaction、失败降级和多输入形态测试；独立 ServiceResult API 不再保留。
 - [x] 核对并替换 WeChat bridge 第三方 media sender：旧包内 `send-media` 会经 API wrapper 读取 `OPENCLAW_CONFIG` / state dir `openclaw.json` 的 `routeTag` / `botAgent`；现已改为本地 media upload/send 路径，显式使用当前 per-account token / baseUrl / cdnBaseUrl / contextToken，避免文件级隐式兼容。
 - [ ] 等待人工测试两套 computer-use 后，再梳理是否迁移 `@sciforge/computer-use` 的 target/session/lease 合约、lease 冲突检测、shared action lock、native/browser backends、permission/status/audit、confirmation/risk taxonomy、local runtime/Codex/Claude MCP registry。
-- [ ] Paper Radar 仍有旧 HTTP sidecar / plugin workspace 归属残留：当前 IPC 已走 `PaperRadarWorkerService`，但 `src/main/paper-radar-sidecar.ts` 和 `plugins/paper-radar-service` 仍需拆解是否删除旧 sidecar、迁移 core storage/source/profile/ranking 到 worker 内部或 shared core。
-- [ ] Search worker root `index.ts` 仍暴露 query planner/provider helper；需核对外部消费后收窄 public surface。
+- [ ] Paper Radar plugin workspace/core 归属仍待决策：当前 IPC 已走 `PaperRadarWorkerService`，app-side HTTP sidecar 已删除；但 `packages/workers/paper-radar` 仍依赖 `plugins/paper-radar-service` 的 storage/source/profile/ranking modules，root scripts/packaging 仍保留 standalone HTTP service。需决策保留 standalone external/debug API，还是抽 shared core 后删除 plugin workspace。
+- [ ] Search worker root public surface 待 breaking API 决策：已核对 `@sciforge/search` 为 `private:false` + `sciforge.publicContract:true`，root `"."` 指向 `src/index.ts`，当前额外 re-export `planResearchQueries` / `ResearchQueryPlan` / `buildArxivQuery` / `buildEuropePmcQuery` / `parseEuropePmcPapers`。仓库内无 `@sciforge/search` 根导入，GUI/workflow 走源码子路径，helper 仅 search 包内相对导入和测试使用；若接受 breaking 收口，可直接删除 root helper re-export 并加 public-surface 回归测试，否则需先定 deprecation/兼容窗口。
 - [x] Schedule detector 内部旧命名已清理为 neutral scheduled-task detector，并保留 Model Router-only 检测测试。

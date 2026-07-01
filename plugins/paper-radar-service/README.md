@@ -57,8 +57,10 @@ PAPER_RADAR_MAX_BODY_BYTES=1000000
 `PAPER_RADAR_RUNTIME_TOKEN` is required. The service rejects every route without
 `Authorization: Bearer <token>` and exits closed when the token is absent.
 
-By default the service does **not** sync on startup. The desktop extension starts it on demand and
-syncs only when the user clicks a Paper Radar action.
+By default the service does **not** sync on startup. The desktop extension no longer starts this
+HTTP service for normal IPC; GUI actions go through `PaperRadarWorkerService`. Use this service for
+standalone/debug HTTP API runs while the shared Paper Radar core still lives in this plug-in
+workspace.
 
 Useful sync settings:
 

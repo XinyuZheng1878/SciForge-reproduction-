@@ -67,7 +67,7 @@ import {
 import {
   paperRadarDbPath,
   paperRadarProfilesPath
-} from './paper-radar-sidecar'
+} from './paper-radar-paths'
 import { defaultLocalRuntimeDataDir } from './runtime/local-runtime-adapter'
 import { isLocalRuntimeHealthResponseBody } from './local-runtime-health'
 import { appendManagedLogLine } from './logger'
