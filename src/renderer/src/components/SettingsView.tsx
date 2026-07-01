@@ -62,7 +62,7 @@ import {
   SpeechToTextSettingsSection
 } from './settings-sections'
 
-type SettingsCategory = 'general' | 'speechToText' | 'agents' | 'shortcuts' | 'claw' | 'remoteResources'
+type SettingsCategory = 'general' | 'speechToText' | 'agents' | 'shortcuts' | 'connectPhone' | 'remoteResources'
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 type SettingsPatch = AppSettingsPatch
 type MemoryScopeFilter = 'all' | 'user' | 'workspace' | 'project'
@@ -239,8 +239,8 @@ export function SettingsView(): ReactElement {
       setCategory('speechToText')
       return
     }
-    if (settingsSection === 'claw') {
-      setCategory('claw')
+    if (settingsSection === 'connectPhone') {
+      setCategory('connectPhone')
       return
     }
     if (settingsSection === 'shortcuts') {
@@ -259,14 +259,14 @@ export function SettingsView(): ReactElement {
     if (
       settingsSection === 'general' ||
       settingsSection === 'speechToText' ||
-      settingsSection === 'claw' ||
+      settingsSection === 'connectPhone' ||
       settingsSection === 'remoteResources' ||
       settingsSection === 'shortcuts' ||
       category !== 'agents'
     ) {
       return
     }
-    const refs: Record<Exclude<SettingsRouteSection, 'general' | 'speechToText' | 'claw' | 'remoteResources' | 'shortcuts'>, HTMLDivElement | null> = {
+    const refs: Record<Exclude<SettingsRouteSection, 'general' | 'speechToText' | 'connectPhone' | 'remoteResources' | 'shortcuts'>, HTMLDivElement | null> = {
       agents: agentsSectionRef.current,
       skill: skillSectionRef.current,
       mcp: mcpSectionRef.current
@@ -911,7 +911,7 @@ export function SettingsView(): ReactElement {
           {category === 'agents' ? <AgentsSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'shortcuts' ? <KeyboardShortcutsSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'remoteResources' ? <RemoteResourcesSettingsSection ctx={settingsSectionContext} /> : null}
-          {category === 'claw' ? <ClawSettingsSection ctx={settingsSectionContext} /> : null}
+          {category === 'connectPhone' ? <ClawSettingsSection ctx={settingsSectionContext} /> : null}
         </div>
       </div>
     </div>

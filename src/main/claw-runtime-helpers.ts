@@ -56,7 +56,7 @@ export type ClawActiveThreadContext = {
 
 export type ClawRuntimeDeps = {
   store: JsonSettingsStore
-  agentRuntime?: {
+  agentRuntime: {
     listThreads?: (input?: { runtimeId?: AgentRuntimeId; limit?: number; includeArchived?: boolean }) => Promise<AgentRuntimeThread[]>
     startThread: (input: AgentRuntimeThreadStartInput) => Promise<AgentRuntimeThread>
     readThread: (input: { runtimeId?: AgentRuntimeId; threadId: string }) => Promise<AgentRuntimeThreadDetail>

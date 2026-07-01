@@ -802,7 +802,7 @@ describe('HTTP server', () => {
     await expect(pending).resolves.toBe('allow')
   })
 
-  it('resolves GUI user input through both HTTP compatibility endpoints', async () => {
+  it('submits GUI user input through the canonical HTTP endpoint', async () => {
     const h = buildHarness()
     const pending = h.userInputGate.request({
       id: 'in_1',
@@ -827,27 +827,69 @@ describe('HTTP server', () => {
       status: 'submitted',
       answers: [{ id: 'choice', label: 'Yes', value: 'yes' }]
     })
+    const events = await h.sessionStore.loadEventsSince('thr_1', 0)
+    expect(events.filter((event) => event.kind === 'user_input_resolved')).toHaveLength(1)
+  })
 
-    const cancelPending = h.userInputGate.request({
+  it('cancels GUI user input through the canonical HTTP endpoint', async () => {
+    const h = buildHarness()
+    const pending = h.userInputGate.request({
       id: 'in_2',
       threadId: 'thr_1',
       turnId: 'turn_1',
       itemId: 'item_in_2',
-      prompt: 'Cancel?',
+      prompt: 'Pick one',
       questions: []
     })
     const cancel = await dispatchRequest(
       h.router,
-      new Request('http://localhost/v1/user-input/in_2', {
+      new Request('http://localhost/v1/user-inputs/in_2', {
         method: 'POST',
         headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
         body: JSON.stringify({ cancelled: true })
       })
     )
     expect(cancel.status).toBe(200)
-    await expect(cancelPending).resolves.toEqual({ status: 'cancelled' })
+    const body = (await readJson(cancel)) as { inputId: string; status: string }
+    expect(body).toEqual({ inputId: 'in_2', status: 'cancelled' })
+    await expect(pending).resolves.toEqual({ status: 'cancelled' })
+
     const events = await h.sessionStore.loadEventsSince('thr_1', 0)
-    expect(events.filter((event) => event.kind === 'user_input_resolved')).toHaveLength(2)
+    expect(events.filter((event) => event.kind === 'user_input_resolved')).toHaveLength(1)
+  })
+
+  it('returns 404 for the legacy singular user input route without resolving', async () => {
+    const h = buildHarness()
+    const pending = h.userInputGate.request({
+      id: 'in_legacy',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      itemId: 'item_in_legacy',
+      prompt: 'Pick one',
+      questions: []
+    })
+    const cancel = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/user-input/in_legacy', {
+        method: 'POST',
+        headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        body: JSON.stringify({ cancelled: true })
+      })
+    )
+    expect(cancel.status).toBe(404)
+    const unresolved = Symbol('unresolved')
+    const status = await Promise.race([
+      pending.then(() => 'resolved'),
+      new Promise<typeof unresolved>((resolve) => setTimeout(() => resolve(unresolved), 20))
+    ])
+    expect(status).toBe(unresolved)
+    expect(h.userInputGate.pending('thr_1')).toHaveLength(1)
+
+    const events = await h.sessionStore.loadEventsSince('thr_1', 0)
+    expect(events.filter((event) => event.kind === 'user_input_resolved')).toHaveLength(0)
+
+    h.userInputGate.resolve('in_legacy', { status: 'cancelled' })
+    await expect(pending).resolves.toEqual({ status: 'cancelled' })
   })
 
   it('forks a thread with copied history and lineage metadata', async () => {

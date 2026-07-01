@@ -65,10 +65,6 @@ export const localRuntimeAdapter: ManagedRuntimeAdapter & {
 
   reclaimPort(port: number): Promise<{ ok: true } | { ok: false; message: string }> {
     return reclaimLocalRuntimePort(port)
-  },
-
-  request(settings: AppSettingsV1, pathAndQuery: string, init: LocalRuntimeHttpRequestInit) {
-    return localRuntimeHttpRequestViaHost(settings, pathAndQuery, init, (current) => this.ensureRunning(current))
   }
 }
 

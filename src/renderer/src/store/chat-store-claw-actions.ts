@@ -57,7 +57,7 @@ function clawThreadPlaceholder(
   channel: ClawImChannelV1,
   threadId: string,
   workspaceRoot: string,
-  runtimeId: AgentRuntimeId = 'sciforge'
+  runtimeId: AgentRuntimeId
 ): NormalizedThread {
   return {
     id: threadId,
@@ -72,8 +72,8 @@ function clawThreadPlaceholder(
 
 export function clawThreadIdForProvider(
   channel: ClawImChannelV1,
-  conversation?: ClawImChannelV1['conversations'][number] | null,
-  runtimeId: AgentRuntimeId = 'sciforge'
+  conversation: ClawImChannelV1['conversations'][number] | null | undefined,
+  runtimeId: AgentRuntimeId
 ): string {
   const mapped =
     conversation?.agentThreadIds?.[runtimeId]?.trim() ||
@@ -146,7 +146,7 @@ export function findRecoverableClawThread(
   threads: NormalizedThread[],
   channels: ClawImChannelV1[],
   channel: ClawImChannelV1,
-  runtimeId: AgentRuntimeId = 'sciforge'
+  runtimeId: AgentRuntimeId
 ): NormalizedThread | null {
   const normalizedRuntimeId = normalizeAgentRuntimeId(runtimeId)
   const knownThreadIds = clawThreadIdsFromChannels(channels)
@@ -209,8 +209,8 @@ export function channelWithClawThreadMapping(
   channel: ClawImChannelV1,
   threadId: string,
   now: string,
-  conversationId?: string,
-  runtimeId: AgentRuntimeId = 'sciforge'
+  conversationId: string | undefined,
+  runtimeId: AgentRuntimeId
 ): ClawImChannelV1 {
   const normalizedRuntimeId = normalizeAgentRuntimeId(runtimeId)
   const channelThreadId = threadId.trim()

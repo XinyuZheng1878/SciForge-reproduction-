@@ -80,15 +80,15 @@ describe('electron-builder local runtime packaging', () => {
   it('keeps local runtime install/build decisions in one package script', () => {
     const root = tempRoot()
 
-    expect(localRuntimePackage.hasProjectKunInstall(root)).toBe(false)
-    for (const relativePath of localRuntimePackage.KUN_INSTALL_REQUIRED_PATHS) {
+    expect(localRuntimePackage.hasProjectLocalRuntimeInstall(root)).toBe(false)
+    for (const relativePath of localRuntimePackage.LOCAL_RUNTIME_INSTALL_REQUIRED_PATHS) {
       touch(join(root, relativePath))
     }
-    expect(localRuntimePackage.hasProjectKunInstall(root)).toBe(true)
+    expect(localRuntimePackage.hasProjectLocalRuntimeInstall(root)).toBe(true)
 
     const sqliteModule = join(root, 'kun/node_modules/better-sqlite3')
     touch(join(sqliteModule, 'package.json'))
-    localRuntimePackage.removeProjectKunSqlite(root)
+    localRuntimePackage.removeProjectLocalRuntimeSqlite(root)
 
     expect(existsSync(sqliteModule)).toBe(false)
   })
@@ -436,9 +436,6 @@ describe('electron-builder local runtime packaging', () => {
       'packages/workers/model-router/tools/model-router-trace-audit.ts'
     ]))
     expect(afterPack.MODEL_ROUTER_RUNTIME_REQUIRED_PATHS).not.toEqual(expect.arrayContaining([
-      'packages/workers/model-router/vision-router-service/package.json',
-      'packages/workers/model-router/vision-router-service/src/index.ts',
-      'plugins/vision-router-service/package.json',
       'packages/workers/sci-modality-router/package.json'
     ]))
 

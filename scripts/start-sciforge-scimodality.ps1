@@ -100,9 +100,9 @@ try {
     Die 'EXPERT_PROVIDER_API_KEY is required in -Mode local. Pass -ProviderToken or set the environment variable.'
   }
 
-  # 1) Dependencies (one-time; heavy because postinstall builds the Kun runtime).
+  # 1) Dependencies (one-time; heavy because postinstall builds the local runtime).
   if (-not $SkipInstall -and -not (Test-Path (Join-Path $RepoRoot 'node_modules'))) {
-    Info 'node_modules missing -> running "npm install" (one-time; builds Kun, may take several minutes) ...'
+    Info 'node_modules missing -> running "npm install" (one-time; builds the local runtime, may take several minutes) ...'
     & $npm install
     if ($LASTEXITCODE -ne 0) { Die 'npm install failed.' }
   }

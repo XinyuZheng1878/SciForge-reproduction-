@@ -10,7 +10,7 @@ function run(command, args, options = {}) {
 }
 
 try {
-  require('./local-runtime-package.cjs').buildProjectKun()
+  require('./local-runtime-package.cjs').buildProjectLocalRuntime()
 } catch (error) {
   console.error(`[postinstall] local runtime build failed: ${error.message}`)
   process.exit(error.status || 1)

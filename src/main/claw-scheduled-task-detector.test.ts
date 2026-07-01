@@ -20,8 +20,7 @@ function settings(): AppSettingsV1 {
   provider.providers[0] = {
     ...provider.providers[0],
     apiKey: 'sk-remote-provider',
-    baseUrl: 'https://remote-provider.example/v1',
-    endpointFormat: 'chat_completions'
+    baseUrl: 'https://remote-provider.example/v1'
   }
   return {
     version: 1,

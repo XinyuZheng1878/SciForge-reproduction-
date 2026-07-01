@@ -185,7 +185,7 @@ function readWeixinPackageInfo(): WeixinPackageInfo {
   const packageJson = resolvePackagePath('@tencent-weixin/openclaw-weixin', 'package.json')
   if (!packageJson) {
     throw new Error(
-      'Built-in WeChat login component is missing. Reinstall SciForge or rebuild with @tencent-weixin/openclaw-weixin bundled.'
+      'Built-in WeChat login component is missing. Reinstall SciForge or rebuild the bundled WeChat bridge.'
     )
   }
   const parsed = JSON.parse(readFileSync(packageJson, 'utf8')) as JsonRecord
@@ -497,7 +497,7 @@ async function readBridgeConfig(): Promise<JsonRecord> {
 async function prepareBridgeState(port: number): Promise<void> {
   if (!resolveWeixinPluginRoot()) {
     throw new Error(
-      'Built-in WeChat login component is missing. Reinstall SciForge or rebuild with @tencent-weixin/openclaw-weixin bundled.'
+      'Built-in WeChat login component is missing. Reinstall SciForge or rebuild the bundled WeChat bridge.'
     )
   }
   await ensureStateDirs()

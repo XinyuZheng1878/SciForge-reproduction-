@@ -100,7 +100,7 @@ export type SettingsRouteSection =
   | 'skill'
   | 'mcp'
   | 'shortcuts'
-  | 'claw'
+  | 'connectPhone'
   | 'remoteResources'
 export type AppRoute = 'chat' | 'settings' | 'plugins' | 'schedule' | 'workflow'
 export type PluginHostRoute = 'chat'

@@ -121,7 +121,17 @@ describe('agent runtime contract', () => {
       },
       { kind: 'review_event', threadId: 'thr', itemId: 'review', status: 'running', title: 'Review' },
       { kind: 'goal_event', threadId: 'thr', status: 'active', objective: 'Ship it' },
-      { kind: 'todo_event', threadId: 'thr', items: [{ id: 'todo', content: 'One', status: 'pending' }] },
+      {
+        kind: 'todo_event',
+        threadId: 'thr',
+        items: [{
+          id: 'todo',
+          content: 'One',
+          status: 'pending',
+          createdAt: '2026-06-11T00:00:00.000Z',
+          updatedAt: '2026-06-11T00:00:00.000Z'
+        }]
+      },
       { kind: 'usage', threadId: 'thr', usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 } },
       { kind: 'error', threadId: 'thr', recoverable: true, severity: 'warning', message: 'Recoverable' },
       { kind: 'heartbeat', threadId: 'thr' }

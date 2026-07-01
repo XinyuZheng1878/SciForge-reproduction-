@@ -4,7 +4,7 @@ const { join, resolve } = require('node:path')
 
 const PROJECT_ROOT = resolve(__dirname, '..')
 
-const KUN_INSTALL_REQUIRED_PATHS = [
+const LOCAL_RUNTIME_INSTALL_REQUIRED_PATHS = [
   'kun/package-lock.json',
   'packages/workers/multi-agent/dist/index.js',
   'kun/node_modules/@sciforge/multi-agent/package.json',
@@ -24,7 +24,7 @@ const LOCAL_RUNTIME_REQUIRED_PATHS = [
   'kun/node_modules/@modelcontextprotocol/sdk/package.json'
 ]
 
-const KUN_SQLITE_MODULE_PATH = 'kun/node_modules/better-sqlite3'
+const LOCAL_RUNTIME_SQLITE_MODULE_PATH = 'kun/node_modules/better-sqlite3'
 
 function assertExists(path, label) {
   if (!existsSync(path)) {
@@ -66,24 +66,24 @@ function runNpm(args, options = {}) {
   }
 }
 
-function hasProjectKunInstall(projectRoot = PROJECT_ROOT) {
-  return KUN_INSTALL_REQUIRED_PATHS.every((path) => existsSync(join(projectRoot, path)))
+function hasProjectLocalRuntimeInstall(projectRoot = PROJECT_ROOT) {
+  return LOCAL_RUNTIME_INSTALL_REQUIRED_PATHS.every((path) => existsSync(join(projectRoot, path)))
 }
 
-function removeProjectKunSqlite(projectRoot = PROJECT_ROOT) {
-  const sqlitePath = join(projectRoot, KUN_SQLITE_MODULE_PATH)
+function removeProjectLocalRuntimeSqlite(projectRoot = PROJECT_ROOT) {
+  const sqlitePath = join(projectRoot, LOCAL_RUNTIME_SQLITE_MODULE_PATH)
   if (existsSync(sqlitePath)) {
     rmSync(sqlitePath, { recursive: true, force: true })
   }
 }
 
-function ensureProjectKunInstall(projectRoot = PROJECT_ROOT) {
+function ensureProjectLocalRuntimeInstall(projectRoot = PROJECT_ROOT) {
   runNpm(['--workspace', '@sciforge/multi-agent', 'run', 'build'], {
     cwd: projectRoot,
     label: 'npm --workspace @sciforge/multi-agent run build'
   })
 
-  if (!hasProjectKunInstall(projectRoot)) {
+  if (!hasProjectLocalRuntimeInstall(projectRoot)) {
     runNpm(['--prefix', 'kun', 'ci'], {
       cwd: projectRoot,
       label: 'npm --prefix kun ci'
@@ -92,18 +92,18 @@ function ensureProjectKunInstall(projectRoot = PROJECT_ROOT) {
 
   // Keep native SQLite on the app root dependency so Electron's native-module
   // rebuild owns the target arch and Electron ABI.
-  removeProjectKunSqlite(projectRoot)
+  removeProjectLocalRuntimeSqlite(projectRoot)
 }
 
-function buildProjectKun(projectRoot = PROJECT_ROOT) {
-  ensureProjectKunInstall(projectRoot)
+function buildProjectLocalRuntime(projectRoot = PROJECT_ROOT) {
+  ensureProjectLocalRuntimeInstall(projectRoot)
   runNpm(['--prefix', 'kun', 'run', 'build'], {
     cwd: projectRoot,
     label: 'npm --prefix kun run build'
   })
 }
 
-function prunePackedKunDependencies(appRoot, platform = process.platform) {
+function prunePackedLocalRuntimeDependencies(appRoot, platform = process.platform) {
   const kunDir = join(appRoot, 'kun')
   if (!existsSync(kunDir)) return
 
@@ -138,9 +138,9 @@ function printUsage() {
     'Usage: node ./scripts/local-runtime-package.cjs <command>',
     '',
     'Commands:',
-    '  ensure                       install kun dependencies when required',
-    '  build                        ensure dependencies and build kun/dist',
-    '  prune-packed <appRoot>       prune bundled kun dependencies under app.asar.unpacked',
+    '  ensure                       install local runtime dependencies when required',
+    '  build                        ensure dependencies and build local runtime dist',
+    '  prune-packed <appRoot>       prune bundled local runtime dependencies under app.asar.unpacked',
     '  validate-packed <appRoot>    validate bundled local runtime files'
   ].join('\n'))
 }
@@ -148,16 +148,16 @@ function printUsage() {
 function runCli(argv = process.argv.slice(2)) {
   const [command, appRoot] = argv
   if (command === 'ensure') {
-    ensureProjectKunInstall()
+    ensureProjectLocalRuntimeInstall()
     return
   }
   if (command === 'build') {
-    buildProjectKun()
+    buildProjectLocalRuntime()
     return
   }
   if (command === 'prune-packed') {
     if (!appRoot) throw new Error('prune-packed requires an app root path')
-    prunePackedKunDependencies(resolve(appRoot))
+    prunePackedLocalRuntimeDependencies(resolve(appRoot))
     return
   }
   if (command === 'validate-packed') {
@@ -181,16 +181,16 @@ if (require.main === module) {
   }
 }
 
-exports.KUN_INSTALL_REQUIRED_PATHS = KUN_INSTALL_REQUIRED_PATHS
+exports.LOCAL_RUNTIME_INSTALL_REQUIRED_PATHS = LOCAL_RUNTIME_INSTALL_REQUIRED_PATHS
 exports.LOCAL_RUNTIME_REQUIRED_PATHS = LOCAL_RUNTIME_REQUIRED_PATHS
 exports.PROJECT_ROOT = PROJECT_ROOT
 exports.assertExists = assertExists
 exports.npmCommand = npmCommand
 exports.runNpm = runNpm
-exports.hasProjectKunInstall = hasProjectKunInstall
-exports.removeProjectKunSqlite = removeProjectKunSqlite
-exports.ensureProjectKunInstall = ensureProjectKunInstall
-exports.buildProjectKun = buildProjectKun
-exports.prunePackedKunDependencies = prunePackedKunDependencies
+exports.hasProjectLocalRuntimeInstall = hasProjectLocalRuntimeInstall
+exports.removeProjectLocalRuntimeSqlite = removeProjectLocalRuntimeSqlite
+exports.ensureProjectLocalRuntimeInstall = ensureProjectLocalRuntimeInstall
+exports.buildProjectLocalRuntime = buildProjectLocalRuntime
+exports.prunePackedLocalRuntimeDependencies = prunePackedLocalRuntimeDependencies
 exports.validateBundledLocalRuntime = validateBundledLocalRuntime
 exports.runCli = runCli

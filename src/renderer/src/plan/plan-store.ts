@@ -11,7 +11,6 @@ export type GuiPlanOperationStatus =
   | 'error'
 
 export type GuiPlanSaveStatus = 'saved' | 'dirty' | 'saving' | 'error'
-export type GuiPlanPreviewMode = 'live' | 'source' | 'split' | 'preview'
 
 export type GuiPlanArtifact = {
   id: string
@@ -39,20 +38,16 @@ export type GuiPlanState = {
   saveStatus: GuiPlanSaveStatus
   operationStatus: GuiPlanOperationStatus
   error: string | null
-  previewMode: GuiPlanPreviewMode
   setActivePlan: (plan: GuiPlanArtifact, content: string) => void
   setContent: (content: string) => void
-  setGeneratedContent: (planId: string, content: string) => void
   setSaveStatus: (status: GuiPlanSaveStatus, error?: string | null) => void
   markSaved: (content: string) => void
   setOperationStatus: (status: GuiPlanOperationStatus, error?: string | null) => void
-  setPreviewMode: (mode: GuiPlanPreviewMode) => void
   updateActivePlan: (planId: string, patch: Partial<Pick<GuiPlanArtifact, 'threadId' | 'absolutePath'>>) => void
   clearActivePlan: () => void
 }
 
 const PLAN_REGISTRY_STORAGE_KEY = 'sciforge.plan.registry.v1'
-const PLAN_PREVIEW_MODE_STORAGE_KEY = 'sciforge.plan.previewMode'
 
 function normalizeWorkspaceRoot(value: string | undefined | null): string {
   return (value ?? '').trim().replaceAll('\\', '/').replace(/\/+$/, '')
@@ -155,25 +150,6 @@ function writeRegistry(registry: PersistedPlanRegistry, storage = browserStorage
   }
 }
 
-function readPreviewMode(): GuiPlanPreviewMode {
-  try {
-    const raw = browserStorage()?.getItem(PLAN_PREVIEW_MODE_STORAGE_KEY)
-    return raw === 'source' || raw === 'split' || raw === 'preview' || raw === 'live'
-      ? raw
-      : 'live'
-  } catch {
-    return 'live'
-  }
-}
-
-function persistPreviewMode(mode: GuiPlanPreviewMode): void {
-  try {
-    browserStorage()?.setItem(PLAN_PREVIEW_MODE_STORAGE_KEY, mode)
-  } catch {
-    /* ignore storage failures */
-  }
-}
-
 export function createGuiPlanArtifact(options: {
   workspaceRoot: string
   threadId?: string | null
@@ -253,7 +229,6 @@ export const useGuiPlanStore = create<GuiPlanState>((set) => ({
   saveStatus: 'saved',
   operationStatus: 'idle',
   error: null,
-  previewMode: readPreviewMode(),
 
   setActivePlan: (plan, content) => {
     rememberGuiPlan(plan)
@@ -274,12 +249,6 @@ export const useGuiPlanStore = create<GuiPlanState>((set) => ({
       error: state.saveStatus === 'error' ? null : state.error
     })),
 
-  setGeneratedContent: (planId, content) =>
-    set((state) => {
-      if (state.activePlan?.id !== planId) return {}
-      return { content }
-    }),
-
   setSaveStatus: (status, error = null) => set({ saveStatus: status, error }),
 
   markSaved: (content) =>
@@ -298,11 +267,6 @@ export const useGuiPlanStore = create<GuiPlanState>((set) => ({
     }),
 
   setOperationStatus: (status, error = null) => set({ operationStatus: status, error }),
-
-  setPreviewMode: (mode) => {
-    persistPreviewMode(mode)
-    set({ previewMode: mode })
-  },
 
   updateActivePlan: (planId, patch) =>
     set((state) => {

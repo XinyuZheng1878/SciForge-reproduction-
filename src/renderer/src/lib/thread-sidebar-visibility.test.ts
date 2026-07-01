@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ChatBlock, NormalizedThread } from '../agent/types'
+import type { UserMessageManagedBy } from '../agent/types'
 import {
   filterThreadsForSidebar,
   shouldHideThreadFromSidebarByBlocks,
@@ -21,7 +22,7 @@ function thread(overrides: Partial<NormalizedThread> & Pick<NormalizedThread, 'i
   }
 }
 
-function userBlock(text = 'hello', managedBy?: 'claw'): ChatBlock {
+function userBlock(text = 'hello', managedBy?: UserMessageManagedBy): ChatBlock {
   return {
     kind: 'user',
     id: 'u-1',
@@ -67,7 +68,8 @@ describe('thread-sidebar-visibility', () => {
     expect(shouldHideThreadFromSidebarByBlocks([userBlock()])).toBe(false)
   })
 
-  it('hides fallback entries whose raw prompt came from Claw', () => {
+  it('hides fallback entries whose raw prompt came from a remote channel', () => {
+    expect(shouldHideThreadFromSidebarByBlocks([userBlock('现在时间是23:50', 'remoteChannel')])).toBe(true)
     expect(shouldHideThreadFromSidebarByBlocks([userBlock('现在时间是23:50', 'claw')])).toBe(true)
   })
 

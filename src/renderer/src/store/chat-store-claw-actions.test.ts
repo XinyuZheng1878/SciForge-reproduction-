@@ -217,11 +217,11 @@ describe('chat-store Claw actions helpers', () => {
   it('does not fall back to the legacy channel threadId when the latest conversation has none', () => {
     const item = channel({ threadId: 'kun-channel-thread' })
     const conversation = { ...item.conversations[0], localThreadId: '' }
-    expect(clawThreadIdForProvider(item, conversation)).toBe('')
+    expect(clawThreadIdForProvider(item, conversation, 'sciforge')).toBe('')
     expect(clawThreadIdForProvider({
       ...item,
       agentThreadIds: { sciforge: 'sciforge-channel-thread' }
-    }, conversation)).toBe('sciforge-channel-thread')
+    }, conversation, 'sciforge')).toBe('sciforge-channel-thread')
   })
 
   it('uses Codex thread mappings without falling back to legacy local runtime fields', () => {
@@ -258,7 +258,8 @@ describe('chat-store Claw actions helpers', () => {
         thread('old-content-thread', `${CLAW_MANAGED_INSTRUCTIONS_HEADING} SciForge scheduled-task tools`, '2026-06-01T00:01:00.000Z')
       ],
       [item],
-      item
+      item,
+      'sciforge'
     )
 
     expect(recovered?.id).toBe('old-content-thread')
@@ -266,7 +267,7 @@ describe('chat-store Claw actions helpers', () => {
 
   it('writes recovered provider thread ids to the single runtime mapping', () => {
     const now = '2026-06-01T00:03:00.000Z'
-    const next = channelWithClawThreadMapping(channel(), 'kun-thread', now, 'conversation-1')
+    const next = channelWithClawThreadMapping(channel(), 'kun-thread', now, 'conversation-1', 'sciforge')
 
     expect(next.threadId).toBe('thr-codewhale-channel')
     expect(next.conversations[0]?.localThreadId).toBe('thr-codewhale-conversation')

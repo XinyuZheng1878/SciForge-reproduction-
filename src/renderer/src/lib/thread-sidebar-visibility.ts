@@ -1,4 +1,5 @@
 import type { ChatBlock, NormalizedThread } from '../agent/types'
+import { isRemoteChannelManagedBy } from '../agent/types'
 import {
   deriveThreadTitleFromPrompt,
   hasInternalPromptThreadTitle,
@@ -30,12 +31,12 @@ export function shouldInspectThreadForSidebarVisibility(
 
 export function shouldHideThreadFromSidebarByBlocks(blocks: ChatBlock[]): boolean {
   return blocks.length === 0 ||
-    blocks.some((block) => block.kind === 'user' && block.managedBy === 'claw')
+    blocks.some((block) => block.kind === 'user' && isRemoteChannelManagedBy(block.managedBy))
 }
 
 function titleFromThreadBlocks(blocks: ChatBlock[]): string | null {
   const userBlock = blocks.find((block) => {
-    if (block.kind !== 'user' || block.managedBy === 'claw') return false
+    if (block.kind !== 'user' || isRemoteChannelManagedBy(block.managedBy)) return false
     const text = block.meta?.displayText?.trim() || block.text.trim()
     return Boolean(text) && !hasInternalPromptThreadTitle(text)
   })

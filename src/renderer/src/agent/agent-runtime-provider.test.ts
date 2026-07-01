@@ -149,6 +149,24 @@ describe('AgentRuntimeProvider', () => {
       updatedAt: '2026-06-11T00:01:00.000Z',
       latestSeq: 3,
       latestTurnId: 'turn-1',
+      todos: {
+        threadId: 'thread-2',
+        updatedAt: '2026-06-11T00:01:03.000Z',
+        items: [{
+          id: 'todo-1',
+          content: 'Map events',
+          status: 'pending',
+          createdAt: '2026-06-11T00:01:03.000Z',
+          updatedAt: '2026-06-11T00:01:03.000Z',
+          source: {
+            kind: 'plan',
+            planId: 'plan-1',
+            relativePath: '.sciforge/plan/bridge.md',
+            ordinal: 0,
+            contentHash: 'hash-1'
+          }
+        }]
+      },
       items: [
         { id: 'user-1', kind: 'user_message', text: 'hello', createdAt: '2026-06-11T00:01:01.000Z' },
         { id: 'assistant-1', kind: 'assistant_message', text: 'hi', createdAt: '2026-06-11T00:01:02.000Z' }
@@ -208,6 +226,17 @@ describe('AgentRuntimeProvider', () => {
       latestSeq: 3,
       latestTurnId: 'turn-1',
       latestUserMessageId: 'user-1',
+      todos: {
+        items: [
+          expect.objectContaining({
+            id: 'todo-1',
+            source: expect.objectContaining({
+              kind: 'plan',
+              relativePath: '.sciforge/plan/bridge.md'
+            })
+          })
+        ]
+      },
       blocks: [
         { kind: 'user', id: 'user-1', text: 'hello' },
         { kind: 'assistant', id: 'assistant-1', text: 'hi' }

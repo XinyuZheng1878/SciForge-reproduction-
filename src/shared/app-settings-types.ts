@@ -2,13 +2,6 @@ import type { GuiUpdateChannel } from './gui-update'
 import type { KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
 import type { SpeechToTextSettingsPatchV1, SpeechToTextSettingsV1 } from './speech-to-text'
 import type { ApprovalPolicy, SandboxMode } from './runtime-policy'
-import type { ModelEndpointFormat } from './model-endpoint-format'
-export {
-  DEFAULT_MODEL_ENDPOINT_FORMAT,
-  MODEL_ENDPOINT_FORMATS,
-  modelEndpointPath,
-  normalizeModelEndpointFormat
-} from './model-endpoint-format'
 export { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel, type GuiUpdateChannel } from './gui-update'
 export {
   DEFAULT_APPROVAL_POLICY,
@@ -54,14 +47,12 @@ export const DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS = 256
 export const DEFAULT_LOCAL_RUNTIME_PORT = 8899
 export const DEFAULT_WEIXIN_BRIDGE_RPC_URL = 'http://127.0.0.1:18790/api/v1/admin/rpc'
 export const DEFAULT_MODEL_PROVIDER_ID = 'deepseek'
-export type { ModelEndpointFormat }
 export type { SpeechToTextSettingsPatchV1, SpeechToTextSettingsV1 } from './speech-to-text'
 export type ModelProviderProfileV1 = {
   id: string
   name: string
   apiKey: string
   baseUrl: string
-  endpointFormat: ModelEndpointFormat
   models: string[]
 }
 export type ModelProviderSettingsV1 = {

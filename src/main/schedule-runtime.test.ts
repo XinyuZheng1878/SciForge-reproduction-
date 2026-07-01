@@ -16,6 +16,7 @@ import {
   type ScheduledTaskV1
 } from '../shared/app-settings'
 import { ScheduleRuntime, computeScheduleNextRunAt, scheduledThreadTitle } from './schedule-runtime'
+import type { ScheduleRuntimeDeps } from './schedule-runtime-helpers'
 
 function makeTask(patch: Partial<ScheduledTaskV1> = {}): ScheduledTaskV1 {
   const schedule = {
@@ -98,11 +99,27 @@ function createStore(initial: AppSettingsV1) {
   }
 }
 
-function createRuntime(initial: AppSettingsV1, forbiddenDirectCall = vi.fn(), agentRuntime?: unknown) {
+function unusedAgentRuntime(): ScheduleRuntimeDeps['agentRuntime'] {
+  const fail = async (): Promise<never> => {
+    throw new Error('Unexpected agentRuntime call in this test.')
+  }
+  return {
+    startThread: vi.fn(fail),
+    readThread: vi.fn(fail),
+    startTurn: vi.fn(fail),
+    interruptTurn: vi.fn(fail)
+  } as unknown as ScheduleRuntimeDeps['agentRuntime']
+}
+
+function createRuntime(
+  initial: AppSettingsV1,
+  forbiddenDirectCall = vi.fn(),
+  agentRuntime: unknown = unusedAgentRuntime()
+) {
   const store = createStore(initial)
   const runtime = new ScheduleRuntime({
     store: store as never,
-    ...(agentRuntime ? { agentRuntime: agentRuntime as never } : {}),
+    agentRuntime: agentRuntime as ScheduleRuntimeDeps['agentRuntime'],
     logError: vi.fn()
   })
   return { runtime, store, forbiddenDirectCall, agentRuntime }
@@ -352,20 +369,22 @@ describe('ScheduleRuntime', () => {
     })
   })
 
-  it('fails closed for scheduled runs when agentRuntime is unavailable', async () => {
+  it('records an error when agentRuntime rejects scheduled runs', async () => {
     const task = makeTask({ runtimeId: 'sciforge' })
     const forbiddenDirectCall = vi.fn()
-    const { runtime, store } = createRuntime(settingsWith([task]), forbiddenDirectCall)
+    const agentRuntime = unusedAgentRuntime()
+    vi.mocked(agentRuntime.startThread).mockRejectedValue(new Error('AgentRuntimeHost rejected the scheduled run.'))
+    const { runtime, store } = createRuntime(settingsWith([task]), forbiddenDirectCall, agentRuntime)
 
     await expect(runtime.runTask(task.id)).resolves.toMatchObject({
       ok: false,
-      message: expect.stringContaining('unsupported_runtime_request')
+      message: expect.stringContaining('AgentRuntimeHost rejected the scheduled run')
     })
 
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(store.read().schedule.tasks[0]).toMatchObject({
       lastStatus: 'error',
-      lastMessage: expect.stringContaining('unsupported_runtime_request')
+      lastMessage: expect.stringContaining('AgentRuntimeHost rejected the scheduled run')
     })
   })
 
@@ -650,6 +669,7 @@ describe('ScheduleRuntime', () => {
     }
     const runtime = new ScheduleRuntime({
       store: createStore(settingsWith()) as never,
+      agentRuntime: unusedAgentRuntime(),
       logError: vi.fn(),
       powerSaveBlocker
     })

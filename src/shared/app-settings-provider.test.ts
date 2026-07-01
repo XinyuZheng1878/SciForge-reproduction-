@@ -31,7 +31,6 @@ function settings(): AppSettingsV1 {
           name: 'Custom Provider',
           apiKey: 'sk-custom',
           baseUrl: 'https://custom.example/v1',
-          endpointFormat: 'messages',
           models: ['custom-model']
         }
       ]
@@ -74,7 +73,6 @@ describe('model provider settings', () => {
       id: 'deepseek',
       name: 'DeepSeek',
       baseUrl: 'http://127.0.0.1:3892/v1',
-      endpointFormat: 'chat_completions',
       models: ['deepseek-v4-pro', 'deepseek-v4-flash']
     })
   })

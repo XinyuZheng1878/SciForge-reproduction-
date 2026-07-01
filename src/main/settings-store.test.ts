@@ -442,11 +442,13 @@ describe('JsonSettingsStore', () => {
           id: 'custom-provider-2',
           apiKey: 'sk-custom',
           baseUrl: 'https://custom.example/v1',
-          endpointFormat: 'messages',
           models: ['custom-model']
         })
       ])
     )
+    expect(
+      firstLoaded.provider.providers.find((provider) => provider.id === 'custom-provider-2')
+    ).not.toHaveProperty('endpointFormat')
     expect(firstLoaded.agents.sciforge.providerId).toBe('custom-provider-2')
     await firstStore.save(firstLoaded)
 
@@ -459,11 +461,13 @@ describe('JsonSettingsStore', () => {
           id: 'custom-provider-2',
           apiKey: 'sk-custom',
           baseUrl: 'https://custom.example/v1',
-          endpointFormat: 'messages',
           models: ['custom-model']
         })
       ])
     )
+    expect(
+      secondLoaded.provider.providers.find((provider) => provider.id === 'custom-provider-2')
+    ).not.toHaveProperty('endpointFormat')
     expect(secondLoaded.agents.sciforge.providerId).toBe('custom-provider-2')
   })
 

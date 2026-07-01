@@ -74,7 +74,7 @@ import type { ServerRuntime } from './server-runtime.js'
  * - `GET /v1/threads/{id}/children` (auth)
  * - `GET /v1/threads/{id}/children/{childId}/transcript` (auth)
  * - `POST /v1/approvals/{id}` (auth)
- * - `POST /v1/user-inputs/{id}` and `/v1/user-input/{id}` (auth)
+ * - `POST /v1/user-inputs/{id}` (auth)
  * - `POST /v1/sessions/{id}/resume-thread` (auth)
  * - `GET /v1/usage` (auth)
  */
@@ -247,15 +247,6 @@ export function buildRouter(runtime: ServerRuntime): Router {
     })
   })
   router.add('POST', '/v1/user-inputs/:id', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
-    return resolveUserInput({
-      inputId: ctx.params.id,
-      request,
-      gate: runtime.userInputGate,
-      events: runtime.events
-    })
-  })
-  router.add('POST', '/v1/user-input/:id', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return resolveUserInput({
       inputId: ctx.params.id,

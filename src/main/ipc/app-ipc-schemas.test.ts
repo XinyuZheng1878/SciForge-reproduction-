@@ -426,7 +426,6 @@ describe('app-ipc-schemas', () => {
         sciforge: {
           port: 9000,
           model: 'deepseek-chat',
-          endpointFormat: 'chat_completions',
           tokenEconomy: {
             enabled: true,
             compressToolResults: false,
@@ -466,7 +465,6 @@ describe('app-ipc-schemas', () => {
     })
 
     expect(payload.agents?.sciforge?.port).toBe(9000)
-    expect(payload.agents?.sciforge?.endpointFormat).toBe('chat_completions')
     expect(payload.agents?.sciforge?.tokenEconomy?.enabled).toBe(true)
     expect(payload.agents?.sciforge?.tokenEconomy?.historyHygiene?.maxToolResultTokens).toBe(4000)
     expect(payload.activeAgentRuntime).toBe('claude')
@@ -638,8 +636,7 @@ describe('app-ipc-schemas', () => {
         apiKey: 'sk-updated',
         providers: [{
           id: 'deepseek',
-          apiKey: 'sk-updated',
-          endpointFormat: 'responses'
+          apiKey: 'sk-updated'
         }]
       }
     })
@@ -647,9 +644,31 @@ describe('app-ipc-schemas', () => {
     expect(payload.provider?.apiKey).toBe('sk-updated')
     expect(payload.provider?.providers?.[0]).toEqual({
       id: 'deepseek',
-      apiKey: 'sk-updated',
-      endpointFormat: 'responses'
+      apiKey: 'sk-updated'
     })
+  })
+
+  it('rejects endpoint format patches in settings API payloads', () => {
+    expect(() =>
+      settingsPatchSchema.parse({
+        agents: {
+          sciforge: {
+            endpointFormat: 'chat_completions'
+          }
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(() =>
+      settingsPatchSchema.parse({
+        provider: {
+          providers: [{
+            id: 'deepseek',
+            endpointFormat: 'responses'
+          }]
+        }
+      })
+    ).toThrow(/Unrecognized key/)
   })
 
   it('accepts partial keyboard shortcut binding maps in settings patches', () => {

@@ -493,6 +493,7 @@ export type AgentRuntimeThreadDetail = AgentRuntimeThread & {
   turns?: AgentRuntimeTurn[]
   items?: AgentRuntimeItem[]
   usage?: AgentRuntimeUsage
+  todos?: AgentRuntimeTodoList | null
 }
 
 export type AgentRuntimeTurn = {
@@ -890,10 +891,27 @@ export type AgentRuntimeInputQuestion = {
 
 export type AgentRuntimeTodoStatus = 'pending' | 'in_progress' | 'completed'
 
+export type AgentRuntimeTodoSource = {
+  kind: 'plan'
+  planId: string
+  relativePath: string
+  ordinal: number
+  contentHash: string
+}
+
 export type AgentRuntimeTodoItem = {
   id: string
   content: string
   status: AgentRuntimeTodoStatus
+  source?: AgentRuntimeTodoSource
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentRuntimeTodoList = {
+  threadId: string
+  updatedAt: string
+  items: AgentRuntimeTodoItem[]
 }
 
 export type AgentRuntimeBaseEvent = {

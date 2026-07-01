@@ -31,6 +31,17 @@ import type {
 
 export type ToolItemKind = 'tool_call' | 'command_execution' | 'file_change'
 export type RuntimeErrorSeverity = 'info' | 'warning' | 'error'
+export type UserMessageManagedBy = 'remoteChannel' | 'claw'
+
+export function isRemoteChannelManagedBy(value: unknown): value is UserMessageManagedBy {
+  return value === 'remoteChannel' || value === 'claw'
+}
+
+export function normalizeUserMessageManagedBy(value: unknown): UserMessageManagedBy | undefined {
+  if (value === 'remoteChannel') return 'remoteChannel'
+  if (value === 'claw') return 'remoteChannel'
+  return undefined
+}
 
 export type AttachmentReference = {
   id: string
@@ -266,7 +277,7 @@ export type ChatBlock =
       createdAt?: string
       text: string
       modelLabel?: string
-      managedBy?: 'claw'
+      managedBy?: UserMessageManagedBy
       meta?: RuntimeDisclosureMetadata
     }
   | { kind: 'assistant'; id: string; createdAt?: string; text: string; meta?: RuntimeDisclosureMetadata }
@@ -399,7 +410,7 @@ export type UserMessageEventPayload = {
   createdAt?: string
   text: string
   modelLabel?: string
-  managedBy?: 'claw'
+  managedBy?: UserMessageManagedBy
   meta?: RuntimeDisclosureMetadata
 }
 

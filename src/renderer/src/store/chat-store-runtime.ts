@@ -10,8 +10,7 @@ import type {
   ThreadDeltaEvent,
   ThreadEventSink,
   ToolBlock,
-  TurnLifecycleEventPayload,
-  UserInputQuestion
+  TurnLifecycleEventPayload
 } from '../agent/types'
 import { getProvider } from '../agent/registry'
 import {
@@ -133,30 +132,6 @@ export function takePendingClawFeishuMirror(
 
 export function clearPendingClawFeishuMirrors(): void {
   pendingClawFeishuMirrors.clear()
-}
-
-export function buildFollowupMessageFromUserInput(
-  questions: UserInputQuestion[],
-  answers: Array<{ id: string; label: string; value?: string }>
-): string {
-  const isZh = i18n.language.toLowerCase().startsWith('zh')
-  const title = isZh
-    ? '上一个回合请求了 request_user_input，但当前运行时无法通过 HTTP 直接提交该工具结果。请把下面的用户回答当作 request_user_input 的结果继续执行：'
-    : 'The previous turn requested request_user_input, but this runtime cannot submit that tool result over HTTP. Please treat the answers below as the request_user_input result and continue:'
-  const unansweredLabel = isZh ? '（未回答）' : '(not answered)'
-  const answerPrefix = isZh ? '回答: ' : 'Answer: '
-  const noAnswerLabel = isZh ? '用户未提供问题回答。' : 'User did not provide answers.'
-  if (questions.length === 0 || answers.length === 0) {
-    return noAnswerLabel
-  }
-  const answerById = new Map<string, string>(answers.map((answer) => [answer.id, answer.value || answer.label]))
-  const lines = [title]
-  for (const question of questions) {
-    const answerValue = answerById.get(question.id)
-    const responseLine = answerValue ? `${answerPrefix}${answerValue}` : unansweredLabel
-    lines.push(`${question.header}: ${question.question}`, responseLine)
-  }
-  return lines.join('\n')
 }
 
 function isUserInputInterruptError(message: string | undefined): boolean {

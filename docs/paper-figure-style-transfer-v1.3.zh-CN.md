@@ -217,7 +217,7 @@ type FigureStyleExtractResult =
 
 v1.10 验证：
 
-- `npm run test -- src/renderer/src/components/figure-style/FigureStylePanel.test.ts src/preload/index.test.ts src/renderer/src/dev/dev-ds-gui-bridge.test.ts src/main/ipc/register-app-ipc-handlers.test.ts`
+- `npm run test -- src/renderer/src/components/figure-style/FigureStylePanel.test.ts src/preload/index.test.ts src/renderer/src/dev/dev-sciforge-bridge.test.ts src/main/ipc/register-app-ipc-handlers.test.ts`
   - 4 files / 58 tests passed。
 - `npm run typecheck`
   - passed。
@@ -287,10 +287,10 @@ v1.12 本地 smoke 结果：
 
 v1.12 验证：
 
-- `npm run test -- src/main/scientific-plotting-engine.test.ts`
+- `npm run test -- packages/workers/scientific-plotting/src/scientific-plotting-engine.test.ts`
   - 1 file / 7 tests passed。
-- `npm run test -- src/main/scientific-plotting-engine.test.ts src/main/scientific-plotting-mcp-config.test.ts src/main/ipc/register-app-ipc-handlers.test.ts src/preload/index.test.ts src/renderer/src/dev/dev-ds-gui-bridge.test.ts src/renderer/src/components/figure-style/FigureStylePanel.test.ts`
-  - 6 files / 68 tests passed。
+- 当前完整回归统一使用：`npm run --silent smoke:scientific-plotting-style`
+  - 替代旧的跨模块 test 文件清单；历史结果为 6 files / 68 tests passed。
 - `npm run typecheck`
   - passed。
 - `npm run build`
@@ -337,10 +337,10 @@ v1.13 关键观察：
 
 v1.13 验证：
 
-- `npm run test -- src/main/scientific-plotting-engine.test.ts`
+- `npm run test -- packages/workers/scientific-plotting/src/scientific-plotting-engine.test.ts`
   - 1 file / 7 tests passed。
-- `npm run test -- src/main/scientific-plotting-engine.test.ts src/main/scientific-plotting-mcp-config.test.ts src/main/ipc/register-app-ipc-handlers.test.ts src/preload/index.test.ts src/renderer/src/dev/dev-ds-gui-bridge.test.ts src/renderer/src/components/figure-style/FigureStylePanel.test.ts src/main/ppt-master-mcp-config.test.ts`
-  - 7 files / 74 tests passed。
+- 当前完整回归统一使用：`npm run --silent smoke:scientific-plotting-style`
+  - 替代旧的跨模块 test 文件清单；历史结果为 7 files / 74 tests passed。
 - `npm run typecheck`
   - passed。
 - `npm run build`
@@ -404,10 +404,10 @@ v1.14 生成 artifact：
 
 v1.14 验证：
 
-- `npm run test -- src/main/scientific-plotting-engine.test.ts`
+- `npm run test -- packages/workers/scientific-plotting/src/scientific-plotting-engine.test.ts`
   - 1 file / 9 tests passed。
-- `npm run test -- src/main/scientific-plotting-engine.test.ts src/main/scientific-plotting-mcp-config.test.ts src/main/ipc/register-app-ipc-handlers.test.ts src/preload/index.test.ts src/renderer/src/dev/dev-ds-gui-bridge.test.ts src/renderer/src/components/figure-style/FigureStylePanel.test.ts src/main/ppt-master-mcp-config.test.ts`
-  - 7 files / 76 tests passed。
+- 当前完整回归统一使用：`npm run --silent smoke:scientific-plotting-style`
+  - 替代旧的跨模块 test 文件清单；历史结果为 7 files / 76 tests passed。
 - `npm run typecheck`
   - passed。
 - `npm run build`
@@ -471,7 +471,7 @@ v1.15 安全边界不变：
 
 v1.15 验证：
 
-- `npm run test -- src/main/scientific-plotting-engine.test.ts`
+- `npm run test -- packages/workers/scientific-plotting/src/scientific-plotting-engine.test.ts`
   - 1 file / 10 tests passed。
 - `scientific-plotting-style-regression.mjs` smoke 已接入 `scientific_plotting_prepare_reference`：
   - 先准备 `v1.15 AlphaFold reference preparation`。
@@ -531,10 +531,10 @@ v1.16 smoke 增加：
 
 v1.16 验证：
 
-- `npm run test -- src/main/scientific-plotting-engine.test.ts`
+- `npm run test -- packages/workers/scientific-plotting/src/scientific-plotting-engine.test.ts`
   - 1 file / 12 tests passed。
-- `npm run test -- src/main/scientific-plotting-engine.test.ts src/main/scientific-plotting-mcp-config.test.ts src/main/ppt-master-mcp-config.test.ts`
-  - 3 files / 21 tests passed。
+- 当前完整回归统一使用：`npm run --silent smoke:scientific-plotting-style`
+  - 替代旧的跨模块 test 文件清单；历史结果为 3 files / 21 tests passed。
 - `npm run typecheck`
   - passed。
 - `npm run build`
@@ -591,10 +591,10 @@ v1.17 smoke 增加：
 
 v1.17 验证：
 
-- `npm run test -- src/main/figure-style-extractor.test.ts src/main/scientific-plotting-engine.test.ts`
+- `npm run test -- packages/workers/scientific-plotting/src/figure-style-extractor.test.ts packages/workers/scientific-plotting/src/scientific-plotting-engine.test.ts`
   - 2 files / 19 tests passed。
-- `npm run test -- src/main/figure-style-extractor.test.ts src/main/scientific-plotting-engine.test.ts src/main/scientific-plotting-mcp-config.test.ts src/main/ppt-master-mcp-config.test.ts`
-  - 4 files / 28 tests passed。
+- 当前完整回归统一使用：`npm run --silent smoke:scientific-plotting-style`
+  - 替代旧的跨模块 test 文件清单；历史结果为 4 files / 28 tests passed。
 - `npm run typecheck`
   - passed。
 - `npm run build`
@@ -648,7 +648,7 @@ v1.18 smoke 增加：
 v1.18 回归验证：
 
 - 当前 v1.19 targeted suite 仍覆盖 v1.18 layout QA case。
-- `npm run test -- src/main/scientific-plotting-engine.test.ts`
+- `npm run test -- packages/workers/scientific-plotting/src/scientific-plotting-engine.test.ts`
   - 1 file / 15 tests passed。
 - `npm run --silent smoke:scientific-plotting-style`
   - v1.18 case generated PNG and manifest。
@@ -717,10 +717,10 @@ v1.19 验证：
 
 - `npm run typecheck`
   - passed。
-- `npm run test -- src/main/scientific-plotting-engine.test.ts`
+- `npm run test -- packages/workers/scientific-plotting/src/scientific-plotting-engine.test.ts`
   - 1 file / 15 tests passed。
-- `npm run test -- src/main/figure-style-extractor.test.ts src/main/scientific-plotting-engine.test.ts src/main/scientific-plotting-mcp-config.test.ts src/main/ppt-master-mcp-config.test.ts src/main/ipc/register-app-ipc-handlers.test.ts`
-  - 5 files / 58 tests passed。
+- 当前完整回归统一使用：`npm run --silent smoke:scientific-plotting-style`
+  - 替代旧的跨模块 test 文件清单；历史结果为 5 files / 58 tests passed。
 - `npm run build`
   - passed。
 - `npm run --silent smoke:scientific-plotting-style`
@@ -801,10 +801,10 @@ v1.20 验证：
 
 - `npm run typecheck`
   - passed。
-- `npm run test -- src/main/scientific-plotting-engine.test.ts`
+- `npm run test -- packages/workers/scientific-plotting/src/scientific-plotting-engine.test.ts`
   - 1 file / 17 tests passed。
-- `npm run test -- src/main/figure-style-extractor.test.ts src/main/scientific-plotting-engine.test.ts src/main/scientific-plotting-mcp-config.test.ts src/main/ppt-master-mcp-config.test.ts src/main/ipc/register-app-ipc-handlers.test.ts`
-  - 5 files / 60 tests passed。
+- 当前完整回归统一使用：`npm run --silent smoke:scientific-plotting-style`
+  - 替代旧的跨模块 test 文件清单；历史结果为 5 files / 60 tests passed。
 - `npm run build`
   - passed。
 - `npm run --silent smoke:scientific-plotting-style`
@@ -878,10 +878,10 @@ v1.21 验证：
 
 - `npm run typecheck`
   - passed。
-- `npm run test -- src/main/scientific-plotting-engine.test.ts`
+- `npm run test -- packages/workers/scientific-plotting/src/scientific-plotting-engine.test.ts`
   - 1 file / 19 tests passed。
-- `npm run test -- src/main/figure-style-extractor.test.ts src/main/scientific-plotting-engine.test.ts src/main/scientific-plotting-mcp-config.test.ts src/main/ppt-master-mcp-config.test.ts src/main/ipc/register-app-ipc-handlers.test.ts`
-  - 5 files / 62 tests passed。
+- 当前完整回归统一使用：`npm run --silent smoke:scientific-plotting-style`
+  - 替代旧的跨模块 test 文件清单；历史结果为 5 files / 62 tests passed。
 - `npm run build`
   - passed。
 - `npm run --silent smoke:scientific-plotting-style`
@@ -975,10 +975,10 @@ v2 验证：
 
 - `npm run typecheck`
   - passed。
-- `npm run test -- src/main/scientific-plotting-engine.test.ts`
+- `npm run test -- packages/workers/scientific-plotting/src/scientific-plotting-engine.test.ts`
   - 1 file / 19 tests passed。
-- `npm run test -- src/main/figure-style-extractor.test.ts src/main/scientific-plotting-engine.test.ts src/main/scientific-plotting-mcp-config.test.ts src/main/ppt-master-mcp-config.test.ts src/main/ipc/register-app-ipc-handlers.test.ts`
-  - 5 files / 62 tests passed。
+- 当前完整回归统一使用：`npm run --silent smoke:scientific-plotting-style`
+  - 替代旧的跨模块 test 文件清单；历史结果为 5 files / 62 tests passed。
 - `npm run build`
   - passed。
 - `npm run --silent smoke:scientific-plotting-style`

@@ -6,7 +6,7 @@ export function computeShortHash(content: string | Uint8Array, length = 16): str
 }
 
 export function createToolDigestMarker(shortHash: string): string {
-  return `<kun:tool_digest sha256="${escapeMarkerAttribute(shortHash)}">`
+  return `<tool_digest sha256="${escapeMarkerAttribute(shortHash)}">`
 }
 
 export function compactedItemsDigestSource(items: readonly TurnItem[]): string {

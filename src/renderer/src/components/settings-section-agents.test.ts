@@ -83,10 +83,6 @@ const labels: Record<string, string> = {
   claudeExtraArgsPlaceholder: '--allowedTools Edit',
   localRuntimeProvider: 'Provider',
   localRuntimeProviderDesc: 'Provider description',
-  modelProviderEndpointFormat: 'Endpoint format',
-  modelEndpointChatCompletions: '/v1/chat/completions',
-  modelEndpointResponses: '/v1/responses',
-  modelEndpointMessages: '/v1/messages',
   modelProviderApiKeyPlaceholder: 'Provider API key',
   localRuntimeServiceAdvanced: 'Local Runtime service settings',
   localRuntimeServiceAdvancedDesc: 'Local Runtime service settings description',
@@ -413,7 +409,6 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
       name: 'Custom Provider',
       apiKey: '',
       baseUrl: 'https://api.example.com/v1',
-      endpointFormat: 'responses',
       models: []
     } satisfies ModelProviderProfileV1
 
@@ -440,7 +435,6 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
             name: 'Custom Provider',
             apiKey: '',
             baseUrl: 'https://api.example.com/v1',
-            endpointFormat: 'responses',
             models: []
           }
         ]
@@ -710,7 +704,6 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
       name: 'Custom Provider',
       apiKey: '',
       baseUrl: 'https://api.example.com/v1',
-      endpointFormat: 'messages',
       models: []
     } satisfies ModelProviderProfileV1
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, {
@@ -731,8 +724,8 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
     expect(providerIdInput).toBeTruthy()
     expect(providerIdInput).not.toContain('readOnly')
     expect(providerIdInput).not.toContain('readonly')
-    expect(html).toContain('Endpoint format')
-    expect(html).toContain('<option value="messages" selected="">/v1/messages</option>')
+    expect(html).not.toContain('Endpoint format')
+    expect(html).not.toContain('value="messages"')
   })
 
   it('keeps advanced agent controls behind collapsed disclosures', () => {

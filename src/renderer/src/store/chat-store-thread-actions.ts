@@ -68,7 +68,6 @@ import {
 } from './chat-store-schedulers'
 import {
   armBusyWatchdog,
-  buildFollowupMessageFromUserInput,
   buildThreadEventSink,
   clearWatchedCompletionNotification,
   finalizeTurnTiming,

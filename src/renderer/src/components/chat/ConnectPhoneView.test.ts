@@ -7,7 +7,6 @@ import {
   ConnectPhoneDialog,
   DiscordBotSetupPanel,
   ConnectPhoneSidebarPanel,
-  ConnectPhoneView,
   connectPhoneInstallRequestOptions,
   connectPhoneProviderForTarget,
   createConnectPhoneAgentProfile,
@@ -48,21 +47,6 @@ function channel(enabled: boolean, provider: ClawImChannelV1['provider'] = 'feis
 describe('ConnectPhoneView', () => {
   beforeEach(async () => {
     await i18n.changeLanguage('en')
-  })
-
-  it('renders the dedicated phone connection page before a channel is enabled', () => {
-    const html = renderToStaticMarkup(
-      createElement(ConnectPhoneView, {
-        channels: [],
-        onAddProvider: async () => undefined,
-        leftSidebarCollapsed: false,
-        onToggleSidebar: () => undefined
-      })
-    )
-
-    expect(html).toContain('Use your phone to connect the local runtime')
-    expect(html).toContain('Generate authorization QR')
-    expect(html).not.toContain('SciForge Runtime usage')
   })
 
   it('maps scan targets to the matching install API provider', () => {

@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRuntimeId } from '@shared/app-settings'
 import type { NormalizedThread } from '../agent/types'
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import { rememberProviderThreadRuntime } from './chat-store-runtime-helpers'
+import { stopRuntimeThreadRefreshPoll } from './chat-store-schedulers'
 
 const registryMock = vi.hoisted(() => ({
   getProvider: vi.fn()
@@ -46,6 +47,10 @@ function buildHarness(options: {
 }): {
   refreshThreads: ReturnType<typeof createNavigationActions>['refreshThreads']
   state: ChatState
+  provider: {
+    listThreads: ReturnType<typeof vi.fn>
+    getThreadDetail: ReturnType<typeof vi.fn>
+  }
 } {
   let state: ChatState
   const storedBlocks = options.detailBlocks ?? [{ kind: 'user' as const, id: 'stored-user', text: 'stored' }]
@@ -80,13 +85,16 @@ function buildHarness(options: {
     get,
     sseAbortRef: { current: null }
   })
-  return { refreshThreads: actions.refreshThreads, state }
+  state.refreshThreads = actions.refreshThreads
+  return { refreshThreads: actions.refreshThreads, state, provider }
 }
 
 describe('chat-store-navigation-actions refreshThreads', () => {
   let currentSddRegistryJson: string | null = null
 
   beforeEach(() => {
+    stopRuntimeThreadRefreshPoll()
+    vi.useRealTimers()
     registryMock.getProvider.mockReset()
     runtimeClientMock.getSettings.mockReset()
     runtimeClientMock.setSettings.mockReset()
@@ -104,6 +112,11 @@ describe('chat-store-navigation-actions refreshThreads', () => {
     })
   })
 
+  afterEach(() => {
+    stopRuntimeThreadRefreshPoll()
+    vi.useRealTimers()
+  })
+
   it('preserves the active thread when refreshing after a runtime switch', async () => {
     const codexThread = thread('codex-thread', 'codex')
     const sciforgeThread = thread('sciforge-thread', 'sciforge')
@@ -117,6 +130,25 @@ describe('chat-store-navigation-actions refreshThreads', () => {
 
     expect(state.threads).toEqual([sciforgeThread, codexThread])
     expect(state.activeThreadId).toBe('sciforge-thread')
+  })
+
+  it('starts the runtime thread refresh poll after refreshing navigation threads', async () => {
+    vi.useFakeTimers()
+    const activeThread = thread('active-thread', 'codex')
+    const listedThread = thread('listed-thread', 'codex')
+    const { refreshThreads, provider } = buildHarness({
+      activeRuntime: 'codex',
+      activeThread,
+      listedThreads: [listedThread]
+    })
+
+    await refreshThreads()
+
+    expect(provider.listThreads).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(provider.listThreads).toHaveBeenCalledTimes(2)
   })
 
   it('preserves an unlisted active thread when it belongs to the active runtime', async () => {

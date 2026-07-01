@@ -1,4 +1,5 @@
 import type { NormalizedThread } from '../agent/types'
+import { isRemoteChannelManagedBy } from '../agent/types'
 import { getProvider } from '../agent/registry'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import i18n from '../i18n'
@@ -99,7 +100,7 @@ function stateHasRecoverableActiveTurn(state: ChatState): boolean {
 
 function titleFromLocalUserBlocks(blocks: ChatState['blocks']): string | null {
   for (const block of blocks) {
-    if (block.kind !== 'user' || block.managedBy === 'claw') continue
+    if (block.kind !== 'user' || isRemoteChannelManagedBy(block.managedBy)) continue
     const text = block.meta?.displayText?.trim() || block.text.trim()
     if (!text || hasInternalPromptThreadTitle(text)) continue
     const title = deriveThreadTitleFromPrompt(text)

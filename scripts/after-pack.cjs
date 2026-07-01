@@ -168,8 +168,8 @@ function assertExists(path, label) {
   }
 }
 
-function prunePackedKunDependencies(context) {
-  localRuntimePackage.prunePackedKunDependencies(unpackedAppRoot(context))
+function prunePackedLocalRuntimeDependencies(context) {
+  localRuntimePackage.prunePackedLocalRuntimeDependencies(unpackedAppRoot(context))
 }
 
 function validateBundledLocalRuntime(context) {
@@ -331,7 +331,7 @@ function ensureNodePtyHelpersExecutable(context) {
 }
 
 async function afterPack(context) {
-  prunePackedKunDependencies(context)
+  prunePackedLocalRuntimeDependencies(context)
   validateBundledLocalRuntime(context)
   validateBundledModelRouterRuntime(context)
   validateBundledComputerUseRuntime(context)
@@ -376,7 +376,7 @@ exports._internals = {
   unpackedAppRoot,
   projectRoot,
   npmCommand: localRuntimePackage.npmCommand,
-  prunePackedKunDependencies,
+  prunePackedLocalRuntimeDependencies,
   validateBundledLocalRuntime,
   validateBundledModelRouterRuntime,
   validateBundledComputerUseRuntime,

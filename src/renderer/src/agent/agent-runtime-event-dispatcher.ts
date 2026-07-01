@@ -18,6 +18,7 @@ import type {
   ThreadEventSink,
   ThreadGoal,
   ThreadTodoList,
+  ThreadTodoSource,
   ThreadUsageSnapshot,
   ToolEventPayload,
   UserInputAnswer,
@@ -279,6 +280,7 @@ function todosFromEvent(event: Extract<AgentRuntimeEvent, { kind: 'todo_event' }
       id: item.id,
       content: item.content,
       status: item.status,
+      ...(item.source ? { source: item.source as ThreadTodoSource } : {}),
       createdAt: now,
       updatedAt: now
     }))

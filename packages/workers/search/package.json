@@ -30,6 +30,7 @@
     "README.md"
   ],
   "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "node --env-file-if-exists=.env --import tsx src/cli.ts",
     "test": "node --import tsx --test \"src/**/*.test.ts\""
   },

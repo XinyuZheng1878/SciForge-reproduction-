@@ -31,7 +31,7 @@ export type PowerSaveBlockerLike = {
 
 export type ScheduleRuntimeDeps = {
   store: JsonSettingsStore
-  agentRuntime?: {
+  agentRuntime: {
     startThread: (input: AgentRuntimeThreadStartInput) => Promise<AgentRuntimeThread>
     readThread: (input: { runtimeId?: AgentRuntimeId; threadId: string }) => Promise<AgentRuntimeThreadDetail>
     startTurn: (input: AgentRuntimeTurnStartInput) => Promise<AgentRuntimeTurnHandle>
@@ -176,12 +176,6 @@ export async function runPromptViaRuntime(
     await mkdir(workspace, { recursive: true })
   }
   const agentRuntime = deps.agentRuntime
-  if (!agentRuntime) {
-    return {
-      ok: false,
-      message: 'unsupported_runtime_request: AgentRuntimeHost is required for Schedule runtime requests.'
-    }
-  }
   const model = normalizeTaskModel(options.model) ?? DEFAULT_SCHEDULE_MODEL
 
   let thread: { id: string }
@@ -236,9 +230,6 @@ export async function waitForAssistantTextViaRuntime(
   timeoutMs: number
 ): Promise<string> {
   const agentRuntime = deps.agentRuntime
-  if (!agentRuntime) {
-    throw new Error('unsupported_runtime_request: AgentRuntimeHost is required for Schedule runtime requests.')
-  }
   const deadline = Date.now() + timeoutMs
   let lastText = ''
   while (Date.now() < deadline) {

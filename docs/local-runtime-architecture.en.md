@@ -274,8 +274,7 @@ SciForge Runtime GUI HTTP must expose the same capabilities previously exposed t
 - `POST /v1/sessions/{id}/resume-thread` follows the previous CodeWhale resume path.
   SciForge Runtime should first attempt same-name thread restore, then session snapshot/JSONL reconstruction,
 and return `404` when not found.
-- Both `POST /v1/user-inputs/{id}` and legacy `POST /v1/user-input/{id}` are accepted,
-  with `{ answers }` or `{ cancelled: true }`.
+- `POST /v1/user-inputs/{id}` accepts `{ answers }` or `{ cancelled: true }`.
   `request_user_input` / `user_input` tool pauses a turn and resumes after GUI answer.
 - `POST /v1/approvals/{id}` continues tool approval. Both approval and user-input flows
   use gate/route/service layering; no agent logic is implemented in renderer.

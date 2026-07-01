@@ -950,7 +950,7 @@ function mapLocalRuntimeEvent(value: unknown, fallbackThreadId: string): AgentRu
     }
   }
 
-  if (kind === 'agent_message_delta' || kind === 'assistant_delta' || kind === 'assistant_text_delta') {
+  if (kind === 'assistant_text_delta') {
     const item = asRecord(record.item)
     return {
       kind: 'assistant_delta',
@@ -963,7 +963,7 @@ function mapLocalRuntimeEvent(value: unknown, fallbackThreadId: string): AgentRu
       text: stringValue(record.text) || stringValue(record.delta) || stringValue(item?.text)
     }
   }
-  if (kind === 'agent_reasoning_delta' || kind === 'reasoning_delta' || kind === 'assistant_reasoning_delta') {
+  if (kind === 'assistant_reasoning_delta') {
     const item = asRecord(record.item)
     return {
       kind: 'reasoning_delta',

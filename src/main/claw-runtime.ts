@@ -303,13 +303,6 @@ function shortThreadId(threadId: string): string {
   return threadId.length > 12 ? `${threadId.slice(0, 8)}...${threadId.slice(-4)}` : threadId
 }
 
-function unsupportedAgentRuntimeHostRunResult(): ClawRunResult {
-  return clawFailureResult({
-    message: UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE,
-    kind: 'runtime_offline'
-  })
-}
-
 function clawRuntimeId(
   settings: AppSettingsV1,
   channel?: ClawImChannelV1,
@@ -783,7 +776,6 @@ export class ClawRuntime {
     const runtimeId = normalizeAgentRuntimeId(options.runtimeId)
     const requestedModel = normalizeTaskModel(options.model) ?? DEFAULT_CLAW_MODEL
     const model = effectiveImRuntimeModel(settings, requestedModel, runtimeId)
-    if (!this.deps.agentRuntime) return unsupportedAgentRuntimeHostRunResult()
     return this.runAgentRuntimePrompt(settings, { ...options, model }, runtimeId, workspace, existingThreadId)
   }
 
@@ -795,7 +787,6 @@ export class ClawRuntime {
     existingThreadId?: string
   ): Promise<ClawRunResult> {
     const agentRuntime = this.deps.agentRuntime
-    if (!agentRuntime) return unsupportedAgentRuntimeHostRunResult()
     const model = normalizeTaskModel(options.model)
     const createThread = (): Promise<{ id: string }> =>
       agentRuntime.startThread({
@@ -914,7 +905,6 @@ export class ClawRuntime {
     runtimeId: AgentRuntimeId
   ): Promise<{ text: string; files: ClawGeneratedFileV1[] }> {
     const agentRuntime = this.deps.agentRuntime
-    if (!agentRuntime) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
     const deadline = Date.now() + timeoutMs
     let lastText = ''
     let lastDetail: ThreadDetailJson | null = null
@@ -1146,7 +1136,6 @@ export class ClawRuntime {
     threadId: string
   ): Promise<ThreadDetailJson> {
     const agentRuntime = this.deps.agentRuntime
-    if (!agentRuntime) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
     return agentRuntime.readThread({ runtimeId, threadId }) as Promise<ThreadDetailJson>
   }
 
@@ -1508,7 +1497,7 @@ export class ClawRuntime {
     runtimeId: AgentRuntimeId,
     _workspaceRoot: string
   ): Promise<AgentRuntimeThread[]> {
-    const listThreads = this.deps.agentRuntime?.listThreads
+    const listThreads = this.deps.agentRuntime.listThreads
     if (!listThreads) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
     return listThreads({ runtimeId, limit: 50, includeArchived: true })
   }
@@ -1729,7 +1718,6 @@ export class ClawRuntime {
     let threadId = ''
     try {
       const agentRuntime = this.deps.agentRuntime
-      if (!agentRuntime) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
       const thread = await agentRuntime.startThread({
         runtimeId,
         workspace: workspaceRoot,
@@ -2624,14 +2612,6 @@ export class ClawRuntime {
     if (!targetThreadId) return []
     try {
       const agentRuntime = this.deps.agentRuntime
-      if (!agentRuntime) {
-        this.deps.logError('claw-feishu', 'Skipped generated file lookup without AgentRuntimeHost.', {
-          ...context,
-          runtimeId,
-          threadId: targetThreadId
-        })
-        return []
-      }
       const detail = await agentRuntime.readThread({ runtimeId, threadId: targetThreadId }) as ThreadDetailJson
       return latestGeneratedFiles(detail, {
         workspaceRoot,

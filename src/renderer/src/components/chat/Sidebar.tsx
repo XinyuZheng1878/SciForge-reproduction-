@@ -279,7 +279,7 @@ export function Sidebar({
         onDisconnect={(channelId) => deleteClawChannel(channelId)}
         onOpenSettings={() => {
           onToggleConnectPhone()
-          onOpenSettings('claw')
+          onOpenSettings('connectPhone')
         }}
         onClose={onToggleConnectPhone}
       />

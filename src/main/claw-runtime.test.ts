@@ -17,7 +17,7 @@ import {
   type ClawImChannelV1,
   type ClawImConversationV1
 } from '../shared/app-settings'
-import { createClawRuntime } from './claw-runtime'
+import { createClawRuntime as createProductionClawRuntime } from './claw-runtime'
 import {
   CLAW_IM_PROVIDER_CAPABILITIES,
   classifyClawFailure,
@@ -215,6 +215,28 @@ function completedAgentRuntime(options: {
     startTurn: ReturnType<typeof vi.fn>
     readThread: ReturnType<typeof vi.fn>
   }
+}
+
+function unusedAgentRuntime(): TestAgentRuntime {
+  const fail = async (): Promise<never> => {
+    throw new Error('Unexpected agentRuntime call in this test.')
+  }
+  return {
+    startThread: vi.fn(fail),
+    readThread: vi.fn(fail),
+    startTurn: vi.fn(fail),
+    listThreads: vi.fn(fail),
+    interruptTurn: vi.fn(fail)
+  } as unknown as TestAgentRuntime
+}
+
+function createClawRuntime(
+  deps: Omit<ClawRuntimeDeps, 'agentRuntime'> & Partial<Pick<ClawRuntimeDeps, 'agentRuntime'>>
+): ReturnType<typeof createProductionClawRuntime> {
+  return createProductionClawRuntime({
+    agentRuntime: unusedAgentRuntime(),
+    ...deps
+  })
 }
 
 describe('ClawRuntime', () => {

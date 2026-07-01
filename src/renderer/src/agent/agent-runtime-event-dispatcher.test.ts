@@ -89,7 +89,17 @@ function sampleEvent(kind: AgentRuntimeEventKind): AgentRuntimeEvent {
     case 'goal_event':
       return { ...base, kind, objective: 'Ship the bridge', status: 'active' }
     case 'todo_event':
-      return { ...base, kind, items: [{ id: 'todo-1', content: 'Map events', status: 'pending' }] }
+      return {
+        ...base,
+        kind,
+        items: [{
+          id: 'todo-1',
+          content: 'Map events',
+          status: 'pending',
+          createdAt: '2026-06-11T00:00:00.000Z',
+          updatedAt: '2026-06-11T00:00:00.000Z'
+        }]
+      }
     case 'child_event':
       return {
         ...base,
@@ -537,7 +547,20 @@ describe('agent runtime event dispatcher', () => {
       {
         kind: 'todo_event',
         threadId: 'thread-1',
-        items: [{ id: 'todo-1', content: 'Map events', status: 'pending' }],
+        items: [{
+          id: 'todo-1',
+          content: 'Map events',
+          status: 'pending',
+          createdAt: '2026-06-11T00:00:00.000Z',
+          updatedAt: '2026-06-11T00:00:00.000Z',
+          source: {
+            kind: 'plan',
+            planId: 'plan-1',
+            relativePath: '.sciforge/plan/bridge.md',
+            ordinal: 0,
+            contentHash: 'hash-1'
+          }
+        }],
         createdAt: '2026-06-11T00:00:01.000Z'
       },
       sink
@@ -579,7 +602,14 @@ describe('agent runtime event dispatcher', () => {
           expect.objectContaining({
             id: 'todo-1',
             content: 'Map events',
-            status: 'pending'
+            status: 'pending',
+            source: {
+              kind: 'plan',
+              planId: 'plan-1',
+              relativePath: '.sciforge/plan/bridge.md',
+              ordinal: 0,
+              contentHash: 'hash-1'
+            }
           })
         ]
       }

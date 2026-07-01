@@ -833,7 +833,7 @@ local dev only. The routes:
 | POST | `/v1/threads/{id}/compact` | fold old history |
 | GET | `/v1/threads/{id}/events?since_seq=N` | SSE backlog + live |
 | POST | `/v1/approvals/{id}` | allow / deny |
-| POST | `/v1/user-inputs/{id}` and `/v1/user-input/{id}` | submit / cancel user input answers |
+| POST | `/v1/user-inputs/{id}` | submit / cancel user input answers |
 | POST | `/v1/sessions/{id}/resume-thread` | resume a session into a thread |
 | GET | `/v1/usage` | cumulative token / cache / turn counters |
 
@@ -918,7 +918,7 @@ src/
     runtime/                        # runtime adapter (process, host, port, token)
     services/                       # git, workspace, editor, write-* services
     settings-store.ts               # JSON-backed settings store
-    claw-runtime.ts                 # Connect phone IM / webhook / scheduled-task engine
+    claw-runtime.ts                 # remote channel / webhook / scheduled-task bridge
     schedule-mcp-*                  # schedule MCP config + node-entry server
     gui-updater.ts                  # electron-updater integration
     logger.ts                       # structured logger
@@ -1103,8 +1103,8 @@ contract, only which renderer and local workflow state the store pulls in.
   main-process services.
 - **Connect phone** — remote channel registry. Each IM channel has its
   own thread id, model, workspace root, runtime id, and runtime-specific thread
-  mapping. `ClawRuntime` still fails closed for non-SciForge Runtime execution until the
-  background workflow has native adapter support; it must not write Codex thread
+  mapping. Background remote-channel execution still fails closed for non-SciForge
+  Runtime until the local runtime adapter supports it; it must not write Codex thread
   ids into SciForge Runtime mappings.
 
 ---
@@ -1187,18 +1187,18 @@ compaction block inline with a "show replaced" detail.
   Markdown document to HTML / PDF / DOC / DOCX, preserving
   headings, lists, code blocks, tables, and local images.
 
-### 9.5 Connect phone automation
+### 9.5 Remote channel automation
 
-- `ClawRuntime` (main process) creates and reuses threads through the
+- The main-process remote channel bridge creates and reuses threads through the
   configured AgentRuntime. SciForge Runtime remains the default mapping for migrated
   data; non-SciForge Runtime background execution currently fails closed until native
   adapter support exists, and must not write Codex thread ids into SciForge Runtime mappings.
 - Feishu / Lark integration uses `@larksuiteoapi/node-sdk`.
   Install is device-flow QR code; the renderer polls
   `connectPhone:install:poll` until authorized.
-- Webhook / relay is a small HTTP server in `ClawRuntime` that
+- Webhook / relay is a small HTTP server in the remote channel bridge that
   POSTs inbound webhooks into the configured runtime thread.
-- Scheduled tasks are detected from natural-language Connect phone
+- Scheduled tasks are detected from natural-language remote-channel
   prompts (`claw-scheduled-task-detector.ts`) and stored under
   `schedule.tasks` in settings.
 - The managed `schedule-mcp-node-entry` hosts schedule tools over MCP
@@ -1344,7 +1344,7 @@ If any check fails, the change is not ready.
 | App shell | `src/renderer/src/AppShell.tsx` |
 | Workbench | `src/renderer/src/components/Workbench.tsx` |
 | Chat store | `src/renderer/src/store/chat-store.ts` |
-| Connect phone runtime | `src/main/claw-runtime.ts` |
+| Remote channel bridge | `src/main/claw-runtime.ts` |
 | Write services | `src/main/services/write-*-service.ts` |
 | Workspace/editor services | `src/main/services/workspace-*.ts`, `src/main/services/workspace-editors.ts` |
 | Tokens / styles | `src/renderer/src/styles/*.css`, `src/renderer/src/index.css` |

@@ -2327,7 +2327,7 @@ describe('AgentLoop', () => {
     expect(result.summaryItem.kind === 'compaction' ? result.summaryItem.sourceDigest : '')
       .toMatch(/^[0-9a-f]{16}$/)
     expect(result.summaryItem.kind === 'compaction' ? result.summaryItem.digestMarker : '')
-      .toBe(`<kun:tool_digest sha256="${result.summaryItem.kind === 'compaction' ? result.summaryItem.sourceDigest : ''}">`)
+      .toBe(`<tool_digest sha256="${result.summaryItem.kind === 'compaction' ? result.summaryItem.sourceDigest : ''}">`)
     expect(result.summaryItem.kind === 'compaction' ? result.summaryItem.sourceItemIds : [])
       .toEqual(['u1', 'a1'])
     expect(summary).toContain(result.summaryItem.kind === 'compaction' ? result.summaryItem.digestMarker : '')
@@ -2509,7 +2509,7 @@ describe('AgentLoop', () => {
     expect(persisted.some((item) =>
       item.kind === 'compaction' &&
       item.summary.includes('Conversation and work summary:') &&
-      item.summary.includes('<kun:tool_digest sha256=')
+      item.summary.includes('<tool_digest sha256=')
     )).toBe(true)
   })
 

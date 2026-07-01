@@ -634,7 +634,8 @@ export class AgentRuntimeProvider implements AgentProvider {
       latestTurnId: detail.latestTurnId ?? latestTurn?.id,
       latestUserMessageId: [...items].reverse().find((item) => item.kind === 'user_message')?.id,
       usage: usageFromRuntime(detail.usage),
-      goal: detail.goal ?? null
+      goal: detail.goal ?? null,
+      todos: detail.todos ?? null
     }
   }
 

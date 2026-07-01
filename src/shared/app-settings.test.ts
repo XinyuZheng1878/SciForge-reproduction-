@@ -1352,11 +1352,13 @@ describe('local runtime settings normalization', () => {
           name: 'Custom Provider',
           apiKey: 'sk-custom',
           baseUrl: 'https://custom.example/v1',
-          endpointFormat: 'responses',
           models: ['custom-model']
         })
       ])
     )
+    expect(
+      normalized.provider.providers.find((provider) => provider.id === 'custom-provider-2')
+    ).not.toHaveProperty('endpointFormat')
     expect(normalized.agents.sciforge.providerId).toBe('custom-provider-2')
     expect(resolveLocalRuntimeSettings(normalized)).toEqual(
       expect.objectContaining({

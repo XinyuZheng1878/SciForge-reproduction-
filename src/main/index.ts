@@ -1566,7 +1566,7 @@ app.whenReady().then(async () => {
     store,
     userDataPath: app.getPath('userData'),
     handleIncomingMessage: async (input) => {
-      if (!clawRuntime) return { ok: false, message: 'Claw runtime is not initialized.' }
+      if (!clawRuntime) return { ok: false, message: 'Remote channel runtime is not initialized.' }
       return clawRuntime.handleIncomingImMessage(input)
     },
     onSettingsChanged: (settings) => {

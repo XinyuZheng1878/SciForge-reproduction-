@@ -270,8 +270,8 @@ provider 已经暴露给 store/UI 的能力：
   SciForge Runtime 优先从同名 thread 恢复；没有 thread 时从 session snapshot
   或 JSONL items 重建 turns；找不到时返回 404，而不是在 GUI 抛
   unsupported。
-- `POST /v1/user-inputs/{id}` 和旧兼容路径 `/v1/user-input/{id}` 都可接收
-  `{ answers }` 或 `{ cancelled: true }`。AgentLoop 通过 `request_user_input`
+- `POST /v1/user-inputs/{id}` 接收 `{ answers }` 或 `{ cancelled: true }`。
+  AgentLoop 通过 `request_user_input`
   / `user_input` tool 暂停，GUI 回答后继续模型回合。
 - `POST /v1/approvals/{id}` 继续支持工具审批；approval 和 user-input 都是
   gate/route/service 分层，不在 renderer 内实现 agent 逻辑。

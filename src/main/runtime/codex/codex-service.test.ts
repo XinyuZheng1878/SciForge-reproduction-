@@ -1735,7 +1735,6 @@ describe('CodexRuntimeService compatibility operations', () => {
             name: 'External Provider',
             apiKey: 'sk-profile',
             baseUrl: 'https://profile.external-provider.test/v1',
-            endpointFormat: 'responses',
             models: ['external-model']
           }]
         },

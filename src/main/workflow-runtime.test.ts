@@ -20,6 +20,7 @@ import {
   type WorkflowV1
 } from '../shared/app-settings'
 import { WorkflowRuntime } from './workflow-runtime'
+import type { ScheduleRuntimeDeps } from './schedule-runtime-helpers'
 
 const now = '2026-06-23T00:00:00.000Z'
 const mockedResearch = vi.hoisted(() => ({ pdfUrl: '' }))
@@ -62,6 +63,18 @@ vi.mock('../../packages/workers/search/src/research-service', () => ({
     }))
   }))
 }))
+
+function unusedAgentRuntime(): ScheduleRuntimeDeps['agentRuntime'] {
+  const fail = async (): Promise<never> => {
+    throw new Error('Unexpected agentRuntime call in this test.')
+  }
+  return {
+    startThread: vi.fn(fail),
+    readThread: vi.fn(fail),
+    startTurn: vi.fn(fail),
+    interruptTurn: vi.fn(fail)
+  } as unknown as ScheduleRuntimeDeps['agentRuntime']
+}
 
 function makeWorkflow(patch: Partial<WorkflowV1> = {}): WorkflowV1 {
   return {
@@ -237,6 +250,7 @@ describe('WorkflowRuntime internal HTTP facade', () => {
     const store = createStore(settingsWith([workflow], port))
     const runtime = new WorkflowRuntime({
       store: store as never,
+      agentRuntime: unusedAgentRuntime(),
       logError: vi.fn()
     })
     runtime.sync(store.read())
@@ -355,6 +369,7 @@ describe('WorkflowRuntime internal HTTP facade', () => {
     const store = createStore(settingsWith([makeWorkflow()], port, ''))
     const runtime = new WorkflowRuntime({
       store: store as never,
+      agentRuntime: unusedAgentRuntime(),
       logError: vi.fn()
     })
     runtime.sync(store.read())

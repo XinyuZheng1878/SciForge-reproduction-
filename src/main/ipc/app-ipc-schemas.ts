@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import {
   CLAW_MODEL_IDS,
-  MODEL_ENDPOINT_FORMATS,
   SCHEDULE_MODEL_IDS,
   SCHEDULE_REASONING_EFFORT_IDS,
   SPEECH_TO_TEXT_PROTOCOLS
@@ -121,7 +120,6 @@ const clawTaskStatusSchema = z.enum(['idle', 'running', 'success', 'error'])
 const scheduleReasoningEffortSchema = z.enum(SCHEDULE_REASONING_EFFORT_IDS)
 const speechToTextProtocolSchema = z.enum(SPEECH_TO_TEXT_PROTOCOLS)
 const paperRadarSourceSchema = z.enum(['arxiv', 'biorxiv'])
-const modelEndpointFormatSchema = z.enum(MODEL_ENDPOINT_FORMATS)
 const agentThreadIdsSchema = z.object({
   sciforge: z.string().max(MAX_ID_LENGTH).optional(),
   codex: z.string().max(MAX_ID_LENGTH).optional(),
@@ -368,7 +366,6 @@ const modelProviderPatchSchema = z.object({
     name: z.string().trim().min(1).max(80).optional(),
     apiKey: z.string().max(MAX_BODY_BYTES).optional(),
     baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
-    endpointFormat: modelEndpointFormatSchema.optional(),
     models: z.array(z.string().trim().min(1).max(128)).max(200).optional()
   }).strict()).max(50).optional()
 }).strict()
@@ -455,8 +452,7 @@ const localRuntimePatchSchema = z.object({
     toolArgumentRepair: z.object({
       maxStringBytes: z.number().int().positive().max(16 * 1024 * 1024).optional()
     }).strict().optional()
-  }).strict().optional(),
-  endpointFormat: modelEndpointFormatSchema.optional()
+  }).strict().optional()
 }).strict()
 
 const codexRuntimePatchSchema = z.object({

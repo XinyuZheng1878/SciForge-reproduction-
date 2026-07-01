@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, ChevronRight, Copy, FileEdit, Loader2, MessageSquareQuote, PencilLine, Terminal, Wrench } from 'lucide-react'
 import type { ChatBlock, RuntimeDisclosureMetadata, ToolBlock, UserInputAnswer, UserInputQuestion } from '../../agent/types'
+import { isRemoteChannelManagedBy } from '../../agent/types'
 import { extractUnifiedDiffText } from '../../lib/diff-stats'
 import { openSafeExternalUrl } from '../../lib/open-external'
 import { useChatStore } from '../../store/chat-store'
@@ -62,7 +63,7 @@ function UserMessageBubble({
     if (!activeThreadId) return null
     return clawThreadRemoteBindingsFromChannels(clawChannels).get(activeThreadId) ?? null
   }, [activeThreadId, clawChannels])
-  const isRemoteChannelMessage = Boolean(remoteBinding || block.managedBy === 'claw')
+  const isRemoteChannelMessage = Boolean(remoteBinding || isRemoteChannelManagedBy(block.managedBy))
   const parsedClawPrompt = useMemo(() => {
     const parsed = parseClawUserPromptForDisplay(block.text)
     if (!parsed.managed && !parsed.inbound && !isRemoteChannelMessage) {
@@ -267,7 +268,7 @@ function messageSourceLabel(
   if (parsedClawPrompt?.inbound) {
     return normalizeMessageSourceLabel(parsedClawPrompt.sourceLabel, remoteProviderLabel)
   }
-  if (block.managedBy === 'claw') return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Feishu / Lark'
+  if (isRemoteChannelManagedBy(block.managedBy)) return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Feishu / Lark'
   return 'Desktop'
 }
 

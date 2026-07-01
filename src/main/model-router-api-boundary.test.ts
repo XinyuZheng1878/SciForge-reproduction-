@@ -17,7 +17,7 @@ type DirectCallHit = {
 }
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const sourceRoots = ['src', 'kun/src', 'packages/workers', 'plugins/vision-router-service/src', 'scripts']
+const sourceRoots = ['src', 'kun/src', 'packages/workers', 'scripts']
 const sourceExtensions = new Set([
   '.bat',
   '.cjs',
@@ -132,8 +132,7 @@ function isAllowedBoundaryMarker(hit: DirectCallHit): boolean {
     hit.marker === 'chat completions endpoint' &&
     (
       hit.file === 'packages/workers/sci-modality-router/src/experts.ts' ||
-      hit.file === 'packages/workers/sci-modality-router/provider/server.py' ||
-      hit.file === 'plugins/vision-router-service/src/qwen.ts'
+      hit.file === 'packages/workers/sci-modality-router/provider/server.py'
     )
   ) {
     return true
@@ -154,7 +153,6 @@ describe('model router API boundary static audit inventory', () => {
     expect(files).toContain('src/main/index.ts')
     expect(files).toContain('src/shared/app-settings-types.ts')
     expect(files).toContain('packages/workers/sci-modality-router/src/experts.ts')
-    expect(files).toContain('plugins/vision-router-service/src/qwen.ts')
     expect(files.some((file) => file.startsWith('packages/workers/model-router/'))).toBe(false)
     expect(files.some((file) => testFilePattern.test(file))).toBe(false)
     expect(hits.every((hit) => !hit.file.startsWith('packages/workers/model-router/'))).toBe(true)

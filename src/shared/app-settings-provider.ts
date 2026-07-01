@@ -1,6 +1,5 @@
 import {
   DEFAULT_DEEPSEEK_BASE_URL,
-  DEFAULT_MODEL_ENDPOINT_FORMAT,
   DEFAULT_MODEL_PROVIDER_ID,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   type AppSettingsV1,
@@ -10,7 +9,6 @@ import {
   type ModelProviderSettingsV1,
   type ResolvedLocalRuntimeSettingsV1
 } from './app-settings-types'
-import { normalizeModelEndpointFormat } from './model-endpoint-format'
 import { getLocalRuntimeSettings } from './app-settings-local-runtime'
 import { resolveRuntimeModelRouterSettings } from './app-settings-model-router'
 import { normalizeDeepseekBaseUrl } from './app-settings-normalizers'
@@ -130,7 +128,6 @@ function defaultModelProviderProfile(apiKey: string, baseUrl: string): ModelProv
     name: DEFAULT_MODEL_PROVIDER_NAME,
     apiKey: apiKey.trim(),
     baseUrl: normalizeDeepseekBaseUrl(baseUrl),
-    endpointFormat: DEFAULT_MODEL_ENDPOINT_FORMAT,
     models: DEFAULT_COMPOSER_MODEL_IDS.filter((id) => id !== 'auto')
   }
 }
@@ -151,7 +148,6 @@ function normalizeModelProviderProfile(
     name,
     apiKey: typeof input?.apiKey === 'string' ? input.apiKey.trim() : '',
     baseUrl,
-    endpointFormat: normalizeModelEndpointFormat(input?.endpointFormat),
     models
   }
 }
