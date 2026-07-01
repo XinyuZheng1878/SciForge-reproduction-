@@ -33,7 +33,7 @@ function ClawEmptyHero({
   onSelectSuggestion?: (prompt: string) => void
 }): ReactElement {
   const { t } = useTranslation('common')
-  const agentName = clawChannelDisplayName(channel, t('clawEmptyHeroFallbackName'))
+  const agentName = clawChannelDisplayName(channel, t('remoteChannelEmptyHeroFallbackName'))
   void onSelectSuggestion
   const hasInboundConversation = Boolean(
     Object.values(channel?.agentThreadIds ?? {}).some((threadId) => threadId.trim()) ||
@@ -58,10 +58,10 @@ function ClawEmptyHero({
           </div>
 
           <h1 className="mt-6 text-[34px] font-semibold tracking-[-0.055em] text-ds-ink md:text-[48px]">
-            {t('clawEmptyHeroTitle', { name: agentName })}
+            {t('remoteChannelEmptyHeroTitle', { name: agentName })}
           </h1>
           <p className="mt-3 text-[15px] leading-7 text-ds-muted md:text-[16px]">
-            {hasInboundConversation ? t('clawEmptyHeroSub') : t('clawEmptyHeroNeedsInbound')}
+            {hasInboundConversation ? t('remoteChannelEmptyHeroSub') : t('remoteChannelEmptyHeroNeedsInbound')}
           </p>
         </div>
       </div>

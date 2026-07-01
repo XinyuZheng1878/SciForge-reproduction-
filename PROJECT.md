@@ -95,6 +95,13 @@
 - [x] Agent Runtime auxiliary 列表边界收紧：`listModelAuditRecords` / `listGitCheckpoints` 由 top-level `runtimeId` 作为 owner 过滤，不再依赖 payload 内部 runtimeId；补 host 回归测试。
 - [x] GUI plan registry 恢复防回归：恢复 persisted registry 时复用 `.sciforge/plan/*.md` guard，拒绝旧/嵌套/非 md plan path，避免损坏 localStorage shadow 合法计划。
 - [x] remote-channel renderer 内部清名与失败回归：`isClawWorkspacePath` 改为 `isRemoteChannelWorkspacePath`，同步调用点；spawn side conversation 订阅失败会收敛 side busy/error 且不影响主线程；测试标题中的旧 Claw/OpenClaw 语义继续中性化。
+- [x] 清理 settings/common locale 中已无引用的旧 `claw*` schedule/settings 翻译 key，并将 ppt-master fallback fixture 的旧 `claw-schedule-mcp-node-entry.js` 路径改为当前 `schedule-mcp-node-entry.js`。
+- [x] 清理 common locale 剩余 `claw*` 翻译 key：无调用点的旧 Add/Manage/Webhook/Prompt/empty hero 文案删除，仍活跃的连接手机/远程通道 key 迁到 `connectPhone*` / `remoteChannel*`，调用点同步清名；公开 `Claw*` TS surface 保持待决策边界内。
+- [x] 收紧 Model Router / runtime env 继承边界：抽出共享 upstream provider env inventory，Codex/local runtime 补挡 `ANTHROPIC_AUTH_TOKEN`，Codex/Claude/local runtime 不继承 sci-modality worker private env，Model Router sidecar 只保留自身需要的 `SCIFORGE_SCIMODALITY_SERVICE_*`，静态边界扫描覆盖现有 provider secret env。
+- [x] 收紧 sci-modality 本地 helper env 生命周期：local worker 启动时临时注入 `EXPERT_PROVIDER_*` / `SCIMODALITY_ROUTER_*`，启动后立即从 GUI 继承环境清掉；`smoke:scientific-plotting-style` 缺本地 paper smoke 资产时明确 JSON skip。
+- [x] Agent Runtime auxiliary owner 继续收敛：`createRuntimeHandoffPacket` / `startRuntimeHandoff` 的 `sourceRuntimeId` 只能来自 top-level `runtimeId`，payload 副本如不一致会 fail-closed；renderer 不再给 `listModelAuditRecords` / `listGitCheckpoints` payload 塞冗余 runtimeId。
+- [x] side conversation / GUI plan 边角修复：side send 遇到 `turn_in_progress` 会恢复 busy 并重连订阅，interrupt 遇到 `turn_not_running` 会清 busy/turnId，promote 即使 refresh 失败也结构性关闭 side；`create_plan` metadata 读文件前捕获 owner thread，避免切线程后写错 GUI plan registry。
+- [x] 清理 stale docs/test fixture：启动 trace 文档改用 `SCIFORGE_STARTUP_TRACE`，Write inline edit 文档/设计图改为当前 Write 文件，README `.agent/` 改为 `.agents/`，remote-channel 测试描述和非语义 fixture id 中性化。
 
 ## 验证记录
 
@@ -191,6 +198,18 @@
 - [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
 - [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
 - [x] `git diff --check`
+- [x] `node -e 'const fs=require("fs"); for (const f of ["src/renderer/src/locales/en/common.json","src/renderer/src/locales/zh/common.json","src/renderer/src/locales/en/settings.json","src/renderer/src/locales/zh/settings.json"]) JSON.parse(fs.readFileSync(f,"utf8")); console.log("locale json ok")'`
+- [x] `npx vitest run src/renderer/src/lib/ppt-master-chat.test.ts`
+- [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
+- [x] `git diff --check`
+- [x] `npx vitest run src/main/model-router-api-boundary.test.ts src/main/model-router-sidecar.test.ts src/main/runtime/codex/codex-config.test.ts src/main/runtime/claude-code/claude-code-config.test.ts src/main/local-runtime-process.test.ts`
+- [x] `npm test -- src/main/runtime/agent-runtime/host.test.ts src/renderer/src/agent/agent-runtime-provider.test.ts`
+- [x] `npx vitest run src/renderer/src/store/chat-store-side-actions.test.ts src/renderer/src/components/workbench-plan-controller.test.ts src/renderer/src/plan/plan-store.test.ts`
+- [x] `npx vitest run src/renderer/src/components/chat/ConnectPhoneView.test.ts src/renderer/src/components/chat/ConnectPhoneDialogHelpers.test.ts src/renderer/src/components/chat/MessageTimeline.initial-heatmap.test.ts src/renderer/src/components/chat/MessageTimeline.tool-summary.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts src/renderer/src/lib/ppt-master-chat.test.ts`
+- [x] `npm run smoke:scientific-plotting-style`（缺本地 `tmp/figure-style-paper-smoke` 资产时预期 JSON skip）
+- [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
+- [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
+- [x] `git diff --check`
 
 ## 已决策待实施
 
@@ -203,11 +222,11 @@
 - [x] `ModelRouterModelClient` 长期收敛原则：LLM 只能走 model router；已加生产边界测试，除 runtime factory 注入 Model Router 客户端外，不允许新增直接 provider 调用。
 - [ ] sci-modality expert provider 与 image-generation direct provider 原则上统一经 model/media router，避免形成新的 LLM/API 旁路。已完成 sci-modality / image-generation 边界防回归、image-generation worker-contained 临时例外说明、runtime env scrub 覆盖 `EDAG_LLM_*`，以及 settings 文案不把 image direct provider 描述为默认路径；仍需决策：全部并入 Model Router，还是拆出 Media Router 统一承接 image/video/audio 等非文本 provider；任一方案都应保持 GUI/runtime 只依赖 router 层。
 - [x] Model Router provider 诊断只透出少量高价值状态到 health/UI：auth、network/timeout、provider bad response、provider error；不暴露全部内部细节。
-- [ ] side conversation / plan checklist / GUI plan registry 的长期 owner 归 runtime/thread metadata；GUI 只负责展示和即时乐观更新。已完成显式 `includeSide` 读路径、runtime todo snapshot/event 透传、`create_plan` result replay、完成后 goal/todos snapshot merge、GUI plan registry shared helper 对齐、plan/todo merge 语义收敛、side capability gate 与 SSE 失败状态收敛；仍需决策：active GUI plan 存成 `thread.guiPlan` metadata，还是从最近一次 `create_plan` tool result 派生；旧 `sciforge.plan.registry.v1` localStorage 是迁移还是清空；side conversation 重启后是否需要恢复。
+- [ ] side conversation / plan checklist / GUI plan registry 的长期 owner 归 runtime/thread metadata；GUI 只负责展示和即时乐观更新。已完成显式 `includeSide` 读路径、runtime todo snapshot/event 透传、`create_plan` result replay、完成后 goal/todos snapshot merge、GUI plan registry shared helper 对齐、plan/todo merge 语义收敛、side capability gate 与 SSE 失败状态收敛，且补齐 side send/interrupt/promote 失败收敛和 `create_plan` metadata owner 捕获；仍需决策：active GUI plan 存成 `thread.guiPlan` metadata，还是从最近一次 `create_plan` tool result 派生；旧 `sciforge.plan.registry.v1` localStorage 是迁移还是清空；side conversation 重启后是否需要恢复。
 - [ ] remote-channel IM command 边界：账户/连接/线程选择归 GUI；任务执行、计划、工具行为归 runtime/agent，避免新增并行控制链路。已删除 dead `ClawRuntime.runTask()`、stale Feishu mirror API 文档、dead `imCommandNotReadyText`，并补齐 remote-channel task IPC 测试和 public API 文档；仍需决策：IM 是否允许 `/model` / `/mode` 这类 runtime 行为命令；项目/thread 选择是否允许经 IM 发生；schedule/task 创建是否允许从 IM 自动触发。
 - [x] 删除 `vision-router-service`：Model Router 当前 `translators.vision` 已覆盖默认链路需要的 translate-only vision 能力，视觉输入会先经 vision translator 生成文本 evidence，再交给 text reasoner；已删除 standalone `plugins/vision-router-service` 及其文档/测试/notice 引用，默认链路不再保留第二条服务边界。后续如需要更强 retry/backoff/timeout，只在 Model Router `visionTranslator` provider call 内实现。
 - [ ] `gui-owl-computer-use` 暂停处理：保持 `gui-owl-computer-use` 与旧 `@sciforge/computer-use` 并存，不迁移、不删除，等待人工分别测试两套 computer-use 后再决策。人工测试矩阵需覆盖：`-SafeDryRun` 不动鼠标键盘、live 必须 GUI approve、cancel 有效、无 token live 被拒、是否让手工 dry-run 也强制 token（因为会截图并走 Model Router）。
-- [ ] Agent Runtime auxiliary 仍需决策是否改为按 operation 区分的 discriminated union：运行期 guard 已让 `reviewThread`、`listThreadChildren`、`readChildTranscript`、context ledger/state、runtime handoff、goal/todos、checkpoint create、thread workspace/archive、`cancelUserInput` 等 thread-bound operation 缺 `runtimeId` 时 fail-closed；operation 全量列表和 runtimeId-required 子集已单一来源化。仍需决策是否把该分类提升到 shared contract / IPC schema 的 operation-specific 类型与校验。`getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences` 等 active-scoped 能力继续允许省略。
+- [ ] Agent Runtime auxiliary 仍需决策是否改为按 operation 区分的 discriminated union：运行期 guard 已让 `reviewThread`、`listThreadChildren`、`readChildTranscript`、context ledger/state、runtime handoff、goal/todos、checkpoint create、thread workspace/archive、`cancelUserInput` 等 thread-bound operation 缺 `runtimeId` 时 fail-closed；operation 全量列表和 runtimeId-required 子集已单一来源化，runtime handoff source owner 和 audit/checkpoint payload runtimeId 副本也已 fail-closed 到 top-level owner。仍需决策是否把该分类提升到 shared contract / IPC schema 的 operation-specific 类型与校验。`getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences` 等 active-scoped 能力继续允许省略。
 - [ ] `SCIFORGE_CUA_SERVICE_URL` loopback 策略等待 computer-use 人工测试后决策：允许哪些 loopback 形式、是否支持 SSH tunnel hostname、非 loopback 时 fail-closed 并不广告旧 tool，还是保留当前“不启用 GUI-managed MCP 以避免重复注册”的冲突 guard。
 - [ ] Remote Channel / Connect Phone 公开 TypeScript surface 是否破坏式清名：shared typings 仍通过 `src/shared/app-settings-types.ts` 和 `src/shared/app-settings.ts` barrel 暴露 `Claw*` 类型/函数/常量（例如 `ClawImChannelV1`、`ClawRunMode`、`parseClawCommand`），并经 `SciForgeApi` settings / Discord payload 间接暴露；运行时 window API、IPC channel 和用户文案已是 `remoteChannel` / `connectPhone`。需决策直接重命名为 `RemoteChannel*` / `ConnectPhone*` 并删除 alias，还是保留 deprecated alias 迁移期；renderer store 的 `clawChannels` / `activeClawChannelId` / `chat-store-claw-actions` 属于同一批内部清名，但需先决定 `activeClawChannelId` 与现有 `activeRemoteChannelId` 的目标语义，避免两种 remote-channel 选择态混名。
 

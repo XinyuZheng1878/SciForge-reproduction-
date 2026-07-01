@@ -412,6 +412,7 @@ export class AgentRuntimeHost {
         }
       }
       case 'listModelAuditRecords':
+        assertPayloadRuntimeIdMatchesOwner(payload, 'runtimeId', runtimeId)
         return {
           handled: true,
           value: this.options.services?.modelAudit?.snapshot({
@@ -459,10 +460,11 @@ export class AgentRuntimeHost {
       case 'createRuntimeHandoffPacket': {
         const service = this.options.services?.contextLedger
         if (!service) return { handled: false }
+        assertPayloadRuntimeIdMatchesOwner(payload, 'sourceRuntimeId', runtimeId)
         return {
           handled: true,
           value: await service.createHandoffPacket({
-            sourceRuntimeId: optionalRuntimeId(payload.sourceRuntimeId) ?? runtimeId,
+            sourceRuntimeId: runtimeId,
             sourceThreadId: requiredString(payload, 'sourceThreadId', optionalString(payload.threadId)),
             ...(optionalRuntimeId(payload.targetRuntimeId)
               ? { targetRuntimeId: optionalRuntimeId(payload.targetRuntimeId) }
@@ -471,9 +473,10 @@ export class AgentRuntimeHost {
         }
       }
       case 'startRuntimeHandoff':
+        assertPayloadRuntimeIdMatchesOwner(payload, 'sourceRuntimeId', runtimeId)
         return {
           handled: true,
-          value: await this.startRuntimeHandoff(optionalRuntimeId(payload.sourceRuntimeId) ?? runtimeId, payload, context)
+          value: await this.startRuntimeHandoff(runtimeId, payload, context)
         }
       case 'recordContextCompaction': {
         const service = this.options.services?.contextState
@@ -512,6 +515,7 @@ export class AgentRuntimeHost {
         }
       }
       case 'listGitCheckpoints':
+        assertPayloadRuntimeIdMatchesOwner(payload, 'runtimeId', runtimeId)
         return {
           handled: true,
           value: await this.options.services?.gitCheckpoints?.list({
@@ -1971,6 +1975,17 @@ function requiredRuntimeId(payload: Record<string, unknown>, key: string): Agent
   const runtimeId = optionalRuntimeId(payload[key])
   if (!runtimeId) throw new Error(`Agent runtime auxiliary operation requires payload.${key}.`)
   return runtimeId
+}
+
+function assertPayloadRuntimeIdMatchesOwner(
+  payload: Record<string, unknown>,
+  key: string,
+  ownerRuntimeId: AgentRuntimeId
+): void {
+  const runtimeId = optionalRuntimeId(payload[key])
+  if (runtimeId && runtimeId !== ownerRuntimeId) {
+    throw new Error(`Agent runtime auxiliary payload.${key} must match the top-level runtimeId.`)
+  }
 }
 
 function governanceProfile(value: unknown): AgentRuntimeGovernanceProfile | undefined {

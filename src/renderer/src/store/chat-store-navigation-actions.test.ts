@@ -426,7 +426,7 @@ describe('chat-store-navigation-actions deleteWorkspace', () => {
   })
 })
 
-describe('syncClawChannelActivityToStore', () => {
+describe('remote-channel activity sync', () => {
   beforeEach(() => {
     registryMock.getProvider.mockReset()
     runtimeClientMock.getSettings.mockReset()

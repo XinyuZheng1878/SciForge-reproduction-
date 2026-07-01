@@ -356,6 +356,29 @@ async function assertFile(relativePath) {
   }
 }
 
+async function fileExists(relativePath) {
+  try {
+    await access(join(workspaceRoot, relativePath))
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function skipWhenSmokeAssetsMissing(relativePaths) {
+  const missing = []
+  for (const relativePath of [...new Set(relativePaths)]) {
+    if (!await fileExists(relativePath)) missing.push(relativePath)
+  }
+  if (missing.length === 0) return
+  console.log(JSON.stringify({
+    status: 'skipped',
+    reason: 'Missing local paper smoke assets. Populate tmp/figure-style-paper-smoke to run this regression.',
+    missing
+  }, null, 2))
+  process.exit(0)
+}
+
 function scoreFrom(result) {
   return result?.review?.ok ? result.review.score : result?.attempts?.at(-1)?.review?.ok ? result.attempts.at(-1).review.score : null
 }
@@ -501,16 +524,11 @@ function markdownSummary(payload) {
   return `${lines.join('\n')}\n`
 }
 
-for (const item of referencePreparationChecks) {
-  await assertFile(item.sourcePath)
-}
-for (const item of cases) {
-  if (item.referencePath) await assertFile(item.referencePath)
-  if (item.styleSpecPath) await assertFile(item.styleSpecPath)
-}
-for (const item of mappedRenderChecks) {
-  await assertFile(item.styleSpecPath)
-}
+await skipWhenSmokeAssetsMissing([
+  ...referencePreparationChecks.map((item) => item.sourcePath),
+  ...cases.flatMap((item) => [item.referencePath, item.styleSpecPath].filter(Boolean)),
+  ...mappedRenderChecks.map((item) => item.styleSpecPath)
+])
 await assertFile('out/main/scientific-plotting-mcp-node-entry.js')
 await mkdir(join(workspaceRoot, outputDir), { recursive: true })
 

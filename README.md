@@ -427,7 +427,7 @@ npm run workspace-intel:start
 | Windows | `%APPDATA%\SciForge` |
 | Linux | `~/.config/SciForge` |
 
-SciForge Runtime 数据通常位于 `~/.sciforge/runtime` 或设置中指定的 runtime data dir。研究产物通常写在当前 workspace 的 `.sciforge/`、`.agent/` 或用户选择的写作空间中。
+SciForge Runtime 数据通常位于 `~/.sciforge/runtime` 或设置中指定的 runtime data dir。研究产物通常写在当前 workspace 的 `.sciforge/`、`.agents/` 或用户选择的写作空间中。
 
 macOS 本地未公证构建如果被系统拦截，可先运行：
 

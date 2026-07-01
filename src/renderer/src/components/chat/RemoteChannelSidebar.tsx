@@ -56,21 +56,21 @@ export function RemoteChannelSidebarContent({
   return (
     <div className="ds-no-drag flex min-h-0 flex-1 flex-col">
       <SidebarSectionHeader
-        label={t('clawSidebarIm')}
+        label={t('remoteChannelSidebarIm')}
         actions={
           <>
             <SidebarIconButton
               onClick={onAddChannel}
-              title={t('clawAddIm')}
-              ariaLabel={t('clawAddIm')}
+              title={t('connectPhoneAddIm')}
+              ariaLabel={t('connectPhoneAddIm')}
             >
               <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
             </SidebarIconButton>
             <SidebarIconButton
               onClick={onOpenSettings}
               disabled={channels.length === 0}
-              title={t('clawSettings')}
-              ariaLabel={t('clawSettings')}
+              title={t('connectPhoneSettings')}
+              ariaLabel={t('connectPhoneSettings')}
             >
               <Settings className="h-3.5 w-3.5" strokeWidth={1.75} />
             </SidebarIconButton>
@@ -81,9 +81,9 @@ export function RemoteChannelSidebarContent({
       <div className="min-h-0 flex-1 overflow-y-auto px-0.5 pb-1">
         {channels.length === 0 ? (
           <div className="mx-2 mt-2 rounded-2xl border border-dashed border-ds-border-muted bg-ds-main/35 px-3 py-4">
-            <p className="text-[14px] font-medium text-ds-muted">{t('clawNoImTitle')}</p>
+            <p className="text-[14px] font-medium text-ds-muted">{t('remoteChannelNoImTitle')}</p>
             <p className="mt-1 text-[13px] leading-5 text-ds-faint">
-              {t('clawNoImSub')}
+              {t('remoteChannelNoImSub')}
             </p>
             <button
               type="button"
@@ -91,7 +91,7 @@ export function RemoteChannelSidebarContent({
               className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-ds-border bg-ds-card px-2.5 py-1.5 text-[12.5px] font-medium text-ds-ink transition hover:bg-ds-hover"
             >
               <Plus className="h-3.5 w-3.5 text-accent" strokeWidth={1.9} />
-              {t('clawAddIm')}
+              {t('connectPhoneAddIm')}
             </button>
           </div>
         ) : (
@@ -131,7 +131,7 @@ export function RemoteChannelSidebarContent({
                     active={active}
                     activeVariant="outline"
                     className={disabled ? 'opacity-55' : undefined}
-                    title={disabled ? t('clawImDisabledSidebar') : channel.label}
+                    title={disabled ? t('remoteChannelDisabledSidebar') : channel.label}
                     disabled={!runtimeReady || disabled}
                     onClick={() => onSelectChannel(channel.id)}
                     trailing={<RemoteSidebarBadges kind={statusKind} active={active} unread={unread} t={t} />}
@@ -139,8 +139,8 @@ export function RemoteChannelSidebarContent({
                       <SidebarIconButton
                         onClick={() => onResetChannel(channel.id)}
                         disabled={!runtimeReady || disabled}
-                        title={t('clawClearSession')}
-                        ariaLabel={t('clawClearSession')}
+                        title={t('remoteChannelClearSession')}
+                        ariaLabel={t('remoteChannelClearSession')}
                         stopPropagation
                       >
                         <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.9} />
@@ -180,7 +180,7 @@ export function RemoteChannelSidebarContent({
                           const remoteLabel = conversation.remoteThreadId.trim() || conversation.chatId.trim()
                           const processLabel = threadId
                             ? `${runtimeId}:${shortThreadId(threadId)}`
-                            : t('clawConversationUnbound')
+                            : t('remoteChannelConversationUnbound')
                           return (
                             <SidebarTreeRow
                               key={conversation.id}

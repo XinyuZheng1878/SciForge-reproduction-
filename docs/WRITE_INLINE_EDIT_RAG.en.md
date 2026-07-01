@@ -158,7 +158,7 @@ Major new additions and changes:
 - `src/renderer/src/write/inline-edit.ts`: Expand the selection section, construct the payload, and apply replacement.
 - `src/renderer/src/write/recent-edits.ts`: Logging, filtering and prompt payload conversion of recent edit contexts.
 - `src/renderer/src/write/term-propagation.ts`: Term case/rename propagation in the same paragraph.
-- `src/renderer/src/components/write/WriteWorkspaceView.tsx`: The selected text floating layer supports two paths: "AI Editing" and "Send to Writing Assistant".
+- `src/renderer/src/components/write/WriteMarkdownEditor.tsx` and `src/renderer/src/write/inline-edit.ts`: The selected text floating layer supports two paths: "AI Editing" and "Send to Writing Assistant".
 - `src/main/ipc/app-ipc-schemas.ts`, `src/preload/index.ts`, `src/shared/sciforge-api.ts`: the existing `write:inline-completion` IPC accepts `mode: "edit"` plus `editCandidate` and recent edits.
 
 Test coverage:

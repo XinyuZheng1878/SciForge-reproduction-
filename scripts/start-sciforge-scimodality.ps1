@@ -61,6 +61,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $RunDir = Join-Path $RepoRoot '.scimodality-run'
 New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
 $started = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
+$scopedEnvOriginals = @{}
 
 function Info($m) { Write-Host "[start] $m" -ForegroundColor Cyan }
 function Warn($m) { Write-Host "[start] $m" -ForegroundColor Yellow }
@@ -85,6 +86,30 @@ function Wait-Health([int]$port, [int]$timeoutSec, [string]$what, [string]$token
     Start-Sleep -Seconds 1
   }
   return $false
+}
+
+function Set-ScopedEnv([string]$name, [string]$value) {
+  if (-not $scopedEnvOriginals.ContainsKey($name)) {
+    $scopedEnvOriginals[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+  }
+  Set-Item -Path "Env:$name" -Value $value
+}
+
+function Clear-ScopedEnvForChildIsolation([string[]]$names) {
+  foreach ($name in $names) {
+    Remove-Item -Path "Env:$name" -ErrorAction SilentlyContinue
+  }
+}
+
+function Restore-ScopedEnv() {
+  foreach ($entry in $scopedEnvOriginals.GetEnumerator()) {
+    $name = [string]$entry.Key
+    if ($null -eq $entry.Value) {
+      Remove-Item -Path "Env:$name" -ErrorAction SilentlyContinue
+    } else {
+      Set-Item -Path "Env:$name" -Value ([string]$entry.Value)
+    }
+  }
 }
 
 try {
@@ -129,18 +154,29 @@ try {
   # 3) In local mode, run this repo's worker against the tunneled provider.
   if ($Mode -eq 'local') {
     if (-not $SkipTunnel) { Wait-Health $ProviderPort 30 'GPU provider (tunneled :8001)' $ProviderToken | Out-Null }
-    $env:EXPERT_PROVIDER_BASE_URL = "http://127.0.0.1:$ProviderPort/v1"
-    $env:EXPERT_PROVIDER_API_KEY = "$ProviderToken"
-    $env:SCIMODALITY_ROUTER_HOST = '127.0.0.1'
-    $env:SCIMODALITY_ROUTER_PORT = "$ServicePort"
-    $env:SCIMODALITY_ROUTER_RUNTIME_TOKEN = "$ServiceToken"
-    Info "starting local @sciforge/sci-modality-router worker on :$ServicePort (provider -> :$ProviderPort)"
-    $worker = Start-Process -FilePath $npm `
-      -ArgumentList @('--workspace', '@sciforge/sci-modality-router', 'run', 'start') `
-      -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden `
-      -RedirectStandardOutput (Join-Path $RunDir 'worker.out.log') `
-      -RedirectStandardError (Join-Path $RunDir 'worker.err.log')
-    $started.Add($worker)
+    $workerOnlyEnvNames = @(
+      'EXPERT_PROVIDER_BASE_URL',
+      'EXPERT_PROVIDER_API_KEY',
+      'SCIMODALITY_ROUTER_HOST',
+      'SCIMODALITY_ROUTER_PORT',
+      'SCIMODALITY_ROUTER_RUNTIME_TOKEN'
+    )
+    try {
+      Set-ScopedEnv 'EXPERT_PROVIDER_BASE_URL' "http://127.0.0.1:$ProviderPort/v1"
+      Set-ScopedEnv 'EXPERT_PROVIDER_API_KEY' "$ProviderToken"
+      Set-ScopedEnv 'SCIMODALITY_ROUTER_HOST' '127.0.0.1'
+      Set-ScopedEnv 'SCIMODALITY_ROUTER_PORT' "$ServicePort"
+      Set-ScopedEnv 'SCIMODALITY_ROUTER_RUNTIME_TOKEN' "$ServiceToken"
+      Info "starting local @sciforge/sci-modality-router worker on :$ServicePort (provider -> :$ProviderPort)"
+      $worker = Start-Process -FilePath $npm `
+        -ArgumentList @('--workspace', '@sciforge/sci-modality-router', 'run', 'start') `
+        -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput (Join-Path $RunDir 'worker.out.log') `
+        -RedirectStandardError (Join-Path $RunDir 'worker.err.log')
+      $started.Add($worker)
+    } finally {
+      Clear-ScopedEnvForChildIsolation $workerOnlyEnvNames
+    }
   }
 
   # 4) Wait for the service endpoint the GUI will use, and show expert status.
@@ -183,9 +219,9 @@ try {
   }
 
   # 5) Point Model Router at the service. The GUI-spawned Model Router child inherits this.
-  $env:SCIFORGE_SCIMODALITY_SERVICE_URL = "http://127.0.0.1:$ServicePort"
-  $env:SCIFORGE_SCIMODALITY_SERVICE_TOKEN = "$ServiceToken"
-  if ($ServiceTimeoutMs -gt 0) { $env:SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS = "$ServiceTimeoutMs" }
+  Set-ScopedEnv 'SCIFORGE_SCIMODALITY_SERVICE_URL' "http://127.0.0.1:$ServicePort"
+  Set-ScopedEnv 'SCIFORGE_SCIMODALITY_SERVICE_TOKEN' "$ServiceToken"
+  if ($ServiceTimeoutMs -gt 0) { Set-ScopedEnv 'SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS' "$ServiceTimeoutMs" }
   Info "SCIFORGE_SCIMODALITY_SERVICE_URL = $($env:SCIFORGE_SCIMODALITY_SERVICE_URL)"
 
   # 6) Launch the GUI (foreground; Ctrl+C returns here and the finally block cleans up).
@@ -198,8 +234,6 @@ finally {
   foreach ($p in $started) {
     try { if ($p -and -not $p.HasExited) { $p.Kill(); $p.WaitForExit(3000) | Out-Null } } catch {}
   }
-  # Drop the env we set so a later plain `npm run dev` in this shell is unaffected.
-  Remove-Item Env:SCIFORGE_SCIMODALITY_SERVICE_URL -ErrorAction SilentlyContinue
-  Remove-Item Env:SCIFORGE_SCIMODALITY_SERVICE_TOKEN -ErrorAction SilentlyContinue
-  Remove-Item Env:SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS -ErrorAction SilentlyContinue
+  # Drop or restore the env we touched so a later plain `npm run dev` in this shell is unaffected.
+  Restore-ScopedEnv
 }

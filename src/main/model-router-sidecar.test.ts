@@ -107,6 +107,10 @@ describe('buildModelRouterSidecarLaunch', () => {
         EDAG_LLM_BASE_URL: 'https://direct-edag-provider.example/v1',
         EDAG_LLM_API_KEY: 'outer-edag-key',
         EDAG_LLM_MODEL: 'outer-edag-model',
+        EXPERT_PROVIDER_BASE_URL: 'http://127.0.0.1:8001/v1',
+        EXPERT_PROVIDER_API_KEY: 'outer-expert-token',
+        SCIMODALITY_ROUTER_PORT: '3898',
+        SCIMODALITY_ROUTER_RUNTIME_TOKEN: 'outer-router-token',
         SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://127.0.0.1:3898',
         SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'sci-modality-token',
         SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345'
@@ -163,6 +167,10 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.launch.env.EDAG_LLM_BASE_URL).toBeUndefined()
     expect(result.launch.env.EDAG_LLM_API_KEY).toBeUndefined()
     expect(result.launch.env.EDAG_LLM_MODEL).toBeUndefined()
+    expect(result.launch.env.EXPERT_PROVIDER_BASE_URL).toBeUndefined()
+    expect(result.launch.env.EXPERT_PROVIDER_API_KEY).toBeUndefined()
+    expect(result.launch.env.SCIMODALITY_ROUTER_PORT).toBeUndefined()
+    expect(result.launch.env.SCIMODALITY_ROUTER_RUNTIME_TOKEN).toBeUndefined()
     expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_URL).toBe('http://127.0.0.1:3898')
     expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN).toBe('sci-modality-token')
     expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS).toBe('12345')

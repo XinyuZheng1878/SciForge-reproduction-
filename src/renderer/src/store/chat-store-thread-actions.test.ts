@@ -939,7 +939,7 @@ describe('chat-store-thread-actions queued messages', () => {
   })
 })
 
-describe('publishActiveClawThreadContext', () => {
+describe('remote-channel active thread context publishing', () => {
   beforeEach(() => {
     vi.stubGlobal('window', {
       sciforge: {
@@ -969,7 +969,7 @@ describe('publishActiveClawThreadContext', () => {
     })
   })
 
-  it('clears the active context instead of publishing a Claw-managed thread', () => {
+  it('clears the active context instead of publishing a remote-channel-managed thread', () => {
     const state = {
       activeThreadId: 'claw-thread',
       workspaceRoot: '/workspace/fallback',

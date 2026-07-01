@@ -73,6 +73,15 @@ import { isLocalRuntimeHealthResponseBody } from './local-runtime-health'
 import { appendManagedLogLine } from './logger'
 import { guiSkillRootsForRuntime, normalizeSkillRootPath } from './services/skill-service'
 import { APP_MODEL_ROUTER_RUNTIME_API_KEY_ENV } from '../shared/app-brand'
+import {
+  DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
+  SCI_MODALITY_SERVICE_ENV_PREFIXES,
+  SCI_MODALITY_WORKER_PRIVATE_ENV_PREFIXES,
+  UPSTREAM_PROVIDER_CONFIG_ENV_NAMES,
+  UPSTREAM_PROVIDER_SECRET_ENV_NAMES,
+  isPrefixedEnv,
+  isUpstreamProviderConfigEnv
+} from './upstream-provider-env'
 
 let child: ChildProcess | null = null
 let childLogCapture: LocalRuntimeChildLogCapture | null = null
@@ -104,49 +113,11 @@ const LOCAL_RUNTIME_STOP_GRACE_MS = 5_000
 const LOCAL_RUNTIME_STOP_FORCE_MS = 1_000
 const STDERR_TAIL_MAX_CHARS = 32_768
 const MAX_TCP_PORT = 65_535
-const UPSTREAM_PROVIDER_SECRET_ENV_NAMES = [
-  'OPENAI_API_KEY',
-  'DEEPSEEK_API_KEY',
-  'ANTHROPIC_API_KEY',
-  'QWEN_API_KEY',
-  'DASHSCOPE_API_KEY',
-  'GEMINI_API_KEY',
-  'GOOGLE_API_KEY',
-  'GROQ_API_KEY',
-  'MISTRAL_API_KEY',
-  'COHERE_API_KEY',
-  'OPENROUTER_API_KEY',
-  'AZURE_OPENAI_API_KEY'
-] as const
-const UPSTREAM_PROVIDER_ENV_PREFIXES = [
-  'OPENAI',
-  'DEEPSEEK',
-  'ANTHROPIC',
-  'QWEN',
-  'DASHSCOPE',
-  'GEMINI',
-  'GOOGLE',
-  'GROQ',
-  'MISTRAL',
-  'COHERE',
-  'OPENROUTER',
-  'AZURE_OPENAI'
-] as const
-const UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES = [
-  'MODEL',
-  'BASE_URL',
-  'API_BASE',
-  'API_BASE_URL'
-] as const
-const UPSTREAM_PROVIDER_CONFIG_ENV_NAMES = [
-  'MODEL_PROVIDER',
-  'KUN_BASE_URL'
-] as const
-// Temporary legacy direct worker env must be injected only through explicit managed MCP server config.
+// Temporary worker env must be injected only through explicit managed child config.
 const LEGACY_DIRECT_WORKER_ENV_PREFIXES = [
-  'EDAG_LLM_',
-  'SCIFORGE_IMAGE_',
-  'SCIFORGE_SCIMODALITY_SERVICE_'
+  ...DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
+  ...SCI_MODALITY_SERVICE_ENV_PREFIXES,
+  ...SCI_MODALITY_WORKER_PRIVATE_ENV_PREFIXES
 ] as const
 const DEFAULT_LOCAL_RUNTIME_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
   'deepseek-v4-pro': {
@@ -1140,14 +1111,8 @@ function localRuntimeChildEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env
 }
 
-function isUpstreamProviderConfigEnv(key: string): boolean {
-  return UPSTREAM_PROVIDER_ENV_PREFIXES.some((prefix) =>
-    UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES.some((suffix) => key === `${prefix}_${suffix}`)
-  )
-}
-
 function isLegacyDirectWorkerEnv(key: string): boolean {
-  return LEGACY_DIRECT_WORKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))
+  return isPrefixedEnv(key, LEGACY_DIRECT_WORKER_ENV_PREFIXES)
 }
 
 export async function reclaimLocalRuntimePort(

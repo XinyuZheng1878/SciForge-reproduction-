@@ -721,7 +721,7 @@ export function FloatingComposer({
   const clawAgentName =
     activeClawChannel?.agentProfile.name.trim()
     || activeClawChannel?.label.trim()
-    || t('clawEmptyHeroFallbackName')
+    || t('remoteChannelEmptyHeroFallbackName')
   const clawHasInboundConversation = Boolean(
     activeThreadId ||
     Object.values(activeClawChannel?.agentThreadIds ?? {}).some((threadId) => threadId.trim()) ||
@@ -847,8 +847,8 @@ export function FloatingComposer({
           ? t('composerImageGenerationPlaceholder')
           : isRemoteChannelThread
             ? clawHasInboundConversation
-              ? t('clawPlaceholder', { name: clawAgentName })
-              : t('clawPlaceholderNeedsInbound')
+              ? t('remoteChannelPlaceholder', { name: clawAgentName })
+              : t('remoteChannelPlaceholderNeedsInbound')
             : mode === 'plan'
               ? t('composerPlanPlaceholder')
               : hasActiveThread
@@ -860,8 +860,8 @@ export function FloatingComposer({
       ? t('composerWorkspaceHint')
       : isRemoteChannelThread
           ? clawHasInboundConversation
-            ? t('clawComposerHint')
-            : t('clawComposerHintNeedsInbound')
+            ? t('remoteChannelComposerHint')
+            : t('remoteChannelComposerHintNeedsInbound')
           : t('composerSlashHint')
   const slashCommands = useMemo<SlashCommand[]>(() => {
     const threadActionDisabled = !runtimeReady || busy || !activeThreadId

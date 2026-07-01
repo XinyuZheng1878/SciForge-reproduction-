@@ -127,7 +127,7 @@ export function Sidebar({
         <div className="space-y-1">
           <SidebarCommandRow
             icon={<Smartphone className="h-4 w-4" strokeWidth={1.75} />}
-            label={t('claw')}
+            label={t('connectPhoneLabel')}
             onClick={onToggleConnectPhone}
             active={connectPhoneSidebarOpen}
             variant="footer"

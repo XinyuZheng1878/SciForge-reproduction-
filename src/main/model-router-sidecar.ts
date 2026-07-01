@@ -10,56 +10,22 @@ import {
   type ModelRouterMemberProviderSettingsV1
 } from '../shared/app-settings'
 import { checkModelRouterHealth } from './model-router-health'
+import {
+  DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
+  SCI_MODALITY_WORKER_PRIVATE_ENV_PREFIXES,
+  STANDALONE_MODEL_ROUTER_ENV_PREFIXES,
+  UPSTREAM_PROVIDER_CONFIG_ENV_NAMES,
+  UPSTREAM_PROVIDER_SECRET_ENV_NAMES,
+  isPrefixedEnv,
+  isUpstreamProviderConfigEnv
+} from './upstream-provider-env'
 
 const ROUTER_RUNTIME_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY'
 const TEXT_REASONER_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_TEXT_API_KEY'
 const VISION_TRANSLATOR_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_VISION_API_KEY'
-const UPSTREAM_PROVIDER_SECRET_ENV_NAMES = [
-  'OPENAI_API_KEY',
-  'DEEPSEEK_API_KEY',
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AUTH_TOKEN',
-  'QWEN_API_KEY',
-  'DASHSCOPE_API_KEY',
-  'GEMINI_API_KEY',
-  'GOOGLE_API_KEY',
-  'GROQ_API_KEY',
-  'MISTRAL_API_KEY',
-  'COHERE_API_KEY',
-  'OPENROUTER_API_KEY',
-  'AZURE_OPENAI_API_KEY'
-] as const
-const UPSTREAM_PROVIDER_ENV_PREFIXES = [
-  'OPENAI',
-  'DEEPSEEK',
-  'ANTHROPIC',
-  'QWEN',
-  'DASHSCOPE',
-  'GEMINI',
-  'GOOGLE',
-  'GROQ',
-  'MISTRAL',
-  'COHERE',
-  'OPENROUTER',
-  'AZURE_OPENAI'
-] as const
-const UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES = [
-  'MODEL',
-  'BASE_URL',
-  'API_BASE',
-  'API_BASE_URL'
-] as const
-const UPSTREAM_PROVIDER_CONFIG_ENV_NAMES = [
-  'MODEL_PROVIDER',
-  'KUN_BASE_URL'
-] as const
 const BLOCKED_INHERITED_WORKER_ENV_PREFIXES = [
-  'SCIFORGE_IMAGE_',
-  'EDAG_LLM_'
-] as const
-const BLOCKED_STANDALONE_MODEL_ROUTER_ENV_PREFIXES = [
-  'SCIFORGE_TEXT_',
-  'SCIFORGE_VISION_'
+  ...DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
+  ...SCI_MODALITY_WORKER_PRIVATE_ENV_PREFIXES
 ] as const
 
 let modelRouterChild: ChildProcess | null = null
@@ -182,21 +148,12 @@ function modelRouterSidecarEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env
 }
 
-function isUpstreamProviderConfigEnv(key: string): boolean {
-  if (/^ANTHROPIC_DEFAULT_[A-Z0-9_]+_MODEL$/.test(key)) {
-    return true
-  }
-  return UPSTREAM_PROVIDER_ENV_PREFIXES.some((prefix) =>
-    UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES.some((suffix) => key === `${prefix}_${suffix}`)
-  )
-}
-
 function isBlockedInheritedWorkerEnv(key: string): boolean {
-  return BLOCKED_INHERITED_WORKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))
+  return isPrefixedEnv(key, BLOCKED_INHERITED_WORKER_ENV_PREFIXES)
 }
 
 function isBlockedStandaloneModelRouterEnv(key: string): boolean {
-  return BLOCKED_STANDALONE_MODEL_ROUTER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))
+  return isPrefixedEnv(key, STANDALONE_MODEL_ROUTER_ENV_PREFIXES)
 }
 
 export async function ensureModelRouterConfigFile(

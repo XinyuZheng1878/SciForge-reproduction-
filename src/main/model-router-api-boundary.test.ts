@@ -56,8 +56,17 @@ const directCallMarkers: DirectCallMarker[] = [
   { label: 'messages endpoint', pattern: /\/v1\/messages/i },
   { label: 'DeepSeek API key env', pattern: /\bDEEPSEEK_API_KEY\b/ },
   { label: 'OpenAI API key env', pattern: /\bOPENAI_API_KEY\b/ },
+  { label: 'Anthropic API key env', pattern: /\bANTHROPIC_API_KEY\b/ },
+  { label: 'Anthropic auth token env', pattern: /\bANTHROPIC_AUTH_TOKEN\b/ },
   { label: 'DashScope API key env', pattern: /\bDASHSCOPE_API_KEY\b/ },
-  { label: 'Qwen API key env', pattern: /\bQWEN_API_KEY\b/ }
+  { label: 'Qwen API key env', pattern: /\bQWEN_API_KEY\b/ },
+  { label: 'Gemini API key env', pattern: /\bGEMINI_API_KEY\b/ },
+  { label: 'Google API key env', pattern: /\bGOOGLE_API_KEY\b/ },
+  { label: 'Groq API key env', pattern: /\bGROQ_API_KEY\b/ },
+  { label: 'Mistral API key env', pattern: /\bMISTRAL_API_KEY\b/ },
+  { label: 'Cohere API key env', pattern: /\bCOHERE_API_KEY\b/ },
+  { label: 'OpenRouter API key env', pattern: /\bOPENROUTER_API_KEY\b/ },
+  { label: 'Azure OpenAI API key env', pattern: /\bAZURE_OPENAI_API_KEY\b/ }
 ]
 
 function toRepoPath(path: string): string {
@@ -156,6 +165,15 @@ function isAllowedBoundaryMarker(hit: DirectCallHit): boolean {
   }
   if (hit.file === 'kun/src/contracts/model-endpoint-format.ts') {
     return hit.marker === 'chat completions endpoint' || hit.marker === 'messages endpoint'
+  }
+  if (hit.file === 'src/main/upstream-provider-env.ts') {
+    return true
+  }
+  if (
+    hit.file === 'src/main/runtime/claude-code/claude-code-config.ts' &&
+    (hit.text.includes('runtime.apiKey') || hit.text.includes('runtime.baseUrl'))
+  ) {
+    return true
   }
   if (
     hit.file === 'src/main/local-runtime-process.ts' ||

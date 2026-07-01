@@ -121,7 +121,7 @@ describe('ppt-master chat bootstrap', () => {
           servers: {
             gui_schedule: {
               command: '/Applications/Electron Helper',
-              args: ['/repo/SciForge/out/main/claw-schedule-mcp-node-entry.js']
+              args: ['/repo/SciForge/out/main/schedule-mcp-node-entry.js']
             }
           }
         })
@@ -158,7 +158,7 @@ describe('ppt-master chat bootstrap', () => {
 
   it('builds a fallback ppt-master config from an existing dev MCP server path', () => {
     const fallback = buildPptMasterMcpConfigFromExistingConfig(
-      '{"servers":{"gui_schedule":{"args":["/repo/App/out/main/claw-schedule-mcp-node-entry.js"]}}}',
+      '{"servers":{"gui_schedule":{"args":["/repo/App/out/main/schedule-mcp-node-entry.js"]}}}',
       '/workspace'
     )
 

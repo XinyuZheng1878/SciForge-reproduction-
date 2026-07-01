@@ -265,6 +265,7 @@ export function useWorkbenchPlanController({
     meta: PlanResultMatch['meta'],
     shouldOpen: boolean
   ): Promise<void> => {
+    const ownerThreadId = useChatStore.getState().activeThreadId
     const result = await window.sciforge.readWorkspaceFile({
       workspaceRoot: meta.workspaceRoot,
       path: meta.relativePath
@@ -275,7 +276,7 @@ export function useWorkbenchPlanController({
     }
     const base = createGuiPlanArtifact({
       workspaceRoot: meta.workspaceRoot,
-      threadId: useChatStore.getState().activeThreadId,
+      threadId: ownerThreadId,
       relativePath: meta.relativePath,
       absolutePath: meta.absolutePath ?? result.path,
       sourceRequest: meta.sourceRequest ?? ''

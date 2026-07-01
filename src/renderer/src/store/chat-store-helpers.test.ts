@@ -45,7 +45,7 @@ function clawChannel(): ClawImChannelV1 {
     label: 'Feishu Agent',
     enabled: true,
     model: 'auto',
-    agentThreadIds: { sciforge: 'kun-channel' },
+    agentThreadIds: { sciforge: 'sciforge-channel' },
     workspaceRoot: '/Users/zxy/project',
     agentProfile: {
       name: '',
@@ -63,7 +63,7 @@ function clawChannel(): ClawImChannelV1 {
         latestMessageId: 'message-1',
         senderId: 'sender-1',
         senderName: 'Alex',
-        agentThreadIds: { sciforge: 'kun-conversation' },
+        agentThreadIds: { sciforge: 'sciforge-conversation' },
         workspaceRoot: '/Users/zxy/project',
         createdAt: now,
         updatedAt: now
@@ -74,7 +74,7 @@ function clawChannel(): ClawImChannelV1 {
   }
 }
 
-describe('chat-store Claw helpers', () => {
+describe('chat-store remote-channel helpers', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', createMemoryStorage())
   })
@@ -131,11 +131,11 @@ describe('chat-store Claw helpers', () => {
     expect(compacted).not.toContain(`/Users/zxy/project-${MAX_CODE_WORKSPACE_ROOTS}`)
   })
 
-  it('collects channel and conversation thread ids for Claw sessions', () => {
+  it('collects channel and conversation thread ids for remote-channel sessions', () => {
     const ids = clawThreadIdsFromChannels([clawChannel()])
 
-    expect(ids.has('kun-channel')).toBe(true)
-    expect(ids.has('kun-conversation')).toBe(true)
+    expect(ids.has('sciforge-channel')).toBe(true)
+    expect(ids.has('sciforge-conversation')).toBe(true)
   })
 
   it('collects watched thread ids only from enabled IM channels', () => {
@@ -154,8 +154,8 @@ describe('chat-store Claw helpers', () => {
 
     const ids = watchedClawThreadIdsFromChannels([enabled, disabled])
 
-    expect(ids.has('kun-channel')).toBe(true)
-    expect(ids.has('kun-conversation')).toBe(true)
+    expect(ids.has('sciforge-channel')).toBe(true)
+    expect(ids.has('sciforge-conversation')).toBe(true)
     expect(ids.has('disabled-channel')).toBe(false)
     expect(ids.has('disabled-conversation')).toBe(false)
   })
@@ -224,7 +224,7 @@ describe('chat-store Claw helpers', () => {
       }
     }
 
-    const binding = clawThreadRemoteBindingsFromChannels([channel]).get('kun-channel')
+    const binding = clawThreadRemoteBindingsFromChannels([channel]).get('sciforge-channel')
 
     expect(binding).toMatchObject({
       providerLabel: 'Discord',
@@ -234,7 +234,7 @@ describe('chat-store Claw helpers', () => {
   })
 
   it('derives remote status precedence from thread state', () => {
-    const binding = clawThreadRemoteBindingsFromChannels([clawChannel()]).get('kun-channel')
+    const binding = clawThreadRemoteBindingsFromChannels([clawChannel()]).get('sciforge-channel')
 
     expect(deriveClawThreadRemoteStatusKind({ binding })).toBe('watched')
     expect(deriveClawThreadRemoteStatusKind({ binding, queued: true })).toBe('queued')
@@ -252,7 +252,7 @@ describe('chat-store Claw helpers', () => {
     })).toBe('error')
   })
 
-  it('uses product default agent names for new Claw channels', () => {
+  it('uses product default agent names for new phone connections', () => {
     const feishu = newClawChannel('feishu')
     const weixin = newClawChannel('weixin')
 
@@ -271,10 +271,10 @@ describe('chat-store Claw helpers', () => {
     expect(isClawThread({ id: 'kun-im-leaked', title: '[Claw IM:Feishu Agent]' })).toBe(false)
   })
 
-  it('does not treat a normal desktop session as Claw-managed just because IM is bound to it', () => {
+  it('does not treat a normal desktop session as remote-channel-managed just because IM is bound to it', () => {
     expect(
       isClawThread(
-        { id: 'kun-conversation', title: 'hi' },
+        { id: 'sciforge-conversation', title: 'hi' },
         [clawChannel()]
       )
     ).toBe(false)

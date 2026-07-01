@@ -6,10 +6,10 @@ describe('ConnectPhoneDialogHelpers', () => {
     const t = (key: string) => `translated:${key}`
 
     expect(formatConnectPhoneInstallError('WeChat login bridge is unavailable.', t)).toBe(
-      'translated:clawAddImWeixinBridgeMissing'
+      'translated:connectPhoneWeixinBridgeMissing'
     )
     expect(formatConnectPhoneInstallError('OpenClaw Gateway is unavailable.', t)).toBe(
-      'translated:clawAddImWeixinBridgeMissing'
+      'translated:connectPhoneWeixinBridgeMissing'
     )
   })
 })

@@ -28,48 +28,21 @@ import type { ImageGenerationMcpLaunchConfig } from '../../image-generation-mcp-
 import type { PptMasterMcpLaunchConfig } from '../../ppt-master-mcp-config'
 import type { SciforgeCanvasMcpLaunchConfig } from '../../sciforge-canvas-mcp-config'
 import { internalSecretEnv } from '../../internal-http-secret'
+import {
+  DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
+  SCI_MODALITY_SERVICE_ENV_PREFIXES,
+  SCI_MODALITY_WORKER_PRIVATE_ENV_PREFIXES,
+  UPSTREAM_PROVIDER_SECRET_ENV_NAMES,
+  isPrefixedEnv,
+  isUpstreamProviderConfigEnv
+} from '../../upstream-provider-env'
 
 const RUNTIME_API_KEY_ENV = 'SCIFORGE_RUNTIME_API_KEY'
 const CODEX_MANAGED_DIRS = ['sessions', 'memories', 'logs'] as const
-const UPSTREAM_PROVIDER_SECRET_ENVS = [
-  'OPENAI_API_KEY',
-  'DEEPSEEK_API_KEY',
-  'ANTHROPIC_API_KEY',
-  'QWEN_API_KEY',
-  'DASHSCOPE_API_KEY',
-  'GEMINI_API_KEY',
-  'GOOGLE_API_KEY',
-  'GROQ_API_KEY',
-  'MISTRAL_API_KEY',
-  'COHERE_API_KEY',
-  'OPENROUTER_API_KEY',
-  'AZURE_OPENAI_API_KEY'
-] as const
-const UPSTREAM_PROVIDER_ENV_PREFIXES = [
-  'OPENAI',
-  'DEEPSEEK',
-  'ANTHROPIC',
-  'QWEN',
-  'DASHSCOPE',
-  'GEMINI',
-  'GOOGLE',
-  'GROQ',
-  'MISTRAL',
-  'COHERE',
-  'OPENROUTER',
-  'AZURE_OPENAI'
-] as const
-const UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES = [
-  'MODEL',
-  'BASE_URL',
-  'API_BASE',
-  'API_BASE_URL'
-] as const
-const UPSTREAM_PROVIDER_CONFIG_ENVS = ['MODEL_PROVIDER'] as const
 const LEGACY_DIRECT_WORKER_ENV_PREFIXES = [
-  'SCIFORGE_IMAGE_',
-  'SCIFORGE_SCIMODALITY_SERVICE_',
-  'EDAG_LLM_'
+  ...DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
+  ...SCI_MODALITY_SERVICE_ENV_PREFIXES,
+  ...SCI_MODALITY_WORKER_PRIVATE_ENV_PREFIXES
 ] as const
 
 export type CodexAppServerLaunchConfig = {
@@ -161,7 +134,7 @@ export function codexRuntimeEnv(
   }
   delete env.CODEX_USER_HOME
   delete env.CODEX_CONFIG_HOME
-  for (const key of UPSTREAM_PROVIDER_SECRET_ENVS) {
+  for (const key of UPSTREAM_PROVIDER_SECRET_ENV_NAMES) {
     delete env[key]
   }
   for (const key of Object.keys(env)) {
@@ -198,20 +171,8 @@ function appendNoProxyLoopbacks(value: string | undefined): string {
   return parts.join(',')
 }
 
-function isUpstreamProviderConfigEnv(key: string): boolean {
-  if (UPSTREAM_PROVIDER_CONFIG_ENVS.includes(key as typeof UPSTREAM_PROVIDER_CONFIG_ENVS[number])) {
-    return true
-  }
-  if (/^ANTHROPIC_DEFAULT_[A-Z0-9_]+_MODEL$/.test(key)) {
-    return true
-  }
-  return UPSTREAM_PROVIDER_ENV_PREFIXES.some((prefix) =>
-    UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES.some((suffix) => key === `${prefix}_${suffix}`)
-  )
-}
-
 function isLegacyDirectWorkerEnv(key: string): boolean {
-  return LEGACY_DIRECT_WORKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))
+  return isPrefixedEnv(key, LEGACY_DIRECT_WORKER_ENV_PREFIXES)
 }
 
 async function prepareManagedCodexHome(

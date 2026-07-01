@@ -777,7 +777,6 @@ describe('AgentRuntimeProvider', () => {
       runtimeId: 'codex',
       operation: 'startRuntimeHandoff',
       payload: expect.objectContaining({
-        sourceRuntimeId: 'codex',
         sourceThreadId: 'handoff-thread',
         targetRuntimeId: 'sciforge',
         targetThreadId: 'handoff-thread',
@@ -992,7 +991,7 @@ describe('AgentRuntimeProvider', () => {
       if (input.operation === 'listGitCheckpoints') {
         return [{
           id: 'checkpoint-1',
-          runtimeId: input.payload?.runtimeId,
+          runtimeId: input.runtimeId,
           threadId: input.payload?.threadId,
           workspaceRoot: input.payload?.workspaceRoot,
           createdAt: '2026-06-20T00:00:00.000Z'
@@ -1212,8 +1211,7 @@ describe('AgentRuntimeProvider', () => {
       operation: 'listModelAuditRecords',
       payload: {
         threadId: 'codex-thread',
-        limit: 5,
-        runtimeId: 'codex'
+        limit: 5
       }
     })
     expect(auxiliary).toHaveBeenCalledWith({
@@ -1221,8 +1219,7 @@ describe('AgentRuntimeProvider', () => {
       operation: 'listGitCheckpoints',
       payload: {
         threadId: 'codex-thread',
-        workspaceRoot: '/tmp/ws',
-        runtimeId: 'codex'
+        workspaceRoot: '/tmp/ws'
       }
     })
     expect(auxiliary).toHaveBeenCalledWith({

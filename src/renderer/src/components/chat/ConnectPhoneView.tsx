@@ -368,7 +368,7 @@ export function ConnectPhoneSidebarPanel({
       setInstallQr({
         ...INITIAL_QR_STATE,
         status: 'error',
-        error: t('clawAddImOfficialQrUnavailable')
+        error: t('connectPhoneOfficialQrUnavailable')
       })
       return
     }
@@ -424,7 +424,7 @@ export function ConnectPhoneSidebarPanel({
             ...current,
             status: 'error',
             timeLeft: 0,
-            error: t('clawAddImOfficialQrExpired')
+            error: t('connectPhoneOfficialQrExpired')
           }
         }
         return { ...current, timeLeft: current.timeLeft - 1 }
@@ -436,7 +436,7 @@ export function ConnectPhoneSidebarPanel({
           ? pollConnectPhoneInstallApi(window.sciforge)
           : undefined
         if (typeof pollConnectPhoneInstall !== 'function') {
-          throw new Error(t('clawAddImOfficialQrUnavailable'))
+          throw new Error(t('connectPhoneOfficialQrUnavailable'))
         }
         const poll = await pollConnectPhoneInstall(request.provider, result.deviceCode)
         if (installAttempt !== installAttemptRef.current) return
@@ -457,7 +457,7 @@ export function ConnectPhoneSidebarPanel({
           setInstallQr((current) => ({
             ...current,
             status: 'error',
-            error: formatConnectPhoneInstallError(poll.error ?? t('clawAddImOfficialQrFailed'), t)
+            error: formatConnectPhoneInstallError(poll.error ?? t('connectPhoneOfficialQrFailed'), t)
           }))
         }
       } catch (error) {
@@ -503,7 +503,7 @@ export function ConnectPhoneSidebarPanel({
       <div className="px-1 pb-3">
         <div className="flex items-center gap-2 text-[12px] font-normal text-[#9aa5b5] dark:text-white/35">
           <ConnectPhoneTargetLogo target={target} className="h-4 w-4" />
-          <span>{target === 'discord' ? t('connectPhoneTargetDiscord') : t('claw')}</span>
+          <span>{target === 'discord' ? t('connectPhoneTargetDiscord') : t('connectPhoneLabel')}</span>
         </div>
         <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl border border-ds-border bg-ds-card p-1">
           {CONNECT_PHONE_SIDEBAR_TARGETS.map((item) => {
@@ -546,8 +546,8 @@ export function ConnectPhoneSidebarPanel({
               </span>
               <span className="mt-1 block truncate text-[12px] text-ds-faint">
                 {connectedChannel.enabled
-                  ? t('clawManageImConnected')
-                  : t('clawImDisabledSidebar')}
+                  ? t('connectPhoneConnectionConnected')
+                  : t('remoteChannelDisabledSidebar')}
               </span>
             </span>
           </div>
@@ -558,7 +558,7 @@ export function ConnectPhoneSidebarPanel({
               className="inline-flex min-h-[30px] w-full items-center justify-center gap-1.5 rounded-[8px] border border-ds-border bg-ds-main/55 px-2.5 py-1.5 text-[12.5px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
             >
               <Settings className="h-3.5 w-3.5" strokeWidth={1.8} />
-              {t('clawSettings')}
+              {t('connectPhoneSettings')}
             </button>
             <button
               type="button"
@@ -620,21 +620,21 @@ export function ConnectPhoneSidebarPanel({
 
           {installQr.status === 'showing' ? (
             <div className="mt-3 text-center text-[12px] text-[#8d95a1]">
-              {t('clawAddImOfficialQrTimeLeft', { seconds: installQr.timeLeft })}
+              {t('connectPhoneOfficialQrTimeLeft', { seconds: installQr.timeLeft })}
             </div>
           ) : null}
 
           {installQr.status === 'success' ? (
             <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1.5 text-[12px] font-semibold text-emerald-600 dark:text-emerald-300">
               <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.9} />
-              {saving ? t('connectPhoneBinding') : t('clawAddImOfficialQrSuccess')}
+              {saving ? t('connectPhoneBinding') : t('connectPhoneOfficialQrSuccess')}
             </div>
           ) : null}
 
           {installQr.status === 'error' ? (
             <div className="mt-3 grid justify-items-center gap-2">
               <div className="max-w-[220px] text-center text-[12px] leading-5 text-red-600 dark:text-red-300">
-                {installQr.error || t('clawAddImOfficialQrFailed')}
+                {installQr.error || t('connectPhoneOfficialQrFailed')}
               </div>
               {!hasExistingChannel ? (
                 <button
@@ -643,7 +643,7 @@ export function ConnectPhoneSidebarPanel({
                   className="inline-flex items-center gap-1.5 rounded-lg border border-ds-border bg-ds-card px-2.5 py-1.5 text-[12px] font-medium text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink"
                 >
                   <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.8} />
-                  {t('clawAddImOfficialQrRetry')}
+                  {t('connectPhoneOfficialQrRetry')}
                 </button>
               ) : null}
             </div>
@@ -1086,7 +1086,7 @@ export function DiscordBotSetupPanel({
           ) : (
             <Copy className="h-3.5 w-3.5" strokeWidth={1.8} />
           )}
-          {copied ? t('clawAddImCopied') : t('connectPhoneDiscordCopy')}
+          {copied ? t('connectPhoneAddImCopied') : t('connectPhoneDiscordCopy')}
         </button>
         <button
           type="button"
@@ -1565,8 +1565,8 @@ export function ConnectPhoneDialog({
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] text-ds-faint transition hover:bg-ds-hover hover:text-ds-ink"
-            aria-label={t('clawAddImClose')}
-            title={t('clawAddImClose')}
+            aria-label={t('connectPhoneAddImClose')}
+            title={t('connectPhoneAddImClose')}
           >
             <X className="h-4 w-4" strokeWidth={1.9} />
           </button>

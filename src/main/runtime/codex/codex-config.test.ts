@@ -79,14 +79,23 @@ describe('codex config launch helpers', () => {
         OPENAI_API_KEY: 'sk-openai',
         DEEPSEEK_API_KEY: 'sk-deepseek',
         ANTHROPIC_API_KEY: 'sk-anthropic',
+        ANTHROPIC_AUTH_TOKEN: 'anthropic-token',
         QWEN_API_KEY: 'sk-qwen',
         DASHSCOPE_API_KEY: 'sk-dashscope',
+        GEMINI_API_KEY: 'sk-gemini',
+        GOOGLE_API_KEY: 'sk-google',
+        GROQ_API_KEY: 'sk-groq',
+        MISTRAL_API_KEY: 'sk-mistral',
+        COHERE_API_KEY: 'sk-cohere',
+        OPENROUTER_API_KEY: 'sk-openrouter',
+        AZURE_OPENAI_API_KEY: 'sk-azure',
         OPENAI_MODEL: 'gpt-5',
         DEEPSEEK_MODEL: 'deepseek-chat',
         ANTHROPIC_MODEL: 'opus',
         ANTHROPIC_DEFAULT_OPUS_MODEL: 'bailian/deepseek-v4-flash',
         ANTHROPIC_DEFAULT_SONNET_MODEL: 'bailian/deepseek-v4-flash',
         MODEL_PROVIDER: 'anthropic',
+        KUN_BASE_URL: 'https://old-runtime-provider.example/v1',
         SCIFORGE_IMAGE_API_KEY: 'outer-image-key',
         SCIFORGE_IMAGE_BASE_URL: 'https://direct-image-provider.example/v1',
         SCIFORGE_IMAGE_MODEL: 'outer-image-model',
@@ -94,6 +103,10 @@ describe('codex config launch helpers', () => {
         SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://127.0.0.1:3898',
         SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'outer-sci-modality-token',
         SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345',
+        EXPERT_PROVIDER_BASE_URL: 'http://127.0.0.1:8001/v1',
+        EXPERT_PROVIDER_API_KEY: 'outer-expert-token',
+        SCIMODALITY_ROUTER_PORT: '3898',
+        SCIMODALITY_ROUTER_RUNTIME_TOKEN: 'outer-router-token',
         EDAG_LLM_BASE_URL: 'https://direct-edag-provider.example/v1',
         EDAG_LLM_API_KEY: 'outer-edag-key',
         EDAG_LLM_MODEL: 'outer-edag-model',
@@ -114,14 +127,23 @@ describe('codex config launch helpers', () => {
     expect(launch.env.OPENAI_API_KEY).toBeUndefined()
     expect(launch.env.DEEPSEEK_API_KEY).toBeUndefined()
     expect(launch.env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(launch.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
     expect(launch.env.QWEN_API_KEY).toBeUndefined()
     expect(launch.env.DASHSCOPE_API_KEY).toBeUndefined()
+    expect(launch.env.GEMINI_API_KEY).toBeUndefined()
+    expect(launch.env.GOOGLE_API_KEY).toBeUndefined()
+    expect(launch.env.GROQ_API_KEY).toBeUndefined()
+    expect(launch.env.MISTRAL_API_KEY).toBeUndefined()
+    expect(launch.env.COHERE_API_KEY).toBeUndefined()
+    expect(launch.env.OPENROUTER_API_KEY).toBeUndefined()
+    expect(launch.env.AZURE_OPENAI_API_KEY).toBeUndefined()
     expect(launch.env.OPENAI_MODEL).toBeUndefined()
     expect(launch.env.DEEPSEEK_MODEL).toBeUndefined()
     expect(launch.env.ANTHROPIC_MODEL).toBeUndefined()
     expect(launch.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined()
     expect(launch.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined()
     expect(launch.env.MODEL_PROVIDER).toBeUndefined()
+    expect(launch.env.KUN_BASE_URL).toBeUndefined()
     expect(launch.env.SCIFORGE_IMAGE_API_KEY).toBeUndefined()
     expect(launch.env.SCIFORGE_IMAGE_BASE_URL).toBeUndefined()
     expect(launch.env.SCIFORGE_IMAGE_MODEL).toBeUndefined()
@@ -129,6 +151,10 @@ describe('codex config launch helpers', () => {
     expect(launch.env.SCIFORGE_SCIMODALITY_SERVICE_URL).toBeUndefined()
     expect(launch.env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN).toBeUndefined()
     expect(launch.env.SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS).toBeUndefined()
+    expect(launch.env.EXPERT_PROVIDER_BASE_URL).toBeUndefined()
+    expect(launch.env.EXPERT_PROVIDER_API_KEY).toBeUndefined()
+    expect(launch.env.SCIMODALITY_ROUTER_PORT).toBeUndefined()
+    expect(launch.env.SCIMODALITY_ROUTER_RUNTIME_TOKEN).toBeUndefined()
     expect(launch.env.EDAG_LLM_BASE_URL).toBeUndefined()
     expect(launch.env.EDAG_LLM_API_KEY).toBeUndefined()
     expect(launch.env.EDAG_LLM_MODEL).toBeUndefined()

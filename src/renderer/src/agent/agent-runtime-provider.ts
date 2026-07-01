@@ -687,7 +687,6 @@ export class AgentRuntimeProvider implements AgentProvider {
     const activeRuntimeId = await this.activeRuntimeId()
     if (activeRuntimeId !== runtimeId) {
       const result = await this.auxiliary<AgentRuntimeHandoffStartResult>('startRuntimeHandoff', {
-        sourceRuntimeId: runtimeId,
         sourceThreadId: threadId,
         targetRuntimeId: activeRuntimeId,
         targetThreadId: threadId,
@@ -780,8 +779,7 @@ export class AgentRuntimeProvider implements AgentProvider {
     const selectedRuntimeId = runtimeId ?? (threadId ? await this.runtimeIdForThread(threadId) : undefined)
     return this.auxiliary('listModelAuditRecords', {
       ...payload,
-      ...(threadId ? { threadId } : {}),
-      ...(selectedRuntimeId ? { runtimeId: selectedRuntimeId } : {})
+      ...(threadId ? { threadId } : {})
     }, selectedRuntimeId)
   }
 
@@ -800,8 +798,7 @@ export class AgentRuntimeProvider implements AgentProvider {
     const selectedRuntimeId = runtimeId ?? (threadId ? await this.runtimeIdForThread(threadId) : undefined)
     return this.auxiliary('listGitCheckpoints', {
       ...payload,
-      ...(threadId ? { threadId } : {}),
-      ...(selectedRuntimeId ? { runtimeId: selectedRuntimeId } : {})
+      ...(threadId ? { threadId } : {})
     }, selectedRuntimeId)
   }
 

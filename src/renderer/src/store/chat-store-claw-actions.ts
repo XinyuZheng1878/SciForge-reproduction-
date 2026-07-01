@@ -659,7 +659,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
           await provider.deleteThread(oldThreadId).catch(() => undefined)
           await get().refreshThreads()
         }
-        set({ error: i18n.t('common:clawSessionCleared') })
+        set({ error: i18n.t('common:remoteChannelSessionCleared') })
       } catch (error) {
         set({
           error: formatRuntimeError(error),
@@ -682,7 +682,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       set({
         clawChannels: saved.remoteChannel.channels,
         composerModel: normalized,
-        error: i18n.t('common:clawModelChanged', { model: normalized })
+        error: i18n.t('common:remoteChannelModelChanged', { model: normalized })
       })
     }
   }

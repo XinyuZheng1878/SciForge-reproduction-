@@ -1013,16 +1013,16 @@ export function Workbench(): ReactElement {
     )
   }
 
-  const clawHelpText = (): string =>
+  const remoteChannelHelpText = (): string =>
     [
-      t('clawHelpTitle'),
+      t('remoteChannelHelpTitle'),
       '',
-      `- \`/help\`: ${t('clawHelpCommandHelp')}`,
-      `- \`/new\`: ${t('clawHelpCommandNew')}`,
-      `- \`/model auto\`: ${t('clawHelpCommandModelAuto')}`,
-      `- \`/model pro\`: ${t('clawHelpCommandModelPro')}`,
-      `- \`/model flash\`: ${t('clawHelpCommandModelFlash')}`,
-      `- \`/model\`: ${t('clawHelpCommandModelShow')}`
+      `- \`/help\`: ${t('remoteChannelHelpCommandHelp')}`,
+      `- \`/new\`: ${t('remoteChannelHelpCommandNew')}`,
+      `- \`/model auto\`: ${t('remoteChannelHelpCommandModelAuto')}`,
+      `- \`/model pro\`: ${t('remoteChannelHelpCommandModelPro')}`,
+      `- \`/model flash\`: ${t('remoteChannelHelpCommandModelFlash')}`,
+      `- \`/model\`: ${t('remoteChannelHelpCommandModelShow')}`
     ].join('\n')
 
   useEffect(() => {
@@ -1878,13 +1878,13 @@ export function Workbench(): ReactElement {
       const command = parseClawCommand(v)
       if (command?.kind === 'clear') {
         if (!activeRemoteComposerChannelId) {
-          setError(t('clawNoActiveIm'))
+          setError(t('remoteChannelNoActiveIm'))
           return
         }
         setInput('')
         void (async () => {
           await resetClawChannelSession(activeRemoteComposerChannelId)
-          const replyText = t('clawNewSessionStarted')
+          const replyText = t('remoteChannelNewSessionStarted')
           appendLocalClawTurn(v, replyText)
           await mirrorClawCommand(v, replyText)
         })()
@@ -1892,20 +1892,20 @@ export function Workbench(): ReactElement {
       }
       if (command?.kind === 'help') {
         setInput('')
-        const replyText = clawHelpText()
+        const replyText = remoteChannelHelpText()
         appendLocalClawTurn(v, replyText)
         void mirrorClawCommand(v, replyText)
         return
       }
       if (command?.kind === 'model') {
         if (!activeRemoteComposerChannelId) {
-          setError(t('clawNoActiveIm'))
+          setError(t('remoteChannelNoActiveIm'))
           return
         }
         setInput('')
         void (async () => {
           await setClawChannelModel(activeRemoteComposerChannelId, command.model)
-          const replyText = t('clawModelChanged', { model: command.model })
+          const replyText = t('remoteChannelModelChanged', { model: command.model })
           appendLocalClawTurn(v, replyText)
           await mirrorClawCommand(v, replyText)
         })()
@@ -1913,11 +1913,11 @@ export function Workbench(): ReactElement {
       }
       if (command?.kind === 'showModel') {
         if (!activeRemoteComposerChannelId) {
-          setError(t('clawNoActiveIm'))
+          setError(t('remoteChannelNoActiveIm'))
           return
         }
         setInput('')
-        const replyText = t('clawModelCurrent', {
+        const replyText = t('remoteChannelModelCurrent', {
           model: activeRemoteComposerChannel?.model ?? 'auto'
         })
         appendLocalClawTurn(v, replyText)
@@ -1925,11 +1925,11 @@ export function Workbench(): ReactElement {
         return
       }
       if (command?.kind === 'invalidModel') {
-        setError(t('clawModelCommandHint'))
+        setError(t('remoteChannelModelCommandHint'))
         return
       }
       if (!activeRemoteComposerChannelId) {
-        setError(t('clawNoActiveIm'))
+        setError(t('remoteChannelNoActiveIm'))
         return
       }
       setInput('')

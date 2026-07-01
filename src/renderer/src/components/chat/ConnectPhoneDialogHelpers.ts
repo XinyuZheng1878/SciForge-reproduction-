@@ -22,7 +22,7 @@ export function formatConnectPhoneInstallError(
     /ECONNREFUSED/i.test(value) ||
     /HTTP (401|404|503)/i.test(value)
   ) {
-    return t('clawAddImWeixinBridgeMissing')
+    return t('connectPhoneWeixinBridgeMissing')
   }
   return value
 }
@@ -31,6 +31,6 @@ export function connectPhoneInstallTargetLabel(
   t: (k: string, opts?: Record<string, unknown>) => string,
   target: ConnectPhoneInstallTarget
 ): string {
-  if (target === 'weixin') return t('clawAddImTargetWeixin')
-  return target === 'lark' ? t('clawAddImTargetLark') : t('clawAddImTargetFeishu')
+  if (target === 'weixin') return t('connectPhoneTargetWeixin')
+  return target === 'lark' ? t('connectPhoneTargetLark') : t('connectPhoneTargetFeishu')
 }

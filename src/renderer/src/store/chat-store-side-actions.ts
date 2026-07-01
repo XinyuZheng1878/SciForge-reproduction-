@@ -14,6 +14,7 @@ import {
   upsertUserBlock
 } from './chat-store-runtime-helpers'
 import { providerSupportsCapability } from './chat-store-provider-capabilities'
+import { getRuntimeErrorCode } from '../lib/format-runtime-error'
 
 type SideContext = {
   set: (partial: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void
@@ -576,6 +577,18 @@ export function createSideActions(ctx: SideContext): Pick<
         startSideSubscription(sideId, side.lastSeq, ctx)
         return true
       } catch (e) {
+        if (getRuntimeErrorCode(e) === 'turn_in_progress') {
+          const message = ctx.formatRuntimeError(e)
+          ctx.set((s) =>
+            patchSide(s, sideId, (cur) => ({
+              ...cur,
+              busy: true,
+              error: message
+            }))
+          )
+          startSideSubscription(sideId, side.lastSeq, ctx)
+          return false
+        }
         ctx.set((s) =>
           patchSide(s, sideId, (cur) => ({
             ...cur,
@@ -596,6 +609,17 @@ export function createSideActions(ctx: SideContext): Pick<
         await provider.interruptTurn(sideId, side.turnId)
         ctx.set((s) => patchSide(s, sideId, (cur) => ({ ...cur, busy: false })))
       } catch (e) {
+        if (getRuntimeErrorCode(e) === 'turn_not_running') {
+          ctx.set((s) =>
+            patchSide(s, sideId, (cur) => ({
+              ...cur,
+              busy: false,
+              turnId: null,
+              error: null
+            }))
+          )
+          return
+        }
         ctx.set((s) =>
           patchSide(s, sideId, (cur) => ({
             ...cur,
@@ -700,7 +724,11 @@ export function createSideActions(ctx: SideContext): Pick<
         ctx.set({ error: ctx.formatRuntimeError(e) })
         return
       }
-      await ctx.get().refreshThreads()
+      try {
+        await ctx.get().refreshThreads()
+      } catch (e) {
+        ctx.set({ error: ctx.formatRuntimeError(e) })
+      }
       // Closing is a structural teardown; call directly so a stubbed
       // `state.closeSideConversation` (e.g. in tests) cannot swallow it.
       await actions.closeSideConversation(sideId)

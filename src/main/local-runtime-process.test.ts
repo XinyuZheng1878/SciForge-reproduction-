@@ -288,6 +288,9 @@ describe('startLocalRuntimeChild', () => {
   it('passes only the local Model Router env to the local runtime', async () => {
     const blockedParentEnv = {
       DEEPSEEK_API_KEY: 'outer-upstream-secret',
+      ANTHROPIC_AUTH_TOKEN: 'outer-anthropic-token',
+      GEMINI_API_KEY: 'outer-gemini-secret',
+      OPENROUTER_API_KEY: 'outer-openrouter-secret',
       DEEPSEEK_BASE_URL: 'https://direct-provider.example/v1',
       KUN_BASE_URL: 'https://direct-local-runtime-provider.example/v1',
       MODEL_PROVIDER: 'direct-provider',
@@ -300,7 +303,11 @@ describe('startLocalRuntimeChild', () => {
       SCIFORGE_IMAGE_ALLOW_PLACEHOLDER: '1',
       SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://127.0.0.1:3898',
       SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'outer-sci-modality-token',
-      SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345'
+      SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345',
+      EXPERT_PROVIDER_BASE_URL: 'http://127.0.0.1:8001/v1',
+      EXPERT_PROVIDER_API_KEY: 'outer-expert-token',
+      SCIMODALITY_ROUTER_PORT: '3898',
+      SCIMODALITY_ROUTER_RUNTIME_TOKEN: 'outer-router-token'
     }
     const previousParentEnv = Object.fromEntries(
       Object.keys(blockedParentEnv).map((name) => [name, process.env[name]])

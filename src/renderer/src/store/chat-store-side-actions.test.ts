@@ -198,9 +198,7 @@ function buildHarness(overrides: Partial<ChatState> = {}): Harness {
     chooseWorkspace: async () => null,
     clearWorkspace: async () => undefined,
     deleteWorkspace: async () => undefined,
-    refreshThreads: async () => {
-      provider.refreshThreadsMock()
-    },
+    refreshThreads: async () => provider.refreshThreadsMock(),
     setThreadSearch: () => undefined,
     setShowArchivedThreads: () => undefined,
     createThread: async () => undefined,
@@ -497,6 +495,41 @@ describe('chat-store-side-actions', () => {
     expect(state.busy).toBe(true)
   })
 
+  it('reconnects and marks the side busy when send sees an already-running turn', async () => {
+    const { actions, state, provider } = buildHarness()
+    const id = (await actions.spawnSideConversation())!
+    provider.subscribeMock.mockClear()
+    provider.sendMock.mockImplementationOnce(() => {
+      throw new Error(JSON.stringify({ code: 'turn_in_progress', message: 'active turn' }))
+    })
+
+    const sent = await actions.sendSideMessage(id, 'hi from side')
+
+    expect(sent).toBe(false)
+    expect(state.sideConversations[id]).toEqual(expect.objectContaining({
+      busy: true,
+      error: expect.stringContaining('turn_in_progress')
+    }))
+    expect(provider.subscribeMock).toHaveBeenCalledWith(id, 0, expect.anything(), expect.any(AbortSignal))
+  })
+
+  it('settles side interrupt when the runtime reports the turn is already stopped', async () => {
+    const { actions, state, provider } = buildHarness()
+    const id = (await actions.spawnSideConversation())!
+    await actions.sendSideMessage(id, 'hi from side')
+    provider.interruptMock.mockImplementationOnce(() => {
+      throw new Error(JSON.stringify({ code: 'turn_not_running', message: 'not running' }))
+    })
+
+    await actions.interruptSide(id)
+
+    expect(state.sideConversations[id]).toEqual(expect.objectContaining({
+      busy: false,
+      turnId: null,
+      error: null
+    }))
+  })
+
   it('promoteSideConversation clears the relation through the provider and refreshes the thread list', async () => {
     const { actions, state, provider } = buildHarness()
     const id = (await actions.spawnSideConversation())!
@@ -506,6 +539,18 @@ describe('chat-store-side-actions', () => {
     expect(provider.updateRelationMock).toHaveBeenCalledWith(id, 'primary')
     expect(provider.refreshThreadsMock).toHaveBeenCalled()
     expect(state.sideConversations[id]).toBeUndefined()
+  })
+
+  it('promoteSideConversation closes the side even when refreshing threads fails', async () => {
+    const { actions, state, provider } = buildHarness()
+    const id = (await actions.spawnSideConversation())!
+    provider.refreshThreadsMock.mockRejectedValueOnce(new Error('refresh failed'))
+
+    await actions.promoteSideConversation(id)
+
+    expect(provider.updateRelationMock).toHaveBeenCalledWith(id, 'primary')
+    expect(state.sideConversations[id]).toBeUndefined()
+    expect(state.error).toBe('refresh failed')
   })
 
   it('discardSideConversation deletes the underlying thread and tears down the subscription', async () => {

@@ -684,6 +684,15 @@ describe('AgentRuntimeHost', () => {
     })
     await expect(host.auxiliary({
       runtimeId: 'codex',
+      operation: 'createRuntimeHandoffPacket',
+      payload: {
+        sourceRuntimeId: 'claude',
+        sourceThreadId: 'codex-thread',
+        targetRuntimeId: 'claude'
+      }
+    })).rejects.toThrow(/payload\.sourceRuntimeId must match the top-level runtimeId/)
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
       operation: 'recordRuntimeContextLedger',
       payload: {
         threadId: 'imported-thread',
@@ -761,6 +770,17 @@ describe('AgentRuntimeHost', () => {
         }
       }
     })
+
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'startRuntimeHandoff',
+      payload: {
+        sourceRuntimeId: 'claude',
+        sourceThreadId: 'codex-thread',
+        targetRuntimeId: 'claude',
+        text: 'Please continue from here'
+      }
+    })).rejects.toThrow(/payload\.sourceRuntimeId must match the top-level runtimeId/)
 
     await expect(host.auxiliary({
       runtimeId: 'codex',
@@ -1116,6 +1136,15 @@ describe('AgentRuntimeHost', () => {
       expect(records[0]?.durationMs).toEqual(expect.any(Number))
       expect(JSON.stringify(records[0])).not.toContain('/Users/alice')
       expect(JSON.stringify(records[0])).not.toContain('runtime-secret')
+
+      await expect(host.auxiliary({
+        runtimeId,
+        operation: 'listModelAuditRecords',
+        payload: {
+          runtimeId: runtimeId === 'codex' ? 'claude' : 'codex',
+          threadId: `${runtimeId}-thread`
+        }
+      })).rejects.toThrow(/payload\.runtimeId must match the top-level runtimeId/)
 
       await expect(host.auxiliary({
         runtimeId,
@@ -2673,6 +2702,15 @@ describe('AgentRuntimeHost', () => {
       threadId: 'codex-thread',
       workspaceRoot: '/tmp/workspace'
     })
+    await expect(host.auxiliary({
+      runtimeId: 'codex',
+      operation: 'listGitCheckpoints',
+      payload: {
+        runtimeId: 'claude',
+        threadId: 'codex-thread',
+        workspaceRoot: '/tmp/workspace'
+      }
+    })).rejects.toThrow(/payload\.runtimeId must match the top-level runtimeId/)
     await expect(host.auxiliary({
       runtimeId: 'codex',
       operation: 'createGitCheckpoint',

@@ -1007,7 +1007,7 @@ App
         │     ├── Topbar       (translucent glass strip)
         │     ├── Center column
         │     │     ├── MessageTimeline  (Code / Connect phone)
-        │     │     └── WriteWorkspaceView (Write)
+        │     │     └── WriteMarkdownEditor (Write)
         │     ├── Right inspector  (optional, 360 px)
         │     │     ├── ChangeInspector
         │     │     ├── TodoPanel
@@ -1224,7 +1224,7 @@ Linux users build from source.
 directory. The renderer can open the log dir, and `log:error`
 lets any UI surface report a category / message / detail
 tuple. A startup trace is enabled by
-`DEEPSEEK_GUI_STARTUP_TRACE=1` and prints to stdout for
+`SCIFORGE_STARTUP_TRACE=1` and prints to stdout for
 postmortem timing.
 
 ---

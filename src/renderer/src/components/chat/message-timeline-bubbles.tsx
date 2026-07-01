@@ -215,17 +215,17 @@ function ClawInboundMessageCard({
 }): ReactElement {
   const { t } = useTranslation('common')
   const meta = [
-    display.sender ? t('clawTimelineSender', { sender: display.sender }) : '',
-    display.chatType ? t('clawTimelineChatType', { chatType: display.chatType }) : '',
-    display.messageType ? t('clawTimelineMessageType', { messageType: display.messageType }) : '',
-    display.mentions ? t('clawTimelineMentions', { mentions: display.mentions }) : ''
+    display.sender ? t('remoteChannelTimelineSender', { sender: display.sender }) : '',
+    display.chatType ? t('remoteChannelTimelineChatType', { chatType: display.chatType }) : '',
+    display.messageType ? t('remoteChannelTimelineMessageType', { messageType: display.messageType }) : '',
+    display.mentions ? t('remoteChannelTimelineMentions', { mentions: display.mentions }) : ''
   ].filter(Boolean)
 
   return (
     <div className="w-full max-w-[min(560px,calc(100vw-3rem))] rounded-[18px] border border-ds-border bg-ds-card px-4 py-3 text-left shadow-[0_14px_34px_rgba(86,103,136,0.08)]">
       <div className="flex items-center gap-2 text-[12px] font-semibold text-ds-muted">
         <MessageSquareQuote className="h-3.5 w-3.5" strokeWidth={1.8} />
-        <span>{t('clawTimelineInbound', { source: display.sourceLabel ?? t('claw') })}</span>
+        <span>{t('remoteChannelTimelineInbound', { source: display.sourceLabel ?? t('connectPhoneLabel') })}</span>
       </div>
       <div className="mt-2 whitespace-pre-wrap break-words text-[15px] leading-6 text-ds-ink [overflow-wrap:anywhere]">
         {text}

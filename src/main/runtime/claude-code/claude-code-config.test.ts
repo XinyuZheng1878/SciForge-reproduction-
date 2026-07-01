@@ -63,10 +63,21 @@ describe('claude-code config launch helpers', () => {
     const env = claudeCodeRuntimeEnv({
       OPENAI_API_KEY: 'sk-openai',
       DEEPSEEK_API_KEY: 'sk-deepseek',
+      QWEN_API_KEY: 'sk-qwen',
+      DASHSCOPE_API_KEY: 'sk-dashscope',
+      GEMINI_API_KEY: 'sk-gemini',
+      GOOGLE_API_KEY: 'sk-google',
+      GROQ_API_KEY: 'sk-groq',
+      MISTRAL_API_KEY: 'sk-mistral',
+      COHERE_API_KEY: 'sk-cohere',
+      OPENROUTER_API_KEY: 'sk-openrouter',
+      AZURE_OPENAI_API_KEY: 'sk-azure',
       ANTHROPIC_API_KEY: 'sk-anthropic',
       ANTHROPIC_AUTH_TOKEN: 'anthropic-token',
       ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
       ANTHROPIC_MODEL: 'opus',
+      MODEL_PROVIDER: 'anthropic',
+      KUN_BASE_URL: 'https://old-runtime-provider.example/v1',
       SCIFORGE_IMAGE_API_KEY: 'outer-image-key',
       SCIFORGE_IMAGE_BASE_URL: 'https://direct-image-provider.example/v1',
       SCIFORGE_IMAGE_MODEL: 'outer-image-model',
@@ -74,6 +85,10 @@ describe('claude-code config launch helpers', () => {
       SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://127.0.0.1:3898',
       SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'outer-sci-modality-token',
       SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345',
+      EXPERT_PROVIDER_BASE_URL: 'http://127.0.0.1:8001/v1',
+      EXPERT_PROVIDER_API_KEY: 'outer-expert-token',
+      SCIMODALITY_ROUTER_PORT: '3898',
+      SCIMODALITY_ROUTER_RUNTIME_TOKEN: 'outer-router-token',
       EDAG_LLM_BASE_URL: 'https://direct-edag-provider.example/v1',
       EDAG_LLM_API_KEY: 'outer-edag-key',
       EDAG_LLM_MODEL: 'outer-edag-model'
@@ -86,6 +101,17 @@ describe('claude-code config launch helpers', () => {
 
     expect(env.OPENAI_API_KEY).toBeUndefined()
     expect(env.DEEPSEEK_API_KEY).toBeUndefined()
+    expect(env.QWEN_API_KEY).toBeUndefined()
+    expect(env.DASHSCOPE_API_KEY).toBeUndefined()
+    expect(env.GEMINI_API_KEY).toBeUndefined()
+    expect(env.GOOGLE_API_KEY).toBeUndefined()
+    expect(env.GROQ_API_KEY).toBeUndefined()
+    expect(env.MISTRAL_API_KEY).toBeUndefined()
+    expect(env.COHERE_API_KEY).toBeUndefined()
+    expect(env.OPENROUTER_API_KEY).toBeUndefined()
+    expect(env.AZURE_OPENAI_API_KEY).toBeUndefined()
+    expect(env.MODEL_PROVIDER).toBeUndefined()
+    expect(env.KUN_BASE_URL).toBeUndefined()
     expect(env.SCIFORGE_IMAGE_API_KEY).toBeUndefined()
     expect(env.SCIFORGE_IMAGE_BASE_URL).toBeUndefined()
     expect(env.SCIFORGE_IMAGE_MODEL).toBeUndefined()
@@ -93,6 +119,10 @@ describe('claude-code config launch helpers', () => {
     expect(env.SCIFORGE_SCIMODALITY_SERVICE_URL).toBeUndefined()
     expect(env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN).toBeUndefined()
     expect(env.SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS).toBeUndefined()
+    expect(env.EXPERT_PROVIDER_BASE_URL).toBeUndefined()
+    expect(env.EXPERT_PROVIDER_API_KEY).toBeUndefined()
+    expect(env.SCIMODALITY_ROUTER_PORT).toBeUndefined()
+    expect(env.SCIMODALITY_ROUTER_RUNTIME_TOKEN).toBeUndefined()
     expect(env.EDAG_LLM_BASE_URL).toBeUndefined()
     expect(env.EDAG_LLM_API_KEY).toBeUndefined()
     expect(env.EDAG_LLM_MODEL).toBeUndefined()
