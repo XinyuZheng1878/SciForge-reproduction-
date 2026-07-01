@@ -113,13 +113,13 @@ The toolset itself is part of the prompt prefix. SciForge Runtime will do the fo
 
 Implementation location:
 
-- `kun/src/adapters/model/deepseek-compat-model-client.ts`
+- `kun/src/adapters/model/model-router-model-client.ts`
 - `kun/src/cache/tool-catalog-fingerprint.ts`
 - `kun/src/loop/agent-loop.ts`
 
-Here `deepseek-compat-model-client.ts` is the historical filename for the
-current Model Router client; it is not an API boundary for new direct-provider
-calls.
+`model-router-model-client.ts` is the local Model Router client
+implementation. It only calls the Model Router `/v1` boundary; it is not an
+API boundary for new direct-provider calls.
 
 In this way, even if the registration order of the same set of tools is different, the tools payload finally sent to the model will remain stable.If a dynamic provider or skill causes the tool description/schema to change unexpectedly, you can also turn
 The metadata directly locates which round started to disturb the cache prefix.
@@ -144,7 +144,7 @@ SciForge Runtime currently performs a shared model history repair on messages at
 Implementation location:
 
 - `kun/src/domain/model-history-repair.ts`
-- `kun/src/adapters/model/deepseek-compat-model-client.ts`
+- `kun/src/adapters/model/model-router-model-client.ts`
 - `kun/src/loop/agent-loop.ts`
 
 SciForge Runtime will also do a layer of history hygiene at model request boundaries, using Reasonix materials as a design reference:
@@ -213,7 +213,7 @@ wire-format compatibility fields:
 
 Implementation location:
 
-- `kun/src/adapters/model/deepseek-compat-model-client.ts`
+- `kun/src/adapters/model/model-router-model-client.ts`
 
 The hit rate formula uses:
 

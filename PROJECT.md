@@ -85,6 +85,9 @@
 - [x] Connect phone settings namespace i18n key 清名：目标 settings section / sidebar 从 `claw*` key 改成 `connectPhone*` key；`common` namespace、shared `ClawIm*` 类型和 IPC/preload 边界保持不动。
 - [x] figure-style 内部 UI 偏好 key 清名：active page 写入 `sciforge.figureStyle.activePage`，读取时只把旧 `deepseekgui.figureStyle.activePage` 当 legacy fallback。
 - [x] app icon 路径测试 fixture / 注释清名：示例 asset 从 `chunks/deepseek-XXXX.png` 改为中性 `chunks/app-icon-XXXX.png`，不改变运行时路径解析逻辑。
+- [x] Private local runtime Model Router client 清名：`kun/src/adapters/model/deepseek-compat-model-client.ts` / `DeepseekCompatModelClient` 改为 `model-router-model-client.ts` / `ModelRouterModelClient`，同步 runtime factory、kun tests、Model Router 边界测试和 runtime 文档；DeepSeek-specific pricing/cache/probe helper 保持模型/provider 语义不机械替换。
+- [x] 本轮并行 agent 发现的附带旧名清理：inline-completion 测试 fixture、auto model router 测试标题、research-memory skill metadata、attachment/chat-completions 测试标题和 loop 注释改为 SciForge / Model Router 中性语义。
+- [x] Agent Runtime auxiliary guard 覆盖补强：host 测试复用 shared operation tuple，验证所有不需要 `runtimeId` 的 auxiliary operation 不会被 runtimeId guard 误拒。
 
 ## 验证记录
 
@@ -162,6 +165,12 @@
 - [x] `node -e 'const fs=require("fs"); for (const f of ["src/renderer/src/locales/en/settings.json","src/renderer/src/locales/zh/settings.json"]) JSON.parse(fs.readFileSync(f,"utf8"));'`
 - [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
 - [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
+- [x] `npm --prefix kun test -- tests/model-client.test.ts tests/attachment-store.test.ts`
+- [x] `npx vitest run src/main/model-router-api-boundary.test.ts`
+- [x] `npm --prefix kun run typecheck`
+- [x] `npm --prefix kun run test -- tests/model-client.test.ts tests/attachment-store.test.ts tests/deepseek-pricing.test.ts tests/model-error-probe.test.ts tests/auto-model-router.test.ts`
+- [x] `npx vitest run src/main/model-router-api-boundary.test.ts src/main/runtime/agent-runtime/host.test.ts src/renderer/src/write/inline-completion/context.test.ts src/renderer/src/write/inline-completion/prompt.test.ts`
+- [x] `git diff --check`
 
 ## 已决策待实施
 
@@ -171,7 +180,7 @@
 - [x] 收敛 `window.sciforge` 里的 Feishu mirror 旧公开 API；已删除 `mirrorRemoteChannelMessageToFeishu` / `mirror-to-feishu` 兼容窗口，改为 remote-channel 中性 API。
 - [x] public runtime machine protocol 暂继续保留 `KUN_READY`、health `service: "kun"`、CLI/env `KUN_*` 作为底层协议边界；本轮记录为协议边界决策，不做 breaking rename。
 - [ ] 修改 legacy `~/.kun` global skills / MCP 配置兼容：迁移到新的 SciForge/local-runtime 路径，旧路径只作为迁移输入。已完成用户可见文档/UI 中性化、`~/.sciforge/mcp.json` 当前事实修正、内部 MCP builder / renderer helper 清名、generic 默认 roots 不读 `~/.kun` 的防回归测试，以及 K-Dense scientific skills 默认 discovery 不再扫描旧本地 runtime 目录；仍需决策：迁移目标用 workspace `.agents/skills/...` 还是 global `~/.sciforge/skills/...`；旧 `~/.kun` 内容是复制、移动、提示导入还是忽略；是否保留 `npx skills add` 外部 CLI install 入口；旧 runtime config 中的 `~/.kun` roots 是自动改写还是只提示一次。
-- [x] `DeepseekCompatModelClient` 长期收敛原则：LLM 只能走 model router；已加生产边界测试，除 runtime factory 注入 Model Router 客户端外，不允许新增直接 provider 调用。
+- [x] `ModelRouterModelClient` 长期收敛原则：LLM 只能走 model router；已加生产边界测试，除 runtime factory 注入 Model Router 客户端外，不允许新增直接 provider 调用。
 - [ ] sci-modality expert provider 与 image-generation direct provider 原则上统一经 model/media router，避免形成新的 LLM/API 旁路。已完成 sci-modality / image-generation 边界防回归、image-generation worker-contained 临时例外说明、runtime env scrub 覆盖 `EDAG_LLM_*`，以及 settings 文案不把 image direct provider 描述为默认路径；仍需决策：全部并入 Model Router，还是拆出 Media Router 统一承接 image/video/audio 等非文本 provider；任一方案都应保持 GUI/runtime 只依赖 router 层。
 - [x] Model Router provider 诊断只透出少量高价值状态到 health/UI：auth、network/timeout、provider bad response、provider error；不暴露全部内部细节。
 - [ ] side conversation / plan checklist / GUI plan registry 的长期 owner 归 runtime/thread metadata；GUI 只负责展示和即时乐观更新。已完成显式 `includeSide` 读路径、runtime todo snapshot/event 透传、`create_plan` result replay、完成后 goal/todos snapshot merge、GUI plan registry shared helper 对齐、plan/todo merge 语义收敛、side capability gate 与 SSE 失败状态收敛；仍需决策：active GUI plan 存成 `thread.guiPlan` metadata，还是从最近一次 `create_plan` tool result 派生；旧 `sciforge.plan.registry.v1` localStorage 是迁移还是清空；side conversation 重启后是否需要恢复。
@@ -189,5 +198,4 @@
 - [ ] 等待人工测试两套 computer-use 后，再梳理是否迁移 `@sciforge/computer-use` 的 target/session/lease 合约、lease 冲突检测、shared action lock、native/browser backends、permission/status/audit、confirmation/risk taxonomy、local runtime/Codex/Claude MCP registry。
 - [ ] Paper Radar plugin workspace/core 归属仍待决策：当前 IPC 已走 `PaperRadarWorkerService`，app-side HTTP sidecar 已删除；但 `packages/workers/paper-radar` 仍依赖 `plugins/paper-radar-service` 的 storage/source/profile/ranking modules，root scripts/packaging 仍保留 standalone HTTP service。需决策保留 standalone external/debug API，还是抽 shared core 后删除 plugin workspace。
 - [ ] Search worker root public surface 待 breaking API 决策：已核对 `@sciforge/search` 为 `private:false` + `sciforge.publicContract:true`，root `"."` 指向 `src/index.ts`，当前额外 re-export `planResearchQueries` / `ResearchQueryPlan` / `buildArxivQuery` / `buildEuropePmcQuery` / `parseEuropePmcPapers`。仓库内无 `@sciforge/search` 根导入，GUI/workflow 走源码子路径，helper 仅 search 包内相对导入和测试使用；若接受 breaking 收口，可直接删除 root helper re-export 并加 public-surface 回归测试，否则需先定 deprecation/兼容窗口。
-- [ ] Private local runtime Model Router client 清名候选：`kun/src/adapters/model/deepseek-compat-model-client.ts` / `DeepseekCompatModelClient` 是私有 runtime 内部历史名，原则上可改为 `model-router-model-client.ts` / `ModelRouterModelClient`，同时更新 `runtime-factory`、kun tests、Model Router 边界测试和 runtime 文档；DeepSeek-specific pricing/cache/probe 命名需保留其模型/provider 语义，不做机械全局替换。
 - [x] Schedule detector 内部旧命名已清理为 neutral scheduled-task detector，并保留 Model Router-only 检测测试。

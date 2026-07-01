@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FileAttachmentStore } from '../src/attachments/attachment-store.js'
-import { DeepseekCompatModelClient } from '../src/adapters/model/deepseek-compat-model-client.js'
+import { ModelRouterModelClient } from '../src/adapters/model/model-router-model-client.js'
 import {
   LocalRuntimeCapabilitiesConfig,
   type AttachmentsCapabilityConfig,
@@ -319,9 +319,9 @@ describe('Attachment store and multimodal input', () => {
     })
   })
 
-  it('maps image attachments to DeepSeek-compatible message parts', async () => {
+  it('maps image attachments to chat-completions message parts', async () => {
     let body: { messages?: Array<{ role: string; content: unknown }> } | undefined
-    const client = new DeepseekCompatModelClient({
+    const client = new ModelRouterModelClient({
       baseUrl: 'https://model.example.test',
       apiKey: '',
       model: 'vision-model',
@@ -370,9 +370,9 @@ describe('Attachment store and multimodal input', () => {
     ])
   })
 
-  it('maps text attachment fallbacks to structured DeepSeek-compatible user text', async () => {
+  it('maps text attachment fallbacks to structured chat-completions user text', async () => {
     let body: { messages?: Array<{ role: string; content: unknown }> } | undefined
-    const client = new DeepseekCompatModelClient({
+    const client = new ModelRouterModelClient({
       baseUrl: 'https://model.example.test',
       apiKey: '',
       model: 'text-model',

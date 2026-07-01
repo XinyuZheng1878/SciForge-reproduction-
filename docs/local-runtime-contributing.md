@@ -62,7 +62,7 @@ SciForge Runtime 的目录本身就是六边形的物理布局:
             ▼                         ▼
    ┌──────────────────────────────────────────────────────────────────────────┐
    │ adapters/  ──  ports 的具体实现                                        │
-   │   model/deepseek-compat-model-client.ts                                │
+   │   model/model-router-model-client.ts                                │
    │   tool/local-tool-host.ts                                              │
    │   in-memory-event-bus / in-memory-approval-gate / in-memory-thread-…  │
    │   file/file-thread-store / file-session-store                         │
@@ -135,10 +135,10 @@ export interface ModelClient {
 }
 ```
 
-实现 (`kun/src/adapters/model/deepseek-compat-model-client.ts`)
-是当前 Model Router 客户端的历史文件名：它只调用本地 Model Router `/v1`
-端点，并把 HTTP+SSE 解析为 `ModelStreamChunk` 序列；不要把这个文件名当成
-新增直接 provider API 的入口。
+实现 (`kun/src/adapters/model/model-router-model-client.ts`)
+是当前 Model Router 客户端：它只调用本地 Model Router `/v1` 端点，并把
+HTTP+SSE 解析为 `ModelStreamChunk` 序列；不要把这个文件名当成新增直接
+provider API 的入口。
 
 测试 (`kun/tests/ports.test.ts`) 直接 `makeFakeModel` 注入
 loop;无需任何网络。

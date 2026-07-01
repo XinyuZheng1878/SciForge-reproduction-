@@ -228,8 +228,8 @@ describe('P7/P8 model router API boundary enforcement', () => {
     expect(formatHits(disallowedHits)).toBe('')
   })
 
-  it('keeps DeepseekCompatModelClient production construction behind the local Model Router runtime factory', () => {
-    const directConstructors = scanProductionText(/\bnew\s+DeepseekCompatModelClient\b/)
+  it('keeps ModelRouterModelClient production construction behind the local Model Router runtime factory', () => {
+    const directConstructors = scanProductionText(/\bnew\s+ModelRouterModelClient\b/)
 
     expect(directConstructors.map((hit) => hit.file)).toEqual(['kun/src/server/runtime-factory.ts'])
   })

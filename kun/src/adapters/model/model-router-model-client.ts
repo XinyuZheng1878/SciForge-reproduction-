@@ -14,11 +14,11 @@ import {
 } from '../../contracts/model-endpoint-format.js'
 
 /**
- * Configuration for the compatible HTTP model client. Chat
- * completions remains the default, while custom providers can opt into
+ * Configuration for the local Model Router client. Chat completions
+ * remains the default, while configured router providers can opt into
  * OpenAI Responses or Anthropic Messages request/response shapes.
  */
-export type DeepseekCompatConfig = {
+export type ModelRouterModelClientConfig = {
   baseUrl: string
   apiKey: string
   model: string
@@ -136,22 +136,21 @@ const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000
 const DEFAULT_MESSAGES_MAX_TOKENS = 4096
 
 /**
- * DeepSeek-compatible model client.
+ * Model Router-backed model client.
  *
- * This adapter focuses on the streaming chat completions shape used
- * by the GUI today. It supports tool calls, cache hit/miss counters
- * (when the provider reports them), and abort-signal cancellation.
- * The client is deliberately small so the rest of the runtime can be
- * built around the `ModelClient` port.
+ * This adapter focuses on the local router HTTP/SSE boundary used by
+ * SciForge Runtime today. It supports tool calls, provider usage
+ * counters, object references, and abort-signal cancellation while the
+ * rest of the runtime depends only on the `ModelClient` port.
  */
-export class DeepseekCompatModelClient implements ModelClient {
-  readonly provider = 'deepseek-compat'
+export class ModelRouterModelClient implements ModelClient {
+  readonly provider = 'model-router'
   readonly model: string
 
-  private readonly config: DeepseekCompatConfig
+  private readonly config: ModelRouterModelClientConfig
   private readonly fetchImpl: typeof fetch
 
-  constructor(config: DeepseekCompatConfig) {
+  constructor(config: ModelRouterModelClientConfig) {
     this.config = config
     this.model = config.model
     this.fetchImpl = config.fetchImpl ?? fetch

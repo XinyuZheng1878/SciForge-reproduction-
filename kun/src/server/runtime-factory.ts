@@ -9,7 +9,7 @@ import { InMemoryUserInputGate } from '../adapters/in-memory-user-input-gate.js'
 import { InMemoryEventBus } from '../adapters/in-memory-event-bus.js'
 import { FileSessionStore, FileThreadStore } from '../adapters/file/index.js'
 import { HybridSessionStore, HybridThreadStore } from '../adapters/hybrid/index.js'
-import { DeepseekCompatModelClient } from '../adapters/model/deepseek-compat-model-client.js'
+import { ModelRouterModelClient } from '../adapters/model/model-router-model-client.js'
 import { CapabilityRegistry } from '../adapters/tool/capability-registry.js'
 import { buildGoalLocalTools } from '../adapters/tool/goal-tools.js'
 import { buildTodoLocalTools } from '../adapters/tool/todo-tools.js'
@@ -150,7 +150,7 @@ export async function createLocalRuntimeServeRuntime(
   const threadService = new ThreadService({ threadStore, sessionStore, events, ids, nowIso })
   await turnService.reconcileStaleRunningTurns()
   await seedUsageCarryover({ threadStore, sessionStore, usageService })
-  const modelClient = new DeepseekCompatModelClient({
+  const modelClient = new ModelRouterModelClient({
     baseUrl: modelRouter.baseUrl,
     apiKey: options.apiKey,
     endpointFormat: 'responses',

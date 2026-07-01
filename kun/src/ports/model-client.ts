@@ -101,9 +101,9 @@ export type ModelToolSpec = {
 }
 
 /**
- * Port for talking to a model provider. Adapters implement this with
- * a DeepSeek-compatible HTTP client, with `pi-ai`, or with a test
- * double. The loop never depends on a concrete implementation.
+ * Port for talking to a model provider boundary. Adapters implement
+ * this with the local Model Router client, `pi-ai`, or a test double.
+ * The loop never depends on a concrete implementation.
  */
 export interface ModelClient {
   readonly provider: string

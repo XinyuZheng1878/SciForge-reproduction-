@@ -4,7 +4,7 @@ description: Draft, confirm, and synchronize research status, evidence, blockers
 license: MIT
 compatibility: No MCP required.
 metadata:
-  author: DeepSeek-GUI
+  author: SciForge Contributors
   version: "1.1"
 ---
 

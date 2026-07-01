@@ -62,7 +62,7 @@ SciForge Runtime's directory itself is a hexagonal physical layout:
             ▼                         ▼
    ┌──────────────────────────────────────────────────────────────────────────┐
    │ adapters/  -- concrete implementations of ports                         │
-   │   model/deepseek-compat-model-client.ts                                │
+   │   model/model-router-model-client.ts                                │
    │   tool/local-tool-host.ts                                              │
    │   in-memory-event-bus / in-memory-approval-gate / in-memory-thread-…  │
    │   file/file-thread-store / file-session-store                         │
@@ -138,11 +138,10 @@ export interface ModelClient {
 
 ```
 
-Implementation (`kun/src/adapters/model/deepseek-compat-model-client.ts`)
-is the historical filename for the current Model Router client. It only
-calls the local Model Router `/v1` endpoint and parses HTTP+SSE into
-`ModelStreamChunk`; do not treat the filename as a new direct-provider API
-entry point.
+Implementation (`kun/src/adapters/model/model-router-model-client.ts`) is the
+current Model Router client. It only calls the local Model Router `/v1`
+endpoint and parses HTTP+SSE into `ModelStreamChunk`; do not treat the file as
+a new direct-provider API entry point.
 
 Tests (`kun/tests/ports.test.ts`) are injected directly with `makeFakeModel`
 loop; no network required.

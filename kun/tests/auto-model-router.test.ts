@@ -21,7 +21,7 @@ describe('auto model router', () => {
     expect(parseAutoRouteRecommendation('not json')).toBeNull()
   })
 
-  it('falls back to the DeepSeek TUI heuristic shape', () => {
+  it('falls back to the local auto-route heuristic shape', () => {
     expect(autoModelHeuristic('hello')).toBe('deepseek-v4-flash')
     expect(autoModelHeuristic('please debug this failing migration')).toBe('deepseek-v4-pro')
     expect(autoModelHeuristic('x'.repeat(501))).toBe('deepseek-v4-pro')

@@ -16,18 +16,18 @@ describe('buildInlineCompletionRequestContext', () => {
     const doc = [
       '# Draft',
       '',
-      'Hi! Let me introduce a new feature in DeepSeek gui. It includes text completion and writing tools.'
+      'Hi! Let me introduce a new feature in SciForge app. It includes text completion and writing tools.'
     ].join('\n')
 
     const context = buildInlineCompletionRequestContext(
-      stateAt(doc, 'DeepSeek gui'),
+      stateAt(doc, 'SciForge app'),
       { filePath: '/tmp/workspace/draft.md' }
     )
 
     const candidate = context.editCandidate
     expect(candidate).toMatchObject({
       kind: 'selection',
-      original: 'gui',
+      original: 'app',
       startLine: 3,
       endLine: 3
     })
@@ -35,10 +35,10 @@ describe('buildInlineCompletionRequestContext', () => {
   })
 
   it('uses the previous word when the cursor has advanced past trailing whitespace', () => {
-    const doc = 'DeepSeek tui can write papers '
+    const doc = 'SciForge CLI can write papers '
 
     const context = buildInlineCompletionRequestContext(
-      stateAt(doc, 'DeepSeek tui can write papers '),
+      stateAt(doc, 'SciForge CLI can write papers '),
       { filePath: '/tmp/workspace/draft.md' }
     )
 

@@ -317,7 +317,7 @@ SciForge Runtime 包按 ports & adapters 组织：
 - `contracts/`：HTTP/SSE DTO 和 zod schema。
 - `ports/`：ModelClient、ToolHost、ThreadStore、SessionStore、
   ApprovalGate、EventBus、WorkspaceInspector、Clock。
-- `adapters/`：DeepSeek-compatible model client、local tool host、
+- `adapters/`：Model Router model client、local tool host、
   file/in-memory stores、workspace inspector。
 - `loop/`：AgentLoop、InflightTracker、SteeringQueue、ContextCompactor。
 - `cache/`：ImmutablePrefix、LRU、TTL-LRU。

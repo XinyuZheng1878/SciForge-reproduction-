@@ -131,16 +131,16 @@ describe('buildInlineCompletionPayload', () => {
       context({
         head: 29,
         column: 21,
-        prefix: '# Draft\n\nAnother DeepSeek gui',
+        prefix: '# Draft\n\nAnother SciForge app',
         suffix: ' mention needs alignment.',
-        prefixWindow: '# Draft\n\nAnother DeepSeek gui',
+        prefixWindow: '# Draft\n\nAnother SciForge app',
         suffixWindow: ' mention needs alignment.',
-        currentLinePrefix: 'Another DeepSeek gui',
+        currentLinePrefix: 'Another SciForge app',
         currentLineSuffix: ' mention needs alignment.',
-        currentLineText: 'Another DeepSeek gui mention needs alignment.',
-        currentLinePrefixTrimmed: 'Another DeepSeek gui',
+        currentLineText: 'Another SciForge app mention needs alignment.',
+        currentLinePrefixTrimmed: 'Another SciForge app',
         currentLineSuffixTrimmed: 'mention needs alignment.',
-        docPreview: '# Draft\n\nAnother DeepSeek gui',
+        docPreview: '# Draft\n\nAnother SciForge app',
         editCandidate: {
           kind: 'selection',
           from: 26,
@@ -149,7 +149,7 @@ describe('buildInlineCompletionPayload', () => {
           startColumn: 18,
           endLine: 3,
           endColumn: 20,
-          original: 'gui'
+          original: 'app'
         }
       }),
       {
@@ -158,7 +158,7 @@ describe('buildInlineCompletionPayload', () => {
           source: 'inline-edit',
           from: 17,
           to: 29,
-          deletedText: 'DeepSeek gui',
+          deletedText: 'SciForge app',
           insertedText: 'Write mode'
         })]
       }
@@ -166,7 +166,7 @@ describe('buildInlineCompletionPayload', () => {
 
     expect(payload.editCandidate).toMatchObject({
       kind: 'selection',
-      original: 'DeepSeek gui'
+      original: 'SciForge app'
     })
     expect(payload.editCandidate ? payload.editCandidate.to - payload.editCandidate.from : 0).toBe(12)
   })

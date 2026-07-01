@@ -102,12 +102,12 @@ SciForge Runtime 通过 `ImmutablePrefix` 管理系统 prompt、tools、pinned c
 
 实现位置：
 
-- `kun/src/adapters/model/deepseek-compat-model-client.ts`
+- `kun/src/adapters/model/model-router-model-client.ts`
 - `kun/src/cache/tool-catalog-fingerprint.ts`
 - `kun/src/loop/agent-loop.ts`
 
-其中 `deepseek-compat-model-client.ts` 是当前 Model Router 客户端的历史文件名；
-它不是新增直接 provider 调用的 API 边界。
+`model-router-model-client.ts` 是本地 Model Router 客户端实现，只调用
+Model Router `/v1` 边界；它不是新增直接 provider 调用的 API 边界。
 
 这样同一组工具即使注册顺序不同，最终发给模型的 tools payload 仍保持稳定。
 如果某个动态 provider 或 Skill 让工具描述/schema 意外变动，也能从 turn
@@ -133,7 +133,7 @@ SciForge Runtime 当前在模型请求边界对消息做一层共享的 model hi
 实现位置：
 
 - `kun/src/domain/model-history-repair.ts`
-- `kun/src/adapters/model/deepseek-compat-model-client.ts`
+- `kun/src/adapters/model/model-router-model-client.ts`
 - `kun/src/loop/agent-loop.ts`
 
 SciForge Runtime 也会在模型请求边界做一层参考 Reasonix 思路的 history hygiene：
@@ -202,7 +202,7 @@ DeepSeek-compatible 原生 usage 字段：
 
 实现位置：
 
-- `kun/src/adapters/model/deepseek-compat-model-client.ts`
+- `kun/src/adapters/model/model-router-model-client.ts`
 
 命中率公式采用：
 

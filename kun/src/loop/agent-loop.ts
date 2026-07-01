@@ -834,7 +834,7 @@ export class AgentLoop {
         ? CREATE_PLAN_TOOL_NAME
         : undefined
     // Final step of a plan turn that still owes a plan. Offer ONLY create_plan
-    // (this DeepSeek-compatible provider ignores a forced tool_choice, so we
+    // (this chat-completions provider ignores a forced tool_choice, so we
     // remove the investigation tools instead) so the model can only save the
     // plan or answer with plan text that the create_plan fallback materializes.
     const compactedHistory = await this.compactIfNeeded(items, model, signal, { threadId, turnId })

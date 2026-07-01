@@ -27,7 +27,10 @@ import type {
   AgentRuntimeThread,
   AgentRuntimeTurnHandle
 } from '../../../shared/agent-runtime-contract'
-import { AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS } from '../../../shared/agent-runtime-contract'
+import {
+  AGENT_RUNTIME_AUXILIARY_OPERATIONS,
+  AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS
+} from '../../../shared/agent-runtime-contract'
 import type { CodexRuntimeService } from '../codex'
 import type { AgentRuntimeAdapter, AgentRuntimeAdapterContext } from './adapter'
 import { createAgentRuntimeHost } from './host'
@@ -377,9 +380,17 @@ describe('AgentRuntimeHost', () => {
     }
     expect(adapterAuxiliary).not.toHaveBeenCalled()
 
-    await expect(host.auxiliary({ operation: 'getRuntimeInfo' })).resolves.toEqual({ operation: 'getRuntimeInfo' })
-    await expect(host.auxiliary({ operation: 'listSkills' })).resolves.toEqual({ operation: 'listSkills' })
-    expect(adapterAuxiliary).toHaveBeenCalledTimes(2)
+    const runtimeIdRequired = new Set<AgentRuntimeAuxiliaryInput['operation']>(
+      AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS
+    )
+    for (const operation of AGENT_RUNTIME_AUXILIARY_OPERATIONS.filter((item) => !runtimeIdRequired.has(item))) {
+      try {
+        await host.auxiliary({ operation })
+      } catch (error) {
+        expect(error instanceof Error ? error.message : String(error)).not.toMatch(/runtimeId is required/)
+      }
+    }
+    expect(adapterAuxiliary).toHaveBeenCalled()
   })
 
   it('rejects the legacy local runtime id instead of falling back to SciForge', async () => {

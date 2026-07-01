@@ -756,11 +756,9 @@ SciForge Runtime is structured as **ports & adapters**:
   `ApprovalGate`, `EventBus`, `WorkspaceInspector`, `Clock`,
   `IdGenerator`. These are intentionally small.
 - `adapters/` — concrete implementations. The default
-  `DeepseekCompatModelClient` is a historical class/file name for the
-  current Model Router client. It speaks `POST {baseUrl}/v1/chat/completions`
-  only against the local Model Router; direct upstream provider calls are not
-  a SciForge Runtime API. The default `LocalToolHost` runs tools in-process
-  with approval gating.
+  `ModelRouterModelClient` speaks only to the local Model Router `/v1`
+  boundary; direct upstream provider calls are not a SciForge Runtime API.
+  The default `LocalToolHost` runs tools in-process with approval gating.
 - `services/` — orchestration. `ThreadService` and `TurnService`
   own the lifecycle of a thread and a turn; they wire stores,
   models, and tools together.
