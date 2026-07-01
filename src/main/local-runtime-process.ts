@@ -75,6 +75,7 @@ import { guiSkillRootsForRuntime, normalizeSkillRootPath } from './services/skil
 import { APP_MODEL_ROUTER_RUNTIME_API_KEY_ENV } from '../shared/app-brand'
 import {
   DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
+  MODEL_ROUTER_PRIVATE_ENV_PREFIXES,
   SCI_MODALITY_SERVICE_ENV_PREFIXES,
   SCI_MODALITY_WORKER_PRIVATE_ENV_PREFIXES,
   UPSTREAM_PROVIDER_CONFIG_ENV_NAMES,
@@ -119,6 +120,7 @@ const MAX_TCP_PORT = 65_535
 // Temporary worker env must be injected only through explicit managed child config.
 const LEGACY_DIRECT_WORKER_ENV_PREFIXES = [
   ...DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
+  ...MODEL_ROUTER_PRIVATE_ENV_PREFIXES,
   ...SCI_MODALITY_SERVICE_ENV_PREFIXES,
   ...SCI_MODALITY_WORKER_PRIVATE_ENV_PREFIXES
 ] as const

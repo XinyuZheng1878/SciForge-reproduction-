@@ -150,10 +150,12 @@ Model Router consumes this worker during input routing:
 - Model Router gates refs by explicit scientific extensions such as `.fasta`, `.smi`, `.mol`,
   `.sdf`, `.mgf`, `.pdb`, `.cif`, `.vcf`, `.bed`, and `.seq`. Generic `.txt`, `.csv`, and `.tsv`
   are not auto-routed to this service.
-- When `SCIFORGE_SCIMODALITY_SERVICE_URL` and `SCIFORGE_SCIMODALITY_SERVICE_TOKEN` are set in the
-  Model Router environment, Model Router reads the workspace file text, POSTs it here
-  (`/modality/translate`), and injects the returned evidence into the text reasoner. When unset or
-  unavailable, Model Router falls back to readable raw text where safe (fail-open).
+- When the Model Router profile has `translators.scientific` configured, Model Router reads the
+  workspace file text, POSTs it here (`/modality/translate`), and injects the returned evidence
+  into the text reasoner. The GUI sidecar and CLI can still use
+  `SCIFORGE_SCIMODALITY_SERVICE_URL` / `SCIFORGE_SCIMODALITY_SERVICE_TOKEN` as deployment inputs
+  to generate that profile role. When unset or unavailable, Model Router falls back to readable
+  raw text where safe (fail-open).
 
 ## Test
 

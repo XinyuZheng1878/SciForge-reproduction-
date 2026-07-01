@@ -43,6 +43,24 @@ function envModelRouterConfig(): ModelRouterConfig {
   const defaultProfile = process.env.SCIFORGE_MODEL_ROUTER_DEFAULT_PROFILE || 'sciforge-runtime-default';
   const visionBaseUrl = process.env.SCIFORGE_VISION_BASE_URL;
   const visionModel = process.env.SCIFORGE_VISION_MODEL;
+  const scientificBaseUrl = process.env.SCIFORGE_SCIMODALITY_SERVICE_URL;
+  const translators: ModelRouterConfig['profiles'][string]['translators'] = {};
+  if (visionBaseUrl && visionModel) {
+    translators.vision = {
+      provider: process.env.SCIFORGE_VISION_PROVIDER || 'vision-translator',
+      baseUrl: visionBaseUrl,
+      apiKeyEnv: process.env.SCIFORGE_VISION_API_KEY_ENV || 'SCIFORGE_VISION_API_KEY',
+      model: visionModel,
+      maxSupplementRounds: numberEnv('SCIFORGE_VISION_MAX_SUPPLEMENT_ROUNDS'),
+    };
+  }
+  if (scientificBaseUrl) {
+    translators.scientific = {
+      baseUrl: scientificBaseUrl,
+      tokenEnv: process.env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN_ENV || 'SCIFORGE_SCIMODALITY_SERVICE_TOKEN',
+      timeoutMs: numberEnv('SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS'),
+    };
+  }
   return {
     defaultProfile,
     publicModelAlias: process.env.SCIFORGE_MODEL_ROUTER_PUBLIC_MODEL_ALIAS || 'sciforge-router',
@@ -55,17 +73,7 @@ function envModelRouterConfig(): ModelRouterConfig {
           apiKeyEnv: process.env.SCIFORGE_TEXT_API_KEY_ENV || 'SCIFORGE_TEXT_API_KEY',
           model: requiredEnv('SCIFORGE_TEXT_MODEL'),
         },
-        translators: visionBaseUrl && visionModel
-          ? {
-              vision: {
-                provider: process.env.SCIFORGE_VISION_PROVIDER || 'vision-translator',
-                baseUrl: visionBaseUrl,
-                apiKeyEnv: process.env.SCIFORGE_VISION_API_KEY_ENV || 'SCIFORGE_VISION_API_KEY',
-                model: visionModel,
-                maxSupplementRounds: numberEnv('SCIFORGE_VISION_MAX_SUPPLEMENT_ROUNDS'),
-              },
-            }
-          : {},
+        translators,
       },
     },
   };

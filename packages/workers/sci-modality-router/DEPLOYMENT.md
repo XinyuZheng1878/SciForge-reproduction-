@@ -77,12 +77,12 @@ For unattended service management, keep the same license-gated environment in yo
 ```bash
 # 1) tunnel the module port to your machine:
 ssh -p <port> -N -L 3898:127.0.0.1:3898 <user>@<server>
-# 2) point the Model Router process at it:
+# 2) point the Model Router sidecar/CLI at it; it will generate `translators.scientific`:
 export SCIFORGE_SCIMODALITY_SERVICE_URL=http://127.0.0.1:3898
 export SCIFORGE_SCIMODALITY_SERVICE_TOKEN=<same-token-as-SCIMODALITY_ROUTER_RUNTIME_TOKEN>
 ```
 
-Check it from the Model Router host:
+Check the worker directly from the Model Router host:
 `curl -H "Authorization: Bearer $SCIFORGE_SCIMODALITY_SERVICE_TOKEN" http://127.0.0.1:3898/experts/status`
 lists each expert's online state and device.
 

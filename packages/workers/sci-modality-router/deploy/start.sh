@@ -72,4 +72,4 @@ ensure scimodality "http://127.0.0.1:${SCIMODALITY_ROUTER_PORT:-3898}/health" \
 
 log "================ scientific-modality worker UP ================"
 log "Module: http://127.0.0.1:${SCIMODALITY_ROUTER_PORT:-3898}  (GET /experts/status with Bearer token to check experts)"
-log "Model Router host: ssh -p <port> -N -L 3898:127.0.0.1:3898 <server>  then set SCIFORGE_SCIMODALITY_SERVICE_URL=http://127.0.0.1:3898 and SCIFORGE_SCIMODALITY_SERVICE_TOKEN=<runtime-token>"
+log "Model Router host: ssh -p <port> -N -L 3898:127.0.0.1:3898 <server>  then set SCIFORGE_SCIMODALITY_SERVICE_URL=http://127.0.0.1:3898 and SCIFORGE_SCIMODALITY_SERVICE_TOKEN=<runtime-token> so the sidecar/CLI writes translators.scientific"

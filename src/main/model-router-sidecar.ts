@@ -12,6 +12,8 @@ import {
 import { checkModelRouterHealth } from './model-router-health'
 import {
   DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
+  MODEL_ROUTER_PRIVATE_ENV_PREFIXES,
+  SCI_MODALITY_SERVICE_ENV_PREFIXES,
   SCI_MODALITY_WORKER_PRIVATE_ENV_PREFIXES,
   STANDALONE_MODEL_ROUTER_ENV_PREFIXES,
   UPSTREAM_PROVIDER_CONFIG_ENV_NAMES,
@@ -23,10 +25,16 @@ import {
 const ROUTER_RUNTIME_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY'
 const TEXT_REASONER_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_TEXT_API_KEY'
 const VISION_TRANSLATOR_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_VISION_API_KEY'
+const SCIENTIFIC_TRANSLATOR_TOKEN_ENV = 'SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN'
 const BLOCKED_INHERITED_WORKER_ENV_PREFIXES = [
   ...DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
+  ...MODEL_ROUTER_PRIVATE_ENV_PREFIXES,
+  ...SCI_MODALITY_SERVICE_ENV_PREFIXES,
   ...SCI_MODALITY_WORKER_PRIVATE_ENV_PREFIXES
 ] as const
+const LEGACY_SCI_MODALITY_SERVICE_URL_ENV = 'SCIFORGE_SCIMODALITY_SERVICE_URL'
+const LEGACY_SCI_MODALITY_SERVICE_TOKEN_ENV = 'SCIFORGE_SCIMODALITY_SERVICE_TOKEN'
+const LEGACY_SCI_MODALITY_SERVICE_TIMEOUT_MS_ENV = 'SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS'
 
 let modelRouterChild: ChildProcess | null = null
 let modelRouterLaunchSignature: string | null = null
@@ -36,6 +44,13 @@ type ModelRouterProviderConfig = {
   baseUrl: string
   apiKeyEnv: string
   model: string
+  maxSupplementRounds?: number
+}
+
+type ModelRouterScientificTranslatorConfig = {
+  baseUrl: string
+  tokenEnv: string
+  timeoutMs?: number
 }
 
 type ModelRouterSidecarConfig = {
@@ -46,6 +61,7 @@ type ModelRouterSidecarConfig = {
     textReasoner: ModelRouterProviderConfig
     translators: {
       vision?: ModelRouterProviderConfig
+      scientific?: ModelRouterScientificTranslatorConfig
     }
   }>
 }
@@ -94,6 +110,10 @@ export function buildModelRouterSidecarLaunch(
   if (vision.apiKey.trim()) {
     env[VISION_TRANSLATOR_KEY_ENV] = vision.apiKey.trim()
   }
+  const scientificTranslatorToken = baseEnv[LEGACY_SCI_MODALITY_SERVICE_TOKEN_ENV]?.trim()
+  if (scientificTranslatorToken) {
+    env[SCIENTIFIC_TRANSLATOR_TOKEN_ENV] = scientificTranslatorToken
+  }
 
   const npmCommand = options.npmCommand ?? (process.platform === 'win32' ? 'npm.cmd' : 'npm')
   return {
@@ -119,7 +139,7 @@ export function buildModelRouterSidecarLaunch(
       ],
       env,
       configPath,
-      config: defaultModelRouterSidecarConfig(settings, options.userDataDir)
+      config: defaultModelRouterSidecarConfig(settings, options.userDataDir, baseEnv)
     }
   }
 }
@@ -158,11 +178,11 @@ function isBlockedStandaloneModelRouterEnv(key: string): boolean {
 
 export async function ensureModelRouterConfigFile(
   settings: AppSettingsV1,
-  options: { userDataDir: string }
+  options: { userDataDir: string; env?: NodeJS.ProcessEnv }
 ): Promise<{ path: string; created: boolean }> {
   const path = modelRouterConfigPath(options.userDataDir)
   await mkdir(join(options.userDataDir, 'model-router'), { recursive: true })
-  const config = defaultModelRouterSidecarConfig(settings, options.userDataDir)
+  const config = defaultModelRouterSidecarConfig(settings, options.userDataDir, options.env)
   try {
     await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
     return { path, created: true }
@@ -214,7 +234,7 @@ export async function ensureModelRouterSidecar(
     options.log?.(postStopLaunch.reason)
     return
   }
-  await writeManagedModelRouterConfigFile(settings, { userDataDir: options.userDataDir })
+  await writeManagedModelRouterConfigFile(settings, { userDataDir: options.userDataDir, env: options.env })
   const spawnImpl = options.spawnImpl ?? spawn
   options.log?.(`Starting Model Router sidecar from ${postStopLaunch.launch.cwd}.`)
   // On Windows the command is `npm.cmd`; Node >= 18.20 refuses to spawn a `.cmd`
@@ -249,13 +269,15 @@ export async function ensureModelRouterSidecar(
 
 function defaultModelRouterSidecarConfig(
   settings: AppSettingsV1,
-  userDataDir: string
+  userDataDir: string,
+  env: NodeJS.ProcessEnv = process.env
 ): ModelRouterSidecarConfig & { runtimeApiKeyEnv: string } {
   const router = getModelRouterSettings(settings)
   const runtime = getLocalRuntimeSettings(settings)
   const provider = getModelProviderProfile(settings, runtime.providerId)
   const textReasoner = router.profiles.default.textReasoner
   const vision = providerConfig(router.profiles.default.translators.vision, VISION_TRANSLATOR_KEY_ENV)
+  const scientific = scientificTranslatorConfigFromEnv(env)
   const configRoot = join(userDataDir, 'model-router')
 
   return {
@@ -272,7 +294,8 @@ function defaultModelRouterSidecarConfig(
           model: runtime.model.trim() || textReasoner.model.trim() || DEFAULT_LOCAL_RUNTIME_MODEL
         },
         translators: {
-          ...(vision ? { vision } : {})
+          ...(vision ? { vision } : {}),
+          ...(scientific ? { scientific } : {})
         }
       }
     }
@@ -310,17 +333,18 @@ function modelRouterManagedLaunchSignature(launch: ModelRouterSidecarLaunch): st
     config: launch.config,
     runtimeApiKey: launch.env[ROUTER_RUNTIME_KEY_ENV] ?? '',
     textReasonerApiKey: launch.env[TEXT_REASONER_KEY_ENV] ?? '',
-    visionTranslatorApiKey: launch.env[VISION_TRANSLATOR_KEY_ENV] ?? ''
+    visionTranslatorApiKey: launch.env[VISION_TRANSLATOR_KEY_ENV] ?? '',
+    scientificTranslatorToken: launch.env[SCIENTIFIC_TRANSLATOR_TOKEN_ENV] ?? ''
   })
 }
 
 async function writeManagedModelRouterConfigFile(
   settings: AppSettingsV1,
-  options: { userDataDir: string }
+  options: { userDataDir: string; env?: NodeJS.ProcessEnv }
 ): Promise<{ path: string }> {
   const path = modelRouterConfigPath(options.userDataDir)
   await mkdir(join(options.userDataDir, 'model-router'), { recursive: true })
-  const config = defaultModelRouterSidecarConfig(settings, options.userDataDir)
+  const config = defaultModelRouterSidecarConfig(settings, options.userDataDir, options.env)
   await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8' })
   return { path }
 }
@@ -337,6 +361,23 @@ function providerConfig(
     model: provider.model,
     ...(provider.maxSupplementRounds === undefined ? {} : { maxSupplementRounds: provider.maxSupplementRounds })
   }
+}
+
+function scientificTranslatorConfigFromEnv(env: NodeJS.ProcessEnv): ModelRouterScientificTranslatorConfig | null {
+  const baseUrl = env[LEGACY_SCI_MODALITY_SERVICE_URL_ENV]?.trim() ?? ''
+  if (!baseUrl) return null
+  const timeoutMs = positiveNumberEnv(env[LEGACY_SCI_MODALITY_SERVICE_TIMEOUT_MS_ENV])
+  return {
+    baseUrl,
+    tokenEnv: SCIENTIFIC_TRANSLATOR_TOKEN_ENV,
+    ...(timeoutMs === undefined ? {} : { timeoutMs })
+  }
+}
+
+function positiveNumberEnv(value: string | undefined): number | undefined {
+  if (!value?.trim()) return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
 }
 
 // When spawning through a Windows shell (cmd.exe), wrap args containing spaces or

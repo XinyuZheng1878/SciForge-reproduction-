@@ -54,7 +54,7 @@ export type ModelRouterUpstreamDiagnostic = {
   ok: boolean;
   retryable: boolean;
   httpStatus?: number;
-  role?: 'textReasoner' | 'visionTranslator';
+  role?: 'textReasoner' | 'visionTranslator' | 'scientificTranslator';
   releaseAcceptance: 'not-evaluated';
 };
 

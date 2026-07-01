@@ -6,9 +6,9 @@ without a standalone HTTP plug-in boundary.
 
 > The scientific-modality translator now lives as a **worker** at
 > [`packages/workers/sci-modality-router`](../packages/workers/sci-modality-router) (port 3898,
-> `POST /modality/translate`, four native-to-text experts), not as a plug-in. It is still gated
-> inside Model Router by `SCIFORGE_SCIMODALITY_SERVICE_URL` and
-> `SCIFORGE_SCIMODALITY_SERVICE_TOKEN`.
+> `POST /modality/translate`, four native-to-text experts), not as a plug-in. It is configured
+> inside Model Router as `translators.scientific`; the GUI sidecar may convert
+> `SCIFORGE_SCIMODALITY_SERVICE_URL` / `SCIFORGE_SCIMODALITY_SERVICE_TOKEN` into that router role.
 
 Paper Radar is a separate UI extension service, not a Model Router translator.
 
@@ -18,7 +18,8 @@ Paper Radar is a separate UI extension service, not a Model Router translator.
   There is no standalone vision plug-in service; the router is the only vision translation chain.
 - **Scientific**: now a worker — see
   [`packages/workers/sci-modality-router`](../packages/workers/sci-modality-router). Gated inside
-  Model Router by `SCIFORGE_SCIMODALITY_SERVICE_URL` and `SCIFORGE_SCIMODALITY_SERVICE_TOKEN`.
+  Model Router by the `translators.scientific` profile role; deployment env is only a sidecar/CLI
+  input for generating that role.
   GUI, local runtime, Codex, and Claude pass workspace-local `input_object` refs; only Model Router reads explicit
   scientific files and calls the worker
   (which calls the GPU expert-translator). When unset or unreachable, Model Router falls back to

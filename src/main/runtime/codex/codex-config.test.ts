@@ -112,6 +112,7 @@ describe('codex config launch helpers', () => {
         SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://127.0.0.1:3898',
         SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'outer-sci-modality-token',
         SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345',
+        SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN: 'outer-model-router-scientific-token',
         EXPERT_PROVIDER_BASE_URL: 'http://127.0.0.1:8001/v1',
         EXPERT_PROVIDER_API_KEY: 'outer-expert-token',
         SCIMODALITY_ROUTER_PORT: '3898',
@@ -169,6 +170,7 @@ describe('codex config launch helpers', () => {
     expect(launch.env.SCIFORGE_SCIMODALITY_SERVICE_URL).toBeUndefined()
     expect(launch.env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN).toBeUndefined()
     expect(launch.env.SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS).toBeUndefined()
+    expect(launch.env.SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN).toBeUndefined()
     expect(launch.env.EXPERT_PROVIDER_BASE_URL).toBeUndefined()
     expect(launch.env.EXPERT_PROVIDER_API_KEY).toBeUndefined()
     expect(launch.env.SCIMODALITY_ROUTER_PORT).toBeUndefined()

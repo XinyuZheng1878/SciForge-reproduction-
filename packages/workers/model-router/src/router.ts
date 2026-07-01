@@ -38,11 +38,18 @@ export interface ModelRouterProviderConfig {
   maxSupplementRounds?: number;
 }
 
+export interface ModelRouterScientificTranslatorConfig {
+  baseUrl: string;
+  tokenEnv: string;
+  timeoutMs?: number;
+}
+
 export interface ModelRouterProfile {
   traceRoot: string;
   textReasoner: ModelRouterProviderConfig;
   translators: {
     vision?: ModelRouterProviderConfig;
+    scientific?: ModelRouterScientificTranslatorConfig;
   };
 }
 
@@ -203,7 +210,7 @@ const RECENT_PROVIDER_AUTH_ERROR_TTL_MS = 30 * 60 * 1000;
 
 // Uploaded scientific files (sequence / structure / spectra) that a domain expert model can read.
 // These are classified as 'document' for routing but, when the Model-Router-managed sci-modality
-// worker is configured (SCIFORGE_SCIMODALITY_SERVICE_URL), are translated to natural-language
+// worker is configured through `translators.scientific`, are translated to natural-language
 // evidence instead of being inlined as raw text.
 const SCIENTIFIC_MODALITY_EXTENSIONS =
   /\.(?:fasta|fa|faa|fna|ffn|frn|fastq|fq|smi|smiles|mol|mol2|sdf|mgf|pdb|cif|gb|gbk|gff|gff3|gtf|vcf|bed|nwk|seq)(?:$|[?#])/i;
@@ -521,6 +528,27 @@ function modelRouterHealthzUpstreamDiagnostic(
       };
     }
   }
+  const scientificTranslator = profile.translators.scientific;
+  if (scientificTranslator) {
+    if (!scientificTranslator.baseUrl || !scientificTranslator.tokenEnv) {
+      return {
+        category: 'repo-bug',
+        ok: false,
+        retryable: false,
+        releaseAcceptance: 'not-evaluated',
+      };
+    }
+    if (!stringField(env[scientificTranslator.tokenEnv])) {
+      return {
+        category: 'provider-auth',
+        ok: false,
+        retryable: false,
+        httpStatus: 401,
+        role: 'scientificTranslator',
+        releaseAcceptance: 'not-evaluated',
+      };
+    }
+  }
   return {
     category: 'ready',
     ok: true,
@@ -625,7 +653,14 @@ async function routeResponsesRequest(
     for (const item of unsupportedModalities) {
       // 1) Scientific file (.fasta / .smi / .mol / .mgf …) + managed sci-modality worker configured:
       //    translate to natural-language evidence (the worker owns retry).
-      const expert = await translateScientificModalityObservation(item, context.workspaceRoot, context.env, context.fetchImpl, context.scientificTranslationCache);
+      const expert = await translateScientificModalityObservation(
+        item,
+        context.workspaceRoot,
+        profile.translators.scientific,
+        context.env,
+        context.fetchImpl,
+        context.scientificTranslationCache,
+      );
       if (expert) {
         observations.push(expert.observation);
         scientificEvidence.push(expert.evidence);
@@ -973,6 +1008,7 @@ function isClaudeCodeModelName(model: string): boolean {
 function validateProfile(profile: ModelRouterProfile) {
   validateProviderConfig(profile.textReasoner, 'textReasoner');
   if (profile.translators.vision) validateProviderConfig(profile.translators.vision, 'translators.vision');
+  if (profile.translators.scientific) validateScientificTranslatorConfig(profile.translators.scientific);
 }
 
 function validateProviderConfig(config: ModelRouterProviderConfig, role: string) {
@@ -995,6 +1031,17 @@ function secretForProvider(config: ModelRouterProviderConfig, env: Record<string
 function optionalSecretForProvider(config: ModelRouterProviderConfig, env: Record<string, string | undefined>) {
   const secret = env[config.apiKeyEnv];
   return typeof secret === 'string' && secret.length > 0 ? secret : undefined;
+}
+
+function validateScientificTranslatorConfig(config: ModelRouterScientificTranslatorConfig) {
+  if (!config.baseUrl || !config.tokenEnv) {
+    throw routerError(400, 'invalid_provider_config', 'Model Router profile role "translators.scientific" is missing required service configuration.');
+  }
+  try {
+    new URL(config.baseUrl);
+  } catch {
+    throw routerError(400, 'invalid_provider_config', 'Model Router profile role "translators.scientific" has an invalid service base URL.');
+  }
 }
 
 function extractRequestInputs(input: unknown, instructions: unknown): { userText: string; modalities: ModalityRef[] } {
@@ -1359,7 +1406,7 @@ async function readWorkspaceTextModalityObservation(item: ModalityRef, workspace
 }
 
 // Translate an uploaded scientific file to natural-language evidence via the Model-Router-managed
-// sci-modality worker. Gated by SCIFORGE_SCIMODALITY_SERVICE_URL; the worker owns modality
+// sci-modality worker. Gated by `profile.translators.scientific`; the worker owns modality
 // auto-detection + retry/robustness. Translation-only: it returns evidence, never answers. Returns
 // undefined (fail-open) when the service is unconfigured, the ref is not a scientific file, the file is
 // unreadable/binary, or the call fails — callers then fall back to text inlining.
@@ -1380,13 +1427,14 @@ function buildScientificObservation(item: ModalityRef, evidence: ScientificEvide
 async function translateScientificModalityObservation(
   item: ModalityRef,
   workspaceRoot: string,
+  service: ModelRouterScientificTranslatorConfig | undefined,
   env: Record<string, string | undefined>,
   fetchImpl: typeof fetch,
   cache?: Map<string, ScientificEvidence>,
 ): Promise<{ observation: string; evidence: ScientificEvidence } | undefined> {
-  const serviceUrl = (env.SCIFORGE_SCIMODALITY_SERVICE_URL ?? '').trim();
+  const serviceUrl = service?.baseUrl.trim() ?? '';
   if (!serviceUrl) return undefined;
-  const serviceToken = (env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN ?? '').trim();
+  const serviceToken = (env[service?.tokenEnv ?? ''] ?? '').trim();
   if (!serviceToken) return undefined;
   const target = await workspaceImageTarget(item, workspaceRoot);
   if (!target || !isScientificModalityPath(target.relativeRef)) return undefined;
@@ -1404,7 +1452,7 @@ async function translateScientificModalityObservation(
     const cached = cache?.get(cacheKey);
     if (cached) return { observation: buildScientificObservation(item, cached), evidence: cached };
 
-    const timeoutMs = Number(env.SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS ?? '') || 1_800_000;
+    const timeoutMs = service?.timeoutMs ?? 1_800_000;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let json: JsonObject | undefined;
@@ -3070,9 +3118,14 @@ async function writeRoutingTrace(options: {
   outputText?: string;
   errorSummary?: string;
 }) {
-  const translatorsTrace: JsonObject = options.profile.translators.vision
-    ? { vision: providerTrace('translators.vision', options.profile.translators.vision, options.publicModelAlias) }
-    : {};
+  const translatorsTrace: JsonObject = {
+    ...(options.profile.translators.vision
+      ? { vision: providerTrace('translators.vision', options.profile.translators.vision, options.publicModelAlias) }
+      : {}),
+    ...(options.profile.translators.scientific
+      ? { scientific: scientificTranslatorTrace(options.profile.translators.scientific) }
+      : {}),
+  };
   await writeTraceJson(options.trace, 'trace.json', compactObject({
     schemaVersion: 'sciforge.model-router.trace.v1',
     traceId: options.trace.traceId,
@@ -3124,6 +3177,13 @@ function providerTrace(roleAlias: string, provider: ModelRouterProviderConfig, p
   };
 }
 
+function scientificTranslatorTrace(service: ModelRouterScientificTranslatorConfig): JsonObject {
+  return {
+    roleAlias: 'translators.scientific',
+    serviceBindingSha256: scientificTranslatorBindingHash(service),
+  };
+}
+
 function roleAliasForCall(role: ProviderCallRecord['role']) {
   return role === 'textReasoner' ? 'textReasoner' : 'translators.vision';
 }
@@ -3134,6 +3194,14 @@ function providerBindingHash(provider: ModelRouterProviderConfig) {
     provider.baseUrl,
     provider.model,
     provider.apiKeyEnv,
+  ].join('\n'));
+}
+
+function scientificTranslatorBindingHash(service: ModelRouterScientificTranslatorConfig) {
+  return hashForTrace([
+    service.baseUrl,
+    service.tokenEnv,
+    service.timeoutMs ?? '',
   ].join('\n'));
 }
 
@@ -3476,6 +3544,7 @@ function profileTraceRedactionValues(profile: ModelRouterProfile, publicModelAli
   const configuredValues = [
     ...providerTraceRedactionValues(profile.textReasoner),
     ...(profile.translators.vision ? providerTraceRedactionValues(profile.translators.vision) : []),
+    ...(profile.translators.scientific ? scientificTranslatorTraceRedactionValues(profile.translators.scientific) : []),
   ];
   return configuredValues.filter((value) => value !== publicModelAlias);
 }
@@ -3486,6 +3555,13 @@ function providerTraceRedactionValues(provider: ModelRouterProviderConfig) {
     provider.baseUrl,
     provider.apiKeyEnv,
     provider.model,
+  ];
+}
+
+function scientificTranslatorTraceRedactionValues(service: ModelRouterScientificTranslatorConfig) {
+  return [
+    service.baseUrl,
+    service.tokenEnv,
   ];
 }
 

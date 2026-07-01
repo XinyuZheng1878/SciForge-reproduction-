@@ -227,6 +227,12 @@ function isAllowedEvidenceDagLegacyLlmEnvMarker(hit: DirectCallHit): boolean {
 }
 
 function isAllowedSciModalityBoundaryMarker(hit: DirectCallHit): boolean {
+  if (
+    hit.file === 'src/main/model-router-sidecar.ts' &&
+    (hit.text.includes('LEGACY_SCI_MODALITY_SERVICE_') || hit.text.includes('SCIENTIFIC_TRANSLATOR_TOKEN_ENV'))
+  ) {
+    return true
+  }
   return (
     hit.file === 'src/main/local-runtime-process.ts' &&
     hit.text.includes('LEGACY_DIRECT_WORKER_ENV_PREFIXES')
@@ -263,6 +269,7 @@ describe('P7/P8 model router API boundary enforcement', () => {
   it('blocks GUI/runtime direct calls to the sci-modality service endpoint', () => {
     const directSciModalityHits = [
       ...scanProductionTextInRoots(guiRuntimeSourceRoots, /\bSCIFORGE_SCIMODALITY_SERVICE_[A-Z0-9_]+\b/),
+      ...scanProductionTextInRoots(guiRuntimeSourceRoots, /\bSCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN\b/),
       ...scanProductionTextInRoots(guiRuntimeSourceRoots, /\/modality\/translate/)
     ].filter((hit) => !isAllowedSciModalityBoundaryMarker(hit))
 

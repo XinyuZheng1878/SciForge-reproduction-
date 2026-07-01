@@ -976,6 +976,39 @@ test('healthz blocks missing vision translator credentials', async () => {
   }
 });
 
+test('healthz blocks missing scientific translator credentials', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-healthz-missing-scientific-auth-'));
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig({ scientificTranslator: testScientificTranslatorConfig() }),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch([], []),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/healthz?check=upstream`);
+    assert.equal(response.status, 503);
+    const body = await response.json() as Record<string, unknown>;
+    const serialized = JSON.stringify(body);
+
+    assert.equal(body.ok, false);
+    assert.equal(body.recentError, 'provider-auth');
+    assert.deepEqual(body.upstream, {
+      category: 'provider-auth',
+      ok: false,
+      retryable: false,
+      httpStatus: 401,
+      role: 'scientificTranslator',
+      releaseAcceptance: 'not-evaluated',
+    });
+    assert.doesNotMatch(serialized, forbiddenPublicSurfacePattern);
+    assert.doesNotMatch(serialized, /sci-modality\.example|SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN/);
+  } finally {
+    await server.close();
+  }
+});
+
 test('pure text responses are routed only to the configured text reasoner', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-text-'));
   const calls: CapturedFetch[] = [];
@@ -2931,11 +2964,10 @@ test('scientific file uploads are translated to evidence via the managed sci-mod
   const calls: CapturedFetch[] = [];
   const server = await startModelRouterServer({
     port: 0,
-    config: testConfig(),
+    config: testConfig({ scientificTranslator: testScientificTranslatorConfig() }),
     env: {
       ...testEnv(),
-      SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://sci-modality.example:3898',
-      SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'sci-modality-runtime-token',
+      SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN: 'sci-modality-runtime-token',
     },
     workspaceRoot,
     fetchImpl: captureFetch(calls, [
@@ -2991,6 +3023,55 @@ test('scientific file uploads are translated to evidence via the managed sci-mod
     assert.equal(calls[1]?.url, 'https://text.example/v1/chat/completions');
     assert.match(textBody, /source=sci-modality:protein\/esm2text-protein/);
     assert.doesNotMatch(textBody, /status=unsupported/);
+    const traceText = await readTraceBundle(workspaceRoot);
+    assert.match(traceText, /"roleAlias":\s*"translators\.scientific"/);
+    assert.match(traceText, /"serviceBindingSha256":\s*"sha256:[a-f0-9]{64}"/);
+    assert.doesNotMatch(traceText, /sci-modality\.example|SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN|sci-modality-runtime-token/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('legacy sci-modality service env alone does not activate scientific translation', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-scimodality-legacy-env-'));
+  await mkdir(join(workspaceRoot, '.sciforge', 'uploads', 'session-sci'), { recursive: true });
+  await writeFile(join(workspaceRoot, '.sciforge', 'uploads', 'session-sci', 'ubiquitin.fasta'), '>p\nMQIFVKTLTGK\n');
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: {
+      ...testEnv(),
+      SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://sci-modality.example:3898',
+      SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'legacy-token',
+    },
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-final', JSON.stringify({ type: 'final_answer', content: 'Used safe fallback text.' })),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        input: [{
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'What protein is this?' },
+            { type: 'input_object', ref: '.sciforge/uploads/session-sci/ubiquitin.fasta', mimeType: 'text/plain', title: 'ubiquitin.fasta' },
+          ],
+        }],
+        metadata: { profile: 'default' },
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, 'https://text.example/v1/chat/completions');
+    assert.doesNotMatch(JSON.stringify(calls[0]?.body), /source=sci-modality/);
   } finally {
     await server.close();
   }
@@ -3007,11 +3088,10 @@ test('workspace file materialization rejects symlink escapes before provider cal
   const calls: CapturedFetch[] = [];
   const server = await startModelRouterServer({
     port: 0,
-    config: testConfig(),
+    config: testConfig({ scientificTranslator: testScientificTranslatorConfig() }),
     env: {
       ...testEnv(),
-      SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://sci-modality.example:3898',
-      SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'sci-modality-runtime-token',
+      SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN: 'sci-modality-runtime-token',
     },
     workspaceRoot,
     fetchImpl: captureFetch(calls, [
@@ -3989,7 +4069,11 @@ type CapturedFetch = {
   body: Record<string, unknown>;
 };
 
-function testConfig(options: { traceRoot?: string; publicModelAlias?: string | null } = {}): ModelRouterConfig {
+function testConfig(options: {
+  traceRoot?: string;
+  publicModelAlias?: string | null;
+  scientificTranslator?: ModelRouterConfig['profiles'][string]['translators']['scientific'];
+} = {}): ModelRouterConfig {
   const config: ModelRouterConfig = {
     defaultProfile: 'default',
     publicModelAlias: options.publicModelAlias === undefined ? 'sciforge-router' : undefined,
@@ -4009,12 +4093,20 @@ function testConfig(options: { traceRoot?: string; publicModelAlias?: string | n
             apiKeyEnv: 'SCIFORGE_VISION_API_KEY',
             model: 'vision-model',
           },
+          ...(options.scientificTranslator ? { scientific: options.scientificTranslator } : {}),
         },
       },
     },
   };
   if (typeof options.publicModelAlias === 'string') config.publicModelAlias = options.publicModelAlias;
   return config;
+}
+
+function testScientificTranslatorConfig(): NonNullable<ModelRouterConfig['profiles'][string]['translators']['scientific']> {
+  return {
+    baseUrl: 'http://sci-modality.example:3898',
+    tokenEnv: 'SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN',
+  };
 }
 
 function testConfigWithoutVision(options: { traceRoot?: string; publicModelAlias?: string | null } = {}): ModelRouterConfig {

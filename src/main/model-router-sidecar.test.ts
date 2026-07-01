@@ -122,7 +122,8 @@ describe('buildModelRouterSidecarLaunch', () => {
         SCIMODALITY_ROUTER_RUNTIME_TOKEN: 'outer-router-token',
         SCIFORGE_SCIMODALITY_SERVICE_URL: 'http://127.0.0.1:3898',
         SCIFORGE_SCIMODALITY_SERVICE_TOKEN: 'sci-modality-token',
-        SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345'
+        SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS: '12345',
+        SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN: 'stale-scientific-token'
       },
       npmCommand: 'npm'
     })
@@ -189,9 +190,10 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.launch.env.EXPERT_PROVIDER_API_KEY).toBeUndefined()
     expect(result.launch.env.SCIMODALITY_ROUTER_PORT).toBeUndefined()
     expect(result.launch.env.SCIMODALITY_ROUTER_RUNTIME_TOKEN).toBeUndefined()
-    expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_URL).toBe('http://127.0.0.1:3898')
-    expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN).toBe('sci-modality-token')
-    expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS).toBe('12345')
+    expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_URL).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_TOKEN).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN).toBe('sci-modality-token')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_TEXT_API_KEY).toBe('text-secret')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_VISION_API_KEY).toBe('vision-secret')
@@ -209,6 +211,11 @@ describe('buildModelRouterSidecarLaunch', () => {
       apiKeyEnv: 'SCIFORGE_MODEL_ROUTER_VISION_API_KEY',
       model: 'vision-model',
       maxSupplementRounds: 1
+    })
+    expect(result.launch.config?.profiles.default.translators.scientific).toEqual({
+      baseUrl: 'http://127.0.0.1:3898',
+      tokenEnv: 'SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN',
+      timeoutMs: 12345
     })
   })
 
