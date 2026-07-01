@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import {
   buildGuiPlanId,
   guiPlanWorkspaceMatches,
+  isGuiPlanRelativePath,
   normalizeGuiPlanRelativePath,
   planDisplayNameFromRelativePath
 } from '@shared/gui-plan'
@@ -88,7 +89,7 @@ function normalizePlanArtifact(raw: unknown): GuiPlanArtifact | null {
   if (!isRecord(raw)) return null
   const workspaceRoot = normalizeWorkspaceRoot(normalizeText(raw.workspaceRoot))
   const relativePath = normalizeGuiPlanRelativePath(normalizeText(raw.relativePath))
-  if (!workspaceRoot || !relativePath) return null
+  if (!workspaceRoot || !isGuiPlanRelativePath(relativePath)) return null
   const id = buildGuiPlanId(workspaceRoot, relativePath)
   const threadId = normalizeText(raw.threadId)
   const absolutePath = normalizeText(raw.absolutePath)

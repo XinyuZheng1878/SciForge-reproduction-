@@ -28,7 +28,7 @@ describe('remote-channel api selectors', () => {
     expect(createRemoteChannelTaskFromTextApi(api)).toBe(api.createRemoteChannelTaskFromText)
   })
 
-  it('does not create renderer fallbacks for removed Claw APIs', () => {
+  it('does not create renderer fallbacks for removed legacy remote-channel APIs', () => {
     const api = {} as unknown as SciForgeApi
 
     expect(startConnectPhoneInstallQrApi(api)).toBeUndefined()

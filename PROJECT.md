@@ -91,6 +91,10 @@
 - [x] local runtime / computer-use 边界注释清理：架构文档删除重复断裂的 upstream provider 配置句，并把 history repair 描述改成经 Model Router 边界；`computer-use` tool provider 注释从 DeepSeek/Kun 改为 host agent / SciForge Runtime approval 语义；不改变 `gui-owl-computer-use` 与 `@sciforge/computer-use` 并存决策。
 - [x] 本轮旧名/公开文案安全清理：third-party notice、research memory 设计文档、Discord remote-channel 日志、remote-channel empty state CSS/test、OpenClaw shim 描述和默认临时目录、Workbench 图片上传注释、AGENTS 英文说明统一到 SciForge / remote-channel / Model Router 中性语义；协议名、第三方包名和待决策 `Claw*` public TS surface 保持不动。
 - [x] Model Router / Search / Paper Radar 防回归补强：GUI-managed Model Router sidecar 不再继承外层 direct provider env 或 standalone router `SCIFORGE_TEXT_*` / `SCIFORGE_VISION_*` env；Search 文档补 Europe PMC，root helper exports 加库存测试；Paper Radar plugin service 保持 private/internal 的 metadata guard，并补 after-pack required paths 覆盖 worker 直接依赖的 plugin core 文件。
+- [x] 文档路径与英文 README 一致性清理：删除不存在的科研场景文档入口，修正 figure-style extractor、long-horizon prompt provenance、local-runtime contributing 测试路径，英文 README 补齐 research-native 定位、research search 和 worker/插件边界。
+- [x] Agent Runtime auxiliary 列表边界收紧：`listModelAuditRecords` / `listGitCheckpoints` 由 top-level `runtimeId` 作为 owner 过滤，不再依赖 payload 内部 runtimeId；补 host 回归测试。
+- [x] GUI plan registry 恢复防回归：恢复 persisted registry 时复用 `.sciforge/plan/*.md` guard，拒绝旧/嵌套/非 md plan path，避免损坏 localStorage shadow 合法计划。
+- [x] remote-channel renderer 内部清名与失败回归：`isClawWorkspacePath` 改为 `isRemoteChannelWorkspacePath`，同步调用点；spawn side conversation 订阅失败会收敛 side busy/error 且不影响主线程；测试标题中的旧 Claw/OpenClaw 语义继续中性化。
 
 ## 验证记录
 
@@ -179,6 +183,14 @@
 - [x] `npm --prefix kun run typecheck`
 - [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
 - [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
+- [x] `npx vitest run src/main/claw-runtime.test.ts src/shared/app-settings.test.ts`
+- [x] `npx vitest run src/main/runtime/agent-runtime/host.test.ts src/renderer/src/plan/plan-store.test.ts src/shared/gui-plan.test.ts`
+- [x] `npx vitest run src/renderer/src/lib/workspace-path.test.ts src/renderer/src/store/chat-store-helpers.test.ts src/renderer/src/components/chat/SidebarProjectsSection.test.ts src/renderer/src/components/chat/ConnectPhoneView.test.ts src/renderer/src/store/chat-store-side-actions.test.ts`
+- [x] `npx vitest run src/main/claw-runtime.test.ts src/main/weixin-bridge-runtime.test.ts src/renderer/src/components/chat/ConnectPhoneDialogHelpers.test.ts src/renderer/src/lib/thread-sidebar-visibility.test.ts src/renderer/src/lib/remote-channel-api.test.ts src/renderer/src/components/chat/FloatingComposer.test.ts src/shared/app-settings.test.ts`
+- [x] `npx vitest run src/shared/agent-runtime-contract.test.ts`
+- [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
+- [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
+- [x] `git diff --check`
 
 ## 已决策待实施
 

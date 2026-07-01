@@ -415,7 +415,7 @@ export class AgentRuntimeHost {
         return {
           handled: true,
           value: this.options.services?.modelAudit?.snapshot({
-            runtimeId: optionalRuntimeId(payload.runtimeId),
+            runtimeId,
             threadId: optionalString(payload.threadId),
             limit: numberValue(payload.limit)
           }) ?? []
@@ -515,7 +515,7 @@ export class AgentRuntimeHost {
         return {
           handled: true,
           value: await this.options.services?.gitCheckpoints?.list({
-            runtimeId: optionalRuntimeId(payload.runtimeId),
+            runtimeId,
             threadId: optionalString(payload.threadId),
             workspaceRoot: optionalString(payload.workspaceRoot)
           }) ?? []

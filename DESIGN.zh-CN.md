@@ -1205,8 +1205,7 @@ compaction block inline with a "show replaced" detail.
 - Webhook / relay is a small HTTP server in the remote channel bridge that
   POSTs inbound webhooks into the configured runtime thread.
 - Scheduled tasks are detected from natural-language remote-channel
-  prompts (`claw-scheduled-task-detector.ts`, historical internal
-  filename) and stored under
+  prompts (`scheduled-task-detector.ts`) and stored under
   `schedule.tasks` in settings.
 - The managed `schedule-mcp-node-entry` hosts schedule tools over MCP
   through the `gui_schedule` worker entry, hiding the macOS dock icon

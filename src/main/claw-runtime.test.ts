@@ -242,7 +242,7 @@ function createClawRuntime(
 }
 
 describe('ClawRuntime', () => {
-  it('classifies the standard Claw IM failure buckets', () => {
+  it('classifies the standard remote-channel failure buckets', () => {
     expect(classifyClawFailure({ code: 'runtime_offline', message: 'Local runtime is offline.' })).toBe('runtime_offline')
     expect(classifyClawFailure({ code: 'provider_unavailable', message: 'model deepseek-v4-pro missing' })).toBe('model_missing')
     expect(classifyClawFailure({ message: 'Timed out waiting for agent response.' })).toBe('timeout')
@@ -404,9 +404,9 @@ describe('ClawRuntime', () => {
     }, { turnId: 'turn_empty', workspaceRoot: '/tmp/workspace' })).toEqual([])
   })
 
-  it('bases Feishu conversation workspaces on the configured Claw workspace', () => {
+  it('bases Feishu conversation workspaces on the configured remote-channel workspace', () => {
     const settings = buildSettings()
-    settings.remoteChannel.im.workspaceRoot = '/tmp/claw-default'
+    settings.remoteChannel.im.workspaceRoot = '/tmp/remote-channel-default'
     const channel: ClawImChannelV1 = {
       id: 'channel_1',
       provider: 'feishu' as const,
@@ -444,7 +444,7 @@ describe('ClawRuntime', () => {
       threadId: ''
     })
 
-    expect(root).toBe('/tmp/claw-default')
+    expect(root).toBe('/tmp/remote-channel-default')
   })
 
   it('repairs legacy Feishu conversation workspaces created from an empty channel root', () => {
@@ -534,7 +534,7 @@ describe('ClawRuntime', () => {
     expect(root).toBe('/tmp/claw-default')
   })
 
-  it('delegates reminder creation to Schedule without writing claw tasks', async () => {
+  it('delegates reminder creation to Schedule without writing legacy remote-channel tasks', async () => {
     const settings = buildSettings()
     settings.remoteChannel.im.enabled = true
     const store = {
@@ -592,14 +592,14 @@ describe('ClawRuntime', () => {
     expect('tasks' in settings.remoteChannel).toBe(false)
   })
 
-  it('accepts assistant_text items when waiting for a Claw turn result', async () => {
+  it('accepts assistant_text items when waiting for a remote-channel turn result', async () => {
     const settings = buildSettings()
     const forbiddenDirectCall = vi.fn()
     const agentRuntime = completedAgentRuntime({
       detail: completedThreadDetail('thr_1', 'turn_1', '', {
         thread: { id: 'thr_1', status: 'completed' },
         turns: [{ id: 'turn_1', status: 'completed' }],
-        items: [{ kind: 'assistant_text', detail: 'hello from claw' }]
+        items: [{ kind: 'assistant_text', detail: 'hello from remote channel' }]
       })
     })
     const store = {
@@ -637,7 +637,7 @@ describe('ClawRuntime', () => {
       source: 'im'
     })
 
-    expect(result).toMatchObject({ ok: true, text: 'hello from claw' })
+    expect(result).toMatchObject({ ok: true, text: 'hello from remote channel' })
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
@@ -4539,7 +4539,7 @@ describe('ClawRuntime', () => {
     })
   })
 
-  it('mirrors local Claw thread messages back to the bundled WeChat bridge', async () => {
+  it('mirrors local remote-channel thread messages back to the bundled WeChat bridge', async () => {
     const settings = buildSettings()
     settings.remoteChannel.im.enabled = true
     settings.remoteChannel.channels = [buildChannel({

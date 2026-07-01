@@ -16,9 +16,9 @@ import {
 } from '@shared/app-settings'
 import type { ChatState } from './chat-store-types'
 import {
-  isClawWorkspacePath,
   isInternalSciForgeWorkspace,
   isInternalTemporaryWorkspace,
+  isRemoteChannelWorkspacePath,
   normalizeWorkspaceRoot,
   workspaceRootIdentityKey
 } from '../lib/workspace-path'
@@ -74,7 +74,7 @@ export function compactCodeWorkspaceRoots(workspaceRoots: readonly (string | und
     if (!normalized) continue
     if (isInternalTemporaryWorkspace(normalized)) continue
     if (isInternalSciForgeWorkspace(normalized)) continue
-    if (isClawWorkspacePath(normalized)) continue
+    if (isRemoteChannelWorkspacePath(normalized)) continue
     const key = workspaceRootIdentityKey(normalized)
     if (seen.has(key)) continue
     seen.add(key)

@@ -45,8 +45,6 @@ SciForge 的定位是 **research-native AI workbench**：
 | Canvas | 不是单独的“画图功能”，而是视觉 artifact 的审阅层：把 scientific plot、生成图、PPT slide/export 摆在同一张画布上批注，导出 review packet，再让 Agent 按批注意图修改。 |
 | Write | 不是普通 Markdown 编辑器，而是论文阅读与研究写作台：PDF 文本/视觉锚点批注、批注包导入导出、选区问答、写作空间检索增强、inline completion 和多格式导出。 |
 
-如果想从具体任务案例理解 SciForge 的能力边界与对外呈现重点，可以查看 [SciForge 科研任务场景候选](docs/sciforge-research-task-scenarios.zh-CN.md)。
-
 ## 科学多模态能力
 
 SciForge 的科学多模态设计不是“把所有东西都塞给一个通用大模型”。核心原则是：**先由专用领域模型把科学对象翻译成可审计文本证据，再由主 Agent 做任务推理**。
@@ -445,7 +443,6 @@ npm run mac:unquarantine -- '/Applications/SciForge.app'
 | [docs/local-runtime-architecture.md](docs/local-runtime-architecture.md) | SciForge Runtime 架构、HTTP/SSE 合约和 GUI 边界 |
 | [docs/local-runtime-cache-optimization.md](docs/local-runtime-cache-optimization.md) | Token economy、缓存命中、MCP search 和工具输出压缩 |
 | [docs/runtime-governance-design.zh-CN.md](docs/runtime-governance-design.zh-CN.md) | Runtime guard、公共治理层和多 runtime 接入原则 |
-| [docs/sciforge-research-task-scenarios.zh-CN.md](docs/sciforge-research-task-scenarios.zh-CN.md) | SciForge 科研任务场景候选与对外呈现优先级 |
 | [docs/kdense-scientific-skills-mcp.zh-CN.md](docs/kdense-scientific-skills-mcp.zh-CN.md) | K-Dense Scientific Agent Skills 的只读发现与规划接入 |
 | [docs/paper-figure-style-transfer-v1.3.zh-CN.md](docs/paper-figure-style-transfer-v1.3.zh-CN.md) | 论文图风格识别、受控绘图和参考图准备 |
 | [docs/WRITE_RETRIEVAL_RAG.zh-CN.md](docs/WRITE_RETRIEVAL_RAG.zh-CN.md) | Write 检索增强设计 |

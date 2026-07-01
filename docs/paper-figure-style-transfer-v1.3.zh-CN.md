@@ -50,7 +50,7 @@ type FigureStyleExtractResult =
 
 ## 已接入位置
 
-- 主进程提取器：`src/main/figure-style-extractor.ts`
+- scientific-plotting worker 提取器：`packages/workers/scientific-plotting/src/figure-style-extractor.ts`
 - 共享类型：`src/shared/figure-style.ts`
 - IPC schema：`figureStyleExtractPayloadSchema`
 - IPC channel：`figure-style:extract`

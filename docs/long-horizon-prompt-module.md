@@ -4,7 +4,7 @@ This document records the prompt design used by SciForge's optional composer pla
 
 ## Source Behavior
 
-The design is adapted from the local Claude Code plan mode implementation under `D:\Project\claude-code`:
+The design was adapted from a historical local Claude Code plan-mode reference. The source names below are provenance notes, not current repository paths:
 
 - `src/tools/EnterPlanModeTool/prompt.ts`: when plan mode should be used.
 - `src/utils/messages.ts`: plan-mode workflow, including the interview-based loop.

@@ -395,6 +395,34 @@ describe('chat-store-side-actions', () => {
     )
   })
 
+  it('logs side subscription failures and settles spawned side state without touching the main thread', async () => {
+    const { actions, state, provider } = buildHarness()
+    provider.subscribeError = new Error('SSE failed after spawn')
+    state.busy = true
+
+    const id = await actions.spawnSideConversation()
+    await flushPromises()
+
+    expect(id).toBe('side_thr_main')
+    expect(state.activeThreadId).toBe('thr_main')
+    expect(state.busy).toBe(true)
+    expect(state.sideConversations['side_thr_main']).toEqual(
+      expect.objectContaining({
+        busy: false,
+        turnId: null,
+        error: 'SSE failed after spawn'
+      })
+    )
+    expect(window.sciforge.logError).toHaveBeenCalledWith(
+      'side-conversation',
+      'Side conversation subscription failed',
+      {
+        message: 'SSE failed after spawn',
+        sideId: 'side_thr_main'
+      }
+    )
+  })
+
   it('spawnSideConversation with seedText immediately sends the first turn', async () => {
     const { actions, state, provider } = buildHarness()
     const id = await actions.spawnSideConversation('what is the dependency tree?')

@@ -50,7 +50,7 @@ describe('weixin bridge runtime', () => {
     })
   })
 
-  it('keeps OpenClaw-compatible account id normalization for existing WeChat state files', () => {
+  it('keeps legacy-compatible account id normalization for existing WeChat state files', () => {
     const { normalizeAccountId } = weixinBridgeRuntimeInternals
 
     expect(normalizeAccountId('b0f5860fdecb@im.bot')).toBe('b0f5860fdecb-im-bot')
@@ -59,7 +59,7 @@ describe('weixin bridge runtime', () => {
     expect(normalizeAccountId('__proto__')).toBe('default')
   })
 
-  it('does not expose the removed OpenClaw adapter builders', () => {
+  it('does not expose the removed bridge adapter builders', () => {
     expect(Object.keys(weixinBridgeRuntimeInternals)).not.toContain('buildGuiManagedOpenClawConfig')
     expect(Object.keys(weixinBridgeRuntimeInternals)).not.toContain('buildWeixinBridgeAdapterSource')
     expect(Object.keys(weixinBridgeRuntimeInternals)).not.toContain('parseNodeVersion')
@@ -224,7 +224,7 @@ describe('weixin bridge runtime', () => {
     }))
   })
 
-  it('sends WeChat media without loading legacy openclaw.json config', async () => {
+  it('sends WeChat media without loading the legacy bridge config file', async () => {
     const legacyConfigPath = join(testWeixinStateDir, 'legacy-openclaw.json')
     const mediaPath = join(testWeixinStateDir, 'generated.png')
     await mkdir(testWeixinStateDir, { recursive: true })

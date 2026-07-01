@@ -102,7 +102,7 @@ ports/event-bus.ts        → (不需要改,接口已用 discriminated union)
 adapters/in-memory-event-bus.ts  → publish/subscribe 已用 RuntimeEvent 联合类型
 loop/agent-loop.ts        → 实际 emit
 server/routes/events.ts   → SSE 序列化(已用 encodeSseEvent)
-tests/contracts.test.ts   → 新增一个 variant 的 zod 解析测试
+kun/tests/contracts.test.ts → 新增一个 variant 的 zod 解析测试
 ```
 
 每改一层,跑一次 `npm test`。这就是"按层增量"。

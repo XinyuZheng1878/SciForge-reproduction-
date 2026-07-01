@@ -23,9 +23,9 @@ import { formatRelativeTime } from '../../lib/format-relative-time'
 import { getDialogThreadTitle } from '../../lib/thread-title'
 import { workspaceLabelFromPath } from '../../lib/workspace-label'
 import {
-  isClawWorkspacePath,
   isInternalSciForgeWorkspace,
   isInternalTemporaryWorkspace,
+  isRemoteChannelWorkspacePath,
   normalizeWorkspaceRoot,
   workspaceRootIdentityKey
 } from '../../lib/workspace-path'
@@ -126,7 +126,7 @@ export function buildSidebarWorkspaceGroups(options: {
   for (const th of options.threads) {
     if (isInternalTemporaryWorkspace(th.workspace)) continue
     if (isInternalSciForgeWorkspace(th.workspace)) continue
-    if (isClawWorkspacePath(th.workspace)) continue
+    if (isRemoteChannelWorkspacePath(th.workspace)) continue
     if ((th.archived === true) !== options.showArchived) continue
     const key = normalizeWorkspaceRoot(th.workspace)
     if (!key) continue
@@ -151,7 +151,7 @@ export function buildSidebarWorkspaceGroups(options: {
       if (isHiddenWorkspace(key)) continue
       if (isInternalTemporaryWorkspace(key)) continue
       if (isInternalSciForgeWorkspace(key)) continue
-      if (isClawWorkspacePath(key)) continue
+      if (isRemoteChannelWorkspacePath(key)) continue
       upsertWorkspace(key)
     }
   }

@@ -103,7 +103,7 @@ ports/event-bus.ts         -> usually unchanged; the interface already uses the 
 adapters/in-memory-event-bus.ts  -> publish/subscribe already use RuntimeEvent
 loop/agent-loop.ts         -> emit the event
 server/routes/events.ts    -> SSE serialization already uses encodeSseEvent
-tests/contracts.test.ts    -> add a zod parsing test for the new variant
+kun/tests/contracts.test.ts -> add a zod parsing test for the new variant
 
 ```
 

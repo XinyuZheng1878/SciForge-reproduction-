@@ -182,7 +182,7 @@ describe('thread-sidebar-visibility', () => {
     expect(visible).toEqual([])
   })
 
-  it('filters fallback titled CodeWhale Claw sessions after inspecting detail', async () => {
+  it('filters legacy fallback remote-channel sessions after inspecting detail', async () => {
     const fallbackThread = thread({ id: 'thr_20be8f66', title: 'thr_20be' })
 
     const visible = await filterThreadsForSidebar([fallbackThread], {

@@ -19,7 +19,7 @@ import {
 } from '../agent/agent-runtime-event-dispatcher'
 import i18n from '../i18n'
 import { describeRuntimeError, formatRuntimeError } from '../lib/format-runtime-error'
-import { isClawWorkspacePath, isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
+import { isInternalTemporaryWorkspace, isRemoteChannelWorkspacePath, normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { mirrorRemoteChannelMessageApi } from '../lib/remote-channel-api'
 import type { ClawImChannelV1 } from '@shared/app-settings'
 import {
@@ -468,7 +468,7 @@ export function isCodeThread(
   return Boolean(workspace) &&
     thread.archived !== true &&
     !isInternalTemporaryWorkspace(thread.workspace) &&
-    !isClawWorkspacePath(thread.workspace) &&
+    !isRemoteChannelWorkspacePath(thread.workspace) &&
     !isClawThread(thread, clawChannels) &&
     !isSddAssistantThread(thread) &&
     !isEmptySddAssistantThreadCandidate(thread)

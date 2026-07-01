@@ -142,7 +142,8 @@ describe('plan-store', () => {
     localStorage.setItem(PLAN_REGISTRY_STORAGE_KEY, JSON.stringify({
       activeByWorkspace: {
         '/TMP/VALID/': 'valid',
-        '/tmp/missing': 'missing'
+        '/tmp/missing': 'missing',
+        '/tmp/bad-path': 'bad-path'
       },
       activeByThread: {
         '/TMP/VALID::thread-a': 'valid',
@@ -162,6 +163,13 @@ describe('plan-store', () => {
           id: 'invalid',
           workspaceRoot: 42,
           relativePath: ''
+        },
+        badPath: {
+          id: 'bad-path',
+          workspaceRoot: '/tmp/bad-path',
+          relativePath: '.legacy/plan/draft.txt',
+          sourceRequest: 'bad',
+          createdAt: '2026-01-01T00:00:00.000Z'
         }
       }
     }))
@@ -173,6 +181,7 @@ describe('plan-store', () => {
       updatedAt: '2026-01-01T00:00:00.000Z'
     })
     expect(readRememberedGuiPlan('/tmp/missing')).toBeNull()
+    expect(readRememberedGuiPlan('/tmp/bad-path')).toBeNull()
     expect(readRememberedGuiPlan('/tmp/invalid', 'thread-b')).toBeNull()
     expect(readRememberedGuiPlan('/tmp/valid', 'thread-b')).toBeNull()
     expect(readRememberedGuiPlan('/tmp/other', 'thread-a')).toBeNull()

@@ -980,7 +980,7 @@ describe('FloatingComposer capability controls', () => {
     expect(html).toContain('/skill:openspec-apply-change')
   })
 
-  it('enables local Claw input when a WeChat channel is already mapped to a local thread', () => {
+  it('enables local remote-channel input when a WeChat channel is already mapped to a local thread', () => {
     useChatStore.setState({
       activeThreadId: 'thr_weixin',
       activeThreadGoal: null,

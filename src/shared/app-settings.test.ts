@@ -639,7 +639,7 @@ describe('claw settings', () => {
     expect('weixinBridgeUrl' in normalized.remoteChannel.im).toBe(false)
   })
 
-  it('preserves Codex-only Claw IM conversations without a legacy local runtime thread id', () => {
+  it('preserves Codex-only remote-channel conversations without a legacy local runtime thread id', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       remoteChannel: {
@@ -680,7 +680,7 @@ describe('claw settings', () => {
     expect(normalized.remoteChannel.channels[0]?.conversations[0]).not.toHaveProperty('localThreadId')
   })
 
-  it('preserves Claude Claw IM thread mappings', () => {
+  it('preserves Claude remote-channel thread mappings', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       remoteChannel: {
@@ -715,7 +715,7 @@ describe('claw settings', () => {
     })
   })
 
-  it('normalizes Claw IM channel guard mode with an only_mention default', () => {
+  it('normalizes remote-channel guard mode with an only_mention default', () => {
     const normalized = normalizeAppSettings({
       ...settings(),
       remoteChannel: {

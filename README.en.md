@@ -6,16 +6,16 @@
 
 [简体中文](./README.md) | English
 
-> Bring SciForge Runtime's high-token-ROI local agent runtime into a desktop workbench: **Code** for project work, **Write** for documents, and **Connect phone** for IM automation and scheduled tasks. Every token is steered toward requirements, code, decisions, and results.
+> SciForge is a local AI workbench for scientific research and complex engineering. It brings code, papers, scientific data, figures, writing, automation, evidence graphs, and multi-runtime agents into one desktop environment, with text, vision, and scientific multimodal capabilities governed by a unified Model Router.
 
 [Website](https://sciforge.ai) | [Download](https://sciforge.ai)
 
 [![GitHub release](https://img.shields.io/github/v/release/XingYu-Zhong/SciForge?label=github)](https://github.com/XingYu-Zhong/SciForge/releases)
 [![License](https://img.shields.io/github/license/XingYu-Zhong/SciForge)](./LICENSE)
 
-SciForge is a local desktop workbench for developers, frequent AI users, and scientific research workflows. It uses SciForge Runtime by default and lets users explicitly choose Codex app-server as a local agent runtime, turning the terminal agent experience into an easier, longer-lived app: choose a workspace, start a task, watch reasoning and tool calls stream in, review file changes, and approve sensitive actions when needed.
+SciForge is a local desktop workbench for researchers, developers, and teams working on long-lived scientific or engineering tasks. It uses SciForge Runtime by default and lets users explicitly choose Codex app-server as a local agent runtime, turning the terminal agent experience into an easier, longer-lived app: choose a workspace, start a task, watch reasoning and tool calls stream in, review file changes, and approve sensitive actions when needed.
 
-The goal is not to ship another chat wrapper. The goal is to make SciForge feel like a reliable desktop partner for real project work and scientific research. SciForge Runtime's core advantage is high token ROI: the same context budget spends less on repeated prefixes, giant tool catalogs, and runaway output, and more on the information that actually moves the task forward.
+The goal is not to ship another chat wrapper. SciForge is meant to be an auditable research-agent operating surface: model calls go through Model Router, agents work on real workspaces, research objects stay attached to evidence and artifacts, and long-running tasks can move from exploration to implementation to review. SciForge Runtime's high-token-ROI loop keeps the same context budget focused on requirements, code, decisions, and results instead of repeated prefixes, giant tool catalogs, or runaway output.
 
 ---
 
@@ -48,6 +48,7 @@ The result: SciForge Runtime is built for real project work with long tasks, lon
 - Graphical Skill and MCP management so users can extend the agent without hand-editing every config file.
 - Connect phone automation with Feishu / Lark / WeChat integration, dedicated IM agents, local webhook / relay support, and scheduled tasks.
 - A dedicated Write workbench with writing spaces, a Markdown file tree, live editing/preview, inline completion, and selection-based inline agent actions.
+- Research-native workers for scientific multimodal translation, Paper Radar, Evidence DAG, controlled plotting, and research search.
 - New requirement drafts, plans, thread todos, long-running goals, and code review so tasks can move from idea to execution to review.
 - Pre-built macOS, Windows, and Linux installers; source builds remain available.
 
@@ -65,6 +66,7 @@ The result: SciForge Runtime is built for real project work with long tasks, lon
 - **Managed runtime**: use the bundled SciForge Runtime by default, point the app at your own
   local runtime executable, or explicitly select Codex app-server as an optional runtime.
 - **Skill and MCP support**: create Skills, edit MCP config, add common tools, and open the related folders from the UI.
+- **Research search**: the `research_search` MCP worker supports arXiv, bioRxiv, Europe PMC, Semantic Scholar, and optional CNS web search.
 - **Feature-flagged agent extensions**: SciForge Runtime can enable MCP, web fetch/search, Skills, standalone CLI use, image attachments, cross-session memory, and delegated subagents by config; Settings shows the runtime-reported capability and diagnostics state.
 - **Connect phone**: run a background agent alongside normal chat, with current support for Feishu / Lark / WeChat, IM webhook / relay flows, and scheduled tasks.
 - **Scheduled tasks**: create one-time, daily, interval, or manual tasks with their own workspace, model, and reasoning effort so SciForge Runtime can run while the computer is awake.
@@ -216,6 +218,27 @@ Background automation and IM integration, so the active AgentRuntime can keep ha
   while other background runtime paths currently fail closed so Codex thread ids
   are not written into local runtime mappings. Native adapter support can enable Codex
   background execution later.
+
+### Worker And Plug-in Boundaries
+
+SciForge splits research capabilities into workers that can be started, tested,
+and audited independently:
+
+| Worker / plug-in | Role |
+| --- | --- |
+| `model-router` | Text model egress, vision input handling, scientific multimodal worker orchestration, and trace audit |
+| `sci-modality-router` | Protein, structure, small-molecule, and single-cell native-to-text translators |
+| `evidence-dag` | Claim-evidence DAG, NLI verification, PROV-JSON, and what-if reconcile |
+| `paper-radar` | GUI / MCP paper profile, sync, search, ranking, and digest worker; `paper-radar-service` remains the standalone/debug API and shared core dependency |
+| `search` | arXiv, bioRxiv, Europe PMC, Semantic Scholar, and optional CNS web search |
+| `scientific-plotting` | Reference figure preparation, style recognition, controlled plotting, scoring, and repair suggestions |
+| `image-generation` | Controlled image generation, Canvas review packet to edit intent, and artifact manifests |
+| `canvas` | Workspace-local canvas, artifact insertion, annotations, and review packets |
+| `ppt-master` | Research presentation output, figure intake, layout QA, and PPTX export |
+| `write-assist` | Writing retrieval, PDF text extraction, and bounded writing context |
+| `workflow` | Visual workflow execution and Agent-facing MCP facade |
+| `schedule` | Scheduled jobs, manual runs, and background Agent dispatch |
+| `workspace-intel` / `runtime-inspector` | Workspace understanding, runtime diagnostics, and project inspection |
 
 ---
 

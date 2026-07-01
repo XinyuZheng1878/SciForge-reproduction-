@@ -547,6 +547,7 @@ describe('AgentRuntimeHost', () => {
     adapter.auxiliary = adapterAuxiliary
     const contextState = new RuntimeContextStateService()
     const modelAudit = new ModelRequestAuditRecorder()
+    vi.spyOn(modelAudit, 'snapshot')
     const host = createAgentRuntimeHost({
       settings: async () => settings('codex'),
       adapters: [adapter],
@@ -581,6 +582,11 @@ describe('AgentRuntimeHost', () => {
       operation: 'listModelAuditRecords',
       payload: {}
     })).resolves.toEqual([])
+    expect(modelAudit.snapshot).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      threadId: undefined,
+      limit: undefined
+    })
   })
 
   it('exposes context ledger and handoff through the shared host contract', async () => {
@@ -2658,11 +2664,15 @@ describe('AgentRuntimeHost', () => {
       runtimeId: 'codex',
       operation: 'listGitCheckpoints',
       payload: {
-        runtimeId: 'codex',
         threadId: 'codex-thread',
         workspaceRoot: '/tmp/workspace'
       }
     })).resolves.toEqual([checkpoint])
+    expect(list).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      workspaceRoot: '/tmp/workspace'
+    })
     await expect(host.auxiliary({
       runtimeId: 'codex',
       operation: 'createGitCheckpoint',
