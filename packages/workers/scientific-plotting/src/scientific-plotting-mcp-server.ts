@@ -206,6 +206,7 @@ export async function runScientificPlottingMcpServerFromArgv(argv: string[]): Pr
       reviewReferencePath: z.string().trim().max(4096).optional(),
       figureId: z.string().trim().max(120).optional(),
       outputDir: z.string().trim().max(4096).optional(),
+      outputScale: z.number().min(1).max(4).optional(),
       canvasId: z.string().trim().max(120).optional(),
       threadId: z.string().trim().max(120).optional(),
       autoRepair: z.object({
@@ -230,6 +231,7 @@ export async function runScientificPlottingMcpServerFromArgv(argv: string[]): Pr
         ...(input.reviewReferencePath ? { reviewReferencePath: input.reviewReferencePath } : {}),
         ...(input.figureId ? { figureId: input.figureId } : {}),
         ...(input.outputDir ? { outputDir: input.outputDir } : {}),
+        ...(input.outputScale ? { outputScale: input.outputScale } : {}),
         ...(input.canvasId ? { canvasId: input.canvasId } : {}),
         ...(input.threadId ? { threadId: input.threadId } : {}),
         ...(input.autoRepair ? { autoRepair: input.autoRepair } : {})
@@ -267,6 +269,7 @@ export async function runScientificPlottingMcpServerFromArgv(argv: string[]): Pr
       referencePath: z.string().trim().max(4096).optional(),
       reviewReferencePath: z.string().trim().max(4096).optional(),
       outputDir: z.string().trim().max(4096).optional(),
+      outputScale: z.number().min(1).max(4).optional(),
       canvasId: z.string().trim().max(120).optional(),
       threadId: z.string().trim().max(120).optional(),
       autoRepair: z.object({
@@ -290,6 +293,7 @@ export async function runScientificPlottingMcpServerFromArgv(argv: string[]): Pr
         ...(input.referencePath ? { referencePath: input.referencePath } : {}),
         ...(input.reviewReferencePath ? { reviewReferencePath: input.reviewReferencePath } : {}),
         ...(input.outputDir ? { outputDir: input.outputDir } : {}),
+        ...(input.outputScale ? { outputScale: input.outputScale } : {}),
         ...(input.canvasId ? { canvasId: input.canvasId } : {}),
         ...(input.threadId ? { threadId: input.threadId } : {}),
         ...(input.autoRepair ? { autoRepair: input.autoRepair } : {})
@@ -335,6 +339,7 @@ export async function runScientificPlottingMcpServerFromArgv(argv: string[]): Pr
       styleProfileId: z.string().trim().max(160).optional(),
       figureId: z.string().trim().max(120).optional(),
       outputDir: z.string().trim().max(4096).optional(),
+      outputScale: z.number().min(1).max(4).optional(),
       canvasId: z.string().trim().max(120).optional(),
       threadId: z.string().trim().max(120).optional(),
       autoRepair: z.object({
@@ -359,6 +364,7 @@ export async function runScientificPlottingMcpServerFromArgv(argv: string[]): Pr
         ...(input.styleProfileId ? { styleProfileId: input.styleProfileId } : {}),
         ...(input.figureId ? { figureId: input.figureId } : {}),
         ...(input.outputDir ? { outputDir: input.outputDir } : {}),
+        ...(input.outputScale ? { outputScale: input.outputScale } : {}),
         ...(input.canvasId ? { canvasId: input.canvasId } : {}),
         ...(input.threadId ? { threadId: input.threadId } : {}),
         ...(input.autoRepair ? { autoRepair: input.autoRepair } : {}),

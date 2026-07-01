@@ -398,6 +398,12 @@ export type ScientificPlottingRenderRequest = {
   referencePath?: string
   reviewReferencePath?: string
   outputDir?: string
+  /**
+   * Multiplies the effective export DPI while preserving the same physical
+   * layout and typography. Use this for print-ready raster outputs when the
+   * default publication profile is visually correct but needs more pixels.
+   */
+  outputScale?: number
   canvasId?: string
   threadId?: string
   autoRepair?: ScientificPlottingAutoRepairOptions
@@ -426,6 +432,7 @@ export type ScientificPlottingDataMappingRequest = {
   reviewReferencePath?: string
   figureId?: string
   outputDir?: string
+  outputScale?: number
   canvasId?: string
   threadId?: string
   autoRepair?: ScientificPlottingAutoRepairOptions
@@ -673,6 +680,7 @@ export type ScientificPlottingManifest = {
   outputPath: string
   canvasId?: string
   threadId?: string
+  outputScale?: number
   artifactManifestPath?: string
   styleSpecPath?: string
   referencePath?: string
@@ -732,6 +740,7 @@ export type ScientificPlottingStyleTransferRequest = {
   styleProfileId?: string
   figureId?: string
   outputDir?: string
+  outputScale?: number
   canvasId?: string
   threadId?: string
   autoRepair?: ScientificPlottingAutoRepairOptions
@@ -746,6 +755,7 @@ export type ScientificPlottingStyleTransferManifest = {
   task: string
   canvasId?: string
   threadId?: string
+  outputScale?: number
   referenceImagePath?: string
   styleSpecPath?: string
   selectedTemplate?: ScientificPlottingTemplate

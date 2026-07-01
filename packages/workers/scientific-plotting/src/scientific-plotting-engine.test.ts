@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createCanvas } from '@napi-rs/canvas'
+import { createCanvas, loadImage } from '@napi-rs/canvas'
 import { describe, expect, it } from 'vitest'
 import type { FigureStyleSpec } from './types'
 import {
@@ -487,6 +487,43 @@ describe('scientific plotting engine', () => {
       expect(rendered).toMatchObject({ ok: true, status: 'rendered' })
       if (!rendered.ok) return
       expect((await stat(rendered.outputPath)).size).toBeGreaterThan(1000)
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  it('renders print-scale PNGs without changing the plotting data contract', async () => {
+    const status = await getScientificPlottingStatus()
+    if (!status.ok || !status.renderer.available) {
+      expect(status.ok && status.degraded).toBe(true)
+      return
+    }
+
+    const workspace = await tempWorkspace()
+    try {
+      const rendered = await renderScientificPlot({
+        workspaceRoot: workspace,
+        template: 'bar',
+        figureId: 'scaled-bar',
+        outputScale: 2,
+        styleProfileId: 'nature-publication-light',
+        labels: {
+          title: 'Scaled output',
+          x: 'Tier',
+          y: 'Count'
+        },
+        data: {
+          categories: ['Tier 0', 'Tier 1', 'Tier 2'],
+          series: [{ name: 'Gene count', values: [6, 4, 3] }]
+        }
+      })
+      expect(rendered).toMatchObject({ ok: true, status: 'rendered' })
+      if (!rendered.ok) return
+      const dimensions = await loadImage(rendered.outputPath)
+      expect(dimensions.width).toBeGreaterThanOrEqual(2400)
+      const manifest = JSON.parse(await readFile(rendered.manifestPath, 'utf8')) as { outputScale?: number; warnings?: string[] }
+      expect(manifest.outputScale).toBe(2)
+      expect(manifest.warnings?.join('\n')).toContain('outputScale=2')
     } finally {
       await rm(workspace, { recursive: true, force: true })
     }

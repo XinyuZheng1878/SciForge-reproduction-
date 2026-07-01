@@ -476,6 +476,7 @@ export async function mapScientificPlottingData(
       ...(request.referencePath ? { referencePath: request.referencePath } : {}),
       ...(request.reviewReferencePath ? { reviewReferencePath: request.reviewReferencePath } : {}),
       ...(request.outputDir ? { outputDir: request.outputDir } : {}),
+      ...(request.outputScale ? { outputScale: request.outputScale } : {}),
       ...(request.canvasId ? { canvasId: request.canvasId } : {}),
       ...(request.threadId ? { threadId: request.threadId } : {}),
       ...(request.autoRepair ? { autoRepair: request.autoRepair } : {})
@@ -660,6 +661,7 @@ export async function runScientificPlottingStyleTransfer(
       ...(referenceImagePath ? { referencePath: referenceImagePath, reviewReferencePath: referenceImagePath } : {}),
       figureId,
       outputDir,
+      ...(request.outputScale ? { outputScale: request.outputScale } : {}),
       ...(request.canvasId ? { canvasId: request.canvasId } : {}),
       ...(request.threadId ? { threadId: request.threadId } : {}),
       autoRepair: request.autoRepair ?? { enabled: true, maxAttempts: 1, minOverall: 0.82 }
@@ -682,6 +684,7 @@ export async function runScientificPlottingStyleTransfer(
       workspaceRoot,
       figureId,
       outputDir,
+      ...(request.outputScale ? { outputScale: request.outputScale } : {}),
       ...(referenceImagePath ? { referencePath: referenceImagePath, reviewReferencePath: referenceImagePath } : {}),
       autoRepair: request.autoRepair ?? mapping.renderRequest.autoRepair ?? { enabled: true, maxAttempts: 1, minOverall: 0.82 }
     })
@@ -739,6 +742,7 @@ export async function runScientificPlottingStyleTransfer(
       task,
       ...(request.canvasId ? { canvasId: request.canvasId } : {}),
       ...(request.threadId ? { threadId: request.threadId } : {}),
+      ...(request.outputScale ? { outputScale: normalizeOutputScale(request.outputScale) } : {}),
       ...(referenceImagePath ? { referenceImagePath } : {}),
       ...(effectiveStyleSpecPath ? { styleSpecPath: effectiveStyleSpecPath } : {}),
       selectedTemplate: mapping.selectedTemplate,
@@ -1039,7 +1043,14 @@ export async function renderScientificPlot(
       warnings.push('styleProfileId was ignored because explicit styleSpec/styleSpecPath was provided.')
     }
     const styleProfile = styleProfileForRender(request)
-    const styleSpec = await resolveRenderStyleSpec(request, workspaceRoot, styleProfile)
+    const outputScale = normalizeOutputScale(request.outputScale)
+    const styleSpec = scaleStyleSpecForOutput(
+      await resolveRenderStyleSpec(request, workspaceRoot, styleProfile),
+      outputScale
+    )
+    if (outputScale > 1) {
+      warnings.push(`outputScale=${outputScale} increased export DPI to ${styleSpec.export.dpi} for print-ready raster output.`)
+    }
     const referenceProfile = styleProfile?.referenceProfile ?? inferReferenceProfileFromStyle(styleSpec, {
       task: request.labels?.title
     })
@@ -1152,6 +1163,7 @@ export async function renderScientificPlot(
       outputPath: finalOutputPath,
       ...(request.canvasId ? { canvasId: request.canvasId } : {}),
       ...(request.threadId ? { threadId: request.threadId } : {}),
+      ...(outputScale > 1 ? { outputScale } : {}),
       ...(request.styleSpecPath ? { styleSpecPath: request.styleSpecPath } : {}),
       ...(referencePath ? { referencePath } : {}),
       attempts,
@@ -1370,6 +1382,7 @@ async function writeScientificPlottingArtifactManifest(input: {
     manifestPath: input.manifestPath,
     ...(input.request.canvasId ? { canvasId: input.request.canvasId } : {}),
     ...(input.request.threadId ? { threadId: input.request.threadId } : {}),
+    ...(input.request.outputScale ? { outputScale: normalizeOutputScale(input.request.outputScale) } : {}),
     ...(input.request.styleSpecPath ? { styleSpecPath: input.request.styleSpecPath } : {}),
     ...(input.request.referencePath || input.request.reviewReferencePath
       ? { referencePath: input.request.reviewReferencePath ?? input.request.referencePath }
@@ -1870,6 +1883,27 @@ async function resolveRenderStyleSpec(
   }
   if (styleProfile) return styleProfile.styleSpec
   return defaultFigureStyleSpec(request)
+}
+
+function normalizeOutputScale(outputScale: number | undefined): number {
+  if (outputScale === undefined) return 1
+  if (!Number.isFinite(outputScale) || outputScale < 1 || outputScale > 4) {
+    throw new Error('outputScale must be a finite number between 1 and 4.')
+  }
+  return Number(outputScale.toFixed(3))
+}
+
+function scaleStyleSpecForOutput(styleSpec: FigureStyleSpec, outputScale: number): FigureStyleSpec {
+  if (outputScale === 1) return styleSpec
+  const scaled = JSON.parse(JSON.stringify(styleSpec)) as FigureStyleSpec
+  const baseDpi = Number.isFinite(scaled.export.dpi) && scaled.export.dpi > 0
+    ? scaled.export.dpi
+    : 300
+  scaled.export = {
+    ...scaled.export,
+    dpi: Math.round(baseDpi * outputScale)
+  }
+  return scaled
 }
 
 function inferReferenceSourceType(
@@ -2948,6 +2982,7 @@ function validateRenderRequestShape(request: ScientificPlottingRenderRequest): v
   if (request.styleSpec && !isFigureStyleSpec(request.styleSpec)) {
     throw new Error('styleSpec must be a FigureStyleSpec v1 object.')
   }
+  normalizeOutputScale(request.outputScale)
 }
 
 function validateTemplateData(template: ScientificPlottingTemplate, data: unknown): void {
@@ -3867,6 +3902,7 @@ function hashRequest(request: ScientificPlottingRenderRequest): string {
     styleSpecPath: request.styleSpecPath,
     styleProfileId: request.styleProfileId,
     referencePath: request.referencePath ?? request.reviewReferencePath,
+    outputScale: request.outputScale,
     autoRepair: request.autoRepair
   })
 }
@@ -3895,6 +3931,7 @@ function hashStyleTransferRequest(request: ScientificPlottingStyleTransferReques
     styleProfileId: request.styleProfileId,
     figureId: request.figureId,
     outputDir: request.outputDir,
+    outputScale: request.outputScale,
     autoRepair: request.autoRepair,
     createReviewPacket: request.createReviewPacket,
     dataDigest: hashStableJson(request.data)
