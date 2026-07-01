@@ -275,7 +275,7 @@ describe('chat-store Claw actions helpers', () => {
     }, 'codex')).toBe('')
   })
 
-  it('recovers an unmapped Claw managed local runtime session before creating a new empty one', () => {
+  it('recovers an unmapped current remote-channel session before creating a new empty one', () => {
     const item = channel()
     const recovered = findRecoverableClawThread(
       [
@@ -288,6 +288,21 @@ describe('chat-store Claw actions helpers', () => {
     )
 
     expect(recovered?.id).toBe('old-content-thread')
+  })
+
+  it('does not recover unmapped sessions from legacy Claw titles', () => {
+    const item = channel()
+    const recovered = findRecoverableClawThread(
+      [
+        thread('legacy-claw-thread', '[Claw:Feishu Agent01]', '2026-06-01T00:03:00.000Z'),
+        thread('legacy-claw-im-thread', '[Claw IM:Feishu Agent01]', '2026-06-01T00:02:00.000Z')
+      ],
+      [item],
+      item,
+      'sciforge'
+    )
+
+    expect(recovered).toBeNull()
   })
 
   it('writes recovered provider thread ids to the single runtime mapping', () => {

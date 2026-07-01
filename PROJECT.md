@@ -68,6 +68,7 @@
 - [x] plan/todo merge 语义与 runtime 对齐：renderer 只继承已完成 todo，不再保留旧 `in_progress`；GUI plan registry key 导出并加防回归；GUI plan shared helper 与 runtime mirror 增加 parity guard。
 - [x] 删除 GUI shared 到 `kun/src/contracts/policy` 的 `runtime-policy.ts` thin wrapper，policy 字面量/default 改由 GUI shared 自有类型声明，`kun/src` import 边界白名单继续收紧。
 - [x] 删除旧 `~/.sciforge/claw` 作为内部 remote-channel workspace 的路径兼容；当前 `~/.sciforge/remote-channel` 仍作为内部路径处理，旧 claw 路径按普通 workspace 展示/保存。
+- [x] 删除 legacy Claw prompt/title 展示兼容：`[Claw managed instructions]`、`[Claw IM agent instructions]`、`Claw skill policy:`、无 canonical 空行分隔 inbound prompt、`[Claw:]` / `[Claw IM:]` 标题恢复均不再被当前 remote-channel 链路识别；只保留 `[Remote channel ...]` canonical 链路。
 
 ## 验证记录
 
@@ -124,6 +125,7 @@
 - [x] `npm --prefix kun test -- tests/builtin-tools.test.ts`
 - [x] `npm --prefix kun test`（53 files / 552 tests）
 - [x] `git diff --check`
+- [x] `npx vitest run src/shared/app-settings.test.ts src/renderer/src/components/chat/MessageTimeline.tool-summary.test.ts src/renderer/src/store/chat-store-helpers.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts`
 
 ## 已决策待实施
 
@@ -140,6 +142,7 @@
 - [ ] remote-channel IM command 边界：账户/连接/线程选择归 GUI；任务执行、计划、工具行为归 runtime/agent，避免新增并行控制链路。已删除 dead `ClawRuntime.runTask()`、stale Feishu mirror API 文档、dead `imCommandNotReadyText`，并补齐 remote-channel task IPC 测试和 public API 文档；仍需决策：IM 是否允许 `/model` / `/mode` 这类 runtime 行为命令；项目/thread 选择是否允许经 IM 发生；schedule/task 创建是否允许从 IM 自动触发。
 - [x] 删除 `vision-router-service`：Model Router 当前 `translators.vision` 已覆盖默认链路需要的 translate-only vision 能力，视觉输入会先经 vision translator 生成文本 evidence，再交给 text reasoner；已删除 standalone `plugins/vision-router-service` 及其文档/测试/notice 引用，默认链路不再保留第二条服务边界。后续如需要更强 retry/backoff/timeout，只在 Model Router `visionTranslator` provider call 内实现。
 - [ ] `gui-owl-computer-use` 暂停处理：保持 `gui-owl-computer-use` 与旧 `@sciforge/computer-use` 并存，不迁移、不删除，等待人工分别测试两套 computer-use 后再决策。
+- [ ] Agent Runtime thread/turn/session/interaction 操作跨 IPC/host 边界应显式携带 `runtimeId`，避免缺省回落到 active runtime。仍需决策：`AgentRuntimeAuxiliaryInput` 是否改成按 operation 区分的 discriminated union；thread-bound auxiliary 强制 `runtimeId`，`getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences` 等 active-scoped 能力继续允许省略。
 
 ## 待核对/拆解
 

@@ -20,10 +20,7 @@ export const CLAW_WEIXIN_INBOUND_MESSAGE_HEADING = '[WeChat inbound message]'
 export const SCHEDULE_CURRENT_USER_REQUEST_HEADING = '[Current scheduled task]'
 export const SCHEDULE_MANAGED_INSTRUCTIONS_HEADING = '[Schedule managed instructions]'
 
-const LEGACY_CLAW_MANAGED_INSTRUCTIONS_HEADING = '[Claw managed instructions]'
-const LEGACY_CLAW_IM_AGENT_INSTRUCTIONS_HEADING = '[Claw IM agent instructions]'
 const REMOTE_CHANNEL_SKILL_POLICY_PREFIX = 'Remote channel skill policy:'
-const LEGACY_CLAW_SKILL_POLICY_PREFIX = 'Claw skill policy:'
 
 const CLAW_IM_PROVIDER_DISPLAY_LABELS: Record<ClawImProvider, string> = {
   feishu: 'Feishu / Lark',
@@ -330,11 +327,8 @@ export function unwrapClawRuntimePromptForDisplay(text: string): string {
   const prefix = text.slice(0, markerIndex)
   const looksManaged =
     prefix.includes(CLAW_MANAGED_INSTRUCTIONS_HEADING) ||
-    prefix.includes(LEGACY_CLAW_MANAGED_INSTRUCTIONS_HEADING) ||
     prefix.includes(CLAW_IM_AGENT_INSTRUCTIONS_HEADING) ||
-    prefix.includes(LEGACY_CLAW_IM_AGENT_INSTRUCTIONS_HEADING) ||
     prefix.includes(REMOTE_CHANNEL_SKILL_POLICY_PREFIX) ||
-    prefix.includes(LEGACY_CLAW_SKILL_POLICY_PREFIX) ||
     prefix.includes('Additional local skill directories configured in the GUI:')
   if (!looksManaged) return text
   return text.slice(markerIndex + CLAW_CURRENT_USER_REQUEST_HEADING.length).trimStart()
@@ -355,21 +349,10 @@ export function parseClawUserPromptForDisplay(text: string): ClawUserPromptDispl
   }
   const splitIndex = unwrapped.indexOf('\n\n')
   if (splitIndex < 0) {
-    const legacy = parseLegacyClawInboundPromptWithoutSeparator(unwrapped)
-    if (legacy) {
-      return {
-        text: legacy.message,
-        managed,
-        inbound: true,
-        sourceLabel: inboundSource.sourceLabel,
-        ...parseClawInboundMetadata(legacy.header)
-      }
-    }
     return {
       text: unwrapped,
       managed,
-      inbound: true,
-      sourceLabel: inboundSource.sourceLabel
+      inbound: false
     }
   }
   const metadata = parseClawInboundMetadata(unwrapped.slice(0, splitIndex))
@@ -380,29 +363,6 @@ export function parseClawUserPromptForDisplay(text: string): ClawUserPromptDispl
     inbound: true,
     sourceLabel: inboundSource.sourceLabel,
     ...metadata
-  }
-}
-
-function parseLegacyClawInboundPromptWithoutSeparator(
-  text: string
-): { header: string; message: string } | null {
-  const lines = text.split('\n')
-  if (lines.length < 3) return null
-  let messageStart = -1
-  for (let index = 1; index < lines.length; index += 1) {
-    const line = lines[index].trim()
-    if (!line) continue
-    if (!line.includes(':')) {
-      messageStart = index
-      break
-    }
-  }
-  if (messageStart < 0) return null
-  const message = lines.slice(messageStart).join('\n').trim()
-  if (!message) return null
-  return {
-    header: lines.slice(0, messageStart).join('\n'),
-    message
   }
 }
 

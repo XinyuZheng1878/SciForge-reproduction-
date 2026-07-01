@@ -125,16 +125,9 @@ function clawChannelTitle(channel: ClawImChannelV1): string {
   return `[Remote channel:${channel.label}]`
 }
 
-function clawImChannelTitle(channel: ClawImChannelV1): string {
-  return `[Remote channel:${channel.label}]`
-}
-
 function titleMatchesClawChannel(thread: Pick<NormalizedThread, 'title'>, channel: ClawImChannelV1): boolean {
   const title = thread.title.trim()
-  return title.startsWith(clawChannelTitle(channel)) ||
-    title.startsWith(clawImChannelTitle(channel)) ||
-    title.startsWith(`[Claw:${channel.label}]`) ||
-    title.startsWith(`[Claw IM:${channel.label}]`)
+  return title.startsWith(clawChannelTitle(channel))
 }
 
 function updatedAtMs(thread: Pick<NormalizedThread, 'updatedAt'>): number {

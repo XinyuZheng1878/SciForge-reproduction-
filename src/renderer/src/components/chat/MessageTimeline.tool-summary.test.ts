@@ -672,13 +672,14 @@ describe('MessageTimeline local runtime metadata smoke', () => {
       'Guild: gzy的服务器',
       'Channel: #debug',
       'Sender: gzy',
+      '',
       '现在几点啦'
     ].join('\n')
     const block: ChatBlock = {
       kind: 'user',
       id: 'user_discord',
       text: [
-        '[Claw managed instructions]',
+        '[Remote channel managed instructions]',
         '',
         '---',
         '[Current user request]',
@@ -686,6 +687,7 @@ describe('MessageTimeline local runtime metadata smoke', () => {
         'Guild: gzy的服务器',
         'Channel: #debug',
         'Sender: gzy',
+        '',
         '现在几点啦'
       ].join('\n'),
       meta: { displayText }
@@ -698,6 +700,32 @@ describe('MessageTimeline local runtime metadata smoke', () => {
     expect(html).not.toContain('Discord inbound message')
     expect(html).not.toContain('gzy的服务器')
     expect(html).not.toContain('#debug')
+  })
+
+  it('does not collapse legacy Claw managed prompts', () => {
+    const block: ChatBlock = {
+      kind: 'user',
+      id: 'user_legacy_claw',
+      text: [
+        '[Claw managed instructions]',
+        '',
+        '---',
+        '[Current user request]',
+        '[Discord inbound message]',
+        'Guild: gzy的服务器',
+        'Channel: #debug',
+        'Sender: gzy',
+        '',
+        '现在几点啦'
+      ].join('\n')
+    }
+
+    const html = renderToStaticMarkup(createElement(MessageBubble, { block }))
+
+    expect(html).toContain('Claw managed instructions')
+    expect(html).toContain('Discord inbound message')
+    expect(html).toContain('gzy的服务器')
+    expect(html).toContain('#debug')
   })
 
   it('keeps remote-bound plain desktop messages as normal user content', () => {

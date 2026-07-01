@@ -1563,9 +1563,66 @@ describe('claw runtime prompts', () => {
     })
   })
 
-  it('parses Discord inbound prompts with the shared IM display logic', () => {
+  it('parses Discord inbound prompts with the current remote-channel display logic', () => {
     const parsed = parseClawUserPromptForDisplay([
+      '[Remote channel managed instructions]',
+      '',
+      '[Remote channel agent instructions]',
+      '',
+      '[Agent name]',
+      'discord agent',
+      '',
+      '---',
+      '[Current user request]',
+      '[Discord inbound message]',
+      'Guild: gzy的服务器',
+      'Channel: #debug',
+      'Sender: gzy',
+      '',
+      '你想我吗'
+    ].join('\n'))
+
+    expect(parsed).toMatchObject({
+      text: '你想我吗',
+      managed: true,
+      inbound: true,
+      sourceLabel: 'Discord',
+      sender: 'gzy'
+    })
+  })
+
+  it('does not unwrap legacy Claw managed prompt prefixes for display', () => {
+    const legacyPrefixes = [
       '[Claw managed instructions]',
+      '[Claw IM agent instructions]\n\n[Agent name]\nlegacy',
+      'Claw skill policy: prefer these configured skills when relevant: old-skill.'
+    ]
+
+    for (const prefix of legacyPrefixes) {
+      const prompt = [
+        prefix,
+        '',
+        '---',
+        '[Current user request]',
+        '[Discord inbound message]',
+        'Guild: gzy的服务器',
+        'Channel: #debug',
+        'Sender: gzy',
+        '',
+        '你想我吗'
+      ].join('\n')
+
+      expect(parseClawUserPromptForDisplay(prompt)).toEqual({
+        text: prompt,
+        managed: false,
+        inbound: false
+      })
+    }
+  })
+
+  it('does not parse inbound prompts that omit the canonical blank separator', () => {
+    const parsed = parseClawUserPromptForDisplay([
+      '[Remote channel managed instructions]',
       '',
       '---',
       '[Current user request]',
@@ -1576,12 +1633,16 @@ describe('claw runtime prompts', () => {
       '你想我吗'
     ].join('\n'))
 
-    expect(parsed).toMatchObject({
-      text: '你想我吗',
+    expect(parsed).toEqual({
+      text: [
+        '[Discord inbound message]',
+        'Guild: gzy的服务器',
+        'Channel: #debug',
+        'Sender: gzy',
+        '你想我吗'
+      ].join('\n'),
       managed: true,
-      inbound: true,
-      sourceLabel: 'Discord',
-      sender: 'gzy'
+      inbound: false
     })
   })
 })

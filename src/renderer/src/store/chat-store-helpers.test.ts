@@ -262,12 +262,13 @@ describe('chat-store Claw helpers', () => {
     expect(weixin.agentProfile.name).toBe('weixin agent')
   })
 
-  it('recognizes remote-channel prompt summaries and legacy Claw titles as managed sessions', () => {
+  it('recognizes current remote-channel summaries but not legacy Claw titles as managed sessions', () => {
     expect(
       clawThreadTitleLooksManaged(`${CLAW_MANAGED_INSTRUCTIONS_HEADING} SciForge scheduled-task tools`)
     ).toBe(true)
     expect(isClawThread({ id: 'remote-channel', title: '[Remote channel:Feishu Agent]' })).toBe(true)
-    expect(isClawThread({ id: 'kun-leaked', title: '[Claw:Feishu Agent]' })).toBe(true)
+    expect(isClawThread({ id: 'kun-leaked', title: '[Claw:Feishu Agent]' })).toBe(false)
+    expect(isClawThread({ id: 'kun-im-leaked', title: '[Claw IM:Feishu Agent]' })).toBe(false)
   })
 
   it('does not treat a normal desktop session as Claw-managed just because IM is bound to it', () => {

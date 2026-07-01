@@ -423,10 +423,7 @@ export function clawThreadTitleLooksManaged(title: string | undefined): boolean 
   const trimmed = title?.trim() ?? ''
   return trimmed.startsWith(CLAW_MANAGED_INSTRUCTIONS_HEADING) ||
     trimmed.startsWith('[Remote channel:') ||
-    trimmed.startsWith('[Remote channel]') ||
-    trimmed.startsWith('[Claw:') ||
-    trimmed.startsWith('[Claw IM:') ||
-    trimmed.startsWith('[Claw]')
+    trimmed.startsWith('[Remote channel]')
 }
 
 export function isClawThread(
