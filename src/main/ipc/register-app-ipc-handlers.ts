@@ -1059,24 +1059,6 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   )
 
   handleInvoke(
-    'remoteChannel:message:mirror-to-feishu',
-    async (_, payload: unknown) => {
-      const request = parseIpcPayload(
-        'remoteChannel:message:mirror-to-feishu',
-        remoteChannelMirrorPayloadSchema,
-        payload
-      )
-      const clawRuntime = getClawRuntime()
-      if (!clawRuntime) return { ok: false as const, message: 'Remote channel runtime is not initialized.' }
-      return clawRuntime.mirrorThreadMessageToIm(
-        request.threadId,
-        request.text,
-        request.direction
-      )
-    }
-  )
-
-  handleInvoke(
     'remoteChannel:task:create-from-text',
     async (_, payload: unknown): Promise<ScheduleTaskFromTextResult> => {
       const request = parseIpcPayload(

@@ -8,7 +8,7 @@ import {
   type CodexAppServerJsonRpcClientOptions,
   type CodexAppServerProcess,
   type SpawnCodexAppServerProcess
-} from './codex-app-server-client'
+} from './json-rpc-client'
 
 class FakeCodexProcess extends EventEmitter {
   readonly stdout = new PassThrough()

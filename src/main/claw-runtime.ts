@@ -2810,14 +2810,6 @@ export class ClawRuntime {
     }
   }
 
-  async mirrorThreadMessageToFeishu(
-    threadId: string,
-    text: string,
-    direction: 'user' | 'assistant'
-  ): Promise<{ ok: true } | { ok: false; message: string }> {
-    return this.mirrorThreadMessageToIm(threadId, text, direction)
-  }
-
   private async handleFeishuMessage(channelId: string, message: NormalizedMessage): Promise<void> {
     const bridge = this.feishuChannels.get(channelId)
     const settings = await this.deps.store.load()

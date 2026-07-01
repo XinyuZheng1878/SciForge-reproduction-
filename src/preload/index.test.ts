@@ -145,6 +145,7 @@ describe('preload agentRuntime bridge', () => {
     expect('onClawChannelActivity' in api).toBe(false)
     expect('updateClawActiveThreadContext' in api).toBe(false)
     expect('mirrorClawChannelMessage' in api).toBe(false)
+    expect(`mirrorRemoteChannelMessageTo${'Feishu'}` in api).toBe(false)
     expect('createClawTaskFromText' in api).toBe(false)
 
     await api.getConnectPhoneStatus()

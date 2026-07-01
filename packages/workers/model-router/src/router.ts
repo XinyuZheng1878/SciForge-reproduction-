@@ -132,7 +132,7 @@ const MIN_MULTIMODAL_TEXT_REASONER_MAX_TOKENS = 1024;
 
 type RecentProviderError = {
   code: string;
-  status: number;
+  status?: number;
   at: number;
   role?: ProviderCallRecord['role'];
 };
@@ -239,13 +239,13 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
         return sendJson(response, 200, { ok: true, service: 'sciforge.model-router', checkedAt: new Date().toISOString() });
       }
       if (request.method === 'GET' && url.pathname === '/healthz') {
-        const recentProviderAuth = recentProviderAuthError(recentRouterError);
-        const upstream = recentProviderAuth
-          ? recentProviderAuthDiagnostic(recentProviderAuth.status, recentProviderAuth.role)
+        const recentProviderDiagnostic = recentProviderErrorDiagnostic(recentRouterError);
+        const upstream = recentProviderDiagnostic
+          ? recentProviderDiagnostic
           : modelRouterHealthzUpstreamDiagnostic(options.config, env);
         const diagnostics = createModelRouterWorkerDiagnostics(
           upstream,
-          recentProviderAuth ? recentProviderAuth.code : undefined,
+          recentProviderDiagnostic ? upstream.category : undefined,
         );
         return sendJson(response, upstream.ok ? 200 : 503, {
           ok: upstream.ok,
@@ -418,24 +418,29 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
   });
 }
 
-function recentProviderAuthDiagnostic(
-  httpStatus: number,
-  role?: ProviderCallRecord['role'],
-): ModelRouterUpstreamDiagnostic {
+function recentProviderErrorDiagnostic(error: RecentProviderError | null): ModelRouterUpstreamDiagnostic | null {
+  if (!error) return null;
+  if (Date.now() - error.at > RECENT_PROVIDER_AUTH_ERROR_TTL_MS) return null;
+  const category = providerDiagnosticCategory(error.code, error.status);
+  if (!category) return null;
   return {
-    category: 'provider-auth',
+    category,
     ok: false,
-    retryable: false,
-    httpStatus,
-    ...(role ? { role } : {}),
+    retryable: category === 'provider-network' || category === 'provider-error',
+    ...(error.status ? { httpStatus: error.status } : {}),
+    ...(error.role ? { role: error.role } : {}),
     releaseAcceptance: 'not-evaluated',
   };
 }
 
-function recentProviderAuthError(error: RecentProviderError | null) {
-  if (!error) return null;
-  if (Date.now() - error.at > RECENT_PROVIDER_AUTH_ERROR_TTL_MS) return null;
-  if (/^provider_http_40[13]$/.test(error.code)) return error;
+function providerDiagnosticCategory(
+  code: string,
+  status?: number,
+): ModelRouterUpstreamDiagnostic['category'] | null {
+  if (/^provider_http_40[13]$/.test(code) || status === 401 || status === 403) return 'provider-auth';
+  if (/^provider_exception_(?:timeout|network|fetch_failed)/.test(code)) return 'provider-network';
+  if (code === 'provider_invalid_json' || code === 'provider_error_payload') return 'provider-bad-response';
+  if (code.startsWith('provider_http_') || code.startsWith('provider_exception_')) return 'provider-error';
   return null;
 }
 
@@ -1929,7 +1934,7 @@ async function callChatProvider(options: {
   } catch (error) {
     const errorSummary = providerExceptionSummary(error, 'fetch_failed');
     recordFailedProviderCall({ ...options, body }, Date.now() - startedAt, errorSummary);
-    throw routerError(500, 'provider_exception', `Provider request failed (${errorSummary}).`);
+    throw routerError(500, errorSummary, `Provider request failed (${errorSummary}).`);
   }
   const latencyMs = Date.now() - startedAt;
   if (!response.ok) {

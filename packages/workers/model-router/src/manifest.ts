@@ -41,9 +41,16 @@ export const MODEL_ROUTER_WORKER_CAPABILITIES = [
 export type ModelRouterWorkerTransport = typeof MODEL_ROUTER_WORKER_TRANSPORT;
 export type ModelRouterWorkerCapability = typeof MODEL_ROUTER_WORKER_CAPABILITIES[number];
 export type ModelRouterWorkerHealthStatus = 'healthy' | 'degraded' | 'unhealthy';
+export type ModelRouterUpstreamDiagnosticCategory =
+  | 'ready'
+  | 'repo-bug'
+  | 'provider-auth'
+  | 'provider-network'
+  | 'provider-bad-response'
+  | 'provider-error';
 
 export type ModelRouterUpstreamDiagnostic = {
-  category: 'ready' | 'repo-bug' | 'provider-auth';
+  category: ModelRouterUpstreamDiagnosticCategory;
   ok: boolean;
   retryable: boolean;
   httpStatus?: number;

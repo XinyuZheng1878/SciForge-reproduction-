@@ -217,11 +217,6 @@ function createApi(): SciForgeApi {
     invoke('remoteChannel:active-thread-context', payload)
   const mirrorRemoteChannelMessage: SciForgeApi['mirrorRemoteChannelMessage'] = (threadId, text, direction) =>
     invoke('remoteChannel:message:mirror', { threadId, text, direction })
-  const mirrorRemoteChannelMessageToFeishu: SciForgeApi['mirrorRemoteChannelMessageToFeishu'] = (
-    threadId,
-    text,
-    direction
-  ) => invoke('remoteChannel:message:mirror-to-feishu', { threadId, text, direction })
   const createRemoteChannelTaskFromText: SciForgeApi['createRemoteChannelTaskFromText'] = (text, options) =>
     invoke('remoteChannel:task:create-from-text', {
       text,
@@ -396,7 +391,6 @@ function createApi(): SciForgeApi {
     onRemoteChannelActivity,
     updateRemoteChannelActiveThreadContext,
     mirrorRemoteChannelMessage,
-    mirrorRemoteChannelMessageToFeishu,
     createRemoteChannelTaskFromText,
     createScheduleTaskFromText: (text, options) =>
       invoke('schedule:task:create-from-text', {

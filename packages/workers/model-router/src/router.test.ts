@@ -801,7 +801,7 @@ test('healthz reports recent provider auth failures after a routed request fails
       available: false,
       reason: 'provider-auth',
     });
-    assert.equal(body.recentError, 'provider_http_401');
+    assert.equal(body.recentError, 'provider-auth');
     assert.deepEqual(body.upstream, {
       category: 'provider-auth',
       ok: false,
@@ -810,6 +810,133 @@ test('healthz reports recent provider auth failures after a routed request fails
       releaseAcceptance: 'not-evaluated',
     });
     assert.doesNotMatch(serialized, forbiddenPublicSurfacePattern);
+  } finally {
+    await server.close();
+  }
+});
+
+test('healthz reports recent provider network failures after a routed request fails', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-healthz-network-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: async (url, init) => {
+      calls.push({
+        url: String(url),
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>,
+      });
+      throw new Error('network socket reset');
+    },
+  });
+
+  try {
+    const failed = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ model: 'sciforge-router', input: 'hello' }),
+    });
+    assert.equal(failed.status, 500);
+    const failedBody = await failed.json() as Record<string, { code?: string; message?: string }>;
+    assert.equal(failedBody.error?.code, 'provider_exception_network');
+
+    const response = await fetch(`${server.url}/healthz?check=upstream`);
+    assert.equal(response.status, 503);
+    const body = await response.json() as Record<string, unknown>;
+
+    assert.equal(body.recentError, 'provider-network');
+    assert.deepEqual(body.upstream, {
+      category: 'provider-network',
+      ok: false,
+      retryable: true,
+      httpStatus: 500,
+      releaseAcceptance: 'not-evaluated',
+    });
+    assert.doesNotMatch(JSON.stringify(body), forbiddenPublicSurfacePattern);
+  } finally {
+    await server.close();
+  }
+});
+
+test('healthz reports recent provider bad responses after invalid upstream JSON', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-healthz-bad-response-'));
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch([], [
+      new Response('not json', { status: 200 }),
+    ]),
+  });
+
+  try {
+    const failed = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ model: 'sciforge-router', input: 'hello' }),
+    });
+    assert.equal(failed.status, 500);
+    const failedBody = await failed.json() as Record<string, { code?: string }>;
+    assert.equal(failedBody.error?.code, 'provider_invalid_json');
+
+    const response = await fetch(`${server.url}/healthz?check=upstream`);
+    assert.equal(response.status, 503);
+    const body = await response.json() as Record<string, unknown>;
+
+    assert.equal(body.recentError, 'provider-bad-response');
+    assert.deepEqual(body.upstream, {
+      category: 'provider-bad-response',
+      ok: false,
+      retryable: false,
+      httpStatus: 500,
+      releaseAcceptance: 'not-evaluated',
+    });
+    assert.doesNotMatch(JSON.stringify(body), forbiddenPublicSurfacePattern);
+  } finally {
+    await server.close();
+  }
+});
+
+test('healthz reports recent provider errors after non-auth upstream HTTP failures', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-healthz-provider-error-'));
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch([], [
+      Response.json({ error: { message: 'temporary upstream failure with sk-should-not-leak' } }, { status: 500 }),
+    ]),
+  });
+
+  try {
+    const failed = await fetch(`${server.url}/v1/responses`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ model: 'sciforge-router', input: 'hello' }),
+    });
+    assert.equal(failed.status, 500);
+    const failedBody = await failed.json() as Record<string, { code?: string; message?: string }>;
+    assert.equal(failedBody.error?.code, 'provider_http_500');
+    assert.doesNotMatch(JSON.stringify(failedBody), /sk-should-not-leak/i);
+
+    const response = await fetch(`${server.url}/healthz?check=upstream`);
+    assert.equal(response.status, 503);
+    const body = await response.json() as Record<string, unknown>;
+
+    assert.equal(body.recentError, 'provider-error');
+    assert.deepEqual(body.upstream, {
+      category: 'provider-error',
+      ok: false,
+      retryable: true,
+      httpStatus: 500,
+      releaseAcceptance: 'not-evaluated',
+    });
+    assert.doesNotMatch(JSON.stringify(body), forbiddenPublicSurfacePattern);
   } finally {
     await server.close();
   }
@@ -3627,7 +3754,6 @@ test('text reasoner exceptions still write sanitized failure traces', async () =
     const traceText = await readTraceBundle(workspaceRoot);
     assert.match(traceText, /"phase":\s*"text-direct"/);
     assert.match(traceText, /"status":\s*"failed"/);
-    assert.match(traceText, /"errorSummary":\s*"provider_exception"/);
     assert.match(traceText, /"errorSummary":\s*"provider_exception_(?:fetch_failed|network)"/);
     assert.match(traceText, /"schemaVersion":\s*"sciforge\.model-router\.final-routing-summary\.v1"/);
     assert.doesNotMatch(traceText, /text-secret|raw-payload-private|Explain SciForge|text-provider|text-model/i);
@@ -3791,7 +3917,7 @@ test('vision translator auth failures are visible in healthz after text fallback
     const serialized = JSON.stringify(body);
 
     assert.equal(body.ok, false);
-    assert.equal(body.recentError, 'provider_http_401');
+    assert.equal(body.recentError, 'provider-auth');
     assert.deepEqual(body.upstream, {
       category: 'provider-auth',
       ok: false,

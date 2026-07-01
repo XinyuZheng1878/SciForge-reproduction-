@@ -114,6 +114,24 @@ function scanProductionDirectCallMarkers(): { files: string[]; hits: DirectCallH
   return { files, hits }
 }
 
+function scanProductionText(pattern: RegExp): DirectCallHit[] {
+  const { files } = scanProductionDirectCallMarkers()
+  return files.flatMap((file) => {
+    const absolutePath = join(repoRoot, file)
+    return readFileSync(absolutePath, 'utf8').split(/\r?\n/).flatMap((text, index) => {
+      const column = text.search(pattern)
+      if (column < 0) return []
+      return [{
+        file,
+        line: index + 1,
+        column: column + 1,
+        marker: pattern.source,
+        text: text.trim().replace(/\s+/g, ' ')
+      }]
+    })
+  })
+}
+
 function isAllowedBoundaryMarker(hit: DirectCallHit): boolean {
   if (hit.file === 'kun/src/adapters/model/model-error-probe.ts') {
     return hit.marker === 'DeepSeek API host' && hit.text.includes("host === 'api.deepseek.com'")
@@ -165,5 +183,11 @@ describe('P7/P8 model router API boundary enforcement', () => {
     const disallowedHits = hits.filter((hit) => !isAllowedBoundaryMarker(hit))
 
     expect(formatHits(disallowedHits)).toBe('')
+  })
+
+  it('keeps DeepseekCompatModelClient production construction behind the local Model Router runtime factory', () => {
+    const directConstructors = scanProductionText(/\bnew\s+DeepseekCompatModelClient\b/)
+
+    expect(directConstructors.map((hit) => hit.file)).toEqual(['kun/src/server/runtime-factory.ts'])
   })
 })

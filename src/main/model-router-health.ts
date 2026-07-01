@@ -5,6 +5,9 @@ export type ModelRouterHealthStatus =
   | 'not_configured'
   | 'unavailable'
   | 'provider_auth_blocked'
+  | 'provider_network'
+  | 'provider_bad_response'
+  | 'provider_error'
 
 export type ModelRouterHealthResult =
   | { ok: true; status: 'healthy'; message: string }
@@ -53,9 +56,7 @@ export async function checkModelRouterHealth(
     return {
       ok: false,
       status,
-      message: status === 'provider_auth_blocked'
-        ? 'Model Router provider credentials are unavailable or blocked'
-        : 'Model Router health check failed'
+      message: modelRouterHealthFailureMessage(status)
     }
   } catch {
     return {
@@ -72,10 +73,34 @@ export function modelRouterManagementUrl(baseUrl: string, path: string): string 
   return `${managementBase}${path.startsWith('/') ? path : `/${path}`}`
 }
 
+function modelRouterHealthFailureMessage(status: Exclude<ModelRouterHealthStatus, 'healthy' | 'not_configured'>): string {
+  switch (status) {
+    case 'provider_auth_blocked':
+      return 'Model Router provider credentials are unavailable or blocked'
+    case 'provider_network':
+      return 'Model Router provider network request failed or timed out'
+    case 'provider_bad_response':
+      return 'Model Router provider returned an invalid response'
+    case 'provider_error':
+      return 'Model Router provider returned an error'
+    case 'unavailable':
+      return 'Model Router health check failed'
+  }
+}
+
 function classifyHealthzFailure(status: number, body: string): Exclude<ModelRouterHealthStatus, 'healthy' | 'not_configured'> {
   if (status === 401 || status === 403) return 'provider_auth_blocked'
   if (/missing_secret|provider-auth|provider_auth|provider_http_40[13]|unauthenticated|unauthorized|forbidden/i.test(body)) {
     return 'provider_auth_blocked'
+  }
+  if (/provider-network|provider_network|provider_exception_(?:timeout|network|fetch_failed)|timeout|timed out|network/i.test(body)) {
+    return 'provider_network'
+  }
+  if (/provider-bad-response|provider_bad_response|provider_invalid_json|provider_error_payload|invalid response|non-json/i.test(body)) {
+    return 'provider_bad_response'
+  }
+  if (/provider-error|provider_error|provider_http_\d{3}|provider_exception_/i.test(body)) {
+    return 'provider_error'
   }
   return 'unavailable'
 }

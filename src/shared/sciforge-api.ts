@@ -728,11 +728,6 @@ export type SciForgeApi = {
     text: string,
     direction: 'user' | 'assistant'
   ) => Promise<RemoteChannelMirrorResult>
-  mirrorRemoteChannelMessageToFeishu: (
-    threadId: string,
-    text: string,
-    direction: 'user' | 'assistant'
-  ) => Promise<RemoteChannelMirrorResult>
   createRemoteChannelTaskFromText: (
     text: string,
     options?: { channelId?: string; modelHint?: string; mode?: 'agent' | 'plan' }

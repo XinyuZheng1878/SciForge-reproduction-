@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createCipheriv, createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises'
@@ -10,7 +10,7 @@ import {
   type ServerResponse
 } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
-import { dirname, join } from 'node:path'
+import { basename, dirname, extname, join } from 'node:path'
 import { DEFAULT_WEIXIN_BRIDGE_RPC_URL } from '../shared/app-settings'
 import { APP_WEBHOOK_SECRET_HEADER } from '../shared/app-brand'
 import { logError, logInfo, logWarn } from './logger'
@@ -31,12 +31,21 @@ const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000
 const DEFAULT_API_TIMEOUT_MS = 15_000
 const RETRY_DELAY_MS = 2_000
 const BACKOFF_DELAY_MS = 30_000
+const CDN_UPLOAD_MAX_RETRIES = 3
+const UploadMediaType = {
+  IMAGE: 1,
+  VIDEO: 2,
+  FILE: 3
+} as const
 const MessageType = {
   BOT: 2
 } as const
 const MessageItemType = {
   TEXT: 1,
-  VOICE: 3
+  IMAGE: 2,
+  VOICE: 3,
+  FILE: 4,
+  VIDEO: 5
 } as const
 const MessageState = {
   FINISH: 2
@@ -106,13 +115,15 @@ type WeixinMonitor = {
 
 type WeixinOutboundFile = { path: string; fileName: string }
 
-type SendWeixinMediaFile = (params: {
-  filePath: string
-  to: string
-  text: string
-  opts: { baseUrl: string; token?: string; timeoutMs?: number; contextToken?: string }
-  cdnBaseUrl: string
-}) => Promise<{ messageId: string }>
+type WeixinUploadedMedia = {
+  filekey: string
+  downloadEncryptedQueryParam: string
+  aeskey: string
+  fileSize: number
+  fileSizeCiphertext: number
+}
+
+type WeixinMediaItem = JsonRecord
 
 type WeixinSenderDispatchInput = {
   to: string
@@ -135,7 +146,6 @@ let packageInfoCache: WeixinPackageInfo | null = null
 const activeLogins = new Map<string, WeixinLoginSession>()
 const contextTokenStore = new Map<string, string>()
 const monitors = new Map<string, WeixinMonitor>()
-let sendWeixinMediaFilePromise: Promise<SendWeixinMediaFile> | null = null
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -785,18 +795,261 @@ function webhookGeneratedFiles(result: JsonRecord): WeixinOutboundFile[] {
   return files
 }
 
-function loadSendWeixinMediaFile(): Promise<SendWeixinMediaFile> {
-  sendWeixinMediaFilePromise ??= import('@tencent-weixin/openclaw-weixin/dist/src/messaging/send-media.js')
-    .then((mod) => {
-      const send = (mod as { sendWeixinMediaFile?: SendWeixinMediaFile }).sendWeixinMediaFile
-      if (!send) throw new Error('WeChat media sender is unavailable.')
-      return send
-    })
-    .catch((error) => {
-      sendWeixinMediaFilePromise = null
-      throw error
-    })
-  return sendWeixinMediaFilePromise
+const WEIXIN_EXTENSION_TO_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+  '.avi': 'video/x-msvideo'
+}
+
+function weixinMimeFromFilename(filePath: string): string {
+  return WEIXIN_EXTENSION_TO_MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream'
+}
+
+function aesEcbPaddedSize(plaintextSize: number): number {
+  return Math.ceil((plaintextSize + 1) / 16) * 16
+}
+
+function encryptAesEcb(plaintext: Buffer, key: Buffer): Buffer {
+  const cipher = createCipheriv('aes-128-ecb', key, null)
+  return Buffer.concat([cipher.update(plaintext), cipher.final()])
+}
+
+function buildCdnUploadUrl(cdnBaseUrl: string, uploadParam: string, filekey: string): string {
+  const baseUrl = cdnBaseUrl.endsWith('/') ? cdnBaseUrl.slice(0, -1) : cdnBaseUrl
+  return `${baseUrl}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(filekey)}`
+}
+
+async function readCdnUploadError(res: Response): Promise<string> {
+  const headerMessage = res.headers.get('x-error-message')
+  if (headerMessage) return headerMessage
+  return res.text().catch(() => res.statusText)
+}
+
+async function uploadBufferToWeixinCdn(params: {
+  buf: Buffer
+  uploadFullUrl?: string
+  uploadParam?: string
+  filekey: string
+  cdnBaseUrl: string
+  aeskey: Buffer
+  label: string
+}): Promise<string> {
+  const uploadFullUrl = params.uploadFullUrl?.trim()
+  const cdnUrl = uploadFullUrl
+    || (params.uploadParam ? buildCdnUploadUrl(params.cdnBaseUrl, params.uploadParam, params.filekey) : '')
+  if (!cdnUrl) {
+    throw new Error(`${params.label}: CDN upload URL missing (need upload_full_url or upload_param)`)
+  }
+
+  const ciphertext = encryptAesEcb(params.buf, params.aeskey)
+  let lastError: unknown
+  for (let attempt = 1; attempt <= CDN_UPLOAD_MAX_RETRIES; attempt += 1) {
+    try {
+      const res = await fetch(cdnUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: new Uint8Array(ciphertext)
+      })
+      if (res.status >= 400 && res.status < 500) {
+        throw new Error(`CDN upload client error ${res.status}: ${await readCdnUploadError(res)}`)
+      }
+      if (res.status !== 200) {
+        throw new Error(`CDN upload server error ${res.status}: ${await readCdnUploadError(res)}`)
+      }
+      const downloadParam = res.headers.get('x-encrypted-param') ?? ''
+      if (!downloadParam) throw new Error('CDN upload response missing x-encrypted-param header')
+      return downloadParam
+    } catch (error) {
+      lastError = error
+      if (error instanceof Error && error.message.includes('client error')) throw error
+      if (attempt < CDN_UPLOAD_MAX_RETRIES) {
+        logWarn('weixin-bridge', 'WeChat CDN upload failed; retrying.', {
+          attempt,
+          message: errorMessage(error)
+        })
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('CDN upload failed')
+}
+
+async function uploadWeixinMediaFile(params: {
+  filePath: string
+  to: string
+  baseUrl: string
+  token?: string
+  timeoutMs?: number
+  cdnBaseUrl: string
+  mediaType: (typeof UploadMediaType)[keyof typeof UploadMediaType]
+}): Promise<WeixinUploadedMedia> {
+  const plaintext = await readFile(params.filePath)
+  const rawsize = plaintext.length
+  const rawfilemd5 = createHash('md5').update(plaintext).digest('hex')
+  const filesize = aesEcbPaddedSize(rawsize)
+  const filekey = randomBytes(16).toString('hex')
+  const aeskey = randomBytes(16)
+  const uploadUrlResp = await apiPost(
+    params.baseUrl,
+    'ilink/bot/getuploadurl',
+    {
+      filekey,
+      media_type: params.mediaType,
+      to_user_id: params.to,
+      rawsize,
+      rawfilemd5,
+      filesize,
+      no_need_thumb: true,
+      aeskey: aeskey.toString('hex'),
+      base_info: buildBaseInfo()
+    },
+    {
+      token: params.token,
+      timeoutMs: params.timeoutMs ?? DEFAULT_API_TIMEOUT_MS,
+      label: 'getUploadUrl'
+    }
+  )
+  const uploadFullUrl = recordString(uploadUrlResp, 'upload_full_url')
+  const uploadParam = recordString(uploadUrlResp, 'upload_param')
+  if (!uploadFullUrl && !uploadParam) {
+    throw new Error('getUploadUrl returned no upload URL')
+  }
+  const downloadEncryptedQueryParam = await uploadBufferToWeixinCdn({
+    buf: plaintext,
+    uploadFullUrl: uploadFullUrl || undefined,
+    uploadParam: uploadParam || undefined,
+    filekey,
+    cdnBaseUrl: params.cdnBaseUrl,
+    aeskey,
+    label: 'uploadWeixinMediaFile'
+  })
+  return {
+    filekey,
+    downloadEncryptedQueryParam,
+    aeskey: aeskey.toString('hex'),
+    fileSize: rawsize,
+    fileSizeCiphertext: filesize
+  }
+}
+
+function mediaReference(uploaded: WeixinUploadedMedia): JsonRecord {
+  return {
+    encrypt_query_param: uploaded.downloadEncryptedQueryParam,
+    aes_key: Buffer.from(uploaded.aeskey, 'hex').toString('base64'),
+    encrypt_type: 1
+  }
+}
+
+function buildWeixinMediaItem(filePath: string, mime: string, uploaded: WeixinUploadedMedia): WeixinMediaItem {
+  const media = mediaReference(uploaded)
+  if (mime.startsWith('video/')) {
+    return {
+      type: MessageItemType.VIDEO,
+      video_item: {
+        media,
+        video_size: uploaded.fileSizeCiphertext
+      }
+    }
+  }
+  if (mime.startsWith('image/')) {
+    return {
+      type: MessageItemType.IMAGE,
+      image_item: {
+        media,
+        mid_size: uploaded.fileSizeCiphertext
+      }
+    }
+  }
+  return {
+    type: MessageItemType.FILE,
+    file_item: {
+      media,
+      file_name: basename(filePath),
+      len: String(uploaded.fileSize)
+    }
+  }
+}
+
+async function sendWeixinMediaItems(params: {
+  baseUrl: string
+  token?: string
+  timeoutMs?: number
+  to: string
+  text: string
+  mediaItem: WeixinMediaItem
+  contextToken?: string
+}): Promise<{ messageId: string }> {
+  const items: WeixinMediaItem[] = []
+  if (params.text) {
+    items.push({ type: MessageItemType.TEXT, text_item: { text: params.text } })
+  }
+  items.push(params.mediaItem)
+  let messageId = ''
+  for (const item of items) {
+    messageId = generateMessageId()
+    await apiPost(
+      params.baseUrl,
+      'ilink/bot/sendmessage',
+      {
+        msg: {
+          from_user_id: '',
+          to_user_id: params.to,
+          client_id: messageId,
+          message_type: MessageType.BOT,
+          message_state: MessageState.FINISH,
+          item_list: [item],
+          context_token: params.contextToken
+        },
+        base_info: buildBaseInfo()
+      },
+      {
+        token: params.token,
+        timeoutMs: params.timeoutMs ?? DEFAULT_API_TIMEOUT_MS,
+        label: 'sendMessage'
+      }
+    )
+  }
+  return { messageId }
+}
+
+async function sendWeixinMediaFile(params: {
+  filePath: string
+  to: string
+  text: string
+  opts: { baseUrl: string; token?: string; timeoutMs?: number; contextToken?: string }
+  cdnBaseUrl: string
+}): Promise<{ messageId: string }> {
+  const mime = weixinMimeFromFilename(params.filePath)
+  const mediaType = mime.startsWith('video/')
+    ? UploadMediaType.VIDEO
+    : mime.startsWith('image/')
+      ? UploadMediaType.IMAGE
+      : UploadMediaType.FILE
+  const uploaded = await uploadWeixinMediaFile({
+    filePath: params.filePath,
+    to: params.to,
+    baseUrl: params.opts.baseUrl,
+    token: params.opts.token,
+    timeoutMs: params.opts.timeoutMs,
+    cdnBaseUrl: params.cdnBaseUrl,
+    mediaType
+  })
+  return sendWeixinMediaItems({
+    baseUrl: params.opts.baseUrl,
+    token: params.opts.token,
+    timeoutMs: params.opts.timeoutMs,
+    to: params.to,
+    text: params.text,
+    mediaItem: buildWeixinMediaItem(params.filePath, mime, uploaded),
+    contextToken: params.opts.contextToken
+  })
 }
 
 async function sendGeneratedFilesWeixin(
@@ -807,7 +1060,6 @@ async function sendGeneratedFilesWeixin(
 ): Promise<void> {
   for (const file of files) {
     try {
-      const sendWeixinMediaFile = await loadSendWeixinMediaFile()
       await sendWeixinMediaFile({
         filePath: file.path,
         to,
@@ -1252,6 +1504,7 @@ export const weixinBridgeRuntimeInternals = {
   buildBaseInfo,
   enqueueWeixinSenderDispatch,
   postToSciForgeWebhook,
+  sendWeixinMediaFile,
   webhookGeneratedFiles,
   normalizeAccountId
 }

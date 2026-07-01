@@ -1703,7 +1703,6 @@ describe('ClawRuntime', () => {
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(current().remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'sciforge',
-      threadId: '',
       lastFailure: expect.objectContaining({
         provider: 'discord',
         message: 'model unavailable for workspace /tmp/workspace',
@@ -2969,7 +2968,6 @@ describe('ClawRuntime', () => {
     })
     expect(current().remoteChannel.channels[0]).toMatchObject({
       runtimeId: 'codex',
-      threadId: 'local-thread',
       agentThreadIds: {
         sciforge: 'local-thread',
         codex: 'codex-thread'
@@ -2980,7 +2978,6 @@ describe('ClawRuntime', () => {
       latestMessageId: 'wx_msg_1',
       senderId: 'wx_user_1',
       senderName: 'Alice',
-      localThreadId: '',
       runtimeId: 'codex',
       agentThreadIds: {
         codex: 'codex-thread'
@@ -4169,7 +4166,6 @@ describe('ClawRuntime', () => {
       id: 'conversation-1',
       latestMessageId: 'wx_msg_3',
       runtimeId: 'sciforge',
-      localThreadId: 'stale-kun-conversation-thread',
       agentThreadIds: {
         sciforge: 'stale-kun-conversation-thread'
       },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeCodexEvent } from './codex-event-normalizer'
+import { normalizeCodexEvent } from './event-normalizer'
 
 describe('normalizeCodexEvent', () => {
   it('maps agent message deltas without exposing raw JSON-RPC payloads', () => {

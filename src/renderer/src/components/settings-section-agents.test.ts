@@ -30,6 +30,9 @@ const labels: Record<string, string> = {
   modelRouterHealthHealthy: 'healthy',
   modelRouterHealthUnavailable: 'unavailable',
   modelRouterHealthProviderAuthBlocked: 'provider auth blocked',
+  modelRouterHealthProviderNetwork: 'provider network timeout',
+  modelRouterHealthProviderBadResponse: 'provider bad response',
+  modelRouterHealthProviderError: 'provider error',
   modelRouterHealthStatic: 'Health check is not connected yet.',
   modelRouterHealthMissing: 'Router settings are incomplete.',
   modelRouterBaseUrl: 'Local router base URL',
@@ -570,7 +573,10 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
     const cases = [
       ['healthy', 'healthy'],
       ['unavailable', 'unavailable'],
-      ['provider-auth blocked', 'provider auth blocked']
+      ['provider-auth blocked', 'provider auth blocked'],
+      ['provider_network', 'provider network timeout'],
+      ['provider-bad-response', 'provider bad response'],
+      ['provider_error', 'provider error']
     ] as const
 
     for (const [status, label] of cases) {

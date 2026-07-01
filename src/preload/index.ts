@@ -32,11 +32,6 @@ const mirrorRemoteChannelMessage = (
   text: string,
   direction: Parameters<SciForgeApi['mirrorRemoteChannelMessage']>[2]
 ) => ipcRenderer.invoke('remoteChannel:message:mirror', { threadId, text, direction })
-const mirrorRemoteChannelMessageToFeishu = (
-  threadId: string,
-  text: string,
-  direction: Parameters<SciForgeApi['mirrorRemoteChannelMessageToFeishu']>[2]
-) => ipcRenderer.invoke('remoteChannel:message:mirror-to-feishu', { threadId, text, direction })
 const createRemoteChannelTaskFromText = (
   text: string,
   options?: Parameters<SciForgeApi['createRemoteChannelTaskFromText']>[1]
@@ -293,7 +288,6 @@ const api = {
   onRemoteChannelActivity,
   updateRemoteChannelActiveThreadContext,
   mirrorRemoteChannelMessage,
-  mirrorRemoteChannelMessageToFeishu,
   createRemoteChannelTaskFromText,
   createScheduleTaskFromText: (text, options) =>
     ipcRenderer.invoke('schedule:task:create-from-text', {

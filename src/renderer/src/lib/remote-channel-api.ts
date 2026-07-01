@@ -32,12 +32,6 @@ export function mirrorRemoteChannelMessageApi(
   return api?.mirrorRemoteChannelMessage
 }
 
-export function mirrorRemoteChannelMessageToFeishuApi(
-  api: OptionalSciForgeApi
-): SciForgeApi['mirrorRemoteChannelMessageToFeishu'] | undefined {
-  return api?.mirrorRemoteChannelMessageToFeishu
-}
-
 export function createRemoteChannelTaskFromTextApi(
   api: OptionalSciForgeApi
 ): SciForgeApi['createRemoteChannelTaskFromText'] | undefined {

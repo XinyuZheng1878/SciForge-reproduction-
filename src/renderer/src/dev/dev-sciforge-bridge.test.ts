@@ -275,7 +275,9 @@ describe('dev sciforge browser bridge', () => {
     const { installDevSciForgeBridge } = await import('./dev-sciforge-bridge')
 
     installDevSciForgeBridge()
+    expect(`mirrorRemoteChannelMessageTo${'Feishu'}` in window.sciforge).toBe(false)
     await window.sciforge.startConnectPhoneInstallQr('feishu', { isLark: true })
+    await window.sciforge.mirrorRemoteChannelMessage('thread-1', 'hello', 'user')
     await window.sciforge.createRemoteChannelTaskFromText('schedule this', {
       channelId: 'channel-1',
       modelHint: 'auto',
@@ -300,6 +302,20 @@ describe('dev sciforge browser bridge', () => {
         body: JSON.stringify({
           channel: 'connectPhone:install:qrcode',
           payload: { provider: 'feishu', isLark: true }
+        })
+      })
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:5174/invoke',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          channel: 'remoteChannel:message:mirror',
+          payload: {
+            threadId: 'thread-1',
+            text: 'hello',
+            direction: 'user'
+          }
         })
       })
     )

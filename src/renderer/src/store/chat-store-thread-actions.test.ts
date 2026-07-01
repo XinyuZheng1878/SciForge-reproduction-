@@ -26,7 +26,7 @@ vi.mock('../agent/runtime-client', () => ({
 }))
 
 import { createThreadActions, publishActiveClawThreadContext } from './chat-store-thread-actions'
-import { clearPendingClawFeishuMirrors, takePendingClawFeishuMirror } from './chat-store-runtime'
+import { clearPendingRemoteChannelMirrors, takePendingRemoteChannelMirror } from './chat-store-runtime'
 import { composerReferenceFromWorkspaceReference } from '../lib/workspace-reference-composer'
 
 function thread(id: string): NormalizedThread {
@@ -104,7 +104,7 @@ describe('chat-store-thread-actions queued messages', () => {
       workspaceRoot: patch.workspaceRoot ?? '/workspace/sciforge',
       remoteChannel: defaultRemoteChannelSettings()
     }))
-    clearPendingClawFeishuMirrors()
+    clearPendingRemoteChannelMirrors()
     vi.stubGlobal('window', {
       sciforge: {
         logError: vi.fn(async () => undefined)
@@ -931,7 +931,7 @@ describe('chat-store-thread-actions queued messages', () => {
       'hello from desktop',
       'user'
     )
-    expect(takePendingClawFeishuMirror('turn-1')).toEqual({
+    expect(takePendingRemoteChannelMirror('turn-1')).toEqual({
       threadId: 'thr_existing',
       userBlockId: 'runtime-user-1',
       userText: 'hello from desktop'

@@ -199,6 +199,16 @@ describe('registerAppIpcHandlers', () => {
     vi.unstubAllGlobals()
   })
 
+  it('registers only canonical remote channel mirror IPC', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const removedFeishuMirrorChannel = `remoteChannel:message:mirror-to-${'feishu'}`
+
+    registerAppIpcHandlers(registerOptions())
+
+    expect(handlers.get('remoteChannel:message:mirror')).toBeTypeOf('function')
+    expect(handlers.has(removedFeishuMirrorChannel)).toBe(false)
+  })
+
   it('rejects invalid settings patches at the handler boundary', async () => {
     const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
     const applySettingsPatch = vi.fn(async () => settings())

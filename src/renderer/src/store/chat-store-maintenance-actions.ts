@@ -69,7 +69,7 @@ import {
   forkedTurnCount,
   isCodeThread,
   latestThread,
-  rememberPendingClawFeishuMirror,
+  rememberPendingRemoteChannelMirror,
   runtimeErrorDetail,
   runtimeStreamRecoveringMessage,
   shouldOpenSettingsForError,

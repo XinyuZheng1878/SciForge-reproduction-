@@ -90,7 +90,13 @@ function checkpointStatusPill(status: string | undefined): string {
   return 'border-red-300/50 bg-red-500/10 text-red-700 dark:text-red-200'
 }
 
-type ModelRouterHealthDisplayStatus = 'healthy' | 'unavailable' | 'provider_auth_blocked'
+type ModelRouterHealthDisplayStatus =
+  | 'healthy'
+  | 'unavailable'
+  | 'provider_auth_blocked'
+  | 'provider_network'
+  | 'provider_bad_response'
+  | 'provider_error'
 
 type ModelRouterHealthDisplay = {
   status: ModelRouterHealthDisplayStatus
@@ -102,14 +108,17 @@ type ModelRouterHealthDisplay = {
 const MODEL_ROUTER_HEALTH_LABEL_KEYS: Record<ModelRouterHealthDisplayStatus, string> = {
   healthy: 'modelRouterHealthHealthy',
   unavailable: 'modelRouterHealthUnavailable',
-  provider_auth_blocked: 'modelRouterHealthProviderAuthBlocked'
+  provider_auth_blocked: 'modelRouterHealthProviderAuthBlocked',
+  provider_network: 'modelRouterHealthProviderNetwork',
+  provider_bad_response: 'modelRouterHealthProviderBadResponse',
+  provider_error: 'modelRouterHealthProviderError'
 }
 
 function modelRouterHealthPill(status: ModelRouterHealthDisplayStatus): string {
   if (status === 'healthy') {
     return 'border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
   }
-  if (status === 'provider_auth_blocked') {
+  if (status === 'provider_auth_blocked' || status === 'provider_network') {
     return 'border-amber-300/60 bg-amber-500/10 text-amber-800 dark:border-amber-700/70 dark:text-amber-200'
   }
   return 'border-red-300/50 bg-red-500/10 text-red-700 dark:text-red-200'
@@ -118,6 +127,9 @@ function modelRouterHealthPill(status: ModelRouterHealthDisplayStatus): string {
 function normalizeModelRouterHealthStatus(status: unknown): ModelRouterHealthDisplayStatus | null {
   if (status === 'healthy') return 'healthy'
   if (status === 'provider_auth_blocked' || status === 'provider-auth blocked') return 'provider_auth_blocked'
+  if (status === 'provider_network' || status === 'provider-network') return 'provider_network'
+  if (status === 'provider_bad_response' || status === 'provider-bad-response') return 'provider_bad_response'
+  if (status === 'provider_error' || status === 'provider-error') return 'provider_error'
   if (status === 'unavailable' || status === 'not_configured') return 'unavailable'
   return null
 }

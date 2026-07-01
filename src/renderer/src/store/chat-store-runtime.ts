@@ -55,18 +55,18 @@ const RUNTIME_STREAM_RECOVERING_KEY = 'common:runtimeStreamRecovering'
 const LEGACY_RUNTIME_STREAM_RECOVERING_VALUE = 'runtimeStreamRecovering'
 const COMPLETION_NOTIFICATION_DEDUPE_LIMIT = 200
 export const MAX_WATCHED_COMPLETION_NOTIFICATIONS = 200
-export const MAX_PENDING_CLAW_FEISHU_MIRRORS = 50
+export const MAX_PENDING_REMOTE_CHANNEL_MIRRORS = 50
 const completionNotificationKeys: string[] = []
 const completionNotificationKeySet = new Set<string>()
 const watchCompletionNotificationKeys = new Map<string, string>()
 
-export type PendingClawFeishuMirror = {
+export type PendingRemoteChannelMirror = {
   threadId: string
   userBlockId: string
   userText: string
 }
 
-const pendingClawFeishuMirrors = new Map<string, PendingClawFeishuMirror>()
+const pendingRemoteChannelMirrors = new Map<string, PendingRemoteChannelMirror>()
 
 export function watchTurnCompletionNotification(threadId: string, now = Date.now()): void {
   const normalizedThreadId = threadId.trim()
@@ -93,9 +93,9 @@ export function clearWatchedCompletionNotifications(): void {
   watchCompletionNotificationKeys.clear()
 }
 
-export function rememberPendingClawFeishuMirror(
+export function rememberPendingRemoteChannelMirror(
   turnId: string,
-  mirror: PendingClawFeishuMirror
+  mirror: PendingRemoteChannelMirror
 ): void {
   const normalizedTurnId = turnId.trim()
   const normalizedMirror = {
@@ -111,27 +111,27 @@ export function rememberPendingClawFeishuMirror(
   ) {
     return
   }
-  pendingClawFeishuMirrors.delete(normalizedTurnId)
-  pendingClawFeishuMirrors.set(normalizedTurnId, normalizedMirror)
-  while (pendingClawFeishuMirrors.size > MAX_PENDING_CLAW_FEISHU_MIRRORS) {
-    const oldestTurnId = pendingClawFeishuMirrors.keys().next().value
+  pendingRemoteChannelMirrors.delete(normalizedTurnId)
+  pendingRemoteChannelMirrors.set(normalizedTurnId, normalizedMirror)
+  while (pendingRemoteChannelMirrors.size > MAX_PENDING_REMOTE_CHANNEL_MIRRORS) {
+    const oldestTurnId = pendingRemoteChannelMirrors.keys().next().value
     if (!oldestTurnId) break
-    pendingClawFeishuMirrors.delete(oldestTurnId)
+    pendingRemoteChannelMirrors.delete(oldestTurnId)
   }
 }
 
-export function takePendingClawFeishuMirror(
+export function takePendingRemoteChannelMirror(
   turnId: string | null | undefined
-): PendingClawFeishuMirror | undefined {
+): PendingRemoteChannelMirror | undefined {
   const normalizedTurnId = turnId?.trim()
   if (!normalizedTurnId) return undefined
-  const mirror = pendingClawFeishuMirrors.get(normalizedTurnId)
-  pendingClawFeishuMirrors.delete(normalizedTurnId)
+  const mirror = pendingRemoteChannelMirrors.get(normalizedTurnId)
+  pendingRemoteChannelMirrors.delete(normalizedTurnId)
   return mirror
 }
 
-export function clearPendingClawFeishuMirrors(): void {
-  pendingClawFeishuMirrors.clear()
+export function clearPendingRemoteChannelMirrors(): void {
+  pendingRemoteChannelMirrors.clear()
 }
 
 function isUserInputInterruptError(message: string | undefined): boolean {
@@ -740,7 +740,7 @@ export function buildThreadEventSink(
       ? `turn:${completedState.currentTurnId}`
       : `active:${completedThreadId ?? 'unknown'}:${completedState.lastSeq}`
     const completed = ev.state === 'completed'
-    const pendingMirror = takePendingClawFeishuMirror(completedTurnId)
+    const pendingMirror = takePendingRemoteChannelMirror(completedTurnId)
     const assistantMirrorText =
       completed && pendingMirror
         ? collectAssistantTextForTurn(
@@ -1339,7 +1339,7 @@ export function buildThreadEventSink(
       const state = get()
       const message = formatRuntimeError(err)
       const detail = runtimeErrorDetail(err)
-      takePendingClawFeishuMirror(state.currentTurnId)
+      takePendingRemoteChannelMirror(state.currentTurnId)
       set((s) => {
         const wasBusy = s.busy
         const out = flushLiveBlocks(s, {

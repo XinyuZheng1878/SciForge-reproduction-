@@ -34,6 +34,7 @@ describe('weixin bridge runtime', () => {
     stopWeixinBridgeRuntime()
     configureWeixinBridgeRuntimeContextProvider(null)
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     await rm(testWeixinStateDir, { recursive: true, force: true })
   })
 
@@ -221,6 +222,112 @@ describe('weixin bridge runtime', () => {
     expect(headersToRecord(init?.headers)).toEqual(expect.objectContaining({
       Authorization: 'Bearer per-account-token'
     }))
+  })
+
+  it('sends WeChat media without loading legacy openclaw.json config', async () => {
+    const legacyConfigPath = join(testWeixinStateDir, 'legacy-openclaw.json')
+    const mediaPath = join(testWeixinStateDir, 'generated.png')
+    await mkdir(testWeixinStateDir, { recursive: true })
+    await writeFile(legacyConfigPath, JSON.stringify({
+      channels: {
+        'openclaw-weixin': {
+          routeTag: 'legacy-route',
+          botAgent: 'LegacyApp/9.9'
+        }
+      }
+    }), 'utf8')
+    await writeFile(mediaPath, Buffer.from([1, 2, 3, 4]))
+    vi.stubEnv('OPENCLAW_CONFIG', legacyConfigPath)
+
+    const fetchMock = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      const urlString = String(url)
+      if (urlString === 'https://weixin.example/api/ilink/bot/getuploadurl') {
+        return new Response(JSON.stringify({ upload_param: 'cdn-upload-param' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+      if (urlString.startsWith('https://cdn.example/c2c/upload?')) {
+        return new Response('', {
+          status: 200,
+          headers: { 'x-encrypted-param': 'cdn-download-param' }
+        })
+      }
+      if (urlString === 'https://weixin.example/api/ilink/bot/sendmessage') {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+      throw new Error(`unexpected fetch: ${urlString}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(weixinBridgeRuntimeInternals.sendWeixinMediaFile({
+      filePath: mediaPath,
+      to: 'wx_user_1',
+      text: '',
+      opts: {
+        baseUrl: 'https://weixin.example/api/',
+        token: 'per-account-token',
+        contextToken: 'ctx-token'
+      },
+      cdnBaseUrl: 'https://cdn.example/c2c/'
+    })).resolves.toEqual({ messageId: expect.stringMatching(/^sciforge-weixin-/) })
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    const [getUploadUrl, getUploadInit] = fetchMock.mock.calls[0] ?? []
+    expect(String(getUploadUrl)).toBe('https://weixin.example/api/ilink/bot/getuploadurl')
+    expect(headersToRecord(getUploadInit?.headers)).toEqual(expect.objectContaining({
+      Authorization: 'Bearer per-account-token'
+    }))
+    expect(headersToRecord(getUploadInit?.headers)).not.toHaveProperty('SKRouteTag')
+    const getUploadBody = JSON.parse(String(getUploadInit?.body))
+    expect(getUploadBody).toMatchObject({
+      media_type: 1,
+      to_user_id: 'wx_user_1',
+      rawsize: 4,
+      filesize: 16,
+      no_need_thumb: true,
+      base_info: {
+        bot_agent: 'SciForge/0.2.0-test'
+      }
+    })
+    expect(getUploadBody.base_info.bot_agent).not.toBe('LegacyApp/9.9')
+
+    const [cdnUploadUrl] = fetchMock.mock.calls[1] ?? []
+    const cdnUrl = new URL(String(cdnUploadUrl))
+    expect(`${cdnUrl.origin}${cdnUrl.pathname}`).toBe('https://cdn.example/c2c/upload')
+    expect(cdnUrl.searchParams.get('encrypted_query_param')).toBe('cdn-upload-param')
+    expect(cdnUrl.searchParams.get('filekey')).toBe(getUploadBody.filekey)
+
+    const [sendMessageUrl, sendMessageInit] = fetchMock.mock.calls[2] ?? []
+    expect(String(sendMessageUrl)).toBe('https://weixin.example/api/ilink/bot/sendmessage')
+    expect(headersToRecord(sendMessageInit?.headers)).toEqual(expect.objectContaining({
+      Authorization: 'Bearer per-account-token'
+    }))
+    expect(headersToRecord(sendMessageInit?.headers)).not.toHaveProperty('SKRouteTag')
+    const sendMessageBody = JSON.parse(String(sendMessageInit?.body))
+    expect(sendMessageBody).toMatchObject({
+      base_info: {
+        bot_agent: 'SciForge/0.2.0-test'
+      },
+      msg: {
+        to_user_id: 'wx_user_1',
+        context_token: 'ctx-token',
+        item_list: [{
+          type: 2,
+          image_item: {
+            media: {
+              encrypt_query_param: 'cdn-download-param',
+              encrypt_type: 1
+            },
+            mid_size: 16
+          }
+        }]
+      }
+    })
+    expect(sendMessageBody.base_info.bot_agent).not.toBe('LegacyApp/9.9')
   })
 
   it('rejects oversized local RPC request bodies before dispatching', async () => {

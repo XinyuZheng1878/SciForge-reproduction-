@@ -114,4 +114,58 @@ describe('checkModelRouterHealth', () => {
     expect(result.ok).toBe(false)
     expect(result.status).toBe('provider_auth_blocked')
   })
+
+  it('maps provider network and timeout failures from healthz bodies', async () => {
+    const result = await checkModelRouterHealth(settings(), {
+      fetchImpl: async () => Response.json({
+        ok: false,
+        upstream: {
+          ok: false,
+          category: 'provider-network'
+        }
+      }, { status: 503 })
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'provider_network',
+      message: 'Model Router provider network request failed or timed out'
+    })
+  })
+
+  it('maps provider bad responses from healthz bodies', async () => {
+    const result = await checkModelRouterHealth(settings(), {
+      fetchImpl: async () => Response.json({
+        ok: false,
+        upstream: {
+          ok: false,
+          category: 'provider-bad-response'
+        }
+      }, { status: 503 })
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'provider_bad_response',
+      message: 'Model Router provider returned an invalid response'
+    })
+  })
+
+  it('maps generic provider errors from healthz bodies', async () => {
+    const result = await checkModelRouterHealth(settings(), {
+      fetchImpl: async () => Response.json({
+        ok: false,
+        upstream: {
+          ok: false,
+          category: 'provider-error'
+        }
+      }, { status: 503 })
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'provider_error',
+      message: 'Model Router provider returned an error'
+    })
+  })
 })

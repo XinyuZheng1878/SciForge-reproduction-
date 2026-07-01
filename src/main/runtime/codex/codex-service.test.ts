@@ -25,7 +25,7 @@ import {
   type CodexAppServerClientEvent,
   type CodexAppServerJsonRpcClient,
   type CodexAppServerJsonRpcClientOptions
-} from './codex-app-server-client'
+} from './app-server/json-rpc-client'
 import type {
   CodexAppServerPendingRequest,
   CodexAppServerPendingRequestRegistryOptions

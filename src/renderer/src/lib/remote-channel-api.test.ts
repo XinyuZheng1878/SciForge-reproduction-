@@ -3,14 +3,13 @@ import type { SciForgeApi } from '@shared/sciforge-api'
 import {
   createRemoteChannelTaskFromTextApi,
   mirrorRemoteChannelMessageApi,
-  mirrorRemoteChannelMessageToFeishuApi,
   onRemoteChannelActivityApi,
   pollConnectPhoneInstallApi,
   startConnectPhoneInstallQrApi,
   updateRemoteChannelActiveThreadContextApi
 } from './remote-channel-api'
 
-describe('remote-channel api aliases', () => {
+describe('remote-channel api selectors', () => {
   it('prefers neutral connect-phone and remote-channel APIs', () => {
     const api = {
       startConnectPhoneInstallQr: vi.fn(),
@@ -18,7 +17,6 @@ describe('remote-channel api aliases', () => {
       onRemoteChannelActivity: vi.fn(),
       updateRemoteChannelActiveThreadContext: vi.fn(),
       mirrorRemoteChannelMessage: vi.fn(),
-      mirrorRemoteChannelMessageToFeishu: vi.fn(),
       createRemoteChannelTaskFromText: vi.fn()
     } as unknown as SciForgeApi
 
@@ -27,7 +25,6 @@ describe('remote-channel api aliases', () => {
     expect(onRemoteChannelActivityApi(api)).toBe(api.onRemoteChannelActivity)
     expect(updateRemoteChannelActiveThreadContextApi(api)).toBe(api.updateRemoteChannelActiveThreadContext)
     expect(mirrorRemoteChannelMessageApi(api)).toBe(api.mirrorRemoteChannelMessage)
-    expect(mirrorRemoteChannelMessageToFeishuApi(api)).toBe(api.mirrorRemoteChannelMessageToFeishu)
     expect(createRemoteChannelTaskFromTextApi(api)).toBe(api.createRemoteChannelTaskFromText)
   })
 
@@ -39,7 +36,6 @@ describe('remote-channel api aliases', () => {
     expect(onRemoteChannelActivityApi(api)).toBeUndefined()
     expect(updateRemoteChannelActiveThreadContextApi(api)).toBeUndefined()
     expect(mirrorRemoteChannelMessageApi(api)).toBeUndefined()
-    expect(mirrorRemoteChannelMessageToFeishuApi(api)).toBeUndefined()
     expect(createRemoteChannelTaskFromTextApi(api)).toBeUndefined()
   })
 })

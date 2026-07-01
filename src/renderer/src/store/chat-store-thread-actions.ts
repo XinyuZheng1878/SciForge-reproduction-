@@ -76,7 +76,7 @@ import {
   forkedTurnCount,
   isCodeThread,
   latestThread,
-  rememberPendingClawFeishuMirror,
+  rememberPendingRemoteChannelMirror,
   runtimeErrorDetail,
   runtimeStreamRecoveringMessage,
   shouldOpenSettingsForError,
@@ -1011,7 +1011,7 @@ export function createThreadActions(
           'user'
         )
         if (userMirror.ok) {
-          rememberPendingClawFeishuMirror(turnId, {
+          rememberPendingRemoteChannelMirror(turnId, {
             threadId: activeThreadId,
             userBlockId: userMessageItemId ?? userBlockId,
             userText: messageText
