@@ -196,7 +196,7 @@ export function createNavigationActions(
       ? state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
       : null
     if (activeThread && isCodeThread(activeThread, state.clawChannels)) {
-      set({ route: 'chat', activeRemoteChannelId: null })
+      set({ route: 'chat', remoteGuardChannelId: null })
       if (stateHasRecoverableActiveTurn(state)) {
         await get().recoverActiveTurn()
       }
@@ -209,7 +209,7 @@ export function createNavigationActions(
       latestThread(codeThreads.filter((thread) => threadBelongsToWorkspace(thread, selectedWorkspace))) ??
       latestThread(codeThreads)
 
-    set({ route: 'chat', activeRemoteChannelId: null })
+    set({ route: 'chat', remoteGuardChannelId: null })
     if (target && state.runtimeConnection === 'ready') {
       await get().selectThread(target.id)
       return
@@ -226,7 +226,7 @@ export function createNavigationActions(
     set({
       ...clearedThreadSelection(),
       route: 'chat',
-      activeRemoteChannelId: null,
+      remoteGuardChannelId: null,
       watchTurnCompletion: nextWatch
     })
     syncTurnCompletionPoll(set, get)
@@ -330,7 +330,7 @@ export function createNavigationActions(
         }
         set({
           route: 'chat',
-          activeRemoteChannelId: null,
+          remoteGuardChannelId: null,
           initialSetupOpen: needsInitialSetup,
           initialSetupMode: 'required',
           workspaceRoot,
@@ -457,7 +457,7 @@ export function createNavigationActions(
               set({
                 ...clearedThreadSelection(),
                 route: 'chat',
-                activeRemoteChannelId: null,
+                remoteGuardChannelId: null,
                 watchTurnCompletion: nextWatch
               })
               syncTurnCompletionPoll(set, get)

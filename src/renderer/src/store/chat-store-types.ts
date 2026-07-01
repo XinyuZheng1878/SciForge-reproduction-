@@ -193,7 +193,7 @@ export type ChatState = {
   sidePanel: SidePanelState
   clawChannels: ClawImChannelV1[]
   activeClawChannelId: string
-  activeRemoteChannelId: string | null
+  remoteGuardChannelId: string | null
   remoteTargetId: string | null
   appendLocalClawTurn: (userText: string, replyText: string) => void
   setError: (message: string | null) => void

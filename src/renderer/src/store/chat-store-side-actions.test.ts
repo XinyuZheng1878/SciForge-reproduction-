@@ -175,7 +175,7 @@ function buildHarness(overrides: Partial<ChatState> = {}): Harness {
     sidePanel: { open: false, activeSideId: null },
     clawChannels: [],
     activeClawChannelId: '',
-    activeRemoteChannelId: null,
+    remoteGuardChannelId: null,
     appendLocalClawTurn: () => undefined,
     setError: () => undefined,
     setComposerModel: () => undefined,

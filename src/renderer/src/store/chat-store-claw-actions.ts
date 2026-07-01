@@ -340,7 +340,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
           activeClawChannelId: existing.id,
           ...(preserveRoute
             ? {}
-            : { route: 'chat' as const, activeRemoteChannelId: null, connectPhonePanelOpen: true })
+            : { route: 'chat' as const, remoteGuardChannelId: null, connectPhonePanelOpen: true })
         })
         if (!preserveRoute) await get().selectClawChannel(existing.id)
         return
@@ -379,7 +379,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         activeClawChannelId: nextChannel.id,
         ...(preserveRoute
           ? {}
-          : { route: 'chat' as const, activeRemoteChannelId: null, connectPhonePanelOpen: true })
+          : { route: 'chat' as const, remoteGuardChannelId: null, connectPhonePanelOpen: true })
       })
       if (!preserveRoute) await get().selectClawChannel(nextChannel.id)
     },
@@ -394,13 +394,13 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       const channels = settings.remoteChannel.channels
       const channel = channels.find((item) => item.id === channelId)
       if (!channel) {
-        set({ clawChannels: channels, activeClawChannelId: '', activeRemoteChannelId: null })
+        set({ clawChannels: channels, activeClawChannelId: '', remoteGuardChannelId: null })
         return
       }
       set({
         clawChannels: channels,
         activeClawChannelId: channel.id,
-        activeRemoteChannelId: null,
+        remoteGuardChannelId: null,
         composerModel: channel.model
       })
       const provider = getProvider()
@@ -442,7 +442,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
           }
           set({
             route: 'chat',
-            activeRemoteChannelId: null,
+            remoteGuardChannelId: null,
             activeClawChannelId: channel.id,
             composerModel: channel.model,
             error: null
@@ -488,7 +488,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
           : [createdThread ?? recoveredThread ?? placeholder, ...state.threads]
       }))
       await get().selectThread(threadId)
-      set({ route: 'chat', activeClawChannelId: channel.id, activeRemoteChannelId: null })
+      set({ route: 'chat', activeClawChannelId: channel.id, remoteGuardChannelId: null })
     },
 
     selectClawConversation: async (channelId, threadId) => {
@@ -516,7 +516,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       }
       set({
         route: 'chat',
-        activeRemoteChannelId: null,
+        remoteGuardChannelId: null,
         clawChannels: channels,
         activeClawChannelId: channel.id,
         composerModel: channel.model
@@ -575,7 +575,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         set({ clawChannels: saved.remoteChannel.channels })
       }
       await get().selectThread(targetThreadId)
-      set({ route: 'chat', activeClawChannelId: channel.id, activeRemoteChannelId: null })
+      set({ route: 'chat', activeClawChannelId: channel.id, remoteGuardChannelId: null })
     },
 
     deleteClawChannel: async (channelId) => {
@@ -588,7 +588,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       set({
         clawChannels: saved.remoteChannel.channels,
         activeClawChannelId: nextChannel?.id ?? '',
-        activeRemoteChannelId: get().activeRemoteChannelId === channelId ? null : get().activeRemoteChannelId
+        remoteGuardChannelId: get().remoteGuardChannelId === channelId ? null : get().remoteGuardChannelId
       })
       if (channel && get().runtimeConnection === 'ready') {
         const provider = getProvider()
@@ -647,7 +647,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         set((state) => ({
           route: 'chat',
           activeClawChannelId: channel.id,
-          activeRemoteChannelId: null,
+          remoteGuardChannelId: null,
           clawChannels: saved.remoteChannel.channels,
           threads: state.threads.some((item) => item.id === thread.id)
             ? state.threads

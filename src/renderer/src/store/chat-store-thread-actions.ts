@@ -369,7 +369,7 @@ export function createThreadActions(
       set((s) => ({
         ...clearedThreadSelection(),
         route: 'chat',
-        activeRemoteChannelId: null,
+        remoteGuardChannelId: null,
         workspaceRoot,
         workspaceLabel: workspaceLabelFromPath(workspaceRoot),
         codeWorkspaceRoots: rememberCodeWorkspaceRoots(s.codeWorkspaceRoots, [workspaceRoot]),
@@ -514,7 +514,7 @@ export function createThreadActions(
         watchTurnCompletion: nextWatch,
         unreadThreadIds: nextUnread,
         activeThreadId: id,
-        activeRemoteChannelId: null,
+        remoteGuardChannelId: null,
         activeThreadGoal: goal ?? null,
         activeThreadTodos: todos ?? null,
         activeThreadContextState: contextState,

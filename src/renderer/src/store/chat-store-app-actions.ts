@@ -113,13 +113,13 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
 
     setRoute: (route) => set({
       route,
-      ...(route === 'chat' ? {} : { activeRemoteChannelId: null, connectPhonePanelOpen: false })
+      ...(route === 'chat' ? {} : { remoteGuardChannelId: null, connectPhonePanelOpen: false })
     }),
 
     openSettings: (section: SettingsRouteSection = 'general') =>
       set((state) => ({
         route: 'settings',
-        activeRemoteChannelId: null,
+        remoteGuardChannelId: null,
         connectPhonePanelOpen: false,
         settingsSection: section,
         settingsReturnRoute: state.route === 'settings' ? state.settingsReturnRoute : state.route
@@ -128,27 +128,27 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
     openPlugins: (host?: PluginHostRoute) =>
       set((state) => ({
         route: 'plugins',
-        activeRemoteChannelId: null,
+        remoteGuardChannelId: null,
         connectPhonePanelOpen: false,
         pluginHostRoute: host ?? 'chat'
       })),
 
     openConnectPhone: () => {
-      set({ route: 'chat', activeRemoteChannelId: null, connectPhonePanelOpen: true })
+      set({ route: 'chat', remoteGuardChannelId: null, connectPhonePanelOpen: true })
       void get().refreshClawChannels()
     },
 
     setConnectPhonePanelOpen: (open) => set({
       connectPhonePanelOpen: open,
-      ...(open ? { route: 'chat' as const, activeRemoteChannelId: null } : {})
+      ...(open ? { route: 'chat' as const, remoteGuardChannelId: null } : {})
     }),
 
     openSchedule: () => {
-      set({ route: 'schedule', activeRemoteChannelId: null, connectPhonePanelOpen: false })
+      set({ route: 'schedule', remoteGuardChannelId: null, connectPhonePanelOpen: false })
     },
 
     openWorkflow: () => {
-      set({ route: 'workflow', activeRemoteChannelId: null, connectPhonePanelOpen: false })
+      set({ route: 'workflow', remoteGuardChannelId: null, connectPhonePanelOpen: false })
     },
 
     selectRemoteGuardChannel: (channelId) => {
@@ -156,14 +156,14 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
       if (!channel) return
       set({
         route: 'chat',
-        activeRemoteChannelId: channel.id,
+        remoteGuardChannelId: channel.id,
         connectPhonePanelOpen: false,
         activeClawChannelId: channel.id,
         error: null
       })
     },
 
-    clearRemoteGuardChannel: () => set({ activeRemoteChannelId: null }),
+    clearRemoteGuardChannel: () => set({ remoteGuardChannelId: null }),
 
     openInitialSetup: (mode: InitialSetupMode = 'required') =>
       set({ initialSetupOpen: true, initialSetupMode: mode }),

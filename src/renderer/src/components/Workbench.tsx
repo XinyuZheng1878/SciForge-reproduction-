@@ -544,7 +544,7 @@ export function Workbench(): ReactElement {
     chooseWorkspace,
     clawChannels,
     activeClawChannelId,
-    activeRemoteChannelId,
+    remoteGuardChannelId,
     remoteTargetId,
     selectClawChannel,
     resetClawChannelSession,
@@ -608,7 +608,7 @@ export function Workbench(): ReactElement {
       chooseWorkspace: s.chooseWorkspace,
       clawChannels: s.clawChannels,
       activeClawChannelId: s.activeClawChannelId,
-      activeRemoteChannelId: s.activeRemoteChannelId,
+      remoteGuardChannelId: s.remoteGuardChannelId,
       remoteTargetId: s.remoteTargetId,
       selectClawChannel: s.selectClawChannel,
       resetClawChannelSession: s.resetClawChannelSession,
@@ -714,11 +714,11 @@ export function Workbench(): ReactElement {
     () => clawChannels.find((channel) => channel.id === activeClawChannelId) ?? null,
     [activeClawChannelId, clawChannels]
   )
-  const activeRemoteChannel = useMemo(
-    () => activeRemoteChannelId
-      ? clawChannels.find((channel) => channel.id === activeRemoteChannelId) ?? null
+  const remoteGuardChannel = useMemo(
+    () => remoteGuardChannelId
+      ? clawChannels.find((channel) => channel.id === remoteGuardChannelId) ?? null
       : null,
-    [activeRemoteChannelId, clawChannels]
+    [remoteGuardChannelId, clawChannels]
   )
   const activeThread = useMemo(
     () => threads.find((thread) => thread.id === activeThreadId) ?? null,
@@ -2431,12 +2431,12 @@ export function Workbench(): ReactElement {
                       ariaLabel={t('sidebarExpand')}
                     />
                   ) : null}
-                  {activeRemoteChannel ? (
-                    <RemoteGuardSessionHeader channel={activeRemoteChannel} />
+                  {remoteGuardChannel ? (
+                    <RemoteGuardSessionHeader channel={remoteGuardChannel} />
                   ) : (
                     <SessionHeader compact className="min-w-0 flex-1" />
                   )}
-                  {!activeRemoteChannel && activeRemoteBinding && activeRemoteStatusKind ? (
+                  {!remoteGuardChannel && activeRemoteBinding && activeRemoteStatusKind ? (
                     <ActiveRemoteBindingDetails
                       binding={activeRemoteBinding}
                       statusKind={activeRemoteStatusKind}
@@ -2446,7 +2446,7 @@ export function Workbench(): ReactElement {
                   ) : null}
                 </div>
                 <div className="chat-topbar-actions flex min-w-0 flex-wrap items-center justify-end gap-2 self-start">
-                  {!activeRemoteChannel ? <ThreadTargetSelector /> : null}
+                  {!remoteGuardChannel ? <ThreadTargetSelector /> : null}
                   {busy ? (
                     <span className="inline-flex shrink-0 rounded-full bg-amber-500/16 px-2.5 py-1 text-[11.5px] font-semibold text-amber-950 dark:text-amber-100">
                       {t('running')}
@@ -2475,9 +2475,9 @@ export function Workbench(): ReactElement {
                 </div>
               </div>
             </header>
-            {activeRemoteChannel ? (
+            {remoteGuardChannel ? (
               <RemoteGuardDetailView
-                channel={activeRemoteChannel}
+                channel={remoteGuardChannel}
                 onOpenThread={openThread}
                 onOpenSettings={openConnectPhone}
                 t={t}

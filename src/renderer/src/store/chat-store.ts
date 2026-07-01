@@ -148,7 +148,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sidePanel: { open: false, activeSideId: null },
   clawChannels: [],
   activeClawChannelId: '',
-  activeRemoteChannelId: null,
+  remoteGuardChannelId: null,
   remoteTargetId: null,
   setRemoteTargetId: (targetId) => set({ remoteTargetId: targetId?.trim() || null }),
 

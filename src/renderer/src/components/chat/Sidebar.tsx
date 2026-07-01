@@ -95,7 +95,7 @@ export function Sidebar({
   const queuedMessages = useChatStore((s) => s.queuedMessages)
   const clawChannels = useChatStore((s) => s.clawChannels)
   const activeClawChannelId = useChatStore((s) => s.activeClawChannelId)
-  const activeRemoteChannelId = useChatStore((s) => s.activeRemoteChannelId)
+  const remoteGuardChannelId = useChatStore((s) => s.remoteGuardChannelId)
   const selectRemoteGuardChannel = useChatStore((s) => s.selectRemoteGuardChannel)
   const addClawChannel = useChatStore((s) => s.addClawChannel)
   const deleteClawChannel = useChatStore((s) => s.deleteClawChannel)
@@ -224,7 +224,7 @@ export function Sidebar({
       <>
       <SidebarRemoteChannelSection
         channels={clawChannels}
-        activeChannelId={activeRemoteChannelId ?? ''}
+        activeChannelId={remoteGuardChannelId ?? ''}
         runtimeReady={runtimeReady}
         onSelectChannel={selectRemoteGuardChannel}
         t={t}

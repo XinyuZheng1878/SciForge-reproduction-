@@ -57,7 +57,7 @@ function buildHarness(initialState: Partial<ChatState> = {}): {
     connectPhonePanelOpen: false,
     activeThreadId: 'desktop-thread',
     activeClawChannelId: '',
-    activeRemoteChannelId: null,
+    remoteGuardChannelId: null,
     clawChannels: [channel('discord-channel')],
     refreshClawChannels: vi.fn(async () => undefined),
     refreshThreads: vi.fn(async () => undefined),
@@ -98,14 +98,14 @@ describe('chat-store app actions', () => {
     actions.selectRemoteGuardChannel('discord-channel')
 
     expect(state.route).toBe('chat')
-    expect(state.activeRemoteChannelId).toBe('discord-channel')
+    expect(state.remoteGuardChannelId).toBe('discord-channel')
     expect(state.activeClawChannelId).toBe('discord-channel')
     expect(state.activeThreadId).toBe('desktop-thread')
   })
 
   it('ignores missing remote guard entries without clearing the current detail', () => {
     const { actions, state } = buildHarness({
-      activeRemoteChannelId: 'discord-channel',
+      remoteGuardChannelId: 'discord-channel',
       activeClawChannelId: 'discord-channel',
       activeThreadId: 'desktop-thread'
     })
@@ -113,25 +113,25 @@ describe('chat-store app actions', () => {
     actions.selectRemoteGuardChannel('missing-channel')
 
     expect(state.route).toBe('chat')
-    expect(state.activeRemoteChannelId).toBe('discord-channel')
+    expect(state.remoteGuardChannelId).toBe('discord-channel')
     expect(state.activeClawChannelId).toBe('discord-channel')
     expect(state.activeThreadId).toBe('desktop-thread')
   })
 
   it('clears the remote guard detail when leaving chat', () => {
     const { actions, state } = buildHarness({
-      activeRemoteChannelId: 'discord-channel'
+      remoteGuardChannelId: 'discord-channel'
     })
 
     actions.openSchedule()
 
     expect(state.route).toBe('schedule')
-    expect(state.activeRemoteChannelId).toBeNull()
+    expect(state.remoteGuardChannelId).toBeNull()
   })
 
   it('keeps remote bindings stable across refresh and app section navigation', async () => {
     const { actions, state } = buildHarness({
-      activeRemoteChannelId: 'discord-channel',
+      remoteGuardChannelId: 'discord-channel',
       activeClawChannelId: 'discord-channel',
       activeThreadId: 'codex-thread',
       runtimeConnection: 'ready'
@@ -180,14 +180,14 @@ describe('chat-store app actions', () => {
   it('opens Connect phone as a chat route panel', () => {
     const { actions, state } = buildHarness({
       route: 'schedule',
-      activeRemoteChannelId: 'discord-channel',
+      remoteGuardChannelId: 'discord-channel',
       connectPhonePanelOpen: false
     })
 
     actions.openConnectPhone()
 
     expect(state.route).toBe('chat')
-    expect(state.activeRemoteChannelId).toBeNull()
+    expect(state.remoteGuardChannelId).toBeNull()
     expect(state.connectPhonePanelOpen).toBe(true)
     expect(state.refreshClawChannels).toHaveBeenCalledTimes(1)
   })

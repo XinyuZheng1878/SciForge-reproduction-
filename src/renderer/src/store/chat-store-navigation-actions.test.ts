@@ -281,7 +281,7 @@ describe('chat-store-navigation-actions chooseWorkspace', () => {
     }))
     const state = {
       activeThreadId: 'old-thread',
-      activeRemoteChannelId: null,
+      remoteGuardChannelId: null,
       blocks: [],
       busy: false,
       clawChannels: [],
