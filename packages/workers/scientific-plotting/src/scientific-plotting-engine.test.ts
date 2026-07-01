@@ -661,6 +661,29 @@ describe('scientific plotting engine', () => {
       if (!histogram.ok) return
       expect((await stat(histogram.outputPath)).size).toBeGreaterThan(1000)
 
+      const heatmapWithAliasLabels = await renderScientificPlot({
+        workspaceRoot: workspace,
+        template: 'heatmap',
+        figureId: 'heatmap-alias-labels-smoke',
+        labels: {
+          title: 'Structure evidence',
+          x: 'Evidence dimension',
+          y: 'Gene target'
+        },
+        data: {
+          matrix: [
+            [1, 0.9, 0.7],
+            [0.8, 0.65, 0.5]
+          ],
+          rowLabels: ['STRA8', 'MEIOSIN'],
+          colLabels: ['AF2 monomer', 'Disorder', 'PAE matrix']
+        }
+      })
+      expect(heatmapWithAliasLabels).toMatchObject({ ok: true, status: 'rendered' })
+      if (!heatmapWithAliasLabels.ok) return
+      expect((await stat(heatmapWithAliasLabels.outputPath)).size).toBeGreaterThan(1000)
+      expect(heatmapWithAliasLabels.attempts[0]?.rendererDiagnostics?.categoryLabelRotation).toBeGreaterThan(0)
+
       const multiPanel = await renderScientificPlot({
         workspaceRoot: workspace,
         template: 'multi-panel',

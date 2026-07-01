@@ -4420,10 +4420,16 @@ elif template == "heatmap":
     else:
         cmap = data.get("cmap") or "cividis"
     im = ax.imshow(matrix, aspect="auto", cmap=cmap)
-    if data.get("xLabels"):
-        ax.set_xticks(list(range(len(data.get("xLabels")))), data.get("xLabels"), rotation=45, ha="right")
-    if data.get("yLabels"):
-        ax.set_yticks(list(range(len(data.get("yLabels")))), data.get("yLabels"))
+    x_labels = data.get("xLabels") or data.get("colLabels") or data.get("columnLabels") or data.get("columns")
+    y_labels = data.get("yLabels") or data.get("rowLabels") or data.get("row_labels") or data.get("targets")
+    if x_labels:
+        x_labels = [str(value) for value in x_labels]
+        rotation = 36 if max([len(value) for value in x_labels] or [0]) > 6 or len(x_labels) > 4 else 0
+        ax.set_xticks(list(range(len(x_labels))), x_labels, rotation=rotation, ha="right" if rotation else "center")
+        renderer_diagnostics["categoryLabelRotation"] = rotation
+    if y_labels:
+        y_labels = [str(value) for value in y_labels]
+        ax.set_yticks(list(range(len(y_labels))), y_labels)
     set_common_labels(ax)
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cbar.ax.tick_params(labelsize=mpl.rcParams.get("xtick.labelsize", 7))
@@ -4435,10 +4441,16 @@ elif template == "attention-map":
     else:
         cmap = data.get("cmap") or "magma"
     im = ax.imshow(matrix, aspect="auto", cmap=cmap, interpolation="nearest")
-    if data.get("xLabels"):
-        ax.set_xticks(list(range(len(data.get("xLabels")))), data.get("xLabels"), rotation=45, ha="right")
-    if data.get("yLabels"):
-        ax.set_yticks(list(range(len(data.get("yLabels")))), data.get("yLabels"))
+    x_labels = data.get("xLabels") or data.get("colLabels") or data.get("columnLabels") or data.get("columns")
+    y_labels = data.get("yLabels") or data.get("rowLabels") or data.get("row_labels") or data.get("targets")
+    if x_labels:
+        x_labels = [str(value) for value in x_labels]
+        rotation = 36 if max([len(value) for value in x_labels] or [0]) > 6 or len(x_labels) > 4 else 0
+        ax.set_xticks(list(range(len(x_labels))), x_labels, rotation=rotation, ha="right" if rotation else "center")
+        renderer_diagnostics["categoryLabelRotation"] = rotation
+    if y_labels:
+        y_labels = [str(value) for value in y_labels]
+        ax.set_yticks(list(range(len(y_labels))), y_labels)
     for spine in ax.spines.values():
         spine.set_visible(False)
     ax.tick_params(length=2.5, width=0.7)
@@ -4556,12 +4568,17 @@ elif template == "multi-panel":
             image = axis.imshow(panel_data.get("matrix") or [], aspect="auto", cmap=cmap, interpolation="nearest")
             if panel_template == "heatmap" and panel_data.get("colorbar", False):
                 fig.colorbar(image, ax=axis, fraction=0.046, pad=0.035)
-            if panel_data.get("xLabels"):
-                axis.set_xticks(list(range(len(panel_data.get("xLabels")))), panel_data.get("xLabels"), rotation=45, ha="right")
+            panel_x_labels = panel_data.get("xLabels") or panel_data.get("colLabels") or panel_data.get("columnLabels") or panel_data.get("columns")
+            panel_y_labels = panel_data.get("yLabels") or panel_data.get("rowLabels") or panel_data.get("row_labels") or panel_data.get("targets")
+            if panel_x_labels:
+                panel_x_labels = [str(value) for value in panel_x_labels]
+                rotation = 36 if max([len(value) for value in panel_x_labels] or [0]) > 6 or len(panel_x_labels) > 4 else 0
+                axis.set_xticks(list(range(len(panel_x_labels))), panel_x_labels, rotation=rotation, ha="right" if rotation else "center")
             else:
                 axis.set_xticks([])
-            if panel_data.get("yLabels"):
-                axis.set_yticks(list(range(len(panel_data.get("yLabels")))), panel_data.get("yLabels"))
+            if panel_y_labels:
+                panel_y_labels = [str(value) for value in panel_y_labels]
+                axis.set_yticks(list(range(len(panel_y_labels))), panel_y_labels)
             else:
                 axis.set_yticks([])
             axis.grid(False)
