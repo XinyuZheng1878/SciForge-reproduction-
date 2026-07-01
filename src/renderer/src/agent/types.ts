@@ -424,6 +424,12 @@ export type TurnLifecycleEventPayload = {
   createdAt?: string
 }
 
+export type ThreadLifecycleEventPayload = {
+  threadId: string
+  state: 'created' | 'updated' | 'archived'
+  createdAt?: string
+}
+
 export type ChildEventPayload = {
   threadId: string
   turnId?: string
@@ -481,6 +487,7 @@ export type ThreadEventSink = {
   onUserInputStatus(ev: UserInputStatusPayload): void
   onRuntimeStatus?(ev: RuntimeStatusEventPayload): void
   onRuntimeError?(ev: RuntimeErrorEventPayload): void
+  onThreadLifecycle?(ev: ThreadLifecycleEventPayload): void
   onTurnLifecycle?(ev: TurnLifecycleEventPayload): void
   onChild?(ev: ChildEventPayload): void
   onGoal(ev: { threadId: string; goal: ThreadGoal | null; cleared?: boolean; createdAt?: string }): void

@@ -670,7 +670,127 @@ async function routeImageGenerationRequest(
   if (!isRecord(payload)) {
     throw routerError(500, 'provider_invalid_json', 'Provider returned an invalid image generation response.', 'imageGenerator');
   }
-  return payload as JsonObject;
+  const jsonPayload = jsonValueField(payload);
+  if (!isRecord(jsonPayload)) {
+    throw routerError(500, 'provider_invalid_json', 'Provider returned an invalid image generation response.', 'imageGenerator');
+  }
+  return await normalizeImageGenerationPayload(jsonPayload as JsonObject, context.fetchImpl);
+}
+
+async function normalizeImageGenerationPayload(
+  payload: JsonObject,
+  fetchImpl: typeof fetch,
+): Promise<JsonObject> {
+  const data = Array.isArray(payload.data) ? payload.data : undefined;
+  if (!data) return payload;
+  const normalizedData = await Promise.all(data.map((item) => normalizeImageGenerationItem(item, fetchImpl)));
+  return {
+    ...payload,
+    data: normalizedData,
+  };
+}
+
+async function normalizeImageGenerationItem(item: unknown, fetchImpl: typeof fetch): Promise<JsonObject> {
+  const record = isRecord(item) ? item : {};
+  const b64Json = stringField(record.b64_json);
+  if (b64Json) {
+    const { url: _url, image_url: _imageUrl, image: _image, ...rest } = record;
+    return { ...jsonObjectFromRecord(rest), b64_json: b64Json };
+  }
+  const dataUri = imageDataUriFromProviderItem(record) ?? imageDataUriFromProviderItem(item);
+  if (dataUri) {
+    const { url: _url, image_url: _imageUrl, image: _image, ...rest } = record;
+    return {
+      ...jsonObjectFromRecord(rest),
+      b64_json: dataUri.base64,
+      mime_type: stringField(rest.mime_type) ?? dataUri.mime,
+    };
+  }
+  const imageUrl = providerImageUrlFromItem(record);
+  if (!imageUrl) return jsonObjectFromRecord(record);
+  const downloaded = await fetchProviderImageUrl(imageUrl, fetchImpl);
+  const { url: _url, image_url: _imageUrl, image: _image, ...rest } = record;
+  return {
+    ...jsonObjectFromRecord(rest),
+    b64_json: downloaded.base64,
+    mime_type: stringField(rest.mime_type) ?? downloaded.mime,
+  };
+}
+
+function jsonObjectFromRecord(record: Record<string, unknown>): JsonObject {
+  const json = jsonValueField(record);
+  return isRecord(json) ? json as JsonObject : {};
+}
+
+function providerImageUrlFromItem(record: Record<string, unknown>): string | undefined {
+  const imageUrl = isRecord(record.image_url) ? record.image_url : {};
+  const image = isRecord(record.image) ? record.image : {};
+  const url = stringField(record.url)
+    ?? stringField(imageUrl.url)
+    ?? stringField(image.url);
+  if (!url) return undefined;
+  const parsed = safeParsedUrl(url);
+  if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) return undefined;
+  return parsed.toString();
+}
+
+function safeParsedUrl(value: string): URL | undefined {
+  try {
+    return new URL(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function imageDataUriFromProviderItem(value: unknown): { mime: string; base64: string } | undefined {
+  if (typeof value === 'string') return parseImageDataUri(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = imageDataUriFromProviderItem(item);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (!isRecord(value)) return undefined;
+  for (const item of Object.values(value)) {
+    const found = imageDataUriFromProviderItem(item);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function parseImageDataUri(value: string): { mime: string; base64: string } | undefined {
+  const match = value.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=]+)$/i);
+  return match ? { mime: match[1].toLowerCase(), base64: match[2] } : undefined;
+}
+
+async function fetchProviderImageUrl(url: string, fetchImpl: typeof fetch): Promise<{ mime: string; base64: string }> {
+  let response: Response;
+  try {
+    response = await fetchImpl(url);
+  } catch (error) {
+    const errorSummary = providerExceptionSummary(error, 'image_url_fetch_failed');
+    throw routerError(502, errorSummary, `Provider image URL fetch failed (${errorSummary}).`, 'imageGenerator');
+  }
+  if (!response.ok) {
+    throw routerError(502, `provider_image_url_http_${response.status}`, 'Provider image URL fetch failed.', 'imageGenerator');
+  }
+  const mime = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? '';
+  if (!mime.startsWith('image/')) {
+    throw routerError(502, 'provider_image_url_not_image', 'Provider image URL did not return an image.', 'imageGenerator');
+  }
+  const contentLength = Number(response.headers.get('content-length') ?? '0');
+  if (Number.isFinite(contentLength) && contentLength > MAX_TRANSIENT_PROVIDER_IMAGE_BYTES) {
+    throw routerError(502, 'provider_image_url_too_large', 'Provider image URL exceeded the image size limit.', 'imageGenerator');
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.byteLength <= 0) {
+    throw routerError(502, 'provider_image_url_empty', 'Provider image URL returned an empty image.', 'imageGenerator');
+  }
+  if (bytes.byteLength > MAX_TRANSIENT_PROVIDER_IMAGE_BYTES) {
+    throw routerError(502, 'provider_image_url_too_large', 'Provider image URL exceeded the image size limit.', 'imageGenerator');
+  }
+  return { mime, base64: bytes.toString('base64') };
 }
 
 async function routeResponsesRequest(

@@ -43,6 +43,7 @@ import { isEmptySddAssistantThreadCandidate, isSddAssistantThread } from '../sdd
 import {
   armBusyWatchdog as armBusyWatchdogImpl,
   clearBusyWatchdog,
+  requestRuntimeThreadRefresh,
   resetBusyRecoveryAttempts,
   syncTurnCompletionPoll as syncTurnCompletionPollImpl
 } from './chat-store-schedulers'
@@ -801,7 +802,7 @@ export function buildThreadEventSink(
     }
     if (completed) notifyTurnComplete(completedThreadId, completedState, completedKey)
     syncTurnCompletionPoll(set, get)
-    void get().refreshThreads()
+    requestRuntimeThreadRefresh(get)
     void get().drainQueuedMessages()
   }
 
@@ -1272,8 +1273,13 @@ export function buildThreadEventSink(
         }
       })
     },
+    onThreadLifecycle: () => {
+      if (!isCurrentStream()) return
+      requestRuntimeThreadRefresh(get)
+    },
     onTurnLifecycle: (ev) => {
       if (!isCurrentStream()) return
+      requestRuntimeThreadRefresh(get)
       if (isAgentRuntimeTerminalTurnState(ev.state)) {
         settleTerminalTurn(ev)
         return

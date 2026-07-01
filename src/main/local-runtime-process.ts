@@ -9,7 +9,6 @@ import {
   defaultLocalRuntimeTokenEconomySettings,
   DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   isLocalRuntimeInsecure,
-  isComputerUseEnabledForRuntime,
   normalizeAgentCapabilitySettings,
   normalizeRuntimeGuardSettings,
   type AgentCapabilitySettingsV1,
@@ -44,7 +43,6 @@ import {
 } from './schedule-mcp-config'
 import { internalSecretEnv } from './internal-http-secret'
 import type { ResearchSearchMcpLaunchConfig } from './research-search-mcp-config'
-import type { ComputerUseMcpLaunchConfig } from './computer-use-mcp-config'
 import {
   GUI_WORKFLOW_INTERNAL_SECRET_ENV,
   type WorkflowMcpLaunchConfig
@@ -417,21 +415,6 @@ async function startLocalRuntimeChildOnce(
         execPath: process.execPath,
         isPackaged: app.isPackaged
       }
-    },
-    computerUseMcp: {
-      launch: {
-        appPath: app.getAppPath(),
-        execPath: process.execPath,
-        isPackaged: app.isPackaged
-      },
-      // Env-gated conflict guard: an allowed SCIFORGE_CUA_SERVICE_URL means the
-      // GUI-Owl sidecar is advertising its own local `computer_use` tool, so do
-      // not enable the GUI-managed @sciforge/computer-use MCP for this runtime.
-      // Invalid or unallowlisted URLs fail closed and do not disable the
-      // managed isolated MCP fallback.
-      enabled:
-        isComputerUseEnabledForRuntime(settings, 'sciforge') &&
-        !externalComputerUseServiceUrlPolicy(process.env).allowed
     }
   })
   lastResolvedBinary = resolution.command === process.execPath
@@ -567,10 +550,6 @@ export async function syncGuiManagedLocalRuntimeConfig(
       settings: AppSettingsV1
       launch: RuntimeInspectorMcpLaunchConfig
     }
-    computerUseMcp?: {
-      launch: ComputerUseMcpLaunchConfig
-      enabled?: boolean
-    }
     scientificSkillsMcp?: {
       settings: AppSettingsV1
       launch: ScientificSkillsMcpLaunchConfig
@@ -630,7 +609,6 @@ export async function syncGuiManagedLocalRuntimeConfig(
     paperRadarMcp: options?.paperRadarMcp,
     writeAssistMcp: options?.writeAssistMcp,
     runtimeInspectorMcp: options?.runtimeInspectorMcp,
-    computerUseMcp: options?.computerUseMcp,
     scientificSkillsMcp: options?.scientificSkillsMcp,
     scientificPlottingMcp: options?.scientificPlottingMcp,
     imageGenerationMcp: options?.imageGenerationMcp,

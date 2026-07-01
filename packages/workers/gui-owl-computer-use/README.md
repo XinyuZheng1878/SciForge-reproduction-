@@ -25,21 +25,15 @@ weights or a default raw provider URL. The development-only
 [`server/serve-gui-owl-32b.sh`](server/serve-gui-owl-32b.sh) helper refuses to
 start unless the operator explicitly opts in and supplies a licensed checkpoint.
 
-## Relationship to `@sciforge/computer-use`
+## Relationship to the retired primitive MCP path
 
-This worker is **not** a duplicate of the existing
-[`packages/workers/computer-use`](../computer-use). They are complementary layers:
+This worker is now the single computer-use path. The old
+`@sciforge/computer-use` GUI-managed primitive MCP server has been retired, and
+startup cleanup removes stale `gui_computer_use` entries from user MCP config.
 
-| | `@sciforge/computer-use` | `@sciforge/gui-owl-computer-use` (this) |
-|---|---|---|
-| Level | low-level **primitives** (`click x,y`, `type`, `screenshot`) | high-level **autonomous task** (NL → multi-step) |
-| Decides what to click | the caller | the Model Router selected computer-use model |
-| Tool | `computer_use` (action verbs) | `gui_computer_use_run` (one instruction) |
-
-> Follow-up (not in this drop): the executor may delegate its individual
-> click/type/screenshot to `@sciforge/computer-use` after human testing decides
-> the final integration shape. Today both paths coexist, and this worker uses
-> its own validated `driver/` to preserve the end-to-end-verified pipeline.
+The local runtime still exposes a `computer_use` tool to agents, but that tool
+calls this GUI-Owl HTTP sidecar. GUI-Owl owns the observe → plan → act loop,
+while Model Router owns model/provider selection and policy.
 
 ## Boundary (Servic_Module_Template.md / PROJECT_mcp.md)
 
@@ -136,7 +130,7 @@ minimal wiring needed to expose it to the agent runtime:
 |---|---|
 | `kun/src/adapters/tool/computer-use-tool-provider.ts` (+ test) | the Kun `computer_use` tool that calls this service over HTTP |
 | `kun/src/server/runtime-factory.ts` | registers the tool provider (1 import + 1 spread) |
-| `src/main/local-runtime-process.ts` | applies an env-gated conflict guard: when this HTTP sidecar is active via `SCIFORGE_CUA_SERVICE_URL`, the GUI-managed `@sciforge/computer-use` MCP is not enabled (avoids a duplicate `computer_use` tool) |
+| `src/main/local-runtime-process.ts` | passes `SCIFORGE_CUA_SERVICE_URL` and token env through to the local runtime so the Kun `computer_use` tool can call this sidecar |
 | `src/main/model-router-sidecar.ts` | unrelated Windows fix: spawn `npm.cmd` via a shell (Node EINVAL) so the Model Router can auto-start |
 
 ## Config

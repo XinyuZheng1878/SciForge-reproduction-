@@ -1,13 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import { InMemorySessionStore } from '../src/adapters/in-memory-session-store.js'
 import { InMemoryThreadStore } from '../src/adapters/in-memory-thread-store.js'
 import { createThreadRecord } from '../src/domain/thread.js'
 import { UsageService } from '../src/services/usage-service.js'
 import {
+  createLocalRuntimeServeRuntime,
   resolveModelRouterRuntimeEndpoint,
   seedUsageCarryover
 } from '../src/server/runtime-factory.js'
 import type { UsageSnapshot } from '../src/contracts/usage.js'
+
+afterEach(() => {
+  delete process.env.SCIFORGE_CUA_SERVICE_URL
+  delete process.env.SCIFORGE_CUA_SERVICE_TOKEN
+})
 
 function usage(overrides: Partial<UsageSnapshot>): UsageSnapshot {
   const promptTokens = overrides.promptTokens ?? 10
@@ -87,6 +96,33 @@ describe('runtime factory model routing', () => {
       ...runtimeOptions(),
       modelRouterBaseUrl: 'https://api.deepseek.com/v1'
     })).toThrow(/local Model Router/)
+  })
+})
+
+describe('runtime factory computer-use capability', () => {
+  it('exposes GUI-Owl computer use when the sidecar URL is configured', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'kun-runtime-cua-'))
+    process.env.SCIFORGE_CUA_SERVICE_URL = 'http://127.0.0.1:3900'
+    try {
+      const runtime = await createLocalRuntimeServeRuntime({
+        ...runtimeOptions(),
+        dataDir
+      })
+
+      expect(runtime.info().capabilities.computerUse).toMatchObject({
+        available: true,
+        server: 'service',
+        toolName: 'computer_use',
+        backend: 'gui-owl',
+        inputIsolation: 'host-approved',
+        affectsUserInput: true,
+        requiresHostFocus: true,
+        usesHostClipboard: false
+      })
+      await runtime.shutdown?.()
+    } finally {
+      await rm(dataDir, { recursive: true, force: true })
+    }
   })
 })
 

@@ -115,7 +115,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     ])
   })
 
-  it('reports GUI-managed computer-use MCP capability through the shared runtime contract', async () => {
+  it('reports GUI-Owl computer-use capability through the shared runtime contract', async () => {
     const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async (_settings, pathAndQuery) => {
         if (pathAndQuery === '/v1/runtime/info') {
@@ -125,7 +125,13 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
               mcp: { available: true, toolCount: 1 },
               computerUse: {
                 available: true,
-                backend: 'browser-cdp'
+                server: 'service',
+                toolName: 'computer_use',
+                backend: 'gui-owl',
+                inputIsolation: 'host-approved',
+                affectsUserInput: true,
+                requiresHostFocus: true,
+                usesHostClipboard: false
               }
             }
           })
@@ -140,19 +146,19 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
         mcp: { available: true, toolCount: 1 },
         computerUse: {
           available: true,
-          server: 'mcp',
+          server: 'service',
           toolName: 'computer_use',
-          backend: 'browser-cdp',
-          inputIsolation: 'agent-isolated',
-          affectsUserInput: false,
-          requiresHostFocus: false,
+          backend: 'gui-owl',
+          inputIsolation: 'host-approved',
+          affectsUserInput: true,
+          requiresHostFocus: true,
           usesHostClipboard: false
         }
       }
     })
   })
 
-  it('normalizes legacy local runtime computer-use backend info to the isolated MCP backend', async () => {
+  it('falls back unknown local runtime computer-use backend labels while preserving safety flags', async () => {
     const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async (_settings, pathAndQuery) => {
         if (pathAndQuery === '/v1/runtime/info') {
@@ -176,10 +182,10 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
       tools: {
         computerUse: {
           available: true,
-          backend: 'browser-cdp',
-          inputIsolation: 'agent-isolated',
-          affectsUserInput: false,
-          requiresHostFocus: false,
+          backend: 'gui-owl',
+          inputIsolation: 'host-approved',
+          affectsUserInput: true,
+          requiresHostFocus: true,
           usesHostClipboard: false
         }
       }

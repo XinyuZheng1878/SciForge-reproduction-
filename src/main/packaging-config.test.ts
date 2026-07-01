@@ -356,7 +356,6 @@ describe('electron-builder local runtime packaging', () => {
     )
     expect(afterPack.MCP_NODE_ENTRY_REQUIRED_PATHS).toEqual(expect.arrayContaining([
       'out/main/schedule-mcp-node-entry.js',
-      'out/main/computer-use-mcp-node-entry.js',
       'out/main/research-search-mcp-node-entry.js',
       'out/main/workflow-mcp-node-entry.js',
       'out/main/runtime-inspector-mcp-node-entry.js'
@@ -444,7 +443,6 @@ describe('root package workspace contracts', () => {
   it('keeps package.json workspaces aligned with the release worker manifest', () => {
     expect(rootPackage.workspaces).toEqual(releaseWorkerManifest.workspacePackageDirs)
     expect(rootPackage.workspaces).toEqual(expect.arrayContaining([
-      'packages/workers/computer-use',
       'packages/workers/model-router',
       'packages/workers/sci-modality-router',
       'packages/workers/evidence-dag',
@@ -455,9 +453,6 @@ describe('root package workspace contracts', () => {
     expect(rootPackage.workspaces).not.toContain('packages/workers/gui-owl-computer-use')
     expect(rootPackage.scripts).toMatchObject({
       'build:local-runtime': 'node ./scripts/local-runtime-package.cjs build',
-      'computer-use:start': 'npm --workspace @sciforge/computer-use run start',
-      'computer-use:test': 'npm --workspace @sciforge/computer-use run test',
-      'computer-use:typecheck': 'npm --workspace @sciforge/computer-use run typecheck',
       'model-router:start': 'npm --workspace @sciforge/model-router run start',
       'model-router:test': 'npm --workspace @sciforge/model-router run test',
       'paper-radar:start': 'npm --workspace @sciforge/paper-radar run start',

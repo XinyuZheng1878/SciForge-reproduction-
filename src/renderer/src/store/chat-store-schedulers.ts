@@ -5,10 +5,23 @@ let startupRuntimeProbeTimer: ReturnType<typeof setTimeout> | null = null
 let busyWatchdogTimer: ReturnType<typeof setTimeout> | null = null
 let busyRecoveryAttempts = 0
 let turnCompletionPollTimer: ReturnType<typeof setInterval> | null = null
-let runtimeThreadRefreshPollTimer: ReturnType<typeof setInterval> | null = null
+let runtimeThreadRefreshPollTimer: ReturnType<typeof setTimeout> | null = null
 let runtimeThreadRefreshInFlight = false
+let runtimeThreadRefreshIdleDelayMs = 0
+let runtimeThreadRefreshFocusCleanup: (() => void) | null = null
 
-const RUNTIME_THREAD_REFRESH_POLL_MS = 5_000
+const ACTIVE_RUNTIME_THREAD_REFRESH_POLL_MS = 5_000
+const FOCUSED_IDLE_RUNTIME_THREAD_REFRESH_POLL_MS = 30_000
+const HIDDEN_IDLE_RUNTIME_THREAD_REFRESH_POLL_MS = 120_000
+const MAX_IDLE_RUNTIME_THREAD_REFRESH_POLL_MS = 120_000
+
+type RuntimeThreadRefreshPollOptions = {
+  activeIntervalMs?: number
+  focusedIdleIntervalMs?: number
+  hiddenIdleIntervalMs?: number
+  maxIdleIntervalMs?: number
+  intervalMs?: number
+}
 
 type BusyWatchdogOptions = {
   timeoutMs: number
@@ -88,40 +101,131 @@ export function stopTurnCompletionPoll(): void {
 
 export function stopRuntimeThreadRefreshPoll(): void {
   if (runtimeThreadRefreshPollTimer) {
-    clearInterval(runtimeThreadRefreshPollTimer)
+    clearTimeout(runtimeThreadRefreshPollTimer)
     runtimeThreadRefreshPollTimer = null
   }
+  runtimeThreadRefreshFocusCleanup?.()
+  runtimeThreadRefreshFocusCleanup = null
   runtimeThreadRefreshInFlight = false
+  runtimeThreadRefreshIdleDelayMs = 0
 }
 
-export function syncRuntimeThreadRefreshPoll(
+function hasActiveRuntimeTurn(state: ChatState): boolean {
+  return Boolean(
+    state.busy ||
+    state.currentTurnId ||
+    Object.values(state.watchTurnCompletion).some(Boolean)
+  )
+}
+
+function runtimeWindowIsFocused(): boolean {
+  if (typeof document === 'undefined') return true
+  return document.visibilityState !== 'hidden'
+}
+
+function nextRuntimeThreadRefreshDelay(
+  state: ChatState,
+  options: RuntimeThreadRefreshPollOptions
+): number {
+  if (hasActiveRuntimeTurn(state)) {
+    runtimeThreadRefreshIdleDelayMs = 0
+    return options.activeIntervalMs ?? options.intervalMs ?? ACTIVE_RUNTIME_THREAD_REFRESH_POLL_MS
+  }
+
+  const baseDelay = runtimeWindowIsFocused()
+    ? options.focusedIdleIntervalMs ?? options.intervalMs ?? FOCUSED_IDLE_RUNTIME_THREAD_REFRESH_POLL_MS
+    : options.hiddenIdleIntervalMs ?? options.intervalMs ?? HIDDEN_IDLE_RUNTIME_THREAD_REFRESH_POLL_MS
+  const maxDelay = options.maxIdleIntervalMs ?? options.intervalMs ?? MAX_IDLE_RUNTIME_THREAD_REFRESH_POLL_MS
+  runtimeThreadRefreshIdleDelayMs = runtimeThreadRefreshIdleDelayMs
+    ? Math.min(runtimeThreadRefreshIdleDelayMs * 2, maxDelay)
+    : baseDelay
+  return runtimeThreadRefreshIdleDelayMs
+}
+
+function runRuntimeThreadRefresh(
   get: ChatStoreGet,
-  options: { intervalMs?: number } = {}
+  options: RuntimeThreadRefreshPollOptions
+): void {
+  runtimeThreadRefreshPollTimer = null
+  if (runtimeThreadRefreshInFlight) return
+  const state = get()
+  if (state.runtimeConnection !== 'ready') {
+    stopRuntimeThreadRefreshPoll()
+    return
+  }
+  runtimeThreadRefreshInFlight = true
+  void Promise.resolve(state.refreshThreads())
+    .catch(() => undefined)
+    .finally(() => {
+      runtimeThreadRefreshInFlight = false
+      if (get().runtimeConnection === 'ready' && runtimeThreadRefreshPollTimer == null) {
+        syncRuntimeThreadRefreshPoll(get, options)
+      }
+    })
+}
+
+function ensureRuntimeThreadRefreshFocusListener(
+  get: ChatStoreGet,
+  options: RuntimeThreadRefreshPollOptions
+): void {
+  if (runtimeThreadRefreshFocusCleanup) return
+  const cleanups: Array<() => void> = []
+  const onFocused = (): void => {
+    if (!runtimeWindowIsFocused()) return
+    runtimeThreadRefreshIdleDelayMs = 0
+    syncRuntimeThreadRefreshPoll(get, options)
+  }
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', onFocused)
+    cleanups.push(() => document.removeEventListener('visibilitychange', onFocused))
+  }
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('focus', onFocused)
+    cleanups.push(() => window.removeEventListener('focus', onFocused))
+  }
+  runtimeThreadRefreshFocusCleanup = () => {
+    for (const cleanup of cleanups) cleanup()
+  }
+}
+
+export function requestRuntimeThreadRefresh(
+  get: ChatStoreGet,
+  options: RuntimeThreadRefreshPollOptions & { immediate?: boolean } = {}
 ): void {
   if (get().runtimeConnection !== 'ready') {
     stopRuntimeThreadRefreshPoll()
     return
   }
-  if (runtimeThreadRefreshPollTimer != null) return
+  if (runtimeThreadRefreshPollTimer) {
+    clearTimeout(runtimeThreadRefreshPollTimer)
+    runtimeThreadRefreshPollTimer = null
+  }
+  runtimeThreadRefreshIdleDelayMs = 0
+  if (options.immediate === false) {
+    syncRuntimeThreadRefreshPoll(get, options)
+    return
+  }
+  runRuntimeThreadRefresh(get, options)
+}
 
-  const tick = (): void => {
-    if (runtimeThreadRefreshInFlight) return
-    const state = get()
-    if (state.runtimeConnection !== 'ready') {
-      stopRuntimeThreadRefreshPoll()
-      return
-    }
-    runtimeThreadRefreshInFlight = true
-    void Promise.resolve(state.refreshThreads())
-      .catch(() => undefined)
-      .finally(() => {
-        runtimeThreadRefreshInFlight = false
-      })
+export function syncRuntimeThreadRefreshPoll(
+  get: ChatStoreGet,
+  options: RuntimeThreadRefreshPollOptions = {}
+): void {
+  if (get().runtimeConnection !== 'ready') {
+    stopRuntimeThreadRefreshPoll()
+    return
+  }
+  ensureRuntimeThreadRefreshFocusListener(get, options)
+  if (runtimeThreadRefreshInFlight) return
+  if (runtimeThreadRefreshPollTimer != null) {
+    clearTimeout(runtimeThreadRefreshPollTimer)
+    runtimeThreadRefreshPollTimer = null
   }
 
-  runtimeThreadRefreshPollTimer = setInterval(
-    tick,
-    options.intervalMs ?? RUNTIME_THREAD_REFRESH_POLL_MS
+  runtimeThreadRefreshPollTimer = setTimeout(
+    () => runRuntimeThreadRefresh(get, options),
+    nextRuntimeThreadRefreshDelay(get(), options)
   )
 }
 

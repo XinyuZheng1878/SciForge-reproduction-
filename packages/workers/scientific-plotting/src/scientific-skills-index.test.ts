@@ -182,6 +182,36 @@ describe('scientific skills index', () => {
     ]))
   })
 
+  it('discovers global SciForge scientific-agent-skills installs by default', async () => {
+    const home = await tempDir()
+    const sciforgeRoot = join(home, '.sciforge', 'skills', 'scientific-agent-skills')
+    await writeSkill(sciforgeRoot, 'seaborn', [
+      '---',
+      'name: seaborn',
+      'description: Statistical plotting with Seaborn.',
+      'allowed-tools: Read',
+      '---',
+      '# Seaborn',
+      '',
+      'Build publication-ready statistical plots.'
+    ].join('\n'))
+
+    const index = await buildScientificSkillsIndex({
+      env: {},
+      homeDir: home
+    })
+
+    expect(index.installed).toBe(true)
+    expect(index.skills.map((skill) => skill.id)).toContain('seaborn')
+    expect(index.roots).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'global-sciforge',
+        path: join(sciforgeRoot, 'skills'),
+        skillCount: 1
+      })
+    ]))
+  })
+
   it('summarizes the curated plotting pack and prioritizes it for plotting tasks', async () => {
     const root = await tempDir()
     await writeSkill(root, 'plotly', [

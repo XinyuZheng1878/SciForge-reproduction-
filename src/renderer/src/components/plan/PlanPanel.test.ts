@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createGuiPlanArtifact,
-  rememberGuiPlan,
   PLAN_REGISTRY_STORAGE_KEY,
   useGuiPlanStore
 } from '../../plan/plan-store'
@@ -53,10 +52,6 @@ function createMemoryStorage(): Storage {
   }
 }
 
-function flushPromises(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0))
-}
-
 describe('PlanPanel remembered plan restore', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', createMemoryStorage())
@@ -68,7 +63,7 @@ describe('PlanPanel remembered plan restore', () => {
     useGuiPlanStore.getState().clearActivePlan()
   })
 
-  it('clears stale owner content before loading a remembered plan and keeps it cleared on read failure', async () => {
+  it('clears stale owner content and deletes the old localStorage plan registry without restoring it', () => {
     const stalePlan = createGuiPlanArtifact({
       workspaceRoot: '/tmp/app',
       threadId: 'thread-a',
@@ -76,20 +71,13 @@ describe('PlanPanel remembered plan restore', () => {
       sourceRequest: 'owner a',
       now: 1
     })
-    const rememberedPlan = createGuiPlanArtifact({
-      workspaceRoot: '/tmp/app',
-      threadId: 'thread-b',
-      relativePath: '.sciforge/plan/owner-b.md',
-      sourceRequest: 'owner b',
-      now: 2
-    })
     const readWorkspaceFile = vi.fn(async () => ({
       ok: false as const,
       message: 'plan B is missing'
     }))
 
     useGuiPlanStore.getState().setActivePlan(stalePlan, '# Owner A')
-    rememberGuiPlan(rememberedPlan)
+    localStorage.setItem(PLAN_REGISTRY_STORAGE_KEY, '{}')
     expect(localStorage.getItem(PLAN_REGISTRY_STORAGE_KEY)).toBeTruthy()
 
     runPlanPanelRememberedPlanRestore({
@@ -103,6 +91,7 @@ describe('PlanPanel remembered plan restore', () => {
     })
 
     expect(readWorkspaceFile).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PLAN_REGISTRY_STORAGE_KEY)).toBeNull()
     expect(useGuiPlanStore.getState()).toMatchObject({
       activePlan: null,
       content: ''
@@ -117,17 +106,13 @@ describe('PlanPanel remembered plan restore', () => {
       setOperationStatus: useGuiPlanStore.getState().setOperationStatus,
       clearActivePlan: useGuiPlanStore.getState().clearActivePlan
     })
-    await flushPromises()
 
-    expect(readWorkspaceFile).toHaveBeenCalledWith({
-      workspaceRoot: '/tmp/app',
-      path: rememberedPlan.relativePath
-    })
+    expect(readWorkspaceFile).not.toHaveBeenCalled()
     expect(useGuiPlanStore.getState()).toMatchObject({
       activePlan: null,
       content: '',
-      operationStatus: 'error',
-      error: 'plan B is missing'
+      operationStatus: 'idle',
+      error: null
     })
   })
 })

@@ -692,15 +692,31 @@ describe('RemoteChannelRuntime', () => {
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
   })
 
-  it('explains a missing configured IM thread instead of silently rebinding it', async () => {
+  it('automatically replaces a missing configured IM thread and reports the previous binding', async () => {
     const settings = buildSettings()
     const logError = vi.fn()
     const onTurnStarted = vi.fn()
     const forbiddenDirectCall = vi.fn()
     const agentRuntime = completedAgentRuntime({
-      startTurn: async () => {
-        throw new Error(JSON.stringify({ code: 'not_found', message: 'thread not found: thr_missing' }))
-      }
+      threadId: 'thr_replacement',
+      turnId: 'turn_replacement',
+      text: 'replacement reply',
+      startThread: async () => ({
+        id: 'thr_replacement',
+        runtimeId: 'sciforge' as const,
+        title: 'demo',
+        updatedAt: '2026-06-02T00:00:00.000Z'
+      }),
+      startTurn: async (input) => {
+        if (input.threadId === 'thr_missing') {
+          throw new Error(JSON.stringify({ code: 'not_found', message: 'thread not found: thr_missing' }))
+        }
+        return {
+          threadId: typeof input.threadId === 'string' ? input.threadId : 'thr_replacement',
+          turnId: 'turn_replacement'
+        }
+      },
+      readThread: async ({ threadId }) => completedThreadDetail(threadId, 'turn_replacement', 'replacement reply')
     })
     const runtime = createRemoteChannelRuntime({
       store: { load: vi.fn(async () => settings), patch: vi.fn(async () => settings) } as never,
@@ -742,17 +758,21 @@ describe('RemoteChannelRuntime', () => {
     })
 
     expect(result).toMatchObject({
-      ok: false,
-      failureKind: 'local_thread_deleted',
-      message: expect.stringContaining('deleted or is unreadable')
+      ok: true,
+      text: 'replacement reply',
+      message: 'replacement reply',
+      threadId: 'thr_replacement'
     })
-    expect(result.message).toContain('/new <title>')
-    expect(result.message).toContain('/use thread <number>')
-    expect(onTurnStarted).not.toHaveBeenCalled()
+    expect(agentRuntime.startThread).toHaveBeenCalledTimes(1)
+    expect(onTurnStarted).toHaveBeenCalledWith({
+      threadId: 'thr_replacement',
+      turnId: 'turn_replacement',
+      previousThreadId: 'thr_missing'
+    })
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
     expect(logError).toHaveBeenCalledWith(
       'remote-channel-runtime',
-      'Configured IM thread was missing; asking remote user to rebind.',
+      'Configured IM thread was missing; creating a replacement thread.',
       expect.objectContaining({ threadId: 'thr_missing', source: 'im' })
     )
   })

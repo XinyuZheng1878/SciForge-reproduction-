@@ -26,12 +26,6 @@ import {
   ClaudeCodeRuntimeService,
   type ClaudeAgentSdk
 } from './claude-code-service'
-import {
-  COMPUTER_USE_DEFAULT_AGENT_ID_ENV,
-  COMPUTER_USE_DEFAULT_SESSION_ID_ENV,
-  COMPUTER_USE_DEFAULT_THREAD_ID_ENV,
-  COMPUTER_USE_DEFAULT_TURN_ID_ENV
-} from '../../computer-use-mcp-config'
 
 type QueryCall = {
   prompt: string | AsyncIterable<unknown>
@@ -459,7 +453,7 @@ describe('ClaudeCodeRuntimeService', () => {
     )).toBe(false)
   })
 
-  it('passes per-turn computer-use defaults to the Claude MCP server', async () => {
+  it('does not inject the retired computer-use MCP server into Claude SDK turns', async () => {
     const { sdk, calls } = fakeSdk(() => [
       init('claude-session-computer-use'),
       result('Done.', 'claude-session-computer-use')
@@ -468,12 +462,7 @@ describe('ClaudeCodeRuntimeService', () => {
       settings: async () => settings(),
       storageRoot: await serviceRoot(),
       managedConfigDir: '/tmp/sciforge-claude-config',
-      claudeAgentSdk: sdk,
-      computerUseMcpLaunch: {
-        appPath: '/tmp/sciforge-test-app',
-        execPath: '/tmp/sciforge-test-app/SciForge',
-        isPackaged: false
-      }
+      claudeAgentSdk: sdk
     })
 
     const thread = await service.startThread({ workspace: '/tmp/workspace', title: 'Computer use' })
@@ -485,13 +474,7 @@ describe('ClaudeCodeRuntimeService', () => {
     })
     if (!turn.ok) throw new Error(turn.message)
 
-    const mcpServers = calls[0]?.options?.mcpServers as Record<string, { env?: Record<string, string> }> | undefined
-    expect(mcpServers?.gui_computer_use?.env).toMatchObject({
-      [COMPUTER_USE_DEFAULT_AGENT_ID_ENV]: `claude:${thread.thread.id}`,
-      [COMPUTER_USE_DEFAULT_THREAD_ID_ENV]: thread.thread.id,
-      [COMPUTER_USE_DEFAULT_TURN_ID_ENV]: turn.turnId,
-      [COMPUTER_USE_DEFAULT_SESSION_ID_ENV]: `claude:${thread.thread.id}`
-    })
+    expect(calls[0]?.options?.mcpServers).toBeUndefined()
   })
 
   it('maps Task and Workflow tool output and reads canonical child transcripts', async () => {

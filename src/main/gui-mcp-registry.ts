@@ -10,14 +10,7 @@ import {
   resolveScheduleMcpCommand,
   type ScheduleMcpLaunchConfig
 } from './schedule-mcp-config'
-import {
-  buildComputerUseClaudeCodeMcpServerConfig,
-  buildComputerUseLocalRuntimeMcpServerConfig,
-  buildComputerUseRuntimeMcpServerConfig,
-  GUI_COMPUTER_USE_MCP_DESCRIPTOR,
-  GUI_COMPUTER_USE_MCP_SERVER_NAME,
-  type ComputerUseMcpLaunchConfig
-} from './computer-use-mcp-config'
+import { RETIRED_GUI_COMPUTER_USE_MCP_SERVER_NAMES } from './computer-use-mcp-config'
 import {
   buildPaperRadarMcpArgs,
   buildPaperRadarLocalRuntimeMcpServerConfig,
@@ -201,10 +194,6 @@ export type GuiMcpRegistryInput = {
     settings?: AppSettingsV1
     launch: RuntimeInspectorMcpLaunchConfig
   }
-  computerUseMcp?: {
-    launch: ComputerUseMcpLaunchConfig
-    enabled?: boolean
-  }
   scientificSkillsMcp?: {
     settings?: AppSettingsV1
     launch: ScientificSkillsMcpLaunchConfig
@@ -242,12 +231,14 @@ export const GUI_MCP_DESCRIPTORS: readonly ManagedGuiMcpDescriptor[] = [
   GUI_SCIENTIFIC_PLOTTING_MCP_DESCRIPTOR,
   GUI_IMAGE_GENERATION_MCP_DESCRIPTOR,
   GUI_PPT_MASTER_MCP_DESCRIPTOR,
-  GUI_SCIFORGE_CANVAS_MCP_DESCRIPTOR,
-  GUI_COMPUTER_USE_MCP_DESCRIPTOR
+  GUI_SCIFORGE_CANVAS_MCP_DESCRIPTOR
 ] as const
 
 export function managedGuiMcpServerNames(): string[] {
-  return GUI_MCP_DESCRIPTORS.flatMap((descriptor) => managedGuiMcpNames(descriptor))
+  return [
+    ...GUI_MCP_DESCRIPTORS.flatMap((descriptor) => managedGuiMcpNames(descriptor)),
+    ...RETIRED_GUI_COMPUTER_USE_MCP_SERVER_NAMES
+  ]
 }
 
 export async function syncExternalManagedGuiMcpConfig(path = resolveLocalRuntimeMcpJsonPath()): Promise<void> {
@@ -283,9 +274,7 @@ export function buildCodexManagedGuiMcpServers(
   return [...servers.values()]
 }
 
-export function buildClaudeCodeManagedGuiMcpServers(
-  input: Pick<GuiMcpRegistryInput, 'computerUseMcp'>
-): Record<string, {
+export function buildClaudeCodeManagedGuiMcpServers(): Record<string, {
   type: 'stdio'
   command: string
   args: string[]
@@ -293,11 +282,7 @@ export function buildClaudeCodeManagedGuiMcpServers(
   timeout: number
   alwaysLoad: true
 }> {
-  const launch = input.computerUseMcp?.launch
-  if (!launch || input.computerUseMcp?.enabled === false) return {}
-  return {
-    [GUI_COMPUTER_USE_MCP_SERVER_NAME]: buildComputerUseClaudeCodeMcpServerConfig(launch)
-  }
+  return {}
 }
 
 function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, LocalRuntimeServerBuilder]> {
@@ -423,16 +408,6 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
         input.sciforgeCanvasMcp!.launch,
         existing,
         sciforgeCanvasSettings.workspaceRoot
-      )
-    ])
-  }
-  if (input.computerUseMcp) {
-    builders.push([
-      GUI_COMPUTER_USE_MCP_SERVER_NAME,
-      (existing) => buildComputerUseLocalRuntimeMcpServerConfig(
-        input.computerUseMcp!.launch,
-        input.computerUseMcp!.enabled !== false,
-        existing
       )
     ])
   }
@@ -594,9 +569,6 @@ function codexServerConfigs(input: GuiMcpRegistryInput): GuiMcpRuntimeServerConf
       timeoutMs: GUI_SCIFORGE_CANVAS_MCP_TIMEOUT_MS,
       enabledTools: sciforgeCanvasMcpEnabledTools()
     })
-  }
-  if (input.computerUseMcp?.launch && input.computerUseMcp.enabled !== false) {
-    servers.push(buildComputerUseRuntimeMcpServerConfig(input.computerUseMcp.launch))
   }
   return servers
 }

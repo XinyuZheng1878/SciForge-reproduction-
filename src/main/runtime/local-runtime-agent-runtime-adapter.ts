@@ -1425,9 +1425,8 @@ function mapLocalRuntimeCapabilities(value: unknown, diagnosticsAvailable: boole
       },
       research: researchCapabilityState(research),
       computerUse: computerUseCapabilityState(asRecord(manifest.computerUse) ?? {
-        ...configuredComputerUseCapability(),
-        degraded: true,
-        reason: 'GUI-managed computer-use MCP server is configured by the host.'
+        available: false,
+        reason: 'GUI-Owl computer-use sidecar is not configured for the local runtime.'
       }),
       skills: capabilityState(skills),
       subagents: {
@@ -1485,15 +1484,33 @@ function computerUseCapabilityState(value: Record<string, unknown>): AgentRuntim
   const base = capabilityState(value)
   const available = base.available || value.active === true || value.enabled === true
   const isolated = configuredComputerUseCapability()
+  const server = value.server === 'service' || value.server === 'mcp' ? value.server : undefined
+  const toolName = value.toolName === 'computer_use' ? value.toolName : undefined
+  const backend = value.backend === 'gui-owl' || value.backend === 'browser-cdp' ? value.backend : undefined
+  const inputIsolation = value.inputIsolation === 'host-approved' || value.inputIsolation === 'agent-isolated'
+    ? value.inputIsolation
+    : undefined
   return {
     ...base,
     available,
-    ...(available ? { server: isolated.server, toolName: isolated.toolName } : {}),
-    backend: isolated.backend,
-    inputIsolation: isolated.inputIsolation,
-    affectsUserInput: isolated.affectsUserInput,
-    requiresHostFocus: isolated.requiresHostFocus,
-    usesHostClipboard: isolated.usesHostClipboard
+    ...(available ? { server: server ?? isolated.server, toolName: toolName ?? isolated.toolName } : {}),
+    ...(backend ? { backend } : available ? { backend: isolated.backend } : {}),
+    ...(inputIsolation ? { inputIsolation } : available ? { inputIsolation: isolated.inputIsolation } : {}),
+    ...(typeof value.affectsUserInput === 'boolean'
+      ? { affectsUserInput: value.affectsUserInput }
+      : available
+        ? { affectsUserInput: isolated.affectsUserInput }
+        : {}),
+    ...(typeof value.requiresHostFocus === 'boolean'
+      ? { requiresHostFocus: value.requiresHostFocus }
+      : available
+        ? { requiresHostFocus: isolated.requiresHostFocus }
+        : {}),
+    ...(typeof value.usesHostClipboard === 'boolean'
+      ? { usesHostClipboard: value.usesHostClipboard }
+      : available
+        ? { usesHostClipboard: isolated.usesHostClipboard }
+        : {})
   }
 }
 

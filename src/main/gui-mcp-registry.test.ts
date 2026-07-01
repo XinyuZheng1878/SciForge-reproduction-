@@ -18,11 +18,6 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
-import {
-  COMPUTER_USE_MCP_TOOL_NAME,
-  COMPUTER_USE_STATUS_PATH_ENV,
-  GUI_COMPUTER_USE_MCP_SERVER_NAME
-} from './computer-use-mcp-config'
 import { GUI_REMOTE_EXECUTOR_MCP_SERVER_NAME } from './remote-executor-mcp-config'
 
 const launch = {
@@ -120,14 +115,7 @@ describe('GUI MCP runtime registry', () => {
     const servers = buildLocalRuntimeManagedGuiMcpServers({
       scheduleMcp: { settings, launch },
       workflowMcp: { settings, launch },
-      remoteExecutorMcp: { settings, launch },
-      computerUseMcp: {
-        launch: {
-          ...launch,
-          statusPath: '/tmp/computer-use-status.json'
-        },
-        enabled: false
-      }
+      remoteExecutorMcp: { settings, launch }
     }, {
       gui_workflow: {
         env: { WORKFLOW_KEEP: 'yes' }
@@ -176,13 +164,7 @@ describe('GUI MCP runtime registry', () => {
       port: 2222,
       workspaceRoot: '/home/alice/project'
     }])
-    expect(servers.gui_computer_use).toMatchObject({
-      enabled: false,
-      env: {
-        ELECTRON_RUN_AS_NODE: '1',
-        SCIFORGE_COMPUTER_USE_STATUS_PATH: '/tmp/computer-use-status.json'
-      }
-    })
+    expect(servers.gui_computer_use).toBeUndefined()
   })
 
   it('builds Codex dynamic MCP server configs with contract-derived tools and local secrets', () => {
@@ -192,8 +174,7 @@ describe('GUI MCP runtime registry', () => {
       scheduleMcp: { settings, launch },
       workflowMcp: { settings, launch },
       workspaceIntelMcp: { settings, launch },
-      remoteExecutorMcp: { launch },
-      computerUseMcp: { launch, enabled: false }
+      remoteExecutorMcp: { launch }
     })
 
     expect(servers.map((server) => server.id)).toEqual([
@@ -250,62 +231,19 @@ describe('GUI MCP runtime registry', () => {
     }
   })
 
-  it('builds Claude Code MCP config from the same computer-use registry entry', () => {
-    const servers = buildClaudeCodeManagedGuiMcpServers({
-      computerUseMcp: {
-        launch: {
-          ...launch,
-          defaultThreadId: 'thread-1'
-        }
-      }
-    })
+  it('does not build a Claude Code MCP config for the retired computer-use server', () => {
+    const servers = buildClaudeCodeManagedGuiMcpServers()
 
-    expect(servers.gui_computer_use).toMatchObject({
-      type: 'stdio',
-      args: expect.arrayContaining(['--gui-computer-use-mcp-server']),
-      env: {
-        ELECTRON_RUN_AS_NODE: '1',
-        SCIFORGE_COMPUTER_USE_DEFAULT_THREAD_ID: 'thread-1'
-      },
-      timeout: 30000,
-      alwaysLoad: true
-    })
+    expect(servers).toEqual({})
   })
 
-  it('reuses one computer-use MCP launch contract across local runtime, Codex, and Claude Code', () => {
-    const sharedLaunch = {
-      ...launch,
-      statusPath: '/tmp/computer-use-status.json'
-    }
-    const localRuntime = buildLocalRuntimeManagedGuiMcpServers({
-      computerUseMcp: { launch: sharedLaunch }
-    })[GUI_COMPUTER_USE_MCP_SERVER_NAME] as Record<string, unknown>
-    const codex = buildCodexManagedGuiMcpServers({
-      computerUseMcp: { launch: sharedLaunch }
-    }).find((server) => server.id === GUI_COMPUTER_USE_MCP_SERVER_NAME)
-    const claude = buildClaudeCodeManagedGuiMcpServers({
-      computerUseMcp: { launch: sharedLaunch }
-    })[GUI_COMPUTER_USE_MCP_SERVER_NAME]
+  it('keeps the retired computer-use MCP out of local runtime, Codex, and Claude Code configs', () => {
+    const localRuntime = buildLocalRuntimeManagedGuiMcpServers({}).gui_computer_use
+    const codex = buildCodexManagedGuiMcpServers({}).find((server) => server.id === 'gui_computer_use')
+    const claude = buildClaudeCodeManagedGuiMcpServers().gui_computer_use
 
-    expect(localRuntime).toMatchObject({
-      command: codex?.command,
-      args: codex?.args,
-      env: {
-        ELECTRON_RUN_AS_NODE: '1',
-        [COMPUTER_USE_STATUS_PATH_ENV]: '/tmp/computer-use-status.json'
-      }
-    })
-    expect(codex).toMatchObject({
-      command: localRuntime.command,
-      args: localRuntime.args,
-      env: localRuntime.env,
-      enabledTools: [COMPUTER_USE_MCP_TOOL_NAME]
-    })
-    expect(claude).toMatchObject({
-      command: codex?.command,
-      args: codex?.args,
-      env: codex?.env,
-      timeout: codex?.timeoutMs
-    })
+    expect(localRuntime).toBeUndefined()
+    expect(codex).toBeUndefined()
+    expect(claude).toBeUndefined()
   })
 })

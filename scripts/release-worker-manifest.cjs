@@ -4,9 +4,6 @@ const BUNDLED_FILE_FILTER = [
 ]
 
 const PACKAGE_DEFINITIONS = {
-  computerUse: {
-    dir: 'packages/workers/computer-use'
-  },
   modelRouter: {
     dir: 'packages/workers/model-router'
   },
@@ -61,7 +58,6 @@ const PACKAGE_DEFINITIONS = {
 }
 
 const WORKSPACE_PACKAGE_IDS = [
-  'computerUse',
   'modelRouter',
   'schedule',
   'search',
@@ -82,7 +78,6 @@ const WORKSPACE_PACKAGE_IDS = [
 
 const BUNDLED_PACKAGE_IDS = [
   'modelRouter',
-  'computerUse',
   'schedule',
   'search',
   'workflow',
@@ -130,21 +125,6 @@ const RUNTIME_ENTRIES = [
       'src/manifest.ts',
       'tools/model-router-trace-audit.ts'
     ])
-  },
-  {
-    id: 'computer-use',
-    label: 'Computer Use',
-    packageIds: ['computerUse'],
-    requiredPathsExport: 'COMPUTER_USE_RUNTIME_REQUIRED_PATHS',
-    requiredPaths: packagePaths('computerUse', [
-      'package.json',
-      'src/mcp-server.ts',
-      'src/service.ts',
-      'src/contract.ts'
-    ]),
-    mcpNodeEntryPaths: [
-      'out/main/computer-use-mcp-node-entry.js'
-    ]
   },
   {
     id: 'search',

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   armBusyWatchdog,
   clearBusyWatchdog,
+  requestRuntimeThreadRefresh,
   resetBusyRecoveryAttempts,
   stopRuntimeThreadRefreshPoll,
   syncRuntimeThreadRefreshPoll
@@ -147,6 +148,7 @@ describe('syncRuntimeThreadRefreshPoll', () => {
   })
   afterEach(() => {
     stopRuntimeThreadRefreshPoll()
+    vi.unstubAllGlobals()
     vi.useRealTimers()
   })
 
@@ -192,5 +194,121 @@ describe('syncRuntimeThreadRefreshPoll', () => {
     await vi.advanceTimersByTimeAsync(10)
     await vi.advanceTimersByTimeAsync(10)
     expect(refreshThreads).toHaveBeenCalledTimes(1)
+  })
+
+  it('backs off idle runtime refreshes while keeping active turns on the short interval', async () => {
+    const refreshThreads = vi.fn(async () => undefined)
+    const h = makeHarness({
+      runtimeConnection: 'ready',
+      refreshThreads,
+      busy: false,
+      currentTurnId: null,
+      watchTurnCompletion: {}
+    } as Partial<ChatState>)
+
+    syncRuntimeThreadRefreshPoll(h.get, {
+      activeIntervalMs: 5,
+      focusedIdleIntervalMs: 10,
+      maxIdleIntervalMs: 40
+    })
+
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(19)
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(refreshThreads).toHaveBeenCalledTimes(2)
+
+    h.set({ busy: true, currentTurnId: 'turn-2' } as Partial<ChatState>)
+    syncRuntimeThreadRefreshPoll(h.get, {
+      activeIntervalMs: 5,
+      focusedIdleIntervalMs: 10,
+      maxIdleIntervalMs: 40
+    })
+    await vi.advanceTimersByTimeAsync(5)
+    expect(refreshThreads).toHaveBeenCalledTimes(3)
+  })
+
+  it('uses the hidden-window idle cadence when the document is not visible', async () => {
+    const refreshThreads = vi.fn(async () => undefined)
+    vi.stubGlobal('document', { visibilityState: 'hidden' })
+    const h = makeHarness({
+      runtimeConnection: 'ready',
+      refreshThreads,
+      busy: false,
+      currentTurnId: null,
+      watchTurnCompletion: {}
+    } as Partial<ChatState>)
+
+    syncRuntimeThreadRefreshPoll(h.get, {
+      focusedIdleIntervalMs: 10,
+      hiddenIdleIntervalMs: 50,
+      maxIdleIntervalMs: 100
+    })
+
+    await vi.advanceTimersByTimeAsync(49)
+    expect(refreshThreads).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes immediately for runtime events and coalesces with scheduled idle refreshes', async () => {
+    const refreshThreads = vi.fn(async () => undefined)
+    const h = makeHarness({
+      runtimeConnection: 'ready',
+      refreshThreads,
+      busy: false,
+      currentTurnId: null,
+      watchTurnCompletion: {}
+    } as Partial<ChatState>)
+
+    syncRuntimeThreadRefreshPoll(h.get, { focusedIdleIntervalMs: 50 })
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refreshThreads).not.toHaveBeenCalled()
+
+    requestRuntimeThreadRefresh(h.get, { focusedIdleIntervalMs: 50 })
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(49)
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(refreshThreads).toHaveBeenCalledTimes(2)
+  })
+
+  it('requeues idle refresh on focus without immediate polling', async () => {
+    const refreshThreads = vi.fn(async () => undefined)
+    const listeners: Record<string, () => void> = {}
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      addEventListener: vi.fn((name: string, listener: () => void) => {
+        listeners[name] = listener
+      }),
+      removeEventListener: vi.fn()
+    })
+    vi.stubGlobal('window', {
+      addEventListener: vi.fn((name: string, listener: () => void) => {
+        listeners[name] = listener
+      }),
+      removeEventListener: vi.fn()
+    })
+    const h = makeHarness({
+      runtimeConnection: 'ready',
+      refreshThreads,
+      busy: false,
+      currentTurnId: null,
+      watchTurnCompletion: {}
+    } as Partial<ChatState>)
+
+    syncRuntimeThreadRefreshPoll(h.get, { focusedIdleIntervalMs: 50, maxIdleIntervalMs: 100 })
+    await vi.advanceTimersByTimeAsync(50)
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(40)
+    listeners.focus?.()
+    await vi.advanceTimersByTimeAsync(49)
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(refreshThreads).toHaveBeenCalledTimes(2)
   })
 })

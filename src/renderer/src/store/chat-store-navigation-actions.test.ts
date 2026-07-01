@@ -146,7 +146,7 @@ describe('chat-store-navigation-actions refreshThreads', () => {
 
     expect(provider.listThreads).toHaveBeenCalledTimes(1)
 
-    await vi.advanceTimersByTimeAsync(5_000)
+    await vi.advanceTimersByTimeAsync(30_000)
 
     expect(provider.listThreads).toHaveBeenCalledTimes(2)
   })

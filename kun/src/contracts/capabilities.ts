@@ -240,6 +240,15 @@ export const RuntimeCapabilityManifest = z
       sources: z.array(ResearchSourceKind),
       maxResults: z.number().int().positive()
     }).strict(),
+    computerUse: RuntimeCapabilityState.extend({
+      server: z.literal('service').optional(),
+      toolName: z.literal('computer_use').optional(),
+      backend: z.literal('gui-owl').optional(),
+      inputIsolation: z.literal('host-approved').optional(),
+      affectsUserInput: z.boolean().optional(),
+      requiresHostFocus: z.boolean().optional(),
+      usesHostClipboard: z.boolean().optional()
+    }).strict(),
     skills: RuntimeCapabilityState.extend({
       configuredRoots: z.number().int().nonnegative(),
       discoveredSkills: z.number().int().nonnegative()
@@ -292,6 +301,10 @@ export function buildRuntimeCapabilityManifest(input: {
     sources?: ResearchSourceKind[]
     maxResults?: number
   }
+  computerUse?: {
+    available?: boolean
+    reason?: string
+  }
   skills?: {
     configuredRoots?: number
     discoveredSkills?: number
@@ -329,6 +342,7 @@ export function buildRuntimeCapabilityManifest(input: {
   )
   const webState = webCapabilityState(config.web.enabled, webFetchState, webSearchState, input.web?.reason)
   const researchState = researchCapabilityState(input.research)
+  const computerUseState = computerUseCapabilityState(input.computerUse)
   const configuredSkillRoots = input.skills?.configuredRoots ?? config.skills.roots.length
   const discoveredSkills = input.skills?.discoveredSkills ?? 0
   const skillsState = skillsCapabilityState(config.skills.enabled, discoveredSkills, input.skills?.reason)
@@ -366,6 +380,20 @@ export function buildRuntimeCapabilityManifest(input: {
       toolName: input.research?.toolName ?? 'research_search',
       sources: input.research?.sources ?? [],
       maxResults: input.research?.maxResults ?? 10
+    },
+    computerUse: {
+      ...computerUseState,
+      ...(computerUseState.available
+        ? {
+            server: 'service',
+            toolName: 'computer_use',
+            backend: 'gui-owl',
+            inputIsolation: 'host-approved',
+            affectsUserInput: true,
+            requiresHostFocus: true,
+            usesHostClipboard: false
+          }
+        : {})
     },
     skills: {
       ...skillsState,
@@ -469,6 +497,19 @@ function researchCapabilityState(input: {
     enabled: true,
     available: false,
     reason: input.reason ?? 'research search MCP server is unavailable'
+  }
+}
+
+function computerUseCapabilityState(input: {
+  available?: boolean
+  reason?: string
+} | undefined): RuntimeCapabilityState {
+  if (input?.available === true) return { status: 'available', enabled: true, available: true }
+  return {
+    status: 'unavailable',
+    enabled: true,
+    available: false,
+    reason: input?.reason ?? 'GUI-Owl computer-use sidecar is not configured'
   }
 }
 

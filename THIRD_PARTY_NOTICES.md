@@ -114,7 +114,6 @@ Current source dependencies that may include native code or platform binaries:
 | --- | --- | --- |
 | `better-sqlite3` | npm dependency | `MIT` |
 | `node-pty` | npm dependency | `MIT` |
-| `@computer-use/nut-js` | `packages/workers/computer-use` dependency | Verify from installed package metadata during worker release audit. |
 | Electron/Chromium/Node/V8 | Electron runtime | See Electron and Chromium notices above. |
 
 No repository-tracked `.node`, `.dylib`, `.so`, or `.dll` files were found in the source tree outside ignored build/dependency directories during this update. Final installers must be scanned separately because native binaries can be introduced by packaging.

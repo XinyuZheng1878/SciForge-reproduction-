@@ -507,12 +507,6 @@ function imGuardIgnoredMessage(settings: AppSettingsV1): string {
     : 'Ignored by the current channel guard mode.'
 }
 
-function imLocalThreadDeletedText(settings: AppSettingsV1): string {
-  return isChineseLocale(settings)
-    ? '当前远端会话绑定的本地 thread 已被删除或不可读。请发送 `/new <标题>` 新建，或先发送 `/threads` 再用 `/use thread <编号>` 选择另一个会话。'
-    : 'The local thread bound to this remote conversation was deleted or is unreadable. Send `/new <title>` to create one, or send `/threads` and then `/use thread <number>` to select another thread.'
-}
-
 function imThreadListUnavailableText(settings: AppSettingsV1): string {
   return isChineseLocale(settings)
     ? '当前无法读取本地 thread 列表。请稍后重试，或发送 `/new <标题>` 新建本地 thread。'
@@ -820,23 +814,6 @@ export class RemoteChannelRuntime {
     } catch (error) {
       if (!existingThreadId || !isMissingThreadError(error)) {
         return remoteChannelFailureFromError(error, 'Failed to start turn.')
-      }
-      if (options.source === 'im') {
-        this.deps.logError('remote-channel-runtime', 'Configured IM thread was missing; asking remote user to rebind.', {
-          threadId: existingThreadId,
-          channelId: options.channel?.id,
-          source: options.source,
-          runtimeId
-        })
-        return remoteChannelFailureResult({
-          message: imLocalThreadDeletedText(_settings),
-          kind: 'local_thread_deleted',
-          details: {
-            threadId: existingThreadId,
-            channelId: options.channel?.id,
-            runtimeId
-          }
-        })
       }
       this.deps.logError('remote-channel-runtime', 'Configured IM thread was missing; creating a replacement thread.', {
         threadId: existingThreadId,

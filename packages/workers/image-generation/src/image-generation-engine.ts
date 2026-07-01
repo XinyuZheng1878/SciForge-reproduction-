@@ -442,7 +442,7 @@ async function renderWithImageEndpoint(
   if (!response.ok) throw new ProviderError(providerHttpError('Image endpoint', response.status, payload))
   const first = payload.data?.[0]
   if (await writeProviderImage(first, input.outputPath)) return
-  throw new ProviderError('Image endpoint response did not include b64_json or url.')
+  throw new ProviderError('Image endpoint response did not include b64_json or a data URL.')
 }
 
 async function fetchOpenAiImagesEndpoint(
@@ -537,10 +537,7 @@ async function writeProviderImageUrl(url: string, outputPath: string): Promise<b
     await writeFile(outputPath, Buffer.from(dataUri.base64, 'base64'))
     return true
   }
-  const image = await fetch(url)
-  if (!image.ok) throw new ProviderError('Could not fetch image URL returned by provider: HTTP ' + image.status)
-  await writeFile(outputPath, Buffer.from(await image.arrayBuffer()))
-  return true
+  throw new ProviderError('Model Router returned a non-normalized image URL. Image workers only accept b64_json or data URLs.')
 }
 
 function findImageDataUri(value: unknown): { base64: string } | null {

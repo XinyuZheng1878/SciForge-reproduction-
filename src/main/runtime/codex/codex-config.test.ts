@@ -338,12 +338,7 @@ describe('codex config launch helpers', () => {
   it('does not write the shared computer-use MCP server into managed Codex config', async () => {
     const codexHome = await mkdtemp(join(tmpdir(), 'sciforge-codex-home-'))
     const launch = await prepareCodexAppServerLaunch({
-      settings: settings(codexHome),
-      computerUseMcpLaunch: {
-        appPath: '/tmp/sciforge-test-app',
-        execPath: '/tmp/sciforge-test-app/SciForge',
-        isPackaged: false
-      }
+      settings: settings(codexHome)
     })
 
     expect(launch.codexHome).toBe(codexHome)
@@ -393,11 +388,6 @@ describe('codex config launch helpers', () => {
         execPath: '/tmp/sciforge-test-app/SciForge',
         isPackaged: false,
         checkpointDataDir: '/tmp/sciforge-test-app/checkpoints'
-      },
-      computerUseMcpLaunch: {
-        appPath: '/tmp/sciforge-test-app',
-        execPath: '/tmp/sciforge-test-app/SciForge',
-        isPackaged: false
       }
     })
 
@@ -419,11 +409,6 @@ describe('codex config launch helpers', () => {
             claude: true
           }
         }
-      },
-      computerUseMcpLaunch: {
-        appPath: '/tmp/sciforge-test-app',
-        execPath: '/tmp/sciforge-test-app/SciForge',
-        isPackaged: false
       }
     })
 
@@ -445,11 +430,6 @@ describe('codex config launch helpers', () => {
             claude: true
           }
         }
-      },
-      computerUseMcpLaunch: {
-        appPath: '/tmp/sciforge-test-app',
-        execPath: '/tmp/sciforge-test-app/SciForge',
-        isPackaged: false
       }
     })
 

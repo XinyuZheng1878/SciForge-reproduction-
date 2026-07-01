@@ -26,6 +26,7 @@ function makeSink(): ThreadEventSink {
     onUserInputStatus: vi.fn(),
     onRuntimeStatus: vi.fn(),
     onRuntimeError: vi.fn(),
+    onThreadLifecycle: vi.fn(),
     onChild: vi.fn(),
     onGoal: vi.fn(),
     onTodos: vi.fn(),
@@ -678,6 +679,23 @@ describe('agent runtime event dispatcher', () => {
 
     expect(sink.onError).toHaveBeenCalledWith(new Error('turn failed'))
     expect(sink.onTurnComplete).toHaveBeenCalled()
+  })
+
+  it('dispatches thread lifecycle events to the sink for immediate navigation refresh', () => {
+    const sink = makeSink()
+
+    dispatchAgentRuntimeEvent({
+      kind: 'thread_lifecycle',
+      threadId: 'thread-1',
+      state: 'updated',
+      createdAt: '2026-06-11T00:00:00.000Z'
+    }, sink)
+
+    expect(sink.onThreadLifecycle).toHaveBeenCalledWith({
+      threadId: 'thread-1',
+      state: 'updated',
+      createdAt: '2026-06-11T00:00:00.000Z'
+    })
   })
 
   it('does not crash over every contract event kind', () => {

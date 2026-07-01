@@ -182,6 +182,113 @@ test('image generations route through the configured image generator without exp
   }
 });
 
+test('image generations normalize provider image URLs to b64_json before returning to workers', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-image-url-normalize-'));
+  const calls: CapturedFetch[] = [];
+  const imageBytes = new TextEncoder().encode('downloaded-image');
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig({ imageGenerator: testImageGeneratorConfig() }),
+    env: {
+      ...testEnv(),
+      SCIFORGE_MODEL_ROUTER_IMAGE_API_KEY: 'image-secret',
+    },
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      Response.json({ created: 1, data: [{ url: 'https://cdn.example/generated.png' }] }),
+      new Response(imageBytes, {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      }),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/images/generations`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ model: 'sciforge-router', prompt: 'Draw a cell diagram.' }),
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json() as Record<string, any>;
+    assert.deepEqual(body, {
+      created: 1,
+      data: [{ b64_json: Buffer.from(imageBytes).toString('base64'), mime_type: 'image/png' }],
+    });
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]?.url, 'https://image.example/v1/images/generations');
+    assert.equal(calls[1]?.url, 'https://cdn.example/generated.png');
+    assert.equal(calls[1]?.headers.authorization, undefined);
+    assert.doesNotMatch(JSON.stringify(body), /cdn\.example|image-secret|Authorization|Bearer/i);
+  } finally {
+    await server.close();
+  }
+});
+
+test('image generations normalize data URLs without fetching provider media again', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-image-data-url-normalize-'));
+  const calls: CapturedFetch[] = [];
+  const imageBase64 = Buffer.from('inline-image').toString('base64');
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig({ imageGenerator: testImageGeneratorConfig() }),
+    env: {
+      ...testEnv(),
+      SCIFORGE_MODEL_ROUTER_IMAGE_API_KEY: 'image-secret',
+    },
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      Response.json({ created: 1, data: [{ url: `data:image/png;base64,${imageBase64}` }] }),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/images/generations`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ model: 'sciforge-router', prompt: 'Draw a cell diagram.' }),
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body, { created: 1, data: [{ b64_json: imageBase64, mime_type: 'image/png' }] });
+    assert.equal(calls.length, 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test('image generations fail closed when provider image URL download fails without leaking URL details', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-image-url-fail-'));
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig({ imageGenerator: testImageGeneratorConfig() }),
+    env: {
+      ...testEnv(),
+      SCIFORGE_MODEL_ROUTER_IMAGE_API_KEY: 'image-secret',
+    },
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      Response.json({ created: 1, data: [{ url: 'https://cdn.example/secret-image.png?token=secret' }] }),
+      new Response('missing', { status: 404, headers: { 'content-type': 'text/plain' } }),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/images/generations`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ model: 'sciforge-router', prompt: 'Draw a cell diagram.' }),
+    });
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.equal(body.error?.code, 'provider_image_url_http_404');
+    assert.doesNotMatch(JSON.stringify(body), /cdn\.example|secret-image|image-secret|Authorization|Bearer/i);
+  } finally {
+    await server.close();
+  }
+});
+
 test('healthz blocks missing image generator credentials without leaking provider bindings', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-healthz-missing-image-auth-'));
   const server = await startModelRouterServer({

@@ -97,6 +97,7 @@ type ComputerUseBackendSafetyChip = {
 
 function computerUseInputIsolationValueKey(value: string | undefined): string | null {
   if (value === 'agent-isolated') return 'computerUseSafetyInputAgentIsolated'
+  if (value === 'host-approved') return 'computerUseSafetyInputHostApproved'
   if (value === 'host-global') return 'computerUseSafetyInputHostGlobal'
   if (value === 'host-app-scoped') return 'computerUseSafetyInputHostAppScoped'
   return value ? 'computerUseSafetyInputUnknown' : null

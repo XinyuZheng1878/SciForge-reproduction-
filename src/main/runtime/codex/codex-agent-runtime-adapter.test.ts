@@ -34,7 +34,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
     })
   })
 
-  it('reports shared computer-use MCP diagnostics when Codex managed config includes it', async () => {
+  it('ignores the retired shared computer-use MCP diagnostics for Codex', async () => {
     const adapter = createCodexAgentRuntimeAdapter({
       isMcpConfigured: () => true,
       isResearchMcpConfigured: () => false,
@@ -43,19 +43,10 @@ describe('createCodexAgentRuntimeAdapter', () => {
 
     const caps = await adapter.capabilities({ settings: {} as never })
     expect(caps.tools.mcp).toMatchObject({
-      available: true,
-      degraded: true,
-      toolCount: 1
+      available: false
     })
     expect(caps.tools.computerUse).toMatchObject({
-      available: true,
-      server: 'mcp',
-      toolName: 'computer_use',
-      backend: 'browser-cdp',
-      inputIsolation: 'agent-isolated',
-      affectsUserInput: false,
-      requiresHostFocus: false,
-      usesHostClipboard: false
+      available: false
     })
     expect(caps.tools.research).toMatchObject({
       available: false
@@ -65,12 +56,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
       runtimeId: 'codex',
       operation: 'getToolDiagnostics'
     })).resolves.toMatchObject({
-      mcpServers: [{
-        id: 'gui_computer_use',
-        status: 'configured',
-        toolCount: 1,
-        tools: ['computer_use']
-      }]
+      mcpServers: []
     })
   })
 

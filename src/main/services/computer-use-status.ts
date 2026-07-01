@@ -1,15 +1,55 @@
 import { basename, dirname, resolve } from 'node:path'
-import type {
-  ComputerUseBackendDiagnostic,
-  ComputerUseLease,
-  ComputerUseLeaseRejection
-} from '../../../packages/workers/computer-use/src/contract'
 import {
   atomicWriteAppDataJson,
   atomicWriteAppDataJsonAtPath,
   readAppDataStoreText,
   readAppDataStoreTextAtPath
 } from './app-data-store'
+
+export type ComputerUseInputIsolation =
+  | 'agent-isolated'
+  | 'host-global'
+  | 'host-app-scoped'
+  | 'host-approved'
+  | (string & {})
+
+export type ComputerUseLease = {
+  leaseId?: string
+  computerUseSessionId?: string
+  agentId?: string
+  threadId?: string
+  turnId?: string
+  targetId?: string
+  backend?: string
+  inputIsolation?: ComputerUseInputIsolation
+  affectsUserInput?: boolean
+  requiresHostFocus?: boolean
+  usesHostClipboard?: boolean
+  acquiredAt?: string
+  updatedAt?: string
+}
+
+export type ComputerUseLeaseRejection = {
+  code?: string
+  message: string
+  targetId?: string
+  activeLease?: ComputerUseLease
+  risk?: Record<string, unknown>
+}
+
+export type ComputerUseBackendDiagnostic = {
+  backend: string
+  available: boolean
+  platform: NodeJS.Platform
+  inputIsolation?: ComputerUseInputIsolation
+  affectsUserInput?: boolean
+  requiresHostFocus?: boolean
+  usesHostClipboard?: boolean
+  reason?: string
+  activeLeases: ComputerUseLease[]
+  recentRejections: ComputerUseLeaseRejection[]
+  recentError?: string
+}
 
 export type ComputerUseStatusServer = ComputerUseBackendDiagnostic & {
   serverId: string

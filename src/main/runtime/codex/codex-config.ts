@@ -13,7 +13,6 @@ import {
   type ScheduleMcpLaunchConfig
 } from '../../schedule-mcp-config'
 import type { ResearchSearchMcpLaunchConfig } from '../../research-search-mcp-config'
-import type { ComputerUseMcpLaunchConfig } from '../../computer-use-mcp-config'
 import {
   GUI_WORKFLOW_INTERNAL_SECRET_ENV,
   type WorkflowMcpLaunchConfig
@@ -67,7 +66,6 @@ export async function prepareCodexAppServerLaunch(options: {
   paperRadarMcpLaunch?: PaperRadarMcpLaunchConfig
   writeAssistMcpLaunch?: WriteAssistMcpLaunchConfig
   runtimeInspectorMcpLaunch?: RuntimeInspectorMcpLaunchConfig
-  computerUseMcpLaunch?: ComputerUseMcpLaunchConfig
   scientificSkillsMcpLaunch?: ScientificSkillsMcpLaunchConfig
   scientificPlottingMcpLaunch?: ScientificPlottingMcpLaunchConfig
   imageGenerationMcpLaunch?: ImageGenerationMcpLaunchConfig

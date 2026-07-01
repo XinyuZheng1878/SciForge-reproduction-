@@ -8,7 +8,6 @@
   "main": "./out/main/index.js",
   "type": "module",
   "workspaces": [
-    "packages/workers/computer-use",
     "packages/workers/model-router",
     "packages/workers/schedule",
     "packages/workers/search",
@@ -56,10 +55,6 @@
     "model-router:start": "npm --workspace @sciforge/model-router run start",
     "model-router:test": "npm --workspace @sciforge/model-router run test",
     "model-router:typecheck": "npm --workspace @sciforge/model-router run typecheck",
-    "computer-use:start": "npm --workspace @sciforge/computer-use run start",
-    "computer-use:test": "npm --workspace @sciforge/computer-use run test",
-    "computer-use:typecheck": "npm --workspace @sciforge/computer-use run typecheck",
-    "computer-use:smoke:mac": "npm --workspace @sciforge/computer-use run smoke:mac",
     "search:start": "npm --workspace @sciforge/search run start",
     "search:test": "npm --workspace @sciforge/search run test",
     "search:typecheck": "npm --workspace @sciforge/search run typecheck",

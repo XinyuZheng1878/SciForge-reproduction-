@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createGuiPlanArtifact,
+  discardLegacyGuiPlanRegistry,
   forgetGuiPlan,
   guiPlanMatchesContext,
   PLAN_REGISTRY_STORAGE_KEY,
@@ -24,12 +25,6 @@ function createMemoryStorage(): Storage {
       items.set(key, value)
     }
   }
-}
-
-function storageKeys(storage: Storage): string[] {
-  return Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
-    (key): key is string => typeof key === 'string'
-  )
 }
 
 describe('plan-store', () => {
@@ -61,7 +56,7 @@ describe('plan-store', () => {
     })
   })
 
-  it('remembers active plans only for the owning thread', () => {
+  it('keeps active plans in memory without persisting the legacy GUI registry', () => {
     const plan = createGuiPlanArtifact({
       workspaceRoot: '/tmp/app',
       threadId: 'thread-a',
@@ -72,231 +67,41 @@ describe('plan-store', () => {
 
     useGuiPlanStore.getState().setActivePlan(plan, '# Auth')
 
-    expect(readRememberedGuiPlan('/tmp/app', 'thread-a')?.id).toBe(plan.id)
-    expect(readRememberedGuiPlan('/tmp/app', 'thread-b')).toBeNull()
-    expect(readRememberedGuiPlan('/tmp/app')).toBeNull()
-  })
-
-  it('persists the plan registry only under the current storage key', () => {
-    const plan = createGuiPlanArtifact({
-      workspaceRoot: '/tmp/app',
-      threadId: 'thread-a',
-      relativePath: '.sciforge/plan/auth.md',
-      sourceRequest: 'auth',
-      now: 1
-    })
-
-    useGuiPlanStore.getState().setActivePlan(plan, '# Auth')
-
-    const keys = storageKeys(localStorage)
-    expect(keys).toEqual([PLAN_REGISTRY_STORAGE_KEY])
-    expect(localStorage.getItem(PLAN_REGISTRY_STORAGE_KEY)).toBeTruthy()
-    expect(keys.some((key) => /preview|generated-content/.test(key))).toBe(false)
-  })
-
-  it('restores remembered plans when workspace casing or separators differ', () => {
-    const threadedPlan = createGuiPlanArtifact({
-      workspaceRoot: 'C:\\Users\\Codex\\APP\\',
-      threadId: 'thread-a',
-      relativePath: '.sciforge\\plan\\Checkout.md',
-      sourceRequest: 'checkout',
-      now: 1
-    })
-
-    useGuiPlanStore.getState().setActivePlan(threadedPlan, '# Checkout')
-
-    expect(readRememberedGuiPlan('c:/users/codex/app/', 'thread-a')?.id).toBe(threadedPlan.id)
-    expect(guiPlanMatchesContext(threadedPlan, 'c:/users/codex/app/', 'thread-a')).toBe(true)
-    expect(readRememberedGuiPlan('c:/users/codex/app/')).toBeNull()
-
-    localStorage.clear()
-
-    const threadlessPlan = createGuiPlanArtifact({
-      workspaceRoot: 'D:\\Work\\APP\\',
-      relativePath: '.sciforge\\plan\\Draft.md',
-      sourceRequest: 'draft',
-      now: 1
-    })
-
-    useGuiPlanStore.getState().setActivePlan(threadlessPlan, '# Draft')
-
-    expect(readRememberedGuiPlan('d:/work/app/')?.id).toBe(threadlessPlan.id)
-    expect(readRememberedGuiPlan('d:/work/app/', 'thread-a')).toBeNull()
-  })
-
-  it('remembers threadless plans at workspace scope without leaking into threaded context', () => {
-    const plan = createGuiPlanArtifact({
-      workspaceRoot: '/tmp/app',
-      relativePath: '.sciforge/plan/draft.md',
-      sourceRequest: 'draft',
-      now: 1
-    })
-
-    useGuiPlanStore.getState().setActivePlan(plan, '# Draft')
-
-    expect(readRememberedGuiPlan('/tmp/app')?.id).toBe(plan.id)
+    expect(useGuiPlanStore.getState().activePlan?.id).toBe(plan.id)
+    expect(localStorage.getItem(PLAN_REGISTRY_STORAGE_KEY)).toBeNull()
     expect(readRememberedGuiPlan('/tmp/app', 'thread-a')).toBeNull()
   })
 
-  it('keeps a workspace threadless fallback when a threaded plan is remembered later', () => {
-    const threadlessPlan = createGuiPlanArtifact({
-      workspaceRoot: '/tmp/app',
-      relativePath: '.sciforge/plan/workspace-draft.md',
-      sourceRequest: 'draft',
-      now: 1
-    })
-    const threadedPlan = createGuiPlanArtifact({
-      workspaceRoot: '/tmp/app',
-      threadId: 'thread-b',
-      relativePath: '.sciforge/plan/thread-draft.md',
-      sourceRequest: 'thread draft',
-      now: 2
-    })
-
-    useGuiPlanStore.getState().setActivePlan(threadlessPlan, '# Workspace draft')
-    useGuiPlanStore.getState().setActivePlan(threadedPlan, '# Thread draft')
-
-    expect(readRememberedGuiPlan('/tmp/app')?.id).toBe(threadlessPlan.id)
-    expect(readRememberedGuiPlan('/tmp/app', 'thread-b')?.id).toBe(threadedPlan.id)
-    expect(readRememberedGuiPlan('/tmp/app', 'thread-a')).toBeNull()
-  })
-
-  it('skips a persisted threaded workspace pointer and restores the threadless fallback', () => {
+  it('deletes stale persisted GUI plan registries instead of migrating them', () => {
     localStorage.setItem(PLAN_REGISTRY_STORAGE_KEY, JSON.stringify({
-      activeByWorkspace: {
-        '/tmp/app': 'threaded'
-      },
-      activeByThread: {
-        '/tmp/app::thread-b': 'threaded'
-      },
+      activeByWorkspace: { '/tmp/app': 'plan-a' },
+      activeByThread: { '/tmp/app::thread-a': 'plan-a' },
       plans: {
-        threaded: {
-          workspaceRoot: '/tmp/app',
-          threadId: 'thread-b',
-          relativePath: '.sciforge/plan/threaded.md',
-          sourceRequest: 'threaded',
-          createdAt: '2026-01-01T00:00:00.000Z'
-        },
-        fallback: {
-          workspaceRoot: '/tmp/app',
-          relativePath: '.sciforge/plan/fallback.md',
-          sourceRequest: 'fallback',
-          createdAt: '2026-01-02T00:00:00.000Z'
-        }
-      }
-    }))
-
-    expect(readRememberedGuiPlan('/tmp/app')).toMatchObject({
-      id: '/tmp/app:.sciforge/plan/fallback.md'
-    })
-    expect(readRememberedGuiPlan('/tmp/app', 'thread-b')).toMatchObject({
-      id: '/tmp/app:.sciforge/plan/threaded.md'
-    })
-  })
-
-  it('normalizes malformed persisted plan registry data before restoring plans', () => {
-    localStorage.setItem(PLAN_REGISTRY_STORAGE_KEY, JSON.stringify({
-      activeByWorkspace: {
-        '/TMP/VALID/': 'valid',
-        '/tmp/missing': 'missing',
-        '/tmp/bad-path': 'bad-path'
-      },
-      activeByThread: {
-        '/TMP/VALID::thread-a': 'valid',
-        '/tmp/valid::thread-b': 'valid',
-        '/tmp/other::thread-a': 'valid',
-        '/tmp/invalid::thread-b': 'invalid'
-      },
-      plans: {
-        valid: {
-          workspaceRoot: '/tmp/valid/',
-          threadId: 'thread-a',
-          relativePath: '.sciforge/plan/draft.md',
-          sourceRequest: 'draft',
-          createdAt: '2026-01-01T00:00:00.000Z'
-        },
-        invalid: {
-          id: 'invalid',
-          workspaceRoot: 42,
-          relativePath: ''
-        },
-        badPath: {
-          id: 'bad-path',
-          workspaceRoot: '/tmp/bad-path',
-          relativePath: '.legacy/plan/draft.txt',
-          sourceRequest: 'bad',
-          createdAt: '2026-01-01T00:00:00.000Z'
-        }
-      }
-    }))
-
-    expect(readRememberedGuiPlan('/tmp/valid', 'thread-a')).toMatchObject({
-      id: '/tmp/valid:.sciforge/plan/draft.md',
-      workspaceRoot: '/tmp/valid',
-      featureName: 'draft',
-      updatedAt: '2026-01-01T00:00:00.000Z'
-    })
-    expect(readRememberedGuiPlan('/tmp/missing')).toBeNull()
-    expect(readRememberedGuiPlan('/tmp/bad-path')).toBeNull()
-    expect(readRememberedGuiPlan('/tmp/invalid', 'thread-b')).toBeNull()
-    expect(readRememberedGuiPlan('/tmp/valid', 'thread-b')).toBeNull()
-    expect(readRememberedGuiPlan('/tmp/other', 'thread-a')).toBeNull()
-  })
-
-  it('drops mismatched thread registry pointers without shadowing valid fallbacks', () => {
-    localStorage.setItem(PLAN_REGISTRY_STORAGE_KEY, JSON.stringify({
-      activeByThread: {
-        '/tmp/app::thread-a': 'wrong-thread',
-        '/tmp/app::thread-b': 'threadless',
-        '/TMP/APP::thread-a': 'valid'
-      },
-      plans: {
-        valid: {
+        'plan-a': {
           workspaceRoot: '/tmp/app',
           threadId: 'thread-a',
-          relativePath: '.sciforge/plan/valid.md',
-          sourceRequest: 'valid',
-          createdAt: '2026-01-01T00:00:00.000Z'
-        },
-        wrongThread: {
-          id: 'wrong-thread',
-          workspaceRoot: '/tmp/app',
-          threadId: 'thread-z',
-          relativePath: '.sciforge/plan/wrong-thread.md',
-          sourceRequest: 'wrong',
-          createdAt: '2026-01-01T00:00:00.000Z'
-        },
-        threadless: {
-          workspaceRoot: '/tmp/app',
-          relativePath: '.sciforge/plan/threadless.md',
-          sourceRequest: 'threadless',
+          relativePath: '.sciforge/plan/auth.md',
+          sourceRequest: 'auth',
           createdAt: '2026-01-01T00:00:00.000Z'
         }
       }
     }))
 
-    expect(readRememberedGuiPlan('/tmp/app', 'thread-a')).toMatchObject({
-      id: '/tmp/app:.sciforge/plan/valid.md'
-    })
-    expect(readRememberedGuiPlan('/tmp/app', 'thread-b')).toBeNull()
-  })
-
-  it('forgets completed plans from the persisted registry', () => {
-    const plan = createGuiPlanArtifact({
-      workspaceRoot: '/tmp/app',
-      threadId: 'thread-a',
-      relativePath: '.sciforge/plan/auth.md',
-      sourceRequest: 'auth',
-      now: 1
-    })
-
-    useGuiPlanStore.getState().setActivePlan(plan, '# Auth')
-    forgetGuiPlan(plan)
-
     expect(readRememberedGuiPlan('/tmp/app', 'thread-a')).toBeNull()
+    expect(localStorage.getItem(PLAN_REGISTRY_STORAGE_KEY)).toBeNull()
   })
 
-  it('persists updated plan timestamps when saved content is marked clean', () => {
+  it('clears stale registries from legacy helper calls', () => {
+    localStorage.setItem(PLAN_REGISTRY_STORAGE_KEY, '{}')
+    discardLegacyGuiPlanRegistry()
+    expect(localStorage.getItem(PLAN_REGISTRY_STORAGE_KEY)).toBeNull()
+
+    localStorage.setItem(PLAN_REGISTRY_STORAGE_KEY, '{}')
+    forgetGuiPlan('old-plan')
+    expect(localStorage.getItem(PLAN_REGISTRY_STORAGE_KEY)).toBeNull()
+  })
+
+  it('persists updated plan timestamps only in memory when saved content is marked clean', () => {
     const plan = createGuiPlanArtifact({
       workspaceRoot: '/tmp/app',
       threadId: 'thread-a',
@@ -311,7 +116,8 @@ describe('plan-store', () => {
     vi.setSystemTime(savedAt)
     useGuiPlanStore.getState().markSaved('# Auth updated')
 
-    expect(readRememberedGuiPlan('/tmp/app', 'thread-a')?.updatedAt).toBe(savedAt.toISOString())
+    expect(useGuiPlanStore.getState().activePlan?.updatedAt).toBe(savedAt.toISOString())
+    expect(localStorage.getItem(PLAN_REGISTRY_STORAGE_KEY)).toBeNull()
   })
 
   it('matches active plans to the current workspace and thread', () => {

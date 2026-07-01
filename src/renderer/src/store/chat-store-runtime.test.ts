@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { dispatchAgentRuntimeEvent } from '../agent/agent-runtime-event-dispatcher'
 import type { ChatBlock } from '../agent/types'
-import { clearBusyWatchdog, resetBusyRecoveryAttempts } from './chat-store-schedulers'
+import { clearBusyWatchdog, resetBusyRecoveryAttempts, stopRuntimeThreadRefreshPoll } from './chat-store-schedulers'
 
 const registryMock = vi.hoisted(() => ({
   getProvider: vi.fn()
@@ -27,6 +27,7 @@ import type { ChatState, ChatStoreSet } from './chat-store-types'
 
 afterEach(() => {
   clearBusyWatchdog()
+  stopRuntimeThreadRefreshPoll()
   resetBusyRecoveryAttempts()
   vi.useRealTimers()
   registryMock.getProvider.mockReset()
@@ -77,6 +78,25 @@ function makeSinkHarness(overrides: Partial<ChatState> = {}): {
 }
 
 describe('thread event sink binding', () => {
+  it('requests an immediate thread refresh when a thread lifecycle event arrives', async () => {
+    const refreshThreads = vi.fn(async () => undefined)
+    const { set, get } = makeSinkHarness({
+      runtimeConnection: 'ready',
+      refreshThreads
+    } as Partial<ChatState>)
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    dispatchAgentRuntimeEvent({
+      kind: 'thread_lifecycle',
+      threadId: 'thread-current',
+      state: 'updated'
+    }, sink)
+
+    await Promise.resolve()
+
+    expect(refreshThreads).toHaveBeenCalledTimes(1)
+  })
+
   it('ignores reasoning deltas from a stream bound to a different active thread', () => {
     const { getState, set, get } = makeSinkHarness({ activeThreadId: 'thread-new' })
     const controller = new AbortController()

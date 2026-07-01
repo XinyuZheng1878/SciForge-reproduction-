@@ -91,7 +91,6 @@ import {
   syncScheduleMcpConfig,
   type ScheduleMcpLaunchConfig
 } from './schedule-mcp-config'
-import type { ComputerUseMcpLaunchConfig } from './computer-use-mcp-config'
 import type { ResearchSearchMcpLaunchConfig } from './research-search-mcp-config'
 import type { WorkflowMcpLaunchConfig } from './workflow-mcp-config'
 import type { WorkspaceIntelMcpLaunchConfig } from './workspace-intel-mcp-config'
@@ -107,6 +106,7 @@ import {
 import type { PptMasterMcpLaunchConfig } from './ppt-master-mcp-config'
 import type { SciforgeCanvasMcpLaunchConfig } from './sciforge-canvas-mcp-config'
 import { syncExternalManagedGuiMcpConfig } from './gui-mcp-registry'
+import { migrateLegacyKunGlobalConfig } from './legacy-kun-global-config-migration'
 import { registerAppIpcHandlers } from './ipc/register-app-ipc-handlers'
 import { registerTerminalPtyIpc } from './terminal/terminal-pty-ipc'
 import {
@@ -283,19 +283,6 @@ function getSciforgeCanvasMcpLaunchConfig(): SciforgeCanvasMcpLaunchConfig {
   }
 }
 
-function getComputerUseMcpLaunchConfig(): ComputerUseMcpLaunchConfig {
-  return {
-    appPath: app.getAppPath(),
-    execPath: process.execPath,
-    isPackaged: app.isPackaged,
-    statusPath: resolveComputerUseStatusPath()
-  }
-}
-
-function resolveComputerUseStatusPath(): string {
-  return join(app.getPath('userData'), 'computer-use', 'status.json')
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -406,7 +393,6 @@ function getCodexRuntime(): CodexRuntimeService {
     paperRadarMcpLaunch: getPaperRadarMcpLaunchConfig(),
     writeAssistMcpLaunch: getWriteAssistMcpLaunchConfig(),
     runtimeInspectorMcpLaunch: getRuntimeInspectorMcpLaunchConfig(),
-    computerUseMcpLaunch: getComputerUseMcpLaunchConfig(),
     scientificSkillsMcpLaunch: getScientificSkillsMcpLaunchConfig(),
     scientificPlottingMcpLaunch: getScientificPlottingMcpLaunchConfig(),
     imageGenerationMcpLaunch: getImageGenerationMcpLaunchConfig(),
@@ -423,8 +409,7 @@ function getClaudeCodeRuntime(): ClaudeCodeRuntimeService {
     storageRoot: join(app.getPath('userData'), 'claude-code-runtime'),
     managedConfigDir: app.isPackaged
       ? join(app.getPath('userData'), 'runtime-claude-code', 'config')
-      : join(process.cwd(), '.claude-code-runtime', 'config'),
-    computerUseMcpLaunch: getComputerUseMcpLaunchConfig()
+      : join(process.cwd(), '.claude-code-runtime', 'config')
   })
   return claudeCodeRuntime
 }
@@ -1482,6 +1467,12 @@ app.whenReady().then(async () => {
   appBehavior = initial.appBehavior
   syncLoginItemSettings(initial)
   syncTray(initial)
+  const legacyKunMigration = await migrateLegacyKunGlobalConfig({ homeDir: app.getPath('home') })
+  for (const entry of legacyKunMigration.entries) {
+    if (entry.status === 'error') {
+      console.error('[legacy-kun-migration] failed to move legacy global config:', entry)
+    }
+  }
   await syncScheduleMcpConfig(initial, getScheduleMcpLaunchConfig()).catch((error) => {
     console.error('[schedule-mcp] failed to sync config on startup:', error)
   })

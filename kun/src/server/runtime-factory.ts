@@ -204,6 +204,12 @@ export async function createLocalRuntimeServeRuntime(
     ...webProviders.providers,
     ...buildMemoryToolProviders(memoryStore)
   ]
+  const computerUseProviders = buildComputerUseToolProviders()
+  const computerUseAvailable = computerUseProviders.some((provider) =>
+    provider.enabled &&
+    provider.available &&
+    provider.tools.some((tool) => tool.name === 'computer_use')
+  )
   const childRegistry = new CapabilityRegistry(baseToolProviders)
   const childToolHost = new LocalToolHost({ registry: childRegistry, readTracker: true })
   const delegationRuntime = capabilityConfig.subagents.enabled
@@ -256,6 +262,9 @@ export async function createLocalRuntimeServeRuntime(
       reason: webProviders.diagnostics.find((diagnostic) => diagnostic.reason)?.reason
     },
     research: researchCapabilityInput(capabilityConfig, mcpProviders.diagnostics),
+    computerUse: {
+      available: computerUseAvailable
+    },
     skills: {
       configuredRoots: capabilityConfig.skills.roots.length,
       discoveredSkills: skillRuntime.count(),
@@ -290,7 +299,7 @@ export async function createLocalRuntimeServeRuntime(
     ...buildDelegationToolProviders(delegationRuntime),
     // GUI-Owl computer-use: advertised only when SCIFORGE_CUA_SERVICE_URL is set
     // (env-gated, fail-closed). Every call is gated by the approval policy.
-    ...buildComputerUseToolProviders()
+    ...computerUseProviders
   ])
   const toolHost = new LocalToolHost({ registry, readTracker: true })
   const loop = new AgentLoop({

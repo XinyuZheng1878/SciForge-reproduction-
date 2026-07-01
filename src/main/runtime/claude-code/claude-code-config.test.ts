@@ -191,34 +191,15 @@ describe('claude-code config launch helpers', () => {
     ])).toEqual({ allowedTools: 'Edit' })
   })
 
-  it('injects the shared computer-use MCP server into SDK options', async () => {
+  it('does not inject the retired computer-use MCP server into SDK options', async () => {
     const launch = await prepareClaudeCodeSdkLaunch({
       settings: settings(),
       text: 'hello',
       workspace: '/tmp/workspace',
-      managedConfigDir: '/tmp/claude-managed',
-      computerUseMcpLaunch: {
-        appPath: '/tmp/sciforge-test-app',
-        execPath: '/tmp/sciforge-test-app/SciForge',
-        isPackaged: false
-      }
+      managedConfigDir: '/tmp/claude-managed'
     })
 
-    expect(launch.sdkOptions.mcpServers).toMatchObject({
-      gui_computer_use: {
-        type: 'stdio',
-        command: '/tmp/sciforge-test-app/SciForge',
-        args: [
-          '/tmp/sciforge-test-app/out/main/computer-use-mcp-node-entry.js',
-          '--gui-computer-use-mcp-server'
-        ],
-        env: {
-          ELECTRON_RUN_AS_NODE: '1'
-        },
-        timeout: 30000,
-        alwaysLoad: true
-      }
-    })
+    expect(launch.sdkOptions.mcpServers).toBeUndefined()
   })
 
   it('does not inject the shared computer-use MCP server when computer use is disabled', async () => {
@@ -236,12 +217,7 @@ describe('claude-code config launch helpers', () => {
       },
       text: 'hello',
       workspace: '/tmp/workspace',
-      managedConfigDir: '/tmp/claude-managed',
-      computerUseMcpLaunch: {
-        appPath: '/tmp/sciforge-test-app',
-        execPath: '/tmp/sciforge-test-app/SciForge',
-        isPackaged: false
-      }
+      managedConfigDir: '/tmp/claude-managed'
     })
 
     expect(launch.sdkOptions.mcpServers).toBeUndefined()
@@ -262,12 +238,7 @@ describe('claude-code config launch helpers', () => {
       },
       text: 'hello',
       workspace: '/tmp/workspace',
-      managedConfigDir: '/tmp/claude-managed',
-      computerUseMcpLaunch: {
-        appPath: '/tmp/sciforge-test-app',
-        execPath: '/tmp/sciforge-test-app/SciForge',
-        isPackaged: false
-      }
+      managedConfigDir: '/tmp/claude-managed'
     })
 
     expect(launch.sdkOptions.mcpServers).toBeUndefined()

@@ -511,6 +511,12 @@ export function dispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: Thread
 
   switch (event.kind) {
     case 'thread_lifecycle':
+      sink.onThreadLifecycle?.({
+        threadId: event.threadId,
+        state: event.state,
+        createdAt: event.createdAt
+      })
+      return
     case 'heartbeat':
       return
     case 'turn_lifecycle':

@@ -800,44 +800,27 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     })
   })
 
-  it('adds the shared computer-use MCP server to the local runtime capabilities', async () => {
+  it('does not add the retired computer-use MCP server to local runtime capabilities', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
     const module = await import('./local-runtime-process')
 
-    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings(), {
-      computerUseMcp: {
-        launch: {
-          appPath: '/tmp/sciforge-test-app',
-          execPath: '/tmp/electron',
-          isPackaged: false
-        }
-      }
-    })
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings())
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
-    expect(parsed.capabilities.mcp.enabled).toBe(true)
-    expect(parsed.capabilities.mcp.servers.gui_computer_use).toMatchObject({
-      enabled: true,
-      transport: 'stdio',
-      command: '/tmp/electron',
-      args: [
-        '/tmp/sciforge-test-app/out/main/computer-use-mcp-node-entry.js',
-        '--gui-computer-use-mcp-server'
-      ],
-      env: {
-        ELECTRON_RUN_AS_NODE: '1'
-      },
-      trustScope: 'user',
-      timeoutMs: 30000
-    })
+    expect(parsed.capabilities.mcp.servers.gui_computer_use).toBeUndefined()
   })
 
-  it('does not enable the GUI-managed computer-use MCP when the sidecar env guard is set', async () => {
+  it('passes an allowed GUI-Owl sidecar URL to the local runtime child without adding the retired MCP', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
+    const observedEnvPath = join(tempRoot, 'cua-allowed-child-env.json')
     const script = writeScript(
       'cua-env-guard-child.js',
       [
+        "const fs = require('node:fs')",
+        `fs.writeFileSync(${JSON.stringify(observedEnvPath)}, JSON.stringify({`,
+        "  url: process.env.SCIFORGE_CUA_SERVICE_URL ?? null",
+        '}))',
         "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",
         "setInterval(() => {}, 1_000)"
       ].join('\n')
@@ -854,8 +837,9 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
       await module.stopLocalRuntimeChildAndWait()
 
       const parsed = JSON.parse(readFileSync(join(tempRoot, 'config.json'), 'utf8')) as any
-      expect(parsed.capabilities.mcp.servers.gui_computer_use).toMatchObject({
-        enabled: false
+      expect(parsed.capabilities.mcp.servers.gui_computer_use).toBeUndefined()
+      expect(JSON.parse(readFileSync(observedEnvPath, 'utf8'))).toEqual({
+        url: 'http://127.0.0.1:3900'
       })
     } finally {
       if (previousSidecarUrl === undefined) delete process.env.SCIFORGE_CUA_SERVICE_URL
@@ -864,7 +848,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     }
   })
 
-  it('ignores unsafe external computer-use service URLs instead of disabling the managed MCP', async () => {
+  it('strips unsafe external computer-use service URLs without falling back to the retired MCP', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const observedEnvPath = join(tempRoot, 'cua-child-env.json')
     const script = writeScript(
@@ -896,9 +880,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
       await module.stopLocalRuntimeChildAndWait()
 
       const parsed = JSON.parse(readFileSync(join(tempRoot, 'config.json'), 'utf8')) as any
-      expect(parsed.capabilities.mcp.servers.gui_computer_use).toMatchObject({
-        enabled: true
-      })
+      expect(parsed.capabilities.mcp.servers.gui_computer_use).toBeUndefined()
       expect(JSON.parse(readFileSync(observedEnvPath, 'utf8'))).toEqual({
         url: null,
         token: null,
@@ -938,7 +920,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     })).toMatchObject({ configured: true, allowed: true, host: 'devbox.local' })
   })
 
-  it('keeps the shared computer-use MCP server disabled when computer use is turned off', async () => {
+  it('keeps the retired computer-use MCP server absent when computer use is turned off', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')
     const module = await import('./local-runtime-process')
@@ -951,27 +933,12 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
         enabled: false
       }
     }, {
-      mcpConfigPath: join(tempRoot, 'empty-mcp.json'),
-      computerUseMcp: {
-        enabled: false,
-        launch: {
-          appPath: '/tmp/sciforge-test-app',
-          execPath: '/tmp/electron',
-          isPackaged: false
-        }
-      }
+      mcpConfigPath: join(tempRoot, 'empty-mcp.json')
     })
 
     const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
     expect(parsed.capabilities.mcp.enabled).toBeUndefined()
-    expect(parsed.capabilities.mcp.servers.gui_computer_use).toMatchObject({
-      enabled: false,
-      command: '/tmp/electron',
-      args: [
-        '/tmp/sciforge-test-app/out/main/computer-use-mcp-node-entry.js',
-        '--gui-computer-use-mcp-server'
-      ]
-    })
+    expect(parsed.capabilities.mcp.servers.gui_computer_use).toBeUndefined()
   })
 
   it('adds GUI project and configured global skill roots to the local runtime capabilities', async () => {

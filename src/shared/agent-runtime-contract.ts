@@ -1189,10 +1189,10 @@ export type AgentRuntimeCapabilities = {
       maxResults?: number
     }
     computerUse: CapabilityState & {
-      server?: 'mcp'
+      server?: 'mcp' | 'service'
       toolName?: 'computer_use'
-      backend?: 'browser-cdp'
-      inputIsolation?: 'agent-isolated'
+      backend?: 'browser-cdp' | 'gui-owl'
+      inputIsolation?: 'agent-isolated' | 'host-approved'
       affectsUserInput?: boolean
       requiresHostFocus?: boolean
       usesHostClipboard?: boolean

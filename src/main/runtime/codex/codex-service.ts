@@ -3,7 +3,6 @@ import {
   DEFAULT_MODEL_ROUTER_PROVIDER_ID,
   getAgentCapabilitySettings,
   getCodexRuntimeSettings,
-  isComputerUseEnabledForRuntime,
   resolveRuntimeModelRouterSettings,
   type AppSettingsV1,
   type ApprovalPolicy,
@@ -66,10 +65,6 @@ import {
   type ResearchSearchMcpLaunchConfig
 } from '../../research-search-mcp-config'
 import type { ScheduleMcpLaunchConfig } from '../../schedule-mcp-config'
-import {
-  GUI_COMPUTER_USE_MCP_SERVER_NAME,
-  type ComputerUseMcpLaunchConfig
-} from '../../computer-use-mcp-config'
 import type { WorkflowMcpLaunchConfig } from '../../workflow-mcp-config'
 import type { WorkspaceIntelMcpLaunchConfig } from '../../workspace-intel-mcp-config'
 import type { PaperRadarMcpLaunchConfig } from '../../paper-radar-mcp-config'
@@ -124,7 +119,6 @@ export type CodexRuntimeServiceOptions = {
   paperRadarMcpLaunch?: PaperRadarMcpLaunchConfig
   writeAssistMcpLaunch?: WriteAssistMcpLaunchConfig
   runtimeInspectorMcpLaunch?: RuntimeInspectorMcpLaunchConfig
-  computerUseMcpLaunch?: ComputerUseMcpLaunchConfig
   scientificSkillsMcpLaunch?: ScientificSkillsMcpLaunchConfig
   scientificPlottingMcpLaunch?: ScientificPlottingMcpLaunchConfig
   imageGenerationMcpLaunch?: ImageGenerationMcpLaunchConfig
@@ -835,9 +829,6 @@ export class CodexRuntimeService {
     if (this.clientPromise) return this.clientPromise
     const promise = (async () => {
       const current = settings ?? await this.options.settings()
-      const computerUseMcpLaunch = isComputerUseEnabledForRuntime(current, 'codex')
-        ? this.options.computerUseMcpLaunch
-        : undefined
       const launch = await prepareCodexAppServerLaunch({
         settings: current,
         managedCodexHome: this.options.managedCodexHome,
@@ -848,7 +839,6 @@ export class CodexRuntimeService {
         paperRadarMcpLaunch: this.options.paperRadarMcpLaunch,
         writeAssistMcpLaunch: this.options.writeAssistMcpLaunch,
         runtimeInspectorMcpLaunch: this.options.runtimeInspectorMcpLaunch,
-        computerUseMcpLaunch,
         scientificSkillsMcpLaunch: this.options.scientificSkillsMcpLaunch,
         scientificPlottingMcpLaunch: this.options.scientificPlottingMcpLaunch,
         imageGenerationMcpLaunch: this.options.imageGenerationMcpLaunch,
@@ -925,11 +915,8 @@ export class CodexRuntimeService {
   }
 
   isComputerUseMcpConfigured(settings?: AppSettingsV1): boolean {
-    if (settings && !isComputerUseEnabledForRuntime(settings, 'codex')) return false
-    return Boolean(
-      this.options.computerUseMcpLaunch ||
-      (this.options.managedMcpServers ?? []).some((server) => server.id === GUI_COMPUTER_USE_MCP_SERVER_NAME)
-    )
+    void settings
+    return false
   }
 
   isMcpConfigured(): boolean {
@@ -2145,12 +2132,6 @@ function codexDynamicMcpServers(
       : undefined,
     runtimeInspectorMcp: options.runtimeInspectorMcpLaunch && settings
       ? { settings, launch: options.runtimeInspectorMcpLaunch }
-      : undefined,
-    computerUseMcp: options.computerUseMcpLaunch
-      ? {
-          launch: options.computerUseMcpLaunch,
-          enabled: !settings || isComputerUseEnabledForRuntime(settings, 'codex')
-        }
       : undefined,
     scientificSkillsMcp: options.scientificSkillsMcpLaunch && settings
       ? { settings, launch: options.scientificSkillsMcpLaunch }

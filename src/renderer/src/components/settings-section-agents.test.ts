@@ -251,6 +251,7 @@ const labels: Record<string, string> = {
   computerUseSafetyInputAgentIsolated: 'isolated browser',
   computerUseSafetyInputHostGlobal: 'host desktop',
   computerUseSafetyInputHostAppScoped: 'selected app/window',
+  computerUseSafetyInputHostApproved: 'GUI approved desktop',
   computerUseSafetyInputUnknown: 'not reported',
   computerUseSafetyUserInput: 'User input',
   computerUseSafetyUserInputIsolated: 'does not affect active input',
@@ -646,13 +647,13 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
           updatedAt: '2026-06-23T00:00:00.000Z',
           servers: [],
           backend: {
-            backend: 'browser-cdp',
+            backend: 'gui-owl',
             available: true,
             platform: 'darwin',
-            reason: 'isolated browser backend ready',
-            inputIsolation: 'agent-isolated',
-            affectsUserInput: false,
-            requiresHostFocus: false,
+            reason: 'GUI-Owl sidecar ready',
+            inputIsolation: 'host-approved',
+            affectsUserInput: true,
+            requiresHostFocus: true,
             usesHostClipboard: false,
             activeLeases: [],
             recentRejections: []
@@ -663,10 +664,10 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
               computerUseSessionId: 'session-1',
               agentId: 'agent-main',
               threadId: 'thread-1',
-              targetId: 'browser-cdp:isolated-browser',
-              backend: 'browser-cdp',
-              inputIsolation: 'agent-isolated',
-              affectsUserInput: false,
+              targetId: 'gui-owl:desktop',
+              backend: 'gui-owl',
+              inputIsolation: 'host-approved',
+              affectsUserInput: true,
               acquiredAt: '2026-06-23T00:00:00.000Z',
               updatedAt: '2026-06-23T00:00:01.000Z'
             }
@@ -689,29 +690,29 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
     expect(html).toContain('Runtime access')
     expect(html).toContain('Codex app-server')
     expect(html).toContain('Configured')
-    expect(html).toContain('browser-cdp')
+    expect(html).toContain('gui-owl')
     expect(html).toContain('available')
     expect(html).toContain('Input surface')
-    expect(html).toContain('isolated browser')
+    expect(html).toContain('GUI approved desktop')
     expect(html).toContain('User input')
-    expect(html).toContain('does not affect active input')
+    expect(html).toContain('can affect active input')
     expect(html).toContain('Host focus')
-    expect(html).toContain('not required')
+    expect(html).toContain('required')
     expect(html).toContain('Clipboard')
     expect(html).toContain('not used')
     expect(html).not.toContain('inputIsolation')
-    expect(html).not.toContain('agent-isolated')
+    expect(html).not.toContain('host-approved')
     expect(html).not.toContain('affectsUserInput')
     expect(html).not.toContain('requiresHostFocus')
     expect(html).not.toContain('usesHostClipboard')
-    expect(html).toContain('isolated browser backend ready')
+    expect(html).toContain('GUI-Owl sidecar ready')
     expect(html).toContain('macOS permissions')
     expect(html).toContain('Accessibility')
     expect(html).toContain('granted, restart needed')
     expect(html).toContain('Restart SciForge before using computer use.')
     expect(html).toContain('Screen Recording')
     expect(html).toContain('Active leases')
-    expect(html).toContain('browser-cdp:isolated-browser')
+    expect(html).toContain('gui-owl:desktop')
     expect(html).toContain('agent-main')
     expect(html).toContain('Recent rejections')
     expect(html).toContain('target_in_use')

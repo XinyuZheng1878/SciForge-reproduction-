@@ -738,6 +738,11 @@ describe('cli', () => {
     expect(manifest.attachments.textFallbackMaxBase64Bytes).toBe(512 * 1024)
     expect(manifest.attachments.textFallbackMaxImageDimension).toBe(1280)
     expect(manifest.attachments.textFallbackPreferredMimeType).toBe('image/webp')
+    expect(manifest.computerUse).toMatchObject({
+      enabled: true,
+      available: false,
+      reason: 'GUI-Owl computer-use sidecar is not configured'
+    })
 
     const enabledButMissingProvider = buildRuntimeCapabilityManifest({
       model: modelCapabilitiesForModel('deepseek-chat'),
@@ -764,6 +769,23 @@ describe('cli', () => {
       toolName: 'research_search',
       sources: ['arxiv', 'semantic_scholar'],
       maxResults: 7
+    })
+
+    const computerUseEnabled = buildRuntimeCapabilityManifest({
+      model: modelCapabilitiesForModel('deepseek-chat'),
+      computerUse: {
+        available: true
+      }
+    })
+    expect(computerUseEnabled.computerUse).toMatchObject({
+      available: true,
+      server: 'service',
+      toolName: 'computer_use',
+      backend: 'gui-owl',
+      inputIsolation: 'host-approved',
+      affectsUserInput: true,
+      requiresHostFocus: true,
+      usesHostClipboard: false
     })
   })
 
