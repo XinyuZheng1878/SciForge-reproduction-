@@ -4,7 +4,7 @@
   "license": "MIT",
   "type": "module",
   "private": false,
-  "description": "SciForge Paper Radar MCP facade backed by the shared Paper Radar SQLite store.",
+  "description": "SciForge Paper Radar MCP facade and shared SQLite-backed paper metadata core.",
   "sciforge": {
     "lifecycleLayer": "workers",
     "skillFacing": false,
@@ -12,7 +12,7 @@
     "publicContract": true,
     "runtimeAdapter": false,
     "mcpServer": true,
-    "packagingStrategy": "ship with packages/workers/paper-radar and the existing sciforge-paper-radar-service plugin dependency; main-process launch config must pass PAPER_RADAR_DB and PAPER_RADAR_PROFILES from the userData paper-radar directory"
+    "packagingStrategy": "ship with packages/workers/paper-radar; main-process launch config must pass PAPER_RADAR_DB and PAPER_RADAR_PROFILES from the userData paper-radar directory"
   },
   "engines": {
     "node": ">=22.5.0"
@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "sciforge-paper-radar-service": "file:../../../plugins/paper-radar-service",
+    "fast-xml-parser": "^5.3.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {

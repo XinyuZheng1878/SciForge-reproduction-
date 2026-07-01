@@ -55,9 +55,6 @@ const PACKAGE_DEFINITIONS = {
   canvas: {
     dir: 'packages/workers/canvas'
   },
-  paperRadarService: {
-    dir: 'plugins/paper-radar-service'
-  },
   guiOwlComputerUse: {
     dir: 'packages/workers/gui-owl-computer-use'
   }
@@ -80,8 +77,7 @@ const WORKSPACE_PACKAGE_IDS = [
   'imageGeneration',
   'multiAgent',
   'pptMaster',
-  'canvas',
-  'paperRadarService'
+  'canvas'
 ]
 
 const BUNDLED_PACKAGE_IDS = [
@@ -99,8 +95,7 @@ const BUNDLED_PACKAGE_IDS = [
   'imageGeneration',
   'multiAgent',
   'pptMaster',
-  'canvas',
-  'paperRadarService'
+  'canvas'
 ]
 
 const NON_BUNDLED_PACKAGE_IDS = [
@@ -245,23 +240,20 @@ const RUNTIME_ENTRIES = [
   {
     id: 'paper-radar',
     label: 'Paper Radar',
-    packageIds: ['paperRadar', 'paperRadarService'],
+    packageIds: ['paperRadar'],
     requiredPathsExport: 'PAPER_RADAR_RUNTIME_REQUIRED_PATHS',
     requiredPaths: [
       ...packagePaths('paperRadar', [
         'package.json',
         'src/mcp-server.ts',
         'src/service.ts',
-        'src/contract.ts'
-      ]),
-      ...packagePaths('paperRadarService', [
-        'package.json',
-        'src/service.ts',
-        'src/storage.ts',
-        'src/profiles.ts',
-        'src/ranker.ts',
-        'src/sources.ts',
-        'src/types.ts'
+        'src/contract.ts',
+        'src/core/service.ts',
+        'src/core/storage.ts',
+        'src/core/profiles.ts',
+        'src/core/ranker.ts',
+        'src/core/sources.ts',
+        'src/core/types.ts'
       ])
     ],
     mcpNodeEntryPaths: [

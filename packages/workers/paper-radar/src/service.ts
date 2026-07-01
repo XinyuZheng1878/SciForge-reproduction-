@@ -2,22 +2,22 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { DEFAULT_PROFILE, normalizeTopicProfile } from 'sciforge-paper-radar-service/src/profiles.js'
+import { DEFAULT_PROFILE, normalizeTopicProfile } from './core/profiles.js'
 import {
   createPaperRadarCoreService,
   type PaperRadarCoreService
-} from 'sciforge-paper-radar-service/src/service.js'
+} from './core/service.js'
 import type {
   ArxivSyncRequest,
   BiorxivSyncRequest
-} from 'sciforge-paper-radar-service/src/sources.js'
+} from './core/sources.js'
 import type {
   RankedPaper,
   RankRequest,
   SearchRequest,
   SyncResult,
   TopicProfile
-} from 'sciforge-paper-radar-service/src/types.js'
+} from './core/types.js'
 
 import {
   PAPER_RADAR_MCP_SERVER_VERSION,

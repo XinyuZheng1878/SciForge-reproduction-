@@ -1,13 +1,8 @@
 # SciForge plug-in services
 
-Optional service modules. Each service owns its own `package.json`. Model Router owns translator
-roles directly. Paper Radar's desktop UI now uses the GUI worker service directly; the HTTP service
-remains a standalone/debug API while the shared Paper Radar core is still owned by the plug-in
-workspace.
-
-| Plug-in | Port | Endpoint | Role/Output | Upstream model(s) |
-|---|---|---|---|---|
-| [`paper-radar-service`](./paper-radar-service) | 3901 | `GET /health`, `POST /sync/profile`, `POST /digest` | paper metadata → ranked daily digest | arXiv OAI-PMH + bioRxiv API |
+Optional service modules. Model Router owns translator roles directly. Paper Radar now lives as the
+`@sciforge/paper-radar` worker package; its GUI and MCP paths share the same worker-owned core
+without a standalone HTTP plug-in boundary.
 
 > The scientific-modality translator now lives as a **worker** at
 > [`packages/workers/sci-modality-router`](../packages/workers/sci-modality-router) (port 3898,
@@ -29,15 +24,14 @@ Paper Radar is a separate UI extension service, not a Model Router translator.
   (which calls the GPU expert-translator). When unset or unreachable, Model Router falls back to
   readable raw file text where safe — no runtime-side service calls.
 - **Paper Radar**: enabled from `Plugins → Extensions`. The Workbench only shows the Paper Radar
-  right panel after the extension key is installed. Paper Radar IPC calls go through
-  `PaperRadarWorkerService`; `paper-radar-service` is not started by Electron main as an app-side
-  HTTP sidecar.
+  right panel after the extension key is installed. Paper Radar IPC and MCP calls go through the
+  `@sciforge/paper-radar` worker-owned service/core.
 
 ## Run a plug-in
 
 ```bash
-npm --workspace sciforge-paper-radar-service run start           # :3901
-npm --workspace sciforge-paper-radar-service test                # service e2e/unit tests
+npm --workspace @sciforge/paper-radar run start                  # MCP stdio worker
+npm --workspace @sciforge/paper-radar run test                   # worker/core tests
 
 # The scientific-modality translator is now a worker (packages/workers/sci-modality-router):
 npm --workspace @sciforge/sci-modality-router run start          # :3898

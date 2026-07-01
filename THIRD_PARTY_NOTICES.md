@@ -16,7 +16,6 @@ Package metadata policy:
 | Root desktop app | `private: true`, `license: MIT` | Not published as a public npm package. Source release follows root `LICENSE`. |
 | `kun` local runtime | `private: true`, `license: MIT` | Bundled as project code, not published as a public npm package. |
 | `packages/workers/*` | `license: MIT` | Project-owned worker packages. |
-| `plugins/paper-radar-service` | `private: true`, `license: MIT` | Private internal service. May be bundled only under the SciForge MIT License; not published as a public npm package. |
 | `vendor/openclaw-shim` | `private: true`, `license: MIT` | Project-local compatibility shim for peer imports; not an upstream OpenClaw source distribution. |
 
 ## Reference-Only Upstream Inspiration

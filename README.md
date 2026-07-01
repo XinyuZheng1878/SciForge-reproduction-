@@ -211,7 +211,7 @@ SciForge 将科研能力拆成可单独启动、测试和审计的 worker：
 | `model-router` | 文本模型出口、视觉输入处理、科学多模态 worker 调度和 trace audit |
 | `sci-modality-router` | 蛋白、结构、小分子、单细胞 native-to-text translator |
 | `evidence-dag` | claim-evidence DAG、NLI verify、PROV-JSON、what-if reconcile |
-| `paper-radar` | GUI / MCP 使用的论文 profile、同步、搜索、排名和 digest worker；`paper-radar-service` 仍是 standalone/debug API 和共享 core 依赖 |
+| `paper-radar` | GUI / MCP 使用的论文 profile、同步、搜索、排名和 digest worker；共享 core 由 worker 包自身拥有 |
 | `search` | arXiv、bioRxiv、Europe PMC、Semantic Scholar 与可选 CNS web search 的科研检索 |
 | `scientific-plotting` | 参考图准备、风格识别、受控绘图、评分和修复建议 |
 | `image-generation` | 受控图片生成、Canvas review packet 到编辑意图、artifact manifest |

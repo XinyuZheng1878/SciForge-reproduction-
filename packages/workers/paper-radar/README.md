@@ -4,7 +4,7 @@ Paper Radar MCP facade for agent-facing research profile, sync, search, rank, di
 
 ## Storage
 
-The worker uses the same SQLite schema as `plugins/paper-radar-service`.
+The worker owns the shared Paper Radar SQLite schema and metadata core used by both GUI and MCP paths.
 
 Path resolution is:
 
@@ -22,7 +22,7 @@ When launched from the Electron main process, pass `paperRadarDbPath(userDataDir
 
 This package is wired into the root workspace as `@sciforge/paper-radar` with root scripts for `paper-radar-mcp:start`, `paper-radar-mcp:test`, and `paper-radar-mcp:typecheck`.
 
-The Electron MCP entrypoint is `src/main/paper-radar-mcp-node-entry.ts`, built to `out/main/paper-radar-mcp-node-entry.js`. Main-process MCP launch config passes `--db` and `--profiles` so the worker uses the same userData storage as the Paper Radar GUI worker service. Runtime packaging must include both `packages/workers/paper-radar` and the existing `plugins/paper-radar-service` dependency because the worker reuses that service's storage, source parsing, profile, and ranking modules. The packaged app validation checks those worker/service files and the node entry before release artifacts are created.
+The Electron MCP entrypoint is `src/main/paper-radar-mcp-node-entry.ts`, built to `out/main/paper-radar-mcp-node-entry.js`. Main-process MCP launch config passes `--db` and `--profiles` so the worker uses the same userData storage as the Paper Radar GUI worker service. Runtime packaging includes `packages/workers/paper-radar`; packaged app validation checks the worker core, MCP files, and node entry before release artifacts are created.
 
 ## Tools
 

@@ -30,10 +30,6 @@ function readWorkerPackageJson(packageDir: string): WorkerPackageJson {
   return JSON.parse(readFileSync(join(workerRoot, packageDir, 'package.json'), 'utf8')) as WorkerPackageJson
 }
 
-function readPackageJson(relativePath: string): WorkerPackageJson {
-  return JSON.parse(readFileSync(join(process.cwd(), relativePath), 'utf8')) as WorkerPackageJson
-}
-
 function parseSideEffects(value: string): string[] {
   return value.split(',').map((part) => part.trim()).filter(Boolean)
 }
@@ -94,12 +90,12 @@ describe('worker package metadata', () => {
     }
   })
 
-  it('keeps the Paper Radar service plugin private while core ownership is pending', () => {
-    const metadata = readPackageJson('plugins/paper-radar-service/package.json')
+  it('keeps Paper Radar core owned by the worker package', () => {
+    const metadata = readWorkerPackageJson('paper-radar')
 
-    expect(metadata.name).toBe('sciforge-paper-radar-service')
-    expect(metadata.private).toBe(true)
-    expect(metadata.sciforge?.distribution).toBe('private-internal-service')
-    expect(metadata.sciforge?.publicNpmPackage).toBe(false)
+    expect(metadata.name).toBe('@sciforge/paper-radar')
+    expect(metadata.sciforge?.publicContract).toBe(true)
+    expect(metadata.sciforge?.mcpServer).toBe(true)
+    expect(metadata.sciforge?.distribution).toBeUndefined()
   })
 })

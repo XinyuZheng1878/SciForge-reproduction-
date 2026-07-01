@@ -38,6 +38,11 @@ type ReleaseWorkerManifest = {
   createBundledFileSets: () => BuilderFileSet[]
 }
 
+type RootPackageJson = {
+  workspaces: string[]
+  scripts: Record<string, string>
+}
+
 const require = createRequire(import.meta.url)
 const builderConfig = require('../../electron-builder.config.cjs')
 const afterPack = require('../../scripts/after-pack.cjs')
@@ -46,7 +51,7 @@ const macNotarize = require('../../scripts/mac-notarize.cjs')
 const releaseWorkerManifest = require(
   '../../scripts/release-worker-manifest.cjs'
 ) as ReleaseWorkerManifest
-const rootPackage = require('../../package.json')
+const rootPackage = require('../../package.json') as RootPackageJson
 
 const tempRoots: string[] = []
 
@@ -203,12 +208,8 @@ describe('electron-builder local runtime packaging', () => {
       expect(unpackGlobs).not.toContain(`**/${packageDir}/**/*`)
     }
 
-    expect(bundledDirectoryFileSetDirs.filter((entry) => entry.startsWith('plugins/'))).toEqual([
-      'plugins/paper-radar-service'
-    ])
-    expect(unpackGlobs.filter((entry) => entry.includes('/plugins/'))).toEqual([
-      '**/plugins/paper-radar-service/**/*'
-    ])
+    expect(bundledDirectoryFileSetDirs.filter((entry) => entry.startsWith('plugins/'))).toEqual([])
+    expect(unpackGlobs.filter((entry) => entry.includes('/plugins/'))).toEqual([])
     for (const rawGlob of [
       'plugins/**/*',
       'packages/workers/sci-modality-router/**/*',
@@ -267,19 +268,19 @@ describe('electron-builder local runtime packaging', () => {
     }
   })
 
-  it('keeps Paper Radar bundled with its service dependency without changing pending strategies', () => {
+  it('keeps Paper Radar bundled as a worker-owned core without a plug-in service dependency', () => {
     const paperRadar = releaseWorkerManifest.runtimeEntries.find((entry) => entry.id === 'paper-radar')
 
     expect(paperRadar?.requiredPaths).toEqual(expect.arrayContaining([
       'packages/workers/paper-radar/package.json',
       'packages/workers/paper-radar/src/mcp-server.ts',
-      'plugins/paper-radar-service/package.json',
-      'plugins/paper-radar-service/src/storage.ts'
+      'packages/workers/paper-radar/src/core/service.ts',
+      'packages/workers/paper-radar/src/core/storage.ts'
     ]))
     expect(releaseWorkerManifest.bundledPackageDirs).toEqual(expect.arrayContaining([
-      'packages/workers/paper-radar',
-      'plugins/paper-radar-service'
+      'packages/workers/paper-radar'
     ]))
+    expect(releaseWorkerManifest.bundledPackageDirs.some((dir) => dir.startsWith('plugins/'))).toBe(false)
     expect(releaseWorkerManifest.nonBundledPackageDirs).toEqual(expect.arrayContaining([
       'packages/workers/sci-modality-router',
       'packages/workers/evidence-dag',
@@ -399,8 +400,9 @@ describe('root package workspace contracts', () => {
       'packages/workers/model-router',
       'packages/workers/sci-modality-router',
       'packages/workers/evidence-dag',
-      'plugins/paper-radar-service'
+      'packages/workers/paper-radar'
     ]))
+    expect(rootPackage.workspaces.some((workspace) => workspace.startsWith('plugins/'))).toBe(false)
     expect(rootPackage.workspaces).not.toContain('kun')
     expect(rootPackage.workspaces).not.toContain('packages/workers/gui-owl-computer-use')
     expect(rootPackage.scripts).toMatchObject({
@@ -409,7 +411,10 @@ describe('root package workspace contracts', () => {
       'computer-use:test': 'npm --workspace @sciforge/computer-use run test',
       'computer-use:typecheck': 'npm --workspace @sciforge/computer-use run typecheck',
       'model-router:start': 'npm --workspace @sciforge/model-router run start',
-      'model-router:test': 'npm --workspace @sciforge/model-router run test'
+      'model-router:test': 'npm --workspace @sciforge/model-router run test',
+      'paper-radar:start': 'npm --workspace @sciforge/paper-radar run start',
+      'paper-radar:test': 'npm --workspace @sciforge/paper-radar run test',
+      'paper-radar:typecheck': 'npm --workspace @sciforge/paper-radar run typecheck'
     })
   })
 })

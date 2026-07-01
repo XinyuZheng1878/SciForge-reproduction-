@@ -229,7 +229,7 @@ and audited independently:
 | `model-router` | Text model egress, vision input handling, scientific multimodal worker orchestration, and trace audit |
 | `sci-modality-router` | Protein, structure, small-molecule, and single-cell native-to-text translators |
 | `evidence-dag` | Claim-evidence DAG, NLI verification, PROV-JSON, and what-if reconcile |
-| `paper-radar` | GUI / MCP paper profile, sync, search, ranking, and digest worker; `paper-radar-service` remains the standalone/debug API and shared core dependency |
+| `paper-radar` | GUI / MCP paper profile, sync, search, ranking, and digest worker; the shared core is owned by the worker package |
 | `search` | arXiv, bioRxiv, Europe PMC, Semantic Scholar, and optional CNS web search |
 | `scientific-plotting` | Reference figure preparation, style recognition, controlled plotting, scoring, and repair suggestions |
 | `image-generation` | Controlled image generation, Canvas review packet to edit intent, and artifact manifests |
