@@ -14,21 +14,21 @@ import {
   defaultWriteSettings,
   type AgentRuntimeId,
   type AppSettingsV1,
-  type ClawImChannelV1,
-  type ClawImConversationV1
+  type RemoteChannelV1,
+  type RemoteChannelConversationV1
 } from '../shared/app-settings'
 import { createClawRuntime as createProductionClawRuntime } from './claw-runtime'
 import {
-  CLAW_IM_PROVIDER_CAPABILITIES,
+  REMOTE_CHANNEL_PROVIDER_CAPABILITIES,
   classifyClawFailure,
-  clawImAttachmentFromGeneratedFile,
+  remoteChannelAttachmentFromGeneratedFile,
   latestGeneratedFiles,
-  prepareClawImReplyText,
-  splitClawImReplyText
+  prepareRemoteChannelReplyText,
+  splitRemoteChannelReplyText
 } from './claw-runtime-helpers'
-import type { ClawRuntimeDeps, ThreadDetailJson } from './claw-runtime-helpers'
+import type { RemoteChannelRuntimeDeps, ThreadDetailJson } from './claw-runtime-helpers'
 
-type TestAgentRuntime = NonNullable<ClawRuntimeDeps['agentRuntime']>
+type TestAgentRuntime = NonNullable<RemoteChannelRuntimeDeps['agentRuntime']>
 type TestThreadDetail = ThreadDetailJson & {
   id: string
   runtimeId: AgentRuntimeId
@@ -36,8 +36,8 @@ type TestThreadDetail = ThreadDetailJson & {
   updatedAt: string
   latestSeq: number
 }
-type TestConversationOverrides = Partial<ClawImConversationV1> & { localThreadId?: string }
-type TestChannelOverrides = Partial<ClawImChannelV1> & { threadId?: string }
+type TestConversationOverrides = Partial<RemoteChannelConversationV1> & { localThreadId?: string }
+type TestChannelOverrides = Partial<RemoteChannelV1> & { threadId?: string }
 
 function buildSettings(): AppSettingsV1 {
   return {
@@ -67,7 +67,7 @@ function buildSettings(): AppSettingsV1 {
   }
 }
 
-function buildConversation(overrides: TestConversationOverrides = {}): ClawImConversationV1 {
+function buildConversation(overrides: TestConversationOverrides = {}): RemoteChannelConversationV1 {
   const { localThreadId = 'thr_old', ...canonicalOverrides } = overrides
   const conversation = {
     id: 'conv_1',
@@ -89,7 +89,7 @@ function buildConversation(overrides: TestConversationOverrides = {}): ClawImCon
   }
 }
 
-function buildChannel(overrides: TestChannelOverrides = {}): ClawImChannelV1 {
+function buildChannel(overrides: TestChannelOverrides = {}): RemoteChannelV1 {
   const { threadId = 'thr_old', ...canonicalOverrides } = overrides
   const channel = {
     id: 'channel_1',
@@ -233,7 +233,7 @@ function unusedAgentRuntime(): TestAgentRuntime {
 }
 
 function createClawRuntime(
-  deps: Omit<ClawRuntimeDeps, 'agentRuntime'> & Partial<Pick<ClawRuntimeDeps, 'agentRuntime'>>
+  deps: Omit<RemoteChannelRuntimeDeps, 'agentRuntime'> & Partial<Pick<RemoteChannelRuntimeDeps, 'agentRuntime'>>
 ): ReturnType<typeof createProductionClawRuntime> {
   return createProductionClawRuntime({
     agentRuntime: unusedAgentRuntime(),
@@ -253,7 +253,7 @@ describe('ClawRuntime', () => {
   })
 
   it('defines provider reply and attachment capabilities for Feishu, WeChat, and Discord', () => {
-    expect(CLAW_IM_PROVIDER_CAPABILITIES.feishu).toMatchObject({
+    expect(REMOTE_CHANNEL_PROVIDER_CAPABILITIES.feishu).toMatchObject({
       label: 'Feishu / Lark',
       maxMessageLength: 30_000,
       markdown: { supported: true, preserveCodeBlocks: true },
@@ -264,7 +264,7 @@ describe('ClawRuntime', () => {
       },
       retry: { maxAttempts: 2 }
     })
-    expect(CLAW_IM_PROVIDER_CAPABILITIES.weixin).toMatchObject({
+    expect(REMOTE_CHANNEL_PROVIDER_CAPABILITIES.weixin).toMatchObject({
       label: 'WeChat',
       maxMessageLength: 2_000,
       markdown: { supported: false, preserveCodeBlocks: true },
@@ -275,7 +275,7 @@ describe('ClawRuntime', () => {
       },
       retry: { maxAttempts: 2 }
     })
-    expect(CLAW_IM_PROVIDER_CAPABILITIES.discord).toMatchObject({
+    expect(REMOTE_CHANNEL_PROVIDER_CAPABILITIES.discord).toMatchObject({
       label: 'Discord',
       maxMessageLength: 2_000,
       markdown: { supported: true, preserveCodeBlocks: true },
@@ -297,7 +297,7 @@ describe('ClawRuntime', () => {
       'Done.'
     ].join('\n')
 
-    const chunks = splitClawImReplyText('discord', reply, { maxMessageLength: 90 })
+    const chunks = splitRemoteChannelReplyText('discord', reply, { maxMessageLength: 90 })
 
     expect(chunks.length).toBeGreaterThan(1)
     expect(chunks.every((chunk) => chunk.length <= 90)).toBe(true)
@@ -307,14 +307,14 @@ describe('ClawRuntime', () => {
   })
 
   it('adds an attachment fallback summary when a provider cannot deliver generated files', () => {
-    const prepared = prepareClawImReplyText('discord', '文件已经生成。', {
+    const prepared = prepareRemoteChannelReplyText('discord', '文件已经生成。', {
       attachments: [
-        clawImAttachmentFromGeneratedFile({
+        remoteChannelAttachmentFromGeneratedFile({
           path: '/tmp/workspace/report.md',
           relativePath: 'report.md',
           fileName: 'report.md'
         }),
-        clawImAttachmentFromGeneratedFile({
+        remoteChannelAttachmentFromGeneratedFile({
           path: '/tmp/workspace/chart.png',
           relativePath: 'chart.png',
           fileName: 'chart.png'
@@ -331,9 +331,9 @@ describe('ClawRuntime', () => {
   })
 
   it('does not add an unsupported-attachment fallback for WeChat media delivery', () => {
-    const prepared = prepareClawImReplyText('weixin', '文件已经生成。', {
+    const prepared = prepareRemoteChannelReplyText('weixin', '文件已经生成。', {
       attachments: [
-        clawImAttachmentFromGeneratedFile({
+        remoteChannelAttachmentFromGeneratedFile({
           path: '/tmp/workspace/chart.png',
           relativePath: 'chart.png',
           fileName: 'chart.png'
@@ -407,7 +407,7 @@ describe('ClawRuntime', () => {
   it('bases Feishu conversation workspaces on the configured remote-channel workspace', () => {
     const settings = buildSettings()
     settings.remoteChannel.im.workspaceRoot = '/tmp/remote-channel-default'
-    const channel: ClawImChannelV1 = {
+    const channel: RemoteChannelV1 = {
       id: 'channel_1',
       provider: 'feishu' as const,
       label: 'Phone',
@@ -450,7 +450,7 @@ describe('ClawRuntime', () => {
   it('repairs legacy Feishu conversation workspaces created from an empty channel root', () => {
     const settings = buildSettings()
     settings.remoteChannel.im.workspaceRoot = '/tmp/claw-default'
-    const conversation: ClawImConversationV1 = {
+    const conversation: RemoteChannelConversationV1 = {
       id: 'conv_1',
       chatId: 'oc_chat_a',
       remoteThreadId: '',
@@ -462,7 +462,7 @@ describe('ClawRuntime', () => {
       createdAt: '2026-06-02T00:00:00.000Z',
       updatedAt: '2026-06-02T00:00:00.000Z'
     }
-    const channel: ClawImChannelV1 = {
+    const channel: RemoteChannelV1 = {
       id: 'channel_1',
       provider: 'feishu' as const,
       label: 'Phone',
@@ -2286,7 +2286,7 @@ describe('ClawRuntime', () => {
     })
     const oversized = await post({
       provider: 'discord',
-      text: 'x'.repeat(CLAW_IM_PROVIDER_CAPABILITIES.discord.maxMessageLength + 1)
+      text: 'x'.repeat(REMOTE_CHANNEL_PROVIDER_CAPABILITIES.discord.maxMessageLength + 1)
     })
 
     expect(empty).toEqual({
@@ -4615,7 +4615,7 @@ describe('ClawRuntime', () => {
       text: string
     }]>
     for (const [payload] of calls) {
-      expect(payload.text.length).toBeLessThanOrEqual(CLAW_IM_PROVIDER_CAPABILITIES.weixin.maxMessageLength)
+      expect(payload.text.length).toBeLessThanOrEqual(REMOTE_CHANNEL_PROVIDER_CAPABILITIES.weixin.maxMessageLength)
     }
   })
 
@@ -4661,7 +4661,7 @@ describe('ClawRuntime', () => {
       text: string
     }]>
     for (const [payload] of calls) {
-      expect(payload.text.length).toBeLessThanOrEqual(CLAW_IM_PROVIDER_CAPABILITIES.discord.maxMessageLength)
+      expect(payload.text.length).toBeLessThanOrEqual(REMOTE_CHANNEL_PROVIDER_CAPABILITIES.discord.maxMessageLength)
     }
   })
 
@@ -4720,7 +4720,7 @@ describe('ClawRuntime', () => {
       const settings = buildSettings()
       settings.remoteChannel.im.enabled = true
       settings.remoteChannel.im.responseTimeoutMs = 2_000
-      const conversation: ClawImConversationV1 = {
+      const conversation: RemoteChannelConversationV1 = {
         id: 'conv_1',
         chatId: 'oc_chat_a',
         remoteThreadId: '',
@@ -4732,7 +4732,7 @@ describe('ClawRuntime', () => {
         createdAt: '2026-06-02T00:00:00.000Z',
         updatedAt: '2026-06-02T00:00:00.000Z'
       }
-      const channel: ClawImChannelV1 = {
+      const channel: RemoteChannelV1 = {
         id: 'channel_1',
         provider: 'feishu' as const,
         label: 'Phone',

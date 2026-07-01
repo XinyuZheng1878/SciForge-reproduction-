@@ -16,42 +16,42 @@ import {
 import type {
   AgentRuntimeId,
   AppSettingsV1,
-  ClawGeneratedFileV1,
-  ClawImFeishuPlatformCredentialV1,
-  ClawImChannelV1,
-  ClawImConversationV1,
-  ClawImLastFailureV1,
-  ClawImRecentMessageV1,
-  ClawModel,
-  ClawImProvider,
-  ClawImRemoteSessionV1,
-  ClawRunResult,
-  ClawRunMode,
-  ClawRuntimeStatus
+  RemoteChannelGeneratedFileV1,
+  RemoteChannelFeishuPlatformCredentialV1,
+  RemoteChannelV1,
+  RemoteChannelConversationV1,
+  RemoteChannelLastFailureV1,
+  RemoteChannelRecentMessageV1,
+  RemoteChannelModel,
+  RemoteChannelProvider,
+  RemoteChannelRemoteSessionV1,
+  RemoteChannelRunResult,
+  RemoteChannelRunMode,
+  RemoteChannelRuntimeStatus
 } from '../shared/app-settings'
 import {
-  CLAW_MODEL_IDS,
-  DEFAULT_CLAW_MODEL,
-  buildClawRuntimePrompt,
+  REMOTE_CHANNEL_MODEL_IDS,
+  DEFAULT_REMOTE_CHANNEL_MODEL,
+  buildRemoteChannelRuntimePrompt,
   getCodexRuntimeSettings,
   normalizeAgentRuntimeId,
-  parseClawUserPromptForDisplay,
+  parseRemoteChannelUserPromptForDisplay,
   resolveLocalRuntimeSettings,
   resolveRuntimeModelRouterSettings
 } from '../shared/app-settings'
 import { APP_WEBHOOK_SECRET_HEADER } from '../shared/app-brand'
 import type { AgentRuntimeThread } from '../shared/agent-runtime-contract'
-import { parseClawCommand } from '../shared/claw-commands'
+import { parseRemoteChannelCommand } from '../shared/remote-channel-commands'
 import { redactSecrets, redactSecretText } from '../shared/secret-redaction'
 import {
   asString,
   buildFeishuPrompt,
-  buildClawImAttachmentFallbackText,
-  clawFailureError,
-  clawFailureFromError,
-  clawFailureResult,
-  clawImAttachmentFromGeneratedFile,
-  clawConversationKey,
+  buildRemoteChannelAttachmentFallbackText,
+  remoteChannelFailureError,
+  remoteChannelFailureFromError,
+  remoteChannelFailureResult,
+  remoteChannelAttachmentFromGeneratedFile,
+  remoteChannelConversationKey,
   extractIncomingChannelId,
   extractIncomingChatType,
   extractIncomingMentionFlags,
@@ -61,7 +61,7 @@ import {
   extractSenderLabel,
   feishuSenderLabel,
   formatFeishuMirrorText,
-  getClawImProviderCapabilities,
+  getRemoteChannelProviderCapabilities,
   hasPendingDesktopApproval,
   isRunningStatus,
   latestThreadSummaryText,
@@ -70,20 +70,20 @@ import {
   nestedRecord,
   normalizeTaskModel,
   parseJsonObject,
-  prepareClawImReplyText,
+  prepareRemoteChannelReplyText,
   providerSendFailureMessage,
   readRequestBody,
   remoteConversationQueueKey,
   remoteMessageDedupeKey,
   replyTextForGeneratedFiles,
-  runClawImProviderRetry,
+  runRemoteChannelProviderRetry,
   sanitizePathSegment,
   shouldDirectSendExistingGeneratedFilesForPrompt,
-  splitClawImReplyText,
+  splitRemoteChannelReplyText,
   sleep,
   webhookUrl,
   writeJson,
-  type ClawRuntimeDeps,
+  type RemoteChannelRuntimeDeps,
   type IncomingImChatType,
   type RunPromptOptions,
   type ThreadDetailJson
@@ -97,8 +97,8 @@ const AGENT_RUNTIME_INTERRUPT_TIMEOUT_MS = 5_000
 const UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE =
   'unsupported_runtime_request: AgentRuntimeHost is required for remote channel runtime requests.'
 
-type FeishuClawChannel = ClawImChannelV1 & {
-  platformCredential: ClawImFeishuPlatformCredentialV1
+type FeishuClawChannel = RemoteChannelV1 & {
+  platformCredential: RemoteChannelFeishuPlatformCredentialV1
 }
 
 function isCompletedStatus(status: string | undefined): boolean {
@@ -110,7 +110,7 @@ function isFailedStatus(status: string | undefined): boolean {
 }
 
 export type ClawIncomingImMessageInput = {
-  provider: ClawImProvider
+  provider: RemoteChannelProvider
   channelId?: string
   text: string
   sender: string
@@ -118,11 +118,11 @@ export type ClawIncomingImMessageInput = {
   chatType?: IncomingImChatType
   mentionedBot?: boolean
   mentionAll?: boolean
-  remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+  remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
 }
 
 export type ClawIncomingImMessageResult =
-  | (Extract<ClawRunResult, { ok: true }> & { reply?: string; createdTaskId?: string })
+  | (Extract<RemoteChannelRunResult, { ok: true }> & { reply?: string; createdTaskId?: string })
   | { ok: true; reply: string; message?: string; createdTaskId?: string }
   | { ok: true; ignored: true; message: string; reply?: string }
   | { ok: false; message: string }
@@ -148,7 +148,7 @@ function withRemoteQueuedNotice(
   }
 }
 
-function hasFeishuPlatformCredential(channel: ClawImChannelV1): channel is FeishuClawChannel {
+function hasFeishuPlatformCredential(channel: RemoteChannelV1): channel is FeishuClawChannel {
   return channel.platformCredential?.kind === 'feishu' &&
     !!channel.platformCredential.appId.trim() &&
     !!channel.platformCredential.appSecret.trim()
@@ -181,13 +181,13 @@ function clippedRemoteFailureText(value: string | undefined, maxLength: number):
 }
 
 function remoteFailureRecord(input: {
-  provider: ClawImProvider
+  provider: RemoteChannelProvider
   channelId?: string
-  remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'>
+  remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'threadId'>
   threadId?: string
   runtimeId?: AgentRuntimeId
   failure: RemoteFailureLike
-}): ClawImLastFailureV1 {
+}): RemoteChannelLastFailureV1 {
   const title = clippedRemoteFailureText(remoteFailureTitle(input.failure), 512)
   const rawMessage = clippedRemoteFailureText(input.failure.message, 4_000)
   const message = rawMessage || title || 'Remote run failed.'
@@ -239,8 +239,8 @@ function isChineseLocale(settings: AppSettingsV1): boolean {
   return settings.locale.toLowerCase().startsWith('zh')
 }
 
-function currentImModel(settings: AppSettingsV1, channel?: ClawImChannelV1): string {
-  return channel?.model?.trim() || settings.remoteChannel.im.model.trim() || DEFAULT_CLAW_MODEL
+function currentImModel(settings: AppSettingsV1, channel?: RemoteChannelV1): string {
+  return channel?.model?.trim() || settings.remoteChannel.im.model.trim() || DEFAULT_REMOTE_CHANNEL_MODEL
 }
 
 function effectiveImRuntimeModel(
@@ -249,21 +249,21 @@ function effectiveImRuntimeModel(
   runtimeId: AgentRuntimeId
 ): string {
   const trimmed = requestedModel.trim()
-  if (trimmed && trimmed.toLowerCase() !== DEFAULT_CLAW_MODEL) return trimmed
+  if (trimmed && trimmed.toLowerCase() !== DEFAULT_REMOTE_CHANNEL_MODEL) return trimmed
   if (runtimeId !== 'sciforge') {
     return resolveRuntimeModelRouterSettings(settings).model.trim() ||
       (runtimeId === 'codex' ? getCodexRuntimeSettings(settings).model.trim() : '') ||
       trimmed ||
-      DEFAULT_CLAW_MODEL
+      DEFAULT_REMOTE_CHANNEL_MODEL
   }
-  return resolveLocalRuntimeSettings(settings).model.trim() || trimmed || DEFAULT_CLAW_MODEL
+  return resolveLocalRuntimeSettings(settings).model.trim() || trimmed || DEFAULT_REMOTE_CHANNEL_MODEL
 }
 
-function currentImMode(settings: AppSettingsV1): ClawRunMode {
+function currentImMode(settings: AppSettingsV1): RemoteChannelRunMode {
   return settings.remoteChannel.im.mode === 'plan' ? 'plan' : 'agent'
 }
 
-function channelGuardMode(channel?: ClawImChannelV1): NonNullable<ClawImChannelV1['guardMode']> {
+function channelGuardMode(channel?: RemoteChannelV1): NonNullable<RemoteChannelV1['guardMode']> {
   return channel?.guardMode === 'all_messages' || channel?.guardMode === 'off'
     ? channel.guardMode
     : 'only_mention'
@@ -276,7 +276,7 @@ function compactRecentRemoteMessageText(text: string | undefined): string {
 }
 
 function remoteConversationThreadId(
-  _provider: ClawImProvider,
+  _provider: RemoteChannelProvider,
   chatType: IncomingImChatType | undefined,
   rawThreadId: string | undefined
 ): string {
@@ -284,8 +284,8 @@ function remoteConversationThreadId(
   return rawThreadId?.trim() ?? ''
 }
 
-function normalizeIncomingRemoteSession<T extends Pick<ClawImRemoteSessionV1, 'threadId'>>(
-  provider: ClawImProvider,
+function normalizeIncomingRemoteSession<T extends Pick<RemoteChannelRemoteSessionV1, 'threadId'>>(
+  provider: RemoteChannelProvider,
   chatType: IncomingImChatType | undefined,
   session: T
 ): T {
@@ -305,8 +305,8 @@ function shortThreadId(threadId: string): string {
 
 function clawRuntimeId(
   settings: AppSettingsV1,
-  channel?: ClawImChannelV1,
-  conversation?: ClawImConversationV1
+  channel?: RemoteChannelV1,
+  conversation?: RemoteChannelConversationV1
 ): AgentRuntimeId {
   return normalizeAgentRuntimeId(conversation?.runtimeId ?? channel?.runtimeId ?? settings.activeAgentRuntime)
 }
@@ -324,8 +324,8 @@ function withAgentThreadId(
 }
 
 function clawThreadIdForRuntime(
-  channel: ClawImChannelV1 | undefined,
-  conversation: ClawImConversationV1 | undefined,
+  channel: RemoteChannelV1 | undefined,
+  conversation: RemoteChannelConversationV1 | undefined,
   runtimeId: AgentRuntimeId
 ): string {
   const mapped =
@@ -336,7 +336,7 @@ function clawThreadIdForRuntime(
 }
 
 function clawConversationThreadIdForRuntime(
-  conversation: ClawImConversationV1 | undefined,
+  conversation: RemoteChannelConversationV1 | undefined,
   runtimeId: AgentRuntimeId
 ): string {
   const mapped = conversation?.agentThreadIds?.[runtimeId]?.trim() || ''
@@ -344,8 +344,8 @@ function clawConversationThreadIdForRuntime(
 }
 
 function incomingThreadIdForRuntime(
-  channel: ClawImChannelV1 | undefined,
-  conversation: ClawImConversationV1 | undefined,
+  channel: RemoteChannelV1 | undefined,
+  conversation: RemoteChannelConversationV1 | undefined,
   runtimeId: AgentRuntimeId,
   hasRemoteSession: boolean
 ): string {
@@ -354,7 +354,7 @@ function incomingThreadIdForRuntime(
     : clawThreadIdForRuntime(channel, conversation, runtimeId)
 }
 
-function withClawThreadMapping<T extends ClawImChannelV1 | ClawImConversationV1>(
+function withClawThreadMapping<T extends RemoteChannelV1 | RemoteChannelConversationV1>(
   item: T,
   runtimeId: AgentRuntimeId,
   threadId: string
@@ -427,7 +427,7 @@ function withFirstConnectHelp(settings: AppSettingsV1, firstConnect: boolean, re
 }
 
 function imModelCommandHint(settings: AppSettingsV1): string {
-  const ids = CLAW_MODEL_IDS.join(', ')
+  const ids = REMOTE_CHANNEL_MODEL_IDS.join(', ')
   return isChineseLocale(settings)
     ? `可使用 /model auto、/model pro 或 /model flash。可用模型：${ids}。`
     : `Use /model auto, /model pro, or /model flash. Available models: ${ids}.`
@@ -457,8 +457,8 @@ function isBareNewCommand(text: string): boolean {
 
 function generatedRemoteThreadTitle(settings: AppSettingsV1, input: {
   sender?: string
-  channel?: ClawImChannelV1
-  remoteSession?: Pick<ClawImRemoteSessionV1, 'senderName' | 'chatId'>
+  channel?: RemoteChannelV1
+  remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'senderName' | 'chatId'>
 }): string {
   const sender = input.remoteSession?.senderName?.trim() || input.sender?.trim() || input.remoteSession?.chatId?.trim() || ''
   const channel = input.channel?.label.trim() || input.channel?.provider || 'IM'
@@ -486,7 +486,7 @@ function imModeCurrentText(settings: AppSettingsV1): string {
     : `Current remote channel mode: \`${currentImMode(settings)}\`.`
 }
 
-function imModeChangedText(settings: AppSettingsV1, mode: ClawRunMode): string {
+function imModeChangedText(settings: AppSettingsV1, mode: RemoteChannelRunMode): string {
   return isChineseLocale(settings)
     ? `远程通道模式已切换到 \`${mode}\`。`
     : `Remote channel mode switched to \`${mode}\`.`
@@ -529,11 +529,11 @@ function imEmptyIncomingMessageText(settings: AppSettingsV1, hasAttachmentHint: 
 
 function imIncomingMessageTooLongText(
   settings: AppSettingsV1,
-  provider: ClawImProvider,
+  provider: RemoteChannelProvider,
   actualLength: number,
   maxLength: number
 ): string {
-  const label = getClawImProviderCapabilities(provider).label
+  const label = getRemoteChannelProviderCapabilities(provider).label
   return isChineseLocale(settings)
     ? `消息太长，无法安全传入 ${label} runtime（${actualLength}/${maxLength} 字符）。请缩短后重试。`
     : `Message is too long to send to the ${label} runtime (${actualLength}/${maxLength} characters). Please shorten it and try again.`
@@ -541,7 +541,7 @@ function imIncomingMessageTooLongText(
 
 function validateIncomingImText(
   settings: AppSettingsV1,
-  provider: ClawImProvider,
+  provider: RemoteChannelProvider,
   rawText: string,
   options: { hasAttachmentHint?: boolean } = {}
 ): { ok: true; text: string } | { ok: false; message: string } {
@@ -552,7 +552,7 @@ function validateIncomingImText(
       message: imEmptyIncomingMessageText(settings, Boolean(options.hasAttachmentHint))
     }
   }
-  const maxLength = getClawImProviderCapabilities(provider).maxMessageLength
+  const maxLength = getRemoteChannelProviderCapabilities(provider).maxMessageLength
   if (text.length > maxLength) {
     return {
       ok: false,
@@ -666,7 +666,7 @@ function formatUpdatedAt(updatedAt: string): string {
 }
 
 export class ClawRuntime {
-  private readonly deps: ClawRuntimeDeps
+  private readonly deps: RemoteChannelRuntimeDeps
   private server: Server | null = null
   private serverKey = ''
   private feishuChannels = new Map<string, LarkChannel>()
@@ -676,7 +676,7 @@ export class ClawRuntime {
   private recentRemoteMessageIds = new Map<string, number>()
   private feishuSyncVersion = 0
 
-  constructor(deps: ClawRuntimeDeps) {
+  constructor(deps: RemoteChannelRuntimeDeps) {
     this.deps = deps
   }
 
@@ -690,7 +690,7 @@ export class ClawRuntime {
     void this.closeAllFeishuChannels()
   }
 
-  async status(): Promise<ClawRuntimeStatus> {
+  async status(): Promise<RemoteChannelRuntimeStatus> {
     const settings = await this.deps.store.load()
     return {
       imServerRunning: this.server !== null && settings.remoteChannel.enabled && settings.remoteChannel.im.enabled,
@@ -713,10 +713,10 @@ export class ClawRuntime {
 
   private async rememberIncomingImFailure(
     input: {
-      provider: ClawImProvider
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      provider: RemoteChannelProvider
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
       threadId?: string
       runtimeId?: AgentRuntimeId
       failure: RemoteFailureLike
@@ -760,11 +760,11 @@ export class ClawRuntime {
     })
   }
 
-  private async runPrompt(settings: AppSettingsV1, options: RunPromptOptions): Promise<ClawRunResult> {
+  private async runPrompt(settings: AppSettingsV1, options: RunPromptOptions): Promise<RemoteChannelRunResult> {
     const workspace = options.workspaceRoot.trim() || settings.workspaceRoot
     const existingThreadId = options.threadId?.trim()
     const runtimeId = normalizeAgentRuntimeId(options.runtimeId)
-    const requestedModel = normalizeTaskModel(options.model) ?? DEFAULT_CLAW_MODEL
+    const requestedModel = normalizeTaskModel(options.model) ?? DEFAULT_REMOTE_CHANNEL_MODEL
     const model = effectiveImRuntimeModel(settings, requestedModel, runtimeId)
     return this.runAgentRuntimePrompt(settings, { ...options, model }, runtimeId, workspace, existingThreadId)
   }
@@ -775,7 +775,7 @@ export class ClawRuntime {
     runtimeId: AgentRuntimeId,
     workspace: string,
     existingThreadId?: string
-  ): Promise<ClawRunResult> {
+  ): Promise<RemoteChannelRunResult> {
     const agentRuntime = this.deps.agentRuntime
     const model = normalizeTaskModel(options.model)
     const createThread = (): Promise<{ id: string }> =>
@@ -791,10 +791,10 @@ export class ClawRuntime {
     try {
       thread = existingThreadId ? { id: existingThreadId } : await createThread()
     } catch (error) {
-      return clawFailureFromError(error, 'Failed to create thread.')
+      return remoteChannelFailureFromError(error, 'Failed to create thread.')
     }
-    const runtimePrompt = buildClawRuntimePrompt(_settings, options.prompt, { channel: options.channel })
-    const displayText = options.displayText?.trim() || parseClawUserPromptForDisplay(options.prompt).text
+    const runtimePrompt = buildRemoteChannelRuntimePrompt(_settings, options.prompt, { channel: options.channel })
+    const displayText = options.displayText?.trim() || parseRemoteChannelUserPromptForDisplay(options.prompt).text
     const startTurn = () => agentRuntime.startTurn({
       runtimeId,
       threadId: thread.id,
@@ -812,7 +812,7 @@ export class ClawRuntime {
       turn = await startTurn()
     } catch (error) {
       if (!existingThreadId || !isMissingThreadError(error)) {
-        return clawFailureFromError(error, 'Failed to start turn.')
+        return remoteChannelFailureFromError(error, 'Failed to start turn.')
       }
       if (options.source === 'im') {
         this.deps.logError('claw-runtime', 'Configured IM thread was missing; asking remote user to rebind.', {
@@ -821,7 +821,7 @@ export class ClawRuntime {
           source: options.source,
           runtimeId
         })
-        return clawFailureResult({
+        return remoteChannelFailureResult({
           message: imLocalThreadDeletedText(_settings),
           kind: 'local_thread_deleted',
           details: {
@@ -842,14 +842,14 @@ export class ClawRuntime {
         thread = await createThread()
         turn = await startTurn()
       } catch (replacementError) {
-        return clawFailureFromError(replacementError, 'Failed to start turn.')
+        return remoteChannelFailureFromError(replacementError, 'Failed to start turn.')
       }
     }
 
     const threadId = turn.threadId.trim() || thread.id
     const turnId = turn.turnId.trim()
     if (!turnId) {
-      return clawFailureResult({
+      return remoteChannelFailureResult({
         message: 'Failed to start turn: missing turn id.',
         kind: 'runtime_offline'
       })
@@ -865,7 +865,7 @@ export class ClawRuntime {
       return { ok: true, threadId, turnId, message: 'Started' }
     }
 
-    let result: { text: string; files: ClawGeneratedFileV1[] }
+    let result: { text: string; files: RemoteChannelGeneratedFileV1[] }
     try {
       result = await this.waitForAgentRuntimeAssistantResult(
         threadId,
@@ -875,7 +875,7 @@ export class ClawRuntime {
         runtimeId
       )
     } catch (error) {
-      return clawFailureFromError(error, 'Failed to wait for agent response.')
+      return remoteChannelFailureFromError(error, 'Failed to wait for agent response.')
     }
     return {
       ok: true,
@@ -893,7 +893,7 @@ export class ClawRuntime {
     timeoutMs: number,
     workspaceRoot: string,
     runtimeId: AgentRuntimeId
-  ): Promise<{ text: string; files: ClawGeneratedFileV1[] }> {
+  ): Promise<{ text: string; files: RemoteChannelGeneratedFileV1[] }> {
     const agentRuntime = this.deps.agentRuntime
     const deadline = Date.now() + timeoutMs
     let lastText = ''
@@ -909,7 +909,7 @@ export class ClawRuntime {
       if (!targetTurn) continue
       if (isRunningStatus(targetTurn.status)) {
         if (hasPendingDesktopApproval(detail, { turnId })) {
-          throw clawFailureError(
+          throw remoteChannelFailureError(
             'waiting_desktop_approval',
             'Waiting for desktop approval before the remote channel can continue.',
             { threadId, turnId, runtimeId }
@@ -928,7 +928,7 @@ export class ClawRuntime {
             files: latestGeneratedFiles(detail, { turnId, workspaceRoot })
           }
         }
-        throw clawFailureError('empty_response', 'Agent completed without a reply.', {
+        throw remoteChannelFailureError('empty_response', 'Agent completed without a reply.', {
           threadId,
           turnId,
           runtimeId
@@ -942,7 +942,7 @@ export class ClawRuntime {
       }
     }
     await this.interruptTimedOutAgentRuntimeTurn(agentRuntime, runtimeId, threadId, turnId)
-    throw clawFailureError('timeout', 'Timed out waiting for agent response.', {
+    throw remoteChannelFailureError('timeout', 'Timed out waiting for agent response.', {
       threadId,
       turnId,
       runtimeId
@@ -950,7 +950,7 @@ export class ClawRuntime {
   }
 
   private async interruptTimedOutAgentRuntimeTurn(
-    agentRuntime: NonNullable<ClawRuntimeDeps['agentRuntime']>,
+    agentRuntime: NonNullable<RemoteChannelRuntimeDeps['agentRuntime']>,
     runtimeId: AgentRuntimeId,
     threadId: string,
     turnId: string
@@ -990,12 +990,12 @@ export class ClawRuntime {
     }
   }
 
-  private resolveChannelWorkspaceRoot(settings: AppSettingsV1, channel?: ClawImChannelV1): string {
+  private resolveChannelWorkspaceRoot(settings: AppSettingsV1, channel?: RemoteChannelV1): string {
     return channel?.workspaceRoot.trim() || settings.remoteChannel.im.workspaceRoot.trim() || settings.workspaceRoot
   }
 
   private legacyEmptyBaseConversationWorkspaceRoot(
-    session: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'>
+    session: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'threadId'>
   ): string {
     const key = sanitizePathSegment(session.threadId.trim() || session.chatId.trim(), 'conversation')
     return `/conversations/${key}`
@@ -1003,16 +1003,16 @@ export class ClawRuntime {
 
   private resolveConversationWorkspaceRoot(
     settings: AppSettingsV1,
-    channel: ClawImChannelV1
+    channel: RemoteChannelV1
   ): string {
     return this.resolveChannelWorkspaceRoot(settings, channel).trim()
   }
 
   private resolveIncomingWorkspaceRoot(
     settings: AppSettingsV1,
-    channel: ClawImChannelV1 | undefined,
-    conversation: ClawImConversationV1 | undefined,
-    remoteSession: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'> | undefined
+    channel: RemoteChannelV1 | undefined,
+    conversation: RemoteChannelConversationV1 | undefined,
+    remoteSession: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'threadId'> | undefined
   ): string {
     const storedConversationRoot = conversation?.workspaceRoot.trim() ?? ''
     if (storedConversationRoot && remoteSession) {
@@ -1030,10 +1030,10 @@ export class ClawRuntime {
   }
 
   private shouldUseChannelThreadForIncoming(
-    provider: ClawImProvider,
+    provider: RemoteChannelProvider,
     chatType?: IncomingImChatType,
-    channel?: ClawImChannelV1,
-    remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'>
+    channel?: RemoteChannelV1,
+    remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'threadId'>
   ): boolean {
     if (channel && remoteSession && this.findChannelConversation(channel, remoteSession)) {
       return false
@@ -1042,8 +1042,8 @@ export class ClawRuntime {
   }
 
   private shouldHandleIncomingByGuard(input: {
-    channel?: ClawImChannelV1
-    provider: ClawImProvider
+    channel?: RemoteChannelV1
+    provider: RemoteChannelProvider
     chatType?: IncomingImChatType
     mentionedBot?: boolean
     mentionAll?: boolean
@@ -1059,8 +1059,8 @@ export class ClawRuntime {
 
   private incomingQueueText(
     settings: AppSettingsV1,
-    channel: ClawImChannelV1 | undefined,
-    remoteSession: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'> | undefined
+    channel: RemoteChannelV1 | undefined,
+    remoteSession: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'threadId'> | undefined
   ): string {
     if (!channel || !remoteSession) {
       return isChineseLocale(settings) ? '空闲' : 'idle'
@@ -1073,15 +1073,15 @@ export class ClawRuntime {
 
   private async resolveIncomingCommandContext(input: {
     settings: AppSettingsV1
-    provider: ClawImProvider
+    provider: RemoteChannelProvider
     chatType?: IncomingImChatType
-    channel?: ClawImChannelV1
-    conversation?: ClawImConversationV1
-    remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+    channel?: RemoteChannelV1
+    conversation?: RemoteChannelConversationV1
+    remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
   }): Promise<{
     settings: AppSettingsV1
-    channel?: ClawImChannelV1
-    conversation?: ClawImConversationV1
+    channel?: RemoteChannelV1
+    conversation?: RemoteChannelConversationV1
     runtimeId: AgentRuntimeId
     threadId: string
     workspaceRoot: string
@@ -1132,12 +1132,12 @@ export class ClawRuntime {
   private async incomingSummaryText(
     settings: AppSettingsV1,
     input: {
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       chatType?: IncomingImChatType
       sender?: string
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
     }
   ): Promise<string> {
     const context = await this.resolveIncomingCommandContext({ settings, ...input })
@@ -1176,11 +1176,11 @@ export class ClawRuntime {
   private async incomingStatusText(
     settings: AppSettingsV1,
     input: {
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       chatType?: IncomingImChatType
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
     }
   ): Promise<string> {
     const context = await this.resolveIncomingCommandContext({ settings, ...input })
@@ -1221,11 +1221,11 @@ export class ClawRuntime {
   private async incomingJobsText(
     settings: AppSettingsV1,
     input: {
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       chatType?: IncomingImChatType
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
     }
   ): Promise<string> {
     const context = await this.resolveIncomingCommandContext({ settings, ...input })
@@ -1274,20 +1274,20 @@ export class ClawRuntime {
   }
 
   private findChannelConversation(
-    channel: ClawImChannelV1,
-    session: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'>
-  ): ClawImConversationV1 | undefined {
-    const targetKey = clawConversationKey(session.chatId, session.threadId)
+    channel: RemoteChannelV1,
+    session: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'threadId'>
+  ): RemoteChannelConversationV1 | undefined {
+    const targetKey = remoteChannelConversationKey(session.chatId, session.threadId)
     return channel.conversations.find((conversation) =>
-      clawConversationKey(conversation.chatId, conversation.remoteThreadId) === targetKey
+      remoteChannelConversationKey(conversation.chatId, conversation.remoteThreadId) === targetKey
     )
   }
 
   private async resetIncomingImThread(
     input: {
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
     }
   ): Promise<void> {
     if (!input.channel) return
@@ -1328,7 +1328,7 @@ export class ClawRuntime {
     })
   }
 
-  private async setIncomingImModel(channel: ClawImChannelV1 | undefined, model: ClawModel): Promise<void> {
+  private async setIncomingImModel(channel: RemoteChannelV1 | undefined, model: RemoteChannelModel): Promise<void> {
     if (!channel) {
       await this.deps.store.patch({ remoteChannel: { im: { model } } })
       return
@@ -1350,15 +1350,15 @@ export class ClawRuntime {
     })
   }
 
-  private async setIncomingImMode(mode: ClawRunMode): Promise<void> {
+  private async setIncomingImMode(mode: RemoteChannelRunMode): Promise<void> {
     await this.deps.store.patch({ remoteChannel: { im: { mode } } })
   }
 
   private projectCandidates(
     settings: AppSettingsV1,
     context: {
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
       workspaceRoot: string
     }
   ): RemoteProjectCandidate[] {
@@ -1385,11 +1385,11 @@ export class ClawRuntime {
   private async incomingProjectsText(
     settings: AppSettingsV1,
     input: {
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       chatType?: IncomingImChatType
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
     }
   ): Promise<string> {
     const context = await this.resolveIncomingCommandContext({ settings, ...input })
@@ -1427,11 +1427,11 @@ export class ClawRuntime {
   private async useIncomingProject(
     settings: AppSettingsV1,
     input: {
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       chatType?: IncomingImChatType
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
       target: string
     }
   ): Promise<string> {
@@ -1495,11 +1495,11 @@ export class ClawRuntime {
   private async incomingThreadsText(
     settings: AppSettingsV1,
     input: {
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       chatType?: IncomingImChatType
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
     }
   ): Promise<string> {
     const context = await this.resolveIncomingCommandContext({ settings, ...input })
@@ -1539,11 +1539,11 @@ export class ClawRuntime {
   private async useIncomingThread(
     settings: AppSettingsV1,
     input: {
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       chatType?: IncomingImChatType
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
       target: string
     }
   ): Promise<string> {
@@ -1569,7 +1569,7 @@ export class ClawRuntime {
     const workspaceRoot = thread.workspace?.trim() || context.workspaceRoot
     const now = new Date().toISOString()
     const session = input.remoteSession
-    const nextConversation: ClawImConversationV1 | null = context.conversation
+    const nextConversation: RemoteChannelConversationV1 | null = context.conversation
       ? {
           ...withClawThreadMapping(context.conversation, runtimeId, thread.id),
           ...(session
@@ -1627,11 +1627,11 @@ export class ClawRuntime {
   private async detachIncomingImBinding(
     settings: AppSettingsV1,
     input: {
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       chatType?: IncomingImChatType
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
     }
   ): Promise<string> {
     const context = await this.resolveIncomingCommandContext({ settings, ...input })
@@ -1673,11 +1673,11 @@ export class ClawRuntime {
   private async createIncomingImThread(
     settings: AppSettingsV1,
     input: {
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       chatType?: IncomingImChatType
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
       title: string
     }
   ): Promise<string> {
@@ -1716,7 +1716,7 @@ export class ClawRuntime {
       })
       threadId = thread.id.trim()
     } catch (error) {
-      const failure = clawFailureFromError(error, 'Failed to create thread.')
+      const failure = remoteChannelFailureFromError(error, 'Failed to create thread.')
       await this.rememberIncomingImFailure({
         provider: input.provider,
         channel: currentChannel,
@@ -1742,7 +1742,7 @@ export class ClawRuntime {
     }
 
     const now = new Date().toISOString()
-    const nextConversation: ClawImConversationV1 | null = currentConversation
+    const nextConversation: RemoteChannelConversationV1 | null = currentConversation
       ? {
           ...withClawThreadMapping(currentConversation, runtimeId, threadId),
           ...(session
@@ -1795,9 +1795,9 @@ export class ClawRuntime {
   private async attachIncomingImToActiveThread(
     settings: AppSettingsV1,
     input: {
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
     }
   ): Promise<string> {
     if (!input.channel) {
@@ -1837,7 +1837,7 @@ export class ClawRuntime {
       (session ? this.resolveIncomingWorkspaceRoot(currentSettings, currentChannel, existingConversation, session) : '') ||
       existingConversation?.workspaceRoot.trim() ||
       this.resolveChannelWorkspaceRoot(currentSettings, currentChannel)
-    const nextConversation: ClawImConversationV1 | null = existingConversation
+    const nextConversation: RemoteChannelConversationV1 | null = existingConversation
       ? {
           ...withClawThreadMapping(existingConversation, runtimeId, activeThreadId),
           ...(session
@@ -1891,15 +1891,15 @@ export class ClawRuntime {
     settings: AppSettingsV1,
     input: {
       text: string
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       chatType?: IncomingImChatType
       sender?: string
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
     }
   ): Promise<string | null> {
-    const command = parseClawCommand(input.text)
+    const command = parseRemoteChannelCommand(input.text)
     if (!command) return null
     if (command.kind === 'help') return imCommandHelpText(settings)
     if (command.kind === 'newPrivate') return imNewPrivateUnsupportedText(settings)
@@ -2037,14 +2037,14 @@ export class ClawRuntime {
       prompt: string
       displayText?: string
       sender: string
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       chatType?: IncomingImChatType
       sharedThread?: boolean
-      channel?: ClawImChannelV1
-      conversation?: ClawImConversationV1
-      remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      channel?: RemoteChannelV1
+      conversation?: RemoteChannelConversationV1
+      remoteSession?: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
     }
-  ): Promise<ClawRunResult> {
+  ): Promise<RemoteChannelRunResult> {
     const { channel, conversation, prompt, provider, remoteSession, sender } = input
     const runtimeId = clawRuntimeId(settings, channel, conversation)
     const sharedThread = input.sharedThread ?? this.shouldUseChannelThreadForIncoming(
@@ -2097,7 +2097,7 @@ export class ClawRuntime {
             this.findChannelConversation(currentChannel, remoteSession) ??
             conversation ??
             this.findChannelConversation(channel, remoteSession)
-          const nextConversation: ClawImConversationV1 = existingConversation
+          const nextConversation: RemoteChannelConversationV1 = existingConversation
             ? {
                 ...withClawThreadMapping(existingConversation, runtimeId, threadId),
                 latestMessageId: remoteSession.messageId,
@@ -2185,7 +2185,7 @@ export class ClawRuntime {
         }
       : { ...input, text: incomingText.text }
     const text = incomingText.text
-    const command = parseClawCommand(text)
+    const command = parseRemoteChannelCommand(text)
     const channel = normalizedInput.channelId
       ? settings.remoteChannel.channels.find(
           (item) => item.enabled && item.id === normalizedInput.channelId
@@ -2254,7 +2254,7 @@ export class ClawRuntime {
     })
     if (!incomingText.ok) return { ok: false, message: incomingText.message }
     const text = incomingText.text
-    const command = parseClawCommand(text)
+    const command = parseRemoteChannelCommand(text)
     const channel = input.channelId
       ? settings.remoteChannel.channels.find(
           (item) => item.enabled && item.id === input.channelId
@@ -2332,11 +2332,11 @@ export class ClawRuntime {
       remoteSession: remoteSession ?? undefined
     })
     if (!result.ok) return result
-    const prepared = prepareClawImReplyText(
+    const prepared = prepareRemoteChannelReplyText(
       input.provider,
       withFirstConnectHelp(settings, firstRemoteConversation, result.text ?? ''),
       {
-        attachments: (result.files ?? []).map(clawImAttachmentFromGeneratedFile)
+        attachments: (result.files ?? []).map(remoteChannelAttachmentFromGeneratedFile)
       }
     )
     return {
@@ -2355,7 +2355,7 @@ export class ClawRuntime {
     )
   }
 
-  private buildFeishuRemoteSession(message: NormalizedMessage): ClawImRemoteSessionV1 {
+  private buildFeishuRemoteSession(message: NormalizedMessage): RemoteChannelRemoteSessionV1 {
     return {
       chatId: message.chatId.trim(),
       messageId: message.messageId.trim(),
@@ -2368,10 +2368,10 @@ export class ClawRuntime {
 
   private async rememberFeishuRemoteSession(
     settings: AppSettingsV1,
-    channel: ClawImChannelV1,
+    channel: RemoteChannelV1,
     message:
       | NormalizedMessage
-      | Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
+      | Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'>
   ): Promise<void> {
     const nextRemoteSession =
       'chatType' in message
@@ -2423,7 +2423,7 @@ export class ClawRuntime {
           failureKind: 'provider_send_failed',
           to
         })
-        throw clawFailureError(
+        throw remoteChannelFailureError(
           'provider_send_failed',
           providerSendFailureMessage('Feishu / Lark', initialMessage),
           { ...context, to }
@@ -2452,7 +2452,7 @@ export class ClawRuntime {
           failureKind: 'provider_send_failed',
           to
         })
-        throw clawFailureError(
+        throw remoteChannelFailureError(
           'provider_send_failed',
           providerSendFailureMessage('Feishu / Lark', fallbackMessage),
           { ...context, initialMessage, to }
@@ -2469,7 +2469,7 @@ export class ClawRuntime {
     context: Record<string, unknown>
   ): Promise<SendResult> {
     let result: SendResult | undefined
-    const chunks = splitClawImReplyText('feishu', markdown)
+    const chunks = splitRemoteChannelReplyText('feishu', markdown)
     for (const [index, chunk] of chunks.entries()) {
       result = await this.sendFeishuMessage(
         bridge,
@@ -2487,10 +2487,10 @@ export class ClawRuntime {
   }
 
   private async resolveFeishuGeneratedFiles(
-    files: readonly ClawGeneratedFileV1[],
+    files: readonly RemoteChannelGeneratedFileV1[],
     workspaceRoot: string,
     context: Record<string, unknown>
-  ): Promise<ClawGeneratedFileV1[]> {
+  ): Promise<RemoteChannelGeneratedFileV1[]> {
     const root = workspaceRoot.trim()
     if (!root || files.length === 0) return []
     let realRoot = ''
@@ -2505,7 +2505,7 @@ export class ClawRuntime {
       return []
     }
 
-    const resolvedFiles: ClawGeneratedFileV1[] = []
+    const resolvedFiles: RemoteChannelGeneratedFileV1[] = []
     const seen = new Set<string>()
     for (const file of files) {
       try {
@@ -2522,7 +2522,7 @@ export class ClawRuntime {
         if (seen.has(realFile)) continue
         const fileStat = await stat(realFile)
         if (!fileStat.isFile()) continue
-        const maxBytes = getClawImProviderCapabilities('feishu').attachments.file.maxBytes
+        const maxBytes = getRemoteChannelProviderCapabilities('feishu').attachments.file.maxBytes
         if (fileStat.size > maxBytes) {
           this.deps.logError('claw-feishu', 'Skipping generated file because it is too large for Feishu upload', {
             ...context,
@@ -2552,12 +2552,12 @@ export class ClawRuntime {
   private async sendFeishuGeneratedFiles(
     bridge: LarkChannel,
     to: string,
-    files: readonly ClawGeneratedFileV1[],
+    files: readonly RemoteChannelGeneratedFileV1[],
     options: SendOptions,
     context: Record<string, unknown>
-  ): Promise<{ sent: ClawGeneratedFileV1[]; failed: Array<{ file: ClawGeneratedFileV1; message: string }> }> {
-    const sent: ClawGeneratedFileV1[] = []
-    const failed: Array<{ file: ClawGeneratedFileV1; message: string }> = []
+  ): Promise<{ sent: RemoteChannelGeneratedFileV1[]; failed: Array<{ file: RemoteChannelGeneratedFileV1; message: string }> }> {
+    const sent: RemoteChannelGeneratedFileV1[] = []
+    const failed: Array<{ file: RemoteChannelGeneratedFileV1; message: string }> = []
     for (const file of files) {
       try {
         await this.sendFeishuMessage(
@@ -2593,7 +2593,7 @@ export class ClawRuntime {
     workspaceRoot: string,
     context: Record<string, unknown>,
     runtimeId: AgentRuntimeId = 'sciforge'
-  ): Promise<ClawGeneratedFileV1[]> {
+  ): Promise<RemoteChannelGeneratedFileV1[]> {
     const targetThreadId = threadId.trim()
     if (!targetThreadId) return []
     try {
@@ -2616,7 +2616,7 @@ export class ClawRuntime {
   private findImChannelForThread(
     settings: AppSettingsV1,
     threadId: string
-  ): { channel: ClawImChannelV1; conversation?: ClawImConversationV1 } | null {
+  ): { channel: RemoteChannelV1; conversation?: RemoteChannelConversationV1 } | null {
     const targetThreadId = threadId.trim()
     if (!targetThreadId) return null
     for (const channel of settings.remoteChannel.channels) {
@@ -2634,8 +2634,8 @@ export class ClawRuntime {
   }
 
   private async mirrorThreadMessageToWeixin(
-    channel: ClawImChannelV1,
-    conversation: ClawImConversationV1 | undefined,
+    channel: RemoteChannelV1,
+    conversation: RemoteChannelConversationV1 | undefined,
     threadId: string,
     text: string,
     direction: 'user' | 'assistant'
@@ -2649,8 +2649,8 @@ export class ClawRuntime {
     if (!this.deps.sendWeixinBridgeMessage) {
       return { ok: false, message: 'Built-in WeChat bridge is not initialized.' }
     }
-    for (const [index, chunk] of splitClawImReplyText('weixin', text).entries()) {
-      const result = await runClawImProviderRetry(
+    for (const [index, chunk] of splitRemoteChannelReplyText('weixin', text).entries()) {
+      const result = await runRemoteChannelProviderRetry(
         'weixin',
         () => this.deps.sendWeixinBridgeMessage!({
           accountId: credential.accountId,
@@ -2660,7 +2660,7 @@ export class ClawRuntime {
         { shouldRetryResult: (item) => !item.ok }
       )
       if (!result.ok) {
-        const failure = clawFailureResult({
+        const failure = remoteChannelFailureResult({
           message: providerSendFailureMessage('WeChat', result.message),
           kind: 'provider_send_failed',
           details: { threadId, direction, channelId: channel.id, to, chunkIndex: index }
@@ -2681,8 +2681,8 @@ export class ClawRuntime {
   }
 
   private async mirrorThreadMessageToDiscord(
-    channel: ClawImChannelV1,
-    conversation: ClawImConversationV1 | undefined,
+    channel: RemoteChannelV1,
+    conversation: RemoteChannelConversationV1 | undefined,
     threadId: string,
     text: string,
     direction: 'user' | 'assistant'
@@ -2696,8 +2696,8 @@ export class ClawRuntime {
       (channel.platformCredential?.kind === 'discord' ? channel.platformCredential.channelId.trim() : '')
     if (!to) return { ok: false, message: 'No target Discord channel is available yet.' }
     const prefix = direction === 'user' ? '**From SciForge**\n\n' : ''
-    for (const [index, chunk] of splitClawImReplyText('discord', `${prefix}${text}`.trim()).entries()) {
-      const result = await runClawImProviderRetry(
+    for (const [index, chunk] of splitRemoteChannelReplyText('discord', `${prefix}${text}`.trim()).entries()) {
+      const result = await runRemoteChannelProviderRetry(
         'discord',
         () => this.deps.sendDiscordChannelMessage!({
           channelId: to,
@@ -2706,7 +2706,7 @@ export class ClawRuntime {
         { shouldRetryResult: (item) => !item.ok }
       )
       if (!result.ok) {
-        const failure = clawFailureResult({
+        const failure = remoteChannelFailureResult({
           message: providerSendFailureMessage('Discord', result.message),
           kind: 'provider_send_failed',
           details: { threadId, direction, channelId: channel.id, to, chunkIndex: index }
@@ -2786,7 +2786,7 @@ export class ClawRuntime {
       )
       return { ok: true }
     } catch (error) {
-      const failure = clawFailureFromError(
+      const failure = remoteChannelFailureFromError(
         error,
         providerSendFailureMessage('Feishu / Lark', errorMessage(error))
       )
@@ -2806,7 +2806,7 @@ export class ClawRuntime {
     const channel = settings.remoteChannel.channels.find((item) => item.id === channelId && item.enabled)
     if (!bridge || !channel) return
     if (bridge.botIdentity?.openId && message.senderId === bridge.botIdentity.openId) return
-    const inboundCommand = parseClawCommand(message.content)
+    const inboundCommand = parseRemoteChannelCommand(message.content)
     if (!this.shouldHandleIncomingByGuard({
       channel,
       provider: 'feishu',
@@ -3003,9 +3003,9 @@ export class ClawRuntime {
         await this.sendFeishuMarkdownMessage(
           bridge,
           message.chatId,
-          buildClawImAttachmentFallbackText(
+          buildRemoteChannelAttachmentFallbackText(
             'feishu',
-            existingFiles.map(clawImAttachmentFromGeneratedFile),
+            existingFiles.map(remoteChannelAttachmentFromGeneratedFile),
             { reason: failure }
           ),
           replyOptions,
@@ -3055,7 +3055,7 @@ export class ClawRuntime {
       })
     }
 
-    let result: ClawRunResult
+    let result: RemoteChannelRunResult
     try {
       result = await this.processIncomingImPrompt(settings, {
           prompt: buildFeishuPrompt(message),
@@ -3132,7 +3132,7 @@ export class ClawRuntime {
         }
       )
     } catch (error) {
-      const failure = clawFailureFromError(
+      const failure = remoteChannelFailureFromError(
         error,
         providerSendFailureMessage('Feishu / Lark', errorMessage(error))
       )
@@ -3163,9 +3163,9 @@ export class ClawRuntime {
         await this.sendFeishuMarkdownMessage(
           bridge,
           message.chatId,
-          buildClawImAttachmentFallbackText(
+          buildRemoteChannelAttachmentFallbackText(
             'feishu',
-            filesToSend.map(clawImAttachmentFromGeneratedFile),
+            filesToSend.map(remoteChannelAttachmentFromGeneratedFile),
             { reason: delivery.failed[0]?.message || 'unknown upload error' }
           ),
           replyOptions,
@@ -3203,22 +3203,22 @@ export class ClawRuntime {
     }
   }
 
-  private recentRemoteMessageStillFresh(message: ClawImRecentMessageV1, now = Date.now()): boolean {
+  private recentRemoteMessageStillFresh(message: RemoteChannelRecentMessageV1, now = Date.now()): boolean {
     const seenAt = Date.parse(message.receivedAt)
     return Number.isFinite(seenAt) && now - seenAt <= RECENT_REMOTE_MESSAGE_TTL_MS
   }
 
   private compactRecentRemoteMessages(
-    messages: readonly ClawImRecentMessageV1[],
+    messages: readonly RemoteChannelRecentMessageV1[],
     now = Date.now()
-  ): ClawImRecentMessageV1[] {
+  ): RemoteChannelRecentMessageV1[] {
     const fresh = messages.filter((message) => this.recentRemoteMessageStillFresh(message, now))
     return fresh.slice(-MAX_RECENT_REMOTE_MESSAGE_IDS)
   }
 
   private async rememberRecentRemoteMessage(
     input: {
-      provider: ClawImProvider
+      provider: RemoteChannelProvider
       channelId: string
       chatId: string
       remoteThreadId: string
@@ -3253,7 +3253,7 @@ export class ClawRuntime {
           : now
         const receivedAt = new Date(receivedAtMs).toISOString()
         const messageText = compactRecentRemoteMessageText(input.text)
-        const nextMessage: ClawImRecentMessageV1 = {
+        const nextMessage: RemoteChannelRecentMessageV1 = {
           provider: input.provider,
           channelId,
           chatId,
@@ -3286,7 +3286,7 @@ export class ClawRuntime {
   }
 
   private remoteQueueKey(input: {
-    provider: ClawImProvider
+    provider: RemoteChannelProvider
     channelId: string
     chatId: string
     remoteThreadId: string
@@ -3295,7 +3295,7 @@ export class ClawRuntime {
   }
 
   private runInRemoteConversationQueue<T>(input: {
-    provider: ClawImProvider
+    provider: RemoteChannelProvider
     channelId: string
     chatId: string
     remoteThreadId: string
@@ -3318,7 +3318,7 @@ export class ClawRuntime {
   }
 
   private enqueueRemoteConversationMessage(input: {
-    provider: ClawImProvider
+    provider: RemoteChannelProvider
     channelId: string
     chatId: string
     remoteThreadId: string
@@ -3378,7 +3378,7 @@ export class ClawRuntime {
     const channel = settings.remoteChannel.channels.find((item) => item.id === channelId && item.enabled)
     const bridge = this.feishuChannels.get(channelId)
     if (bridge?.botIdentity?.openId && message.senderId === bridge.botIdentity.openId) return
-    const inboundCommand = parseClawCommand(message.content)
+    const inboundCommand = parseRemoteChannelCommand(message.content)
     if (channel && !this.shouldHandleIncomingByGuard({
       channel,
       provider: 'feishu',
@@ -3656,6 +3656,6 @@ export class ClawRuntime {
   }
 }
 
-export function createClawRuntime(deps: ClawRuntimeDeps): ClawRuntime {
+export function createClawRuntime(deps: RemoteChannelRuntimeDeps): ClawRuntime {
   return new ClawRuntime(deps)
 }

@@ -21,14 +21,14 @@ import i18n from '../i18n'
 import { describeRuntimeError, formatRuntimeError } from '../lib/format-runtime-error'
 import { isInternalTemporaryWorkspace, isRemoteChannelWorkspacePath, normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { mirrorRemoteChannelMessageApi } from '../lib/remote-channel-api'
-import type { ClawImChannelV1 } from '@shared/app-settings'
+import type { RemoteChannelV1 } from '@shared/app-settings'
 import {
   isAgentRuntimeActiveTurnState,
   isAgentRuntimeTerminalTurnState
 } from '@shared/agent-runtime-contract'
 import type { AgentRuntimeEvent } from '@shared/agent-runtime-contract'
 import type { ChatState } from './chat-store-types'
-import { hydrateBlockModelLabels, isClawThread } from './chat-store-helpers'
+import { hydrateBlockModelLabels, isRemoteChannelThread } from './chat-store-helpers'
 import {
   collectAssistantTextForTurn,
   hasPendingRuntimeWork,
@@ -462,14 +462,14 @@ export function shouldOpenSettingsForError(error: unknown): boolean {
 
 export function isCodeThread(
   thread: NormalizedThread,
-  remoteChannels: ClawImChannelV1[] = []
+  remoteChannels: RemoteChannelV1[] = []
 ): boolean {
   const workspace = normalizeWorkspaceRoot(thread.workspace)
   return Boolean(workspace) &&
     thread.archived !== true &&
     !isInternalTemporaryWorkspace(thread.workspace) &&
     !isRemoteChannelWorkspacePath(thread.workspace) &&
-    !isClawThread(thread, remoteChannels) &&
+    !isRemoteChannelThread(thread, remoteChannels) &&
     !isSddAssistantThread(thread) &&
     !isEmptySddAssistantThreadCandidate(thread)
 }

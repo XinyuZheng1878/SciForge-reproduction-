@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { ClawImChannelV1 } from '@shared/app-settings'
+import type { RemoteChannelV1 } from '@shared/app-settings'
 import type { ChatBlock, NormalizedThread, ToolBlock } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
 import { MessageTimeline, summarizeToolBlock } from './MessageTimeline'
@@ -56,8 +56,8 @@ function toolBlock(overrides: Partial<ToolBlock>): ToolBlock {
   }
 }
 
-function remoteChannel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1 {
-  const base: ClawImChannelV1 = {
+function remoteChannel(overrides: Partial<RemoteChannelV1> = {}): RemoteChannelV1 {
+  const base: RemoteChannelV1 = {
     id: 'discord-channel',
     provider: 'discord',
     label: 'discord bot',

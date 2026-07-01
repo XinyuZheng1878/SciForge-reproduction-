@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import type { ClawThreadRemoteBinding } from '../../store/chat-store-helpers'
+import type { RemoteChannelThreadBinding } from '../../store/chat-store-helpers'
 import {
   ActiveRemoteBindingDetails,
   remoteBindingGuardModeLabel
@@ -33,7 +33,7 @@ function t(key: string, opts?: Record<string, unknown>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(opts?.[name] ?? ''))
 }
 
-function binding(overrides: Partial<ClawThreadRemoteBinding> = {}): ClawThreadRemoteBinding {
+function binding(overrides: Partial<RemoteChannelThreadBinding> = {}): RemoteChannelThreadBinding {
   return {
     threadId: 'desktop-thread-1234567890',
     provider: 'discord',

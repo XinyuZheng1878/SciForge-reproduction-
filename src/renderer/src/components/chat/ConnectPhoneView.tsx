@@ -15,12 +15,12 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
-  type ClawImAgentProfileV1,
-  type ClawImChannelV1,
-  type ClawImPlatformCredentialV1,
-  type ClawImProvider,
-  type ClawImSettingsV1,
-  type ClawModel
+  type RemoteChannelAgentProfileV1,
+  type RemoteChannelV1,
+  type RemoteChannelPlatformCredentialV1,
+  type RemoteChannelProvider,
+  type RemoteChannelImSettingsV1,
+  type RemoteChannelModel
 } from '@shared/app-settings'
 import type {
   ConnectPhoneInstallPollResult,
@@ -44,13 +44,13 @@ import {
 import { workspaceLabelFromPath } from '../../lib/workspace-label'
 
 export type AddConnectPhoneChannel = (
-  provider: ClawImProvider,
-  agentProfile: ClawImAgentProfileV1,
-  platformCredential: ClawImPlatformCredentialV1,
+  provider: RemoteChannelProvider,
+  agentProfile: RemoteChannelAgentProfileV1,
+  platformCredential: RemoteChannelPlatformCredentialV1,
   options: {
-    model: ClawModel
+    model: RemoteChannelModel
     enabled: boolean
-    im: Partial<ClawImSettingsV1>
+    im: Partial<RemoteChannelImSettingsV1>
     workspaceRoot?: string
     preserveRoute?: boolean
   }
@@ -86,13 +86,13 @@ const INITIAL_QR_STATE: ConnectPhoneInstallQrState = {
 }
 const INTERNAL_REMOTE_CHANNEL_WORKSPACE_ROOT = '/.sciforge/remote-channel'
 
-export function connectPhoneProviderForTarget(target: ConnectPhoneInstallTarget): ClawImProvider {
+export function connectPhoneProviderForTarget(target: ConnectPhoneInstallTarget): RemoteChannelProvider {
   return target === 'weixin' ? 'weixin' : 'feishu'
 }
 
 export function hasEnabledConnectPhoneChannel(
-  channels: ClawImChannelV1[],
-  provider?: ClawImProvider
+  channels: RemoteChannelV1[],
+  provider?: RemoteChannelProvider
 ): boolean {
   return channels.some((channel) =>
     (provider ? channel.provider === provider : true) && channel.enabled
@@ -100,8 +100,8 @@ export function hasEnabledConnectPhoneChannel(
 }
 
 export function hasConnectPhoneChannel(
-  channels: ClawImChannelV1[],
-  provider?: ClawImProvider
+  channels: RemoteChannelV1[],
+  provider?: RemoteChannelProvider
 ): boolean {
   return provider
     ? channels.some((channel) => channel.provider === provider)
@@ -163,20 +163,20 @@ export function connectPhoneWorkspaceLabel(
   return workspaceLabelFromPath(normalized)
 }
 
-export function latestConnectPhoneRecentMessage(channel: ClawImChannelV1 | undefined): NonNullable<ClawImChannelV1['recentMessages']>[number] | null {
+export function latestConnectPhoneRecentMessage(channel: RemoteChannelV1 | undefined): NonNullable<RemoteChannelV1['recentMessages']>[number] | null {
   const messages = channel?.recentMessages ?? []
   if (messages.length === 0) return null
   return [...messages].sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt))[0] ?? null
 }
 
-export function connectPhoneRecentMessageLabel(message: NonNullable<ClawImChannelV1['recentMessages']>[number]): string {
+export function connectPhoneRecentMessageLabel(message: NonNullable<RemoteChannelV1['recentMessages']>[number]): string {
   const sender = message.senderName?.trim()
   const text = message.text?.trim()
   if (sender && text) return `${sender}: ${text}`
   return text || sender || message.chatId
 }
 
-export function createConnectPhoneAgentProfile(): ClawImAgentProfileV1 {
+export function createConnectPhoneAgentProfile(): RemoteChannelAgentProfileV1 {
   return {
     name: 'SciForge Runtime',
     description: '',
@@ -188,12 +188,12 @@ export function createConnectPhoneAgentProfile(): ClawImAgentProfileV1 {
 }
 
 export function createConnectPhoneChannelOptions(
-  provider: ClawImProvider = 'feishu',
+  provider: RemoteChannelProvider = 'feishu',
   workspaceRoot = ''
 ): {
-  model: ClawModel
+  model: RemoteChannelModel
   enabled: boolean
-  im: Partial<ClawImSettingsV1>
+  im: Partial<RemoteChannelImSettingsV1>
   workspaceRoot?: string
 } {
   const normalizedWorkspaceRoot = normalizeConnectPhoneWorkspaceRoot(workspaceRoot)
@@ -211,7 +211,7 @@ export function createConnectPhoneChannelOptions(
 export function createConnectPhoneCredential(
   poll: Extract<ConnectPhoneInstallPollResult, { done: true }>,
   createdAt: string = new Date().toISOString()
-): ClawImPlatformCredentialV1 {
+): RemoteChannelPlatformCredentialV1 {
   if (poll.kind === 'weixin') {
     return {
       kind: poll.kind,
@@ -243,7 +243,7 @@ export function ConnectPhoneSidebarPanel({
   onOpenSettings,
   workspaceRoot = ''
 }: {
-  channels: ClawImChannelV1[]
+  channels: RemoteChannelV1[]
   onAddProvider: AddConnectPhoneChannel
   onDisconnect: (channelId: string) => Promise<void>
   onOpenSettings: () => void
@@ -673,7 +673,7 @@ export function DiscordBotSetupPanel({
   defaultWorkspaceRoot = ''
 }: {
   t: (k: string, opts?: Record<string, unknown>) => string
-  channels: ClawImChannelV1[]
+  channels: RemoteChannelV1[]
   defaultWorkspaceRoot?: string
 }): ReactElement {
   const currentWorkspaceRoot = normalizeConnectPhoneWorkspaceRoot(defaultWorkspaceRoot)
@@ -1528,7 +1528,7 @@ export function ConnectPhoneDialog({
   onClose,
   workspaceRoot = ''
 }: {
-  channels: ClawImChannelV1[]
+  channels: RemoteChannelV1[]
   onAddProvider: AddConnectPhoneChannel
   onDisconnect: (channelId: string) => Promise<void>
   onOpenSettings: () => void

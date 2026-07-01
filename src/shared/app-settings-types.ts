@@ -14,19 +14,19 @@ export type ScheduleKind = 'manual' | 'interval' | 'daily' | 'at'
 export type ScheduleTaskStatus = 'idle' | 'running' | 'success' | 'error'
 export type ScheduleModel = 'auto' | 'deepseek-v4-pro' | 'deepseek-v4-flash'
 export type ScheduleReasoningEffort = 'off' | 'low' | 'medium' | 'high' | 'max'
-export type ClawRunMode = ScheduleRunMode
-export type ClawImProvider = 'feishu' | 'weixin' | 'discord'
-export type ClawImChannelGuardModeV1 = 'only_mention' | 'all_messages' | 'off'
-export type ClawModel = ScheduleModel
+export type RemoteChannelRunMode = ScheduleRunMode
+export type RemoteChannelProvider = 'feishu' | 'weixin' | 'discord'
+export type RemoteChannelGuardModeV1 = 'only_mention' | 'all_messages' | 'off'
+export type RemoteChannelModel = ScheduleModel
 
 export const DEFAULT_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
 export const DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS = 'sciforge-router'
 export const DEFAULT_MODEL_ROUTER_PROVIDER_ID = 'sciforge-model-router'
 export const DEFAULT_DEEPSEEK_BASE_URL = DEFAULT_MODEL_ROUTER_BASE_URL
-export const DEFAULT_CLAW_MODEL = 'auto'
-export const CLAW_MODEL_IDS = ['auto', 'deepseek-v4-pro', 'deepseek-v4-flash'] as const
-export const DEFAULT_SCHEDULE_MODEL = DEFAULT_CLAW_MODEL
-export const SCHEDULE_MODEL_IDS = CLAW_MODEL_IDS
+export const DEFAULT_REMOTE_CHANNEL_MODEL = 'auto'
+export const REMOTE_CHANNEL_MODEL_IDS = ['auto', 'deepseek-v4-pro', 'deepseek-v4-flash'] as const
+export const DEFAULT_SCHEDULE_MODEL = DEFAULT_REMOTE_CHANNEL_MODEL
+export const SCHEDULE_MODEL_IDS = REMOTE_CHANNEL_MODEL_IDS
 export const DEFAULT_SCHEDULE_REASONING_EFFORT = 'medium'
 export const SCHEDULE_REASONING_EFFORT_IDS = ['off', 'low', 'medium', 'high', 'max'] as const
 export const DEFAULT_SCHEDULE_INTERNAL_PORT = 8788
@@ -377,21 +377,21 @@ export type ScheduleSettingsV1 = {
   tasks: ScheduledTaskV1[]
 }
 
-export type ClawSkillSettingsV1 = {
+export type RemoteChannelSkillSettingsV1 = {
   defaultNames: string[]
   extraDirs: string[]
   promptPrefix: string
 }
 
-export type ClawImSettingsV1 = {
+export type RemoteChannelImSettingsV1 = {
   enabled: boolean
-  provider: ClawImProvider
+  provider: RemoteChannelProvider
   port: number
   path: string
   secret: string
   workspaceRoot: string
   model: string
-  mode: ClawRunMode
+  mode: RemoteChannelRunMode
   responseTimeoutMs: number
 }
 
@@ -399,7 +399,7 @@ export type ConnectPhoneSettingsV1 = {
   weixinBridgeUrl: string
 }
 
-export type ClawImAgentProfileV1 = {
+export type RemoteChannelAgentProfileV1 = {
   name: string
   description: string
   identity: string
@@ -408,7 +408,7 @@ export type ClawImAgentProfileV1 = {
   replyRules: string
 }
 
-export type ClawImFeishuPlatformCredentialV1 = {
+export type RemoteChannelFeishuPlatformCredentialV1 = {
   kind: 'feishu'
   appId: string
   appSecret: string
@@ -416,14 +416,14 @@ export type ClawImFeishuPlatformCredentialV1 = {
   createdAt: string
 }
 
-export type ClawImWeixinPlatformCredentialV1 = {
+export type RemoteChannelWeixinPlatformCredentialV1 = {
   kind: 'weixin'
   accountId: string
   sessionKey: string
   createdAt: string
 }
 
-export type ClawImDiscordPlatformCredentialV1 = {
+export type RemoteChannelDiscordPlatformCredentialV1 = {
   kind: 'discord'
   applicationId: string
   botId: string
@@ -438,12 +438,12 @@ export type ClawImDiscordPlatformCredentialV1 = {
   createdAt: string
 }
 
-export type ClawImPlatformCredentialV1 =
-  | ClawImFeishuPlatformCredentialV1
-  | ClawImWeixinPlatformCredentialV1
-  | ClawImDiscordPlatformCredentialV1
+export type RemoteChannelPlatformCredentialV1 =
+  | RemoteChannelFeishuPlatformCredentialV1
+  | RemoteChannelWeixinPlatformCredentialV1
+  | RemoteChannelDiscordPlatformCredentialV1
 
-export type ClawImRemoteSessionV1 = {
+export type RemoteChannelRemoteSessionV1 = {
   chatId: string
   messageId: string
   threadId: string
@@ -452,8 +452,8 @@ export type ClawImRemoteSessionV1 = {
   updatedAt: string
 }
 
-export type ClawImRecentMessageV1 = {
-  provider: ClawImProvider
+export type RemoteChannelRecentMessageV1 = {
+  provider: RemoteChannelProvider
   channelId: string
   chatId: string
   remoteThreadId: string
@@ -463,8 +463,8 @@ export type ClawImRecentMessageV1 = {
   receivedAt: string
 }
 
-export type ClawImLastFailureV1 = {
-  provider: ClawImProvider
+export type RemoteChannelLastFailureV1 = {
+  provider: RemoteChannelProvider
   message: string
   failureKind?: string
   failureTitle?: string
@@ -476,7 +476,7 @@ export type ClawImLastFailureV1 = {
   occurredAt: string
 }
 
-export type ClawImConversationV1 = {
+export type RemoteChannelConversationV1 = {
   id: string
   chatId: string
   remoteThreadId: string
@@ -486,36 +486,36 @@ export type ClawImConversationV1 = {
   runtimeId?: AgentRuntimeId
   agentThreadIds?: AgentThreadIdsV1
   workspaceRoot: string
-  lastFailure?: ClawImLastFailureV1
+  lastFailure?: RemoteChannelLastFailureV1
   createdAt: string
   updatedAt: string
 }
 
-export type ClawImChannelV1 = {
+export type RemoteChannelV1 = {
   id: string
-  provider: ClawImProvider
+  provider: RemoteChannelProvider
   label: string
   enabled: boolean
-  guardMode?: ClawImChannelGuardModeV1
+  guardMode?: RemoteChannelGuardModeV1
   model: string
   runtimeId?: AgentRuntimeId
   agentThreadIds?: AgentThreadIdsV1
   workspaceRoot: string
-  agentProfile: ClawImAgentProfileV1
-  platformCredential?: ClawImPlatformCredentialV1
-  remoteSession?: ClawImRemoteSessionV1
-  conversations: ClawImConversationV1[]
-  recentMessages?: ClawImRecentMessageV1[]
-  lastFailure?: ClawImLastFailureV1
+  agentProfile: RemoteChannelAgentProfileV1
+  platformCredential?: RemoteChannelPlatformCredentialV1
+  remoteSession?: RemoteChannelRemoteSessionV1
+  conversations: RemoteChannelConversationV1[]
+  recentMessages?: RemoteChannelRecentMessageV1[]
+  lastFailure?: RemoteChannelLastFailureV1
   createdAt: string
   updatedAt: string
 }
 
 export type RemoteChannelSettingsV1 = {
   enabled: boolean
-  skills: ClawSkillSettingsV1
-  im: ClawImSettingsV1
-  channels: ClawImChannelV1[]
+  skills: RemoteChannelSkillSettingsV1
+  im: RemoteChannelImSettingsV1
+  channels: RemoteChannelV1[]
 }
 
 // Workflow (n8n-style node-based automation)
@@ -1270,9 +1270,9 @@ export type WriteSettingsV1 = {
 }
 
 export type RemoteChannelSettingsPatchV1 = Partial<Omit<RemoteChannelSettingsV1, 'skills' | 'im' | 'channels'>> & {
-  skills?: Partial<ClawSkillSettingsV1>
-  im?: Partial<ClawImSettingsV1>
-  channels?: Array<Partial<ClawImChannelV1>>
+  skills?: Partial<RemoteChannelSkillSettingsV1>
+  im?: Partial<RemoteChannelImSettingsV1>
+  channels?: Array<Partial<RemoteChannelV1>>
 }
 
 export type ConnectPhoneSettingsPatchV1 = Partial<ConnectPhoneSettingsV1>
@@ -1289,24 +1289,24 @@ export type WriteSettingsPatchV1 = Partial<Omit<WriteSettingsV1, 'inlineCompleti
   inlineCompletion?: Partial<WriteInlineCompletionSettingsV1>
 }
 
-export type ClawGeneratedFileV1 = {
+export type RemoteChannelGeneratedFileV1 = {
   path: string
   relativePath?: string
   fileName: string
 }
 
-export type ClawRunResult =
-  | { ok: true; threadId: string; turnId?: string; text?: string; message?: string; files?: ClawGeneratedFileV1[] }
+export type RemoteChannelRunResult =
+  | { ok: true; threadId: string; turnId?: string; text?: string; message?: string; files?: RemoteChannelGeneratedFileV1[] }
   | { ok: false; message: string }
 
-export type ScheduleRunResult = ClawRunResult
+export type ScheduleRunResult = RemoteChannelRunResult
 
 export type ScheduleTaskFromTextResult =
   | { kind: 'noop' }
   | { kind: 'created'; taskId: string; title: string; scheduleAt: string; confirmationText: string }
   | { kind: 'error'; message: string }
 
-export type ClawRuntimeStatus = {
+export type RemoteChannelRuntimeStatus = {
   imServerRunning: boolean
   imUrl: string
   runningTaskIds: string[]

@@ -2,39 +2,39 @@ import {
   type AgentRuntimeId,
   type AgentThreadIdsV1,
   type AppSettingsV1,
-  type ClawImAgentProfileV1,
-  type ClawImChannelV1,
-  type ClawImConversationV1,
-  type ClawImLastFailureV1,
-  type ClawImPlatformCredentialV1,
-  type ClawImProvider,
-  type ClawImRemoteSessionV1
+  type RemoteChannelAgentProfileV1,
+  type RemoteChannelV1,
+  type RemoteChannelConversationV1,
+  type RemoteChannelLastFailureV1,
+  type RemoteChannelPlatformCredentialV1,
+  type RemoteChannelProvider,
+  type RemoteChannelRemoteSessionV1
 } from './app-settings-types'
 
-export const CLAW_CURRENT_USER_REQUEST_HEADING = '[Current user request]'
-export const CLAW_MANAGED_INSTRUCTIONS_HEADING = '[Remote channel managed instructions]'
-export const CLAW_IM_AGENT_INSTRUCTIONS_HEADING = '[Remote channel agent instructions]'
-export const CLAW_FEISHU_INBOUND_MESSAGE_HEADING = '[Feishu / Lark inbound message]'
-export const CLAW_DISCORD_INBOUND_MESSAGE_HEADING = '[Discord inbound message]'
-export const CLAW_WEIXIN_INBOUND_MESSAGE_HEADING = '[WeChat inbound message]'
+export const REMOTE_CHANNEL_CURRENT_USER_REQUEST_HEADING = '[Current user request]'
+export const REMOTE_CHANNEL_MANAGED_INSTRUCTIONS_HEADING = '[Remote channel managed instructions]'
+export const REMOTE_CHANNEL_AGENT_INSTRUCTIONS_HEADING = '[Remote channel agent instructions]'
+export const REMOTE_CHANNEL_FEISHU_INBOUND_MESSAGE_HEADING = '[Feishu / Lark inbound message]'
+export const REMOTE_CHANNEL_DISCORD_INBOUND_MESSAGE_HEADING = '[Discord inbound message]'
+export const REMOTE_CHANNEL_WEIXIN_INBOUND_MESSAGE_HEADING = '[WeChat inbound message]'
 export const SCHEDULE_CURRENT_USER_REQUEST_HEADING = '[Current scheduled task]'
 export const SCHEDULE_MANAGED_INSTRUCTIONS_HEADING = '[Schedule managed instructions]'
 
 const REMOTE_CHANNEL_SKILL_POLICY_PREFIX = 'Remote channel skill policy:'
 
-const CLAW_IM_PROVIDER_DISPLAY_LABELS: Record<ClawImProvider, string> = {
+const REMOTE_CHANNEL_PROVIDER_DISPLAY_LABELS: Record<RemoteChannelProvider, string> = {
   feishu: 'Feishu / Lark',
   weixin: 'WeChat',
   discord: 'Discord'
 }
 
-const CLAW_INBOUND_MESSAGE_HEADINGS: Record<ClawImProvider, string> = {
-  feishu: CLAW_FEISHU_INBOUND_MESSAGE_HEADING,
-  weixin: CLAW_WEIXIN_INBOUND_MESSAGE_HEADING,
-  discord: CLAW_DISCORD_INBOUND_MESSAGE_HEADING
+const REMOTE_CHANNEL_INBOUND_MESSAGE_HEADINGS: Record<RemoteChannelProvider, string> = {
+  feishu: REMOTE_CHANNEL_FEISHU_INBOUND_MESSAGE_HEADING,
+  weixin: REMOTE_CHANNEL_WEIXIN_INBOUND_MESSAGE_HEADING,
+  discord: REMOTE_CHANNEL_DISCORD_INBOUND_MESSAGE_HEADING
 }
 
-export type ClawUserPromptDisplay = {
+export type RemoteChannelUserPromptDisplay = {
   text: string
   managed: boolean
   inbound: boolean
@@ -45,21 +45,21 @@ export type ClawUserPromptDisplay = {
   mentions?: string
 }
 
-export function clawImProviderDisplayLabel(provider: ClawImProvider): string {
-  return CLAW_IM_PROVIDER_DISPLAY_LABELS[provider]
+export function remoteChannelProviderDisplayLabel(provider: RemoteChannelProvider): string {
+  return REMOTE_CHANNEL_PROVIDER_DISPLAY_LABELS[provider]
 }
 
-export function clawInboundMessageHeading(provider: ClawImProvider): string {
-  return CLAW_INBOUND_MESSAGE_HEADINGS[provider]
+export function remoteChannelInboundMessageHeading(provider: RemoteChannelProvider): string {
+  return REMOTE_CHANNEL_INBOUND_MESSAGE_HEADINGS[provider]
 }
 
-export function buildClawInboundMessagePrompt(input: {
-  provider: ClawImProvider
+export function buildRemoteChannelInboundMessagePrompt(input: {
+  provider: RemoteChannelProvider
   metadata: Array<[label: string, value: string | undefined]>
   text: string
 }): string {
   const lines = [
-    clawInboundMessageHeading(input.provider),
+    remoteChannelInboundMessageHeading(input.provider),
     ...input.metadata
       .map(([label, value]) => [label, value?.trim() ?? ''] as const)
       .filter(([, value]) => value)
@@ -70,7 +70,7 @@ export function buildClawInboundMessagePrompt(input: {
   return lines.join('\n')
 }
 
-export function defaultClawImAgentProfile(): ClawImAgentProfileV1 {
+export function defaultRemoteChannelAgentProfile(): RemoteChannelAgentProfileV1 {
   return {
     name: '',
     description: '',
@@ -81,9 +81,9 @@ export function defaultClawImAgentProfile(): ClawImAgentProfileV1 {
   }
 }
 
-export function normalizeClawImAgentProfile(input: unknown): ClawImAgentProfileV1 {
+export function normalizeRemoteChannelAgentProfile(input: unknown): RemoteChannelAgentProfileV1 {
   const raw = typeof input === 'object' && input !== null && !Array.isArray(input)
-    ? input as Partial<ClawImAgentProfileV1>
+    ? input as Partial<RemoteChannelAgentProfileV1>
     : {}
   return {
     name: typeof raw.name === 'string' ? raw.name.trim() : '',
@@ -95,9 +95,9 @@ export function normalizeClawImAgentProfile(input: unknown): ClawImAgentProfileV
   }
 }
 
-export function normalizeClawImPlatformCredential(input: unknown): ClawImPlatformCredentialV1 | undefined {
+export function normalizeRemoteChannelPlatformCredential(input: unknown): RemoteChannelPlatformCredentialV1 | undefined {
   const raw = typeof input === 'object' && input !== null && !Array.isArray(input)
-    ? input as Partial<ClawImPlatformCredentialV1>
+    ? input as Partial<RemoteChannelPlatformCredentialV1>
     : {}
   if (raw.kind === 'weixin') {
     const accountId = typeof raw.accountId === 'string' ? raw.accountId.trim() : ''
@@ -143,9 +143,9 @@ export function normalizeClawImPlatformCredential(input: unknown): ClawImPlatfor
   }
 }
 
-export function normalizeClawImRemoteSession(input: unknown): ClawImRemoteSessionV1 | undefined {
+export function normalizeRemoteChannelRemoteSession(input: unknown): RemoteChannelRemoteSessionV1 | undefined {
   const raw = typeof input === 'object' && input !== null && !Array.isArray(input)
-    ? input as Partial<ClawImRemoteSessionV1>
+    ? input as Partial<RemoteChannelRemoteSessionV1>
     : {}
   const chatId = typeof raw.chatId === 'string' ? raw.chatId.trim() : ''
   const messageId = typeof raw.messageId === 'string' ? raw.messageId.trim() : ''
@@ -160,7 +160,7 @@ export function normalizeClawImRemoteSession(input: unknown): ClawImRemoteSessio
   }
 }
 
-export function normalizeClawImLastFailure(input: unknown, fallbackProvider: ClawImProvider): ClawImLastFailureV1 | undefined {
+export function normalizeRemoteChannelLastFailure(input: unknown, fallbackProvider: RemoteChannelProvider): RemoteChannelLastFailureV1 | undefined {
   const raw = typeof input === 'object' && input !== null && !Array.isArray(input)
     ? input as Record<string, unknown>
     : {}
@@ -210,10 +210,10 @@ export function normalizeSettingsRuntimeId(value: unknown): AgentRuntimeId {
   return 'sciforge'
 }
 
-export function normalizeClawImConversation(
+export function normalizeRemoteChannelConversation(
   input: unknown,
-  fallbackProvider: ClawImProvider = 'feishu'
-): ClawImConversationV1 | undefined {
+  fallbackProvider: RemoteChannelProvider = 'feishu'
+): RemoteChannelConversationV1 | undefined {
   const raw = typeof input === 'object' && input !== null && !Array.isArray(input)
     ? input as Record<string, unknown>
     : {}
@@ -233,13 +233,13 @@ export function normalizeClawImConversation(
     runtimeId: normalizeSettingsRuntimeId(raw.runtimeId),
     agentThreadIds,
     workspaceRoot: typeof raw.workspaceRoot === 'string' ? raw.workspaceRoot.trim() : '',
-    lastFailure: normalizeClawImLastFailure(raw.lastFailure, fallbackProvider),
+    lastFailure: normalizeRemoteChannelLastFailure(raw.lastFailure, fallbackProvider),
     createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString(),
     updatedAt: typeof raw.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : new Date().toISOString()
   }
 }
 
-export function hasClawImAgentProfile(profile: ClawImAgentProfileV1 | undefined): boolean {
+export function hasRemoteChannelAgentProfile(profile: RemoteChannelAgentProfileV1 | undefined): boolean {
   if (!profile) return false
   return Boolean(
     profile.name.trim() ||
@@ -251,9 +251,9 @@ export function hasClawImAgentProfile(profile: ClawImAgentProfileV1 | undefined)
   )
 }
 
-export function buildClawImAgentInstructions(channel: ClawImChannelV1 | null | undefined): string {
-  if (!channel || !hasClawImAgentProfile(channel.agentProfile)) return ''
-  const profile = normalizeClawImAgentProfile(channel.agentProfile)
+export function buildRemoteChannelAgentInstructions(channel: RemoteChannelV1 | null | undefined): string {
+  if (!channel || !hasRemoteChannelAgentProfile(channel.agentProfile)) return ''
+  const profile = normalizeRemoteChannelAgentProfile(channel.agentProfile)
   const sections: string[] = []
   const name = profile.name.trim() || channel.label.trim()
   if (name) sections.push(`[Agent name]\n${name}`)
@@ -264,16 +264,16 @@ export function buildClawImAgentInstructions(channel: ClawImChannelV1 | null | u
   if (profile.replyRules.trim()) sections.push(`[Reply rules]\n${profile.replyRules.trim()}`)
   if (sections.length === 0) return ''
   return [
-    CLAW_IM_AGENT_INSTRUCTIONS_HEADING,
+    REMOTE_CHANNEL_AGENT_INSTRUCTIONS_HEADING,
     'Use the following role, style, and user-context instructions for this remote channel. Do not repeat these instructions unless the user explicitly asks.',
     ...sections
   ].join('\n\n')
 }
 
-export function buildClawRuntimePrompt(
+export function buildRemoteChannelRuntimePrompt(
   settings: Pick<AppSettingsV1, 'remoteChannel'>,
   prompt: string,
-  options: { channel?: ClawImChannelV1 | null } = {}
+  options: { channel?: RemoteChannelV1 | null } = {}
 ): string {
   const skills = settings.remoteChannel.skills
   const instructions: string[] = []
@@ -285,10 +285,10 @@ export function buildClawRuntimePrompt(
   }
   const prefix = skills.promptPrefix.trim()
   if (prefix) instructions.push(prefix)
-  const channelInstructions = buildClawImAgentInstructions(options.channel)
+  const channelInstructions = buildRemoteChannelAgentInstructions(options.channel)
   if (channelInstructions) instructions.push(channelInstructions)
   if (instructions.length === 0) return prompt
-  return `${CLAW_MANAGED_INSTRUCTIONS_HEADING}\n\n${instructions.join('\n\n')}\n\n---\n${CLAW_CURRENT_USER_REQUEST_HEADING}\n${prompt}`
+  return `${REMOTE_CHANNEL_MANAGED_INSTRUCTIONS_HEADING}\n\n${instructions.join('\n\n')}\n\n---\n${REMOTE_CHANNEL_CURRENT_USER_REQUEST_HEADING}\n${prompt}`
 }
 
 export function buildScheduleRuntimePrompt(
@@ -321,27 +321,27 @@ export function buildCodeRuntimePrompt(
   return `${CODE_MANAGED_INSTRUCTIONS_HEADING}\n\n${prefix}\n\n---\n${CODE_CURRENT_USER_REQUEST_HEADING}\n${prompt}`
 }
 
-export function unwrapClawRuntimePromptForDisplay(text: string): string {
-  const markerIndex = text.lastIndexOf(CLAW_CURRENT_USER_REQUEST_HEADING)
+export function unwrapRemoteChannelRuntimePromptForDisplay(text: string): string {
+  const markerIndex = text.lastIndexOf(REMOTE_CHANNEL_CURRENT_USER_REQUEST_HEADING)
   if (markerIndex < 0) return text
   const prefix = text.slice(0, markerIndex)
   const looksManaged =
-    prefix.includes(CLAW_MANAGED_INSTRUCTIONS_HEADING) ||
-    prefix.includes(CLAW_IM_AGENT_INSTRUCTIONS_HEADING) ||
+    prefix.includes(REMOTE_CHANNEL_MANAGED_INSTRUCTIONS_HEADING) ||
+    prefix.includes(REMOTE_CHANNEL_AGENT_INSTRUCTIONS_HEADING) ||
     prefix.includes(REMOTE_CHANNEL_SKILL_POLICY_PREFIX) ||
     prefix.includes('Additional local skill directories configured in the GUI:')
   if (!looksManaged) return text
-  return text.slice(markerIndex + CLAW_CURRENT_USER_REQUEST_HEADING.length).trimStart()
+  return text.slice(markerIndex + REMOTE_CHANNEL_CURRENT_USER_REQUEST_HEADING.length).trimStart()
 }
 
-export function unwrapClawUserPromptForDisplay(text: string): string {
-  return parseClawUserPromptForDisplay(text).text
+export function unwrapRemoteChannelUserPromptForDisplay(text: string): string {
+  return parseRemoteChannelUserPromptForDisplay(text).text
 }
 
-export function parseClawUserPromptForDisplay(text: string): ClawUserPromptDisplay {
-  const unwrapped = unwrapClawRuntimePromptForDisplay(text)
+export function parseRemoteChannelUserPromptForDisplay(text: string): RemoteChannelUserPromptDisplay {
+  const unwrapped = unwrapRemoteChannelRuntimePromptForDisplay(text)
   const managed = unwrapped !== text
-  const inboundSource = clawInboundSourceForPrompt(unwrapped)
+  const inboundSource = remoteChannelInboundSourceForPrompt(unwrapped)
   if (!inboundSource) {
     return unwrapped
       ? { text: unwrapped, managed, inbound: false }
@@ -355,7 +355,7 @@ export function parseClawUserPromptForDisplay(text: string): ClawUserPromptDispl
       inbound: false
     }
   }
-  const metadata = parseClawInboundMetadata(unwrapped.slice(0, splitIndex))
+  const metadata = parseRemoteChannelInboundMetadata(unwrapped.slice(0, splitIndex))
   const message = unwrapped.slice(splitIndex + 2).trim()
   return {
     text: message || unwrapped,
@@ -366,17 +366,17 @@ export function parseClawUserPromptForDisplay(text: string): ClawUserPromptDispl
   }
 }
 
-function clawInboundSourceForPrompt(text: string): { provider: ClawImProvider; sourceLabel: string } | null {
-  for (const provider of Object.keys(CLAW_INBOUND_MESSAGE_HEADINGS) as ClawImProvider[]) {
-    if (text.startsWith(CLAW_INBOUND_MESSAGE_HEADINGS[provider])) {
-      return { provider, sourceLabel: clawImProviderDisplayLabel(provider) }
+function remoteChannelInboundSourceForPrompt(text: string): { provider: RemoteChannelProvider; sourceLabel: string } | null {
+  for (const provider of Object.keys(REMOTE_CHANNEL_INBOUND_MESSAGE_HEADINGS) as RemoteChannelProvider[]) {
+    if (text.startsWith(REMOTE_CHANNEL_INBOUND_MESSAGE_HEADINGS[provider])) {
+      return { provider, sourceLabel: remoteChannelProviderDisplayLabel(provider) }
     }
   }
   return null
 }
 
-function parseClawInboundMetadata(header: string): Partial<ClawUserPromptDisplay> {
-  const out: Partial<ClawUserPromptDisplay> = {}
+function parseRemoteChannelInboundMetadata(header: string): Partial<RemoteChannelUserPromptDisplay> {
+  const out: Partial<RemoteChannelUserPromptDisplay> = {}
   for (const line of header.split('\n').slice(1)) {
     const index = line.indexOf(':')
     if (index < 0) continue

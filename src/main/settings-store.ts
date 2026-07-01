@@ -51,8 +51,8 @@ import {
   normalizeAgentRuntimeId,
   type AppSettingsPatch,
   type AppSettingsV1,
-  type ClawImChannelV1,
-  type ClawImConversationV1
+  type RemoteChannelV1,
+  type RemoteChannelConversationV1
 } from '../shared/app-settings'
 import { APP_SETTINGS_FILE_NAME } from '../shared/app-brand'
 import { createInternalHttpSecret } from './internal-http-secret'
@@ -99,7 +99,7 @@ function sanitizePathSegment(raw: string | null | undefined, fallback: string): 
   return sanitized || fallback
 }
 
-function defaultClawChannelWorkspaceRoot(channel: ClawImChannelV1): string {
+function defaultClawChannelWorkspaceRoot(channel: RemoteChannelV1): string {
   const credential = channel.platformCredential
   const domain = credential?.kind === 'feishu'
     ? credential.domain
@@ -119,11 +119,11 @@ function defaultClawChannelWorkspaceRoot(channel: ClawImChannelV1): string {
   return join(DEFAULT_REMOTE_CHANNELS_ROOT, channel.provider, domain, workspaceId)
 }
 
-function normalizeClawChannelWorkspaceRoot(channel: ClawImChannelV1): string {
+function normalizeClawChannelWorkspaceRoot(channel: RemoteChannelV1): string {
   return expandHomePath(channel.workspaceRoot) || defaultClawChannelWorkspaceRoot(channel)
 }
 
-function sanitizeConversationWorkspaceSegment(conversation: ClawImConversationV1): string {
+function sanitizeConversationWorkspaceSegment(conversation: RemoteChannelConversationV1): string {
   return sanitizePathSegment(
     conversation.remoteThreadId || conversation.chatId,
     conversation.id || 'conversation'
@@ -131,15 +131,15 @@ function sanitizeConversationWorkspaceSegment(conversation: ClawImConversationV1
 }
 
 function defaultClawConversationWorkspaceRoot(
-  channel: ClawImChannelV1,
-  conversation: ClawImConversationV1
+  channel: RemoteChannelV1,
+  conversation: RemoteChannelConversationV1
 ): string {
   return join(normalizeClawChannelWorkspaceRoot(channel), 'conversations', sanitizeConversationWorkspaceSegment(conversation))
 }
 
 function normalizeClawConversationWorkspaceRoot(
-  channel: ClawImChannelV1,
-  conversation: ClawImConversationV1
+  channel: RemoteChannelV1,
+  conversation: RemoteChannelConversationV1
 ): string {
   return expandHomePath(conversation.workspaceRoot) || defaultClawConversationWorkspaceRoot(channel, conversation)
 }

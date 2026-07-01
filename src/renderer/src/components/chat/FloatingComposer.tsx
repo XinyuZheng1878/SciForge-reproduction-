@@ -45,7 +45,10 @@ import type { ModelProviderModelGroup } from '@shared/sciforge-api'
 import type { AgentRuntimeContextState } from '@shared/agent-runtime-contract'
 import type { AgentProviderCapabilities, AttachmentReference, ReviewTarget } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
-import { clawThreadIdsFromChannels, isClawThread } from '../../store/chat-store-helpers'
+import {
+  isRemoteChannelThread as threadIsRemoteChannel,
+  remoteChannelThreadIdsFromChannels
+} from '../../store/chat-store-helpers'
 import { normalizeWorkspaceRoot } from '../../lib/workspace-path'
 import {
   composerFileReferenceKey,
@@ -696,14 +699,14 @@ export function FloatingComposer({
     ? threads.find((thread) => thread.id === activeThreadId) ?? null
     : null
   const remoteChannelThreadIds = useMemo(
-    () => clawThreadIdsFromChannels(remoteChannels),
+    () => remoteChannelThreadIdsFromChannels(remoteChannels),
     [remoteChannels]
   )
-  const isRemoteChannelThread = Boolean(
+  const isActiveRemoteChannelThread = Boolean(
     activeThreadId &&
     (
       remoteChannelThreadIds.has(activeThreadId) ||
-      (activeThread && isClawThread(activeThread, remoteChannels))
+      (activeThread && threadIsRemoteChannel(activeThread, remoteChannels))
     )
   )
   const activeThreadArchived = activeThread?.archived === true
@@ -732,9 +735,9 @@ export function FloatingComposer({
     activeRemoteChannel?.remoteSession?.chatId?.trim()
   )
 
-  const canEditComposer = isRemoteChannelThread ? remoteChannelHasInboundConversation : true
+  const canEditComposer = isActiveRemoteChannelThread ? remoteChannelHasInboundConversation : true
   const canCompose = runtimeReady && (
-    isRemoteChannelThread
+    isActiveRemoteChannelThread
       ? remoteChannelHasInboundConversation
       : (hasActiveThread || !!effectiveWorkspaceRoot)
   )
@@ -748,7 +751,7 @@ export function FloatingComposer({
   const canPickAttachment = canOpenAttachmentPicker && attachmentUploadEnabled
   const imageGenerationSettings = useImageGenerationComposerSettings()
   const imageGenerationConfigured = isImageGenerationConfigured(imageGenerationSettings)
-  const showImageGenerationMenuItem = !compact && route === 'chat' && !isRemoteChannelThread
+  const showImageGenerationMenuItem = !compact && route === 'chat' && !isActiveRemoteChannelThread
   const canCreateImageRequest = showImageGenerationMenuItem && canCompose
   const runtimeSupportsCompact = runtimeCapabilities?.compact !== false
   const runtimeSupportsFork = runtimeCapabilities?.fork !== false
@@ -766,8 +769,8 @@ export function FloatingComposer({
   const showAttachmentToolbarButton = Boolean(onPickAttachments)
   const canTogglePlanMode = canCompose && Boolean(onPlanCommand)
   const canOpenGoalPanel =
-    !disableThreadManagementCommands && canCompose && !isRemoteChannelThread && runtimeSupportsGoals
-  const canRunReview = canCompose && !isRemoteChannelThread && runtimeSupportsReview && Boolean(onReviewCommand)
+    !disableThreadManagementCommands && canCompose && !isActiveRemoteChannelThread && runtimeSupportsGoals
+  const canRunReview = canCompose && !isActiveRemoteChannelThread && runtimeSupportsReview && Boolean(onReviewCommand)
   const canOpenComposerMenu = showComposerMenuButton && (
     showImageGenerationMenuItem ||
     canOpenAttachmentPicker ||
@@ -839,13 +842,13 @@ export function FloatingComposer({
     ? t('runtimeActionNeedsConnection')
     : !hasActiveThread && !effectiveWorkspaceRoot
       ? t('workspaceRequiredToCreateThread')
-      : goalPanelOpen && !isRemoteChannelThread
+      : goalPanelOpen && !isActiveRemoteChannelThread
       ? t('goalComposerPlaceholder')
       : busy
         ? t('composerQueuePlaceholder')
         : imageGenerationMode
           ? t('composerImageGenerationPlaceholder')
-          : isRemoteChannelThread
+          : isActiveRemoteChannelThread
             ? remoteChannelHasInboundConversation
               ? t('remoteChannelPlaceholder', { name: remoteChannelAgentName })
               : t('remoteChannelPlaceholderNeedsInbound')
@@ -858,7 +861,7 @@ export function FloatingComposer({
     ? t('composerOfflineHint')
     : !hasActiveThread && !effectiveWorkspaceRoot
       ? t('composerWorkspaceHint')
-      : isRemoteChannelThread
+      : isActiveRemoteChannelThread
           ? remoteChannelHasInboundConversation
             ? t('remoteChannelComposerHint')
             : t('remoteChannelComposerHintNeedsInbound')
@@ -878,7 +881,7 @@ export function FloatingComposer({
       })
     }
 
-    if (!isRemoteChannelThread) {
+    if (!isActiveRemoteChannelThread) {
       const dynamicSkillCommands = runtimeSupportsSkills
         ? skillCommands
           .filter((skill) => skill.id.trim() && skill.name.trim())
@@ -1020,7 +1023,7 @@ export function FloatingComposer({
     onBtwCommand,
     onPlanCommand,
     onReviewCommand,
-    isRemoteChannelThread,
+    isActiveRemoteChannelThread,
     runtimeReady,
     runtimeSupportsCompact,
     runtimeSupportsFork,
@@ -1067,7 +1070,7 @@ export function FloatingComposer({
   const parsedSteerCommand = parseSteerCommand(input)
   const goalPanelDraftObjective = getGoalPanelDraftObjective(input, goalPanelOpen)
   const canSetGoalPanelDraft =
-    !isRemoteChannelThread
+    !isActiveRemoteChannelThread
     && runtimeReady
     && canOpenGoalPanel
     && goalPanelDraftObjective.length > 0

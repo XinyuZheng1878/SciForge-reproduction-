@@ -12,8 +12,8 @@ import { useChatStore } from '../../store/chat-store'
 import {
   CODE_MANAGED_INSTRUCTIONS_HEADING,
   CODE_CURRENT_USER_REQUEST_HEADING,
-  parseClawUserPromptForDisplay,
-  type ClawUserPromptDisplay
+  parseRemoteChannelUserPromptForDisplay,
+  type RemoteChannelUserPromptDisplay
 } from '@shared/app-settings'
 import { DiffView } from '../DiffView'
 import { AssistantMarkdown } from './AssistantMarkdown'
@@ -26,7 +26,7 @@ import {
 } from './message-timeline-media'
 import { ModelMetaTag } from './message-timeline-cards'
 import { readNumber, formatDuration, formatToolTitle } from './message-timeline-tools'
-import { clawThreadRemoteBindingsFromChannels } from '../../store/chat-store-helpers'
+import { remoteChannelThreadBindingsFromChannels } from '../../store/chat-store-helpers'
 import { remoteToolMetadataChips } from './remote-tool-metadata'
 
 const COPY_FEEDBACK_RESET_MS = 1600
@@ -56,16 +56,16 @@ function UserMessageBubble({
       : null
   const parsedMetaClawPrompt = useMemo(() => {
     if (!metaDisplayText) return null
-    const parsed = parseClawUserPromptForDisplay(metaDisplayText)
+    const parsed = parseRemoteChannelUserPromptForDisplay(metaDisplayText)
     return parsed.managed || parsed.inbound ? parsed : null
   }, [metaDisplayText])
   const remoteBinding = useMemo(() => {
     if (!activeThreadId) return null
-    return clawThreadRemoteBindingsFromChannels(remoteChannels).get(activeThreadId) ?? null
+    return remoteChannelThreadBindingsFromChannels(remoteChannels).get(activeThreadId) ?? null
   }, [activeThreadId, remoteChannels])
   const isRemoteChannelMessage = Boolean(remoteBinding || isRemoteChannelManagedBy(block.managedBy))
   const parsedClawPrompt = useMemo(() => {
-    const parsed = parseClawUserPromptForDisplay(block.text)
+    const parsed = parseRemoteChannelUserPromptForDisplay(block.text)
     if (!parsed.managed && !parsed.inbound && !isRemoteChannelMessage) {
       return parsedMetaClawPrompt
     }
@@ -210,7 +210,7 @@ function ClawInboundMessageCard({
   display,
   text
 }: {
-  display: ClawUserPromptDisplay
+  display: RemoteChannelUserPromptDisplay
   text: string
 }): ReactElement {
   const { t } = useTranslation('common')
@@ -248,7 +248,7 @@ function ClawInboundMessageCard({
 
 function messageSourceLabel(
   block: Extract<ChatBlock, { kind: 'user' }>,
-  parsedClawPrompt: ClawUserPromptDisplay | null,
+  parsedClawPrompt: RemoteChannelUserPromptDisplay | null,
   remoteProviderLabel?: string
 ): string {
   const meta = block.meta as Record<string, unknown> | undefined

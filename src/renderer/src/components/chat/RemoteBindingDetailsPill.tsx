@@ -2,14 +2,14 @@ import type { ReactElement } from 'react'
 import { Bot } from 'lucide-react'
 import { workspaceLabelFromPath } from '../../lib/workspace-label'
 import type {
-  ClawThreadRemoteBinding,
-  ClawThreadRemoteStatusKind
+  RemoteChannelThreadBinding,
+  RemoteChannelThreadStatusKind
 } from '../../store/chat-store-helpers'
 
 type TranslationFn = (key: string, opts?: Record<string, unknown>) => string
 
 export function remoteThreadStatusLabel(
-  kind: ClawThreadRemoteStatusKind,
+  kind: RemoteChannelThreadStatusKind,
   t: TranslationFn
 ): string {
   switch (kind) {
@@ -28,7 +28,7 @@ export function remoteThreadStatusLabel(
 }
 
 export function remoteBindingGuardModeLabel(
-  guardMode: ClawThreadRemoteBinding['guardMode'] | undefined,
+  guardMode: RemoteChannelThreadBinding['guardMode'] | undefined,
   t: TranslationFn
 ): string {
   switch (guardMode) {
@@ -48,17 +48,17 @@ function shortRemoteBindingId(value: string): string {
   return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`
 }
 
-function remoteBindingThreadLabel(binding: ClawThreadRemoteBinding, short: boolean): string {
+function remoteBindingThreadLabel(binding: RemoteChannelThreadBinding, short: boolean): string {
   const threadId = short ? shortRemoteBindingId(binding.threadId) : binding.threadId
   return binding.runtimeId ? `${binding.runtimeId}:${threadId}` : threadId
 }
 
-function remoteBindingWorkspaceLabel(binding: ClawThreadRemoteBinding, t: TranslationFn): string {
+function remoteBindingWorkspaceLabel(binding: RemoteChannelThreadBinding, t: TranslationFn): string {
   const workspaceRoot = binding.workspaceRoot?.trim() ?? ''
   return workspaceRoot ? workspaceLabelFromPath(workspaceRoot) : t('remoteBindingDefaultWorkspace')
 }
 
-function remoteBindingTargetLabel(binding: ClawThreadRemoteBinding): string {
+function remoteBindingTargetLabel(binding: RemoteChannelThreadBinding): string {
   return binding.senderName?.trim() ||
     binding.remoteThreadId?.trim() ||
     binding.chatId?.trim() ||
@@ -71,8 +71,8 @@ export function ActiveRemoteBindingDetails({
   unread,
   t
 }: {
-  binding: ClawThreadRemoteBinding
-  statusKind: ClawThreadRemoteStatusKind
+  binding: RemoteChannelThreadBinding
+  statusKind: RemoteChannelThreadStatusKind
   unread: boolean
   t: TranslationFn
 }): ReactElement {

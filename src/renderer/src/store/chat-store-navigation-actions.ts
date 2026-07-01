@@ -24,7 +24,7 @@ import {
 import { workspaceLabelFromPath } from '../lib/workspace-label'
 import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { onRemoteChannelActivityApi } from '../lib/remote-channel-api'
-import { buildClawRuntimePrompt, getActiveAgentApiKey, getActiveAgentRuntime, type AgentRuntimeId } from '@shared/app-settings'
+import { buildRemoteChannelRuntimePrompt, getActiveAgentApiKey, getActiveAgentRuntime, type AgentRuntimeId } from '@shared/app-settings'
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import {
   activeRemoteChannel,
@@ -33,7 +33,7 @@ import {
   forgetCodeWorkspaceRoot,
   hideCodeWorkspaceRoot,
   hydrateBlockModelLabels,
-  isClawThread,
+  isRemoteChannelThread,
   optimisticUserModelLabel,
   readCodeWorkspaceRoots,
   readHiddenCodeWorkspaceRoots,
@@ -92,7 +92,7 @@ type StoreActionContext = {
 }
 
 let bootPromise: Promise<void> | null = null
-let clawChannelActivityUnsubscribe: (() => void) | null = null
+let remoteChannelActivityUnsubscribe: (() => void) | null = null
 
 function stateHasRecoverableActiveTurn(state: ChatState): boolean {
   return state.busy || Boolean(state.currentTurnId) || state.blocks.some(hasPendingRuntimeWork)
@@ -315,8 +315,8 @@ export function createNavigationActions(
         applyUiFontScale(settings.uiFontScale)
         await get().applyI18nFromSettings(settings.locale)
         const onRemoteChannelActivity = onRemoteChannelActivityApi(window.sciforge)
-        if (!clawChannelActivityUnsubscribe && typeof onRemoteChannelActivity === 'function') {
-          clawChannelActivityUnsubscribe = onRemoteChannelActivity(({
+        if (!remoteChannelActivityUnsubscribe && typeof onRemoteChannelActivity === 'function') {
+          remoteChannelActivityUnsubscribe = onRemoteChannelActivity(({
             channelId,
             threadId,
             runtimeId,
@@ -627,7 +627,7 @@ export function createNavigationActions(
       const activeThreadIsManagedInCodeRoute =
         get().route === 'chat' &&
         activeThread != null &&
-        isClawThread(activeThread, get().remoteChannels)
+        isRemoteChannelThread(activeThread, get().remoteChannels)
       const activeThreadHasLocalConversation =
         activeId != null &&
         (

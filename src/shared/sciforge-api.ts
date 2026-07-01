@@ -2,7 +2,7 @@ import type {
   AppSettingsPatch,
   AppSettingsV1,
   AgentRuntimeId,
-  ClawImAgentProfileV1,
+  RemoteChannelAgentProfileV1,
   ComputerUseSettingsV1,
   ScheduleRunResult,
   ScheduleRuntimeStatus,
@@ -585,7 +585,7 @@ export type SciForgeApi = {
     workspaceRoot?: string
     model?: string
     runtimeId?: AgentRuntimeId
-    agentProfile?: Partial<ClawImAgentProfileV1>
+    agentProfile?: Partial<RemoteChannelAgentProfileV1>
   }) => Promise<DiscordBindChannelResult>
   testDiscordChannel: (channelId: string, text?: string, channelConfigId?: string) => Promise<DiscordTestSendResult>
   setDiscordGuard: (

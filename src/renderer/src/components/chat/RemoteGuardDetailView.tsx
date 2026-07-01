@@ -7,7 +7,7 @@ import {
   MessageSquare,
   Smartphone
 } from 'lucide-react'
-import type { AgentRuntimeId, ClawImChannelV1 } from '@shared/app-settings'
+import type { AgentRuntimeId, RemoteChannelV1 } from '@shared/app-settings'
 import { workspaceLabelFromPath } from '../../lib/workspace-label'
 
 type RemoteGuardTarget = {
@@ -16,13 +16,13 @@ type RemoteGuardTarget = {
 }
 
 type RemoteGuardDetailViewProps = {
-  channel: ClawImChannelV1
+  channel: RemoteChannelV1
   onOpenThread: (threadId: string, runtimeId: AgentRuntimeId) => void
   onOpenSettings: () => void
   t: (k: string, opts?: Record<string, unknown>) => string
 }
 
-export function remoteGuardChannelTitle(channel: ClawImChannelV1): string {
+export function remoteGuardChannelTitle(channel: RemoteChannelV1): string {
   if (channel.platformCredential?.kind === 'discord') {
     const channelName = channel.platformCredential.channelName.trim() || channel.platformCredential.channelId.trim()
     return channelName ? `#${channelName}` : 'Discord'
@@ -30,13 +30,13 @@ export function remoteGuardChannelTitle(channel: ClawImChannelV1): string {
   return channel.label.trim() || channel.agentProfile.name.trim() || remoteGuardProviderLabel(channel.provider)
 }
 
-export function remoteGuardProviderLabel(provider: ClawImChannelV1['provider']): string {
+export function remoteGuardProviderLabel(provider: RemoteChannelV1['provider']): string {
   if (provider === 'discord') return 'Discord'
   if (provider === 'weixin') return 'WeChat'
   return 'Feishu / Lark'
 }
 
-export function remoteGuardTargetThread(channel: ClawImChannelV1): RemoteGuardTarget | null {
+export function remoteGuardTargetThread(channel: RemoteChannelV1): RemoteGuardTarget | null {
   const preferredRuntime: AgentRuntimeId =
     channel.runtimeId === 'claude' ? 'claude' : channel.runtimeId === 'codex' ? 'codex' : 'sciforge'
   const preferred = channel.agentThreadIds?.[preferredRuntime]?.trim()
@@ -48,13 +48,13 @@ export function remoteGuardTargetThread(channel: ClawImChannelV1): RemoteGuardTa
   return null
 }
 
-export function latestRemoteGuardMessages(channel: ClawImChannelV1): NonNullable<ClawImChannelV1['recentMessages']> {
+export function latestRemoteGuardMessages(channel: RemoteChannelV1): NonNullable<RemoteChannelV1['recentMessages']> {
   return [...(channel.recentMessages ?? [])]
     .sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt))
     .slice(0, 6)
 }
 
-export function remoteGuardMessageLabel(message: NonNullable<ClawImChannelV1['recentMessages']>[number]): string {
+export function remoteGuardMessageLabel(message: NonNullable<RemoteChannelV1['recentMessages']>[number]): string {
   const sender = message.senderName?.trim()
   const text = message.text?.trim()
   if (sender && text) return `${sender}: ${text}`

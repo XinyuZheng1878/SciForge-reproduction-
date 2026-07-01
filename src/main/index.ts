@@ -333,7 +333,7 @@ if (process.platform === 'win32') {
 let mainWindow: BrowserWindow | null = null
 let store: JsonSettingsStore
 let logDir = ''
-let clawRuntime: ClawRuntime | null = null
+let remoteChannelRuntime: ClawRuntime | null = null
 let discordBotRuntime: DiscordBotRuntime | null = null
 let scheduleRuntime: ScheduleRuntime | null = null
 let workflowRuntime: WorkflowRuntime | null = null
@@ -351,7 +351,7 @@ let isQuitting = false
 let devBrowserBridgeServer: DevBrowserBridgeServer | null = null
 let codexRuntimePrewarmTimer: ReturnType<typeof setTimeout> | null = null
 let codexRuntimePrewarmPromise: Promise<void> | null = null
-let clawActiveThreadContext: {
+let remoteChannelActiveThreadContext: {
   threadId: string
   runtimeId?: AgentRuntimeId
   workspaceRoot?: string
@@ -367,7 +367,7 @@ function resolveDevBrowserBridgeToken(): string | undefined {
   return process.env.SCIFORGE_DEV_BROWSER_BRIDGE_TOKEN?.trim() || undefined
 }
 
-function emitClawChannelActivity(payload: {
+function emitRemoteChannelActivity(payload: {
   channelId: string
   threadId: string
   runtimeId?: AgentRuntimeId
@@ -490,7 +490,7 @@ async function stopManagedRuntimes(): Promise<void> {
       workflowRuntime?.stop()
       scheduleRuntime?.stop()
       discordBotRuntime?.stop()
-      clawRuntime?.stop()
+      remoteChannelRuntime?.stop()
       codeNavigationService?.shutdown()
       paperRadarWorkerService?.close()
       paperRadarWorkerService = null
@@ -1564,24 +1564,24 @@ app.whenReady().then(async () => {
     store,
     userDataPath: app.getPath('userData'),
     handleIncomingMessage: async (input) => {
-      if (!clawRuntime) return { ok: false, message: 'Remote channel runtime is not initialized.' }
-      return clawRuntime.handleIncomingImMessage(input)
+      if (!remoteChannelRuntime) return { ok: false, message: 'Remote channel runtime is not initialized.' }
+      return remoteChannelRuntime.handleIncomingImMessage(input)
     },
     onSettingsChanged: (settings) => {
       scheduleRuntime?.sync(settings)
       workflowRuntime?.sync(settings)
-      clawRuntime?.sync(settings)
+      remoteChannelRuntime?.sync(settings)
       discordBotRuntime?.sync(settings)
       syncWeixinBridgeRuntime(settings)
     },
     logError
   })
-  clawRuntime = createClawRuntime({
+  remoteChannelRuntime = createClawRuntime({
     store,
     agentRuntime: agentRuntimeHost,
-    getActiveThreadContext: () => clawActiveThreadContext,
+    getActiveThreadContext: () => remoteChannelActiveThreadContext,
     logError,
-    notifyChannelActivity: emitClawChannelActivity,
+    notifyChannelActivity: emitRemoteChannelActivity,
     sendWeixinBridgeMessage,
     sendDiscordChannelMessage: (options) =>
       discordBotRuntime?.sendChannelMessage(options) ??
@@ -1589,7 +1589,7 @@ app.whenReady().then(async () => {
     createScheduledTaskFromText: (text, options) =>
       scheduleRuntime?.createScheduledTaskFromText(text, options) ?? Promise.resolve({ kind: 'noop' })
   })
-  clawRuntime.sync(initial)
+  remoteChannelRuntime.sync(initial)
   discordBotRuntime.sync(initial)
   configureWeixinBridgeRuntimeContextProvider(async () => {
     const settings = await store.load()
@@ -1688,7 +1688,7 @@ app.whenReady().then(async () => {
     }
     scheduleRuntime?.sync(saved)
     workflowRuntime?.sync(saved)
-    clawRuntime?.sync(saved)
+    remoteChannelRuntime?.sync(saved)
     discordBotRuntime?.sync(saved)
     syncWeixinBridgeRuntime(saved)
     syncLoginItemSettings(saved)
@@ -1729,10 +1729,10 @@ app.whenReady().then(async () => {
     applySettingsPatch,
     agentRuntime: agentRuntimeHost,
     fetchUpstreamModels: fetchModels,
-    getClawRuntime: () => clawRuntime,
+    getRemoteChannelRuntime: () => remoteChannelRuntime,
     getDiscordBotRuntime: () => discordBotRuntime,
-    setClawActiveThreadContext: (payload) => {
-      clawActiveThreadContext = payload
+    setRemoteChannelActiveThreadContext: (payload) => {
+      remoteChannelActiveThreadContext = payload
         ? {
             ...payload,
             updatedAt: new Date().toISOString()

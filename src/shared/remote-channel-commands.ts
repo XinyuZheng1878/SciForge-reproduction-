@@ -1,15 +1,15 @@
-import type { ClawModel, ClawRunMode } from './app-settings'
+import type { RemoteChannelModel, RemoteChannelRunMode } from './app-settings'
 
-export type ClawCommand =
+export type RemoteChannelCommand =
   | { kind: 'clear' }
   | { kind: 'newPrivate' }
   | { kind: 'attachCurrent' }
   | { kind: 'help' }
   | { kind: 'showModel' }
-  | { kind: 'model'; model: ClawModel }
+  | { kind: 'model'; model: RemoteChannelModel }
   | { kind: 'invalidModel' }
   | { kind: 'showMode' }
-  | { kind: 'mode'; mode: ClawRunMode }
+  | { kind: 'mode'; mode: RemoteChannelRunMode }
   | { kind: 'invalidMode' }
   | { kind: 'summary' }
   | { kind: 'detach' }
@@ -21,7 +21,7 @@ export type ClawCommand =
   | { kind: 'newThread'; title: string }
   | { kind: 'jobs' }
 
-export function parseClawCommand(text: string): ClawCommand | null {
+export function parseRemoteChannelCommand(text: string): RemoteChannelCommand | null {
   const raw = text.trim().replace(/^／/, '/')
   const lower = raw.toLowerCase()
   if (/^[/-](?:new|新会话|新话题)\s+(?:private|个人|私有|私人)$/.test(lower)) {

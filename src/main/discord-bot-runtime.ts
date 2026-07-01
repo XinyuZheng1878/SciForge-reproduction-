@@ -6,12 +6,12 @@ import { connect as connectTls, type TLSSocket } from 'node:tls'
 import { atomicWriteFile } from './atomic-write-file'
 import type {
   AppSettingsV1,
-  ClawImAgentProfileV1,
-  ClawImChannelV1,
-  ClawImDiscordPlatformCredentialV1,
-  ClawModel
+  RemoteChannelAgentProfileV1,
+  RemoteChannelV1,
+  RemoteChannelDiscordPlatformCredentialV1,
+  RemoteChannelModel
 } from '../shared/app-settings'
-import { buildClawInboundMessagePrompt } from '../shared/app-settings'
+import { buildRemoteChannelInboundMessagePrompt } from '../shared/app-settings'
 import type {
   DiscordBindChannelResult,
   DiscordBotInfo,
@@ -362,7 +362,7 @@ function discordChannelConfigId(botId: string, guildId: string, channelId: strin
   return `discord-${botId.trim()}-${guildId.trim()}-${channelId.trim()}`
 }
 
-function defaultDiscordAgentProfile(name: string): ClawImChannelV1['agentProfile'] {
+function defaultDiscordAgentProfile(name: string): RemoteChannelV1['agentProfile'] {
   return {
     name: name.trim() || 'discord bot',
     description: '',
@@ -374,10 +374,10 @@ function defaultDiscordAgentProfile(name: string): ClawImChannelV1['agentProfile
 }
 
 function mergeDiscordAgentProfile(
-  current: ClawImAgentProfileV1 | undefined,
-  patch: Partial<ClawImAgentProfileV1> | undefined,
+  current: RemoteChannelAgentProfileV1 | undefined,
+  patch: Partial<RemoteChannelAgentProfileV1> | undefined,
   fallbackName: string
-): ClawImAgentProfileV1 {
+): RemoteChannelAgentProfileV1 {
   const base = current ?? defaultDiscordAgentProfile(fallbackName)
   return {
     name: typeof patch?.name === 'string' ? patch.name.trim() : base.name,
@@ -805,7 +805,7 @@ export class DiscordBotRuntime {
     workspaceRoot?: string
     model?: string
     runtimeId?: AppSettingsV1['activeAgentRuntime']
-    agentProfile?: Partial<ClawImAgentProfileV1>
+    agentProfile?: Partial<RemoteChannelAgentProfileV1>
   }): Promise<DiscordBindChannelResult> {
     try {
       const secret = await this.requireSecret()
@@ -835,7 +835,7 @@ export class DiscordBotRuntime {
             guardOwnerInstallationId: installationId,
             guardOwnerUpdatedAt: now
           }
-      const credential: ClawImDiscordPlatformCredentialV1 = {
+      const credential: RemoteChannelDiscordPlatformCredentialV1 = {
         kind: 'discord',
         applicationId: secret.bot!.applicationId,
         botId: secret.bot!.botId,
@@ -858,7 +858,7 @@ export class DiscordBotRuntime {
         existing?.workspaceRoot,
         settings.workspaceRoot
       )
-      const channel: ClawImChannelV1 = existing
+      const channel: RemoteChannelV1 = existing
         ? {
             ...existing,
             id: existing.id || channelConfigId,
@@ -866,7 +866,7 @@ export class DiscordBotRuntime {
             label,
             enabled: input.enabled ?? true,
             guardMode: 'all_messages',
-            model: (input.model?.trim() || existing.model || settings.remoteChannel.im.model || 'auto') as ClawModel,
+            model: (input.model?.trim() || existing.model || settings.remoteChannel.im.model || 'auto') as RemoteChannelModel,
             runtimeId: input.runtimeId ?? existing.runtimeId ?? settings.activeAgentRuntime,
             workspaceRoot,
             agentProfile: {
@@ -882,7 +882,7 @@ export class DiscordBotRuntime {
             label,
             enabled: input.enabled ?? true,
             guardMode: 'all_messages',
-            model: (input.model?.trim() || settings.remoteChannel.im.model || 'auto') as ClawModel,
+            model: (input.model?.trim() || settings.remoteChannel.im.model || 'auto') as RemoteChannelModel,
             runtimeId: input.runtimeId ?? settings.activeAgentRuntime,
             agentThreadIds: {},
             workspaceRoot,
@@ -1061,7 +1061,7 @@ export class DiscordBotRuntime {
     this.disconnect()
   }
 
-  private async syncGatewayForChannels(channels: ClawImChannelV1[]): Promise<void> {
+  private async syncGatewayForChannels(channels: RemoteChannelV1[]): Promise<void> {
     const secret = await this.loadSecret()
     if (!secret?.botToken || !secret.bot) {
       this.disconnect()
@@ -1246,7 +1246,7 @@ export class DiscordBotRuntime {
     const attachments = (message.attachments ?? [])
       .map((attachment) => attachment.url?.trim() || attachment.filename?.trim() || '')
       .filter(Boolean)
-    const runtimePrompt = buildClawInboundMessagePrompt({
+    const runtimePrompt = buildRemoteChannelInboundMessagePrompt({
       provider: 'discord',
       metadata: [
         ['Guild', credential.guildName || credential.guildId],
@@ -1427,7 +1427,7 @@ export class DiscordBotRuntime {
     ).catch(() => undefined)
   }
 
-  private resolveDiscordChannels(settings: AppSettingsV1): ClawImChannelV1[] {
+  private resolveDiscordChannels(settings: AppSettingsV1): RemoteChannelV1[] {
     return settings.remoteChannel.channels.filter((channel) =>
       channel.provider === 'discord' && channel.platformCredential?.kind === 'discord'
     )
@@ -1436,7 +1436,7 @@ export class DiscordBotRuntime {
   private resolveDiscordChannel(
     settings: AppSettingsV1,
     channelConfigId?: string
-  ): ClawImChannelV1 | undefined {
+  ): RemoteChannelV1 | undefined {
     const channels = this.resolveDiscordChannels(settings)
     const id = channelConfigId?.trim()
     if (id) return channels.find((channel) => channel.id === id)
@@ -1446,7 +1446,7 @@ export class DiscordBotRuntime {
   private resolveDiscordChannelByRemote(
     settings: AppSettingsV1,
     target: { botId: string; guildId: string; channelId: string }
-  ): ClawImChannelV1 | undefined {
+  ): RemoteChannelV1 | undefined {
     return this.resolveDiscordChannels(settings).find((channel) => {
       const credential = channel.platformCredential?.kind === 'discord'
         ? channel.platformCredential
@@ -1462,7 +1462,7 @@ export class DiscordBotRuntime {
   private resolveDiscordChannelForMessage(
     settings: AppSettingsV1,
     message: DiscordMessagePayload
-  ): ClawImChannelV1 | undefined {
+  ): RemoteChannelV1 | undefined {
     const channelId = message.channel_id?.trim() ?? ''
     const guildId = message.guild_id?.trim() ?? ''
     if (!channelId) return undefined
@@ -1481,7 +1481,7 @@ export class DiscordBotRuntime {
     settings: AppSettingsV1,
     interaction: DiscordInteractionPayload,
     botId: string
-  ): ClawImChannelV1 | undefined {
+  ): RemoteChannelV1 | undefined {
     const channelId = interaction.channel_id?.trim() ?? ''
     const guildId = interaction.guild_id?.trim() ?? ''
     if (!channelId) return undefined
@@ -1497,7 +1497,7 @@ export class DiscordBotRuntime {
     })
   }
 
-  private resolveRunnableDiscordChannels(settings: AppSettingsV1): ClawImChannelV1[] {
+  private resolveRunnableDiscordChannels(settings: AppSettingsV1): RemoteChannelV1[] {
     return this.resolveDiscordChannels(settings).filter((channel) =>
       channel.enabled && !this.discordChannelConflict(settings, channel)
     )
@@ -1505,7 +1505,7 @@ export class DiscordBotRuntime {
 
   private async discordChannelStatus(
     settings: AppSettingsV1,
-    channel: ClawImChannelV1,
+    channel: RemoteChannelV1,
     secret?: DiscordSecretFile | null
   ): Promise<DiscordBotChannelStatus> {
     const credential = channel.platformCredential?.kind === 'discord'
@@ -1535,8 +1535,8 @@ export class DiscordBotRuntime {
 
   private async discordChannelAccessError(
     settings: AppSettingsV1,
-    channel: ClawImChannelV1,
-    credential: ClawImDiscordPlatformCredentialV1 | undefined,
+    channel: RemoteChannelV1,
+    credential: RemoteChannelDiscordPlatformCredentialV1 | undefined,
     conflict: DiscordGuardConflictStatus | undefined,
     secret?: DiscordSecretFile | null
   ): Promise<string> {
@@ -1567,7 +1567,7 @@ export class DiscordBotRuntime {
 
   private discordChannelConflict(
     settings: AppSettingsV1,
-    channel: ClawImChannelV1
+    channel: RemoteChannelV1
   ): DiscordGuardConflictStatus | undefined {
     if (!channel.enabled) return undefined
     const credential = channel.platformCredential?.kind === 'discord'

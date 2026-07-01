@@ -37,7 +37,7 @@ import {
 import { normalizeModelProviderSettings } from './app-settings-provider'
 import { normalizeModelRouterSettings } from './app-settings-model-router'
 import { normalizeInstallationId } from './app-settings-normalizers'
-import { normalizeConnectPhoneSettings, normalizeRemoteChannelSettings } from './app-settings-claw'
+import { normalizeConnectPhoneSettings, normalizeRemoteChannelSettings } from './app-settings-remote-channel'
 import { normalizeImageGenerationSettings } from './app-settings-image-generation'
 import { normalizeScheduleSettings } from './app-settings-schedule'
 import { normalizeWorkflowSettings } from './app-settings-workflow'

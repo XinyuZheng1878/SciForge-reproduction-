@@ -1,42 +1,42 @@
 import {
-  DEFAULT_CLAW_MODEL,
+  DEFAULT_REMOTE_CHANNEL_MODEL,
   DEFAULT_WEIXIN_BRIDGE_RPC_URL,
-  type ClawImChannelV1,
-  type ClawImConversationV1,
-  type ClawImRecentMessageV1,
-  type ClawImSettingsV1,
-  type ClawImProvider,
+  type RemoteChannelV1,
+  type RemoteChannelConversationV1,
+  type RemoteChannelRecentMessageV1,
+  type RemoteChannelImSettingsV1,
+  type RemoteChannelProvider,
   type ConnectPhoneSettingsPatchV1,
   type ConnectPhoneSettingsV1,
   type RemoteChannelSettingsPatchV1,
   type RemoteChannelSettingsV1
 } from './app-settings-types'
 import {
-  normalizeClawImAgentProfile,
-  normalizeClawImLastFailure,
-  normalizeClawImConversation,
-  normalizeClawImPlatformCredential,
-  normalizeClawImRemoteSession,
+  normalizeRemoteChannelAgentProfile,
+  normalizeRemoteChannelLastFailure,
+  normalizeRemoteChannelConversation,
+  normalizeRemoteChannelPlatformCredential,
+  normalizeRemoteChannelRemoteSession,
   normalizeAgentThreadIds,
   normalizeSettingsRuntimeId
 } from './app-settings-prompts'
 import {
   compactStrings,
   normalizeBoolean,
-  normalizeClawImChannelGuardMode,
-  normalizeClawModel,
+  normalizeRemoteChannelGuardMode,
+  normalizeRemoteChannelModel,
   normalizeImProvider,
   normalizePathSegment,
   normalizePositiveInteger,
   normalizeRunMode
 } from './app-settings-normalizers'
 
-function defaultClawChannelLabel(provider: ClawImProvider): string {
+function defaultRemoteChannelLabel(provider: RemoteChannelProvider): string {
   if (provider === 'discord') return 'discord bot'
   return provider === 'weixin' ? 'weixin agent' : 'feishu agent'
 }
 
-function normalizeLegacyDefaultClawChannelName(provider: ClawImProvider, value: string): string {
+function normalizeLegacyDefaultRemoteChannelName(provider: RemoteChannelProvider, value: string): string {
   const trimmed = value.trim()
   const lower = trimmed.toLowerCase()
   if (provider === 'weixin') {
@@ -54,9 +54,9 @@ function normalizeLegacyDefaultClawChannelName(provider: ClawImProvider, value: 
   return trimmed
 }
 
-function normalizeClawChannelLabel(provider: ClawImProvider, value: string): string {
-  const normalized = normalizeLegacyDefaultClawChannelName(provider, value)
-  return normalized || defaultClawChannelLabel(provider)
+function normalizeRemoteChannelLabel(provider: RemoteChannelProvider, value: string): string {
+  const normalized = normalizeLegacyDefaultRemoteChannelName(provider, value)
+  return normalized || defaultRemoteChannelLabel(provider)
 }
 
 function normalizeIsoDate(value: unknown, fallback: string): string {
@@ -65,7 +65,7 @@ function normalizeIsoDate(value: unknown, fallback: string): string {
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : fallback
 }
 
-function normalizeClawImRecentMessage(input: unknown, fallbackProvider: ClawImProvider): ClawImRecentMessageV1 | null {
+function normalizeRemoteChannelRecentMessage(input: unknown, fallbackProvider: RemoteChannelProvider): RemoteChannelRecentMessageV1 | null {
   const raw = input && typeof input === 'object' && !Array.isArray(input)
     ? input as Record<string, unknown>
     : {}
@@ -105,7 +105,7 @@ export function defaultRemoteChannelSettings(): RemoteChannelSettingsV1 {
       path: '/remote-channel/webhook',
       secret: '',
       workspaceRoot: '',
-      model: DEFAULT_CLAW_MODEL,
+      model: DEFAULT_REMOTE_CHANNEL_MODEL,
       mode: 'agent',
       responseTimeoutMs: 120_000
     },
@@ -126,7 +126,7 @@ export function normalizeRemoteChannelSettings(input: RemoteChannelSettingsPatch
   const im = source.im ?? defaults.im
   const rawChannels = Array.isArray(source.channels)
     ? source.channels.filter((channel) => {
-        const raw = channel as Partial<ClawImChannelV1>
+        const raw = channel as Partial<RemoteChannelV1>
         return (
           raw.provider === undefined ||
           raw.provider === null ||
@@ -151,25 +151,25 @@ export function normalizeRemoteChannelSettings(input: RemoteChannelSettingsPatch
       path: normalizePathSegment(im.path),
       secret: typeof im.secret === 'string' ? im.secret.trim() : '',
       workspaceRoot: typeof im.workspaceRoot === 'string' ? im.workspaceRoot.trim() : '',
-      model: typeof im.model === 'string' && im.model.trim() ? im.model.trim() : DEFAULT_CLAW_MODEL,
+      model: typeof im.model === 'string' && im.model.trim() ? im.model.trim() : DEFAULT_REMOTE_CHANNEL_MODEL,
       mode: normalizeRunMode(im.mode),
       responseTimeoutMs: normalizePositiveInteger(im.responseTimeoutMs, defaults.im.responseTimeoutMs, 5_000, 600_000)
     },
     channels: rawChannels
-      .map((channel, index): ClawImChannelV1 => {
+      .map((channel, index): RemoteChannelV1 => {
           const raw = channel as Record<string, unknown>
-          const provider = normalizeImProvider(raw.provider as ClawImProvider)
+          const provider = normalizeImProvider(raw.provider as RemoteChannelProvider)
           const agentThreadIds = normalizeAgentThreadIds(raw.agentThreadIds)
-          const agentProfile = normalizeClawImAgentProfile(raw.agentProfile)
-          const label = normalizeClawChannelLabel(provider, typeof raw.label === 'string' ? raw.label : '')
-          const profileName = normalizeLegacyDefaultClawChannelName(provider, agentProfile.name)
+          const agentProfile = normalizeRemoteChannelAgentProfile(raw.agentProfile)
+          const label = normalizeRemoteChannelLabel(provider, typeof raw.label === 'string' ? raw.label : '')
+          const profileName = normalizeLegacyDefaultRemoteChannelName(provider, agentProfile.name)
           return {
             id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : `im-${index + 1}`,
             provider,
             label,
             enabled: normalizeBoolean(raw.enabled, true),
-            guardMode: normalizeClawImChannelGuardMode(raw.guardMode),
-            model: normalizeClawModel(raw.model),
+            guardMode: normalizeRemoteChannelGuardMode(raw.guardMode),
+            model: normalizeRemoteChannelModel(raw.model),
             runtimeId: normalizeSettingsRuntimeId(raw.runtimeId),
             agentThreadIds,
             workspaceRoot: typeof raw.workspaceRoot === 'string' ? raw.workspaceRoot.trim() : '',
@@ -177,20 +177,20 @@ export function normalizeRemoteChannelSettings(input: RemoteChannelSettingsPatch
               ...agentProfile,
               name: profileName || label
             },
-            platformCredential: normalizeClawImPlatformCredential(raw.platformCredential),
-            remoteSession: normalizeClawImRemoteSession(raw.remoteSession),
+            platformCredential: normalizeRemoteChannelPlatformCredential(raw.platformCredential),
+            remoteSession: normalizeRemoteChannelRemoteSession(raw.remoteSession),
             conversations: Array.isArray(raw.conversations)
               ? raw.conversations
-                  .map((conversation) => normalizeClawImConversation(conversation, provider))
-                  .filter((conversation): conversation is ClawImConversationV1 => conversation != null)
+                  .map((conversation) => normalizeRemoteChannelConversation(conversation, provider))
+                  .filter((conversation): conversation is RemoteChannelConversationV1 => conversation != null)
               : [],
             recentMessages: Array.isArray(raw.recentMessages)
               ? raw.recentMessages
-                  .map((message) => normalizeClawImRecentMessage(message, provider))
-                  .filter((message): message is ClawImRecentMessageV1 => message != null)
+                  .map((message) => normalizeRemoteChannelRecentMessage(message, provider))
+                  .filter((message): message is RemoteChannelRecentMessageV1 => message != null)
                   .slice(-2_000)
               : [],
-            lastFailure: normalizeClawImLastFailure(raw.lastFailure, provider),
+            lastFailure: normalizeRemoteChannelLastFailure(raw.lastFailure, provider),
             createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : now,
             updatedAt: typeof raw.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : now
           }

@@ -7,16 +7,16 @@ import {
   RefreshCw,
   Settings
 } from 'lucide-react'
-import type { AgentRuntimeId, ClawImChannelV1 } from '@shared/app-settings'
+import type { AgentRuntimeId, RemoteChannelV1 } from '@shared/app-settings'
 import {
   SidebarIconButton,
   SidebarSectionHeader,
   SidebarTreeRow
 } from '../sidebar/SidebarPrimitives'
-import type { ClawThreadRemoteStatusKind } from '../../store/chat-store-helpers'
+import type { RemoteChannelThreadStatusKind } from '../../store/chat-store-helpers'
 
 type RemoteChannelSidebarContentProps = {
-  channels: ClawImChannelV1[]
+  channels: RemoteChannelV1[]
   activeChannelId: string
   activeThreadId: string | null
   runtimeReady: boolean
@@ -223,7 +223,7 @@ export function RemoteChannelSidebarContent({
   )
 }
 
-function channelMappedThreadIds(channel: ClawImChannelV1): string[] {
+function channelMappedThreadIds(channel: RemoteChannelV1): string[] {
   const ids = new Set<string>()
   for (const threadId of Object.values(channel.agentThreadIds ?? {})) {
     addThreadId(ids, threadId)
@@ -236,13 +236,13 @@ function channelMappedThreadIds(channel: ClawImChannelV1): string[] {
   return [...ids]
 }
 
-function latestChannelRecentMessage(channel: ClawImChannelV1): NonNullable<ClawImChannelV1['recentMessages']>[number] | null {
+function latestChannelRecentMessage(channel: RemoteChannelV1): NonNullable<RemoteChannelV1['recentMessages']>[number] | null {
   const messages = channel.recentMessages ?? []
   if (messages.length === 0) return null
   return [...messages].sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt))[0] ?? null
 }
 
-function recentMessageLabel(message: NonNullable<ClawImChannelV1['recentMessages']>[number]): string {
+function recentMessageLabel(message: NonNullable<RemoteChannelV1['recentMessages']>[number]): string {
   const sender = message.senderName?.trim()
   const text = message.text?.trim()
   if (sender && text) return `${sender}: ${text}`
@@ -259,7 +259,7 @@ function remoteSidebarStatusKind(options: {
   running: boolean
   queued: boolean
   error?: boolean
-}): ClawThreadRemoteStatusKind {
+}): RemoteChannelThreadStatusKind {
   if (options.error) return 'error'
   if (options.running) return 'running'
   if (options.queued) return 'queued'
@@ -267,7 +267,7 @@ function remoteSidebarStatusKind(options: {
 }
 
 function remoteStatusLabel(
-  kind: ClawThreadRemoteStatusKind,
+  kind: RemoteChannelThreadStatusKind,
   t: (k: string, opts?: Record<string, unknown>) => string
 ): string {
   switch (kind) {
@@ -291,7 +291,7 @@ function RemoteSidebarBadges({
   unread,
   t
 }: {
-  kind: ClawThreadRemoteStatusKind
+  kind: RemoteChannelThreadStatusKind
   active: boolean
   unread: boolean
   t: (k: string, opts?: Record<string, unknown>) => string
@@ -327,20 +327,20 @@ function RemoteSidebarBadges({
 }
 
 function conversationRuntimeId(
-  channel: ClawImChannelV1,
-  conversation: ClawImChannelV1['conversations'][number]
+  channel: RemoteChannelV1,
+  conversation: RemoteChannelV1['conversations'][number]
 ): AgentRuntimeId {
   return conversation.runtimeId ?? channel.runtimeId ?? 'sciforge'
 }
 
 function conversationThreadId(
-  conversation: ClawImChannelV1['conversations'][number],
+  conversation: RemoteChannelV1['conversations'][number],
   runtimeId: AgentRuntimeId
 ): string {
   return conversation.agentThreadIds?.[runtimeId]?.trim() || ''
 }
 
-function conversationThreadIds(conversation: ClawImChannelV1['conversations'][number]): string[] {
+function conversationThreadIds(conversation: RemoteChannelV1['conversations'][number]): string[] {
   return [
     ...Object.values(conversation.agentThreadIds ?? {})
   ].map((value) => value?.trim() ?? '').filter(Boolean)
@@ -350,7 +350,7 @@ function shortThreadId(threadId: string): string {
   return threadId.length > 12 ? `${threadId.slice(0, 6)}...${threadId.slice(-4)}` : threadId
 }
 
-export function remoteChannelProviderDisplayLabel(provider: ClawImChannelV1['provider']): string {
+export function remoteChannelProviderDisplayLabel(provider: RemoteChannelV1['provider']): string {
   if (provider === 'discord') return 'Discord'
   if (provider === 'weixin') return 'WeChat'
   return 'Feishu / Lark'
@@ -360,7 +360,7 @@ export function RemoteChannelProviderLogo({
   provider,
   className = 'h-5 w-5'
 }: {
-  provider: ClawImChannelV1['provider']
+  provider: RemoteChannelV1['provider']
   className?: string
 }): ReactElement {
   if (provider === 'discord') {
@@ -435,7 +435,7 @@ export function RemoteChannelProviderPill({
   provider,
   active
 }: {
-  provider: ClawImChannelV1['provider']
+  provider: RemoteChannelV1['provider']
   active: boolean
 }): ReactElement {
   return (

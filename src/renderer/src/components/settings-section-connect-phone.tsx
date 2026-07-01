@@ -1,12 +1,12 @@
 import type { ReactElement } from 'react'
 import {
-  CLAW_MODEL_IDS,
+  REMOTE_CHANNEL_MODEL_IDS,
   type AppSettingsPatch,
   type AppSettingsV1,
-  type ClawImAgentProfileV1,
-  type ClawImChannelV1,
-  type ClawImDiscordPlatformCredentialV1,
-  type ClawModel
+  type RemoteChannelAgentProfileV1,
+  type RemoteChannelV1,
+  type RemoteChannelDiscordPlatformCredentialV1,
+  type RemoteChannelModel
 } from '@shared/app-settings'
 import { SettingsCard, SettingRow, Toggle } from './settings-controls'
 import { remoteChannelProviderDisplayLabel } from './chat/RemoteChannelSidebar'
@@ -21,7 +21,7 @@ type ConnectPhoneSettingsContext = {
   connectPhoneWorkspacePickerError: string | null
 }
 
-type ConnectPhoneAgentProfileField = keyof ClawImAgentProfileV1
+type ConnectPhoneAgentProfileField = keyof RemoteChannelAgentProfileV1
 
 const profileFields: Array<{
   key: ConnectPhoneAgentProfileField
@@ -43,7 +43,7 @@ function textInputClass(extra = ''): string {
 function updateChannels(
   form: AppSettingsV1,
   update: (partial: AppSettingsPatch) => void,
-  mapper: (channel: ClawImChannelV1) => ClawImChannelV1
+  mapper: (channel: RemoteChannelV1) => RemoteChannelV1
 ): void {
   update({ remoteChannel: { channels: form.remoteChannel.channels.map(mapper) } })
 }
@@ -52,7 +52,7 @@ function updateChannel(
   form: AppSettingsV1,
   update: (partial: AppSettingsPatch) => void,
   channelId: string,
-  patch: Partial<ClawImChannelV1>
+  patch: Partial<RemoteChannelV1>
 ): void {
   const now = new Date().toISOString()
   updateChannels(form, update, (channel) =>
@@ -63,8 +63,8 @@ function updateChannel(
 function updateChannelProfile(
   form: AppSettingsV1,
   update: (partial: AppSettingsPatch) => void,
-  channel: ClawImChannelV1,
-  patch: Partial<ClawImAgentProfileV1>
+  channel: RemoteChannelV1,
+  patch: Partial<RemoteChannelAgentProfileV1>
 ): void {
   const nextProfile = {
     ...channel.agentProfile,
@@ -76,7 +76,7 @@ function updateChannelProfile(
   })
 }
 
-function channelEffectiveWorkspace(form: AppSettingsV1, channel: ClawImChannelV1): string {
+function channelEffectiveWorkspace(form: AppSettingsV1, channel: RemoteChannelV1): string {
   return channel.workspaceRoot.trim() || form.remoteChannel.im.workspaceRoot.trim() || form.workspaceRoot
 }
 
@@ -85,11 +85,11 @@ function discordChannelName(name: string): string {
   return trimmed ? `#${trimmed}` : '#channel'
 }
 
-function discordCredential(channel: ClawImChannelV1): ClawImDiscordPlatformCredentialV1 | null {
+function discordCredential(channel: RemoteChannelV1): RemoteChannelDiscordPlatformCredentialV1 | null {
   return channel.platformCredential?.kind === 'discord' ? channel.platformCredential : null
 }
 
-export function hasDiscordGuardConflict(form: AppSettingsV1, channel: ClawImChannelV1): boolean {
+export function hasDiscordGuardConflict(form: AppSettingsV1, channel: RemoteChannelV1): boolean {
   if (!channel.enabled) return false
   const credential = discordCredential(channel)
   if (!credential) return false
@@ -104,9 +104,9 @@ export function hasDiscordGuardConflict(form: AppSettingsV1, channel: ClawImChan
 
 export function discordGuardOwnerPatch(
   form: AppSettingsV1,
-  channel: ClawImChannelV1,
+  channel: RemoteChannelV1,
   enabled: boolean
-): Partial<ClawImChannelV1> {
+): Partial<RemoteChannelV1> {
   const credential = discordCredential(channel)
   if (!credential) return { enabled }
   const now = new Date().toISOString()
@@ -294,9 +294,9 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
                     <select
                       className={selectControlClass}
                       value={channel.model}
-                      onChange={(e) => updateChannel(form, update, channel.id, { model: e.target.value as ClawModel })}
+                      onChange={(e) => updateChannel(form, update, channel.id, { model: e.target.value as RemoteChannelModel })}
                     >
-                      {CLAW_MODEL_IDS.map((model) => (
+                      {REMOTE_CHANNEL_MODEL_IDS.map((model) => (
                         <option key={model} value={model}>{model}</option>
                       ))}
                     </select>

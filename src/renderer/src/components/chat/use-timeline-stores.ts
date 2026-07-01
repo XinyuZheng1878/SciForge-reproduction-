@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useChatStore } from '../../store/chat-store'
-import type { ClawImChannelV1 } from '@shared/app-settings'
+import type { RemoteChannelV1 } from '@shared/app-settings'
 import type { NormalizedThread } from '../../agent/types'
 
 /**
@@ -11,8 +11,8 @@ import type { NormalizedThread } from '../../agent/types'
 export type TimelineStores = {
   workspaceRoot: string
   chooseWorkspace: () => Promise<string | null>
-  remoteChannels: ClawImChannelV1[]
-  activeRemoteChannel: ClawImChannelV1 | null
+  remoteChannels: RemoteChannelV1[]
+  activeRemoteChannel: RemoteChannelV1 | null
   busy: boolean
   currentTurnUserId: string | null
   turnStartedAtByUserId: Record<string, number>

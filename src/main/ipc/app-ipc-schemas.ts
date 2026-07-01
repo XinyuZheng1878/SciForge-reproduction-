@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import {
-  CLAW_MODEL_IDS,
+  REMOTE_CHANNEL_MODEL_IDS,
   SCHEDULE_MODEL_IDS,
   SCHEDULE_REASONING_EFFORT_IDS,
   SPEECH_TO_TEXT_PROTOCOLS
@@ -1855,7 +1855,7 @@ export const discordBindChannelPayloadSchema = z
     channelName: z.string().trim().max(512).optional(),
     enabled: z.boolean().optional(),
     workspaceRoot: defaultPathSchema,
-    model: z.union([z.enum(CLAW_MODEL_IDS), trimmedString(128)]).optional(),
+    model: z.union([z.enum(REMOTE_CHANNEL_MODEL_IDS), trimmedString(128)]).optional(),
     runtimeId: agentRuntimeIdSchema.optional(),
     agentProfile: clawImAgentProfilePatchSchema.optional()
   })

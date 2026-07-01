@@ -1,7 +1,7 @@
 import { Fragment, useState, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FolderOpen, GitFork, RefreshCw, Settings } from 'lucide-react'
-import type { ClawImChannelV1 } from '@shared/app-settings'
+import type { RemoteChannelV1 } from '@shared/app-settings'
 import { AnimatedWorkLogo } from './AnimatedWorkLogo'
 import { InitialSessionUsageHeatmap } from './InitialSessionUsageHeatmap'
 import { WhaleHeroStage } from './WhaleHeroStage'
@@ -13,7 +13,7 @@ import { WhaleHeroStage } from './WhaleHeroStage'
  */
 
 function remoteChannelDisplayName(
-  channel: ClawImChannelV1 | null,
+  channel: RemoteChannelV1 | null,
   fallback: string
 ): string {
   if (!channel) return fallback
@@ -29,7 +29,7 @@ function RemoteChannelEmptyHero({
   channel,
   onSelectSuggestion
 }: {
-  channel: ClawImChannelV1 | null
+  channel: RemoteChannelV1 | null
   onSelectSuggestion?: (prompt: string) => void
 }): ReactElement {
   const { t } = useTranslation('common')
@@ -140,7 +140,7 @@ export function MessageTimelineEmptyHero({
   ready: boolean
   hasWorkspace: boolean
   runtimeError?: string | null
-  activeRemoteChannel: ClawImChannelV1 | null
+  activeRemoteChannel: RemoteChannelV1 | null
   onPickWorkspace: () => void
   onRetry: () => void
   onOpenSettings: () => void

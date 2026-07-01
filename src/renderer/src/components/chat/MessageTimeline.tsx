@@ -3,7 +3,7 @@ import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatBlock, RuntimeConnectionStatus, RuntimeDisclosureMetadata } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
-import { isClawThread } from '../../store/chat-store-helpers'
+import { isRemoteChannelThread } from '../../store/chat-store-helpers'
 import { useTimelineStores } from './use-timeline-stores'
 import { useTimelineScroll } from './use-timeline-scroll'
 import { deriveTurnSections } from './derive-turn-sections'
@@ -130,7 +130,7 @@ export function MessageTimeline({
     activeThreadId && activeThreadId === s.activeThreadId ? s.liveReasoningMeta : null
   )
 
-  const remoteChannelMode = Boolean(activeThread && isClawThread(activeThread, remoteChannels))
+  const remoteChannelMode = Boolean(activeThread && isRemoteChannelThread(activeThread, remoteChannels))
   const hasContent = blocks.length > 0 || live || liveReasoning
   const endRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)

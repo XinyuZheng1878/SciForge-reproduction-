@@ -35,9 +35,9 @@ import {
   SidebarTreeRow
 } from '../sidebar/SidebarPrimitives'
 import {
-  deriveClawThreadRemoteStatusKind,
-  type ClawThreadRemoteBinding,
-  type ClawThreadRemoteStatusKind
+  deriveRemoteChannelThreadStatusKind,
+  type RemoteChannelThreadBinding,
+  type RemoteChannelThreadStatusKind
 } from '../../store/chat-store-helpers'
 
 type SidebarProjectsSectionProps = {
@@ -54,7 +54,7 @@ type SidebarProjectsSectionProps = {
   watchTurnCompletion: Record<string, boolean>
   unreadThreadIds: Record<string, boolean>
   botWatchedThreadIds?: ReadonlySet<string>
-  botThreadBindings?: ReadonlyMap<string, ClawThreadRemoteBinding>
+  botThreadBindings?: ReadonlyMap<string, RemoteChannelThreadBinding>
   queuedThreadIds?: ReadonlySet<string>
   activeRemoteThreadIds?: ReadonlySet<string>
   locale: string
@@ -179,7 +179,7 @@ export function SidebarProjectsSection({
   watchTurnCompletion,
   unreadThreadIds,
   botWatchedThreadIds = new Set<string>(),
-  botThreadBindings = new Map<string, ClawThreadRemoteBinding>(),
+  botThreadBindings = new Map<string, RemoteChannelThreadBinding>(),
   queuedThreadIds = new Set<string>(),
   activeRemoteThreadIds = new Set<string>(),
   locale,
@@ -513,7 +513,7 @@ export function SidebarProjectsSection({
                       const remoteBinding = botThreadBindings.get(thread.id)
                       const hasRemoteState = Boolean(remoteBinding) || botWatchedThreadIds.has(thread.id)
                       const remoteStatusKind = hasRemoteState
-                        ? deriveClawThreadRemoteStatusKind({
+                        ? deriveRemoteChannelThreadStatusKind({
                             binding: remoteBinding,
                             running: showRunning,
                             queued: queuedThreadIds.has(thread.id),
@@ -605,8 +605,8 @@ type ThreadRowProps = {
   locale: string
   showRunning: boolean
   showUnread: boolean
-  remoteStatusKind: ClawThreadRemoteStatusKind | null
-  remoteBinding?: ClawThreadRemoteBinding
+  remoteStatusKind: RemoteChannelThreadStatusKind | null
+  remoteBinding?: RemoteChannelThreadBinding
   remoteActive: boolean
   remoteUnread: boolean
   onSelect: () => void
@@ -941,7 +941,7 @@ function workspaceContextLabel(workspacePath: string, folderName: string): strin
 }
 
 function sidebarRemoteStatusLabel(
-  kind: ClawThreadRemoteStatusKind,
+  kind: RemoteChannelThreadStatusKind,
   t: (k: string, opts?: Record<string, unknown>) => string
 ): string {
   switch (kind) {
@@ -959,7 +959,7 @@ function sidebarRemoteStatusLabel(
   }
 }
 
-function remoteBindingDetailLabel(binding: ClawThreadRemoteBinding | undefined): string {
+function remoteBindingDetailLabel(binding: RemoteChannelThreadBinding | undefined): string {
   if (!binding) return ''
   return [
     binding.channelLabel,
@@ -976,7 +976,7 @@ function ThreadRemoteStatusBadge({
   unread,
   t
 }: {
-  kind: ClawThreadRemoteStatusKind
+  kind: RemoteChannelThreadStatusKind
   providerLabel?: string
   detailLabel: string
   active: boolean

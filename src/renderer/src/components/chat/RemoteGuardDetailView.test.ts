@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import type { ClawImChannelV1 } from '@shared/app-settings'
+import type { RemoteChannelV1 } from '@shared/app-settings'
 import {
   RemoteGuardDetailView,
   latestRemoteGuardMessages,
@@ -9,8 +9,8 @@ import {
   remoteGuardTargetThread
 } from './RemoteGuardDetailView'
 
-function discordChannel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1 {
-  const base: ClawImChannelV1 = {
+function discordChannel(overrides: Partial<RemoteChannelV1> = {}): RemoteChannelV1 {
+  const base: RemoteChannelV1 = {
     id: 'discord-channel',
     provider: 'discord',
     label: 'discord bot',

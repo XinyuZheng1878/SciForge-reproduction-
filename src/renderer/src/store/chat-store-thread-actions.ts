@@ -27,21 +27,21 @@ import {
   updateRemoteChannelActiveThreadContextApi
 } from '../lib/remote-channel-api'
 import {
-  buildClawRuntimePrompt,
+  buildRemoteChannelRuntimePrompt,
   buildCodeRuntimePrompt,
   getActiveAgentApiKey,
-  type ClawImChannelV1
+  type RemoteChannelV1
 } from '@shared/app-settings'
 import type { AgentRuntimeContextState, AgentRuntimeFileReference } from '@shared/agent-runtime-contract'
 import type { ChatState, ChatStoreGet, ChatStoreSet, QueuedUserMessage } from './chat-store-types'
 import {
   activeRemoteChannel,
-  clawThreadRemoteBindingsFromChannels,
-  clawThreadIdsFromChannels,
+  remoteChannelThreadBindingsFromChannels,
+  remoteChannelThreadIdsFromChannels,
   compactCodeWorkspaceRoots,
   forgetCodeWorkspaceRoot,
   hydrateBlockModelLabels,
-  isClawThread,
+  isRemoteChannelThread,
   optimisticUserModelLabel,
   readCodeWorkspaceRoots,
   readStoredComposerModel,
@@ -87,15 +87,15 @@ import { providerSupportsCapability } from './chat-store-provider-capabilities'
 
 type SseAbortRef = { current: AbortController | null }
 
-function remoteChannelForThread(state: ChatState, threadId: string | null | undefined): ClawImChannelV1 | null {
+function remoteChannelForThread(state: ChatState, threadId: string | null | undefined): RemoteChannelV1 | null {
   const targetThreadId = threadId?.trim() ?? ''
   if (!targetThreadId) return null
-  const binding = clawThreadRemoteBindingsFromChannels(state.remoteChannels).get(targetThreadId)
+  const binding = remoteChannelThreadBindingsFromChannels(state.remoteChannels).get(targetThreadId)
   if (binding) {
     return state.remoteChannels.find((channel) => channel.id === binding.channelId) ?? null
   }
   const thread = state.threads.find((item) => item.id === targetThreadId) ?? null
-  if (!thread || !isClawThread(thread, state.remoteChannels)) return null
+  if (!thread || !isRemoteChannelThread(thread, state.remoteChannels)) return null
   return activeRemoteChannel(state)
 }
 
@@ -225,7 +225,7 @@ function canSteerPlainTextMessage(
     !message.guiPlan
 }
 
-export function publishActiveClawThreadContext(state: ChatState, threadId: string | null): void {
+export function publishRemoteChannelActiveThreadContext(state: ChatState, threadId: string | null): void {
   const updateRemoteChannelActiveThreadContext = updateRemoteChannelActiveThreadContextApi(window.sciforge)
   if (typeof updateRemoteChannelActiveThreadContext !== 'function') return
   if (!threadId) {
@@ -233,7 +233,7 @@ export function publishActiveClawThreadContext(state: ChatState, threadId: strin
     return
   }
   const thread = state.threads.find((item) => item.id === threadId)
-  if (thread && isClawThread(thread, state.remoteChannels)) {
+  if (thread && isRemoteChannelThread(thread, state.remoteChannels)) {
     void updateRemoteChannelActiveThreadContext(null).catch(() => undefined)
     return
   }
@@ -440,7 +440,7 @@ export function createThreadActions(
         turnDurationByUserId,
         queuedMessages: s.queuedMessages
       }))
-      publishActiveClawThreadContext(get(), activeThreadId)
+      publishRemoteChannelActiveThreadContext(get(), activeThreadId)
 
       const ac = new AbortController()
       sseAbortRef.current = ac
@@ -533,7 +533,7 @@ export function createThreadActions(
         inspectorSelectedId: null,
         queuedMessages: []
       })
-      publishActiveClawThreadContext(get(), id)
+      publishRemoteChannelActiveThreadContext(get(), id)
       syncTurnCompletionPoll(set, get)
       const ac = new AbortController()
       sseAbortRef.current = ac
@@ -902,7 +902,7 @@ export function createThreadActions(
       const settings = await rendererRuntimeClient.getSettings()
       let runtimeText: string
       if (channel) {
-        runtimeText = buildClawRuntimePrompt(settings, messageText, { channel })
+        runtimeText = buildRemoteChannelRuntimePrompt(settings, messageText, { channel })
       } else {
         runtimeText = buildCodeRuntimePrompt(settings, messageText)
       }
@@ -996,7 +996,7 @@ export function createThreadActions(
       }
       const shouldMirrorToIm =
         Boolean(channel) ||
-        clawThreadIdsFromChannels(get().remoteChannels).has(activeThreadId)
+        remoteChannelThreadIdsFromChannels(get().remoteChannels).has(activeThreadId)
       const mirrorRemoteChannelMessage = mirrorRemoteChannelMessageApi(window.sciforge)
       if (shouldMirrorToIm && typeof mirrorRemoteChannelMessage === 'function') {
         const userMirror = await mirrorRemoteChannelMessage(

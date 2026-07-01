@@ -5,14 +5,14 @@ import {
   normalizeAgentRuntimeTurnState
 } from '@shared/agent-runtime-contract'
 import {
-  CLAW_MANAGED_INSTRUCTIONS_HEADING,
-  CLAW_MODEL_IDS,
+  REMOTE_CHANNEL_MANAGED_INSTRUCTIONS_HEADING,
+  REMOTE_CHANNEL_MODEL_IDS,
   type AgentRuntimeId,
-  type ClawImAgentProfileV1,
-  type ClawImChannelV1,
-  type ClawImLastFailureV1,
-  type ClawImPlatformCredentialV1,
-  type ClawImProvider
+  type RemoteChannelAgentProfileV1,
+  type RemoteChannelV1,
+  type RemoteChannelLastFailureV1,
+  type RemoteChannelPlatformCredentialV1,
+  type RemoteChannelProvider
 } from '@shared/app-settings'
 import type { ChatState } from './chat-store-types'
 import {
@@ -31,16 +31,16 @@ const HIDDEN_CODE_WORKSPACE_ROOTS_STORAGE_KEY = 'sciforge.hiddenCodeWorkspaceRoo
 export const MAX_CODE_WORKSPACE_ROOTS = 30
 export const MAX_TURN_MODEL_LABELS = 500
 
-export type ClawThreadRemoteStatusKind = 'bound' | 'watched' | 'running' | 'queued' | 'error'
+export type RemoteChannelThreadStatusKind = 'bound' | 'watched' | 'running' | 'queued' | 'error'
 
-export type ClawThreadRemoteBinding = {
+export type RemoteChannelThreadBinding = {
   threadId: string
-  provider: ClawImProvider
+  provider: RemoteChannelProvider
   providerLabel: string
   channelId: string
   channelLabel: string
   channelEnabled: boolean
-  guardMode: NonNullable<ClawImChannelV1['guardMode']>
+  guardMode: NonNullable<RemoteChannelV1['guardMode']>
   scope: 'channel' | 'conversation'
   runtimeId?: AgentRuntimeId
   conversationId?: string
@@ -48,11 +48,11 @@ export type ClawThreadRemoteBinding = {
   remoteThreadId?: string
   senderName?: string
   workspaceRoot?: string
-  lastFailure?: ClawImLastFailureV1
+  lastFailure?: RemoteChannelLastFailureV1
   updatedAt: string
 }
 
-export const CLAW_COMPOSER_MODEL_IDS = [...CLAW_MODEL_IDS]
+export const REMOTE_CHANNEL_COMPOSER_MODEL_IDS = [...REMOTE_CHANNEL_MODEL_IDS]
 
 export function readStoredComposerModel(allowedIds: readonly string[]): string {
   const raw = readBrowserStorageItem(COMPOSER_MODEL_STORAGE_KEY)
@@ -201,10 +201,10 @@ export function mergeComposerPickList(upstreamOk: boolean, upstreamIds: string[]
 }
 
 export function newRemoteChannel(
-  provider: ClawImProvider,
-  agentProfile?: Partial<ClawImAgentProfileV1>,
-  platformCredential?: ClawImPlatformCredentialV1
-): ClawImChannelV1 {
+  provider: RemoteChannelProvider,
+  agentProfile?: Partial<RemoteChannelAgentProfileV1>,
+  platformCredential?: RemoteChannelPlatformCredentialV1
+): RemoteChannelV1 {
   const now = new Date().toISOString()
   const fallbackId = `im-${provider}-${Date.now()}`
   const defaultName = defaultRemoteChannelProviderLabel(provider)
@@ -241,64 +241,64 @@ export function normalizeRemoteChannelComposerModel(raw: string): string {
 
 export function activeRemoteChannel(
   state: Pick<ChatState, 'remoteChannels' | 'activeRemoteChannelId'>
-): ClawImChannelV1 | null {
+): RemoteChannelV1 | null {
   return state.remoteChannels.find((channel) => channel.id === state.activeRemoteChannelId) ?? null
 }
 
-function addClawThreadId(ids: Set<string>, threadId: string | undefined): void {
+function addRemoteChannelThreadId(ids: Set<string>, threadId: string | undefined): void {
   const id = threadId?.trim() ?? ''
   if (id) ids.add(id)
 }
 
-function addClawAgentThreadIds(ids: Set<string>, agentThreadIds: Partial<Record<AgentRuntimeId, string>> | undefined): void {
+function addRemoteChannelAgentThreadIds(ids: Set<string>, agentThreadIds: Partial<Record<AgentRuntimeId, string>> | undefined): void {
   for (const threadId of Object.values(agentThreadIds ?? {})) {
-    addClawThreadId(ids, threadId)
+    addRemoteChannelThreadId(ids, threadId)
   }
 }
 
-export function clawThreadIdsFromChannels(
-  channels: ClawImChannelV1[]
+export function remoteChannelThreadIdsFromChannels(
+  channels: RemoteChannelV1[]
 ): Set<string> {
   const ids = new Set<string>()
   for (const channel of channels) {
-    addClawAgentThreadIds(ids, channel.agentThreadIds)
+    addRemoteChannelAgentThreadIds(ids, channel.agentThreadIds)
     for (const conversation of channel.conversations) {
-      addClawAgentThreadIds(ids, conversation.agentThreadIds)
+      addRemoteChannelAgentThreadIds(ids, conversation.agentThreadIds)
     }
   }
   return ids
 }
 
-export function watchedClawThreadIdsFromChannels(
-  channels: ClawImChannelV1[]
+export function watchedRemoteChannelThreadIdsFromChannels(
+  channels: RemoteChannelV1[]
 ): Set<string> {
   const ids = new Set<string>()
   for (const channel of channels) {
     if (!channel.enabled) continue
-    addClawAgentThreadIds(ids, channel.agentThreadIds)
+    addRemoteChannelAgentThreadIds(ids, channel.agentThreadIds)
     for (const conversation of channel.conversations) {
-      addClawAgentThreadIds(ids, conversation.agentThreadIds)
+      addRemoteChannelAgentThreadIds(ids, conversation.agentThreadIds)
     }
   }
   return ids
 }
 
-export function clawImProviderDisplayLabel(provider: ClawImProvider): string {
+export function remoteChannelProviderDisplayLabel(provider: RemoteChannelProvider): string {
   if (provider === 'discord') return 'Discord'
   if (provider === 'weixin') return 'WeChat'
   return 'Feishu / Lark'
 }
 
-export function clawThreadRemoteBindingsFromChannels(
-  channels: ClawImChannelV1[]
-): Map<string, ClawThreadRemoteBinding> {
-  const bindings = new Map<string, ClawThreadRemoteBinding>()
+export function remoteChannelThreadBindingsFromChannels(
+  channels: RemoteChannelV1[]
+): Map<string, RemoteChannelThreadBinding> {
+  const bindings = new Map<string, RemoteChannelThreadBinding>()
   for (const channel of channels) {
-    const channelBinding: Omit<ClawThreadRemoteBinding, 'threadId'> = {
+    const channelBinding: Omit<RemoteChannelThreadBinding, 'threadId'> = {
       provider: channel.provider,
-      providerLabel: clawImProviderDisplayLabel(channel.provider),
+      providerLabel: remoteChannelProviderDisplayLabel(channel.provider),
       channelId: channel.id,
-      channelLabel: clawRemoteChannelLabel(channel),
+      channelLabel: remoteChannelLabel(channel),
       channelEnabled: channel.enabled,
       guardMode: channel.guardMode ?? 'only_mention',
       scope: 'channel',
@@ -310,18 +310,18 @@ export function clawThreadRemoteBindingsFromChannels(
       lastFailure: channel.lastFailure,
       updatedAt: channel.remoteSession?.updatedAt ?? channel.updatedAt
     }
-    addClawThreadBindings(
+    addRemoteChannelThreadBindings(
       bindings,
-      clawThreadMappingIds(channel.agentThreadIds),
+      remoteChannelThreadMappingIds(channel.agentThreadIds),
       channelBinding
     )
 
     for (const conversation of channel.conversations) {
-      const conversationBinding: Omit<ClawThreadRemoteBinding, 'threadId'> = {
+      const conversationBinding: Omit<RemoteChannelThreadBinding, 'threadId'> = {
         provider: channel.provider,
-        providerLabel: clawImProviderDisplayLabel(channel.provider),
+        providerLabel: remoteChannelProviderDisplayLabel(channel.provider),
         channelId: channel.id,
-        channelLabel: clawRemoteChannelLabel(channel),
+        channelLabel: remoteChannelLabel(channel),
         channelEnabled: channel.enabled,
         guardMode: channel.guardMode ?? 'only_mention',
         scope: 'conversation',
@@ -334,9 +334,9 @@ export function clawThreadRemoteBindingsFromChannels(
         lastFailure: conversation.lastFailure ?? channel.lastFailure,
         updatedAt: conversation.updatedAt || channel.updatedAt
       }
-      addClawThreadBindings(
+      addRemoteChannelThreadBindings(
         bindings,
-        clawThreadMappingIds(conversation.agentThreadIds),
+        remoteChannelThreadMappingIds(conversation.agentThreadIds),
         conversationBinding
       )
     }
@@ -344,65 +344,65 @@ export function clawThreadRemoteBindingsFromChannels(
   return bindings
 }
 
-function clawRemoteChannelLabel(channel: ClawImChannelV1): string {
+function remoteChannelLabel(channel: RemoteChannelV1): string {
   if (channel.platformCredential?.kind === 'discord') {
     const channelName = channel.platformCredential.channelName.trim() ||
       channel.platformCredential.channelId.trim()
     if (channelName) return `#${channelName}`
   }
-  return channel.label.trim() || channel.agentProfile.name.trim() || clawImProviderDisplayLabel(channel.provider)
+  return channel.label.trim() || channel.agentProfile.name.trim() || remoteChannelProviderDisplayLabel(channel.provider)
 }
 
-export function deriveClawThreadRemoteStatusKind(options: {
-  binding?: ClawThreadRemoteBinding | null
+export function deriveRemoteChannelThreadStatusKind(options: {
+  binding?: RemoteChannelThreadBinding | null
   running?: boolean
   queued?: boolean
   status?: string
   latestTurnStatus?: string
-}): ClawThreadRemoteStatusKind | null {
+}): RemoteChannelThreadStatusKind | null {
   const status = options.status?.trim().toLowerCase() ?? ''
   const latestTurnStatus = options.latestTurnStatus?.trim().toLowerCase() ?? ''
-  if (clawStatusLooksError(status) || clawStatusLooksError(latestTurnStatus)) return 'error'
-  if (options.running || clawStatusLooksRunning(status) || clawStatusLooksRunning(latestTurnStatus)) return 'running'
-  if (options.queued || clawStatusLooksQueued(status) || clawStatusLooksQueued(latestTurnStatus)) return 'queued'
+  if (remoteChannelStatusLooksError(status) || remoteChannelStatusLooksError(latestTurnStatus)) return 'error'
+  if (options.running || remoteChannelStatusLooksRunning(status) || remoteChannelStatusLooksRunning(latestTurnStatus)) return 'running'
+  if (options.queued || remoteChannelStatusLooksQueued(status) || remoteChannelStatusLooksQueued(latestTurnStatus)) return 'queued'
   if (options.binding?.lastFailure) return 'error'
   if (!options.binding) return null
   return options.binding.channelEnabled ? 'watched' : 'bound'
 }
 
-function clawThreadMappingIds(
+function remoteChannelThreadMappingIds(
   agentThreadIds: Partial<Record<AgentRuntimeId, string>> | undefined
 ): string[] {
   const ids = new Set<string>()
-  addClawAgentThreadIds(ids, agentThreadIds)
+  addRemoteChannelAgentThreadIds(ids, agentThreadIds)
   return [...ids]
 }
 
-function addClawThreadBindings(
-  bindings: Map<string, ClawThreadRemoteBinding>,
+function addRemoteChannelThreadBindings(
+  bindings: Map<string, RemoteChannelThreadBinding>,
   threadIds: string[],
-  binding: Omit<ClawThreadRemoteBinding, 'threadId'>
+  binding: Omit<RemoteChannelThreadBinding, 'threadId'>
 ): void {
   for (const threadId of threadIds) {
     const normalizedThreadId = threadId.trim()
     if (!normalizedThreadId) continue
     const next = { ...binding, threadId: normalizedThreadId }
     const current = bindings.get(normalizedThreadId)
-    if (!current || shouldReplaceClawThreadBinding(current, next)) {
+    if (!current || shouldReplaceRemoteChannelThreadBinding(current, next)) {
       bindings.set(normalizedThreadId, next)
     }
   }
 }
 
-function shouldReplaceClawThreadBinding(
-  current: ClawThreadRemoteBinding,
-  next: ClawThreadRemoteBinding
+function shouldReplaceRemoteChannelThreadBinding(
+  current: RemoteChannelThreadBinding,
+  next: RemoteChannelThreadBinding
 ): boolean {
   if (current.scope !== next.scope) return next.scope === 'conversation'
   return Date.parse(next.updatedAt) >= Date.parse(current.updatedAt)
 }
 
-function clawStatusLooksError(status: string): boolean {
+function remoteChannelStatusLooksError(status: string): boolean {
   const normalized = normalizeAgentRuntimeTurnState(status)
   return normalized === 'failed' ||
     normalized === 'aborted' ||
@@ -411,26 +411,26 @@ function clawStatusLooksError(status: string): boolean {
     status === 'error'
 }
 
-function clawStatusLooksRunning(status: string): boolean {
-  return isAgentRuntimeActiveTurnState(status) && !clawStatusLooksQueued(status)
+function remoteChannelStatusLooksRunning(status: string): boolean {
+  return isAgentRuntimeActiveTurnState(status) && !remoteChannelStatusLooksQueued(status)
 }
 
-function clawStatusLooksQueued(status: string): boolean {
+function remoteChannelStatusLooksQueued(status: string): boolean {
   return status === 'queued' || status === 'pending'
 }
 
-export function clawThreadTitleLooksManaged(title: string | undefined): boolean {
+export function remoteChannelThreadTitleLooksManaged(title: string | undefined): boolean {
   const trimmed = title?.trim() ?? ''
-  return trimmed.startsWith(CLAW_MANAGED_INSTRUCTIONS_HEADING) ||
+  return trimmed.startsWith(REMOTE_CHANNEL_MANAGED_INSTRUCTIONS_HEADING) ||
     trimmed.startsWith('[Remote channel:') ||
     trimmed.startsWith('[Remote channel]')
 }
 
-export function isClawThread(
+export function isRemoteChannelThread(
   thread: Pick<NormalizedThread, 'id' | 'title'>,
-  _channels: ClawImChannelV1[] = []
+  _channels: RemoteChannelV1[] = []
 ): boolean {
-  return clawThreadTitleLooksManaged(thread.title)
+  return remoteChannelThreadTitleLooksManaged(thread.title)
 }
 
 export function optimisticUserModelLabel(
@@ -469,7 +469,7 @@ export function hydrateBlockModelLabels(threadId: string, blocks: ChatBlock[]): 
   return changed ? next : blocks
 }
 
-function defaultRemoteChannelProviderLabel(provider: ClawImProvider): string {
+function defaultRemoteChannelProviderLabel(provider: RemoteChannelProvider): string {
   if (provider === 'discord') return 'discord bot'
   if (provider === 'weixin') return 'weixin agent'
   return 'feishu agent'

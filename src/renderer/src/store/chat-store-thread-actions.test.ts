@@ -25,7 +25,7 @@ vi.mock('../agent/runtime-client', () => ({
   }
 }))
 
-import { createThreadActions, publishActiveClawThreadContext } from './chat-store-thread-actions'
+import { createThreadActions, publishRemoteChannelActiveThreadContext } from './chat-store-thread-actions'
 import { clearPendingRemoteChannelMirrors, takePendingRemoteChannelMirror } from './chat-store-runtime'
 import { composerReferenceFromWorkspaceReference } from '../lib/workspace-reference-composer'
 
@@ -960,7 +960,7 @@ describe('remote-channel active thread context publishing', () => {
       remoteChannels: []
     } as unknown as ChatState
 
-    publishActiveClawThreadContext(state, 'desktop-thread')
+    publishRemoteChannelActiveThreadContext(state, 'desktop-thread')
 
     expect(window.sciforge.updateRemoteChannelActiveThreadContext).toHaveBeenCalledWith({
       threadId: 'desktop-thread',
@@ -1001,7 +1001,7 @@ describe('remote-channel active thread context publishing', () => {
       }]
     } as unknown as ChatState
 
-    publishActiveClawThreadContext(state, 'claw-thread')
+    publishRemoteChannelActiveThreadContext(state, 'claw-thread')
 
     expect(window.sciforge.updateRemoteChannelActiveThreadContext).toHaveBeenCalledWith(null)
   })

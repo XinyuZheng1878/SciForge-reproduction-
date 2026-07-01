@@ -4,11 +4,11 @@ import type { NormalizedMessage } from '@larksuiteoapi/node-sdk'
 import type {
   AppSettingsV1,
   AgentRuntimeId,
-  ClawGeneratedFileV1,
-  ClawImChannelV1,
-  ClawImProvider,
-  ClawImRemoteSessionV1,
-  ClawRunMode,
+  RemoteChannelGeneratedFileV1,
+  RemoteChannelV1,
+  RemoteChannelProvider,
+  RemoteChannelRemoteSessionV1,
+  RemoteChannelRunMode,
   ScheduleTaskFromTextResult
 } from '../shared/app-settings'
 import type {
@@ -19,10 +19,10 @@ import type {
   AgentRuntimeTurnHandle,
   AgentRuntimeTurnStartInput
 } from '../shared/agent-runtime-contract'
-import { buildClawInboundMessagePrompt } from '../shared/app-settings'
+import { buildRemoteChannelInboundMessagePrompt } from '../shared/app-settings'
 import type { JsonSettingsStore } from './settings-store'
 
-export type ClawFailureKind =
+export type RemoteChannelFailureKind =
   | 'runtime_offline'
   | 'model_missing'
   | 'timeout'
@@ -31,31 +31,31 @@ export type ClawFailureKind =
   | 'local_thread_deleted'
   | 'provider_send_failed'
 
-export type ClawFailureResult = {
+export type RemoteChannelFailureResult = {
   ok: false
   message: string
-  failureKind: ClawFailureKind
+  failureKind: RemoteChannelFailureKind
   failureTitle: string
   recoverable: boolean
   details?: unknown
 }
 
-type ClawFailureInput = {
+type RemoteChannelFailureInput = {
   message: string
   code?: string
   status?: number
   details?: unknown
-  kind?: ClawFailureKind
+  kind?: RemoteChannelFailureKind
 }
 
-export type ClawActiveThreadContext = {
+export type RemoteChannelActiveThreadContext = {
   threadId: string
   runtimeId?: AgentRuntimeId
   workspaceRoot?: string
   updatedAt?: string
 }
 
-export type ClawRuntimeDeps = {
+export type RemoteChannelRuntimeDeps = {
   store: JsonSettingsStore
   agentRuntime: {
     listThreads?: (input?: { runtimeId?: AgentRuntimeId; limit?: number; includeArchived?: boolean }) => Promise<AgentRuntimeThread[]>
@@ -64,7 +64,7 @@ export type ClawRuntimeDeps = {
     startTurn: (input: AgentRuntimeTurnStartInput) => Promise<AgentRuntimeTurnHandle>
     interruptTurn?: (input: { runtimeId: AgentRuntimeId; threadId: string; turnId: string; discard?: boolean }) => Promise<void>
   }
-  getActiveThreadContext?: () => ClawActiveThreadContext | null
+  getActiveThreadContext?: () => RemoteChannelActiveThreadContext | null
   logError: (category: string, message: string, detail?: unknown) => void
   notifyChannelActivity?: (payload: {
     channelId: string
@@ -83,7 +83,7 @@ export type ClawRuntimeDeps = {
   }) => Promise<{ ok: true; messageId: string } | { ok: false; message: string }>
   createScheduledTaskFromText?: (
     text: string,
-    options?: { workspaceRoot?: string | null; modelHint?: string | null; mode?: ClawRunMode | null }
+    options?: { workspaceRoot?: string | null; modelHint?: string | null; mode?: RemoteChannelRunMode | null }
   ) => Promise<ScheduleTaskFromTextResult>
 }
 
@@ -128,13 +128,13 @@ export type RunPromptOptions = {
   title: string
   workspaceRoot: string
   model: string
-  mode: ClawRunMode
+  mode: RemoteChannelRunMode
   waitForResult: boolean
   responseTimeoutMs: number
   source: 'task' | 'im'
   runtimeId?: AgentRuntimeId
   threadId?: string
-  channel?: ClawImChannelV1
+  channel?: RemoteChannelV1
   onTurnStarted?: (payload: {
     threadId: string
     turnId: string
@@ -144,22 +144,22 @@ export type RunPromptOptions = {
 
 export const WEBHOOK_BODY_LIMIT_BYTES = 1_000_000
 
-export type ClawImAttachmentKind = 'file' | 'image' | 'link'
+export type RemoteChannelAttachmentKind = 'file' | 'image' | 'link'
 
-export type ClawImAttachmentCapability = {
+export type RemoteChannelAttachmentCapability = {
   supported: boolean
   maxCount: number
   maxBytes: number
 }
 
-export type ClawImRetryStrategy = {
+export type RemoteChannelRetryStrategy = {
   maxAttempts: number
   initialDelayMs: number
   maxDelayMs: number
 }
 
-export type ClawImProviderCapabilities = {
-  provider: ClawImProvider
+export type RemoteChannelProviderCapabilities = {
+  provider: RemoteChannelProvider
   label: string
   aliases: readonly string[]
   maxMessageLength: number
@@ -167,12 +167,12 @@ export type ClawImProviderCapabilities = {
     supported: boolean
     preserveCodeBlocks: boolean
   }
-  attachments: Record<ClawImAttachmentKind, ClawImAttachmentCapability>
-  retry: ClawImRetryStrategy
+  attachments: Record<RemoteChannelAttachmentKind, RemoteChannelAttachmentCapability>
+  retry: RemoteChannelRetryStrategy
 }
 
-export type ClawImOutboundAttachment = {
-  kind: ClawImAttachmentKind
+export type RemoteChannelOutboundAttachment = {
+  kind: RemoteChannelAttachmentKind
   name: string
   path?: string
   url?: string
@@ -180,14 +180,14 @@ export type ClawImOutboundAttachment = {
   summary?: string
 }
 
-export type ClawImPreparedReply = {
-  capability: ClawImProviderCapabilities
+export type RemoteChannelPreparedReply = {
+  capability: RemoteChannelProviderCapabilities
   textChunks: string[]
-  unsupportedAttachments: ClawImOutboundAttachment[]
+  unsupportedAttachments: RemoteChannelOutboundAttachment[]
   fallbackText: string
 }
 
-export const CLAW_IM_PROVIDER_CAPABILITIES: Record<ClawImProvider, ClawImProviderCapabilities> = {
+export const REMOTE_CHANNEL_PROVIDER_CAPABILITIES: Record<RemoteChannelProvider, RemoteChannelProviderCapabilities> = {
   feishu: {
     provider: 'feishu',
     label: 'Feishu / Lark',
@@ -262,8 +262,8 @@ const IMAGE_ATTACHMENT_EXTENSIONS = new Set([
   '.webp'
 ])
 
-export function getClawImProviderCapabilities(provider: ClawImProvider): ClawImProviderCapabilities {
-  return CLAW_IM_PROVIDER_CAPABILITIES[provider]
+export function getRemoteChannelProviderCapabilities(provider: RemoteChannelProvider): RemoteChannelProviderCapabilities {
+  return REMOTE_CHANNEL_PROVIDER_CAPABILITIES[provider]
 }
 
 function markdownFenceCloseFor(openFence: string): string {
@@ -339,12 +339,12 @@ function rebalanceMarkdownCodeFences(chunks: readonly string[]): string[] {
   return result
 }
 
-export function splitClawImReplyText(
-  provider: ClawImProvider,
+export function splitRemoteChannelReplyText(
+  provider: RemoteChannelProvider,
   text: string,
   options: { maxMessageLength?: number; fallback?: string } = {}
 ): string[] {
-  const capability = getClawImProviderCapabilities(provider)
+  const capability = getRemoteChannelProviderCapabilities(provider)
   const maxMessageLength = Math.max(20, Math.floor(options.maxMessageLength ?? capability.maxMessageLength))
   const fallback = options.fallback ?? '(empty reply)'
   const normalized = text.trim() || fallback
@@ -373,7 +373,7 @@ export function clawImAttachmentKindForFileName(fileName: string): 'file' | 'ima
   return IMAGE_ATTACHMENT_EXTENSIONS.has(extension) ? 'image' : 'file'
 }
 
-export function clawImAttachmentFromGeneratedFile(file: ClawGeneratedFileV1): ClawImOutboundAttachment {
+export function remoteChannelAttachmentFromGeneratedFile(file: RemoteChannelGeneratedFileV1): RemoteChannelOutboundAttachment {
   const name = file.fileName.trim() || basename(file.path)
   return {
     kind: clawImAttachmentKindForFileName(name),
@@ -384,11 +384,11 @@ export function clawImAttachmentFromGeneratedFile(file: ClawGeneratedFileV1): Cl
 }
 
 export function supportedClawImAttachments(
-  provider: ClawImProvider,
-  attachments: readonly ClawImOutboundAttachment[]
-): ClawImOutboundAttachment[] {
-  const capability = getClawImProviderCapabilities(provider)
-  const counts: Partial<Record<ClawImAttachmentKind, number>> = {}
+  provider: RemoteChannelProvider,
+  attachments: readonly RemoteChannelOutboundAttachment[]
+): RemoteChannelOutboundAttachment[] {
+  const capability = getRemoteChannelProviderCapabilities(provider)
+  const counts: Partial<Record<RemoteChannelAttachmentKind, number>> = {}
   return attachments.filter((attachment) => {
     const limit = capability.attachments[attachment.kind]
     if (!limit.supported) return false
@@ -400,24 +400,24 @@ export function supportedClawImAttachments(
 }
 
 export function unsupportedClawImAttachments(
-  provider: ClawImProvider,
-  attachments: readonly ClawImOutboundAttachment[]
-): ClawImOutboundAttachment[] {
+  provider: RemoteChannelProvider,
+  attachments: readonly RemoteChannelOutboundAttachment[]
+): RemoteChannelOutboundAttachment[] {
   const supported = new Set(supportedClawImAttachments(provider, attachments))
   return attachments.filter((attachment) => !supported.has(attachment))
 }
 
-function formatAttachmentSummary(attachment: ClawImOutboundAttachment): string {
+function formatAttachmentSummary(attachment: RemoteChannelOutboundAttachment): string {
   if (attachment.kind === 'link' && attachment.url) return `${attachment.name}: ${attachment.url}`
   return attachment.summary?.trim() || attachment.name
 }
 
-export function buildClawImAttachmentFallbackText(
-  provider: ClawImProvider,
-  attachments: readonly ClawImOutboundAttachment[],
+export function buildRemoteChannelAttachmentFallbackText(
+  provider: RemoteChannelProvider,
+  attachments: readonly RemoteChannelOutboundAttachment[],
   options: { reason?: string } = {}
 ): string {
-  const capability = getClawImProviderCapabilities(provider)
+  const capability = getRemoteChannelProviderCapabilities(provider)
   const visible = attachments.slice(0, 5)
   const names = visible.map(formatAttachmentSummary).filter(Boolean)
   if (names.length === 0) return ''
@@ -433,23 +433,23 @@ export function buildClawImAttachmentFallbackText(
   ].join('\n').trim()
 }
 
-export function prepareClawImReplyText(
-  provider: ClawImProvider,
+export function prepareRemoteChannelReplyText(
+  provider: RemoteChannelProvider,
   text: string,
   options: {
-    attachments?: readonly ClawImOutboundAttachment[]
+    attachments?: readonly RemoteChannelOutboundAttachment[]
     maxMessageLength?: number
     fallback?: string
   } = {}
-): ClawImPreparedReply {
-  const capability = getClawImProviderCapabilities(provider)
+): RemoteChannelPreparedReply {
+  const capability = getRemoteChannelProviderCapabilities(provider)
   const attachments = options.attachments ?? []
   const unsupportedAttachments = unsupportedClawImAttachments(provider, attachments)
-  const fallbackText = buildClawImAttachmentFallbackText(provider, unsupportedAttachments)
+  const fallbackText = buildRemoteChannelAttachmentFallbackText(provider, unsupportedAttachments)
   const body = [text.trim(), fallbackText].filter(Boolean).join('\n\n')
   return {
     capability,
-    textChunks: splitClawImReplyText(provider, body, {
+    textChunks: splitRemoteChannelReplyText(provider, body, {
       maxMessageLength: options.maxMessageLength,
       fallback: options.fallback
     }),
@@ -489,7 +489,7 @@ export function buildFeishuPrompt(message: NormalizedMessage): string {
   if (message.rawContentType !== 'text') {
     metadata.push(['Message type', message.rawContentType])
   }
-  return buildClawInboundMessagePrompt({
+  return buildRemoteChannelInboundMessagePrompt({
     provider: 'feishu',
     metadata,
     text: content
@@ -506,12 +506,12 @@ export function formatFeishuMirrorText(text: string, direction: 'user' | 'assist
   return { markdown: trimmed || '(empty reply)' }
 }
 
-export function clawConversationKey(chatId: string, remoteThreadId: string): string {
+export function remoteChannelConversationKey(chatId: string, remoteThreadId: string): string {
   return `${chatId.trim()}::${remoteThreadId.trim()}`
 }
 
 export function remoteConversationQueueKey(input: {
-  provider: ClawImProvider
+  provider: RemoteChannelProvider
   channelId: string
   chatId: string
   remoteThreadId: string
@@ -525,7 +525,7 @@ export function remoteConversationQueueKey(input: {
 }
 
 export function remoteMessageDedupeKey(input: {
-  provider: ClawImProvider
+  provider: RemoteChannelProvider
   channelId: string
   chatId: string
   remoteThreadId: string
@@ -545,7 +545,7 @@ export function parseJsonObject(raw: string): Record<string, unknown> | null {
   }
 }
 
-const CLAW_FAILURE_TITLES: Record<ClawFailureKind, string> = {
+const CLAW_FAILURE_TITLES: Record<RemoteChannelFailureKind, string> = {
   runtime_offline: 'Runtime offline',
   model_missing: 'Model missing',
   timeout: 'Timed out',
@@ -555,7 +555,7 @@ const CLAW_FAILURE_TITLES: Record<ClawFailureKind, string> = {
   provider_send_failed: 'Provider send failed'
 }
 
-const CLAW_FAILURE_RECOVERABLE: Record<ClawFailureKind, boolean> = {
+const CLAW_FAILURE_RECOVERABLE: Record<RemoteChannelFailureKind, boolean> = {
   runtime_offline: true,
   model_missing: true,
   timeout: true,
@@ -593,8 +593,8 @@ export function classifyClawFailure(input: {
   message?: string
   code?: string
   status?: number
-  kind?: ClawFailureKind
-}): ClawFailureKind {
+  kind?: RemoteChannelFailureKind
+}): RemoteChannelFailureKind {
   if (input.kind) return input.kind
   const code = (input.code ?? '').trim().toLowerCase()
   const message = (input.message ?? '').trim()
@@ -639,7 +639,7 @@ export function classifyClawFailure(input: {
   return 'runtime_offline'
 }
 
-export function clawFailureResult(input: ClawFailureInput): ClawFailureResult {
+export function remoteChannelFailureResult(input: RemoteChannelFailureInput): RemoteChannelFailureResult {
   const message = input.message.trim() || 'Remote channel runtime failed.'
   const failureKind = classifyClawFailure({
     message,
@@ -657,18 +657,18 @@ export function clawFailureResult(input: ClawFailureInput): ClawFailureResult {
   }
 }
 
-export function clawFailureFromError(error: unknown, fallback: string): ClawFailureResult {
+export function remoteChannelFailureFromError(error: unknown, fallback: string): RemoteChannelFailureResult {
   const raw = error instanceof Error ? error.message : String(error)
   const parsed = parsedRuntimeFailure(raw)
-  return clawFailureResult({
+  return remoteChannelFailureResult({
     message: parsed?.message || raw.trim() || fallback,
     code: parsed?.code,
     details: parsed?.details
   })
 }
 
-export function clawFailureError(
-  kind: ClawFailureKind,
+export function remoteChannelFailureError(
+  kind: RemoteChannelFailureKind,
   message: string,
   details?: unknown
 ): Error {
@@ -729,7 +729,7 @@ function outputRecord(output: unknown): Record<string, unknown> | null {
 function generatedFileFromRecord(
   record: Record<string, unknown>,
   workspaceRoot: string
-): ClawGeneratedFileV1 | null {
+): RemoteChannelGeneratedFileV1 | null {
   const path = asString(record.path) || asString(record.absolutePath) || asString(record.absolute_path)
   const relativePath = asString(record.relativePath) || asString(record.relative_path)
   const resolvedPath = path || (workspaceRoot && relativePath ? join(workspaceRoot, relativePath) : '')
@@ -744,7 +744,7 @@ function generatedFileFromRecord(
 function generatedFilesFromToolResult(
   item: TurnItemJson,
   workspaceRoot: string
-): ClawGeneratedFileV1[] {
+): RemoteChannelGeneratedFileV1[] {
   if ((item.kind !== 'tool_result' && item.kind !== 'tool') || item.isError === true) return []
   const output = outputRecord(item.output)
   if (!output) return []
@@ -769,7 +769,7 @@ function generatedFilesFromToolResult(
       .map((entry) => outputRecord(entry))
       .filter((entry): entry is Record<string, unknown> => entry !== null)
       .map((entry) => generatedFileFromRecord(entry, workspaceRoot))
-      .filter((file): file is ClawGeneratedFileV1 => file !== null)
+      .filter((file): file is RemoteChannelGeneratedFileV1 => file !== null)
   }
   return []
 }
@@ -791,7 +791,7 @@ function threadItems(detail: ThreadDetailJson): TurnItemJson[] {
   ]
 }
 
-function isPathLikeDuplicate(left: ClawGeneratedFileV1, right: ClawGeneratedFileV1): boolean {
+function isPathLikeDuplicate(left: RemoteChannelGeneratedFileV1, right: RemoteChannelGeneratedFileV1): boolean {
   if (left.path === right.path) return true
   if (left.relativePath && left.relativePath === right.relativePath) return true
   if (isAbsolute(left.path) && isAbsolute(right.path)) return left.path === right.path
@@ -802,8 +802,8 @@ function extractGeneratedFiles(
   items: readonly TurnItemJson[],
   workspaceRoot: string,
   maxFiles: number
-): ClawGeneratedFileV1[] {
-  const files: ClawGeneratedFileV1[] = []
+): RemoteChannelGeneratedFileV1[] {
+  const files: RemoteChannelGeneratedFileV1[] = []
   for (let index = items.length - 1; index >= 0; index -= 1) {
     for (const file of generatedFilesFromToolResult(items[index], workspaceRoot).reverse()) {
       if (files.some((existing) => isPathLikeDuplicate(existing, file))) continue
@@ -818,7 +818,7 @@ function extractGeneratedFiles(
 export function latestGeneratedFiles(
   detail: ThreadDetailJson,
   options: { turnId?: string; workspaceRoot?: string; maxFiles?: number } = {}
-): ClawGeneratedFileV1[] {
+): RemoteChannelGeneratedFileV1[] {
   const maxFiles = Math.max(1, Math.floor(options.maxFiles ?? 3))
   const workspaceRoot = options.workspaceRoot?.trim() ?? ''
   const items = threadItems(detail)
@@ -864,7 +864,7 @@ export function shouldDirectSendExistingGeneratedFilesForPrompt(prompt: string):
     /\b(send|attach|attachment|upload)\b/i.test(text)
 }
 
-export function replyTextForGeneratedFiles(replyText: string, files: readonly ClawGeneratedFileV1[]): string {
+export function replyTextForGeneratedFiles(replyText: string, files: readonly RemoteChannelGeneratedFileV1[]): string {
   const trimmed = replyText.trim()
   if (files.length === 0) return trimmed
   const names = files.map((file) => file.fileName).join(', ')
@@ -878,15 +878,15 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export async function runClawImProviderRetry<T>(
-  provider: ClawImProvider,
+export async function runRemoteChannelProviderRetry<T>(
+  provider: RemoteChannelProvider,
   operation: (attempt: number) => Promise<T>,
   options: {
     shouldRetryResult?: (result: T) => boolean
     sleepMs?: (ms: number) => Promise<void>
   } = {}
 ): Promise<T> {
-  const retry = getClawImProviderCapabilities(provider).retry
+  const retry = getRemoteChannelProviderCapabilities(provider).retry
   let lastError: unknown
   for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
     try {
@@ -963,7 +963,7 @@ export function extractSenderLabel(payload: Record<string, unknown>): string {
   return 'webhook'
 }
 
-export function normalizeIncomingProvider(value: unknown, fallback: ClawImProvider): ClawImProvider {
+export function normalizeIncomingProvider(value: unknown, fallback: RemoteChannelProvider): RemoteChannelProvider {
   const raw = asString(value).toLowerCase()
   if (raw === 'weixin' || raw === 'wechat') return 'weixin'
   if (raw === 'discord') return 'discord'
@@ -972,8 +972,8 @@ export function normalizeIncomingProvider(value: unknown, fallback: ClawImProvid
 
 export function extractIncomingProvider(
   payload: Record<string, unknown>,
-  fallback: ClawImProvider
-): ClawImProvider {
+  fallback: RemoteChannelProvider
+): RemoteChannelProvider {
   const candidates = [
     payload.provider,
     payload.platform,
@@ -1072,7 +1072,7 @@ export function extractIncomingMentionFlags(payload: Record<string, unknown>): {
 
 export function extractIncomingRemoteSession(
   payload: Record<string, unknown>
-): Pick<ClawImRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'> | null {
+): Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'messageId' | 'threadId' | 'senderId' | 'senderName'> | null {
   const message = nestedRecord(payload.message)
   const event = nestedRecord(payload.event)
   const eventMessage = nestedRecord(event.message)
@@ -1128,7 +1128,7 @@ export function extractIncomingRemoteSession(
   return { chatId, messageId, threadId, senderId, senderName }
 }
 
-export function buildConversationLabel(session: Pick<ClawImRemoteSessionV1, 'chatId' | 'senderName'>): string {
+export function buildConversationLabel(session: Pick<RemoteChannelRemoteSessionV1, 'chatId' | 'senderName'>): string {
   const sender = session.senderName.trim()
   if (sender) return sender
   const chatId = session.chatId.trim()

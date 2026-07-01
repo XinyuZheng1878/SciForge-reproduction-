@@ -1,20 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ClawImChannelV1 } from '@shared/app-settings'
-import { CLAW_MANAGED_INSTRUCTIONS_HEADING } from '@shared/app-settings'
+import type { RemoteChannelV1 } from '@shared/app-settings'
+import { REMOTE_CHANNEL_MANAGED_INSTRUCTIONS_HEADING } from '@shared/app-settings'
 import {
   MAX_TURN_MODEL_LABELS,
   MAX_CODE_WORKSPACE_ROOTS,
-  clawThreadRemoteBindingsFromChannels,
-  clawThreadIdsFromChannels,
-  clawThreadTitleLooksManaged,
+  remoteChannelThreadBindingsFromChannels,
+  remoteChannelThreadIdsFromChannels,
+  remoteChannelThreadTitleLooksManaged,
   compactCodeWorkspaceRoots,
-  deriveClawThreadRemoteStatusKind,
+  deriveRemoteChannelThreadStatusKind,
   hydrateBlockModelLabels,
-  isClawThread,
+  isRemoteChannelThread,
   newRemoteChannel,
   normalizeTurnModelMap,
   rememberTurnModel,
-  watchedClawThreadIdsFromChannels
+  watchedRemoteChannelThreadIdsFromChannels
 } from './chat-store-helpers'
 
 const TURN_MODEL_STORAGE_KEY = 'sciforge.turnModelLabel'
@@ -37,7 +37,7 @@ function createMemoryStorage(): Storage {
   }
 }
 
-function clawChannel(): ClawImChannelV1 {
+function clawChannel(): RemoteChannelV1 {
   const now = '2026-06-01T00:00:00.000Z'
   return {
     id: 'channel-1',
@@ -132,7 +132,7 @@ describe('chat-store remote-channel helpers', () => {
   })
 
   it('collects channel and conversation thread ids for remote-channel sessions', () => {
-    const ids = clawThreadIdsFromChannels([clawChannel()])
+    const ids = remoteChannelThreadIdsFromChannels([clawChannel()])
 
     expect(ids.has('sciforge-channel')).toBe(true)
     expect(ids.has('sciforge-conversation')).toBe(true)
@@ -152,7 +152,7 @@ describe('chat-store remote-channel helpers', () => {
       }]
     }
 
-    const ids = watchedClawThreadIdsFromChannels([enabled, disabled])
+    const ids = watchedRemoteChannelThreadIdsFromChannels([enabled, disabled])
 
     expect(ids.has('sciforge-channel')).toBe(true)
     expect(ids.has('sciforge-conversation')).toBe(true)
@@ -162,7 +162,7 @@ describe('chat-store remote-channel helpers', () => {
 
   it('indexes remote bindings for channel and conversation thread ids', () => {
     const base = clawChannel()
-    const channel: ClawImChannelV1 = {
+    const channel: RemoteChannelV1 = {
       ...base,
       provider: 'weixin',
       label: 'WeChat',
@@ -188,7 +188,7 @@ describe('chat-store remote-channel helpers', () => {
       ]
     }
 
-    const bindings = clawThreadRemoteBindingsFromChannels([channel])
+    const bindings = remoteChannelThreadBindingsFromChannels([channel])
 
     expect(bindings.get('codex-channel')).toMatchObject({
       providerLabel: 'WeChat',
@@ -207,7 +207,7 @@ describe('chat-store remote-channel helpers', () => {
   })
 
   it('uses readable remote channel labels for Discord bindings', () => {
-    const channel: ClawImChannelV1 = {
+    const channel: RemoteChannelV1 = {
       ...clawChannel(),
       provider: 'discord',
       label: 'discord bot',
@@ -224,7 +224,7 @@ describe('chat-store remote-channel helpers', () => {
       }
     }
 
-    const binding = clawThreadRemoteBindingsFromChannels([channel]).get('sciforge-channel')
+    const binding = remoteChannelThreadBindingsFromChannels([channel]).get('sciforge-channel')
 
     expect(binding).toMatchObject({
       providerLabel: 'Discord',
@@ -234,13 +234,13 @@ describe('chat-store remote-channel helpers', () => {
   })
 
   it('derives remote status precedence from thread state', () => {
-    const binding = clawThreadRemoteBindingsFromChannels([clawChannel()]).get('sciforge-channel')
+    const binding = remoteChannelThreadBindingsFromChannels([clawChannel()]).get('sciforge-channel')
 
-    expect(deriveClawThreadRemoteStatusKind({ binding })).toBe('watched')
-    expect(deriveClawThreadRemoteStatusKind({ binding, queued: true })).toBe('queued')
-    expect(deriveClawThreadRemoteStatusKind({ binding, running: true })).toBe('running')
-    expect(deriveClawThreadRemoteStatusKind({ binding, status: 'failed' })).toBe('error')
-    expect(deriveClawThreadRemoteStatusKind({
+    expect(deriveRemoteChannelThreadStatusKind({ binding })).toBe('watched')
+    expect(deriveRemoteChannelThreadStatusKind({ binding, queued: true })).toBe('queued')
+    expect(deriveRemoteChannelThreadStatusKind({ binding, running: true })).toBe('running')
+    expect(deriveRemoteChannelThreadStatusKind({ binding, status: 'failed' })).toBe('error')
+    expect(deriveRemoteChannelThreadStatusKind({
       binding: {
         ...binding!,
         lastFailure: {
@@ -264,16 +264,16 @@ describe('chat-store remote-channel helpers', () => {
 
   it('recognizes current remote-channel summaries but not legacy Claw titles as managed sessions', () => {
     expect(
-      clawThreadTitleLooksManaged(`${CLAW_MANAGED_INSTRUCTIONS_HEADING} SciForge scheduled-task tools`)
+      remoteChannelThreadTitleLooksManaged(`${REMOTE_CHANNEL_MANAGED_INSTRUCTIONS_HEADING} SciForge scheduled-task tools`)
     ).toBe(true)
-    expect(isClawThread({ id: 'remote-channel', title: '[Remote channel:Feishu Agent]' })).toBe(true)
-    expect(isClawThread({ id: 'kun-leaked', title: '[Claw:Feishu Agent]' })).toBe(false)
-    expect(isClawThread({ id: 'kun-im-leaked', title: '[Claw IM:Feishu Agent]' })).toBe(false)
+    expect(isRemoteChannelThread({ id: 'remote-channel', title: '[Remote channel:Feishu Agent]' })).toBe(true)
+    expect(isRemoteChannelThread({ id: 'kun-leaked', title: '[Claw:Feishu Agent]' })).toBe(false)
+    expect(isRemoteChannelThread({ id: 'kun-im-leaked', title: '[Claw IM:Feishu Agent]' })).toBe(false)
   })
 
   it('does not treat a normal desktop session as remote-channel-managed just because IM is bound to it', () => {
     expect(
-      isClawThread(
+      isRemoteChannelThread(
         { id: 'sciforge-conversation', title: 'hi' },
         [clawChannel()]
       )

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AppSettingsV1, ClawImChannelV1 } from '@shared/app-settings'
+import type { AppSettingsV1, RemoteChannelV1 } from '@shared/app-settings'
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import { createAppActions } from './chat-store-app-actions'
 
@@ -7,7 +7,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function channel(id: string): ClawImChannelV1 {
+function channel(id: string): RemoteChannelV1 {
   return {
     id,
     provider: 'discord',

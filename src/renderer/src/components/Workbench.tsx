@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { Bot } from 'lucide-react'
-import { parseClawCommand } from '@shared/claw-commands'
+import { parseRemoteChannelCommand } from '@shared/remote-channel-commands'
 import { DEFAULT_COMPOSER_MODEL_IDS } from '@shared/default-composer-models'
 import { buildGuiPlanId, buildPlanRelativePath } from '@shared/gui-plan'
 import { sddDraftTraceRelativePath } from '@shared/sdd'
@@ -16,7 +16,7 @@ import {
   type KeyboardShortcutCommandId
 } from '@shared/keyboard-shortcuts'
 import type { DesktopCommand, SkillListItem } from '@shared/sciforge-api'
-import type { AgentRuntimeId, ClawImChannelV1 } from '@shared/app-settings'
+import type { AgentRuntimeId, RemoteChannelV1 } from '@shared/app-settings'
 import type { ClipboardImageReadResult } from '@shared/workspace-file'
 import type { AgentRuntimeWorkspaceReference } from '@shared/agent-runtime-contract'
 import type { AgentProviderCapabilities, AttachmentReference, ChatBlock } from '../agent/types'
@@ -25,9 +25,9 @@ import { getProvider } from '../agent/registry'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import { useChatStore } from '../store/chat-store'
 import {
-  clawThreadRemoteBindingsFromChannels,
-  deriveClawThreadRemoteStatusKind,
-  isClawThread
+  remoteChannelThreadBindingsFromChannels,
+  deriveRemoteChannelThreadStatusKind,
+  isRemoteChannelThread
 } from '../store/chat-store-helpers'
 import { hasPendingRuntimeWork } from '../store/chat-store-runtime-helpers'
 import {
@@ -465,7 +465,7 @@ function mergeSkillCommands(
 function RemoteGuardSessionHeader({
   channel
 }: {
-  channel: ClawImChannelV1
+  channel: RemoteChannelV1
 }): ReactElement {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2.5">
@@ -725,7 +725,7 @@ export function Workbench(): ReactElement {
     [activeThreadId, threads]
   )
   const remoteThreadBindings = useMemo(
-    () => clawThreadRemoteBindingsFromChannels(remoteChannels),
+    () => remoteChannelThreadBindingsFromChannels(remoteChannels),
     [remoteChannels]
   )
   const queuedThreadIds = useMemo(
@@ -737,7 +737,7 @@ export function Workbench(): ReactElement {
     : null
   const activeThreadIsRemoteChannel = Boolean(
     activeRemoteBinding ||
-    (activeThread && isClawThread(activeThread, remoteChannels))
+    (activeThread && isRemoteChannelThread(activeThread, remoteChannels))
   )
   const selectedRemoteTargetId =
     route === 'chat' && !activeThreadIsRemoteChannel ? remoteTargetId?.trim() ?? '' : ''
@@ -746,7 +746,7 @@ export function Workbench(): ReactElement {
     : activeRemoteChannel
   const activeRemoteComposerChannelId = activeRemoteComposerChannel?.id ?? activeRemoteChannelId
   const activeRemoteStatusKind = activeThreadId
-    ? deriveClawThreadRemoteStatusKind({
+    ? deriveRemoteChannelThreadStatusKind({
         binding: activeRemoteBinding,
         running: busy || watchTurnCompletion[activeThreadId] === true,
         queued: queuedThreadIds.has(activeThreadId),
@@ -793,7 +793,7 @@ export function Workbench(): ReactElement {
       ? updateRemoteChannelActiveThreadContextApi(window.sciforge)
       : undefined
     if (typeof updateRemoteChannelActiveThreadContext !== 'function') return
-    if (!activeThreadId || (activeThread && isClawThread(activeThread, remoteChannels))) {
+    if (!activeThreadId || (activeThread && isRemoteChannelThread(activeThread, remoteChannels))) {
       void updateRemoteChannelActiveThreadContext(null).catch(() => undefined)
       return
     }
@@ -990,7 +990,7 @@ export function Workbench(): ReactElement {
 
   const codeThreads = useMemo(
     () => threads.filter((thread) =>
-      !isClawThread(thread, remoteChannels) &&
+      !isRemoteChannelThread(thread, remoteChannels) &&
       !isSddAssistantThread(thread) &&
       !isEmptySddAssistantThreadCandidate(thread)
     ),
@@ -1875,7 +1875,7 @@ export function Workbench(): ReactElement {
       return
     }
     if (activeThreadIsRemoteChannel) {
-      const command = parseClawCommand(v)
+      const command = parseRemoteChannelCommand(v)
       if (command?.kind === 'clear') {
         if (!activeRemoteComposerChannelId) {
           setError(t('remoteChannelNoActiveIm'))

@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { ClawImChannelV1 } from '@shared/app-settings'
+import type { RemoteChannelV1 } from '@shared/app-settings'
 import i18n from '../../i18n'
 import {
   ConnectPhoneDialog,
@@ -21,7 +21,7 @@ import {
   resolveConnectPhoneWorkspaceRoot
 } from './ConnectPhoneView'
 
-function channel(enabled: boolean, provider: ClawImChannelV1['provider'] = 'feishu'): ClawImChannelV1 {
+function channel(enabled: boolean, provider: RemoteChannelV1['provider'] = 'feishu'): RemoteChannelV1 {
   return {
     id: `${provider}-${enabled ? 'enabled' : 'disabled'}`,
     provider,
@@ -170,7 +170,7 @@ describe('ConnectPhoneView', () => {
   })
 
   it('uses the latest remote message as the Discord channel activity label', () => {
-    const recentChannel: ClawImChannelV1 = {
+    const recentChannel: RemoteChannelV1 = {
       ...channel(true, 'discord'),
       recentMessages: [
         {

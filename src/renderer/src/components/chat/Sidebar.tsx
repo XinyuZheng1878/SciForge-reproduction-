@@ -15,11 +15,11 @@ import {
 import type { NormalizedThread } from '../../agent/types'
 import { useChatStore, type SettingsRouteSection } from '../../store/chat-store'
 import {
-  clawThreadRemoteBindingsFromChannels,
-  watchedClawThreadIdsFromChannels
+  remoteChannelThreadBindingsFromChannels,
+  watchedRemoteChannelThreadIdsFromChannels
 } from '../../store/chat-store-helpers'
 import type {
-  ClawImChannelV1,
+  RemoteChannelV1,
 } from '@shared/app-settings'
 import { ConnectPhoneDialog, resolveConnectPhoneWorkspaceRoot } from './ConnectPhoneView'
 import { SidebarProjectsSection } from './SidebarProjectsSection'
@@ -100,11 +100,11 @@ export function Sidebar({
   const addRemoteChannel = useChatStore((s) => s.addRemoteChannel)
   const deleteRemoteChannel = useChatStore((s) => s.deleteRemoteChannel)
   const botWatchedThreadIds = useMemo(
-    () => watchedClawThreadIdsFromChannels(remoteChannels),
+    () => watchedRemoteChannelThreadIdsFromChannels(remoteChannels),
     [remoteChannels]
   )
   const botThreadBindings = useMemo(
-    () => clawThreadRemoteBindingsFromChannels(remoteChannels),
+    () => remoteChannelThreadBindingsFromChannels(remoteChannels),
     [remoteChannels]
   )
   const queuedThreadIds = useMemo(
@@ -290,7 +290,7 @@ export function Sidebar({
 }
 
 type SidebarRemoteChannelSectionProps = {
-  channels: ClawImChannelV1[]
+  channels: RemoteChannelV1[]
   activeChannelId: string
   runtimeReady: boolean
   onSelectChannel: (channelId: string) => void
@@ -371,7 +371,7 @@ export function SidebarRemoteChannelSection({
 function SidebarRemoteProviderPill({
   provider
 }: {
-  provider: ClawImChannelV1['provider']
+  provider: RemoteChannelV1['provider']
 }): ReactElement {
   const label = provider === 'discord'
     ? 'Discord'
@@ -386,7 +386,7 @@ function SidebarRemoteProviderPill({
   )
 }
 
-function sidebarRemoteChannelTitle(channel: ClawImChannelV1): string {
+function sidebarRemoteChannelTitle(channel: RemoteChannelV1): string {
   if (channel.platformCredential?.kind === 'discord') {
     const name = channel.platformCredential.channelName.trim() || channel.platformCredential.channelId.trim()
     return name ? `#${name}` : 'Discord'
@@ -395,8 +395,8 @@ function sidebarRemoteChannelTitle(channel: ClawImChannelV1): string {
 }
 
 function sidebarRemoteChannelSecondaryLabel(
-  channel: ClawImChannelV1,
-  latestMessage: NonNullable<ClawImChannelV1['recentMessages']>[number] | null,
+  channel: RemoteChannelV1,
+  latestMessage: NonNullable<RemoteChannelV1['recentMessages']>[number] | null,
   t: (k: string, opts?: Record<string, unknown>) => string
 ): string {
   if (latestMessage) {
@@ -416,20 +416,20 @@ function sidebarRemoteChannelSecondaryLabel(
   return t('sidebarRemoteChannelNoMessages')
 }
 
-function latestSidebarRemoteMessage(channel: ClawImChannelV1): NonNullable<ClawImChannelV1['recentMessages']>[number] | null {
+function latestSidebarRemoteMessage(channel: RemoteChannelV1): NonNullable<RemoteChannelV1['recentMessages']>[number] | null {
   const messages = channel.recentMessages ?? []
   if (messages.length === 0) return null
   return [...messages].sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt))[0] ?? null
 }
 
-function sidebarRemoteMessageLabel(message: NonNullable<ClawImChannelV1['recentMessages']>[number]): string {
+function sidebarRemoteMessageLabel(message: NonNullable<RemoteChannelV1['recentMessages']>[number]): string {
   const sender = message.senderName?.trim()
   const text = message.text?.trim()
   if (sender && text) return `${sender}: ${text}`
   return text || sender || ''
 }
 
-function remoteChannelSidebarProviderLabel(provider: ClawImChannelV1['provider']): string {
+function remoteChannelSidebarProviderLabel(provider: RemoteChannelV1['provider']): string {
   if (provider === 'discord') return 'Discord'
   if (provider === 'weixin') return 'WeChat'
   return 'Feishu / Lark'

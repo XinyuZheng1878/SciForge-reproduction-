@@ -22,7 +22,7 @@ import {
 } from '../lib/thread-fork-registry'
 import { workspaceLabelFromPath } from '../lib/workspace-label'
 import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
-import { buildClawRuntimePrompt, getActiveAgentApiKey } from '@shared/app-settings'
+import { buildRemoteChannelRuntimePrompt, getActiveAgentApiKey } from '@shared/app-settings'
 import type {
   AppRoute,
   ChatState,
@@ -40,7 +40,7 @@ import {
   compactCodeWorkspaceRoots,
   forgetCodeWorkspaceRoot,
   hydrateBlockModelLabels,
-  isClawThread,
+  isRemoteChannelThread,
   mergeComposerPickList,
   newRemoteChannel,
   normalizeRemoteChannelComposerModel,
@@ -87,7 +87,7 @@ import { createThreadActions } from './chat-store-thread-actions'
 import { createMaintenanceActions } from './chat-store-maintenance-actions'
 
 export type { AppRoute, SettingsRouteSection } from './chat-store-types'
-export { CLAW_COMPOSER_MODEL_IDS } from './chat-store-helpers'
+export { REMOTE_CHANNEL_COMPOSER_MODEL_IDS } from './chat-store-helpers'
 
 let sseAbort: AbortController | null = null
 const sseAbortRef = {

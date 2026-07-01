@@ -118,7 +118,7 @@ function registerOptions(overrides: Partial<Parameters<typeof import('./register
     getMainWindow: () => null,
     applySettingsPatch,
     fetchUpstreamModels: vi.fn() as never,
-    getClawRuntime: () => null,
+    getRemoteChannelRuntime: () => null,
     getScheduleRuntime: () => null,
     startFeishuInstallQrcode: vi.fn() as never,
     pollFeishuInstall: vi.fn() as never,

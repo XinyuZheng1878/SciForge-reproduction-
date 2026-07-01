@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentRuntimeId, ClawImChannelV1, ClawImConversationV1 } from '@shared/app-settings'
-import { CLAW_MANAGED_INSTRUCTIONS_HEADING } from '@shared/app-settings'
+import type { AgentRuntimeId, RemoteChannelV1, RemoteChannelConversationV1 } from '@shared/app-settings'
+import { REMOTE_CHANNEL_MANAGED_INSTRUCTIONS_HEADING } from '@shared/app-settings'
 import type { ChatBlock, NormalizedThread } from '../agent/types'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import {
@@ -11,13 +11,13 @@ import {
   resolveRemoteChannelThreadId
 } from './chat-store-remote-channel-actions'
 
-type TestConversationOverrides = Partial<ClawImConversationV1> & { localThreadId?: string }
-type TestChannelOverrides = Partial<Omit<ClawImChannelV1, 'conversations'>> & {
+type TestConversationOverrides = Partial<RemoteChannelConversationV1> & { localThreadId?: string }
+type TestChannelOverrides = Partial<Omit<RemoteChannelV1, 'conversations'>> & {
   threadId?: string
   conversations?: TestConversationOverrides[]
 }
 
-function conversation(overrides: TestConversationOverrides = {}): ClawImConversationV1 {
+function conversation(overrides: TestConversationOverrides = {}): RemoteChannelConversationV1 {
   const now = '2026-06-01T00:00:00.000Z'
   const {
     localThreadId = 'thr-codewhale-conversation',
@@ -41,7 +41,7 @@ function conversation(overrides: TestConversationOverrides = {}): ClawImConversa
   }
 }
 
-function channel(overrides: TestChannelOverrides = {}): ClawImChannelV1 {
+function channel(overrides: TestChannelOverrides = {}): RemoteChannelV1 {
   const now = '2026-06-01T00:00:00.000Z'
   const {
     threadId = 'thr-codewhale-channel',
@@ -95,7 +95,7 @@ type TestSettings = {
       provider: 'feishu'
       workspaceRoot: string
     }
-    channels: ClawImChannelV1[]
+    channels: RemoteChannelV1[]
   }
 }
 
@@ -108,7 +108,7 @@ type TestRemoteChannelProvider = {
 }
 
 function settingsWithChannels(
-  channels: ClawImChannelV1[],
+  channels: RemoteChannelV1[],
   activeAgentRuntime: AgentRuntimeId = 'sciforge'
 ): TestSettings {
   return {
@@ -129,13 +129,13 @@ function settingsWithChannels(
 function createRemoteChannelActionHarness(options: {
   settings: TestSettings
   provider?: Partial<TestRemoteChannelProvider>
-  newRemoteChannel?: () => ClawImChannelV1
+  newRemoteChannel?: () => RemoteChannelV1
   state?: Record<string, unknown>
 }) {
   let settings = options.settings
   const sciforge = {
     getSettings: vi.fn(async () => settings),
-    setSettings: vi.fn(async (patch: { remoteChannel?: { channels?: ClawImChannelV1[] } }) => {
+    setSettings: vi.fn(async (patch: { remoteChannel?: { channels?: RemoteChannelV1[] } }) => {
       settings = {
         ...settings,
         remoteChannel: {
@@ -280,7 +280,7 @@ describe('chat-store remote channel actions helpers', () => {
     const recovered = findRecoverableRemoteChannelThread(
       [
         thread('empty-claw-thread', '[Remote channel:Feishu Agent01]', '2026-06-01T00:02:00.000Z'),
-        thread('old-content-thread', `${CLAW_MANAGED_INSTRUCTIONS_HEADING} SciForge scheduled-task tools`, '2026-06-01T00:01:00.000Z')
+        thread('old-content-thread', `${REMOTE_CHANNEL_MANAGED_INSTRUCTIONS_HEADING} SciForge scheduled-task tools`, '2026-06-01T00:01:00.000Z')
       ],
       [item],
       item,
@@ -583,7 +583,7 @@ describe('chat-store remote channel actions helpers', () => {
     }
     const sciforge = {
       getSettings: vi.fn(async () => settings),
-      setSettings: vi.fn(async (patch: { remoteChannel?: { channels?: ClawImChannelV1[] } }) => {
+      setSettings: vi.fn(async (patch: { remoteChannel?: { channels?: RemoteChannelV1[] } }) => {
         settings = {
           ...settings,
           remoteChannel: {

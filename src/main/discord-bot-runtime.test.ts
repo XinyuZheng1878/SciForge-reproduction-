@@ -14,7 +14,7 @@ import {
   defaultWorkflowSettings,
   defaultWriteSettings,
   type AppSettingsV1,
-  type ClawImChannelV1
+  type RemoteChannelV1
 } from '../shared/app-settings'
 import { createDiscordBotRuntime } from './discord-bot-runtime'
 
@@ -22,7 +22,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function settings(channel: ClawImChannelV1): AppSettingsV1 {
+function settings(channel: RemoteChannelV1): AppSettingsV1 {
   return {
     version: 1,
     installationId: 'dsgui-local',
@@ -60,7 +60,7 @@ function settings(channel: ClawImChannelV1): AppSettingsV1 {
   }
 }
 
-function discordChannel(): ClawImChannelV1 {
+function discordChannel(): RemoteChannelV1 {
   return {
     id: 'discord-bot-1-guild-1-channel-1',
     provider: 'discord',
@@ -130,10 +130,10 @@ function writeDiscordBotSecret(userDataPath: string): void {
   }))
 }
 
-function localDiscordChannel(): ClawImChannelV1 {
+function localDiscordChannel(): RemoteChannelV1 {
   const channel = discordChannel()
   channel.platformCredential = {
-    ...channel.platformCredential as Extract<ClawImChannelV1['platformCredential'], { kind: 'discord' }>,
+    ...channel.platformCredential as Extract<RemoteChannelV1['platformCredential'], { kind: 'discord' }>,
     installationId: 'dsgui-local',
     guardOwnerInstallationId: 'dsgui-local'
   }
@@ -229,7 +229,7 @@ describe('DiscordBotRuntime guard ownership', () => {
                 ...current.remoteChannel.im,
                 ...(patch.remoteChannel?.im ?? {})
               },
-              channels: (patch.remoteChannel?.channels as ClawImChannelV1[] | undefined) ?? current.remoteChannel.channels
+              channels: (patch.remoteChannel?.channels as RemoteChannelV1[] | undefined) ?? current.remoteChannel.channels
             }
           }
           return current
@@ -305,7 +305,7 @@ describe('DiscordBotRuntime guard ownership', () => {
                 ...current.remoteChannel.im,
                 ...(patch.remoteChannel?.im ?? {})
               },
-              channels: (patch.remoteChannel?.channels as ClawImChannelV1[] | undefined) ?? current.remoteChannel.channels
+              channels: (patch.remoteChannel?.channels as RemoteChannelV1[] | undefined) ?? current.remoteChannel.channels
             }
           }
           return current
@@ -387,7 +387,7 @@ describe('DiscordBotRuntime guard ownership', () => {
                 ...current.remoteChannel.im,
                 ...(patch.remoteChannel?.im ?? {})
               },
-              channels: (patch.remoteChannel?.channels as ClawImChannelV1[] | undefined) ?? current.remoteChannel.channels
+              channels: (patch.remoteChannel?.channels as RemoteChannelV1[] | undefined) ?? current.remoteChannel.channels
             }
           }
           return current
@@ -471,7 +471,7 @@ describe('DiscordBotRuntime guard ownership', () => {
     try {
       const channel = discordChannel()
       channel.platformCredential = {
-        ...channel.platformCredential as Extract<ClawImChannelV1['platformCredential'], { kind: 'discord' }>,
+        ...channel.platformCredential as Extract<RemoteChannelV1['platformCredential'], { kind: 'discord' }>,
         installationId: 'dsgui-local',
         guardOwnerInstallationId: 'dsgui-local'
       }
@@ -535,7 +535,7 @@ describe('DiscordBotRuntime guard ownership', () => {
     try {
       const channel = discordChannel()
       channel.platformCredential = {
-        ...channel.platformCredential as Extract<ClawImChannelV1['platformCredential'], { kind: 'discord' }>,
+        ...channel.platformCredential as Extract<RemoteChannelV1['platformCredential'], { kind: 'discord' }>,
         installationId: 'dsgui-local',
         guardOwnerInstallationId: 'dsgui-local'
       }

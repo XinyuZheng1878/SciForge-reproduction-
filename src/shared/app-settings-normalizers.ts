@@ -1,9 +1,9 @@
 import {
   DEFAULT_DEEPSEEK_BASE_URL,
-  type ClawImChannelGuardModeV1,
-  type ClawImProvider,
-  type ClawModel,
-  type ClawRunMode,
+  type RemoteChannelGuardModeV1,
+  type RemoteChannelProvider,
+  type RemoteChannelModel,
+  type RemoteChannelRunMode,
   type ScheduleKind,
   type ScheduleModel,
   type ScheduleReasoningEffort,
@@ -44,27 +44,27 @@ export function normalizePositiveInteger(value: unknown, fallback: number, min: 
   return Math.min(max, Math.max(min, Math.floor(parsed)))
 }
 
-export function normalizeRunMode(value: unknown): ClawRunMode {
+export function normalizeRunMode(value: unknown): RemoteChannelRunMode {
   return value === 'plan' ? 'plan' : 'agent'
 }
 
-export function normalizeImProvider(value: unknown): ClawImProvider {
+export function normalizeImProvider(value: unknown): RemoteChannelProvider {
   if (value === 'weixin') return 'weixin'
   if (value === 'discord') return 'discord'
   return 'feishu'
 }
 
-export function normalizeClawImChannelGuardMode(value: unknown): ClawImChannelGuardModeV1 {
+export function normalizeRemoteChannelGuardMode(value: unknown): RemoteChannelGuardModeV1 {
   if (value === 'all_messages' || value === 'off') return value
   return 'only_mention'
 }
 
-export function normalizeClawModel(value: unknown): ClawModel {
+export function normalizeRemoteChannelModel(value: unknown): RemoteChannelModel {
   return value === 'deepseek-v4-pro' || value === 'deepseek-v4-flash' ? value : 'auto'
 }
 
 export function normalizeScheduleModel(value: unknown): ScheduleModel {
-  return normalizeClawModel(value)
+  return normalizeRemoteChannelModel(value)
 }
 
 export function normalizeScheduleReasoningEffort(value: unknown): ScheduleReasoningEffort {

@@ -12,13 +12,13 @@ import type {
   UserInputAnswer
 } from '../agent/types'
 import type {
-  ClawImAgentProfileV1,
-  ClawImChannelV1,
-  ClawImPlatformCredentialV1,
-  ClawImProvider,
-  ClawImSettingsV1,
+  RemoteChannelAgentProfileV1,
+  RemoteChannelV1,
+  RemoteChannelPlatformCredentialV1,
+  RemoteChannelProvider,
+  RemoteChannelImSettingsV1,
   AgentRuntimeId,
-  ClawModel
+  RemoteChannelModel
 } from '@shared/app-settings'
 import type {
   AgentRuntimeContextState,
@@ -191,7 +191,7 @@ export type ChatState = {
    */
   sideConversations: Record<string, SideConversation>
   sidePanel: SidePanelState
-  remoteChannels: ClawImChannelV1[]
+  remoteChannels: RemoteChannelV1[]
   activeRemoteChannelId: string
   remoteGuardChannelId: string | null
   remoteTargetId: string | null
@@ -213,15 +213,15 @@ export type ChatState = {
   setRemoteTargetId: (targetId: string | null) => void
   refreshRemoteChannels: () => Promise<void>
   addRemoteChannel: (
-    provider: ClawImProvider,
-    agentProfile?: Partial<ClawImAgentProfileV1>,
-    platformCredential?: ClawImPlatformCredentialV1,
+    provider: RemoteChannelProvider,
+    agentProfile?: Partial<RemoteChannelAgentProfileV1>,
+    platformCredential?: RemoteChannelPlatformCredentialV1,
     options?: {
       channelId?: string
       model?: string
       workspaceRoot?: string
       enabled?: boolean
-      im?: Partial<ClawImSettingsV1>
+      im?: Partial<RemoteChannelImSettingsV1>
       preserveRoute?: boolean
     }
   ) => Promise<void>

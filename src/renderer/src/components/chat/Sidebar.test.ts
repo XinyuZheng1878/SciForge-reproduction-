@@ -1,13 +1,13 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import type { ClawImChannelV1 } from '@shared/app-settings'
+import type { RemoteChannelV1 } from '@shared/app-settings'
 import { SidebarRemoteChannelSection } from './Sidebar'
 
-type DiscordChannelOverrides = Partial<Omit<ClawImChannelV1, 'provider' | 'platformCredential'>>
+type DiscordChannelOverrides = Partial<Omit<RemoteChannelV1, 'provider' | 'platformCredential'>>
 
-function discordChannel(overrides: DiscordChannelOverrides = {}): ClawImChannelV1 {
-  const base: ClawImChannelV1 = {
+function discordChannel(overrides: DiscordChannelOverrides = {}): RemoteChannelV1 {
+  const base: RemoteChannelV1 = {
     id: 'discord-channel',
     provider: 'discord',
     label: 'discord bot',

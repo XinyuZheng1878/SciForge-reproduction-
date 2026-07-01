@@ -338,9 +338,9 @@ type RegisterAppIpcHandlersOptions = {
     resolveUserInput: (input: AgentRuntimeUserInputResolveInput) => Promise<void>
   }
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
-  getClawRuntime: () => ClawRuntime | null
+  getRemoteChannelRuntime: () => ClawRuntime | null
   getDiscordBotRuntime?: () => DiscordBotRuntime | null
-  setClawActiveThreadContext?: (payload: {
+  setRemoteChannelActiveThreadContext?: (payload: {
     threadId: string
     runtimeId?: AgentRuntimeId
     workspaceRoot?: string
@@ -535,7 +535,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     applySettingsPatch,
     agentRuntime,
     fetchUpstreamModels,
-    getClawRuntime,
+    getRemoteChannelRuntime,
     getDiscordBotRuntime,
     getScheduleRuntime,
     getWorkflowRuntime = () => null,
@@ -952,7 +952,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
   handleInvoke('upstream:models', async () => fetchUpstreamModels())
 
   handleInvoke('connectPhone:status', async (): Promise<ConnectPhoneRuntimeStatus> =>
-    getClawRuntime()?.status() ?? {
+    getRemoteChannelRuntime()?.status() ?? {
       imServerRunning: false,
       imUrl: '',
       runningTaskIds: []
@@ -1040,7 +1040,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
         remoteChannelActiveThreadContextPayloadSchema,
         payload
       )
-      options.setClawActiveThreadContext?.(request)
+      options.setRemoteChannelActiveThreadContext?.(request)
     }
   )
 
@@ -1048,9 +1048,9 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     'remoteChannel:message:mirror',
     async (_, payload: unknown) => {
       const request = parseIpcPayload('remoteChannel:message:mirror', remoteChannelMirrorPayloadSchema, payload)
-      const clawRuntime = getClawRuntime()
-      if (!clawRuntime) return { ok: false as const, message: 'Remote channel runtime is not initialized.' }
-      return clawRuntime.mirrorThreadMessageToIm(
+      const remoteChannelRuntime = getRemoteChannelRuntime()
+      if (!remoteChannelRuntime) return { ok: false as const, message: 'Remote channel runtime is not initialized.' }
+      return remoteChannelRuntime.mirrorThreadMessageToIm(
         request.threadId,
         request.text,
         request.direction

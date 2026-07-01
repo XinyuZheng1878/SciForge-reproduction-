@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { NormalizedThread } from '../../agent/types'
-import type { ClawThreadRemoteBinding } from '../../store/chat-store-helpers'
+import type { RemoteChannelThreadBinding } from '../../store/chat-store-helpers'
 import { buildSidebarWorkspaceGroups, SidebarProjectsSection, ThreadRenameDialog } from './SidebarProjectsSection'
 
 function thread(overrides: Partial<NormalizedThread> & Pick<NormalizedThread, 'id' | 'workspace'>): NormalizedThread {
@@ -178,7 +178,7 @@ describe('SidebarProjectsSection groups', () => {
   })
 
   it('distinguishes remote bot states in thread rows', () => {
-    const baseBinding: Omit<ClawThreadRemoteBinding, 'threadId' | 'channelEnabled'> = {
+    const baseBinding: Omit<RemoteChannelThreadBinding, 'threadId' | 'channelEnabled'> = {
       provider: 'weixin',
       providerLabel: 'WeChat',
       channelId: 'channel-1',
@@ -189,7 +189,7 @@ describe('SidebarProjectsSection groups', () => {
       chatId: 'chat-1',
       updatedAt: '2026-06-01T00:00:00.000Z'
     }
-    const binding = (threadId: string, channelEnabled = true): ClawThreadRemoteBinding => ({
+    const binding = (threadId: string, channelEnabled = true): RemoteChannelThreadBinding => ({
       ...baseBinding,
       threadId,
       channelEnabled

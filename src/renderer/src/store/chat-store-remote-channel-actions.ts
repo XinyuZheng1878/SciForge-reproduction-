@@ -1,17 +1,17 @@
 import {
-  CLAW_MANAGED_INSTRUCTIONS_HEADING,
+  REMOTE_CHANNEL_MANAGED_INSTRUCTIONS_HEADING,
   type AgentRuntimeId,
-  type ClawImAgentProfileV1,
-  type ClawImChannelV1,
-  type ClawImPlatformCredentialV1,
-  type ClawImProvider,
-  type ClawImSettingsV1,
-  type ClawModel
+  type RemoteChannelAgentProfileV1,
+  type RemoteChannelV1,
+  type RemoteChannelPlatformCredentialV1,
+  type RemoteChannelProvider,
+  type RemoteChannelImSettingsV1,
+  type RemoteChannelModel
 } from '@shared/app-settings'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import type { ChatBlock, NormalizedThread } from '../agent/types'
-import { clawThreadTitleLooksManaged, clawThreadIdsFromChannels } from './chat-store-helpers'
+import { remoteChannelThreadTitleLooksManaged, remoteChannelThreadIdsFromChannels } from './chat-store-helpers'
 
 type RemoteChannelAgentProviderLike = {
   id?: AgentRuntimeId
@@ -27,12 +27,12 @@ type CreateRemoteChannelActionsOptions = {
   i18n: { t: (key: string, options?: Record<string, unknown>) => string }
   getProvider: () => RemoteChannelAgentProviderLike
   newRemoteChannel: (
-    provider: ClawImProvider,
-    agentProfile?: Partial<ClawImAgentProfileV1>,
-    platformCredential?: ClawImPlatformCredentialV1
-  ) => ClawImChannelV1
+    provider: RemoteChannelProvider,
+    agentProfile?: Partial<RemoteChannelAgentProfileV1>,
+    platformCredential?: RemoteChannelPlatformCredentialV1
+  ) => RemoteChannelV1
   normalizeRemoteChannelComposerModel: (raw: string) => string
-  activeRemoteChannel: (state: Pick<ChatState, 'remoteChannels' | 'activeRemoteChannelId'>) => ClawImChannelV1 | null
+  activeRemoteChannel: (state: Pick<ChatState, 'remoteChannels' | 'activeRemoteChannelId'>) => RemoteChannelV1 | null
   normalizeWorkspaceRoot: (workspaceRoot?: string | null) => string
   formatRuntimeError: (error: unknown) => string
   shouldOpenSettingsForError: (error: unknown) => boolean
@@ -54,7 +54,7 @@ type CreateRemoteChannelActionsOptions = {
 }
 
 function remoteChannelThreadPlaceholder(
-  channel: ClawImChannelV1,
+  channel: RemoteChannelV1,
   threadId: string,
   workspaceRoot: string,
   runtimeId: AgentRuntimeId
@@ -71,8 +71,8 @@ function remoteChannelThreadPlaceholder(
 }
 
 export function remoteChannelThreadIdForProvider(
-  channel: ClawImChannelV1,
-  conversation: ClawImChannelV1['conversations'][number] | null | undefined,
+  channel: RemoteChannelV1,
+  conversation: RemoteChannelV1['conversations'][number] | null | undefined,
   runtimeId: AgentRuntimeId
 ): string {
   const mapped =
@@ -93,7 +93,7 @@ function runtimeIdForProvider(provider: RemoteChannelAgentProviderLike, settings
 }
 
 function runtimeIdForRemoteChannel(
-  channel: ClawImChannelV1,
+  channel: RemoteChannelV1,
   provider: RemoteChannelAgentProviderLike,
   settings: { activeAgentRuntime?: AgentRuntimeId }
 ): AgentRuntimeId {
@@ -101,8 +101,8 @@ function runtimeIdForRemoteChannel(
 }
 
 function runtimeIdForRemoteChannelConversation(
-  channel: ClawImChannelV1,
-  conversation: ClawImChannelV1['conversations'][number] | null | undefined,
+  channel: RemoteChannelV1,
+  conversation: RemoteChannelV1['conversations'][number] | null | undefined,
   provider: RemoteChannelAgentProviderLike,
   settings: { activeAgentRuntime?: AgentRuntimeId }
 ): AgentRuntimeId {
@@ -121,11 +121,11 @@ function withAgentThreadId(
   return next
 }
 
-function remoteChannelThreadTitle(channel: ClawImChannelV1): string {
+function remoteChannelThreadTitle(channel: RemoteChannelV1): string {
   return `[Remote channel:${channel.label}]`
 }
 
-function titleMatchesRemoteChannel(thread: Pick<NormalizedThread, 'title'>, channel: ClawImChannelV1): boolean {
+function titleMatchesRemoteChannel(thread: Pick<NormalizedThread, 'title'>, channel: RemoteChannelV1): boolean {
   const title = thread.title.trim()
   return title.startsWith(remoteChannelThreadTitle(channel))
 }
@@ -137,20 +137,20 @@ function updatedAtMs(thread: Pick<NormalizedThread, 'updatedAt'>): number {
 
 export function findRecoverableRemoteChannelThread(
   threads: NormalizedThread[],
-  channels: ClawImChannelV1[],
-  channel: ClawImChannelV1,
+  channels: RemoteChannelV1[],
+  channel: RemoteChannelV1,
   runtimeId: AgentRuntimeId
 ): NormalizedThread | null {
   const normalizedRuntimeId = normalizeAgentRuntimeId(runtimeId)
-  const knownThreadIds = clawThreadIdsFromChannels(channels)
+  const knownThreadIds = remoteChannelThreadIdsFromChannels(channels)
   const candidates = threads
     .filter((thread) => thread.archived !== true)
     .filter((thread) => normalizeAgentRuntimeId(thread.runtimeId) === normalizedRuntimeId)
     .filter((thread) => !knownThreadIds.has(thread.id))
-    .filter((thread) => clawThreadTitleLooksManaged(thread.title))
+    .filter((thread) => remoteChannelThreadTitleLooksManaged(thread.title))
     .sort((a, b) => updatedAtMs(b) - updatedAtMs(a))
   return (
-    candidates.find((thread) => thread.title.trim().startsWith(CLAW_MANAGED_INSTRUCTIONS_HEADING)) ??
+    candidates.find((thread) => thread.title.trim().startsWith(REMOTE_CHANNEL_MANAGED_INSTRUCTIONS_HEADING)) ??
     candidates.find((thread) => titleMatchesRemoteChannel(thread, channel)) ??
     null
   )
@@ -199,15 +199,15 @@ function rememberRemoteChannelThreadRuntime(
 }
 
 export function channelWithRemoteThreadMapping(
-  channel: ClawImChannelV1,
+  channel: RemoteChannelV1,
   threadId: string,
   now: string,
   conversationId: string | undefined,
   runtimeId: AgentRuntimeId
-): ClawImChannelV1 {
+): RemoteChannelV1 {
   const normalizedRuntimeId = normalizeAgentRuntimeId(runtimeId)
   const channelThreadId = threadId.trim()
-  const next: ClawImChannelV1 = {
+  const next: RemoteChannelV1 = {
     ...channel,
     runtimeId: normalizedRuntimeId,
     agentThreadIds: withAgentThreadId(channel.agentThreadIds, normalizedRuntimeId, channelThreadId),
@@ -304,7 +304,7 @@ export function createRemoteChannelActions(options: CreateRemoteChannelActionsOp
       if (existing) {
         const now = new Date().toISOString()
         const profileName = agentProfile?.name?.trim() ?? ''
-        const updatedChannel: ClawImChannelV1 = {
+        const updatedChannel: RemoteChannelV1 = {
           ...existing,
           label: profileName || existing.label,
           model: optionsArg?.model ?? existing.model,
@@ -354,7 +354,7 @@ export function createRemoteChannelActions(options: CreateRemoteChannelActionsOp
 
       const channel = newRemoteChannel(provider, agentProfile, platformCredential)
       const runtimeId = normalizeAgentRuntimeId(settings.activeAgentRuntime)
-      const nextChannel: ClawImChannelV1 = {
+      const nextChannel: RemoteChannelV1 = {
         ...channel,
         runtimeId,
         agentThreadIds: channel.agentThreadIds ?? {},

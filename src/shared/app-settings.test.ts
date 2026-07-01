@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import * as appSettingsExports from './app-settings'
 import {
   applyLocalRuntimePatch,
   applyCodexRuntimePatch,
@@ -13,7 +14,7 @@ import {
   DEFAULT_SANDBOX_MODE,
   DEFAULT_WEIXIN_BRIDGE_RPC_URL,
   DEFAULT_SCHEDULE_INTERNAL_PORT,
-  buildClawRuntimePrompt,
+  buildRemoteChannelRuntimePrompt,
   defaultConnectPhoneSettings,
   defaultRemoteChannelSettings,
   defaultModelRouterSettings,
@@ -50,7 +51,7 @@ import {
   isRemoteExecutorTargetTrustedForWorkspace,
   normalizeAppSettings,
   normalizeRuntimeGuardSettings,
-  parseClawUserPromptForDisplay,
+  parseRemoteChannelUserPromptForDisplay,
   normalizeScheduleSettings,
   resolveLocalRuntimeSettings,
   resolveSpeechToTextSettings,
@@ -58,8 +59,8 @@ import {
   resolveWriteInlineCompletionBaseUrl,
   resolveWriteInlineCompletionModel,
   type AppSettingsV1,
-  type ClawImChannelV1,
-  type ClawImProvider
+  type RemoteChannelV1,
+  type RemoteChannelProvider
 } from './app-settings'
 
 function settings(): AppSettingsV1 {
@@ -91,7 +92,7 @@ function settings(): AppSettingsV1 {
   }
 }
 
-function clawChannel(provider: ClawImProvider, label: string, name = label): ClawImChannelV1 {
+function clawChannel(provider: RemoteChannelProvider, label: string, name = label): RemoteChannelV1 {
   const now = '2026-06-01T00:00:00.000Z'
   return {
     id: `${provider}-${label}`,
@@ -115,6 +116,16 @@ function clawChannel(provider: ClawImProvider, label: string, name = label): Cla
     updatedAt: now
   }
 }
+
+describe('remote channel public surface', () => {
+  it('does not re-export legacy Claw runtime helper names', () => {
+    expect(appSettingsExports).not.toHaveProperty('DEFAULT_CLAW_MODEL')
+    expect(appSettingsExports).not.toHaveProperty('CLAW_MODEL_IDS')
+    expect(appSettingsExports).not.toHaveProperty('CLAW_MANAGED_INSTRUCTIONS_HEADING')
+    expect(appSettingsExports).not.toHaveProperty('buildClawRuntimePrompt')
+    expect(appSettingsExports).not.toHaveProperty('parseClawUserPromptForDisplay')
+  })
+})
 
 describe('local runtime defaults', () => {
   it('keeps a single shared default data directory source', () => {
@@ -1528,7 +1539,7 @@ describe('claw runtime prompts', () => {
       updatedAt: '2026-06-01T00:00:00.000Z'
     }]
 
-    const prompt = buildClawRuntimePrompt(state, 'hi', { channel: state.remoteChannel.channels[0] })
+    const prompt = buildRemoteChannelRuntimePrompt(state, 'hi', { channel: state.remoteChannel.channels[0] })
 
     expect(prompt).toContain('[Remote channel managed instructions]')
     expect(prompt).toContain('[Agent name]\nsciforge')
@@ -1537,7 +1548,7 @@ describe('claw runtime prompts', () => {
   })
 
   it('parses managed IM prompts into compact display text', () => {
-    const parsed = parseClawUserPromptForDisplay([
+    const parsed = parseRemoteChannelUserPromptForDisplay([
       '[Remote channel managed instructions]',
       '',
       '[Remote channel agent instructions]',
@@ -1564,7 +1575,7 @@ describe('claw runtime prompts', () => {
   })
 
   it('parses Discord inbound prompts with the current remote-channel display logic', () => {
-    const parsed = parseClawUserPromptForDisplay([
+    const parsed = parseRemoteChannelUserPromptForDisplay([
       '[Remote channel managed instructions]',
       '',
       '[Remote channel agent instructions]',
@@ -1612,7 +1623,7 @@ describe('claw runtime prompts', () => {
         '你想我吗'
       ].join('\n')
 
-      expect(parseClawUserPromptForDisplay(prompt)).toEqual({
+      expect(parseRemoteChannelUserPromptForDisplay(prompt)).toEqual({
         text: prompt,
         managed: false,
         inbound: false
@@ -1621,7 +1632,7 @@ describe('claw runtime prompts', () => {
   })
 
   it('does not parse inbound prompts that omit the canonical blank separator', () => {
-    const parsed = parseClawUserPromptForDisplay([
+    const parsed = parseRemoteChannelUserPromptForDisplay([
       '[Remote channel managed instructions]',
       '',
       '---',
