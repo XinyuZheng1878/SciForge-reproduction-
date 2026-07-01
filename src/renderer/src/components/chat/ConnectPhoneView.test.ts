@@ -15,8 +15,8 @@ import {
   connectPhoneRecentMessageLabel,
   connectPhoneWorkspaceLabel,
   formatConnectPhoneUserCode,
-  hasClawPhoneChannel,
-  hasEnabledClawPhoneChannel,
+  hasConnectPhoneChannel,
+  hasEnabledConnectPhoneChannel,
   latestConnectPhoneRecentMessage,
   resolveConnectPhoneWorkspaceRoot
 } from './ConnectPhoneView'
@@ -203,19 +203,19 @@ describe('ConnectPhoneView', () => {
   })
 
   it('treats only enabled channels for the selected provider as connected phone channels', () => {
-    expect(hasEnabledClawPhoneChannel([])).toBe(false)
-    expect(hasEnabledClawPhoneChannel([channel(false)])).toBe(false)
-    expect(hasEnabledClawPhoneChannel([channel(false), channel(true)])).toBe(true)
-    expect(hasEnabledClawPhoneChannel([channel(true, 'weixin')], 'feishu')).toBe(false)
-    expect(hasEnabledClawPhoneChannel([channel(true, 'weixin')], 'weixin')).toBe(true)
+    expect(hasEnabledConnectPhoneChannel([])).toBe(false)
+    expect(hasEnabledConnectPhoneChannel([channel(false)])).toBe(false)
+    expect(hasEnabledConnectPhoneChannel([channel(false), channel(true)])).toBe(true)
+    expect(hasEnabledConnectPhoneChannel([channel(true, 'weixin')], 'feishu')).toBe(false)
+    expect(hasEnabledConnectPhoneChannel([channel(true, 'weixin')], 'weixin')).toBe(true)
   })
 
   it('reserves only the selected provider slot once a channel exists', () => {
-    expect(hasClawPhoneChannel([])).toBe(false)
-    expect(hasClawPhoneChannel([channel(false)])).toBe(true)
-    expect(hasClawPhoneChannel([channel(true)])).toBe(true)
-    expect(hasClawPhoneChannel([channel(true, 'feishu')], 'weixin')).toBe(false)
-    expect(hasClawPhoneChannel([channel(true, 'weixin')], 'weixin')).toBe(true)
+    expect(hasConnectPhoneChannel([])).toBe(false)
+    expect(hasConnectPhoneChannel([channel(false)])).toBe(true)
+    expect(hasConnectPhoneChannel([channel(true)])).toBe(true)
+    expect(hasConnectPhoneChannel([channel(true, 'feishu')], 'weixin')).toBe(false)
+    expect(hasConnectPhoneChannel([channel(true, 'weixin')], 'weixin')).toBe(true)
   })
 
   it('shows settings and disconnect actions for an existing phone connection', () => {

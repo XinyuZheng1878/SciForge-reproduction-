@@ -55,7 +55,7 @@ import { emitRendererSettingsChanged } from '../lib/keyboard-shortcut-settings'
 import type { InlineNotice } from './settings-controls'
 import {
   AgentsSettingsSection,
-  ClawSettingsSection,
+  ConnectPhoneSettingsSection,
   GeneralSettingsSection,
   KeyboardShortcutsSettingsSection,
   RemoteResourcesSettingsSection,
@@ -126,7 +126,7 @@ export function SettingsView(): ReactElement {
   const [form, setForm] = useState<AppSettingsV1 | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [workspacePickerError, setWorkspacePickerError] = useState<string | null>(null)
-  const [clawWorkspacePickerError, setClawWorkspacePickerError] = useState<string | null>(null)
+  const [connectPhoneWorkspacePickerError, setConnectPhoneWorkspacePickerError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
@@ -733,9 +733,9 @@ export function SettingsView(): ReactElement {
     update({ workspaceRoot: DEFAULT_WORKSPACE_ROOT })
   }
 
-  const pickClawWorkspace = async (): Promise<void> => {
+  const pickConnectPhoneWorkspace = async (): Promise<void> => {
     try {
-      setClawWorkspacePickerError(null)
+      setConnectPhoneWorkspacePickerError(null)
       if (typeof window.sciforge?.pickWorkspaceDirectory !== 'function') {
         throw new Error('workspace:pick-directory unavailable')
       }
@@ -746,12 +746,12 @@ export function SettingsView(): ReactElement {
         update({ remoteChannel: { im: { workspaceRoot: picked.path } } })
       }
     } catch (e) {
-      setClawWorkspacePickerError(formatWorkspacePickerError(e))
+      setConnectPhoneWorkspacePickerError(formatWorkspacePickerError(e))
     }
   }
 
-  const resetClawWorkspaceToDefault = (): void => {
-    setClawWorkspacePickerError(null)
+  const resetConnectPhoneWorkspaceToDefault = (): void => {
+    setConnectPhoneWorkspacePickerError(null)
     update({ remoteChannel: { im: { workspaceRoot: '' } } })
   }
 
@@ -855,9 +855,9 @@ export function SettingsView(): ReactElement {
     saveMemoryRecord,
     disableMemoryRecord,
     deleteMemoryRecord,
-    pickClawWorkspace,
-    resetClawWorkspaceToDefault,
-    clawWorkspacePickerError,
+    pickConnectPhoneWorkspace,
+    resetConnectPhoneWorkspaceToDefault,
+    connectPhoneWorkspacePickerError,
     splitSettingsList,
     listSettingsText
   }
@@ -911,7 +911,7 @@ export function SettingsView(): ReactElement {
           {category === 'agents' ? <AgentsSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'shortcuts' ? <KeyboardShortcutsSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'remoteResources' ? <RemoteResourcesSettingsSection ctx={settingsSectionContext} /> : null}
-          {category === 'connectPhone' ? <ClawSettingsSection ctx={settingsSectionContext} /> : null}
+          {category === 'connectPhone' ? <ConnectPhoneSettingsSection ctx={settingsSectionContext} /> : null}
         </div>
       </div>
     </div>

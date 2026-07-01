@@ -13,7 +13,7 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '@shared/app-settings'
-import { ClawSettingsSection, discordGuardOwnerPatch } from './settings-section-claw'
+import { ConnectPhoneSettingsSection, discordGuardOwnerPatch } from './settings-section-connect-phone'
 
 const labels: Record<string, string> = {
   clawRuntime: 'Phone connection',
@@ -110,18 +110,18 @@ function buildSettings(): AppSettingsV1 {
   return settings
 }
 
-describe('ClawSettingsSection', () => {
+describe('ConnectPhoneSettingsSection', () => {
   it('renders connected phone agent management fields', () => {
     const html = renderToStaticMarkup(
-      createElement(ClawSettingsSection, {
+      createElement(ConnectPhoneSettingsSection, {
         ctx: {
           t,
           form: buildSettings(),
           update: vi.fn(),
           selectControlClass: 'select-control',
-          pickClawWorkspace: async () => undefined,
-          resetClawWorkspaceToDefault: () => undefined,
-          clawWorkspacePickerError: null
+          pickConnectPhoneWorkspace: async () => undefined,
+          resetConnectPhoneWorkspaceToDefault: () => undefined,
+          connectPhoneWorkspacePickerError: null
         }
       })
     )
@@ -175,15 +175,15 @@ describe('ClawSettingsSection', () => {
     ]
 
     const html = renderToStaticMarkup(
-      createElement(ClawSettingsSection, {
+      createElement(ConnectPhoneSettingsSection, {
         ctx: {
           t,
           form,
           update: vi.fn(),
           selectControlClass: 'select-control',
-          pickClawWorkspace: async () => undefined,
-          resetClawWorkspaceToDefault: () => undefined,
-          clawWorkspacePickerError: null
+          pickConnectPhoneWorkspace: async () => undefined,
+          resetConnectPhoneWorkspaceToDefault: () => undefined,
+          connectPhoneWorkspacePickerError: null
         }
       })
     )

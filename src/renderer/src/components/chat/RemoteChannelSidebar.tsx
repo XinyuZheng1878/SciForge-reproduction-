@@ -15,7 +15,7 @@ import {
 } from '../sidebar/SidebarPrimitives'
 import type { ClawThreadRemoteStatusKind } from '../../store/chat-store-helpers'
 
-type ClawSidebarContentProps = {
+type RemoteChannelSidebarContentProps = {
   channels: ClawImChannelV1[]
   activeChannelId: string
   activeThreadId: string | null
@@ -32,7 +32,7 @@ type ClawSidebarContentProps = {
   t: (k: string, opts?: Record<string, unknown>) => string
 }
 
-export function ClawSidebarContent({
+export function RemoteChannelSidebarContent({
   channels,
   activeChannelId,
   activeThreadId,
@@ -47,7 +47,7 @@ export function ClawSidebarContent({
   onResetChannel,
   onOpenSettings,
   t
-}: ClawSidebarContentProps): ReactElement {
+}: RemoteChannelSidebarContentProps): ReactElement {
   const sortedChannels = useMemo(
     () => [...channels].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
     [channels]
@@ -117,7 +117,7 @@ export function ClawSidebarContent({
                 running,
                 queued
               })
-              const providerLabel = clawProviderDisplayLabel(channel.provider)
+              const providerLabel = remoteChannelProviderDisplayLabel(channel.provider)
               const latestRecentMessage = latestChannelRecentMessage(channel)
               const secondaryLabel = latestRecentMessage
                 ? recentMessageLabel(latestRecentMessage)
@@ -148,7 +148,7 @@ export function ClawSidebarContent({
                     }
                   >
                     <MessageSquare className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.8} />
-                    <ClawProviderPill provider={channel.provider} active={active} />
+                    <RemoteChannelProviderPill provider={channel.provider} active={active} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">{channel.label}</span>
                       <span className="mt-0.5 block truncate text-[11.5px] text-ds-faint">
@@ -350,13 +350,13 @@ function shortThreadId(threadId: string): string {
   return threadId.length > 12 ? `${threadId.slice(0, 6)}...${threadId.slice(-4)}` : threadId
 }
 
-export function clawProviderDisplayLabel(provider: ClawImChannelV1['provider']): string {
+export function remoteChannelProviderDisplayLabel(provider: ClawImChannelV1['provider']): string {
   if (provider === 'discord') return 'Discord'
   if (provider === 'weixin') return 'WeChat'
   return 'Feishu / Lark'
 }
 
-export function ClawProviderLogo({
+export function RemoteChannelProviderLogo({
   provider,
   className = 'h-5 w-5'
 }: {
@@ -431,7 +431,7 @@ export function ClawProviderLogo({
   )
 }
 
-export function ClawProviderPill({
+export function RemoteChannelProviderPill({
   provider,
   active
 }: {
@@ -446,7 +446,7 @@ export function ClawProviderPill({
           : 'bg-ds-subtle text-ds-muted'
       }`}
     >
-      <ClawProviderLogo provider={provider} className="h-[18px] w-[18px]" />
+      <RemoteChannelProviderLogo provider={provider} className="h-[18px] w-[18px]" />
     </span>
   )
 }

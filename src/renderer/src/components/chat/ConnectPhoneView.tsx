@@ -34,8 +34,8 @@ import {
   type ConnectPhoneInstallTarget,
   connectPhoneInstallTargetLabel,
   formatConnectPhoneInstallError
-} from './SidebarClawDialogHelpers'
-import { ClawProviderLogo } from './SidebarClaw'
+} from './ConnectPhoneDialogHelpers'
+import { RemoteChannelProviderLogo } from './RemoteChannelSidebar'
 import { openSafeExternalUrl } from '../../lib/open-external'
 import {
   pollConnectPhoneInstallApi,
@@ -43,7 +43,7 @@ import {
 } from '../../lib/remote-channel-api'
 import { workspaceLabelFromPath } from '../../lib/workspace-label'
 
-export type AddClawPhoneChannel = (
+export type AddConnectPhoneChannel = (
   provider: ClawImProvider,
   agentProfile: ClawImAgentProfileV1,
   platformCredential: ClawImPlatformCredentialV1,
@@ -90,7 +90,7 @@ export function connectPhoneProviderForTarget(target: ConnectPhoneInstallTarget)
   return target === 'weixin' ? 'weixin' : 'feishu'
 }
 
-export function hasEnabledClawPhoneChannel(
+export function hasEnabledConnectPhoneChannel(
   channels: ClawImChannelV1[],
   provider?: ClawImProvider
 ): boolean {
@@ -99,7 +99,7 @@ export function hasEnabledClawPhoneChannel(
   )
 }
 
-export function hasClawPhoneChannel(
+export function hasConnectPhoneChannel(
   channels: ClawImChannelV1[],
   provider?: ClawImProvider
 ): boolean {
@@ -135,7 +135,7 @@ export function normalizeConnectPhoneWorkspaceRoot(workspaceRoot?: string): stri
   return workspaceRoot?.trim() ?? ''
 }
 
-function isInternalClawWorkspaceRoot(workspaceRoot: string): boolean {
+function isInternalRemoteChannelWorkspaceRoot(workspaceRoot: string): boolean {
   const normalized = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   return (
     normalized === '~/.sciforge/remote-channel'
@@ -150,7 +150,7 @@ export function resolveConnectPhoneWorkspaceRoot(
   fallbackWorkspaceRoot?: string
 ): string {
   const primary = normalizeConnectPhoneWorkspaceRoot(workspaceRoot)
-  if (primary && !isInternalClawWorkspaceRoot(primary)) return primary
+  if (primary && !isInternalRemoteChannelWorkspaceRoot(primary)) return primary
   return normalizeConnectPhoneWorkspaceRoot(fallbackWorkspaceRoot) || primary
 }
 
@@ -159,7 +159,7 @@ export function connectPhoneWorkspaceLabel(
   fallbackLabel: string
 ): string {
   const normalized = normalizeConnectPhoneWorkspaceRoot(workspaceRoot)
-  if (!normalized || isInternalClawWorkspaceRoot(normalized)) return fallbackLabel
+  if (!normalized || isInternalRemoteChannelWorkspaceRoot(normalized)) return fallbackLabel
   return workspaceLabelFromPath(normalized)
 }
 
@@ -244,7 +244,7 @@ export function ConnectPhoneSidebarPanel({
   workspaceRoot = ''
 }: {
   channels: ClawImChannelV1[]
-  onAddProvider: AddClawPhoneChannel
+  onAddProvider: AddConnectPhoneChannel
   onDisconnect: (channelId: string) => Promise<void>
   onOpenSettings: () => void
   workspaceRoot?: string
@@ -309,7 +309,7 @@ export function ConnectPhoneSidebarPanel({
     poll: Extract<ConnectPhoneInstallPollResult, { done: true }>
   ): Promise<void> => {
     const provider = poll.kind
-    if (hasClawPhoneChannel(channels, provider)) {
+    if (hasConnectPhoneChannel(channels, provider)) {
       setInstallQr({
         ...INITIAL_QR_STATE,
         status: 'error',
@@ -1496,7 +1496,7 @@ function ConnectPhoneTargetLogo({
   className?: string
 }): ReactElement {
   if (target === 'discord') return <DiscordLogo className={className} />
-  return <ClawProviderLogo provider={connectPhoneProviderForTarget(target)} className={className} />
+  return <RemoteChannelProviderLogo provider={connectPhoneProviderForTarget(target)} className={className} />
 }
 
 function DiscordLogo({ className = 'h-5 w-5' }: { className?: string }): ReactElement {
@@ -1529,7 +1529,7 @@ export function ConnectPhoneDialog({
   workspaceRoot = ''
 }: {
   channels: ClawImChannelV1[]
-  onAddProvider: AddClawPhoneChannel
+  onAddProvider: AddConnectPhoneChannel
   onDisconnect: (channelId: string) => Promise<void>
   onOpenSettings: () => void
   onClose: () => void

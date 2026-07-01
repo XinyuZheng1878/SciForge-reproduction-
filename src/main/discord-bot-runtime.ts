@@ -335,7 +335,7 @@ function normalizeWorkspaceRoot(raw: string | null | undefined): string {
   return typeof raw === 'string' ? raw.trim() : ''
 }
 
-function isInternalClawWorkspaceRoot(workspaceRoot: string): boolean {
+function isInternalRemoteChannelWorkspaceRoot(workspaceRoot: string): boolean {
   const normalized = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
   return (
     normalized === '~/.sciforge/remote-channel'
@@ -351,9 +351,9 @@ function resolveDiscordChannelWorkspaceRoot(
   defaultWorkspaceRoot: string | null | undefined
 ): string {
   const requested = normalizeWorkspaceRoot(requestedWorkspaceRoot)
-  if (requested && !isInternalClawWorkspaceRoot(requested)) return requested
+  if (requested && !isInternalRemoteChannelWorkspaceRoot(requested)) return requested
   const existing = normalizeWorkspaceRoot(existingWorkspaceRoot)
-  if (existing && !isInternalClawWorkspaceRoot(existing)) return existing
+  if (existing && !isInternalRemoteChannelWorkspaceRoot(existing)) return existing
   const fallback = normalizeWorkspaceRoot(defaultWorkspaceRoot)
   return fallback || requested || existing
 }

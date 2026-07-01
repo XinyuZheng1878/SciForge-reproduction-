@@ -485,9 +485,6 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
     saveMemoryRecord,
     disableMemoryRecord,
     deleteMemoryRecord,
-    pickClawWorkspace,
-    resetClawWorkspaceToDefault,
-    clawWorkspacePickerError,
     splitSettingsList,
     listSettingsText
   } = ctx

@@ -78,9 +78,6 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
     saveMcpConfig,
     loadMcpConfig,
     openMcpConfigDir,
-    pickClawWorkspace,
-    resetClawWorkspaceToDefault,
-    clawWorkspacePickerError,
     splitSettingsList,
     listSettingsText
   } = ctx

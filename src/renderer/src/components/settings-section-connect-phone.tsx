@@ -9,22 +9,22 @@ import {
   type ClawModel
 } from '@shared/app-settings'
 import { SettingsCard, SettingRow, Toggle } from './settings-controls'
-import { clawProviderDisplayLabel } from './chat/SidebarClaw'
+import { remoteChannelProviderDisplayLabel } from './chat/RemoteChannelSidebar'
 
-type ClawSettingsContext = {
+type ConnectPhoneSettingsContext = {
   t: (key: string, values?: Record<string, unknown>) => string
   form: AppSettingsV1
   update: (partial: AppSettingsPatch) => void
   selectControlClass: string
-  pickClawWorkspace: () => Promise<void>
-  resetClawWorkspaceToDefault: () => void
-  clawWorkspacePickerError: string | null
+  pickConnectPhoneWorkspace: () => Promise<void>
+  resetConnectPhoneWorkspaceToDefault: () => void
+  connectPhoneWorkspacePickerError: string | null
 }
 
-type ClawAgentProfileField = keyof ClawImAgentProfileV1
+type ConnectPhoneAgentProfileField = keyof ClawImAgentProfileV1
 
 const profileFields: Array<{
-  key: ClawAgentProfileField
+  key: ConnectPhoneAgentProfileField
   labelKey: string
   placeholderKey: string
   rows: number
@@ -127,15 +127,15 @@ export function discordGuardOwnerPatch(
   }
 }
 
-export function ClawSettingsSection({ ctx }: { ctx: ClawSettingsContext }): ReactElement {
+export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettingsContext }): ReactElement {
   const {
     t,
     form,
     update,
     selectControlClass,
-    pickClawWorkspace,
-    resetClawWorkspaceToDefault,
-    clawWorkspacePickerError
+    pickConnectPhoneWorkspace,
+    resetConnectPhoneWorkspaceToDefault,
+    connectPhoneWorkspacePickerError
   } = ctx
 
   return (
@@ -173,22 +173,22 @@ export function ClawSettingsSection({ ctx }: { ctx: ClawSettingsContext }): Reac
                 />
                 <button
                   type="button"
-                  onClick={resetClawWorkspaceToDefault}
+                  onClick={resetConnectPhoneWorkspaceToDefault}
                   className="shrink-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover"
                 >
                   {t('clawDefaultWorkspaceReset')}
                 </button>
                 <button
                   type="button"
-                  onClick={() => void pickClawWorkspace()}
+                  onClick={() => void pickConnectPhoneWorkspace()}
                   className="shrink-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover"
                 >
                   {t('browse')}
                 </button>
               </div>
-              {clawWorkspacePickerError ? (
+              {connectPhoneWorkspacePickerError ? (
                 <p className="mt-2 text-[13px] leading-5 text-amber-700 dark:text-amber-300">
-                  {clawWorkspacePickerError}
+                  {connectPhoneWorkspacePickerError}
                 </p>
               ) : null}
             </div>
@@ -213,7 +213,7 @@ export function ClawSettingsSection({ ctx }: { ctx: ClawSettingsContext }): Reac
                     <div className="truncate text-[14px] font-semibold text-ds-ink">{name}</div>
                     <div className="mt-1 text-[12px] text-ds-faint">
                       {t('clawManageAgentMeta', {
-                        provider: clawProviderDisplayLabel(channel.provider),
+                        provider: remoteChannelProviderDisplayLabel(channel.provider),
                         model: channel.model,
                         workspace: channelEffectiveWorkspace(form, channel)
                       })}

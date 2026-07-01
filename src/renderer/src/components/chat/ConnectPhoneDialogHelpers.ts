@@ -10,10 +10,10 @@ export type ConnectPhoneInstallQrState = {
 }
 
 export function formatConnectPhoneInstallError(
-  message: string,
+  rawMessage: string,
   t: (k: string, opts?: Record<string, unknown>) => string
 ): string {
-  const value = message.trim()
+  const value = rawMessage.trim()
   if (
     /WeChat login bridge/i.test(value) ||
     /OpenClaw Gateway/i.test(value) ||

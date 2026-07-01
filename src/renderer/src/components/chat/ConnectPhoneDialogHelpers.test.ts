@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { formatConnectPhoneInstallError } from './SidebarClawDialogHelpers'
+import { formatConnectPhoneInstallError } from './ConnectPhoneDialogHelpers'
 
-describe('SidebarClawDialogHelpers', () => {
+describe('ConnectPhoneDialogHelpers', () => {
   it('formats WeChat bridge errors without preserving OpenClaw compatibility text', () => {
     const t = (key: string) => `translated:${key}`
 

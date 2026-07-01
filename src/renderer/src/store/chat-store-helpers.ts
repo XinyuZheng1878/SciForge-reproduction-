@@ -207,7 +207,7 @@ export function newClawChannel(
 ): ClawImChannelV1 {
   const now = new Date().toISOString()
   const fallbackId = `im-${provider}-${Date.now()}`
-  const defaultName = defaultClawProviderLabel(provider)
+  const defaultName = defaultRemoteChannelProviderLabel(provider)
   const profileName = agentProfile?.name?.trim() || defaultName
   return {
     id: globalThis.crypto?.randomUUID?.() ?? fallbackId,
@@ -469,7 +469,7 @@ export function hydrateBlockModelLabels(threadId: string, blocks: ChatBlock[]): 
   return changed ? next : blocks
 }
 
-function defaultClawProviderLabel(provider: ClawImProvider): string {
+function defaultRemoteChannelProviderLabel(provider: ClawImProvider): string {
   if (provider === 'discord') return 'discord bot'
   if (provider === 'weixin') return 'weixin agent'
   return 'feishu agent'

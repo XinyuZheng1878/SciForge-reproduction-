@@ -99,7 +99,7 @@ type TestSettings = {
   }
 }
 
-type TestClawProvider = {
+type TestRemoteChannelProvider = {
   id: AgentRuntimeId
   rememberThreadRuntime: ReturnType<typeof vi.fn<(threadId: string, runtimeId?: AgentRuntimeId) => void>>
   createThread: ReturnType<typeof vi.fn<(input: { workspace: string; title: string; mode: 'agent' | 'plan' }) => Promise<NormalizedThread>>>
@@ -128,7 +128,7 @@ function settingsWithChannels(
 
 function createClawActionHarness(options: {
   settings: TestSettings
-  provider?: Partial<TestClawProvider>
+  provider?: Partial<TestRemoteChannelProvider>
   newClawChannel?: () => ClawImChannelV1
   state?: Record<string, unknown>
 }) {
@@ -149,7 +149,7 @@ function createClawActionHarness(options: {
   }
   vi.stubGlobal('window', { sciforge })
 
-  const provider: TestClawProvider = {
+  const provider: TestRemoteChannelProvider = {
     id: 'sciforge' as AgentRuntimeId,
     rememberThreadRuntime: vi.fn<(threadId: string, runtimeId?: AgentRuntimeId) => void>(),
     createThread: vi.fn<(input: { workspace: string; title: string; mode: 'agent' | 'plan' }) => Promise<NormalizedThread>>(

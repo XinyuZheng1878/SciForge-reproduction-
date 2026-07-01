@@ -25,7 +25,7 @@
 
 - [x] 删除已无真实调用的 `RuntimeHost` legacy request/SSE 兼容层，事件链路统一到 `AgentRuntimeHost` / adapter。
 - [x] 删除旧 singular user-input HTTP endpoint `/v1/user-input/:id`，只保留 canonical `/v1/user-inputs/:id`，并保留 legacy singular 404 回归测试。
-- [x] 删除未挂载的旧 Connect phone 独立页/旧大弹窗链路：移除 `SidebarClawDialog*.tsx`、旧 `ConnectPhoneView` 组件本体和对应旧链路测试，只保留当前 sidebar panel/dialog/helper。
+- [x] 删除未挂载的旧 Connect phone 独立页/旧大弹窗链路：移除旧 sidebar dialog 组件、旧 Connect phone 独立页组件本体和对应旧链路测试，只保留当前 sidebar panel/dialog/helper。
 - [x] 将 Settings route section 的内部枚举从 `'claw'` 清名为 `'connectPhone'`，同步 settings view/sidebar/store/update 调用点。
 - [x] 清理 local-runtime 打包 helper 里的 `Kun` 命名，root postinstall/after-pack 继续复用统一 local-runtime package helper。
 - [x] 删除 renderer 缺 runtime id 时默认路由到 SciForge 的 helper fallback，远程通道线程绑定 helper 必须显式传 runtime id。
@@ -79,6 +79,7 @@
 - [x] license exact-hit 扫描工具清名：`license-risk-scan.mjs` 的公开 CLI/env/JSON/text 输出改为 neutral reference repo 语义，删除内置旧本地参考仓库路径，未显式传 `REFERENCE_REPO` / `--reference-repo` 时 fail-closed。
 - [x] K-Dense Scientific Skills 默认 discovery 不再扫描旧本地 runtime 目录；只保留显式 `SCIFORGE_KDENSE_SKILLS_ROOT`、workspace `.agents` / `skills`、global `.agents` 来源，旧目录只能作为用户显式 env root 输入。
 - [x] local runtime env scrub 补齐 `EDAG_LLM_*`，generic SciForge Runtime 子进程不再继承 Evidence DAG legacy direct LLM env；image-generation 设置文案标注为 worker-contained 临时例外。
+- [x] Connect phone / remote-channel renderer 内部 UI 命名继续清理：settings section 改为 `settings-section-connect-phone` / `ConnectPhoneSettingsSection`，provider UI 改为 `RemoteChannelSidebar`，安装 helper 改为 `ConnectPhoneDialogHelpers`，workspace picker / provider helper 名称改为 connect-phone / remote-channel 语义；shared `ClawIm*` 类型仍留在公开 API 决策边界内。
 
 ## 验证记录
 
@@ -92,11 +93,11 @@
 - [x] `npx vitest run src/main/schedule-runtime.test.ts src/main/workflow-runtime.test.ts src/main/claw-runtime.test.ts`
 - [x] `npx vitest run src/shared/agent-runtime-contract.test.ts src/renderer/src/agent/agent-runtime-event-dispatcher.test.ts src/renderer/src/agent/agent-runtime-provider.test.ts src/renderer/src/lib/thread-sidebar-visibility.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts src/renderer/src/store/chat-store-navigation-actions.test.ts`
 - [x] `npx vitest run src/main/packaging-config.test.ts src/main/kun-src-boundary.test.ts src/main/weixin-bridge-runtime.test.ts src/main/ipc/app-ipc-schemas.test.ts src/main/settings-store.test.ts src/renderer/src/components/settings-section-agents.test.ts`
-- [x] `npx vitest run src/renderer/src/components/chat/ConnectPhoneView.test.ts src/renderer/src/components/chat/SidebarClawDialogHelpers.test.ts src/renderer/src/plan/plan-store.test.ts src/renderer/src/plan/plan-command.test.ts src/renderer/src/plan/plan-prompts.test.ts src/renderer/src/store/chat-store-runtime.test.ts src/renderer/src/store/chat-store-runtime-helpers.test.ts`
+- [x] `npx vitest run src/renderer/src/components/chat/ConnectPhoneView.test.ts src/renderer/src/components/chat/ConnectPhoneDialogHelpers.test.ts src/renderer/src/plan/plan-store.test.ts src/renderer/src/plan/plan-command.test.ts src/renderer/src/plan/plan-prompts.test.ts src/renderer/src/store/chat-store-runtime.test.ts src/renderer/src/store/chat-store-runtime-helpers.test.ts`
 - [x] `npx vitest run src/renderer/src/store/chat-store-navigation-actions.test.ts src/renderer/src/store/chat-store-schedulers.test.ts`
 - [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
 - [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
-- [x] `npx vitest run src/shared/app-settings.test.ts src/main/settings-store.test.ts src/main/ipc/app-ipc-schemas.test.ts src/main/weixin-bridge-runtime.test.ts src/main/schedule-runtime.test.ts src/renderer/src/components/schedule/ScheduleTasksView.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts src/renderer/src/store/chat-store-helpers.test.ts src/renderer/src/store/chat-store-app-actions.test.ts src/renderer/src/store/chat-store-thread-actions.test.ts src/renderer/src/components/chat/ConnectPhoneView.test.ts src/renderer/src/components/chat/RemoteGuardDetailView.test.ts src/renderer/src/components/settings-section-claw.test.ts`
+- [x] `npx vitest run src/shared/app-settings.test.ts src/main/settings-store.test.ts src/main/ipc/app-ipc-schemas.test.ts src/main/weixin-bridge-runtime.test.ts src/main/schedule-runtime.test.ts src/renderer/src/components/schedule/ScheduleTasksView.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts src/renderer/src/store/chat-store-helpers.test.ts src/renderer/src/store/chat-store-app-actions.test.ts src/renderer/src/store/chat-store-thread-actions.test.ts src/renderer/src/components/chat/ConnectPhoneView.test.ts src/renderer/src/components/chat/RemoteGuardDetailView.test.ts src/renderer/src/components/settings-section-connect-phone.test.ts`
 - [x] `npm run model-router:test`
 - [x] `npx vitest run src/main/model-router-api-boundary.test.ts src/main/model-router-health.test.ts src/renderer/src/components/settings-section-agents.test.ts src/main/weixin-bridge-runtime.test.ts`
 - [x] `npx vitest run src/main/runtime/codex/app-server/json-rpc-client.test.ts src/main/runtime/codex/app-server/request-registry.test.ts src/main/runtime/codex/app-server/event-normalizer.test.ts src/main/runtime/codex/app-server/capsule-boundary.test.ts src/main/runtime/codex/codex-service.test.ts`
@@ -106,7 +107,7 @@
 - [x] `npm test -- src/main/claw-runtime.test.ts src/main/scheduled-task-detector.test.ts src/main/schedule-runtime.test.ts`
 - [x] `npx vitest run src/renderer/src/components/PluginMarketplaceView.test.ts`
 - [x] `npx vitest run src/renderer/src/store/chat-store-runtime.test.ts`
-- [x] `npx vitest run src/renderer/src/components/PluginMarketplaceView.test.ts src/renderer/src/components/settings-section-agents.test.ts src/renderer/src/components/chat/SidebarClawDialogHelpers.test.ts src/renderer/src/plan/plan-todo-sync.test.ts src/renderer/src/store/chat-store-provider-capabilities.test.ts`
+- [x] `npx vitest run src/renderer/src/components/PluginMarketplaceView.test.ts src/renderer/src/components/settings-section-agents.test.ts src/renderer/src/components/chat/ConnectPhoneDialogHelpers.test.ts src/renderer/src/plan/plan-todo-sync.test.ts src/renderer/src/store/chat-store-provider-capabilities.test.ts`
 - [x] `npx vitest run src/main/ipc/register-app-ipc-handlers.test.ts src/shared/claw-commands.test.ts src/main/ipc/app-ipc-schemas.test.ts src/preload/index.test.ts src/renderer/src/dev/dev-sciforge-bridge.test.ts src/renderer/src/lib/remote-channel-api.test.ts`
 - [x] `npx vitest run src/main/services/skill-service.test.ts packages/workers/workspace-intel/src/service.test.ts`
 - [x] `(packages/workers/workspace-intel) node --import tsx --test src/service.test.ts`
@@ -119,7 +120,7 @@
 - [x] `npx vitest run src/main/model-router-api-boundary.test.ts src/main/image-generation-mcp-config.test.ts`
 - [x] `npm --workspace @sciforge/sci-modality-router run typecheck`
 - [x] `npm --workspace @sciforge/sci-modality-router run test`
-- [x] `npx vitest run src/main/claw-platform-install.test.ts src/renderer/src/components/chat/SidebarClawDialogHelpers.test.ts src/renderer/src/components/chat/ConnectPhoneView.test.ts`
+- [x] `npx vitest run src/main/claw-platform-install.test.ts src/renderer/src/components/chat/ConnectPhoneDialogHelpers.test.ts src/renderer/src/components/chat/ConnectPhoneView.test.ts`
 - [x] `npx vitest run src/main/ipc/app-ipc-schemas.test.ts src/main/local-runtime-process.test.ts src/main/services/computer-use-status.test.ts src/renderer/src/components/settings-section-agents.test.ts src/main/computer-use-mcp-config.test.ts`
 - [x] `node -e 'const fs=require("fs"); for (const f of ["src/renderer/src/locales/en/common.json","src/renderer/src/locales/en/settings.json","src/renderer/src/locales/zh/common.json","src/renderer/src/locales/zh/settings.json"]) JSON.parse(fs.readFileSync(f,"utf8"));'`
 - [x] `npx vitest run packages/workers/scientific-plotting/src/scientific-skills-index.test.ts`
@@ -148,6 +149,9 @@
 - [x] `npm test -- src/main/model-router-api-boundary.test.ts`
 - [x] `node scripts/license-risk-scan.mjs --help`
 - [x] `node scripts/license-risk-scan.mjs --max-details 0`（预期 fail-closed：缺少 `REFERENCE_REPO` / `--reference-repo`）
+- [x] `npx vitest run src/renderer/src/components/settings-section-connect-phone.test.ts src/renderer/src/components/settings-section-agents.test.ts src/renderer/src/components/chat/ConnectPhoneView.test.ts src/renderer/src/components/chat/ConnectPhoneDialogHelpers.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts src/renderer/src/store/chat-store-helpers.test.ts src/main/discord-bot-runtime.test.ts`
+- [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
+- [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
 
 ## 已决策待实施
 
@@ -166,7 +170,7 @@
 - [ ] `gui-owl-computer-use` 暂停处理：保持 `gui-owl-computer-use` 与旧 `@sciforge/computer-use` 并存，不迁移、不删除，等待人工分别测试两套 computer-use 后再决策。人工测试矩阵需覆盖：`-SafeDryRun` 不动鼠标键盘、live 必须 GUI approve、cancel 有效、无 token live 被拒、是否让手工 dry-run 也强制 token（因为会截图并走 Model Router）。
 - [ ] Agent Runtime auxiliary 仍需决策是否改为按 operation 区分的 discriminated union：运行期 guard 已让 `reviewThread`、`listThreadChildren`、`readChildTranscript`、context ledger/state、runtime handoff、goal/todos、checkpoint create、thread workspace/archive、`cancelUserInput` 等 thread-bound operation 缺 `runtimeId` 时 fail-closed；仍需决策是否把该分类提升到 shared contract / IPC schema 的 operation-specific 类型与校验。`getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences` 等 active-scoped 能力继续允许省略。
 - [ ] `SCIFORGE_CUA_SERVICE_URL` loopback 策略等待 computer-use 人工测试后决策：允许哪些 loopback 形式、是否支持 SSH tunnel hostname、非 loopback 时 fail-closed 并不广告旧 tool，还是保留当前“不启用 GUI-managed MCP 以避免重复注册”的冲突 guard。
-- [ ] Remote Channel / Connect Phone 公开 TypeScript surface 是否破坏式清名：shared typings 仍暴露 `Claw*` 类型/函数/常量（例如 `ClawImChannelV1`、`ClawRunMode`、`parseClawCommand`），但运行时 API/文案已是 `remoteChannel` / `connectPhone`。需决策直接重命名为 `RemoteChannel*` / `ConnectPhone*` 并删除 alias，还是保留 deprecated alias 迁移期；内部 renderer/store/component 文件名也可随后批量中性化。
+- [ ] Remote Channel / Connect Phone 公开 TypeScript surface 是否破坏式清名：shared typings 仍通过 `src/shared/app-settings-types.ts` 和 `src/shared/app-settings.ts` barrel 暴露 `Claw*` 类型/函数/常量（例如 `ClawImChannelV1`、`ClawRunMode`、`parseClawCommand`），并经 `SciForgeApi` settings / Discord payload 间接暴露；运行时 window API、IPC channel 和用户文案已是 `remoteChannel` / `connectPhone`。需决策直接重命名为 `RemoteChannel*` / `ConnectPhone*` 并删除 alias，还是保留 deprecated alias 迁移期；renderer store 的 `clawChannels` / `activeClawChannelId` / `chat-store-claw-actions` 属于同一批内部清名，但需先决定 `activeClawChannelId` 与现有 `activeRemoteChannelId` 的目标语义，避免两种 remote-channel 选择态混名。
 
 ## 待核对/拆解
 

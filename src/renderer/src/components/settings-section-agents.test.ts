@@ -410,9 +410,9 @@ function baseCtx(): Record<string, unknown> {
     refreshLocalRuntimeDiagnostics: asyncNoop,
     disableMemoryRecord: asyncNoop,
     deleteMemoryRecord: asyncNoop,
-    pickClawWorkspace: asyncNoop,
-    resetClawWorkspaceToDefault: noop,
-    clawWorkspacePickerError: '',
+    pickConnectPhoneWorkspace: asyncNoop,
+    resetConnectPhoneWorkspaceToDefault: noop,
+    connectPhoneWorkspacePickerError: '',
     splitSettingsList: (value: string) => value.split('\n').filter(Boolean),
     listSettingsText: (value: string[]) => value.join('\n')
   }
