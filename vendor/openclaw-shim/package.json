@@ -1,7 +1,7 @@
 {
   "name": "openclaw",
   "version": "2026.5.18",
-  "description": "DeepSeek GUI compatibility shim for @tencent-weixin/openclaw-weixin peer imports.",
+  "description": "SciForge compatibility shim for @tencent-weixin/openclaw-weixin peer imports.",
   "type": "module",
   "private": true,
   "license": "MIT",

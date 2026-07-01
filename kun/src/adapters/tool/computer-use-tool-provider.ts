@@ -4,7 +4,7 @@ import { LocalToolHost } from './local-tool-host.js'
 /**
  * Computer-Use tool provider.
  *
- * Exposes a single `computer_use` tool that lets the main agent (DeepSeek)
+ * Exposes a single `computer_use` tool that lets the host agent
  * drive the user's real desktop (click / type / scroll) by handing a
  * natural-language instruction to the standalone Computer-Use plugin
  * (`packages/workers/gui-owl-computer-use/`, default http://127.0.0.1:3900).
@@ -15,9 +15,10 @@ import { LocalToolHost } from './local-tool-host.js'
  * HTTP and returns the structured trace/status, never a final answer.
  *
  * Safety: the tool uses `policy: 'on-request'`, so every call is gated by the
- * Kun approval prompt before any real mouse/keyboard action runs. Only after
- * the user approves does Kun forward `execute:true & approve:true` to the
- * plugin (which must also be started with `CUA_ALLOW_EXECUTE=true`).
+ * SciForge Runtime approval prompt before any real mouse/keyboard action runs.
+ * Only after the user approves does the runtime forward
+ * `execute:true & approve:true` to the plugin (which must also be started with
+ * `CUA_ALLOW_EXECUTE=true`).
  *
  * Env-gated and fail-closed: when `SCIFORGE_CUA_SERVICE_URL` is unset the
  * provider advertises nothing, so existing behaviour is preserved.
@@ -127,7 +128,7 @@ export function buildComputerUseToolProviders(
               return { output: { error: 'instruction is required' }, isError: true }
             }
 
-            // The user already approved this call via the Kun approval gate
+            // The user already approved this call via the SciForge Runtime approval gate
             // (policy: on-request), so we forward execute+approve. The plugin
             // is the final gate (CUA_ALLOW_EXECUTE) and owns retry/robustness.
             // Stable id so we can tell the plugin to STOP this exact run on abort.

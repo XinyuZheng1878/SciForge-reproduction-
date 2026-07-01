@@ -1279,7 +1279,7 @@ export class DiscordBotRuntime {
         }
       })
     } catch (error) {
-      this.deps.logError('claw-discord', 'Failed to process Discord message through Claw runtime.', redactSecrets({
+      this.deps.logError('claw-discord', 'Failed to process Discord message through remote-channel runtime.', redactSecrets({
         message: errorMessage(error),
         messageId,
         channelId: credential.channelId,
@@ -1295,7 +1295,7 @@ export class DiscordBotRuntime {
     }
     if (result.ok && 'ignored' in result && result.ignored) return
     if (!result.ok) {
-      this.deps.logError('claw-discord', 'Claw runtime returned a failure for Discord message.', redactSecrets({
+      this.deps.logError('claw-discord', 'Remote-channel runtime returned a failure for Discord message.', redactSecrets({
         message: result.message,
         result,
         messageId,
@@ -1367,7 +1367,7 @@ export class DiscordBotRuntime {
         }
       })
     } catch (error) {
-      this.deps.logError('claw-discord', 'Failed to process Discord interaction through Claw runtime.', redactSecrets({
+      this.deps.logError('claw-discord', 'Failed to process Discord interaction through remote-channel runtime.', redactSecrets({
         message: errorMessage(error),
         interactionId,
         channelId: credential.channelId,
@@ -1382,7 +1382,7 @@ export class DiscordBotRuntime {
       return
     }
     if (!result.ok) {
-      this.deps.logError('claw-discord', 'Claw runtime returned a failure for Discord interaction.', redactSecrets({
+      this.deps.logError('claw-discord', 'Remote-channel runtime returned a failure for Discord interaction.', redactSecrets({
         message: result.message,
         result,
         interactionId,

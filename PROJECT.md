@@ -88,6 +88,9 @@
 - [x] Private local runtime Model Router client 清名：`kun/src/adapters/model/deepseek-compat-model-client.ts` / `DeepseekCompatModelClient` 改为 `model-router-model-client.ts` / `ModelRouterModelClient`，同步 runtime factory、kun tests、Model Router 边界测试和 runtime 文档；DeepSeek-specific pricing/cache/probe helper 保持模型/provider 语义不机械替换。
 - [x] 本轮并行 agent 发现的附带旧名清理：inline-completion 测试 fixture、auto model router 测试标题、research-memory skill metadata、attachment/chat-completions 测试标题和 loop 注释改为 SciForge / Model Router 中性语义。
 - [x] Agent Runtime auxiliary guard 覆盖补强：host 测试复用 shared operation tuple，验证所有不需要 `runtimeId` 的 auxiliary operation 不会被 runtimeId guard 误拒。
+- [x] local runtime / computer-use 边界注释清理：架构文档删除重复断裂的 upstream provider 配置句，并把 history repair 描述改成经 Model Router 边界；`computer-use` tool provider 注释从 DeepSeek/Kun 改为 host agent / SciForge Runtime approval 语义；不改变 `gui-owl-computer-use` 与 `@sciforge/computer-use` 并存决策。
+- [x] 本轮旧名/公开文案安全清理：third-party notice、research memory 设计文档、Discord remote-channel 日志、remote-channel empty state CSS/test、OpenClaw shim 描述和默认临时目录、Workbench 图片上传注释、AGENTS 英文说明统一到 SciForge / remote-channel / Model Router 中性语义；协议名、第三方包名和待决策 `Claw*` public TS surface 保持不动。
+- [x] Model Router / Search / Paper Radar 防回归补强：GUI-managed Model Router sidecar 不再继承外层 direct provider env 或 standalone router `SCIFORGE_TEXT_*` / `SCIFORGE_VISION_*` env；Search 文档补 Europe PMC，root helper exports 加库存测试；Paper Radar plugin service 保持 private/internal 的 metadata guard，并补 after-pack required paths 覆盖 worker 直接依赖的 plugin core 文件。
 
 ## 验证记录
 
@@ -171,6 +174,11 @@
 - [x] `npm --prefix kun run test -- tests/model-client.test.ts tests/attachment-store.test.ts tests/deepseek-pricing.test.ts tests/model-error-probe.test.ts tests/auto-model-router.test.ts`
 - [x] `npx vitest run src/main/model-router-api-boundary.test.ts src/main/runtime/agent-runtime/host.test.ts src/renderer/src/write/inline-completion/context.test.ts src/renderer/src/write/inline-completion/prompt.test.ts`
 - [x] `git diff --check`
+- [x] `npm --workspace @sciforge/search run test`
+- [x] `npx vitest run src/main/model-router-sidecar.test.ts src/main/discord-bot-runtime.test.ts src/renderer/src/components/chat/MessageTimeline.initial-heatmap.test.ts src/main/worker-package-metadata.test.ts src/main/packaging-config.test.ts`
+- [x] `npm --prefix kun run typecheck`
+- [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
+- [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
 
 ## 已决策待实施
 

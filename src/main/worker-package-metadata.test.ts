@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 type WorkerPackageJson = {
   name?: string
+  private?: boolean
   type?: string
   bin?: Record<string, string>
   exports?: Record<string, string>
@@ -13,9 +14,11 @@ type WorkerPackageJson = {
     lifecycleLayer?: string
     runtime?: string
     language?: string
+    distribution?: string
     publicContract?: boolean
     runtimeAdapter?: boolean
     mcpServer?: boolean
+    publicNpmPackage?: boolean
     sideEffects?: string
   }
 }
@@ -25,6 +28,10 @@ const workerRoot = join(process.cwd(), 'packages', 'workers')
 
 function readWorkerPackageJson(packageDir: string): WorkerPackageJson {
   return JSON.parse(readFileSync(join(workerRoot, packageDir, 'package.json'), 'utf8')) as WorkerPackageJson
+}
+
+function readPackageJson(relativePath: string): WorkerPackageJson {
+  return JSON.parse(readFileSync(join(process.cwd(), relativePath), 'utf8')) as WorkerPackageJson
 }
 
 function parseSideEffects(value: string): string[] {
@@ -85,5 +92,14 @@ describe('worker package metadata', () => {
         './service': './src/service.ts'
       }))
     }
+  })
+
+  it('keeps the Paper Radar service plugin private while core ownership is pending', () => {
+    const metadata = readPackageJson('plugins/paper-radar-service/package.json')
+
+    expect(metadata.name).toBe('sciforge-paper-radar-service')
+    expect(metadata.private).toBe(true)
+    expect(metadata.sciforge?.distribution).toBe('private-internal-service')
+    expect(metadata.sciforge?.publicNpmPackage).toBe(false)
   })
 })

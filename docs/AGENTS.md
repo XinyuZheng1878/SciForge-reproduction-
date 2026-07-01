@@ -10,8 +10,10 @@ the runtime-neutral `AgentRuntime` contract. Renderer code should use
 `AgentRuntimeProvider` and the `window.sciforge.agentRuntime` preload API instead
 of calling SciForge Runtime `/v1/*` endpoints or Codex `codex:*` IPC directly. SciForge Runtime continues
 to serve HTTP/SSE behind its adapter. Codex runtime code must stay modular and
-centralized under `src/main/runtime/codex/`. Connect phone and scheduled
-tasks record runtime ids and preserve runtime-specific thread mappings, but
+centralized under `src/main/runtime/codex/`. Connect phone / remote-channel
+code still has a small number of historical `claw` files or symbols; when kept,
+they are internal compatibility names, not user-visible or public API names.
+Connect phone and scheduled tasks record runtime ids and preserve runtime-specific thread mappings, but
 their non-default runtime execution path currently fails closed until native adapter support
 is implemented for those background workflows.
 

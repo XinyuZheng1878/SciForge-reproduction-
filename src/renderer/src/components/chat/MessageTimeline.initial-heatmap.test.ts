@@ -38,7 +38,7 @@ describe('MessageTimeline initial heatmap empty hero routing', () => {
     expect(html).not.toContain('Start a new conversation')
   })
 
-  it('keeps offline, missing-workspace, and Claw empty states gated away from the heatmap', () => {
+  it('keeps offline, missing-workspace, and remote-channel empty states gated away from the heatmap', () => {
     const offlineHtml = renderHero({ ready: false })
     expect(offlineHtml).toContain('SciForge is waking the local agent')
     expect(offlineHtml).toContain('ds-runtime-wake-logo')
@@ -46,7 +46,7 @@ describe('MessageTimeline initial heatmap empty hero routing', () => {
     expect(renderHero({ hasWorkspace: false })).toContain('Choose working directory')
     const clawHtml = renderHero({ remoteChannelMode: true })
     expect(clawHtml).toContain('Start a conversation with this assistant')
-    expect(clawHtml).toContain('ds-claw-empty-whale-logo')
+    expect(clawHtml).toContain('ds-remote-channel-empty-logo')
     expect(clawHtml).toContain('ds-work-logo')
     expect(clawHtml).not.toContain('ds-initial-usage-heatmap')
   })

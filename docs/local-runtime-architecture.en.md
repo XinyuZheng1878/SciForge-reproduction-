@@ -90,7 +90,7 @@ or timestamps.
   Stable ordering avoids prefix churn caused by schema reordering.
 - Each turn persists a canonical tool-catalog fingerprint and count.
   If a scope detects tool-definition drift, `toolCatalogDrift` is recorded to aid cache debugging.
-- Before sending historical messages to DeepSeek, repair message history:
+- Before sending historical messages through Model Router, repair message history:
   no orphaned `tool_result`, no `tool_call` whose result is missing.
   Multiple tool calls in one response are reorganized into a single legal
   assistant `tool_calls` message to reduce 400/retry loops.

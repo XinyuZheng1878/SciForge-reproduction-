@@ -1311,7 +1311,7 @@ export function Workbench(): ReactElement {
       for (const input of imageInputs) {
         const file = input.file
         if (file.type.startsWith('image/')) {
-          // Image: translated to text by the vision model (Qwen) in the model router.
+          // Image: translated to text by the configured vision translator in Model Router.
           const prepared = await prepareImageAttachmentUpload(file, attachmentCapabilities)
           const attachment = await provider.uploadAttachment({
             name: file.name || 'image',

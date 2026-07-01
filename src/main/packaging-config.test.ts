@@ -663,7 +663,12 @@ describe('electron-builder local runtime packaging', () => {
       'packages/workers/paper-radar/src/service.ts',
       'packages/workers/paper-radar/src/contract.ts',
       'plugins/paper-radar-service/package.json',
-      'plugins/paper-radar-service/src/storage.ts'
+      'plugins/paper-radar-service/src/service.ts',
+      'plugins/paper-radar-service/src/storage.ts',
+      'plugins/paper-radar-service/src/profiles.ts',
+      'plugins/paper-radar-service/src/ranker.ts',
+      'plugins/paper-radar-service/src/sources.ts',
+      'plugins/paper-radar-service/src/types.ts'
     ]))
 
     const root = tempRoot()

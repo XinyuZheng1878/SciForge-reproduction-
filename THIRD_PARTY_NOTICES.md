@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-27
 
-This file records the third-party license and distribution boundary for the current SciForge source tree. It is an engineering compliance index, not legal advice. The exact npm dependency graph is pinned by `package-lock.json`; the separate Kun runtime graph is pinned by `kun/package-lock.json`.
+This file records the third-party license and distribution boundary for the current SciForge source tree. It is an engineering compliance index, not legal advice. The exact npm dependency graph is pinned by `package-lock.json`; the separate local runtime graph is pinned by `kun/package-lock.json`.
 
 ## SciForge Source Boundary
 
@@ -190,4 +190,4 @@ Before any source or binary release:
 - Confirm or replace all media and brand assets listed above.
 - Confirm Python dependency metadata for any sidecar worker actually distributed.
 - Confirm that no model weights, default model endpoints, or provider credentials are bundled outside the Model Router policy.
-- Re-run the Kun exact-blob provenance scan against the final source package.
+- Re-run the local runtime exact-blob provenance scan against the final source package.

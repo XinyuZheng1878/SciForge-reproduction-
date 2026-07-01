@@ -18,6 +18,7 @@ Environment variables:
 
 - `SCIFORGE_RESEARCH_ARXIV_ENABLED`: default `true`
 - `SCIFORGE_RESEARCH_BIORXIV_ENABLED`: default `true`
+- `SCIFORGE_RESEARCH_EUROPE_PMC_ENABLED`: default `true`
 - `SCIFORGE_RESEARCH_SEMANTIC_SCHOLAR_ENABLED`: default `true`
 - `SCIFORGE_RESEARCH_SEMANTIC_SCHOLAR_API_KEY`: optional
 - `SCIFORGE_RESEARCH_TAVILY_ENABLED`: default `true` when a Tavily key is present

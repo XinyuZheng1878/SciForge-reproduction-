@@ -81,6 +81,25 @@ describe('buildModelRouterSidecarLaunch', () => {
       userDataDir: '/tmp/sciforge-user-data',
       appRoot: '/repo/sciforge',
       env: {
+        OPENAI_API_KEY: 'outer-openai-key',
+        OPENAI_BASE_URL: 'https://outer-openai.example/v1',
+        OPENAI_MODEL: 'outer-openai-model',
+        DEEPSEEK_API_KEY: 'outer-deepseek-key',
+        DEEPSEEK_BASE_URL: 'https://api.deepseek.com/v1',
+        ANTHROPIC_API_KEY: 'outer-anthropic-key',
+        ANTHROPIC_AUTH_TOKEN: 'outer-anthropic-token',
+        ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'outer-sonnet',
+        QWEN_API_KEY: 'outer-qwen-key',
+        QWEN_BASE_URL: 'https://dashscope.example/v1',
+        MODEL_PROVIDER: 'outer-provider',
+        KUN_BASE_URL: 'https://old-runtime-provider.example/v1',
+        SCIFORGE_TEXT_API_KEY: 'outer-standalone-text-key',
+        SCIFORGE_TEXT_BASE_URL: 'https://outer-standalone-text.example/v1',
+        SCIFORGE_TEXT_MODEL: 'outer-standalone-text-model',
+        SCIFORGE_VISION_API_KEY: 'outer-standalone-vision-key',
+        SCIFORGE_VISION_BASE_URL: 'https://outer-standalone-vision.example/v1',
+        SCIFORGE_VISION_MODEL: 'outer-standalone-vision-model',
         SCIFORGE_IMAGE_API_KEY: 'outer-image-key',
         SCIFORGE_IMAGE_BASE_URL: 'https://direct-image-provider.example/v1',
         SCIFORGE_IMAGE_MODEL: 'outer-image-model',
@@ -118,6 +137,25 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY).toBe('local-runtime-key')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_TEXT_API_KEY).toBe('text-secret')
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_VISION_API_KEY).toBe('vision-secret')
+    expect(result.launch.env.OPENAI_API_KEY).toBeUndefined()
+    expect(result.launch.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(result.launch.env.OPENAI_MODEL).toBeUndefined()
+    expect(result.launch.env.DEEPSEEK_API_KEY).toBeUndefined()
+    expect(result.launch.env.DEEPSEEK_BASE_URL).toBeUndefined()
+    expect(result.launch.env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(result.launch.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+    expect(result.launch.env.ANTHROPIC_BASE_URL).toBeUndefined()
+    expect(result.launch.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined()
+    expect(result.launch.env.QWEN_API_KEY).toBeUndefined()
+    expect(result.launch.env.QWEN_BASE_URL).toBeUndefined()
+    expect(result.launch.env.MODEL_PROVIDER).toBeUndefined()
+    expect(result.launch.env.KUN_BASE_URL).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_TEXT_API_KEY).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_TEXT_BASE_URL).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_TEXT_MODEL).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_VISION_API_KEY).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_VISION_BASE_URL).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_VISION_MODEL).toBeUndefined()
     expect(result.launch.env.SCIFORGE_IMAGE_API_KEY).toBeUndefined()
     expect(result.launch.env.SCIFORGE_IMAGE_BASE_URL).toBeUndefined()
     expect(result.launch.env.SCIFORGE_IMAGE_MODEL).toBeUndefined()

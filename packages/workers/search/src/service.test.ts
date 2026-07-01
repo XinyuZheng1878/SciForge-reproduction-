@@ -11,6 +11,7 @@ import {
   createResearchSearchWorkerService,
   researchSearchWorkerDiagnosticsFromProviders
 } from './service.js';
+import * as publicSurface from './index.js';
 
 test('research search worker diagnostics expose standard shape', () => {
   const diagnostics = researchSearchWorkerDiagnosticsFromProviders([
@@ -57,6 +58,13 @@ test('research search worker diagnostics record recent service errors', async ()
 
 test('service facade preserves research service exports', () => {
   assert.equal(typeof createResearchSearchService, 'function');
+});
+
+test('root public surface keeps helper exports explicit until the breaking API decision lands', () => {
+  assert.equal(typeof publicSurface.planResearchQueries, 'function');
+  assert.equal(typeof publicSurface.buildArxivQuery, 'function');
+  assert.equal(typeof publicSurface.buildEuropePmcQuery, 'function');
+  assert.equal(typeof publicSurface.parseEuropePmcPapers, 'function');
 });
 
 test('package metadata declares search worker exports and MCP capability', async () => {

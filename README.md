@@ -73,7 +73,7 @@ Model Router 会识别结构化 workspace ref 和科学文件扩展名，例如 
 
 ### 1. 发现与吸收论文
 
-- `research_search` MCP worker 支持 arXiv、bioRxiv、Semantic Scholar 和可选 CNS web search。
+- `research_search` MCP worker 支持 arXiv、bioRxiv、Europe PMC、Semantic Scholar 和可选 CNS web search。
 - Paper Radar 可以维护教授或课题组 topic profile，按关键词、排除词、分类、来源和新近度排名论文。
 - 本地 SQLite 只保存元数据，不默认镜像 arXiv 或批量下载 PDF。
 - Write 的 PDF 阅读、搜索、批注、导出包和选区问答适合把论文阅读变成可复用研究资料。
@@ -213,8 +213,8 @@ SciForge 将科研能力拆成可单独启动、测试和审计的 worker：
 | `model-router` | 文本模型出口、视觉输入处理、科学多模态 worker 调度和 trace audit |
 | `sci-modality-router` | 蛋白、结构、小分子、单细胞 native-to-text translator |
 | `evidence-dag` | claim-evidence DAG、NLI verify、PROV-JSON、what-if reconcile |
-| `paper-radar` / `paper-radar-service` | 论文 profile、同步、搜索、排名和 digest |
-| `search` | arXiv、bioRxiv、Semantic Scholar 与可选 CNS web search 的科研检索 |
+| `paper-radar` | GUI / MCP 使用的论文 profile、同步、搜索、排名和 digest worker；`paper-radar-service` 仍是 standalone/debug API 和共享 core 依赖 |
+| `search` | arXiv、bioRxiv、Europe PMC、Semantic Scholar 与可选 CNS web search 的科研检索 |
 | `scientific-plotting` | 参考图准备、风格识别、受控绘图、评分和修复建议 |
 | `image-generation` | 受控图片生成、Canvas review packet 到编辑意图、artifact manifest |
 | `canvas` | workspace-local 画布、artifact 插入、批注和 review packet |
