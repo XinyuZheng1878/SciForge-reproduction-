@@ -400,7 +400,7 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
         input.imageGenerationMcp!.launch,
         existing,
         imageGenerationSettings.workspaceRoot,
-        imageGenerationSettings.imageGeneration
+        imageGenerationSettings
       )
     ])
   }
@@ -564,7 +564,7 @@ function codexServerConfigs(input: GuiMcpRegistryInput): GuiMcpRuntimeServerConf
     const config = buildImageGenerationMcpJsonServerConfig(
       input.imageGenerationMcp.launch,
       imageGenerationSettings.workspaceRoot,
-      imageGenerationSettings.imageGeneration
+      imageGenerationSettings
     )
     servers.push(runtimeServerConfigFromJson(
       GUI_IMAGE_GENERATION_MCP_SERVER_NAME,

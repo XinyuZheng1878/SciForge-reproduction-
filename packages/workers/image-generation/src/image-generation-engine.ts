@@ -347,7 +347,7 @@ export async function createImageGenerationReviewPacket(
 }
 
 function providerKind(): 'image-endpoint' | 'placeholder' {
-  return Boolean(process.env.SCIFORGE_IMAGE_API_KEY && process.env.SCIFORGE_IMAGE_BASE_URL)
+  return Boolean(configuredModelRouterImageEndpoint())
     ? 'image-endpoint'
     : 'placeholder'
 }
@@ -370,7 +370,7 @@ async function renderWithProvider(input: ProviderRenderInput): Promise<ProviderR
   return {
     provider: 'placeholder',
     placeholder: true,
-    warnings: ['Rendered with placeholder provider because SCIFORGE_IMAGE_ALLOW_PLACEHOLDER=1 is set and no image endpoint is configured.']
+    warnings: ['Rendered with placeholder provider because SCIFORGE_IMAGE_ALLOW_PLACEHOLDER=1 is set and no Model Router image endpoint is configured.']
   }
 }
 
@@ -379,19 +379,16 @@ function allowPlaceholderProvider(): boolean {
 }
 
 async function renderWithConfiguredImageEndpoint(input: ProviderRenderInput): Promise<void> {
-  const apiKey = process.env.SCIFORGE_IMAGE_API_KEY
-  if (!apiKey) throw new ProviderError('Missing SCIFORGE_IMAGE_API_KEY.')
-  const baseUrl = process.env.SCIFORGE_IMAGE_BASE_URL?.trim().replace(/\/$/, '')
-  if (!baseUrl) throw new ProviderError('Missing SCIFORGE_IMAGE_BASE_URL.')
-  const model = process.env.SCIFORGE_IMAGE_MODEL || 'gpt-image-1'
+  const endpoint = configuredModelRouterImageEndpoint()
+  if (!endpoint) throw new ProviderError('Missing Model Router image endpoint configuration.')
   const prompt = input.recipe?.prompt ?? input.editIntent?.instruction ?? ''
   const size = input.recipe?.size ?? DEFAULT_SIZE
   const errors: string[] = []
-  for (const candidateBaseUrl of imageEndpointBaseUrlCandidates(baseUrl)) {
+  for (const candidateBaseUrl of imageEndpointBaseUrlCandidates(endpoint.baseUrl)) {
     try {
       await renderWithImageEndpoint(candidateBaseUrl, {
-        apiKey,
-        model,
+        apiKey: endpoint.apiKey,
+        model: endpoint.model,
         prompt,
         size,
         outputPath: input.outputPath
@@ -402,6 +399,17 @@ async function renderWithConfiguredImageEndpoint(input: ProviderRenderInput): Pr
     }
   }
   throw new ProviderError(errors.find(Boolean) ?? 'Image provider did not return an image.')
+}
+
+function configuredModelRouterImageEndpoint(): { apiKey: string; baseUrl: string; model: string } | null {
+  const apiKey = process.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY?.trim()
+  const baseUrl = process.env.SCIFORGE_MODEL_ROUTER_BASE_URL?.trim().replace(/\/$/, '')
+  if (!apiKey || !baseUrl) return null
+  return {
+    apiKey,
+    baseUrl,
+    model: process.env.SCIFORGE_MODEL_ROUTER_IMAGE_MODEL?.trim() || 'sciforge-router'
+  }
 }
 
 function imageEndpointBaseUrlCandidates(baseUrl: string): string[] {

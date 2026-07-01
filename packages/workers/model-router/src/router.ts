@@ -47,6 +47,7 @@ export interface ModelRouterScientificTranslatorConfig {
 export interface ModelRouterProfile {
   traceRoot: string;
   textReasoner: ModelRouterProviderConfig;
+  imageGenerator?: ModelRouterProviderConfig;
   translators: {
     vision?: ModelRouterProviderConfig;
     scientific?: ModelRouterScientificTranslatorConfig;
@@ -141,7 +142,7 @@ type RecentProviderError = {
   code: string;
   status?: number;
   at: number;
-  role?: ProviderCallRecord['role'];
+  role?: ModelRouterUpstreamDiagnostic['role'];
 };
 
 type RequestAuditMetadata = {
@@ -348,6 +349,17 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
         });
         return sendJson(response, 200, responseToChatCompletion(responseObject(result), body));
       }
+      if (request.method === 'POST' && url.pathname === '/v1/images/generations') {
+        assertRuntimeAuthorized(request, options.config, env);
+        const body = await readJson(request);
+        const result = await routeImageGenerationRequest(body, {
+          config: options.config,
+          env,
+          fetchImpl,
+          request,
+        });
+        return sendJson(response, 200, result);
+      }
       if (
         request.method === 'POST' &&
         (url.pathname === '/v1/messages' || url.pathname === '/api/cc/v1/messages')
@@ -413,6 +425,7 @@ export function createModelRouterServer(options: ModelRouterServerOptions): Serv
       recordProviderError({
         code: routerError.code,
         status: routerError.status,
+        ...(routerError.role ? { role: routerError.role } : {}),
       });
       options.log?.(`model-router ${routerError.code}: ${routerError.message}`);
       return sendJson(response, routerError.status, {
@@ -507,6 +520,27 @@ function modelRouterHealthzUpstreamDiagnostic(
       releaseAcceptance: 'not-evaluated',
     };
   }
+  const imageGenerator = profile.imageGenerator;
+  if (imageGenerator) {
+    if (!imageGenerator.baseUrl || !imageGenerator.model) {
+      return {
+        category: 'repo-bug',
+        ok: false,
+        retryable: false,
+        releaseAcceptance: 'not-evaluated',
+      };
+    }
+    if (!stringField(env[imageGenerator.apiKeyEnv])) {
+      return {
+        category: 'provider-auth',
+        ok: false,
+        retryable: false,
+        httpStatus: 401,
+        role: 'imageGenerator',
+        releaseAcceptance: 'not-evaluated',
+      };
+    }
+  }
   const visionProvider = profile.translators.vision;
   if (visionProvider) {
     if (!visionProvider.baseUrl || !visionProvider.model) {
@@ -577,6 +611,66 @@ export async function startModelRouterServer(
     port: address.port,
     close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
   };
+}
+
+async function routeImageGenerationRequest(
+  body: unknown,
+  context: {
+    config: ModelRouterConfig;
+    env: Record<string, string | undefined>;
+    fetchImpl: typeof fetch;
+    request: IncomingMessage;
+  },
+): Promise<JsonObject> {
+  if (!isRecord(body)) {
+    throw routerError(400, 'invalid_request', 'Image generation request body must be a JSON object.');
+  }
+  const profileId = requestedProfileId(body, context.request, context.config);
+  const profile = context.config.profiles[profileId];
+  if (!profile) throw routerError(400, 'unknown_profile', 'Requested Model Router profile is not registered.');
+  validateRequestedModel(body.model, context.config.publicModelAlias);
+  const provider = profile.imageGenerator;
+  if (!provider) {
+    throw routerError(503, 'image_generator_not_configured', 'Model Router image generation is not configured.', 'imageGenerator');
+  }
+  validateProviderConfig(provider, 'imageGenerator');
+  const secret = secretForProvider(provider, context.env, 'imageGenerator');
+  const providerBody = {
+    ...body,
+    model: provider.model,
+  };
+  let response: Response;
+  try {
+    response = await context.fetchImpl(providerImageGenerationsUrl(provider.baseUrl), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${secret}`,
+      },
+      body: JSON.stringify(providerBody),
+    });
+  } catch (error) {
+    const errorSummary = providerExceptionSummary(error, 'fetch_failed');
+    throw routerError(500, errorSummary, `Provider request failed (${errorSummary}).`, 'imageGenerator');
+  }
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    const errorSummary = `provider_http_${response.status}`;
+    throw routerError(response.status, errorSummary, providerHttpErrorMessage(response.status, provider, secret, errorText), 'imageGenerator');
+  }
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw routerError(500, 'provider_invalid_json', 'Provider returned a non-JSON image generation response.', 'imageGenerator');
+  }
+  if (isProviderErrorPayload(payload)) {
+    throw routerError(500, 'provider_error_payload', 'Provider returned an error payload instead of an image generation response.', 'imageGenerator');
+  }
+  if (!isRecord(payload)) {
+    throw routerError(500, 'provider_invalid_json', 'Provider returned an invalid image generation response.', 'imageGenerator');
+  }
+  return payload as JsonObject;
 }
 
 async function routeResponsesRequest(
@@ -1007,6 +1101,7 @@ function isClaudeCodeModelName(model: string): boolean {
 
 function validateProfile(profile: ModelRouterProfile) {
   validateProviderConfig(profile.textReasoner, 'textReasoner');
+  if (profile.imageGenerator) validateProviderConfig(profile.imageGenerator, 'imageGenerator');
   if (profile.translators.vision) validateProviderConfig(profile.translators.vision, 'translators.vision');
   if (profile.translators.scientific) validateScientificTranslatorConfig(profile.translators.scientific);
 }
@@ -2040,6 +2135,10 @@ function providerChatCompletionsUrl(baseUrl: string): string {
   return buildProviderEndpointUrl(baseUrl, 'chat/completions');
 }
 
+function providerImageGenerationsUrl(baseUrl: string): string {
+  return buildProviderEndpointUrl(baseUrl, 'images/generations');
+}
+
 function buildProviderEndpointUrl(baseUrl: string, path: string): string {
   const normalized = trimUrlPathEnd(baseUrl);
   if (!normalized) return `/v1/${path}`;
@@ -2058,7 +2157,7 @@ function buildProviderEndpointUrl(baseUrl: string, path: string): string {
 function stripKnownProviderEndpointPath(baseUrl: string): string {
   const split = splitUrlSuffix(baseUrl);
   const lower = split.path.toLowerCase();
-  for (const path of ['chat/completions', 'responses', 'messages']) {
+  for (const path of ['chat/completions', 'images/generations', 'responses', 'messages']) {
     if (lower.endsWith(`/${path}`)) {
       return `${split.path.slice(0, -path.length).replace(/\/+$/, '')}${split.suffix}`;
     }
@@ -3270,19 +3369,31 @@ function failedCallRecord(
   };
 }
 
-function normalizeRouterError(error: unknown) {
+type RouterError = Error & {
+  status: number;
+  code: string;
+  role?: ModelRouterUpstreamDiagnostic['role'];
+};
+
+function normalizeRouterError(error: unknown): RouterError {
   if (isRouterError(error)) return error;
   return routerError(500, 'model_router_error', error instanceof Error ? error.message : String(error));
 }
 
-function routerError(status: number, code: string, message: string) {
-  const error = new Error(message) as Error & { status: number; code: string };
+function routerError(
+  status: number,
+  code: string,
+  message: string,
+  role?: ModelRouterUpstreamDiagnostic['role'],
+): RouterError {
+  const error = new Error(message) as RouterError;
   error.status = status;
   error.code = code;
+  if (role) error.role = role;
   return error;
 }
 
-function isRouterError(error: unknown): error is Error & { status: number; code: string } {
+function isRouterError(error: unknown): error is RouterError {
   return error instanceof Error
     && typeof (error as { status?: unknown }).status === 'number'
     && typeof (error as { code?: unknown }).code === 'string';
@@ -3543,6 +3654,7 @@ function publicProviderOutputText(
 function profileTraceRedactionValues(profile: ModelRouterProfile, publicModelAlias: string) {
   const configuredValues = [
     ...providerTraceRedactionValues(profile.textReasoner),
+    ...(profile.imageGenerator ? providerTraceRedactionValues(profile.imageGenerator) : []),
     ...(profile.translators.vision ? providerTraceRedactionValues(profile.translators.vision) : []),
     ...(profile.translators.scientific ? scientificTranslatorTraceRedactionValues(profile.translators.scientific) : []),
   ];

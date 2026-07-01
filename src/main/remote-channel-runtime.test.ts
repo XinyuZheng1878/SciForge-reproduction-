@@ -1787,6 +1787,15 @@ describe('RemoteChannelRuntime', () => {
           updatedAt: '2026-06-04T00:00:00.000Z',
           workspace: '/workspace/other',
           status: 'completed'
+        },
+        {
+          id: 'archived-thread',
+          runtimeId: 'codex' as const,
+          title: 'Archived Thread',
+          updatedAt: '2026-06-05T00:00:00.000Z',
+          workspace: '/workspace/target',
+          status: 'completed',
+          archived: true
         }
       ]),
       startThread: vi.fn(),
@@ -1834,6 +1843,7 @@ describe('RemoteChannelRuntime', () => {
     const projects = await input('/projects', 'discord-projects')
     const useProject = await input('/use project target', 'discord-use-project')
     const threads = await input('/threads', 'discord-threads')
+    const archived = await input('/use thread Archived Thread', 'discord-use-archived-thread')
     const useThread = await input('/use thread 1', 'discord-use-thread')
     const followUp = await input('continue target work', 'discord-target-follow-up')
 
@@ -1855,6 +1865,11 @@ describe('RemoteChannelRuntime', () => {
       reply: expect.stringContaining('Target Thread')
     })
     expect((threads as { reply: string }).reply).not.toContain('Other Thread')
+    expect((threads as { reply: string }).reply).not.toContain('Archived Thread')
+    expect(archived).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('Thread not found')
+    })
     expect(useThread).toMatchObject({
       ok: true,
       reply: expect.stringContaining('Switched to thread')
@@ -1871,6 +1886,7 @@ describe('RemoteChannelRuntime', () => {
       threadId: 'target-thread',
       runtimeId: 'codex'
     })
+    expect(agentRuntime.listThreads).toHaveBeenCalledWith({ runtimeId: 'codex', limit: 50, includeArchived: false })
     expect(followUp).toMatchObject({
       ok: true,
       threadId: 'target-thread',
@@ -1953,7 +1969,7 @@ describe('RemoteChannelRuntime', () => {
     expect(agentRuntime.startTurn).not.toHaveBeenCalled()
   })
 
-  it('handles Feishu model commands locally for the current IM channel', async () => {
+  it('rejects Feishu model change commands without mutating the current IM channel', async () => {
     const settings = buildSettings()
     settings.remoteChannel.im.enabled = true
     settings.remoteChannel.channels = [buildChannel()]
@@ -1995,10 +2011,10 @@ describe('RemoteChannelRuntime', () => {
     })
 
     expect(forbiddenDirectCall).not.toHaveBeenCalled()
-    expect(current().remoteChannel.channels[0].model).toBe('deepseek-v4-flash')
+    expect(current().remoteChannel.channels[0].model).toBe('auto')
     expect(send).toHaveBeenCalledWith(
       'oc_chat_a',
-      { markdown: 'Remote channel model switched to `deepseek-v4-flash`.' },
+      { markdown: 'Remote channels do not support changing the model from IM. Change it in GUI or runtime settings.' },
       { replyTo: 'om_inbound', replyInThread: false }
     )
   })
@@ -2049,13 +2065,13 @@ describe('RemoteChannelRuntime', () => {
 
     await expect(commandInput('/mode plan', 'wx_msg_mode')).resolves.toMatchObject({
       ok: true,
-      reply: 'Remote channel mode switched to `plan`.'
+      reply: 'Remote channels do not support changing run mode from IM. Change it in GUI or runtime settings.'
     })
-    expect(current().remoteChannel.im.mode).toBe('plan')
+    expect(current().remoteChannel.im.mode).toBe('agent')
 
     await expect(commandInput('/status', 'wx_msg_status')).resolves.toMatchObject({
       ok: true,
-      reply: expect.stringContaining('Mode: plan')
+      reply: expect.stringContaining('Mode: agent')
     })
     await expect(commandInput('where', 'wx_msg_where')).resolves.toMatchObject({
       ok: true,
@@ -2132,10 +2148,14 @@ describe('RemoteChannelRuntime', () => {
       '/use thread <number or name>',
       '/new <title>',
       '/attach current',
-      '/jobs'
+      '/jobs',
+      '/model',
+      '/mode'
     ]) {
       expect(reply).toContain(command)
     }
+    expect(reply).not.toContain('/model auto')
+    expect(reply).not.toContain('/mode agent|plan')
     expect(reply).toContain('Ordinary messages go to the currently bound local thread')
     expect(reply).toContain('will not keep following desktop focus')
     expect(reply).toContain('queued in order')

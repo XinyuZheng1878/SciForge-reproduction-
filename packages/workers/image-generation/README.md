@@ -10,10 +10,10 @@ The first version mirrors the scientific plotting worker pattern:
 - convert SciForge Canvas review packets into edit intents
 - write artifact manifests under `.sciforge/artifacts` for Canvas import
 
-If an OpenAI-compatible image endpoint is configured, render/edit uses it. Otherwise the worker produces a deterministic local placeholder PNG so the MCP, manifest, and Canvas flow remain testable.
+If a Model Router image endpoint is configured, render/edit requests use the router's OpenAI-compatible `/v1/images/generations` contract. Otherwise the worker produces a deterministic local placeholder PNG so the MCP, manifest, and Canvas flow remain testable.
 
 ## Routing boundary
 
-`SCIFORGE_IMAGE_*` endpoint variables are a temporary legacy direct worker env exception. They are injected only into this managed image-generation MCP worker while the router ownership decision is pending.
+The worker does not receive direct provider credentials. Managed launches pass only `SCIFORGE_MODEL_ROUTER_BASE_URL`, `SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY`, and the public router model alias; the Model Router owns the private image provider config, health, auth, and retry/error lifecycle.
 
-New image or multimodal capabilities must not bypass the router layer. Keep any direct endpoint use worker-contained here, and route new runtime-facing model/media traffic through the appropriate router contract.
+New image or multimodal capabilities must not bypass the router layer. The image worker should stay focused on MCP tools, artifact manifests, and Canvas handoff unless product ownership is explicitly changed.

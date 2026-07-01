@@ -9,6 +9,7 @@ import {
   defaultConnectPhoneSettings,
   defaultRemoteChannelSettings,
   defaultKeyboardShortcuts,
+  defaultImageGenerationSettings,
   defaultLocalRuntimeSettings,
   defaultModelProviderSettings,
   defaultModelRouterSettings,
@@ -113,6 +114,7 @@ describe('buildModelRouterSidecarLaunch', () => {
         SCIFORGE_IMAGE_BASE_URL: 'https://direct-image-provider.example/v1',
         SCIFORGE_IMAGE_MODEL: 'outer-image-model',
         SCIFORGE_IMAGE_ALLOW_PLACEHOLDER: '1',
+        SCIFORGE_MODEL_ROUTER_IMAGE_API_KEY: 'stale-image-router-key',
         EDAG_LLM_BASE_URL: 'https://direct-edag-provider.example/v1',
         EDAG_LLM_API_KEY: 'outer-edag-key',
         EDAG_LLM_MODEL: 'outer-edag-model',
@@ -183,6 +185,7 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.launch.env.SCIFORGE_IMAGE_BASE_URL).toBeUndefined()
     expect(result.launch.env.SCIFORGE_IMAGE_MODEL).toBeUndefined()
     expect(result.launch.env.SCIFORGE_IMAGE_ALLOW_PLACEHOLDER).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_IMAGE_API_KEY).toBeUndefined()
     expect(result.launch.env.EDAG_LLM_BASE_URL).toBeUndefined()
     expect(result.launch.env.EDAG_LLM_API_KEY).toBeUndefined()
     expect(result.launch.env.EDAG_LLM_MODEL).toBeUndefined()
@@ -217,6 +220,38 @@ describe('buildModelRouterSidecarLaunch', () => {
       tokenEnv: 'SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN',
       timeoutMs: 12345
     })
+  })
+
+  it('maps image generation settings into the managed Model Router image role', () => {
+    const current = settings()
+    current.imageGeneration = {
+      ...defaultImageGenerationSettings(),
+      enabled: true,
+      apiKey: 'image-secret',
+      baseUrl: 'https://image.example/v1',
+      model: 'image-model'
+    }
+
+    const result = buildModelRouterSidecarLaunch(current, {
+      userDataDir: '/tmp/sciforge-user-data',
+      env: {
+        SCIFORGE_IMAGE_API_KEY: 'outer-direct-image-key',
+        SCIFORGE_MODEL_ROUTER_IMAGE_API_KEY: 'stale-image-router-key'
+      },
+      npmCommand: 'npm'
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.launch.env.SCIFORGE_IMAGE_API_KEY).toBeUndefined()
+    expect(result.launch.env.SCIFORGE_MODEL_ROUTER_IMAGE_API_KEY).toBe('image-secret')
+    expect(result.launch.config?.profiles.default.imageGenerator).toEqual({
+      provider: 'openai-compatible',
+      baseUrl: 'https://image.example/v1',
+      apiKeyEnv: 'SCIFORGE_MODEL_ROUTER_IMAGE_API_KEY',
+      model: 'image-model'
+    })
+    expect(JSON.stringify(result.launch.config)).not.toContain('image-secret')
   })
 
   it('builds a launch when the text reasoner member is incomplete in UI settings', () => {

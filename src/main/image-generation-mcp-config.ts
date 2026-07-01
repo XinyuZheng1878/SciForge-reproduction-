@@ -15,8 +15,8 @@ import {
 import {
   getImageGenerationSettings,
   type AppSettingsV1,
-  type ImageGenerationSettingsV1
 } from '../shared/app-settings'
+import { resolveRuntimeModelRouterSettings } from '../shared/app-settings-model-router'
 
 export const GUI_IMAGE_GENERATION_MCP_SERVER_NAME = 'image_generation'
 const GUI_IMAGE_GENERATION_MCP_NODE_ENTRY = 'out/main/image-generation-mcp-node-entry.js'
@@ -61,14 +61,14 @@ export function resolveImageGenerationMcpCommand(
 export function buildImageGenerationMcpServerConfig(
   launch: ImageGenerationMcpLaunchConfig,
   workspaceRoot?: string,
-  imageGeneration?: ImageGenerationSettingsV1
+  settings?: AppSettingsV1
 ): JsonRecord {
   const normalizedWorkspaceRoot = workspaceRoot?.trim()
   return buildManagedGuiLocalRuntimeMcpServerConfig({
     descriptor: GUI_IMAGE_GENERATION_MCP_DESCRIPTOR,
     launch,
     args: buildImageGenerationMcpArgs(launch, normalizedWorkspaceRoot),
-    env: imageGenerationMcpEnv(launch, imageGeneration),
+    env: imageGenerationMcpEnv(launch, settings),
     existing: normalizedWorkspaceRoot ? {
       trustScope: 'workspace',
       trustedWorkspaceRoots: [normalizedWorkspaceRoot]
@@ -80,13 +80,13 @@ export function buildImageGenerationLocalRuntimeMcpServerConfig(
   launch: ImageGenerationMcpLaunchConfig,
   existing: unknown = {},
   workspaceRoot?: string,
-  imageGeneration?: ImageGenerationSettingsV1
+  settings?: AppSettingsV1
 ): JsonRecord {
   return buildManagedGuiLocalRuntimeMcpServerConfig({
     descriptor: GUI_IMAGE_GENERATION_MCP_DESCRIPTOR,
     launch,
     args: buildImageGenerationMcpArgs(launch, workspaceRoot?.trim()),
-    env: imageGenerationMcpEnv(launch, imageGeneration),
+    env: imageGenerationMcpEnv(launch, settings),
     existing
   })
 }
@@ -94,27 +94,27 @@ export function buildImageGenerationLocalRuntimeMcpServerConfig(
 export function buildImageGenerationMcpJsonServerConfig(
   launch: ImageGenerationMcpLaunchConfig,
   workspaceRoot?: string,
-  imageGeneration?: ImageGenerationSettingsV1
+  settings?: AppSettingsV1
 ): JsonRecord {
   return buildManagedGuiMcpJsonServerConfig({
     descriptor: GUI_IMAGE_GENERATION_MCP_DESCRIPTOR,
     launch,
     args: buildImageGenerationMcpArgs(launch, workspaceRoot?.trim()),
-    env: imageGenerationMcpEnv(launch, imageGeneration)
+    env: imageGenerationMcpEnv(launch, settings)
   })
 }
 
 export function buildImageGenerationMcpConfigFragment(
   launch: ImageGenerationMcpLaunchConfig,
   workspaceRoot?: string,
-  imageGeneration?: ImageGenerationSettingsV1
+  settings?: AppSettingsV1
 ): JsonRecord {
   return {
     servers: {
       [GUI_IMAGE_GENERATION_MCP_SERVER_NAME]: buildImageGenerationMcpServerConfig(
         launch,
         workspaceRoot,
-        imageGeneration
+        settings
       )
     }
   }
@@ -143,14 +143,17 @@ export function imageGenerationMcpSettingsChanged(prev: AppSettingsV1, next: App
 
 export function imageGenerationMcpEnv(
   launch: ImageGenerationMcpLaunchConfig,
-  imageGeneration?: ImageGenerationSettingsV1
+  settings?: AppSettingsV1
 ): Record<string, string> {
   void launch
   const env: Record<string, string> = { ...ELECTRON_RUN_AS_NODE_ENV }
+  if (!settings) return env
+  const imageGeneration = getImageGenerationSettings(settings)
   if (!imageGeneration?.enabled || !imageGeneration.apiKey.trim() || !imageGeneration.baseUrl.trim()) return env
-  // Temporary legacy direct worker env: keep this contained to the managed image-generation MCP worker.
-  env.SCIFORGE_IMAGE_API_KEY = imageGeneration.apiKey.trim()
-  env.SCIFORGE_IMAGE_BASE_URL = imageGeneration.baseUrl.trim()
-  if (imageGeneration.model.trim()) env.SCIFORGE_IMAGE_MODEL = imageGeneration.model.trim()
+  const router = resolveRuntimeModelRouterSettings(settings)
+  if (!router.baseUrl || !router.apiKey || !router.model) return env
+  env.SCIFORGE_MODEL_ROUTER_BASE_URL = router.baseUrl
+  env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY = router.apiKey
+  env.SCIFORGE_MODEL_ROUTER_IMAGE_MODEL = router.model
   return env
 }

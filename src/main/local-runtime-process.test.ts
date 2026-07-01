@@ -719,9 +719,9 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
       ],
       env: {
         ELECTRON_RUN_AS_NODE: '1',
-        SCIFORGE_IMAGE_API_KEY: 'test-image-key',
-        SCIFORGE_IMAGE_BASE_URL: 'http://127.0.0.1:4321/v1',
-        SCIFORGE_IMAGE_MODEL: 'test-image-model'
+        SCIFORGE_MODEL_ROUTER_BASE_URL: 'http://127.0.0.1:3892/v1',
+        SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY: 'local-runtime-router-key',
+        SCIFORGE_MODEL_ROUTER_IMAGE_MODEL: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
       },
       trustScope: 'user',
       timeoutMs: 120000

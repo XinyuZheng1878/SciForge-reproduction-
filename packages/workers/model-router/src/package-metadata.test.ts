@@ -12,7 +12,13 @@ test('manifest exposes model-router worker diagnostics metadata without private 
   assert.equal(modelRouterManifest.workerVersion, MODEL_ROUTER_WORKER_VERSION);
   assert.deepEqual(modelRouterManifest.capabilities, [...MODEL_ROUTER_WORKER_CAPABILITIES]);
   assert.equal(
-    modelRouterManifest.tools.every((tool) => tool.sideEffects.includes('network') && tool.sideEffects.includes('filesystem')),
+    modelRouterManifest.tools.every((tool) => tool.sideEffects.includes('network')),
+    true
+  );
+  assert.equal(
+    modelRouterManifest.tools
+      .filter((tool) => tool.id !== 'model_router_image_generations')
+      .every((tool) => tool.sideEffects.includes('filesystem')),
     true
   );
   assert.doesNotMatch(JSON.stringify(modelRouterManifest), /apiKeyEnv|baseUrl|Bearer|secret/i);

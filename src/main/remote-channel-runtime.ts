@@ -22,7 +22,6 @@ import type {
   RemoteChannelConversationV1,
   RemoteChannelLastFailureV1,
   RemoteChannelRecentMessageV1,
-  RemoteChannelModel,
   RemoteChannelProvider,
   RemoteChannelRemoteSessionV1,
   RemoteChannelRunResult,
@@ -30,7 +29,6 @@ import type {
   RemoteChannelRuntimeStatus
 } from '../shared/app-settings'
 import {
-  REMOTE_CHANNEL_MODEL_IDS,
   DEFAULT_REMOTE_CHANNEL_MODEL,
   buildRemoteChannelRuntimePrompt,
   getCodexRuntimeSettings,
@@ -380,8 +378,8 @@ function imCommandHelpText(settings: AppSettingsV1): string {
       '- `/new <标题>`：在当前项目新建本地 thread，并切换当前远端会话到它。',
       '- `/attach current`：显式接管当前桌面 thread；不会持续跟随桌面焦点。',
       '- `/jobs`：查看当前远端会话相关 running、queued、failed、done 状态。',
-      '- `/model` / `/model auto|pro|flash`：查看或切换当前 IM 连接模型。',
-      '- `/mode agent|plan`：切换 IM 运行模式。',
+      '- `/model`：查看当前 IM 连接模型。模型切换只能在 GUI 或 runtime 设置中完成。',
+      '- `/mode`：查看当前 IM 运行模式。模式切换只能在 GUI 或 runtime 设置中完成。',
       '- `/summary`：查看当前远端会话摘要。',
       '- `/detach`：解除当前远端会话绑定。',
       '',
@@ -401,8 +399,8 @@ function imCommandHelpText(settings: AppSettingsV1): string {
     '- `/new <title>`: create a local thread in the current project and bind this remote conversation to it.',
     '- `/attach current`: explicitly attach to the current desktop thread; it will not keep following desktop focus.',
     '- `/jobs`: show running, queued, failed, and done work for this remote conversation.',
-    '- `/model` / `/model auto|pro|flash`: show or switch this IM connection model.',
-    '- `/mode agent|plan`: switch the IM run mode.',
+    '- `/model`: show this IM connection model. Model changes must be made in GUI or runtime settings.',
+    '- `/mode`: show the IM run mode. Mode changes must be made in GUI or runtime settings.',
     '- `/summary`: show the current remote conversation summary.',
     '- `/detach`: detach the current remote conversation binding.',
     '',
@@ -427,10 +425,9 @@ function withFirstConnectHelp(settings: AppSettingsV1, firstConnect: boolean, re
 }
 
 function imModelCommandHint(settings: AppSettingsV1): string {
-  const ids = REMOTE_CHANNEL_MODEL_IDS.join(', ')
   return isChineseLocale(settings)
-    ? `可使用 /model auto、/model pro 或 /model flash。可用模型：${ids}。`
-    : `Use /model auto, /model pro, or /model flash. Available models: ${ids}.`
+    ? '远程通道不支持通过 IM 修改模型；请使用 /model 查看当前模型，并在 GUI 或 runtime 设置里修改。'
+    : 'Remote channels do not support changing the model from IM. Use /model to inspect the current model, and change it in GUI or runtime settings.'
 }
 
 function imModelCurrentText(settings: AppSettingsV1, model: string): string {
@@ -439,10 +436,10 @@ function imModelCurrentText(settings: AppSettingsV1, model: string): string {
     : `Current remote channel model: \`${model}\`.`
 }
 
-function imModelChangedText(settings: AppSettingsV1, model: string): string {
+function imModelChangeUnsupportedText(settings: AppSettingsV1): string {
   return isChineseLocale(settings)
-    ? `远程通道模型已切换到 \`${model}\`。`
-    : `Remote channel model switched to \`${model}\`.`
+    ? '远程通道不支持通过 IM 修改模型；请在 GUI 或 runtime 设置里修改。'
+    : 'Remote channels do not support changing the model from IM. Change it in GUI or runtime settings.'
 }
 
 function imNewTopicText(settings: AppSettingsV1): string {
@@ -476,8 +473,8 @@ function imNewPrivateUnsupportedText(settings: AppSettingsV1): string {
 
 function imModeCommandHint(settings: AppSettingsV1): string {
   return isChineseLocale(settings)
-    ? '可使用 /mode agent 或 /mode plan。'
-    : 'Use /mode agent or /mode plan.'
+    ? '远程通道不支持通过 IM 修改运行模式；请使用 /mode 查看当前模式，并在 GUI 或 runtime 设置里修改。'
+    : 'Remote channels do not support changing run mode from IM. Use /mode to inspect the current mode, and change it in GUI or runtime settings.'
 }
 
 function imModeCurrentText(settings: AppSettingsV1): string {
@@ -486,10 +483,10 @@ function imModeCurrentText(settings: AppSettingsV1): string {
     : `Current remote channel mode: \`${currentImMode(settings)}\`.`
 }
 
-function imModeChangedText(settings: AppSettingsV1, mode: RemoteChannelRunMode): string {
+function imModeChangeUnsupportedText(settings: AppSettingsV1): string {
   return isChineseLocale(settings)
-    ? `远程通道模式已切换到 \`${mode}\`。`
-    : `Remote channel mode switched to \`${mode}\`.`
+    ? '远程通道不支持通过 IM 修改运行模式；请在 GUI 或 runtime 设置里修改。'
+    : 'Remote channels do not support changing run mode from IM. Change it in GUI or runtime settings.'
 }
 
 function imDetachedText(settings: AppSettingsV1): string {
@@ -1328,32 +1325,6 @@ export class RemoteChannelRuntime {
     })
   }
 
-  private async setIncomingImModel(channel: RemoteChannelV1 | undefined, model: RemoteChannelModel): Promise<void> {
-    if (!channel) {
-      await this.deps.store.patch({ remoteChannel: { im: { model } } })
-      return
-    }
-    const currentSettings = await this.deps.store.load()
-    const now = new Date().toISOString()
-    await this.deps.store.patch({
-      remoteChannel: {
-        channels: currentSettings.remoteChannel.channels.map((item) =>
-          item.id === channel.id
-            ? {
-                ...item,
-                model,
-                updatedAt: now
-              }
-            : item
-        )
-      }
-    })
-  }
-
-  private async setIncomingImMode(mode: RemoteChannelRunMode): Promise<void> {
-    await this.deps.store.patch({ remoteChannel: { im: { mode } } })
-  }
-
   private projectCandidates(
     settings: AppSettingsV1,
     context: {
@@ -1489,7 +1460,7 @@ export class RemoteChannelRuntime {
   ): Promise<AgentRuntimeThread[]> {
     const listThreads = this.deps.agentRuntime.listThreads
     if (!listThreads) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
-    return listThreads({ runtimeId, limit: 50, includeArchived: true })
+    return listThreads({ runtimeId, limit: 50, includeArchived: false })
   }
 
   private async incomingThreadsText(
@@ -1504,6 +1475,7 @@ export class RemoteChannelRuntime {
   ): Promise<string> {
     const context = await this.resolveIncomingCommandContext({ settings, ...input })
     const threads = (await this.listRuntimeThreads(context.runtimeId, context.workspaceRoot))
+      .filter((thread) => thread.archived !== true)
       .filter((thread) => !context.workspaceRoot || !thread.workspace || normalizeWorkspaceKey(thread.workspace) === normalizeWorkspaceKey(context.workspaceRoot))
       .slice(0, 20)
     if (threads.length === 0) {
@@ -1552,6 +1524,7 @@ export class RemoteChannelRuntime {
       return isChineseLocale(settings) ? '当前 IM 渠道不可用，无法切换 thread。' : 'No IM channel is available to switch threads.'
     }
     const threads = (await this.listRuntimeThreads(context.runtimeId, context.workspaceRoot))
+      .filter((thread) => thread.archived !== true)
       .filter((thread) => !context.workspaceRoot || !thread.workspace || normalizeWorkspaceKey(thread.workspace) === normalizeWorkspaceKey(context.workspaceRoot))
       .slice(0, 50)
     const resolved = this.resolveThreadCandidate(threads, input.target)
@@ -1906,14 +1879,12 @@ export class RemoteChannelRuntime {
     if (command.kind === 'showModel') return imModelCurrentText(settings, currentImModel(settings, input.channel))
     if (command.kind === 'invalidModel') return imModelCommandHint(settings)
     if (command.kind === 'model') {
-      await this.setIncomingImModel(input.channel, command.model)
-      return imModelChangedText(settings, command.model)
+      return imModelChangeUnsupportedText(settings)
     }
     if (command.kind === 'showMode') return imModeCurrentText(settings)
     if (command.kind === 'invalidMode') return imModeCommandHint(settings)
     if (command.kind === 'mode') {
-      await this.setIncomingImMode(command.mode)
-      return imModeChangedText(settings, command.mode)
+      return imModeChangeUnsupportedText(settings)
     }
     if (command.kind === 'summary') {
       return this.incomingSummaryText(settings, {

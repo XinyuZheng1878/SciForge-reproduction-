@@ -1369,7 +1369,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
         config: buildImageGenerationMcpConfigFragment(
           launch,
           request.workspaceRoot,
-          settings.imageGeneration
+          settings
         )
       }
     } catch (error) {

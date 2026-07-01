@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   DEFAULT_LOCAL_RUNTIME_MODEL,
+  getImageGenerationSettings,
   getLocalRuntimeSettings,
   getModelProviderProfile,
   getModelRouterSettings,
@@ -25,6 +26,7 @@ import {
 const ROUTER_RUNTIME_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY'
 const TEXT_REASONER_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_TEXT_API_KEY'
 const VISION_TRANSLATOR_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_VISION_API_KEY'
+const IMAGE_GENERATOR_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_IMAGE_API_KEY'
 const SCIENTIFIC_TRANSLATOR_TOKEN_ENV = 'SCIFORGE_MODEL_ROUTER_SCIENTIFIC_TRANSLATOR_TOKEN'
 const BLOCKED_INHERITED_WORKER_ENV_PREFIXES = [
   ...DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
@@ -59,6 +61,7 @@ type ModelRouterSidecarConfig = {
   profiles: Record<string, {
     traceRoot: string
     textReasoner: ModelRouterProviderConfig
+    imageGenerator?: ModelRouterProviderConfig
     translators: {
       vision?: ModelRouterProviderConfig
       scientific?: ModelRouterScientificTranslatorConfig
@@ -109,6 +112,10 @@ export function buildModelRouterSidecarLaunch(
   env[TEXT_REASONER_KEY_ENV] = textReasoner.apiKey.trim() || provider.apiKey.trim()
   if (vision.apiKey.trim()) {
     env[VISION_TRANSLATOR_KEY_ENV] = vision.apiKey.trim()
+  }
+  const imageGeneration = getImageGenerationSettings(settings)
+  if (imageGeneration.enabled && imageGeneration.apiKey.trim()) {
+    env[IMAGE_GENERATOR_KEY_ENV] = imageGeneration.apiKey.trim()
   }
   const scientificTranslatorToken = baseEnv[LEGACY_SCI_MODALITY_SERVICE_TOKEN_ENV]?.trim()
   if (scientificTranslatorToken) {
@@ -277,6 +284,7 @@ function defaultModelRouterSidecarConfig(
   const provider = getModelProviderProfile(settings, runtime.providerId)
   const textReasoner = router.profiles.default.textReasoner
   const vision = providerConfig(router.profiles.default.translators.vision, VISION_TRANSLATOR_KEY_ENV)
+  const imageGenerator = imageGeneratorConfig(settings)
   const scientific = scientificTranslatorConfigFromEnv(env)
   const configRoot = join(userDataDir, 'model-router')
 
@@ -293,6 +301,7 @@ function defaultModelRouterSidecarConfig(
           apiKeyEnv: TEXT_REASONER_KEY_ENV,
           model: runtime.model.trim() || textReasoner.model.trim() || DEFAULT_LOCAL_RUNTIME_MODEL
         },
+        ...(imageGenerator ? { imageGenerator } : {}),
         translators: {
           ...(vision ? { vision } : {}),
           ...(scientific ? { scientific } : {})
@@ -334,6 +343,7 @@ function modelRouterManagedLaunchSignature(launch: ModelRouterSidecarLaunch): st
     runtimeApiKey: launch.env[ROUTER_RUNTIME_KEY_ENV] ?? '',
     textReasonerApiKey: launch.env[TEXT_REASONER_KEY_ENV] ?? '',
     visionTranslatorApiKey: launch.env[VISION_TRANSLATOR_KEY_ENV] ?? '',
+    imageGeneratorApiKey: launch.env[IMAGE_GENERATOR_KEY_ENV] ?? '',
     scientificTranslatorToken: launch.env[SCIENTIFIC_TRANSLATOR_TOKEN_ENV] ?? ''
   })
 }
@@ -360,6 +370,24 @@ function providerConfig(
     apiKeyEnv,
     model: provider.model,
     ...(provider.maxSupplementRounds === undefined ? {} : { maxSupplementRounds: provider.maxSupplementRounds })
+  }
+}
+
+function imageGeneratorConfig(settings: AppSettingsV1): ModelRouterProviderConfig | null {
+  const imageGeneration = getImageGenerationSettings(settings)
+  if (
+    !imageGeneration.enabled ||
+    !imageGeneration.provider.trim() ||
+    !imageGeneration.baseUrl.trim() ||
+    !imageGeneration.model.trim()
+  ) {
+    return null
+  }
+  return {
+    provider: imageGeneration.provider,
+    baseUrl: imageGeneration.baseUrl,
+    apiKeyEnv: IMAGE_GENERATOR_KEY_ENV,
+    model: imageGeneration.model
   }
 }
 

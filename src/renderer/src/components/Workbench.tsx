@@ -1019,10 +1019,8 @@ export function Workbench(): ReactElement {
       '',
       `- \`/help\`: ${t('remoteChannelHelpCommandHelp')}`,
       `- \`/new\`: ${t('remoteChannelHelpCommandNew')}`,
-      `- \`/model auto\`: ${t('remoteChannelHelpCommandModelAuto')}`,
-      `- \`/model pro\`: ${t('remoteChannelHelpCommandModelPro')}`,
-      `- \`/model flash\`: ${t('remoteChannelHelpCommandModelFlash')}`,
-      `- \`/model\`: ${t('remoteChannelHelpCommandModelShow')}`
+      `- \`/model\`: ${t('remoteChannelHelpCommandModelShow')}`,
+      `- \`/mode\`: ${t('remoteChannelHelpCommandModeShow')}`
     ].join('\n')
 
   useEffect(() => {
@@ -1898,17 +1896,10 @@ export function Workbench(): ReactElement {
         return
       }
       if (command?.kind === 'model') {
-        if (!activeRemoteComposerChannelId) {
-          setError(t('remoteChannelNoActiveIm'))
-          return
-        }
         setInput('')
-        void (async () => {
-          await setRemoteChannelModel(activeRemoteComposerChannelId, command.model)
-          const replyText = t('remoteChannelModelChanged', { model: command.model })
-          appendLocalRemoteChannelTurn(v, replyText)
-          await mirrorRemoteChannelCommand(v, replyText)
-        })()
+        const replyText = t('remoteChannelModelChangeUnsupported')
+        appendLocalRemoteChannelTurn(v, replyText)
+        void mirrorRemoteChannelCommand(v, replyText)
         return
       }
       if (command?.kind === 'showModel') {
@@ -1925,7 +1916,24 @@ export function Workbench(): ReactElement {
         return
       }
       if (command?.kind === 'invalidModel') {
-        setError(t('remoteChannelModelCommandHint'))
+        setInput('')
+        const replyText = t('remoteChannelModelChangeUnsupported')
+        appendLocalRemoteChannelTurn(v, replyText)
+        void mirrorRemoteChannelCommand(v, replyText)
+        return
+      }
+      if (command?.kind === 'showMode') {
+        setInput('')
+        const replyText = t('remoteChannelModeCurrent', { mode })
+        appendLocalRemoteChannelTurn(v, replyText)
+        void mirrorRemoteChannelCommand(v, replyText)
+        return
+      }
+      if (command?.kind === 'mode' || command?.kind === 'invalidMode') {
+        setInput('')
+        const replyText = t('remoteChannelModeChangeUnsupported')
+        appendLocalRemoteChannelTurn(v, replyText)
+        void mirrorRemoteChannelCommand(v, replyText)
         return
       }
       if (!activeRemoteComposerChannelId) {

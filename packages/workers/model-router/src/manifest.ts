@@ -32,7 +32,9 @@ export const MODEL_ROUTER_WORKER_TRANSPORT = 'http';
 export const MODEL_ROUTER_WORKER_CAPABILITIES = [
   'model_router_responses',
   'model_router_messages',
+  'model_router_image_generations',
   'text_reasoning',
+  'image_generation',
   'vision_translation',
   'scientific_translation',
   'refs_first_trace',
@@ -54,7 +56,7 @@ export type ModelRouterUpstreamDiagnostic = {
   ok: boolean;
   retryable: boolean;
   httpStatus?: number;
-  role?: 'textReasoner' | 'visionTranslator' | 'scientificTranslator';
+  role?: 'textReasoner' | 'imageGenerator' | 'visionTranslator' | 'scientificTranslator';
   releaseAcceptance: 'not-evaluated';
 };
 
@@ -75,7 +77,7 @@ export const modelRouterManifest: ToolWorkerManifest = {
   protocolVersion: 'sciforge.tools.v1',
   workerId: 'sciforge.model-router',
   workerVersion: MODEL_ROUTER_WORKER_VERSION,
-  description: 'Provider-compatible SciForge /v1/responses and /v1/messages facade for text reasoning and refs-first visual/scientific translation.',
+  description: 'Provider-compatible SciForge /v1/responses, /v1/messages, and /v1/images/generations facade for text reasoning, image generation, and refs-first visual/scientific translation.',
   capabilities: [...MODEL_ROUTER_WORKER_CAPABILITIES],
   providers: [
     {
@@ -96,6 +98,16 @@ export const modelRouterManifest: ToolWorkerManifest = {
       healthPath: '/healthz',
       manifestPath: '/manifest',
       permissions: ['network', 'filesystem'],
+      status: 'available',
+    },
+    {
+      providerId: 'sciforge.model-router.image-generations',
+      capabilityId: 'model_router_image_generations',
+      transport: 'http',
+      invokePath: '/v1/images/generations',
+      healthPath: '/healthz',
+      manifestPath: '/manifest',
+      permissions: ['network'],
       status: 'available',
     },
     {
@@ -152,6 +164,22 @@ export const modelRouterManifest: ToolWorkerManifest = {
       sideEffects: ['network', 'filesystem'],
       timeoutMs: 120000,
       tags: ['model-router', 'messages', 'claude-code'],
+    },
+    {
+      id: 'model_router_image_generations',
+      name: 'Model Router Image Generations',
+      version: '0.1.0',
+      description: 'Expose an OpenAI-compatible /v1/images/generations endpoint backed by the profile-selected image generator role.',
+      inputSchema: {
+        prompt: { type: 'string', required: true },
+        model: { type: 'string', description: 'Public Model Router alias.' },
+      },
+      outputSchema: {
+        data: { type: 'array', required: true },
+      },
+      sideEffects: ['network'],
+      timeoutMs: 120000,
+      tags: ['model-router', 'images', 'generation'],
     },
   ],
 };

@@ -40,9 +40,7 @@ const excludedSegments = new Set(['dist', 'docs', 'node_modules', 'out', 'tests'
 const excludedFileNames = new Set(['package-lock.json'])
 const excludedPrefixes = ['packages/workers/model-router/']
 const testFilePattern = /(?:^|[/.-])(?:test|spec)\.[cm]?[jt]sx?$/
-const allowedLegacyImageDirectWorkerEnvFiles = new Set([
-  'src/main/image-generation-mcp-config.ts'
-])
+const allowedLegacyImageDirectWorkerEnvFiles = new Set<string>()
 const allowedEvidenceDagLegacyLlmEnvFiles = new Set([
   'packages/workers/evidence-dag/desktop/sidecar.ts'
 ])
@@ -276,7 +274,7 @@ describe('P7/P8 model router API boundary enforcement', () => {
     expect(formatHits(directSciModalityHits)).toBe('')
   })
 
-  it('keeps legacy image direct provider env contained to the managed image-generation worker', () => {
+  it('blocks GUI/runtime direct image provider env outside the scrub inventory', () => {
     const legacyImageEnvHits = scanProductionTextInRoots(
       runtimeImageDirectEnvSourceRoots,
       /\bSCIFORGE_IMAGE_[A-Z0-9_]+\b/

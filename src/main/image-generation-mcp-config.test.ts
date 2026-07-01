@@ -9,6 +9,7 @@ import {
   defaultImageGenerationSettings,
   defaultKeyboardShortcuts,
   defaultLocalRuntimeSettings,
+  defaultModelRouterSettings,
   defaultModelProviderSettings,
   defaultRemoteChannelSettings,
   defaultScheduleSettings,
@@ -26,6 +27,12 @@ function createSettings(imageGeneration: ImageGenerationSettingsPatchV1 = {}): A
     theme: 'system',
     uiFontScale: 'small',
     provider: defaultModelProviderSettings(),
+    modelRouter: {
+      ...defaultModelRouterSettings(),
+      baseUrl: 'http://127.0.0.1:3892/v1',
+      publicModelAlias: 'sciforge-router',
+      runtimeApiKey: 'router-runtime-key'
+    },
     agents: {
       sciforge: defaultLocalRuntimeSettings()
     },
@@ -71,27 +78,28 @@ const launch: ImageGenerationMcpLaunchConfig = {
 }
 
 describe('image generation MCP config', () => {
-  it('passes configured image generation settings through stdio MCP env', () => {
-    const server = buildImageGenerationMcpServerConfig(launch, '/tmp/workspace', {
-      ...defaultImageGenerationSettings(),
+  it('passes Model Router image endpoint settings through stdio MCP env', () => {
+    const server = buildImageGenerationMcpServerConfig(launch, '/tmp/workspace', createSettings({
       enabled: true,
       apiKey: 'image-key',
-      baseUrl: 'http://127.0.0.1:3888/v1',
+      baseUrl: 'http://image-provider.example/v1',
       model: 'qwen-image-2.0-pro'
-    })
+    }))
 
     expect(server).toMatchObject({
       enabled: true,
       transport: 'stdio',
       env: {
         ELECTRON_RUN_AS_NODE: '1',
-        SCIFORGE_IMAGE_API_KEY: 'image-key',
-        SCIFORGE_IMAGE_BASE_URL: 'http://127.0.0.1:3888/v1',
-        SCIFORGE_IMAGE_MODEL: 'qwen-image-2.0-pro'
+        SCIFORGE_MODEL_ROUTER_BASE_URL: 'http://127.0.0.1:3892/v1',
+        SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY: 'router-runtime-key',
+        SCIFORGE_MODEL_ROUTER_IMAGE_MODEL: 'sciforge-router'
       },
       trustedWorkspaceRoots: ['/tmp/workspace'],
       trustScope: 'user'
     })
+    expect(JSON.stringify(server)).not.toContain('image-key')
+    expect(JSON.stringify(server)).not.toContain('http://image-provider.example/v1')
   })
 
   it('requests a runtime restart when image worker launch env changes', () => {

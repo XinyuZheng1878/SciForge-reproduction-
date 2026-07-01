@@ -9,21 +9,21 @@ import {
 
 let workspaceRoot = ''
 let previousAllowPlaceholder: string | undefined
-let previousImageApiKey: string | undefined
-let previousImageBaseUrl: string | undefined
-let previousImageModel: string | undefined
+let previousRouterApiKey: string | undefined
+let previousRouterBaseUrl: string | undefined
+let previousRouterImageModel: string | undefined
 let previousFetch: typeof fetch | undefined
 
 beforeEach(() => {
   workspaceRoot = mkdtempSync(join(tmpdir(), 'image-generation-'))
   previousAllowPlaceholder = process.env.SCIFORGE_IMAGE_ALLOW_PLACEHOLDER
-  previousImageApiKey = process.env.SCIFORGE_IMAGE_API_KEY
-  previousImageBaseUrl = process.env.SCIFORGE_IMAGE_BASE_URL
-  previousImageModel = process.env.SCIFORGE_IMAGE_MODEL
+  previousRouterApiKey = process.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY
+  previousRouterBaseUrl = process.env.SCIFORGE_MODEL_ROUTER_BASE_URL
+  previousRouterImageModel = process.env.SCIFORGE_MODEL_ROUTER_IMAGE_MODEL
   previousFetch = globalThis.fetch
-  delete process.env.SCIFORGE_IMAGE_API_KEY
-  delete process.env.SCIFORGE_IMAGE_BASE_URL
-  delete process.env.SCIFORGE_IMAGE_MODEL
+  delete process.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY
+  delete process.env.SCIFORGE_MODEL_ROUTER_BASE_URL
+  delete process.env.SCIFORGE_MODEL_ROUTER_IMAGE_MODEL
 })
 
 afterEach(() => {
@@ -31,18 +31,18 @@ afterEach(() => {
   if (previousFetch) globalThis.fetch = previousFetch
   if (previousAllowPlaceholder === undefined) delete process.env.SCIFORGE_IMAGE_ALLOW_PLACEHOLDER
   else process.env.SCIFORGE_IMAGE_ALLOW_PLACEHOLDER = previousAllowPlaceholder
-  if (previousImageApiKey === undefined) delete process.env.SCIFORGE_IMAGE_API_KEY
-  else process.env.SCIFORGE_IMAGE_API_KEY = previousImageApiKey
-  if (previousImageBaseUrl === undefined) delete process.env.SCIFORGE_IMAGE_BASE_URL
-  else process.env.SCIFORGE_IMAGE_BASE_URL = previousImageBaseUrl
-  if (previousImageModel === undefined) delete process.env.SCIFORGE_IMAGE_MODEL
-  else process.env.SCIFORGE_IMAGE_MODEL = previousImageModel
+  if (previousRouterApiKey === undefined) delete process.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY
+  else process.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY = previousRouterApiKey
+  if (previousRouterBaseUrl === undefined) delete process.env.SCIFORGE_MODEL_ROUTER_BASE_URL
+  else process.env.SCIFORGE_MODEL_ROUTER_BASE_URL = previousRouterBaseUrl
+  if (previousRouterImageModel === undefined) delete process.env.SCIFORGE_MODEL_ROUTER_IMAGE_MODEL
+  else process.env.SCIFORGE_MODEL_ROUTER_IMAGE_MODEL = previousRouterImageModel
   if (workspaceRoot) rmSync(workspaceRoot, { recursive: true, force: true })
   workspaceRoot = ''
 })
 
 describe('image generation engine', () => {
-  it('reports a degraded placeholder provider when no image API key is configured', async () => {
+  it('reports a degraded placeholder provider when no Model Router image endpoint is configured', async () => {
     const status = await getImageGenerationStatus(workspaceRoot)
 
     expect(status.ok).toBe(true)
@@ -98,15 +98,17 @@ describe('image generation engine', () => {
     expect(result.status).toBe('invalid_workspace')
   })
 
-  it('renders with an explicitly configured image endpoint', async () => {
+  it('renders through the configured Model Router image endpoint', async () => {
     const pngBase64 =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='
-    process.env.SCIFORGE_IMAGE_API_KEY = 'test-key'
-    process.env.SCIFORGE_IMAGE_BASE_URL = 'http://image-provider.local'
-    process.env.SCIFORGE_IMAGE_MODEL = 'test-image-model'
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    process.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY = 'router-runtime-key'
+    process.env.SCIFORGE_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
+    process.env.SCIFORGE_MODEL_ROUTER_IMAGE_MODEL = 'sciforge-router'
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      if (url === 'http://image-provider.local/v1/images/generations') {
+      if (url === 'http://127.0.0.1:3892/v1/images/generations') {
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer router-runtime-key')
+        expect(JSON.parse(String(init?.body ?? '{}'))).toMatchObject({ model: 'sciforge-router' })
         return new Response(JSON.stringify({
           data: [{ b64_json: pngBase64 }]
         }), {
@@ -135,20 +137,19 @@ describe('image generation engine', () => {
     expect(existsSync(result.outputPath)).toBe(true)
     expect(readFileSync(result.outputPath).toString('base64')).toBe(pngBase64)
     expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
-      'http://image-provider.local/v1/images/generations'
+      'http://127.0.0.1:3892/v1/images/generations'
     ])
   })
 
   it('retries the images endpoint with a text field for providers that do not accept prompt', async () => {
     const pngBase64 =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='
-    process.env.SCIFORGE_IMAGE_PROVIDER = 'openai'
-    process.env.SCIFORGE_IMAGE_API_KEY = 'test-key'
-    process.env.SCIFORGE_IMAGE_BASE_URL = 'http://image-provider.local'
-    process.env.SCIFORGE_IMAGE_MODEL = 'qwen-image-2.0-pro'
+    process.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY = 'router-runtime-key'
+    process.env.SCIFORGE_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
+    process.env.SCIFORGE_MODEL_ROUTER_IMAGE_MODEL = 'sciforge-router'
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      if (url !== 'http://image-provider.local/v1/images/generations') throw new Error('Unexpected URL ' + url)
+      if (url !== 'http://127.0.0.1:3892/v1/images/generations') throw new Error('Unexpected URL ' + url)
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
       if ('prompt' in body) {
         return new Response(JSON.stringify({
