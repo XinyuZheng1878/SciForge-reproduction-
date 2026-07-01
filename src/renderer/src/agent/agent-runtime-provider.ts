@@ -663,6 +663,7 @@ export class AgentRuntimeProvider implements AgentProvider {
       return block ? [block] : []
     })))
     return {
+      runtimeId: detail.runtimeId,
       blocks: settleTerminalSnapshotBlocks(
         rawBlocks,
         terminalSnapshotOutcome(detail.status, latestTurn?.status)

@@ -368,7 +368,7 @@ describe('chat-store-side-actions', () => {
       blocks: [],
       latestSeq: 3,
       runtimeId: 'codex'
-    } as never
+    }
 
     const id = await actions.attachSideConversation({
       threadId: 'child-thread',

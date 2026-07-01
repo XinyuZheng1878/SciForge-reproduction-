@@ -226,6 +226,7 @@
   "remoteChannelModelChangeUnsupported": "不支持通过 IM 命令修改远程通道模型；请在 GUI 或 runtime 设置中修改。",
   "remoteChannelModeCurrent": "当前远程通道模式是 `{{mode}}`。",
   "remoteChannelModeChangeUnsupported": "不支持通过 IM 命令修改远程通道模式；请在 GUI 或 runtime 设置中修改。",
+  "remoteChannelCommandUnsupported": "本地输入框暂不执行这个远程通道命令。",
   "remoteChannelNoActiveIm": "请先添加或选择一个远程通道连接，再发送远程通道消息。",
   "remoteChannelNewSessionStarted": "已清空当前连接的远程通道对话。",
   "remoteChannelHelpTitle": "可用命令",

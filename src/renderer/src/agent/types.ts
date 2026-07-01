@@ -514,6 +514,7 @@ export interface AgentProvider {
   listThreads(options?: ThreadListOptions): Promise<NormalizedThread[]>
   createThread(input: { workspace?: string; title?: string; mode?: string }): Promise<NormalizedThread>
   getThreadDetail(threadId: string): Promise<{
+    runtimeId?: AgentRuntimeId
     blocks: ChatBlock[]
     latestSeq: number
     threadStatus?: string

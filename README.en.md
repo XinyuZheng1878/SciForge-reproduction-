@@ -239,6 +239,13 @@ and audited independently:
 | `workflow` | Visual workflow execution and Agent-facing MCP facade |
 | `schedule` | Scheduled jobs, manual runs, and background Agent dispatch |
 | `workspace-intel` / `runtime-inspector` | Workspace understanding, runtime diagnostics, and project inspection |
+| `computer-use` | GUI-managed `@sciforge/computer-use` primitive path; defaults to isolated `browser-cdp`, with native/host input kept optional or internal |
+
+`computer-use` currently refers to the low-level primitive path used by the GUI-managed
+`gui_computer_use` MCP server. It defaults to an isolated `browser-cdp` target and does not
+take over host desktop input or the clipboard by default. Native/host-input targets remain
+optional, internal, or future capabilities; the GUI-Owl autonomous task path coexists for now
+until human testing decides the final integration shape.
 
 ---
 

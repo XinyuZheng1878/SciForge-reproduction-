@@ -3,14 +3,16 @@ import {
   buildMcpConfig,
   customMcpConfigFragment,
   mcpConfigHasServer,
+  mergeMcpJsonConfig
+} from '../lib/mcp-config'
+import {
   mcpMarketplaceItemsFromConfigAndDiagnostics,
-  mergeMcpJsonConfig,
   scientificSkillsRootSourceLabel,
   scientificSkillsRootSourceTitle,
   skillMarketplaceItemsFromDiscoveredSkills
 } from './PluginMarketplaceView'
 
-describe('PluginMarketplaceView MCP config helpers', () => {
+describe('renderer MCP config helpers', () => {
   it('merges recommended MCP servers into JSON config without dropping existing fields', () => {
     const existing = JSON.stringify({
       timeouts: { read_timeout: 120 },
@@ -82,7 +84,43 @@ describe('PluginMarketplaceView MCP config helpers', () => {
 
     expect(first.alreadyExists).toBe(false)
     expect(second.alreadyExists).toBe(true)
+    expect(second.changed).toBe(false)
     expect(JSON.parse(second.text).servers.context7).toMatchObject({ command: 'npx' })
+  })
+
+  it('merges duplicate MCP server updates through the shared chat bootstrap semantics', () => {
+    const merged = mergeMcpJsonConfig(
+      JSON.stringify({
+        servers: {
+          filesystem: {
+            transport: 'stdio',
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/old'],
+            env: { EXISTING_TOKEN: '1' },
+            trustScope: 'workspace',
+            trustedWorkspaceRoots: ['/old']
+          }
+        }
+      }),
+      {
+        servers: {
+          filesystem: {
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/new'],
+            env: { NEXT_TOKEN: '2' },
+            trustedWorkspaceRoots: ['/new']
+          }
+        }
+      }
+    )
+    const server = JSON.parse(merged.text).servers.filesystem
+
+    expect(merged.alreadyExists).toBe(true)
+    expect(merged.changed).toBe(true)
+    expect(server.env).toEqual({ EXISTING_TOKEN: '1', NEXT_TOKEN: '2' })
+    expect(server.trustedWorkspaceRoots).toEqual(['/old', '/new'])
+    expect(server.args).toEqual(['-y', '@modelcontextprotocol/server-filesystem', '/new'])
+    expect(server.trustScope).toBe('workspace')
   })
 
   it('accepts custom JSON as either a single server or a local runtime config fragment', () => {

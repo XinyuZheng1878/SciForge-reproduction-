@@ -864,6 +864,57 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     }
   })
 
+  it('ignores unsafe external computer-use service URLs instead of disabling the managed MCP', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const observedEnvPath = join(tempRoot, 'cua-child-env.json')
+    const script = writeScript(
+      'cua-unsafe-env-child.js',
+      [
+        "const fs = require('node:fs')",
+        `fs.writeFileSync(${JSON.stringify(observedEnvPath)}, JSON.stringify({`,
+        "  url: process.env.SCIFORGE_CUA_SERVICE_URL ?? null,",
+        "  token: process.env.SCIFORGE_CUA_SERVICE_TOKEN ?? null,",
+        "  legacyToken: process.env.CUA_SERVICE_TOKEN ?? null",
+        '}))',
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",
+        "setInterval(() => {}, 1_000)"
+      ].join('\n')
+    )
+    const module = await import('./local-runtime-process')
+    const previousSidecarUrl = process.env.SCIFORGE_CUA_SERVICE_URL
+    const previousSidecarToken = process.env.SCIFORGE_CUA_SERVICE_TOKEN
+    const previousLegacyToken = process.env.CUA_SERVICE_TOKEN
+    process.env.SCIFORGE_CUA_SERVICE_URL = 'http://devbox.local:3900'
+    process.env.SCIFORGE_CUA_SERVICE_TOKEN = 'unsafe-token'
+    process.env.CUA_SERVICE_TOKEN = 'legacy-unsafe-token'
+
+    try {
+      const settings = createSettings(script)
+      settings.agents.sciforge.dataDir = tempRoot
+
+      await expect(module.startLocalRuntimeChild(settings)).resolves.toBeUndefined()
+      await module.stopLocalRuntimeChildAndWait()
+
+      const parsed = JSON.parse(readFileSync(join(tempRoot, 'config.json'), 'utf8')) as any
+      expect(parsed.capabilities.mcp.servers.gui_computer_use).toMatchObject({
+        enabled: true
+      })
+      expect(JSON.parse(readFileSync(observedEnvPath, 'utf8'))).toEqual({
+        url: null,
+        token: null,
+        legacyToken: null
+      })
+    } finally {
+      if (previousSidecarUrl === undefined) delete process.env.SCIFORGE_CUA_SERVICE_URL
+      else process.env.SCIFORGE_CUA_SERVICE_URL = previousSidecarUrl
+      if (previousSidecarToken === undefined) delete process.env.SCIFORGE_CUA_SERVICE_TOKEN
+      else process.env.SCIFORGE_CUA_SERVICE_TOKEN = previousSidecarToken
+      if (previousLegacyToken === undefined) delete process.env.CUA_SERVICE_TOKEN
+      else process.env.CUA_SERVICE_TOKEN = previousLegacyToken
+      await module.stopLocalRuntimeChildAndWait()
+    }
+  })
+
   it('classifies external computer-use service URLs by loopback and explicit allowlist', async () => {
     const module = await import('./local-runtime-process')
 

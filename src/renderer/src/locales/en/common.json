@@ -226,6 +226,7 @@
   "remoteChannelModelChangeUnsupported": "Remote-channel model changes are not supported from IM commands. Change the model in GUI or runtime settings.",
   "remoteChannelModeCurrent": "Current remote-channel mode: `{{mode}}`.",
   "remoteChannelModeChangeUnsupported": "Remote-channel mode changes are not supported from IM commands. Change the mode in GUI or runtime settings.",
+  "remoteChannelCommandUnsupported": "This remote-channel command is not available from the local composer.",
   "remoteChannelNoActiveIm": "Add or select a remote-channel connection before sending a remote-channel message.",
   "remoteChannelNewSessionStarted": "Cleared the current remote-channel conversation for this connection.",
   "remoteChannelHelpTitle": "Available commands",

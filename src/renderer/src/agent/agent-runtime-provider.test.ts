@@ -247,6 +247,7 @@ describe('AgentRuntimeProvider', () => {
       expect.objectContaining({ id: 'thread-2', title: 'Two', runtimeId: 'codex' })
     )
     await expect(provider.getThreadDetail('thread-2')).resolves.toMatchObject({
+      runtimeId: 'codex',
       latestSeq: 3,
       latestTurnId: 'turn-1',
       latestUserMessageId: 'user-1',

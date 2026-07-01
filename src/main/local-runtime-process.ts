@@ -93,6 +93,13 @@ const intentionalStops = new WeakSet<ChildProcess>()
 const readyChildren = new WeakSet<ChildProcess>()
 const EXTERNAL_COMPUTER_USE_SERVICE_URL_ENV = 'SCIFORGE_CUA_SERVICE_URL'
 const EXTERNAL_COMPUTER_USE_ALLOWED_HOSTS_ENV = 'SCIFORGE_CUA_ALLOWED_HOSTS'
+const EXTERNAL_COMPUTER_USE_SERVICE_ENV_NAMES = [
+  EXTERNAL_COMPUTER_USE_SERVICE_URL_ENV,
+  EXTERNAL_COMPUTER_USE_ALLOWED_HOSTS_ENV,
+  'SCIFORGE_CUA_SERVICE_TOKEN',
+  'SCIFORGE_CUA_SERVICE_TIMEOUT_MS',
+  'CUA_SERVICE_TOKEN'
+] as const
 type ExternalComputerUseServiceEnv = { [key: string]: string | undefined }
 
 export type LocalRuntimeUnexpectedExitInfo = {
@@ -417,14 +424,14 @@ async function startLocalRuntimeChildOnce(
         execPath: process.execPath,
         isPackaged: app.isPackaged
       },
-      // Env-gated conflict guard: SCIFORGE_CUA_SERVICE_URL means the GUI-Owl
-      // sidecar is advertising its own local `computer_use` tool, so do not
-      // enable the GUI-managed @sciforge/computer-use MCP for this runtime. Both
-      // paths currently coexist while human testing decides the final shape, but
-      // a single runtime config must not register duplicate `computer_use` tools.
+      // Env-gated conflict guard: an allowed SCIFORGE_CUA_SERVICE_URL means the
+      // GUI-Owl sidecar is advertising its own local `computer_use` tool, so do
+      // not enable the GUI-managed @sciforge/computer-use MCP for this runtime.
+      // Invalid or unallowlisted URLs fail closed and do not disable the
+      // managed isolated MCP fallback.
       enabled:
         isComputerUseEnabledForRuntime(settings, 'sciforge') &&
-        !externalComputerUseServiceUrlPolicy(process.env).configured
+        !externalComputerUseServiceUrlPolicy(process.env).allowed
     }
   })
   lastResolvedBinary = resolution.command === process.execPath
@@ -1112,6 +1119,11 @@ function localRuntimeChildEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   }
   for (const key of Object.keys(env)) {
     if (isUpstreamProviderConfigEnv(key) || isLegacyDirectWorkerEnv(key)) delete env[key]
+  }
+  if (!externalComputerUseServiceUrlPolicy(env).allowed) {
+    for (const name of EXTERNAL_COMPUTER_USE_SERVICE_ENV_NAMES) {
+      delete env[name]
+    }
   }
   return env
 }

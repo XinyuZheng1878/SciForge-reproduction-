@@ -102,6 +102,7 @@ import {
   mirrorRemoteChannelMessageApi,
   updateRemoteChannelActiveThreadContextApi
 } from '../lib/remote-channel-api'
+import { isUnsupportedLocalRemoteChannelCommand } from '../lib/remote-channel-local-commands'
 import {
   buildComposerFileContextPrompt,
   composerFileReferenceKey,
@@ -1932,6 +1933,13 @@ export function Workbench(): ReactElement {
       if (command?.kind === 'mode' || command?.kind === 'invalidMode') {
         setInput('')
         const replyText = t('remoteChannelModeChangeUnsupported')
+        appendLocalRemoteChannelTurn(v, replyText)
+        void mirrorRemoteChannelCommand(v, replyText)
+        return
+      }
+      if (isUnsupportedLocalRemoteChannelCommand(command)) {
+        setInput('')
+        const replyText = t('remoteChannelCommandUnsupported')
         appendLocalRemoteChannelTurn(v, replyText)
         void mirrorRemoteChannelCommand(v, replyText)
         return
