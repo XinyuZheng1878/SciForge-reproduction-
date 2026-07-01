@@ -29,11 +29,11 @@ const profileFields: Array<{
   placeholderKey: string
   rows: number
 }> = [
-  { key: 'description', labelKey: 'clawManageAgentDescription', placeholderKey: 'clawManageAgentDescriptionPlaceholder', rows: 2 },
-  { key: 'identity', labelKey: 'clawManageAgentIdentity', placeholderKey: 'clawManageAgentIdentityPlaceholder', rows: 4 },
-  { key: 'personality', labelKey: 'clawManageAgentPersonality', placeholderKey: 'clawManageAgentPersonalityPlaceholder', rows: 3 },
-  { key: 'userContext', labelKey: 'clawManageAgentUserContext', placeholderKey: 'clawManageAgentUserContextPlaceholder', rows: 3 },
-  { key: 'replyRules', labelKey: 'clawManageAgentReplyRules', placeholderKey: 'clawManageAgentReplyRulesPlaceholder', rows: 4 }
+  { key: 'description', labelKey: 'connectPhoneManageAgentDescription', placeholderKey: 'connectPhoneManageAgentDescriptionPlaceholder', rows: 2 },
+  { key: 'identity', labelKey: 'connectPhoneManageAgentIdentity', placeholderKey: 'connectPhoneManageAgentIdentityPlaceholder', rows: 4 },
+  { key: 'personality', labelKey: 'connectPhoneManageAgentPersonality', placeholderKey: 'connectPhoneManageAgentPersonalityPlaceholder', rows: 3 },
+  { key: 'userContext', labelKey: 'connectPhoneManageAgentUserContext', placeholderKey: 'connectPhoneManageAgentUserContextPlaceholder', rows: 3 },
+  { key: 'replyRules', labelKey: 'connectPhoneManageAgentReplyRules', placeholderKey: 'connectPhoneManageAgentReplyRulesPlaceholder', rows: 4 }
 ]
 
 function textInputClass(extra = ''): string {
@@ -140,10 +140,10 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
 
   return (
     <>
-      <SettingsCard title={t('clawRuntime')}>
+      <SettingsCard title={t('connectPhoneRuntime')}>
         <SettingRow
-          title={t('clawEnabled')}
-          description={t('clawEnabledDesc')}
+          title={t('connectPhoneEnabled')}
+          description={t('connectPhoneEnabledDesc')}
           control={
             <Toggle
               checked={form.remoteChannel.enabled}
@@ -152,8 +152,8 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
           }
         />
         <SettingRow
-          title={t('clawDefaultWorkspace')}
-          description={t('clawDefaultWorkspaceDesc')}
+          title={t('connectPhoneDefaultWorkspace')}
+          description={t('connectPhoneDefaultWorkspaceDesc')}
           control={
             <div className="w-full min-w-[200px] md:max-w-xl">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -169,14 +169,14 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
                       }
                     })
                   }
-                  placeholder={t('clawDefaultWorkspacePlaceholder', { path: form.workspaceRoot })}
+                  placeholder={t('connectPhoneDefaultWorkspacePlaceholder', { path: form.workspaceRoot })}
                 />
                 <button
                   type="button"
                   onClick={resetConnectPhoneWorkspaceToDefault}
                   className="shrink-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[13px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover"
                 >
-                  {t('clawDefaultWorkspaceReset')}
+                  {t('connectPhoneDefaultWorkspaceReset')}
                 </button>
                 <button
                   type="button"
@@ -196,10 +196,10 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
         />
       </SettingsCard>
 
-      <SettingsCard title={t('clawManageAgents')} className="mt-6">
+      <SettingsCard title={t('connectPhoneManageAgents')} className="mt-6">
         {form.remoteChannel.channels.length === 0 ? (
           <div className="px-3 py-4 text-[13px] leading-6 text-ds-muted">
-            {t('clawManageAgentsEmpty')}
+            {t('connectPhoneManageAgentsEmpty')}
           </div>
         ) : (
           form.remoteChannel.channels.map((channel) => {
@@ -212,7 +212,7 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
                   <div className="min-w-0">
                     <div className="truncate text-[14px] font-semibold text-ds-ink">{name}</div>
                     <div className="mt-1 text-[12px] text-ds-faint">
-                      {t('clawManageAgentMeta', {
+                      {t('connectPhoneManageAgentMeta', {
                         provider: remoteChannelProviderDisplayLabel(channel.provider),
                         model: channel.model,
                         workspace: channelEffectiveWorkspace(form, channel)
@@ -220,7 +220,7 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
                     </div>
                     {discord ? (
                       <div className="mt-1 text-[12px] leading-5 text-ds-faint">
-                        {t('clawDiscordChannelMeta', {
+                        {t('connectPhoneDiscordChannelMeta', {
                           server: discord.guildName || discord.guildId,
                           channel: discordChannelName(discord.channelName || discord.channelId)
                         })}
@@ -228,17 +228,17 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
                     ) : null}
                     {discord ? (
                       <div className="mt-1 text-[12px] leading-5 text-ds-muted">
-                        {t('clawDiscordLocalOnlineGuard')}
+                        {t('connectPhoneDiscordLocalOnlineGuard')}
                       </div>
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <span className="text-[12px] font-medium text-ds-muted">
                       {discordConflict
-                        ? t('clawDiscordGuardConflictState')
+                        ? t('connectPhoneDiscordGuardConflictState')
                         : channel.enabled
-                          ? t('clawManageAgentEnabled')
-                          : t('clawManageAgentDisabled')}
+                          ? t('connectPhoneManageAgentEnabled')
+                          : t('connectPhoneManageAgentDisabled')}
                     </span>
                     <Toggle
                       checked={channel.enabled}
@@ -257,9 +257,9 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
 
                 {discordConflict ? (
                   <div className="mt-3 rounded-xl border border-amber-300/70 bg-amber-50 px-3 py-2 text-[12.5px] leading-5 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-                    <div className="font-semibold">{t('clawDiscordGuardConflictTitle')}</div>
+                    <div className="font-semibold">{t('connectPhoneDiscordGuardConflictTitle')}</div>
                     <div className="mt-1">
-                      {t('clawDiscordGuardConflictDesc', {
+                      {t('connectPhoneDiscordGuardConflictDesc', {
                         owner: discord?.guardOwnerInstallationId || discord?.installationId || ''
                       })}
                     </div>
@@ -270,7 +270,7 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
                       }
                       className="mt-2 rounded-lg border border-amber-400/60 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-amber-900 shadow-sm transition hover:bg-amber-100 dark:border-amber-300/30 dark:bg-amber-300/10 dark:text-amber-100 dark:hover:bg-amber-300/15"
                     >
-                      {t('clawDiscordGuardTakeover')}
+                      {t('connectPhoneDiscordGuardTakeover')}
                     </button>
                   </div>
                 ) : null}
@@ -278,18 +278,18 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <label className="block min-w-0">
                     <span className="mb-1.5 block text-[12px] font-semibold text-ds-muted">
-                      {t('clawManageAgentName')}
+                      {t('connectPhoneManageAgentName')}
                     </span>
                     <input
                       className={textInputClass()}
                       value={channel.agentProfile.name}
                       onChange={(e) => updateChannelProfile(form, update, channel, { name: e.target.value })}
-                      placeholder={t('clawManageAgentNamePlaceholder')}
+                      placeholder={t('connectPhoneManageAgentNamePlaceholder')}
                     />
                   </label>
                   <label className="block min-w-0">
                     <span className="mb-1.5 block text-[12px] font-semibold text-ds-muted">
-                      {t('clawModel')}
+                      {t('connectPhoneAgentModel')}
                     </span>
                     <select
                       className={selectControlClass}
@@ -303,13 +303,13 @@ export function ConnectPhoneSettingsSection({ ctx }: { ctx: ConnectPhoneSettings
                   </label>
                   <label className="block min-w-0 md:col-span-2">
                     <span className="mb-1.5 block text-[12px] font-semibold text-ds-muted">
-                      {t('clawWorkspaceOverride')}
+                      {t('connectPhoneWorkspaceOverride')}
                     </span>
                     <input
                       className={textInputClass()}
                       value={channel.workspaceRoot}
                       onChange={(e) => updateChannel(form, update, channel.id, { workspaceRoot: e.target.value })}
-                      placeholder={t('clawWorkspaceInherit', {
+                      placeholder={t('connectPhoneWorkspaceInherit', {
                         path: form.remoteChannel.im.workspaceRoot.trim() || form.workspaceRoot
                       })}
                     />

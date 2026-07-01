@@ -811,44 +811,70 @@ export function directAgentRuntimeChildrenForThread(
   }).map((child) => ({ ...child }))
 }
 
-export type AgentRuntimeAuxiliaryOperation =
-  | 'reviewThread'
-  | 'listThreadChildren'
-  | 'readChildTranscript'
-  | 'getRuntimeInfo'
-  | 'getToolDiagnostics'
-  | 'runCodeNavigation'
-  | 'listModelAuditRecords'
-  | 'clearModelAuditRecords'
-  | 'getContextState'
-  | 'getRuntimeContextLedger'
-  | 'recordRuntimeContextLedger'
-  | 'createRuntimeHandoffPacket'
-  | 'startRuntimeHandoff'
-  | 'recordContextCompaction'
-  | 'updateGoalResumeState'
-  | 'listGitCheckpoints'
-  | 'createGitCheckpoint'
-  | 'previewGitCheckpoint'
-  | 'restoreGitCheckpoint'
-  | 'listSkills'
-  | 'uploadAttachment'
-  | 'getAttachmentContent'
-  | 'createMemory'
-  | 'listMemories'
-  | 'updateMemory'
-  | 'deleteMemory'
-  | 'listWorkspaceReferences'
-  | 'previewWorkspaceReference'
-  | 'updateThreadWorkspace'
-  | 'archiveThread'
-  | 'getThreadGoal'
-  | 'setThreadGoal'
-  | 'clearThreadGoal'
-  | 'getThreadTodos'
-  | 'setThreadTodos'
-  | 'clearThreadTodos'
-  | 'cancelUserInput'
+export const AGENT_RUNTIME_AUXILIARY_OPERATIONS = [
+  'reviewThread',
+  'listThreadChildren',
+  'readChildTranscript',
+  'getRuntimeInfo',
+  'getToolDiagnostics',
+  'runCodeNavigation',
+  'listModelAuditRecords',
+  'clearModelAuditRecords',
+  'getContextState',
+  'getRuntimeContextLedger',
+  'recordRuntimeContextLedger',
+  'createRuntimeHandoffPacket',
+  'startRuntimeHandoff',
+  'recordContextCompaction',
+  'updateGoalResumeState',
+  'listGitCheckpoints',
+  'createGitCheckpoint',
+  'previewGitCheckpoint',
+  'restoreGitCheckpoint',
+  'listSkills',
+  'uploadAttachment',
+  'getAttachmentContent',
+  'createMemory',
+  'listMemories',
+  'updateMemory',
+  'deleteMemory',
+  'listWorkspaceReferences',
+  'previewWorkspaceReference',
+  'updateThreadWorkspace',
+  'archiveThread',
+  'getThreadGoal',
+  'setThreadGoal',
+  'clearThreadGoal',
+  'getThreadTodos',
+  'setThreadTodos',
+  'clearThreadTodos',
+  'cancelUserInput'
+] as const
+
+export type AgentRuntimeAuxiliaryOperation = typeof AGENT_RUNTIME_AUXILIARY_OPERATIONS[number]
+
+export const AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS = [
+  'reviewThread',
+  'listThreadChildren',
+  'readChildTranscript',
+  'getContextState',
+  'getRuntimeContextLedger',
+  'recordRuntimeContextLedger',
+  'createRuntimeHandoffPacket',
+  'startRuntimeHandoff',
+  'recordContextCompaction',
+  'updateGoalResumeState',
+  'createGitCheckpoint',
+  'updateThreadWorkspace',
+  'archiveThread',
+  'getThreadGoal',
+  'setThreadGoal',
+  'clearThreadGoal',
+  'getThreadTodos',
+  'setThreadTodos',
+  'clearThreadTodos',
+  'cancelUserInput'
+] as const satisfies readonly AgentRuntimeAuxiliaryOperation[]
 
 export type AgentRuntimeAuxiliaryInput = {
   runtimeId?: AgentRuntimeId

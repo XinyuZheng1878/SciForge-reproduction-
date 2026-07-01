@@ -57,7 +57,7 @@ export function SettingsSidebar({
         </button>
         <button type="button" className={catCls('connectPhone')} onClick={() => setCategory('connectPhone')}>
           <Smartphone className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
-          {t('claw')}
+          {t('connectPhone')}
         </button>
       </nav>
       <div className="ds-no-drag mt-auto border-t border-ds-border p-3">

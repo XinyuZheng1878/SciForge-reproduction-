@@ -80,6 +80,11 @@
 - [x] K-Dense Scientific Skills 默认 discovery 不再扫描旧本地 runtime 目录；只保留显式 `SCIFORGE_KDENSE_SKILLS_ROOT`、workspace `.agents` / `skills`、global `.agents` 来源，旧目录只能作为用户显式 env root 输入。
 - [x] local runtime env scrub 补齐 `EDAG_LLM_*`，generic SciForge Runtime 子进程不再继承 Evidence DAG legacy direct LLM env；image-generation 设置文案标注为 worker-contained 临时例外。
 - [x] Connect phone / remote-channel renderer 内部 UI 命名继续清理：settings section 改为 `settings-section-connect-phone` / `ConnectPhoneSettingsSection`，provider UI 改为 `RemoteChannelSidebar`，安装 helper 改为 `ConnectPhoneDialogHelpers`，workspace picker / provider helper 名称改为 connect-phone / remote-channel 语义；shared `ClawIm*` 类型仍留在公开 API 决策边界内。
+- [x] Agent Runtime auxiliary operation 字面量收敛为 shared 单一来源：全量 operation tuple 和 runtimeId-required 子集由 `agent-runtime-contract` 导出，IPC schema、host guard 和测试复用同一来源，避免 operation 列表漂移。
+- [x] GUI plan registry 恢复更严格：normalize `activeByThread` 时会丢弃 workspace/thread 与 plan artifact 不匹配的坏指针，并 canonicalize thread key，避免损坏 localStorage shadow 合法计划。
+- [x] Connect phone settings namespace i18n key 清名：目标 settings section / sidebar 从 `claw*` key 改成 `connectPhone*` key；`common` namespace、shared `ClawIm*` 类型和 IPC/preload 边界保持不动。
+- [x] figure-style 内部 UI 偏好 key 清名：active page 写入 `sciforge.figureStyle.activePage`，读取时只把旧 `deepseekgui.figureStyle.activePage` 当 legacy fallback。
+- [x] app icon 路径测试 fixture / 注释清名：示例 asset 从 `chunks/deepseek-XXXX.png` 改为中性 `chunks/app-icon-XXXX.png`，不改变运行时路径解析逻辑。
 
 ## 验证记录
 
@@ -152,6 +157,11 @@
 - [x] `npx vitest run src/renderer/src/components/settings-section-connect-phone.test.ts src/renderer/src/components/settings-section-agents.test.ts src/renderer/src/components/chat/ConnectPhoneView.test.ts src/renderer/src/components/chat/ConnectPhoneDialogHelpers.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts src/renderer/src/store/chat-store-helpers.test.ts src/main/discord-bot-runtime.test.ts`
 - [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
 - [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
+- [x] `npx vitest run src/main/ipc/app-ipc-schemas.test.ts src/main/runtime/agent-runtime/host.test.ts src/renderer/src/plan/plan-store.test.ts src/renderer/src/components/settings-section-connect-phone.test.ts`
+- [x] `npx vitest run src/renderer/src/components/figure-style/figure-style-panel-state.test.ts src/renderer/src/components/workbench-layout.test.ts src/main/index.test.ts`
+- [x] `node -e 'const fs=require("fs"); for (const f of ["src/renderer/src/locales/en/settings.json","src/renderer/src/locales/zh/settings.json"]) JSON.parse(fs.readFileSync(f,"utf8"));'`
+- [x] `npx tsc --noEmit -p tsconfig.node.json --pretty false`
+- [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
 
 ## 已决策待实施
 
@@ -168,7 +178,7 @@
 - [ ] remote-channel IM command 边界：账户/连接/线程选择归 GUI；任务执行、计划、工具行为归 runtime/agent，避免新增并行控制链路。已删除 dead `ClawRuntime.runTask()`、stale Feishu mirror API 文档、dead `imCommandNotReadyText`，并补齐 remote-channel task IPC 测试和 public API 文档；仍需决策：IM 是否允许 `/model` / `/mode` 这类 runtime 行为命令；项目/thread 选择是否允许经 IM 发生；schedule/task 创建是否允许从 IM 自动触发。
 - [x] 删除 `vision-router-service`：Model Router 当前 `translators.vision` 已覆盖默认链路需要的 translate-only vision 能力，视觉输入会先经 vision translator 生成文本 evidence，再交给 text reasoner；已删除 standalone `plugins/vision-router-service` 及其文档/测试/notice 引用，默认链路不再保留第二条服务边界。后续如需要更强 retry/backoff/timeout，只在 Model Router `visionTranslator` provider call 内实现。
 - [ ] `gui-owl-computer-use` 暂停处理：保持 `gui-owl-computer-use` 与旧 `@sciforge/computer-use` 并存，不迁移、不删除，等待人工分别测试两套 computer-use 后再决策。人工测试矩阵需覆盖：`-SafeDryRun` 不动鼠标键盘、live 必须 GUI approve、cancel 有效、无 token live 被拒、是否让手工 dry-run 也强制 token（因为会截图并走 Model Router）。
-- [ ] Agent Runtime auxiliary 仍需决策是否改为按 operation 区分的 discriminated union：运行期 guard 已让 `reviewThread`、`listThreadChildren`、`readChildTranscript`、context ledger/state、runtime handoff、goal/todos、checkpoint create、thread workspace/archive、`cancelUserInput` 等 thread-bound operation 缺 `runtimeId` 时 fail-closed；仍需决策是否把该分类提升到 shared contract / IPC schema 的 operation-specific 类型与校验。`getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences` 等 active-scoped 能力继续允许省略。
+- [ ] Agent Runtime auxiliary 仍需决策是否改为按 operation 区分的 discriminated union：运行期 guard 已让 `reviewThread`、`listThreadChildren`、`readChildTranscript`、context ledger/state、runtime handoff、goal/todos、checkpoint create、thread workspace/archive、`cancelUserInput` 等 thread-bound operation 缺 `runtimeId` 时 fail-closed；operation 全量列表和 runtimeId-required 子集已单一来源化。仍需决策是否把该分类提升到 shared contract / IPC schema 的 operation-specific 类型与校验。`getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences` 等 active-scoped 能力继续允许省略。
 - [ ] `SCIFORGE_CUA_SERVICE_URL` loopback 策略等待 computer-use 人工测试后决策：允许哪些 loopback 形式、是否支持 SSH tunnel hostname、非 loopback 时 fail-closed 并不广告旧 tool，还是保留当前“不启用 GUI-managed MCP 以避免重复注册”的冲突 guard。
 - [ ] Remote Channel / Connect Phone 公开 TypeScript surface 是否破坏式清名：shared typings 仍通过 `src/shared/app-settings-types.ts` 和 `src/shared/app-settings.ts` barrel 暴露 `Claw*` 类型/函数/常量（例如 `ClawImChannelV1`、`ClawRunMode`、`parseClawCommand`），并经 `SciForgeApi` settings / Discord payload 间接暴露；运行时 window API、IPC channel 和用户文案已是 `remoteChannel` / `connectPhone`。需决策直接重命名为 `RemoteChannel*` / `ConnectPhone*` 并删除 alias，还是保留 deprecated alias 迁移期；renderer store 的 `clawChannels` / `activeClawChannelId` / `chat-store-claw-actions` 属于同一批内部清名，但需先决定 `activeClawChannelId` 与现有 `activeRemoteChannelId` 的目标语义，避免两种 remote-channel 选择态混名。
 
@@ -179,4 +189,5 @@
 - [ ] 等待人工测试两套 computer-use 后，再梳理是否迁移 `@sciforge/computer-use` 的 target/session/lease 合约、lease 冲突检测、shared action lock、native/browser backends、permission/status/audit、confirmation/risk taxonomy、local runtime/Codex/Claude MCP registry。
 - [ ] Paper Radar plugin workspace/core 归属仍待决策：当前 IPC 已走 `PaperRadarWorkerService`，app-side HTTP sidecar 已删除；但 `packages/workers/paper-radar` 仍依赖 `plugins/paper-radar-service` 的 storage/source/profile/ranking modules，root scripts/packaging 仍保留 standalone HTTP service。需决策保留 standalone external/debug API，还是抽 shared core 后删除 plugin workspace。
 - [ ] Search worker root public surface 待 breaking API 决策：已核对 `@sciforge/search` 为 `private:false` + `sciforge.publicContract:true`，root `"."` 指向 `src/index.ts`，当前额外 re-export `planResearchQueries` / `ResearchQueryPlan` / `buildArxivQuery` / `buildEuropePmcQuery` / `parseEuropePmcPapers`。仓库内无 `@sciforge/search` 根导入，GUI/workflow 走源码子路径，helper 仅 search 包内相对导入和测试使用；若接受 breaking 收口，可直接删除 root helper re-export 并加 public-surface 回归测试，否则需先定 deprecation/兼容窗口。
+- [ ] Private local runtime Model Router client 清名候选：`kun/src/adapters/model/deepseek-compat-model-client.ts` / `DeepseekCompatModelClient` 是私有 runtime 内部历史名，原则上可改为 `model-router-model-client.ts` / `ModelRouterModelClient`，同时更新 `runtime-factory`、kun tests、Model Router 边界测试和 runtime 文档；DeepSeek-specific pricing/cache/probe 命名需保留其模型/provider 语义，不做机械全局替换。
 - [x] Schedule detector 内部旧命名已清理为 neutral scheduled-task detector，并保留 Model Router-only 检测测试。

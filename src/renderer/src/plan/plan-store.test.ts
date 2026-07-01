@@ -146,6 +146,8 @@ describe('plan-store', () => {
       },
       activeByThread: {
         '/TMP/VALID::thread-a': 'valid',
+        '/tmp/valid::thread-b': 'valid',
+        '/tmp/other::thread-a': 'valid',
         '/tmp/invalid::thread-b': 'invalid'
       },
       plans: {
@@ -172,6 +174,46 @@ describe('plan-store', () => {
     })
     expect(readRememberedGuiPlan('/tmp/missing')).toBeNull()
     expect(readRememberedGuiPlan('/tmp/invalid', 'thread-b')).toBeNull()
+    expect(readRememberedGuiPlan('/tmp/valid', 'thread-b')).toBeNull()
+    expect(readRememberedGuiPlan('/tmp/other', 'thread-a')).toBeNull()
+  })
+
+  it('drops mismatched thread registry pointers without shadowing valid fallbacks', () => {
+    localStorage.setItem(PLAN_REGISTRY_STORAGE_KEY, JSON.stringify({
+      activeByThread: {
+        '/tmp/app::thread-a': 'wrong-thread',
+        '/tmp/app::thread-b': 'threadless',
+        '/TMP/APP::thread-a': 'valid'
+      },
+      plans: {
+        valid: {
+          workspaceRoot: '/tmp/app',
+          threadId: 'thread-a',
+          relativePath: '.sciforge/plan/valid.md',
+          sourceRequest: 'valid',
+          createdAt: '2026-01-01T00:00:00.000Z'
+        },
+        wrongThread: {
+          id: 'wrong-thread',
+          workspaceRoot: '/tmp/app',
+          threadId: 'thread-z',
+          relativePath: '.sciforge/plan/wrong-thread.md',
+          sourceRequest: 'wrong',
+          createdAt: '2026-01-01T00:00:00.000Z'
+        },
+        threadless: {
+          workspaceRoot: '/tmp/app',
+          relativePath: '.sciforge/plan/threadless.md',
+          sourceRequest: 'threadless',
+          createdAt: '2026-01-01T00:00:00.000Z'
+        }
+      }
+    }))
+
+    expect(readRememberedGuiPlan('/tmp/app', 'thread-a')).toMatchObject({
+      id: '/tmp/app:.sciforge/plan/valid.md'
+    })
+    expect(readRememberedGuiPlan('/tmp/app', 'thread-b')).toBeNull()
   })
 
   it('forgets completed plans from the persisted registry', () => {

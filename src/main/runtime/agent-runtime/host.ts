@@ -7,6 +7,7 @@ import {
 import { resolveRuntimeModelRouterSettings } from '../../../shared/app-settings-model-router'
 import { buildModelRouterResponsesUrl } from '../../../shared/model-router-url'
 import {
+  AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS,
   createAgentRuntimeCapabilityMatrix,
   isAgentRuntimeActiveTurnState,
   isAgentRuntimeTerminalTurnState,
@@ -2490,28 +2491,9 @@ function isThreadGoalAuxiliaryOperation(operation: AgentRuntimeAuxiliaryInput['o
     operation === 'clearThreadGoal'
 }
 
-const AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS = new Set<AgentRuntimeAuxiliaryInput['operation']>([
-  'reviewThread',
-  'listThreadChildren',
-  'readChildTranscript',
-  'getContextState',
-  'getRuntimeContextLedger',
-  'recordRuntimeContextLedger',
-  'createRuntimeHandoffPacket',
-  'startRuntimeHandoff',
-  'recordContextCompaction',
-  'updateGoalResumeState',
-  'createGitCheckpoint',
-  'updateThreadWorkspace',
-  'archiveThread',
-  'getThreadGoal',
-  'setThreadGoal',
-  'clearThreadGoal',
-  'getThreadTodos',
-  'setThreadTodos',
-  'clearThreadTodos',
-  'cancelUserInput'
-])
+const AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS = new Set<AgentRuntimeAuxiliaryInput['operation']>(
+  AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS
+)
 
 function assertAuxiliaryRuntimeId(input: AgentRuntimeAuxiliaryInput): void {
   if (

@@ -141,7 +141,13 @@ function normalizePlanRegistry(raw: unknown): PersistedPlanRegistry {
     for (const [key, value] of Object.entries(raw.activeByThread)) {
       const activeKey = normalizeText(key)
       const planId = planIdAliases.get(normalizeText(value)) ?? normalizeText(value)
-      if (activeKey && plans[planId]) activeByThread[activeKey] = plans[planId].id
+      const plan = plans[planId]
+      const parsed = splitThreadKey(activeKey)
+      if (!plan || !parsed || !guiPlanMatchesContext(plan, parsed.workspaceRoot, parsed.threadId)) {
+        continue
+      }
+      const canonicalKey = threadKey(plan.workspaceRoot, plan.threadId)
+      if (canonicalKey) activeByThread[canonicalKey] = plan.id
     }
   }
 

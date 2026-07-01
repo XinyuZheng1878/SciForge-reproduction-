@@ -10,8 +10,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
  *
  * electron-vite 的 main config 用 Rollup 处理资源 —— 跟 renderer 不同,
  * main 的 `?url` import 在 dev 和打包后都返回 *相对于 main bundle* 的路径
- * (形如 `'chunks/deepseek-XXXX.png'`)。main bundle 输出在 `out/main/`,所以
- * 运行时 `__dirname = out/main/`,asset 在 `out/main/chunks/deepseek-XXXX.png`。
+ * (形如 `'chunks/app-icon-XXXX.png'`)。main bundle 输出在 `out/main/`,所以
+ * 运行时 `__dirname = out/main/`,asset 在 `out/main/chunks/app-icon-XXXX.png`。
  *
  * 打包后 `__dirname` 在 `app.asar` 内,但 Node 的 `fs.readFileSync` 能透明地
  * 读 asar,所以不需要 `asarUnpack`。这条路径在 dev 和 prod 都成立,不需要

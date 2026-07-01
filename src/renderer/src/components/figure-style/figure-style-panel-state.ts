@@ -5,10 +5,12 @@ import {
 
 export type FigureStylePanelPage = 'style' | 'canvas'
 
-export const FIGURE_STYLE_PANEL_PAGE_KEY = 'deepseekgui.figureStyle.activePage'
+export const FIGURE_STYLE_PANEL_PAGE_KEY = 'sciforge.figureStyle.activePage'
+const LEGACY_FIGURE_STYLE_PANEL_PAGE_KEY = 'deepseekgui.figureStyle.activePage'
 
 export function readStoredFigureStylePanelPage(fallback: FigureStylePanelPage = 'style'): FigureStylePanelPage {
-  const raw = readBrowserStorageItem(FIGURE_STYLE_PANEL_PAGE_KEY)
+  const raw = readBrowserStorageItem(FIGURE_STYLE_PANEL_PAGE_KEY) ??
+    readBrowserStorageItem(LEGACY_FIGURE_STYLE_PANEL_PAGE_KEY)
   return raw === 'style' || raw === 'canvas' ? raw : fallback
 }
 

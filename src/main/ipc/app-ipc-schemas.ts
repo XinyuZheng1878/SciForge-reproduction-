@@ -13,6 +13,7 @@ import {
   SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS,
   SPEECH_TRANSCRIPTION_MAX_DURATION_MS
 } from '../../shared/speech-to-text'
+import { AGENT_RUNTIME_AUXILIARY_OPERATIONS } from '../../shared/agent-runtime-contract'
 import {
   TERMINAL_DEFAULT_COLS,
   TERMINAL_DEFAULT_ROWS,
@@ -64,45 +65,7 @@ const uiFontScaleSchema = z.enum(['small', 'medium', 'large'])
 const agentRuntimeIdSchema = z.enum(['sciforge', 'codex', 'claude'])
 const agentRuntimeThreadRelationSchema = z.string().trim().pipe(z.enum(['primary', 'fork', 'side']))
 const agentRuntimeUsageGroupBySchema = z.string().trim().pipe(z.enum(['day', 'model', 'thread']))
-const agentRuntimeAuxiliaryOperationSchema = z.enum([
-  'reviewThread',
-  'listThreadChildren',
-  'readChildTranscript',
-  'getRuntimeInfo',
-  'getToolDiagnostics',
-  'runCodeNavigation',
-  'listModelAuditRecords',
-  'clearModelAuditRecords',
-  'getContextState',
-  'getRuntimeContextLedger',
-  'recordRuntimeContextLedger',
-  'createRuntimeHandoffPacket',
-  'startRuntimeHandoff',
-  'recordContextCompaction',
-  'updateGoalResumeState',
-  'listGitCheckpoints',
-  'createGitCheckpoint',
-  'previewGitCheckpoint',
-  'restoreGitCheckpoint',
-  'listSkills',
-  'uploadAttachment',
-  'getAttachmentContent',
-  'createMemory',
-  'listMemories',
-  'updateMemory',
-  'deleteMemory',
-  'listWorkspaceReferences',
-  'previewWorkspaceReference',
-  'updateThreadWorkspace',
-  'archiveThread',
-  'getThreadGoal',
-  'setThreadGoal',
-  'clearThreadGoal',
-  'getThreadTodos',
-  'setThreadTodos',
-  'clearThreadTodos',
-  'cancelUserInput'
-])
+const agentRuntimeAuxiliaryOperationSchema = z.enum(AGENT_RUNTIME_AUXILIARY_OPERATIONS)
 const agentRuntimeAuxiliaryPayloadRecordSchema = z.record(z.string(), z.unknown()).optional()
 const approvalPolicySchema = z.enum(['on-request', 'untrusted', 'never', 'auto', 'suggest'])
 const sandboxModeSchema = z.enum(['read-only', 'workspace-write', 'danger-full-access', 'external-sandbox'])

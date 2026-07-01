@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { AGENT_RUNTIME_AUXILIARY_OPERATIONS } from '../../shared/agent-runtime-contract'
 import {
   agentRuntimeApprovalResolvePayloadSchema,
   agentRuntimeAuxiliaryPayloadSchema,
@@ -363,27 +364,7 @@ describe('app-ipc-schemas', () => {
       }
     })
 
-    for (const operation of [
-      'listThreadChildren',
-      'readChildTranscript',
-      'listModelAuditRecords',
-      'clearModelAuditRecords',
-      'getContextState',
-      'getRuntimeContextLedger',
-      'recordRuntimeContextLedger',
-      'createRuntimeHandoffPacket',
-      'startRuntimeHandoff',
-      'createGitCheckpoint',
-      'listGitCheckpoints',
-      'previewGitCheckpoint',
-      'restoreGitCheckpoint',
-      'createMemory',
-      'listMemories',
-      'updateMemory',
-      'deleteMemory',
-      'listWorkspaceReferences',
-      'previewWorkspaceReference'
-    ] as const) {
+    for (const operation of AGENT_RUNTIME_AUXILIARY_OPERATIONS) {
       expect(agentRuntimeAuxiliaryPayloadSchema.parse({
         runtimeId: 'sciforge',
         operation,

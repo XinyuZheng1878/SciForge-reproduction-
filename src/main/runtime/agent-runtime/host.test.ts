@@ -17,7 +17,6 @@ import {
 } from '../../../shared/app-settings'
 import type {
   AgentRuntimeAuxiliaryInput,
-  AgentRuntimeAuxiliaryOperation,
   AgentRuntimeCapabilities,
   AgentRuntimeEvent,
   AgentRuntimeGitCheckpoint,
@@ -28,6 +27,7 @@ import type {
   AgentRuntimeThread,
   AgentRuntimeTurnHandle
 } from '../../../shared/agent-runtime-contract'
+import { AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS } from '../../../shared/agent-runtime-contract'
 import type { CodexRuntimeService } from '../codex'
 import type { AgentRuntimeAdapter, AgentRuntimeAdapterContext } from './adapter'
 import { createAgentRuntimeHost } from './host'
@@ -362,30 +362,7 @@ describe('AgentRuntimeHost', () => {
       settings: async () => settings('codex'),
       adapters: [codex]
     })
-    const threadBoundOperations: AgentRuntimeAuxiliaryOperation[] = [
-      'reviewThread',
-      'listThreadChildren',
-      'readChildTranscript',
-      'getContextState',
-      'getRuntimeContextLedger',
-      'recordRuntimeContextLedger',
-      'createRuntimeHandoffPacket',
-      'startRuntimeHandoff',
-      'recordContextCompaction',
-      'updateGoalResumeState',
-      'createGitCheckpoint',
-      'updateThreadWorkspace',
-      'archiveThread',
-      'getThreadGoal',
-      'setThreadGoal',
-      'clearThreadGoal',
-      'getThreadTodos',
-      'setThreadTodos',
-      'clearThreadTodos',
-      'cancelUserInput'
-    ]
-
-    for (const operation of threadBoundOperations) {
+    for (const operation of AGENT_RUNTIME_AUXILIARY_RUNTIME_ID_REQUIRED_OPERATIONS) {
       await expect(host.auxiliary({
         operation,
         payload: {
