@@ -195,7 +195,7 @@ export type ChatState = {
   activeRemoteChannelId: string
   remoteGuardChannelId: string | null
   remoteTargetId: string | null
-  appendLocalClawTurn: (userText: string, replyText: string) => void
+  appendLocalRemoteChannelTurn: (userText: string, replyText: string) => void
   setError: (message: string | null) => void
   setComposerModel: (modelId: string) => void
   setActiveAgentRuntime: (runtimeId: AgentRuntimeId) => Promise<void>
@@ -211,8 +211,8 @@ export type ChatState = {
   selectRemoteGuardChannel: (channelId: string) => void
   clearRemoteGuardChannel: () => void
   setRemoteTargetId: (targetId: string | null) => void
-  refreshClawChannels: () => Promise<void>
-  addClawChannel: (
+  refreshRemoteChannels: () => Promise<void>
+  addRemoteChannel: (
     provider: ClawImProvider,
     agentProfile?: Partial<ClawImAgentProfileV1>,
     platformCredential?: ClawImPlatformCredentialV1,
@@ -225,11 +225,11 @@ export type ChatState = {
       preserveRoute?: boolean
     }
   ) => Promise<void>
-  selectClawChannel: (channelId: string) => Promise<void>
-  selectClawConversation: (channelId: string, threadId: string) => Promise<void>
-  deleteClawChannel: (channelId: string) => Promise<void>
-  resetClawChannelSession: (channelId: string) => Promise<void>
-  setClawChannelModel: (channelId: string, model: string) => Promise<void>
+  selectRemoteChannel: (channelId: string) => Promise<void>
+  selectRemoteChannelConversation: (channelId: string, threadId: string) => Promise<void>
+  deleteRemoteChannel: (channelId: string) => Promise<void>
+  resetRemoteChannelSession: (channelId: string) => Promise<void>
+  setRemoteChannelModel: (channelId: string, model: string) => Promise<void>
   openInitialSetup: (mode?: InitialSetupMode) => void
   closeInitialSetup: () => void
   boot: () => Promise<void>

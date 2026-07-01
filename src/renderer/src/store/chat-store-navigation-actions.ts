@@ -161,7 +161,7 @@ export async function syncRemoteChannelActivityToStore(
     if (state.activeThreadId === threadId) {
       await get().recoverActiveTurn()
     } else {
-      await get().selectClawConversation(payload.channelId, threadId)
+      await get().selectRemoteChannelConversation(payload.channelId, threadId)
     }
     return
   }

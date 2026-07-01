@@ -460,7 +460,7 @@ describe('remote-channel activity sync', () => {
       recoverActiveTurn: vi.fn(async () => true),
       refreshThreads: vi.fn(async () => undefined),
       route: 'chat',
-      selectClawConversation: vi.fn(async () => undefined),
+      selectRemoteChannelConversation: vi.fn(async () => undefined),
       selectThread: vi.fn(async (threadId: string) => {
         state.activeThreadId = threadId
       }),
@@ -487,7 +487,7 @@ describe('remote-channel activity sync', () => {
     expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('desktop-thread', 'codex')
     expect(state.recoverActiveTurn).toHaveBeenCalledTimes(1)
     expect(state.refreshThreads).toHaveBeenCalledTimes(1)
-    expect(state.selectClawConversation).not.toHaveBeenCalled()
+    expect(state.selectRemoteChannelConversation).not.toHaveBeenCalled()
     expect(state.activeRemoteChannelId).toBe('channel-1')
   })
 
@@ -506,7 +506,7 @@ describe('remote-channel activity sync', () => {
 
     expect(state.activeThreadId).toBe('desktop-thread')
     expect(state.recoverActiveTurn).not.toHaveBeenCalled()
-    expect(state.selectClawConversation).not.toHaveBeenCalled()
+    expect(state.selectRemoteChannelConversation).not.toHaveBeenCalled()
     expect(state.refreshThreads).toHaveBeenCalledTimes(1)
     expect(state.unreadThreadIds['remote-thread']).toBe(true)
     expect(state.watchTurnCompletion['remote-thread']).toBe(true)
@@ -526,7 +526,7 @@ describe('remote-channel activity sync', () => {
     })
 
     expect(state.activeRemoteChannelId).toBe('channel-1')
-    expect(state.selectClawConversation).toHaveBeenCalledWith('channel-1', 'remote-thread')
+    expect(state.selectRemoteChannelConversation).toHaveBeenCalledWith('channel-1', 'remote-thread')
     expect(state.refreshThreads).not.toHaveBeenCalled()
     expect(state.unreadThreadIds['remote-thread']).toBeUndefined()
   })

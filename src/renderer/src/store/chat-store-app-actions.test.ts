@@ -59,7 +59,7 @@ function buildHarness(initialState: Partial<ChatState> = {}): {
     activeRemoteChannelId: '',
     remoteGuardChannelId: null,
     remoteChannels: [channel('discord-channel')],
-    refreshClawChannels: vi.fn(async () => undefined),
+    refreshRemoteChannels: vi.fn(async () => undefined),
     refreshThreads: vi.fn(async () => undefined),
     loadComposerModels: vi.fn(async () => undefined),
     applyI18nFromSettings: vi.fn(async () => undefined),
@@ -149,7 +149,7 @@ describe('chat-store app actions', () => {
         fetchUpstreamModels: vi.fn(async () => ({ ok: true, modelIds: [], modelGroups: [] }))
       }
     })
-    state.refreshClawChannels = vi.fn(async () => {
+    state.refreshRemoteChannels = vi.fn(async () => {
       state.remoteChannels = JSON.parse(JSON.stringify(bindingBefore))
     })
 
@@ -174,7 +174,7 @@ describe('chat-store app actions', () => {
     expect(state.remoteChannels[0]).not.toHaveProperty('threadId')
     expect(state.remoteChannels[0]?.conversations[0]).not.toHaveProperty('localThreadId')
     expect(state.activeThreadId).toBe('codex-thread')
-    expect(state.refreshClawChannels).toHaveBeenCalledTimes(1)
+    expect(state.refreshRemoteChannels).toHaveBeenCalledTimes(1)
   })
 
   it('opens Connect phone as a chat route panel', () => {
@@ -189,6 +189,6 @@ describe('chat-store app actions', () => {
     expect(state.route).toBe('chat')
     expect(state.remoteGuardChannelId).toBeNull()
     expect(state.connectPhonePanelOpen).toBe(true)
-    expect(state.refreshClawChannels).toHaveBeenCalledTimes(1)
+    expect(state.refreshRemoteChannels).toHaveBeenCalledTimes(1)
   })
 })

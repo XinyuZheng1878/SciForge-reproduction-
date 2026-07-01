@@ -135,7 +135,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
 
     openConnectPhone: () => {
       set({ route: 'chat', remoteGuardChannelId: null, connectPhonePanelOpen: true })
-      void get().refreshClawChannels()
+      void get().refreshRemoteChannels()
     },
 
     setConnectPhonePanelOpen: (open) => set({

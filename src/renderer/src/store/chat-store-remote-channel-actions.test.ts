@@ -4,12 +4,12 @@ import { CLAW_MANAGED_INSTRUCTIONS_HEADING } from '@shared/app-settings'
 import type { ChatBlock, NormalizedThread } from '../agent/types'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import {
-  channelWithClawThreadMapping,
-  clawThreadIdForProvider,
-  createClawActions,
-  findRecoverableClawThread,
-  resolveClawThreadId
-} from './chat-store-claw-actions'
+  channelWithRemoteThreadMapping,
+  remoteChannelThreadIdForProvider,
+  createRemoteChannelActions,
+  findRecoverableRemoteChannelThread,
+  resolveRemoteChannelThreadId
+} from './chat-store-remote-channel-actions'
 
 type TestConversationOverrides = Partial<ClawImConversationV1> & { localThreadId?: string }
 type TestChannelOverrides = Partial<Omit<ClawImChannelV1, 'conversations'>> & {
@@ -126,10 +126,10 @@ function settingsWithChannels(
   }
 }
 
-function createClawActionHarness(options: {
+function createRemoteChannelActionHarness(options: {
   settings: TestSettings
   provider?: Partial<TestRemoteChannelProvider>
-  newClawChannel?: () => ClawImChannelV1
+  newRemoteChannel?: () => ClawImChannelV1
   state?: Record<string, unknown>
 }) {
   let settings = options.settings
@@ -165,7 +165,7 @@ function createClawActionHarness(options: {
     state = { ...state, activeThreadId: threadId }
   })
   const refreshThreads = vi.fn(async () => undefined)
-  const selectClawChannel = vi.fn(async () => undefined)
+  const selectRemoteChannel = vi.fn(async () => undefined)
   state = {
     runtimeConnection: 'ready',
     route: 'chat',
@@ -187,20 +187,20 @@ function createClawActionHarness(options: {
     error: null,
     selectThread,
     refreshThreads,
-    selectClawChannel,
+    selectRemoteChannel,
     ...(options.state ?? {})
   }
   const set = vi.fn((partial: Record<string, unknown> | ((current: typeof state) => Record<string, unknown>)) => {
     const patch = typeof partial === 'function' ? partial(state) : partial
     state = { ...state, ...patch }
   })
-  const actions = createClawActions({
+  const actions = createRemoteChannelActions({
     set: set as never,
     get: (() => state) as never,
     i18n: { t: (key: string) => key },
     getProvider: () => provider,
-    newClawChannel: (options.newClawChannel ?? vi.fn()) as never,
-    normalizeClawComposerModel: (raw: string) => raw as never,
+    newRemoteChannel: (options.newRemoteChannel ?? vi.fn()) as never,
+    normalizeRemoteChannelComposerModel: (raw: string) => raw as never,
     activeRemoteChannel: vi.fn() as never,
     normalizeWorkspaceRoot: (workspaceRoot?: string | null) => workspaceRoot?.trim() ?? '',
     formatRuntimeError: (error: unknown) => error instanceof Error ? error.message : String(error),
@@ -227,13 +227,13 @@ function createClawActionHarness(options: {
     provider,
     selectThread,
     refreshThreads,
-    selectClawChannel,
+    selectRemoteChannel,
     getSettings: () => settings,
     getState: () => state
   }
 }
 
-describe('chat-store Claw actions helpers', () => {
+describe('chat-store remote channel actions helpers', () => {
   afterEach(() => {
     rendererRuntimeClient.invalidateSettings()
     vi.unstubAllGlobals()
@@ -242,8 +242,8 @@ describe('chat-store Claw actions helpers', () => {
   it('uses channel mappings only when the latest conversation has none', () => {
     const item = channel({ agentThreadIds: {} })
     const latestConversation = { ...item.conversations[0], agentThreadIds: {} }
-    expect(clawThreadIdForProvider(item, latestConversation, 'sciforge')).toBe('')
-    expect(clawThreadIdForProvider({
+    expect(remoteChannelThreadIdForProvider(item, latestConversation, 'sciforge')).toBe('')
+    expect(remoteChannelThreadIdForProvider({
       ...item,
       agentThreadIds: { sciforge: 'sciforge-channel-thread' }
     }, latestConversation, 'sciforge')).toBe('sciforge-channel-thread')
@@ -266,10 +266,10 @@ describe('chat-store Claw actions helpers', () => {
       }]
     })
 
-    expect(clawThreadIdForProvider(item, item.conversations[0], 'codex')).toBe('codex-conversation-thread')
-    expect(clawThreadIdForProvider({ ...item, agentThreadIds: {} }, item.conversations[0], 'codex'))
+    expect(remoteChannelThreadIdForProvider(item, item.conversations[0], 'codex')).toBe('codex-conversation-thread')
+    expect(remoteChannelThreadIdForProvider({ ...item, agentThreadIds: {} }, item.conversations[0], 'codex'))
       .toBe('codex-conversation-thread')
-    expect(clawThreadIdForProvider({ ...item, agentThreadIds: {} }, {
+    expect(remoteChannelThreadIdForProvider({ ...item, agentThreadIds: {} }, {
       ...item.conversations[0],
       agentThreadIds: {}
     }, 'codex')).toBe('')
@@ -277,7 +277,7 @@ describe('chat-store Claw actions helpers', () => {
 
   it('recovers an unmapped current remote-channel session before creating a new empty one', () => {
     const item = channel()
-    const recovered = findRecoverableClawThread(
+    const recovered = findRecoverableRemoteChannelThread(
       [
         thread('empty-claw-thread', '[Remote channel:Feishu Agent01]', '2026-06-01T00:02:00.000Z'),
         thread('old-content-thread', `${CLAW_MANAGED_INSTRUCTIONS_HEADING} SciForge scheduled-task tools`, '2026-06-01T00:01:00.000Z')
@@ -292,7 +292,7 @@ describe('chat-store Claw actions helpers', () => {
 
   it('does not recover unmapped sessions from legacy Claw titles', () => {
     const item = channel()
-    const recovered = findRecoverableClawThread(
+    const recovered = findRecoverableRemoteChannelThread(
       [
         thread('legacy-claw-thread', '[Claw:Feishu Agent01]', '2026-06-01T00:03:00.000Z'),
         thread('legacy-claw-im-thread', '[Claw IM:Feishu Agent01]', '2026-06-01T00:02:00.000Z')
@@ -307,7 +307,7 @@ describe('chat-store Claw actions helpers', () => {
 
   it('writes recovered provider thread ids to the single runtime mapping', () => {
     const now = '2026-06-01T00:03:00.000Z'
-    const next = channelWithClawThreadMapping(channel(), 'kun-thread', now, 'conversation-1', 'sciforge')
+    const next = channelWithRemoteThreadMapping(channel(), 'kun-thread', now, 'conversation-1', 'sciforge')
 
     expect(next).not.toHaveProperty('threadId')
     expect(next.conversations[0]).not.toHaveProperty('localThreadId')
@@ -317,7 +317,7 @@ describe('chat-store Claw actions helpers', () => {
 
   it('writes Codex thread mappings without overwriting local runtime mappings', () => {
     const now = '2026-06-01T00:03:00.000Z'
-    const next = channelWithClawThreadMapping(
+    const next = channelWithRemoteThreadMapping(
       channel({
         threadId: 'kun-channel-thread',
         agentThreadIds: { sciforge: 'kun-channel-thread' },
@@ -344,12 +344,12 @@ describe('chat-store Claw actions helpers', () => {
 
   it('uses the current project workspace when adding a new IM channel without an explicit workspace', async () => {
     const baseChannel = channel({ workspaceRoot: '', threadId: '', conversations: [] })
-    const { actions, sciforge, getSettings, getState } = createClawActionHarness({
+    const { actions, sciforge, getSettings, getState } = createRemoteChannelActionHarness({
       settings: settingsWithChannels([], 'codex'),
-      newClawChannel: () => baseChannel
+      newRemoteChannel: () => baseChannel
     })
 
-    await actions.addClawChannel('feishu')
+    await actions.addRemoteChannel('feishu')
 
     expect(getSettings().remoteChannel.channels[0]).toMatchObject({
       id: 'channel-1',
@@ -382,12 +382,12 @@ describe('chat-store Claw actions helpers', () => {
         }
       }]
     })
-    const { actions, provider, getState } = createClawActionHarness({
+    const { actions, provider, getState } = createRemoteChannelActionHarness({
       settings: settingsWithChannels([item], 'sciforge'),
       provider: { id: 'sciforge' }
     })
 
-    await actions.selectClawChannel('channel-1')
+    await actions.selectRemoteChannel('channel-1')
 
     expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('codex-conversation-thread', 'codex')
     expect(provider.getThreadDetail).toHaveBeenCalledWith('codex-conversation-thread')
@@ -411,7 +411,7 @@ describe('chat-store Claw actions helpers', () => {
       ...thread('created-codex-thread', '[Remote channel:Feishu Agent01]'),
       runtimeId: 'codex' as const
     }
-    const { actions, provider, sciforge, getState } = createClawActionHarness({
+    const { actions, provider, sciforge, getState } = createRemoteChannelActionHarness({
       settings: settingsWithChannels([item], 'codex'),
       provider: {
         id: 'codex',
@@ -425,7 +425,7 @@ describe('chat-store Claw actions helpers', () => {
       }
     })
 
-    await actions.selectClawChannel('channel-1')
+    await actions.selectRemoteChannel('channel-1')
 
     const savedChannels = sciforge.setSettings.mock.calls.at(-1)?.[0].remoteChannel?.channels ?? []
     expect(provider.createThread).toHaveBeenCalledTimes(1)
@@ -457,14 +457,14 @@ describe('chat-store Claw actions helpers', () => {
         }
       }]
     })
-    const { actions, provider, selectClawChannel, getState } = createClawActionHarness({
+    const { actions, provider, selectRemoteChannel, getState } = createRemoteChannelActionHarness({
       settings: settingsWithChannels([item], 'sciforge'),
       provider: { id: 'sciforge' }
     })
 
-    await actions.selectClawConversation('channel-1', 'codex-conversation-thread')
+    await actions.selectRemoteChannelConversation('channel-1', 'codex-conversation-thread')
 
-    expect(selectClawChannel).not.toHaveBeenCalled()
+    expect(selectRemoteChannel).not.toHaveBeenCalled()
     expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('codex-conversation-thread', 'codex')
     expect(provider.getThreadDetail).toHaveBeenCalledWith('codex-conversation-thread')
     expect(getState().activeThreadId).toBe('codex-conversation-thread')
@@ -481,12 +481,12 @@ describe('chat-store Claw actions helpers', () => {
       },
       conversations: []
     })
-    const { actions, provider } = createClawActionHarness({
+    const { actions, provider } = createRemoteChannelActionHarness({
       settings: settingsWithChannels([item], 'sciforge'),
       provider: { id: 'sciforge' }
     })
 
-    await actions.deleteClawChannel('channel-1')
+    await actions.deleteRemoteChannel('channel-1')
 
     expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('codex-channel-thread', 'codex')
     expect(provider.deleteThread).toHaveBeenCalledWith('codex-channel-thread')
@@ -514,7 +514,7 @@ describe('chat-store Claw actions helpers', () => {
       ...thread('new-codex-thread', '[Remote channel:Feishu Agent01]'),
       runtimeId: 'codex' as const
     }
-    const { actions, provider, sciforge } = createClawActionHarness({
+    const { actions, provider, sciforge } = createRemoteChannelActionHarness({
       settings: settingsWithChannels([item], 'sciforge'),
       provider: {
         id: 'sciforge',
@@ -522,7 +522,7 @@ describe('chat-store Claw actions helpers', () => {
       }
     })
 
-    await actions.resetClawChannelSession('channel-1')
+    await actions.resetRemoteChannelSession('channel-1')
 
     const savedChannels = sciforge.setSettings.mock.calls.at(-1)?.[0].remoteChannel?.channels ?? []
     expect(provider.rememberThreadRuntime).toHaveBeenCalledWith('old-codex-channel-thread', 'codex')
@@ -547,7 +547,7 @@ describe('chat-store Claw actions helpers', () => {
 
   it('drops stale configured thread ids and falls back to a recovered thread', () => {
     expect(
-      resolveClawThreadId({
+      resolveRemoteChannelThreadId({
         configuredThreadId: 'thr_missing',
         recoveredThreadId: 'thr_recovered',
         configuredThreadExists: false,
@@ -558,7 +558,7 @@ describe('chat-store Claw actions helpers', () => {
 
   it('keeps the configured thread when it exists and already has conversation history', () => {
     expect(
-      resolveClawThreadId({
+      resolveRemoteChannelThreadId({
         configuredThreadId: 'thr_live',
         recoveredThreadId: 'thr_recovered',
         configuredThreadExists: true,
@@ -628,13 +628,13 @@ describe('chat-store Claw actions helpers', () => {
       const patch = typeof partial === 'function' ? partial(state) : partial
       state = { ...state, ...patch }
     })
-    const actions = createClawActions({
+    const actions = createRemoteChannelActions({
       set: set as never,
       get: (() => state) as never,
       i18n: { t: (key: string) => key },
       getProvider: () => provider,
-      newClawChannel: vi.fn() as never,
-      normalizeClawComposerModel: (raw: string) => raw as never,
+      newRemoteChannel: vi.fn() as never,
+      normalizeRemoteChannelComposerModel: (raw: string) => raw as never,
       activeRemoteChannel: vi.fn() as never,
       normalizeWorkspaceRoot: (workspaceRoot?: string | null) => workspaceRoot?.trim() ?? '',
       formatRuntimeError: (error: unknown) => error instanceof Error ? error.message : String(error),
@@ -655,7 +655,7 @@ describe('chat-store Claw actions helpers', () => {
       clearBusyWatchdog: vi.fn()
     })
 
-    await actions.selectClawChannel('channel-1')
+    await actions.selectRemoteChannel('channel-1')
 
     expect(provider.createThread).not.toHaveBeenCalled()
     expect(state.route).toBe('chat')

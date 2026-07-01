@@ -200,7 +200,7 @@ export function mergeComposerPickList(upstreamOk: boolean, upstreamIds: string[]
   return ['auto', ...tail]
 }
 
-export function newClawChannel(
+export function newRemoteChannel(
   provider: ClawImProvider,
   agentProfile?: Partial<ClawImAgentProfileV1>,
   platformCredential?: ClawImPlatformCredentialV1
@@ -234,7 +234,7 @@ export function newClawChannel(
   }
 }
 
-export function normalizeClawComposerModel(raw: string): string {
+export function normalizeRemoteChannelComposerModel(raw: string): string {
   const trimmed = raw.trim()
   return trimmed || 'auto'
 }

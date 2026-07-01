@@ -97,8 +97,8 @@ export function Sidebar({
   const activeRemoteChannelId = useChatStore((s) => s.activeRemoteChannelId)
   const remoteGuardChannelId = useChatStore((s) => s.remoteGuardChannelId)
   const selectRemoteGuardChannel = useChatStore((s) => s.selectRemoteGuardChannel)
-  const addClawChannel = useChatStore((s) => s.addClawChannel)
-  const deleteClawChannel = useChatStore((s) => s.deleteClawChannel)
+  const addRemoteChannel = useChatStore((s) => s.addRemoteChannel)
+  const deleteRemoteChannel = useChatStore((s) => s.deleteRemoteChannel)
   const botWatchedThreadIds = useMemo(
     () => watchedClawThreadIdsFromChannels(remoteChannels),
     [remoteChannels]
@@ -269,14 +269,14 @@ export function Sidebar({
         channels={remoteChannels}
         workspaceRoot={workspaceRoot}
         onAddProvider={async (provider, agentProfile, platformCredential, options) => {
-          await addClawChannel(provider, agentProfile, platformCredential, {
+          await addRemoteChannel(provider, agentProfile, platformCredential, {
             ...options,
             workspaceRoot: resolveConnectPhoneWorkspaceRoot(options?.workspaceRoot, workspaceRoot),
             preserveRoute: true
           })
           onToggleConnectPhone()
         }}
-        onDisconnect={(channelId) => deleteClawChannel(channelId)}
+        onDisconnect={(channelId) => deleteRemoteChannel(channelId)}
         onOpenSettings={() => {
           onToggleConnectPhone()
           onOpenSettings('connectPhone')

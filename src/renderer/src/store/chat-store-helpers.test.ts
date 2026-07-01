@@ -11,7 +11,7 @@ import {
   deriveClawThreadRemoteStatusKind,
   hydrateBlockModelLabels,
   isClawThread,
-  newClawChannel,
+  newRemoteChannel,
   normalizeTurnModelMap,
   rememberTurnModel,
   watchedClawThreadIdsFromChannels
@@ -253,8 +253,8 @@ describe('chat-store remote-channel helpers', () => {
   })
 
   it('uses product default agent names for new phone connections', () => {
-    const feishu = newClawChannel('feishu')
-    const weixin = newClawChannel('weixin')
+    const feishu = newRemoteChannel('feishu')
+    const weixin = newRemoteChannel('weixin')
 
     expect(feishu.label).toBe('feishu agent')
     expect(feishu.agentProfile.name).toBe('feishu agent')

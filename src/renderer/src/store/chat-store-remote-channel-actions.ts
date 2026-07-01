@@ -13,7 +13,7 @@ import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import type { ChatBlock, NormalizedThread } from '../agent/types'
 import { clawThreadTitleLooksManaged, clawThreadIdsFromChannels } from './chat-store-helpers'
 
-type ClawAgentProviderLike = {
+type RemoteChannelAgentProviderLike = {
   id?: AgentRuntimeId
   rememberThreadRuntime?: (threadId: string, runtimeId?: AgentRuntimeId) => void
   createThread: (input: { workspace: string; title: string; mode: 'agent' | 'plan' }) => Promise<NormalizedThread>
@@ -21,17 +21,17 @@ type ClawAgentProviderLike = {
   deleteThread: (threadId: string) => Promise<void>
 }
 
-type CreateClawActionsOptions = {
+type CreateRemoteChannelActionsOptions = {
   set: ChatStoreSet
   get: ChatStoreGet
   i18n: { t: (key: string, options?: Record<string, unknown>) => string }
-  getProvider: () => ClawAgentProviderLike
-  newClawChannel: (
+  getProvider: () => RemoteChannelAgentProviderLike
+  newRemoteChannel: (
     provider: ClawImProvider,
     agentProfile?: Partial<ClawImAgentProfileV1>,
     platformCredential?: ClawImPlatformCredentialV1
   ) => ClawImChannelV1
-  normalizeClawComposerModel: (raw: string) => string
+  normalizeRemoteChannelComposerModel: (raw: string) => string
   activeRemoteChannel: (state: Pick<ChatState, 'remoteChannels' | 'activeRemoteChannelId'>) => ClawImChannelV1 | null
   normalizeWorkspaceRoot: (workspaceRoot?: string | null) => string
   formatRuntimeError: (error: unknown) => string
@@ -53,7 +53,7 @@ type CreateClawActionsOptions = {
   clearBusyWatchdog: () => void
 }
 
-function clawThreadPlaceholder(
+function remoteChannelThreadPlaceholder(
   channel: ClawImChannelV1,
   threadId: string,
   workspaceRoot: string,
@@ -62,7 +62,7 @@ function clawThreadPlaceholder(
   return {
     id: threadId,
     runtimeId,
-    title: clawChannelTitle(channel),
+    title: remoteChannelThreadTitle(channel),
     updatedAt: channel.updatedAt,
     model: channel.model,
     mode: 'agent',
@@ -70,7 +70,7 @@ function clawThreadPlaceholder(
   }
 }
 
-export function clawThreadIdForProvider(
+export function remoteChannelThreadIdForProvider(
   channel: ClawImChannelV1,
   conversation: ClawImChannelV1['conversations'][number] | null | undefined,
   runtimeId: AgentRuntimeId
@@ -88,22 +88,22 @@ function normalizeAgentRuntimeId(value: unknown): AgentRuntimeId {
   return 'sciforge'
 }
 
-function runtimeIdForProvider(provider: ClawAgentProviderLike, settings: { activeAgentRuntime?: AgentRuntimeId }): AgentRuntimeId {
+function runtimeIdForProvider(provider: RemoteChannelAgentProviderLike, settings: { activeAgentRuntime?: AgentRuntimeId }): AgentRuntimeId {
   return normalizeAgentRuntimeId(provider.id ?? settings.activeAgentRuntime)
 }
 
-function runtimeIdForClawChannel(
+function runtimeIdForRemoteChannel(
   channel: ClawImChannelV1,
-  provider: ClawAgentProviderLike,
+  provider: RemoteChannelAgentProviderLike,
   settings: { activeAgentRuntime?: AgentRuntimeId }
 ): AgentRuntimeId {
   return normalizeAgentRuntimeId(channel.runtimeId ?? runtimeIdForProvider(provider, settings))
 }
 
-function runtimeIdForClawConversation(
+function runtimeIdForRemoteChannelConversation(
   channel: ClawImChannelV1,
   conversation: ClawImChannelV1['conversations'][number] | null | undefined,
-  provider: ClawAgentProviderLike,
+  provider: RemoteChannelAgentProviderLike,
   settings: { activeAgentRuntime?: AgentRuntimeId }
 ): AgentRuntimeId {
   return normalizeAgentRuntimeId(conversation?.runtimeId ?? channel.runtimeId ?? runtimeIdForProvider(provider, settings))
@@ -121,13 +121,13 @@ function withAgentThreadId(
   return next
 }
 
-function clawChannelTitle(channel: ClawImChannelV1): string {
+function remoteChannelThreadTitle(channel: ClawImChannelV1): string {
   return `[Remote channel:${channel.label}]`
 }
 
-function titleMatchesClawChannel(thread: Pick<NormalizedThread, 'title'>, channel: ClawImChannelV1): boolean {
+function titleMatchesRemoteChannel(thread: Pick<NormalizedThread, 'title'>, channel: ClawImChannelV1): boolean {
   const title = thread.title.trim()
-  return title.startsWith(clawChannelTitle(channel))
+  return title.startsWith(remoteChannelThreadTitle(channel))
 }
 
 function updatedAtMs(thread: Pick<NormalizedThread, 'updatedAt'>): number {
@@ -135,7 +135,7 @@ function updatedAtMs(thread: Pick<NormalizedThread, 'updatedAt'>): number {
   return Number.isFinite(value) ? value : 0
 }
 
-export function findRecoverableClawThread(
+export function findRecoverableRemoteChannelThread(
   threads: NormalizedThread[],
   channels: ClawImChannelV1[],
   channel: ClawImChannelV1,
@@ -151,12 +151,12 @@ export function findRecoverableClawThread(
     .sort((a, b) => updatedAtMs(b) - updatedAtMs(a))
   return (
     candidates.find((thread) => thread.title.trim().startsWith(CLAW_MANAGED_INSTRUCTIONS_HEADING)) ??
-    candidates.find((thread) => titleMatchesClawChannel(thread, channel)) ??
+    candidates.find((thread) => titleMatchesRemoteChannel(thread, channel)) ??
     null
   )
 }
 
-export function resolveClawThreadId(input: {
+export function resolveRemoteChannelThreadId(input: {
   configuredThreadId: string
   recoveredThreadId?: string | null
   configuredThreadExists: boolean
@@ -170,7 +170,7 @@ export function resolveClawThreadId(input: {
   return configured
 }
 
-async function threadExists(provider: ClawAgentProviderLike, threadId: string): Promise<boolean> {
+async function threadExists(provider: RemoteChannelAgentProviderLike, threadId: string): Promise<boolean> {
   try {
     await provider.getThreadDetail(threadId)
     return true
@@ -179,7 +179,7 @@ async function threadExists(provider: ClawAgentProviderLike, threadId: string): 
   }
 }
 
-async function threadHasUserMessages(provider: ClawAgentProviderLike, threadId: string): Promise<boolean> {
+async function threadHasUserMessages(provider: RemoteChannelAgentProviderLike, threadId: string): Promise<boolean> {
   try {
     const detail = await provider.getThreadDetail(threadId)
     return detail.blocks.some((block) => block.kind === 'user')
@@ -188,8 +188,8 @@ async function threadHasUserMessages(provider: ClawAgentProviderLike, threadId: 
   }
 }
 
-function rememberClawThreadRuntime(
-  provider: ClawAgentProviderLike,
+function rememberRemoteChannelThreadRuntime(
+  provider: RemoteChannelAgentProviderLike,
   threadId: string | null | undefined,
   runtimeId: AgentRuntimeId
 ): void {
@@ -198,7 +198,7 @@ function rememberClawThreadRuntime(
   provider.rememberThreadRuntime?.(normalizedThreadId, runtimeId)
 }
 
-export function channelWithClawThreadMapping(
+export function channelWithRemoteThreadMapping(
   channel: ClawImChannelV1,
   threadId: string,
   now: string,
@@ -229,24 +229,24 @@ export function channelWithClawThreadMapping(
   }
 }
 
-export function createClawActions(options: CreateClawActionsOptions): Pick<
+export function createRemoteChannelActions(options: CreateRemoteChannelActionsOptions): Pick<
   ChatState,
-  | 'appendLocalClawTurn'
-  | 'refreshClawChannels'
-  | 'addClawChannel'
-  | 'selectClawChannel'
-  | 'selectClawConversation'
-  | 'deleteClawChannel'
-  | 'resetClawChannelSession'
-  | 'setClawChannelModel'
+  | 'appendLocalRemoteChannelTurn'
+  | 'refreshRemoteChannels'
+  | 'addRemoteChannel'
+  | 'selectRemoteChannel'
+  | 'selectRemoteChannelConversation'
+  | 'deleteRemoteChannel'
+  | 'resetRemoteChannelSession'
+  | 'setRemoteChannelModel'
 > {
   const {
     set,
     get,
     i18n,
     getProvider,
-    newClawChannel,
-    normalizeClawComposerModel,
+    newRemoteChannel,
+    normalizeRemoteChannelComposerModel,
     activeRemoteChannel,
     normalizeWorkspaceRoot,
     formatRuntimeError,
@@ -257,7 +257,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
   } = options
 
   return {
-    appendLocalClawTurn: (userText, replyText) =>
+    appendLocalRemoteChannelTurn: (userText, replyText) =>
       set((state) => {
         const now = Date.now()
         return {
@@ -282,7 +282,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         }
       }),
 
-    refreshClawChannels: async () => {
+    refreshRemoteChannels: async () => {
       if (typeof window.sciforge === 'undefined') return
       const settings = await rendererRuntimeClient.getSettings()
       const channels = settings.remoteChannel.channels
@@ -293,7 +293,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       set({ remoteChannels: channels, activeRemoteChannelId: activeId })
     },
 
-    addClawChannel: async (provider, agentProfile, platformCredential, optionsArg) => {
+    addRemoteChannel: async (provider, agentProfile, platformCredential, optionsArg) => {
       if (typeof window.sciforge === 'undefined') return
       const preserveRoute = optionsArg?.preserveRoute === true
       const settings = await rendererRuntimeClient.getSettings()
@@ -342,7 +342,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
             ? {}
             : { route: 'chat' as const, remoteGuardChannelId: null, connectPhonePanelOpen: true })
         })
-        if (!preserveRoute) await get().selectClawChannel(existing.id)
+        if (!preserveRoute) await get().selectRemoteChannel(existing.id)
         return
       }
       const duplicateProvider = settings.remoteChannel.channels.find((channel) => channel.provider === provider)
@@ -352,7 +352,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         throw new Error(i18n.t('common:connectPhoneProviderAlreadyConnected', { provider: providerLabel }))
       }
 
-      const channel = newClawChannel(provider, agentProfile, platformCredential)
+      const channel = newRemoteChannel(provider, agentProfile, platformCredential)
       const runtimeId = normalizeAgentRuntimeId(settings.activeAgentRuntime)
       const nextChannel: ClawImChannelV1 = {
         ...channel,
@@ -381,10 +381,10 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
           ? {}
           : { route: 'chat' as const, remoteGuardChannelId: null, connectPhonePanelOpen: true })
       })
-      if (!preserveRoute) await get().selectClawChannel(nextChannel.id)
+      if (!preserveRoute) await get().selectRemoteChannel(nextChannel.id)
     },
 
-    selectClawChannel: async (channelId) => {
+    selectRemoteChannel: async (channelId) => {
       if (get().runtimeConnection !== 'ready') {
         set({ activeRemoteChannelId: channelId, error: i18n.t('common:runtimeActionNeedsConnection') })
         return
@@ -407,21 +407,21 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       const latestConversation =
         [...channel.conversations]
           .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0] ?? null
-      const runtimeId = runtimeIdForClawConversation(channel, latestConversation, provider, settings)
+      const runtimeId = runtimeIdForRemoteChannelConversation(channel, latestConversation, provider, settings)
       const desiredWorkspaceRoot = normalizeWorkspaceRoot(
         latestConversation?.workspaceRoot
         || channel.workspaceRoot
         || settings.remoteChannel.im.workspaceRoot
         || settings.workspaceRoot
       )
-      let threadId = clawThreadIdForProvider(channel, latestConversation, runtimeId)
-      const recoveredThread = findRecoverableClawThread(get().threads, channels, channel, runtimeId)
-      rememberClawThreadRuntime(provider, threadId, runtimeId)
+      let threadId = remoteChannelThreadIdForProvider(channel, latestConversation, runtimeId)
+      const recoveredThread = findRecoverableRemoteChannelThread(get().threads, channels, channel, runtimeId)
+      rememberRemoteChannelThreadRuntime(provider, threadId, runtimeId)
       const configuredThreadExists = threadId ? await threadExists(provider, threadId) : false
       const configuredThreadHasUserMessages =
         threadId && configuredThreadExists ? await threadHasUserMessages(provider, threadId) : false
       const configuredThreadId = threadId
-      threadId = resolveClawThreadId({
+      threadId = resolveRemoteChannelThreadId({
         configuredThreadId,
         recoveredThreadId: recoveredThread?.id ?? '',
         configuredThreadExists,
@@ -434,7 +434,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
             const now = new Date().toISOString()
             const nextChannels = channels.map((item) =>
               item.id === channel.id
-                ? channelWithClawThreadMapping(item, '', now, undefined, runtimeId)
+                ? channelWithRemoteThreadMapping(item, '', now, undefined, runtimeId)
                 : item
             )
             const saved = await rendererRuntimeClient.setSettings({ remoteChannel: { channels: nextChannels } })
@@ -452,7 +452,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         try {
           const thread = await provider.createThread({
             workspace: desiredWorkspaceRoot,
-            title: clawChannelTitle(channel),
+            title: remoteChannelThreadTitle(channel),
             mode: 'agent'
           })
           threadId = thread.id
@@ -468,20 +468,20 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         }
       }
       if (
-        !clawThreadIdForProvider(channel, null, runtimeId) ||
-        (latestConversation && !clawThreadIdForProvider(channel, latestConversation, runtimeId)) ||
+        !remoteChannelThreadIdForProvider(channel, null, runtimeId) ||
+        (latestConversation && !remoteChannelThreadIdForProvider(channel, latestConversation, runtimeId)) ||
         threadId !== configuredThreadId
       ) {
         const now = new Date().toISOString()
         const nextChannels = channels.map((item) =>
           item.id === channel.id
-            ? channelWithClawThreadMapping(item, threadId, now, latestConversation?.id, runtimeId)
+            ? channelWithRemoteThreadMapping(item, threadId, now, latestConversation?.id, runtimeId)
             : item
         )
         const saved = await rendererRuntimeClient.setSettings({ remoteChannel: { channels: nextChannels } })
         set({ remoteChannels: saved.remoteChannel.channels })
       }
-      const placeholder = clawThreadPlaceholder(channel, threadId, desiredWorkspaceRoot, runtimeId)
+      const placeholder = remoteChannelThreadPlaceholder(channel, threadId, desiredWorkspaceRoot, runtimeId)
       set((state) => ({
         threads: state.threads.some((thread) => thread.id === threadId)
           ? state.threads
@@ -491,7 +491,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       set({ route: 'chat', activeRemoteChannelId: channel.id, remoteGuardChannelId: null })
     },
 
-    selectClawConversation: async (channelId, threadId) => {
+    selectRemoteChannelConversation: async (channelId, threadId) => {
       if (get().runtimeConnection !== 'ready') {
         set({ activeRemoteChannelId: channelId, error: i18n.t('common:runtimeActionNeedsConnection') })
         return
@@ -507,11 +507,11 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       const provider = getProvider()
       const requestedThreadId = threadId.trim()
       const conversation = channel.conversations.find((item) => {
-        const itemRuntimeId = runtimeIdForClawConversation(channel, item, provider, settings)
-        return clawThreadIdForProvider(channel, item, itemRuntimeId) === requestedThreadId
+        const itemRuntimeId = runtimeIdForRemoteChannelConversation(channel, item, provider, settings)
+        return remoteChannelThreadIdForProvider(channel, item, itemRuntimeId) === requestedThreadId
       })
       if (!conversation) {
-        await get().selectClawChannel(channelId)
+        await get().selectRemoteChannel(channelId)
         return
       }
       set({
@@ -521,16 +521,16 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         activeRemoteChannelId: channel.id,
         composerModel: channel.model
       })
-      const runtimeId = runtimeIdForClawConversation(channel, conversation, provider, settings)
+      const runtimeId = runtimeIdForRemoteChannelConversation(channel, conversation, provider, settings)
       const workspaceRoot = normalizeWorkspaceRoot(
         conversation.workspaceRoot ||
         channel.workspaceRoot ||
         settings.remoteChannel.im.workspaceRoot ||
         settings.workspaceRoot
       )
-      let targetThreadId = clawThreadIdForProvider(channel, conversation, runtimeId)
+      let targetThreadId = remoteChannelThreadIdForProvider(channel, conversation, runtimeId)
       const configuredThreadId = targetThreadId
-      rememberClawThreadRuntime(provider, targetThreadId, runtimeId)
+      rememberRemoteChannelThreadRuntime(provider, targetThreadId, runtimeId)
       const configuredThreadExists = targetThreadId ? await threadExists(provider, targetThreadId) : false
       if (!configuredThreadExists) {
         targetThreadId = ''
@@ -539,7 +539,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         try {
           const thread = await provider.createThread({
             workspace: workspaceRoot,
-            title: clawChannelTitle(channel),
+            title: remoteChannelThreadTitle(channel),
             mode: 'agent'
           })
           targetThreadId = thread.id
@@ -558,17 +558,17 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
           return
         }
       }
-      const placeholder = clawThreadPlaceholder(channel, targetThreadId, workspaceRoot, runtimeId)
+      const placeholder = remoteChannelThreadPlaceholder(channel, targetThreadId, workspaceRoot, runtimeId)
       set((state) => ({
         threads: state.threads.some((thread) => thread.id === targetThreadId)
           ? state.threads
           : [placeholder, ...state.threads]
       }))
-      if (!clawThreadIdForProvider(channel, conversation, runtimeId) || targetThreadId !== configuredThreadId) {
+      if (!remoteChannelThreadIdForProvider(channel, conversation, runtimeId) || targetThreadId !== configuredThreadId) {
         const now = new Date().toISOString()
         const nextChannels = channels.map((item) =>
           item.id === channel.id
-            ? channelWithClawThreadMapping(item, targetThreadId, now, conversation.id, runtimeId)
+            ? channelWithRemoteThreadMapping(item, targetThreadId, now, conversation.id, runtimeId)
             : item
         )
         const saved = await rendererRuntimeClient.setSettings({ remoteChannel: { channels: nextChannels } })
@@ -578,7 +578,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       set({ route: 'chat', activeRemoteChannelId: channel.id, remoteGuardChannelId: null })
     },
 
-    deleteClawChannel: async (channelId) => {
+    deleteRemoteChannel: async (channelId) => {
       if (typeof window.sciforge === 'undefined') return
       const settings = await rendererRuntimeClient.getSettings()
       const channel = settings.remoteChannel.channels.find((item) => item.id === channelId)
@@ -592,21 +592,21 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       })
       if (channel && get().runtimeConnection === 'ready') {
         const provider = getProvider()
-        const runtimeId = runtimeIdForClawChannel(channel, provider, settings)
-        const mappedThreadId = clawThreadIdForProvider(channel, null, runtimeId)
+        const runtimeId = runtimeIdForRemoteChannel(channel, provider, settings)
+        const mappedThreadId = remoteChannelThreadIdForProvider(channel, null, runtimeId)
         if (mappedThreadId) {
-          rememberClawThreadRuntime(provider, mappedThreadId, runtimeId)
+          rememberRemoteChannelThreadRuntime(provider, mappedThreadId, runtimeId)
           await provider.deleteThread(mappedThreadId).catch(() => undefined)
         }
       }
       if (nextChannel) {
-        await get().selectClawChannel(nextChannel.id)
+        await get().selectRemoteChannel(nextChannel.id)
       } else {
         set({ route: 'chat' })
       }
     },
 
-    resetClawChannelSession: async (channelId) => {
+    resetRemoteChannelSession: async (channelId) => {
       if (get().runtimeConnection !== 'ready') {
         set({ error: i18n.t('common:runtimeActionNeedsConnection') })
         return
@@ -616,23 +616,23 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       const channel = settings.remoteChannel.channels.find((item) => item.id === channelId)
       if (!channel) return
       const provider = getProvider()
-      const runtimeId = runtimeIdForClawChannel(channel, provider, settings)
-      const oldThreadId = clawThreadIdForProvider(channel, null, runtimeId)
+      const runtimeId = runtimeIdForRemoteChannel(channel, provider, settings)
+      const oldThreadId = remoteChannelThreadIdForProvider(channel, null, runtimeId)
       try {
         const thread = await provider.createThread({
           workspace: normalizeWorkspaceRoot(
             channel.workspaceRoot || settings.remoteChannel.im.workspaceRoot || settings.workspaceRoot
           ),
-          title: clawChannelTitle(channel),
+          title: remoteChannelThreadTitle(channel),
           mode: 'agent'
         })
         const now = new Date().toISOString()
         const channels = settings.remoteChannel.channels.map((item) =>
           item.id === channel.id
             ? {
-                ...channelWithClawThreadMapping(item, thread.id, now, undefined, runtimeId),
+                ...channelWithRemoteThreadMapping(item, thread.id, now, undefined, runtimeId),
                 conversations: item.conversations.map((conversation) =>
-                  channelWithClawThreadMapping(
+                  channelWithRemoteThreadMapping(
                     { ...item, conversations: [conversation] },
                     thread.id,
                     now,
@@ -655,7 +655,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         }))
         await get().selectThread(thread.id)
         if (oldThreadId && oldThreadId !== thread.id) {
-          rememberClawThreadRuntime(provider, oldThreadId, runtimeId)
+          rememberRemoteChannelThreadRuntime(provider, oldThreadId, runtimeId)
           await provider.deleteThread(oldThreadId).catch(() => undefined)
           await get().refreshThreads()
         }
@@ -670,9 +670,9 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       }
     },
 
-    setClawChannelModel: async (channelId, model) => {
+    setRemoteChannelModel: async (channelId, model) => {
       if (typeof window.sciforge === 'undefined') return
-      const normalized = normalizeClawComposerModel(model)
+      const normalized = normalizeRemoteChannelComposerModel(model)
       const settings = await rendererRuntimeClient.getSettings()
       const now = new Date().toISOString()
       const channels = settings.remoteChannel.channels.map((channel) =>

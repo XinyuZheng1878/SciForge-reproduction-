@@ -546,10 +546,10 @@ export function Workbench(): ReactElement {
     activeRemoteChannelId,
     remoteGuardChannelId,
     remoteTargetId,
-    selectClawChannel,
-    resetClawChannelSession,
-    setClawChannelModel,
-    appendLocalClawTurn,
+    selectRemoteChannel,
+    resetRemoteChannelSession,
+    setRemoteChannelModel,
+    appendLocalRemoteChannelTurn,
     setError,
     sendMessage,
     reviewActiveThread,
@@ -610,10 +610,10 @@ export function Workbench(): ReactElement {
       activeRemoteChannelId: s.activeRemoteChannelId,
       remoteGuardChannelId: s.remoteGuardChannelId,
       remoteTargetId: s.remoteTargetId,
-      selectClawChannel: s.selectClawChannel,
-      resetClawChannelSession: s.resetClawChannelSession,
-      setClawChannelModel: s.setClawChannelModel,
-      appendLocalClawTurn: s.appendLocalClawTurn,
+      selectRemoteChannel: s.selectRemoteChannel,
+      resetRemoteChannelSession: s.resetRemoteChannelSession,
+      setRemoteChannelModel: s.setRemoteChannelModel,
+      appendLocalRemoteChannelTurn: s.appendLocalRemoteChannelTurn,
       setError: s.setError,
       sendMessage: s.sendMessage,
       reviewActiveThread: s.reviewActiveThread,
@@ -1883,9 +1883,9 @@ export function Workbench(): ReactElement {
         }
         setInput('')
         void (async () => {
-          await resetClawChannelSession(activeRemoteComposerChannelId)
+          await resetRemoteChannelSession(activeRemoteComposerChannelId)
           const replyText = t('remoteChannelNewSessionStarted')
-          appendLocalClawTurn(v, replyText)
+          appendLocalRemoteChannelTurn(v, replyText)
           await mirrorRemoteChannelCommand(v, replyText)
         })()
         return
@@ -1893,7 +1893,7 @@ export function Workbench(): ReactElement {
       if (command?.kind === 'help') {
         setInput('')
         const replyText = remoteChannelHelpText()
-        appendLocalClawTurn(v, replyText)
+        appendLocalRemoteChannelTurn(v, replyText)
         void mirrorRemoteChannelCommand(v, replyText)
         return
       }
@@ -1904,9 +1904,9 @@ export function Workbench(): ReactElement {
         }
         setInput('')
         void (async () => {
-          await setClawChannelModel(activeRemoteComposerChannelId, command.model)
+          await setRemoteChannelModel(activeRemoteComposerChannelId, command.model)
           const replyText = t('remoteChannelModelChanged', { model: command.model })
-          appendLocalClawTurn(v, replyText)
+          appendLocalRemoteChannelTurn(v, replyText)
           await mirrorRemoteChannelCommand(v, replyText)
         })()
         return
@@ -1920,7 +1920,7 @@ export function Workbench(): ReactElement {
         const replyText = t('remoteChannelModelCurrent', {
           model: activeRemoteComposerChannel?.model ?? 'auto'
         })
-        appendLocalClawTurn(v, replyText)
+        appendLocalRemoteChannelTurn(v, replyText)
         void mirrorRemoteChannelCommand(v, replyText)
         return
       }
@@ -1943,16 +1943,16 @@ export function Workbench(): ReactElement {
             })
           : { kind: 'noop' as const }
         if (taskResult.kind === 'created') {
-          appendLocalClawTurn(v, taskResult.confirmationText)
+          appendLocalRemoteChannelTurn(v, taskResult.confirmationText)
           await mirrorRemoteChannelCommand(v, taskResult.confirmationText)
           return
         }
         if (taskResult.kind === 'error') {
-          appendLocalClawTurn(v, `Failed to create scheduled task: ${taskResult.message}`)
+          appendLocalRemoteChannelTurn(v, `Failed to create scheduled task: ${taskResult.message}`)
           return
         }
         if (!activeThreadId) {
-          await selectClawChannel(activeRemoteComposerChannelId)
+          await selectRemoteChannel(activeRemoteComposerChannelId)
           await useChatStore.getState().sendMessage(v, mode === 'plan' ? 'plan' : 'agent', {
             ...(reasoningEffort ? { reasoningEffort } : {})
           })
@@ -2531,7 +2531,7 @@ export function Workbench(): ReactElement {
                     }
                     onComposerModelChange={(modelId) => {
                       if (activeThreadIsRemoteChannel && activeRemoteComposerChannelId) {
-                        void setClawChannelModel(activeRemoteComposerChannelId, modelId)
+                        void setRemoteChannelModel(activeRemoteComposerChannelId, modelId)
                         return
                       }
                       setComposerModel(modelId)

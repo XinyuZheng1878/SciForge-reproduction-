@@ -33,7 +33,7 @@ import type {
   SettingsRouteSection
 } from './chat-store-types'
 import { createAppActions } from './chat-store-app-actions'
-import { createClawActions } from './chat-store-claw-actions'
+import { createRemoteChannelActions } from './chat-store-remote-channel-actions'
 import { createSideActions } from './chat-store-side-actions'
 import {
   activeRemoteChannel,
@@ -42,8 +42,8 @@ import {
   hydrateBlockModelLabels,
   isClawThread,
   mergeComposerPickList,
-  newClawChannel,
-  normalizeClawComposerModel,
+  newRemoteChannel,
+  normalizeRemoteChannelComposerModel,
   optimisticUserModelLabel,
   persistComposerModel,
   readCodeWorkspaceRoots,
@@ -152,13 +152,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   remoteTargetId: null,
   setRemoteTargetId: (targetId) => set({ remoteTargetId: targetId?.trim() || null }),
 
-  ...createClawActions({
+  ...createRemoteChannelActions({
     set,
     get,
     i18n,
     getProvider,
-    newClawChannel,
-    normalizeClawComposerModel,
+    newRemoteChannel,
+    normalizeRemoteChannelComposerModel,
     activeRemoteChannel,
     normalizeWorkspaceRoot: (workspaceRoot) => normalizeWorkspaceRoot(workspaceRoot ?? undefined),
     formatRuntimeError,
