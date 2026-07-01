@@ -24,7 +24,7 @@ Paper Radar is a separate UI extension service, not a Model Router translator.
 - **Scientific**: now a worker — see
   [`packages/workers/sci-modality-router`](../packages/workers/sci-modality-router). Gated inside
   Model Router by `SCIFORGE_SCIMODALITY_SERVICE_URL` and `SCIFORGE_SCIMODALITY_SERVICE_TOKEN`.
-  GUI/Kun/Codex pass workspace-local `input_object` refs; only Model Router reads explicit
+  GUI, local runtime, Codex, and Claude pass workspace-local `input_object` refs; only Model Router reads explicit
   scientific files and calls the worker
   (which calls the GPU expert-translator). When unset or unreachable, Model Router falls back to
   readable raw file text where safe — no runtime-side service calls.

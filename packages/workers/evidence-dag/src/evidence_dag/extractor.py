@@ -1,6 +1,6 @@
 """Trace -> DAG extractor (1A core).
 
-Renders an agent trace (kun/codex timeline items, each with a stable step id)
+Renders an AgentRuntime trace (local runtime/Codex timeline items, each with a stable step id)
 into text, asks the LLM for a typed claim-evidence graph as structured JSON,
 then builds a ThreadGraph with shared-node dedup. The LLM only *extracts and
 classifies* — it does not reason about or judge the science.

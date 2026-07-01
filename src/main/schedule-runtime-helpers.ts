@@ -17,6 +17,7 @@ import {
 import type {
   AgentRuntimeThread,
   AgentRuntimeThreadDetail,
+  AgentRuntimeThreadReadInput,
   AgentRuntimeThreadStartInput,
   AgentRuntimeTurnHandle,
   AgentRuntimeTurnStartInput
@@ -33,9 +34,9 @@ export type ScheduleRuntimeDeps = {
   store: JsonSettingsStore
   agentRuntime: {
     startThread: (input: AgentRuntimeThreadStartInput) => Promise<AgentRuntimeThread>
-    readThread: (input: { runtimeId?: AgentRuntimeId; threadId: string }) => Promise<AgentRuntimeThreadDetail>
+    readThread: (input: AgentRuntimeThreadReadInput) => Promise<AgentRuntimeThreadDetail>
     startTurn: (input: AgentRuntimeTurnStartInput) => Promise<AgentRuntimeTurnHandle>
-    interruptTurn?: (input: { runtimeId?: AgentRuntimeId; threadId: string; turnId: string; discard?: boolean }) => Promise<void>
+    interruptTurn?: (input: { runtimeId: AgentRuntimeId; threadId: string; turnId: string; discard?: boolean }) => Promise<void>
   }
   logError: (category: string, message: string, detail?: unknown) => void
   powerSaveBlocker?: PowerSaveBlockerLike

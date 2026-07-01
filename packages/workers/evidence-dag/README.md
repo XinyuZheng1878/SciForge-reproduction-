@@ -123,9 +123,9 @@ exp backoff), not in the host.
 ## App integration seam (SciForge desktop → engine)
 
 Real-time feed: the GUI's unified `AgentRuntimeHost` reads each completed turn's neutral
-items and POSTs them to `/threads/{runtimeId}:{threadId}/ingest-trace`. Kun, Codex and the
-Claude Code CLI all flow through the same public `AgentRuntime` contract, so they enter one
-Evidence-DAG seam. Touch points in the app:
+items and POSTs them to `/threads/{runtimeId}:{threadId}/ingest-trace`. SciForge Runtime,
+Codex, and the Claude Code CLI all flow through the same public `AgentRuntime` contract, so
+they enter one Evidence-DAG seam. Touch points in the app:
 
 | Piece | Location |
 |---|---|

@@ -234,9 +234,9 @@ const labels: Record<string, string> = {
   mcpReload: 'Reload MCP config',
   mcpOpenDir: 'Open MCP directory',
   computerUseTitle: 'Computer use',
-  computerUseHint: 'Computer use gives agents direct control of this Mac.',
+  computerUseHint: 'GUI-managed computer use defaults to isolated browser-cdp.',
   computerUseEnable: 'Enable computer use',
-  computerUseEnableDesc: 'Expose the shared computer_use MCP tool.',
+  computerUseEnableDesc: 'Expose the GUI-managed computer-use MCP server.',
   computerUseRuntimeAccess: 'Runtime access',
   computerUseRuntimeAccessDesc: 'Choose runtime access.',
   computerUseBackend: 'Backend status',
@@ -247,6 +247,20 @@ const labels: Record<string, string> = {
   computerUseBackendAvailable: 'available',
   computerUseBackendUnavailable: 'unavailable',
   computerUseBackendUnknown: 'not reported',
+  computerUseSafetyInputSurface: 'Input surface',
+  computerUseSafetyInputAgentIsolated: 'isolated browser',
+  computerUseSafetyInputHostGlobal: 'host desktop',
+  computerUseSafetyInputHostAppScoped: 'selected app/window',
+  computerUseSafetyInputUnknown: 'not reported',
+  computerUseSafetyUserInput: 'User input',
+  computerUseSafetyUserInputIsolated: 'does not affect active input',
+  computerUseSafetyUserInputHost: 'can affect active input',
+  computerUseSafetyHostFocus: 'Host focus',
+  computerUseSafetyHostFocusNotRequired: 'not required',
+  computerUseSafetyHostFocusRequired: 'required',
+  computerUseSafetyClipboard: 'Clipboard',
+  computerUseSafetyClipboardNotUsed: 'not used',
+  computerUseSafetyClipboardUsed: 'can be used',
   computerUseRefresh: 'Refresh status',
   computerUseDisabledHint: 'Computer use is disabled in settings.',
   computerUsePermissions: 'macOS permissions',
@@ -677,12 +691,19 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
     expect(html).toContain('Configured')
     expect(html).toContain('browser-cdp')
     expect(html).toContain('available')
-    expect(html).toContain('inputIsolation')
-    expect(html).toContain('agent-isolated')
-    expect(html).toContain('affectsUserInput')
-    expect(html).toContain('false')
-    expect(html).toContain('requiresHostFocus')
-    expect(html).toContain('usesHostClipboard')
+    expect(html).toContain('Input surface')
+    expect(html).toContain('isolated browser')
+    expect(html).toContain('User input')
+    expect(html).toContain('does not affect active input')
+    expect(html).toContain('Host focus')
+    expect(html).toContain('not required')
+    expect(html).toContain('Clipboard')
+    expect(html).toContain('not used')
+    expect(html).not.toContain('inputIsolation')
+    expect(html).not.toContain('agent-isolated')
+    expect(html).not.toContain('affectsUserInput')
+    expect(html).not.toContain('requiresHostFocus')
+    expect(html).not.toContain('usesHostClipboard')
     expect(html).toContain('isolated browser backend ready')
     expect(html).toContain('macOS permissions')
     expect(html).toContain('Accessibility')

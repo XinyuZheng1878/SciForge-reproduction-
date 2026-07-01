@@ -137,18 +137,18 @@ export class AgentRuntimeHost {
   }
 
   async connect(runtimeId?: AgentRuntimeId): Promise<void> {
-    const { adapter, context } = await this.resolve(runtimeId)
+    const { adapter, context } = await this.resolveOptionalActiveRuntime(runtimeId)
     await adapter.connect(context)
   }
 
   async capabilities(runtimeId?: AgentRuntimeId): Promise<AgentRuntimeCapabilities> {
-    const { adapter, context } = await this.resolve(runtimeId)
+    const { adapter, context } = await this.resolveOptionalActiveRuntime(runtimeId)
     return this.withHostCapabilities(await adapter.capabilities(context))
   }
 
   async listThreads(input: AgentRuntimeThreadListInput = {}): Promise<AgentRuntimeThread[]> {
     if (input.runtimeId) {
-      const { adapter, context } = await this.resolve(input.runtimeId)
+      const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
       return this.withSharedGoalsOnThreads(adapter.id, await adapter.listThreads(context, input))
     }
 
@@ -168,12 +168,12 @@ export class AgentRuntimeHost {
   }
 
   async startThread(input: AgentRuntimeThreadStartInput): Promise<AgentRuntimeThread> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     return adapter.startThread(context, input)
   }
 
   async readThread(input: AgentRuntimeThreadReadInput): Promise<AgentRuntimeThreadDetail> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     return this.withSharedGoalOnThread(adapter.id, await adapter.readThread(context, input))
   }
 
@@ -185,7 +185,7 @@ export class AgentRuntimeHost {
     input: AgentRuntimeTurnStartInput,
     options: { includeSharedContext: boolean }
   ): Promise<AgentRuntimeTurnHandle> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     await this.autoCompactThreadIfNeeded(adapter, context, input)
     const safeInput = this.withWorkspaceRelativeFileReferences(context, input)
     const turnInput = options.includeSharedContext
@@ -233,27 +233,27 @@ export class AgentRuntimeHost {
   }
 
   async interruptTurn(input: AgentRuntimeTurnTargetInput): Promise<void> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     await adapter.interruptTurn(context, input)
   }
 
   async steerTurn(input: AgentRuntimeTurnSteerInput): Promise<void> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     await adapter.steerTurn(context, input)
   }
 
   async renameThread(input: AgentRuntimeThreadRenameInput): Promise<void> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     await adapter.renameThread(context, input)
   }
 
   async deleteThread(input: AgentRuntimeThreadDeleteInput): Promise<void> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     await adapter.deleteThread(context, input)
   }
 
   async *subscribeEvents(input: AgentRuntimeEventSubscribeInput): AsyncIterable<AgentRuntimeEvent> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     const capabilities = await adapter.capabilities(context)
     const guardSettings = runtimeGuardSettings(context)
     for await (const event of adapter.subscribeEvents(context, input)) {
@@ -274,19 +274,19 @@ export class AgentRuntimeHost {
   }
 
   async resolveApproval(input: AgentRuntimeApprovalResolveInput): Promise<void> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     if (!adapter.resolveApproval) throw unsupported(adapter.id, 'approval')
     await adapter.resolveApproval(context, input)
   }
 
   async resolveUserInput(input: AgentRuntimeUserInputResolveInput): Promise<void> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     if (!adapter.resolveUserInput) throw unsupported(adapter.id, 'user input')
     await adapter.resolveUserInput(context, input)
   }
 
   async compactThread(input: AgentRuntimeThreadCompactInput): Promise<void> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     const capabilities = await adapter.capabilities(context)
     if (capabilities.controls.compact === 'noop') {
       await this.recordNoopCompaction(adapter, context, input)
@@ -299,13 +299,13 @@ export class AgentRuntimeHost {
   }
 
   async forkThread(input: AgentRuntimeThreadForkInput): Promise<AgentRuntimeThread> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     if (!adapter.forkThread) throw unsupported(adapter.id, 'fork')
     return adapter.forkThread(context, input)
   }
 
   async resumeSession(input: AgentRuntimeSessionResumeInput): Promise<AgentRuntimeSessionResumeHandle> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     if (!adapter.resumeSession) throw unsupported(adapter.id, 'resume session')
     const service = this.options.services?.contextState
     const sourceState = service?.peek({
@@ -357,13 +357,13 @@ export class AgentRuntimeHost {
   }
 
   async updateThreadRelation(input: AgentRuntimeThreadRelationInput): Promise<void> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveRequiredRuntime(input.runtimeId)
     if (!adapter.updateThreadRelation) throw unsupported(adapter.id, 'thread relation')
     await adapter.updateThreadRelation(context, input)
   }
 
   async usage(input: AgentRuntimeUsageQuery): Promise<AgentRuntimeUsageResponse> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveOptionalActiveRuntime(input.runtimeId)
     if (!adapter.usage) {
       return {
         supported: false,
@@ -377,7 +377,7 @@ export class AgentRuntimeHost {
   }
 
   async auxiliary(input: AgentRuntimeAuxiliaryInput): Promise<unknown> {
-    const { adapter, context } = await this.resolve(input.runtimeId)
+    const { adapter, context } = await this.resolveOptionalActiveRuntime(input.runtimeId)
     if (isThreadGoalAuxiliaryOperation(input.operation)) {
       return this.handleThreadGoalAuxiliary(adapter, context, input)
     }
@@ -651,7 +651,7 @@ export class AgentRuntimeHost {
     const fileReferences = arrayOfRuntimeFileReferences(payload.fileReferences)
 
     const sourceDetail = await this.readRuntimeHandoffSourceDetail(sourceRuntimeId, sourceThreadId)
-    const { adapter: targetAdapter, context: targetContext } = await this.resolve(targetRuntimeId)
+    const { adapter: targetAdapter, context: targetContext } = await this.resolveRequiredRuntime(targetRuntimeId)
     const targetCapabilities = await targetAdapter.capabilities(targetContext)
     const targetThreadId = targetCapabilities.storage.guiOwnedThreads
       ? optionalString(payload.targetThreadId) ?? sourceThreadId
@@ -756,7 +756,7 @@ export class AgentRuntimeHost {
     sourceThreadId: string
   ): Promise<AgentRuntimeThreadDetail | null> {
     try {
-      const { adapter, context } = await this.resolve(sourceRuntimeId)
+      const { adapter, context } = await this.resolveRequiredRuntime(sourceRuntimeId)
       return await adapter.readThread(context, {
         runtimeId: sourceRuntimeId,
         threadId: sourceThreadId
@@ -1107,7 +1107,7 @@ export class AgentRuntimeHost {
     return goal ? { ...thread, goal } : thread
   }
 
-  private async resolve(runtimeId?: AgentRuntimeId): Promise<{
+  private async resolveOptionalActiveRuntime(runtimeId?: AgentRuntimeId): Promise<{
     adapter: AgentRuntimeAdapter
     context: AgentRuntimeAdapterContext
   }> {
@@ -1119,6 +1119,16 @@ export class AgentRuntimeHost {
     const adapter = this.adapters.get(selected)
     if (!adapter) throw new Error(`No AgentRuntimeAdapter registered for runtime: ${selected}`)
     return { adapter, context: { settings } }
+  }
+
+  private async resolveRequiredRuntime(runtimeId: AgentRuntimeId | undefined): Promise<{
+    adapter: AgentRuntimeAdapter
+    context: AgentRuntimeAdapterContext
+  }> {
+    if (runtimeId === undefined) {
+      throw new Error('AgentRuntimeAdapter runtimeId is required for this operation.')
+    }
+    return this.resolveOptionalActiveRuntime(runtimeId)
   }
 
   private enqueueThreadTurnStart(

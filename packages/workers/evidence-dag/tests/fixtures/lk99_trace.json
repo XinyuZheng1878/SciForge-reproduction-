@@ -1,6 +1,6 @@
 {
   "thread_id": "thread-lk99",
-  "note": "Hand-authored but realistic kun/codex-style timeline (message/tool_call/tool_result, each with a stable step id). Grounded in the real, publicly-checkable 2023 LK-99 episode so the extraction audit is meaningful. NOT a captured production trace — swap in a real one for the Gate-1A audit of record.",
+  "note": "Hand-authored but realistic AgentRuntime-style timeline (message/tool_call/tool_result, each with a stable step id). Grounded in the real, publicly-checkable 2023 LK-99 episode so the extraction audit is meaningful. NOT a captured production trace — swap in a real one for the Gate-1A audit of record.",
   "trace": [
     {"id": "step-1", "type": "message", "role": "user",
      "content": "Is LK-99 actually a room-temperature ambient-pressure superconductor? Investigate."},

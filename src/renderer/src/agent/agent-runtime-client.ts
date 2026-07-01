@@ -123,7 +123,7 @@ class AgentRuntimeClient {
     sinceSeq: number,
     onEvent: (event: AgentRuntimeEvent) => void,
     signal: AbortSignal,
-    runtimeId?: AgentRuntimeId
+    runtimeId: AgentRuntimeId
   ): Promise<void> {
     if (signal.aborted) return
     const requestedStreamId = streamId()
@@ -172,7 +172,7 @@ class AgentRuntimeClient {
       signal.addEventListener('abort', onAbort, { once: true })
 
       const subscribeInput = {
-        ...(runtimeId ? { runtimeId } : {}),
+        runtimeId,
         threadId,
         sinceSeq,
         streamId: requestedStreamId

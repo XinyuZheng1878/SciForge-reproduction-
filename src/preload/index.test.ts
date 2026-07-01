@@ -304,23 +304,25 @@ describe('preload agentRuntime bridge', () => {
       }
     }
 
-    await api.agentRuntime.subscribeEvents({ threadId: 'thread-1', streamId: 'stream-1' })
+    await api.agentRuntime.subscribeEvents({ runtimeId: 'codex', threadId: 'thread-1', streamId: 'stream-1' })
     await api.agentRuntime.stopEvents('stream-1')
-    await api.agentRuntime.interruptTurn({ threadId: 'thread-1', turnId: 'turn-1', discard: true })
-    await api.agentRuntime.steerTurn({ threadId: 'thread-1', turnId: 'turn-1', text: 'continue' })
-    await api.agentRuntime.renameThread({ threadId: 'thread-1', title: 'Renamed' })
-    await api.agentRuntime.deleteThread({ threadId: 'thread-1' })
-    await api.agentRuntime.compactThread({ threadId: 'thread-1', reason: 'manual' })
-    await api.agentRuntime.forkThread({ threadId: 'thread-1', relation: 'side', title: 'Side path' })
-    await api.agentRuntime.resumeSession({ sessionId: 'session-1', model: 'deepseek-v4-pro', mode: 'agent' })
-    await api.agentRuntime.updateThreadRelation({ threadId: 'thread-1', relation: 'primary' })
+    await api.agentRuntime.interruptTurn({ runtimeId: 'codex', threadId: 'thread-1', turnId: 'turn-1', discard: true })
+    await api.agentRuntime.steerTurn({ runtimeId: 'codex', threadId: 'thread-1', turnId: 'turn-1', text: 'continue' })
+    await api.agentRuntime.renameThread({ runtimeId: 'codex', threadId: 'thread-1', title: 'Renamed' })
+    await api.agentRuntime.deleteThread({ runtimeId: 'codex', threadId: 'thread-1' })
+    await api.agentRuntime.compactThread({ runtimeId: 'codex', threadId: 'thread-1', reason: 'manual' })
+    await api.agentRuntime.forkThread({ runtimeId: 'codex', threadId: 'thread-1', relation: 'side', title: 'Side path' })
+    await api.agentRuntime.resumeSession({ runtimeId: 'codex', sessionId: 'session-1', model: 'deepseek-v4-pro', mode: 'agent' })
+    await api.agentRuntime.updateThreadRelation({ runtimeId: 'codex', threadId: 'thread-1', relation: 'primary' })
     await api.agentRuntime.usage({ groupBy: 'thread', threadId: 'thread-1' })
     await api.agentRuntime.resolveApproval({
+      runtimeId: 'codex',
       threadId: 'thread-1',
       approvalId: 'approval-1',
       decision: 'allowed'
     })
     await api.agentRuntime.resolveUserInput({
+      runtimeId: 'codex',
       threadId: 'thread-1',
       requestId: 'request-1',
       answers: [{ id: 'answer-1', value: 'yes' }]
@@ -333,42 +335,51 @@ describe('preload agentRuntime bridge', () => {
     unsubscribe()
 
     expect(invoke).toHaveBeenCalledWith('agentRuntime:subscribeEvents', {
+      runtimeId: 'codex',
       threadId: 'thread-1',
       streamId: 'stream-1'
     })
     expect(invoke).toHaveBeenCalledWith('agentRuntime:stopEvents', 'stream-1')
     expect(invoke).toHaveBeenCalledWith('agentRuntime:interruptTurn', {
+      runtimeId: 'codex',
       threadId: 'thread-1',
       turnId: 'turn-1',
       discard: true
     })
     expect(invoke).toHaveBeenCalledWith('agentRuntime:steerTurn', {
+      runtimeId: 'codex',
       threadId: 'thread-1',
       turnId: 'turn-1',
       text: 'continue'
     })
     expect(invoke).toHaveBeenCalledWith('agentRuntime:renameThread', {
+      runtimeId: 'codex',
       threadId: 'thread-1',
       title: 'Renamed'
     })
     expect(invoke).toHaveBeenCalledWith('agentRuntime:deleteThread', {
+      runtimeId: 'codex',
       threadId: 'thread-1'
     })
     expect(invoke).toHaveBeenCalledWith('agentRuntime:compactThread', {
+      runtimeId: 'codex',
       threadId: 'thread-1',
       reason: 'manual'
     })
     expect(invoke).toHaveBeenCalledWith('agentRuntime:forkThread', {
+      runtimeId: 'codex',
       threadId: 'thread-1',
       relation: 'side',
       title: 'Side path'
     })
     expect(invoke).toHaveBeenCalledWith('agentRuntime:resumeSession', {
+      runtimeId: 'codex',
       sessionId: 'session-1',
       model: 'deepseek-v4-pro',
       mode: 'agent'
     })
     expect(invoke).toHaveBeenCalledWith('agentRuntime:updateThreadRelation', {
+      runtimeId: 'codex',
       threadId: 'thread-1',
       relation: 'primary'
     })
@@ -377,11 +388,13 @@ describe('preload agentRuntime bridge', () => {
       threadId: 'thread-1'
     })
     expect(invoke).toHaveBeenCalledWith('agentRuntime:resolveApproval', {
+      runtimeId: 'codex',
       threadId: 'thread-1',
       approvalId: 'approval-1',
       decision: 'allowed'
     })
     expect(invoke).toHaveBeenCalledWith('agentRuntime:resolveUserInput', {
+      runtimeId: 'codex',
       threadId: 'thread-1',
       requestId: 'request-1',
       answers: [{ id: 'answer-1', value: 'yes' }]

@@ -155,33 +155,33 @@ import type {
 export type WorkspacePickResult = { canceled: boolean; path: string | null }
 export type PathOpenResult = { ok: boolean; message?: string }
 export type AgentRuntimeEventSubscribeInput = {
-  runtimeId?: AgentRuntimeThreadListInput['runtimeId']
+  runtimeId: AgentRuntimeId
   threadId: string
   sinceSeq?: number
   streamId?: string
 }
 export type AgentRuntimeThreadRenameInput = {
-  runtimeId?: AgentRuntimeThreadListInput['runtimeId']
+  runtimeId: AgentRuntimeId
   threadId: string
   title: string
 }
 export type AgentRuntimeThreadDeleteInput = {
-  runtimeId?: AgentRuntimeThreadListInput['runtimeId']
+  runtimeId: AgentRuntimeId
   threadId: string
 }
 export type AgentRuntimeThreadCompactInput = {
-  runtimeId?: AgentRuntimeThreadListInput['runtimeId']
+  runtimeId: AgentRuntimeId
   threadId: string
   reason?: string
 }
 export type AgentRuntimeThreadForkInput = {
-  runtimeId?: AgentRuntimeThreadListInput['runtimeId']
+  runtimeId: AgentRuntimeId
   threadId: string
   relation?: AgentRuntimeThreadRelation
   title?: string
 }
 export type AgentRuntimeSessionResumeInput = {
-  runtimeId?: AgentRuntimeThreadListInput['runtimeId']
+  runtimeId: AgentRuntimeId
   sessionId: string
   model?: string
   mode?: string
@@ -192,19 +192,19 @@ export type AgentRuntimeSessionResumeHandle = {
   sessionId: string
 }
 export type AgentRuntimeThreadRelationInput = {
-  runtimeId?: AgentRuntimeThreadListInput['runtimeId']
+  runtimeId: AgentRuntimeId
   threadId: string
   relation: AgentRuntimeThreadRelation
 }
 export type AgentRuntimeApprovalResolveInput = {
-  runtimeId?: AgentRuntimeThreadListInput['runtimeId']
+  runtimeId: AgentRuntimeId
   threadId: string
   approvalId: string
   decision: 'allowed' | 'denied'
   message?: string
 }
 export type AgentRuntimeUserInputResolveInput = {
-  runtimeId?: AgentRuntimeThreadListInput['runtimeId']
+  runtimeId: AgentRuntimeId
   threadId: string
   requestId: string
   answers: Array<{ id: string; label?: string; value: string }>

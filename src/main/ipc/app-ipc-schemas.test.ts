@@ -3,12 +3,16 @@ import {
   agentRuntimeApprovalResolvePayloadSchema,
   agentRuntimeAuxiliaryPayloadSchema,
   agentRuntimeListThreadsPayloadSchema,
+  agentRuntimeReadThreadPayloadSchema,
   agentRuntimeSessionResumePayloadSchema,
+  agentRuntimeStartThreadPayloadSchema,
   agentRuntimeThreadCompactPayloadSchema,
   agentRuntimeThreadDeletePayloadSchema,
   agentRuntimeThreadForkPayloadSchema,
   agentRuntimeThreadRenamePayloadSchema,
   agentRuntimeThreadRelationPayloadSchema,
+  agentRuntimeTurnSteerPayloadSchema,
+  agentRuntimeTurnTargetPayloadSchema,
   agentRuntimeUsagePayloadSchema,
   agentRuntimeEventSubscribePayloadSchema,
   agentRuntimeUserInputResolvePayloadSchema,
@@ -84,6 +88,7 @@ describe('app-ipc-schemas', () => {
   it('rejects empty neutral agent runtime turn text', () => {
     expect(() =>
       agentRuntimeStartTurnPayloadSchema.parse({
+        runtimeId: 'codex',
         threadId: 'thread-1',
         text: ' '
       })
@@ -253,6 +258,43 @@ describe('app-ipc-schemas', () => {
       from: '2026-06-01',
       to: '2026-06-11',
       timezone: 'Asia/Shanghai'
+    })
+  })
+
+  it('requires explicit runtime ids for thread, turn, session, and interaction runtime payloads', () => {
+    const cases = [
+      ['startThread', agentRuntimeStartThreadPayloadSchema, { title: 'New thread' }],
+      ['readThread', agentRuntimeReadThreadPayloadSchema, { threadId: 'thread-1' }],
+      ['startTurn', agentRuntimeStartTurnPayloadSchema, { threadId: 'thread-1', text: 'hello' }],
+      ['interruptTurn', agentRuntimeTurnTargetPayloadSchema, { threadId: 'thread-1', turnId: 'turn-1' }],
+      ['steerTurn', agentRuntimeTurnSteerPayloadSchema, { threadId: 'thread-1', turnId: 'turn-1', text: 'continue' }],
+      ['subscribeEvents', agentRuntimeEventSubscribePayloadSchema, { threadId: 'thread-1' }],
+      ['renameThread', agentRuntimeThreadRenamePayloadSchema, { threadId: 'thread-1', title: 'Renamed' }],
+      ['deleteThread', agentRuntimeThreadDeletePayloadSchema, { threadId: 'thread-1' }],
+      ['compactThread', agentRuntimeThreadCompactPayloadSchema, { threadId: 'thread-1' }],
+      ['forkThread', agentRuntimeThreadForkPayloadSchema, { threadId: 'thread-1' }],
+      ['resumeSession', agentRuntimeSessionResumePayloadSchema, { sessionId: 'session-1' }],
+      ['updateThreadRelation', agentRuntimeThreadRelationPayloadSchema, { threadId: 'thread-1', relation: 'primary' }],
+      ['resolveApproval', agentRuntimeApprovalResolvePayloadSchema, {
+        threadId: 'thread-1',
+        approvalId: 'approval-1',
+        decision: 'allowed'
+      }],
+      ['resolveUserInput', agentRuntimeUserInputResolvePayloadSchema, {
+        threadId: 'thread-1',
+        requestId: 'request-1',
+        answers: [{ id: 'answer-1', value: 'yes' }]
+      }]
+    ] as const
+
+    for (const [name, schema, payload] of cases) {
+      expect(() => schema.parse(payload), name).toThrow()
+    }
+
+    expect(agentRuntimeListThreadsPayloadSchema.parse({ limit: 5 })).toEqual({ limit: 5 })
+    expect(agentRuntimeUsagePayloadSchema.parse({ groupBy: 'thread', threadId: 'thread-1' })).toEqual({
+      groupBy: 'thread',
+      threadId: 'thread-1'
     })
   })
 

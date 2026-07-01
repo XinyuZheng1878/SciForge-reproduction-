@@ -193,6 +193,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
       const adapter = adapterWithCapturedRequests(captured)
 
       await adapter.startThread({ settings: buildSettings() }, {
+        runtimeId: 'sciforge',
         workspace: '/tmp/workspace',
         title: 'New thread',
         model
@@ -213,6 +214,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
       const adapter = adapterWithCapturedRequests(captured)
 
       await adapter.startTurn({ settings: buildSettings() }, {
+        runtimeId: 'sciforge',
         threadId: 'thread-1',
         text: 'Hello',
         model
@@ -231,6 +233,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     const adapter = adapterWithCapturedRequests(captured)
 
     await adapter.startTurn({ settings: buildSettings() }, {
+      runtimeId: 'sciforge',
       threadId: 'thread-1',
       text: 'Run on the remote box',
       remoteTargetId: ' gpu-a '
@@ -252,6 +255,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
       if (!resumeSession) throw new Error('Expected local runtime adapter to support session resume.')
 
       await resumeSession({ settings: buildSettings() }, {
+        runtimeId: 'sciforge',
         sessionId: 'session-1',
         model
       })
@@ -296,7 +300,10 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
       }))
     })
 
-    const detail = await adapter.readThread({ settings: buildSettings() }, { threadId: 'thread-1' })
+    const detail = await adapter.readThread({ settings: buildSettings() }, {
+      runtimeId: 'sciforge',
+      threadId: 'thread-1'
+    })
     const tools = detail.items?.filter((item) => item.kind === 'tool') ?? []
 
     expect(tools).toEqual([
@@ -361,7 +368,10 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
       }))
     })
 
-    const detail = await adapter.readThread({ settings: buildSettings() }, { threadId: 'thread-1' })
+    const detail = await adapter.readThread({ settings: buildSettings() }, {
+      runtimeId: 'sciforge',
+      threadId: 'thread-1'
+    })
     const tool = detail.items?.find((item) => item.kind === 'tool')
 
     expect(detail.todos).toEqual({
@@ -518,7 +528,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     const events = []
     for await (const event of adapter.subscribeEvents?.(
       { settings: buildSettings() },
-      { threadId: 'thread-1', sinceSeq: 0 }
+      { runtimeId: 'sciforge', threadId: 'thread-1', sinceSeq: 0 }
     ) ?? []) {
       events.push(event)
     }
@@ -578,7 +588,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     const events = []
     for await (const event of adapter.subscribeEvents?.(
       { settings: buildSettings() },
-      { threadId: 'thread-1', sinceSeq: 0 }
+      { runtimeId: 'sciforge', threadId: 'thread-1', sinceSeq: 0 }
     ) ?? []) {
       events.push(event)
     }
@@ -628,7 +638,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     const events = []
     for await (const event of adapter.subscribeEvents?.(
       { settings: buildSettings() },
-      { threadId: 'thread-1', sinceSeq: 0 }
+      { runtimeId: 'sciforge', threadId: 'thread-1', sinceSeq: 0 }
     ) ?? []) {
       events.push(event)
     }
@@ -687,7 +697,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     const events = []
     for await (const event of adapter.subscribeEvents?.(
       { settings: buildSettings() },
-      { threadId: 'thread-1', sinceSeq: 0 }
+      { runtimeId: 'sciforge', threadId: 'thread-1', sinceSeq: 0 }
     ) ?? []) {
       events.push(event)
     }
@@ -961,7 +971,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     const events = []
     for await (const event of adapter.subscribeEvents?.(
       { settings: buildSettings() },
-      { threadId: 'thread-1', sinceSeq: 0 }
+      { runtimeId: 'sciforge', threadId: 'thread-1', sinceSeq: 0 }
     ) ?? []) {
       events.push(event)
     }

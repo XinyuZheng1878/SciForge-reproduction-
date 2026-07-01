@@ -223,10 +223,12 @@ SciForge 将科研能力拆成可单独启动、测试和审计的 worker：
 | `workflow` | 可视化 workflow 执行与 Agent-facing MCP facade |
 | `schedule` | 定时任务、手动运行和后台 Agent 调度 |
 | `workspace-intel` / `runtime-inspector` | 工作区理解、运行时诊断和项目巡检 |
-| `computer-use` | 受控桌面操作、权限确认和审计记录 |
+| `computer-use` | GUI-managed `@sciforge/computer-use` primitive path；默认 isolated `browser-cdp`，native/host input 为可选或内部能力 |
 | `multi-agent` | child run contract、store、transcript 与 bounded delegation runtime |
 
 共同原则：同类能力只有一条统一链路；能走 Model Router 的不绕过 Model Router；能写入 workspace 的能力都要有清晰的 side effect 分类和边界。
+
+`computer-use` 当前指 GUI-managed `gui_computer_use` MCP server 使用的低层 primitive path：默认走 isolated `browser-cdp` target，不默认接管宿主桌面输入或剪贴板。`global-native` / `mac-app-scoped` 这类 native/host input 能力仍属于可选、内部或未来能力；GUI-Owl autonomous task path 仍并存，待人工测试后再决定整合方式。
 
 ## 当前边界
 

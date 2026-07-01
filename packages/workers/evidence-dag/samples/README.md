@@ -1,6 +1,6 @@
 # 测试样例（复杂多轮 trace）
 
-每个 `*.json` 是一条**多轮** agent trace（kun timeline 形状：`message` / `tool_call` /
+每个 `*.json` 是一条**多轮** AgentRuntime trace（timeline 形状：`message` / `tool_call` /
 `tool_result`，item id 仿真实风格而非 `step-N`）。引擎对每条抽一张 DAG（extract + 自动
 verify），随后在 UI 下拉框出现。都取材自**真实可核查**的科学问题，便于人工抽查。
 

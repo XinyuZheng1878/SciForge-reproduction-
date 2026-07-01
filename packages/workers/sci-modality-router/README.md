@@ -21,7 +21,7 @@ main agent can consume the data as text.
 ## Architecture (Model Router owned)
 
 ```
-GUI/Kun/Codex input_object ref  ──>  Model Router  ──HTTP──>  @sciforge/sci-modality-router (this, TS)  ──OpenAI-compat──>  provider/ (Python, GPU)
+GUI/local runtime/Codex/Claude input_object ref  ──>  Model Router  ──HTTP──>  @sciforge/sci-modality-router (this, TS)  ──OpenAI-compat──>  provider/ (Python, GPU)
        workspace file ref              gating + fallback       ServiceResult contract + retry                    four native-to-text expert models
 ```
 

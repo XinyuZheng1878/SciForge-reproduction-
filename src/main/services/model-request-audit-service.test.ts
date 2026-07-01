@@ -10,19 +10,19 @@ describe('ModelRequestAuditRecorder', () => {
       runtimeId: 'codex',
       threadId: 'thread-1',
       model: 'alias-a',
-      request: { threadId: 'thread-1', text: 'one', workspace: '/Users/test/project' }
+      request: { runtimeId: 'codex', threadId: 'thread-1', text: 'one', workspace: '/Users/test/project' }
     })
     recorder.start({
       runtimeId: 'codex',
       threadId: 'thread-2',
       model: 'alias-b',
-      request: { threadId: 'thread-2', text: 'two', workspace: '/Users/test/project' }
+      request: { runtimeId: 'codex', threadId: 'thread-2', text: 'two', workspace: '/Users/test/project' }
     })
     recorder.start({
       runtimeId: 'sciforge',
       threadId: 'thread-3',
       model: 'alias-c',
-      request: { threadId: 'thread-3', text: 'three', workspace: '/Users/test/project' }
+      request: { runtimeId: 'sciforge', threadId: 'thread-3', text: 'three', workspace: '/Users/test/project' }
     })
 
     expect(recorder.snapshot().map((record) => record.threadId)).toEqual(['thread-3', 'thread-2'])

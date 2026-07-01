@@ -721,11 +721,12 @@ export class AgentRuntimeProvider implements AgentProvider {
     return this.auxiliary('uploadAttachment', input)
   }
 
-  getAttachmentContent(
+  async getAttachmentContent(
     attachmentId: string,
     options?: Parameters<NonNullable<AgentProvider['getAttachmentContent']>>[1]
   ): ReturnType<NonNullable<AgentProvider['getAttachmentContent']>> {
-    return this.auxiliary('getAttachmentContent', { attachmentId, options })
+    const runtimeId = options?.threadId ? await this.runtimeIdForThread(options.threadId) : undefined
+    return this.auxiliary('getAttachmentContent', { attachmentId, options }, runtimeId)
   }
 
   runCodeNavigation(
@@ -734,14 +735,16 @@ export class AgentRuntimeProvider implements AgentProvider {
     return this.auxiliary('runCodeNavigation', input)
   }
 
-  listModelAuditRecords(
+  async listModelAuditRecords(
     options?: Parameters<NonNullable<AgentProvider['listModelAuditRecords']>>[0]
   ): ReturnType<NonNullable<AgentProvider['listModelAuditRecords']>> {
-    const { runtimeId, ...payload } = options ?? {}
+    const { runtimeId, threadId, ...payload } = options ?? {}
+    const selectedRuntimeId = runtimeId ?? (threadId ? await this.runtimeIdForThread(threadId) : undefined)
     return this.auxiliary('listModelAuditRecords', {
       ...payload,
-      ...(runtimeId ? { runtimeId } : {})
-    }, runtimeId)
+      ...(threadId ? { threadId } : {}),
+      ...(selectedRuntimeId ? { runtimeId: selectedRuntimeId } : {})
+    }, selectedRuntimeId)
   }
 
   clearModelAuditRecords(): ReturnType<NonNullable<AgentProvider['clearModelAuditRecords']>> {
@@ -752,20 +755,23 @@ export class AgentRuntimeProvider implements AgentProvider {
     return this.threadAuxiliary(threadId, 'getContextState')
   }
 
-  listGitCheckpoints(
+  async listGitCheckpoints(
     options?: Parameters<NonNullable<AgentProvider['listGitCheckpoints']>>[0]
   ): ReturnType<NonNullable<AgentProvider['listGitCheckpoints']>> {
-    const { runtimeId, ...payload } = options ?? {}
+    const { runtimeId, threadId, ...payload } = options ?? {}
+    const selectedRuntimeId = runtimeId ?? (threadId ? await this.runtimeIdForThread(threadId) : undefined)
     return this.auxiliary('listGitCheckpoints', {
       ...payload,
-      ...(runtimeId ? { runtimeId } : {})
-    }, runtimeId)
+      ...(threadId ? { threadId } : {}),
+      ...(selectedRuntimeId ? { runtimeId: selectedRuntimeId } : {})
+    }, selectedRuntimeId)
   }
 
-  createGitCheckpoint(
+  async createGitCheckpoint(
     input: Parameters<NonNullable<AgentProvider['createGitCheckpoint']>>[0]
   ): ReturnType<NonNullable<AgentProvider['createGitCheckpoint']>> {
-    return this.auxiliary('createGitCheckpoint', input)
+    const runtimeId = await this.runtimeIdForThread(input.threadId)
+    return this.auxiliary('createGitCheckpoint', input, runtimeId)
   }
 
   previewGitCheckpoint(

@@ -1922,13 +1922,14 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     const config = evidenceDagViewConfig(process.env)
     await assertEvidenceDagServiceReachable(config.serviceUrl, config.apiKey)
     const backfillThreadId = input.threadId?.trim()
-    if (agentRuntime && backfillThreadId) {
+    const backfillRuntimeId = input.runtimeId
+    if (agentRuntime && backfillThreadId && backfillRuntimeId) {
       void agentRuntime.readThread({
-        runtimeId: input.runtimeId,
+        runtimeId: backfillRuntimeId,
         threadId: backfillThreadId
       }).then((detail) =>
         feedEvidenceDag({
-          runtimeId: input.runtimeId ?? '',
+          runtimeId: backfillRuntimeId,
           threadId: backfillThreadId,
           items: evidenceDagBackfillItems(detail)
         })

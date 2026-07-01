@@ -523,7 +523,7 @@ export type AgentRuntimeThreadListInput = {
 }
 
 export type AgentRuntimeThreadStartInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId?: string
   workspace?: string
   title?: string
@@ -532,12 +532,12 @@ export type AgentRuntimeThreadStartInput = {
 }
 
 export type AgentRuntimeThreadReadInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
 }
 
 export type AgentRuntimeTurnStartInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
   text: string
   metadata?: Record<string, unknown>
@@ -576,14 +576,14 @@ export type AgentRuntimeFileReference = {
 }
 
 export type AgentRuntimeTurnTargetInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
   turnId: string
   discard?: boolean
 }
 
 export type AgentRuntimeTurnSteerInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
   turnId: string
   text: string

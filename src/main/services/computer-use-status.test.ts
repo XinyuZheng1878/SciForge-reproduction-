@@ -33,6 +33,10 @@ describe('computer-use runtime status', () => {
           backend: 'global-native',
           available: true,
           platform: 'darwin',
+          inputIsolation: 'agent-isolated',
+          affectsUserInput: false,
+          requiresHostFocus: false,
+          usesHostClipboard: false,
           activeLeases: [
             {
               leaseId: 'lease-1',
@@ -84,7 +88,11 @@ describe('computer-use runtime status', () => {
     expect(status.backend).toMatchObject({
       backend: 'global-native',
       available: true,
-      platform: 'darwin'
+      platform: 'darwin',
+      inputIsolation: 'agent-isolated',
+      affectsUserInput: false,
+      requiresHostFocus: false,
+      usesHostClipboard: false
     })
     expect(status.activeLeases.map((lease) => lease.leaseId)).toEqual(['lease-1'])
     expect(status.recentRejections).toEqual([

@@ -90,6 +90,75 @@ type ComputerUseBackendSafetyStatus = {
   usesHostClipboard?: boolean
 }
 
+type ComputerUseBackendSafetyChip = {
+  labelKey: string
+  valueKey: string
+}
+
+function computerUseInputIsolationValueKey(value: string | undefined): string | null {
+  if (value === 'agent-isolated') return 'computerUseSafetyInputAgentIsolated'
+  if (value === 'host-global') return 'computerUseSafetyInputHostGlobal'
+  if (value === 'host-app-scoped') return 'computerUseSafetyInputHostAppScoped'
+  return value ? 'computerUseSafetyInputUnknown' : null
+}
+
+function computerUseBooleanSafetyValueKey(
+  value: boolean | undefined,
+  trueKey: string,
+  falseKey: string
+): string | null {
+  if (typeof value !== 'boolean') return null
+  return value ? trueKey : falseKey
+}
+
+function computerUseBackendSafetyChips(
+  status: ComputerUseBackendSafetyStatus | null | undefined
+): ComputerUseBackendSafetyChip[] {
+  if (!status) return []
+  const chips: ComputerUseBackendSafetyChip[] = []
+  const inputIsolationKey = computerUseInputIsolationValueKey(status.inputIsolation)
+  if (inputIsolationKey) {
+    chips.push({
+      labelKey: 'computerUseSafetyInputSurface',
+      valueKey: inputIsolationKey
+    })
+  }
+  const affectsInputKey = computerUseBooleanSafetyValueKey(
+    status.affectsUserInput,
+    'computerUseSafetyUserInputHost',
+    'computerUseSafetyUserInputIsolated'
+  )
+  if (affectsInputKey) {
+    chips.push({
+      labelKey: 'computerUseSafetyUserInput',
+      valueKey: affectsInputKey
+    })
+  }
+  const focusKey = computerUseBooleanSafetyValueKey(
+    status.requiresHostFocus,
+    'computerUseSafetyHostFocusRequired',
+    'computerUseSafetyHostFocusNotRequired'
+  )
+  if (focusKey) {
+    chips.push({
+      labelKey: 'computerUseSafetyHostFocus',
+      valueKey: focusKey
+    })
+  }
+  const clipboardKey = computerUseBooleanSafetyValueKey(
+    status.usesHostClipboard,
+    'computerUseSafetyClipboardUsed',
+    'computerUseSafetyClipboardNotUsed'
+  )
+  if (clipboardKey) {
+    chips.push({
+      labelKey: 'computerUseSafetyClipboard',
+      valueKey: clipboardKey
+    })
+  }
+  return chips
+}
+
 function checkpointStatusPill(status: string | undefined): string {
   if (status === 'available') return 'border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
   if (status === 'restored') return 'border-blue-400/30 bg-blue-500/10 text-blue-700 dark:text-blue-200'
@@ -2302,14 +2371,7 @@ function ComputerUseSettingsCard({ ctx }: { ctx: Record<string, any> }): ReactEl
   const computerUse = form ? getComputerUseSettings(form) : defaultComputerUseSettings()
   const backend = status?.runtime.backend
   const backendSafety = backend as (typeof backend & ComputerUseBackendSafetyStatus) | null | undefined
-  const backendSafetyChips = backend
-    ? [
-        { label: 'inputIsolation', value: backendSafety?.inputIsolation },
-        { label: 'affectsUserInput', value: backendSafety?.affectsUserInput },
-        { label: 'requiresHostFocus', value: backendSafety?.requiresHostFocus },
-        { label: 'usesHostClipboard', value: backendSafety?.usesHostClipboard }
-      ].filter((chip): chip is { label: string; value: string | boolean } => chip.value !== undefined)
-    : []
+  const backendSafetyChips = backend ? computerUseBackendSafetyChips(backendSafety) : []
   const activeLeases = status?.runtime.activeLeases ?? []
   const recentRejections = status?.runtime.recentRejections ?? []
   const permissions = status?.permissions
@@ -2453,11 +2515,11 @@ function ComputerUseSettingsCard({ ctx }: { ctx: Record<string, any> }): ReactEl
               </span>
               {backendSafetyChips.map((chip) => (
                 <span
-                  key={chip.label}
+                  key={chip.labelKey}
                   className="inline-flex max-w-full items-center gap-1 rounded-lg border border-ds-border-muted bg-ds-main/40 px-2 py-1 text-[11px] font-medium text-ds-muted"
                 >
-                  <span className="font-mono text-ds-faint">{chip.label}</span>
-                  <span className="font-mono text-ds-ink">{String(chip.value)}</span>
+                  <span className="text-ds-faint">{t(chip.labelKey)}</span>
+                  <span className="text-ds-ink">{t(chip.valueKey)}</span>
                 </span>
               ))}
               <button

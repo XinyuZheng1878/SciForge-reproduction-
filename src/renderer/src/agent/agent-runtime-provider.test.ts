@@ -843,7 +843,12 @@ describe('AgentRuntimeProvider', () => {
   })
 
   it('exposes host service auxiliary helpers without runtime-specific branches', async () => {
-    const auxiliary = vi.fn(async (input: { operation: string; payload?: Record<string, unknown> }) => {
+    let activeRuntime: AgentRuntimeId = 'codex'
+    const auxiliary = vi.fn(async (input: {
+      operation: string
+      runtimeId?: AgentRuntimeId
+      payload?: Record<string, unknown>
+    }) => {
       if (input.operation === 'listMemories') {
         return [{
           id: 'mem-1',
@@ -889,6 +894,13 @@ describe('AgentRuntimeProvider', () => {
           updatedAt: '2026-06-20T00:00:01.000Z'
         }
       }
+      if (input.operation === 'getAttachmentContent') {
+        return {
+          ok: true,
+          attachmentId: input.payload?.attachmentId,
+          text: 'attachment body'
+        }
+      }
       if (input.operation === 'getContextState') {
         return { runtimeId: 'codex', threadId: input.payload?.threadId, rawHistoryItems: 0, effectiveHistoryItems: 0, updatedAt: 'now' }
       }
@@ -917,6 +929,23 @@ describe('AgentRuntimeProvider', () => {
       if (input.operation === 'clearModelAuditRecords') {
         if (input.payload?.fail === true) throw new Error('clear failed')
         return true
+      }
+      if (input.operation === 'listGitCheckpoints') {
+        return [{
+          id: 'checkpoint-1',
+          runtimeId: input.payload?.runtimeId,
+          threadId: input.payload?.threadId,
+          workspaceRoot: input.payload?.workspaceRoot,
+          createdAt: '2026-06-20T00:00:00.000Z'
+        }]
+      }
+      if (input.operation === 'createGitCheckpoint') {
+        return {
+          id: 'checkpoint-2',
+          runtimeId: input.runtimeId,
+          threadId: input.payload?.threadId,
+          workspaceRoot: input.payload?.workspaceRoot
+        }
       }
       if (input.operation === 'runCodeNavigation') {
         return { ok: true, locations: [{ relativePath: 'src/index.ts', line: 3, character: 8 }] }
@@ -957,7 +986,7 @@ describe('AgentRuntimeProvider', () => {
     })
     vi.stubGlobal('window', {
       sciforge: {
-        getSettings: vi.fn(async () => settings('codex')),
+        getSettings: vi.fn(async () => settings(activeRuntime)),
         setSettings: vi.fn(),
         agentRuntime: {
           capabilities: vi.fn(async () => capabilities('codex')),
@@ -1016,13 +1045,41 @@ describe('AgentRuntimeProvider', () => {
       runtimeId: 'codex',
       threadId: 'codex-thread'
     })
-    await expect(provider.listModelAuditRecords({ runtimeId: 'codex', threadId: 'codex-thread', limit: 5 })).resolves.toEqual([
+    activeRuntime = 'sciforge'
+    rendererRuntimeClient.invalidateSettings()
+    await expect(provider.getAttachmentContent?.('attachment-1', {
+      threadId: 'codex-thread',
+      workspace: '/tmp/ws'
+    })).resolves.toMatchObject({
+      ok: true,
+      attachmentId: 'attachment-1'
+    })
+    await expect(provider.listModelAuditRecords({ threadId: 'codex-thread', limit: 5 })).resolves.toEqual([
       expect.objectContaining({
         id: 'audit-1',
         runtimeId: 'codex',
         threadId: 'codex-thread'
       })
     ])
+    await expect(provider.listGitCheckpoints?.({
+      threadId: 'codex-thread',
+      workspaceRoot: '/tmp/ws'
+    })).resolves.toEqual([
+      expect.objectContaining({
+        id: 'checkpoint-1',
+        runtimeId: 'codex',
+        threadId: 'codex-thread'
+      })
+    ])
+    await expect(provider.createGitCheckpoint?.({
+      workspaceRoot: '/tmp/ws',
+      threadId: 'codex-thread',
+      turnId: 'turn-1'
+    })).resolves.toEqual(expect.objectContaining({
+      id: 'checkpoint-2',
+      runtimeId: 'codex',
+      threadId: 'codex-thread'
+    }))
     await expect(provider.clearModelAuditRecords()).resolves.toBe(true)
     await expect(provider.runCodeNavigation?.({
       workspaceRoot: '/tmp/ws',
@@ -1061,6 +1118,17 @@ describe('AgentRuntimeProvider', () => {
     })
     expect(auxiliary).toHaveBeenCalledWith({
       runtimeId: 'codex',
+      operation: 'getAttachmentContent',
+      payload: {
+        attachmentId: 'attachment-1',
+        options: {
+          threadId: 'codex-thread',
+          workspace: '/tmp/ws'
+        }
+      }
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
       operation: 'listModelAuditRecords',
       payload: {
         threadId: 'codex-thread',
@@ -1070,6 +1138,24 @@ describe('AgentRuntimeProvider', () => {
     })
     expect(auxiliary).toHaveBeenCalledWith({
       runtimeId: 'codex',
+      operation: 'listGitCheckpoints',
+      payload: {
+        threadId: 'codex-thread',
+        workspaceRoot: '/tmp/ws',
+        runtimeId: 'codex'
+      }
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'codex',
+      operation: 'createGitCheckpoint',
+      payload: {
+        workspaceRoot: '/tmp/ws',
+        threadId: 'codex-thread',
+        turnId: 'turn-1'
+      }
+    })
+    expect(auxiliary).toHaveBeenCalledWith({
+      runtimeId: 'sciforge',
       operation: 'clearModelAuditRecords',
       payload: {}
     })

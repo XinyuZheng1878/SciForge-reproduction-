@@ -120,10 +120,22 @@ function backendSummary(
     backend: primary.backend,
     available: servers.some((server) => server.available),
     platform: primary.platform,
+    ...backendSafetyProjection(primary),
     reason: primary.reason,
     activeLeases: servers.flatMap((server) => server.activeLeases),
     recentRejections: servers.flatMap((server) => server.recentRejections).slice(-20),
     recentError: primary.recentError
+  }
+}
+
+function backendSafetyProjection(
+  diagnostic: ComputerUseBackendDiagnostic
+): Pick<ComputerUseBackendDiagnostic, 'inputIsolation' | 'affectsUserInput' | 'requiresHostFocus' | 'usesHostClipboard'> {
+  return {
+    ...(diagnostic.inputIsolation ? { inputIsolation: diagnostic.inputIsolation } : {}),
+    ...(typeof diagnostic.affectsUserInput === 'boolean' ? { affectsUserInput: diagnostic.affectsUserInput } : {}),
+    ...(typeof diagnostic.requiresHostFocus === 'boolean' ? { requiresHostFocus: diagnostic.requiresHostFocus } : {}),
+    ...(typeof diagnostic.usesHostClipboard === 'boolean' ? { usesHostClipboard: diagnostic.usesHostClipboard } : {})
   }
 }
 

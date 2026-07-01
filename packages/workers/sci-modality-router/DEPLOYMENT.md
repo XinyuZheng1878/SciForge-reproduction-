@@ -89,7 +89,7 @@ lists each expert's online state and device.
 ## When the server is down (graceful, no errors)
 
 If the optional service is off (or the private connection is down), Model Router fails open and
-**falls back to readable raw file text where safe**. The turn still completes, and GUI/Kun/Codex
+**falls back to readable raw file text where safe**. The turn still completes, and GUI/local runtime/Codex/Claude
 do not call this service directly. Other model traffic is unaffected.
 
 ## Troubleshooting

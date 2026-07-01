@@ -69,6 +69,10 @@
 - [x] 删除 GUI shared 到 `kun/src/contracts/policy` 的 `runtime-policy.ts` thin wrapper，policy 字面量/default 改由 GUI shared 自有类型声明，`kun/src` import 边界白名单继续收紧。
 - [x] 删除旧 `~/.sciforge/claw` 作为内部 remote-channel workspace 的路径兼容；当前 `~/.sciforge/remote-channel` 仍作为内部路径处理，旧 claw 路径按普通 workspace 展示/保存。
 - [x] 删除 legacy Claw prompt/title 展示兼容：`[Claw managed instructions]`、`[Claw IM agent instructions]`、`Claw skill policy:`、无 canonical 空行分隔 inbound prompt、`[Claw:]` / `[Claw IM:]` 标题恢复均不再被当前 remote-channel 链路识别；只保留 `[Remote channel ...]` canonical 链路。
+- [x] Agent Runtime thread/turn/session/interaction 操作跨 IPC/host 边界强制显式 `runtimeId`：shared contract、preload API、IPC schema、host resolver 和 adapter 测试均改为 fail-closed；`connect` / `capabilities` / `listThreads` / `usage` 保留当前 active/aggregate 语义。
+- [x] 收紧 renderer auxiliary thread routing：`getAttachmentContent(options.threadId)`、`listModelAuditRecords({ threadId })`、`listGitCheckpoints({ threadId })`、`createGitCheckpoint({ threadId })` 会按 remembered thread runtime 发起，不再在 active runtime 切换后误走当前 active runtime。
+- [x] 补齐 computer-use 状态投影与文案边界：IPC/backend status 聚合保留 `inputIsolation`、`affectsUserInput`、`requiresHostFocus`、`usesHostClipboard` 的 `false` 值，settings UI 改为用户可读安全摘要；README/locale 明确 GUI-managed `@sciforge/computer-use` 默认是 isolated `browser-cdp` primitive path。
+- [x] 清理 Evidence DAG / sci-modality / plugins 文档中的 Kun timeline 命名残留，统一表述为 AgentRuntime / SciForge Runtime / local runtime / Codex / Claude。
 
 ## 验证记录
 
@@ -126,6 +130,8 @@
 - [x] `npm --prefix kun test`（53 files / 552 tests）
 - [x] `git diff --check`
 - [x] `npx vitest run src/shared/app-settings.test.ts src/renderer/src/components/chat/MessageTimeline.tool-summary.test.ts src/renderer/src/store/chat-store-helpers.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts`
+- [x] `npm test -- src/main/services/computer-use-status.test.ts src/renderer/src/components/settings-section-agents.test.ts src/main/ipc/app-ipc-schemas.test.ts src/main/runtime/agent-runtime/host.test.ts src/renderer/src/agent/agent-runtime-client.test.ts src/preload/index.test.ts`
+- [x] `npm test -- src/renderer/src/agent/agent-runtime-provider.test.ts`
 
 ## 已决策待实施
 
@@ -141,11 +147,15 @@
 - [ ] side conversation / plan checklist / GUI plan registry 的长期 owner 归 runtime/thread metadata；GUI 只负责展示和即时乐观更新。已完成显式 `includeSide` 读路径、runtime todo snapshot/event 透传、`create_plan` result replay、完成后 goal/todos snapshot merge、GUI plan registry shared helper 对齐、plan/todo merge 语义收敛、side capability gate 与 SSE 失败状态收敛；仍需决策：active GUI plan 存成 `thread.guiPlan` metadata，还是从最近一次 `create_plan` tool result 派生；旧 `sciforge.plan.registry.v1` localStorage 是迁移还是清空；side conversation 重启后是否需要恢复。
 - [ ] remote-channel IM command 边界：账户/连接/线程选择归 GUI；任务执行、计划、工具行为归 runtime/agent，避免新增并行控制链路。已删除 dead `ClawRuntime.runTask()`、stale Feishu mirror API 文档、dead `imCommandNotReadyText`，并补齐 remote-channel task IPC 测试和 public API 文档；仍需决策：IM 是否允许 `/model` / `/mode` 这类 runtime 行为命令；项目/thread 选择是否允许经 IM 发生；schedule/task 创建是否允许从 IM 自动触发。
 - [x] 删除 `vision-router-service`：Model Router 当前 `translators.vision` 已覆盖默认链路需要的 translate-only vision 能力，视觉输入会先经 vision translator 生成文本 evidence，再交给 text reasoner；已删除 standalone `plugins/vision-router-service` 及其文档/测试/notice 引用，默认链路不再保留第二条服务边界。后续如需要更强 retry/backoff/timeout，只在 Model Router `visionTranslator` provider call 内实现。
-- [ ] `gui-owl-computer-use` 暂停处理：保持 `gui-owl-computer-use` 与旧 `@sciforge/computer-use` 并存，不迁移、不删除，等待人工分别测试两套 computer-use 后再决策。
-- [ ] Agent Runtime thread/turn/session/interaction 操作跨 IPC/host 边界应显式携带 `runtimeId`，避免缺省回落到 active runtime。仍需决策：`AgentRuntimeAuxiliaryInput` 是否改成按 operation 区分的 discriminated union；thread-bound auxiliary 强制 `runtimeId`，`getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences` 等 active-scoped 能力继续允许省略。
+- [ ] `gui-owl-computer-use` 暂停处理：保持 `gui-owl-computer-use` 与旧 `@sciforge/computer-use` 并存，不迁移、不删除，等待人工分别测试两套 computer-use 后再决策。人工测试矩阵需覆盖：`-SafeDryRun` 不动鼠标键盘、live 必须 GUI approve、cancel 有效、无 token live 被拒、是否让手工 dry-run 也强制 token（因为会截图并走 Model Router）。
+- [ ] Agent Runtime auxiliary 仍需决策是否改为按 operation 区分的 discriminated union：`reviewThread`、`listThreadChildren`、`readChildTranscript`、context ledger/state、runtime handoff、goal/todos、checkpoint create、thread workspace/archive、`cancelUserInput` 等 thread-bound operation 应强制 `runtimeId`；`getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences` 等 active-scoped 能力继续允许省略。
+- [ ] `SCIFORGE_CUA_SERVICE_URL` loopback 策略等待 computer-use 人工测试后决策：允许哪些 loopback 形式、是否支持 SSH tunnel hostname、非 loopback 时 fail-closed 并不广告旧 tool，还是保留当前“不启用 GUI-managed MCP 以避免重复注册”的冲突 guard。
 
 ## 待核对/拆解
 
 - [x] 已核对并删除 standalone `vision-router-service`：Model Router 已覆盖主链路的 vision translation、runtime auth、body cap、healthz config/auth 诊断、trace redaction、失败降级和多输入形态测试；独立 ServiceResult API 不再保留。
 - [x] 核对并替换 WeChat bridge 第三方 media sender：旧包内 `send-media` 会经 API wrapper 读取 `OPENCLAW_CONFIG` / state dir `openclaw.json` 的 `routeTag` / `botAgent`；现已改为本地 media upload/send 路径，显式使用当前 per-account token / baseUrl / cdnBaseUrl / contextToken，避免文件级隐式兼容。
 - [ ] 等待人工测试两套 computer-use 后，再梳理是否迁移 `@sciforge/computer-use` 的 target/session/lease 合约、lease 冲突检测、shared action lock、native/browser backends、permission/status/audit、confirmation/risk taxonomy、local runtime/Codex/Claude MCP registry。
+- [ ] Paper Radar 仍有旧 HTTP sidecar / plugin workspace 归属残留：当前 IPC 已走 `PaperRadarWorkerService`，但 `src/main/paper-radar-sidecar.ts` 和 `plugins/paper-radar-service` 仍需拆解是否删除旧 sidecar、迁移 core storage/source/profile/ranking 到 worker 内部或 shared core。
+- [ ] Search worker root `index.ts` 仍暴露 query planner/provider helper；需核对外部消费后收窄 public surface。
+- [ ] Schedule detector 内部仍沿用 `claw-scheduled-task-detector` / `ParsedClawScheduledTaskRequest` 命名；可在后续低风险阶段重命名为 neutral scheduled-task detector。

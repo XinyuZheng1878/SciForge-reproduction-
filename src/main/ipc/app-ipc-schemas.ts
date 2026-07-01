@@ -151,7 +151,7 @@ export const agentRuntimeListThreadsPayloadSchema = z.object({
 }).strict()
 
 export const agentRuntimeStartThreadPayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: optionalTrimmedString(MAX_ID_LENGTH),
   workspace: defaultPathSchema,
   title: z.string().trim().max(200).optional(),
@@ -160,12 +160,12 @@ export const agentRuntimeStartThreadPayloadSchema = z.object({
 }).strict()
 
 export const agentRuntimeReadThreadPayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH)
 }).strict()
 
 export const agentRuntimeStartTurnPayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH),
   text: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH),
   workspace: defaultPathSchema,
@@ -188,28 +188,28 @@ export const agentRuntimeStartTurnPayloadSchema = z.object({
 }).strict()
 
 export const agentRuntimeTurnTargetPayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH),
   turnId: trimmedString(MAX_ID_LENGTH),
   discard: z.boolean().optional()
 }).strict()
 
 export const agentRuntimeTurnSteerPayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH),
   turnId: trimmedString(MAX_ID_LENGTH),
   text: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH)
 }).strict()
 
 export const agentRuntimeEventSubscribePayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH),
   sinceSeq: z.number().int().nonnegative().optional(),
   streamId: optionalTrimmedString(MAX_ID_LENGTH)
 }).strict()
 
 export const agentRuntimeThreadRenamePayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH),
   title: z.string().trim().min(1).max(200)
 }).strict()
@@ -242,25 +242,25 @@ export const terminalResizePayloadSchema = z
   .strict()
 
 export const agentRuntimeThreadDeletePayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH)
 }).strict()
 
 export const agentRuntimeThreadCompactPayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH),
   reason: z.string().trim().max(MAX_CHANNEL_TEXT_LENGTH).optional()
 }).strict()
 
 export const agentRuntimeThreadForkPayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH),
   relation: agentRuntimeThreadRelationSchema.optional(),
   title: z.string().trim().max(200).optional()
 }).strict()
 
 export const agentRuntimeSessionResumePayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   sessionId: trimmedString(MAX_ID_LENGTH),
   model: z.string().trim().max(128).optional(),
   mode: z.string().trim().max(64).optional(),
@@ -268,7 +268,7 @@ export const agentRuntimeSessionResumePayloadSchema = z.object({
 }).strict()
 
 export const agentRuntimeThreadRelationPayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH),
   relation: agentRuntimeThreadRelationSchema
 }).strict()
@@ -289,7 +289,7 @@ export const agentRuntimeAuxiliaryPayloadSchema = z.object({
 }).strict()
 
 export const agentRuntimeApprovalResolvePayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH),
   approvalId: trimmedString(MAX_ID_LENGTH),
   decision: z.enum(['allowed', 'denied']),
@@ -297,7 +297,7 @@ export const agentRuntimeApprovalResolvePayloadSchema = z.object({
 }).strict()
 
 export const agentRuntimeUserInputResolvePayloadSchema = z.object({
-  runtimeId: agentRuntimeIdSchema.optional(),
+  runtimeId: agentRuntimeIdSchema,
   threadId: trimmedString(MAX_ID_LENGTH),
   requestId: trimmedString(MAX_ID_LENGTH),
   answers: z.array(z.object({

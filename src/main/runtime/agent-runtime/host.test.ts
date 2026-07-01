@@ -308,6 +308,42 @@ describe('AgentRuntimeHost', () => {
     )
   })
 
+  it('requires explicit runtime ids for thread, turn, and event operations', async () => {
+    const codexThread = {
+      id: 'codex-thread',
+      runtimeId: 'codex' as const,
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    }
+    const codex = fakeAdapter('codex', codexThread)
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [codex]
+    })
+
+    await expect(host.capabilities()).resolves.toMatchObject({ runtimeId: 'codex' })
+    await expect(host.usage({ groupBy: 'thread' })).resolves.toMatchObject({ supported: true })
+    await expect(host.readThread({ threadId: 'codex-thread' } as never)).rejects.toThrow(
+      'runtimeId is required'
+    )
+    await expect(host.startTurn({
+      threadId: 'codex-thread',
+      text: 'continue'
+    } as never)).rejects.toThrow('runtimeId is required')
+    await expect(host.renameThread({
+      threadId: 'codex-thread',
+      title: 'Renamed'
+    } as never)).rejects.toThrow('runtimeId is required')
+    await expect(host.subscribeEvents({
+      threadId: 'codex-thread'
+    } as never)[Symbol.asyncIterator]().next()).rejects.toThrow('runtimeId is required')
+
+    expect(codex.readThread).not.toHaveBeenCalled()
+    expect(codex.startTurn).not.toHaveBeenCalled()
+    expect(codex.renameThread).not.toHaveBeenCalled()
+    expect(codex.subscribeEvents).not.toHaveBeenCalled()
+  })
+
   it('rejects the legacy local runtime id instead of falling back to SciForge', async () => {
     const adapter = fakeAdapter('sciforge', {
       id: 'sciforge-thread',
@@ -3778,7 +3814,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
       title: 'SciForge thread',
       backendThreadId: 'thr-sciforge'
     })])
-    await expect(adapter.readThread(ctx, { threadId: 'thr-sciforge' })).resolves.toMatchObject({
+    await expect(adapter.readThread(ctx, { runtimeId: 'sciforge', threadId: 'thr-sciforge' })).resolves.toMatchObject({
       id: 'thr-sciforge',
       runtimeId: 'sciforge',
       latestSeq: 2,
@@ -3793,6 +3829,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
       }]
     })
     await expect(adapter.startTurn(ctx, {
+      runtimeId: 'sciforge',
       threadId: 'thr-sciforge',
       text: 'run',
       mode: 'agent',
@@ -4069,6 +4106,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     })
 
     await expect(adapter.updateThreadRelation?.({ settings: settings('sciforge') }, {
+      runtimeId: 'sciforge',
       threadId: 'thr-side',
       relation: 'primary'
     })).resolves.toBeUndefined()
@@ -4137,6 +4175,7 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
 
     const events: AgentRuntimeEvent[] = []
     for await (const event of adapter.subscribeEvents!({ settings: settings('sciforge') }, {
+      runtimeId: 'sciforge',
       threadId: 'thr-sciforge',
       sinceSeq: 0
     })) {
@@ -4368,7 +4407,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
       search: 'Codex',
       limit: 25
     })
-    await expect(adapter.readThread(ctx, { threadId: 'codex-thread' })).resolves.toMatchObject({
+    await expect(adapter.readThread(ctx, { runtimeId: 'codex', threadId: 'codex-thread' })).resolves.toMatchObject({
       id: 'codex-thread',
       runtimeId: 'codex',
       latestSeq: 3,
@@ -4416,7 +4455,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
         blocks: []
       }
     })
-    const emptyDetail = await adapter.readThread(ctx, { threadId: 'empty-codex-thread' })
+    const emptyDetail = await adapter.readThread(ctx, { runtimeId: 'codex', threadId: 'empty-codex-thread' })
     expect(emptyDetail).toMatchObject({
       id: 'empty-codex-thread',
       runtimeId: 'codex',
@@ -4427,6 +4466,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
     expect(emptyDetail.status).toBeUndefined()
     expect(emptyDetail.latestTurnId).toBeUndefined()
     await expect(adapter.startTurn(ctx, {
+      runtimeId: 'codex',
       threadId: 'codex-thread',
       text: 'run',
       displayText: 'Run it',
@@ -4443,12 +4483,14 @@ describe('createCodexAgentRuntimeAdapter', () => {
       displayText: 'Run it'
     }))
     await expect(adapter.resolveApproval?.(ctx, {
+      runtimeId: 'codex',
       threadId: 'codex-thread',
       approvalId: 'server-request-1',
       decision: 'allowed',
       message: 'approved'
     })).resolves.toBeUndefined()
     await expect(adapter.resolveUserInput?.(ctx, {
+      runtimeId: 'codex',
       threadId: 'codex-thread',
       requestId: 'server-request-2',
       answers: [{ id: 'choice', value: 'yes' }]
@@ -4458,7 +4500,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
       payload: { threadId: 'codex-thread', archived: false }
     })).resolves.toBeUndefined()
     const events: AgentRuntimeEvent[] = []
-    for await (const event of adapter.subscribeEvents(ctx, { threadId: 'codex-thread', sinceSeq: 4 })) {
+    for await (const event of adapter.subscribeEvents(ctx, { runtimeId: 'codex', threadId: 'codex-thread', sinceSeq: 4 })) {
       events.push(event)
     }
 

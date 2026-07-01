@@ -24,18 +24,18 @@ export type AgentRuntimeAdapterContext = {
 }
 
 export type AgentRuntimeThreadRenameInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
   title: string
 }
 
 export type AgentRuntimeThreadDeleteInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
 }
 
 export type AgentRuntimeEventSubscribeInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
   sinceSeq?: number
   streamId?: string
@@ -43,7 +43,7 @@ export type AgentRuntimeEventSubscribeInput = {
 }
 
 export type AgentRuntimeApprovalResolveInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
   approvalId: string
   decision: 'allowed' | 'denied'
@@ -51,27 +51,27 @@ export type AgentRuntimeApprovalResolveInput = {
 }
 
 export type AgentRuntimeUserInputResolveInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
   requestId: string
   answers: Array<{ id: string; label?: string; value: string }>
 }
 
 export type AgentRuntimeThreadCompactInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
   reason?: string
 }
 
 export type AgentRuntimeThreadForkInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
   relation?: AgentRuntimeThreadRelation
   title?: string
 }
 
 export type AgentRuntimeSessionResumeInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   sessionId: string
   model?: string
   mode?: string
@@ -84,7 +84,7 @@ export type AgentRuntimeSessionResumeHandle = {
 }
 
 export type AgentRuntimeThreadRelationInput = {
-  runtimeId?: AgentRuntimeId
+  runtimeId: AgentRuntimeId
   threadId: string
   relation: AgentRuntimeThreadRelation
 }
