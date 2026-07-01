@@ -13,7 +13,7 @@ import type {
 import { ThreadSchema } from '../../contracts/threads.js'
 import type { RuntimeEvent } from '../../contracts/events.js'
 import type { TurnItem } from '../../contracts/items.js'
-import type { Turn } from '../../contracts/turns.js'
+import { GuiPlanContextSchema, type GuiPlanContextJson, type Turn } from '../../contracts/turns.js'
 import type { ApprovalPolicy, SandboxMode } from '../../contracts/policy.js'
 import type { ThreadStore, ThreadStoreListOptions } from '../../ports/thread-store.js'
 import { toThreadSummary } from '../../domain/thread.js'
@@ -46,6 +46,7 @@ type ThreadRow = {
   forked_from_turn_count: number | null
   goal_json: string | null
   todos_json: string | null
+  gui_plan_json: string | null
   created_at: string
   updated_at: string
   created_at_ms: number
@@ -241,6 +242,7 @@ export class HybridThreadStore implements ThreadStore {
         forked_from_turn_count INTEGER,
         goal_json TEXT,
         todos_json TEXT,
+        gui_plan_json TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         created_at_ms INTEGER NOT NULL,
@@ -263,6 +265,7 @@ export class HybridThreadStore implements ThreadStore {
         ON threads(relation, updated_at_ms DESC, id DESC);
     `)
     addColumnIfMissing(this.db, 'threads', 'todos_json TEXT')
+    addColumnIfMissing(this.db, 'threads', 'gui_plan_json TEXT')
   }
 
   private cachedStatement(sql: string): Statement {
@@ -355,7 +358,7 @@ export class HybridThreadStore implements ThreadStore {
             id, title, workspace, model, mode, status, approval_policy, sandbox_mode,
             cost_budget_usd, cost_budget_warning_sent, relation, parent_thread_id,
             forked_from_thread_id, forked_from_title, forked_at, forked_from_message_count,
-            forked_from_turn_count, goal_json, todos_json, created_at, updated_at, created_at_ms,
+            forked_from_turn_count, goal_json, todos_json, gui_plan_json, created_at, updated_at, created_at_ms,
             updated_at_ms, preview, message_count, event_seq_high_water, metadata_path,
             messages_path, events_path, search_text
           )
@@ -363,7 +366,7 @@ export class HybridThreadStore implements ThreadStore {
             @id, @title, @workspace, @model, @mode, @status, @approval_policy, @sandbox_mode,
             @cost_budget_usd, @cost_budget_warning_sent, @relation, @parent_thread_id,
             @forked_from_thread_id, @forked_from_title, @forked_at, @forked_from_message_count,
-            @forked_from_turn_count, @goal_json, @todos_json, @created_at, @updated_at, @created_at_ms,
+            @forked_from_turn_count, @goal_json, @todos_json, @gui_plan_json, @created_at, @updated_at, @created_at_ms,
             @updated_at_ms, @preview, @message_count, @event_seq_high_water, @metadata_path,
             @messages_path, @events_path, @search_text
           )
@@ -386,6 +389,7 @@ export class HybridThreadStore implements ThreadStore {
             forked_from_turn_count = excluded.forked_from_turn_count,
             goal_json = excluded.goal_json,
             todos_json = excluded.todos_json,
+            gui_plan_json = excluded.gui_plan_json,
             created_at = excluded.created_at,
             updated_at = excluded.updated_at,
             created_at_ms = excluded.created_at_ms,
@@ -804,6 +808,7 @@ function rowFromIndexRecord(
     forked_from_turn_count: thread.forkedFromTurnCount ?? null,
     goal_json: thread.goal ? JSON.stringify(thread.goal) : null,
     todos_json: thread.todos ? JSON.stringify(thread.todos) : null,
+    gui_plan_json: thread.guiPlan ? JSON.stringify(thread.guiPlan) : null,
     created_at: thread.createdAt,
     updated_at: thread.updatedAt,
     created_at_ms: isoToMillis(thread.createdAt),
@@ -821,6 +826,7 @@ function rowFromIndexRecord(
 function summaryFromRow(row: ThreadRow): ThreadSummary {
   const goal = parseGoal(row.goal_json)
   const todos = parseTodos(row.todos_json)
+  const guiPlan = parseGuiPlan(row.gui_plan_json)
   return {
     id: row.id,
     title: row.title,
@@ -839,6 +845,7 @@ function summaryFromRow(row: ThreadRow): ThreadSummary {
     ...(row.forked_from_turn_count !== null ? { forkedFromTurnCount: row.forked_from_turn_count } : {}),
     ...(goal ? { goal } : {}),
     ...(todos ? { todos } : {}),
+    ...(guiPlan ? { guiPlan } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }
@@ -857,6 +864,16 @@ function parseTodos(raw: string | null): ThreadTodoList | null {
   if (!raw) return null
   try {
     return JSON.parse(raw) as ThreadTodoList
+  } catch {
+    return null
+  }
+}
+
+function parseGuiPlan(raw: string | null): GuiPlanContextJson | null {
+  if (!raw) return null
+  try {
+    const parsed = GuiPlanContextSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
   } catch {
     return null
   }
@@ -891,6 +908,8 @@ function searchTextForThread(thread: ThreadRecord, _preview: string): string {
     thread.mode,
     thread.forkedFromTitle,
     thread.forkedFromThreadId,
+    thread.guiPlan?.title,
+    thread.guiPlan?.relativePath,
     ...(thread.todos?.items.map((item) => item.content) ?? [])
   ].filter(Boolean).join('\n').toLowerCase()
 }
@@ -904,6 +923,8 @@ function searchTextForSummary(thread: ThreadSummary): string {
     thread.mode,
     thread.forkedFromTitle,
     thread.forkedFromThreadId,
+    thread.guiPlan?.title,
+    thread.guiPlan?.relativePath,
     ...(thread.todos?.items.map((item) => item.content) ?? [])
   ].filter(Boolean).join('\n').toLowerCase()
 }

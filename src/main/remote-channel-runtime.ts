@@ -513,6 +513,16 @@ function imLocalThreadDeletedText(settings: AppSettingsV1): string {
     : 'The local thread bound to this remote conversation was deleted or is unreadable. Send `/new <title>` to create one, or send `/threads` and then `/use thread <number>` to select another thread.'
 }
 
+function imThreadListUnavailableText(settings: AppSettingsV1): string {
+  return isChineseLocale(settings)
+    ? '当前无法读取本地 thread 列表。请稍后重试，或发送 `/new <标题>` 新建本地 thread。'
+    : 'The local thread list is unavailable right now. Try again later, or send `/new <title>` to create a local thread.'
+}
+
+function isThreadSelectorCommand(command: ReturnType<typeof parseRemoteChannelCommand>): boolean {
+  return command?.kind === 'threads' || command?.kind === 'useThread'
+}
+
 function imEmptyIncomingMessageText(settings: AppSettingsV1, hasAttachmentHint: boolean): string {
   if (hasAttachmentHint) {
     return isChineseLocale(settings)
@@ -1455,12 +1465,29 @@ export class RemoteChannelRuntime {
   }
 
   private async listRuntimeThreads(
+    settings: AppSettingsV1,
     runtimeId: AgentRuntimeId,
-    _workspaceRoot: string
-  ): Promise<AgentRuntimeThread[]> {
+    workspaceRoot: string
+  ): Promise<{ ok: true; threads: AgentRuntimeThread[] } | { ok: false; message: string }> {
     const listThreads = this.deps.agentRuntime.listThreads
-    if (!listThreads) throw new Error(UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE)
-    return listThreads({ runtimeId, limit: 50, includeArchived: false })
+    if (!listThreads) {
+      this.deps.logError('remote-channel-runtime', 'Unable to list IM thread candidates because AgentRuntimeHost.listThreads is unavailable.', redactSecrets({
+        runtimeId,
+        workspaceRoot,
+        message: UNSUPPORTED_AGENT_RUNTIME_HOST_MESSAGE
+      }))
+      return { ok: false, message: imThreadListUnavailableText(settings) }
+    }
+    try {
+      return { ok: true, threads: await listThreads({ runtimeId, limit: 50, includeArchived: false }) }
+    } catch (error) {
+      this.deps.logError('remote-channel-runtime', 'Failed to list IM thread candidates.', redactSecrets({
+        runtimeId,
+        workspaceRoot,
+        message: errorMessage(error)
+      }))
+      return { ok: false, message: imThreadListUnavailableText(settings) }
+    }
   }
 
   private async incomingThreadsText(
@@ -1474,7 +1501,9 @@ export class RemoteChannelRuntime {
     }
   ): Promise<string> {
     const context = await this.resolveIncomingCommandContext({ settings, ...input })
-    const threads = (await this.listRuntimeThreads(context.runtimeId, context.workspaceRoot))
+    const listed = await this.listRuntimeThreads(settings, context.runtimeId, context.workspaceRoot)
+    if (!listed.ok) return listed.message
+    const threads = listed.threads
       .filter((thread) => thread.archived !== true)
       .filter((thread) => !context.workspaceRoot || !thread.workspace || normalizeWorkspaceKey(thread.workspace) === normalizeWorkspaceKey(context.workspaceRoot))
       .slice(0, 20)
@@ -1523,7 +1552,9 @@ export class RemoteChannelRuntime {
     if (!context.channel) {
       return isChineseLocale(settings) ? '当前 IM 渠道不可用，无法切换 thread。' : 'No IM channel is available to switch threads.'
     }
-    const threads = (await this.listRuntimeThreads(context.runtimeId, context.workspaceRoot))
+    const listed = await this.listRuntimeThreads(settings, context.runtimeId, context.workspaceRoot)
+    if (!listed.ok) return listed.message
+    const threads = listed.threads
       .filter((thread) => thread.archived !== true)
       .filter((thread) => !context.workspaceRoot || !thread.workspace || normalizeWorkspaceKey(thread.workspace) === normalizeWorkspaceKey(context.workspaceRoot))
       .slice(0, 50)
@@ -2187,17 +2218,19 @@ export class RemoteChannelRuntime {
       remoteSession
     )
     const remoteThreadId = sharedThread ? '' : remoteSession.threadId
-    const remembered = await this.rememberRecentRemoteMessage({
-      provider: normalizedInput.provider,
-      channelId: channel.id,
-      chatId: remoteSession.chatId,
-      remoteThreadId,
-      messageId: remoteSession.messageId,
-      senderName: normalizedInput.sender,
-      text
-    })
-    if (!remembered) {
-      return { ok: true, ignored: true, message: 'Duplicate remote message ignored.', reply: '' }
+    if (!isThreadSelectorCommand(command)) {
+      const remembered = await this.rememberRecentRemoteMessage({
+        provider: normalizedInput.provider,
+        channelId: channel.id,
+        chatId: remoteSession.chatId,
+        remoteThreadId,
+        messageId: remoteSession.messageId,
+        senderName: normalizedInput.sender,
+        text
+      })
+      if (!remembered) {
+        return { ok: true, ignored: true, message: 'Duplicate remote message ignored.', reply: '' }
+      }
     }
     const queued = this.remoteMessageQueues.has(this.remoteQueueKey({
       provider: normalizedInput.provider,
@@ -2252,7 +2285,7 @@ export class RemoteChannelRuntime {
     })) {
       return { ok: true, ignored: true, message: imGuardIgnoredMessage(settings), reply: '' }
     }
-    if (channel && remoteSession) {
+    if (channel && remoteSession && !isThreadSelectorCommand(command)) {
       await this.rememberFeishuRemoteSession(settings, channel, remoteSession)
     }
     const conversation =
@@ -2786,7 +2819,9 @@ export class RemoteChannelRuntime {
       mentionAll: message.mentionAll,
       isCommand: Boolean(inboundCommand)
     })) return
-    await this.rememberFeishuRemoteSession(settings, channel, message)
+    if (!isThreadSelectorCommand(inboundCommand)) {
+      await this.rememberFeishuRemoteSession(settings, channel, message)
+    }
     const remoteSession = this.buildFeishuRemoteSession(message)
     const sharedThread = this.shouldUseChannelThreadForIncoming('feishu', message.chatType, channel, remoteSession)
     const conversation = sharedThread
@@ -3359,17 +3394,19 @@ export class RemoteChannelRuntime {
       isCommand: Boolean(inboundCommand)
     })) return
     const remoteThreadId = remoteConversationThreadId('feishu', message.chatType, message.threadId)
-    const remembered = await this.rememberRecentRemoteMessage({
-      provider: 'feishu',
-      channelId,
-      chatId: message.chatId,
-      remoteThreadId,
-      messageId: message.messageId,
-      senderName: feishuSenderLabel(message),
-      text: message.content,
-      sourceTimestampMs: message.createTime
-    })
-    if (!remembered) return
+    if (!isThreadSelectorCommand(inboundCommand)) {
+      const remembered = await this.rememberRecentRemoteMessage({
+        provider: 'feishu',
+        channelId,
+        chatId: message.chatId,
+        remoteThreadId,
+        messageId: message.messageId,
+        senderName: feishuSenderLabel(message),
+        text: message.content,
+        sourceTimestampMs: message.createTime
+      })
+      if (!remembered) return
+    }
     this.enqueueRemoteConversationMessage({
       provider: 'feishu',
       channelId,

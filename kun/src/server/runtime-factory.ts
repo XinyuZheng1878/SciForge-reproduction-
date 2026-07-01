@@ -318,13 +318,16 @@ export async function createLocalRuntimeServeRuntime(
     ...(options.runtime?.toolArgumentRepair ? { toolArgumentRepair: options.runtime.toolArgumentRepair } : {}),
     ...(attachmentStore ? { attachmentStore } : {}),
     ...(memoryStore ? { memoryStore } : {}),
-    onPlanWritten: async ({ threadId, planId, relativePath, markdown }) => {
+    onPlanWritten: async ({ threadId, planId, relativePath, markdown, guiPlan }) => {
       await threadService.syncTodosFromPlan(threadId, {
         planId,
         relativePath,
         markdown,
         preserveCompleted: true
       })
+      if (guiPlan) {
+        await threadService.update(threadId, { guiPlan })
+      }
     }
   })
   const startedAt = options.startedAt ?? nowIso()

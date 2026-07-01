@@ -463,6 +463,15 @@ export type AgentRuntimeThreadGoal = {
   updatedAt: string
 }
 
+export type AgentRuntimeThreadGuiPlan = {
+  operation: 'draft' | 'refine'
+  workspaceRoot: string
+  relativePath: string
+  planId: string
+  sourceRequest?: string
+  title?: string
+}
+
 export type AgentRuntimeThread = {
   id: string
   runtimeId: AgentRuntimeId
@@ -487,6 +496,7 @@ export type AgentRuntimeThread = {
   forkedFromTurnCount?: number
   goal?: AgentRuntimeThreadGoal | null
   todos?: AgentRuntimeTodoList | null
+  guiPlan?: AgentRuntimeThreadGuiPlan | null
 }
 
 export type AgentRuntimeThreadDetail = AgentRuntimeThread & {
@@ -548,14 +558,7 @@ export type AgentRuntimeTurnStartInput = {
   remoteTargetId?: string
   governanceProfile?: AgentRuntimeGovernanceProfile
   displayText?: string
-  guiPlan?: {
-    operation: 'draft' | 'refine'
-    workspaceRoot: string
-    relativePath: string
-    planId: string
-    sourceRequest?: string
-    title?: string
-  }
+  guiPlan?: AgentRuntimeThreadGuiPlan
   attachmentIds?: string[]
   fileReferences?: AgentRuntimeFileReference[]
 }

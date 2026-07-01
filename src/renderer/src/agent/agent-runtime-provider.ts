@@ -124,7 +124,8 @@ function normalizeThread(thread: AgentRuntimeThread): NormalizedThread {
     forkedFromMessageCount: thread.forkedFromMessageCount,
     forkedFromTurnCount: thread.forkedFromTurnCount,
     goal: thread.goal ?? null,
-    todos: thread.todos ?? null
+    todos: thread.todos ?? null,
+    guiPlan: thread.guiPlan ?? null
   }
   return {
     ...normalized,
@@ -674,7 +675,8 @@ export class AgentRuntimeProvider implements AgentProvider {
       latestUserMessageId: [...items].reverse().find((item) => item.kind === 'user_message')?.id,
       usage: usageFromRuntime(detail.usage),
       goal: detail.goal ?? null,
-      todos: detail.todos ?? null
+      todos: detail.todos ?? null,
+      guiPlan: detail.guiPlan ?? null
     }
   }
 

@@ -68,7 +68,8 @@ export class UndetectableModalityError extends Error {
  * (timeout / 5xx / 429 / network) with exponential backoff. The downstream main
  * agent cannot read these modalities, so there is no useful fallback — this
  * service is the authority on "keep trying until the expert answers". The only
- * non-retryable outcomes are auth failures (401/403) and a caller abort.
+ * non-retryable outcomes are auth failures (401/403), unknown experts (404),
+ * and a caller abort.
  */
 export async function translateModality(
   config: ExpertConfig,
@@ -95,8 +96,8 @@ export async function translateModality(
 }
 
 function isRetryable(error: unknown): boolean {
-  // Auth won't fix itself by retrying; everything else (timeout, 5xx, 429, network) might.
-  if (error instanceof ProviderError) return error.httpStatus !== 401 && error.httpStatus !== 403;
+  // Auth/config errors won't fix themselves by retrying; transient failures might.
+  if (error instanceof ProviderError) return ![401, 403, 404].includes(error.httpStatus);
   return true;
 }
 

@@ -326,6 +326,14 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
         id: 'thread-1',
         title: 'Thread 1',
         updatedAt: '2026-06-02T00:00:00.000Z',
+        guiPlan: {
+          operation: 'draft',
+          workspaceRoot: '/workspace',
+          relativePath: '.sciforge/plan/replay.md',
+          planId: '/workspace:.sciforge/plan/replay.md',
+          sourceRequest: 'Replay plan',
+          title: 'Replay'
+        },
         todos: {
           threadId: 'thread-1',
           updatedAt: '2026-06-02T00:00:02.000Z',
@@ -374,6 +382,14 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     })
     const tool = detail.items?.find((item) => item.kind === 'tool')
 
+    expect(detail.guiPlan).toEqual({
+      operation: 'draft',
+      workspaceRoot: '/workspace',
+      relativePath: '.sciforge/plan/replay.md',
+      planId: '/workspace:.sciforge/plan/replay.md',
+      sourceRequest: 'Replay plan',
+      title: 'Replay'
+    })
     expect(detail.todos).toEqual({
       threadId: 'thread-1',
       updatedAt: '2026-06-02T00:00:02.000Z',

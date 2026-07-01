@@ -6,6 +6,8 @@ import {
   ApprovalPolicySchema,
   DEFAULT_APPROVAL_POLICY,
   CreateThreadRequest,
+  ThreadSchema,
+  ThreadSummarySchema,
   ThreadGoalSchema,
   ThreadTodoListSchema,
   SetThreadGoalRequest,
@@ -105,6 +107,40 @@ describe('contracts', () => {
       todos
     })
     expect(event.kind).toBe('todos_updated')
+  })
+
+  it('accepts GUI plan metadata on thread records and summaries', () => {
+    const thread = ThreadSchema.parse({
+      id: 'thr_plan',
+      title: 'Plan thread',
+      workspace: '/tmp/ws',
+      model: 'deepseek-chat',
+      mode: 'agent',
+      status: 'idle',
+      relation: 'primary',
+      guiPlan: {
+        operation: 'draft',
+        workspaceRoot: '/tmp/ws',
+        relativePath: '.sciforge/plan/auth.md',
+        planId: '/tmp/ws:.sciforge/plan/auth.md',
+        sourceRequest: 'Add auth',
+        title: 'Auth'
+      },
+      createdAt: '2026-06-03T00:00:00.000Z',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+      turns: []
+    })
+    const summary = ThreadSummarySchema.parse(thread)
+    expect(summary.guiPlan?.relativePath).toBe('.sciforge/plan/auth.md')
+
+    const invalid = ThreadSchema.safeParse({
+      ...thread,
+      guiPlan: {
+        ...thread.guiPlan,
+        relativePath: '.sciforge/plan/nested/auth.md'
+      }
+    })
+    expect(invalid.success).toBe(false)
   })
 
   it('rejects invalid start turn payloads', () => {

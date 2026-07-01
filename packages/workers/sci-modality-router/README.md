@@ -84,12 +84,14 @@ auto-wire this service; Model Router consumes it only when its service URL/token
 ```
 GET  /health        -> { ok, service, checkedAt }
 GET  /version       -> { service, version, provider: { kind, configured, expertCount }, modalities }
-GET  /experts/status-> { ok, providerReachable, device, experts[], checkedAt }
+GET  /experts/status-> { ok, providerReachable, device, experts: [{ modality, model, online }], checkedAt }
 POST /modality/translate
 ```
 
 Public diagnostics report provider configuration and availability state, but never return the
-expert provider base URL or API key.
+expert provider base URL or API key. For `/experts/status`, `online` means the provider is
+reachable and the expert model id is registered/callable; it does not mean lazy model weights
+are already loaded in memory.
 
 `POST /modality/translate` request:
 

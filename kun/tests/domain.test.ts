@@ -62,10 +62,19 @@ describe('domain.thread', () => {
       id: 'thr_1',
       title: 'demo',
       workspace: '/tmp',
-      model: 'deepseek-chat'
+      model: 'deepseek-chat',
+      guiPlan: {
+        operation: 'draft',
+        workspaceRoot: '/tmp',
+        relativePath: '.sciforge/plan/demo.md',
+        planId: '/tmp:.sciforge/plan/demo.md',
+        sourceRequest: 'Plan demo',
+        title: 'Demo'
+      }
     })
     const summary = toThreadSummary(thread)
     expect(summary).not.toHaveProperty('turns')
+    expect(summary.guiPlan?.planId).toBe('/tmp:.sciforge/plan/demo.md')
   })
 })
 

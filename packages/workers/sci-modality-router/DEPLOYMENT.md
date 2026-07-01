@@ -84,7 +84,7 @@ export SCIFORGE_SCIMODALITY_SERVICE_TOKEN=<same-token-as-SCIMODALITY_ROUTER_RUNT
 
 Check the worker directly from the Model Router host:
 `curl -H "Authorization: Bearer $SCIFORGE_SCIMODALITY_SERVICE_TOKEN" http://127.0.0.1:3898/experts/status`
-lists each expert's online state and device.
+lists each expert's registered-and-reachable online state and device; lazy weight loading is separate.
 
 ## When the server is down (graceful, no errors)
 

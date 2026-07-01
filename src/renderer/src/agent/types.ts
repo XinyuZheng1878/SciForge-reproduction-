@@ -22,6 +22,7 @@ import type {
   AgentRuntimeReadChildTranscriptInput,
   AgentRuntimeReadChildTranscriptResponse,
   AgentRuntimeResult,
+  AgentRuntimeThreadGuiPlan,
   AgentRuntimeTurnStatus,
   AgentRuntimeWorkspaceReference,
   AgentRuntimeWorkspaceReferencePreview,
@@ -148,6 +149,7 @@ export type NormalizedThread = {
   forkedFromTurnCount?: number
   goal?: ThreadGoal | null
   todos?: ThreadTodoList | null
+  guiPlan?: AgentRuntimeThreadGuiPlan | null
 }
 
 export type ThreadGoalStatus =
@@ -524,6 +526,7 @@ export interface AgentProvider {
     usage?: ThreadUsageSnapshot
     goal?: ThreadGoal | null
     todos?: ThreadTodoList | null
+    guiPlan?: AgentRuntimeThreadGuiPlan | null
   }>
   sendUserMessage(
     threadId: string,

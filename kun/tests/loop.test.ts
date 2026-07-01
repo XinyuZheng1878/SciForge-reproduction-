@@ -1924,7 +1924,8 @@ describe('AgentLoop', () => {
     const observedToolLists: string[][] = []
     const observedRequiredToolNames: Array<string | undefined> = []
     try {
-      const h = makeHarness(
+      let h!: ReturnType<typeof makeHarness>
+      h = makeHarness(
         {
           provider: 'planner',
           model: 'planner',
@@ -1948,7 +1949,12 @@ describe('AgentLoop', () => {
             yield { kind: 'completed', stopReason: 'stop' }
           }
         },
-        { tools: buildDefaultLocalTools() }
+        {
+          tools: buildDefaultLocalTools(),
+          onPlanWritten: async ({ threadId, guiPlan }) => {
+            if (guiPlan) await h.threads.update(threadId, { guiPlan })
+          }
+        }
       )
       await bootstrapThread(h, {
         workspace,
@@ -1971,6 +1977,12 @@ describe('AgentLoop', () => {
       await expect(readFile(join(workspace, '.sciforge/plan/auth.md'), 'utf8')).resolves.toBe('# Generated plan')
       const turn = await h.turns.getTurn(h.threadId, h.turnId)
       expect(turn?.guiPlan?.relativePath).toBe('.sciforge/plan/auth.md')
+      const thread = await h.threadStore.get(h.threadId)
+      expect(thread?.guiPlan).toMatchObject({
+        operation: 'draft',
+        planId: `${workspace}:.sciforge/plan/auth.md`,
+        relativePath: '.sciforge/plan/auth.md'
+      })
       const items = await h.sessionStore.loadItems(h.threadId)
       const result = items.find((item) => item.kind === 'tool_result' && item.callId === 'call_plan')
       expect(result).toBeDefined()

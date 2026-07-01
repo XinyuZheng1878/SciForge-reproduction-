@@ -79,6 +79,36 @@ describe('image generation engine', () => {
     })
   })
 
+  it('records Canvas handoff metadata without mutating Canvas state directly', async () => {
+    process.env.SCIFORGE_IMAGE_ALLOW_PLACEHOLDER = '1'
+
+    const result = await renderImageGeneration({
+      workspaceRoot,
+      imageId: 'canvas-handoff',
+      canvasId: 'canvas-123',
+      threadId: 'thread-456',
+      insertToCanvas: true,
+      recipe: {
+        mode: 'text_to_image',
+        prompt: 'A Canvas handoff image',
+        size: { width: 512, height: 320 },
+        outputFormat: 'png'
+      }
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.message)
+    expect(JSON.parse(readFileSync(result.manifestPath, 'utf8'))).toMatchObject({
+      canvasId: 'canvas-123',
+      threadId: 'thread-456'
+    })
+    expect(JSON.parse(readFileSync(result.artifactManifestPath, 'utf8'))).toMatchObject({
+      canvasId: 'canvas-123',
+      threadId: 'thread-456'
+    })
+    expect(existsSync(join(workspaceRoot, '.sciforge/canvases/canvas-123'))).toBe(false)
+  })
+
   it('rejects output directories outside the workspace', async () => {
     process.env.SCIFORGE_IMAGE_ALLOW_PLACEHOLDER = '1'
 

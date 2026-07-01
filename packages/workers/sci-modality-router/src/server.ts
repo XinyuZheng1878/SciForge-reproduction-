@@ -78,7 +78,7 @@ async function handle(
 }
 
 // Live availability of each expert model. Pings the expert provider's /health (which lists the
-// loaded models) and maps the four modalities -> their expert -> online/offline. Cheap; safe to poll.
+// registered expert ids) and maps the four modalities -> their expert -> online/offline. Cheap; safe to poll.
 async function expertsStatusRoute(
   res: ServerResponse,
   options: SciModalityRouterOptions,
@@ -88,7 +88,7 @@ async function expertsStatusRoute(
   const base = options.experts.baseUrl.replace(/\/v1\/?$/i, '').replace(/\/+$/, '');
   let reachable = false;
   let device: string | undefined;
-  const loaded = new Set<string>();
+  const registered = new Set<string>();
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
@@ -104,7 +104,7 @@ async function expertsStatusRoute(
     if (resp.ok) {
       reachable = true;
       const body = (await resp.json().catch(() => ({}))) as { experts?: unknown; device?: unknown };
-      if (Array.isArray(body.experts)) for (const e of body.experts) loaded.add(String(e));
+      if (Array.isArray(body.experts)) for (const e of body.experts) registered.add(String(e));
       if (typeof body.device === 'string') device = body.device;
     }
   } catch {
@@ -112,7 +112,7 @@ async function expertsStatusRoute(
   }
   const experts = MODALITIES.map((modality) => {
     const model = EXPERT_MODEL[modality];
-    return { modality, model, online: reachable && loaded.has(model) };
+    return { modality, model, online: reachable && registered.has(model) };
   });
   return sendJson(res, 200, {
     ok: true,

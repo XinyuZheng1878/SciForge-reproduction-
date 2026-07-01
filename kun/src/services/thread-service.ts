@@ -144,6 +144,7 @@ export class ThreadService {
     costBudgetUsd?: number | null
     costBudgetWarningSent?: boolean
     relation?: ThreadRelation
+    guiPlan?: ThreadRecord['guiPlan']
   }): Promise<ThreadRecord> {
     const current = await this.threadStore.get(threadId)
     if (!current) throw new Error(`thread not found: ${threadId}`)

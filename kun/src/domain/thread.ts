@@ -40,6 +40,7 @@ export function createThreadRecord(input: {
   forkedFromTurnCount?: number
   goal?: ThreadGoal
   todos?: ThreadTodoList
+  guiPlan?: ThreadRecord['guiPlan']
   createdAt?: string
 }): ThreadEntity {
   const now = input.createdAt ?? new Date().toISOString()
@@ -63,6 +64,7 @@ export function createThreadRecord(input: {
     ...(input.forkedFromTurnCount !== undefined ? { forkedFromTurnCount: input.forkedFromTurnCount } : {}),
     ...(input.goal ? { goal: input.goal } : {}),
     ...(input.todos ? { todos: input.todos } : {}),
+    ...(input.guiPlan ? { guiPlan: input.guiPlan } : {}),
     createdAt: now,
     updatedAt: now,
     turns: []
@@ -81,7 +83,7 @@ export function toThreadSummary(
   | 'costBudgetUsd' | 'costBudgetWarningSent'
   | 'relation' | 'parentThreadId'
   | 'forkedFromThreadId' | 'forkedFromTitle' | 'forkedAt' | 'forkedFromMessageCount' | 'forkedFromTurnCount'
-  | 'goal' | 'todos'
+  | 'goal' | 'todos' | 'guiPlan'
 > {
   return {
     id: thread.id,
@@ -101,6 +103,7 @@ export function toThreadSummary(
     ...(thread.forkedFromTurnCount !== undefined ? { forkedFromTurnCount: thread.forkedFromTurnCount } : {}),
     ...(thread.goal ? { goal: thread.goal } : {}),
     ...(thread.todos ? { todos: thread.todos } : {}),
+    ...(thread.guiPlan ? { guiPlan: thread.guiPlan } : {}),
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt
   }

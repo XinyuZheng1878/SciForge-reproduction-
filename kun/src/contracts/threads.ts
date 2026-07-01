@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { TurnSchema } from './turns.js'
+import { GuiPlanContextSchema, TurnSchema } from './turns.js'
 import {
   ApprovalPolicySchema,
   DEFAULT_APPROVAL_POLICY,
@@ -110,6 +110,7 @@ export const ThreadSchema = z.object({
   forkedFromTurnCount: z.number().int().nonnegative().optional(),
   goal: ThreadGoalSchema.optional(),
   todos: ThreadTodoListSchema.optional(),
+  guiPlan: GuiPlanContextSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   turns: z.array(TurnSchema).default([])
@@ -134,6 +135,7 @@ export const ThreadSummarySchema = ThreadSchema.pick({
   forkedFromTurnCount: true,
   goal: true,
   todos: true,
+  guiPlan: true,
   createdAt: true,
   updatedAt: true
 })

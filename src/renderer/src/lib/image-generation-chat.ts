@@ -62,7 +62,7 @@ export function buildImageGenerationWorkflowPrompt(
     '',
     'Workflow:',
     '1. Call `image_generation_plan` with `task` set to the user image request to produce a controlled render recipe.',
-    '2. Call `image_generation_render` with the planned `recipe` to write the image artifact and manifest. Set `insertToCanvas` to true when a canvasId is available.',
+    '2. Call `image_generation_render` with the planned `recipe` to write the image artifact and manifest. Set `insertToCanvas` to true when a canvasId is available; this marks the artifact for Canvas handoff, while Canvas insertion is handled by Canvas tools or the GUI.',
     '3. Summarize the generated artifact path(s) and any review notes. Do not claim success without a tool result.'
   ].join('\n')
 }

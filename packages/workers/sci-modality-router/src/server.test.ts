@@ -22,9 +22,12 @@ const runtimeToken = 'sci-modality-test-token';
 function stubFetch(reply: { status?: number; content?: (model: string) => string } = {}): {
   fetch: typeof fetch;
   lastModel: () => string | undefined;
+  calls: () => number;
 } {
   let lastModel: string | undefined;
+  let calls = 0;
   const impl = (async (input: string | URL | Request, init?: RequestInit) => {
+    calls++;
     const url = String(input);
     assert.ok(url.endsWith('/chat/completions'), `unexpected upstream url: ${url}`);
     const sent = JSON.parse(String(init?.body ?? '{}')) as { model?: string };
@@ -34,7 +37,7 @@ function stubFetch(reply: { status?: number; content?: (model: string) => string
     const payload = { choices: [{ message: { content } }] };
     return new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } });
   }) as unknown as typeof fetch;
-  return { fetch: impl, lastModel: () => lastModel };
+  return { fetch: impl, lastModel: () => lastModel, calls: () => calls };
 }
 
 async function withServer(
@@ -193,6 +196,7 @@ test('unknown expert (provider 404) maps to NOT_FOUND, not retried', async () =>
     },
     { ...experts, maxAttempts: 4, retryBaseMs: 1 },
   );
+  assert.equal(res404.calls(), 1, 'provider 404 is not retried');
 });
 
 // A stateful provider that fails the first `failures` calls with `status`, then succeeds.

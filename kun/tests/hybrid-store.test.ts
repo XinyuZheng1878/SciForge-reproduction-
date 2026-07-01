@@ -61,6 +61,48 @@ describe('HybridThreadStore', () => {
     })
   })
 
+  it('indexes and rebuilds thread-owned GUI plan metadata', async () => {
+    const first = await createHybridStores()
+    const thread = createThreadRecord({
+      id: 'thr_gui_plan',
+      title: 'GUI plan owner',
+      workspace: '/tmp/project',
+      model: 'deepseek-chat',
+      guiPlan: {
+        operation: 'draft',
+        workspaceRoot: '/tmp/project',
+        relativePath: '.sciforge/plan/owner.md',
+        planId: '/tmp/project:.sciforge/plan/owner.md',
+        sourceRequest: 'Capture owner',
+        title: 'Owner plan'
+      },
+      createdAt: '2026-06-04T00:00:00.000Z'
+    })
+    await first.threadStore.upsert({
+      ...thread,
+      updatedAt: '2026-06-04T00:00:02.000Z'
+    })
+
+    const summaries = await first.threadStore.list({ search: 'owner.md' })
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]?.guiPlan).toMatchObject({
+      planId: '/tmp/project:.sciforge/plan/owner.md',
+      relativePath: '.sciforge/plan/owner.md'
+    })
+    first.threadStore.close()
+
+    await rm(join(dataDir, 'index.sqlite3'), { force: true })
+    await rm(join(dataDir, 'index.sqlite3-wal'), { force: true })
+    await rm(join(dataDir, 'index.sqlite3-shm'), { force: true })
+
+    const rebuilt = await createHybridStores()
+    const fetched = await rebuilt.threadStore.get(thread.id)
+    expect(fetched?.guiPlan).toMatchObject({
+      operation: 'draft',
+      relativePath: '.sciforge/plan/owner.md'
+    })
+  })
+
   it('rebuilds the SQLite index from JSONL after the database is deleted', async () => {
     const first = await createHybridStores()
     const record = await seedThreadWithMessage(first.threadStore, first.sessionStore, 'recover me')

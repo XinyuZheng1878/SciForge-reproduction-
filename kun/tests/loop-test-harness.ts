@@ -1,4 +1,4 @@
-import { AgentLoop } from '../src/loop/agent-loop.js'
+import { AgentLoop, type AgentLoopOptions } from '../src/loop/agent-loop.js'
 import { InMemoryEventBus } from '../src/adapters/in-memory-event-bus.js'
 import { InMemoryApprovalGate } from '../src/adapters/in-memory-approval-gate.js'
 import { InMemoryUserInputGate } from '../src/adapters/in-memory-user-input-gate.js'
@@ -85,6 +85,7 @@ export function makeHarness(
     toolArgumentRepair?: {
       maxStringBytes?: number
     }
+    onPlanWritten?: AgentLoopOptions['onPlanWritten']
   } = {}
 ): Harness {
   const bus = new InMemoryEventBus()
@@ -138,7 +139,8 @@ export function makeHarness(
     ...(options.tokenEconomy ? { tokenEconomy: options.tokenEconomy } : {}),
     ...(options.contextCompaction ? { contextCompaction: options.contextCompaction } : {}),
     ...(options.toolStorm ? { toolStorm: options.toolStorm } : {}),
-    ...(options.toolArgumentRepair ? { toolArgumentRepair: options.toolArgumentRepair } : {})
+    ...(options.toolArgumentRepair ? { toolArgumentRepair: options.toolArgumentRepair } : {}),
+    ...(options.onPlanWritten ? { onPlanWritten: options.onPlanWritten } : {})
   })
 
   return {

@@ -453,6 +453,7 @@ export type AgentLoopOptions = {
     planId: string
     relativePath: string
     markdown: string
+    guiPlan?: GuiPlanContext
   }) => Promise<void>
 }
 
@@ -1733,12 +1734,14 @@ export class AgentLoop {
     const markdown = typeof call.arguments.markdown === 'string' ? call.arguments.markdown : ''
     if (!planId || !relativePath || !markdown) return
     try {
+      const turn = await this.opts.turns.getTurn(threadId, turnId)
       await this.opts.onPlanWritten?.({
         threadId,
         turnId,
         planId,
         relativePath,
-        markdown
+        markdown,
+        ...(turn?.guiPlan ? { guiPlan: turn.guiPlan } : {})
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

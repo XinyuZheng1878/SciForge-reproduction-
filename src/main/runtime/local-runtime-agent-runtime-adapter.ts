@@ -13,6 +13,7 @@ import type {
   AgentRuntimeModality,
   AgentRuntimeThread,
   AgentRuntimeThreadGoal,
+  AgentRuntimeThreadGuiPlan,
   AgentRuntimeThreadDetail,
   AgentRuntimeTodoItem,
   AgentRuntimeTodoList,
@@ -674,7 +675,8 @@ function mapLocalRuntimeThread(value: unknown): AgentRuntimeThread {
     forkedFromMessageCount: numberValue(record.forkedFromMessageCount) ?? numberValue(record.forked_from_message_count),
     forkedFromTurnCount: numberValue(record.forkedFromTurnCount) ?? numberValue(record.forked_from_turn_count),
     goal: mapLocalRuntimeGoal(record.goal, id),
-    todos: mapLocalRuntimeTodoList(record.todos, id)
+    todos: mapLocalRuntimeTodoList(record.todos, id),
+    guiPlan: mapLocalRuntimeGuiPlan(record.guiPlan)
   }
 }
 
@@ -697,6 +699,28 @@ function mapLocalRuntimeGoal(value: unknown, threadId: string): AgentRuntimeThre
     timeUsedSeconds: numberValue(record.timeUsedSeconds) ?? numberValue(record.time_used_seconds) ?? 0,
     createdAt,
     updatedAt
+  }
+}
+
+function mapLocalRuntimeGuiPlan(value: unknown): AgentRuntimeThreadGuiPlan | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const operation = stringValue(record.operation)
+  const workspaceRoot = stringValue(record.workspaceRoot) || stringValue(record.workspace_root)
+  const relativePath = stringValue(record.relativePath) || stringValue(record.relative_path)
+  const planId = stringValue(record.planId) || stringValue(record.plan_id)
+  if ((operation !== 'draft' && operation !== 'refine') || !workspaceRoot || !relativePath || !planId) {
+    return null
+  }
+  const sourceRequest = optionalString(record.sourceRequest) ?? optionalString(record.source_request)
+  const title = optionalString(record.title)
+  return {
+    operation,
+    workspaceRoot,
+    relativePath,
+    planId,
+    ...(sourceRequest ? { sourceRequest } : {}),
+    ...(title ? { title } : {})
   }
 }
 

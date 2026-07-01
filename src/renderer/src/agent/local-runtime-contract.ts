@@ -29,6 +29,7 @@ export type LocalRuntimeThreadSummaryJson = {
   forkedFromTurnCount?: number
   goal?: LocalRuntimeThreadGoalJson | null
   todos?: LocalRuntimeThreadTodoListJson | null
+  guiPlan?: LocalRuntimeThreadGuiPlanJson | null
   createdAt: string
   updatedAt: string
 }
@@ -107,6 +108,15 @@ export type LocalRuntimeThreadGoalJson = {
 
 export type LocalRuntimeThreadGoalResponseJson = {
   goal: LocalRuntimeThreadGoalJson | null
+}
+
+export type LocalRuntimeThreadGuiPlanJson = {
+  operation: 'draft' | 'refine'
+  workspaceRoot: string
+  relativePath: string
+  planId: string
+  sourceRequest?: string
+  title?: string
 }
 
 export type LocalRuntimeClearThreadGoalResponseJson = {

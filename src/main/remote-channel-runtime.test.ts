@@ -1898,6 +1898,319 @@ describe('RemoteChannelRuntime', () => {
     }))
   }, 12_000)
 
+  it('returns a recoverable /threads reply when listThreads is unavailable without mutating or starting a turn', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      threadId: '',
+      workspaceRoot: '/tmp/workspace',
+      agentThreadIds: { codex: 'old-thread' },
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    const createScheduledTaskFromText = vi.fn(async () => ({ kind: 'noop' as const }))
+    const logError = vi.fn()
+    const agentRuntime = {
+      startThread: vi.fn(),
+      startTurn: vi.fn(),
+      readThread: vi.fn()
+    }
+    const runtime = createRemoteChannelRuntime({
+      store: store as never,
+      agentRuntime: agentRuntime as never,
+      logError,
+      createScheduledTaskFromText
+    })
+
+    const result = await runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text: '/threads',
+      sender: 'Alice',
+      chatType: 'group',
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId: 'discord-threads-unavailable',
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('thread list is unavailable')
+    })
+    expect(current().remoteChannel.channels[0]).toMatchObject({
+      agentThreadIds: { codex: 'old-thread' },
+      conversations: []
+    })
+    expect(current().remoteChannel.channels[0].remoteSession).toBeUndefined()
+    expect(store.patch).not.toHaveBeenCalled()
+    expect(agentRuntime.startTurn).not.toHaveBeenCalled()
+    expect(createScheduledTaskFromText).not.toHaveBeenCalled()
+    expect(logError).toHaveBeenCalledWith(
+      'remote-channel-runtime',
+      'Unable to list IM thread candidates because AgentRuntimeHost.listThreads is unavailable.',
+      expect.objectContaining({ runtimeId: 'codex' })
+    )
+  })
+
+  it('returns a recoverable /use thread reply when listThreads throws without mutating or starting a turn', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      threadId: '',
+      workspaceRoot: '/tmp/workspace',
+      agentThreadIds: { codex: 'old-thread' },
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    const createScheduledTaskFromText = vi.fn(async () => ({ kind: 'noop' as const }))
+    const logError = vi.fn()
+    const agentRuntime = {
+      listThreads: vi.fn(async () => {
+        throw new Error('runtime host unavailable')
+      }),
+      startThread: vi.fn(),
+      startTurn: vi.fn(),
+      readThread: vi.fn()
+    }
+    const runtime = createRemoteChannelRuntime({
+      store: store as never,
+      agentRuntime: agentRuntime as never,
+      logError,
+      createScheduledTaskFromText
+    })
+
+    const result = await runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text: '/use thread 1',
+      sender: 'Alice',
+      chatType: 'group',
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId: 'discord-use-thread-unavailable',
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('thread list is unavailable')
+    })
+    expect(current().remoteChannel.channels[0]).toMatchObject({
+      agentThreadIds: { codex: 'old-thread' },
+      conversations: []
+    })
+    expect(current().remoteChannel.channels[0].remoteSession).toBeUndefined()
+    expect(store.patch).not.toHaveBeenCalled()
+    expect(agentRuntime.startTurn).not.toHaveBeenCalled()
+    expect(createScheduledTaskFromText).not.toHaveBeenCalled()
+    expect(logError).toHaveBeenCalledWith(
+      'remote-channel-runtime',
+      'Failed to list IM thread candidates.',
+      expect.objectContaining({
+        runtimeId: 'codex',
+        message: 'runtime host unavailable'
+      })
+    )
+  })
+
+  it('returns webhook /threads degradation as 200 instead of 500 when listThreads throws', async () => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      threadId: '',
+      workspaceRoot: '/tmp/workspace',
+      agentThreadIds: { codex: 'old-thread' },
+      conversations: []
+    })]
+    const { store } = mutableSettingsStore(settings)
+    const createScheduledTaskFromText = vi.fn(async () => ({ kind: 'noop' as const }))
+    const agentRuntime = {
+      listThreads: vi.fn(async () => {
+        throw new Error('runtime host unavailable')
+      }),
+      startThread: vi.fn(),
+      startTurn: vi.fn(),
+      readThread: vi.fn()
+    }
+    const runtime = createRemoteChannelRuntime({
+      store: store as never,
+      agentRuntime: agentRuntime as never,
+      logError: () => undefined,
+      createScheduledTaskFromText
+    })
+    const body = JSON.stringify({
+      text: '/threads',
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1'
+    })
+    const req = {
+      method: 'POST',
+      url: settings.remoteChannel.im.path,
+      headers: {},
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from(body)
+      }
+    }
+    let status = 0
+    let responseBody = ''
+    const res = {
+      writeHead: vi.fn((nextStatus: number) => {
+        status = nextStatus
+      }),
+      end: vi.fn((payload: string) => {
+        responseBody = payload
+      })
+    }
+
+    await (runtime as unknown as {
+      handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+    }).handleWebhook(req, res)
+
+    expect(status).toBe(200)
+    expect(JSON.parse(responseBody)).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining('thread list is unavailable')
+    })
+    expect(store.patch).not.toHaveBeenCalled()
+    expect(agentRuntime.startTurn).not.toHaveBeenCalled()
+    expect(createScheduledTaskFromText).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      name: 'not found',
+      text: '/use thread Missing Thread',
+      reply: 'Thread not found',
+      threads: [{
+        id: 'target-thread',
+        runtimeId: 'codex' as const,
+        title: 'Target Thread',
+        updatedAt: '2026-06-04T00:00:00.000Z',
+        workspace: '/tmp/workspace',
+        status: 'completed'
+      }]
+    },
+    {
+      name: 'ambiguous',
+      text: '/use thread Duplicate Thread',
+      reply: 'Thread name is ambiguous',
+      threads: [{
+        id: 'duplicate-thread-1',
+        runtimeId: 'codex' as const,
+        title: 'Duplicate Thread',
+        updatedAt: '2026-06-04T00:00:00.000Z',
+        workspace: '/tmp/workspace',
+        status: 'completed'
+      }, {
+        id: 'duplicate-thread-2',
+        runtimeId: 'codex' as const,
+        title: 'Duplicate Thread',
+        updatedAt: '2026-06-05T00:00:00.000Z',
+        workspace: '/tmp/workspace',
+        status: 'completed'
+      }]
+    },
+    {
+      name: 'archived returned by provider',
+      text: '/use thread Archived Thread',
+      reply: 'Thread not found',
+      threads: [{
+        id: 'archived-thread',
+        runtimeId: 'codex' as const,
+        title: 'Archived Thread',
+        updatedAt: '2026-06-04T00:00:00.000Z',
+        workspace: '/tmp/workspace',
+        status: 'completed',
+        archived: true
+      }]
+    }
+  ])('does not mutate or start a turn when /use thread selector is $name', async ({ text, reply, threads }) => {
+    const settings = buildSettings()
+    settings.activeAgentRuntime = 'codex'
+    settings.remoteChannel.im.enabled = true
+    settings.remoteChannel.channels = [buildChannel({
+      provider: 'discord' as const,
+      id: 'discord-bot-1-guild-1-channel-1',
+      label: '#debug',
+      runtimeId: 'codex',
+      guardMode: 'all_messages',
+      threadId: '',
+      workspaceRoot: '/tmp/workspace',
+      agentThreadIds: { codex: 'old-thread' },
+      conversations: []
+    })]
+    const { current, store } = mutableSettingsStore(settings)
+    const createScheduledTaskFromText = vi.fn(async () => ({ kind: 'noop' as const }))
+    const notifyChannelActivity = vi.fn()
+    const agentRuntime = {
+      listThreads: vi.fn(async () => threads),
+      startThread: vi.fn(),
+      startTurn: vi.fn(),
+      readThread: vi.fn()
+    }
+    const runtime = createRemoteChannelRuntime({
+      store: store as never,
+      agentRuntime: agentRuntime as never,
+      notifyChannelActivity,
+      logError: () => undefined,
+      createScheduledTaskFromText
+    })
+
+    const result = await runtime.handleIncomingImMessage({
+      provider: 'discord',
+      channelId: 'discord-bot-1-guild-1-channel-1',
+      text,
+      sender: 'Alice',
+      chatType: 'group',
+      remoteSession: {
+        chatId: 'channel-1',
+        messageId: `discord-${text.replace(/\W+/g, '-').toLowerCase()}`,
+        threadId: '',
+        senderId: 'user-1',
+        senderName: 'Alice'
+      }
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      reply: expect.stringContaining(reply)
+    })
+    expect(current().remoteChannel.channels[0]).toMatchObject({
+      agentThreadIds: { codex: 'old-thread' },
+      conversations: []
+    })
+    expect(current().remoteChannel.channels[0].remoteSession).toBeUndefined()
+    expect(store.patch).not.toHaveBeenCalled()
+    expect(agentRuntime.startTurn).not.toHaveBeenCalled()
+    expect(createScheduledTaskFromText).not.toHaveBeenCalled()
+    expect(notifyChannelActivity).not.toHaveBeenCalled()
+  })
+
   it('reports current remote jobs by reading the bound thread', async () => {
     const settings = buildSettings()
     settings.activeAgentRuntime = 'codex'

@@ -138,6 +138,13 @@ describe('AgentRuntimeProvider', () => {
         runtimeId: 'codex',
         title: 'One',
         updatedAt: '2026-06-11T00:00:00.000Z',
+        guiPlan: {
+          operation: 'draft',
+          workspaceRoot: '/tmp/workspace',
+          relativePath: '.sciforge/plan/list.md',
+          planId: '/tmp/workspace:.sciforge/plan/list.md',
+          title: 'List plan'
+        },
         todos: {
           threadId: 'thread-1',
           updatedAt: '2026-06-11T00:00:03.000Z',
@@ -165,6 +172,14 @@ describe('AgentRuntimeProvider', () => {
       updatedAt: '2026-06-11T00:01:00.000Z',
       latestSeq: 3,
       latestTurnId: 'turn-1',
+      guiPlan: {
+        operation: 'draft',
+        workspaceRoot: '/tmp/workspace',
+        relativePath: '.sciforge/plan/bridge.md',
+        planId: '/tmp/workspace:.sciforge/plan/bridge.md',
+        sourceRequest: 'Bridge plan',
+        title: 'Bridge'
+      },
       todos: {
         threadId: 'thread-2',
         updatedAt: '2026-06-11T00:01:03.000Z',
@@ -237,6 +252,9 @@ describe('AgentRuntimeProvider', () => {
         id: 'thread-1',
         title: 'One',
         runtimeId: 'codex',
+        guiPlan: expect.objectContaining({
+          relativePath: '.sciforge/plan/list.md'
+        }),
         todos: expect.objectContaining({
           items: [expect.objectContaining({ id: 'todo-list-1' })]
         })
@@ -251,6 +269,10 @@ describe('AgentRuntimeProvider', () => {
       latestSeq: 3,
       latestTurnId: 'turn-1',
       latestUserMessageId: 'user-1',
+      guiPlan: expect.objectContaining({
+        planId: '/tmp/workspace:.sciforge/plan/bridge.md',
+        relativePath: '.sciforge/plan/bridge.md'
+      }),
       todos: {
         items: [
           expect.objectContaining({
