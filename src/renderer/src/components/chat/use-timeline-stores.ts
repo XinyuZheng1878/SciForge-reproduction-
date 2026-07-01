@@ -11,8 +11,8 @@ import type { NormalizedThread } from '../../agent/types'
 export type TimelineStores = {
   workspaceRoot: string
   chooseWorkspace: () => Promise<string | null>
-  clawChannels: ClawImChannelV1[]
-  activeClawChannel: ClawImChannelV1 | null
+  remoteChannels: ClawImChannelV1[]
+  activeRemoteChannel: ClawImChannelV1 | null
   busy: boolean
   currentTurnUserId: string | null
   turnStartedAtByUserId: Record<string, number>
@@ -25,8 +25,8 @@ export type TimelineStores = {
 export function useTimelineStores(activeThreadId: string | null): TimelineStores {
   const workspaceRoot = useChatStore((s) => s.workspaceRoot)
   const chooseWorkspace = useChatStore((s) => s.chooseWorkspace)
-  const clawChannels = useChatStore((s) => s.clawChannels)
-  const activeClawChannelId = useChatStore((s) => s.activeClawChannelId)
+  const remoteChannels = useChatStore((s) => s.remoteChannels)
+  const activeRemoteChannelId = useChatStore((s) => s.activeRemoteChannelId)
   const busy = useChatStore((s) => s.busy)
   const currentTurnUserId = useChatStore((s) => s.currentTurnUserId)
   const turnStartedAtByUserId = useChatStore((s) => s.turnStartedAtByUserId)
@@ -36,16 +36,16 @@ export function useTimelineStores(activeThreadId: string | null): TimelineStores
   const activeThread = useChatStore((s) =>
     activeThreadId ? s.threads.find((thread) => thread.id === activeThreadId) ?? null : null
   )
-  const activeClawChannel = useMemo(
-    () => clawChannels.find((channel) => channel.id === activeClawChannelId) ?? null,
-    [activeClawChannelId, clawChannels]
+  const activeRemoteChannel = useMemo(
+    () => remoteChannels.find((channel) => channel.id === activeRemoteChannelId) ?? null,
+    [activeRemoteChannelId, remoteChannels]
   )
 
   return {
     workspaceRoot,
     chooseWorkspace,
-    clawChannels,
-    activeClawChannel,
+    remoteChannels,
+    activeRemoteChannel,
     busy,
     currentTurnUserId,
     turnStartedAtByUserId,

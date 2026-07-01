@@ -130,7 +130,7 @@ export function MessageTimelineEmptyHero({
   ready,
   hasWorkspace,
   runtimeError,
-  activeClawChannel,
+  activeRemoteChannel,
   onPickWorkspace,
   onRetry,
   onOpenSettings,
@@ -140,7 +140,7 @@ export function MessageTimelineEmptyHero({
   ready: boolean
   hasWorkspace: boolean
   runtimeError?: string | null
-  activeClawChannel: ClawImChannelV1 | null
+  activeRemoteChannel: ClawImChannelV1 | null
   onPickWorkspace: () => void
   onRetry: () => void
   onOpenSettings: () => void
@@ -176,7 +176,7 @@ export function MessageTimelineEmptyHero({
   if (remoteChannelMode) {
     return (
       <RemoteChannelEmptyHero
-        channel={activeClawChannel}
+        channel={activeRemoteChannel}
         onSelectSuggestion={onSelectSuggestion}
       />
     )

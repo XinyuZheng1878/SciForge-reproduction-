@@ -110,6 +110,7 @@
 - [x] Search worker root public surface breaking 收口：`@sciforge/search` 根入口不再 re-export query/provider helper，public-surface 测试确认 helper 仅作为包内实现细节。
 - [x] Paper Radar standalone HTTP service/plugin workspace 边界已删除：storage/source/profile/ranking core 移入 `packages/workers/paper-radar/src/core`，GUI worker 和 MCP 共用 worker-owned core；root workspace/scripts、release manifest、packaging tests、README/notice 不再保留单独 service 包。
 - [x] Remote Channel store 命名冲突第一刀已完成：remote guard 选中 channel 从 `activeRemoteChannelId` 清名为 `remoteGuardChannelId`，Workbench 局部 guard channel 变量同步清名；composer/current channel 的 `activeClawChannelId` 后续可单独迁到 remote-channel 语义。
+- [x] Remote Channel renderer store current channel 字段清名已完成：`clawChannels` / `activeClawChannelId` 改为 `remoteChannels` / `activeRemoteChannelId`，相关 helper、Workbench、Sidebar、timeline/composer 和 store 测试同步到 remote-channel 语义；shared `ClawIm*` public types 和 `chat-store-claw-actions` 文件名留到后续破坏式清名阶段。
 
 ## 验证记录
 
@@ -235,6 +236,9 @@
 - [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
 - [x] `npx vitest run src/renderer/src/store/chat-store-app-actions.test.ts src/renderer/src/store/chat-store-navigation-actions.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts src/renderer/src/store/chat-store-side-actions.test.ts src/renderer/src/store/chat-store-thread-actions.test.ts src/renderer/src/components/workbench-layout.test.ts src/renderer/src/components/chat/FloatingComposer.test.ts`
 - [x] `git diff --check`
+- [x] `npx tsc --noEmit -p tsconfig.web.json --pretty false`
+- [x] `npx vitest run src/renderer/src/store/chat-store-app-actions.test.ts src/renderer/src/store/chat-store-navigation-actions.test.ts src/renderer/src/store/chat-store-claw-actions.test.ts src/renderer/src/store/chat-store-side-actions.test.ts src/renderer/src/store/chat-store-thread-actions.test.ts src/renderer/src/store/chat-store-helpers.test.ts src/renderer/src/components/workbench-layout.test.ts src/renderer/src/components/chat/FloatingComposer.test.ts src/renderer/src/components/chat/MessageTimeline.tool-summary.test.ts src/renderer/src/components/chat/MessageTimeline.initial-heatmap.test.ts`
+- [x] `git diff --check`
 
 ## 已决策待实施
 
@@ -253,7 +257,7 @@
 - [ ] `gui-owl-computer-use` 迁移方向已决策：以 `gui-owl-computer-use` 为目标实现，先吸收旧 `@sciforge/computer-use` 的 target/session/lease、lease 冲突检测、shared action lock、native/browser backends、permission/status/audit、confirmation/risk taxonomy、local runtime/Codex/Claude MCP registry 等优势，再删除旧 `@sciforge/computer-use`。当前仍保持两者并存，不迁移、不删除，等待人工分别测试两套 computer-use 后实施；人工测试矩阵需覆盖：`-SafeDryRun` 不动鼠标键盘、live 必须 GUI approve、cancel 有效、无 token live 被拒、是否让手工 dry-run 也强制 token（因为会截图并走 Model Router）。
 - [x] Agent Runtime auxiliary 类型收紧已完成 operation-specific discriminated union 的保守方案：只给真正 thread-bound operations 强制 top-level `runtimeId`，active-scoped operations（如 `getRuntimeInfo` / `listSkills` / `listMemories` / `listWorkspaceReferences`）继续允许省略。运行期 guard 已让 `reviewThread`、`listThreadChildren`、`readChildTranscript`、context ledger/state、runtime handoff、goal/todos、checkpoint create、thread workspace/archive、`cancelUserInput` 等 thread-bound operation 缺 `runtimeId` 时 fail-closed；operation 全量列表和 runtimeId-required 子集已单一来源化，runtime handoff source owner、audit/checkpoint payload runtimeId 副本、host 写入型 auxiliary payload owner mismatch 均 fail-closed 到 top-level owner。
 - [x] `SCIFORGE_CUA_SERVICE_URL` loopback 策略已完成：默认只允许 loopback；如需 SSH tunnel / devbox hostname，必须通过显式 allowlist（例如 `SCIFORGE_CUA_ALLOWED_HOSTS`）放行；非 loopback 且未 allowlist 时 fail-closed，并继续避免重复注册 GUI-managed MCP。
-- [ ] Remote Channel / Connect Phone 公开 TypeScript surface 已决策破坏式清名：shared typings / functions / constants 从 `Claw*` 直接改为 `RemoteChannel*` / `ConnectPhone*`，不保留 deprecated alias；renderer store 的 `clawChannels` / `activeClawChannelId` / `chat-store-claw-actions` 也纳入同一批内部清名，目标是消除公开 API 与内部状态的旧命名漂移。已完成第一刀：原 remote guard 选中字段 `activeRemoteChannelId` 已改为 `remoteGuardChannelId`，避免后续 current/composer channel 清名撞名。后续仍需把 `activeClawChannelId` / `clawChannels` / `chat-store-claw-actions` 迁到清晰 remote-channel 语义；`openclaw-weixin` / `openclaw` 第三方包名、协议 channel id、vendor shim 和第三方 notice 不属于清名范围。
+- [ ] Remote Channel / Connect Phone 公开 TypeScript surface 已决策破坏式清名：shared typings / functions / constants 从 `Claw*` 直接改为 `RemoteChannel*` / `ConnectPhone*`，不保留 deprecated alias；renderer store 的 `clawChannels` / `activeClawChannelId` / `chat-store-claw-actions` 也纳入同一批内部清名，目标是消除公开 API 与内部状态的旧命名漂移。已完成两刀：原 remote guard 选中字段 `activeRemoteChannelId` 已改为 `remoteGuardChannelId`，current/composer channel 字段 `clawChannels` / `activeClawChannelId` 已改为 `remoteChannels` / `activeRemoteChannelId`。后续仍需把 `chat-store-claw-actions` 文件/函数名和 shared `Claw*` public surface 迁到 `RemoteChannel*` / `ConnectPhone*` 语义；`openclaw-weixin` / `openclaw` 第三方包名、协议 channel id、vendor shim 和第三方 notice 不属于清名范围。
 
 ## 待核对/拆解
 

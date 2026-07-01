@@ -45,7 +45,7 @@ function UserMessageBubble({
   const { t } = useTranslation('common')
   const busy = useChatStore((s) => s.busy)
   const activeThreadId = useChatStore((s) => s.activeThreadId)
-  const clawChannels = useChatStore((s) => s.clawChannels)
+  const remoteChannels = useChatStore((s) => s.remoteChannels)
   const rewindAndResend = useChatStore((s) => s.rewindAndResend)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(block.text)
@@ -61,8 +61,8 @@ function UserMessageBubble({
   }, [metaDisplayText])
   const remoteBinding = useMemo(() => {
     if (!activeThreadId) return null
-    return clawThreadRemoteBindingsFromChannels(clawChannels).get(activeThreadId) ?? null
-  }, [activeThreadId, clawChannels])
+    return clawThreadRemoteBindingsFromChannels(remoteChannels).get(activeThreadId) ?? null
+  }, [activeThreadId, remoteChannels])
   const isRemoteChannelMessage = Boolean(remoteBinding || isRemoteChannelManagedBy(block.managedBy))
   const parsedClawPrompt = useMemo(() => {
     const parsed = parseClawUserPromptForDisplay(block.text)

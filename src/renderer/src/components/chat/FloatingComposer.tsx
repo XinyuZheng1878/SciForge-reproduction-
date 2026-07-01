@@ -679,15 +679,15 @@ export function FloatingComposer({
   const setActiveThreadGoal = useChatStore((s) => s.setActiveThreadGoal)
   const setActiveThreadGoalStatus = useChatStore((s) => s.setActiveThreadGoalStatus)
   const clearActiveThreadGoal = useChatStore((s) => s.clearActiveThreadGoal)
-  const clawChannels = useChatStore((s) => s.clawChannels)
-  const activeClawChannelId = useChatStore((s) => s.activeClawChannelId)
+  const remoteChannels = useChatStore((s) => s.remoteChannels)
+  const activeRemoteChannelId = useChatStore((s) => s.activeRemoteChannelId)
   const compact = variant === 'compact'
   const activeThreadId = threadIdOverride === undefined ? storeActiveThreadId : threadIdOverride
   const activeThreadGoal = disableThreadManagementCommands ? null : storeActiveThreadGoal
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const activeClawChannel = useMemo(
-    () => clawChannels.find((channel) => channel.id === activeClawChannelId) ?? null,
-    [activeClawChannelId, clawChannels]
+  const activeRemoteChannel = useMemo(
+    () => remoteChannels.find((channel) => channel.id === activeRemoteChannelId) ?? null,
+    [activeRemoteChannelId, remoteChannels]
   )
   const activeThreadWorkspace = activeThreadId
     ? threads.find((thread) => thread.id === activeThreadId)?.workspace
@@ -696,14 +696,14 @@ export function FloatingComposer({
     ? threads.find((thread) => thread.id === activeThreadId) ?? null
     : null
   const remoteChannelThreadIds = useMemo(
-    () => clawThreadIdsFromChannels(clawChannels),
-    [clawChannels]
+    () => clawThreadIdsFromChannels(remoteChannels),
+    [remoteChannels]
   )
   const isRemoteChannelThread = Boolean(
     activeThreadId &&
     (
       remoteChannelThreadIds.has(activeThreadId) ||
-      (activeThread && isClawThread(activeThread, clawChannels))
+      (activeThread && isClawThread(activeThread, remoteChannels))
     )
   )
   const activeThreadArchived = activeThread?.archived === true
@@ -719,17 +719,17 @@ export function FloatingComposer({
     : activeThreadWorkspace || workspaceRootOverride
   const effectiveWorkspaceRoot = normalizeWorkspaceRoot(preferredWorkspaceRoot || workspaceRoot)
   const remoteChannelAgentName =
-    activeClawChannel?.agentProfile.name.trim()
-    || activeClawChannel?.label.trim()
+    activeRemoteChannel?.agentProfile.name.trim()
+    || activeRemoteChannel?.label.trim()
     || t('remoteChannelEmptyHeroFallbackName')
   const remoteChannelHasInboundConversation = Boolean(
     activeThreadId ||
-    Object.values(activeClawChannel?.agentThreadIds ?? {}).some((threadId) => threadId.trim()) ||
-    activeClawChannel?.conversations.some((conversation) =>
+    Object.values(activeRemoteChannel?.agentThreadIds ?? {}).some((threadId) => threadId.trim()) ||
+    activeRemoteChannel?.conversations.some((conversation) =>
       Object.values(conversation.agentThreadIds ?? {}).some((threadId) => threadId.trim())
     ) ||
-    activeClawChannel?.conversations.length ||
-    activeClawChannel?.remoteSession?.chatId?.trim()
+    activeRemoteChannel?.conversations.length ||
+    activeRemoteChannel?.remoteSession?.chatId?.trim()
   )
 
   const canEditComposer = isRemoteChannelThread ? remoteChannelHasInboundConversation : true

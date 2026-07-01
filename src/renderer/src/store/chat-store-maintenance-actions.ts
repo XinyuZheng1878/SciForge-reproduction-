@@ -29,7 +29,7 @@ import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/wor
 import { buildClawRuntimePrompt, getActiveAgentApiKey } from '@shared/app-settings'
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import {
-  activeClawChannel,
+  activeRemoteChannel,
   compactCodeWorkspaceRoots,
   forgetCodeWorkspaceRoot,
   hydrateBlockModelLabels,

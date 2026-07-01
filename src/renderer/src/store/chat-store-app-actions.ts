@@ -152,13 +152,13 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
     },
 
     selectRemoteGuardChannel: (channelId) => {
-      const channel = get().clawChannels.find((item) => item.id === channelId)
+      const channel = get().remoteChannels.find((item) => item.id === channelId)
       if (!channel) return
       set({
         route: 'chat',
         remoteGuardChannelId: channel.id,
         connectPhonePanelOpen: false,
-        activeClawChannelId: channel.id,
+        activeRemoteChannelId: channel.id,
         error: null
       })
     },
@@ -187,11 +187,11 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
         workspaceRoot,
         workspaceLabel: workspaceLabelFromPath(workspaceRoot),
         activeAgentRuntime: getActiveAgentRuntime(settings),
-        clawChannels: settings.remoteChannel.channels,
-        activeClawChannelId: settings.remoteChannel.channels.some(
-          (channel) => channel.id === get().activeClawChannelId && channel.enabled
+        remoteChannels: settings.remoteChannel.channels,
+        activeRemoteChannelId: settings.remoteChannel.channels.some(
+          (channel) => channel.id === get().activeRemoteChannelId && channel.enabled
         )
-          ? get().activeClawChannelId
+          ? get().activeRemoteChannelId
           : settings.remoteChannel.channels.find((channel) => channel.enabled)?.id ?? ''
       })
       await get().applyI18nFromSettings(settings.locale)

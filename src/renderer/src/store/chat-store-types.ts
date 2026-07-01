@@ -191,8 +191,8 @@ export type ChatState = {
    */
   sideConversations: Record<string, SideConversation>
   sidePanel: SidePanelState
-  clawChannels: ClawImChannelV1[]
-  activeClawChannelId: string
+  remoteChannels: ClawImChannelV1[]
+  activeRemoteChannelId: string
   remoteGuardChannelId: string | null
   remoteTargetId: string | null
   appendLocalClawTurn: (userText: string, replyText: string) => void

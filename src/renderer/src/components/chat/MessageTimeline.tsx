@@ -108,8 +108,8 @@ export function MessageTimeline({
   const {
     workspaceRoot,
     chooseWorkspace,
-    clawChannels,
-    activeClawChannel,
+    remoteChannels,
+    activeRemoteChannel,
     busy,
     currentTurnUserId,
     turnStartedAtByUserId,
@@ -130,7 +130,7 @@ export function MessageTimeline({
     activeThreadId && activeThreadId === s.activeThreadId ? s.liveReasoningMeta : null
   )
 
-  const remoteChannelMode = Boolean(activeThread && isClawThread(activeThread, clawChannels))
+  const remoteChannelMode = Boolean(activeThread && isClawThread(activeThread, remoteChannels))
   const hasContent = blocks.length > 0 || live || liveReasoning
   const endRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -195,7 +195,7 @@ export function MessageTimeline({
             ready={runtimeConnection === 'ready'}
             hasWorkspace={!!workspaceRoot}
             runtimeError={runtimeError}
-            activeClawChannel={activeClawChannel}
+            activeRemoteChannel={activeRemoteChannel}
             onPickWorkspace={() => void chooseWorkspace()}
             onRetry={onRetryConnection}
             onOpenSettings={onOpenSettings}

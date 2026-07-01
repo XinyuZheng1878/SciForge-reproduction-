@@ -239,10 +239,10 @@ export function normalizeClawComposerModel(raw: string): string {
   return trimmed || 'auto'
 }
 
-export function activeClawChannel(
-  state: Pick<ChatState, 'clawChannels' | 'activeClawChannelId'>
+export function activeRemoteChannel(
+  state: Pick<ChatState, 'remoteChannels' | 'activeRemoteChannelId'>
 ): ClawImChannelV1 | null {
-  return state.clawChannels.find((channel) => channel.id === state.activeClawChannelId) ?? null
+  return state.remoteChannels.find((channel) => channel.id === state.activeRemoteChannelId) ?? null
 }
 
 function addClawThreadId(ids: Set<string>, threadId: string | undefined): void {

@@ -994,8 +994,8 @@ describe('FloatingComposer capability controls', () => {
         mode: 'agent',
         workspace: ''
       }],
-      activeClawChannelId: 'channel_weixin',
-      clawChannels: [{
+      activeRemoteChannelId: 'channel_weixin',
+      remoteChannels: [{
         id: 'channel_weixin',
         provider: 'weixin',
         label: 'weixin agent',

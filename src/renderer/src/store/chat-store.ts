@@ -36,7 +36,7 @@ import { createAppActions } from './chat-store-app-actions'
 import { createClawActions } from './chat-store-claw-actions'
 import { createSideActions } from './chat-store-side-actions'
 import {
-  activeClawChannel,
+  activeRemoteChannel,
   compactCodeWorkspaceRoots,
   forgetCodeWorkspaceRoot,
   hydrateBlockModelLabels,
@@ -146,8 +146,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   unreadThreadIds: {},
   sideConversations: {},
   sidePanel: { open: false, activeSideId: null },
-  clawChannels: [],
-  activeClawChannelId: '',
+  remoteChannels: [],
+  activeRemoteChannelId: '',
   remoteGuardChannelId: null,
   remoteTargetId: null,
   setRemoteTargetId: (targetId) => set({ remoteTargetId: targetId?.trim() || null }),
@@ -159,7 +159,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     getProvider,
     newClawChannel,
     normalizeClawComposerModel,
-    activeClawChannel,
+    activeRemoteChannel,
     normalizeWorkspaceRoot: (workspaceRoot) => normalizeWorkspaceRoot(workspaceRoot ?? undefined),
     formatRuntimeError,
     shouldOpenSettingsForError,

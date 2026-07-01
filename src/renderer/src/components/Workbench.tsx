@@ -542,8 +542,8 @@ export function Workbench(): ReactElement {
     openSchedule,
     openWorkflow,
     chooseWorkspace,
-    clawChannels,
-    activeClawChannelId,
+    remoteChannels,
+    activeRemoteChannelId,
     remoteGuardChannelId,
     remoteTargetId,
     selectClawChannel,
@@ -606,8 +606,8 @@ export function Workbench(): ReactElement {
       openSchedule: s.openSchedule,
       openWorkflow: s.openWorkflow,
       chooseWorkspace: s.chooseWorkspace,
-      clawChannels: s.clawChannels,
-      activeClawChannelId: s.activeClawChannelId,
+      remoteChannels: s.remoteChannels,
+      activeRemoteChannelId: s.activeRemoteChannelId,
       remoteGuardChannelId: s.remoteGuardChannelId,
       remoteTargetId: s.remoteTargetId,
       selectClawChannel: s.selectClawChannel,
@@ -710,23 +710,23 @@ export function Workbench(): ReactElement {
     () => extractLatestTurnAutoOpenDevPreviewUrls(devPreviewBlocks),
     [devPreviewBlocks]
   )
-  const activeClawChannel = useMemo(
-    () => clawChannels.find((channel) => channel.id === activeClawChannelId) ?? null,
-    [activeClawChannelId, clawChannels]
+  const activeRemoteChannel = useMemo(
+    () => remoteChannels.find((channel) => channel.id === activeRemoteChannelId) ?? null,
+    [activeRemoteChannelId, remoteChannels]
   )
   const remoteGuardChannel = useMemo(
     () => remoteGuardChannelId
-      ? clawChannels.find((channel) => channel.id === remoteGuardChannelId) ?? null
+      ? remoteChannels.find((channel) => channel.id === remoteGuardChannelId) ?? null
       : null,
-    [remoteGuardChannelId, clawChannels]
+    [remoteGuardChannelId, remoteChannels]
   )
   const activeThread = useMemo(
     () => threads.find((thread) => thread.id === activeThreadId) ?? null,
     [activeThreadId, threads]
   )
   const remoteThreadBindings = useMemo(
-    () => clawThreadRemoteBindingsFromChannels(clawChannels),
-    [clawChannels]
+    () => clawThreadRemoteBindingsFromChannels(remoteChannels),
+    [remoteChannels]
   )
   const queuedThreadIds = useMemo(
     () => new Set(queuedMessages.map((message) => message.threadId?.trim() ?? '').filter(Boolean)),
@@ -737,14 +737,14 @@ export function Workbench(): ReactElement {
     : null
   const activeThreadIsRemoteChannel = Boolean(
     activeRemoteBinding ||
-    (activeThread && isClawThread(activeThread, clawChannels))
+    (activeThread && isClawThread(activeThread, remoteChannels))
   )
   const selectedRemoteTargetId =
     route === 'chat' && !activeThreadIsRemoteChannel ? remoteTargetId?.trim() ?? '' : ''
   const activeRemoteComposerChannel = activeRemoteBinding
-    ? clawChannels.find((channel) => channel.id === activeRemoteBinding.channelId) ?? activeClawChannel
-    : activeClawChannel
-  const activeRemoteComposerChannelId = activeRemoteComposerChannel?.id ?? activeClawChannelId
+    ? remoteChannels.find((channel) => channel.id === activeRemoteBinding.channelId) ?? activeRemoteChannel
+    : activeRemoteChannel
+  const activeRemoteComposerChannelId = activeRemoteComposerChannel?.id ?? activeRemoteChannelId
   const activeRemoteStatusKind = activeThreadId
     ? deriveClawThreadRemoteStatusKind({
         binding: activeRemoteBinding,
@@ -793,7 +793,7 @@ export function Workbench(): ReactElement {
       ? updateRemoteChannelActiveThreadContextApi(window.sciforge)
       : undefined
     if (typeof updateRemoteChannelActiveThreadContext !== 'function') return
-    if (!activeThreadId || (activeThread && isClawThread(activeThread, clawChannels))) {
+    if (!activeThreadId || (activeThread && isClawThread(activeThread, remoteChannels))) {
       void updateRemoteChannelActiveThreadContext(null).catch(() => undefined)
       return
     }
@@ -802,7 +802,7 @@ export function Workbench(): ReactElement {
       runtimeId: activeThread?.runtimeId,
       workspaceRoot: activeThread?.workspace || workspaceRoot || undefined
     }).catch(() => undefined)
-  }, [activeThread, activeThreadId, clawChannels, route, workspaceRoot])
+  }, [activeThread, activeThreadId, remoteChannels, route, workspaceRoot])
   const composerChangeSummary = useMemo(
     () => collectComposerChangeSummary(timelineBlocks, activeSkillWorkspace),
     [activeSkillWorkspace, timelineBlocks]
@@ -990,11 +990,11 @@ export function Workbench(): ReactElement {
 
   const codeThreads = useMemo(
     () => threads.filter((thread) =>
-      !isClawThread(thread, clawChannels) &&
+      !isClawThread(thread, remoteChannels) &&
       !isSddAssistantThread(thread) &&
       !isEmptySddAssistantThreadCandidate(thread)
     ),
-    [clawChannels, threads]
+    [remoteChannels, threads]
   )
 
   const mirrorRemoteChannelCommand = async (userText: string, replyText: string): Promise<void> => {

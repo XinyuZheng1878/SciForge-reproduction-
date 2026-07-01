@@ -16,7 +16,7 @@ function renderHero(options: {
       ready: options.ready ?? true,
       hasWorkspace: options.hasWorkspace ?? true,
       runtimeError: options.runtimeError ?? null,
-      activeClawChannel: null,
+      activeRemoteChannel: null,
       onPickWorkspace: () => undefined,
       onRetry: () => undefined,
       onOpenSettings: () => undefined,

@@ -21,7 +21,7 @@ function renderOfflineHero(runtimeError: string | null = null): string {
       ready: false,
       hasWorkspace: true,
       runtimeError,
-      activeClawChannel: null,
+      activeRemoteChannel: null,
       onPickWorkspace: () => undefined,
       onRetry: () => undefined,
       onOpenSettings: () => undefined,

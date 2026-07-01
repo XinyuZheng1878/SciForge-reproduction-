@@ -462,14 +462,14 @@ export function shouldOpenSettingsForError(error: unknown): boolean {
 
 export function isCodeThread(
   thread: NormalizedThread,
-  clawChannels: ClawImChannelV1[] = []
+  remoteChannels: ClawImChannelV1[] = []
 ): boolean {
   const workspace = normalizeWorkspaceRoot(thread.workspace)
   return Boolean(workspace) &&
     thread.archived !== true &&
     !isInternalTemporaryWorkspace(thread.workspace) &&
     !isRemoteChannelWorkspacePath(thread.workspace) &&
-    !isClawThread(thread, clawChannels) &&
+    !isClawThread(thread, remoteChannels) &&
     !isSddAssistantThread(thread) &&
     !isEmptySddAssistantThreadCandidate(thread)
 }

@@ -27,7 +27,7 @@ import { onRemoteChannelActivityApi } from '../lib/remote-channel-api'
 import { buildClawRuntimePrompt, getActiveAgentApiKey, getActiveAgentRuntime, type AgentRuntimeId } from '@shared/app-settings'
 import type { ChatState, ChatStoreGet, ChatStoreSet } from './chat-store-types'
 import {
-  activeClawChannel,
+  activeRemoteChannel,
   compactCodeWorkspaceRoots,
   filterHiddenCodeWorkspaceRoots,
   forgetCodeWorkspaceRoot,
@@ -147,12 +147,12 @@ export async function syncRemoteChannelActivityToStore(
   const channels = settings.remoteChannel.channels
   const activityChannel = channels.find((channel) => channel.id === payload.channelId && channel.enabled)
   const activeChannelId = channels.some(
-    (channel) => channel.id === state.activeClawChannelId && channel.enabled
+    (channel) => channel.id === state.activeRemoteChannelId && channel.enabled
   )
-    ? state.activeClawChannelId
+    ? state.activeRemoteChannelId
     : channels.find((channel) => channel.enabled)?.id ?? ''
   const nextActiveChannelId = state.connectPhonePanelOpen && activityChannel ? payload.channelId : activeChannelId
-  set({ clawChannels: channels, activeClawChannelId: nextActiveChannelId })
+  set({ remoteChannels: channels, activeRemoteChannelId: nextActiveChannelId })
 
   const provider = getProvider()
   provider.rememberThreadRuntime?.(threadId, payload.runtimeId)
@@ -195,7 +195,7 @@ export function createNavigationActions(
     const activeThread = state.activeThreadId
       ? state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
       : null
-    if (activeThread && isCodeThread(activeThread, state.clawChannels)) {
+    if (activeThread && isCodeThread(activeThread, state.remoteChannels)) {
       set({ route: 'chat', remoteGuardChannelId: null })
       if (stateHasRecoverableActiveTurn(state)) {
         await get().recoverActiveTurn()
@@ -203,7 +203,7 @@ export function createNavigationActions(
       return
     }
 
-    const codeThreads = state.threads.filter((thread) => isCodeThread(thread, state.clawChannels))
+    const codeThreads = state.threads.filter((thread) => isCodeThread(thread, state.remoteChannels))
     const selectedWorkspace = normalizeWorkspaceRoot(state.workspaceRoot)
     const target =
       latestThread(codeThreads.filter((thread) => threadBelongsToWorkspace(thread, selectedWorkspace))) ??
@@ -338,8 +338,8 @@ export function createNavigationActions(
           hiddenCodeWorkspaceRoots,
           workspaceLabel: workspaceLabelFromPath(workspaceRoot),
           activeAgentRuntime: getActiveAgentRuntime(settings),
-          clawChannels: settings.remoteChannel.channels,
-          activeClawChannelId: settings.remoteChannel.channels.find((channel) => channel.enabled)?.id ?? '',
+          remoteChannels: settings.remoteChannel.channels,
+          activeRemoteChannelId: settings.remoteChannel.channels.find((channel) => channel.enabled)?.id ?? '',
           runtimeConnection: needsInitialSetup ? 'idle' : get().runtimeConnection,
           error: needsInitialSetup ? null : get().error,
           runtimeErrorDetail: needsInitialSetup ? null : get().runtimeErrorDetail
@@ -430,7 +430,7 @@ export function createNavigationActions(
         // If we successfully moved the active thread, stay on it.
         if (movedActiveThread) return workspaceRoot
         const workspaceThreads = get().threads
-          .filter((thread) => isCodeThread(thread, get().clawChannels))
+          .filter((thread) => isCodeThread(thread, get().remoteChannels))
           .filter((thread) => threadBelongsToWorkspace(thread, workspaceRoot))
           .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
 
@@ -566,7 +566,7 @@ export function createNavigationActions(
         get().codeWorkspaceRoots,
         filterHiddenCodeWorkspaceRoots(
           threads
-            .filter((thread) => isCodeThread(thread, get().clawChannels))
+            .filter((thread) => isCodeThread(thread, get().remoteChannels))
             .map((thread) => thread.workspace),
           hiddenCodeWorkspaceRoots
         )
@@ -627,7 +627,7 @@ export function createNavigationActions(
       const activeThreadIsManagedInCodeRoute =
         get().route === 'chat' &&
         activeThread != null &&
-        isClawThread(activeThread, get().clawChannels)
+        isClawThread(activeThread, get().remoteChannels)
       const activeThreadHasLocalConversation =
         activeId != null &&
         (
@@ -676,7 +676,7 @@ export function createNavigationActions(
           codeWorkspaceRoots: filterHiddenCodeWorkspaceRoots(
             compactCodeWorkspaceRoots([
               ...displayThreads
-                .filter((thread) => isCodeThread(thread, s.clawChannels))
+                .filter((thread) => isCodeThread(thread, s.remoteChannels))
                 .map((thread) => thread.workspace),
               ...codeWorkspaceRoots
             ]),

@@ -65,7 +65,7 @@ function buildHarness(options: {
     activeThreadId: options.activeThread.id,
     blocks: options.blocks ?? [],
     busy: false,
-    clawChannels: [],
+    remoteChannels: [],
     codeWorkspaceRoots: [],
     error: null,
     route: 'chat',
@@ -284,7 +284,7 @@ describe('chat-store-navigation-actions chooseWorkspace', () => {
       remoteGuardChannelId: null,
       blocks: [],
       busy: false,
-      clawChannels: [],
+      remoteChannels: [],
       codeWorkspaceRoots: ['/workspace/old'],
       hiddenCodeWorkspaceRoots: [],
       error: null,
@@ -387,7 +387,7 @@ describe('chat-store-navigation-actions deleteWorkspace', () => {
       activeThreadId: 'other-thread',
       blocks: [],
       busy: false,
-      clawChannels: [],
+      remoteChannels: [],
       codeWorkspaceRoots: ['/workspace/sciforge', '/workspace/other'],
       hiddenCodeWorkspaceRoots: [],
       error: 'previous error',
@@ -453,10 +453,10 @@ describe('remote-channel activity sync', () => {
       }
     })
     const state = {
-      activeClawChannelId: '',
+      activeRemoteChannelId: '',
       activeThreadId: 'desktop-thread',
       connectPhonePanelOpen: false,
-      clawChannels: [],
+      remoteChannels: [],
       recoverActiveTurn: vi.fn(async () => true),
       refreshThreads: vi.fn(async () => undefined),
       route: 'chat',
@@ -488,7 +488,7 @@ describe('remote-channel activity sync', () => {
     expect(state.recoverActiveTurn).toHaveBeenCalledTimes(1)
     expect(state.refreshThreads).toHaveBeenCalledTimes(1)
     expect(state.selectClawConversation).not.toHaveBeenCalled()
-    expect(state.activeClawChannelId).toBe('channel-1')
+    expect(state.activeRemoteChannelId).toBe('channel-1')
   })
 
   it('marks a different phone-updated thread unread without switching the desktop selection', async () => {
@@ -525,7 +525,7 @@ describe('remote-channel activity sync', () => {
       runtimeId: 'codex'
     })
 
-    expect(state.activeClawChannelId).toBe('channel-1')
+    expect(state.activeRemoteChannelId).toBe('channel-1')
     expect(state.selectClawConversation).toHaveBeenCalledWith('channel-1', 'remote-thread')
     expect(state.refreshThreads).not.toHaveBeenCalled()
     expect(state.unreadThreadIds['remote-thread']).toBeUndefined()

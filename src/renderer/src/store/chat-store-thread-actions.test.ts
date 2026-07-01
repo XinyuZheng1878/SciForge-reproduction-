@@ -52,7 +52,7 @@ function buildHarness(): {
     blocks: [],
     busy: true,
     activeThreadContextState: null,
-    clawChannels: [],
+    remoteChannels: [],
     codeWorkspaceRoots: [],
     composerModel: '',
     currentTurnId: null,
@@ -902,7 +902,7 @@ describe('chat-store-thread-actions queued messages', () => {
       runtimeId: 'codex' as const,
       title: 'Desktop work'
     }]
-    state.clawChannels = [{
+    state.remoteChannels = [{
       id: 'channel-1',
       enabled: true,
       provider: 'weixin',
@@ -957,7 +957,7 @@ describe('remote-channel active thread context publishing', () => {
         runtimeId: 'codex' as const,
         workspace: '/workspace/desktop'
       }],
-      clawChannels: []
+      remoteChannels: []
     } as unknown as ChatState
 
     publishActiveClawThreadContext(state, 'desktop-thread')
@@ -978,7 +978,7 @@ describe('remote-channel active thread context publishing', () => {
         title: '[Remote channel:WeChat] Alice',
         workspace: '/workspace/claw'
       }],
-      clawChannels: [{
+      remoteChannels: [{
         id: 'channel-1',
         enabled: true,
         provider: 'weixin',

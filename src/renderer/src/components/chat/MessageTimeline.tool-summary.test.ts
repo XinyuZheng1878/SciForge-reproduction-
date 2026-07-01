@@ -202,8 +202,8 @@ describe('MessageTimeline local runtime metadata smoke', () => {
       turnDurationByUserId: {},
       turnReasoningFirstAtByUserId: {},
       turnReasoningLastAtByUserId: {},
-      clawChannels: [],
-      activeClawChannelId: ''
+      remoteChannels: [],
+      activeRemoteChannelId: ''
     })
   })
 
@@ -731,7 +731,7 @@ describe('MessageTimeline local runtime metadata smoke', () => {
   it('keeps remote-bound plain desktop messages as normal user content', () => {
     useChatStore.setState({
       activeThreadId: 'thr_1',
-      clawChannels: [remoteChannel()]
+      remoteChannels: [remoteChannel()]
     })
     const block: ChatBlock = {
       kind: 'user',

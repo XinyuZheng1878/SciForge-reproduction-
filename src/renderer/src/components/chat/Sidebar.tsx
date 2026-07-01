@@ -93,19 +93,19 @@ export function Sidebar({
   const watchTurnCompletion = useChatStore((s) => s.watchTurnCompletion)
   const unreadThreadIds = useChatStore((s) => s.unreadThreadIds)
   const queuedMessages = useChatStore((s) => s.queuedMessages)
-  const clawChannels = useChatStore((s) => s.clawChannels)
-  const activeClawChannelId = useChatStore((s) => s.activeClawChannelId)
+  const remoteChannels = useChatStore((s) => s.remoteChannels)
+  const activeRemoteChannelId = useChatStore((s) => s.activeRemoteChannelId)
   const remoteGuardChannelId = useChatStore((s) => s.remoteGuardChannelId)
   const selectRemoteGuardChannel = useChatStore((s) => s.selectRemoteGuardChannel)
   const addClawChannel = useChatStore((s) => s.addClawChannel)
   const deleteClawChannel = useChatStore((s) => s.deleteClawChannel)
   const botWatchedThreadIds = useMemo(
-    () => watchedClawThreadIdsFromChannels(clawChannels),
-    [clawChannels]
+    () => watchedClawThreadIdsFromChannels(remoteChannels),
+    [remoteChannels]
   )
   const botThreadBindings = useMemo(
-    () => clawThreadRemoteBindingsFromChannels(clawChannels),
-    [clawChannels]
+    () => clawThreadRemoteBindingsFromChannels(remoteChannels),
+    [remoteChannels]
   )
   const queuedThreadIds = useMemo(
     () => new Set(queuedMessages.map((message) => message.threadId?.trim() ?? '').filter(Boolean)),
@@ -114,10 +114,10 @@ export function Sidebar({
   const activeRemoteThreadIds = useMemo(() => {
     const ids = new Set<string>()
     for (const [threadId, binding] of botThreadBindings) {
-      if (binding.channelId === activeClawChannelId) ids.add(threadId)
+      if (binding.channelId === activeRemoteChannelId) ids.add(threadId)
     }
     return ids
-  }, [activeClawChannelId, botThreadBindings])
+  }, [activeRemoteChannelId, botThreadBindings])
   return (
     <>
     <SidebarFrame
@@ -223,7 +223,7 @@ export function Sidebar({
       ) : (
       <>
       <SidebarRemoteChannelSection
-        channels={clawChannels}
+        channels={remoteChannels}
         activeChannelId={remoteGuardChannelId ?? ''}
         runtimeReady={runtimeReady}
         onSelectChannel={selectRemoteGuardChannel}
@@ -266,7 +266,7 @@ export function Sidebar({
 
     {connectPhoneSidebarOpen ? (
       <ConnectPhoneDialog
-        channels={clawChannels}
+        channels={remoteChannels}
         workspaceRoot={workspaceRoot}
         onAddProvider={async (provider, agentProfile, platformCredential, options) => {
           await addClawChannel(provider, agentProfile, platformCredential, {

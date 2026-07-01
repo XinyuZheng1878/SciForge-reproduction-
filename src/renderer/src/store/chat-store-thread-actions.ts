@@ -35,7 +35,7 @@ import {
 import type { AgentRuntimeContextState, AgentRuntimeFileReference } from '@shared/agent-runtime-contract'
 import type { ChatState, ChatStoreGet, ChatStoreSet, QueuedUserMessage } from './chat-store-types'
 import {
-  activeClawChannel,
+  activeRemoteChannel,
   clawThreadRemoteBindingsFromChannels,
   clawThreadIdsFromChannels,
   compactCodeWorkspaceRoots,
@@ -90,13 +90,13 @@ type SseAbortRef = { current: AbortController | null }
 function remoteChannelForThread(state: ChatState, threadId: string | null | undefined): ClawImChannelV1 | null {
   const targetThreadId = threadId?.trim() ?? ''
   if (!targetThreadId) return null
-  const binding = clawThreadRemoteBindingsFromChannels(state.clawChannels).get(targetThreadId)
+  const binding = clawThreadRemoteBindingsFromChannels(state.remoteChannels).get(targetThreadId)
   if (binding) {
-    return state.clawChannels.find((channel) => channel.id === binding.channelId) ?? null
+    return state.remoteChannels.find((channel) => channel.id === binding.channelId) ?? null
   }
   const thread = state.threads.find((item) => item.id === targetThreadId) ?? null
-  if (!thread || !isClawThread(thread, state.clawChannels)) return null
-  return activeClawChannel(state)
+  if (!thread || !isClawThread(thread, state.remoteChannels)) return null
+  return activeRemoteChannel(state)
 }
 
 function adoptDeliveredThread(
@@ -233,7 +233,7 @@ export function publishActiveClawThreadContext(state: ChatState, threadId: strin
     return
   }
   const thread = state.threads.find((item) => item.id === threadId)
-  if (thread && isClawThread(thread, state.clawChannels)) {
+  if (thread && isClawThread(thread, state.remoteChannels)) {
     void updateRemoteChannelActiveThreadContext(null).catch(() => undefined)
     return
   }
@@ -346,7 +346,7 @@ export function createThreadActions(
           get(),
           p,
           workspaceRoot,
-          (thread) => isCodeThread(thread, get().clawChannels)
+          (thread) => isCodeThread(thread, get().remoteChannels)
         )
       }
       if (reusableThreadId) {
@@ -828,7 +828,7 @@ export function createThreadActions(
           get(),
           p,
           workspaceRoot,
-          (thread) => isCodeThread(thread, get().clawChannels)
+          (thread) => isCodeThread(thread, get().remoteChannels)
         )
         const reusableThread = reusableThreadId
           ? get().threads.find((thread) => thread.id === reusableThreadId) ?? null
@@ -996,7 +996,7 @@ export function createThreadActions(
       }
       const shouldMirrorToIm =
         Boolean(channel) ||
-        clawThreadIdsFromChannels(get().clawChannels).has(activeThreadId)
+        clawThreadIdsFromChannels(get().remoteChannels).has(activeThreadId)
       const mirrorRemoteChannelMessage = mirrorRemoteChannelMessageApi(window.sciforge)
       if (shouldMirrorToIm && typeof mirrorRemoteChannelMessage === 'function') {
         const userMirror = await mirrorRemoteChannelMessage(
@@ -1099,7 +1099,7 @@ export function createThreadActions(
           get(),
           p,
           workspaceRoot,
-          (thread) => isCodeThread(thread, get().clawChannels)
+          (thread) => isCodeThread(thread, get().remoteChannels)
         )
         const createdThread =
           reusableThreadId == null

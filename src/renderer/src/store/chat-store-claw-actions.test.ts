@@ -170,8 +170,8 @@ function createClawActionHarness(options: {
     runtimeConnection: 'ready',
     route: 'chat',
     connectPhonePanelOpen: false,
-    clawChannels: settings.remoteChannel.channels,
-    activeClawChannelId: '',
+    remoteChannels: settings.remoteChannel.channels,
+    activeRemoteChannelId: '',
     remoteGuardChannelId: null,
     threads: [],
     activeThreadId: '',
@@ -201,7 +201,7 @@ function createClawActionHarness(options: {
     getProvider: () => provider,
     newClawChannel: (options.newClawChannel ?? vi.fn()) as never,
     normalizeClawComposerModel: (raw: string) => raw as never,
-    activeClawChannel: vi.fn() as never,
+    activeRemoteChannel: vi.fn() as never,
     normalizeWorkspaceRoot: (workspaceRoot?: string | null) => workspaceRoot?.trim() ?? '',
     formatRuntimeError: (error: unknown) => error instanceof Error ? error.message : String(error),
     shouldOpenSettingsForError: () => false,
@@ -608,8 +608,8 @@ describe('chat-store Claw actions helpers', () => {
       runtimeConnection: 'ready',
       route: 'chat',
       connectPhonePanelOpen: false,
-      clawChannels: settings.remoteChannel.channels,
-      activeClawChannelId: '',
+      remoteChannels: settings.remoteChannel.channels,
+      activeRemoteChannelId: '',
       remoteGuardChannelId: null,
       threads: [],
       activeThreadId: 'thr_previous',
@@ -635,7 +635,7 @@ describe('chat-store Claw actions helpers', () => {
       getProvider: () => provider,
       newClawChannel: vi.fn() as never,
       normalizeClawComposerModel: (raw: string) => raw as never,
-      activeClawChannel: vi.fn() as never,
+      activeRemoteChannel: vi.fn() as never,
       normalizeWorkspaceRoot: (workspaceRoot?: string | null) => workspaceRoot?.trim() ?? '',
       formatRuntimeError: (error: unknown) => error instanceof Error ? error.message : String(error),
       shouldOpenSettingsForError: () => false,
@@ -659,7 +659,7 @@ describe('chat-store Claw actions helpers', () => {
 
     expect(provider.createThread).not.toHaveBeenCalled()
     expect(state.route).toBe('chat')
-    expect(state.activeClawChannelId).toBe('channel-1')
+    expect(state.activeRemoteChannelId).toBe('channel-1')
     expect(state.activeThreadId).toBe('thr_previous')
     expect(state.blocks).toEqual([{ kind: 'user', id: 'u1', text: 'hello' }])
     expect(state.error).toBeNull()

@@ -56,9 +56,9 @@ function buildHarness(initialState: Partial<ChatState> = {}): {
     route: 'chat',
     connectPhonePanelOpen: false,
     activeThreadId: 'desktop-thread',
-    activeClawChannelId: '',
+    activeRemoteChannelId: '',
     remoteGuardChannelId: null,
-    clawChannels: [channel('discord-channel')],
+    remoteChannels: [channel('discord-channel')],
     refreshClawChannels: vi.fn(async () => undefined),
     refreshThreads: vi.fn(async () => undefined),
     loadComposerModels: vi.fn(async () => undefined),
@@ -99,14 +99,14 @@ describe('chat-store app actions', () => {
 
     expect(state.route).toBe('chat')
     expect(state.remoteGuardChannelId).toBe('discord-channel')
-    expect(state.activeClawChannelId).toBe('discord-channel')
+    expect(state.activeRemoteChannelId).toBe('discord-channel')
     expect(state.activeThreadId).toBe('desktop-thread')
   })
 
   it('ignores missing remote guard entries without clearing the current detail', () => {
     const { actions, state } = buildHarness({
       remoteGuardChannelId: 'discord-channel',
-      activeClawChannelId: 'discord-channel',
+      activeRemoteChannelId: 'discord-channel',
       activeThreadId: 'desktop-thread'
     })
 
@@ -114,7 +114,7 @@ describe('chat-store app actions', () => {
 
     expect(state.route).toBe('chat')
     expect(state.remoteGuardChannelId).toBe('discord-channel')
-    expect(state.activeClawChannelId).toBe('discord-channel')
+    expect(state.activeRemoteChannelId).toBe('discord-channel')
     expect(state.activeThreadId).toBe('desktop-thread')
   })
 
@@ -132,11 +132,11 @@ describe('chat-store app actions', () => {
   it('keeps remote bindings stable across refresh and app section navigation', async () => {
     const { actions, state } = buildHarness({
       remoteGuardChannelId: 'discord-channel',
-      activeClawChannelId: 'discord-channel',
+      activeRemoteChannelId: 'discord-channel',
       activeThreadId: 'codex-thread',
       runtimeConnection: 'ready'
     })
-    const bindingBefore = JSON.parse(JSON.stringify(state.clawChannels))
+    const bindingBefore = JSON.parse(JSON.stringify(state.remoteChannels))
     vi.stubGlobal('window', {
       sciforge: {
         getSettings: vi.fn(async () => ({
@@ -150,7 +150,7 @@ describe('chat-store app actions', () => {
       }
     })
     state.refreshClawChannels = vi.fn(async () => {
-      state.clawChannels = JSON.parse(JSON.stringify(bindingBefore))
+      state.remoteChannels = JSON.parse(JSON.stringify(bindingBefore))
     })
 
     await actions.reloadUiSettings()
@@ -159,8 +159,8 @@ describe('chat-store app actions', () => {
     actions.selectRemoteGuardChannel('discord-channel')
     actions.setRoute('chat')
 
-    expect(state.clawChannels).toEqual(bindingBefore)
-    expect(state.clawChannels[0]).toMatchObject({
+    expect(state.remoteChannels).toEqual(bindingBefore)
+    expect(state.remoteChannels[0]).toMatchObject({
       runtimeId: 'codex',
       agentThreadIds: { codex: 'codex-thread' },
       workspaceRoot: '/workspace/sciforge',
@@ -171,8 +171,8 @@ describe('chat-store app actions', () => {
         workspaceRoot: '/workspace/sciforge'
       })]
     })
-    expect(state.clawChannels[0]).not.toHaveProperty('threadId')
-    expect(state.clawChannels[0]?.conversations[0]).not.toHaveProperty('localThreadId')
+    expect(state.remoteChannels[0]).not.toHaveProperty('threadId')
+    expect(state.remoteChannels[0]?.conversations[0]).not.toHaveProperty('localThreadId')
     expect(state.activeThreadId).toBe('codex-thread')
     expect(state.refreshClawChannels).toHaveBeenCalledTimes(1)
   })

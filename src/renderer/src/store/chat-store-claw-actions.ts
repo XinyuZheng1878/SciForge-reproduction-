@@ -32,7 +32,7 @@ type CreateClawActionsOptions = {
     platformCredential?: ClawImPlatformCredentialV1
   ) => ClawImChannelV1
   normalizeClawComposerModel: (raw: string) => string
-  activeClawChannel: (state: Pick<ChatState, 'clawChannels' | 'activeClawChannelId'>) => ClawImChannelV1 | null
+  activeRemoteChannel: (state: Pick<ChatState, 'remoteChannels' | 'activeRemoteChannelId'>) => ClawImChannelV1 | null
   normalizeWorkspaceRoot: (workspaceRoot?: string | null) => string
   formatRuntimeError: (error: unknown) => string
   shouldOpenSettingsForError: (error: unknown) => boolean
@@ -247,7 +247,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
     getProvider,
     newClawChannel,
     normalizeClawComposerModel,
-    activeClawChannel,
+    activeRemoteChannel,
     normalizeWorkspaceRoot,
     formatRuntimeError,
     shouldOpenSettingsForError,
@@ -286,11 +286,11 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       if (typeof window.sciforge === 'undefined') return
       const settings = await rendererRuntimeClient.getSettings()
       const channels = settings.remoteChannel.channels
-      const current = get().activeClawChannelId
+      const current = get().activeRemoteChannelId
       const activeId = current && channels.some((channel) => channel.id === current && channel.enabled)
         ? current
         : channels.find((channel) => channel.enabled)?.id ?? ''
-      set({ clawChannels: channels, activeClawChannelId: activeId })
+      set({ remoteChannels: channels, activeRemoteChannelId: activeId })
     },
 
     addClawChannel: async (provider, agentProfile, platformCredential, optionsArg) => {
@@ -336,8 +336,8 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
           }
         })
         set({
-          clawChannels: saved.remoteChannel.channels,
-          activeClawChannelId: existing.id,
+          remoteChannels: saved.remoteChannel.channels,
+          activeRemoteChannelId: existing.id,
           ...(preserveRoute
             ? {}
             : { route: 'chat' as const, remoteGuardChannelId: null, connectPhonePanelOpen: true })
@@ -375,8 +375,8 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         }
       })
       set({
-        clawChannels: saved.remoteChannel.channels,
-        activeClawChannelId: nextChannel.id,
+        remoteChannels: saved.remoteChannel.channels,
+        activeRemoteChannelId: nextChannel.id,
         ...(preserveRoute
           ? {}
           : { route: 'chat' as const, remoteGuardChannelId: null, connectPhonePanelOpen: true })
@@ -386,7 +386,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
 
     selectClawChannel: async (channelId) => {
       if (get().runtimeConnection !== 'ready') {
-        set({ activeClawChannelId: channelId, error: i18n.t('common:runtimeActionNeedsConnection') })
+        set({ activeRemoteChannelId: channelId, error: i18n.t('common:runtimeActionNeedsConnection') })
         return
       }
       if (typeof window.sciforge === 'undefined') return
@@ -394,12 +394,12 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       const channels = settings.remoteChannel.channels
       const channel = channels.find((item) => item.id === channelId)
       if (!channel) {
-        set({ clawChannels: channels, activeClawChannelId: '', remoteGuardChannelId: null })
+        set({ remoteChannels: channels, activeRemoteChannelId: '', remoteGuardChannelId: null })
         return
       }
       set({
-        clawChannels: channels,
-        activeClawChannelId: channel.id,
+        remoteChannels: channels,
+        activeRemoteChannelId: channel.id,
         remoteGuardChannelId: null,
         composerModel: channel.model
       })
@@ -438,12 +438,12 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
                 : item
             )
             const saved = await rendererRuntimeClient.setSettings({ remoteChannel: { channels: nextChannels } })
-            set({ clawChannels: saved.remoteChannel.channels })
+            set({ remoteChannels: saved.remoteChannel.channels })
           }
           set({
             route: 'chat',
             remoteGuardChannelId: null,
-            activeClawChannelId: channel.id,
+            activeRemoteChannelId: channel.id,
             composerModel: channel.model,
             error: null
           })
@@ -479,7 +479,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
             : item
         )
         const saved = await rendererRuntimeClient.setSettings({ remoteChannel: { channels: nextChannels } })
-        set({ clawChannels: saved.remoteChannel.channels })
+        set({ remoteChannels: saved.remoteChannel.channels })
       }
       const placeholder = clawThreadPlaceholder(channel, threadId, desiredWorkspaceRoot, runtimeId)
       set((state) => ({
@@ -488,12 +488,12 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
           : [createdThread ?? recoveredThread ?? placeholder, ...state.threads]
       }))
       await get().selectThread(threadId)
-      set({ route: 'chat', activeClawChannelId: channel.id, remoteGuardChannelId: null })
+      set({ route: 'chat', activeRemoteChannelId: channel.id, remoteGuardChannelId: null })
     },
 
     selectClawConversation: async (channelId, threadId) => {
       if (get().runtimeConnection !== 'ready') {
-        set({ activeClawChannelId: channelId, error: i18n.t('common:runtimeActionNeedsConnection') })
+        set({ activeRemoteChannelId: channelId, error: i18n.t('common:runtimeActionNeedsConnection') })
         return
       }
       if (typeof window.sciforge === 'undefined') return
@@ -501,7 +501,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       const channels = settings.remoteChannel.channels
       const channel = channels.find((item) => item.id === channelId)
       if (!channel) {
-        set({ clawChannels: channels, activeClawChannelId: '' })
+        set({ remoteChannels: channels, activeRemoteChannelId: '' })
         return
       }
       const provider = getProvider()
@@ -517,8 +517,8 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       set({
         route: 'chat',
         remoteGuardChannelId: null,
-        clawChannels: channels,
-        activeClawChannelId: channel.id,
+        remoteChannels: channels,
+        activeRemoteChannelId: channel.id,
         composerModel: channel.model
       })
       const runtimeId = runtimeIdForClawConversation(channel, conversation, provider, settings)
@@ -572,10 +572,10 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
             : item
         )
         const saved = await rendererRuntimeClient.setSettings({ remoteChannel: { channels: nextChannels } })
-        set({ clawChannels: saved.remoteChannel.channels })
+        set({ remoteChannels: saved.remoteChannel.channels })
       }
       await get().selectThread(targetThreadId)
-      set({ route: 'chat', activeClawChannelId: channel.id, remoteGuardChannelId: null })
+      set({ route: 'chat', activeRemoteChannelId: channel.id, remoteGuardChannelId: null })
     },
 
     deleteClawChannel: async (channelId) => {
@@ -586,8 +586,8 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       const saved = await rendererRuntimeClient.setSettings({ remoteChannel: { channels } })
       const nextChannel = saved.remoteChannel.channels.find((item) => item.enabled) ?? null
       set({
-        clawChannels: saved.remoteChannel.channels,
-        activeClawChannelId: nextChannel?.id ?? '',
+        remoteChannels: saved.remoteChannel.channels,
+        activeRemoteChannelId: nextChannel?.id ?? '',
         remoteGuardChannelId: get().remoteGuardChannelId === channelId ? null : get().remoteGuardChannelId
       })
       if (channel && get().runtimeConnection === 'ready') {
@@ -646,9 +646,9 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         const saved = await rendererRuntimeClient.setSettings({ remoteChannel: { channels } })
         set((state) => ({
           route: 'chat',
-          activeClawChannelId: channel.id,
+          activeRemoteChannelId: channel.id,
           remoteGuardChannelId: null,
-          clawChannels: saved.remoteChannel.channels,
+          remoteChannels: saved.remoteChannel.channels,
           threads: state.threads.some((item) => item.id === thread.id)
             ? state.threads
             : [thread, ...state.threads]
@@ -680,7 +680,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       )
       const saved = await rendererRuntimeClient.setSettings({ remoteChannel: { channels } })
       set({
-        clawChannels: saved.remoteChannel.channels,
+        remoteChannels: saved.remoteChannel.channels,
         composerModel: normalized,
         error: i18n.t('common:remoteChannelModelChanged', { model: normalized })
       })
