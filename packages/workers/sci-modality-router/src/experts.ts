@@ -26,10 +26,11 @@ export const EXPERT_MODEL: Record<Modality, string> = {
   single_cell: 'c2s-singlecell',
 };
 
-// Translate-only system prompt. Mirrors the Vision Router contract: turn the
-// scientific input into faithful textual evidence; do NOT reason, plan, answer
-// the user, draw conclusions, or claim task completion. Each expert is a domain
-// model that natively generates the description; this just states the contract.
+// Translate-only system prompt. Mirrors the Model Router vision-translator
+// contract: turn the scientific input into faithful textual evidence; do NOT
+// reason, plan, answer the user, draw conclusions, or claim task completion.
+// Each expert is a domain model that natively generates the description; this
+// just states the contract.
 const SYSTEM_PROMPT = [
   'You are a SciForge scientific-modality translator.',
   'Convert the provided non-text scientific input into concise, faithful textual evidence for another agent.',

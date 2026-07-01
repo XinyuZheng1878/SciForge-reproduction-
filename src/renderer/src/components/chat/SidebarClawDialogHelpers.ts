@@ -1,6 +1,6 @@
-export type ClawInstallTarget = 'feishu' | 'lark' | 'weixin'
+export type ConnectPhoneInstallTarget = 'feishu' | 'lark' | 'weixin'
 
-export type ClawInstallQrState = {
+export type ConnectPhoneInstallQrState = {
   status: 'idle' | 'loading' | 'showing' | 'success' | 'error'
   url: string
   deviceCode: string
@@ -9,7 +9,7 @@ export type ClawInstallQrState = {
   error: string
 }
 
-export function formatClawInstallError(
+export function formatConnectPhoneInstallError(
   message: string,
   t: (k: string, opts?: Record<string, unknown>) => string
 ): string {
@@ -27,9 +27,9 @@ export function formatClawInstallError(
   return value
 }
 
-export function clawInstallTargetLabel(
+export function connectPhoneInstallTargetLabel(
   t: (k: string, opts?: Record<string, unknown>) => string,
-  target: ClawInstallTarget
+  target: ConnectPhoneInstallTarget
 ): string {
   if (target === 'weixin') return t('clawAddImTargetWeixin')
   return target === 'lark' ? t('clawAddImTargetLark') : t('clawAddImTargetFeishu')

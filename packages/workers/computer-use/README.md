@@ -11,7 +11,10 @@ This package owns the reusable surface:
 - model-visible tool-result image helpers
 - MCP `computer_use` tool entrypoint
 
-SciForge Runtime, Codex, Claude, and other runtimes should consume this worker through MCP
-instead of growing parallel computer-use implementations. The native backend
-loads optional host-control dependencies lazily and reports diagnostics when
-automation is unavailable on the current platform.
+SciForge Runtime, Codex, Claude, and other runtimes can consume this worker
+through the GUI-managed `gui_computer_use` MCP server. The GUI-Owl autonomous
+task worker currently coexists while human testing decides the final
+integration shape; this package remains the low-level primitive path for
+isolated browser control. The native backend loads optional host-control
+dependencies lazily and reports diagnostics when automation is unavailable on
+the current platform.

@@ -47,8 +47,8 @@ describe('computer-use runtime status', () => {
           ],
           recentRejections: [
             {
-              code: 'target_busy',
-              message: 'main-desktop is busy',
+              code: 'target_in_use',
+              message: 'main-desktop is already leased',
               targetId: 'main-desktop'
             }
           ]
@@ -89,8 +89,8 @@ describe('computer-use runtime status', () => {
     expect(status.activeLeases.map((lease) => lease.leaseId)).toEqual(['lease-1'])
     expect(status.recentRejections).toEqual([
       {
-        code: 'target_busy',
-        message: 'main-desktop is busy',
+        code: 'target_in_use',
+        message: 'main-desktop is already leased',
         targetId: 'main-desktop'
       }
     ])

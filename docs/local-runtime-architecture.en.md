@@ -60,7 +60,7 @@ context compaction, usage/cache telemetry). The current repository does not copy
 CodeWhale source, tests, or assets.
 When SciForge Runtime needs a model call, it treats the local Model Router `/v1` endpoint as a
 normal Responses-compatible provider. Upstream provider base URLs, provider API
-keys, vision service URLs, and internal profiles belong to Model Router
+keys, vision translator provider URLs, and internal profiles belong to Model Router
 configuration, not SciForge Runtime configuration.
 
 ## Cache-hit optimization

@@ -12,7 +12,8 @@ when the enabled UI panel calls it.
 > The scientific-modality translator now lives as a **worker** at
 > [`packages/workers/sci-modality-router`](../packages/workers/sci-modality-router) (port 3898,
 > `POST /modality/translate`, four native-to-text experts), not as a plug-in. It is still gated
-> inside Model Router by `SCIFORGE_SCIMODALITY_SERVICE_URL`.
+> inside Model Router by `SCIFORGE_SCIMODALITY_SERVICE_URL` and
+> `SCIFORGE_SCIMODALITY_SERVICE_TOKEN`.
 
 Paper Radar is a separate UI extension service, not a Model Router translator.
 

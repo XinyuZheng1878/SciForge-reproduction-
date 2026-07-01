@@ -36,8 +36,9 @@ _ARTIFACT_RE = re.compile(r"<\s*(?:ctrl\d+|pad|eos|bos|unk|s|/s|end_of_turn|star
 def clean_output(text: str) -> str:
     return _ARTIFACT_RE.sub("", text).strip()
 
-# Shared translate-only contract. Mirrors the Vision Router: produce faithful
-# textual evidence, never solve the task / answer the user / claim completion.
+# Shared translate-only contract. Mirrors the Model Router vision-translator
+# contract: produce faithful textual evidence, never solve the task / answer the
+# user / claim completion.
 TRANSLATE_ONLY_SYSTEM = (
     "You are a SciForge scientific-modality translator. Convert the provided "
     "non-text scientific input into concise, faithful natural-language evidence "

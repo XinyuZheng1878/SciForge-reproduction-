@@ -813,6 +813,37 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     })
   })
 
+  it('does not enable the GUI-managed computer-use MCP when the sidecar env guard is set', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const script = writeScript(
+      'cua-env-guard-child.js',
+      [
+        "process.stdout.write('KUN_READY ' + JSON.stringify({ service: 'kun', mode: 'serve', port: 8899 }) + '\\n')",
+        "setInterval(() => {}, 1_000)"
+      ].join('\n')
+    )
+    const module = await import('./local-runtime-process')
+    const previousSidecarUrl = process.env.SCIFORGE_CUA_SERVICE_URL
+    process.env.SCIFORGE_CUA_SERVICE_URL = 'http://127.0.0.1:3900'
+
+    try {
+      const settings = createSettings(script)
+      settings.agents.sciforge.dataDir = tempRoot
+
+      await expect(module.startLocalRuntimeChild(settings)).resolves.toBeUndefined()
+      await module.stopLocalRuntimeChildAndWait()
+
+      const parsed = JSON.parse(readFileSync(join(tempRoot, 'config.json'), 'utf8')) as any
+      expect(parsed.capabilities.mcp.servers.gui_computer_use).toMatchObject({
+        enabled: false
+      })
+    } finally {
+      if (previousSidecarUrl === undefined) delete process.env.SCIFORGE_CUA_SERVICE_URL
+      else process.env.SCIFORGE_CUA_SERVICE_URL = previousSidecarUrl
+      await module.stopLocalRuntimeChildAndWait()
+    }
+  })
+
   it('keeps the shared computer-use MCP server disabled when computer use is turned off', async () => {
     if (!tempRoot) throw new Error('temp root not initialized')
     const configPath = join(tempRoot, 'config.json')

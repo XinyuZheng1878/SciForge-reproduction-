@@ -30,10 +30,10 @@ import type {
   DiscordGuild
 } from '@shared/sciforge-api'
 import {
-  type ClawInstallQrState,
-  type ClawInstallTarget,
-  clawInstallTargetLabel,
-  formatClawInstallError
+  type ConnectPhoneInstallQrState,
+  type ConnectPhoneInstallTarget,
+  connectPhoneInstallTargetLabel,
+  formatConnectPhoneInstallError
 } from './SidebarClawDialogHelpers'
 import { ClawProviderLogo } from './SidebarClaw'
 import { openSafeExternalUrl } from '../../lib/open-external'
@@ -68,7 +68,7 @@ type WeixinInstallRequest = {
 
 type ConnectPhoneInstallRequest = FeishuInstallRequest | WeixinInstallRequest
 
-type ConnectPhonePanelTarget = ClawInstallTarget | 'discord'
+type ConnectPhonePanelTarget = ConnectPhoneInstallTarget | 'discord'
 
 const CONNECT_PHONE_SIDEBAR_TARGETS: readonly ConnectPhonePanelTarget[] = [
   'feishu',
@@ -76,7 +76,7 @@ const CONNECT_PHONE_SIDEBAR_TARGETS: readonly ConnectPhonePanelTarget[] = [
   'weixin',
   'discord'
 ]
-const INITIAL_QR_STATE: ClawInstallQrState = {
+const INITIAL_QR_STATE: ConnectPhoneInstallQrState = {
   status: 'idle',
   url: '',
   deviceCode: '',
@@ -89,7 +89,7 @@ const INTERNAL_REMOTE_CHANNEL_WORKSPACE_FRAGMENTS = [
   '/.sciforge/claw/'
 ] as const
 
-export function connectPhoneProviderForTarget(target: ClawInstallTarget): ClawImProvider {
+export function connectPhoneProviderForTarget(target: ConnectPhoneInstallTarget): ClawImProvider {
   return target === 'weixin' ? 'weixin' : 'feishu'
 }
 
@@ -112,7 +112,7 @@ export function hasClawPhoneChannel(
 }
 
 export function connectPhoneInstallRequestOptions(
-  target: ClawInstallTarget
+  target: ConnectPhoneInstallTarget
 ): ConnectPhoneInstallRequest {
   if (target === 'weixin') {
     return { provider: 'weixin' }
@@ -123,7 +123,7 @@ export function connectPhoneInstallRequestOptions(
   }
 }
 
-function isPhoneInstallTarget(target: ConnectPhonePanelTarget): target is ClawInstallTarget {
+function isPhoneInstallTarget(target: ConnectPhonePanelTarget): target is ConnectPhoneInstallTarget {
   return target !== 'discord'
 }
 
@@ -131,7 +131,7 @@ function connectPhoneTargetLabel(
   t: (k: string, opts?: Record<string, unknown>) => string,
   target: ConnectPhonePanelTarget
 ): string {
-  return target === 'discord' ? t('connectPhoneTargetDiscord') : clawInstallTargetLabel(t, target)
+  return target === 'discord' ? t('connectPhoneTargetDiscord') : connectPhoneInstallTargetLabel(t, target)
 }
 
 export function normalizeConnectPhoneWorkspaceRoot(workspaceRoot?: string): string {
@@ -251,7 +251,7 @@ export function ConnectPhoneSidebarPanel({
 }): ReactElement {
   const { t } = useTranslation('common')
   const [target, setTarget] = useState<ConnectPhonePanelTarget>('feishu')
-  const [installQr, setInstallQr] = useState<ClawInstallQrState>(INITIAL_QR_STATE)
+  const [installQr, setInstallQr] = useState<ConnectPhoneInstallQrState>(INITIAL_QR_STATE)
   const [saving, setSaving] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [disconnectError, setDisconnectError] = useState('')
@@ -314,7 +314,7 @@ export function ConnectPhoneSidebarPanel({
         ...INITIAL_QR_STATE,
         status: 'error',
         error: t('connectPhoneProviderAlreadyConnected', {
-          provider: provider === 'weixin' ? clawInstallTargetLabel(t, 'weixin') : 'Feishu / Lark'
+          provider: provider === 'weixin' ? connectPhoneInstallTargetLabel(t, 'weixin') : 'Feishu / Lark'
         })
       })
       return
@@ -334,7 +334,7 @@ export function ConnectPhoneSidebarPanel({
       setInstallQr((current) => ({
         ...current,
         status: 'error',
-        error: formatClawInstallError(error instanceof Error ? error.message : String(error), t)
+        error: formatConnectPhoneInstallError(error instanceof Error ? error.message : String(error), t)
       }))
     } finally {
       setSaving(false)
@@ -348,7 +348,7 @@ export function ConnectPhoneSidebarPanel({
         ...INITIAL_QR_STATE,
         status: 'error',
         error: t('connectPhoneProviderAlreadyConnected', {
-          provider: targetProvider === 'weixin' ? clawInstallTargetLabel(t, 'weixin') : 'Feishu / Lark'
+          provider: targetProvider === 'weixin' ? connectPhoneInstallTargetLabel(t, 'weixin') : 'Feishu / Lark'
         })
       })
       return
@@ -388,7 +388,7 @@ export function ConnectPhoneSidebarPanel({
       setInstallQr({
         ...INITIAL_QR_STATE,
         status: 'error',
-        error: formatClawInstallError(error instanceof Error ? error.message : String(error), t)
+        error: formatConnectPhoneInstallError(error instanceof Error ? error.message : String(error), t)
       })
       return
     } finally {
@@ -401,7 +401,7 @@ export function ConnectPhoneSidebarPanel({
       setInstallQr({
         ...INITIAL_QR_STATE,
         status: 'error',
-        error: formatClawInstallError(result.message, t)
+        error: formatConnectPhoneInstallError(result.message, t)
       })
       return
     }
@@ -457,7 +457,7 @@ export function ConnectPhoneSidebarPanel({
           setInstallQr((current) => ({
             ...current,
             status: 'error',
-            error: formatClawInstallError(poll.error ?? t('clawAddImOfficialQrFailed'), t)
+            error: formatConnectPhoneInstallError(poll.error ?? t('clawAddImOfficialQrFailed'), t)
           }))
         }
       } catch (error) {
@@ -467,7 +467,7 @@ export function ConnectPhoneSidebarPanel({
         setInstallQr((current) => ({
           ...current,
           status: 'error',
-          error: formatClawInstallError(error instanceof Error ? error.message : String(error), t)
+          error: formatConnectPhoneInstallError(error instanceof Error ? error.message : String(error), t)
         }))
       }
     }

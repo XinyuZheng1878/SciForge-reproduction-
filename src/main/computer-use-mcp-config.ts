@@ -16,6 +16,7 @@ import {
   type ManagedGuiMcpLaunchConfig
 } from './managed-gui-mcp-config'
 
+// GUI-managed @sciforge/computer-use MCP server id; this is not the GUI-Owl service.
 export const GUI_COMPUTER_USE_MCP_SERVER_NAME = 'gui_computer_use'
 export const COMPUTER_USE_MCP_TOOL_NAME = 'computer_use'
 export const COMPUTER_USE_MCP_BACKEND = 'browser-cdp'

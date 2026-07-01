@@ -58,13 +58,14 @@ The contract and event/capability shape are documented in
 - No drawing/design starter card in the core workbench.
 - No `/usage` or `/runtime` slash command that opens a runtime control panel.
 
-## Legacy Data Rule
+## Historical Data Migration Rule
 
-Old persisted keys may be read only inside settings migration:
+Old persisted keys may be read only inside settings migration. They are
+historical input, not a compatibility API for new writes or new code paths:
 
 - `agentProvider: codewhale | reasonix | deepseek-runtime` maps to
   `activeAgentRuntime: "sciforge"`.
-- `agents.codewhale`, `agents.reasonix`, and legacy `deepseek` values seed
+- `agents.codewhale`, `agents.reasonix`, and historical `deepseek` values seed
   `agents.sciforge` once.
 - Saved settings preserve `agents.sciforge` and may contain `agents.codex`; they must
   not retain `agents.codewhale` or `agents.reasonix`.
@@ -92,18 +93,18 @@ Manual smoke:
   interrupt a turn.
 - When Codex is explicitly configured and selected, Code routes through the
   Codex runtime boundary without changing SciForge Runtime settings or threads.
-- CodeWhale parity endpoints still work through SciForge Runtime: thread search/archive
+- SciForge Runtime covers the current AgentRuntime behaviors: thread search/archive
   filters, fork, session resume, request_user_input submit/cancel, and usage.
-- Cache telemetry uses DeepSeek native `prompt_cache_hit_tokens` /
-  `prompt_cache_miss_tokens`; hot SciForge Runtime turns should stay above 90% cache
-  hit after the stable prefix is warm.
+- Cache telemetry uses upstream DeepSeek-compatible `prompt_cache_hit_tokens` /
+  `prompt_cache_miss_tokens` returned through Model Router; hot SciForge Runtime
+  turns should stay above 90% cache hit after the stable prefix is warm.
 - Immutable prefix drift and malformed tool-call/tool-result history must be
-  caught before a request reaches DeepSeek.
+  caught before a request reaches Model Router.
 - Write can open the workspace, request inline completion, and use selected-text
   assistant actions; assistant threads are isolated by active runtime.
 - Connect phone can save settings and run manual SciForge Runtime tasks. Runtime-id support
-  for Codex-backed phone/schedule tasks must preserve legacy local runtime mappings for
-  migrated data and must not write Codex thread IDs into local runtime mappings.
+  for Codex-backed phone/schedule tasks must preserve migrated SciForge Runtime mappings
+  and must not write Codex thread IDs into local runtime mappings.
 
 SciForge Runtime details are in
 [`docs/local-runtime-architecture.md`](./local-runtime-architecture.md). Product-level runtime

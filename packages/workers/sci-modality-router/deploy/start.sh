@@ -71,5 +71,5 @@ ensure scimodality "http://127.0.0.1:${SCIMODALITY_ROUTER_PORT:-3898}/health" \
   "$RUN/scimodality.log" scimodality "Authorization: Bearer ${SCIMODALITY_ROUTER_RUNTIME_TOKEN}"
 
 log "================ scientific-modality worker UP ================"
-log "Module: http://127.0.0.1:${SCIMODALITY_ROUTER_PORT:-3898}  (GET /experts/status to check experts)"
-log "Model Router host: ssh -p <port> -N -L 3898:127.0.0.1:3898 <server>  then SCIFORGE_SCIMODALITY_SERVICE_URL=http://127.0.0.1:3898"
+log "Module: http://127.0.0.1:${SCIMODALITY_ROUTER_PORT:-3898}  (GET /experts/status with Bearer token to check experts)"
+log "Model Router host: ssh -p <port> -N -L 3898:127.0.0.1:3898 <server>  then set SCIFORGE_SCIMODALITY_SERVICE_URL=http://127.0.0.1:3898 and SCIFORGE_SCIMODALITY_SERVICE_TOKEN=<runtime-token>"

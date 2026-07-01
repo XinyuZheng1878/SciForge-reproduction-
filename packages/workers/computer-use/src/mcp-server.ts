@@ -81,7 +81,7 @@ export function createComputerUseMcpServer(
       'For GUI/browser tasks, keep using navigate, screenshot, click, type, key, scroll, wait, and related actions in this tool; do not replace the workflow with shell/open/osascript/screencapture/pbpaste or direct scraping unless the user explicitly asks for that fallback.',
       'Repeated screenshots are normal observation steps; use their latest visible state to decide the next UI action.',
       'If a target is already leased by another agent, the request is rejected with target_in_use instead of queued or preempted.',
-      'All runtimes should use this single MCP tool instead of implementing parallel computer-use paths.'
+      'Use this GUI-managed @sciforge/computer-use MCP path for low-level isolated browser control; the GUI-Owl autonomous task path currently coexists while human testing decides consolidation.'
     ].join(' '),
     inputSchema: {
       action: computerUseActionSchema,

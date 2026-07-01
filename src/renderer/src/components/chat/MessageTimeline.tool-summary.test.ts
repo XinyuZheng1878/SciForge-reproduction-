@@ -720,6 +720,22 @@ describe('MessageTimeline local runtime metadata smoke', () => {
     expect(html).not.toContain('Channel:')
   })
 
+  it('uses a neutral label for generic remote-channel user messages', () => {
+    const block: ChatBlock = {
+      kind: 'user',
+      id: 'user_remote_generic',
+      text: 'remote follow-up',
+      managedBy: 'remoteChannel',
+      meta: { source: 'remote' }
+    }
+
+    const html = renderToStaticMarkup(createElement(MessageBubble, { block }))
+
+    expect(html).toContain('remote follow-up')
+    expect(html).toContain('Remote channel')
+    expect(html).not.toContain('Feishu / Lark')
+  })
+
   it('hides legacy runtime context prefixes from user bubbles', () => {
     const block: ChatBlock = {
       kind: 'user',

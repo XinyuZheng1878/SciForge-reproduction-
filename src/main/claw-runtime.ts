@@ -3501,21 +3501,15 @@ export class ClawRuntime {
         // entry for read receipts in its `EventMap`, and the SDK's internal
         // `EventDispatcher` does not pre-register a handler either — so the
         // dispatcher emits a `no im.message.message_read_v1 handle` warn on
-        // every receipt. Register a no-op here to silence the warn until we
-        // have product behavior for read receipts.
-        //
-        // TODO: replace this no-op with a real handler once we decide what to
-        //       do with read receipts (e.g. track in chat store, update agent
-        //       state, drive read-driven follow-ups).
+        // every receipt. Register an intentional no-op while read receipts
+        // remain outside the product behavior boundary.
         const dispatcher = (bridge as unknown as {
           dispatcher?: {
             register(handles: Record<string, (raw: unknown) => Promise<void> | void>): void
           }
         }).dispatcher
         dispatcher?.register({
-          'im.message.message_read_v1': () => {
-            // intentionally empty — see TODO above
-          }
+          'im.message.message_read_v1': () => undefined
         })
         await bridge.connect()
         if (version !== this.feishuSyncVersion) {

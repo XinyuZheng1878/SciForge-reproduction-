@@ -83,6 +83,13 @@ function computerUseStatusPill(available: boolean | undefined): string {
   return 'border-ds-border-muted bg-ds-card text-ds-faint'
 }
 
+type ComputerUseBackendSafetyStatus = {
+  inputIsolation?: string
+  affectsUserInput?: boolean
+  requiresHostFocus?: boolean
+  usesHostClipboard?: boolean
+}
+
 function checkpointStatusPill(status: string | undefined): string {
   if (status === 'available') return 'border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
   if (status === 'restored') return 'border-blue-400/30 bg-blue-500/10 text-blue-700 dark:text-blue-200'
@@ -2294,6 +2301,15 @@ function ComputerUseSettingsCard({ ctx }: { ctx: Record<string, any> }): ReactEl
   const [notice, setNotice] = useState<{ tone: 'error' | 'info' | 'success'; message: string } | null>(null)
   const computerUse = form ? getComputerUseSettings(form) : defaultComputerUseSettings()
   const backend = status?.runtime.backend
+  const backendSafety = backend as (typeof backend & ComputerUseBackendSafetyStatus) | null | undefined
+  const backendSafetyChips = backend
+    ? [
+        { label: 'inputIsolation', value: backendSafety?.inputIsolation },
+        { label: 'affectsUserInput', value: backendSafety?.affectsUserInput },
+        { label: 'requiresHostFocus', value: backendSafety?.requiresHostFocus },
+        { label: 'usesHostClipboard', value: backendSafety?.usesHostClipboard }
+      ].filter((chip): chip is { label: string; value: string | boolean } => chip.value !== undefined)
+    : []
   const activeLeases = status?.runtime.activeLeases ?? []
   const recentRejections = status?.runtime.recentRejections ?? []
   const permissions = status?.permissions
@@ -2435,6 +2451,15 @@ function ComputerUseSettingsCard({ ctx }: { ctx: Record<string, any> }): ReactEl
                     ? t('computerUseBackendUnavailable')
                     : t('computerUseBackendUnknown')}
               </span>
+              {backendSafetyChips.map((chip) => (
+                <span
+                  key={chip.label}
+                  className="inline-flex max-w-full items-center gap-1 rounded-lg border border-ds-border-muted bg-ds-main/40 px-2 py-1 text-[11px] font-medium text-ds-muted"
+                >
+                  <span className="font-mono text-ds-faint">{chip.label}</span>
+                  <span className="font-mono text-ds-ink">{String(chip.value)}</span>
+                </span>
+              ))}
               <button
                 type="button"
                 onClick={() => void refresh()}

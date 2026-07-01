@@ -23,7 +23,7 @@ kun/
     contracts/   HTTP/SSE 合约的 Zod schema 与派生类型
     domain/      Thread、Turn、Item、Event、Approval、Usage 实体
     ports/       ModelClient、ToolHost、stores、EventBus、ApprovalGate 等
-    adapters/    Model Router 兼容模型客户端、本地工具宿主、内存/文件存储、工作区检查器
+    adapters/    Model Router 模型客户端、本地工具宿主、内存/文件存储、工作区检查器
     services/    线程与回合编排服务
     loop/        Cache-first 的 agent loop 与 inflight 辅助逻辑
     cache/       LRU/TTL 缓存与不可变前缀工具
@@ -100,7 +100,11 @@ kun exec --data-dir ~/.sciforge/runtime --workspace "$PWD" read --args '{"path":
 - `KUN_RUNTIME_TOKEN` – 运行时 token（覆盖 `--runtime-token`）
 - `KUN_MODEL_ROUTER_API_KEY` – Model Router runtime API key（覆盖 `serve.apiKey`）
 - `KUN_MODEL_ROUTER_BASE_URL` – 本地 Model Router `/v1` base URL（覆盖 `--model-router-base-url`）
-- `KUN_MODEL` – 默认模型 ID（覆盖 `--model`）
+- `KUN_MODEL` – 默认 Model Router public model alias（覆盖 `--model`）
+
+`KUN_*` 名称是 standalone runtime 进程保留的机器协议与 CLI/env 边界。
+它们不是用户可见产品名，也不是新增公开 API 的命名模板；新的用户可见文案
+应使用 SciForge Runtime 或 local runtime，除非正在说明这些精确变量。
 
 ## 配置文件
 
@@ -228,9 +232,9 @@ SciForge Runtime 使用 JSON 配置文件管理运行时行为，避免重建后
 router endpoint 由 GUI 的 Model Router 设置、`--model-router-base-url`
 或 `KUN_MODEL_ROUTER_BASE_URL` 提供；它不写入 SciForge Runtime config。
 
-SciForge Runtime 默认使用混合存储：`threads/{threadId}/messages.jsonl` 与 `events.jsonl` 是会话的标准回放日志；`index.sqlite3` 仅保存可重建的线程元数据（列表与搜索加速）。将 `serve.storage.backend` 设置为 `"file"` 可以回退到旧版 JSON 索引，或设置 `serve.storage.sqlitePath` 覆盖默认的 `{dataDir}/index.sqlite3`。
+SciForge Runtime 默认使用混合存储：`threads/{threadId}/messages.jsonl` 与 `events.jsonl` 是会话的标准回放日志；`index.sqlite3` 仅保存可重建的线程元数据（列表与搜索加速）。将 `serve.storage.backend` 设置为 `"file"` 可以使用文件 JSON 索引后端，或设置 `serve.storage.sqlitePath` 覆盖默认的 `{dataDir}/index.sqlite3`。
 
-模型窗口、模型能力和模型级压缩阈值写在 `models.profiles`。内置配置覆盖 `sciforge-router`、`sciforge-router-fast` 等 Model Router public alias；默认 router profile 是 1M 上下文，并在约 980k input tokens 时开始压缩。旧的 `contextCompaction.modelProfiles` 和 profile 顶层阈值字段不再读取；请使用 `models.profiles[model].contextCompaction`。更完整的文件位置、字段格式和用户自定义方式见 `../docs/local-runtime-config.md`。
+模型窗口、模型能力和模型级压缩阈值写在 `models.profiles`。内置配置覆盖 `sciforge-router`、`sciforge-router-fast` 等 Model Router public alias；默认 router profile 是 1M 上下文，并在约 980k input tokens 时开始压缩。此前的 `contextCompaction.modelProfiles` 和 profile 顶层阈值字段不再读取；请使用 `models.profiles[model].contextCompaction`。更完整的文件位置、字段格式和用户自定义方式见 `../docs/local-runtime-config.md`。
 
 功能开关是显式设计：
 

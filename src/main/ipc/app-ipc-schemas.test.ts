@@ -534,6 +534,24 @@ describe('app-ipc-schemas', () => {
     ).toThrow(/Unrecognized key/)
   })
 
+  it('rejects legacy computer-use backend patch fields', () => {
+    expect(() =>
+      settingsPatchSchema.parse({
+        computerUse: {
+          backend: 'global-native'
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+
+    expect(() =>
+      settingsPatchSchema.parse({
+        computerUse: {
+          experimentalAppScopedBackend: true
+        }
+      })
+    ).toThrow(/Unrecognized key/)
+  })
+
   it('accepts schedule settings patches and task payloads', () => {
     const payload = settingsPatchSchema.parse({
       schedule: {

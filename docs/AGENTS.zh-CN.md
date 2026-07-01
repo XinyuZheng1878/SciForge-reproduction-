@@ -52,13 +52,14 @@ contract、event 与 capability 形状见
 - 不要恢复绘图/设计的启动卡片。
 - 不要新增打开运行时控制面板的 `/usage` 或 `/runtime` 斜杠命令。
 
-## 旧数据兼容规则
+## 历史数据迁移规则
 
-旧的持久化 key 仅在 settings 迁移时按只读路径使用：
+旧的持久化 key 仅在 settings 迁移时按只读路径使用。它们是历史输入，不是给新写入
+或新代码路径使用的兼容 API：
 
 - `agentProvider: codewhale | reasonix | deepseek-runtime` 映射为
   `activeAgentRuntime: "sciforge"`。
-- `agents.codewhale`、`agents.reasonix` 和旧 `deepseek` 的值会一次性写入 `agents.sciforge`。
+- `agents.codewhale`、`agents.reasonix` 和历史 `deepseek` 的值会一次性写入 `agents.sciforge`。
 - 保存后的 settings 保留 `agents.sciforge`，也可以包含 `agents.codex`；不能继续保留
   `agents.codewhale` 或 `agents.reasonix`。
 - 旧手机连接 / remote-channel 数据（历史内部 `claw` 标识）的
@@ -81,11 +82,11 @@ npm run build
 - 设置 -> Agent 可以展示 SciForge Runtime 和 Codex runtime 设置，但不出现 CodeWhale/Reasonix 配置块。
 - Code 可以创建 SciForge Runtime 会话、流式回传回复、进行工具审批/拒绝、以及中断回合。
 - Codex 被显式配置并选中后，Code 会通过 Codex runtime 边界路由，且不改写 SciForge Runtime 设置或 SciForge Runtime 会话。
-- CodeWhale 的等价能力应保持在 SciForge Runtime 下可用：会话搜索/归档筛选、fork、会话恢复、`request_user_input` 提交与取消、usage 查询。
-- 缓存指标使用 DeepSeek 原生 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`；在稳定前缀热身后，热门对话的 hit rate 应长期保持在 90% 以上。
-- 不可变前缀漂移与异常的 tool-call/tool-result 历史必须在请求下发 DeepSeek 前被拦截。
+- SciForge Runtime 应覆盖当前 AgentRuntime 行为：会话搜索/归档筛选、fork、会话恢复、`request_user_input` 提交与取消、usage 查询。
+- 缓存指标使用 Model Router 返回的上游 DeepSeek-compatible `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`；在稳定前缀热身后，热门对话的 hit rate 应长期保持在 90% 以上。
+- 不可变前缀漂移与异常的 tool-call/tool-result 历史必须在请求到达 Model Router 前被拦截。
 - Write 可以打开工作区、发起 inline 补全、使用选中文本助手动作；assistant thread 按当前运行时隔离。
-- 连接手机可以保存设置，并继续执行 SciForge Runtime 手工任务。后续为 Codex-backed 手机连接 / 定时任务补 runtime-id 时，必须保留迁移数据的默认运行时映射，且不能把 Codex thread id 写进默认运行时映射。
+- 连接手机可以保存设置，并继续执行 SciForge Runtime 手工任务。后续为 Codex-backed 手机连接 / 定时任务补 runtime-id 时，必须保留已迁移的 SciForge Runtime 映射，且不能把 Codex thread id 写进默认运行时映射。
 
 SciForge Runtime 细节见 [`docs/local-runtime-architecture.md`](./local-runtime-architecture.md)。产品级
 runtime contract 细节见

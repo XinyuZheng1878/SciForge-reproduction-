@@ -51,6 +51,16 @@
 - [x] 统一 provider capability 判断和 side conversation 入口：thread/side/maintenance action 共享 `providerSupportsCapability`，`/btw` 与 topbar 入口按 `forkThread` / `fork` / `sideConversations` 一致 gating，side SSE 失败会收敛 busy/error 状态。
 - [x] 收敛 plan/todo 一致性：renderer plan merge 保留已完成 todo，runtime `preserveCompleted` 只保护 completed，local-runtime auxiliary get/set todos 统一走 normalizer，GUI plan registry 使用 shared plan id/workspace helper。
 - [x] 补齐 remote-channel / schedule 公开边界测试和文档：删除 stale `imCommandNotReadyText`，Workbench 本地 help 不再广告未支持的 `/attach current`，DESIGN 补列 `createScheduleTaskFromText`，IPC 覆盖 `remoteChannel:task:create-from-text`。
+- [x] 删除 Connect phone 安装链路的 WeChat bridge 旧环境变量回退，显式配置优先，其次走 managed bridge resolver，最后仅使用默认本地 endpoint。
+- [x] 将 remote-channel `message_read` 处理标记为当前产品边界内的显式 no-op，等待 read receipts 决策前不再保留模糊 TODO。
+- [x] 修正 generic `remoteChannel` 消息来源展示，不再把未知 remote-channel 默认标成 Feishu / Lark。
+- [x] 补齐 sci-modality router 的 Model Router 接入 token 文档和部署提示，并把 translate-only 注释统一到 Model Router vision-translator contract。
+- [x] 收紧 Model Router 静态边界审查：legacy image direct env 只允许 managed image-generation config，`EDAG_LLM_*` 只允许 Evidence DAG sidecar scrubber。
+- [x] 清理 stale 文档中的旧 runtime / direct provider / bare `SKILL.md` 表述：runtime 文档聚焦 Model Router 链路，scientific skills MCP 明确只读索引/读取/规划，安装入口保持显式 GUI/IPC approval。
+- [x] 清理 Connect phone 安装链路内部命名：删除未用 `postJson` / `sleep`，private install result type 和 renderer helper 改为 `ConnectPhoneInstall*` 语义。
+- [x] computer-use 决策前收口：文档明确 `@sciforge/computer-use` 与 `gui-owl-computer-use` 暂并存等待人工测试；`gui_computer_use` 注明为 GUI-managed `@sciforge/computer-use` MCP，不等同 GUI-Owl。
+- [x] computer-use 配置加防回归：`SCIFORGE_CUA_SERVICE_URL` 存在时不启用 GUI-managed `@sciforge/computer-use` MCP，避免同一 runtime config 注册重复 `computer_use`。
+- [x] computer-use 状态 UI 只透出高价值 target 安全字段 `inputIsolation`、`affectsUserInput`、`requiresHostFocus`、`usesHostClipboard`，并把 rejection fixture 统一为 canonical `target_in_use`。
 
 ## 验证记录
 
@@ -86,12 +96,19 @@
 - [x] `npx vitest run src/renderer/src/store/chat-store-provider-capabilities.test.ts src/renderer/src/store/chat-store-side-actions.test.ts src/renderer/src/components/chat/FloatingComposer.test.ts src/renderer/src/components/chat/WorkbenchTopBar.test.ts`
 - [x] `npx vitest run src/main/runtime/local-runtime-agent-runtime-adapter.test.ts src/renderer/src/agent/agent-runtime-event-dispatcher.test.ts`
 - [x] `npm --prefix kun test -- tests/thread-service.test.ts`
+- [x] `npx vitest run src/main/claw-platform-install.test.ts src/main/claw-runtime.test.ts src/main/weixin-bridge-runtime.test.ts src/main/ipc/register-app-ipc-handlers.test.ts`
+- [x] `npx vitest run src/renderer/src/components/chat/MessageTimeline.tool-summary.test.ts`
+- [x] `npx vitest run src/main/model-router-api-boundary.test.ts src/main/image-generation-mcp-config.test.ts`
+- [x] `npm --workspace @sciforge/sci-modality-router run typecheck`
+- [x] `npm --workspace @sciforge/sci-modality-router run test`
+- [x] `npx vitest run src/main/claw-platform-install.test.ts src/renderer/src/components/chat/SidebarClawDialogHelpers.test.ts src/renderer/src/components/chat/ConnectPhoneView.test.ts`
+- [x] `npx vitest run src/main/ipc/app-ipc-schemas.test.ts src/main/local-runtime-process.test.ts src/main/services/computer-use-status.test.ts src/renderer/src/components/settings-section-agents.test.ts src/main/computer-use-mcp-config.test.ts`
 - [x] `git diff --check`
 
 ## 已决策待实施
 
 - [x] 关闭 settings normalizer 旧 `threadId` / `localThreadId` / `lastThreadId` 兼容窗口：settings 类型、normalizer、IPC patch schema、schedule/remote-channel UI 与测试 fixture 已统一只读写 canonical `agentThreadIds`，旧字段作为 patch 输入会被 strict schema 拒绝。
-- [x] 关闭 WeChat bridge 旧 `openclaw.json` / legacy credentials token 运行态兼容：内置 bridge 不再读取旧 `openclaw.json`，也不再从 `weixin-bridge/credentials/openclaw-weixin/credentials.json` 回退 token；发送链路只使用当前 per-account token。
+- [x] 关闭 WeChat bridge 旧 `openclaw.json` / legacy credentials token / legacy env endpoint 运行态兼容：内置 bridge 不再读取旧 `openclaw.json`，也不再从 `weixin-bridge/credentials/openclaw-weixin/credentials.json` 回退 token；Connect phone 安装链路不再读取 `SCIFORGE_WEIXIN_BRIDGE_URL` / `SCIFORGE_OPENCLAW_GATEWAY_URL` / `OPENCLAW_GATEWAY_URL`；发送链路只使用当前 per-account token。
 - [x] 收敛 Codex app-server compatibility re-export；内部测试/import 已迁到 `app-server/`，已删除 shim、旧 request registry shim 与 README 兼容说明。
 - [x] 收敛 `window.sciforge` 里的 Feishu mirror 旧公开 API；已删除 `mirrorRemoteChannelMessageToFeishu` / `mirror-to-feishu` 兼容窗口，改为 remote-channel 中性 API。
 - [x] public runtime machine protocol 暂继续保留 `KUN_READY`、health `service: "kun"`、CLI/env `KUN_*` 作为底层协议边界；本轮记录为协议边界决策，不做 breaking rename。

@@ -55,7 +55,9 @@ steering queue、context compaction、usage/cache telemetry。该参考关系仅
 当前仓库未复制 Reasonix 或 CodeWhale 源码、测试或资产。
 SciForge Runtime 需要调用模型时，把本地 Model Router `/v1` 当成普通 Responses-compatible
 provider；上游 provider base URL、provider API key、vision service URL 和
-internal profile 都属于 Model Router 内部配置，不进入 SciForge Runtime 配置。
+provider；上游 provider base URL、provider API key、vision translator
+provider URL 和 internal profile 都属于 Model Router 内部配置，不进入
+SciForge Runtime 配置。
 
 ## Multi-Agent Worker 边界
 

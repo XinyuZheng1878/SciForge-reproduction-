@@ -28,7 +28,7 @@ kun/
     contracts/   Zod schemas and inferred types for the HTTP/SSE contract
     domain/      Thread, Turn, Item, Event, Approval, Usage entities
     ports/       ModelClient, ToolHost, stores, EventBus, ApprovalGate, ...
-    adapters/    Model Router-compatible model client, local tool host,
+    adapters/    Model Router model client, local tool host,
                  in-memory and file-backed stores, workspace inspector
     services/    Thread and turn orchestration services
     loop/        The cache-first agent loop and inflight helpers
@@ -106,7 +106,12 @@ The runtime reads these from `process.env` when not set via CLI flags.
 - `KUN_RUNTIME_TOKEN` – bearer token (overrides `--runtime-token` if set)
 - `KUN_MODEL_ROUTER_API_KEY` – Model Router runtime API key (overrides `serve.apiKey`)
 - `KUN_MODEL_ROUTER_BASE_URL` – local Model Router `/v1` base URL (overrides `--model-router-base-url`)
-- `KUN_MODEL` – default model id (overrides `--model` if set)
+- `KUN_MODEL` – default Model Router public model alias (overrides `--model` if set)
+
+The `KUN_*` names are retained machine-protocol and CLI/env boundaries for the
+standalone runtime process. They are not user-facing product names and should
+not be copied into new public APIs; new user-visible text should use
+SciForge Runtime or local runtime unless it refers to these exact variables.
 
 ## Config file
 
@@ -240,8 +245,8 @@ it is not stored in the SciForge Runtime config.
 SciForge Runtime defaults to hybrid session storage: `threads/{threadId}/messages.jsonl`
 and `events.jsonl` remain the canonical transcript/replay logs, while
 `index.sqlite3` stores only rebuildable thread metadata for fast lists
-and search. Set `serve.storage.backend` to `"file"` to use the legacy
-JSON index backend, or set `serve.storage.sqlitePath` to override the
+and search. Set `serve.storage.backend` to `"file"` to use the
+file JSON index backend, or set `serve.storage.sqlitePath` to override the
 default `{dataDir}/index.sqlite3` path.
 
 Model-specific context windows, capabilities, and compaction thresholds
@@ -249,7 +254,7 @@ belong in `models.profiles`. Built-in profiles already cover
 Model Router public aliases such as `sciforge-router` and
 `sciforge-router-fast`; the default router profiles use a 1M context
 window and start compaction around 980k input tokens.
-The legacy `contextCompaction.modelProfiles` location and flat per-profile
+The previous `contextCompaction.modelProfiles` location and flat per-profile
 threshold fields are no longer read; use `models.profiles[model].contextCompaction`.
 See `../docs/local-runtime-config.md` for the detailed file layout and examples.
 
@@ -412,8 +417,8 @@ stay local to one thread, leave it as a pinned constraint.
 
 ## GUI integration
 
-After the legacy provider retirement, the SciForge main process
-starts SciForge Runtime through `local-runtime-process.ts` and exposes it
+In the current GUI integration, the SciForge main process starts SciForge
+Runtime through `local-runtime-process.ts` and exposes it
 through the neutral `AgentRuntime` adapter. The renderer uses
 `window.sciforge.agentRuntime` instead of calling the local HTTP/SSE service
 directly. Settings live under `agents.sciforge` in

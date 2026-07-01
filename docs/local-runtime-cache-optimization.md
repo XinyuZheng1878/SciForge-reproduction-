@@ -9,8 +9,8 @@
 
 SciForge Runtime 的缓存优化服务于四个目标：
 
-- 让发送给 DeepSeek 的请求前缀尽可能字节稳定。
-- 让缓存命中统计与 DeepSeek 原生字段一致，而不是依赖猜测。
+- 让经 Model Router 发送给上游模型的请求前缀尽可能字节稳定。
+- 让缓存命中统计与上游 DeepSeek-compatible 原生字段一致，而不是依赖猜测。
 - 让 prefix 漂移和消息历史污染在开发期就被发现。
 - 让 GUI 只承担 HTTP/SSE 调用职责，把缓存纪律收敛在 SciForge Runtime 内部。
 
@@ -37,7 +37,7 @@ schema、超长工具输出、MCP 工具目录、无效 retry 或历史噪声消
 SciForge Runtime 参考了 Reasonix 的 cache-first 设计思想，但按 GUI 场景做了独立实现和收束；该参考关系仅为 reference/inspiration only，未复制 Reasonix 源码、测试或资产：
 
 - GUI 不拼 prompt，不在 renderer 或 main process 做缓存判断。
-- 本地 runtime service 是唯一请求出口，缓存相关策略都放在运行时内部。
+- SciForge Runtime 只调用本地 Model Router `/v1` 作为 LLM 出口，缓存相关策略都放在运行时内部。
 - 稳定前缀和动态上下文分离：稳定部分追求复用，动态部分只允许追加。
 - 统计、验证、回归测试一起维护，避免“实现变了，面板数字还好看”的假象。
 
@@ -105,6 +105,9 @@ SciForge Runtime 通过 `ImmutablePrefix` 管理系统 prompt、tools、pinned c
 - `kun/src/adapters/model/deepseek-compat-model-client.ts`
 - `kun/src/cache/tool-catalog-fingerprint.ts`
 - `kun/src/loop/agent-loop.ts`
+
+其中 `deepseek-compat-model-client.ts` 是当前 Model Router 客户端的历史文件名；
+它不是新增直接 provider 调用的 API 边界。
 
 这样同一组工具即使注册顺序不同，最终发给模型的 tools payload 仍保持稳定。
 如果某个动态 provider 或 Skill 让工具描述/schema 意外变动，也能从 turn
@@ -179,19 +182,20 @@ Fork / resume 创建新线程时也会修复克隆历史：
 
 这样做有几个直接收益：
 
-- 避免 DeepSeek 因消息结构不合法返回 400
+- 避免上游模型 API 因消息结构不合法返回 400
 - 避免因为 retry、历史污染或大工具结果拉低缓存热前缀占比
 - 避免重复工具循环继续扩大动态历史并制造无意义 cache miss
 - 避免 fork/resume 后第一次请求继承畸形工具历史
 
 ## 缓存统计口径
 
-SciForge Runtime 的缓存命中统计优先使用 DeepSeek 原生 usage 字段：
+SciForge Runtime 的缓存命中统计优先使用 Model Router 返回的上游
+DeepSeek-compatible 原生 usage 字段：
 
 - `prompt_cache_hit_tokens`
 - `prompt_cache_miss_tokens`
 
-只有原生字段缺失时，才回退到兼容字段：
+只有原生字段缺失时，才回退到上游 wire-format 兼容字段：
 
 - `prompt_tokens_details.cached_tokens`
 - `cache_read_input_tokens`
@@ -212,7 +216,7 @@ cacheHitRate = hit / (hit + miss)
 cacheHitRate = hit / prompt_tokens
 ```
 
-原因是 DeepSeek 原生 miss 口径不保证等于 `prompt_tokens - hit`。如果分母错了，
+原因是上游原生 miss 口径不保证等于 `prompt_tokens - hit`。如果分母错了，
 面板看起来“很高”或“很低”都可能只是统计失真。
 
 累计统计同步使用同一公式，避免单轮与累计面板口径不一致：
@@ -223,7 +227,7 @@ cacheHitRate = hit / prompt_tokens
 SciForge Runtime 也会把单轮真实 `prompt_tokens` 作为下一次请求的 compaction pressure。
 如果 provider 报告的 prompt token 数已经达到当前模型 soft threshold，下一次
 model step 会优先触发 compaction；这样比单纯依赖 4 字符/token 的本地估算更
-接近 DeepSeek 实际上下文压力，也能在工具 continuation 前保住热前缀占比。
+接近上游模型实际上下文压力，也能在工具 continuation 前保住热前缀占比。
 
 实现位置：
 
@@ -236,12 +240,12 @@ usage/cache counters：
 - 重启或 resume 后，runtime 模式的 `/v1/usage` 不会把 cache hit/miss 累计值
   从 0 重新开始。
 - 只恢复事件中已经显式保存的 `cacheHitTokens` / `cacheMissTokens`，不会把
-  只有兼容 `cachedTokens` 的旧事件猜成命中。
+  只有历史 `cachedTokens` 字段的旧事件猜成命中。
 - `/v1/usage?group_by=thread|day|model` 的聚合桶也只用显式
   `cacheHitTokens` / `cacheMissTokens` 累计 `cached_tokens` 和
   `cache_miss_tokens`；旧事件只有 `cachedTokens` 时，命中率保持未知。
 - Renderer 的 realtime usage mapper 和 thread usage hook 同样保留未知态：
-  只看到兼容 `cachedTokens` 的旧事件/聚合桶时，不重新推导 hit/miss 或命中率。
+  只看到历史 `cachedTokens` 字段的旧事件/聚合桶时，不重新推导 hit/miss 或命中率。
 
 实现位置：
 

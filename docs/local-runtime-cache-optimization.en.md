@@ -8,8 +8,10 @@ the local agent's request prefix long-term stable, verifiable, and observable ac
 
 SciForge Runtime's cache optimization serves four goals:
 
-- Make request prefixes sent to DeepSeek as byte stable as possible.
-- Make cache hit statistics consistent with DeepSeek native fields instead of relying on guesswork.
+- Make request prefixes sent through Model Router to upstream models as byte
+  stable as possible.
+- Make cache hit statistics consistent with upstream DeepSeek-compatible
+  native fields instead of relying on guesswork.
 - Let prefix drift and message history pollution be discovered during development.
 - Let the GUI only bear the responsibility of HTTP/SSE calls, and consolidate the caching discipline inside SciForge Runtime.
 
@@ -45,7 +47,8 @@ single cache-hit metric:
 SciForge Runtime references Reasonix's cache-first design ideas, but adapts them through an independent GUI-oriented implementation. This reference relationship is reference/inspiration only, with no Reasonix source, tests, or assets copied:
 
 - The GUI does not spell prompt, and does not make cache judgments in renderer or main process.
-- The local runtime service is the only request exit, and cache-related strategies are placed inside the runtime.
+- SciForge Runtime calls the local Model Router `/v1` as its only LLM exit,
+  and cache-related strategies are placed inside the runtime.
 - Separation of stable prefixes and dynamic contexts: the stable part pursues reuse, and the dynamic part only allows appending.
 - Statistics, verification, and regression testing are maintained together to avoid the illusion that "the implementation has changed, but the panel numbers still look good."
 
@@ -113,6 +116,10 @@ Implementation location:
 - `kun/src/adapters/model/deepseek-compat-model-client.ts`
 - `kun/src/cache/tool-catalog-fingerprint.ts`
 - `kun/src/loop/agent-loop.ts`
+
+Here `deepseek-compat-model-client.ts` is the historical filename for the
+current Model Router client; it is not an API boundary for new direct-provider
+calls.
 
 In this way, even if the registration order of the same set of tools is different, the tools payload finally sent to the model will remain stable.If a dynamic provider or skill causes the tool description/schema to change unexpectedly, you can also turn
 The metadata directly locates which round started to disturb the cache prefix.
@@ -185,19 +192,21 @@ Implementation location:
 
 There are several direct benefits to doing this:
 
-- Prevent DeepSeek from returning 400 due to illegal message structure
+- Prevent upstream model APIs from returning 400 due to illegal message structure
 - Avoid lowering the cache hot prefix ratio due to retry, historical pollution or large tool results
 - Avoid repeated tool loops that continue to expand dynamic history and create meaningless cache misses
 - Avoid inheriting malformed tool history for the first request after fork/resume
 
 ## Cache statistics caliber
 
-SciForge Runtime's cache hit statistics preferentially use DeepSeek's native usage field:
+SciForge Runtime's cache hit statistics preferentially use the upstream
+DeepSeek-compatible native usage fields returned by Model Router:
 
 - `prompt_cache_hit_tokens`
 - `prompt_cache_miss_tokens`
 
-Only when the native field is missing will it fall back to the compatible field:
+Only when the native field is missing will it fall back to upstream
+wire-format compatibility fields:
 
 - `prompt_tokens_details.cached_tokens`
 - `cache_read_input_tokens`
@@ -220,7 +229,7 @@ cacheHitRate = hit / prompt_tokens
 
 ```
 
-The reason is that DeepSeek's native miss caliber is not guaranteed to be equal to `prompt_tokens - hit`. If the denominator is wrong,
+The reason is that the upstream native miss field is not guaranteed to be equal to `prompt_tokens - hit`. If the denominator is wrong,
 Panels that look "high" or "low" could just be statistical distortions.
 
 The cumulative statistics use the same formula simultaneously to avoid inconsistency between the caliber of a single round and the cumulative panel:
@@ -231,7 +240,7 @@ The cumulative statistics use the same formula simultaneously to avoid inconsist
 SciForge Runtime will also use a single round of real `prompt_tokens` as the compaction pressure for the next request.
 If the number of prompt tokens reported by the provider has reached the current model soft threshold, the next time
 The model step will trigger compaction first; this is more efficient than relying solely on local estimates of 4 characters/token.
-Close to the actual context pressure of DeepSeek, it can also maintain the proportion of hot prefixes before tool continuation.
+Close to the actual context pressure of the upstream model, it can also maintain the proportion of hot prefixes before tool continuation.
 
 Implementation location:
 
@@ -243,13 +252,15 @@ usage/cache counters：
 
 - After restart or resume, `/v1/usage` in runtime mode will not accumulate cache hit/miss values
   Start over from 0.
-- Only restore `cacheHitTokens` / `cacheMissTokens` that have been explicitly saved in the event, and will not
-  Only old events compatible with `cachedTokens` are guessed as hits.
+- Only restore `cacheHitTokens` / `cacheMissTokens` that have been explicitly
+  saved in the event; old events that only contain the historical
+  `cachedTokens` field are not guessed as hits.
 - The aggregation bucket of `/v1/usage?group_by=thread|day|model` can only be used explicitly
   `cacheHitTokens` / `cacheMissTokens` cumulative `cached_tokens` and
   `cache_miss_tokens`; When old events only have `cachedTokens`, the hit rate remains unknown.
 - Renderer's realtime usage mapper and thread usage hook also remain unknown:
-  Do not re-derive hit/miss or hit rate when only seeing old event/aggregation buckets compatible with `cachedTokens`.
+  do not re-derive hit/miss or hit rate when only seeing old event/aggregation
+  buckets with the historical `cachedTokens` field.
 
 Implementation location:
 

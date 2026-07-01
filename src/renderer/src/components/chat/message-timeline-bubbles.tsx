@@ -261,14 +261,14 @@ function messageSourceLabel(
     if (normalizedSource.includes('weixin') || normalizedSource.includes('wechat')) return 'WeChat'
     if (normalizedSource.includes('feishu') || normalizedSource.includes('lark')) return 'Feishu / Lark'
     if (normalizedSource === 'im' || normalizedSource === 'remote' || normalizedSource === 'claw') {
-      return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Feishu / Lark'
+      return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Remote channel'
     }
     if (normalizedSource === 'desktop' || normalizedSource === 'ui' || normalizedSource === 'user') return 'Desktop'
   }
   if (parsedClawPrompt?.inbound) {
     return normalizeMessageSourceLabel(parsedClawPrompt.sourceLabel, remoteProviderLabel)
   }
-  if (isRemoteChannelManagedBy(block.managedBy)) return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Feishu / Lark'
+  if (isRemoteChannelManagedBy(block.managedBy)) return remoteProviderLabel || parsedClawPrompt?.sourceLabel || 'Remote channel'
   return 'Desktop'
 }
 

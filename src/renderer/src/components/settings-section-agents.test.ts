@@ -659,7 +659,7 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
           ],
           recentRejections: [
             {
-              code: 'target_busy',
+              code: 'target_in_use',
               message: 'main-desktop is already leased',
               targetId: 'main-desktop'
             }
@@ -677,6 +677,12 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
     expect(html).toContain('Configured')
     expect(html).toContain('browser-cdp')
     expect(html).toContain('available')
+    expect(html).toContain('inputIsolation')
+    expect(html).toContain('agent-isolated')
+    expect(html).toContain('affectsUserInput')
+    expect(html).toContain('false')
+    expect(html).toContain('requiresHostFocus')
+    expect(html).toContain('usesHostClipboard')
     expect(html).toContain('isolated browser backend ready')
     expect(html).toContain('macOS permissions')
     expect(html).toContain('Accessibility')
@@ -687,7 +693,7 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
     expect(html).toContain('browser-cdp:isolated-browser')
     expect(html).toContain('agent-main')
     expect(html).toContain('Recent rejections')
-    expect(html).toContain('target_busy')
+    expect(html).toContain('target_in_use')
     expect(html).toContain('main-desktop is already leased')
   })
 

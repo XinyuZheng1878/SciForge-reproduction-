@@ -22,7 +22,7 @@ function textResponse(body: string, status = 200): Response {
   })
 }
 
-describe('claw platform install', () => {
+describe('connect phone install', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
@@ -111,6 +111,24 @@ describe('claw platform install', () => {
       url: 'data:image/png;base64,qr'
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(DEFAULT_WEIXIN_BRIDGE_RPC_URL)
+  })
+
+  it('ignores legacy WeChat bridge URL environment fallbacks', async () => {
+    vi.stubEnv('SCIFORGE_WEIXIN_BRIDGE_URL', 'http://127.0.0.1:9991/rpc')
+    vi.stubEnv('SCIFORGE_OPENCLAW_GATEWAY_URL', 'http://127.0.0.1:9992/rpc')
+    vi.stubEnv('OPENCLAW_GATEWAY_URL', 'http://127.0.0.1:9993/rpc')
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => jsonResponse({
+      ok: true,
+      payload: {
+        qrDataUrl: 'data:image/png;base64,qr',
+        sessionKey: 'weixin-session'
+      }
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(startWeixinInstallQrcode()).resolves.toMatchObject({ ok: true })
+
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(DEFAULT_WEIXIN_BRIDGE_RPC_URL)
   })
 

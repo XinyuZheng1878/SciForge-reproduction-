@@ -36,10 +36,10 @@ This worker is **not** a duplicate of the existing
 | Decides what to click | the caller | the Model Router selected computer-use model |
 | Tool | `computer_use` (action verbs) | `gui_computer_use_run` (one instruction) |
 
-> Follow-up (not in this drop): the executor could delegate its individual
-> click/type/screenshot to `@sciforge/computer-use` so there is a single
-> host-control path. Today it uses its own validated `driver/` to preserve the
-> end-to-end-verified pipeline.
+> Follow-up (not in this drop): the executor may delegate its individual
+> click/type/screenshot to `@sciforge/computer-use` after human testing decides
+> the final integration shape. Today both paths coexist, and this worker uses
+> its own validated `driver/` to preserve the end-to-end-verified pipeline.
 
 ## Boundary (Servic_Module_Template.md / PROJECT_mcp.md)
 
@@ -136,7 +136,7 @@ minimal wiring needed to expose it to the agent runtime:
 |---|---|
 | `kun/src/adapters/tool/computer-use-tool-provider.ts` (+ test) | the Kun `computer_use` tool that calls this service over HTTP |
 | `kun/src/server/runtime-factory.ts` | registers the tool provider (1 import + 1 spread) |
-| `src/main/local-runtime-process.ts` | disables the built-in browser/native `computer_use` MCP when this module is active (avoids a duplicate tool name) |
+| `src/main/local-runtime-process.ts` | applies an env-gated conflict guard: when this HTTP sidecar is active via `SCIFORGE_CUA_SERVICE_URL`, the GUI-managed `@sciforge/computer-use` MCP is not enabled (avoids a duplicate `computer_use` tool) |
 | `src/main/model-router-sidecar.ts` | unrelated Windows fix: spawn `npm.cmd` via a shell (Node EINVAL) so the Model Router can auto-start |
 
 ## Config

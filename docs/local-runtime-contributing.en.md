@@ -121,7 +121,8 @@ Each external dependency is a **port** (interface), and each production implemen
 **adapter** (concrete class). `loop/` and `services/` will always see only ports, like this:
 
 - Use in-memory fake instead of file-backed store when testing;
-- Switch provider (from DeepSeek compatible to OpenAI compatible) only change adapter;
+- LLM provider switching happens only inside Model Router; SciForge Runtime
+  does not add direct upstream-provider adapters;
 - The agent loop does not directly `import 'node:fs'`, all I/O passes through the port.
 
 #### Real example: `ModelClient` port
@@ -138,7 +139,10 @@ export interface ModelClient {
 ```
 
 Implementation (`kun/src/adapters/model/deepseek-compat-model-client.ts`)
-Parse HTTP+SSE into a sequence of `ModelStreamChunk`.
+is the historical filename for the current Model Router client. It only
+calls the local Model Router `/v1` endpoint and parses HTTP+SSE into
+`ModelStreamChunk`; do not treat the filename as a new direct-provider API
+entry point.
 
 Tests (`kun/tests/ports.test.ts`) are injected directly with `makeFakeModel`
 loop; no network required.
@@ -499,22 +503,24 @@ The following four scenarios cover 90% of the PR, each following the above patte
 
 Does not involve `loop/`, `server/`, `services/`. Changes are isolated to a small area.
 
-### Scenario B: Add a new model provider (such as OpenAI compatible)
+### Scenario B: Connect a new LLM upstream
 
-1. **ports**:`ModelClient` is already an abstract interface, **no need to change**.
-2. **adapters**:`kun/src/adapters/model/openai-compat-model-client.ts`
-   Create a new one (refer to the SSE parsing logic of `deepseek-compat-model-client.ts`).
-3. **adapters barrel**:`kun/src/adapters/index.ts` exports new classes.
-4. **settings**: in `kun/src/contracts/...` or the caller
-   `ServeOptionsSchema` adds `modelProvider` field (if you need to switch).
-5. **composition root**: serve in `kun/src/server/...`
-   Which adapter to inject is selected according to the settings in bootstrap.
-6. **Test**: `kun/tests/ports.test.ts` Add model behavior test;
-   `kun/tests/http-server.test.ts` adds end-to-end testing.
-7. **Document**: `kun/README.md` The endpoint table remains unchanged, but
-   The "model" field is semantically rich.
+SciForge Runtime does not connect to new LLM providers directly. Add an
+OpenAI-compatible, DeepSeek-compatible, or other upstream in Model Router, then
+keep SciForge Runtime on the same local Model Router `/v1` endpoint.
 
-Does not involve `domain/`, `loop/`, `contracts/`.
+Runtime-side changes are limited to:
+
+1. **profiles**: add window, capability, and compaction-threshold metadata
+   for the new router public model alias in `models.profiles`.
+2. **tests**: cover runtime behavior with a fake `ModelClient` or a Model
+   Router boundary fixture; do not add real upstream network tests.
+3. **docs**: update router alias examples in `kun/README.md` and the config
+   docs.
+
+Do not add `modelProvider` config, do not add runtime direct adapters such as
+`openai-compat-model-client.ts`, and do not branch the serve bootstrap by
+provider to inject different LLM clients. LLM APIs must go through Model Router.
 
 ### Scenario C: Add a new SSE event type (such as "compaction_progress")
 
@@ -597,7 +603,10 @@ Before submitting a PR, confirm each item:
   `ServerRuntime`)
 - Don't hardcode the time (use `Clock` or `nowIso()`)
 - Don't hardcode the id namespace (use `IdGenerator`)
-- Don't delete legacy annotations/old APIs "by the way" because of a PR
+- Do not preserve legacy annotations or old APIs that conflict with current
+  principles. When stale compatibility text is in scope, delete it or rewrite
+  it as an explicit historical migration boundary; record product tradeoffs in
+  `PROJECT.md` for human decision.
 
 ---
 

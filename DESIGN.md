@@ -684,12 +684,13 @@ If any box is unchecked, fix it before merging.
 │       │                                                      │
 │       │ spawn child process + runtime transport              │
 │       ▼                                                      │
-│ SciForge Runtime: HTTP/SSE, cache-first AgentLoop                         │
-│ Codex: app-server JSON-RPC stdio, GUI-owned thread store      │
+│ SciForge Runtime: HTTP/SSE, cache-first AgentLoop           │
+│ Codex: app-server JSON-RPC stdio, GUI thread store          │
 │       │                                                      │
-│       │ HTTPS to model API                                   │
+│       │ HTTPS to local Model Router                          │
 │       ▼                                                      │
-│ DeepSeek (or OpenAI-compatible) chat/completions             │
+│ Model Router /v1 chat/completions                          │
+│ Upstream providers stay behind the router                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -727,7 +728,7 @@ local-runtime/
   domain/          # Thread, Turn, Item, Event, Approval, Usage entities
   ports/           # ModelClient, ToolHost, ThreadStore, SessionStore,
                    # ApprovalGate, EventBus, WorkspaceInspector, Clock
-  adapters/        # DeepSeek-compatible model client, local tool host,
+  adapters/        # Model Router client, local tool host,
                    # in-memory and file-backed stores, workspace inspector
   services/        # Thread and turn orchestration services
   loop/            # Cache-first AgentLoop, InflightTracker,
@@ -755,9 +756,11 @@ SciForge Runtime is structured as **ports & adapters**:
   `ApprovalGate`, `EventBus`, `WorkspaceInspector`, `Clock`,
   `IdGenerator`. These are intentionally small.
 - `adapters/` — concrete implementations. The default
-  `DeepseekCompatModelClient` speaks the
-  `POST {baseUrl}/v1/chat/completions` shape; the default
-  `LocalToolHost` runs tools in-process with approval gating.
+  `DeepseekCompatModelClient` is a historical class/file name for the
+  current Model Router client. It speaks `POST {baseUrl}/v1/chat/completions`
+  only against the local Model Router; direct upstream provider calls are not
+  a SciForge Runtime API. The default `LocalToolHost` runs tools in-process
+  with approval gating.
 - `services/` — orchestration. `ThreadService` and `TurnService`
   own the lifecycle of a thread and a turn; they wire stores,
   models, and tools together.
@@ -770,8 +773,8 @@ boundary is the test.
 
 ### 5.3 Cache-first agent loop
 
-The loop is built around DeepSeek's native cache hit/miss
-telemetry. The principles:
+The loop is built around upstream DeepSeek-compatible cache hit/miss
+telemetry returned through Model Router. The principles:
 
 - **Immutable prompt prefix** with a sha256 fingerprint. The
   system prompt, tool schemas, pinned constraints, and few-shots
@@ -1368,8 +1371,7 @@ If any check fails, the change is not ready.
 ## 15. References
 
 - `docs/agent-runtime-contract.md` — neutral SciForge Runtime/Codex runtime
-  contract, event model, capability model, and compatibility cleanup
-  conditions.
+  contract, event model, capability model, and migration cleanup conditions.
 - `docs/local-runtime-architecture.md` — SciForge Runtime runtime architecture and
   GUI拆改范围.
 - `docs/local-runtime-cache-optimization.md` — cache hit rate

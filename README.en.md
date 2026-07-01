@@ -116,7 +116,8 @@ hit/miss accounting, tool-pair healing, and validation strategy, see
 SciForge Runtime's larger agent capabilities are controlled by feature flags:
 `capabilities.mcp` connects third-party MCP servers,
 `capabilities.web` exposes `web_fetch` / `web_search`,
-`capabilities.skills` discovers `skill.json` and legacy `SKILL.md`,
+`capabilities.skills` discovers package roots declared by `skill.json`
+and reads their `SKILL.md` files as package content,
 `capabilities.attachments` enables image attachments with text-model fallback, `capabilities.memory`
 enables cross-session recall, and `capabilities.subagents` allows
 budgeted delegated child runs. The standalone local runtime CLI can run

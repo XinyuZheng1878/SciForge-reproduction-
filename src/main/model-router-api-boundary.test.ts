@@ -41,9 +41,10 @@ const excludedFileNames = new Set(['package-lock.json'])
 const excludedPrefixes = ['packages/workers/model-router/']
 const testFilePattern = /(?:^|[/.-])(?:test|spec)\.[cm]?[jt]sx?$/
 const allowedLegacyImageDirectWorkerEnvFiles = new Set([
-  'src/main/image-generation-mcp-config.ts',
-  'src/main/image-generation-mcp-server.ts',
-  'src/main/image-generation-mcp-node-entry.ts'
+  'src/main/image-generation-mcp-config.ts'
+])
+const allowedEvidenceDagLegacyLlmEnvFiles = new Set([
+  'packages/workers/evidence-dag/desktop/sidecar.ts'
 ])
 
 const directCallMarkers: DirectCallMarker[] = [
@@ -189,6 +190,10 @@ function isAllowedLegacyImageDirectWorkerEnvMarker(hit: DirectCallHit): boolean 
   )
 }
 
+function isAllowedEvidenceDagLegacyLlmEnvMarker(hit: DirectCallHit): boolean {
+  return allowedEvidenceDagLegacyLlmEnvFiles.has(hit.file)
+}
+
 function isAllowedSciModalityBoundaryMarker(hit: DirectCallHit): boolean {
   return (
     hit.file === 'src/main/local-runtime-process.ts' &&
@@ -239,5 +244,13 @@ describe('P7/P8 model router API boundary enforcement', () => {
     ).filter((hit) => !isAllowedLegacyImageDirectWorkerEnvMarker(hit))
 
     expect(formatHits(legacyImageEnvHits)).toBe('')
+  })
+
+  it('blocks Evidence DAG legacy direct LLM env outside the sidecar scrubber', () => {
+    const evidenceDagLegacyLlmHits = scanProductionText(
+      /\bEDAG_LLM_(?:BASE_URL|API_KEY|MODEL)\b/
+    ).filter((hit) => !isAllowedEvidenceDagLegacyLlmEnvMarker(hit))
+
+    expect(formatHits(evidenceDagLegacyLlmHits)).toBe('')
   })
 })

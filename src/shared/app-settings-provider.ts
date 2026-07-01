@@ -78,14 +78,6 @@ export function modelProviderSettingsPatch(
   return provider ? { ...provider } : {}
 }
 
-export function resolveModelProviderApiKey(settings: AppSettingsV1): string {
-  return getDefaultModelProviderProfile(settings).apiKey.trim()
-}
-
-export function resolveModelProviderBaseUrl(settings: AppSettingsV1): string {
-  return normalizeDeepseekBaseUrl(getDefaultModelProviderProfile(settings).baseUrl)
-}
-
 export function getDefaultModelProviderProfile(settings: AppSettingsV1): ModelProviderProfileV1 {
   return getModelProviderProfile(settings, DEFAULT_MODEL_PROVIDER_ID)
 }
