@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { MultiAgentRuntime } from '@sciforge/multi-agent'
+import { MultiAgentRuntimeError, createMultiAgentError, type MultiAgentRuntime } from '@sciforge/multi-agent'
 import type { ToolHostContext } from '../../ports/tool-host.js'
 import { buildDelegationToolProviders, withChildRuntimeGuardrails } from './delegation-tool-provider.js'
 
@@ -227,5 +227,71 @@ describe('buildDelegationToolProviders', () => {
         ]
       }
     })
+  })
+
+  it('retries delegate_tasks children when the runtime parallel budget is transiently exhausted', async () => {
+    vi.useFakeTimers()
+    const attempts = new Map<string, number>()
+    const runChild = vi.fn(async (input: Record<string, unknown>) => {
+      const label = typeof input.label === 'string' ? input.label : 'unlabeled'
+      const nextAttempt = (attempts.get(label) ?? 0) + 1
+      attempts.set(label, nextAttempt)
+      if (label === 'third' && nextAttempt === 1) {
+        throw new MultiAgentRuntimeError(createMultiAgentError(
+          'parallel_budget_exhausted',
+          'multi-agent parallel budget exhausted: 2/2',
+          { retryable: true }
+        ))
+      }
+      return {
+        id: `child-${label}-${nextAttempt}`,
+        label,
+        status: 'completed' as const,
+        summary: `${label} done`,
+        usage: {
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0
+        }
+      }
+    })
+    const runtime = {
+      runChild,
+      diagnostics: vi.fn(async () => ({
+        config: { enabled: true, maxParallel: 2, maxChildren: 16, childTimeoutMs: 0 },
+        active: 0,
+        childRuns: [],
+        aggregates: []
+      }))
+    } as unknown as MultiAgentRuntime
+    const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_tasks')
+    const resultPromise = tool?.execute({
+      timeout_ms: 5_000,
+      tasks: [
+        { label: 'first', prompt: 'Return first.' },
+        { label: 'second', prompt: 'Return second.' },
+        { label: 'third', prompt: 'Return third.' }
+      ]
+    }, fakeContext())
+
+    await vi.advanceTimersByTimeAsync(251)
+
+    await expect(resultPromise).resolves.toMatchObject({
+      isError: false,
+      output: {
+        status: 'completed',
+        total: 3,
+        completed: 3,
+        failed: 0,
+        children: [
+          { label: 'first', status: 'completed' },
+          { label: 'second', status: 'completed' },
+          { label: 'third', status: 'completed' }
+        ],
+        concurrency: 2,
+        configured_concurrency: 2
+      }
+    })
+    expect(attempts.get('third')).toBe(2)
   })
 })

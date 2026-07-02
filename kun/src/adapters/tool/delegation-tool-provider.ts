@@ -1,9 +1,10 @@
-import { EMPTY_MULTI_AGENT_USAGE, type MultiAgentRuntime } from '@sciforge/multi-agent'
+import { EMPTY_MULTI_AGENT_USAGE, MultiAgentRuntimeError, type MultiAgentRuntime } from '@sciforge/multi-agent'
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { LocalToolHost } from './local-tool-host.js'
 
 const DEFAULT_DELEGATE_TIMEOUT_MS = 120_000
 const MAX_DELEGATE_TIMEOUT_MS = 600_000
+const PARALLEL_BUDGET_RETRY_MS = 250
 
 const CHILD_AGENT_RUNTIME_GUARDRAILS = [
   'Child-agent runtime guardrails:',
@@ -57,7 +58,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
             record = await runDelegateChildWithWatchdog({
               parentSignal: context.abortSignal,
               timeoutMs,
-              run: (signal) => runtime.runChild({
+              run: (signal) => retryWhileParallelBudgetExhausted(signal, () => runtime.runChild({
                 parentThreadId: context.threadId,
                 parentTurnId: context.turnId,
                 label: typeof args.label === 'string' ? args.label : undefined,
@@ -70,7 +71,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
                 ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
                 ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
                 signal
-              })
+              }))
             })
           } catch (error) {
             record = failedDelegateRecord(task, 0, error, context.threadId, context.turnId)
@@ -142,7 +143,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
               return await runDelegateChildWithWatchdog({
                 parentSignal: context.abortSignal,
                 timeoutMs,
-                run: (signal) => runtime.runChild({
+                run: (signal) => retryWhileParallelBudgetExhausted(signal, () => runtime.runChild({
                   parentThreadId: context.threadId,
                   parentTurnId: context.turnId,
                   label: task.label,
@@ -155,7 +156,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
                   ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
                   ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
                   signal
-                })
+                }))
               })
             } catch (error) {
               return failedDelegateRecord(task, index, error, context.threadId, context.turnId)
@@ -252,6 +253,40 @@ function normalizeDelegateTimeoutMs(value: unknown, defaultMs?: number): number 
 }
 
 type DelegateRecordLike = Awaited<ReturnType<MultiAgentRuntime['runChild']>>
+
+async function retryWhileParallelBudgetExhausted(
+  signal: AbortSignal,
+  run: () => Promise<DelegateRecordLike>
+): Promise<DelegateRecordLike> {
+  while (true) {
+    try {
+      return await run()
+    } catch (error) {
+      if (!isParallelBudgetExhausted(error) || signal.aborted) throw error
+      await delay(PARALLEL_BUDGET_RETRY_MS, signal)
+    }
+  }
+}
+
+function isParallelBudgetExhausted(error: unknown): boolean {
+  if (error instanceof MultiAgentRuntimeError) return error.code === 'parallel_budget_exhausted' && error.retryable !== false
+  return error instanceof Error && /\bmulti-agent parallel budget exhausted\b/i.test(error.message)
+}
+
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('delegate child run aborted'))
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener('abort', abort)
+      resolve()
+    }, ms)
+    const abort = () => {
+      clearTimeout(timeout)
+      reject(signal.reason instanceof Error ? signal.reason : new Error('delegate child run aborted'))
+    }
+    signal.addEventListener('abort', abort, { once: true })
+  })
+}
 
 async function runDelegateChildWithWatchdog(input: {
   parentSignal?: AbortSignal
