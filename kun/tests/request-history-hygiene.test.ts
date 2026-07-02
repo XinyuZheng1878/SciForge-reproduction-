@@ -166,10 +166,38 @@ describe('request history hygiene', () => {
     const nextCall = compacted[0]
     const command = nextCall?.kind === 'tool_call' ? String(nextCall.arguments.command) : ''
 
-    expect(command).toContain('metadata only')
-    expect(command).toContain('do not copy into future tool arguments')
+    expect(command).toBe(': # sciforge history omitted prior bash command; inspect paired tool result')
+    expect(command).not.toContain('cache hygiene')
     expect(command).not.toContain('see following tool result')
     expect(command).not.toContain('preview=')
+  })
+
+  it('replaces oversized completed bash commands with a safe shell no-op', () => {
+    const pairedCall = makeToolCallItem({
+      id: 'long_bash_call',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_bash',
+      toolName: 'bash',
+      arguments: {
+        command: `python3 <<'PY'\n${'print("work")\n'.repeat(2_500)}PY`
+      }
+    })
+    const result = makeToolResultItem({
+      id: 'long_bash_result',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_bash',
+      toolName: 'bash',
+      output: { output: 'completed' }
+    })
+
+    const compacted = applyRequestHistoryHygiene([pairedCall, result])
+    const nextCall = compacted[0]
+    const command = nextCall?.kind === 'tool_call' ? String(nextCall.arguments.command) : ''
+
+    expect(command).toBe(': # sciforge history omitted prior bash command; inspect paired tool result')
+    expect(command).not.toContain('[cache hygiene:')
   })
 
   it('replaces base64 payloads in model-bound history', () => {

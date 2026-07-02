@@ -20,6 +20,7 @@ const MAX_SIGNAL_LINES = 48
 const MAX_LINE_CHARS = 280
 const LONG_ARGUMENT_PREVIEW_CHARS = 160
 const HYGIENE_MARKER_INSTRUCTION = 'metadata only; do not copy into future tool arguments'
+const OMITTED_BASH_COMMAND = ': # sciforge history omitted prior bash command; inspect paired tool result'
 const ESC = String.fromCharCode(27)
 
 const ANSI_RE = new RegExp(`${ESC}\\[[0-9;?]*[ -/]*[@-~]`, 'g')
@@ -229,6 +230,14 @@ function compactArgumentValue(
   options: { toolName: string; maxStringBytes: number; maxStringTokens: number; maxArrayItems: number }
 ): CompactResult<unknown> {
   if (typeof value === 'string') {
+    if (isShellCommandArgument(options.toolName, key)) {
+      const bytes = Buffer.byteLength(value, 'utf8')
+      const tokens = estimateTokens(value)
+      if (!isHygienePlaceholder(value) && bytes <= options.maxStringBytes && tokens <= options.maxStringTokens) {
+        return { value, changed: false }
+      }
+      return { value: OMITTED_BASH_COMMAND, changed: true }
+    }
     if (isHygienePlaceholder(value)) {
       return {
         value:
@@ -277,6 +286,10 @@ function compactArgumentValue(
     changed ||= compacted.changed
   }
   return changed ? { value: out, changed: true } : { value, changed: false }
+}
+
+function isShellCommandArgument(toolName: string, key: string): boolean {
+  return toolName === 'bash' && key === 'command'
 }
 
 function isHygienePlaceholder(value: string): boolean {
