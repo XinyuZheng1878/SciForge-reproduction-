@@ -415,15 +415,12 @@ function createApi(): SciForgeApi {
     logError: (category, message, detail) => invoke('log:error', { category, message, detail }),
     getLogPath: () => invoke('log:get-path'),
     openLogDir: () => invoke('log:open-dir'),
-    createTerminal: async (payload) => ({
-      ok: false,
-      message: `Terminal session ${payload.sessionId} is only available in the Electron app.`
-    }),
-    writeToTerminal: async () => false,
-    resizeTerminal: async () => false,
-    disposeTerminal: async () => false,
-    onTerminalData: () => () => undefined,
-    onTerminalExit: () => () => undefined,
+    createTerminal: (payload) => invoke('terminal:create', payload),
+    writeToTerminal: (payload) => invoke('terminal:write', payload),
+    resizeTerminal: (payload) => invoke('terminal:resize', payload),
+    disposeTerminal: (sessionId) => invoke('terminal:dispose', sessionId),
+    onTerminalData: (handler) => onChannel('terminal:data', handler),
+    onTerminalExit: (handler) => onChannel('terminal:exit', handler),
     getPathForFile: (file) => (file as File & { path?: string }).path ?? file.name
   }
 }

@@ -2482,11 +2482,11 @@ export function Workbench(): ReactElement {
                     childAgentCount={childAgentCount}
                     childAgentRunningCount={childAgentRunningCount}
                     childAgentsOpen={rightPanelMode === 'child-agents'}
-                    sideChatEnabled={
-                      Boolean(activeThreadId) && sideConversationsSupported
-                    }
+                    sideChatEnabled={Boolean(activeThreadId) && sideConversationsSupported}
                     onOpenChildAgents={() => toggleTopBarRightPanelMode('child-agents')}
-                    onOpenSideChat={openSideChat}
+                    onOpenSideChat={
+                      activeThreadId && sideConversationsSupported ? openSideChat : undefined
+                    }
                   />
                 </div>
               </div>

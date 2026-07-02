@@ -544,6 +544,28 @@ function runtimeErrorPayloadToError(event: {
   }))
 }
 
+function isTransientRuntimeErrorEvent(event: {
+  message: string
+  code?: string
+}): boolean {
+  const code = event.code?.trim().toLowerCase() ?? ''
+  return code === 'reconnecting' ||
+    code === 'tool_waiting' ||
+    code === 'stream_recovering' ||
+    /^Reconnecting\.\.\.\s+\d+\s*\/\s*\d+$/iu.test(event.message.trim())
+}
+
+function runtimeErrorBlockSeverity(event: {
+  message: string
+  code?: string
+  severity?: string
+}): 'info' | 'warning' | 'error' {
+  if (isTransientRuntimeErrorEvent(event)) return 'warning'
+  return event.severity === 'info' || event.severity === 'warning' || event.severity === 'error'
+    ? event.severity
+    : 'error'
+}
+
 function upsertRuntimeErrorBlock(blocks: ChatBlock[], block: Extract<ChatBlock, { kind: 'system' }>): ChatBlock[] {
   const index = blocks.findIndex((candidate) => candidate.kind === 'system' && candidate.id === block.id)
   if (index < 0) return [...blocks, block]
@@ -1256,7 +1278,8 @@ export function buildThreadEventSink(
       set((s) => {
         const flushed = flushLiveBlocks(s)
         const baseBlocks = flushed.blocks ?? s.blocks
-        const view = describeRuntimeError(runtimeErrorPayloadToError(ev))
+        const severity = runtimeErrorBlockSeverity(ev)
+        const view = describeRuntimeError(runtimeErrorPayloadToError({ ...ev, severity }))
         const block: Extract<ChatBlock, { kind: 'system' }> = {
           kind: 'system',
           id: ev.itemId,
@@ -1264,7 +1287,7 @@ export function buildThreadEventSink(
           text: view.summary,
           ...(view.code ? { code: view.code } : {}),
           ...(view.detail ? { detail: view.detail } : {}),
-          severity: ev.severity ?? 'error'
+          severity
         }
         return {
           ...flushed,

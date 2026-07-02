@@ -1051,6 +1051,32 @@ describe('thread event sink runtime errors', () => {
     expect(systemBlocks[0].detail).not.toContain('secret-token')
   })
 
+  it('keeps transient reconnect errors visible without marking them as terminal errors', () => {
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      busy: true,
+      blocks: [{ kind: 'user', id: 'user-current', text: 'hello' }]
+    })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onRuntimeError?.({
+      itemId: 'turn-current',
+      createdAt: '2026-06-08T00:00:00.000Z',
+      message: 'Reconnecting... 1/5',
+      severity: 'error'
+    })
+
+    const systemBlocks = getState().blocks.filter((block) => block.kind === 'system')
+    expect(systemBlocks).toHaveLength(1)
+    expect(systemBlocks[0]).toMatchObject({
+      kind: 'system',
+      id: 'turn-current',
+      text: 'Reconnecting... 1/5',
+      severity: 'warning'
+    })
+    expect(systemBlocks[0].detail).toContain('Severity: warning')
+  })
+
   it('settles an aborted turn only from terminal lifecycle', () => {
     const blocks: ChatBlock[] = [
       { kind: 'user', id: 'user-1', text: 'run command' },

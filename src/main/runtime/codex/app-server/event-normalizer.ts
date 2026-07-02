@@ -107,6 +107,18 @@ export function normalizeCodexEvent(
     const details = error?.details ?? error?.data ?? params.details ?? params.data
     const message = stringValue(error?.message) || 'Codex runtime error'
     const code = normalizeRuntimeErrorCode(stringValue(error?.code), message)
+    const transientPhase = transientRuntimeStatusPhase(code, message)
+    if (transientPhase) {
+      return {
+        threadId,
+        ...(turnId ? { turnId } : {}),
+        runtimeStatus: {
+          itemId: runtimeStatusItemId(threadId, turnId, transientPhase),
+          phase: transientPhase,
+          message
+        }
+      }
+    }
     return {
       threadId,
       ...(turnId ? { turnId } : {}),
@@ -786,6 +798,18 @@ function normalizeRuntimeErrorCode(code: string, message: string): string {
     return 'provider_auth_blocked'
   }
   return ''
+}
+
+function transientRuntimeStatusPhase(
+  code: string,
+  message: string
+): NonNullable<CodexThreadEventPayload['runtimeStatus']>['phase'] | null {
+  const normalizedCode = code.trim().toLowerCase()
+  if (normalizedCode === 'reconnecting') return 'reconnecting'
+  if (normalizedCode === 'tool_waiting') return 'tool_waiting'
+  if (normalizedCode === 'stream_recovering') return 'stream_recovering'
+  if (/^Reconnecting\.\.\.\s+\d+\s*\/\s*\d+$/iu.test(message.trim())) return 'reconnecting'
+  return null
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

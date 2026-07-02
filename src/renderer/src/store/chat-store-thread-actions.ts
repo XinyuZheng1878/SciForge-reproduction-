@@ -1,4 +1,4 @@
-import type { AgentProvider, NormalizedThread, ReviewTarget, ThreadEventSink } from '../agent/types'
+import type { AgentProvider, ChatBlock, NormalizedThread, ReviewTarget, ThreadEventSink } from '../agent/types'
 import { getProvider } from '../agent/registry'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import i18n from '../i18n'
@@ -20,7 +20,7 @@ import {
   saveThreadForkRegistry
 } from '../lib/thread-fork-registry'
 import { workspaceLabelFromPath } from '../lib/workspace-label'
-import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
+import { normalizeWorkspaceRoot } from '../lib/workspace-path'
 import { parseSteerCommand } from '../lib/steer-command'
 import {
   mirrorRemoteChannelMessageApi,
@@ -203,6 +203,24 @@ type StoreActionContext = {
 
 let drainingQueuedMessages = false
 
+function resolveDraftWorkspaceRoot(
+  state: ChatState,
+  settingsWorkspaceRoot?: string | null,
+  requestedWorkspaceRoot?: string | null
+): string {
+  const activeThread = state.activeThreadId
+    ? state.threads.find((thread) => thread.id === state.activeThreadId)
+    : null
+  const [workspaceRoot] = compactCodeWorkspaceRoots([
+    requestedWorkspaceRoot,
+    activeThread?.workspace,
+    state.workspaceRoot,
+    state.codeWorkspaceRoots[0],
+    settingsWorkspaceRoot
+  ])
+  return workspaceRoot ?? ''
+}
+
 function stripIpcErrorPrefix(message: string): string {
   return message
     .replace(/^Error invoking remote method ['"][^'"]+['"]:\s*/i, '')
@@ -282,9 +300,55 @@ function settleStalePendingBlocksWhenIdle<T extends Parameters<typeof threadSnap
   return busy ? blocks : settlePendingRuntimeWorkAfterCompletion(blocks) as T
 }
 
+function blocksContainUserMessage(blocks: ChatBlock[], userMessageId: string): boolean {
+  return blocks.some((block) => block.kind === 'user' && block.id === userMessageId)
+}
+
+function userBlockText(block: ChatBlock): string {
+  return block.kind === 'user' ? (block.meta?.displayText?.trim() || block.text.trim()) : ''
+}
+
+function blocksContainUserText(blocks: ChatBlock[], text: string): boolean {
+  const normalizedText = text.trim()
+  return Boolean(normalizedText) &&
+    blocks.some((block) => block.kind === 'user' && userBlockText(block) === normalizedText)
+}
+
+function snapshotLooksStaleForCurrentTurn(
+  state: ChatState,
+  snapshotBlocks: ChatBlock[],
+  latestTurnId?: string,
+  latestUserMessageId?: string
+): boolean {
+  if (!state.busy && !state.currentTurnId && !state.currentTurnUserId) return false
+
+  const currentUserId = state.currentTurnUserId?.trim()
+  if (currentUserId) {
+    const localCurrentUserBlock = state.blocks.find(
+      (block) => block.kind === 'user' && block.id === currentUserId
+    )
+    const localHasCurrentUser = Boolean(localCurrentUserBlock)
+    const localCurrentUserText = localCurrentUserBlock ? userBlockText(localCurrentUserBlock) : ''
+    const snapshotHasCurrentUser =
+      blocksContainUserMessage(snapshotBlocks, currentUserId) ||
+      latestUserMessageId?.trim() === currentUserId ||
+      blocksContainUserText(snapshotBlocks, localCurrentUserText)
+    if (localHasCurrentUser && !snapshotHasCurrentUser) return true
+  }
+
+  const currentTurnId = state.currentTurnId?.trim()
+  if (currentTurnId && !latestTurnId?.trim() && state.blocks.length > 0 && snapshotBlocks.length === 0) {
+    return true
+  }
+
+  return false
+}
+
 export function createThreadActions(
   { set, get, sseAbortRef }: StoreActionContext
 ): Pick<ChatState, 'createThread' | 'refreshActiveThreadContextState' | 'recoverActiveTurn' | 'selectThread' | 'drainQueuedMessages' | 'removeQueuedMessage' | 'steerQueuedMessage' | 'sendMessage' | 'reviewActiveThread'> {
+  let selectThreadRequestSeq = 0
+
   return {
   refreshActiveThreadContextState: async (threadId) => {
     const targetThreadId = threadId?.trim() || get().activeThreadId
@@ -304,35 +368,28 @@ export function createThreadActions(
       return
     }
     try {
-      let settings = await rendererRuntimeClient.getSettings()
+      const settings = await rendererRuntimeClient.getSettings()
       const requestedWorkspaceRoot = normalizeWorkspaceRoot(options.workspaceRoot)
-      if (requestedWorkspaceRoot) {
+      const settingsWorkspaceRoot = normalizeWorkspaceRoot(settings.workspaceRoot)
+      const workspaceRoot = resolveDraftWorkspaceRoot(get(), settingsWorkspaceRoot, requestedWorkspaceRoot)
+      if (workspaceRoot && workspaceRoot !== settingsWorkspaceRoot) {
         try {
-          settings = await rendererRuntimeClient.setSettings({ workspaceRoot: requestedWorkspaceRoot })
+          await rendererRuntimeClient.setSettings({ workspaceRoot })
         } catch (error) {
-          void window.sciforge.logError('create-thread', 'Failed to sync requested workspace before creating thread', {
+          void window.sciforge.logError('create-thread', requestedWorkspaceRoot
+            ? 'Failed to sync requested workspace before creating thread'
+            : 'Failed to sync draft workspace before creating thread', {
             message: error instanceof Error ? error.message : String(error),
-            workspaceRoot: requestedWorkspaceRoot
+            workspaceRoot
           }).catch(() => undefined)
-          settings = { ...settings, workspaceRoot: requestedWorkspaceRoot }
         } finally {
           set((s) => ({
-            workspaceRoot: requestedWorkspaceRoot,
-            workspaceLabel: workspaceLabelFromPath(requestedWorkspaceRoot),
-            codeWorkspaceRoots: rememberCodeWorkspaceRoots(s.codeWorkspaceRoots, [requestedWorkspaceRoot])
+            workspaceRoot,
+            workspaceLabel: workspaceLabelFromPath(workspaceRoot),
+            codeWorkspaceRoots: rememberCodeWorkspaceRoots(s.codeWorkspaceRoots, [workspaceRoot])
           }))
         }
       }
-      const activeThread = get().activeThreadId
-        ? get().threads.find((thread) => thread.id === get().activeThreadId)
-        : null
-      const settingsWorkspaceRoot = normalizeWorkspaceRoot(settings.workspaceRoot)
-      const workspaceRoot =
-        requestedWorkspaceRoot ||
-        settingsWorkspaceRoot ||
-        (activeThread && !isInternalTemporaryWorkspace(activeThread.workspace)
-          ? normalizeWorkspaceRoot(activeThread.workspace)
-          : '')
       if (!workspaceRoot) {
         await get().chooseWorkspace({ createThreadAfter: true })
         return
@@ -416,6 +473,18 @@ export function createThreadActions(
         return false
       }
       const hydratedBlocks = hydrateBlockModelLabels(activeThreadId, rawBlocks)
+      if (snapshotLooksStaleForCurrentTurn(state, hydratedBlocks, latestTurnId, latestUserMessageId)) {
+        const ac = new AbortController()
+        sseAbortRef.current = ac
+        const sink = buildThreadEventSink(set, get, {
+          threadId: activeThreadId,
+          signal: ac.signal,
+          sinceSeq: state.lastSeq
+        })
+        void p.subscribeThreadEvents(activeThreadId, state.lastSeq, sink, ac.signal).catch(() => undefined)
+        if (state.busy) armBusyWatchdog(set, get)
+        return state.busy
+      }
       const busy = threadSnapshotHasTurnEvidence(hydratedBlocks, latestTurnId, latestUserMessageId) &&
         threadSnapshotLooksRunning(hydratedBlocks, threadStatus)
       const blocks = settleStalePendingBlocksWhenIdle(hydratedBlocks, busy)
@@ -472,12 +541,15 @@ export function createThreadActions(
       set({ error: i18n.t('common:runtimeActionNeedsConnection') })
       return
     }
+    const requestSeq = ++selectThreadRequestSeq
+    const isCurrentSelection = () => selectThreadRequestSeq === requestSeq && get().activeThreadId === id
     const prevId = get().activeThreadId
+    const selectionChanged = prevId !== id
     const prevBusy = get().busy
     let nextWatch = { ...get().watchTurnCompletion }
     delete nextWatch[id]
     clearWatchedCompletionNotification(id)
-    if (prevId && prevId !== id && prevBusy) {
+    if (prevId && selectionChanged && prevBusy) {
       nextWatch[prevId] = true
       watchTurnCompletionNotification(prevId)
     }
@@ -487,9 +559,18 @@ export function createThreadActions(
     sseAbortRef.current?.abort()
     sseAbortRef.current = null
     const p = getProvider()
+    resetBusyRecoveryAttempts()
+    clearBusyWatchdog()
+    set({
+      ...(selectionChanged ? clearedThreadSelection() : {}),
+      watchTurnCompletion: nextWatch,
+      unreadThreadIds: nextUnread,
+      activeThreadId: id,
+      remoteGuardChannelId: null,
+      error: null
+    })
+    syncTurnCompletionPoll(set, get)
     try {
-      resetBusyRecoveryAttempts()
-      clearBusyWatchdog()
       rememberProviderThreadRuntime(p, id, get().threads)
       const {
         blocks: rawBlocks,
@@ -502,7 +583,9 @@ export function createThreadActions(
         goal,
         todos
       } = await p.getThreadDetail(id)
+      if (!isCurrentSelection()) return
       const contextState = await readProviderContextState(p, id)
+      if (!isCurrentSelection()) return
       const hydratedBlocks = hydrateBlockModelLabels(id, rawBlocks)
       const busy = threadSnapshotHasTurnEvidence(hydratedBlocks, latestTurnId, latestUserMessageId) &&
         threadSnapshotLooksRunning(hydratedBlocks, threadStatus)
@@ -541,6 +624,7 @@ export function createThreadActions(
       subscribeThreadEventsWithRecovery(p, id, latestSeq, sink, ac.signal, get)
       if (busy) armBusyWatchdog(set, get)
     } catch (e) {
+      if (!isCurrentSelection()) return
       set({
         error: formatRuntimeError(e),
         ...(shouldOpenSettingsForError(e)
@@ -806,7 +890,7 @@ export function createThreadActions(
     if (!activeThreadId) {
       try {
         const settings = await rendererRuntimeClient.getSettings()
-        const workspaceRoot = normalizeWorkspaceRoot(settings.workspaceRoot)
+        const workspaceRoot = resolveDraftWorkspaceRoot(get(), settings.workspaceRoot)
         if (!workspaceRoot) {
           set({
             blocks: previousBlocks,
@@ -1088,7 +1172,7 @@ export function createThreadActions(
     try {
       if (!activeThreadId) {
         const settings = await rendererRuntimeClient.getSettings()
-        const workspaceRoot = normalizeWorkspaceRoot(settings.workspaceRoot)
+        const workspaceRoot = resolveDraftWorkspaceRoot(get(), settings.workspaceRoot)
         if (!workspaceRoot) {
           set({ error: i18n.t('common:workspaceRequiredToCreateThread') })
           return false

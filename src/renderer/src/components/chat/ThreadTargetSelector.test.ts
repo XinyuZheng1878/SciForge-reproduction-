@@ -56,4 +56,18 @@ describe('ThreadTargetSelectorView', () => {
     expect(html).toContain('Slurm')
     expect(html).toContain('Trusted')
   })
+
+  it('does not repeat the local target label as metadata badges', async () => {
+    await i18n.changeLanguage('zh')
+    const html = renderToStaticMarkup(
+      createElement(ThreadTargetSelectorView, {
+        targets,
+        selectedTargetId: null,
+        workspaceRoot: '/tmp/workspace',
+        onTargetChange: vi.fn()
+      })
+    )
+
+    expect(html.match(/本地/g)).toHaveLength(1)
+  })
 })

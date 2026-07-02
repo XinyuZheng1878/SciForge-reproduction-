@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto'
-import { normalizeAgentRuntimeTurnState } from '../../shared/agent-runtime-contract'
 import type {
   AgentRuntimeContextLedger,
   AgentRuntimeContextLedgerEvidence,
@@ -8,7 +6,6 @@ import type {
   AgentRuntimeHandoffPacket,
   AgentRuntimeId,
   AgentRuntimeThreadGoalStatus,
-  AgentRuntimeUsage,
   AgentRuntimeWorkspaceReference
 } from '../../shared/agent-runtime-contract'
 import {
@@ -37,7 +34,6 @@ type StoredRuntimeContextLedgers = {
 const RUNTIME_CONTEXT_LEDGERS_STORE = ['runtime-context-ledgers', 'ledgers.json'] as const
 
 export class RuntimeContextLedgerService {
-  private readonly recentTail = new Map<string, string[]>()
   private loaded: Promise<StoredRuntimeContextLedgers> | null = null
 
   constructor(private readonly dataDir: string) {}
@@ -83,7 +79,6 @@ export class RuntimeContextLedgerService {
 
   async observeEvent(event: AgentRuntimeEvent): Promise<void> {
     if (!event.runtimeId) return
-    await this.recordRecentTail(event)
     if (event.kind === 'goal_event') {
       if (event.cleared) {
         await this.record({
@@ -151,53 +146,6 @@ export class RuntimeContextLedgerService {
       })
       return
     }
-    if (event.kind === 'tool_event' && event.status === 'success') {
-      await this.record({
-        runtimeId: event.runtimeId,
-        threadId: event.threadId,
-        patch: {
-          evidence: [{
-            id: event.itemId,
-            kind: 'tool',
-            summary: event.summary ?? event.detail ?? 'Tool completed',
-            sourceRuntimeId: event.runtimeId,
-            sourceThreadId: event.threadId,
-            sourceTurnId: event.turnId,
-            itemId: event.itemId,
-            createdAt: event.createdAt,
-            metadata: event.meta
-          }]
-        }
-      })
-      return
-    }
-    if (event.kind === 'usage') {
-      await this.record({
-        runtimeId: event.runtimeId,
-        threadId: event.threadId,
-        patch: {
-          evidence: [{
-            id: event.itemId ?? `usage-${event.turnId ?? shortDigest(JSON.stringify(event.usage))}`,
-            kind: 'usage',
-            summary: usageSummary(event.usage),
-            sourceRuntimeId: event.runtimeId,
-            sourceThreadId: event.threadId,
-            sourceTurnId: event.turnId,
-            itemId: event.itemId,
-            createdAt: event.createdAt,
-            metadata: { ...event.usage }
-          }]
-        }
-      })
-      return
-    }
-    if (event.kind === 'turn_lifecycle' && normalizeAgentRuntimeTurnState(event.state) === 'completed') {
-      await this.record({
-        runtimeId: event.runtimeId,
-        threadId: event.threadId,
-        patch: {}
-      })
-    }
   }
 
   async createHandoffPacket(input: {
@@ -247,20 +195,6 @@ export class RuntimeContextLedgerService {
     return created
   }
 
-  private async recordRecentTail(event: AgentRuntimeEvent): Promise<void> {
-    if (!event.runtimeId) return
-    const line = eventTailLine(event)
-    if (!line) return
-    const ledgerKey = key(event.runtimeId, event.threadId)
-    const tail = [...(this.recentTail.get(ledgerKey) ?? []), line].slice(-16)
-    this.recentTail.set(ledgerKey, tail)
-    await this.record({
-      runtimeId: event.runtimeId,
-      threadId: event.threadId,
-      patch: { recentTailDigest: shortDigest(tail.join('\n')) }
-    })
-  }
-
   private async load(): Promise<StoredRuntimeContextLedgers> {
     if (!this.loaded) {
       this.loaded = readAppDataStoreText(this.dataDir, RUNTIME_CONTEXT_LEDGERS_STORE)
@@ -273,10 +207,6 @@ export class RuntimeContextLedgerService {
   private async save(store: StoredRuntimeContextLedgers): Promise<void> {
     await atomicWriteAppDataJson(this.dataDir, RUNTIME_CONTEXT_LEDGERS_STORE, normalizeStore(store))
   }
-}
-
-function key(runtimeId: AgentRuntimeId, threadId: string): string {
-  return `${runtimeId}:${threadId}`
 }
 
 function findLedger(
@@ -537,52 +467,6 @@ function cloneLedger(ledger: AgentRuntimeContextLedger): AgentRuntimeContextLedg
 
 function cloneRecord(value: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   return value ? { ...value } : undefined
-}
-
-function shortDigest(value: string): string {
-  return createHash('sha256').update(value).digest('hex').slice(0, 16)
-}
-
-function eventTailLine(event: AgentRuntimeEvent): string {
-  switch (event.kind) {
-    case 'user_message':
-      return `user:${event.itemId}:${clipText(event.displayText ?? event.text, 240)}`
-    case 'assistant_delta':
-      return `assistant:${event.itemId}:${clipText(event.text, 240)}`
-    case 'tool_event':
-      return `tool:${event.status}:${event.itemId}:${clipText(event.summary ?? event.detail ?? '', 240)}`
-    case 'compaction_event':
-      return `compaction:${event.status}:${event.itemId ?? ''}:${clipText(event.summary, 240)}`
-    case 'handoff_event':
-      return `handoff:${event.status}:${event.sourceRuntimeId}:${event.sourceThreadId}:${event.targetRuntimeId}:${event.targetThreadId}`
-    case 'goal_event':
-      return event.cleared
-        ? 'goal:cleared'
-        : `goal:${event.status ?? ''}:${clipText(event.objective ?? '', 240)}`
-    case 'turn_lifecycle':
-      return `turn:${normalizeAgentRuntimeTurnState(event.state) ?? event.state}:${event.turnId ?? ''}`
-    case 'item_snapshot':
-      return `item:${event.item.kind}:${event.item.id}:${clipText(event.item.text ?? event.item.summary ?? event.item.detail ?? '', 240)}`
-    case 'usage':
-      return `usage:${usageSummary(event.usage)}`
-    case 'runtime_status':
-      return `runtime:${event.phase ?? ''}:${clipText(event.message ?? '', 160)}`
-    case 'error':
-      return `error:${event.severity}:${clipText(event.message, 240)}`
-    default:
-      return ''
-  }
-}
-
-function usageSummary(usage: AgentRuntimeUsage): string {
-  const parts = [
-    usage.inputTokens === undefined ? '' : `input=${usage.inputTokens}`,
-    usage.outputTokens === undefined ? '' : `output=${usage.outputTokens}`,
-    usage.reasoningTokens === undefined ? '' : `reasoning=${usage.reasoningTokens}`,
-    usage.totalTokens === undefined ? '' : `total=${usage.totalTokens}`,
-    usage.costUsd === undefined ? '' : `costUsd=${usage.costUsd}`
-  ].filter(Boolean)
-  return parts.length ? `Token usage (${parts.join(', ')})` : 'Token usage observed'
 }
 
 function clipText(value: string, max: number): string {

@@ -34,6 +34,25 @@ export function shouldHideThreadFromSidebarByBlocks(blocks: ChatBlock[]): boolea
     blocks.some((block) => block.kind === 'user' && isRemoteChannelManagedBy(block.managedBy))
 }
 
+export function filterThreadsForSidebarSummary(
+  threads: NormalizedThread[]
+): NormalizedThread[] {
+  return threads.filter(
+    (thread) =>
+      !shouldHideThreadFromSidebarByTitle(thread) &&
+      !shouldInspectThreadForSidebarVisibility(thread)
+  )
+}
+
+export function hasThreadsRequiringSidebarVisibilityInspection(
+  threads: NormalizedThread[]
+): boolean {
+  return threads.some((thread) =>
+    !shouldHideThreadFromSidebarByTitle(thread) &&
+    shouldInspectThreadForSidebarVisibility(thread)
+  )
+}
+
 function titleFromThreadBlocks(blocks: ChatBlock[]): string | null {
   const userBlock = blocks.find((block) => {
     if (block.kind !== 'user' || isRemoteChannelManagedBy(block.managedBy)) return false

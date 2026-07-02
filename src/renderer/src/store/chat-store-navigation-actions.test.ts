@@ -165,6 +165,118 @@ describe('chat-store-navigation-actions refreshThreads', () => {
     expect(provider.listThreads).toHaveBeenCalledWith({ limit: 200, includeArchived: true })
   })
 
+  it('filters suspicious fallback threads before applying the sidebar list', async () => {
+    const activeThread = { ...thread('active-thread', 'codex'), title: 'Active thread' }
+    const fallbackThread = { ...thread('thr_279f3fef', 'codex'), title: 'thr_279f' }
+    const { refreshThreads, state, provider } = buildHarness({
+      activeRuntime: 'codex',
+      activeThread,
+      listedThreads: [fallbackThread]
+    })
+    provider.getThreadDetail.mockResolvedValueOnce({ blocks: [] })
+
+    await refreshThreads()
+
+    expect(provider.getThreadDetail).toHaveBeenCalledWith('thr_279f3fef')
+    expect(state.threads.map((item) => item.id)).toEqual(['active-thread'])
+  })
+
+  it('derives real titles for fallback threads before applying the sidebar list', async () => {
+    const activeThread = { ...thread('active-thread', 'codex'), title: 'Active thread' }
+    const fallbackThread = { ...thread('thr_279f3fef', 'codex'), title: 'New Thread' }
+    const { refreshThreads, state, provider } = buildHarness({
+      activeRuntime: 'codex',
+      activeThread,
+      listedThreads: [fallbackThread]
+    })
+    provider.getThreadDetail.mockResolvedValueOnce({
+      blocks: [{ kind: 'user', id: 'fallback-user', text: 'fix the sidebar placeholder titles' }]
+    })
+
+    await refreshThreads()
+
+    expect(provider.getThreadDetail).toHaveBeenCalledWith('thr_279f3fef')
+    expect(state.threads.map((item) => [item.id, item.title])).toEqual([
+      ['active-thread', 'Active thread'],
+      ['thr_279f3fef', 'fix the sidebar placeholder titles']
+    ])
+  })
+
+  it('ignores an older refresh result when a newer refresh has already applied', async () => {
+    const activeThread = { ...thread('active-thread', 'codex'), title: 'Active thread' }
+    const oldThread = { ...thread('old-thread', 'codex'), title: 'Old thread' }
+    const newThread = { ...thread('new-thread', 'codex'), title: 'New thread' }
+    const { refreshThreads, state, provider } = buildHarness({
+      activeRuntime: 'codex',
+      activeThread,
+      listedThreads: []
+    })
+    let resolveOldRefresh: (threads: NormalizedThread[]) => void = () => {
+      throw new Error('old refresh was not started')
+    }
+    let resolveNewRefresh: (threads: NormalizedThread[]) => void = () => {
+      throw new Error('new refresh was not started')
+    }
+    provider.listThreads
+      .mockImplementationOnce(() => new Promise<NormalizedThread[]>((resolve) => {
+        resolveOldRefresh = resolve
+      }))
+      .mockImplementationOnce(() => new Promise<NormalizedThread[]>((resolve) => {
+        resolveNewRefresh = resolve
+      }))
+
+    const oldRefresh = refreshThreads()
+    await Promise.resolve()
+    const newRefresh = refreshThreads()
+    await Promise.resolve()
+
+    resolveNewRefresh([newThread])
+    await newRefresh
+    expect(state.threads.map((item) => item.id)).toEqual(['active-thread', 'new-thread'])
+
+    resolveOldRefresh([oldThread])
+    await oldRefresh
+
+    expect(state.threads.map((item) => item.id)).toEqual(['active-thread', 'new-thread'])
+  })
+
+  it('ignores an older refresh failure after a newer refresh has already applied', async () => {
+    const activeThread = { ...thread('active-thread', 'codex'), title: 'Active thread' }
+    const newThread = { ...thread('new-thread', 'codex'), title: 'New thread' }
+    const { refreshThreads, state, provider } = buildHarness({
+      activeRuntime: 'codex',
+      activeThread,
+      listedThreads: []
+    })
+    let rejectOldRefresh: (error: Error) => void = () => {
+      throw new Error('old refresh was not started')
+    }
+    let resolveNewRefresh: (threads: NormalizedThread[]) => void = () => {
+      throw new Error('new refresh was not started')
+    }
+    provider.listThreads
+      .mockImplementationOnce(() => new Promise<NormalizedThread[]>((_resolve, reject) => {
+        rejectOldRefresh = reject
+      }))
+      .mockImplementationOnce(() => new Promise<NormalizedThread[]>((resolve) => {
+        resolveNewRefresh = resolve
+      }))
+
+    const oldRefresh = refreshThreads()
+    await Promise.resolve()
+    const newRefresh = refreshThreads()
+    await Promise.resolve()
+
+    resolveNewRefresh([newThread])
+    await newRefresh
+    rejectOldRefresh(new Error('stale list failure'))
+    await oldRefresh
+
+    expect(state.runtimeConnection).toBe('ready')
+    expect(state.error).toBeNull()
+    expect(state.threads.map((item) => item.id)).toEqual(['active-thread', 'new-thread'])
+  })
+
   it('preserves an unlisted active thread when it belongs to the active runtime', async () => {
     const pendingCodexThread = thread('pending-codex-thread', 'codex')
     const { refreshThreads, state } = buildHarness({

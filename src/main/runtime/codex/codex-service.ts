@@ -1,9 +1,9 @@
 import { join } from 'node:path'
 import {
+  DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
   DEFAULT_MODEL_ROUTER_PROVIDER_ID,
   getAgentCapabilitySettings,
   getCodexRuntimeSettings,
-  resolveRuntimeModelRouterSettings,
   type AppSettingsV1,
   type ApprovalPolicy,
   type SandboxMode
@@ -135,6 +135,19 @@ type CodexTurnTiming = {
   firstDeltaSeen: boolean
 }
 
+type CodexPendingTurnRecovery = {
+  threadId: string
+  text: string
+  displayText?: string
+  workspace: string
+  model: string
+  reasoningEffort?: string
+  metadata?: Record<string, unknown>
+  fileReferences?: CodexTurnStartPayload['fileReferences']
+  runtime: ReturnType<typeof getCodexRuntimeSettings>
+  recoveryAttempted: boolean
+}
+
 type CodexRuntimeStatusInput = {
   threadId: string
   turnId?: string
@@ -167,6 +180,7 @@ const EMPTY_CODEX_TURN_USAGE: AgentRuntimeUsage = {
 
 const FIRST_CODEX_ACTIVITY_TIMEOUT_MS = 75_000
 const INTERRUPT_TIMED_OUT_TURN_MS = 5_000
+const CODEX_PENDING_TOOL_COMPLETION_GRACE_MS = 5_000
 const CODEX_TURN_DISCONNECTED_MESSAGE = 'Codex runtime disconnected before this turn completed. The stuck turn was closed so you can retry.'
 const CODEX_TURN_STOPPED_MESSAGE = 'Codex runtime stopped before this turn completed. The stuck turn was closed so you can retry.'
 const CODEX_COMMAND_DOWNLOAD_INSTRUCTION_LINES = [
@@ -209,12 +223,14 @@ export class CodexRuntimeService {
   private readonly activeTurns = new Map<string, string>()
   private readonly turnTimings = new Map<string, CodexTurnTiming>()
   private readonly turnModelHints = new Map<string, string>()
+  private readonly pendingTurnRecoveries = new Map<string, CodexPendingTurnRecovery>()
   private readonly turnsWithRecordedUsage = new Set<string>()
   private readonly firstActivityTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly seenModelDeltaKeys = new Set<string>()
   private readonly eventSubscribers = new Set<CodexRuntimeEventSubscriber>()
   private readonly pendingToolItemsByTurn = new Map<string, Set<string>>()
   private readonly deferredTurnCompleteEvents = new Map<string, CodexThreadEventPayload>()
+  private readonly pendingToolBarrierTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   constructor(private readonly options: CodexRuntimeServiceOptions) {
     this.threadStore = options.storageRoot ? new CodexThreadStore({ rootDir: options.storageRoot }) : null
@@ -592,6 +608,18 @@ export class CodexRuntimeService {
       const turnId = stringValue(turn.id) || ''
       this.recordActiveTurn(payload.threadId, turnId, startedAtMs)
       this.recordTurnModelHint(payload.threadId, turnId, routerModel)
+      this.recordTurnRecovery(payload.threadId, turnId, {
+        threadId: payload.threadId,
+        text: modelText,
+        displayText: modelDisplayText,
+        workspace,
+        model: routerModel,
+        reasoningEffort: payload.reasoningEffort,
+        metadata: payload.metadata,
+        fileReferences: payload.fileReferences,
+        runtime,
+        recoveryAttempted: false
+      })
       await this.emitRuntimeStatus({
         threadId: payload.threadId,
         ...(turnId ? { turnId } : {}),
@@ -1060,14 +1088,14 @@ export class CodexRuntimeService {
         threadId: childCodexThreadId,
         text: input.prompt,
         workspace,
-        model: input.model ?? codexModelRouterModel(settings),
+        model: codexModelRouterModel(settings),
         runtime: getCodexRuntimeSettings(settings)
       }))
       const turn = asRecord(asRecord(turnResponse)?.turn) ?? {}
       const childTurnId = stringValue(turn.id) || ''
       if (!childTurnId) throw new Error('Codex child turn did not return a turn id.')
       this.recordActiveTurn(childGuiThreadId, childTurnId, startedAtMs)
-      this.recordTurnModelHint(childGuiThreadId, childTurnId, input.model ?? codexModelRouterModel(settings))
+      this.recordTurnModelHint(childGuiThreadId, childTurnId, codexModelRouterModel(settings))
       await input.appendTranscript({
         id: `${input.childId}-thread-start`,
         kind: 'event',
@@ -1329,6 +1357,7 @@ export class CodexRuntimeService {
   }
 
   private async publishClientEvent(event: CodexThreadEventPayload): Promise<void> {
+    if (await this.recoverModelRouterAliasFailure(event)) return
     const stored = await this.persistEvent(event.threadId, event)
     const runtimeEvent = stored?.event ?? event
     await this.recordUsageEvent(runtimeEvent, stored?.createdAt)
@@ -1338,6 +1367,73 @@ export class CodexRuntimeService {
     await this.emitFirstDeltaIfNeeded(runtimeEvent)
     await this.emitTurnDoneIfNeeded(runtimeEvent)
     this.noteRuntimeEvent(runtimeEvent)
+  }
+
+  private async recoverModelRouterAliasFailure(event: CodexThreadEventPayload): Promise<boolean> {
+    const turnId = event.turnId || event.userMessage?.turnId || ''
+    if (!turnId || !isModelRouterAliasRuntimeError(event.runtimeError)) return false
+    const key = turnTimingKey(event.threadId, turnId)
+    const recovery = this.pendingTurnRecoveries.get(key)
+    if (!recovery || recovery.recoveryAttempted) return false
+
+    const settings = await this.options.settings()
+    const storedThread = await this.findStoredThread(event.threadId)
+    this.pendingTurnRecoveries.set(key, { ...recovery, recoveryAttempted: true })
+    this.clearTurnTracking(event.threadId, turnId)
+
+    await this.emitRuntimeStatus({
+      threadId: event.threadId,
+      turnId,
+      phase: 'reconnecting',
+      message: 'Codex thread used a stale Model Router alias; rebuilding the thread and retrying this turn.'
+    })
+
+    try {
+      const { client } = await this.ensureConnectedClient(settings)
+      const replacement = await this.rematerializeThread({
+        client,
+        settings,
+        guiThreadId: event.threadId,
+        storedThread,
+        workspace: recovery.workspace
+      })
+      const response = await client.startTurn(turnStartParams({
+        threadId: replacement.codexThreadId,
+        text: recovery.text,
+        displayText: recovery.displayText,
+        workspace: recovery.workspace,
+        model: recovery.model,
+        reasoningEffort: recovery.reasoningEffort,
+        metadata: recovery.metadata,
+        fileReferences: recovery.fileReferences,
+        runtime: recovery.runtime
+      }))
+      const turn = asRecord(asRecord(response)?.turn) ?? {}
+      const retryTurnId = stringValue(turn.id) || ''
+      this.recordActiveTurn(event.threadId, retryTurnId)
+      this.recordTurnModelHint(event.threadId, retryTurnId, recovery.model)
+      this.recordTurnRecovery(event.threadId, retryTurnId, {
+        ...recovery,
+        threadId: event.threadId,
+        recoveryAttempted: true
+      })
+      await this.emitRuntimeStatus({
+        threadId: event.threadId,
+        ...(retryTurnId ? { turnId: retryTurnId } : {}),
+        phase: 'turn_start_sent',
+        message: 'Codex turn retried with the managed Model Router alias.'
+      })
+      return true
+    } catch (error) {
+      await this.emitRuntimeError({
+        threadId: event.threadId,
+        turnId,
+        message: error instanceof Error ? error.message : String(error),
+        code: 'model_router_alias_recovery_failed',
+        severity: 'error'
+      }, { forceTurnDone: true })
+      return true
+    }
   }
 
   private eventsAfterPendingToolBarrier(event: CodexThreadEventPayload): CodexThreadEventPayload[] {
@@ -1358,6 +1454,7 @@ export class CodexRuntimeService {
         turnId,
         turnComplete: true
       })
+      this.schedulePendingToolBarrierGrace(key)
       const immediateEvent = eventWithoutTurnComplete(event)
       return immediateEvent ? [immediateEvent] : []
     }
@@ -1396,17 +1493,50 @@ export class CodexRuntimeService {
     const deferred = this.deferredTurnCompleteEvents.get(key)
     if (!deferred) return null
     this.deferredTurnCompleteEvents.delete(key)
+    this.clearPendingToolBarrierTimer(key)
     return deferred
   }
 
   private clearPendingToolBarrierForTurn(key: string): void {
     this.pendingToolItemsByTurn.delete(key)
     this.deferredTurnCompleteEvents.delete(key)
+    this.clearPendingToolBarrierTimer(key)
   }
 
   private clearPendingToolBarrier(): void {
     this.pendingToolItemsByTurn.clear()
     this.deferredTurnCompleteEvents.clear()
+    for (const timer of this.pendingToolBarrierTimers.values()) clearTimeout(timer)
+    this.pendingToolBarrierTimers.clear()
+  }
+
+  private schedulePendingToolBarrierGrace(key: string): void {
+    this.clearPendingToolBarrierTimer(key)
+    const timer = setTimeout(() => {
+      this.pendingToolBarrierTimers.delete(key)
+      void this.releaseDeferredTurnCompleteAfterGrace(key).catch((error) => {
+        this.options.sink.send(CODEX_MAIN_IPC_CHANNELS.error, {
+          message: error instanceof Error ? error.message : String(error),
+          detail: error
+        })
+      })
+    }, CODEX_PENDING_TOOL_COMPLETION_GRACE_MS)
+    this.pendingToolBarrierTimers.set(key, timer)
+  }
+
+  private clearPendingToolBarrierTimer(key: string): void {
+    const timer = this.pendingToolBarrierTimers.get(key)
+    if (!timer) return
+    clearTimeout(timer)
+    this.pendingToolBarrierTimers.delete(key)
+  }
+
+  private async releaseDeferredTurnCompleteAfterGrace(key: string): Promise<void> {
+    const deferred = this.deferredTurnCompleteEvents.get(key)
+    if (!deferred) return
+    this.pendingToolItemsByTurn.delete(key)
+    this.deferredTurnCompleteEvents.delete(key)
+    await this.publishClientEvent(deferred)
   }
 
   private addEventSubscriber(threadId: string): CodexRuntimeEventSubscriber {
@@ -1572,6 +1702,13 @@ export class CodexRuntimeService {
     this.turnModelHints.set(turnTimingKey(normalizedThreadId, normalizedTurnId), normalizedModel)
   }
 
+  private recordTurnRecovery(threadId: string, turnId: string, recovery: CodexPendingTurnRecovery): void {
+    const normalizedThreadId = threadId.trim()
+    const normalizedTurnId = turnId.trim()
+    if (!normalizedThreadId || !normalizedTurnId) return
+    this.pendingTurnRecoveries.set(turnTimingKey(normalizedThreadId, normalizedTurnId), recovery)
+  }
+
   private validateActiveTurn(threadId: string, turnId: string): CodexTurnMutationResult | null {
     const activeTurnId = this.activeTurns.get(threadId)
     if (!activeTurnId) {
@@ -1587,11 +1724,18 @@ export class CodexRuntimeService {
     const turnId = event.turnId || event.userMessage?.turnId || ''
     if (!turnId || this.activeTurns.get(event.threadId) !== turnId) return
     if (event.turnComplete || isTerminalRuntimeError(event.runtimeError)) {
-      this.activeTurns.delete(event.threadId)
-      this.turnTimings.delete(turnTimingKey(event.threadId, turnId))
-      this.clearFirstActivityTimer(turnTimingKey(event.threadId, turnId))
-      this.clearPendingToolBarrierForTurn(turnTimingKey(event.threadId, turnId))
+      this.clearTurnTracking(event.threadId, turnId)
     }
+  }
+
+  private clearTurnTracking(threadId: string, turnId: string): void {
+    const key = turnTimingKey(threadId, turnId)
+    if (this.activeTurns.get(threadId) === turnId) this.activeTurns.delete(threadId)
+    this.turnTimings.delete(key)
+    this.turnModelHints.delete(key)
+    this.pendingTurnRecoveries.delete(key)
+    this.clearFirstActivityTimer(key)
+    this.clearPendingToolBarrierForTurn(key)
   }
 
   private noteFirstActivity(event: CodexThreadEventPayload): void {
@@ -1919,14 +2063,19 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
       })
     }
     if (event.runtimeError) {
+      const transientPhase = transientRuntimeErrorPhase(event.runtimeError)
       blocks.push({
         kind: 'system',
-        id: event.runtimeError.itemId || `error-${item.seq}`,
+        id: transientPhase
+          ? runtimeStatusItemId(event.threadId, turnId, transientPhase)
+          : event.runtimeError.itemId || `error-${item.seq}`,
         createdAt: event.runtimeError.createdAt ?? item.createdAt,
         ...(turnId ? { turnId } : {}),
         text: event.runtimeError.message,
         code: event.runtimeError.code,
-        severity: event.runtimeError.severity
+        severity: transientPhase
+          ? 'warning'
+          : event.runtimeError.severity
       })
     }
   }
@@ -1934,7 +2083,42 @@ function storedEventsToBlocks(events: CodexStoredEvent[]): CodexChatBlock[] {
 }
 
 function dedupeThreadBlocks(blocks: CodexChatBlock[]): CodexChatBlock[] {
-  return dedupeAssistantBlocks(dedupeToolBlocks(blocks))
+  return dedupeAssistantBlocks(dedupeToolBlocks(dedupeSystemBlocks(blocks)))
+}
+
+function dedupeSystemBlocks(blocks: CodexChatBlock[]): CodexChatBlock[] {
+  const indexByKey = new Map<string, number>()
+  let changed = false
+  const next: CodexChatBlock[] = []
+  for (const block of blocks) {
+    if (block.kind !== 'system') {
+      next.push(block)
+      continue
+    }
+    const key = `${block.turnId ?? ''}\u0000${block.id}`
+    const existingIndex = indexByKey.get(key)
+    if (existingIndex === undefined) {
+      indexByKey.set(key, next.length)
+      next.push(block)
+      continue
+    }
+    const previous = next[existingIndex]
+    if (previous.kind !== 'system') {
+      next.push(block)
+      continue
+    }
+    changed = true
+    next[existingIndex] = {
+      ...previous,
+      ...block,
+      createdAt: previous.createdAt ?? block.createdAt,
+      text: block.text || previous.text,
+      code: block.code ?? previous.code,
+      detail: block.detail ?? previous.detail,
+      severity: block.severity ?? previous.severity
+    }
+  }
+  return changed ? next : blocks
 }
 
 function dedupeToolBlocks(blocks: CodexChatBlock[]): CodexChatBlock[] {
@@ -2193,7 +2377,8 @@ function codexModelRouterThreadParams(
 }
 
 function codexModelRouterModel(settings: AppSettingsV1): string {
-  return resolveRuntimeModelRouterSettings(settings).model
+  void settings
+  return DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS
 }
 
 function turnStartParams(input: {
@@ -2624,12 +2809,30 @@ function isTerminalRuntimeError(error: CodexThreadEventPayload['runtimeError']):
   return error.severity === 'error' || error.code === 'cancelled' || error.code === 'aborted'
 }
 
+function isModelRouterAliasRuntimeError(error: CodexThreadEventPayload['runtimeError']): boolean {
+  if (!error) return false
+  const message = stringValue(error.message).toLowerCase()
+  return message.includes('model router requests must use the public router model alias') ||
+    (message.includes('public router model alias') && message.includes('model router'))
+}
+
 function isTransientRuntimeError(error: NonNullable<CodexThreadEventPayload['runtimeError']>): boolean {
   const code = stringValue(error.code).toLowerCase()
   return code === 'reconnecting' ||
     code === 'tool_waiting' ||
     code === 'stream_recovering' ||
     isReconnectRuntimeErrorMessage(error.message)
+}
+
+function transientRuntimeErrorPhase(
+  error: NonNullable<CodexThreadEventPayload['runtimeError']>
+): NonNullable<CodexThreadEventPayload['runtimeStatus']>['phase'] | null {
+  const code = stringValue(error.code).toLowerCase()
+  if (code === 'reconnecting') return 'reconnecting'
+  if (code === 'tool_waiting') return 'tool_waiting'
+  if (code === 'stream_recovering') return 'stream_recovering'
+  if (isReconnectRuntimeErrorMessage(error.message)) return 'reconnecting'
+  return null
 }
 
 function isReconnectRuntimeErrorMessage(message: string | undefined): boolean {

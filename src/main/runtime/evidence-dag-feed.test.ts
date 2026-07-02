@@ -3,6 +3,7 @@ import type { AgentRuntimeItem, AgentRuntimeThreadDetail } from '../../shared/ag
 import {
   completedTurnItems,
   feedEvidenceDag,
+  isEvidenceDagAutoFeedEnabled,
   isEvidenceDagFeedEnabled,
   toEvidenceDagTraceItems
 } from './evidence-dag-feed'
@@ -71,6 +72,22 @@ describe('Evidence DAG runtime feed', () => {
     })).toBe(false)
     expect(isEvidenceDagFeedEnabled({
       SCIFORGE_EVIDENCE_DAG_API_KEY: 'secret'
+    })).toBe(false)
+  })
+
+  it('requires an explicit opt-in before auto-feeding completed turns', () => {
+    expect(isEvidenceDagAutoFeedEnabled({
+      SCIFORGE_EVIDENCE_DAG_SERVICE_URL: 'http://127.0.0.1:3897',
+      SCIFORGE_EVIDENCE_DAG_API_KEY: 'secret'
+    })).toBe(false)
+    expect(isEvidenceDagAutoFeedEnabled({
+      SCIFORGE_EVIDENCE_DAG_SERVICE_URL: 'http://127.0.0.1:3897',
+      SCIFORGE_EVIDENCE_DAG_API_KEY: 'secret',
+      SCIFORGE_EVIDENCE_DAG_AUTO_FEED: 'true'
+    })).toBe(true)
+    expect(isEvidenceDagAutoFeedEnabled({
+      SCIFORGE_EVIDENCE_DAG_SERVICE_URL: 'http://127.0.0.1:3897',
+      SCIFORGE_EVIDENCE_DAG_AUTO_FEED: 'true'
     })).toBe(false)
   })
 

@@ -1595,7 +1595,7 @@ app.whenReady().then(async () => {
   syncWeixinBridgeRuntime(initial)
 
   traceStartup('ipc registration:start')
-  registerTerminalPtyIpc({
+  const terminalPtyBridge = registerTerminalPtyIpc({
     ipcMain,
     getMainWindow: () => mainWindow,
     logError
@@ -1748,6 +1748,7 @@ app.whenReady().then(async () => {
     readGuiUpdateState,
     loadGuiUpdaterModule,
     resolveLogDirectory,
+    terminalPtyBridge,
     logError,
     ensureEvidenceDagReady: async () => {
       const settings = await store.load()

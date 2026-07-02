@@ -24,6 +24,11 @@ describe('RuntimeContextStateService', () => {
       itemId: 'assistant-1',
       text: 'answer'
     })
+    expect(service.get({ runtimeId: 'sciforge', threadId: 'thread-1' })).toMatchObject({
+      rawHistoryItems: 0,
+      effectiveHistoryItems: 0,
+      estimatedTokens: 0
+    })
     service.observeEvent({
       kind: 'compaction_event',
       runtimeId: 'sciforge',

@@ -2852,9 +2852,50 @@ describe('AgentRuntimeHost', () => {
     expect(adapterAuxiliary).not.toHaveBeenCalled()
   })
 
-  it('feeds completed turns from the neutral runtime event path into Evidence DAG', async () => {
+  it('does not auto-feed completed turns into Evidence DAG without explicit opt-in', async () => {
     vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:3897/')
     vi.stubEnv('SCIFORGE_EVIDENCE_DAG_API_KEY', 'dag-secret')
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const claude = fakeAdapter('claude', {
+      id: 'claude-thread',
+      runtimeId: 'claude',
+      title: 'Claude',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    vi.mocked(claude.subscribeEvents).mockImplementation(async function* () {
+      yield {
+        kind: 'turn_lifecycle',
+        runtimeId: 'claude',
+        threadId: 'claude-thread',
+        turnId: 'turn-1',
+        state: 'completed',
+        seq: 2
+      } satisfies AgentRuntimeEvent
+    })
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('claude'),
+      adapters: [claude]
+    })
+
+    const events: AgentRuntimeEvent[] = []
+    for await (const event of host.subscribeEvents({
+      runtimeId: 'claude',
+      threadId: 'claude-thread',
+      sinceSeq: 0
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toHaveLength(1)
+    expect(claude.readThread).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('auto-feeds completed turns from the neutral runtime event path into Evidence DAG when enabled', async () => {
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_SERVICE_URL', 'http://127.0.0.1:3897/')
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_API_KEY', 'dag-secret')
+    vi.stubEnv('SCIFORGE_EVIDENCE_DAG_AUTO_FEED', 'true')
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
     const claude = fakeAdapter('claude', {

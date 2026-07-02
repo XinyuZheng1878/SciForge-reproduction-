@@ -274,6 +274,7 @@ import {
 } from '../services/pdf-annotation-sidecar-service'
 import { workspaceHtmlPreviewService } from '../services/workspace-html-preview-service'
 import { feedEvidenceDag } from '../runtime/evidence-dag-feed'
+import type { TerminalPtyBridge } from '../terminal/terminal-pty-ipc'
 
 type GuiUpdaterModule = typeof import('../gui-updater')
 
@@ -362,6 +363,7 @@ type RegisterAppIpcHandlersOptions = {
   readGuiUpdateState: () => Promise<GuiUpdateState>
   loadGuiUpdaterModule: () => Promise<GuiUpdaterModule>
   resolveLogDirectory: () => string
+  terminalPtyBridge?: TerminalPtyBridge
   getScientificSkillsMcpLaunchConfig?: () => ScientificSkillsMcpLaunchConfig
   getScientificPlottingMcpLaunchConfig?: () => ScientificPlottingMcpLaunchConfig
   getImageGenerationMcpLaunchConfig?: () => ImageGenerationMcpLaunchConfig
@@ -551,6 +553,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     readGuiUpdateState,
     loadGuiUpdaterModule,
     resolveLogDirectory,
+    terminalPtyBridge,
     getScientificSkillsMcpLaunchConfig,
     getScientificPlottingMcpLaunchConfig,
     getImageGenerationMcpLaunchConfig,
@@ -700,6 +703,21 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     applySettingsPatch(
       parseIpcPayload('settings:set', settingsPatchSchema, partial) as AppSettingsPatch
     )
+  )
+  handleInvoke('terminal:create', async (event, payload: unknown) =>
+    terminalPtyBridge?.create(event.sender, payload) ?? {
+      ok: false as const,
+      message: 'The terminal backend is not available.'
+    }
+  )
+  handleInvoke('terminal:write', async (event, payload: unknown) =>
+    terminalPtyBridge?.write(event.sender, payload) ?? false
+  )
+  handleInvoke('terminal:resize', async (event, payload: unknown) =>
+    terminalPtyBridge?.resize(event.sender, payload) ?? false
+  )
+  handleInvoke('terminal:dispose', async (event, payload: unknown) =>
+    terminalPtyBridge?.dispose(event.sender, payload) ?? false
   )
   handleInvoke('computer-use:permissions', async () => getComputerUsePermissions())
   handleInvoke('computer-use:request-permission', async (_, kind: unknown) =>

@@ -63,7 +63,7 @@ import { RuntimeGovernanceSupervisor, runtimeGuardSettings } from './governance'
 import {
   completedTurnItems,
   feedEvidenceDag,
-  isEvidenceDagFeedEnabled
+  isEvidenceDagAutoFeedEnabled
 } from '../evidence-dag-feed'
 import { AgentRuntimeContextCompactor } from './context-compactor'
 import type { LspCodeNavigationService } from '../../services/lsp-code-navigation-service'
@@ -1673,7 +1673,7 @@ export class AgentRuntimeHost {
     event: AgentRuntimeEvent
   ): void {
     if (event.kind !== 'turn_lifecycle' || event.state !== 'completed') return
-    if (!isEvidenceDagFeedEnabled()) return
+    if (!isEvidenceDagAutoFeedEnabled()) return
     const threadId = event.threadId.trim()
     const turnId = event.turnId?.trim()
     if (!threadId || !turnId) return

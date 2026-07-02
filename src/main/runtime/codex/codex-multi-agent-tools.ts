@@ -77,8 +77,7 @@ export class CodexMultiAgentToolBridge {
           label: { type: 'string', description: 'Short label for the child agent.' },
           name: { type: 'string', description: 'Alias for label.' },
           workspace: { type: 'string', description: 'Workspace root for the child task.' },
-          cwd: { type: 'string', description: 'Alias for workspace.' },
-          model: { type: 'string', description: 'Optional model override routed through Model Router.' }
+          cwd: { type: 'string', description: 'Alias for workspace.' }
         },
         additionalProperties: false
       }

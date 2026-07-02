@@ -93,6 +93,7 @@ type StoreActionContext = {
 
 let bootPromise: Promise<void> | null = null
 let remoteChannelActivityUnsubscribe: (() => void) | null = null
+let refreshThreadsRequestSeq = 0
 
 function stateHasRecoverableActiveTurn(state: ChatState): boolean {
   return state.busy || Boolean(state.currentTurnId) || state.blocks.some(hasPendingRuntimeWork)
@@ -548,6 +549,7 @@ export function createNavigationActions(
 
   refreshThreads: async () => {
     if (get().runtimeConnection !== 'ready') return
+    const requestSeq = ++refreshThreadsRequestSeq
     try {
       const p = getProvider()
       let rawThreads: NormalizedThread[]
@@ -571,131 +573,137 @@ export function createNavigationActions(
           hiddenCodeWorkspaceRoots
         )
       )
-      const sidebarThreads = (await filterThreadsForSidebar(threads, p))
-        .filter((thread) =>
+      const applySidebarThreads = async (candidateThreads: NormalizedThread[]): Promise<void> => {
+        const sidebarThreads = candidateThreads.filter((thread) =>
           !isSddAssistantThread(thread, sddThreadRegistry) &&
           !isEmptySddAssistantThreadCandidate(thread)
         )
-      const forkRegistry = hydrateThreadForkRegistry(sidebarThreads, readThreadForkRegistry())
-      saveThreadForkRegistry(forkRegistry)
-      const enrichedThreads = enrichThreadsWithForkInfo(sidebarThreads, forkRegistry)
-      // Preserve the active runtime thread when it is not in the listing yet.
-      // A brand-new thread can be absent from `listThreads` until the first
-      // message is written. Without this, the optimistic thread would be wiped
-      // from the sidebar and its live turn aborted by the selection clearing
-      // path below.
-      const activeId = get().activeThreadId
-      const activeRawThread = activeId
-        ? threads.find((thread) => thread.id === activeId) ?? null
-        : null
-      const activeThreadIsSdd =
-        isSddAssistantThread(activeRawThread, sddThreadRegistry) ||
-        isSddAssistantThread(
-          activeId ? get().threads.find((thread) => thread.id === activeId) ?? null : null,
-          sddThreadRegistry
-        ) ||
-        isEmptySddAssistantThreadCandidate(activeRawThread) ||
-        isEmptySddAssistantThreadCandidate(
-          activeId ? get().threads.find((thread) => thread.id === activeId) ?? null : null
-        )
-      const activeThreadWasFilteredFromSidebar =
-        !activeThreadIsSdd &&
-        activeThreadFilteredFromSidebar({ activeId, rawThreads: threads, sidebarThreads })
-      const preservedSddActiveThread =
-        activeThreadIsSdd && activeId
-          ? activeRawThread ?? get().threads.find((thread) => thread.id === activeId) ?? null
+        if (requestSeq !== refreshThreadsRequestSeq) return
+        const forkRegistry = hydrateThreadForkRegistry(sidebarThreads, readThreadForkRegistry())
+        saveThreadForkRegistry(forkRegistry)
+        const enrichedThreads = enrichThreadsWithForkInfo(sidebarThreads, forkRegistry)
+        // Preserve the active runtime thread when it is not in the listing yet.
+        // A brand-new thread can be absent from `listThreads` until the first
+        // message is written. Without this, the optimistic thread would be wiped
+        // from the sidebar and its live turn aborted by the selection clearing
+        // path below.
+        const activeId = get().activeThreadId
+        const activeRawThread = activeId
+          ? threads.find((thread) => thread.id === activeId) ?? null
           : null
-      const pendingActiveThread =
-        activeId != null &&
-        !activeThreadWasFilteredFromSidebar &&
-        !enrichedThreads.some((thread) => thread.id === activeId)
-          ? get().threads.find((thread) => thread.id === activeId) ?? null
+        const activeThreadIsSdd =
+          isSddAssistantThread(activeRawThread, sddThreadRegistry) ||
+          isSddAssistantThread(
+            activeId ? get().threads.find((thread) => thread.id === activeId) ?? null : null,
+            sddThreadRegistry
+          ) ||
+          isEmptySddAssistantThreadCandidate(activeRawThread) ||
+          isEmptySddAssistantThreadCandidate(
+            activeId ? get().threads.find((thread) => thread.id === activeId) ?? null : null
+          )
+        const activeThreadWasFilteredFromSidebar =
+          !activeThreadIsSdd &&
+          activeThreadFilteredFromSidebar({ activeId, rawThreads: threads, sidebarThreads })
+        const preservedSddActiveThread =
+          activeThreadIsSdd && activeId
+            ? activeRawThread ?? get().threads.find((thread) => thread.id === activeId) ?? null
+            : null
+        const pendingActiveThread =
+          activeId != null &&
+          !activeThreadWasFilteredFromSidebar &&
+          !enrichedThreads.some((thread) => thread.id === activeId)
+            ? get().threads.find((thread) => thread.id === activeId) ?? null
+            : null
+        let displayThreads = pendingActiveThread
+          ? [pendingActiveThread, ...enrichedThreads]
+          : enrichedThreads
+        if (
+          preservedSddActiveThread &&
+          !displayThreads.some((thread) => thread.id === preservedSddActiveThread.id)
+        ) {
+          displayThreads = [preservedSddActiveThread, ...displayThreads]
+        }
+        const activeThreadId = get().activeThreadId
+        const activeThread = activeThreadId
+          ? displayThreads.find((thread) => thread.id === activeThreadId) ?? null
           : null
-      let displayThreads = pendingActiveThread
-        ? [pendingActiveThread, ...enrichedThreads]
-        : enrichedThreads
-      if (
-        preservedSddActiveThread &&
-        !displayThreads.some((thread) => thread.id === preservedSddActiveThread.id)
-      ) {
-        displayThreads = [preservedSddActiveThread, ...displayThreads]
-      }
-      const activeThreadId = get().activeThreadId
-      const activeThread = activeThreadId
-        ? displayThreads.find((thread) => thread.id === activeThreadId) ?? null
-        : null
-      const activeThreadIsManagedInCodeRoute =
-        get().route === 'chat' &&
-        activeThread != null &&
-        isRemoteChannelThread(activeThread, get().remoteChannels)
-      const activeThreadHasLocalConversation =
-        activeId != null &&
-        (
-          get().blocks.length > 0 ||
-          Boolean((get().liveAssistant ?? '').trim()) ||
-          Boolean((get().liveReasoning ?? '').trim()) ||
-          stateHasRecoverableActiveTurn(get())
-        )
-      const shouldClearSelection =
-        activeThreadId != null &&
-        !activeThreadHasLocalConversation &&
-        !displayThreads.some((thread) => thread.id === activeThreadId)
-      const locallyActiveThread =
-        activeThreadHasLocalConversation && activeId
-          ? preserveLocalActiveThreadForSidebar(
-              activeRawThread ?? get().threads.find((thread) => thread.id === activeId) ?? null,
-              get().blocks
-            )
-          : null
-      if (
-        locallyActiveThread &&
-        !displayThreads.some((thread) => thread.id === locallyActiveThread.id)
-      ) {
-        displayThreads = [locallyActiveThread, ...displayThreads]
-      }
-      if (shouldClearSelection) {
-        sseAbortRef.current?.abort()
-        sseAbortRef.current = null
-      }
-      const validIds = new Set(displayThreads.map((t) => t.id))
-      set((s) => {
-        const w: Record<string, boolean> = {}
-        for (const [k, v] of Object.entries(s.watchTurnCompletion)) {
-          if (v && validIds.has(k)) {
-            w[k] = true
-          } else {
-            clearWatchedCompletionNotification(k)
+        const activeThreadIsManagedInCodeRoute =
+          get().route === 'chat' &&
+          activeThread != null &&
+          isRemoteChannelThread(activeThread, get().remoteChannels)
+        const activeThreadHasLocalConversation =
+          activeId != null &&
+          (
+            get().blocks.length > 0 ||
+            Boolean((get().liveAssistant ?? '').trim()) ||
+            Boolean((get().liveReasoning ?? '').trim()) ||
+            stateHasRecoverableActiveTurn(get())
+          )
+        const shouldClearSelection =
+          activeThreadId != null &&
+          !activeThreadHasLocalConversation &&
+          !displayThreads.some((thread) => thread.id === activeThreadId)
+        const locallyActiveThread =
+          activeThreadHasLocalConversation && activeId
+            ? preserveLocalActiveThreadForSidebar(
+                activeRawThread ?? get().threads.find((thread) => thread.id === activeId) ?? null,
+                get().blocks
+              )
+            : null
+        if (
+          locallyActiveThread &&
+          !displayThreads.some((thread) => thread.id === locallyActiveThread.id)
+        ) {
+          displayThreads = [locallyActiveThread, ...displayThreads]
+        }
+        if (shouldClearSelection) {
+          sseAbortRef.current?.abort()
+          sseAbortRef.current = null
+        }
+        const validIds = new Set(displayThreads.map((t) => t.id))
+        set((s) => {
+          const w: Record<string, boolean> = {}
+          for (const [k, v] of Object.entries(s.watchTurnCompletion)) {
+            if (v && validIds.has(k)) {
+              w[k] = true
+            } else {
+              clearWatchedCompletionNotification(k)
+            }
           }
+          const u: Record<string, boolean> = {}
+          for (const [k, v] of Object.entries(s.unreadThreadIds)) {
+            if (v && validIds.has(k)) u[k] = true
+          }
+          return {
+            threads: displayThreads,
+            codeWorkspaceRoots: filterHiddenCodeWorkspaceRoots(
+              compactCodeWorkspaceRoots([
+                ...displayThreads
+                  .filter((thread) => isCodeThread(thread, s.remoteChannels))
+                  .map((thread) => thread.workspace),
+                ...codeWorkspaceRoots
+              ]),
+              s.hiddenCodeWorkspaceRoots ?? []
+            ),
+            watchTurnCompletion: w,
+            unreadThreadIds: u,
+            ...(shouldClearSelection ? clearedThreadSelection() : {})
+          }
+        })
+        syncTurnCompletionPoll(set, get)
+        if (!shouldClearSelection && get().activeThreadId && stateHasRecoverableActiveTurn(get())) {
+          armBusyWatchdog(set, get)
         }
-        const u: Record<string, boolean> = {}
-        for (const [k, v] of Object.entries(s.unreadThreadIds)) {
-          if (v && validIds.has(k)) u[k] = true
+        syncRuntimeThreadRefreshPoll(get)
+        if (activeThreadIsManagedInCodeRoute) {
+          await get().openCode()
         }
-        return {
-          threads: displayThreads,
-          codeWorkspaceRoots: filterHiddenCodeWorkspaceRoots(
-            compactCodeWorkspaceRoots([
-              ...displayThreads
-                .filter((thread) => isCodeThread(thread, s.remoteChannels))
-                .map((thread) => thread.workspace),
-              ...codeWorkspaceRoots
-            ]),
-            s.hiddenCodeWorkspaceRoots ?? []
-          ),
-          watchTurnCompletion: w,
-          unreadThreadIds: u,
-          ...(shouldClearSelection ? clearedThreadSelection() : {})
-        }
-      })
-      syncTurnCompletionPoll(set, get)
-      if (!shouldClearSelection && get().activeThreadId && stateHasRecoverableActiveTurn(get())) {
-        armBusyWatchdog(set, get)
       }
-      syncRuntimeThreadRefreshPoll(get)
-      if (activeThreadIsManagedInCodeRoute) {
-        await get().openCode()
-      }
+
+      const filteredThreads = await filterThreadsForSidebar(threads, p)
+      await applySidebarThreads(filteredThreads)
     } catch (e) {
+      if (requestSeq !== refreshThreadsRequestSeq) return
       stopRuntimeThreadRefreshPoll()
       stopTurnCompletionPoll()
       set({

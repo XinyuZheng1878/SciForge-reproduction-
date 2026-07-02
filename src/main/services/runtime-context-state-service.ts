@@ -138,20 +138,6 @@ export class RuntimeContextStateService {
       })
       return
     }
-    if (event.kind === 'user_message' || event.kind === 'assistant_delta' || event.kind === 'tool_event') {
-      const observedText = event.kind === 'assistant_delta'
-        ? event.text
-        : event.kind === 'user_message'
-          ? event.text
-          : event.summary ?? event.detail ?? ''
-      this.states.set(key(event.runtimeId, event.threadId), {
-        ...current,
-        rawHistoryItems: current.rawHistoryItems + (event.kind === 'assistant_delta' ? 0 : 1),
-        effectiveHistoryItems: current.effectiveHistoryItems + (event.kind === 'assistant_delta' ? 0 : 1),
-        estimatedTokens: estimateTokens(current.estimatedTokens ?? 0, observedText),
-        updatedAt: new Date().toISOString()
-      })
-    }
   }
 
   private ensure(runtimeId: AgentRuntimeId, threadId: string): AgentRuntimeContextState {
@@ -174,8 +160,4 @@ export class RuntimeContextStateService {
 
 function key(runtimeId: AgentRuntimeId, threadId: string): string {
   return `${runtimeId}:${threadId}`
-}
-
-function estimateTokens(current: number, text: string): number {
-  return Math.max(0, current + Math.ceil(text.length / 4))
 }

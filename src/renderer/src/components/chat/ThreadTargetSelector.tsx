@@ -48,10 +48,10 @@ export function ThreadTargetSelectorView({
   const { t } = useTranslation('common')
   const selectedTarget = targets.find((target) => target.id === selectedTargetId) ?? null
   const selectedTrusted = remoteTargetTrustedForWorkspace(selectedTarget ?? undefined, workspaceRoot)
-  const selectedKind = selectedTarget ? remoteTargetKindLabel(selectedTarget, t) : t('threadTargetKindLocal')
+  const selectedKind = selectedTarget ? remoteTargetKindLabel(selectedTarget, t) : ''
   const selectedTrust = selectedTarget
     ? selectedTrusted ? t('threadTargetTrusted') : t('threadTargetUntrusted')
-    : t('threadTargetLocalBadge')
+    : ''
 
   return (
     <div className={`inline-flex min-w-0 items-center gap-1.5 ${className}`}>
@@ -73,18 +73,22 @@ export function ThreadTargetSelectorView({
           )
         })}
       </select>
-      <span
-        className="hidden shrink-0 rounded-md border border-ds-border-muted bg-ds-subtle px-1.5 py-0.5 text-[10.5px] font-semibold uppercase text-ds-faint sm:inline-flex"
-        title={`${selectedKind} · ${selectedTrust}`}
-      >
-        {selectedKind}
-      </span>
-      <span
-        className="hidden shrink-0 rounded-md border border-ds-border-muted bg-ds-subtle px-1.5 py-0.5 text-[10.5px] font-medium text-ds-faint md:inline-flex"
-        title={selectedTrust}
-      >
-        {selectedTrust}
-      </span>
+      {selectedTarget ? (
+        <>
+          <span
+            className="hidden shrink-0 rounded-md border border-ds-border-muted bg-ds-subtle px-1.5 py-0.5 text-[10.5px] font-semibold uppercase text-ds-faint sm:inline-flex"
+            title={`${selectedKind} · ${selectedTrust}`}
+          >
+            {selectedKind}
+          </span>
+          <span
+            className="hidden shrink-0 rounded-md border border-ds-border-muted bg-ds-subtle px-1.5 py-0.5 text-[10.5px] font-medium text-ds-faint md:inline-flex"
+            title={selectedTrust}
+          >
+            {selectedTrust}
+          </span>
+        </>
+      ) : null}
     </div>
   )
 }

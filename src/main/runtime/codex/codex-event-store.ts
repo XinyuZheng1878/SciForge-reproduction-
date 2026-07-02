@@ -18,6 +18,7 @@ export class CodexEventStore {
   private readonly now: () => Date
   private readonly threadQueues = new Map<string, Promise<void>>()
   private readonly jsonlStores = new Map<string, AppDataJsonlStore>()
+  private readonly latestSeqByThread = new Map<string, number>()
 
   constructor(options: CodexEventStoreOptions) {
     this.rootDir = options.rootDir
@@ -30,8 +31,7 @@ export class CodexEventStore {
   }
 
   private async appendNow(threadId: string, event: CodexThreadEventPayload): Promise<CodexStoredEvent> {
-    const existing = await this.read(threadId, { includeAll: true })
-    const seq = Math.max(0, ...existing.map((item) => item.seq)) + 1
+    const seq = await this.nextSeq(threadId)
     const stored: CodexStoredEvent = {
       seq,
       threadId,
@@ -43,6 +43,7 @@ export class CodexEventStore {
       }
     }
     await this.jsonlForThread(threadId).appendJson([stored])
+    this.latestSeqByThread.set(threadId, seq)
     return stored
   }
 
@@ -60,7 +61,7 @@ export class CodexEventStore {
       throw error
     }
     const sinceSeq = options.includeAll ? 0 : Math.max(0, Math.floor(options.sinceSeq ?? 0))
-    return raw
+    const events = raw
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
@@ -69,11 +70,30 @@ export class CodexEventStore {
       .filter((event) => event.threadId === normalizedThreadId)
       .filter((event) => event.seq > sinceSeq)
       .sort((a, b) => a.seq - b.seq)
+    this.noteLatestSeq(normalizedThreadId, events)
+    return events
   }
 
   async latestSeq(threadId: string): Promise<number> {
-    const events = await this.read(threadId, { includeAll: true })
-    return Math.max(0, ...events.map((event) => event.seq))
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) return 0
+    const cached = this.latestSeqByThread.get(normalizedThreadId)
+    if (cached !== undefined) return cached
+    const events = await this.read(normalizedThreadId, { includeAll: true })
+    const latest = Math.max(0, ...events.map((event) => event.seq))
+    this.latestSeqByThread.set(normalizedThreadId, latest)
+    return latest
+  }
+
+  private async nextSeq(threadId: string): Promise<number> {
+    return (await this.latestSeq(threadId)) + 1
+  }
+
+  private noteLatestSeq(threadId: string, events: readonly CodexStoredEvent[]): void {
+    if (!events.length) return
+    const latest = Math.max(0, ...events.map((event) => event.seq))
+    const cached = this.latestSeqByThread.get(threadId) ?? 0
+    if (latest > cached) this.latestSeqByThread.set(threadId, latest)
   }
 
   private jsonlForThread(threadId: string): AppDataJsonlStore {

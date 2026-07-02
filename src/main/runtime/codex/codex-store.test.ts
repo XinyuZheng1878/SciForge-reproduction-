@@ -281,6 +281,22 @@ describe('CodexEventStore', () => {
     expect(rows.map((row) => row.seq)).toEqual(Array.from({ length: 21 }, (_, index) => index + 1))
   })
 
+  it('continues seq values from the existing event log after a store restart', async () => {
+    const rootDir = await tempRoot()
+    const firstStore = new CodexEventStore({ rootDir })
+    await firstStore.append('thread-1', { threadId: 'thread-1', deltas: [{ kind: 'agent_message', text: 'one' }] })
+    await firstStore.append('thread-1', { threadId: 'thread-1', deltas: [{ kind: 'agent_message', text: 'two' }] })
+
+    const restartedStore = new CodexEventStore({ rootDir })
+    const appended = await restartedStore.append('thread-1', {
+      threadId: 'thread-1',
+      turnComplete: true
+    })
+
+    expect(appended.seq).toBe(3)
+    expect(await restartedStore.latestSeq('thread-1')).toBe(3)
+  })
+
   it('ignores malformed JSONL rows when replaying events', async () => {
     const rootDir = await tempRoot()
     const store = new CodexEventStore({ rootDir })

@@ -78,7 +78,7 @@ describe('WorkbenchTopBar Paper Radar entry', () => {
     expect(html).toContain('animate-pulse')
   })
 
-  it('disables the side chat entry when the side conversation gate is unavailable', () => {
+  it('hides the side chat entry when the side conversation gate is unavailable', () => {
     const html = renderToStaticMarkup(createElement(WorkbenchTopBar, {
       rightPanelMode: null,
       onToggleRightPanelMode: vi.fn(),
@@ -86,7 +86,19 @@ describe('WorkbenchTopBar Paper Radar entry', () => {
       onOpenSideChat: vi.fn()
     }))
 
-    const sideButton = html.match(/<button[^>]*aria-label="Open side chat"[^>]*>/)?.[0] ?? ''
-    expect(sideButton).toContain('disabled=""')
+    expect(html).not.toContain('aria-label="Open side chat"')
+  })
+
+  it('shows the side chat entry when side conversations are available', () => {
+    const html = renderToStaticMarkup(createElement(WorkbenchTopBar, {
+      rightPanelMode: null,
+      onToggleRightPanelMode: vi.fn(),
+      sideChatEnabled: true,
+      sideChatCount: 2,
+      onOpenSideChat: vi.fn()
+    }))
+
+    expect(html).toContain('aria-label="Open side chat"')
+    expect(html).toContain('>2</span>')
   })
 })

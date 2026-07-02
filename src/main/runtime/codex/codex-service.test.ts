@@ -480,6 +480,54 @@ describe('CodexRuntimeService storage fallback', () => {
     })
   })
 
+  it('deduplicates stored transient reconnect errors that reused the turn id', async () => {
+    const storageRoot = await tempRoot()
+    const eventStore = new CodexEventStore({ rootDir: storageRoot })
+    await eventStore.append('codex-thread-1', {
+      threadId: 'codex-thread-1',
+      turnId: 'turn-1',
+      userMessage: {
+        itemId: 'user-1',
+        turnId: 'turn-1',
+        text: 'hello'
+      }
+    })
+    for (const attempt of [1, 2, 3]) {
+      await eventStore.append('codex-thread-1', {
+        threadId: 'codex-thread-1',
+        turnId: 'turn-1',
+        runtimeError: {
+          itemId: 'turn-1',
+          message: `Reconnecting... ${attempt}/5`,
+          severity: 'error'
+        }
+      })
+    }
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => failingClient()
+    })
+
+    await expect(service.readThread('codex-thread-1')).resolves.toEqual({
+      ok: true,
+      detail: expect.objectContaining({
+        latestSeq: 4,
+        blocks: [
+          expect.objectContaining({ kind: 'user', id: 'user-1', turnId: 'turn-1', text: 'hello' }),
+          expect.objectContaining({
+            kind: 'system',
+            id: 'codex-runtime-status-turn-1-reconnecting',
+            turnId: 'turn-1',
+            text: 'Reconnecting... 3/5',
+            severity: 'warning'
+          })
+        ]
+      })
+    })
+  })
+
   it('treats stored turns without an active runtime as failed after restart', async () => {
     vi.useFakeTimers()
     try {
@@ -1350,17 +1398,23 @@ describe('CodexRuntimeService compatibility operations', () => {
       tool: 'delegate_task',
       arguments: {
         label: 'Reviewer',
-        prompt: 'Return child-ok only.'
+        prompt: 'Return child-ok only.',
+        model: 'deepseek-v4-pro'
       }
     })
     await vi.waitFor(() => {
       expect(queued.client.startTurn).toHaveBeenCalledWith(expect.objectContaining({
         threadId: 'child-codex-thread',
+        model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+        modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID,
         input: expect.arrayContaining([
           expect.objectContaining({ text: 'Return child-ok only.' })
         ])
       }))
     })
+    expect(queued.client.startTurn).not.toHaveBeenCalledWith(expect.objectContaining({
+      model: 'deepseek-v4-pro'
+    }))
     queued.push({
       type: 'event',
       channel: CODEX_MAIN_IPC_CHANNELS.event,
@@ -1857,6 +1911,126 @@ describe('CodexRuntimeService compatibility operations', () => {
     }))
     expect(params).not.toEqual(expect.objectContaining({ model: 'external-payload-model' }))
     expect(params).not.toEqual(expect.objectContaining({ model: 'external-runtime-model' }))
+  })
+
+  it('keeps warm Codex clients on the managed Model Router alias when settings drift', async () => {
+    const client = controllableClient()
+    const current = settings()
+    const service = new CodexRuntimeService({
+      settings: async () => current,
+      sink: { send: vi.fn() },
+      createClient: () => client
+    })
+
+    await expect(service.connect()).resolves.toMatchObject({ ok: true })
+    current.modelRouter = {
+      ...current.modelRouter!,
+      publicModelAlias: 'deepseek-v4-pro'
+    }
+    await expect(service.startTurn({
+      threadId: 'thread-1',
+      text: 'hello after settings drift'
+    })).resolves.toMatchObject({
+      ok: true,
+      turnId: 'turn-1'
+    })
+
+    expect(client.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+      modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID
+    }))
+    expect(client.startTurn).not.toHaveBeenCalledWith(expect.objectContaining({
+      model: 'deepseek-v4-pro'
+    }))
+  })
+
+  it('rematerializes and retries a turn when an old Codex thread uses a stale Model Router alias', async () => {
+    const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await threadStore.upsert({
+      guiThreadId: 'gui-thread-1',
+      codexThreadId: 'stale-codex-thread',
+      workspace: '/tmp/workspace',
+      title: 'Stale Codex'
+    })
+    const queued = clientWithQueuedEvents()
+    vi.mocked(queued.client.startThread).mockResolvedValue({ thread: { id: 'replacement-codex-thread', cwd: '/tmp/workspace' } })
+    vi.mocked(queued.client.startTurn)
+      .mockResolvedValueOnce({ turn: { id: 'turn-old', userMessageItemId: 'user-old' } })
+      .mockResolvedValueOnce({ turn: { id: 'turn-retry', userMessageItemId: 'user-retry' } })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => queued.client
+    })
+
+    await expect(service.startTurn({ threadId: 'gui-thread-1', text: 'hello' })).resolves.toMatchObject({
+      ok: true,
+      threadId: 'gui-thread-1',
+      turnId: 'turn-old'
+    })
+
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'turn/failed',
+        params: {
+          threadId: 'stale-codex-thread',
+          turnId: 'turn-old',
+          error: {
+            message: 'stream disconnected before completion: Model Router requests must use the public router model alias.'
+          }
+        }
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(queued.client.startTurn).toHaveBeenCalledTimes(2)
+    })
+    queued.push({
+      type: 'event',
+      channel: CODEX_MAIN_IPC_CHANNELS.event,
+      payload: {
+        method: 'turn/completed',
+        params: { threadId: 'replacement-codex-thread', turnId: 'turn-retry' }
+      }
+    })
+    await vi.waitFor(async () => {
+      const events = await new CodexEventStore({ rootDir: storageRoot }).read('gui-thread-1', { includeAll: true })
+      expect(events.some((item) => item.event.turnComplete === true && item.event.turnId === 'turn-retry')).toBe(true)
+    })
+    queued.close()
+
+    expect(queued.client.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/tmp/workspace',
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+      modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID
+    }))
+    expect(queued.client.startTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      threadId: 'stale-codex-thread',
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+      modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID
+    }))
+    expect(queued.client.startTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      threadId: 'replacement-codex-thread',
+      model: DEFAULT_MODEL_ROUTER_PUBLIC_MODEL_ALIAS,
+      modelProvider: DEFAULT_MODEL_ROUTER_PROVIDER_ID
+    }))
+    await expect(threadStore.get('gui-thread-1')).resolves.toMatchObject({
+      codexThreadId: 'replacement-codex-thread'
+    })
+    const events = await new CodexEventStore({ rootDir: storageRoot }).read('gui-thread-1', { includeAll: true })
+    expect(events.map((item) => item.event.runtimeStatus?.message).filter(Boolean)).toEqual(
+      expect.arrayContaining([
+        'Codex thread used a stale Model Router alias; rebuilding the thread and retrying this turn.',
+        'Codex turn retried with the managed Model Router alias.'
+      ])
+    )
+    expect(events.some((item) =>
+      item.event.runtimeError?.message.includes('public router model alias')
+    )).toBe(false)
   })
 
   it('forces rematerialized Codex threads through the managed Model Router provider', async () => {
@@ -2520,13 +2694,17 @@ describe('CodexRuntimeService compatibility operations', () => {
         event: expect.objectContaining({
           threadId: 'thread-1',
           turnId: 'turn-1',
-          runtimeError: expect.objectContaining({
-            code: 'stream_recovering'
+          runtimeStatus: expect.objectContaining({
+            phase: 'stream_recovering',
+            message: 'stream recovering'
           })
         })
       })
     })
 
+    expect(sink.send.mock.calls.some((call) =>
+      call[1]?.event?.runtimeError?.code === 'stream_recovering'
+    )).toBe(false)
     expect(sink.send.mock.calls.some((call) =>
       call[1]?.event?.runtimeStatus?.phase === 'turn_done'
     )).toBe(false)
@@ -2623,6 +2801,83 @@ describe('CodexRuntimeService compatibility operations', () => {
     expect(failedToolIndex).toBeGreaterThanOrEqual(0)
     expect(turnCompleteIndex).toBeGreaterThan(failedToolIndex)
     queued.close()
+  })
+
+  it('releases deferred Codex turn completion after a grace period when tool completion is missing', async () => {
+    vi.useFakeTimers()
+    const queued = clientWithQueuedEvents()
+    try {
+      const sink = { send: vi.fn() }
+      const service = new CodexRuntimeService({
+        settings: async () => settings(),
+        sink,
+        createClient: () => queued.client
+      })
+      const barrierState = service as unknown as {
+        deferredTurnCompleteEvents: Map<string, CodexThreadEventPayload>
+      }
+
+      await expect(service.startTurn({ threadId: 'thread-1', text: 'download pdf' })).resolves.toMatchObject({
+        ok: true,
+        turnId: 'turn-1'
+      })
+      queued.push({
+        type: 'event',
+        channel: CODEX_MAIN_IPC_CHANNELS.event,
+        payload: {
+          method: 'item/started',
+          params: {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            item: {
+              id: 'cmd-1',
+              type: 'commandExecution',
+              command: 'curl --max-time 45 https://arxiv.org/pdf/2605.26340v1',
+              status: 'inProgress'
+            }
+          }
+        }
+      })
+      await vi.waitFor(() => {
+        expect(sink.send.mock.calls.some((call) =>
+          call[1]?.event?.tool?.itemId === 'cmd-1' &&
+          call[1]?.event?.tool?.status === 'running'
+        )).toBe(true)
+      })
+
+      queued.push({
+        type: 'event',
+        channel: CODEX_MAIN_IPC_CHANNELS.event,
+        payload: {
+          type: 'event_msg',
+          payload: {
+            type: 'task_complete',
+            turn_id: 'turn-1'
+          }
+        }
+      })
+      for (let index = 0; index < 10 && barrierState.deferredTurnCompleteEvents.size === 0; index += 1) {
+        await Promise.resolve()
+      }
+      expect(barrierState.deferredTurnCompleteEvents.size).toBe(1)
+      await vi.advanceTimersByTimeAsync(4_999)
+      expect(sink.send.mock.calls.some((call) =>
+        call[1]?.event?.turnComplete === true
+      )).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(1)
+
+      expect(sink.send.mock.calls.some((call) =>
+        call[1]?.event?.turnComplete === true
+      )).toBe(true)
+      await expect(service.interruptTurn('thread-1', 'turn-1')).resolves.toMatchObject({
+        ok: false,
+        code: 'turn_not_running'
+      })
+    } finally {
+      queued.close()
+      vi.useRealTimers()
+    }
   })
 
   it('publishes synthetic runtime guard errors as runtime error events', async () => {

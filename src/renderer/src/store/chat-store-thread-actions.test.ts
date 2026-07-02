@@ -351,7 +351,7 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(state.workspaceRoot).toBe('/workspace/project-b')
   })
 
-  it('prefers the current settings workspace over the active thread workspace for ordinary new chats', async () => {
+  it('prefers the active thread workspace over current settings for ordinary new chats', async () => {
     const { actions, state } = buildHarness()
     const provider = {
       createThread: vi.fn()
@@ -375,10 +375,87 @@ describe('chat-store-thread-actions queued messages', () => {
 
     await actions.createThread({ forceNew: true })
 
-    expect(runtimeClientMock.setSettings).not.toHaveBeenCalled()
+    expect(runtimeClientMock.setSettings).toHaveBeenCalledWith({ workspaceRoot: '/workspace/old-active' })
     expect(provider.createThread).not.toHaveBeenCalled()
-    expect(state.workspaceRoot).toBe('/workspace/current')
+    expect(state.workspaceRoot).toBe('/workspace/old-active')
     expect(state.activeThreadId).toBeNull()
+  })
+
+  it('defaults ordinary new chats to the first project when no chat is focused', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      createThread: vi.fn()
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    runtimeClientMock.getSettings.mockResolvedValueOnce({
+      codePromptPrefix: '',
+      workspaceRoot: '',
+      remoteChannel: defaultRemoteChannelSettings()
+    })
+    state.activeThreadId = null
+    state.workspaceRoot = ''
+    state.codeWorkspaceRoots = ['/workspace/project-a', '/workspace/project-b']
+    state.busy = false
+    state.blocks = []
+    state.selectThread = vi.fn(async (id: string) => {
+      state.activeThreadId = id
+    }) as unknown as ChatState['selectThread']
+
+    await actions.createThread({ forceNew: true })
+
+    expect(runtimeClientMock.setSettings).toHaveBeenCalledWith({ workspaceRoot: '/workspace/project-a' })
+    expect(provider.createThread).not.toHaveBeenCalled()
+    expect(state.workspaceRoot).toBe('/workspace/project-a')
+    expect(state.activeThreadId).toBeNull()
+  })
+
+  it('creates the first runtime message in the current draft workspace instead of stale settings', async () => {
+    const { actions, state } = buildHarness()
+    const createdThread = {
+      ...thread('thr_created_in_draft_workspace'),
+      title: 'hello from draft',
+      workspace: '/workspace/draft',
+      status: 'idle'
+    }
+    const provider = {
+      createThread: vi.fn(async () => createdThread),
+      sendUserMessage: vi.fn(async () => ({
+        threadId: 'thr_created_in_draft_workspace',
+        turnId: 'turn-1',
+        userMessageItemId: 'runtime-user-1'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    runtimeClientMock.getSettings.mockResolvedValueOnce({
+      codePromptPrefix: '',
+      workspaceRoot: '/workspace/stale-settings',
+      remoteChannel: defaultRemoteChannelSettings()
+    })
+    state.activeThreadId = null
+    state.workspaceRoot = '/workspace/draft'
+    state.codeWorkspaceRoots = ['/workspace/draft', '/workspace/stale-settings']
+    state.busy = false
+    state.blocks = []
+
+    await expect(actions.sendMessage('hello from draft')).resolves.toBe(true)
+
+    expect(provider.createThread).toHaveBeenCalledWith({
+      workspace: '/workspace/draft',
+      title: 'hello from draft',
+      mode: 'agent'
+    })
+    expect(provider.sendUserMessage).toHaveBeenCalledWith(
+      'thr_created_in_draft_workspace',
+      'hello from draft',
+      expect.objectContaining({
+        workspace: '/workspace/draft',
+        title: 'hello from draft',
+        displayText: 'hello from draft'
+      })
+    )
+    expect(state.activeThreadId).toBe('thr_created_in_draft_workspace')
   })
 
   it('creates the runtime thread when the first draft message is sent', async () => {
@@ -553,6 +630,99 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(state.activeThreadContextState).toEqual(contextState)
   })
 
+  it('updates the active thread id before slow thread detail resolves', async () => {
+    const { actions, state } = buildHarness()
+    let resolveDetail: (value: {
+      blocks: [{ kind: 'assistant'; id: string; text: string }]
+      latestSeq: number
+      threadStatus: string
+    }) => void = () => {
+      throw new Error('getThreadDetail promise was not created')
+    }
+    const provider = {
+      getThreadDetail: vi.fn(() => new Promise((resolve) => {
+        resolveDetail = resolve
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.blocks = [{ kind: 'assistant', id: 'old-block', text: 'old thread' }]
+    state.threads = [thread('thr_existing'), thread('thr_slow')]
+    state.unreadThreadIds = { thr_slow: true }
+
+    const selecting = actions.selectThread('thr_slow')
+
+    expect(state.activeThreadId).toBe('thr_slow')
+    expect(state.blocks).toEqual([])
+    expect(state.unreadThreadIds).toEqual({})
+    expect(provider.subscribeThreadEvents).not.toHaveBeenCalled()
+
+    resolveDetail({
+      blocks: [{ kind: 'assistant', id: 'slow-block', text: 'loaded thread' }],
+      latestSeq: 4,
+      threadStatus: 'idle'
+    })
+    await selecting
+
+    expect(state.activeThreadId).toBe('thr_slow')
+    expect(state.blocks).toEqual([{ kind: 'assistant', id: 'slow-block', text: 'loaded thread' }])
+    expect(provider.subscribeThreadEvents).toHaveBeenCalledWith(
+      'thr_slow',
+      4,
+      expect.any(Object),
+      expect.any(AbortSignal)
+    )
+  })
+
+  it('ignores an older select thread result when a newer selection wins', async () => {
+    const { actions, state } = buildHarness()
+    const detailResolvers = new Map<string, (value: {
+      blocks: [{ kind: 'assistant'; id: string; text: string }]
+      latestSeq: number
+      threadStatus: string
+    }) => void>()
+    const provider = {
+      getThreadDetail: vi.fn((threadId: string) => new Promise((resolve) => {
+        detailResolvers.set(threadId, resolve)
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.threads = [thread('thr_existing'), thread('thr_first'), thread('thr_second')]
+
+    const firstSelection = actions.selectThread('thr_first')
+    expect(state.activeThreadId).toBe('thr_first')
+
+    const secondSelection = actions.selectThread('thr_second')
+    expect(state.activeThreadId).toBe('thr_second')
+
+    detailResolvers.get('thr_second')?.({
+      blocks: [{ kind: 'assistant', id: 'second-block', text: 'newer thread' }],
+      latestSeq: 7,
+      threadStatus: 'idle'
+    })
+    await secondSelection
+
+    detailResolvers.get('thr_first')?.({
+      blocks: [{ kind: 'assistant', id: 'first-block', text: 'stale thread' }],
+      latestSeq: 3,
+      threadStatus: 'idle'
+    })
+    await firstSelection
+
+    expect(state.activeThreadId).toBe('thr_second')
+    expect(state.blocks).toEqual([{ kind: 'assistant', id: 'second-block', text: 'newer thread' }])
+    expect(provider.subscribeThreadEvents).toHaveBeenCalledTimes(1)
+    expect(provider.subscribeThreadEvents).toHaveBeenCalledWith(
+      'thr_second',
+      7,
+      expect.any(Object),
+      expect.any(AbortSignal)
+    )
+  })
+
   it('does not activate GUI plan registry from thread metadata during thread selection', async () => {
     const { actions, state } = buildHarness()
     const storage = {
@@ -656,6 +826,38 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(provider.subscribeThreadEvents).toHaveBeenCalledWith(
       'thr_existing',
       1,
+      expect.any(Object),
+      expect.any(AbortSignal)
+    )
+  })
+
+  it('keeps optimistic turn blocks when recovery reads a stale empty snapshot', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      getThreadDetail: vi.fn(async () => ({
+        blocks: [],
+        latestSeq: 2,
+        threadStatus: 'idle'
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = true
+    state.lastSeq = 7
+    state.currentTurnId = 'turn-optimistic'
+    state.currentTurnUserId = 'u-optimistic'
+    state.blocks = [{ kind: 'user', id: 'u-optimistic', text: 'new information' }]
+    state.error = null
+
+    await expect(actions.recoverActiveTurn()).resolves.toBe(true)
+
+    expect(state.busy).toBe(true)
+    expect(state.currentTurnId).toBe('turn-optimistic')
+    expect(state.currentTurnUserId).toBe('u-optimistic')
+    expect(state.blocks).toEqual([{ kind: 'user', id: 'u-optimistic', text: 'new information' }])
+    expect(provider.subscribeThreadEvents).toHaveBeenCalledWith(
+      'thr_existing',
+      7,
       expect.any(Object),
       expect.any(AbortSignal)
     )

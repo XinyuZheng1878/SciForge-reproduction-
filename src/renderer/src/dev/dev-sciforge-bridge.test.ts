@@ -265,6 +265,82 @@ describe('dev sciforge browser bridge', () => {
     )
   })
 
+  it('forwards terminal calls and events through the dev bridge', async () => {
+    installWindow()
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) as { channel?: string; payload?: unknown } : {}
+      if (body.channel === 'terminal:create') {
+        return new Response(JSON.stringify({
+          ok: true,
+          payload: { ok: true, sessionId: 'terminal:test:main', ownerToken: 'owner-token' }
+        }))
+      }
+      return new Response(JSON.stringify({ ok: true, payload: true }))
+    })
+    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, configurable: true })
+    const { installDevSciForgeBridge } = await import('./dev-sciforge-bridge')
+
+    installDevSciForgeBridge()
+    const dataHandler = vi.fn()
+    const unsubscribe = window.sciforge.onTerminalData(dataHandler)
+    const created = await window.sciforge.createTerminal({ sessionId: 'terminal:test:main' })
+    await window.sciforge.writeToTerminal({ sessionId: 'terminal:test:main', data: 'pwd\n' })
+    await window.sciforge.resizeTerminal({ sessionId: 'terminal:test:main', cols: 100, rows: 30 })
+    await window.sciforge.disposeTerminal('terminal:test:main')
+
+    await vi.waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+    })
+    MockEventSource.instances[0].emit('bridge-message', {
+      channel: 'terminal:data',
+      payload: { sessionId: 'terminal:test:main', data: 'hello' }
+    })
+    unsubscribe()
+
+    expect(created).toEqual({ ok: true, sessionId: 'terminal:test:main', ownerToken: 'owner-token' })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:5174/invoke',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          channel: 'terminal:create',
+          payload: { sessionId: 'terminal:test:main' }
+        })
+      })
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:5174/invoke',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          channel: 'terminal:write',
+          payload: { sessionId: 'terminal:test:main', data: 'pwd\n' }
+        })
+      })
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:5174/invoke',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          channel: 'terminal:resize',
+          payload: { sessionId: 'terminal:test:main', cols: 100, rows: 30 }
+        })
+      })
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:5174/invoke',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          channel: 'terminal:dispose',
+          payload: 'terminal:test:main'
+        })
+      })
+    )
+    expect(dataHandler).toHaveBeenCalledWith({ sessionId: 'terminal:test:main', data: 'hello' })
+  })
+
   it('forwards connect-phone and remote-channel APIs through canonical bridge channels', async () => {
     installWindow()
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({

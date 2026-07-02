@@ -1091,25 +1091,37 @@ function mapCodexStoredEvent(event: CodexThreadEventPayload): AgentRuntimeEvent[
     })
   }
   if (event.runtimeError) {
-    const terminalState = codexRuntimeErrorTerminalState(event.runtimeError)
-    mapped.push({
-      ...common,
-      kind: 'error',
-      itemId: event.runtimeError.itemId,
-      createdAt: event.runtimeError.createdAt,
-      recoverable: event.runtimeError.severity !== 'error',
-      severity: event.runtimeError.severity ?? 'error',
-      message: event.runtimeError.message,
-      code: event.runtimeError.code,
-      detail: stringifyDetail(event.runtimeError.details)
-    })
-    if (terminalState) {
+    const transientPhase = transientRuntimeErrorPhase(event.runtimeError)
+    if (transientPhase) {
       mapped.push({
         ...common,
-        kind: 'turn_lifecycle',
-        state: terminalState,
-        message: event.runtimeError.message
+        kind: 'runtime_status',
+        itemId: `codex-runtime-status-${event.turnId || event.threadId}-${transientPhase}`,
+        phase: transientPhase,
+        message: event.runtimeError.message,
+        createdAt: event.runtimeError.createdAt
       })
+    } else {
+      const terminalState = codexRuntimeErrorTerminalState(event.runtimeError)
+      mapped.push({
+        ...common,
+        kind: 'error',
+        itemId: event.runtimeError.itemId,
+        createdAt: event.runtimeError.createdAt,
+        recoverable: event.runtimeError.severity !== 'error',
+        severity: event.runtimeError.severity ?? 'error',
+        message: event.runtimeError.message,
+        code: event.runtimeError.code,
+        detail: stringifyDetail(event.runtimeError.details)
+      })
+      if (terminalState) {
+        mapped.push({
+          ...common,
+          kind: 'turn_lifecycle',
+          state: terminalState,
+          message: event.runtimeError.message
+        })
+      }
     }
   }
   if (event.runtimeStatus) {
@@ -1342,6 +1354,17 @@ function codexRuntimeErrorTerminalState(
 
 function isTransientCodexRuntimeErrorMessage(message: string | undefined): boolean {
   return /^Reconnecting\.\.\.\s+\d+\s*\/\s*\d+$/iu.test(message?.trim() ?? '')
+}
+
+function transientRuntimeErrorPhase(
+  error: NonNullable<CodexThreadEventPayload['runtimeError']>
+): Extract<AgentRuntimeEvent, { kind: 'runtime_status' }>['phase'] | null {
+  const code = stringValue(error.code).toLowerCase()
+  if (code === 'reconnecting') return 'reconnecting'
+  if (code === 'tool_waiting') return 'tool_waiting'
+  if (code === 'stream_recovering') return 'stream_recovering'
+  if (isTransientCodexRuntimeErrorMessage(error.message)) return 'reconnecting'
+  return null
 }
 
 function inferTurnStatus(items: AgentRuntimeItem[]): AgentRuntimeTurn['status'] {

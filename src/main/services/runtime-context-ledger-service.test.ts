@@ -152,7 +152,7 @@ describe('RuntimeContextLedgerService', () => {
     await expect(readFile(outsideFile, 'utf8')).resolves.toBe('outside')
   })
 
-  it('observes neutral runtime events into goals, handoff evidence, compaction, usage, and recent tail digest', async () => {
+  it('observes only semantic runtime events into goals, handoff evidence, and compaction', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'runtime-context-ledger-'))
     const service = new RuntimeContextLedgerService(dataDir)
 
@@ -239,13 +239,23 @@ describe('RuntimeContextLedgerService', () => {
       compactionDigest: 'digest-1',
       sourceMarker: '<runtime:compaction_digest sha256="digest-1">'
     })
-    expect(ledger.recentTailDigest).toEqual(expect.any(String))
-    expect(ledger.evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'tool-1', kind: 'tool' }),
-      expect.objectContaining({ id: 'usage-1', kind: 'usage', summary: 'Token usage (input=100, output=25, total=125)' }),
+    expect(ledger.recentTailDigest).toBeUndefined()
+    expect(ledger.evidence).toEqual([
       expect.objectContaining({ id: 'compact-1', kind: 'event', summary: 'manual compact' }),
       expect.objectContaining({ id: 'handoff-1', kind: 'event', summary: 'Runtime handoff from codex/source-thread' })
-    ]))
+    ])
+
+    await service.observeEvent({
+      kind: 'runtime_status',
+      runtimeId: 'sciforge',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      phase: 'reconnecting',
+      message: 'Reconnecting... 1/5'
+    })
+    await expect(service.get({ runtimeId: 'sciforge', threadId: 'thread-1' })
+      .then((next) => next.evidence.map((item) => item.id)))
+      .resolves.toEqual(['compact-1', 'handoff-1'])
 
     await service.observeEvent({
       kind: 'goal_event',

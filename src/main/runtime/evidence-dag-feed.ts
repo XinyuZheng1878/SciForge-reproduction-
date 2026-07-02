@@ -45,6 +45,12 @@ export function isEvidenceDagFeedEnabled(env: Record<string, string | undefined>
   return Boolean(evidenceDagServiceUrlFromEnv(env) && evidenceDagApiKeyFromEnv(env))
 }
 
+export function isEvidenceDagAutoFeedEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  if (!isEvidenceDagFeedEnabled(env)) return false
+  const value = env.SCIFORGE_EVIDENCE_DAG_AUTO_FEED?.trim().toLowerCase()
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on'
+}
+
 export function toEvidenceDagTraceItems(items: readonly AgentRuntimeItem[]): EngineTraceItem[] {
   const out: EngineTraceItem[] = []
   for (const item of items) {

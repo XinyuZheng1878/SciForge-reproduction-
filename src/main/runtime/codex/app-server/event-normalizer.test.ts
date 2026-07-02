@@ -745,6 +745,26 @@ describe('normalizeCodexEvent', () => {
     })
 
     expect(normalizeCodexEvent({
+      method: 'error',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-reconnect',
+        error: {
+          message: 'Reconnecting... 1/5',
+          code: 'reconnecting'
+        }
+      }
+    })).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-reconnect',
+      runtimeStatus: {
+        itemId: 'codex-runtime-status-turn-reconnect-reconnecting',
+        phase: 'reconnecting',
+        message: 'Reconnecting... 1/5'
+      }
+    })
+
+    expect(normalizeCodexEvent({
       method: 'turn/cancelled',
       params: { threadId: 'thread-1', turnId: 'turn-3', reason: 'user interrupted' }
     })).toEqual({

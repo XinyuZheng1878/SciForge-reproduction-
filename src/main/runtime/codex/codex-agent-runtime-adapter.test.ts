@@ -547,6 +547,21 @@ describe('createCodexAgentRuntimeAdapter', () => {
       expect.objectContaining({ turnId: 'turn-2', state: 'cancelled', message: 'Codex turn cancelled.' }),
       expect.objectContaining({ turnId: 'turn-3', state: 'aborted', message: 'Codex turn aborted.' })
     ])
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'runtime_status',
+        turnId: 'turn-4',
+        phase: 'stream_recovering',
+        message: 'stream recovering'
+      })
+    ]))
+    expect(events).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'error',
+        turnId: 'turn-4',
+        code: 'stream_recovering'
+      })
+    ]))
   })
 
   it('maps stored Codex child events and lists direct children for the requested thread only', async () => {

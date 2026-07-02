@@ -2,8 +2,6 @@ import type { IpcMain, WebContents } from 'electron'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerTerminalPtyIpc } from './terminal-pty-ipc'
 
-type IpcHandler = (event: { sender: WebContents }, payload?: unknown) => Promise<unknown>
-
 type TerminalCreateOk = {
   ok: true
   sessionId: string
@@ -101,24 +99,19 @@ function createSender(): MockSender {
 function createHarness(): {
   invoke: (channel: string, sender: MockSender, payload?: unknown) => Promise<unknown>
 } {
-  const handlers = new Map<string, IpcHandler>()
-  const ipcMain = {
-    handle: vi.fn((channel: string, handler: IpcHandler) => {
-      handlers.set(channel, handler)
-    })
-  } as unknown as IpcMain
-
-  registerTerminalPtyIpc({
-    ipcMain,
+  const bridge = registerTerminalPtyIpc({
+    ipcMain: { handle: vi.fn() } as unknown as IpcMain,
     getMainWindow: () => null,
     logError: vi.fn()
   })
 
   return {
     invoke: async (channel, sender, payload) => {
-      const handler = handlers.get(channel)
-      if (!handler) throw new Error(`Missing IPC handler: ${channel}`)
-      return handler({ sender: sender.webContents }, payload)
+      if (channel === 'terminal:create') return bridge.create(sender.webContents, payload)
+      if (channel === 'terminal:write') return bridge.write(sender.webContents, payload)
+      if (channel === 'terminal:resize') return bridge.resize(sender.webContents, payload)
+      if (channel === 'terminal:dispose') return bridge.dispose(sender.webContents, payload)
+      throw new Error(`Missing bridge method: ${channel}`)
     }
   }
 }

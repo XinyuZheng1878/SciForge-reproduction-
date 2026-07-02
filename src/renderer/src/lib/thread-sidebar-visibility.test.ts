@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ChatBlock, NormalizedThread } from '../agent/types'
 import type { UserMessageManagedBy } from '../agent/types'
 import {
+  filterThreadsForSidebarSummary,
   filterThreadsForSidebar,
+  hasThreadsRequiringSidebarVisibilityInspection,
   shouldHideThreadFromSidebarByBlocks,
   shouldHideThreadFromSidebarByTitle,
   shouldInspectThreadForSidebarVisibility
@@ -66,6 +68,18 @@ describe('thread-sidebar-visibility', () => {
   it('treats only empty threads as hidden fallback entries', () => {
     expect(shouldHideThreadFromSidebarByBlocks([])).toBe(true)
     expect(shouldHideThreadFromSidebarByBlocks([userBlock()])).toBe(false)
+  })
+
+  it('keeps only immediately safe threads in the summary pass', () => {
+    const internalThread = thread({ id: 'thr_internal01', title: '__codex_parent_title__' })
+    const fallbackThread = thread({ id: 'thr_279f3fef', title: 'thr_279f' })
+    const realThread = thread({ id: 'thr_real0001', title: '修一下侧边栏 bug' })
+
+    expect(filterThreadsForSidebarSummary([internalThread, fallbackThread, realThread])).toEqual([realThread])
+    expect(
+      hasThreadsRequiringSidebarVisibilityInspection([internalThread, fallbackThread, realThread])
+    ).toBe(true)
+    expect(hasThreadsRequiringSidebarVisibilityInspection([internalThread, realThread])).toBe(false)
   })
 
   it('hides fallback entries whose raw prompt came from a remote channel', () => {
