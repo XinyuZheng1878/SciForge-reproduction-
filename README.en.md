@@ -449,7 +449,3 @@ We are also grateful to:
 ## License
 
 [MIT](./LICENSE)
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/chart?repos=XingYu-Zhong/SciForge&type=date&legend=top-left)](https://www.star-history.com/?repos=XingYu-Zhong%2FSciForge&type=date&logscale=&legend=top-left)
