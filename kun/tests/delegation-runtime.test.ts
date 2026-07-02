@@ -100,7 +100,34 @@ describe('MultiAgentRuntime delegation integration', () => {
       expect(result.item.output).toMatchObject({
         status: 'completed',
         summary: expect.stringContaining('Investigate A'),
+        effective_timeout_ms: 120_000,
         usage: { totalTokens: 3 }
+      })
+    }
+  })
+
+  it('clamps excessive delegate_task timeouts', async () => {
+    const runtime = createRuntime()
+    const host = new LocalToolHost({
+      registry: new CapabilityRegistry(buildDelegationToolProviders(runtime))
+    })
+    const result = await host.execute({
+      callId: 'call_timeout',
+      toolName: 'delegate_task',
+      arguments: { prompt: 'Investigate timeout', timeout_ms: 9_999_999 }
+    }, {
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      workspace: '/tmp/ws',
+      approvalPolicy: 'auto',
+      abortSignal: new AbortController().signal,
+      awaitApproval: async () => 'allow'
+    })
+
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
+    if (result.item.kind === 'tool_result') {
+      expect(result.item.output).toMatchObject({
+        effective_timeout_ms: 600_000
       })
     }
   })
@@ -151,13 +178,110 @@ describe('MultiAgentRuntime delegation integration', () => {
         completed: 3,
         failed: 0,
         aborted: 0,
-        concurrency: 2
+        concurrency: 2,
+        effective_timeout_ms: 120_000
       })
       expect(result.item.output).toMatchObject({
         children: expect.arrayContaining([
-          expect.objectContaining({ label: 'A', status: 'completed', summary: expect.stringContaining('Investigate A') }),
-          expect.objectContaining({ label: 'B', status: 'completed', summary: expect.stringContaining('Investigate B') }),
-          expect.objectContaining({ label: 'C', status: 'completed', summary: expect.stringContaining('Investigate C') })
+          expect.objectContaining({
+            label: 'A',
+            status: 'completed',
+            summary: expect.stringContaining('Investigate A'),
+            effective_timeout_ms: 120_000
+          }),
+          expect.objectContaining({
+            label: 'B',
+            status: 'completed',
+            summary: expect.stringContaining('Investigate B'),
+            effective_timeout_ms: 120_000
+          }),
+          expect.objectContaining({
+            label: 'C',
+            status: 'completed',
+            summary: expect.stringContaining('Investigate C'),
+            effective_timeout_ms: 120_000
+          })
+        ])
+      })
+    }
+  })
+
+  it('reports per-child task timeout overrides in delegate_tasks output', async () => {
+    const runtime = createRuntime({ maxParallel: 2 })
+    const host = new LocalToolHost({
+      registry: new CapabilityRegistry(buildDelegationToolProviders(runtime))
+    })
+
+    const result = await host.execute({
+      callId: 'call_batch_child_timeout',
+      toolName: 'delegate_tasks',
+      arguments: {
+        timeout_ms: 30_000,
+        tasks: [
+          { label: 'A', prompt: 'short child', timeout_ms: 5_000 },
+          { label: 'B', prompt: 'shared child' }
+        ]
+      }
+    }, {
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      workspace: '/tmp/ws',
+      approvalPolicy: 'auto',
+      abortSignal: new AbortController().signal,
+      awaitApproval: async () => 'allow'
+    })
+
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
+    if (result.item.kind === 'tool_result') {
+      expect(result.item.output).toMatchObject({
+        effective_timeout_ms: 30_000,
+        children: expect.arrayContaining([
+          expect.objectContaining({ label: 'A', effective_timeout_ms: 5_000 }),
+          expect.objectContaining({ label: 'B', effective_timeout_ms: 30_000 })
+        ])
+      })
+    }
+  })
+
+  it('returns per-child failures when a delegate_tasks child cannot be started', async () => {
+    const runtime = createRuntime({ maxChildren: 1 })
+    const host = new LocalToolHost({
+      registry: new CapabilityRegistry(buildDelegationToolProviders(runtime))
+    })
+    const result = await host.execute({
+      callId: 'call_batch_partial_failure',
+      toolName: 'delegate_tasks',
+      arguments: {
+        tasks: [
+          { label: 'A', prompt: 'first' },
+          { label: 'B', prompt: 'second' }
+        ]
+      }
+    }, {
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      workspace: '/tmp/ws',
+      approvalPolicy: 'auto',
+      abortSignal: new AbortController().signal,
+      awaitApproval: async () => 'allow'
+    })
+
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: true })
+    if (result.item.kind === 'tool_result') {
+      expect(result.item.output).toMatchObject({
+        total: 2,
+        completed: 1,
+        failed: 1,
+        aborted: 0
+      })
+      expect(result.item.output).toMatchObject({
+        children: expect.arrayContaining([
+          expect.objectContaining({ label: 'A', status: 'completed' }),
+          expect.objectContaining({
+            label: 'B',
+            status: 'failed',
+            effective_timeout_ms: 120_000
+          })
         ])
       })
     }

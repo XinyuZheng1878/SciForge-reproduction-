@@ -77,12 +77,36 @@ const MAX_PARALLEL_TOOL_CALLS = 4
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const PARALLEL_DELEGATION_TOOL_NAMES = new Set(['delegate_task', 'delegate_tasks'])
 const DEFAULT_MAX_TURN_MODEL_STEPS = 64
+const MAX_MODEL_STREAM_ERROR_RECOVERY_STEPS = 2
 const DEFAULT_TOOL_LOOP_MAX_RECOVERY_STEPS = 1
 const DEFAULT_TOOL_LOOP_NON_PROGRESS_THRESHOLD = 3
 const DEFAULT_TOOL_LOOP_MAX_STEPS_AFTER_RECOVERY = 8
 const DEFAULT_COMPACTION_SUMMARY_TIMEOUT_MS = 15_000
 const DEFAULT_COMPACTION_SUMMARY_MAX_TOKENS = 1_200
 const DEFAULT_COMPACTION_SUMMARY_INPUT_MAX_BYTES = 96 * 1024
+
+function truncateForEvent(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, Math.max(0, maxLength - 3))}...`
+}
+
+function isRecoverableModelStreamError(error: ModelStreamErrorInfo | undefined): boolean {
+  if (!error) return false
+  const code = error.code?.toLowerCase() ?? ''
+  const message = error.message.toLowerCase()
+  return (
+    code === 'response_stream_error' ||
+    code === 'messages_stream_error' ||
+    code === 'provider_stream_error' ||
+    code === 'stream_read_error' ||
+    code === 'stream_idle_timeout' ||
+    code === 'rate_limited' ||
+    code === 'deepseek_unreachable' ||
+    /^http_(?:429|5\d\d)$/.test(code) ||
+    /^deepseek_http_5\d\d$/.test(code) ||
+    /\b(?:http\s*)?(?:429|500|502|503|504)\b/.test(message) ||
+    /\b(?:temporar(?:y|ily)|timeout|timed out|rate limit|overloaded|unavailable|bad gateway)\b/.test(message)
+  )
+}
 
 const PIPELINE_STAGE_LABELS: Record<PipelineStage, string> = {
   setup: 'Setup',
@@ -121,6 +145,11 @@ type ToolLoopHealth = {
   consecutiveNonProgressToolSteps: number
   postRecoveryAllSuppressed: number
   recoveryIssuedAtStep?: number
+}
+
+type ModelStreamErrorInfo = {
+  message: string
+  code?: string
 }
 
 type ToolDispatchOutcome =
@@ -478,6 +507,7 @@ export class AgentLoop {
   private readonly toolCatalogSnapshots = new Map<string, ToolCatalogSnapshot>()
   private readonly lastNoToolTextByTurn = new Map<string, string>()
   private readonly goalNoToolRecoveryStepsByTurn = new Map<string, number>()
+  private readonly modelStreamErrorRecoveryStepsByTurn = new Map<string, number>()
 
   constructor(opts: AgentLoopOptions) {
     this.opts = opts
@@ -541,6 +571,7 @@ export class AgentLoop {
       this.toolLoopHealthByTurn.delete(turnId)
       this.lastNoToolTextByTurn.delete(turnId)
       this.goalNoToolRecoveryStepsByTurn.delete(turnId)
+      this.modelStreamErrorRecoveryStepsByTurn.delete(turnId)
     }
   }
 
@@ -1031,7 +1062,13 @@ export class AgentLoop {
             threadId,
             turnId,
             message: chunk.message,
-            code: chunk.code
+            code: chunk.code,
+            ...(isRecoverableModelStreamError(modelStreamError) &&
+              completedToolCalls.length === 0 &&
+              !textAccumulator.value &&
+              !reasoningAccumulator.value
+              ? { severity: 'warning' as const }
+              : {})
           })
           stopReason = 'error'
           break
@@ -1068,6 +1105,32 @@ export class AgentLoop {
       )
     }
     if (stopReason === 'error') {
+      if (
+        isRecoverableModelStreamError(modelStreamError) &&
+        completedToolCalls.length === 0 &&
+        !textAccumulator.value &&
+        !reasoningAccumulator.value
+      ) {
+        const recoverySteps = (this.modelStreamErrorRecoveryStepsByTurn.get(turnId) ?? 0) + 1
+        if (recoverySteps <= MAX_MODEL_STREAM_ERROR_RECOVERY_STEPS) {
+          this.modelStreamErrorRecoveryStepsByTurn.set(turnId, recoverySteps)
+          await this.opts.events.record({
+            kind: 'error',
+            threadId,
+            turnId,
+            message: `Recoverable model stream error; retrying model step ${recoverySteps}/${MAX_MODEL_STREAM_ERROR_RECOVERY_STEPS}.`,
+            code: 'model_stream_retry',
+            severity: 'warning',
+            details: {
+              stepIndex,
+              recoverySteps,
+              code: modelStreamError?.code ?? 'unknown',
+              message: truncateForEvent(modelStreamError?.message ?? 'model stream error', 240)
+            }
+          })
+          return 'continue'
+        }
+      }
       const errorMessage = modelStreamError
         ? [
             'Model stream returned an error chunk',

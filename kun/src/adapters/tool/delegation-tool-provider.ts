@@ -1,6 +1,9 @@
-import type { MultiAgentRuntime } from '@sciforge/multi-agent'
+import { EMPTY_MULTI_AGENT_USAGE, type MultiAgentRuntime } from '@sciforge/multi-agent'
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { LocalToolHost } from './local-tool-host.js'
+
+const DEFAULT_DELEGATE_TIMEOUT_MS = 120_000
+const MAX_DELEGATE_TIMEOUT_MS = 600_000
 
 const CHILD_AGENT_RUNTIME_GUARDRAILS = [
   'Child-agent runtime guardrails:',
@@ -44,6 +47,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
           const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
           if (!prompt) return { output: { error: 'prompt is required' }, isError: true }
           const spawnIndex = (await runtime.diagnostics(context.threadId)).childRuns.length + 1
+          const timeoutMs = normalizeDelegateTimeoutMs(args.timeout_ms, DEFAULT_DELEGATE_TIMEOUT_MS)
           const record = await runtime.runChild({
             parentThreadId: context.threadId,
             parentTurnId: context.turnId,
@@ -51,7 +55,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
             prompt: withChildRuntimeGuardrails(prompt),
             workspace: typeof args.workspace === 'string' ? args.workspace : context.workspace,
             model: normalizeDelegateModel(args.model) ?? context.model?.id,
-            childTimeoutMs: normalizeDelegateTimeoutMs(args.timeout_ms),
+            childTimeoutMs: timeoutMs,
             allowedToolNames: context.allowedToolNames,
             strictAllowedToolNames: false,
             ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
@@ -65,6 +69,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
               summary: record.summary,
               error: record.error,
               usage: record.usage,
+              effective_timeout_ms: timeoutMs,
               ...(spawnIndex > 1
                 ? { warning: `This is child agent spawn #${spawnIndex} for the thread. Spawn only when the extra prefix/cache cost is worth it.` }
                 : {})
@@ -117,28 +122,36 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
           const firstSpawnIndex = diagnostics.childRuns.length + 1
           const sharedWorkspace = typeof args.workspace === 'string' ? args.workspace.trim() : ''
           const sharedModel = normalizeDelegateModel(args.model)
-          const sharedTimeoutMs = normalizeDelegateTimeoutMs(args.timeout_ms)
-          const records = await runWithConcurrency(tasks, concurrency, async (task) => runtime.runChild({
-            parentThreadId: context.threadId,
-            parentTurnId: context.turnId,
-            label: task.label,
-            prompt: withChildRuntimeGuardrails(task.prompt),
-            workspace: (task.workspace ?? sharedWorkspace) || context.workspace,
-            model: task.model ?? sharedModel ?? context.model?.id,
-            childTimeoutMs: task.timeoutMs ?? sharedTimeoutMs,
-            allowedToolNames: context.allowedToolNames,
-            strictAllowedToolNames: false,
-            ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
-            ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
-            signal: context.abortSignal
-          }))
-          const children = records.map((record) => ({
+          const sharedTimeoutMs = normalizeDelegateTimeoutMs(args.timeout_ms, DEFAULT_DELEGATE_TIMEOUT_MS)
+          const records = await runWithConcurrency(tasks, concurrency, async (task, index) => {
+            const timeoutMs = task.timeoutMs ?? sharedTimeoutMs
+            try {
+              return await runtime.runChild({
+                parentThreadId: context.threadId,
+                parentTurnId: context.turnId,
+                label: task.label,
+                prompt: withChildRuntimeGuardrails(task.prompt),
+                workspace: (task.workspace ?? sharedWorkspace) || context.workspace,
+                model: task.model ?? sharedModel ?? context.model?.id,
+                childTimeoutMs: timeoutMs,
+                allowedToolNames: context.allowedToolNames,
+                strictAllowedToolNames: false,
+                ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
+                ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
+                signal: context.abortSignal
+              })
+            } catch (error) {
+              return failedDelegateRecord(task, index, error, context.threadId, context.turnId)
+            }
+          })
+          const children = records.map((record, index) => ({
             childId: record.id,
             label: record.label,
             status: record.status,
             summary: record.summary,
             error: record.error,
-            usage: record.usage
+            usage: record.usage,
+            effective_timeout_ms: tasks[index]?.timeoutMs ?? sharedTimeoutMs
           }))
           return {
             output: {
@@ -149,7 +162,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
               aborted: children.filter((child) => child.status === 'aborted').length,
               concurrency,
               configured_concurrency: diagnostics.config.maxParallel,
-              ...(sharedTimeoutMs !== undefined ? { shared_timeout_ms: sharedTimeoutMs } : {}),
+              effective_timeout_ms: sharedTimeoutMs,
               ...(firstSpawnIndex > 1
                 ? { warning: `This batch starts at child agent spawn #${firstSpawnIndex} for the thread. Spawn only when the extra prefix/cache cost is worth it.` }
                 : {})
@@ -205,16 +218,50 @@ function normalizeDelegateModel(value: unknown): string | undefined {
   return model
 }
 
-function normalizeDelegateTimeoutMs(value: unknown): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+function normalizeDelegateTimeoutMs(value: unknown, defaultMs?: number): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return defaultMs
   const normalized = Math.trunc(value)
-  return normalized > 0 ? normalized : undefined
+  if (normalized <= 0) return defaultMs
+  return Math.min(normalized, MAX_DELEGATE_TIMEOUT_MS)
+}
+
+type DelegateRecordLike = Awaited<ReturnType<MultiAgentRuntime['runChild']>>
+
+function failedDelegateRecord(
+  task: NormalizedDelegateTask,
+  index: number,
+  error: unknown,
+  parentThreadId: string,
+  parentTurnId: string
+): DelegateRecordLike {
+  const message = error instanceof Error ? error.message : String(error)
+  const now = new Date().toISOString()
+  return {
+    contractVersion: 1,
+    id: `delegate_failed_${index + 1}`,
+    parentThreadId,
+    parentTurnId,
+    label: task.label,
+    prompt: task.prompt,
+    status: 'failed',
+    summary: `Child agent failed before completion: ${message}`,
+    error: {
+      code: 'child_failed',
+      message,
+      retryable: /\b(timeout|parallel|budget|unavailable|overloaded|503|502|504)\b/i.test(message)
+    },
+    usage: EMPTY_MULTI_AGENT_USAGE,
+    transcript: [],
+    createdAt: now,
+    updatedAt: now,
+    finishedAt: now
+  }
 }
 
 async function runWithConcurrency<T, R>(
   items: readonly T[],
   concurrency: number,
-  run: (item: T) => Promise<R>
+  run: (item: T, index: number) => Promise<R>
 ): Promise<R[]> {
   const results: R[] = new Array(items.length)
   let nextIndex = 0
@@ -222,7 +269,7 @@ async function runWithConcurrency<T, R>(
     while (nextIndex < items.length) {
       const index = nextIndex
       nextIndex += 1
-      results[index] = await run(items[index] as T)
+      results[index] = await run(items[index] as T, index)
     }
   })
   await Promise.all(workers)

@@ -216,6 +216,71 @@ describe('AgentLoop', () => {
     )).toBe(true)
   })
 
+  it('retries a transient model stream error before any output is persisted', async () => {
+    let calls = 0
+    const h = makeHarness({
+      provider: 'flaky-stream',
+      model: 'flaky-stream',
+      async *stream(): AsyncIterable<ModelStreamChunk> {
+        calls += 1
+        if (calls === 1) {
+          yield { kind: 'error', message: 'Provider returned HTTP 502', code: 'response_stream_error' }
+          return
+        }
+        yield { kind: 'assistant_text_delta', text: 'recovered' }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    await bootstrapThread(h)
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
+    const turn = await h.turns.getTurn(h.threadId, h.turnId)
+
+    expect(status).toBe('completed')
+    expect(calls).toBe(2)
+    expect(turn?.error).toBeUndefined()
+    expect(events.some((event) =>
+      event.kind === 'error' &&
+      event.code === 'model_stream_retry' &&
+      event.severity === 'warning'
+    )).toBe(true)
+    expect(events.some((event) =>
+      event.kind === 'assistant_text_delta' &&
+      event.item.kind === 'assistant_text' &&
+      event.item.text === 'recovered'
+    )).toBe(true)
+  })
+
+  it('retries a transient messages stream error before any output is persisted', async () => {
+    let calls = 0
+    const h = makeHarness({
+      provider: 'flaky-messages-stream',
+      model: 'flaky-messages-stream',
+      async *stream(): AsyncIterable<ModelStreamChunk> {
+        calls += 1
+        if (calls === 1) {
+          yield { kind: 'error', message: 'model stream reported an error', code: 'messages_stream_error' }
+          return
+        }
+        yield { kind: 'assistant_text_delta', text: 'messages recovered' }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    await bootstrapThread(h)
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
+
+    expect(status).toBe('completed')
+    expect(calls).toBe(2)
+    expect(events.some((event) =>
+      event.kind === 'error' &&
+      event.code === 'model_stream_retry' &&
+      event.severity === 'warning'
+    )).toBe(true)
+  })
+
   it('emits named pipeline lifecycle stages for a model request', async () => {
     const h = makeHarness(makeSilentModel())
     await bootstrapThread(h)
