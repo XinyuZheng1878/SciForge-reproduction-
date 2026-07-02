@@ -382,9 +382,12 @@ function sessionById(sessionId: unknown): BashSession | null {
   return id ? bashSessions.get(id) ?? null : null
 }
 
-function isCacheHygienePlaceholder(value: string): boolean {
+function isHygienePlaceholder(value: string): boolean {
   const trimmed = value.trim()
-  return trimmed.startsWith('[cache hygiene:') && trimmed.length < 4096
+  return (
+    (trimmed.startsWith('[cache hygiene:') || trimmed.startsWith('[sciforge request_hygiene')) &&
+    trimmed.length < 4096
+  )
 }
 
 async function startBashSession(
@@ -577,10 +580,10 @@ export function createBashLocalTool(options: BashLocalToolOptions = {}): LocalTo
       if (!command.trim()) return { output: { error: 'command is required' }, isError: true }
       const jsonCommandError = jsonObjectCommandError(command)
       if (jsonCommandError) return { output: { error: jsonCommandError }, isError: true }
-      if (isCacheHygienePlaceholder(command)) {
+      if (isHygienePlaceholder(command)) {
         return {
           output: {
-            error: 'Refusing to execute cache-hygiene placeholder as a shell command.'
+            error: 'Refusing to execute hygiene placeholder as a shell command.'
           },
           isError: true
         }

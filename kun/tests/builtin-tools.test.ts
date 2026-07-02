@@ -526,41 +526,46 @@ describe('Local runtime built-in tools', () => {
     await expect(readFile(join(workspace, 'existing.txt'), 'utf8')).resolves.toBe('alpha\n')
   })
 
-  it('refuses to execute cache-hygiene placeholders as bash commands', async () => {
-    let executed = false
-    const placeholder =
-      '[cache hygiene: omitted completed bash.command argument, 1.2KB, approx 300 token(s), 20 line(s); see following tool result] preview="touch should-not-run"'
-    const bashOnlyHost = new LocalToolHost({
-      tools: [
-        createBashLocalTool({
-          operations: {
-            exec: async () => {
-              executed = true
-              return { exitCode: 0 }
+  it('refuses to execute hygiene placeholders as bash commands', async () => {
+    const placeholders = [
+      '[cache hygiene: omitted completed bash.command argument, 1.2KB, approx 300 token(s), 20 line(s); see following tool result] preview="touch should-not-run"',
+      '[sciforge request_hygiene source=tool_call.arguments.command reason=large_argument_string digest=sha256:abc original_chars=7000 summary="touch should-not-run"]'
+    ]
+
+    for (const [index, placeholder] of placeholders.entries()) {
+      let executed = false
+      const bashOnlyHost = new LocalToolHost({
+        tools: [
+          createBashLocalTool({
+            operations: {
+              exec: async () => {
+                executed = true
+                return { exitCode: 0 }
+              }
             }
-          }
-        })
-      ]
-    })
+          })
+        ]
+      })
 
-    const result = await bashOnlyHost.execute(
-      {
-        callId: 'call_bash_placeholder',
+      const result = await bashOnlyHost.execute(
+        {
+          callId: `call_bash_placeholder_${index}`,
+          toolName: 'bash',
+          arguments: { command: placeholder }
+        },
+        buildContext(workspace)
+      )
+
+      expect(result.item).toMatchObject({
+        kind: 'tool_result',
         toolName: 'bash',
-        arguments: { command: placeholder }
-      },
-      buildContext(workspace)
-    )
-
-    expect(result.item).toMatchObject({
-      kind: 'tool_result',
-      toolName: 'bash',
-      isError: true
-    })
-    expect(executed).toBe(false)
-    expect(JSON.stringify(result.item.kind === 'tool_result' ? result.item.output : {})).toContain(
-      'Refusing to execute cache-hygiene placeholder'
-    )
+        isError: true
+      })
+      expect(executed).toBe(false)
+      expect(JSON.stringify(result.item.kind === 'tool_result' ? result.item.output : {})).toContain(
+        'Refusing to execute hygiene placeholder'
+      )
+    }
   })
 
   it('executes bash commands in the workspace', async () => {
