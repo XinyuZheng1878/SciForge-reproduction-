@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -115,6 +117,13 @@ describe('buildModelRouterSidecarLaunch', () => {
         SCIFORGE_IMAGE_MODEL: 'outer-image-model',
         SCIFORGE_IMAGE_ALLOW_PLACEHOLDER: '1',
         SCIFORGE_MODEL_ROUTER_IMAGE_API_KEY: 'stale-image-router-key',
+        KUN_MODEL_ROUTER_API_KEY: 'old-router-key',
+        KUN_MODEL_ROUTER_BASE_URL: 'http://127.0.0.1:4888/v1',
+        KUN_MODEL_ROUTER_MODEL: 'old-router-model',
+        MODEL_ROUTER_API_KEY: 'generic-router-key',
+        MODEL_ROUTER_RUNTIME_API_KEY: 'generic-runtime-router-key',
+        MODEL_ROUTER_BASE_URL: 'http://127.0.0.1:4999/v1',
+        MODEL_ROUTER_MODEL: 'generic-router-model',
         EDAG_LLM_BASE_URL: 'https://direct-edag-provider.example/v1',
         EDAG_LLM_API_KEY: 'outer-edag-key',
         EDAG_LLM_MODEL: 'outer-edag-model',
@@ -186,6 +195,13 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.launch.env.SCIFORGE_IMAGE_MODEL).toBeUndefined()
     expect(result.launch.env.SCIFORGE_IMAGE_ALLOW_PLACEHOLDER).toBeUndefined()
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_IMAGE_API_KEY).toBeUndefined()
+    expect(result.launch.env.KUN_MODEL_ROUTER_API_KEY).toBeUndefined()
+    expect(result.launch.env.KUN_MODEL_ROUTER_BASE_URL).toBeUndefined()
+    expect(result.launch.env.KUN_MODEL_ROUTER_MODEL).toBeUndefined()
+    expect(result.launch.env.MODEL_ROUTER_API_KEY).toBeUndefined()
+    expect(result.launch.env.MODEL_ROUTER_RUNTIME_API_KEY).toBeUndefined()
+    expect(result.launch.env.MODEL_ROUTER_BASE_URL).toBeUndefined()
+    expect(result.launch.env.MODEL_ROUTER_MODEL).toBeUndefined()
     expect(result.launch.env.EDAG_LLM_BASE_URL).toBeUndefined()
     expect(result.launch.env.EDAG_LLM_API_KEY).toBeUndefined()
     expect(result.launch.env.EDAG_LLM_MODEL).toBeUndefined()
@@ -202,9 +218,9 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.launch.env.SCIFORGE_MODEL_ROUTER_VISION_API_KEY).toBe('vision-secret')
     expect(result.launch.config?.profiles.default.textReasoner).toEqual({
       provider: 'openai-compatible',
-      baseUrl: 'http://127.0.0.1:3892/v1',
+      baseUrl: 'https://text-provider.example/v1',
       apiKeyEnv: 'SCIFORGE_MODEL_ROUTER_TEXT_API_KEY',
-      model: 'deepseek-v4-pro'
+      model: 'text-model'
     })
     expect(JSON.stringify(result.launch.config)).not.toContain('text-secret')
     expect(JSON.stringify(result.launch.config)).not.toContain('vision-secret')
@@ -297,10 +313,16 @@ describe('buildModelRouterSidecarLaunch', () => {
     expect(result.launch.args).toContain('/tmp/sciforge-user-data/model-router/config.json')
   })
 
-  it('creates a local Model Router config template without overwriting an existing file', async () => {
+  it('writes the current local Model Router config template and repairs stale files', async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-router-config-'))
     try {
       const current = settings()
+      current.modelRouter!.profiles.default.textReasoner = {
+        provider: 'openai-compatible',
+        baseUrl: '',
+        apiKey: '',
+        model: ''
+      }
       current.provider.apiKey = 'text-secret'
       current.provider.baseUrl = 'https://text.example/v1'
       current.agents.sciforge.model = 'deepseek-v4-pro'
@@ -316,10 +338,49 @@ describe('buildModelRouterSidecarLaunch', () => {
       expect(content).toContain('"model": "deepseek-v4-pro"')
       expect(content).not.toContain('text-secret')
 
-      await ensureModelRouterConfigFile(current, { userDataDir })
+      await writeFile(created.path, '', 'utf8')
+      const repaired = await ensureModelRouterConfigFile(current, { userDataDir })
       const afterSecondEnsure = await readFile(created.path, 'utf8')
+      expect(repaired.created).toBe(false)
       expect(afterSecondEnsure).toBe(content)
     } finally {
+      await rm(userDataDir, { recursive: true, force: true })
+    }
+  })
+
+  it('starts a managed sidecar instead of reusing an unmanaged healthy router on the same port', async () => {
+    const server = createServer((request, response) => {
+      if (request.url === '/healthz') {
+        response.setHeader('content-type', 'application/json')
+        response.end(JSON.stringify({ ok: true }))
+        return
+      }
+      response.statusCode = 404
+      response.end('{}')
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', () => resolve())
+    })
+    const address = server.address() as AddressInfo
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sciforge-router-managed-sidecar-'))
+    const current = settings()
+    current.modelRouter!.baseUrl = `http://127.0.0.1:${address.port}/v1`
+    const child = fakeChildProcess()
+    const spawnImpl = vi.fn(() => child) as unknown as typeof spawn
+
+    try {
+      await ensureModelRouterSidecar(current, {
+        userDataDir,
+        appRoot: '/repo/sciforge',
+        env: {},
+        spawnImpl
+      })
+
+      expect(spawnImpl).toHaveBeenCalledTimes(1)
+      child.emit('exit', 0, null)
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
       await rm(userDataDir, { recursive: true, force: true })
     }
   })

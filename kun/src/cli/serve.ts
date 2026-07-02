@@ -84,7 +84,7 @@ export function parseServeOptions(
         ? raw['api-key']
         : typeof raw.apiKey === 'string'
           ? raw.apiKey
-          : env.KUN_MODEL_ROUTER_API_KEY ??
+          : env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY ??
             configServe.apiKey ??
             DEFAULT_SERVE_OPTIONS.apiKey,
     modelRouterBaseUrl:
@@ -92,12 +92,12 @@ export function parseServeOptions(
         ? raw['model-router-base-url']
         : typeof raw.modelRouterBaseUrl === 'string'
           ? raw.modelRouterBaseUrl
-          : env.KUN_MODEL_ROUTER_BASE_URL ??
+          : env.SCIFORGE_MODEL_ROUTER_BASE_URL ??
             DEFAULT_SERVE_OPTIONS.modelRouterBaseUrl,
     model:
       typeof raw.model === 'string'
         ? raw.model
-        : env.KUN_MODEL ?? configServe.model ?? DEFAULT_SERVE_OPTIONS.model,
+        : env.SCIFORGE_MODEL_ROUTER_MODEL ?? configServe.model ?? DEFAULT_SERVE_OPTIONS.model,
     forceDefaultModel:
       booleanFlag(raw, 'force-default-model') ??
       booleanFlag(raw, 'forceDefaultModel') ??
@@ -157,7 +157,7 @@ Options:
   --port <port>            HTTP port (default ${DEFAULT_SERVE_PORT})
   --data-dir <path>        Root directory for threads, events, and usage
   --runtime-token <token>  Bearer token for /v1/* requests
-  --api-key <key>          Model Router runtime API key (required; or KUN_MODEL_ROUTER_API_KEY)
+  --api-key <key>          Model Router runtime API key (required; or SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY)
   --model-router-base-url <url>
                            Local Model Router base URL (default ${DEFAULT_MODEL_ROUTER_BASE_URL})
   --model <model>          Model Router public model alias (default ${DEFAULT_SERVE_OPTIONS.model})
@@ -206,7 +206,7 @@ export function parseServeOptionsSafe(
       return {
         ok: false,
         exitCode: ServeExitCode.config,
-        message: 'serve requires a Model Router API key via --api-key <key> or KUN_MODEL_ROUTER_API_KEY'
+        message: 'serve requires a Model Router API key via --api-key <key> or SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY'
       }
     }
     return { ok: true, options: parsed }

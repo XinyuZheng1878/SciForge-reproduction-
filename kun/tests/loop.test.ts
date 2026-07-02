@@ -281,6 +281,35 @@ describe('AgentLoop', () => {
     )).toBe(true)
   })
 
+  it('retries a transient provider fetch failure before any output is persisted', async () => {
+    let calls = 0
+    const h = makeHarness({
+      provider: 'flaky-provider-network',
+      model: 'flaky-provider-network',
+      async *stream(): AsyncIterable<ModelStreamChunk> {
+        calls += 1
+        if (calls === 1) {
+          yield { kind: 'error', message: 'model request failed: fetch failed', code: 'response_stream_error' }
+          return
+        }
+        yield { kind: 'assistant_text_delta', text: 'network recovered' }
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    await bootstrapThread(h)
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
+
+    expect(status).toBe('completed')
+    expect(calls).toBe(2)
+    expect(events.some((event) =>
+      event.kind === 'error' &&
+      event.code === 'model_stream_retry' &&
+      event.severity === 'warning'
+    )).toBe(true)
+  })
+
   it('emits named pipeline lifecycle stages for a model request', async () => {
     const h = makeHarness(makeSilentModel())
     await bootstrapThread(h)

@@ -104,7 +104,8 @@ function isRecoverableModelStreamError(error: ModelStreamErrorInfo | undefined):
     /^http_(?:429|5\d\d)$/.test(code) ||
     /^deepseek_http_5\d\d$/.test(code) ||
     /\b(?:http\s*)?(?:429|500|502|503|504)\b/.test(message) ||
-    /\b(?:temporar(?:y|ily)|timeout|timed out|rate limit|overloaded|unavailable|bad gateway)\b/.test(message)
+    /\b(?:temporar(?:y|ily)|timeout|timed out|rate limit|overloaded|unavailable|bad gateway)\b/.test(message) ||
+    /\b(?:fetch failed|network error|connection refused|econnrefused|econnreset|socket hang up|failed to fetch)\b/.test(message)
   )
 }
 

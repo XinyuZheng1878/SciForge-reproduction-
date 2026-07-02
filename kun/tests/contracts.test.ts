@@ -378,8 +378,8 @@ describe('cli', () => {
       DEEPSEEK_API_KEY: 'deepseek-env-key',
       DEEPSEEK_BASE_URL: 'https://api.deepseek.com/beta',
       KUN_BASE_URL: 'https://direct-provider.example/v1',
-      KUN_MODEL_ROUTER_BASE_URL: 'http://localhost:4892/v1',
-      KUN_MODEL_ROUTER_API_KEY: 'local-router-key'
+      SCIFORGE_MODEL_ROUTER_BASE_URL: 'http://localhost:4892/v1',
+      SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY: 'local-router-key'
     })
 
     expect(parsed.modelRouterBaseUrl).toBe('http://localhost:4892/v1')

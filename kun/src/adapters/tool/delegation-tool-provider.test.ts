@@ -58,7 +58,9 @@ describe('buildDelegationToolProviders', () => {
     const prompt = runChild.mock.calls[0]?.[0].prompt
     expect(prompt).toContain('Child-agent runtime guardrails:')
     expect(prompt).toContain('SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY')
-    expect(prompt).toContain('MODEL_ROUTER_BASE_URL')
+    expect(prompt).toContain('SCIFORGE_MODEL_ROUTER_BASE_URL')
+    expect(prompt).not.toMatch(/(?:^|[^A-Z0-9_])KUN_MODEL_ROUTER_API_KEY(?:$|[^A-Z0-9_])/)
+    expect(prompt).not.toMatch(/(?:^|[^A-Z0-9_])MODEL_ROUTER_API_KEY(?:$|[^A-Z0-9_])/)
     expect(prompt).toContain('Never read app settings')
     expect(prompt).toContain('bounded execution request')
     expect(prompt).toContain('Do not ask the parent or user what to do next')
@@ -66,7 +68,7 @@ describe('buildDelegationToolProviders', () => {
     expect(prompt).toContain('CHILD_AGENT_BLOCKED')
     expect(prompt).toContain('read-before-edit guard')
     expect(prompt).toContain('Read the figure and report quality.')
-    expect(runChild.mock.calls[0]?.[0].childTimeoutMs).toBe(1_800_000)
+    expect(runChild.mock.calls[0]?.[0].childTimeoutMs).toBe(600_000)
   })
 
   it('injects guardrails into every delegate_tasks prompt without duplicating existing guardrails', async () => {
@@ -88,6 +90,6 @@ describe('buildDelegationToolProviders', () => {
     expect(prompts[0]).toContain('Plain task.')
     expect(prompts[1].match(/Child-agent runtime guardrails:/g)).toHaveLength(1)
     expect(prompts[1]).toContain('Already guarded task.')
-    expect(runChild.mock.calls.map((call) => call[0].childTimeoutMs)).toEqual([900_000, 1_200_000])
+    expect(runChild.mock.calls.map((call) => call[0].childTimeoutMs)).toEqual([600_000, 600_000])
   })
 })

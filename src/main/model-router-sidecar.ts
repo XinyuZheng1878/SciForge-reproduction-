@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { access, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   DEFAULT_LOCAL_RUNTIME_MODEL,
@@ -10,7 +10,6 @@ import {
   type AppSettingsV1,
   type ModelRouterMemberProviderSettingsV1
 } from '../shared/app-settings'
-import { checkModelRouterHealth } from './model-router-health'
 import {
   DIRECT_PROVIDER_WORKER_ENV_PREFIXES,
   MODEL_ROUTER_PRIVATE_ENV_PREFIXES,
@@ -37,6 +36,15 @@ const BLOCKED_INHERITED_WORKER_ENV_PREFIXES = [
 const LEGACY_SCI_MODALITY_SERVICE_URL_ENV = 'SCIFORGE_SCIMODALITY_SERVICE_URL'
 const LEGACY_SCI_MODALITY_SERVICE_TOKEN_ENV = 'SCIFORGE_SCIMODALITY_SERVICE_TOKEN'
 const LEGACY_SCI_MODALITY_SERVICE_TIMEOUT_MS_ENV = 'SCIFORGE_SCIMODALITY_SERVICE_TIMEOUT_MS'
+const LEGACY_MODEL_ROUTER_ENV_NAMES = [
+  'KUN_MODEL_ROUTER_API_KEY',
+  'KUN_MODEL_ROUTER_BASE_URL',
+  'KUN_MODEL_ROUTER_MODEL',
+  'MODEL_ROUTER_API_KEY',
+  'MODEL_ROUTER_RUNTIME_API_KEY',
+  'MODEL_ROUTER_BASE_URL',
+  'MODEL_ROUTER_MODEL'
+] as const
 
 let modelRouterChild: ChildProcess | null = null
 let modelRouterLaunchSignature: string | null = null
@@ -163,6 +171,9 @@ function modelRouterSidecarEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   for (const name of UPSTREAM_PROVIDER_CONFIG_ENV_NAMES) {
     delete env[name]
   }
+  for (const name of LEGACY_MODEL_ROUTER_ENV_NAMES) {
+    delete env[name]
+  }
   for (const key of Object.keys(env)) {
     if (
       isUpstreamProviderConfigEnv(key) ||
@@ -189,14 +200,15 @@ export async function ensureModelRouterConfigFile(
 ): Promise<{ path: string; created: boolean }> {
   const path = modelRouterConfigPath(options.userDataDir)
   await mkdir(join(options.userDataDir, 'model-router'), { recursive: true })
-  const config = defaultModelRouterSidecarConfig(settings, options.userDataDir, options.env)
+  let created = false
   try {
-    await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
-    return { path, created: true }
+    await access(path)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return { path, created: false }
-    throw error
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    created = true
   }
+  await writeManagedModelRouterConfigFile(settings, { userDataDir: options.userDataDir, env: options.env })
+  return { path, created }
 }
 
 export async function ensureModelRouterSidecar(
@@ -227,9 +239,6 @@ export async function ensureModelRouterSidecar(
     if (modelRouterLaunchSignature === signature) return
     options.log?.('Model Router sidecar launch settings changed; restarting sidecar.')
     await stopModelRouterSidecar()
-  } else {
-    const health = await checkModelRouterHealth(settings).catch(() => null)
-    if (health?.status === 'healthy') return
   }
 
   const postStopLaunch = buildModelRouterSidecarLaunch(settings, {
@@ -297,9 +306,9 @@ function defaultModelRouterSidecarConfig(
         traceRoot: join(configRoot, 'traces'),
         textReasoner: {
           provider: textReasoner.provider.trim() || provider.id || 'openai-compatible',
-          baseUrl: provider.baseUrl.trim() || textReasoner.baseUrl.trim(),
+          baseUrl: textReasoner.baseUrl.trim() || provider.baseUrl.trim(),
           apiKeyEnv: TEXT_REASONER_KEY_ENV,
-          model: runtime.model.trim() || textReasoner.model.trim() || DEFAULT_LOCAL_RUNTIME_MODEL
+          model: textReasoner.model.trim() || runtime.model.trim() || DEFAULT_LOCAL_RUNTIME_MODEL
         },
         ...(imageGenerator ? { imageGenerator } : {}),
         translators: {

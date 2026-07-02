@@ -129,6 +129,15 @@ const LEGACY_DIRECT_WORKER_ENV_PREFIXES = [
   ...SCI_MODALITY_SERVICE_ENV_PREFIXES,
   ...SCI_MODALITY_WORKER_PRIVATE_ENV_PREFIXES
 ] as const
+const LEGACY_MODEL_ROUTER_ENV_NAMES = [
+  'KUN_MODEL_ROUTER_API_KEY',
+  'KUN_MODEL_ROUTER_BASE_URL',
+  'KUN_MODEL_ROUTER_MODEL',
+  'MODEL_ROUTER_API_KEY',
+  'MODEL_ROUTER_RUNTIME_API_KEY',
+  'MODEL_ROUTER_BASE_URL',
+  'MODEL_ROUTER_MODEL'
+] as const
 const DEFAULT_LOCAL_RUNTIME_MODEL_PROFILES: Record<string, Record<string, unknown>> = {
   'deepseek-v4-pro': {
     contextWindowTokens: 1_000_000,
@@ -438,16 +447,9 @@ async function startLocalRuntimeChildOnce(
       ...localRuntimeChildEnv(process.env),
       ELECTRON_RUN_AS_NODE: '1',
       KUN_RUNTIME_TOKEN: runtime.runtimeToken,
-      KUN_MODEL_ROUTER_API_KEY: runtime.apiKey,
-      KUN_MODEL_ROUTER_BASE_URL: runtime.baseUrl,
-      KUN_MODEL_ROUTER_MODEL: runtime.model,
       [APP_MODEL_ROUTER_RUNTIME_API_KEY_ENV]: runtime.apiKey,
       SCIFORGE_MODEL_ROUTER_BASE_URL: runtime.baseUrl,
       SCIFORGE_MODEL_ROUTER_MODEL: runtime.model,
-      MODEL_ROUTER_API_KEY: runtime.apiKey,
-      MODEL_ROUTER_RUNTIME_API_KEY: runtime.apiKey,
-      MODEL_ROUTER_BASE_URL: runtime.baseUrl,
-      MODEL_ROUTER_MODEL: runtime.model,
       ...runtimeSecretEnv(settings)
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -1093,6 +1095,9 @@ function localRuntimeChildEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     delete env[name]
   }
   for (const name of UPSTREAM_PROVIDER_CONFIG_ENV_NAMES) {
+    delete env[name]
+  }
+  for (const name of LEGACY_MODEL_ROUTER_ENV_NAMES) {
     delete env[name]
   }
   for (const key of Object.keys(env)) {

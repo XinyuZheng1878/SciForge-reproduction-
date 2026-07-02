@@ -9,7 +9,7 @@ const CHILD_AGENT_RUNTIME_GUARDRAILS = [
   'Child-agent runtime guardrails:',
   '- Work only inside the assigned workspace unless a tool explicitly permits otherwise.',
   '- Never read app settings, API key files, tokens, or secrets from paths outside the workspace.',
-  '- If local Model Router access is needed, use environment variables only: SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY, KUN_MODEL_ROUTER_API_KEY, or MODEL_ROUTER_API_KEY for the key; SCIFORGE_MODEL_ROUTER_BASE_URL or MODEL_ROUTER_BASE_URL for the base URL; and SCIFORGE_MODEL_ROUTER_MODEL or MODEL_ROUTER_MODEL for the model. Never print secret values.',
+  '- If local Model Router access is needed, use environment variables only: SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY for the key, SCIFORGE_MODEL_ROUTER_BASE_URL for the base URL, and SCIFORGE_MODEL_ROUTER_MODEL for the model. Never print secret values.',
   '- Treat the delegated prompt as a bounded execution request, not as an interactive consultation. Do not ask the parent or user what to do next.',
   '- If the delegated task names deliverables, output paths, or file mutations, create or edit those files with tools before your final response.',
   '- Before declaring completion, verify requested files or observable outputs with read/ls/grep/bash as appropriate and mention the verified paths in your final response.',
