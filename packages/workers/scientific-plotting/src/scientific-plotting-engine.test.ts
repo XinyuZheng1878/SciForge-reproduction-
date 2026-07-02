@@ -749,7 +749,17 @@ describe('scientific plotting engine', () => {
         data: {
           nodes: [
             { id: 'ra', label: 'RA gradient', x: 0.18, y: 0.5, color: '#2166AC' },
-            { id: 'rar', label: 'RAR/RXR licensing', x: 0.48, y: 0.5, color: '#4DAF4A' },
+            {
+              id: 'rar',
+              label: 'RAR/RXR licensing context node',
+              x: 0.48,
+              y: 0.5,
+              width: 0.28,
+              height: 0.18,
+              maxLineLength: 12,
+              maxLines: 4,
+              color: '#4DAF4A'
+            },
             { id: 'stra8', label: 'STRA8/MEIOSIN trigger', x: 0.78, y: 0.5, color: '#D6604D' }
           ],
           edges: [
@@ -765,6 +775,11 @@ describe('scientific plotting engine', () => {
         'Used explicit schematic node coordinates.',
         'Rendered 2 of 2 schematic edges.'
       ]))
+      expect(schematicWithAliasEdges.attempts[0]?.rendererDiagnostics).toMatchObject({
+        schematicNodeCount: 3,
+        schematicEdgeCount: 2,
+        schematicExplicitPositions: true
+      })
 
       const multiPanel = await renderScientificPlot({
         workspaceRoot: workspace,

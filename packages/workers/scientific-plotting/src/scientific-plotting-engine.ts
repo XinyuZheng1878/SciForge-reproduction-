@@ -1290,6 +1290,19 @@ function parseRendererDiagnostics(stdout: string): { rendererDiagnostics?: Rende
       diagnostics.multiPanelCount > 0
       ? diagnostics.multiPanelCount
       : undefined
+    const schematicNodeCount = typeof diagnostics.schematicNodeCount === 'number' &&
+      Number.isInteger(diagnostics.schematicNodeCount) &&
+      diagnostics.schematicNodeCount > 0
+      ? diagnostics.schematicNodeCount
+      : undefined
+    const schematicEdgeCount = typeof diagnostics.schematicEdgeCount === 'number' &&
+      Number.isInteger(diagnostics.schematicEdgeCount) &&
+      diagnostics.schematicEdgeCount >= 0
+      ? diagnostics.schematicEdgeCount
+      : undefined
+    const schematicExplicitPositions = typeof diagnostics.schematicExplicitPositions === 'boolean'
+      ? diagnostics.schematicExplicitPositions
+      : undefined
     const typography = isRecord(diagnostics.typography)
       ? parseRendererTypographyDiagnostics(diagnostics.typography)
       : undefined
@@ -1304,6 +1317,9 @@ function parseRendererDiagnostics(stdout: string): { rendererDiagnostics?: Rende
         ...(categoryLabelRotation !== undefined ? { categoryLabelRotation } : {}),
         ...(savefigPadInches !== undefined ? { savefigPadInches } : {}),
         ...(multiPanelCount !== undefined ? { multiPanelCount } : {}),
+        ...(schematicNodeCount !== undefined ? { schematicNodeCount } : {}),
+        ...(schematicEdgeCount !== undefined ? { schematicEdgeCount } : {}),
+        ...(schematicExplicitPositions !== undefined ? { schematicExplicitPositions } : {}),
         ...(typography ? { typography } : {}),
         ...(layoutQuality ? { layoutQuality } : {}),
         layoutNotes
@@ -4721,16 +4737,18 @@ elif template == "schematic-grid":
             if value is not None:
                 return value
         return None
-    def wrap_node_label(value):
+    def wrap_node_label(value, max_line_length=None, max_lines=None):
         text = str(value or "")
-        if len(text) <= 14 or " " not in text:
+        line_limit = int(clamp(as_float(max_line_length, 13), 8, 24))
+        line_count_limit = int(clamp(as_float(max_lines, 3), 1, 5))
+        if len(text) <= line_limit or " " not in text:
             return text
         words = text.split()
         lines = []
         current = ""
         for word in words:
             candidate = word if not current else current + " " + word
-            if len(candidate) <= 13:
+            if len(candidate) <= line_limit:
                 current = candidate
             else:
                 if current:
@@ -4738,23 +4756,30 @@ elif template == "schematic-grid":
                 current = word
         if current:
             lines.append(current)
-        return "\n".join(lines[:2])
+        return "\n".join(lines[:line_count_limit])
     def node_font_size(label):
         base = as_float(mpl.rcParams.get("font.size", 8), 8)
-        longest = max([len(part) for part in str(label).split("\n")] or [0])
+        parts = str(label).split("\n")
+        longest = max([len(part) for part in parts] or [0])
+        if len(parts) >= 4:
+            return min(base, 5.6)
+        if len(parts) >= 3:
+            return min(base, 6.2)
         if longest > 13:
             return min(base, 6.8)
         if longest > 10:
             return min(base, 7.4)
         return min(base, 8.4)
     for index, node in enumerate(nodes):
-        label = wrap_node_label(node.get("label", ""))
+        label = wrap_node_label(node.get("label", ""), node.get("maxLineLength"), node.get("maxLines"))
         if explicit_positions:
             center_x = clamp(float(node.get("x")), 0.08, 0.92)
             center_y = clamp(float(node.get("y")), 0.10, 0.90)
             longest = max([len(part) for part in str(label).split("\n")] or [0])
-            width = clamp(0.13 + longest * 0.0055, 0.16, 0.24)
-            height = 0.14 if "\n" not in str(label) else clamp(0.10 + 0.038 * len(str(label).split("\n")), 0.14, 0.20)
+            requested_width = first_present(node, "width", "w")
+            requested_height = first_present(node, "height", "h")
+            width = clamp(as_float(requested_width, 0.13 + longest * 0.0055), 0.12, 0.42)
+            height = clamp(as_float(requested_height, 0.14 if "\n" not in str(label) else 0.10 + 0.038 * len(str(label).split("\n"))), 0.10, 0.34)
             x = center_x - width / 2
             y = center_y - height / 2
         else:
@@ -4826,6 +4851,9 @@ elif template == "schematic-grid":
                 ax.text(label_x, label_y, str(edge_label).replace("\n", " "), ha="center", va="center", fontsize=min(label_size, 5.8), color=mpl.rcParams.get("text.color", "#222222"), bbox={"boxstyle": "round,pad=0.16", "facecolor": "white", "alpha": 0.82, "edgecolor": "none"}, zorder=4)
             drawn_edges += 1
     add_layout_note(f"Rendered {drawn_edges} of {len(edges)} schematic edges.")
+    renderer_diagnostics["schematicNodeCount"] = len(nodes)
+    renderer_diagnostics["schematicEdgeCount"] = drawn_edges
+    renderer_diagnostics["schematicExplicitPositions"] = bool(explicit_positions)
     if drawn_edges < len(edges):
         add_layout_note("Skipped schematic edges with missing source or target ids.")
     if labels.get("title"):

@@ -645,6 +645,9 @@ export type ScientificPlottingAttempt = {
     categoryLabelRotation?: number
     savefigPadInches?: number
     multiPanelCount?: number
+    schematicNodeCount?: number
+    schematicEdgeCount?: number
+    schematicExplicitPositions?: boolean
     typography?: {
       titleSize: number
       labelSize: number
