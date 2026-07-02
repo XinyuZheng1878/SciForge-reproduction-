@@ -70,9 +70,22 @@ describe('buildDelegationToolProviders', () => {
     expect(prompt).toContain('Do not ask the parent or user what to do next')
     expect(prompt).toContain('verify requested files')
     expect(prompt).toContain('CHILD_AGENT_BLOCKED')
+    expect(prompt).toContain('do not include CHILD_AGENT_BLOCKED anywhere in the final response')
     expect(prompt).toContain('read-before-edit guard')
     expect(prompt).toContain('Read the figure and report quality.')
-    expect(runChild.mock.calls[0]?.[0].childTimeoutMs).toBe(600_000)
+    expect(runChild.mock.calls[0]?.[0].childTimeoutMs).toBe(1_200_000)
+  })
+
+  it('uses a research-friendly default timeout for delegated agents', async () => {
+    const { runtime, runChild } = fakeRuntime()
+    const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_task')
+
+    await tool?.execute({
+      label: 'literature',
+      prompt: 'Verify literature and write a concise report.'
+    }, fakeContext())
+
+    expect(runChild.mock.calls[0]?.[0].childTimeoutMs).toBe(300_000)
   })
 
   it('injects guardrails into every delegate_tasks prompt without duplicating existing guardrails', async () => {
@@ -94,7 +107,7 @@ describe('buildDelegationToolProviders', () => {
     expect(prompts[0]).toContain('Plain task.')
     expect(prompts[1].match(/Child-agent runtime guardrails:/g)).toHaveLength(1)
     expect(prompts[1]).toContain('Already guarded task.')
-    expect(runChild.mock.calls.map((call) => call[0].childTimeoutMs)).toEqual([600_000, 600_000])
+    expect(runChild.mock.calls.map((call) => call[0].childTimeoutMs)).toEqual([900_000, 1_200_000])
   })
 
   it('does not propagate derived active tool policy to child agents', async () => {

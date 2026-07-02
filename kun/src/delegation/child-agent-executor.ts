@@ -290,10 +290,26 @@ function isUsefulChildFinalText(text: string | undefined): boolean {
 }
 
 export function isBlockedChildFinalText(text: string | undefined): boolean {
-  const normalized = (text?.trim() ?? '')
+  const normalized = normalizedChildFinalText(text)
+  if (!/^CHILD_AGENT_BLOCKED\b/i.test(normalized)) return false
+  return !hasSelfCorrectedBlocker(normalized)
+}
+
+function normalizedChildFinalText(text: string | undefined): string {
+  return (text?.trim() ?? '')
     .replace(/^(?:[#>*_\-\s`])+/g, '')
     .replace(/^(?:\*\*)?CHILD_AGENT_BLOCKED(?:\*\*)?/i, 'CHILD_AGENT_BLOCKED')
-  return /^CHILD_AGENT_BLOCKED\b/i.test(normalized)
+}
+
+function hasSelfCorrectedBlocker(text: string): boolean {
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? ''
+  if (!/\b(?:actually|not blocked|no longer blocked|completed after all|successfully completed|误判|已完成)\b/i.test(firstLine)) {
+    return false
+  }
+  if (!/\b(?:deliverable|verified|completed|complete|created|written|wrote|successfully|输出|完成|已写入|已生成)\b/i.test(text)) {
+    return false
+  }
+  return /(?:^|\s)(?:outputs\/|reports\/|tables\/|figures\/|scripts\/|\/[^\s`'")]+\/[^\s`'")]+)\S*/m.test(text)
 }
 
 export function isPrematureChildClarification(text: string | undefined): boolean {

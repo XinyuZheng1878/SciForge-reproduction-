@@ -2,8 +2,8 @@ import { EMPTY_MULTI_AGENT_USAGE, MultiAgentRuntimeError, type MultiAgentRuntime
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { LocalToolHost } from './local-tool-host.js'
 
-const DEFAULT_DELEGATE_TIMEOUT_MS = 120_000
-const MAX_DELEGATE_TIMEOUT_MS = 600_000
+const DEFAULT_DELEGATE_TIMEOUT_MS = 300_000
+const MAX_DELEGATE_TIMEOUT_MS = 1_200_000
 const PARALLEL_BUDGET_RETRY_MS = 250
 
 const CHILD_AGENT_RUNTIME_GUARDRAILS = [
@@ -15,6 +15,7 @@ const CHILD_AGENT_RUNTIME_GUARDRAILS = [
   '- If the delegated task names deliverables, output paths, or file mutations, create or edit those files with tools before your final response.',
   '- Before declaring completion, verify requested files or observable outputs with read/ls/grep/bash as appropriate and mention the verified paths in your final response.',
   '- If you cannot complete the delegated task, start the final response with CHILD_AGENT_BLOCKED and explain the blocker plus any partial work.',
+  '- If you complete the delegated task after initially thinking it was blocked, do not include CHILD_AGENT_BLOCKED anywhere in the final response.',
   '- Before editing an existing file, read that file in this child run first; if a read-before-edit guard blocks an edit, read the file and retry once.',
   '',
   'Delegated task:'

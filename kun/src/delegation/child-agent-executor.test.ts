@@ -34,4 +34,14 @@ describe('child agent final response classification', () => {
     expect(isBlockedChildFinalText('### `CHILD_AGENT_BLOCKED`: missing credentials.')).toBe(true)
     expect(isPrematureChildClarification('CHILD_AGENT_BLOCKED: should I continue after the file appears?')).toBe(false)
   })
+
+  it('does not treat self-corrected completion summaries as blockers', () => {
+    expect(isBlockedChildFinalText([
+      'CHILD_AGENT_BLOCKED — wait, actually both files completed successfully.',
+      '',
+      'Verified deliverables:',
+      '- outputs/stage9/tables/evidence.tsv',
+      '- outputs/stage9/reports/summary.md'
+    ].join('\n'))).toBe(false)
+  })
 })
