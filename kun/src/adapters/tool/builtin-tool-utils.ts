@@ -259,6 +259,7 @@ export function shellRuntimeInstruction(config: ShellConfig = shellConfig()): st
     `  <path>${shell.shell}</path>`,
     `  <syntax>${shell.syntax}</syntax>`,
     '  <hygiene_markers>[cache hygiene: ...] and [sciforge request_hygiene ...] are model-context metadata only; never copy them into shell commands or other tool arguments.</hygiene_markers>',
+    '  <git_hygiene>Stage explicit paths only. Broad repository staging commands such as git add ., git add -A, git add --all, git add -u, and git commit -a are blocked.</git_hygiene>',
     '</shell_environment>'
   ].join('\n')
 }

@@ -285,6 +285,8 @@ export class LocalToolHost implements ToolHost {
     if (sandboxBlock) return sandboxBlock
     const bashPolicyBlock = bashCommandPolicyBlock(call, context)
     if (bashPolicyBlock) return bashPolicyBlock
+    const bashGitSafetyBlock = defaultBashGitSafetyBlock(call)
+    if (bashGitSafetyBlock) return bashGitSafetyBlock
     const filePolicyBlock = filePathPolicyBlock(call, context)
     if (filePolicyBlock) return filePolicyBlock
     if (this.isInteractiveGuiGateTool(call.toolName)) return null
@@ -435,6 +437,121 @@ function bashCommandPolicyBlock(
     }
   }
   return null
+}
+
+function defaultBashGitSafetyBlock(
+  call: ToolCallLike
+): { code: 'bash_command_policy_denied'; message: string } | null {
+  if (call.toolName !== 'bash') return null
+  const command = typeof call.arguments.command === 'string' ? call.arguments.command : ''
+  const blocked = firstBroadGitStagingCommand(command)
+  if (!blocked) return null
+  return {
+    code: 'bash_command_policy_denied',
+    message: `bash git staging safety blocked broad repository staging command: ${blocked}. Stage explicit paths instead, for example: git add path/to/file path/to/dir`
+  }
+}
+
+function firstBroadGitStagingCommand(command: string): string | null {
+  const normalized = command.replace(/\\\r?\n/g, ' ')
+  for (const segment of normalized.split(/&&|\|\||[;\n]/)) {
+    const tokens = shellishTokens(segment)
+    for (let index = 0; index < tokens.length; index += 1) {
+      if (commandName(tokens[index]) !== 'git') continue
+      const subcommandIndex = gitSubcommandIndex(tokens, index)
+      const subcommand = tokens[subcommandIndex]?.toLowerCase()
+      if (subcommand === 'add' && isBroadGitAdd(tokens.slice(subcommandIndex + 1))) {
+        return compactCommandSegment(segment)
+      }
+      if (subcommand === 'commit' && isBroadGitCommit(tokens.slice(subcommandIndex + 1))) {
+        return compactCommandSegment(segment)
+      }
+    }
+  }
+  return null
+}
+
+function gitSubcommandIndex(tokens: string[], gitIndex: number): number {
+  let index = gitIndex + 1
+  while (index < tokens.length) {
+    const token = tokens[index]
+    if (!token.startsWith('-')) return index
+    const lower = token.toLowerCase()
+    index += gitGlobalOptionConsumesValue(lower) ? 2 : 1
+  }
+  return index
+}
+
+function gitGlobalOptionConsumesValue(option: string): boolean {
+  return option === '-c' ||
+    option === '--config-env' ||
+    option === '--git-dir' ||
+    option === '--work-tree' ||
+    option === '--namespace' ||
+    option === '--exec-path'
+}
+
+function isBroadGitAdd(args: string[]): boolean {
+  const hasBroadPath = args.some(isBroadGitPathspec)
+  if (hasBroadPath) return true
+  const hasBroadFlag = args.some(isBroadGitAddFlag)
+  if (!hasBroadFlag) return false
+  return !args.some(isScopedGitPathspec)
+}
+
+function isBroadGitCommit(args: string[]): boolean {
+  return args.some((arg) => {
+    const lower = arg.toLowerCase()
+    return lower === '--all' || /^-[^-]*a/.test(lower)
+  })
+}
+
+function isBroadGitAddFlag(arg: string): boolean {
+  const lower = arg.toLowerCase()
+  return lower === '-a' ||
+    lower === '--all' ||
+    lower === '-u' ||
+    lower === '--update' ||
+    /^-[^-]*(?:a|u)/.test(lower)
+}
+
+function isBroadGitPathspec(arg: string): boolean {
+  const value = stripShellQuotes(arg).trim()
+  return value === '.' ||
+    value === './' ||
+    value === ':/' ||
+    value === '*' ||
+    value === './*'
+}
+
+function isScopedGitPathspec(arg: string): boolean {
+  const value = stripShellQuotes(arg).trim()
+  if (!value || value === '--' || value.startsWith('-')) return false
+  return !isBroadGitPathspec(value)
+}
+
+function shellishTokens(input: string): string[] {
+  return input.match(/"([^"\\]|\\.)*"|'([^'\\]|\\.)*'|[^\s]+/g)?.map(stripShellQuotes) ?? []
+}
+
+function stripShellQuotes(input: string): string {
+  const trimmed = input.trim()
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
+function commandName(token: string | undefined): string {
+  return token?.trim().split(/[\\/]/).pop()?.toLowerCase() ?? ''
+}
+
+function compactCommandSegment(segment: string): string {
+  const compact = segment.trim().replace(/\s+/g, ' ')
+  return compact.length > 120 ? `${compact.slice(0, 117)}...` : compact
 }
 
 function filePathPolicyBlock(
