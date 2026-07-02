@@ -4088,12 +4088,13 @@ import json
 import math
 import os
 import sys
+import textwrap
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import LinearSegmentedColormap, to_rgb
 from matplotlib.patches import Rectangle, FancyArrowPatch
 
 payload = json.load(sys.stdin)
@@ -4737,26 +4738,58 @@ elif template == "schematic-grid":
             if value is not None:
                 return value
         return None
-    def wrap_node_label(value, max_line_length=None, max_lines=None):
+    def wrap_node_label(value, max_line_length=None, max_lines=None, target_width=None):
         text = str(value or "")
-        line_limit = int(clamp(as_float(max_line_length, 13), 8, 24))
-        line_count_limit = int(clamp(as_float(max_lines, 3), 1, 5))
-        if len(text) <= line_limit or " " not in text:
-            return text
-        words = text.split()
+        paragraphs = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        width_limit = int(clamp(round(as_float(target_width, 0.24) * 56), 8, 24))
+        requested_limit = int(clamp(as_float(max_line_length, width_limit), 8, 24))
+        line_limit = min(requested_limit, width_limit)
+        default_line_count = max(3, min(5, len(paragraphs)))
+        line_count_limit = int(clamp(as_float(max_lines, default_line_count), 1, 5))
         lines = []
-        current = ""
-        for word in words:
-            candidate = word if not current else current + " " + word
-            if len(candidate) <= line_limit:
-                current = candidate
-            else:
-                if current:
-                    lines.append(current)
-                current = word
-        if current:
-            lines.append(current)
-        return "\n".join(lines[:line_count_limit])
+        for paragraph in paragraphs:
+            paragraph = str(paragraph).strip()
+            if not paragraph:
+                continue
+            wrapped = textwrap.wrap(
+                paragraph,
+                width=line_limit,
+                break_long_words=False,
+                break_on_hyphens=False,
+            )
+            if not wrapped and paragraph:
+                wrapped = [paragraph]
+            if len(wrapped) == 1 and len(wrapped[0]) > line_limit * 1.35:
+                wrapped = textwrap.wrap(
+                    wrapped[0],
+                    width=line_limit,
+                    break_long_words=True,
+                    break_on_hyphens=False,
+                )
+            lines.extend(wrapped)
+        if not lines:
+            return text
+        truncated = len(lines) > line_count_limit
+        lines = lines[:line_count_limit]
+        if truncated and lines:
+            lines[-1] = (lines[-1][:max(1, line_limit - 3)] + "...") if len(lines[-1]) > line_limit - 3 else lines[-1] + "..."
+        return "\n".join(lines)
+    def contrast_text_color(facecolor, alpha=0.18, fallback=None):
+        fallback = fallback or mpl.rcParams.get("text.color", "#222222")
+        try:
+            face_rgb = to_rgb(facecolor)
+            bg_rgb = to_rgb(mpl.rcParams.get("axes.facecolor", "#ffffff"))
+            effective = tuple(alpha * face_rgb[i] + (1 - alpha) * bg_rgb[i] for i in range(3))
+            def channel(value):
+                return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+            luminance = 0.2126 * channel(effective[0]) + 0.7152 * channel(effective[1]) + 0.0722 * channel(effective[2])
+            return fallback if luminance >= 0.48 else "#ffffff"
+        except Exception:
+            return fallback
+    def has_wrapped_label(original, wrapped):
+        original_text = str(original or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        wrapped_text = str(wrapped or "").strip()
+        return "\n" in original_text or wrapped_text.replace("\n", " ") != " ".join(original_text.split())
     def node_font_size(label):
         base = as_float(mpl.rcParams.get("font.size", 8), 8)
         parts = str(label).split("\n")
@@ -4770,14 +4803,18 @@ elif template == "schematic-grid":
         if longest > 10:
             return min(base, 7.4)
         return min(base, 8.4)
+    wrapped_node_labels = 0
     for index, node in enumerate(nodes):
-        label = wrap_node_label(node.get("label", ""), node.get("maxLineLength"), node.get("maxLines"))
+        requested_width = first_present(node, "width", "w")
+        requested_height = first_present(node, "height", "h")
+        raw_label = node.get("label", "")
+        label = wrap_node_label(raw_label, node.get("maxLineLength"), node.get("maxLines"), requested_width)
+        if has_wrapped_label(raw_label, label):
+            wrapped_node_labels += 1
         if explicit_positions:
             center_x = clamp(float(node.get("x")), 0.08, 0.92)
             center_y = clamp(float(node.get("y")), 0.10, 0.90)
             longest = max([len(part) for part in str(label).split("\n")] or [0])
-            requested_width = first_present(node, "width", "w")
-            requested_height = first_present(node, "height", "h")
             width = clamp(as_float(requested_width, 0.13 + longest * 0.0055), 0.12, 0.42)
             height = clamp(as_float(requested_height, 0.14 if "\n" not in str(label) else 0.10 + 0.038 * len(str(label).split("\n"))), 0.10, 0.34)
             x = center_x - width / 2
@@ -4794,12 +4831,16 @@ elif template == "schematic-grid":
             center_x = x + width / 2
             center_y = y + height / 2
         color = node.get("color") or node.get("fill") or palette[index % len(palette)]
-        rect = Rectangle((x, y), width, height, facecolor=color, edgecolor=mpl.rcParams.get("axes.edgecolor", "#222222"), linewidth=0.9, alpha=0.18, zorder=2)
+        alpha = clamp(as_float(first_present(node, "alpha", "opacity"), 0.18), 0.08, 1.0)
+        text_color = first_present(node, "textColor", "labelColor", "fontColor") or contrast_text_color(color, alpha)
+        rect = Rectangle((x, y), width, height, facecolor=color, edgecolor=mpl.rcParams.get("axes.edgecolor", "#222222"), linewidth=0.9, alpha=alpha, zorder=2)
         ax.add_patch(rect)
-        ax.text(center_x, center_y, label, ha="center", va="center", fontsize=node_font_size(label), color=mpl.rcParams.get("text.color", "#222222"), wrap=True, linespacing=0.95, zorder=3)
+        ax.text(center_x, center_y, label, ha="center", va="center", fontsize=node_font_size(label), color=text_color, wrap=True, linespacing=0.95, zorder=3)
         node_id = str(node.get("id") or str(index))
         positions[node_id] = (center_x, center_y)
         node_sizes[node_id] = (width, height)
+    if wrapped_node_labels:
+        add_layout_note("Preserved and wrapped schematic node labels within node bounds.")
     def edge_points(start_id, end_id):
         start = positions[start_id]
         end = positions[end_id]

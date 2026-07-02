@@ -751,7 +751,7 @@ describe('scientific plotting engine', () => {
             { id: 'ra', label: 'RA gradient', x: 0.18, y: 0.5, color: '#2166AC' },
             {
               id: 'rar',
-              label: 'RAR/RXR licensing context node',
+              label: 'RAR/RXR\nlicensing context\nnode',
               x: 0.48,
               y: 0.5,
               width: 0.28,
@@ -773,6 +773,7 @@ describe('scientific plotting engine', () => {
       expect((await stat(schematicWithAliasEdges.outputPath)).size).toBeGreaterThan(1000)
       expect(schematicWithAliasEdges.attempts[0]?.rendererDiagnostics?.layoutNotes).toEqual(expect.arrayContaining([
         'Used explicit schematic node coordinates.',
+        'Preserved and wrapped schematic node labels within node bounds.',
         'Rendered 2 of 2 schematic edges.'
       ]))
       expect(schematicWithAliasEdges.attempts[0]?.rendererDiagnostics).toMatchObject({
