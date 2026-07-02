@@ -1,6 +1,6 @@
 # Third Party Notices
 
-Last updated: 2026-06-27
+Last updated: 2026-07-02
 
 This file records the third-party license and distribution boundary for the current SciForge source tree. It is an engineering compliance index, not legal advice. The exact npm dependency graph is pinned by `package-lock.json`; the separate local runtime graph is pinned by `kun/package-lock.json`.
 
@@ -29,6 +29,22 @@ README and design documentation mention these upstream projects as product or ar
 | LobsterAI | Connect phone product-flow ideas such as IM management, QR binding, agent binding, and customizable agent profiles. | Reference/inspiration only. No LobsterAI source code, tests, fixtures, binaries, or assets are copied into this repository. |
 
 If future work copies implementation code, generated code, tests, protocol fixtures, media, or brand assets from any of these projects, the copied material must be replaced or listed here with the upstream copyright, license, and redistribution conditions before release.
+
+Reference-version policy: the entries above are design-reference provenance
+only. They do not make the upstream repositories part of the SciForge source
+distribution. If an upstream project later changes license terms, SciForge
+must treat only the audited revision below as the referenced material; newer
+upstream code, tests, fixtures, media, or assets must not be copied unless a
+separate license review confirms the applicable rights.
+
+Audited reference anchors:
+
+| Project | Upstream repository | Audited reference revision | License at audited revision | Current license status checked on 2026-07-02 | SciForge boundary |
+| --- | --- | --- | --- | --- | --- |
+| Reasonix | `https://github.com/esengine/DeepSeek-Reasonix` | `v1.15.0` / `484bca854f4e669eaa21716939ad7d5b323b4962` | MIT (`LICENSE`, copyright Reasonix Contributors) | MIT; `main-v2` HEAD checked at `d5ba463964a025ed37e1771a686eaa2ef303f026` | Design reference only. No Reasonix source, tests, fixtures, event contracts, binaries, or assets are copied. |
+| Kun / historical DeepSeek-GUI lineage | `https://github.com/KunAgent/Kun` (local audit checkout: `/Applications/workspace/ailab/research/app/Kun`) | `363fdf566657cd4d60801f62b0b8f3aa8dfbf2fc`, the parent of the relicense commit | MIT (`LICENSE`, copyright xingyu). `package.json` at this revision had no explicit package-license field, so the root `LICENSE` is the controlling evidence for the source tree. | Relicensed at `5472bed3b878854d296851820834145f5fe1a353` to `PolyForm-Noncommercial-1.0.0`; current GitHub license detection reports `Other`. | Historical reference only. SciForge must not treat `5472bed3` or later Kun source/assets as MIT-licensed material. No Kun source, tests, fixtures, binaries, or assets are copied into this repository under the reference-only relationship. |
+| OpenHanako | `https://github.com/liliMozi/openhanako` | `v0.36.0` / `92a727959f75e556df5013d37037a5007a5c5e16` | Apache-2.0. The `LICENSE` history begins at this initial open-source release as Apache-2.0; no MIT-to-Apache transition was observed in the upstream `LICENSE` history. | Apache-2.0; current `v0.350.2` checked at `2c3691c31043004e2b72cf3851faed9a8f584658` | Interaction reference only. No OpenHanako source, tests, fixtures, binaries, or assets are copied. |
+| LobsterAI | `https://github.com/netease-youdao/LobsterAI` | `2026.6.30` / `7d02d107fa46d0801c0a2d6b14b4b34c37ac943a` | MIT (`LICENSE`, copyright NetEase Youdao). Initial open-source `LICENSE` commit `3ab5afbc53b6eea8cdbcd9370ca115f5a32fb16f` is also MIT. | MIT | Product-flow reference only. No LobsterAI source, tests, fixtures, binaries, or assets are copied. |
 
 ## npm Dependency Notices
 
