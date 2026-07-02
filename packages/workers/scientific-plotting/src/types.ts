@@ -641,6 +641,7 @@ export type ScientificPlottingAttempt = {
   rendererDiagnostics?: {
     legendPlacement?: 'inside' | 'outside-right' | 'none'
     barOrientation?: 'vertical' | 'horizontal'
+    barColorMode?: 'series' | 'per-bar'
     categoryLabelRotation?: number
     savefigPadInches?: number
     multiPanelCount?: number

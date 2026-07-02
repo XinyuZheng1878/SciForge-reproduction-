@@ -553,7 +553,11 @@ describe('scientific plotting engine', () => {
           orientation: 'horizontal',
           showValues: true,
           categories: ['Context visibility', 'Competence chromatin', 'Post-transcriptional'],
-          series: [{ name: 'Gene count', values: [6, 5, 4] }]
+          series: [{
+            name: 'Gene count',
+            values: [6, 5, 4],
+            colors: ['#0072B2', '#009E73', '#D55E00']
+          }]
         }
       })
       expect(rendered).toMatchObject({ ok: true, status: 'rendered' })
@@ -563,6 +567,7 @@ describe('scientific plotting engine', () => {
         attempts: Array<{
           rendererDiagnostics?: {
             barOrientation?: string
+            barColorMode?: string
             categoryLabelRotation?: number
             layoutNotes?: string[]
           }
@@ -570,6 +575,7 @@ describe('scientific plotting engine', () => {
       }
       expect(manifest.attempts[0]?.rendererDiagnostics).toMatchObject({
         barOrientation: 'horizontal',
+        barColorMode: 'per-bar',
         categoryLabelRotation: 0
       })
       expect(manifest.attempts[0]?.rendererDiagnostics?.layoutNotes).toContain('Added compact value labels to categorical bars.')

@@ -1273,6 +1273,10 @@ function parseRendererDiagnostics(stdout: string): { rendererDiagnostics?: Rende
       diagnostics.barOrientation === 'horizontal'
       ? diagnostics.barOrientation
       : undefined
+    const barColorMode = diagnostics.barColorMode === 'series' ||
+      diagnostics.barColorMode === 'per-bar'
+      ? diagnostics.barColorMode
+      : undefined
     const categoryLabelRotation = typeof diagnostics.categoryLabelRotation === 'number' &&
       Number.isFinite(diagnostics.categoryLabelRotation)
       ? diagnostics.categoryLabelRotation
@@ -1296,6 +1300,7 @@ function parseRendererDiagnostics(stdout: string): { rendererDiagnostics?: Rende
       rendererDiagnostics: {
         ...(legendPlacement ? { legendPlacement } : {}),
         ...(barOrientation ? { barOrientation } : {}),
+        ...(barColorMode ? { barColorMode } : {}),
         ...(categoryLabelRotation !== undefined ? { categoryLabelRotation } : {}),
         ...(savefigPadInches !== undefined ? { savefigPadInches } : {}),
         ...(multiPanelCount !== undefined ? { multiPanelCount } : {}),
@@ -4385,6 +4390,11 @@ elif template == "bar" or template == "errorbar-bar":
         values = item.get("values") or []
         errors = item.get("error") if template == "errorbar-bar" else None
         name = item.get("name") or f"Series {index + 1}"
+        colors = item.get("colors") or item.get("color")
+        if isinstance(colors, list):
+            renderer_diagnostics["barColorMode"] = "per-bar"
+        elif colors:
+            renderer_diagnostics["barColorMode"] = "series"
         positive_baseline = positive_baseline and all(as_float(value, 0) >= 0 for value in values)
         if values:
             for value_index, value in enumerate(values):
@@ -4399,6 +4409,7 @@ elif template == "bar" or template == "errorbar-bar":
                 xerr=errors,
                 height=width,
                 label=name,
+                color=colors,
                 linewidth=0,
                 capsize=clamp(1.6 + width * 3.0, 1.7, 2.6) if errors else 0,
                 error_kw={
@@ -4416,6 +4427,7 @@ elif template == "bar" or template == "errorbar-bar":
                 yerr=errors,
                 width=width,
                 label=name,
+                color=colors,
                 linewidth=0,
                 capsize=clamp(1.6 + width * 3.0, 1.7, 2.6) if errors else 0,
                 error_kw={
