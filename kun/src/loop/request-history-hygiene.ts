@@ -229,6 +229,14 @@ function compactArgumentValue(
   options: { toolName: string; maxStringBytes: number; maxStringTokens: number; maxArrayItems: number }
 ): CompactResult<unknown> {
   if (typeof value === 'string') {
+    if (isHygienePlaceholder(value)) {
+      return {
+        value:
+          `[cache hygiene: omitted prior ${options.toolName}.${key} argument; ` +
+          `${HYGIENE_MARKER_INSTRUCTION}; inspect the paired tool result instead]`,
+        changed: true
+      }
+    }
     const bytes = Buffer.byteLength(value, 'utf8')
     const tokens = estimateTokens(value)
     if (bytes <= options.maxStringBytes && tokens <= options.maxStringTokens) return { value, changed: false }
@@ -269,6 +277,14 @@ function compactArgumentValue(
     changed ||= compacted.changed
   }
   return changed ? { value: out, changed: true } : { value, changed: false }
+}
+
+function isHygienePlaceholder(value: string): boolean {
+  const trimmed = value.trim()
+  return (
+    (trimmed.startsWith('[cache hygiene:') || trimmed.startsWith('[sciforge request_hygiene')) &&
+    /\b(omitted|request_hygiene)\b/i.test(trimmed)
+  )
 }
 
 function shouldOmitBase64(key: string, value: string): boolean {

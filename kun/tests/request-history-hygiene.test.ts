@@ -141,6 +141,37 @@ describe('request history hygiene', () => {
       .toContain('metadata only')
   })
 
+  it('normalizes previously persisted hygiene placeholders in completed tool-call args', () => {
+    const pairedCall = makeToolCallItem({
+      id: 'old_placeholder_call',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_bash',
+      toolName: 'bash',
+      arguments: {
+        command:
+          '[cache hygiene: omitted completed bash.command argument, 7.5KB, approx 1913 token(s), 96 line(s); see following tool result] preview="python old long script"'
+      }
+    })
+    const result = makeToolResultItem({
+      id: 'old_placeholder_result',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_bash',
+      toolName: 'bash',
+      output: { error: 'Refusing to execute hygiene placeholder as a shell command.' }
+    })
+
+    const compacted = applyRequestHistoryHygiene([pairedCall, result])
+    const nextCall = compacted[0]
+    const command = nextCall?.kind === 'tool_call' ? String(nextCall.arguments.command) : ''
+
+    expect(command).toContain('metadata only')
+    expect(command).toContain('do not copy into future tool arguments')
+    expect(command).not.toContain('see following tool result')
+    expect(command).not.toContain('preview=')
+  })
+
   it('replaces base64 payloads in model-bound history', () => {
     const result = makeToolResultItem({
       id: 'image_result',
