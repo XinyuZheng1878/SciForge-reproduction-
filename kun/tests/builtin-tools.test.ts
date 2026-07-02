@@ -526,7 +526,7 @@ describe('Local runtime built-in tools', () => {
     await expect(readFile(join(workspace, 'existing.txt'), 'utf8')).resolves.toBe('alpha\n')
   })
 
-  it('refuses to execute hygiene placeholders as bash commands', async () => {
+  it('treats hygiene placeholders as successful bash no-ops', async () => {
     const placeholders = [
       '[cache hygiene: omitted completed bash.command argument, 1.2KB, approx 300 token(s), 20 line(s); see following tool result] preview="touch should-not-run"',
       '[sciforge request_hygiene source=tool_call.arguments.command reason=large_argument_string digest=sha256:abc original_chars=7000 summary="touch should-not-run"]'
@@ -559,12 +559,14 @@ describe('Local runtime built-in tools', () => {
       expect(result.item).toMatchObject({
         kind: 'tool_result',
         toolName: 'bash',
-        isError: true
+        isError: false,
+        output: {
+          command: ': # sciforge history omitted prior bash command; inspect paired tool result',
+          exit_code: 0,
+          output: ''
+        }
       })
       expect(executed).toBe(false)
-      expect(JSON.stringify(result.item.kind === 'tool_result' ? result.item.output : {})).toContain(
-        'Refusing to execute hygiene placeholder'
-      )
     }
   })
 

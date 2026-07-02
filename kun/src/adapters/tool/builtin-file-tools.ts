@@ -15,6 +15,7 @@ import type { EditLocalToolOptions, WriteLocalToolOptions } from './builtin-tool
 import { defaultEditLocalToolOperations, defaultWriteLocalToolOperations } from './builtin-tool-operations.js'
 import { parseEditInstructions, resolveWorkspacePath, withToolBoundary } from './builtin-tool-utils.js'
 import { assertCanWritePath } from './sandbox-policy.js'
+import { isHygienePlaceholderValue } from '../../shared/hygiene-placeholders.js'
 
 export function createWriteLocalTool(_options: WriteLocalToolOptions = {}): LocalTool {
   const mkdirOp = _options.operations?.mkdir ?? defaultWriteLocalToolOperations.mkdir!
@@ -48,7 +49,7 @@ export function createWriteLocalTool(_options: WriteLocalToolOptions = {}): Loca
       if (!rawPath.trim() || content == null) {
         return { output: { error: 'path and content are required' }, isError: true }
       }
-      if (isHygienePlaceholder(content)) {
+      if (isHygienePlaceholderValue(content)) {
         return {
           output: {
             error:
@@ -122,15 +123,6 @@ export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalT
       if (!rawPath.trim() || edits.length === 0) {
         return { output: { error: 'path and at least one edit are required' }, isError: true }
       }
-      if (edits.some((edit) => isHygienePlaceholder(edit.newText))) {
-        return {
-          output: {
-            error:
-              'refusing to insert a request/cache-hygiene placeholder into a file; read the source or generate the real replacement before retrying'
-          },
-          isError: true
-        }
-      }
       const { absolutePath, relativePath } = resolveWorkspacePath(rawPath, context)
       assertCanWritePath(absolutePath, context)
       return withFileMutationQueue(absolutePath, async () => {
@@ -162,27 +154,8 @@ export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalT
 export const createEditTool = createEditLocalTool
 export const createEditToolDefinition = createEditLocalTool
 
-function isHygienePlaceholder(value: string): boolean {
-  const trimmed = value.trim()
-  return (
-    (trimmed.startsWith('[cache hygiene:') || trimmed.startsWith('[sciforge request_hygiene')) &&
-    trimmed.length < 4096
-  )
-}
-
-function isHygienePlaceholderValue(value: unknown): boolean {
-  if (typeof value === 'string') return isHygienePlaceholder(value)
-  return isRequestHygieneMarkerObject(value)
-}
-
 function editContainsHygienePlaceholderValue(args: Record<string, unknown>): boolean {
   if (isHygienePlaceholderValue(args.newText)) return true
   if (!Array.isArray(args.edits)) return false
   return args.edits.some((edit) => edit && typeof edit === 'object' && isHygienePlaceholderValue((edit as Record<string, unknown>).newText))
-}
-
-function isRequestHygieneMarkerObject(value: unknown): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  const marker = (value as Record<string, unknown>).__sciforge_request_hygiene__
-  return Boolean(marker && typeof marker === 'object')
 }

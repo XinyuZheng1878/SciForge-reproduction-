@@ -1,4 +1,9 @@
 import type { TurnItem } from '../contracts/items.js'
+import {
+  HYGIENE_MARKER_INSTRUCTION,
+  OMITTED_BASH_COMMAND,
+  isHygienePlaceholderText
+} from '../shared/hygiene-placeholders.js'
 import { isModelVisibleImageOutput } from './tool-result-image.js'
 
 export type RequestHistoryHygieneOptions = {
@@ -19,8 +24,6 @@ const DEFAULT_MAX_ARRAY_ITEMS = 80
 const MAX_SIGNAL_LINES = 48
 const MAX_LINE_CHARS = 280
 const LONG_ARGUMENT_PREVIEW_CHARS = 160
-const HYGIENE_MARKER_INSTRUCTION = 'metadata only; do not copy into future tool arguments'
-const OMITTED_BASH_COMMAND = ': # sciforge history omitted prior bash command; inspect paired tool result'
 const ESC = String.fromCharCode(27)
 
 const ANSI_RE = new RegExp(`${ESC}\\[[0-9;?]*[ -/]*[@-~]`, 'g')
@@ -233,12 +236,12 @@ function compactArgumentValue(
     if (isShellCommandArgument(options.toolName, key)) {
       const bytes = Buffer.byteLength(value, 'utf8')
       const tokens = estimateTokens(value)
-      if (!isHygienePlaceholder(value) && bytes <= options.maxStringBytes && tokens <= options.maxStringTokens) {
+      if (!isHygienePlaceholderText(value) && bytes <= options.maxStringBytes && tokens <= options.maxStringTokens) {
         return { value, changed: false }
       }
       return { value: OMITTED_BASH_COMMAND, changed: true }
     }
-    if (isHygienePlaceholder(value)) {
+    if (isHygienePlaceholderText(value)) {
       return {
         value:
           `[cache hygiene: omitted prior ${options.toolName}.${key} argument; ` +
@@ -290,14 +293,6 @@ function compactArgumentValue(
 
 function isShellCommandArgument(toolName: string, key: string): boolean {
   return toolName === 'bash' && key === 'command'
-}
-
-function isHygienePlaceholder(value: string): boolean {
-  const trimmed = value.trim()
-  return (
-    (trimmed.startsWith('[cache hygiene:') || trimmed.startsWith('[sciforge request_hygiene')) &&
-    /\b(omitted|request_hygiene)\b/i.test(trimmed)
-  )
 }
 
 function shouldOmitBase64(key: string, value: string): boolean {

@@ -16,6 +16,7 @@ import {
   withToolBoundary,
   workspaceRoot
 } from './builtin-tool-utils.js'
+import { OMITTED_BASH_COMMAND, isHygienePlaceholderText } from '../../shared/hygiene-placeholders.js'
 
 const DEFAULT_BASH_YIELD_SECONDS = 10
 const MAX_BASH_YIELD_SECONDS = 60
@@ -259,6 +260,20 @@ function textSliceFromSnapshot(snapshot: ReturnType<OutputAccumulator['snapshot'
   }
 }
 
+function emptyTextSlice(): TextSlice {
+  return {
+    text: '',
+    truncated: false,
+    totalLines: 0,
+    shownLines: 0,
+    totalBytes: 0,
+    shownBytes: 0,
+    firstLineExceedsLimit: false,
+    truncatedBy: undefined,
+    lastLinePartial: false
+  }
+}
+
 function truncationPayload(truncated: TextSlice): BashPayload['truncation'] {
   return truncated.truncated
     ? {
@@ -380,14 +395,6 @@ function normalizeYieldSeconds(value: unknown): number {
 function sessionById(sessionId: unknown): BashSession | null {
   const id = typeof sessionId === 'string' ? sessionId.trim() : ''
   return id ? bashSessions.get(id) ?? null : null
-}
-
-function isHygienePlaceholder(value: string): boolean {
-  const trimmed = value.trim()
-  return (
-    (trimmed.startsWith('[cache hygiene:') || trimmed.startsWith('[sciforge request_hygiene')) &&
-    trimmed.length < 4096
-  )
 }
 
 async function startBashSession(
@@ -580,12 +587,17 @@ export function createBashLocalTool(options: BashLocalToolOptions = {}): LocalTo
       if (!command.trim()) return { output: { error: 'command is required' }, isError: true }
       const jsonCommandError = jsonObjectCommandError(command)
       if (jsonCommandError) return { output: { error: jsonCommandError }, isError: true }
-      if (isHygienePlaceholder(command)) {
+      const cwd = workspaceRoot(context.workspace)
+      if (isHygienePlaceholderText(command)) {
         return {
-          output: {
-            error: 'Refusing to execute hygiene placeholder as a shell command.'
-          },
-          isError: true
+          output: resultPayload({
+            command: OMITTED_BASH_COMMAND,
+            cwd,
+            shell: shellRuntime.name,
+            exitCode: 0,
+            output: '',
+            truncated: emptyTextSlice()
+          })
         }
       }
       const timeout = normalizePositiveInteger(
@@ -593,7 +605,6 @@ export function createBashLocalTool(options: BashLocalToolOptions = {}): LocalTo
         options.defaultTimeoutSeconds ?? DEFAULT_BASH_TIMEOUT_SECONDS
       )
       const yieldSeconds = normalizeYieldSeconds(args.yield_seconds)
-      const cwd = workspaceRoot(context.workspace)
       try {
         if (!bashOps?.exec) {
           const result = await startBashSession(

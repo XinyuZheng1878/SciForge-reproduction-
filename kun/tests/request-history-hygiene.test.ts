@@ -172,6 +172,35 @@ describe('request history hygiene', () => {
     expect(command).not.toContain('preview=')
   })
 
+  it('normalizes request-hygiene placeholders in completed bash commands', () => {
+    const pairedCall = makeToolCallItem({
+      id: 'request_placeholder_call',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_bash',
+      toolName: 'bash',
+      arguments: {
+        command:
+          '[sciforge request_hygiene source=tool_call.arguments.command reason=large_argument_string digest=sha256:abc original_chars=7000 summary="touch should-not-run"]'
+      }
+    })
+    const result = makeToolResultItem({
+      id: 'request_placeholder_result',
+      threadId: 'thr_1',
+      turnId: 'turn_1',
+      callId: 'call_bash',
+      toolName: 'bash',
+      output: { output: '' }
+    })
+
+    const compacted = applyRequestHistoryHygiene([pairedCall, result])
+    const nextCall = compacted[0]
+    const command = nextCall?.kind === 'tool_call' ? String(nextCall.arguments.command) : ''
+
+    expect(command).toBe(': # sciforge history omitted prior bash command; inspect paired tool result')
+    expect(command).not.toContain('[sciforge request_hygiene')
+  })
+
   it('replaces oversized completed bash commands with a safe shell no-op', () => {
     const pairedCall = makeToolCallItem({
       id: 'long_bash_call',
