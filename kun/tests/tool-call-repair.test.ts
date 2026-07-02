@@ -31,6 +31,30 @@ describe('tool call dispatch repair', () => {
     expect(repaired.notes).toEqual(['scavenged JSON object from query'])
   })
 
+  it('does not turn non-command JSON payloads into bash arguments', () => {
+    const repaired = repairDispatchToolArguments(
+      {
+        command: '{"name":"AF3_probe","sequences":[]}'
+      },
+      { toolName: 'bash', toolKind: 'command_execution' }
+    )
+
+    expect(repaired.arguments).toEqual({ command: '{"name":"AF3_probe","sequences":[]}' })
+    expect(repaired.notes).toEqual([])
+  })
+
+  it('still repairs command JSON wrappers for bash calls', () => {
+    const repaired = repairDispatchToolArguments(
+      {
+        arguments: '{"command":"pwd"}'
+      },
+      { toolName: 'bash', toolKind: 'command_execution' }
+    )
+
+    expect(repaired.arguments).toEqual({ command: 'pwd' })
+    expect(repaired.notes).toEqual(['flattened arguments wrapper'])
+  })
+
   it('truncates very large non-file-change strings without touching file edits', () => {
     const repaired = repairDispatchToolArguments(
       { transcript: 'a'.repeat(32) },

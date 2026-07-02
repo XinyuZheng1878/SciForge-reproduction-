@@ -38,12 +38,12 @@ export function repairDispatchToolArguments(
   const notes: string[] = []
   let current = shallowCloneRecord(raw)
 
-  const flattened = flattenWrapper(current)
+  const flattened = flattenWrapper(current, options)
   if (flattened) {
     current = flattened.arguments
     notes.push(flattened.note)
   } else {
-    const scavenged = scavengeSingleJsonString(current)
+    const scavenged = scavengeSingleJsonString(current, options)
     if (scavenged) {
       current = scavenged.arguments
       notes.push(scavenged.note)
@@ -67,7 +67,8 @@ function shallowCloneRecord(value: Record<string, unknown>): Record<string, unkn
 }
 
 function flattenWrapper(
-  raw: Record<string, unknown>
+  raw: Record<string, unknown>,
+  options: ToolCallArgumentRepairOptions
 ): { arguments: Record<string, unknown>; note: string } | null {
   for (const key of WRAPPER_KEYS) {
     if (!(key in raw)) continue
@@ -75,6 +76,7 @@ function flattenWrapper(
     const value = raw[key]
     const parsed = valueToObject(value)
     if (!parsed) continue
+    if (!canUseParsedObjectForTool(parsed, options)) continue
     return {
       arguments: parsed,
       note: `flattened ${key} wrapper`
@@ -90,7 +92,8 @@ function canFlattenWrapper(raw: Record<string, unknown>, wrapperKey: string): bo
 }
 
 function scavengeSingleJsonString(
-  raw: Record<string, unknown>
+  raw: Record<string, unknown>,
+  options: ToolCallArgumentRepairOptions
 ): { arguments: Record<string, unknown>; note: string } | null {
   const entries = Object.entries(raw)
   if (entries.length !== 1) return null
@@ -98,10 +101,19 @@ function scavengeSingleJsonString(
   if (!key || typeof value !== 'string') return null
   const parsed = parseJsonishObject(value)
   if (!parsed) return null
+  if (!canUseParsedObjectForTool(parsed, options)) return null
   return {
     arguments: parsed,
     note: `scavenged JSON object from ${key}`
   }
+}
+
+function canUseParsedObjectForTool(
+  parsed: Record<string, unknown>,
+  options: ToolCallArgumentRepairOptions
+): boolean {
+  if (options.toolKind !== 'command_execution' && options.toolName !== 'bash') return true
+  return typeof parsed.command === 'string' || typeof parsed.action === 'string'
 }
 
 function valueToObject(value: unknown): Record<string, unknown> | null {

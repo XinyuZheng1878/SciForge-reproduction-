@@ -1,0 +1,30 @@
+{
+  "id": "alphafold3",
+  "name": "AlphaFold3",
+  "description": "Submit and monitor AlphaFold3 C550 inference jobs from prepared AlphaFold3 JSON input batches.",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "triggers": {
+    "commands": [
+      "/alphafold3",
+      "/af3"
+    ],
+    "promptPatterns": [
+      "alphafold3",
+      "alpha\\s*fold\\s*3",
+      "\\bAF3\\b",
+      "protein.*structure.*prediction",
+      "structure.*mechanism"
+    ],
+    "fileTypes": [
+      ".json",
+      ".cif",
+      ".pdb"
+    ]
+  },
+  "allowedTools": [],
+  "assets": [
+    "scripts/alphafold3_submit.sh"
+  ],
+  "priority": 10
+}

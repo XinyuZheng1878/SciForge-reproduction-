@@ -575,6 +575,8 @@ export function createBashLocalTool(options: BashLocalToolOptions = {}): LocalTo
 
       const command = typeof args.command === 'string' ? args.command : ''
       if (!command.trim()) return { output: { error: 'command is required' }, isError: true }
+      const jsonCommandError = jsonObjectCommandError(command)
+      if (jsonCommandError) return { output: { error: jsonCommandError }, isError: true }
       if (isCacheHygienePlaceholder(command)) {
         return {
           output: {
@@ -644,6 +646,20 @@ export function createBashLocalTool(options: BashLocalToolOptions = {}): LocalTo
       }
     })
   })
+}
+
+function jsonObjectCommandError(command: string): string | null {
+  const trimmed = command.trim()
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    const keys = Object.keys(parsed).slice(0, 6)
+    const suffix = keys.length ? ` Keys: ${keys.join(', ')}.` : ''
+    return `bash command must be shell text, but received a JSON object.${suffix} To write JSON, call bash with a shell command that writes a file.`
+  } catch {
+    return null
+  }
 }
 
 export const createBashTool = createBashLocalTool
