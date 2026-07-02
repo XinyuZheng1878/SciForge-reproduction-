@@ -78,7 +78,7 @@ export class MultiAgentRuntime {
 
   async runChild(input: RunChildInput): Promise<MultiAgentChildRunRecord> {
     const normalized = normalizeRunChildInput(input)
-    await this.assertCanStart(normalized.parentThreadId)
+    await this.assertCanStart(normalized.parentThreadId, normalized.parentTurnId)
     const executor = this.options.executor
     if (!executor) {
       throw new MultiAgentRuntimeError(createMultiAgentError('executor_missing', 'multi-agent executor is not configured'))
@@ -229,7 +229,7 @@ export class MultiAgentRuntime {
     }
   }
 
-  private async assertCanStart(parentThreadId: string): Promise<void> {
+  private async assertCanStart(parentThreadId: string, parentTurnId: string): Promise<void> {
     if (!this.config.enabled) {
       throw new MultiAgentRuntimeError(createMultiAgentError('config_disabled', 'multi-agent runtime is disabled'))
     }
@@ -243,11 +243,12 @@ export class MultiAgentRuntime {
         { retryable: true }
       ))
     }
-    const existing = await this.options.store.list({ parentThreadId })
+    const existing = (await this.options.store.list({ parentThreadId }))
+      .filter((record) => record.parentTurnId === parentTurnId)
     if (existing.length >= this.config.maxChildren) {
       throw new MultiAgentRuntimeError(createMultiAgentError(
         'child_budget_exhausted',
-        `multi-agent child budget exhausted for parent thread ${parentThreadId}: ${existing.length}/${this.config.maxChildren}`
+        `multi-agent child budget exhausted for parent turn ${parentTurnId}: ${existing.length}/${this.config.maxChildren}`
       ))
     }
   }

@@ -152,7 +152,7 @@ test('runtime requires a host-injected executor and does not create a fallback c
   assert.deepEqual(await store.list(), [])
 })
 
-test('runtime enforces maxParallel and maxChildren bounds', async () => {
+test('runtime enforces maxParallel while a child run is active', async () => {
   const entered = deferred<void>()
   const release = deferred<MultiAgentExecutorResult>()
   const store = new InMemoryMultiAgentStore()
@@ -187,15 +187,39 @@ test('runtime enforces maxParallel and maxChildren bounds', async () => {
 
   release.resolve({ summary: 'First done' })
   await first
+})
+
+test('runtime enforces maxChildren per parent turn without exhausting later turns', async () => {
+  const store = new InMemoryMultiAgentStore()
+  const runtime = new MultiAgentRuntime({
+    config: { maxParallel: 1, maxChildren: 1 },
+    store,
+    idGenerator: sequenceIds('child'),
+    executor: async (input) => ({ summary: `${input.parentTurnId} done` })
+  })
+
+  const first = await runtime.runChild({
+    parentThreadId: 'thread-1',
+    parentTurnId: 'turn-1',
+    prompt: 'First'
+  })
+  assert.equal(first.status, 'completed')
 
   await assert.rejects(
     runtime.runChild({
       parentThreadId: 'thread-1',
-      parentTurnId: 'turn-3',
-      prompt: 'Third'
+      parentTurnId: 'turn-1',
+      prompt: 'Second child in same turn'
     }),
     (error) => error instanceof MultiAgentRuntimeError && error.code === 'child_budget_exhausted'
   )
+
+  const third = await runtime.runChild({
+    parentThreadId: 'thread-1',
+    parentTurnId: 'turn-3',
+    prompt: 'Third'
+  })
+  assert.equal(third.status, 'completed')
 })
 
 test('runtime diagnostics hide stale persisted active records after restart', async () => {
