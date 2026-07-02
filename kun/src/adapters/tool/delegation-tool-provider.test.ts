@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MultiAgentRuntime } from '@sciforge/multi-agent'
 import type { ToolHostContext } from '../../ports/tool-host.js'
 import { buildDelegationToolProviders, withChildRuntimeGuardrails } from './delegation-tool-provider.js'
@@ -45,6 +45,10 @@ function fakeRuntime() {
 }
 
 describe('buildDelegationToolProviders', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('injects child runtime guardrails into delegate_task prompts', async () => {
     const { runtime, runChild } = fakeRuntime()
     const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_task')
@@ -132,5 +136,95 @@ describe('buildDelegationToolProviders', () => {
       ['read', 'scientific_plotting_render']
     ])
     expect(runChild.mock.calls.map((call) => call[0].strictAllowedToolNames)).toEqual([true, true])
+  })
+
+  it('returns a failed delegate_task result when a child run does not resolve before timeout', async () => {
+    vi.useFakeTimers()
+    const runChild = vi.fn((_input: Record<string, unknown>) => new Promise(() => undefined))
+    const runtime = {
+      runChild,
+      diagnostics: vi.fn(async () => ({
+        config: { enabled: true, maxParallel: 4, maxChildren: 16, childTimeoutMs: 0 },
+        active: 0,
+        childRuns: [],
+        aggregates: []
+      }))
+    } as unknown as MultiAgentRuntime
+    const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_task')
+    const resultPromise = tool?.execute({
+      prompt: 'This child never returns.',
+      timeout_ms: 25
+    }, fakeContext())
+
+    await vi.advanceTimersByTimeAsync(26)
+
+    await expect(resultPromise).resolves.toMatchObject({
+      isError: true,
+      output: {
+        status: 'failed',
+        error: {
+          code: 'child_failed',
+          retryable: true
+        }
+      }
+    })
+    expect((runChild.mock.calls[0]?.[0].signal as AbortSignal).aborted).toBe(true)
+  })
+
+  it('returns failed children from delegate_tasks when one child run does not resolve before timeout', async () => {
+    vi.useFakeTimers()
+    const runChild = vi.fn(async (input: Record<string, unknown>) => {
+      if (input.label === 'hang') return await new Promise(() => undefined)
+      return {
+        id: `child-${input.label}`,
+        label: typeof input.label === 'string' ? input.label : undefined,
+        status: 'completed' as const,
+        summary: 'done',
+        usage: {
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0
+        }
+      }
+    })
+    const runtime = {
+      runChild,
+      diagnostics: vi.fn(async () => ({
+        config: { enabled: true, maxParallel: 4, maxChildren: 16, childTimeoutMs: 0 },
+        active: 0,
+        childRuns: [],
+        aggregates: []
+      }))
+    } as unknown as MultiAgentRuntime
+    const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_tasks')
+    const resultPromise = tool?.execute({
+      timeout_ms: 25,
+      tasks: [
+        { label: 'ok', prompt: 'Return.' },
+        { label: 'hang', prompt: 'Never return.' }
+      ]
+    }, fakeContext())
+
+    await vi.advanceTimersByTimeAsync(26)
+
+    await expect(resultPromise).resolves.toMatchObject({
+      isError: true,
+      output: {
+        total: 2,
+        completed: 1,
+        failed: 1,
+        children: [
+          { label: 'ok', status: 'completed' },
+          {
+            label: 'hang',
+            status: 'failed',
+            error: {
+              code: 'child_failed',
+              retryable: true
+            }
+          }
+        ]
+      }
+    })
   })
 })

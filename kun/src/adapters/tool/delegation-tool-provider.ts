@@ -48,20 +48,33 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
           if (!prompt) return { output: { error: 'prompt is required' }, isError: true }
           const spawnIndex = (await runtime.diagnostics(context.threadId)).childRuns.length + 1
           const timeoutMs = normalizeDelegateTimeoutMs(args.timeout_ms, DEFAULT_DELEGATE_TIMEOUT_MS)
-          const record = await runtime.runChild({
-            parentThreadId: context.threadId,
-            parentTurnId: context.turnId,
-            label: typeof args.label === 'string' ? args.label : undefined,
-            prompt: withChildRuntimeGuardrails(prompt),
-            workspace: typeof args.workspace === 'string' ? args.workspace : context.workspace,
-            model: normalizeDelegateModel(args.model) ?? context.model?.id,
-            childTimeoutMs: timeoutMs,
-            allowedToolNames: context.explicitAllowedToolNames,
-            strictAllowedToolNames: context.explicitStrictAllowedToolNames === true,
-            ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
-            ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
-            signal: context.abortSignal
-          })
+          const task = {
+            prompt,
+            ...(typeof args.label === 'string' ? { label: args.label } : {})
+          }
+          let record: DelegateRecordLike
+          try {
+            record = await runDelegateChildWithWatchdog({
+              parentSignal: context.abortSignal,
+              timeoutMs,
+              run: (signal) => runtime.runChild({
+                parentThreadId: context.threadId,
+                parentTurnId: context.turnId,
+                label: typeof args.label === 'string' ? args.label : undefined,
+                prompt: withChildRuntimeGuardrails(prompt),
+                workspace: typeof args.workspace === 'string' ? args.workspace : context.workspace,
+                model: normalizeDelegateModel(args.model) ?? context.model?.id,
+                childTimeoutMs: timeoutMs,
+                allowedToolNames: context.explicitAllowedToolNames,
+                strictAllowedToolNames: context.explicitStrictAllowedToolNames === true,
+                ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
+                ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
+                signal
+              })
+            })
+          } catch (error) {
+            record = failedDelegateRecord(task, 0, error, context.threadId, context.turnId)
+          }
           return {
             output: {
               childId: record.id,
@@ -126,19 +139,23 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
           const records = await runWithConcurrency(tasks, concurrency, async (task, index) => {
             const timeoutMs = task.timeoutMs ?? sharedTimeoutMs
             try {
-              return await runtime.runChild({
-                parentThreadId: context.threadId,
-                parentTurnId: context.turnId,
-                label: task.label,
-                prompt: withChildRuntimeGuardrails(task.prompt),
-                workspace: (task.workspace ?? sharedWorkspace) || context.workspace,
-                model: task.model ?? sharedModel ?? context.model?.id,
-                childTimeoutMs: timeoutMs,
-                allowedToolNames: context.explicitAllowedToolNames,
-                strictAllowedToolNames: context.explicitStrictAllowedToolNames === true,
-                ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
-                ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
-                signal: context.abortSignal
+              return await runDelegateChildWithWatchdog({
+                parentSignal: context.abortSignal,
+                timeoutMs,
+                run: (signal) => runtime.runChild({
+                  parentThreadId: context.threadId,
+                  parentTurnId: context.turnId,
+                  label: task.label,
+                  prompt: withChildRuntimeGuardrails(task.prompt),
+                  workspace: (task.workspace ?? sharedWorkspace) || context.workspace,
+                  model: task.model ?? sharedModel ?? context.model?.id,
+                  childTimeoutMs: timeoutMs,
+                  allowedToolNames: context.explicitAllowedToolNames,
+                  strictAllowedToolNames: context.explicitStrictAllowedToolNames === true,
+                  ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
+                  ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
+                  signal
+                })
               })
             } catch (error) {
               return failedDelegateRecord(task, index, error, context.threadId, context.turnId)
@@ -227,6 +244,49 @@ function normalizeDelegateTimeoutMs(value: unknown, defaultMs?: number): number 
 
 type DelegateRecordLike = Awaited<ReturnType<MultiAgentRuntime['runChild']>>
 
+async function runDelegateChildWithWatchdog(input: {
+  parentSignal?: AbortSignal
+  timeoutMs?: number
+  run: (signal: AbortSignal) => Promise<DelegateRecordLike>
+}): Promise<DelegateRecordLike> {
+  const controller = new AbortController()
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let rejectAbort: ((error: Error) => void) | undefined
+  const aborted = new Promise<never>((_, reject) => {
+    rejectAbort = reject
+  })
+  aborted.catch(() => undefined)
+  const abort = (error: Error) => {
+    if (!controller.signal.aborted) controller.abort(error)
+    rejectAbort?.(error)
+  }
+  const abortFromParent = () => abort(new Error('delegate child run aborted'))
+  if (input.parentSignal?.aborted) {
+    abortFromParent()
+  } else {
+    input.parentSignal?.addEventListener('abort', abortFromParent, { once: true })
+  }
+  const timedOut = input.timeoutMs === undefined
+    ? undefined
+    : new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          const error = new Error(`delegate child run timed out after ${input.timeoutMs}ms`)
+          if (!controller.signal.aborted) controller.abort(error)
+          reject(error)
+        }, input.timeoutMs)
+      })
+  try {
+    return await Promise.race([
+      input.run(controller.signal),
+      aborted,
+      ...(timedOut ? [timedOut] : [])
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+    input.parentSignal?.removeEventListener('abort', abortFromParent)
+  }
+}
+
 function failedDelegateRecord(
   task: NormalizedDelegateTask,
   index: number,
@@ -248,7 +308,7 @@ function failedDelegateRecord(
     error: {
       code: 'child_failed',
       message,
-      retryable: /\b(timeout|parallel|budget|unavailable|overloaded|503|502|504)\b/i.test(message)
+      retryable: /\b(timeout|timed out|parallel|budget|unavailable|overloaded|503|502|504)\b/i.test(message)
     },
     usage: EMPTY_MULTI_AGENT_USAGE,
     transcript: [],
