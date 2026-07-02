@@ -126,7 +126,7 @@ export function createLocalRuntimeAgentRuntimeAdapter(options: LocalRuntimeAgent
         body: JSON.stringify({
           workspace: input.workspace || context.settings.workspaceRoot || '~',
           title: input.title,
-          model: resolveLocalRuntimeRequestModel(runtime.model, input.model),
+          model: runtime.model,
           mode: normalizeThreadMode(input.mode),
           approvalPolicy: runtime.approvalPolicy,
           sandboxMode: runtime.sandboxMode
@@ -144,7 +144,7 @@ export function createLocalRuntimeAgentRuntimeAdapter(options: LocalRuntimeAgent
       const runtime = resolveLocalRuntimeSettings(context.settings)
       const body: Record<string, unknown> = {
         prompt: input.text,
-        model: resolveLocalRuntimeRequestModel(runtime.model, input.model)
+        model: runtime.model
       }
       if (input.reasoningEffort?.trim()) body.reasoningEffort = input.reasoningEffort.trim()
       if (input.displayText?.trim() && input.displayText.trim() !== input.text.trim()) {
@@ -245,7 +245,7 @@ export function createLocalRuntimeAgentRuntimeAdapter(options: LocalRuntimeAgent
         method: 'POST',
         body: JSON.stringify({
           workspace: context.settings.workspaceRoot || undefined,
-          model: resolveLocalRuntimeRequestModel(runtime.model, input.model),
+          model: runtime.model,
           mode: isLocalRuntimeThreadMode(input.mode) ? input.mode : undefined
         })
       })
@@ -278,13 +278,6 @@ export function createLocalRuntimeAgentRuntimeAdapter(options: LocalRuntimeAgent
   }
 }
 
-function resolveLocalRuntimeRequestModel(resolvedRuntimeModel: string, inputModel: string | undefined): string {
-  const requestedModel = inputModel?.trim()
-  return requestedModel && requestedModel.toLowerCase() !== 'auto'
-    ? requestedModel
-    : resolvedRuntimeModel
-}
-
 async function localRuntimeAuxiliary(
   options: LocalRuntimeAgentRuntimeAdapterOptions,
   context: AgentRuntimeAdapterContext,
@@ -297,8 +290,6 @@ async function localRuntimeAuxiliary(
       const target = payload.target
       if (target === undefined) throw missingPayload(input.operation, 'target')
       const body: Record<string, unknown> = { target }
-      const model = optionalString(payload.model)
-      if (model) body.model = model
       return requestJson(options, context, localRuntimeThreadReviewPath(threadId), {
         method: 'POST',
         body: JSON.stringify(body)

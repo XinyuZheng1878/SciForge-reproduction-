@@ -326,6 +326,42 @@ describe('HTTP server', () => {
     expect(body.userMessageItemId).toBe(`item_${body.turnId}_user`)
   })
 
+  it('lists turns for CLI and app status synchronization', async () => {
+    const h = buildHarness()
+    await h.threadService.create({
+      workspace: '/tmp',
+      model: 'sciforge-router',
+      mode: 'agent'
+    }, { id: 'thr_turns', title: 'turns' })
+
+    const started = await h.turnService.startTurn({
+      threadId: 'thr_turns',
+      request: { prompt: 'hello' }
+    })
+    await h.turnService.finishTurn({
+      threadId: 'thr_turns',
+      turnId: started.turnId,
+      status: 'completed'
+    })
+
+    const response = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thr_turns/turns', {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+
+    expect(response.status).toBe(200)
+    const body = await readJson(response) as { turns?: Array<{ id?: string; status?: string; prompt?: string }> }
+    expect(body.turns).toEqual([
+      expect.objectContaining({
+        id: started.turnId,
+        status: 'completed',
+        prompt: 'hello'
+      })
+    ])
+  })
+
   it('creates and lists threads through the HTTP layer', async () => {
     const h = buildHarness()
     const create = await dispatchRequest(

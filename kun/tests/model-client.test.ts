@@ -50,7 +50,7 @@ function sseStream(payloads: Array<Record<string, unknown> | '[DONE]'>): Readabl
 }
 
 describe('ModelRouterModelClient', () => {
-  it('uses request.model over client default model', async () => {
+  it('always sends the configured Model Router alias over request model metadata', async () => {
     const response = {
       id: 'r2',
       model: 'deepseek-chat',
@@ -90,10 +90,10 @@ describe('ModelRouterModelClient', () => {
     for await (const _chunk of client.stream(request)) {
       // drain
     }
-    expect(sentBodies[0]?.model).toBe('deepseek-v4-pro')
+    expect(sentBodies[0]?.model).toBe('deepseek-chat')
   })
 
-  it('can force the configured model alias over per-turn model selections', async () => {
+  it('always sends the configured Model Router alias over per-turn model selections', async () => {
     const sentBodies: Array<{ model?: string }> = []
     const fetchImpl: typeof fetch = async (_url, init) => {
       sentBodies.push(JSON.parse(String(init?.body ?? '{}')))
@@ -112,8 +112,7 @@ describe('ModelRouterModelClient', () => {
       model: 'sciforge-router',
       endpointFormat: 'responses',
       fetchImpl,
-      nonStreaming: true,
-      forceDefaultModel: true
+      nonStreaming: true
     })
     const request = buildRequest(new AbortController().signal)
     request.model = 'deepseek-v4-flash'
@@ -144,8 +143,7 @@ describe('ModelRouterModelClient', () => {
       model: 'sciforge-router',
       endpointFormat: 'responses',
       fetchImpl,
-      nonStreaming: true,
-      forceDefaultModel: true
+      nonStreaming: true
     })
     const request = buildRequest(new AbortController().signal)
     request.tools = []
@@ -201,8 +199,7 @@ describe('ModelRouterModelClient', () => {
       model: 'sciforge-router',
       endpointFormat: 'responses',
       fetchImpl,
-      nonStreaming: true,
-      forceDefaultModel: true
+      nonStreaming: true
     })
     const imageData = Buffer.from('screen-pixels').toString('base64')
     const request = buildRequest(new AbortController().signal)
@@ -407,7 +404,7 @@ describe('ModelRouterModelClient', () => {
 
     expect(sentUrls[0]).toBe('https://example.com/api/v1/responses')
     expect(sentBodies[0]).toMatchObject({
-      model: 'deepseek-chat',
+      model: 'gpt-5-mini',
       max_output_tokens: 128,
       text: { format: { type: 'json_object' } }
     })
@@ -447,8 +444,7 @@ describe('ModelRouterModelClient', () => {
       model: 'sciforge-router',
       endpointFormat: 'responses',
       fetchImpl,
-      nonStreaming: true,
-      forceDefaultModel: true
+      nonStreaming: true
     })
     const request = buildRequest(new AbortController().signal)
     request.reasoningEffort = 'max'
@@ -531,7 +527,7 @@ describe('ModelRouterModelClient', () => {
       'anthropic-version': '2023-06-01'
     })
     expect(sentBodies[0]).toMatchObject({
-      model: 'deepseek-chat',
+      model: 'claude-sonnet-4-5',
       max_tokens: 4096,
       system: 'You are a helpful assistant.',
       messages: [],
@@ -721,7 +717,7 @@ describe('ModelRouterModelClient', () => {
     expect((sentBodies[0] as { thinking: { type: string } }).thinking).toMatchObject({ type: 'enabled' })
   })
 
-  it('sends per-request router controls when requested', async () => {
+  it('sends per-request router controls while preserving the configured alias', async () => {
     const response = {
       id: 'router',
       model: 'deepseek-v4-flash',
@@ -765,7 +761,7 @@ describe('ModelRouterModelClient', () => {
     }
     expect(sentAccept[0]).toBe('application/json')
     expect(sentBodies[0]).toMatchObject({
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-chat',
       stream: false,
       max_tokens: 96,
       temperature: 0,
@@ -1460,11 +1456,16 @@ describe('ModelRouterModelClient', () => {
     expect(assistantToolMessage?.content).toBe('')
   })
 
-  it('treats fixed DeepSeek v4 models as thinking producers', async () => {
-    const sentBodies: Array<{ messages?: Array<Record<string, unknown>>; thinking?: unknown; reasoning_effort?: unknown }> = []
+  it('round-trips assistant reasoning when explicit reasoning effort is enabled', async () => {
+    const sentBodies: Array<{
+      model?: string
+      messages?: Array<Record<string, unknown>>
+      thinking?: unknown
+      reasoning_effort?: unknown
+    }> = []
     const response = {
       id: 'r1',
-      model: 'deepseek-v4-pro',
+      model: 'sciforge-router',
       choices: [
         {
           index: 0,
@@ -1482,14 +1483,15 @@ describe('ModelRouterModelClient', () => {
       })
     }
     const client = new ModelRouterModelClient({
-      baseUrl: 'https://api.deepseek.com',
+      baseUrl: 'http://127.0.0.1:3892/v1',
       apiKey: 'k',
-      model: 'deepseek-chat',
+      model: 'sciforge-router',
       fetchImpl,
       nonStreaming: true
     })
     const request = buildRequest(new AbortController().signal)
     request.model = 'deepseek-v4-pro'
+    request.reasoningEffort = 'high'
     request.history = [
       makeAssistantTextItem({
         id: 'assistant_text',
@@ -1507,8 +1509,9 @@ describe('ModelRouterModelClient', () => {
     const body = sentBodies[0]
     const assistantMessage = body?.messages?.find((message) => message.role === 'assistant')
 
+    expect(body?.model).toBe('sciforge-router')
     expect(body?.thinking).toEqual({ type: 'enabled' })
-    expect(body?.reasoning_effort).toBeUndefined()
+    expect(body?.reasoning_effort).toBe('high')
     expect(assistantMessage?.reasoning_content).toBe(' ')
   })
 

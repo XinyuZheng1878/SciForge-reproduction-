@@ -14,7 +14,7 @@ export async function startReview(
   turns: TurnService,
   threadId: string,
   request: Request,
-  onStarted?: (response: StartReviewResponse, target: StartReviewRequest['target'], model?: string) => void
+  onStarted?: (response: StartReviewResponse, target: StartReviewRequest['target']) => void
 ): Promise<JsonResponse | Response> {
   const body = await readJsonBody(request)
   if (!body.ok) return body.response
@@ -29,7 +29,6 @@ export async function startReview(
       request: {
         prompt: reviewTargetPrompt(parsed.data.target),
         displayText: title,
-        model: parsed.data.model,
         mode: 'agent'
       }
     })
@@ -49,7 +48,7 @@ export async function startReview(
       ...started,
       reviewItemId
     }
-    onStarted?.(response, parsed.data.target, parsed.data.model)
+    onStarted?.(response, parsed.data.target)
     return jsonResponse(response, 202)
   } catch (error) {
     if (error instanceof Error && /not found/i.test(error.message)) {

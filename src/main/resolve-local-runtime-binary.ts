@@ -107,7 +107,6 @@ export function buildLocalRuntimeServeArgs(input: {
   dataDir: string
   modelRouterBaseUrl?: string
   model: string
-  forceDefaultModel?: boolean
   approvalPolicy: string
   sandboxMode: string
   tokenEconomyMode: boolean
@@ -124,7 +123,6 @@ export function buildLocalRuntimeServeArgs(input: {
     ...(input.modelRouterBaseUrl ? ['--model-router-base-url', input.modelRouterBaseUrl] : []),
     '--model',
     input.model,
-    ...(input.forceDefaultModel ? ['--force-default-model', 'true'] : []),
     '--approval-policy',
     input.approvalPolicy,
     '--sandbox-mode',

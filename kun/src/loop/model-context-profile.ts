@@ -70,6 +70,7 @@ export const MODEL_CONTEXT_PROFILES: readonly ModelContextProfile[] = [
   deepseekV4Profile('deepseek-v4-pro', ['deepseek-v4-pro']),
   deepseekV4Profile('deepseek-v4-flash', [
     'deepseek-v4-flash',
+    'sciforge-router',
     // Back-compat aliases currently routed by DeepSeek to v4-flash modes.
     'deepseek-chat',
     'deepseek-reasoner'

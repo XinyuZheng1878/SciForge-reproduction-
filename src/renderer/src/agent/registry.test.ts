@@ -280,7 +280,6 @@ describe('registry provider selector', () => {
       runtimeId: 'sciforge',
       operation: 'listGitCheckpoints',
       payload: {
-        runtimeId: 'sciforge',
         threadId: 'thread-1',
         workspaceRoot: '/tmp/workspace'
       }

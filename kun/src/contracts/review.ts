@@ -49,9 +49,8 @@ export const ReviewTargetSchema = z.discriminatedUnion('kind', [
 export type ReviewTarget = z.infer<typeof ReviewTargetSchema>
 
 export const StartReviewRequest = z.object({
-  target: ReviewTargetSchema,
-  model: z.string().trim().min(1).optional()
-})
+  target: ReviewTargetSchema
+}).strict()
 export type StartReviewRequest = z.infer<typeof StartReviewRequest>
 
 export const StartReviewResponse = z.object({

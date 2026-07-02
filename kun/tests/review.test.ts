@@ -10,10 +10,13 @@ import { resolveReviewTargetPrompt } from '../src/review/git-review-target.js'
 describe('review contracts', () => {
   it('accepts review start requests and persisted review items', () => {
     const request = StartReviewRequest.parse({
-      target: { kind: 'baseBranch', branch: 'main' },
-      model: 'deepseek-chat'
+      target: { kind: 'baseBranch', branch: 'main' }
     })
     expect(request.target).toEqual({ kind: 'baseBranch', branch: 'main' })
+    expect(StartReviewRequest.safeParse({
+      target: { kind: 'baseBranch', branch: 'main' },
+      model: 'deepseek-chat'
+    }).success).toBe(false)
 
     const item = TurnItem.parse({
       id: 'item_review_1',

@@ -2332,10 +2332,11 @@ export class AgentLoop {
     candidates: Array<string | undefined>
   }): Promise<{ model: string; reasoningEffort?: string }> {
     const requestedReasoningEffort = normalizeRequestedReasoningEffort(input.reasoningEffort)
+    const routerModel = this.opts.model.model
     const resolved = resolveModelMode(...input.candidates)
     if (resolved.kind === 'fixed') {
       return {
-        model: resolved.model,
+        model: routerModel,
         ...(requestedReasoningEffort ? { reasoningEffort: requestedReasoningEffort } : {})
       }
     }
@@ -2343,7 +2344,7 @@ export class AgentLoop {
     const cached = this.autoModelRoutes.get(key)
     if (cached) {
       return {
-        model: cached.model,
+        model: routerModel,
         reasoningEffort: requestedReasoningEffort ?? cached.reasoningEffort
       }
     }
@@ -2351,6 +2352,7 @@ export class AgentLoop {
       modelClient: this.opts.model,
       threadId: input.threadId,
       turnId: input.turnId,
+      model: routerModel,
       latestRequest: input.latestRequest,
       recentContext: recentAutoRouterContext(input.items, input.turnId),
       selectedModelMode: 'auto',
@@ -2358,7 +2360,7 @@ export class AgentLoop {
     })
     this.autoModelRoutes.set(key, route)
     return {
-      model: route.model,
+      model: routerModel,
       reasoningEffort: requestedReasoningEffort ?? route.reasoningEffort
     }
   }

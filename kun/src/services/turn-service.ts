@@ -289,6 +289,12 @@ export class TurnService {
     return thread?.turns.find((turn) => turn.id === turnId) ?? null
   }
 
+  async listTurns(threadId: string): Promise<Turn[]> {
+    const thread = await this.deps.threadStore.get(threadId)
+    if (!thread) throw new Error(`thread not found: ${threadId}`)
+    return thread.turns
+  }
+
   async reconcileStaleRunningTurns(input: {
     message?: string
     code?: string

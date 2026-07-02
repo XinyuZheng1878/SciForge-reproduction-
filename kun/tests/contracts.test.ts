@@ -709,14 +709,18 @@ describe('cli', () => {
   it('uses 980k as the built-in DeepSeek v4 soft compaction threshold', () => {
     const profile = modelContextProfilesFromConfig()
       .find((candidate) => candidate.canonicalModel === 'deepseek-v4-pro')
+    const routerProfile = modelContextProfilesFromConfig()
+      .find((candidate) => candidate.modelIds.includes('sciforge-router'))
 
     expect(profile?.contextWindowTokens).toBe(1_000_000)
     expect(profile?.softThreshold).toBe(980_000)
     expect(profile?.hardThreshold).toBe(990_000)
+    expect(routerProfile?.canonicalModel).toBe('deepseek-v4-flash')
+    expect(routerProfile?.contextWindowTokens).toBe(1_000_000)
   })
 
-  it('keeps built-in DeepSeek v4 models text-only', () => {
-    for (const modelId of ['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-chat'] as const) {
+  it('keeps built-in DeepSeek v4 models and the public router alias text-only', () => {
+    for (const modelId of ['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-chat', 'sciforge-router'] as const) {
       const model = modelCapabilitiesForModel(modelId)
       expect(model.inputModalities).toEqual(['text'])
       expect(model.messageParts).toEqual(['text'])

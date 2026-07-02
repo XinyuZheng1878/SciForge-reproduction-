@@ -53,7 +53,6 @@ export class ReviewService {
     turnId: string
     reviewItemId: string
     target: ReviewTarget
-    model?: string
   }): Promise<'completed' | 'failed' | 'aborted'> {
     const signal = this.deps.turns.getAbortController(input.turnId)
     if (!signal) {
@@ -78,7 +77,7 @@ export class ReviewService {
       const rawReviewText = await this.runIsolatedReviewer({
         prompt: resolved.prompt,
         workspace: thread.workspace ?? '',
-        model: input.model?.trim() || thread.model || this.deps.defaultModel,
+        model: this.deps.defaultModel,
         signal
       })
       if (signal.aborted) {

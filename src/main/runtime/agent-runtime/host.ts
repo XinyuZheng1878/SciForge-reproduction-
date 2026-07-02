@@ -200,7 +200,7 @@ export class AgentRuntimeHost {
       : safeInput
     this.createPreTurnCheckpoint(adapter.id, context, turnInput)
     const modelRouter = resolveRuntimeModelRouterSettings(context.settings)
-    const modelAlias = input.model?.trim() || modelRouter.model
+    const modelAlias = modelRouter.model
     const auditId = this.options.services?.modelAudit?.start({
       runtimeId: adapter.id,
       threadId: input.threadId,

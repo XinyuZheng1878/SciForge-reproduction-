@@ -5,6 +5,7 @@ import {
   StartTurnRequest,
   StartTurnResponse,
   SteerTurnRequest,
+  type Turn,
   TurnSchema
 } from '../../contracts/turns.js'
 import { jsonResponse, type JsonResponse } from '../response.js'
@@ -125,4 +126,25 @@ export async function getTurn(
     )
   }
   return jsonResponse(TurnSchema.parse(turn))
+}
+
+export async function listTurns(
+  turns: TurnService,
+  threadId: string
+): Promise<JsonResponse> {
+  try {
+    const turnRecords = await turns.listTurns(threadId)
+    const payload: { turns: Turn[] } = {
+      turns: turnRecords.map((turn) => TurnSchema.parse(turn))
+    }
+    return jsonResponse(payload)
+  } catch (error) {
+    if (error instanceof Error && /not found/i.test(error.message)) {
+      return jsonResponse(
+        { code: 'not_found', message: error.message },
+        404
+      )
+    }
+    throw error
+  }
 }

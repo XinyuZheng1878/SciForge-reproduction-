@@ -32,8 +32,6 @@ export type ModelRouterModelClientConfig = {
   historyLimit?: number
   /** When true, the client requests a non-streaming response. */
   nonStreaming?: boolean
-  /** When true, always send the configured model alias to the provider. */
-  forceDefaultModel?: boolean
   /** Maximum idle time between streaming chunks before the turn fails. */
   streamIdleTimeoutMs?: number
 }
@@ -357,8 +355,7 @@ export class ModelRouterModelClient implements ModelClient {
     stream: boolean,
     options: { includeStreamUsage?: boolean } = {}
   ): Record<string, unknown> {
-    const requestModel = request.model?.trim()
-    const model = this.config.forceDefaultModel ? this.config.model : (requestModel || this.config.model)
+    const model = this.config.model
     const endpointFormat = this.endpointFormat()
     const messages = this.collectMessages(request, model, endpointFormat)
     if (endpointFormat === 'responses') {

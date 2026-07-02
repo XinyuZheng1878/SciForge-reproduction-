@@ -789,11 +789,11 @@ describe('AgentsSettingsSection SciForge Runtime diagnostics smoke', () => {
     expect(html).toContain('Pure JSONL file storage')
   })
 
-  it('shows DeepSeek V4 model compaction thresholds from the model profile', () => {
+  it('shows public router alias compaction thresholds from the built-in model profile', () => {
     const html = renderToStaticMarkup(createElement(AgentsSettingsSection, { ctx: baseCtx() }))
 
     expect(html).toContain('Current model context policy')
-    expect(html).toContain('deepseek-v4-pro')
+    expect(html).toContain('sciforge-router')
     expect(html).toContain('Built-in model config')
     expect(html).toContain('1,000,000')
     expect(html).toContain('980,000')

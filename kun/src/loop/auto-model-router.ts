@@ -2,25 +2,19 @@ import { makeUserItem } from '../domain/item.js'
 import type { TurnItem } from '../contracts/items.js'
 import type { ModelClient, ModelRequest, ModelStreamChunk } from '../ports/model-client.js'
 
-export const AUTO_MODEL_ROUTER_MODEL = 'deepseek-v4-flash'
-export const AUTO_MODEL_FLASH = 'deepseek-v4-flash'
-export const AUTO_MODEL_PRO = 'deepseek-v4-pro'
 export const AUTO_MODEL_ROUTER_TIMEOUT_MS = 4_000
 
-export type AutoModelRouteSource = 'flash-router' | 'heuristic'
+export type AutoModelRouteSource = 'model-router' | 'heuristic'
 export type AutoRouteReasoningEffort = 'off' | 'high' | 'max'
 
 export type AutoModelRouteSelection = {
-  model: typeof AUTO_MODEL_FLASH | typeof AUTO_MODEL_PRO
   reasoningEffort?: AutoRouteReasoningEffort
   source: AutoModelRouteSource
 }
 
 export const AUTO_MODEL_ROUTER_SYSTEM_PROMPT = [
-  'You are the DeepSeek TUI auto-routing classifier. Return only compact JSON:',
-  '{"model":"deepseek-v4-flash|deepseek-v4-pro","thinking":"off|high|max"}.',
-  'Use deepseek-v4-flash for trivial, conversational, status, or single-step work.',
-  'Use deepseek-v4-pro for coding, debugging, release work, multi-step tasks, high-risk decisions, tool-heavy work, ambiguous requests, or anything that benefits from deeper reasoning.',
+  'You are the SciForge reasoning-effort classifier. Return only compact JSON:',
+  '{"thinking":"off|high|max"}.',
   'Use thinking off only for trivial no-tool answers, high for ordinary reasoning, and max for agentic, coding, multi-file, release, architecture, debugging, security, tool-heavy, or uncertain work.'
 ].join(' ')
 
@@ -28,6 +22,7 @@ export async function resolveAutoModelRoute(input: {
   modelClient: ModelClient
   threadId: string
   turnId: string
+  model: string
   latestRequest: string
   recentContext: string
   selectedModelMode: string
@@ -46,7 +41,7 @@ export async function resolveAutoModelRoute(input: {
     const request: ModelRequest = {
       threadId: input.threadId,
       turnId: `${input.turnId}_auto_router`,
-      model: AUTO_MODEL_ROUTER_MODEL,
+      model: input.model,
       systemPrompt: AUTO_MODEL_ROUTER_SYSTEM_PROMPT,
       prefix: [],
       history: [
@@ -71,7 +66,7 @@ export async function resolveAutoModelRoute(input: {
     }
     const text = await collectRouterText(input.modelClient.stream(request), controller.signal)
     const recommendation = parseAutoRouteRecommendation(text)
-    return recommendation ? { ...recommendation, source: 'flash-router' } : fallback
+    return recommendation ? { ...recommendation, source: 'model-router' } : fallback
   } catch {
     return fallback
   } finally {
@@ -80,47 +75,19 @@ export async function resolveAutoModelRoute(input: {
   }
 }
 
-export function autoModelHeuristic(input: string, _currentModel = ''): typeof AUTO_MODEL_FLASH | typeof AUTO_MODEL_PRO {
-  const len = [...input].length
-  const lower = input.toLowerCase()
-  const complexKeywords = [
-    'refactor',
-    'architecture',
-    'design',
-    'debug',
-    'security',
-    'review',
-    'audit',
-    'migrate',
-    'optimize',
-    'rewrite',
-    'implement',
-    'analyze'
-  ]
-  if (complexKeywords.some((keyword) => lower.includes(keyword))) {
-    return AUTO_MODEL_PRO
-  }
-  if (len < 100) return AUTO_MODEL_FLASH
-  if (len > 500) return AUTO_MODEL_PRO
-  return AUTO_MODEL_FLASH
-}
-
 export function parseAutoRouteRecommendation(raw: string): {
-  model: typeof AUTO_MODEL_FLASH | typeof AUTO_MODEL_PRO
   reasoningEffort?: AutoRouteReasoningEffort
 } | null {
   const json = extractFirstJsonObject(raw)
   if (!json) return null
   try {
-    const value = JSON.parse(json) as { effort?: unknown; model?: unknown; reasoning_effort?: unknown; thinking?: unknown }
-    const model = typeof value.model === 'string' ? normalizeAutoRouteModel(value.model) : null
-    if (!model) return null
+    const value = JSON.parse(json) as { effort?: unknown; reasoning_effort?: unknown; thinking?: unknown }
     const rawEffort = [value.thinking, value.reasoning_effort, value.effort]
       .find((effort) => typeof effort === 'string')
     const reasoningEffort = typeof rawEffort === 'string' ? normalizeAutoRouteEffort(rawEffort) : undefined
+    if (!reasoningEffort) return null
     return {
-      model,
-      ...(reasoningEffort ? { reasoningEffort } : {})
+      reasoningEffort
     }
   } catch {
     return null
@@ -143,10 +110,9 @@ export function recentAutoRouterContext(items: readonly TurnItem[], currentTurnI
 
 function fallbackAutoRoute(
   latestRequest: string,
-  selectedModelMode: string
+  _selectedModelMode: string
 ): AutoModelRouteSelection {
   return {
-    model: autoModelHeuristic(latestRequest, selectedModelMode),
     reasoningEffort: autoReasoningHeuristic(latestRequest),
     source: 'heuristic'
   }
@@ -195,21 +161,6 @@ function extractFirstJsonObject(raw: string): string | null {
   const start = raw.indexOf('{')
   const end = raw.lastIndexOf('}')
   return start >= 0 && end >= start ? raw.slice(start, end + 1) : null
-}
-
-function normalizeAutoRouteModel(model: string): typeof AUTO_MODEL_FLASH | typeof AUTO_MODEL_PRO | null {
-  switch (model.trim().toLowerCase()) {
-    case 'deepseek-v4-pro':
-    case 'v4-pro':
-    case 'pro':
-      return AUTO_MODEL_PRO
-    case 'deepseek-v4-flash':
-    case 'v4-flash':
-    case 'flash':
-      return AUTO_MODEL_FLASH
-    default:
-      return null
-  }
 }
 
 function normalizeAutoRouteEffort(effort: string): AutoRouteReasoningEffort | null {

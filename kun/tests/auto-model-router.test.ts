@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  autoModelHeuristic,
   parseAutoRouteRecommendation,
   recentAutoRouterContext,
   resolveAutoModelRoute
@@ -9,23 +8,16 @@ import { makeAssistantTextItem, makeToolResultItem, makeUserItem } from '../src/
 import type { ModelClient, ModelRequest, ModelStreamChunk } from '../src/ports/model-client.js'
 
 describe('auto model router', () => {
-  it('parses trusted router model recommendations', () => {
+  it('parses trusted router reasoning recommendations', () => {
     expect(parseAutoRouteRecommendation('{"model":"pro","thinking":"max"}')).toEqual({
-      model: 'deepseek-v4-pro',
       reasoningEffort: 'max'
     })
-    expect(parseAutoRouteRecommendation('noise {"model":"v4-flash"} tail')).toEqual({
-      model: 'deepseek-v4-flash'
+    expect(parseAutoRouteRecommendation('noise {"thinking":"high"} tail')).toEqual({
+      reasoningEffort: 'high'
     })
+    expect(parseAutoRouteRecommendation('noise {"model":"v4-flash"} tail')).toBeNull()
     expect(parseAutoRouteRecommendation('{"model":"auto"}')).toBeNull()
     expect(parseAutoRouteRecommendation('not json')).toBeNull()
-  })
-
-  it('falls back to the local auto-route heuristic shape', () => {
-    expect(autoModelHeuristic('hello')).toBe('deepseek-v4-flash')
-    expect(autoModelHeuristic('please debug this failing migration')).toBe('deepseek-v4-pro')
-    expect(autoModelHeuristic('x'.repeat(501))).toBe('deepseek-v4-pro')
-    expect(autoModelHeuristic('x'.repeat(200))).toBe('deepseek-v4-flash')
   })
 
   it('builds recent context without the active turn', () => {
@@ -56,7 +48,7 @@ describe('auto model router', () => {
       model: 'fake',
       async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
         seenRequest = request
-        yield { kind: 'assistant_text_delta', text: '{"model":"deepseek-v4-flash","thinking":"off"}' }
+        yield { kind: 'assistant_text_delta', text: '{"thinking":"off"}' }
         yield { kind: 'completed', stopReason: 'stop' }
       }
     }
@@ -65,6 +57,7 @@ describe('auto model router', () => {
       modelClient,
       threadId: 'thr_1',
       turnId: 'turn_1',
+      model: 'sciforge-router',
       latestRequest: 'hello',
       recentContext: '',
       selectedModelMode: 'auto',
@@ -72,6 +65,7 @@ describe('auto model router', () => {
     })
 
     const capturedRequest = seenRequest as ModelRequest | null
+    expect(capturedRequest?.model).toBe('sciforge-router')
     expect(capturedRequest?.tools).toEqual([])
     expect(capturedRequest?.responseFormat).toBe('json_object')
   })

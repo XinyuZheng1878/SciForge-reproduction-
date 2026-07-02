@@ -16,7 +16,7 @@ import {
 } from '../contracts/capabilities.js'
 
 export const LOCAL_RUNTIME_CONFIG_FILENAME = 'config.json'
-export const DEFAULT_LOCAL_RUNTIME_MODEL = 'deepseek-v4-pro'
+export const DEFAULT_LOCAL_RUNTIME_MODEL = 'sciforge-router'
 
 const PositiveInt = z.number().int().positive()
 const PositiveRatio = z.number().positive().max(1)
@@ -163,7 +163,6 @@ export const LocalRuntimeServeConfigSchema = z
     runtimeToken: z.string().optional(),
     apiKey: z.string().optional(),
     model: z.string().min(1).optional(),
-    forceDefaultModel: z.boolean().optional(),
     approvalPolicy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY).optional(),
     sandboxMode: SandboxModeSchema.default(DEFAULT_SANDBOX_MODE).optional(),
     tokenEconomyMode: z.boolean().optional(),

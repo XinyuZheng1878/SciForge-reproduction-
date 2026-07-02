@@ -101,7 +101,6 @@ describe('buildLocalRuntimeServeArgs', () => {
       dataDir: '/tmp/local-runtime',
       modelRouterBaseUrl: 'http://127.0.0.1:3892/v1',
       model: 'sciforge-router',
-      forceDefaultModel: true,
       approvalPolicy: 'on-request',
       sandboxMode: 'workspace-write',
       tokenEconomyMode: false,
@@ -111,9 +110,9 @@ describe('buildLocalRuntimeServeArgs', () => {
     expect(args).not.toContain('--api-key')
     expect(args).not.toContain('--runtime-token')
     expect(args).not.toContain('--endpoint-format')
+    expect(args).not.toContain('--force-default-model')
     expect(args).toContain('--model-router-base-url')
     expect(args).toContain('http://127.0.0.1:3892/v1')
-    expect(args).toContain('--force-default-model')
     expect(args).toContain('--token-economy-mode')
     expect(args).toContain('false')
   })

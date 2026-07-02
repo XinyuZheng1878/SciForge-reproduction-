@@ -436,7 +436,6 @@ async function startLocalRuntimeChildOnce(
     dataDir,
     modelRouterBaseUrl: runtime.baseUrl,
     model: runtime.model,
-    forceDefaultModel: true,
     approvalPolicy: runtime.approvalPolicy,
     sandboxMode: runtime.sandboxMode,
     tokenEconomyMode: runtime.tokenEconomyMode,
@@ -702,7 +701,6 @@ function stripLocalRuntimeServeProviderFields(serve: Record<string, unknown>): R
   delete next.baseUrl
   delete next.endpointFormat
   delete next.model
-  delete next.forceDefaultModel
   return next
 }
 

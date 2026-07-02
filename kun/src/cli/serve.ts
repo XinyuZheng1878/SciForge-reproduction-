@@ -98,12 +98,6 @@ export function parseServeOptions(
       typeof raw.model === 'string'
         ? raw.model
         : env.SCIFORGE_MODEL_ROUTER_MODEL ?? configServe.model ?? DEFAULT_SERVE_OPTIONS.model,
-    forceDefaultModel:
-      booleanFlag(raw, 'force-default-model') ??
-      booleanFlag(raw, 'forceDefaultModel') ??
-      envBoolean(env.KUN_FORCE_DEFAULT_MODEL) ??
-      configServe.forceDefaultModel ??
-      DEFAULT_SERVE_OPTIONS.forceDefaultModel,
     approvalPolicy:
       typeof raw['approval-policy'] === 'string'
         ? (raw['approval-policy'] as ServeOptions['approvalPolicy'])
@@ -161,7 +155,6 @@ Options:
   --model-router-base-url <url>
                            Local Model Router base URL (default ${DEFAULT_MODEL_ROUTER_BASE_URL})
   --model <model>          Model Router public model alias (default ${DEFAULT_SERVE_OPTIONS.model})
-  --force-default-model    Always send --model to the provider, ignoring per-turn overrides
   --approval-policy <p>    on-request | untrusted | never | auto | suggest
   --sandbox-mode <mode>    read-only | workspace-write | danger-full-access | external-sandbox
   --token-economy          Compress safe tool context before model calls

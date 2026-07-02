@@ -78,7 +78,6 @@ export type LocalRuntimeServeOptions = {
   apiKey: string
   modelRouterBaseUrl: string
   model: string
-  forceDefaultModel?: boolean
   approvalPolicy: ApprovalPolicy
   sandboxMode: SandboxMode
   tokenEconomyMode: boolean
@@ -155,7 +154,6 @@ export async function createLocalRuntimeServeRuntime(
     apiKey: options.apiKey,
     endpointFormat: 'responses',
     model: options.model,
-    forceDefaultModel: options.forceDefaultModel,
     streamIdleTimeoutMs: options.runtime?.modelStreamIdleTimeoutMs
   })
   const modelProfiles = modelContextProfilesFromConfig({

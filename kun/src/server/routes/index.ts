@@ -19,6 +19,7 @@ import {
   compactTurn,
   getTurn,
   interruptTurn,
+  listTurns,
   startTurn,
   steerTurn
 } from './turns.js'
@@ -64,7 +65,7 @@ import type { ServerRuntime } from './server-runtime.js'
  * - `POST /v1/threads/{id}/fork` (auth)
  * - `GET/POST/DELETE /v1/threads/{id}/goal` (auth)
  * - `GET/POST/DELETE /v1/threads/{id}/todos` (auth)
- * - `POST /v1/threads/{id}/turns` (auth)
+ * - `GET/POST /v1/threads/{id}/turns` (auth)
  * - `POST /v1/threads/{id}/review` (auth)
  * - `GET /v1/threads/{id}/turns/{turnId}` (auth)
  * - `POST /v1/threads/{id}/turns/{turnId}/steer` (auth)
@@ -189,6 +190,11 @@ export function buildRouter(runtime: ServerRuntime): Router {
       runtime.runTurn(threadId, turnId)
     })
   })
+  router.add('GET', '/v1/threads/:id/turns', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    void request
+    return listTurns(runtime.turnService, ctx.params.id)
+  })
   router.add('POST', '/v1/threads/:id/review', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     if (!runtime.reviewService || !runtime.runReview) {
@@ -198,8 +204,8 @@ export function buildRouter(runtime: ServerRuntime): Router {
       runtime.turnService,
       ctx.params.id,
       request,
-      ({ threadId, turnId, reviewItemId }, target, model) => {
-        runtime.runReview?.({ threadId, turnId, reviewItemId, target, model })
+      ({ threadId, turnId, reviewItemId }, target) => {
+        runtime.runReview?.({ threadId, turnId, reviewItemId, target })
       }
     )
   })

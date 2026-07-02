@@ -1280,7 +1280,7 @@ describe('AgentLoop', () => {
       .toBeLessThan(JSON.stringify(persisted?.kind === 'tool_result' ? persisted.output : '').length)
   })
 
-  it('uses per-turn model from startTurn request', async () => {
+  it('uses the configured Model Router alias instead of per-turn model metadata', async () => {
     let seenModel = ''
     const h = makeHarness({
       provider: 'selector',
@@ -1305,7 +1305,7 @@ describe('AgentLoop', () => {
     const status = await h.loop.runTurn(h.threadId, turnId)
     const thread = await h.threadStore.get(h.threadId)
     expect(status).toBe('completed')
-    expect(seenModel).toBe('deepseek-v4-pro')
+    expect(seenModel).toBe('fallback')
     expect(thread?.turns.find((turn) => turn.id === turnId)?.model).toBe('deepseek-v4-pro')
   })
 
@@ -2783,7 +2783,7 @@ describe('AgentLoop', () => {
   })
 
   it('does not auto-compact DeepSeek v4 turns at the legacy threshold', async () => {
-    const h = makeHarness(makeSilentModel(), {
+    const h = makeHarness({ ...makeSilentModel(), model: 'sciforge-router' }, {
       compactor: new ContextCompactor()
     })
     await bootstrapThread(h, { request: { prompt: 'hello', model: 'deepseek-v4-flash' } })
@@ -2807,13 +2807,13 @@ describe('AgentLoop', () => {
     const seenModels: string[] = []
     const h = makeHarness({
       provider: 'router-recorder',
-      model: 'fallback',
+      model: 'sciforge-router',
       async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
         seenModels.push(request.model)
         if (request.turnId.endsWith('_auto_router')) {
           expect(request.stream).toBe(false)
           expect(request.maxTokens).toBe(96)
-          yield { kind: 'assistant_text_delta', text: '{"model":"deepseek-v4-pro","thinking":"max"}' }
+          yield { kind: 'assistant_text_delta', text: '{"thinking":"max"}' }
           yield { kind: 'completed', stopReason: 'stop' }
           return
         }
@@ -2836,18 +2836,18 @@ describe('AgentLoop', () => {
 
     await h.loop.runTurn(h.threadId, turnId)
 
-    expect(seenModels).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+    expect(seenModels).toEqual(['sciforge-router', 'sciforge-router'])
   })
 
   it('keeps explicit turn reasoning effort when auto routing chooses the model', async () => {
     const seenModels: string[] = []
     const h = makeHarness({
       provider: 'router-reasoning-override',
-      model: 'fallback',
+      model: 'sciforge-router',
       async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
         seenModels.push(request.model)
         if (request.turnId.endsWith('_auto_router')) {
-          yield { kind: 'assistant_text_delta', text: '{"model":"deepseek-v4-pro","thinking":"max"}' }
+          yield { kind: 'assistant_text_delta', text: '{"thinking":"max"}' }
           yield { kind: 'completed', stopReason: 'stop' }
           return
         }
@@ -2870,14 +2870,14 @@ describe('AgentLoop', () => {
 
     await h.loop.runTurn(h.threadId, turnId)
 
-    expect(seenModels).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+    expect(seenModels).toEqual(['sciforge-router', 'sciforge-router'])
   })
 
-  it('falls back to a concrete heuristic model when auto router fails', async () => {
+  it('falls back to heuristic reasoning without changing the Model Router alias', async () => {
     let realRequestModel = ''
     const h = makeHarness({
       provider: 'router-failure',
-      model: 'auto',
+      model: 'sciforge-router',
       async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
         if (request.turnId.endsWith('_auto_router')) {
           yield { kind: 'error', message: 'router unavailable' }
@@ -2903,7 +2903,7 @@ describe('AgentLoop', () => {
 
     await h.loop.runTurn(h.threadId, turnId)
 
-    expect(realRequestModel).toBe('deepseek-v4-flash')
+    expect(realRequestModel).toBe('sciforge-router')
   })
 
   it('uses the latest compaction item as the effective history boundary', async () => {

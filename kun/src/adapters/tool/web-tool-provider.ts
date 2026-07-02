@@ -285,7 +285,7 @@ function fetchOutput(result: WebFetchResult, toolTelemetry: Record<string, unkno
     byteCount: result.byteCount,
     truncated: result.truncated,
     sources: [source],
-    citations: [source],
+    citations: [{ ...source }],
     telemetry: toolTelemetry
   }
 }
@@ -307,7 +307,7 @@ function searchOutput(
     provider,
     results,
     sources,
-    citations: sources,
+    citations: sources.map((source) => ({ ...source })),
     telemetry: toolTelemetry
   }
 }
