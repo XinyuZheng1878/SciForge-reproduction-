@@ -563,7 +563,7 @@ describe('Local runtime built-in tools', () => {
         output: {
           command: ': # sciforge history omitted prior bash command; inspect paired tool result',
           exit_code: 0,
-          output: ''
+          output: expect.stringContaining('Skipped execution')
         }
       })
       expect(executed).toBe(false)

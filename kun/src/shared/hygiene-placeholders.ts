@@ -1,5 +1,7 @@
 export const HYGIENE_MARKER_INSTRUCTION = 'metadata only; do not copy into future tool arguments'
 export const OMITTED_BASH_COMMAND = ': # sciforge history omitted prior bash command; inspect paired tool result'
+export const OMITTED_BASH_COMMAND_OUTPUT =
+  'Skipped execution: this is a SciForge history-hygiene placeholder, not a shell command. Issue a fresh, smaller command if work is still needed.'
 
 export function isHygienePlaceholderText(value: string): boolean {
   const trimmed = value.trim()

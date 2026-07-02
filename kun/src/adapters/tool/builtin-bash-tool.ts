@@ -16,7 +16,11 @@ import {
   withToolBoundary,
   workspaceRoot
 } from './builtin-tool-utils.js'
-import { OMITTED_BASH_COMMAND, isHygienePlaceholderText } from '../../shared/hygiene-placeholders.js'
+import {
+  OMITTED_BASH_COMMAND,
+  OMITTED_BASH_COMMAND_OUTPUT,
+  isHygienePlaceholderText
+} from '../../shared/hygiene-placeholders.js'
 
 const DEFAULT_BASH_YIELD_SECONDS = 10
 const MAX_BASH_YIELD_SECONDS = 60
@@ -595,7 +599,7 @@ export function createBashLocalTool(options: BashLocalToolOptions = {}): LocalTo
             cwd,
             shell: shellRuntime.name,
             exitCode: 0,
-            output: '',
+            output: OMITTED_BASH_COMMAND_OUTPUT,
             truncated: emptyTextSlice()
           })
         }
