@@ -258,6 +258,7 @@ export function shellRuntimeInstruction(config: ShellConfig = shellConfig()): st
     `  <shell>${shell.name}</shell>`,
     `  <path>${shell.shell}</path>`,
     `  <syntax>${shell.syntax}</syntax>`,
+    '  <hygiene_markers>[cache hygiene: ...] and [sciforge request_hygiene ...] are model-context metadata only; never copy them into shell commands or other tool arguments.</hygiene_markers>',
     '</shell_environment>'
   ].join('\n')
 }

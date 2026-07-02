@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applyRequestHistoryHygiene } from '../src/loop/request-history-hygiene.js'
 import { makeToolCallItem, makeToolResultItem } from '../src/domain/item.js'
+import { shellRuntimeInstruction } from '../src/adapters/tool/builtin-tool-utils.js'
 
 describe('request history hygiene', () => {
   it('shrinks oversized tool results while preserving head, signal lines, and tail', () => {
@@ -71,6 +72,8 @@ describe('request history hygiene', () => {
 
     expect(nextPairedCall?.kind === 'tool_call' ? String(nextPairedCall.arguments.content) : '')
       .toContain('cache hygiene')
+    expect(nextPairedCall?.kind === 'tool_call' ? String(nextPairedCall.arguments.content) : '')
+      .toContain('do not copy into future tool arguments')
     expect(nextPairedCall?.kind === 'tool_call' ? nextPairedCall.arguments.path : '')
       .toBe('src/generated.ts')
     expect(nextUnpairedCall?.kind === 'tool_call' ? String(nextUnpairedCall.arguments.content).length : 0)
@@ -134,6 +137,8 @@ describe('request history hygiene', () => {
       .toContain('approx')
     expect(nextCall?.kind === 'tool_call' ? String(nextCall.arguments.content) : '')
       .toContain('cache hygiene')
+    expect(nextCall?.kind === 'tool_call' ? String(nextCall.arguments.content) : '')
+      .toContain('metadata only')
   })
 
   it('replaces base64 payloads in model-bound history', () => {
@@ -153,5 +158,13 @@ describe('request history hygiene', () => {
       data_base64: expect.stringContaining('omitted base64 data'),
       mime: 'image/png'
     })
+  })
+
+  it('warns bash-capable turns not to execute hygiene metadata placeholders', () => {
+    const instruction = shellRuntimeInstruction()
+
+    expect(instruction).toContain('[cache hygiene: ...]')
+    expect(instruction).toContain('[sciforge request_hygiene ...]')
+    expect(instruction).toContain('never copy them into shell commands')
   })
 })

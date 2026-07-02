@@ -19,6 +19,7 @@ const DEFAULT_MAX_ARRAY_ITEMS = 80
 const MAX_SIGNAL_LINES = 48
 const MAX_LINE_CHARS = 280
 const LONG_ARGUMENT_PREVIEW_CHARS = 160
+const HYGIENE_MARKER_INSTRUCTION = 'metadata only; do not copy into future tool arguments'
 const ESC = String.fromCharCode(27)
 
 const ANSI_RE = new RegExp(`${ESC}\\[[0-9;?]*[ -/]*[@-~]`, 'g')
@@ -102,7 +103,7 @@ function compactToolResultValue(
   if (typeof value === 'string') {
     if (shouldOmitBase64(key, value)) {
       return {
-        value: `[cache hygiene: omitted base64 data, ${formatBytes(Buffer.byteLength(value, 'utf8'))}]`,
+        value: `[cache hygiene: omitted base64 data, ${formatBytes(Buffer.byteLength(value, 'utf8'))}; ${HYGIENE_MARKER_INSTRUCTION}]`,
         changed: true
       }
     }
@@ -169,7 +170,8 @@ function compactToolResultText(
   const omittedTokens = Math.max(0, originalTokens - selectedTokens)
   const marker = [
     `[cache hygiene: omitted ${Math.max(0, lines.length - selected.length)} line(s), `,
-    `${formatBytes(omittedBytes)}, approx ${omittedTokens} token(s); use narrower read/grep/bash ranges for details]`
+    `${formatBytes(omittedBytes)}, approx ${omittedTokens} token(s); use narrower read/grep/bash ranges for details; `,
+    `${HYGIENE_MARKER_INSTRUCTION}]`
   ].join('')
   const budgetForText = Math.max(0, limits.maxToolResultBytes - Buffer.byteLength(marker, 'utf8') - 1)
   const budgetForTokens = Math.max(0, limits.maxToolResultTokens - estimateTokens(marker) - 1)
@@ -235,7 +237,8 @@ function compactArgumentValue(
     return {
       value:
         `[cache hygiene: omitted completed ${options.toolName}.${key} argument, ` +
-        `${formatBytes(bytes)}, approx ${tokens} token(s), ${countLines(value)} line(s); see following tool result]${suffix}`,
+        `${formatBytes(bytes)}, approx ${tokens} token(s), ${countLines(value)} line(s); ` +
+        `${HYGIENE_MARKER_INSTRUCTION}; inspect the paired tool result instead]${suffix}`,
       changed: true
     }
   }
