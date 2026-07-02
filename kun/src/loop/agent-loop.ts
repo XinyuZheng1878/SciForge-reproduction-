@@ -801,6 +801,8 @@ export class AgentLoop {
       memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },
       delegationPolicy: { enabled: false },
       ...(allowedToolNames ? { allowedToolNames } : {}),
+      ...(turn?.allowedToolNames ? { explicitAllowedToolNames: turn.allowedToolNames } : {}),
+      ...(turn?.strictAllowedToolNames !== undefined ? { explicitStrictAllowedToolNames: turn.strictAllowedToolNames } : {}),
       ...(turn?.bashCommandPolicy ? { bashCommandPolicy: turn.bashCommandPolicy } : {}),
       ...(turn?.filePathPolicy ? { filePathPolicy: turn.filePathPolicy } : {}),
       approvalPolicy,
@@ -1311,6 +1313,8 @@ export class AgentLoop {
       modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
       allowedToolNames,
+      explicitAllowedToolNames: turn?.allowedToolNames,
+      explicitStrictAllowedToolNames: turn?.strictAllowedToolNames,
       bashCommandPolicy: turn?.bashCommandPolicy,
       filePathPolicy: turn?.filePathPolicy,
       toolProviderKinds: new Map(tools.map((tool) => [tool.name, tool.providerKind])),
@@ -1338,6 +1342,8 @@ export class AgentLoop {
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
     allowedToolNames?: readonly string[]
+    explicitAllowedToolNames?: readonly string[]
+    explicitStrictAllowedToolNames?: boolean
     bashCommandPolicy?: ToolHostContext['bashCommandPolicy']
     filePathPolicy?: ToolHostContext['filePathPolicy']
     toolProviderKinds: ReadonlyMap<string, ToolProviderKind | undefined>
@@ -1616,6 +1622,8 @@ export class AgentLoop {
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
     allowedToolNames?: readonly string[]
+    explicitAllowedToolNames?: readonly string[]
+    explicitStrictAllowedToolNames?: boolean
     bashCommandPolicy?: ToolHostContext['bashCommandPolicy']
     filePathPolicy?: ToolHostContext['filePathPolicy']
     approvalPolicy: ToolHostContext['approvalPolicy']
@@ -1634,6 +1642,8 @@ export class AgentLoop {
       memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },
       delegationPolicy: { enabled: false },
       ...(input.allowedToolNames ? { allowedToolNames: input.allowedToolNames } : {}),
+      ...(input.explicitAllowedToolNames ? { explicitAllowedToolNames: input.explicitAllowedToolNames } : {}),
+      ...(input.explicitStrictAllowedToolNames !== undefined ? { explicitStrictAllowedToolNames: input.explicitStrictAllowedToolNames } : {}),
       ...(input.bashCommandPolicy ? { bashCommandPolicy: input.bashCommandPolicy } : {}),
       ...(input.filePathPolicy ? { filePathPolicy: input.filePathPolicy } : {}),
       approvalPolicy: input.approvalPolicy,

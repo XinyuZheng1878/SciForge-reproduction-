@@ -56,8 +56,8 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
             workspace: typeof args.workspace === 'string' ? args.workspace : context.workspace,
             model: normalizeDelegateModel(args.model) ?? context.model?.id,
             childTimeoutMs: timeoutMs,
-            allowedToolNames: context.allowedToolNames,
-            strictAllowedToolNames: false,
+            allowedToolNames: context.explicitAllowedToolNames,
+            strictAllowedToolNames: context.explicitStrictAllowedToolNames === true,
             ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
             ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
             signal: context.abortSignal
@@ -134,8 +134,8 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
                 workspace: (task.workspace ?? sharedWorkspace) || context.workspace,
                 model: task.model ?? sharedModel ?? context.model?.id,
                 childTimeoutMs: timeoutMs,
-                allowedToolNames: context.allowedToolNames,
-                strictAllowedToolNames: false,
+                allowedToolNames: context.explicitAllowedToolNames,
+                strictAllowedToolNames: context.explicitStrictAllowedToolNames === true,
                 ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
                 ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
                 signal: context.abortSignal

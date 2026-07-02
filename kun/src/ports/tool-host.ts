@@ -82,6 +82,10 @@ export type ToolHostContext = {
   allowedProviderIds?: readonly string[]
   /** Optional tool-name allow-list. When set, other tools are not advertised or executed. */
   allowedToolNames?: readonly string[]
+  /** Raw per-turn tool allow-list from the caller, before skill/runtime policy narrowing. */
+  explicitAllowedToolNames?: readonly string[]
+  /** Whether the raw per-turn allow-list must be treated as exact for delegated child turns. */
+  explicitStrictAllowedToolNames?: boolean
   /** Optional per-turn command policy for the bash command-execution tool. */
   bashCommandPolicy?: BashCommandPolicyJson
   /** Optional per-turn path policy for local file tools such as read/write/edit. */

@@ -92,4 +92,45 @@ describe('buildDelegationToolProviders', () => {
     expect(prompts[1]).toContain('Already guarded task.')
     expect(runChild.mock.calls.map((call) => call[0].childTimeoutMs)).toEqual([600_000, 600_000])
   })
+
+  it('does not propagate derived active tool policy to child agents', async () => {
+    const { runtime, runChild } = fakeRuntime()
+    const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_task')
+    const context = {
+      ...fakeContext(),
+      allowedToolNames: ['delegate_task']
+    }
+
+    await tool?.execute({
+      label: 'tools',
+      prompt: 'List available plotting tools.'
+    }, context)
+
+    expect(runChild.mock.calls[0]?.[0].allowedToolNames).toBeUndefined()
+    expect(runChild.mock.calls[0]?.[0].strictAllowedToolNames).toBe(false)
+  })
+
+  it('propagates explicit per-turn tool limits to child agents', async () => {
+    const { runtime, runChild } = fakeRuntime()
+    const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_tasks')
+    const context = {
+      ...fakeContext(),
+      allowedToolNames: ['delegate_tasks'],
+      explicitAllowedToolNames: ['read', 'scientific_plotting_render'],
+      explicitStrictAllowedToolNames: true
+    }
+
+    await tool?.execute({
+      tasks: [
+        { label: 'one', prompt: 'Render a figure.' },
+        { label: 'two', prompt: 'Review a figure.' }
+      ]
+    }, context)
+
+    expect(runChild.mock.calls.map((call) => call[0].allowedToolNames)).toEqual([
+      ['read', 'scientific_plotting_render'],
+      ['read', 'scientific_plotting_render']
+    ])
+    expect(runChild.mock.calls.map((call) => call[0].strictAllowedToolNames)).toEqual([true, true])
+  })
 })
