@@ -35,15 +35,24 @@ export function createWriteLocalTool(_options: WriteLocalToolOptions = {}): Loca
     toolKind: 'file_change',
     execute: async (args, context) => withToolBoundary(async () => {
       const rawPath = typeof args.path === 'string' ? args.path : ''
+      if (isHygienePlaceholderValue(args.content)) {
+        return {
+          output: {
+            error:
+              'refusing to write a request/cache-hygiene placeholder as file content; read the source or generate the real content before retrying'
+          },
+          isError: true
+        }
+      }
       const content = typeof args.content === 'string' ? args.content : null
       if (!rawPath.trim() || content == null) {
         return { output: { error: 'path and content are required' }, isError: true }
       }
-      if (isCacheHygienePlaceholder(content)) {
+      if (isHygienePlaceholder(content)) {
         return {
           output: {
             error:
-              'refusing to write a cache-hygiene placeholder as file content; read the source or generate the real content before retrying'
+              'refusing to write a request/cache-hygiene placeholder as file content; read the source or generate the real content before retrying'
           },
           isError: true
         }
@@ -100,15 +109,24 @@ export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalT
     toolKind: 'file_change',
     execute: async (args, context) => withToolBoundary(async () => {
       const rawPath = typeof args.path === 'string' ? args.path : ''
+      if (editContainsHygienePlaceholderValue(args)) {
+        return {
+          output: {
+            error:
+              'refusing to insert a request/cache-hygiene placeholder into a file; read the source or generate the real replacement before retrying'
+          },
+          isError: true
+        }
+      }
       const edits = parseEditInstructions(args)
       if (!rawPath.trim() || edits.length === 0) {
         return { output: { error: 'path and at least one edit are required' }, isError: true }
       }
-      if (edits.some((edit) => isCacheHygienePlaceholder(edit.newText))) {
+      if (edits.some((edit) => isHygienePlaceholder(edit.newText))) {
         return {
           output: {
             error:
-              'refusing to insert a cache-hygiene placeholder into a file; read the source or generate the real replacement before retrying'
+              'refusing to insert a request/cache-hygiene placeholder into a file; read the source or generate the real replacement before retrying'
           },
           isError: true
         }
@@ -144,7 +162,27 @@ export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalT
 export const createEditTool = createEditLocalTool
 export const createEditToolDefinition = createEditLocalTool
 
-function isCacheHygienePlaceholder(value: string): boolean {
+function isHygienePlaceholder(value: string): boolean {
   const trimmed = value.trim()
-  return trimmed.startsWith('[cache hygiene:') && trimmed.length < 4096
+  return (
+    (trimmed.startsWith('[cache hygiene:') || trimmed.startsWith('[sciforge request_hygiene')) &&
+    trimmed.length < 4096
+  )
+}
+
+function isHygienePlaceholderValue(value: unknown): boolean {
+  if (typeof value === 'string') return isHygienePlaceholder(value)
+  return isRequestHygieneMarkerObject(value)
+}
+
+function editContainsHygienePlaceholderValue(args: Record<string, unknown>): boolean {
+  if (isHygienePlaceholderValue(args.newText)) return true
+  if (!Array.isArray(args.edits)) return false
+  return args.edits.some((edit) => edit && typeof edit === 'object' && isHygienePlaceholderValue((edit as Record<string, unknown>).newText))
+}
+
+function isRequestHygieneMarkerObject(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const marker = (value as Record<string, unknown>).__sciforge_request_hygiene__
+  return Boolean(marker && typeof marker === 'object')
 }

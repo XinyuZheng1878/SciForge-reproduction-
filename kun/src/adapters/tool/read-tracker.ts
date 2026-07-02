@@ -25,21 +25,11 @@ export class ReadTracker {
     output: unknown
     isError?: boolean
   }): void {
-    if (!this.options.enabled || input.isError || input.call.toolName !== 'read') return
-    if (!input.output || typeof input.output !== 'object') return
-    const output = input.output as Record<string, unknown>
-    const rawPath = typeof output.path === 'string' ? output.path : ''
-    if (!rawPath) return
-    const absolutePath = normalizePath(rawPath, input.context.workspace)
-    const record: ReadRecord = {
-      absolutePath,
-      truncated: output.truncated === true,
-      turnId: input.context.turnId,
-      ...(typeof output.relative_path === 'string' ? { relativePath: output.relative_path } : {}),
-      ...(typeof output.content === 'string' ? { content: output.content } : {})
-    }
+    if (!this.options.enabled || input.isError) return
+    const record = readRecordFromToolResult(input)
+    if (!record) return
     const threadRecords = this.records.get(input.context.threadId) ?? new Map<string, ReadRecord>()
-    threadRecords.set(absolutePath, record)
+    threadRecords.set(record.absolutePath, record)
     this.records.set(input.context.threadId, threadRecords)
   }
 
@@ -99,6 +89,57 @@ export function normalizeReadTrackerOptions(input: boolean | ReadTrackerOptions 
 
 function isEditTool(call: ToolCallLike): boolean {
   return call.toolName === 'edit' || call.toolName === 'edit_file' || call.toolName === 'apply_patch'
+}
+
+function readRecordFromToolResult(input: {
+  context: ToolHostContext
+  call: ToolCallLike
+  output: unknown
+}): ReadRecord | null {
+  if (!input.output || typeof input.output !== 'object') return null
+  if (input.call.toolName === 'read') {
+    const output = input.output as Record<string, unknown>
+    const rawPath = typeof output.path === 'string' ? output.path : ''
+    if (!rawPath) return null
+    const absolutePath = normalizePath(rawPath, input.context.workspace)
+    return {
+      absolutePath,
+      truncated: output.truncated === true,
+      turnId: input.context.turnId,
+      ...(typeof output.relative_path === 'string' ? { relativePath: output.relative_path } : {}),
+      ...(typeof output.content === 'string' ? { content: output.content } : {})
+    }
+  }
+
+  if (!isWorkspaceReadTool(input.call.toolName)) return null
+  const result = (input.output as Record<string, unknown>).result
+  if (!result || typeof result !== 'object') return null
+  const structured = (result as Record<string, unknown>).structuredContent
+  if (!structured || typeof structured !== 'object') return null
+  const data = structured as Record<string, unknown>
+  if (data.ok !== true || data.kind !== 'text') return null
+
+  const rawPath = typeof input.call.arguments.path === 'string'
+    ? input.call.arguments.path
+    : typeof data.relativePath === 'string'
+      ? data.relativePath
+      : ''
+  if (!rawPath) return null
+
+  const workspaceRoot = typeof data.workspaceRoot === 'string' ? data.workspaceRoot : input.context.workspace
+  const relativePath = typeof data.relativePath === 'string' ? data.relativePath : undefined
+  const absolutePath = relativePath ? normalizePath(relativePath, workspaceRoot) : normalizePath(rawPath, input.context.workspace)
+  return {
+    absolutePath,
+    relativePath,
+    truncated: data.truncated === true,
+    turnId: input.context.turnId,
+    ...(typeof data.content === 'string' ? { content: data.content } : {})
+  }
+}
+
+function isWorkspaceReadTool(toolName: string): boolean {
+  return toolName === 'gui_workspace_read' || toolName === 'mcp_gui_workspace_intel_gui_workspace_read'
 }
 
 function oldTextFragments(args: Record<string, unknown>): string[] {

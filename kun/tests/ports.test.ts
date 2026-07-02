@@ -645,4 +645,60 @@ describe('LocalToolHost', () => {
       output: { edited: true }
     })
   })
+
+  it('treats gui workspace reads as read-before-edit evidence', async () => {
+    const workspaceRead = LocalToolHost.defineTool({
+      name: 'mcp_gui_workspace_intel_gui_workspace_read',
+      description: 'workspace read',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      policy: 'auto',
+      execute: async (args, context) => ({
+        output: {
+          serverId: 'gui_workspace_intel',
+          toolName: 'gui_workspace_read',
+          result: {
+            structuredContent: {
+              ok: true,
+              workspaceRoot: context.workspace,
+              relativePath: args.path,
+              kind: 'text',
+              truncated: false,
+              content: 'hello old text'
+            }
+          }
+        }
+      })
+    })
+    const edit = LocalToolHost.defineTool({
+      name: 'edit',
+      description: 'edit',
+      inputSchema: { type: 'object', properties: {}, required: [] },
+      policy: 'auto',
+      execute: async () => ({ output: { edited: true } })
+    })
+    const host = new LocalToolHost({ tools: [workspaceRead, edit], readTracker: true })
+    const context = {
+      threadId: 'th',
+      turnId: 'tu',
+      workspace: '/tmp',
+      approvalPolicy: 'on-request' as const,
+      abortSignal: new AbortController().signal,
+      awaitApproval: async () => 'allow' as const
+    }
+
+    await host.execute(
+      { callId: 'c_workspace_read', toolName: 'mcp_gui_workspace_intel_gui_workspace_read', arguments: { path: 'a.txt' } },
+      context
+    )
+    const allowed = await host.execute(
+      { callId: 'c_edit_after_workspace_read', toolName: 'edit', arguments: { path: 'a.txt', oldText: 'old text' } },
+      context
+    )
+
+    expect(allowed.item).toMatchObject({
+      kind: 'tool_result',
+      isError: false,
+      output: { edited: true }
+    })
+  })
 })

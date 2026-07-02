@@ -908,6 +908,63 @@ test('anthropic messages request hygiene folds long tool argument arrays before 
   }
 });
 
+test('anthropic messages request hygiene folds long string tool arguments as strings', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-messages-hygiene-string-args-'));
+  const longContent = 'stage report line\n'.repeat(700);
+  const calls: CapturedFetch[] = [];
+  const server = await startModelRouterServer({
+    port: 0,
+    config: testConfig(),
+    env: testEnv(),
+    workspaceRoot,
+    fetchImpl: captureFetch(calls, [
+      chatCompletion('text-hygiene-string-args-final', 'Report write already completed.'),
+    ]),
+  });
+
+  try {
+    const response = await fetch(`${server.url}/v1/messages`, {
+      method: 'POST',
+      headers: runtimeHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        model: 'sciforge-router',
+        max_tokens: 256,
+        messages: [
+          {
+            role: 'assistant',
+            content: [{
+              type: 'tool_use',
+              id: 'previous-write',
+              name: 'write',
+              input: { path: 'report.md', content: longContent },
+            }],
+          },
+          {
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: 'previous-write',
+              content: 'Write complete.',
+            }],
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const messages = calls[0]?.body.messages as Array<Record<string, any>>;
+    const toolCall = messages[0]?.tool_calls?.[0] as Record<string, any>;
+    const args = JSON.parse(String(toolCall.function.arguments)) as Record<string, any>;
+    assert.equal(args.path, 'report.md');
+    assert.equal(typeof args.content, 'string');
+    assert.match(args.content, /sciforge request_hygiene/);
+    assert.match(args.content, /reason=large_argument_string/);
+    assert.ok(!JSON.stringify(calls[0]?.body).includes(longContent.slice(0, 80)));
+  } finally {
+    await server.close();
+  }
+});
+
 test('healthz reports provider readiness without leaking private bindings', async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sciforge-model-router-healthz-'));
   const server = await startModelRouterServer({

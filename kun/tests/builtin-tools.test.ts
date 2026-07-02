@@ -416,6 +416,16 @@ describe('Local runtime built-in tools', () => {
   it('refuses to persist cache-hygiene placeholders as file content', async () => {
     const placeholder =
       '[cache hygiene: omitted completed write.content argument, 12.5KB, approx 3375 token(s), 358 line(s); see following tool result] preview="generated script"'
+    const requestPlaceholder =
+      '[sciforge request_hygiene source=tool_call.arguments.content reason=large_argument_string digest=sha256:abc original_chars=7000 summary="generated report"]'
+    const requestMarkerObject = {
+      __sciforge_request_hygiene__: {
+        source: 'tool_call.arguments.content',
+        reason: 'large_argument_string',
+        digest: 'sha256:abc',
+        originalChars: 7000
+      }
+    }
 
     const writeResult = await host.execute(
       {
@@ -436,6 +446,44 @@ describe('Local runtime built-in tools', () => {
     })
     await expect(readFile(join(workspace, 'generated.py'), 'utf8')).rejects.toThrow()
 
+    const requestWriteResult = await host.execute(
+      {
+        callId: 'call_write_request_placeholder',
+        toolName: 'write',
+        arguments: {
+          path: 'generated-request.py',
+          content: requestPlaceholder
+        }
+      },
+      buildContext(workspace)
+    )
+
+    expect(requestWriteResult.item).toMatchObject({
+      kind: 'tool_result',
+      toolName: 'write',
+      isError: true
+    })
+    await expect(readFile(join(workspace, 'generated-request.py'), 'utf8')).rejects.toThrow()
+
+    const markerObjectWriteResult = await host.execute(
+      {
+        callId: 'call_write_request_marker_object',
+        toolName: 'write',
+        arguments: {
+          path: 'generated-marker-object.py',
+          content: requestMarkerObject
+        }
+      },
+      buildContext(workspace)
+    )
+
+    expect(markerObjectWriteResult.item).toMatchObject({
+      kind: 'tool_result',
+      toolName: 'write',
+      isError: true
+    })
+    await expect(readFile(join(workspace, 'generated-marker-object.py'), 'utf8')).rejects.toThrow()
+
     await writeFile(join(workspace, 'existing.txt'), 'alpha\n', 'utf8')
     const editResult = await host.execute(
       {
@@ -451,6 +499,26 @@ describe('Local runtime built-in tools', () => {
     )
 
     expect(editResult.item).toMatchObject({
+      kind: 'tool_result',
+      toolName: 'edit',
+      isError: true
+    })
+    await expect(readFile(join(workspace, 'existing.txt'), 'utf8')).resolves.toBe('alpha\n')
+
+    const requestEditResult = await host.execute(
+      {
+        callId: 'call_edit_request_placeholder',
+        toolName: 'edit',
+        arguments: {
+          path: 'existing.txt',
+          oldText: 'alpha',
+          newText: requestPlaceholder
+        }
+      },
+      buildContext(workspace)
+    )
+
+    expect(requestEditResult.item).toMatchObject({
       kind: 'tool_result',
       toolName: 'edit',
       isError: true

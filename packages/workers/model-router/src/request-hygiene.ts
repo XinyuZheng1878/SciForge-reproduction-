@@ -53,7 +53,7 @@ function hygienizeArgumentValue(value: unknown, source: string): unknown {
   if (typeof value === 'string') {
     const text = replaceEncodedPayloads(value, source);
     if (text.length <= MAX_ARGUMENT_STRING_CHARS) return text;
-    return markerObject(source, 'large_argument_string', value, { summary: safeSummary(text) });
+    return markerText(source, 'large_argument_string', value, safeSummary(text));
   }
   if (Array.isArray(value)) {
     if (value.length > MAX_ARGUMENT_ARRAY_ITEMS) {
