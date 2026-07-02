@@ -640,6 +640,7 @@ export type ScientificPlottingAttempt = {
   rcParamsPatch?: Record<string, string | number | boolean>
   rendererDiagnostics?: {
     legendPlacement?: 'inside' | 'outside-right' | 'none'
+    barOrientation?: 'vertical' | 'horizontal'
     categoryLabelRotation?: number
     savefigPadInches?: number
     multiPanelCount?: number

@@ -1269,6 +1269,10 @@ function parseRendererDiagnostics(stdout: string): { rendererDiagnostics?: Rende
       diagnostics.legendPlacement === 'none'
       ? diagnostics.legendPlacement
       : undefined
+    const barOrientation = diagnostics.barOrientation === 'vertical' ||
+      diagnostics.barOrientation === 'horizontal'
+      ? diagnostics.barOrientation
+      : undefined
     const categoryLabelRotation = typeof diagnostics.categoryLabelRotation === 'number' &&
       Number.isFinite(diagnostics.categoryLabelRotation)
       ? diagnostics.categoryLabelRotation
@@ -1291,6 +1295,7 @@ function parseRendererDiagnostics(stdout: string): { rendererDiagnostics?: Rende
     return {
       rendererDiagnostics: {
         ...(legendPlacement ? { legendPlacement } : {}),
+        ...(barOrientation ? { barOrientation } : {}),
         ...(categoryLabelRotation !== undefined ? { categoryLabelRotation } : {}),
         ...(savefigPadInches !== undefined ? { savefigPadInches } : {}),
         ...(multiPanelCount !== undefined ? { multiPanelCount } : {}),
@@ -4366,11 +4371,15 @@ elif template == "scatter":
 elif template == "bar" or template == "errorbar-bar":
     categories = data.get("categories") or []
     series = data.get("series") or []
+    orientation = str(data.get("orientation") or payload.get("orientation") or "").strip().lower()
+    horizontal = orientation in ("horizontal", "barh", "h")
+    show_values = bool(data.get("showValues") or payload.get("showValues"))
     x = list(range(len(categories)))
     group_width = 0.68 if len(categories) >= 4 else 0.72
     width = clamp(group_width / max(1, len(series)), 0.08, 0.34)
     positive_baseline = True
     bar_tops = []
+    bar_label_artists = []
     for index, item in enumerate(series):
         offset = (index - (len(series) - 1) / 2) * width
         values = item.get("values") or []
@@ -4383,33 +4392,92 @@ elif template == "bar" or template == "errorbar-bar":
                 if isinstance(errors, list) and value_index < len(errors):
                     error_value = abs(as_float(errors[value_index], 0))
                 bar_tops.append(as_float(value, 0) + error_value)
-        ax.bar(
-            [v + offset for v in x],
-            values,
-            yerr=errors,
-            width=width,
-            label=name,
-            linewidth=0,
-            capsize=clamp(1.6 + width * 3.0, 1.7, 2.6) if errors else 0,
-            error_kw={
-                "elinewidth": clamp(as_float(mpl.rcParams.get("lines.linewidth", 1), 1) * 0.68, 0.45, 0.8),
-                "capthick": clamp(as_float(mpl.rcParams.get("lines.linewidth", 1), 1) * 0.68, 0.45, 0.8),
-                "ecolor": mpl.rcParams.get("text.color", "#222222"),
-            } if errors else None,
-        )
-    max_category_len = max([len(str(value)) for value in categories] or [0])
-    rotation = 28 if max_category_len > 12 else 18 if max_category_len > 8 or len(categories) > 4 else 0
-    ax.set_xticks(x, categories, rotation=rotation, ha="right" if rotation else "center")
-    ax.tick_params(axis="x", pad=1.5)
-    ax.tick_params(axis="y", pad=1.5)
-    renderer_diagnostics["categoryLabelRotation"] = rotation
+        if horizontal:
+            bars = ax.barh(
+                [v + offset for v in x],
+                values,
+                xerr=errors,
+                height=width,
+                label=name,
+                linewidth=0,
+                capsize=clamp(1.6 + width * 3.0, 1.7, 2.6) if errors else 0,
+                error_kw={
+                    "elinewidth": clamp(as_float(mpl.rcParams.get("lines.linewidth", 1), 1) * 0.68, 0.45, 0.8),
+                    "capthick": clamp(as_float(mpl.rcParams.get("lines.linewidth", 1), 1) * 0.68, 0.45, 0.8),
+                    "ecolor": mpl.rcParams.get("text.color", "#222222"),
+                } if errors else None,
+            )
+            if show_values:
+                bar_label_artists.extend([(bar, as_float(value, 0)) for bar, value in zip(bars, values)])
+        else:
+            bars = ax.bar(
+                [v + offset for v in x],
+                values,
+                yerr=errors,
+                width=width,
+                label=name,
+                linewidth=0,
+                capsize=clamp(1.6 + width * 3.0, 1.7, 2.6) if errors else 0,
+                error_kw={
+                    "elinewidth": clamp(as_float(mpl.rcParams.get("lines.linewidth", 1), 1) * 0.68, 0.45, 0.8),
+                    "capthick": clamp(as_float(mpl.rcParams.get("lines.linewidth", 1), 1) * 0.68, 0.45, 0.8),
+                    "ecolor": mpl.rcParams.get("text.color", "#222222"),
+                } if errors else None,
+            )
+            if show_values:
+                bar_label_artists.extend([(bar, as_float(value, 0)) for bar, value in zip(bars, values)])
+    if horizontal:
+        ax.set_yticks(x, categories)
+        ax.invert_yaxis()
+        ax.tick_params(axis="x", pad=1.5)
+        ax.tick_params(axis="y", pad=1.5)
+        renderer_diagnostics["barOrientation"] = "horizontal"
+        renderer_diagnostics["categoryLabelRotation"] = 0
+    else:
+        max_category_len = max([len(str(value)) for value in categories] or [0])
+        rotation = 28 if max_category_len > 12 else 18 if max_category_len > 8 or len(categories) > 4 else 0
+        ax.set_xticks(x, categories, rotation=rotation, ha="right" if rotation else "center")
+        ax.tick_params(axis="x", pad=1.5)
+        ax.tick_params(axis="y", pad=1.5)
+        renderer_diagnostics["barOrientation"] = "vertical"
+        renderer_diagnostics["categoryLabelRotation"] = rotation
     if positive_baseline:
-        ax.set_ylim(bottom=0)
+        if horizontal:
+            ax.set_xlim(left=0)
+        else:
+            ax.set_ylim(bottom=0)
     if bar_tops:
         top = max(bar_tops)
         if top > 0:
-            ax.set_ylim(top=top * 1.16)
+            if horizontal:
+                ax.set_xlim(right=top * (1.22 if show_values else 1.16))
+            else:
+                ax.set_ylim(top=top * (1.22 if show_values else 1.16))
             add_layout_note("Reserved extra y-axis headroom for error bars and panel labels.")
+    if show_values and bar_label_artists:
+        label_offset = max(bar_tops or [1]) * 0.02
+        for bar, value in bar_label_artists:
+            if horizontal:
+                ax.text(
+                    bar.get_width() + label_offset,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{value:g}",
+                    va="center",
+                    ha="left",
+                    fontsize=tick_size,
+                    color=mpl.rcParams.get("text.color", "#222222"),
+                )
+            else:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + label_offset,
+                    f"{value:g}",
+                    va="bottom",
+                    ha="center",
+                    fontsize=tick_size,
+                    color=mpl.rcParams.get("text.color", "#222222"),
+                )
+        add_layout_note("Added compact value labels to categorical bars.")
     set_common_labels(ax)
     maybe_legend(ax)
 elif template == "heatmap":

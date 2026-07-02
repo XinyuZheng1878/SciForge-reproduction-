@@ -529,6 +529,55 @@ describe('scientific plotting engine', () => {
     }
   }, 60_000)
 
+  it('renders horizontal bar charts for long category labels', async () => {
+    const status = await getScientificPlottingStatus()
+    if (!status.ok || !status.renderer.available) {
+      expect(status.ok && status.degraded).toBe(true)
+      return
+    }
+
+    const workspace = await tempWorkspace()
+    try {
+      const rendered = await renderScientificPlot({
+        workspaceRoot: workspace,
+        template: 'bar',
+        figureId: 'horizontal-bar',
+        styleProfileId: 'nature-publication-light',
+        labels: {
+          title: 'Evidence categories',
+          x: 'Candidate genes',
+          y: 'Functional role',
+          legend: false
+        },
+        data: {
+          orientation: 'horizontal',
+          showValues: true,
+          categories: ['Context visibility', 'Competence chromatin', 'Post-transcriptional'],
+          series: [{ name: 'Gene count', values: [6, 5, 4] }]
+        }
+      })
+      expect(rendered).toMatchObject({ ok: true, status: 'rendered' })
+      if (!rendered.ok) return
+      expect((await stat(rendered.outputPath)).size).toBeGreaterThan(1000)
+      const manifest = JSON.parse(await readFile(rendered.manifestPath, 'utf8')) as {
+        attempts: Array<{
+          rendererDiagnostics?: {
+            barOrientation?: string
+            categoryLabelRotation?: number
+            layoutNotes?: string[]
+          }
+        }>
+      }
+      expect(manifest.attempts[0]?.rendererDiagnostics).toMatchObject({
+        barOrientation: 'horizontal',
+        categoryLabelRotation: 0
+      })
+      expect(manifest.attempts[0]?.rendererDiagnostics?.layoutNotes).toContain('Added compact value labels to categorical bars.')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   it('renders v1.12 specialized templates as non-empty PNGs', async () => {
     const status = await getScientificPlottingStatus()
     if (!status.ok || !status.renderer.available) {
