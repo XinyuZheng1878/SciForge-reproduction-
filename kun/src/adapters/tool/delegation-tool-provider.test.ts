@@ -171,7 +171,7 @@ describe('buildDelegationToolProviders', () => {
     expect((runChild.mock.calls[0]?.[0].signal as AbortSignal).aborted).toBe(true)
   })
 
-  it('returns failed children from delegate_tasks when one child run does not resolve before timeout', async () => {
+  it('returns partial children from delegate_tasks when one child run does not resolve before timeout', async () => {
     vi.useFakeTimers()
     const runChild = vi.fn(async (input: Record<string, unknown>) => {
       if (input.label === 'hang') return await new Promise(() => undefined)
@@ -208,8 +208,9 @@ describe('buildDelegationToolProviders', () => {
     await vi.advanceTimersByTimeAsync(26)
 
     await expect(resultPromise).resolves.toMatchObject({
-      isError: true,
+      isError: false,
       output: {
+        status: 'partial',
         total: 2,
         completed: 1,
         failed: 1,

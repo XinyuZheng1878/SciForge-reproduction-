@@ -266,9 +266,10 @@ describe('MultiAgentRuntime delegation integration', () => {
       awaitApproval: async () => 'allow'
     })
 
-    expect(result.item).toMatchObject({ kind: 'tool_result', isError: true })
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
     if (result.item.kind === 'tool_result') {
       expect(result.item.output).toMatchObject({
+        status: 'partial',
         total: 2,
         completed: 1,
         failed: 1,

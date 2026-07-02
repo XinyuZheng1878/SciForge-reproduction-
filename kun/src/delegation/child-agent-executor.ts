@@ -290,7 +290,10 @@ function isUsefulChildFinalText(text: string | undefined): boolean {
 }
 
 export function isBlockedChildFinalText(text: string | undefined): boolean {
-  return /^\s*CHILD_AGENT_BLOCKED\b/i.test(text?.trim() ?? '')
+  const normalized = (text?.trim() ?? '')
+    .replace(/^(?:[#>*_\-\s`])+/g, '')
+    .replace(/^(?:\*\*)?CHILD_AGENT_BLOCKED(?:\*\*)?/i, 'CHILD_AGENT_BLOCKED')
+  return /^CHILD_AGENT_BLOCKED\b/i.test(normalized)
 }
 
 export function isPrematureChildClarification(text: string | undefined): boolean {

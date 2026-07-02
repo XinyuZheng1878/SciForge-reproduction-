@@ -152,6 +152,7 @@ export type ToolsOptions = BuiltinLocalToolsOptions
 
 export interface ReadLocalToolOperations {
   stat?: (path: string) => Promise<FsStats>
+  readdir?: (path: string) => Promise<Array<{ name: string }>>
   readFile?: (path: string) => Promise<Buffer>
   detectImageMimeType?: (buffer: Buffer) => ImageDetection | null
   resizeImage?: (

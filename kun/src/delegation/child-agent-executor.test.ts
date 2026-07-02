@@ -30,6 +30,8 @@ describe('child agent final response classification', () => {
 
   it('recognizes explicit child-agent blockers', () => {
     expect(isBlockedChildFinalText('CHILD_AGENT_BLOCKED: required input file is missing.')).toBe(true)
+    expect(isBlockedChildFinalText('**CHILD_AGENT_BLOCKED**\n\nRequired input file is missing.')).toBe(true)
+    expect(isBlockedChildFinalText('### `CHILD_AGENT_BLOCKED`: missing credentials.')).toBe(true)
     expect(isPrematureChildClarification('CHILD_AGENT_BLOCKED: should I continue after the file appears?')).toBe(false)
   })
 })

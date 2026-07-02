@@ -170,13 +170,22 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
             usage: record.usage,
             effective_timeout_ms: tasks[index]?.timeoutMs ?? sharedTimeoutMs
           }))
+          const completed = children.filter((child) => child.status === 'completed').length
+          const failed = children.filter((child) => child.status === 'failed').length
+          const aborted = children.filter((child) => child.status === 'aborted').length
+          const batchStatus = completed === children.length
+            ? 'completed'
+            : completed > 0
+              ? 'partial'
+              : 'failed'
           return {
             output: {
               children,
               total: children.length,
-              completed: children.filter((child) => child.status === 'completed').length,
-              failed: children.filter((child) => child.status === 'failed').length,
-              aborted: children.filter((child) => child.status === 'aborted').length,
+              status: batchStatus,
+              completed,
+              failed,
+              aborted,
               concurrency,
               configured_concurrency: diagnostics.config.maxParallel,
               effective_timeout_ms: sharedTimeoutMs,
@@ -184,7 +193,7 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
                 ? { warning: `This batch starts at child agent spawn #${firstSpawnIndex} for the thread. Spawn only when the extra prefix/cache cost is worth it.` }
                 : {})
             },
-            isError: children.some((child) => child.status === 'failed' || child.status === 'aborted')
+            isError: batchStatus === 'failed'
           }
         }
       })

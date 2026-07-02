@@ -1,11 +1,13 @@
 import { LocalToolHost, type LocalTool } from './local-tool-host.js'
+import { DEFAULT_LIST_LIMIT, type ListEntry } from './builtin-tool-types.js'
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from './truncate.js'
 import type { ReadLocalToolOptions, TextSlice } from './builtin-tool-types.js'
-import { defaultReadLocalToolOperations } from './builtin-tool-operations.js'
+import { defaultLsLocalToolOperations, defaultReadLocalToolOperations } from './builtin-tool-operations.js'
 import {
   formatDimensionNote,
   getReadClassification,
   isBinaryBuffer,
+  listDirectoryWithOps,
   normalizePositiveInteger,
   resolveWorkspacePath,
   withToolBoundary
@@ -13,6 +15,7 @@ import {
 
 export function createReadLocalTool(options: ReadLocalToolOptions = {}): LocalTool {
   const statOp = options.operations?.stat ?? defaultReadLocalToolOperations.stat!
+  const readdirOp = options.operations?.readdir ?? defaultLsLocalToolOperations.readdir!
   const readFileOp = options.operations?.readFile ?? defaultReadLocalToolOperations.readFile!
   const detectImageMimeTypeOp =
     options.operations?.detectImageMimeType ?? defaultReadLocalToolOperations.detectImageMimeType!
@@ -20,7 +23,7 @@ export function createReadLocalTool(options: ReadLocalToolOptions = {}): LocalTo
   const autoResizeImages = options.autoResizeImages ?? true
   return LocalToolHost.defineTool({
     name: 'read',
-    description: 'Read a file from the workspace. Supports optional line offset and limit for large files.',
+    description: 'Read a workspace file. If a directory path is supplied, summarize its entries so the caller can choose files to read.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -35,8 +38,24 @@ export function createReadLocalTool(options: ReadLocalToolOptions = {}): LocalTo
     execute: async (args, context) => withToolBoundary(async () => {
       const rawPath = typeof args.path === 'string' ? args.path : ''
       if (!rawPath.trim()) return { output: { error: 'path is required' }, isError: true }
-      const { absolutePath, relativePath } = resolveWorkspacePath(rawPath, context)
-      await statOp(absolutePath)
+      const { workspaceRoot, absolutePath, relativePath } = resolveWorkspacePath(rawPath, context)
+      const targetStat = await statOp(absolutePath)
+      if (targetStat.isDirectory()) {
+        const entryLimit = normalizePositiveInteger(args.limit, DEFAULT_LIST_LIMIT)
+        const entries = await listDirectoryWithOps(absolutePath, workspaceRoot, false, entryLimit, statOp, readdirOp)
+        return {
+          output: {
+            path: absolutePath,
+            relative_path: relativePath,
+            kind: 'directory',
+            entries: directoryEntriesForOutput(entries),
+            names: entries.map((entry) => (entry.kind === 'directory' ? `${entry.name}/` : entry.name)),
+            truncated: entries.length >= entryLimit,
+            entry_limit_reached: entries.length >= entryLimit ? entryLimit : null,
+            note: 'Path is a directory. Read a listed file path, or use find with a glob pattern to select files recursively.'
+          }
+        }
+      }
       const fileBuffer = await readFileOp(absolutePath)
       const classification = getReadClassification(absolutePath, context.workspace)
       const image = detectImageMimeTypeOp(fileBuffer)
@@ -153,3 +172,10 @@ export function createReadLocalTool(options: ReadLocalToolOptions = {}): LocalTo
 
 export const createReadTool = createReadLocalTool
 export const createReadToolDefinition = createReadLocalTool
+
+function directoryEntriesForOutput(entries: ListEntry[]): Array<ListEntry & { display_name: string }> {
+  return entries.map((entry) => ({
+    ...entry,
+    display_name: entry.kind === 'directory' ? `${entry.name}/` : entry.name
+  }))
+}

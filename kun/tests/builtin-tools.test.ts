@@ -767,6 +767,34 @@ describe('Local runtime built-in tools', () => {
     })
   })
 
+  it('summarizes directory paths through the read tool', async () => {
+    await writeFile(join(workspace, 'alpha.txt'), 'alpha\n', 'utf8')
+    await mkdir(join(workspace, 'nested'), { recursive: true })
+
+    const result = await host.execute(
+      {
+        callId: 'call_read_directory',
+        toolName: 'read',
+        arguments: { path: '.', limit: 10 }
+      },
+      buildContext(workspace)
+    )
+
+    expect(result.item).toMatchObject({
+      kind: 'tool_result',
+      toolName: 'read',
+      isError: false
+    })
+    if (result.item.kind === 'tool_result') {
+      expect(result.item.output).toMatchObject({
+        kind: 'directory',
+        relative_path: '.',
+        names: expect.arrayContaining(['alpha.txt', 'nested/']),
+        note: expect.stringContaining('Path is a directory')
+      })
+    }
+  })
+
   it('rejects ambiguous multi-match edits like pi edit does', async () => {
     await writeFile(join(workspace, 'ambiguous.txt'), 'same\nsame\n', 'utf8')
     const result = await host.execute(
