@@ -263,6 +263,24 @@ describe('HTTP server', () => {
     expect(fullBody.children?.[0]?.transcript).toEqual([
       { id: 'entry-1', kind: 'assistant_message', text: 'large transcript payload' }
     ])
+
+    const camelCaseResponse = await dispatchRequest(
+      h.router,
+      new Request('http://localhost/v1/threads/thread-1/children?parentTurnId=turn-2', {
+        headers: { authorization: 'Bearer tok-1' }
+      })
+    )
+    const camelCaseBody = await readJson(camelCaseResponse) as {
+      turnId?: string
+      children?: Array<{ id: string; status: string }>
+    }
+    expect(camelCaseBody.turnId).toBe('turn-2')
+    expect(camelCaseBody.children).toEqual([
+      expect.objectContaining({
+        id: 'child-2',
+        status: 'completed'
+      })
+    ])
   })
 
   it('lists discovered skills through the HTTP layer', async () => {

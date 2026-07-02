@@ -113,7 +113,10 @@ function parseChildrenQuery(request: Request): {
   includeTranscript: boolean
 } {
   const url = new URL(request.url)
-  const turnId = stringQuery(url, 'turn_id') ?? stringQuery(url, 'turnId') ?? stringQuery(url, 'parent_turn_id')
+  const turnId = stringQuery(url, 'turn_id') ??
+    stringQuery(url, 'turnId') ??
+    stringQuery(url, 'parent_turn_id') ??
+    stringQuery(url, 'parentTurnId')
   const activeOnly = booleanQuery(url, 'active_only') ?? booleanQuery(url, 'activeOnly') ?? false
   const cursor = cursorQuery(url)
   const limit = positiveIntegerQuery(url, 'limit')
