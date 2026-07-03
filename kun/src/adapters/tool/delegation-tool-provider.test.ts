@@ -85,7 +85,7 @@ describe('buildDelegationToolProviders', () => {
       prompt: 'Verify literature and write a concise report.'
     }, fakeContext())
 
-    expect(runChild.mock.calls[0]?.[0].childTimeoutMs).toBe(300_000)
+    expect(runChild.mock.calls[0]?.[0].childTimeoutMs).toBe(600_000)
   })
 
   it('injects guardrails into every delegate_tasks prompt without duplicating existing guardrails', async () => {

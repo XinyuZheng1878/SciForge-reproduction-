@@ -2,7 +2,7 @@ import { EMPTY_MULTI_AGENT_USAGE, MultiAgentRuntimeError, type MultiAgentRuntime
 import type { CapabilityToolProvider } from './capability-registry.js'
 import { LocalToolHost } from './local-tool-host.js'
 
-const DEFAULT_DELEGATE_TIMEOUT_MS = 300_000
+const DEFAULT_DELEGATE_TIMEOUT_MS = 600_000
 const MAX_DELEGATE_TIMEOUT_MS = 1_200_000
 const PARALLEL_BUDGET_RETRY_MS = 250
 

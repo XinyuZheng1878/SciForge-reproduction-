@@ -1,15 +1,20 @@
+import { createServer, type Server } from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { HybridThreadStore } from '../src/adapters/hybrid/index.js'
 import { InMemorySessionStore } from '../src/adapters/in-memory-session-store.js'
 import { InMemoryThreadStore } from '../src/adapters/in-memory-thread-store.js'
+import { makeUserItem } from '../src/domain/item.js'
 import { createThreadRecord } from '../src/domain/thread.js'
+import { appendTurnItem, createTurnRecord, startTurn } from '../src/domain/turn.js'
 import { UsageService } from '../src/services/usage-service.js'
 import {
   createLocalRuntimeServeRuntime,
   resolveModelRouterRuntimeEndpoint,
-  seedUsageCarryover
+  seedUsageCarryover,
+  startLocalRuntimeServe
 } from '../src/server/runtime-factory.js'
 import type { UsageSnapshot } from '../src/contracts/usage.js'
 
@@ -99,6 +104,73 @@ describe('runtime factory model routing', () => {
   })
 })
 
+describe('local runtime serve startup ordering', () => {
+  it('does not reconcile persisted running turns when the requested port is occupied', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'kun-runtime-port-guard-'))
+    const busyServer = await listenBusyServer('127.0.0.1')
+    const address = busyServer.address()
+    if (!address || typeof address === 'string') throw new Error('expected TCP address')
+    const timestamp = '2026-06-28T00:00:00.000Z'
+    const seededStore = new HybridThreadStore({
+      dataDir,
+      nowIso: () => timestamp
+    })
+    await seededStore.ready()
+    const userItem = makeUserItem({
+      id: 'item_turn_live_user',
+      threadId: 'thr_live',
+      turnId: 'turn_live',
+      text: 'Keep working'
+    })
+    const liveTurn = startTurn(
+      appendTurnItem(
+        createTurnRecord({
+          id: 'turn_live',
+          threadId: 'thr_live',
+          prompt: 'Keep working',
+          createdAt: timestamp
+        }),
+        userItem
+      ),
+      timestamp
+    )
+    await seededStore.upsert({
+      ...createThreadRecord({
+        id: 'thr_live',
+        title: 'Live work',
+        workspace: '/tmp/project',
+        model: 'sciforge-router',
+        status: 'running',
+        createdAt: timestamp
+      }),
+      turns: [liveTurn]
+    })
+    seededStore.close()
+
+    try {
+      await expect(startLocalRuntimeServe({
+        ...runtimeOptions(),
+        dataDir,
+        port: address.port
+      })).rejects.toMatchObject({ code: 'EADDRINUSE' })
+
+      const verifyStore = new HybridThreadStore({
+        dataDir,
+        nowIso: () => timestamp
+      })
+      await verifyStore.ready()
+      const persisted = await verifyStore.get('thr_live')
+      verifyStore.close()
+      expect(persisted?.status).toBe('running')
+      expect(persisted?.turns[0]?.status).toBe('running')
+      expect(persisted?.turns[0]?.error).toBeUndefined()
+    } finally {
+      await closeServer(busyServer)
+      await rm(dataDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('runtime factory computer-use capability', () => {
   it('exposes GUI-Owl computer use when the sidecar URL is configured', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'kun-runtime-cua-'))
@@ -140,4 +212,24 @@ function runtimeOptions(): Parameters<typeof resolveModelRouterRuntimeEndpoint>[
     tokenEconomyMode: false,
     insecure: false
   }
+}
+
+async function listenBusyServer(host: string): Promise<Server> {
+  const server = createServer((_request, response) => {
+    response.end('busy')
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, host, () => {
+      server.off('error', reject)
+      resolve()
+    })
+  })
+  return server
+}
+
+async function closeServer(server: Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()))
+  })
 }

@@ -10,6 +10,10 @@ export type NodeHttpServerHandle = {
   close(): Promise<void>
 }
 
+export type DeferredNodeHttpServerHandle = NodeHttpServerHandle & {
+  setRouter(router: Router): void
+}
+
 export async function startNodeHttpServer(input: {
   router: Router
   host: string
@@ -31,6 +35,46 @@ export async function startNodeHttpServer(input: {
     server,
     host: input.host,
     port,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+  }
+}
+
+export async function startDeferredNodeHttpServer(input: {
+  host: string
+  port: number
+}): Promise<DeferredNodeHttpServerHandle> {
+  let router: Router | null = null
+  const server = createServer((request, response) => {
+    const current = router
+    if (!current) {
+      response.writeHead(503, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({
+        code: 'runtime_starting',
+        message: 'SciForge Runtime is starting.'
+      }))
+      return
+    }
+    void handleNodeRequest(current, request, response)
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(input.port, input.host, () => {
+      server.off('error', reject)
+      resolve()
+    })
+  })
+  const address = server.address()
+  const port = typeof address === 'object' && address ? address.port : input.port
+  return {
+    server,
+    host: input.host,
+    port,
+    setRouter(next: Router) {
+      router = next
+    },
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))

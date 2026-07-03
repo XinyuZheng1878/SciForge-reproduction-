@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { buildRouter } from './routes/index.js'
 import type { ServerRuntime } from './routes/server-runtime.js'
-import { startNodeHttpServer, type NodeHttpServerHandle } from './node-http-server.js'
+import { startDeferredNodeHttpServer, type NodeHttpServerHandle } from './node-http-server.js'
 import { FileAttachmentStore } from '../attachments/attachment-store.js'
 import { InMemoryApprovalGate } from '../adapters/in-memory-approval-gate.js'
 import { InMemoryUserInputGate } from '../adapters/in-memory-user-input-gate.js'
@@ -598,15 +598,23 @@ export async function seedUsageCarryover(input: {
 export async function startLocalRuntimeServe(
   options: LocalRuntimeServeOptions
 ): Promise<LocalRuntimeServeHandle> {
-  const runtime = await createLocalRuntimeServeRuntime(options)
-  const router = buildRouter(runtime)
-  const server = await startNodeHttpServer({
-    router,
+  const server = await startDeferredNodeHttpServer({
     host: options.host,
     port: options.port
   })
+  let runtime: ServerRuntime | undefined
+  try {
+    runtime = await createLocalRuntimeServeRuntime(options)
+    server.setRouter(buildRouter(runtime))
+  } catch (error) {
+    await server.close().catch(() => undefined)
+    await runtime?.shutdown?.().catch(() => undefined)
+    throw error
+  }
   return {
-    ...server,
+    server: server.server,
+    host: server.host,
+    port: server.port,
     runtime,
     close: async () => {
       try {

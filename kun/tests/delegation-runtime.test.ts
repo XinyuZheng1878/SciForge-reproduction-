@@ -100,7 +100,7 @@ describe('MultiAgentRuntime delegation integration', () => {
       expect(result.item.output).toMatchObject({
         status: 'completed',
         summary: expect.stringContaining('Investigate A'),
-        effective_timeout_ms: 120_000,
+        effective_timeout_ms: 600_000,
         usage: { totalTokens: 3 }
       })
     }
@@ -127,7 +127,7 @@ describe('MultiAgentRuntime delegation integration', () => {
     expect(result.item).toMatchObject({ kind: 'tool_result', isError: false })
     if (result.item.kind === 'tool_result') {
       expect(result.item.output).toMatchObject({
-        effective_timeout_ms: 600_000
+        effective_timeout_ms: 1_200_000
       })
     }
   })
@@ -179,7 +179,7 @@ describe('MultiAgentRuntime delegation integration', () => {
         failed: 0,
         aborted: 0,
         concurrency: 2,
-        effective_timeout_ms: 120_000
+        effective_timeout_ms: 600_000
       })
       expect(result.item.output).toMatchObject({
         children: expect.arrayContaining([
@@ -187,19 +187,19 @@ describe('MultiAgentRuntime delegation integration', () => {
             label: 'A',
             status: 'completed',
             summary: expect.stringContaining('Investigate A'),
-            effective_timeout_ms: 120_000
+            effective_timeout_ms: 600_000
           }),
           expect.objectContaining({
             label: 'B',
             status: 'completed',
             summary: expect.stringContaining('Investigate B'),
-            effective_timeout_ms: 120_000
+            effective_timeout_ms: 600_000
           }),
           expect.objectContaining({
             label: 'C',
             status: 'completed',
             summary: expect.stringContaining('Investigate C'),
-            effective_timeout_ms: 120_000
+            effective_timeout_ms: 600_000
           })
         ])
       })
@@ -281,7 +281,7 @@ describe('MultiAgentRuntime delegation integration', () => {
           expect.objectContaining({
             label: 'B',
             status: 'failed',
-            effective_timeout_ms: 120_000
+            effective_timeout_ms: 600_000
           })
         ])
       })
