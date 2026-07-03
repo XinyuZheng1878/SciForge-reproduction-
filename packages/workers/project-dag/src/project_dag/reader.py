@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -27,6 +28,21 @@ _UPSTREAM_RELS = {EdgeRel.SUPPORTS, EdgeRel.REFINES, EdgeRel.PREREQUISITE}
 
 CREDIBILITY_SCORE = {"high": 0.9, "medium": 0.6, "low": 0.3}
 DEFAULT_QUALITY = 0.5
+_WINDOWS_ILLEGAL_FILENAME_CHARS = re.compile(r'[/\\:<>"|?*]')
+
+
+def _safe_session_filename(session_id: str) -> str:
+    return _WINDOWS_ILLEGAL_FILENAME_CHARS.sub("_", session_id)
+
+
+def _read_thread_id(path: str) -> Optional[str]:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        tid = (doc.get("edag:meta") or {}).get("thread_id")
+        return tid if isinstance(tid, str) and tid else None
+    except (OSError, ValueError):
+        return None
 
 
 @dataclass
@@ -49,11 +65,12 @@ class SessionReader:
         out = []
         for fn in sorted(os.listdir(self.session_dir)):
             if fn.endswith(".prov.json"):
-                out.append(fn[: -len(".prov.json")])
+                path = os.path.join(self.session_dir, fn)
+                out.append(_read_thread_id(path) or fn[: -len(".prov.json")])
         return out
 
     def _path(self, session_id: str) -> str:
-        safe = session_id.replace("/", "_").replace("\\", "_")
+        safe = _safe_session_filename(session_id)
         return os.path.join(self.session_dir, f"{safe}.prov.json")
 
     def load(self, session_id: str) -> tuple[ThreadGraph, str]:

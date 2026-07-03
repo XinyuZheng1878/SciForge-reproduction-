@@ -12,6 +12,7 @@ Covers the M1-M3 acceptance criteria from the construction plan:
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -25,6 +26,10 @@ from evidence_dag.model import EdgeRel, NodeStatus, NodeType
 
 from project_dag.judge import StubJudge
 from project_dag.service import Engine
+
+
+def _safe_session_filename(session_id: str) -> str:
+    return re.sub(r'[/\\:<>"|?*]', "_", session_id)
 
 
 def _norm(s: str) -> str:
@@ -76,7 +81,7 @@ def write_session(session_dir: str, sid: str, claims: list[tuple[str, str, str]]
         c = g.add_or_get_node(NodeType.CLAIM, claim_text)
         c.status = NodeStatus.SUPPORTED
         g.add_edge(s.id, c.id, EdgeRel.SUPPORTS, nli_score=0.9)
-    with open(os.path.join(session_dir, f"{sid}.prov.json"), "w",
+    with open(os.path.join(session_dir, f"{_safe_session_filename(sid)}.prov.json"), "w",
               encoding="utf-8") as fh:
         fh.write(provjson.dumps(g))
 
@@ -106,6 +111,21 @@ class CompileTests(unittest.TestCase):
         r2 = self.engine.compile()
         self.assertEqual(r2["stats"]["sessions_compiled"], 0)
         self.assertEqual(len(self.engine.claims(goal_id=self.goal["root_id"])), 1)
+
+    # regression: Evidence-DAG stores Windows-safe filenames, but the real id is in PROV meta
+    def test_colon_session_id_roundtrip_from_prov_meta(self):
+        write_session(self.sessions, "codex:thread-42",
+                      [("pipeline v3 improves accuracy on x2", "paper A", "high")])
+        self.assertTrue(os.path.exists(os.path.join(
+            self.sessions, "codex_thread-42.prov.json")))
+
+        r = self.engine.compile()
+
+        self.assertEqual(r["diff"]["sessions"], ["codex:thread-42"])
+        claim = self.engine.claims(goal_id=self.goal["root_id"])[0]
+        detail = self.engine.claim_detail(claim["id"])
+        self.assertEqual(detail["origins"][0]["session_id"], "codex:thread-42")
+        self.assertTrue(detail["supports"][0]["content_ref"].startswith("codex:thread-42#"))
 
     # cold start: no goals -> orphan pool, adopt via review
     def test_orphan_pool_and_adopt(self):
@@ -154,6 +174,34 @@ class CompileTests(unittest.TestCase):
         self.assertEqual(len(alive_sup), 2)          # two independent sources
         self.assertEqual(claims[0]["status"], "supported")
         self.assertEqual(len(detail["origins"]), 2)  # both sessions on record
+
+    # regression: rewriting one merged session must not close another session's support
+    def test_rewrite_one_session_preserves_other_support(self):
+        write_session(self.sessions, "s1",
+                      [("pipeline v3 improves accuracy on x2", "paper A", "high")])
+        self.engine.compile()
+        write_session(self.sessions, "s2",
+                      [("(again) pipeline v3 improves accuracy on x2", "paper B",
+                        "medium")])
+        self.engine.compile()
+        claim = self.engine.claims(goal_id=self.goal["root_id"])[0]
+        before = self.engine.claim_detail(claim["id"])
+        self.assertEqual(
+            len([s for s in before["supports"] if s["edge_t_invalid"] is None]),
+            2,
+        )
+
+        write_session(self.sessions, "s1",
+                      [("something unrelated entirely", "paper D", "medium")])
+        self.engine.compile()
+
+        old = self.engine.store.q1("SELECT * FROM claim WHERE id=?", (claim["id"],))
+        self.assertIsNone(old["t_invalid"])
+        self.assertEqual(old["status"], "fragile")
+        after = self.engine.claim_detail(claim["id"])
+        alive_sup = [s for s in after["supports"] if s["edge_t_invalid"] is None]
+        self.assertEqual(len(alive_sup), 1)
+        self.assertEqual(alive_sup[0]["edge_meta"]["session"], "s2")
 
     # M3: contradiction -> rule adjudication, weaker invalidated, reason readable
     def test_conflict_adjudication(self):

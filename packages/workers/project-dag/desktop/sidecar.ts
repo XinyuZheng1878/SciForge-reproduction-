@@ -106,6 +106,7 @@ export function buildProjectDagLaunch(
         PDAG_PORT: String(port),
         PDAG_SESSION_DIR: sessionDir,
         PDAG_DB_PATH: dbPath,
+        PDAG_SCHEDULE: baseEnv.PDAG_SCHEDULE ?? '0',
         [PROJECT_DAG_API_KEY_ENV]: runtimeToken,
         [PROJECT_DAG_SERVICE_URL_ENV]: baseUrl,
         [MODEL_ROUTER_BASE_URL_ENV]: router.baseUrl,
@@ -156,14 +157,14 @@ export async function ensureProjectDagSidecar(
   if (isProjectDagChildRunning()) {
     if (projectDagLaunchSignature === signature) {
       await (projectDagReadyPromise ??
-        waitForProjectDagHealth(launch.baseUrl, DEFAULT_READY_TIMEOUT_MS))
+        waitForProjectDagHealth(launch.baseUrl, launch.runtimeToken, DEFAULT_READY_TIMEOUT_MS))
       return
     }
     options.log?.('Project DAG sidecar launch settings changed; restarting sidecar.')
     await stopProjectDagSidecar()
   } else {
-    const healthy = await checkProjectDagHealth(launch.baseUrl).catch(() => false)
-    if (healthy) return
+    const health = await checkProjectDagHealth(launch.baseUrl, launch.runtimeToken).catch(() => null)
+    if (isProjectDagServiceHealth(health)) return
   }
 
   const spawnImpl = options.spawnImpl ?? spawn
@@ -175,7 +176,11 @@ export async function ensureProjectDagSidecar(
     detached: false
   })
   projectDagLaunchSignature = signature
-  projectDagReadyPromise = waitForProjectDagHealth(launch.baseUrl, DEFAULT_READY_TIMEOUT_MS)
+  projectDagReadyPromise = waitForProjectDagHealth(
+    launch.baseUrl,
+    launch.runtimeToken,
+    DEFAULT_READY_TIMEOUT_MS
+  )
   const child = projectDagChild
   attachProjectDagChildLogging(child, options.log)
   child.once('error', (error) => {
@@ -224,23 +229,36 @@ export async function stopProjectDagSidecar(): Promise<void> {
   })
 }
 
-async function checkProjectDagHealth(baseUrl: string): Promise<boolean> {
-  const response = await fetch(`${baseUrl}/health`, {
+async function checkProjectDagHealth(baseUrl: string, runtimeToken: string): Promise<unknown> {
+  const response = await fetch(`${baseUrl}/version`, {
     method: 'GET',
-    headers: { Accept: 'application/json' },
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${runtimeToken}`
+    },
     signal: AbortSignal.timeout(2_000)
   })
   if (!response.ok) throw new Error(`health returned HTTP ${response.status}`)
-  const body = (await response.json()) as { ok?: unknown; service?: unknown }
-  return body.ok === true && body.service === 'project-dag-engine'
+  return response.json()
 }
 
-async function waitForProjectDagHealth(baseUrl: string, timeoutMs: number): Promise<void> {
+function isProjectDagServiceHealth(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const body = value as { ok?: unknown; data?: { service?: unknown } }
+  return body.ok === true && body.data?.service === 'project-dag-engine'
+}
+
+async function waitForProjectDagHealth(
+  baseUrl: string,
+  runtimeToken: string,
+  timeoutMs: number
+): Promise<void> {
   const startedAt = Date.now()
   let lastMessage = ''
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      if (await checkProjectDagHealth(baseUrl)) return
+      const health = await checkProjectDagHealth(baseUrl, runtimeToken)
+      if (isProjectDagServiceHealth(health)) return
       lastMessage = 'unexpected Project DAG health payload'
     } catch (error) {
       lastMessage = error instanceof Error ? error.message : String(error)

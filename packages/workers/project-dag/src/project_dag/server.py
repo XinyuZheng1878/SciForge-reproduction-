@@ -102,8 +102,6 @@ class Handler(BaseHTTPRequestHandler):
 
         if u.path == "/health":
             return self._send(200, {"ok": True, "service": SERVICE_ID})
-        if u.path == "/version":
-            return self._send(200, {"ok": True, "version": __version__})
         if u.path == "/" and method == "GET":
             try:
                 with open(_UI_PATH, encoding="utf-8") as fh:
@@ -121,6 +119,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(503 if not self.api_token else 401,
                               err("UNAVAILABLE" if not self.api_token else "UNAUTHORIZED",
                                   "missing/invalid bearer token", op, rid, started))
+        if u.path == "/version":
+            return self._send(200, ok({"version": __version__, "service": SERVICE_ID},
+                                      op, rid, started))
         try:
             data = self._dispatch(method, parts, q)
         except KeyError as exc:

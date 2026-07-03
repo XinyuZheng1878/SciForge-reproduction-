@@ -42,6 +42,36 @@ def _sim(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, _norm(a), _norm(b)).ratio()
 
 
+def _support_origin(session_id: str, node_id: str, run_id: Optional[str] = None) -> dict:
+    out = {"session": session_id, "node": node_id}
+    if run_id is not None:
+        out["run"] = run_id
+    return out
+
+
+def _support_meta(run_id: str, session_id: str, node_id: str,
+                  *, merged: bool = False) -> dict:
+    meta: dict[str, Any] = {
+        "run": run_id,
+        "session": session_id,
+        "claim_node": node_id,
+        "origins": [_support_origin(session_id, node_id, run_id)],
+    }
+    if merged:
+        meta["merged"] = True
+    return meta
+
+
+def _load_edge_meta(edge: dict) -> dict:
+    if not edge.get("meta"):
+        return {}
+    try:
+        meta = json.loads(edge["meta"])
+    except (TypeError, ValueError):
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
 class CompileError(RuntimeError):
     pass
 
@@ -141,8 +171,7 @@ class Compiler:
             for row in st.q("SELECT claim_id FROM claim_origin WHERE session_id=? AND node_id=?",
                             (delta.session_id, nid)):
                 cid = row["claim_id"]
-                for e in st.alive_edges(dst=cid, edge_type="supports"):
-                    st.close_edge(e["id"])
+                self._drop_support_origin(cid, delta.session_id, nid)
                 touched.add(cid)
 
         goals = st.active_goals()
@@ -190,6 +219,42 @@ class Compiler:
         # session — otherwise every later session re-enqueues the accumulated
         # pool and the same orphan shows up as many review items.
         return touched
+
+    def _drop_support_origin(self, claim_id: str, session_id: str, node_id: str) -> None:
+        """Remove only the support path contributed by one vanished claim node."""
+        st = self.store
+        for edge in st.alive_edges(dst=claim_id, edge_type="supports"):
+            meta = _load_edge_meta(edge)
+            origins = meta.get("origins")
+            if isinstance(origins, list):
+                kept = [
+                    o for o in origins
+                    if not (
+                        isinstance(o, dict)
+                        and o.get("session") == session_id
+                        and o.get("node") == node_id
+                    )
+                ]
+                if len(kept) == len(origins):
+                    continue
+                if kept:
+                    meta["origins"] = kept
+                    first = next((o for o in kept if isinstance(o, dict)), None)
+                    if first is not None:
+                        meta["session"] = first.get("session")
+                        meta["claim_node"] = first.get("node")
+                        if first.get("run") is not None:
+                            meta["run"] = first.get("run")
+                    st.x("UPDATE edge SET meta=? WHERE id=?",
+                         (json.dumps(meta, ensure_ascii=False), edge["id"]))
+                else:
+                    st.close_edge(edge["id"])
+                continue
+
+            # Backward compatibility for support edges written before origins
+            # were tracked. This preserves other sessions' supports.
+            if meta.get("session") == session_id:
+                st.close_edge(edge["id"])
 
     # ------------------------------------------------------------ Phase 3: ER
     def _resolve_entities(self, names: list[str], context: str, diff: dict) -> list[str]:
@@ -359,8 +424,8 @@ class Compiler:
         for eid in entity_ids:
             st.add_edge(cid, eid, "mentions")
         for evid in evidence_ids:
-            st.add_edge(evid, cid, "supports", meta={"run": run_id,
-                                                     "session": delta.session_id})
+            st.add_edge(evid, cid, "supports",
+                        meta=_support_meta(run_id, delta.session_id, node_id))
         st.x("INSERT OR IGNORE INTO claim_origin (claim_id,session_id,node_id,run_id)"
              " VALUES (?,?,?,?)", (cid, delta.session_id, node_id, run_id))
         return cid
@@ -370,13 +435,39 @@ class Compiler:
         """Equivalent claim re-confirmed: the existing claim gains a new support
         path + origin, no text rewrite. This is the cross-session robustness."""
         st = self.store
-        existing = {e["src"] for e in st.alive_edges(dst=target, edge_type="supports")}
+        existing = {e["src"]: e for e in st.alive_edges(dst=target, edge_type="supports")}
         for evid in evidence_ids:
             if evid not in existing:
                 st.add_edge(evid, target, "supports",
-                            meta={"run": run_id, "session": session_id, "merged": True})
+                            meta=_support_meta(run_id, session_id, node_id, merged=True))
+            else:
+                self._append_support_origin(existing[evid], session_id, node_id, run_id)
         st.x("INSERT OR IGNORE INTO claim_origin (claim_id,session_id,node_id,run_id)"
              " VALUES (?,?,?,?)", (target, session_id, node_id, run_id))
+
+    def _append_support_origin(self, edge: dict, session_id: str, node_id: str,
+                               run_id: str) -> None:
+        st = self.store
+        meta = _load_edge_meta(edge)
+        origin = _support_origin(session_id, node_id, run_id)
+        origins = meta.get("origins")
+        if not isinstance(origins, list):
+            origins = []
+            if meta.get("session") is not None and meta.get("claim_node") is not None:
+                origins.append(_support_origin(str(meta["session"]),
+                                               str(meta["claim_node"]),
+                                               meta.get("run")))
+        if any(
+            isinstance(o, dict)
+            and o.get("session") == session_id
+            and o.get("node") == node_id
+            for o in origins
+        ):
+            return
+        origins.append(origin)
+        meta["origins"] = origins
+        st.x("UPDATE edge SET meta=? WHERE id=?",
+             (json.dumps(meta, ensure_ascii=False), edge["id"]))
 
     # ------------------------------------------------------- Phase 5: conflicts
     def _detect_conflicts(self, cid: str, statement: str, goal_id: str,
