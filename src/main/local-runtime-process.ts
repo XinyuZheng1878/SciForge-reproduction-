@@ -41,6 +41,7 @@ import {
   resolveLocalRuntimeMcpJsonPath,
   type ScheduleMcpLaunchConfig
 } from './schedule-mcp-config'
+import { stripManagedGuiMcpServers } from './managed-gui-mcp-config'
 import { internalSecretEnv } from './internal-http-secret'
 import type { ResearchSearchMcpLaunchConfig } from './research-search-mcp-config'
 import {
@@ -591,7 +592,7 @@ export async function syncGuiManagedLocalRuntimeConfig(
   const existingRuntimeTuning = objectValue(existing?.runtime)
   const capabilities = objectValue(existing?.capabilities)
   const mcp = objectValue(capabilities.mcp)
-  const mcpServers = objectValue(mcp.servers)
+  const mcpServers = stripManagedGuiMcpServers(objectValue(mcp.servers), managedGuiMcpServerNames())
   const search = objectValue(mcp.search)
   const attachments = objectValue(capabilities.attachments)
   const web = objectValue(capabilities.web)
@@ -615,7 +616,7 @@ export async function syncGuiManagedLocalRuntimeConfig(
     imageGenerationMcp: options?.imageGenerationMcp,
     pptMasterMcp: options?.pptMasterMcp,
     sciforgeCanvasMcp: options?.sciforgeCanvasMcp
-  }, mcpServers)
+  })
   const hasEnabledManagedMcpServer = hasEnabledManagedGuiMcpServer(managedMcpServers)
   const next = {
     serve: {
@@ -979,7 +980,13 @@ function parseLocalRuntimeConfigSection(
 function sanitizeLocalRuntimeCapabilitiesConfig(value: unknown): Record<string, unknown> {
   const raw = objectValue(value)
   const next: Record<string, unknown> = {}
-  if ('mcp' in raw) next.mcp = parseLocalRuntimeConfigSection(McpCapabilityConfig, raw.mcp)
+  if ('mcp' in raw) {
+    const mcp = objectValue(raw.mcp)
+    next.mcp = parseLocalRuntimeConfigSection(McpCapabilityConfig, {
+      ...mcp,
+      servers: stripManagedGuiMcpServers(objectValue(mcp.servers), managedGuiMcpServerNames())
+    })
+  }
   if ('web' in raw) next.web = parseLocalRuntimeConfigSection(WebCapabilityConfig, raw.web)
   if ('skills' in raw) next.skills = parseLocalRuntimeConfigSection(SkillsCapabilityConfig, raw.skills)
   if ('subagents' in raw) {

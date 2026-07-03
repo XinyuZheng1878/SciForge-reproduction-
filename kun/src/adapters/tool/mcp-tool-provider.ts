@@ -30,6 +30,68 @@ const GUI_WORKSPACE_INTEL_MCP_SERVER_ID = 'gui_workspace_intel'
 const GUI_WORKSPACE_TOOL_PREFIX = 'gui_workspace_'
 const REMOTE_EXECUTOR_MCP_SERVER_ID = 'remote_executor'
 const REMOTE_EXECUTOR_TOOL_PREFIX = 'remote_'
+const DEFAULT_MCP_INHERITED_ENV_NAMES = process.platform === 'win32'
+  ? [
+      'APPDATA',
+      'COMSPEC',
+      'HOMEDRIVE',
+      'HOMEPATH',
+      'LOCALAPPDATA',
+      'PATH',
+      'PATHEXT',
+      'PROCESSOR_ARCHITECTURE',
+      'PROGRAMDATA',
+      'PROGRAMFILES',
+      'PROGRAMFILES(X86)',
+      'SYSTEMDRIVE',
+      'SYSTEMROOT',
+      'TEMP',
+      'TMP',
+      'USERNAME',
+      'USERPROFILE',
+      'WINDIR'
+    ]
+  : ['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'TMPDIR', 'USER']
+const POSIX_FALLBACK_EXECUTABLE_PATHS = [
+  '/opt/homebrew/bin',
+  '/opt/homebrew/sbin',
+  '/usr/local/bin',
+  '/usr/bin',
+  '/bin',
+  '/usr/sbin',
+  '/sbin'
+]
+const UPSTREAM_PROVIDER_PREFIX_SPECS: readonly {
+  groups: readonly (readonly string[])[]
+  separator?: string
+}[] = [
+  { groups: [['OPEN', 'AI']] },
+  { groups: [['DEEP', 'SEEK']] },
+  { groups: [['ANTHROPIC']] },
+  { groups: [['QWEN']] },
+  { groups: [['DASH', 'SCOPE']] },
+  { groups: [['GEMINI']] },
+  { groups: [['GOOGLE']] },
+  { groups: [['GROQ']] },
+  { groups: [['MISTRAL']] },
+  { groups: [['COHERE']] },
+  { groups: [['OPEN', 'ROUTER']] },
+  { groups: [['AZURE'], ['OPEN', 'AI']], separator: '_' },
+  { groups: [['TOGETHER']] },
+  { groups: [['FIREWORKS']] },
+  { groups: [['XAI']] },
+  { groups: [['PERPLEXITY']] },
+  { groups: [['MOONSHOT']] },
+  { groups: [['ZHIPU']] },
+  { groups: [['SILICON', 'FLOW']] },
+  { groups: [['ARK']] }
+]
+const UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES = ['MODEL', 'BASE_URL', 'API_BASE', 'API_BASE_URL']
+const UPSTREAM_PROVIDER_CONFIG_ENV_NAMES = ['MODEL_PROVIDER', 'KUN_BASE_URL']
+const DIRECT_PROVIDER_WORKER_ENV_PREFIXES = [
+  ['EDAG', 'LLM', ''].join('_'),
+  ['SCIFORGE', 'IMAGE', ''].join('_')
+]
 
 export type McpToolDescriptor = {
   name: string
@@ -261,7 +323,7 @@ function createTransport(server: McpServerConfig): Transport {
       return new StdioClientTransport({
         command: server.command ?? '',
         args: server.args,
-        env: server.env,
+        env: mcpStdioChildEnv(server.env),
         stderr: 'pipe'
       })
     case 'streamable-http':
@@ -274,6 +336,57 @@ function createTransport(server: McpServerConfig): Transport {
         eventSourceInit: { fetch: fetchWithHeaders(server.headers) }
       })
   }
+}
+
+export function mcpStdioChildEnv(
+  serverEnv: Record<string, string> = {},
+  baseEnv: NodeJS.ProcessEnv = process.env
+): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const key of DEFAULT_MCP_INHERITED_ENV_NAMES) {
+    const value = baseEnv[key]
+    if (typeof value === 'string' && value && !value.startsWith('()')) env[key] = value
+  }
+  if (process.platform !== 'win32') {
+    env.PATH = posixExecutablePath(env.PATH)
+  }
+  for (const [key, value] of Object.entries(serverEnv)) {
+    if (value && !value.startsWith('()')) env[key] = value
+  }
+  for (const key of Object.keys(env)) {
+    if (isBlockedDirectModelEnv(key)) delete env[key]
+  }
+  return env
+}
+
+function posixExecutablePath(current: string | undefined): string {
+  const entries = new Set((current || '').split(':').filter(Boolean))
+  for (const fallback of POSIX_FALLBACK_EXECUTABLE_PATHS) entries.add(fallback)
+  return [...entries].join(':')
+}
+
+function isBlockedDirectModelEnv(key: string): boolean {
+  const upstreamProviderPrefixes = upstreamProviderEnvPrefixes()
+  if (
+    upstreamProviderPrefixes.some((prefix) =>
+      key === `${prefix}_API_KEY` ||
+      (prefix === 'ANTHROPIC' && key === `${prefix}_AUTH_TOKEN`)
+    )
+  ) {
+    return true
+  }
+  if (UPSTREAM_PROVIDER_CONFIG_ENV_NAMES.includes(key)) return true
+  if (/^ANTHROPIC_DEFAULT_[A-Z0-9_]+_MODEL$/.test(key)) return true
+  if (DIRECT_PROVIDER_WORKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) return true
+  return upstreamProviderPrefixes.some((prefix) =>
+    UPSTREAM_PROVIDER_CONFIG_ENV_SUFFIXES.some((suffix) => key === `${prefix}_${suffix}`)
+  )
+}
+
+function upstreamProviderEnvPrefixes(): string[] {
+  return UPSTREAM_PROVIDER_PREFIX_SPECS.map(({ groups, separator = '' }) =>
+    groups.map((group) => group.join('')).join(separator)
+  )
 }
 
 function fetchWithHeaders(headers: Record<string, string>): typeof fetch {

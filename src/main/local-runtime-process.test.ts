@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type AddressInfo } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -34,6 +34,7 @@ vi.mock('electron', () => ({
 let tempRoot: string | null = null
 
 function createSettings(binaryPath: string, port = 8899): AppSettingsV1 {
+  const runtimeDataDir = tempRoot ? join(tempRoot, 'runtime') : join(tmpdir(), 'sciforge-local-runtime-test')
   return {
     version: 1,
     locale: 'en',
@@ -47,6 +48,7 @@ function createSettings(binaryPath: string, port = 8899): AppSettingsV1 {
     agents: {
       sciforge: {
         ...defaultLocalRuntimeSettings(port),
+        dataDir: runtimeDataDir,
         binaryPath,
         autoStart: true
       }
@@ -163,6 +165,8 @@ describe('startLocalRuntimeChild', () => {
     const module = await import('./local-runtime-process')
     await expect(module.startLocalRuntimeChild(createSettings(script))).resolves.toBeUndefined()
     expect(module.isLocalRuntimeChildRunning()).toBe(true)
+    if (!tempRoot) throw new Error('temp root not initialized')
+    expect(existsSync(join(tempRoot, 'runtime', 'config.json'))).toBe(true)
     await module.stopLocalRuntimeChildAndWait()
     const logText = await readLocalRuntimeLog()
     expect(logText).toContain('KUN_READY')
@@ -610,6 +614,43 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
       trustScope: 'user',
       timeoutMs: 30000
     })
+  })
+
+  it('drops stale GUI-managed MCP servers from existing local runtime config', async () => {
+    if (!tempRoot) throw new Error('temp root not initialized')
+    const configPath = join(tempRoot, 'config.json')
+    writeFileSync(configPath, JSON.stringify({
+      capabilities: {
+        mcp: {
+          enabled: true,
+          servers: {
+            gui_research: {
+              enabled: true,
+              transport: 'stdio',
+              command: '/tmp/old-node',
+              args: ['/tmp/sciforge-test-app/out/main/research-search-mcp-node-entry.js']
+            },
+            user_server: {
+              enabled: true,
+              transport: 'stdio',
+              command: 'node',
+              args: ['user-server.js'],
+              trustScope: 'user'
+            }
+          }
+        }
+      }
+    }), 'utf8')
+    const module = await import('./local-runtime-process')
+
+    await module.syncGuiManagedLocalRuntimeConfig(tempRoot, defaultLocalRuntimeSettings())
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as any
+    expect(parsed.capabilities.mcp.servers.user_server).toMatchObject({
+      command: 'node',
+      args: ['user-server.js']
+    })
+    expect(parsed.capabilities.mcp.servers.gui_research).toBeUndefined()
   })
 
   it('adds the shared workflow MCP server to the local runtime capabilities', async () => {

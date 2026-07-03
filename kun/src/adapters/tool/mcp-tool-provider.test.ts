@@ -3,6 +3,7 @@ import { McpCapabilityConfig } from '../../contracts/capabilities.js'
 import type { ToolHostContext } from '../../ports/tool-host.js'
 import {
   buildMcpToolProviders,
+  mcpStdioChildEnv,
   normalizeMcpToolName,
   type McpClientLike
 } from './mcp-tool-provider.js'
@@ -35,6 +36,39 @@ function config() {
 }
 
 describe('buildMcpToolProviders workspace-intel arguments', () => {
+  it('builds a safe stdio child env with executable PATH support', () => {
+    const env = mcpStdioChildEnv(
+      {
+        GITHUB_PERSONAL_ACCESS_TOKEN: 'github-token',
+        OPENAI_API_KEY: 'server-openai-key',
+        DEEPSEEK_BASE_URL: 'https://direct-provider.example/v1',
+        SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY: 'router-key',
+        SCIFORGE_MODEL_ROUTER_BASE_URL: 'http://127.0.0.1:3892/v1'
+      },
+      {
+        PATH: '/usr/bin:/bin',
+        HOME: '/Users/example',
+        OPENAI_API_KEY: 'parent-openai-key',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'direct-sonnet',
+        EDAG_LLM_API_KEY: 'parent-edag-key',
+        SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY: 'parent-router-key'
+      }
+    )
+
+    expect(env.PATH?.split(':')).toEqual(expect.arrayContaining(['/usr/bin', '/bin']))
+    if (process.platform !== 'win32') {
+      expect(env.PATH?.split(':')).toEqual(expect.arrayContaining(['/opt/homebrew/bin', '/usr/local/bin']))
+    }
+    expect(env.HOME).toBe('/Users/example')
+    expect(env.GITHUB_PERSONAL_ACCESS_TOKEN).toBe('github-token')
+    expect(env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY).toBe('router-key')
+    expect(env.SCIFORGE_MODEL_ROUTER_BASE_URL).toBe('http://127.0.0.1:3892/v1')
+    expect(env.OPENAI_API_KEY).toBeUndefined()
+    expect(env.DEEPSEEK_BASE_URL).toBeUndefined()
+    expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined()
+    expect(env.EDAG_LLM_API_KEY).toBeUndefined()
+  })
+
   it('injects the thread workspaceRoot for gui_workspace tools when the model omits it', async () => {
     const callTool = vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }] }))
     const client: McpClientLike = {

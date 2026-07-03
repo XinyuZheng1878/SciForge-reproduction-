@@ -28,6 +28,7 @@ import {
   GUI_RESEARCH_MCP_DESCRIPTOR,
   GUI_RESEARCH_MCP_SERVER_NAME,
   RESEARCH_SEARCH_MCP_TIMEOUT_MS,
+  RETIRED_GUI_RESEARCH_MCP_SERVER_NAMES,
   researchSearchMcpEnabledTools,
   researchSearchMcpEnv,
   resolveResearchSearchMcpCommand,
@@ -216,7 +217,7 @@ export type GuiMcpRegistryInput = {
   }
 }
 
-type LocalRuntimeServerBuilder = (existing: unknown) => Record<string, unknown>
+type LocalRuntimeServerBuilder = () => Record<string, unknown>
 
 export const GUI_MCP_DESCRIPTORS: readonly ManagedGuiMcpDescriptor[] = [
   GUI_SCHEDULE_MCP_DESCRIPTOR,
@@ -237,6 +238,7 @@ export const GUI_MCP_DESCRIPTORS: readonly ManagedGuiMcpDescriptor[] = [
 export function managedGuiMcpServerNames(): string[] {
   return [
     ...GUI_MCP_DESCRIPTORS.flatMap((descriptor) => managedGuiMcpNames(descriptor)),
+    ...RETIRED_GUI_RESEARCH_MCP_SERVER_NAMES,
     ...RETIRED_GUI_COMPUTER_USE_MCP_SERVER_NAMES
   ]
 }
@@ -246,12 +248,11 @@ export async function syncExternalManagedGuiMcpConfig(path = resolveLocalRuntime
 }
 
 export function buildLocalRuntimeManagedGuiMcpServers(
-  input: GuiMcpRegistryInput,
-  existingServers: Record<string, unknown> = {}
+  input: GuiMcpRegistryInput
 ): Record<string, unknown> {
   const servers: Record<string, unknown> = {}
   for (const [serverName, build] of localRuntimeServerBuilders(input)) {
-    servers[serverName] = build(existingServers[serverName])
+    servers[serverName] = build()
   }
   return servers
 }
@@ -292,30 +293,29 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.scheduleMcp && scheduleSettings) {
     builders.push([
       GUI_SCHEDULE_MCP_SERVER_NAME,
-      (existing) => buildScheduleLocalRuntimeMcpServerConfig(scheduleSettings, input.scheduleMcp!.launch, existing)
+      () => buildScheduleLocalRuntimeMcpServerConfig(scheduleSettings, input.scheduleMcp!.launch)
     ])
   }
   if (input.researchMcp) {
     builders.push([
       GUI_RESEARCH_MCP_SERVER_NAME,
-      (existing) => buildResearchSearchLocalRuntimeMcpServerConfig(input.researchMcp!.launch, existing)
+      () => buildResearchSearchLocalRuntimeMcpServerConfig(input.researchMcp!.launch)
     ])
   }
   const workflowSettings = input.workflowMcp?.settings ?? settings
   if (input.workflowMcp && workflowSettings) {
     builders.push([
       GUI_WORKFLOW_MCP_SERVER_NAME,
-      (existing) => buildWorkflowLocalRuntimeMcpServerConfig(workflowSettings, input.workflowMcp!.launch, existing)
+      () => buildWorkflowLocalRuntimeMcpServerConfig(workflowSettings, input.workflowMcp!.launch)
     ])
   }
   const workspaceIntelSettings = input.workspaceIntelMcp?.settings ?? settings
   if (input.workspaceIntelMcp && workspaceIntelSettings) {
     builders.push([
       GUI_WORKSPACE_INTEL_MCP_SERVER_NAME,
-      (existing) => buildWorkspaceIntelLocalRuntimeMcpServerConfig(
+      () => buildWorkspaceIntelLocalRuntimeMcpServerConfig(
         workspaceIntelSettings,
-        input.workspaceIntelMcp!.launch,
-        existing
+        input.workspaceIntelMcp!.launch
       )
     ])
   }
@@ -323,9 +323,9 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
     const remoteExecutorSettings = input.remoteExecutorMcp.settings ?? settings
     builders.push([
       GUI_REMOTE_EXECUTOR_MCP_SERVER_NAME,
-      (existing) => buildRemoteExecutorLocalRuntimeMcpServerConfig(
+      () => buildRemoteExecutorLocalRuntimeMcpServerConfig(
         input.remoteExecutorMcp!.launch,
-        existing,
+        undefined,
         input.remoteExecutorMcp!.enabled !== false,
         remoteExecutorSettings
       )
@@ -334,24 +334,23 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.paperRadarMcp) {
     builders.push([
       GUI_PAPER_RADAR_MCP_SERVER_NAME,
-      (existing) => buildPaperRadarLocalRuntimeMcpServerConfig(input.paperRadarMcp!.launch, existing)
+      () => buildPaperRadarLocalRuntimeMcpServerConfig(input.paperRadarMcp!.launch)
     ])
   }
   const writeAssistSettings = input.writeAssistMcp?.settings ?? settings
   if (input.writeAssistMcp && writeAssistSettings) {
     builders.push([
       GUI_WRITE_ASSIST_MCP_SERVER_NAME,
-      (existing) => buildWriteAssistLocalRuntimeMcpServerConfig(writeAssistSettings, input.writeAssistMcp!.launch, existing)
+      () => buildWriteAssistLocalRuntimeMcpServerConfig(writeAssistSettings, input.writeAssistMcp!.launch)
     ])
   }
   const runtimeInspectorSettings = input.runtimeInspectorMcp?.settings ?? settings
   if (input.runtimeInspectorMcp && runtimeInspectorSettings) {
     builders.push([
       GUI_RUNTIME_INSPECTOR_MCP_SERVER_NAME,
-      (existing) => buildRuntimeInspectorLocalRuntimeMcpServerConfig(
+      () => buildRuntimeInspectorLocalRuntimeMcpServerConfig(
         runtimeInspectorSettings,
-        input.runtimeInspectorMcp!.launch,
-        existing
+        input.runtimeInspectorMcp!.launch
       )
     ])
   }
@@ -359,9 +358,9 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.scientificSkillsMcp && scientificSkillsSettings) {
     builders.push([
       GUI_SCIENTIFIC_SKILLS_MCP_SERVER_NAME,
-      (existing) => buildScientificSkillsLocalRuntimeMcpServerConfig(
+      () => buildScientificSkillsLocalRuntimeMcpServerConfig(
         input.scientificSkillsMcp!.launch,
-        existing,
+        undefined,
         scientificSkillsSettings.workspaceRoot
       )
     ])
@@ -370,9 +369,9 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.scientificPlottingMcp && scientificPlottingSettings) {
     builders.push([
       GUI_SCIENTIFIC_PLOTTING_MCP_SERVER_NAME,
-      (existing) => buildScientificPlottingLocalRuntimeMcpServerConfig(
+      () => buildScientificPlottingLocalRuntimeMcpServerConfig(
         input.scientificPlottingMcp!.launch,
-        existing,
+        undefined,
         scientificPlottingSettings.workspaceRoot
       )
     ])
@@ -381,9 +380,9 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.imageGenerationMcp && imageGenerationSettings) {
     builders.push([
       GUI_IMAGE_GENERATION_MCP_SERVER_NAME,
-      (existing) => buildImageGenerationLocalRuntimeMcpServerConfig(
+      () => buildImageGenerationLocalRuntimeMcpServerConfig(
         input.imageGenerationMcp!.launch,
-        existing,
+        undefined,
         imageGenerationSettings.workspaceRoot,
         imageGenerationSettings
       )
@@ -393,9 +392,9 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.pptMasterMcp && pptMasterSettings) {
     builders.push([
       GUI_PPT_MASTER_MCP_SERVER_NAME,
-      (existing) => buildPptMasterLocalRuntimeMcpServerConfig(
+      () => buildPptMasterLocalRuntimeMcpServerConfig(
         input.pptMasterMcp!.launch,
-        existing,
+        undefined,
         pptMasterSettings.workspaceRoot
       )
     ])
@@ -404,9 +403,9 @@ function localRuntimeServerBuilders(input: GuiMcpRegistryInput): Array<[string, 
   if (input.sciforgeCanvasMcp && sciforgeCanvasSettings) {
     builders.push([
       GUI_SCIFORGE_CANVAS_MCP_SERVER_NAME,
-      (existing) => buildSciforgeCanvasLocalRuntimeMcpServerConfig(
+      () => buildSciforgeCanvasLocalRuntimeMcpServerConfig(
         input.sciforgeCanvasMcp!.launch,
-        existing,
+        undefined,
         sciforgeCanvasSettings.workspaceRoot
       )
     ])

@@ -116,10 +116,6 @@ describe('GUI MCP runtime registry', () => {
       scheduleMcp: { settings, launch },
       workflowMcp: { settings, launch },
       remoteExecutorMcp: { settings, launch }
-    }, {
-      gui_workflow: {
-        env: { WORKFLOW_KEEP: 'yes' }
-      }
     })
 
     expect(servers.gui_schedule).toMatchObject({
@@ -133,7 +129,6 @@ describe('GUI MCP runtime registry', () => {
       enabled: true,
       args: expect.arrayContaining(['--gui-workflow-mcp-server', '--base-url', 'http://127.0.0.1:9898']),
       env: {
-        WORKFLOW_KEEP: 'yes',
         ELECTRON_RUN_AS_NODE: '1',
         GUI_WORKFLOW_INTERNAL_SECRET: 'workflow-secret'
       },
@@ -237,13 +232,16 @@ describe('GUI MCP runtime registry', () => {
     expect(servers).toEqual({})
   })
 
-  it('keeps the retired computer-use MCP out of local runtime, Codex, and Claude Code configs', () => {
-    const localRuntime = buildLocalRuntimeManagedGuiMcpServers({}).gui_computer_use
-    const codex = buildCodexManagedGuiMcpServers({}).find((server) => server.id === 'gui_computer_use')
-    const claude = buildClaudeCodeManagedGuiMcpServers().gui_computer_use
+  it('keeps retired MCP servers out of generated runtime configs while still cleaning them from disk', () => {
+    for (const id of ['gui_computer_use', 'gui_research_memory']) {
+      const localRuntime = buildLocalRuntimeManagedGuiMcpServers({})[id]
+      const codex = buildCodexManagedGuiMcpServers({}).find((server) => server.id === id)
+      const claude = buildClaudeCodeManagedGuiMcpServers()[id]
 
-    expect(localRuntime).toBeUndefined()
-    expect(codex).toBeUndefined()
-    expect(claude).toBeUndefined()
+      expect(localRuntime).toBeUndefined()
+      expect(codex).toBeUndefined()
+      expect(claude).toBeUndefined()
+      expect(managedGuiMcpServerNames()).toContain(id)
+    }
   })
 })

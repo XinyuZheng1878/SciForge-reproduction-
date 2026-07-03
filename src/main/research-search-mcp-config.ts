@@ -18,6 +18,7 @@ import {
 } from './managed-gui-mcp-config'
 
 export const GUI_RESEARCH_MCP_SERVER_NAME = 'gui_research'
+export const RETIRED_GUI_RESEARCH_MCP_SERVER_NAMES = ['gui_research_memory'] as const
 const GUI_RESEARCH_MCP_NODE_ENTRY = 'out/main/research-search-mcp-node-entry.js'
 export const RESEARCH_SEARCH_MCP_TIMEOUT_MS = 30_000
 const RESEARCH_ENV_NAMES = [

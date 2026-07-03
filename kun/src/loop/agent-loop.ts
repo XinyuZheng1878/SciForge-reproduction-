@@ -1474,6 +1474,8 @@ export class AgentLoop {
       health.consecutiveAllSuppressed = 0
       if (input.outcome.successCount > 0) {
         health.consecutiveNonProgressToolSteps = 0
+        health.recoveryIssuedAtStep = undefined
+        health.postRecoveryAllSuppressed = 0
       } else if (input.outcome.executedCount > 0 || input.outcome.suppressedCount > 0) {
         health.consecutiveNonProgressToolSteps += 1
       }
