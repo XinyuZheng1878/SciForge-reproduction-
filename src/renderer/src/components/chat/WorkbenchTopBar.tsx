@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { readPreferredEditorId, writePreferredEditorId } from '../../lib/editor-preferences'
+import { ProjectDagExportButton } from './ProjectDagExportButton'
 import { openSafeExternalUrl } from '../../lib/open-external'
 import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
 
@@ -544,6 +545,7 @@ export function WorkbenchTopBar({
           </Fragment>
         )
       })}
+      <ProjectDagExportButton workspaceRoot={workspaceRoot} />
     </div>
   )
 }

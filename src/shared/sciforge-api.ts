@@ -430,6 +430,14 @@ export type EvidenceDagViewResult = {
   url: string
   threadId?: string
 }
+export type ProjectDagExportRequest = {
+  goalTitle?: string
+  goalDescription?: string
+  autocompile?: boolean
+}
+export type ProjectDagExportResult = {
+  url: string
+}
 export type ConnectPhoneInstallQrResult =
   | { ok: true; url: string; deviceCode: string; userCode: string; interval: number; expireIn: number }
   | { ok: false; message: string }
@@ -745,6 +753,7 @@ export type SciForgeApi = {
   ) => Promise<ComputerUsePermissions>
   getComputerUseStatus: () => Promise<ComputerUseStatusView>
   getEvidenceDagView: (input: EvidenceDagViewRequest) => Promise<EvidenceDagViewResult>
+  exportProjectDag: (input: ProjectDagExportRequest) => Promise<ProjectDagExportResult>
   showTurnCompleteNotification: (
     payload: TurnCompleteNotificationPayload
   ) => Promise<SystemNotificationResult>

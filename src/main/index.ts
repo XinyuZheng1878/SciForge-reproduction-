@@ -50,6 +50,10 @@ import {
   stopEvidenceDagSidecar
 } from '../../packages/workers/evidence-dag/desktop/sidecar'
 import {
+  ensureProjectDagSidecar,
+  stopProjectDagSidecar
+} from '../../packages/workers/project-dag/desktop/sidecar'
+import {
   paperRadarDbPath,
   paperRadarProfilesPath
 } from './paper-radar-paths'
@@ -480,6 +484,7 @@ async function stopManagedRuntimes(): Promise<void> {
       paperRadarWorkerService?.close()
       paperRadarWorkerService = null
       await stopEvidenceDagSidecar()
+      await stopProjectDagSidecar()
       await stopModelRouterSidecar()
       stopWeixinBridgeRuntime()
       await claudeCodeRuntime?.stop()
@@ -1755,6 +1760,16 @@ app.whenReady().then(async () => {
         userDataDir: app.getPath('userData'),
         appRoot: app.getAppPath(),
         log: (message) => logWarn('evidence-dag', message)
+      })
+    },
+    // Lazy: the Project DAG sidecar starts on first use (export button), not at
+    // boot — it is only needed when the user compiles the project graph.
+    ensureProjectDagReady: async () => {
+      const settings = await store.load()
+      await ensureProjectDagSidecar(settings, {
+        userDataDir: app.getPath('userData'),
+        appRoot: app.getAppPath(),
+        log: (message) => logWarn('project-dag', message)
       })
     },
     getScientificSkillsMcpLaunchConfig,

@@ -1985,5 +1985,15 @@
   "figureStyleCopySpec": "Copy JSON",
   "figureStyleSaveSpec": "Save JSON",
   "figureStyleSavedPath": "Saved to {{path}}",
-  "figureStyleArtifactHint": "Will save as {{path}}"
+  "figureStyleArtifactHint": "Will save as {{path}}",
+  "projectDagExport": "Project DAG",
+  "projectDagUnavailable": "Project DAG is unavailable in this build.",
+  "projectDagDialogTitle": "Project DAG",
+  "projectDagDialogHint": "State this project's goal once; every compiled conclusion is filed under it. Compile & export merges all threads' evidence into one project graph and opens the weekly report.",
+  "projectDagGoalTitle": "Project goal",
+  "projectDagGoalTitlePlaceholder": "e.g. Improve model accuracy on the X2 dataset",
+  "projectDagGoalDescription": "Purpose / brief",
+  "projectDagGoalDescriptionPlaceholder": "What is this project trying to find out?",
+  "projectDagOpenOnly": "Open only",
+  "projectDagCompileExport": "Compile & export"
 }

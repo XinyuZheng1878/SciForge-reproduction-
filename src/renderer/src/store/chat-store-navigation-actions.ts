@@ -383,6 +383,11 @@ export function createNavigationActions(
       }
       const next = await rendererRuntimeClient.setSettings({ workspaceRoot: picked.path })
       const workspaceRoot = normalizeWorkspaceRoot(next.workspaceRoot)
+      // New workspace picked: let the Project DAG button prompt for the
+      // project's purpose (it listens for this event in the top bar).
+      window.dispatchEvent(
+        new CustomEvent('sciforge:project-dag-setup', { detail: { workspaceRoot } })
+      )
       const hiddenCodeWorkspaceRoots = restoreHiddenCodeWorkspaceRoots(
         get().hiddenCodeWorkspaceRoots ?? [],
         [workspaceRoot]

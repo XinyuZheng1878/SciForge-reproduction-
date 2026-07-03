@@ -1985,5 +1985,15 @@
   "figureStyleCopySpec": "复制 JSON",
   "figureStyleSaveSpec": "保存 JSON",
   "figureStyleSavedPath": "已保存到 {{path}}",
-  "figureStyleArtifactHint": "将保存为 {{path}}"
+  "figureStyleArtifactHint": "将保存为 {{path}}",
+  "projectDagExport": "Project DAG",
+  "projectDagUnavailable": "当前构建不支持 Project DAG。",
+  "projectDagDialogTitle": "Project DAG",
+  "projectDagDialogHint": "为本项目填写一次研究目标，编译出的结论都会归属到它名下。「编译并导出」会把所有 thread 的证据合并成项目图，并打开周报页面。",
+  "projectDagGoalTitle": "项目目标",
+  "projectDagGoalTitlePlaceholder": "例如：提升模型在 X2 数据集上的准确率",
+  "projectDagGoalDescription": "目的 / 简介",
+  "projectDagGoalDescriptionPlaceholder": "这个项目想要搞清楚什么？",
+  "projectDagOpenOnly": "仅打开",
+  "projectDagCompileExport": "编译并导出"
 }

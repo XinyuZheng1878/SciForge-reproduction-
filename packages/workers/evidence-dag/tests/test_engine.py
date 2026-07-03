@@ -139,6 +139,55 @@ class TestEngineAndPersistence(unittest.TestCase):
             self.assertEqual(len(g.nodes), 2)
 
 
+class TestWindowsSafePersistence(unittest.TestCase):
+    """Real thread ids are `{runtimeId}:{threadId}`. On NTFS an unsanitised
+    colon turns the filename tail into an alternate data stream — the storage
+    dir ends up with NO `.prov.json` file and persistence fails silently. The
+    sanitiser must neutralise every Windows-illegal character, while leaving
+    already-clean ids (existing on-disk files) untouched."""
+
+    EXTRACT = '{"nodes":[{"tmp_id":"s","type":"source","content":"E.","trace_ref":"step-1"},' \
+              '{"tmp_id":"c","type":"claim","content":"C.","trace_ref":"step-2"}],' \
+              '"edges":[{"src":"s","dst":"c","rel":"supports"}]}'
+
+    def test_colon_thread_id_roundtrip(self):
+        import tempfile
+        tid = "local-runtime:thread-42"
+        with tempfile.TemporaryDirectory() as d:
+            eng = Engine(StubLLM(extract_response=self.EXTRACT), storage_dir=d)
+            eng.ingest_trace(tid, [{"id": "step-1", "type": "message", "content": "hi"}])
+            # the sanitised file exists with its .prov.json suffix...
+            self.assertTrue(os.path.exists(os.path.join(d, "local-runtime_thread-42.prov.json")))
+            # ...and no stray ADS-carrier file was created next to it
+            self.assertEqual([f for f in os.listdir(d) if not f.endswith(".prov.json")], [])
+            # a fresh engine reloads the graph under the ORIGINAL id
+            eng2 = Engine(StubLLM(), storage_dir=d)
+            g = eng2.get(tid)
+            self.assertIsNotNone(g)
+            self.assertEqual(len(g.nodes), 2)
+            self.assertEqual(g.thread_id, tid)  # PROV-JSON meta keeps the real id
+            # and the thread is discoverable from disk
+            self.assertEqual(len(eng2.list_threads()), 1)
+
+    def test_all_illegal_characters_sanitised(self):
+        import tempfile
+        tid = 'a<b>c:d"e|f?g*h/i\\j'
+        with tempfile.TemporaryDirectory() as d:
+            eng = Engine(StubLLM(extract_response=self.EXTRACT), storage_dir=d)
+            eng.ingest_trace(tid, [{"id": "step-1", "type": "message", "content": "hi"}])
+            self.assertTrue(os.path.exists(os.path.join(d, "a_b_c_d_e_f_g_h_i_j.prov.json")))
+            self.assertIsNotNone(Engine(StubLLM(), storage_dir=d).get(tid))
+
+    def test_clean_id_filename_unchanged(self):
+        # backward compatibility: ids without illegal characters keep the exact
+        # filename previous builds wrote, so existing stores keep loading.
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            eng = Engine(StubLLM(extract_response=self.EXTRACT), storage_dir=d)
+            eng.ingest_trace("plain-tid.v1", [{"id": "step-1", "type": "message", "content": "hi"}])
+            self.assertTrue(os.path.exists(os.path.join(d, "plain-tid.v1.prov.json")))
+
+
 class TestRenderTrace(unittest.TestCase):
     def test_render_includes_step_ids(self):
         import json

@@ -31,6 +31,9 @@ const PACKAGE_DEFINITIONS = {
   evidenceDag: {
     dir: 'packages/workers/evidence-dag'
   },
+  projectDag: {
+    dir: 'packages/workers/project-dag'
+  },
   runtimeInspector: {
     dir: 'packages/workers/runtime-inspector'
   },
@@ -67,6 +70,7 @@ const WORKSPACE_PACKAGE_IDS = [
   'paperRadar',
   'sciModalityRouter',
   'evidenceDag',
+  'projectDag',
   'runtimeInspector',
   'remoteExecutor',
   'scientificPlotting',
@@ -96,6 +100,7 @@ const BUNDLED_PACKAGE_IDS = [
 const NON_BUNDLED_PACKAGE_IDS = [
   'sciModalityRouter',
   'evidenceDag',
+  'projectDag',
   'guiOwlComputerUse'
 ]
 
