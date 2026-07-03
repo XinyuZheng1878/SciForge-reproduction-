@@ -15,6 +15,14 @@ function fakeContext(): ToolHostContext {
   }
 }
 
+function fakeContextWithAllowedTools(allowedToolNames: string[]): ToolHostContext {
+  return {
+    ...fakeContext(),
+    allowedToolNames,
+    explicitAllowedToolNames: allowedToolNames
+  }
+}
+
 function fakeRuntime() {
   const runChild = vi.fn(async (input: Record<string, unknown>) => ({
     id: 'child-1',
@@ -306,5 +314,41 @@ describe('buildDelegationToolProviders', () => {
       }
     })
     expect(attempts.get('third')).toBe(2)
+  })
+
+  it('limits research child agents to web and research tools instead of inheriting bash', async () => {
+    const { runtime, runChild } = fakeRuntime()
+    const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_task')
+
+    await tool?.execute({
+      label: 'qwen-research',
+      prompt: '请全面收集 Qwen 最新信息，包含 GitHub、HuggingFace、benchmark 和引用来源。'
+    }, fakeContextWithAllowedTools([
+      'bash',
+      'web_fetch',
+      'mcp_gui_research_research_search',
+      'read'
+    ]))
+
+    expect(runChild.mock.calls[0]?.[0].allowedToolNames).toEqual([
+      'web_fetch',
+      'mcp_gui_research_research_search'
+    ])
+    expect(runChild.mock.calls[0]?.[0].strictAllowedToolNames).toBe(true)
+    expect(runChild.mock.calls[0]?.[0].maxToolCalls).toBe(12)
+  })
+
+  it('preserves parent tool policy for non-research child agents', async () => {
+    const { runtime, runChild } = fakeRuntime()
+    const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_task')
+
+    await tool?.execute({
+      label: 'code-check',
+      prompt: 'Inspect the failing TypeScript test and patch the implementation.'
+    }, fakeContextWithAllowedTools(['bash', 'read', 'edit']))
+
+    expect(runChild.mock.calls[0]?.[0].allowedToolNames).toEqual(['bash', 'read', 'edit'])
+    expect(runChild.mock.calls[0]?.[0].strictAllowedToolNames).toBe(false)
+    expect(runChild.mock.calls[0]?.[0].maxToolCalls).toBeUndefined()
   })
 })

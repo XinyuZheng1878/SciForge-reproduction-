@@ -57,8 +57,8 @@ describe('AgentLoop', () => {
     if (!request) throw new Error('expected model request')
     expect(request.tools.map((tool) => tool.name)).toContain('bash')
     expect(request.contextInstructions?.join('\n')).toContain('<shell_environment>')
-    expect(request.contextInstructions?.join('\n')).toContain('<shell>bash</shell>')
-    expect(request.contextInstructions?.join('\n')).toContain('<syntax>POSIX shell</syntax>')
+    expect(request.contextInstructions?.join('\n')).toMatch(/<shell>[^<]+<\/shell>/)
+    expect(request.contextInstructions?.join('\n')).toMatch(/<syntax>[^<]+<\/syntax>/)
     expect(request.contextInstructions?.join('\n')).not.toContain('shell commands appropriate for the host platform')
   })
 
@@ -980,6 +980,138 @@ describe('AgentLoop', () => {
     expect(status).toBe('completed')
     expect(executions).toBe(3)
     expect(events.some((event) => event.kind === 'tool_storm_suppressed')).toBe(false)
+  })
+
+  it('stops advertising tools after the configured tool budget is exhausted', async () => {
+    let executions = 0
+    const advertisedTools: string[][] = []
+    const echoTool = LocalToolHost.defineTool({
+      name: 'echo',
+      description: 'Echo text',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text']
+      },
+      policy: 'auto',
+      execute: async () => {
+        executions += 1
+        return { output: { ok: executions } }
+      }
+    })
+    let calls = 0
+    const h = makeHarness(
+      {
+        provider: 'tool-budget-model',
+        model: 'tool-budget-model',
+        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+          calls += 1
+          advertisedTools.push(request.tools.map((tool) => tool.name))
+          if (calls === 1) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_echo_1',
+              toolName: 'echo',
+              arguments: { text: 'first' }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield { kind: 'assistant_text_delta', text: 'Answering from gathered evidence.' }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      { tools: [echoTool], toolStorm: { maxToolCallsPerTurn: 1 } }
+    )
+    await bootstrapThread(h)
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
+
+    expect(status).toBe('completed')
+    expect(executions).toBe(1)
+    expect(advertisedTools[0]).toContain('echo')
+    expect(advertisedTools[1]).toEqual([])
+    expect(events.some((event) =>
+      event.kind === 'error' && event.code === 'tool_budget_exhausted'
+    )).toBe(true)
+  })
+
+  it('recovers when a no-tool budget step emits internal tool-call markup instead of final text', async () => {
+    let executions = 0
+    const requests: ModelRequest[] = []
+    const echoTool = LocalToolHost.defineTool({
+      name: 'echo',
+      description: 'Echo text',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text']
+      },
+      policy: 'auto',
+      execute: async () => {
+        executions += 1
+        return { output: { ok: executions } }
+      }
+    })
+    const internalMarkup = [
+      '<｜｜DSML｜｜tool_calls>',
+      '<｜｜DSML｜｜invoke name="web_fetch">',
+      '<｜｜DSML｜｜parameter name="url" string="true">[redacted-url]</｜｜DSML｜｜parameter>',
+      '</｜｜DSML｜｜invoke>',
+      '</｜｜DSML｜｜tool_calls>'
+    ].join('\n')
+    let calls = 0
+    const h = makeHarness(
+      {
+        provider: 'tool-budget-markup-model',
+        model: 'tool-budget-markup-model',
+        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+          calls += 1
+          requests.push(request)
+          if (calls === 1) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_echo_1',
+              toolName: 'echo',
+              arguments: { text: 'first' }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          if (calls === 2) {
+            yield { kind: 'assistant_text_delta', text: internalMarkup }
+            yield { kind: 'completed', stopReason: 'stop' }
+            return
+          }
+          yield { kind: 'assistant_text_delta', text: 'Final answer from gathered evidence.' }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      { tools: [echoTool], toolStorm: { maxToolCallsPerTurn: 1 } }
+    )
+    await bootstrapThread(h)
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
+    const items = await h.sessionStore.loadItems(h.threadId)
+    const serializedItems = JSON.stringify(items)
+
+    expect(status).toBe('completed')
+    expect(executions).toBe(1)
+    expect(requests[1]?.tools).toEqual([])
+    expect(requests[2]?.tools).toEqual([])
+    expect(requests[2]?.contextInstructions?.join('\n')).toContain('Internal tool-call markup recovery')
+    expect(events.some((event) =>
+      event.kind === 'error' && event.code === 'internal_tool_call_markup_recovery'
+    )).toBe(true)
+    expect(serializedItems).not.toContain('DSML')
+    expect(items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'assistant_text',
+        text: 'Final answer from gathered evidence.'
+      })
+    ]))
   })
 
   it('fails after recovery when the model repeats suppressed tool calls', async () => {

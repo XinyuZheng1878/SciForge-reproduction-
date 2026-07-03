@@ -52,6 +52,7 @@ export type RunChildInput = {
   strictAllowedToolNames?: boolean
   bashCommandPolicy?: Record<string, unknown>
   filePathPolicy?: Record<string, unknown>
+  maxToolCalls?: number
   childTimeoutMs?: number
   signal?: AbortSignal
 }
@@ -137,6 +138,7 @@ export class MultiAgentRuntime {
           strictAllowedToolNames: normalized.strictAllowedToolNames,
           bashCommandPolicy: normalized.bashCommandPolicy,
           filePathPolicy: normalized.filePathPolicy,
+          maxToolCalls: normalized.maxToolCalls,
           signal: boundary.signal,
           appendTranscript: async (entry) => {
             if (!acceptingTranscript) return
@@ -368,11 +370,18 @@ function normalizeRunChildInput(input: RunChildInput): Required<Pick<RunChildInp
     strictAllowedToolNames: input.strictAllowedToolNames === true,
     bashCommandPolicy: input.bashCommandPolicy,
     filePathPolicy: input.filePathPolicy,
+    maxToolCalls: normalizePositiveInteger(input.maxToolCalls),
     childTimeoutMs: normalizeChildTimeoutMs(input.childTimeoutMs)
   }
 }
 
 function normalizeChildTimeoutMs(value: number | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const normalized = Math.trunc(value)
+  return normalized > 0 ? normalized : undefined
+}
+
+function normalizePositiveInteger(value: number | undefined): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
   const normalized = Math.trunc(value)
   return normalized > 0 ? normalized : undefined

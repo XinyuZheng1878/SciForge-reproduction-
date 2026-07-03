@@ -54,6 +54,17 @@ export function resolveChildMaxTurnModelSteps(runtime: RuntimeTuningConfig | und
   )
 }
 
+function childToolStormOptions(
+  runtime: RuntimeTuningConfig | undefined,
+  maxToolCalls: number | undefined
+): (NonNullable<RuntimeTuningConfig['toolStorm']> & { maxToolCallsPerTurn?: number }) | undefined {
+  if (!runtime?.toolStorm && maxToolCalls === undefined) return undefined
+  return {
+    ...(runtime?.toolStorm ?? {}),
+    ...(maxToolCalls !== undefined ? { maxToolCallsPerTurn: maxToolCalls } : {})
+  }
+}
+
 export function createChildAgentExecutor(options: ChildAgentExecutorOptions): ChildRunExecutor {
   return async (input) => {
     const nowIso = options.nowIso ?? (() => new Date().toISOString())
@@ -68,6 +79,7 @@ export function createChildAgentExecutor(options: ChildAgentExecutorOptions): Ch
       contextCompaction: options.contextCompaction,
       models: options.models
     })
+    const toolStorm = childToolStormOptions(options.runtime, input.maxToolCalls)
     const events = new RuntimeEventRecorder({
       eventBus,
       sessionStore,
@@ -113,7 +125,7 @@ export function createChildAgentExecutor(options: ChildAgentExecutorOptions): Ch
       ...(options.contextCompaction ? { contextCompaction: options.contextCompaction } : {}),
       ...(options.tokenEconomy ? { tokenEconomy: options.tokenEconomy } : {}),
       maxTurnModelSteps: resolveChildMaxTurnModelSteps(options.runtime),
-      ...(options.runtime?.toolStorm ? { toolStorm: options.runtime.toolStorm } : {}),
+      ...(toolStorm ? { toolStorm } : {}),
       ...(options.runtime?.toolArgumentRepair ? { toolArgumentRepair: options.runtime.toolArgumentRepair } : {})
     })
 
@@ -193,20 +205,29 @@ export function createChildAgentExecutor(options: ChildAgentExecutorOptions): Ch
       runtimeError,
       transcript
     })
-    if (runtimeError?.kind === 'error' && !recoveredToolLoopFailure) {
+    const internalMarkupFallbackSummary = summarizeCollectedToolResultsFallback({
+      status,
+      runtimeError,
+      items,
+      turnId: started.turnId,
+      prompt: input.prompt
+    })
+    const recoveredInternalToolCallMarkupFailure = internalMarkupFallbackSummary.length > 0
+    const effectiveSummary = internalMarkupFallbackSummary || summary
+    if (runtimeError?.kind === 'error' && !recoveredToolLoopFailure && !recoveredInternalToolCallMarkupFailure) {
       throw childAgentFailure(runtimeError.message, transcript, threadUsage)
     }
-    if (status !== 'completed' && !recoveredToolLoopFailure) {
-      throw childAgentFailure(summary || `child agent ${status}`, transcript, threadUsage)
+    if (status !== 'completed' && !recoveredToolLoopFailure && !recoveredInternalToolCallMarkupFailure) {
+      throw childAgentFailure(effectiveSummary || `child agent ${status}`, transcript, threadUsage)
     }
-    if (isBlockedChildFinalText(summary)) {
+    if (isBlockedChildFinalText(effectiveSummary)) {
       throw childAgentFailure(
-        summary || 'child agent reported a blocker',
+        effectiveSummary || 'child agent reported a blocker',
         transcript,
         threadUsage
       )
     }
-    if (isPrematureChildClarification(summary)) {
+    if (isPrematureChildClarification(effectiveSummary)) {
       throw childAgentFailure(
         'child agent stopped for clarification instead of completing the delegated task',
         transcript,
@@ -214,7 +235,7 @@ export function createChildAgentExecutor(options: ChildAgentExecutorOptions): Ch
       )
     }
     return {
-      summary,
+      summary: effectiveSummary,
       usage: threadUsage,
       transcript
     }
@@ -246,6 +267,7 @@ function summarizeChildTurn(
   const assistantText = turnItems
     .filter((item): item is Extract<TurnItem, { kind: 'assistant_text' }> => item.kind === 'assistant_text')
     .map((item) => redactSecretText(item.text).trim())
+    .filter((text) => !isInternalToolCallMarkup(text))
     .filter(Boolean)
     .join('\n\n')
     .trim()
@@ -257,10 +279,6 @@ function summarizeChildTurn(
     .join('\n')
     .trim()
   if (errors) return errors
-  const toolResult = [...turnItems]
-    .reverse()
-    .find((item): item is Extract<TurnItem, { kind: 'tool_result' }> => item.kind === 'tool_result')
-  if (toolResult) return stringifySummary(toolResult.output)
   return status === 'completed'
     ? 'Child agent completed without a text response.'
     : `Child agent ${status}.`
@@ -278,6 +296,124 @@ function isRecoverableToolLoopFailure(input: {
     entry.kind === 'assistant_message' &&
     isUsefulChildFinalText(entry.text)
   )
+}
+
+type ToolResultDigest = {
+  toolName: string
+  title?: string
+  url?: string
+  text?: string
+}
+
+function summarizeCollectedToolResultsFallback(input: {
+  status: 'completed' | 'failed' | 'aborted'
+  runtimeError: RuntimeEvent | undefined
+  items: readonly TurnItem[]
+  turnId: string
+  prompt: string
+}): string {
+  if (input.status !== 'failed') return ''
+  if (input.runtimeError?.kind !== 'error') return ''
+  if (input.runtimeError.code !== 'internal_tool_call_markup_recovery_exhausted') return ''
+
+  const digests = usefulToolResultDigests(input.items, input.turnId)
+  if (digests.length === 0) return ''
+
+  const chinese = hasHanText(input.prompt)
+  const sources = digests.slice(0, 10)
+  const notes = digests.filter((digest) => digest.text).slice(0, 8)
+  const omitted = digests.length - sources.length
+  if (chinese) {
+    return [
+      '已收集到以下资料，供后续汇总使用：',
+      '',
+      '主要来源：',
+      ...sources.map((source) => `- ${formatDigestSource(source)}`),
+      ...(omitted > 0 ? [`- 另外还有 ${omitted} 条工具结果未展开。`] : []),
+      ...(notes.length > 0
+        ? ['', '摘录：', ...notes.map((note) => `- ${formatDigestNote(note)}`)]
+        : [])
+    ].join('\n')
+  }
+
+  return [
+    'Collected research notes from available sources:',
+    '',
+    'Sources reviewed:',
+    ...sources.map((source) => `- ${formatDigestSource(source)}`),
+    ...(omitted > 0 ? [`- ${omitted} more tool result(s) omitted.`] : []),
+    ...(notes.length > 0
+      ? ['', 'Extracted notes:', ...notes.map((note) => `- ${formatDigestNote(note)}`)]
+      : [])
+  ].join('\n')
+}
+
+function usefulToolResultDigests(items: readonly TurnItem[], turnId: string): ToolResultDigest[] {
+  const seen = new Set<string>()
+  const digests: ToolResultDigest[] = []
+  for (const item of items) {
+    if (item.turnId !== turnId || item.kind !== 'tool_result' || item.isError) continue
+    const digest = toolResultDigest(item.toolName, item.output)
+    const key = [digest.toolName, digest.url, digest.title, digest.text].filter(Boolean).join('\n')
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    digests.push(digest)
+  }
+  return digests
+}
+
+function toolResultDigest(toolName: string, output: unknown): ToolResultDigest {
+  const record = output && typeof output === 'object'
+    ? redactSecrets(output) as Record<string, unknown>
+    : undefined
+  const title = pickFirstString(record, ['title', 'name'])
+  const source = firstSource(record)
+  const url = pickFirstString(record, ['finalUrl', 'url']) || source?.url
+  const text = pickFirstString(record, ['summary', 'description', 'snippet', 'text', 'content'])
+  return {
+    toolName,
+    ...(title || source?.title ? { title: title || source?.title } : {}),
+    ...(url ? { url } : {}),
+    ...(text ? { text: compactText(text, 360) } : {})
+  }
+}
+
+function firstSource(record: Record<string, unknown> | undefined): { title?: string; url?: string } | undefined {
+  const sources = record?.sources
+  if (!Array.isArray(sources)) return undefined
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue
+    const raw = source as Record<string, unknown>
+    const title = typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : undefined
+    const url = typeof raw.url === 'string' && raw.url.trim() ? raw.url.trim() : undefined
+    if (title || url) return { ...(title ? { title } : {}), ...(url ? { url } : {}) }
+  }
+  return undefined
+}
+
+function pickFirstString(record: Record<string, unknown> | undefined, fields: readonly string[]): string | undefined {
+  if (!record) return undefined
+  for (const field of fields) {
+    const entry = record[field]
+    if (typeof entry === 'string' && entry.trim()) return entry.trim()
+  }
+  return undefined
+}
+
+function formatDigestSource(digest: ToolResultDigest): string {
+  const label = digest.title || digest.url || digest.toolName
+  if (digest.url && digest.title) return `${label} (${digest.url})`
+  if (digest.url && !digest.title) return `${digest.toolName}: ${digest.url}`
+  return `${digest.toolName}: ${label}`
+}
+
+function formatDigestNote(digest: ToolResultDigest): string {
+  const label = digest.title || digest.url || digest.toolName
+  return `${label}: ${digest.text ?? ''}`.trim()
+}
+
+function hasHanText(text: string | undefined): boolean {
+  return /[\u3400-\u9fff]/.test(text ?? '')
 }
 
 function isUsefulChildFinalText(text: string | undefined): boolean {
@@ -386,6 +522,7 @@ function transcriptEntryFromItem(item: TurnItem): ChildRunTranscriptEntry | null
         text: redactSecretText(item.displayText?.trim() || item.text)
       }
     case 'assistant_text':
+      if (isInternalToolCallMarkup(item.text)) return null
       return {
         ...base,
         kind: 'assistant_message',
@@ -401,27 +538,28 @@ function transcriptEntryFromItem(item: TurnItem): ChildRunTranscriptEntry | null
       return {
         ...base,
         kind: 'tool',
-        summary: item.summary ?? `Call ${item.toolName}`,
-        text: stringifySummary(item.arguments),
+        summary: item.summary ?? toolCallSummary(item.toolName, item.arguments),
         metadata: {
           phase: 'call',
           toolName: item.toolName,
           callId: item.callId,
-          toolKind: item.toolKind
+          toolKind: item.toolKind,
+          ...toolPayloadMetadata(item.arguments)
         }
       }
     case 'tool_result':
       return {
         ...base,
         kind: 'tool',
-        summary: item.isError ? `${item.toolName} failed` : `${item.toolName} result`,
-        text: stringifySummary(item.output),
+        summary: toolResultSummary(item.toolName, item.output, item.isError),
+        ...(item.isError ? { text: summarizeToolPayload(item.output, 320) } : {}),
         metadata: {
           phase: 'result',
           toolName: item.toolName,
           callId: item.callId,
           toolKind: item.toolKind,
-          isError: item.isError
+          isError: item.isError,
+          ...toolPayloadMetadata(item.output)
         }
       }
     case 'approval':
@@ -477,4 +615,88 @@ function transcriptEntryFromItem(item: TurnItem): ChildRunTranscriptEntry | null
     default:
       return null
   }
+}
+
+function isInternalToolCallMarkup(text: string | undefined): boolean {
+  const trimmed = text?.trim() ?? ''
+  if (!trimmed) return false
+  return /DSML/i.test(trimmed) && /tool_calls/i.test(trimmed) && /invoke\s+name=/i.test(trimmed)
+}
+
+function toolCallSummary(toolName: string, args: unknown): string {
+  const payload = summarizeToolPayload(args, 140)
+  return payload ? `${toolName}: ${payload}` : `${toolName}: call`
+}
+
+function toolResultSummary(toolName: string, output: unknown, isError: boolean): string {
+  const payload = summarizeToolPayload(output, 140)
+  const suffix = payload ? `: ${payload}` : isError ? ' failed' : ': result'
+  return isError && payload ? `${toolName} failed: ${payload}` : `${toolName}${suffix}`
+}
+
+function summarizeToolPayload(value: unknown, maxLength: number): string {
+  const extracted = extractToolPayloadSummary(value)
+  const text = extracted || stringifySummary(value)
+  return compactText(text, maxLength)
+}
+
+function extractToolPayloadSummary(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (!value || typeof value !== 'object') return ''
+  const record = redactSecrets(value) as Record<string, unknown>
+  const fields = ['url', 'finalUrl', 'title', 'query', 'path', 'file_path', 'pattern', 'command', 'error']
+  const parts = fields
+    .map((field) => {
+      const entry = record[field]
+      return typeof entry === 'string' && entry.trim() ? entry.trim() : ''
+    })
+    .filter(Boolean)
+  if (parts.length > 0) return parts.join(' · ')
+
+  const nestedResult = record.result
+  if (nestedResult && typeof nestedResult === 'object') {
+    const nested = nestedResult as Record<string, unknown>
+    const content = nested.content
+    if (Array.isArray(content)) {
+      const firstText = content
+        .map((entry) => entry && typeof entry === 'object' ? (entry as Record<string, unknown>).text : undefined)
+        .find((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      if (firstText) return firstText.trim()
+    }
+  }
+
+  const original = record.original
+  if (original && typeof original === 'object') return extractToolPayloadSummary(original)
+  return ''
+}
+
+function toolPayloadMetadata(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object') return {}
+  const record = redactSecrets(value) as Record<string, unknown>
+  const metadata: Record<string, unknown> = {}
+  for (const key of ['url', 'finalUrl', 'title', 'query', 'path', 'file_path', 'pattern', 'command']) {
+    const entry = record[key]
+    if (typeof entry === 'string' && entry.trim()) metadata[key] = entry.trim()
+  }
+  const sources = record.sources
+  if (Array.isArray(sources)) {
+    const compactSources = sources
+      .map((source) => {
+        if (!source || typeof source !== 'object') return null
+        const raw = source as Record<string, unknown>
+        const title = typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : undefined
+        const url = typeof raw.url === 'string' && raw.url.trim() ? raw.url.trim() : undefined
+        return title || url ? { ...(title ? { title } : {}), ...(url ? { url } : {}) } : null
+      })
+      .filter((source): source is { title?: string; url?: string } => source !== null)
+    if (compactSources.length > 0) metadata.sources = compactSources
+  }
+  return metadata
+}
+
+function compactText(text: string, maxLength: number): string {
+  const compact = redactSecretText(text).replace(/\s+/g, ' ').trim()
+  if (!compact) return ''
+  if (compact.length <= maxLength) return compact
+  return `${compact.slice(0, maxLength - 1).trimEnd()}…`
 }

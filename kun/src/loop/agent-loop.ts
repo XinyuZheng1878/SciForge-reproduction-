@@ -81,6 +81,7 @@ const MAX_MODEL_STREAM_ERROR_RECOVERY_STEPS = 2
 const DEFAULT_TOOL_LOOP_MAX_RECOVERY_STEPS = 1
 const DEFAULT_TOOL_LOOP_NON_PROGRESS_THRESHOLD = 3
 const DEFAULT_TOOL_LOOP_MAX_STEPS_AFTER_RECOVERY = 8
+const MAX_INTERNAL_TOOL_CALL_MARKUP_RECOVERY_STEPS = 2
 const DEFAULT_COMPACTION_SUMMARY_TIMEOUT_MS = 15_000
 const DEFAULT_COMPACTION_SUMMARY_MAX_TOKENS = 1_200
 const DEFAULT_COMPACTION_SUMMARY_INPUT_MAX_BYTES = 96 * 1024
@@ -141,10 +142,12 @@ type ToolCatalogDrift =
   | { kind: 'breaking'; previous: ToolCatalogSnapshot }
 
 type ToolLoopHealth = {
+  totalToolCalls: number
   suppressedCalls: number
   consecutiveAllSuppressed: number
   consecutiveNonProgressToolSteps: number
   postRecoveryAllSuppressed: number
+  toolBudgetExhausted: boolean
   recoveryIssuedAtStep?: number
 }
 
@@ -292,6 +295,25 @@ function toolLoopRecoveryInstruction(): string {
   ].join('\n')
 }
 
+function toolBudgetExhaustedInstruction(): string {
+  return [
+    'Tool budget exhausted:',
+    '- No more tool calls are available for this turn.',
+    '- Use the evidence already gathered and produce the best complete answer now.',
+    '- If the gathered evidence is incomplete, state the concrete gaps instead of trying another search.'
+  ].join('\n')
+}
+
+function internalToolCallMarkupRecoveryInstruction(): string {
+  return [
+    'Internal tool-call markup recovery:',
+    '- Your previous response contained only internal tool-call markup instead of a user-visible answer.',
+    '- Do not output DSML, XML-like tool syntax, JSON tool-call syntax, or any hidden tool invocation format.',
+    '- Tools are not available in this recovery step. Write the final natural-language answer from the evidence already gathered.',
+    '- If evidence is incomplete, state the specific gaps in the final answer.'
+  ].join('\n')
+}
+
 function remoteTargetInstruction(remoteTargetId: string): string {
   return [
     `Remote execution target selected for this turn: ${remoteTargetId}.`,
@@ -324,6 +346,12 @@ function isTrivialToolLoopFinalText(text: string): boolean {
     'howcanassist',
     'hello'
   ].some((pattern) => normalized.includes(pattern))
+}
+
+function isInternalToolCallMarkup(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+  return /DSML/i.test(trimmed) && /tool_calls/i.test(trimmed) && /invoke\s+name=/i.test(trimmed)
 }
 
 function normalizeNoToolAssistantText(text: string): string {
@@ -461,6 +489,7 @@ export type AgentLoopOptions = {
     maxRecoverySteps?: number
     nonProgressThreshold?: number
     maxStepsAfterRecovery?: number
+    maxToolCallsPerTurn?: number
   }
   toolArgumentRepair?: {
     maxStringBytes?: number
@@ -509,6 +538,7 @@ export class AgentLoop {
   private readonly lastNoToolTextByTurn = new Map<string, string>()
   private readonly goalNoToolRecoveryStepsByTurn = new Map<string, number>()
   private readonly modelStreamErrorRecoveryStepsByTurn = new Map<string, number>()
+  private readonly internalToolCallMarkupRecoveryStepsByTurn = new Map<string, number>()
 
   constructor(opts: AgentLoopOptions) {
     this.opts = opts
@@ -573,6 +603,7 @@ export class AgentLoop {
       this.lastNoToolTextByTurn.delete(turnId)
       this.goalNoToolRecoveryStepsByTurn.delete(turnId)
       this.modelStreamErrorRecoveryStepsByTurn.delete(turnId)
+      this.internalToolCallMarkupRecoveryStepsByTurn.delete(turnId)
     }
   }
 
@@ -816,11 +847,16 @@ export class AgentLoop {
     const createPlanSatisfied = planTurnActive
       ? hasSuccessfulCreatePlanResult(healed.items, turnId)
       : false
-    const effectiveToolSpecs = resolvePlanModeToolSpecs(toolSpecs, {
-      planTurnActive,
-      createPlanSatisfied,
-      stepIndex
-    })
+    const toolBudgetExhausted = this.toolLoopHealthByTurn.get(turnId)?.toolBudgetExhausted === true
+    const internalToolCallMarkupRecoverySteps =
+      this.internalToolCallMarkupRecoveryStepsByTurn.get(turnId) ?? 0
+    const effectiveToolSpecs = toolBudgetExhausted
+      ? []
+      : resolvePlanModeToolSpecs(toolSpecs, {
+          planTurnActive,
+          createPlanSatisfied,
+          stepIndex
+        })
     const toolProviderMetadata = new Map(
       tools.map((tool) => [tool.name, { providerId: tool.providerId, providerKind: tool.providerKind }])
     )
@@ -887,6 +923,8 @@ export class AgentLoop {
       ...(this.toolLoopHealthByTurn.get(turnId)?.recoveryIssuedAtStep !== undefined
         ? [toolLoopRecoveryInstruction()]
         : []),
+      ...(toolBudgetExhausted ? [toolBudgetExhaustedInstruction()] : []),
+      ...(internalToolCallMarkupRecoverySteps > 0 ? [internalToolCallMarkupRecoveryInstruction()] : []),
       ...(activeTodoInstruction ? [activeTodoInstruction] : []),
       ...memoryInstructions(memories),
       ...skillResolution.instructions,
@@ -1094,7 +1132,7 @@ export class AgentLoop {
         })
       )
     }
-    if (textAccumulator.value) {
+    if (textAccumulator.value && !isInternalToolCallMarkup(textAccumulator.value)) {
       const itemId = textItemId || this.opts.ids.next('item_text')
       await this.opts.turns.applyItem(
         threadId,
@@ -1144,6 +1182,20 @@ export class AgentLoop {
       throw new Error(errorMessage)
     }
     if (completedToolCalls.length === 0) {
+      if (stopReason === 'stop' && isInternalToolCallMarkup(textAccumulator.value)) {
+        const recoverySteps = (this.internalToolCallMarkupRecoveryStepsByTurn.get(turnId) ?? 0) + 1
+        if (recoverySteps <= MAX_INTERNAL_TOOL_CALL_MARKUP_RECOVERY_STEPS) {
+          this.internalToolCallMarkupRecoveryStepsByTurn.set(turnId, recoverySteps)
+          await this.warnInternalToolCallMarkupRecovery(threadId, turnId)
+          return 'continue'
+        }
+        await this.failInternalToolCallMarkupRecovery(
+          threadId,
+          turnId,
+          'Tool-call markup recovery failed: the model kept emitting internal tool-call markup instead of a final answer.'
+        )
+        return 'failed'
+      }
       if (request.requiredToolName) {
         if (
           request.requiredToolName === CREATE_PLAN_TOOL_NAME &&
@@ -1459,6 +1511,13 @@ export class AgentLoop {
     if (input.signal.aborted || input.outcome.kind === 'aborted') return 'aborted'
     if (this.opts.toolStorm?.enabled === false) return 'continue'
     const health = this.toolLoopHealth(input.turnId)
+    const limits = this.toolLoopLimits()
+    const callsThisStep = input.outcome.kind === 'continue'
+      ? input.outcome.executedCount + input.outcome.suppressedCount
+      : input.outcome.kind === 'all_suppressed'
+        ? input.outcome.suppressedCount
+        : 0
+    health.totalToolCalls += callsThisStep
     if (input.outcome.kind === 'all_suppressed') {
       health.suppressedCalls += input.outcome.suppressedCount
       health.consecutiveAllSuppressed += 1
@@ -1481,7 +1540,16 @@ export class AgentLoop {
       }
     }
 
-    const limits = this.toolLoopLimits()
+    if (
+      limits.maxToolCallsPerTurn !== undefined &&
+      !health.toolBudgetExhausted &&
+      health.totalToolCalls >= limits.maxToolCallsPerTurn
+    ) {
+      health.toolBudgetExhausted = true
+      await this.warnToolBudgetExhausted(input.threadId, input.turnId, limits.maxToolCallsPerTurn)
+      return 'continue'
+    }
+
     if (health.recoveryIssuedAtStep === undefined) {
       if (
         health.consecutiveAllSuppressed > 0 ||
@@ -1530,10 +1598,12 @@ export class AgentLoop {
     const existing = this.toolLoopHealthByTurn.get(turnId)
     if (existing) return existing
     const next: ToolLoopHealth = {
+      totalToolCalls: 0,
       suppressedCalls: 0,
       consecutiveAllSuppressed: 0,
       consecutiveNonProgressToolSteps: 0,
-      postRecoveryAllSuppressed: 0
+      postRecoveryAllSuppressed: 0,
+      toolBudgetExhausted: false
     }
     this.toolLoopHealthByTurn.set(turnId, next)
     return next
@@ -1543,7 +1613,9 @@ export class AgentLoop {
     maxRecoverySteps: number
     nonProgressThreshold: number
     maxStepsAfterRecovery: number
+    maxToolCallsPerTurn?: number
   } {
+    const maxToolCallsPerTurn = positiveIntegerOrUndefined(this.opts.toolStorm?.maxToolCallsPerTurn)
     return {
       maxRecoverySteps: positiveIntegerOrDefault(
         this.opts.toolStorm?.maxRecoverySteps,
@@ -1556,8 +1628,22 @@ export class AgentLoop {
       maxStepsAfterRecovery: positiveIntegerOrDefault(
         this.opts.toolStorm?.maxStepsAfterRecovery,
         DEFAULT_TOOL_LOOP_MAX_STEPS_AFTER_RECOVERY
-      )
+      ),
+      ...(maxToolCallsPerTurn !== undefined ? { maxToolCallsPerTurn } : {})
     }
+  }
+
+  private async warnToolBudgetExhausted(threadId: string, turnId: string, maxToolCalls: number): Promise<void> {
+    const message =
+      `Tool budget exhausted after ${maxToolCalls} tool call(s). The next model request must answer from gathered evidence.`
+    await this.opts.events.record({
+      kind: 'error',
+      threadId,
+      turnId,
+      message,
+      code: 'tool_budget_exhausted',
+      severity: 'warning'
+    })
   }
 
   private async warnToolLoopRecovery(threadId: string, turnId: string): Promise<void> {
@@ -1570,6 +1656,45 @@ export class AgentLoop {
       message,
       code: 'tool_loop_recovery',
       severity: 'warning'
+    })
+  }
+
+  private async warnInternalToolCallMarkupRecovery(threadId: string, turnId: string): Promise<void> {
+    const message =
+      'Internal tool-call markup was ignored. The next model request must provide a natural-language final answer without tool syntax.'
+    await this.opts.events.record({
+      kind: 'error',
+      threadId,
+      turnId,
+      message,
+      code: 'internal_tool_call_markup_recovery',
+      severity: 'warning'
+    })
+  }
+
+  private async failInternalToolCallMarkupRecovery(
+    threadId: string,
+    turnId: string,
+    message: string
+  ): Promise<void> {
+    await this.opts.turns.applyItem(
+      threadId,
+      makeErrorItem({
+        id: this.opts.ids.next('item_error'),
+        turnId,
+        threadId,
+        message,
+        code: 'internal_tool_call_markup_recovery_exhausted',
+        severity: 'error'
+      })
+    )
+    await this.opts.events.record({
+      kind: 'error',
+      threadId,
+      turnId,
+      message,
+      code: 'internal_tool_call_markup_recovery_exhausted',
+      severity: 'error'
     })
   }
 
@@ -2654,6 +2779,12 @@ function positiveIntegerOrDefault(value: number | undefined, fallback: number): 
   return typeof value === 'number' && Number.isFinite(value) && value > 0
     ? Math.floor(value)
     : fallback
+}
+
+function positiveIntegerOrUndefined(value: number | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : undefined
 }
 
 function clipForPrompt(text: string, maxChars: number): string {

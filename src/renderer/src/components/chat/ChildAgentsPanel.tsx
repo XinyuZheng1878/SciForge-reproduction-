@@ -63,6 +63,8 @@ export type ChildAgentsPanelProps = {
   children: AgentRuntimeChild[]
   loading: boolean
   error: string | null
+  focusChildId?: string | null
+  focusChildRequestKey?: number
   onCollapse: () => void
   className?: string
 }
@@ -273,6 +275,89 @@ function transcriptEntryText(entry: AgentRuntimeChildTranscriptEntry): string {
   return entry.text?.trim() || entry.summary?.trim() || entry.status?.trim() || ''
 }
 
+function stripChildRuntimeGuardrails(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('Child-agent runtime guardrails:')) return text
+  const marker = 'Delegated task:'
+  const markerIndex = trimmed.indexOf(marker)
+  if (markerIndex < 0) return text
+  return trimmed.slice(markerIndex + marker.length).trim() || marker
+}
+
+function isInternalToolCallMarkup(text: string | undefined): boolean {
+  const trimmed = text?.trim() ?? ''
+  if (!trimmed) return false
+  return /DSML/i.test(trimmed) && /tool_calls/i.test(trimmed) && /invoke\s+name=/i.test(trimmed)
+}
+
+function rewriteLegacyCollectedResultsFallback(text: string): string {
+  return text
+    .replace(
+      /^Child agent gathered tool results, but the model kept emitting internal tool-call markup instead of a final answer\.\s*/i,
+      'Collected research notes from available sources:\n\n'
+    )
+    .replace(
+      /^子 agent 已经收集到资料，但模型在最终阶段继续输出内部 tool-call 标记，未能生成自然语言总结。\s*/i,
+      '已收集到以下资料，供后续汇总使用：\n\n'
+    )
+    .replace(/^Usable collected results:\s*/im, 'Sources reviewed:\n')
+    .replace(/^下面是这次运行已经拿到的可用结果\/来源：\s*/m, '主要来源：\n')
+}
+
+function visibleChildSummary(text: string | undefined): string {
+  const trimmed = text?.trim() ?? ''
+  if (!trimmed || isInternalToolCallMarkup(trimmed)) return ''
+  return rewriteLegacyCollectedResultsFallback(trimmed)
+}
+
+function transcriptEntryDisplayText(entry: AgentRuntimeChildTranscriptEntry): string {
+  const text = transcriptEntryText(entry)
+  if (isInternalToolCallMarkup(text)) return ''
+  if (entry.kind === 'user_message') return stripChildRuntimeGuardrails(text)
+  return rewriteLegacyCollectedResultsFallback(text)
+}
+
+function transcriptEntryCallId(entry: AgentRuntimeChildTranscriptEntry): string {
+  const callId = entry.metadata?.callId
+  return typeof callId === 'string' ? callId.trim() : ''
+}
+
+function transcriptEntryPhase(entry: AgentRuntimeChildTranscriptEntry): string {
+  const phase = entry.metadata?.phase
+  return typeof phase === 'string' ? phase.trim() : ''
+}
+
+function normalizeVisibleTranscriptText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+function transcriptEntriesForDisplay(
+  transcript: AgentRuntimeChildTranscript
+): AgentRuntimeChildTranscriptEntry[] {
+  const entries = transcriptEntries(transcript)
+  const resultCallIds = new Set(
+    entries
+      .filter((entry) => entry.kind === 'tool' && transcriptEntryPhase(entry) === 'result')
+      .map(transcriptEntryCallId)
+      .filter(Boolean)
+  )
+  const seenUserText = new Set<string>()
+  return entries.filter((entry) => {
+    if (entry.kind === 'assistant_message' && isInternalToolCallMarkup(transcriptEntryText(entry))) return false
+    if (entry.kind === 'tool' && transcriptEntryPhase(entry) === 'call') {
+      const callId = transcriptEntryCallId(entry)
+      if (callId && resultCallIds.has(callId)) return false
+    }
+    if (entry.kind === 'user_message') {
+      const key = normalizeVisibleTranscriptText(stripChildRuntimeGuardrails(transcriptEntryText(entry)))
+      if (!key) return false
+      if (seenUserText.has(key)) return false
+      seenUserText.add(key)
+    }
+    return true
+  })
+}
+
 function transcriptRefKey(ref: unknown): string {
   if (!ref) return ''
   try {
@@ -295,6 +380,88 @@ function transcriptMetadataString(
   return ''
 }
 
+function parseJsonRecord(text: string): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(text)
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+function recordString(record: Record<string, unknown> | null | undefined, key: string): string {
+  const value = record?.[key]
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function compactOneLine(text: string, max = 180): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim()
+  if (!oneLine) return ''
+  if (oneLine.length <= max) return oneLine
+  return `${oneLine.slice(0, max - 1).trimEnd()}…`
+}
+
+function compactToolPayloadText(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed || isInternalToolCallMarkup(trimmed)) return ''
+  const record = parseJsonRecord(trimmed)
+  if (!record) return compactOneLine(trimmed, 220)
+
+  const direct = [
+    recordString(record, 'title'),
+    recordString(record, 'url') || recordString(record, 'finalUrl'),
+    recordString(record, 'query'),
+    recordString(record, 'path') || recordString(record, 'file_path'),
+    recordString(record, 'pattern'),
+    recordString(record, 'error')
+  ].filter(Boolean)
+  if (direct.length > 0) return compactOneLine(direct.join(' · '), 220)
+
+  const original = record.original
+  if (original && typeof original === 'object' && !Array.isArray(original)) {
+    const nested = compactToolPayloadText(JSON.stringify(original))
+    if (nested) return nested
+  }
+
+  const result = record.result
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    const content = (result as Record<string, unknown>).content
+    if (Array.isArray(content)) {
+      const textEntry = content
+        .map((entry) => entry && typeof entry === 'object' ? (entry as Record<string, unknown>).text : undefined)
+        .find((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      if (textEntry) return compactOneLine(textEntry, 220)
+    }
+  }
+
+  return ''
+}
+
+function transcriptToolSummary(
+  entry: AgentRuntimeChildTranscriptEntry,
+  toolName: string,
+  t: TFunction
+): string {
+  const rawSummary = entry.summary?.trim() || toolName || entry.status?.trim() || t('toolKindTool')
+  const payload = compactToolPayloadText(entry.text?.trim() ?? '')
+  if (!toolName || !payload) return rawSummary
+  if (/^call\s+[a-z0-9_-]+$/i.test(rawSummary) || /^[a-z0-9_-]+\s+(?:result|failed)$/i.test(rawSummary)) {
+    return `${toolName}: ${payload}`
+  }
+  return rawSummary
+}
+
+function transcriptToolDetail(entry: AgentRuntimeChildTranscriptEntry, summary: string): string | undefined {
+  const text = entry.text?.trim() ?? ''
+  if (!text || text === summary || isInternalToolCallMarkup(text)) return undefined
+  if (transcriptEntryPhase(entry) === 'call') return undefined
+  const compact = compactToolPayloadText(text)
+  if (!compact || compact === summary) return undefined
+  return compact
+}
+
 function transcriptToolStatus(status: string | undefined): ToolBlock['status'] {
   const normalized = status?.trim().toLowerCase()
   if (!normalized) return 'success'
@@ -307,7 +474,7 @@ function transcriptEntryToBlock(
   entry: AgentRuntimeChildTranscriptEntry,
   t: TFunction
 ): ChatBlock | null {
-  const text = transcriptEntryText(entry)
+  const text = transcriptEntryDisplayText(entry)
   switch (entry.kind) {
     case 'user_message':
       return text ? { kind: 'user', id: entry.id, createdAt: entry.createdAt, text } : null
@@ -317,8 +484,8 @@ function transcriptEntryToBlock(
       return text ? { kind: 'reasoning', id: entry.id, createdAt: entry.createdAt, text } : null
     case 'tool': {
       const toolName = transcriptMetadataString(entry, ['toolName', 'tool_name', 'name'])
-      const summary = entry.summary?.trim() || toolName || entry.text?.trim() || entry.status?.trim() || t('toolKindTool')
-      const detail = entry.text?.trim() && entry.text.trim() !== summary ? entry.text.trim() : undefined
+      const summary = transcriptToolSummary(entry, toolName, t)
+      const detail = transcriptToolDetail(entry, summary)
       return {
         kind: 'tool',
         id: entry.id,
@@ -354,7 +521,7 @@ function childTranscriptBlocks(
   t: TFunction
 ): ChatBlock[] {
   if (state.status === 'loaded' && state.childId === child.id) {
-    const blocks = transcriptEntries(state.transcript)
+    const blocks = transcriptEntriesForDisplay(state.transcript)
       .map((entry) => transcriptEntryToBlock(entry, t))
       .filter((block): block is ChatBlock => Boolean(block))
     if (blocks.length > 0) return blocks
@@ -363,8 +530,8 @@ function childTranscriptBlocks(
   }
 
   const blocks: ChatBlock[] = []
-  const prompt = child.prompt?.trim()
-  const summary = child.summary?.trim()
+  const prompt = child.prompt ? stripChildRuntimeGuardrails(child.prompt).trim() : ''
+  const summary = visibleChildSummary(child.summary)
   if (prompt) blocks.push({ kind: 'user', id: `${child.id}-prompt`, text: prompt })
   if (summary) blocks.push({ kind: 'assistant', id: `${child.id}-summary`, text: summary })
   return blocks
@@ -432,9 +599,9 @@ function ChildAgentOverview({
         </div>
       </div>
 
-      {child.summary?.trim() ? (
+      {visibleChildSummary(child.summary) ? (
         <div className="mt-2 line-clamp-2 whitespace-pre-wrap text-[12px] leading-5 text-ds-muted">
-          {childDetailText(child.summary, t('sidebarChildrenSummaryEmpty'))}
+          {childDetailText(visibleChildSummary(child.summary), t('sidebarChildrenSummaryEmpty'))}
         </div>
       ) : null}
     </div>
@@ -704,6 +871,25 @@ export function ChildAgentsPanelView({
   const directChildren = sortChildAgents(filterDirectChildAgents(children, activeThreadId, activeRuntimeId))
   const selectedChild = directChildren.find((child) => child.id === selectedChildId) ?? directChildren[0] ?? null
   const runningCount = directChildren.filter((child) => child.status === 'running' || child.status === 'queued').length
+  const transcriptScrollRef = useRef<HTMLDivElement | null>(null)
+  const transcriptScrollKey = useMemo(() => {
+    if (!selectedChild) return ''
+    const pieces = [selectedChild.id, selectedChild.status, selectedChild.updatedAt ?? '']
+    if (transcriptState.status === 'loaded' && transcriptState.childId === selectedChild.id) {
+      const entries = transcriptEntries(transcriptState.transcript)
+      const latest = entries[entries.length - 1]
+      pieces.push(String(entries.length), latest?.id ?? '', latest?.createdAt ?? '')
+    } else {
+      pieces.push(transcriptState.status)
+    }
+    return pieces.join('\u0000')
+  }, [selectedChild, transcriptState])
+
+  useEffect(() => {
+    const node = transcriptScrollRef.current
+    if (!node) return
+    node.scrollTop = node.scrollHeight
+  }, [transcriptScrollKey])
 
   return (
     <aside
@@ -799,7 +985,7 @@ export function ChildAgentsPanelView({
               t={t}
             />
           ) : (
-            <div className="space-y-3 overflow-y-auto px-3 py-3">
+            <div ref={transcriptScrollRef} className="space-y-3 overflow-y-auto px-3 py-3">
               <ChildAgentOverview child={selectedChild} t={t} />
               <ChildAgentTranscriptTimeline child={selectedChild} state={transcriptState} t={t} />
             </div>
@@ -881,7 +1067,7 @@ export function useThreadChildren({
     }
 
     void refresh(true)
-    if (busy) interval = window.setInterval(() => void refresh(false), 2500)
+    interval = window.setInterval(() => void refresh(false), busy ? 2500 : 5000)
 
     return () => {
       cancelled = true
@@ -898,6 +1084,8 @@ export function ChildAgentsPanel({
   children,
   loading,
   error,
+  focusChildId = null,
+  focusChildRequestKey = 0,
   onCollapse,
   className = ''
 }: ChildAgentsPanelProps): ReactElement {
@@ -921,6 +1109,7 @@ export function ChildAgentsPanel({
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null)
   const [transcriptState, setTranscriptState] = useState<ChildAgentTranscriptState>({ status: 'idle' })
   const [attachingThreadId, setAttachingThreadId] = useState<string | null>(null)
+  const appliedFocusRequestKeyRef = useRef<number | null>(null)
   const activeRuntimeId = activeThread?.runtimeId
   const directChildren = useMemo(
     () => sortChildAgents(filterDirectChildAgents(children, activeThreadId, activeRuntimeId)),
@@ -941,11 +1130,24 @@ export function ChildAgentsPanel({
   useEffect(() => {
     setSelectedChildId(null)
     setTranscriptState({ status: 'idle' })
+    appliedFocusRequestKeyRef.current = null
   }, [activeThreadId])
 
   useEffect(() => {
     setSelectedChildId((current) => preferredChildAgentId(directChildren, current))
   }, [directChildren])
+
+  useEffect(() => {
+    const nextFocusId = focusChildId?.trim() || null
+    if (!nextFocusId) {
+      appliedFocusRequestKeyRef.current = null
+      return
+    }
+    if (appliedFocusRequestKeyRef.current === focusChildRequestKey) return
+    if (!directChildren.some((child) => child.id === nextFocusId)) return
+    appliedFocusRequestKeyRef.current = focusChildRequestKey
+    setSelectedChildId(nextFocusId)
+  }, [directChildren, focusChildId, focusChildRequestKey])
 
   useEffect(() => {
     let cancelled = false

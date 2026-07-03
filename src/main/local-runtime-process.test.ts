@@ -509,6 +509,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
       }
     })
     expect(parsed.runtime.toolStorm).toMatchObject({ enabled: true, windowSize: 8, threshold: 3 })
+    expect(parsed.runtime.modelStreamIdleTimeoutMs).toBe(600000)
     expect(parsed.runtime.toolArgumentRepair).toMatchObject({ maxStringBytes: 524288 })
     expect(parsed.capabilities.attachments).toMatchObject({ enabled: true })
     expect(parsed.capabilities.web).toMatchObject({ enabled: true, fetchEnabled: true })
@@ -1022,6 +1023,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
       },
       runtime: {
         customRuntimeFlag: true,
+        modelStreamIdleTimeoutMs: 180000,
         toolStorm: {
           customStormFlag: 'keep'
         }
@@ -1168,6 +1170,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     })
     expect(parsed.runtime.toolStorm.customStormFlag).toBeUndefined()
     expect(parsed.runtime.customRuntimeFlag).toBeUndefined()
+    expect(parsed.runtime.modelStreamIdleTimeoutMs).toBe(180000)
     expect(parsed.runtime.toolArgumentRepair).toMatchObject({ maxStringBytes: 262144 })
     expect(parsed.capabilities.attachments).toMatchObject({ enabled: true })
     expect(parsed.capabilities.subagents).toMatchObject({

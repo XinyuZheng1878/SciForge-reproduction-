@@ -248,6 +248,7 @@ export type MultiAgentExecutorInput = {
   strictAllowedToolNames?: boolean
   bashCommandPolicy?: Record<string, unknown>
   filePathPolicy?: Record<string, unknown>
+  maxToolCalls?: number
   signal: AbortSignal
   appendTranscript: (entry: MultiAgentTranscriptEntry) => Promise<void>
 }

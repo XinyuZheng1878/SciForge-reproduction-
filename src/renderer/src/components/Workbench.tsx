@@ -829,11 +829,18 @@ export function Workbench(): ReactElement {
     runtimeReady: runtimeConnection === 'ready',
     busy
   })
+  const [focusedChildAgentRequest, setFocusedChildAgentRequest] = useState<{
+    childId: string
+    requestKey: number
+  } | null>(null)
   const childAgentCount = threadChildrenState.children.length
   const childAgentRunningCount = threadChildrenState.children.reduce(
     (count, child) => count + (child.status === 'running' || child.status === 'queued' ? 1 : 0),
     0
   )
+  useEffect(() => {
+    setFocusedChildAgentRequest(null)
+  }, [activeThreadId])
   const {
     beginLeftResize,
     beginRightResize,
@@ -1186,6 +1193,18 @@ export function Workbench(): ReactElement {
     if (mode === 'file') setFileTreeWorkspaceOverride(null)
     if (mode === 'evidence') setRightSidebarWidth((width) => Math.max(width, CODE_PANEL_PREFERRED))
     toggleRightPanelMode(mode)
+  }
+
+  const openChildAgentPanel = (childId?: string): void => {
+    const normalizedChildId = childId?.trim()
+    if (normalizedChildId) {
+      setFocusedChildAgentRequest((previous) => ({
+        childId: normalizedChildId,
+        requestKey: (previous?.requestKey ?? 0) + 1
+      }))
+    }
+    setRightSidebarWidth((width) => Math.max(width, 440))
+    setRightPanelMode('child-agents')
   }
 
   const removeComposerFileReference = (relativePath: string, referenceWorkspaceRoot?: string): void => {
@@ -2268,6 +2287,8 @@ export function Workbench(): ReactElement {
                 children={threadChildrenState.children}
                 loading={threadChildrenState.loading}
                 error={threadChildrenState.error}
+                focusChildId={focusedChildAgentRequest?.childId ?? null}
+                focusChildRequestKey={focusedChildAgentRequest?.requestKey ?? 0}
                 className="h-full max-h-full w-full"
                 onCollapse={closeRightPanel}
               />
@@ -2481,9 +2502,11 @@ export function Workbench(): ReactElement {
                     sideChatOpen={sidePanel.open}
                     childAgentCount={childAgentCount}
                     childAgentRunningCount={childAgentRunningCount}
+                    childAgents={threadChildrenState.children}
                     childAgentsOpen={rightPanelMode === 'child-agents'}
                     sideChatEnabled={Boolean(activeThreadId) && sideConversationsSupported}
                     onOpenChildAgents={() => toggleTopBarRightPanelMode('child-agents')}
+                    onOpenChildAgent={openChildAgentPanel}
                     onOpenSideChat={
                       activeThreadId && sideConversationsSupported ? openSideChat : undefined
                     }

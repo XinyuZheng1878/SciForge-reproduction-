@@ -51,6 +51,17 @@ describe('WorkbenchTopBar Paper Radar entry', () => {
     expect(html).toContain('aria-label="Choose default editor"')
   })
 
+  it('shows an environment menu entry for workspace and subagent context', () => {
+    const html = renderToStaticMarkup(createElement(WorkbenchTopBar, {
+      rightPanelMode: null,
+      onToggleRightPanelMode: vi.fn(),
+      workspaceRoot: '/workspace/sciforge'
+    }))
+
+    expect(html).toContain('aria-label="Environment info"')
+    expect(html).toContain('aria-haspopup="menu"')
+  })
+
   it('hides the child agent status button until children exist', () => {
     const html = renderToStaticMarkup(createElement(WorkbenchTopBar, {
       rightPanelMode: null,

@@ -5,6 +5,12 @@ import { LocalToolHost } from './local-tool-host.js'
 const DEFAULT_DELEGATE_TIMEOUT_MS = 600_000
 const MAX_DELEGATE_TIMEOUT_MS = 1_200_000
 const PARALLEL_BUDGET_RETRY_MS = 250
+const RESEARCH_CHILD_MAX_TOOL_CALLS = 12
+const RESEARCH_CHILD_ALLOWED_TOOL_NAMES = [
+  'web_search',
+  'web_fetch',
+  'mcp_gui_research_research_search'
+] as const
 
 const CHILD_AGENT_RUNTIME_GUARDRAILS = [
   'Child-agent runtime guardrails:',
@@ -12,8 +18,9 @@ const CHILD_AGENT_RUNTIME_GUARDRAILS = [
   '- Never read app settings, API key files, tokens, or secrets from paths outside the workspace.',
   '- If local Model Router access is needed, use environment variables only: SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY for the key, SCIFORGE_MODEL_ROUTER_BASE_URL for the base URL, and SCIFORGE_MODEL_ROUTER_MODEL for the model. Never print secret values.',
   '- Treat the delegated prompt as a bounded execution request, not as an interactive consultation. Do not ask the parent or user what to do next.',
+  '- For research/source-collection tasks, gather enough evidence and then synthesize. Do not keep searching after 8-12 useful sources, and do not use bash/curl/wget for web research; use web/research tools.',
   '- If the delegated task names deliverables, output paths, or file mutations, create or edit those files with tools before your final response.',
-  '- Before declaring completion, verify requested files or observable outputs with read/ls/grep/bash as appropriate and mention the verified paths in your final response.',
+  '- Before declaring completion, verify requested files or observable outputs only when the task asks for files or local outputs. For research tasks, cite fetched sources instead of shell verification.',
   '- If you cannot complete the delegated task, start the final response with CHILD_AGENT_BLOCKED and explain the blocker plus any partial work.',
   '- If you complete the delegated task after initially thinking it was blocked, do not include CHILD_AGENT_BLOCKED anywhere in the final response.',
   '- Before editing an existing file, read that file in this child run first; if a read-before-edit guard blocks an edit, read the file and retry once.',
@@ -54,6 +61,11 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
             prompt,
             ...(typeof args.label === 'string' ? { label: args.label } : {})
           }
+          const childToolPolicy = childToolPolicyForPrompt(
+            prompt,
+            context.explicitAllowedToolNames,
+            context.explicitStrictAllowedToolNames === true
+          )
           let record: DelegateRecordLike
           try {
             record = await runDelegateChildWithWatchdog({
@@ -67,8 +79,9 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
                 workspace: typeof args.workspace === 'string' ? args.workspace : context.workspace,
                 model: normalizeDelegateModel(args.model) ?? context.model?.id,
                 childTimeoutMs: timeoutMs,
-                allowedToolNames: context.explicitAllowedToolNames,
-                strictAllowedToolNames: context.explicitStrictAllowedToolNames === true,
+                ...(childToolPolicy.allowedToolNames ? { allowedToolNames: childToolPolicy.allowedToolNames } : {}),
+                strictAllowedToolNames: childToolPolicy.strictAllowedToolNames,
+                ...(childToolPolicy.maxToolCalls !== undefined ? { maxToolCalls: childToolPolicy.maxToolCalls } : {}),
                 ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
                 ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
                 signal
@@ -140,6 +153,11 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
           const sharedTimeoutMs = normalizeDelegateTimeoutMs(args.timeout_ms, DEFAULT_DELEGATE_TIMEOUT_MS)
           const records = await runWithConcurrency(tasks, concurrency, async (task, index) => {
             const timeoutMs = task.timeoutMs ?? sharedTimeoutMs
+            const childToolPolicy = childToolPolicyForPrompt(
+              task.prompt,
+              context.explicitAllowedToolNames,
+              context.explicitStrictAllowedToolNames === true
+            )
             try {
               return await runDelegateChildWithWatchdog({
                 parentSignal: context.abortSignal,
@@ -152,8 +170,9 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
                   workspace: (task.workspace ?? sharedWorkspace) || context.workspace,
                   model: task.model ?? sharedModel ?? context.model?.id,
                   childTimeoutMs: timeoutMs,
-                  allowedToolNames: context.explicitAllowedToolNames,
-                  strictAllowedToolNames: context.explicitStrictAllowedToolNames === true,
+                  ...(childToolPolicy.allowedToolNames ? { allowedToolNames: childToolPolicy.allowedToolNames } : {}),
+                  strictAllowedToolNames: childToolPolicy.strictAllowedToolNames,
+                  ...(childToolPolicy.maxToolCalls !== undefined ? { maxToolCalls: childToolPolicy.maxToolCalls } : {}),
                   ...(context.bashCommandPolicy ? { bashCommandPolicy: context.bashCommandPolicy } : {}),
                   ...(context.filePathPolicy ? { filePathPolicy: context.filePathPolicy } : {}),
                   signal
@@ -361,6 +380,57 @@ function failedDelegateRecord(
     updatedAt: now,
     finishedAt: now
   }
+}
+
+function childToolPolicyForPrompt(
+  prompt: string,
+  explicitAllowedToolNames: readonly string[] | undefined,
+  explicitStrictAllowedToolNames: boolean
+): { allowedToolNames?: string[]; strictAllowedToolNames: boolean; maxToolCalls?: number } {
+  if (!isResearchCollectionPrompt(prompt)) {
+    return {
+      ...(explicitAllowedToolNames ? { allowedToolNames: [...explicitAllowedToolNames] } : {}),
+      strictAllowedToolNames: explicitStrictAllowedToolNames
+    }
+  }
+
+  const researchAllowed = new Set<string>(RESEARCH_CHILD_ALLOWED_TOOL_NAMES)
+  if (explicitAllowedToolNames) {
+    return {
+      allowedToolNames: explicitAllowedToolNames.filter((toolName) => researchAllowed.has(toolName)),
+      strictAllowedToolNames: true,
+      maxToolCalls: RESEARCH_CHILD_MAX_TOOL_CALLS
+    }
+  }
+
+  return {
+    allowedToolNames: [...RESEARCH_CHILD_ALLOWED_TOOL_NAMES],
+    strictAllowedToolNames: true,
+    maxToolCalls: RESEARCH_CHILD_MAX_TOOL_CALLS
+  }
+}
+
+function isResearchCollectionPrompt(prompt: string): boolean {
+  const normalized = prompt.toLowerCase()
+  return [
+    /\bresearch\b/,
+    /\bcollect\b/,
+    /\bsources?\b/,
+    /\bcitations?\b/,
+    /\blatest\b/,
+    /\bbenchmark/,
+    /\bgithub\b/,
+    /\bhuggingface\b/,
+    /收集/,
+    /调研/,
+    /研究/,
+    /最新/,
+    /来源/,
+    /引用/,
+    /开源/,
+    /基准/,
+    /定价/
+  ].some((pattern) => pattern.test(normalized))
 }
 
 async function runWithConcurrency<T, R>(

@@ -225,6 +225,151 @@ describe('ChildAgentsPanelView', () => {
     expect(html).not.toContain('Open thread')
   })
 
+  it('hides injected child runtime guardrails from the visible transcript prompt', () => {
+    const html = renderView({
+      selectedChildId: 'child-research',
+      children: [
+        child({
+          status: 'running',
+          transcriptRef: { runtimeId: 'codex', childId: 'child-research', transcriptId: 'transcript-1' }
+        })
+      ],
+      transcriptState: {
+        status: 'loaded',
+        childId: 'child-research',
+        transcript: {
+          runtimeId: 'codex',
+          parentThreadId: 'thread-main',
+          childId: 'child-research',
+          entries: [
+            {
+              id: 'entry-user',
+              kind: 'user_message',
+              text: [
+                'Child-agent runtime guardrails:',
+                '- Work only inside the assigned workspace.',
+                '',
+                'Delegated task:',
+                '',
+                'Collect sources and summarize.'
+              ].join('\n')
+            }
+          ]
+        }
+      }
+    })
+
+    expect(html).toContain('Collect sources and summarize.')
+    expect(html).not.toContain('Child-agent runtime guardrails')
+    expect(html).not.toContain('Work only inside the assigned workspace')
+  })
+
+  it('hides internal child tool-call markup and duplicate prompt entries', () => {
+    const delegatedPrompt = 'Collect sources and summarize.'
+    const guardrailedPrompt = [
+      'Child-agent runtime guardrails:',
+      '- Work only inside the assigned workspace.',
+      '',
+      'Delegated task:',
+      '',
+      delegatedPrompt
+    ].join('\n')
+    const internalMarkup = [
+      '<｜｜DSML｜｜tool_calls>',
+      '<｜｜DSML｜｜invoke name="web_fetch">',
+      '<｜｜DSML｜｜parameter name="url" string="true">[redacted-url]</｜｜DSML｜｜parameter>',
+      '</｜｜DSML｜｜invoke>',
+      '</｜｜DSML｜｜tool_calls>'
+    ].join('\n')
+    const html = renderView({
+      selectedChildId: 'child-research',
+      children: [
+        child({
+          status: 'completed',
+          summary: internalMarkup,
+          transcriptRef: { runtimeId: 'codex', childId: 'child-research', transcriptId: 'transcript-1' }
+        })
+      ],
+      transcriptState: {
+        status: 'loaded',
+        childId: 'child-research',
+        transcript: {
+          runtimeId: 'codex',
+          parentThreadId: 'thread-main',
+          childId: 'child-research',
+          entries: [
+            { id: 'entry-user-seed', kind: 'user_message', text: guardrailedPrompt },
+            {
+              id: 'entry-call',
+              kind: 'tool',
+              summary: 'Call web_fetch',
+              text: '{"url":"https://example.test/source","max_bytes":50000}',
+              status: 'completed',
+              metadata: { phase: 'call', callId: 'call-1', toolName: 'web_fetch' }
+            },
+            {
+              id: 'entry-result',
+              kind: 'tool',
+              summary: 'web_fetch result',
+              text: '{"title":"Example Source","url":"https://example.test/source","text":"large body omitted"}',
+              status: 'completed',
+              metadata: { phase: 'result', callId: 'call-1', toolName: 'web_fetch' }
+            },
+            { id: 'entry-internal', kind: 'assistant_message', text: internalMarkup },
+            { id: 'entry-user-runtime', kind: 'user_message', text: guardrailedPrompt }
+          ]
+        }
+      }
+    })
+
+    expect(html).toContain(delegatedPrompt)
+    expect(html.match(new RegExp(delegatedPrompt, 'g'))).toHaveLength(1)
+    expect(html).toContain('Processed')
+    expect(html).toContain('1 steps')
+    expect(html).toContain('Example Source')
+    expect(html).not.toContain('DSML')
+    expect(html).not.toContain('invoke name')
+    expect(html).not.toContain('[redacted-url]')
+    expect(html).not.toContain('large body omitted')
+  })
+
+  it('rewrites legacy collected-results fallback text before rendering', () => {
+    const legacyFallback = [
+      'Child agent gathered tool results, but the model kept emitting internal tool-call markup instead of a final answer.',
+      'Usable collected results:',
+      '- web_fetch: Qwen3 release notes (https://qwen.ai/blog/qwen3-2507)'
+    ].join('\n')
+    const html = renderView({
+      selectedChildId: 'child-research',
+      children: [
+        child({
+          status: 'completed',
+          summary: legacyFallback,
+          transcriptRef: { runtimeId: 'codex', childId: 'child-research', transcriptId: 'transcript-1' }
+        })
+      ],
+      transcriptState: {
+        status: 'loaded',
+        childId: 'child-research',
+        transcript: {
+          runtimeId: 'codex',
+          parentThreadId: 'thread-main',
+          childId: 'child-research',
+          entries: [
+            { id: 'entry-user', kind: 'user_message', text: 'Collect sources' },
+            { id: 'entry-assistant', kind: 'assistant_message', text: legacyFallback }
+          ]
+        }
+      }
+    })
+
+    expect(html).toContain('Collected research notes from available sources')
+    expect(html).toContain('Sources reviewed')
+    expect(html).toContain('Qwen3 release notes')
+    expect(html).not.toContain('model kept emitting')
+    expect(html).not.toContain('internal tool-call markup')
+  })
+
   it('renders an attached child thread as a chat surface with a composer', () => {
     const html = renderView({
       selectedChildId: 'child-research',

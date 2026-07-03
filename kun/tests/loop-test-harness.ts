@@ -79,7 +79,13 @@ export function makeHarness(
     modelCapabilities?: (model: string) => ModelCapabilityMetadata
     tokenEconomy?: TokenEconomyConfig
     contextCompaction?: ContextCompactionConfig
-    toolStorm?: ToolStormBreakerOptions & { enabled?: boolean }
+    toolStorm?: ToolStormBreakerOptions & {
+      enabled?: boolean
+      maxRecoverySteps?: number
+      nonProgressThreshold?: number
+      maxStepsAfterRecovery?: number
+      maxToolCallsPerTurn?: number
+    }
     nowMs?: () => number
     toolHost?: LocalToolHost
     toolArgumentRepair?: {

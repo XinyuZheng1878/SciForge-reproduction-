@@ -178,6 +178,52 @@ describe('child agent executor', () => {
     expect(serialized).toContain('<redacted>')
   })
 
+  it('does not persist internal DSML tool-call markup as a child final answer', async () => {
+    const internalMarkup = [
+      '<｜｜DSML｜｜tool_calls>',
+      '<｜｜DSML｜｜invoke name="web_fetch">',
+      '<｜｜DSML｜｜parameter name="url" string="true">[redacted-url]</｜｜DSML｜｜parameter>',
+      '</｜｜DSML｜｜invoke>',
+      '</｜｜DSML｜｜tool_calls>'
+    ].join('\n')
+    const transcript: unknown[] = []
+    let calls = 0
+    const executor = createChildAgentExecutor({
+      model: {
+        provider: 'child-internal-markup-test',
+        model: 'child-internal-markup-test',
+        async *stream(): AsyncIterable<ModelStreamChunk> {
+          calls += 1
+          if (calls === 1) {
+            yield { kind: 'assistant_text_delta', text: internalMarkup }
+            yield { kind: 'completed', stopReason: 'stop' }
+            return
+          }
+          yield { kind: 'assistant_text_delta', text: 'Recovered final answer.' }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      toolHost: new LocalToolHost({ registry: new CapabilityRegistry([]) }),
+      prefix: createImmutablePrefix({ systemPrompt: 'child system' }),
+      defaultModel: 'child-test',
+      nowIso: () => '2026-06-03T00:00:00.000Z'
+    })
+
+    const result = await executor({
+      childId: 'child_internal_markup',
+      parentThreadId: 'thr_parent',
+      parentTurnId: 'turn_parent',
+      prompt: 'Summarize sources',
+      signal: new AbortController().signal,
+      appendTranscript: async (entry) => { transcript.push(entry) }
+    })
+
+    expect(result.summary).toBe('Recovered final answer.')
+    expect(calls).toBe(2)
+    expect(JSON.stringify(result.transcript)).not.toContain('DSML')
+    expect(JSON.stringify(transcript)).not.toContain('DSML')
+  })
+
   it('does not fail a child run for tool-loop recovery warnings when the child recovers', async () => {
     const seen: ModelRequest[] = []
     let calls = 0
@@ -246,6 +292,88 @@ describe('child agent executor', () => {
         text: 'Recovered with a substantive child summary.'
       })
     ]))
+  })
+
+  it('returns a collected-results fallback when internal tool-call markup recovery is exhausted', async () => {
+    const internalMarkup = [
+      '<｜｜DSML｜｜tool_calls>',
+      '<｜｜DSML｜｜invoke name="web_fetch">',
+      '<｜｜DSML｜｜parameter name="url" string="true">[redacted-url]</｜｜DSML｜｜parameter>',
+      '</｜｜DSML｜｜invoke>',
+      '</｜｜DSML｜｜tool_calls>'
+    ].join('\n')
+    const seen: ModelRequest[] = []
+    let calls = 0
+    const transcript: unknown[] = []
+    const fetchTool = LocalToolHost.defineTool({
+      name: 'web_fetch',
+      description: 'Fetch a web page',
+      inputSchema: {
+        type: 'object',
+        properties: { url: { type: 'string' } },
+        required: ['url']
+      },
+      policy: 'auto',
+      execute: async () => ({
+        output: {
+          title: 'Qwen3 release notes',
+          url: 'https://qwen.ai/blog/qwen3-2507',
+          summary: 'Qwen3-2507 introduces updated instruction and thinking models.'
+        }
+      })
+    })
+    const executor = createChildAgentExecutor({
+      model: {
+        provider: 'child-internal-markup-fallback-test',
+        model: 'child-internal-markup-fallback-test',
+        async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+          seen.push(request)
+          calls += 1
+          if (calls === 1) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_fetch_qwen',
+              toolName: 'web_fetch',
+              arguments: { url: 'https://qwen.ai/blog/qwen3-2507' }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield { kind: 'assistant_text_delta', text: internalMarkup }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      toolHost: new LocalToolHost({
+        registry: new CapabilityRegistry([
+          { id: 'local', kind: 'built-in', enabled: true, available: true, tools: [fetchTool] }
+        ])
+      }),
+      prefix: createImmutablePrefix({ systemPrompt: 'child system' }),
+      defaultModel: 'child-internal-markup-fallback-test',
+      nowIso: () => '2026-06-03T00:00:00.000Z'
+    })
+
+    const result = await executor({
+      childId: 'child_internal_markup_fallback',
+      parentThreadId: 'thr_parent',
+      parentTurnId: 'turn_parent',
+      prompt: '请收集 Qwen 最新信息',
+      signal: new AbortController().signal,
+      appendTranscript: async (entry) => { transcript.push(entry) }
+    })
+
+    expect(calls).toBe(4)
+    expect(seen.at(-1)?.contextInstructions?.join('\n')).toContain('Internal tool-call markup recovery')
+    expect(result.summary).toContain('已收集到以下资料')
+    expect(result.summary).toContain('主要来源')
+    expect(result.summary).toContain('摘录')
+    expect(result.summary).toContain('Qwen3 release notes')
+    expect(result.summary).toContain('https://qwen.ai/blog/qwen3-2507')
+    expect(result.summary).not.toContain('Tool-call markup recovery failed')
+    expect(result.summary).not.toContain('model kept emitting')
+    expect(result.summary).not.toContain('internal tool-call')
+    expect(JSON.stringify(result.transcript)).not.toContain('DSML')
+    expect(JSON.stringify(transcript)).not.toContain('DSML')
   })
 
   it('fails the child run when the child loop cannot produce a completed turn', async () => {

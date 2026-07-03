@@ -777,7 +777,10 @@ function builtInToolLabel(
 }
 
 function extractToolName(summary: string): string {
-  const match = summary.trim().match(/^([a-z0-9_-]+)\s*:/i)
+  const trimmed = summary.trim()
+  const callMatch = trimmed.match(/^call\s+([a-z0-9_-]+)/i)
+  if (callMatch?.[1]) return callMatch[1]
+  const match = trimmed.match(/^([a-z0-9_-]+)\s*:/i)
   return match?.[1] ?? ''
 }
 

@@ -130,7 +130,7 @@ type ChatCompletionPostResult =
   | { kind: 'response'; response: Response }
   | { kind: 'error'; message: string; code?: string }
 
-const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 10 * 60_000
 const DEFAULT_MESSAGES_MAX_TOKENS = 4096
 
 /**

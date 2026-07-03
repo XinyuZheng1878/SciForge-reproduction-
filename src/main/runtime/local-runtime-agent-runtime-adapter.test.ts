@@ -835,6 +835,12 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
                   cacheMissTokens: 7,
                   costUsd: 0.02
                 },
+                threadRef: {
+                  runtime: 'sciforge',
+                  threadId: 'child-thread-1',
+                  turnId: 'child-turn-1',
+                  url: 'sciforge://threads/child-thread-1'
+                },
                 createdAt: '2026-06-02T00:00:00.000Z',
                 updatedAt: '2026-06-02T00:00:10.000Z'
               }
@@ -882,6 +888,14 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
             transcriptId: 'child-1',
             source: 'local-runtime-child-run',
             label: 'research'
+          },
+          openAsThreadRef: {
+            runtimeId: 'sciforge',
+            threadId: 'child-thread-1',
+            relation: 'side',
+            url: 'sciforge://threads/child-thread-1',
+            title: 'research',
+            metadata: { turnId: 'child-turn-1' }
           },
           completedAt: '2026-06-02T00:00:10.000Z',
           metadata: {

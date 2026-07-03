@@ -6,6 +6,7 @@ import type {
   AgentRuntimeAuxiliaryInput,
   AgentRuntimeCapabilities,
   AgentRuntimeChild,
+  AgentRuntimeChildOpenAsThreadRef,
   AgentRuntimeChildStatus,
   AgentRuntimeChildTranscriptEntry,
   AgentRuntimeEvent,
@@ -1589,6 +1590,38 @@ function mapLocalRuntimeTranscriptRef(
   }
 }
 
+function mapLocalRuntimeChildThreadRef(
+  record: Record<string, unknown> | undefined,
+  label?: string
+): AgentRuntimeChildOpenAsThreadRef | undefined {
+  const threadId = optionalString(record?.threadId) ?? optionalString(record?.thread_id)
+  if (!threadId) return undefined
+  const runtimeId = mapLocalRuntimeOpenThreadRuntimeId(
+    optionalString(record?.runtimeId) ??
+    optionalString(record?.runtime_id) ??
+    optionalString(record?.runtime)
+  )
+  const turnId = optionalString(record?.turnId) ?? optionalString(record?.turn_id)
+  const externalId = optionalString(record?.externalId) ?? optionalString(record?.external_id)
+  const url = optionalString(record?.url)
+  const title = optionalString(record?.title) ?? label
+  const metadata = asRecord(record?.metadata) ?? undefined
+  return {
+    runtimeId,
+    threadId,
+    relation: 'side',
+    ...(externalId ? { externalId } : {}),
+    ...(url ? { url } : {}),
+    ...(title ? { title } : {}),
+    ...(metadata || turnId ? { metadata: { ...(metadata ?? {}), ...(turnId ? { turnId } : {}) } } : {})
+  }
+}
+
+function mapLocalRuntimeOpenThreadRuntimeId(value: string | undefined): AgentRuntimeChildOpenAsThreadRef['runtimeId'] {
+  if (value === 'codex' || value === 'claude' || value === 'sciforge') return value
+  return SCIFORGE_RUNTIME_ID
+}
+
 function mapLocalRuntimeTranscriptRefKind(value: unknown): NonNullable<AgentRuntimeChild['transcriptRef']>['kind'] | undefined {
   if (value === 'runtime' || value === 'file' || value === 'directory' || value === 'url' || value === 'remote') {
     return value
@@ -1686,6 +1719,10 @@ function mapLocalRuntimeChildRun(value: unknown, fallbackParentThreadId: string)
   const model = optionalString(record.model)
   const errorRecord = asRecord(record.error)
   const error = optionalString(record.error) ?? optionalString(errorRecord?.message)
+  const openAsThreadRef = mapLocalRuntimeChildThreadRef(
+    asRecord(record.threadRef) ?? asRecord(record.thread_ref) ?? asRecord(record.openAsThreadRef) ?? undefined,
+    label
+  )
   return {
     id,
     runtimeId: SCIFORGE_RUNTIME_ID,
@@ -1698,6 +1735,7 @@ function mapLocalRuntimeChildRun(value: unknown, fallbackParentThreadId: string)
     summary: optionalString(record.summary) ?? optionalString(record.text) ?? error,
     usage: mapUsage(record.usage),
     transcriptRef: mapLocalRuntimeTranscriptRef(asRecord(record.transcriptRef) ?? undefined, id, label),
+    ...(openAsThreadRef ? { openAsThreadRef } : {}),
     createdAt: optionalString(record.createdAt) ?? optionalString(record.created_at),
     startedAt: optionalString(record.startedAt) ?? optionalString(record.started_at) ?? optionalString(record.createdAt) ?? optionalString(record.created_at),
     updatedAt,
@@ -1740,6 +1778,10 @@ function mapLocalRuntimeChildEvent(
   const label = optionalString(record.childLabel)
   const status = mapLocalRuntimeChildStatus(stringValue(record.childStatus))
   const summary = optionalString(event.text) ?? optionalString(event.message)
+  const openAsThreadRef = mapLocalRuntimeChildThreadRef(
+    asRecord(record.threadRef) ?? asRecord(record.thread_ref) ?? asRecord(record.openAsThreadRef) ?? undefined,
+    label
+  )
   return {
     id,
     runtimeId: SCIFORGE_RUNTIME_ID,
@@ -1749,6 +1791,7 @@ function mapLocalRuntimeChildEvent(
     status,
     ...(label ? { label, name: label } : {}),
     ...(summary ? { summary } : {}),
+    ...(openAsThreadRef ? { openAsThreadRef } : {}),
     updatedAt: createdAt,
     ...(status === 'completed' || status === 'failed' || status === 'aborted' ? { completedAt: createdAt } : {}),
     metadata: {

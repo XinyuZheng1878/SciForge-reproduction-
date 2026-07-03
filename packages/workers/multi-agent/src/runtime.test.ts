@@ -24,6 +24,7 @@ test('runtime persists queued/running/completed records through an injected exec
       assert.equal(input.strictAllowedToolNames, true)
       assert.deepEqual(input.bashCommandPolicy, { allowPatterns: ['^python3 '] })
       assert.deepEqual(input.filePathPolicy, { allowPaths: ['/workspace'] })
+      assert.equal(input.maxToolCalls, 12)
       assert.equal(input.signal.aborted, false)
       await input.appendTranscript({
         id: 'tool-1',
@@ -51,7 +52,8 @@ test('runtime persists queued/running/completed records through an injected exec
     allowedToolNames: ['bash', 'delegate_tasks', 'bash'],
     strictAllowedToolNames: true,
     bashCommandPolicy: { allowPatterns: ['^python3 '] },
-    filePathPolicy: { allowPaths: ['/workspace'] }
+    filePathPolicy: { allowPaths: ['/workspace'] },
+    maxToolCalls: 12
   })
 
   assert.equal(record.status, 'completed')

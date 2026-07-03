@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import {
   MultiAgentChildRunRecord,
   type MultiAgentChildStatus,
@@ -39,16 +40,29 @@ type StoreScan = {
 }
 
 export class FileMultiAgentStore implements MultiAgentStore {
+  private readonly pendingWrites = new Map<string, Promise<void>>()
+
   constructor(private readonly rootDir: string) {}
 
   async upsert(record: MultiAgentChildRunRecord): Promise<void> {
     const parsed = MultiAgentChildRunRecord.parse(record)
-    await mkdir(this.rootDir, { recursive: true })
-    const target = this.recordPath(parsed.id)
-    const tmp = join(this.rootDir, `.${recordFileName(parsed.id)}.${randomUUID()}.tmp`)
+    const previous = this.pendingWrites.get(parsed.id) ?? Promise.resolve()
+    const write = previous.catch(() => undefined).then(() => this.writeRecord(parsed))
+    this.pendingWrites.set(parsed.id, write)
     try {
-      await writeFile(tmp, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8')
-      await rename(tmp, target)
+      await write
+    } finally {
+      if (this.pendingWrites.get(parsed.id) === write) this.pendingWrites.delete(parsed.id)
+    }
+  }
+
+  private async writeRecord(record: MultiAgentChildRunRecord): Promise<void> {
+    await mkdir(this.rootDir, { recursive: true })
+    const target = this.recordPath(record.id)
+    const tmp = join(this.rootDir, `.${recordFileName(record.id)}.${randomUUID()}.tmp`)
+    try {
+      await writeFile(tmp, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+      await renameWithRetry(tmp, target)
     } catch (error) {
       await rm(tmp, { force: true }).catch(() => undefined)
       throw error
@@ -196,5 +210,26 @@ function compareRecords(a: MultiAgentChildRunRecord, b: MultiAgentChildRunRecord
 
 function recordFileName(childId: string): string {
   return `${Buffer.from(childId, 'utf8').toString('base64url')}.json`
+}
+
+async function renameWithRetry(source: string, target: string): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      await rename(source, target)
+      return
+    } catch (error) {
+      lastError = error
+      if (!isTransientRenameError(error) || attempt === 5) throw error
+      await delay(25 * 2 ** attempt)
+    }
+  }
+  throw lastError
+}
+
+function isTransientRenameError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const code = (error as NodeJS.ErrnoException).code
+  return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY' || code === 'ENOTEMPTY'
 }
 

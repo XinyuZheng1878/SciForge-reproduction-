@@ -119,6 +119,7 @@ const LOCAL_RUNTIME_READY_PREFIX = 'KUN_READY '
 const LOCAL_RUNTIME_STARTUP_TIMEOUT_MS = 45_000
 const LOCAL_RUNTIME_STARTUP_HEALTH_POLL_MS = 500
 const LOCAL_RUNTIME_STARTUP_HEALTH_REQUEST_TIMEOUT_MS = 1_000
+const DEFAULT_LOCAL_RUNTIME_MODEL_STREAM_IDLE_TIMEOUT_MS = 10 * 60_000
 const LOCAL_RUNTIME_STOP_GRACE_MS = 5_000
 const LOCAL_RUNTIME_STOP_FORCE_MS = 1_000
 const STDERR_TAIL_MAX_CHARS = 32_768
@@ -929,9 +930,11 @@ function runtimeTuningConfigForRuntime(
 ): Record<string, unknown> {
   const existingToolStorm = objectValue(existing.toolStorm)
   const existingToolArgumentRepair = objectValue(existing.toolArgumentRepair)
+  const existingModelStreamIdleTimeoutMs = positiveIntegerValue(existing.modelStreamIdleTimeoutMs)
   const toolStorm = normalizeRuntimeGuardSettings(runtimeGuards).toolStorm
   return {
     ...existing,
+    modelStreamIdleTimeoutMs: existingModelStreamIdleTimeoutMs ?? DEFAULT_LOCAL_RUNTIME_MODEL_STREAM_IDLE_TIMEOUT_MS,
     toolStorm: {
       ...existingToolStorm,
       enabled: toolStorm.enabled,
@@ -1012,6 +1015,33 @@ function sanitizeLocalRuntimeModelConfig(value: unknown): Record<string, unknown
   }
 }
 
+function sanitizeLocalRuntimeRuntimeConfig(value: unknown): Record<string, unknown> {
+  const raw = objectValue(value)
+  const next: Record<string, unknown> = {}
+  const modelStreamIdleTimeoutMs = positiveIntegerValue(raw.modelStreamIdleTimeoutMs)
+  const maxTurnModelSteps = positiveIntegerValue(raw.maxTurnModelSteps)
+  if (modelStreamIdleTimeoutMs !== undefined) next.modelStreamIdleTimeoutMs = modelStreamIdleTimeoutMs
+  if (maxTurnModelSteps !== undefined) next.maxTurnModelSteps = maxTurnModelSteps
+
+  const rawToolStorm = objectValue(raw.toolStorm)
+  const toolStorm: Record<string, unknown> = {}
+  if (typeof rawToolStorm.enabled === 'boolean') toolStorm.enabled = rawToolStorm.enabled
+  const windowSize = positiveIntegerValue(rawToolStorm.windowSize)
+  const threshold = positiveIntegerValue(rawToolStorm.threshold)
+  if (windowSize !== undefined) toolStorm.windowSize = windowSize
+  if (threshold !== undefined) toolStorm.threshold = threshold
+  if (Object.keys(toolStorm).length > 0) next.toolStorm = toolStorm
+
+  const rawToolArgumentRepair = objectValue(raw.toolArgumentRepair)
+  const maxStringBytes = positiveIntegerValue(rawToolArgumentRepair.maxStringBytes)
+  if (maxStringBytes !== undefined) {
+    next.toolArgumentRepair = { maxStringBytes }
+  }
+
+  const parsed = RuntimeTuningConfigSchema.safeParse(next)
+  return parsed.success ? objectValue(parsed.data) : {}
+}
+
 function sanitizeLocalRuntimeConfigSections(
   existing: Record<string, unknown> | null
 ): Record<string, unknown> | null {
@@ -1027,7 +1057,7 @@ function sanitizeLocalRuntimeConfigSections(
       ContextCompactionConfigSchema,
       existing.contextCompaction
     ),
-    runtime: parseLocalRuntimeConfigSection(RuntimeTuningConfigSchema, existing.runtime),
+    runtime: sanitizeLocalRuntimeRuntimeConfig(existing.runtime),
     capabilities: sanitizeLocalRuntimeCapabilitiesConfig(existing.capabilities)
   }
 }
