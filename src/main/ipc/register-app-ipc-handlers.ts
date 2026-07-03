@@ -62,6 +62,7 @@ import {
   runtimeConfigContentSchema,
   desktopCommandSchema,
   evidenceDagViewPayloadSchema,
+  projectDagExportPayloadSchema,
   defaultPathSchema,
   figureStyleEvaluatePayloadSchema,
   figureStyleReviewPayloadSchema,
@@ -191,6 +192,12 @@ import {
   evidenceDagServiceUrlFromEnv,
   evidenceDagUiUrl
 } from '../../../packages/workers/evidence-dag/desktop/contract'
+import {
+  DEFAULT_PROJECT_DAG_SERVICE_URL,
+  projectDagApiKeyFromEnv,
+  projectDagServiceUrlFromEnv,
+  projectDagUiUrl
+} from '../../../packages/workers/project-dag/desktop/contract'
 import type {
   AgentRuntimeAuxiliaryInput,
   AgentRuntimeCapabilities,
@@ -386,6 +393,7 @@ type RegisterAppIpcHandlersOptions = {
   reviewFigureStyle?: (request: FigureStyleReviewRequest) => Promise<FigureStyleReviewResult>
   logError: (category: string, message: string, detail?: unknown) => void
   ensureEvidenceDagReady?: () => Promise<void>
+  ensureProjectDagReady?: () => Promise<void>
   transcribeSpeech?: (
     settings: AppSettingsV1,
     request: SpeechTranscriptionRequest
@@ -451,6 +459,61 @@ async function assertEvidenceDagServiceReachable(
 function evidenceDagBackfillItems(detail: AgentRuntimeThreadDetail): AgentRuntimeItem[] {
   if (detail.items?.length) return [...detail.items]
   return (detail.turns ?? []).flatMap((turn) => turn.items ?? [])
+}
+
+const PROJECT_DAG_GOAL_TIMEOUT_MS = 5_000
+
+type ProjectDagGoalNode = { title?: unknown; children?: ProjectDagGoalNode[] }
+
+function projectDagGoalTitles(nodes: ProjectDagGoalNode[]): string[] {
+  return nodes.flatMap((node) => [
+    ...(typeof node.title === 'string' ? [node.title] : []),
+    ...projectDagGoalTitles(node.children ?? [])
+  ])
+}
+
+/** Idempotent: create the project goal only if no live goal carries the title. */
+async function ensureProjectDagGoal(
+  serviceUrl: string,
+  apiKey: string,
+  title: string,
+  description: string,
+  fetchImpl: typeof fetch | undefined = globalThis.fetch
+): Promise<void> {
+  if (typeof fetchImpl !== 'function') return
+  const headers = {
+    authorization: `Bearer ${apiKey}`,
+    'content-type': 'application/json'
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), PROJECT_DAG_GOAL_TIMEOUT_MS)
+  try {
+    const listed = await fetchImpl(`${serviceUrl}/goals`, {
+      method: 'GET',
+      cache: 'no-store',
+      headers,
+      signal: controller.signal
+    })
+    if (!listed.ok) throw new Error(`goals returned HTTP ${listed.status}`)
+    const body = (await listed.json().catch(() => null)) as { data?: ProjectDagGoalNode[] } | null
+    const wanted = title.trim().toLowerCase()
+    const exists = projectDagGoalTitles(body?.data ?? []).some(
+      (existing) => existing.trim().toLowerCase() === wanted
+    )
+    if (exists) return
+    const created = await fetchImpl(`${serviceUrl}/goals`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ title, description }),
+      signal: controller.signal
+    })
+    if (!created.ok) throw new Error(`goal create returned HTTP ${created.status}`)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`Project DAG goal setup failed at ${serviceUrl}: ${detail}`)
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 function validateMcpConfigContent(content: string): void {
@@ -574,6 +637,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     reviewFigureStyle: reviewFigureStyleHandler = reviewFigureStyleOutput,
     logError,
     ensureEvidenceDagReady,
+    ensureProjectDagReady,
     transcribeSpeech = requestSpeechTranscription
   } = options
   const workspaceFileWatchers = new Map<string, WorkspaceFileWatchRecord>()
@@ -1962,6 +2026,28 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       }),
       ...(backfillThreadId ? { threadId: backfillThreadId } : {})
     }
+  })
+  handleInvoke('projectDag:export', async (_, payload: unknown) => {
+    const input = parseIpcPayload('projectDag:export', projectDagExportPayloadSchema, payload)
+    await ensureProjectDagReady?.()
+    const serviceUrl = projectDagServiceUrlFromEnv(process.env) || DEFAULT_PROJECT_DAG_SERVICE_URL
+    const apiKey = projectDagApiKeyFromEnv(process.env)
+    if (!apiKey) {
+      throw new Error(
+        'Project DAG is not ready. The app starts it from Model Router settings; check Model Router status.'
+      )
+    }
+    if (input.goalTitle) {
+      await ensureProjectDagGoal(serviceUrl, apiKey, input.goalTitle, input.goalDescription ?? '')
+    }
+    const url = projectDagUiUrl({
+      serviceUrl,
+      apiKey,
+      view: input.autocompile ? 'compile' : 'home',
+      autocompile: input.autocompile
+    })
+    await shell.openExternal(url)
+    return { url }
   })
   handleInvoke('notification:turn-complete', async (_, payload: unknown) =>
     showTurnCompleteNotification(

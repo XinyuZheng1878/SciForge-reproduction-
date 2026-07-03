@@ -405,6 +405,7 @@ function createApi(): SciForgeApi {
     requestComputerUsePermission: (kind) => invoke('computer-use:request-permission', kind),
     getComputerUseStatus: () => invoke('computer-use:status'),
     getEvidenceDagView: (input) => invoke('evidenceDag:view', input),
+    exportProjectDag: (input) => invoke('projectDag:export', input),
     showTurnCompleteNotification: (payload) => invoke('notification:turn-complete', payload),
     getAppVersion: () => invoke('app:version'),
     getGuiUpdateState: () => invoke('gui:update-state'),

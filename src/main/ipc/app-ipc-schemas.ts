@@ -1773,6 +1773,14 @@ export const evidenceDagViewPayloadSchema = z
   })
   .strict()
 
+export const projectDagExportPayloadSchema = z
+  .object({
+    goalTitle: optionalTrimmedString(500),
+    goalDescription: optionalTrimmedString(4000),
+    autocompile: z.boolean().optional()
+  })
+  .strict()
+
 export const notificationPayloadSchema = z
   .object({
     threadId: optionalTrimmedString(MAX_ID_LENGTH),
