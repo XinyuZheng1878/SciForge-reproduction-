@@ -338,6 +338,20 @@ describe('buildDelegationToolProviders', () => {
     expect(runChild.mock.calls[0]?.[0].maxToolCalls).toBe(12)
   })
 
+  it('keeps research child agents tool-less when the parent explicit policy has no research tools', async () => {
+    const { runtime, runChild } = fakeRuntime()
+    const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_task')
+
+    await tool?.execute({
+      label: 'restricted-research',
+      prompt: 'Research current benchmark evidence and cite sources.'
+    }, fakeContextWithAllowedTools(['bash', 'read', 'edit']))
+
+    expect(runChild.mock.calls[0]?.[0].allowedToolNames).toEqual([])
+    expect(runChild.mock.calls[0]?.[0].strictAllowedToolNames).toBe(true)
+    expect(runChild.mock.calls[0]?.[0].maxToolCalls).toBe(12)
+  })
+
   it('preserves parent tool policy for non-research child agents', async () => {
     const { runtime, runChild } = fakeRuntime()
     const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_task')

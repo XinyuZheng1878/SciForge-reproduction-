@@ -1001,7 +1001,7 @@ export class CodexRuntimeService {
     const settings = await this.options.settings()
     const multiAgentBridge = this.ensureCodexMultiAgentBridge(settings)
     if (multiAgentBridge?.canHandle(request)) {
-      if (this.isMultiAgentChildThread(request.threadId)) {
+      if (await this.isMultiAgentChildThread(request.threadId)) {
         return {
           contentItems: [{ type: 'inputText', text: 'delegate_task is disabled inside child agents.' }],
           success: false
@@ -1245,9 +1245,12 @@ export class CodexRuntimeService {
     }
   }
 
-  private isMultiAgentChildThread(threadId: string | undefined): boolean {
+  private async isMultiAgentChildThread(threadId: string | undefined): Promise<boolean> {
     const normalized = threadId?.trim()
-    return Boolean(normalized && this.multiAgentChildThreadIds.has(normalized))
+    if (!normalized) return false
+    if (this.multiAgentChildThreadIds.has(normalized)) return true
+    const storedThread = await this.findStoredThread(normalized)
+    return isCodexChildThreadSource(storedThread?.threadSource)
   }
 
   private async forwardEvents(client: CodexAppServerJsonRpcClient): Promise<void> {

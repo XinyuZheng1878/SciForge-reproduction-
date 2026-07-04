@@ -114,6 +114,26 @@ test('runtime merges streamed transcript updates by entry id', async () => {
   })
 })
 
+test('runtime preserves an explicit empty child tool allow-list', async () => {
+  const runtime = new MultiAgentRuntime({
+    store: new InMemoryMultiAgentStore(),
+    idGenerator: () => 'child-no-tools',
+    executor: async (input) => {
+      assert.deepEqual(input.allowedToolNames, [])
+      assert.equal(input.strictAllowedToolNames, true)
+      return { summary: 'No tools advertised.' }
+    }
+  })
+
+  await runtime.runChild({
+    parentThreadId: 'thread-1',
+    parentTurnId: 'turn-1',
+    prompt: 'Collect sources only if tools are available.',
+    allowedToolNames: [],
+    strictAllowedToolNames: true
+  })
+})
+
 test('runtime drops runtime-only usage fields returned by child executors', async () => {
   const runtime = new MultiAgentRuntime({
     store: new InMemoryMultiAgentStore(),

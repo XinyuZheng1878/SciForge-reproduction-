@@ -392,7 +392,7 @@ function normalizeAllowedToolNames(value: readonly string[] | undefined): string
   const names = value
     .map((entry) => entry.trim())
     .filter(Boolean)
-  return names.length ? [...new Set(names)] : undefined
+  return [...new Set(names)]
 }
 
 function normalizeUsage(usage: Partial<MultiAgentUsageType> | undefined): MultiAgentUsageType {

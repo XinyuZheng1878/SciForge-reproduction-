@@ -1784,6 +1784,48 @@ describe('CodexRuntimeService compatibility operations', () => {
     queued.close()
   })
 
+  it('keeps delegate_task disabled in persisted Codex child threads after restart', async () => {
+    const client = controllableClient()
+    const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await threadStore.upsert({
+      guiThreadId: 'child-gui-thread',
+      codexThreadId: 'child-codex-thread',
+      workspace: '/tmp/workspace',
+      title: 'Persisted child',
+      threadSource: 'subagent',
+      relation: 'side',
+      parentThreadId: 'parent-gui-thread',
+      parentTurnId: 'parent-turn'
+    })
+    let pendingServerRequests: CodexAppServerPendingRequestRegistryOptions | undefined
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: (options) => {
+        pendingServerRequests = options.pendingServerRequests as CodexAppServerPendingRequestRegistryOptions
+        return client
+      }
+    })
+
+    await expect(service.connect()).resolves.toMatchObject({ ok: true })
+    await expect(pendingServerRequests?.onToolCallRequest?.({
+      requestId: 'nested-after-restart',
+      threadId: 'child-codex-thread',
+      turnId: 'child-turn',
+      tool: 'delegate_task',
+      arguments: {
+        label: 'Nested',
+        prompt: 'This should still be blocked after restart.'
+      }
+    })).resolves.toEqual({
+      contentItems: [{ type: 'inputText', text: 'delegate_task is disabled inside child agents.' }],
+      success: false
+    })
+    expect(client.startThread).not.toHaveBeenCalled()
+  })
+
   it('injects the thread workspace into workspace-intel dynamic MCP calls', async () => {
     const client = controllableClient()
     const storageRoot = await tempRoot()

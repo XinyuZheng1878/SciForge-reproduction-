@@ -1037,6 +1037,65 @@ describe('AgentLoop', () => {
     )).toBe(true)
   })
 
+  it('suppresses same-step tool calls beyond the configured tool budget', async () => {
+    let executions = 0
+    const echoTool = LocalToolHost.defineTool({
+      name: 'echo',
+      description: 'Echo text',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text']
+      },
+      policy: 'auto',
+      execute: async () => {
+        executions += 1
+        return { output: { ok: executions } }
+      }
+    })
+    let calls = 0
+    const h = makeHarness(
+      {
+        provider: 'tool-budget-batch-model',
+        model: 'tool-budget-batch-model',
+        async *stream(): AsyncIterable<ModelStreamChunk> {
+          calls += 1
+          if (calls === 1) {
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_echo_1',
+              toolName: 'echo',
+              arguments: { text: 'first' }
+            }
+            yield {
+              kind: 'tool_call_complete',
+              callId: 'call_echo_2',
+              toolName: 'echo',
+              arguments: { text: 'second' }
+            }
+            yield { kind: 'completed', stopReason: 'tool_calls' }
+            return
+          }
+          yield { kind: 'assistant_text_delta', text: 'Answering from the one gathered result.' }
+          yield { kind: 'completed', stopReason: 'stop' }
+        }
+      },
+      { tools: [echoTool], toolStorm: { maxToolCallsPerTurn: 1 } }
+    )
+    await bootstrapThread(h)
+
+    const status = await h.loop.runTurn(h.threadId, h.turnId)
+    const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
+
+    expect(status).toBe('completed')
+    expect(executions).toBe(1)
+    expect(events.some((event) =>
+      event.kind === 'tool_storm_suppressed' &&
+      event.callId === 'call_echo_2' &&
+      event.message.includes('tool budget exhausted')
+    )).toBe(true)
+  })
+
   it('recovers when a no-tool budget step emits internal tool-call markup instead of final text', async () => {
     let executions = 0
     const requests: ModelRequest[] = []

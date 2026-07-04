@@ -1409,12 +1409,33 @@ export class AgentLoop {
     let successCount = 0
     let errorCount = 0
     let suppressedCount = 0
+    let remainingToolCallBudget = this.remainingToolCallBudget(input.turnId)
+    const takeToolCallBudget = (): boolean => {
+      if (remainingToolCallBudget === undefined) return true
+      if (remainingToolCallBudget <= 0) return false
+      remainingToolCallBudget -= 1
+      return true
+    }
+    const toolBudgetSuppressedReason =
+      'tool budget exhausted before executing this call; answer from gathered evidence instead'
 
     while (index < input.calls.length) {
       if (input.signal.aborted) return { kind: 'aborted' }
 
       const call = input.calls[index]
       if (!call) break
+
+      if (!takeToolCallBudget()) {
+        suppressedCount += 1
+        await this.persistSuppressedToolCall({
+          threadId: input.threadId,
+          turnId: input.turnId,
+          call,
+          reason: toolBudgetSuppressedReason
+        })
+        index += 1
+        continue
+      }
 
       const storm = this.toolStormBreakers.get(input.turnId)?.inspect(call)
       if (storm?.suppress) {
@@ -1452,6 +1473,13 @@ export class AgentLoop {
         const next = input.calls[index]
         if (!next) break
         if (!this.isParallelSafeToolCall(next, input.approvalPolicy, input.toolProviderKinds)) break
+
+        if (!takeToolCallBudget()) {
+          suppressedCount += 1
+          suppressedAfterBatch = { call: next, reason: toolBudgetSuppressedReason }
+          index += 1
+          break
+        }
 
         const nextStorm = this.toolStormBreakers.get(input.turnId)?.inspect(next)
         if (nextStorm?.suppress) {
@@ -1499,6 +1527,12 @@ export class AgentLoop {
     return executedCount > 0
       ? { kind: 'continue', executedCount, successCount, errorCount, suppressedCount }
       : { kind: 'all_suppressed', suppressedCount }
+  }
+
+  private remainingToolCallBudget(turnId: string): number | undefined {
+    const maxToolCallsPerTurn = this.toolLoopLimits().maxToolCallsPerTurn
+    if (maxToolCallsPerTurn === undefined) return undefined
+    return Math.max(0, maxToolCallsPerTurn - this.toolLoopHealth(turnId).totalToolCalls)
   }
 
   private async handleToolDispatchOutcome(input: {
