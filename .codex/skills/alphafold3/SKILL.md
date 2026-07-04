@@ -7,6 +7,8 @@ description: Submit protein folding tasks to the AlphaFold3 C550 inference platf
 
 Submit, monitor, and download AlphaFold3 protein structure predictions on the C550 inference cluster.
 
+Always distinguish three states in reports: (1) task submission accepted, (2) AF3 inference reached a terminal state, and (3) CIF coordinates were retrieved and analyzed. A queued or running task is not molecular evidence, and a completed task without CIF retrieval is execution-level evidence only.
+
 ## Quick Start
 
 ```bash
@@ -139,7 +141,7 @@ kubectl -n studio-ams cp $POD:/data/scimodel/muxi_alphafold3_server/alphafold3/o
 
 ## Output
 
-Each task produces a single `.cif` file (mmCIF / ModelCIF format) with full 3D coordinates, chain info, and confidence scores.
+Each task produces a single `.cif` file (mmCIF / ModelCIF format) with full 3D coordinates, chain info, and confidence scores. When downloading through kubectl, prefer the `outputs.output_path` returned by `GET /v1/scimodel/tasks/{task_id}`; observed C550 paths can be either `/output/{task_id}.cif` or `/data/scimodel/muxi_alphafold3_server/alphafold3/output/{task_id}.cif`.
 
 ```bash
 head -30 ./outputs/my_run/*.cif    # Quick preview

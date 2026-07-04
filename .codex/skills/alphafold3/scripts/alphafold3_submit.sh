@@ -245,6 +245,7 @@ fi
 
 # ---- poll ----
 echo "=== Polling status (every 60s, max ${MAX_WAIT} iterations) ==="
+STATUS_RESP=""
 for i in $(seq 1 "$MAX_WAIT"); do
     # Refresh token every 10 polls (~10 min)
     if (( i % 10 == 1 && i > 1 )); then
@@ -301,16 +302,51 @@ if [[ -n "$OUTPUT_DIR" ]]; then
     fi
     echo "  Pod: $POD"
 
-    REMOTE_FILE="${OUTPUT_BASE}/${TASK_ID}.cif"
-    LOCAL_FILE="${OUTPUT_DIR}/${TASK_ID}.cif"
+    mkdir -p "$OUTPUT_DIR"
+    STATUS_OUTPUT_PATH=$(echo "$STATUS_RESP" | python3 -c "
+import json, sys
+try:
+    resp = json.load(sys.stdin)
+except Exception:
+    print('')
+    raise SystemExit
+outputs = resp.get('outputs') or {}
+paths = []
+if isinstance(outputs, dict):
+    for key in ('output_path', 'cif', 'cif_path', 'file', 'path'):
+        value = outputs.get(key)
+        if isinstance(value, str) and value.endswith('.cif'):
+            paths.append(value)
+for key in ('output_path', 'cif_path'):
+    value = resp.get(key)
+    if isinstance(value, str) and value.endswith('.cif'):
+        paths.append(value)
+print(paths[0] if paths else '')
+" 2>/dev/null || true)
 
-    # Verify remote file exists
-    if ! kubectl_cmd -n "$K8S_NS" exec "$POD" -- test -f "$REMOTE_FILE" 2>/dev/null; then
-        echo "  Warning: $REMOTE_FILE not found. Listing available outputs..."
+    CANDIDATE_REMOTE_FILES=()
+    if [[ -n "$STATUS_OUTPUT_PATH" ]]; then
+        CANDIDATE_REMOTE_FILES+=("$STATUS_OUTPUT_PATH")
+    fi
+    CANDIDATE_REMOTE_FILES+=("${OUTPUT_BASE}/${TASK_ID}.cif" "/output/${TASK_ID}.cif")
+
+    REMOTE_FILE=""
+    for CANDIDATE in "${CANDIDATE_REMOTE_FILES[@]}"; do
+        if kubectl_cmd -n "$K8S_NS" exec "$POD" -- test -f "$CANDIDATE" 2>/dev/null; then
+            REMOTE_FILE="$CANDIDATE"
+            break
+        fi
+    done
+
+    if [[ -z "$REMOTE_FILE" ]]; then
+        echo "  Warning: no CIF found at task-reported or fallback paths. Listing available outputs..."
         kubectl_cmd -n "$K8S_NS" exec "$POD" -- ls "$OUTPUT_BASE/" 2>/dev/null | grep -i "$TASK_ID" || true
+        kubectl_cmd -n "$K8S_NS" exec "$POD" -- ls "/output/" 2>/dev/null | grep -i "$TASK_ID" || true
+        exit 1
     fi
 
-    mkdir -p "$OUTPUT_DIR"
+    LOCAL_FILE="${OUTPUT_DIR}/${TASK_ID}.cif"
+    echo "  Remote file: $REMOTE_FILE"
     kubectl_cmd -n "$K8S_NS" cp "${POD}:${REMOTE_FILE}" "$LOCAL_FILE" 2>/dev/null
 
     FILE_SIZE=$(ls -lh "$LOCAL_FILE" 2>/dev/null | awk '{print $5}' || echo "?")
