@@ -111,6 +111,46 @@ describe('thread event sink binding', () => {
     expect(getState().lastSeq).toBe(0)
   })
 
+  it('ignores runtime events whose payload thread differs from the bound stream thread', () => {
+    const { getState, set, get } = makeSinkHarness({ activeThreadId: 'thread-current' })
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    dispatchAgentRuntimeEvent({
+      kind: 'assistant_delta',
+      threadId: 'thread-other',
+      turnId: 'turn-other',
+      itemId: 'assistant-other',
+      seq: 5,
+      text: 'wrong session'
+    }, sink)
+
+    expect(getState().liveAssistant).toBe('')
+    expect(getState().lastSeq).toBe(0)
+  })
+
+  it('ignores direct lifecycle callbacks whose payload thread differs from the bound stream thread', () => {
+    const refreshThreads = vi.fn(async () => undefined)
+    const { getState, set, get } = makeSinkHarness({
+      activeThreadId: 'thread-current',
+      currentTurnId: 'turn-current',
+      busy: true,
+      runtimeConnection: 'ready',
+      refreshThreads
+    } as Partial<ChatState>)
+    const sink = buildThreadEventSink(set, get, { threadId: 'thread-current' })
+
+    sink.onThreadLifecycle?.({ threadId: 'thread-other', state: 'updated' })
+    sink.onTurnLifecycle?.({
+      threadId: 'thread-other',
+      turnId: 'turn-other',
+      state: 'completed'
+    })
+
+    expect(refreshThreads).not.toHaveBeenCalled()
+    expect(getState().busy).toBe(true)
+    expect(getState().currentTurnId).toBe('turn-current')
+  })
+
   it('ignores queued callbacks after a stream has been aborted', () => {
     const { getState, set, get } = makeSinkHarness({
       activeThreadId: 'thread-current',

@@ -57,7 +57,7 @@ import {
 } from './app-server/reasoning-config'
 import { normalizeCodexEvent, type CodexEventNormalizeContext } from './app-server/event-normalizer'
 import { CodexEventStore, type CodexStoredEvent } from './codex-event-store'
-import { CodexThreadStore, type CodexStoredThread } from './codex-thread-store'
+import { CodexThreadStore, type CodexStoredThread, type CodexThreadStoreUpsertInput } from './codex-thread-store'
 import { CodexUsageStore } from './codex-usage-store'
 import { prepareCodexAppServerLaunch, resolveCodexWorkspace } from './codex-config'
 import {
@@ -200,6 +200,25 @@ const CODEX_MULTI_AGENT_DEVELOPER_INSTRUCTIONS = [
   'Use it when parallel investigation or independent implementation subtasks materially help the user request.',
   'Give each child a concise label and a self-contained prompt; do not use it for trivial work or as a substitute for doing the main task.'
 ].join('\n')
+const CODEX_THREAD_FALLBACK_TITLE = 'Codex thread'
+const MAX_CODEX_THREAD_TITLE_LENGTH = 80
+const CODEX_PLACEHOLDER_THREAD_TITLES = new Set([
+  'New Thread',
+  'New chat',
+  '\u65b0\u4f1a\u8bdd',
+  CODEX_THREAD_FALLBACK_TITLE,
+  'Claude Code thread',
+  'Claude thread',
+  'Agent Runtime thread',
+  'Runtime thread'
+])
+const CODEX_INTERNAL_PROMPT_TITLE_PATTERNS = [
+  /<\/?sciforge_runtime_instruction\b/i,
+  /Runtime context ledger for this thread/i,
+  /SciForge may configure specialized MCP tools/i,
+  /When an advertised specialized MCP tool directly matches/i,
+  /For explicit computer_use, mouse, keyboard, browser, or GUI-control requests/i
+]
 
 type CodexRuntimeEventSubscriber = {
   threadId: string
@@ -261,12 +280,19 @@ export class CodexRuntimeService {
         ...(options.archivedOnly === true ? { archivedOnly: true } : {})
       })
       const liveThreads = readThreadList(response).map(normalizeThread)
-      const persisted = await Promise.all(liveThreads.map((thread) => this.persistThread(thread, {
+      const persisted = await this.persistThreads(liveThreads, {
         preserveArchived: true
-      })))
+      })
       const mappedLiveThreads = liveThreads.map((thread, index) => {
         const storedThread = persisted[index]
-        return storedThread ? { ...thread, id: storedThread.guiThreadId, archived: storedThread.archived } : thread
+        return storedThread
+          ? {
+              ...thread,
+              id: storedThread.guiThreadId,
+              codexThreadId: storedThread.codexThreadId,
+              archived: storedThread.archived
+            }
+          : thread
       })
       return {
         ok: true,
@@ -1066,7 +1092,18 @@ export class CodexRuntimeService {
       }),
       ...codexModelRouterThreadParams(settings),
       serviceName: 'SciForge',
-      ephemeral: false
+      ephemeral: false,
+      threadSource: 'subagent',
+      relation: 'side',
+      parentThreadId: input.parentThreadId,
+      parentTurnId: input.parentTurnId,
+      source: {
+        type: 'subagent',
+        parentThreadId: input.parentThreadId,
+        parentTurnId: input.parentTurnId,
+        ...(input.label ? { agentNickname: input.label } : {}),
+        agentRole: 'subagent'
+      }
     })
     const childThread = normalizeThread(readThread(threadResponse))
     if (!childThread.id) throw new Error('Codex child thread did not return a thread id.')
@@ -1074,7 +1111,13 @@ export class CodexRuntimeService {
     const storedChild = await this.persistThread({
       ...childThread,
       workspace: childThread.workspace || workspace,
-      title
+      title,
+      relation: childThread.relation ?? 'side',
+      threadSource: childThread.threadSource || 'subagent',
+      parentThreadId: childThread.parentThreadId || input.parentThreadId,
+      parentTurnId: childThread.parentTurnId || input.parentTurnId,
+      agentNickname: childThread.agentNickname || input.label,
+      agentRole: childThread.agentRole || 'subagent'
     }, {
       workspace,
       title
@@ -1319,18 +1362,56 @@ export class CodexRuntimeService {
     options: { guiThreadId?: string; workspace?: string; title?: string; preserveArchived?: boolean } = {}
   ): Promise<CodexStoredThread | null> {
     if (!this.threadStore || !thread.id) return null
-    const existing = options.preserveArchived
-      ? await this.findStoredThread(options.guiThreadId ?? thread.id)
-      : null
     return this.threadStore.upsert({
       ...(options.guiThreadId !== undefined ? { guiThreadId: options.guiThreadId } : {}),
-      codexThreadId: thread.id,
+      codexThreadId: thread.codexThreadId ?? thread.id,
       workspace: options.workspace ?? thread.workspace,
       title: options.title ?? thread.title,
-      archived: existing?.archived ?? thread.archived,
+      archived: thread.archived,
+      preserveArchived: options.preserveArchived,
       latestTurnId: thread.latestTurnId,
-      updatedAt: thread.updatedAt
+      updatedAt: thread.updatedAt,
+      relation: thread.relation,
+      parentThreadId: thread.parentThreadId,
+      parentTurnId: thread.parentTurnId,
+      threadSource: thread.threadSource,
+      agentNickname: thread.agentNickname,
+      agentRole: thread.agentRole
     })
+  }
+
+  private async persistThreads(
+    threads: readonly CodexNormalizedThread[],
+    options: { preserveArchived?: boolean } = {}
+  ): Promise<Array<CodexStoredThread | null>> {
+    if (!this.threadStore) return threads.map(() => null)
+    const inputs: CodexThreadStoreUpsertInput[] = []
+    const indexes: number[] = []
+    for (const [index, thread] of threads.entries()) {
+      if (!thread.id) continue
+      inputs.push({
+        codexThreadId: thread.codexThreadId ?? thread.id,
+        workspace: thread.workspace,
+        title: thread.title,
+        archived: thread.archived,
+        preserveArchived: options.preserveArchived,
+        latestTurnId: thread.latestTurnId,
+        updatedAt: thread.updatedAt,
+        relation: thread.relation,
+        parentThreadId: thread.parentThreadId,
+        parentTurnId: thread.parentTurnId,
+        threadSource: thread.threadSource,
+        agentNickname: thread.agentNickname,
+        agentRole: thread.agentRole
+      })
+      indexes.push(index)
+    }
+    const persisted = await this.threadStore.upsertMany(inputs)
+    const mapped: Array<CodexStoredThread | null> = threads.map(() => null)
+    for (const [resultIndex, threadIndex] of indexes.entries()) {
+      mapped[threadIndex] = persisted[resultIndex] ?? null
+    }
+    return mapped
   }
 
   private async persistEvent(
@@ -1971,8 +2052,12 @@ function filterThreadList(
 ): CodexNormalizedThread[] {
   const includeArchived = options.includeArchived === true
   const archivedOnly = options.archivedOnly === true
+  const includeSide = options.includeSide === true
   const search = options.search?.trim().toLowerCase() ?? ''
   let output = threads.filter((thread) => !isEmptyPlaceholderThread(thread))
+  if (!includeSide) {
+    output = output.filter((thread) => !isSideOrChildThread(thread))
+  }
   if (archivedOnly) {
     output = output.filter((thread) => thread.archived === true)
   } else if (!includeArchived) {
@@ -1988,6 +2073,10 @@ function filterThreadList(
     output = output.slice(0, Math.floor(options.limit))
   }
   return output
+}
+
+function isSideOrChildThread(thread: CodexNormalizedThread): boolean {
+  return thread.relation === 'side' || isCodexChildThreadSource(thread.threadSource)
 }
 
 const EMPTY_PLACEHOLDER_THREAD_TITLES = new Set([
@@ -2008,13 +2097,20 @@ function isEmptyPlaceholderThread(thread: CodexNormalizedThread): boolean {
 function storedThreadToNormalizedThread(thread: CodexStoredThread): CodexNormalizedThread {
   return {
     id: thread.guiThreadId,
+    codexThreadId: thread.codexThreadId,
     title: thread.title,
     updatedAt: thread.updatedAt,
     model: '',
     mode: 'agent',
     workspace: thread.workspace,
     archived: thread.archived,
-    latestTurnId: thread.latestTurnId
+    latestTurnId: thread.latestTurnId,
+    relation: thread.relation ?? (isCodexChildThreadSource(thread.threadSource) ? 'side' : undefined),
+    parentThreadId: thread.parentThreadId,
+    parentTurnId: thread.parentTurnId,
+    threadSource: thread.threadSource,
+    agentNickname: thread.agentNickname,
+    agentRole: thread.agentRole
   }
 }
 
@@ -2499,10 +2595,72 @@ function safeQuestions(value: unknown): Array<Record<string, unknown>> {
   }))
 }
 
+function normalizeThreadTitle(name: string, preview: string): string {
+  return normalizeThreadTitleCandidate(name) ||
+    normalizeThreadTitleCandidate(preview) ||
+    CODEX_THREAD_FALLBACK_TITLE
+}
+
+function normalizeThreadTitleCandidate(value: string): string {
+  const raw = value.trim()
+  if (!raw || CODEX_PLACEHOLDER_THREAD_TITLES.has(raw)) return ''
+  const stripped = stripInternalPromptTitleContent(raw)
+  if (!stripped) return ''
+  const lines = stripped
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*(```|~~~)/.test(line))
+    .map((line) => normalizeThreadTitleLine(line))
+    .filter((line) => line && !hasInternalPromptTitleContent(line))
+  const firstLine = lines[0] ?? ''
+  if (!firstLine || CODEX_PLACEHOLDER_THREAD_TITLES.has(firstLine)) return ''
+  const sentenceBreak = firstLine.search(/[.!?。！？]/)
+  const core = sentenceBreak >= 8 ? firstLine.slice(0, sentenceBreak) : firstLine
+  const title = stripTrailingThreadTitlePunctuation(shortenThreadTitle(core))
+  return title && !hasInternalPromptTitleContent(title) ? title : ''
+}
+
+function stripInternalPromptTitleContent(value: string): string {
+  return value
+    .replace(/<sciforge_runtime_instruction\b[\s\S]*?(?:<\/sciforge_runtime_instruction>|$)/gi, '\n')
+    .split(/\r?\n/)
+    .filter((line) => !hasInternalPromptTitleContent(line))
+    .join('\n')
+    .trim()
+}
+
+function normalizeThreadTitleLine(line: string): string {
+  return line
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^>\s+/, '')
+    .replace(/^[-*+]\s+/, '')
+    .replace(/^\d+[.)]\s+/, '')
+    .replace(/`+/g, '')
+    .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function shortenThreadTitle(value: string): string {
+  if (value.length <= MAX_CODEX_THREAD_TITLE_LENGTH) return value
+  const sliced = value.slice(0, MAX_CODEX_THREAD_TITLE_LENGTH)
+  const lastSpace = sliced.lastIndexOf(' ')
+  const compact = lastSpace >= 24 ? sliced.slice(0, lastSpace) : sliced
+  return `${compact.trim()}...`
+}
+
+function stripTrailingThreadTitlePunctuation(value: string): string {
+  return value.replace(/[\s,.;:!?"'`()[\]{}]+$/g, '').trim()
+}
+
+function hasInternalPromptTitleContent(value: string): boolean {
+  return CODEX_INTERNAL_PROMPT_TITLE_PATTERNS.some((pattern) => pattern.test(value))
+}
+
 function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread {
   const id = stringValue(thread.id)
   const source = asRecord(thread.source) ?? asRecord(thread.threadSource)
   const threadSource = stringValue(thread.threadSource) || stringValue(source?.type) || stringValue(source?.kind)
+  const relation = normalizeThreadRelation(thread.relation) || normalizeThreadRelation(source?.relation)
   const parentThreadId =
     stringValue(thread.parentThreadId) ||
     stringValue(thread.parent_thread_id) ||
@@ -2535,7 +2693,8 @@ function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread
   const latestTurn = latestTurnRecord(thread, turns)
   return {
     id,
-    title: name || preview || 'Codex thread',
+    codexThreadId: id,
+    title: normalizeThreadTitle(name, preview),
     updatedAt,
     model: stringValue(thread.model) || '',
     mode: 'agent',
@@ -2546,7 +2705,7 @@ function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread
     latestTurnId: stringValue(latestTurn?.id),
     latestTurnStatus: stringValue(latestTurn?.status),
     ...(threadSource ? { threadSource } : {}),
-    ...(isCodexChildThreadSource(threadSource) ? { relation: 'side' as const } : {}),
+    ...(relation || isCodexChildThreadSource(threadSource) ? { relation: relation ?? 'side' as const } : {}),
     ...(parentThreadId ? { parentThreadId } : {}),
     ...(parentTurnId ? { parentTurnId } : {}),
     ...(agentNickname ? { agentNickname } : {}),
@@ -2557,6 +2716,11 @@ function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread
 function isCodexChildThreadSource(source: string | undefined): boolean {
   const normalized = source?.trim().toLowerCase()
   return normalized === 'subagent' || normalized === 'workflow' || normalized === 'local_workflow'
+}
+
+function normalizeThreadRelation(value: unknown): 'primary' | 'fork' | 'side' | undefined {
+  const relation = stringValue(value)
+  return relation === 'primary' || relation === 'fork' || relation === 'side' ? relation : undefined
 }
 
 function threadDetail(thread: Record<string, unknown>): CodexThreadDetail {

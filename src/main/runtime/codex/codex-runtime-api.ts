@@ -11,6 +11,7 @@ export type CodexJsonObject = Record<string, unknown>
 
 export type CodexNormalizedThread = {
   id: string
+  codexThreadId?: string
   title: string
   updatedAt: string
   model: string
@@ -137,6 +138,7 @@ export type CodexThreadListOptions = {
   search?: string
   includeArchived?: boolean
   archivedOnly?: boolean
+  includeSide?: boolean
 }
 
 export type CodexThreadStartPayload = {

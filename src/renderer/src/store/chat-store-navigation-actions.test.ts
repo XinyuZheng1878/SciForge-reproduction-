@@ -38,12 +38,38 @@ function thread(id: string, runtimeId?: AgentRuntimeId): NormalizedThread {
   }
 }
 
+function sideConversation(threadId: string, parentThreadId: string): ChatState['sideConversations'][string] {
+  return {
+    threadId,
+    runtimeId: 'codex',
+    parentThreadId,
+    source: 'child_agent',
+    title: 'research child',
+    createdAt: '2026-06-11T00:00:00.000Z',
+    inheritedAt: '2026-06-11T00:00:00.000Z',
+    blocks: [],
+    liveReasoning: '',
+    liveAssistant: '',
+    lastSeq: 0,
+    input: '',
+    model: 'deepseek-v4-pro',
+    reasoningEffort: 'max',
+    busy: false,
+    turnId: null,
+    userItemId: null,
+    error: null
+  }
+}
+
 function buildHarness(options: {
   activeRuntime: AgentRuntimeId
   activeThread: NormalizedThread
   listedThreads: NormalizedThread[]
   blocks?: ChatState['blocks']
   detailBlocks?: ChatState['blocks']
+  showArchivedThreads?: boolean
+  threadSearch?: string
+  sideConversations?: ChatState['sideConversations']
 }): {
   refreshThreads: ReturnType<typeof createNavigationActions>['refreshThreads']
   state: ChatState
@@ -70,7 +96,10 @@ function buildHarness(options: {
     error: null,
     route: 'chat',
     runtimeConnection: 'ready',
+    showArchivedThreads: options.showArchivedThreads ?? false,
+    threadSearch: options.threadSearch ?? '',
     threads: [options.activeThread],
+    sideConversations: options.sideConversations ?? {},
     unreadThreadIds: {},
     watchTurnCompletion: {}
   } as unknown as ChatState
@@ -151,7 +180,7 @@ describe('chat-store-navigation-actions refreshThreads', () => {
     expect(provider.listThreads).toHaveBeenCalledTimes(2)
   })
 
-  it('does not request side conversations during default navigation refresh', async () => {
+  it('uses a capped non-archived list during default navigation refresh', async () => {
     const activeThread = thread('active-thread', 'sciforge')
     const listedThread = thread('listed-thread', 'sciforge')
     const { refreshThreads, provider } = buildHarness({
@@ -162,7 +191,37 @@ describe('chat-store-navigation-actions refreshThreads', () => {
 
     await refreshThreads()
 
+    expect(provider.listThreads).toHaveBeenCalledWith({ limit: 80 })
+  })
+
+  it('requests archived threads only when the archived sidebar view is enabled', async () => {
+    const activeThread = thread('active-thread', 'sciforge')
+    const listedThread = thread('listed-thread', 'sciforge')
+    const { refreshThreads, provider } = buildHarness({
+      activeRuntime: 'sciforge',
+      activeThread,
+      listedThreads: [listedThread],
+      showArchivedThreads: true
+    })
+
+    await refreshThreads()
+
     expect(provider.listThreads).toHaveBeenCalledWith({ limit: 200, includeArchived: true })
+  })
+
+  it('expands the list and passes server-side search when a thread search is active', async () => {
+    const activeThread = thread('active-thread', 'sciforge')
+    const listedThread = thread('listed-thread', 'sciforge')
+    const { refreshThreads, provider } = buildHarness({
+      activeRuntime: 'sciforge',
+      activeThread,
+      listedThreads: [listedThread],
+      threadSearch: 'paper'
+    })
+
+    await refreshThreads()
+
+    expect(provider.listThreads).toHaveBeenCalledWith({ limit: 200, search: 'paper' })
   })
 
   it('filters suspicious fallback threads before applying the sidebar list', async () => {
@@ -200,6 +259,42 @@ describe('chat-store-navigation-actions refreshThreads', () => {
       ['active-thread', 'Active thread'],
       ['thr_279f3fef', 'fix the sidebar placeholder titles']
     ])
+  })
+
+  it('keeps child and attached side conversation threads out of the sidebar list', async () => {
+    const activeThread = { ...thread('parent-thread', 'codex'), title: 'Parent research' }
+    const attachedChildThread = { ...thread('child-thread', 'codex'), title: 'research child' }
+    const sideThread = {
+      ...thread('side-thread', 'codex'),
+      title: 'side branch',
+      relation: 'side' as const,
+      parentThreadId: 'parent-thread'
+    }
+    const lineageChildThread = {
+      ...thread('lineage-child-thread', 'codex'),
+      title: 'lineage child',
+      parentThreadId: 'parent-thread'
+    }
+    const forkThread = {
+      ...thread('fork-thread', 'codex'),
+      title: 'Forked session',
+      relation: 'fork' as const,
+      parentThreadId: 'parent-thread'
+    }
+    const { refreshThreads, state, provider } = buildHarness({
+      activeRuntime: 'codex',
+      activeThread,
+      listedThreads: [activeThread, attachedChildThread, sideThread, lineageChildThread, forkThread],
+      sideConversations: {
+        'child-thread': sideConversation('child-thread', 'parent-thread')
+      }
+    })
+
+    await refreshThreads()
+
+    expect(provider.getThreadDetail).not.toHaveBeenCalled()
+    expect(state.threads.map((item) => item.id)).toEqual(['parent-thread', 'fork-thread'])
+    expect(state.activeThreadId).toBe('parent-thread')
   })
 
   it('ignores an older refresh result when a newer refresh has already applied', async () => {
@@ -413,6 +508,7 @@ describe('chat-store-navigation-actions chooseWorkspace', () => {
       })
     } as unknown as ChatState
     vi.stubGlobal('window', {
+      dispatchEvent: vi.fn(),
       sciforge: {
         pickWorkspaceDirectory: vi.fn(async () => ({ canceled: false, path: '/workspace/new' }))
       },

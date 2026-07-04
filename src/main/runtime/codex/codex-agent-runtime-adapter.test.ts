@@ -106,6 +106,47 @@ describe('createCodexAgentRuntimeAdapter', () => {
     })
   })
 
+  it('keeps GUI thread ids public while exposing the Codex backend thread id separately', async () => {
+    const service = {
+      listThreads: vi.fn(async () => ({
+        ok: true as const,
+        threads: [{
+          id: 'gui-thread-1',
+          codexThreadId: 'codex-thread-1',
+          title: 'Recovered Codex',
+          updatedAt: '2026-06-21T00:00:00.000Z',
+          model: 'gpt-5',
+          mode: 'agent'
+        }]
+      })),
+      startTurn: vi.fn(async () => ({
+        ok: true as const,
+        threadId: 'gui-thread-1',
+        turnId: 'turn-1',
+        userMessageItemId: 'user-1'
+      }))
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    await expect(adapter.listThreads({ settings: {} as never }, {
+      runtimeId: 'codex',
+      includeArchived: true
+    })).resolves.toEqual([expect.objectContaining({
+      id: 'gui-thread-1',
+      backendThreadId: 'codex-thread-1'
+    })])
+
+    await expect(adapter.startTurn({ settings: {} as never }, {
+      runtimeId: 'codex',
+      threadId: 'gui-thread-1',
+      text: 'continue'
+    })).resolves.toEqual({
+      threadId: 'gui-thread-1',
+      turnId: 'turn-1',
+      userMessageItemId: 'user-1'
+    })
+  })
+
   it('keeps Codex thread blocks grouped by their source turn id', async () => {
     const service = {
       readThread: vi.fn(async () => ({
@@ -801,7 +842,7 @@ describe('createCodexAgentRuntimeAdapter', () => {
       payload: { threadId: 'parent-thread', parentTurnId: 'turn-1' }
     })
 
-    expect(service.listThreads).toHaveBeenCalledWith({ includeArchived: true })
+    expect(service.listThreads).toHaveBeenCalledWith({ includeArchived: true, includeSide: true })
     expect(listed).toMatchObject({
       runtimeId: 'codex',
       threadId: 'parent-thread',

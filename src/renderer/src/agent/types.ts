@@ -418,6 +418,7 @@ export type UserMessageEventPayload = {
 }
 
 export type TurnLifecycleEventPayload = {
+  threadId?: string
   turnId?: string
   state: AgentRuntimeTurnStatus
   message?: string
@@ -558,7 +559,12 @@ export interface AgentProvider {
       attachmentIds?: string[]
       fileReferences?: AgentRuntimeFileReference[]
     }
-  ): Promise<{ turnId: string; threadId: string; userMessageItemId?: string }>
+  ): Promise<{
+    turnId: string
+    threadId: string
+    userMessageItemId?: string
+    threadIdChange?: 'handoff' | 'promote'
+  }>
   reviewThread?(
     threadId: string,
     target: ReviewTarget,

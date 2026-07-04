@@ -792,7 +792,8 @@ describe('AgentRuntimeProvider', () => {
     await expect(provider.sendUserMessage('handoff-thread', 'follow up')).resolves.toEqual({
       threadId: 'handoff-thread',
       turnId: 'turn-next',
-      userMessageItemId: 'user-next'
+      userMessageItemId: 'user-next',
+      threadIdChange: 'handoff'
     })
 
     expect(startTurn).not.toHaveBeenCalled()
@@ -1397,6 +1398,10 @@ describe('AgentRuntimeProvider', () => {
     const subscription = provider.subscribeThreadEvents('thread-1', 0, sink, ac.signal)
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
 
+    listeners[0]?.({
+      streamId: 'stream-1',
+      event: { kind: 'assistant_delta', threadId: 'thread-other', itemId: 'assistant-other', text: 'wrong', seq: 1 }
+    })
     listeners[0]?.({
       streamId: 'stream-1',
       event: { kind: 'assistant_delta', threadId: 'thread-1', itemId: 'assistant-1', text: 'hi', seq: 1 }

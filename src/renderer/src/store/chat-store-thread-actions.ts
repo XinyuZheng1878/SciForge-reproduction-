@@ -99,13 +99,12 @@ function remoteChannelForThread(state: ChatState, threadId: string | null | unde
   return activeRemoteChannel(state)
 }
 
-function adoptDeliveredThread(
+function adoptExplicitHandoffThread(
   threads: NormalizedThread[],
   previousThreadId: string,
   deliveredThreadId: string,
-  runtimeId: NormalizedThread['runtimeId'] | undefined
+  runtimeId: NormalizedThread['runtimeId']
 ): NormalizedThread[] {
-  const previous = threads.find((thread) => thread.id === previousThreadId) ?? null
   const delivered = threads.find((thread) => thread.id === deliveredThreadId) ?? null
   let changed = false
   const next: NormalizedThread[] = []
@@ -130,19 +129,21 @@ function adoptDeliveredThread(
     next.push(thread)
   }
 
-  if (!previous && !delivered && previousThreadId !== deliveredThreadId) {
-    changed = true
-    next.unshift({
-      id: deliveredThreadId,
-      title: deliveredThreadId,
-      updatedAt: new Date().toISOString(),
-      model: '',
-      mode: 'agent',
-      ...(runtimeId ? { runtimeId } : {})
-    })
-  }
-
   return changed ? next : threads
+}
+
+function watchBackgroundThreadCompletion(
+  set: ChatStoreSet,
+  get: ChatStoreGet,
+  threadId: string
+): void {
+  const normalizedThreadId = threadId.trim()
+  if (!normalizedThreadId) return
+  set((s) => ({
+    watchTurnCompletion: { ...s.watchTurnCompletion, [normalizedThreadId]: true }
+  }))
+  watchTurnCompletionNotification(normalizedThreadId)
+  syncTurnCompletionPoll(set, get)
 }
 
 function normalizeRuntimeFileReferencePath(value: string): string | null {
@@ -857,6 +858,8 @@ export function createThreadActions(
     const previousTurnReasoningFirstAtByUserId = get().turnReasoningFirstAtByUserId
     const previousTurnReasoningLastAtByUserId = get().turnReasoningLastAtByUserId
     const previousQueuedMessages = get().queuedMessages
+    const sendSessionStillFocused = (): boolean =>
+      get().activeThreadId === previousActiveThreadId && get().currentTurnUserId === userBlockId
     resetBusyRecoveryAttempts()
     set((s) => ({
       busy: true,
@@ -892,6 +895,7 @@ export function createThreadActions(
         const settings = await rendererRuntimeClient.getSettings()
         const workspaceRoot = resolveDraftWorkspaceRoot(get(), settings.workspaceRoot)
         if (!workspaceRoot) {
+          if (!sendSessionStillFocused()) return false
           set({
             blocks: previousBlocks,
             busy: false,
@@ -933,21 +937,32 @@ export function createThreadActions(
           throw new Error('Failed to resolve target thread id.')
         }
         activeThreadId = threadId
-        set((s) => ({
-          activeThreadId: threadId,
-          codeWorkspaceRoots: rememberCodeWorkspaceRoots(s.codeWorkspaceRoots, [workspaceRoot, createdThread?.workspace]),
-          lastSeq: 0,
-          inspectorSelectedId: null,
-          threads:
-            createdThread && !s.threads.some((thread) => thread.id === createdThread.id)
-              ? [createdThread, ...s.threads]
-              : s.threads
-        }))
+        if (sendSessionStillFocused()) {
+          set((s) => ({
+            activeThreadId: threadId,
+            codeWorkspaceRoots: rememberCodeWorkspaceRoots(s.codeWorkspaceRoots, [workspaceRoot, createdThread?.workspace]),
+            lastSeq: 0,
+            inspectorSelectedId: null,
+            threads:
+              createdThread && !s.threads.some((thread) => thread.id === createdThread.id)
+                ? [createdThread, ...s.threads]
+                : s.threads
+          }))
+        } else {
+          set((s) => ({
+            codeWorkspaceRoots: rememberCodeWorkspaceRoots(s.codeWorkspaceRoots, [workspaceRoot, createdThread?.workspace]),
+            threads:
+              createdThread && !s.threads.some((thread) => thread.id === createdThread.id)
+                ? [createdThread, ...s.threads]
+                : s.threads
+          }))
+        }
         void get().refreshThreads()
       } catch (e) {
         void window.sciforge.logError('create-thread', 'Failed to create thread', {
           message: e instanceof Error ? e.message : String(e)
         }).catch(() => undefined)
+        if (!sendSessionStillFocused()) return false
         set({
           activeThreadId: previousActiveThreadId,
           blocks: previousBlocks,
@@ -1014,12 +1029,21 @@ export function createThreadActions(
       const subscribedRuntimeId = runtimeSwitchExpected
         ? desiredRuntimeId
         : sendingRuntimeId
-      const subscribedFromSeq = runtimeSwitchExpected || deliveredThreadChanged ? 0 : seqAtSend
-      if (runtimeSwitchExpected || deliveredThreadChanged) {
+      const subscribedFromSeq = runtimeSwitchExpected ? 0 : seqAtSend
+      const threadIdChange = turnHandle.threadIdChange
+      const canAdoptDeliveredThread =
+        deliveredThreadChanged &&
+        Boolean(subscribedRuntimeId) &&
+        (threadIdChange === 'handoff' || threadIdChange === 'promote')
+      if (get().activeThreadId !== previousThreadId) {
+        watchBackgroundThreadCompletion(set, get, previousThreadId)
+        return true
+      }
+      if (canAdoptDeliveredThread && subscribedRuntimeId) {
         set((s) => ({
           activeThreadId: deliveredThreadId,
           lastSeq: subscribedFromSeq,
-          threads: adoptDeliveredThread(
+          threads: adoptExplicitHandoffThread(
             s.threads,
             previousThreadId,
             deliveredThreadId,
@@ -1028,6 +1052,21 @@ export function createThreadActions(
         }))
         p.rememberThreadRuntime?.(deliveredThreadId, subscribedRuntimeId)
         activeThreadId = deliveredThreadId
+      } else if (runtimeSwitchExpected && subscribedRuntimeId) {
+        set((s) => ({
+          lastSeq: subscribedFromSeq,
+          threads: s.threads.map((thread) =>
+            thread.id === previousThreadId ? { ...thread, runtimeId: subscribedRuntimeId } : thread
+          )
+        }))
+        p.rememberThreadRuntime?.(previousThreadId, subscribedRuntimeId)
+      }
+      if (deliveredThreadChanged && !canAdoptDeliveredThread && typeof window.sciforge?.logError === 'function') {
+        void window.sciforge.logError('session-identity', 'Runtime returned a different thread id for a stable GUI session', {
+          sessionId: previousThreadId,
+          deliveredThreadId,
+          runtimeId: subscribedRuntimeId
+        }).catch(() => undefined)
       }
       const { turnId, userMessageItemId } = turnHandle
       // Mirror the composer model selection against the runtime's stable
@@ -1118,11 +1157,17 @@ export function createThreadActions(
       await get().refreshThreads()
       return true
     } catch (e) {
-      clearBusyWatchdog()
+      const failedThreadId = activeThreadId
+      const failedSessionStillActive = Boolean(failedThreadId && get().activeThreadId === failedThreadId)
+      if (failedSessionStillActive) clearBusyWatchdog()
       void window.sciforge.logError('send-message', 'Failed to send message', {
         message: e instanceof Error ? e.message : String(e),
-        threadId: activeThreadId
+        threadId: failedThreadId
       }).catch(() => undefined)
+      if (failedThreadId && get().activeThreadId !== failedThreadId) {
+        await get().refreshThreads()
+        return false
+      }
       if (structuredRuntimeErrorCode(e) === 'turn_in_progress') {
         set({
           blocks: previousBlocks,

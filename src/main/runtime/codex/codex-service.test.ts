@@ -224,6 +224,60 @@ describe('CodexRuntimeService storage fallback', () => {
     })
   })
 
+  it('omits stored side and child Codex threads unless side threads are requested', async () => {
+    const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await threadStore.upsert({
+      guiThreadId: 'codex-primary',
+      codexThreadId: 'codex-primary',
+      workspace: '/tmp/workspace',
+      title: 'Primary Codex'
+    })
+    await threadStore.upsert({
+      guiThreadId: 'codex-side',
+      codexThreadId: 'codex-side',
+      workspace: '/tmp/workspace',
+      title: 'Side Codex',
+      relation: 'side'
+    })
+    await threadStore.upsert({
+      guiThreadId: 'codex-subagent',
+      codexThreadId: 'codex-subagent',
+      workspace: '/tmp/workspace',
+      title: 'Reviewer',
+      threadSource: 'subagent',
+      parentThreadId: 'codex-primary',
+      parentTurnId: 'turn-1'
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => failingClient()
+    })
+
+    await expect(service.listThreads({ includeArchived: true })).resolves.toEqual({
+      ok: true,
+      threads: [expect.objectContaining({ id: 'codex-primary', title: 'Primary Codex' })]
+    })
+
+    const withSide = await service.listThreads({ includeArchived: true, includeSide: true })
+    expect(withSide).toMatchObject({ ok: true })
+    if (withSide.ok) {
+      expect(withSide.threads.map((thread) => thread.id).sort()).toEqual([
+        'codex-primary',
+        'codex-side',
+        'codex-subagent'
+      ])
+      expect(withSide.threads.find((thread) => thread.id === 'codex-subagent')).toMatchObject({
+        relation: 'side',
+        threadSource: 'subagent',
+        parentThreadId: 'codex-primary',
+        parentTurnId: 'turn-1'
+      })
+    }
+  })
+
   it('omits empty placeholder Codex threads from stored lists', async () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
@@ -280,6 +334,251 @@ describe('CodexRuntimeService storage fallback', () => {
     await expect(new CodexThreadStore({ rootDir: storageRoot }).get('codex-live-thread')).resolves.toMatchObject({
       updatedAt: '2026-06-01T00:00:00.000Z'
     })
+  })
+
+  it('omits live side and native child Codex threads unless side threads are requested', async () => {
+    const storageRoot = await tempRoot()
+    const client = controllableClient()
+    vi.mocked(client.listThreads).mockResolvedValue({
+      threads: [
+        {
+          id: 'codex-primary',
+          name: 'Primary Codex',
+          updatedAt: 1780272000,
+          cwd: '/tmp/workspace'
+        },
+        {
+          id: 'codex-side',
+          name: 'Side Codex',
+          relation: 'side',
+          updatedAt: 1780272001,
+          cwd: '/tmp/workspace'
+        },
+        {
+          id: 'codex-subagent',
+          name: 'Reviewer',
+          threadSource: 'subagent',
+          parentThreadId: 'codex-primary',
+          parentTurnId: 'turn-1',
+          updatedAt: 1780272002,
+          cwd: '/tmp/workspace'
+        },
+        {
+          id: 'codex-workflow',
+          name: 'Workflow',
+          source: { type: 'workflow', parentThreadId: 'codex-primary' },
+          updatedAt: 1780272003,
+          cwd: '/tmp/workspace'
+        },
+        {
+          id: 'codex-local-workflow',
+          name: 'Local workflow',
+          threadSource: 'local_workflow',
+          updatedAt: 1780272004,
+          cwd: '/tmp/workspace'
+        }
+      ]
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.listThreads({ includeArchived: true })).resolves.toEqual({
+      ok: true,
+      threads: [expect.objectContaining({ id: 'codex-primary', title: 'Primary Codex' })]
+    })
+
+    const withSide = await service.listThreads({ includeArchived: true, includeSide: true })
+    expect(withSide).toMatchObject({ ok: true })
+    if (withSide.ok) {
+      expect(withSide.threads.map((thread) => thread.id).sort()).toEqual([
+        'codex-local-workflow',
+        'codex-primary',
+        'codex-side',
+        'codex-subagent',
+        'codex-workflow'
+      ])
+      expect(withSide.threads.find((thread) => thread.id === 'codex-side')).toMatchObject({
+        relation: 'side'
+      })
+      expect(withSide.threads.find((thread) => thread.id === 'codex-subagent')).toMatchObject({
+        relation: 'side',
+        threadSource: 'subagent',
+        parentThreadId: 'codex-primary',
+        parentTurnId: 'turn-1'
+      })
+    }
+  })
+
+  it('cleans leaked runtime instructions from app-server thread titles', async () => {
+    const storageRoot = await tempRoot()
+    const client = controllableClient()
+    vi.mocked(client.listThreads).mockResolvedValue({
+      threads: [{
+        id: 'codex-live-thread',
+        name: [
+          '<sciforge_runtime_instruction>',
+          'Runtime context ledger for this thread.',
+          'When an advertised specialized MCP tool directly matches the user request, use that tool.',
+          '</sciforge_runtime_instruction>',
+          '',
+          'Summarize AlphaFold benchmark results in a table.'
+        ].join('\n'),
+        preview: 'Summarize AlphaFold benchmark results in a table.',
+        updatedAt: 1780272000,
+        cwd: '/tmp/workspace'
+      }]
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.listThreads()).resolves.toMatchObject({
+      ok: true,
+      threads: [expect.objectContaining({
+        id: 'codex-live-thread',
+        title: 'Summarize AlphaFold benchmark results in a table'
+      })]
+    })
+    await expect(new CodexThreadStore({ rootDir: storageRoot }).get('codex-live-thread')).resolves.toMatchObject({
+      title: 'Summarize AlphaFold benchmark results in a table'
+    })
+  })
+
+  it('hides Codex child threads from default thread lists unless side threads are requested', async () => {
+    const storageRoot = await tempRoot()
+    const client = controllableClient()
+    vi.mocked(client.listThreads).mockResolvedValue({
+      threads: [
+        {
+          id: 'codex-main-thread',
+          name: 'Main thread',
+          updatedAt: 1780272000,
+          cwd: '/tmp/workspace'
+        },
+        {
+          id: 'codex-child-thread',
+          name: 'Child worker',
+          updatedAt: 1780272100,
+          cwd: '/tmp/workspace',
+          threadSource: 'subagent',
+          parentThreadId: 'codex-main-thread'
+        }
+      ]
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.listThreads()).resolves.toMatchObject({
+      ok: true,
+      threads: [expect.objectContaining({ id: 'codex-main-thread' })]
+    })
+    await expect(service.listThreads({ includeSide: true })).resolves.toMatchObject({
+      ok: true,
+      threads: expect.arrayContaining([
+        expect.objectContaining({ id: 'codex-main-thread' }),
+        expect.objectContaining({
+          id: 'codex-child-thread',
+          relation: 'side',
+          parentThreadId: 'codex-main-thread'
+        })
+      ])
+    })
+  })
+
+  it('bulk persists app-server thread lists without per-thread store upserts', async () => {
+    const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await threadStore.upsert({
+      guiThreadId: 'codex-archived-live',
+      codexThreadId: 'codex-archived-live',
+      workspace: '/tmp/workspace',
+      title: 'Archived live Codex',
+      archived: true,
+      updatedAt: '2026-06-01T00:00:00.000Z'
+    })
+    const client = controllableClient()
+    vi.mocked(client.listThreads).mockResolvedValue({
+      threads: [
+        {
+          id: 'codex-active-1',
+          name: 'Active Codex 1',
+          updatedAt: 1780358400,
+          cwd: '/tmp/workspace'
+        },
+        {
+          id: 'codex-active-2',
+          name: 'Active Codex 2',
+          updatedAt: 1780444800,
+          cwd: '/tmp/workspace'
+        },
+        {
+          id: 'codex-archived-live',
+          name: 'Archived live Codex',
+          updatedAt: 1780531200,
+          cwd: '/tmp/workspace'
+        }
+      ]
+    })
+    const upsertSpy = vi.spyOn(CodexThreadStore.prototype, 'upsert')
+    const upsertManySpy = vi.spyOn(CodexThreadStore.prototype, 'upsertMany')
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    try {
+      await expect(service.listThreads()).resolves.toEqual({
+        ok: true,
+        threads: [
+          expect.objectContaining({ id: 'codex-active-2', title: 'Active Codex 2', archived: false }),
+          expect.objectContaining({ id: 'codex-active-1', title: 'Active Codex 1', archived: false })
+        ]
+      })
+      expect(upsertManySpy).toHaveBeenCalledTimes(1)
+      expect(upsertManySpy.mock.calls[0]?.[0]).toEqual([
+        expect.objectContaining({
+          codexThreadId: 'codex-active-1',
+          preserveArchived: true,
+          updatedAt: '2026-06-02T00:00:00.000Z'
+        }),
+        expect.objectContaining({
+          codexThreadId: 'codex-active-2',
+          preserveArchived: true,
+          updatedAt: '2026-06-03T00:00:00.000Z'
+        }),
+        expect.objectContaining({
+          codexThreadId: 'codex-archived-live',
+          preserveArchived: true,
+          updatedAt: '2026-06-04T00:00:00.000Z'
+        })
+      ])
+      expect(upsertSpy).not.toHaveBeenCalled()
+    } finally {
+      upsertSpy.mockRestore()
+      upsertManySpy.mockRestore()
+    }
+
+    const raw = JSON.parse(await readFile(join(storageRoot, 'threads.json'), 'utf8')) as {
+      threads: Array<{ codexThreadId: string; archived: boolean }>
+    }
+    expect(raw.threads).toEqual(expect.arrayContaining([
+      expect.objectContaining({ codexThreadId: 'codex-active-1', archived: false }),
+      expect.objectContaining({ codexThreadId: 'codex-active-2', archived: false }),
+      expect.objectContaining({ codexThreadId: 'codex-archived-live', archived: true })
+    ]))
   })
 
   it('replays stored normalized events as chat blocks when app-server read is unavailable', async () => {
@@ -2164,6 +2463,22 @@ describe('CodexRuntimeService compatibility operations', () => {
     await expect(threadStore.get('gui-thread-1')).resolves.toMatchObject({
       guiThreadId: 'gui-thread-1',
       codexThreadId: 'codex-thread-new'
+    })
+    vi.mocked(client.listThreads).mockResolvedValueOnce({
+      threads: [{
+        id: 'codex-thread-new',
+        name: 'Recovered Codex',
+        cwd: '/tmp/workspace',
+        status: 'idle'
+      }]
+    })
+    await expect(service.listThreads({ includeArchived: true })).resolves.toMatchObject({
+      ok: true,
+      threads: [expect.objectContaining({
+        id: 'gui-thread-1',
+        codexThreadId: 'codex-thread-new',
+        title: 'Recovered Codex'
+      })]
     })
     const events = await new CodexEventStore({ rootDir: storageRoot }).read('gui-thread-1', { includeAll: true })
     expect(events.map((item) => item.event.runtimeStatus?.phase).filter(Boolean)).toEqual([

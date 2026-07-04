@@ -143,7 +143,9 @@ export function agentRuntimeEventBelongsToThread(
   payloadThreadId: string | undefined,
   threadId: string
 ): boolean {
-  return !payloadThreadId || payloadThreadId === threadId
+  const payload = payloadThreadId?.trim() ?? ''
+  const bound = threadId.trim()
+  return !payload || payload === bound
 }
 
 function stableEventKey(event: Pick<AgentRuntimeEvent, 'turnId' | 'threadId' | 'itemId' | 'seq'>): string {
@@ -522,6 +524,7 @@ export function dispatchAgentRuntimeEvent(event: AgentRuntimeEvent, sink: Thread
     case 'turn_lifecycle':
       if (sink.onTurnLifecycle) {
         sink.onTurnLifecycle({
+          threadId: event.threadId,
           turnId: event.turnId,
           state: event.state,
           message: event.message,

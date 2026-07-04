@@ -15,6 +15,12 @@ export type CodexStoredThread = {
   latestSeq: number
   latestTurnId?: string
   latestUserMessageId?: string
+  relation?: CodexStoredThreadRelation
+  parentThreadId?: string
+  parentTurnId?: string
+  threadSource?: string
+  agentNickname?: string
+  agentRole?: string
 }
 
 export type CodexThreadStoreSnapshot = {
@@ -27,16 +33,88 @@ export type CodexThreadStoreOptions = {
   now?: () => Date
 }
 
-type CodexThreadStoreUpsertInput = {
+export type CodexStoredThreadRelation = 'primary' | 'fork' | 'side'
+
+export type CodexThreadStoreUpsertInput = {
   guiThreadId?: string
   codexThreadId: string
   workspace?: string
   title?: string
   archived?: boolean
+  preserveArchived?: boolean
   latestSeq?: number
   latestTurnId?: string
   latestUserMessageId?: string
   updatedAt?: string
+  relation?: CodexStoredThreadRelation
+  parentThreadId?: string
+  parentTurnId?: string
+  threadSource?: string
+  agentNickname?: string
+  agentRole?: string
+}
+
+function applyThreadUpsert(
+  threads: CodexStoredThread[],
+  input: CodexThreadStoreUpsertInput,
+  now: string
+): { record: CodexStoredThread; threads: CodexStoredThread[]; changed: boolean } {
+  const codexThreadId = input.codexThreadId.trim()
+  if (!codexThreadId) throw new Error('Codex thread id is required.')
+  const guiThreadId = stringValue(input.guiThreadId)
+  const matchesInput = (thread: CodexStoredThread): boolean => (
+    thread.codexThreadId === codexThreadId ||
+    (guiThreadId !== '' && thread.guiThreadId === guiThreadId)
+  )
+  const updatedAt = validIso(input.updatedAt) ?? now
+  const matchingThreads = threads.filter(matchesInput)
+  const archived = input.preserveArchived && matchingThreads.length > 0
+    ? undefined
+    : input.archived
+  const next = mergeThreadRecords(matchingThreads, {
+    guiThreadId,
+    codexThreadId,
+    updatedAt,
+    now,
+    workspace: input.workspace,
+    title: input.title,
+    archived,
+    latestSeq: input.latestSeq,
+    latestTurnId: input.latestTurnId,
+    latestUserMessageId: input.latestUserMessageId,
+    relation: input.relation,
+    parentThreadId: input.parentThreadId,
+    parentTurnId: input.parentTurnId,
+    threadSource: input.threadSource,
+    agentNickname: input.agentNickname,
+    agentRole: input.agentRole
+  })
+  if (matchingThreads.length === 1 && sameStoredThread(matchingThreads[0], next)) {
+    return { record: next, threads, changed: false }
+  }
+  const nextThreads = threads.filter((thread) => !matchesInput(thread))
+  nextThreads.push(next)
+  return { record: next, threads: nextThreads, changed: true }
+}
+
+function sameStoredThread(a: CodexStoredThread, b: CodexStoredThread): boolean {
+  return a.guiThreadId === b.guiThreadId &&
+    a.codexThreadId === b.codexThreadId &&
+    a.runtimeId === b.runtimeId &&
+    a.workspace === b.workspace &&
+    a.title === b.title &&
+    a.createdAt === b.createdAt &&
+    a.updatedAt === b.updatedAt &&
+    a.archived === b.archived &&
+    a.latestSeq === b.latestSeq &&
+    a.latestTurnId === b.latestTurnId &&
+    a.latestUserMessageId === b.latestUserMessageId &&
+    a.relation === b.relation &&
+    a.parentThreadId === b.parentThreadId &&
+    a.parentTurnId === b.parentTurnId &&
+    a.threadSource === b.threadSource &&
+    a.agentNickname === b.agentNickname &&
+    a.agentRole === b.agentRole
 }
 
 export class CodexThreadStore {
@@ -75,34 +153,31 @@ export class CodexThreadStore {
     return this.enqueue(async () => this.upsertNow(input))
   }
 
+  async upsertMany(inputs: readonly CodexThreadStoreUpsertInput[]): Promise<CodexStoredThread[]> {
+    if (inputs.length === 0) return []
+    return this.enqueue(async () => this.upsertManyNow(inputs))
+  }
+
   private async upsertNow(input: CodexThreadStoreUpsertInput): Promise<CodexStoredThread> {
-    const codexThreadId = input.codexThreadId.trim()
-    if (!codexThreadId) throw new Error('Codex thread id is required.')
-    const guiThreadId = stringValue(input.guiThreadId)
+    const [record] = await this.upsertManyNow([input])
+    return record
+  }
+
+  private async upsertManyNow(inputs: readonly CodexThreadStoreUpsertInput[]): Promise<CodexStoredThread[]> {
     const snapshot = await this.load()
-    const matchesInput = (thread: CodexStoredThread): boolean => (
-      thread.codexThreadId === codexThreadId ||
-      (guiThreadId !== '' && thread.guiThreadId === guiThreadId)
-    )
-    const now = this.now().toISOString()
-    const updatedAt = validIso(input.updatedAt) ?? now
-    const matchingThreads = snapshot.threads.filter(matchesInput)
-    const next = mergeThreadRecords(matchingThreads, {
-      guiThreadId,
-      codexThreadId,
-      updatedAt,
-      now,
-      workspace: input.workspace,
-      title: input.title,
-      archived: input.archived,
-      latestSeq: input.latestSeq,
-      latestTurnId: input.latestTurnId,
-      latestUserMessageId: input.latestUserMessageId
-    })
-    const threads = snapshot.threads.filter((thread) => !matchesInput(thread))
-    threads.push(next)
-    await this.save({ version: 1, threads })
-    return next
+    let threads = snapshot.threads
+    let changed = false
+    const records: CodexStoredThread[] = []
+    for (const input of inputs) {
+      const result = applyThreadUpsert(threads, input, this.now().toISOString())
+      records.push(result.record)
+      threads = result.threads
+      changed = changed || result.changed
+    }
+    if (changed) {
+      await this.save({ version: 1, threads })
+    }
+    return records
   }
 
   async archive(guiThreadId: string): Promise<CodexStoredThread | null> {
@@ -227,7 +302,13 @@ function normalizeThread(raw: unknown): CodexStoredThread | null {
     archived: record.archived === true,
     latestSeq: numberValue(record.latestSeq),
     ...(stringValue(record.latestTurnId) ? { latestTurnId: stringValue(record.latestTurnId) } : {}),
-    ...(stringValue(record.latestUserMessageId) ? { latestUserMessageId: stringValue(record.latestUserMessageId) } : {})
+    ...(stringValue(record.latestUserMessageId) ? { latestUserMessageId: stringValue(record.latestUserMessageId) } : {}),
+    ...(normalizeThreadRelation(record.relation) ? { relation: normalizeThreadRelation(record.relation) } : {}),
+    ...(stringValue(record.parentThreadId) ? { parentThreadId: stringValue(record.parentThreadId) } : {}),
+    ...(stringValue(record.parentTurnId) ? { parentTurnId: stringValue(record.parentTurnId) } : {}),
+    ...(stringValue(record.threadSource) ? { threadSource: stringValue(record.threadSource) } : {}),
+    ...(stringValue(record.agentNickname) ? { agentNickname: stringValue(record.agentNickname) } : {}),
+    ...(stringValue(record.agentRole) ? { agentRole: stringValue(record.agentRole) } : {})
   }
 }
 
@@ -269,6 +350,12 @@ function mergeThreadRecords(
     latestUserMessageId?: string
     updatedAt?: string
     now?: string
+    relation?: CodexStoredThreadRelation
+    parentThreadId?: string
+    parentTurnId?: string
+    threadSource?: string
+    agentNickname?: string
+    agentRole?: string
   } = {}
 ): CodexStoredThread {
   const preferredRecords = [...records].sort(compareThreadActivity)
@@ -290,7 +377,13 @@ function mergeThreadRecords(
       ...preferredRecords.map((thread) => thread.latestSeq)
     ),
     ...optionalString('latestTurnId', overrides.latestTurnId, preferredRecords),
-    ...optionalString('latestUserMessageId', overrides.latestUserMessageId, preferredRecords)
+    ...optionalString('latestUserMessageId', overrides.latestUserMessageId, preferredRecords),
+    ...optionalRelation('relation', overrides.relation, preferredRecords),
+    ...optionalString('parentThreadId', overrides.parentThreadId, preferredRecords),
+    ...optionalString('parentTurnId', overrides.parentTurnId, preferredRecords),
+    ...optionalString('threadSource', overrides.threadSource, preferredRecords),
+    ...optionalString('agentNickname', overrides.agentNickname, preferredRecords),
+    ...optionalString('agentRole', overrides.agentRole, preferredRecords)
   }
 }
 
@@ -322,13 +415,28 @@ function isGeneratedRuntimeTitle(title: string): boolean {
 }
 
 function optionalString(
-  key: 'latestTurnId' | 'latestUserMessageId',
+  key: 'latestTurnId' | 'latestUserMessageId' | 'parentThreadId' | 'parentTurnId' | 'threadSource' | 'agentNickname' | 'agentRole',
   override: string | undefined,
   records: CodexStoredThread[]
-): Partial<Pick<CodexStoredThread, 'latestTurnId' | 'latestUserMessageId'>> {
+): Partial<Pick<CodexStoredThread, 'latestTurnId' | 'latestUserMessageId' | 'parentThreadId' | 'parentTurnId' | 'threadSource' | 'agentNickname' | 'agentRole'>> {
   if (override !== undefined) return override ? { [key]: override } : {}
   const value = records.map((thread) => thread[key]).find((candidate) => stringValue(candidate))
   return value ? { [key]: value } : {}
+}
+
+function optionalRelation(
+  key: 'relation',
+  override: CodexStoredThreadRelation | undefined,
+  records: CodexStoredThread[]
+): Partial<Pick<CodexStoredThread, 'relation'>> {
+  if (override !== undefined) return { [key]: override }
+  const value = records.map((thread) => normalizeThreadRelation(thread[key])).find(Boolean)
+  return value ? { [key]: value } : {}
+}
+
+function normalizeThreadRelation(value: unknown): CodexStoredThreadRelation | undefined {
+  const relation = stringValue(value)
+  return relation === 'primary' || relation === 'fork' || relation === 'side' ? relation : undefined
 }
 
 function earliestIso(values: string[]): string | null {

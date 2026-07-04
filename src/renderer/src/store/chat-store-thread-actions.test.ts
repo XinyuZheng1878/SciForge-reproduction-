@@ -89,6 +89,20 @@ function buildHarness(): {
   return { actions, state }
 }
 
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (error: unknown) => void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
 describe('chat-store-thread-actions queued messages', () => {
   beforeEach(() => {
     registryMock.getProvider.mockReset()
@@ -983,8 +997,17 @@ describe('chat-store-thread-actions queued messages', () => {
     expect(provider.rememberThreadRuntime).toHaveBeenLastCalledWith('thr_existing', 'codex')
   })
 
-  it('adopts a delivered runtime thread id so terminal events are not dropped', async () => {
+  it('keeps the GUI conversation id stable when the runtime returns a different thread id', async () => {
     const { actions, state } = buildHarness()
+    const logError = vi.fn(async () => undefined)
+    vi.stubGlobal('window', {
+      sciforge: { logError },
+      localStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn()
+      }
+    })
     const provider = {
       rememberThreadRuntime: vi.fn(),
       sendUserMessage: vi.fn(async () => ({
@@ -1006,16 +1029,152 @@ describe('chat-store-thread-actions queued messages', () => {
 
     await expect(actions.sendMessage('continue after restart')).resolves.toBe(true)
 
-    expect(state.activeThreadId).toBe('runtime-returned-other')
-    expect(state.threads.some((item) => item.id === 'thr_existing')).toBe(false)
-    expect(state.threads.find((item) => item.id === 'runtime-returned-other')?.runtimeId).toBe('codex')
+    expect(state.activeThreadId).toBe('thr_existing')
+    expect(state.threads.some((item) => item.id === 'runtime-returned-other')).toBe(false)
+    expect(state.threads.find((item) => item.id === 'thr_existing')?.runtimeId).toBe('codex')
     expect(provider.subscribeThreadEvents).toHaveBeenCalledWith(
-      'runtime-returned-other',
+      'thr_existing',
       0,
       expect.any(Object),
       expect.any(AbortSignal)
     )
-    expect(provider.rememberThreadRuntime).toHaveBeenLastCalledWith('runtime-returned-other', 'codex')
+    expect(provider.rememberThreadRuntime).toHaveBeenLastCalledWith('thr_existing', 'codex')
+    expect(logError).toHaveBeenCalledWith(
+      'session-identity',
+      'Runtime returned a different thread id for a stable GUI session',
+      expect.objectContaining({
+        sessionId: 'thr_existing',
+        deliveredThreadId: 'runtime-returned-other'
+      })
+    )
+  })
+
+  it('adopts a returned thread id only when the provider marks an explicit handoff', async () => {
+    const { actions, state } = buildHarness()
+    const provider = {
+      rememberThreadRuntime: vi.fn(),
+      sendUserMessage: vi.fn(async () => ({
+        threadId: 'handoff-target',
+        turnId: 'turn-handoff',
+        userMessageItemId: 'runtime-user-handoff',
+        threadIdChange: 'handoff' as const
+      })),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.activeAgentRuntime = 'codex'
+    state.lastSeq = 12
+    state.threads = [{
+      ...thread('thr_existing'),
+      runtimeId: 'sciforge'
+    }]
+
+    await expect(actions.sendMessage('continue in codex')).resolves.toBe(true)
+
+    expect(state.activeThreadId).toBe('handoff-target')
+    expect(state.threads.some((item) => item.id === 'thr_existing')).toBe(false)
+    expect(state.threads.find((item) => item.id === 'handoff-target')?.runtimeId).toBe('codex')
+    expect(provider.subscribeThreadEvents).toHaveBeenCalledWith(
+      'handoff-target',
+      0,
+      expect.any(Object),
+      expect.any(AbortSignal)
+    )
+    expect(provider.rememberThreadRuntime).toHaveBeenLastCalledWith('handoff-target', 'codex')
+  })
+
+  it('does not apply a slow send result to a different active session after the user switches threads', async () => {
+    const { actions, state } = buildHarness()
+    const sent = deferred<{
+      threadId: string
+      turnId: string
+      userMessageItemId: string
+    }>()
+    const provider = {
+      sendUserMessage: vi.fn(() => sent.promise),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.error = null
+    state.currentTurnId = null
+    state.currentTurnUserId = null
+    state.threads = [
+      { ...thread('thr_existing'), runtimeId: 'codex' },
+      { ...thread('thr_other'), runtimeId: 'codex' }
+    ]
+
+    const sendPromise = actions.sendMessage('long running send')
+    await Promise.resolve()
+
+    state.activeThreadId = 'thr_other'
+    state.blocks = []
+    state.busy = false
+    state.currentTurnId = null
+    state.currentTurnUserId = null
+
+    sent.resolve({
+      threadId: 'thr_existing',
+      turnId: 'turn-late',
+      userMessageItemId: 'runtime-user-late'
+    })
+
+    await expect(sendPromise).resolves.toBe(true)
+
+    expect(state.activeThreadId).toBe('thr_other')
+    expect(state.currentTurnId).toBeNull()
+    expect(state.currentTurnUserId).toBeNull()
+    expect(state.blocks).toEqual([])
+    expect(state.watchTurnCompletion).toMatchObject({ thr_existing: true })
+    expect(provider.subscribeThreadEvents).not.toHaveBeenCalled()
+  })
+
+  it('does not apply a slow send failure to a different active session after the user switches threads', async () => {
+    const { actions, state } = buildHarness()
+    const sent = deferred<{
+      threadId: string
+      turnId: string
+      userMessageItemId: string
+    }>()
+    const provider = {
+      sendUserMessage: vi.fn(() => sent.promise),
+      subscribeThreadEvents: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined)
+    }
+    registryMock.getProvider.mockReturnValue(provider)
+    state.busy = false
+    state.error = null
+    state.currentTurnId = null
+    state.currentTurnUserId = null
+    state.threads = [
+      { ...thread('thr_existing'), runtimeId: 'codex' },
+      { ...thread('thr_other'), runtimeId: 'codex' }
+    ]
+
+    const sendPromise = actions.sendMessage('long running send')
+    await Promise.resolve()
+
+    state.activeThreadId = 'thr_other'
+    state.blocks = [{ kind: 'assistant', id: 'other-block', text: 'current session' }]
+    state.busy = false
+    state.currentTurnId = null
+    state.currentTurnUserId = null
+    state.error = null
+
+    sent.reject(new Error('send failed late'))
+
+    await expect(sendPromise).resolves.toBe(false)
+
+    expect(state.activeThreadId).toBe('thr_other')
+    expect(state.blocks).toEqual([{ kind: 'assistant', id: 'other-block', text: 'current session' }])
+    expect(state.busy).toBe(false)
+    expect(state.currentTurnId).toBeNull()
+    expect(state.currentTurnUserId).toBeNull()
+    expect(state.error).toBeNull()
+    expect(provider.subscribeThreadEvents).not.toHaveBeenCalled()
   })
 
   it('sends only workspace-relative file references to the runtime provider', async () => {

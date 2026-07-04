@@ -51,7 +51,8 @@ export function createCodexAgentRuntimeAdapter(service: CodexRuntimeService): Ag
         limit: input.limit,
         search: input.search,
         includeArchived: input.includeArchived,
-        archivedOnly: input.archivedOnly
+        archivedOnly: input.archivedOnly,
+        includeSide: input.includeSide
       })
       if (!result.ok) throw codexFailure(result)
       return result.threads.map(mapCodexThread)
@@ -485,7 +486,7 @@ function mapCodexThread(thread: CodexNormalizedThread): AgentRuntimeThread {
     preview: thread.preview,
     latestTurnId: thread.latestTurnId,
     latestTurnStatus: thread.latestTurnStatus,
-    backendThreadId: thread.id,
+    backendThreadId: thread.codexThreadId ?? thread.id,
     relation: thread.relation,
     parentThreadId: thread.parentThreadId
   }
@@ -688,7 +689,7 @@ async function codexChildrenFromThreadEvents(
       ? service.readStoredEvents(threadId, 0)
       : Promise.resolve([]),
     typeof service.listThreads === 'function'
-      ? service.listThreads({ includeArchived: true })
+      ? service.listThreads({ includeArchived: true, includeSide: true })
       : Promise.resolve(null)
   ])
   if (threadsResult?.ok) {

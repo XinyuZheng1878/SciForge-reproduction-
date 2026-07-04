@@ -12,7 +12,10 @@ import {
   hasPlaceholderThreadTitle,
   shouldAutoTitleThread
 } from '../lib/thread-title'
-import { filterThreadsForSidebar } from '../lib/thread-sidebar-visibility'
+import {
+  filterThreadsForSidebar,
+  shouldHideThreadFromSidebarByDefault
+} from '../lib/thread-sidebar-visibility'
 import {
   enrichThreadsWithForkInfo,
   forgetThreadFork,
@@ -94,6 +97,10 @@ type StoreActionContext = {
 let bootPromise: Promise<void> | null = null
 let remoteChannelActivityUnsubscribe: (() => void) | null = null
 let refreshThreadsRequestSeq = 0
+const DEFAULT_THREAD_LIST_LIMIT = 80
+const EXPANDED_THREAD_LIST_LIMIT = 200
+const DEFAULT_SIDEBAR_DETAIL_INSPECTION_LIMIT = 12
+const EXPANDED_SIDEBAR_DETAIL_INSPECTION_LIMIT = 40
 
 function stateHasRecoverableActiveTurn(state: ChatState): boolean {
   return state.busy || Boolean(state.currentTurnId) || state.blocks.some(hasPendingRuntimeWork)
@@ -133,6 +140,23 @@ function preserveLocalActiveThreadForSidebar(
   if (!threadNeedsSidebarTitle(thread)) return thread
   const title = titleFromLocalUserBlocks(blocks)
   return title ? { ...thread, title } : null
+}
+
+function attachedSideConversationThreadIds(state: ChatState): Set<string> {
+  return new Set(
+    Object.keys(state.sideConversations ?? {})
+      .map((threadId) => threadId.trim())
+      .filter(Boolean)
+  )
+}
+
+function threadIsAuxiliarySidebarEntry(
+  thread: NormalizedThread | null,
+  hiddenThreadIds: Set<string>
+): boolean {
+  if (!thread) return false
+  return hiddenThreadIds.has(thread.id.trim()) ||
+    shouldHideThreadFromSidebarByDefault(thread)
 }
 
 export async function syncRemoteChannelActivityToStore(
@@ -557,9 +581,17 @@ export function createNavigationActions(
     const requestSeq = ++refreshThreadsRequestSeq
     try {
       const p = getProvider()
+      const showArchived = get().showArchivedThreads === true
+      const search = get().threadSearch.trim()
+      const expandedList = showArchived || search.length > 0
+      const hiddenSideThreadIds = attachedSideConversationThreadIds(get())
       let rawThreads: NormalizedThread[]
       try {
-        rawThreads = await p.listThreads({ limit: 200, includeArchived: true })
+        rawThreads = await p.listThreads({
+          limit: expandedList ? EXPANDED_THREAD_LIST_LIMIT : DEFAULT_THREAD_LIST_LIMIT,
+          ...(showArchived ? { includeArchived: true } : {}),
+          ...(search ? { search } : {})
+        })
       } catch {
         rawThreads = await p.listThreads()
       }
@@ -596,19 +628,30 @@ export function createNavigationActions(
         const activeRawThread = activeId
           ? threads.find((thread) => thread.id === activeId) ?? null
           : null
+        const storedActiveThread = activeId
+          ? get().threads.find((thread) => thread.id === activeId) ?? null
+          : null
+        const activeThreadIsAuxiliary = activeId != null &&
+          (
+            hiddenSideThreadIds.has(activeId.trim()) ||
+            threadIsAuxiliarySidebarEntry(activeRawThread ?? storedActiveThread, hiddenSideThreadIds)
+          )
         const activeThreadIsSdd =
           isSddAssistantThread(activeRawThread, sddThreadRegistry) ||
           isSddAssistantThread(
-            activeId ? get().threads.find((thread) => thread.id === activeId) ?? null : null,
+            storedActiveThread,
             sddThreadRegistry
           ) ||
           isEmptySddAssistantThreadCandidate(activeRawThread) ||
           isEmptySddAssistantThreadCandidate(
-            activeId ? get().threads.find((thread) => thread.id === activeId) ?? null : null
+            storedActiveThread
           )
         const activeThreadWasFilteredFromSidebar =
           !activeThreadIsSdd &&
-          activeThreadFilteredFromSidebar({ activeId, rawThreads: threads, sidebarThreads })
+          (
+            activeThreadIsAuxiliary ||
+            activeThreadFilteredFromSidebar({ activeId, rawThreads: threads, sidebarThreads })
+          )
         const preservedSddActiveThread =
           activeThreadIsSdd && activeId
             ? activeRawThread ?? get().threads.find((thread) => thread.id === activeId) ?? null
@@ -617,7 +660,7 @@ export function createNavigationActions(
           activeId != null &&
           !activeThreadWasFilteredFromSidebar &&
           !enrichedThreads.some((thread) => thread.id === activeId)
-            ? get().threads.find((thread) => thread.id === activeId) ?? null
+            ? storedActiveThread
             : null
         let displayThreads = pendingActiveThread
           ? [pendingActiveThread, ...enrichedThreads]
@@ -649,9 +692,9 @@ export function createNavigationActions(
           !activeThreadHasLocalConversation &&
           !displayThreads.some((thread) => thread.id === activeThreadId)
         const locallyActiveThread =
-          activeThreadHasLocalConversation && activeId
+          activeThreadHasLocalConversation && activeId && !activeThreadIsAuxiliary
             ? preserveLocalActiveThreadForSidebar(
-                activeRawThread ?? get().threads.find((thread) => thread.id === activeId) ?? null,
+                activeRawThread ?? storedActiveThread,
                 get().blocks
               )
             : null
@@ -705,7 +748,12 @@ export function createNavigationActions(
         }
       }
 
-      const filteredThreads = await filterThreadsForSidebar(threads, p)
+      const filteredThreads = await filterThreadsForSidebar(threads, p, {
+        maxDetailInspections: expandedList
+          ? EXPANDED_SIDEBAR_DETAIL_INSPECTION_LIMIT
+          : DEFAULT_SIDEBAR_DETAIL_INSPECTION_LIMIT,
+        hiddenThreadIds: hiddenSideThreadIds
+      })
       await applySidebarThreads(filteredThreads)
     } catch (e) {
       if (requestSeq !== refreshThreadsRequestSeq) return

@@ -5,7 +5,9 @@ import {
   filterThreadsForSidebarSummary,
   filterThreadsForSidebar,
   hasThreadsRequiringSidebarVisibilityInspection,
+  SIDEBAR_VISIBILITY_INSPECTION_LIMIT,
   shouldHideThreadFromSidebarByBlocks,
+  shouldHideThreadFromSidebarByLineage,
   shouldHideThreadFromSidebarByTitle,
   shouldInspectThreadForSidebarVisibility
 } from './thread-sidebar-visibility'
@@ -20,7 +22,10 @@ function thread(overrides: Partial<NormalizedThread> & Pick<NormalizedThread, 'i
     workspace: overrides.workspace ?? '/Users/zxy/workspace',
     ...(overrides.status ? { status: overrides.status } : {}),
     ...(overrides.archived !== undefined ? { archived: overrides.archived } : {}),
-    ...(overrides.preview ? { preview: overrides.preview } : {})
+    ...(overrides.preview ? { preview: overrides.preview } : {}),
+    ...(overrides.latestTurnId ? { latestTurnId: overrides.latestTurnId } : {}),
+    ...(overrides.relation ? { relation: overrides.relation } : {}),
+    ...(overrides.parentThreadId ? { parentThreadId: overrides.parentThreadId } : {})
   }
 }
 
@@ -40,6 +45,61 @@ describe('thread-sidebar-visibility', () => {
         thread({ id: 'thr_internal01', title: '__codex_parent_title__' })
       )
     ).toBe(true)
+  })
+
+  it('hides child and side threads from the main sidebar', async () => {
+    const sideThread = thread({
+      id: 'child-side-thread',
+      title: 'Child worker',
+      relation: 'side',
+      parentThreadId: 'parent-thread'
+    })
+    const childThread = thread({
+      id: 'child-parent-thread',
+      title: 'Child worker',
+      parentThreadId: 'parent-thread'
+    })
+    const promotedThread = thread({
+      id: 'promoted-thread',
+      title: 'Promoted child',
+      relation: 'primary',
+      parentThreadId: 'parent-thread'
+    })
+    const forkedThread = thread({
+      id: 'forked-thread',
+      title: 'Forked session',
+      relation: 'fork',
+      parentThreadId: 'parent-thread'
+    })
+    const mainThread = thread({ id: 'main-thread', title: 'Main research task' })
+    const getThreadDetail = vi.fn(async () => ({ blocks: [userBlock()] }))
+
+    expect(shouldHideThreadFromSidebarByLineage(sideThread)).toBe(true)
+    expect(shouldHideThreadFromSidebarByLineage(childThread)).toBe(true)
+    expect(shouldHideThreadFromSidebarByLineage(promotedThread)).toBe(false)
+    expect(shouldHideThreadFromSidebarByLineage(forkedThread)).toBe(false)
+    await expect(
+      filterThreadsForSidebar(
+        [sideThread, childThread, promotedThread, forkedThread, mainThread],
+        { getThreadDetail }
+      )
+    ).resolves.toEqual([promotedThread, forkedThread, mainThread])
+    expect(getThreadDetail).not.toHaveBeenCalled()
+  })
+
+  it('hides attached side conversation ids even without runtime lineage metadata', async () => {
+    const attachedChildThread = thread({ id: 'child-thread', title: 'research child' })
+    const mainThread = thread({ id: 'main-thread', title: 'Main research task' })
+    const getThreadDetail = vi.fn(async () => ({ blocks: [userBlock()] }))
+
+    const visible = await filterThreadsForSidebar(
+      [attachedChildThread, mainThread],
+      { getThreadDetail },
+      { hiddenThreadIds: [' child-thread '] }
+    )
+
+    expect(visible).toEqual([mainThread])
+    expect(getThreadDetail).not.toHaveBeenCalled()
   })
 
   it('inspects fallback thread titles before hiding them', () => {
@@ -106,6 +166,36 @@ describe('thread-sidebar-visibility', () => {
     expect(getThreadDetail).toHaveBeenCalledTimes(2)
     expect(getThreadDetail).toHaveBeenCalledWith('thr_279f3fef')
     expect(getThreadDetail).toHaveBeenCalledWith('thr_gui0001')
+  })
+
+  it('limits suspicious detail reads to the newest fallback titled threads', async () => {
+    const suspiciousThreads = Array.from(
+      { length: SIDEBAR_VISIBILITY_INSPECTION_LIMIT + 3 },
+      (_, index) => {
+        const id = `thr_${String(index).padStart(4, '0')}`
+        return thread({
+          id,
+          title: id,
+          updatedAt: new Date(Date.UTC(2026, 4, index + 1)).toISOString()
+        })
+      }
+    )
+    const getThreadDetail = vi.fn(async (threadId: string) => ({
+      blocks: [userBlock(`real content ${threadId}`)]
+    }))
+
+    const visible = await filterThreadsForSidebar(suspiciousThreads, { getThreadDetail })
+
+    const inspectedByPriority = suspiciousThreads
+      .slice(-SIDEBAR_VISIBILITY_INSPECTION_LIMIT)
+      .reverse()
+      .map((thread) => thread.id)
+    const visibleInspectedThreads = suspiciousThreads
+      .slice(-SIDEBAR_VISIBILITY_INSPECTION_LIMIT)
+      .map((thread) => thread.id)
+    expect(getThreadDetail).toHaveBeenCalledTimes(SIDEBAR_VISIBILITY_INSPECTION_LIMIT)
+    expect(getThreadDetail.mock.calls.map(([threadId]) => threadId)).toEqual(inspectedByPriority)
+    expect(visible.map((thread) => thread.id)).toEqual(visibleInspectedThreads)
   })
 
   it('derives display titles for fallback titled threads when detail shows real content', async () => {
@@ -216,5 +306,38 @@ describe('thread-sidebar-visibility', () => {
     })
 
     expect(visible).toEqual([])
+  })
+
+  it('derives suspicious thread titles from previews without loading detail', async () => {
+    const leakedThread = thread({
+      id: 'thr_preview_title',
+      title: '<sciforge_runtime_instruction>\nUse tools.\n</sciforge_runtime_instruction>',
+      preview: 'Summarize the AlphaFold benchmark results'
+    })
+    const getThreadDetail = vi.fn(async () => ({ blocks: [] }))
+
+    const visible = await filterThreadsForSidebar([leakedThread], { getThreadDetail }, {
+      maxDetailInspections: 0
+    })
+
+    expect(getThreadDetail).not.toHaveBeenCalled()
+    expect(visible).toEqual([{ ...leakedThread, title: 'Summarize the AlphaFold benchmark results' }])
+  })
+
+  it('caps suspicious thread detail inspection and keeps materialized skipped threads visible', async () => {
+    const first = thread({ id: 'thr_first', title: 'New Thread', latestTurnId: 'turn-1' })
+    const second = thread({ id: 'thr_second', title: 'New Thread', latestTurnId: 'turn-2' })
+    const getThreadDetail = vi.fn(async () => ({ blocks: [userBlock('first real title')] }))
+
+    const visible = await filterThreadsForSidebar([first, second], { getThreadDetail }, {
+      maxDetailInspections: 1
+    })
+
+    expect(getThreadDetail).toHaveBeenCalledTimes(1)
+    expect(getThreadDetail).toHaveBeenCalledWith('thr_first')
+    expect(visible.map((item) => [item.id, item.title])).toEqual([
+      ['thr_first', 'first real title'],
+      ['thr_second', 'New Thread']
+    ])
   })
 })

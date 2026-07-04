@@ -700,7 +700,8 @@ export class AgentRuntimeProvider implements AgentProvider {
       const targetThread = this.normalizeRememberedThread(result.targetThread)
       return {
         ...result.turn,
-        threadId: targetThread.id || result.turn.threadId || threadId
+        threadId: targetThread.id || result.turn.threadId || threadId,
+        threadIdChange: 'handoff'
       }
     }
     return agentRuntimeClient.startTurn({ runtimeId, threadId, text, ...turnOptionsForRuntime(runtimeId, turnOptions) })

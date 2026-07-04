@@ -726,8 +726,17 @@ export function buildThreadEventSink(
     return !boundThreadId || get().activeThreadId === boundThreadId
   }
 
+  const payloadThreadBelongsToBoundThread = (threadId: string | null | undefined): boolean => {
+    const payloadThreadId = threadId?.trim() ?? ''
+    return !boundThreadId || !payloadThreadId || payloadThreadId === boundThreadId
+  }
+
+  const eventBelongsToBoundThread = (event: AgentRuntimeEvent): boolean =>
+    payloadThreadBelongsToBoundThread(event.threadId)
+
   const shouldApplyRuntimeEvent: AgentRuntimeEventReplayFilter = (event) => {
     if (!isCurrentStream()) return false
+    if (!eventBelongsToBoundThread(event)) return false
     if (event.kind === 'heartbeat') return false
     if (typeof event.seq !== 'number') return true
     const key = runtimeEventReplayKey(event)
@@ -1296,12 +1305,14 @@ export function buildThreadEventSink(
         }
       })
     },
-    onThreadLifecycle: () => {
+    onThreadLifecycle: (ev) => {
       if (!isCurrentStream()) return
+      if (!payloadThreadBelongsToBoundThread(ev.threadId)) return
       requestRuntimeThreadRefresh(get)
     },
     onTurnLifecycle: (ev) => {
       if (!isCurrentStream()) return
+      if (!payloadThreadBelongsToBoundThread(ev.threadId)) return
       requestRuntimeThreadRefresh(get)
       if (isAgentRuntimeTerminalTurnState(ev.state)) {
         settleTerminalTurn(ev)
@@ -1319,6 +1330,7 @@ export function buildThreadEventSink(
     onGoal: (ev) => {
       if (!isCurrentStream()) return
       if (!ev.threadId) return
+      if (!payloadThreadBelongsToBoundThread(ev.threadId)) return
       void get().refreshActiveThreadContextState?.(ev.threadId)
       resetBusyRecoveryAttempts()
       set((s) => {
@@ -1356,6 +1368,7 @@ export function buildThreadEventSink(
     onTodos: (ev) => {
       if (!isCurrentStream()) return
       if (!ev.threadId) return
+      if (!payloadThreadBelongsToBoundThread(ev.threadId)) return
       resetBusyRecoveryAttempts()
       set((s) => {
         const currentThread = s.activeThreadId === ev.threadId
@@ -1413,8 +1426,9 @@ export function buildThreadEventSink(
       // permanently in the busy state.
       if (get().busy) armBusyWatchdog(set, get)
     },
-    onChild: () => {
+    onChild: (ev) => {
       if (!isCurrentStream()) return
+      if (!payloadThreadBelongsToBoundThread(ev.threadId)) return
       set((s) => ({ childRefreshKey: (s.childRefreshKey ?? 0) + 1 }))
     },
     onUsage: () => {
