@@ -25,9 +25,14 @@ bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh \
 bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh \
   --input-dir /data/input/my_batch \
   --output-dir ./outputs/alphafold3/my_run
+
+# 4. Or submit one JSON file that is already present on the PVC
+bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh \
+  --remote-json /data/input/my_batch/my_input.json \
+  --output-dir ./outputs/alphafold3/my_run
 ```
 
-The script handles upload → submit → poll → download automatically for local JSON/sequence inputs. With `--input-dir`, it skips upload and submits the existing PVC directory directly through the HTTP control plane.
+The script handles upload → submit → poll → download automatically for local JSON/sequence inputs. With `--input-dir`, it skips upload and submits the existing PVC directory directly through the HTTP control plane. With `--remote-json`, it submits one existing PVC JSON file through the HTTP control plane and avoids whole-directory failure when another JSON in the directory is invalid.
 
 ## Input Format
 
@@ -73,6 +78,8 @@ For multi-chain complexes, add multiple entries in `sequences` with distinct `id
 --name NAME       Job name (required with --sequence, default: "Fold")
 --json-input F    Upload and submit a pre-prepared JSON file
 --input-dir DIR   Shared PVC path already containing JSON files
+--remote-json F   Single shared PVC JSON file already present on the cluster
+--json-path F     Alias for --remote-json
 --output-dir DIR  Local directory for downloaded .cif results
 --max-wait N      Max poll iterations, each 60s (default: 90 = 1.5h)
 --model-dir DIR   Model weights dir on pod (default: /opt/weights)
@@ -80,7 +87,7 @@ For multi-chain complexes, add multiple entries in `sequences` with distinct `id
 --help            Show help
 ```
 
-**C550 API nuance**: the server-side `input_json` field is path-like on this deployment; do not use it to send raw JSON content. Inline raw JSON is interpreted as a filename and can fail with `Errno 36 File name too long`. Use either `--json-input`/`--json` to upload through kubectl, or `--input-dir` for a pre-staged PVC directory.
+**C550 API nuance**: the server-side `input_json` field is path-like on this deployment; do not use it to send raw JSON content. Inline raw JSON is interpreted as a filename and can fail with `Errno 36 File name too long`. Use `--remote-json /data/input/.../file.json` for a single pre-staged PVC JSON file, `--input-dir` for a validated pre-staged PVC directory, or `--json-input`/`--json` to upload a local file through kubectl.
 
 ## Manual API (Advanced)
 
@@ -101,6 +108,17 @@ TASK_ID=$(curl -s -X POST http://10.12.111.135:10010/v1/scimodel/tasks \
   -H "x-original-model: alphafold3" \
   -H "Content-Type: application/json" \
   -d '{"task_type":"fold","inputs":{"input_dir":"/data/input/my_batch","model_dir":"/opt/weights"}}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['task_id'])")
+```
+
+For a single pre-staged JSON file:
+
+```bash
+TASK_ID=$(curl -s -X POST http://10.12.111.135:10010/v1/scimodel/tasks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "x-original-model: alphafold3" \
+  -H "Content-Type: application/json" \
+  -d '{"task_type":"fold","inputs":{"input_json":"/data/input/my_batch/my_input.json","model_dir":"/opt/weights"}}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['task_id'])")
 ```
 
@@ -169,6 +187,7 @@ TOKEN=$(curl -s -X POST http://10.12.111.135:10008/api/v1/auth/login \
 
 - **All** API requests need `x-original-model: alphafold3` header.
 - Outputs at `/data/scimodel/muxi_alphafold3_server/alphafold3/output/` on the pod.
+- Completed task metadata can contain an output path even when the CIF is not downloadable through HTTP; coordinate-level analysis still requires retrieving the `.cif`.
 - Token expires ~1h; auto-refreshed when using the script.
 - Space task submissions by ≥5s to avoid auth race conditions.
 - `kubectl cp` needs the actual pod name; use the label selector pattern.

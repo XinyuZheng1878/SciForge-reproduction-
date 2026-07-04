@@ -5,7 +5,7 @@ set -euo pipefail
 # AlphaFold3 C550 Inference Platform — Submit & Monitor Script
 # ============================================================
 #
-# Three modes:
+# Four modes:
 #   Mode A — Submit from a local AlphaFold3 JSON file:
 #     bash alphafold3_submit.sh --json ./input.json [--output-dir ./results]
 #
@@ -15,6 +15,9 @@ set -euo pipefail
 #   Mode C — Submit a pre-staged PVC input directory:
 #     bash alphafold3_submit.sh --input-dir /data/input/my_batch --no-wait
 #
+#   Mode D — Submit a single pre-staged PVC JSON file:
+#     bash alphafold3_submit.sh --remote-json /data/input/my_batch/input.json --no-wait
+#
 # Credentials are read from the .env file alongside this script.
 #
 # Options:
@@ -22,6 +25,8 @@ set -euo pipefail
 #   --json-input  PATH   Alias for --json.
 #   --sequence    TEXT   Protein sequence (auto-generates proper AF3 JSON).
 #   --input-dir   PATH   Submit a PVC directory already containing AF3 JSON files.
+#   --remote-json PATH   Submit a single JSON file already present on the PVC.
+#   --json-path   PATH   Alias for --remote-json.
 #   --name        TEXT   Task name (required with --sequence, default: "Fold").
 #   --output-dir  PATH   Local directory for downloaded .cif results.
 #   --model-dir   PATH   Model weights directory (default: /opt/weights).
@@ -53,10 +58,11 @@ MODEL_DIR="/opt/weights"
 MAX_WAIT=90
 NO_WAIT=false
 INPUT_DIR=""
+REMOTE_JSON=""
 KUBECONFIG_PATH=""
 
 usage() {
-    sed -n '2,29p' "$0"
+    sed -n '2,34p' "$0"
     exit 0
 }
 
@@ -66,6 +72,7 @@ while [[ $# -gt 0 ]]; do
         --json|--json-input) JSON_FILE="$2"; shift 2 ;;
         --sequence)    SEQUENCE="$2";    shift 2 ;;
         --input-dir)   INPUT_DIR="$2";   shift 2 ;;
+        --remote-json|--json-path) REMOTE_JSON="$2"; shift 2 ;;
         --name)        TASK_NAME="$2";   shift 2 ;;
         --output-dir)  OUTPUT_DIR="$2";  shift 2 ;;
         --model-dir)   MODEL_DIR="$2";   shift 2 ;;
@@ -103,8 +110,21 @@ get_pod_name() {
         -o jsonpath='{.items[0].metadata.name}' 2>/dev/null
 }
 
+# ---- use a single pre-staged PVC JSON file (Mode D) ----
+if [[ -n "$REMOTE_JSON" ]]; then
+    if [[ "$REMOTE_JSON" != /* ]]; then
+        echo "Error: --remote-json must be an absolute PVC path such as /data/input/my_batch/input.json"
+        exit 1
+    fi
+    if [[ "${REMOTE_JSON##*.}" != "json" ]]; then
+        echo "Error: --remote-json must point to a .json file."
+        exit 1
+    fi
+    echo "=== Using pre-staged remote input_json ==="
+    echo "  $REMOTE_JSON"
+
 # ---- use pre-staged PVC input directory (Mode C) ----
-if [[ -n "$INPUT_DIR" ]]; then
+elif [[ -n "$INPUT_DIR" ]]; then
     if [[ "$INPUT_DIR" != /* ]]; then
         echo "Error: --input-dir must be an absolute PVC path such as /data/input/my_batch"
         exit 1
@@ -181,7 +201,7 @@ elif [[ -n "$JSON_FILE" ]]; then
     kubectl_cmd -n "$K8S_NS" cp "$JSON_FILE" "${POD}:${INPUT_DIR}/$(basename "$JSON_FILE")" 2>/dev/null
     echo "Upload done."
 else
-    echo "Error: Provide --json <file>, --sequence <seq>, or --input-dir <pvc-dir>."
+    echo "Error: Provide --json <file>, --sequence <seq>, --input-dir <pvc-dir>, or --remote-json <pvc-json>."
     usage
 fi
 
@@ -192,14 +212,21 @@ echo "Token obtained."
 
 # ---- submit ----
 echo "=== Submitting fold task ==="
-echo "  input_dir: $INPUT_DIR"
 echo "  model_dir: $MODEL_DIR"
+
+if [[ -n "$REMOTE_JSON" ]]; then
+    echo "  input_json: $REMOTE_JSON"
+    TASK_PAYLOAD=$(python3 -c "import json; print(json.dumps({'task_type':'fold','inputs':{'input_json':'$REMOTE_JSON','model_dir':'$MODEL_DIR'}}))")
+else
+    echo "  input_dir: $INPUT_DIR"
+    TASK_PAYLOAD=$(python3 -c "import json; print(json.dumps({'task_type':'fold','inputs':{'input_dir':'$INPUT_DIR','model_dir':'$MODEL_DIR'}}))")
+fi
 
 TASK_RESP=$(curl -s -X POST "$API_TASKS" \
     -H "Authorization: Bearer $TOKEN" \
     -H "x-original-model: alphafold3" \
     -H "Content-Type: application/json" \
-    -d "{\"task_type\":\"fold\",\"inputs\":{\"input_dir\":\"${INPUT_DIR}\",\"model_dir\":\"${MODEL_DIR}\"}}")
+    -d "$TASK_PAYLOAD")
 
 TASK_ID=$(echo "$TASK_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['task_id'])")
 echo "Task ID: $TASK_ID"
