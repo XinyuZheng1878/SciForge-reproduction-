@@ -16,6 +16,7 @@ describe('Codex multi-agent dynamic tools', () => {
       expect.objectContaining({
         type: 'function',
         name: CODEX_MULTI_AGENT_FLAT_TOOL_NAME,
+        description: 'Send a query to a bounded child agent and return the child agent output.',
         inputSchema: expect.objectContaining({
           type: 'object',
           properties: expect.objectContaining({
@@ -46,9 +47,7 @@ describe('Codex multi-agent dynamic tools', () => {
       arguments: { label: 'A', prompt: 'first' }
     })).resolves.toMatchObject({
       success: true,
-      contentItems: [expect.objectContaining({
-        text: expect.stringContaining('"summary": "done: first"')
-      })]
+      contentItems: [{ type: 'inputText', text: 'done: first' }]
     })
 
     await expect(bridge.callTool({
@@ -60,9 +59,7 @@ describe('Codex multi-agent dynamic tools', () => {
       arguments: { name: 'B', task: 'second' }
     })).resolves.toMatchObject({
       success: true,
-      contentItems: [expect.objectContaining({
-        text: expect.stringContaining('"summary": "done: second"')
-      })]
+      contentItems: [{ type: 'inputText', text: 'done: second' }]
     })
     expect(executor).toHaveBeenCalledTimes(2)
   })

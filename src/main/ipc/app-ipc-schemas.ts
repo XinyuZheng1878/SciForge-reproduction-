@@ -467,7 +467,7 @@ const agentCapabilityPatchSchema = z.object({
   subagents: z.object({
     enabled: z.boolean().optional(),
     maxParallel: z.number().int().positive().max(16).optional(),
-    maxChildRuns: z.number().int().positive().max(4096).optional()
+    maxChildRuns: z.number().int().positive().max(4).optional()
   }).strict().optional()
 }).strict()
 

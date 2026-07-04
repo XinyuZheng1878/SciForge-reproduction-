@@ -516,7 +516,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     expect(parsed.capabilities.subagents).toMatchObject({
       enabled: true,
       maxParallel: 2,
-      maxChildRuns: 16
+      maxChildRuns: 4
     })
     expect(parsed.capabilities.mcp.search).toMatchObject({ enabled: false, mode: 'auto' })
   })
@@ -541,7 +541,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     expect(parsed.capabilities.subagents).toMatchObject({
       enabled: false,
       maxParallel: 3,
-      maxChildRuns: 7
+      maxChildRuns: 4
     })
   })
 
@@ -1176,7 +1176,7 @@ describe('syncGuiManagedLocalRuntimeConfig', () => {
     expect(parsed.capabilities.subagents).toMatchObject({
       enabled: true,
       maxParallel: 2,
-      maxChildRuns: 16
+      maxChildRuns: 4
     })
     expect(parsed.capabilities.mcp.servers.github.command).toBe('github-mcp')
     expect(parsed.capabilities.web.fetchEnabled).toBe(true)

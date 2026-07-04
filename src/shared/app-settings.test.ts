@@ -169,7 +169,7 @@ describe('local runtime defaults', () => {
       subagents: {
         enabled: true,
         maxParallel: 2,
-        maxChildRuns: 16
+        maxChildRuns: 4
       }
     })
   })
@@ -190,7 +190,7 @@ describe('local runtime defaults', () => {
       subagents: {
         enabled: false,
         maxParallel: 16,
-        maxChildRuns: 16
+        maxChildRuns: 4
       }
     })
 
@@ -200,12 +200,12 @@ describe('local runtime defaults', () => {
         subagents: {
           enabled: true,
           maxParallel: 2,
-          maxChildRuns: 999
+          maxChildRuns: 3
         }
       }
     })
 
-    expect(getAgentCapabilitySettings(highChildBudget).subagents.maxChildRuns).toBe(999)
+    expect(getAgentCapabilitySettings(highChildBudget).subagents.maxChildRuns).toBe(3)
 
     const cappedChildBudget = normalizeAppSettings({
       ...settings(),
@@ -218,7 +218,7 @@ describe('local runtime defaults', () => {
       }
     })
 
-    expect(getAgentCapabilitySettings(cappedChildBudget).subagents.maxChildRuns).toBe(4096)
+    expect(getAgentCapabilitySettings(cappedChildBudget).subagents.maxChildRuns).toBe(4)
   })
 
   it('merges shared agent capability patches', () => {
@@ -228,7 +228,7 @@ describe('local runtime defaults', () => {
       subagents: {
         enabled: true,
         maxParallel: 3,
-        maxChildRuns: 16
+        maxChildRuns: 4
       }
     })
   })

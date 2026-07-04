@@ -5,9 +5,9 @@ import type {
 } from './app-settings-types'
 
 const DEFAULT_SUBAGENT_MAX_PARALLEL = 2
-const DEFAULT_SUBAGENT_MAX_CHILD_RUNS = 16
+const DEFAULT_SUBAGENT_MAX_CHILD_RUNS = 4
 const MAX_SUBAGENT_MAX_PARALLEL = 16
-const MAX_SUBAGENT_MAX_CHILD_RUNS = 4096
+const MAX_SUBAGENT_MAX_CHILD_RUNS = 4
 
 export function defaultAgentCapabilitySettings(): AgentCapabilitySettingsV1 {
   return {

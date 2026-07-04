@@ -189,6 +189,22 @@ describe('ChildAgentsPanelView', () => {
     expect(html).toContain('778 output')
   })
 
+  it('keeps the transcript area as the bounded vertical scroll container', () => {
+    const html = renderView({
+      selectedChildId: 'child-research',
+      children: [
+        child({
+          status: 'completed',
+          summary: 'A long child answer',
+          transcriptRef: { runtimeId: 'codex', childId: 'child-research', transcriptId: 'transcript-1' }
+        })
+      ]
+    })
+
+    expect(html).toContain('flex min-h-0 flex-1 flex-col overflow-hidden')
+    expect(html).toContain('min-h-0 flex-1 space-y-3 overflow-y-auto')
+  })
+
   it('renders a child transcript in chronological chat and process order without open-thread actions', () => {
     const html = renderView({
       selectedChildId: 'child-research',

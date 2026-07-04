@@ -952,7 +952,7 @@ export function ChildAgentsPanelView({
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {!activeThreadId ? (
           <div className="h-full px-3 py-3">
             <ChildAgentsEmpty icon={<Bot className="h-6 w-6" strokeWidth={1.6} />} title={t('sidebarChildrenNoThread')} />
@@ -985,7 +985,7 @@ export function ChildAgentsPanelView({
               t={t}
             />
           ) : (
-            <div ref={transcriptScrollRef} className="space-y-3 overflow-y-auto px-3 py-3">
+            <div ref={transcriptScrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
               <ChildAgentOverview child={selectedChild} t={t} />
               <ChildAgentTranscriptTimeline child={selectedChild} state={transcriptState} t={t} />
             </div>

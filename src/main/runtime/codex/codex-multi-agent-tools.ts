@@ -67,7 +67,7 @@ export class CodexMultiAgentToolBridge {
     return [{
       type: 'function',
       name: CODEX_MULTI_AGENT_FLAT_TOOL_NAME,
-      description: 'Run a bounded child agent task in parallel and return its child run status.',
+      description: 'Send a query to a bounded child agent and return the child agent output.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -184,19 +184,14 @@ export function codexChildFromMultiAgentRecord(
 
 function responseFromChildRecord(record: MultiAgentChildRunRecord): CodexAppServerDynamicToolCallResponse {
   const ok = record.status !== 'failed' && record.status !== 'aborted'
+  const text = ok
+    ? record.summary?.trim() || 'Child agent completed without textual output.'
+    : record.error?.message || record.summary?.trim() || 'Child agent failed.'
   return {
     success: ok,
     contentItems: [{
       type: 'inputText',
-      text: JSON.stringify({
-        childId: record.id,
-        status: record.status,
-        ...(record.label ? { label: record.label } : {}),
-        ...(record.summary ? { summary: record.summary } : {}),
-        ...(record.threadRef ? { threadRef: record.threadRef } : {}),
-        ...(record.usage ? { usage: record.usage } : {}),
-        ...(record.error ? { error: record.error } : {})
-      }, null, 2)
+      text
     }]
   }
 }

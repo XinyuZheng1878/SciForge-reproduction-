@@ -497,7 +497,7 @@ describe('app-ipc-schemas', () => {
         subagents: {
           enabled: true,
           maxParallel: 3,
-          maxChildRuns: 6
+          maxChildRuns: 4
         }
       },
       imageGeneration: {
@@ -554,7 +554,7 @@ describe('app-ipc-schemas', () => {
     expect(payload.agents?.sciforge?.tokenEconomy?.historyHygiene?.maxToolResultTokens).toBe(4000)
     expect(payload.activeAgentRuntime).toBe('claude')
     expect(payload.agentCapabilities?.subagents?.maxParallel).toBe(3)
-    expect(payload.agentCapabilities?.subagents?.maxChildRuns).toBe(6)
+    expect(payload.agentCapabilities?.subagents?.maxChildRuns).toBe(4)
     expect(payload.agents?.codex?.codexHome).toBe('/tmp/codex-home')
     expect(payload.agents?.claude?.configDir).toBe('/tmp/claude-code')
     expect(payload.write?.inlineCompletion?.maxTokens).toBe(128)

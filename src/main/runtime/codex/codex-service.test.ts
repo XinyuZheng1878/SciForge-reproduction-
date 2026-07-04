@@ -1711,9 +1711,30 @@ describe('CodexRuntimeService compatibility operations', () => {
         ])
       }))
     })
+    const childStartThreadParams = vi.mocked(queued.client.startThread).mock.calls[1]?.[0] as {
+      dynamicTools?: Array<{ name?: string }>
+      developerInstructions?: string
+    }
+    expect(childStartThreadParams.dynamicTools ?? []).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'delegate_task' })
+    ]))
+    expect(childStartThreadParams.developerInstructions ?? '').not.toContain('delegate_task')
     expect(queued.client.startTurn).not.toHaveBeenCalledWith(expect.objectContaining({
       model: 'deepseek-v4-pro'
     }))
+    await expect(pendingServerRequests?.onToolCallRequest?.({
+      requestId: 'nested-multi-agent-request',
+      threadId: 'child-codex-thread',
+      turnId: 'child-turn',
+      tool: 'delegate_task',
+      arguments: {
+        label: 'Nested',
+        prompt: 'This should not run.'
+      }
+    })).resolves.toEqual({
+      contentItems: [{ type: 'inputText', text: 'delegate_task is disabled inside child agents.' }],
+      success: false
+    })
     queued.push({
       type: 'event',
       channel: CODEX_MAIN_IPC_CHANNELS.event,
@@ -1740,10 +1761,7 @@ describe('CodexRuntimeService compatibility operations', () => {
 
     await expect(pending).resolves.toMatchObject({
       success: true,
-      contentItems: [expect.objectContaining({
-        type: 'inputText',
-        text: expect.stringContaining('"status": "completed"')
-      })]
+      contentItems: [{ type: 'inputText', text: 'child-ok' }]
     })
     await vi.waitFor(() => {
       expect(sink.send).toHaveBeenCalledWith(CODEX_MAIN_IPC_CHANNELS.event, {

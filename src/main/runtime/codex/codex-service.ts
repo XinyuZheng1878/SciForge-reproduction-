@@ -198,7 +198,8 @@ const CODEX_SPECIALIZED_MCP_DEVELOPER_INSTRUCTIONS = [
 const CODEX_MULTI_AGENT_DEVELOPER_INSTRUCTIONS = [
   'SciForge provides `delegate_task` for bounded child-agent work.',
   'Use it when parallel investigation or independent implementation subtasks materially help the user request.',
-  'Give each child a concise label and a self-contained prompt; do not use it for trivial work or as a substitute for doing the main task.'
+  'Give each child a concise label and a self-contained prompt; do not use it for trivial work or as a substitute for doing the main task.',
+  'Treat the tool result as the child agent answer, the same way you would read an assistant response.'
 ].join('\n')
 const CODEX_THREAD_FALLBACK_TITLE = 'Codex thread'
 const MAX_CODEX_THREAD_TITLE_LENGTH = 80
@@ -238,6 +239,7 @@ export class CodexRuntimeService {
   private readonly usageStore: CodexUsageStore | null
   private dynamicMcpBridge: CodexDynamicMcpToolBridge | null = null
   private multiAgentBridge: CodexMultiAgentToolBridge | null = null
+  private readonly multiAgentChildThreadIds = new Set<string>()
   private usageBackfillPromise: Promise<void> | null = null
   private readonly activeTurns = new Map<string, string>()
   private readonly turnTimings = new Map<string, CodexTurnTiming>()
@@ -981,10 +983,14 @@ export class CodexRuntimeService {
     return this.dynamicMcpBridge?.hasConfiguredServers() ?? codexDynamicMcpServers(this.options).length > 0
   }
 
-  private async codexDynamicTools(settings?: AppSettingsV1): Promise<CodexAppServerDynamicToolSpec[]> {
+  private async codexDynamicTools(
+    settings?: AppSettingsV1,
+    options: { includeMultiAgent?: boolean } = {}
+  ): Promise<CodexAppServerDynamicToolSpec[]> {
     const current = settings ?? await this.options.settings()
+    const includeMultiAgent = options.includeMultiAgent !== false
     return [
-      ...(this.ensureCodexMultiAgentBridge(current)?.dynamicTools() ?? []),
+      ...(includeMultiAgent ? this.ensureCodexMultiAgentBridge(current)?.dynamicTools() ?? [] : []),
       ...(await this.dynamicMcpBridge?.dynamicTools() ?? [])
     ]
   }
@@ -995,6 +1001,12 @@ export class CodexRuntimeService {
     const settings = await this.options.settings()
     const multiAgentBridge = this.ensureCodexMultiAgentBridge(settings)
     if (multiAgentBridge?.canHandle(request)) {
+      if (this.isMultiAgentChildThread(request.threadId)) {
+        return {
+          contentItems: [{ type: 'inputText', text: 'delegate_task is disabled inside child agents.' }],
+          success: false
+        }
+      }
       return multiAgentBridge.callTool(await this.requestWithGuiThreadContext(request))
     }
     const bridge = this.dynamicMcpBridge
@@ -1083,11 +1095,11 @@ export class CodexRuntimeService {
     const settings = await this.options.settings()
     const { client } = await this.ensureConnectedClient(settings)
     const workspace = resolveCodexWorkspace(settings, input.workspace)
-    const dynamicTools = await this.codexDynamicTools(settings)
+    const dynamicTools = await this.codexDynamicTools(settings, { includeMultiAgent: false })
     const threadResponse = await client.startThread({
       ...baseThreadParams(settings, workspace, {
         specializedMcpConfigured: this.hasDynamicMcpServersConfigured(),
-        multiAgentConfigured: Boolean(this.ensureCodexMultiAgentBridge(settings)),
+        multiAgentConfigured: false,
         dynamicTools
       }),
       ...codexModelRouterThreadParams(settings),
@@ -1124,6 +1136,8 @@ export class CodexRuntimeService {
     })
     const childGuiThreadId = storedChild?.guiThreadId ?? childThread.id
     const childCodexThreadId = storedChild?.codexThreadId ?? childThread.id
+    this.multiAgentChildThreadIds.add(childGuiThreadId)
+    this.multiAgentChildThreadIds.add(childCodexThreadId)
     const subscriber = this.addEventSubscriber(childGuiThreadId)
     const startedAtMs = Date.now()
     try {
@@ -1229,6 +1243,11 @@ export class CodexRuntimeService {
     } finally {
       input.signal.removeEventListener('abort', onAbort)
     }
+  }
+
+  private isMultiAgentChildThread(threadId: string | undefined): boolean {
+    const normalized = threadId?.trim()
+    return Boolean(normalized && this.multiAgentChildThreadIds.has(normalized))
   }
 
   private async forwardEvents(client: CodexAppServerJsonRpcClient): Promise<void> {
