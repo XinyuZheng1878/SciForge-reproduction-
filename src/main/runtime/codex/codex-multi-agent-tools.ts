@@ -123,7 +123,7 @@ export class CodexMultiAgentToolBridge {
   abortRequestsForTurn(threadId: string, turnId: string): number {
     let aborted = 0
     for (const request of this.activeRequests) {
-      if (request.threadId !== threadId && request.turnId !== turnId) continue
+      if (request.threadId !== threadId || request.turnId !== turnId) continue
       if (request.controller.signal.aborted) continue
       request.controller.abort(new Error('multi-agent request aborted by parent turn interrupt'))
       aborted += 1

@@ -194,9 +194,10 @@ export function buildDelegationToolProviders(runtime: MultiAgentRuntime | undefi
           const completed = children.filter((child) => child.status === 'completed').length
           const failed = children.filter((child) => child.status === 'failed').length
           const aborted = children.filter((child) => child.status === 'aborted').length
+          const terminal = completed + failed + aborted
           const batchStatus = completed === children.length
             ? 'completed'
-            : completed > 0
+            : terminal === children.length && completed > 0
               ? 'partial'
               : 'failed'
           return {
@@ -359,20 +360,21 @@ function failedDelegateRecord(
   parentTurnId: string
 ): DelegateRecordLike {
   const message = error instanceof Error ? error.message : String(error)
+  const aborted = isAbortLikeError(error, message)
   const now = new Date().toISOString()
   return {
     contractVersion: 1,
-    id: `delegate_failed_${index + 1}`,
+    id: `delegate_${aborted ? 'aborted' : 'failed'}_${index + 1}`,
     parentThreadId,
     parentTurnId,
     label: task.label,
     prompt: task.prompt,
-    status: 'failed',
-    summary: `Child agent failed before completion: ${message}`,
+    status: aborted ? 'aborted' : 'failed',
+    summary: `Child agent ${aborted ? 'aborted' : 'failed'} before completion: ${message}`,
     error: {
-      code: 'child_failed',
+      code: aborted ? 'child_aborted' : 'child_failed',
       message,
-      retryable: /\b(timeout|timed out|parallel|budget|unavailable|overloaded|503|502|504)\b/i.test(message)
+      retryable: !aborted && /\b(timeout|timed out|parallel|budget|unavailable|overloaded|503|502|504)\b/i.test(message)
     },
     usage: EMPTY_MULTI_AGENT_USAGE,
     transcript: [],
@@ -380,6 +382,12 @@ function failedDelegateRecord(
     updatedAt: now,
     finishedAt: now
   }
+}
+
+function isAbortLikeError(error: unknown, message: string): boolean {
+  if (error instanceof MultiAgentRuntimeError) return error.code === 'child_aborted'
+  if (error instanceof Error && error.name === 'AbortError') return true
+  return /\b(abort|aborted|cancelled|interrupted|user_stop)\b/i.test(message)
 }
 
 function childToolPolicyForPrompt(

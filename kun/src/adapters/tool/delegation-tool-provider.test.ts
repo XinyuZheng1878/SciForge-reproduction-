@@ -250,6 +250,75 @@ describe('buildDelegationToolProviders', () => {
     })
   })
 
+  it('returns partial children from delegate_tasks when one child aborts', async () => {
+    const runChild = vi.fn(async (input: Record<string, unknown>) => {
+      if (input.label === 'abort') {
+        return {
+          id: 'child-abort',
+          label: 'abort',
+          status: 'aborted' as const,
+          summary: 'child aborted',
+          error: {
+            code: 'child_aborted',
+            message: 'multi-agent child run was aborted'
+          },
+          usage: {
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0
+          }
+        }
+      }
+      return {
+        id: 'child-ok',
+        label: 'ok',
+        status: 'completed' as const,
+        summary: 'done',
+        usage: {
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0
+        }
+      }
+    })
+    const runtime = {
+      runChild,
+      diagnostics: vi.fn(async () => ({
+        config: { enabled: true, maxParallel: 4, maxChildren: 16, childTimeoutMs: 0 },
+        active: 0,
+        childRuns: [],
+        aggregates: []
+      }))
+    } as unknown as MultiAgentRuntime
+    const tool = buildDelegationToolProviders(runtime)[0]?.tools.find((candidate) => candidate.name === 'delegate_tasks')
+
+    await expect(tool?.execute({
+      tasks: [
+        { label: 'ok', prompt: 'Return.' },
+        { label: 'abort', prompt: 'Abort.' }
+      ]
+    }, fakeContext())).resolves.toMatchObject({
+      isError: false,
+      output: {
+        status: 'partial',
+        total: 2,
+        completed: 1,
+        failed: 0,
+        aborted: 1,
+        children: [
+          { label: 'ok', status: 'completed' },
+          {
+            label: 'abort',
+            status: 'aborted',
+            error: {
+              code: 'child_aborted'
+            }
+          }
+        ]
+      }
+    })
+  })
+
   it('retries delegate_tasks children when the runtime parallel budget is transiently exhausted', async () => {
     vi.useFakeTimers()
     const attempts = new Map<string, number>()

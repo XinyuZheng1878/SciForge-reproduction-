@@ -1227,7 +1227,7 @@ export class CodexRuntimeService {
         }
         if (event.usage) usage = multiAgentUsageFromCodexUsage(event.usage)
         if (isTerminalRuntimeError(event.runtimeError)) {
-          throw new Error(event.runtimeError?.message || 'Codex child turn failed.')
+          throw codexChildTurnError(event.runtimeError, transcript, usage)
         }
         if (event.turnComplete) break
       }
@@ -2993,6 +2993,26 @@ function isTerminalRuntimeError(error: CodexThreadEventPayload['runtimeError']):
   if (!error) return false
   if (isTransientRuntimeError(error)) return false
   return error.severity === 'error' || error.code === 'cancelled' || error.code === 'aborted'
+}
+
+function codexChildTurnError(
+  error: NonNullable<CodexThreadEventPayload['runtimeError']>,
+  transcript: readonly MultiAgentTranscriptEntry[],
+  usage: Partial<MultiAgentUsage> | undefined
+): Error {
+  const thrown = Object.assign(new Error(error.message || 'Codex child turn failed.'), {
+    multiAgentTranscript: transcript,
+    ...(usage ? { multiAgentUsage: usage } : {})
+  })
+  if (isAbortRuntimeError(error)) thrown.name = 'AbortError'
+  return thrown
+}
+
+function isAbortRuntimeError(error: NonNullable<CodexThreadEventPayload['runtimeError']>): boolean {
+  const code = stringValue(error.code).toLowerCase()
+  const message = stringValue(error.message).toLowerCase()
+  return /\b(abort|aborted|cancel|cancelled|interrupted|user_stop)\b/.test(code) ||
+    /\b(abort|aborted|cancelled|interrupted)\b/.test(message)
 }
 
 function isModelRouterAliasRuntimeError(error: CodexThreadEventPayload['runtimeError']): boolean {

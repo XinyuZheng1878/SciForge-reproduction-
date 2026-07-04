@@ -4,6 +4,7 @@ import {
   dynamicToolResponseFromMcpResult,
   type CodexDynamicMcpClient
 } from './codex-dynamic-mcp-tools'
+import { createCodexMultiAgentToolBridge } from './codex-multi-agent-tools'
 
 describe('Codex dynamic MCP tool bridge', () => {
   it('advertises MCP tools as flat Codex dynamic tools', async () => {
@@ -488,6 +489,39 @@ describe('Codex dynamic MCP tool bridge', () => {
         toolName: 'slow_tool'
       })
     ])
+  })
+
+  it('only aborts multi-agent child calls for the exact interrupted turn', async () => {
+    const bridge = createCodexMultiAgentToolBridge({
+      executor: async ({ signal }) => {
+        await new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(signal.reason ?? new Error('aborted'))
+          }, { once: true })
+        })
+        return { summary: 'unreachable' }
+      }
+    })
+    const first = bridge.callTool({
+      requestId: 'request-1',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tool: 'delegate_task',
+      arguments: { prompt: 'wait' }
+    })
+    const second = bridge.callTool({
+      requestId: 'request-2',
+      threadId: 'thread-1',
+      turnId: 'turn-2',
+      tool: 'delegate_task',
+      arguments: { prompt: 'wait' }
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(bridge.abortRequestsForTurn('thread-1', 'turn-1')).toBe(1)
+    await expect(first).resolves.toMatchObject({ success: false })
+    expect(bridge.abortRequestsForTurn('thread-1', 'turn-2')).toBe(1)
+    await expect(second).resolves.toMatchObject({ success: false })
   })
 
   it('releases tracked Codex computer-use sessions when closing the MCP bridge', async () => {
