@@ -3029,7 +3029,9 @@ function isCodexRuntimeDisconnectedError(error: unknown): boolean {
   return /app-server client stopped|event stream (?:closed|ended)|runtime disconnected|socket hang up|ECONNRESET|EPIPE/i.test(message)
 }
 
-function isTerminalRuntimeError(error: CodexThreadEventPayload['runtimeError']): boolean {
+function isTerminalRuntimeError(
+  error: CodexThreadEventPayload['runtimeError']
+): error is NonNullable<CodexThreadEventPayload['runtimeError']> {
   if (!error) return false
   if (isTransientRuntimeError(error)) return false
   return error.severity === 'error' || error.code === 'cancelled' || error.code === 'aborted'

@@ -111,7 +111,7 @@ describe('image generation MCP config', () => {
     })
 
     expect(imageGenerationMcpSettingsChanged(createSettings(), createSettings())).toBe(false)
-    expect(imageGenerationMcpSettingsChanged(createSettings(), createSettings({ model: 'gpt-image-1' }))).toBe(false)
+    expect(imageGenerationMcpSettingsChanged(createSettings(), createSettings({ model: 'gpt-image-2' }))).toBe(false)
     expect(imageGenerationMcpSettingsChanged(createSettings(), configured)).toBe(true)
     expect(imageGenerationMcpSettingsChanged(configured, createSettings({ ...configured.imageGeneration, apiKey: 'new-key' }))).toBe(true)
     expect(imageGenerationMcpSettingsChanged(configured, createSettings({ ...configured.imageGeneration, baseUrl: 'http://127.0.0.1:3999/v1' }))).toBe(true)

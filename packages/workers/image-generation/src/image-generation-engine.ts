@@ -17,6 +17,7 @@ import type {
   ImageGenerationReviewRequest,
   ImageGenerationReviewResult,
   ImageGenerationStatus,
+  ImageGenerationUsagePolicy,
   ImageSize
 } from './types'
 
@@ -26,6 +27,18 @@ const MAX_IMAGE_SIZE = 4096
 const MIN_IMAGE_SIZE = 128
 const ARTIFACT_DIR = '.sciforge/artifacts'
 const IMAGE_DIR = '.sciforge/images'
+const SCIENTIFIC_BASE_IMAGE_WARNING =
+  'Scientific figure image generation is for visual composition/base layers only. Overlay labels, axes, numeric data, citations, molecular annotations, and other scientific claims with deterministic scripts such as scientific_plotting.'
+const SCIENTIFIC_BASE_IMAGE_PROVIDER_INSTRUCTION =
+  'For scientific-figure use, render an unlabeled visual composition or background only. Leave clear space for scripted overlays. Do not include readable labels, axes, numeric values, data traces, citations, equations, tables, legends, scale bars, gene/protein names, or molecular identity claims in the raster image.'
+const SCIENTIFIC_BASE_IMAGE_USAGE_POLICY: ImageGenerationUsagePolicy = {
+  role: 'visual_composition_base',
+  deterministicOverlayRequired: true,
+  overlayToolchain: 'script_or_scientific_plotting',
+  warning: SCIENTIFIC_BASE_IMAGE_WARNING
+}
+const SCIENTIFIC_IMAGE_REQUEST_PATTERN =
+  /\b(scientific|figure|diagram|schematic|plot|chart|data|axis|axes|legend|label|labels|pathway|mechanism|molecular|protein|rna|dna|chromatin|meiosis|kinase|cell|cells|gene|genes|p-?value|pmid|citation|scale\s*bar|equation|manuscript|publication)\b/i
 
 type ProviderRenderInput = {
   workspaceRoot: string
@@ -88,6 +101,8 @@ export async function planImageGeneration(request: ImageGenerationPlanRequest): 
     ...(request.referencePath?.trim() ? { referencePath: request.referencePath.trim() } : {}),
     outputFormat: 'png'
   }
+  const usagePolicy = scientificUsagePolicyForRecipe(recipe)
+  pushUsagePolicyWarning(warnings, usagePolicy)
   void workspaceRoot
   return {
     ok: true,
@@ -95,12 +110,15 @@ export async function planImageGeneration(request: ImageGenerationPlanRequest): 
     recipe,
     suggestedRenderTool: 'image_generation_render',
     suggestedReviewTool: 'image_generation_review',
-    artifactPolicy: 'Render writes PNG output plus .sciforge/artifacts/*.generated-image.artifact.json for Canvas import.',
+    artifactPolicy: usagePolicy
+      ? 'Render writes a PNG visual base layer plus .sciforge/artifacts/*.generated-image.artifact.json for Canvas import; publication labels and data must be added by deterministic scripts.'
+      : 'Render writes PNG output plus .sciforge/artifacts/*.generated-image.artifact.json for Canvas import.',
     canvasWorkflow: [
       'Run image_generation_render with the planned recipe.',
       'Import the generated artifact into SciForge Canvas.',
       'Use Canvas annotations for non-destructive edits.',
-      'Run image_generation_edit_from_canvas_packet to create a new before/after artifact.'
+      'Run image_generation_edit_from_canvas_packet to create a new before/after artifact.',
+      ...(usagePolicy ? ['For scientific figures, script all labels, axes, data traces, citations, scale bars, and molecular annotations after rendering the base image.'] : [])
     ],
     warnings
   }
@@ -111,6 +129,8 @@ export async function renderImageGeneration(request: ImageGenerationRenderReques
   try {
     const workspaceRoot = assertWorkspaceRoot(request.workspaceRoot)
     const recipe = normalizeRecipe(request.recipe, warnings)
+    const usagePolicy = scientificUsagePolicyForRecipe(recipe)
+    pushUsagePolicyWarning(warnings, usagePolicy)
     const imageId = slugForId(request.imageId ?? 'generated-image-' + new Date().toISOString())
     const outputDir = await resolveOutputDir(workspaceRoot, request.outputDir)
     await mkdir(outputDir, { recursive: true })
@@ -137,6 +157,7 @@ export async function renderImageGeneration(request: ImageGenerationRenderReques
       recipe,
       provider: providerResult.provider,
       review,
+      ...(usagePolicy ? { usagePolicy } : {}),
       warnings
     }
     await writeJson(manifestPath, manifest)
@@ -151,6 +172,7 @@ export async function renderImageGeneration(request: ImageGenerationRenderReques
       referencePath: recipe.referencePath,
       ...(request.canvasId ? { canvasId: request.canvasId } : {}),
       ...(request.threadId ? { threadId: request.threadId } : {}),
+      ...(usagePolicy ? { usagePolicy } : {}),
       review
     })
     return {
@@ -162,6 +184,7 @@ export async function renderImageGeneration(request: ImageGenerationRenderReques
       artifactManifestPath,
       provider: providerResult.provider,
       review,
+      ...(usagePolicy ? { usagePolicy } : {}),
       warnings
     }
   } catch (error) {
@@ -207,6 +230,8 @@ export async function editImageFromCanvasPacket(
     for (const [index, intent] of intents.entries()) {
       const imageId = slugForId(request.imageId ?? 'edited-image-' + new Date().toISOString() + '-' + (index + 1))
       const outputPath = join(outputDir, imageId + '.' + (intent.outputFormat ?? 'png'))
+      const usagePolicy = scientificUsagePolicyForEditIntent(intent)
+      pushUsagePolicyWarning(warnings, usagePolicy)
       const providerResult = await renderWithProvider({ workspaceRoot, outputPath, editIntent: intent })
       warnings.push(...providerResult.warnings)
       const review = await reviewImageGenerationOutput({ workspaceRoot, outputPath, referencePath: intent.sourcePath })
@@ -225,6 +250,7 @@ export async function editImageFromCanvasPacket(
         editIntent: intent,
         provider: providerResult.provider,
         review,
+        ...(usagePolicy ? { usagePolicy } : {}),
         warnings
       }
       await writeJson(manifestPath, manifest)
@@ -239,6 +265,7 @@ export async function editImageFromCanvasPacket(
         title: intent.instruction.slice(0, 90) || imageId,
         ...(canvasId ? { canvasId } : {}),
         ...(threadId ? { threadId } : {}),
+        ...(usagePolicy ? { usagePolicy } : {}),
         review
       })
       outputs.push({ workspaceRoot, outputPath, manifestPath, artifactManifestPath, provider: providerResult.provider })
@@ -381,7 +408,9 @@ function allowPlaceholderProvider(): boolean {
 async function renderWithConfiguredImageEndpoint(input: ProviderRenderInput): Promise<void> {
   const endpoint = configuredModelRouterImageEndpoint()
   if (!endpoint) throw new ProviderError('Missing Model Router image endpoint configuration.')
-  const prompt = input.recipe?.prompt ?? input.editIntent?.instruction ?? ''
+  const prompt = input.recipe
+    ? providerPromptForRecipe(input.recipe)
+    : providerPromptForEditIntent(input.editIntent)
   const size = input.recipe?.size ?? DEFAULT_SIZE
   const errors: string[] = []
   for (const candidateBaseUrl of imageEndpointBaseUrlCandidates(endpoint.baseUrl)) {
@@ -636,6 +665,39 @@ function normalizeRecipe(recipe: ImageGenerationRecipe, warnings: string[]): Ima
   }
 }
 
+function scientificUsagePolicyForRecipe(recipe: ImageGenerationRecipe | undefined): ImageGenerationUsagePolicy | undefined {
+  if (!recipe) return undefined
+  return isScientificImageRequest([recipe.prompt, recipe.stylePreset]) ? SCIENTIFIC_BASE_IMAGE_USAGE_POLICY : undefined
+}
+
+function scientificUsagePolicyForEditIntent(intent: ImageEditIntent | undefined): ImageGenerationUsagePolicy | undefined {
+  if (!intent) return undefined
+  return isScientificImageRequest([intent.instruction]) ? SCIENTIFIC_BASE_IMAGE_USAGE_POLICY : undefined
+}
+
+function isScientificImageRequest(values: Array<string | undefined>): boolean {
+  return values.some((value) => SCIENTIFIC_IMAGE_REQUEST_PATTERN.test(value ?? ''))
+}
+
+function pushUsagePolicyWarning(warnings: string[], usagePolicy: ImageGenerationUsagePolicy | undefined): void {
+  if (!usagePolicy || warnings.includes(usagePolicy.warning)) return
+  warnings.push(usagePolicy.warning)
+}
+
+function providerPromptForRecipe(recipe: ImageGenerationRecipe): string {
+  const prompt = recipe.prompt.trim()
+  return scientificUsagePolicyForRecipe(recipe)
+    ? prompt + '\n\n' + SCIENTIFIC_BASE_IMAGE_PROVIDER_INSTRUCTION
+    : prompt
+}
+
+function providerPromptForEditIntent(intent: ImageEditIntent | undefined): string {
+  const instruction = intent?.instruction.trim() ?? ''
+  return scientificUsagePolicyForEditIntent(intent)
+    ? instruction + '\n\n' + SCIENTIFIC_BASE_IMAGE_PROVIDER_INSTRUCTION
+    : instruction
+}
+
 function normalizeSize(size: Partial<ImageSize> | undefined, warnings: string[]): ImageSize {
   const width = clampInteger(size?.width ?? DEFAULT_SIZE.width, MIN_IMAGE_SIZE, MAX_IMAGE_SIZE)
   const height = clampInteger(size?.height ?? DEFAULT_SIZE.height, MIN_IMAGE_SIZE, MAX_IMAGE_SIZE)
@@ -686,6 +748,7 @@ async function writeImageArtifactManifest(input: {
   referencePath?: string
   canvasId?: string
   threadId?: string
+  usagePolicy?: ImageGenerationUsagePolicy
   title: string
   review?: ImageGenerationReviewResult
 }): Promise<string> {
@@ -707,6 +770,7 @@ async function writeImageArtifactManifest(input: {
     ...(input.sourcePath ? { sourcePath: input.sourcePath } : {}),
     ...(input.referencePath ? { referencePath: input.referencePath } : {}),
     title: input.title,
+    ...(input.usagePolicy ? { usagePolicy: input.usagePolicy } : {}),
     ...(input.review?.ok ? { reviewScore: input.review.score } : {})
   })
   return artifactManifestPath

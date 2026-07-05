@@ -1,12 +1,15 @@
 import type { AppSettingsV1, ImageGenerationSettingsPatchV1, ImageGenerationSettingsV1 } from './app-settings-types'
 
+export const DEFAULT_IMAGE_GENERATION_BASE_URL = 'https://api.openai.com/v1'
+export const DEFAULT_IMAGE_GENERATION_MODEL = 'gpt-image-2'
+
 export function defaultImageGenerationSettings(): ImageGenerationSettingsV1 {
   return {
     enabled: false,
     provider: 'openai-compatible',
-    baseUrl: '',
+    baseUrl: DEFAULT_IMAGE_GENERATION_BASE_URL,
     apiKey: '',
-    model: 'gpt-image-1'
+    model: DEFAULT_IMAGE_GENERATION_MODEL
   }
 }
 

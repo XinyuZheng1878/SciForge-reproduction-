@@ -522,25 +522,25 @@ describe('FloatingComposer image generation helpers', () => {
       enabled: false,
       apiKey: 'sk-image',
       baseUrl: 'https://image.example/v1',
-      model: 'gpt-image-1'
+      model: 'gpt-image-2'
     })).toBe(false)
     expect(isImageGenerationConfigured({
       enabled: true,
       apiKey: '',
       baseUrl: 'https://image.example/v1',
-      model: 'gpt-image-1'
+      model: 'gpt-image-2'
     })).toBe(false)
     expect(isImageGenerationConfigured({
       enabled: true,
       apiKey: 'sk-image',
       baseUrl: '',
-      model: 'gpt-image-1'
+      model: 'gpt-image-2'
     })).toBe(false)
     expect(isImageGenerationConfigured({
       enabled: true,
       apiKey: 'sk-image',
       baseUrl: 'https://image.example/v1',
-      model: 'gpt-image-1'
+      model: 'gpt-image-2'
     })).toBe(true)
   })
 

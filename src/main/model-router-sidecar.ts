@@ -21,6 +21,7 @@ import {
   isPrefixedEnv,
   isUpstreamProviderConfigEnv
 } from './upstream-provider-env'
+import { isModelRouterServiceHealthy } from './model-router-health'
 
 const ROUTER_RUNTIME_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY'
 const TEXT_REASONER_KEY_ENV = 'SCIFORGE_MODEL_ROUTER_TEXT_API_KEY'
@@ -217,6 +218,7 @@ export async function ensureModelRouterSidecar(
     userDataDir: string
     appRoot?: string
     env?: NodeJS.ProcessEnv
+    fetchImpl?: typeof fetch
     spawnImpl?: typeof spawn
     log?: (message: string) => void
   }
@@ -239,6 +241,11 @@ export async function ensureModelRouterSidecar(
     if (modelRouterLaunchSignature === signature) return
     options.log?.('Model Router sidecar launch settings changed; restarting sidecar.')
     await stopModelRouterSidecar()
+  }
+
+  if (await isModelRouterServiceHealthy(settings, { fetchImpl: options.fetchImpl })) {
+    options.log?.(`Model Router is already healthy at ${getModelRouterSettings(settings).baseUrl}; reusing existing service.`)
+    return
   }
 
   const postStopLaunch = buildModelRouterSidecarLaunch(settings, {

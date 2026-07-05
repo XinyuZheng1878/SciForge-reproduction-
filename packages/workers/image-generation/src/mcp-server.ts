@@ -116,7 +116,7 @@ export async function runImageGenerationMcpServerFromArgv(argv: string[]): Promi
 
   server.registerTool('image_generation_plan', {
     title: 'Plan Image Generation',
-    description: 'Convert a user image request into a controlled image_generation_render recipe. Does not write files.',
+    description: 'Convert a user image request into a controlled image_generation_render recipe. Does not write files. For scientific figures, plan generated rasters as visual composition/base layers only; final labels, axes, numeric data, citations, scale bars, molecular annotations, and other scientific claims must be overlaid by deterministic scripts such as scientific_plotting.',
     inputSchema: {
       workspaceRoot: z.string().trim().min(1).optional(),
       task: z.string().trim().min(1).max(8000),
@@ -154,7 +154,7 @@ export async function runImageGenerationMcpServerFromArgv(argv: string[]): Promi
 
   server.registerTool('image_generation_render', {
     title: 'Render Image Generation Artifact',
-    description: 'Render a controlled image artifact from a structured recipe and write a SciForge artifact manifest for Canvas import.',
+    description: 'Render a controlled image artifact from a structured recipe and write a SciForge artifact manifest for Canvas import. For scientific figures, gpt-image-style providers are visual composition/base-image tools only; publication labels, axes, numeric data, citations, scale bars, molecular annotations, and other scientific claims must be added by deterministic scripts such as scientific_plotting.',
     inputSchema: {
       workspaceRoot: z.string().trim().min(1).optional(),
       recipe: recipeSchema,

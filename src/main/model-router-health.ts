@@ -13,6 +13,34 @@ export type ModelRouterHealthResult =
   | { ok: true; status: 'healthy'; message: string }
   | { ok: false; status: Exclude<ModelRouterHealthStatus, 'healthy'>; message: string }
 
+export async function isModelRouterServiceHealthy(
+  settings: AppSettingsV1,
+  options: {
+    fetchImpl?: typeof fetch
+  } = {}
+): Promise<boolean> {
+  const router = getModelRouterSettings(settings)
+  if (!router.enabled || !router.baseUrl.trim()) return false
+
+  const fetchImpl = options.fetchImpl ?? fetch
+  try {
+    const response = await fetchImpl(modelRouterManagementUrl(router.baseUrl, '/health'), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json'
+      },
+      signal: AbortSignal.timeout(2_000)
+    })
+    if (!response.ok) return false
+    const text = await safeResponseText(response)
+    if (!text.trim()) return true
+    const body = JSON.parse(text) as Record<string, unknown>
+    return body.ok !== false
+  } catch {
+    return false
+  }
+}
+
 export async function checkModelRouterHealth(
   settings: AppSettingsV1,
   options: {

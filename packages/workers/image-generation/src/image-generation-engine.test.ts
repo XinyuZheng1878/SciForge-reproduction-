@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getImageGenerationStatus,
+  planImageGeneration,
   renderImageGeneration
 } from './image-generation-engine'
 
@@ -76,6 +77,48 @@ describe('image generation engine', () => {
       kind: 'sciforge_artifact',
       sourceTool: 'image_generation',
       artifactKind: 'generated_image'
+    })
+  })
+
+  it('records scientific generated images as visual base layers requiring scripted overlays', async () => {
+    process.env.SCIFORGE_IMAGE_ALLOW_PLACEHOLDER = '1'
+
+    const plan = await planImageGeneration({
+      workspaceRoot,
+      task: 'A Nature Methods scientific diagram of meiotic entry with labeled TF and kinase data traces',
+      stylePreset: 'scientific_diagram',
+      size: { width: 768, height: 512 }
+    })
+
+    expect(plan.artifactPolicy).toContain('visual base layer')
+    expect(plan.canvasWorkflow.join(' ')).toMatch(/script all labels/)
+    expect(plan.warnings.join(' ')).toMatch(/deterministic scripts/)
+
+    const result = await renderImageGeneration({
+      workspaceRoot,
+      imageId: 'scientific-base-layer',
+      recipe: plan.recipe
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.message)
+    expect(result.usagePolicy).toMatchObject({
+      role: 'visual_composition_base',
+      deterministicOverlayRequired: true,
+      overlayToolchain: 'script_or_scientific_plotting'
+    })
+    expect(result.warnings.join(' ')).toMatch(/scientific_plotting/)
+    expect(JSON.parse(readFileSync(result.manifestPath, 'utf8'))).toMatchObject({
+      usagePolicy: {
+        role: 'visual_composition_base',
+        deterministicOverlayRequired: true
+      }
+    })
+    expect(JSON.parse(readFileSync(result.artifactManifestPath, 'utf8'))).toMatchObject({
+      usagePolicy: {
+        role: 'visual_composition_base',
+        deterministicOverlayRequired: true
+      }
     })
   })
 
@@ -169,6 +212,46 @@ describe('image generation engine', () => {
     expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
       'http://127.0.0.1:3892/v1/images/generations'
     ])
+  })
+
+  it('asks the image endpoint for unlabeled scientific base images', async () => {
+    const pngBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='
+    process.env.SCIFORGE_MODEL_ROUTER_RUNTIME_API_KEY = 'router-runtime-key'
+    process.env.SCIFORGE_MODEL_ROUTER_BASE_URL = 'http://127.0.0.1:3892/v1'
+    process.env.SCIFORGE_MODEL_ROUTER_IMAGE_MODEL = 'sciforge-router'
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === 'http://127.0.0.1:3892/v1/images/generations') {
+        const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+        expect(String(body.prompt)).toContain('render an unlabeled visual composition')
+        expect(String(body.prompt)).toContain('Do not include readable labels')
+        return new Response(JSON.stringify({
+          data: [{ b64_json: pngBase64 }]
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+      throw new Error('Unexpected URL ' + url)
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const result = await renderImageGeneration({
+      workspaceRoot,
+      imageId: 'unlabeled-science-base',
+      recipe: {
+        mode: 'text_to_image',
+        prompt: 'Scientific figure showing meiotic entry labels and quantitative data tracks',
+        size: { width: 512, height: 512 },
+        outputFormat: 'png'
+      }
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.message)
+    expect(result.provider).toBe('image-endpoint')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('does not fetch external provider image URLs returned by Model Router', async () => {

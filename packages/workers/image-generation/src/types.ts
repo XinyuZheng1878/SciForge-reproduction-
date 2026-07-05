@@ -35,6 +35,13 @@ export type ImageGenerationRecipe = {
   outputFormat?: ImageOutputFormat
 }
 
+export type ImageGenerationUsagePolicy = {
+  role: 'visual_composition_base'
+  deterministicOverlayRequired: boolean
+  overlayToolchain: 'script_or_scientific_plotting'
+  warning: string
+}
+
 export type ImageEditIntent = {
   mode: ImageEditMode
   sourcePath: string
@@ -101,6 +108,7 @@ export type ImageGenerationRenderResult =
       artifactManifestPath: string
       provider: 'image-endpoint' | 'placeholder'
       review?: ImageGenerationReviewResult
+      usagePolicy?: ImageGenerationUsagePolicy
       warnings: string[]
     }
   | {
@@ -209,5 +217,6 @@ export type ImageGenerationManifest = {
   editIntent?: ImageEditIntent
   provider: 'image-endpoint' | 'placeholder'
   review?: ImageGenerationReviewResult
+  usagePolicy?: ImageGenerationUsagePolicy
   warnings: string[]
 }

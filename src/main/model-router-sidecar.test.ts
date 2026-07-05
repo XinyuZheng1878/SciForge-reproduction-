@@ -348,11 +348,11 @@ describe('buildModelRouterSidecarLaunch', () => {
     }
   })
 
-  it('starts a managed sidecar instead of reusing an unmanaged healthy router on the same port', async () => {
+  it('reuses an unmanaged healthy router on the same port instead of spawning a duplicate sidecar', async () => {
     const server = createServer((request, response) => {
-      if (request.url === '/healthz') {
+      if (request.url === '/health') {
         response.setHeader('content-type', 'application/json')
-        response.end(JSON.stringify({ ok: true }))
+        response.end(JSON.stringify({ ok: true, service: 'sciforge.model-router' }))
         return
       }
       response.statusCode = 404
@@ -368,17 +368,19 @@ describe('buildModelRouterSidecarLaunch', () => {
     current.modelRouter!.baseUrl = `http://127.0.0.1:${address.port}/v1`
     const child = fakeChildProcess()
     const spawnImpl = vi.fn(() => child) as unknown as typeof spawn
+    const log = vi.fn()
 
     try {
       await ensureModelRouterSidecar(current, {
         userDataDir,
         appRoot: '/repo/sciforge',
         env: {},
-        spawnImpl
+        spawnImpl,
+        log
       })
 
-      expect(spawnImpl).toHaveBeenCalledTimes(1)
-      child.emit('exit', 0, null)
+      expect(spawnImpl).not.toHaveBeenCalled()
+      expect(log).toHaveBeenCalledWith(`Model Router is already healthy at http://127.0.0.1:${address.port}/v1; reusing existing service.`)
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()))
       await rm(userDataDir, { recursive: true, force: true })

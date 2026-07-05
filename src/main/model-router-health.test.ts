@@ -12,7 +12,7 @@ import {
   defaultWriteSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
-import { checkModelRouterHealth } from './model-router-health'
+import { checkModelRouterHealth, isModelRouterServiceHealthy } from './model-router-health'
 
 function settings(): AppSettingsV1 {
   return {
@@ -46,6 +46,19 @@ function settings(): AppSettingsV1 {
 }
 
 describe('checkModelRouterHealth', () => {
+  it('detects an already-running Model Router health service without provider checks', async () => {
+    const calls: string[] = []
+    const result = await isModelRouterServiceHealthy(settings(), {
+      fetchImpl: async (url) => {
+        calls.push(String(url))
+        return Response.json({ ok: true, service: 'sciforge.model-router' })
+      }
+    })
+
+    expect(result).toBe(true)
+    expect(calls).toEqual(['http://127.0.0.1:3892/health'])
+  })
+
   it('reports healthy when healthz succeeds', async () => {
     const calls: string[] = []
     const result = await checkModelRouterHealth(settings(), {
