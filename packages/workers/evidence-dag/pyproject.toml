@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sciforge-evidence-dag"
+version = "0.1.0"
+description = "Standalone Evidence-DAG engine for SciForge agent traces"
+requires-python = ">=3.10"
+dependencies = ["networkx>=3.0"]
+
+[project.scripts]
+evidence-dag-server = "evidence_dag.server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

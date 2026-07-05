@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["backend/shared/*"],
+      "@renderer/*": ["frontend/*"]
+    },
+    "types": ["node", "electron-vite/node", "vite/client"]
+  },
+  "include": [
+    "electron.vite.config.ts",
+    "backend/main/**/*",
+    "backend/preload/**/*",
+    "backend/shared/**/*",
+    "workers/evidence-dag/desktop/**/*"
+  ]
+}

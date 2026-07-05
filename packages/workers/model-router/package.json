@@ -1,0 +1,40 @@
+{
+  "name": "@sciforge/model-router",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "private": false,
+  "description": "SciForge provider-compatible multimodal model router.",
+  "sciforge": {
+    "lifecycleLayer": "workers",
+    "skillFacing": false,
+    "sideEffects": "network, filesystem",
+    "publicContract": true,
+    "runtimeAdapter": true,
+    "mcpServer": false
+  },
+  "bin": {
+    "sciforge-model-router": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./cli": "./src/cli.ts",
+    "./manifest": "./src/manifest.ts",
+    "./server": "./src/router.ts",
+    "./trace-audit": "./src/trace-audit.ts"
+  },
+  "files": [
+    "src",
+    "tools",
+    "package.json",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "node --env-file-if-exists=.env --import tsx src/cli.ts",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

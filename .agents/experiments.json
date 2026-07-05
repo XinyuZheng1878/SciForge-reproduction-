@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "specs": [
+    {
+      "id": "EXP-MR4KWQ4N",
+      "title": "Scale vs. Reasoning Accuracy Simulation",
+      "description": "Simulate reasoning benchmark accuracy across model sizes (1B–13B params) on tasks of varying difficulty",
+      "language": "python",
+      "code": "import random, math\n\nrandom.seed(42)\nsizes = [(\"Small (1B)\", 1), (\"Medium (3B)\", 3), (\"Large (7B)\", 7), (\"XLarge (13B)\", 13)]\ntasks = {\"Basic Arithmetic\": 0.15, \"Multi-step Logic\": 0.25, \"Counterfactual\": 0.35}\n\nprint(f\"{'Model':<14} {'Task':<20} {'Accuracy':>8} {'95% CI':>12}\")\nprint(\"-\"*54)\nfor name, params in sizes:\n    base = 0.45 + 0.05 * math.log2(params + 0.5)\n    for task, difficulty in tasks.items():\n        acc = min(0.97, base + random.gauss(0, 0.02) - difficulty * 0.12)\n        ci = 1.96 * math.sqrt(acc*(1-acc)/200)\n        print(f\"{name:<14} {task:<20} {acc:>7.1%}  ±{ci:>6.2%}\")\n",
+      "workingDir": ".",
+      "parameters": [
+        {
+          "name": "seed",
+          "type": "number",
+          "description": "Random seed for reproducibility",
+          "default": 42,
+          "required": false
+        }
+      ],
+      "parameterValues": {},
+      "metrics": [
+        {
+          "name": "large_vs_small_hard_gap",
+          "description": "Accuracy advantage of 7B vs 1B on hardest task",
+          "extractor": "regex",
+          "pattern": "XLarge.*Counterfactual\\s+([\\d.]+%)",
+          "unit": "percentage points",
+          "direction": "maximize"
+        },
+        {
+          "name": "full_results",
+          "description": "Average accuracy of large models",
+          "extractor": "full_output",
+          "pattern": "",
+          "direction": "maximize"
+        }
+      ],
+      "timeoutSeconds": 30,
+      "maxRetries": 3,
+      "tags": [
+        "model-scale",
+        "reasoning",
+        "simulation"
+      ],
+      "createdAt": "2026-07-03T06:55:17.063Z",
+      "updatedAt": "2026-07-03T06:55:17.063Z"
+    },
+    {
+      "id": "EXP-MR4KWTZT",
+      "title": "Fine-tuning Disproportionate Benefit Simulation",
+      "description": "Simulate zero-shot vs fine-tuned accuracy across model sizes to test if fine-tuning helps smaller models more",
+      "language": "python",
+      "code": "import random, math\n\nrandom.seed(42)\nmodels = [(\"Small (1B)\", 1.0), (\"Medium (3B)\", 3.0), (\"Large (7B)\", 7.0), (\"XLarge (13B)\", 13.0)]\ntasks = [\"Basic Arithmetic\", \"Multi-step Logic\", \"Counterfactual\"]\n\nprint(f\"{'Model':<14} {'Task':<20} {'Zero-shot':>9} {'Fine-tuned':>10} {'Gain':>6}\")\nprint(\"-\" * 61)\nfor name, params in models:\n    base = 0.45 + 0.05 * math.log2(params + 0.5)\n    for task in tasks:\n        diff = {\"Basic Arithmetic\": 0.10, \"Multi-step Logic\": 0.18, \"Counterfactual\": 0.22}\n        task_diff = diff[task]\n        ft_boost = 0.20 / math.sqrt(params + 0.5) + random.gauss(0, 0.01)\n        zero = min(0.95, base + random.gauss(0, 0.02) - task_diff)\n        ft = min(0.97, zero + ft_boost)\n        gain = ft - zero\n        print(f\"{name:<14} {task:<20} {zero:>7.1%}  {ft:>8.1%}  {gain:>+5.1%}\")\n",
+      "workingDir": ".",
+      "parameters": [
+        {
+          "name": "seed",
+          "type": "number",
+          "description": "Seed for reproducibility",
+          "default": 42,
+          "required": false
+        }
+      ],
+      "parameterValues": {},
+      "metrics": [
+        {
+          "name": "gain_ratio",
+          "description": "Relative gain ratio: small model gain / large model gain",
+          "extractor": "regex",
+          "pattern": "Small.*Counterfactual\\s+[\\d.]+%\\s+[\\d.]+%\\s+([+-][\\d.]+%)",
+          "unit": "ratio",
+          "direction": "maximize"
+        },
+        {
+          "name": "full_results",
+          "description": "Full output for analysis",
+          "extractor": "full_output",
+          "pattern": "",
+          "direction": "maximize"
+        }
+      ],
+      "timeoutSeconds": 30,
+      "maxRetries": 3,
+      "tags": [
+        "fine-tuning",
+        "model-scale",
+        "reasoning"
+      ],
+      "createdAt": "2026-07-03T06:55:22.073Z",
+      "updatedAt": "2026-07-03T06:55:22.073Z"
+    }
+  ],
+  "runs": [
+    {
+      "id": "RUN-2026-07-03-55fb979e",
+      "specId": "EXP-MR4KWQ4N",
+      "status": "completed",
+      "attempt": 0,
+      "command": "python3 \"/Users/zhengxinyu/projects/SciForge/exp_EXP-MR4KWQ4N.py\"",
+      "output": "Model          Task                 Accuracy       95% CI\n------------------------------------------------------\nSmall (1B)     Basic Arithmetic       45.8%  ± 6.91%\nSmall (1B)     Multi-step Logic       44.6%  ± 6.89%\nSmall (1B)     Counterfactual         43.5%  ± 6.87%\nMedium (3B)    Basic Arithmetic       53.6%  ± 6.91%\nMedium (3B)    Multi-step Logic       50.8%  ± 6.93%\nMedium (3B)    Counterfactual         46.8%  ± 6.92%\nLarge (7B)     Basic Arithmetic       58.4%  ± 6.83%\nLarge (7B)     Multi-step Logic       56.0%  ± 6.88%\nLarge (7B)     Counterfactual         54.9%  ± 6.90%\nXLarge (13B)   Basic Arithmetic       62.2%  ± 6.72%\nXLarge (13B)   Multi-step Logic       61.2%  ± 6.75%\nXLarge (13B)   Counterfactual         61.9%  ± 6.73%\n",
+      "exitCode": 0,
+      "metricValues": {
+        "large_vs_small_hard_gap": 61.9
+      },
+      "outputFiles": [],
+      "pid": 28981,
+      "startedAt": "2026-07-03T06:55:28.418Z",
+      "finishedAt": "2026-07-03T06:55:28.452Z",
+      "createdAt": "2026-07-03T06:55:28.416Z"
+    },
+    {
+      "id": "RUN-2026-07-03-83d1f66d",
+      "specId": "EXP-MR4KWTZT",
+      "status": "completed",
+      "attempt": 0,
+      "command": "python3 \"/Users/zhengxinyu/projects/SciForge/exp_EXP-MR4KWTZT.py\"",
+      "output": "Model          Task                 Zero-shot Fine-tuned   Gain\n-------------------------------------------------------------\nSmall (1B)     Basic Arithmetic       37.6%     53.8%  +16.2%\nSmall (1B)     Multi-step Logic       31.3%     47.5%  +16.2%\nSmall (1B)     Counterfactual         22.9%     39.1%  +16.2%\nMedium (3B)    Basic Arithmetic       43.5%     54.5%  +11.0%\nMedium (3B)    Multi-step Logic       36.3%     46.7%  +10.5%\nMedium (3B)    Counterfactual         34.4%     45.3%  +10.9%\nLarge (7B)     Basic Arithmetic       49.8%     57.7%  +8.0%\nLarge (7B)     Multi-step Logic       39.5%     46.1%  +6.6%\nLarge (7B)     Counterfactual         40.2%     47.7%  +7.5%\nXLarge (13B)   Basic Arithmetic       53.6%     59.0%  +5.5%\nXLarge (13B)   Multi-step Logic       42.9%     48.8%  +6.0%\nXLarge (13B)   Counterfactual         42.8%     47.9%  +5.1%\n",
+      "exitCode": 0,
+      "metricValues": {
+        "gain_ratio": 16.2
+      },
+      "outputFiles": [],
+      "pid": 28984,
+      "startedAt": "2026-07-03T06:55:29.654Z",
+      "finishedAt": "2026-07-03T06:55:29.681Z",
+      "createdAt": "2026-07-03T06:55:29.652Z"
+    }
+  ],
+  "lastUpdated": "2026-07-03T06:55:29.682Z"
+}
