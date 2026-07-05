@@ -11,10 +11,10 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@renderer/*": ["src/renderer/src/*"],
-      "@shared/*": ["src/shared/*"]
+      "@renderer/*": ["frontend/*"],
+      "@shared/*": ["backend/shared/*"]
     },
     "types": ["vite/client"]
   },
-  "include": ["src/renderer/src/**/*", "src/renderer/**/*.tsx", "src/renderer/**/*.ts", "src/shared/**/*", "src/preload/index.d.ts"]
+  "include": ["frontend/**/*", "backend/shared/**/*", "backend/preload/index.d.ts"]
 }

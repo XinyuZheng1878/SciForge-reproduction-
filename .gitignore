@@ -9,7 +9,6 @@ release/
 .codex-runtime/
 .claude-code-runtime/
 .scimodality-run/
-.sciforge/
 *.log
 .DS_Store
 __pycache__/
@@ -59,6 +58,3 @@ docs/R2_RELEASE.md
 
 ### Local acceptance launcher (contains a dev gateway key + local logs — not for upstream)
 /local-run/
-
-### Paper build artifacts
-paper/

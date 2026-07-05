@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "hypotheses": [
+    {
+      "id": "HYP-2026-07-03-f3937dcd",
+      "title": "Larger models outperform smaller ones on reasoning benchmarks",
+      "statement": "Larger models (>7B parameters) achieve significantly higher accuracy on reasoning benchmarks compared to smaller models (≤1B parameters) across diverse reasoning tasks.",
+      "status": "active",
+      "confidence": {
+        "prior": 0.6,
+        "posterior": 0.65,
+        "totalTrials": 1,
+        "supportingTrials": 1,
+        "contradictingTrials": 0,
+        "lastUpdated": "2026-07-03T06:55:34.258Z"
+      },
+      "falsificationCriteria": "If smaller models (≤1B params) match or exceed larger models (>7B params) on reasoning accuracy across diverse tasks, this hypothesis is falsified.",
+      "tags": [
+        "model-scale",
+        "reasoning",
+        "scaling-laws"
+      ],
+      "childHypothesisIds": [],
+      "premises": [
+        "Published results on GSM8K and MATH show scaling trends",
+        "Scaling laws predict monotonically improving performance with compute",
+        "Larger models have more capacity for multi-step reasoning chains"
+      ],
+      "predictions": [
+        "Larger models will show 5-15% higher accuracy on reasoning benchmarks",
+        "The advantage of scale grows with task complexity",
+        "Compute required for equivalent accuracy is non-linear with model size"
+      ],
+      "experimentIds": [
+        "EXP-MR4KWQ4N",
+        "RUN-2026-07-03-55fb979e"
+      ],
+      "artifactIds": [],
+      "notes": "",
+      "createdAt": "2026-07-03T06:55:10.905Z",
+      "updatedAt": "2026-07-03T06:55:34.258Z"
+    },
+    {
+      "id": "HYP-2026-07-03-5a4cd1b7",
+      "title": "Fine-tuning disproportionately helps smaller models",
+      "statement": "Fine-tuning disproportionately benefits smaller models (≤1B) over larger models (>7B), narrowing the accuracy gap on reasoning benchmarks.",
+      "status": "active",
+      "confidence": {
+        "prior": 0.55,
+        "posterior": 0.6375,
+        "totalTrials": 1,
+        "supportingTrials": 1,
+        "contradictingTrials": 0,
+        "lastUpdated": "2026-07-03T06:55:39.120Z"
+      },
+      "falsificationCriteria": "If fine-tuning improves both model sizes by proportionally equal amounts (within ±2 percentage points), or if larger models benefit more in absolute gains, the hypothesis is falsified.",
+      "tags": [
+        "fine-tuning",
+        "model-scale",
+        "reasoning"
+      ],
+      "childHypothesisIds": [],
+      "premises": [
+        "Smaller models have more headroom for improvement",
+        "Capacity constraints in small models are partially alleviated by task-specific tuning",
+        "Larger models are already nearer to their performance ceiling in zero-shot settings"
+      ],
+      "predictions": [
+        "Smaller models will show 3-8x larger relative accuracy improvement from fine-tuning",
+        "The performance gap after fine-tuning narrows compared to zero-shot",
+        "Fine-tuned small models may approach pre-fine-tune large model performance"
+      ],
+      "experimentIds": [
+        "EXP-MR4KWTZT",
+        "RUN-2026-07-03-83d1f66d"
+      ],
+      "artifactIds": [],
+      "notes": "",
+      "createdAt": "2026-07-03T06:55:10.924Z",
+      "updatedAt": "2026-07-03T06:55:39.120Z"
+    }
+  ],
+  "lastUpdated": "2026-07-03T06:55:39.120Z"
+}

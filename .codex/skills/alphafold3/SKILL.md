@@ -5,208 +5,115 @@ description: Submit protein folding tasks to the AlphaFold3 C550 inference platf
 
 # AlphaFold3 C550 Inference Platform
 
-Submit, monitor, and download AlphaFold3 protein structure predictions on the C550 inference cluster.
+Submit and monitor AlphaFold3 protein folding tasks on the C550 inference cluster.
 
-Always distinguish three states in reports: (1) task submission accepted, (2) AF3 inference reached a terminal state, and (3) CIF coordinates were retrieved and analyzed. A queued or running task is not molecular evidence, and a completed task without CIF retrieval is execution-level evidence only.
+## Prerequisites
 
-## Quick Start
-
-```bash
-# 1. Auto-generate input from a simple sequence
-bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh \
-  --sequence "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG" \
-  --name "My_Protein" \
-  --output-dir ./outputs/alphafold3/my_run
-
-# 0. Preflight control-plane and data-plane readiness before evidence runs
-bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh --preflight
-
-# 2. Or use a pre-prepared JSON file
-bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh \
-  --json-input ./my_input.json \
-  --output-dir ./outputs/alphafold3/my_run
-
-# 3. Or submit a PVC directory that already contains AF3 JSON files
-bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh \
-  --input-dir /data/input/my_batch \
-  --output-dir ./outputs/alphafold3/my_run
-
-# 4. Or submit one JSON file that is already present on the PVC
-bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh \
-  --remote-json /data/input/my_batch/my_input.json \
-  --output-dir ./outputs/alphafold3/my_run
-```
-
-The script handles upload → submit → poll → download automatically for local JSON/sequence inputs. With `--input-dir`, it skips upload and submits the existing PVC directory directly through the HTTP control plane. With `--remote-json`, it submits one existing PVC JSON file through the HTTP control plane and avoids whole-directory failure when another JSON in the directory is invalid.
-
-## Input Format
-
-Minimal working AlphaFold3 JSON:
-
-```json
-{
-  "name": "My_Protein",
-  "dialect": "alphafold3",
-  "version": 1,
-  "modelSeeds": [1],
-  "sequences": [
-    {
-      "protein": {
-        "id": "A",
-        "sequence": "MQIFVKTLTG...",
-        "unpairedMsa": "",
-        "pairedMsa": "",
-        "templates": []
-      }
-    }
-  ]
-}
-```
-
-**Critical**: Every `protein` block **must** include `unpairedMsa`, `pairedMsa` (can be empty strings), and `templates` (can be empty array). Omitting them causes `ValueError: missing unpaired MSA`.
-
-For multi-chain complexes, add multiple entries in `sequences` with distinct `id` values (e.g. `"A"`, `"B"`).
+- Access to the C550 AI4S Kubernetes cluster (`~/code/ai_lab/kubeconfig_dir/config-vc-c550-ai4s-sys`)
+- AlphaFold3 credentials exported as `ALPHAFOLD3_PASSWORD`
+- Input JSON files prepared per AlphaFold3 input format
 
 ## Endpoints
 
 | Endpoint | URL |
 |---|---|
-| Auth | `http://10.12.111.135:10008/api/v1/auth/login` |
+| Auth (login) | `http://10.12.111.135:10008/api/v1/auth/login` |
 | Tasks | `http://10.12.111.135:10010/v1/scimodel/tasks` |
-| User | `ai4s-discovery` |
-| Header | `x-original-model: alphafold3` (ALL requests) |
+| Username | `ai4s-discovery` |
+| Required Header | `x-original-model: alphafold3` (all requests) |
+| Timeout | 7200s |
 
-## Script Options
+## Workflow
 
-```
---sequence SEQ    Auto-generate AF3 JSON from a single protein sequence
---name NAME       Job name (required with --sequence, default: "Fold")
---json-input F    Upload and submit a pre-prepared JSON file
---input-dir DIR   Shared PVC path already containing JSON files
---remote-json F   Single shared PVC JSON file already present on the cluster
---json-path F     Alias for --remote-json
---output-dir DIR  Local directory for downloaded .cif results
---max-wait N      Max poll iterations, each 60s (default: 90 = 1.5h)
---model-dir DIR   Model weights dir on pod (default: /opt/weights)
---kubeconfig F    Optional kubeconfig path for kubectl upload/download
---preflight        Print redacted AF3 HTTP/kubectl readiness TSV and exit
---help            Show help
-```
+### 1. Upload Input Data
 
-**C550 API nuance**: the server-side `input_json` field is path-like on this deployment; do not use it to send raw JSON content. Inline raw JSON is interpreted as a filename and can fail with `Errno 36 File name too long`. Use `--remote-json /data/input/.../file.json` for a single pre-staged PVC JSON file, `--input-dir` for a validated pre-staged PVC directory, or `--json-input`/`--json` to upload a local file through kubectl.
-
-When capturing logs with `tee`, use `set -o pipefail` in the caller shell. Otherwise a failed upload/download can be hidden by the successful `tee` process:
+Copy AlphaFold3 input JSON files to the shared PVC:
 
 ```bash
-set -o pipefail
+K8S="kubectl --kubeconfig=~/code/ai_lab/kubeconfig_dir/config-vc-c550-ai4s-sys -n studio-ams"
+$K8S cp ./my_input.json deploy/alphafold3-1:/data/input/my_input.json
+```
+
+The `input_dir` supports multiple JSON files for batch processing.
+
+### 2. Submit & Monitor (Quick Start)
+
+Use the bundled script for the full submit→poll→collect flow:
+
+```bash
+# Credentials are auto-loaded from .codex/skills/alphafold3/.env
+
 bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh \
-  --json-input ./my_input.json \
-  --output-dir ./outputs/alphafold3/my_run 2>&1 | tee ./outputs/alphafold3/my_run.log
+  --input-dir /data/input/my_batch \
+  [--output-dir ./outputs/alphafold3/my_batch]
 ```
 
-## Manual API (Advanced)
+The script will:
+- Authenticate and refresh tokens automatically
+- Submit the fold task
+- Poll every 60s until completed or failed
+- Report status and task ID
+- Optionally copy results back (if `--output-dir` is provided)
 
-### Authenticate
+### 3. Manual API Calls
+
+#### Get Token
 
 ```bash
-TOKEN=$(curl -s -X POST http://10.12.111.135:10008/api/v1/auth/login \
+curl -s -X POST http://10.12.111.135:10008/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"ai4s-discovery","password":"'"$ALPHAFOLD3_PASSWORD"'"}' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+  -d '{"username":"ai4s-discovery","password":"'"$ALPHAFOLD3_PASSWORD"'"}'
 ```
 
-### Submit
+Returns `{"token": "eyJ..."}`, valid ~1 hour.
+
+#### Submit Task
 
 ```bash
-TASK_ID=$(curl -s -X POST http://10.12.111.135:10010/v1/scimodel/tasks \
-  -H "Authorization: Bearer $TOKEN" \
+curl -s -X POST http://10.12.111.135:10010/v1/scimodel/tasks \
+  -H "Authorization: Bearer <token>" \
   -H "x-original-model: alphafold3" \
   -H "Content-Type: application/json" \
-  -d '{"task_type":"fold","inputs":{"input_dir":"/data/input/my_batch","model_dir":"/opt/weights"}}' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['task_id'])")
+  -d '{
+    "task_type": "fold",
+    "inputs": {
+      "input_dir": "/data/my_input_dir",
+      "model_dir": "/opt/weights"
+    }
+  }'
 ```
 
-For a single pre-staged JSON file:
+Returns `{"task_id": "xxxxxxxx-xxxx"}`.
+
+#### Poll Status
 
 ```bash
-TASK_ID=$(curl -s -X POST http://10.12.111.135:10010/v1/scimodel/tasks \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "x-original-model: alphafold3" \
-  -H "Content-Type: application/json" \
-  -d '{"task_type":"fold","inputs":{"input_json":"/data/input/my_batch/my_input.json","model_dir":"/opt/weights"}}' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['task_id'])")
-```
-
-### Poll
-
-```bash
-curl -s "http://10.12.111.135:10010/v1/scimodel/tasks/$TASK_ID" \
-  -H "Authorization: Bearer $TOKEN" \
+curl -s "http://10.12.111.135:10010/v1/scimodel/tasks/<task_id>" \
+  -H "Authorization: Bearer <token>" \
   -H "x-original-model: alphafold3"
 ```
 
-### Download
+Status progression: `queued` → `running` → `completed` / `failed`.
+
+#### Collect Results
 
 ```bash
-POD=$(kubectl -n studio-ams get pods -l app=alphafold3 -o jsonpath='{.items[0].metadata.name}')
-kubectl -n studio-ams cp $POD:/data/scimodel/muxi_alphafold3_server/alphafold3/output/$TASK_ID.cif ./$TASK_ID.cif
+K8S="kubectl --kubeconfig=~/code/ai_lab/kubeconfig_dir/config-vc-c550-ai4s-sys -n studio-ams"
+$K8S exec deploy/alphafold3-1 -- cp -r \
+  /tmp/model_server/alphafold3_<task_id>/outputs/* \
+  /data/results/my_batch/
 ```
 
-## Output
+Each input JSON produces a subdirectory with `model.cif`, `confidences.json`, `ranking_scores.csv`, etc.
 
-Each task produces a single `.cif` file (mmCIF / ModelCIF format) with full 3D coordinates, chain info, and confidence scores. When downloading through kubectl, prefer the `outputs.output_path` returned by `GET /v1/scimodel/tasks/{task_id}`; observed C550 paths can be either `/output/{task_id}.cif` or `/data/scimodel/muxi_alphafold3_server/alphafold3/output/{task_id}.cif`.
+## Important Notes
 
-```bash
-head -30 ./outputs/my_run/*.cif    # Quick preview
-```
-
-Compatible with PyMOL, ChimeraX, or Biopython `MMCIFParser`.
-
-## Troubleshooting
-
-### "missing unpaired MSA" error
-
-Your JSON `protein` block is missing required fields. Always include:
-
-```json
-"unpairedMsa": "",
-"pairedMsa": "",
-"templates": []
-```
-
-### kubectl cp fails
-
-Use the actual pod name (not `deploy/...`):
-
-```bash
-POD=$(kubectl -n studio-ams get pods -l app=alphafold3 -o jsonpath='{.items[0].metadata.name}')
-kubectl -n studio-ams cp $POD:/path/to/file ./local/
-```
-
-### 404 on API
-
-Both GET and POST requests must include `x-original-model: alphafold3`.
-
-### Token expired
-
-Tokens last ~1h. The script auto-refreshes every 10 polls. For manual calls:
-
-```bash
-TOKEN=$(curl -s -X POST http://10.12.111.135:10008/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"ai4s-discovery","password":"'"$ALPHAFOLD3_PASSWORD"'"}' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
-```
-
-## Important
-
-- **All** API requests need `x-original-model: alphafold3` header.
-- Outputs at `/data/scimodel/muxi_alphafold3_server/alphafold3/output/` on the pod.
-- Completed task metadata can contain an output path even when the CIF is not downloadable through HTTP; coordinate-level analysis still requires retrieving the `.cif`.
-- Token expires ~1h; auto-refreshed when using the script.
-- Space task submissions by ≥5s to avoid auth race conditions.
-- `kubectl cp` needs the actual pod name; use the label selector pattern.
+- Both GET and POST must include `x-original-model: alphafold3` header; missing it returns 404.
+- `/tmp/` on the pod is ephemeral — move results to `/data/` immediately after completion.
+- Token expires in ~1 hour; long-running polls must refresh the token.
+- Auth endpoint does not support concurrency; space task submissions by ≥5 seconds.
+- Results include: `model.cif` (structure), `confidences.json` (pLDDT/PAE), `ranking_scores.csv` (model ranking).
 
 ## Resources
 
-- `scripts/alphafold3_submit.sh`: End-to-end submit, poll, and download script with auto-input generation.
+- `scripts/alphafold3_submit.sh`: End-to-end submit, poll, and optional result collection script.

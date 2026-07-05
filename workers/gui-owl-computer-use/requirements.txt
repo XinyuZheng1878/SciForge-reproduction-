@@ -1,0 +1,10 @@
+# Computer-use worker runtime deps.
+# Model HTTP client talks only to SciForge Model Router; see CUA_MODEL_ROUTER_BASE_URL.
+requests>=2.31.0
+# Local desktop executor — cross-platform.
+pyautogui>=0.9.54
+mss>=9.0.0
+pyperclip>=1.8.2
+Pillow>=10.0.0
+# MCP stdio transport (only needed for `--stdio`; HTTP sidecar works without it).
+mcp>=1.8.0

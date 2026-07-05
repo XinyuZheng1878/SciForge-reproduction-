@@ -2,8 +2,8 @@
 export default {
   darkMode: ['selector', '[data-theme="dark"]'],
   content: [
-    './src/renderer/index.html',
-    './src/renderer/src/**/*.{ts,tsx}',
+    './frontend/index.html',
+    './frontend/**/*.{ts,tsx}',
     './node_modules/streamdown/dist/**/*.js'
   ],
   theme: {

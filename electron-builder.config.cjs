@@ -1,6 +1,6 @@
 const { existsSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
-const releaseWorkerManifest = require('./scripts/release-worker-manifest.cjs')
+const releaseWorkerManifest = require('./backend/scripts/release-worker-manifest.cjs')
 
 function loadLocalReleaseEnv() {
   const candidates = [
@@ -79,9 +79,9 @@ module.exports = {
   productName: 'SciForge',
   asar: true,
   asarUnpack: [
-    '**/kun/dist/**/*',
-    '**/kun/package*.json',
-    '**/kun/node_modules/**/*',
+    '**/runtime/dist/**/*',
+    '**/runtime/package*.json',
+    '**/runtime/node_modules/**/*',
     ...releaseWorkerManifest.createAsarUnpackGlobs(),
     '**/node_modules/better-sqlite3/**/*',
     '**/node_modules/node-pty/**/*',
@@ -95,10 +95,10 @@ module.exports = {
   files: [
     'out/**/*',
     'package.json',
-    'kun/dist/**/*',
-    'kun/package.json',
-    'kun/package-lock.json',
-    'kun/node_modules/**/*',
+    'runtime/dist/**/*',
+    'runtime/package.json',
+    'runtime/package-lock.json',
+    'runtime/node_modules/**/*',
     '!**/*.map',
     '!**/*.d.ts',
     '!**/*.ts',
@@ -110,8 +110,8 @@ module.exports = {
   ],
   extraResources: [
     { from: 'LICENSE', to: 'compliance/LICENSE' },
-    { from: 'THIRD_PARTY_NOTICES.md', to: 'compliance/THIRD_PARTY_NOTICES.md' },
-    { from: 'src/asset/img/README.md', to: 'compliance/ASSET_PROVENANCE.md' }
+    { from: 'docs/THIRD_PARTY_NOTICES.md', to: 'compliance/THIRD_PARTY_NOTICES.md' },
+    { from: 'frontend/assets/img/README.md', to: 'compliance/ASSET_PROVENANCE.md' }
   ],
   artifactName: `SciForge-${artifactVersion}-\${os}-\${arch}.\${ext}`,
   publish: [
@@ -120,8 +120,8 @@ module.exports = {
       url: genericUpdateUrl
     }
   ],
-  afterPack: './scripts/after-pack.cjs',
-  afterSign: './scripts/mac-notarize.cjs',
+  afterPack: './backend/scripts/after-pack.cjs',
+  afterSign: './backend/scripts/mac-notarize.cjs',
   mac: {
     category: 'public.app-category.developer-tools',
     identity: hasExplicitMacSigningIdentity ? undefined : null,
@@ -133,7 +133,7 @@ module.exports = {
     gatekeeperAssess: false,
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.inherit.plist',
-    icon: './src/asset/img/sciforge.png',
+    icon: './frontend/assets/img/sciforge.png',
     // arm64 (Apple Silicon) + x64 (Intel). On M 系列 Mac 本地打包会各出一组 dmg/zip。
     target: [
       { target: 'dmg', arch: ['arm64', 'x64'] },
@@ -144,7 +144,7 @@ module.exports = {
     sign: hasExplicitMacSigningIdentity
   },
   win: {
-    icon: './src/asset/img/sciforge.png',
+    icon: './frontend/assets/img/sciforge.png',
     target: [{ target: 'nsis', arch: ['x64'] }]
   },
   nsis: {
@@ -162,7 +162,7 @@ module.exports = {
   },
   linux: {
     category: 'Development',
-    icon: './src/asset/img/sciforge.png',
+    icon: './frontend/assets/img/sciforge.png',
     target: [{ target: 'AppImage', arch: ['x64'] }]
   },
   extraMetadata: {

@@ -6,14 +6,18 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["backend/shared/*"],
+      "@renderer/*": ["frontend/*"]
+    },
     "types": ["node", "electron-vite/node", "vite/client"]
   },
   "include": [
     "electron.vite.config.ts",
-    "src/main/**/*",
-    "src/preload/**/*",
-    "src/shared/**/*",
-    "packages/workers/evidence-dag/desktop/**/*",
-    "packages/workers/project-dag/desktop/**/*"
+    "backend/main/**/*",
+    "backend/preload/**/*",
+    "backend/shared/**/*",
+    "workers/evidence-dag/desktop/**/*"
   ]
 }
