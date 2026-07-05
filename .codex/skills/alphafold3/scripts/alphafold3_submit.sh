@@ -106,8 +106,20 @@ kubectl_cmd() {
 }
 
 get_pod_name() {
-    kubectl_cmd -n "$K8S_NS" get pods -l app=alphafold3 \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null
+    local output
+    if ! output=$(kubectl_cmd -n "$K8S_NS" get pods -l app=alphafold3 \
+        -o jsonpath='{.items[0].metadata.name}' 2>&1); then
+        echo "Error: failed to query alphafold3 pod in namespace $K8S_NS." >&2
+        echo "$output" >&2
+        return 1
+    fi
+    printf '%s' "$output"
+}
+
+make_tmp_json() {
+    local tmp_root="${TMPDIR:-/tmp}"
+    tmp_root="${tmp_root%/}"
+    mktemp "$tmp_root/alphafold3_input_XXXXXX"
 }
 
 # ---- use a single pre-staged PVC JSON file (Mode D) ----
@@ -138,7 +150,7 @@ elif [[ -n "$SEQUENCE" ]]; then
     SAFE_NAME=$(echo "$TASK_NAME" | tr ' ' '_' | tr -cd '[:alnum:]_-')
     INPUT_DIR="/data/input/${SAFE_NAME}_$(date +%s)"
     
-    JSON_FILE=$(mktemp /tmp/alphafold3_input_XXXXXX.json)
+    JSON_FILE=$(make_tmp_json)
     python3 -c "
 import json, sys
 seq = '''$SEQUENCE'''.strip()
@@ -168,8 +180,8 @@ print(f'Generated AF3 JSON ({len(seq)} aa) → $JSON_FILE')
         echo "Error: No alphafold3 pod found."
         exit 1
     fi
-    kubectl_cmd -n "$K8S_NS" exec "$POD" -- mkdir -p "$INPUT_DIR" 2>/dev/null
-    kubectl_cmd -n "$K8S_NS" cp "$JSON_FILE" "${POD}:${INPUT_DIR}/$(basename "$JSON_FILE").json" 2>/dev/null
+    kubectl_cmd -n "$K8S_NS" exec "$POD" -- mkdir -p "$INPUT_DIR"
+    kubectl_cmd -n "$K8S_NS" cp "$JSON_FILE" "${POD}:${INPUT_DIR}/$(basename "$JSON_FILE").json"
     echo "Upload done."
     rm -f "$JSON_FILE"
 
@@ -197,8 +209,8 @@ elif [[ -n "$JSON_FILE" ]]; then
         echo "Error: No alphafold3 pod found."
         exit 1
     fi
-    kubectl_cmd -n "$K8S_NS" exec "$POD" -- mkdir -p "$INPUT_DIR" 2>/dev/null
-    kubectl_cmd -n "$K8S_NS" cp "$JSON_FILE" "${POD}:${INPUT_DIR}/$(basename "$JSON_FILE")" 2>/dev/null
+    kubectl_cmd -n "$K8S_NS" exec "$POD" -- mkdir -p "$INPUT_DIR"
+    kubectl_cmd -n "$K8S_NS" cp "$JSON_FILE" "${POD}:${INPUT_DIR}/$(basename "$JSON_FILE")"
     echo "Upload done."
 else
     echo "Error: Provide --json <file>, --sequence <seq>, --input-dir <pvc-dir>, or --remote-json <pvc-json>."
