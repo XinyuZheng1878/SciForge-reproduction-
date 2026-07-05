@@ -104,7 +104,7 @@ function buildProjectLocalRuntime(projectRoot = PROJECT_ROOT) {
 }
 
 function prunePackedLocalRuntimeDependencies(appRoot, platform = process.platform) {
-  const runtimeDir = join(appRoot, 'backend', 'runtime')
+  const runtimeDir = join(appRoot, 'runtime')
   if (!existsSync(runtimeDir)) return
 
   assertExists(join(runtimeDir, 'package.json'), 'local runtime package manifest')
