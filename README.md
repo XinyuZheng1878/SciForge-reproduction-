@@ -1,502 +1,293 @@
-<p align="center">
-  <img src="src/asset/img/logo.png" width="96" alt="SciForge 图标">
-</p>
+# SciForge 复现与自主科研编排扩展 —— 技术报告
 
-# SciForge
+> **作者：** 郑欣宇
+> **日期：** 2026-07
+> **配图：** 见 `docs/architecture/ARCHITECTURE-DIAGRAMS.md`（图 1–5）
 
-[English](./README.en.md) | 简体中文
+---
 
-> SciForge 是面向科学研究与复杂工程的本地 AI 工作台。它把代码、论文、科学数据、图表、写作、自动化流程、证据链和多 runtime Agent 放在同一个桌面环境中，并通过统一的 Model Router 管理文本、视觉和科学多模态能力。
+## 摘要 (Abstract)
 
-[官网](https://sciforge.ai) | [下载](https://sciforge.ai)
+本报告记录了对 **SciForge**——一个基于 Electron 的本地 AI 科研工作台——的完整复现，以及在其之上构建的一套**自主科研编排系统（Autonomous Research System）**。
 
-[![GitHub release](https://img.shields.io/github/v/release/XingYu-Zhong/SciForge?label=github)](https://github.com/XingYu-Zhong/SciForge/releases)
-[![License](https://img.shields.io/github/license/XingYu-Zhong/SciForge)](./LICENSE)
+SciForge 原本是一个"人在回路"的辅助科研平台：它将代码、论文、科学数据、绘图、写作与多运行时 Agent 集成到一个桌面环境中，由用户驱动每一步操作。本工作在复现其三层架构（React 前端 / Electron 主进程 / 可插拔 Agent 运行时）的基础上，提出并实现了一个问题：**能否让平台自主完成从观察到论文的科研闭环，而非仅作被动工具？**
 
-<p align="center">
-  <a href="src/asset/img/code.gif">
-    <img src="src/asset/img/code.gif" width="720" alt="SciForge Code 工作台演示">
-  </a>
-</p>
+为此，我在 SciForge 的本地运行时中实现了一个四阶段闭环模块（研究记忆 → 假设生成 → 实验编排 → 论文生成），并引入**基于 pseudocount 平滑的贝叶斯置信度更新**机制对假设进行自动验证/证伪。系统在无需人工干预的情况下，可从一个初始观察出发，自动生成可证伪假设、设计并执行实验、根据实验指标更新假设置信度、并最终综合为一篇结构化论文。端到端 demo 验证了完整闭环：从一个关于"模型规模 vs 推理能力"的观察出发，系统自动产出了一篇 IMRAD 结构的研究报告，其中一个假设经 4 次实验试验后置信度收敛至 0.85 并被判定为 validated。
 
-## 为什么是 SciForge
+---
 
-科研任务很少只是一次问答。真实研究通常要同时处理论文、代码、实验脚本、蛋白序列、分子结构、单细胞表达、PDF 图表、运行日志、失败记录、研究笔记、协作汇报和后续计划。通用聊天窗口可以回答问题，但很难把这些对象组织成一个长期可追踪、可复盘、可交接的工作环境。
+## 1. 引言与背景
 
-SciForge 的定位是 **research-native AI workbench**：
+### 1.1 SciForge 是什么
 
-- 研究对象不只当作附件，而是进入科学多模态、证据、写作、图表和汇报链路。
-- 模型调用不散落在应用各处，而是统一经过 Model Router 与用户配置的 provider。
-- Agent 不只聊天，还能读写工作区、运行命令、调用 MCP worker、生成计划、审查改动和延续长期任务。
-- 研究过程不只看最终回答，还保留 trace、artifact、decision、review packet 和 Evidence DAG。
-- 桌面、Workflow、Write、Connect phone、Schedule 与多 runtime 共享同一套运行时治理边界。
+SciForge 定位为 **research-native AI workbench**——一个面向科研与复杂工程的本地 AI 工作台。它不是一个简单的聊天壳，而是把以下能力集成到单一桌面应用中：
 
-一句话：SciForge 想成为研究人员桌面上的“可审计科研 Agent 操作系统”，而不是又一个聊天壳。
+- **多运行时 Agent**：可在 SciForge Runtime（默认）、Codex、Claude Code 之间切换；
+- **科研专用工具**：文献检索（Paper Radar）、科学绘图、证据链（Evidence DAG）、PDF 标注、学术写作；
+- **统一模型网关**：所有 LLM 调用经由 Model Router，避免密钥散落、便于审计；
+- **MCP 工具生态**：13 个 MCP Server 以标准协议接入，各自独立可测、可替换。
 
-## 面向科研场景的特色
+### 1.2 为什么值得复现
 
-| 特色 | 说明 |
-| --- | --- |
-| 科学多模态 Router | 将蛋白序列、蛋白结构、小分子、单细胞表达等非文本科学输入路由到领域 translator，先生成文本证据，再交给主 Agent 推理。 |
-| Evidence DAG | 将 Agent trace 转成 claim-evidence DAG，用 NLI judge 验证支持边，并提供 PROV-JSON、指标、脆弱性分析和 Workbench 内嵌视图。 |
-| Paper Radar | 面向课题组的文献雷达：维护研究 profile，同步 arXiv / bioRxiv 元数据，按关键词、排除词、分类、来源和新近度生成每日 digest。 |
-| Scientific Plotting | 从论文图、截图或 PDF 裁剪区域提取 `FigureStyleSpec`，用受控 Matplotlib 模板出图、评分和保守修复，服务论文图复现和风格统一。 |
-| PPT Master | 把 SciForge 里的 figure、证据和研究叙事送入科研汇报输出阶段，生成可检查布局、可导出的 PPTX 项目。 |
-| Canvas | 不是单独的“画图功能”，而是视觉 artifact 的审阅层：把 scientific plot、生成图、PPT slide/export 摆在同一张画布上批注，导出 review packet，再让 Agent 按批注意图修改。 |
-| Write | 不是普通 Markdown 编辑器，而是论文阅读与研究写作台：PDF 文本/视觉锚点批注、批注包导入导出、选区问答、写作空间检索增强、inline completion 和多格式导出。 |
+从系统设计角度，SciForge 有三个值得学习的技术决策：
 
-## 科学多模态能力
+1. **中性 AgentRuntime 契约**——三个底层运行时（协议各异：HTTP/SSE、JSON-RPC stdio、原生 service）实现同一个抽象接口，前端完全运行时无关。这是教科书级的适配器模式应用（见图 2）。
+2. **Model Router 作为唯一 LLM 网关**——所有模型调用汇聚一处，是密钥管理、成本控制、多模态路由的单一切入点。
+3. **MCP 作为 Worker 边界**——每个科研能力都是独立的 MCP Server，通过 stdio/HTTP 通信，实现了强模块化。
 
-SciForge 的科学多模态设计不是“把所有东西都塞给一个通用大模型”。核心原则是：**先由专用领域模型把科学对象翻译成可审计文本证据，再由主 Agent 做任务推理**。
+复现这样一个系统，本身就是对"如何组织一个复杂多进程桌面应用"的深度学习。
 
-当前科学多模态 worker 覆盖四类原生输入：
+### 1.3 问题意识：从"辅助"到"自主"
 
-| 科学输入 | 路由专家 | 典型任务 |
-| --- | --- | --- |
-| 蛋白序列 FASTA / raw sequence | `esm2text-protein` | 将序列转成可能的功能描述和不确定性证据 |
-| 蛋白 3D 结构 PDB / mmCIF | `prot2text-structure` | 从结构输入生成函数描述证据 |
-| 小分子 SMILES / SDF / MOL | `biot5-molecule` | 将分子表示翻译成结构/性质相关 caption |
-| 单细胞表达 / marker list | `c2s-singlecell` | 将 cell sentence 或表达信号转成细胞类型文本线索 |
+复现过程中我注意到：SciForge 虽然强大，但**每一步科研动作仍需用户驱动**——用户决定检索什么、跑什么实验、写什么结论。这引出本工作的核心问题：
 
-Model Router 会识别结构化 workspace ref 和科学文件扩展名，例如 `.fasta`、`.smi`、`.mol`、`.sdf`、`.pdb`、`.cif`、`.vcf`、`.bed`、`.seq`。当 `SCIFORGE_SCIMODALITY_SERVICE_URL` 与 token 配置好时，它会调用科学多模态 worker；未配置时，安全可读文本才会被按文本内联，二进制或不可理解输入会明确降级。
+> **能否在 SciForge 的运行时之上，构建一个自主科研闭环，让系统自己完成"观察 → 假设 → 实验 → 结论 → 论文"的科学方法全流程？**
 
-这条链路有几条硬边界：
+这不是要取代研究者，而是探索"AI 作为科研主体"的可行架构——这也是当前 AI for Science 领域（如 AI Scientist、自主实验室）的前沿方向。本工作是该方向的一个具体、可运行的架构实验。
 
-- 专家模型需要用户或机构自行配置，桌面包不默认分发权重。
-- 不用通用 LLM 假装读懂科学模态；没有合适 native-to-text 专家时宁可拒绝或降级。
-- 每次翻译结果带 provenance、expert id、modality 和 raw output，最终回答中可透明展示。
-- GPU 专家调用、重试、超时和 provider 凭据都留在 worker / Model Router 边界。
+---
 
-## 科研工作流
+## 2. 系统复现
 
-### 1. 发现与吸收论文
+### 2.1 整体架构
 
-- `research_search` MCP worker 支持 arXiv、bioRxiv、Europe PMC、Semantic Scholar 和可选 CNS web search。
-- Paper Radar 可以维护教授或课题组 topic profile，按关键词、排除词、分类、来源和新近度排名论文。
-- 本地 SQLite 只保存元数据，不默认镜像 arXiv 或批量下载 PDF。
-- Write 的 PDF 阅读、搜索、批注、导出包和选区问答适合把论文阅读变成可复用研究资料。
-
-### 2. 理解科学对象
-
-- 上传或引用科学文件后，Model Router 可把蛋白、结构、分子、单细胞等对象交给科学多模态 translator。
-- 图片、截图、图表等视觉材料归 Model Router 的视觉输入链路处理；科学对象归科学多模态 Router 处理。
-- Translation raw output 会保留给用户审阅，避免最终回答掩盖专家模型到底说了什么。
-
-### 3. 复现、运行和验证
-
-- Code 工作台围绕真实 workspace 工作：读文件、运行命令、修改代码、审查 diff、维护计划。
-- Runtime Guard、审批、sandbox、tool storm 防护、上下文压缩和 usage telemetry 让长任务更可控。
-- Runtime Inspector、workspace-intel、search、schedule 等 worker 提供项目理解、巡检、调度和自动化能力。
-
-### 4. 形成证据链
-
-- Evidence DAG 从 completed turn feed 中抽取 claim、source、observation、conclusion 与 supports / contradicts 边。
-- 支持 NLI verify、metrics、load-bearing node、fragility、hidden shared-source 和 read-only reconcile what-if。
-- Workbench 右侧面板可以直接查看当前 thread 对应的证据图。
-
-### 5. 产出图表、写作和汇报
-
-- Scientific Plotting 从参考图或论文 PDF 裁剪区域提取 `FigureStyleSpec`，再生成受控图表。
-- Canvas 把图、PPT slide 和生成图片放进可批注的本地画布，并把人工批注整理成 Agent 可消费的 review packet。
-- PPT Master worker 作为科研展示输出阶段，接收 SciForge figure assets，生成受控汇报项目并做布局 QA。
-- Write 管理论文阅读批注、实验记录、综述草稿、报告写作和多格式导出。
-
-## 工作台组成
-
-### Code
-
-Code 是主工作台。你可以选择本地工作目录，让 Agent 围绕真实项目读取文件、运行命令、修改代码、总结结构、排查错误、生成计划和审查改动。
-
-适合：
-
-- 复现论文代码、整理实验脚本、分析失败日志。
-- 在同一线程中保留需求、计划、命令输出、文件改动和后续 Todo。
-- 用 `/plan`、`/review`、side conversation、child agents 和会话压缩管理长周期任务。
-- 在 diff 面板中检查 Agent 改动后再决定继续、修正或提交。
-
-### Workflow
-
-Workflow 把重复科研操作做成可复跑流程。它支持可视化节点、触发器、LLM、HTTP、代码执行、条件分支、循环、合并、人工审批和输出节点。
-
-关键点：
-
-- LLM 节点只使用 Model Router。
-- 手动触发、计划触发、webhook 触发共享 workflow 数据结构。
-- workflow 可以作为 MCP worker 暴露给 Agent 调用。
-- 节点运行有日志、历史结果和错误状态，便于复盘。
-
-### Write
-
-Write 是研究写作空间，面向论文笔记、综述草稿、实验记录、技术文档和研究报告。
-
-它的特色不在“能写 Markdown”，而在把论文阅读、批注和写作连续起来：
-
-- Markdown 文件树、新建、重命名、删除和保存状态，适合把一个课题的笔记、草稿和材料放在同一写作空间里。
-- Source / Rich / Live / Split / Preview 多种编辑模式。
-- PDF 阅读、文本搜索、视觉选区锚点、批注线程、导入导出批注包，适合文献精读和协作审阅。
-- 当前文档导出为 `HTML / PDF / DOC / DOCX`。
-- 选区 inline agent、短补全、长补全、术语传播和写作空间检索增强，帮助草稿延续术语、事实和上下文。
-
-### Connect phone 与 Schedule
-
-Connect phone 让 Agent 不只等待桌面输入。你可以把飞书 / Lark / 微信等渠道接到后台线程，让研究助理在 IM 中接收任务、总结会话、切换项目或继续执行计划任务。
-
-Schedule worker 支持一次性、每日、间隔或手动运行的任务。定时任务仍复用 AgentRuntime 和 Model Router 边界，而不是另开一套 provider 链路。
-
-### Scientific Plotting、Canvas 与 PPT Master
-
-这三个模块构成科研成果的视觉产出链：
-
-1. Scientific Plotting 读取结构化数据和 `FigureStyleSpec`，生成受控 PNG artifact 与 manifest。
-2. Canvas 导入 scientific plot、生成图、PPT slide/export，支持批注和 review packet。
-3. PPT Master 接收 SciForge figure assets，生成科研汇报项目、做布局检查并导出 PPTX。
-
-这条链路的目标不是让 Agent 任意执行绘图脚本，而是让出图、审阅和汇报都留在可控、可复查的 artifact 轨迹里。
-
-## 解耦合设计
-
-Model Router、AgentRuntimeHost、worker/MCP、本地数据和发布审计边界本身不是科研特色；它们更像 SciForge 能持续扩展科研能力的解耦合设计。核心思路是：GUI 负责交互，runtime 负责任务执行，Model Router 负责模型出口，多模态和科研能力由独立 worker 承载。
+SciForge 采用清晰的三层结构（见**图 1**）：
 
 ```text
-Renderer (React + Workbench / Write / Workflow / Connect phone)
-  -> preload: window.sciforge.*
-  -> main: AgentRuntimeHost + Runtime Governance
-  -> runtime adapter: SciForge Runtime | Codex | Claude Code
-  -> native runtime service / app-server
-  -> Model Router (/v1/responses compatible)
-  -> user-configured providers and translator workers
+前端 Frontend (React 19 + Zustand)
+   │  IPC (window.sciforge.*)
+后端 Backend (Electron 主进程)
+   ├─ AgentRuntimeHost（运行时编排与治理）
+   ├─ Model Router（唯一 LLM 网关）
+   └─ MCP Registry（13 个 MCP Server）
+运行时 Runtime（可插拔）
+   ├─ SciForge Runtime（HTTP/SSE，默认）
+   ├─ Codex（JSON-RPC stdio）
+   └─ Claude Code
+Workers（16 个独立包：检索/绘图/证据链/多智能体…）
 ```
 
-Model Router 是模型出口和多模态入口：
+复现过程中，我对整个代码库做了系统性的**结构重组**，以厘清依赖关系：将原本混杂在 `src/` 下的代码明确划分为 `frontend/`（渲染进程）与 `backend/`（主进程 + 共享类型 + 运行时 + Workers + 脚本），使前后端边界清晰、每个模块的职责单一。这一重构本身也验证了我对系统依赖关系的理解——重组后 typecheck、build、test 全部通过，证明依赖方向被正确保持。
+
+### 2.2 核心设计一：中性 AgentRuntime 契约
+
+SciForge 最精巧的设计是让前端**完全不关心底层跑的是哪个运行时**（见**图 2**）。三个运行时的通信协议截然不同：
+
+| 运行时 | 通信协议 |
+|---|---|
+| SciForge Runtime（默认） | HTTP + SSE |
+| Codex | JSON-RPC over stdio |
+| Claude Code | 原生 service |
+
+它们各自实现一个 `AgentRuntime` contract 定义的中性接口（thread / turn / event / capability），前端只通过统一的 `agentRuntime:*` IPC 通道交互。这样，切换运行时对前端是透明的，同时又通过 capability 描述符保留了各运行时的差异（如 Codex 支持的 reasoning 可见性、approval 机制等不会被伪装掉）。
+
+### 2.3 核心设计二：Runtime HTTP/SSE 通信机制
+
+默认的 SciForge Runtime 是一个**独立的本地 Node.js 进程**，作为 HTTP/SSE server 对外提供服务（见**图 3**）。它与主进程的交互分两个方向：
+
+- **HTTP（请求/响应）**：主进程发起动作——开始 turn、读取 thread、解决审批、查询用量等；
+- **SSE（服务器推流）**：Agent 执行过程中，运行时把 token 流、工具调用、reasoning 等事件**主动推**回主进程，再经 IPC 转发给前端实时渲染。
+
+选用 SSE 而非普通 HTTP 是因为 Agent 执行是长时间的流式过程——模型逐 token 生成、工具逐个调用，SSE 让前端能实时呈现"正在思考、正在调用工具"的过程。
+
+### 2.4 复现中的工程要点
+
+复现并非一帆风顺，几个值得记录的点：
+
+- **本地运行时的双重命名**：SciForge Runtime 在代码内部代号为 `kun`（CLI 二进制、`KUN_READY` 握手信号、构建路径均用此名），对外则统一为 "SciForge Runtime"。这种内外双名带来了认知负担，我在重构中将目录统一为 `runtime/`。
+- **契约边界的严格性**：主进程不直接 import 运行时的源码，只通过 `local-runtime-package-contract.ts` 依赖其构建产物（`dist/`），这一约束由专门的边界测试（`kun-src-boundary.test.ts`）强制执行。
+- **原生模块管理**：`better-sqlite3`、`node-pty` 等原生模块需要针对 Electron ABI 重新编译，打包时的 asar unpack 配置是易错点。
+
+---
+
+## 3. 自主科研编排系统（核心贡献）
+
+### 3.1 设计目标
+
+> **贡献界定**：本章描述的自主科研闭环（`runtime/src/research/` 下的 Phase 1–4 全部模块）是本人在 SciForge 平台之上借助coding agent的**原创实现**，而非平台自带能力。它**复用**了 SciForge 已有的基础设施——运行时的进程执行能力、原子文件写入、MCP 工具封装机制——但四阶段的编排逻辑、假设的贝叶斯更新、实验的自动指标提取与论文综合均为新增代码（git 提交记录：Phase 2/3/4 的 feature commit）。
+
+在 SciForge 运行时（`runtime/src/research/`）中，我实现了一个自主科研闭环，遵循科学方法的四个阶段（见**图 4**）：
+
+| 阶段 | 模块 | 职责 |
+|---|---|---|
+| Phase 1 | `artifacts/` | **研究记忆**——记录观察、证据，带证据等级与解释 |
+| Phase 2 | `experiments/` | **实验编排**——设计实验 spec、执行代码、自动提取指标、错误检测与修复建议 |
+| Phase 3 | `hypotheses/` | **自主循环**——假设生成、可证伪判据、贝叶斯置信度更新 |
+| Phase 4 | `papers/` | **论文生成**——综合研究数据为 IMRAD/short-report 结构论文 |
+
+四个阶段构成闭环：观察沉淀为记忆 → 记忆激发假设 → 假设驱动实验 → 实验结果更新假设置信度 → 收敛的假设综合为论文。
+
+### 3.2 关键设计一：可证伪的假设表示
+
+每个假设（`Hypothesis`）不仅有陈述（statement），还强制携带一个**可证伪判据**（`falsificationCriteria`）——这直接对应 Popper 的科学哲学：一个陈述只有可被证伪才是科学的。例如：
 
 ```text
-workspace refs / user input
-  -> Model Router
-    -> scientific modality translator (protein / structure / molecule / single-cell)
-    -> vision translator
-    -> text reasoner
-  -> routed response + trace bundle
-  -> AgentRuntime event stream + Evidence DAG feed
+假设 HYP-001: "若模型规模与推理能力正相关，则 7B 模型在同一推理
+              基准上应比 1B 模型高 >10% 准确率。"
+证伪判据:      "7B 模型准确率 ≤ 1B 模型准确率。"
+预测:          ["7B 比 1B 高至少 10%", "13B 比 7B 高 <5%（边际递减）"]
 ```
 
-### SciForge Runtime
+假设还携带 `premises`（前提）和 `predictions`（可检验的预测），使其成为一个结构化、可自动校验的科研对象。
 
-SciForge Runtime 是默认本地 Agent 运行时。它以本地 HTTP/SSE 服务连接 GUI 和 agent loop，负责线程、事件、工具调用、审批、缓存、上下文整理和长期会话状态。
+### 3.3 关键设计二：贝叶斯置信度更新
 
-它的重点是 **高 Token ROI**：
+这是系统中最具方法论深度的部分（见**图 5**）。每次实验试验后，假设的置信度按以下公式更新：
 
-- 稳定 system prompt、工具 schema 和不可变前缀，让 provider 缓存更容易命中。
-- 对超长工具结果、长参数、base64 payload 和重复工具循环做请求边界压缩。
-- 用 MCP search / describe / call 渐进发现工具，避免每轮都塞入完整工具目录。
-- 记录 cache hit/miss、token 用量、事件状态和错误原因。
-- 让 Code、Write、Workflow、Connect phone 和 Schedule 共享运行时纪律。
+$$
+\text{posterior} = \frac{\text{supporting} + c \cdot \text{prior}}{\text{total} + 2c}, \quad c = 0.5
+$$
 
-### Model Router
+其中 `supporting` 是支持性试验数，`total` 是总试验数，`c=0.5` 是 pseudocount（伪计数）平滑项。这是一个带平滑的伯努利/Beta 估计——pseudocount 让假设能在**少量试验内快速收敛**，而不必等待大样本。
 
-Model Router 提供 Responses-compatible `/v1/responses` facade，负责：
+状态机基于 posterior 与试验数自动判定（`total ≥ 3` 才做终判）：
 
-- 管理 public model alias、provider profile、runtime API key 和能力声明。
-- 处理图片、截图、图表和关键帧等视觉输入，将其转成自然语言 observation。
-- 将科学对象交给科学多模态 worker，统一把 scientific evidence 注入主 Agent 上下文。
-- 运行有界 supplement loop，让文本 reasoner 在需要时请求更多视觉信息。
-- 写入 refs-first trace bundle，保存 role alias、hash、状态和脱敏摘要。
-- 防止应用层到处硬编码 provider API key、base URL 或模型 slug。
+- `posterior ≥ 0.8 且 trials ≥ 3` → **validated**（验证）
+- `posterior ≤ 0.1 且 trials ≥ 3` → **falsified**（证伪）
+- 否则比较 posterior 与 prior → **supported / contradicted**
+- `trials < 3` → 停留在 **active**，继续探索
 
-### Worker 与插件边界
+**一个诚实的设计局限**：当前 `falsificationCriteria` 字段是**声明性的**（记录科研意图），实际的 falsified 判定由数值阈值（posterior ≤ 0.1）触发，两者尚未打通。这是一个明确的改进方向（见 §5）。
 
-SciForge 将科研能力拆成可单独启动、测试和审计的 worker：
+### 3.4 关键设计三：实验的自动执行与指标提取
 
-| Worker / 插件 | 作用 |
-| --- | --- |
-| `model-router` | 文本模型出口、视觉输入处理、科学多模态 worker 调度和 trace audit |
-| `sci-modality-router` | 蛋白、结构、小分子、单细胞 native-to-text translator |
-| `evidence-dag` | claim-evidence DAG、NLI verify、PROV-JSON、what-if reconcile |
-| `paper-radar` | GUI / MCP 使用的论文 profile、同步、搜索、排名和 digest worker；共享 core 由 worker 包自身拥有 |
-| `search` | arXiv、bioRxiv、Europe PMC、Semantic Scholar 与可选 CNS web search 的科研检索 |
-| `scientific-plotting` | 参考图准备、风格识别、受控绘图、评分和修复建议 |
-| `image-generation` | 受控图片生成、Canvas review packet 到编辑意图、artifact manifest |
-| `canvas` | workspace-local 画布、artifact 插入、批注和 review packet |
-| `ppt-master` | 科研汇报输出阶段、figure intake、布局 QA 和 PPTX export |
-| `write-assist` | 写作检索、PDF 文本提取和 bounded writing context |
-| `workflow` | 可视化 workflow 执行与 Agent-facing MCP facade |
-| `schedule` | 定时任务、手动运行和后台 Agent 调度 |
-| `workspace-intel` / `runtime-inspector` | 工作区理解、运行时诊断和项目巡检 |
-| `computer-use` | GUI-Owl computer-use service；经 Model Router 选择视觉模型，GUI 只暴露状态与人工确认 |
-| `multi-agent` | child run contract、store、transcript 与 bounded delegation runtime |
+实验编排器（`experiments/runner.ts`）是"自动化"的工程核心。它：
 
-共同原则：同类能力只有一条统一链路；能走 Model Router 的不绕过 Model Router；能写入 workspace 的能力都要有清晰的 side effect 分类和边界。
+1. 将实验 spec 的代码写入临时脚本文件，按语言（Python/R/Julia/Shell）构造执行命令；
+2. 以子进程执行，带**超时控制**（SIGTERM → 5s 后 SIGKILL）与输出累积（防止内存溢出）；
+3. **自动提取指标**——支持四种提取器：`regex`（正则捕获）、`last_line`（末行数值）、`json`（JSON 字段）、`full_output`（整体解析）；
+4. **错误检测与修复建议**——内置 10 种错误模式（Python ImportError/NameError/SyntaxError、CommandNotFound、OutOfMemory、Timeout 等），匹配后给出可操作的修复建议（如 `pip install {缺失包}`），并支持 `executeWithRetry` 自动重试。
 
-`computer-use` 当前指 GUI-Owl service path：本地 runtime 通过 `SCIFORGE_CUA_SERVICE_URL` 调用 GUI-Owl sidecar，模型调用只经 Model Router，真实鼠标/键盘动作必须由 GUI-Owl 的执行开关和人工确认控制。旧 GUI-managed `@sciforge/computer-use` primitive MCP path 已退休。
+这套机制让实验从"人工跑、人工看结果"变为"系统自动跑、自动读数、自动诊断"。
 
-## 当前边界
+### 3.5 关键设计四：论文自动综合
 
-SciForge 当前仍处于快速演进阶段。为避免误解，下面这些边界是有意设计：
+论文生成器（`papers/store.ts`）将研究数据综合为结构化论文：
 
-- 桌面包不默认分发科学专家模型权重，也不内置第三方 provider 凭据。
-- 科学多模态专家需要用户或机构配置 remote provider / GPU provider 后才启用。
-- Paper Radar 默认同步元数据，不做批量 PDF 下载、全文解析或向量库。
-- Evidence DAG phase 1 以 one thread == one graph 为主，`contradicts` 会暴露但不完全裁决。
-- Scientific Plotting 使用受控模板和 Matplotlib renderer，不执行用户提供的任意 Python 绘图代码。
+- **模板化结构**：支持 IMRAD（Introduction/Method/Results/Discussion）与 short-report 两种大纲；
+- **数据驱动的章节生成**：Introduction 自动汇总"提出 N 个假设、验证 M 个、经 K 次试验"；Results 自动列出各假设的置信度与各实验的指标；Discussion 自动区分 validated / falsified 假设并附 posterior；
+- **自动引用生成**：每个假设、实验、观察都被转为可引用的 reference 条目；
+- **Markdown 导出**：最终导出为可读的 `.md` 论文文件。
 
-## 增强独特性的建议
+---
 
-下面这些不是简单加功能，而是让 SciForge 的科研辨识度更强的产品方向。
+## 4. 结果与验证
 
-### Scientific Object Registry
+### 4.1 端到端 Demo
 
-现在 SciForge 已经能处理论文 PDF、figure crop、FASTA、PDB、SMILES、SDF、single-cell matrix、plot manifest 和 PPT artifact，但这些对象还分散在不同 worker 的结果里。Scientific Object Registry 可以把它们统一登记成项目内的科学对象：
+我实现了一个不依赖 LLM API 的端到端 demo（`research/demo-autonomous-loop.ts`），用确定性代码模拟完整科研流程，以验证架构闭环。以下是真实运行输出（节选）：
 
-- 每个对象都有类型、来源、hash、路径、生成工具、关联 thread、关联证据和可视化预览。
-- Model Router 翻译科学文件时写入 object ref，而不是只把文本塞进上下文。
-- Evidence DAG 可以引用对象节点，Canvas 可以按对象导入，Write 可以插入对象引用，PPT Master 可以追溯 figure 来源。
+```text
+━━━ Phase 1: 研究记忆 ━━━
+✓ 创建观察: OBS-2026-07-04-xau0 — Initial observation: model performance varies with size
 
-它解决的问题是：研究项目里“这个图、这个序列、这个结论、这个 slide 到底从哪来”不再靠人脑记忆。
+━━━ Phase 3: 生成假设 ━━━
+✓ 假设 1: HYP-001 — Larger models outperform smaller ones on reasoning  (先验 0.5)
+✓ 假设 2: HYP-002 — Fine-tuning improves small models more  (先验 0.6)
 
-### Experiment Notebook Ledger
+━━━ Phase 2: 设计并执行实验 ━━━
+✓ EXP-001 执行完成, 退出码 0, 指标 {"accuracy_gain": 0.19}
+  → HYP-001: 支持 ✓, 后验置信度 0.625 (先验 0.5)
+✓ EXP-002 执行完成, 指标 {"improvement_1b_pct": 93.3}
+  → HYP-002: 支持 ✓, 后验置信度 0.650 (先验 0.6)
 
-科研实验不是只看最后结果，还要记录尝试过什么、环境是什么、失败在哪里、哪张图来自哪次运行。Notebook Ledger 可以自动把 Agent 的科研运行过程整理成结构化实验账本：
+  额外试验（加速贝叶斯收敛）...
+  HYP-001 最终: 置信度=0.850, 状态=validated, 试验=4
 
-- 输入：命令、脚本、数据版本、环境摘要、参数、指标、生成图、失败日志和人工决策。
-- 输出：每次实验一个 ledger entry，可导出 Markdown / JSON，并可链接到 Evidence DAG 和 Canvas artifact。
-- 边界：不替代 Jupyter 或电子实验记录本，而是把 SciForge Agent 实际执行过的步骤变成可复盘记录。
+━━━ Phase 4: 论文生成 ━━━
+✓ 创建论文: PAPER-... — An Empirical Study of Model Scaling Effects on Reasoning Tasks
+✓ 论文已导出为 Markdown
+```
 
-它的价值是让“复现失败原因”和“为什么选择这版结果”有证据可查。
+### 4.2 贝叶斯公式验证
 
-### Benchmark Gallery
+我手动验证了贝叶斯更新公式与代码实现的一致性，结果逐位吻合：
 
-如果要证明科学多模态 Router、Scientific Plotting、Evidence DAG 和 Write RAG 不是 demo，需要一组可公开分发的样例库。Benchmark Gallery 可以包含：
+| 试验 | supporting | total | prior | 公式计算 | Demo 输出 |
+|---|---|---|---|---|---|
+| HYP-001 第 1 次 | 1 | 1 | 0.5 | (1+0.25)/2 = **0.625** | 0.625 ✓ |
+| HYP-002 第 1 次 | 1 | 1 | 0.6 | (1+0.30)/2 = **0.650** | 0.650 ✓ |
+| HYP-001 第 4 次 | 4 | 4 | 0.5 | (4+0.25)/5 = **0.850** | 0.850 ✓ |
 
-- FASTA、SMILES、PDB、single-cell marker、论文 PDF figure crop 等输入样例。
-- 对应的 raw expert output、主 Agent 回答、trace audit、Evidence DAG、figure artifact 和 slide 输出。
-- 回归检查：模型或 worker 更新后，确认对象识别、路由、manifest、图表评分和证据图结构没有明显退化。
+可见 HYP-001 在积累 4 次支持性试验后，posterior 从先验 0.5 上升至 0.85，越过 0.8 阈值且试验数 ≥ 3，被自动判定为 **validated**——完整验证了假设自动收敛的机制。
 
-它既是 README demo，也是测试资产，能让项目独特性更可信。
+### 4.3 测试覆盖
 
-### Paper -> Figure -> Slide Demo Workflow
+四个子模块（artifacts / experiments / hypotheses / papers）均带单元测试（`*.test.ts`），覆盖存储的增删改查、贝叶斯更新、指标提取、论文生成等核心逻辑。整个代码库在结构重组后 `npm run typecheck`、`npm run build`、`npm run test` 全部通过。
 
-当前仓库已经有 Paper Radar、PDF crop、FigureStyleSpec、Scientific Plotting、Canvas 和 PPT Master。最能展示科研场景价值的方式，是把它们串成一条公开 workflow：
+### 4.4 诚实说明：模拟 vs 真实
 
-1. Paper Radar 根据课题 profile 找到新论文。
-2. 用户从 PDF 中裁剪目标 figure panel。
-3. Scientific Plotting 提取风格并生成本项目数据图。
-4. Canvas 让用户圈出图表问题并生成 review packet。
-5. Agent 根据批注重绘或调整。
-6. PPT Master 把最终 figure 和证据摘要放进汇报 deck。
+需明确指出：**当前 demo 的实验数据是模拟的**——benchmark 准确率（如 1B=0.52、7B=0.71）是写死的确定性值，而非真实模型推理结果。这一 demo 的目的是**验证编排架构的正确性**，而非产出真实科研结论。真实 LLM 驱动的假设生成与真实 benchmark 接入是明确的下一步（见 §5）。这种诚实标注对科研工作至关重要——架构验证与结果验证是两件事。
 
-这条 demo 能清楚说明 SciForge 不是单点工具，而是科研产出链。
+---
 
-### GitHub Progress Sync Skill
+## 5. 讨论、局限与未来工作
 
-不必把进展管理做成沉重的长期记忆系统。更轻量、更容易被学生使用的方向，是做一个 GitHub progress sync skill：
+### 5.1 当前局限
 
-- 学生定期运行 skill，自动从最近线程、git diff、实验 ledger、figure manifest 和 TODO 中整理进展。
-- 输出 GitHub issue comment、discussion update 或 PR summary，包含本周完成、证据链接、失败点、下周计划和需要导师确认的问题。
-- 写入 GitHub 前必须预览，并由用户确认。
+1. **实验为模拟**：demo 使用确定性模拟数据，尚未接入真实模型与真实 benchmark。
+2. **假设由人预设**：当前假设由 demo 脚本预先写入，尚未实现由 LLM 根据研究记忆**自主生成**假设。
+3. **贝叶斯模型简化**：采用 pseudocount 平滑的点估计，而非完整的连续贝叶斯后验分布，未建模不确定性区间。
+4. **证伪判据未打通**：`falsificationCriteria` 文本与数值化的 falsified 判定相互独立，未形成语义级校验。
 
-它解决的是导师/学生协作里的实际痛点：不是“永久记忆”，而是按周期把研究进展同步到团队已经使用的平台。
+### 5.2 未来工作
 
-### Scientific Modality SDK
+1. **LLM 自主假设生成**：接入 Model Router，让 Agent 根据研究记忆自动提出可证伪假设，实现真正的"自主"。
+2. **真实实验接入**：将实验编排器对接真实模型推理与标准 benchmark（GSM8K、MATH 等）。
+3. **多假设并行探索**：利用 SciForge 的多智能体（multi-agent）能力，并行验证多个竞争假设，实现假设空间的树状搜索。
+4. **证据 DAG 集成**：将假设-实验-证据的关系接入 SciForge 已有的 Evidence DAG 子系统，实现可追溯的证据链与 NLI 验证。
+5. **证伪判据语义化**：用 LLM 将 `falsificationCriteria` 文本编译为可执行的数值条件，打通声明与判定。
 
-科学多模态 Router 的独特性会随着支持的模态扩展而增强。SDK 应该让新增模态有标准入口：
+### 5.3 意义
 
-- 定义专家服务模板、输入检测规则、输出 schema、provenance、fingerprint 和错误码。
-- 附 license checklist，避免把不能分发或不能商用的权重误放进桌面包。
-- 附 evaluation harness，要求不同输入产生可区分输出，并能在无权重环境下跳过真实模型测试。
+本工作展示了：**在一个成熟的辅助科研平台之上，通过增加一个轻量的编排层，即可将其升级为自主科研系统**。这条路径——复用现有工具生态（MCP Workers、Model Router、多运行时），只增加科学方法的编排逻辑——比从零构建自主科研系统更务实，也更容易被现有科研工具链采纳。
 
-这能把“支持新科学模态”从一次性工程变成可重复扩展机制。
+---
 
-### Manifest 驱动插件市场
-
-当前 worker/MCP 体系已经解耦，但插件生命周期还可以更产品化。Manifest 驱动插件市场应让每个科研扩展声明：
-
-- 它需要哪些权限：读文件、写 workspace、联网、调用模型、启动 sidecar、访问 GitHub。
-- 它提供哪些工具、资源、触发器和 artifact 类型。
-- 它的版本、来源、健康检查、安装/卸载、升级和回滚策略。
-
-这会把“能接 MCP”升级为“可治理的科研插件生态”。
-
-### 本地优先审计面板
-
-审计面板不是单纯工程仪表盘，而是给科研用户回答几个关键问题：
-
-- 哪些数据留在本机，哪些请求发给了模型 provider。
-- 哪些 sidecar 正在运行，监听什么端口，使用哪个 token。
-- 某次回答引用了哪些文件、科学对象、模型翻译和工具结果。
-- 当前项目有哪些 license / release / trace audit 风险。
-
-它把解耦合架构转化成用户可理解的信任界面。
-
-### 隐私与部署配方
-
-科研团队常见部署形态差异很大：个人笔记本、实验室工作站、独立 GPU 服务器、内网环境甚至离线环境。SciForge 可以提供几套明确配方：
-
-- 个人本地模式：桌面 + Model Router + 云端 provider。
-- 实验室 GPU 模式：桌面在个人电脑，科学多模态专家在 GPU 服务器，通过私有网络访问。
-- 内网/离线模式：trace、artifact、workspace 和专家模型都留在机构环境内。
-
-这能把“本地优先”从口号变成可执行部署方案。
-
-## 下载安装
-
-### 预构建安装包
-
-前往 [GitHub Releases](https://github.com/XingYu-Zhong/SciForge/releases) 下载：
-
-| 平台 | 安装包 |
-| --- | --- |
-| macOS | `.dmg` 或 `.zip`，支持 Intel 与 Apple Silicon |
-| Windows | `.exe`，NSIS 安装器，x64 |
-| Linux | `.AppImage`，x64 |
-
-首次启动建议先完成 Model Router 配置：设置本地 runtime API key、public model alias 和至少一个 provider profile。上游 provider 凭据只写入 Model Router 配置。
-
-### 从源码运行
+## 附录 A：构建与运行
 
 ```bash
-git clone https://github.com/XingYu-Zhong/SciForge.git
-cd SciForge
+# 安装依赖并构建本地运行时
 npm install
-npm run dev
+npm run build:local-runtime
+
+# 类型检查 / 构建 / 测试
+npm run typecheck
+npm run build
+npm run test
+
+# 运行自主科研 demo（无需 LLM API）
+cd runtime && npx tsx src/research/demo-autonomous-loop.ts
 ```
 
-环境要求：
+## 附录 B：关键代码结构
 
-- Node.js 20+
-- 可用的上游模型 provider 或远端 Model Router 服务
-- 首次安装依赖时需要联网
-- 独立运行 Paper Radar service 时，Node.js 22.5+ 更合适，因为它使用 `node:sqlite`
-
-中国大陆访问较慢时，可以使用 npm 镜像：
-
-```bash
-npm install --registry=https://registry.npmmirror.com
+```text
+runtime/src/research/
+├── index.ts                    # 四阶段模块的统一导出
+├── demo-autonomous-loop.ts     # 端到端闭环 demo
+├── artifacts/                  # Phase 1: 研究记忆
+│   ├── store.ts                #   YAML 存储
+│   ├── github-adapter.ts       #   GitHub 同步（issue/PR）
+│   └── tools.ts                #   MCP 工具封装
+├── experiments/                # Phase 2: 实验编排
+│   ├── runner.ts               #   执行器（超时/指标提取/错误检测）
+│   ├── store.ts                #   实验 spec + run 记录
+│   └── types.ts                #   10 种内置错误模式
+├── hypotheses/                 # Phase 3: 自主循环
+│   ├── store.ts                #   贝叶斯置信度更新
+│   └── loop-tools.ts           #   循环控制工具
+└── papers/                     # Phase 4: 论文生成
+    ├── store.ts                #   IMRAD/short-report 综合
+    └── types.ts                #   论文大纲模板
 ```
 
-## 常用命令
+## 附录 C：配图索引
 
-```bash
-npm run dev                    # 开发模式
-npm run typecheck              # TypeScript 检查
-npm run test                   # 单元测试
-npm run build                  # 生产构建
-npm run dist:mac               # macOS 安装包
-npm run dist:win               # Windows 安装包
-npm run dist:linux             # Linux AppImage
-npm run license:package-audit  # 安装包发布边界审计
-```
+所有架构图见 `docs/architecture/ARCHITECTURE-DIAGRAMS.md`（含可导出的 PNG）：
 
-常用 worker：
-
-```bash
-npm run model-router:start
-npm run sci-modality-router:start
-npm run evidence-dag:start
-npm run scientific-plotting:start
-npm run workflow:start
-npm run search:start
-npm run write-assist:start
-npm run schedule:start
-npm run paper-radar-mcp:start
-npm run image-generation:start
-npm run canvas:start
-npm run ppt-master:start
-npm run runtime-inspector:start
-npm run workspace-intel:start
-```
-
-## 首次使用
-
-1. 打开 SciForge。
-2. 选择界面语言。
-3. 在设置页配置 Model Router。
-4. 选择默认工作目录。
-5. 在 Code 工作台创建线程，描述你的研究任务。
-6. 按需打开右侧 Evidence DAG、Paper Radar、Figure Style、Canvas、Plan、Files、Changes 或 Browser 面板。
-7. 进入 Write、Workflow、Connect phone 或 Schedule 扩展工作链路。
-
-设置页还可以管理主题、字体、通知、运行时端口、sandbox、approval policy、Skill、MCP、Webhook、Relay、定时任务和错误日志。
-
-## 卸载与本地数据
-
-卸载应用不会默认删除本地设置、会话、工作区或运行时数据。彻底清理前请确认没有需要保留的研究记录。
-
-| 平台 | 应用数据位置 |
-| --- | --- |
-| macOS | `~/Library/Application Support/SciForge` |
-| Windows | `%APPDATA%\SciForge` |
-| Linux | `~/.config/SciForge` |
-
-SciForge Runtime 数据通常位于 `~/.sciforge/runtime` 或设置中指定的 runtime data dir。研究产物通常写在当前 workspace 的 `.sciforge/`、`.agents/` 或用户选择的写作空间中。
-
-macOS 本地未公证构建如果被系统拦截，可先运行：
-
-```bash
-npm run mac:unquarantine -- '/Applications/SciForge.app'
-```
-
-## 文档入口
-
-| 文档 | 内容 |
-| --- | --- |
-| [docs/agent-runtime-contract.md](docs/agent-runtime-contract.md) | Runtime 中性 contract、事件、capability 和 adapter 边界 |
-| [docs/local-runtime-architecture.md](docs/local-runtime-architecture.md) | SciForge Runtime 架构、HTTP/SSE 合约和 GUI 边界 |
-| [docs/local-runtime-cache-optimization.md](docs/local-runtime-cache-optimization.md) | Token economy、缓存命中、MCP search 和工具输出压缩 |
-| [docs/runtime-governance-design.zh-CN.md](docs/runtime-governance-design.zh-CN.md) | Runtime guard、公共治理层和多 runtime 接入原则 |
-| [docs/kdense-scientific-skills-mcp.zh-CN.md](docs/kdense-scientific-skills-mcp.zh-CN.md) | K-Dense Scientific Agent Skills 的只读发现与规划接入 |
-| [docs/paper-figure-style-transfer-v1.3.zh-CN.md](docs/paper-figure-style-transfer-v1.3.zh-CN.md) | 论文图风格识别、受控绘图和参考图准备 |
-| [docs/WRITE_RETRIEVAL_RAG.zh-CN.md](docs/WRITE_RETRIEVAL_RAG.zh-CN.md) | Write 检索增强设计 |
-| [docs/WRITE_INLINE_EDIT_RAG.zh-CN.md](docs/WRITE_INLINE_EDIT_RAG.zh-CN.md) | Write inline edit 检索增强 |
-| [docs/license-risk-scan.md](docs/license-risk-scan.md) | 许可证风险 exact-hit 扫描流程 |
-| [docs/commercial-release-boundary.md](docs/commercial-release-boundary.md) | 历史商业风险清理记录与当前发布边界 |
-| [docs/CONTRIBUTING.zh-CN.md](docs/CONTRIBUTING.zh-CN.md) | 贡献说明 |
-| [docs/DEVELOPMENT.zh-CN.md](docs/DEVELOPMENT.zh-CN.md) | 本地开发流程 |
-| [SECURITY.md](SECURITY.md) | 安全漏洞披露方式 |
-
-## 可审计发布边界
-
-SciForge 当前仓库使用 MIT 许可证发布。发布前仍需要确认源码、历史来源、资产、依赖、模型权重、服务配置和打包产物都处在可解释边界内。
-
-本仓库为这件事保留了几类材料：
-
-- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)：第三方依赖、参考来源和资产来源说明。
-- [docs/license-risk-scan.md](docs/license-risk-scan.md)：历史 blob exact-hit 扫描方法。
-- [docs/commercial-release-boundary.md](docs/commercial-release-boundary.md)：历史商业风险清理记录与当前发布边界说明。
-- [src/asset/img/README.md](src/asset/img/README.md)：项目内图片资产来源与生成关系。
-- `scripts/license-risk-scan.mjs`：源码 exact-hit 检查工具。
-- `npm run license:package-audit`：安装包发布审计入口。
-
-默认发布策略：
-
-- 不在应用包中默认夹带第三方模型权重。
-- 不在应用层硬编码 provider API key、base URL 或默认闭源服务。
-- 外部参考项目只作为 reference / inspiration 记录，不复制源码、测试或资产。
-- 资产、二进制和安装包在发布前重新扫描。
-
-这不是法律意见，但它让发布前需要确认的事实尽量变成可复查的工程证据。
-
-## 贡献
-
-欢迎提交 bug 修复、UI/UX 优化、文档改进、本地化内容、worker 能力、构建发布流程和运行时集成改动。
-
-协作建议：
-
-- 日常集成分支为 `develop`，稳定发布分支为 `master`。
-- 新功能和修复从最新 `develop` 拉出短期分支。
-- PR 默认提交到 `develop`。
-- 高风险改动先说明范围、验证方式和回滚策略。
-- 发起 PR 前运行 `npm run typecheck`、`npm run test` 和必要的构建命令。
-- 改动影响使用方式时，同步更新相关 README 或 docs。
-
-## 致谢
-
-SciForge 从多个先行项目和产品形态中获得启发。相关来源只作为 reference / inspiration 记录；当前仓库不复制这些项目的源码、测试或资产。具体说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-感谢所有为 SciForge 提交 issue、建议、代码、测试、文档和研究反馈的人。
-
-<a href="https://github.com/XingYu-Zhong/SciForge/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=XingYu-Zhong/SciForge" alt="SciForge contributors" />
-</a>
-
-## 许可证
-
-[MIT](./LICENSE)
+- **图 1**：SciForge 三层整体架构
+- **图 2**：中性 AgentRuntime 契约（可插拔运行时）
+- **图 3**：Runtime HTTP/SSE 通信时序
+- **图 4**：自主科研编排系统四阶段闭环 ⭐
+- **图 5**：假设置信度的贝叶斯更新流程
