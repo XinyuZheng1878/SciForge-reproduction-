@@ -9,6 +9,7 @@ release/
 .codex-runtime/
 .claude-code-runtime/
 .scimodality-run/
+.sciforge/
 *.log
 .DS_Store
 __pycache__/

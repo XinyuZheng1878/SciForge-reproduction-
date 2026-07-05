@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { fitWorkbenchWidths } from './workbench-layout'
+import { fitWorkbenchWidths, shouldCloseRightPanelOnThreadChange } from './workbench-layout'
 
 describe('fitWorkbenchWidths', () => {
   it('allows the right panel to consume the remaining width', () => {
@@ -30,5 +30,16 @@ describe('fitWorkbenchWidths', () => {
 
     expect(widths.left).toBe(280)
     expect(widths.right).toBe(0)
+  })
+})
+
+describe('shouldCloseRightPanelOnThreadChange', () => {
+  it('keeps file previews open across thread changes', () => {
+    expect(shouldCloseRightPanelOnThreadChange('file')).toBe(false)
+  })
+
+  it('closes thread-bound right panels across thread changes', () => {
+    expect(shouldCloseRightPanelOnThreadChange('browser')).toBe(true)
+    expect(shouldCloseRightPanelOnThreadChange('child-agents')).toBe(true)
   })
 })

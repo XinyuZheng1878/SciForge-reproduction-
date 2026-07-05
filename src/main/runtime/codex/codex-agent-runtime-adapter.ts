@@ -476,7 +476,7 @@ function mapCodexThread(thread: CodexNormalizedThread): AgentRuntimeThread {
   return {
     id: thread.id,
     runtimeId: 'codex',
-    title: thread.title || thread.preview || 'Codex thread',
+    title: thread.title || 'Codex thread',
     updatedAt: thread.updatedAt || new Date().toISOString(),
     model: thread.model || undefined,
     mode: thread.mode || undefined,
@@ -488,7 +488,13 @@ function mapCodexThread(thread: CodexNormalizedThread): AgentRuntimeThread {
     latestTurnStatus: thread.latestTurnStatus,
     backendThreadId: thread.codexThreadId ?? thread.id,
     relation: thread.relation,
-    parentThreadId: thread.parentThreadId
+    parentThreadId: thread.parentThreadId,
+    parentTurnId: thread.parentTurnId,
+    threadSource: thread.threadSource,
+    sidebarVisibility: thread.sidebarVisibility,
+    titleSource: thread.titleSource,
+    agentNickname: thread.agentNickname,
+    agentRole: thread.agentRole
   }
 }
 
@@ -717,7 +723,7 @@ function childFromCodexThread(
   if (thread.parentThreadId !== parentThreadId) return null
   const threadSource = normalizedCodexChildSource(thread.threadSource)
   if (thread.threadSource && !threadSource) return null
-  const name = thread.agentNickname || thread.title || thread.preview || 'Codex child'
+  const name = thread.agentNickname || thread.title || 'Codex child'
   const summary = thread.preview && thread.preview !== thread.title ? thread.preview : undefined
   return {
     id: thread.id,

@@ -8,7 +8,7 @@ import {
   SIDEBAR_VISIBILITY_INSPECTION_LIMIT,
   shouldHideThreadFromSidebarByBlocks,
   shouldHideThreadFromSidebarByLineage,
-  shouldHideThreadFromSidebarByTitle,
+  shouldHideThreadFromSidebarByThreadSource,
   shouldInspectThreadForSidebarVisibility
 } from './thread-sidebar-visibility'
 
@@ -24,6 +24,10 @@ function thread(overrides: Partial<NormalizedThread> & Pick<NormalizedThread, 'i
     ...(overrides.archived !== undefined ? { archived: overrides.archived } : {}),
     ...(overrides.preview ? { preview: overrides.preview } : {}),
     ...(overrides.latestTurnId ? { latestTurnId: overrides.latestTurnId } : {}),
+    ...(overrides.threadSource ? { threadSource: overrides.threadSource } : {}),
+    ...(overrides.visibility ? { visibility: overrides.visibility } : {}),
+    ...(overrides.sidebarVisibility ? { sidebarVisibility: overrides.sidebarVisibility } : {}),
+    ...(overrides.titleSource ? { titleSource: overrides.titleSource } : {}),
     ...(overrides.relation ? { relation: overrides.relation } : {}),
     ...(overrides.parentThreadId ? { parentThreadId: overrides.parentThreadId } : {})
   }
@@ -39,12 +43,36 @@ function userBlock(text = 'hello', managedBy?: UserMessageManagedBy): ChatBlock 
 }
 
 describe('thread-sidebar-visibility', () => {
-  it('hides codex internal placeholder titles immediately', () => {
-    expect(
-      shouldHideThreadFromSidebarByTitle(
-        thread({ id: 'thr_internal01', title: '__codex_parent_title__' })
+  it('prioritizes structured sidebar visibility and thread source metadata', async () => {
+    const hiddenByVisibility = thread({
+      id: 'hidden-by-visibility',
+      title: 'Runtime managed',
+      sidebarVisibility: 'hidden'
+    })
+    const visibleSideThread = thread({
+      id: 'visible-side-thread',
+      title: 'Pinned child',
+      sidebarVisibility: 'visible',
+      relation: 'side',
+      parentThreadId: 'parent-thread'
+    })
+    const subagentThread = thread({
+      id: 'subagent-thread',
+      title: 'Worker B',
+      threadSource: 'subagent'
+    })
+    const mainThread = thread({ id: 'main-thread', title: 'Main research task' })
+    const getThreadDetail = vi.fn(async () => ({ blocks: [userBlock()] }))
+
+    expect(shouldHideThreadFromSidebarByThreadSource(subagentThread)).toBe(true)
+    expect(shouldHideThreadFromSidebarByLineage(visibleSideThread)).toBe(true)
+    await expect(
+      filterThreadsForSidebar(
+        [hiddenByVisibility, visibleSideThread, subagentThread, mainThread],
+        { getThreadDetail }
       )
-    ).toBe(true)
+    ).resolves.toEqual([visibleSideThread, mainThread])
+    expect(getThreadDetail).not.toHaveBeenCalled()
   })
 
   it('hides child and side threads from the main sidebar', async () => {
@@ -120,7 +148,7 @@ describe('thread-sidebar-visibility', () => {
     ).toBe(true)
     expect(
       shouldInspectThreadForSidebarVisibility(
-        thread({ id: 'thr_prompt', title: '<sciforge_runtime_instruction>\nUse tools.' })
+        thread({ id: 'thr_structured', title: 'raw setup title', titleSource: 'internal_prompt' })
       )
     ).toBe(true)
   })
@@ -131,15 +159,15 @@ describe('thread-sidebar-visibility', () => {
   })
 
   it('keeps only immediately safe threads in the summary pass', () => {
-    const internalThread = thread({ id: 'thr_internal01', title: '__codex_parent_title__' })
+    const hiddenThread = thread({ id: 'thr_hidden01', title: 'Runtime managed', sidebarVisibility: 'hidden' })
     const fallbackThread = thread({ id: 'thr_279f3fef', title: 'thr_279f' })
     const realThread = thread({ id: 'thr_real0001', title: '修一下侧边栏 bug' })
 
-    expect(filterThreadsForSidebarSummary([internalThread, fallbackThread, realThread])).toEqual([realThread])
+    expect(filterThreadsForSidebarSummary([hiddenThread, fallbackThread, realThread])).toEqual([realThread])
     expect(
-      hasThreadsRequiringSidebarVisibilityInspection([internalThread, fallbackThread, realThread])
+      hasThreadsRequiringSidebarVisibilityInspection([hiddenThread, fallbackThread, realThread])
     ).toBe(true)
-    expect(hasThreadsRequiringSidebarVisibilityInspection([internalThread, realThread])).toBe(false)
+    expect(hasThreadsRequiringSidebarVisibilityInspection([hiddenThread, realThread])).toBe(false)
   })
 
   it('hides fallback entries whose raw prompt came from a remote channel', () => {
@@ -147,9 +175,8 @@ describe('thread-sidebar-visibility', () => {
     expect(shouldHideThreadFromSidebarByBlocks([userBlock('现在时间是23:50', 'claw')])).toBe(true)
   })
 
-  it('filters internal placeholder and empty fallback threads while keeping real threads', async () => {
+  it('filters empty fallback threads while keeping real threads', async () => {
     const threads = [
-      thread({ id: 'thr_internal01', title: '__codex_parent_title__' }),
       thread({ id: 'thr_279f3fef', title: 'thr_279f' }),
       thread({ id: 'thr_gui0001', title: '新会话' }),
       thread({ id: 'thr_real0001', title: '修一下侧边栏 bug' })
@@ -253,33 +280,34 @@ describe('thread-sidebar-visibility', () => {
     expect(visible).toEqual([])
   })
 
-  it('derives display titles for leaked runtime prompt titles with real content', async () => {
-    const leakedThread = thread({
-      id: 'thr_leaked_prompt',
-      title: '<sciforge_runtime_instruction>\nUse tools.\n</sciforge_runtime_instruction>'
+  it('derives display titles for structured non-display title sources with real content', async () => {
+    const internalTitleThread = thread({
+      id: 'thr_internal_title_source',
+      title: 'raw setup title',
+      titleSource: 'internal_prompt'
     })
 
-    const visible = await filterThreadsForSidebar([leakedThread], {
+    const visible = await filterThreadsForSidebar([internalTitleThread], {
       getThreadDetail: async () => ({
         blocks: [
-          userBlock('<sciforge_runtime_instruction>\nUse tools.\n</sciforge_runtime_instruction>'),
           userBlock('继续完成 session 修复')
         ]
       })
     })
 
-    expect(visible).toEqual([{ ...leakedThread, title: '继续完成 session 修复' }])
+    expect(visible).toEqual([{ ...internalTitleThread, title: '继续完成 session 修复' }])
   })
 
-  it('hides leaked runtime prompt titled threads without a real user message', async () => {
-    const leakedThread = thread({
+  it('hides structured non-display title sources without a real user message', async () => {
+    const internalTitleThread = thread({
       id: 'thr_internal_only',
-      title: '<sciforge_runtime_instruction>\nUse tools.\n</sciforge_runtime_instruction>'
+      title: 'raw setup title',
+      titleSource: 'internal_prompt'
     })
 
-    const visible = await filterThreadsForSidebar([leakedThread], {
+    const visible = await filterThreadsForSidebar([internalTitleThread], {
       getThreadDetail: async () => ({
-        blocks: [userBlock('<sciforge_runtime_instruction>\nUse tools.\n</sciforge_runtime_instruction>')]
+        blocks: [userBlock('managed setup message', 'remoteChannel')]
       })
     })
 
@@ -308,23 +336,23 @@ describe('thread-sidebar-visibility', () => {
     expect(visible).toEqual([])
   })
 
-  it('derives suspicious thread titles from previews without loading detail', async () => {
-    const leakedThread = thread({
+  it('does not derive suspicious thread titles from previews without loading detail', async () => {
+    const previewOnlyThread = thread({
       id: 'thr_preview_title',
-      title: '<sciforge_runtime_instruction>\nUse tools.\n</sciforge_runtime_instruction>',
+      title: 'New Thread',
       preview: 'Summarize the AlphaFold benchmark results'
     })
     const getThreadDetail = vi.fn(async () => ({ blocks: [] }))
 
-    const visible = await filterThreadsForSidebar([leakedThread], { getThreadDetail }, {
+    const visible = await filterThreadsForSidebar([previewOnlyThread], { getThreadDetail }, {
       maxDetailInspections: 0
     })
 
     expect(getThreadDetail).not.toHaveBeenCalled()
-    expect(visible).toEqual([{ ...leakedThread, title: 'Summarize the AlphaFold benchmark results' }])
+    expect(visible).toEqual([])
   })
 
-  it('caps suspicious thread detail inspection and keeps materialized skipped threads visible', async () => {
+  it('caps suspicious thread detail inspection and hides skipped suspicious threads', async () => {
     const first = thread({ id: 'thr_first', title: 'New Thread', latestTurnId: 'turn-1' })
     const second = thread({ id: 'thr_second', title: 'New Thread', latestTurnId: 'turn-2' })
     const getThreadDetail = vi.fn(async () => ({ blocks: [userBlock('first real title')] }))
@@ -336,8 +364,7 @@ describe('thread-sidebar-visibility', () => {
     expect(getThreadDetail).toHaveBeenCalledTimes(1)
     expect(getThreadDetail).toHaveBeenCalledWith('thr_first')
     expect(visible.map((item) => [item.id, item.title])).toEqual([
-      ['thr_first', 'first real title'],
-      ['thr_second', 'New Thread']
+      ['thr_first', 'first real title']
     ])
   })
 })

@@ -3,6 +3,7 @@ import type {
   AgentRuntimeFileReference,
   AgentRuntimePhase,
   AgentRuntimeThreadRelation,
+  AgentRuntimeThreadSidebarVisibility,
   AgentRuntimeThreadGoalStatus,
   AgentRuntimeUsage
 } from '../../../shared/agent-runtime-contract'
@@ -26,6 +27,8 @@ export type CodexNormalizedThread = {
   parentThreadId?: string
   parentTurnId?: string
   threadSource?: string
+  sidebarVisibility?: AgentRuntimeThreadSidebarVisibility
+  titleSource?: string
   agentNickname?: string
   agentRole?: string
 }

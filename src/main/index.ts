@@ -79,6 +79,7 @@ import { GitCheckpointService } from './services/git-checkpoint-service'
 import { SharedMemoryService } from './services/shared-memory-service'
 import { RuntimeGoalService } from './services/runtime-goal-service'
 import { WorkspaceReferenceService } from './services/workspace-reference-service'
+import { VisibleContextService, visibleContextSnapshotPath } from './services/visible-context-service'
 import { workspaceHtmlPreviewService } from './services/workspace-html-preview-service'
 import {
   createPaperRadarWorkerService,
@@ -214,7 +215,8 @@ function getWorkspaceIntelMcpLaunchConfig(): WorkspaceIntelMcpLaunchConfig {
   return {
     appPath: app.getAppPath(),
     execPath: process.execPath,
-    isPackaged: app.isPackaged
+    isPackaged: app.isPackaged,
+    visibleContextPath: visibleContextSnapshotPath(app.getPath('userData'))
   }
 }
 
@@ -1518,6 +1520,7 @@ app.whenReady().then(async () => {
   const sharedMemoryService = new SharedMemoryService(app.getPath('userData'))
   const runtimeGoalService = new RuntimeGoalService(app.getPath('userData'))
   const workspaceReferenceService = new WorkspaceReferenceService()
+  const visibleContextService = new VisibleContextService(app.getPath('userData'))
   const agentRuntimeHost = createAgentRuntimeHost({
     settings: async () => store.load(),
     adapters: [
@@ -1537,6 +1540,7 @@ app.whenReady().then(async () => {
       gitCheckpoints: gitCheckpointService,
       memory: sharedMemoryService,
       workspaceReferences: workspaceReferenceService,
+      visibleContext: visibleContextService,
       goals: runtimeGoalService
     }
   })
@@ -1727,6 +1731,7 @@ app.whenReady().then(async () => {
     fetchUpstreamModels: fetchModels,
     getRemoteChannelRuntime: () => remoteChannelRuntime,
     getDiscordBotRuntime: () => discordBotRuntime,
+    visibleContext: visibleContextService,
     setRemoteChannelActiveThreadContext: (payload) => {
       remoteChannelActiveThreadContext = payload
         ? {

@@ -1301,6 +1301,8 @@
   "filePreviewEmpty": "No file selected",
   "filePreviewLoading": "Reading file…",
   "filePreviewFailed": "Could not read the file.",
+  "filePreviewRefresh": "Refresh preview",
+  "filePreviewRefreshing": "Refreshing preview…",
   "filePreviewOpenEditor": "Open in editor",
   "filePreviewOpenPdfAnnotations": "Open PDF annotations",
   "filePreviewCopyPath": "Copy path",

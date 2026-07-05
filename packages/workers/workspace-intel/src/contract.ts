@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 export const WORKSPACE_TREE_RESOURCE_URI = 'workspace://tree'
 export const WORKSPACE_FILE_RESOURCE_URI_TEMPLATE = 'workspace://file/{+path}'
+export const VISIBLE_CONTEXT_RESOURCE_URI = 'sciforge://visible-context'
 
 export const WORKSPACE_INTEL_DEFAULT_READ_BYTES = 64 * 1024
 export const WORKSPACE_INTEL_MAX_READ_BYTES = 1_500_000
@@ -10,6 +11,7 @@ export const WORKSPACE_INTEL_DEFAULT_LIST_LIMIT = 200
 export const WORKSPACE_INTEL_MAX_LIST_LIMIT = 2_000
 export const WORKSPACE_INTEL_MAX_TREE_DEPTH = 12
 export const WorkspaceIntelToolNames = [
+  'gui_visible_context',
   'gui_workspace_list',
   'gui_workspace_tree',
   'gui_workspace_read',
@@ -34,6 +36,7 @@ export type WorkspaceIntelErrorCode =
   | 'binary_file'
   | 'invalid_request'
   | 'skill_not_found'
+  | 'visible_context_unavailable'
   | 'read_failed'
 
 export type WorkspaceIntelError = {
@@ -177,6 +180,54 @@ export type WorkspaceSkillReadResult = WorkspaceIntelFailure | {
   nextOffset?: number
 }
 
+export type VisibleContextResource = {
+  kind: string
+  role?: string
+  title?: string
+  accessHint?: string
+  resourceUri?: string
+  workspaceRoot?: string
+  path?: string
+  relativePath?: string
+  name?: string
+  mimeType?: string
+  fileKind?: string
+  size?: number
+  mtimeMs?: number
+  annotationCount?: number
+  threadCount?: number
+  openThreadCount?: number
+  selectedThreadId?: string | null
+  updatedAt?: string
+  metadata?: Record<string, unknown>
+}
+
+export type VisibleContextComponent = {
+  id: string
+  region: string
+  component: string
+  title?: string
+  visible: boolean
+  priority?: number
+  updatedAt: string
+  summary: string
+  resources?: VisibleContextResource[]
+  state?: Record<string, unknown>
+}
+
+export type VisibleContextResult = WorkspaceIntelFailure | {
+  ok: true
+  snapshotPath?: string
+  updatedAt?: string
+  activeThreadId?: string | null
+  workspaceRoot?: string
+  route?: string
+  components: VisibleContextComponent[]
+  componentCount: number
+  unavailable?: boolean
+  message?: string
+}
+
 export const WorkspaceRootInputSchema = z.object({
   workspaceRoot: z.string().trim().min(1).max(4096).optional()
 }).strict()
@@ -223,6 +274,12 @@ export const WorkspaceSkillReadInputSchema = WorkspaceRootInputSchema.extend({
   maxBytes: z.number().int().min(1).max(WORKSPACE_INTEL_MAX_READ_BYTES).optional()
 }).strict()
 
+export const VisibleContextInputSchema = z.object({
+  includeHidden: z.boolean().optional(),
+  region: z.string().trim().min(1).max(128).optional(),
+  componentId: z.string().trim().min(1).max(256).optional()
+}).strict()
+
 export type WorkspaceListInput = z.infer<typeof WorkspaceListInputSchema>
 export type WorkspaceTreeInput = z.infer<typeof WorkspaceTreeInputSchema>
 export type WorkspaceReadInput = z.infer<typeof WorkspaceReadInputSchema>
@@ -231,6 +288,7 @@ export type WorkspaceReferenceListInput = z.infer<typeof WorkspaceReferenceListI
 export type WorkspaceReferencePreviewInput = z.infer<typeof WorkspaceReferencePreviewInputSchema>
 export type WorkspaceSkillListInput = z.infer<typeof WorkspaceSkillListInputSchema>
 export type WorkspaceSkillReadInput = z.infer<typeof WorkspaceSkillReadInputSchema>
+export type VisibleContextInput = z.infer<typeof VisibleContextInputSchema>
 
 export function workspaceFileResourceUri(relativePath: string): string {
   const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')

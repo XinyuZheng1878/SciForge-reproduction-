@@ -11,6 +11,7 @@ import type {
   ThreadMode,
   ThreadRecord,
   ThreadRelation,
+  ThreadSource,
   ThreadStatus,
   ThreadTodoItem,
   ThreadTodoList,
@@ -21,7 +22,7 @@ import type {
 import type { ApprovalPolicy, SandboxMode } from '../contracts/policy.js'
 import type { Turn } from '../contracts/turns.js'
 import type { TurnItem } from '../contracts/items.js'
-import { createThreadRecord, toThreadSummary, touchThread } from '../domain/thread.js'
+import { createThreadRecord, inferThreadSource, toThreadSummary, touchThread } from '../domain/thread.js'
 import type { AgentSession } from '../domain/session.js'
 import { repairModelHistoryItems } from '../domain/model-history-repair.js'
 import type { RuntimeEventRecorder } from './runtime-event-recorder.js'
@@ -50,6 +51,9 @@ export type ListThreadsOptions = ThreadStoreListOptions
 export type ForkThreadOptions = {
   relation?: ThreadRelation
   title?: string
+  parentTurnId?: string
+  titleSource?: ThreadRecord['titleSource']
+  agentMetadata?: ThreadRecord['agentMetadata']
 }
 
 export type ResumeSessionOptions = {
@@ -94,9 +98,7 @@ export class ThreadService {
     } else if (!options.includeArchived) {
       threads = threads.filter((thread) => thread.status !== 'archived' && thread.status !== 'deleted')
     }
-    if (!options.includeSide) {
-      threads = threads.filter((thread) => (thread.relation ?? 'primary') !== 'side')
-    }
+    threads = threads.filter((thread) => shouldIncludeThreadInList(thread, options))
     if (query) {
       threads = threads.filter((thread) => matchesThreadSearch(thread, query))
     }
@@ -124,6 +126,13 @@ export class ThreadService {
       approvalPolicy: request.approvalPolicy,
       sandboxMode: request.sandboxMode,
       ...(request.costBudgetUsd !== undefined ? { costBudgetUsd: request.costBudgetUsd } : {}),
+      ...(request.threadSource ? { threadSource: request.threadSource } : {}),
+      ...(request.visibility ? { visibility: request.visibility } : {}),
+      ...(request.sidebarVisibility ? { sidebarVisibility: request.sidebarVisibility } : {}),
+      ...(request.titleSource ? { titleSource: request.titleSource } : {}),
+      ...(request.parentThreadId ? { parentThreadId: request.parentThreadId } : {}),
+      ...(request.parentTurnId ? { parentTurnId: request.parentTurnId } : {}),
+      ...(request.agentMetadata ? { agentMetadata: request.agentMetadata } : {}),
       status: options.status
     })
     await this.threadStore.upsert(thread)
@@ -144,6 +153,13 @@ export class ThreadService {
     costBudgetUsd?: number | null
     costBudgetWarningSent?: boolean
     relation?: ThreadRelation
+    threadSource?: ThreadSource
+    visibility?: ThreadRecord['visibility']
+    sidebarVisibility?: ThreadRecord['sidebarVisibility']
+    titleSource?: ThreadRecord['titleSource']
+    parentThreadId?: string
+    parentTurnId?: string
+    agentMetadata?: ThreadRecord['agentMetadata']
     guiPlan?: ThreadRecord['guiPlan']
   }): Promise<ThreadRecord> {
     const current = await this.threadStore.get(threadId)
@@ -162,7 +178,18 @@ export class ThreadService {
     if (patch.relation !== undefined && patch.relation !== 'side') {
       // Promoting a side thread clears the parent link so the thread
       // surfaces in the default list as a standalone primary thread.
+      const wasSide = isSideThread(current)
       delete (merged as { parentThreadId?: string }).parentThreadId
+      delete (merged as { parentTurnId?: string }).parentTurnId
+      if (wasSide && merged.threadSource === 'side') {
+        delete (merged as { threadSource?: ThreadSource }).threadSource
+      }
+      if (wasSide && merged.visibility === 'hidden') {
+        delete (merged as { visibility?: ThreadRecord['visibility'] }).visibility
+      }
+      if (wasSide && merged.sidebarVisibility === 'hidden') {
+        delete (merged as { sidebarVisibility?: ThreadRecord['sidebarVisibility'] }).sidebarVisibility
+      }
     }
     const updated = touchThread(merged, this.nowIso())
     await this.threadStore.upsert(updated)
@@ -384,7 +411,11 @@ export class ThreadService {
       approvalPolicy: current.approvalPolicy,
       sandboxMode: current.sandboxMode,
       relation,
+      threadSource: relation === 'side' ? 'side' : 'fork',
+      titleSource: options.titleSource ?? (options.title?.trim() ? 'user' : 'derived'),
       parentThreadId: current.id,
+      ...(options.parentTurnId ? { parentTurnId: options.parentTurnId } : {}),
+      ...(options.agentMetadata ? { agentMetadata: options.agentMetadata } : {}),
       forkedFromThreadId: current.id,
       forkedFromTitle: current.title,
       forkedAt: now,
@@ -478,6 +509,27 @@ export class ThreadService {
   toSummary(thread: ThreadRecord): ThreadSummary {
     return toThreadSummary(thread)
   }
+}
+
+const DEFAULT_HIDDEN_THREAD_SOURCES = new Set<ThreadSource>(['side', 'subagent', 'workflow', 'internal'])
+
+function shouldIncludeThreadInList(thread: ThreadSummary, options: ListThreadsOptions): boolean {
+  const source = inferThreadSource(thread)
+  const hiddenByVisibility = thread.visibility === 'hidden' || thread.sidebarVisibility === 'hidden'
+  const visibleByVisibility = thread.visibility === 'visible' || thread.sidebarVisibility === 'visible'
+  if (options.includeSide && isSideThread(thread)) return true
+  if (visibleByVisibility) return true
+  if (hiddenByVisibility) return false
+  return !source || !DEFAULT_HIDDEN_THREAD_SOURCES.has(source)
+}
+
+function isSideThread(
+  thread: Pick<ThreadRecord | ThreadSummary, 'parentThreadId'> & {
+    relation?: ThreadRelation
+    threadSource?: ThreadSource
+  }
+): boolean {
+  return inferThreadSource(thread) === 'side' || thread.relation === 'side'
 }
 
 function cloneTurnForThread(turn: Turn, threadId: string, now: string): Turn {

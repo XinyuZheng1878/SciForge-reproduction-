@@ -45,6 +45,16 @@ import { getDisplayThreadTitle } from '../lib/thread-title'
 
 type LegacyCapabilities = ReturnType<AgentProvider['getCapabilities']>
 type SendUserMessageOptions = NonNullable<Parameters<AgentProvider['sendUserMessage']>[2]>
+type AgentRuntimeThreadMetadata = Partial<Pick<
+  NormalizedThread,
+  | 'threadSource'
+  | 'visibility'
+  | 'sidebarVisibility'
+  | 'titleSource'
+  | 'parentTurnId'
+  | 'agentNickname'
+  | 'agentRole'
+>>
 type InteractionRequestRef = {
   threadId: string
   runtimeId: AgentRuntimeId
@@ -103,6 +113,7 @@ function unresolvedThreadRuntime(threadId: string): Error {
 }
 
 function normalizeThread(thread: AgentRuntimeThread): NormalizedThread {
+  const threadMetadata = thread as AgentRuntimeThread & AgentRuntimeThreadMetadata
   const normalized = {
     id: thread.id,
     runtimeId: thread.runtimeId,
@@ -116,13 +127,20 @@ function normalizeThread(thread: AgentRuntimeThread): NormalizedThread {
     preview: thread.preview,
     latestTurnId: thread.latestTurnId,
     latestTurnStatus: thread.latestTurnStatus,
+    threadSource: threadMetadata.threadSource,
+    visibility: threadMetadata.visibility,
+    sidebarVisibility: threadMetadata.sidebarVisibility,
+    titleSource: threadMetadata.titleSource,
     relation: thread.relation,
     parentThreadId: thread.parentThreadId,
+    parentTurnId: threadMetadata.parentTurnId,
     forkedFromThreadId: thread.forkedFromThreadId,
     forkedFromTitle: thread.forkedFromTitle,
     forkedAt: thread.forkedAt,
     forkedFromMessageCount: thread.forkedFromMessageCount,
     forkedFromTurnCount: thread.forkedFromTurnCount,
+    agentNickname: threadMetadata.agentNickname,
+    agentRole: threadMetadata.agentRole,
     goal: thread.goal ?? null,
     todos: thread.todos ?? null,
     guiPlan: thread.guiPlan ?? null

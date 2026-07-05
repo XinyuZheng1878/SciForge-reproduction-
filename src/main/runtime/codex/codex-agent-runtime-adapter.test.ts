@@ -147,6 +147,50 @@ describe('createCodexAgentRuntimeAdapter', () => {
     })
   })
 
+  it('maps structured Codex thread metadata without using preview as a title fallback', async () => {
+    const service = {
+      listThreads: vi.fn(async () => ({
+        ok: true as const,
+        threads: [{
+          id: 'gui-child-thread',
+          codexThreadId: 'codex-child-thread',
+          title: '',
+          updatedAt: '2026-06-21T00:00:00.000Z',
+          model: 'gpt-5',
+          mode: 'agent',
+          preview: 'Preview should stay preview-only',
+          relation: 'side' as const,
+          parentThreadId: 'parent-thread',
+          parentTurnId: 'turn-1',
+          threadSource: 'subagent',
+          sidebarVisibility: 'side' as const,
+          titleSource: 'fallback',
+          agentNickname: 'Reviewer',
+          agentRole: 'code reviewer'
+        }]
+      }))
+    }
+    const adapter = createCodexAgentRuntimeAdapter(service as never)
+
+    await expect(adapter.listThreads({ settings: {} as never }, {
+      runtimeId: 'codex',
+      includeSide: true
+    })).resolves.toEqual([expect.objectContaining({
+      id: 'gui-child-thread',
+      backendThreadId: 'codex-child-thread',
+      title: 'Codex thread',
+      preview: 'Preview should stay preview-only',
+      relation: 'side',
+      parentThreadId: 'parent-thread',
+      parentTurnId: 'turn-1',
+      threadSource: 'subagent',
+      sidebarVisibility: 'side',
+      titleSource: 'fallback',
+      agentNickname: 'Reviewer',
+      agentRole: 'code reviewer'
+    })])
+  })
+
   it('keeps Codex thread blocks grouped by their source turn id', async () => {
     const service = {
       readThread: vi.fn(async () => ({

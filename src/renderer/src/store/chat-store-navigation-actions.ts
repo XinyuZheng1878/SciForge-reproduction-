@@ -8,7 +8,6 @@ import { formatWorkspacePickerError } from '../lib/format-workspace-picker-error
 import { formatRuntimeError } from '../lib/format-runtime-error'
 import {
   deriveThreadTitleFromPrompt,
-  hasInternalPromptThreadTitle,
   hasPlaceholderThreadTitle,
   shouldAutoTitleThread
 } from '../lib/thread-title'
@@ -110,16 +109,16 @@ function titleFromLocalUserBlocks(blocks: ChatState['blocks']): string | null {
   for (const block of blocks) {
     if (block.kind !== 'user' || isRemoteChannelManagedBy(block.managedBy)) continue
     const text = block.meta?.displayText?.trim() || block.text.trim()
-    if (!text || hasInternalPromptThreadTitle(text)) continue
+    if (!text) continue
     const title = deriveThreadTitleFromPrompt(text)
-    if (!title || hasPlaceholderThreadTitle(title) || hasInternalPromptThreadTitle(title)) continue
+    if (!title || hasPlaceholderThreadTitle(title)) continue
     return title
   }
   return null
 }
 
 function threadNeedsSidebarTitle(thread: Pick<NormalizedThread, 'id' | 'title'>): boolean {
-  return shouldAutoTitleThread(thread) || hasInternalPromptThreadTitle(thread.title)
+  return shouldAutoTitleThread(thread)
 }
 
 function activeThreadFilteredFromSidebar(options: {

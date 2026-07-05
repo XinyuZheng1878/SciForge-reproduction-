@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NormalizedThread } from '../agent/types'
-import { getDialogThreadTitle, getDisplayThreadTitle } from './thread-title'
+import { getDefaultThreadTitle, getDialogThreadTitle, getDisplayThreadTitle } from './thread-title'
 
 function thread(overrides: Partial<NormalizedThread>): NormalizedThread {
   return {
@@ -14,28 +14,23 @@ function thread(overrides: Partial<NormalizedThread>): NormalizedThread {
 }
 
 describe('thread-title', () => {
-  it('falls back to preview text when a runtime prompt leaks into the thread title', () => {
-    const leakedTitle = [
-      '<sciforge_runtime_instruction>',
-      'When an advertised specialized MCP tool directly matches the user request, use that tool first.',
-      '</sciforge_runtime_instruction>'
-    ].join('\n')
-
-    expect(
-      getDisplayThreadTitle(thread({
-        title: leakedTitle,
-        preview: '帮我启动项目服务，然后替换 README 里的 gif'
-      }))
-    ).toBe('帮我启动项目服务，然后替换 README 里的 gif')
-  })
-
-  it('falls back to preview text when the raw title is a runtime placeholder', () => {
+  it('does not derive display titles from preview text', () => {
     expect(
       getDisplayThreadTitle(thread({
         title: 'Codex thread',
+        preview: '帮我启动项目服务，然后替换 README 里的 gif'
+      }))
+    ).toBe(getDefaultThreadTitle())
+  })
+
+  it('uses structured titleSource to hide non-display runtime titles', () => {
+    expect(
+      getDisplayThreadTitle(thread({
+        title: 'raw runtime setup block',
+        titleSource: 'internal_prompt',
         preview: '继续修复同一个 session 生成新会话的问题'
       }))
-    ).toBe('继续修复同一个 session 生成新会话的问题')
+    ).toBe(getDefaultThreadTitle())
   })
 
   it('keeps confirmation titles single-line and bounded', () => {

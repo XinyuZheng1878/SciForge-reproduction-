@@ -4,6 +4,7 @@ import type {
   WorkspaceHtmlPreviewResult,
   WorkspaceImageReadResult
 } from '@shared/workspace-file'
+import type { VisibleContextResource } from '@shared/visible-context'
 import {
   createPdfAnchor,
   type PdfAnnotationKind,
@@ -20,9 +21,10 @@ import {
   FilePenLine,
   Eye,
   Loader2,
+  MessageSquareText,
   PanelRightClose,
-  Save,
-  StickyNote
+  RefreshCw,
+  Save
 } from 'lucide-react'
 import {
   useEffect,
@@ -31,12 +33,18 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type ReactElement
+  type ReactElement,
+  type WheelEvent as ReactWheelEvent
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatFilePathForDisplay } from '../lib/diff-stats'
+import {
+  resolveContentZoomWheel,
+  stepContentScale
+} from '../lib/content-zoom-shortcuts'
 import { openSafeExternalUrl } from '../lib/open-external'
 import { openWorkspacePathInEditor } from '../lib/open-workspace-path'
+import { registerVisibleContextComponent } from '../lib/visible-context'
 import {
   highlightCodeHtml,
   languageFromFilePath,
@@ -98,6 +106,10 @@ type TextFileSaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const COPY_RESET_MS = 1400
 const PDF_SIDECAR_SAVE_DEBOUNCE_MS = 180
+const PREVIEW_MIN_SCALE = 0.65
+const PREVIEW_MAX_SCALE = 2.4
+const PREVIEW_SCALE_STEP = 0.1
+const DEFAULT_PREVIEW_SCALE = 1
 const IMAGE_PREVIEW_EXTENSIONS = new Set([
   '.png',
   '.jpg',
@@ -141,6 +153,23 @@ function isHtmlPreviewPath(path: string): boolean {
 
 function splitPath(path: string): string[] {
   return path.split(/[/\\]/).filter(Boolean)
+}
+
+function relativePathForVisibleContext(path: string, workspaceRoot: string): string | undefined {
+  const normalizedPath = path.replaceAll('\\', '/')
+  const normalizedRoot = workspaceRoot.replaceAll('\\', '/').replace(/\/+$/, '')
+  if (!normalizedRoot) return undefined
+  if (normalizedPath === normalizedRoot) return ''
+  if (normalizedPath.startsWith(`${normalizedRoot}/`)) {
+    return normalizedPath.slice(normalizedRoot.length + 1)
+  }
+  if (!normalizedPath.startsWith('/')) return normalizedPath
+  return undefined
+}
+
+function workspaceFileResourceUriForVisibleContext(relativePath: string | undefined): string | undefined {
+  if (relativePath === undefined) return undefined
+  return `workspace://file/${relativePath.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`
 }
 
 function relativePathSegments(path: string, workspaceRoot: string): string[] {
@@ -205,6 +234,16 @@ function isImagePreviewTarget(target: WorkspaceFileTarget): boolean {
   return kind === 'image' || isImagePreviewPath(target.path)
 }
 
+function nextPreviewScale(value: number, direction: 1 | -1): number {
+  return stepContentScale(value, direction, {
+    min: PREVIEW_MIN_SCALE,
+    max: PREVIEW_MAX_SCALE,
+    step: PREVIEW_SCALE_STEP
+  })
+}
+
+type PreviewZoomStyle = CSSProperties & { zoom?: number }
+
 export function WorkspaceFilePreviewPanel({
   target,
   workspaceRoot,
@@ -222,11 +261,14 @@ export function WorkspaceFilePreviewPanel({
   const [htmlPreview, setHtmlPreview] = useState<WorkspaceHtmlPreviewResult | null>(null)
   const [htmlPreviewLoading, setHtmlPreviewLoading] = useState(false)
   const [htmlPreviewRefreshKey, setHtmlPreviewRefreshKey] = useState(0)
+  const [previewReloadKey, setPreviewReloadKey] = useState(0)
+  const [previewScale, setPreviewScale] = useState(DEFAULT_PREVIEW_SCALE)
   const [textDraft, setTextDraft] = useState('')
   const [textSavedContent, setTextSavedContent] = useState('')
   const [textSaveState, setTextSaveState] = useState<TextFileSaveState>('idle')
   const [textSaveError, setTextSaveError] = useState<string | null>(null)
   const [pdfSidecar, setPdfSidecar] = useState<PdfAnnotationSidecar | null>(null)
+  const [pdfSidecarPath, setPdfSidecarPath] = useState<string | null>(null)
   const [pdfAnnotationsOpen, setPdfAnnotationsOpen] = useState(false)
   const [pdfAnnotationPackageAction, setPdfAnnotationPackageAction] = useState<'export' | 'import' | 'reload' | null>(null)
   const [selectedPdfThreadId, setSelectedPdfThreadId] = useState<string | null>(null)
@@ -281,7 +323,11 @@ export function WorkspaceFilePreviewPanel({
     return () => {
       cancelled = true
     }
-  }, [target, workspaceRoot])
+  }, [previewReloadKey, target, workspaceRoot])
+
+  useEffect(() => {
+    setPreviewScale(DEFAULT_PREVIEW_SCALE)
+  }, [result?.ok ? result.path : target?.path])
 
   useEffect(() => {
     if (!result?.ok || result.kind !== 'text' || !result.line) return
@@ -351,6 +397,25 @@ export function WorkspaceFilePreviewPanel({
         '--ds-file-preview-active-line': activeLine - 1
       } as CSSProperties)
     : undefined
+  const previewZoomStyle = useMemo<PreviewZoomStyle>(
+    () => previewScale === DEFAULT_PREVIEW_SCALE ? {} : { zoom: previewScale },
+    [previewScale]
+  )
+  const zoomPreviewIn = useCallback((): void => {
+    setPreviewScale((value) => nextPreviewScale(value, 1))
+  }, [])
+  const zoomPreviewOut = useCallback((): void => {
+    setPreviewScale((value) => nextPreviewScale(value, -1))
+  }, [])
+
+  const handlePreviewZoomWheel = useCallback((event: ReactWheelEvent<HTMLElement>): void => {
+    const direction = resolveContentZoomWheel(event)
+    if (!direction) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (direction === 'in') zoomPreviewIn()
+    else zoomPreviewOut()
+  }, [zoomPreviewIn, zoomPreviewOut])
 
   const openDirectoryFromBreadcrumb = useCallback((directoryPath: string): void => {
     onOpenDirectory?.({
@@ -358,6 +423,11 @@ export function WorkspaceFilePreviewPanel({
       path: directoryPath
     })
   }, [onOpenDirectory, target?.workspaceRoot, workspaceRoot])
+
+  const refreshPreview = useCallback((): void => {
+    if (!target || loading) return
+    setPreviewReloadKey((key) => key + 1)
+  }, [loading, target])
 
   useEffect(() => {
     if (!result?.ok || result.kind !== 'text') {
@@ -465,6 +535,7 @@ export function WorkspaceFilePreviewPanel({
           return
         }
         setPdfSidecar(saveResult.sidecar)
+        setPdfSidecarPath(saveResult.path)
       }).catch((error) => {
         showPdfNotice({ tone: 'error', message: error instanceof Error ? error.message : String(error) })
       })
@@ -506,20 +577,133 @@ export function WorkspaceFilePreviewPanel({
     if (!activePdfAnnotationId) return []
     return pdfAnnotationOverlays.filter((overlay) => overlay.id === activePdfAnnotationId)
   }, [activePdfAnnotationId, pdfAnnotationDisplayMode, pdfAnnotationOverlays])
+  const visibleContextResources = useMemo<VisibleContextResource[]>(() => {
+    const previewPath = result?.ok ? result.path : target?.path
+    if (!previewPath) return []
+    const previewWorkspaceRoot = target?.workspaceRoot ?? workspaceRoot
+    const relativePath = relativePathForVisibleContext(previewPath, previewWorkspaceRoot)
+    const resources: VisibleContextResource[] = [{
+      kind: 'workspaceFile',
+      role: 'preview-target',
+      title: fileNameFromPath(previewPath),
+      accessHint: 'Use gui_workspace_preview/read with workspaceRoot and relativePath when additional content is needed.',
+      workspaceRoot: previewWorkspaceRoot,
+      path: previewPath,
+      relativePath,
+      resourceUri: workspaceFileResourceUriForVisibleContext(relativePath),
+      name: fileNameFromPath(previewPath),
+      fileKind: result?.ok ? result.kind : undefined,
+      mimeType: result?.ok && 'mimeType' in result ? result.mimeType : undefined,
+      size: result?.ok && 'size' in result ? result.size : undefined,
+      mtimeMs: result?.ok && 'mtimeMs' in result ? result.mtimeMs : undefined
+    }]
+
+    if (pdfPath && pdfSidecar) {
+      const sidecarRelativePath = pdfSidecarPath
+        ? relativePathForVisibleContext(pdfSidecarPath, pdfWorkspaceRoot)
+        : undefined
+      resources.push({
+        kind: 'pdfAnnotations',
+        role: 'annotation-sidecar',
+        title: 'PDF annotations',
+        accessHint: 'Use gui_workspace_read with workspaceRoot and relativePath to inspect annotation JSON only when needed.',
+        workspaceRoot: pdfWorkspaceRoot,
+        path: pdfSidecarPath ?? undefined,
+        relativePath: sidecarRelativePath,
+        resourceUri: workspaceFileResourceUriForVisibleContext(sidecarRelativePath),
+        name: sidecarRelativePath ? fileNameFromPath(sidecarRelativePath) : undefined,
+        fileKind: 'json',
+        mimeType: 'application/json',
+        annotationCount: pdfSidecar.annotations.length,
+        threadCount: pdfSidecar.threads.length,
+        openThreadCount: pdfSidecar.threads.filter((thread) => thread.status !== 'resolved').length,
+        selectedThreadId: selectedPdfThreadId,
+        updatedAt: pdfSidecar.updatedAt,
+        metadata: {
+          pdfPath,
+          pdfFingerprint: pdfSidecar.pdfFingerprint.sha256,
+          displayMode: pdfAnnotationDisplayMode,
+          annotationsPanelOpen: pdfAnnotationsOpen
+        }
+      })
+    }
+
+    return resources
+  }, [
+    pdfAnnotationDisplayMode,
+    pdfAnnotationsOpen,
+    pdfPath,
+    pdfSidecar,
+    pdfSidecarPath,
+    pdfWorkspaceRoot,
+    result,
+    selectedPdfThreadId,
+    target?.path,
+    target?.workspaceRoot,
+    workspaceRoot
+  ])
+
+  useEffect(() => {
+    const previewPath = result?.ok ? result.path : target?.path
+    if (!previewPath) return undefined
+    const previewKind = result?.ok ? result.kind : loading ? 'loading' : 'unknown'
+    return registerVisibleContextComponent({
+      id: 'right-sidebar.file-preview',
+      region: 'right-sidebar',
+      component: 'file-preview',
+      title: fileNameFromPath(previewPath),
+      visible: true,
+      priority: 20,
+      updatedAt: new Date().toISOString(),
+      summary: result?.ok
+        ? `Previewing ${result.kind} file ${fileNameFromPath(previewPath)}.`
+        : loading
+          ? `Loading file preview for ${fileNameFromPath(previewPath)}.`
+          : `File preview is open for ${fileNameFromPath(previewPath)}.`,
+      resources: visibleContextResources,
+      state: {
+        path: previewPath,
+        workspaceRoot: target?.workspaceRoot ?? workspaceRoot,
+        kind: previewKind,
+        loading,
+        ok: result?.ok ?? null,
+        error: result && !result.ok ? result.message : null,
+        line: result?.ok && result.kind === 'text' ? result.line ?? null : target?.line ?? null,
+        column: result?.ok && result.kind === 'text' ? result.column ?? null : target?.column ?? null,
+        pdfAnnotationThreadCount: pdfSidecar?.threads.length ?? null,
+        pdfAnnotationSelectedThreadId: selectedPdfThreadId,
+        pdfAnnotationsPanelOpen: pdfAnnotationsOpen
+      }
+    })
+  }, [
+    loading,
+    pdfAnnotationsOpen,
+    pdfSidecar?.threads.length,
+    result,
+    selectedPdfThreadId,
+    target?.column,
+    target?.line,
+    target?.path,
+    target?.workspaceRoot,
+    visibleContextResources,
+    workspaceRoot
+  ])
 
   useEffect(() => {
     if (!pdfPath || pdfMtimeMs == null) {
       pdfSidecarLoadKeyRef.current = ''
       setPdfSidecar(null)
+      setPdfSidecarPath(null)
       setSelectedPdfThreadId(null)
       setHoveredPdfThreadId(null)
       setPdfJumpToRect(null)
       return
     }
-    const loadKey = `${pdfWorkspaceRoot}\n${pdfPath}\n${pdfMtimeMs}`
+    const loadKey = `${pdfWorkspaceRoot}\n${pdfPath}\n${pdfMtimeMs}\n${previewReloadKey}`
     if (pdfSidecarLoadKeyRef.current === loadKey) return
     pdfSidecarLoadKeyRef.current = loadKey
     setPdfSidecar(null)
+    setPdfSidecarPath(null)
     setSelectedPdfThreadId(null)
     setHoveredPdfThreadId(null)
     setPdfJumpToRect(null)
@@ -539,6 +723,7 @@ export function WorkspaceFilePreviewPanel({
         return
       }
       setPdfSidecar(loadResult.sidecar)
+      setPdfSidecarPath(loadResult.path)
       if (loadResult.warnings.length > 0) {
         showPdfNotice({ tone: 'error', message: loadResult.warnings[0] })
       }
@@ -548,7 +733,7 @@ export function WorkspaceFilePreviewPanel({
     return () => {
       cancelled = true
     }
-  }, [pdfMtimeMs, pdfPath, pdfWorkspaceRoot, showPdfNotice, t])
+  }, [pdfMtimeMs, pdfPath, pdfWorkspaceRoot, previewReloadKey, showPdfNotice, t])
 
   const addPdfAnnotationFromSelection = useCallback((action: WritePdfAnnotationAction, pdfSelection: WritePdfSelection): void => {
     if (!pdfSidecar) {
@@ -722,6 +907,7 @@ export function WorkspaceFilePreviewPanel({
             conflicts: []
           }
       setPdfSidecar(merged.sidecar)
+      setPdfSidecarPath(importResult.path)
       setSelectedPdfThreadId(null)
       setPdfJumpToRect(null)
       savePdfSidecarSoon(merged.sidecar)
@@ -776,6 +962,7 @@ export function WorkspaceFilePreviewPanel({
             conflicts: []
           }
       setPdfSidecar(merged.sidecar)
+      setPdfSidecarPath(loadResult.path)
       setSelectedPdfThreadId(null)
       setPdfJumpToRect(null)
       savePdfSidecarSoon(merged.sidecar)
@@ -872,14 +1059,24 @@ export function WorkspaceFilePreviewPanel({
             <button
               type="button"
               onClick={() => setPdfAnnotationsOpen((open) => !open)}
-              className={`ds-code-sidebar-icon-button ${pdfAnnotationsOpen ? 'text-accent' : ''}`}
+              className={`ds-code-sidebar-icon-button ${pdfAnnotationsOpen ? 'bg-accent/10 text-accent' : ''}`}
               title={t('filePreviewOpenPdfAnnotations')}
               aria-label={t('filePreviewOpenPdfAnnotations')}
               aria-pressed={pdfAnnotationsOpen}
             >
-              <StickyNote className="h-4 w-4" strokeWidth={1.85} />
+              <MessageSquareText className="h-4 w-4" strokeWidth={1.9} />
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={refreshPreview}
+            disabled={!target || loading}
+            className="ds-code-sidebar-icon-button"
+            title={loading ? t('filePreviewRefreshing') : t('filePreviewRefresh')}
+            aria-label={loading ? t('filePreviewRefreshing') : t('filePreviewRefresh')}
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} strokeWidth={1.8} />
+          </button>
           <button
             type="button"
             onClick={openInEditor}
@@ -975,32 +1172,35 @@ export function WorkspaceFilePreviewPanel({
             {t('filePreviewLoading')}
           </div>
         ) : result?.ok && result.kind === 'pdf' ? (
-          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-            {pdfNotice ? (
-              <div className={`absolute left-3 right-3 top-3 z-30 rounded-lg border px-3 py-2 text-[12px] leading-5 shadow-sm ${
-                pdfNotice.tone === 'success'
-                  ? 'border-emerald-500/25 bg-emerald-50/95 text-emerald-800 dark:bg-emerald-950/85 dark:text-emerald-100'
-                  : 'border-red-500/25 bg-red-50/95 text-red-800 dark:bg-red-950/85 dark:text-red-100'
-              }`}>
-                {pdfNotice.message}
-              </div>
-            ) : null}
-            <WritePdfViewer
-              filePath={result.path}
-              dataBase64={result.dataBase64}
-              size={result.size}
-              mtimeMs={result.mtimeMs}
-              workspaceRoot={target.workspaceRoot ?? workspaceRoot}
-              annotationOverlays={visiblePdfAnnotationOverlays}
-              activeAnnotationId={activePdfAnnotationId}
-              jumpToRect={pdfJumpToRect}
-              onSelectionChange={() => undefined}
-              onAnnotationAction={addPdfAnnotationFromSelection}
-              onAnnotationSelect={selectPdfAnnotationOverlay}
-              onOpenAnnotations={openPdfAnnotations}
-            />
+          <div className="relative flex min-h-0 flex-1 overflow-hidden">
+            <div className="relative flex min-h-0 min-w-0 flex-1">
+              {pdfNotice ? (
+                <div className={`absolute left-3 right-3 top-3 z-30 rounded-lg border px-3 py-2 text-[12px] leading-5 shadow-sm ${
+                  pdfNotice.tone === 'success'
+                    ? 'border-emerald-500/25 bg-emerald-50/95 text-emerald-800 dark:bg-emerald-950/85 dark:text-emerald-100'
+                    : 'border-red-500/25 bg-red-50/95 text-red-800 dark:bg-red-950/85 dark:text-red-100'
+                }`}>
+                  {pdfNotice.message}
+                </div>
+              ) : null}
+              <WritePdfViewer
+                filePath={result.path}
+                dataBase64={result.dataBase64}
+                size={result.size}
+                mtimeMs={result.mtimeMs}
+                workspaceRoot={target.workspaceRoot ?? workspaceRoot}
+                annotationOverlays={visiblePdfAnnotationOverlays}
+                activeAnnotationId={activePdfAnnotationId}
+                jumpToRect={pdfJumpToRect}
+                onSelectionChange={() => undefined}
+                onAnnotationAction={addPdfAnnotationFromSelection}
+                onAnnotationSelect={selectPdfAnnotationOverlay}
+                onOpenAnnotations={openPdfAnnotations}
+                className="flex-1"
+              />
+            </div>
             {pdfAnnotationsOpen ? (
-              <div className="absolute inset-y-0 right-0 z-20 w-[min(380px,92%)] border-l border-ds-border-muted bg-white shadow-2xl dark:bg-ds-canvas">
+              <div className="z-20 w-[clamp(300px,34%,380px)] shrink-0 border-l border-ds-border-muted bg-white dark:bg-ds-canvas">
                 <WritePdfAnnotationsPanel
                   sidecar={pdfSidecar}
                   selectedThreadId={selectedPdfThreadId}
@@ -1039,12 +1239,20 @@ export function WorkspaceFilePreviewPanel({
           </div>
         ) : result?.ok && result.kind === 'image' ? (
           <div className="flex min-h-0 flex-1 flex-col bg-ds-main/70">
-            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-              <img
-                src={result.dataUrl}
-                alt={fileNameFromPath(result.path)}
-                className="max-h-full max-w-full object-contain"
-              />
+            <div
+              className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4"
+              onWheelCapture={handlePreviewZoomWheel}
+            >
+              <div
+                className="inline-flex min-h-full min-w-full items-center justify-center"
+                style={previewZoomStyle}
+              >
+                <img
+                  src={result.dataUrl}
+                  alt={fileNameFromPath(result.path)}
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
             </div>
           </div>
         ) : result?.ok && result.kind === 'text' ? (
@@ -1179,18 +1387,24 @@ export function WorkspaceFilePreviewPanel({
                     <div
                       ref={scrollRef}
                       className="min-h-0 flex-1 overflow-auto px-5 py-5"
+                      onWheelCapture={handlePreviewZoomWheel}
                     >
-                      <WriteMarkdownPreview
-                        content={textDraft}
-                        isMarkdown
-                        filePath={result.path}
-                        workspaceRoot={target?.workspaceRoot ?? workspaceRoot}
-                        previewErrorMessage={t('writePreviewErrorFallback')}
-                      />
+                      <div style={previewZoomStyle}>
+                        <WriteMarkdownPreview
+                          content={textDraft}
+                          isMarkdown
+                          filePath={result.path}
+                          workspaceRoot={target?.workspaceRoot ?? workspaceRoot}
+                          previewErrorMessage={t('writePreviewErrorFallback')}
+                        />
+                      </div>
                     </div>
                   ) : null}
                   {showHtmlPreview ? (
-                    <div className="relative min-h-0 flex-1 bg-white">
+                    <div
+                      className="relative min-h-0 flex-1 overflow-auto bg-white"
+                      onWheelCapture={handlePreviewZoomWheel}
+                    >
                       {htmlPreviewLoading ? (
                         <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-white text-[12px] text-slate-500">
                           <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.8} />
@@ -1202,14 +1416,16 @@ export function WorkspaceFilePreviewPanel({
                           {htmlPreview.message}
                         </div>
                       ) : htmlPreview?.ok ? (
-                        <iframe
-                          key={htmlPreview.url}
-                          src={htmlPreview.url}
-                          title={fileNameFromPath(result.path)}
-                          className="h-full w-full border-0 bg-white"
-                          sandbox="allow-downloads allow-forms allow-modals allow-scripts"
-                          referrerPolicy="no-referrer"
-                        />
+                        <div className="h-full min-h-full w-full min-w-full" style={previewZoomStyle}>
+                          <iframe
+                            key={htmlPreview.url}
+                            src={htmlPreview.url}
+                            title={fileNameFromPath(result.path)}
+                            className="h-full w-full border-0 bg-white"
+                            sandbox="allow-downloads allow-forms allow-modals allow-scripts"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
                       ) : null}
                     </div>
                   ) : null}
@@ -1219,10 +1435,11 @@ export function WorkspaceFilePreviewPanel({
               <div
                 ref={scrollRef}
                 className="ds-file-preview-scroll min-h-0 flex-1 overflow-auto font-mono text-[12px] leading-[22px] text-ds-ink"
+                onWheelCapture={handlePreviewZoomWheel}
               >
                 <div
                   className="ds-file-preview-code-surface"
-                  style={codeSurfaceStyle}
+                  style={{ ...(codeSurfaceStyle ?? {}), ...previewZoomStyle }}
                 >
                   {activeLine ? (
                     <div className="ds-file-preview-active-line" aria-hidden="true" />

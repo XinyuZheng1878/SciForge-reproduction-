@@ -1,11 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { readFile, rename, rm, stat } from 'node:fs/promises'
-import { basename, dirname, extname, join } from 'node:path'
+import { readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path'
 import JSZip from 'jszip'
 import {
   PDF_ANNOTATION_DEFAULT_DIR,
-  PDF_ANNOTATION_LEGACY_SUFFIX,
   PDF_ANNOTATION_PACKAGE_SUFFIX,
   createEmptyPdfAnnotationSidecar,
   migratePdfAnnotationSidecar,
@@ -35,6 +34,7 @@ import {
 
 const MAX_SIDECAR_JSON_BYTES = 16 * 1024 * 1024
 const MAX_IMPORT_PACKAGE_BYTES = 160 * 1024 * 1024
+const MAX_SIDECAR_PROMOTION_CANDIDATES = 200
 
 type ResolvedPdfTarget = {
   pdfPath: string
@@ -42,10 +42,16 @@ type ResolvedPdfTarget = {
   sidecarRoot: string
   defaultSidecarTarget: ResolvedWorkspaceWriteTarget
   defaultSidecarPath: string
-  legacySidecarPath: string
   exportPackageTarget: ResolvedWorkspaceWriteTarget
   exportPackagePath: string
   fingerprint: PdfFingerprint
+}
+
+type PdfAnnotationLoadCandidate = {
+  path: string
+  sidecar: PdfAnnotationSidecar
+  currentFingerprint: boolean
+  updatedAt: string
 }
 
 type ResolvePdfAnnotationTargetOptions = {
@@ -61,6 +67,24 @@ function normalizeWorkspaceRoot(workspaceRoot: string | undefined): string | und
 
 function withoutPdfExtension(name: string): string {
   return extname(name).toLowerCase() === '.pdf' ? name.slice(0, -4) : name
+}
+
+function normalizeDocumentIdentityPath(value: string): string {
+  return value.replace(/\\/g, '/')
+}
+
+function pdfDocumentIdentityPath(pdfPath: string, sidecarRoot: string): string {
+  const relativePath = relative(sidecarRoot, pdfPath)
+  if (relativePath && !relativePath.startsWith('..') && !isAbsolute(relativePath)) {
+    return normalizeDocumentIdentityPath(relativePath)
+  }
+  return normalizeDocumentIdentityPath(pdfPath)
+}
+
+function pdfDocumentIdentityKey(pdfPath: string, sidecarRoot: string): string {
+  return createHash('sha256')
+    .update(pdfDocumentIdentityPath(pdfPath, sidecarRoot))
+    .digest('hex')
 }
 
 async function sha256File(path: string): Promise<string> {
@@ -97,11 +121,10 @@ async function resolvePdfAnnotationTarget(
     ? await canonicalPath(workspaceRoot)
     : dirname(pdfPath)
   const defaultSidecarTarget = await resolveSafeWorkspaceWriteTarget(
-    join(PDF_ANNOTATION_DEFAULT_DIR, `${fingerprint.sha256}.json`),
+    join(PDF_ANNOTATION_DEFAULT_DIR, `${pdfDocumentIdentityKey(pdfPath, sidecarRoot)}.json`),
     sidecarRoot,
     { createParentDirectories: options?.createDefaultSidecarParents ?? false }
   )
-  const legacySidecarPath = join(dirname(pdfPath), `${basename(pdfPath)}${PDF_ANNOTATION_LEGACY_SUFFIX}`)
   const exportPackageTarget = await resolveSafeWorkspaceWriteTarget(
     `${withoutPdfExtension(basename(pdfPath))}${PDF_ANNOTATION_PACKAGE_SUFFIX}`,
     sidecarRoot,
@@ -113,7 +136,6 @@ async function resolvePdfAnnotationTarget(
     sidecarRoot,
     defaultSidecarTarget,
     defaultSidecarPath: defaultSidecarTarget.path,
-    legacySidecarPath,
     exportPackageTarget,
     exportPackagePath: exportPackageTarget.path,
     fingerprint
@@ -161,32 +183,94 @@ function withResolvedFingerprint(sidecar: PdfAnnotationSidecar, target: Resolved
   })
 }
 
+function hasPdfAnnotationContent(sidecar: PdfAnnotationSidecar): boolean {
+  return sidecar.anchors.length > 0 || sidecar.annotations.length > 0 || sidecar.threads.length > 0
+}
+
+function isPdfAnnotationSidecarForTarget(sidecar: PdfAnnotationSidecar, resolved: ResolvedPdfTarget): boolean {
+  const sourcePath = sidecar.manifest.sourcePdfPath?.trim()
+  return sourcePath === resolved.pdfPath || sidecar.pdfFingerprint.sha256 === resolved.fingerprint.sha256
+}
+
+async function readPdfAnnotationSidecar(path: string): Promise<PdfAnnotationSidecar> {
+  return migratePdfAnnotationSidecar(await readJsonFile(path))
+}
+
+async function matchingPdfAnnotationSidecarCandidates(
+  resolved: ResolvedPdfTarget,
+  warnings: string[]
+): Promise<PdfAnnotationLoadCandidate[]> {
+  const sidecarDirectory = join(resolved.sidecarRoot, PDF_ANNOTATION_DEFAULT_DIR)
+  let entries: string[]
+  try {
+    entries = await readdir(sidecarDirectory)
+  } catch {
+    return []
+  }
+  const out: PdfAnnotationLoadCandidate[] = []
+  const candidateEntries = entries
+    .filter((name) => name.endsWith('.json'))
+    .sort()
+    .slice(0, MAX_SIDECAR_PROMOTION_CANDIDATES)
+  for (const entry of candidateEntries) {
+    const candidatePath = join(sidecarDirectory, entry)
+    if (candidatePath === resolved.defaultSidecarPath) continue
+    try {
+      const rawSidecar = await readPdfAnnotationSidecar(candidatePath)
+      if (!hasPdfAnnotationContent(rawSidecar)) continue
+      if (!isPdfAnnotationSidecarForTarget(rawSidecar, resolved)) continue
+      out.push({
+        path: candidatePath,
+        sidecar: withResolvedFingerprint(rawSidecar, resolved),
+        currentFingerprint: rawSidecar.pdfFingerprint.sha256 === resolved.fingerprint.sha256,
+        updatedAt: rawSidecar.updatedAt || rawSidecar.manifest.updatedAt
+      })
+    } catch (error) {
+      warnings.push(`annotation sidecar skipped: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  return out.sort((a, b) =>
+    Number(b.currentFingerprint) - Number(a.currentFingerprint) ||
+    b.updatedAt.localeCompare(a.updatedAt) ||
+    a.path.localeCompare(b.path)
+  )
+}
+
 export async function loadPdfAnnotationSidecar(
   target: PdfAnnotationSidecarTarget
 ): Promise<PdfAnnotationSidecarLoadResult> {
   try {
     const resolved = await resolvePdfAnnotationTarget(target)
     const warnings: string[] = []
-    const candidates: Array<{ path: string; source: 'default' | 'legacy' }> = [
-      { path: resolved.defaultSidecarPath, source: 'default' },
-      { path: resolved.legacySidecarPath, source: 'legacy' }
-    ]
-
-    for (const candidate of candidates) {
-      if (!(await pathExists(candidate.path))) continue
+    if (await pathExists(resolved.defaultSidecarPath)) {
       try {
-        const sidecar = withResolvedFingerprint(migratePdfAnnotationSidecar(await readJsonFile(candidate.path)), resolved)
+        const sidecar = withResolvedFingerprint(await readPdfAnnotationSidecar(resolved.defaultSidecarPath), resolved)
         return {
           ok: true,
           sidecar,
-          path: candidate.path,
-          source: candidate.source,
+          path: resolved.defaultSidecarPath,
+          source: 'default',
           pdfFingerprint: resolved.fingerprint,
-          ...(candidate.source === 'legacy' ? { legacyPath: candidate.path } : {}),
           warnings
         }
       } catch (error) {
-        warnings.push(`${candidate.source} sidecar skipped: ${error instanceof Error ? error.message : String(error)}`)
+        warnings.push(`annotation sidecar skipped: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    const promotedCandidate = (await matchingPdfAnnotationSidecarCandidates(resolved, warnings))[0]
+    if (promotedCandidate) {
+      const writableResolved = await resolvePdfAnnotationTarget(target, { createDefaultSidecarParents: true })
+      const sidecar = withResolvedFingerprint(promotedCandidate.sidecar, writableResolved)
+      const parsed = pdfAnnotationSidecarSchema.parse(sidecar)
+      await writeJsonFile(writableResolved.defaultSidecarTarget, parsed)
+      return {
+        ok: true,
+        sidecar: parsed,
+        path: writableResolved.defaultSidecarPath,
+        source: 'default',
+        pdfFingerprint: writableResolved.fingerprint,
+        warnings
       }
     }
 

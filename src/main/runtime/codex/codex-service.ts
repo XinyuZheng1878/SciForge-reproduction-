@@ -31,6 +31,7 @@ import type {
 } from './codex-runtime-api'
 import type {
   AgentRuntimeEvent,
+  AgentRuntimeThreadSidebarVisibility,
   AgentRuntimeUsage,
   AgentRuntimeUsageQuery,
   AgentRuntimeUsageResponse
@@ -76,7 +77,10 @@ import type { ImageGenerationMcpLaunchConfig } from '../../image-generation-mcp-
 import type { PptMasterMcpLaunchConfig } from '../../ppt-master-mcp-config'
 import type { SciforgeCanvasMcpLaunchConfig } from '../../sciforge-canvas-mcp-config'
 import { buildCodexManagedGuiMcpServers } from '../../gui-mcp-registry'
-import { WorkspaceIntelToolNames } from '../../../../packages/workers/workspace-intel/src/contract'
+import {
+  WorkspaceIntelToolNames,
+  type WorkspaceIntelToolName
+} from '../../../../packages/workers/workspace-intel/src/contract'
 import {
   createCodexDynamicMcpToolBridge,
   type CodexAppServerDynamicToolCallRequest,
@@ -191,6 +195,7 @@ const CODEX_COMMAND_DOWNLOAD_INSTRUCTION_LINES = [
 const CODEX_SPECIALIZED_MCP_DEVELOPER_INSTRUCTIONS = [
   'SciForge may configure specialized MCP tools for this runtime.',
   'When an advertised specialized MCP tool directly matches the user request, use that tool before falling back to generic shell, curl, wget, ad hoc scripts, or direct scraping.',
+  'For requests about the current GUI, visible panes, right sidebar, previews, PDF annotations, selected text, or component state, first use `gui_visible_context` to discover the visible component/resource index, then follow the returned access hints.',
   'Use command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.',
   'For explicit computer_use, mouse, keyboard, browser, or GUI-control requests, continue through the computer_use tool actions instead of shell/open/osascript/screencapture/pbpaste fallbacks unless the user explicitly permits that fallback.',
   ...CODEX_COMMAND_DOWNLOAD_INSTRUCTION_LINES
@@ -213,13 +218,6 @@ const CODEX_PLACEHOLDER_THREAD_TITLES = new Set([
   'Agent Runtime thread',
   'Runtime thread'
 ])
-const CODEX_INTERNAL_PROMPT_TITLE_PATTERNS = [
-  /<\/?sciforge_runtime_instruction\b/i,
-  /Runtime context ledger for this thread/i,
-  /SciForge may configure specialized MCP tools/i,
-  /When an advertised specialized MCP tool directly matches/i,
-  /For explicit computer_use, mouse, keyboard, browser, or GUI-control requests/i
-]
 
 type CodexRuntimeEventSubscriber = {
   threadId: string
@@ -270,9 +268,9 @@ export class CodexRuntimeService {
   }
 
   async listThreads(options: CodexThreadListOptions = {}): Promise<CodexThreadListResult> {
-    const stored = await this.storedThreads({
+    const stored = (await this.storedThreads({
       includeArchived: options.includeArchived === true || options.archivedOnly === true
-    })
+    })).filter(isMaterializedStoredThread)
     try {
       const { client } = await this.ensureConnectedClient()
       const response = await client.listThreads({
@@ -282,10 +280,11 @@ export class CodexRuntimeService {
         ...(options.archivedOnly === true ? { archivedOnly: true } : {})
       })
       const liveThreads = readThreadList(response).map(normalizeThread)
-      const persisted = await this.persistThreads(liveThreads, {
+      const knownLiveThreads = liveThreads.filter((thread) => isKnownStoredThread(thread, stored))
+      const persisted = await this.persistThreads(knownLiveThreads, {
         preserveArchived: true
       })
-      const mappedLiveThreads = liveThreads.map((thread, index) => {
+      const mappedLiveThreads = knownLiveThreads.map((thread, index) => {
         const storedThread = persisted[index]
         return storedThread
           ? {
@@ -568,11 +567,17 @@ export class CodexRuntimeService {
       const settings = await this.options.settings()
       const runtime = getCodexRuntimeSettings(settings)
       const routerModel = codexModelRouterModel(settings)
-      const storedThread = await this.findStoredThread(payload.threadId)
+      let storedThread = await this.findStoredThread(payload.threadId)
       const workspace = resolveCodexWorkspace(settings, payload.workspace || storedThread?.workspace)
-      const modelText = codexSpecializedMcpGuidedTurnText(payload.text, this.hasDynamicMcpServersConfigured())
-      const modelDisplayText = payload.displayText ?? (modelText === payload.text ? undefined : payload.text)
+      const modelText = payload.text
+      const modelDisplayText = payload.displayText
       let codexThreadId = storedThread?.codexThreadId ?? payload.threadId
+      storedThread = storedThread ?? await this.ensureGuiThreadRecord({
+        guiThreadId: payload.threadId,
+        codexThreadId,
+        workspace
+      })
+      codexThreadId = storedThread?.codexThreadId ?? codexThreadId
       const coldStart = !this.isClientWarm()
       if (coldStart) {
         await this.emitRuntimeStatus({
@@ -1033,7 +1038,8 @@ export class CodexRuntimeService {
   private async requestWithThreadWorkspace(
     request: CodexAppServerDynamicToolCallRequest
   ): Promise<CodexAppServerDynamicToolCallRequest> {
-    if (!workspaceIntelToolNameForRequest(request)) return request
+    const toolName = workspaceIntelToolNameForRequest(request)
+    if (!toolName || !WORKSPACE_INTEL_THREAD_WORKSPACE_TOOLS.has(toolName)) return request
     const args = dynamicToolArgumentsRecord(request.arguments)
     if (!args || stringValue(args.workspaceRoot).trim()) return request
 
@@ -1397,8 +1403,27 @@ export class CodexRuntimeService {
       parentThreadId: thread.parentThreadId,
       parentTurnId: thread.parentTurnId,
       threadSource: thread.threadSource,
+      sidebarVisibility: thread.sidebarVisibility,
+      titleSource: thread.titleSource,
       agentNickname: thread.agentNickname,
       agentRole: thread.agentRole
+    })
+  }
+
+  private async ensureGuiThreadRecord(input: {
+    guiThreadId: string
+    codexThreadId: string
+    workspace: string
+  }): Promise<CodexStoredThread | null> {
+    if (!this.threadStore) return null
+    const existing = await this.threadStore.get(input.guiThreadId) ??
+      await this.threadStore.getByCodexThreadId(input.codexThreadId)
+    if (existing) return existing
+    return this.threadStore.upsert({
+      guiThreadId: input.guiThreadId,
+      codexThreadId: input.codexThreadId,
+      workspace: input.workspace,
+      title: CODEX_THREAD_FALLBACK_TITLE
     })
   }
 
@@ -1414,7 +1439,6 @@ export class CodexRuntimeService {
       inputs.push({
         codexThreadId: thread.codexThreadId ?? thread.id,
         workspace: thread.workspace,
-        title: thread.title,
         archived: thread.archived,
         preserveArchived: options.preserveArchived,
         latestTurnId: thread.latestTurnId,
@@ -1423,6 +1447,8 @@ export class CodexRuntimeService {
         parentThreadId: thread.parentThreadId,
         parentTurnId: thread.parentTurnId,
         threadSource: thread.threadSource,
+        sidebarVisibility: thread.sidebarVisibility,
+        titleSource: thread.titleSource,
         agentNickname: thread.agentNickname,
         agentRole: thread.agentRole
       })
@@ -1442,20 +1468,22 @@ export class CodexRuntimeService {
   ): Promise<CodexStoredEvent | null> {
     if (!this.eventStore) return null
     const storedThread = await this.threadStore?.get(threadId) ?? await this.threadStore?.getByCodexThreadId(threadId)
+    if (!storedThread) {
+      if ((await this.eventStore.latestSeq(threadId)) <= 0) return null
+      return this.eventStore.append(threadId, { ...event, threadId })
+    }
     const guiThreadId = storedThread?.guiThreadId ?? threadId
     const stored = await this.eventStore.append(guiThreadId, { ...event, threadId: guiThreadId })
-    if (storedThread || eventShouldUpsertThread(event)) {
-      const turnId = event.turnId || event.userMessage?.turnId
-      await this.threadStore?.upsert({
-        guiThreadId,
-        codexThreadId: storedThread?.codexThreadId ?? threadId,
-        workspace: storedThread?.workspace,
-        title: storedThread?.title,
-        latestSeq: stored.seq,
-        ...(turnId ? { latestTurnId: turnId } : {}),
-        ...(event.userMessage?.itemId ? { latestUserMessageId: event.userMessage.itemId } : {})
-      })
-    }
+    const turnId = event.turnId || event.userMessage?.turnId
+    await this.threadStore?.upsert({
+      guiThreadId,
+      codexThreadId: storedThread.codexThreadId,
+      workspace: storedThread.workspace,
+      title: storedThread.title,
+      latestSeq: stored.seq,
+      ...(turnId ? { latestTurnId: turnId } : {}),
+      ...(event.userMessage?.itemId ? { latestUserMessageId: event.userMessage.itemId } : {})
+    })
     return stored
   }
 
@@ -2068,6 +2096,29 @@ function mergeThreads(
   return [...byId.values()].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
 }
 
+function isKnownStoredThread(
+  thread: CodexNormalizedThread,
+  storedThreads: readonly CodexStoredThread[]
+): boolean {
+  const ids = new Set<string>()
+  for (const stored of storedThreads) {
+    if (stored.guiThreadId.trim()) ids.add(stored.guiThreadId.trim())
+    if (stored.codexThreadId.trim()) ids.add(stored.codexThreadId.trim())
+  }
+  return ids.has(thread.id.trim()) || Boolean(thread.codexThreadId?.trim() && ids.has(thread.codexThreadId.trim()))
+}
+
+function isMaterializedStoredThread(thread: CodexStoredThread): boolean {
+  return thread.latestSeq > 0 ||
+    Boolean(thread.latestTurnId?.trim()) ||
+    Boolean(thread.latestUserMessageId?.trim()) ||
+    thread.guiThreadId !== thread.codexThreadId ||
+    Boolean(thread.relation) ||
+    Boolean(thread.parentThreadId?.trim()) ||
+    Boolean(thread.threadSource?.trim()) ||
+    Boolean(thread.sidebarVisibility)
+}
+
 function filterThreadList(
   threads: CodexNormalizedThread[],
   options: CodexThreadListOptions
@@ -2098,7 +2149,11 @@ function filterThreadList(
 }
 
 function isSideOrChildThread(thread: CodexNormalizedThread): boolean {
-  return thread.relation === 'side' || isCodexChildThreadSource(thread.threadSource)
+  if (thread.sidebarVisibility === 'main') return false
+  if (thread.sidebarVisibility === 'side' || thread.sidebarVisibility === 'hidden') return true
+  return thread.relation === 'side' ||
+    isCodexChildThreadSource(thread.threadSource) ||
+    Boolean(thread.parentThreadId?.trim())
 }
 
 const EMPTY_PLACEHOLDER_THREAD_TITLES = new Set([
@@ -2127,10 +2182,12 @@ function storedThreadToNormalizedThread(thread: CodexStoredThread): CodexNormali
     workspace: thread.workspace,
     archived: thread.archived,
     latestTurnId: thread.latestTurnId,
-    relation: thread.relation ?? (isCodexChildThreadSource(thread.threadSource) ? 'side' : undefined),
+    relation: thread.relation ?? (isCodexChildThreadSource(thread.threadSource) || thread.parentThreadId ? 'side' : undefined),
     parentThreadId: thread.parentThreadId,
     parentTurnId: thread.parentTurnId,
     threadSource: thread.threadSource,
+    sidebarVisibility: thread.sidebarVisibility,
+    titleSource: thread.titleSource,
     agentNickname: thread.agentNickname,
     agentRole: thread.agentRole
   }
@@ -2526,21 +2583,6 @@ function turnStartParams(input: {
   }
 }
 
-function codexSpecializedMcpGuidedTurnText(text: string, specializedMcpConfigured: boolean): string {
-  if (!specializedMcpConfigured) return text
-  return [
-    '<sciforge_runtime_instruction>',
-    'SciForge has configured specialized MCP tools for this runtime.',
-    'When an advertised specialized MCP tool directly matches the user request, use that tool before falling back to generic shell, curl, wget, ad hoc scripts, or direct scraping.',
-    'Use command execution instead only when no advertised specialized tool fits, the specialized tool fails, or the user explicitly asks for a command-based check.',
-    'For explicit computer_use, mouse, keyboard, browser, or GUI-control requests, continue through the computer_use tool actions instead of shell/open/osascript/screencapture/pbpaste fallbacks unless the user explicitly permits that fallback.',
-    ...CODEX_COMMAND_DOWNLOAD_INSTRUCTION_LINES,
-    '</sciforge_runtime_instruction>',
-    '',
-    text
-  ].join('\n')
-}
-
 function mapApprovalPolicy(policy: ApprovalPolicy): 'never' | 'on-request' | 'untrusted' {
   if (policy === 'never' || policy === 'untrusted') return policy
   return 'on-request'
@@ -2617,37 +2659,29 @@ function safeQuestions(value: unknown): Array<Record<string, unknown>> {
   }))
 }
 
-function normalizeThreadTitle(name: string, preview: string): string {
-  return normalizeThreadTitleCandidate(name) ||
-    normalizeThreadTitleCandidate(preview) ||
-    CODEX_THREAD_FALLBACK_TITLE
+function normalizeThreadTitle(name: string): string {
+  return normalizeThreadTitleCandidate(name) || CODEX_THREAD_FALLBACK_TITLE
+}
+
+function normalizeThreadTitleSource(source: string, title: string): string {
+  if (!title || title === CODEX_THREAD_FALLBACK_TITLE) return 'fallback'
+  return source || 'name'
 }
 
 function normalizeThreadTitleCandidate(value: string): string {
   const raw = value.trim()
   if (!raw || CODEX_PLACEHOLDER_THREAD_TITLES.has(raw)) return ''
-  const stripped = stripInternalPromptTitleContent(raw)
-  if (!stripped) return ''
-  const lines = stripped
+  const lines = raw
     .split(/\r?\n/)
     .filter((line) => !/^\s*(```|~~~)/.test(line))
     .map((line) => normalizeThreadTitleLine(line))
-    .filter((line) => line && !hasInternalPromptTitleContent(line))
+    .filter(Boolean)
   const firstLine = lines[0] ?? ''
   if (!firstLine || CODEX_PLACEHOLDER_THREAD_TITLES.has(firstLine)) return ''
   const sentenceBreak = firstLine.search(/[.!?。！？]/)
   const core = sentenceBreak >= 8 ? firstLine.slice(0, sentenceBreak) : firstLine
   const title = stripTrailingThreadTitlePunctuation(shortenThreadTitle(core))
-  return title && !hasInternalPromptTitleContent(title) ? title : ''
-}
-
-function stripInternalPromptTitleContent(value: string): string {
-  return value
-    .replace(/<sciforge_runtime_instruction\b[\s\S]*?(?:<\/sciforge_runtime_instruction>|$)/gi, '\n')
-    .split(/\r?\n/)
-    .filter((line) => !hasInternalPromptTitleContent(line))
-    .join('\n')
-    .trim()
+  return title
 }
 
 function normalizeThreadTitleLine(line: string): string {
@@ -2674,15 +2708,20 @@ function stripTrailingThreadTitlePunctuation(value: string): string {
   return value.replace(/[\s,.;:!?"'`()[\]{}]+$/g, '').trim()
 }
 
-function hasInternalPromptTitleContent(value: string): boolean {
-  return CODEX_INTERNAL_PROMPT_TITLE_PATTERNS.some((pattern) => pattern.test(value))
-}
-
 function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread {
   const id = stringValue(thread.id)
   const source = asRecord(thread.source) ?? asRecord(thread.threadSource)
   const threadSource = stringValue(thread.threadSource) || stringValue(source?.type) || stringValue(source?.kind)
   const relation = normalizeThreadRelation(thread.relation) || normalizeThreadRelation(source?.relation)
+  const sidebarVisibility = normalizeThreadSidebarVisibility(thread.sidebarVisibility) ||
+    normalizeThreadSidebarVisibility(thread.sidebar_visibility) ||
+    normalizeThreadSidebarVisibility(source?.sidebarVisibility) ||
+    normalizeThreadSidebarVisibility(source?.sidebar_visibility)
+  const explicitTitleSource =
+    stringValue(thread.titleSource) ||
+    stringValue(thread.title_source) ||
+    stringValue(source?.titleSource) ||
+    stringValue(source?.title_source)
   const parentThreadId =
     stringValue(thread.parentThreadId) ||
     stringValue(thread.parent_thread_id) ||
@@ -2709,14 +2748,16 @@ function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread
   const updatedAt = updatedAtSeconds
     ? new Date(updatedAtSeconds * 1000).toISOString()
     : new Date().toISOString()
-  const name = stringValue(thread.name)
+  const name = stringValue(thread.title) || stringValue(thread.name)
   const preview = stringValue(thread.preview)
+  const title = normalizeThreadTitle(name)
+  const titleSource = normalizeThreadTitleSource(explicitTitleSource, title)
   const turns = arrayValue(thread.turns)
   const latestTurn = latestTurnRecord(thread, turns)
   return {
     id,
     codexThreadId: id,
-    title: normalizeThreadTitle(name, preview),
+    title,
     updatedAt,
     model: stringValue(thread.model) || '',
     mode: 'agent',
@@ -2727,7 +2768,9 @@ function normalizeThread(thread: Record<string, unknown>): CodexNormalizedThread
     latestTurnId: stringValue(latestTurn?.id),
     latestTurnStatus: stringValue(latestTurn?.status),
     ...(threadSource ? { threadSource } : {}),
-    ...(relation || isCodexChildThreadSource(threadSource) ? { relation: relation ?? 'side' as const } : {}),
+    ...(sidebarVisibility ? { sidebarVisibility } : {}),
+    ...(titleSource ? { titleSource } : {}),
+    ...(relation || isCodexChildThreadSource(threadSource) || parentThreadId ? { relation: relation ?? 'side' as const } : {}),
     ...(parentThreadId ? { parentThreadId } : {}),
     ...(parentTurnId ? { parentTurnId } : {}),
     ...(agentNickname ? { agentNickname } : {}),
@@ -2743,6 +2786,14 @@ function isCodexChildThreadSource(source: string | undefined): boolean {
 function normalizeThreadRelation(value: unknown): 'primary' | 'fork' | 'side' | undefined {
   const relation = stringValue(value)
   return relation === 'primary' || relation === 'fork' || relation === 'side' ? relation : undefined
+}
+
+function normalizeThreadSidebarVisibility(value: unknown): AgentRuntimeThreadSidebarVisibility | undefined {
+  const visibility = stringValue(value).trim().toLowerCase()
+  if (visibility === 'main' || visibility === 'sidebar' || visibility === 'visible') return 'main'
+  if (visibility === 'side' || visibility === 'auxiliary') return 'side'
+  if (visibility === 'hidden' || visibility === 'hide' || visibility === 'internal' || visibility === 'none') return 'hidden'
+  return undefined
 }
 
 function threadDetail(thread: Record<string, unknown>): CodexThreadDetail {
@@ -2921,17 +2972,6 @@ function isEmptyStoredThread(
   return storedThread.latestSeq <= 0
 }
 
-function eventShouldUpsertThread(event: CodexEventPayload['event']): boolean {
-  return Boolean(
-    event.userMessage ||
-    event.deltas?.length ||
-    event.tool ||
-    event.child ||
-    event.turnComplete ||
-    event.runtimeError
-  )
-}
-
 function eventHasNonDeltaPayload(event: CodexEventPayload['event']): boolean {
   return Boolean(
     event.userMessage ||
@@ -3103,11 +3143,15 @@ function dynamicToolArgumentsRecord(value: unknown): Record<string, unknown> | n
 
 function workspaceIntelToolNameForRequest(
   request: CodexAppServerDynamicToolCallRequest
-): string | null {
+): WorkspaceIntelToolName | null {
   const tool = request.tool.trim()
   if (!tool) return null
   return WorkspaceIntelToolNames.find((name) => tool === name || tool.endsWith(`_${name}`)) ?? null
 }
+
+const WORKSPACE_INTEL_THREAD_WORKSPACE_TOOLS = new Set<WorkspaceIntelToolName>(
+  WorkspaceIntelToolNames.filter((name) => name !== 'gui_visible_context')
+)
 
 function arrayValue(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []

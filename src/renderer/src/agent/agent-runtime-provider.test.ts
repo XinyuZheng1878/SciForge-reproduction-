@@ -138,6 +138,13 @@ describe('AgentRuntimeProvider', () => {
         runtimeId: 'codex',
         title: 'One',
         updatedAt: '2026-06-11T00:00:00.000Z',
+        threadSource: 'subagent',
+        visibility: 'auto',
+        sidebarVisibility: 'hidden',
+        titleSource: 'runtime',
+        parentTurnId: 'parent-turn-1',
+        agentNickname: 'Worker B',
+        agentRole: 'renderer',
         guiPlan: {
           operation: 'draft',
           workspaceRoot: '/tmp/workspace',
@@ -252,6 +259,13 @@ describe('AgentRuntimeProvider', () => {
         id: 'thread-1',
         title: 'One',
         runtimeId: 'codex',
+        threadSource: 'subagent',
+        visibility: 'auto',
+        sidebarVisibility: 'hidden',
+        titleSource: 'runtime',
+        parentTurnId: 'parent-turn-1',
+        agentNickname: 'Worker B',
+        agentRole: 'renderer',
         guiPlan: expect.objectContaining({
           relativePath: '.sciforge/plan/list.md'
         }),

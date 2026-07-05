@@ -1,5 +1,5 @@
 import type { Dirent, Stats } from 'node:fs'
-import { access, lstat, open as openFile, readdir, realpath, stat } from 'node:fs/promises'
+import { access, lstat, open as openFile, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import {
   basename,
@@ -19,6 +19,10 @@ import {
   WORKSPACE_INTEL_MAX_READ_BYTES,
   WORKSPACE_INTEL_MAX_TREE_DEPTH,
   workspaceFileResourceUri,
+  type VisibleContextComponent,
+  type VisibleContextInput,
+  type VisibleContextResource,
+  type VisibleContextResult,
   type WorkspaceEntry,
   type WorkspaceEntryKind,
   type WorkspaceIntelError,
@@ -51,6 +55,7 @@ export type WorkspaceIntelServiceOptions = {
   workspaceRoot?: string
   skillRoots?: string[]
   includeGlobalSkillRoots?: boolean
+  visibleContextPath?: string
   maxReadBytes?: number
   maxPreviewChars?: number
   maxListEntries?: number
@@ -132,6 +137,7 @@ export class WorkspaceIntelService {
   readonly workspaceRoot?: string
   readonly skillRoots: string[]
   readonly includeGlobalSkillRoots: boolean
+  readonly visibleContextPath?: string
   readonly maxReadBytes: number
   readonly maxPreviewChars: number
   readonly maxListEntries: number
@@ -140,6 +146,7 @@ export class WorkspaceIntelService {
     this.workspaceRoot = cleanOptionalPath(options.workspaceRoot)
     this.skillRoots = uniqueStrings((options.skillRoots ?? []).map(cleanOptionalPath).filter(isPresent))
     this.includeGlobalSkillRoots = options.includeGlobalSkillRoots === true
+    this.visibleContextPath = cleanOptionalPath(options.visibleContextPath)
     this.maxReadBytes = clampInteger(
       options.maxReadBytes ?? WORKSPACE_INTEL_DEFAULT_READ_BYTES,
       1,
@@ -417,6 +424,48 @@ export class WorkspaceIntelService {
         size: info.size,
         truncated: read.truncated,
         ...(read.nextOffset !== undefined ? { nextOffset: read.nextOffset } : {})
+      }
+    })
+  }
+
+  async visibleContext(input: VisibleContextInput = {}): Promise<VisibleContextResult> {
+    return this.captureFailure(async () => {
+      if (!this.visibleContextPath) {
+        return {
+          ok: true,
+          components: [],
+          componentCount: 0,
+          unavailable: true,
+          message: 'No visible context snapshot path was configured for this worker.'
+        }
+      }
+
+      const raw = await readFile(this.visibleContextPath, 'utf8').catch((error) => {
+        if (isNodeErrorCode(error, 'ENOENT')) return ''
+        throw error
+      })
+      if (!raw.trim()) {
+        return {
+          ok: true,
+          snapshotPath: this.visibleContextPath,
+          components: [],
+          componentCount: 0,
+          unavailable: true,
+          message: 'No visible context snapshot has been published yet.'
+        }
+      }
+
+      const snapshot = parseVisibleContextSnapshot(raw)
+      const components = filterVisibleContextComponents(snapshot.components, input)
+      return {
+        ok: true,
+        snapshotPath: this.visibleContextPath,
+        ...(snapshot.updatedAt ? { updatedAt: snapshot.updatedAt } : {}),
+        ...(snapshot.activeThreadId !== undefined ? { activeThreadId: snapshot.activeThreadId } : {}),
+        ...(snapshot.workspaceRoot ? { workspaceRoot: snapshot.workspaceRoot } : {}),
+        ...(snapshot.route ? { route: snapshot.route } : {}),
+        components,
+        componentCount: components.length
       }
     })
   }
@@ -701,6 +750,7 @@ export function workspaceIntelConfigFromEnv(env: NodeJS.ProcessEnv = process.env
   return {
     workspaceRoot: cleanOptionalPath(env.SCIFORGE_WORKSPACE_INTEL_ROOT) ?? cleanOptionalPath(env.SCIFORGE_WORKSPACE_PATH),
     ...(skillRoots.length > 0 ? { skillRoots } : {}),
+    ...(cleanOptionalPath(env.SCIFORGE_VISIBLE_CONTEXT_PATH) ? { visibleContextPath: cleanOptionalPath(env.SCIFORGE_VISIBLE_CONTEXT_PATH) } : {}),
     includeGlobalSkillRoots: env.SCIFORGE_WORKSPACE_INTEL_INCLUDE_GLOBAL_SKILLS === '1',
     ...(parsePositiveInteger(env.SCIFORGE_WORKSPACE_INTEL_MAX_READ_BYTES) ? { maxReadBytes: parsePositiveInteger(env.SCIFORGE_WORKSPACE_INTEL_MAX_READ_BYTES) } : {}),
     ...(parsePositiveInteger(env.SCIFORGE_WORKSPACE_INTEL_MAX_LIST_ENTRIES) ? { maxListEntries: parsePositiveInteger(env.SCIFORGE_WORKSPACE_INTEL_MAX_LIST_ENTRIES) } : {})
@@ -1157,6 +1207,111 @@ function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+type VisibleContextSnapshotRecord = {
+  updatedAt?: string
+  activeThreadId?: string | null
+  workspaceRoot?: string
+  route?: string
+  components: VisibleContextComponent[]
+}
+
+function parseVisibleContextSnapshot(raw: string): VisibleContextSnapshotRecord {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw) as unknown
+  } catch (error) {
+    throw serviceError('read_failed', `Visible context snapshot is not valid JSON: ${errorMessage(error)}`, 'Wait for the GUI to publish a fresh visible context snapshot.')
+  }
+  const record = recordValue(parsed)
+  if (!record) {
+    throw serviceError('read_failed', 'Visible context snapshot must be a JSON object.', 'Wait for the GUI to publish a fresh visible context snapshot.')
+  }
+  const components = Array.isArray(record.components)
+    ? record.components.map(visibleContextComponentFromUnknown).filter(isPresent)
+    : []
+  return {
+    updatedAt: stringValue(record.updatedAt) || undefined,
+    activeThreadId: record.activeThreadId === null ? null : stringValue(record.activeThreadId) || undefined,
+    workspaceRoot: stringValue(record.workspaceRoot) || undefined,
+    route: stringValue(record.route) || undefined,
+    components
+  }
+}
+
+function visibleContextComponentFromUnknown(value: unknown): VisibleContextComponent | undefined {
+  const record = recordValue(value)
+  if (!record) return undefined
+  const id = stringValue(record.id)
+  const region = stringValue(record.region)
+  const component = stringValue(record.component)
+  const updatedAt = stringValue(record.updatedAt)
+  if (!id || !region || !component || !updatedAt) return undefined
+  return {
+    id,
+    region,
+    component,
+    title: stringValue(record.title) || undefined,
+    visible: record.visible !== false,
+    priority: numberValue(record.priority),
+    updatedAt,
+    summary: stringValue(record.summary),
+    resources: Array.isArray(record.resources)
+      ? record.resources.map(visibleContextResourceFromUnknown).filter(isPresent)
+      : undefined,
+    state: recordValue(record.state) ?? undefined
+  }
+}
+
+function visibleContextResourceFromUnknown(value: unknown): VisibleContextResource | undefined {
+  const record = recordValue(value)
+  if (!record) return undefined
+  const kind = stringValue(record.kind)
+  if (!kind) return undefined
+  return {
+    kind,
+    role: stringValue(record.role) || undefined,
+    title: stringValue(record.title) || undefined,
+    accessHint: stringValue(record.accessHint) || undefined,
+    resourceUri: stringValue(record.resourceUri) || undefined,
+    workspaceRoot: stringValue(record.workspaceRoot) || undefined,
+    path: stringValue(record.path) || undefined,
+    relativePath: stringValue(record.relativePath) || undefined,
+    name: stringValue(record.name) || undefined,
+    mimeType: stringValue(record.mimeType) || undefined,
+    fileKind: stringValue(record.fileKind) || undefined,
+    size: numberValue(record.size),
+    mtimeMs: numberValue(record.mtimeMs),
+    annotationCount: numberValue(record.annotationCount),
+    threadCount: numberValue(record.threadCount),
+    openThreadCount: numberValue(record.openThreadCount),
+    selectedThreadId: record.selectedThreadId === null ? null : stringValue(record.selectedThreadId) || undefined,
+    updatedAt: stringValue(record.updatedAt) || undefined,
+    metadata: recordValue(record.metadata) ?? undefined
+  }
+}
+
+function filterVisibleContextComponents(
+  components: VisibleContextComponent[],
+  input: VisibleContextInput
+): VisibleContextComponent[] {
+  return components.filter((component) => {
+    if (!input.includeHidden && !component.visible) return false
+    if (input.region && component.region !== input.region) return false
+    if (input.componentId && component.id !== input.componentId) return false
+    return true
+  })
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
 class WorkspaceIntelServiceError extends Error {
   readonly code: WorkspaceIntelErrorCode
   readonly retryable: boolean
@@ -1199,4 +1354,8 @@ function errorToWorkspaceIntelError(error: unknown): WorkspaceIntelError {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function isNodeErrorCode(error: unknown, code: string): boolean {
+  return Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === code)
 }

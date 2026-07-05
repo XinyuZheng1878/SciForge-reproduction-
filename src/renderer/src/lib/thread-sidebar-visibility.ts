@@ -2,10 +2,9 @@ import type { ChatBlock, NormalizedThread } from '../agent/types'
 import { isRemoteChannelManagedBy } from '../agent/types'
 import {
   deriveThreadTitleFromPrompt,
-  hasInternalPromptThreadTitle,
+  hasNonDisplayThreadTitleSource,
   hasThreadIdFallbackTitle,
-  hasPlaceholderThreadTitle,
-  isInternalPlaceholderThreadTitle
+  hasPlaceholderThreadTitle
 } from './thread-title'
 
 type ThreadDetailReader = {
@@ -20,12 +19,50 @@ type SidebarVisibilityFilterOptions = {
 export const SIDEBAR_VISIBILITY_INSPECTION_LIMIT = 20
 
 type SidebarThreadShape = Pick<NormalizedThread, 'id' | 'title'> &
-  Partial<Pick<NormalizedThread, 'relation' | 'parentThreadId'>>
+  Partial<Pick<
+    NormalizedThread,
+    'visibility' | 'sidebarVisibility' | 'threadSource' | 'relation' | 'parentThreadId' | 'titleSource'
+  >>
 
-export function shouldHideThreadFromSidebarByTitle(
-  thread: Pick<NormalizedThread, 'id' | 'title'>
+const SIDEBAR_HIDDEN_VISIBILITY_VALUES = new Set([
+  'auxiliary',
+  'hidden',
+  'hide',
+  'internal',
+  'none',
+  'sidebar_hidden'
+])
+const SIDEBAR_VISIBLE_VISIBILITY_VALUES = new Set([
+  'main',
+  'show',
+  'sidebar',
+  'visible'
+])
+const SIDEBAR_HIDDEN_THREAD_SOURCES = new Set([
+  'local_workflow',
+  'subagent',
+  'workflow'
+])
+
+function normalizedStructuredValue(value: string | null | undefined): string {
+  return value?.trim().toLowerCase() ?? ''
+}
+
+function sidebarVisibilityDecision(
+  thread: Partial<Pick<NormalizedThread, 'visibility' | 'sidebarVisibility'>>
+): boolean | null {
+  const visibility = normalizedStructuredValue(thread.sidebarVisibility) ||
+    normalizedStructuredValue(thread.visibility)
+  if (!visibility || visibility === 'auto' || visibility === 'default') return null
+  if (SIDEBAR_HIDDEN_VISIBILITY_VALUES.has(visibility)) return true
+  if (SIDEBAR_VISIBLE_VISIBILITY_VALUES.has(visibility)) return false
+  return null
+}
+
+export function shouldHideThreadFromSidebarByThreadSource(
+  thread: Partial<Pick<NormalizedThread, 'threadSource'>>
 ): boolean {
-  return isInternalPlaceholderThreadTitle(thread.title)
+  return SIDEBAR_HIDDEN_THREAD_SOURCES.has(normalizedStructuredValue(thread.threadSource))
 }
 
 export function shouldHideThreadFromSidebarByLineage(
@@ -38,24 +75,29 @@ export function shouldHideThreadFromSidebarByLineage(
 }
 
 export function shouldHideThreadFromSidebarByDefault(thread: SidebarThreadShape): boolean {
-  return shouldHideThreadFromSidebarByTitle(thread) ||
+  const visibilityDecision = sidebarVisibilityDecision(thread)
+  if (visibilityDecision !== null) return visibilityDecision
+  return shouldHideThreadFromSidebarByThreadSource(thread) ||
     shouldHideThreadFromSidebarByLineage(thread)
 }
 
 export function shouldInspectThreadForSidebarVisibility(
   thread: SidebarThreadShape
 ): boolean {
+  if (sidebarVisibilityDecision(thread) === false) return false
   return !shouldHideThreadFromSidebarByDefault(thread) &&
     (
       hasThreadIdFallbackTitle(thread) ||
       hasPlaceholderThreadTitle(thread.title) ||
-      hasInternalPromptThreadTitle(thread.title)
+      hasNonDisplayThreadTitleSource(thread.titleSource)
     )
 }
 
 export function shouldHideThreadFromSidebarByBlocks(blocks: ChatBlock[]): boolean {
-  return blocks.length === 0 ||
-    blocks.some((block) => block.kind === 'user' && isRemoteChannelManagedBy(block.managedBy))
+  return !blocks.some((block) => {
+    if (block.kind !== 'user' || isRemoteChannelManagedBy(block.managedBy)) return false
+    return Boolean(block.meta?.displayText?.trim() || block.text.trim())
+  })
 }
 
 export function filterThreadsForSidebarSummary(
@@ -81,26 +123,21 @@ function titleFromThreadBlocks(blocks: ChatBlock[]): string | null {
   const userBlock = blocks.find((block) => {
     if (block.kind !== 'user' || isRemoteChannelManagedBy(block.managedBy)) return false
     const text = block.meta?.displayText?.trim() || block.text.trim()
-    return Boolean(text) && !hasInternalPromptThreadTitle(text)
+    return Boolean(text)
   })
   if (!userBlock || userBlock.kind !== 'user') return null
   const text = userBlock.meta?.displayText?.trim() || userBlock.text.trim()
   if (!text) return null
   const title = deriveThreadTitleFromPrompt(text)
-  return hasPlaceholderThreadTitle(title) || hasInternalPromptThreadTitle(title) ? null : title
+  return hasPlaceholderThreadTitle(title) ? null : title
 }
 
-function titleFromThreadSummary(thread: Pick<NormalizedThread, 'preview'>): string | null {
-  const preview = thread.preview?.trim() ?? ''
-  if (!preview || hasInternalPromptThreadTitle(preview)) return null
-  const title = deriveThreadTitleFromPrompt(preview)
-  return hasPlaceholderThreadTitle(title) || hasInternalPromptThreadTitle(title) ? null : title
-}
-
-function needsRealDerivedTitle(thread: Pick<NormalizedThread, 'id' | 'title'>): boolean {
+function needsRealDerivedTitle(
+  thread: Pick<NormalizedThread, 'id' | 'title'> & Partial<Pick<NormalizedThread, 'titleSource'>>
+): boolean {
   return hasThreadIdFallbackTitle(thread) ||
     hasPlaceholderThreadTitle(thread.title) ||
-    hasInternalPromptThreadTitle(thread.title)
+    hasNonDisplayThreadTitleSource(thread.titleSource)
 }
 
 function threadUpdatedAtMs(thread: Pick<NormalizedThread, 'updatedAt'>): number {
@@ -156,19 +193,12 @@ export async function filterThreadsForSidebar(
   )
   const threadsToInspect: NormalizedThread[] = []
   for (const thread of suspiciousThreads) {
-    const title = titleFromThreadSummary(thread)
-    if (title) {
-      derivedTitles.set(thread.id, title)
-      continue
-    }
     if (threadsToInspect.length < maxDetailInspections) {
       threadsToInspect.push(thread)
       hiddenIds.add(thread.id)
       continue
     }
-    if (!thread.preview?.trim() && !thread.latestTurnId?.trim()) {
-      hiddenIds.add(thread.id)
-    }
+    hiddenIds.add(thread.id)
   }
 
   if (threadsToInspect.length > 0) {

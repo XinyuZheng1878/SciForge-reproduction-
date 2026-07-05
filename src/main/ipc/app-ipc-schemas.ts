@@ -35,6 +35,9 @@ export {
   pdfAnnotationSidecarExportPayloadSchema,
   pdfAnnotationSidecarImportPayloadSchema
 } from '../../shared/pdf-annotations'
+export {
+  visibleContextSnapshotSchema as visibleContextPublishPayloadSchema
+} from '../../shared/visible-context'
 
 const MAX_BODY_BYTES = 2_000_000
 const MAX_PATH_LENGTH = 4_096

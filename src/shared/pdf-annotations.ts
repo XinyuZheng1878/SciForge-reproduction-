@@ -3,7 +3,6 @@ import { z } from 'zod'
 export const PDF_ANNOTATION_SCHEMA_VERSION = 1
 export const PDF_ANNOTATION_APP_ID = 'sciforge.pdf-annotations'
 export const PDF_ANNOTATION_DEFAULT_DIR = '.sciforge/pdf-annotations'
-export const PDF_ANNOTATION_LEGACY_SUFFIX = '.dsgui-annotations.json'
 export const PDF_ANNOTATION_PACKAGE_SUFFIX = '.dsgui-pdf.zip'
 export const MAX_PDF_ANCHOR_RECTS = 800
 export const MAX_PDF_ANNOTATION_TEXT_CHARS = 80_000
@@ -142,9 +141,8 @@ export type PdfAnnotationSidecarLoadResult =
       ok: true
       sidecar: PdfAnnotationSidecar
       path: string
-      source: 'default' | 'legacy' | 'empty'
+      source: 'default' | 'empty'
       pdfFingerprint: PdfFingerprint
-      legacyPath?: string
       warnings: string[]
     }
   | { ok: false; message: string }

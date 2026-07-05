@@ -2,6 +2,7 @@ import {
   atomicWriteAppDataJson,
   readAppDataStoreText
 } from '../../services/app-data-store'
+import type { AgentRuntimeThreadSidebarVisibility } from '../../../shared/agent-runtime-contract'
 
 export type CodexStoredThread = {
   guiThreadId: string
@@ -19,6 +20,8 @@ export type CodexStoredThread = {
   parentThreadId?: string
   parentTurnId?: string
   threadSource?: string
+  sidebarVisibility?: AgentRuntimeThreadSidebarVisibility
+  titleSource?: string
   agentNickname?: string
   agentRole?: string
 }
@@ -50,6 +53,8 @@ export type CodexThreadStoreUpsertInput = {
   parentThreadId?: string
   parentTurnId?: string
   threadSource?: string
+  sidebarVisibility?: AgentRuntimeThreadSidebarVisibility
+  titleSource?: string
   agentNickname?: string
   agentRole?: string
 }
@@ -86,6 +91,8 @@ function applyThreadUpsert(
     parentThreadId: input.parentThreadId,
     parentTurnId: input.parentTurnId,
     threadSource: input.threadSource,
+    sidebarVisibility: input.sidebarVisibility,
+    titleSource: input.titleSource,
     agentNickname: input.agentNickname,
     agentRole: input.agentRole
   })
@@ -113,6 +120,8 @@ function sameStoredThread(a: CodexStoredThread, b: CodexStoredThread): boolean {
     a.parentThreadId === b.parentThreadId &&
     a.parentTurnId === b.parentTurnId &&
     a.threadSource === b.threadSource &&
+    a.sidebarVisibility === b.sidebarVisibility &&
+    a.titleSource === b.titleSource &&
     a.agentNickname === b.agentNickname &&
     a.agentRole === b.agentRole
 }
@@ -307,6 +316,8 @@ function normalizeThread(raw: unknown): CodexStoredThread | null {
     ...(stringValue(record.parentThreadId) ? { parentThreadId: stringValue(record.parentThreadId) } : {}),
     ...(stringValue(record.parentTurnId) ? { parentTurnId: stringValue(record.parentTurnId) } : {}),
     ...(stringValue(record.threadSource) ? { threadSource: stringValue(record.threadSource) } : {}),
+    ...(normalizeSidebarVisibility(record.sidebarVisibility) ? { sidebarVisibility: normalizeSidebarVisibility(record.sidebarVisibility) } : {}),
+    ...(stringValue(record.titleSource) ? { titleSource: stringValue(record.titleSource) } : {}),
     ...(stringValue(record.agentNickname) ? { agentNickname: stringValue(record.agentNickname) } : {}),
     ...(stringValue(record.agentRole) ? { agentRole: stringValue(record.agentRole) } : {})
   }
@@ -354,6 +365,8 @@ function mergeThreadRecords(
     parentThreadId?: string
     parentTurnId?: string
     threadSource?: string
+    sidebarVisibility?: AgentRuntimeThreadSidebarVisibility
+    titleSource?: string
     agentNickname?: string
     agentRole?: string
   } = {}
@@ -382,6 +395,8 @@ function mergeThreadRecords(
     ...optionalString('parentThreadId', overrides.parentThreadId, preferredRecords),
     ...optionalString('parentTurnId', overrides.parentTurnId, preferredRecords),
     ...optionalString('threadSource', overrides.threadSource, preferredRecords),
+    ...optionalSidebarVisibility('sidebarVisibility', overrides.sidebarVisibility, preferredRecords),
+    ...optionalString('titleSource', overrides.titleSource, preferredRecords),
     ...optionalString('agentNickname', overrides.agentNickname, preferredRecords),
     ...optionalString('agentRole', overrides.agentRole, preferredRecords)
   }
@@ -404,23 +419,30 @@ function chooseString(values: unknown[]): string {
 function chooseDisplayTitle(values: unknown[]): string | null {
   for (const value of values) {
     const title = stringValue(value)
-    if (title && !isGeneratedRuntimeTitle(title)) return title
+    if (title) return title
   }
   return null
 }
 
-function isGeneratedRuntimeTitle(title: string): boolean {
-  return title.includes('<sciforge_runtime_instruction>') ||
-    title.includes('Runtime context ledger for this thread:')
-}
-
 function optionalString(
-  key: 'latestTurnId' | 'latestUserMessageId' | 'parentThreadId' | 'parentTurnId' | 'threadSource' | 'agentNickname' | 'agentRole',
+  key: 'latestTurnId' | 'latestUserMessageId' | 'parentThreadId' | 'parentTurnId' | 'threadSource' | 'titleSource' | 'agentNickname' | 'agentRole',
   override: string | undefined,
   records: CodexStoredThread[]
-): Partial<Pick<CodexStoredThread, 'latestTurnId' | 'latestUserMessageId' | 'parentThreadId' | 'parentTurnId' | 'threadSource' | 'agentNickname' | 'agentRole'>> {
+): Partial<Pick<CodexStoredThread, 'latestTurnId' | 'latestUserMessageId' | 'parentThreadId' | 'parentTurnId' | 'threadSource' | 'titleSource' | 'agentNickname' | 'agentRole'>> {
   if (override !== undefined) return override ? { [key]: override } : {}
   const value = records.map((thread) => thread[key]).find((candidate) => stringValue(candidate))
+  return value ? { [key]: value } : {}
+}
+
+function optionalSidebarVisibility(
+  key: 'sidebarVisibility',
+  override: AgentRuntimeThreadSidebarVisibility | undefined,
+  records: CodexStoredThread[]
+): Partial<Pick<CodexStoredThread, 'sidebarVisibility'>> {
+  if (override !== undefined) return { [key]: override }
+  const value = records
+    .map((thread) => normalizeSidebarVisibility(thread[key]))
+    .find(Boolean)
   return value ? { [key]: value } : {}
 }
 
@@ -432,6 +454,14 @@ function optionalRelation(
   if (override !== undefined) return { [key]: override }
   const value = records.map((thread) => normalizeThreadRelation(thread[key])).find(Boolean)
   return value ? { [key]: value } : {}
+}
+
+function normalizeSidebarVisibility(value: unknown): AgentRuntimeThreadSidebarVisibility | undefined {
+  const visibility = stringValue(value).trim().toLowerCase()
+  if (visibility === 'main' || visibility === 'sidebar' || visibility === 'visible') return 'main'
+  if (visibility === 'side' || visibility === 'auxiliary') return 'side'
+  if (visibility === 'hidden' || visibility === 'hide' || visibility === 'internal' || visibility === 'none') return 'hidden'
+  return undefined
 }
 
 function normalizeThreadRelation(value: unknown): CodexStoredThreadRelation | undefined {

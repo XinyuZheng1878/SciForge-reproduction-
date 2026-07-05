@@ -77,6 +77,10 @@ export function persistRightPanelMode(mode: RightPanelMode): void {
   }
 }
 
+export function shouldCloseRightPanelOnThreadChange(mode: RightPanelMode): boolean {
+  return mode === 'browser' || mode === 'child-agents'
+}
+
 export function fitWorkbenchWidths(
   containerWidth: number,
   leftWidth: number,
@@ -228,12 +232,7 @@ export function useWorkbenchLayout({
     if (previewThreadId.current === activeThreadId) return
     previewThreadId.current = activeThreadId
     autoOpenedPreviewUrlRef.current = null
-    if (rightPanelMode === 'browser') setRightPanelMode(null)
-    if (rightPanelMode === 'child-agents') setRightPanelMode(null)
-    if (rightPanelMode === 'file') {
-      setRightPanelMode(null)
-      setFilePreviewTarget(null)
-    }
+    if (shouldCloseRightPanelOnThreadChange(rightPanelMode)) setRightPanelMode(null)
   }, [activeThreadId, rightPanelMode])
 
   useEffect(() => {

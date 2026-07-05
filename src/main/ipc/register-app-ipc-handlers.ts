@@ -96,6 +96,7 @@ import {
   pdfAnnotationSidecarImportPayloadSchema,
   pdfAnnotationSidecarLoadPayloadSchema,
   pdfAnnotationSidecarSavePayloadSchema,
+  visibleContextPublishPayloadSchema,
   rootPathSchema,
   scheduleTaskFromTextPayloadSchema,
   shellOpenExternalUrlSchema,
@@ -125,6 +126,7 @@ import {
   workflowTestNodePayloadSchema,
   workspaceRootSchema
 } from './app-ipc-schemas'
+import type { VisibleContextSnapshot } from '../../shared/visible-context'
 import {
   buildScientificSkillsMcpConfigFragment,
   type ScientificSkillsMcpLaunchConfig
@@ -348,6 +350,10 @@ type RegisterAppIpcHandlersOptions = {
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
   getRemoteChannelRuntime: () => RemoteChannelRuntime | null
   getDiscordBotRuntime?: () => DiscordBotRuntime | null
+  visibleContext?: {
+    publish: (snapshot: VisibleContextSnapshot) => Promise<VisibleContextSnapshot>
+    get: () => Promise<VisibleContextSnapshot>
+  }
   setRemoteChannelActiveThreadContext?: (payload: {
     threadId: string
     runtimeId?: AgentRuntimeId
@@ -602,6 +608,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     fetchUpstreamModels,
     getRemoteChannelRuntime,
     getDiscordBotRuntime,
+    visibleContext,
     getScheduleRuntime,
     getWorkflowRuntime = () => null,
     startFeishuInstallQrcode,
@@ -878,6 +885,22 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       parseIpcPayload('pdfAnnotations:import', pdfAnnotationSidecarImportPayloadSchema, payload)
     )
   )
+
+  handleInvoke('visibleContext:publish', async (_, payload: unknown) => {
+    const snapshot = parseIpcPayload('visibleContext:publish', visibleContextPublishPayloadSchema, payload)
+    if (!visibleContext) return snapshot
+    return visibleContext.publish(snapshot)
+  })
+  handleInvoke('visibleContext:get', async () => {
+    if (!visibleContext) {
+      return {
+        schemaVersion: 1,
+        updatedAt: new Date(0).toISOString(),
+        components: []
+      }
+    }
+    return visibleContext.get()
+  })
 
   const requireAgentRuntime = (): NonNullable<RegisterAppIpcHandlersOptions['agentRuntime']> => {
     if (!agentRuntime) {

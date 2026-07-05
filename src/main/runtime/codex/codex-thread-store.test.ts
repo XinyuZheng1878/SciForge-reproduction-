@@ -110,6 +110,8 @@ describe('CodexThreadStore bulk upsert', () => {
       parentThreadId: 'parent-gui',
       parentTurnId: 'turn-1',
       threadSource: 'subagent',
+      sidebarVisibility: 'side',
+      titleSource: 'user',
       agentNickname: 'Reviewer',
       agentRole: 'code reviewer'
     })
@@ -126,6 +128,8 @@ describe('CodexThreadStore bulk upsert', () => {
       parentThreadId: 'parent-gui',
       parentTurnId: 'turn-1',
       threadSource: 'subagent',
+      sidebarVisibility: 'side',
+      titleSource: 'user',
       agentNickname: 'Reviewer',
       agentRole: 'code reviewer',
       latestTurnId: 'turn-child-2'

@@ -111,6 +111,7 @@ import {
 } from '../lib/composer-file-references'
 import { readComposerFileContextEntries as readComposerFileContextEntriesFromReferences } from '../lib/composer-file-context'
 import { buildWorkspaceReferenceGroups } from '../lib/workspace-reference-groups'
+import { registerVisibleContextComponent, setVisibleContextShell } from '../lib/visible-context'
 import type { FigureStylePanelPage } from './figure-style/figure-style-panel-state'
 
 const ChangeInspector = lazy(() =>
@@ -160,6 +161,35 @@ const TerminalPanel = lazy(() =>
 const FigureStylePanel = lazy(() =>
   import('./figure-style/FigureStylePanel').then((module) => ({ default: module.FigureStylePanel }))
 )
+
+function rightPanelVisibleContextTitle(mode: Exclude<RightPanelMode, null>): string {
+  switch (mode) {
+    case 'file':
+      return 'File preview'
+    case 'browser':
+      return 'Dev browser'
+    case 'child-agents':
+      return 'Child agents'
+    case 'changes':
+      return 'Changes'
+    case 'todo':
+      return 'Todos'
+    case 'paper':
+      return 'Paper radar'
+    case 'evidence':
+      return 'Evidence graph'
+    case 'checkpoints':
+      return 'Git checkpoints'
+    case 'figure-style':
+      return 'Figure style'
+    case 'plan':
+      return 'Plan'
+    case 'sdd-ai':
+      return 'SDD assistant'
+    default:
+      return String(mode)
+  }
+}
 
 const CANVAS_DISPLAY_IMAGE_PATH_RE = /\.(?:png|jpe?g|webp|svg)(?:[?#].*)?$/i
 const PPTX_PATH_RE = /\.pptx(?:[?#].*)?$/i
@@ -903,6 +933,45 @@ export function Workbench(): ReactElement {
     }
   })
   const activeSciforgeCanvasId = activeThreadId ? `thread-${activeThreadId}` : undefined
+
+  useEffect(() => {
+    setVisibleContextShell({
+      activeThreadId,
+      route,
+      workspaceRoot
+    })
+  }, [activeThreadId, route, workspaceRoot])
+
+  useEffect(() => {
+    if (!rightPanelMode) return undefined
+    const targetWorkspaceRoot = filePreviewTarget?.workspaceRoot || workspaceRoot
+    return registerVisibleContextComponent({
+      id: 'right-sidebar',
+      region: 'right-sidebar',
+      component: 'right-panel',
+      title: rightPanelVisibleContextTitle(rightPanelMode),
+      visible: true,
+      priority: 10,
+      updatedAt: new Date().toISOString(),
+      summary: `Right sidebar is showing the ${rightPanelVisibleContextTitle(rightPanelMode)} panel.`,
+      resources: rightPanelMode === 'file' && filePreviewTarget?.path
+        ? [{
+            kind: 'workspaceFile',
+            role: 'selected-file-preview-target',
+            title: filePreviewTarget.path.split(/[/\\]/).filter(Boolean).pop() ?? filePreviewTarget.path,
+            accessHint: 'Use gui_workspace_preview/read with workspaceRoot and relativePath when available.',
+            workspaceRoot: targetWorkspaceRoot,
+            path: filePreviewTarget.path
+          }]
+        : undefined,
+      state: {
+        mode: rightPanelMode,
+        width: rightSidebarWidth,
+        filePreviewPath: filePreviewTarget?.path ?? null,
+        filePreviewWorkspaceRoot: rightPanelMode === 'file' ? targetWorkspaceRoot : null
+      }
+    })
+  }, [filePreviewTarget?.path, filePreviewTarget?.workspaceRoot, rightPanelMode, rightSidebarWidth, workspaceRoot])
 
   useEffect(() => {
     const runDesktopShortcut = (command: DesktopCommand): void => {

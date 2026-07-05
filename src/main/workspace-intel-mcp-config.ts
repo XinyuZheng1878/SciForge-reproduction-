@@ -21,7 +21,9 @@ export const GUI_WORKSPACE_INTEL_MCP_SERVER_NAME = 'gui_workspace_intel'
 const GUI_WORKSPACE_INTEL_MCP_NODE_ENTRY = 'out/main/workspace-intel-mcp-node-entry.js'
 export const WORKSPACE_INTEL_MCP_TIMEOUT_MS = 30_000
 
-export type WorkspaceIntelMcpLaunchConfig = ManagedGuiMcpLaunchConfig
+export type WorkspaceIntelMcpLaunchConfig = ManagedGuiMcpLaunchConfig & {
+  visibleContextPath?: string
+}
 
 type WorkspaceIntelMcpConfigPaths = {
   mcpJsonPath?: string
@@ -51,11 +53,15 @@ export function buildWorkspaceIntelMcpArgs(
   launch: WorkspaceIntelMcpLaunchConfig
 ): string[] {
   void settings
-  return [
+  const args = [
     resolveWorkspaceIntelMcpNodeEntryPath(launch),
     GUI_WORKSPACE_INTEL_MCP_LAUNCH_FLAG,
     '--include-global-skills'
   ]
+  if (launch.visibleContextPath) {
+    args.push('--visible-context-path', launch.visibleContextPath)
+  }
+  return args
 }
 
 export function workspaceIntelMcpEnv(existingEnv: Record<string, string> = {}): Record<string, string> {

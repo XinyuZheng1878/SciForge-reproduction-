@@ -115,6 +115,44 @@ describe('createLocalRuntimeAgentRuntimeAdapter', () => {
     ])
   })
 
+  it('maps structured local runtime thread metadata without using preview as a title fallback', async () => {
+    const request = vi.fn(async () => jsonResponse({
+      threads: [{
+        id: 'child-thread-1',
+        title: '',
+        name: '',
+        preview: 'Preview should stay preview-only',
+        updated_at: '2026-06-02T00:00:00.000Z',
+        relation: 'side',
+        parent_thread_id: 'parent-thread',
+        parent_turn_id: 'turn-1',
+        thread_source: 'subagent',
+        sidebar_visibility: 'side',
+        title_source: 'fallback',
+        agent_nickname: 'Reviewer',
+        agent_role: 'code reviewer'
+      }]
+    }))
+    const adapter = createLocalRuntimeAgentRuntimeAdapter({ request })
+
+    await expect(adapter.listThreads({ settings: buildSettings() }, {
+      runtimeId: 'sciforge',
+      includeSide: true
+    })).resolves.toEqual([expect.objectContaining({
+      id: 'child-thread-1',
+      title: 'Runtime thread',
+      preview: 'Preview should stay preview-only',
+      relation: 'side',
+      parentThreadId: 'parent-thread',
+      parentTurnId: 'turn-1',
+      threadSource: 'subagent',
+      sidebarVisibility: 'side',
+      titleSource: 'fallback',
+      agentNickname: 'Reviewer',
+      agentRole: 'code reviewer'
+    })])
+  })
+
   it('reports GUI-Owl computer-use capability through the shared runtime contract', async () => {
     const adapter = createLocalRuntimeAgentRuntimeAdapter({
       request: vi.fn(async (_settings, pathAndQuery) => {

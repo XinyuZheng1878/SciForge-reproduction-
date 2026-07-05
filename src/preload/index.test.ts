@@ -247,6 +247,34 @@ describe('preload agentRuntime bridge', () => {
     expect(invoke).toHaveBeenCalledWith('pdfAnnotations:import', { ...target, packageBase64: 'ZmFrZS16aXA=' })
   })
 
+  it('exposes visible context IPC methods through the preload bridge', async () => {
+    const api = exposedApi as {
+      visibleContext: {
+        publish(snapshot: unknown): Promise<unknown>
+        get(): Promise<unknown>
+      }
+    }
+    const snapshot = {
+      schemaVersion: 1,
+      updatedAt: '2026-07-04T00:00:00.000Z',
+      workspaceRoot: '/tmp/workspace',
+      components: [{
+        id: 'right-sidebar',
+        region: 'right-sidebar',
+        component: 'file-preview',
+        visible: true,
+        updatedAt: '2026-07-04T00:00:00.000Z',
+        summary: 'Previewing a file.'
+      }]
+    }
+
+    await api.visibleContext.publish(snapshot)
+    await api.visibleContext.get()
+
+    expect(invoke).toHaveBeenCalledWith('visibleContext:publish', snapshot)
+    expect(invoke).toHaveBeenCalledWith('visibleContext:get')
+  })
+
   it('forwards Discord Client ID and per-channel guard IPC payloads', async () => {
     const api = exposedApi as {
       configureDiscordClientId(clientId: string): Promise<unknown>

@@ -348,6 +348,10 @@ function createApi(): SciForgeApi {
       export: (payload) => invoke('pdfAnnotations:export', payload),
       import: (payload) => invoke('pdfAnnotations:import', payload)
     },
+    visibleContext: {
+      publish: (snapshot) => invoke('visibleContext:publish', snapshot),
+      get: () => invoke('visibleContext:get')
+    },
     speechToText: {
       transcribe: (payload) => invoke('speech:transcribe', payload)
     },

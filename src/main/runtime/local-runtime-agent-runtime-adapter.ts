@@ -16,6 +16,7 @@ import type {
   AgentRuntimeThreadGoal,
   AgentRuntimeThreadGuiPlan,
   AgentRuntimeThreadDetail,
+  AgentRuntimeThreadSidebarVisibility,
   AgentRuntimeTodoItem,
   AgentRuntimeTodoList,
   AgentRuntimeTodoSource,
@@ -647,7 +648,7 @@ function mapLocalRuntimeThread(value: unknown): AgentRuntimeThread {
   return {
     id,
     runtimeId: SCIFORGE_RUNTIME_ID,
-    title: stringValue(record.title) || stringValue(record.name) || stringValue(record.preview) || 'Runtime thread',
+    title: stringValue(record.title) || stringValue(record.name) || 'Runtime thread',
     updatedAt: stringValue(record.updatedAt) || stringValue(record.updated_at) || new Date().toISOString(),
     createdAt: optionalString(record.createdAt) ?? optionalString(record.created_at),
     model: optionalString(record.model),
@@ -661,6 +662,13 @@ function mapLocalRuntimeThread(value: unknown): AgentRuntimeThread {
     backendThreadId: id,
     relation: normalizeThreadRelation(record.relation),
     parentThreadId: optionalString(record.parentThreadId) ?? optionalString(record.parent_thread_id),
+    parentTurnId: optionalString(record.parentTurnId) ?? optionalString(record.parent_turn_id),
+    threadSource: optionalString(record.threadSource) ?? optionalString(record.thread_source),
+    sidebarVisibility: normalizeThreadSidebarVisibility(record.sidebarVisibility) ??
+      normalizeThreadSidebarVisibility(record.sidebar_visibility),
+    titleSource: optionalString(record.titleSource) ?? optionalString(record.title_source),
+    agentNickname: optionalString(record.agentNickname) ?? optionalString(record.agent_nickname),
+    agentRole: optionalString(record.agentRole) ?? optionalString(record.agent_role),
     forkedFromThreadId: optionalString(record.forkedFromThreadId) ?? optionalString(record.forked_from_thread_id),
     forkedFromTitle: optionalString(record.forkedFromTitle) ?? optionalString(record.forked_from_title),
     forkedAt: optionalString(record.forkedAt) ?? optionalString(record.forked_at),
@@ -1942,6 +1950,14 @@ function usageNullableRate(record: Record<string, unknown>, ...keys: string[]): 
 
 function normalizeThreadRelation(value: unknown): AgentRuntimeThread['relation'] {
   return value === 'primary' || value === 'fork' || value === 'side' ? value : undefined
+}
+
+function normalizeThreadSidebarVisibility(value: unknown): AgentRuntimeThreadSidebarVisibility | undefined {
+  const visibility = stringValue(value).trim().toLowerCase()
+  if (visibility === 'main' || visibility === 'sidebar' || visibility === 'visible') return 'main'
+  if (visibility === 'side' || visibility === 'auxiliary') return 'side'
+  if (visibility === 'hidden' || visibility === 'hide' || visibility === 'internal' || visibility === 'none') return 'hidden'
+  return undefined
 }
 
 function normalizeTurnStatus(value: unknown): AgentRuntimeTurn['status'] {

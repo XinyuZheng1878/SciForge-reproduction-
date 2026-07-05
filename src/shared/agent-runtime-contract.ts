@@ -8,6 +8,8 @@ export type AgentRuntimeThreadMaterialization = 'immediate' | 'after_first_user_
 
 export type AgentRuntimeThreadRelation = 'primary' | 'fork' | 'side'
 
+export type AgentRuntimeThreadSidebarVisibility = 'main' | 'side' | 'hidden'
+
 export type AgentRuntimeGovernanceProfile = 'default' | 'write' | 'remote_guard'
 
 export type AgentRuntimePhase =
@@ -167,6 +169,7 @@ export type AgentRuntimeCapabilityId =
   | 'git.turnCheckpoint'
   | 'memory.shared'
   | 'workspace.references'
+  | 'ui.visibleContext'
   | 'thread.goals'
 
 export type AgentRuntimeCapabilityChannel = 'runtime_contract' | 'host_service' | 'auxiliary'
@@ -489,6 +492,12 @@ export type AgentRuntimeThread = {
   backendThreadId?: string
   relation?: AgentRuntimeThreadRelation
   parentThreadId?: string
+  parentTurnId?: string
+  threadSource?: string
+  sidebarVisibility?: AgentRuntimeThreadSidebarVisibility
+  titleSource?: string
+  agentNickname?: string
+  agentRole?: string
   forkedFromThreadId?: string
   forkedFromTitle?: string
   forkedAt?: string
@@ -843,6 +852,7 @@ export const AGENT_RUNTIME_AUXILIARY_OPERATIONS = [
   'deleteMemory',
   'listWorkspaceReferences',
   'previewWorkspaceReference',
+  'getVisibleContext',
   'updateThreadWorkspace',
   'archiveThread',
   'getThreadGoal',

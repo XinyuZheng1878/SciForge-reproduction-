@@ -140,13 +140,20 @@ export type NormalizedThread = {
   preview?: string
   latestTurnId?: string
   latestTurnStatus?: string
+  threadSource?: string
+  visibility?: string
+  sidebarVisibility?: string
+  titleSource?: string
   relation?: 'primary' | 'fork' | 'side'
   parentThreadId?: string
+  parentTurnId?: string
   forkedFromThreadId?: string
   forkedFromTitle?: string
   forkedAt?: string
   forkedFromMessageCount?: number
   forkedFromTurnCount?: number
+  agentNickname?: string
+  agentRole?: string
   goal?: ThreadGoal | null
   todos?: ThreadTodoList | null
   guiPlan?: AgentRuntimeThreadGuiPlan | null

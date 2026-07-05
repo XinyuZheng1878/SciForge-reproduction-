@@ -11,14 +11,16 @@ const LEGACY_PLACEHOLDER_TITLES = new Set([
   'Agent Runtime thread',
   'Runtime thread'
 ])
-const INTERNAL_PLACEHOLDER_TITLE_PATTERN = /^__codex_[a-z0-9_]+__$/i
 const MAX_THREAD_TITLE_LENGTH = 48
 const MAX_DIALOG_THREAD_TITLE_LENGTH = 80
-const INTERNAL_PROMPT_TITLE_PATTERNS = [
-  /<\/?sciforge_runtime_instruction\b/i,
-  /Runtime context ledger for this thread/i,
-  /When an advertised specialized MCP tool directly matches/i
-]
+const NON_DISPLAY_TITLE_SOURCES = new Set([
+  'empty',
+  'id_fallback',
+  'internal',
+  'internal_prompt',
+  'placeholder',
+  'runtime_prompt'
+])
 
 function normalizeTitleLine(line: string): string {
   return line
@@ -44,10 +46,6 @@ function shortenTitle(text: string, maxLength = MAX_THREAD_TITLE_LENGTH): string
   return `${compact.trim()}...`
 }
 
-function hasInternalPromptTitleContent(text: string): boolean {
-  return INTERNAL_PROMPT_TITLE_PATTERNS.some((pattern) => pattern.test(text))
-}
-
 export function getDefaultThreadTitle(): string {
   return i18n.t('common:untitledThread')
 }
@@ -70,28 +68,22 @@ export function deriveThreadTitleFromPrompt(prompt: string): string {
 }
 
 export function getDisplayThreadTitle(
-  thread: Pick<NormalizedThread, 'title' | 'preview'> | null | undefined
+  thread: Pick<NormalizedThread, 'title'> & Partial<Pick<NormalizedThread, 'titleSource'>> | null | undefined
 ): string {
   const raw = thread?.title?.trim() ?? ''
   if (
     raw &&
-    !hasInternalPromptTitleContent(raw) &&
-    !isInternalPlaceholderThreadTitle(raw) &&
+    !hasNonDisplayThreadTitleSource(thread?.titleSource) &&
     !hasPlaceholderThreadTitle(raw)
   ) {
     return raw
-  }
-
-  const preview = thread?.preview?.trim() ?? ''
-  if (preview && !hasInternalPromptTitleContent(preview)) {
-    return deriveThreadTitleFromPrompt(preview)
   }
 
   return getDefaultThreadTitle()
 }
 
 export function getDialogThreadTitle(
-  thread: Pick<NormalizedThread, 'title' | 'preview'> | null | undefined
+  thread: Pick<NormalizedThread, 'title'> & Partial<Pick<NormalizedThread, 'titleSource'>> | null | undefined
 ): string {
   return shortenTitle(
     getDisplayThreadTitle(thread).replace(/\s+/g, ' ').trim(),
@@ -99,14 +91,9 @@ export function getDialogThreadTitle(
   )
 }
 
-export function isInternalPlaceholderThreadTitle(title: string | null | undefined): boolean {
-  const raw = title?.trim() ?? ''
-  return INTERNAL_PLACEHOLDER_TITLE_PATTERN.test(raw)
-}
-
-export function hasInternalPromptThreadTitle(title: string | null | undefined): boolean {
-  const raw = title?.trim() ?? ''
-  return raw ? hasInternalPromptTitleContent(raw) : false
+export function hasNonDisplayThreadTitleSource(source: string | null | undefined): boolean {
+  const raw = source?.trim().toLowerCase() ?? ''
+  return NON_DISPLAY_TITLE_SOURCES.has(raw)
 }
 
 export function hasThreadIdFallbackTitle(

@@ -3,8 +3,10 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 
 import {
+  VISIBLE_CONTEXT_RESOURCE_URI,
   WORKSPACE_FILE_RESOURCE_URI_TEMPLATE,
   WORKSPACE_TREE_RESOURCE_URI,
+  VisibleContextInputSchema,
   WorkspaceListInputSchema,
   WorkspacePreviewInputSchema,
   WorkspaceReadInputSchema,
@@ -43,6 +45,17 @@ export function createWorkspaceIntelMcpServer(
     { name: 'sciforge-workspace-intel', version: '0.1.0' },
     { capabilities: { logging: {} } }
   )
+
+  server.registerTool('gui_visible_context', {
+    description: 'Inspect the GUI visible-context registry, including active right-sidebar components and resource pointers, without injecting full file or PDF contents.',
+    inputSchema: VisibleContextInputSchema,
+    annotations: READ_ONLY_TOOL_ANNOTATIONS
+  }, async (args) => {
+    const result = await service.visibleContext(args)
+    return toolResult(result, result.ok
+      ? `Visible context has ${result.componentCount} component${result.componentCount === 1 ? '' : 's'}.`
+      : result.error.message)
+  })
 
   server.registerTool('gui_workspace_list', {
     description: 'List read-only workspace directory entries with workspace root guard, pagination, and optional bounded recursion.',
@@ -135,6 +148,15 @@ export function createWorkspaceIntelMcpServer(
   }, async () => {
     const result = await service.tree({})
     return jsonResource(WORKSPACE_TREE_RESOURCE_URI, result)
+  })
+
+  server.registerResource('visible-context', VISIBLE_CONTEXT_RESOURCE_URI, {
+    title: 'Visible Context',
+    description: 'Current bounded GUI visible-context snapshot for agent on-demand inspection.',
+    mimeType: 'application/json'
+  }, async () => {
+    const result = await service.visibleContext({ includeHidden: true })
+    return jsonResource(VISIBLE_CONTEXT_RESOURCE_URI, result)
   })
 
   server.registerResource('workspace-file', new ResourceTemplate(WORKSPACE_FILE_RESOURCE_URI_TEMPLATE, {

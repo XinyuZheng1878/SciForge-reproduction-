@@ -8,7 +8,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
-  type RefObject
+  type RefObject,
+  type WheelEvent as ReactWheelEvent
 } from 'react'
 import {
   ChevronLeft,
@@ -36,6 +37,11 @@ import {
   type TextContentItem
 } from 'pdfjs-dist/build/pdf.mjs'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
+import {
+  clampContentScale,
+  resolveContentZoomWheel,
+  stepContentScale
+} from '../../lib/content-zoom-shortcuts'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -440,7 +446,15 @@ function clamp01(value: number): number {
 }
 
 function nextScale(value: number, direction: 1 | -1): number {
-  return clamp(Number((value + direction * PDF_SCALE_STEP).toFixed(2)), PDF_MIN_SCALE, PDF_MAX_SCALE)
+  return stepContentScale(value, direction, {
+    min: PDF_MIN_SCALE,
+    max: PDF_MAX_SCALE,
+    step: PDF_SCALE_STEP
+  })
+}
+
+function normalizePdfScale(value: number): number {
+  return clampContentScale(value, PDF_MIN_SCALE, PDF_MAX_SCALE)
 }
 
 function bytesFromBase64(base64: string): Uint8Array {
@@ -1590,7 +1604,7 @@ export function WritePdfViewer({
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [scale, setScale] = useState(() => clamp(initialScale, PDF_MIN_SCALE, PDF_MAX_SCALE))
+  const [scale, setScale] = useState(() => normalizePdfScale(initialScale))
   const [pageInput, setPageInput] = useState(String(Math.max(1, Math.round(initialPage))))
   const [currentPage, setCurrentPage] = useState(Math.max(1, Math.round(initialPage)))
   const [searchQuery, setSearchQuery] = useState('')
@@ -1617,6 +1631,23 @@ export function WritePdfViewer({
   const label = useCallback((key: string, fallback: string, options: Record<string, unknown> = {}): string => {
     return t(key, { defaultValue: fallback, ...options })
   }, [t])
+
+  const zoomIn = useCallback((): void => {
+    setScale((value) => nextScale(value, 1))
+  }, [])
+
+  const zoomOut = useCallback((): void => {
+    setScale((value) => nextScale(value, -1))
+  }, [])
+
+  const handleZoomWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>): void => {
+    const direction = resolveContentZoomWheel(event)
+    if (!direction) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (direction === 'in') zoomIn()
+    else zoomOut()
+  }, [zoomIn, zoomOut])
 
   useEffect(() => {
     onSelectionChangeRef.current = onSelectionChange
@@ -1685,7 +1716,7 @@ export function WritePdfViewer({
   }, [data, dataBase64, emitSelection, filePath, initialPage, mimeType, mtimeMs, size, sourceTitle, sourceUrl])
 
   useEffect(() => {
-    setScale(clamp(initialScale, PDF_MIN_SCALE, PDF_MAX_SCALE))
+    setScale(normalizePdfScale(initialScale))
   }, [filePath, initialScale, mtimeMs])
 
   useEffect(() => {
@@ -2101,6 +2132,7 @@ export function WritePdfViewer({
       ref={rootRef}
       className={`write-pdf-viewer flex h-full min-h-0 min-w-0 flex-col ${className ?? ''}`}
       data-live-selection={liveSelection ? '' : undefined}
+      onWheelCapture={handleZoomWheel}
     >
       <style>{PDF_VIEWER_CSS}</style>
       <div className="shrink-0 border-b border-ds-border-muted bg-white/88 px-3 py-2 backdrop-blur-xl dark:bg-ds-card/95">
@@ -2125,7 +2157,7 @@ export function WritePdfViewer({
               className="write-pdf-icon-button"
               title={label('writePdfZoomOut', 'Zoom PDF out')}
               aria-label={label('writePdfZoomOut', 'Zoom PDF out')}
-              onClick={() => setScale((value) => nextScale(value, -1))}
+              onClick={zoomOut}
             >
               <Minus className="h-4 w-4" strokeWidth={1.9} />
             </button>
@@ -2137,7 +2169,7 @@ export function WritePdfViewer({
               className="write-pdf-icon-button"
               title={label('writePdfZoomIn', 'Zoom PDF in')}
               aria-label={label('writePdfZoomIn', 'Zoom PDF in')}
-              onClick={() => setScale((value) => nextScale(value, 1))}
+              onClick={zoomIn}
             >
               <Plus className="h-4 w-4" strokeWidth={1.9} />
             </button>

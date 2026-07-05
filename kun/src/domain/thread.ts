@@ -4,6 +4,8 @@ import type {
   ThreadGoal,
   ThreadTodoList,
   ThreadRelation,
+  ThreadSource,
+  ThreadSummary,
   ThreadStatus
 } from '../contracts/threads.js'
 import {
@@ -32,7 +34,13 @@ export function createThreadRecord(input: {
   costBudgetUsd?: number
   costBudgetWarningSent?: boolean
   relation?: ThreadRelation
+  threadSource?: ThreadSource
+  visibility?: ThreadRecord['visibility']
+  sidebarVisibility?: ThreadRecord['sidebarVisibility']
+  titleSource?: ThreadRecord['titleSource']
   parentThreadId?: string
+  parentTurnId?: string
+  agentMetadata?: ThreadRecord['agentMetadata']
   forkedFromThreadId?: string
   forkedFromTitle?: string
   forkedAt?: string
@@ -56,7 +64,13 @@ export function createThreadRecord(input: {
     ...(input.costBudgetUsd !== undefined ? { costBudgetUsd: input.costBudgetUsd } : {}),
     ...(input.costBudgetWarningSent !== undefined ? { costBudgetWarningSent: input.costBudgetWarningSent } : {}),
     relation: input.relation ?? 'primary',
+    ...(input.threadSource ? { threadSource: input.threadSource } : {}),
+    ...(input.visibility ? { visibility: input.visibility } : {}),
+    ...(input.sidebarVisibility ? { sidebarVisibility: input.sidebarVisibility } : {}),
+    ...(input.titleSource ? { titleSource: input.titleSource } : {}),
     ...(input.parentThreadId ? { parentThreadId: input.parentThreadId } : {}),
+    ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+    ...(input.agentMetadata ? { agentMetadata: input.agentMetadata } : {}),
     ...(input.forkedFromThreadId ? { forkedFromThreadId: input.forkedFromThreadId } : {}),
     ...(input.forkedFromTitle ? { forkedFromTitle: input.forkedFromTitle } : {}),
     ...(input.forkedAt ? { forkedAt: input.forkedAt } : {}),
@@ -77,14 +91,8 @@ export function touchThread(thread: ThreadEntity, updatedAt?: string): ThreadEnt
 
 export function toThreadSummary(
   thread: ThreadEntity
-): Pick<
-  ThreadEntity,
-  'id' | 'title' | 'workspace' | 'model' | 'mode' | 'status' | 'createdAt' | 'updatedAt'
-  | 'costBudgetUsd' | 'costBudgetWarningSent'
-  | 'relation' | 'parentThreadId'
-  | 'forkedFromThreadId' | 'forkedFromTitle' | 'forkedAt' | 'forkedFromMessageCount' | 'forkedFromTurnCount'
-  | 'goal' | 'todos' | 'guiPlan'
-> {
+): ThreadSummary {
+  const threadSource = inferThreadSource(thread)
   return {
     id: thread.id,
     title: thread.title,
@@ -95,7 +103,13 @@ export function toThreadSummary(
     ...(thread.costBudgetUsd !== undefined ? { costBudgetUsd: thread.costBudgetUsd } : {}),
     ...(thread.costBudgetWarningSent !== undefined ? { costBudgetWarningSent: thread.costBudgetWarningSent } : {}),
     relation: thread.relation ?? 'primary',
+    ...(threadSource ? { threadSource } : {}),
+    ...(thread.visibility ? { visibility: thread.visibility } : {}),
+    ...(thread.sidebarVisibility ? { sidebarVisibility: thread.sidebarVisibility } : {}),
+    ...(thread.titleSource ? { titleSource: thread.titleSource } : {}),
     ...(thread.parentThreadId ? { parentThreadId: thread.parentThreadId } : {}),
+    ...(thread.parentTurnId ? { parentTurnId: thread.parentTurnId } : {}),
+    ...(thread.agentMetadata ? { agentMetadata: thread.agentMetadata } : {}),
     ...(thread.forkedFromThreadId ? { forkedFromThreadId: thread.forkedFromThreadId } : {}),
     ...(thread.forkedFromTitle ? { forkedFromTitle: thread.forkedFromTitle } : {}),
     ...(thread.forkedAt ? { forkedAt: thread.forkedAt } : {}),
@@ -107,4 +121,18 @@ export function toThreadSummary(
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt
   }
+}
+
+export function inferThreadSource(
+  thread: Pick<ThreadEntity, 'parentThreadId'> & {
+    relation?: ThreadRelation
+    threadSource?: ThreadSource
+    forkedFromThreadId?: string
+  }
+): ThreadSource | undefined {
+  if (thread.threadSource) return thread.threadSource
+  if (thread.relation === 'side') return 'side'
+  if (thread.relation === 'fork') return 'fork'
+  if (thread.relation === undefined && thread.parentThreadId) return 'side'
+  return undefined
 }

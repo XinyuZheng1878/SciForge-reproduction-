@@ -1301,6 +1301,8 @@
   "filePreviewEmpty": "未选择文件",
   "filePreviewLoading": "正在读取文件…",
   "filePreviewFailed": "无法读取文件。",
+  "filePreviewRefresh": "刷新预览",
+  "filePreviewRefreshing": "正在刷新预览…",
   "filePreviewOpenEditor": "在编辑器中打开",
   "filePreviewOpenPdfAnnotations": "打开 PDF 批注",
   "filePreviewCopyPath": "复制路径",

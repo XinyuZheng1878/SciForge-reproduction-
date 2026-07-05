@@ -140,9 +140,11 @@ describe('ThreadService.fork with side relation', () => {
     )
     const side = await service.fork('thr_1', { relation: 'side' })
     expect(side.relation).toBe('side')
+    expect(side.threadSource).toBe('side')
     expect(side.parentThreadId).toBe('thr_1')
     expect(side.forkedFromThreadId).toBe('thr_1')
     expect(side.title).toBe('Parent · side')
+    expect(side.titleSource).toBe('derived')
     // The parent record must not be mutated by the spawn.
     const parent = await threadStore.get('thr_1')
     expect(parent?.relation ?? 'primary').toBe('primary')
@@ -217,6 +219,7 @@ describe('ThreadService.fork with side relation', () => {
     )
     const fork = await service.fork('thr_f')
     expect(fork.relation).toBe('fork')
+    expect(fork.threadSource).toBe('fork')
     expect(fork.parentThreadId).toBe('thr_f')
     expect(fork.title).toBe('Forker fork')
   })
@@ -298,6 +301,7 @@ describe('ThreadService.fork with side relation', () => {
     )
     const side = await service.fork('thr_t', { relation: 'side', title: 'My aside' })
     expect(side.title).toBe('My aside')
+    expect(side.titleSource).toBe('user')
   })
 })
 
@@ -558,6 +562,60 @@ describe('ThreadService.list with relation filter', () => {
     const allIds = all.map((t) => t.id).sort()
     expect(allIds).toEqual(['thr_main', fork.id, side.id].sort())
   })
+
+  it('hides structured side, subagent, workflow, and internal threads by default', async () => {
+    const { service } = buildService()
+    await service.create(
+      { workspace: '/tmp/p', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_visible', title: 'Visible' }
+    )
+    await service.create(
+      { workspace: '/tmp/p', model: 'deepseek-chat', mode: 'agent', threadSource: 'subagent' },
+      { id: 'thr_subagent', title: 'Worker A' }
+    )
+    await service.create(
+      { workspace: '/tmp/p', model: 'deepseek-chat', mode: 'agent', threadSource: 'workflow' },
+      { id: 'thr_workflow', title: 'Pipeline A' }
+    )
+    await service.create(
+      { workspace: '/tmp/p', model: 'deepseek-chat', mode: 'agent', threadSource: 'internal' },
+      { id: 'thr_internal', title: 'Runtime A' }
+    )
+    const side = await service.fork('thr_visible', { relation: 'side' })
+
+    const def = await service.list()
+    expect(def.map((t) => t.id).sort()).toEqual(['thr_visible'])
+
+    const includeSide = await service.list({ includeSide: true })
+    expect(includeSide.map((t) => t.id).sort()).toEqual(['thr_visible', side.id].sort())
+  })
+
+  it('infers legacy side visibility from parentThreadId when structured fields are missing', async () => {
+    const { service, threadStore } = buildService()
+    await service.create(
+      { workspace: '/tmp/p', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_parent_legacy', title: 'Parent' }
+    )
+    const legacySide = createThreadRecord({
+      id: 'thr_legacy_side',
+      title: 'Legacy child',
+      workspace: '/tmp/p',
+      model: 'deepseek-chat',
+      parentThreadId: 'thr_parent_legacy'
+    })
+    delete (legacySide as { relation?: unknown }).relation
+    await threadStore.upsert(legacySide)
+
+    const def = await service.list()
+    expect(def.find((thread) => thread.id === 'thr_legacy_side')).toBeUndefined()
+
+    const includeSide = await service.list({ includeSide: true })
+    expect(includeSide.find((thread) => thread.id === 'thr_legacy_side')).toMatchObject({
+      id: 'thr_legacy_side',
+      threadSource: 'side',
+      parentThreadId: 'thr_parent_legacy'
+    })
+  })
 })
 
 describe('ThreadService.resumeSession', () => {
@@ -612,13 +670,35 @@ describe('ThreadService.update relation', () => {
       { workspace: '/tmp/p', model: 'deepseek-chat', mode: 'agent' },
       { id: 'thr_p', title: 'Parent' }
     )
-    const side = await service.fork('thr_p', { relation: 'side' })
+    const side = await service.fork('thr_p', { relation: 'side', parentTurnId: 'turn_p' })
     expect(side.parentThreadId).toBe('thr_p')
+    expect(side.parentTurnId).toBe('turn_p')
+    expect(side.threadSource).toBe('side')
     const promoted = await service.update(side.id, { relation: 'primary' })
     expect(promoted.relation).toBe('primary')
     expect(promoted.parentThreadId).toBeUndefined()
+    expect(promoted.parentTurnId).toBeUndefined()
+    expect(promoted.threadSource).toBeUndefined()
     const fetched = await threadStore.get(side.id)
     expect(fetched?.relation).toBe('primary')
+    expect((await service.list()).map((thread) => thread.id)).toContain(side.id)
+  })
+
+  it('clears side parent metadata when promoting a side thread to fork', async () => {
+    const { service } = buildService()
+    await service.create(
+      { workspace: '/tmp/p', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_promote_fork', title: 'Parent' }
+    )
+    const side = await service.fork('thr_promote_fork', { relation: 'side', parentTurnId: 'turn_fork' })
+
+    const promoted = await service.update(side.id, { relation: 'fork' })
+
+    expect(promoted.relation).toBe('fork')
+    expect(promoted.parentThreadId).toBeUndefined()
+    expect(promoted.parentTurnId).toBeUndefined()
+    expect(promoted.threadSource).toBeUndefined()
+    expect((await service.list()).map((thread) => thread.id)).toContain(side.id)
   })
 })
 
@@ -632,5 +712,43 @@ describe('ThreadService + domain factory relation defaults', () => {
     })
     expect(thread.relation).toBe('primary')
     expect(thread.parentThreadId).toBeUndefined()
+  })
+
+  it('preserves structured visibility and agent metadata in summaries', () => {
+    const { service } = buildService()
+    const thread = createThreadRecord({
+      id: 'thr_meta',
+      title: 'Metadata',
+      workspace: '/tmp',
+      model: 'deepseek-chat',
+      relation: 'side',
+      threadSource: 'subagent',
+      visibility: 'hidden',
+      sidebarVisibility: 'hidden',
+      titleSource: 'runtime',
+      parentThreadId: 'thr_parent',
+      parentTurnId: 'turn_parent',
+      agentMetadata: {
+        childId: 'child_1',
+        childLabel: 'Worker C',
+        parentThreadId: 'thr_parent',
+        parentTurnId: 'turn_parent'
+      }
+    })
+
+    const summary = service.toSummary(thread)
+
+    expect(summary).toMatchObject({
+      threadSource: 'subagent',
+      visibility: 'hidden',
+      sidebarVisibility: 'hidden',
+      titleSource: 'runtime',
+      parentThreadId: 'thr_parent',
+      parentTurnId: 'turn_parent',
+      agentMetadata: {
+        childId: 'child_1',
+        childLabel: 'Worker C'
+      }
+    })
   })
 })

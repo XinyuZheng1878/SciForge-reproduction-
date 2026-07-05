@@ -509,6 +509,107 @@ describe('AgentRuntimeHost', () => {
     )
   })
 
+  it('adds an on-demand visible GUI lookup hint for right-sidebar PDF annotation requests', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const visibleContext = {
+      get: vi.fn(async () => ({
+        schemaVersion: 1,
+        updatedAt: '2026-07-04T00:00:00.000Z',
+        activeThreadId: 'codex-thread',
+        workspaceRoot: '/tmp/workspace',
+        route: 'chat',
+        components: [{
+          id: 'right-sidebar.file-preview',
+          region: 'right-sidebar',
+          component: 'file-preview',
+          title: 'paper.pdf',
+          visible: true,
+          updatedAt: '2026-07-04T00:00:00.000Z',
+          summary: 'Previewing pdf file paper.pdf.',
+          resources: [{
+            kind: 'pdfAnnotations',
+            role: 'annotation-sidecar',
+            workspaceRoot: '/tmp/workspace',
+            relativePath: '.sciforge/pdf-annotations/sha.json',
+            annotationCount: 2,
+            threadCount: 2,
+            openThreadCount: 2,
+            accessHint: 'Use gui_workspace_read when annotation details are needed.'
+          }]
+        }]
+      })),
+      peek: vi.fn(() => ({
+        schemaVersion: 1,
+        updatedAt: '1970-01-01T00:00:00.000Z',
+        components: []
+      }))
+    }
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: { visibleContext: visibleContext as never }
+    })
+    const userText = '看一下右侧的pdf批注，然后修改论文。'
+
+    await host.startTurn({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      text: userText,
+      displayText: userText
+    })
+
+    const dispatched = vi.mocked(adapter.startTurn).mock.calls[0]?.[1]
+    expect(visibleContext.get).toHaveBeenCalled()
+    expect(dispatched?.text).toContain('gui_visible_context')
+    expect(dispatched?.text).toContain('pdfAnnotations')
+    expect(dispatched?.text).toContain('.sciforge/pdf-annotations/sha.json')
+    expect(dispatched?.text).toContain(userText)
+    expect(dispatched?.displayText).toBe(userText)
+  })
+
+  it('does not add visible GUI lookup hints to unrelated turns', async () => {
+    const adapter = fakeAdapter('codex', {
+      id: 'codex-thread',
+      runtimeId: 'codex',
+      title: 'Codex',
+      updatedAt: '2026-06-10T00:00:00.000Z'
+    })
+    const visibleContext = {
+      get: vi.fn(async () => ({
+        schemaVersion: 1,
+        updatedAt: '2026-07-04T00:00:00.000Z',
+        components: []
+      })),
+      peek: vi.fn(() => ({
+        schemaVersion: 1,
+        updatedAt: '1970-01-01T00:00:00.000Z',
+        components: []
+      }))
+    }
+    const host = createAgentRuntimeHost({
+      settings: async () => settings('codex'),
+      adapters: [adapter],
+      services: { visibleContext: visibleContext as never }
+    })
+
+    await host.startTurn({
+      runtimeId: 'codex',
+      threadId: 'codex-thread',
+      text: 'Run the unit tests.',
+      displayText: 'Run the unit tests.'
+    })
+
+    const dispatched = vi.mocked(adapter.startTurn).mock.calls[0]?.[1]
+    expect(visibleContext.get).not.toHaveBeenCalled()
+    expect(dispatched?.text).not.toContain('gui_visible_context')
+    expect(dispatched?.text).toBe('Run the unit tests.')
+  })
+
   it('streams events through the selected adapter', async () => {
     const local = fakeAdapter('sciforge', {
       id: 'local-thread',

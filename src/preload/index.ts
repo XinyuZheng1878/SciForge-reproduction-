@@ -231,6 +231,10 @@ const api = {
     export: (payload) => ipcRenderer.invoke('pdfAnnotations:export', payload),
     import: (payload) => ipcRenderer.invoke('pdfAnnotations:import', payload)
   },
+  visibleContext: {
+    publish: (snapshot) => ipcRenderer.invoke('visibleContext:publish', snapshot),
+    get: () => ipcRenderer.invoke('visibleContext:get')
+  },
   agentRuntime: {
     connect: (runtimeId) => ipcRenderer.invoke('agentRuntime:connect', { runtimeId }),
     capabilities: (runtimeId) => ipcRenderer.invoke('agentRuntime:capabilities', { runtimeId }),

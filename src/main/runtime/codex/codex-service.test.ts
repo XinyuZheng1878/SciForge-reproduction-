@@ -147,6 +147,15 @@ async function tempRoot(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'sciforge-codex-service-'))
 }
 
+type CodexThreadUpsert = Parameters<CodexThreadStore['upsert']>[0]
+
+async function upsertMaterializedThread(
+  store: CodexThreadStore,
+  input: CodexThreadUpsert
+): Promise<void> {
+  await store.upsert({ latestSeq: 1, ...input })
+}
+
 function deferred<T>(): {
   promise: Promise<T>
   resolve: (value: T) => void
@@ -165,7 +174,7 @@ describe('CodexRuntimeService storage fallback', () => {
   it('lists stored Codex threads when app-server list is unavailable', async () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
-    await threadStore.upsert({
+    await upsertMaterializedThread(threadStore, {
       guiThreadId: 'codex-thread-1',
       codexThreadId: 'codex-thread-1',
       workspace: '/tmp/workspace',
@@ -191,13 +200,13 @@ describe('CodexRuntimeService storage fallback', () => {
   it('includes archived stored Codex threads when requested', async () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
-    await threadStore.upsert({
+    await upsertMaterializedThread(threadStore, {
       guiThreadId: 'codex-active',
       codexThreadId: 'codex-active',
       workspace: '/tmp/workspace',
       title: 'Active Codex'
     })
-    await threadStore.upsert({
+    await upsertMaterializedThread(threadStore, {
       guiThreadId: 'codex-archived',
       codexThreadId: 'codex-archived',
       workspace: '/tmp/workspace',
@@ -227,20 +236,20 @@ describe('CodexRuntimeService storage fallback', () => {
   it('omits stored side and child Codex threads unless side threads are requested', async () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
-    await threadStore.upsert({
+    await upsertMaterializedThread(threadStore, {
       guiThreadId: 'codex-primary',
       codexThreadId: 'codex-primary',
       workspace: '/tmp/workspace',
       title: 'Primary Codex'
     })
-    await threadStore.upsert({
+    await upsertMaterializedThread(threadStore, {
       guiThreadId: 'codex-side',
       codexThreadId: 'codex-side',
       workspace: '/tmp/workspace',
       title: 'Side Codex',
       relation: 'side'
     })
-    await threadStore.upsert({
+    await upsertMaterializedThread(threadStore, {
       guiThreadId: 'codex-subagent',
       codexThreadId: 'codex-subagent',
       workspace: '/tmp/workspace',
@@ -281,13 +290,13 @@ describe('CodexRuntimeService storage fallback', () => {
   it('omits empty placeholder Codex threads from stored lists', async () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
-    await threadStore.upsert({
+    await upsertMaterializedThread(threadStore, {
       guiThreadId: 'empty-codex-thread',
       codexThreadId: 'empty-codex-thread',
       workspace: '/tmp/workspace',
       title: 'Codex thread'
     })
-    await threadStore.upsert({
+    await upsertMaterializedThread(threadStore, {
       guiThreadId: 'real-codex-thread',
       codexThreadId: 'real-codex-thread',
       workspace: '/tmp/workspace',
@@ -308,6 +317,13 @@ describe('CodexRuntimeService storage fallback', () => {
 
   it('persists app-server thread updatedAt without replacing it with read time', async () => {
     const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await upsertMaterializedThread(threadStore, {
+      guiThreadId: 'codex-live-thread',
+      codexThreadId: 'codex-live-thread',
+      workspace: '/tmp/workspace',
+      title: 'Live thread'
+    })
     const client = controllableClient()
     vi.mocked(client.listThreads).mockResolvedValue({
       threads: [{
@@ -336,8 +352,41 @@ describe('CodexRuntimeService storage fallback', () => {
     })
   })
 
+  it('does not materialize unknown app-server threads from live lists', async () => {
+    const storageRoot = await tempRoot()
+    const client = controllableClient()
+    vi.mocked(client.listThreads).mockResolvedValue({
+      threads: [{
+        id: 'codex-orphan-live-thread',
+        name: 'Runtime-only thread',
+        updatedAt: 1780272000,
+        cwd: '/tmp/workspace'
+      }]
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    await expect(service.listThreads({ includeArchived: true })).resolves.toEqual({
+      ok: true,
+      threads: []
+    })
+    await expect(new CodexThreadStore({ rootDir: storageRoot }).get('codex-orphan-live-thread')).resolves.toBeNull()
+  })
+
   it('omits live side and native child Codex threads unless side threads are requested', async () => {
     const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await threadStore.upsertMany([
+      { guiThreadId: 'codex-primary', codexThreadId: 'codex-primary', workspace: '/tmp/workspace', title: 'Primary Codex', latestSeq: 1 },
+      { guiThreadId: 'codex-side', codexThreadId: 'codex-side', workspace: '/tmp/workspace', title: 'Side Codex', latestSeq: 1 },
+      { guiThreadId: 'codex-subagent', codexThreadId: 'codex-subagent', workspace: '/tmp/workspace', title: 'Reviewer', latestSeq: 1 },
+      { guiThreadId: 'codex-workflow', codexThreadId: 'codex-workflow', workspace: '/tmp/workspace', title: 'Workflow', latestSeq: 1 },
+      { guiThreadId: 'codex-local-workflow', codexThreadId: 'codex-local-workflow', workspace: '/tmp/workspace', title: 'Local workflow', latestSeq: 1 }
+    ])
     const client = controllableClient()
     vi.mocked(client.listThreads).mockResolvedValue({
       threads: [
@@ -413,20 +462,20 @@ describe('CodexRuntimeService storage fallback', () => {
     }
   })
 
-  it('cleans leaked runtime instructions from app-server thread titles', async () => {
+  it('does not derive app-server thread titles from preview text', async () => {
     const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await upsertMaterializedThread(threadStore, {
+      guiThreadId: 'codex-live-thread',
+      codexThreadId: 'codex-live-thread',
+      workspace: '/tmp/workspace',
+      title: 'Codex thread'
+    })
     const client = controllableClient()
     vi.mocked(client.listThreads).mockResolvedValue({
       threads: [{
         id: 'codex-live-thread',
-        name: [
-          '<sciforge_runtime_instruction>',
-          'Runtime context ledger for this thread.',
-          'When an advertised specialized MCP tool directly matches the user request, use that tool.',
-          '</sciforge_runtime_instruction>',
-          '',
-          'Summarize AlphaFold benchmark results in a table.'
-        ].join('\n'),
+        name: 'New chat',
         preview: 'Summarize AlphaFold benchmark results in a table.',
         updatedAt: 1780272000,
         cwd: '/tmp/workspace'
@@ -443,16 +492,23 @@ describe('CodexRuntimeService storage fallback', () => {
       ok: true,
       threads: [expect.objectContaining({
         id: 'codex-live-thread',
-        title: 'Summarize AlphaFold benchmark results in a table'
+        title: 'Codex thread',
+        preview: 'Summarize AlphaFold benchmark results in a table.',
+        titleSource: 'fallback'
       })]
     })
     await expect(new CodexThreadStore({ rootDir: storageRoot }).get('codex-live-thread')).resolves.toMatchObject({
-      title: 'Summarize AlphaFold benchmark results in a table'
+      title: 'Codex thread'
     })
   })
 
   it('hides Codex child threads from default thread lists unless side threads are requested', async () => {
     const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await threadStore.upsertMany([
+      { guiThreadId: 'codex-main-thread', codexThreadId: 'codex-main-thread', workspace: '/tmp/workspace', title: 'Main thread', latestSeq: 1 },
+      { guiThreadId: 'codex-child-thread', codexThreadId: 'codex-child-thread', workspace: '/tmp/workspace', title: 'Child worker', latestSeq: 1 }
+    ])
     const client = controllableClient()
     vi.mocked(client.listThreads).mockResolvedValue({
       threads: [
@@ -496,17 +552,117 @@ describe('CodexRuntimeService storage fallback', () => {
     })
   })
 
+  it('prioritizes structured sidebar visibility when filtering Codex thread lists', async () => {
+    const storageRoot = await tempRoot()
+    const threadStore = new CodexThreadStore({ rootDir: storageRoot })
+    await threadStore.upsertMany([
+      { guiThreadId: 'codex-primary', codexThreadId: 'codex-primary', workspace: '/tmp/workspace', title: 'Primary thread', latestSeq: 1 },
+      { guiThreadId: 'codex-main-override', codexThreadId: 'codex-main-override', workspace: '/tmp/workspace', title: 'Main override', latestSeq: 1 },
+      { guiThreadId: 'codex-hidden-override', codexThreadId: 'codex-hidden-override', workspace: '/tmp/workspace', title: 'Hidden override', latestSeq: 1 },
+      { guiThreadId: 'codex-legacy-child', codexThreadId: 'codex-legacy-child', workspace: '/tmp/workspace', title: 'Legacy child', latestSeq: 1 }
+    ])
+    const client = controllableClient()
+    vi.mocked(client.listThreads).mockResolvedValue({
+      threads: [
+        {
+          id: 'codex-primary',
+          name: 'Primary thread',
+          updatedAt: 1780272000,
+          cwd: '/tmp/workspace'
+        },
+        {
+          id: 'codex-main-override',
+          name: 'Main override',
+          relation: 'side',
+          sidebarVisibility: 'visible',
+          updatedAt: 1780272001,
+          cwd: '/tmp/workspace'
+        },
+        {
+          id: 'codex-hidden-override',
+          name: 'Hidden override',
+          relation: 'primary',
+          sidebarVisibility: 'hide',
+          updatedAt: 1780272002,
+          cwd: '/tmp/workspace'
+        },
+        {
+          id: 'codex-legacy-child',
+          name: 'Legacy child',
+          parentThreadId: 'codex-primary',
+          updatedAt: 1780272003,
+          cwd: '/tmp/workspace'
+        }
+      ]
+    })
+    const service = new CodexRuntimeService({
+      settings: async () => settings(),
+      sink: { send: vi.fn() },
+      storageRoot,
+      createClient: () => client
+    })
+
+    const defaultList = await service.listThreads({ includeArchived: true })
+    expect(defaultList).toMatchObject({ ok: true })
+    if (defaultList.ok) {
+      expect(defaultList.threads.map((thread) => thread.id).sort()).toEqual([
+        'codex-main-override',
+        'codex-primary'
+      ])
+      expect(defaultList.threads.find((thread) => thread.id === 'codex-main-override')).toMatchObject({
+        relation: 'side',
+        sidebarVisibility: 'main'
+      })
+    }
+
+    const withSide = await service.listThreads({ includeArchived: true, includeSide: true })
+    expect(withSide).toMatchObject({ ok: true })
+    if (withSide.ok) {
+      expect(withSide.threads.map((thread) => thread.id).sort()).toEqual([
+        'codex-hidden-override',
+        'codex-legacy-child',
+        'codex-main-override',
+        'codex-primary'
+      ])
+      expect(withSide.threads.find((thread) => thread.id === 'codex-hidden-override')).toMatchObject({
+        relation: 'primary',
+        sidebarVisibility: 'hidden'
+      })
+      expect(withSide.threads.find((thread) => thread.id === 'codex-legacy-child')).toMatchObject({
+        relation: 'side',
+        parentThreadId: 'codex-primary'
+      })
+    }
+  })
+
   it('bulk persists app-server thread lists without per-thread store upserts', async () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
-    await threadStore.upsert({
+    await threadStore.upsertMany([
+      {
+        guiThreadId: 'codex-active-1',
+        codexThreadId: 'codex-active-1',
+        workspace: '/tmp/workspace',
+        title: 'Active Codex 1',
+        latestSeq: 1
+      },
+      {
+        guiThreadId: 'codex-active-2',
+        codexThreadId: 'codex-active-2',
+        workspace: '/tmp/workspace',
+        title: 'Active Codex 2',
+        latestSeq: 1
+      },
+      {
       guiThreadId: 'codex-archived-live',
       codexThreadId: 'codex-archived-live',
       workspace: '/tmp/workspace',
       title: 'Archived live Codex',
       archived: true,
+      latestSeq: 1,
       updatedAt: '2026-06-01T00:00:00.000Z'
-    })
+      }
+    ])
     const client = controllableClient()
     vi.mocked(client.listThreads).mockResolvedValue({
       threads: [
@@ -558,11 +714,6 @@ describe('CodexRuntimeService storage fallback', () => {
           codexThreadId: 'codex-active-2',
           preserveArchived: true,
           updatedAt: '2026-06-03T00:00:00.000Z'
-        }),
-        expect.objectContaining({
-          codexThreadId: 'codex-archived-live',
-          preserveArchived: true,
-          updatedAt: '2026-06-04T00:00:00.000Z'
         })
       ])
       expect(upsertSpy).not.toHaveBeenCalled()
@@ -585,7 +736,7 @@ describe('CodexRuntimeService storage fallback', () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
     const eventStore = new CodexEventStore({ rootDir: storageRoot })
-    await threadStore.upsert({
+    await upsertMaterializedThread(threadStore, {
       guiThreadId: 'codex-thread-1',
       codexThreadId: 'codex-thread-1',
       workspace: '/tmp/workspace',
@@ -1518,7 +1669,7 @@ describe('CodexRuntimeService compatibility operations', () => {
   it('keeps locally archived live Codex threads out of the active list', async () => {
     const storageRoot = await tempRoot()
     const threadStore = new CodexThreadStore({ rootDir: storageRoot })
-    await threadStore.upsert({
+    await upsertMaterializedThread(threadStore, {
       guiThreadId: 'codex-thread-1',
       codexThreadId: 'codex-thread-1',
       workspace: '/tmp/workspace',
@@ -1905,6 +2056,78 @@ describe('CodexRuntimeService compatibility operations', () => {
         arguments: {
           path: 'docs/research/single_cell/smoke_test_plan.md',
           workspaceRoot: '/tmp/awesome-ai-scientist'
+        }
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
+    )
+  })
+
+  it('does not inject a workspace root into visible-context dynamic MCP calls', async () => {
+    const client = controllableClient()
+    const storageRoot = await tempRoot()
+    let pendingServerRequests: CodexAppServerPendingRequestRegistryOptions | undefined
+    const callTool = vi.fn(async () => ({
+      content: [{ type: 'text', text: '{"ok":true,"components":[]}' }]
+    }))
+    const mcpClient: CodexDynamicMcpClient = {
+      listTools: vi.fn(async () => ({
+        tools: [{
+          name: 'gui_visible_context',
+          description: 'Inspect current visible GUI context.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              region: { type: 'string' },
+              componentId: { type: 'string' },
+              includeHidden: { type: 'boolean' }
+            },
+            additionalProperties: false
+          }
+        }]
+      })),
+      callTool,
+      close: vi.fn(async () => undefined)
+    }
+    const service = new CodexRuntimeService({
+      settings: async () => ({
+        ...settings(),
+        workspaceRoot: '/tmp/settings-workspace'
+      }),
+      sink: { send: vi.fn() },
+      storageRoot,
+      workspaceIntelMcpLaunch: {
+        appPath: '/tmp/sciforge-test-app',
+        execPath: '/tmp/sciforge-test-app/SciForge',
+        isPackaged: false
+      },
+      mcpClientFactory: async () => mcpClient,
+      createClient: (options) => {
+        pendingServerRequests = options.pendingServerRequests as CodexAppServerPendingRequestRegistryOptions
+        return client
+      }
+    })
+
+    await expect(service.startThread({
+      title: 'Visible context thread',
+      workspace: '/tmp/awesome-ai-scientist'
+    })).resolves.toMatchObject({
+      ok: true
+    })
+
+    await expect(pendingServerRequests?.onToolCallRequest?.({
+      requestId: 'visible-context-request-1',
+      threadId: 'thread-1',
+      tool: 'gui_visible_context',
+      arguments: { region: 'right-sidebar' }
+    })).resolves.toMatchObject({
+      contentItems: [{ type: 'inputText', text: '{"ok":true,"components":[]}' }],
+      success: true
+    })
+    expect(callTool).toHaveBeenCalledWith(
+      {
+        name: 'gui_visible_context',
+        arguments: {
+          region: 'right-sidebar'
         }
       },
       expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })

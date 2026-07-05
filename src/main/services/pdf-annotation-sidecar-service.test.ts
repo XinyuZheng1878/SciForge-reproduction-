@@ -1,9 +1,10 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import JSZip from 'jszip'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createEmptyPdfAnnotationSidecar } from '../../shared/pdf-annotations'
+import { createEmptyPdfAnnotationSidecar, createPdfAnchor } from '../../shared/pdf-annotations'
 import {
   exportPdfAnnotationSidecarPackage,
   importPdfAnnotationSidecarPackage,
@@ -67,22 +68,144 @@ describe('pdf annotation sidecar service', () => {
     await expect(readdir(outsideRoot)).resolves.toEqual([])
   })
 
-  it('loads compatible same-directory legacy sidecars', async () => {
+  it('keeps the same annotation sidecar when the PDF fingerprint changes', async () => {
     const workspaceRoot = await createTempWorkspace()
-    const pdfPath = join(workspaceRoot, 'legacy.pdf')
-    await writeFile(pdfPath, '%PDF-1.7\nlegacy\n', 'utf8')
-
-    const empty = await loadPdfAnnotationSidecar({ pdfPath, workspaceRoot })
-    expect(empty.ok).toBe(true)
-    if (!empty.ok) return
-    const legacyPath = join(workspaceRoot, 'legacy.pdf.dsgui-annotations.json')
-    await writeFile(legacyPath, `${JSON.stringify(createEmptyPdfAnnotationSidecar(empty.pdfFingerprint), null, 2)}\n`, 'utf8')
+    const pdfPath = join(workspaceRoot, 'paper.pdf')
+    await writeFile(pdfPath, '%PDF-1.7\nfirst-build\n', 'utf8')
 
     const loaded = await loadPdfAnnotationSidecar({ pdfPath, workspaceRoot })
     expect(loaded.ok).toBe(true)
     if (!loaded.ok) return
-    expect(loaded.source).toBe('legacy')
-    expect(loaded.path.endsWith('/legacy.pdf.dsgui-annotations.json')).toBe(true)
+    const now = '2026-07-04T00:00:00.000Z'
+    const anchor = createPdfAnchor({
+      id: 'anchor-1',
+      rects: [{ page: 1, x: 0.1, y: 0.1, width: 0.2, height: 0.1 }],
+      quote: 'old build quote',
+      pdfFingerprint: loaded.pdfFingerprint,
+      createdAt: now,
+      updatedAt: now
+    })
+    const saved = await savePdfAnnotationSidecar({
+      pdfPath,
+      workspaceRoot,
+      sidecar: {
+        ...loaded.sidecar,
+        anchors: [anchor],
+        annotations: [{
+          id: 'annotation-1',
+          threadId: 'thread-1',
+          anchorId: 'anchor-1',
+          kind: 'comment',
+          body: 'keep this comment after rebuild',
+          createdAt: now,
+          updatedAt: now
+        }],
+        threads: [{
+          id: 'thread-1',
+          kind: 'comment',
+          anchorIds: ['anchor-1'],
+          annotationIds: ['annotation-1'],
+          status: 'open',
+          title: 'Persisted comment',
+          createdAt: now,
+          updatedAt: now
+        }],
+        updatedAt: now,
+        manifest: {
+          ...loaded.sidecar.manifest,
+          updatedAt: now
+        }
+      }
+    })
+    expect(saved.ok).toBe(true)
+    if (!saved.ok) return
+    const firstSidecarPath = saved.path
+
+    await writeFile(pdfPath, '%PDF-1.7\nsecond-build\n', 'utf8')
+    const rebuiltPdf = await readFile(pdfPath)
+    const rebuiltInfo = await stat(pdfPath)
+    const rebuiltSha256 = createHash('sha256').update(rebuiltPdf).digest('hex')
+    const rebuiltSidecar = createEmptyPdfAnnotationSidecar({
+      sha256: rebuiltSha256,
+      size: rebuiltInfo.size,
+      mtimeMs: rebuiltInfo.mtimeMs,
+      fileName: 'paper.pdf'
+    }, {
+      sourcePdfName: 'paper.pdf',
+      sourcePdfPath: pdfPath
+    })
+    await writeFile(
+      join(workspaceRoot, '.sciforge/pdf-annotations', `${rebuiltSha256}.json`),
+      `${JSON.stringify(rebuiltSidecar, null, 2)}\n`,
+      'utf8'
+    )
+
+    const reloaded = await loadPdfAnnotationSidecar({ pdfPath, workspaceRoot })
+    expect(reloaded.ok).toBe(true)
+    if (!reloaded.ok) return
+    expect(reloaded.source).toBe('default')
+    expect(reloaded.path).toBe(firstSidecarPath)
+    expect(reloaded.pdfFingerprint.sha256).not.toBe(loaded.pdfFingerprint.sha256)
+    expect(reloaded.sidecar.annotations[0]?.body).toBe('keep this comment after rebuild')
+    expect(reloaded.sidecar.manifest.sourcePdfPath?.endsWith('/paper.pdf')).toBe(true)
+  })
+
+  it('promotes an existing matching annotation sidecar into the canonical document path', async () => {
+    const workspaceRoot = await createTempWorkspace()
+    const pdfPath = join(workspaceRoot, 'paper.pdf')
+    await writeFile(pdfPath, '%PDF-1.7\nfirst-build\n', 'utf8')
+
+    const loaded = await loadPdfAnnotationSidecar({ pdfPath, workspaceRoot })
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    const now = '2026-07-04T00:00:00.000Z'
+    const anchor = createPdfAnchor({
+      id: 'anchor-1',
+      rects: [{ page: 1, x: 0.1, y: 0.1, width: 0.2, height: 0.1 }],
+      quote: 'old build quote',
+      pdfFingerprint: loaded.pdfFingerprint,
+      createdAt: now,
+      updatedAt: now
+    })
+    const existingSidecar = {
+      ...loaded.sidecar,
+      anchors: [anchor],
+      annotations: [{
+        id: 'annotation-1',
+        threadId: 'thread-1',
+        anchorId: 'anchor-1',
+        kind: 'comment' as const,
+        body: 'promote this comment',
+        createdAt: now,
+        updatedAt: now
+      }],
+      threads: [{
+        id: 'thread-1',
+        kind: 'comment' as const,
+        anchorIds: ['anchor-1'],
+        annotationIds: ['annotation-1'],
+        status: 'open' as const,
+        title: 'Persisted comment',
+        createdAt: now,
+        updatedAt: now
+      }],
+      updatedAt: now,
+      manifest: {
+        ...loaded.sidecar.manifest,
+        updatedAt: now
+      }
+    }
+    await mkdir(join(workspaceRoot, '.sciforge/pdf-annotations'), { recursive: true })
+    const existingPath = join(workspaceRoot, '.sciforge/pdf-annotations', `${loaded.pdfFingerprint.sha256}.json`)
+    await writeFile(existingPath, `${JSON.stringify(existingSidecar, null, 2)}\n`, 'utf8')
+
+    const reloaded = await loadPdfAnnotationSidecar({ pdfPath, workspaceRoot })
+    expect(reloaded.ok).toBe(true)
+    if (!reloaded.ok) return
+    expect(reloaded.source).toBe('default')
+    expect(reloaded.path).not.toBe(existingPath)
+    expect(reloaded.sidecar.annotations[0]?.body).toBe('promote this comment')
+    await expect(readFile(reloaded.path, 'utf8')).resolves.toContain('promote this comment')
   })
 
   it('exports and imports reviewable zip sidecar packages', async () => {

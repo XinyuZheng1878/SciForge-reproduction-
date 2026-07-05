@@ -124,6 +124,7 @@ import type {
   PdfAnnotationSidecarSaveResult,
   PdfAnnotationSidecarTarget
 } from './pdf-annotations'
+import type { VisibleContextSnapshot } from './visible-context'
 import type {
   FigureStyleExtractRequest,
   FigureStyleExtractResult,
@@ -702,6 +703,10 @@ export type SciForgeApi = {
     save: (payload: PdfAnnotationSidecarSavePayload) => Promise<PdfAnnotationSidecarSaveResult>
     export: (payload: PdfAnnotationSidecarExportPayload) => Promise<PdfAnnotationSidecarExportResult>
     import: (payload: PdfAnnotationSidecarImportPayload) => Promise<PdfAnnotationSidecarImportResult>
+  }
+  visibleContext: {
+    publish: (snapshot: VisibleContextSnapshot) => Promise<VisibleContextSnapshot>
+    get: () => Promise<VisibleContextSnapshot>
   }
   onRuntimeStatus: (handler: (payload: LocalRuntimeStatusPayload) => void) => () => void
   agentRuntime: {

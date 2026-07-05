@@ -25,6 +25,26 @@ export type ThreadMode = z.infer<typeof ThreadMode>
 export const ThreadRelation = z.enum(['primary', 'fork', 'side'])
 export type ThreadRelation = z.infer<typeof ThreadRelation>
 
+export const ThreadSource = z.enum(['user', 'fork', 'side', 'subagent', 'workflow', 'internal'])
+export type ThreadSource = z.infer<typeof ThreadSource>
+
+export const ThreadVisibility = z.enum(['visible', 'hidden'])
+export type ThreadVisibility = z.infer<typeof ThreadVisibility>
+
+export const ThreadTitleSource = z.enum(['user', 'generated', 'derived', 'runtime', 'internal', 'imported'])
+export type ThreadTitleSource = z.infer<typeof ThreadTitleSource>
+
+export const ThreadAgentMetadataSchema = z.object({
+  id: z.string().min(1).optional(),
+  kind: z.string().min(1).optional(),
+  label: z.string().optional(),
+  childId: z.string().min(1).optional(),
+  childLabel: z.string().optional(),
+  parentThreadId: z.string().min(1).optional(),
+  parentTurnId: z.string().min(1).optional()
+}).catchall(z.unknown())
+export type ThreadAgentMetadata = z.infer<typeof ThreadAgentMetadataSchema>
+
 export const ThreadGoalStatus = z.enum([
   'active',
   'paused',
@@ -102,7 +122,13 @@ export const ThreadSchema = z.object({
   costBudgetUsd: z.number().positive().optional(),
   costBudgetWarningSent: z.boolean().optional(),
   relation: ThreadRelation.default('primary'),
+  threadSource: ThreadSource.optional(),
+  visibility: ThreadVisibility.optional(),
+  sidebarVisibility: ThreadVisibility.optional(),
+  titleSource: ThreadTitleSource.optional(),
   parentThreadId: z.string().optional(),
+  parentTurnId: z.string().optional(),
+  agentMetadata: ThreadAgentMetadataSchema.optional(),
   forkedFromThreadId: z.string().optional(),
   forkedFromTitle: z.string().optional(),
   forkedAt: z.string().optional(),
@@ -127,7 +153,13 @@ export const ThreadSummarySchema = ThreadSchema.pick({
   costBudgetUsd: true,
   costBudgetWarningSent: true,
   relation: true,
+  threadSource: true,
+  visibility: true,
+  sidebarVisibility: true,
+  titleSource: true,
   parentThreadId: true,
+  parentTurnId: true,
+  agentMetadata: true,
   forkedFromThreadId: true,
   forkedFromTitle: true,
   forkedAt: true,
@@ -148,7 +180,14 @@ export const CreateThreadRequest = z.object({
   mode: ThreadMode.default('agent'),
   approvalPolicy: ApprovalPolicySchema.optional(),
   sandboxMode: SandboxModeSchema.optional(),
-  costBudgetUsd: z.number().positive().optional()
+  costBudgetUsd: z.number().positive().optional(),
+  threadSource: ThreadSource.optional(),
+  visibility: ThreadVisibility.optional(),
+  sidebarVisibility: ThreadVisibility.optional(),
+  titleSource: ThreadTitleSource.optional(),
+  parentThreadId: z.string().min(1).optional(),
+  parentTurnId: z.string().min(1).optional(),
+  agentMetadata: ThreadAgentMetadataSchema.optional()
 })
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequest>
 
@@ -162,7 +201,10 @@ export type CreateThreadRequest = z.infer<typeof CreateThreadRequest>
 export const ForkThreadRequest = z
   .object({
     relation: ThreadRelation.default('fork'),
-    title: z.string().optional()
+    title: z.string().optional(),
+    parentTurnId: z.string().min(1).optional(),
+    titleSource: ThreadTitleSource.optional(),
+    agentMetadata: ThreadAgentMetadataSchema.optional()
   })
   .optional()
 export type ForkThreadRequest = z.infer<typeof ForkThreadRequest>
@@ -232,7 +274,14 @@ export const UpdateThreadRequest = z
     sandboxMode: SandboxModeSchema.optional(),
     costBudgetUsd: z.number().positive().nullable().optional(),
     costBudgetWarningSent: z.boolean().optional(),
-    relation: ThreadRelation.optional()
+    relation: ThreadRelation.optional(),
+    threadSource: ThreadSource.optional(),
+    visibility: ThreadVisibility.optional(),
+    sidebarVisibility: ThreadVisibility.optional(),
+    titleSource: ThreadTitleSource.optional(),
+    parentThreadId: z.string().min(1).optional(),
+    parentTurnId: z.string().min(1).optional(),
+    agentMetadata: ThreadAgentMetadataSchema.optional()
   })
   .refine(
     (value) =>
@@ -243,7 +292,14 @@ export const UpdateThreadRequest = z
       value.sandboxMode !== undefined ||
       value.costBudgetUsd !== undefined ||
       value.costBudgetWarningSent !== undefined ||
-      value.relation !== undefined,
+      value.relation !== undefined ||
+      value.threadSource !== undefined ||
+      value.visibility !== undefined ||
+      value.sidebarVisibility !== undefined ||
+      value.titleSource !== undefined ||
+      value.parentThreadId !== undefined ||
+      value.parentTurnId !== undefined ||
+      value.agentMetadata !== undefined,
     { message: 'update request must change at least one field' }
   )
 export type UpdateThreadRequest = z.infer<typeof UpdateThreadRequest>
