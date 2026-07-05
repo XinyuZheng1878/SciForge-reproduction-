@@ -33,6 +33,7 @@ set -euo pipefail
 #   --kubeconfig  PATH   Optional kubeconfig path for kubectl upload/download.
 #   --max-wait    N      Max poll iterations, each 60s (default: 90 = 1.5h).
 #   --no-wait            Submit and return immediately; don't poll/download.
+#   --preflight          Print redacted control-plane/data-plane readiness TSV and exit.
 #   --help               Show this help.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -60,9 +61,10 @@ NO_WAIT=false
 INPUT_DIR=""
 REMOTE_JSON=""
 KUBECONFIG_PATH=""
+PREFLIGHT=false
 
 usage() {
-    sed -n '2,34p' "$0"
+    sed -n '2,36p' "$0"
     exit 0
 }
 
@@ -79,6 +81,7 @@ while [[ $# -gt 0 ]]; do
         --kubeconfig)  KUBECONFIG_PATH="$2"; shift 2 ;;
         --max-wait)    MAX_WAIT="$2";    shift 2 ;;
         --no-wait)     NO_WAIT=true;     shift ;;
+        --preflight)    PREFLIGHT=true;   shift ;;
         --help)        usage ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
@@ -121,6 +124,69 @@ make_tmp_json() {
     tmp_root="${tmp_root%/}"
     mktemp "$tmp_root/alphafold3_input_XXXXXX"
 }
+
+run_preflight() {
+    local token_output token_status context_output pod_output
+    echo -e "check\tstatus\tdetail"
+
+    if [[ -n "${ALPHAFOLD3_PASSWORD:-}" ]]; then
+        echo -e "AF3_PASSWORD\tSET\tDetected in skill environment; value not printed."
+    else
+        echo -e "AF3_PASSWORD\tMISSING\tSet ALPHAFOLD3_PASSWORD in $SKILL_DIR/.env or the shell environment."
+        return 2
+    fi
+
+    set +e
+    token_output=$(get_token 2>&1)
+    token_status=$?
+    set -e
+    if [[ $token_status -eq 0 && -n "$token_output" ]]; then
+        echo -e "AF3_HTTP_AUTH\tOK\tToken acquired; token not printed."
+    else
+        echo -e "AF3_HTTP_AUTH\tFAIL\t$(printf '%s' "$token_output" | tr '\t\n' '  ' | cut -c1-180)"
+    fi
+
+    set +e
+    context_output=$(kubectl_cmd config current-context 2>&1)
+    local context_status=$?
+    set -e
+    if [[ $context_status -eq 0 && -n "$context_output" ]]; then
+        echo -e "KUBECTL_CONTEXT\tOK\t$context_output"
+    else
+        echo -e "KUBECTL_CONTEXT\tFAIL\t$(printf '%s' "$context_output" | tr '\t\n' '  ' | cut -c1-180)"
+    fi
+
+    set +e
+    pod_output=$(kubectl_cmd -n "$K8S_NS" get pods -l app=alphafold3 -o jsonpath='{.items[0].metadata.name}' --request-timeout=8s 2>&1)
+    local pod_status=$?
+    set -e
+    if [[ $pod_status -eq 0 && -n "$pod_output" ]]; then
+        echo -e "KUBECTL_POD\tOK\t$pod_output"
+    else
+        echo -e "KUBECTL_POD\tFAIL\t$(printf '%s' "$pod_output" | tr '\t\n' '  ' | cut -c1-180)"
+    fi
+
+    if [[ $token_status -eq 0 ]]; then
+        echo -e "TASK_QUERY_ENDPOINT\tOK\tGET $API_TASKS/{task_id} is available with x-original-model: alphafold3."
+    else
+        echo -e "TASK_QUERY_ENDPOINT\tSKIPPED\tHTTP auth failed."
+    fi
+
+    if [[ $pod_status -eq 0 && -n "$pod_output" ]]; then
+        echo -e "DATA_PLANE\tOK\tLocal JSON upload and CIF download can use kubectl cp."
+        return 0
+    fi
+    echo -e "DATA_PLANE\tBLOCKED\tLocal JSON upload and CIF download require working kubectl credentials or a service artifact API."
+    return 2
+}
+
+if $PREFLIGHT; then
+    if run_preflight; then
+        exit 0
+    else
+        exit $?
+    fi
+fi
 
 # ---- use a single pre-staged PVC JSON file (Mode D) ----
 if [[ -n "$REMOTE_JSON" ]]; then

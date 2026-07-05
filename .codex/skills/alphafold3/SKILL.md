@@ -18,6 +18,9 @@ bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh \
   --name "My_Protein" \
   --output-dir ./outputs/alphafold3/my_run
 
+# 0. Preflight control-plane and data-plane readiness before evidence runs
+bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh --preflight
+
 # 2. Or use a pre-prepared JSON file
 bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh \
   --json-input ./my_input.json \
@@ -86,10 +89,20 @@ For multi-chain complexes, add multiple entries in `sequences` with distinct `id
 --max-wait N      Max poll iterations, each 60s (default: 90 = 1.5h)
 --model-dir DIR   Model weights dir on pod (default: /opt/weights)
 --kubeconfig F    Optional kubeconfig path for kubectl upload/download
+--preflight        Print redacted AF3 HTTP/kubectl readiness TSV and exit
 --help            Show help
 ```
 
 **C550 API nuance**: the server-side `input_json` field is path-like on this deployment; do not use it to send raw JSON content. Inline raw JSON is interpreted as a filename and can fail with `Errno 36 File name too long`. Use `--remote-json /data/input/.../file.json` for a single pre-staged PVC JSON file, `--input-dir` for a validated pre-staged PVC directory, or `--json-input`/`--json` to upload a local file through kubectl.
+
+When capturing logs with `tee`, use `set -o pipefail` in the caller shell. Otherwise a failed upload/download can be hidden by the successful `tee` process:
+
+```bash
+set -o pipefail
+bash .codex/skills/alphafold3/scripts/alphafold3_submit.sh \
+  --json-input ./my_input.json \
+  --output-dir ./outputs/alphafold3/my_run 2>&1 | tee ./outputs/alphafold3/my_run.log
+```
 
 ## Manual API (Advanced)
 
